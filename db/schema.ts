@@ -560,6 +560,43 @@ export const library = pgTable(
   ],
 );
 
+/**
+ * A publishable key for the website widget. requirement.md 9.4,
+ * lib/domain/site-key.ts.
+ *
+ * Stored in the clear, on purpose: the value is pasted into the owner's web
+ * page, where every visitor can read it, so a hash would protect nothing.
+ * What the row protects is spelled out in its columns -- the origins that may
+ * embed the widget and how many Calls a day the key may spend. One key serves
+ * one library; the widget answers from that library and nothing else.
+ */
+export const siteKey = pgTable(
+  'site_key',
+  {
+    id: uuid('id').primaryKey(),
+    workspaceId: uuid('workspace_id').notNull().references(() => workspace.id),
+    libraryId: uuid('library_id').notNull().references(() => library.id),
+    name: text('name').notNull(),
+    key: text('key').notNull(),
+    /** Normalised origins (scheme://host[:port]) that may embed the widget. */
+    allowedOrigins: jsonb('allowed_origins').$type<string[]>().notNull(),
+    /** Calls this key may spend per rolling day, from the workspace's quota. */
+    dailyLimit: integer('daily_limit').notNull(),
+    /** The owner's greeting; null shows the product default. */
+    welcome: text('welcome'),
+    /** The widget's button and bubble colour, `#rrggbb`. */
+    accent: text('accent').notNull(),
+    lastUsedAt: timestamp('last_used_at', { withTimezone: true }),
+    revokedAt: timestamp('revoked_at', { withTimezone: true }),
+    createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
+  },
+  (t) => [
+    uniqueIndex('site_key_key_uq').on(t.key),
+    /** The library page lists its keys; authentication never does. */
+    index('site_key_library_idx').on(t.libraryId),
+  ],
+);
+
 export const libraryAlias = pgTable(
   'library_alias',
   {

@@ -959,6 +959,14 @@ re0 skill add|remove|list
 
 配置写入必须可预览、可重复执行、保留用户其他配置。Skills、Codex/Claude/Cursor 插件和 AI SDK Tools 只组合 SDK/MCP，不直接访问数据库、对象存储或缓存。
 
+### 13.4 网站插件（Embed Widget）
+
+requirement.md 9.4 的网站插件由三部分组成，代码在 `lib/domain/site-key.ts`、`lib/application/embed/`、`app/embed/route.ts`、`app/api/embed/ask/route.ts` 与 `public/widget.js`、`public/embed-app.{js,css}`：
+
+- **站点密钥**（`site_key` 表）：一把密钥对应一个库，明文存储——它被粘贴进客户网页，所有访客可见，哈希保护不了什么。保护所有者额度的是密钥自己的两列：`allowed_origins`（规范化的 `scheme://host[:port]` 列表）与 `daily_limit`。创建、编辑、吊销是库管理者（owner/admin）的权利，用例逐一复核角色与库归属。
+- **Loader 与 iframe**：`widget.js` 只在宿主页画一个按钮，点开后把 `/embed?key&parent&lang` 装进 iframe。`/embed` 是 Route Handler 而非页面，因为它存在的意义是一个响应头：`Content-Security-Policy: frame-ancestors <allowed_origins>`——浏览器据此拒绝在名单外的网站里渲染，这是公开密钥做不到的门。页面内的脚本通过 `postMessage` 把导航请求交给 loader，由 loader 决定同源替换当前页、异源新开标签；iframe 自己不碰 `top.location`。
+- **问答流** `/api/embed/ask`：以所有者工作空间的身份调用 9.5 的生成链路（同一检索、同一逐句绑定、无模型时退化为引文列表），库由密钥钉死，不做路由。入口按顺序施加两道 fail-closed 限流：每访客窗口（哈希地址，与 11.2 同法）和密钥的滚动日上限；之后 Call 走 11.1 的正常预留与计量，入口记为 `web`。
+
 ## 14. 管理后台架构
 
 每项管理员操作通过 Command Handler：

@@ -10,6 +10,7 @@ import {
   ReviewPipeline,
 } from '@/components/dashboard/library-manage';
 import { RebuildLibraryButton } from '@/components/dashboard/library-rebuild';
+import { LibraryWidgetPanel } from '@/components/dashboard/library-widget';
 import { Badge, IconTile, PANEL, StatusLabel, type StatusTone } from '@/components/dashboard/ui';
 import {
   ArrowRightIcon,
@@ -29,6 +30,7 @@ import {
   listVersionDocuments,
   workspaceLibraryDetail,
 } from '@/lib/application/libraries';
+import { listSiteKeys, SITE_KEYS_PER_LIBRARY } from '@/lib/application/embed';
 import { requireSession } from '@/lib/http/session';
 import { fill } from '@/lib/i18n/format';
 import { quoteBuild } from '@/lib/application/plans';
@@ -41,13 +43,17 @@ import {
   rebuildBlocked,
   reviewPipeline,
 } from '@/lib/domain/library';
+import { widgetReady } from '@/lib/domain/site-key';
 import { getMessages, translations } from '@/lib/i18n/server';
 import { deleteWorkspaceLibraryAction } from '../actions';
 import {
+  createSiteKeyAction,
   editLibraryMetadataAction,
   ownerLifecycleAction,
   rebuildLibraryAction,
+  revokeSiteKeyAction,
   updateParseScopeAction,
+  updateSiteKeyAction,
 } from './actions';
 
 export async function generateMetadata(): Promise<Metadata> {
@@ -92,14 +98,18 @@ export default async function DashboardLibraryPage({
   const currentVersionId = library.versions.find((version) => version.isCurrent)?.id ?? null;
   const docsPage = documentsPage(query.docs);
   const docsSize = documentsPageSize(query.size);
-  const documents = currentVersionId
-    ? await listVersionDocuments({
-        libraryId: library.id,
-        versionId: currentVersionId,
-        limit: docsSize,
-        offset: (docsPage - 1) * docsSize,
-      })
-    : { documents: [], total: 0 };
+  /* requirement.md 9.4: the website widget's keys ride along with the documents page. */
+  const [documents, siteKeys] = await Promise.all([
+    currentVersionId
+      ? listVersionDocuments({
+          libraryId: library.id,
+          versionId: currentVersionId,
+          limit: docsSize,
+          offset: (docsPage - 1) * docsSize,
+        })
+      : { documents: [], total: 0 },
+    listSiteKeys({ workspaceId: session.workspace.id, libraryId: library.id }),
+  ]);
   const docsPages = Math.max(1, Math.ceil(documents.total / docsSize));
   const docsHref = (page: number, size: number = docsSize) =>
     `/dashboard/libraries/${library.id}?docs=${page}&size=${size}#documents`;
@@ -354,6 +364,22 @@ export default async function DashboardLibraryPage({
             />
           ) : null}
         </>
+      ) : null}
+
+      {library.lifecycleStatus !== 'archived' ? (
+        <LibraryWidgetPanel
+          libraryId={library.id}
+          keys={siteKeys}
+          ready={widgetReady({
+            lifecycleStatus: library.lifecycleStatus,
+            hasCurrentVersion: library.currentVersion !== null,
+          })}
+          canEdit={canEdit}
+          maxKeys={SITE_KEYS_PER_LIBRARY}
+          createAction={createSiteKeyAction}
+          updateAction={updateSiteKeyAction}
+          revokeAction={revokeSiteKeyAction}
+        />
       ) : null}
 
       <section className={`${PANEL} p-0.5`}>

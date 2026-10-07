@@ -39,16 +39,16 @@ import { fill } from '@/lib/i18n/format';
  * says so (`manage.readOnly`).
  */
 
-const FIELD =
+export const FIELD =
   'h-9 w-full rounded-md border border-line bg-card px-2.5 text-[12px] text-ink placeholder:text-muted/70 focus:border-brand focus:outline-none';
-const AREA =
+export const AREA =
   'min-h-[72px] w-full rounded-md border border-line bg-card px-2.5 py-2 font-mono text-[11.5px] leading-[1.6] text-ink placeholder:text-muted/70 focus:border-brand focus:outline-none';
-const PRIMARY =
+export const PRIMARY =
   'inline-flex h-[35px] items-center gap-1.5 rounded-md bg-brand px-3.5 text-[12px] font-medium text-white transition-colors hover:bg-brand/90 disabled:opacity-40';
-const SECONDARY =
+export const SECONDARY =
   'inline-flex h-[35px] items-center gap-1.5 rounded-md border border-line bg-card px-3 text-[12px] font-medium text-ink transition-colors hover:bg-subtle disabled:opacity-40';
 
-function Field({ label, hint, children }: { label: string; hint?: string; children: React.ReactNode }) {
+export function Field({ label, hint, children }: { label: string; hint?: string; children: React.ReactNode }) {
   return (
     <label className="flex flex-col gap-1.5">
       <span className="text-[11px] font-medium text-steel">{label}</span>
@@ -58,7 +58,7 @@ function Field({ label, hint, children }: { label: string; hint?: string; childr
   );
 }
 
-function ResultLine({ ok, children }: { ok: boolean; children: React.ReactNode }) {
+export function ResultLine({ ok, children }: { ok: boolean; children: React.ReactNode }) {
   return (
     <p
       role={ok ? 'status' : 'alert'}

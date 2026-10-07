@@ -653,6 +653,7 @@ Context JSON 响应至少包含：
 - `setup` 可为 Codex、Claude、Cursor 等客户端写入 MCP 或 Skill 配置；
 - 插件、Skill、AI SDK Tools 使用同一两项工具和提示词，不实现独立检索；
 - 所有生成配置在覆盖前展示目标，`remove` 只删除 re0 自己创建的部分。
+- 网站插件（Website Widget）：库的所有者为自己的网站创建**站点密钥**（`mm_site_`，可公开），把一行 `<script src="https://re0.io/widget.js" data-site-key="…">` 嵌入网站，右下角出现聊天窗口；访客提问只从该库作答，答案逐句绑定引用，引用的页面可一键打开（同站跳转、外站新开）。站点密钥不是秘密，约束它的是两项配置：允许嵌入的来源白名单（由浏览器通过 `frame-ancestors` 执行）和每日提问上限；每次提问计入所有者工作空间的 Call。
 
 ## 10. 访问规则的执行语义
 
