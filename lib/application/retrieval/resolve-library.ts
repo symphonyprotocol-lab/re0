@@ -103,6 +103,8 @@ const RELEVANCE_WEIGHT = 0.02;
 
 const EVIDENCE_TERMS = 8;
 const EVIDENCE_TITLES = 5;
+/** Pinnable labels listed per candidate; the newest are the likely asks. */
+const VERSION_LABELS = 10;
 
 export async function resolveLibrary(
   caller: CallerContext,
@@ -406,11 +408,40 @@ export async function resolveLibrary(
     )
     .slice(0, settings.routingResultLimit);
 
+  /*
+   * The labels each returned library can be pinned to -- what
+   * `pinLabeledVersion` accepts, so the list never offers one that would then
+   * be refused. Read for the returned few only, after ranking.
+   */
+  const pinnable = await database
+    .select({
+      libraryId: schema.libraryVersion.libraryId,
+      label: schema.libraryVersion.label,
+    })
+    .from(schema.libraryVersion)
+    .where(
+      and(
+        inArray(
+          schema.libraryVersion.libraryId,
+          ranked.map(({ row }) => row.libraryId),
+        ),
+        inArray(schema.libraryVersion.indexStatus, ['ready', 'stale']),
+      ),
+    )
+    .orderBy(desc(schema.libraryVersion.createdAt));
+  const versionsOf = new Map<string, string[]>();
+  for (const row of pinnable) {
+    const labels = versionsOf.get(row.libraryId) ?? [];
+    if (labels.length < VERSION_LABELS) labels.push(row.label);
+    versionsOf.set(row.libraryId, labels);
+  }
+
   const results: LibraryCandidate[] = ranked.map(({ row, quality }) => ({
     libraryId: row.publicId,
     title: row.title,
     description: row.description,
     version: row.versionLabel,
+    versions: versionsOf.get(row.libraryId) ?? [row.versionLabel],
     trustScore: quality.trust,
     benchmarkScore: quality.benchmark,
     chunks: row.totalChunks,

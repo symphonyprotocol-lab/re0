@@ -25,9 +25,18 @@ import {
   ShieldCheckIcon,
 } from '@/components/ui/icons';
 import Link from 'next/link';
-import { disconnectGithubAction, disconnectNotionAction } from './actions';
+import {
+  disconnectGithubAction,
+  disconnectNotionAction,
+  openBillingPortalAction,
+  startCheckoutAction,
+} from './actions';
 import { accountProfile, githubConnectionFor, notionConnectionFor } from '@/lib/application/auth';
-import { listBillingDocuments } from '@/lib/application/billing';
+import {
+  isCheckoutRefusal,
+  listBillingDocuments,
+  workspaceProviderCustomer,
+} from '@/lib/application/billing';
 import { countWorkspaceLibraries, largestWorkspaceLibraryBytes } from '@/lib/application/libraries';
 import { isPaymentConnected, periodLastDay, workspacePlanVersion } from '@/lib/application/plans';
 import type { BillingDocumentStatus } from '@/lib/domain/billing';
@@ -47,6 +56,12 @@ export async function generateMetadata(): Promise<Metadata> {
 
 /** The most recent documents the card lists; the provider's console has the rest. */
 const BILLING_ROWS = 12;
+
+/** The plan card's two button weights, shared by its links and its forms. */
+const PLAN_PRIMARY =
+  'flex h-10 w-full items-center justify-center gap-1.5 rounded-lg bg-brand text-[12px] font-medium text-white transition-colors hover:bg-brand/90';
+const PLAN_SECONDARY =
+  'flex h-10 w-full items-center justify-center rounded-lg border border-line text-[12px] text-steel transition-colors hover:bg-subtle';
 
 /**
  * The dot beside a document's status. Money in is live, money owed is
@@ -177,7 +192,7 @@ function ConnectionRow({
 export default async function DashboardSettingsPage({
   searchParams,
 }: {
-  searchParams: Promise<{ github?: string; notion?: string }>;
+  searchParams: Promise<{ github?: string; notion?: string; checkout?: string }>;
 }) {
   const session = await requireSession('/dashboard/settings');
   const workspaceId = session.workspace.id;
@@ -193,6 +208,7 @@ export default async function DashboardSettingsPage({
     libraryCount,
     largestBytes,
     billing,
+    providerCustomer,
   ] = await Promise.all([
     getMessages(),
     currentLocale(),
@@ -205,6 +221,7 @@ export default async function DashboardSettingsPage({
     countWorkspaceLibraries(workspaceId),
     largestWorkspaceLibraryBytes(workspaceId),
     listBillingDocuments({ workspaceId, limit: BILLING_ROWS }),
+    workspaceProviderCustomer(workspaceId),
   ]);
   const g = t.dashboard.settings;
   const number = new Intl.NumberFormat(locale);
@@ -309,6 +326,19 @@ export default async function DashboardSettingsPage({
   const issued = new Intl.DateTimeFormat(locale, { dateStyle: 'medium' });
   const paymentConnected = isPaymentConnected();
 
+  /*
+   * What the last billing action came back with. `success` is Paddle's
+   * success URL, which says only that the checkout closed paid -- the plan
+   * itself changes when the webhook lands, a moment later, which the message
+   * says rather than pretending the card above is already up to date.
+   */
+  const checkoutOutcome =
+    params.checkout === 'success' || params.checkout === 'failed' || isCheckoutRefusal(params.checkout)
+      ? params.checkout
+      : null;
+  /* Packs are sold to Pro only (requirement.md 4.1), so Pro is what unlocks them. */
+  const onPaidPlan = planVersion.planId !== 'free';
+
   const profileRows = [
     { label: g.email, value: account.email, Icon: MailIcon },
     { label: g.provider, value: account.provider, Icon: KeyIcon },
@@ -372,7 +402,7 @@ export default async function DashboardSettingsPage({
         </article>
 
         {/* Subscription -- design source frame `mwiI4`. */}
-        <article className={`${PANEL} flex flex-col overflow-hidden p-0.5`}>
+        <article id="plan" className={`${PANEL} flex flex-col overflow-hidden p-0.5`}>
           <CardHead
             icon={<CircleDollarSignIcon size={17} />}
             title={g.planTitle}
@@ -402,14 +432,64 @@ export default async function DashboardSettingsPage({
             ))}
           </ul>
 
-          <div className="px-5 pb-5">
-            <Link
-              href="/pricing"
-              className="flex h-10 items-center justify-center gap-1.5 rounded-lg bg-brand text-[12px] font-medium text-white transition-colors hover:bg-brand/90"
-            >
-              {g.upgradeCta}
-              <ArrowRightIcon size={14} />
-            </Link>
+          <div className="flex flex-col gap-2 px-5 pb-5">
+            {checkoutOutcome ? (
+              <p
+                role="status"
+                className={`text-[11px] leading-[1.6] ${
+                  checkoutOutcome === 'success' ? 'text-brandink' : 'text-err'
+                }`}
+              >
+                {g.checkout.outcomes[checkoutOutcome]}
+              </p>
+            ) : null}
+            {!paymentConnected ? (
+              <Link href="/pricing" className={PLAN_PRIMARY}>
+                {g.upgradeCta}
+                <ArrowRightIcon size={14} />
+              </Link>
+            ) : onPaidPlan ? (
+              <>
+                <form action={openBillingPortalAction}>
+                  <button type="submit" className={PLAN_PRIMARY}>
+                    {g.checkout.manage}
+                    <ArrowRightIcon size={14} />
+                  </button>
+                </form>
+                <form action={startCheckoutAction}>
+                  <input type="hidden" name="kind" value="pack" />
+                  <button type="submit" className={PLAN_SECONDARY}>
+                    {g.checkout.buyPack}
+                  </button>
+                </form>
+              </>
+            ) : (
+              <>
+                <form action={startCheckoutAction}>
+                  <input type="hidden" name="kind" value="subscription" />
+                  <button type="submit" className={PLAN_PRIMARY}>
+                    {g.checkout.upgrade}
+                    <ArrowRightIcon size={14} />
+                  </button>
+                </form>
+                {/*
+                  A workspace that has paid before but is not on Pro now --
+                  a lapsed card, a cancellation -- still has a portal: its
+                  invoices, and the card that needs fixing, are there.
+                */}
+                {providerCustomer ? (
+                  <form action={openBillingPortalAction}>
+                    <button type="submit" className={PLAN_SECONDARY}>
+                      {g.checkout.manage}
+                    </button>
+                  </form>
+                ) : (
+                  <Link href="/pricing" className={PLAN_SECONDARY}>
+                    {g.checkout.comparePlans}
+                  </Link>
+                )}
+              </>
+            )}
           </div>
         </article>
       </section>

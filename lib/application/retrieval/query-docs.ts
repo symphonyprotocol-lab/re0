@@ -14,7 +14,7 @@
  * the text-search configuration frozen on the version, so query stemming
  * always matches how the chunks were indexed.
  */
-import { and, desc, eq, inArray, isNull, sql } from 'drizzle-orm';
+import { and, eq, inArray, isNull, sql } from 'drizzle-orm';
 import { AppError } from '@/contracts/errors';
 import type { ChunkResult, QueryDocsInput, QueryDocsOutput } from '@/contracts/schemas';
 import { isQueryable } from '@/lib/domain';
@@ -31,9 +31,7 @@ import { pinPolicy, policyIsOpen, policyVerdictFor } from '@/lib/application/pol
 import { db, schema } from '@/lib/infrastructure/postgres/client';
 import type { EmbeddingAdapter, RerankAdapter } from '@/lib/infrastructure/ai/providers';
 import type { CallerContext } from './index';
-import { toTsquery } from './resolve-library';
-import { searchTokens } from '@/lib/domain/profile';
-import { cjkSearchTokens, containsCjk } from '@/lib/domain/cjk';
+import { rankChunks } from './rank';
 import type { RetrievalConfidence } from '@/lib/domain/routing';
 import { sha256Hex } from '@/lib/domain/ingestion';
 import {
@@ -345,6 +343,18 @@ async function queryDocsInner(
           chunks = null; /* a corrupt entry is a miss, never an error */
         }
         if (chunks) {
+          if (reservation && chunks.length === 0) {
+            /* An empty answer is not a served call, cached or not (§4.2). */
+            await releaseCall(reservation.reservationId);
+            return {
+              libraryId: library.publicId,
+              version: version.label,
+              chunks,
+              usage: usageAfterRelease(reservation),
+              requestId: caller.requestId,
+              confidence,
+            };
+          }
           if (reservation) {
             await commitCall({
               reservation,
@@ -372,159 +382,12 @@ async function queryDocsInner(
       }
     }
 
-    /* ---------------------------------------------------------- recall */
-
-    /* Which stages this installation can run. The default seams answer this
-       and hand out the adapters from one read of `provider_model_config`, so
-       a stage reported here cannot vanish before it is called. */
-    const configured = await dependencies.configured();
-
-    /*
-     * OR over the query's tokens, ranked -- AND semantics (plainto) would
-     * demand every word in one chunk, and a question's words usually straddle
-     * chunks. Each quoted token is still normalised through the version's
-     * frozen configuration, so stemming matches how the chunks were indexed.
-     *
-     * A query with Han text also matches the pre-segmented CJK vector
-     * (lib/domain/cjk.ts) -- the main vector cannot see inside a Han run, and
-     * without this branch Chinese keyword recall is silently zero.
-     */
-    const tsquery = toTsquery(searchTokens(input.query));
-    const cjkQuery = containsCjk(input.query) ? toTsquery(cjkSearchTokens(input.query)) : null;
-
-    const matches = tsquery
-      ? cjkQuery
-        ? sql`(${schema.chunk.searchVector} @@ to_tsquery(${version.searchConfig}::regconfig, ${tsquery})
-              or ${schema.chunk.searchVectorCjk} @@ to_tsquery('simple', ${cjkQuery}))`
-        : sql`${schema.chunk.searchVector} @@ to_tsquery(${version.searchConfig}::regconfig, ${tsquery})`
-      : null;
-    const rank = tsquery
-      ? cjkQuery
-        ? sql`ts_rank(${schema.chunk.searchVector}, to_tsquery(${version.searchConfig}::regconfig, ${tsquery}))
-              + ts_rank(${schema.chunk.searchVectorCjk}, to_tsquery('simple', ${cjkQuery}))`
-        : sql`ts_rank(${schema.chunk.searchVector}, to_tsquery(${version.searchConfig}::regconfig, ${tsquery}))`
-      : null;
-
-    const keyword =
-      matches && rank
-        ? await database
-            .select({
-              id: schema.chunk.id,
-              body: schema.chunk.body,
-              tokens: schema.chunk.tokens,
-              citation: schema.chunk.citation,
-            })
-            .from(schema.chunk)
-            .where(and(scopedTo(library.id, version.id), matches))
-            .orderBy(desc(rank))
-            .limit(settings.recallLimit)
-        : [];
-
-    /*
-     * The vector leg only runs when the configured adapter is the model the
-     * version's vectors were built with, at the same width (both frozen on the
-     * version, requirement.md 8.1): a query embedded by a different model --
-     * or by the same model asked for a different number of dimensions -- lives
-     * in a different vector space, and comparing across spaces returns
-     * confident nonsense. The stored rows are all the column's width, since
-     * narrower vectors are padded into it, so the width has to be compared
-     * against what the version recorded rather than against what came back.
-     * On a mismatch the keyword leg carries the request alone.
-     */
-    let semantic: ((typeof keyword)[number] & { distance: number })[] = [];
-    const embeddings = configured.embeddings ? await dependencies.embeddings() : null;
-    if (
-      embeddings &&
-      embeddings.model === version.embeddingModel &&
-      embeddings.dimensions === version.embeddingDimensions
-    ) {
-      const [queryVector] = await embeddings.embed([input.query]);
-      if (queryVector) {
-        const literal = `[${queryVector.join(',')}]`;
-        semantic = await database
-          .select({
-            id: schema.chunk.id,
-            body: schema.chunk.body,
-            tokens: schema.chunk.tokens,
-            citation: schema.chunk.citation,
-            distance: sql<number>`${schema.chunk.embedding} <=> ${literal}::vector`,
-          })
-          .from(schema.chunk)
-          .where(scopedTo(library.id, version.id))
-          .orderBy(sql`${schema.chunk.embedding} <=> ${literal}::vector`)
-          .limit(settings.recallLimit);
-      }
-    }
-
-    /*
-     * What this retrieval can say about its own fit, for the playground's
-     * confirmation (lib/domain/routing.ts). The vector leg is ordered by
-     * distance, so its first row is the best; a leg that did not run says
-     * nothing rather than zero.
-     */
-    const confidence: RetrievalConfidence = {
-      bestDistance: semantic.length > 0 ? Number(semantic[0]!.distance) : null,
-      keywordHits: keyword.length,
-    };
-
-    /* --------------------------------------- fuse, dedupe, trim, format */
-
-    const fused = new Map<string, { score: number; row: (typeof keyword)[number] }>();
-    for (const list of [keyword, semantic]) {
-      list.forEach((row, index) => {
-        const entry = fused.get(row.id);
-        const gain = 1 / (settings.rrfK + index + 1);
-        if (entry) entry.score += gain;
-        else fused.set(row.id, { score: gain, row });
-      });
-    }
-
-    let ordered = [...fused.values()].sort((a, b) => b.score - a.score);
-
-    /*
-     * §9.2 rerank, over the fused head only. A failure keeps fusion order:
-     * rerank refines an already-correct list, so it is never worth an error
-     * or a retry -- the adapter carries a tight timeout for the same reason.
-     */
-    if (configured.rerank && ordered.length > 1) {
-      const head = ordered.slice(0, settings.rerankWindow);
-      try {
-        const scores = await (await dependencies.rerank()).rerank(
-          input.query,
-          head.map((entry) => entry.row.body.slice(0, settings.rerankDocumentChars)),
-        );
-        if (scores.length === head.length) {
-          const reranked = head
-            .map((entry, at) => ({ ...entry, score: scores[at]! }))
-            .sort((a, b) => b.score - a.score);
-          ordered = [...reranked, ...ordered.slice(settings.rerankWindow)];
-        }
-      } catch {
-        /* fusion order stands */
-      }
-    }
-
-    const seenBodies = new Set<string>();
-    const chunks: ChunkResult[] = [];
-    let budget = input.maxTokens;
-
-    for (const { score, row } of ordered) {
-      /* §9.3: near-duplicates collapse; the key mirrors the builder's. */
-      const bodyKey = `${row.body.length}:${row.body.slice(0, 200)}`;
-      if (seenBodies.has(bodyKey)) continue;
-      const citation = toCitation(row.citation);
-      if (!citation) continue; /* §9.3: a chunk without a citation is not returned */
-      if (row.tokens > budget) continue;
-      seenBodies.add(bodyKey);
-      budget -= row.tokens;
-      chunks.push({
-        chunkId: row.id,
-        text: row.body,
-        score: Number(score.toFixed(6)),
-        tokens: row.tokens,
-        citation,
-      });
-    }
+    const { chunks, confidence } = await rankChunks(
+      database,
+      { libraryId: library.id, version, query: input.query, maxTokens: input.maxTokens },
+      dependencies,
+      settings,
+    );
 
     /* Stored under the library's tag so a safety suspension can revoke every
        entry at once (9.4); best-effort, and never on the request's account. */
@@ -539,7 +402,24 @@ async function queryDocsInner(
 
     /* ----------------------------------------------------------- meter */
 
+    /*
+     * requirement.md §4.2: a call that returns nothing is not charged. The
+     * seat goes back, no usage event is written and nothing earns -- the
+     * library answered no question. Decided 2026-10-05: an empty result
+     * is the catalogue's failure, not the caller's purchase.
+     */
     const returnedTokens = chunks.reduce((total, chunk) => total + chunk.tokens, 0);
+    if (reservation && chunks.length === 0) {
+      await releaseCall(reservation.reservationId);
+      return {
+        libraryId: library.publicId,
+        version: version.label,
+        chunks,
+        usage: usageAfterRelease(reservation),
+        requestId: caller.requestId,
+        confidence,
+      };
+    }
     if (reservation) {
       await commitCall({
         reservation,
@@ -605,16 +485,7 @@ const librarySelection = {
   ),
 };
 
-/** §9.1: every chunk read is scoped, and unsafe rows are excluded in the same predicate. */
-function scopedTo(libraryId: string, versionId: string) {
-  return and(
-    eq(schema.chunk.libraryId, libraryId),
-    eq(schema.chunk.versionId, versionId),
-    sql`${schema.chunk.safetyStatus} not in ('quarantined', 'unsafe')`,
-  );
-}
-
-interface PinnedVersion {
+export interface PinnedVersion {
   id: string;
   label: string;
   searchConfig: string;
@@ -673,15 +544,18 @@ async function pinLabeledVersion(
   return version;
 }
 
-function toCitation(raw: Record<string, unknown>): ChunkResult['citation'] | null {
-  const url = typeof raw.url === 'string' ? raw.url : null;
-  const title = typeof raw.title === 'string' ? raw.title : null;
-  if (!url || !title) return null;
+/**
+ * What a released seat leaves: nothing used, and the allowance the reservation
+ * had already subtracted itself from given back on the same source it would
+ * have been debited from.
+ */
+function usageAfterRelease(reservation: ReservedCall): QueryDocsOutput['usage'] {
   return {
-    sourceUrl: url,
-    documentTitle: title,
-    section: typeof raw.section === 'string' ? raw.section : null,
-    lines: null,
+    callsUsed: 0,
+    planAllowanceRemaining:
+      reservation.planAllowanceRemaining + (reservation.debitSource === 'plan' ? 1 : 0),
+    addonBalanceRemaining:
+      reservation.addonBalanceRemaining + (reservation.debitSource === 'addon' ? 1 : 0),
   };
 }
 

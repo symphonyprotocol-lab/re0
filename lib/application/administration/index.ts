@@ -87,6 +87,15 @@ export {
   type RefreshRequestResult,
 } from './manage-platform-libraries';
 export {
+  addEvalQuestion,
+  getLibraryBenchmark,
+  removeEvalQuestion,
+  runLibraryEvaluation,
+  type EvalQuestionView,
+  type EvaluationRunResult,
+  type LibraryBenchmarkView,
+} from './manage-eval-questions';
+export {
   getConsoleUser,
   setUserAccountStatus,
   type ConsoleUserDetail,

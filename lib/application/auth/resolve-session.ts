@@ -5,7 +5,7 @@
  * session, then check user and workspace state). Always reads the primary --
  * permission state must not come from a replica (architecture.md 16).
  */
-import { and, asc, desc, eq, gte, lte, sql } from 'drizzle-orm';
+import { and, asc, eq } from 'drizzle-orm';
 import {
   isAccountUsable,
   isSessionLive,
@@ -15,6 +15,7 @@ import {
 } from '@/lib/domain/auth';
 import { db, schema } from '@/lib/infrastructure/postgres/client';
 import { workspacePlanVersion } from '@/lib/application/plans/billing';
+import { IN_FORCE_FIRST, subscriptionInForce } from '@/lib/application/plans/in-force';
 import { sessionTokenHash } from '@/lib/application/auth/session-token';
 
 export interface SessionUser {
@@ -94,24 +95,18 @@ export async function resolveSession(
      */
     .leftJoin(
       schema.subscription,
-      and(
-        eq(schema.subscription.workspaceId, schema.workspace.id),
-        eq(schema.subscription.status, 'active'),
-        lte(schema.subscription.periodStart, sql`now()`),
-        gte(schema.subscription.periodEnd, sql`now()`),
-      ),
+      and(eq(schema.subscription.workspaceId, schema.workspace.id), subscriptionInForce()),
     )
     .leftJoin(schema.planVersion, eq(schema.planVersion.id, schema.subscription.planVersionId))
     .leftJoin(schema.plan, eq(schema.plan.id, schema.planVersion.planId))
     .where(eq(schema.workspaceMember.userId, row.userId))
     /* Oldest membership first, id as tiebreak: a user in several workspaces
-       must land in the same one on every request. The furthest period end
-       breaks a tie between two live subscriptions, which is the one billing
-       picks, so the two never disagree. */
+       must land in the same one on every request. Between two subscriptions
+       in force, the one billing picks, so the two never disagree. */
     .orderBy(
       asc(schema.workspaceMember.createdAt),
       asc(schema.workspaceMember.workspaceId),
-      desc(schema.subscription.periodEnd),
+      ...IN_FORCE_FIRST,
     )
     .limit(1);
 

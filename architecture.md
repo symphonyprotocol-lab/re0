@@ -821,6 +821,14 @@ Webhook 处理顺序：
 
 支付状态不确定时，新增付费能力 Fail Closed；已支付周期读取按配置的 Grace Policy 处理。退款、发票和银行卡信息保留在 Provider，re0 只保存外部 ID、状态、金额和币种。
 
+Payment Provider 为 **Paddle Billing**（`lib/infrastructure/payment/paddle.ts`，`PADDLE_*` 环境变量，见 `.env.example`）。三条实现约束：
+
+- **价格来自 Plan Version。** 结账由服务端创建交易，使用挂在 Pro / Additional Calls 两个 Paddle 商品下的非目录价格，金额取当时最新的 Plan Version；Paddle 目录里不保存我方价格。订阅续费沿用开通时的价格，与「套餐修改只影响新订阅」一致；
+- **Webhook 只是通知。** 交易与 adjustment（退款、拒付）事件到达后，回读该交易及其全部 adjustment 的当前状态，整体写入 `billing_document`，不累加单个事件的增量；订阅事件自带完整实体，直接使用。三者都受 `observed_at` 守卫；
+- **归属来自自定义数据。** 每笔结账交易带 `re0_workspace_id`、`re0_plan_version_id`、`re0_kind`，由服务端写入，只从验签后的通知或已认证的 API 读回。未打标的续费交易经其 `subscription_id` 归属；
+- **生效订阅只有一个定义**（`lib/application/plans/in-force.ts`）：Provider 计费的行优先于注册写入的 Free 行，不再比较谁的账期结束得晚；Provider 计费的行在账期结束后保留 1 天宽限，等待续费 Webhook，宽限期内的计数窗口从旧账期结束时刻开始。续费扣款失败时 Provider 报 `past_due`，不享受宽限；
+- **结账防重**：`payment_checkout` 记录本服务开出的结账。同一 Workspace 的订阅结账在 advisory lock 下决定：仍可支付的旧结账直接复用；已付款但 Webhook 未到的返回 `pending`；`active`、`trialing`、`past_due`、`paused` 的订阅都拒绝再开一单。
+
 这份「只保存」的投影落在 `billing_document`，按 `(provider, external_id)` 一行一单，随状态原地改写，供管理后台的订阅账单页查询（§5.3 的只读同步）。它与 `payment_event` 是两把不同的幂等钥匙，不能合并：`(provider, external_event_id)` 让重投的 Webhook 变成空操作，`(provider, external_id)` 让同一张单据保持一行而不是一次通知一行。两者必须同事务写入——事件写了而投影没写，重试会因为事件已处理而直接跳过，这次状态就永久丢失。Webhook 不保证顺序，因此投影另存 Provider 侧的状态时间，只有更新的事件才允许覆盖已有行：一条迟到的 `paid` 覆盖掉已退款的单据，会让后台报出平台并没有的收入。支付方式只记录类别（`card`、`alipay`），不记录任何卡片实例，卡号与后四位都不进入本侧存储。
 
 ### 11.4 分成记账

@@ -13,6 +13,7 @@
  * change to how documents are parsed or split must bump the matching constant.
  * Otherwise two versions built by different code claim to be the same build.
  */
+import { blendBenchmark, type EvaluationSummary } from './benchmark';
 
 /** Bumped whenever `parseDocument` changes what it produces. */
 export const PARSER_VERSION = 're0-parser-1';
@@ -1287,8 +1288,13 @@ function fold(value: string): string {
 
 /* ----------------------------------------------------------------- scoring */
 
-/** Bumped whenever a score's inputs or weights change. requirement.md 6.3. */
-export const SCORE_ALGORITHM_VERSION = 're0-score-1';
+/**
+ * Bumped whenever a score's inputs or weights change. requirement.md 6.3.
+ *
+ * -2: a library with a test set has its hit rate blended into the Benchmark
+ * (lib/domain/benchmark.ts). A library without one scores as it did under -1.
+ */
+export const SCORE_ALGORITHM_VERSION = 're0-score-2';
 
 export interface ScoreInputs {
   /** True for a source whose control has been verified. */
@@ -1304,6 +1310,11 @@ export interface ScoreInputs {
   /** Days since the source last changed. */
   ageDays: number;
   hasLicense: boolean;
+  /**
+   * The library's test set put to this build (lib/domain/benchmark.ts). Null
+   * or absent when it has none, or when the questions could not be run.
+   */
+  evaluation?: EvaluationSummary | null;
 }
 
 /**
@@ -1311,7 +1322,10 @@ export interface ScoreInputs {
  *
  * Trust is about the *source*: who it is, whether we can tell, whether it is
  * still maintained, and whether it is licensed to be republished. Benchmark is
- * about the *build*: coverage, citation completeness and duplication. They are
+ * about the *build*: coverage, citation completeness and duplication, and --
+ * when the library has a test set -- whether its questions find their answers
+ * (`blendBenchmark`). `structural` is the Benchmark before the test set, kept
+ * so a later evaluation can re-blend without rebuilding. They are
  * separate numbers because a well-maintained repository can produce a poor
  * index and an abandoned one can produce an excellent index, and collapsing
  * them would hide both cases.
@@ -1320,7 +1334,11 @@ export interface ScoreInputs {
  * (`SCORE_ALGORITHM_VERSION`) precisely because they will be replaced by better
  * ones. requirement.md 6.3 forbids presenting either as a guarantee.
  */
-export function scoreLibrary(input: ScoreInputs): { trust: number; benchmark: number } {
+export function scoreLibrary(input: ScoreInputs): {
+  trust: number;
+  benchmark: number;
+  structural: number;
+} {
   let trust = 40;
   /*
    * The platform is the identified publisher of its own libraries, which is
@@ -1340,7 +1358,12 @@ export function scoreLibrary(input: ScoreInputs): { trust: number; benchmark: nu
   benchmark += Math.round(input.citedRatio * 30);
   benchmark -= Math.round(input.duplicateRatio * 40);
 
-  return { trust: clamp(trust), benchmark: clamp(benchmark) };
+  const structural = clamp(benchmark);
+  return {
+    trust: clamp(trust),
+    benchmark: blendBenchmark(structural, input.evaluation),
+    structural,
+  };
 }
 
 function clamp(value: number): number {

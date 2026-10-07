@@ -9,6 +9,7 @@
  */
 import { modelAdapters } from '@/lib/application/administration/manage-model-config';
 import type { EmbeddingAdapter } from '@/lib/infrastructure/ai/providers';
+import type { EvaluationDependencies } from './evaluate';
 import { fetchSnapshot } from '@/lib/infrastructure/connectors';
 import type { FetchSnapshotInput, SourceSnapshot } from '@/lib/infrastructure/connectors';
 import type { ObjectStore } from '@/lib/infrastructure/objects/store';
@@ -28,6 +29,12 @@ export interface IngestionDependencies {
   configured():
     | { embeddings: boolean; storage: boolean }
     | Promise<{ embeddings: boolean; storage: boolean }>;
+  /**
+   * The retrieval a build's benchmark evaluation asks its test questions
+   * through (ingestion/evaluate.ts). Absent means the installation's own --
+   * what a caller's question would get, which is the point of the measurement.
+   */
+  retrieval?(): EvaluationDependencies;
 }
 
 export const defaultDependencies: IngestionDependencies = {

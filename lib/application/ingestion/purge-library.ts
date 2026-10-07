@@ -141,6 +141,10 @@ export async function purgeLibrary(input: {
     await tx.delete(schema.libraryProfile).where(eq(schema.libraryProfile.libraryId, library.id));
     /* Derived from content that no longer exists; recomputed if it ever returns. */
     await tx.delete(schema.libraryScore).where(eq(schema.libraryScore.libraryId, library.id));
+    /* Questions about content that no longer exists. */
+    await tx
+      .delete(schema.libraryEvalQuestion)
+      .where(eq(schema.libraryEvalQuestion.libraryId, library.id));
 
     /*
      * The proofs, but not the batches that hold them. `anchor_batch.leaf_count`

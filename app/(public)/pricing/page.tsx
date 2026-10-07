@@ -18,15 +18,35 @@ export async function generateMetadata(): Promise<Metadata> {
 }
 
 /** Identity, price and icon per plan; the words come from the dictionary. */
+/**
+ * Each card's button goes where that plan is acted on. The paid two land on
+ * the settings plan card, which starts the checkout; the dashboard redirects
+ * a signed-out visitor through login and back, so one link serves both.
+ */
 const PLAN_FACTS = [
-  { id: 'free', name: 'Free', price: '$0', icon: <GiftIcon size={18} />, featured: false },
-  { id: 'pro', name: 'Pro', price: '$5', icon: <SparklesIcon size={18} />, featured: true },
+  {
+    id: 'free',
+    name: 'Free',
+    price: '$0',
+    icon: <GiftIcon size={18} />,
+    featured: false,
+    href: '/dashboard',
+  },
+  {
+    id: 'pro',
+    name: 'Pro',
+    price: '$5',
+    icon: <SparklesIcon size={18} />,
+    featured: true,
+    href: '/dashboard/settings#plan',
+  },
   {
     id: 'addon',
     name: 'Additional Calls',
     price: '$5',
     icon: <PackagePlusIcon size={18} />,
     featured: false,
+    href: '/dashboard/settings#plan',
   },
 ] as const;
 
@@ -139,7 +159,7 @@ export default async function PricingPage() {
 
                 <div className="mt-auto pt-[22px]">
                   <Link
-                    href="/login"
+                    href={plan.href}
                     className={`flex h-10 items-center justify-center gap-2 rounded-full text-sm font-medium transition-colors ${
                       plan.featured
                         ? 'bg-brand text-onbrand hover:bg-brand/90'

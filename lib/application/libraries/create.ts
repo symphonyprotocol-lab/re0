@@ -17,7 +17,7 @@
  * challenge is spent here, inside the same transaction that writes the rows,
  * and copied onto `library_claim` so the library is born claimed.
  */
-import { and, count, desc, eq, isNull, sql } from 'drizzle-orm';
+import { and, count, eq, isNull } from 'drizzle-orm';
 import { AppError } from '@/contracts/errors';
 import { uuidv7 } from '@/lib/domain/id';
 import {
@@ -42,6 +42,7 @@ import { requiresDomainVerification } from '@/lib/domain/domain-verification';
 import { consumeDomainVerification } from './domain-verification';
 import { isObjectStoreConfigured, objectStore, type ObjectStore } from '@/lib/infrastructure/objects/store';
 import { db, schema } from '@/lib/infrastructure/postgres/client';
+import { IN_FORCE_FIRST, subscriptionInForce } from '@/lib/application/plans/in-force';
 import { canManageLibraries, type WorkspaceRole } from './delete';
 import { PLAN_VERSION_NEWEST_FIRST } from '@/lib/application/plans/configuration';
 import { assertBuildAffordable } from '@/lib/application/plans/build-quota';
@@ -362,14 +363,9 @@ async function libraryLimit(workspaceId: string): Promise<number> {
     .from(schema.subscription)
     .innerJoin(schema.planVersion, eq(schema.planVersion.id, schema.subscription.planVersionId))
     .where(
-      and(
-        eq(schema.subscription.workspaceId, workspaceId),
-        eq(schema.subscription.status, 'active'),
-        sql`${schema.subscription.periodStart} <= now()`,
-        sql`${schema.subscription.periodEnd} >= now()`,
-      ),
+      and(eq(schema.subscription.workspaceId, workspaceId), subscriptionInForce()),
     )
-    .orderBy(desc(schema.subscription.periodEnd))
+    .orderBy(...IN_FORCE_FIRST)
     .limit(1);
   if (active) return active.limit;
 

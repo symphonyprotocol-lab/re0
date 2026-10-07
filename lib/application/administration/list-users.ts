@@ -7,6 +7,7 @@
  */
 import { and, count, desc, eq, ilike, or, sql } from 'drizzle-orm';
 import { db, schema } from '@/lib/infrastructure/postgres/client';
+import { IN_FORCE_FIRST, subscriptionInForce } from '@/lib/application/plans/in-force';
 import { ref } from './column-ref';
 import { likePattern } from './like-pattern';
 
@@ -92,12 +93,12 @@ export async function listConsoleUsers(input: UserListInput = {}): Promise<{
   const libraryWorkspace = ref(schema.library.ownerWorkspaceId);
 
   const planName = sql<string | null>`(
-    select p.name from ${schema.subscription} s
-    join ${schema.planVersion} pv on pv.id = s.plan_version_id
+    select p.name from ${schema.subscription}
+    join ${schema.planVersion} pv on pv.id = ${ref(schema.subscription.planVersionId)}
     join ${schema.plan} p on p.id = pv.plan_id
-    join ${schema.workspaceMember} wm on wm.workspace_id = s.workspace_id
-    where wm.user_id = ${userId} and s.status = 'active'
-    order by s.period_end desc
+    join ${schema.workspaceMember} wm on wm.workspace_id = ${ref(schema.subscription.workspaceId)}
+    where wm.user_id = ${userId} and ${subscriptionInForce()}
+    order by ${sql.join([...IN_FORCE_FIRST], sql`, `)}
     limit 1
   )`;
   const libraryCount = sql<number>`(

@@ -81,6 +81,8 @@ export const subscriptionStatusEnum = pgEnum('subscription_status', [
   'past_due',
   'canceled',
   'trialing',
+  /** Paused at the provider: grants nothing, but is still a subscription that can resume. */
+  'paused',
 ]);
 export const reservationStatusEnum = pgEnum('reservation_status', [
   'pending',
@@ -336,10 +338,19 @@ export const subscription = pgTable(
     providerSubscriptionId: text('provider_subscription_id'),
     periodStart: timestamp('period_start', { withTimezone: true }).notNull(),
     periodEnd: timestamp('period_end', { withTimezone: true }).notNull(),
+    /**
+     * When the provider says this state was true. Webhooks arrive out of
+     * order, so an event only overwrites a row whose state is older than its
+     * own. Null on rows no provider wrote -- the Free subscription signup
+     * creates -- which any event may supersede.
+     */
+    observedAt: timestamp('observed_at', { withTimezone: true }),
   },
   (t) => [
     /** The per-request quota transaction reads a workspace's subscription. */
     index('subscription_workspace_idx').on(t.workspaceId),
+    /** One provider subscription, one row; nulls (Free rows) stay distinct. */
+    uniqueIndex('subscription_provider_uq').on(t.providerSubscriptionId),
     /** "Is any subscription still on this plan version", before retiring one. */
     index('subscription_plan_version_idx').on(t.planVersionId),
   ],
@@ -362,8 +373,12 @@ export const addonGrant = pgTable(
     providerOrderId: text('provider_order_id'),
     createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
   },
-  /** The per-request quota transaction reads a workspace's grant balances. */
-  (t) => [index('addon_grant_workspace_idx').on(t.workspaceId)],
+  (t) => [
+    /** The per-request quota transaction reads a workspace's grant balances. */
+    index('addon_grant_workspace_idx').on(t.workspaceId),
+    /** A pack order is granted once, however often its events are redelivered. */
+    uniqueIndex('addon_grant_provider_order_uq').on(t.providerOrderId),
+  ],
 );
 
 export const paymentEvent = pgTable(
@@ -455,6 +470,32 @@ export const billingDocument = pgTable(
     index('billing_document_issued_idx').on(t.issuedAt.desc(), t.id.desc()),
     index('billing_document_status_idx').on(t.status, t.issuedAt.desc()),
     index('billing_document_workspace_idx').on(t.workspaceId, t.issuedAt.desc()),
+  ],
+);
+
+/**
+ * Checkouts this server opened at the Payment Provider. A paid checkout only
+ * becomes a `subscription` row when its webhook lands, so until then this is
+ * the one place that knows a purchase is under way; checkout reads it to
+ * reuse an open one and to refuse a second subscription while the first is
+ * still being confirmed. See lib/application/billing/checkout.
+ */
+export const paymentCheckout = pgTable(
+  'payment_checkout',
+  {
+    id: uuid('id').primaryKey(),
+    workspaceId: uuid('workspace_id').notNull().references(() => workspace.id),
+    provider: text('provider').notNull(),
+    externalId: text('external_id').notNull(),
+    kind: billingDocumentKindEnum('kind').notNull(),
+    /** The version it was priced at; an open checkout is only reused while that is still live. */
+    planVersionId: uuid('plan_version_id').notNull().references(() => planVersion.id),
+    checkoutUrl: text('checkout_url').notNull(),
+    createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
+  },
+  (t) => [
+    uniqueIndex('payment_checkout_uq').on(t.provider, t.externalId),
+    index('payment_checkout_workspace_idx').on(t.workspaceId, t.createdAt.desc()),
   ],
 );
 
@@ -686,6 +727,42 @@ export const libraryScore = pgTable(
   },
   /** "This library's newest score", which the catalogue reads per row. */
   (t) => [index('library_score_current_idx').on(t.libraryId, t.computedAt.desc())],
+);
+
+/**
+ * A library's test set: questions with a known answer location, put to every
+ * build through the real retrieval (lib/domain/benchmark.ts,
+ * ingestion/evaluate.ts). requirement.md 6.3.
+ *
+ * Rows belong to the library, not to a version -- the same question is asked
+ * of each build, which is what makes two builds' hit rates comparable. The
+ * `last_*` columns are the most recent run only; the aggregate a score was
+ * computed from is frozen on that `library_score.breakdown`.
+ */
+export const libraryEvalQuestion = pgTable(
+  'library_eval_question',
+  {
+    id: uuid('id').primaryKey(),
+    libraryId: uuid('library_id').notNull().references(() => library.id),
+    question: text('question').notNull(),
+    /** Matched against a passage's source URL and document title. */
+    expectedSource: text('expected_source'),
+    /** Matched against a passage's body. */
+    expectedText: text('expected_text'),
+    /** No foreign key: a version may be purged while its questions stay. */
+    lastVersionId: uuid('last_version_id'),
+    /** 1-based rank of the first satisfying passage; null is a miss. */
+    lastRank: integer('last_rank'),
+    lastEvaluatedAt: timestamp('last_evaluated_at', { withTimezone: true }),
+    createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
+  },
+  (t) => [
+    index('library_eval_question_library_idx').on(t.libraryId, t.createdAt),
+    check(
+      'library_eval_question_expectation',
+      sql`${t.expectedSource} is not null or ${t.expectedText} is not null`,
+    ),
+  ],
 );
 
 export const document = pgTable(
