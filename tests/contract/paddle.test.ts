@@ -142,6 +142,17 @@ describe('paddleConfig', () => {
     expect(config.checkoutPageUrl).toBe('https://re0.test/checkout');
     expect(paddleConfig({ ...env, PADDLE_ENVIRONMENT: 'sandbox' })!.environment).toBe('sandbox');
   });
+
+  it('moves only the checkout page when a checkout base URL is set', () => {
+    const config = paddleConfig({
+      ...env,
+      PADDLE_CHECKOUT_BASE_URL: ' https://tunnel.example.com/ ',
+    })!;
+    expect(config.checkoutPageUrl).toBe('https://tunnel.example.com/checkout');
+    expect(paddleConfig({ ...env, PADDLE_CHECKOUT_BASE_URL: '' })!.checkoutPageUrl).toBe(
+      'https://re0.test/checkout',
+    );
+  });
 });
 
 describe('checkoutTransactionBody', () => {

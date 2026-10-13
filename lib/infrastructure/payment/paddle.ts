@@ -59,7 +59,10 @@ export interface PaddleConfig {
   environment: PaddleEnvironment;
   proProductId: string;
   addonProductId: string;
-  /** Where the checkout page lives; Paddle's payment link must point here. */
+  /**
+   * Where the checkout page lives; Paddle's payment link must point here, on a
+   * domain approved in the Paddle dashboard.
+   */
   checkoutPageUrl: string;
 }
 
@@ -82,6 +85,13 @@ export function paddleConfig(env: NodeJS.ProcessEnv = process.env): PaddleConfig
   const proProductId = env.PADDLE_PRO_PRODUCT_ID?.trim();
   const addonProductId = env.PADDLE_ADDON_PRODUCT_ID?.trim();
   const baseUrl = configuredBaseUrl(env);
+  /*
+   * Paddle approves checkout domains and will not take `localhost`, so local
+   * development points the checkout alone at a tunnel. Only the checkout page:
+   * moving APP_BASE_URL there would also move the OAuth callbacks, the
+   * same-origin check and the session cookie's name.
+   */
+  const checkoutBaseUrl = env.PADDLE_CHECKOUT_BASE_URL?.trim().replace(/\/+$/, '') || baseUrl;
   if (!apiKey || !webhookSecret || !clientToken || !proProductId || !addonProductId || !baseUrl) {
     return null;
   }
@@ -92,7 +102,7 @@ export function paddleConfig(env: NodeJS.ProcessEnv = process.env): PaddleConfig
     environment: env.PADDLE_ENVIRONMENT?.trim() === 'sandbox' ? 'sandbox' : 'production',
     proProductId,
     addonProductId,
-    checkoutPageUrl: `${baseUrl}/checkout`,
+    checkoutPageUrl: `${checkoutBaseUrl}/checkout`,
   };
 }
 

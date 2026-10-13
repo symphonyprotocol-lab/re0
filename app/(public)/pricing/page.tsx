@@ -11,6 +11,7 @@ import {
   SparklesIcon,
 } from '@/components/ui/icons';
 import { getMessages } from '@/lib/i18n/server';
+import { startCheckoutAction } from '@/app/dashboard/settings/actions';
 
 export async function generateMetadata(): Promise<Metadata> {
   const { pricing } = await getMessages();
@@ -19,9 +20,12 @@ export async function generateMetadata(): Promise<Metadata> {
 
 /** Identity, price and icon per plan; the words come from the dictionary. */
 /**
- * Each card's button goes where that plan is acted on. The paid two land on
- * the settings plan card, which starts the checkout; the dashboard redirects
- * a signed-out visitor through login and back, so one link serves both.
+ * Each card's button goes where that plan is acted on. Free is a link to the
+ * dashboard; the paid two post straight to the checkout action, so a signed-in
+ * buyer lands on the provider's checkout without a stop on the settings page.
+ * The action sends a signed-out visitor through login to the settings plan
+ * card, and a refusal (a pack before Pro, a second subscription) to the same
+ * card with the reason printed.
  */
 const PLAN_FACTS = [
   {
@@ -38,7 +42,7 @@ const PLAN_FACTS = [
     price: '$5',
     icon: <SparklesIcon size={18} />,
     featured: true,
-    href: '/dashboard/settings#plan',
+    checkout: 'subscription',
   },
   {
     id: 'addon',
@@ -46,9 +50,14 @@ const PLAN_FACTS = [
     price: '$5',
     icon: <PackagePlusIcon size={18} />,
     featured: false,
-    href: '/dashboard/settings#plan',
+    checkout: 'pack',
   },
 ] as const;
+
+const PLAN_BUTTON =
+  'flex h-10 w-full cursor-pointer items-center justify-center gap-2 rounded-full text-sm font-medium transition-colors';
+const PLAN_BUTTON_FEATURED = 'bg-brand text-onbrand hover:bg-brand/90';
+const PLAN_BUTTON_PLAIN = 'border border-line bg-surface text-ink hover:bg-subtle';
 
 /** The grey banner that closes a run of sections; teal is left to its accents. */
 function CtaBanner({
@@ -158,17 +167,26 @@ export default async function PricingPage() {
                 </ul>
 
                 <div className="mt-auto pt-[22px]">
-                  <Link
-                    href={plan.href}
-                    className={`flex h-10 items-center justify-center gap-2 rounded-full text-sm font-medium transition-colors ${
-                      plan.featured
-                        ? 'bg-brand text-onbrand hover:bg-brand/90'
-                        : 'border border-line bg-surface text-ink hover:bg-subtle'
-                    }`}
-                  >
-                    {plan.cta}
-                    <ArrowRightIcon size={14} />
-                  </Link>
+                  {'checkout' in plan ? (
+                    <form action={startCheckoutAction}>
+                      <input type="hidden" name="kind" value={plan.checkout} />
+                      <button
+                        type="submit"
+                        className={`${PLAN_BUTTON} ${plan.featured ? PLAN_BUTTON_FEATURED : PLAN_BUTTON_PLAIN}`}
+                      >
+                        {plan.cta}
+                        <ArrowRightIcon size={14} />
+                      </button>
+                    </form>
+                  ) : (
+                    <Link
+                      href={plan.href}
+                      className={`${PLAN_BUTTON} ${plan.featured ? PLAN_BUTTON_FEATURED : PLAN_BUTTON_PLAIN}`}
+                    >
+                      {plan.cta}
+                      <ArrowRightIcon size={14} />
+                    </Link>
+                  )}
                 </div>
               </article>
             ))}

@@ -3279,6 +3279,8 @@ export const en: Dictionary = {
         'Orders, payments, refunds and invoicing state are mirrored here read-only. Refunds, retries and payment links all have to be run at the provider.',
       showing: 'Showing {from}–{to} of {total} invoices',
       empty: 'No invoices match those filters.',
+      /** The provider is connected; nothing has been mirrored from it yet. */
+      noneYet: 'No invoices yet. They appear here once the payment provider reports its first order.',
       statusFilter: 'Billing status',
       /** The provider's own vocabulary, mirrored rather than re-grouped. */
       statuses: {

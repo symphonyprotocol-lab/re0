@@ -26,6 +26,7 @@ import {
   type BillingStatusFilter,
 } from '@/lib/domain/billing';
 import { billingSummary, listBillingDocuments } from '@/lib/application/billing';
+import { paddleConfig } from '@/lib/infrastructure/payment/paddle';
 import { changeBps } from '@/lib/domain/overview';
 import { requireAdminCapability } from '@/lib/http/admin';
 import type { Dictionary } from '@/lib/i18n/dictionary';
@@ -201,7 +202,13 @@ export default async function AdminBillingPage({
                    * because no provider is connected yet. Only shown on the
                    * unfiltered list, where it is the likely explanation.
                    */
-                  note={query || status !== 'all' ? undefined : t.admin.notReady.billing}
+                  note={
+                    query || status !== 'all'
+                      ? undefined
+                      : paddleConfig()
+                        ? b.noneYet
+                        : t.admin.notReady.billing
+                  }
                 />
               ) : null}
               {rows.map((row) => (
