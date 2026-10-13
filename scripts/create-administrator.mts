@@ -8,7 +8,7 @@
  * script is the way to do the same thing without exposing that page, and the
  * only way to add an administrator the console itself cannot reach.
  *
- *   npm run admin:create -- --email admin@re0.com --username Yuzhao --role super
+ *   npm run admin:create -- --email admin@re0.io --username Yuzhao --role super
  *
  * The password is read from the ADMIN_PASSWORD environment variable rather than
  * an argument, so it never lands in a shell history file. The TOTP secret is
@@ -48,7 +48,7 @@ const username = argument('username')?.trim();
 const role = argument('role')?.trim() ?? 'super';
 const password = process.env.ADMIN_PASSWORD;
 
-if (!email || !email.includes('@')) fail('--email is required, e.g. --email admin@re0.com');
+if (!email || !email.includes('@')) fail('--email is required, e.g. --email admin@re0.io');
 if (!username) fail('--username is required, e.g. --username Yuzhao');
 if (!isAdminRoleId(role)) fail(`--role must be one of: ${ADMIN_ROLE_IDS.join(', ')}`);
 if (!password || password.length < 12) {
