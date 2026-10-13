@@ -60,6 +60,28 @@ export const zh = {
     ctaTitle: '让 Agent 少一点猜测，多一点依据。',
     ctaPricing: '查看定价',
     ctaBrowse: '浏览知识库目录',
+    widget: {
+      eyebrow: '网站插件',
+      title: '把同样的回答放到你自己的网站上',
+      lede:
+        '用你的网站或文档建一个知识库，粘贴一行脚本，右下角就有一个聊天窗口：只从你的内容作答，标注引用的页面，访客点一下就能跳过去。',
+      points: [
+        '一行 script 标签，不用构建，不改页面',
+        '回答只来自你的知识库，每条都附来源页面',
+        '来源白名单加每日上限，密钥可以放心公开',
+      ],
+      snippetLabel: '完整的接入代码',
+      snippetNote: '在控制台的知识库页面创建站点密钥，那里有可以直接复制的嵌入代码。',
+      demoTitle: '商店帮助中心',
+      demoSubtitle: '询问这个网站的内容',
+      demoQuestion: '订单怎么退货？',
+      demoAnswer: '签收后三十天内凭原始收据可以退货。',
+      demoSources: '相关页面',
+      demoSource: '退货与退款',
+      demoOpen: '打开',
+      demoPlaceholder: '输入你的问题…',
+      cta: '添加到我的网站',
+    },
     connect: {
       promptTab: '提示词',
       mcpTab: 'MCP 地址',

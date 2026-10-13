@@ -12,10 +12,12 @@ import {
   CircleCheckIcon,
   ClockIcon,
   KeyIcon,
+  MessagesSquareIcon,
   PlusIcon,
   SparklesIcon,
 } from '@/components/ui/icons';
 import { listPublicLibraries, POPULARITY_WINDOW_DAYS } from '@/lib/application/libraries';
+import { embedSnippet } from '@/lib/domain/site-key';
 import { publicUrl } from '@/lib/site/origin';
 import { fill } from '@/lib/i18n/format';
 import { getMessages } from '@/lib/i18n/server';
@@ -37,6 +39,8 @@ export default async function HomePage() {
      Anonymous use rides the trial limit; an API key from the dashboard lifts
      it (requirement.md 9.3). */
   const mcpUrl = publicUrl('/mcp');
+  /* The widget's one line, with a placeholder where the site key goes. */
+  const widgetSnippet = embedSnippet(publicUrl('/widget.js'), 'mm_site_…');
   /* The featured table is the live catalogue's head, not copy. */
   const featured = (await listPublicLibraries({ sort: 'popular', limit: 6 })).map((row) => ({
     libraryId: row.publicId,
@@ -199,6 +203,91 @@ export default async function HomePage() {
                 {t.home.viewFullCatalog}
                 <ArrowUpRightIcon size={14} />
               </Link>
+            </div>
+          </ShowcaseCard>
+        </div>
+      </section>
+
+
+      {/*
+        Website widget -- the library, turned round to face the owner's own
+        visitors (requirement.md 9.4). The copy says what it does; the card
+        shows the whole integration and what a visitor sees.
+      */}
+      <section>
+        <div className="mx-auto grid w-full max-w-[1200px] grid-cols-1 items-center gap-12 px-5 py-20 lg:grid-cols-[minmax(0,1fr)_460px]">
+          <div className="flex flex-col items-start">
+            <span className="eyebrow">{t.home.widget.eyebrow}</span>
+            <h2 className="mt-4 max-w-[22ch] text-heading-sm font-semibold tracking-[0.018em] text-ink">
+              {t.home.widget.title}
+            </h2>
+            <p className="mt-4 max-w-[58ch] text-subheading text-muted">{t.home.widget.lede}</p>
+            <ul className="mt-6 flex flex-col gap-2.5 text-body text-ink">
+              {t.home.widget.points.map((point) => (
+                <li key={point} className="flex items-start gap-2.5">
+                  <CircleCheckIcon size={16} className="mt-[3px] shrink-0 text-brandink" />
+                  {point}
+                </li>
+              ))}
+            </ul>
+            <div className="mt-8 flex flex-wrap items-center gap-3">
+              <Button href="/dashboard/libraries" size="md">
+                <MessagesSquareIcon size={16} />
+                {t.home.widget.cta}
+              </Button>
+            </div>
+          </div>
+
+          <ShowcaseCard>
+            <p className="text-caption font-medium text-muted">{t.home.widget.snippetLabel}</p>
+            <pre className="mt-2 overflow-x-auto rounded-md border border-line bg-subtle px-3.5 py-3 font-mono text-[12px] leading-[1.6] text-ink">
+              <code>{widgetSnippet}</code>
+            </pre>
+            <p className="mt-2 text-caption text-muted">{t.home.widget.snippetNote}</p>
+
+            {/* A still of the widget itself: what the visitor sees after the
+                line above. Markup only -- the real one lives in public/. */}
+            <div
+              aria-hidden
+              className="mt-6 overflow-hidden rounded-xl border border-line bg-card shadow-[0_12px_32px_rgba(15,23,42,0.08)]"
+            >
+              <div className="flex items-center justify-between bg-brand px-4 py-3 text-white">
+                <div className="min-w-0">
+                  <p className="truncate text-[13px] font-semibold">{t.home.widget.demoTitle}</p>
+                  <p className="text-[11px] opacity-85">{t.home.widget.demoSubtitle}</p>
+                </div>
+                <span className="flex size-7 items-center justify-center rounded-md bg-white/20 text-[12px]">
+                  ✕
+                </span>
+              </div>
+              <div className="flex flex-col gap-2.5 bg-subtle px-4 py-4 text-[12.5px] leading-[1.5]">
+                <p className="max-w-[85%] self-end rounded-xl rounded-br-[4px] bg-brand px-3 py-2 text-white">
+                  {t.home.widget.demoQuestion}
+                </p>
+                <div className="max-w-[92%] self-start rounded-xl rounded-bl-[4px] border border-line bg-card px-3 py-2 text-ink">
+                  <p>
+                    {t.home.widget.demoAnswer}
+                    <sup className="ml-0.5 text-[9.5px] text-brandink">[1]</sup>
+                  </p>
+                  <div className="mt-2.5 border-t border-line pt-2">
+                    <p className="text-[10.5px] font-semibold tracking-[0.03em] text-muted uppercase">
+                      {t.home.widget.demoSources}
+                    </p>
+                    <div className="mt-1.5 flex items-center justify-between gap-2 rounded-md border border-line bg-card px-2.5 py-1.5">
+                      <span className="truncate text-[12px] font-medium">[1] {t.home.widget.demoSource}</span>
+                      <span className="shrink-0 text-[11px] font-semibold text-brandink">{t.home.widget.demoOpen}</span>
+                    </div>
+                  </div>
+                </div>
+              </div>
+              <div className="flex items-center gap-2 border-t border-line px-4 py-3">
+                <span className="flex h-9 flex-1 items-center rounded-lg border border-line px-3 text-[12px] text-muted">
+                  {t.home.widget.demoPlaceholder}
+                </span>
+                <span className="flex h-9 items-center rounded-lg bg-brand px-3.5 text-[12px] font-semibold text-white">
+                  {t.embed.send}
+                </span>
+              </div>
             </div>
           </ShowcaseCard>
         </div>

@@ -62,6 +62,28 @@ export const en: Dictionary = {
     ctaTitle: 'Less guessing from your agent, more grounding.',
     ctaPricing: 'See pricing',
     ctaBrowse: 'Browse the library directory',
+    widget: {
+      eyebrow: 'Website widget',
+      title: 'Put the same answers on your own site',
+      lede:
+        'Build a library from your website or docs, paste one line of script, and a chat bubble answers visitors from your content only, citing the pages it used and opening them on request.',
+      points: [
+        'One script tag; no build step and no changes to your pages',
+        'Answers come only from your library, with the source page beside each one',
+        'An allowlist of origins and a daily limit keep the key safe to publish',
+      ],
+      snippetLabel: 'The whole integration',
+      snippetNote: 'Create a site key on a library’s page in the dashboard; the snippet is ready to copy there.',
+      demoTitle: 'Shop help centre',
+      demoSubtitle: 'Ask about this site',
+      demoQuestion: 'How do I return an order?',
+      demoAnswer: 'Orders can be returned within thirty days of delivery with the original receipt.',
+      demoSources: 'Related pages',
+      demoSource: 'Returns and refunds',
+      demoOpen: 'Open',
+      demoPlaceholder: 'Ask a question…',
+      cta: 'Add it to your site',
+    },
     connect: {
       promptTab: 'Prompt',
       mcpTab: 'MCP endpoint',
