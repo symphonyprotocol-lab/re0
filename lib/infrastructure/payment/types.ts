@@ -80,6 +80,11 @@ export interface PaymentAdapter {
   /** A signed, short-lived link into the provider's customer portal. */
   portalUrl(input: { customerId: string }): Promise<string>;
   /**
+   * A short-lived link that downloads the provider's PDF invoice for a
+   * collected document. The provider issues it; nothing is rendered here.
+   */
+  invoiceUrl(externalId: string): Promise<string>;
+  /**
    * Verifies the signature over the raw body and turns the event into a
    * notice. Throws `WebhookRejected` when the signature does not hold; any
    * other throw is the provider being unreachable, and the webhook should be

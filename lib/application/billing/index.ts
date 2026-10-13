@@ -24,12 +24,20 @@ export {
   type MirrorProviderDocumentResult,
 } from './mirror';
 export {
+  BILLING_ROLES,
   billingPortalUrl,
   CheckoutRefused,
   isCheckoutRefusal,
   startCheckout,
   type CheckoutRefusal,
 } from './checkout';
+export {
+  hasInvoice,
+  invoiceDownloadUrl,
+  InvoiceRefused,
+  isInvoiceRefusal,
+  type InvoiceRefusal,
+} from './invoice';
 export {
   applyPaymentNotification,
   receivePaymentWebhook,

@@ -16,6 +16,7 @@ import {
   CircleCheckIcon,
   CircleDollarSignIcon,
   ClockIcon,
+  DownloadIcon,
   GitHubIcon,
   KeyIcon,
   LinkIcon,
@@ -33,7 +34,10 @@ import {
 } from './actions';
 import { accountProfile, githubConnectionFor, notionConnectionFor } from '@/lib/application/auth';
 import {
+  BILLING_ROLES,
+  hasInvoice,
   isCheckoutRefusal,
+  isInvoiceRefusal,
   listBillingDocuments,
   workspaceProviderCustomer,
 } from '@/lib/application/billing';
@@ -192,7 +196,12 @@ function ConnectionRow({
 export default async function DashboardSettingsPage({
   searchParams,
 }: {
-  searchParams: Promise<{ github?: string; notion?: string; checkout?: string }>;
+  searchParams: Promise<{
+    github?: string;
+    notion?: string;
+    checkout?: string;
+    invoice?: string;
+  }>;
 }) {
   const session = await requireSession('/dashboard/settings');
   const workspaceId = session.workspace.id;
@@ -319,10 +328,17 @@ export default async function DashboardSettingsPage({
   /*
    * Amounts print in the document's own currency: the mirror keeps whatever
    * the provider settled in (requirement.md 4.3), and relabelling a franc as
-   * a dollar would be a lie about a receipt.
+   * a dollar would be a lie about a receipt. USD, the price list's own
+   * currency, prints as a bare `$` like everywhere else on the site (zh would
+   * otherwise say `US$`); any other keeps the locale's disambiguated symbol,
+   * since a narrow `$` would pass a Canadian dollar off as a US one.
    */
   const money = (minor: number, currency: string) =>
-    new Intl.NumberFormat(locale, { style: 'currency', currency }).format(minor / 100);
+    new Intl.NumberFormat(locale, {
+      style: 'currency',
+      currency,
+      currencyDisplay: currency === 'USD' ? 'narrowSymbol' : 'symbol',
+    }).format(minor / 100);
   const issued = new Intl.DateTimeFormat(locale, { dateStyle: 'medium' });
   const paymentConnected = isPaymentConnected();
 
@@ -336,6 +352,11 @@ export default async function DashboardSettingsPage({
     params.checkout === 'success' || params.checkout === 'failed' || isCheckoutRefusal(params.checkout)
       ? params.checkout
       : null;
+  /* Where an invoice download that could not be served sent the browser back. */
+  const invoiceOutcome =
+    params.invoice === 'failed' || isInvoiceRefusal(params.invoice) ? params.invoice : null;
+  /* The invoice carries the billing address, so it follows the billing roles. */
+  const canDownloadInvoices = paymentConnected && BILLING_ROLES.has(session.workspace.role);
   /* Packs are sold to Pro only (requirement.md 4.1), so Pro is what unlocks them. */
   const onPaidPlan = planVersion.planId !== 'free';
 
@@ -572,6 +593,11 @@ export default async function DashboardSettingsPage({
           title={g.billing.title}
           description={g.billing.description}
         />
+        {invoiceOutcome ? (
+          <p role="status" className="border-b border-line px-5 py-3 text-[11px] text-err">
+            {g.billing.invoiceOutcomes[invoiceOutcome]}
+          </p>
+        ) : null}
         {billing.rows.length === 0 ? (
           <p className="px-5 py-6 text-center text-[12px] text-muted">
             {g.billing.empty}
@@ -590,6 +616,11 @@ export default async function DashboardSettingsPage({
                       {head}
                     </th>
                   ))}
+                  {canDownloadInvoices ? (
+                    <th scope="col" className="px-5 py-3">
+                      <span className="sr-only">{g.billing.invoiceColumn}</span>
+                    </th>
+                  ) : null}
                 </tr>
               </thead>
               <tbody>
@@ -622,6 +653,25 @@ export default async function DashboardSettingsPage({
                     <td className="px-5 py-3.5 text-[12px] text-steel">
                       {issued.format(row.issuedAt)}
                     </td>
+                    {canDownloadInvoices ? (
+                      <td className="px-5 py-3.5 text-right">
+                        {hasInvoice(row) ? (
+                          /*
+                           * A plain anchor, not <Link>: the route answers with
+                           * a redirect to the provider's file, which the
+                           * client router must not try to render.
+                           */
+                          <a
+                            href={`/dashboard/settings/invoices/${row.id}`}
+                            aria-label={fill(g.billing.downloadLabel, { number: row.number })}
+                            className="inline-flex items-center gap-1.5 text-[12px] font-medium whitespace-nowrap text-brandink hover:underline"
+                          >
+                            <DownloadIcon size={14} />
+                            {g.billing.download}
+                          </a>
+                        ) : null}
+                      </td>
+                    ) : null}
                   </tr>
                 ))}
               </tbody>

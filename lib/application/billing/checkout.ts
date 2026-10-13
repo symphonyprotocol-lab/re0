@@ -51,7 +51,7 @@ export class CheckoutRefused extends Error {
  * workspace may spend it or change how it is paid. A developer key-holder
  * buying a subscription on the owner's card is not a scenario to allow.
  */
-const BILLING_ROLES = new Set(['owner', 'admin']);
+export const BILLING_ROLES = new Set(['owner', 'admin']);
 
 interface Caller {
   workspaceId: string;

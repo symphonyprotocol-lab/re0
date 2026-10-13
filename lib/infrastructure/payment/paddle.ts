@@ -515,6 +515,16 @@ export function paddleAdapter(config: PaddleConfig): PaymentAdapter {
       return session.urls.general.overview;
     },
 
+    /* Paddle signs a fresh link per request and it expires within the hour. */
+    async invoiceUrl(externalId) {
+      const invoice = await call<{ url: string }>(
+        config,
+        'GET',
+        `/transactions/${encodeURIComponent(externalId)}/invoice?disposition=attachment`,
+      );
+      return invoice.url;
+    },
+
     async verifyWebhook(rawBody, signature): Promise<PaymentNotification> {
       if (!signature || !verifyPaddleSignature(rawBody, signature, config.webhookSecret)) {
         throw new WebhookRejected('the Paddle signature does not verify');

@@ -1881,6 +1881,18 @@ export const en: Dictionary = {
         },
         refunded: '{amount} refunded',
         noticeLink: 'View billing',
+        /** The download column's header is for screen readers; the button says it. */
+        invoiceColumn: 'Invoice',
+        download: 'Download PDF',
+        downloadLabel: 'Download the PDF invoice for {number}',
+        /** Why a download was refused or failed, printed back on the billing card. */
+        invoiceOutcomes: {
+          not_connected: 'This deployment has no payment provider connected, so there are no invoices.',
+          forbidden: 'Only the workspace owner and admins can download invoices.',
+          not_found: 'That document could not be found.',
+          unavailable: 'This document has no invoice to download: only paid documents above zero have one.',
+          failed: 'The payment provider could not supply the invoice. Please try again shortly.',
+        },
       },
     },
     copy: {

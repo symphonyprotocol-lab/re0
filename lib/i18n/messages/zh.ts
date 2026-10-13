@@ -1802,6 +1802,18 @@ export const zh = {
         },
         refunded: '已退 {amount}',
         noticeLink: '查看账单',
+        /** 下载列的表头只给读屏器，按钮本身已经写明。 */
+        invoiceColumn: '发票',
+        download: '下载 PDF',
+        downloadLabel: '下载单据 {number} 的 PDF 发票',
+        /** 下载被拒或失败后回到账单卡片时显示的原因。 */
+        invoiceOutcomes: {
+          not_connected: '当前部署未接入支付服务，无法获取发票。',
+          forbidden: '只有工作空间的所有者和管理员可以下载发票。',
+          not_found: '没有找到这张单据。',
+          unavailable: '这张单据没有可下载的发票：只有已支付且金额大于零的单据才有。',
+          failed: '支付服务暂时无法提供发票，请稍后重试。',
+        },
       },
     },
     copy: {
