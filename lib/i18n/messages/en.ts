@@ -423,7 +423,7 @@ export const en: Dictionary = {
       },
     },
     contact:
-      'For questions about these documents, content appeals or privacy requests, write to legal@re0.com; for refunds, write to support@re0.com; for security issues, write to security@re0.com.',
+      'For questions about these documents, content appeals or privacy requests, write to legal@re0.io; for refunds, write to support@re0.io; for security issues, write to security@re0.io.',
     footnote:
       'This is the MVP-stage text and will be updated alongside the product scope before commercial launch. Where the Chinese version and any other language version diverge, the Chinese version governs.',
 
@@ -491,7 +491,7 @@ export const en: Dictionary = {
             'Call packs are one-off purchases. Within 30 calendar days of purchase you may claim a refund for the calls still unused, in proportion; calls already consumed are not refunded. After 30 days packs are no longer refundable, but the balance does not expire and stays usable.',
             'If the service is continuously unavailable for more than 24 hours in a billing period through our fault, you may claim compensation: call quota equivalent to the downtime, issued as credit rather than cash. The status page record determines the incident.',
             'No refund is given for: accounts suspended or terminated for breaching these terms or the acceptable use policy; calls consumed by builds that completed successfully; amounts already settled to publishers as revenue share; and repeated refund claims from the same party that amount to abuse.',
-            'To claim, write to support@re0.com with your account email, the transaction reference and the reason. We reply within 5 business days; approved refunds are returned by the external payment provider to the original payment method, and arrival depends on your bank, typically 5 to 10 business days.',
+            'To claim, write to support@re0.io with your account email, the transaction reference and the reason. We reply within 5 business days; approved refunds are returned by the external payment provider to the original payment method, and arrival depends on your bank, typically 5 to 10 business days.',
             'Nothing in this policy limits mandatory refund or withdrawal rights that consumer law gives you; where the two conflict, the law prevails.',
           ],
         },
@@ -510,7 +510,7 @@ export const en: Dictionary = {
           hint: 'Notice and contact',
           clauses: [
             'When the terms change we update the effective date on this page; material changes to rights or obligations are announced in the product or by email in advance. Continuing to use the service after a change takes effect means you accept it.',
-            'For questions about these terms or content appeals, write to legal@re0.com; for refunds, write to support@re0.com; for security issues, write to security@re0.com.',
+            'For questions about these terms or content appeals, write to legal@re0.io; for refunds, write to support@re0.io; for security issues, write to security@re0.io.',
           ],
         },
       ],
@@ -592,7 +592,7 @@ export const en: Dictionary = {
           clauses: [
             'You can access, correct, export or delete your data in the console. Deletion requests are completed within a reasonable period, except for records the law requires us to keep.',
             'You can object to or ask us to restrict processing based on legitimate interests, and withdraw consent you gave earlier; withdrawal does not affect processing carried out before it.',
-            'To exercise those rights, or if you disagree with how we handle data, write to legal@re0.com. You also have the right to complain to your local data protection authority.',
+            'To exercise those rights, or if you disagree with how we handle data, write to legal@re0.io. You also have the right to complain to your local data protection authority.',
           ],
         },
         {
@@ -610,7 +610,7 @@ export const en: Dictionary = {
           hint: 'Notice and contact',
           clauses: [
             'When this notice changes we update the effective date at the top of the page; material changes to how data is handled are announced in the product or by email in advance.',
-            'For privacy requests, write to legal@re0.com; for security issues, write to security@re0.com.',
+            'For privacy requests, write to legal@re0.io; for security issues, write to security@re0.io.',
           ],
         },
       ],
@@ -2252,7 +2252,7 @@ export const en: Dictionary = {
       title: 'Administrator sign-in',
       subtitle: 'Authorized platform administrators only',
       emailLabel: 'Administrator email',
-      emailPlaceholder: 'admin@re0.com',
+      emailPlaceholder: 'admin@re0.io',
       passwordLabel: 'Password',
       passwordPlaceholder: 'Administrator password',
       mfaLabel: 'Verification code',
