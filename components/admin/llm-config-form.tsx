@@ -8,10 +8,9 @@ import { ConsoleButton, Pill } from '@/components/admin/ui';
 import type {
   LlmConfigActionResult,
   LlmProbeActionResult,
-} from '@/app/admin/(console)/llm/actions';
+} from '@/app/admin/(console)/models/actions';
 import { useI18n } from '@/lib/i18n/client';
 import {
-  DEFAULT_LLM_API_KEY_ENV,
   MAX_INPUT_TOKENS,
   MAX_OUTPUT_TOKENS,
   priceUsdFromMicro,
@@ -25,7 +24,8 @@ export interface LlmEntry {
   label: string;
   baseUrl: string;
   model: string;
-  apiKeyEnv: string;
+  /** Whether a credential is stored. The key itself never reaches here. */
+  hasCredential: boolean;
   maxInputTokens: number;
   maxOutputTokens: number;
   timeoutMs: number;
@@ -47,7 +47,7 @@ const BLANK: LlmEntry = {
   label: '',
   baseUrl: 'https://api.openai.com/v1',
   model: '',
-  apiKeyEnv: DEFAULT_LLM_API_KEY_ENV,
+  hasCredential: false,
   maxInputTokens: 128_000,
   maxOutputTokens: 800,
   timeoutMs: 30_000,
@@ -77,13 +77,10 @@ const BLANK: LlmEntry = {
  */
 export function LlmConfigForm({
   entries,
-  apiKeyEnvOptions,
   action,
   probe,
 }: {
   entries: LlmEntry[];
-  /** The credential variables this deployment actually holds (llm.ts). */
-  apiKeyEnvOptions: readonly string[];
   action: (previous: LlmConfigActionResult | null, form: FormData) => Promise<LlmConfigActionResult>;
   /** One call against the endpoint as typed, saved or not. */
   probe: (form: FormData) => Promise<LlmProbeActionResult>;
@@ -188,23 +185,20 @@ export function LlmConfigForm({
           <Field label={p.baseUrl}>
             <input name="baseUrl" defaultValue={editing.baseUrl} className={FIELD} required />
           </Field>
-          {/* Which variables exist is a deployment fact the console cannot
-              change, so offer them here rather than let a well-formed name be
-              refused on submit for a reason the form never showed. */}
-          <Field label={p.apiKeyEnv} hint={`${p.apiKeyEnvHint} ${apiKeyEnvOptions.join(' · ')}`}>
+          {/* Always empty on load, and blank means keep the stored key:
+              pre-filling it would mean sending a provider secret to the
+              browser, and re-typing one to change a price is how keys end up
+              somewhere they can be copied from. */}
+          <Field label={p.apiKey} hint={editing.hasCredential ? p.apiKeyStored : p.apiKeyNew}>
             <input
-              name="apiKeyEnv"
-              defaultValue={editing.apiKeyEnv}
-              placeholder={DEFAULT_LLM_API_KEY_ENV}
-              list="llm-api-key-env"
+              name="apiKey"
+              type="password"
+              autoComplete="off"
               spellCheck={false}
+              placeholder={editing.hasCredential ? p.apiKeyKeep : ''}
               className={`${FIELD} font-mono`}
+              required={!editing.hasCredential}
             />
-            <datalist id="llm-api-key-env">
-              {apiKeyEnvOptions.map((name) => (
-                <option key={name} value={name} />
-              ))}
-            </datalist>
           </Field>
         </div>
         <div className="grid gap-4 sm:grid-cols-2">

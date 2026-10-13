@@ -34,7 +34,7 @@ const { buildVersion, memoryObjectStore, runOperation, drainOperations } = await
 const { createPlatformLibrary, addPlatformLibrarySource, requestPlatformLibraryRefresh } = await import(
   '@/lib/application/administration/manage-platform-libraries'
 );
-const { EMBEDDING_DIMENSIONS } = await import('@/lib/infrastructure/ai/providers');
+const { EMBEDDING_COLUMN_DIMENSIONS } = await import('@/lib/infrastructure/ai/providers');
 const { IngestionFailure, snapshotDigest } = await import('@/lib/domain/ingestion');
 const { db, schema } = await import('@/lib/infrastructure/postgres/client');
 const { uuidv7 } = await import('@/lib/domain/id');
@@ -68,10 +68,10 @@ const store = memoryObjectStore();
 function fakeEmbeddings(model = 'fixture-embed-1') {
   return () => ({
     model,
-    dimensions: EMBEDDING_DIMENSIONS,
+    dimensions: EMBEDDING_COLUMN_DIMENSIONS,
     async embed(texts: string[]) {
       return texts.map((text) =>
-        Array.from({ length: EMBEDDING_DIMENSIONS }, (_, i) => ((text.length + i) % 17) / 17),
+        Array.from({ length: EMBEDDING_COLUMN_DIMENSIONS }, (_, i) => ((text.length + i) % 17) / 17),
       );
     },
   });
@@ -167,11 +167,11 @@ function twoSourceDependencies(content: Record<string, typeof FILES>) {
       },
       embeddings: () => ({
         model: 'fixture-embed-1',
-        dimensions: EMBEDDING_DIMENSIONS,
+        dimensions: EMBEDDING_COLUMN_DIMENSIONS,
         async embed(texts: string[]) {
           embedded.push(...texts);
           return texts.map((text) =>
-            Array.from({ length: EMBEDDING_DIMENSIONS }, (_, i) => ((text.length + i) % 17) / 17),
+            Array.from({ length: EMBEDDING_COLUMN_DIMENSIONS }, (_, i) => ((text.length + i) % 17) / 17),
           );
         },
       }),
@@ -326,7 +326,7 @@ describeWithDb('ingestion', () => {
 
     expect(chunks).toHaveLength(version?.totalChunks ?? -1);
     for (const chunk of chunks) {
-      expect(chunk.embedding).toHaveLength(EMBEDDING_DIMENSIONS);
+      expect(chunk.embedding).toHaveLength(EMBEDDING_COLUMN_DIMENSIONS);
       expect(chunk.tokens).toBeGreaterThan(0);
       // Every chunk cites the document it came from, by URL.
       expect(String((chunk.citation as { url?: string }).url)).toContain('https://example.test/');
@@ -356,7 +356,7 @@ describeWithDb('ingestion', () => {
       .where(eq(schema.libraryProfileVector.versionId, built.versionId));
     expect(centroids.length).toBeGreaterThan(0);
     for (const centroid of centroids) {
-      expect(centroid.embedding).toHaveLength(EMBEDDING_DIMENSIONS);
+      expect(centroid.embedding).toHaveLength(EMBEDDING_COLUMN_DIMENSIONS);
     }
   });
 
@@ -677,7 +677,7 @@ describeWithDb('ingestion', () => {
         // streaming insert made reachable.
         embeddings: () => ({
           model: 'fixture-embed-1',
-          dimensions: EMBEDDING_DIMENSIONS,
+          dimensions: EMBEDDING_COLUMN_DIMENSIONS,
           async embed(): Promise<number[][]> {
             throw new Error('provider exploded mid-build');
           },

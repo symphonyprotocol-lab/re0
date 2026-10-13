@@ -3,23 +3,25 @@
 import { headers } from 'next/headers';
 import { revalidatePath } from 'next/cache';
 import {
+  llmConfigEntries,
+  openLlmCredential,
   probeLlmConfig,
   recordAudit,
   updateLlmAssignment,
   updateLlmConfig,
+  updateModelConfig,
   LlmConfigRefused,
+  ModelConfigRefused,
   type LlmProbeResult,
 } from '@/lib/application/administration';
-import { isAllowedApiKeyEnv } from '@/lib/infrastructure/ai/llm';
 import {
-  DEFAULT_LLM_API_KEY_ENV,
-  isApiKeyEnvName,
   priceMicroFromUsd,
   REASONING_EFFORTS,
   TIMEOUT_MS,
   type ReasoningEffort,
 } from '@/lib/domain/generation';
 import { AdminChangeRefused } from '@/lib/domain/admin';
+import { mayCarryCredential } from '@/lib/domain/model-config';
 import { requireAdminCapability } from '@/lib/http/admin';
 import { clientAddress } from '@/lib/http/client-address';
 
@@ -39,8 +41,8 @@ export type LlmConfigError =
   | 'invalid_price'
   | 'invalid_slug'
   | 'invalid_effort'
-  | 'invalid_api_key_env'
-  | 'api_key_env_not_allowed'
+  | 'invalid_api_key'
+  | 'api_key_required'
   | 'unknown_model'
   | 'reason_required'
   | 'unavailable';
@@ -68,7 +70,9 @@ export async function updateLlmConfigAction(
       label: String(form.get('label') ?? ''),
       baseUrl: String(form.get('baseUrl') ?? ''),
       model: String(form.get('model') ?? ''),
-      apiKeyEnv: form.get('apiKeyEnv') ? String(form.get('apiKeyEnv')) : null,
+      /* Blank is "keep the stored credential"; the application refuses a
+         blank one on an entry that has none. */
+      apiKey: form.get('apiKey') ? String(form.get('apiKey')) : null,
       maxInputTokens: Number(form.get('maxInputTokens') ?? Number.NaN),
       maxOutputTokens: Number(form.get('maxOutputTokens') ?? Number.NaN),
       timeoutMs: Number(form.get('timeoutMs') ?? Number.NaN),
@@ -88,7 +92,7 @@ export async function updateLlmConfigAction(
       reasoningEffort: form.get('reasoningEffort') ? String(form.get('reasoningEffort')) : null,
       reason: String(form.get('reason') ?? ''),
     });
-    revalidatePath('/admin/llm');
+    revalidatePath('/admin/models');
     return { ok: true };
   } catch (error) {
     if (error instanceof LlmConfigRefused) return { ok: false, error: error.code };
@@ -122,7 +126,7 @@ export async function updateLlmAssignmentAction(
       subscriberSlug: form.get('subscriberSlug') ? String(form.get('subscriberSlug')) : null,
       reason: String(form.get('reason') ?? ''),
     });
-    revalidatePath('/admin/llm');
+    revalidatePath('/admin/models');
     return { ok: true };
   } catch (error) {
     if (error instanceof LlmConfigRefused) return { ok: false, error: error.code };
@@ -138,12 +142,7 @@ export type LlmProbeActionResult =
   | ({ kind: 'result' } & LlmProbeResult)
   | {
       kind: 'refused';
-      error:
-        | 'invalid_base_url'
-        | 'invalid_model'
-        | 'invalid_timeout'
-        | 'invalid_api_key_env'
-        | 'api_key_env_not_allowed';
+      error: 'invalid_base_url' | 'invalid_model' | 'invalid_timeout' | 'api_key_required';
     };
 
 /**
@@ -163,11 +162,28 @@ export async function testLlmConfigAction(form: FormData): Promise<LlmProbeActio
   if (baseUrl.protocol !== 'https:') return { kind: 'refused', error: 'invalid_base_url' };
   const model = String(form.get('model') ?? '').trim();
   if (model.length === 0 || model.length > 120) return { kind: 'refused', error: 'invalid_model' };
-  const apiKeyEnv = String(form.get('apiKeyEnv') ?? '').trim() || DEFAULT_LLM_API_KEY_ENV;
-  if (!isApiKeyEnvName(apiKeyEnv)) return { kind: 'refused', error: 'invalid_api_key_env' };
-  if (!isAllowedApiKeyEnv(apiKeyEnv)) {
-    return { kind: 'refused', error: 'api_key_env_not_allowed' };
+  /*
+   * The credential: the one typed into the form when there is one -- so a new
+   * entry can be checked before it is saved -- and otherwise the selected
+   * entry's stored key, opened here. The browser never holds a saved key, so
+   * without the second path a probe could only ever test a brand new entry.
+   *
+   * The stored key is opened only for the host it was saved for: a probe is
+   * one call to whatever base URL the form holds, and without that check it
+   * would hand an operator any entry's key at an endpoint of their choosing.
+   */
+  const slug = String(form.get('slug') ?? '').trim();
+  const typedKey = String(form.get('apiKey') ?? '').trim();
+  let apiKey = typedKey;
+  if (apiKey.length === 0 && slug.length > 0) {
+    const entry = (await llmConfigEntries()).find((row) => row.slug === slug);
+    apiKey =
+      (entry && mayCarryCredential(entry.baseUrl, baseUrl.toString())
+        ? await openLlmCredential(entry.id)
+        : null) ?? '';
   }
+  if (apiKey.length === 0) return { kind: 'refused', error: 'api_key_required' };
+
   const timeoutMs = Number(form.get('timeoutMs') ?? Number.NaN);
   if (!Number.isSafeInteger(timeoutMs) || timeoutMs < TIMEOUT_MS.min || timeoutMs > TIMEOUT_MS.max) {
     return { kind: 'refused', error: 'invalid_timeout' };
@@ -192,7 +208,7 @@ export async function testLlmConfigAction(form: FormData): Promise<LlmProbeActio
     action: 'llm_config.probe',
     targetType: 'llm_config',
     targetId: `${target}#${model}`,
-    reason: `probe with ${apiKeyEnv}`,
+    reason: typedKey.length > 0 ? 'probe with a typed credential' : `probe with ${slug}`,
     clientAddress: clientAddress(bag),
     result: 'success',
   });
@@ -200,9 +216,67 @@ export async function testLlmConfigAction(form: FormData): Promise<LlmProbeActio
   const result = await probeLlmConfig({
     baseUrl: target,
     model,
-    apiKeyEnv,
+    apiKey,
     timeoutMs,
     reasoningEffort,
   });
   return { kind: 'result', ...result };
+}
+
+export type ModelConfigError =
+  | 'invalid_kind'
+  | 'invalid_base_url'
+  | 'invalid_model'
+  | 'invalid_dimensions'
+  | 'invalid_timeout'
+  | 'invalid_api_key'
+  | 'api_key_required'
+  | 'reason_required'
+  | 'unavailable';
+
+export interface ModelConfigActionResult {
+  ok: boolean;
+  error?: ModelConfigError;
+}
+
+/**
+ * The retrieval models' one mutation. Saving an entry for a kind that has none,
+ * editing the one it has and switching it off are the same append; which of
+ * the three it is is only a matter of which fields the form posts.
+ */
+export async function updateModelConfigAction(
+  _previous: ModelConfigActionResult | null,
+  form: FormData,
+): Promise<ModelConfigActionResult> {
+  const session = await requireAdminCapability('models');
+  try {
+    await updateModelConfig({
+      actor: actorOf(session, await headers()),
+      kind: String(form.get('kind') ?? ''),
+      label: String(form.get('label') ?? ''),
+      baseUrl: String(form.get('baseUrl') ?? ''),
+      model: String(form.get('model') ?? ''),
+      /* Blank keeps the stored credential; the application refuses a blank
+         one where there is nothing to keep. */
+      apiKey: form.get('apiKey') ? String(form.get('apiKey')) : null,
+      /* Absent for a reranker, whose form has no width field at all. */
+      dimensions: form.get('dimensions') === null ? null : Number(form.get('dimensions')),
+      timeoutMs: Number(form.get('timeoutMs') ?? Number.NaN),
+      /* An unchecked checkbox posts nothing: absence is "off". */
+      enabled: form.get('enabled') !== null,
+      reason: String(form.get('reason') ?? ''),
+    });
+    /* Both models are read on the request path, so the pages that report
+       their state have to be re-rendered, not only this one. */
+    revalidatePath('/admin/models');
+    revalidatePath('/admin/retrieval');
+    return { ok: true };
+  } catch (error) {
+    if (error instanceof ModelConfigRefused) return { ok: false, error: error.code };
+    if (error instanceof AdminChangeRefused && error.code === 'reason_required') {
+      return { ok: false, error: 'reason_required' };
+    }
+    console.error(`model config failed: ${error instanceof Error ? error.message : 'unknown'}`);
+    return { ok: false, error: 'unavailable' };
+  }
 }

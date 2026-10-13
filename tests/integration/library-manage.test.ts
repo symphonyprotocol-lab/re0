@@ -56,7 +56,7 @@ const {
   OWNER_REVIEW_STAGE,
   PlatformLibraryRefused,
 } = await import('@/lib/domain/library');
-const { EMBEDDING_DIMENSIONS } = await import('@/lib/infrastructure/ai/providers');
+const { EMBEDDING_COLUMN_DIMENSIONS } = await import('@/lib/infrastructure/ai/providers');
 const { db, schema } = await import('@/lib/infrastructure/postgres/client');
 const { verifiedDomain } = await import('@/tests/fixtures/verified-domain');
 const { uuidv7 } = await import('@/lib/domain/id');
@@ -102,10 +102,10 @@ function dependencies(declared?: { folders?: string[]; excludeFolders?: string[]
     },
     embeddings: () => ({
       model: 'fixture-embed-1',
-      dimensions: EMBEDDING_DIMENSIONS,
+      dimensions: EMBEDDING_COLUMN_DIMENSIONS,
       async embed(texts: string[]) {
         return texts.map((text) =>
-          Array.from({ length: EMBEDDING_DIMENSIONS }, (_, i) => ((text.length + i) % 17) / 17),
+          Array.from({ length: EMBEDDING_COLUMN_DIMENSIONS }, (_, i) => ((text.length + i) % 17) / 17),
         );
       },
     }),

@@ -83,7 +83,7 @@ export interface GatherInput {
 export async function gatherAcrossLibraries(
   caller: CallerContext,
   input: GatherInput,
-  dependencies: RetrievalDependencies = defaultRetrievalDependencies,
+  dependencies: RetrievalDependencies = defaultRetrievalDependencies(),
 ): Promise<GatherResult> {
   const [top, ...rest] = input.libraries;
   if (!top) throw new Error('gather needs at least one library');
@@ -210,8 +210,8 @@ function shareQueryEmbedding(dependencies: RetrievalDependencies): RetrievalDepe
 
   return {
     ...dependencies,
-    embeddings(): EmbeddingAdapter {
-      const base = dependencies.embeddings();
+    async embeddings(): Promise<EmbeddingAdapter> {
+      const base = await dependencies.embeddings();
       shared ??= {
         model: base.model,
         dimensions: base.dimensions,

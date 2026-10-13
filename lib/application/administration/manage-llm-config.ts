@@ -6,8 +6,9 @@
  * An entry is identified by its `slug` and is immutable, like a Plan Version:
  * "edit" mints a successor row sharing the slug, the newest row of a slug is
  * that entry's configuration, and the unit prices frozen on each row keep
- * historical cost events meaning what they meant. The provider API key is not
- * managed here at all -- 15.3 keeps secrets in the environment.
+ * historical cost events meaning what they meant. The provider credential is
+ * part of an entry and sealed at rest (15.3); it is opened only on the way to
+ * the adapter, and never returned to anything that renders.
  *
  * The registry says what models exist. Which of them answers whom is a
  * separate, append-only assignment (`llm_audience_assignment`): one entry for
@@ -17,8 +18,6 @@
 import { desc, eq, gte, sql } from 'drizzle-orm';
 import { normalizeReason } from '@/lib/domain/admin';
 import {
-  DEFAULT_LLM_API_KEY_ENV,
-  isApiKeyEnvName,
   MAX_INPUT_TOKENS,
   MAX_OUTPUT_TOKENS,
   REASONING_EFFORTS,
@@ -27,7 +26,8 @@ import {
   type ReasoningEffort,
 } from '@/lib/domain/generation';
 import { uuidv7 } from '@/lib/domain/id';
-import { isAllowedApiKeyEnv } from '@/lib/infrastructure/ai/llm';
+import { API_KEY_MAX_LENGTH, mayCarryCredential } from '@/lib/domain/model-config';
+import { openCredential, sealCredential } from '@/lib/infrastructure/crypto/credentials';
 import { db, schema } from '@/lib/infrastructure/postgres/client';
 import { recordAudit } from './audit';
 
@@ -37,8 +37,8 @@ export interface LlmConfigRow {
   label: string;
   baseUrl: string;
   model: string;
-  /** Name of the environment variable holding the key; never the key. */
-  apiKeyEnv: string;
+  /** Whether a credential is stored. Never the key, which stays sealed. */
+  hasCredential: boolean;
   maxInputTokens: number;
   maxOutputTokens: number;
   timeoutMs: number;
@@ -97,6 +97,39 @@ export async function readLlmAssignment(): Promise<LlmAssignment> {
   return { trialSlug: row.trialSlug, subscriberSlug: row.subscriberSlug, createdAt: row.createdAt };
 }
 
+/**
+ * A stored row as the rest of the application may see it: the cipher is
+ * replaced by whether there is one. Written as an explicit projection rather
+ * than a spread, so a column added to the table later cannot reach a page by
+ * accident -- which is exactly how a sealed credential would get rendered.
+ */
+function shown(
+  row: typeof schema.llmConfig.$inferSelect,
+  audiences: LlmAudience[],
+): LlmConfigRow {
+  return {
+    id: row.id,
+    slug: row.slug,
+    label: row.label,
+    baseUrl: row.baseUrl,
+    model: row.model,
+    hasCredential: Boolean(row.apiKeyCipher),
+    maxInputTokens: row.maxInputTokens,
+    maxOutputTokens: row.maxOutputTokens,
+    timeoutMs: row.timeoutMs,
+    promptPriceMicro: row.promptPriceMicro,
+    completionPriceMicro: row.completionPriceMicro,
+    cachePriceMicro: row.cachePriceMicro,
+    supportsTools: row.supportsTools,
+    supportsReasoning: row.supportsReasoning,
+    supportsVision: row.supportsVision,
+    reasoningEffort: row.reasoningEffort,
+    enabled: row.enabled,
+    createdAt: row.createdAt,
+    assignedTo: audiences,
+  };
+}
+
 function assignedTo(slug: string, assignment: LlmAssignment): LlmAudience[] {
   const audiences: LlmAudience[] = [];
   if (assignment.trialSlug === slug) audiences.push('trial');
@@ -120,7 +153,7 @@ export async function llmConfigEntries(): Promise<LlmConfigRow[]> {
       .orderBy(schema.llmConfig.slug, desc(schema.llmConfig.createdAt)),
     readLlmAssignment(),
   ]);
-  return rows.map((row) => ({ ...row, assignedTo: assignedTo(row.slug, assignment) }));
+  return rows.map((row) => shown(row, assignedTo(row.slug, assignment)));
 }
 
 /**
@@ -194,11 +227,15 @@ export async function activeLlmConfig(
 
 export async function readLlmConfiguration(): Promise<LlmConfiguration> {
   const database = db();
-  const history = await database
+  const rows = await database
     .select()
     .from(schema.llmConfig)
     .orderBy(desc(schema.llmConfig.createdAt))
     .limit(40);
+  const history = rows.map((row) => {
+    const { assignedTo: _unused, ...rest } = shown(row, []);
+    return rest;
+  });
 
   const monthStart = new Date();
   monthStart.setUTCDate(1);
@@ -252,8 +289,8 @@ export class LlmConfigRefused extends Error {
       | 'invalid_price'
       | 'invalid_slug'
       | 'invalid_effort'
-      | 'invalid_api_key_env'
-      | 'api_key_env_not_allowed'
+      | 'invalid_api_key'
+      | 'api_key_required'
       | 'unknown_model',
   ) {
     super(code);
@@ -268,8 +305,12 @@ export interface UpdateLlmConfigInput {
   label: string;
   baseUrl: string;
   model: string;
-  /** Blank means the default variable; anything else must be a shell-safe name. */
-  apiKeyEnv?: string | null;
+  /**
+   * Blank carries the entry's stored credential forward. An edit re-mints the
+   * row, and making an operator re-type a provider key to change a price is
+   * how keys end up somewhere they can be copied from.
+   */
+  apiKey?: string | null;
   maxInputTokens: number;
   maxOutputTokens: number;
   timeoutMs: number;
@@ -311,14 +352,6 @@ export async function updateLlmConfig(input: UpdateLlmConfigInput): Promise<{ co
   if (model.length === 0 || model.length > 120) throw new LlmConfigRefused('invalid_model');
 
   const label = input.label.trim().slice(0, 120) || model;
-  const apiKeyEnv = input.apiKeyEnv?.trim() ? input.apiKeyEnv.trim() : DEFAULT_LLM_API_KEY_ENV;
-  /* Shape *and* allowlist: the name is read out of `process.env` and sent as a
-     Bearer token, so which variables may be named is the deployment's call.
-     Two refusals, not one: a well-formed name that is merely absent from the
-     allowlist is a deployment fact the operator can act on, and telling them
-     the spelling is wrong when it is not sends them to fix the wrong thing. */
-  if (!isApiKeyEnvName(apiKeyEnv)) throw new LlmConfigRefused('invalid_api_key_env');
-  if (!isAllowedApiKeyEnv(apiKeyEnv)) throw new LlmConfigRefused('api_key_env_not_allowed');
   const slug = input.slug?.trim() ? input.slug.trim() : slugFromLabel(label);
   if (!SLUG.test(slug)) throw new LlmConfigRefused('invalid_slug');
 
@@ -398,12 +431,25 @@ export async function updateLlmConfig(input: UpdateLlmConfigInput): Promise<{ co
     .orderBy(desc(schema.llmConfig.createdAt))
     .limit(1);
 
+  const normalizedBaseUrl = baseUrl.toString().replace(/\/+$/, '');
+  const typedKey = input.apiKey?.trim() ?? '';
+  if (typedKey.length > API_KEY_MAX_LENGTH) throw new LlmConfigRefused('invalid_api_key');
+  /* An entry with no credential is a model that cannot answer, shown on the
+     page as enabled. Refused rather than saved, since there is nothing to
+     carry forward on a new entry -- nor on one whose host changed, since a
+     stored key only follows its own origin (`mayCarryCredential`). */
+  const carried =
+    before?.apiKeyCipher && mayCarryCredential(before.baseUrl, normalizedBaseUrl)
+      ? before.apiKeyCipher
+      : null;
+  if (typedKey.length === 0 && !carried) throw new LlmConfigRefused('api_key_required');
+  const apiKeyCipher = typedKey.length > 0 ? await sealCredential(typedKey) : carried;
+
   const written = {
     slug,
     label,
-    baseUrl: baseUrl.toString().replace(/\/+$/, ''),
+    baseUrl: normalizedBaseUrl,
     model,
-    apiKeyEnv,
     maxInputTokens: input.maxInputTokens,
     maxOutputTokens: input.maxOutputTokens,
     timeoutMs: input.timeoutMs,
@@ -418,7 +464,7 @@ export async function updateLlmConfig(input: UpdateLlmConfigInput): Promise<{ co
   };
 
   const configId = uuidv7();
-  await db().insert(schema.llmConfig).values({ id: configId, ...written });
+  await db().insert(schema.llmConfig).values({ id: configId, ...written, apiKeyCipher });
 
   await recordAudit({
     administratorId: input.actor.administratorId,
@@ -432,7 +478,7 @@ export async function updateLlmConfig(input: UpdateLlmConfigInput): Promise<{ co
           label: before.label,
           baseUrl: before.baseUrl,
           model: before.model,
-          apiKeyEnv: before.apiKeyEnv,
+          hasCredential: Boolean(before.apiKeyCipher),
           maxInputTokens: before.maxInputTokens,
           maxOutputTokens: before.maxOutputTokens,
           timeoutMs: before.timeoutMs,
@@ -446,12 +492,33 @@ export async function updateLlmConfig(input: UpdateLlmConfigInput): Promise<{ co
           enabled: before.enabled,
         }
       : null,
-    afterValue: written,
+    /* The key itself never reaches the chain: the audit log is exported and
+       anchored, and a secret in it cannot be un-leaked. That one was rotated
+       is the part worth recording. */
+    afterValue: { ...written, hasCredential: true, credentialRotated: typedKey.length > 0 },
     clientAddress: input.actor.clientAddress,
     result: 'success',
   });
 
   return { configId };
+}
+
+/**
+ * The credential of one entry, opened for the adapter.
+ *
+ * By id rather than by slug: the playground resolves an entry first and then
+ * calls it, and reading the key off the very row it resolved is what stops a
+ * concurrent edit from having the call made with one row's endpoint and
+ * another's key. Null when the entry has no credential, or when the one it
+ * has was sealed under a secret that has since been rotated.
+ */
+export async function openLlmCredential(configId: string): Promise<string | null> {
+  const [row] = await db()
+    .select({ apiKeyCipher: schema.llmConfig.apiKeyCipher })
+    .from(schema.llmConfig)
+    .where(eq(schema.llmConfig.id, configId))
+    .limit(1);
+  return openCredential(row?.apiKeyCipher);
 }
 
 export interface UpdateLlmAssignmentInput {

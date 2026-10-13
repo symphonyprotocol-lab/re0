@@ -9,6 +9,7 @@ import { cookies, headers } from 'next/headers';
 import { redirect } from 'next/navigation';
 import type { NextResponse } from 'next/server';
 import { resolveSession, type UserSession } from '@/lib/application/auth';
+import { appBaseUrl } from '@/lib/http/base-url';
 /* The names and the secure predicate live in a dependency-free module, because
    the Edge middleware slides these same cookies and cannot import this file --
    it used to restate them from memory instead. Re-exported here so every
@@ -29,11 +30,7 @@ export {
   SESSION_COOKIE,
 };
 
-export function appBaseUrl(): string {
-  const url = process.env.APP_BASE_URL;
-  if (!url) throw new Error('APP_BASE_URL is not set');
-  return url.replace(/\/+$/, '');
-}
+export { appBaseUrl };
 
 export function callbackUrl(provider: string): string {
   return `${appBaseUrl()}/api/auth/${provider}/callback`;

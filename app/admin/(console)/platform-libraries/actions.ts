@@ -4,12 +4,16 @@ import { headers } from 'next/headers';
 import { after } from 'next/server';
 import { revalidatePath } from 'next/cache';
 import {
+  addEvalQuestion,
   addPlatformLibrarySource,
   createPlatformLibrary,
   deletePlatformLibrary,
   rebuildPlatformLibraryProfile,
+  removeEvalQuestion,
   removePlatformLibrarySource,
   requestPlatformLibraryRefresh,
+  runLibraryEvaluation,
+  type EvaluationRunResult,
   setPlatformLibraryLifecycle,
   updatePlatformLibrary,
   updatePlatformLibraryFiles,
@@ -47,6 +51,8 @@ export interface PlatformLibraryActionResult {
   queued?: boolean;
   /** Set on a profile rebuild: what the extractor wrote. */
   rebuilt?: { titles: number; terms: number };
+  /** Set on a benchmark evaluation: what the test set scored. */
+  evaluated?: EvaluationRunResult;
 }
 
 async function actorAddress(): Promise<string | null> {
@@ -300,6 +306,66 @@ export async function rebuildPlatformLibraryProfileAction(
     return { ok: true, libraryId, rebuilt };
   } catch (error) {
     return refused(error, 'platform library profile rebuild');
+  }
+}
+
+/*
+ * The retrieval test set (requirement.md 6.3). Under the same capability as
+ * the rest of this screen: whoever may rebuild a library's profile may decide
+ * what its index is measured against.
+ */
+export async function addEvalQuestionAction(
+  _previous: PlatformLibraryActionResult | null,
+  form: FormData,
+): Promise<PlatformLibraryActionResult> {
+  const session = await requireAdminCapability('platformLibraries');
+  const libraryId = text(form, 'libraryId');
+  try {
+    await addEvalQuestion({
+      actor: await actor(session),
+      libraryId,
+      question: text(form, 'question'),
+      expectedSource: text(form, 'expectedSource'),
+      expectedText: text(form, 'expectedText'),
+    });
+    revalidatePath(`/admin/platform-libraries/${libraryId}`);
+    return { ok: true, libraryId };
+  } catch (error) {
+    return refused(error, 'eval question add');
+  }
+}
+
+export async function removeEvalQuestionAction(
+  _previous: PlatformLibraryActionResult | null,
+  form: FormData,
+): Promise<PlatformLibraryActionResult> {
+  const session = await requireAdminCapability('platformLibraries');
+  const libraryId = text(form, 'libraryId');
+  try {
+    await removeEvalQuestion({
+      actor: await actor(session),
+      libraryId,
+      questionId: text(form, 'questionId'),
+    });
+    revalidatePath(`/admin/platform-libraries/${libraryId}`);
+    return { ok: true, libraryId };
+  } catch (error) {
+    return refused(error, 'eval question remove');
+  }
+}
+
+export async function runLibraryEvaluationAction(
+  _previous: PlatformLibraryActionResult | null,
+  form: FormData,
+): Promise<PlatformLibraryActionResult> {
+  const session = await requireAdminCapability('platformLibraries');
+  const libraryId = text(form, 'libraryId');
+  try {
+    const evaluated = await runLibraryEvaluation({ actor: await actor(session), libraryId });
+    revalidatePath(`/admin/platform-libraries/${libraryId}`);
+    return { ok: true, libraryId, evaluated };
+  } catch (error) {
+    return refused(error, 'benchmark evaluation');
   }
 }
 

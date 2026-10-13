@@ -34,7 +34,9 @@ const TOOLS = [
       'nothing about it. `libraryName` is an optional hint when a name is known. ' +
       'Each candidate carries evidence (matched titles and terms) plus trust and ' +
       'benchmark scores; pick from the evidence, then call query-docs with the chosen ' +
-      'libraryId. Read-only and idempotent.',
+      'libraryId. `versions` lists the labels that can be pinned, newest first: when ' +
+      'the question is about a specific version, append its label to the libraryId. ' +
+      'Read-only and idempotent.',
     inputSchema: {
       type: 'object',
       properties: {

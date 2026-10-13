@@ -38,7 +38,7 @@ export default async function AdminRetrievalPage() {
     readRetrievalConfiguration(),
   ]);
   const p = t.admin.retrieval;
-  const providers = retrievalProviderStatus();
+  const providers = await retrievalProviderStatus();
   const number = new Intl.NumberFormat(locale);
   const date = new Intl.DateTimeFormat(locale, { dateStyle: 'medium', timeStyle: 'short' });
 

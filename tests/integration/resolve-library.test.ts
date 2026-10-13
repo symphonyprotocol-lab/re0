@@ -24,7 +24,7 @@ const { resolveLibrary } = await import('@/lib/application/retrieval/resolve-lib
 const { createPlatformLibrary } = await import(
   '@/lib/application/administration/manage-platform-libraries'
 );
-const { EMBEDDING_DIMENSIONS } = await import('@/lib/infrastructure/ai/providers');
+const { EMBEDDING_COLUMN_DIMENSIONS } = await import('@/lib/infrastructure/ai/providers');
 const { db, schema } = await import('@/lib/infrastructure/postgres/client');
 const { uuidv7 } = await import('@/lib/domain/id');
 
@@ -69,10 +69,10 @@ function dependenciesFor(files: { path: string; url: string; content: string }[]
     },
     embeddings: () => ({
       model: 'fixture-embed-1',
-      dimensions: EMBEDDING_DIMENSIONS,
+      dimensions: EMBEDDING_COLUMN_DIMENSIONS,
       async embed(texts: string[]) {
         return texts.map((text) =>
-          Array.from({ length: EMBEDDING_DIMENSIONS }, (_, i) => ((text.length + i) % 17) / 17),
+          Array.from({ length: EMBEDDING_COLUMN_DIMENSIONS }, (_, i) => ((text.length + i) % 17) / 17),
         );
       },
     }),
@@ -177,6 +177,37 @@ describeWithDb('library-level discovery', () => {
     // The cooking library must not match a beetle question at all.
     const ids = output.results.map((candidate) => candidate.libraryId);
     expect(ids).not.toContain(`/websites/resolve-cooking-${stamp}`);
+  });
+
+  it('lists every label a candidate can be pinned to, newest first', async () => {
+    const stamp = Date.now();
+    const slug = `resolve-versions-${stamp}`;
+    const page = (body: string) => [
+      { path: 'docs/ferns.md', url: 'https://example.test/ferns', content: `# Ferns\n\n${body}` },
+    ];
+    const libraryId = await publishedLibrary(slug, `Botany ${stamp}`, page('Bracken spreads by rhizome.'));
+
+    // A second build of changed content supersedes the first, which stays
+    // queryable by its label -- so the label has to be discoverable.
+    const rebuilt = await buildVersion({
+      libraryId,
+      operationId: uuidv7(),
+      dependencies: dependenciesFor(page('Bracken spreads by rhizome and by spore.')),
+    });
+    if (!rebuilt.changed) throw new Error('fixture rebuild produced no version');
+    await publishVersion({ libraryId, versionId: rebuilt.versionId });
+
+    const labels = await db()
+      .select({ label: schema.libraryVersion.label, id: schema.libraryVersion.id })
+      .from(schema.libraryVersion)
+      .where(eq(schema.libraryVersion.libraryId, libraryId));
+    const current = labels.find((row) => row.id === rebuilt.versionId)!.label;
+    const previous = labels.find((row) => row.id !== rebuilt.versionId)!.label;
+
+    const output = await resolveLibrary(anonymous, { query: 'bracken rhizome' }, noEmbeddings);
+    const candidate = output.results.find((row) => row.libraryId === `/websites/${slug}`)!;
+    expect(candidate.version).toBe(current);
+    expect(candidate.versions).toEqual([current, previous]);
   });
 
   it('honours the optional name hint alongside content recall', async () => {
@@ -303,10 +334,10 @@ describeWithDb('library-level discovery', () => {
     const withEmbeddings = {
       embeddings: () => ({
         model: 'fixture-embed-1',
-        dimensions: EMBEDDING_DIMENSIONS,
+        dimensions: EMBEDDING_COLUMN_DIMENSIONS,
         async embed(texts: string[]) {
           return texts.map((text) =>
-            Array.from({ length: EMBEDDING_DIMENSIONS }, (_, i) => ((text.length + i) % 17) / 17),
+            Array.from({ length: EMBEDDING_COLUMN_DIMENSIONS }, (_, i) => ((text.length + i) % 17) / 17),
           );
         },
       }),

@@ -1,6 +1,7 @@
 import { ConsoleButton, ConsolePageHeader, Panel } from '@/components/admin/ui';
 import { ChevronLeftIcon } from '@/components/ui/icons';
 import { getMessages } from '@/lib/i18n/server';
+import { paddleConfig } from '@/lib/infrastructure/payment/paddle';
 
 /**
  * What an unknown document id renders.
@@ -28,9 +29,11 @@ export default async function BillingDocumentNotFound() {
           </ConsoleButton>
         }
       />
-      <Panel className="px-[19px] py-9">
-        <p className="text-[13px] tracking-[-0.023em] text-muted">{t.admin.notReady.billing}</p>
-      </Panel>
+      {paddleConfig() ? null : (
+        <Panel className="px-[19px] py-9">
+          <p className="text-[13px] tracking-[-0.023em] text-muted">{t.admin.notReady.billing}</p>
+        </Panel>
+      )}
     </div>
   );
 }

@@ -21,7 +21,7 @@
  * COMMITTED concurrent commits would each read the same count and every one
  * of them would pass a cap they jointly exceed.
  */
-import { and, asc, desc, eq, gte, lt, lte, or, sql } from 'drizzle-orm';
+import { and, asc, eq, gte, lt, or, sql } from 'drizzle-orm';
 import { AppError } from '@/contracts/errors';
 import { uuidv7 } from '@/lib/domain/id';
 import {
@@ -35,6 +35,7 @@ import {
 } from '@/lib/domain';
 import { DEFAULT_BUILD_RATES, type BuildRates } from '@/lib/domain/build-billing';
 import { db, schema } from '@/lib/infrastructure/postgres/client';
+import { IN_FORCE_FIRST, subscriptionInForce, windowInForce } from '@/lib/application/plans/in-force';
 import { PLAN_VERSION_NEWEST_FIRST } from './configuration';
 
 /**
@@ -454,14 +455,9 @@ export async function hasPaidSubscription(workspaceId: string): Promise<boolean>
     .from(schema.subscription)
     .innerJoin(schema.planVersion, eq(schema.planVersion.id, schema.subscription.planVersionId))
     .where(
-      and(
-        eq(schema.subscription.workspaceId, workspaceId),
-        eq(schema.subscription.status, 'active'),
-        lte(schema.subscription.periodStart, sql`now()`),
-        gte(schema.subscription.periodEnd, sql`now()`),
-      ),
+      and(eq(schema.subscription.workspaceId, workspaceId), subscriptionInForce()),
     )
-    .orderBy(desc(schema.subscription.periodEnd))
+    .orderBy(...IN_FORCE_FIRST)
     .limit(1);
   return paid !== undefined && paid.planId !== 'free';
 }
@@ -487,14 +483,9 @@ export async function planWindow(tx: Tx, workspaceId: string): Promise<PlanWindo
     })
     .from(schema.subscription)
     .where(
-      and(
-        eq(schema.subscription.workspaceId, workspaceId),
-        eq(schema.subscription.status, 'active'),
-        lte(schema.subscription.periodStart, sql`now()`),
-        gte(schema.subscription.periodEnd, sql`now()`),
-      ),
+      and(eq(schema.subscription.workspaceId, workspaceId), subscriptionInForce()),
     )
-    .orderBy(desc(schema.subscription.periodEnd))
+    .orderBy(...IN_FORCE_FIRST)
     .limit(1);
 
   if (active) {
@@ -504,8 +495,7 @@ export async function planWindow(tx: Tx, workspaceId: string): Promise<PlanWindo
       .where(eq(schema.planVersion.id, active.planVersionId));
     return {
       allowance: version?.monthlyCalls ?? 0,
-      periodStart: active.periodStart,
-      periodEnd: active.periodEnd,
+      ...windowInForce(active),
       planVersionId: active.planVersionId,
       shareRateBps: version?.shareRateBps ?? 0,
       buildRates: buildRatesOf(version),

@@ -20,7 +20,8 @@ const describeWithDb = TEST_DATABASE_URL ? describe : describe.skip;
 
 process.env.DATABASE_URL = TEST_DATABASE_URL ?? 'postgres://unused';
 process.env.SESSION_SIGNING_SECRET ??= 'test-secret-that-is-long-enough-000000';
-delete process.env.LLM_PROVIDER_API_KEY;
+/* No model entry exists in a fresh test database, so the route degrades to
+   the excerpt list -- which is what this file is here to pin down. */
 
 const { buildVersion, memoryObjectStore, publishVersion } = await import(
   '@/lib/application/ingestion'
@@ -28,7 +29,7 @@ const { buildVersion, memoryObjectStore, publishVersion } = await import(
 const { createPlatformLibrary } = await import(
   '@/lib/application/administration/manage-platform-libraries'
 );
-const { EMBEDDING_DIMENSIONS } = await import('@/lib/infrastructure/ai/providers');
+const { EMBEDDING_COLUMN_DIMENSIONS } = await import('@/lib/infrastructure/ai/providers');
 const { db, schema } = await import('@/lib/infrastructure/postgres/client');
 const { uuidv7 } = await import('@/lib/domain/id');
 const { POST: playgroundRoute } = await import('@/app/api/playground/route');
@@ -66,10 +67,10 @@ function dependencies() {
     },
     embeddings: () => ({
       model: 'fixture-embed-1',
-      dimensions: EMBEDDING_DIMENSIONS,
+      dimensions: EMBEDDING_COLUMN_DIMENSIONS,
       async embed(texts: string[]) {
         return texts.map((text) =>
-          Array.from({ length: EMBEDDING_DIMENSIONS }, (_, i) => ((text.length + i) % 17) / 17),
+          Array.from({ length: EMBEDDING_COLUMN_DIMENSIONS }, (_, i) => ((text.length + i) % 17) / 17),
         );
       },
     }),

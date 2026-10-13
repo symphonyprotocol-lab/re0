@@ -9,7 +9,7 @@ import { probeLlmConfig } from '@/lib/application/administration/probe-llm-confi
 const input = {
   baseUrl: 'https://llm.example.test/v1',
   model: 'fixture',
-  apiKeyEnv: 'LLM_PROVIDER_API_KEY_FIXTURE',
+  apiKey: 'sk-fixture',
   timeoutMs: 5_000,
   reasoningEffort: null,
 };
@@ -35,7 +35,6 @@ function adapterReplying(deltas: string[], fail?: Error) {
         };
       },
     }),
-    keyPresent: () => true,
   };
 }
 
@@ -56,17 +55,11 @@ describe('llm endpoint probe', () => {
 
   it('treats an empty reply as unreachable, and a missing key as a failure before any call', async () => {
     expect((await probeLlmConfig(input, adapterReplying(['  ']))).error).toBe('the model returned no text');
+    /* An entry whose credential could not be opened arrives here as an empty
+       one, and must not become an outbound call carrying no Bearer token. */
     const deps = adapterReplying(['OK']);
-    const asked: string[] = [];
-    const result = await probeLlmConfig(input, {
-      ...deps,
-      keyPresent: (name) => {
-        asked.push(name);
-        return false;
-      },
-    });
-    expect(result).toMatchObject({ ok: false, error: 'LLM_PROVIDER_API_KEY_FIXTURE is not set' });
-    expect(asked).toEqual(['LLM_PROVIDER_API_KEY_FIXTURE']);
+    const result = await probeLlmConfig({ ...input, apiKey: '' }, deps);
+    expect(result).toMatchObject({ ok: false, error: 'the model entry has no credential' });
     expect(deps.calls).toHaveLength(0);
   });
 });

@@ -1,0 +1,67 @@
+/* The widget page (/embed), inside the loader's iframe. Self-contained: the
+   host page's CSS cannot reach in here, and nothing here reaches out. */
+:root {
+  --re0-accent: #0f9d77;
+  --re0-ink: #0f172a;
+  --re0-muted: #64748b;
+  --re0-line: #e2e8f0;
+  --re0-subtle: #f8fafc;
+  --re0-card: #ffffff;
+}
+* { box-sizing: border-box; }
+html, body { margin: 0; height: 100%; background: var(--re0-card); }
+body {
+  color: var(--re0-ink);
+  font: 14px/1.5 -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, 'Helvetica Neue', Arial, 'Noto Sans', 'PingFang SC', 'Microsoft YaHei', sans-serif;
+  -webkit-font-smoothing: antialiased;
+}
+.re0-widget { display: flex; flex-direction: column; height: 100%; }
+.re0-header {
+  display: flex; align-items: center; justify-content: space-between; gap: 12px;
+  padding: 14px 16px; background: var(--re0-accent); color: #fff;
+}
+.re0-header-text { min-width: 0; }
+.re0-title { margin: 0; font-size: 15px; font-weight: 600; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.re0-subtitle { margin: 2px 0 0; font-size: 12px; opacity: .85; }
+.re0-close {
+  flex: none; width: 32px; height: 32px; border: 0; border-radius: 8px; background: rgba(255,255,255,.18);
+  color: #fff; font-size: 14px; cursor: pointer;
+}
+.re0-close:hover { background: rgba(255,255,255,.3); }
+.re0-transcript { flex: 1; overflow-y: auto; padding: 16px; display: flex; flex-direction: column; gap: 12px; background: var(--re0-subtle); }
+.re0-msg { max-width: 92%; padding: 10px 12px; border-radius: 12px; white-space: pre-wrap; word-break: break-word; }
+.re0-msg-user { align-self: flex-end; background: var(--re0-accent); color: #fff; border-bottom-right-radius: 4px; }
+.re0-msg-bot { align-self: flex-start; background: var(--re0-card); border: 1px solid var(--re0-line); border-bottom-left-radius: 4px; }
+.re0-msg-bot p { margin: 0 0 6px; }
+.re0-msg-bot p:last-child { margin-bottom: 0; }
+.re0-note { color: var(--re0-muted); font-size: 12.5px; }
+.re0-thinking { color: var(--re0-muted); font-size: 12.5px; }
+.re0-thinking::after { content: '…'; animation: re0-dots 1.2s steps(3, end) infinite; }
+@keyframes re0-dots { 0% { content: ''; } 33% { content: '.'; } 66% { content: '..'; } 100% { content: '...'; } }
+.re0-cite { font-size: 10.5px; vertical-align: super; color: var(--re0-accent); margin-left: 1px; }
+.re0-sources { margin-top: 10px; padding-top: 8px; border-top: 1px solid var(--re0-line); }
+.re0-sources-title { margin: 0 0 6px; font-size: 11.5px; font-weight: 600; color: var(--re0-muted); text-transform: uppercase; letter-spacing: .03em; }
+.re0-source {
+  display: flex; align-items: center; justify-content: space-between; gap: 8px; width: 100%;
+  padding: 7px 9px; margin-bottom: 4px; border: 1px solid var(--re0-line); border-radius: 8px;
+  background: var(--re0-card); color: var(--re0-ink); text-align: left; cursor: pointer; font: inherit; font-size: 12.5px;
+}
+.re0-source:hover { border-color: var(--re0-accent); background: var(--re0-subtle); }
+.re0-source-text { min-width: 0; display: flex; flex-direction: column; }
+.re0-source-title { font-weight: 500; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.re0-source-section { font-size: 11px; color: var(--re0-muted); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.re0-source-open { flex: none; font-size: 11px; color: var(--re0-accent); font-weight: 600; }
+.re0-composer { display: flex; gap: 8px; padding: 12px 16px; border-top: 1px solid var(--re0-line); background: var(--re0-card); }
+.re0-input {
+  flex: 1; min-width: 0; height: 40px; padding: 0 12px; border: 1px solid var(--re0-line); border-radius: 10px;
+  font: inherit; color: var(--re0-ink); background: var(--re0-card);
+}
+.re0-input:focus { outline: none; border-color: var(--re0-accent); }
+.re0-send {
+  flex: none; height: 40px; padding: 0 14px; border: 0; border-radius: 10px; background: var(--re0-accent);
+  color: #fff; font: inherit; font-weight: 600; cursor: pointer;
+}
+.re0-send:disabled { opacity: .5; cursor: default; }
+.re0-footer { margin: 0; padding: 6px 16px 10px; font-size: 11px; color: var(--re0-muted); text-align: center; background: var(--re0-card); }
+.re0-footer a { color: inherit; }
+.re0-notice { display: flex; align-items: center; justify-content: center; height: 100%; padding: 24px; color: var(--re0-muted); text-align: center; }

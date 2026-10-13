@@ -11,10 +11,11 @@
  *
  * The arithmetic is a pure function so it can be tested without a database.
  */
-import { and, desc, eq, gte, lt, lte, sql } from 'drizzle-orm';
+import { and, eq, gte, lt } from 'drizzle-orm';
 import { PLAN_CURRENCY } from '@/lib/domain/plans';
 import { paymentAdapter } from '@/lib/infrastructure/payment/provider';
 import { db, schema } from '@/lib/infrastructure/postgres/client';
+import { IN_FORCE_FIRST, subscriptionInForce, windowInForce } from '@/lib/application/plans/in-force';
 import { PLAN_VERSION_NEWEST_FIRST } from './configuration';
 
 export interface WorkspacePlanVersion {
@@ -51,14 +52,9 @@ export async function workspacePlanVersion(workspaceId: string): Promise<Workspa
     })
     .from(schema.subscription)
     .where(
-      and(
-        eq(schema.subscription.workspaceId, workspaceId),
-        eq(schema.subscription.status, 'active'),
-        lte(schema.subscription.periodStart, sql`now()`),
-        gte(schema.subscription.periodEnd, sql`now()`),
-      ),
+      and(eq(schema.subscription.workspaceId, workspaceId), subscriptionInForce()),
     )
-    .orderBy(desc(schema.subscription.periodEnd))
+    .orderBy(...IN_FORCE_FIRST)
     .limit(1);
 
   const columns = {
@@ -91,8 +87,7 @@ export async function workspacePlanVersion(workspaceId: string): Promise<Workspa
         librarySizeBytesLimit: version.librarySizeBytesLimit,
         apiKeyLimit: version.apiKeyLimit,
         subscribed: true,
-        periodStart: active.periodStart,
-        periodEnd: active.periodEnd,
+        ...windowInForce(active),
       };
     }
   }
@@ -219,9 +214,9 @@ export async function workspaceBilling(workspaceId: string): Promise<WorkspaceBi
 }
 
 /**
- * The provider module throws until an adapter is wired in, and that throw is
- * the only signal there is. Caught here so a missing provider reads as "not
- * connected" on a dashboard rather than as a 500.
+ * The provider module throws when the deployment has no Paddle settings, and
+ * that throw is the only signal there is. Caught here so a missing provider
+ * reads as "not connected" on a dashboard rather than as a 500.
  */
 export function isPaymentConnected(): boolean {
   try {

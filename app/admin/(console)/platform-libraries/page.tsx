@@ -91,7 +91,7 @@ export default async function AdminPlatformLibrariesPage({
   const page = pageNumber(params.page);
 
   /* Whether a queued refresh could build anything in this deployment. */
-  const ingestionReady = isIngestionConfigured();
+  const ingestionReady = await isIngestionConfigured();
 
   const [{ rows, total, counts }, summary] = await Promise.all([
     listPlatformLibraries({ query, status, limit: PAGE_SIZE, offset: (page - 1) * PAGE_SIZE }),

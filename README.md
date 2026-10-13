@@ -6,9 +6,9 @@
 
 ## 当前状态
 
-**本仓库目前只有设计文档，没有应用代码。** 上一版站点代码已在提交 `306e76a` 中整体移除，当前处于「设计冻结、准备开工」阶段。
+公共站点、用户 Dashboard、管理后台、REST API（`/v1`）和远程 MCP（`/mcp`）都已在本仓库实现，CLI、SDK 和独立 Verifier 在 `packages/` 下。产品规则以 [requirement.md](./requirement.md) 为准，技术约束以 [architecture.md](./architecture.md) 为准；本地运行见下文「本地开发与登录」。
 
-要开始实现，第一步是 [architecture.md](./architecture.md) 第 21 节的第 1 项：建立 App Shell、Contracts、Postgres Schema、身份与工作空间。
+尚未实现的部分：专家数据与评测赛道（[expert-data-track-proposal.md](./expert-data-track-proposal.md)，只有设计）、发布者分成的实际出账（阶段 3），以及端到端测试（`tests/e2e/` 为空，现有覆盖是 `tests/contract` 与 `tests/integration`）。
 
 ## 产品定义
 
@@ -34,6 +34,7 @@
 | [publisher-revenue-share.md](./publisher-revenue-share.md) | 发布者调用分成的完整设计 | MVP 基线 |
 | [aptos-anchoring-proposal.md](./aptos-anchoring-proposal.md) | 链上版本、审计与结算单存证 | MVP 基线 |
 | [expert-data-track-proposal.md](./expert-data-track-proposal.md) | 专家训练数据、授权交付与专业评测的集成方案 | MVP 后扩展，待评审 |
+| [self-hosting-proposal.md](./self-hosting-proposal.md) | Docker 私有部署形态：镜像、编排、与托管版的差异 | 待评审 |
 | `knowleg-market.pen` | 设计稿，27 个画板（Pencil 格式，需用 Pencil 打开） | — |
 
 冲突时的决策顺序以 [requirement.md](./requirement.md) 第 1 节为准：产品规则 → 设计稿 → 架构约束 → Context7 接入模式 → 旧文档与旧设计稿。本文只是索引，不是权威来源。

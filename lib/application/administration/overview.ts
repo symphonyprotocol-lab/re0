@@ -28,7 +28,7 @@ import {
 } from '@/lib/domain/overview';
 import { PLAN_CURRENCY } from '@/lib/domain/plans';
 import { isIngestionConfigured } from '@/lib/application/ingestion/dependencies';
-import { isLlmKeyPresent } from '@/lib/infrastructure/ai/llm';
+import { isCredentialKeyConfigured } from '@/lib/infrastructure/crypto/credentials';
 import { isObjectStoreConfigured } from '@/lib/infrastructure/objects/store';
 import { db, schema } from '@/lib/infrastructure/postgres/client';
 import { recentAuditEntries, type ConsoleAuditRow } from './list-audit';
@@ -348,11 +348,13 @@ export async function consoleOverview(input: OverviewInput): Promise<ConsoleOver
     services: {
       llm: {
         model: subscriberModel?.model ?? null,
-        keyPresent: subscriberModel ? isLlmKeyPresent(subscriberModel.apiKeyEnv) : false,
+        /* A stored key only counts when it can be opened: without the
+           sealing secret every entry still has a cipher and none can be sent. */
+        keyPresent: Boolean(subscriberModel?.hasCredential) && isCredentialKeyConfigured(),
       },
-      retrieval: retrievalProviderStatus(),
+      retrieval: await retrievalProviderStatus(),
       objectStore: isObjectStoreConfigured(),
-      ingestion: isIngestionConfigured(),
+      ingestion: await isIngestionConfigured(),
       payments: false,
     },
   };

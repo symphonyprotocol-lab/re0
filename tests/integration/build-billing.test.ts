@@ -27,7 +27,7 @@ const { BUILD_RESERVATION_TTL_MS } = await import('@/lib/application/plans/quota
 const { usageOverview } = await import('@/lib/application/plans');
 const { workspaceLibraryDetail } = await import('@/lib/application/libraries/detail');
 const { buildRequestId } = await import('@/lib/domain/build-billing');
-const { EMBEDDING_DIMENSIONS } = await import('@/lib/infrastructure/ai/providers');
+const { EMBEDDING_COLUMN_DIMENSIONS } = await import('@/lib/infrastructure/ai/providers');
 const { db, schema } = await import('@/lib/infrastructure/postgres/client');
 const { uuidv7 } = await import('@/lib/domain/id');
 const { IngestionFailure } = await import('@/lib/domain/ingestion');
@@ -75,11 +75,11 @@ function dependencies(options: { failFetch?: () => boolean } = {}) {
     },
     embeddings: () => ({
       model: 'fixture-embed-1',
-      dimensions: EMBEDDING_DIMENSIONS,
+      dimensions: EMBEDDING_COLUMN_DIMENSIONS,
       async embed(texts: string[]) {
         embedCalls += 1;
         return texts.map((text) =>
-          Array.from({ length: EMBEDDING_DIMENSIONS }, (_, i) => ((text.length + i) % 17) / 17),
+          Array.from({ length: EMBEDDING_COLUMN_DIMENSIONS }, (_, i) => ((text.length + i) % 17) / 17),
         );
       },
     }),

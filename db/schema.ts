@@ -30,6 +30,8 @@ import { sql } from 'drizzle-orm';
 // ---------------------------------------------------------------- enums
 
 export const visibilityEnum = pgEnum('visibility', ['public', 'private']);
+/** The retrieval models the console configures; see `providerModelConfig`. */
+export const modelKindEnum = pgEnum('model_kind', ['embedding', 'rerank']);
 export const lifecycleStatusEnum = pgEnum('lifecycle_status', [
   'draft',
   'submitted',
@@ -79,6 +81,8 @@ export const subscriptionStatusEnum = pgEnum('subscription_status', [
   'past_due',
   'canceled',
   'trialing',
+  /** Paused at the provider: grants nothing, but is still a subscription that can resume. */
+  'paused',
 ]);
 export const reservationStatusEnum = pgEnum('reservation_status', [
   'pending',
@@ -334,10 +338,19 @@ export const subscription = pgTable(
     providerSubscriptionId: text('provider_subscription_id'),
     periodStart: timestamp('period_start', { withTimezone: true }).notNull(),
     periodEnd: timestamp('period_end', { withTimezone: true }).notNull(),
+    /**
+     * When the provider says this state was true. Webhooks arrive out of
+     * order, so an event only overwrites a row whose state is older than its
+     * own. Null on rows no provider wrote -- the Free subscription signup
+     * creates -- which any event may supersede.
+     */
+    observedAt: timestamp('observed_at', { withTimezone: true }),
   },
   (t) => [
     /** The per-request quota transaction reads a workspace's subscription. */
     index('subscription_workspace_idx').on(t.workspaceId),
+    /** One provider subscription, one row; nulls (Free rows) stay distinct. */
+    uniqueIndex('subscription_provider_uq').on(t.providerSubscriptionId),
     /** "Is any subscription still on this plan version", before retiring one. */
     index('subscription_plan_version_idx').on(t.planVersionId),
   ],
@@ -360,8 +373,12 @@ export const addonGrant = pgTable(
     providerOrderId: text('provider_order_id'),
     createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
   },
-  /** The per-request quota transaction reads a workspace's grant balances. */
-  (t) => [index('addon_grant_workspace_idx').on(t.workspaceId)],
+  (t) => [
+    /** The per-request quota transaction reads a workspace's grant balances. */
+    index('addon_grant_workspace_idx').on(t.workspaceId),
+    /** A pack order is granted once, however often its events are redelivered. */
+    uniqueIndex('addon_grant_provider_order_uq').on(t.providerOrderId),
+  ],
 );
 
 export const paymentEvent = pgTable(
@@ -456,6 +473,32 @@ export const billingDocument = pgTable(
   ],
 );
 
+/**
+ * Checkouts this server opened at the Payment Provider. A paid checkout only
+ * becomes a `subscription` row when its webhook lands, so until then this is
+ * the one place that knows a purchase is under way; checkout reads it to
+ * reuse an open one and to refuse a second subscription while the first is
+ * still being confirmed. See lib/application/billing/checkout.
+ */
+export const paymentCheckout = pgTable(
+  'payment_checkout',
+  {
+    id: uuid('id').primaryKey(),
+    workspaceId: uuid('workspace_id').notNull().references(() => workspace.id),
+    provider: text('provider').notNull(),
+    externalId: text('external_id').notNull(),
+    kind: billingDocumentKindEnum('kind').notNull(),
+    /** The version it was priced at; an open checkout is only reused while that is still live. */
+    planVersionId: uuid('plan_version_id').notNull().references(() => planVersion.id),
+    checkoutUrl: text('checkout_url').notNull(),
+    createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
+  },
+  (t) => [
+    uniqueIndex('payment_checkout_uq').on(t.provider, t.externalId),
+    index('payment_checkout_workspace_idx').on(t.workspaceId, t.createdAt.desc()),
+  ],
+);
+
 // ---------------------------------------------------------------- knowledge
 
 export const library = pgTable(
@@ -517,6 +560,43 @@ export const library = pgTable(
   ],
 );
 
+/**
+ * A publishable key for the website widget. requirement.md 9.4,
+ * lib/domain/site-key.ts.
+ *
+ * Stored in the clear, on purpose: the value is pasted into the owner's web
+ * page, where every visitor can read it, so a hash would protect nothing.
+ * What the row protects is spelled out in its columns -- the origins that may
+ * embed the widget and how many Calls a day the key may spend. One key serves
+ * one library; the widget answers from that library and nothing else.
+ */
+export const siteKey = pgTable(
+  'site_key',
+  {
+    id: uuid('id').primaryKey(),
+    workspaceId: uuid('workspace_id').notNull().references(() => workspace.id),
+    libraryId: uuid('library_id').notNull().references(() => library.id),
+    name: text('name').notNull(),
+    key: text('key').notNull(),
+    /** Normalised origins (scheme://host[:port]) that may embed the widget. */
+    allowedOrigins: jsonb('allowed_origins').$type<string[]>().notNull(),
+    /** Calls this key may spend per rolling day, from the workspace's quota. */
+    dailyLimit: integer('daily_limit').notNull(),
+    /** The owner's greeting; null shows the product default. */
+    welcome: text('welcome'),
+    /** The widget's button and bubble colour, `#rrggbb`. */
+    accent: text('accent').notNull(),
+    lastUsedAt: timestamp('last_used_at', { withTimezone: true }),
+    revokedAt: timestamp('revoked_at', { withTimezone: true }),
+    createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
+  },
+  (t) => [
+    uniqueIndex('site_key_key_uq').on(t.key),
+    /** The library page lists its keys; authentication never does. */
+    index('site_key_library_idx').on(t.libraryId),
+  ],
+);
+
 export const libraryAlias = pgTable(
   'library_alias',
   {
@@ -566,6 +646,16 @@ export const libraryVersion = pgTable(
     parserVersion: text('parser_version').notNull(),
     chunkerVersion: text('chunker_version').notNull(),
     embeddingModel: text('embedding_model').notNull(),
+    /**
+     * The width the model was asked for, frozen beside its name.
+     *
+     * The column is fixed and narrower vectors are zero-padded into it
+     * (`lib/domain/model-config.ts`), so the stored width says nothing about
+     * which space a version lives in -- two builds of the same model at
+     * different dimensions are as incomparable as two different models, and
+     * without this the guard on the retrieval path could not tell them apart.
+     */
+    embeddingDimensions: integer('embedding_dimensions').notNull().default(1536),
     /**
      * The text-search configuration its chunks were indexed with, resolved from
      * the library's language at build time.
@@ -674,6 +764,42 @@ export const libraryScore = pgTable(
   },
   /** "This library's newest score", which the catalogue reads per row. */
   (t) => [index('library_score_current_idx').on(t.libraryId, t.computedAt.desc())],
+);
+
+/**
+ * A library's test set: questions with a known answer location, put to every
+ * build through the real retrieval (lib/domain/benchmark.ts,
+ * ingestion/evaluate.ts). requirement.md 6.3.
+ *
+ * Rows belong to the library, not to a version -- the same question is asked
+ * of each build, which is what makes two builds' hit rates comparable. The
+ * `last_*` columns are the most recent run only; the aggregate a score was
+ * computed from is frozen on that `library_score.breakdown`.
+ */
+export const libraryEvalQuestion = pgTable(
+  'library_eval_question',
+  {
+    id: uuid('id').primaryKey(),
+    libraryId: uuid('library_id').notNull().references(() => library.id),
+    question: text('question').notNull(),
+    /** Matched against a passage's source URL and document title. */
+    expectedSource: text('expected_source'),
+    /** Matched against a passage's body. */
+    expectedText: text('expected_text'),
+    /** No foreign key: a version may be purged while its questions stay. */
+    lastVersionId: uuid('last_version_id'),
+    /** 1-based rank of the first satisfying passage; null is a miss. */
+    lastRank: integer('last_rank'),
+    lastEvaluatedAt: timestamp('last_evaluated_at', { withTimezone: true }),
+    createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
+  },
+  (t) => [
+    index('library_eval_question_library_idx').on(t.libraryId, t.createdAt),
+    check(
+      'library_eval_question_expectation',
+      sql`${t.expectedSource} is not null or ${t.expectedText} is not null`,
+    ),
+  ],
 );
 
 export const document = pgTable(
@@ -902,9 +1028,10 @@ export const retrievalConfig = pgTable(
 /**
  * The playground's selectable models. architecture.md 9.5 -- the playground is
  * the only entry that calls a model, and these rows are what the console
- * configures: provider endpoint, model id, budgets and unit prices. The API
- * key is NOT here -- 15.3 keeps secrets in the environment, so the console
- * configures everything about the provider except the credential.
+ * configures: provider endpoint, model id, credential, budgets and unit
+ * prices. The credential is sealed at rest and never leaves the server in the
+ * clear (15.3); an edit that leaves the field blank carries the stored one
+ * forward, so re-minting an entry does not mean re-typing the secret.
  *
  * Immutable versions like plans and policies, but a chain per `slug` rather
  * than one for the table: an entry's history is its rows in slug order, and
@@ -922,8 +1049,13 @@ export const llmConfig = pgTable(
     label: text('label').notNull(),
     baseUrl: text('base_url').notNull(),
     model: text('model').notNull(),
-    /** Name of the environment variable holding this entry's key; never the key. */
-    apiKeyEnv: text('api_key_env').notNull().default('LLM_PROVIDER_API_KEY'),
+    /**
+     * The provider credential, sealed with `CREDENTIAL_ENCRYPTION_KEY`
+     * (`lib/infrastructure/crypto/credentials.ts`). Null on an entry nobody
+     * has given a key yet, which is a model that cannot be called rather than
+     * one quietly borrowing another entry's credential.
+     */
+    apiKeyCipher: text('api_key_cipher'),
     /** The model's context window; the playground sizes retrieval from it. */
     maxInputTokens: integer('max_input_tokens').notNull().default(8_000),
     maxOutputTokens: integer('max_output_tokens').notNull(),
@@ -947,6 +1079,55 @@ export const llmConfig = pgTable(
     createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
   },
   (t) => [index('llm_config_slug_time_idx').on(t.slug, t.createdAt.desc())],
+);
+
+/**
+ * The retrieval models: the embedding model a version's vectors are built and
+ * queried with, and the reranker that refines the fused head.
+ * architecture.md 9.1, 9.2.
+ *
+ * One row per `kind`, newest in force -- there is exactly one model an
+ * installation is indexing with and one reranker in front of its results, so
+ * unlike `llm_config` there is nothing to assign. Append-only for the same
+ * reason as `retrieval_config`: a change to either of these changes what
+ * retrieval *is*, and the history of when it changed is the table itself.
+ *
+ * `dimensions` belongs only to an embedding entry and is what
+ * `library_version.embedding_dimensions` freezes; the stored vector columns
+ * are wider and narrower vectors are padded into them (lib/domain/model-config.ts).
+ * A rerank row leaves it null.
+ */
+export const providerModelConfig = pgTable(
+  'provider_model_config',
+  {
+    id: uuid('id').primaryKey(),
+    kind: modelKindEnum('kind').notNull(),
+    /** What the console calls it -- a model id is rarely readable on its own. */
+    label: text('label').notNull(),
+    baseUrl: text('base_url').notNull(),
+    model: text('model').notNull(),
+    /** Sealed like `llm_config.api_key_cipher`; never stored in the clear. */
+    apiKeyCipher: text('api_key_cipher'),
+    /** Embedding only; null on a rerank row. */
+    dimensions: integer('dimensions'),
+    timeoutMs: integer('timeout_ms').notNull(),
+    /**
+     * Switched off means the stage does not run: retrieval keeps its keyword
+     * leg without an embedding model, and fusion order stands without a
+     * reranker. Both are documented degradations, not failures.
+     */
+    enabled: boolean('enabled').notNull().default(true),
+    createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
+  },
+  (t) => [
+    index('provider_model_config_kind_time_idx').on(t.kind, t.createdAt.desc()),
+    /* A rerank row carrying a width would describe a model that does not
+       exist, and an embedding row without one cannot be padded. */
+    check(
+      'provider_model_config_dimensions',
+      sql`(${t.kind} = 'embedding') = (${t.dimensions} is not null)`,
+    ),
+  ],
 );
 
 /**

@@ -87,6 +87,15 @@ export {
   type RefreshRequestResult,
 } from './manage-platform-libraries';
 export {
+  addEvalQuestion,
+  getLibraryBenchmark,
+  removeEvalQuestion,
+  runLibraryEvaluation,
+  type EvalQuestionView,
+  type EvaluationRunResult,
+  type LibraryBenchmarkView,
+} from './manage-eval-questions';
+export {
   getConsoleUser,
   setUserAccountStatus,
   type ConsoleUserDetail,
@@ -116,6 +125,7 @@ export {
 export {
   activeLlmConfig,
   llmConfigEntries,
+  openLlmCredential,
   readLlmAssignment,
   readLlmConfiguration,
   recordLlmCost,
@@ -134,6 +144,21 @@ export {
   type LlmProbeInput,
   type LlmProbeResult,
 } from './probe-llm-config';
+export {
+  modelAdapters,
+  modelProviderStatus,
+  readModelConfiguration,
+  resolveEmbeddingProvider,
+  resolveModelProviders,
+  resolveRerankProvider,
+  updateModelConfig,
+  ModelConfigRefused,
+  type ModelAdapters,
+  type ModelConfiguration,
+  type ResolvedModelProviders,
+  type ProviderModelRow,
+  type UpdateModelConfigInput,
+} from './manage-model-config';
 export {
   activeRetrievalSettings,
   readRetrievalConfiguration,

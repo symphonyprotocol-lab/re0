@@ -28,7 +28,7 @@ import {
   type Platform,
 } from './clients.js';
 
-const DEFAULT_URL = 'https://re0.com/mcp';
+const DEFAULT_URL = 'https://re0.io/mcp';
 const VERSION = '0.1.0';
 
 const USAGE = `re0 ${VERSION} -- connect Claude, Codex and Cursor to Re0 over MCP

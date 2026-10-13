@@ -46,28 +46,26 @@ import { containsCjk } from '@/lib/domain/cjk';
 import { admitsCandidate, RARE_TERM_MAX_DOCUMENTS } from '@/lib/domain/routing';
 import { pinPolicy, policyIsOpen, policyVerdicts } from '@/lib/application/policies';
 import { db, schema } from '@/lib/infrastructure/postgres/client';
-import {
-  embeddingAdapter,
-  isEmbeddingConfigured,
-  type EmbeddingAdapter,
-} from '@/lib/infrastructure/ai/providers';
+import type { EmbeddingAdapter } from '@/lib/infrastructure/ai/providers';
 import {
   activeRetrievalSettings,
   type ActiveRetrievalSettings,
 } from '@/lib/application/administration/manage-retrieval-config';
+import { modelAdapters } from '@/lib/application/administration/manage-model-config';
 
 export interface ResolveDependencies {
-  embeddings(): EmbeddingAdapter;
-  configured(): { embeddings: boolean };
+  /** Awaited, like the retrieval seam's: the model is a configuration row. */
+  embeddings(): EmbeddingAdapter | Promise<EmbeddingAdapter>;
+  configured(): { embeddings: boolean } | Promise<{ embeddings: boolean }>;
   /** The routing limits in force (lib/domain/retrieval-config.ts); see query-docs. */
   settings?(): Promise<ActiveRetrievalSettings>;
 }
 
-const defaultDependencies: ResolveDependencies = {
-  embeddings: embeddingAdapter,
-  configured: () => ({ embeddings: isEmbeddingConfigured() }),
-  settings: activeRetrievalSettings,
-};
+/** Per call, for the same reason as `defaultRetrievalDependencies`. */
+function defaultDependencies(): ResolveDependencies {
+  const { embeddings, configured } = modelAdapters();
+  return { embeddings, configured, settings: activeRetrievalSettings };
+}
 
 /*
  * Three of the limits here are console settings (`routingRecallLimit`,
@@ -105,11 +103,13 @@ const RELEVANCE_WEIGHT = 0.02;
 
 const EVIDENCE_TERMS = 8;
 const EVIDENCE_TITLES = 5;
+/** Pinnable labels listed per candidate; the newest are the likely asks. */
+const VERSION_LABELS = 10;
 
 export async function resolveLibrary(
   caller: CallerContext,
   input: ResolveLibraryInput,
-  dependencies: ResolveDependencies = defaultDependencies,
+  dependencies: ResolveDependencies = defaultDependencies(),
 ): Promise<ResolveLibraryOutput> {
   const database = db();
   const settings = await (dependencies.settings ?? activeRetrievalSettings)();
@@ -144,8 +144,11 @@ export async function resolveLibrary(
   /* ------------------------------------------------------- path 2: profile ANN */
 
   let semantic: { libraryId: string; distance: number }[] = [];
-  if (dependencies.configured().embeddings) {
-    const [queryVector] = await dependencies.embeddings().embed([input.query]);
+  const embeddings = (await dependencies.configured()).embeddings
+    ? await dependencies.embeddings()
+    : null;
+  if (embeddings) {
+    const [queryVector] = await embeddings.embed([input.query]);
     if (queryVector) {
       const literal = `[${queryVector.join(',')}]`;
       semantic = await database
@@ -160,6 +163,23 @@ export async function resolveLibrary(
             eq(schema.library.id, schema.libraryProfileVector.libraryId),
             /* Centroids of superseded versions must not route. */
             eq(schema.library.currentVersionId, schema.libraryProfileVector.versionId),
+          ),
+        )
+        /*
+         * Only centroids from the query's own vector space: the same model at
+         * the same width, both frozen on the version (the guard query-docs
+         * applies to chunks). The embedding model is a console save, and
+         * after one every library keeps its old centroids until it rebuilds
+         * -- padded to the same column width, so comparing across the change
+         * raises no error and routes by nonsense. Those libraries still route
+         * through the name and rare-term paths meanwhile.
+         */
+        .innerJoin(
+          schema.libraryVersion,
+          and(
+            eq(schema.libraryVersion.id, schema.libraryProfileVector.versionId),
+            eq(schema.libraryVersion.embeddingModel, embeddings.model),
+            eq(schema.libraryVersion.embeddingDimensions, embeddings.dimensions),
           ),
         )
         .where(visible)
@@ -388,11 +408,40 @@ export async function resolveLibrary(
     )
     .slice(0, settings.routingResultLimit);
 
+  /*
+   * The labels each returned library can be pinned to -- what
+   * `pinLabeledVersion` accepts, so the list never offers one that would then
+   * be refused. Read for the returned few only, after ranking.
+   */
+  const pinnable = await database
+    .select({
+      libraryId: schema.libraryVersion.libraryId,
+      label: schema.libraryVersion.label,
+    })
+    .from(schema.libraryVersion)
+    .where(
+      and(
+        inArray(
+          schema.libraryVersion.libraryId,
+          ranked.map(({ row }) => row.libraryId),
+        ),
+        inArray(schema.libraryVersion.indexStatus, ['ready', 'stale']),
+      ),
+    )
+    .orderBy(desc(schema.libraryVersion.createdAt));
+  const versionsOf = new Map<string, string[]>();
+  for (const row of pinnable) {
+    const labels = versionsOf.get(row.libraryId) ?? [];
+    if (labels.length < VERSION_LABELS) labels.push(row.label);
+    versionsOf.set(row.libraryId, labels);
+  }
+
   const results: LibraryCandidate[] = ranked.map(({ row, quality }) => ({
     libraryId: row.publicId,
     title: row.title,
     description: row.description,
     version: row.versionLabel,
+    versions: versionsOf.get(row.libraryId) ?? [row.versionLabel],
     trustScore: quality.trust,
     benchmarkScore: quality.benchmark,
     chunks: row.totalChunks,

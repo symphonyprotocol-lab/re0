@@ -114,6 +114,13 @@ export const libraryCandidateSchema = z.object({
   title: z.string(),
   description: z.string().nullable(),
   version: z.string(),
+  /**
+   * Every label `query-docs` will accept after this id, newest first and
+   * `version` among them (requirement.md 9.2). Without the list an agent can
+   * only ever ask the current version: a superseded one stays queryable, but
+   * nothing told the caller its label.
+   */
+  versions: z.array(z.string()),
   trustScore: z.number().int().min(0).max(100),
   benchmarkScore: z.number().int().min(0).max(100),
   chunks: z.number().int().nonnegative(),

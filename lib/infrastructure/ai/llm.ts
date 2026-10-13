@@ -12,12 +12,7 @@
  */
 import { createOpenAICompatible } from '@ai-sdk/openai-compatible';
 import { streamText } from 'ai';
-import {
-  DEFAULT_LLM_API_KEY_ENV,
-  isApiKeyEnvName,
-  openThinkFilter,
-  TIMEOUT_MS,
-} from '@/lib/domain/generation';
+import { openThinkFilter, TIMEOUT_MS } from '@/lib/domain/generation';
 import { ProviderUnavailable } from './providers';
 
 /** What one streamed completion hands back. No provider types, by design. */
@@ -60,57 +55,14 @@ export interface LlmAdapter {
 }
 
 /**
- * The environment variables an entry may name as its credential.
- *
- * A shape check is not a boundary here. `apiKeyEnv` is typed into the console
- * by anyone holding the `models` capability -- an operator, not only the super
- * administrator -- and read straight out of `process.env` below, so any name
- * that merely *looked* like a variable would be sent as a Bearer token to a
- * base URL the same operator chose. `SESSION_SIGNING_SECRET` typed here and
- * "tested" against their own endpoint is the console's own authority walking
- * out over HTTP; `DATABASE_URL` is the database.
- *
- * So the name has to carry the permission, and the naming convention already
- * does: a credential for this provider is `LLM_PROVIDER_API_KEY`, and a second
- * provider's is that name with a suffix. Fail-closed on the prefix -- what an
- * operator can reach is the set of keys they are already entitled to point at
- * an endpoint of their choosing, and adding a provider is one environment
- * variable rather than two.
- */
-const API_KEY_ENV_PREFIX = DEFAULT_LLM_API_KEY_ENV;
-
-export function isAllowedApiKeyEnv(name: string): boolean {
-  return isApiKeyEnvName(name) && name.startsWith(API_KEY_ENV_PREFIX);
-}
-
-/**
- * The credential variables this deployment actually holds, for the console to
- * offer. Suggestions, not the rule: a name that fits the convention but is not
- * set yet is refused for being unset, which is a different thing to fix than a
- * name that may never be read at all.
- */
-export function configuredLlmApiKeyEnvs(): readonly string[] {
-  const present = Object.keys(process.env).filter(
-    (name) => isAllowedApiKeyEnv(name) && Boolean(process.env[name]),
-  );
-  return [...new Set([DEFAULT_LLM_API_KEY_ENV, ...present])].sort();
-}
-
-/** Whether the named variable (the entry's, or the default) holds a key. */
-export function isLlmKeyPresent(apiKeyEnv: string = DEFAULT_LLM_API_KEY_ENV): boolean {
-  if (!isAllowedApiKeyEnv(apiKeyEnv)) return false;
-  return Boolean(process.env[apiKeyEnv]);
-}
-
-/**
  * OpenAI-compatible chat completions, through the AI SDK.
  *
- * Endpoint and model are configuration the console owns (`llm_config`); only
- * the credential lives in the environment (architecture.md 15.3, 19.1), under
- * the variable name the entry gives, so two providers can sit side by side. One
- * attempt, no retries: 9.5 degrades to the chunk list rather than spending
- * the budget on a provider that is not answering, so the SDK's own retrying
- * is switched off.
+ * Endpoint, model and credential are all configuration the console owns
+ * (`llm_config`); the key arrives already opened, so this module never touches
+ * the cipher or the secret that opens it (architecture.md 15.3). One attempt,
+ * no retries: 9.5 degrades to the chunk list rather than spending the budget
+ * on a provider that is not answering, so the SDK's own retrying is switched
+ * off.
  *
  * Two clocks, not one. `timeoutMs` is idle time: it runs from the request
  * until the first token and is re-armed by every token after, so it catches
@@ -130,20 +82,12 @@ const PROVIDER_NAME = 'llm';
 /** The hard end of any one call, however busy the model still is. */
 const STREAM_CEILING_MS = TIMEOUT_MS.max;
 
-export function llmAdapter(config: {
-  baseUrl: string;
-  model: string;
-  apiKeyEnv?: string;
-}): LlmAdapter {
-  const apiKeyEnv = config.apiKeyEnv ?? DEFAULT_LLM_API_KEY_ENV;
-  /* Refused where the variable is actually read, so a row written before the
-     allowlist existed -- or by any path that forgets to validate -- cannot
-     turn an unrelated secret into an outbound Bearer token either. */
-  if (!isAllowedApiKeyEnv(apiKeyEnv)) {
-    throw new ProviderUnavailable('llm', `${apiKeyEnv} is not an allowed credential variable`);
-  }
-  const apiKey = process.env[apiKeyEnv];
-  if (!apiKey) throw new ProviderUnavailable('llm', `${apiKeyEnv} is not set`);
+export function llmAdapter(config: { baseUrl: string; model: string; apiKey: string }): LlmAdapter {
+  /* Refused here as well as at the call site: an entry saved before it had a
+     credential resolves to an empty string, and an empty Bearer token reaches
+     the provider as a puzzling 401 rather than as the configuration gap it is. */
+  const apiKey = config.apiKey;
+  if (!apiKey) throw new ProviderUnavailable('llm', 'the model entry has no credential');
 
   const provider = createOpenAICompatible({
     name: PROVIDER_NAME,

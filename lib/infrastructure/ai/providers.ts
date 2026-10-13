@@ -2,21 +2,33 @@
  * Replaceable AI provider adapters for the retrieval path: embeddings and
  * reranking.
  *
- * Both speak an HTTP shape their vendors share and take their base URL from
- * the environment, so a different provider is a configuration change rather
- * than a code change. That is the whole point of the seam: architecture.md 20
- * forbids a provider type from leaking into the domain or the SDK.
+ * Both speak an HTTP shape their vendors share and are handed their endpoint,
+ * model, credential and clock by the caller, so a different provider is a
+ * console save rather than a code change -- and this module reads no
+ * environment of its own. That is the whole point of the seam: architecture.md
+ * 20 forbids a provider type from leaking into the domain or the SDK, and 15.3
+ * keeps the credential's storage the application's problem rather than the
+ * adapter's.
  *
  * The LLM adapter deliberately lives next door in `llm.ts` rather than here.
  * 9.5 requires that REST and MCP keep working with the generation layer
  * removed, and this module is on their request path -- so the AI SDK must not
  * be reachable from it, which an import in this file would make it.
  */
+import { EMBEDDING_COLUMN_DIMENSIONS, padToColumn } from '@/lib/domain/model-config';
 
 export interface EmbeddingAdapter {
+  /** Vectors padded to the stored column width; see `padToColumn`. */
   embed(texts: string[]): Promise<number[][]>;
   /** Recorded on `library_version.embedding_model`, which freezes it. */
   readonly model: string;
+  /**
+   * The width the *model* is asked for, recorded on
+   * `library_version.embedding_dimensions`. Not the width of what `embed`
+   * returns, which is always the column's: a version built at 1024 and one
+   * built at 1536 live in different spaces even though their rows are the
+   * same size, and this is the number that tells them apart.
+   */
   readonly dimensions: number;
 }
 
@@ -25,20 +37,15 @@ export interface RerankAdapter {
 }
 
 /**
- * The `chunk.embedding` column is `vector(1536)`.
+ * The stored width of `chunk.embedding` and `library_profile_vector.embedding`.
  *
- * A model of a different width cannot be written to that column at all, so this
- * is checked on the way out of the adapter rather than discovered as a driver
- * error halfway through a build.
+ * Re-exported from the domain so the ingestion and retrieval paths can keep
+ * importing it from the adapter they already depend on.
  */
-export const EMBEDDING_DIMENSIONS = 1536;
-
-const DEFAULT_EMBEDDING_BASE_URL = 'https://api.openai.com/v1';
-const DEFAULT_EMBEDDING_MODEL = 'text-embedding-3-small';
+export { EMBEDDING_COLUMN_DIMENSIONS };
 
 /** Provider request caps. A build sends thousands of chunks through this. */
 const EMBEDDING_BATCH = 96;
-const EMBEDDING_TIMEOUT_MS = 60_000;
 const EMBEDDING_ATTEMPTS = 3;
 
 export class ProviderUnavailable extends Error {
@@ -51,28 +58,37 @@ export class ProviderUnavailable extends Error {
   }
 }
 
-export function isEmbeddingConfigured(): boolean {
-  return Boolean(process.env.EMBEDDING_PROVIDER_API_KEY);
+/** What the console stores for an embedding entry, resolved and opened. */
+export interface EmbeddingProviderConfig {
+  baseUrl: string;
+  model: string;
+  apiKey: string;
+  /** What the provider is asked for, and what the version freezes. */
+  dimensions: number;
+  timeoutMs: number;
 }
 
-export function embeddingAdapter(): EmbeddingAdapter {
-  const apiKey = process.env.EMBEDDING_PROVIDER_API_KEY;
-  if (!apiKey) throw new ProviderUnavailable('embedding', 'EMBEDDING_PROVIDER_API_KEY is not set');
-
-  const baseUrl = (process.env.EMBEDDING_PROVIDER_BASE_URL ?? DEFAULT_EMBEDDING_BASE_URL).replace(
-    /\/+$/,
-    '',
-  );
-  const model = process.env.EMBEDDING_MODEL ?? DEFAULT_EMBEDDING_MODEL;
+export function embeddingAdapter(config: EmbeddingProviderConfig): EmbeddingAdapter {
+  const baseUrl = config.baseUrl.replace(/\/+$/, '');
+  const { model, apiKey, dimensions, timeoutMs } = config;
+  if (!apiKey) throw new ProviderUnavailable('embedding', 'the embedding model has no credential');
+  if (dimensions > EMBEDDING_COLUMN_DIMENSIONS) {
+    throw new ProviderUnavailable(
+      'embedding',
+      `${dimensions} dimensions do not fit the ${EMBEDDING_COLUMN_DIMENSIONS}-wide column`,
+    );
+  }
 
   return {
     model,
-    dimensions: EMBEDDING_DIMENSIONS,
+    dimensions,
     async embed(texts: string[]): Promise<number[][]> {
       const vectors: number[][] = [];
       for (let offset = 0; offset < texts.length; offset += EMBEDDING_BATCH) {
         const batch = texts.slice(offset, offset + EMBEDDING_BATCH);
-        vectors.push(...(await embedBatch({ apiKey, baseUrl, model, batch })));
+        vectors.push(
+          ...(await embedBatch({ apiKey, baseUrl, model, dimensions, timeoutMs, batch })),
+        );
       }
       return vectors;
     },
@@ -83,6 +99,8 @@ async function embedBatch(input: {
   apiKey: string;
   baseUrl: string;
   model: string;
+  dimensions: number;
+  timeoutMs: number;
   batch: string[];
 }): Promise<number[][]> {
   let lastError = 'unknown';
@@ -99,9 +117,9 @@ async function embedBatch(input: {
         body: JSON.stringify({
           model: input.model,
           input: input.batch,
-          dimensions: EMBEDDING_DIMENSIONS,
+          dimensions: input.dimensions,
         }),
-        signal: AbortSignal.timeout(EMBEDDING_TIMEOUT_MS),
+        signal: AbortSignal.timeout(input.timeoutMs),
         cache: 'no-store',
       });
     } catch {
@@ -131,15 +149,22 @@ async function embedBatch(input: {
     if (vectors.length !== input.batch.length) {
       throw new ProviderUnavailable('embedding', 'embedding provider returned a short batch');
     }
+    /*
+     * Held to the configured width, not the column's: a provider that ignored
+     * the `dimensions` it was asked for has produced vectors from a different
+     * space than the version records, and padding those into the column would
+     * store them as if they belonged. The padding happens after the check,
+     * which is the only place the two widths are allowed to differ.
+     */
     for (const vector of vectors) {
-      if (vector.length !== EMBEDDING_DIMENSIONS) {
+      if (vector.length !== input.dimensions) {
         throw new ProviderUnavailable(
           'embedding',
-          `embedding provider returned ${vector.length} dimensions, not ${EMBEDDING_DIMENSIONS}`,
+          `embedding provider returned ${vector.length} dimensions, not ${input.dimensions}`,
         );
       }
     }
-    return vectors;
+    return vectors.map(padToColumn);
   }
 
   throw new ProviderUnavailable('embedding', `embedding provider unavailable: ${lastError}`);
@@ -150,30 +175,28 @@ async function backoff(attempt: number): Promise<void> {
   await new Promise((resolve) => setTimeout(resolve, 500 * 2 ** (attempt - 1)));
 }
 
-const DEFAULT_RERANK_MODEL = 'rerank-v3.5';
-const RERANK_TIMEOUT_MS = 5_000;
-
-export function isRerankConfigured(): boolean {
-  return Boolean(process.env.RERANK_PROVIDER_API_KEY && process.env.RERANK_PROVIDER_BASE_URL);
+/** What the console stores for a rerank entry, resolved and opened. */
+export interface RerankProviderConfig {
+  baseUrl: string;
+  model: string;
+  apiKey: string;
+  timeoutMs: number;
 }
 
 /**
- * Speaks the Cohere-compatible `/rerank` shape (Cohere, Jina, and most
- * hosted rerankers accept it): query + documents in, `{index,
- * relevance_score}` pairs out. The base URL is configuration, so a different
- * provider is an environment change.
+ * Speaks the Cohere-compatible `/rerank` shape (Cohere, Jina, OpenRouter and
+ * most hosted rerankers accept it): query + documents in, `{index,
+ * relevance_score}` pairs out. Endpoint and model are configuration, so a
+ * different provider is a console save.
  *
  * One attempt, tight timeout, no retries -- unlike embeddings, a rerank is an
  * ordering refinement on an already-correct candidate list, and the caller
  * degrades to fusion order rather than waiting out a backoff.
  */
-export function rerankAdapter(): RerankAdapter {
-  const apiKey = process.env.RERANK_PROVIDER_API_KEY;
-  const baseUrl = process.env.RERANK_PROVIDER_BASE_URL?.replace(/\/+$/, '');
-  if (!apiKey || !baseUrl) {
-    throw new ProviderUnavailable('rerank', 'RERANK_PROVIDER_API_KEY / _BASE_URL are not set');
-  }
-  const model = process.env.RERANK_MODEL ?? DEFAULT_RERANK_MODEL;
+export function rerankAdapter(config: RerankProviderConfig): RerankAdapter {
+  const baseUrl = config.baseUrl.replace(/\/+$/, '');
+  const { model, apiKey, timeoutMs } = config;
+  if (!apiKey) throw new ProviderUnavailable('rerank', 'the rerank model has no credential');
 
   return {
     async rerank(query: string, candidates: string[]): Promise<number[]> {
@@ -184,7 +207,7 @@ export function rerankAdapter(): RerankAdapter {
           'content-type': 'application/json',
         },
         body: JSON.stringify({ model, query, documents: candidates }),
-        signal: AbortSignal.timeout(RERANK_TIMEOUT_MS),
+        signal: AbortSignal.timeout(timeoutMs),
         cache: 'no-store',
       });
       if (!response.ok) {

@@ -12,13 +12,17 @@
  * spent are returned so the operator sees what the check cost.
  */
 import type { ReasoningEffort } from '@/lib/domain/generation';
-import { isLlmKeyPresent, llmAdapter, type LlmAdapter } from '@/lib/infrastructure/ai/llm';
+import { llmAdapter, type LlmAdapter } from '@/lib/infrastructure/ai/llm';
 
 export interface LlmProbeInput {
   baseUrl: string;
   model: string;
-  /** Name of the environment variable holding the key. */
-  apiKeyEnv: string;
+  /**
+   * The credential to call with: the one typed into the form when the entry
+   * is new, or the stored one opened for it. Never reaches the browser --
+   * the action resolves it on the way in.
+   */
+  apiKey: string;
   timeoutMs: number;
   reasoningEffort: ReasoningEffort | null;
 }
@@ -35,8 +39,7 @@ export interface LlmProbeResult {
 }
 
 export interface LlmProbeDependencies {
-  llm(config: { baseUrl: string; model: string; apiKeyEnv: string }): LlmAdapter;
-  keyPresent(apiKeyEnv: string): boolean;
+  llm(config: { baseUrl: string; model: string; apiKey: string }): LlmAdapter;
 }
 
 const PROBE_SYSTEM_PROMPT = 'Reply with the single word OK.';
@@ -47,7 +50,7 @@ const REPLY_CHARS = 120;
 
 export async function probeLlmConfig(
   input: LlmProbeInput,
-  dependencies: LlmProbeDependencies = { llm: llmAdapter, keyPresent: isLlmKeyPresent },
+  dependencies: LlmProbeDependencies = { llm: llmAdapter },
 ): Promise<LlmProbeResult> {
   const startedAt = Date.now();
   const failed = (error: string): LlmProbeResult => ({
@@ -59,12 +62,12 @@ export async function probeLlmConfig(
     error,
   });
 
-  if (!dependencies.keyPresent(input.apiKeyEnv)) return failed(`${input.apiKeyEnv} is not set`);
+  if (input.apiKey.length === 0) return failed('the model entry has no credential');
 
   let stream;
   try {
     stream = dependencies
-      .llm({ baseUrl: input.baseUrl, model: input.model, apiKeyEnv: input.apiKeyEnv })
+      .llm({ baseUrl: input.baseUrl, model: input.model, apiKey: input.apiKey })
       .stream({
       systemPrompt: PROBE_SYSTEM_PROMPT,
       userMessage: PROBE_USER_MESSAGE,

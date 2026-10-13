@@ -6,7 +6,7 @@
  * historical usage. Rotation is the two in one transaction: a replacement
  * with the same name, environment and scopes, and the old key silenced.
  */
-import { and, count, desc, eq, isNull, sql } from 'drizzle-orm';
+import { and, count, desc, eq, isNull } from 'drizzle-orm';
 import { AppError } from '@/contracts/errors';
 import {
   apiKeyPrefix,
@@ -17,7 +17,9 @@ import {
   type ApiKeyEnvironment,
 } from '@/lib/domain/api-key';
 import { uuidv7 } from '@/lib/domain/id';
+import { randomHex } from '@/lib/infrastructure/crypto/tokens';
 import { db, schema } from '@/lib/infrastructure/postgres/client';
+import { IN_FORCE_FIRST, subscriptionInForce } from '@/lib/application/plans/in-force';
 import { PLAN_VERSION_NEWEST_FIRST } from '@/lib/application/plans/configuration';
 import { hashApiKey } from './api-key';
 import { canManageApiKeys, type WorkspaceRole } from '@/lib/application/libraries';
@@ -222,9 +224,7 @@ async function mint(environment: ApiKeyEnvironment): Promise<{
   prefix: string;
   lastFour: string;
 }> {
-  const secret = Array.from(crypto.getRandomValues(new Uint8Array(24)), (byte) =>
-    byte.toString(16).padStart(2, '0'),
-  ).join('');
+  const secret = randomHex(24);
   const prefix = apiKeyPrefix(environment);
   const key = `${prefix}${secret}`;
   return { key, hash: await hashApiKey(key), prefix, lastFour: key.slice(-4) };
@@ -238,14 +238,9 @@ async function apiKeyLimit(workspaceId: string): Promise<number> {
     .from(schema.subscription)
     .innerJoin(schema.planVersion, eq(schema.planVersion.id, schema.subscription.planVersionId))
     .where(
-      and(
-        eq(schema.subscription.workspaceId, workspaceId),
-        eq(schema.subscription.status, 'active'),
-        sql`${schema.subscription.periodStart} <= now()`,
-        sql`${schema.subscription.periodEnd} >= now()`,
-      ),
+      and(eq(schema.subscription.workspaceId, workspaceId), subscriptionInForce()),
     )
-    .orderBy(desc(schema.subscription.periodEnd))
+    .orderBy(...IN_FORCE_FIRST)
     .limit(1);
   if (active) return active.limit;
 

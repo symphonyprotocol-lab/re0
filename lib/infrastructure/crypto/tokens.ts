@@ -26,6 +26,13 @@ export function randomToken(bytes = 32): string {
   return base64UrlEncode(buffer);
 }
 
+/** `bytes` of randomness as lower-case hex: the body of API and site keys. */
+export function randomHex(bytes: number): string {
+  const buffer = new Uint8Array(bytes);
+  crypto.getRandomValues(buffer);
+  return Array.from(buffer, (byte) => byte.toString(16).padStart(2, '0')).join('');
+}
+
 export async function hmacSha256Bytes(
   secret: string,
   value: string,

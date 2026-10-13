@@ -7,13 +7,11 @@ import { publicClaimStatus } from '@/lib/application/claims';
 import { POPULARITY_WINDOW_DAYS, publicLibraryDetail } from '@/lib/application/libraries';
 import { API_KEY_PLACEHOLDER } from '@/lib/dashboard/snippets';
 import type { Dictionary } from '@/lib/i18n/dictionary';
+import { publicUrl } from '@/lib/site/origin';
 import { fill } from '@/lib/i18n/format';
 import { getMessages, translations } from '@/lib/i18n/server';
 
 type Params = { params: Promise<{ libraryId: string[] }> };
-
-/** Where the public site lives when the deployment does not say. */
-const PUBLIC_ORIGIN = 'https://re0.com';
 
 /**
  * One read per request, not two.
@@ -114,10 +112,9 @@ export default async function LibraryDetailPage({ params }: Params) {
   const sizeMb = Math.max(1, Math.round(entry.storageBytes / 1_048_576));
   const pinnedId = `${entry.publicId}/${entry.version.label}`;
   const current = indexStatusLabel(entry.version.indexStatus, d.indexStatus);
-  const origin = (process.env.APP_BASE_URL ?? PUBLIC_ORIGIN).replace(/\/$/, '');
 
   const restSample = [
-    `curl "${origin}/api/v1/context?libraryId=${encodeURIComponent(entry.publicId)}&query=how+do+I+get+started" \\`,
+    `curl "${publicUrl('/api/v1/context')}?libraryId=${encodeURIComponent(entry.publicId)}&query=how+do+I+get+started" \\`,
     /* The real prefix (`lib/dashboard/snippets.ts`, and `mm_live_`/`mm_test_`
        in architecture.md 5.1). `re0_...` is a format the server refuses
        outright, so a reader who pasted it and substituted their key would be

@@ -7,8 +7,9 @@
  * only integration test needs a live repository, an embedding provider and an
  * S3 bucket, which in practice means a pipeline with no integration test.
  */
+import { modelAdapters } from '@/lib/application/administration/manage-model-config';
 import type { EmbeddingAdapter } from '@/lib/infrastructure/ai/providers';
-import { embeddingAdapter, isEmbeddingConfigured } from '@/lib/infrastructure/ai/providers';
+import type { EvaluationDependencies } from './evaluate';
 import { fetchSnapshot } from '@/lib/infrastructure/connectors';
 import type { FetchSnapshotInput, SourceSnapshot } from '@/lib/infrastructure/connectors';
 import type { ObjectStore } from '@/lib/infrastructure/objects/store';
@@ -16,18 +17,35 @@ import { isObjectStoreConfigured, objectStore } from '@/lib/infrastructure/objec
 
 export interface IngestionDependencies {
   fetchSnapshot(input: FetchSnapshotInput): Promise<SourceSnapshot>;
-  embeddings(): EmbeddingAdapter;
+  /**
+   * Awaited, because the model is console configuration now rather than a
+   * process environment: the default resolves a row and opens its credential.
+   * A test's synchronous fake still satisfies this -- awaiting a plain value
+   * is awaiting a resolved promise.
+   */
+  embeddings(): EmbeddingAdapter | Promise<EmbeddingAdapter>;
   store(): ObjectStore;
   /** Whether a build could run at all. Checked before anything is fetched. */
-  configured(): { embeddings: boolean; storage: boolean };
+  configured():
+    | { embeddings: boolean; storage: boolean }
+    | Promise<{ embeddings: boolean; storage: boolean }>;
+  /**
+   * The retrieval a build's benchmark evaluation asks its test questions
+   * through (ingestion/evaluate.ts). Absent means the installation's own --
+   * what a caller's question would get, which is the point of the measurement.
+   */
+  retrieval?(): EvaluationDependencies;
 }
 
 export const defaultDependencies: IngestionDependencies = {
   fetchSnapshot,
-  embeddings: embeddingAdapter,
+  /* Reached only after `configured()` said there was one, so a throw here is
+     a model switched off between the check and the build rather than an
+     installation that never configured one. */
+  embeddings: () => modelAdapters().embeddings(),
   store: objectStore,
-  configured: () => ({
-    embeddings: isEmbeddingConfigured(),
+  configured: async () => ({
+    embeddings: (await modelAdapters().configured()).embeddings,
     storage: isObjectStoreConfigured(),
   }),
 };
@@ -76,7 +94,7 @@ export function memoryObjectStore(
  * rather than by an operation that fails at `validate-source` minutes later
  * with a reason that was knowable up front.
  */
-export function isIngestionConfigured(): boolean {
-  const available = defaultDependencies.configured();
+export async function isIngestionConfigured(): Promise<boolean> {
+  const available = await defaultDependencies.configured();
   return available.embeddings && available.storage;
 }

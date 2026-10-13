@@ -1,6 +1,6 @@
 # @symphonyprotocollab/re0
 
-Connect Claude Code, Claude Desktop, Cursor and Codex to [Re0](https://re0.com) knowledge libraries over MCP.
+Connect Claude Code, Claude Desktop, Cursor and Codex to [Re0](https://re0.io) knowledge libraries over MCP.
 
 ```bash
 npx @symphonyprotocollab/re0 setup
@@ -18,7 +18,7 @@ npx @symphonyprotocollab/re0 remove
 | --- | --- |
 | `--client <id>` | `claude-code`, `claude-desktop`, `cursor`, `codex` or `all`; repeatable. Default: clients whose configuration file already exists. |
 | `--key <key>` | An API key from the Re0 dashboard. Without one the connection is anonymous and rides the trial rate limit. Also read from `RE0_API_KEY`. |
-| `--url <url>` | The MCP endpoint. Default `https://re0.com/mcp`. |
+| `--url <url>` | The MCP endpoint. Default `https://re0.io/mcp`. |
 | `--yes` | Write without asking. |
 
 `remove` deletes the `re0` entry from each client and leaves the rest of the file as it was.

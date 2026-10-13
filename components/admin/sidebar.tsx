@@ -113,7 +113,7 @@ export function AdminSidebar({
           needs: 'billing',
         },
         /* Model and retrieval configuration have their own capability; a plan is a price. */
-        { href: '/admin/llm', label: nav.llm, Icon: SparklesIcon, needs: 'models' },
+        { href: '/admin/models', label: nav.models, Icon: SparklesIcon, needs: 'models' },
         { href: '/admin/retrieval', label: nav.retrieval, Icon: FilterIcon, needs: 'models' },
       ],
     },

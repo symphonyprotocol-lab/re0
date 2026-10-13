@@ -24,7 +24,7 @@ export const SERVER_NAME = 're0';
 export const CODEX_TOKEN_ENV = 'RE0_API_KEY';
 
 export interface Connection {
-  /** The MCP endpoint, e.g. `https://re0.com/mcp`. */
+  /** The MCP endpoint, e.g. `https://re0.io/mcp`. */
   url: string;
   /** An API key from the dashboard; absent for anonymous, rate-limited use. */
   apiKey?: string;

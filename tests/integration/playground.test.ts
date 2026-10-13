@@ -16,6 +16,7 @@ const describeWithDb = TEST_DATABASE_URL ? describe : describe.skip;
 
 process.env.DATABASE_URL = TEST_DATABASE_URL ?? 'postgres://unused';
 process.env.SESSION_SIGNING_SECRET ??= 'test-secret-that-is-long-enough-000000';
+process.env.CREDENTIAL_ENCRYPTION_KEY ??= 'test-credential-key-long-enough-00000000';
 
 const { buildVersion, memoryObjectStore, publishVersion } = await import(
   '@/lib/application/ingestion'
@@ -29,12 +30,13 @@ const {
   readLlmConfiguration,
   activeLlmConfig,
   llmConfigEntries,
+  openLlmCredential,
   selectableLlmModels,
 } = await import('@/lib/application/administration');
 const { createPlatformLibrary } = await import(
   '@/lib/application/administration/manage-platform-libraries'
 );
-const { EMBEDDING_DIMENSIONS } = await import('@/lib/infrastructure/ai/providers');
+const { EMBEDDING_COLUMN_DIMENSIONS } = await import('@/lib/infrastructure/ai/providers');
 const { db, schema } = await import('@/lib/infrastructure/postgres/client');
 const { uuidv7 } = await import('@/lib/domain/id');
 
@@ -71,7 +73,7 @@ const CONFIG = {
   label: 'Fixture model',
   baseUrl: 'https://llm.example.test/v1',
   model: 'fixture-llm-1',
-  apiKeyEnv: 'LLM_PROVIDER_API_KEY',
+  hasCredential: true,
   maxInputTokens: 8_000,
   maxOutputTokens: 800,
   timeoutMs: 15_000,
@@ -103,7 +105,7 @@ function playgroundDeps(options: {
   return {
     config: async () => (options.config === undefined ? CONFIG : options.config),
     audience: async () => 'trial' as const,
-    keyPresent: () => true,
+    credential: async () => 'sk-fixture',
     recordCost: recordLlmCost,
     retrieval,
     llm: () => ({
@@ -165,10 +167,10 @@ function dependencies(content: string = BEETLES) {
     },
     embeddings: () => ({
       model: 'fixture-embed-1',
-      dimensions: EMBEDDING_DIMENSIONS,
+      dimensions: EMBEDDING_COLUMN_DIMENSIONS,
       async embed(texts: string[]) {
         return texts.map((text) =>
-          Array.from({ length: EMBEDDING_DIMENSIONS }, (_, i) => ((text.length + i) % 17) / 17),
+          Array.from({ length: EMBEDDING_COLUMN_DIMENSIONS }, (_, i) => ((text.length + i) % 17) / 17),
         );
       },
     }),
@@ -451,6 +453,7 @@ describeWithDb('playground', () => {
     const entry = {
       actor: { administratorId, email: 'ops@example.test' },
       slug: `bounds-${Date.now()}`,
+      apiKey: 'sk-fixture',
       label: 'Bounds fixture',
       baseUrl: 'https://llm.example.test/v1',
       model: 'fixture-bounds',
@@ -517,6 +520,7 @@ describeWithDb('playground', () => {
     const entry = {
       actor: { administratorId, email: 'ops@example.test' },
       slug: `effort-${Date.now()}`,
+      apiKey: 'sk-fixture',
       label: 'Effort fixture',
       baseUrl: 'https://llm.example.test/v1',
       model: 'fixture-effort',
@@ -569,6 +573,7 @@ describeWithDb('playground', () => {
     const stamp = Date.now();
     const shared = {
       actor: { administratorId, email: 'ops@example.test' },
+      apiKey: 'sk-fixture',
       baseUrl: 'https://llm.example.test/v1',
       maxInputTokens: 8_000,
       maxOutputTokens: 800,
@@ -669,6 +674,7 @@ describeWithDb('playground', () => {
     const stamp = Date.now();
     const shared = {
       actor: { administratorId, email: 'ops@example.test' },
+      apiKey: 'sk-fixture',
       baseUrl: 'https://llm.example.test/v1',
       maxInputTokens: 8_000,
       maxOutputTokens: 800,
@@ -852,9 +858,12 @@ describeWithDb('playground', () => {
       };
       const first = await updateLlmConfig({
         ...entry,
+        apiKey: 'sk-fixture',
         model: 'fixture-llm-1',
         reason: 'initial configuration',
       });
+      /* No credential on the edit: a re-mint carries the stored one forward,
+         so changing a model does not mean re-typing a provider key. */
       const second = await updateLlmConfig({
         ...entry,
         model: 'fixture-llm-2',
@@ -869,6 +878,8 @@ describeWithDb('playground', () => {
       const active = await activeLlmConfig(entry.slug, 'trial');
       expect(active?.id).toBe(second.configId);
       expect(active?.model).toBe('fixture-llm-2');
+      expect(active?.hasCredential).toBe(true);
+      expect(await openLlmCredential(second.configId)).toBe('sk-fixture');
       expect((await llmConfigEntries()).filter((e) => e.slug === entry.slug)).toHaveLength(1);
 
       const audits = await db()

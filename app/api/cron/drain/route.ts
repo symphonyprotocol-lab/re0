@@ -27,7 +27,7 @@ export async function GET(request: Request): Promise<Response> {
    * cannot build -- queuing work that fails on the spot would only mark
    * libraries failed for a missing provider key.
    */
-  const scheduled = isIngestionConfigured() ? await scheduleDueRefreshes() : [];
+  const scheduled = (await isIngestionConfigured()) ? await scheduleDueRefreshes() : [];
   const outcomes = await drainOperations({ limit: 10 });
 
   return NextResponse.json(

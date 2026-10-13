@@ -22,7 +22,7 @@ const { queryDocs } = await import('@/lib/application/retrieval/query-docs');
 const { createPlatformLibrary } = await import(
   '@/lib/application/administration/manage-platform-libraries'
 );
-const { EMBEDDING_DIMENSIONS } = await import('@/lib/infrastructure/ai/providers');
+const { EMBEDDING_COLUMN_DIMENSIONS } = await import('@/lib/infrastructure/ai/providers');
 const { db, schema } = await import('@/lib/infrastructure/postgres/client');
 const { uuidv7 } = await import('@/lib/domain/id');
 const { DEFAULT_RETRIEVAL_SETTINGS } = await import('@/lib/domain/retrieval-config');
@@ -86,10 +86,10 @@ function dependenciesFor(files: typeof FILES) {
     },
     embeddings: () => ({
       model: 'fixture-embed-1',
-      dimensions: EMBEDDING_DIMENSIONS,
+      dimensions: EMBEDDING_COLUMN_DIMENSIONS,
       async embed(texts: string[]) {
         return texts.map((text) =>
-          Array.from({ length: EMBEDDING_DIMENSIONS }, (_, i) => ((text.length + i) % 17) / 17),
+          Array.from({ length: EMBEDDING_COLUMN_DIMENSIONS }, (_, i) => ((text.length + i) % 17) / 17),
         );
       },
     }),
@@ -279,6 +279,36 @@ describeWithDb('query-docs', () => {
     expect(events[0]?.debitSource).toBe('plan');
     expect(events[0]?.libraryId).toBe(libraryId);
     expect(events[0]?.returnedTokens).toBeGreaterThan(0);
+  });
+
+  it('does not charge a call that returns nothing', async () => {
+    const stamp = Date.now();
+    await publishedLibrary(`qd-empty-${stamp}`);
+    const workspaceId = await workspaceOnPlan(100);
+    const who = caller(workspaceId);
+
+    // requirement.md 4.2: the seat is reserved before recall and given back
+    // when recall finds nothing -- no usage event, allowance untouched.
+    const output = await queryDocs(
+      who,
+      { libraryId: `/websites/qd-empty-${stamp}`, query: 'xylophone quasar', maxTokens: 4000, format: 'json' },
+      noEmbeddings,
+    );
+
+    expect(output.chunks).toEqual([]);
+    expect(output.usage.callsUsed).toBe(0);
+    expect(output.usage.planAllowanceRemaining).toBe(100);
+
+    const events = await db()
+      .select()
+      .from(schema.usageEvent)
+      .where(eq(schema.usageEvent.requestId, who.requestId));
+    expect(events).toHaveLength(0);
+    const [reservation] = await db()
+      .select({ status: schema.usageReservation.status })
+      .from(schema.usageReservation)
+      .where(eq(schema.usageReservation.requestId, who.requestId));
+    expect(reservation?.status).toBe('released');
   });
 
   it('meters a retried request once', async () => {

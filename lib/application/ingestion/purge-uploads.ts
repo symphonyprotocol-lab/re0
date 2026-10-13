@@ -31,7 +31,7 @@ export async function purgeAbandonedUploads(input: {
   dependencies?: IngestionDependencies;
 } = {}): Promise<PurgeUploadsOutcome> {
   const dependencies = input.dependencies ?? defaultDependencies;
-  if (!dependencies.configured().storage) return { listed: 0, deleted: 0 };
+  if (!(await dependencies.configured()).storage) return { listed: 0, deleted: 0 };
   const store = dependencies.store();
 
   const objects = await store.list(UPLOAD_PREFIX);

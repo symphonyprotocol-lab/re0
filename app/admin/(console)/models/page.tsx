@@ -1,7 +1,9 @@
 import type { Metadata } from 'next';
 import { LlmAssignmentForm } from '@/components/admin/llm-assignment-form';
 import { LlmConfigForm } from '@/components/admin/llm-config-form';
+import { ModelConfigForm } from '@/components/admin/model-config-form';
 import {
+  ConsoleNotice,
   ConsolePageHeader,
   EmptyRow,
   Metric,
@@ -12,16 +14,21 @@ import {
   TD,
   TH,
 } from '@/components/admin/ui';
-import { readLlmConfiguration } from '@/lib/application/administration';
+import { readLlmConfiguration, readModelConfiguration } from '@/lib/application/administration';
+import { SparklesIcon } from '@/components/ui/icons';
 import { LLM_AUDIENCES, priceUsdFromMicro } from '@/lib/domain/generation';
-import { configuredLlmApiKeyEnvs } from '@/lib/infrastructure/ai/llm';
 import { requireAdminCapability } from '@/lib/http/admin';
 import { fill } from '@/lib/i18n/format';
 import { translations } from '@/lib/i18n/server';
-import { testLlmConfigAction, updateLlmAssignmentAction, updateLlmConfigAction } from './actions';
+import {
+  testLlmConfigAction,
+  updateLlmAssignmentAction,
+  updateLlmConfigAction,
+  updateModelConfigAction,
+} from './actions';
 
 export async function generateMetadata(): Promise<Metadata> {
-  return { title: (await translations()).t.admin.llm.title };
+  return { title: (await translations()).t.admin.models.title };
 }
 
 /**
@@ -33,29 +40,55 @@ function usdFromMicro(micro: number): string {
 }
 
 /**
- * Playground models and spend. architecture.md 9.5: the playground is the only
- * model caller, its provider is configuration (the credential stays in the
- * environment), and its tokens flow only into the cost metric this page
- * reports.
+ * Every model this installation runs, and what the generation ones spend.
+ * architecture.md 9.1, 9.2, 9.5, 15.3 -- endpoint, model, credential and (for
+ * embeddings) width are all configuration held here, so adding a provider is a
+ * save rather than a redeploy.
  *
- * Three panels: spend, the assignment (which registry entry answers trial
- * callers and which a paid plan buys), and the registry itself. Assigning is
- * a console decision, never the visitor's, so nothing here is exposed to the
- * site beyond which kind of model answered.
+ * Four models, two shapes. The retrieval pair -- embedding and rerank -- are
+ * singletons: one of each is in force, and the panel edits them directly. The
+ * generation models are a registry with an assignment on top, because "the
+ * trial model" and "the subscriber model" are roles that entries are pointed
+ * at rather than properties an entry has. Assigning is a console decision,
+ * never the visitor's, so nothing here is exposed to the site beyond which
+ * kind of model answered.
  */
-export default async function AdminLlmPage() {
+export default async function AdminModelsPage() {
   await requireAdminCapability('models');
-  const [{ locale, t }, { entries, assignment, resolved, history, stats }] = await Promise.all([
-    translations(),
-    readLlmConfiguration(),
-  ]);
+  const [
+    { locale, t },
+    { entries, assignment, resolved, history, stats },
+    models,
+  ] = await Promise.all([translations(), readLlmConfiguration(), readModelConfiguration()]);
   const p = t.admin.llm;
+  const m = t.admin.models;
   const number = new Intl.NumberFormat(locale);
   const date = new Intl.DateTimeFormat(locale, { dateStyle: 'medium', timeStyle: 'short' });
 
   return (
     <div className="flex flex-col gap-[22px]">
-      <ConsolePageHeader eyebrow={t.admin.eyebrow} title={p.title} description={p.description} />
+      <ConsolePageHeader eyebrow={t.admin.eyebrow} title={m.title} description={m.description} />
+
+      {/* Every stored key on this page is sealed with this secret. Without it
+          the rows still say "key stored" while nothing can be opened, so the
+          page says where the fault is rather than leaving it to be found. */}
+      {models.credentialKeyConfigured ? null : (
+        <ConsoleNotice
+          icon={<SparklesIcon size={18} />}
+          title={m.credentialKeyMissingTitle}
+          body={m.credentialKeyMissing}
+        />
+      )}
+
+      <Panel>
+        <PanelHead title={m.retrievalTitle} description={m.retrievalDescription} />
+        <ModelConfigForm
+          entries={models.current}
+          usable={models.usable}
+          fromEnvironment={models.fromEnvironment}
+          action={updateModelConfigAction}
+        />
+      </Panel>
 
       <Panel>
         <PanelHead title={p.statsTitle} description={p.statsDescription} />
@@ -148,7 +181,6 @@ export default async function AdminLlmPage() {
         ) : null}
         <LlmConfigForm
           entries={entries}
-          apiKeyEnvOptions={configuredLlmApiKeyEnvs()}
           action={updateLlmConfigAction}
           probe={testLlmConfigAction}
         />
@@ -183,7 +215,9 @@ export default async function AdminLlmPage() {
                     <td className={TD}>
                       <span className="flex flex-col gap-0.5">
                         <span>{row.baseUrl}</span>
-                        <span className="font-mono text-[10.5px] text-faint">{row.apiKeyEnv}</span>
+                        <span className="font-mono text-[10.5px] text-faint">
+                          {row.hasCredential ? p.keyStored : p.keyMissing}
+                        </span>
                       </span>
                     </td>
                     <td className={TD}>
@@ -210,6 +244,59 @@ export default async function AdminLlmPage() {
                           </Pill>
                         ) : null}
                       </span>
+                    </td>
+                  </tr>
+                ))
+              )}
+            </tbody>
+          </table>
+        </TableScroller>
+      </Panel>
+
+      <Panel>
+        <PanelHead title={m.historyTitle} description={m.historyDescription} />
+        <TableScroller>
+          <table className="w-full">
+            <thead>
+              <tr className="border-b-2 border-line">
+                {m.historyColumns.map((column) => (
+                  <th key={column} className={TH}>
+                    {column}
+                  </th>
+                ))}
+              </tr>
+            </thead>
+            <tbody>
+              {models.history.length === 0 ? (
+                <EmptyRow columns={m.historyColumns.length} message={m.none} />
+              ) : (
+                models.history.map((row) => (
+                  <tr key={row.id} className="border-b border-line last:border-b-0">
+                    <td className={TD}>{date.format(row.createdAt)}</td>
+                    <td className={TD}>{m.kinds[row.kind]}</td>
+                    <td className={TD}>
+                      <span className="flex flex-col gap-0.5">
+                        <span className="font-semibold text-ink">{row.label}</span>
+                        <span className="font-mono text-[10.5px] text-faint">{row.model}</span>
+                      </span>
+                    </td>
+                    <td className={TD}>
+                      <span className="flex flex-col gap-0.5">
+                        <span>{row.baseUrl}</span>
+                        <span className="font-mono text-[10.5px] text-faint">
+                          {row.hasCredential ? p.keyStored : p.keyMissing}
+                        </span>
+                      </span>
+                    </td>
+                    <td className={TD}>
+                      {row.dimensions === null
+                        ? `${number.format(row.timeoutMs)} ms`
+                        : `${number.format(row.dimensions)} d · ${number.format(row.timeoutMs)} ms`}
+                    </td>
+                    <td className={TD}>
+                      <Pill tone={row.enabled ? 'ok' : 'neutral'}>
+                        {row.enabled ? p.stateEnabled : p.stateDisabled}
+                      </Pill>
                     </td>
                   </tr>
                 ))

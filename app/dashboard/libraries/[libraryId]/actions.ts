@@ -16,6 +16,13 @@ import {
   PlatformLibraryRefused,
   type OwnerLifecycleAction,
 } from '@/lib/domain/library';
+import {
+  createSiteKey,
+  revokeSiteKey,
+  SiteKeyInvalid,
+  updateSiteKey,
+  type SiteKeyRefusal,
+} from '@/lib/application/embed';
 import { requireSession } from '@/lib/http/session';
 
 /** Queue a rebuild and start it. Also handed to the list's per-row refresh control. */
@@ -215,5 +222,100 @@ export async function updateParseScopeAction(
     }
     console.error(`configure library failed: ${error instanceof Error ? error.message : 'unknown'}`);
     return { ok: false, error: 'unavailable' };
+  }
+}
+
+/* ------------------------------------------------------------ site keys */
+
+/**
+ * The website widget's keys (requirement.md 9.4). Three verbs, one result
+ * shape: the form shows the key that was created or saved, or names the
+ * field that was refused. The use cases re-check the role and that the
+ * library is this workspace's.
+ */
+export interface SiteKeyActionResult {
+  ok: boolean;
+  error?: SiteKeyRefusal | 'limit' | 'denied' | 'not_found' | 'unavailable';
+}
+
+function siteKeyRefusal(error: unknown, verb: string): SiteKeyActionResult {
+  if (error instanceof SiteKeyInvalid) return { ok: false, error: error.field };
+  if (error instanceof AppError) {
+    if (error.code === 'api_key_limit_exceeded') return { ok: false, error: 'limit' };
+    if (error.code === 'access_denied') return { ok: false, error: 'denied' };
+    if (error.code === 'library_not_found') return { ok: false, error: 'not_found' };
+  }
+  console.error(`${verb} site key failed: ${error instanceof Error ? error.message : 'unknown'}`);
+  return { ok: false, error: 'unavailable' };
+}
+
+function siteKeySettings(form: FormData) {
+  return {
+    name: String(form.get('name') ?? ''),
+    origins: String(form.get('origins') ?? ''),
+    dailyLimit: String(form.get('dailyLimit') ?? ''),
+    welcome: String(form.get('welcome') ?? ''),
+    accent: String(form.get('accent') ?? ''),
+  };
+}
+
+export async function createSiteKeyAction(
+  _previous: SiteKeyActionResult | null,
+  form: FormData,
+): Promise<SiteKeyActionResult> {
+  const libraryId = String(form.get('libraryId') ?? '');
+  const session = await requireSession(`/dashboard/libraries/${libraryId}`);
+  try {
+    await createSiteKey({
+      workspaceId: session.workspace.id,
+      role: session.workspace.role,
+      libraryId,
+      ...siteKeySettings(form),
+    });
+    revalidatePath(`/dashboard/libraries/${libraryId}`);
+    return { ok: true };
+  } catch (error) {
+    return siteKeyRefusal(error, 'create');
+  }
+}
+
+export async function updateSiteKeyAction(
+  _previous: SiteKeyActionResult | null,
+  form: FormData,
+): Promise<SiteKeyActionResult> {
+  const libraryId = String(form.get('libraryId') ?? '');
+  const siteKeyId = String(form.get('siteKeyId') ?? '');
+  const session = await requireSession(`/dashboard/libraries/${libraryId}`);
+  try {
+    await updateSiteKey({
+      workspaceId: session.workspace.id,
+      role: session.workspace.role,
+      siteKeyId,
+      ...siteKeySettings(form),
+    });
+    revalidatePath(`/dashboard/libraries/${libraryId}`);
+    return { ok: true };
+  } catch (error) {
+    return siteKeyRefusal(error, 'update');
+  }
+}
+
+export async function revokeSiteKeyAction(
+  _previous: SiteKeyActionResult | null,
+  form: FormData,
+): Promise<SiteKeyActionResult> {
+  const libraryId = String(form.get('libraryId') ?? '');
+  const siteKeyId = String(form.get('siteKeyId') ?? '');
+  const session = await requireSession(`/dashboard/libraries/${libraryId}`);
+  try {
+    await revokeSiteKey({
+      workspaceId: session.workspace.id,
+      role: session.workspace.role,
+      siteKeyId,
+    });
+    revalidatePath(`/dashboard/libraries/${libraryId}`);
+    return { ok: true };
+  } catch (error) {
+    return siteKeyRefusal(error, 'revoke');
   }
 }

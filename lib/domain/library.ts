@@ -758,6 +758,9 @@ export const PLATFORM_LIBRARY_ERRORS = [
   'last_source',
   'archived',
   'reason_required',
+  'eval_question_invalid',
+  'eval_question_limit',
+  'eval_unavailable',
   'unavailable',
 ] as const;
 

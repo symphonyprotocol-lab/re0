@@ -12,6 +12,7 @@ import {
 import {
   activeLlmConfig,
   activeRetrievalSettings,
+  openLlmCredential,
   recordLlmCost,
   type LlmConfigRow,
 } from '@/lib/application/administration';
@@ -24,7 +25,7 @@ import {
   PLAYGROUND_SYSTEM_PROMPT,
 } from '@/lib/domain/generation';
 import { retrievalBudgetFor } from '@/lib/domain/retrieval-config';
-import { isLlmKeyPresent, llmAdapter, type LlmAdapter } from '@/lib/infrastructure/ai/llm';
+import { llmAdapter, type LlmAdapter } from '@/lib/infrastructure/ai/llm';
 
 /**
  * The playground is the only entry point that produces prose.
@@ -100,9 +101,13 @@ export interface PlaygroundDependencies {
   config(slug: string | null | undefined, audience: LlmAudience): Promise<LlmConfigRow | null>;
   /** Who the caller is to the model registry: what its plan buys. */
   audience(caller: CallerContext): Promise<LlmAudience>;
-  llm(config: { baseUrl: string; model: string; apiKeyEnv: string }): LlmAdapter;
-  /** Whether the named environment variable holds a key. */
-  keyPresent(apiKeyEnv: string): boolean;
+  llm(config: { baseUrl: string; model: string; apiKey: string }): LlmAdapter;
+  /**
+   * The resolved entry's credential, opened. By id, so the key that is sent
+   * belongs to the very row whose endpoint is being called even if the entry
+   * is edited between the two reads.
+   */
+  credential(configId: string): Promise<string | null>;
   recordCost: typeof recordLlmCost;
   retrieval?: RetrievalDependencies;
 }
@@ -121,7 +126,7 @@ const defaultDependencies: PlaygroundDependencies = {
   config: activeLlmConfig,
   audience: audienceOf,
   llm: llmAdapter,
-  keyPresent: isLlmKeyPresent,
+  credential: openLlmCredential,
   recordCost: recordLlmCost,
 };
 
@@ -152,8 +157,10 @@ export async function* streamPlayground(
    */
   const audience = await dependencies.audience(caller).catch((): LlmAudience => 'trial');
   const config = await dependencies.config(input.modelSlug, audience).catch(() => null);
-  const usable =
-    config && config.enabled && dependencies.keyPresent(config.apiKeyEnv) ? config : null;
+  /* `hasCredential` rather than the key itself: this runs before retrieval,
+     only to size the budget, and opening a provider secret here would mean
+     holding it for the length of a retrieval that may not need it. */
+  const usable = config && config.enabled && config.hasCredential ? config : null;
 
   if (usable) {
     /*
@@ -184,7 +191,7 @@ export async function* streamPlayground(
    * budget computed here and the recall it bounds come from the same row --
    * a save landing between two reads would otherwise size one by the other.
    */
-  const retrieval = dependencies.retrieval ?? defaultRetrievalDependencies;
+  const retrieval = dependencies.retrieval ?? defaultRetrievalDependencies();
   const settings = await (retrieval.settings ?? activeRetrievalSettings)();
 
   /*
@@ -247,11 +254,15 @@ export async function* streamPlayground(
 
   let stream;
   try {
+    /* A key that cannot be opened -- sealed under a rotated secret -- reaches
+       the adapter as an empty one and is refused there, which is the same
+       degradation as any other unavailable provider. */
+    const apiKey = (await dependencies.credential(usable.id).catch(() => null)) ?? '';
     stream = dependencies
       .llm({
         baseUrl: usable.baseUrl,
         model: usable.model,
-        apiKeyEnv: usable.apiKeyEnv,
+        apiKey,
       })
       .stream({
         systemPrompt: PLAYGROUND_SYSTEM_PROMPT,

@@ -18,26 +18,26 @@ import {
   type RetrievalSettingKey,
   type RetrievalSettings,
 } from '@/lib/domain/retrieval-config';
-import { isEmbeddingConfigured, isRerankConfigured } from '@/lib/infrastructure/ai/providers';
+import { modelProviderStatus } from './manage-model-config';
 import { db, schema } from '@/lib/infrastructure/postgres/client';
 import { recordAudit } from './audit';
 
 /**
- * Which retrieval providers the environment has credentials for.
+ * Which retrieval models this installation has configured.
  *
- * The console tunes the rerank window, but reranking only runs when
- * `RERANK_PROVIDER_API_KEY` and `RERANK_PROVIDER_BASE_URL` are set (the
- * credential is the environment's, architecture.md 15.3) -- and a window
- * tuned for a reranker that is not there does nothing. The page says which
- * it is, so an operator is not left tuning a stage that never runs.
+ * The console tunes the rerank window, but reranking only runs when a rerank
+ * model is saved and switched on -- and a window tuned for a reranker that is
+ * not there does nothing. The page says which it is, and now says where to go
+ * and fix it, since both models are configuration the console itself owns.
  */
 export interface RetrievalProviderStatus {
   embeddings: boolean;
   rerank: boolean;
 }
 
-export function retrievalProviderStatus(): RetrievalProviderStatus {
-  return { embeddings: isEmbeddingConfigured(), rerank: isRerankConfigured() };
+export async function retrievalProviderStatus(): Promise<RetrievalProviderStatus> {
+  const status = await modelProviderStatus();
+  return { embeddings: status.embedding, rerank: status.rerank };
 }
 
 export interface ActiveRetrievalSettings extends RetrievalSettings {

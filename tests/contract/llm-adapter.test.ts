@@ -7,21 +7,18 @@
  * than a total -- a slow provider that then answers must get through, and a
  * provider that goes quiet must not hold the reader past the limit.
  */
-import { afterEach, beforeEach, describe, expect, it } from 'vitest';
+import { afterEach, describe, expect, it } from 'vitest';
 import { llmAdapter } from '@/lib/infrastructure/ai/llm';
 import { ProviderUnavailable } from '@/lib/infrastructure/ai/providers';
 
 const realFetch = globalThis.fetch;
-const realKey = process.env.LLM_PROVIDER_API_KEY;
 
-beforeEach(() => {
-  process.env.LLM_PROVIDER_API_KEY = 'test-key';
-});
 afterEach(() => {
   globalThis.fetch = realFetch;
-  if (realKey === undefined) delete process.env.LLM_PROVIDER_API_KEY;
-  else process.env.LLM_PROVIDER_API_KEY = realKey;
 });
+
+/** The adapter is handed an opened credential; nothing here reads an env. */
+const CONFIG = { baseUrl: 'https://llm.example.test/v1', model: 'fixture', apiKey: 'test-key' };
 
 const sleep = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
 
@@ -66,7 +63,7 @@ function serveCompletion(pieces: string[], gapMs: number, options: { hang?: bool
 }
 
 async function collect(timeoutMs: number): Promise<string[]> {
-  const stream = llmAdapter({ baseUrl: 'https://llm.example.test/v1', model: 'fixture' }).stream({
+  const stream = llmAdapter(CONFIG).stream({
     systemPrompt: 'system',
     userMessage: 'user',
     maxOutputTokens: 100,
@@ -94,7 +91,7 @@ describe('the idle timeout', () => {
 
   it('gives up on a provider that goes quiet mid-answer, keeping what came', async () => {
     serveCompletion(['first '], 10, { hang: true });
-    const stream = llmAdapter({ baseUrl: 'https://llm.example.test/v1', model: 'fixture' }).stream({
+    const stream = llmAdapter(CONFIG).stream({
       systemPrompt: 'system',
       userMessage: 'user',
       maxOutputTokens: 100,
@@ -114,7 +111,7 @@ describe('the idle timeout', () => {
 
   it('never rejects the usage promise, even when the stream failed', async () => {
     serveCompletion([], 10_000, { hang: true });
-    const stream = llmAdapter({ baseUrl: 'https://llm.example.test/v1', model: 'fixture' }).stream({
+    const stream = llmAdapter(CONFIG).stream({
       systemPrompt: 'system',
       userMessage: 'user',
       maxOutputTokens: 100,

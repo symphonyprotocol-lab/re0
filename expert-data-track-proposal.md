@@ -1,11 +1,12 @@
 # Re0 专家数据与评测赛道集成方案
 
-- 版本：0.2
-- 日期：2026-09-11
+- 版本：0.3
+- 日期：2026-10-05
 - 状态：待评审实施方案
+- 与 0.2 版的差异：资格测试改为不付费并从 Assignment 解耦；验收访问成为独立的授权依据且不含 Hidden Eval；“物理隔离”改述为应用层访问隔离；试点规模不足 500 时只交付评测集；Expert Knowledge Base 推迟到阶段 4；阶段 0 拆为 0a（买方与可行性）和 0b（供给与样例），领域在 0a 之后定档；拒收素材在申诉期内隔离保留；`expert_project_order` 更名为 `expert_order_payment`
 - 冻结范围：第 0–4 节、第 17–22 节为本轮评审对象；第 5–16 节是技术设计草案，在阶段 0 门禁（签约买方）通过前不冻结，允许随买方需求重写
 - 依赖基线：[requirement.md](./requirement.md)、[architecture.md](./architecture.md)、[publisher-revenue-share.md](./publisher-revenue-share.md)
-- 建议首个试点领域：中文制造业供应链、质量工程与企业运营任务
+- 候选首个试点领域：中文制造业供应链、质量工程与企业运营任务（供给侧假设，阶段 0a 买方访谈后定档，见 §18）
 
 ## 0. 执行摘要
 
@@ -24,9 +25,9 @@ Re0 在现有版本化知识库之外增加一条独立的 **Expert Data & Evals
 
 运营模式是**订单驱动**：先承接模型公司的数据或评测订单，再根据订单的领域、语言和任务类型从专家池中委派专家定制生产。平台不预先生产资产等买方来买。
 
-专家侧与之配套的是**预注册池**：专家可以在没有订单时先注册、提交专业领域的能力证明并通过平台审核，进入待命状态；订单到来时优先从池中按领域匹配委派。预注册不承诺任务量和收入，也不产生任何付款义务。
+专家侧与之配套的是**预注册池**：专家可以在没有订单时先注册、提交专业领域的能力证明并通过平台审核，进入待命状态；订单到来时优先从池中按领域匹配委派。预注册不承诺任务量和收入，也不产生任何付款义务；预注册阶段的资格测试同样不付费。
 
-首期不开放双边市场，先以一个付费买方、20–30 名专家和 200–500 个任务完成封闭试点。只有通过第 17 节的门禁后，才开放目录、自动授权和规模化招募。
+首期不开放双边市场，先以一个付费买方、20–30 名专家和 200–500 个任务完成封闭试点；任务数不足 500 时试点只交付评测集（§8.1）。只有通过第 17 节的门禁后，才开放目录、自动授权和规模化招募。
 
 ## 1. 产品决策与基线变更
 
@@ -34,7 +35,7 @@ Re0 在现有版本化知识库之外增加一条独立的 **Expert Data & Evals
 
 - 专家赛道是现有知识库产品的扩展模块，不替换知识库检索产品。
 - 产品最小交易单位是一个不可变的 `Data Asset Version`，不是一个专家、一个文档或一个 Chunk。
-- 训练数据与隐藏评测数据物理隔离；隐藏评测只通过托管评测服务使用，不允许下载。
+- 训练数据与隐藏评测数据在应用层访问隔离：使用独立的对象存储前缀和访问 Guard，同一 Postgres 内按行级状态区分；合同和数据卡不得把它表述为物理隔离。隐藏评测只通过托管评测服务使用，不允许下载。
 - “隐藏”的确切含义：Hidden Eval 的参考成果、Rubric 私有部分和 Item 与 Gold 的对应关系不离开平台；任务输入在评测时必然送达执行模型的一方，无法在技术上做到不暴露。首期隐藏评测只支持平台主动调用买方登记的模型端点（`evaluation_model_config`），不提供输入下载；买方自行上传模型输出的方式只对 `public_eval` 和 `dev` 开放。买方的端点仍然可以记录收到的输入，因此对输入的保护依靠合同禁止留存、Run 配额、Canary 和子集轮换（§8.4），而不是技术隔离；这一点必须在 Data License 和数据卡中如实披露。
 - 专家贡献以“重新创作、脱敏、可审查”为默认方式，不接受未经授权的雇主、客户或第三方原始材料。
 - 买方项目、授权范围、交付和验收采用 B2B 合同；它不是新的自助 `Enterprise` 套餐。
@@ -43,12 +44,12 @@ Re0 在现有版本化知识库之外增加一条独立的 **Expert Data & Evals
 - 首期采用平台运营人员创建项目和买方账户的邀请制，不在公共站点展示可购买的数据正文。
 - 专家预注册是首期唯一面向公众开放的入口：任何用户都可以建立专家档案、提交能力证明并等待审核；审核通过的专家进入领域标签化的待命池。委派只发生在订单确认之后，按领域匹配、验证状态、过往一致率和可用时间排序，池内专家优先于临时招募。
 - 预注册不是雇佣关系，不设保底、不设排队承诺；专家档案的领域标签只影响匹配，不对外展示身份。
-- 首期资产类型只有 `instruction_dataset` 和 `evaluation_suite`；`preference_dataset`、`correction_dataset`、`knowledge_corpus` 在有买方需求时按新版本追加，`agent_environment` 及其隔离沙箱不在前三个阶段的范围内。
+- 首期资产类型只有 `instruction_dataset` 和 `evaluation_suite`；`preference_dataset`、`correction_dataset`、`knowledge_corpus` 在有买方需求时按新版本追加，`agent_environment` 及其隔离沙箱不在前三个阶段的范围内。试点任务数不足 500 时只交付 `evaluation_suite`，不交付 `instruction_dataset`（§8.1）。
 - 专家只通过浏览器提交；Expert API 与对应 API Key Scope 推迟到阶段 4，首期不增加这部分攻击面。
 - **Task Schema 和 Rubric 的设计是专家任务。** 每个项目启动时先委派 `design` 任务给一到两名资深专家，产出该项目的任务模板、Rubric 草案和 3–5 个示例任务；运营和买方确认后冻结进 Brief。平台不自行编写领域 Rubric。
 - **审阅其他专家提交的任务是专家的正式任务类型之一。** 复核任务与制作任务一样通过委派进入专家的任务队列，有截止时间、计价和验收，复核结论进入被审阅任务的审核事件；同一个专家在同一项目里可以既做制作又做复核，但不能复核自己的任务或与自己有利益冲突声明的专家的任务。
 - **专家是独立模块，不是普通用户的附加档案。** 专家注册、专家领域知识的沉淀和训练集生产都在专家模块内完成，与知识库用户的 Workspace、Dashboard、Library、API Key 和套餐彼此不可见。登录复用同一套 OAuth 身份（一个 `user` 可以同时是知识库用户和专家），但专家身份是单独的 `expert_account`，有自己的注册流程、入口 `/expert`、会话上下文、导航和权限边界；普通 Dashboard 不出现专家入口，专家区也不出现知识库功能。
-- 专家产出的领域知识存放在专家模块自己的容器（Expert Knowledge Base，见 §3.5），不是 `library`；它不进入公开检索、Context API、MCP 和 Call 计费，只作为训练集和评测集的生产来源。
+- 专家产出的领域知识存放在专家模块自己的容器（Expert Knowledge Base，见 §3.5），不是 `library`；它不进入公开检索、Context API、MCP 和 Call 计费，只作为训练集和评测集的生产来源。该容器推迟到阶段 4：前三个阶段专家在被委派的任务内直接创作 Data Item，不维护独立知识库。
 - **专家贡献的知识是多模态的。** 除文本外，专家可以贡献图片、PDF 与办公文档、音频、视频，作为多模态模型的训练和评测素材。每个素材带明确的模态标签、来源模式和权利声明。视频的主要形式是屏幕录屏和操作演示；任务发布时明确要求**视频中不得出现人脸**，出现即拒收而不是打码；屏幕上的文字是知识本身，不做打码，只做内容扫描（§9.5）。多模态素材的存储、扫描和导出成本按模态单独计价（§12.1）。
 
 ### 1.2 对现有基线的影响
@@ -83,7 +84,7 @@ Re0 在现有版本化知识库之外增加一条独立的 **Expert Data & Evals
 
 | 角色 | 现有身份复用 | 新增能力 |
 | --- | --- | --- |
-| Expert | `user` 登录身份 + 独立 `expert_account`，不使用 `workspace` | 在 `/expert` 注册、维护专家档案与领域知识库、接受项目、提交任务、响应修改 |
+| Expert | `user` 登录身份 + 独立 `expert_account`，不使用 `workspace` | 在 `/expert` 注册、维护专家档案（领域知识库在阶段 4）、接受项目、提交任务、响应修改 |
 | Expert Reviewer | Expert 承接的复核类任务，不是单独身份 | 在任务队列中接受复核任务、按 Rubric 独立评分、给出返修意见、填写冲突声明 |
 | Buyer | `workspace` | 提交数据需求、查看已授权资产、发起导出和评测 |
 | Data Operator | `administrator` | 创建项目、分配专家、冻结版本、管理交付 |
@@ -110,7 +111,7 @@ Re0 在现有版本化知识库之外增加一条独立的 **Expert Data & Evals
 
 1. 用户建立专家档案，选择领域、子领域、语言和地区，提交最少必要的能力证明（执业资格、任职证明、代表性成果的脱敏摘要、同行推荐之一即可）；
 2. 平台或验证服务完成身份、履历和利益冲突审核，档案进入 `verified` 待命状态，或以原因码退回补充；
-2a. 验证通过后专家在其领域完成一组资格测试任务（`qualification`，每个领域 2–3 个平台预置任务，含一个制作和一个复核），由资深专家按 Rubric 评分；通过后档案获得该领域的 `qualified` 标记，只有 `qualified` 的领域才参与委派；未通过可在冷却期后重测一次；
+2a. 验证通过后专家在其领域完成一组资格测试任务（`qualification`，每个领域 2–3 个平台预置任务，含一个制作和一个复核），由该领域已 `qualified` 的资深专家按 Rubric 评分，池内尚无合格专家时由平台聘请的领域顾问评分（冷启动，见 §17 阶段 0b）；资格测试不付费，不产生补偿事件；通过后档案获得该领域的 `qualified` 标记，只有 `qualified` 的领域才参与委派；未通过可在冷却期后重测一次；
 3. 专家签署 Expert Contributor Agreement（平台级，一次签署长期有效），此时不签任何项目 NDA；
 4. 待命期间专家只看到自己的档案状态和平台对该领域的需求提示，看不到任何买方或项目信息。
 
@@ -230,7 +231,9 @@ Project Brief 一经进入 `active` 不原地修改；范围变化创建新的 B
 
 同一 Suite Version 内，每个 Criterion 只绑定一种 Grader（`executable`、`rule`、`model`、`expert`、`pairwise`），不允许 `human_or_model` 这类运行时再选的写法，否则 §8.3 要求的可复现性不成立。`model` Grader 还必须固定 `graderVersion`，它指向提示、模型、参数和采样次数的一个版本。
 
-### 3.5 Expert Knowledge Base
+### 3.5 Expert Knowledge Base（阶段 4）
+
+本节是阶段 4 的设计，前三个阶段不实现、不建表、不出现在专家区导航里。推迟的理由：没有订单时专家无偿维护而平台承担多模态存储与扫描成本；每个条目都需要权利审核，却没有项目为这笔审核付费；它也不是验证 §19.3 第二条所必需的。前三个阶段的 Data Item 由专家在任务内直接创作，`data_item.provenance` 不引用知识库条目。
 
 专家在模块内沉淀领域知识的容器，按专家和领域划分，服务于任务生产而不是检索：
 
@@ -239,7 +242,7 @@ Project Brief 一经进入 `active` 不原地修改；范围变化创建新的 B
 - 音视频条目上传后由平台生成转写和关键帧供审核使用；专家可以校对转写，校对后的转写是独立的派生条目；
 - 它是 Data Item 的上游素材库：委派任务时专家可以从自己的知识库引用条目生成任务，引用关系写入 `data_item.provenance`；
 - 它不建立向量索引、不进入 `chunk`、不参与 `/v1/context`、不对买方或其他专家可见；只有本人、被指派的 Reviewer 和 Compliance Reviewer 可读；
-- 专家可以在没有订单时持续维护它，平台按领域标签和条目数量了解池内专家的覆盖面，作为委派排序的输入之一；
+- 专家可以在没有订单时持续维护它，平台按领域标签了解池内专家的覆盖面；条目数量不进入委派排序，避免鼓励灌水；
 - 知识库内容本身不出售；只有经过项目流程、审核和发布的 Data Asset Version 才是交易对象；
 - 条目记录被哪些 Asset Version 引用。被独占授权项目引用过的条目进入 `locked_exclusive` 状态，在该独占期内不能再被其他项目引用；非独占项目引用过的条目可以复用，但复用关系写入两侧的 provenance 并在数据卡披露。
 
@@ -251,7 +254,9 @@ Project Brief 一经进入 `active` 不原地修改；范围变化创建新的 B
 - `acceptance_item_decision`：Round、Item、决定（`accept / revise / reject`）、原因码、买方评语；只追加；
 - 通过标准由 Brief 冻结（例如抽样 10% 且接受率不低于 95%）；`failed` 触发返修批次并开启新一轮，`expired` 按合同视为通过或顺延；
 - `passed` 是 License Grant 从 `Pending` 到 `Active`、`buyer_acceptance_bonus` 记账和 Order 进入 `accepted` 的唯一入口；
-- 买方在 Buyer Console 完成验收，验收样本按 Grant 尚未生效前的临时访问规则读取，只能看验收清单内的 Item。
+- 买方在 Buyer Console 完成验收。验收访问是独立于 License Grant 的授权依据（§13.1）：只在 Round 为 `open` 且未过截止时间时成立，只能在线读取该 Round 样本清单内的 Item，不能导出，每次读取写审计；Round 结束后该访问立即失效；
+- 验收样本清单只从 `train` 与 `dev` 抽取，**永不包含 `hidden_eval` Item**，生成清单的用例必须拒绝 Hidden Eval；
+- `evaluation_suite` 的隐藏部分不靠买方阅读正文验收，而靠四项证据：质量报告（§5.2）、基线报告（§8.3）、Human/Model Judge 一致性抽样结果，以及与隐藏部分同模板、同 Rubric 的 Dev 样例。买方对这四项给出接受或返修意见，决定同样记入 `acceptance_item_decision`（Item 为空，原因码指明证据类型）。
 
 ## 4. 与现有系统的集成边界
 
@@ -293,9 +298,9 @@ Project Brief 一经进入 `active` 不原地修改；范围变化创建新的 B
 | `expert_account` | `user_id`、创建时间、状态、协议版本 | 每个 User 至多一行；专家模块内所有对象以它为所有者，不引用 `workspace` |
 | `expert_profile` | `expert_account_id`、展示名、领域标签、语言、地区、状态、可用性、最近委派时间 | 每个 Account 一行；公开展示名与法定身份分离；状态为 `draft / pending_review / verified / rejected / suspended / expired`；委派要求档案 `verified` 且目标领域 `qualified` |
 | `expert_qualification` | Profile、领域标签、测试任务集版本、得分、结果、评分者、有效期 | `(profile_id, domain)` 最新一条生效；资格测试任务集由平台维护，正文不进入任何资产 |
-| `expert_knowledge_base` | `expert_account_id`、领域标签、标题、状态 | 见 §3.5；不建索引，不进入检索 |
-| `expert_knowledge_entry` | Knowledge Base、类型、模态、Payload Key/Digest、Creation Mode、Rights Declaration、状态、独占锁定至 | 只追加版本；被 Data Item 引用后不可删除正文，只能标记撤回；被独占项目引用后锁定 |
-| `expert_knowledge_entry_usage` | Entry、Data Item、Asset Version、Grant 独占性 | 引用关系；发布事务在独占 Grant 下检查条目未被其他项目引用 |
+| `expert_knowledge_base`（阶段 4） | `expert_account_id`、领域标签、标题、状态 | 见 §3.5；不建索引，不进入检索 |
+| `expert_knowledge_entry`（阶段 4） | Knowledge Base、类型、模态、Payload Key/Digest、Creation Mode、Rights Declaration、状态、独占锁定至 | 只追加版本；被 Data Item 引用后不可删除正文，只能标记撤回；被独占项目引用后锁定 |
+| `expert_knowledge_entry_usage`（阶段 4） | Entry、Data Item、Asset Version、Grant 独占性 | 引用关系；发布事务在独占 Grant 下检查条目未被其他项目引用 |
 | `expert_verification` | `expert_profile_id`、类型、Evidence Key、Evidence Digest、状态、过期时间、Reviewer、退回原因码 | 证据默认只有 Compliance Reviewer 可读；一个档案可有多条不同类型的验证，档案状态由有效验证集合推导 |
 | `expert_agreement_acceptance` | Expert、协议类型、协议版本、内容摘要、接受时间、IP/地区 | 只追加；项目激活时固定所需版本 |
 | `expert_order` | Buyer Workspace、状态、需求摘要 Key/Digest、期望模态、预算区间、时间窗、当前 Quote、合同引用 | 订单是 Project 的前置；`confirmed` 后才能创建 Project |
@@ -303,7 +308,7 @@ Project Brief 一经进入 `active` 不原地修改；范围变化创建新的 B
 | `expert_project` | Order、Buyer Workspace、标题、领域、状态、数据分类、当前 Brief Version | 买方和项目生命周期边界；一个 Order 对应一个 Project |
 | `expert_project_brief_version` | Project、版本、Spec JSON、Spec Digest、合同引用、创建者 | `(project_id, version)` 唯一；激活后不可变 |
 | `expert_assignment` | Project、Expert、角色（`designer` / `creator` / `reviewer` / `adjudicator`）、状态、计价版本、利益冲突声明 | `(project_id, expert_id, role)` 唯一；一个专家可以同时持有 creator 和 reviewer |
-| `expert_task` | Assignment、任务类型（`qualification` / `design` / `create` / `review` / `revise` / `adjudicate`）、目标 Item（复核、返修和裁决时）、截止时间、状态、委派者 | 专家队列的统一单位；`review` 任务的目标 Item 的 Creator 不能是本人，也不能是冲突声明中列出的专家；同一 Item 的 `review` 任务逾期未完成时可撤回并重新委派 |
+| `expert_task` | Assignment（`qualification` 任务为空）、Qualification（仅 `qualification` 任务）、任务类型（`qualification` / `design` / `create` / `review` / `revise` / `adjudicate`）、目标 Item（复核、返修和裁决时）、截止时间、状态、委派者 | 专家队列的统一单位；Assignment 与 Qualification 恰有一个非空（Check 约束）：资格测试发生在任何 Project 之前，不属于 Assignment，也不产生补偿事件；`review` 任务的目标 Item 的 Creator 不能是本人，也不能是冲突声明中列出的专家；同一 Item 的 `review` 任务逾期未完成时可撤回并重新委派 |
 
 ### 5.2 资产、数据项与审核
 
@@ -312,7 +317,7 @@ Project Brief 一经进入 `active` 不原地修改；范围变化创建新的 B
 | `data_asset` | `public_id`、Project、Owner Workspace、类型、可见性、状态、当前 Version | 存活 `public_id` 唯一；删除使用墓碑 |
 | `data_asset_version` | Asset、Label、Brief Version、Corpus Library Version、Schema Version、Manifest Key/Digest、状态、统计 | `(asset_id, label)` 唯一；Ready 后不可变 |
 | `data_item` | Asset Version、稳定 Item Key、Split、输入/输出模态、Payload Key/Digest、Creator、Rights Declaration、状态、难度、标签 | `(asset_version_id, item_key)` 唯一 |
-| `media_asset` | Owner（Knowledge Entry 或 Data Item）、模态、Media Type、字节数、时长/页数/分辨率、Key/Digest、扫描结果（人脸、人声、屏幕内容分类） | 检出人脸的视频与图片直接拒收，不保留；通过扫描的对象即权威对象，不区分原件与脱敏件 |
+| `media_asset` | Owner（Knowledge Entry 或 Data Item）、模态、Media Type、字节数、时长/页数/分辨率、Key/Digest、扫描结果（人脸、人声、屏幕内容分类） | 检出人脸的视频与图片直接拒收，不进入任何资产；被拒对象移入隔离前缀保留到申诉期结束（§6）后删除；通过扫描的对象即权威对象，不区分原件与脱敏件 |
 | `media_derivative` | Media Asset、类型（转写、关键帧、章节、缩略图）、生成器版本、Key/Digest、状态 | 可重建；导出时按 License 决定是否包含 |
 | `voice_release` | Media Asset、说话人（专家本人或其他）、授权来源、状态 | 音频与视频音轨中只允许出现专家本人的声音，由 Contributor Agreement 一次性覆盖；检出其他人声的素材拒收 |
 | `data_item_review` | Item、Reviewer、来源 `expert_task`、Review Stage、Outcome、Rubric Scores、Feedback Key、时间 | Reviewer 不能等于 Creator；复核只追加；每条复核必须对应一个已完成的 `review` 任务 |
@@ -347,7 +352,7 @@ train | dev | public_eval | hidden_eval
 | --- | --- | --- |
 | `license_template_version` | 模板名、版本、Scope Schema、正文摘要、状态 | 已使用版本不可修改 |
 | `license_grant` | Buyer Workspace、Asset Version、模板版本、用途 Scope、地区、期限、模型范围、独家性、状态 | 授权校验绑定精确 Asset Version |
-| `expert_project_order` | Project、Buyer、外部订单/发票引用、金额、币种、状态、Provider 观察时间 | 与自助订阅收入分开；Webhook 乱序保护和幂等 |
+| `expert_order_payment` | Order（§5.1 的 `expert_order`）、Buyer、外部订单/发票引用、金额、币种、状态、Provider 观察时间 | `expert_order` 是商业订单，本表只是它在外部支付服务上的收款投影，一个 Order 可有多笔；与自助订阅收入分开；Webhook 乱序保护和幂等 |
 | `data_export` | Grant、Asset Version、允许 Split、状态、Manifest Digest、Object Key、过期时间、创建者 | 不得包含 `hidden_eval`；短期签名下载 |
 | `evaluation_model_config` | Buyer Workspace、Provider、端点、模型、参数、Credential Ref、用途、状态 | 与在线试用 `llm_config` 隔离；买方模型凭证不能沿用 `llm_config` 的环境变量方式，需要一个按 Workspace 隔离的 Secret 存储（用 Cookie 密封密钥加密入库，或接入外部 Secret 服务），表里只存引用 |
 | `evaluation_run` | Buyer、Suite Version、Model Config/外部输出标识、Runner Version、输入摘要、状态、报告 Key/Digest | 固定 Suite Version、Model Config 和 Runner Version；Hidden Eval Run 必须关联 Model Config，外部输出标识只允许用于 Public Eval；每个 Grant 对每个 Suite Version 的 Hidden Eval Run 次数受配额限制 |
@@ -385,10 +390,12 @@ type DataLicenseScope = {
 事件类型首期只允许：
 
 ```text
-qualification_accepted | design_accepted | creation_accepted | review_accepted |
-revision_accepted | adjudication_accepted | buyer_acceptance_bonus |
-license_renewal_share | reversal | void
+design_accepted | creation_accepted | review_accepted | revision_accepted |
+adjudication_accepted | buyer_acceptance_bonus | license_renewal_share |
+reversal | void
 ```
+
+资格测试不在其中：它不付费（§12.2），因此预注册阶段不产生任何补偿事件，也不依赖阶段 3 的结算能力。
 
 不得将 Trust、质量分数或模型成绩直接作为未版本化的付款乘数。计价规则必须在 Assignment 激活时冻结为 `pricing_version`。
 
@@ -424,7 +431,7 @@ quarantine/expert-data/{operationId}/{objectId}
 - 撤回（`withdrawn`）的 Asset Version 保留 Payload 对象到合同约定的争议期结束，之后只保留 Manifest 与摘要；争议期内只有 Compliance Reviewer 可读，每次读取写审计；
 - 日志只记录 Object ID、Digest、大小和分类，不记录原始路径中的用户输入；
 - 删除数据前先撤销 Grant 和下载 URL，再排队执行对象清理；
-- 音视频通过 Blob 分片直传，单个素材大小和时长上限由 Project Brief 约定并在上传前校验；平台不做实时转码，派生物由 Workflow 异步生成；扫描未通过的素材在拒收时删除对象，只保留 Digest 和拒收原因；
+- 音视频通过 Blob 分片直传，单个素材大小和时长上限由 Project Brief 约定并在上传前校验；平台不做实时转码，派生物由 Workflow 异步生成；扫描未通过的素材在拒收时移入 `quarantine/expert-data/` 前缀，保留到申诉期结束（默认 7 天，§21 第 15 项定档）后删除对象，只保留 Digest 和拒收原因；隔离期内只有 Compliance Reviewer 可读，专家申诉成立时由其放行回原前缀，否则不得进入任何资产；
 - 多模态素材的对象存储和出口流量是可变成本的主要来源，必须按 Project 计量并进入 §14.2 的单 Item 成本。
 
 ## 7. 核心工作流
@@ -472,7 +479,7 @@ License Grant：
 ```mermaid
 stateDiagram-v2
     [*] --> Pending: order_confirmed
-    Pending --> Active: grant_issued
+    Pending --> Active: acceptance_passed
     Active --> Suspended: dispute_or_nonpayment
     Suspended --> Active: resolved
     Active --> Revoked: breach_or_withdrawal
@@ -521,7 +528,8 @@ stateDiagram-v2
 ### 8.1 Split 规则
 
 - 划分由 Project Brief 固定；Hidden Eval 按绝对数量而不是百分比约定，试点建议不少于 120 条，低于该数时报告必须标注置信区间过宽；
-- 试点规模（200–500 条）下 Public Eval 按 5% 只有 10–25 条，没有统计意义，因此试点不设 Public Eval，Dev 兼作买方可见的样例集；剩余部分进入 Train；
+- 试点规模（200–500 条）下 Public Eval 按 5% 只有 10–25 条，没有统计意义，因此试点不设 Public Eval，Dev 兼作买方可见的样例集；
+- 任务总数不足 500 时试点只交付 `evaluation_suite`：扣除 120 条 Hidden Eval 和 Dev 之后剩下的几十到一两百条不足以构成有意义的 `instruction_dataset`，这些 Item 全部并入 Dev，不设 Train；只有总数达到 500 且 Brief 约定了 Train 下限时才同时交付 `instruction_dataset`，剩余部分进入 Train；
 - 同一来源、案例变体、附件模板和语义近重复必须落入同一 Split；
 - 同时按创建者分层：任何一个 Split 中单个创建者的占比不得超过 Brief 约定上限（建议 25%），避免 Hidden Eval 被少数专家的风格主导；
 - Split 在 Version 发布时冻结，不能通过更新一列把 Eval 数据改成 Train；
@@ -604,7 +612,16 @@ Project 和 Asset 必须标记：
 public | internal | confidential | restricted
 ```
 
-`restricted` 首期不允许跨境、不允许普通运营预览、不允许离线导出。音视频素材的规则是“不出现人脸、只出现专家本人的声音”（§9.5），因此人脸与他人声音这类敏感个人信息不会进入资产；检出即拒收，不走逐人授权和脱敏流程。跨境评估不按项目逐个做：试点的组合是中国大陆专家加上大概率的境外买方，数据出境、重要数据和行业数据的判断在阶段 0 对整个试点领域一次完成，结论写入 Project Brief 模板；阶段 0 判断为需要申报或不可出境时，试点改为境内买方或停止。涉及医疗、未成年人、生物识别、国家秘密、重要数据或高风险行业时，在完成专项法律和安全评审前拒绝创建项目。
+`restricted` 首期不允许跨境、不允许普通运营预览、不允许离线导出。音视频素材的规则是“不出现人脸、只出现专家本人的声音”（§9.5），因此人脸与他人声音这类敏感个人信息不会进入资产；检出即拒收，不走逐人授权和脱敏流程。跨境评估不按项目逐个做：试点的组合是中国大陆专家加上大概率的境外买方，数据出境、重要数据和行业数据的判断在阶段 0 对整个试点领域一次完成，结论写入 Project Brief 模板；阶段 0 判断为需要申报或不可出境时，试点改为境内买方或停止。专家本人的个人信息是另一条出境链路，不被上述评估覆盖：预注册收集的执业资格、任职证明等证据属于个人信息，存放在哪个区域、是否构成出境、需要何种告知与同意，必须在阶段 0a 定档（§21 第 5 项）；定档之前预注册只收集专家自填的领域、语言和履历摘要，不开放证明材料上传。涉及医疗、未成年人、生物识别、国家秘密、重要数据或高风险行业时，在完成专项法律和安全评审前拒绝创建项目。
+
+### 9.4 删除与撤回
+
+- 未发布 Submission：在不存在法定保留要求时允许删除正文，保留最小审计摘要；
+- 已发布 Asset Version：不能静默改写，使用 `withdrawn` 和新版本纠正；
+- 已导出数据：按 License 触发买方通知、停止新授权、删除证明或继续使用条款；
+- 已训练模型：不得承诺技术上可以从权重中精确删除单个样本，合同必须明确补救边界；
+- 链上摘要不可删除，此事实必须在专家和买方协议中披露；
+- KYC、税务和付款资料由外部 Provider 按其政策处理。
 
 ### 9.5 多模态素材的权利
 
@@ -617,15 +634,6 @@ public | internal | confidential | restricted
 - **拍摄场所**：在雇主、客户或供应商场所拍摄的素材按 `employment_derived` 处理，需要场所方书面授权；专家自建场景或平台提供的演示环境不受此限。
 
 专家撤回本人声音授权时，相关素材标记撤回、新版本移除该素材；已导出的历史版本按 §9.4 处理，合同必须写明平台不能从买方已训练的模型中删除该素材。
-
-### 9.4 删除与撤回
-
-- 未发布 Submission：在不存在法定保留要求时允许删除正文，保留最小审计摘要；
-- 已发布 Asset Version：不能静默改写，使用 `withdrawn` 和新版本纠正；
-- 已导出数据：按 License 触发买方通知、停止新授权、删除证明或继续使用条款；
-- 已训练模型：不得承诺技术上可以从权重中精确删除单个样本，合同必须明确补救边界；
-- 链上摘要不可删除，此事实必须在专家和买方协议中披露；
-- KYC、税务和付款资料由外部 Provider 按其政策处理。
 
 ## 10. API 与契约
 
@@ -739,8 +747,8 @@ evaluation_runner_failed
 ```text
 /expert                       入口与注册
 /expert/profile               档案、能力证明、审核状态
-/expert/knowledge             领域知识库列表
-/expert/knowledge/[id]        知识库条目维护
+/expert/knowledge             领域知识库列表（阶段 4）
+/expert/knowledge/[id]        知识库条目维护（阶段 4）
 /expert/opportunities         定向邀请
 /expert/assignments
 /expert/assignments/[id]
@@ -793,14 +801,14 @@ evaluation_runner_failed
 
 订单和发票仍由外部 Payment Provider 处理。Re0 只保存合同外部引用、订单/发票投影、金额、币种和状态。专家项目收入不得混入自助订阅 `revenue_period`。
 
-`expert_project_order` 使用自己的外部订单幂等键和收入分类。即使底层复用 Payment Adapter，也不能让现有 `billing_document` 聚合或 `revenue_period` 把项目收入误认为自助订阅净收入。
+`expert_order_payment` 使用自己的外部订单幂等键和收入分类。即使底层复用 Payment Adapter，也不能让现有 `billing_document` 聚合或 `revenue_period` 把项目收入误认为自助订阅净收入。
 
 ### 12.2 专家收入
 
 试点建议：
 
 - Rubric 与模板设计：按项目固定设计费，Brief 冻结后记账；
-- 资格测试：通过后按固定单价记账，未通过不付费；测试任务的正文不进入任何资产；
+- 资格测试：不付费，无论是否通过；它属于预注册，与 §0“预注册不产生付款义务”一致。作为对价，测试任务控制在每个领域 2–3 个，且正文不进入任何资产、不交付给任何买方；冷启动阶段为资格测试评分的外聘领域顾问由平台按顾问合同另行付费，不走 `expert_compensation_event`；
 - 接受制作：固定单价；
 - 裁决：按次固定裁决费，由平台承担，不从任何一方的制作或复核费中扣减；
 - 接受复核：固定复核费，按被复核任务的模态和体量分档，视频复核费高于文本；复核费在复核任务完成并被 Operator 采纳时记账，与被复核任务最终是否通过无关；
@@ -829,7 +837,7 @@ evaluation_runner_failed
 authenticate
   -> resolve workspace
   -> authorize role/scope
-  -> resolve active license grant or assignment
+  -> resolve active license grant, assignment, or open acceptance round
   -> pin asset version
   -> enforce split and data region
   -> create audited access decision
@@ -924,7 +932,7 @@ lib/
     administration/
     accounts/
     profiles/
-    knowledge/
+    knowledge/          （阶段 4）
     projects/
     submissions/
     reviews/
@@ -947,16 +955,18 @@ workflows/
 
 ### 15.2 Migration 拆分
 
-当前最新迁移为 `0036`；实际实施时按仓库最新序号重排。建议四个 Expand-only Migration：
+下列序号只表示先后，仓库在本方案起草后已有新迁移（`0037`、`0038` 已被占用），实际实施时按仓库最新序号重排。建议四个 Expand-only Migration：
 
-1. `0037_expert_identity_and_projects.sql`
-   - Expert Account、Profile、Verification、Qualification、Agreement、Knowledge Base、Knowledge Entry、Order、Quote、Project、Brief、Assignment、Task；
-2. `0038_expert_data_assets.sql`
+1. `NNNN_expert_identity_and_projects.sql`
+   - Expert Account、Profile、Verification、Qualification、Agreement、Task、Order、Quote、Project、Brief、Assignment；其中 Account、Profile、Verification、Qualification、Agreement、Task 是阶段 0b 提前上线的身份部分，可拆为单独一个迁移；
+2. `NNNN_expert_data_assets.sql`
    - Asset、Version、Item、Media、Review、Rights、Quality、Acceptance；
-3. `0039_data_licenses_exports_and_evals.sql`
-   - License、Grant、Project Order、Export、Evaluation Model Config、Run/Result；
-4. `0040_expert_compensation.sql`
+3. `NNNN_data_licenses_exports_and_evals.sql`
+   - License、Grant、Order Payment、Export、Evaluation Model Config、Run/Result；
+4. `NNNN_expert_compensation.sql`
    - Payee、Compensation Event、Settlement、Payout。
+
+Knowledge Base、Knowledge Entry 与 Entry Usage 三张表不在这四个迁移里，阶段 4 单独迁移。
 
 这些迁移不修改 `library`、`chunk`、`usage_event`、`earning_event` 的既有列。只有确有需要时为 `api_key` Scope Schema 和 Anchor Subject Enum 做单独 Expand Migration。
 
@@ -990,6 +1000,8 @@ workflows/
 - 近重复 Item 不能跨 Train 和 Eval；
 - 发布事务失败不切换 `current_version_id`；
 - Export 只包含 Grant 允许的 Split 和字段；
+- 验收样本清单永不包含 Hidden Eval Item；Round 关闭或过期后验收访问立即失败；
+- `qualification` 任务没有 Assignment 且不产生 Compensation Event；
 - Grant 在导出进行中被撤销时 Fail Closed；
 - Eval Run 固定 Suite、Runner、Rubric 和 Model Config；
 - Compensation Event 重试不重复记账，Settlement 可独立复算。
@@ -1006,20 +1018,30 @@ workflows/
 
 ## 17. 实施路线与上线门禁
 
-### 阶段 0：需求验证与制度准备（2–4 周）
+### 阶段 0：需求验证与制度准备（0a 2–4 周，0b 4–6 周）
 
-交付：
+阶段 0 拆成两段，先验证有人买，再为选定的领域组织供给。0a 的出口条件不满足时不进入 0b。
+
+**0a 买方与可行性（不进入代码库）**
 
 - 与至少 5 家潜在买方访谈，其中至少 2 家共同提供真实需求样例；
-- 确定首个领域、Task Schema、Rubric、交付格式和预算，并明确首个订单需要哪些模态；文本与文档模态首期必做，音视频模态只在首个订单明确需要时进入阶段 1，否则推到阶段 2；
-- 完成 Contributor Agreement、NDA、Data License 的法律评审；
-- 上线专家预注册页面和管理后台的验证审核队列（这是阶段 0 唯一进入代码库的功能，Migration 1 中与 Expert Profile、Verification、Agreement 相关的部分提前到此阶段）；
-- 通过预注册池积累并审核 20–30 名候选专家，验证资历和单位成本；为首个领域预置资格测试任务集，让首批专家完成资格测试；池中已验证且合格专家的领域覆盖同时作为对买方的销售材料；
-- 用人工流程制作 20 个样例并在至少 3 个模型上跑基线；
-- 付款可行性：现有发布者分成假设 Stripe Connect 一类服务承担 KYC 与税务，但 Stripe Connect 不支持中国大陆个人收款，且向大陆个人支付劳务报酬有代扣代缴义务。阶段 0 必须选定能向试点专家出账的 Provider 并确认税务处理方式，否则专家收入条款无法签署；
-- 跨境可行性：对试点领域完成一次数据出境与重要数据判断（§9.3），确定首个买方所在法域是否可交付。
+- 依据访谈确认或更换首个领域：§18 的制造业方向只是供给侧候选，领域在本步定档之前不为它招募专家、不出资格测试题；同时明确首个订单需要哪些模态，文本与文档模态首期必做，音视频模态只在首个订单明确需要时进入阶段 1，否则推到阶段 2；
+- 付款可行性：现有发布者分成假设 Stripe Connect 一类服务承担 KYC 与税务，但 Stripe Connect 不支持中国大陆个人收款，且向大陆个人支付劳务报酬有代扣代缴义务。必须选定能向试点专家出账的 Provider 并确认税务处理方式，否则专家收入条款无法签署；同时核对仓库当前接入的订阅支付服务能否承接项目制 B2B 收款，不能则买方侧另选收款方式（§21 第 11 项）；
+- 跨境可行性：对候选领域完成一次数据出境与重要数据判断（§9.3），确定首个买方所在法域是否可交付；
+- 专家个人信息：定档能力证明等证据的存储区域、是否构成出境以及告知同意文本（§9.3、§21 第 5 项）。
 
-门禁：至少 1 个付费试点或具有预算与验收人的正式采购意向；付款和跨境两项可行性有明确结论；任一项不满足则停止开发，不先建设开放市场。预注册池不受此门禁约束，可以持续开放和审核，但没有订单时不做任何委派。
+0a 出口：领域定档；付款、数据跨境、专家个人信息三项有明确结论。
+
+**0b 供给与样例**
+
+- 完成 Contributor Agreement、NDA、Data License 的法律评审；
+- 上线专家预注册页面、资格测试的最小形式和管理后台的验证审核队列（这是阶段 0 唯一进入代码库的功能，Migration 1 中与 Expert Account、Profile、Verification、Qualification、Agreement、Task 相关的部分提前到此阶段）；
+- 确定该领域的 Task Schema、Rubric、交付格式和预算；
+- 资格测试冷启动：聘请 1–2 名领域顾问预置该领域的资格测试任务集并为首批专家评分，首批通过者中再产生后续的资深评分专家；顾问按顾问合同付费，参加测试的专家不付费；
+- 通过预注册池积累并审核 20–30 名候选专家，验证资历和单位成本；池中已验证且合格专家的领域覆盖同时作为对买方的销售材料；
+- 用人工流程制作 20 个样例并在至少 3 个模型上跑基线。
+
+门禁：至少 1 个付费试点或具有预算与验收人的正式采购意向；付款和跨境两项可行性有明确结论；任一项不满足则停止开发，不先建设开放市场。预注册池不受此门禁约束，可以持续开放和审核，但没有订单时不做任何委派；预注册池受 0a 出口约束，领域和专家个人信息结论定档之前不开放。
 
 ### 阶段 1：内部运营 MVP（4–6 周）
 
@@ -1093,7 +1115,9 @@ workflows/
 
 ## 18. 试点领域方案
 
-建议以“中文制造业供应链与质量工程中的数字化桌面任务”为首个垂直方向，原因是：
+本节是候选方向，不是已决事项。下面五条理由都是供给侧的（人才、语料稀缺、可验证、可脱敏、责任可控），没有一条回答谁会为它付费；这与 §0 的订单驱动原则之间的缺口由阶段 0a 的买方访谈补上，访谈结论可以推翻本节。另外 [seed-libraries-proposal.md](./seed-libraries-proposal.md) 把中文生态列为知识库平台库“明确不做”的方向，专家赛道选中文领域需要一个明确的说法（§21 第 23 项）。
+
+候选方向是“中文制造业供应链与质量工程中的数字化桌面任务”，理由是：
 
 - 中国和亚洲具有较密集的专业人才供给；
 - 通用互联网语料难覆盖真实表格、报告、异常处置和跨角色流程；
@@ -1175,24 +1199,26 @@ workflows/
 2. 首个领域的 Task Schema、Rubric、Hidden Eval 数量下限和创建者占比上限；
 3. 专家资历验证由平台完成还是接入第三方；预注册阶段接受哪些能力证明类型、验证有效期多长；
 4. Buyer Workspace 在团队功能上线前的管理方式；
-5. 数据和 Hidden Eval 的首个部署区域；
+5. 数据和 Hidden Eval 的首个部署区域；专家能力证明等个人信息的存储区域、出境判断与告知同意文本（后者阶段 0a 定档，定档前不开放证明材料上传）；
 6. 允许的模型 Provider、模型输出保留期和是否允许外发评分；
 7. 任务制作、复核、返修、奖励和续费分成的计价版本；
 8. License 的标准期限、模型范围、独家性和删除证明；
 9. 哪些质量门禁使用平台统一阈值，哪些由 Project Brief 指定；
 10. 存证 Subject 扩展是否具有真实买方需求；
-11. 能向中国大陆个人专家出账的 Payment Provider 及税务处理方式（阶段 0 前定档）；
-12. 试点领域的数据出境结论与首个买方所在法域（阶段 0 前定档）；
+11. 能向中国大陆个人专家出账的 Payment Provider 及税务处理方式；仓库当前接入的订阅支付服务（Paddle）能否开具项目制 B2B 发票、能否向第三方出账尚未核实，不能时买方收款与专家出账各自另选 Provider（阶段 0a 定档）；
+12. 试点领域的数据出境结论与首个买方所在法域（阶段 0a 定档）；
 13. 买方模型凭证的 Secret 存储方案（阶段 2 前定档）；
 14. Hidden Eval Run 配额与子集轮换规则（阶段 2 前定档）；
-15. 首期支持的模态范围、单素材大小与时长上限、人脸与人声检测的技术手段和误拒申诉流程（阶段 1 前定档）；
+15. 首期支持的模态范围、单素材大小与时长上限、人脸与人声检测的技术手段、误拒申诉流程和被拒素材的隔离保留期（默认 7 天）（阶段 1 前定档）；
 16. 专家本人声音授权在 Contributor Agreement 中的条款、撤回后的补救边界，以及录屏中第三方软件界面的许可判断规则（阶段 1 前定档）；
 17. 复核任务的委派规则：每个 Item 需要几名 Reviewer、复核截止时长、逾期重新委派的条件、复核费分档（阶段 1 前定档）；
 18. 裁决规则：触发裁决的分歧阈值（建议 Rubric 总分差超过 20 分或通过/驳回结论相反）、裁决者的资格、裁决结论如何回写 Reviewer 一致率（阶段 1 前定档）；
 19. 通知渠道：邮件 Provider 的选择与模板、站内通知的保留期、评论线程是否允许附件（阶段 1 前定档）；
-20. 知识库条目的独占锁定期与非独占复用的披露方式（阶段 2 前定档）；
-21. 资格测试任务集的题量、通过线、冷却期与重测次数（阶段 0 前定档）；
-22. 验收抽样方案的默认参数与 `expired` 的合同后果（阶段 2 前定档）。
+20. 知识库条目的独占锁定期与非独占复用的披露方式（阶段 4 前定档，随 Expert Knowledge Base 一起推迟）；
+21. 资格测试任务集的题量、通过线、冷却期与重测次数，以及冷启动领域顾问的人选与合同（阶段 0b 前定档）；
+22. 验收抽样方案的默认参数与 `expired` 的合同后果；`evaluation_suite` 隐藏部分四项验收证据的通过标准（阶段 2 前定档）；
+23. 首个领域是否为中文领域：与 seed-libraries-proposal.md“不做中文生态”的产品决策对齐口径，要么说明该决策只约束知识库平台库，要么更换领域（阶段 0a 定档）；
+24. 试点任务总数：不足 500 时只交付 `evaluation_suite`（§8.1），买方若同时需要训练集则把规模提到 500 以上并重新报价（阶段 0a 定档）。
 
 ## 22. 外部依据
 

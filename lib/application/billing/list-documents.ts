@@ -414,6 +414,6 @@ export async function getBillingDocument(id: string): Promise<BillingDocumentDet
  * Postgres refuses a malformed uuid literal with an error rather than an empty
  * result, so the shape is checked before the query rather than caught after it.
  */
-function isUuid(value: string): boolean {
+export function isUuid(value: string): boolean {
   return /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(value);
 }
