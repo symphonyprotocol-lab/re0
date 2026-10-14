@@ -42,6 +42,7 @@ const STATUS_TONE: Record<SettlementStatus, 'neutral' | 'warn' | 'ok' | 'danger'
   accrued: 'warn',
   held: 'warn',
   paid: 'ok',
+  redeemed: 'ok',
   clawed_back: 'danger',
   voided: 'neutral',
 };
@@ -54,6 +55,8 @@ function statusLabel(f: Dictionary['admin']['filters'], status: SettlementStatus
       return f.settlementHeld;
     case 'paid':
       return f.settlementPaid;
+    case 'redeemed':
+      return f.settlementRedeemed;
     case 'clawed_back':
       return f.settlementClawedBack;
     case 'voided':
@@ -71,7 +74,10 @@ function statusLabel(f: Dictionary['admin']['filters'], status: SettlementStatus
  *
  * There is no payout control, and that is a product fact rather than a gap:
  * stage 3 of the share doc connects an external payment service, and until it
- * does the console keeps books it cannot settle. The notice says so.
+ * does the console cannot move money. Statements still leave the books one
+ * way -- the publisher redeems them as Additional Calls from their dashboard
+ * (share doc 3.4) -- which the console shows as `redeemed` and totals beside
+ * cash paid out, but never triggers. The notice says both.
  */
 export default async function AdminSettlementsPage({
   searchParams,
@@ -133,7 +139,14 @@ export default async function AdminSettlementsPage({
         publishers: summary.publishers,
       }),
     },
-    { label: l.stats.paid, value: cash(summary.paidMinor), caption: l.stats.paidCaption },
+    {
+      label: l.stats.paid,
+      value: cash(summary.paidMinor + summary.redeemedMinor),
+      caption: fill(l.stats.paidCaption, {
+        paid: cash(summary.paidMinor),
+        redeemed: cash(summary.redeemedMinor),
+      }),
+    },
     {
       label: l.stats.reversed,
       value: cash(summary.reversedMinor),
@@ -216,6 +229,7 @@ export default async function AdminSettlementsPage({
                 { id: 'accrued', label: f.settlementAccrued },
                 { id: 'held', label: f.settlementHeld },
                 { id: 'paid', label: f.settlementPaid },
+                { id: 'redeemed', label: f.settlementRedeemed },
                 { id: 'clawed_back', label: f.settlementClawedBack },
                 { id: 'voided', label: f.settlementVoided },
               ]}

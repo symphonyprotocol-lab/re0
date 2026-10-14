@@ -52,3 +52,11 @@ export {
   type PublisherEarnings,
   type PublisherPeriodEarning,
 } from './publisher-earnings';
+export {
+  canRedeemEarnings,
+  earningCredit,
+  redeemEarningsAsCalls,
+  type EarningCredit,
+  type EarningRedemption,
+  type RedeemedEarnings,
+} from './redeem-credit';

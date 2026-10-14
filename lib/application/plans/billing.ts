@@ -11,7 +11,7 @@
  *
  * The arithmetic is a pure function so it can be tested without a database.
  */
-import { and, eq, gte, lt } from 'drizzle-orm';
+import { and, eq, gte, isNull, lt } from 'drizzle-orm';
 import { PLAN_CURRENCY } from '@/lib/domain/plans';
 import { paymentAdapter } from '@/lib/infrastructure/payment/provider';
 import { db, schema } from '@/lib/infrastructure/postgres/client';
@@ -190,6 +190,9 @@ export async function workspaceBilling(workspaceId: string): Promise<WorkspaceBi
           eq(schema.addonGrant.workspaceId, workspaceId),
           gte(schema.addonGrant.createdAt, plan.periodStart),
           lt(schema.addonGrant.createdAt, plan.periodEnd),
+          /* Bought, not redeemed: a grant made of settled earnings cost the
+             workspace nothing this period (publisher-revenue-share.md 3.4). */
+          isNull(schema.addonGrant.publisherAccountId),
         ),
       ),
     database
