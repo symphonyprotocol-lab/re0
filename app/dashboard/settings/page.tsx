@@ -26,6 +26,7 @@ import {
   ShieldCheckIcon,
 } from '@/components/ui/icons';
 import Link from 'next/link';
+import { CheckoutSync } from '@/components/dashboard/checkout-sync';
 import { PendingSubmitButton } from '@/components/ui/pending-submit-button';
 import {
   disconnectGithubAction,
@@ -463,6 +464,17 @@ export default async function DashboardSettingsPage({
                 }`}
               >
                 {g.checkout.outcomes[checkoutOutcome]}
+                {checkoutOutcome === 'success' ? (
+                  <CheckoutSync
+                    fingerprint={JSON.stringify([
+                      planVersion.planVersionId,
+                      planVersion.subscribed,
+                      overview.planAllowance,
+                      overview.addonBalanceRemaining,
+                      billing.rows[0]?.id ?? null,
+                    ])}
+                  />
+                ) : null}
               </p>
             ) : null}
             {!paymentConnected ? (
