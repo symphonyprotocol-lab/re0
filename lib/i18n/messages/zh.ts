@@ -820,6 +820,7 @@ export const zh = {
       monthlyCalls: '本月调用',
       upgrade: '升级计划',
       signOut: '退出登录',
+      loading: '加载中…',
     },
     overview: {
       title: '概览',

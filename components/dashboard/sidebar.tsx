@@ -1,6 +1,6 @@
 'use client';
 
-import Link from 'next/link';
+import Link, { useLinkStatus } from 'next/link';
 import { usePathname } from 'next/navigation';
 import { WorkspaceAvatar } from '@/components/dashboard/workspace-avatar';
 import {
@@ -12,6 +12,7 @@ import {
   LayoutDashboardIcon,
   SettingsIcon,
   ShieldCheckIcon,
+  SpinnerIcon,
 } from '@/components/ui/icons';
 import { WORKSPACE_INITIAL } from '@/lib/dashboard/snippets';
 import { useI18n } from '@/lib/i18n/client';
@@ -71,6 +72,7 @@ export function DashboardSidebar({
             >
               <Icon size={15} />
               {label}
+              <NavPending />
             </Link>
           );
         })}
@@ -95,5 +97,19 @@ export function DashboardSidebar({
         </Link>
       </div>
     </aside>
+  );
+}
+
+
+/**
+ * A spinner at the end of the rail item whose page is on its way. Next.js
+ * reports the pending navigation per link, so only the clicked item shows it;
+ * the content column swaps to its own loading state at the same time.
+ */
+function NavPending() {
+  const { pending } = useLinkStatus();
+  if (!pending) return null;
+  return (
+    <SpinnerIcon size={13} className="ml-auto shrink-0 text-brandink motion-safe:animate-spin" />
   );
 }
