@@ -26,6 +26,7 @@ import {
   ShieldCheckIcon,
 } from '@/components/ui/icons';
 import Link from 'next/link';
+import { PendingSubmitButton } from '@/components/ui/pending-submit-button';
 import {
   disconnectGithubAction,
   disconnectNotionAction,
@@ -472,26 +473,20 @@ export default async function DashboardSettingsPage({
             ) : onPaidPlan ? (
               <>
                 <form action={openBillingPortalAction}>
-                  <button type="submit" className={PLAN_PRIMARY}>
-                    {g.checkout.manage}
-                    <ArrowRightIcon size={14} />
-                  </button>
+                  <PendingSubmitButton className={PLAN_PRIMARY}>{g.checkout.manage}</PendingSubmitButton>
                 </form>
                 <form action={startCheckoutAction}>
                   <input type="hidden" name="kind" value="pack" />
-                  <button type="submit" className={PLAN_SECONDARY}>
+                  <PendingSubmitButton className={PLAN_SECONDARY} arrow={false}>
                     {g.checkout.buyPack}
-                  </button>
+                  </PendingSubmitButton>
                 </form>
               </>
             ) : (
               <>
                 <form action={startCheckoutAction}>
                   <input type="hidden" name="kind" value="subscription" />
-                  <button type="submit" className={PLAN_PRIMARY}>
-                    {g.checkout.upgrade}
-                    <ArrowRightIcon size={14} />
-                  </button>
+                  <PendingSubmitButton className={PLAN_PRIMARY}>{g.checkout.upgrade}</PendingSubmitButton>
                 </form>
                 {/*
                   A workspace that has paid before but is not on Pro now --
@@ -500,9 +495,9 @@ export default async function DashboardSettingsPage({
                 */}
                 {providerCustomer ? (
                   <form action={openBillingPortalAction}>
-                    <button type="submit" className={PLAN_SECONDARY}>
+                    <PendingSubmitButton className={PLAN_SECONDARY} arrow={false}>
                       {g.checkout.manage}
-                    </button>
+                    </PendingSubmitButton>
                   </form>
                 ) : (
                   <Link href="/pricing" className={PLAN_SECONDARY}>
