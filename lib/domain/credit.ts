@@ -23,16 +23,18 @@ export interface PackRate {
 }
 
 /**
- * How many calls an amount buys at the pack rate, rounded down.
+ * How many calls an amount buys at the pack rate, rounded up.
  *
  * The threshold the payout rail needs ($5, a channel-fee floor) does not
- * apply: redeeming costs nothing per transaction. The only floor is one whole
- * call, and below it nothing is redeemed -- the amount stays accrued rather
- * than being spent on zero calls.
+ * apply: redeeming costs nothing per transaction. Rounding goes the
+ * publisher's way: the statements are marked fully redeemed, so a fraction of
+ * a call that was rounded away would be money the ledger says left and the
+ * grant says never arrived. The platform absorbs at most one call per
+ * redemption instead, and any positive amount buys at least one call.
  */
 export function creditCallsFor(amountMinor: number, pack: PackRate): number {
   if (amountMinor <= 0 || pack.priceMinor <= 0 || pack.calls <= 0) return 0;
-  return Math.floor((amountMinor * pack.calls) / pack.priceMinor);
+  return Math.ceil((amountMinor * pack.calls) / pack.priceMinor);
 }
 
 export type EarningCreditError =
@@ -40,7 +42,7 @@ export type EarningCreditError =
   | 'no_account'
   /** No Additional Calls version to price the conversion with. */
   | 'no_pack_rate'
-  /** Nothing accrued is past its hold, or the total buys less than one call. */
+  /** Nothing accrued is past its hold on a library that still earns. */
   | 'nothing_redeemable';
 
 export class EarningCreditRefused extends Error {

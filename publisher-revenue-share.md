@@ -101,11 +101,12 @@ publisher_earning(P) = pool × (P 名下可计分成 Call 数 / 全部可计分�
 
 **账户抵扣（默认路径，已实现）**
 
-- 发布者在 Dashboard 收益页（或 `POST /api/v1/revenue/credit`）把**全部**已过持有期的结算单一次性转为本工作空间的 Additional Calls 额度，按当时最新的 Additional Calls Plan Version 换算：`calls = ⌊金额 × 每包 Calls ÷ 每包价格⌋`；
+- 发布者在 Dashboard 收益页（或 `POST /api/v1/revenue/credit`）把**全部**已过持有期的结算单一次性转为本工作空间的 Additional Calls 额度，按当时最新的 Additional Calls Plan Version 换算：`calls = ⌈金额 × 每包 Calls ÷ 每包价格⌉`。向上取整：结算单整张记为已抵扣，不足一个 Call 的零头由平台承担，而不是从发布者账上消失；
+- 库当前被安全暂停或已下架（`lifecycle_status ≠ published`）的结算单**不可转换**（第 5 节「违规处置」），在收益页单独列为「暂不可转换」金额；库恢复发布后自动恢复可转换；
 - 换得的额度与购买的调用包同一张表、同一套规则：不过期、跨账期结转、先扣套餐额度再扣它（第 4.2 节扣减顺序）。它不是购买，不受「Free 不能购买调用包」限制，也不计入该账期的套餐费用；
-- 抵扣**不设金额门槛**：门槛的理由是渠道手续费，抵扣没有渠道。唯一下限是换得至少 1 个 Call，不足一个 Call 的金额保留在账上继续累计；
+- 抵扣**不设金额门槛**：门槛的理由是渠道手续费，抵扣没有渠道。任何正金额都至少换得 1 个 Call；
 - 抵扣不涉及资金：平台没有持有、转移或支付任何款项，只是在自己的服务上发放权益。结算单状态记为 `redeemed`（区别于现金 `paid`，账面始终分得清哪些钱真正出去过），并记录它变成的 `addon_grant`；`payout` 表不写；
-- 只有工作空间 owner / admin 可以在 Dashboard 触发；API Key 以工作空间身份行事，与接受发布者协议一致。
+- 只有工作空间 owner / admin 可以在 Dashboard 触发；API Key 需要管理 scope（`admin:keys`），与接受发布者协议、管理 API Key 同一道门。每笔抵扣在 `addon_grant.redeemed_by` 记录操作者（`user:<id>` 或 `api_key:<id>`）。
 
 **现金出账（阶段 3，未实现）**
 

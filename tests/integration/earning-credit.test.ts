@@ -2,8 +2,8 @@
  * Redeeming settled earnings as Additional Calls, against a real database.
  * publisher-revenue-share.md 3.4: statements past their hold convert at the
  * pack rate into one grant on the publisher's workspace, held statements stay
- * accrued, the conversion never runs twice over the same rows, and nothing is
- * written to `payout`.
+ * accrued, a suspended library's statements are withheld, two racing redeems
+ * produce one grant, and nothing is written to `payout`.
  *
  * Fixture rows live in 2022 periods, isolated from every parallel suite.
  *
@@ -71,7 +71,7 @@ async function packVersion(): Promise<void> {
   });
 }
 
-async function library(slug: string, owner: string): Promise<string> {
+async function library(slug: string, owner: string, lifecycle = 'published'): Promise<string> {
   const id = crypto.randomUUID();
   libraries.push(id);
   await db().insert(schema.library).values({
@@ -81,11 +81,13 @@ async function library(slug: string, owner: string): Promise<string> {
     ownerWorkspaceId: owner,
     isPlatformLibrary: false,
     visibility: 'public',
-    lifecycleStatus: 'published',
+    lifecycleStatus: lifecycle as 'published',
     indexStatus: 'ready',
   });
   return id;
 }
+
+const ACTOR = { kind: 'user' as const, id: crypto.randomUUID() };
 
 async function lockedPeriod(id: string, lockedAt: Date): Promise<void> {
   periods.push(id);
@@ -122,19 +124,30 @@ async function statement(input: {
   return id;
 }
 
-async function apiKeyFor(workspaceId: string): Promise<string> {
+async function apiKeyFor(
+  workspaceId: string,
+  scopes: string[] = ['retrieval', 'admin:keys'],
+): Promise<{ key: string; id: string }> {
   const key = `mm_test_${crypto.randomUUID().replace(/-/g, '')}`;
+  const id = uuidv7();
   await db().insert(schema.apiKey).values({
-    id: uuidv7(),
+    id,
     workspaceId,
     name: 'credit key',
     keyHash: await hashApiKey(key),
     keyPrefix: 'mm_test_',
     lastFour: key.slice(-4),
-    scopes: ['retrieval'],
+    scopes,
     environment: 'test',
   });
-  return key;
+  return { key, id };
+}
+
+function creditRequest(key: string): NextRequest {
+  return new NextRequest('http://localhost/api/v1/revenue/credit', {
+    method: 'POST',
+    headers: { authorization: `Bearer ${key}` },
+  });
 }
 
 describeWithDb('earning credit', () => {
@@ -196,7 +209,7 @@ describeWithDb('earning credit', () => {
     expect(before.redeemedMinor).toBe(0);
     expect(before.redemptions).toEqual([]);
 
-    const redeemed = await redeemEarningsAsCalls({ workspaceId: owner, now });
+    const redeemed = await redeemEarningsAsCalls({ workspaceId: owner, actor: ACTOR, now });
     expect(redeemed).toMatchObject({ amountMinor: 1_300, calls: 13_000, statements: 2, currency: 'USD' });
 
     const [grant] = await db()
@@ -210,6 +223,7 @@ describeWithDb('earning credit', () => {
       callsConsumed: 0,
       priceMinor: 1_300,
       providerOrderId: null,
+      redeemedBy: `user:${ACTOR.id}`,
     });
 
     const rows = await db()
@@ -238,18 +252,13 @@ describeWithDb('earning credit', () => {
     expect(after.credit.redemptions[0]).toMatchObject({ id: redeemed.grantId, amountMinor: 1_300, callsGranted: 13_000 });
 
     /* A second redeem finds the rows already redeemed and converts nothing. */
-    await expect(redeemEarningsAsCalls({ workspaceId: owner, now })).rejects.toMatchObject({
-      code: 'nothing_redeemable',
-    });
+    await expect(
+      redeemEarningsAsCalls({ workspaceId: owner, actor: ACTOR, now }),
+    ).rejects.toMatchObject({ code: 'nothing_redeemable' });
 
     /* The API says the same, as a client error rather than a server fault. */
-    const key = await apiKeyFor(owner);
-    const response = await creditPost(
-      new NextRequest('http://localhost/api/v1/revenue/credit', {
-        method: 'POST',
-        headers: { authorization: `Bearer ${key}` },
-      }),
-    );
+    const { key } = await apiKeyFor(owner);
+    const response = await creditPost(creditRequest(key));
     expect(response.status).toBe(400);
     const body = (await response.json()) as { error: { code: string; message: string } };
     expect(body.error.code).toBe('invalid_request');
@@ -263,46 +272,104 @@ describeWithDb('earning credit', () => {
     await lockedPeriod('2022-03', new Date(Date.now() - (PAYOUT_HOLD_DAYS + 1) * DAY));
     await statement({ periodId: '2022-03', publisherAccountId: account, libraryId: lib, amountMinor: 250 });
 
-    const key = await apiKeyFor(owner);
-    const response = await creditPost(
-      new NextRequest('http://localhost/api/v1/revenue/credit', {
-        method: 'POST',
-        headers: { authorization: `Bearer ${key}` },
-      }),
-    );
+    /* A key without the management scope may read earnings but not spend them. */
+    const readOnly = await apiKeyFor(owner, ['knowledge:search']);
+    const refused = await creditPost(creditRequest(readOnly.key));
+    expect(refused.status).toBe(403);
+    expect(((await refused.json()) as { error: { code: string } }).error.code).toBe('access_denied');
+
+    const { key, id: keyId } = await apiKeyFor(owner);
+    const response = await creditPost(creditRequest(key));
     expect(response.status).toBe(200);
     const body = (await response.json()) as { grantId: string; amountMinor: number; calls: number };
     expect(body).toMatchObject({ amountMinor: 250, calls: 2_500 });
 
     const [grant] = await db()
-      .select({ workspaceId: schema.addonGrant.workspaceId, calls: schema.addonGrant.callsGranted })
+      .select({
+        workspaceId: schema.addonGrant.workspaceId,
+        calls: schema.addonGrant.callsGranted,
+        redeemedBy: schema.addonGrant.redeemedBy,
+      })
       .from(schema.addonGrant)
       .where(eq(schema.addonGrant.id, body.grantId));
-    expect(grant).toEqual({ workspaceId: owner, calls: 2_500 });
+    expect(grant).toEqual({ workspaceId: owner, calls: 2_500, redeemedBy: `api_key:${keyId}` });
+  });
+
+  it('withholds a suspended library and reports it as such', async () => {
+    const now = new Date();
+    const owner = await workspace('credit-owner-suspended');
+    const account = await publisherAccount(owner);
+    const healthy = await library('credit-healthy', owner);
+    const suspended = await library('credit-suspended', owner, 'suspended');
+    await lockedPeriod('2022-05', new Date(now.getTime() - (PAYOUT_HOLD_DAYS + 1) * DAY));
+    const good = await statement({ periodId: '2022-05', publisherAccountId: account, libraryId: healthy, amountMinor: 300 });
+    const bad = await statement({ periodId: '2022-05', publisherAccountId: account, libraryId: suspended, amountMinor: 700 });
+
+    const before = await earningCredit(account, now);
+    expect(before.redeemableMinor).toBe(300);
+    expect(before.withheldMinor).toBe(700);
+
+    const redeemed = await redeemEarningsAsCalls({ workspaceId: owner, actor: ACTOR, now });
+    expect(redeemed).toMatchObject({ amountMinor: 300, calls: 3_000, statements: 1 });
+
+    const rows = await db()
+      .select({ id: schema.settlement.id, status: schema.settlement.status })
+      .from(schema.settlement)
+      .where(inArray(schema.settlement.id, [good, bad]));
+    expect(new Map(rows.map((row) => [row.id, row.status]))).toEqual(
+      new Map([
+        [good, 'redeemed'],
+        [bad, 'accrued'],
+      ]),
+    );
+  });
+
+  it('gives two racing redeems one grant between them', async () => {
+    const now = new Date();
+    const owner = await workspace('credit-owner-race');
+    const account = await publisherAccount(owner);
+    const lib = await library('credit-race', owner);
+    await lockedPeriod('2022-06', new Date(now.getTime() - (PAYOUT_HOLD_DAYS + 1) * DAY));
+    await statement({ periodId: '2022-06', publisherAccountId: account, libraryId: lib, amountMinor: 1_000 });
+
+    const outcomes = await Promise.allSettled(
+      Array.from({ length: 4 }, () => redeemEarningsAsCalls({ workspaceId: owner, actor: ACTOR, now })),
+    );
+    const won = outcomes.filter((outcome) => outcome.status === 'fulfilled');
+    const lost = outcomes.filter((outcome) => outcome.status === 'rejected');
+    expect(won).toHaveLength(1);
+    expect(lost).toHaveLength(3);
+    for (const outcome of lost) {
+      expect((outcome as PromiseRejectedResult).reason).toMatchObject({ code: 'nothing_redeemable' });
+    }
+
+    const grants = await db()
+      .select({ calls: schema.addonGrant.callsGranted })
+      .from(schema.addonGrant)
+      .where(eq(schema.addonGrant.publisherAccountId, account));
+    expect(grants).toEqual([{ calls: 10_000 }]);
   });
 
   it('refuses a workspace without a publisher account', async () => {
     const stranger = await workspace('credit-stranger');
-    await expect(redeemEarningsAsCalls({ workspaceId: stranger })).rejects.toBeInstanceOf(
-      EarningCreditRefused,
-    );
-    await expect(redeemEarningsAsCalls({ workspaceId: stranger })).rejects.toMatchObject({
-      code: 'no_account',
-    });
+    await expect(
+      redeemEarningsAsCalls({ workspaceId: stranger, actor: ACTOR }),
+    ).rejects.toBeInstanceOf(EarningCreditRefused);
+    await expect(
+      redeemEarningsAsCalls({ workspaceId: stranger, actor: ACTOR }),
+    ).rejects.toMatchObject({ code: 'no_account' });
   });
 
-  it('leaves an amount below one call accrued', async () => {
+  it('leaves a zero statement accrued rather than minting an empty grant', async () => {
     const owner = await workspace('credit-owner-small');
     const account = await publisherAccount(owner);
     const lib = await library('credit-c', owner);
     await lockedPeriod('2022-04', new Date(Date.now() - (PAYOUT_HOLD_DAYS + 1) * DAY));
-    /* Zero cents past the hold: the pack rate makes any cent worth ten calls,
-       so the only way to be under one call is to have nothing at all. */
     const id = await statement({ periodId: '2022-04', publisherAccountId: account, libraryId: lib, amountMinor: 0 });
 
-    await expect(redeemEarningsAsCalls({ workspaceId: owner })).rejects.toMatchObject({
-      code: 'nothing_redeemable',
-    });
+    await expect(
+      redeemEarningsAsCalls({ workspaceId: owner, actor: ACTOR }),
+    ).rejects.toMatchObject({ code: 'nothing_redeemable' });
     const [row] = await db()
       .select({ status: schema.settlement.status })
       .from(schema.settlement)

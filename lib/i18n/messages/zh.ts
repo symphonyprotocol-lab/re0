@@ -1617,6 +1617,7 @@ export const zh = {
         statements: '{count} 张结算单',
         held: '持有中',
         nextRelease: '{date} 起可转换',
+        withheld: '另有 {amount} 因知识库被暂停或下架而暂不可转换。',
         redeemed: '累计 {calls} Calls',
         rate: '当前费率 {price} / {calls} Calls',
         noRate: '尚未配置调用包价格，暂时无法转换。',

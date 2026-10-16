@@ -27,7 +27,10 @@ export async function redeemEarningsAction(
   if (!canRedeemEarnings(session.workspace.role)) return { ok: false, error: 'forbidden' };
 
   try {
-    const result = await redeemEarningsAsCalls({ workspaceId: session.workspace.id });
+    const result = await redeemEarningsAsCalls({
+      workspaceId: session.workspace.id,
+      actor: { kind: 'user', id: session.user.id },
+    });
     revalidatePath('/dashboard/revenue');
     revalidatePath('/dashboard');
     revalidatePath('/dashboard/settings');

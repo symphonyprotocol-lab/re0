@@ -382,8 +382,15 @@ export const addonGrant = pgTable(
      * settled earnings into calls (publisher-revenue-share.md 3.4). Then
      * `price_minor` is the earnings consumed, not a pack price, and the grant
      * is not a purchase -- `workspaceBilling` must not count it as one.
+     *
+     * The foreign key to `publisher_account` lives in the migration only:
+     * that table is declared further down, and this file has no forward
+     * `references()` -- drizzle resolves them lazily, but a tool walking the
+     * table config at import time would hit the temporal dead zone.
      */
-    publisherAccountId: uuid('publisher_account_id').references(() => publisherAccount.id),
+    publisherAccountId: uuid('publisher_account_id'),
+    /** Who redeemed it, as `user:<id>` or `api_key:<id>`; null on a bought pack. */
+    redeemedBy: text('redeemed_by'),
     createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
   },
   (t) => [

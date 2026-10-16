@@ -56,7 +56,9 @@ export {
   canRedeemEarnings,
   earningCredit,
   redeemEarningsAsCalls,
+  redeemedByTag,
   type EarningCredit,
   type EarningRedemption,
+  type RedeemActor,
   type RedeemedEarnings,
 } from './redeem-credit';

@@ -1683,6 +1683,7 @@ export const en: Dictionary = {
         statements: '{count} statements',
         held: 'Held',
         nextRelease: 'redeemable from {date}',
+        withheld: 'Another {amount} is withheld while its library is suspended or unpublished.',
         redeemed: '{calls} calls in total',
         rate: 'Current rate {price} per {calls} calls',
         noRate: 'No pack price is configured, so nothing can be redeemed yet.',

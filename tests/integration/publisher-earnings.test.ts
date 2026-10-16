@@ -47,7 +47,8 @@ async function apiKeyFor(workspaceId: string): Promise<string> {
     keyHash: await hashApiKey(key),
     keyPrefix: 'mm_test_',
     lastFour: key.slice(-4),
-    scopes: ['retrieval'],
+    /* Accepting the agreement is an account change and needs the management scope. */
+    scopes: ['retrieval', 'admin:keys'],
     environment: 'test',
   });
   return key;

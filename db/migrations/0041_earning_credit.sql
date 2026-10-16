@@ -18,6 +18,12 @@ ALTER TYPE "settlement_status" ADD VALUE IF NOT EXISTS 'redeemed' AFTER 'paid';
 ALTER TABLE "addon_grant"
   ADD COLUMN IF NOT EXISTS "publisher_account_id" uuid REFERENCES "publisher_account"("id");
 --> statement-breakpoint
+-- Who redeemed it: `user:<id>` from the dashboard, `api_key:<id>` from the API.
+-- A redemption spends value; a workspace with several admins must be able to
+-- say which of them did it.
+ALTER TABLE "addon_grant"
+  ADD COLUMN IF NOT EXISTS "redeemed_by" text;
+--> statement-breakpoint
 CREATE INDEX IF NOT EXISTS "addon_grant_publisher_idx"
   ON "addon_grant" ("publisher_account_id", "created_at" DESC);
 --> statement-breakpoint

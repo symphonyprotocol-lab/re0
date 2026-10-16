@@ -158,6 +158,12 @@ export default async function DashboardRevenuePage() {
           </div>
         </dl>
 
+        {credit.withheldMinor > 0 ? (
+          <p className="text-[11px] leading-[1.6] text-rose">
+            {fill(c.withheld, { amount: usd(credit.withheldMinor) })}
+          </p>
+        ) : null}
+
         <p className="text-[11px] leading-[1.6] text-muted">
           {credit.pack
             ? fill(c.rate, {

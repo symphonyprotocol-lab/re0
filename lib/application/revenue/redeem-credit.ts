@@ -7,16 +7,20 @@
  * untouched for the external payout service of stage 3.
  *
  * What is redeemable is decided by the same hold the payout rail uses --
- * accrued statements whose period locked at least PAYOUT_HOLD_DAYS ago -- and
- * the whole redeemable amount converts at once. A statement is either accrued
- * or redeemed; there is no partial state, which is what keeps every row
+ * accrued statements whose period locked at least PAYOUT_HOLD_DAYS ago -- plus
+ * one rule from the share doc's section 5: a library that is suspended or no
+ * longer published earns nothing it has not already been paid, so its
+ * statements are withheld rather than converted, and are shown as such. The
+ * whole redeemable amount converts at once. A statement is either accrued or
+ * redeemed; there is no partial state, which is what keeps every row
  * recomputable from events plus the grant it became.
  *
  * Concurrency: the redeemable rows are read `FOR UPDATE`, and Postgres
  * re-evaluates the `status = 'accrued'` predicate on the committed row once
  * the lock is granted. Two redeems racing therefore split nothing: the second
  * sees the first's `redeemed` rows and converts only what is left, which is
- * usually nothing.
+ * usually nothing. The publisher account row is locked first, so the two
+ * never even reach the statements at the same time.
  */
 import { and, desc, eq, inArray, isNotNull, sql } from 'drizzle-orm';
 import {
@@ -34,6 +38,21 @@ import { db, schema } from '@/lib/infrastructure/postgres/client';
 /** Turning earnings into calls spends them; only those who run the workspace may. */
 export function canRedeemEarnings(role: WorkspaceRole): boolean {
   return role === 'owner' || role === 'admin';
+}
+
+/**
+ * Who pressed the button, recorded on the grant as `kind:id`. A redemption
+ * spends money-equivalent value, and a workspace with several admins must be
+ * able to say which session or key did it (requirement.md 5.3 keeps the same
+ * rule for console mutations).
+ */
+export interface RedeemActor {
+  kind: 'user' | 'api_key';
+  id: string;
+}
+
+export function redeemedByTag(actor: RedeemActor): string {
+  return `${actor.kind}:${actor.id}`;
 }
 
 export interface EarningRedemption {
@@ -58,6 +77,12 @@ export interface EarningCredit {
   heldMinor: number;
   /** When the earliest held statement becomes redeemable; null if none held. */
   nextReleaseAt: Date | null;
+  /**
+   * Past their hold but not convertible: the library is suspended or no
+   * longer published (share doc 5). Shown so the publisher knows the amount
+   * exists and why it does not move.
+   */
+  withheldMinor: number;
   /** Everything redeemed so far. */
   redeemedMinor: number;
   redeemedCalls: number;
@@ -69,6 +94,11 @@ const REDEMPTIONS_SHOWN = 12;
 /** `locked_at + hold <= now`: the statement has left the refund window. */
 function pastHold(now: Date) {
   return sql`${schema.revenuePeriod.lockedAt} + make_interval(days => ${PAYOUT_HOLD_DAYS}) <= ${now}`;
+}
+
+/** The library still earns: suspended and withdrawn libraries do not (share doc 5). */
+function libraryEarns() {
+  return eq(schema.library.lifecycleStatus, 'published');
 }
 
 async function packRate(database: ReturnType<typeof db> | Tx): Promise<PackRate | null> {
@@ -93,51 +123,43 @@ export async function earningCredit(
   now: Date = new Date(),
 ): Promise<EarningCredit> {
   const database = db();
-  const pack = await packRate(database);
 
-  if (!accountId) {
-    return {
-      pack,
-      redeemableMinor: 0,
-      redeemableStatements: 0,
-      redeemableCalls: 0,
-      heldMinor: 0,
-      nextReleaseAt: null,
-      redeemedMinor: 0,
-      redeemedCalls: 0,
-      redemptions: [],
-    };
-  }
-
-  const [accrued, grants] = await Promise.all([
-    database
-      .select({
-        redeemableMinor: sql<number>`coalesce(sum(${schema.settlement.amountMinor}) filter (where ${pastHold(now)}), 0)::bigint`,
-        redeemableStatements: sql<number>`(count(*) filter (where ${pastHold(now)}))::int`,
-        heldMinor: sql<number>`coalesce(sum(${schema.settlement.amountMinor}) filter (where not (${pastHold(now)})), 0)::bigint`,
-        earliestHeldLock: sql<Date | null>`min(${schema.revenuePeriod.lockedAt}) filter (where not (${pastHold(now)}))`,
-      })
-      .from(schema.settlement)
-      .innerJoin(schema.revenuePeriod, eq(schema.revenuePeriod.id, schema.settlement.periodId))
-      .where(
-        and(
-          eq(schema.settlement.publisherAccountId, accountId),
-          eq(schema.settlement.status, 'accrued'),
-          isNotNull(schema.revenuePeriod.lockedAt),
-        ),
-      ),
-    database
-      .select({
-        id: schema.addonGrant.id,
-        createdAt: schema.addonGrant.createdAt,
-        amountMinor: schema.addonGrant.priceMinor,
-        currency: schema.addonGrant.currency,
-        callsGranted: schema.addonGrant.callsGranted,
-        callsConsumed: schema.addonGrant.callsConsumed,
-      })
-      .from(schema.addonGrant)
-      .where(eq(schema.addonGrant.publisherAccountId, accountId))
-      .orderBy(desc(schema.addonGrant.createdAt), desc(schema.addonGrant.id)),
+  const [pack, accrued, grants] = await Promise.all([
+    packRate(database),
+    accountId
+      ? database
+          .select({
+            redeemableMinor: sql<number>`coalesce(sum(${schema.settlement.amountMinor}) filter (where ${pastHold(now)} and ${libraryEarns()}), 0)::bigint`,
+            redeemableStatements: sql<number>`(count(*) filter (where ${pastHold(now)} and ${libraryEarns()}))::int`,
+            withheldMinor: sql<number>`coalesce(sum(${schema.settlement.amountMinor}) filter (where ${pastHold(now)} and not (${libraryEarns()})), 0)::bigint`,
+            heldMinor: sql<number>`coalesce(sum(${schema.settlement.amountMinor}) filter (where not (${pastHold(now)})), 0)::bigint`,
+            earliestHeldLock: sql<Date | null>`min(${schema.revenuePeriod.lockedAt}) filter (where not (${pastHold(now)}))`,
+          })
+          .from(schema.settlement)
+          .innerJoin(schema.revenuePeriod, eq(schema.revenuePeriod.id, schema.settlement.periodId))
+          .innerJoin(schema.library, eq(schema.library.id, schema.settlement.libraryId))
+          .where(
+            and(
+              eq(schema.settlement.publisherAccountId, accountId),
+              eq(schema.settlement.status, 'accrued'),
+              isNotNull(schema.revenuePeriod.lockedAt),
+            ),
+          )
+      : Promise.resolve([]),
+    accountId
+      ? database
+          .select({
+            id: schema.addonGrant.id,
+            createdAt: schema.addonGrant.createdAt,
+            amountMinor: schema.addonGrant.priceMinor,
+            currency: schema.addonGrant.currency,
+            callsGranted: schema.addonGrant.callsGranted,
+            callsConsumed: schema.addonGrant.callsConsumed,
+          })
+          .from(schema.addonGrant)
+          .where(eq(schema.addonGrant.publisherAccountId, accountId))
+          .orderBy(desc(schema.addonGrant.createdAt), desc(schema.addonGrant.id))
+      : Promise.resolve([]),
   ]);
 
   const position = accrued[0];
@@ -151,6 +173,7 @@ export async function earningCredit(
     redeemableCalls: pack ? creditCallsFor(redeemableMinor, pack) : 0,
     heldMinor: Number(position?.heldMinor ?? 0),
     nextReleaseAt: earliestHeldLock ? holdEndsAt(earliestHeldLock, PAYOUT_HOLD_DAYS) : null,
+    withheldMinor: Number(position?.withheldMinor ?? 0),
     redeemedMinor: grants.reduce((sum, grant) => sum + grant.amountMinor, 0),
     redeemedCalls: grants.reduce((sum, grant) => sum + grant.callsGranted, 0),
     redemptions: grants.slice(0, REDEMPTIONS_SHOWN),
@@ -169,11 +192,12 @@ export interface RedeemedEarnings {
  * Convert every redeemable statement of the workspace into one grant.
  *
  * Refuses rather than no-ops when there is nothing to convert, so the caller
- * can say why: no publisher account, no pack rate to price with, or an amount
- * that buys less than one call (which then stays accrued).
+ * can say why: no publisher account, no pack rate to price with, or no
+ * statement past its hold on a library that still earns.
  */
 export async function redeemEarningsAsCalls(input: {
   workspaceId: string;
+  actor: RedeemActor;
   now?: Date;
 }): Promise<RedeemedEarnings> {
   const now = input.now ?? new Date();
@@ -202,12 +226,14 @@ export async function redeemEarningsAsCalls(input: {
       })
       .from(schema.settlement)
       .innerJoin(schema.revenuePeriod, eq(schema.revenuePeriod.id, schema.settlement.periodId))
+      .innerJoin(schema.library, eq(schema.library.id, schema.settlement.libraryId))
       .where(
         and(
           eq(schema.settlement.publisherAccountId, account.id),
           eq(schema.settlement.status, 'accrued'),
           isNotNull(schema.revenuePeriod.lockedAt),
           pastHold(now),
+          libraryEarns(),
         ),
       )
       .for('update', { of: schema.settlement });
@@ -221,7 +247,7 @@ export async function redeemEarningsAsCalls(input: {
     if (convertible.length === 0 || calls < 1) {
       throw new EarningCreditRefused(
         'nothing_redeemable',
-        'no statement is past its hold, or the amount buys less than one call',
+        'no statement is past its hold on a library that still earns',
       );
     }
 
@@ -233,6 +259,7 @@ export async function redeemEarningsAsCalls(input: {
       priceMinor: amountMinor,
       currency: 'USD',
       publisherAccountId: account.id,
+      redeemedBy: redeemedByTag(input.actor),
     });
     await tx
       .update(schema.settlement)
