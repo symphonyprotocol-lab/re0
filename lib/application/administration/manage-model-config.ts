@@ -271,6 +271,27 @@ export async function resolveRerankProvider(): Promise<RerankProviderConfig | nu
  * Read from the same rows the adapters resolve from, so the console cannot
  * report a stage as configured that the request path then skips.
  */
+/**
+ * The credential a probe at `forBaseUrl` may call with: the newest saved
+ * entry's key, or the deployment variable the kind runs on when nothing was
+ * ever saved -- either only for the host it belongs to (`mayCarryCredential`),
+ * so a probe cannot carry a key to an endpoint of the operator's choosing.
+ * Null when there is nothing to carry; the operator types a key instead.
+ */
+export async function openModelCredential(
+  kind: ModelKind,
+  forBaseUrl: string,
+): Promise<string | null> {
+  const row = await newestRow(kind);
+  if (row) {
+    if (!row.apiKeyCipher || !mayCarryCredential(row.baseUrl, forBaseUrl)) return null;
+    return openCredential(row.apiKeyCipher);
+  }
+  const environment = kind === 'embedding' ? embeddingFromEnvironment() : rerankFromEnvironment();
+  if (!environment || !mayCarryCredential(environment.baseUrl, forBaseUrl)) return null;
+  return environment.apiKey;
+}
+
 export async function modelProviderStatus(): Promise<Record<ModelKind, boolean>> {
   const { embedding, rerank } = await resolveModelProviders();
   return { embedding: embedding !== null, rerank: rerank !== null };
