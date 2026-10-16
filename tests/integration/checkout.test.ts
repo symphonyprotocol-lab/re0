@@ -151,6 +151,20 @@ describeWithDb('starting a checkout', () => {
     expect(created).toBe(1);
   });
 
+  it('hands the open checkout back on the checkout domain of today, not of its opening', async () => {
+    const first = await startCheckout({ ...owner, kind: 'subscription' });
+    const id = new URL(first).searchParams.get('_ptxn')!;
+    process.env.PADDLE_CHECKOUT_BASE_URL = 'https://tunnel.re0.test/';
+    try {
+      expect(await startCheckout({ ...owner, kind: 'subscription' })).toBe(
+        `https://tunnel.re0.test/checkout?_ptxn=${id}`,
+      );
+    } finally {
+      delete process.env.PADDLE_CHECKOUT_BASE_URL;
+    }
+    expect(created).toBe(1);
+  });
+
   it('refuses while a paid checkout waits for its webhook, and reopens once it closed', async () => {
     const first = await startCheckout({ ...owner, kind: 'subscription' });
     const id = new URL(first).searchParams.get('_ptxn')!;

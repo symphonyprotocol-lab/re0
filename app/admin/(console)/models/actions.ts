@@ -5,7 +5,9 @@ import { revalidatePath } from 'next/cache';
 import {
   llmConfigEntries,
   openLlmCredential,
+  openModelCredential,
   probeLlmConfig,
+  probeModelConfig,
   recordAudit,
   updateLlmAssignment,
   updateLlmConfig,
@@ -13,6 +15,7 @@ import {
   LlmConfigRefused,
   ModelConfigRefused,
   type LlmProbeResult,
+  type ModelProbeResult,
 } from '@/lib/application/administration';
 import {
   priceMicroFromUsd,
@@ -21,7 +24,12 @@ import {
   type ReasoningEffort,
 } from '@/lib/domain/generation';
 import { AdminChangeRefused } from '@/lib/domain/admin';
-import { mayCarryCredential } from '@/lib/domain/model-config';
+import {
+  EMBEDDING_DIMENSIONS,
+  isModelKind,
+  mayCarryCredential,
+  timeoutBoundsFor,
+} from '@/lib/domain/model-config';
 import { requireAdminCapability } from '@/lib/http/admin';
 import { clientAddress } from '@/lib/http/client-address';
 
@@ -142,8 +150,47 @@ export type LlmProbeActionResult =
   | ({ kind: 'result' } & LlmProbeResult)
   | {
       kind: 'refused';
-      error: 'invalid_base_url' | 'invalid_model' | 'invalid_timeout' | 'api_key_required';
+      error:
+        | 'invalid_base_url'
+        | 'invalid_model'
+        | 'invalid_timeout'
+        | 'api_key_required'
+        | 'unknown_model';
     };
+
+/**
+ * The same probe for an entry as saved: one click on a row of the registry,
+ * with the row's own endpoint, model, timeout and stored key. The form's
+ * probe (`testLlmConfigAction`) answers "does what I typed work"; this one
+ * answers "does what is in force still work", for every entry at once.
+ */
+export async function testLlmEntryAction(slug: string): Promise<LlmProbeActionResult> {
+  const session = await requireAdminCapability('models');
+  const entry = (await llmConfigEntries()).find((row) => row.slug === slug);
+  if (!entry) return { kind: 'refused', error: 'unknown_model' };
+  const apiKey = (await openLlmCredential(entry.id)) ?? '';
+  if (apiKey.length === 0) return { kind: 'refused', error: 'api_key_required' };
+
+  const bag = await headers();
+  await recordAudit({
+    administratorId: session.administratorId,
+    action: 'llm_config.probe',
+    targetType: 'llm_config',
+    targetId: `${entry.baseUrl}#${entry.model}`,
+    reason: `probe with ${entry.slug}`,
+    clientAddress: clientAddress(bag),
+    result: 'success',
+  });
+
+  const result = await probeLlmConfig({
+    baseUrl: entry.baseUrl,
+    model: entry.model,
+    apiKey,
+    timeoutMs: entry.timeoutMs,
+    reasoningEffort: entry.supportsReasoning ? entry.reasoningEffort : null,
+  });
+  return { kind: 'result', ...result };
+}
 
 /**
  * One call against the endpoint as typed into the form -- saved or not.
@@ -279,4 +326,79 @@ export async function updateModelConfigAction(
     console.error(`model config failed: ${error instanceof Error ? error.message : 'unknown'}`);
     return { ok: false, error: 'unavailable' };
   }
+}
+
+export type ModelProbeActionResult =
+  | ({ kind: 'result' } & ModelProbeResult)
+  | {
+      kind: 'refused';
+      error:
+        | 'invalid_kind'
+        | 'invalid_base_url'
+        | 'invalid_model'
+        | 'invalid_dimensions'
+        | 'invalid_timeout'
+        | 'api_key_required';
+    };
+
+/**
+ * One call against a retrieval model endpoint as typed into the form -- saved
+ * or not. Held to the rules the save applies, so a probe cannot be run
+ * against a configuration the save would refuse; the credential is the typed
+ * one, or the stored one opened for the same host, as in the generation
+ * registry's probe.
+ */
+export async function testModelConfigAction(form: FormData): Promise<ModelProbeActionResult> {
+  const session = await requireAdminCapability('models');
+
+  const kind = String(form.get('kind') ?? '');
+  if (!isModelKind(kind)) return { kind: 'refused', error: 'invalid_kind' };
+  let baseUrl: URL;
+  try {
+    baseUrl = new URL(String(form.get('baseUrl') ?? ''));
+  } catch {
+    return { kind: 'refused', error: 'invalid_base_url' };
+  }
+  if (baseUrl.protocol !== 'https:') return { kind: 'refused', error: 'invalid_base_url' };
+  const model = String(form.get('model') ?? '').trim();
+  if (model.length === 0 || model.length > 120) return { kind: 'refused', error: 'invalid_model' };
+
+  let dimensions: number | null = null;
+  if (kind === 'embedding') {
+    const value = Number(form.get('dimensions') ?? Number.NaN);
+    if (
+      !Number.isSafeInteger(value) ||
+      value < EMBEDDING_DIMENSIONS.min ||
+      value > EMBEDDING_DIMENSIONS.max
+    ) {
+      return { kind: 'refused', error: 'invalid_dimensions' };
+    }
+    dimensions = value;
+  }
+  const bounds = timeoutBoundsFor(kind);
+  const timeoutMs = Number(form.get('timeoutMs') ?? Number.NaN);
+  if (!Number.isSafeInteger(timeoutMs) || timeoutMs < bounds.min || timeoutMs > bounds.max) {
+    return { kind: 'refused', error: 'invalid_timeout' };
+  }
+
+  const target = baseUrl.toString().replace(/\/+$/, '');
+  const typedKey = String(form.get('apiKey') ?? '').trim();
+  const apiKey = typedKey.length > 0 ? typedKey : ((await openModelCredential(kind, target)) ?? '');
+  if (apiKey.length === 0) return { kind: 'refused', error: 'api_key_required' };
+
+  /* Audited for the same reason as the generation probe: an outbound call to
+     an address the operator names, carrying a credential they also name. */
+  const bag = await headers();
+  await recordAudit({
+    administratorId: session.administratorId,
+    action: 'model_config.probe',
+    targetType: 'model_config',
+    targetId: `${kind}:${target}#${model}`,
+    reason: typedKey.length > 0 ? 'probe with a typed credential' : `probe with the ${kind} key in force`,
+    clientAddress: clientAddress(bag),
+    result: 'success',
+  });
+
+  const result = await probeModelConfig({ kind, baseUrl: target, model, apiKey, dimensions, timeoutMs });
+  return { kind: 'result', ...result };
 }

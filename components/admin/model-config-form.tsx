@@ -1,11 +1,14 @@
 'use client';
 
-import { useActionState, useState } from 'react';
+import { useActionState, useRef, useState, useTransition } from 'react';
 
 import { Bounded, FIELD, Field, range } from '@/components/admin/form-fields';
 import { submitOn } from '@/components/admin/platform-library-shared';
 import { ConsoleButton, Pill } from '@/components/admin/ui';
-import type { ModelConfigActionResult } from '@/app/admin/(console)/models/actions';
+import type {
+  ModelConfigActionResult,
+  ModelProbeActionResult,
+} from '@/app/admin/(console)/models/actions';
 import { useI18n } from '@/lib/i18n/client';
 import {
   EMBEDDING_DIMENSIONS,
@@ -64,6 +67,7 @@ export function ModelConfigForm({
   usable,
   fromEnvironment,
   action,
+  probe,
 }: {
   entries: Record<ModelKind, ProviderModelEntry | null>;
   /** Whether each stage can run -- the key opened, not merely stored. */
@@ -74,6 +78,8 @@ export function ModelConfigForm({
     previous: ModelConfigActionResult | null,
     form: FormData,
   ) => Promise<ModelConfigActionResult>;
+  /** One call against the endpoint as typed, saved or not. */
+  probe: (form: FormData) => Promise<ModelProbeActionResult>;
 }) {
   const { t } = useI18n();
   const p = t.admin.models;
@@ -125,6 +131,7 @@ export function ModelConfigForm({
         entry={entries[kind]}
         fromEnvironment={fromEnvironment[kind]}
         action={action}
+        probe={probe}
       />
     </div>
   );
@@ -135,6 +142,7 @@ function KindForm({
   entry,
   fromEnvironment,
   action,
+  probe,
 }: {
   kind: ModelKind;
   entry: ProviderModelEntry | null;
@@ -143,17 +151,37 @@ function KindForm({
     previous: ModelConfigActionResult | null,
     form: FormData,
   ) => Promise<ModelConfigActionResult>;
+  probe: (form: FormData) => Promise<ModelProbeActionResult>;
 }) {
   const { t } = useI18n();
   const p = t.admin.models;
   const [state, formAction, pending] = useActionState(action, null);
+
+  /*
+   * The probe reads the form the save would post, but is not the form's
+   * action: a click on it must not mint a version. Keyed with the form, so a
+   * result belongs to the kind it was run for.
+   */
+  const formRef = useRef<HTMLFormElement>(null);
+  const [probing, startProbe] = useTransition();
+  const [probed, setProbed] = useState<ModelProbeActionResult | null>(null);
+  function runProbe() {
+    const form = formRef.current;
+    if (!form) return;
+    const data = new FormData(form);
+    startProbe(async () => setProbed(await probe(data)));
+  }
 
   const editing = entry ?? BLANK[kind];
   const isNew = entry === null;
   const timeouts = timeoutBoundsFor(kind);
 
   return (
-    <form onSubmit={submitOn(formAction)} className="flex flex-col gap-4 px-[19px] py-4">
+    <form
+      ref={formRef}
+      onSubmit={submitOn(formAction)}
+      className="flex flex-col gap-4 px-[19px] py-4"
+    >
       <input type="hidden" name="kind" value={kind} />
       <p className="text-[12px] tracking-[-0.023em] text-muted">{p.kindNote[kind]}</p>
       {fromEnvironment ? (
@@ -219,11 +247,43 @@ function KindForm({
         </p>
       ) : null}
       {state?.ok ? <p className="text-[12px] tracking-[-0.023em] text-steel">{p.saved}</p> : null}
+      {probed ? <ProbeOutcome result={probed} /> : null}
       <div className="flex flex-wrap items-center gap-2">
-        <ConsoleButton type="submit" variant="primary" disabled={pending}>
+        <ConsoleButton type="submit" variant="primary" disabled={pending || probing}>
           {isNew ? p.saveNew : p.save}
         </ConsoleButton>
+        <ConsoleButton type="button" onClick={runProbe} disabled={pending || probing}>
+          {probing ? p.probing : p.probe}
+        </ConsoleButton>
+        <span className="text-[11px] text-faint">{p.probeHint}</span>
       </div>
     </form>
+  );
+}
+
+/** What the probe found, in one line: reachable and what came back, or why not. */
+function ProbeOutcome({ result }: { result: ModelProbeActionResult }) {
+  const { t, locale } = useI18n();
+  const p = t.admin.models;
+  if (result.kind === 'refused') {
+    return (
+      <p className="text-[12px] tracking-[-0.023em] text-danger">{p.errors[result.error]}</p>
+    );
+  }
+  const seconds = new Intl.NumberFormat(locale, { maximumFractionDigits: 1 }).format(
+    result.latencyMs / 1000,
+  );
+  if (!result.ok) {
+    return (
+      <p className="text-[12px] tracking-[-0.023em] text-danger">
+        {p.probeFailed} · {seconds} s · {result.error}
+      </p>
+    );
+  }
+  return (
+    <p className="text-[12px] tracking-[-0.023em] text-steel">
+      <span className="font-semibold text-good">{p.probeOk}</span> · {seconds} s ·{' '}
+      <span className="font-mono text-ink">{result.detail}</span>
+    </p>
   );
 }

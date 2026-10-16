@@ -1,6 +1,7 @@
 import type { Metadata } from 'next';
 import type { ReactNode } from 'react';
 import Link from 'next/link';
+import { PendingSubmitButton } from '@/components/ui/pending-submit-button';
 import { SectionHeading } from '@/components/ui/primitives';
 import {
   ArrowRightIcon,
@@ -170,13 +171,11 @@ export default async function PricingPage() {
                   {'checkout' in plan ? (
                     <form action={startCheckoutAction}>
                       <input type="hidden" name="kind" value={plan.checkout} />
-                      <button
-                        type="submit"
+                      <PendingSubmitButton
                         className={`${PLAN_BUTTON} ${plan.featured ? PLAN_BUTTON_FEATURED : PLAN_BUTTON_PLAIN}`}
                       >
                         {plan.cta}
-                        <ArrowRightIcon size={14} />
-                      </button>
+                      </PendingSubmitButton>
                     </form>
                   ) : (
                     <Link

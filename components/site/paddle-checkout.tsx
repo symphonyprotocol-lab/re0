@@ -3,6 +3,7 @@
 import Link from 'next/link';
 import Script from 'next/script';
 import { useEffect, useState } from 'react';
+import { SpinnerIcon } from '@/components/ui/icons';
 
 /**
  * The page Paddle's payment links open: Paddle.js, which finds the `_ptxn`
@@ -45,6 +46,8 @@ export function PaddleCheckout({
   labels: Record<Phase, string> & { reopen: string; back: string };
 }) {
   const [phase, setPhase] = useState<Phase>('opening');
+  /* Reopening reloads the page; the button spins until the unload lands. */
+  const [reopening, setReopening] = useState(false);
 
   useEffect(() => {
     if (!new URLSearchParams(window.location.search).has('_ptxn')) setPhase('missing');
@@ -80,16 +83,26 @@ export function PaddleCheckout({
         onReady={initialize}
         onError={() => setPhase('failed')}
       />
-      <p className="text-[14px] leading-[1.7] text-steel" role="status">
+      {phase === 'opening' ? (
+        /* Static ring under reduced motion; the status line carries the state there. */
+        <SpinnerIcon size={28} className="text-brandink motion-safe:animate-spin" />
+      ) : null}
+      <p className="text-[14px] leading-[1.7] text-steel" role="status" aria-busy={phase === 'opening'}>
         {labels[phase]}
       </p>
       <div className="flex flex-wrap items-center justify-center gap-3">
         {phase === 'closed' || phase === 'failed' ? (
           <button
             type="button"
-            onClick={() => window.location.reload()}
-            className="flex h-10 items-center rounded-full bg-brand px-5 text-[13px] font-medium text-onbrand transition-colors hover:bg-brand/90"
+            disabled={reopening}
+            aria-busy={reopening}
+            onClick={() => {
+              setReopening(true);
+              window.location.reload();
+            }}
+            className="flex h-10 items-center gap-2 rounded-full bg-brand px-5 text-[13px] font-medium text-onbrand transition-colors hover:bg-brand/90 disabled:cursor-progress disabled:opacity-70"
           >
+            {reopening ? <SpinnerIcon size={14} className="motion-safe:animate-spin" /> : null}
             {labels.reopen}
           </button>
         ) : null}

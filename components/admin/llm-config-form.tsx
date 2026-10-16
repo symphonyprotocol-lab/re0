@@ -1,10 +1,12 @@
 'use client';
 
 import { useActionState, useRef, useState, useTransition } from 'react';
+import type { ReactNode } from 'react';
 
 import { Bounded, FIELD, Field, range } from '@/components/admin/form-fields';
 import { submitOn } from '@/components/admin/platform-library-shared';
 import { ConsoleButton, Pill } from '@/components/admin/ui';
+import { SpinnerIcon } from '@/components/ui/icons';
 import type {
   LlmConfigActionResult,
   LlmProbeActionResult,
@@ -79,16 +81,33 @@ export function LlmConfigForm({
   entries,
   action,
   probe,
+  probeEntry,
 }: {
   entries: LlmEntry[];
   action: (previous: LlmConfigActionResult | null, form: FormData) => Promise<LlmConfigActionResult>;
   /** One call against the endpoint as typed, saved or not. */
   probe: (form: FormData) => Promise<LlmProbeActionResult>;
+  /** One call against an entry as saved: its endpoint, model and stored key. */
+  probeEntry: (slug: string) => Promise<LlmProbeActionResult>;
 }) {
   const { t } = useI18n();
   const p = t.admin.llm;
   const [state, formAction, pending] = useActionState(action, null);
   const [selected, setSelected] = useState<string | null>(entries[0]?.slug ?? null);
+
+  /*
+   * The per-row probe: one at a time, its result shown under the row list
+   * with the entry's name, independent of which entry the form is editing.
+   */
+  const [entryProbing, startEntryProbe] = useTransition();
+  const [entryProbe, setEntryProbe] = useState<{
+    slug: string;
+    result: LlmProbeActionResult | null;
+  } | null>(null);
+  function runEntryProbe(slug: string) {
+    setEntryProbe({ slug, result: null });
+    startEntryProbe(async () => setEntryProbe({ slug, result: await probeEntry(slug) }));
+  }
 
   /*
    * The probe reads the form the save would post, but is not the form's
@@ -120,33 +139,56 @@ export function LlmConfigForm({
       <div className="flex flex-wrap gap-2 px-[19px] pt-4">
         {entries.map((entry) => {
           const active = entry.slug === selected;
+          const testing = entryProbing && entryProbe?.slug === entry.slug;
           return (
-            <button
+            <div
               key={entry.slug}
-              type="button"
-              onClick={() => {
-                setSelected(entry.slug);
-                setReasoning(entry.supportsReasoning);
-                setProbed(null);
-              }}
-              aria-current={active ? 'true' : undefined}
-              className={`flex items-center gap-2 rounded-[9px] border-2 px-3 py-2 text-left transition-colors ${
-                active ? 'border-brand bg-brandsoft' : 'border-line bg-card hover:bg-subtle'
+              className={`flex items-stretch overflow-hidden rounded-[9px] border-2 transition-colors ${
+                active ? 'border-brand bg-brandsoft' : 'border-line bg-card'
               }`}
             >
-              <span className="flex flex-col gap-0.5">
-                <span className="text-[12px] font-semibold tracking-[-0.023em] text-ink">
-                  {entry.label}
+              <button
+                type="button"
+                onClick={() => {
+                  setSelected(entry.slug);
+                  setReasoning(entry.supportsReasoning);
+                  setProbed(null);
+                }}
+                aria-current={active ? 'true' : undefined}
+                className={`flex items-center gap-2 px-3 py-2 text-left transition-colors ${
+                  active ? '' : 'hover:bg-subtle'
+                }`}
+              >
+                <span className="flex flex-col gap-0.5">
+                  <span className="text-[12px] font-semibold tracking-[-0.023em] text-ink">
+                    {entry.label}
+                  </span>
+                  <span className="font-mono text-[10.5px] text-faint">{entry.model}</span>
                 </span>
-                <span className="font-mono text-[10.5px] text-faint">{entry.model}</span>
-              </span>
-              {entry.assignedTo.map((audience) => (
-                <Pill key={audience} tone={audience === 'subscriber' ? 'brand' : 'ok'}>
-                  {p.audiences[audience]}
-                </Pill>
-              ))}
-              {entry.enabled ? null : <Pill tone="neutral">{p.stateDisabled}</Pill>}
-            </button>
+                {entry.assignedTo.map((audience) => (
+                  <Pill key={audience} tone={audience === 'subscriber' ? 'brand' : 'ok'}>
+                    {p.audiences[audience]}
+                  </Pill>
+                ))}
+                {entry.enabled ? null : <Pill tone="neutral">{p.stateDisabled}</Pill>}
+              </button>
+              {/* The row's own probe: the entry as saved, stored key included. */}
+              <button
+                type="button"
+                onClick={() => runEntryProbe(entry.slug)}
+                disabled={entryProbing}
+                aria-busy={testing}
+                aria-label={`${p.probeEntry} · ${entry.label}`}
+                title={p.probeEntryHint}
+                className="flex w-[52px] items-center justify-center border-l-2 border-line text-[11px] font-semibold tracking-[-0.023em] text-steel transition-colors hover:bg-subtle hover:text-ink disabled:cursor-progress disabled:opacity-50"
+              >
+                {testing ? (
+                  <SpinnerIcon size={13} className="motion-safe:animate-spin" />
+                ) : (
+                  p.probeEntry
+                )}
+              </button>
+            </div>
           );
         })}
         <button
@@ -164,6 +206,19 @@ export function LlmConfigForm({
           {p.newEntry}
         </button>
       </div>
+
+      {entryProbe?.result ? (
+        <div className="px-[19px] pt-3">
+          <ProbeOutcome
+            result={entryProbe.result}
+            prefix={
+              <span className="font-semibold text-ink">
+                {entries.find((entry) => entry.slug === entryProbe.slug)?.label ?? entryProbe.slug}
+              </span>
+            }
+          />
+        </div>
+      ) : null}
 
       <form
         key={editing.slug || 'new'}
@@ -292,13 +347,21 @@ export function LlmConfigForm({
   );
 }
 
-/** What the probe found, in one line: reachable and what it said, or why not. */
-function ProbeOutcome({ result }: { result: LlmProbeActionResult }) {
+/**
+ * What the probe found, in one line: reachable and what it said, or why not.
+ * `prefix` names the entry when the line sits under the row list rather than
+ * inside the form that was probed.
+ */
+function ProbeOutcome({ result, prefix }: { result: LlmProbeActionResult; prefix?: ReactNode }) {
   const { t, locale } = useI18n();
   const p = t.admin.llm;
+  const lead = prefix ? <>{prefix} · </> : null;
   if (result.kind === 'refused') {
     return (
-      <p className="text-[12px] tracking-[-0.023em] text-danger">{p.errors[result.error]}</p>
+      <p className="text-[12px] tracking-[-0.023em] text-danger">
+        {lead}
+        {p.errors[result.error]}
+      </p>
     );
   }
   const seconds = new Intl.NumberFormat(locale, { maximumFractionDigits: 1 }).format(
@@ -307,12 +370,14 @@ function ProbeOutcome({ result }: { result: LlmProbeActionResult }) {
   if (!result.ok) {
     return (
       <p className="text-[12px] tracking-[-0.023em] text-danger">
+        {lead}
         {p.probeFailed} · {seconds} s · {result.error}
       </p>
     );
   }
   return (
     <p className="text-[12px] tracking-[-0.023em] text-steel">
+      {lead}
       <span className="font-semibold text-good">{p.probeOk}</span> · {seconds} s ·{' '}
       {result.promptTokens} / {result.completionTokens} tokens · {p.probeReply}{' '}
       <span className="font-mono text-ink">{result.reply}</span>

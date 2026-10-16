@@ -22,6 +22,8 @@ import { fill } from '@/lib/i18n/format';
 import { translations } from '@/lib/i18n/server';
 import {
   testLlmConfigAction,
+  testLlmEntryAction,
+  testModelConfigAction,
   updateLlmAssignmentAction,
   updateLlmConfigAction,
   updateModelConfigAction,
@@ -87,6 +89,7 @@ export default async function AdminModelsPage() {
           usable={models.usable}
           fromEnvironment={models.fromEnvironment}
           action={updateModelConfigAction}
+          probe={testModelConfigAction}
         />
       </Panel>
 
@@ -183,6 +186,7 @@ export default async function AdminModelsPage() {
           entries={entries}
           action={updateLlmConfigAction}
           probe={testLlmConfigAction}
+          probeEntry={testLlmEntryAction}
         />
       </Panel>
 

@@ -145,8 +145,14 @@ export {
   type LlmProbeResult,
 } from './probe-llm-config';
 export {
+  probeModelConfig,
+  type ModelProbeInput,
+  type ModelProbeResult,
+} from './probe-model-config';
+export {
   modelAdapters,
   modelProviderStatus,
+  openModelCredential,
   readModelConfiguration,
   resolveEmbeddingProvider,
   resolveModelProviders,

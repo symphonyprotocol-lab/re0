@@ -77,6 +77,12 @@ export interface PaymentAdapter {
   /** Opens a checkout for the order; `url` is a page on this site that shows it. */
   createCheckout(input: CheckoutInput): Promise<{ externalId: string; url: string }>;
   checkoutState(externalId: string): Promise<CheckoutState>;
+  /**
+   * The page on this site that shows an already-open checkout, built from
+   * today's settings. A link stored when the checkout was opened would still
+   * name the checkout domain of that day.
+   */
+  checkoutUrl(externalId: string): string;
   /** A signed, short-lived link into the provider's customer portal. */
   portalUrl(input: { customerId: string }): Promise<string>;
   /**
