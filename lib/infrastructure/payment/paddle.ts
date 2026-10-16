@@ -505,6 +505,11 @@ export function paddleAdapter(config: PaddleConfig): PaymentAdapter {
       return paddleCheckoutState((await getTransaction(config, externalId)).status);
     },
 
+    /* The same shape Paddle hands back from `createCheckout`: the page plus the transaction id. */
+    checkoutUrl(externalId) {
+      return `${config.checkoutPageUrl}?_ptxn=${encodeURIComponent(externalId)}`;
+    },
+
     async portalUrl({ customerId }) {
       const session = await call<{ urls: { general: { overview: string } } }>(
         config,

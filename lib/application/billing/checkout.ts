@@ -131,12 +131,15 @@ export async function startCheckout(
        * beside a plan card that still offers the upgrade, and a second click
        * there must not open a second subscription. A checkout still open is
        * handed back instead of a new one, so two tabs share one payable order.
+       *
+       * Handed back on today's checkout domain, not the one recorded when it
+       * was opened: a development tunnel changes address between two clicks,
+       * and the stored link would send the buyer to a page that is gone.
        */
       const recent = await tx
         .select({
           externalId: schema.paymentCheckout.externalId,
           planVersionId: schema.paymentCheckout.planVersionId,
-          checkoutUrl: schema.paymentCheckout.checkoutUrl,
         })
         .from(schema.paymentCheckout)
         .where(
@@ -156,7 +159,7 @@ export async function startCheckout(
         if (state === 'paid') throw new CheckoutRefused('pending');
         /* Only at today's price: a version minted since supersedes the open order. */
         if (state === 'open' && reusable === null && checkout.planVersionId === version.id) {
-          reusable = checkout.checkoutUrl;
+          reusable = adapter.checkoutUrl(checkout.externalId);
         }
       }
       if (reusable) return reusable;
