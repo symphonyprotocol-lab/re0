@@ -9,7 +9,10 @@
  * and writes one `settlement` row per publisher library from the unflagged
  * events. Nothing here writes a `payout` -- there is no payment adapter, and a
  * payout row that no provider executed would be a claim the ledger cannot
- * back (3.4: the platform holds no funds).
+ * back (3.4: the platform holds no funds). Statements do leave the books one
+ * way: the publisher redeems them as Additional Calls from their dashboard
+ * (lib/application/revenue/redeem-credit), which is why `redeemed` is a status
+ * the console filters and totals but never sets.
  *
  * Every write takes a reason and lands in the audit chain (requirement.md
  * 5.3): generating statements is the one console action that puts a number
@@ -36,6 +39,7 @@ export const SETTLEMENT_STATUS_FILTERS = [
   'accrued',
   'held',
   'paid',
+  'redeemed',
   'clawed_back',
   'voided',
 ] as const;
@@ -269,6 +273,8 @@ export interface SettlementSummary {
   publishers: number;
   /** Money that left the books, and money that came back or was voided. */
   paidMinor: number;
+  /** Statements discharged as Additional Calls instead (share doc 3.4). */
+  redeemedMinor: number;
   reversedMinor: number;
   currency: string;
   payoutThresholdMinor: number;
@@ -287,6 +293,7 @@ export async function settlementSummary(
       accruedCount: sql<number>`(count(*) filter (where ${schema.settlement.status} = 'accrued'))::int`,
       publishers: sql<number>`(count(distinct ${schema.settlement.publisherAccountId}) filter (where ${schema.settlement.status} = 'accrued'))::int`,
       paidMinor: sql<number>`coalesce(sum(${schema.settlement.amountMinor}) filter (where ${schema.settlement.status} = 'paid'), 0)::bigint`,
+      redeemedMinor: sql<number>`coalesce(sum(${schema.settlement.amountMinor}) filter (where ${schema.settlement.status} = 'redeemed'), 0)::bigint`,
       reversedMinor: sql<number>`coalesce(sum(${schema.settlement.amountMinor}) filter (where ${schema.settlement.status} in ('clawed_back', 'voided')), 0)::bigint`,
     })
     .from(schema.settlement);
@@ -299,6 +306,7 @@ export async function settlementSummary(
     accruedCount: totals?.accruedCount ?? 0,
     publishers: Number(totals?.publishers ?? 0),
     paidMinor: Number(totals?.paidMinor ?? 0),
+    redeemedMinor: Number(totals?.redeemedMinor ?? 0),
     reversedMinor: Number(totals?.reversedMinor ?? 0),
     currency: latest?.currency ?? 'USD',
     payoutThresholdMinor: PAYOUT_THRESHOLD_MINOR,

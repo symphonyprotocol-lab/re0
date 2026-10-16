@@ -7,15 +7,25 @@
  */
 import { NextResponse, type NextRequest } from 'next/server';
 import { AppError } from '@/contracts/errors';
-import { resolveApiKey } from '@/lib/application/auth/api-key';
+import { requireScope, resolveApiKey } from '@/lib/application/auth/api-key';
 import { acceptPublisherAgreement, publisherEarnings } from '@/lib/application/revenue';
+import { API_KEY_MANAGEMENT_SCOPE } from '@/lib/domain/api-key';
 import { errorResponse, newRequestId } from '@/lib/http/respond';
 
 export const runtime = 'nodejs';
 
-async function workspaceOf(request: NextRequest): Promise<string> {
+/**
+ * Reading is open to any key of the workspace; entering the programme is an
+ * account-level change and needs the management scope, like key management
+ * and redeeming earnings do.
+ */
+async function workspaceOf(
+  request: NextRequest,
+  access: 'read' | 'manage' = 'read',
+): Promise<string> {
   const principal = await resolveApiKey(request.headers.get('authorization'));
   if (!principal) throw new AppError('invalid_api_key', 'an API key is required');
+  if (access === 'manage') requireScope(principal, API_KEY_MANAGEMENT_SCOPE);
   return principal.workspaceId;
 }
 
@@ -36,7 +46,7 @@ export async function GET(request: NextRequest): Promise<NextResponse> {
 export async function POST(request: NextRequest): Promise<NextResponse> {
   const requestId = newRequestId();
   try {
-    const workspaceId = await workspaceOf(request);
+    const workspaceId = await workspaceOf(request, 'manage');
 
     let body: { agreementVersion?: unknown };
     try {

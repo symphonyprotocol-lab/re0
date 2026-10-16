@@ -114,6 +114,13 @@ export const PAYOUT_THRESHOLD_MINOR = 500;
 /** publisher-revenue-share.md 3.4: the refund/chargeback window before payout. */
 export const PAYOUT_HOLD_DAYS = 45;
 
+export {
+  creditCallsFor,
+  EarningCreditRefused,
+  type EarningCreditError,
+  type PackRate,
+} from './credit';
+
 /**
  * The earning period an event lands in: the platform's revenue period, a UTC
  * calendar month (revenue_period rows key settlement by it). Not the

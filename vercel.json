@@ -1,5 +1,5 @@
 {
-  "buildCommand": "if [ \"$VERCEL_ENV\" = \"preview\" ]; then npm run db:migrate; fi && npm run build",
+  "buildCommand": "if [ \"$VERCEL_ENV\" = \"production\" ] || [ \"$VERCEL_ENV\" = \"preview\" ]; then npm run db:migrate; fi && npm run build",
   "crons": [
     {
       "path": "/api/cron/drain",

@@ -105,6 +105,12 @@ export const settlementStatusEnum = pgEnum('settlement_status', [
   'accrued',
   'held',
   'paid',
+  /**
+   * Discharged as Additional Calls rather than money: the publisher turned the
+   * statement into an `addon_grant` (publisher-revenue-share.md 3.4). Distinct
+   * from `paid` so the books still say what left as cash and what never did.
+   */
+  'redeemed',
   'clawed_back',
   'voided',
 ]);
@@ -371,6 +377,20 @@ export const addonGrant = pgTable(
     priceMinor: integer('price_minor').notNull(),
     currency: text('currency').notNull().default('USD'),
     providerOrderId: text('provider_order_id'),
+    /**
+     * Set when the grant was not bought but redeemed: a publisher turned
+     * settled earnings into calls (publisher-revenue-share.md 3.4). Then
+     * `price_minor` is the earnings consumed, not a pack price, and the grant
+     * is not a purchase -- `workspaceBilling` must not count it as one.
+     *
+     * The foreign key to `publisher_account` lives in the migration only:
+     * that table is declared further down, and this file has no forward
+     * `references()` -- drizzle resolves them lazily, but a tool walking the
+     * table config at import time would hit the temporal dead zone.
+     */
+    publisherAccountId: uuid('publisher_account_id'),
+    /** Who redeemed it, as `user:<id>` or `api_key:<id>`; null on a bought pack. */
+    redeemedBy: text('redeemed_by'),
     createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
   },
   (t) => [
@@ -378,6 +398,8 @@ export const addonGrant = pgTable(
     index('addon_grant_workspace_idx').on(t.workspaceId),
     /** A pack order is granted once, however often its events are redelivered. */
     uniqueIndex('addon_grant_provider_order_uq').on(t.providerOrderId),
+    /** The publisher's redemption history, newest first. */
+    index('addon_grant_publisher_idx').on(t.publisherAccountId, t.createdAt.desc()),
   ],
 );
 
@@ -1336,6 +1358,12 @@ export const settlement = pgTable('settlement', {
   currency: text('currency').notNull().default('USD'),
   status: settlementStatusEnum('status').notNull(),
   statementDigest: text('statement_digest'),
+  /**
+   * The grant a `redeemed` statement became, so the discharge is traceable in
+   * both directions: statement -> calls here, calls -> statements by joining
+   * back. Null unless the status is `redeemed`.
+   */
+  addonGrantId: uuid('addon_grant_id').references(() => addonGrant.id),
   createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
 });
 
