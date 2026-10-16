@@ -288,6 +288,13 @@
       "when": 1789378132264,
       "tag": "0040_site_key",
       "breakpoints": true
+    },
+    {
+      "idx": 41,
+      "version": "7",
+      "when": 1791947039164,
+      "tag": "0041_earning_credit",
+      "breakpoints": true
     }
   ]
 }

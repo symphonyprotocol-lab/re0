@@ -22,6 +22,7 @@ import {
 } from '@/lib/domain';
 import { uuidv7 } from '@/lib/domain/id';
 import { db, schema } from '@/lib/infrastructure/postgres/client';
+import { earningCredit, type EarningCredit } from './redeem-credit';
 
 export interface PublisherPeriodEarning {
   periodId: string;
@@ -38,8 +39,14 @@ export interface PublisherEarnings {
     providerAccountLinked: boolean;
   } | null;
   periods: PublisherPeriodEarning[];
-  /** Sum of the locked periods' amounts; stage 2 pays nothing out yet. */
+  /** Sum of the locked periods' amounts, whatever has since become of them. */
   accruedMinor: number;
+  /**
+   * The statement side: what is past its hold and can become Additional
+   * Calls now, what is still held, and what has already been redeemed
+   * (publisher-revenue-share.md 3.4).
+   */
+  credit: EarningCredit;
   payoutThresholdMinor: number;
   holdDays: number;
 }
@@ -91,6 +98,7 @@ export async function publisherEarnings(workspaceId: string): Promise<PublisherE
             ),
           );
   const periodById = new Map(periodRows.map((period) => [period.id, period]));
+  const credit = await earningCredit(account?.id ?? null);
 
   const periods: PublisherPeriodEarning[] = [];
   let accruedMinor = 0;
@@ -118,6 +126,7 @@ export async function publisherEarnings(workspaceId: string): Promise<PublisherE
       : null,
     periods,
     accruedMinor,
+    credit,
     payoutThresholdMinor: PAYOUT_THRESHOLD_MINOR,
     holdDays: PAYOUT_HOLD_DAYS,
   };
