@@ -863,6 +863,7 @@ export const en: Dictionary = {
       monthlyCalls: 'Calls this month',
       upgrade: 'Upgrade plan',
       signOut: 'Sign out',
+      loading: 'Loading…',
     },
     overview: {
       title: 'Overview',
