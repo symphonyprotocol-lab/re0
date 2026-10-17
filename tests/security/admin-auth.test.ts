@@ -74,7 +74,7 @@ describe('admin capabilities', () => {
 
   it('unions roles without inventing a capability', () => {
     const granted = capabilitiesForRoles(['reviewer', 'support']);
-    expect(granted).toEqual(['users', 'libraries']);
+    expect(granted).toEqual(['users', 'libraries', 'expertLibraries']);
   });
 
   it('rejects a role id that is not one of the presets', () => {

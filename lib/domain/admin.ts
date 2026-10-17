@@ -15,7 +15,8 @@ export type AdminCapability =
   | 'billing'
   | 'administrators'
   | 'audit'
-  | 'claims';
+  | 'claims'
+  | 'expertLibraries';
 
 export const ADMIN_CAPABILITIES: readonly AdminCapability[] = [
   'users',
@@ -27,6 +28,7 @@ export const ADMIN_CAPABILITIES: readonly AdminCapability[] = [
   'administrators',
   'audit',
   'claims',
+  'expertLibraries',
 ];
 
 export type AdminRoleId = 'super' | 'operator' | 'reviewer' | 'support';
@@ -52,6 +54,12 @@ const ROLE_CAPABILITIES: Record<AdminRoleId, readonly AdminCapability[]> = {
    * (requirement.md 5.3, 7.3.5) rewrite `library.owner_workspace_id`, which
    * decides who is paid. That is an operator's decision, not a reviewer's --
    * a reviewer judges whether content may ship, never whose it is.
+   *
+   * `expertLibraries` (expert-library-prd.md 3) is both: approving an expert
+   * library is a judgment about content, and its consequence is who is paid.
+   * The operator and the reviewer each need the door; the detail screen shows
+   * the owner's plan and never an amount, so a reviewer learns nothing about
+   * billing through it.
    */
   operator: [
     'users',
@@ -61,6 +69,7 @@ const ROLE_CAPABILITIES: Record<AdminRoleId, readonly AdminCapability[]> = {
     'models',
     'billing',
     'claims',
+    'expertLibraries',
   ],
   /*
    * `libraries` and `platformLibraries` are separate capabilities because
@@ -70,7 +79,7 @@ const ROLE_CAPABILITIES: Record<AdminRoleId, readonly AdminCapability[]> = {
    * job. One capability covering both would let a reviewer publish a library
    * under re0's name.
    */
-  reviewer: ['libraries'],
+  reviewer: ['libraries', 'expertLibraries'],
   support: ['users'],
 };
 

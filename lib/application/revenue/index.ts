@@ -23,6 +23,9 @@ export function isAttributableCall(input: {
     lifecycleStatus: string;
     ownerWorkspaceId: string | null;
     isPlatformLibrary: boolean;
+    /** expert-library-prd.md 4.4: the tag, and the owner's paid plan, at call time. */
+    expertTaggedAt: Date | null;
+    ownerSubscribed: boolean;
   };
   returnedChunks: number;
   flagged: boolean;
@@ -37,6 +40,8 @@ export function isAttributableCall(input: {
       lifecycleStatus: input.library.lifecycleStatus as never,
       ownerWorkspaceId: input.library.ownerWorkspaceId,
       isPlatformLibrary: input.library.isPlatformLibrary,
+      expertTaggedAt: input.library.expertTaggedAt,
+      ownerSubscribed: input.library.ownerSubscribed,
     })
   ) {
     return false;

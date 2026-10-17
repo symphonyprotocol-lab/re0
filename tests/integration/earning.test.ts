@@ -129,7 +129,11 @@ async function subscribed(workspaceId: string, shareRateBps = 2_000): Promise<st
   return planVersionId;
 }
 
-/** A claimed, published *user* library -- the kind that earns. */
+/**
+ * A claimed, published, expert-tagged *user* library -- the kind that earns.
+ * expert-library-prd.md 4.4: the tag is one of the gate's conditions, so the
+ * fixture carries it; the untagged case is pinned in expert-library.test.ts.
+ */
 async function userLibrary(slug: string, ownerWorkspaceId: string | null): Promise<string> {
   const database = db();
   const libraryId = crypto.randomUUID();
@@ -144,6 +148,7 @@ async function userLibrary(slug: string, ownerWorkspaceId: string | null): Promi
     lifecycleStatus: 'draft',
     indexStatus: 'pending',
     language: 'en',
+    expertTaggedAt: new Date(),
   });
   await database.insert(schema.source).values({
     id: uuidv7(),
@@ -226,6 +231,8 @@ describeWithDb('earning events', () => {
   it('writes one earning event with the frozen plan version and rate', async () => {
     const stamp = Date.now();
     const owner = await workspace('earning-owner');
+    /* The owner has to be on a paid plan for the library to earn (prd 4.4). */
+    await subscribed(owner);
     const libraryId = await userLibrary(`earn-basic-${stamp}`, owner);
     const reader = await workspace('earning-reader');
     const planVersionId = await subscribed(reader, 2_500);
@@ -300,6 +307,7 @@ describeWithDb('earning events', () => {
   it('refuses claim-gated sources until a claim verifies', async () => {
     const stamp = Date.now();
     const owner = await workspace('earning-rights-owner');
+    await subscribed(owner);
     const libraryId = await userLibrary(`earn-rights-${stamp}`, owner);
     await db()
       .update(schema.source)
@@ -354,6 +362,7 @@ describeWithDb('earning events', () => {
     vi.setSystemTime(seededAt);
     try {
       const owner = await workspace('earning-cap-owner');
+      await subscribed(owner);
       const libraryId = await userLibrary(`earn-cap-${stamp}`, owner);
       const reader = await workspace('earning-cap-reader');
       const planVersionId = await subscribed(reader);

@@ -133,6 +133,18 @@ export const billingDocumentStatusEnum = pgEnum('billing_document_status', [
   'uncollectible',
 ]);
 export const policyModeEnum = pgEnum('policy_mode', ['quality', 'select']);
+/**
+ * An owner's application to have a public library tagged as an expert
+ * library (expert-library-prd.md 4.5). `approved` and `library.expert_tagged_at`
+ * move together; `revoked` is an approval an administrator later withdrew.
+ */
+export const expertApplicationStatusEnum = pgEnum('expert_application_status', [
+  'pending',
+  'approved',
+  'rejected',
+  'withdrawn',
+  'revoked',
+]);
 
 // ---------------------------------------------------------------- identity & commerce
 
@@ -557,6 +569,14 @@ export const library = pgTable(
      * live libraries filters on this being null.
      */
     deletedAt: timestamp('deleted_at', { withTimezone: true }),
+    /**
+     * The expert-library tag (expert-library-prd.md 4.3). Null means the
+     * library is not one. Written only by the console's approval and cleared
+     * only by its revocation; nothing in ingestion, review or ownership
+     * touches it. Read by exactly one decision -- whether a served call earns
+     * (`commitCall`) -- and never by retrieval or ranking.
+     */
+    expertTaggedAt: timestamp('expert_tagged_at', { withTimezone: true }),
   },
   (t) => [
     /**
@@ -742,6 +762,40 @@ export const libraryClaim = pgTable(
       .on(t.libraryId)
       .where(sql`${t.status} = 'pending'`),
     index('library_claim_claimant_idx').on(t.claimantWorkspaceId),
+  ],
+);
+
+/**
+ * An expert-library application. expert-library-prd.md 4.5, 7.
+ *
+ * Append-only history: a rejection and a later revocation are two rows that
+ * stay, and the detail screens list them all. The partial unique index keeps
+ * one pending application per library. `workspace_id` is the owner at the
+ * time of applying, kept so a later ownership transfer does not rewrite who
+ * asked. `decided_by_admin_id` is not a foreign key, like
+ * `library_claim.ruling_admin_id`: the decision outlives the account.
+ */
+export const expertApplication = pgTable(
+  'expert_application',
+  {
+    id: uuid('id').primaryKey(),
+    libraryId: uuid('library_id').notNull().references(() => library.id),
+    workspaceId: uuid('workspace_id').notNull().references(() => workspace.id),
+    status: expertApplicationStatusEnum('status').notNull(),
+    /** The applicant's statement for the reviewer; optional, capped at 500. */
+    note: text('note'),
+    /** Why it was approved, rejected or revoked; the owner reads this. */
+    decisionReason: text('decision_reason'),
+    decidedByAdminId: uuid('decided_by_admin_id'),
+    decidedAt: timestamp('decided_at', { withTimezone: true }),
+    createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
+  },
+  (t) => [
+    uniqueIndex('expert_application_pending_uq')
+      .on(t.libraryId)
+      .where(sql`${t.status} = 'pending'`),
+    index('expert_application_library_idx').on(t.libraryId, t.createdAt.desc()),
+    index('expert_application_status_idx').on(t.status, t.createdAt.desc()),
   ],
 );
 

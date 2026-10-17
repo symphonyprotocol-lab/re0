@@ -31,6 +31,8 @@ import {
   workspaceLibraryDetail,
 } from '@/lib/application/libraries';
 import { listSiteKeys, SITE_KEYS_PER_LIBRARY } from '@/lib/application/embed';
+import { expertPanel } from '@/lib/application/expert-libraries';
+import { LibraryExpertPanel } from '@/components/dashboard/library-expert';
 import { requireSession } from '@/lib/http/session';
 import { fill } from '@/lib/i18n/format';
 import { quoteBuild } from '@/lib/application/plans';
@@ -47,6 +49,7 @@ import { widgetReady } from '@/lib/domain/site-key';
 import { getMessages, translations } from '@/lib/i18n/server';
 import { deleteWorkspaceLibraryAction } from '../actions';
 import {
+  applyExpertAction,
   createSiteKeyAction,
   editLibraryMetadataAction,
   ownerLifecycleAction,
@@ -54,6 +57,7 @@ import {
   revokeSiteKeyAction,
   updateParseScopeAction,
   updateSiteKeyAction,
+  withdrawExpertAction,
 } from './actions';
 
 export async function generateMetadata(): Promise<Metadata> {
@@ -99,7 +103,7 @@ export default async function DashboardLibraryPage({
   const docsPage = documentsPage(query.docs);
   const docsSize = documentsPageSize(query.size);
   /* requirement.md 9.4: the website widget's keys ride along with the documents page. */
-  const [documents, siteKeys] = await Promise.all([
+  const [documents, siteKeys, expert] = await Promise.all([
     currentVersionId
       ? listVersionDocuments({
           libraryId: library.id,
@@ -109,6 +113,8 @@ export default async function DashboardLibraryPage({
         })
       : { documents: [], total: 0 },
     listSiteKeys({ workspaceId: session.workspace.id, libraryId: library.id }),
+    /* expert-library-prd.md 5: where the library stands on the expert tag. */
+    expertPanel({ workspaceId: session.workspace.id, libraryId: library.id }),
   ]);
   const docsPages = Math.max(1, Math.ceil(documents.total / docsSize));
   const docsHref = (page: number, size: number = docsSize) =>
@@ -364,6 +370,44 @@ export default async function DashboardLibraryPage({
             />
           ) : null}
         </>
+      ) : null}
+
+      {/* expert-library-prd.md 5: the expert tag. Shown for a private library
+          too: its checklist is how an owner learns what the tag needs. */}
+      {expert && library.lifecycleStatus !== 'archived' ? (
+        <LibraryExpertPanel
+          libraryId={library.id}
+          taggedAt={expert.taggedAt?.toISOString() ?? null}
+          checks={expert.checks}
+          earning={expert.earning}
+          blocker={expert.blocker}
+          reapplyAllowedAt={expert.reapplyAllowedAt?.toISOString() ?? null}
+          pending={
+            expert.pending
+              ? { id: expert.pending.id, createdAt: expert.pending.createdAt.toISOString(), note: expert.pending.note }
+              : null
+          }
+          latest={
+            expert.latest
+              ? {
+                  status: expert.latest.status,
+                  decisionReason: expert.latest.decisionReason,
+                  decidedAt: expert.latest.decidedAt?.toISOString() ?? null,
+                  createdAt: expert.latest.createdAt.toISOString(),
+                }
+              : null
+          }
+          history={expert.history.map((row) => ({
+            id: row.id,
+            status: row.status,
+            decisionReason: row.decisionReason,
+            decidedAt: row.decidedAt?.toISOString() ?? null,
+            createdAt: row.createdAt.toISOString(),
+          }))}
+          canEdit={canEdit}
+          applyAction={applyExpertAction}
+          withdrawAction={withdrawExpertAction}
+        />
       ) : null}
 
       {library.lifecycleStatus !== 'archived' ? (

@@ -5,6 +5,7 @@ import { usePathname } from 'next/navigation';
 import type { ReactElement } from 'react';
 import {
   ArrowUpRightIcon,
+  AwardIcon,
   CircleDollarSignIcon,
   DatabaseIcon,
   FilterIcon,
@@ -42,11 +43,14 @@ import { useI18n } from '@/lib/i18n/client';
 export function AdminSidebar({
   pendingReviews,
   openRefreshes,
+  pendingExpert,
   capabilities,
 }: {
   pendingReviews: number;
   /** Platform refreshes queued or running, on the queue item. */
   openRefreshes: number;
+  /** Expert-library applications waiting for a decision. */
+  pendingExpert: number;
   capabilities: readonly AdminCapability[];
 }) {
   const { t } = useI18n();
@@ -99,6 +103,18 @@ export function AdminSidebar({
          * and its own capability keeps a reviewer out (lib/domain/admin.ts).
          */
         { href: '/admin/claims', label: nav.claims, Icon: ScaleIcon, needs: 'claims' },
+        /*
+         * The expert queue sits beside review and ownership: it is the third
+         * judgment the console makes about a user library, and the one that
+         * decides whether it earns (expert-library-prd.md 6.1).
+         */
+        {
+          href: '/admin/expert-libraries',
+          label: nav.expertLibraries,
+          Icon: AwardIcon,
+          badge: pendingExpert,
+          needs: 'expertLibraries',
+        },
       ],
     },
     {
