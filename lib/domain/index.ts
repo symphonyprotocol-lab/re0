@@ -130,17 +130,30 @@ export function revenuePeriodId(at: Date): string {
   return `${at.getUTCFullYear()}-${String(at.getUTCMonth() + 1).padStart(2, '0')}`;
 }
 
+/**
+ * requirement.md 4.4 and expert-library-prd.md 4.4: a served call earns only
+ * for a claimed, published public user library that carries the expert tag
+ * and whose owner is on a paid plan right now. The tag is the console's
+ * judgment that the content is worth paying for; the subscription is the
+ * owner's standing in the programme. Both are read at call time, so a lapsed
+ * subscription or a library made private stops earning at once and resumes
+ * by itself -- the tag is not withdrawn for either.
+ */
 export function isRevenueEligible(input: {
   visibility: Visibility;
   lifecycleStatus: LifecycleStatus;
   ownerWorkspaceId: string | null;
   isPlatformLibrary: boolean;
+  expertTaggedAt: Date | null;
+  ownerSubscribed: boolean;
 }): boolean {
   return (
     input.visibility === 'public' &&
     input.lifecycleStatus === 'published' &&
     input.ownerWorkspaceId !== null &&
-    !input.isPlatformLibrary
+    !input.isPlatformLibrary &&
+    input.expertTaggedAt !== null &&
+    input.ownerSubscribed
   );
 }
 

@@ -295,6 +295,13 @@
       "when": 1791947039164,
       "tag": "0041_earning_credit",
       "breakpoints": true
+    },
+    {
+      "idx": 42,
+      "version": "7",
+      "when": 1792033439164,
+      "tag": "0042_expert_library",
+      "breakpoints": true
     }
   ]
 }

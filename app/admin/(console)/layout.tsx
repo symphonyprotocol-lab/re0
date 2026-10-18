@@ -2,6 +2,7 @@ import type { ReactNode } from 'react';
 import { AdminHeader } from '@/components/admin/header';
 import { AdminSidebar } from '@/components/admin/sidebar';
 import { listUserLibraries, platformLibrarySummary } from '@/lib/application/administration';
+import { pendingExpertApplications } from '@/lib/application/expert-libraries';
 import { requireAdmin } from '@/lib/http/admin';
 import { LocaleProvider } from '@/lib/i18n/client';
 import { translations } from '@/lib/i18n/server';
@@ -28,13 +29,14 @@ export default async function ConsoleLayout({ children }: { children: ReactNode 
    * from the fixture, which meant the rail claimed work was waiting over a
    * screen that said there was none.
    */
-  const [{ counts }, refreshes] = await Promise.all([
+  const [{ counts }, refreshes, pendingExpert] = await Promise.all([
     session.capabilities.includes('libraries')
       ? listUserLibraries({ limit: 0 })
       : { counts: { pending: 0 } },
     session.capabilities.includes('platformLibraries')
       ? platformLibrarySummary()
       : { queuedRefreshes: 0 },
+    session.capabilities.includes('expertLibraries') ? pendingExpertApplications() : 0,
   ]);
 
   return (
@@ -43,6 +45,7 @@ export default async function ConsoleLayout({ children }: { children: ReactNode 
         <AdminSidebar
           pendingReviews={counts.pending}
           openRefreshes={refreshes.queuedRefreshes}
+          pendingExpert={pendingExpert}
           capabilities={session.capabilities}
         />
         <div className="flex min-w-0 flex-1 flex-col">

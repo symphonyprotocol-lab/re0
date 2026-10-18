@@ -195,6 +195,7 @@ MVP 中个人工作空间创建者为 `owner`。团队成员邀请和席位收�
 通过审核发布的**用户公开知识库**，按其被成功检索的次数从平台收入中获得分成。完整设计见 [publisher-revenue-share.md](./publisher-revenue-share.md)，本节为产品规则摘要。
 
 - 只有 `visibility = public`、`lifecycle_status = published` 且**已完成认领**（第 7.3 节，有明确 Owner）的用户知识库参与；平台自建库、私有库和未认领的公开库都不参与，未认领库的 Call 也不计入可分配池的分子；
+- 2026-10-17 起，上架资格与分成资格分离：参与分成还必须**带「专家库」标签**（所有者主动申请、管理员在后台审批授予，可撤销）且**所有者工作空间当前处于付费订阅**；两项都在调用时实时判断，标签不随订阅到期或改为私有自动摘除，条件恢复后自动恢复计入。完整规则见 [expert-library-prd.md](./expert-library-prd.md)；
 - 收益自认领生效之后的账期开始计算，**不追溯**认领前的调用；
 - 只有 `query-docs` 计分成，`resolve-library-id` 不计；匿名在线试用不计；调用方与 Owner 同工作空间不计；
 - 可分配池 = 该账期可计分成 Call 占全部计费 Call 的比例 × 净收入 × `share_rate`；`share_rate` 来自不可变 `Plan Version`，初始 20%；

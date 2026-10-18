@@ -63,7 +63,11 @@
 3. 该 Library 的 Owner Workspace **不是**平台运营工作空间；
 4. 调用者所属工作空间 **不是**该 Library 的 Owner Workspace（排除自刷）；
 5. 调用来自已认证主体，**匿名在线试用不计**；
-6. 该 Library 当期未被安全暂停、未处于审核不通过状态。
+6. 该 Library 当期未被安全暂停、未处于审核不通过状态；
+7. 该 Library 带**「专家库」标签**（`library.expert_tagged_at` 非空，由所有者申请、管理员在后台审批授予，见 [expert-library-prd.md](./expert-library-prd.md)）；
+8. 该 Library 的 Owner Workspace 在调用时刻处于**付费订阅**（`subscriptionInForce` 且非 Free）。
+
+第 7、8 条自 2026-10-17 起生效，把「上架资格」与「分成资格」拆成两道门：公开审核回答能不能上架，专家库标签回答值不值得付钱。标签被撤销时，该库尚未关账账期的 Earning Event 按第 5 节「违规处置」作废。
 
 `resolve-library-id` **不计分成**，只有 `query-docs` 计。理由：前者不消费某一个库的内容，把它计入会奖励「让自己出现在候选列表里」这种与内容质量无关的行为。
 

@@ -27,6 +27,7 @@ import {
   type ReservedCall,
 } from '@/lib/application/plans';
 import { httpStatusFor } from '@/contracts/errors';
+import { paidSubscriptionExists } from '@/lib/application/plans/in-force';
 import { pinPolicy, policyIsOpen, policyVerdictFor } from '@/lib/application/policies';
 import { db, schema } from '@/lib/infrastructure/postgres/client';
 import type { EmbeddingAdapter, RerankAdapter } from '@/lib/infrastructure/ai/providers';
@@ -481,6 +482,15 @@ const librarySelection = {
     )
   )`.mapWith(
     /* The driver may hand a raw-SQL boolean back as 't'/'f' text. */
+    (value): boolean => value === true || value === 't',
+  ),
+  /*
+   * The two expert-library facts (expert-library-prd.md 4.4), read with the
+   * rest for the same reason as `rightsVerified`. Neither is consulted by
+   * recall or ranking -- they ride along only to reach `commitCall`.
+   */
+  expertTaggedAt: schema.library.expertTaggedAt,
+  ownerSubscribed: paidSubscriptionExists(ref(schema.library.ownerWorkspaceId)).mapWith(
     (value): boolean => value === true || value === 't',
   ),
 };

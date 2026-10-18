@@ -212,6 +212,14 @@ export interface EarningLibraryFacts {
    * and collect its share without ever passing the claim.
    */
   rightsVerified: boolean;
+  /**
+   * expert-library-prd.md 4.4: the console's expert tag, and whether the
+   * owner workspace is on a paid plan at the moment of the call. Both are
+   * read with the library, before the reservation, so the judgment inside
+   * the transaction uses facts already determined.
+   */
+  expertTaggedAt: Date | null;
+  ownerSubscribed: boolean;
 }
 
 /**

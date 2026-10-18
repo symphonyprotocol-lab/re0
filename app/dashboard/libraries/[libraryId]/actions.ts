@@ -23,6 +23,8 @@ import {
   updateSiteKey,
   type SiteKeyRefusal,
 } from '@/lib/application/embed';
+import { applyForExpertTag, withdrawExpertApplication } from '@/lib/application/expert-libraries';
+import { ExpertLibraryRefused, type ExpertLibraryError } from '@/lib/domain/expert-library';
 import { requireSession } from '@/lib/http/session';
 
 /** Queue a rebuild and start it. Also handed to the list's per-row refresh control. */
@@ -317,5 +319,65 @@ export async function revokeSiteKeyAction(
     return { ok: true };
   } catch (error) {
     return siteKeyRefusal(error, 'revoke');
+  }
+}
+
+/* ------------------------------------------------------- expert library */
+
+/**
+ * The owner's two moves over the expert tag (expert-library-prd.md 5): open
+ * an application, or withdraw the pending one. The use case re-checks the
+ * role and reads every precondition under the library's row lock; the panel
+ * only decides what is drawn, and the refusal codes it gets back are the
+ * domain's own so the dictionary can name each missing condition.
+ */
+export interface ExpertApplicationActionResult {
+  ok: boolean;
+  action?: 'apply' | 'withdraw';
+  error?: ExpertLibraryError | 'unavailable';
+}
+
+export async function applyExpertAction(
+  _previous: ExpertApplicationActionResult | null,
+  form: FormData,
+): Promise<ExpertApplicationActionResult> {
+  const libraryId = String(form.get('libraryId') ?? '');
+  const session = await requireSession(`/dashboard/libraries/${libraryId}`);
+  try {
+    await applyForExpertTag({
+      workspaceId: session.workspace.id,
+      role: session.workspace.role,
+      libraryId,
+      note: form.get('note'),
+      userId: session.user.id,
+    });
+    revalidatePath(`/dashboard/libraries/${libraryId}`);
+    return { ok: true, action: 'apply' };
+  } catch (error) {
+    if (error instanceof ExpertLibraryRefused) return { ok: false, error: error.code };
+    console.error(`expert application failed: ${error instanceof Error ? error.message : 'unknown'}`);
+    return { ok: false, error: 'unavailable' };
+  }
+}
+
+export async function withdrawExpertAction(
+  _previous: ExpertApplicationActionResult | null,
+  form: FormData,
+): Promise<ExpertApplicationActionResult> {
+  const libraryId = String(form.get('libraryId') ?? '');
+  const session = await requireSession(`/dashboard/libraries/${libraryId}`);
+  try {
+    await withdrawExpertApplication({
+      workspaceId: session.workspace.id,
+      role: session.workspace.role,
+      libraryId,
+      userId: session.user.id,
+    });
+    revalidatePath(`/dashboard/libraries/${libraryId}`);
+    return { ok: true, action: 'withdraw' };
+  } catch (error) {
+    if (error instanceof ExpertLibraryRefused) return { ok: false, error: error.code };
+    console.error(`expert withdrawal failed: ${error instanceof Error ? error.message : 'unknown'}`);
+    return { ok: false, error: 'unavailable' };
   }
 }

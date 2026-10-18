@@ -211,7 +211,7 @@ describeWithDb('managing administrators', () => {
       mfaCode: await codeFor(secret, next),
     });
     const session = await resolveAdminSession(token);
-    expect(session?.capabilities).toEqual(['libraries']);
+    expect(session?.capabilities).toEqual(['libraries', 'expertLibraries']);
   });
 
   it('changing the role revokes the sessions it widened or narrowed', async () => {
