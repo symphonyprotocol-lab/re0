@@ -787,9 +787,6 @@ export const en: Dictionary = {
     routedNoteMany:
       'Answering from {list} together — generated only from their retrieved passages; each source names its library.',
     routedSkipped: '{list} was also read, but its passages did not fit the question and were not used.',
-    modelNoteTrial: 'Answered by the trial model "{label}".',
-    modelNoteUpgrade: 'Answered by the trial model "{label}"; a subscription answers with "{upgrade}".',
-    modelNoteSubscriber: 'Answered by the subscriber model "{label}".',
     noLibraryTitle: 'No library matched',
     noLibraryBody:
       'No published library matched this question, so nothing was retrieved and no answer was generated.',
@@ -988,6 +985,8 @@ export const en: Dictionary = {
           failed: 'Build failed',
         },
         refresh: 'Refresh',
+        refreshConfirm: 'Start build',
+        refreshCancel: 'Cancel',
         refreshing: 'Queuing…',
         refreshQueued: 'Build started; the list updates shortly.',
         refreshFailed: 'Could not queue it. Try again later.',
@@ -1112,11 +1111,12 @@ export const en: Dictionary = {
       actions: {
         rebuild: 'Rebuild',
         rebuilding: 'Queuing…',
+        rebuildConfirm: 'Start build',
+        rebuildCancel: 'Cancel',
         rebuildQueued: 'Build started; this page refreshes itself. Progress is in the build queue below.',
         rebuildAlready: 'A build was already waiting in the queue; it has been started.',
         rebuildFailed: 'Could not queue the build. Try again later.',
         rebuildQuota: 'Your balance cannot cover a build — buy a call pack or wait for the period to reset.',
-        rebuildNote: 'A refresh is priced from the content it adds (at most about {calls} calls); an unchanged source costs nothing.',
         files: 'Manage PDF files',
         publicPage: 'View public page',
       },

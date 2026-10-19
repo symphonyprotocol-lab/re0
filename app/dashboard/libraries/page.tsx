@@ -139,10 +139,8 @@ export default async function DashboardLibrariesPage() {
             building: row.building,
           })
         : null,
-      rebuildDisabled: rebuildBlocked({
-        lifecycleStatus: row.lifecycleStatus,
-        affordable: quote?.affordable,
-      }),
+      /* Affordability is said in the refresh confirmation, with the price. */
+      rebuildDisabled: rebuildBlocked({ lifecycleStatus: row.lifecycleStatus, affordable: undefined }),
     };
   });
 
@@ -246,6 +244,7 @@ export default async function DashboardLibrariesPage() {
         rows={rows}
         deleteAction={canDeleteLibraries(session.workspace.role) ? deleteWorkspaceLibraryAction : undefined}
         rebuildAction={manager ? rebuildLibraryAction : undefined}
+        rebuildQuote={quote ?? undefined}
       />
 
       <LibraryOwnership
