@@ -17,9 +17,16 @@
  * new tab, so a knowledge base that cites other sites never hijacks the one
  * the visitor is on.
  *
+ * The widget page is loaded, hidden, as soon as the host page is idle rather
+ * than on the first click: its config message carries the key's accent, and
+ * the launcher should wear the owner's colour before anyone presses it, not
+ * after. It also means a site that installed the snippet is seen by the
+ * dashboard on the first visit, bubble opened or not.
+ *
  * Optional attributes: data-position="left" (default right),
- * data-accent="#rrggbb" (the server's colour replaces it once the widget
- * loads), data-label="..." for the launcher's accessible name.
+ * data-accent="#rrggbb" (the launcher's colour until the widget page has
+ * loaded and sent the key's own), data-label="..." for the launcher's
+ * accessible name.
  */
 (function () {
   if (window.__re0Widget) return;
@@ -125,6 +132,16 @@
 
   function mount() {
     document.body.appendChild(button);
+    /* Preload once the host page has had its turn, so the accent arrives
+       before the first click without competing with the page's own load. */
+    var preload = function () {
+      ensureFrame();
+    };
+    if (typeof window.requestIdleCallback === 'function') {
+      window.requestIdleCallback(preload, { timeout: 2000 });
+    } else {
+      setTimeout(preload, 0);
+    }
   }
   if (document.body) mount();
   else document.addEventListener('DOMContentLoaded', mount);

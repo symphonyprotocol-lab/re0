@@ -43,6 +43,8 @@ export interface LibraryListRow {
   filesLabel: string | null;
   /** A reviewer's feedback the owner has to act on, untranslated. */
   note: string | null;
+  /** Where a running build is, already worded; null when nothing is building. */
+  buildNote: string | null;
   /** Where a public library stands in the publishing pipeline; null when it is not in it. */
   pipeline: ReviewPipelineEntry[] | null;
   /** Rebuild is not offered: archived, or a build cannot be paid for. */
@@ -202,7 +204,14 @@ export function LibraryList({
                   {number.format(library.chunks)}
                 </span>
 
-                <StatusLabel tone={library.status}>{library.statusLabel}</StatusLabel>
+                <span className="flex min-w-0 flex-col gap-1">
+                  <StatusLabel tone={library.status}>{library.statusLabel}</StatusLabel>
+                  {library.buildNote ? (
+                    <span className="truncate text-[10px] text-muted" title={library.buildNote}>
+                      {library.buildNote}
+                    </span>
+                  ) : null}
+                </span>
 
                 <span className="text-[12px] text-muted">{library.updated}</span>
 

@@ -24,7 +24,9 @@
  * - meters one Call, on the routed top candidate. The other reads are
  *   unmetered (query-docs.ts `meter`): one exchange is one Call whatever the
  *   router found, and the top candidate is the library the single-library
- *   path would have charged and credited.
+ *   path would have charged and credited. A caller that has already paid for
+ *   this exchange -- the playground retrying a missed question in other
+ *   words -- passes `meter: false` and nothing is reserved at all.
  *
  * A failure of the top candidate is the exchange's failure, as before. A
  * failure of any other candidate drops that library and keeps the exchange:
@@ -33,6 +35,7 @@
  */
 import type { ChunkResult } from '@/contracts/schemas';
 import { containsCjk } from '@/lib/domain/cjk';
+import { excerptsOf } from '@/lib/domain/generation';
 import type { EmbeddingAdapter } from '@/lib/infrastructure/ai/providers';
 import { confirmsRetrieval } from '@/lib/domain/routing';
 import type { CallerContext } from './index';
@@ -65,6 +68,12 @@ export interface GatheredLibrary {
   /** Passages it contributed after the merge. */
   chunks: number;
   failed: boolean;
+  /**
+   * The opening of its nearest passages, confirmed or not: what the rewrite
+   * on a miss is shown of the site (lib/domain/generation.ts `excerptsOf`).
+   * Empty when the retrieval failed.
+   */
+  excerpts: string[];
 }
 
 export interface GatherResult {
@@ -78,6 +87,12 @@ export interface GatherInput {
   libraries: readonly GatherLibrary[];
   query: string;
   maxTokens: number;
+  /**
+   * False for the playground's retry with a rewritten question: the exchange
+   * reserved its one Call on the first pass, and a second read for the same
+   * question is not a second served call (query-docs.ts `meter`). Default true.
+   */
+  meter?: boolean;
 }
 
 export async function gatherAcrossLibraries(
@@ -104,7 +119,7 @@ export async function gatherAcrossLibraries(
     );
 
   const settled = await Promise.allSettled([
-    retrieve(top, true),
+    retrieve(top, input.meter !== false),
     ...rest.map((library) => retrieve(library, false)),
   ]);
 
@@ -185,6 +200,7 @@ export async function gatherAcrossLibraries(
       confirmed: confirmed[order]!,
       chunks: contributed.get(order) ?? 0,
       failed: result === null,
+      excerpts: result ? excerptsOf(result.chunks.map((chunk) => chunk.text)) : [],
     })),
     requestId: first.value.requestId,
   };

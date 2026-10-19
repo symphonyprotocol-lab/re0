@@ -6,13 +6,18 @@
 import { describe, expect, it } from 'vitest';
 import {
   buildContextBlock,
+  buildRewritePrompt,
+  excerptsOf,
+  languageOfPassages,
   llmCostMicroUsd,
   openCitedAnswer,
   openThinkFilter,
+  parseRewrite,
   priceMicroFromUsd,
   priceUsdFromMicro,
   parseCitedAnswer,
   PLAYGROUND_SYSTEM_PROMPT,
+  REWRITE_LIMITS,
 } from '@/lib/domain/generation';
 
 describe('answer parsing', () => {
@@ -263,3 +268,67 @@ describe('price units', () => {
   });
 });
 
+
+describe('rewrite on miss', () => {
+  it('takes the first line as the query, stripping quotes, prefixes and noise', () => {
+    expect(parseRewrite('"how to activate membership"\n\nExplanation…', '会员怎么开通?')).toBe(
+      'how to activate membership',
+    );
+    expect(parseRewrite('Query: 「subscribe   to a plan」', '会员怎么开通?')).toBe('subscribe to a plan');
+    expect(parseRewrite('\n  \n', '会员怎么开通?')).toBeNull();
+  });
+
+  it('refuses the question itself and cuts an essay down to a query', () => {
+    expect(parseRewrite('会员怎么开通?', '会员怎么开通?')).toBeNull();
+    expect(parseRewrite('  how to activate   membership ', 'How to activate membership')).toBeNull();
+    const essay = 'word '.repeat(80);
+    expect(parseRewrite(essay, 'q')!.length).toBeLessThanOrEqual(REWRITE_LIMITS.maxChars);
+  });
+
+  it('describes the site as data and trims the profile to its limits', () => {
+    const prompt = buildRewritePrompt('会员怎么开通?', [
+      {
+        title: 'Apage',
+        description: 'Hosting for "static" sites',
+        language: 'en',
+        documentTitles: Array.from({ length: 50 }, (_, i) => `Page ${i}`),
+        terms: Array.from({ length: 100 }, (_, i) => `term${i}`),
+        excerpts: ['First passage', 'Second passage', 'Third passage'],
+      },
+    ]);
+    expect(prompt).toContain('untrusted data');
+    expect(prompt).toContain('passages: First passage || Second passage');
+    expect(prompt).not.toContain('Third passage');
+    expect(prompt).toContain('<site title="Apage">');
+    expect(prompt).toContain('language: en');
+    expect(prompt).toContain(`Page ${REWRITE_LIMITS.maxTitles - 1}`);
+    expect(prompt).not.toContain(`Page ${REWRITE_LIMITS.maxTitles} `);
+    expect(prompt).toContain(`term${REWRITE_LIMITS.maxTerms - 1},`.replace(',', ''));
+    expect(prompt).not.toContain(`term${REWRITE_LIMITS.maxTerms},`);
+    expect(prompt.endsWith('Question: 会员怎么开通?')).toBe(true);
+  });
+
+  it('names the language from the passages when the library declares none', () => {
+    const hint = { title: 'Apage', description: null, language: null, documentTitles: [], terms: [] };
+    const english = buildRewritePrompt('会员怎么开通?', [
+      { ...hint, excerpts: ['Choose the plan that fits your sharing volume.'] },
+    ]);
+    expect(english).toContain('language: English (inferred from the passages)');
+    const chinese = buildRewritePrompt('how do I subscribe', [{ ...hint, excerpts: ['选择适合你的套餐。'] }]);
+    expect(chinese).toContain('language: Chinese (inferred from the passages)');
+    /* Declared beats inferred; nothing to read says nothing. */
+    expect(buildRewritePrompt('q', [{ ...hint, language: 'de', excerpts: ['Choose a plan'] }])).toContain('language: de');
+    expect(buildRewritePrompt('q', [{ ...hint, excerpts: [] }])).not.toContain('language:');
+    expect(languageOfPassages(['ページを共有する'])).toBe('Japanese');
+    expect(languageOfPassages(['123 --- ***'])).toBeNull();
+  });
+
+  it('cuts the nearest passages to a few short openings', () => {
+    const long = 'word '.repeat(100);
+    const excerpts = excerptsOf(['  first\n\n passage ', '', long, 'fourth']);
+    expect(excerpts).toHaveLength(REWRITE_LIMITS.maxExcerpts);
+    expect(excerpts[0]).toBe('first passage');
+    expect(excerpts[1]!.length).toBeLessThanOrEqual(REWRITE_LIMITS.excerptChars + 1);
+    expect(excerpts[1]!.endsWith('…')).toBe(true);
+  });
+});

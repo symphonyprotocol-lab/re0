@@ -2,6 +2,7 @@ import type { Metadata } from 'next';
 import Link from 'next/link';
 import { notFound } from 'next/navigation';
 import { LiveRefresh } from '@/components/dashboard/live-refresh';
+import { describeBuild } from '@/lib/dashboard/build-progress';
 import {
   DetailDeleteControl,
   LibraryMetadataForm,
@@ -157,7 +158,13 @@ export default async function DashboardLibraryPage({
   const banner = library.queryable
     ? { tone: 'live' as StatusTone, icon: <BadgeCheckIcon size={18} />, title: d.ready.title, body: fill(d.ready.body, { label: library.currentVersion?.label ?? '' }) }
     : library.building
-      ? { tone: 'pending' as StatusTone, icon: <RefreshIcon size={18} />, title: d.ready.buildingTitle, body: d.ready.buildingBody }
+      ? {
+          tone: 'pending' as StatusTone,
+          icon: <RefreshIcon size={18} />,
+          title: d.ready.buildingTitle,
+          /* Where it is, from the build's own reports, once there are any. */
+          body: [d.ready.buildingBody, describeBuild(t.admin.refreshQueue, library.build)].filter(Boolean).join(' '),
+        }
       : library.lifecycleStatus === 'changes_requested'
         ? { tone: 'blocked' as StatusTone, icon: <ShieldCheckIcon size={18} />, title: d.ready.changesTitle, body: fill(d.ready.changesBody, { note: latestNote }) }
         : library.lifecycleStatus === 'suspended'

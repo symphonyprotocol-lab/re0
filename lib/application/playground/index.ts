@@ -20,12 +20,18 @@ import { hasPaidSubscription } from '@/lib/application/plans';
 import type { LlmAudience } from '@/lib/domain/generation';
 import {
   buildContextBlock,
+  buildRewritePrompt,
   llmCostMicroUsd,
   openCitedAnswer,
+  parseRewrite,
   PLAYGROUND_SYSTEM_PROMPT,
+  REWRITE_LIMITS,
+  REWRITE_SYSTEM_PROMPT,
+  type RewriteHint,
 } from '@/lib/domain/generation';
 import { retrievalBudgetFor } from '@/lib/domain/retrieval-config';
 import { llmAdapter, type LlmAdapter } from '@/lib/infrastructure/ai/llm';
+import { libraryRewriteHints } from './rewrite-hints';
 
 /**
  * The playground is the only entry point that produces prose.
@@ -57,6 +63,16 @@ import { llmAdapter, type LlmAdapter } from '@/lib/infrastructure/ai/llm';
  * appends one `llm_cost_event` -- token counts and cost, never the question or
  * the answer (9.5's cost metric). The retrieval call already metered one Call;
  * generation never meters a second.
+ *
+ * One exception path sits between retrieval and generation: rewrite on miss.
+ * When no library confirms and a model is configured, the model is asked
+ * once to restate the question in the corpus's language and vocabulary
+ * (lib/domain/generation.ts `REWRITE_SYSTEM_PROMPT`), and retrieval runs
+ * again with that query -- unmetered, since the exchange already reserved its
+ * Call. The rewrite produces no facts: a retry that confirms continues into
+ * the same binding as a first pass would, and one that misses is the same
+ * no-context as before. It never runs without a usable model, and never on a
+ * question that confirmed; its cost lands in the same ledger as generation's.
  */
 
 export interface PlaygroundAnswer {
@@ -66,6 +82,8 @@ export interface PlaygroundAnswer {
   libraries: GatheredLibrary[];
   citations: { claim: string; chunkId: string }[];
   requestId: string;
+  /** The query the context was retrieved with, when it was not the question. */
+  rewrite: string | null;
 }
 
 /**
@@ -85,6 +103,12 @@ export type PlaygroundEvent =
     }
   /** What the scatter-gather read, library by library, before `context`. */
   | { type: 'gather'; libraries: GatheredLibrary[] }
+  /**
+   * The first pass missed and the retry with this query confirmed: the
+   * `gather` and `context` that follow are the retry's. So a client can say
+   * "searched as …". Never emitted when the retry misses too.
+   */
+  | { type: 'rewrite'; query: string }
   | { type: 'context'; chunks: GatheredChunk[]; requestId: string }
   | { type: 'claim'; claim: string; chunkIds: string[] }
   | {
@@ -110,6 +134,10 @@ export interface PlaygroundDependencies {
   credential(configId: string): Promise<string | null>;
   recordCost: typeof recordLlmCost;
   retrieval?: RetrievalDependencies;
+  /** The scatter-gather itself; a test's seam around the database. */
+  gather?: typeof gatherAcrossLibraries;
+  /** What the rewrite is told about the libraries, by public id (rewrite-hints.ts). */
+  hints?: (libraryIds: readonly string[]) => Promise<RewriteHint[]>;
 }
 
 /**
@@ -203,24 +231,65 @@ export async function* streamPlayground(
    * them. When no library is confirmed there is no context: no model call,
    * and the reader is told nothing relevant was found.
    */
-  const retrieved = await gatherAcrossLibraries(
+  const gather = dependencies.gather ?? gatherAcrossLibraries;
+  const maxTokens = retrievalBudgetFor(usable?.maxInputTokens, settings);
+  const retrievalDependencies = { ...retrieval, settings: async () => settings };
+  let retrieved = await gather(
     caller,
-    {
-      libraries: input.libraries,
-      query: input.question,
-      maxTokens: retrievalBudgetFor(usable?.maxInputTokens, settings),
-    },
-    { ...retrieval, settings: async () => settings },
+    { libraries: input.libraries, query: input.question, maxTokens },
+    retrievalDependencies,
   );
   yield { type: 'gather', libraries: retrieved.libraries };
 
+  /*
+   * The credential is opened once, lazily, for whichever model calls follow:
+   * a key that cannot be opened -- sealed under a rotated secret -- reaches
+   * the adapter as an empty one and is refused there, which is the same
+   * degradation as any other unavailable provider.
+   */
+  let apiKey: Promise<string> | null = null;
+  const credential = (): Promise<string> =>
+    (apiKey ??= usable
+      ? dependencies.credential(usable.id).then(
+          (key) => key ?? '',
+          () => '',
+        )
+      : Promise.resolve(''));
+
   if (!retrieved.libraries.some((library) => library.confirmed)) {
-    console.info(
-      `playground no_context (no confirmed retrieval among ${retrieved.libraries.length} candidates)`,
-    );
-    yield { type: 'context', chunks: [], requestId: retrieved.requestId };
-    yield { type: 'done', kind: 'no_context', requestId: retrieved.requestId };
-    return;
+    /*
+     * Rewrite on miss (module comment). Only the libraries this pass did
+     * read are described to the model: a candidate whose retrieval was
+     * refused is one the caller may not see into.
+     */
+    const rewritten = usable
+      ? await rewriteOnMiss(caller, input, usable, await credential(), retrieved, dependencies)
+      : null;
+    const retry = rewritten
+      ? await gather(
+          caller,
+          { libraries: input.libraries, query: rewritten, maxTokens, meter: false },
+          retrievalDependencies,
+        ).catch((error: unknown) => {
+          logDegraded('retry retrieval failed', error);
+          return null;
+        })
+      : null;
+
+    if (rewritten && retry && retry.libraries.some((library) => library.confirmed)) {
+      retrieved = retry;
+      yield { type: 'rewrite', query: rewritten };
+      yield { type: 'gather', libraries: retrieved.libraries };
+    } else {
+      console.info(
+        `playground no_context (no confirmed retrieval among ${retrieved.libraries.length} candidates${
+          rewritten ? ', after one rewrite' : ''
+        })`,
+      );
+      yield { type: 'context', chunks: [], requestId: retrieved.requestId };
+      yield { type: 'done', kind: 'no_context', requestId: retrieved.requestId };
+      return;
+    }
   }
 
   yield {
@@ -254,15 +323,11 @@ export async function* streamPlayground(
 
   let stream;
   try {
-    /* A key that cannot be opened -- sealed under a rotated secret -- reaches
-       the adapter as an empty one and is refused there, which is the same
-       degradation as any other unavailable provider. */
-    const apiKey = (await dependencies.credential(usable.id).catch(() => null)) ?? '';
     stream = dependencies
       .llm({
         baseUrl: usable.baseUrl,
         model: usable.model,
-        apiKey,
+        apiKey: await credential(),
       })
       .stream({
         systemPrompt: PLAYGROUND_SYSTEM_PROMPT,
@@ -322,41 +387,9 @@ export async function* streamPlayground(
     logDegraded('llm completed but no sentence cited a chunk of this request', null);
   }
 
-  /*
-   * The tokens were spent whatever the binding above decided, so the cost is
-   * recorded for any call that ran to completion -- best-effort (a metrics
-   * write must not fail the answer it measures) but awaited, because a
-   * serverless function may freeze right after responding and a write left
-   * floating simply vanishes.
-   */
+  /* The tokens were spent whatever the binding above decided. */
   if (completed) {
-    const usage = await stream.usage;
-    await dependencies
-      .recordCost({
-        configId: usable.id,
-        /* The metered library: the routed top candidate (gather.ts). */
-        libraryPublicId: input.libraries[0]!.libraryId,
-        workspaceId: caller.workspaceId,
-        model: usable.model,
-        promptTokens: usage.promptTokens,
-        completionTokens: usage.completionTokens,
-        cachedTokens: usage.cachedTokens,
-        reasoningTokens: usage.reasoningTokens,
-        costMicroUsd: llmCostMicroUsd({
-          promptTokens: usage.promptTokens,
-          completionTokens: usage.completionTokens,
-          cachedTokens: usage.cachedTokens,
-          promptPriceMicro: usable.promptPriceMicro,
-          completionPriceMicro: usable.completionPriceMicro,
-          cachePriceMicro: usable.cachePriceMicro,
-        }),
-        latencyMs: Date.now() - startedAt,
-      })
-      .catch((error) => {
-        console.error(
-          `llm cost event failed: ${error instanceof Error ? error.message : 'unknown'}`,
-        );
-      });
+    await recordUsage(dependencies, caller, input, usable, await stream.usage, startedAt);
   }
 
   yield {
@@ -364,6 +397,125 @@ export async function* streamPlayground(
     kind: released.length > 0 ? 'answer' : 'degraded',
     requestId: retrieved.requestId,
   };
+}
+
+/**
+ * The rewrite call. Returns the query to retry with, or null for anything
+ * else: a provider that fails or stalls, an empty or over-long reply, a
+ * reply that is the question again. Every failure is the no-context the
+ * exchange was headed for anyway, so none is an error.
+ *
+ * Bounded on purpose: a few seconds of idle clock (the entry's own if it is
+ * tighter), a hard output cap, one attempt. A reasoning model is asked for
+ * its least effort; the prompt wants a line back, not a deliberation. Its
+ * tokens are recorded like generation's -- one more `llm_cost_event` on the
+ * same library, never the question or the reply.
+ */
+async function rewriteOnMiss(
+  caller: CallerContext,
+  input: PlaygroundInput,
+  usable: LlmConfigRow,
+  apiKey: string,
+  retrieved: { libraries: GatheredLibrary[] },
+  dependencies: PlaygroundDependencies,
+): Promise<string | null> {
+  const startedAt = Date.now();
+  const readable = retrieved.libraries.filter((library) => !library.failed);
+  if (readable.length === 0) return null;
+
+  const hints = await (dependencies.hints ?? libraryRewriteHints)(
+    readable.map((library) => library.libraryId),
+  ).catch((): RewriteHint[] => []);
+  /* A library the reader did not find still has its title to be rewritten
+     for; every one is shown the passages its own retrieval came closest to. */
+  const excerptsOf = new Map(readable.map((library) => [library.libraryId, library.excerpts]));
+  const described: RewriteHint[] = (
+    hints.length > 0
+      ? hints
+      : readable.map((library) => ({
+          libraryId: library.libraryId,
+          title: library.title,
+          description: null,
+          language: null,
+          documentTitles: [],
+          terms: [],
+          excerpts: [],
+        }))
+  ).map((hint) => ({
+    ...hint,
+    excerpts: hint.libraryId ? (excerptsOf.get(hint.libraryId) ?? []) : [],
+  }));
+
+  let text = '';
+  let usage;
+  try {
+    const stream = dependencies
+      .llm({ baseUrl: usable.baseUrl, model: usable.model, apiKey })
+      .stream({
+        systemPrompt: REWRITE_SYSTEM_PROMPT,
+        userMessage: buildRewritePrompt(input.question, described),
+        maxOutputTokens: REWRITE_LIMITS.maxOutputTokens,
+        timeoutMs: Math.min(usable.timeoutMs, REWRITE_LIMITS.timeoutMs),
+        reasoningEffort: usable.reasoningEffort ? 'minimal' : null,
+      });
+    for await (const delta of stream.textStream) {
+      text += delta;
+      /* The cap is on tokens; this is the same bound on a model that ignores it. */
+      if (text.length > REWRITE_LIMITS.maxChars * 4) break;
+    }
+    usage = await stream.usage;
+  } catch (error) {
+    logDegraded('rewrite failed', error);
+    return null;
+  }
+
+  await recordUsage(dependencies, caller, input, usable, usage, startedAt);
+  return parseRewrite(text, input.question);
+}
+
+/**
+ * One `llm_cost_event` for a call that ran to completion -- best-effort (a
+ * metrics write must not fail the answer it measures) but awaited, because
+ * a serverless function may freeze right after responding and a write left
+ * floating simply vanishes.
+ */
+async function recordUsage(
+  dependencies: PlaygroundDependencies,
+  caller: CallerContext,
+  input: PlaygroundInput,
+  usable: LlmConfigRow,
+  usage: {
+    promptTokens: number;
+    completionTokens: number;
+    cachedTokens: number;
+    reasoningTokens: number;
+  },
+  startedAt: number,
+): Promise<void> {
+  await dependencies
+    .recordCost({
+      configId: usable.id,
+      /* The metered library: the routed top candidate (gather.ts). */
+      libraryPublicId: input.libraries[0]!.libraryId,
+      workspaceId: caller.workspaceId,
+      model: usable.model,
+      promptTokens: usage.promptTokens,
+      completionTokens: usage.completionTokens,
+      cachedTokens: usage.cachedTokens,
+      reasoningTokens: usage.reasoningTokens,
+      costMicroUsd: llmCostMicroUsd({
+        promptTokens: usage.promptTokens,
+        completionTokens: usage.completionTokens,
+        cachedTokens: usage.cachedTokens,
+        promptPriceMicro: usable.promptPriceMicro,
+        completionPriceMicro: usable.completionPriceMicro,
+        cachePriceMicro: usable.cachePriceMicro,
+      }),
+      latencyMs: Date.now() - startedAt,
+    })
+    .catch((error) => {
+      console.error(`llm cost event failed: ${error instanceof Error ? error.message : 'unknown'}`);
+    });
 }
 
 /**
@@ -394,6 +546,7 @@ export async function askPlayground(
   let chunks: GatheredChunk[] = [];
   let libraries: GatheredLibrary[] = [];
   let requestId = '';
+  let rewrite: string | null = null;
   const citations: { claim: string; chunkId: string }[] = [];
   const claims: string[] = [];
   let kind: PlaygroundAnswer['kind'] = 'degraded';
@@ -401,6 +554,8 @@ export async function askPlayground(
   for await (const event of streamPlayground(caller, input, dependencies)) {
     if (event.type === 'model') {
       continue;
+    } else if (event.type === 'rewrite') {
+      rewrite = event.query;
     } else if (event.type === 'gather') {
       libraries = event.libraries;
     } else if (event.type === 'context') {
@@ -423,6 +578,7 @@ export async function askPlayground(
       libraries,
       citations: [],
       requestId,
+      rewrite,
     };
   }
   return {
@@ -432,5 +588,6 @@ export async function askPlayground(
     libraries,
     citations,
     requestId,
+    rewrite,
   };
 }

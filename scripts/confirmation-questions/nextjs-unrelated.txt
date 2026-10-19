@@ -1,0 +1,22 @@
+# Framework-flavoured but not Next.js
+How do I create a dynamic route in Nuxt?
+How do I fetch data in a SvelteKit load function?
+How do I set up middleware in Express?
+How do I use the Vue router?
+What does Remix loader do?
+How do I configure redirects in Netlify?
+How do I read cookies in Flask?
+How do I deploy an Angular app?
+# Plain unrelated
+What is the weather today?
+How do I sort a list in Python?
+What is the Apple share price?
+How many pages does War and Peace have?
+Best PDF reader for Windows
+How do I publish a book on Amazon?
+Delete my Facebook account
+Is there free wifi at the airport?
+Nuxt 怎么创建动态路由？
+Express 怎么写中间件？
+今天天气怎么样
+北京每月房租多少

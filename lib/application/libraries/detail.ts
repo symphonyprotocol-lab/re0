@@ -21,6 +21,7 @@ import {
   type RefreshPolicy,
 } from '@/lib/domain/library';
 import { BUILD_ENTRYPOINT } from '@/lib/domain/build-billing';
+import type { BuildProgress, IngestionStage } from '@/lib/domain/ingestion';
 import { db, schema } from '@/lib/infrastructure/postgres/client';
 
 const HISTORY_LIMIT = 10;
@@ -42,6 +43,8 @@ export interface WorkspaceLibraryDetail {
   queryable: boolean;
   /** A build is pending or running right now. */
   building: boolean;
+  /** Where the running build is (lib/domain/ingestion.ts `BuildProgress`); null while pending or idle. */
+  build: { stage: IngestionStage | null; progress: BuildProgress | null } | null;
   currentVersion: { label: string; documents: number; chunks: number; publishedAt: string | null } | null;
   source: {
     type: string;
@@ -181,7 +184,12 @@ export async function workspaceLibraryDetail(input: {
       .orderBy(desc(schema.libraryReview.createdAt))
       .limit(HISTORY_LIMIT),
     database
-      .select({ id: schema.workflowOperation.id })
+      .select({
+        id: schema.workflowOperation.id,
+        status: schema.workflowOperation.status,
+        stage: schema.workflowOperation.stage,
+        progress: schema.workflowOperation.progress,
+      })
       .from(schema.workflowOperation)
       .where(
         and(
@@ -190,6 +198,8 @@ export async function workspaceLibraryDetail(input: {
           inArray(schema.workflowOperation.status, ['pending', 'running']),
         ),
       )
+      /* The running one first, when a retry is queued behind it. */
+      .orderBy(desc(schema.workflowOperation.status))
       .limit(1),
   ]);
 
@@ -213,6 +223,10 @@ export async function workspaceLibraryDetail(input: {
     lastCheckedAt: iso(record.lastCheckedAt),
     queryable: isQueryable(record),
     building: open !== undefined,
+    build:
+      open && open.status === 'running'
+        ? { stage: (open.stage as IngestionStage | null) ?? null, progress: open.progress ?? null }
+        : null,
     currentVersion: current
       ? { label: current.label, documents: current.documents, chunks: current.chunks, publishedAt: iso(current.publishedAt) }
       : null,

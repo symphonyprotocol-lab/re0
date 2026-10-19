@@ -341,7 +341,13 @@ describeWithDb('playground', () => {
       playgroundDeps({ calls }),
     );
     expect(noContext.kind).toBe('no_context');
-    expect(calls).toHaveLength(0);
+    /* The one model call a miss may make is the rewrite -- the question and
+       the site's profile, no excerpts -- and with nothing coming back there
+       is no retry and no generation. Rule 2 holds: no call carried context. */
+    expect(calls).toHaveLength(1);
+    expect(calls[0]!.userMessage).toContain('Site description');
+    expect(calls[0]!.userMessage).not.toContain('Documentation excerpts');
+    expect(noContext.rewrite).toBeNull();
 
     const failed = await askPlayground(
       asAnonymous(),

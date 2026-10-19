@@ -238,8 +238,19 @@ describeWithDb('ingestion', () => {
 
     /* First build: everything is fetched and embedded. */
     const first = twoSourceDependencies({ [siteA]: docsA, [siteB]: docsB });
-    const built = await runOperation({ operationId: await queueRefresh(libraryId), dependencies: first.dependencies });
+    const firstOperationId = await queueRefresh(libraryId);
+    const built = await runOperation({ operationId: firstOperationId, dependencies: first.dependencies });
     expect(built.status).toBe('succeeded');
+    /* The queue row keeps where the build got to and what it counted. */
+    const [reported] = await db()
+      .select({ stage: schema.workflowOperation.stage, progress: schema.workflowOperation.progress })
+      .from(schema.workflowOperation)
+      .where(eq(schema.workflowOperation.id, firstOperationId));
+    expect(reported?.stage).toBe('publish');
+    expect(reported?.progress?.files).toBe(2);
+    expect(reported?.progress?.documents).toBe(2);
+    expect(reported?.progress?.chunksTotal).toBeGreaterThan(0);
+    expect(reported?.progress?.chunksDone).toBe(reported?.progress?.chunksTotal);
     expect(first.fetched.sort()).toEqual([siteB, siteA].sort());
     expect(first.embedded.some((text) => text.includes('Alpha'))).toBe(true);
     expect(first.embedded.some((text) => text.includes('Beta'))).toBe(true);

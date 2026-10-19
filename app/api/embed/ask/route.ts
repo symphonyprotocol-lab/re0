@@ -30,11 +30,13 @@ import { NextResponse } from 'next/server';
 import { AppError } from '@/contracts/errors';
 import {
   admitWidgetQuestion,
+  noteWidgetOrigin,
   requireParentOrigin,
   resolveSiteKey,
   widgetCaller,
 } from '@/lib/application/embed';
 import { streamPlayground } from '@/lib/application/playground';
+import { pagesOf, type WidgetSource } from '@/lib/domain/widget';
 import { configuredBaseUrl } from '@/lib/http/base-url';
 import { errorResponse, newRequestId } from '@/lib/http/respond';
 
@@ -52,9 +54,12 @@ export type WidgetStreamLine =
   | { type: 'allowance'; remaining: number; limit: number }
   | {
       type: 'sources';
-      sources: { chunkId: string; url: string; title: string; section: string | null }[];
+      /** One entry per page, in the order retrieval ranked its first passage. */
+      sources: WidgetSource[];
     }
   | { type: 'claim'; text: string; chunkIds: string[] }
+  /** The question missed and was searched again as `query`; the sources are that search's. */
+  | { type: 'rewrite'; query: string }
   | {
       type: 'outcome';
       kind: 'answer' | 'no_context' | 'degraded' | 'not_ready' | 'unavailable';
@@ -142,6 +147,8 @@ export async function POST(request: NextRequest): Promise<Response> {
     }
 
     const allowance = await admitWidgetQuestion(request, principal);
+    /* Admitted, so it will be answered and charged: count it against the site. */
+    noteWidgetOrigin(principal.siteKeyId, parent, 'question');
     const caller = widgetCaller(principal, requestId);
 
     return ndjson(async (write) => {
@@ -152,17 +159,11 @@ export async function POST(request: NextRequest): Promise<Response> {
           question,
         })) {
           if (event.type === 'context') {
-            write({
-              type: 'sources',
-              sources: event.chunks.map((chunk) => ({
-                chunkId: chunk.chunkId,
-                url: chunk.citation.sourceUrl,
-                title: chunk.citation.documentTitle,
-                section: chunk.citation.section ?? null,
-              })),
-            });
+            write({ type: 'sources', sources: pagesOf(event.chunks) });
           } else if (event.type === 'claim') {
             write({ type: 'claim', text: event.claim, chunkIds: event.chunkIds });
+          } else if (event.type === 'rewrite') {
+            write({ type: 'rewrite', query: event.query });
           } else if (event.type === 'done') {
             write({ type: 'outcome', kind: event.kind });
           }

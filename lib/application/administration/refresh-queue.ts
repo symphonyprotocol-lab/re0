@@ -10,7 +10,7 @@
  * dashboard.
  */
 import { and, asc, desc, eq, gte, inArray, isNull, sql } from 'drizzle-orm';
-import type { FetchSummary, OperationTrigger } from '@/lib/domain/ingestion';
+import type { BuildProgress, FetchSummary, IngestionStage, OperationTrigger } from '@/lib/domain/ingestion';
 import { isOperationTrigger } from '@/lib/domain/ingestion';
 import { db, schema } from '@/lib/infrastructure/postgres/client';
 
@@ -29,6 +29,9 @@ export interface RefreshQueueRow {
   attempts: number;
   error: string | null;
   fetchSummary: FetchSummary | null;
+  /** Where the build is, or was when it ended; null before the first report. */
+  stage: IngestionStage | null;
+  progress: BuildProgress | null;
   createdAt: Date;
   updatedAt: Date;
 }
@@ -81,6 +84,8 @@ export async function listRefreshQueue(
     attempts: schema.workflowOperation.attempts,
     error: schema.workflowOperation.error,
     fetchSummary: schema.workflowOperation.fetchSummary,
+    stage: sql<IngestionStage | null>`${schema.workflowOperation.stage}`,
+    progress: schema.workflowOperation.progress,
     createdAt: schema.workflowOperation.createdAt,
     updatedAt: schema.workflowOperation.updatedAt,
   };

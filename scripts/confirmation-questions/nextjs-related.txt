@@ -1,0 +1,21 @@
+# Questions the Next.js docs answer
+How do I create a dynamic route in the app router?
+What is the difference between server and client components?
+How do I use generateMetadata?
+How do I fetch data in a server component?
+How do I set up middleware?
+How do I use next/image with a remote host?
+What does revalidatePath do?
+How do I configure redirects in next.config.js?
+How do I create a route handler?
+How do I use the useRouter hook?
+How do I enable incremental static regeneration?
+How do I read cookies in a server action?
+What is partial prerendering?
+How do I deploy a standalone build?
+How do I set environment variables?
+App Router 里怎么创建动态路由？
+服务端组件和客户端组件有什么区别？
+怎么配置重定向？
+revalidatePath 是做什么的？
+怎么读取 cookie？

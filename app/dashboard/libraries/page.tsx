@@ -1,5 +1,7 @@
 import type { Metadata } from 'next';
 import { LibraryList, type LibraryBucket, type LibraryListRow } from '@/components/dashboard/library-list';
+import { LiveRefresh } from '@/components/dashboard/live-refresh';
+import { describeBuild } from '@/lib/dashboard/build-progress';
 import {
   LibraryOwnership,
   type LibraryOwnershipRow,
@@ -131,6 +133,7 @@ export default async function DashboardLibrariesPage() {
       filesHref: row.hasFiles ? `/dashboard/libraries/${row.id}/files` : null,
       filesLabel: row.hasFiles ? (row.sourceType === 'markdown' ? m.filesMarkdown : l.files) : null,
       note: row.reviewNote,
+      buildNote: row.building ? describeBuild(t.admin.refreshQueue, row.build) : null,
       pipeline: inPipeline
         ? reviewPipeline({
             visibility: row.visibility,
@@ -207,6 +210,8 @@ export default async function DashboardLibrariesPage() {
 
   return (
     <div className="flex flex-col gap-[18px]">
+      {/* A building row's readout changes by the window; poll while one is open. */}
+      <LiveRefresh active={libraries.some((row) => row.building)} />
       <PageHeader
         eyebrow={session.workspace.name}
         title={l.title}

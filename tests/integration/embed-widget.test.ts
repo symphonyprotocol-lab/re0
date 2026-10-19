@@ -29,8 +29,15 @@ const { buildVersion, memoryObjectStore, publishVersion } = await import(
 const { createPlatformLibrary } = await import(
   '@/lib/application/administration/manage-platform-libraries'
 );
-const { createSiteKey, listSiteKeys, revokeSiteKey, SiteKeyInvalid, updateSiteKey } =
-  await import('@/lib/application/embed');
+const {
+  createSiteKey,
+  listSiteKeys,
+  listWorkspaceWidgetSites,
+  recordWidgetOrigin,
+  revokeSiteKey,
+  SiteKeyInvalid,
+  updateSiteKey,
+} = await import('@/lib/application/embed');
 const { EMBEDDING_COLUMN_DIMENSIONS } = await import('@/lib/infrastructure/ai/providers');
 const { db, schema } = await import('@/lib/infrastructure/postgres/client');
 const { uuidv7 } = await import('@/lib/domain/id');
@@ -328,9 +335,12 @@ describeWithDb('website widget', () => {
     const parts = await lines(response);
     expect(parts[0]).toMatchObject({ type: 'allowance', limit: 200, remaining: 199 });
     const sources = parts.find((part) => part.type === 'sources') as
-      | { sources: { url: string; title: string }[] }
+      | { sources: { url: string; title: string; chunkIds: string[] }[] }
       | undefined;
     expect(sources?.sources[0]?.url).toBe('https://shop.example.test/help/returns');
+    /* Pages, not passages: one card per URL, carrying every chunk of it. */
+    expect(new Set(sources?.sources.map((source) => source.url)).size).toBe(sources?.sources.length);
+    expect(sources?.sources[0]?.chunkIds.length).toBeGreaterThanOrEqual(1);
     /* No LLM in the test database: passages and a degraded note, no claims. */
     expect(parts.find((part) => part.type === 'outcome')).toMatchObject({ kind: 'degraded' });
     expect(parts.filter((part) => part.type === 'claim')).toHaveLength(0);
@@ -357,6 +367,57 @@ describeWithDb('website widget', () => {
     expect(unknown.status).toBe(401);
     const empty = await askRoute(ask({ key: key.key, parent: SITE, question: '' }));
     expect(empty.status).toBe(400);
+  });
+
+  it('tells the owner which allowed sites have actually loaded the widget', async () => {
+    const workspaceId = await workspaceOnPlan();
+    const libraryId = await ownedLibrary(workspaceId, `widget-sites-${Date.now()}`);
+    const key = await createSiteKey({
+      workspaceId,
+      role: 'owner',
+      libraryId,
+      name: 'Shop',
+      origins: `${SITE}\n${LOCAL}`,
+    });
+
+    /* Allowed, nothing seen yet: both origins are listed as waiting. */
+    const before = await listWorkspaceWidgetSites(workspaceId);
+    expect(before).toHaveLength(1);
+    expect(before[0]?.library.title).toContain('Shop help');
+    expect(before[0]?.library.ready).toBe(true);
+    expect(before[0]?.origins.map((origin) => [origin.origin, origin.lastSeenAt])).toEqual([
+      [SITE, null],
+      [LOCAL, null],
+    ]);
+
+    /* The page served to the shop, and a question asked from it, leave marks. */
+    expect((await embedPage(page(key.key, SITE))).status).toBe(200);
+    expect((await askRoute(ask({ key: key.key, parent: SITE, question: 'returns' }, SITE))).status).toBe(200);
+    /* The marks are written off the request path; give them a moment. */
+    let shop = before[0]?.origins[0];
+    for (let attempt = 0; attempt < 40; attempt += 1) {
+      shop = (await listWorkspaceWidgetSites(workspaceId))[0]?.origins.find((origin) => origin.origin === SITE);
+      if (shop && shop.loads >= 1 && shop.questions >= 1) break;
+      await new Promise((resolve) => setTimeout(resolve, 50));
+    }
+    expect(shop).toMatchObject({ origin: SITE, loads: 1, questions: 1 });
+    expect(shop?.firstSeenAt).not.toBeNull();
+
+    /* A refused parent leaves no mark: the browser never shows it the widget. */
+    expect((await embedPage(page(key.key, 'https://evil.example.test'))).status).toBe(403);
+    await recordWidgetOrigin(key.id, LOCAL, 'load');
+    await recordWidgetOrigin(key.id, LOCAL, 'load');
+    const after = await listWorkspaceWidgetSites(workspaceId);
+    expect(after[0]?.origins).toHaveLength(2);
+    expect(after[0]?.origins[1]).toMatchObject({ origin: LOCAL, loads: 2, questions: 0 });
+
+    /* An origin taken off the allowlist is no longer an integrated site. */
+    await updateSiteKey({ workspaceId, role: 'owner', siteKeyId: key.id, name: 'Shop', origins: SITE });
+    expect((await listWorkspaceWidgetSites(workspaceId))[0]?.origins.map((o) => o.origin)).toEqual([SITE]);
+
+    /* A revoked key takes its sites with it. */
+    await revokeSiteKey({ workspaceId, role: 'owner', siteKeyId: key.id });
+    expect(await listWorkspaceWidgetSites(workspaceId)).toEqual([]);
   });
 
   it("stops at the key's daily limit", async () => {

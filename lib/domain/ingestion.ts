@@ -93,6 +93,19 @@ export const INGESTION_STAGES = [
 
 export type IngestionStage = (typeof INGESTION_STAGES)[number];
 
+/**
+ * What a build has counted so far, for the console's queue row. Every field
+ * appears once its stage has produced it: files after the fetch, documents
+ * after parsing, the chunk total after chunking, and `chunksDone` growing by
+ * one embedding window at a time until it meets the total.
+ */
+export interface BuildProgress {
+  files?: number;
+  documents?: number;
+  chunksTotal?: number;
+  chunksDone?: number;
+}
+
 /* ------------------------------------------------------------ fetch method */
 
 /**
