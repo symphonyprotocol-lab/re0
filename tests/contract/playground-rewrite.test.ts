@@ -55,7 +55,16 @@ function chunk(id: string, text: string): GatheredChunk {
 function gathered(confirmed: boolean): GatherResult {
   return {
     chunks: confirmed ? [chunk('c1', 'Subscribe to a plan on the pricing page.')] : [chunk('c0', 'Unrelated.')],
-    libraries: [{ ...LIBRARY, version: 'v1', confirmed, chunks: confirmed ? 1 : 0, failed: false }],
+    libraries: [
+      {
+        ...LIBRARY,
+        version: 'v1',
+        confirmed,
+        chunks: confirmed ? 1 : 0,
+        failed: false,
+        excerpts: ['Choose the plan that fits your sharing volume.'],
+      },
+    ],
     requestId: caller.requestId,
   };
 }
@@ -101,11 +110,13 @@ function fixture(options: Fixture) {
     },
     hints: async () => [
       {
+        libraryId: LIBRARY.libraryId,
         title: 'Apage',
         description: 'Static site hosting',
         language: 'en',
         documentTitles: ['Pricing', 'Plans'],
         terms: ['subscription', 'plan'],
+        excerpts: [],
       },
     ],
     llm: () => ({
@@ -176,6 +187,8 @@ describe('playground rewrite on miss', () => {
     expect(rewrite.timeoutMs).toBe(REWRITE_LIMITS.timeoutMs);
     expect(rewrite.user).toContain('Static site hosting');
     expect(rewrite.user).toContain('subscription');
+    /* The passages the missed retrieval came closest to travel with the hint. */
+    expect(rewrite.user).toContain('passages: Choose the plan that fits your sharing volume.');
     expect(rewrite.user).toContain('Question: 会员怎么开通?');
     /* The answer still comes from the retry's chunks, bound as ever. */
     expect(types).toEqual(['model', 'gather', 'rewrite', 'gather', 'context', 'claim', 'done']);

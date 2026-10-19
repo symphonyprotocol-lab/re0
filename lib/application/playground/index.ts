@@ -426,17 +426,25 @@ async function rewriteOnMiss(
   const hints = await (dependencies.hints ?? libraryRewriteHints)(
     readable.map((library) => library.libraryId),
   ).catch((): RewriteHint[] => []);
-  /* A library the reader did not find still has its title to be rewritten for. */
-  const described =
+  /* A library the reader did not find still has its title to be rewritten
+     for; every one is shown the passages its own retrieval came closest to. */
+  const excerptsOf = new Map(readable.map((library) => [library.libraryId, library.excerpts]));
+  const described: RewriteHint[] = (
     hints.length > 0
       ? hints
       : readable.map((library) => ({
+          libraryId: library.libraryId,
           title: library.title,
           description: null,
           language: null,
           documentTitles: [],
           terms: [],
-        }));
+          excerpts: [],
+        }))
+  ).map((hint) => ({
+    ...hint,
+    excerpts: hint.libraryId ? (excerptsOf.get(hint.libraryId) ?? []) : [],
+  }));
 
   let text = '';
   let usage;

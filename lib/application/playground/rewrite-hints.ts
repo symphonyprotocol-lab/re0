@@ -40,11 +40,14 @@ export async function libraryRewriteHints(publicIds: readonly string[]): Promise
     if (!row) return [];
     return [
       {
+        libraryId: publicId,
         title: row.title,
         description: row.description,
         language: row.language,
         documentTitles: (row.documentTitles ?? []).slice(0, REWRITE_LIMITS.maxTitles),
         terms: (row.terms ?? []).slice(0, REWRITE_LIMITS.maxTerms),
+        /* The retrieval that just missed supplies these (playground/index.ts). */
+        excerpts: [],
       },
     ];
   });

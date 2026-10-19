@@ -35,6 +35,7 @@
  */
 import type { ChunkResult } from '@/contracts/schemas';
 import { containsCjk } from '@/lib/domain/cjk';
+import { excerptsOf } from '@/lib/domain/generation';
 import type { EmbeddingAdapter } from '@/lib/infrastructure/ai/providers';
 import { confirmsRetrieval } from '@/lib/domain/routing';
 import type { CallerContext } from './index';
@@ -67,6 +68,12 @@ export interface GatheredLibrary {
   /** Passages it contributed after the merge. */
   chunks: number;
   failed: boolean;
+  /**
+   * The opening of its nearest passages, confirmed or not: what the rewrite
+   * on a miss is shown of the site (lib/domain/generation.ts `excerptsOf`).
+   * Empty when the retrieval failed.
+   */
+  excerpts: string[];
 }
 
 export interface GatherResult {
@@ -193,6 +200,7 @@ export async function gatherAcrossLibraries(
       confirmed: confirmed[order]!,
       chunks: contributed.get(order) ?? 0,
       failed: result === null,
+      excerpts: result ? excerptsOf(result.chunks.map((chunk) => chunk.text)) : [],
     })),
     requestId: first.value.requestId,
   };
