@@ -6,6 +6,7 @@ import type { ReactNode } from 'react';
 import { DeleteLibraryControl, type DeleteLibraryAction } from '@/components/dashboard/library-delete';
 import { ReviewPipeline } from '@/components/dashboard/library-manage';
 import { RebuildLibraryControl, type RebuildLibraryAction } from '@/components/dashboard/library-rebuild';
+import type { BuildQuote } from '@/lib/application/plans/build-quota';
 import { Badge, PANEL, SearchField, StatusLabel, type StatusTone } from '@/components/dashboard/ui';
 import { ArrowRightIcon, FileTextIcon } from '@/components/ui/icons';
 import type { ReviewPipelineEntry } from '@/lib/domain/library';
@@ -80,10 +81,13 @@ export function LibraryList({
   rows: allRows,
   deleteAction,
   rebuildAction,
+  rebuildQuote,
 }: {
   rows: LibraryListRow[];
   deleteAction?: DeleteLibraryAction;
   rebuildAction?: RebuildLibraryAction;
+  /** What a refresh may cost; the row's control says it before queueing. Required with `rebuildAction`. */
+  rebuildQuote?: BuildQuote;
 }) {
   const { locale, t } = useI18n();
   const l = t.dashboard.libraries;
@@ -242,10 +246,11 @@ export function LibraryList({
                         <FileTextIcon size={14} />
                       </Link>
                     ) : null}
-                    {rebuildAction ? (
+                    {rebuildAction && rebuildQuote ? (
                       <RebuildLibraryControl
                         libraryId={library.id}
                         action={rebuildAction}
+                        quote={rebuildQuote}
                         disabled={library.rebuildDisabled}
                       />
                     ) : null}

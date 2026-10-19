@@ -94,7 +94,7 @@ export default async function DashboardLibraryPage({
   ]);
   const library = await workspaceLibraryDetail({ workspaceId: session.workspace.id, libraryId });
   if (!library) notFound();
-  /* library-build-billing.md 4.1: what a rebuild may cost, beside the button. */
+  /* library-build-billing.md 4.1: what a rebuild may cost, shown when the button is pressed. */
   const quote = await quoteBuild({
     workspaceId: session.workspace.id,
     fetchesPages: buildFetchesPages(library.source?.type),
@@ -226,19 +226,14 @@ export default async function DashboardLibraryPage({
             />
           ))}
           {canEdit ? (
-            <div className="flex flex-col items-end gap-1.5">
-              <RebuildLibraryButton
-                libraryId={library.id}
-                action={rebuildLibraryAction}
-                disabled={rebuildBlocked({
-                  lifecycleStatus: library.lifecycleStatus,
-                  affordable: quote.affordable,
-                })}
-              />
-              <span className="max-w-[260px] text-right text-[11px] leading-[1.5] text-muted">
-                {fill(d.actions.rebuildNote, { calls: number.format(quote.maxCalls) })}
-              </span>
-            </div>
+            <RebuildLibraryButton
+              libraryId={library.id}
+              action={rebuildLibraryAction}
+              quote={quote}
+              /* Affordability is said inside the confirmation, with the price; only
+                 an archived library has no rebuild at all. */
+              disabled={rebuildBlocked({ lifecycleStatus: library.lifecycleStatus, affordable: undefined })}
+            />
           ) : null}
           {canEdit && library.lifecycleStatus !== 'archived' ? (
             <DetailDeleteControl

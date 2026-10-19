@@ -461,19 +461,6 @@ function AssistantTurn({
               })}
             </>
           ) : null}
-          {turn.model ? (
-            <>
-              {' '}
-              {turn.model.audience === 'subscriber'
-                ? fill(t.modelNoteSubscriber, { label: turn.model.label })
-                : turn.model.upgrade
-                  ? fill(t.modelNoteUpgrade, {
-                      label: turn.model.label,
-                      upgrade: turn.model.upgrade,
-                    })
-                  : fill(t.modelNoteTrial, { label: turn.model.label })}
-            </>
-          ) : null}
         </p>
       ) : null}
 
