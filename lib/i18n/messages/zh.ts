@@ -809,6 +809,7 @@ export const zh = {
       overview: '概览',
       libraries: '知识库',
       apiKeys: 'API 密钥',
+      widget: '网站插件',
       requests: '调用记录',
       revenue: '收益',
       policies: '访问规则',
@@ -838,6 +839,15 @@ export const zh = {
         buildCallsCaption: '本期知识库构建折算的 Calls，已计入本期调用',
       },
       keysEmpty: '还没有密钥 —— 创建一个即可调用 API。',
+      /** requirement.md 9.4: the website widget, summarised from the keys and where they have been seen. */
+      widgetTitle: '网站插件',
+      widgetDescription: '把知识库嵌入你自己的网站，访客在右下角的聊天窗口里提问。',
+      widgetSites: '{reached} / {total} 个网站已接入',
+      widgetKeys: '{keys} 个站点密钥',
+      widgetNone: '还没有站点密钥 —— 一行代码即可把知识库装进你的网站。',
+      widgetLink: '查看集成方式',
+      widgetReached: '已接入',
+      widgetWaiting: '等待接入',
       usageTitle: '调用用量',
       usageSubtitle: '最近 10 天',
       usageUpgrade: '升级以查看完整分析',
@@ -875,6 +885,66 @@ export const zh = {
         exampleLibraryCatalog: '你还没有知识库，示例查询公开目录中的 {libraryId}。',
         tabSearch: '搜索',
         tabContext: '上下文',
+      },
+    },
+    /** requirement.md 9.4: the workspace's website widget -- how to install it and where it is. */
+    widget: {
+      metaTitle: '网站插件',
+      title: '网站插件',
+      description:
+        '把知识库嵌入你自己的网站：一行代码，右下角出现聊天窗口，访客提问只从该知识库作答并标注引用页面。',
+      pickLibrary: '选择知识库创建密钥',
+      createLibrary: '先创建一个知识库',
+      stats: {
+        keys: '站点密钥',
+        reached: '已接入网站',
+        waiting: '等待接入',
+        questions: '访客提问',
+      },
+      how: {
+        title: '如何集成',
+        description: '三步完成接入。每个知识库最多 {max} 个站点密钥，可分别用于正式站和测试站。',
+        steps: [
+          {
+            title: '创建站点密钥',
+            body: '打开知识库详情页的「网站插件」，填写允许嵌入的来源（协议加域名，例如 https://www.example.com）并创建密钥。',
+          },
+          {
+            title: '粘贴嵌入代码',
+            body: '把下面这行代码放到网站每个页面的 </body> 之前。一次部署，所有页面右下角都会出现聊天按钮。',
+          },
+          {
+            title: '访客开始提问',
+            body: '访客打开窗口提问，每次计入本工作空间 1 次 Call，受密钥每日上限约束。下方列表会显示每个网站是否已加载过插件。',
+          },
+        ],
+        snippetLabel: '嵌入代码',
+        snippetPlaceholderNote: '把 {placeholder} 换成你的站点密钥。创建密钥后，这里会直接显示可复制的完整代码。',
+        snippetKeyNote: '这是密钥「{name}」（{library}）的嵌入代码，其他密钥的代码见下方列表。',
+        attributesTitle: '可选属性',
+        attributes: [
+          'data-position="left"：按钮放到左下角（默认右下角）。',
+          'data-accent="#rrggbb"：插件加载完成前按钮的颜色，加载后以密钥的主题色为准。',
+          'data-label="…"：按钮的无障碍名称。',
+        ],
+      },
+      tip: {
+        title: '站点密钥可以公开',
+        body: '它会出现在你的网页源码里；约束它的是来源白名单和每日上限，而不是保密。网站换域名时编辑白名单即可，不必换密钥。',
+      },
+      sites: {
+        title: '已接入的网站',
+        description: '每个站点密钥允许的来源，以及插件是否已经在那里加载过。',
+        empty: '还没有站点密钥。到知识库详情页创建一个，它允许的网站会出现在这里。',
+        columns: ['网站', '状态', '加载次数', '提问次数', '最近活动'],
+        perDay: '每天 {n} 次',
+        manage: '管理密钥',
+        snippet: '复制嵌入代码',
+        reached: '已接入',
+        waiting: '等待接入',
+        notReady: '知识库未发布',
+        notReadyHint: '知识库构建并发布后插件才会回答；网站上的嵌入代码可以先装好。',
+        firstSeen: '首次 {time}',
       },
     },
     libraries: {
@@ -1304,6 +1374,7 @@ export const zh = {
         saved: '已保存。',
         revoke: '吊销',
         revokeConfirm: '确定吊销这个站点密钥？所有使用它的网站上的插件会立即停止。',
+        allSites: '查看所有网站',
         create: {
           title: '创建站点密钥',
           name: '名称',

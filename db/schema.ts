@@ -639,6 +639,33 @@ export const siteKey = pgTable(
   ],
 );
 
+/**
+ * Where a site key's widget has actually been seen. requirement.md 9.4,
+ * lib/application/embed/origins.ts.
+ *
+ * `siteKey.allowedOrigins` is what the owner permits; this is which of those
+ * sites has pasted the snippet. One row per key and origin: `loads` counts
+ * the widget page served to that parent, `questions` the visitor questions
+ * admitted from it. Usage marks, not an audit fact -- written fire-and-forget
+ * and dropped with the key.
+ */
+export const siteKeyOrigin = pgTable(
+  'site_key_origin',
+  {
+    id: uuid('id').primaryKey(),
+    siteKeyId: uuid('site_key_id')
+      .notNull()
+      .references(() => siteKey.id, { onDelete: 'cascade' }),
+    /** Normalised, as `allowedOrigins` holds it. */
+    origin: text('origin').notNull(),
+    loads: integer('loads').notNull().default(0),
+    questions: integer('questions').notNull().default(0),
+    firstSeenAt: timestamp('first_seen_at', { withTimezone: true }).notNull().defaultNow(),
+    lastSeenAt: timestamp('last_seen_at', { withTimezone: true }).notNull().defaultNow(),
+  },
+  (t) => [uniqueIndex('site_key_origin_uq').on(t.siteKeyId, t.origin)],
+);
+
 export const libraryAlias = pgTable(
   'library_alias',
   {

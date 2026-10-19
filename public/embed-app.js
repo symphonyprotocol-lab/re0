@@ -60,13 +60,16 @@
     scrollDown();
   }
 
-  /* Footnote numbers follow the order passages were returned in. */
+  /* Footnote numbers are page numbers, in the order the server listed the
+     pages; a sentence citing several passages of one page gets one mark. */
   function claimParagraph(bubble, text, chunkIds, indexOf) {
     var p = el('p');
     p.appendChild(document.createTextNode(text));
+    var marked = {};
     for (var i = 0; i < chunkIds.length; i++) {
       var n = indexOf[chunkIds[i]];
-      if (n === undefined) continue;
+      if (n === undefined || marked[n]) continue;
+      marked[n] = true;
       p.appendChild(el('sup', 're0-cite', '[' + (n + 1) + ']'));
     }
     bubble.appendChild(p);
@@ -77,6 +80,20 @@
     if (sources.length === 0) return;
     var wrap = el('div', 're0-sources');
     wrap.appendChild(el('p', 're0-sources-title', s.sources || 'Related pages'));
+    /* Several pages of one site often share a title ("apage" for the home,
+       privacy and terms pages): then the path is what tells them apart. */
+    var titled = {};
+    sources.forEach(function (source) {
+      titled[source.title] = (titled[source.title] || 0) + 1;
+    });
+    function pathOf(url) {
+      try {
+        var parsed = new URL(url);
+        return parsed.pathname + parsed.search;
+      } catch (e) {
+        return url;
+      }
+    }
     sources.forEach(function (source, index) {
       var card = el('button', 're0-source');
       card.type = 'button';
@@ -84,6 +101,8 @@
       text.appendChild(el('span', 're0-source-title', '[' + (index + 1) + '] ' + source.title));
       if (source.section && source.section !== source.title) {
         text.appendChild(el('span', 're0-source-section', source.section));
+      } else if (titled[source.title] > 1) {
+        text.appendChild(el('span', 're0-source-section', pathOf(source.url)));
       }
       card.appendChild(text);
       card.appendChild(el('span', 're0-source-open', s.open || 'Open'));
@@ -123,7 +142,9 @@
            the footnotes can resolve as claims arrive. */
         sources = line.sources || [];
         sources.forEach(function (source, index) {
-          indexOf[source.chunkId] = index;
+          (source.chunkIds || []).forEach(function (chunkId) {
+            indexOf[chunkId] = index;
+          });
         });
         pending = sources;
       } else if (line.type === 'claim') {

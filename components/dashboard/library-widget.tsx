@@ -12,7 +12,7 @@ import {
   ResultLine,
   SECONDARY,
 } from '@/components/dashboard/library-manage';
-import { PANEL } from '@/components/dashboard/ui';
+import { ArrowLink, PANEL } from '@/components/dashboard/ui';
 import { GlobeIcon, PencilIcon, TrashIcon } from '@/components/ui/icons';
 import type { SiteKeyActionResult } from '@/app/dashboard/libraries/[libraryId]/actions';
 import type { SiteKeyView } from '@/lib/application/embed';
@@ -258,9 +258,12 @@ export function LibraryWidgetPanel({
 
   return (
     <section id="widget" className={`${PANEL} flex scroll-mt-4 flex-col gap-4 p-6`}>
-      <div className="flex flex-col gap-1">
-        <h2 className="text-[15px] font-medium text-ink">{w.title}</h2>
-        <p className="text-[11px] leading-[1.6] text-muted">{w.description}</p>
+      <div className="flex flex-wrap items-start justify-between gap-3">
+        <div className="flex flex-col gap-1">
+          <h2 className="text-[15px] font-medium text-ink">{w.title}</h2>
+          <p className="text-[11px] leading-[1.6] text-muted">{w.description}</p>
+        </div>
+        <ArrowLink href="/dashboard/widget">{w.allSites}</ArrowLink>
       </div>
       <ol className="flex flex-col gap-1 pl-4 text-[11.5px] leading-[1.6] text-steel marker:text-muted">
         {w.how.map((step) => (

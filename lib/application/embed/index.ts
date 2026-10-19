@@ -13,6 +13,14 @@ export {
   type UpdateSiteKeyInput,
 } from './site-keys';
 export {
+  listWorkspaceWidgetSites,
+  noteWidgetOrigin,
+  recordWidgetOrigin,
+  type WidgetSighting,
+  type WidgetSiteKey,
+  type WidgetSiteOrigin,
+} from './origins';
+export {
   admitWidgetQuestion,
   requireParentOrigin,
   resolveSiteKey,

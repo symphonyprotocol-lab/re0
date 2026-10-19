@@ -15,7 +15,7 @@
  */
 import type { NextRequest } from 'next/server';
 import { AppError } from '@/contracts/errors';
-import { resolveSiteKey, type SiteKeyPrincipal } from '@/lib/application/embed';
+import { noteWidgetOrigin, resolveSiteKey, type SiteKeyPrincipal } from '@/lib/application/embed';
 import { originAllowed, frameAncestors } from '@/lib/domain/site-key';
 import { messagesFor } from '@/lib/i18n/dictionary';
 import { HTML_LANG, negotiateLocale } from '@/lib/i18n/locale';
@@ -113,6 +113,9 @@ export async function GET(request: NextRequest): Promise<Response> {
       { status: 403, headers },
     );
   }
+
+  /* The snippet is installed on this parent: the dashboard lists it as reached. */
+  noteWidgetOrigin(principal.siteKeyId, parent, 'load');
 
   const config = {
     key,

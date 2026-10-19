@@ -8,9 +8,11 @@ import {
   PANEL,
   PageHeader,
   PanelHeading,
+  StatusLabel,
 } from '@/components/dashboard/ui';
-import { PlusIcon, TerminalIcon } from '@/components/ui/icons';
+import { GlobeIcon, PlusIcon, TerminalIcon } from '@/components/ui/icons';
 import { listApiKeys } from '@/lib/application/auth';
+import { listWorkspaceWidgetSites } from '@/lib/application/embed';
 import { listPublicLibraries, listWorkspaceLibraries } from '@/lib/application/libraries';
 import { periodLastDay, workspaceBilling } from '@/lib/application/plans';
 import {
@@ -48,12 +50,19 @@ export default async function DashboardOverviewPage() {
   const o = t.dashboard.overview;
   const workspaceId = session.workspace.id;
 
-  const [overview, keys, libraries, billing] = await Promise.all([
+  const [overview, keys, libraries, billing, siteKeys] = await Promise.all([
     workspaceUsage(workspaceId),
     listApiKeys(workspaceId),
     listWorkspaceLibraries(workspaceId),
     workspaceBilling(workspaceId),
+    listWorkspaceWidgetSites(workspaceId),
   ]);
+
+  /* requirement.md 9.4: the sites the widget may run on, and which have it live. */
+  const sites = siteKeys.flatMap((key) =>
+    key.origins.map((origin) => ({ ...origin, library: key.library.title, accent: key.accent })),
+  );
+  const sitesReached = sites.filter((site) => site.lastSeenAt !== null).length;
 
   /*
    * The examples query something the reader can actually call: their own
@@ -319,6 +328,51 @@ export default async function DashboardOverviewPage() {
             </tbody>
           </table>
         </div>
+      </section>
+
+      {/* Website widget -- requirement.md 9.4. Where the snippet lives, and where it is live. */}
+      <section className={`${PANEL} flex flex-col gap-[18px] p-[30px]`}>
+        <PanelHeading
+          title={o.widgetTitle}
+          description={o.widgetDescription}
+          action={
+            <ActionButton href="/dashboard/widget" variant="outline">
+              <GlobeIcon size={14} />
+              {o.widgetLink}
+            </ActionButton>
+          }
+        />
+        {sites.length === 0 ? (
+          <p className="text-[12px] text-muted">{o.widgetNone}</p>
+        ) : (
+          <div className="flex flex-col gap-3">
+            <p className="text-[13px] text-steel">
+              {fill(o.widgetSites, { reached: number.format(sitesReached), total: number.format(sites.length) })}
+              <span className="text-muted"> · {fill(o.widgetKeys, { keys: number.format(siteKeys.length) })}</span>
+            </p>
+            <ul className="flex flex-col">
+              {sites.slice(0, 5).map((site) => (
+                <li
+                  key={`${site.library}\n${site.origin}`}
+                  className="flex items-center gap-4 border-t border-line py-2.5"
+                >
+                  <span
+                    aria-hidden
+                    className="size-[7px] shrink-0 rounded-full border border-line"
+                    style={{ background: site.accent }}
+                  />
+                  <span className="flex min-w-0 flex-1 flex-col gap-[3px]">
+                    <code className="truncate font-mono text-[12px] text-ink">{site.origin}</code>
+                    <span className="truncate text-[10px] text-muted">{site.library}</span>
+                  </span>
+                  <StatusLabel tone={site.lastSeenAt ? 'live' : 'pending'}>
+                    {site.lastSeenAt ? o.widgetReached : o.widgetWaiting}
+                  </StatusLabel>
+                </li>
+              ))}
+            </ul>
+          </div>
+        )}
       </section>
 
       {/* Install -- design source `QabFh`. The CLI command, then the endpoint it writes. */}
