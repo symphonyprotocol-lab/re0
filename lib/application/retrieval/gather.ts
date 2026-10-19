@@ -24,7 +24,9 @@
  * - meters one Call, on the routed top candidate. The other reads are
  *   unmetered (query-docs.ts `meter`): one exchange is one Call whatever the
  *   router found, and the top candidate is the library the single-library
- *   path would have charged and credited.
+ *   path would have charged and credited. A caller that has already paid for
+ *   this exchange -- the playground retrying a missed question in other
+ *   words -- passes `meter: false` and nothing is reserved at all.
  *
  * A failure of the top candidate is the exchange's failure, as before. A
  * failure of any other candidate drops that library and keeps the exchange:
@@ -78,6 +80,12 @@ export interface GatherInput {
   libraries: readonly GatherLibrary[];
   query: string;
   maxTokens: number;
+  /**
+   * False for the playground's retry with a rewritten question: the exchange
+   * reserved its one Call on the first pass, and a second read for the same
+   * question is not a second served call (query-docs.ts `meter`). Default true.
+   */
+  meter?: boolean;
 }
 
 export async function gatherAcrossLibraries(
@@ -104,7 +112,7 @@ export async function gatherAcrossLibraries(
     );
 
   const settled = await Promise.allSettled([
-    retrieve(top, true),
+    retrieve(top, input.meter !== false),
     ...rest.map((library) => retrieve(library, false)),
   ]);
 

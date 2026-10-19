@@ -115,6 +115,7 @@
     var indexOf = {};
     var pending = null;
     var claims = 0;
+    var rewrite = null;
 
     function handle(line) {
       if (line.type === 'sources') {
@@ -129,12 +130,19 @@
         if (thinking.parentNode) thinking.remove();
         claims += 1;
         claimParagraph(bubble, line.text, line.chunkIds || [], indexOf);
+      } else if (line.type === 'rewrite') {
+        /* The question missed as asked and the answer comes from a second
+           search in the site's own words; said once, under the answer. */
+        rewrite = line.query || null;
       } else if (line.type === 'outcome') {
         if (thinking.parentNode) thinking.remove();
         if (line.kind === 'not_ready') note(bubble, s.notReady || 'This site is not ready yet.');
         else if (line.kind === 'unavailable') note(bubble, s.unavailable || 'The assistant is unavailable right now.');
         else if (line.kind === 'no_context') note(bubble, s.noContext || 'Nothing relevant was found.');
         else if (line.kind === 'degraded' && claims === 0) note(bubble, s.degraded || 'Here is what was found:');
+        if (rewrite && line.kind !== 'no_context') {
+          note(bubble, (s.searchedAs || 'Searched as "{query}"').replace('{query}', rewrite));
+        }
         if (pending && !pending.shown) {
           sourceList(bubble, pending);
           pending.shown = true;

@@ -156,6 +156,8 @@ interface Turn {
   routing: PlaygroundRouting | null;
   gather: PlaygroundGather | null;
   model: PlaygroundModel | null;
+  /** The retry's query, when the question missed as asked and the retry confirmed. */
+  rewrite: string | null;
   sources: PlaygroundSource[];
   claims: { claim: string; chunkIds: string[] }[];
   outcome: PlaygroundOutcome | null;
@@ -167,6 +169,7 @@ function readTurn(message: PlaygroundUIMessage): Turn {
     routing: null,
     gather: null,
     model: null,
+    rewrite: null,
     sources: [],
     claims: [],
     outcome: null,
@@ -176,6 +179,7 @@ function readTurn(message: PlaygroundUIMessage): Turn {
     else if (part.type === 'data-routing') turn.routing = part.data;
     else if (part.type === 'data-gather') turn.gather = part.data;
     else if (part.type === 'data-model') turn.model = part.data;
+    else if (part.type === 'data-rewrite') turn.rewrite = part.data.query;
     else if (part.type === 'data-sources') turn.sources = part.data.sources;
     else if (part.type === 'data-claim') turn.claims.push(part.data);
     else if (part.type === 'data-outcome') turn.outcome = part.data.kind;
@@ -444,6 +448,24 @@ function AssistantTurn({
           ]}
         />
       ))}
+      {/* The retry is a real second read of every candidate, shown as one. */}
+      {turn.rewrite !== null
+        ? candidates.map((candidate) => (
+            <ToolCall
+              key={`${candidate.libraryId}-rewrite`}
+              name="query-docs"
+              params={[
+                ['libraryId', JSON.stringify(candidate.libraryId)],
+                ['query', JSON.stringify(turn.rewrite)],
+              ]}
+            />
+          ))
+        : null}
+      {turn.rewrite !== null ? (
+        <p className="text-[11.5px] leading-[1.7] text-faint">
+          {fill(t.rewriteNote, { query: turn.rewrite })}
+        </p>
+      ) : null}
 
       {answering.length > 0 ? (
         <p className="text-[11.5px] leading-[1.7] text-faint">

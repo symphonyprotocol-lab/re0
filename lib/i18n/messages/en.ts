@@ -787,6 +787,7 @@ export const en: Dictionary = {
     routedNoteMany:
       'Answering from {list} together — generated only from their retrieved passages; each source names its library.',
     routedSkipped: '{list} was also read, but its passages did not fit the question and were not used.',
+    rewriteNote: 'The question as asked found nothing relevant, so it was searched again as “{query}”.',
     noLibraryTitle: 'No library matched',
     noLibraryBody:
       'No published library matched this question, so nothing was retrieved and no answer was generated.',
@@ -832,6 +833,7 @@ export const en: Dictionary = {
     open: 'Open',
     thinking: 'Looking it up',
     noContext: 'Nothing on this site answers that. Try different words.',
+    searchedAs: 'Searched as “{query}”',
     degraded: 'Here is what matches on this site:',
     notReady: 'This site’s knowledge base is still being prepared. Please try again later.',
     limitReached: 'This site has used up its questions for today. Please try again tomorrow.',

@@ -55,6 +55,8 @@ export type WidgetStreamLine =
       sources: { chunkId: string; url: string; title: string; section: string | null }[];
     }
   | { type: 'claim'; text: string; chunkIds: string[] }
+  /** The question missed and was searched again as `query`; the sources are that search's. */
+  | { type: 'rewrite'; query: string }
   | {
       type: 'outcome';
       kind: 'answer' | 'no_context' | 'degraded' | 'not_ready' | 'unavailable';
@@ -163,6 +165,8 @@ export async function POST(request: NextRequest): Promise<Response> {
             });
           } else if (event.type === 'claim') {
             write({ type: 'claim', text: event.claim, chunkIds: event.chunkIds });
+          } else if (event.type === 'rewrite') {
+            write({ type: 'rewrite', query: event.query });
           } else if (event.type === 'done') {
             write({ type: 'outcome', kind: event.kind });
           }

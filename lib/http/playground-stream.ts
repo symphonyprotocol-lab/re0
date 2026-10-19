@@ -84,6 +84,11 @@ export type PlaygroundUIMessage = UIMessage<
     allowance: PlaygroundAllowance;
     gather: PlaygroundGather;
     model: PlaygroundModel;
+    /**
+     * The first retrieval missed and a retry with this query confirmed; the
+     * `gather` and `sources` after it are the retry's (playground/index.ts).
+     */
+    rewrite: { query: string };
     sources: { sources: PlaygroundSource[] };
     /** One bound sentence. `chunkIds` are its footnotes, in citation order. */
     claim: { claim: string; chunkIds: string[] };

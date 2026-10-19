@@ -176,6 +176,8 @@ export async function POST(request: NextRequest): Promise<Response> {
                 type: 'data-claim',
                 data: { claim: event.claim, chunkIds: event.chunkIds },
               });
+            } else if (event.type === 'rewrite') {
+              writer.write({ type: 'data-rewrite', data: { query: event.query } });
             } else {
               writer.write({
                 type: 'data-outcome',

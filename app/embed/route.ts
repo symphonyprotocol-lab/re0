@@ -127,6 +127,7 @@ export async function GET(request: NextRequest): Promise<Response> {
       sources: t.sources,
       open: t.open,
       noContext: t.noContext,
+      searchedAs: t.searchedAs,
       degraded: t.degraded,
       notReady: t.notReady,
       limitReached: t.limitReached,
