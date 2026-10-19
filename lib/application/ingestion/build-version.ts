@@ -23,7 +23,7 @@
  * `current_version` before a version is completely ready, and the cheapest way
  * to keep that promise is for "ready" to be the last thing written.
  */
-import { and, count, eq, inArray, like, or } from 'drizzle-orm';
+import { and, count, eq, inArray, like, or, sql } from 'drizzle-orm';
 import {
   CHUNKER_VERSION,
   chunkDocument,
@@ -46,6 +46,8 @@ import {
   versionLabel,
   type Citation,
   type ParsedDocument,
+  type BuildProgress,
+  type IngestionStage,
 } from '@/lib/domain/ingestion';
 import { uuidv7 } from '@/lib/domain/id';
 import { evaluateVersion, evaluationBreakdown } from './evaluate';
@@ -98,6 +100,37 @@ export type BuildOutcome =
 
 /** Rows are inserted in batches so one build is not one enormous statement. */
 const INSERT_BATCH = 250;
+
+/**
+ * Tell the queue row where the build is. Best-effort on purpose: a readout
+ * is not worth failing a build over, so a write that fails is logged and
+ * forgotten. `progress` fields merge over what the row already holds, so a
+ * stage that counts nothing new keeps the counts before it.
+ */
+async function reportProgress(
+  database: ReturnType<typeof db>,
+  operationId: string,
+  stage: IngestionStage,
+  progress?: BuildProgress,
+): Promise<void> {
+  try {
+    await database
+      .update(schema.workflowOperation)
+      .set({
+        stage,
+        ...(progress
+          ? {
+              progress: sql`coalesce(${schema.workflowOperation.progress}, '{}'::jsonb) || ${JSON.stringify(progress)}::jsonb`,
+            }
+          : {}),
+      })
+      .where(eq(schema.workflowOperation.id, operationId));
+  } catch (error) {
+    console.error(
+      `build progress not recorded operationId=${operationId}: ${error instanceof Error ? error.message : 'unknown'}`,
+    );
+  }
+}
 
 /**
  * Independent object-store writes run this many at a time. Serial PUTs make a
@@ -265,6 +298,8 @@ export async function buildVersion(input: BuildInput): Promise<BuildOutcome> {
 
   /* ------------------------------------------------------- fetch-snapshot */
 
+  await reportProgress(database, input.operationId, 'fetch-snapshot');
+
   /*
    * Paths are namespaced by source only when there is more than one. A single
    * source is the overwhelmingly common case, and prefixing its paths would
@@ -351,6 +386,7 @@ export async function buildVersion(input: BuildInput): Promise<BuildOutcome> {
     .update(schema.workflowOperation)
     .set({ fetchSummary: summarizeFetch(fetchedFiles) })
     .where(eq(schema.workflowOperation.id, input.operationId));
+  await reportProgress(database, input.operationId, 'scan', { files: fetchedFiles.length });
 
   /*
    * One source: its own digest, as it always was. Several: a digest over
@@ -459,6 +495,7 @@ export async function buildVersion(input: BuildInput): Promise<BuildOutcome> {
   if (files.length > 0 && parsed.length === 0) {
     throw new IngestionFailure('parse_failed', 'discover-parse', 'nothing parsed to text');
   }
+  await reportProgress(database, input.operationId, 'chunk', { documents: parsed.length });
 
   const versionId = uuidv7();
   const rows: {
@@ -615,6 +652,12 @@ export async function buildVersion(input: BuildInput): Promise<BuildOutcome> {
   if (totalChunks === 0) {
     throw new IngestionFailure('parse_failed', 'chunk', 'nothing chunked');
   }
+  /* Carried chunks ride in the same windows (their vectors are copied), so
+     the count runs from zero to the total whatever the share of fresh ones. */
+  await reportProgress(database, input.operationId, 'embed-index', {
+    chunksTotal: totalChunks,
+    chunksDone: 0,
+  });
 
   /*
    * Measured, and priced by the caller, before a byte reaches the store or
@@ -814,7 +857,16 @@ export async function buildVersion(input: BuildInput): Promise<BuildOutcome> {
           })),
         );
       }
+      /* Once per window, after its rows exist: what the console may count on. */
+      await reportProgress(database, input.operationId, 'embed-index', {
+        chunksTotal: totalChunks,
+        chunksDone: Math.min(totalChunks, offset + window.length),
+      });
     }
+    await reportProgress(database, input.operationId, 'profile', {
+      chunksTotal: totalChunks,
+      chunksDone: totalChunks,
+    });
 
     const titles = rows.map((row) => row.document.title).slice(0, PROFILE_LIMITS.maxTitles);
     const terms = extractTerms(
@@ -891,6 +943,8 @@ export async function buildVersion(input: BuildInput): Promise<BuildOutcome> {
   }
 
   /* ------------------------------------------------------------- evaluate */
+
+  await reportProgress(database, input.operationId, 'evaluate');
 
   const newest = plans
     .map((plan) => (plan.record.lastModifiedAt ? new Date(plan.record.lastModifiedAt) : null))

@@ -66,6 +66,9 @@ export async function runOperation(input: {
       status: 'running',
       attempts: sql`${schema.workflowOperation.attempts} + 1`,
       error: null,
+      /* A retry starts over; a stale readout from the last attempt would lie. */
+      stage: null,
+      progress: null,
       updatedAt: new Date(),
     })
     .where(
@@ -155,6 +158,11 @@ export async function runOperation(input: {
      * on `lifecycle_status`, which only an operator makes (requirement.md 5.3),
      * and requirement.md 6.2 forbids collapsing the two into one field.
      */
+    await database
+      .update(schema.workflowOperation)
+      .set({ stage: 'publish' })
+      .where(eq(schema.workflowOperation.id, operation.id))
+      .catch(() => {});
     await publishVersion({
       libraryId: operation.libraryId,
       versionId: built.versionId,

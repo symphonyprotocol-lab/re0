@@ -4,6 +4,7 @@
  * through the console, refresh through the workflow queue.
  */
 import { and, desc, eq, inArray, isNull, sql } from 'drizzle-orm';
+import type { BuildProgress, IngestionStage } from '@/lib/domain/ingestion';
 import { db, schema } from '@/lib/infrastructure/postgres/client';
 import type { LifecycleStatus, IndexStatus, Visibility } from '@/lib/domain';
 import { isOwnerPause, UPLOAD_SOURCE_TYPES } from '@/lib/domain/library';
@@ -27,6 +28,8 @@ export interface WorkspaceLibraryRow {
   reviewNote: string | null;
   /** A build is pending or running right now. */
   building: boolean;
+  /** Where the running build is (lib/domain/ingestion.ts `BuildProgress`); null while pending or idle. */
+  build: { stage: IngestionStage | null; progress: BuildProgress | null } | null;
   /** True when the library is suspended by its owner's own pause, which the owner may lift. */
   pausedByOwner: boolean;
 }
@@ -85,25 +88,38 @@ export async function listWorkspaceLibraries(workspaceId: string): Promise<Works
     }
   }
 
-  const building = new Set(
+  const openOperations =
     rows.length === 0
       ? []
-      : (
-          await db()
-            .select({ libraryId: schema.workflowOperation.libraryId })
-            .from(schema.workflowOperation)
-            .where(
-              and(
-                inArray(schema.workflowOperation.operationType, ['ingest', 'refresh']),
-                inArray(schema.workflowOperation.status, ['pending', 'running']),
-                inArray(
-                  schema.workflowOperation.libraryId,
-                  rows.map((row) => row.id),
-                ),
+      : await db()
+          .select({
+            libraryId: schema.workflowOperation.libraryId,
+            status: schema.workflowOperation.status,
+            stage: schema.workflowOperation.stage,
+            progress: schema.workflowOperation.progress,
+          })
+          .from(schema.workflowOperation)
+          .where(
+            and(
+              inArray(schema.workflowOperation.operationType, ['ingest', 'refresh']),
+              inArray(schema.workflowOperation.status, ['pending', 'running']),
+              inArray(
+                schema.workflowOperation.libraryId,
+                rows.map((row) => row.id),
               ),
-            )
-        ).map((operation) => operation.libraryId),
-  );
+            ),
+          );
+  const building = new Set(openOperations.map((operation) => operation.libraryId));
+  /* The running one's readout; a library with only a pending build has none yet. */
+  const builds = new Map<string, WorkspaceLibraryRow['build']>();
+  for (const operation of openOperations) {
+    if (operation.status === 'running' && operation.libraryId) {
+      builds.set(operation.libraryId, {
+        stage: (operation.stage as IngestionStage | null) ?? null,
+        progress: operation.progress ?? null,
+      });
+    }
+  }
 
   const sourceTypes = new Map<string, string>();
   if (rows.length > 0) {
@@ -138,6 +154,7 @@ export async function listWorkspaceLibraries(workspaceId: string): Promise<Works
     sourceType: sourceTypes.get(row.id) ?? null,
     reviewNote: notes.get(row.id) ?? null,
     building: building.has(row.id),
+    build: builds.get(row.id) ?? null,
     pausedByOwner: row.lifecycleStatus === 'suspended' && ownerPaused.has(row.id),
   }));
 }

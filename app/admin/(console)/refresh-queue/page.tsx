@@ -16,6 +16,7 @@ import {
 import { ChevronLeftIcon, ClockIcon, RefreshIcon } from '@/components/ui/icons';
 import { listRefreshQueue, type RefreshQueueRow } from '@/lib/application/administration';
 import { refreshSchedule, type ScheduledSource } from '@/lib/application/ingestion';
+import { describeBuild } from '@/lib/dashboard/build-progress';
 import type { FetchSummary } from '@/lib/domain/ingestion';
 import { requireAdminCapability } from '@/lib/http/admin';
 import type { Dictionary } from '@/lib/i18n/dictionary';
@@ -275,11 +276,15 @@ const STATE_TONE: Record<string, 'ok' | 'warn' | 'danger' | 'neutral'> = {
 };
 
 function StateCell({ t, row }: { t: Dictionary; row: RefreshQueueRow }) {
+  const q = t.admin.refreshQueue;
+  /* Where a running build is, from what it reported (BuildProgress). */
+  const where = row.status === 'running' ? describeBuild(q, row) : null;
   return (
     <span className="flex flex-col items-start gap-1">
       <Pill tone={STATE_TONE[row.status] ?? 'neutral'}>
-        {label(t.admin.refreshQueue.states, row.status)}
+        {label(q.states, row.status)}
       </Pill>
+      {where ? <span className="text-[11px] text-muted">{where}</span> : null}
       {row.error ? (
         <span className="text-[11px] text-err">{label(t.admin.ingestionErrors, row.error)}</span>
       ) : null}

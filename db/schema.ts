@@ -1544,6 +1544,19 @@ export const workflowOperation = pgTable(
       renderer: 'firecrawl' | 'jina' | null;
     }>(),
     /**
+     * Where a running build is: the architecture.md 8.2 step it is in and
+     * what it has counted so far. Written by the build at each stage
+     * boundary and once per embedding window; kept on the finished row as
+     * its final figures. `lib/domain/ingestion.ts` `BuildProgress`.
+     */
+    stage: text('stage'),
+    progress: jsonb('progress').$type<{
+      files?: number;
+      documents?: number;
+      chunksTotal?: number;
+      chunksDone?: number;
+    }>(),
+    /**
      * The build's seat in the call ledger. library-build-billing.md 4:
      * `quoted_calls` is the cap reserved before fetching, `charged_calls` the
      * priced figure once chunking measured the build; the reservation is
