@@ -13,12 +13,16 @@
 import { and, desc, eq, sql } from 'drizzle-orm';
 import type { ChunkResult } from '@/contracts/schemas';
 import { cjkSearchTokens, containsCjk } from '@/lib/domain/cjk';
+import { keywordEvidenceOf } from '@/lib/domain/keyword-evidence';
 import { searchTokens } from '@/lib/domain/profile';
 import type { RetrievalSettings } from '@/lib/domain/retrieval-config';
 import type { RetrievalConfidence } from '@/lib/domain/routing';
 import { schema, type db } from '@/lib/infrastructure/postgres/client';
 import type { PinnedVersion, RetrievalDependencies } from './query-docs';
 import { toTsquery } from './resolve-library';
+
+/** How many of the keyword leg's top-ranked chunks are read for evidence. */
+const KEYWORD_EVIDENCE_CHUNKS = 10;
 
 export interface RankTarget {
   libraryId: string;
@@ -128,6 +132,15 @@ export async function rankChunks(
   const confidence: RetrievalConfidence = {
     bestDistance: semantic.length > 0 ? Number(semantic[0]!.distance) : null,
     keywordHits: keyword.length,
+    /* What the best-ranked keyword chunks hold of the question itself; the
+       head of the list is enough, ts_rank put the fullest matches there. */
+    keywordEvidence:
+      keyword.length > 0
+        ? keywordEvidenceOf(
+            target.query,
+            keyword.slice(0, KEYWORD_EVIDENCE_CHUNKS).map((row) => row.body),
+          )
+        : null,
   };
 
   /* --------------------------------------- fuse, dedupe, trim, format */
