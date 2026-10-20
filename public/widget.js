@@ -19,14 +19,17 @@
  *
  * The widget page is loaded, hidden, as soon as the host page is idle rather
  * than on the first click: its config message carries the key's accent, and
- * the launcher should wear the owner's colour before anyone presses it, not
- * after. It also means a site that installed the snippet is seen by the
- * dashboard on the first visit, bubble opened or not.
+ * the launcher is not shown until that colour has arrived -- it appears in
+ * the owner's colour, never in a default that then changes. Only when no
+ * config arrives (the page refused this site, or the network is slow) does
+ * it appear in the fallback colour, after a short wait. Preloading also
+ * means a site that installed the snippet is seen by the dashboard on the
+ * first visit, bubble opened or not.
  *
  * Optional attributes: data-position="left" (default right),
- * data-accent="#rrggbb" (the launcher's colour until the widget page has
- * loaded and sent the key's own), data-label="..." for the launcher's
- * accessible name.
+ * data-accent="#rrggbb" (the fallback colour, black by default -- used only
+ * when the widget page sends no accent), data-label="..." for the
+ * launcher's accessible name.
  */
 (function () {
   if (window.__re0Widget) return;
@@ -48,12 +51,15 @@
     return;
   }
   var side = script.getAttribute('data-position') === 'left' ? 'left' : 'right';
-  var accent = script.getAttribute('data-accent') || '#0f9d77';
+  var accent = script.getAttribute('data-accent') || '#111111';
+  /* How long the launcher waits for the key's colour before showing in the fallback. */
+  var REVEAL_FALLBACK_MS = 4000;
   var label = script.getAttribute('data-label') || 'Chat';
 
   var style = document.createElement('style');
   style.textContent =
-    '.re0-launcher{position:fixed;bottom:20px;' + side + ':20px;z-index:2147483000;width:56px;height:56px;border:0;border-radius:50%;background:' + accent + ';color:#fff;box-shadow:0 8px 24px rgba(15,23,42,.18);cursor:pointer;display:flex;align-items:center;justify-content:center;transition:transform .15s ease}' +
+    '.re0-launcher{position:fixed;bottom:20px;' + side + ':20px;z-index:2147483000;width:56px;height:56px;border:0;border-radius:50%;background:' + accent + ';color:#fff;box-shadow:0 8px 24px rgba(15,23,42,.18);cursor:pointer;display:flex;align-items:center;justify-content:center;transition:transform .15s ease;visibility:hidden}' +
+    '.re0-launcher[data-ready="true"]{visibility:visible}' +
     '.re0-launcher:hover{transform:translateY(-1px)}' +
     '.re0-launcher svg{width:26px;height:26px}' +
     '.re0-panel{position:fixed;bottom:88px;' + side + ':20px;z-index:2147483000;width:380px;max-width:calc(100vw - 32px);height:600px;max-height:calc(100vh - 112px);border:0;border-radius:16px;box-shadow:0 20px 60px rgba(15,23,42,.22);background:#fff;display:none;overflow:hidden}' +
@@ -126,12 +132,24 @@
     } else if (data.type === 're0:close') {
       setOpen(false);
     } else if (data.type === 're0:config' && typeof data.accent === 'string') {
+      /* The colour first, then the button: no default to be seen changing. */
       button.style.background = data.accent;
+      reveal();
     }
   });
 
+  var revealed = false;
+  function reveal() {
+    if (revealed) return;
+    revealed = true;
+    button.setAttribute('data-ready', 'true');
+  }
+
   function mount() {
     document.body.appendChild(button);
+    /* A page that never sends its colour -- refused, or just slow -- still
+       gets a button, in the fallback colour, once it is clear none is coming. */
+    setTimeout(reveal, REVEAL_FALLBACK_MS);
     /* Preload once the host page has had its turn, so the accent arrives
        before the first click without competing with the page's own load. */
     var preload = function () {

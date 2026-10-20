@@ -965,7 +965,7 @@ export const en: Dictionary = {
         attributesTitle: 'Optional attributes',
         attributes: [
           'data-position="left": put the button bottom-left (default bottom-right).',
-          'data-accent="#rrggbb": the button’s colour until the widget loads; the key’s accent takes over then.',
+          'data-accent="#rrggbb": the fallback colour (black by default), used only when the widget page sends no accent; normally the button appears in the key’s accent from the start.',
           'data-label="…": the button’s accessible name.',
         ],
       },

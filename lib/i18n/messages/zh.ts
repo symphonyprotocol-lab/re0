@@ -924,7 +924,7 @@ export const zh = {
         attributesTitle: '可选属性',
         attributes: [
           'data-position="left"：按钮放到左下角（默认右下角）。',
-          'data-accent="#rrggbb"：插件加载完成前按钮的颜色，加载后以密钥的主题色为准。',
+          'data-accent="#rrggbb"：备用颜色（默认黑色），只在插件页面没有回传主题色时使用；正常情况下按钮直接以密钥的主题色出现。',
           'data-label="…"：按钮的无障碍名称。',
         ],
       },
