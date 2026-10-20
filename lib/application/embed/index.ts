@@ -14,11 +14,11 @@ export {
 } from './site-keys';
 export {
   deleteFaqEntry,
-  faqEntriesForBuild,
   FAQ_GROUPING,
   FaqInvalid,
   listFaqEntries,
   listFaqGroups,
+  resetFaqGroupCache,
   saveFaqEntry,
   type FaqChangeResult,
   type FaqEntryView,

@@ -54,8 +54,8 @@ function view(row: typeof schema.siteKey.$inferSelect): SiteKeyView {
   };
 }
 
-/** The library must be this workspace's own and alive; else `library_not_found`. */
-async function ownedLibrary(workspaceId: string, libraryId: string): Promise<void> {
+/** The library must be this workspace's own and alive; else `library_not_found`. Shared with the FAQ use cases. */
+export async function requireOwnedLibrary(workspaceId: string, libraryId: string): Promise<void> {
   const [row] = await db()
     .select({ id: schema.library.id })
     .from(schema.library)
@@ -171,7 +171,7 @@ export async function createSiteKey(input: CreateSiteKeyInput): Promise<SiteKeyV
   if (!canManageLibraries(input.role)) {
     throw new AppError('access_denied', 'only a library manager can create a site key');
   }
-  await ownedLibrary(input.workspaceId, input.libraryId);
+  await requireOwnedLibrary(input.workspaceId, input.libraryId);
   const settings = settingsOf(input);
 
   const [live] = await db()

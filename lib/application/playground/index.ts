@@ -611,19 +611,20 @@ export async function askPlayground(
 
 /**
  * The FAQ chunk's sentences as claims, when the question asked is the FAQ's
- * own: the top chunk is a FAQ document's and its library's best distance is
- * within `FAQ_LIMITS.directDistance`. Null otherwise.
+ * own: the top chunk is a FAQ document's, it is the nearest FAQ chunk the
+ * vector leg saw, and its own distance is within `FAQ_LIMITS.directDistance`.
+ * Judged by the chunk, not the library's best distance -- the fused order's
+ * top chunk need not be the nearest -- and matched by chunk id, so which
+ * public id the caller named the library by does not matter. Null otherwise.
  */
 function directFaqAnswer(retrieved: {
   chunks: GatheredChunk[];
   libraries: GatheredLibrary[];
 }): Extract<PlaygroundEvent, { type: 'claim' }>[] | null {
   const top = retrieved.chunks[0];
-  if (!top || !isFaqCitation(top.citation.sourceUrl)) return null;
-  const library = retrieved.libraries.find((candidate) => candidate.libraryId === top.libraryId);
-  if (!library || library.bestDistance === null || library.bestDistance > FAQ_LIMITS.directDistance) {
-    return null;
-  }
+  if (!top || !isFaqCitation(top.citation)) return null;
+  const nearest = retrieved.libraries.find((candidate) => candidate.faqNearest?.chunkId === top.chunkId)?.faqNearest;
+  if (!nearest || nearest.distance > FAQ_LIMITS.directDistance) return null;
   const sentences = faqSentences(top.text);
   if (sentences.length === 0) return null;
   return sentences.map((claim) => ({ type: 'claim' as const, claim, chunkIds: [top.chunkId] }));

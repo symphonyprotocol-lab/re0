@@ -65,8 +65,8 @@ export interface GatheredLibrary {
   version: string | null;
   /** Whether its passages fit the question well enough to be context. */
   confirmed: boolean;
-  /** The vector leg's best chunk distance; null when that leg did not run or the retrieval failed. */
-  bestDistance: number | null;
+  /** The nearest FAQ chunk the vector leg saw, with its distance (routing.ts); null when none, or the retrieval failed. */
+  faqNearest: { chunkId: string; distance: number } | null;
   /** Passages it contributed after the merge. */
   chunks: number;
   failed: boolean;
@@ -200,7 +200,7 @@ export async function gatherAcrossLibraries(
       title: library.title,
       version: result?.version ?? null,
       confirmed: confirmed[order]!,
-      bestDistance: result?.confidence?.bestDistance ?? null,
+      faqNearest: result?.confidence?.faqNearest ?? null,
       chunks: contributed.get(order) ?? 0,
       failed: result === null,
       excerpts: result ? excerptsOf(result.chunks.map((chunk) => chunk.text)) : [],

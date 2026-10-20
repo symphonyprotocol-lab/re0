@@ -67,8 +67,8 @@ import {
 import { notionSourceUserId } from '@/lib/domain/notion';
 import { notionTokenFor } from '@/lib/application/auth/notion-connection';
 import { db, schema } from '@/lib/infrastructure/postgres/client';
-import { faqEntriesForBuild } from '@/lib/application/embed/faq';
-import { faqCanonical, faqDocument, faqDocumentPath, faqDocumentUrl } from '@/lib/domain/faq';
+import { faqCanonical, faqDocument, faqDocumentPath, faqDocumentUrl, isFaqPath } from '@/lib/domain/faq';
+import { faqEntriesForBuild } from './faq-entries';
 import { objectKeys } from '@/lib/infrastructure/objects/store';
 import { platformTermWeight } from './term-weights';
 import type { FetchedFile, SourceSnapshot } from '@/lib/infrastructure/connectors';
@@ -434,7 +434,9 @@ export async function buildVersion(input: BuildInput): Promise<BuildOutcome> {
     content: faqDocument(entry),
     sourceId: null,
   }));
-  const files: SourceFile[] = [...plans.flatMap((plan) => plan.files), ...faqFiles];
+  /* FAQ files first: the document cap below cuts the tail, and the owner's
+     few answers must not be what a three-thousand-page site drops. */
+  const files: SourceFile[] = [...faqFiles, ...plans.flatMap((plan) => plan.files)];
   const carriedPlans = plans.filter((plan) => plan.carried);
 
   const store = dependencies.store();
@@ -640,6 +642,8 @@ export async function buildVersion(input: BuildInput): Promise<BuildOutcome> {
 
     const chunks = drafts.map((draft) => {
       const citation = citationFor({ document, sourceUrl: file.url, headings: draft.headings });
+      /* A FAQ entry's chunk says so in its citation (lib/domain/faq.ts), for the direct answer to find. */
+      if (isFaqPath(file.path)) citation.kind = 'faq';
       if (citation.section) citedChunks += 1;
       totalTokens += draft.tokens;
       const key = `${draft.body.length}:${draft.body.slice(0, 200)}`;

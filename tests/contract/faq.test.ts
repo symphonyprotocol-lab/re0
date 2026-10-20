@@ -5,10 +5,10 @@ import {
   faqDocument,
   faqDocumentPath,
   faqDocumentUrl,
-  faqPageUrl,
   faqSentences,
   groupQuestions,
   isFaqCitation,
+  isFaqPath,
   normaliseQuestion,
   validateFaqEntry,
 } from '@/lib/domain/faq';
@@ -61,13 +61,14 @@ describe('faq grouping', () => {
 describe('faq documents', () => {
   const entry = { id: 'e1', question: 'How much is Solo?', answer: 'Solo is $3 a month. Billed monthly.', pageUrl: 'https://x.test/pricing#plans' };
 
-  it('is cited to its page under a URL that marks it as a FAQ', () => {
-    const url = faqDocumentUrl(entry);
-    expect(url).toBe('https://x.test/pricing#re0-faq-e1');
-    expect(isFaqCitation(url)).toBe(true);
-    expect(isFaqCitation('https://x.test/pricing')).toBe(false);
-    expect(faqPageUrl(url)).toBe('https://x.test/pricing');
+  it('is cited to its page as given, and told apart by its citation kind and path', () => {
+    expect(faqDocumentUrl(entry)).toBe('https://x.test/pricing#plans');
+    expect(isFaqCitation({ kind: 'faq' })).toBe(true);
+    expect(isFaqCitation({})).toBe(false);
+    expect(isFaqCitation({ kind: null })).toBe(false);
     expect(faqDocumentPath(entry)).toBe('faq/e1.md');
+    expect(isFaqPath('faq/e1.md')).toBe(true);
+    expect(isFaqPath('docs/faq/e1.md')).toBe(false);
     expect(faqDocument(entry)).toBe('# How much is Solo?\n\nSolo is $3 a month. Billed monthly.\n');
   });
 

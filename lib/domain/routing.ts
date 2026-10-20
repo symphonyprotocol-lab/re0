@@ -91,6 +91,13 @@ export interface RetrievalConfidence {
   bestDistance: number | null;
   keywordHits: number;
   keywordEvidence?: KeywordEvidence | null;
+  /**
+   * The nearest FAQ chunk the vector leg saw (lib/domain/faq.ts), with its
+   * own distance -- what the direct FAQ answer judges by, since the fused
+   * order's top chunk need not be the nearest one. Null when none was
+   * recalled; absent on a cache entry from before it existed.
+   */
+  faqNearest?: { chunkId: string; distance: number } | null;
 }
 
 /**

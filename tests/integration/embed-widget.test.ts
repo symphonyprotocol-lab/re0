@@ -14,7 +14,7 @@
  */
 import { afterAll, describe, expect, it } from 'vitest';
 import { NextRequest } from 'next/server';
-import { eq, inArray } from 'drizzle-orm';
+import { and, eq, inArray, sql } from 'drizzle-orm';
 
 const TEST_DATABASE_URL = process.env.TEST_DATABASE_URL;
 const describeWithDb = TEST_DATABASE_URL ? describe : describe.skip;
@@ -593,8 +593,14 @@ describeWithDb('website widget', () => {
       .where(eq(schema.document.versionId, built.versionId));
     expect(docs).toContainEqual({
       title: 'Can I return a zugwidget?',
-      sourceUrl: `https://shop.example.test/help/returns#re0-faq-${saved.entry!.id}`,
+      sourceUrl: 'https://shop.example.test/help/returns',
     });
+    /* Its chunks are marked as the FAQ's, which is what the direct answer reads. */
+    const [faqChunk] = await db()
+      .select({ kind: sql<string | null>`${schema.chunk.citation}->>'kind'` })
+      .from(schema.chunk)
+      .where(and(eq(schema.chunk.versionId, built.versionId), sql`${schema.chunk.citation}->>'title' = 'Can I return a zugwidget?'`));
+    expect(faqChunk?.kind).toBe('faq');
     await publishVersion({ libraryId, versionId: built.versionId });
 
     /* Nothing changed -- source or FAQ -- so nothing is built. */

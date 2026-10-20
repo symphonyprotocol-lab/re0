@@ -32,9 +32,12 @@ export const FAQ_LIMITS = {
   directDistance: 0.3,
 } as const;
 
-/** The fragment that marks a FAQ document's URL, so a retrieved chunk can be told apart. */
-export const FAQ_URL_MARKER = '#re0-faq-';
+/** Where FAQ documents live in a build; the path is what marks a chunk's citation as a FAQ's. */
 export const FAQ_PATH_PREFIX = 'faq/';
+
+export function isFaqPath(path: string): boolean {
+  return path.startsWith(FAQ_PATH_PREFIX);
+}
 
 /** One question as typed, reduced for exact-text grouping: case, spacing and punctuation gone. */
 export function normaliseQuestion(text: string): string {
@@ -138,21 +141,14 @@ export interface FaqEntryContent {
   pageUrl: string;
 }
 
-/** The URL a FAQ document is cited by: the page, marked so retrieval knows a FAQ chunk. */
-export function faqDocumentUrl(entry: Pick<FaqEntryContent, 'id' | 'pageUrl'>): string {
-  const base = entry.pageUrl.split('#')[0] ?? entry.pageUrl;
-  return `${base}${FAQ_URL_MARKER}${entry.id}`;
+/** The URL a FAQ document is cited by: the page it stands for, as the owner gave it. */
+export function faqDocumentUrl(entry: Pick<FaqEntryContent, 'pageUrl'>): string {
+  return entry.pageUrl;
 }
 
-/** Whether a citation's URL is a FAQ document's. */
-export function isFaqCitation(url: string): boolean {
-  return url.includes(FAQ_URL_MARKER);
-}
-
-/** The page behind a FAQ citation, for a link that opens it. */
-export function faqPageUrl(url: string): string {
-  const at = url.indexOf(FAQ_URL_MARKER);
-  return at === -1 ? url : url.slice(0, at);
+/** Whether a retrieved chunk is a FAQ entry's: its citation says so (set by the build from the path). */
+export function isFaqCitation(citation: { kind?: string | null }): boolean {
+  return citation.kind === 'faq';
 }
 
 /** The document a FAQ entry becomes: the question as its title, the answer as its body. */

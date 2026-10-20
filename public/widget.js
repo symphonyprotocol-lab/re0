@@ -52,7 +52,9 @@
   }
   var side = script.getAttribute('data-position') === 'left' ? 'left' : 'right';
   var accent = script.getAttribute('data-accent') || '#111111';
-  /* How long the launcher waits for the key's colour before showing in the fallback. */
+  /* How long after asking for the widget page the launcher waits for the
+     key's colour before showing in the fallback -- a page that never sends
+     one (this site refused) still gets a button. */
   var REVEAL_FALLBACK_MS = 4000;
   var label = script.getAttribute('data-label') || 'Chat';
 
@@ -88,6 +90,10 @@
 
   function ensureFrame() {
     if (frame) return frame;
+    /* The fallback clock runs from here: the colour can only arrive once
+       the page has been asked for, so a wait that started at mount would
+       end before a slow page's answer and show the default after all. */
+    setTimeout(reveal, REVEAL_FALLBACK_MS);
     frame = document.createElement('iframe');
     frame.className = 're0-panel';
     frame.title = label;
@@ -147,9 +153,6 @@
 
   function mount() {
     document.body.appendChild(button);
-    /* A page that never sends its colour -- refused, or just slow -- still
-       gets a button, in the fallback colour, once it is clear none is coming. */
-    setTimeout(reveal, REVEAL_FALLBACK_MS);
     /* Preload once the host page has had its turn, so the accent arrives
        before the first click without competing with the page's own load. */
     var preload = function () {

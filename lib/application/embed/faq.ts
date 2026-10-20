@@ -9,9 +9,11 @@
  * (lib/application/libraries/files.ts): a pending build will read the
  * entries anyway, a running one needs a new row behind it.
  */
-import { and, asc, desc, eq, gte, inArray, isNull } from 'drizzle-orm';
+import { and, asc, count, desc, eq, gte } from 'drizzle-orm';
 import { AppError } from '@/contracts/errors';
-import { canManageLibraries, type WorkspaceRole } from '@/lib/application/libraries';
+/* From the module, not the libraries index: the index reaches into ingestion, which builds FAQ entries. */
+import { canManageLibraries, type WorkspaceRole } from '@/lib/application/libraries/delete';
+import { queueBuildUnlessPending } from '@/lib/application/libraries/queue-build';
 import { assertBuildAffordable } from '@/lib/application/plans/build-quota';
 import { defaultRetrievalDependencies } from '@/lib/application/retrieval/query-docs';
 import {
@@ -26,6 +28,7 @@ import {
 } from '@/lib/domain/faq';
 import { uuidv7 } from '@/lib/domain/id';
 import { db, schema } from '@/lib/infrastructure/postgres/client';
+import { requireOwnedLibrary } from './site-keys';
 
 /** Thrown for a bad field; the server action turns it into a form message. */
 export class FaqInvalid extends AppError {
@@ -42,22 +45,10 @@ export interface FaqGroupView extends QuestionGroup {
 /** How many recent questions grouping reads, and how far back. */
 export const FAQ_GROUPING = { days: 30, maxQuestions: 300 } as const;
 
-/** The library must be this workspace's own and alive; else `library_not_found`. */
-async function ownedLibrary(workspaceId: string, libraryId: string): Promise<void> {
-  const [row] = await db()
-    .select({ id: schema.library.id })
-    .from(schema.library)
-    .where(
-      and(
-        eq(schema.library.id, libraryId),
-        eq(schema.library.ownerWorkspaceId, workspaceId),
-        eq(schema.library.isPlatformLibrary, false),
-        isNull(schema.library.deletedAt),
-      ),
-    )
-    .limit(1);
-  if (!row) throw new AppError('library_not_found', 'no such library in this workspace');
-}
+/** How long a library's grouping is kept once made, and how many libraries' at once. */
+export const FAQ_GROUP_CACHE = { ttlMs: 10 * 60 * 1000, maxLibraries: 200 } as const;
+
+const groupCache = new Map<string, { key: string; at: number; groups: FaqGroupView[] }>();
 
 /**
  * Recent visitors' questions, grouped by intent, most asked first. Reads
@@ -70,7 +61,7 @@ export async function listFaqGroups(input: {
   libraryId: string;
   dependencies?: Pick<ReturnType<typeof defaultRetrievalDependencies>, 'embeddings' | 'configured'>;
 }): Promise<FaqGroupView[]> {
-  await ownedLibrary(input.workspaceId, input.libraryId);
+  await requireOwnedLibrary(input.workspaceId, input.libraryId);
   const since = new Date(Date.now() - FAQ_GROUPING.days * 86_400_000);
   const [rows, entries] = await Promise.all([
     db()
@@ -98,6 +89,20 @@ export async function listFaqGroups(input: {
   ]);
   if (rows.length === 0) return [];
 
+  /*
+   * The grouping is read on every render of the library's page, which polls
+   * while a build runs; the embedding call behind it must not be. The result
+   * is kept per library for as long as nothing it was made from has changed
+   * -- the newest exchange, how many there are, the entries -- and for at
+   * most `FAQ_GROUP_CACHE.ttlMs` either way. Per process: a serverless
+   * instance that is reused keeps it, a fresh one pays once.
+   */
+  const cacheKey = `${rows[0]!.id}:${rows.length}:${entries.map((entry) => entry.question).join('\u0000')}`;
+  const cached = groupCache.get(input.libraryId);
+  if (cached && cached.key === cacheKey && Date.now() - cached.at < FAQ_GROUP_CACHE.ttlMs) {
+    return cached.groups;
+  }
+
   const dependencies = input.dependencies ?? defaultRetrievalDependencies();
   let vectors: number[][] | null = null;
   try {
@@ -121,10 +126,22 @@ export async function listFaqGroups(input: {
     pages: row.sources,
   }));
   const covered = new Set(entries.map((entry) => normaliseQuestion(entry.question)));
-  return groupQuestions(items).map((group) => ({
+  const groups = groupQuestions(items).map((group) => ({
     ...group,
     covered: group.questions.some((question) => covered.has(normaliseQuestion(question))),
   }));
+  if (groupCache.size >= FAQ_GROUP_CACHE.maxLibraries) {
+    const oldest = groupCache.keys().next().value;
+    if (oldest !== undefined) groupCache.delete(oldest);
+  }
+  groupCache.delete(input.libraryId);
+  groupCache.set(input.libraryId, { key: cacheKey, at: Date.now(), groups });
+  return groups;
+}
+
+/** Test seam: the grouping cache is module state. */
+export function resetFaqGroupCache(): void {
+  groupCache.clear();
 }
 
 export interface FaqEntryView extends FaqEntryContent {
@@ -150,55 +167,6 @@ export async function listFaqEntries(input: { workspaceId: string; libraryId: st
   }));
 }
 
-/** What the build reads: every entry of the library, by library alone (the build owns no session). */
-export async function faqEntriesForBuild(libraryId: string): Promise<FaqEntryContent[]> {
-  const rows = await db()
-    .select({
-      id: schema.libraryFaq.id,
-      question: schema.libraryFaq.question,
-      answer: schema.libraryFaq.answer,
-      pageUrl: schema.libraryFaq.pageUrl,
-    })
-    .from(schema.libraryFaq)
-    .where(eq(schema.libraryFaq.libraryId, libraryId))
-    .orderBy(asc(schema.libraryFaq.id));
-  return rows;
-}
-
-const BUILD_OPERATIONS = ['ingest', 'refresh'] as const;
-
-/**
- * Queue a rebuild unless one is already waiting (files.ts has the same
- * rule): a pending build has not read the entries yet and will; a running
- * one has, so a new row goes behind it. Returns the operation the change
- * rides on.
- */
-async function queueRebuild(libraryId: string): Promise<string> {
-  const database = db();
-  const [open] = await database
-    .select({ id: schema.workflowOperation.id, status: schema.workflowOperation.status })
-    .from(schema.workflowOperation)
-    .where(
-      and(
-        eq(schema.workflowOperation.libraryId, libraryId),
-        inArray(schema.workflowOperation.operationType, [...BUILD_OPERATIONS]),
-        inArray(schema.workflowOperation.status, ['pending', 'running']),
-      ),
-    )
-    .orderBy(desc(schema.workflowOperation.createdAt))
-    .limit(1);
-  if (open?.status === 'pending') return open.id;
-  const operationId = uuidv7();
-  await database.insert(schema.workflowOperation).values({
-    id: operationId,
-    libraryId,
-    operationType: 'refresh',
-    sourceDigest: null,
-    status: 'pending',
-  });
-  return operationId;
-}
-
 export interface SaveFaqEntryInput {
   workspaceId: string;
   role: WorkspaceRole;
@@ -220,7 +188,7 @@ export async function saveFaqEntry(input: SaveFaqEntryInput): Promise<FaqChangeR
   if (!canManageLibraries(input.role)) {
     throw new AppError('access_denied', 'only a library manager can edit the FAQ');
   }
-  await ownedLibrary(input.workspaceId, input.libraryId);
+  await requireOwnedLibrary(input.workspaceId, input.libraryId);
   const refusal = validateFaqEntry(input);
   if (refusal) throw new FaqInvalid(refusal);
   const question = input.question.trim();
@@ -248,8 +216,11 @@ export async function saveFaqEntry(input: SaveFaqEntryInput): Promise<FaqChangeR
       .returning();
     if (!row) throw new AppError('library_not_found', 'no such FAQ entry');
   } else {
-    const existing = await listFaqEntries({ workspaceId: input.workspaceId, libraryId: input.libraryId });
-    if (existing.length >= FAQ_LIMITS.maxEntries) throw new FaqInvalid('limit');
+    const [existing] = await database
+      .select({ n: count() })
+      .from(schema.libraryFaq)
+      .where(eq(schema.libraryFaq.libraryId, input.libraryId));
+    if ((existing?.n ?? 0) >= FAQ_LIMITS.maxEntries) throw new FaqInvalid('limit');
     [row] = await database
       .insert(schema.libraryFaq)
       .values({
@@ -264,7 +235,7 @@ export async function saveFaqEntry(input: SaveFaqEntryInput): Promise<FaqChangeR
       })
       .returning();
   }
-  const operationId = await queueRebuild(input.libraryId);
+  const operationId = await queueBuildUnlessPending(database, input.libraryId);
   return {
     entry: row
       ? {
@@ -289,7 +260,7 @@ export async function deleteFaqEntry(input: {
   if (!canManageLibraries(input.role)) {
     throw new AppError('access_denied', 'only a library manager can edit the FAQ');
   }
-  await ownedLibrary(input.workspaceId, input.libraryId);
+  await requireOwnedLibrary(input.workspaceId, input.libraryId);
   const removed = await db()
     .delete(schema.libraryFaq)
     .where(
@@ -301,5 +272,5 @@ export async function deleteFaqEntry(input: {
     )
     .returning({ id: schema.libraryFaq.id });
   if (removed.length === 0) throw new AppError('library_not_found', 'no such FAQ entry');
-  return { entry: null, operationId: await queueRebuild(input.libraryId) };
+  return { entry: null, operationId: await queueBuildUnlessPending(db(), input.libraryId) };
 }

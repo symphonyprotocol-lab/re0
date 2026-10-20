@@ -60,7 +60,7 @@ function gathered(confirmed: boolean): GatherResult {
         ...LIBRARY,
         version: 'v1',
         confirmed,
-        bestDistance: confirmed ? 0.4 : 0.7,
+        faqNearest: null,
         chunks: confirmed ? 1 : 0,
         failed: false,
         excerpts: ['Choose the plan that fits your sharing volume.'],
@@ -245,11 +245,23 @@ describe('direct FAQ answer', () => {
     const { dependencies, llmCalls } = fixture({ passes: [true] });
     const faq: GatheredChunk = {
       ...chunk('faq1', 'Solo is $3 a month. Billed monthly.'),
-      citation: { sourceUrl: 'https://apage.host/pricing#re0-faq-e1', documentTitle: 'How much is Solo?', section: null, lines: null },
+      citation: { sourceUrl: 'https://apage.host/pricing', documentTitle: 'How much is Solo?', section: null, lines: null, kind: 'faq' },
     };
     dependencies.gather = async () => ({
       chunks: [faq, chunk('c1', 'Subscribe to a plan on the pricing page.')],
-      libraries: [{ ...LIBRARY, version: 'v1', confirmed: true, bestDistance: 0.12, chunks: 2, failed: false, excerpts: [] }],
+      libraries: [
+        {
+          ...LIBRARY,
+          /* Named by an alias the caller used: the match is by chunk id, not library id. */
+          libraryId: '/websites/apage-old',
+          version: 'v1',
+          confirmed: true,
+          faqNearest: { chunkId: 'faq1', distance: 0.12 },
+          chunks: 2,
+          failed: false,
+          excerpts: [],
+        },
+      ],
       requestId: caller.requestId,
     });
     const events = [];
@@ -268,11 +280,11 @@ describe('direct FAQ answer', () => {
     const { dependencies, llmCalls } = fixture({ passes: [true] });
     const faq: GatheredChunk = {
       ...chunk('faq1', 'Solo is $3 a month.'),
-      citation: { sourceUrl: 'https://apage.host/pricing#re0-faq-e1', documentTitle: 'How much is Solo?', section: null, lines: null },
+      citation: { sourceUrl: 'https://apage.host/pricing', documentTitle: 'How much is Solo?', section: null, lines: null, kind: 'faq' },
     };
     dependencies.gather = async () => ({
       chunks: [faq],
-      libraries: [{ ...LIBRARY, version: 'v1', confirmed: true, bestDistance: 0.45, chunks: 1, failed: false, excerpts: [] }],
+      libraries: [{ ...LIBRARY, version: 'v1', confirmed: true, faqNearest: { chunkId: 'faq1', distance: 0.45 }, chunks: 1, failed: false, excerpts: [] }],
       requestId: caller.requestId,
     });
     const events = [];
