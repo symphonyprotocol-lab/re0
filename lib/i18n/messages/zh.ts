@@ -1409,6 +1409,23 @@ export const zh = {
           unavailable: '暂时无法保存，请稍后重试。',
         },
       },
+      exchanges: {
+        title: '插件问答记录',
+        description: '访客在网站插件里问了什么、得到了什么。没找到答案的问题，正是值得补一页内容的地方。',
+        stats: '近 {days} 天 {questions} 个问题 · 已回答 {answered} · 未找到 {missed}',
+        columns: ['问题', '结果', '引用页面', '来源网站', '时间'],
+        empty: '还没有访客通过插件提问。',
+        outcomes: {
+          answer: '已回答',
+          degraded: '仅给出段落',
+          no_context: '未找到',
+          not_ready: '知识库未就绪',
+          unavailable: '暂不可用',
+        },
+        preview: '预览',
+        rewritten: '按「{query}」搜索',
+        page: '第 {page} / {pages} 页，共 {total} 条',
+      },
     },
     libraryFiles: {
       metaTitle: 'PDF 文件',

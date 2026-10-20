@@ -1461,6 +1461,23 @@ export const en: Dictionary = {
           unavailable: 'Could not save right now. Try again in a moment.',
         },
       },
+      exchanges: {
+        title: 'Widget questions',
+        description: 'What visitors asked the website widget and what they were told. The questions it could not answer are the pages worth writing next.',
+        stats: 'Last {days} days: {questions} questions · {answered} answered · {missed} not found',
+        columns: ['Question', 'Outcome', 'Pages cited', 'Site', 'When'],
+        empty: 'No visitor has asked through the widget yet.',
+        outcomes: {
+          answer: 'Answered',
+          degraded: 'Passages only',
+          no_context: 'Not found',
+          not_ready: 'Library not ready',
+          unavailable: 'Unavailable',
+        },
+        preview: 'preview',
+        rewritten: 'searched as “{query}”',
+        page: 'Page {page} of {pages}, {total} in all',
+      },
     },
     libraryFiles: {
       metaTitle: 'PDF files',

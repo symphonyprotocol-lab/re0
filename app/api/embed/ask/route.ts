@@ -30,6 +30,7 @@ import { NextResponse } from 'next/server';
 import { AppError } from '@/contracts/errors';
 import {
   admitWidgetQuestion,
+  noteWidgetExchange,
   noteWidgetOrigin,
   requireParentOrigin,
   resolveSiteKey,
@@ -37,6 +38,7 @@ import {
 } from '@/lib/application/embed';
 import { streamPlayground } from '@/lib/application/playground';
 import { pagesOf, type WidgetSource } from '@/lib/domain/widget';
+import type { WidgetOutcome } from '@/lib/application/embed';
 import { configuredBaseUrl } from '@/lib/http/base-url';
 import { isPreviewOwner, isPreviewParent } from '@/lib/http/embed-preview';
 import { errorResponse, newRequestId } from '@/lib/http/respond';
@@ -116,6 +118,7 @@ function ndjson(lines: (write: (line: WidgetStreamLine) => void) => Promise<void
 
 export async function POST(request: NextRequest): Promise<Response> {
   const requestId = newRequestId();
+  const startedAt = Date.now();
   try {
     let body: { key?: unknown; question?: unknown; parent?: unknown };
     try {
@@ -149,10 +152,31 @@ export async function POST(request: NextRequest): Promise<Response> {
       requireParentOrigin(principal, origin);
     }
 
+    /* The owner's history of what the widget was asked (exchanges.ts):
+       written once the exchange has ended, whatever ended it. */
+    const record = (
+      outcome: WidgetOutcome,
+      detail: { rewrittenQuery?: string | null; answer?: string | null; sources?: WidgetSource[] } = {},
+    ) =>
+      noteWidgetExchange({
+        libraryId: principal.libraryId,
+        workspaceId: principal.workspaceId,
+        siteKeyId: principal.siteKeyId,
+        origin: parent,
+        preview,
+        question,
+        rewrittenQuery: detail.rewrittenQuery ?? null,
+        outcome,
+        answer: detail.answer ?? null,
+        sources: (detail.sources ?? []).map((source) => ({ url: source.url, title: source.title })),
+        latencyMs: Date.now() - startedAt,
+      });
+
     /* Nothing to retrieve from yet: say so without touching the limiters. */
     if (!principal.ready) {
       return ndjson(async (write) => {
         write({ type: 'outcome', kind: 'not_ready' });
+        record('not_ready');
       }, requestId);
     }
 
@@ -164,19 +188,26 @@ export async function POST(request: NextRequest): Promise<Response> {
 
     return ndjson(async (write) => {
       write({ type: 'allowance', remaining: allowance.remaining, limit: allowance.limit });
+      let sources: WidgetSource[] = [];
+      let rewrittenQuery: string | null = null;
+      const claims: string[] = [];
       try {
         for await (const event of streamPlayground(caller, {
           libraries: [{ libraryId: principal.libraryPublicId, title: principal.libraryTitle }],
           question,
         })) {
           if (event.type === 'context') {
-            write({ type: 'sources', sources: pagesOf(event.chunks) });
+            sources = pagesOf(event.chunks);
+            write({ type: 'sources', sources });
           } else if (event.type === 'claim') {
+            claims.push(event.claim);
             write({ type: 'claim', text: event.claim, chunkIds: event.chunkIds });
           } else if (event.type === 'rewrite') {
+            rewrittenQuery = event.query;
             write({ type: 'rewrite', query: event.query });
           } else if (event.type === 'done') {
             write({ type: 'outcome', kind: event.kind });
+            record(event.kind, { rewrittenQuery, sources, answer: claims.length > 0 ? claims.join(' ') : null });
           }
         }
       } catch (error) {
@@ -194,6 +225,7 @@ export async function POST(request: NextRequest): Promise<Response> {
           );
         }
         write({ type: 'outcome', kind: refused ? 'unavailable' : 'degraded' });
+        record(refused ? 'unavailable' : 'degraded', { rewrittenQuery, sources, answer: claims.length > 0 ? claims.join(' ') : null });
       }
     }, requestId);
   } catch (error) {

@@ -13,6 +13,16 @@ export {
   type UpdateSiteKeyInput,
 } from './site-keys';
 export {
+  EXCHANGE_PAGE_SIZE,
+  listWidgetExchanges,
+  noteWidgetExchange,
+  recordWidgetExchange,
+  widgetExchangeStats,
+  type WidgetExchangeStats,
+  type WidgetExchangeView,
+  type WidgetOutcome,
+} from './exchanges';
+export {
   listWorkspaceWidgetSites,
   noteWidgetOrigin,
   recordWidgetOrigin,

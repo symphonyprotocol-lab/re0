@@ -32,7 +32,9 @@ const { createPlatformLibrary } = await import(
 const {
   createSiteKey,
   listSiteKeys,
+  listWidgetExchanges,
   listWorkspaceWidgetSites,
+  widgetExchangeStats,
   recordWidgetOrigin,
   revokeSiteKey,
   SiteKeyInvalid,
@@ -209,6 +211,7 @@ describeWithDb('website widget', () => {
   afterAll(async () => {
     const database = db();
     if (libraries.length > 0) {
+      await database.delete(schema.widgetExchange).where(inArray(schema.widgetExchange.libraryId, libraries));
       await database.delete(schema.siteKey).where(inArray(schema.siteKey.libraryId, libraries));
       await database
         .update(schema.library)
@@ -230,6 +233,8 @@ describeWithDb('website widget', () => {
       await database.delete(schema.source).where(inArray(schema.source.libraryId, libraries));
       await database.delete(schema.libraryAlias).where(inArray(schema.libraryAlias.libraryId, libraries));
       await database.delete(schema.auditLog).where(inArray(schema.auditLog.targetId, libraries));
+      /* Again, last: an exchange is recorded off the request path and may land after the first sweep. */
+      await database.delete(schema.widgetExchange).where(inArray(schema.widgetExchange.libraryId, libraries));
       await database.delete(schema.library).where(inArray(schema.library.id, libraries));
     }
     if (users.length > 0) {
@@ -489,6 +494,50 @@ describeWithDb('website widget', () => {
     const sites = await listWorkspaceWidgetSites(workspaceId);
     expect(sites[0]?.origins.map((origin) => origin.origin)).toEqual([SITE]);
     expect(sites[0]?.origins[0]?.lastSeenAt).toBeNull();
+
+    /* But it is in the library's history, marked as the owner's preview. */
+    const history = await listWidgetExchanges({ workspaceId, libraryId });
+    expect(history.total).toBe(1);
+    expect(history.exchanges[0]).toMatchObject({
+      origin: APP,
+      preview: true,
+      question: 'returns',
+      outcome: 'degraded',
+    });
+    expect(history.exchanges[0]?.sources[0]?.url).toBe('https://shop.example.test/help/returns');
+    /* Previews do not count as visitors' questions. */
+    expect(await widgetExchangeStats({ workspaceId, libraryId })).toMatchObject({ questions: 0, missed: 0 });
+    /* Another workspace reads nothing of it. */
+    expect((await listWidgetExchanges({ workspaceId: await workspaceOnPlan(), libraryId })).total).toBe(0);
+  });
+
+  it("keeps what visitors asked, and counts the questions the library could not answer", async () => {
+    const workspaceId = await workspaceOnPlan();
+    const libraryId = await ownedLibrary(workspaceId, `widget-history-${Date.now()}`);
+    const key = await createSiteKey({ workspaceId, role: 'owner', libraryId, name: 'Site', origins: SITE });
+
+    const answered = await askRoute(ask({ key: key.key, parent: SITE, question: 'how do I return a zugwidget' }, SITE));
+    expect(answered.status).toBe(200);
+    /* Read to the end: the exchange is recorded once its stream has ended. No
+       model in the test database, so passages come back -- degraded, not a miss. */
+    await lines(answered);
+    await db().update(schema.library).set({ lifecycleStatus: 'suspended' }).where(eq(schema.library.id, libraryId));
+    const paused = await askRoute(ask({ key: key.key, parent: SITE, question: 'opening hours' }, SITE));
+    expect(paused.status).toBe(200);
+    await lines(paused);
+    await new Promise((resolve) => setTimeout(resolve, 200));
+
+    const history = await listWidgetExchanges({ workspaceId, libraryId });
+    expect(history.exchanges.map((exchange) => [exchange.question, exchange.outcome])).toEqual([
+      ['opening hours', 'not_ready'],
+      ['how do I return a zugwidget', 'degraded'],
+    ]);
+    expect(history.exchanges[1]?.latencyMs).toBeGreaterThanOrEqual(0);
+    expect(await widgetExchangeStats({ workspaceId, libraryId })).toMatchObject({
+      questions: 2,
+      answered: 1,
+      missed: 1,
+    });
   });
 
   it("stops at the key's daily limit", async () => {

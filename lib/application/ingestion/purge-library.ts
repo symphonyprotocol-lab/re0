@@ -145,6 +145,8 @@ export async function purgeLibrary(input: {
     await tx
       .delete(schema.libraryEvalQuestion)
       .where(eq(schema.libraryEvalQuestion.libraryId, library.id));
+    /* What visitors asked of it: the owner's history goes with the library. */
+    await tx.delete(schema.widgetExchange).where(eq(schema.widgetExchange.libraryId, library.id));
 
     /*
      * The proofs, but not the batches that hold them. `anchor_batch.leaf_count`
