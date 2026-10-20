@@ -4,6 +4,7 @@ import { useRouter } from 'next/navigation';
 import { useActionState, useEffect, useState } from 'react';
 import { submitOn } from '@/components/admin/platform-library-shared';
 import { CopyButton } from '@/components/dashboard/copy-button';
+import { WidgetPreview } from '@/components/dashboard/widget-preview';
 import {
   AREA,
   FIELD,
@@ -156,8 +157,10 @@ function KeyCard({
               : w.neverUsed}
           </p>
         </div>
-        {canEdit ? (
-          <div className="flex items-center gap-2">
+        <div className="flex items-center gap-2">
+          <WidgetPreview siteKey={{ id: siteKey.id, key: siteKey.key, name: siteKey.name }} />
+          {canEdit ? (
+            <>
             <button type="button" className={SECONDARY} onClick={() => setEditing((value) => !value)}>
               <PencilIcon size={13} />
               {editing ? w.cancel : w.edit}
@@ -178,8 +181,9 @@ function KeyCard({
                 {w.revoke}
               </button>
             </form>
-          </div>
-        ) : null}
+            </>
+          ) : null}
+        </div>
       </div>
 
       <div className="flex flex-col gap-1.5">

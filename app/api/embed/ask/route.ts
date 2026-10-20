@@ -38,6 +38,7 @@ import {
 import { streamPlayground } from '@/lib/application/playground';
 import { pagesOf, type WidgetSource } from '@/lib/domain/widget';
 import { configuredBaseUrl } from '@/lib/http/base-url';
+import { isPreviewOwner, isPreviewParent } from '@/lib/http/embed-preview';
 import { errorResponse, newRequestId } from '@/lib/http/respond';
 
 export const runtime = 'nodejs';
@@ -133,7 +134,16 @@ export async function POST(request: NextRequest): Promise<Response> {
        browser's own Origin header: both must be ones the owner listed, except
        that the browser's may be this deployment, where the widget page lives. */
     const parent = typeof body.parent === 'string' ? body.parent : null;
-    requireParentOrigin(principal, parent);
+    /* The owner's preview (lib/http/embed-preview.ts) is admitted by the
+       session that owns the key; every other parent by the allowlist. */
+    const preview = isPreviewParent(parent, request);
+    if (preview) {
+      if (!(await isPreviewOwner(request, principal.workspaceId))) {
+        throw new AppError('access_denied', 'the preview is for the key\'s own workspace');
+      }
+    } else {
+      requireParentOrigin(principal, parent);
+    }
     const origin = request.headers.get('origin');
     if (origin && origin !== configuredBaseUrl() && origin !== new URL(request.url).origin) {
       requireParentOrigin(principal, origin);
@@ -147,8 +157,9 @@ export async function POST(request: NextRequest): Promise<Response> {
     }
 
     const allowance = await admitWidgetQuestion(request, principal);
-    /* Admitted, so it will be answered and charged: count it against the site. */
-    noteWidgetOrigin(principal.siteKeyId, parent, 'question');
+    /* Admitted, so it will be answered and charged: count it against the
+       site -- unless the site is the owner's own dashboard. */
+    if (!preview) noteWidgetOrigin(principal.siteKeyId, parent, 'question');
     const caller = widgetCaller(principal, requestId);
 
     return ndjson(async (write) => {

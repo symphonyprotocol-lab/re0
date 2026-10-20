@@ -969,6 +969,12 @@ export const en: Dictionary = {
           'data-label="…": the button’s accessible name.',
         ],
       },
+      preview: {
+        open: 'Try the widget',
+        title: 'Trying “{name}”',
+        hint: 'Exactly what visitors get on the site. Questions spend this workspace’s Calls under the key’s daily limit; trying here does not count as a reached site.',
+        close: 'Close',
+      },
       tip: {
         title: 'A site key is public',
         body: 'It sits in your page source. What constrains it is the origin allowlist and the daily limit, not secrecy. Moving to a new domain? Edit the allowlist; keep the key.',

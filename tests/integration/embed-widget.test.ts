@@ -41,12 +41,14 @@ const {
 const { EMBEDDING_COLUMN_DIMENSIONS } = await import('@/lib/infrastructure/ai/providers');
 const { db, schema } = await import('@/lib/infrastructure/postgres/client');
 const { uuidv7 } = await import('@/lib/domain/id');
+const { sessionTokenHash } = await import('@/lib/application/auth/session-token');
 const { GET: embedPage } = await import('@/app/embed/route');
 const { POST: askRoute } = await import('@/app/api/embed/ask/route');
 
 const actor = { administratorId: null as unknown as string, email: 'ops@example.test' };
 const libraries: string[] = [];
 const workspaces: string[] = [];
+const users: string[] = [];
 const planVersions: string[] = [];
 const store = memoryObjectStore();
 
@@ -125,6 +127,28 @@ async function workspaceOnPlan(monthlyCalls = 1_000): Promise<string> {
   return workspaceId;
 }
 
+/** A dashboard session of a new owner of `workspaceId`: the cookie its requests carry. */
+async function signedInOwner(workspaceId: string): Promise<string> {
+  const database = db();
+  const userId = uuidv7();
+  users.push(userId);
+  await database.insert(schema.user).values({
+    id: userId,
+    email: `owner-${userId}@example.test`,
+    displayName: 'Owner',
+    status: 'active',
+  });
+  await database.insert(schema.workspaceMember).values({ workspaceId, userId, role: 'owner' });
+  const token = `widget-preview-${crypto.randomUUID()}`;
+  await database.insert(schema.userSession).values({
+    id: uuidv7(),
+    userId,
+    tokenHash: await sessionTokenHash(token),
+    expiresAt: new Date(Date.now() + 86_400_000),
+  });
+  return `r0_session=${token}`;
+}
+
 /** A built, published, *private* library owned by the workspace. */
 async function ownedLibrary(workspaceId: string, slug: string): Promise<string> {
   const { libraryId } = await createPlatformLibrary({
@@ -153,18 +177,22 @@ async function ownedLibrary(workspaceId: string, slug: string): Promise<string> 
   return libraryId;
 }
 
-function page(key: string | null, parent: string | null): NextRequest {
+function page(key: string | null, parent: string | null, cookie?: string): NextRequest {
   const url = new URL('https://app.example.test/embed');
   if (key) url.searchParams.set('key', key);
   if (parent) url.searchParams.set('parent', parent);
   url.searchParams.set('lang', 'en');
-  return new NextRequest(url);
+  return new NextRequest(url, { headers: cookie ? { cookie } : {} });
 }
 
-function ask(body: unknown, origin?: string): NextRequest {
+function ask(body: unknown, origin?: string, cookie?: string): NextRequest {
   return new NextRequest('https://app.example.test/api/embed/ask', {
     method: 'POST',
-    headers: { 'content-type': 'application/json', ...(origin ? { origin } : {}) },
+    headers: {
+      'content-type': 'application/json',
+      ...(origin ? { origin } : {}),
+      ...(cookie ? { cookie } : {}),
+    },
     body: JSON.stringify(body),
   });
 }
@@ -203,6 +231,11 @@ describeWithDb('website widget', () => {
       await database.delete(schema.libraryAlias).where(inArray(schema.libraryAlias.libraryId, libraries));
       await database.delete(schema.auditLog).where(inArray(schema.auditLog.targetId, libraries));
       await database.delete(schema.library).where(inArray(schema.library.id, libraries));
+    }
+    if (users.length > 0) {
+      await database.delete(schema.userSession).where(inArray(schema.userSession.userId, users));
+      await database.delete(schema.workspaceMember).where(inArray(schema.workspaceMember.userId, users));
+      await database.delete(schema.user).where(inArray(schema.user.id, users));
     }
     if (workspaces.length > 0) {
       await database.delete(schema.requestLog).where(inArray(schema.requestLog.workspaceId, workspaces));
@@ -418,6 +451,44 @@ describeWithDb('website widget', () => {
     /* A revoked key takes its sites with it. */
     await revokeSiteKey({ workspaceId, role: 'owner', siteKeyId: key.id });
     expect(await listWorkspaceWidgetSites(workspaceId)).toEqual([]);
+  });
+
+  it('lets the owner try the widget from the dashboard, and nobody else', async () => {
+    const workspaceId = await workspaceOnPlan();
+    const libraryId = await ownedLibrary(workspaceId, `widget-preview-${Date.now()}`);
+    const key = await createSiteKey({ workspaceId, role: 'owner', libraryId, name: 'Site', origins: SITE });
+    const APP = 'https://app.example.test';
+
+    /* The app's own origin is not on the list: anonymous, it is refused like any other. */
+    const anonymous = await embedPage(page(key.key, APP));
+    expect(anonymous.status).toBe(403);
+    expect(anonymous.headers.get('content-security-policy')).toBe(`frame-ancestors ${SITE}`);
+
+    /* Another workspace's owner is refused too: the session must own the key. */
+    const stranger = await signedInOwner(await workspaceOnPlan());
+    expect((await embedPage(page(key.key, APP, stranger))).status).toBe(403);
+
+    /* The key's own owner gets the page, framed by this origin as well. */
+    const owner = await signedInOwner(workspaceId);
+    const preview = await embedPage(page(key.key, APP, owner));
+    expect(preview.status).toBe(200);
+    expect(preview.headers.get('content-security-policy')).toBe(`frame-ancestors ${SITE} 'self'`);
+    const html = await preview.text();
+    expect(html).toContain(`"parent":"${APP}"`);
+    expect(html).toContain('"preview":true');
+
+    /* Questions from the preview are answered as a visitor's would be. */
+    const answered = await askRoute(ask({ key: key.key, parent: APP, question: 'returns' }, APP, owner));
+    expect(answered.status).toBe(200);
+    expect((await lines(answered))[0]).toMatchObject({ type: 'allowance' });
+    expect((await askRoute(ask({ key: key.key, parent: APP, question: 'returns' }, APP))).status).toBe(403);
+    expect((await askRoute(ask({ key: key.key, parent: APP, question: 'returns' }, APP, stranger))).status).toBe(403);
+
+    /* The owner's own try-out is not an integrated site. */
+    await new Promise((resolve) => setTimeout(resolve, 200));
+    const sites = await listWorkspaceWidgetSites(workspaceId);
+    expect(sites[0]?.origins.map((origin) => origin.origin)).toEqual([SITE]);
+    expect(sites[0]?.origins[0]?.lastSeenAt).toBeNull();
   });
 
   it("stops at the key's daily limit", async () => {
