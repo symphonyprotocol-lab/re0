@@ -29,8 +29,8 @@ export const SITE_KEY_DAILY_LIMIT_MAX = 10_000;
 /** The owner's greeting, shown before the first question. */
 export const SITE_KEY_WELCOME_MAX = 200;
 
-/** The default button colour: the product brand green. */
-export const SITE_KEY_ACCENT_DEFAULT = '#0f9d77';
+/** The default button colour: black, so an unstyled widget looks like the owner's site, not ours. */
+export const SITE_KEY_ACCENT_DEFAULT = '#111111';
 
 export function isSiteKeyFormat(value: unknown): value is string {
   return (

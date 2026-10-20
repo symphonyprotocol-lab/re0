@@ -11,6 +11,7 @@ import {
   ReviewPipeline,
 } from '@/components/dashboard/library-manage';
 import { RebuildLibraryButton } from '@/components/dashboard/library-rebuild';
+import { LibraryFaqPanel } from '@/components/dashboard/library-faq';
 import { LibraryWidgetPanel } from '@/components/dashboard/library-widget';
 import { Badge, IconTile, PANEL, StatusLabel, type StatusTone } from '@/components/dashboard/ui';
 import {
@@ -31,7 +32,15 @@ import {
   listVersionDocuments,
   workspaceLibraryDetail,
 } from '@/lib/application/libraries';
-import { listSiteKeys, SITE_KEYS_PER_LIBRARY } from '@/lib/application/embed';
+import {
+  EXCHANGE_PAGE_SIZE,
+  listFaqEntries,
+  listFaqGroups,
+  listSiteKeys,
+  listWidgetExchanges,
+  SITE_KEYS_PER_LIBRARY,
+  widgetExchangeStats,
+} from '@/lib/application/embed';
 import { expertPanel } from '@/lib/application/expert-libraries';
 import { LibraryExpertPanel } from '@/components/dashboard/library-expert';
 import { requireSession } from '@/lib/http/session';
@@ -52,10 +61,12 @@ import { deleteWorkspaceLibraryAction } from '../actions';
 import {
   applyExpertAction,
   createSiteKeyAction,
+  deleteFaqEntryAction,
   editLibraryMetadataAction,
   ownerLifecycleAction,
   rebuildLibraryAction,
   revokeSiteKeyAction,
+  saveFaqEntryAction,
   updateParseScopeAction,
   updateSiteKeyAction,
   withdrawExpertAction,
@@ -104,7 +115,9 @@ export default async function DashboardLibraryPage({
   const docsPage = documentsPage(query.docs);
   const docsSize = documentsPageSize(query.size);
   /* requirement.md 9.4: the website widget's keys ride along with the documents page. */
-  const [documents, siteKeys, expert] = await Promise.all([
+  /* The widget's history, a page at a time (`?qa=`), newest first. */
+  const qaPage = Math.max(1, Math.floor(Number(query.qa) || 1));
+  const [documents, siteKeys, expert, exchanges, exchangeStats, faqGroups, faqEntries] = await Promise.all([
     currentVersionId
       ? listVersionDocuments({
           libraryId: library.id,
@@ -116,7 +129,18 @@ export default async function DashboardLibraryPage({
     listSiteKeys({ workspaceId: session.workspace.id, libraryId: library.id }),
     /* expert-library-prd.md 5: where the library stands on the expert tag. */
     expertPanel({ workspaceId: session.workspace.id, libraryId: library.id }),
+    listWidgetExchanges({
+      workspaceId: session.workspace.id,
+      libraryId: library.id,
+      limit: EXCHANGE_PAGE_SIZE,
+      offset: (qaPage - 1) * EXCHANGE_PAGE_SIZE,
+    }),
+    widgetExchangeStats({ workspaceId: session.workspace.id, libraryId: library.id }),
+    listFaqGroups({ workspaceId: session.workspace.id, libraryId: library.id }).catch((): never[] => []),
+    listFaqEntries({ workspaceId: session.workspace.id, libraryId: library.id }),
   ]);
+  const qaPages = Math.max(1, Math.ceil(exchanges.total / EXCHANGE_PAGE_SIZE));
+  const qaHref = (page: number) => `/dashboard/libraries/${library.id}?qa=${page}#exchanges`;
   const docsPages = Math.max(1, Math.ceil(documents.total / docsSize));
   const docsHref = (page: number, size: number = docsSize) =>
     `/dashboard/libraries/${library.id}?docs=${page}&size=${size}#documents`;
@@ -458,6 +482,101 @@ export default async function DashboardLibraryPage({
           ])}
         />
       </section>
+
+      {/* lib/domain/faq.ts: the recurring questions, and the entries written from them. */}
+      {library.lifecycleStatus !== 'archived' && (siteKeys.length > 0 || faqEntries.length > 0 || faqGroups.length > 0) ? (
+        <LibraryFaqPanel
+          libraryId={library.id}
+          groups={faqGroups}
+          entries={faqEntries}
+          canEdit={canEdit}
+          saveAction={saveFaqEntryAction}
+          deleteAction={deleteFaqEntryAction}
+        />
+      ) : null}
+
+      {/* requirement.md 9.4: what the widget was asked, for the owner to grow the library from. */}
+      {siteKeys.length > 0 || exchanges.total > 0 ? (
+        <section id="exchanges" className={`${PANEL} scroll-mt-4 p-0.5`}>
+          <div className="flex flex-wrap items-start justify-between gap-3 px-6 py-4">
+            <div>
+              <h2 className="text-[15px] font-medium text-ink">{d.exchanges.title}</h2>
+              <p className="mt-0.5 text-[11px] text-muted">{d.exchanges.description}</p>
+            </div>
+            <p className="text-[11px] text-muted">
+              {fill(d.exchanges.stats, {
+                days: exchangeStats.days,
+                questions: number.format(exchangeStats.questions),
+                answered: number.format(exchangeStats.answered),
+                missed: number.format(exchangeStats.missed),
+              })}
+            </p>
+          </div>
+          <Table
+            columns={d.exchanges.columns}
+            empty={d.exchanges.empty}
+            rows={exchanges.exchanges.map((exchange) => [
+              <span key="q" className="flex min-w-0 flex-col gap-0.5">
+                <span className="text-ink" title={exchange.answer ?? undefined}>
+                  {exchange.question}
+                  {exchange.preview ? (
+                    <span className="ml-1.5 rounded bg-mutedbg px-1 py-0.5 text-[10px] text-steel">{d.exchanges.preview}</span>
+                  ) : null}
+                </span>
+                {exchange.rewrittenQuery ? (
+                  <span className="text-[10.5px] text-muted">
+                    {fill(d.exchanges.rewritten, { query: exchange.rewrittenQuery })}
+                  </span>
+                ) : null}
+              </span>,
+              <span
+                key="o"
+                className={
+                  exchange.outcome === 'answer' || exchange.outcome === 'degraded' ? 'text-steel' : 'text-amber'
+                }
+              >
+                {label(d.exchanges.outcomes, exchange.outcome)}
+              </span>,
+              <span key="s" className="flex flex-col gap-0.5">
+                {exchange.sources.slice(0, 3).map((source) => (
+                  <a
+                    key={source.url}
+                    href={source.url}
+                    target="_blank"
+                    rel="noreferrer"
+                    className="truncate text-brandink hover:text-brandink"
+                    title={source.url}
+                  >
+                    {source.title}
+                  </a>
+                ))}
+                {exchange.sources.length === 0 ? <span className="text-muted">{d.basics.none}</span> : null}
+              </span>,
+              <span key="g" className="break-all text-muted">{exchange.origin}</span>,
+              when(exchange.createdAt),
+            ])}
+          />
+          {exchanges.total > EXCHANGE_PAGE_SIZE ? (
+            <div className="flex flex-wrap items-center justify-between gap-3 border-t border-line px-6 py-3">
+              <p className="text-[11px] text-muted">
+                {fill(d.exchanges.page, { page: qaPage, pages: qaPages, total: number.format(exchanges.total) })}
+              </p>
+              <span className="flex items-center gap-2">
+                {qaPage > 1 ? (
+                  <Link href={qaHref(qaPage - 1)} className={PAGER}>
+                    {d.documents.prev}
+                  </Link>
+                ) : null}
+                {qaPage < qaPages ? (
+                  <Link href={qaHref(qaPage + 1)} className={PAGER}>
+                    {d.documents.next}
+                  </Link>
+                ) : null}
+              </span>
+            </div>
+          ) : null}
+        </section>
+      ) : null}
 
       <section id="documents" className={`${PANEL} scroll-mt-4 p-0.5`}>
         <div className="px-6 py-4">

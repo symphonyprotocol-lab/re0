@@ -14,7 +14,7 @@
  */
 import { afterAll, describe, expect, it } from 'vitest';
 import { NextRequest } from 'next/server';
-import { eq, inArray } from 'drizzle-orm';
+import { and, eq, inArray, sql } from 'drizzle-orm';
 
 const TEST_DATABASE_URL = process.env.TEST_DATABASE_URL;
 const describeWithDb = TEST_DATABASE_URL ? describe : describe.skip;
@@ -31,8 +31,14 @@ const { createPlatformLibrary } = await import(
 );
 const {
   createSiteKey,
+  deleteFaqEntry,
+  listFaqEntries,
+  listFaqGroups,
   listSiteKeys,
+  listWidgetExchanges,
   listWorkspaceWidgetSites,
+  saveFaqEntry,
+  widgetExchangeStats,
   recordWidgetOrigin,
   revokeSiteKey,
   SiteKeyInvalid,
@@ -41,12 +47,14 @@ const {
 const { EMBEDDING_COLUMN_DIMENSIONS } = await import('@/lib/infrastructure/ai/providers');
 const { db, schema } = await import('@/lib/infrastructure/postgres/client');
 const { uuidv7 } = await import('@/lib/domain/id');
+const { sessionTokenHash } = await import('@/lib/application/auth/session-token');
 const { GET: embedPage } = await import('@/app/embed/route');
 const { POST: askRoute } = await import('@/app/api/embed/ask/route');
 
 const actor = { administratorId: null as unknown as string, email: 'ops@example.test' };
 const libraries: string[] = [];
 const workspaces: string[] = [];
+const users: string[] = [];
 const planVersions: string[] = [];
 const store = memoryObjectStore();
 
@@ -125,6 +133,28 @@ async function workspaceOnPlan(monthlyCalls = 1_000): Promise<string> {
   return workspaceId;
 }
 
+/** A dashboard session of a new owner of `workspaceId`: the cookie its requests carry. */
+async function signedInOwner(workspaceId: string): Promise<string> {
+  const database = db();
+  const userId = uuidv7();
+  users.push(userId);
+  await database.insert(schema.user).values({
+    id: userId,
+    email: `owner-${userId}@example.test`,
+    displayName: 'Owner',
+    status: 'active',
+  });
+  await database.insert(schema.workspaceMember).values({ workspaceId, userId, role: 'owner' });
+  const token = `widget-preview-${crypto.randomUUID()}`;
+  await database.insert(schema.userSession).values({
+    id: uuidv7(),
+    userId,
+    tokenHash: await sessionTokenHash(token),
+    expiresAt: new Date(Date.now() + 86_400_000),
+  });
+  return `r0_session=${token}`;
+}
+
 /** A built, published, *private* library owned by the workspace. */
 async function ownedLibrary(workspaceId: string, slug: string): Promise<string> {
   const { libraryId } = await createPlatformLibrary({
@@ -153,18 +183,22 @@ async function ownedLibrary(workspaceId: string, slug: string): Promise<string> 
   return libraryId;
 }
 
-function page(key: string | null, parent: string | null): NextRequest {
+function page(key: string | null, parent: string | null, cookie?: string): NextRequest {
   const url = new URL('https://app.example.test/embed');
   if (key) url.searchParams.set('key', key);
   if (parent) url.searchParams.set('parent', parent);
   url.searchParams.set('lang', 'en');
-  return new NextRequest(url);
+  return new NextRequest(url, { headers: cookie ? { cookie } : {} });
 }
 
-function ask(body: unknown, origin?: string): NextRequest {
+function ask(body: unknown, origin?: string, cookie?: string): NextRequest {
   return new NextRequest('https://app.example.test/api/embed/ask', {
     method: 'POST',
-    headers: { 'content-type': 'application/json', ...(origin ? { origin } : {}) },
+    headers: {
+      'content-type': 'application/json',
+      ...(origin ? { origin } : {}),
+      ...(cookie ? { cookie } : {}),
+    },
     body: JSON.stringify(body),
   });
 }
@@ -181,6 +215,9 @@ describeWithDb('website widget', () => {
   afterAll(async () => {
     const database = db();
     if (libraries.length > 0) {
+      await database.delete(schema.widgetExchange).where(inArray(schema.widgetExchange.libraryId, libraries));
+      await database.delete(schema.libraryFaq).where(inArray(schema.libraryFaq.libraryId, libraries));
+      await database.delete(schema.workflowOperation).where(inArray(schema.workflowOperation.libraryId, libraries));
       await database.delete(schema.siteKey).where(inArray(schema.siteKey.libraryId, libraries));
       await database
         .update(schema.library)
@@ -202,7 +239,14 @@ describeWithDb('website widget', () => {
       await database.delete(schema.source).where(inArray(schema.source.libraryId, libraries));
       await database.delete(schema.libraryAlias).where(inArray(schema.libraryAlias.libraryId, libraries));
       await database.delete(schema.auditLog).where(inArray(schema.auditLog.targetId, libraries));
+      /* Again, last: an exchange is recorded off the request path and may land after the first sweep. */
+      await database.delete(schema.widgetExchange).where(inArray(schema.widgetExchange.libraryId, libraries));
       await database.delete(schema.library).where(inArray(schema.library.id, libraries));
+    }
+    if (users.length > 0) {
+      await database.delete(schema.userSession).where(inArray(schema.userSession.userId, users));
+      await database.delete(schema.workspaceMember).where(inArray(schema.workspaceMember.userId, users));
+      await database.delete(schema.user).where(inArray(schema.user.id, users));
     }
     if (workspaces.length > 0) {
       await database.delete(schema.requestLog).where(inArray(schema.requestLog.workspaceId, workspaces));
@@ -418,6 +462,169 @@ describeWithDb('website widget', () => {
     /* A revoked key takes its sites with it. */
     await revokeSiteKey({ workspaceId, role: 'owner', siteKeyId: key.id });
     expect(await listWorkspaceWidgetSites(workspaceId)).toEqual([]);
+  });
+
+  it('lets the owner try the widget from the dashboard, and nobody else', async () => {
+    const workspaceId = await workspaceOnPlan();
+    const libraryId = await ownedLibrary(workspaceId, `widget-preview-${Date.now()}`);
+    const key = await createSiteKey({ workspaceId, role: 'owner', libraryId, name: 'Site', origins: SITE });
+    const APP = 'https://app.example.test';
+
+    /* The app's own origin is not on the list: anonymous, it is refused like any other. */
+    const anonymous = await embedPage(page(key.key, APP));
+    expect(anonymous.status).toBe(403);
+    expect(anonymous.headers.get('content-security-policy')).toBe(`frame-ancestors ${SITE}`);
+
+    /* Another workspace's owner is refused too: the session must own the key. */
+    const stranger = await signedInOwner(await workspaceOnPlan());
+    expect((await embedPage(page(key.key, APP, stranger))).status).toBe(403);
+
+    /* The key's own owner gets the page, framed by this origin as well. */
+    const owner = await signedInOwner(workspaceId);
+    const preview = await embedPage(page(key.key, APP, owner));
+    expect(preview.status).toBe(200);
+    expect(preview.headers.get('content-security-policy')).toBe(`frame-ancestors ${SITE} 'self'`);
+    const html = await preview.text();
+    expect(html).toContain(`"parent":"${APP}"`);
+    expect(html).toContain('"preview":true');
+
+    /* Questions from the preview are answered as a visitor's would be. */
+    const answered = await askRoute(ask({ key: key.key, parent: APP, question: 'returns' }, APP, owner));
+    expect(answered.status).toBe(200);
+    expect((await lines(answered))[0]).toMatchObject({ type: 'allowance' });
+    expect((await askRoute(ask({ key: key.key, parent: APP, question: 'returns' }, APP))).status).toBe(403);
+    expect((await askRoute(ask({ key: key.key, parent: APP, question: 'returns' }, APP, stranger))).status).toBe(403);
+
+    /* The owner's own try-out is not an integrated site. */
+    await new Promise((resolve) => setTimeout(resolve, 200));
+    const sites = await listWorkspaceWidgetSites(workspaceId);
+    expect(sites[0]?.origins.map((origin) => origin.origin)).toEqual([SITE]);
+    expect(sites[0]?.origins[0]?.lastSeenAt).toBeNull();
+
+    /* But it is in the library's history, marked as the owner's preview. */
+    const history = await listWidgetExchanges({ workspaceId, libraryId });
+    expect(history.total).toBe(1);
+    expect(history.exchanges[0]).toMatchObject({
+      origin: APP,
+      preview: true,
+      question: 'returns',
+      outcome: 'degraded',
+    });
+    expect(history.exchanges[0]?.sources[0]?.url).toBe('https://shop.example.test/help/returns');
+    /* Previews do not count as visitors' questions. */
+    expect(await widgetExchangeStats({ workspaceId, libraryId })).toMatchObject({ questions: 0, missed: 0 });
+    /* Another workspace reads nothing of it. */
+    expect((await listWidgetExchanges({ workspaceId: await workspaceOnPlan(), libraryId })).total).toBe(0);
+  });
+
+  it("keeps what visitors asked, and counts the questions the library could not answer", async () => {
+    const workspaceId = await workspaceOnPlan();
+    const libraryId = await ownedLibrary(workspaceId, `widget-history-${Date.now()}`);
+    const key = await createSiteKey({ workspaceId, role: 'owner', libraryId, name: 'Site', origins: SITE });
+
+    const answered = await askRoute(ask({ key: key.key, parent: SITE, question: 'how do I return a zugwidget' }, SITE));
+    expect(answered.status).toBe(200);
+    /* Read to the end: the exchange is recorded once its stream has ended. No
+       model in the test database, so passages come back -- degraded, not a miss. */
+    await lines(answered);
+    await db().update(schema.library).set({ lifecycleStatus: 'suspended' }).where(eq(schema.library.id, libraryId));
+    const paused = await askRoute(ask({ key: key.key, parent: SITE, question: 'opening hours' }, SITE));
+    expect(paused.status).toBe(200);
+    await lines(paused);
+    await new Promise((resolve) => setTimeout(resolve, 200));
+
+    const history = await listWidgetExchanges({ workspaceId, libraryId });
+    expect(history.exchanges.map((exchange) => [exchange.question, exchange.outcome])).toEqual([
+      ['opening hours', 'not_ready'],
+      ['how do I return a zugwidget', 'degraded'],
+    ]);
+    expect(history.exchanges[1]?.latencyMs).toBeGreaterThanOrEqual(0);
+    expect(await widgetExchangeStats({ workspaceId, libraryId })).toMatchObject({
+      questions: 2,
+      answered: 1,
+      missed: 1,
+    });
+  });
+
+  it("builds the owner's FAQ into the library and groups what visitors asked", async () => {
+    const workspaceId = await workspaceOnPlan();
+    const libraryId = await ownedLibrary(workspaceId, `widget-faq-${Date.now()}`);
+    const key = await createSiteKey({ workspaceId, role: 'owner', libraryId, name: 'Site', origins: SITE });
+    for (const question of ['Can I return a zugwidget?', 'can i return a zugwidget', 'opening hours']) {
+      await lines(await askRoute(ask({ key: key.key, parent: SITE, question }, SITE)));
+    }
+    await new Promise((resolve) => setTimeout(resolve, 200));
+
+    /* Grouped by text when no embedding provider is there to group by meaning. */
+    const textOnly = {
+      configured: async () => ({ embeddings: false, rerank: false }),
+      embeddings: () => {
+        throw new Error('not configured');
+      },
+    };
+    const groups = await listFaqGroups({ workspaceId, libraryId, dependencies: textOnly });
+    expect(groups.map((group) => [group.question, group.count, group.covered])).toEqual([
+      ['Can I return a zugwidget?', 2, false],
+      ['opening hours', 1, false],
+    ]);
+    expect(groups[0]?.pages[0]?.url).toBe('https://shop.example.test/help/returns');
+
+    /* An entry written from the group queues a build and becomes a document of it. */
+    const saved = await saveFaqEntry({
+      workspaceId,
+      role: 'owner',
+      libraryId,
+      question: 'Can I return a zugwidget?',
+      answer: 'Yes, within thirty days of delivery with the receipt.',
+      pageUrl: 'https://shop.example.test/help/returns',
+    });
+    expect(saved.entry?.question).toBe('Can I return a zugwidget?');
+    const [queued] = await db()
+      .select({ status: schema.workflowOperation.status })
+      .from(schema.workflowOperation)
+      .where(eq(schema.workflowOperation.id, saved.operationId));
+    expect(queued?.status).toBe('pending');
+
+    const built = await buildVersion({ libraryId, operationId: saved.operationId, dependencies: dependencies() });
+    if (!built.changed) throw new Error('the FAQ did not change the build');
+    const docs = await db()
+      .select({ title: schema.document.title, sourceUrl: schema.document.sourceUrl })
+      .from(schema.document)
+      .where(eq(schema.document.versionId, built.versionId));
+    expect(docs).toContainEqual({
+      title: 'Can I return a zugwidget?',
+      sourceUrl: 'https://shop.example.test/help/returns',
+    });
+    /* Its chunks are marked as the FAQ's, which is what the direct answer reads. */
+    const [faqChunk] = await db()
+      .select({ kind: sql<string | null>`${schema.chunk.citation}->>'kind'` })
+      .from(schema.chunk)
+      .where(and(eq(schema.chunk.versionId, built.versionId), sql`${schema.chunk.citation}->>'title' = 'Can I return a zugwidget?'`));
+    expect(faqChunk?.kind).toBe('faq');
+    await publishVersion({ libraryId, versionId: built.versionId });
+
+    /* Nothing changed -- source or FAQ -- so nothing is built. */
+    expect((await buildVersion({ libraryId, operationId: uuidv7(), dependencies: dependencies() })).changed).toBe(false);
+    /* The FAQ alone changing is a change. */
+    await saveFaqEntry({
+      workspaceId,
+      role: 'owner',
+      libraryId,
+      entryId: saved.entry!.id,
+      question: 'Can I return a zugwidget?',
+      answer: 'Yes, within sixty days.',
+      pageUrl: 'https://shop.example.test/help/returns',
+    });
+    const rebuilt = await buildVersion({ libraryId, operationId: uuidv7(), dependencies: dependencies() });
+    expect(rebuilt.changed).toBe(true);
+
+    /* The group now reads as covered; removing the entry uncovers it. */
+    expect((await listFaqGroups({ workspaceId, libraryId, dependencies: textOnly }))[0]?.covered).toBe(true);
+    await expect(
+      saveFaqEntry({ workspaceId, role: 'developer', libraryId, question: 'x', answer: 'y', pageUrl: SITE }),
+    ).rejects.toMatchObject({ code: 'access_denied' });
+    await deleteFaqEntry({ workspaceId, role: 'owner', libraryId, entryId: saved.entry!.id });
+    expect(await listFaqEntries({ workspaceId, libraryId })).toEqual([]);
   });
 
   it("stops at the key's daily limit", async () => {

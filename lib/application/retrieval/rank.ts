@@ -129,8 +129,10 @@ export async function rankChunks(
    * distance, so its first row is the best; a leg that did not run says
    * nothing rather than zero.
    */
+  const nearestFaq = semantic.find((row) => row.citation.kind === 'faq');
   const confidence: RetrievalConfidence = {
     bestDistance: semantic.length > 0 ? Number(semantic[0]!.distance) : null,
+    faqNearest: nearestFaq ? { chunkId: nearestFaq.id, distance: Number(nearestFaq.distance) } : null,
     keywordHits: keyword.length,
     /* What the best-ranked keyword chunks hold of the question itself; the
        head of the list is enough, ts_rank put the fullest matches there. */
@@ -223,5 +225,6 @@ function toCitation(raw: Record<string, unknown>): ChunkResult['citation'] | nul
     documentTitle: title,
     section: typeof raw.section === 'string' ? raw.section : null,
     lines: null,
+    ...(raw.kind === 'faq' ? { kind: 'faq' as const } : {}),
   };
 }

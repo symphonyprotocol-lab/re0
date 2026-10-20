@@ -18,11 +18,15 @@ import {
 } from '@/lib/domain/library';
 import {
   createSiteKey,
+  deleteFaqEntry,
+  FaqInvalid,
   revokeSiteKey,
+  saveFaqEntry,
   SiteKeyInvalid,
   updateSiteKey,
   type SiteKeyRefusal,
 } from '@/lib/application/embed';
+import type { FaqRefusal } from '@/lib/domain/faq';
 import { applyForExpertTag, withdrawExpertApplication } from '@/lib/application/expert-libraries';
 import { ExpertLibraryRefused, type ExpertLibraryError } from '@/lib/domain/expert-library';
 import { requireSession } from '@/lib/http/session';
@@ -379,5 +383,74 @@ export async function withdrawExpertAction(
     if (error instanceof ExpertLibraryRefused) return { ok: false, error: error.code };
     console.error(`expert withdrawal failed: ${error instanceof Error ? error.message : 'unknown'}`);
     return { ok: false, error: 'unavailable' };
+  }
+}
+
+/* ------------------------------------------------------------------ faq */
+
+/**
+ * The owner's FAQ (lib/domain/faq.ts): save an entry, remove one. Either
+ * queues a rebuild and starts it, as the rebuild button does, so the entry
+ * reaches retrieval without a second click.
+ */
+export interface FaqActionResult {
+  ok: boolean;
+  error?: FaqRefusal | 'denied' | 'not_found' | 'quota' | 'unavailable';
+}
+
+function faqRefusal(error: unknown, verb: string): FaqActionResult {
+  if (error instanceof FaqInvalid) return { ok: false, error: error.field };
+  if (error instanceof AppError) {
+    if (error.code === 'access_denied') return { ok: false, error: 'denied' };
+    if (error.code === 'library_not_found') return { ok: false, error: 'not_found' };
+    if (error.code === 'quota_exceeded') return { ok: false, error: 'quota' };
+  }
+  console.error(`${verb} faq entry failed: ${error instanceof Error ? error.message : 'unknown'}`);
+  return { ok: false, error: 'unavailable' };
+}
+
+export async function saveFaqEntryAction(
+  _previous: FaqActionResult | null,
+  form: FormData,
+): Promise<FaqActionResult> {
+  const libraryId = String(form.get('libraryId') ?? '');
+  const session = await requireSession(`/dashboard/libraries/${libraryId}`);
+  try {
+    const entryId = String(form.get('entryId') ?? '');
+    const result = await saveFaqEntry({
+      workspaceId: session.workspace.id,
+      role: session.workspace.role,
+      libraryId,
+      entryId: entryId.length > 0 ? entryId : null,
+      question: String(form.get('question') ?? ''),
+      answer: String(form.get('answer') ?? ''),
+      pageUrl: String(form.get('pageUrl') ?? ''),
+    });
+    after(() => runOperation({ operationId: result.operationId }));
+    revalidatePath(`/dashboard/libraries/${libraryId}`);
+    return { ok: true };
+  } catch (error) {
+    return faqRefusal(error, 'save');
+  }
+}
+
+export async function deleteFaqEntryAction(
+  _previous: FaqActionResult | null,
+  form: FormData,
+): Promise<FaqActionResult> {
+  const libraryId = String(form.get('libraryId') ?? '');
+  const session = await requireSession(`/dashboard/libraries/${libraryId}`);
+  try {
+    const result = await deleteFaqEntry({
+      workspaceId: session.workspace.id,
+      role: session.workspace.role,
+      libraryId,
+      entryId: String(form.get('entryId') ?? ''),
+    });
+    after(() => runOperation({ operationId: result.operationId }));
+    revalidatePath(`/dashboard/libraries/${libraryId}`);
+    return { ok: true };
+  } catch (error) {
+    return faqRefusal(error, 'delete');
   }
 }

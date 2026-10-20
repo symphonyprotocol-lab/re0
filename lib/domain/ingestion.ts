@@ -1030,6 +1030,8 @@ export interface Citation extends Record<string, unknown> {
   url: string;
   section: string | null;
   path: string;
+  /** 'faq' for a chunk of an owner-written FAQ entry (lib/domain/faq.ts); absent for a page of the source. */
+  kind?: 'faq';
 }
 
 const SECTION_SEPARATOR = ' > ';

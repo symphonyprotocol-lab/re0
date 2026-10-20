@@ -16,7 +16,8 @@
 import type { NextRequest } from 'next/server';
 import { AppError } from '@/contracts/errors';
 import { noteWidgetOrigin, resolveSiteKey, type SiteKeyPrincipal } from '@/lib/application/embed';
-import { originAllowed, frameAncestors } from '@/lib/domain/site-key';
+import { originAllowed, frameAncestors, normaliseOrigin } from '@/lib/domain/site-key';
+import { isPreviewOwner, isPreviewParent } from '@/lib/http/embed-preview';
 import { messagesFor } from '@/lib/i18n/dictionary';
 import { HTML_LANG, negotiateLocale } from '@/lib/i18n/locale';
 
@@ -95,14 +96,23 @@ export async function GET(request: NextRequest): Promise<Response> {
    * who opens the URL directly from a site that is not on it. Either way the
    * list sent is the owner's, never widened by the parent the loader claims.
    */
+  /*
+   * The owner's preview from the dashboard (lib/http/embed-preview.ts): the
+   * app's own origin as parent, admitted by the session that owns the key
+   * rather than by the list, and framed by this origin alone.
+   */
+  const preview = isPreviewParent(parent, request);
+  const previewAllowed = preview && (await isPreviewOwner(request, principal.workspaceId));
   const headers = {
     'content-type': 'text/html; charset=utf-8',
     'cache-control': 'private, no-store',
-    'content-security-policy': frameAncestors(principal.allowedOrigins),
+    'content-security-policy': previewAllowed
+      ? frameAncestors([...principal.allowedOrigins, "'self'"])
+      : frameAncestors(principal.allowedOrigins),
     'x-content-type-options': 'nosniff',
   };
 
-  if (!originAllowed(principal.allowedOrigins, parent)) {
+  if (preview ? !previewAllowed : !originAllowed(principal.allowedOrigins, parent)) {
     return new Response(
       document({
         lang,
@@ -114,12 +124,14 @@ export async function GET(request: NextRequest): Promise<Response> {
     );
   }
 
-  /* The snippet is installed on this parent: the dashboard lists it as reached. */
-  noteWidgetOrigin(principal.siteKeyId, parent, 'load');
+  /* The snippet is installed on this parent: the dashboard lists it as
+     reached. The owner's own preview is not a site. */
+  if (!preview) noteWidgetOrigin(principal.siteKeyId, parent, 'load');
 
   const config = {
     key,
-    parent,
+    parent: preview ? normaliseOrigin(parent ?? '') : parent,
+    preview,
     accent: principal.accent,
     title: principal.libraryTitle,
     welcome: principal.welcome ?? t.welcomeDefault,

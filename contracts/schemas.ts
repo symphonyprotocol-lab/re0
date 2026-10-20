@@ -145,6 +145,8 @@ export const citationSchema = z.object({
   documentTitle: z.string(),
   section: z.string().nullable(),
   lines: z.tuple([z.number().int(), z.number().int()]).nullable(),
+  /** 'faq' for a chunk of an owner-written FAQ entry (lib/domain/faq.ts); absent for a page of the source. */
+  kind: z.enum(['faq']).optional(),
 });
 
 export const chunkResultSchema = z.object({

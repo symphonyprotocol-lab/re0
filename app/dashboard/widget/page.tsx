@@ -1,6 +1,7 @@
 import type { Metadata } from 'next';
 import Link from 'next/link';
 import { CopyButton } from '@/components/dashboard/copy-button';
+import { WidgetPreview } from '@/components/dashboard/widget-preview';
 import {
   ActionButton,
   ArrowLink,
@@ -195,6 +196,7 @@ export default async function DashboardWidgetPage() {
                         ) : null}
                       </div>
                       <div className="flex items-center gap-2">
+                        <WidgetPreview siteKey={{ id: key.id, key: key.key, name: key.name }} />
                         <CopyButton value={keySnippet} label={w.sites.snippet} className="text-muted hover:bg-mutedbg" />
                         <ArrowLink href={manageHref}>{w.sites.manage}</ArrowLink>
                       </div>

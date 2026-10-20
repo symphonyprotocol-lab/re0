@@ -34,11 +34,10 @@ import { db, schema } from '@/lib/infrastructure/postgres/client';
 import { assertBuildAffordable } from '@/lib/application/plans/build-quota';
 import { confirmUploads } from './create';
 import { canManageLibraries, type WorkspaceRole } from './delete';
+import { openBuild, queueBuildUnlessPending } from './queue-build';
 
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
-/** The operation types that build a version, and so can be "already queued". */
-const BUILD_OPERATIONS = ['ingest', 'refresh'] as const;
 
 export interface LibraryFilesView {
   library: {
@@ -196,24 +195,7 @@ export async function updateLibraryFiles(
 
     if (files.length === 0) return { files, operationId: null };
 
-    /*
-     * A pending build has not read the source yet, so it will pick this
-     * change up; queue nothing. A running one already has, so a new row is
-     * needed behind it -- `workflow_operation_uq` does not collide on a null
-     * digest, and the worker's digest check makes an extra build cheap.
-     */
-    const open = await openBuild(tx, locked.id);
-    if (open?.status === 'pending') return { files, operationId: open.id };
-
-    const operationId = uuidv7();
-    await tx.insert(schema.workflowOperation).values({
-      id: operationId,
-      libraryId: locked.id,
-      operationType: 'refresh',
-      sourceDigest: null,
-      status: 'pending',
-    });
-    return { files, operationId };
+    return { files, operationId: await queueBuildUnlessPending(tx, locked.id) };
   });
 }
 
@@ -226,23 +208,3 @@ function ownedPdfLibrary(workspaceId: string, libraryId: string) {
   );
 }
 
-type Reader = Pick<ReturnType<typeof db>, 'select'>;
-
-async function openBuild(
-  reader: Reader,
-  libraryId: string,
-): Promise<{ id: string; status: string } | null> {
-  const [open] = await reader
-    .select({ id: schema.workflowOperation.id, status: schema.workflowOperation.status })
-    .from(schema.workflowOperation)
-    .where(
-      and(
-        eq(schema.workflowOperation.libraryId, libraryId),
-        inArray(schema.workflowOperation.operationType, [...BUILD_OPERATIONS]),
-        inArray(schema.workflowOperation.status, ['pending', 'running']),
-      ),
-    )
-    .orderBy(desc(schema.workflowOperation.createdAt))
-    .limit(1);
-  return open ?? null;
-}

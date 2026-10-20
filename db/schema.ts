@@ -666,6 +666,64 @@ export const siteKeyOrigin = pgTable(
   (t) => [uniqueIndex('site_key_origin_uq').on(t.siteKeyId, t.origin)],
 );
 
+/**
+ * What the website widget was asked, per library. requirement.md 9.4,
+ * lib/application/embed/exchanges.ts.
+ *
+ * The request log keeps no query text (architecture.md 17.1); this table
+ * does, on purpose: a visitor asked the owner's site, and the owner reads
+ * what their visitors ask and what they were told to grow the library from
+ * it. Scoped to the library, nothing of the visitor beyond the site they
+ * asked from; the owner's own try-outs from the dashboard are previews.
+ */
+export const widgetExchange = pgTable(
+  'widget_exchange',
+  {
+    id: uuid('id').primaryKey(),
+    libraryId: uuid('library_id').notNull().references(() => library.id),
+    workspaceId: uuid('workspace_id').notNull().references(() => workspace.id),
+    /** Kept after the key is revoked; null once the key row is gone. */
+    siteKeyId: uuid('site_key_id').references(() => siteKey.id, { onDelete: 'set null' }),
+    origin: text('origin').notNull(),
+    preview: boolean('preview').notNull().default(false),
+    question: text('question').notNull(),
+    /** The query the answer was retrieved with when the question itself missed. */
+    rewrittenQuery: text('rewritten_query'),
+    /** 'answer' | 'no_context' | 'degraded' | 'not_ready' | 'unavailable' (the widget's outcome kinds). */
+    outcome: text('outcome').notNull(),
+    /** The bound sentences, joined; null when nothing was generated. */
+    answer: text('answer'),
+    sources: jsonb('sources').$type<{ url: string; title: string }[]>().notNull().default([]),
+    latencyMs: integer('latency_ms'),
+    createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
+  },
+  (t) => [index('widget_exchange_library_time_idx').on(t.libraryId, t.createdAt)],
+);
+
+/**
+ * The owner's FAQ for a library. requirement.md 9.4, lib/domain/faq.ts.
+ *
+ * Each entry becomes a document of the next build -- question as title,
+ * answer as body, cited to `pageUrl` -- so a recurring widget question finds
+ * a chunk written for it. `libraryVersion.faqDigest` remembers the FAQ a
+ * version was built with.
+ */
+export const libraryFaq = pgTable(
+  'library_faq',
+  {
+    id: uuid('id').primaryKey(),
+    libraryId: uuid('library_id').notNull().references(() => library.id),
+    workspaceId: uuid('workspace_id').notNull().references(() => workspace.id),
+    question: text('question').notNull(),
+    answer: text('answer').notNull(),
+    /** The page the entry stands for; what its citation opens. */
+    pageUrl: text('page_url').notNull(),
+    createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
+    updatedAt: timestamp('updated_at', { withTimezone: true }).notNull().defaultNow(),
+  },
+  (t) => [index('library_faq_library_idx').on(t.libraryId, t.createdAt)],
+);
+
 export const libraryAlias = pgTable(
   'library_alias',
   {
@@ -734,6 +792,12 @@ export const libraryVersion = pgTable(
      * version is -- and because a build compares all four against the current
      * version to decide whether an unchanged source still needs rebuilding.
      */
+    /**
+     * The FAQ this version was built with (lib/domain/faq.ts `faqCanonical`,
+     * hashed); null when the library had none. A build compares it to know
+     * whether an edit to the FAQ alone is a change.
+     */
+    faqDigest: text('faq_digest'),
     searchConfig: text('search_config').notNull().default('simple'),
     /** Merkle root over ordered chunk digests, input to Version Anchor. */
     contentMerkleRoot: text('content_merkle_root'),
