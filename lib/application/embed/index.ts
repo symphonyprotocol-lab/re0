@@ -13,6 +13,19 @@ export {
   type UpdateSiteKeyInput,
 } from './site-keys';
 export {
+  deleteFaqEntry,
+  faqEntriesForBuild,
+  FAQ_GROUPING,
+  FaqInvalid,
+  listFaqEntries,
+  listFaqGroups,
+  saveFaqEntry,
+  type FaqChangeResult,
+  type FaqEntryView,
+  type FaqGroupView,
+  type SaveFaqEntryInput,
+} from './faq';
+export {
   EXCHANGE_PAGE_SIZE,
   listWidgetExchanges,
   noteWidgetExchange,

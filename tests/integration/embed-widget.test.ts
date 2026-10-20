@@ -31,9 +31,13 @@ const { createPlatformLibrary } = await import(
 );
 const {
   createSiteKey,
+  deleteFaqEntry,
+  listFaqEntries,
+  listFaqGroups,
   listSiteKeys,
   listWidgetExchanges,
   listWorkspaceWidgetSites,
+  saveFaqEntry,
   widgetExchangeStats,
   recordWidgetOrigin,
   revokeSiteKey,
@@ -212,6 +216,8 @@ describeWithDb('website widget', () => {
     const database = db();
     if (libraries.length > 0) {
       await database.delete(schema.widgetExchange).where(inArray(schema.widgetExchange.libraryId, libraries));
+      await database.delete(schema.libraryFaq).where(inArray(schema.libraryFaq.libraryId, libraries));
+      await database.delete(schema.workflowOperation).where(inArray(schema.workflowOperation.libraryId, libraries));
       await database.delete(schema.siteKey).where(inArray(schema.siteKey.libraryId, libraries));
       await database
         .update(schema.library)
@@ -538,6 +544,81 @@ describeWithDb('website widget', () => {
       answered: 1,
       missed: 1,
     });
+  });
+
+  it("builds the owner's FAQ into the library and groups what visitors asked", async () => {
+    const workspaceId = await workspaceOnPlan();
+    const libraryId = await ownedLibrary(workspaceId, `widget-faq-${Date.now()}`);
+    const key = await createSiteKey({ workspaceId, role: 'owner', libraryId, name: 'Site', origins: SITE });
+    for (const question of ['Can I return a zugwidget?', 'can i return a zugwidget', 'opening hours']) {
+      await lines(await askRoute(ask({ key: key.key, parent: SITE, question }, SITE)));
+    }
+    await new Promise((resolve) => setTimeout(resolve, 200));
+
+    /* Grouped by text when no embedding provider is there to group by meaning. */
+    const textOnly = {
+      configured: async () => ({ embeddings: false, rerank: false }),
+      embeddings: () => {
+        throw new Error('not configured');
+      },
+    };
+    const groups = await listFaqGroups({ workspaceId, libraryId, dependencies: textOnly });
+    expect(groups.map((group) => [group.question, group.count, group.covered])).toEqual([
+      ['Can I return a zugwidget?', 2, false],
+      ['opening hours', 1, false],
+    ]);
+    expect(groups[0]?.pages[0]?.url).toBe('https://shop.example.test/help/returns');
+
+    /* An entry written from the group queues a build and becomes a document of it. */
+    const saved = await saveFaqEntry({
+      workspaceId,
+      role: 'owner',
+      libraryId,
+      question: 'Can I return a zugwidget?',
+      answer: 'Yes, within thirty days of delivery with the receipt.',
+      pageUrl: 'https://shop.example.test/help/returns',
+    });
+    expect(saved.entry?.question).toBe('Can I return a zugwidget?');
+    const [queued] = await db()
+      .select({ status: schema.workflowOperation.status })
+      .from(schema.workflowOperation)
+      .where(eq(schema.workflowOperation.id, saved.operationId));
+    expect(queued?.status).toBe('pending');
+
+    const built = await buildVersion({ libraryId, operationId: saved.operationId, dependencies: dependencies() });
+    if (!built.changed) throw new Error('the FAQ did not change the build');
+    const docs = await db()
+      .select({ title: schema.document.title, sourceUrl: schema.document.sourceUrl })
+      .from(schema.document)
+      .where(eq(schema.document.versionId, built.versionId));
+    expect(docs).toContainEqual({
+      title: 'Can I return a zugwidget?',
+      sourceUrl: `https://shop.example.test/help/returns#re0-faq-${saved.entry!.id}`,
+    });
+    await publishVersion({ libraryId, versionId: built.versionId });
+
+    /* Nothing changed -- source or FAQ -- so nothing is built. */
+    expect((await buildVersion({ libraryId, operationId: uuidv7(), dependencies: dependencies() })).changed).toBe(false);
+    /* The FAQ alone changing is a change. */
+    await saveFaqEntry({
+      workspaceId,
+      role: 'owner',
+      libraryId,
+      entryId: saved.entry!.id,
+      question: 'Can I return a zugwidget?',
+      answer: 'Yes, within sixty days.',
+      pageUrl: 'https://shop.example.test/help/returns',
+    });
+    const rebuilt = await buildVersion({ libraryId, operationId: uuidv7(), dependencies: dependencies() });
+    expect(rebuilt.changed).toBe(true);
+
+    /* The group now reads as covered; removing the entry uncovers it. */
+    expect((await listFaqGroups({ workspaceId, libraryId, dependencies: textOnly }))[0]?.covered).toBe(true);
+    await expect(
+      saveFaqEntry({ workspaceId, role: 'developer', libraryId, question: 'x', answer: 'y', pageUrl: SITE }),
+    ).rejects.toMatchObject({ code: 'access_denied' });
+    await deleteFaqEntry({ workspaceId, role: 'owner', libraryId, entryId: saved.entry!.id });
+    expect(await listFaqEntries({ workspaceId, libraryId })).toEqual([]);
   });
 
   it("stops at the key's daily limit", async () => {

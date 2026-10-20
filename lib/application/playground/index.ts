@@ -31,6 +31,7 @@ import {
 } from '@/lib/domain/generation';
 import { retrievalBudgetFor } from '@/lib/domain/retrieval-config';
 import { llmAdapter, type LlmAdapter } from '@/lib/infrastructure/ai/llm';
+import { FAQ_LIMITS, faqSentences, isFaqCitation } from '@/lib/domain/faq';
 import { libraryRewriteHints } from './rewrite-hints';
 
 /**
@@ -301,6 +302,22 @@ export async function* streamPlayground(
   // Rule 2: never call the model without context.
   if (retrieved.chunks.length === 0) {
     yield { type: 'done', kind: 'no_context', requestId: retrieved.requestId };
+    return;
+  }
+
+  /*
+   * The owner wrote the answer (lib/domain/faq.ts): when the nearest chunk
+   * is a FAQ document's and the question sits within `directDistance` of it,
+   * the answer is that chunk, sentence by sentence, each bound to it -- no
+   * model, no paraphrase of six passages, the same citation rules. This is
+   * the generation layer wrapping retrieval at its tightest (9.5), and it is
+   * what makes a FAQ worth writing: the recurring question comes back in a
+   * fraction of the time.
+   */
+  const direct = directFaqAnswer(retrieved);
+  if (direct) {
+    for (const claim of direct) yield claim;
+    yield { type: 'done', kind: 'answer', requestId: retrieved.requestId };
     return;
   }
 
@@ -590,4 +607,24 @@ export async function askPlayground(
     requestId,
     rewrite,
   };
+}
+
+/**
+ * The FAQ chunk's sentences as claims, when the question asked is the FAQ's
+ * own: the top chunk is a FAQ document's and its library's best distance is
+ * within `FAQ_LIMITS.directDistance`. Null otherwise.
+ */
+function directFaqAnswer(retrieved: {
+  chunks: GatheredChunk[];
+  libraries: GatheredLibrary[];
+}): Extract<PlaygroundEvent, { type: 'claim' }>[] | null {
+  const top = retrieved.chunks[0];
+  if (!top || !isFaqCitation(top.citation.sourceUrl)) return null;
+  const library = retrieved.libraries.find((candidate) => candidate.libraryId === top.libraryId);
+  if (!library || library.bestDistance === null || library.bestDistance > FAQ_LIMITS.directDistance) {
+    return null;
+  }
+  const sentences = faqSentences(top.text);
+  if (sentences.length === 0) return null;
+  return sentences.map((claim) => ({ type: 'claim' as const, claim, chunkIds: [top.chunkId] }));
 }

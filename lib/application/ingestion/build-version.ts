@@ -67,6 +67,8 @@ import {
 import { notionSourceUserId } from '@/lib/domain/notion';
 import { notionTokenFor } from '@/lib/application/auth/notion-connection';
 import { db, schema } from '@/lib/infrastructure/postgres/client';
+import { faqEntriesForBuild } from '@/lib/application/embed/faq';
+import { faqCanonical, faqDocument, faqDocumentPath, faqDocumentUrl } from '@/lib/domain/faq';
 import { objectKeys } from '@/lib/infrastructure/objects/store';
 import { platformTermWeight } from './term-weights';
 import type { FetchedFile, SourceSnapshot } from '@/lib/infrastructure/connectors';
@@ -251,6 +253,7 @@ export async function buildVersion(input: BuildInput): Promise<BuildOutcome> {
           embeddingModel: schema.libraryVersion.embeddingModel,
           embeddingDimensions: schema.libraryVersion.embeddingDimensions,
           searchConfig: schema.libraryVersion.searchConfig,
+          faqDigest: schema.libraryVersion.faqDigest,
         })
         .from(schema.libraryVersion)
         .where(eq(schema.libraryVersion.id, library.currentVersionId))
@@ -405,7 +408,19 @@ export async function buildVersion(input: BuildInput): Promise<BuildOutcome> {
    * checked hourly and changes yearly would otherwise accumulate thousands of
    * identical versions, each one anchored and each one a superseded row.
    */
-  if (sameConfiguration && plans.every((plan) => plan.carried)) {
+  /*
+   * The owner's FAQ (lib/domain/faq.ts) is content of the build too: each
+   * entry a document, cited to the page it stands for under a URL that marks
+   * it as a FAQ. It has no source of its own, so it is never carried forward
+   * -- a few entries re-parsed are cheaper than another plan kind -- and the
+   * version remembers which FAQ it was built with, so an edit to an entry
+   * alone is a change worth a build.
+   */
+  const faqEntries = await faqEntriesForBuild(library.id);
+  const faqDigest = faqEntries.length > 0 ? await sha256Hex(faqCanonical(faqEntries)) : null;
+  const faqUnchanged = (current[0]?.faqDigest ?? null) === faqDigest;
+
+  if (sameConfiguration && plans.every((plan) => plan.carried) && faqUnchanged) {
     await database
       .update(schema.library)
       .set({ lastCheckedAt: new Date() })
@@ -413,7 +428,13 @@ export async function buildVersion(input: BuildInput): Promise<BuildOutcome> {
     return { changed: false, digest };
   }
 
-  const files: SourceFile[] = plans.flatMap((plan) => plan.files);
+  const faqFiles: SourceFile[] = faqEntries.map((entry) => ({
+    path: faqDocumentPath(entry),
+    url: faqDocumentUrl(entry),
+    content: faqDocument(entry),
+    sourceId: null,
+  }));
+  const files: SourceFile[] = [...plans.flatMap((plan) => plan.files), ...faqFiles];
   const carriedPlans = plans.filter((plan) => plan.carried);
 
   const store = dependencies.store();
@@ -499,7 +520,7 @@ export async function buildVersion(input: BuildInput): Promise<BuildOutcome> {
 
   const versionId = uuidv7();
   const rows: {
-    document: { id: string; title: string; sourceUrl: string; objectKey: string; sourceId: string };
+    document: { id: string; title: string; sourceUrl: string; objectKey: string; sourceId: string | null };
     chunks: {
       id: string;
       ordinal: number;
@@ -798,6 +819,7 @@ export async function buildVersion(input: BuildInput): Promise<BuildOutcome> {
       embeddingDimensions: adapter.dimensions,
       searchConfig,
       contentMerkleRoot: root,
+      faqDigest,
       /* Not `ready`: nothing has been embedded yet. */
       indexStatus: 'processing',
       totalTokens,
@@ -1031,7 +1053,8 @@ type SourceRecord = {
 };
 
 /** A fetched file that knows which source it came from. */
-type SourceFile = FetchedFile & { sourceId: string };
+/** A file of the build: a source's, or the FAQ's (no source). */
+type SourceFile = FetchedFile & { sourceId: string | null };
 
 /** Carried-forward documents are read this many at a time. */
 const CARRY_BATCH = 50;

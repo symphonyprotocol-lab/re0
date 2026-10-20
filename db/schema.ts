@@ -700,6 +700,30 @@ export const widgetExchange = pgTable(
   (t) => [index('widget_exchange_library_time_idx').on(t.libraryId, t.createdAt)],
 );
 
+/**
+ * The owner's FAQ for a library. requirement.md 9.4, lib/domain/faq.ts.
+ *
+ * Each entry becomes a document of the next build -- question as title,
+ * answer as body, cited to `pageUrl` -- so a recurring widget question finds
+ * a chunk written for it. `libraryVersion.faqDigest` remembers the FAQ a
+ * version was built with.
+ */
+export const libraryFaq = pgTable(
+  'library_faq',
+  {
+    id: uuid('id').primaryKey(),
+    libraryId: uuid('library_id').notNull().references(() => library.id),
+    workspaceId: uuid('workspace_id').notNull().references(() => workspace.id),
+    question: text('question').notNull(),
+    answer: text('answer').notNull(),
+    /** The page the entry stands for; what its citation opens. */
+    pageUrl: text('page_url').notNull(),
+    createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
+    updatedAt: timestamp('updated_at', { withTimezone: true }).notNull().defaultNow(),
+  },
+  (t) => [index('library_faq_library_idx').on(t.libraryId, t.createdAt)],
+);
+
 export const libraryAlias = pgTable(
   'library_alias',
   {
@@ -768,6 +792,12 @@ export const libraryVersion = pgTable(
      * version is -- and because a build compares all four against the current
      * version to decide whether an unchanged source still needs rebuilding.
      */
+    /**
+     * The FAQ this version was built with (lib/domain/faq.ts `faqCanonical`,
+     * hashed); null when the library had none. A build compares it to know
+     * whether an edit to the FAQ alone is a change.
+     */
+    faqDigest: text('faq_digest'),
     searchConfig: text('search_config').notNull().default('simple'),
     /** Merkle root over ordered chunk digests, input to Version Anchor. */
     contentMerkleRoot: text('content_merkle_root'),

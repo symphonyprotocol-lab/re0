@@ -11,6 +11,7 @@ import {
   ReviewPipeline,
 } from '@/components/dashboard/library-manage';
 import { RebuildLibraryButton } from '@/components/dashboard/library-rebuild';
+import { LibraryFaqPanel } from '@/components/dashboard/library-faq';
 import { LibraryWidgetPanel } from '@/components/dashboard/library-widget';
 import { Badge, IconTile, PANEL, StatusLabel, type StatusTone } from '@/components/dashboard/ui';
 import {
@@ -33,6 +34,8 @@ import {
 } from '@/lib/application/libraries';
 import {
   EXCHANGE_PAGE_SIZE,
+  listFaqEntries,
+  listFaqGroups,
   listSiteKeys,
   listWidgetExchanges,
   SITE_KEYS_PER_LIBRARY,
@@ -58,10 +61,12 @@ import { deleteWorkspaceLibraryAction } from '../actions';
 import {
   applyExpertAction,
   createSiteKeyAction,
+  deleteFaqEntryAction,
   editLibraryMetadataAction,
   ownerLifecycleAction,
   rebuildLibraryAction,
   revokeSiteKeyAction,
+  saveFaqEntryAction,
   updateParseScopeAction,
   updateSiteKeyAction,
   withdrawExpertAction,
@@ -112,7 +117,7 @@ export default async function DashboardLibraryPage({
   /* requirement.md 9.4: the website widget's keys ride along with the documents page. */
   /* The widget's history, a page at a time (`?qa=`), newest first. */
   const qaPage = Math.max(1, Math.floor(Number(query.qa) || 1));
-  const [documents, siteKeys, expert, exchanges, exchangeStats] = await Promise.all([
+  const [documents, siteKeys, expert, exchanges, exchangeStats, faqGroups, faqEntries] = await Promise.all([
     currentVersionId
       ? listVersionDocuments({
           libraryId: library.id,
@@ -131,6 +136,8 @@ export default async function DashboardLibraryPage({
       offset: (qaPage - 1) * EXCHANGE_PAGE_SIZE,
     }),
     widgetExchangeStats({ workspaceId: session.workspace.id, libraryId: library.id }),
+    listFaqGroups({ workspaceId: session.workspace.id, libraryId: library.id }).catch((): never[] => []),
+    listFaqEntries({ workspaceId: session.workspace.id, libraryId: library.id }),
   ]);
   const qaPages = Math.max(1, Math.ceil(exchanges.total / EXCHANGE_PAGE_SIZE));
   const qaHref = (page: number) => `/dashboard/libraries/${library.id}?qa=${page}#exchanges`;
@@ -475,6 +482,18 @@ export default async function DashboardLibraryPage({
           ])}
         />
       </section>
+
+      {/* lib/domain/faq.ts: the recurring questions, and the entries written from them. */}
+      {library.lifecycleStatus !== 'archived' && (siteKeys.length > 0 || faqEntries.length > 0 || faqGroups.length > 0) ? (
+        <LibraryFaqPanel
+          libraryId={library.id}
+          groups={faqGroups}
+          entries={faqEntries}
+          canEdit={canEdit}
+          saveAction={saveFaqEntryAction}
+          deleteAction={deleteFaqEntryAction}
+        />
+      ) : null}
 
       {/* requirement.md 9.4: what the widget was asked, for the owner to grow the library from. */}
       {siteKeys.length > 0 || exchanges.total > 0 ? (
