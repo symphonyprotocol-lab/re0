@@ -15,16 +15,8 @@
  */
 import { blendBenchmark, type EvaluationSummary } from './benchmark';
 
-/**
- * Bumped whenever `parseDocument` changes what it produces.
- *
- * -2: a document's title now prefers the title the page declares (its
- * `<title>`, or a renderer's metadata) over a heading below level 1, and
- * sheds the site's name from it. Bodies and chunks are unchanged; the bump
- * exists so every library picks the new titles up on its next refresh, which
- * the unchanged-source shortcut would otherwise skip for good.
- */
-export const PARSER_VERSION = 're0-parser-2';
+/** Bumped whenever `parseDocument` changes what it produces. */
+export const PARSER_VERSION = 're0-parser-1';
 
 /**
  * Bumped whenever `chunkDocument` moves a boundary.
@@ -581,14 +573,6 @@ export function parseDocument(input: {
   path: string;
   format: DocumentFormat;
   content: string;
-  /**
-   * The title the page declares apart from its content -- a renderer's
-   * metadata, or the `<title>` of the shell a rendered page was fetched as.
-   * An HTML document's own `<title>` is read here and needs no passing.
-   */
-  pageTitle?: string | null;
-  /** The site's name, so a declared title can shed its "| Site" suffix. */
-  siteTitle?: string | null;
   fallbackTitle?: string;
 }): ParsedDocument {
   const raw =
@@ -600,64 +584,13 @@ export function parseDocument(input: {
 
   const body = normalizeText(raw);
   const sections = headingsOf(body);
-  /*
-   * The author's level-1 heading first; failing that, what the page says it
-   * is called -- before any lower heading, because the first `##` of a page
-   * with no `#` is a card or a column, not the page. A rendered pricing page
-   * whose markdown opened with "## Free" was titled "Free" that way.
-   */
-  const declared = cleanPageTitle(
-    input.pageTitle ?? (input.format === 'html' ? htmlTitle(input.content) : null),
-    input.siteTitle,
-  );
   const title =
     sections.find((section) => section.level === 1)?.heading ??
-    declared ??
     sections[0]?.heading ??
     input.fallbackTitle ??
     fileTitle(input.path);
 
   return { path: input.path, title, body, sections };
-}
-
-/** The `<title>` of an HTML document, or null when it has none worth the name. */
-export function htmlTitle(html: string): string | null {
-  const match = /<title\b[^>]*>([\s\S]*?)<\/title>/i.exec(html);
-  if (!match) return null;
-  const text = decodeEntities(stripTags(match[1] ?? '')).replace(/\s+/g, ' ').trim();
-  return text.length > 0 ? text : null;
-}
-
-/** The separators sites put between a page's name and their own. */
-const TITLE_SEPARATOR = /\s+(?:\||-|–|—|·|•|::|»)\s+/;
-
-/**
- * A declared title without its site suffix: "Pricing | APAGE" is "Pricing"
- * on a site called APAGE. Only the site's own name is stripped, compared
- * without case, so a title that merely contains a separator is left whole;
- * and a title that *is* the site name (the home page) stays as it is.
- */
-export function cleanPageTitle(
-  title: string | null | undefined,
-  siteTitle?: string | null,
-): string | null {
-  const text = (title ?? '').replace(/\s+/g, ' ').trim();
-  if (text.length === 0) return null;
-  const site = (siteTitle ?? '').trim().toLowerCase();
-  if (site.length === 0) return text;
-  const parts = text.split(TITLE_SEPARATOR);
-  if (parts.length < 2) return text;
-  const last = parts[parts.length - 1]!.trim().toLowerCase();
-  const first = parts[0]!.trim().toLowerCase();
-  if (last === site) {
-    const kept = parts.slice(0, -1).join(' | ').trim();
-    return kept.length > 0 ? kept : text;
-  }
-  if (first === site) {
-    const kept = parts.slice(1).join(' | ').trim();
-    return kept.length > 0 ? kept : text;
-  }
-  return text;
 }
 
 const NBSP = String.fromCharCode(0x00a0);
