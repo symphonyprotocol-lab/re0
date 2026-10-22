@@ -11,7 +11,10 @@
 import { and, count, desc, eq, isNull } from 'drizzle-orm';
 import { AppError } from '@/contracts/errors';
 import { canManageLibraries, type WorkspaceRole } from '@/lib/application/libraries';
+import { PLAN_VERSION_NEWEST_FIRST } from '@/lib/application/plans/configuration';
+import { IN_FORCE_FIRST, subscriptionInForce } from '@/lib/application/plans/in-force';
 import { uuidv7 } from '@/lib/domain/id';
+import { readCapabilities, siteKeysAllowed, type PlanTierId } from '@/lib/domain/plans';
 import {
   parseAccent,
   parseDailyLimit,
@@ -39,6 +42,65 @@ export interface SiteKeyView {
 
 /** How many live keys one library may have. Enough for staging and production. */
 export const SITE_KEYS_PER_LIBRARY = 5;
+
+/**
+ * Which ceiling refused a key: the plan's (lib/domain/plans.ts `siteKeys`,
+ * Free one key across the workspace) or the per-library one above. The form
+ * answers each differently -- upgrade, or revoke one -- so the refusal says
+ * which, under the one error code the API has for a key ceiling.
+ */
+export class SiteKeyLimit extends AppError {
+  constructor(readonly ceiling: 'plan' | 'library') {
+    super(
+      'api_key_limit_exceeded',
+      ceiling === 'plan' ? 'the plan’s site key limit is reached' : 'this library already has its site keys',
+    );
+  }
+}
+
+/**
+ * The plan's site key cap for the workspace, -1 for none: read off the plan
+ * version in force the way the showcase entitlement is, the subscription's
+ * version, else the newest Free one. Owner screens read it on every render,
+ * so there is no cache to go stale between an upgrade and the form.
+ */
+export async function siteKeyEntitlement(workspaceId: string): Promise<number> {
+  const database = db();
+  const [active] = await database
+    .select({ planId: schema.planVersion.planId, capabilities: schema.planVersion.capabilities })
+    .from(schema.subscription)
+    .innerJoin(schema.planVersion, eq(schema.planVersion.id, schema.subscription.planVersionId))
+    .where(and(eq(schema.subscription.workspaceId, workspaceId), subscriptionInForce()))
+    .orderBy(...IN_FORCE_FIRST)
+    .limit(1);
+  const version =
+    active ??
+    (
+      await database
+        .select({ planId: schema.planVersion.planId, capabilities: schema.planVersion.capabilities })
+        .from(schema.planVersion)
+        .where(eq(schema.planVersion.planId, 'free'))
+        .orderBy(...PLAN_VERSION_NEWEST_FIRST)
+        .limit(1)
+    )[0];
+  const tier = (version?.planId ?? 'free') as PlanTierId;
+  return readCapabilities(tier, version?.capabilities).siteKeys;
+}
+
+/** Live embed keys across the workspace's libraries; what the plan's cap counts. */
+export async function countWorkspaceSiteKeys(workspaceId: string): Promise<number> {
+  const [row] = await db()
+    .select({ n: count() })
+    .from(schema.siteKey)
+    .where(
+      and(
+        eq(schema.siteKey.workspaceId, workspaceId),
+        eq(schema.siteKey.kind, 'embed'),
+        isNull(schema.siteKey.revokedAt),
+      ),
+    );
+  return row?.n ?? 0;
+}
 
 function view(row: typeof schema.siteKey.$inferSelect): SiteKeyView {
   return {
@@ -82,6 +144,7 @@ export async function listSiteKeys(input: {
       and(
         eq(schema.siteKey.workspaceId, input.workspaceId),
         eq(schema.siteKey.libraryId, input.libraryId),
+        eq(schema.siteKey.kind, 'embed'),
         isNull(schema.siteKey.revokedAt),
       ),
     )
@@ -174,13 +237,24 @@ export async function createSiteKey(input: CreateSiteKeyInput): Promise<SiteKeyV
   await requireOwnedLibrary(input.workspaceId, input.libraryId);
   const settings = settingsOf(input);
 
+  /* The plan's cap first: on Free the per-library ceiling never comes into it. */
+  const [limit, held] = await Promise.all([
+    siteKeyEntitlement(input.workspaceId),
+    countWorkspaceSiteKeys(input.workspaceId),
+  ]);
+  if (!siteKeysAllowed(limit, held)) throw new SiteKeyLimit('plan');
+
   const [live] = await db()
     .select({ n: count() })
     .from(schema.siteKey)
-    .where(and(eq(schema.siteKey.libraryId, input.libraryId), isNull(schema.siteKey.revokedAt)));
-  if ((live?.n ?? 0) >= SITE_KEYS_PER_LIBRARY) {
-    throw new AppError('api_key_limit_exceeded', 'this library already has its site keys');
-  }
+    .where(
+      and(
+        eq(schema.siteKey.libraryId, input.libraryId),
+        eq(schema.siteKey.kind, 'embed'),
+        isNull(schema.siteKey.revokedAt),
+      ),
+    );
+  if ((live?.n ?? 0) >= SITE_KEYS_PER_LIBRARY) throw new SiteKeyLimit('library');
 
   const id = uuidv7();
   const createdAt = new Date();
@@ -216,6 +290,7 @@ export async function updateSiteKey(input: UpdateSiteKeyInput): Promise<SiteKeyV
   const scope = and(
     eq(schema.siteKey.id, input.siteKeyId),
     eq(schema.siteKey.workspaceId, input.workspaceId),
+    eq(schema.siteKey.kind, 'embed'),
     isNull(schema.siteKey.revokedAt),
   );
   const [current] = await db()
@@ -246,6 +321,7 @@ export async function revokeSiteKey(input: {
       and(
         eq(schema.siteKey.id, input.siteKeyId),
         eq(schema.siteKey.workspaceId, input.workspaceId),
+        eq(schema.siteKey.kind, 'embed'),
         isNull(schema.siteKey.revokedAt),
       ),
     )

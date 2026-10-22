@@ -12,6 +12,7 @@ import { and, desc, eq, inArray, isNull, sql } from 'drizzle-orm';
 import { isQueryable, type IndexStatus, type LifecycleStatus, type Visibility } from '@/lib/domain';
 import { ref } from '@/lib/application/administration/column-ref';
 import {
+  appealableDecision,
   isOwnerPause,
   isRefreshPolicy,
   isUploadSourceType,
@@ -22,7 +23,9 @@ import {
 } from '@/lib/domain/library';
 import { BUILD_ENTRYPOINT } from '@/lib/domain/build-billing';
 import type { BuildProgress, IngestionStage } from '@/lib/domain/ingestion';
+import { readReviewChecklist, type ReviewChecklist } from '@/lib/domain/review';
 import { db, schema } from '@/lib/infrastructure/postgres/client';
+import { libraryMaterials, type LibraryMaterials } from './materials';
 
 const HISTORY_LIMIT = 10;
 
@@ -59,6 +62,10 @@ export interface WorkspaceLibraryDetail {
   hasReadyVersion: boolean;
   /** True when the library is suspended by its owner's own pause. */
   pausedByOwner: boolean;
+  /** The rights declaration and the question set, and what a public submission still lacks (lib/domain/library.ts). */
+  materials: LibraryMaterials;
+  /** The machine send-back the owner may appeal, when the newest decision is one (`appealableDecision`). */
+  appealableDecision: string | null;
   versions: {
     id: string;
     label: string;
@@ -80,7 +87,17 @@ export interface WorkspaceLibraryDetail {
     createdAt: string;
     updatedAt: string;
   }[];
-  reviews: { stage: string; outcome: string | null; feedback: string[]; decidedAt: string | null }[];
+  reviews: {
+    id: string;
+    stage: string;
+    outcome: string | null;
+    /** The machine decision this row appeals, on an `appeal` row. */
+    appealOf: string | null;
+    feedback: string[];
+    /** The reviewer's 7.4 checklist (lib/domain/review.ts); null on older rows and safety pauses. */
+    checklist: ReviewChecklist | null;
+    decidedAt: string | null;
+  }[];
 }
 
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
@@ -174,9 +191,12 @@ export async function workspaceLibraryDetail(input: {
       .limit(HISTORY_LIMIT),
     database
       .select({
+        id: schema.libraryReview.id,
         stage: schema.libraryReview.stage,
         outcome: schema.libraryReview.outcome,
+        appealOf: schema.libraryReview.appealOf,
         feedback: schema.libraryReview.feedback,
+        checklist: schema.libraryReview.checklist,
         decidedAt: schema.libraryReview.decidedAt,
       })
       .from(schema.libraryReview)
@@ -241,6 +261,8 @@ export async function workspaceLibraryDetail(input: {
       : null,
     hasReadyVersion: current?.indexStatus === 'ready',
     pausedByOwner: record.lifecycleStatus === 'suspended' && isOwnerPause(reviews[0]),
+    materials: await libraryMaterials(database, record.id),
+    appealableDecision: appealableDecision(reviews),
     versions: versions.map((version) => ({
       id: version.id,
       label: version.label,
@@ -257,6 +279,10 @@ export async function workspaceLibraryDetail(input: {
       createdAt: operation.createdAt.toISOString(),
       updatedAt: operation.updatedAt.toISOString(),
     })),
-    reviews: reviews.map((review) => ({ ...review, decidedAt: iso(review.decidedAt) })),
+    reviews: reviews.map((review) => ({
+      ...review,
+      checklist: readReviewChecklist(review.checklist),
+      decidedAt: iso(review.decidedAt),
+    })),
   };
 }

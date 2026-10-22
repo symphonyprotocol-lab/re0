@@ -32,6 +32,8 @@ export interface EvalQuestionView {
   question: string;
   expectedSource: string | null;
   expectedText: string | null;
+  /** `admin`: the platform's, scored. `owner`: the library owner's self-check, asked but not scored until adopted. */
+  author: 'owner' | 'admin';
   /** Null until the question has been asked once. */
   lastEvaluatedAt: Date | null;
   /** 1-based; null with a `lastEvaluatedAt` is a miss. */
@@ -87,6 +89,7 @@ export async function getLibraryBenchmark(libraryId: string): Promise<LibraryBen
       question: row.question,
       expectedSource: row.expectedSource,
       expectedText: row.expectedText,
+      author: row.author === 'owner' ? 'owner' : 'admin',
       lastEvaluatedAt: row.lastEvaluatedAt,
       lastRank: row.lastRank,
       lastRunIsCurrent:
@@ -137,6 +140,7 @@ export async function addEvalQuestion(input: {
   await database.insert(schema.libraryEvalQuestion).values({
     id: questionId,
     libraryId: target.id,
+    author: 'admin',
     ...drafted.draft,
   });
 
@@ -151,6 +155,43 @@ export async function addEvalQuestion(input: {
   });
 
   return { questionId };
+}
+
+/**
+ * Adopt an owner's question into the scored set (review-visibility-
+ * proposal.md 5.2): the one way an owner's question starts moving the
+ * Benchmark, and a reviewer's decision, so it is audited like the rest.
+ * Idempotent on a question already the platform's.
+ */
+export async function adoptEvalQuestion(input: {
+  actor: PlatformActor;
+  libraryId: string;
+  questionId: string;
+}): Promise<void> {
+  const database = db();
+  const target = await loadLibrary(database, input.libraryId);
+  if (!isUuid(input.questionId)) throw new PlatformLibraryRefused('not_found', 'no such question');
+  const [adopted] = await database
+    .update(schema.libraryEvalQuestion)
+    .set({ author: 'admin' })
+    .where(
+      and(
+        eq(schema.libraryEvalQuestion.id, input.questionId),
+        eq(schema.libraryEvalQuestion.libraryId, target.id),
+      ),
+    )
+    .returning({ id: schema.libraryEvalQuestion.id, question: schema.libraryEvalQuestion.question });
+  if (!adopted) throw new PlatformLibraryRefused('not_found', 'no such question');
+
+  await recordAudit({
+    administratorId: input.actor.administratorId,
+    action: 'library.eval_question_adopt',
+    targetType: AUDIT_TARGET,
+    targetId: target.id,
+    afterValue: { publicId: target.publicId, questionId: adopted.id, question: adopted.question },
+    clientAddress: input.actor.clientAddress ?? null,
+    result: 'success',
+  });
 }
 
 export async function removeEvalQuestion(input: {

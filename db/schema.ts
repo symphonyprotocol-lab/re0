@@ -1,6 +1,7 @@
 import {
   check,
   customType,
+  date,
   pgTable,
   pgEnum,
   text,
@@ -144,6 +145,24 @@ export const expertApplicationStatusEnum = pgEnum('expert_application_status', [
   'rejected',
   'withdrawn',
   'revoked',
+]);
+
+/** Which door a site key opens: the widget on the owner's site, or a showcase page of ours. */
+export const siteKeyKindEnum = pgEnum('site_key_kind', ['embed', 'showcase']);
+export const showcaseKindEnum = pgEnum('showcase_kind', ['company', 'product']);
+export const showcaseStatusEnum = pgEnum('showcase_status', [
+  'draft',
+  'published',
+  'disabled',
+  'taken_down',
+]);
+export const showcaseAccessEnum = pgEnum('showcase_access', ['public', 'unlisted']);
+export const showcaseLeadStatusEnum = pgEnum('showcase_lead_status', ['new', 'handled']);
+export const showcaseDomainStatusEnum = pgEnum('showcase_domain_status', [
+  'pending_ownership',
+  'pending_dns',
+  'ready',
+  'failed',
 ]);
 
 // ---------------------------------------------------------------- identity & commerce
@@ -577,6 +596,21 @@ export const library = pgTable(
      * (`commitCall`) -- and never by retrieval or ranking.
      */
     expertTaggedAt: timestamp('expert_tagged_at', { withTimezone: true }),
+    /**
+     * The owner's rights declaration (lib/domain/rights.ts): origin,
+     * licence, how the content was written, their note, who declared and
+     * when. Required before a public library may be submitted
+     * (review-visibility-proposal.md 5.1); null on a private library that
+     * never declared, and on libraries created before it existed.
+     */
+    rightsDeclaration: jsonb('rights_declaration').$type<{
+      origin: string;
+      license: string;
+      generation: string;
+      note: string;
+      declaredAt: string;
+      declaredBy: string | null;
+    }>(),
   },
   (t) => [
     /**
@@ -620,6 +654,12 @@ export const siteKey = pgTable(
     libraryId: uuid('library_id').notNull().references(() => library.id),
     name: text('name').notNull(),
     key: text('key').notNull(),
+    /**
+     * `embed` is the owner's key for their own site. `showcase` is the key a
+     * showcase page of ours answers through: never listed to the owner,
+     * never counted against the per-library key limit, revoked with its page.
+     */
+    kind: siteKeyKindEnum('kind').notNull().default('embed'),
     /** Normalised origins (scheme://host[:port]) that may embed the widget. */
     allowedOrigins: jsonb('allowed_origins').$type<string[]>().notNull(),
     /** Calls this key may spend per rolling day, from the workspace's quota. */
@@ -695,6 +735,8 @@ export const widgetExchange = pgTable(
     answer: text('answer'),
     sources: jsonb('sources').$type<{ url: string; title: string }[]>().notNull().default([]),
     latencyMs: integer('latency_ms'),
+    /** The visitor's verdict on a showcase page: 'helpful' | 'unhelpful'; null when none was given. */
+    feedback: text('feedback'),
     createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
   },
   (t) => [index('widget_exchange_library_time_idx').on(t.libraryId, t.createdAt)],
@@ -722,6 +764,140 @@ export const libraryFaq = pgTable(
     updatedAt: timestamp('updated_at', { withTimezone: true }).notNull().defaultNow(),
   },
   (t) => [index('library_faq_library_idx').on(t.libraryId, t.createdAt)],
+);
+
+/**
+ * A library shared as a standalone page. lib/domain/showcase.ts.
+ *
+ * One live row per library. The page answers through its own `siteKey`
+ * (kind `showcase`), so the widget's exchange log, FAQ and quota brakes
+ * apply unchanged. `content` is the owner's copy for the top of the page,
+ * validated by the domain before it is stored; `starterQuestions` the chips
+ * under it. `slug` is the public address; `previousSlug` keeps the last one
+ * so a link already shared keeps working after a rename.
+ */
+export const libraryShowcase = pgTable(
+  'library_showcase',
+  {
+    id: uuid('id').primaryKey(),
+    libraryId: uuid('library_id').notNull().references(() => library.id),
+    workspaceId: uuid('workspace_id').notNull().references(() => workspace.id),
+    siteKeyId: uuid('site_key_id').notNull().references(() => siteKey.id),
+    kind: showcaseKindEnum('kind').notNull(),
+    slug: text('slug').notNull(),
+    previousSlug: text('previous_slug'),
+    status: showcaseStatusEnum('status').notNull().default('draft'),
+    access: showcaseAccessEnum('access').notNull().default('public'),
+    locale: text('locale').notNull().default('en'),
+    content: jsonb('content').$type<Record<string, unknown>>().notNull().default({}),
+    starterQuestions: jsonb('starter_questions').$type<string[]>().notNull().default([]),
+    logoKey: text('logo_key'),
+    screenshotKey: text('screenshot_key'),
+    accent: text('accent').notNull(),
+    showBranding: boolean('show_branding').notNull().default(true),
+    /** Link-only pages may ask for a password: argon2id, null when none. */
+    passwordHash: text('password_hash'),
+    /** Bumped on every password change; the unlock cookie names the version it was issued for. */
+    passwordVersion: integer('password_version').notNull().default(0),
+    /** After this the page is closed to visitors; null never expires. */
+    expiresAt: timestamp('expires_at', { withTimezone: true }),
+    generatedAt: timestamp('generated_at', { withTimezone: true }),
+    publishedAt: timestamp('published_at', { withTimezone: true }),
+    disabledAt: timestamp('disabled_at', { withTimezone: true }),
+    createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
+    updatedAt: timestamp('updated_at', { withTimezone: true }).notNull().defaultNow(),
+    deletedAt: timestamp('deleted_at', { withTimezone: true }),
+  },
+  (t) => [
+    uniqueIndex('library_showcase_library_uq')
+      .on(t.libraryId)
+      .where(sql`${t.deletedAt} is null`),
+    uniqueIndex('library_showcase_slug_uq')
+      .on(t.slug)
+      .where(sql`${t.deletedAt} is null`),
+    index('library_showcase_previous_slug_idx')
+      .on(t.previousSlug)
+      .where(sql`${t.previousSlug} is not null`),
+    index('library_showcase_workspace_idx').on(t.workspaceId),
+  ],
+);
+
+/** Views, questions and CTA clicks per showcase page and UTC day. Counters, written off the request path. */
+export const libraryShowcaseDaily = pgTable(
+  'library_showcase_daily',
+  {
+    showcaseId: uuid('showcase_id')
+      .notNull()
+      .references(() => libraryShowcase.id, { onDelete: 'cascade' }),
+    day: date('day', { mode: 'string' }).notNull(),
+    views: integer('views').notNull().default(0),
+    questions: integer('questions').notNull().default(0),
+    ctaClicks: integer('cta_clicks').notNull().default(0),
+    leads: integer('leads').notNull().default(0),
+  },
+  (t) => [primaryKey({ columns: [t.showcaseId, t.day] })],
+);
+
+/**
+ * A lead left on a showcase page (lib/domain/showcase.ts `validateLead`):
+ * a visitor the library could not answer, their contact, and the exchange
+ * they were in. The one table that holds a visitor's personal data; the
+ * exchange log never does, and nothing here is embedded or grouped.
+ */
+export const showcaseLead = pgTable(
+  'showcase_lead',
+  {
+    id: uuid('id').primaryKey(),
+    showcaseId: uuid('showcase_id')
+      .notNull()
+      .references(() => libraryShowcase.id, { onDelete: 'cascade' }),
+    libraryId: uuid('library_id').notNull().references(() => library.id),
+    workspaceId: uuid('workspace_id').notNull().references(() => workspace.id),
+    exchangeId: uuid('exchange_id').references(() => widgetExchange.id, { onDelete: 'set null' }),
+    email: text('email').notNull(),
+    name: text('name'),
+    message: text('message'),
+    status: showcaseLeadStatusEnum('status').notNull().default('new'),
+    createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
+    handledAt: timestamp('handled_at', { withTimezone: true }),
+  },
+  (t) => [
+    index('showcase_lead_showcase_idx').on(t.showcaseId, t.createdAt),
+    index('showcase_lead_workspace_new_idx')
+      .on(t.workspaceId)
+      .where(sql`${t.status} = 'new'`),
+  ],
+);
+
+/**
+ * A showcase page on the owner's own subdomain (lib/domain/showcase.ts
+ * `parseCustomHost`, lib/application/showcase/domain.ts). Ownership is
+ * proved through a TXT challenge first; only then is the host added to the
+ * deployment's Vercel project. The challenge token is kept in the clear:
+ * the owner is shown the record until it resolves, and it proves control
+ * of this host for this page and nothing else. One host per page.
+ */
+export const showcaseDomain = pgTable(
+  'showcase_domain',
+  {
+    id: uuid('id').primaryKey(),
+    showcaseId: uuid('showcase_id')
+      .notNull()
+      .references(() => libraryShowcase.id, { onDelete: 'cascade' }),
+    workspaceId: uuid('workspace_id').notNull().references(() => workspace.id),
+    host: text('host').notNull(),
+    status: showcaseDomainStatusEnum('status').notNull().default('pending_ownership'),
+    verificationId: uuid('verification_id').references(() => domainVerification.id, { onDelete: 'set null' }),
+    verificationToken: text('verification_token'),
+    /** The record Vercel asks for when the host was used on another account; null when none was asked. */
+    vercelTxtName: text('vercel_txt_name'),
+    vercelTxtValue: text('vercel_txt_value'),
+    lastCheckedAt: timestamp('last_checked_at', { withTimezone: true }),
+    error: text('error'),
+    createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
+    updatedAt: timestamp('updated_at', { withTimezone: true }).notNull().defaultNow(),
+  },
+  (t) => [uniqueIndex('showcase_domain_showcase_uq').on(t.showcaseId), uniqueIndex('showcase_domain_host_uq').on(t.host)],
 );
 
 export const libraryAlias = pgTable(
@@ -801,6 +977,12 @@ export const libraryVersion = pgTable(
     searchConfig: text('search_config').notNull().default('simple'),
     /** Merkle root over ordered chunk digests, input to Version Anchor. */
     contentMerkleRoot: text('content_merkle_root'),
+    /**
+     * The bottom-k sketch of this version's chunks (lib/domain/fingerprint.ts),
+     * for the review rules' duplicate check against published libraries.
+     * Null on versions built before it existed, which simply never match.
+     */
+    contentSketch: jsonb('content_sketch').$type<string[]>(),
     indexStatus: indexStatusEnum('index_status').notNull(),
     totalTokens: integer('total_tokens').notNull().default(0),
     totalChunks: integer('total_chunks').notNull().default(0),
@@ -821,6 +1003,18 @@ export const libraryReview = pgTable('library_review', {
   stage: text('stage').notNull(),
   outcome: text('outcome'),
   feedback: jsonb('feedback').$type<string[]>().notNull().default([]),
+  /**
+   * requirement.md 7.4's five checks, each with a verdict and a note
+   * (lib/domain/review.ts `ReviewChecklist`). Null on a private library's
+   * safety pause, and on rows written before the checklist existed.
+   */
+  checklist: jsonb('checklist').$type<Record<string, { verdict: string; note: string }>>(),
+  /**
+   * The machine decision this row appeals (lib/domain/library.ts
+   * `appealableDecision`): set on the owner's `appeal` row, null otherwise.
+   * No foreign key, like `reviewer_id`: the rows are append-only anyway.
+   */
+  appealOf: uuid('appeal_of'),
   reviewerId: uuid('reviewer_id'),
   createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
   decidedAt: timestamp('decided_at', { withTimezone: true }),
@@ -875,6 +1069,14 @@ export const expertApplication = pgTable(
     status: expertApplicationStatusEnum('status').notNull(),
     /** The applicant's statement for the reviewer; optional, capped at 500. */
     note: text('note'),
+    /**
+     * The applicant's structured statement (lib/domain/expert-library.ts
+     * `ExpertMaterials`): scope, maintenance, credentials and the note.
+     * Null on applications made before it existed.
+     */
+    materials: jsonb('materials').$type<{ scope: string; maintenance: string; credentials: string; note: string }>(),
+    /** The reviewer's checklist behind the decision (`ExpertChecklist`); null on a revocation and older rows. */
+    checklist: jsonb('checklist').$type<Record<string, { verdict: string; note: string }>>(),
     /** Why it was approved, rejected or revoked; the owner reads this. */
     decisionReason: text('decision_reason'),
     decidedByAdminId: uuid('decided_by_admin_id'),
@@ -949,6 +1151,13 @@ export const libraryEvalQuestion = pgTable(
     id: uuid('id').primaryKey(),
     libraryId: uuid('library_id').notNull().references(() => library.id),
     question: text('question').notNull(),
+    /**
+     * Who wrote it: `admin` for the platform's own measuring instrument,
+     * `owner` for the library owner's self-check (review-visibility-
+     * proposal.md 5.2). Only `admin` questions move the Benchmark; a
+     * reviewer adopts an owner's question by setting this to `admin`.
+     */
+    author: text('author').notNull().default('admin'),
     /** Matched against a passage's source URL and document title. */
     expectedSource: text('expected_source'),
     /** Matched against a passage's body. */
@@ -966,6 +1175,7 @@ export const libraryEvalQuestion = pgTable(
       'library_eval_question_expectation',
       sql`${t.expectedSource} is not null or ${t.expectedText} is not null`,
     ),
+    check('library_eval_question_author', sql`${t.author} in ('owner', 'admin')`),
   ],
 );
 
@@ -984,6 +1194,12 @@ export const document = pgTable(
      * written before this existed.
      */
     sourceId: uuid('source_id'),
+    /**
+     * What the build's scan found in this file (lib/domain/ingestion.ts
+     * `safetyFindingsOf`): the reason behind its chunks' `safety_status`,
+     * kept so a reviewer sees which rule fired. Empty for a clean file.
+     */
+    safetyFindings: jsonb('safety_findings').$type<string[]>().notNull().default([]),
   },
   /** Documents are counted per version -- versions are immutable, so a count by
       library would include every superseded build. */
@@ -1173,6 +1389,29 @@ export const libraryProfileVector = pgTable(
  * code used before this table existed. The newest row's id joins every
  * public cache key, so a change retires cached results without a flush.
  */
+/**
+ * The public-review rules in force as the newest row (lib/domain/auto-review.ts
+ * `ReviewRules`). Append-only like `retrieval_config`: a save mints a row,
+ * and the history is the record of what the rules layer was deciding by
+ * when. An empty table means the domain defaults.
+ */
+export const reviewConfig = pgTable(
+  'review_config',
+  {
+    id: uuid('id').primaryKey(),
+    trustMin: integer('trust_min').notNull(),
+    benchmarkMin: integer('benchmark_min').notNull(),
+    ownerHitRateMin: integer('owner_hit_rate_min').notNull(),
+    duplicateMax: integer('duplicate_max').notNull(),
+    sampleRate: integer('sample_rate').notNull(),
+    autoPublish: integer('auto_publish').notNull(),
+    expertMinQuestions: integer('expert_min_questions').notNull().default(10),
+    expertHitRateMin: integer('expert_hit_rate_min').notNull().default(70),
+    createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
+  },
+  (t) => [index('review_config_time_idx').on(t.createdAt.desc())],
+);
+
 export const retrievalConfig = pgTable(
   'retrieval_config',
   {
@@ -1338,6 +1577,8 @@ export const llmCostEvent = pgTable(
     reasoningTokens: integer('reasoning_tokens').notNull().default(0),
     costMicroUsd: bigint('cost_micro_usd', { mode: 'number' }).notNull(),
     latencyMs: integer('latency_ms'),
+    /** `answer` for the playground and the widget; `review` for the model layer of public review. */
+    purpose: text('purpose').notNull().default('answer'),
     createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
   },
   (t) => [index('llm_cost_event_time_idx').on(t.createdAt)],

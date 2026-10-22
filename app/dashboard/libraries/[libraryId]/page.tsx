@@ -1,7 +1,11 @@
+import { describeReviewNote } from '@/lib/domain/auto-review';
+import { checklistFeedback } from '@/lib/domain/review';
 import type { Metadata } from 'next';
 import Link from 'next/link';
 import { notFound } from 'next/navigation';
+import { LibraryMaterialsPanel } from '@/components/dashboard/library-materials';
 import { LiveRefresh } from '@/components/dashboard/live-refresh';
+import { listLibraryEvalQuestions } from '@/lib/application/libraries/materials';
 import { describeBuild } from '@/lib/dashboard/build-progress';
 import {
   DetailDeleteControl,
@@ -13,6 +17,7 @@ import {
 import { RebuildLibraryButton } from '@/components/dashboard/library-rebuild';
 import { LibraryFaqPanel } from '@/components/dashboard/library-faq';
 import { LibraryWidgetPanel } from '@/components/dashboard/library-widget';
+import { LibraryShowcasePanel } from '@/components/dashboard/library-showcase';
 import { Badge, IconTile, PANEL, StatusLabel, type StatusTone } from '@/components/dashboard/ui';
 import {
   ArrowRightIcon,
@@ -33,16 +38,33 @@ import {
   workspaceLibraryDetail,
 } from '@/lib/application/libraries';
 import {
+  countWorkspaceSiteKeys,
   EXCHANGE_PAGE_SIZE,
   listFaqEntries,
   listFaqGroups,
   listSiteKeys,
   listWidgetExchanges,
   SITE_KEYS_PER_LIBRARY,
+  siteKeyEntitlement,
   widgetExchangeStats,
 } from '@/lib/application/embed';
 import { expertPanel } from '@/lib/application/expert-libraries';
+import { qrCodeSvg } from '@/lib/application/administration/qr-code';
+import {
+  countWorkspaceShowcases,
+  customDomainsAvailable,
+  libraryShowcase,
+  listShowcaseLeads,
+  showcaseDomainFor,
+  showcaseEntitlement,
+  showcaseStats,
+} from '@/lib/application/showcase';
+import { siteKeysAllowed } from '@/lib/domain/plans';
+import { showcasePagesAllowed, showcasePath } from '@/lib/domain/showcase';
+import { configuredBaseUrl } from '@/lib/http/base-url';
+import { PUBLIC_ORIGIN } from '@/lib/site/origin';
 import { LibraryExpertPanel } from '@/components/dashboard/library-expert';
+import { LibraryTabs } from '@/components/dashboard/library-tabs';
 import { requireSession } from '@/lib/http/session';
 import { fill } from '@/lib/i18n/format';
 import { quoteBuild } from '@/lib/application/plans';
@@ -59,8 +81,11 @@ import { widgetReady } from '@/lib/domain/site-key';
 import { getMessages, translations } from '@/lib/i18n/server';
 import { deleteWorkspaceLibraryAction } from '../actions';
 import {
+  addOwnerEvalQuestionAction,
   applyExpertAction,
   createSiteKeyAction,
+  declareRightsAction,
+  removeOwnerEvalQuestionAction,
   deleteFaqEntryAction,
   editLibraryMetadataAction,
   ownerLifecycleAction,
@@ -70,11 +95,22 @@ import {
   updateParseScopeAction,
   updateSiteKeyAction,
   withdrawExpertAction,
+  deleteShowcaseAction,
+  draftShowcaseAction,
+  enableShowcaseAction,
+  showcaseDomainAction,
+  showcaseLeadAction,
+  showcaseVerbAction,
+  updateShowcaseAction,
+  uploadShowcaseAssetAction,
 } from './actions';
 
 export async function generateMetadata(): Promise<Metadata> {
   return { title: (await getMessages()).dashboard.libraryDetail.metaTitle };
 }
+
+/** How many leads the library page lists; the export has them all. */
+const LEADS_SHOWN = 200;
 
 const PAGER =
   'inline-flex h-[29px] items-center rounded-md border border-line bg-card px-2.5 text-[11px] font-medium text-ink hover:bg-subtle';
@@ -106,6 +142,8 @@ export default async function DashboardLibraryPage({
   ]);
   const library = await workspaceLibraryDetail({ workspaceId: session.workspace.id, libraryId });
   if (!library) notFound();
+  /* The owner's self-check questions, beside the platform's (review-visibility-proposal.md 5.2). */
+  const evalQuestions = await listLibraryEvalQuestions({ workspaceId: session.workspace.id, libraryId: library.id });
   /* library-build-billing.md 4.1: what a rebuild may cost, shown when the button is pressed. */
   const quote = await quoteBuild({
     workspaceId: session.workspace.id,
@@ -117,7 +155,8 @@ export default async function DashboardLibraryPage({
   /* requirement.md 9.4: the website widget's keys ride along with the documents page. */
   /* The widget's history, a page at a time (`?qa=`), newest first. */
   const qaPage = Math.max(1, Math.floor(Number(query.qa) || 1));
-  const [documents, siteKeys, expert, exchanges, exchangeStats, faqGroups, faqEntries] = await Promise.all([
+  const entitlement = await showcaseEntitlement(session.workspace.id, { fresh: true });
+  const [documents, siteKeys, expert, exchanges, exchangeStats, faqGroups, faqEntries, showcase, showcaseFigures, showcaseCount, showcaseLeads, siteKeyCap, siteKeyCount] = await Promise.all([
     currentVersionId
       ? listVersionDocuments({
           libraryId: library.id,
@@ -138,7 +177,16 @@ export default async function DashboardLibraryPage({
     widgetExchangeStats({ workspaceId: session.workspace.id, libraryId: library.id }),
     listFaqGroups({ workspaceId: session.workspace.id, libraryId: library.id }).catch((): never[] => []),
     listFaqEntries({ workspaceId: session.workspace.id, libraryId: library.id }),
+    /* The library shared as a page (lib/domain/showcase.ts). */
+    libraryShowcase({ workspaceId: session.workspace.id, libraryId: library.id }, entitlement),
+    showcaseStats({ workspaceId: session.workspace.id, libraryId: library.id }),
+    countWorkspaceShowcases(session.workspace.id),
+    listShowcaseLeads({ workspaceId: session.workspace.id, libraryId: library.id, retained: entitlement.leadsRetained, limit: LEADS_SHOWN }),
+    siteKeyEntitlement(session.workspace.id),
+    countWorkspaceSiteKeys(session.workspace.id),
   ]);
+  const showcaseOrigin = configuredBaseUrl() ?? PUBLIC_ORIGIN;
+  const showcaseQr = showcase ? await qrCodeSvg(`${showcaseOrigin}${showcasePath(showcase.slug)}`) : null;
   const qaPages = Math.max(1, Math.ceil(exchanges.total / EXCHANGE_PAGE_SIZE));
   const qaHref = (page: number) => `/dashboard/libraries/${library.id}?qa=${page}#exchanges`;
   const docsPages = Math.max(1, Math.ceil(documents.total / docsSize));
@@ -151,6 +199,8 @@ export default async function DashboardLibraryPage({
   const stamp = new Intl.DateTimeFormat(locale, { dateStyle: 'medium', timeStyle: 'short' });
   const when = (value: string | null) => (value ? stamp.format(new Date(value)) : d.stats.never);
   const canEdit = canManageLibraries(session.workspace.role);
+  /* The page's own host (lib/application/showcase/domain.ts): read only; a check is the owner's click. */
+  const showcaseDomain = showcase ? await showcaseDomainFor({ workspaceId: session.workspace.id, libraryId: library.id }, entitlement) : null;
   const m = d.manage;
   const latestNote = library.reviews.find((review) => review.feedback[0])?.feedback[0] ?? d.basics.none;
   const lastFailure = library.operations.find((operation) => operation.status === 'failed');
@@ -162,10 +212,28 @@ export default async function DashboardLibraryPage({
     visibility: library.visibility,
     pausedByOwner: library.pausedByOwner,
     hasReadyVersion: library.hasReadyVersion,
+    materialsReady: library.materials.ready,
+    appealable: library.appealableDecision !== null,
   };
   const ownerVerbs = canEdit
     ? OWNER_LIFECYCLE_ACTIONS.filter((verb) => ownerActionAvailable(ownerContext, verb))
     : [];
+  /* The confirmation lives with the materials it confirms (the panel below); the header keeps the rest. */
+  const submitVerb = ownerVerbs.find((verb): verb is 'submit' | 'resubmit' => verb === 'submit' || verb === 'resubmit') ?? null;
+  const headerVerbs = ownerVerbs.filter((verb) => verb !== submitVerb);
+  /* The materials step is the owner's (review-visibility-proposal.md 5): while a built public
+     library waits on them, the overview tab says so, whichever tab is open. */
+  const awaitingSubmission =
+    library.visibility === 'public' &&
+    library.hasReadyVersion &&
+    (library.lifecycleStatus === 'draft' || library.lifecycleStatus === 'changes_requested');
+  const overviewBadge = !awaitingSubmission
+    ? null
+    : library.materials.blockers.length > 0
+      ? { label: d.tabs.materialsMissing, tone: 'alert' as const }
+      : submitVerb
+        ? { label: d.tabs.materialsReady, tone: 'brand' as const }
+        : null;
   const inPipeline =
     library.visibility === 'public' && !library.queryable && library.lifecycleStatus !== 'archived';
   const pipeline = inPipeline
@@ -174,6 +242,7 @@ export default async function DashboardLibraryPage({
         lifecycleStatus: library.lifecycleStatus,
         indexStatus: library.indexStatus,
         building: library.building,
+        rightsDeclared: library.materials.rights !== null && !library.materials.blockers.includes('rights_generated'),
       })
     : null;
   const tile = TILE_COLORS[[...library.publicId].reduce((hash, char) => (hash * 31 + char.charCodeAt(0)) >>> 0, 0) % TILE_COLORS.length]!;
@@ -197,7 +266,15 @@ export default async function DashboardLibraryPage({
             ? { tone: 'blocked' as StatusTone, icon: <ClockIcon size={18} />, title: d.ready.failedTitle, body: fill(d.ready.failedBody, { error: label(t.admin.ingestionErrors, lastFailure.error) }) }
             : library.lifecycleStatus === 'submitted' || library.lifecycleStatus === 'reviewing'
               ? { tone: 'pending' as StatusTone, icon: <ShieldCheckIcon size={18} />, title: d.ready.reviewTitle, body: `${d.ready.reviewBody} ${m.reviewExpected}` }
-              : { tone: 'exempt' as StatusTone, icon: <ClockIcon size={18} />, title: d.ready.idleTitle, body: d.ready.idleBody };
+              : library.visibility === 'public' && library.hasReadyVersion
+                ? {
+                    /* Built and indexed; the owner's materials and confirmation are what is left (review-visibility-proposal.md 5). */
+                    tone: 'pending' as StatusTone,
+                    icon: <ShieldCheckIcon size={18} />,
+                    title: d.ready.awaitingTitle,
+                    body: library.materials.ready ? d.ready.awaitingReadyBody : d.ready.awaitingBody,
+                  }
+                : { tone: 'exempt' as StatusTone, icon: <ClockIcon size={18} />, title: d.ready.idleTitle, body: d.ready.idleBody };
 
   const statusLabels: Record<StatusTone, string> = {
     live: l.statuses.live,
@@ -247,7 +324,7 @@ export default async function DashboardLibraryPage({
               {library.source.type === 'markdown' ? l.manage.filesMarkdown : d.actions.files}
             </Link>
           ) : null}
-          {ownerVerbs.map((verb) => (
+          {headerVerbs.map((verb) => (
             <OwnerActionButton
               key={verb}
               libraryId={library.id}
@@ -309,380 +386,493 @@ export default async function DashboardLibraryPage({
 
       {/* requirement.md 5.2: a public library shows its review steps, the
           expected time and the reviewer's feedback. */}
+      {/* Laid out like the status banner above it: the icon, then the title
+          over the steps, so the two read as one column of where the library is. */}
       {pipeline ? (
-        <section className={`${PANEL} flex flex-col gap-3 p-6`}>
-          <h2 className="text-[15px] font-medium text-ink">{l.manage.pipeline.title}</h2>
-          <ReviewPipeline
-            entries={pipeline}
-            note={library.reviews.find((review) => review.feedback[0])?.feedback[0] ?? null}
-          />
-        </section>
-      ) : null}
-
-      {/* Plain 2x2 readout, not four cards: the banner above already carries
-          the one thing that matters, and cards would compete with it. */}
-      <dl className="grid grid-cols-1 gap-x-10 px-1 sm:grid-cols-2">
-        {[
-          [d.stats.status, label(d.indexStatus, library.indexStatus), <ShieldCheckIcon key="i" size={16} />],
-          [d.stats.version, library.currentVersion?.label ?? d.stats.versionNone, <DatabaseIcon key="i" size={16} />],
-          [
-            d.stats.chunks,
-            `${number.format(library.currentVersion?.documents ?? 0)} / ${number.format(library.currentVersion?.chunks ?? 0)}`,
-            <FileTextIcon key="i" size={16} />,
-          ],
-          [d.stats.lastBuild, when(library.lastSuccessfulRefreshAt), <ClockIcon key="i" size={16} />],
-        ].map(([key, value, icon]) => (
-          <div
-            key={String(key)}
-            className="flex items-center gap-3 border-b border-line/70 py-3.5 sm:[&:nth-last-child(-n+2)]:border-b-0"
-          >
-            <span className="text-brandink">{icon}</span>
-            <span className="flex min-w-0 flex-col gap-0.5">
-              <dt className="text-[11px] text-muted">{key}</dt>
-              <dd className="truncate text-[15px] font-medium text-ink">{value}</dd>
-            </span>
-          </div>
-        ))}
-      </dl>
-
-      <section className={`${PANEL} p-6`}>
-        <h2 className="text-[15px] font-medium text-ink">{d.basics.title}</h2>
-        <dl className="mt-3 grid grid-cols-1 gap-x-8 gap-y-2 text-[12px] sm:grid-cols-2">
-          {[
-            [d.basics.publicId, library.publicId],
-            [d.basics.visibility, library.visibility === 'public' ? l.scopePublic : l.scopePrivate],
-            [
-              d.basics.source,
-              library.source
-                ? library.source.fileCount === null
-                  ? `${library.source.type} · ${library.source.location}`
-                  : `${library.source.type} · ${fill(d.basics.files, { n: String(library.source.fileCount) })}`
-                : d.basics.none,
-            ],
-            [d.basics.language, library.language ?? d.basics.none],
-            [d.basics.indexStatus, label(d.indexStatus, library.indexStatus)],
-            [d.basics.created, when(library.createdAt)],
-            [d.basics.description, library.description ?? d.basics.none],
-          ].map(([key, value]) => (
-            <div key={key} className="flex flex-col gap-0.5 border-b border-line/70 py-2 last:border-b-0">
-              <dt className="text-[10px] font-medium tracking-[0.02em] text-muted">{key}</dt>
-              <dd className="break-all text-ink">{value}</dd>
-            </div>
-          ))}
-        </dl>
-      </section>
-
-      {/* requirement.md 5.2: metadata and parse scope are the owner's to
-          edit; the forms post to actions that re-check the role. */}
-      {canEdit && library.lifecycleStatus !== 'archived' ? (
-        <>
-          <LibraryMetadataForm
-            libraryId={library.id}
-            initial={{
-              title: library.title,
-              description: library.description,
-              language: library.language,
-              visibility: library.visibility,
-            }}
-            action={editLibraryMetadataAction}
-          />
-          {library.source ? (
-            <ParseScopeForm
-              libraryId={library.id}
-              sourceType={library.source.type}
-              scope={library.source.scope}
-              refreshPolicy={library.source.refreshPolicy}
-              action={updateParseScopeAction}
+        <section className="flex flex-wrap items-start gap-4 rounded-md border border-line bg-card px-[19px] py-4">
+          <IconTile tone="card">
+            <ShieldCheckIcon size={18} />
+          </IconTile>
+          <div className="flex min-w-[220px] flex-1 flex-col gap-2.5">
+            <p className="text-[13px] leading-[1.4] font-medium text-ink">{l.manage.pipeline.title}</p>
+            <ReviewPipeline
+              entries={pipeline}
+              note={library.reviews.find((review) => review.feedback[0])?.feedback[0] ?? null}
+              checks={library.reviews.find((review) => review.checklist)?.checklist ?? null}
             />
-          ) : null}
-        </>
-      ) : null}
-
-      {/* expert-library-prd.md 5: the expert tag. Shown for a private library
-          too: its checklist is how an owner learns what the tag needs. */}
-      {expert && library.lifecycleStatus !== 'archived' ? (
-        <LibraryExpertPanel
-          libraryId={library.id}
-          taggedAt={expert.taggedAt?.toISOString() ?? null}
-          checks={expert.checks}
-          earning={expert.earning}
-          blocker={expert.blocker}
-          reapplyAllowedAt={expert.reapplyAllowedAt?.toISOString() ?? null}
-          pending={
-            expert.pending
-              ? { id: expert.pending.id, createdAt: expert.pending.createdAt.toISOString(), note: expert.pending.note }
-              : null
-          }
-          latest={
-            expert.latest
-              ? {
-                  status: expert.latest.status,
-                  decisionReason: expert.latest.decisionReason,
-                  decidedAt: expert.latest.decidedAt?.toISOString() ?? null,
-                  createdAt: expert.latest.createdAt.toISOString(),
-                }
-              : null
-          }
-          history={expert.history.map((row) => ({
-            id: row.id,
-            status: row.status,
-            decisionReason: row.decisionReason,
-            decidedAt: row.decidedAt?.toISOString() ?? null,
-            createdAt: row.createdAt.toISOString(),
-          }))}
-          canEdit={canEdit}
-          applyAction={applyExpertAction}
-          withdrawAction={withdrawExpertAction}
-        />
-      ) : null}
-
-      {library.lifecycleStatus !== 'archived' ? (
-        <LibraryWidgetPanel
-          libraryId={library.id}
-          keys={siteKeys}
-          ready={widgetReady({
-            lifecycleStatus: library.lifecycleStatus,
-            hasCurrentVersion: library.currentVersion !== null,
-          })}
-          canEdit={canEdit}
-          maxKeys={SITE_KEYS_PER_LIBRARY}
-          createAction={createSiteKeyAction}
-          updateAction={updateSiteKeyAction}
-          revokeAction={revokeSiteKeyAction}
-        />
-      ) : null}
-
-      <section className={`${PANEL} p-0.5`}>
-        <div className="px-6 py-4">
-          <h2 className="text-[15px] font-medium text-ink">{d.queue.title}</h2>
-          <p className="mt-0.5 text-[11px] text-muted">{d.queue.description}</p>
-        </div>
-        <Table
-          columns={d.queue.columns}
-          empty={d.queue.empty}
-          rows={library.operations.map((operation) => [
-            label(d.queue.types, operation.operationType),
-            <StatusLabel
-              key="s"
-              tone={
-                operation.status === 'succeeded' || operation.status === 'skipped'
-                  ? 'live'
-                  : operation.status === 'failed'
-                    ? 'blocked'
-                    : operation.status === 'cancelled'
-                      ? 'exempt'
-                      : 'pending'
-              }
-            >
-              {label(d.queue.statuses, operation.status)}
-            </StatusLabel>,
-            String(operation.attempts),
-            operation.error ? label(t.admin.ingestionErrors, operation.error) : d.basics.none,
-            when(operation.createdAt),
-          ])}
-        />
-      </section>
-
-      {/* lib/domain/faq.ts: the recurring questions, and the entries written from them. */}
-      {library.lifecycleStatus !== 'archived' && (siteKeys.length > 0 || faqEntries.length > 0 || faqGroups.length > 0) ? (
-        <LibraryFaqPanel
-          libraryId={library.id}
-          groups={faqGroups}
-          entries={faqEntries}
-          canEdit={canEdit}
-          saveAction={saveFaqEntryAction}
-          deleteAction={deleteFaqEntryAction}
-        />
-      ) : null}
-
-      {/* requirement.md 9.4: what the widget was asked, for the owner to grow the library from. */}
-      {siteKeys.length > 0 || exchanges.total > 0 ? (
-        <section id="exchanges" className={`${PANEL} scroll-mt-4 p-0.5`}>
-          <div className="flex flex-wrap items-start justify-between gap-3 px-6 py-4">
-            <div>
-              <h2 className="text-[15px] font-medium text-ink">{d.exchanges.title}</h2>
-              <p className="mt-0.5 text-[11px] text-muted">{d.exchanges.description}</p>
-            </div>
-            <p className="text-[11px] text-muted">
-              {fill(d.exchanges.stats, {
-                days: exchangeStats.days,
-                questions: number.format(exchangeStats.questions),
-                answered: number.format(exchangeStats.answered),
-                missed: number.format(exchangeStats.missed),
-              })}
-            </p>
           </div>
-          <Table
-            columns={d.exchanges.columns}
-            empty={d.exchanges.empty}
-            rows={exchanges.exchanges.map((exchange) => [
-              <span key="q" className="flex min-w-0 flex-col gap-0.5">
-                <span className="text-ink" title={exchange.answer ?? undefined}>
-                  {exchange.question}
-                  {exchange.preview ? (
-                    <span className="ml-1.5 rounded bg-mutedbg px-1 py-0.5 text-[10px] text-steel">{d.exchanges.preview}</span>
+        </section>
+      ) : null}
+
+      {/* The rest of the page, one group at a time (LibraryTabs); the hash picks the group. */}
+      <LibraryTabs
+        tabs={[
+          {
+            id: 'overview',
+            label: d.tabs.overview,
+            badge: overviewBadge,
+            anchors: ['materials', 'basics', 'reviews'],
+            panel: (
+              <>
+                {/* Plain one-row readout, not four cards: the banner above already carries
+                    the one thing that matters, and cards would compete with it. Stacks to
+                    two columns, then one, as the width runs out. */}
+                <dl className="grid grid-cols-1 gap-x-10 px-1 sm:grid-cols-2 lg:grid-cols-4 lg:gap-x-6">
+                  {[
+                    [d.stats.status, label(d.indexStatus, library.indexStatus), <ShieldCheckIcon key="i" size={16} />],
+                    [d.stats.version, library.currentVersion?.label ?? d.stats.versionNone, <DatabaseIcon key="i" size={16} />],
+                    [
+                      d.stats.chunks,
+                      `${number.format(library.currentVersion?.documents ?? 0)} / ${number.format(library.currentVersion?.chunks ?? 0)}`,
+                      <FileTextIcon key="i" size={16} />,
+                    ],
+                    [d.stats.lastBuild, when(library.lastSuccessfulRefreshAt), <ClockIcon key="i" size={16} />],
+                  ].map(([key, value, icon]) => (
+                    <div
+                      key={String(key)}
+                      className="flex items-center gap-3 border-b border-line/70 py-3.5 sm:[&:nth-last-child(-n+2)]:border-b-0 lg:border-b-0 lg:border-r lg:last:border-r-0"
+                    >
+                      <span className="text-brandink">{icon}</span>
+                      <span className="flex min-w-0 flex-col gap-0.5">
+                        <dt className="text-[11px] text-muted">{key}</dt>
+                        <dd className="truncate text-[15px] font-medium text-ink">{value}</dd>
+                      </span>
+                    </div>
+                  ))}
+                </dl>
+
+                {/* What a public submission brings (review-visibility-proposal.md 5): the
+                    rights declaration and the self-check questions, and the confirmation
+                    that hands the library to the platform's review. Shown for a private
+                    library too, so declaring and asking happen before it goes public. */}
+                {library.lifecycleStatus !== 'archived' ? (
+                  <LibraryMaterialsPanel
+                    libraryId={library.id}
+                    visibility={library.visibility}
+                    canEdit={canEdit}
+                    materials={library.materials}
+                    questions={evalQuestions}
+                    submit={submitVerb ? { verb: submitVerb, publicId: library.publicId, action: ownerLifecycleAction } : null}
+                    actions={{ declare: declareRightsAction, add: addOwnerEvalQuestionAction, remove: removeOwnerEvalQuestionAction }}
+                  />
+                ) : null}
+
+                <section className={`${PANEL} p-6`}>
+                  <h2 className="text-[15px] font-medium text-ink">{d.basics.title}</h2>
+                  <dl className="mt-3 grid grid-cols-1 gap-x-8 gap-y-2 text-[12px] sm:grid-cols-2">
+                    {[
+                      [d.basics.publicId, library.publicId],
+                      [d.basics.visibility, library.visibility === 'public' ? l.scopePublic : l.scopePrivate],
+                      [
+                        d.basics.source,
+                        library.source
+                          ? library.source.fileCount === null
+                            ? `${library.source.type} · ${library.source.location}`
+                            : `${library.source.type} · ${fill(d.basics.files, { n: String(library.source.fileCount) })}`
+                          : d.basics.none,
+                      ],
+                      [d.basics.language, library.language ?? d.basics.none],
+                      [d.basics.indexStatus, label(d.indexStatus, library.indexStatus)],
+                      [d.basics.created, when(library.createdAt)],
+                      [d.basics.description, library.description ?? d.basics.none],
+                    ].map(([key, value]) => (
+                      <div key={key} className="flex flex-col gap-0.5 border-b border-line/70 py-2 last:border-b-0">
+                        <dt className="text-[10px] font-medium tracking-[0.02em] text-muted">{key}</dt>
+                        <dd className="break-all text-ink">{value}</dd>
+                      </div>
+                    ))}
+                  </dl>
+                </section>
+                {library.visibility === 'public' || library.reviews.length > 0 ? (
+                  <section className={`${PANEL} p-0.5`}>
+                    <div className="px-6 py-4">
+                      <h2 className="text-[15px] font-medium text-ink">{d.reviews.title}</h2>
+                    </div>
+                    <Table
+                      columns={d.reviews.columns}
+                      empty={d.reviews.empty}
+                      rows={library.reviews.map((review) => [
+                        when(review.decidedAt),
+                        review.stage === OWNER_REVIEW_STAGE && isOwnerLifecycleAction(review.outcome)
+                          ? m.outcomes[review.outcome]
+                          : review.stage === 'sample' && !review.outcome
+                            ? d.reviews.sampleOpen
+                            : `${label(d.reviews.outcomes, review.outcome)}${review.stage === 'rules' || review.stage === 'sample' ? ` · ${label(d.reviews.stages, review.stage)}` : ''}`,
+                        [
+                          review.feedback.map((line) => describeReviewNote(line, l.rulesReasons)).join(' ') || d.basics.none,
+                          ...(review.checklist
+                            ? checklistFeedback(review.checklist).map((line) =>
+                                `${l.manage.pipeline.checks[line.check]}：${l.manage.pipeline.verdicts[line.verdict]}${line.note ? `，${describeReviewNote(line.note, l.rulesReasons)}` : ''}`,
+                              )
+                            : []),
+                        ].join(' '),
+                      ])}
+                    />
+                  </section>
+                ) : null}
+                </>
+            ),
+          },
+          {
+            id: 'content',
+            label: d.tabs.content,
+            anchors: ['queue', 'documents', 'versions'],
+            panel: (
+              <>
+                <section className={`${PANEL} p-0.5`}>
+                  <div className="px-6 py-4">
+                    <h2 className="text-[15px] font-medium text-ink">{d.queue.title}</h2>
+                    <p className="mt-0.5 text-[11px] text-muted">{d.queue.description}</p>
+                  </div>
+                  <Table
+                    columns={d.queue.columns}
+                    empty={d.queue.empty}
+                    rows={library.operations.map((operation) => [
+                      label(d.queue.types, operation.operationType),
+                      <StatusLabel
+                        key="s"
+                        tone={
+                          operation.status === 'succeeded' || operation.status === 'skipped'
+                            ? 'live'
+                            : operation.status === 'failed'
+                              ? 'blocked'
+                              : operation.status === 'cancelled'
+                                ? 'exempt'
+                                : 'pending'
+                        }
+                      >
+                        {label(d.queue.statuses, operation.status)}
+                      </StatusLabel>,
+                      String(operation.attempts),
+                      operation.error ? label(t.admin.ingestionErrors, operation.error) : d.basics.none,
+                      when(operation.createdAt),
+                    ])}
+                  />
+                </section>
+                <section id="documents" className={`${PANEL} scroll-mt-4 p-0.5`}>
+                  <div className="px-6 py-4">
+                    <h2 className="text-[15px] font-medium text-ink">{d.documents.title}</h2>
+                    <p className="mt-0.5 text-[11px] text-muted">{d.documents.description}</p>
+                  </div>
+                  <Table
+                    columns={d.documents.columns}
+                    empty={d.documents.empty}
+                    rows={documents.documents.map((document) => [
+                      <Link
+                        key="t"
+                        href={`/dashboard/libraries/${library.id}/documents/${document.id}`}
+                        className="text-brandink hover:text-brandink"
+                      >
+                        {document.title}
+                      </Link>,
+                      <a
+                        key="u"
+                        href={document.sourceUrl}
+                        target="_blank"
+                        rel="noreferrer"
+                        className="break-all text-muted hover:text-ink"
+                      >
+                        {document.sourceUrl}
+                      </a>,
+                      number.format(document.chunks),
+                    ])}
+                  />
+                  {documents.total > 0 ? (
+                    <div className="flex flex-wrap items-center justify-between gap-3 border-t border-line px-6 py-3">
+                      <p className="text-[11px] text-muted">
+                        {fill(d.documents.page, { page: docsPage, pages: docsPages })} ·{' '}
+                        {fill(d.documents.showing, { shown: documents.documents.length, total: documents.total })}
+                      </p>
+                      <span className="flex items-center gap-2">
+                        <span className="flex items-center gap-1 text-[11px] text-muted">
+                          {d.documents.pageSize}
+                          {DOCUMENTS_PAGE_SIZES.map((size) => (
+                            <Link
+                              key={size}
+                              href={docsHref(1, size)}
+                              aria-current={size === docsSize ? 'true' : undefined}
+                              className={`rounded-md px-1.5 py-0.5 ${
+                                size === docsSize ? 'bg-subtle font-medium text-ink' : 'hover:text-ink'
+                              }`}
+                            >
+                              {size}
+                            </Link>
+                          ))}
+                        </span>
+                        {docsPage > 1 ? (
+                          <Link href={docsHref(docsPage - 1)} className={PAGER}>
+                            {d.documents.prev}
+                          </Link>
+                        ) : null}
+                        {docsPage < docsPages ? (
+                          <Link href={docsHref(docsPage + 1)} className={PAGER}>
+                            {d.documents.next}
+                          </Link>
+                        ) : null}
+                      </span>
+                    </div>
                   ) : null}
-                </span>
-                {exchange.rewrittenQuery ? (
-                  <span className="text-[10.5px] text-muted">
-                    {fill(d.exchanges.rewritten, { query: exchange.rewrittenQuery })}
-                  </span>
+                </section>
+                <section className={`${PANEL} p-0.5`}>
+                  <div className="px-6 py-4">
+                    <h2 className="text-[15px] font-medium text-ink">{d.versions.title}</h2>
+                  </div>
+                  <Table
+                    columns={d.versions.columns}
+                    empty={d.versions.empty}
+                    rows={library.versions.map((version) => [
+                      <span key="v" className="flex items-center gap-2">
+                        {version.label}
+                        {version.isCurrent ? <Badge tone="brand">{d.versions.current}</Badge> : null}
+                      </span>,
+                      label(d.indexStatus, version.indexStatus),
+                      `${number.format(version.documents)} / ${number.format(version.chunks)}`,
+                      version.buildCalls === null
+                        ? d.versions.costFree
+                        : fill(d.versions.cost, { calls: number.format(version.buildCalls) }),
+                      when(version.publishedAt),
+                    ])}
+                  />
+                </section>
+                </>
+            ),
+          },
+          {
+            id: 'widget',
+            label: d.widget.title,
+            panel:
+              library.lifecycleStatus !== 'archived' ? (
+                <LibraryWidgetPanel
+                  libraryId={library.id}
+                  keys={siteKeys}
+                  ready={widgetReady({
+                    lifecycleStatus: library.lifecycleStatus,
+                    hasCurrentVersion: library.currentVersion !== null,
+                  })}
+                  canEdit={canEdit}
+                  maxKeys={SITE_KEYS_PER_LIBRARY}
+                  planAllowed={siteKeysAllowed(siteKeyCap, siteKeyCount)}
+                  createAction={createSiteKeyAction}
+                  updateAction={updateSiteKeyAction}
+                  revokeAction={revokeSiteKeyAction}
+                />
+              ) : null,
+          },
+          {
+            id: 'showcase',
+            label: d.showcase.title,
+            panel:
+              library.lifecycleStatus !== 'archived' ? (
+                <LibraryShowcasePanel
+                  libraryId={library.id}
+                  showcase={showcase}
+                  stats={showcaseFigures}
+                  leads={showcaseLeads}
+                  domain={{ available: customDomainsAvailable(), allowed: entitlement.customDomain, view: showcaseDomain }}
+                  origin={showcaseOrigin}
+                  qrSvg={showcaseQr}
+                  ready={widgetReady({
+                    lifecycleStatus: library.lifecycleStatus,
+                    hasCurrentVersion: library.currentVersion !== null,
+                  })}
+                  canEdit={canEdit}
+                  allowed={showcasePagesAllowed(entitlement, showcaseCount)}
+                  actions={{
+                    enable: enableShowcaseAction,
+                    update: updateShowcaseAction,
+                    draft: draftShowcaseAction,
+                    verb: showcaseVerbAction,
+                    remove: deleteShowcaseAction,
+                    asset: uploadShowcaseAssetAction,
+                    lead: showcaseLeadAction,
+                    domain: showcaseDomainAction,
+                  }}
+                />
+              ) : null,
+          },
+          {
+            id: 'qa',
+            label: d.tabs.qa,
+            anchors: ['faq', 'exchanges'],
+            panel:
+              library.lifecycleStatus !== 'archived' &&
+              (siteKeys.length > 0 || faqEntries.length > 0 || faqGroups.length > 0 || showcase !== null || exchanges.total > 0) ? (
+                <>
+                {/* lib/domain/faq.ts: the recurring questions, and the entries written from them. */}
+                {siteKeys.length > 0 || faqEntries.length > 0 || faqGroups.length > 0 ? (
+                  <LibraryFaqPanel
+                    libraryId={library.id}
+                    groups={faqGroups}
+                    entries={faqEntries}
+                    canEdit={canEdit}
+                    saveAction={saveFaqEntryAction}
+                    deleteAction={deleteFaqEntryAction}
+                  />
                 ) : null}
-              </span>,
-              <span
-                key="o"
-                className={
-                  exchange.outcome === 'answer' || exchange.outcome === 'degraded' ? 'text-steel' : 'text-amber'
-                }
-              >
-                {label(d.exchanges.outcomes, exchange.outcome)}
-              </span>,
-              <span key="s" className="flex flex-col gap-0.5">
-                {exchange.sources.slice(0, 3).map((source) => (
-                  <a
-                    key={source.url}
-                    href={source.url}
-                    target="_blank"
-                    rel="noreferrer"
-                    className="truncate text-brandink hover:text-brandink"
-                    title={source.url}
-                  >
-                    {source.title}
-                  </a>
-                ))}
-                {exchange.sources.length === 0 ? <span className="text-muted">{d.basics.none}</span> : null}
-              </span>,
-              <span key="g" className="break-all text-muted">{exchange.origin}</span>,
-              when(exchange.createdAt),
-            ])}
-          />
-          {exchanges.total > EXCHANGE_PAGE_SIZE ? (
-            <div className="flex flex-wrap items-center justify-between gap-3 border-t border-line px-6 py-3">
-              <p className="text-[11px] text-muted">
-                {fill(d.exchanges.page, { page: qaPage, pages: qaPages, total: number.format(exchanges.total) })}
-              </p>
-              <span className="flex items-center gap-2">
-                {qaPage > 1 ? (
-                  <Link href={qaHref(qaPage - 1)} className={PAGER}>
-                    {d.documents.prev}
-                  </Link>
+                {/* requirement.md 9.4: what the widget was asked, for the owner to grow the library from. */}
+                {siteKeys.length > 0 || showcase !== null || exchanges.total > 0 ? (
+                  <section id="exchanges" className={`${PANEL} scroll-mt-4 p-0.5`}>
+                    <div className="flex flex-wrap items-start justify-between gap-3 px-6 py-4">
+                      <div>
+                        <h2 className="text-[15px] font-medium text-ink">{d.exchanges.title}</h2>
+                        <p className="mt-0.5 text-[11px] text-muted">{d.exchanges.description}</p>
+                      </div>
+                      <p className="text-[11px] text-muted">
+                        {fill(d.exchanges.stats, {
+                          days: exchangeStats.days,
+                          questions: number.format(exchangeStats.questions),
+                          answered: number.format(exchangeStats.answered),
+                          missed: number.format(exchangeStats.missed),
+                        })}
+                      </p>
+                    </div>
+                    <Table
+                      columns={d.exchanges.columns}
+                      empty={d.exchanges.empty}
+                      rows={exchanges.exchanges.map((exchange) => [
+                        <span key="q" className="flex min-w-0 flex-col gap-0.5">
+                          <span className="text-ink" title={exchange.answer ?? undefined}>
+                            {exchange.question}
+                            {exchange.preview ? (
+                              <span className="ml-1.5 rounded bg-mutedbg px-1 py-0.5 text-[10px] text-steel">{d.exchanges.preview}</span>
+                            ) : null}
+                            {exchange.showcase ? (
+                              <span className="ml-1.5 rounded bg-brandsoft px-1 py-0.5 text-[10px] text-brandink">{d.exchanges.showcase}</span>
+                            ) : null}
+                          </span>
+                          {exchange.rewrittenQuery ? (
+                            <span className="text-[10.5px] text-muted">
+                              {fill(d.exchanges.rewritten, { query: exchange.rewrittenQuery })}
+                            </span>
+                          ) : null}
+                        </span>,
+                        <span
+                          key="o"
+                          className={
+                            exchange.outcome === 'answer' || exchange.outcome === 'degraded' ? 'text-steel' : 'text-amber'
+                          }
+                        >
+                          {label(d.exchanges.outcomes, exchange.outcome)}
+                        </span>,
+                        <span key="s" className="flex flex-col gap-0.5">
+                          {exchange.sources.slice(0, 3).map((source) => (
+                            <a
+                              key={source.url}
+                              href={source.url}
+                              target="_blank"
+                              rel="noreferrer"
+                              className="truncate text-brandink hover:text-brandink"
+                              title={source.url}
+                            >
+                              {source.title}
+                            </a>
+                          ))}
+                          {exchange.sources.length === 0 ? <span className="text-muted">{d.basics.none}</span> : null}
+                        </span>,
+                        <span key="g" className="break-all text-muted">{exchange.origin}</span>,
+                        when(exchange.createdAt),
+                      ])}
+                    />
+                    {exchanges.total > EXCHANGE_PAGE_SIZE ? (
+                      <div className="flex flex-wrap items-center justify-between gap-3 border-t border-line px-6 py-3">
+                        <p className="text-[11px] text-muted">
+                          {fill(d.exchanges.page, { page: qaPage, pages: qaPages, total: number.format(exchanges.total) })}
+                        </p>
+                        <span className="flex items-center gap-2">
+                          {qaPage > 1 ? (
+                            <Link href={qaHref(qaPage - 1)} className={PAGER}>
+                              {d.documents.prev}
+                            </Link>
+                          ) : null}
+                          {qaPage < qaPages ? (
+                            <Link href={qaHref(qaPage + 1)} className={PAGER}>
+                              {d.documents.next}
+                            </Link>
+                          ) : null}
+                        </span>
+                      </div>
+                    ) : null}
+                  </section>
                 ) : null}
-                {qaPage < qaPages ? (
-                  <Link href={qaHref(qaPage + 1)} className={PAGER}>
-                    {d.documents.next}
-                  </Link>
+                </>
+              ) : null,
+          },
+          {
+            id: 'settings',
+            label: d.tabs.settings,
+            anchors: ['metadata', 'expert'],
+            panel:
+              library.lifecycleStatus !== 'archived' && (canEdit || expert) ? (
+                <>
+                {/* requirement.md 5.2: metadata and parse scope are the owner's to
+                    edit; the forms post to actions that re-check the role. */}
+                {canEdit ? (
+                  <>
+                    <LibraryMetadataForm
+                      libraryId={library.id}
+                      initial={{
+                        title: library.title,
+                        description: library.description,
+                        language: library.language,
+                        visibility: library.visibility,
+                      }}
+                      rightsDeclared={library.materials.rights !== null}
+                      action={editLibraryMetadataAction}
+                    />
+                    {library.source ? (
+                      <ParseScopeForm
+                        libraryId={library.id}
+                        sourceType={library.source.type}
+                        scope={library.source.scope}
+                        refreshPolicy={library.source.refreshPolicy}
+                        action={updateParseScopeAction}
+                      />
+                    ) : null}
+                  </>
                 ) : null}
-              </span>
-            </div>
-          ) : null}
-        </section>
-      ) : null}
-
-      <section id="documents" className={`${PANEL} scroll-mt-4 p-0.5`}>
-        <div className="px-6 py-4">
-          <h2 className="text-[15px] font-medium text-ink">{d.documents.title}</h2>
-          <p className="mt-0.5 text-[11px] text-muted">{d.documents.description}</p>
-        </div>
-        <Table
-          columns={d.documents.columns}
-          empty={d.documents.empty}
-          rows={documents.documents.map((document) => [
-            <Link
-              key="t"
-              href={`/dashboard/libraries/${library.id}/documents/${document.id}`}
-              className="text-brandink hover:text-brandink"
-            >
-              {document.title}
-            </Link>,
-            <a
-              key="u"
-              href={document.sourceUrl}
-              target="_blank"
-              rel="noreferrer"
-              className="break-all text-muted hover:text-ink"
-            >
-              {document.sourceUrl}
-            </a>,
-            number.format(document.chunks),
-          ])}
-        />
-        {documents.total > 0 ? (
-          <div className="flex flex-wrap items-center justify-between gap-3 border-t border-line px-6 py-3">
-            <p className="text-[11px] text-muted">
-              {fill(d.documents.page, { page: docsPage, pages: docsPages })} ·{' '}
-              {fill(d.documents.showing, { shown: documents.documents.length, total: documents.total })}
-            </p>
-            <span className="flex items-center gap-2">
-              <span className="flex items-center gap-1 text-[11px] text-muted">
-                {d.documents.pageSize}
-                {DOCUMENTS_PAGE_SIZES.map((size) => (
-                  <Link
-                    key={size}
-                    href={docsHref(1, size)}
-                    aria-current={size === docsSize ? 'true' : undefined}
-                    className={`rounded-md px-1.5 py-0.5 ${
-                      size === docsSize ? 'bg-subtle font-medium text-ink' : 'hover:text-ink'
-                    }`}
-                  >
-                    {size}
-                  </Link>
-                ))}
-              </span>
-              {docsPage > 1 ? (
-                <Link href={docsHref(docsPage - 1)} className={PAGER}>
-                  {d.documents.prev}
-                </Link>
-              ) : null}
-              {docsPage < docsPages ? (
-                <Link href={docsHref(docsPage + 1)} className={PAGER}>
-                  {d.documents.next}
-                </Link>
-              ) : null}
-            </span>
-          </div>
-        ) : null}
-      </section>
-
-      <section className={`${PANEL} p-0.5`}>
-        <div className="px-6 py-4">
-          <h2 className="text-[15px] font-medium text-ink">{d.versions.title}</h2>
-        </div>
-        <Table
-          columns={d.versions.columns}
-          empty={d.versions.empty}
-          rows={library.versions.map((version) => [
-            <span key="v" className="flex items-center gap-2">
-              {version.label}
-              {version.isCurrent ? <Badge tone="brand">{d.versions.current}</Badge> : null}
-            </span>,
-            label(d.indexStatus, version.indexStatus),
-            `${number.format(version.documents)} / ${number.format(version.chunks)}`,
-            version.buildCalls === null
-              ? d.versions.costFree
-              : fill(d.versions.cost, { calls: number.format(version.buildCalls) }),
-            when(version.publishedAt),
-          ])}
-        />
-      </section>
-
-      {library.visibility === 'public' || library.reviews.length > 0 ? (
-        <section className={`${PANEL} p-0.5`}>
-          <div className="px-6 py-4">
-            <h2 className="text-[15px] font-medium text-ink">{d.reviews.title}</h2>
-          </div>
-          <Table
-            columns={d.reviews.columns}
-            empty={d.reviews.empty}
-            rows={library.reviews.map((review) => [
-              when(review.decidedAt),
-              review.stage === OWNER_REVIEW_STAGE && isOwnerLifecycleAction(review.outcome)
-                ? m.outcomes[review.outcome]
-                : label(d.reviews.outcomes, review.outcome),
-              review.feedback.join(' ') || d.basics.none,
-            ])}
-          />
-        </section>
-      ) : null}
+                {/* expert-library-prd.md 5: the expert tag. Shown for a private library
+                    too: its checklist is how an owner learns what the tag needs. */}
+                {expert ? (
+                  <LibraryExpertPanel
+                    libraryId={library.id}
+                    taggedAt={expert.taggedAt?.toISOString() ?? null}
+                    checks={expert.checks}
+                    evaluation={expert.evaluation}
+                    earning={expert.earning}
+                    blocker={expert.blocker}
+                    reapplyAllowedAt={expert.reapplyAllowedAt?.toISOString() ?? null}
+                    pending={
+                      expert.pending
+                        ? { id: expert.pending.id, createdAt: expert.pending.createdAt.toISOString(), note: expert.pending.note }
+                        : null
+                    }
+                    latest={
+                      expert.latest
+                        ? {
+                            status: expert.latest.status,
+                            decisionReason: expert.latest.decisionReason,
+                            decidedAt: expert.latest.decidedAt?.toISOString() ?? null,
+                            createdAt: expert.latest.createdAt.toISOString(),
+                          }
+                        : null
+                    }
+                    history={expert.history.map((row) => ({
+                      id: row.id,
+                      status: row.status,
+                      decisionReason: row.decisionReason,
+                      decidedAt: row.decidedAt?.toISOString() ?? null,
+                      createdAt: row.createdAt.toISOString(),
+                    }))}
+                    canEdit={canEdit}
+                    applyAction={applyExpertAction}
+                    withdrawAction={withdrawExpertAction}
+                  />
+                ) : null}
+                </>
+              ) : null,
+          },
+        ]}
+      />
     </div>
   );
 }

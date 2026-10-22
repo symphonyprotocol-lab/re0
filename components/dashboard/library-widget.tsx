@@ -237,6 +237,7 @@ export function LibraryWidgetPanel({
   ready,
   canEdit,
   maxKeys,
+  planAllowed,
   createAction,
   updateAction,
   revokeAction,
@@ -247,6 +248,8 @@ export function LibraryWidgetPanel({
   ready: boolean;
   canEdit: boolean;
   maxKeys: number;
+  /** One more key fits under the plan's cap (lib/domain/plans.ts `siteKeys`; Free holds one). */
+  planAllowed: boolean;
   createAction: SiteKeyAction;
   updateAction: SiteKeyAction;
   revokeAction: SiteKeyAction;
@@ -297,7 +300,14 @@ export function LibraryWidgetPanel({
         </div>
       )}
 
-      {canEdit && keys.length < maxKeys ? (
+      {canEdit && !planAllowed ? (
+        <p className="flex flex-wrap items-center justify-between gap-2 rounded-md border border-line bg-subtle px-3.5 py-2.5 text-[11px] text-muted">
+          <span>{w.planLimit}</span>
+          <ArrowLink href="/pricing">{w.planUpgrade}</ArrowLink>
+        </p>
+      ) : null}
+
+      {canEdit && planAllowed && keys.length < maxKeys ? (
         <form onSubmit={submitOn(createDispatch)} className="flex flex-col gap-3 border-t border-line pt-4">
           <p className="text-[13px] font-medium text-ink">{w.create.title}</p>
           <input type="hidden" name="libraryId" value={libraryId} />

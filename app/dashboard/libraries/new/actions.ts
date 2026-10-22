@@ -18,7 +18,7 @@ import {
   type PreparedUpload,
 } from '@/lib/application/libraries';
 import type { DomainVerificationFailure } from '@/lib/domain/domain-verification';
-import { isConnectedSourceType, isUploadSourceType, UPLOAD_LIMITS } from '@/lib/domain/library';
+import { isConnectedSourceType, isUploadSourceType, PlatformLibraryRefused, UPLOAD_LIMITS } from '@/lib/domain/library';
 import { requireSession } from '@/lib/http/session';
 
 /**
@@ -40,7 +40,9 @@ export interface CreateLibraryResult {
     | 'unavailable'
     | 'github'
     | 'notion'
-    | 'unverified';
+    | 'unverified'
+    /** A public library without a usable rights declaration, or one declaring model-generated content. */
+    | 'rights';
   /** With `error: 'github'`: which import rule the repository failed. */
   refusal?: GithubImportRefusalCode;
   /** With `error: 'notion'`: why the page could not be imported. */
@@ -85,6 +87,12 @@ export async function createWorkspaceLibraryAction(
       domainVerificationId: String(form.get('domainVerificationId') ?? '') || undefined,
       description: String(form.get('description') ?? '') || null,
       language: String(form.get('language') ?? '') || null,
+      rights: {
+        origin: form.get('rightsOrigin') ?? undefined,
+        license: form.get('rightsLicense') ?? undefined,
+        generation: form.get('rightsGeneration') ?? undefined,
+        note: form.get('rightsNote') ?? undefined,
+      },
     });
     /* Queued, and then run after the response: the wizard says "queued" at
        once, and by the time the owner opens the library page the first build
@@ -101,6 +109,9 @@ export async function createWorkspaceLibraryAction(
     }
     return { ok: true, publicId, libraryId };
   } catch (error) {
+    if (error instanceof PlatformLibraryRefused && error.code.startsWith('rights_')) {
+      return { ok: false, error: 'rights' };
+    }
     if (error instanceof GithubImportRefused) {
       return { ok: false, error: 'github', refusal: error.refusal };
     }

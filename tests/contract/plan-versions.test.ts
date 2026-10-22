@@ -17,6 +17,7 @@ import {
   readCapabilities,
   sharePercentFromBps,
   shortPlanVersionId,
+  siteKeysAllowed,
   usdFromMinor,
   usdHeadline,
   type PlanChangeError,
@@ -140,7 +141,7 @@ describe('a proposed version', () => {
       buildBaseCalls: 1,
       buildTokensPerCall: 20_000,
       buildPagesPerCall: 5,
-      capabilities: { publicReviewRequired: true, addonPurchase: true },
+      capabilities: capabilitiesFor('pro', true),
     });
   });
 
@@ -198,7 +199,7 @@ describe('the Additional Calls pack', () => {
       buildBaseCalls: PACK_INHERITS_PRO,
       buildTokensPerCall: PACK_INHERITS_PRO,
       buildPagesPerCall: PACK_INHERITS_PRO,
-      capabilities: { publicReviewRequired: true, addonPurchase: false },
+      capabilities: capabilitiesFor('addon', true),
     });
   });
 
@@ -239,6 +240,22 @@ describe('capabilities', () => {
     expect(capabilitiesFor('free', true).addonPurchase).toBe(false);
     expect(capabilitiesFor('addon', true).addonPurchase).toBe(false);
   });
+
+  /* The website widget: Free holds one site key, Pro any number; a stored cap wins over the tier. */
+  it('caps site keys on Free and lifts the cap on Pro', () => {
+    expect(capabilitiesFor('free', true).siteKeys).toBe(1);
+    expect(capabilitiesFor('pro', true).siteKeys).toBe(-1);
+    expect(readCapabilities('free', {}).siteKeys).toBe(1);
+    expect(readCapabilities('free', { siteKeys: 3 }).siteKeys).toBe(3);
+    expect(readCapabilities('free', { siteKeys: 'many' }).siteKeys).toBe(1);
+    expect(readCapabilities('pro', { siteKeys: -2 }).siteKeys).toBe(-1);
+  });
+
+  it('counts live site keys against the cap', () => {
+    expect(siteKeysAllowed(1, 0)).toBe(true);
+    expect(siteKeysAllowed(1, 1)).toBe(false);
+    expect(siteKeysAllowed(-1, 99)).toBe(true);
+  });
 });
 
 /**
@@ -259,7 +276,7 @@ describe('isSamePlanVersion', () => {
     buildBaseCalls: 1,
     buildTokensPerCall: 20_000,
     buildPagesPerCall: 5,
-    capabilities: { publicReviewRequired: true, addonPurchase: true },
+    capabilities: capabilitiesFor('pro', true),
   };
 
   it('recognises a no-op', () => {
@@ -280,7 +297,7 @@ describe('isSamePlanVersion', () => {
     expect(
       isSamePlanVersion(draft, {
         ...live,
-        capabilities: { publicReviewRequired: false, addonPurchase: true },
+        capabilities: capabilitiesFor('pro', false),
       }),
     ).toBe(false);
   });

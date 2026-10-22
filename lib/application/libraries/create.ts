@@ -38,6 +38,7 @@ import {
 import { checkGithubImport, type CheckGithubImport } from '@/lib/application/auth/github-connection';
 import { checkNotionImport, type CheckNotionImport } from '@/lib/application/auth/notion-connection';
 import { NOTION_SOURCE_USER_KEY } from '@/lib/domain/notion';
+import { parseRightsDeclaration, rightsAllowPublic, rightsPosted, type RightsDeclaration } from '@/lib/domain/rights';
 import { requiresDomainVerification } from '@/lib/domain/domain-verification';
 import { consumeDomainVerification } from './domain-verification';
 import { isObjectStoreConfigured, objectStore, type ObjectStore } from '@/lib/infrastructure/objects/store';
@@ -85,6 +86,12 @@ export interface CreateWorkspaceLibraryInput {
   domainVerificationId?: unknown;
   description?: string | null;
   language?: string | null;
+  /**
+   * The owner's rights declaration (lib/domain/rights.ts), as the wizard
+   * posts it. Required for a public library, which cannot be submitted
+   * without one; optional for a private one.
+   */
+  rights?: { origin?: unknown; license?: unknown; generation?: unknown; note?: unknown };
   /** The store the uploads are confirmed in; the configured one by default. */
   store?: Pick<ObjectStore, 'head'>;
   /** The repository check for github; GitHub itself by default. */
@@ -132,6 +139,24 @@ export async function createWorkspaceLibrary(
       throw new AppError('invalid_request', 'the description or language is longer than allowed');
     }
     throw error;
+  }
+
+  /*
+   * The rights declaration (review-visibility-proposal.md 5.1). A public
+   * library is created with one or not at all; content whose body a model
+   * generated without review is not accepted as public (7.4), and the
+   * wizard offers private instead. A private library may declare too.
+   */
+  let rightsDeclaration: RightsDeclaration | null = null;
+  if (input.rights && rightsPosted(input.rights)) {
+    rightsDeclaration = parseRightsDeclaration(input.rights, { userId: input.userId ?? null, now: new Date() });
+    if (!rightsDeclaration) throw new PlatformLibraryRefused('rights_invalid', 'the rights declaration is incomplete');
+  }
+  if (input.visibility === 'public') {
+    if (!rightsDeclaration) throw new PlatformLibraryRefused('rights_required', 'a public library declares its rights');
+    if (!rightsAllowPublic(rightsDeclaration)) {
+      throw new PlatformLibraryRefused('rights_generated', 'model-generated content is not accepted as public');
+    }
   }
   if (!isConnectedSourceType(input.sourceType)) {
     throw new AppError('invalid_request', 'unsupported source type');
@@ -293,6 +318,7 @@ export async function createWorkspaceLibrary(
         visibility: input.visibility,
         lifecycleStatus: 'draft',
         indexStatus: 'pending',
+        rightsDeclaration,
       });
       await tx.insert(schema.source).values({
         id: sourceId,

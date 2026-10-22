@@ -12,11 +12,15 @@ import {
   applicationBlocker,
   expertChecks,
   expertEarning,
+  expertHitRate,
   ExpertLibraryRefused,
   normalizeExpertNote,
+  parseExpertMaterials,
   reapplyAllowedAt,
   type ExpertApplicationStatus,
   type ExpertCheck,
+  type ExpertEvalRules,
+  type ExpertEvaluation,
   type ExpertLibraryError,
 } from '@/lib/domain/expert-library';
 import { uuidv7 } from '@/lib/domain/id';
@@ -27,6 +31,7 @@ import {
   auditExpert,
   candidateOf,
   COOLDOWN_STATUSES,
+  expertEvalRules,
   isUuid,
   lastCooldownDecisionAt,
   ownedLibrary,
@@ -50,8 +55,10 @@ export interface ExpertApplicationView {
 export interface ExpertPanelView {
   /** When the tag was granted; null for a library that is not an expert library. */
   taggedAt: Date | null;
-  /** The owner's three preconditions, each as it stands now. */
+  /** The owner's preconditions, each as it stands now. */
   checks: Record<ExpertCheck, boolean>;
+  /** The question set against the current version, and the thresholds it is judged by (review-visibility-proposal.md 5.3). */
+  evaluation: ExpertEvaluation & { hitRate: number | null; rules: ExpertEvalRules };
   /** Tagged and every condition met: calls to it are earning right now. */
   earning: boolean;
   /** Why a new application cannot be opened, or null when it can. */
@@ -84,7 +91,8 @@ export async function expertPanel(input: {
   if (!isUuid(input.libraryId)) return null;
   const database = db();
   const now = input.now ?? new Date();
-  const candidate = await candidateOf(database, ownedLibrary(input.workspaceId, input.libraryId));
+  const evalRules = await expertEvalRules();
+  const candidate = await candidateOf(database, ownedLibrary(input.workspaceId, input.libraryId), false, evalRules);
   if (!candidate) return null;
 
   /*
@@ -115,6 +123,7 @@ export async function expertPanel(input: {
   return {
     taggedAt: candidate.expertTaggedAt,
     checks: expertChecks(candidate),
+    evaluation: { ...candidate.evaluation, hitRate: expertHitRate(candidate.evaluation), rules: evalRules },
     earning: expertEarning(candidate),
     blocker,
     reapplyAllowedAt: blocker === 'cooldown' ? reapplyAllowedAt(lastDecidedAt) : null,
@@ -137,8 +146,14 @@ export interface ApplyForExpertTagInput {
   workspaceId: string;
   role: WorkspaceRole;
   libraryId: string;
-  /** The applicant's statement for the reviewer; optional. */
+  /** The applicant's statement for the reviewer; optional. Kept for callers that predate the materials. */
   note?: unknown;
+  /**
+   * The structured statement (lib/domain/expert-library.ts `ExpertMaterials`):
+   * scope, maintenance and credentials, each required, and the note. Absent
+   * only for a caller that predates it; the dashboard always posts it.
+   */
+  materials?: { scope?: unknown; maintenance?: unknown; credentials?: unknown; note?: unknown };
   /** Who applied, for the audit values. */
   userId?: string | null;
   now?: Date;
@@ -157,15 +172,21 @@ export async function applyForExpertTag(
   input: ApplyForExpertTagInput,
 ): Promise<ApplyForExpertTagResult> {
   assertManager(input.role, 'open');
-  const note = normalizeExpertNote(input.note);
+  const materials = input.materials ? parseExpertMaterials(input.materials) : null;
+  if (input.materials && materials === undefined) {
+    throw new ExpertLibraryRefused('invalid_materials', 'scope, maintenance and credentials are required, within their limits');
+  }
+  const note = normalizeExpertNote(materials ? materials.note : input.note);
   if (note === undefined) {
     throw new ExpertLibraryRefused('invalid_note', 'the note is too long or contains control characters');
   }
   if (!isUuid(input.libraryId)) throw new ExpertLibraryRefused('not_found', 'no such library');
   const now = input.now ?? new Date();
+  /* Read before the transaction: configuration, not something the lock has to cover. */
+  const evalRules = await expertEvalRules();
 
   const outcome = await db().transaction(async (tx) => {
-    const candidate = await candidateOf(tx, ownedLibrary(input.workspaceId, input.libraryId), true);
+    const candidate = await candidateOf(tx, ownedLibrary(input.workspaceId, input.libraryId), true, evalRules);
     if (!candidate) throw new ExpertLibraryRefused('not_found', 'no such library');
 
     const [pending, lastDecidedAt] = await Promise.all([
@@ -187,6 +208,7 @@ export async function applyForExpertTag(
       workspaceId: input.workspaceId,
       status: 'pending',
       note,
+      materials: materials ?? null,
       createdAt: now,
     });
     return { applicationId, publicId: candidate.publicId };
@@ -226,9 +248,10 @@ export async function withdrawExpertApplication(
   assertManager(input.role, 'withdraw');
   if (!isUuid(input.libraryId)) throw new ExpertLibraryRefused('not_found', 'no such library');
   const now = input.now ?? new Date();
+  const evalRules = await expertEvalRules();
 
   const outcome = await db().transaction(async (tx) => {
-    const candidate = await candidateOf(tx, ownedLibrary(input.workspaceId, input.libraryId), true);
+    const candidate = await candidateOf(tx, ownedLibrary(input.workspaceId, input.libraryId), true, evalRules);
     if (!candidate) throw new ExpertLibraryRefused('not_found', 'no such library');
     const pending = await pendingApplicationOf(tx, candidate.id);
     if (!pending) throw new ExpertLibraryRefused('not_pending', 'no pending application');

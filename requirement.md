@@ -541,6 +541,8 @@ Git 仓库根目录可以提供来源侧配置：
 
 审核结果为通过、拒绝或要求修改。所有审核动作写入审计日志，目标处理时间为 1–2 个工作日。
 
+审核员可见内容、提交材料与规则/模型/人工三层审核的方案见 [review-visibility-proposal.md](./review-visibility-proposal.md)，待评审，尚未进入基线。
+
 ## 8. Ingestion、版本与刷新
 
 ### 8.1 Ingestion 流程

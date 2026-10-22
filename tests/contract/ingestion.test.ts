@@ -19,6 +19,8 @@ import {
   citationFor,
   documentFormat,
   estimateTokens,
+  cleanPageTitle,
+  htmlTitle,
   htmlToText,
   INGESTION_ERRORS,
   isFallbackDocument,
@@ -170,6 +172,58 @@ describe('scanning', () => {
 /* ---------------------------------------------------------------- parsing */
 
 describe('parsing', () => {
+  /*
+   * A rendered pricing page: the markdown opens with the first plan card,
+   * "## Free", and has no level-1 heading. Titled from the first heading it
+   * was "Free"; the page's own name has to win over a lower heading.
+   */
+  it('prefers the title a page declares over a heading below level 1', () => {
+    const rendered = parseDocument({
+      path: 'pricing.md',
+      format: 'markdown',
+      content: '## Free\n\n$0 / month\n\n## Solo\n\n$3 / month',
+      pageTitle: 'Pricing | APAGE',
+      siteTitle: 'apage',
+    });
+    expect(rendered.title).toBe('Pricing');
+    /* The author's own level-1 heading still outranks it. */
+    expect(
+      parseDocument({
+        path: 'pricing.md',
+        format: 'markdown',
+        content: '# Plans and pricing\n\n## Free',
+        pageTitle: 'Pricing | APAGE',
+        siteTitle: 'apage',
+      }).title,
+    ).toBe('Plans and pricing');
+    /* An HTML page's `<title>` is read without being passed. */
+    expect(
+      parseDocument({
+        path: 'pricing.html',
+        format: 'html',
+        content: '<html><head><title>Pricing &amp; plans · APAGE</title></head><body><h2>Free</h2><p>$0</p></body></html>',
+        siteTitle: 'APAGE',
+      }).title,
+    ).toBe('Pricing & plans');
+    /* No declared title: the first heading, as before. */
+    expect(markdown('## Free\n\n$0').title).toBe('Free');
+  });
+
+  it('reads an HTML title and sheds only the site name from it', () => {
+    expect(htmlTitle('<title> Pricing |\n APAGE </title>')).toBe('Pricing | APAGE');
+    expect(htmlTitle('<title></title><h1>x</h1>')).toBeNull();
+    expect(htmlTitle('<p>no title</p>')).toBeNull();
+    expect(cleanPageTitle('Pricing | APAGE', 'apage')).toBe('Pricing');
+    expect(cleanPageTitle('APAGE – Pricing', 'apage')).toBe('Pricing');
+    expect(cleanPageTitle('Pricing - Plans | APAGE', 'apage')).toBe('Pricing | Plans');
+    /* A separator that is not the site name is content, and stays. */
+    expect(cleanPageTitle('Pricing | Plans', 'apage')).toBe('Pricing | Plans');
+    /* The home page is called what the site is called. */
+    expect(cleanPageTitle('APAGE', 'apage')).toBe('APAGE');
+    expect(cleanPageTitle('Pricing | APAGE', null)).toBe('Pricing | APAGE');
+    expect(cleanPageTitle('   ', 'apage')).toBeNull();
+  });
+
   it('takes the title from the first heading', () => {
     expect(markdown('# Getting started\n\nText.').title).toBe('Getting started');
   });

@@ -23,6 +23,13 @@ export interface FetchedFile {
    */
   fetchedVia?: FetchMethod;
   /**
+   * The title the page declares apart from `content`, when the connector
+   * knows one (a rendered page's metadata, or its shell's `<title>`). Not
+   * part of the digest: the same content under a corrected title is the
+   * same content.
+   */
+  title?: string;
+  /**
    * How `content` should be parsed when the path's extension does not say --
    * the PDF connector has already extracted text from a `.pdf`, and the
    * extension must stay so the citation names the file the operator uploaded.

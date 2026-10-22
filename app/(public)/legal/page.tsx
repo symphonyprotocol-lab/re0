@@ -20,7 +20,7 @@ export default async function LegalPage() {
   const { legal: g } = await getMessages();
 
   return (
-    <div className="mx-auto w-full max-w-[1080px]">
+    <div className="mx-auto w-full max-w-[1200px]">
       <section className="px-5 pt-11 pb-12">
         <SectionHeading eyebrow="LEGAL" title={g.title} as="h1" size="lg" />
         <p className="mt-3 max-w-[70ch] text-[13px] leading-[1.7] text-muted">{g.lede}</p>

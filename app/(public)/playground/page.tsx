@@ -16,11 +16,9 @@ export default async function PlaygroundPage({ searchParams }: Search) {
 
   return (
     <section>
-      <div className="mx-auto w-full max-w-[1080px] px-5 pt-14 pb-20">
+      <div className="mx-auto w-full max-w-[1200px] px-5 pt-14 pb-20">
         <h1 className="text-center text-[26px] leading-[1.35] font-medium text-ink sm:text-[30px]">
-          {playground.titleLine1}
-          <br />
-          {playground.titleLine2}
+          {playground.title}
         </h1>
         <div className="mt-9">
           <Playground initialLibrary={initialLibrary} />

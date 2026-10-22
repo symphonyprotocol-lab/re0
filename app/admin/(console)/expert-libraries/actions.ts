@@ -2,7 +2,12 @@
 
 import { headers } from 'next/headers';
 import { revalidatePath } from 'next/cache';
-import { decideExpertApplication, revokeExpertTag } from '@/lib/application/expert-libraries';
+import {
+  decideExpertApplication,
+  expertSampleProbe,
+  revokeExpertTag,
+  type ExpertSample,
+} from '@/lib/application/expert-libraries';
 import { ExpertLibraryRefused, type ExpertLibraryError } from '@/lib/domain/expert-library';
 import { requireAdminCapability } from '@/lib/http/admin';
 import { clientAddress } from '@/lib/http/client-address';
@@ -64,11 +69,36 @@ export async function decideExpertAction(
       applicationId,
       decision,
       reason: text(form, 'reason'),
+      /* The expert checklist rides as `check.<id>` / `note.<id>` fields (lib/domain/expert-library.ts). */
+      checklist: form,
     });
     revalidateApplication(applicationId);
     return { ok: true };
   } catch (error) {
     return refused(error, `expert ${decision}`);
+  }
+}
+
+export interface ExpertSampleActionResult {
+  ok: boolean;
+  error?: ExpertLibraryError | 'unavailable';
+  sample?: ExpertSample;
+}
+
+/** Re-ask a few of the library's questions, for the reviewer's own look (review-visibility-proposal.md 6.5). */
+export async function probeExpertSampleAction(
+  _previous: ExpertSampleActionResult | null,
+  form: FormData,
+): Promise<ExpertSampleActionResult> {
+  const session = await requireAdminCapability('expertLibraries');
+  const applicationId = text(form, 'applicationId');
+  try {
+    const sample = await expertSampleProbe({ actor: await actor(session), applicationId });
+    return { ok: true, sample };
+  } catch (error) {
+    if (error instanceof ExpertLibraryRefused) return { ok: false, error: error.code };
+    console.error(`expert sample probe failed: ${error instanceof Error ? error.message : 'unknown'}`);
+    return { ok: false, error: 'unavailable' };
   }
 }
 

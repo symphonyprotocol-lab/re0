@@ -84,6 +84,8 @@ export function AdminSidebar({
           badge: pendingReviews,
           needs: 'libraries',
         },
+        /* The rules layer's thresholds sit with review, whose first reader it is (review-visibility-proposal.md 6.1). */
+        { href: '/admin/libraries/rules', label: nav.reviewRules, Icon: SlidersIcon, needs: 'libraries' },
         {
           href: '/admin/platform-libraries',
           label: nav.platformLibraries,
@@ -115,6 +117,8 @@ export function AdminSidebar({
           badge: pendingExpert,
           needs: 'expertLibraries',
         },
+        /* Showcase pages are user content on an address of ours (lib/domain/showcase.ts): content review's to take down. */
+        { href: '/admin/showcases', label: nav.showcases, Icon: GlobeIcon, needs: 'libraries' },
       ],
     },
     {

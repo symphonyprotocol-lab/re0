@@ -13,7 +13,7 @@
  * score row, re-blending the structural score the last build recorded, so
  * adding questions does not need a rebuild to count.
  */
-import { asc, desc, eq, inArray } from 'drizzle-orm';
+import { and, asc, desc, eq, inArray } from 'drizzle-orm';
 import {
   blendBenchmark,
   EVAL_MAX_QUESTIONS,
@@ -41,6 +41,8 @@ export type EvaluationDependencies = Pick<
 
 /**
  * Null when the library has no questions, or when they could not be run.
+ * `questionIds` narrows the run to those questions -- the owner's newly
+ * written one (libraries/materials.ts) -- and the others keep their result.
  *
  * A failure is "not evaluated", never "every question missed": an embedding
  * provider that is down for a minute must not publish a Benchmark of twenty
@@ -49,18 +51,25 @@ export type EvaluationDependencies = Pick<
  */
 export async function evaluateVersion(
   database: ReturnType<typeof db>,
-  target: { libraryId: string; versionId: string },
+  target: { libraryId: string; versionId: string; questionIds?: readonly string[] },
   dependencies: EvaluationDependencies = defaultRetrievalDependencies(),
 ): Promise<EvaluationSummary | null> {
+  if (target.questionIds && target.questionIds.length === 0) return null;
   const questions = await database
     .select({
       id: schema.libraryEvalQuestion.id,
       question: schema.libraryEvalQuestion.question,
       expectedSource: schema.libraryEvalQuestion.expectedSource,
       expectedText: schema.libraryEvalQuestion.expectedText,
+      author: schema.libraryEvalQuestion.author,
     })
     .from(schema.libraryEvalQuestion)
-    .where(eq(schema.libraryEvalQuestion.libraryId, target.libraryId))
+    .where(
+      and(
+        eq(schema.libraryEvalQuestion.libraryId, target.libraryId),
+        target.questionIds ? inArray(schema.libraryEvalQuestion.id, [...target.questionIds]) : undefined,
+      ),
+    )
     .orderBy(asc(schema.libraryEvalQuestion.createdAt))
     .limit(EVAL_MAX_QUESTIONS);
   if (questions.length === 0) return null;
@@ -125,7 +134,16 @@ export async function evaluateVersion(
       .where(inArray(schema.libraryEvalQuestion.id, ids));
   }
 
-  return summarizeEvaluation(ranks);
+  /*
+   * Every question is asked, so the owner sees how theirs fare, but only
+   * the platform's own move the score (review-visibility-proposal.md 5.2):
+   * a set the owner wrote to be hit would otherwise score itself. A library
+   * with owner questions alone yields a summary of zero scored questions --
+   * the run happened and is not a failure -- which `evaluationCounts` keeps
+   * out of the Benchmark and `evaluationBreakdown` out of the score row.
+   */
+  const scored = ranks.filter((_, index) => questions[index]?.author === 'admin');
+  return summarizeEvaluation(scored);
 }
 
 /** What an evaluation adds to `library_score.breakdown`. */
@@ -135,7 +153,7 @@ export function evaluationBreakdown(
 ): Record<string, number> {
   return {
     structural,
-    ...(evaluation
+    ...(evaluation && evaluation.questions > 0
       ? {
           evalQuestions: evaluation.questions,
           evalHits: evaluation.hits,

@@ -9,6 +9,7 @@
  * this runs without a database or a provider.
  */
 import { describe, expect, it } from 'vitest';
+import type { HistoryTurn } from '@/lib/domain/generation';
 import type { GatherResult, GatheredChunk } from '@/lib/application/retrieval/gather';
 import { streamPlayground, type PlaygroundDependencies, type PlaygroundEvent } from '@/lib/application/playground';
 import { DEFAULT_RETRIEVAL_SETTINGS } from '@/lib/domain/retrieval-config';
@@ -77,6 +78,8 @@ interface Fixture {
   rewriteReply?: string | Error;
   /** No usable model at all. */
   noModel?: boolean;
+  /** The turns before the question, as a widget sends them. */
+  history?: HistoryTurn[];
 }
 
 function fixture(options: Fixture) {
@@ -156,7 +159,7 @@ async function run(options: Fixture) {
   const events: PlaygroundEvent[] = [];
   for await (const event of streamPlayground(
     caller,
-    { libraries: [LIBRARY], question: '会员怎么开通?' },
+    { libraries: [LIBRARY], question: '会员怎么开通?', history: options.history },
     f.dependencies,
   )) {
     events.push(event);
@@ -181,11 +184,11 @@ describe('playground rewrite on miss', () => {
       { query: '会员怎么开通?', meter: true },
       { query: 'how to subscribe to a plan', meter: false },
     ]);
-    /* The rewrite call is bounded and describes the site from its profile. */
+    /* The rewrite call is bounded by its output cap and the entry's own clock, and describes the site from its profile. */
     const rewrite = llmCalls[0]!;
     expect(rewrite.system).toBe(REWRITE_SYSTEM_PROMPT);
     expect(rewrite.maxOutputTokens).toBe(REWRITE_LIMITS.maxOutputTokens);
-    expect(rewrite.timeoutMs).toBe(REWRITE_LIMITS.timeoutMs);
+    expect(rewrite.timeoutMs).toBe(15_000);
     expect(rewrite.user).toContain('Static site hosting');
     expect(rewrite.user).toContain('subscription');
     /* The passages the missed retrieval came closest to travel with the hint. */
@@ -293,5 +296,31 @@ describe('direct FAQ answer', () => {
     }
     expect(llmCalls).toHaveLength(1);
     expect(events.at(-1)).toMatchObject({ type: 'done', kind: 'answer' });
+  });
+});
+
+/**
+ * A follow-up is not a call of its own: the question is tried as typed, and
+ * the turns before it reach the model only inside the rewrite on a miss.
+ */
+describe('history', () => {
+  const history: HistoryTurn[] = [{ question: 'What is the team plan?', answer: 'The team plan has 10 seats.' }];
+
+  it('costs nothing when the question as typed confirms', async () => {
+    const { gathers, llmCalls, types } = await run({ passes: [true], history });
+    expect(gathers).toEqual([{ query: '会员怎么开通?', meter: true }]);
+    expect(llmCalls).toHaveLength(1);
+    expect(llmCalls[0]!.system).not.toBe(REWRITE_SYSTEM_PROMPT);
+    expect(types).not.toContain('rewrite');
+  });
+
+  it('shows the turns to the one rewrite call on a miss', async () => {
+    const { gathers, llmCalls, types } = await run({ passes: [false, true], history });
+    expect(gathers.map((gather) => gather.query)).toEqual(['会员怎么开通?', 'how to subscribe to a plan']);
+    const rewrites = llmCalls.filter((call) => call.system === REWRITE_SYSTEM_PROMPT);
+    expect(rewrites).toHaveLength(1);
+    expect(rewrites[0]!.user).toContain('<turn n="1">');
+    expect(rewrites[0]!.user).toContain('A: The team plan has 10 seats.');
+    expect(types).toEqual(['model', 'gather', 'rewrite', 'gather', 'context', 'claim', 'done']);
   });
 });

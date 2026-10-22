@@ -31,6 +31,7 @@ const {
   withdrawExpertApplication,
 } = await import('@/lib/application/expert-libraries');
 const { ExpertLibraryRefused } = await import('@/lib/domain/expert-library');
+const { DEFAULT_REVIEW_RULES } = await import('@/lib/domain/auto-review');
 const { revenuePeriodId } = await import('@/lib/domain');
 const { EMBEDDING_COLUMN_DIMENSIONS } = await import('@/lib/infrastructure/ai/providers');
 const { db, schema } = await import('@/lib/infrastructure/postgres/client');
@@ -106,7 +107,27 @@ async function workspace(name: string): Promise<string> {
   return id;
 }
 
+/** The expert decision checklist as a form posts it (lib/domain/expert-library.ts), all passing but `fail`. */
+function checklist(fail?: string): Record<string, string> {
+  return Object.fromEntries(
+    ['scope_clear', 'maintenance_credible', 'credentials_match', 'sample_ok', 'usage_ok'].map((check) => [
+      `check.${check}`,
+      check === fail ? 'fail' : 'pass',
+    ]),
+  );
+}
+
+/**
+ * The fixtures carry no question set, so the evaluation gate
+ * (review-visibility-proposal.md 5.3) is waived for these tests: a saved
+ * rules row with a zero question floor, which is the platform's own switch.
+ */
+async function waiveEvalGate(): Promise<void> {
+  await db().insert(schema.reviewConfig).values({ id: uuidv7(), ...DEFAULT_REVIEW_RULES, expertMinQuestions: 0 });
+}
+
 async function subscribed(workspaceId: string, planId: 'pro' | 'free' = 'pro'): Promise<string> {
+  await waiveEvalGate();
   const database = db();
   const planVersionId = uuidv7();
   planVersions.push(planVersionId);
@@ -258,13 +279,18 @@ describeWithDb('expert libraries', () => {
     const panel = await expertPanel({ workspaceId: owner, libraryId });
     expect(panel?.taggedAt).toBeNull();
     expect(panel?.blocker).toBeNull();
-    expect(panel?.checks).toEqual({ public: true, published: true, subscribed: true });
+    expect(panel?.checks).toEqual({ public: true, published: true, subscribed: true, eval_ready: true });
 
     const { applicationId } = await applyForExpertTag({
       workspaceId: owner,
       role: 'owner',
       libraryId,
-      note: '  Official field guide, maintained weekly.  ',
+      materials: {
+        scope: 'Bird migration corridors of the northern flyway.',
+        maintenance: 'Updated each season.',
+        credentials: 'The field station that runs the counts.',
+        note: '  Official field guide, maintained weekly.  ',
+      },
     });
     expect(await pendingExpertApplications()).toBeGreaterThanOrEqual(1);
     /* Still not earning while the application waits. */
@@ -275,7 +301,18 @@ describeWithDb('expert libraries', () => {
     const detail = await expertApplicationDetail(applicationId);
     expect(detail?.status).toBe('pending');
     expect(detail?.note).toBe('Official field guide, maintained weekly.');
+    expect(detail?.materials?.credentials).toBe('The field station that runs the counts.');
     expect(detail?.approvable).toBe(true);
+
+    /* A decision carries the checklist, and its verdicts have to agree with it. */
+    expect(await refusalOf(decideExpertApplication({ actor, applicationId, decision: 'approve', reason: 'no list' }))).toBe(
+      'checklist_required',
+    );
+    expect(
+      await refusalOf(
+        decideExpertApplication({ actor, applicationId, decision: 'approve', reason: 'x', checklist: checklist('sample_ok') }),
+      ),
+    ).toBe('checklist_mismatch');
     const queue = await listExpertApplications({ query: `expert-basic-${stamp}`, status: 'pending' });
     expect(queue.rows.find((row) => row.id === applicationId)?.approvable).toBe(true);
 
@@ -284,9 +321,11 @@ describeWithDb('expert libraries', () => {
       applicationId,
       decision: 'approve',
       reason: 'source verified, complete',
+      checklist: checklist(),
     });
     expect(decided.status).toBe('approved');
     expect(decided.expertTaggedAt).not.toBeNull();
+    expect((await expertApplicationDetail(applicationId))?.checklist?.usage_ok.verdict).toBe('pass');
 
     const after = caller(reader);
     await queryDocs(after, input(`expert-basic-${stamp}`), noEmbeddings);
@@ -411,10 +450,10 @@ describeWithDb('expert libraries', () => {
     expect(detail?.approvable).toBe(false);
     expect(detail?.checks.public).toBe(false);
     expect(
-      await refusalOf(decideExpertApplication({ actor, applicationId, decision: 'approve', reason: 'ok' })),
+      await refusalOf(decideExpertApplication({ actor, applicationId, decision: 'approve', reason: 'ok', checklist: checklist() })),
     ).toBe('library_ineligible');
     expect(
-      await refusalOf(decideExpertApplication({ actor, applicationId, decision: 'reject', reason: '' })),
+      await refusalOf(decideExpertApplication({ actor, applicationId, decision: 'reject', reason: '', checklist: checklist('scope_clear') })),
     ).toBe('reason_required');
 
     const rejected = await decideExpertApplication({
@@ -422,11 +461,12 @@ describeWithDb('expert libraries', () => {
       applicationId,
       decision: 'reject',
       reason: 'went private during review',
+      checklist: checklist('scope_clear'),
     });
     expect(rejected.status).toBe('rejected');
     expect(rejected.expertTaggedAt).toBeNull();
     expect(
-      await refusalOf(decideExpertApplication({ actor, applicationId, decision: 'approve', reason: 'again' })),
+      await refusalOf(decideExpertApplication({ actor, applicationId, decision: 'approve', reason: 'again', checklist: checklist() })),
     ).toBe('not_pending');
 
     await db().update(schema.library).set({ visibility: 'public' }).where(eq(schema.library.id, libraryId));
@@ -453,7 +493,7 @@ describeWithDb('expert libraries', () => {
     const planVersionId = await subscribed(reader);
 
     const { applicationId } = await applyForExpertTag({ workspaceId: owner, role: 'owner', libraryId });
-    await decideExpertApplication({ actor, applicationId, decision: 'approve', reason: 'fine' });
+    await decideExpertApplication({ actor, applicationId, decision: 'approve', reason: 'fine', checklist: checklist() });
 
     /* One real earning event this period, plus a seeded one in a locked period. */
     const open = caller(reader);

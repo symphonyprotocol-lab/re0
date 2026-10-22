@@ -113,7 +113,7 @@ export function LegalDocument({
   footnote: string;
 }) {
   return (
-    <div className="mx-auto w-full max-w-[1080px]">
+    <div className="mx-auto w-full max-w-[1200px]">
       <section className="px-5 pt-11 pb-12">
         <Link
           href="/legal"

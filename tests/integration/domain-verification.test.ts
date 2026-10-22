@@ -210,6 +210,7 @@ describeWithDb('domain verification', () => {
       role: 'admin',
       title: 'API',
       visibility: 'public',
+      rights: { origin: 'own', license: 'open_source', generation: 'human' },
       sourceType: 'openapi',
       location: 'https://api.example.test/openapi.json',
       slug: `api-${Date.now()}`,

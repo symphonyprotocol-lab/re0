@@ -10,7 +10,15 @@ import { db, schema } from '@/lib/infrastructure/postgres/client';
 import { ref } from './column-ref';
 import { likePattern } from './like-pattern';
 
-export type LibraryReviewFilter = 'all' | 'pending' | 'approved' | 'rejected';
+/** `sample`: auto-published libraries drawn for a person's look (lib/application/review/rules.ts), not yet closed. */
+export type LibraryReviewFilter = 'all' | 'pending' | 'approved' | 'rejected' | 'sample';
+
+const OPEN_SAMPLE = sql`exists (
+  select 1 from ${schema.libraryReview}
+  where ${ref(schema.libraryReview.libraryId)} = ${ref(schema.library.id)}
+    and ${ref(schema.libraryReview.stage)} = 'sample'
+    and ${ref(schema.libraryReview.decidedAt)} is null
+)`;
 
 export interface ConsoleLibraryRow {
   id: string;
@@ -124,6 +132,8 @@ function reviewCondition(filter: LibraryReviewFilter) {
     case 'approved':
     case 'rejected':
       return inArray(schema.library.lifecycleStatus, [...REVIEW_STATUSES[filter]]);
+    case 'sample':
+      return OPEN_SAMPLE;
     default:
       return undefined;
   }
@@ -146,7 +156,7 @@ export async function listUserLibraries(input: {
     reviewCondition(input.review ?? 'all'),
   ].filter(Boolean);
 
-  const [rows, [totalRow], statusRows, [claimRow]] = await Promise.all([
+  const [rows, [totalRow], statusRows, [claimRow], [sampleRow]] = await Promise.all([
     database
       .select(LIBRARY_ROW)
       .from(schema.library)
@@ -163,6 +173,7 @@ export async function listUserLibraries(input: {
       .select({ n: count() })
       .from(schema.libraryClaim)
       .where(eq(schema.libraryClaim.status, 'pending')),
+    database.select({ n: count() }).from(schema.library).where(and(base, OPEN_SAMPLE)),
   ]);
 
   const byStatus = new Map<string, number>(statusRows.map((row) => [row.status, row.n]));
@@ -177,6 +188,7 @@ export async function listUserLibraries(input: {
       pending: sum(REVIEW_STATUSES.pending),
       approved: sum(REVIEW_STATUSES.approved),
       rejected: sum(REVIEW_STATUSES.rejected),
+      sample: sampleRow?.n ?? 0,
       claims: claimRow?.n ?? 0,
     },
   };

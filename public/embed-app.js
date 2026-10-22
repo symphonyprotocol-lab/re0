@@ -60,11 +60,38 @@
     scrollDown();
   }
 
+  /* The little Markdown a sentence can carry -- bold, inline code, a bullet
+     or a heading at the start of a line -- by hand, as components/site/
+     claim-text.tsx does it: the text is one sentence with its footnotes
+     after it, not a document. */
+  function claimText(p, text) {
+    var lines = text.split('\n');
+    for (var l = 0; l < lines.length; l++) {
+      if (l > 0) p.appendChild(document.createTextNode('\n'));
+      var heading = /^#{1,6}\s+(.*)$/.exec(lines[l]);
+      var body = heading ? heading[1] : lines[l].replace(/^[-*]\s+/, '• ');
+      var target = heading ? el('strong') : p;
+      var runs = body.split(/(\*\*[^*\n]+\*\*|`[^`\n]+`)/g);
+      for (var r = 0; r < runs.length; r++) {
+        var run = runs[r];
+        if (!run) continue;
+        if (run.length > 4 && run.slice(0, 2) === '**' && run.slice(-2) === '**') {
+          target.appendChild(el('strong', null, run.slice(2, -2)));
+        } else if (run.length > 2 && run.charAt(0) === '`' && run.charAt(run.length - 1) === '`') {
+          target.appendChild(el('code', 're0-code', run.slice(1, -1)));
+        } else {
+          target.appendChild(document.createTextNode(run));
+        }
+      }
+      if (heading) p.appendChild(target);
+    }
+  }
+
   /* Footnote numbers are page numbers, in the order the server listed the
      pages; a sentence citing several passages of one page gets one mark. */
   function claimParagraph(bubble, text, chunkIds, indexOf) {
     var p = el('p');
-    p.appendChild(document.createTextNode(text));
+    claimText(p, text);
     var marked = {};
     for (var i = 0; i < chunkIds.length; i++) {
       var n = indexOf[chunkIds[i]];
@@ -116,6 +143,10 @@
   }
 
   var busy = false;
+  /* The turns before the next question, for a follow-up ("and the price?"):
+     what was asked and what was shown, the last three. Sent with the question;
+     the server restates the follow-up on its own before retrieving. */
+  var history = [];
 
   function setBusy(next) {
     busy = next;
@@ -134,6 +165,7 @@
     var indexOf = {};
     var pending = null;
     var claims = 0;
+    var answered = [];
     var rewrite = null;
 
     function handle(line) {
@@ -150,6 +182,7 @@
       } else if (line.type === 'claim') {
         if (thinking.parentNode) thinking.remove();
         claims += 1;
+        answered.push(line.text);
         claimParagraph(bubble, line.text, line.chunkIds || [], indexOf);
       } else if (line.type === 'rewrite') {
         /* The question missed as asked and the answer comes from a second
@@ -175,7 +208,7 @@
       var response = await fetch('/api/embed/ask', {
         method: 'POST',
         headers: { 'content-type': 'application/json' },
-        body: JSON.stringify({ key: config.key, question: question, parent: parentOrigin }),
+        body: JSON.stringify({ key: config.key, question: question, parent: parentOrigin, history: history.slice(-3) }),
       });
       if (!response.ok) {
         var code = null;
@@ -211,6 +244,10 @@
          whatever arrived, and must not leave the dots blinking. */
       if (thinking.parentNode) thinking.remove();
       if (pending && !pending.shown) sourceList(bubble, pending);
+      if (answered.length > 0) {
+        history.push({ question: question, answer: answered.join(' ') });
+        if (history.length > 3) history = history.slice(-3);
+      }
     } catch (e) {
       if (thinking.parentNode) thinking.remove();
       note(bubble, s.error || 'Something went wrong.');

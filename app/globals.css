@@ -129,6 +129,17 @@
 }
 
 /*
+ * The showcase page's display face (app/s/[slug]/render.tsx sets
+ * `--font-bricolage` on the page). A plain class rather than a theme entry:
+ * the face is one page's voice, and a utility name the theme would mint for
+ * it belongs to no other surface. Elsewhere the variable is unset, and the
+ * stack falls through to Inter.
+ */
+.font-display {
+  font-family: var(--font-bricolage), var(--font-inter), ui-sans-serif, system-ui, sans-serif;
+}
+
+/*
  * Product surfaces (public site, dashboard, admin) commit to the single light
  * look of the design source.
  *

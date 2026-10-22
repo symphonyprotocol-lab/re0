@@ -19,6 +19,7 @@ import { AppError } from '@/contracts/errors';
 import type { LifecycleStatus, Visibility } from '@/lib/domain';
 import { uuidv7 } from '@/lib/domain/id';
 import {
+  appealableDecision,
   draftParseScope,
   editWorkspaceLibrary,
   EMPTY_PARSE_SCOPE,
@@ -36,7 +37,16 @@ import {
   type RefreshPolicy,
 } from '@/lib/domain/library';
 import { db, schema } from '@/lib/infrastructure/postgres/client';
+import {
+  parseRightsDeclaration,
+  readRightsDeclaration,
+  rightsAllowPublic,
+  rightsPosted,
+  type RightsDeclaration,
+} from '@/lib/domain/rights';
+import { runRulesLayer } from '@/lib/application/review/rules';
 import { canManageLibraries, type WorkspaceRole } from './delete';
+import { libraryMaterials } from './materials';
 
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
@@ -150,6 +160,23 @@ export interface OwnerLifecycleResult {
   lifecycleStatus: LifecycleStatus;
   /** Pause only: how many queued fetches were withdrawn with it. */
   cancelledOperations: number;
+  /** A submission the rules layer held: the model review to run off the request (lib/application/review/model.ts). */
+  modelReviewOperationId?: string | null;
+}
+
+/** The newest review rows, newest first, as `appealableDecision` reads them. */
+async function recentReviews(reader: Reader, libraryId: string) {
+  return reader
+    .select({
+      id: schema.libraryReview.id,
+      stage: schema.libraryReview.stage,
+      outcome: schema.libraryReview.outcome,
+      appealOf: schema.libraryReview.appealOf,
+    })
+    .from(schema.libraryReview)
+    .where(eq(schema.libraryReview.libraryId, libraryId))
+    .orderBy(desc(schema.libraryReview.createdAt), desc(schema.libraryReview.id))
+    .limit(10);
 }
 
 /**
@@ -177,16 +204,21 @@ export async function applyOwnerLifecycleAction(
 
   return database.transaction(async (tx) => {
     const target = await ownedLibrary(tx, input.workspaceId, input.libraryId, true);
-    const [review, ready] = await Promise.all([
+    const [review, ready, materials, recent] = await Promise.all([
       latestReview(tx, target.id),
       hasReadyVersion(tx, target.currentVersionId),
+      libraryMaterials(tx, target.id),
+      recentReviews(tx, target.id),
     ]);
+    const appealOf = appealableDecision(recent);
     const available = ownerActionAvailable(
       {
         lifecycleStatus: target.lifecycleStatus,
         visibility: target.visibility,
         pausedByOwner: isOwnerPause(review),
         hasReadyVersion: ready,
+        materialsReady: materials.ready,
+        appealable: appealOf !== null,
       },
       input.action,
     );
@@ -235,14 +267,25 @@ export async function applyOwnerLifecycleAction(
       stage: OWNER_REVIEW_STAGE,
       outcome: input.action,
       feedback: [],
+      /* An appeal names the machine decision it disputes; a person answers it. */
+      appealOf: input.action === 'appeal' ? appealOf : null,
       reviewerId: null,
       createdAt: now,
-      /* A resubmission is undecided until a reviewer answers; the owner's
+      /* A submission is undecided until a reviewer answers; the owner's
          own pause and its lifting are decided the moment they are made. */
-      decidedAt: input.action === 'resubmit' ? null : now,
+      decidedAt: input.action === 'submit' || input.action === 'resubmit' || input.action === 'appeal' ? null : now,
     });
 
     return { publicId: target.publicId, lifecycleStatus: next, cancelledOperations };
+  }).then(async (result): Promise<OwnerLifecycleResult> => {
+    /* A submission's first reader is the rules layer; it may publish, send
+       back or hold. An appeal skips it: a machine sent the library back,
+       and the owner asked for a person. */
+    if (result.lifecycleStatus === 'submitted' && input.action !== 'appeal') {
+      const run = await runRulesLayer(input.libraryId);
+      if (run) return { ...result, lifecycleStatus: run.lifecycleStatus, modelReviewOperationId: run.modelReviewOperationId };
+    }
+    return result;
   });
 }
 
@@ -256,6 +299,10 @@ export interface EditLibraryMetadataInput {
   description?: string;
   language?: string;
   visibility: string;
+  /** The signed-in user, recorded as who declared when a declaration is posted. */
+  userId?: string | null;
+  /** A rights declaration posted with the edit; needed when going public without one on the row. */
+  rights?: { origin?: unknown; license?: unknown; generation?: unknown; note?: unknown };
 }
 
 export interface EditLibraryMetadataResult {
@@ -265,6 +312,8 @@ export interface EditLibraryMetadataResult {
   lifecycleStatus: LifecycleStatus;
   /** True when the visibility change put the library into the review queue. */
   queuedForReview: boolean;
+  /** A queued submission the rules layer held: the model review to run off the request. */
+  modelReviewOperationId?: string | null;
 }
 
 /**
@@ -282,8 +331,28 @@ export async function editLibraryMetadata(
 
   return database.transaction(async (tx) => {
     const target = await ownedLibrary(tx, input.workspaceId, input.libraryId, true);
-    const ready = await hasReadyVersion(tx, target.currentVersionId);
+    const [ready, materials] = await Promise.all([
+      hasReadyVersion(tx, target.currentVersionId),
+      libraryMaterials(tx, target.id),
+    ]);
 
+    /*
+     * The rights declaration rides with the edit (review-visibility-
+     * proposal.md 5.1): a posted one replaces what the row has, and going
+     * public needs one that permits a public library. The materials are
+     * judged with the declaration as it will be after this edit.
+     */
+    let rights: RightsDeclaration | null = materials.rights;
+    if (input.rights && rightsPosted(input.rights)) {
+      rights = parseRightsDeclaration(input.rights, { userId: input.userId ?? null, now: new Date() });
+      if (!rights) throw new PlatformLibraryRefused('rights_invalid', 'the rights declaration is incomplete');
+    }
+    if (input.visibility === 'public') {
+      if (!rights) throw new PlatformLibraryRefused('rights_required', 'a public library declares its rights');
+      if (!rightsAllowPublic(rights)) {
+        throw new PlatformLibraryRefused('rights_generated', 'model-generated content is not accepted as public');
+      }
+    }
     /* A refused field throws `PlatformLibraryRefused` with the field's own
        code; the action turns that into the line the form shows. */
     const edit = editWorkspaceLibrary({
@@ -307,6 +376,7 @@ export async function editLibraryMetadata(
         language: edit.language,
         visibility: edit.visibility,
         lifecycleStatus: next,
+        ...(rights !== materials.rights ? { rightsDeclaration: rights } : {}),
       })
       .where(eq(schema.library.id, target.id));
 
@@ -316,6 +386,12 @@ export async function editLibraryMetadata(
       lifecycleStatus: next,
       queuedForReview: next === 'submitted' && target.lifecycleStatus !== 'submitted',
     };
+  }).then(async (result): Promise<EditLibraryMetadataResult> => {
+    if (result.queuedForReview) {
+      const run = await runRulesLayer(input.libraryId);
+      if (run) return { ...result, lifecycleStatus: run.lifecycleStatus, modelReviewOperationId: run.modelReviewOperationId };
+    }
+    return result;
   });
 }
 

@@ -35,6 +35,7 @@ import {
   merkleRoot,
   parseDocument,
   PARSER_VERSION,
+  safetyFindingsOf,
   safetyStatusOf,
   scanContent,
   SCORE_ALGORITHM_VERSION,
@@ -70,6 +71,7 @@ import { db, schema } from '@/lib/infrastructure/postgres/client';
 import { faqCanonical, faqDocument, faqDocumentPath, faqDocumentUrl, isFaqPath } from '@/lib/domain/faq';
 import { faqEntriesForBuild } from './faq-entries';
 import { objectKeys } from '@/lib/infrastructure/objects/store';
+import { contentSketch } from '@/lib/domain/fingerprint';
 import { platformTermWeight } from './term-weights';
 import type { FetchedFile, SourceSnapshot } from '@/lib/infrastructure/connectors';
 import { defaultDependencies, type IngestionDependencies } from './dependencies';
@@ -456,6 +458,8 @@ export async function buildVersion(input: BuildInput): Promise<BuildOutcome> {
   const quarantined: SourceFile[] = [];
   let flaggedFiles = 0;
   const flaggedPaths = new Set<string>();
+  /* Which rules fired on a flagged file: kept on its document row for the reviewer. */
+  const findingsByPath = new Map<string, string[]>();
   for (const file of files) {
     const findings = scanContent(file.content);
     const status = safetyStatusOf(findings);
@@ -466,6 +470,7 @@ export async function buildVersion(input: BuildInput): Promise<BuildOutcome> {
     if (status === 'flagged') {
       flaggedFiles += 1;
       flaggedPaths.add(file.path);
+      findingsByPath.set(file.path, safetyFindingsOf(findings));
     }
     safe.push(file);
   }
@@ -506,6 +511,10 @@ export async function buildVersion(input: BuildInput): Promise<BuildOutcome> {
       path: file.path,
       format,
       content: file.content,
+      /* What the page says it is called, when the connector learned it
+         apart from the body (a rendered page), shorn of the site's name. */
+      pageTitle: file.title ?? null,
+      siteTitle: library.title,
       /* A file the connector already extracted (an uploaded PDF) is a
          document in its own right and falls back to its own name; a fetched
          page with no heading is the library's and falls back to its title. */
@@ -522,7 +531,14 @@ export async function buildVersion(input: BuildInput): Promise<BuildOutcome> {
 
   const versionId = uuidv7();
   const rows: {
-    document: { id: string; title: string; sourceUrl: string; objectKey: string; sourceId: string | null };
+    document: {
+      id: string;
+      title: string;
+      sourceUrl: string;
+      objectKey: string;
+      sourceId: string | null;
+      safetyFindings: string[];
+    };
     chunks: {
       id: string;
       ordinal: number;
@@ -560,6 +576,7 @@ export async function buildVersion(input: BuildInput): Promise<BuildOutcome> {
         title: schema.document.title,
         sourceUrl: schema.document.sourceUrl,
         objectKey: schema.document.objectKey,
+        safetyFindings: schema.document.safetyFindings,
       })
       .from(schema.document)
       .where(and(eq(schema.document.versionId, built!.id), eq(schema.document.sourceId, plan.source.id)))
@@ -625,6 +642,7 @@ export async function buildVersion(input: BuildInput): Promise<BuildOutcome> {
             sourceUrl: document.sourceUrl,
             objectKey: document.objectKey ?? objectKeys.normalized(library.id, versionId, documentId),
             sourceId: plan.source.id,
+            safetyFindings: document.safetyFindings,
           },
           chunks: copied,
           flagged,
@@ -668,6 +686,7 @@ export async function buildVersion(input: BuildInput): Promise<BuildOutcome> {
         sourceUrl: file.url,
         objectKey: objectKeys.normalized(library.id, versionId, documentId),
         sourceId: file.sourceId,
+        safetyFindings: findingsByPath.get(file.path) ?? [],
       },
       chunks,
       flagged,
@@ -824,6 +843,8 @@ export async function buildVersion(input: BuildInput): Promise<BuildOutcome> {
       searchConfig,
       contentMerkleRoot: root,
       faqDigest,
+      /* For the review rules' duplicate check (lib/domain/fingerprint.ts). */
+      contentSketch: contentSketch(rows.flatMap((row) => row.chunks.map((chunk) => chunk.body))),
       /* Not `ready`: nothing has been embedded yet. */
       indexStatus: 'processing',
       totalTokens,
@@ -839,6 +860,7 @@ export async function buildVersion(input: BuildInput): Promise<BuildOutcome> {
         sourceUrl: row.document.sourceUrl,
         objectKey: row.document.objectKey,
         sourceId: row.document.sourceId,
+        safetyFindings: row.document.safetyFindings,
       })),
     );
   });

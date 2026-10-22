@@ -37,6 +37,7 @@ import { and, desc, eq, isNull } from 'drizzle-orm';
 import { AppError } from '@/contracts/errors';
 import { uuidv7 } from '@/lib/domain/id';
 import { db, schema } from '@/lib/infrastructure/postgres/client';
+import { retireShowcaseForLibrary } from '@/lib/application/showcase/retire';
 
 /** `workflow_operation.operation_type` of the cleanup the workflow runs. */
 export const DELETE_OPERATION = 'delete';
@@ -113,6 +114,9 @@ export async function markLibraryDeleted(
     /* A redirect to a deleted library resolves to nothing; and the ids it
        held must be free for whoever creates them next. */
     await tx.delete(schema.libraryAlias).where(eq(schema.libraryAlias.libraryId, row.id));
+
+    /* The library's showcase page goes with it (lib/application/showcase/retire.ts). */
+    await retireShowcaseForLibrary(tx, row.id, now);
 
     /* Sources are fetch instructions. A deleted library is never fetched. */
     await tx.delete(schema.source).where(eq(schema.source.libraryId, row.id));

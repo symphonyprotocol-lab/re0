@@ -2,6 +2,9 @@
 const config = {
   reactStrictMode: true,
   serverExternalPackages: ['@neondatabase/serverless'],
+  /* A showcase screenshot may be 2 MB (lib/domain/showcase.ts SHOWCASE_LIMITS)
+     and it is posted through a server action; the default cap is 1 MB. */
+  experimental: { serverActions: { bodySizeLimit: '3mb' } },
   async headers() {
     return [
       /*

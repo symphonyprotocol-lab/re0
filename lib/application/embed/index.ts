@@ -1,10 +1,13 @@
 /** Website widget use cases. Route Handlers and server actions enter through this layer. */
 export {
+  countWorkspaceSiteKeys,
   createSiteKey,
   listSiteKeys,
   revokeSiteKey,
   SITE_KEYS_PER_LIBRARY,
+  siteKeyEntitlement,
   SiteKeyInvalid,
+  SiteKeyLimit,
   updateSiteKey,
   type CreateSiteKeyInput,
   type SiteKeyRefusal,

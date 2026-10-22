@@ -8,6 +8,7 @@ import { AwardIcon, CheckIcon, CircleXIcon, SpinnerIcon } from '@/components/ui/
 import type { ExpertApplicationActionResult } from '@/app/dashboard/libraries/[libraryId]/actions';
 import {
   EXPERT_CHECKS,
+  EXPERT_MATERIAL_LIMITS,
   EXPERT_NOTE_MAX_LENGTH,
   type ExpertApplicationStatus,
   type ExpertCheck,
@@ -25,6 +26,8 @@ export interface ExpertPanelProps {
   libraryId: string;
   taggedAt: string | null;
   checks: Record<ExpertCheck, boolean>;
+  /** The question set against the current version, and the thresholds the gate uses (review-visibility-proposal.md 5.3). */
+  evaluation: { questions: number; evaluatedOnCurrent: number; hitRate: number | null; rules: { minQuestions: number; minHitRate: number } };
   earning: boolean;
   blocker: string | null;
   reapplyAllowedAt: string | null;
@@ -139,7 +142,17 @@ export function LibraryExpertPanel(props: ExpertPanelProps) {
             <span className="flex flex-col gap-0.5">
               <span className="font-medium text-ink">{e.checks[check]}</span>
               <span className="text-[10.5px] leading-[1.5] text-muted">
-                {props.checks[check] ? e.checkOk : e.checkMissing[check]}
+                {check === 'eval_ready'
+                  ? fill(e.evaluationLine, {
+                      questions: props.evaluation.questions,
+                      min: props.evaluation.rules.minQuestions,
+                      evaluated: props.evaluation.evaluatedOnCurrent,
+                      rate: props.evaluation.hitRate === null ? '—' : `${props.evaluation.hitRate}%`,
+                      minRate: props.evaluation.rules.minHitRate,
+                    })
+                  : props.checks[check]
+                    ? e.checkOk
+                    : e.checkMissing[check]}
               </span>
             </span>
           </li>
@@ -224,15 +237,30 @@ function ExpertVerb({
             {mode === 'apply' ? e.applyConfirm : e.withdrawConfirm}
           </p>
           {mode === 'apply' ? (
-            <label className="flex flex-col gap-1">
-              <span className="text-[11px] font-medium text-steel">{e.noteLabel}</span>
-              <textarea
-                name="note"
-                maxLength={EXPERT_NOTE_MAX_LENGTH}
-                placeholder={e.notePlaceholder}
-                className={AREA}
-              />
-            </label>
+            <>
+              {/* The structured statement (review-visibility-proposal.md 5.3): three required answers, then the note. */}
+              {(['scope', 'maintenance', 'credentials'] as const).map((field) => (
+                <label key={field} className="flex flex-col gap-1">
+                  <span className="text-[11px] font-medium text-steel">{e.materials[field].label}</span>
+                  <textarea
+                    name={field}
+                    required
+                    maxLength={EXPERT_MATERIAL_LIMITS[field]}
+                    placeholder={e.materials[field].placeholder}
+                    className={AREA}
+                  />
+                </label>
+              ))}
+              <label className="flex flex-col gap-1">
+                <span className="text-[11px] font-medium text-steel">{e.noteLabel}</span>
+                <textarea
+                  name="note"
+                  maxLength={EXPERT_NOTE_MAX_LENGTH}
+                  placeholder={e.notePlaceholder}
+                  className={AREA}
+                />
+              </label>
+            </>
           ) : null}
           <span className="flex justify-end gap-2">
             <button type="button" onClick={() => setConfirming(false)} disabled={pending} className={SECONDARY}>

@@ -11,17 +11,32 @@
  *   same voiding a suspension gets at close (publisher-revenue-share.md 5).
  * - the list and the detail, which the queue and its screens read.
  */
-import { and, count, desc, eq, ilike, inArray, isNull, notInArray, or, sql, type SQL } from 'drizzle-orm';
+import { and, asc, count, desc, eq, ilike, inArray, isNull, notInArray, or, sql, type SQL } from 'drizzle-orm';
 import type { LifecycleStatus, Visibility } from '@/lib/domain';
 import { normalizeReason } from '@/lib/domain/admin';
+import { hitRank } from '@/lib/domain/benchmark';
 import {
   approvalAllowed,
   approvalChecks,
+  expertChecklistAllows,
+  expertEvalReady,
+  expertHitRate,
   ExpertLibraryRefused,
   nextExpertStatus,
+  parseExpertChecklist,
+  readExpertChecklist,
+  readExpertMaterials,
+  sampleExpertQuestions,
   type ApprovalCheck,
   type ExpertApplicationStatus,
+  type ExpertChecklist,
+  type ExpertEvalRules,
+  type ExpertEvaluation,
+  type ExpertMaterials,
 } from '@/lib/domain/expert-library';
+import { DEFAULT_RETRIEVAL_SETTINGS, type RetrievalSettings } from '@/lib/domain/retrieval-config';
+import { defaultRetrievalDependencies } from '@/lib/application/retrieval/query-docs';
+import { rankChunks } from '@/lib/application/retrieval/rank';
 import { ref } from '@/lib/application/administration/column-ref';
 import { likePattern } from '@/lib/application/administration/like-pattern';
 import { paidSubscriptionExists } from '@/lib/application/plans/in-force';
@@ -33,6 +48,10 @@ import {
   AUDIT_TARGET,
   auditExpert,
   candidateOf,
+  evalEvaluated,
+  evalHits,
+  evalQuestions,
+  expertEvalRules,
   hasReadyVersion,
   loadApplication,
 } from './shared';
@@ -124,6 +143,9 @@ export async function listExpertApplications(
         ownerSubscribed: paidSubscriptionExists(ref(schema.library.ownerWorkspaceId)).mapWith(asBoolean),
         hasReadyVersion: hasReadyVersion.mapWith(asBoolean),
         expertTaggedAt: schema.library.expertTaggedAt,
+        evalQuestions: evalQuestions.mapWith(Number),
+        evalEvaluated: evalEvaluated.mapWith(Number),
+        evalHits: evalHits.mapWith(Number),
       })
       .from(schema.expertApplication)
       .innerJoin(schema.library, eq(schema.library.id, schema.expertApplication.libraryId))
@@ -149,15 +171,19 @@ export async function listExpertApplications(
   ]);
 
   const byStatus = new Map<string, number>(statusRows.map((row) => [row.status, row.n]));
+  const evalRules = await expertEvalRules();
   return {
     rows: rows.map(
-      ({ workspaceId, ownerWorkspaceId, hasReadyVersion: ready, ...row }): ConsoleExpertRow => ({
+      ({ workspaceId, ownerWorkspaceId, hasReadyVersion: ready, evalQuestions: questions, evalEvaluated, evalHits, ...row }): ConsoleExpertRow => ({
         ...row,
         approvable:
           row.status === 'pending' &&
           approvalAllowed(
             approvalChecks({
-              candidate: row,
+              candidate: {
+                ...row,
+                evalReady: expertEvalReady({ questions, evaluatedOnCurrent: evalEvaluated, hitsOnCurrent: evalHits }, evalRules),
+              },
               ownerWorkspaceId,
               applicantWorkspaceId: workspaceId,
               hasReadyVersion: ready,
@@ -202,6 +228,12 @@ export interface ConsoleExpertDetail {
   id: string;
   status: ExpertApplicationStatus;
   note: string | null;
+  /** The applicant's structured statement (review-visibility-proposal.md 5.3); null on older applications. */
+  materials: ExpertMaterials | null;
+  /** The reviewer's checklist behind the decision (6.5); null while pending and on older rows. */
+  checklist: ExpertChecklist | null;
+  /** The question set against the current version, and the thresholds. */
+  evaluation: ExpertEvaluation & { hitRate: number | null; rules: ExpertEvalRules };
   decisionReason: string | null;
   decidedAt: Date | null;
   decidedByName: string | null;
@@ -218,6 +250,7 @@ export interface ConsoleExpertDetail {
     ownerName: string | null;
     hasReadyVersion: boolean;
     trustScore: number;
+    benchmarkScore: number;
     /** The owner's plan as it stands; the name only, never an amount. */
     ownerPlanName: string | null;
     ownerSubscribed: boolean;
@@ -236,9 +269,10 @@ export async function expertApplicationDetail(
   const database = db();
   const application = await loadApplication(database, applicationId);
   if (!application) return null;
+  const evalRules = await expertEvalRules();
 
   const [library, [applicant], history, audit, decider] = await Promise.all([
-    candidateOf(database, eq(schema.library.id, application.libraryId)),
+    candidateOf(database, eq(schema.library.id, application.libraryId), false, evalRules),
     database
       .select({ id: schema.workspace.id, name: schema.workspace.name })
       .from(schema.workspace)
@@ -297,6 +331,9 @@ export async function expertApplicationDetail(
     id: application.id,
     status: application.status,
     note: application.note,
+    materials: readExpertMaterials(application.materials),
+    checklist: readExpertChecklist(application.checklist),
+    evaluation: { ...library.evaluation, hitRate: expertHitRate(library.evaluation), rules: evalRules },
     decisionReason: application.decisionReason,
     decidedAt: application.decidedAt,
     decidedByName: decider[0]?.username ?? null,
@@ -313,6 +350,7 @@ export async function expertApplicationDetail(
       ownerName: library.ownerName,
       hasReadyVersion: library.hasReadyVersion,
       trustScore: library.trustScore,
+      benchmarkScore: library.benchmarkScore,
       ownerPlanName: ownerPlan?.planName ?? null,
       ownerSubscribed: library.ownerSubscribed,
     },
@@ -342,6 +380,8 @@ export interface DecideExpertApplicationInput {
   applicationId: string;
   decision: ExpertRuling;
   reason: string;
+  /** The expert checklist as the form posted it (lib/domain/expert-library.ts); required, and it has to agree with the decision. */
+  checklist?: unknown;
   now?: Date;
 }
 
@@ -356,6 +396,14 @@ export async function decideExpertApplication(
 ): Promise<DecideExpertApplicationResult> {
   const reason = normalizeExpertReason(input.reason);
   const now = input.now ?? new Date();
+  /* The checklist (review-visibility-proposal.md 6.5): every item judged, and the verdicts agreeing with the ruling. */
+  const checklist = input.checklist === undefined ? null : parseExpertChecklist(input.checklist);
+  if (!checklist) throw new ExpertLibraryRefused('checklist_required', 'an expert decision records the checklist');
+  if (!expertChecklistAllows(input.decision, checklist)) {
+    throw new ExpertLibraryRefused('checklist_mismatch', `the checklist does not support ${input.decision}`);
+  }
+  /* Configuration, read before the lock rather than under it. */
+  const evalRules = await expertEvalRules();
 
   const outcome = await db().transaction(async (tx) => {
     const application = await loadApplication(tx, input.applicationId);
@@ -365,7 +413,7 @@ export async function decideExpertApplication(
 
     /* The library row is locked so an approval cannot interleave with an
        edit that takes the library private or a transfer of its owner. */
-    const library = await candidateOf(tx, eq(schema.library.id, application.libraryId), true);
+    const library = await candidateOf(tx, eq(schema.library.id, application.libraryId), true, evalRules);
     if (!library || library.deletedAt) throw new ExpertLibraryRefused('not_found', 'no such library');
 
     let taggedAt: Date | null = library.expertTaggedAt;
@@ -397,6 +445,7 @@ export async function decideExpertApplication(
       .set({
         status: next,
         decisionReason: reason,
+        checklist,
         decidedByAdminId: input.actor.administratorId,
         decidedAt: now,
       })
@@ -445,6 +494,121 @@ export async function decideExpertApplication(
   };
 }
 
+/* --------------------------------------------------------------- sample */
+
+export interface ExpertSampleQuestion {
+  id: string;
+  question: string;
+  expectedSource: string | null;
+  expectedText: string | null;
+  author: 'owner' | 'admin';
+  /** 1-based rank of the first passage that satisfies the expectation; null is a miss. */
+  hitRank: number | null;
+  passages: { title: string; sourceUrl: string; section: string | null; excerpt: string }[];
+}
+
+export interface ExpertSample {
+  applicationId: string;
+  total: number;
+  questions: ExpertSampleQuestion[];
+}
+
+const SAMPLE_PASSAGES = 3;
+const SAMPLE_EXCERPT_CHARS = 320;
+const SAMPLE_MAX_TOKENS = 4000;
+
+/**
+ * The reviewer's own look at the question set (review-visibility-
+ * proposal.md 6.5): a few of the library's questions, drawn by the
+ * application id so every visit shows the same ones, each re-asked of the
+ * current version through the same retrieval a caller gets. Not metered,
+ * not cached, not earning; the look is an audit entry.
+ */
+export async function expertSampleProbe(input: {
+  actor: ExpertActor;
+  applicationId: string;
+  dependencies?: Parameters<typeof rankChunks>[2] & { settings?: () => Promise<RetrievalSettings> };
+}): Promise<ExpertSample> {
+  const database = db();
+  const application = await loadApplication(database, input.applicationId);
+  if (!application) throw new ExpertLibraryRefused('not_found', 'no such application');
+  const [library] = await database
+    .select({ id: schema.library.id, publicId: schema.library.publicId, currentVersionId: schema.library.currentVersionId })
+    .from(schema.library)
+    .where(and(eq(schema.library.id, application.libraryId), isNull(schema.library.deletedAt)))
+    .limit(1);
+  if (!library?.currentVersionId) throw new ExpertLibraryRefused('library_ineligible', 'no current version to ask');
+  const [version] = await database
+    .select({
+      id: schema.libraryVersion.id,
+      searchConfig: schema.libraryVersion.searchConfig,
+      embeddingModel: schema.libraryVersion.embeddingModel,
+      embeddingDimensions: schema.libraryVersion.embeddingDimensions,
+      indexStatus: schema.libraryVersion.indexStatus,
+    })
+    .from(schema.libraryVersion)
+    .where(eq(schema.libraryVersion.id, library.currentVersionId))
+    .limit(1);
+  if (!version || version.indexStatus !== 'ready') throw new ExpertLibraryRefused('library_ineligible', 'the current version is not indexed');
+
+  const questions = await database
+    .select({
+      id: schema.libraryEvalQuestion.id,
+      question: schema.libraryEvalQuestion.question,
+      expectedSource: schema.libraryEvalQuestion.expectedSource,
+      expectedText: schema.libraryEvalQuestion.expectedText,
+      author: schema.libraryEvalQuestion.author,
+    })
+    .from(schema.libraryEvalQuestion)
+    .where(eq(schema.libraryEvalQuestion.libraryId, library.id))
+    .orderBy(asc(schema.libraryEvalQuestion.createdAt));
+  const picked = sampleExpertQuestions(questions.length, application.id).map((at) => questions[at]!);
+
+  const dependencies = input.dependencies ?? defaultRetrievalDependencies();
+  const settings = dependencies.settings ? await dependencies.settings() : DEFAULT_RETRIEVAL_SETTINGS;
+  const results: ExpertSampleQuestion[] = [];
+  for (const question of picked) {
+    const { chunks } = await rankChunks(
+      database,
+      { libraryId: library.id, version, query: question.question, maxTokens: SAMPLE_MAX_TOKENS },
+      dependencies,
+      settings,
+    );
+    results.push({
+      id: question.id,
+      question: question.question,
+      expectedSource: question.expectedSource,
+      expectedText: question.expectedText,
+      author: question.author === 'owner' ? 'owner' : 'admin',
+      hitRank: hitRank(
+        question,
+        chunks.map((chunk) => ({ text: chunk.text, sourceUrl: chunk.citation.sourceUrl, documentTitle: chunk.citation.documentTitle })),
+      ),
+      passages: chunks.slice(0, SAMPLE_PASSAGES).map((chunk) => ({
+        title: chunk.citation.documentTitle,
+        sourceUrl: chunk.citation.sourceUrl,
+        section: typeof chunk.citation.section === 'string' && chunk.citation.section ? chunk.citation.section : null,
+        excerpt: chunk.text.slice(0, SAMPLE_EXCERPT_CHARS),
+      })),
+    });
+  }
+
+  await auditExpert({
+    action: 'expert_library.sample_probe',
+    applicationId: application.id,
+    administratorId: input.actor.administratorId,
+    after: {
+      libraryId: library.id,
+      publicId: library.publicId,
+      questions: results.map((result) => ({ id: result.id, hitRank: result.hitRank })),
+      administrator: input.actor.email,
+    },
+    clientAddress: input.actor.clientAddress ?? null,
+  });
+
+  return { applicationId: application.id, total: questions.length, questions: results };
+}
+
 /* --------------------------------------------------------------- revoke */
 
 export interface RevokeExpertTagInput {
@@ -470,7 +634,8 @@ export async function revokeExpertTag(input: RevokeExpertTagInput): Promise<Revo
     const next = nextExpertStatus(application.status, 'revoke');
     if (!next) throw new ExpertLibraryRefused('not_approved', 'only an approved application is revoked');
 
-    const library = await candidateOf(tx, eq(schema.library.id, application.libraryId), true);
+    /* A revocation judges nothing about the question set; the zero gate spares the read under the lock. */
+    const library = await candidateOf(tx, eq(schema.library.id, application.libraryId), true, { minQuestions: 0, minHitRate: 0 });
     if (!library) throw new ExpertLibraryRefused('not_found', 'no such library');
 
     await tx

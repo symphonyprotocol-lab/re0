@@ -1,6 +1,7 @@
 import type { ReactNode } from 'react';
 import { DashboardHeader } from '@/components/dashboard/header';
 import { DashboardSidebar } from '@/components/dashboard/sidebar';
+import { countNewLeads } from '@/lib/application/showcase';
 import { workspaceUsage } from '@/lib/http/dashboard';
 import { requireSession } from '@/lib/http/session';
 import { LocaleProvider } from '@/lib/i18n/client';
@@ -11,7 +12,9 @@ import { translations } from '@/lib/i18n/server';
  * Dashboard shell -- design source frame `E4GWD`.
  *
  * Header and workspace rail are chrome shared by every dashboard screen, so
- * they live here; each page renders only the 680px content column.
+ * they live here; each page renders only the content column. The column is the
+ * marketing page's 1200px one, so the capsule and the body line up with the
+ * site the visitor just came from.
  *
  * This is also the real authorization boundary. `middleware.ts` only glances at
  * the cookie; here the session is resolved against the primary database, so a
@@ -26,19 +29,24 @@ export default async function DashboardLayout({ children }: { children: ReactNod
     translations(),
   ]);
   // The rail's quota is the same ledger figure the overview prints (usage.ts).
-  const overview = await workspaceUsage(workspace.id);
+  const [overview, leadsNew] = await Promise.all([
+    workspaceUsage(workspace.id),
+    /* Unhandled showcase leads, for the rail's badge; a failed count is no badge, not a failed page. */
+    countNewLeads(workspace.id).catch(() => 0),
+  ]);
 
   return (
     <LocaleProvider locale={locale} messages={t}>
       <div className="product-surface dashboard-wash flex min-h-screen flex-col">
         <DashboardHeader workspaceName={workspace.name} workspaceInitial={workspace.initial} />
         <div className="flex-1">
-          <div className="mx-auto flex w-full max-w-[1080px] flex-col items-start gap-7 px-5 pt-[34px] pb-16 lg:flex-row">
+          <div className="mx-auto flex w-full max-w-[1200px] flex-col items-start gap-7 px-5 pt-[34px] pb-16 lg:flex-row">
             <DashboardSidebar
               workspaceName={workspace.name}
               workspaceInitial={workspace.initial}
               planName={fill(t.dashboard.shell.planLine, { plan: workspace.planName })}
               usage={{ used: overview.callsThisPeriod, limit: overview.planAllowance }}
+              leadsNew={leadsNew}
             />
             <main className="w-full min-w-0 flex-1">{children}</main>
           </div>

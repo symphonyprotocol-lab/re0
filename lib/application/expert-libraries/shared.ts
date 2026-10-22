@@ -8,8 +8,14 @@
  */
 import { and, desc, eq, inArray, isNull, sql, type SQL } from 'drizzle-orm';
 import type { LifecycleStatus, Visibility } from '@/lib/domain';
-import type { ExpertApplicationStatus } from '@/lib/domain/expert-library';
+import {
+  expertEvalReady,
+  type ExpertApplicationStatus,
+  type ExpertEvalRules,
+  type ExpertEvaluation,
+} from '@/lib/domain/expert-library';
 import { recordAudit } from '@/lib/application/administration/audit';
+import { activeReviewRules } from '@/lib/application/review/config';
 import { ref } from '@/lib/application/administration/column-ref';
 import { paidSubscriptionExists } from '@/lib/application/plans/in-force';
 import { db, schema } from '@/lib/infrastructure/postgres/client';
@@ -47,6 +53,30 @@ const trustScore: SQL = sql`coalesce((
   order by s.computed_at desc limit 1
 ), 0)`;
 
+/** The newest benchmark score, or 0 before the first build: what the reviewer judges content quality by. */
+const benchmarkScore: SQL = sql`coalesce((
+  select s.benchmark_score from ${schema.libraryScore} s
+  where s.library_id = ${ref(schema.library.id)}
+  order by s.computed_at desc limit 1
+), 0)`;
+
+/* The question set against the current version, for the evaluation gate (lib/domain/expert-library.ts). */
+export const evalQuestions: SQL = sql`(
+  select count(*)::int from ${schema.libraryEvalQuestion} q
+  where q.library_id = ${ref(schema.library.id)}
+)`;
+export const evalEvaluated: SQL = sql`(
+  select count(*)::int from ${schema.libraryEvalQuestion} q
+  where q.library_id = ${ref(schema.library.id)}
+    and q.last_version_id = ${ref(schema.library.currentVersionId)}
+)`;
+export const evalHits: SQL = sql`(
+  select count(*)::int from ${schema.libraryEvalQuestion} q
+  where q.library_id = ${ref(schema.library.id)}
+    and q.last_version_id = ${ref(schema.library.currentVersionId)}
+    and q.last_rank is not null
+)`;
+
 export interface ExpertCandidateRow {
   id: string;
   publicId: string;
@@ -61,6 +91,10 @@ export interface ExpertCandidateRow {
   ownerSubscribed: boolean;
   hasReadyVersion: boolean;
   trustScore: number;
+  benchmarkScore: number;
+  evaluation: ExpertEvaluation;
+  /** `expertEvalReady` under the rules in force, filled by `candidateOf`. */
+  evalReady: boolean;
 }
 
 /**
@@ -73,6 +107,8 @@ export async function candidateOf(
   reader: Reader,
   identity: SQL,
   lock = false,
+  /** The gate's thresholds, read once by the caller; fetched here only when a caller has none. */
+  rules?: ExpertEvalRules,
 ): Promise<ExpertCandidateRow | null> {
   const query = reader
     .select({
@@ -89,12 +125,34 @@ export async function candidateOf(
       ownerSubscribed: paidSubscriptionExists(ref(schema.library.ownerWorkspaceId)).mapWith(asBoolean),
       hasReadyVersion: hasReadyVersion.mapWith(asBoolean),
       trustScore: trustScore.mapWith(Number),
+      benchmarkScore: benchmarkScore.mapWith(Number),
+      evalQuestions: evalQuestions.mapWith(Number),
+      evalEvaluated: evalEvaluated.mapWith(Number),
+      evalHits: evalHits.mapWith(Number),
     })
     .from(schema.library)
     .where(identity)
     .limit(1);
   const [row] = lock ? await query.for('update', { of: schema.library }) : await query;
-  return (row as ExpertCandidateRow | undefined) ?? null;
+  if (!row) return null;
+  const gate = rules ?? (await expertEvalRules());
+  const evaluation: ExpertEvaluation = {
+    questions: row.evalQuestions,
+    evaluatedOnCurrent: row.evalEvaluated,
+    hitsOnCurrent: row.evalHits,
+  };
+  const { evalQuestions: _q, evalEvaluated: _e, evalHits: _h, ...rest } = row;
+  return {
+    ...(rest as Omit<ExpertCandidateRow, 'evaluation' | 'evalReady'>),
+    evaluation,
+    evalReady: expertEvalReady(evaluation, gate),
+  };
+}
+
+/** The thresholds the gate is judged by right now, for the panels that explain it. */
+export async function expertEvalRules(): Promise<ExpertEvalRules> {
+  const rules = await activeReviewRules();
+  return { minQuestions: rules.expertMinQuestions, minHitRate: rules.expertHitRateMin };
 }
 
 /** The workspace's own live user library, by id. */
@@ -113,6 +171,8 @@ export interface ExpertApplicationRow {
   workspaceId: string;
   status: ExpertApplicationStatus;
   note: string | null;
+  materials: { scope: string; maintenance: string; credentials: string; note: string } | null;
+  checklist: Record<string, { verdict: string; note: string }> | null;
   decisionReason: string | null;
   decidedByAdminId: string | null;
   decidedAt: Date | null;

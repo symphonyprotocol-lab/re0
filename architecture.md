@@ -559,7 +559,7 @@ Website 与 `llms.txt` 来源都通过 `source.config.indexDepth` 选择嵌套�
 7. `embed-index`：全文索引与 pgvector，与 Chunk 同事务写入；
 8. `profile`：从 Version 内容生成库画像——文档标题与目录集、关键实体与同义词表、chunk 向量聚类质心、自动描述与主题标签，写入 `library_profile`（§9.6）。画像是「平台从内容起的真名」，库级发现只信画像，不依赖用户命名与填表自觉；
 9. `evaluate`：Trust、Benchmark 和检索 Golden Set；
-10. `review`：公开用户库等待人工结果。版本发布事务只移动版本指针；用户库的 `lifecycle_status` 由 `advanceLifecycleAfterBuild` 按 `lifecycleAfterBuild` 规则推进：私有库直接 `published`，公开库从 `draft` / `changes_requested` 进入 `submitted`，`suspended` 与平台库不动。审核动作（`reviewUserLibrary`：通过、要求修改、拒绝）写 `library_review` 一行并记审计，拒绝落在 `suspended`（枚举里没有 `rejected`），通过要求当前版本 `ready`；私有库只提供暂停与恢复；
+10. `review`：公开用户库等待人工结果。版本发布事务只移动版本指针；用户库的 `lifecycle_status` 由 `advanceLifecycleAfterBuild` 按 `lifecycleAfterBuild` 规则推进：私有库直接 `published`，公开库停在原状态（`draft` / `changes_requested`），由所有者在 dashboard 概览页补齐材料后以 `submit` / `resubmit` 进入 `submitted`，`suspended` 与平台库不动。审核动作（`reviewUserLibrary`：通过、要求修改、拒绝）写 `library_review` 一行并记审计，拒绝落在 `suspended`（枚举里没有 `rejected`），通过要求当前版本 `ready`；私有库只提供暂停与恢复；
 11. `publish`：原子切换发布指针。
 
 Step 输出只保存可序列化摘要；大对象保存在对象存储。外部 Provider 调用保存 Input Digest 和 Provider Request ID，重试时优先查询已有结果。

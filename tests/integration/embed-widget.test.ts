@@ -102,7 +102,10 @@ function dependencies() {
   };
 }
 
-async function workspaceOnPlan(monthlyCalls = 1_000): Promise<string> {
+async function workspaceOnPlan(
+  monthlyCalls = 1_000,
+  capabilities: Record<string, unknown> = {},
+): Promise<string> {
   const database = db();
   const workspaceId = crypto.randomUUID();
   workspaces.push(workspaceId);
@@ -119,7 +122,7 @@ async function workspaceOnPlan(monthlyCalls = 1_000): Promise<string> {
     librarySizeBytesLimit: 1_000_000,
     apiKeyLimit: 5,
     shareRateBps: 2000,
-    capabilities: {},
+    capabilities,
     createdAt: new Date('2000-01-01T00:00:00Z'),
   });
   await database.insert(schema.subscription).values({
@@ -260,6 +263,31 @@ describeWithDb('website widget', () => {
     if (planVersions.length > 0) {
       await database.delete(schema.planVersion).where(inArray(schema.planVersion.id, planVersions));
     }
+  });
+
+  it('holds a workspace to its plan’s site keys across libraries, and frees the slot on revoke', async () => {
+    /* A Free-shaped cap on the version: one key for the whole workspace. */
+    const workspaceId = await workspaceOnPlan(1_000, { siteKeys: 1 });
+    const first = await ownedLibrary(workspaceId, `widget-cap-a-${Date.now()}`);
+    const second = await ownedLibrary(workspaceId, `widget-cap-b-${Date.now()}`);
+
+    const held = await createSiteKey({ workspaceId, role: 'owner', libraryId: first, name: 'One', origins: SITE });
+    await expect(
+      createSiteKey({ workspaceId, role: 'owner', libraryId: second, name: 'Two', origins: SITE }),
+    ).rejects.toMatchObject({ code: 'api_key_limit_exceeded', ceiling: 'plan' });
+
+    await revokeSiteKey({ workspaceId, role: 'owner', siteKeyId: held.id });
+    await expect(
+      createSiteKey({ workspaceId, role: 'owner', libraryId: second, name: 'Two', origins: SITE }),
+    ).resolves.toMatchObject({ name: 'Two' });
+
+    /* The stock Pro version above carries no cap: the per-library ceiling is the only one. */
+    const pro = await workspaceOnPlan();
+    const library = await ownedLibrary(pro, `widget-cap-pro-${Date.now()}`);
+    for (const name of ['a', 'b']) {
+      await createSiteKey({ workspaceId: pro, role: 'owner', libraryId: library, name, origins: SITE });
+    }
+    expect((await listSiteKeys({ workspaceId: pro, libraryId: library })).length).toBe(2);
   });
 
   it('mints a key the owner can read back, and refuses bad settings by field', async () => {

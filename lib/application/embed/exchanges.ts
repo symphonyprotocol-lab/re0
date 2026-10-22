@@ -19,6 +19,8 @@ export type WidgetOutcome = 'answer' | 'no_context' | 'degraded' | 'not_ready' |
 export const EXCHANGE_LIMITS = { questionChars: 2_000, answerChars: 4_000, sources: 8 } as const;
 
 export interface RecordExchangeInput {
+  /** Set by a caller that must know the row's id before it is written (the showcase page's feedback). */
+  id?: string;
   libraryId: string;
   workspaceId: string;
   siteKeyId: string;
@@ -36,7 +38,7 @@ export async function recordWidgetExchange(input: RecordExchangeInput): Promise<
   await db()
     .insert(schema.widgetExchange)
     .values({
-      id: uuidv7(),
+      id: input.id ?? uuidv7(),
       libraryId: input.libraryId,
       workspaceId: input.workspaceId,
       siteKeyId: input.siteKeyId,
@@ -62,6 +64,10 @@ export interface WidgetExchangeView {
   id: string;
   origin: string;
   preview: boolean;
+  /** Asked on the library's showcase page rather than through a site's widget. */
+  showcase: boolean;
+  /** The visitor's thumbs on a showcase page, when given. */
+  feedback: 'helpful' | 'unhelpful' | null;
   question: string;
   rewrittenQuery: string | null;
   outcome: WidgetOutcome;
@@ -86,8 +92,9 @@ export async function listWidgetExchanges(input: {
   );
   const [rows, [counted]] = await Promise.all([
     db()
-      .select()
+      .select({ exchange: schema.widgetExchange, keyKind: schema.siteKey.kind })
       .from(schema.widgetExchange)
+      .leftJoin(schema.siteKey, eq(schema.siteKey.id, schema.widgetExchange.siteKeyId))
       .where(scope)
       .orderBy(desc(schema.widgetExchange.createdAt), desc(schema.widgetExchange.id))
       .limit(Math.max(1, Math.min(100, input.limit ?? EXCHANGE_PAGE_SIZE)))
@@ -96,10 +103,12 @@ export async function listWidgetExchanges(input: {
   ]);
   return {
     total: counted?.n ?? 0,
-    exchanges: rows.map((row) => ({
+    exchanges: rows.map(({ exchange: row, keyKind }) => ({
       id: row.id,
       origin: row.origin,
       preview: row.preview,
+      showcase: keyKind === 'showcase',
+      feedback: row.feedback === 'helpful' || row.feedback === 'unhelpful' ? row.feedback : null,
       question: row.question,
       rewrittenQuery: row.rewrittenQuery,
       outcome: row.outcome as WidgetOutcome,
