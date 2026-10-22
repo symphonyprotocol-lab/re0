@@ -39,20 +39,40 @@ export const en: Dictionary = {
 
   home: {
     badge: 'Verified, continuously refreshed, traceable',
-    title: 'Trustworthy knowledge, built for every AI agent',
-    lede: 'Search public knowledge libraries and feed current, versioned, citable context into Claude, Codex, Cursor or an agent of your own.',
+    title: 'Trustworthy knowledge for your agents, your site and every visitor',
+    lede: 'Build a cited library from your docs and pages, then connect it to Claude, Codex or Cursor, embed it on your own site, or share it as a page of its own. Every answer keeps its source.',
     install: 'Copy MCP URL',
     installCopied: 'Copied',
     getKey: 'Get an API key',
+    tryOnline: 'Try it online',
     heroPoints: [
       'Public libraries are free to query',
-      'Every result keeps its citation',
-      'One rule set for API and MCP',
+      'Every answer keeps its citation',
+      'One library behind agents, widget and shared page',
     ],
+    /* The same library's three outlets, ordered by how far the reader is from the product. */
+    uses: {
+      agent: {
+        title: 'Connect your agent',
+        text: 'Plug it into Claude, Codex, Cursor or an agent of your own over MCP or the API, every result cited.',
+        link: 'Browse libraries to connect',
+      },
+      widget: {
+        title: 'Put it on your site',
+        text: 'Paste one line of script and visitors ask in the corner; answers come from your content only, with the page cited.',
+        link: 'See how the widget works',
+      },
+      showcase: {
+        title: 'Share it as a page',
+        text: 'An introduction drafted from the library, with cited Q&A beneath. Send the link, or print the QR code.',
+        link: 'See a shared page',
+      },
+    },
     directoryEyebrow: 'Knowledge directory',
     directoryTitle: 'Browse specialist libraries and take only the context you need',
     submitLibrary: 'Submit a library',
     searchPlaceholder: 'Search by name, domain or Library ID…',
+    searchSubmit: 'Search',
     popular: 'Popular',
     recentlyUpdated: 'Recently updated',
     sampleNote: 'Top {count} public libraries by calls in the last {days} days',
@@ -109,7 +129,6 @@ export const en: Dictionary = {
     connect: {
       promptTab: 'Prompt',
       mcpTab: 'MCP endpoint',
-      cliTab: 'CLI',
       /* Addressed to the model, not to the reader: it is pasted into a client
          that can edit its own MCP configuration, and the model does the rest. */
       prompt:
@@ -118,15 +137,6 @@ export const en: Dictionary = {
       promptNote:
         'Paste it into Claude, Codex, Cursor or any client that can edit its own MCP config, and let the model do the setup.',
       mcpNote: 'Paste the endpoint into any client that takes an MCP server URL.',
-    },
-    cli: {
-      title: 'Or connect every client at once with the CLI',
-      command: 'npx @symphonyprotocollab/re0 setup',
-      copy: 'Copy install command',
-      copied: 'Copied',
-      note: 'Writes one re0 MCP server entry for Claude Code, Claude Desktop, Cursor and Codex and touches nothing else.',
-      tryOnline: 'Try it online',
-      searchSubmit: 'Search',
     },
   },
 
@@ -686,6 +696,7 @@ export const en: Dictionary = {
     submit: 'Submit a library',
     lede: 'Every public library has passed platform review and is free for anyone to query.',
     searchPlaceholder: 'Search by name, domain or Library ID…',
+    searchSubmit: 'Search',
     popular: 'Popular',
     recentlyUpdated: 'Recently updated',
     filters: [
