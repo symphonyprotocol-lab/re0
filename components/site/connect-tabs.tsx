@@ -44,12 +44,12 @@ function CopyBox({ option }: { option: ConnectOption }) {
 }
 
 /**
- * The hero's connect control: one box, three ways to get there.
+ * The hero's connect control: one box, two ways to get there.
  *
- * The three are ordered by how little the reader has to know. The prompt is
+ * The two are ordered by how little the reader has to know. The prompt is
  * first because it asks nothing of them -- it is addressed to the model, and
- * the client they are already in does the install. The endpoint and the CLI
- * follow for people who would rather wire it themselves.
+ * the client they are already in does the install. The endpoint follows for
+ * people who would rather wire it themselves.
  *
  * Each tab remounts its own box (the `key`), so switching away mid-flash does
  * not leave the next tab claiming something was copied.

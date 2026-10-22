@@ -1,5 +1,5 @@
 import Link from 'next/link';
-import { Button, SectionHeading, ShowcaseCard } from '@/components/ui/primitives';
+import { Button, Card, SectionHeading, ShowcaseCard } from '@/components/ui/primitives';
 import { ClaudeIcon, CodexIcon, CursorIcon, McpIcon } from '@/components/ui/brand-icons';
 import { DirectorySearch } from '@/components/site/directory-search';
 import { HeroFigure } from '@/components/site/hero-figure';
@@ -32,6 +32,13 @@ const SURFACES = [
   { label: 'MCP', Icon: McpIcon },
 ];
 
+/** The three outlets in the hero's use row; the copy for each is `t.home.uses[id]`. */
+const USES = [
+  { id: 'agent', href: '/libraries', Icon: McpIcon },
+  { id: 'widget', href: '#widget', Icon: MessagesSquareIcon },
+  { id: 'showcase', href: '#showcase', Icon: GlobeIcon },
+] as const;
+
 export default async function HomePage() {
   const t = await getMessages();
   /* The MCP endpoint a person pastes into their client: the one thing every
@@ -60,7 +67,7 @@ export default async function HomePage() {
         text to sit beside.
       */}
       <section>
-        <div className="mx-auto grid w-full max-w-[1200px] grid-cols-1 items-center gap-12 px-5 pt-20 pb-16 lg:grid-cols-[minmax(0,1fr)_400px]">
+        <div className="mx-auto grid w-full max-w-[1200px] grid-cols-1 items-center gap-12 px-5 pt-20 pb-12 lg:grid-cols-[minmax(0,1fr)_400px]">
           <div className="flex flex-col items-center text-center lg:items-start lg:text-left">
           <p className="eyebrow">{t.home.badge}</p>
 
@@ -77,14 +84,13 @@ export default async function HomePage() {
             </Button>
             <Button href="/playground" variant="outline" size="md">
               <SparklesIcon size={16} />
-              {t.home.cli.tryOnline}
+              {t.home.tryOnline}
             </Button>
           </div>
 
-          {/* Three ways in, ordered by how little the reader has to know: hand
-              the prompt to the model they are already talking to, paste the
-              endpoint themselves, or run the CLI (packages/cli), which writes
-              the same entry into every client on the machine. */}
+          {/* Two ways in, ordered by how little the reader has to know: hand
+              the prompt to the model they are already talking to, or paste
+              the endpoint themselves. */}
           <div className="mt-10 w-full">
             <ConnectTabs
               options={[
@@ -105,15 +111,6 @@ export default async function HomePage() {
                   note: t.home.connect.mcpNote,
                   mono: true,
                 },
-                {
-                  id: 'cli',
-                  label: t.home.connect.cliTab,
-                  value: t.home.cli.command,
-                  copyLabel: t.home.cli.copy,
-                  copiedLabel: t.home.cli.copied,
-                  note: t.home.cli.note,
-                  mono: true,
-                },
               ]}
             />
           </div>
@@ -129,6 +126,35 @@ export default async function HomePage() {
           </div>
 
           <HeroFigure className="mx-auto hidden w-full max-w-[400px] lg:block" />
+        </div>
+
+        {/* The same library's three outlets, under the split: the agent the
+            connect control above serves, the widget on the owner's own site
+            and the shared page. The last two jump to their sections below. */}
+        <div className="mx-auto w-full max-w-[1200px] px-5 pb-16">
+          <ul className="grid grid-cols-1 gap-4 sm:grid-cols-3">
+            {USES.map(({ id, href, Icon }) => {
+              const use = t.home.uses[id];
+              return (
+                <li key={id}>
+                  <Card className="flex h-full flex-col p-6">
+                    <span className="flex size-10 items-center justify-center rounded-md bg-brandsoft text-brandink">
+                      <Icon size={20} />
+                    </span>
+                    <h2 className="mt-4 text-body font-semibold text-ink">{use.title}</h2>
+                    <p className="mt-2 flex-1 text-caption leading-[1.6] text-muted">{use.text}</p>
+                    <Link
+                      href={href}
+                      className="mt-4 flex items-center gap-1.5 text-caption font-medium text-brandink hover:underline"
+                    >
+                      {use.link}
+                      <ArrowRightIcon size={14} />
+                    </Link>
+                  </Card>
+                </li>
+              );
+            })}
+          </ul>
         </div>
       </section>
 
@@ -148,74 +174,12 @@ export default async function HomePage() {
       </section>
 
       {/*
-        Knowledge directory -- a tinted zone with the product floating paper
-        white on it. This is where the system shows the real thing rather than
-        describing it.
-      */}
-      <section className="wash-band">
-        <div className="mx-auto w-full max-w-[1200px] px-5 py-20">
-          <SectionHeading
-            eyebrow={t.home.directoryEyebrow}
-            title={t.home.directoryTitle}
-            action={
-              <Button href="/libraries/claim">
-                <PlusIcon size={15} />
-                {t.home.submitLibrary}
-              </Button>
-            }
-          />
-
-          <ShowcaseCard className="mt-10">
-            <div className="flex flex-wrap items-center gap-3 pb-5">
-              <DirectorySearch
-                placeholder={t.home.searchPlaceholder}
-                submitLabel={t.home.cli.searchSubmit}
-              />
-              {/* The featured table is the popular head; both toggles open the
-                  full directory in that order. */}
-              <div className="flex shrink-0 items-center gap-1">
-                <Link
-                  href="/libraries?sort=popular"
-                  className="flex h-10 items-center gap-2 rounded-full bg-brandsoft px-4 text-caption font-medium text-ink"
-                >
-                  <SparklesIcon size={15} />
-                  {t.home.popular}
-                </Link>
-                <Link
-                  href="/libraries?sort=recent"
-                  className="flex h-10 items-center gap-2 rounded-full px-4 text-caption text-muted transition-colors hover:text-ink"
-                >
-                  <ClockIcon size={15} />
-                  {t.home.recentlyUpdated}
-                </Link>
-              </div>
-            </div>
-
-            <LibraryTable entries={featured} />
-
-            <div className="flex flex-wrap items-center justify-between gap-3 pt-5 text-caption">
-              <p className="text-muted">
-                {fill(t.home.sampleNote, { count: featured.length, days: POPULARITY_WINDOW_DAYS })}
-              </p>
-              <Link
-                href="/libraries"
-                className="flex items-center gap-1.5 text-brandink hover:underline"
-              >
-                {t.home.viewFullCatalog}
-                <ArrowUpRightIcon size={14} />
-              </Link>
-            </div>
-          </ShowcaseCard>
-        </div>
-      </section>
-
-
-      {/*
         Website widget -- the library, turned round to face the owner's own
         visitors (requirement.md 9.4). The copy says what it does; the card
-        shows the whole integration and what a visitor sees.
+        shows the whole integration and what a visitor sees. The `id` is the
+        hero's use row's jump target; the margin keeps the sticky header off it.
       */}
-      <section>
+      <section id="widget" className="wash-band scroll-mt-24">
         <div className="mx-auto grid w-full max-w-[1200px] grid-cols-1 items-center gap-12 px-5 py-20 lg:grid-cols-[minmax(0,1fr)_460px]">
           <div className="flex flex-col items-start">
             <span className="eyebrow">{t.home.widget.eyebrow}</span>
@@ -298,9 +262,10 @@ export default async function HomePage() {
       {/*
         Shared page -- the library as a page of its own (lib/domain/showcase.ts),
         mirrored so the page's still sits on the left and the copy on the
-        right, the way the widget above runs copy first.
+        right, the way the widget above runs copy first. Back on paper, so the
+        grounds alternate widget / page / directory.
       */}
-      <section className="wash-band">
+      <section id="showcase" className="scroll-mt-24">
         <div className="mx-auto grid w-full max-w-[1200px] grid-cols-1 items-center gap-12 px-5 py-20 lg:grid-cols-[460px_minmax(0,1fr)]">
           {/* A still of a published page: the introduction and the ask box
               under it. Markup only -- the real one is app/s/. */}
@@ -369,6 +334,68 @@ export default async function HomePage() {
               <span className="text-caption text-muted">{t.home.showcase.planNote}</span>
             </div>
           </div>
+        </div>
+      </section>
+
+      {/*
+        Knowledge directory -- a tinted zone with the catalogue floating paper
+        white on it, after the two product sections. This is where the system
+        shows the real thing rather than describing it.
+      */}
+      <section className="wash-band">
+        <div className="mx-auto w-full max-w-[1200px] px-5 py-20">
+          <SectionHeading
+            eyebrow={t.home.directoryEyebrow}
+            title={t.home.directoryTitle}
+            action={
+              <Button href="/libraries/claim">
+                <PlusIcon size={15} />
+                {t.home.submitLibrary}
+              </Button>
+            }
+          />
+
+          <ShowcaseCard className="mt-10">
+            <div className="flex flex-wrap items-center gap-3 pb-5">
+              <DirectorySearch
+                placeholder={t.home.searchPlaceholder}
+                submitLabel={t.home.searchSubmit}
+              />
+              {/* The featured table is the popular head; both toggles open the
+                  full directory in that order. */}
+              <div className="flex shrink-0 items-center gap-1">
+                <Link
+                  href="/libraries?sort=popular"
+                  className="flex h-10 items-center gap-2 rounded-full bg-brandsoft px-4 text-caption font-medium text-ink"
+                >
+                  <SparklesIcon size={15} />
+                  {t.home.popular}
+                </Link>
+                <Link
+                  href="/libraries?sort=recent"
+                  className="flex h-10 items-center gap-2 rounded-full px-4 text-caption text-muted transition-colors hover:text-ink"
+                >
+                  <ClockIcon size={15} />
+                  {t.home.recentlyUpdated}
+                </Link>
+              </div>
+            </div>
+
+            <LibraryTable entries={featured} />
+
+            <div className="flex flex-wrap items-center justify-between gap-3 pt-5 text-caption">
+              <p className="text-muted">
+                {fill(t.home.sampleNote, { count: featured.length, days: POPULARITY_WINDOW_DAYS })}
+              </p>
+              <Link
+                href="/libraries"
+                className="flex items-center gap-1.5 text-brandink hover:underline"
+              >
+                {t.home.viewFullCatalog}
+                <ArrowUpRightIcon size={14} />
+              </Link>
+            </div>
+          </ShowcaseCard>
         </div>
       </section>
 

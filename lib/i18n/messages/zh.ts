@@ -41,16 +41,36 @@ export const zh = {
 
   home: {
     badge: '经过验证、持续更新、可追溯',
-    title: '可信知识，为每一个 AI Agent 而生',
-    lede: '搜索公开知识库，把带版本、来源与引用的最新上下文接入 Claude、Codex、Cursor 或你自己的 Agent。',
+    title: '可信知识，给你的 Agent、网站和访客',
+    lede: '用文档和网页建一个带引用的知识库，接入 Claude、Codex、Cursor，嵌到你自己的网站，或分享成一个独立网页。每条回答都标注出处。',
     install: '复制 MCP 地址',
     installCopied: '已复制',
     getKey: '获取 API Key',
-    heroPoints: ['公开库免费查询', '每条结果保留引用', 'API 与 MCP 同一套规则'],
+    tryOnline: '在线试用',
+    heroPoints: ['公开库免费查询', '每条回答保留引用', 'Agent、网站插件、分享网页同一个知识库'],
+    /* 同一个知识库的三个出口，按读者离产品的远近排序。 */
+    uses: {
+      agent: {
+        title: '接入你的 Agent',
+        text: '通过 MCP 或 API 接进 Claude、Codex、Cursor 或你自己的 Agent，每条结果带引用。',
+        link: '浏览可接入的知识库',
+      },
+      widget: {
+        title: '放到你的网站',
+        text: '粘贴一行脚本，访客在右下角直接提问，回答只来自你的内容并标注页面。',
+        link: '看网站插件怎么用',
+      },
+      showcase: {
+        title: '分享成一个网页',
+        text: '由知识库生成介绍页，下面是带引用的问答。发一个链接，或印成二维码。',
+        link: '看一个分享网页',
+      },
+    },
     directoryEyebrow: '知识库目录',
     directoryTitle: '探索专业知识库，找到刚好够用的上下文',
     submitLibrary: '提交知识库',
     searchPlaceholder: '搜索名称、领域或 Library ID…',
+    searchSubmit: '搜索',
     popular: '热门',
     recentlyUpdated: '最近更新',
     sampleNote: '按近 {days} 天调用量显示前 {count} 个公开知识库',
@@ -107,22 +127,12 @@ export const zh = {
     connect: {
       promptTab: '提示词',
       mcpTab: 'MCP 地址',
-      cliTab: 'CLI',
       /* 这句是写给模型看的，不是写给读者的。 */
       prompt:
         '帮我添加一个名为 "re0" 的 MCP 服务器，地址是 {url}，使用 HTTP 传输，然后确认连接成功并列出它提供的工具。',
       promptCopy: '复制提示词',
       promptNote: '粘贴到 Claude、Codex、Cursor 或任何能改自己 MCP 配置的客户端，让模型自己完成安装。',
       mcpNote: '把这个地址粘贴到任何支持 MCP 服务器地址的客户端。',
-    },
-    cli: {
-      title: '或者用 CLI 一次接入所有客户端',
-      command: 'npx @symphonyprotocollab/re0 setup',
-      copy: '复制安装命令',
-      copied: '已复制',
-      note: '为 Claude Code、Claude Desktop、Cursor 与 Codex 写入同一个 re0 MCP 服务条目，只改这一处。',
-      tryOnline: '在线试用',
-      searchSubmit: '搜索',
     },
   },
 
@@ -656,6 +666,7 @@ export const zh = {
     submit: '提交知识库',
     lede: '全部公开知识库均已通过平台审核，可被任意用户免费查询。',
     searchPlaceholder: '搜索名称、领域或 Library ID…',
+    searchSubmit: '搜索',
     popular: '热门',
     recentlyUpdated: '最近更新',
     filters: ['领域：全部', '语言：全部', '来源：全部', 'Trust ≥ 80', '更新于 30 天内'],
