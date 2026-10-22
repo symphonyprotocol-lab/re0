@@ -1,0 +1,25 @@
+/**
+ * GET /dashboard/export/showcase-leads?library=<id> -- CSV of a page's
+ * leads, for its owner. Session-gated: a workspace exports its own leads
+ * and nothing else; the use case scopes the read to the workspace.
+ */
+import { NextResponse, type NextRequest } from 'next/server';
+import { showcaseLeadsCsv } from '@/lib/application/showcase';
+import { currentSession } from '@/lib/http/session';
+
+export const runtime = 'nodejs';
+
+export async function GET(request: NextRequest): Promise<NextResponse> {
+  const session = await currentSession();
+  if (!session) return new NextResponse('sign in to export leads', { status: 401 });
+  const libraryId = request.nextUrl.searchParams.get('library') ?? '';
+  if (!/^[0-9a-f-]{36}$/.test(libraryId)) return new NextResponse('unknown library', { status: 404 });
+  const csv = await showcaseLeadsCsv({ workspaceId: session.workspace.id, libraryId });
+  return new NextResponse(csv, {
+    headers: {
+      'content-type': 'text/csv; charset=utf-8',
+      'content-disposition': `attachment; filename="showcase-leads-${libraryId.slice(0, 8)}.csv"`,
+      'cache-control': 'private, no-store',
+    },
+  });
+}

@@ -585,6 +585,8 @@ export async function recordLlmCost(input: {
   reasoningTokens: number;
   costMicroUsd: number;
   latencyMs: number | null;
+  /** `answer` (the default) or `review` for the model layer of public review. */
+  purpose?: 'answer' | 'review';
 }): Promise<void> {
-  await db().insert(schema.llmCostEvent).values({ id: uuidv7(), ...input });
+  await db().insert(schema.llmCostEvent).values({ id: uuidv7(), ...input, purpose: input.purpose ?? 'answer' });
 }

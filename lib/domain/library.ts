@@ -670,7 +670,50 @@ export function lifecycleAfterBuild(input: {
   const from = input.lifecycleStatus;
   if (from === 'suspended' || from === 'archived') return null;
   if (input.visibility === 'private') return from === 'published' ? null : 'published';
-  return from === 'draft' || from === 'changes_requested' ? 'submitted' : null;
+  /*
+   * A public build never queues itself (review-visibility-proposal.md 5):
+   * the library stays indexed in `draft`, or in `changes_requested`, until
+   * its owner brings the materials and confirms -- `submit` or `resubmit`
+   * (`ownerActionAvailable`). The submission is the owner's act, whoever
+   * reviews it afterwards.
+   */
+  return null;
+}
+
+/* ------------------------------------------------------ submission materials */
+
+/**
+ * What a public submission has to bring (review-visibility-proposal.md 5):
+ * a rights declaration that permits a public library (lib/domain/rights.ts),
+ * and enough questions for the reviewer to check the library by. The
+ * questions are counted whoever wrote them, so a reviewer adopting an
+ * owner's question into the scored set does not pull the library back
+ * under the line.
+ */
+export const SUBMISSION_MIN_QUESTIONS = 5;
+
+export const SUBMISSION_BLOCKERS = ['rights', 'rights_generated', 'questions'] as const;
+
+export type SubmissionBlocker = (typeof SUBMISSION_BLOCKERS)[number];
+
+export interface SubmissionMaterials {
+  rightsDeclared: boolean;
+  /** `rightsAllowPublic` of the declaration; irrelevant when none. */
+  rightsAllowPublic: boolean;
+  questions: number;
+}
+
+/** What still stands between this library and the review queue, in the order the owner fixes them. */
+export function submissionBlockers(materials: SubmissionMaterials): SubmissionBlocker[] {
+  const blockers: SubmissionBlocker[] = [];
+  if (!materials.rightsDeclared) blockers.push('rights');
+  else if (!materials.rightsAllowPublic) blockers.push('rights_generated');
+  if (materials.questions < SUBMISSION_MIN_QUESTIONS) blockers.push('questions');
+  return blockers;
+}
+
+export function submissionReady(materials: SubmissionMaterials): boolean {
+  return submissionBlockers(materials).length === 0;
 }
 
 /**
@@ -758,6 +801,16 @@ export const PLATFORM_LIBRARY_ERRORS = [
   'last_source',
   'archived',
   'reason_required',
+  /** A public library needs the owner's rights declaration (lib/domain/rights.ts) and none is on the row. */
+  'rights_required',
+  /** The declaration posted is incomplete or not among the options. */
+  'rights_invalid',
+  /** The declaration says the body was model-generated without review: not accepted as public (7.4). */
+  'rights_generated',
+  /** A public library's review decision came without the 7.4 checklist (lib/domain/review.ts). */
+  'checklist_required',
+  /** The checklist's verdicts contradict the verb: an approval with a failed check, or a send-back with none. */
+  'checklist_mismatch',
   'eval_question_invalid',
   'eval_question_limit',
   'eval_unavailable',
@@ -1129,7 +1182,27 @@ export function slugWithoutPrefix(value: string, prefix: string): string {
  * word is not undone from the dashboard, as `lifecycleAfterBuild` already
  * says of a rebuild).
  */
-export const OWNER_LIFECYCLE_ACTIONS = ['pause', 'resume', 'resubmit'] as const;
+export const OWNER_LIFECYCLE_ACTIONS = ['pause', 'resume', 'submit', 'resubmit', 'appeal'] as const;
+
+/** `library_review.stage` values a machine wrote (lib/application/review); an owner may appeal their send-back. */
+export const MACHINE_REVIEW_STAGES = ['rules', 'model'] as const;
+
+/**
+ * The machine decision an owner may appeal (review-visibility-proposal.md
+ * 6.3): the newest review row is a rules-layer or model-layer send-back,
+ * and no appeal names it yet. Null otherwise. One appeal per decision: a
+ * person then decides, and a person's decision is not appealed here.
+ */
+export function appealableDecision(
+  reviews: readonly { id: string; stage: string; outcome: string | null; appealOf: string | null }[],
+): string | null {
+  const newest = reviews[0];
+  if (!newest) return null;
+  if (!(MACHINE_REVIEW_STAGES as readonly string[]).includes(newest.stage)) return null;
+  if (newest.outcome !== 'request_changes') return null;
+  if (reviews.some((review) => review.appealOf === newest.id)) return null;
+  return newest.id;
+}
 
 export type OwnerLifecycleAction = (typeof OWNER_LIFECYCLE_ACTIONS)[number];
 
@@ -1154,8 +1227,12 @@ export interface OwnerActionContext {
   visibility: Visibility;
   /** True when the newest review row is an owner pause (`isOwnerPause`). */
   pausedByOwner: boolean;
-  /** True when the current version is indexed; a resubmission needs one. */
+  /** True when the current version is indexed; a submission needs one. */
   hasReadyVersion: boolean;
+  /** `submissionReady`: the rights declaration and the questions are in. Absent means in. */
+  materialsReady?: boolean;
+  /** `appealableDecision` found one. Absent means none. */
+  appealable?: boolean;
 }
 
 /**
@@ -1165,10 +1242,19 @@ export interface OwnerActionContext {
  *   library in review is the reviewer's to decide and is not paused around
  *   them; a draft has nothing running.
  * - `resume` lifts the owner's own pause and nothing else.
+ * - `submit` queues a public library whose build finished before its
+ *   materials were in (`lifecycleAfterBuild` left it in `draft`), once they
+ *   are.
  * - `resubmit` sends a public library the reviewer returned back to the
  *   queue without a rebuild -- for the owner who fixed what was asked by
- *   editing metadata or scope rather than content. It needs an indexed
- *   version, as approval does, so the reviewer is not handed an empty index.
+ *   editing metadata or scope rather than content.
+ * - `appeal` sends a public library a machine sent back straight to a
+ *   person, once per decision (`appealableDecision`), without changing
+ *   anything -- the owner disputes the decision, not the content.
+ *
+ * All three submissions need an indexed version, as approval does, so the
+ * reviewer is not handed an empty index, and the materials, so they are
+ * not handed a library with nothing to check it by.
  */
 export function ownerActionAvailable(
   context: OwnerActionContext,
@@ -1176,13 +1262,18 @@ export function ownerActionAvailable(
 ): boolean {
   const { lifecycleStatus: state, visibility } = context;
   if (state === 'archived') return false;
+  const submittable = visibility === 'public' && context.hasReadyVersion && context.materialsReady !== false;
   switch (action) {
     case 'pause':
       return state === 'published';
     case 'resume':
       return state === 'suspended' && context.pausedByOwner;
+    case 'submit':
+      return state === 'draft' && submittable;
     case 'resubmit':
-      return state === 'changes_requested' && visibility === 'public' && context.hasReadyVersion;
+      return state === 'changes_requested' && submittable;
+    case 'appeal':
+      return state === 'changes_requested' && submittable && context.appealable === true;
   }
 }
 
@@ -1193,7 +1284,9 @@ export function ownerActionTarget(action: OwnerLifecycleAction): LifecycleStatus
       return 'suspended';
     case 'resume':
       return 'published';
+    case 'submit':
     case 'resubmit':
+    case 'appeal':
       return 'submitted';
   }
 }
@@ -1210,9 +1303,10 @@ export function ownerActionTarget(action: OwnerLifecycleAction): LifecycleStatus
  *   goes back to `draft` for its first build to publish. A suspension stays:
  *   a safety pause applies to private libraries too, and going private is
  *   not a way around a reviewer.
- * - private -> public: a live library is now a stranger's public library and
- *   queues for review (`submitted`); a draft waits for its build, which
- *   queues it (`lifecycleAfterBuild`); a suspension stays.
+ * - private -> public: a live library is now a stranger's public library
+ *   and is never live unreviewed, so it goes back to `draft` and waits
+ *   for its owner to bring the materials and submit it (review-visibility-
+ *   proposal.md 5); a draft stays a draft; a suspension stays.
  *
  * Null means the status is left alone. Archived is refused, not moved.
  */
@@ -1232,7 +1326,7 @@ export function visibilityTransition(input: {
     if (state === 'published') return null;
     return input.hasReadyVersion ? 'published' : 'draft';
   }
-  return state === 'published' ? 'submitted' : null;
+  return state === 'published' ? 'draft' : null;
 }
 
 /** A validated metadata edit of a workspace's own library. */
@@ -1257,7 +1351,11 @@ export function editWorkspaceLibrary(input: {
   description?: string;
   language?: string;
   visibility: string;
-  current: { visibility: Visibility; lifecycleStatus: LifecycleStatus; hasReadyVersion: boolean };
+  current: {
+    visibility: Visibility;
+    lifecycleStatus: LifecycleStatus;
+    hasReadyVersion: boolean;
+  };
 }): WorkspaceLibraryEdit {
   const title = input.title.trim();
   if (title.length === 0 || title.length > TITLE_MAX_LENGTH) {
@@ -1538,10 +1636,15 @@ export function rebuildBlocked(input: {
 
 /**
  * The public publishing pipeline requirement.md 5.2 names: rights and source,
- * content parsing, quality and safety, human review, publication. A private
- * library skips the human step but not the safety one.
+ * content parsing, quality and safety, then -- review-visibility-proposal.md
+ * 5 -- the owner's materials and their confirmation, the platform's review
+ * (the rules, a model, or a person), publication. A private library skips
+ * the materials and review steps but not the safety one.
  */
-export const REVIEW_PIPELINE_STEPS = ['rights', 'parse', 'safety', 'review', 'publish'] as const;
+export const REVIEW_PIPELINE_STEPS = ['rights', 'parse', 'safety', 'materials', 'review', 'publish'] as const;
+
+/** The steps a private library does not take. */
+const PUBLIC_ONLY_STEPS: readonly ReviewPipelineStep[] = ['materials', 'review'];
 
 export type ReviewPipelineStep = (typeof REVIEW_PIPELINE_STEPS)[number];
 
@@ -1555,9 +1658,9 @@ export interface ReviewPipelineEntry {
 /**
  * Where a library stands in that pipeline, from the facts the row carries.
  *
- * Rights are settled at creation (a domain challenge, a GitHub ownership
- * check, or a self-owned upload), so the first step is done for any library
- * that exists. Parsing and the safety scan happen inside a build, so both
+ * The rights step is the owner's declaration (lib/domain/rights.ts): done
+ * once a declaration that permits a public library is on the row, blocked
+ * until then. Parsing and the safety scan happen inside a build, so both
  * follow the index; the human step follows the lifecycle; publication is
  * the two agreeing (`isQueryable`).
  */
@@ -1567,10 +1670,12 @@ export function reviewPipeline(input: {
   indexStatus: IndexStatus;
   /** A build is queued or running. */
   building: boolean;
+  /** A declaration permitting a public library is on the row; absent means yes (private, or a caller that does not know). */
+  rightsDeclared?: boolean;
 }): ReviewPipelineEntry[] {
   const { lifecycleStatus: state, indexStatus } = input;
   const steps = REVIEW_PIPELINE_STEPS.filter(
-    (step) => step !== 'review' || input.visibility === 'public',
+    (step) => input.visibility === 'public' || !PUBLIC_ONLY_STEPS.includes(step),
   );
   const indexed = indexStatus === 'ready' || indexStatus === 'stale';
   const parse: ReviewPipelineState = indexed
@@ -1589,15 +1694,25 @@ export function reviewPipeline(input: {
           ? 'blocked'
           : 'pending';
   const published = state === 'published' && indexed;
+  /*
+   * The owner's step: once the build is done, the library waits here until
+   * the materials are in and the owner confirms (`submit`). A library that
+   * has been submitted, decided or sent back has been through it; a
+   * send-back reopens it only as far as the resubmission, which is the
+   * review step's business.
+   */
+  const materials: ReviewPipelineState = state === 'draft' ? (parse === 'done' ? 'active' : 'pending') : 'done';
 
   return steps.map((step): ReviewPipelineEntry => {
     switch (step) {
       case 'rights':
-        return { step, state: 'done' };
+        return { step, state: input.rightsDeclared === false ? 'blocked' : 'done' };
       case 'parse':
         return { step, state: parse };
       case 'safety':
         return { step, state: parse };
+      case 'materials':
+        return { step, state: materials };
       case 'review':
         return { step, state: parse === 'done' || review === 'blocked' ? review : 'pending' };
       case 'publish':

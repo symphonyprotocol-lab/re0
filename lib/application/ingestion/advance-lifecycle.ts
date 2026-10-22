@@ -1,13 +1,16 @@
 /**
- * What a successful build does to a user library's lifecycle.
+ * Moves a user library's lifecycle once a build has published a version.
  *
- * `publishVersion` moves the version pointer and nothing else -- the pointer
- * is about the index, and requirement.md 6.2 keeps the index, the lifecycle
- * and the visibility apart. But a user library still has to get *somewhere*
- * once its first version is live: a private one is queryable from now on and
- * a public one is now the reviewer's to decide about. The rule is pure
- * (`lifecycleAfterBuild`); this applies it, guarded on the status it read so
- * a reviewer deciding at the same moment is not overwritten.
+ * Ingestion does not decide review or visibility: requirement.md 6.2 keeps
+ * `lifecycle_status`, `visibility` and `index_status` apart, and the build
+ * only ever writes the index. But a private user library still has to get
+ * *somewhere* once its first version is live: it is queryable from now on.
+ * A public one is not the build's to move -- it waits, indexed, for its
+ * owner to bring the materials and submit it (review-visibility-proposal.md
+ * 5; libraries/manage.ts `applyOwnerLifecycleAction`), and the review
+ * layers run from that submission. The rule is pure (`lifecycleAfterBuild`);
+ * this applies it, guarded on the status it read so a reviewer deciding at
+ * the same moment is not overwritten.
  */
 import { and, eq } from 'drizzle-orm';
 import { lifecycleAfterBuild } from '@/lib/domain/library';

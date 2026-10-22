@@ -125,6 +125,12 @@ export interface FetchedResource {
   bytes: number;
   /** Set when a rendering provider produced the body rather than a plain fetch. */
   renderedBy?: 'firecrawl' | 'jina';
+  /**
+   * The page's declared title when it is known apart from the body: a
+   * renderer's metadata, or the `<title>` of the shell the page was fetched
+   * as. A plain HTML body carries its own and leaves this unset.
+   */
+  title?: string;
 }
 
 /**

@@ -1,4 +1,5 @@
 'use client';
+import { describeReviewNote } from '@/lib/domain/auto-review';
 
 import Link from 'next/link';
 import { useMemo, useState } from 'react';
@@ -11,6 +12,7 @@ import { Badge, PANEL, SearchField, StatusLabel, type StatusTone } from '@/compo
 import { ArrowRightIcon, FileTextIcon } from '@/components/ui/icons';
 import type { ReviewPipelineEntry } from '@/lib/domain/library';
 import { useI18n } from '@/lib/i18n/client';
+import { fill } from '@/lib/i18n/format';
 
 /**
  * Which of the list's buckets a row falls in. The design's four-way status
@@ -22,6 +24,12 @@ import { useI18n } from '@/lib/i18n/client';
 export type LibraryBucket = 'live' | 'pending' | 'changes' | 'blocked' | 'exempt';
 
 export type LibraryFilter = 'all' | 'public' | 'private' | 'pending' | 'changes' | 'blocked';
+
+/** Rows a page of the list shows; the filters and the search narrow the whole list first. */
+export const LIBRARIES_PAGE_SIZE = 10;
+
+const PAGER =
+  'inline-flex h-[29px] items-center rounded-md border border-line bg-card px-2.5 text-[11px] font-medium text-ink hover:bg-subtle disabled:cursor-not-allowed disabled:opacity-40 disabled:hover:bg-card';
 
 /** One row of the live list, mapped by the page from the workspace's rows. */
 export interface LibraryListRow {
@@ -95,8 +103,19 @@ export function LibraryList({
   const l = t.dashboard.libraries;
   const m = l.manage;
   const number = useMemo(() => new Intl.NumberFormat(locale), [locale]);
-  const [filter, setFilter] = useState<LibraryFilter>('all');
-  const [term, setTerm] = useState('');
+  const [filter, setFilterOnly] = useState<LibraryFilter>('all');
+  const [term, setTermOnly] = useState('');
+  /* Ten rows a page, counted after the filter and the search; either one
+     narrowing the list starts it again from the first page. */
+  const [page, setPage] = useState(1);
+  const setFilter = (next: LibraryFilter) => {
+    setFilterOnly(next);
+    setPage(1);
+  };
+  const setTerm = (next: string) => {
+    setTermOnly(next);
+    setPage(1);
+  };
 
   /* requirement.md 5.2: 全部 / 公开 / 私有 / 审核中 / 需修改, plus the paused
      and failed bucket so nothing an owner has to act on is unreachable. */
@@ -126,6 +145,9 @@ export function LibraryList({
       return matches(library, filter) && matchesTerm;
     });
   }, [filter, term, allRows]);
+  const pages = Math.max(1, Math.ceil(rows.length / LIBRARIES_PAGE_SIZE));
+  const current = Math.min(page, pages);
+  const visible = rows.slice((current - 1) * LIBRARIES_PAGE_SIZE, current * LIBRARIES_PAGE_SIZE);
 
   return (
     <section className={`${PANEL} overflow-hidden p-0.5`}>
@@ -169,7 +191,7 @@ export function LibraryList({
             <span />
           </div>
 
-          {rows.map((library) => {
+          {visible.map((library) => {
             /* Every row opens the owner's own detail page -- readiness,
                version, queue -- which is also where the public page is
                linked from once the library is routable. */
@@ -238,7 +260,7 @@ export function LibraryList({
                       <ReviewPipeline entries={library.pipeline} note={library.note} compact />
                     ) : (
                       <p className="text-[10.5px] leading-[1.5] text-rose">
-                        {library.note}
+                        {describeReviewNote(library.note ?? '', t.dashboard.libraries.rulesReasons)}
                       </p>
                     )}
                   </div>
@@ -285,6 +307,24 @@ export function LibraryList({
             <p className="border-t border-line px-[18px] py-10 text-center text-[13px] text-muted">
               {l.empty}
             </p>
+          ) : null}
+
+          {/* Always there, even on one page: the owner sees the page size and the count without scrolling. */}
+          {rows.length > 0 ? (
+            <div className="flex flex-wrap items-center justify-between gap-3 border-t border-line px-[18px] py-3">
+              <p className="text-[11px] text-muted">
+                {fill(l.pager.page, { page: current, pages })} ·{' '}
+                {fill(l.pager.showing, { shown: visible.length, total: number.format(rows.length) })}
+              </p>
+              <span className="flex items-center gap-2">
+                <button type="button" disabled={current <= 1} onClick={() => setPage(current - 1)} className={PAGER}>
+                  {l.pager.prev}
+                </button>
+                <button type="button" disabled={current >= pages} onClick={() => setPage(current + 1)} className={PAGER}>
+                  {l.pager.next}
+                </button>
+              </span>
+            </div>
           ) : null}
         </div>
       </div>

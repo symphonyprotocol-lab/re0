@@ -2,6 +2,7 @@ import type { Metadata } from 'next';
 import Link from 'next/link';
 import { notFound } from 'next/navigation';
 import { ExpertControls } from '@/components/admin/expert-controls';
+import { ExpertSample } from '@/components/admin/expert-sample';
 import {
   ConsoleNotice,
   ConsolePageHeader,
@@ -15,12 +16,12 @@ import {
 } from '@/components/admin/ui';
 import { AwardIcon, CheckIcon, CircleXIcon } from '@/components/ui/icons';
 import { expertApplicationDetail } from '@/lib/application/expert-libraries';
-import { APPROVAL_CHECKS } from '@/lib/domain/expert-library';
+import { APPROVAL_CHECKS, EXPERT_REVIEW_CHECKS } from '@/lib/domain/expert-library';
 import { requireAdminCapability } from '@/lib/http/admin';
 import { fill } from '@/lib/i18n/format';
 import { getMessages } from '@/lib/i18n/server';
 import { initialsOf, utcInstant, utcStamp } from '../../list-params';
-import { decideExpertAction, revokeExpertAction } from '../actions';
+import { decideExpertAction, probeExpertSampleAction, revokeExpertAction } from '../actions';
 
 type Params = { params: Promise<{ applicationId: string }> };
 
@@ -158,6 +159,17 @@ export default async function AdminExpertDetailPage({ params }: Params) {
             }
           />
           <Fact label={d.fields.trustScore} value={String(library.trustScore)} />
+          <Fact label={d.fields.benchmarkScore} value={String(library.benchmarkScore)} />
+          {library.visibility === 'public' && !library.deletedAt ? (
+            <Fact
+              label={d.fields.review}
+              value={
+                <Link href={`/admin/libraries/${library.id}`} className="text-brandink hover:text-brand">
+                  {d.reviewLink}
+                </Link>
+              }
+            />
+          ) : null}
           <Fact label={d.fields.createdAt} value={utcInstant(application.createdAt)} />
           <Fact label={d.fields.decidedAt} value={utcInstant(application.decidedAt) || '—'} />
           <Fact label={d.fields.taggedAt} value={utcInstant(library.expertTaggedAt) || '—'} />
@@ -184,6 +196,62 @@ export default async function AdminExpertDetailPage({ params }: Params) {
           </div>
         </dl>
       </Panel>
+
+      {/* What the applicant said, and what the question set says (review-visibility-proposal.md 5.3). */}
+      <Panel>
+        <PanelHead title={d.materials.title} description={d.materials.description} />
+        {application.materials ? (
+          <dl className="grid grid-cols-1 gap-x-6 px-[19px] py-1">
+            <Fact label={d.materials.scope} value={<span className="whitespace-pre-wrap">{application.materials.scope}</span>} />
+            <Fact label={d.materials.maintenance} value={<span className="whitespace-pre-wrap">{application.materials.maintenance}</span>} />
+            <Fact label={d.materials.credentials} value={<span className="whitespace-pre-wrap">{application.materials.credentials}</span>} />
+          </dl>
+        ) : (
+          <p className="px-[19px] py-4 text-[12px] tracking-[-0.023em] text-muted">{d.materials.none}</p>
+        )}
+        <dl className="grid grid-cols-1 gap-x-6 border-t-2 border-line px-[19px] py-1 sm:grid-cols-2">
+          <Fact
+            label={d.materials.questions}
+            value={fill(d.materials.questionsValue, {
+              total: application.evaluation.questions,
+              evaluated: application.evaluation.evaluatedOnCurrent,
+              min: application.evaluation.rules.minQuestions,
+            })}
+          />
+          <Fact
+            label={d.materials.hitRate}
+            value={
+              application.evaluation.hitRate === null
+                ? d.materials.hitRateNone
+                : fill(d.materials.hitRateValue, { rate: application.evaluation.hitRate, min: application.evaluation.rules.minHitRate })
+            }
+          />
+        </dl>
+      </Panel>
+
+      <ExpertSample applicationId={application.id} questions={application.evaluation.questions} action={probeExpertSampleAction} />
+
+      {application.checklist ? (
+        <Panel>
+          <PanelHead title={d.checklistTitle} description={d.checklistSubtitle} />
+          <ul className="flex flex-col px-[19px]">
+            {EXPERT_REVIEW_CHECKS.map((check) => {
+              const item = application.checklist![check];
+              return (
+                <li key={check} className="flex items-start justify-between gap-4 border-b border-line/70 py-3 last:border-b-0">
+                  <span className="flex min-w-0 flex-col gap-0.5">
+                    <span className="text-[12px] tracking-[-0.023em] text-steel">{d.dialog.checklist.items[check]}</span>
+                    {item.note ? <span className="text-[11.5px] text-muted">{item.note}</span> : null}
+                  </span>
+                  <Pill tone={item.verdict === 'pass' ? 'ok' : item.verdict === 'fail' ? 'danger' : 'warn'}>
+                    {d.dialog.checklist.verdicts[item.verdict]}
+                  </Pill>
+                </li>
+              );
+            })}
+          </ul>
+        </Panel>
+      ) : null}
 
       <Panel>
         <PanelHead title={d.checksTitle} description={d.checksSubtitle} />

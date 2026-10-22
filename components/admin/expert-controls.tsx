@@ -7,7 +7,8 @@ import { ReasonField, submitOn } from '@/components/admin/platform-library-share
 import { AwardIcon, BanIcon, CircleXIcon, SpinnerIcon } from '@/components/ui/icons';
 import { useI18n } from '@/lib/i18n/client';
 import type { ExpertAdminActionResult } from '@/app/admin/(console)/expert-libraries/actions';
-import type { ExpertDecision } from '@/lib/domain/expert-library';
+import { EXPERT_REVIEW_CHECKS, type ExpertDecision, type ExpertReviewCheck } from '@/lib/domain/expert-library';
+import { REVIEW_CHECK_NOTE_MAX_LENGTH, REVIEW_VERDICTS, type ReviewVerdict } from '@/lib/domain/review';
 
 export type ExpertAdminAction = (
   previous: ExpertAdminActionResult | null,
@@ -147,6 +148,13 @@ function ExpertDialog({
   const description = r[`${move}Description`];
   const confirm = r[`confirm_${move}`];
   const destructive = move !== 'approve';
+  /* The expert checklist (lib/domain/expert-library.ts) rides with approve and reject, not with a revocation. */
+  const withChecklist = move !== 'revoke';
+  const [verdicts, setVerdicts] = useState<Partial<Record<ExpertReviewCheck, ReviewVerdict>>>({});
+  const failing = EXPERT_REVIEW_CHECKS.filter((check) => verdicts[check] === 'fail').length;
+  const answered = EXPERT_REVIEW_CHECKS.every((check) => verdicts[check] !== undefined);
+  const mismatch = withChecklist && answered && (move === 'approve' ? failing > 0 : failing === 0);
+  const incomplete = withChecklist && !answered;
 
   return (
     <ConsoleDialog
@@ -164,7 +172,7 @@ function ExpertDialog({
             variant="primary"
             type="submit"
             form={formId}
-            disabled={pending}
+            disabled={pending || mismatch || incomplete}
             className={move === 'revoke' ? 'bg-err hover:bg-err/90' : ''}
           >
             {pending ? (
@@ -229,7 +237,45 @@ function ExpertDialog({
           ))}
         </ul>
 
-        <ReasonField label={r.reason} placeholder={r.reasonPlaceholder[move]} ariaLabel={r.reason} />
+        {withChecklist ? (
+          <fieldset className="flex flex-col gap-2 rounded-[8px] border border-line p-3">
+            <legend className="px-1 text-[11px] font-semibold tracking-[-0.023em] text-steel">{r.checklist.title}</legend>
+            <p className="text-[11px] leading-[1.55] tracking-[-0.023em] text-muted">{r.checklist.hint}</p>
+            {EXPERT_REVIEW_CHECKS.map((check) => (
+              <div key={check} className="flex flex-col gap-1.5 border-t border-line/70 pt-2">
+                <span className="text-[11.5px] font-medium tracking-[-0.023em] text-ink">{r.checklist.items[check]}</span>
+                <div className="flex flex-wrap items-center gap-3">
+                  {REVIEW_VERDICTS.map((verdict) => (
+                    <label key={verdict} className="flex items-center gap-1.5 text-[11.5px] tracking-[-0.023em] text-steel">
+                      <input
+                        type="radio"
+                        name={`check.${check}`}
+                        value={verdict}
+                        required
+                        checked={verdicts[check] === verdict}
+                        onChange={() => setVerdicts((current) => ({ ...current, [check]: verdict }))}
+                      />
+                      {r.checklist.verdicts[verdict]}
+                    </label>
+                  ))}
+                </div>
+                <input
+                  name={`note.${check}`}
+                  maxLength={REVIEW_CHECK_NOTE_MAX_LENGTH}
+                  placeholder={r.checklist.notePlaceholder}
+                  aria-label={`${r.checklist.items[check]} ${r.checklist.noteLabel}`}
+                  className="h-8 rounded-[6px] border border-line bg-card px-2.5 text-[11.5px] text-ink"
+                />
+              </div>
+            ))}
+            {mismatch ? (
+              <p role="alert" className="text-[11px] leading-[1.55] tracking-[-0.023em] text-err">
+                {move === 'approve' ? r.checklist.approveNeedsNoFail : r.checklist.rejectNeedsFail}
+              </p>
+            ) : null}
+          </fieldset>
+        ) : null}
+        <ReasonField label={r.reason} placeholder={r.reasonPlaceholder[move]} ariaLabel={r.reason} autoFocus={!withChecklist} />
         <p className="text-[11px] leading-[1.55] tracking-[-0.023em] text-muted">{r.auditNote}</p>
       </form>
     </ConsoleDialog>

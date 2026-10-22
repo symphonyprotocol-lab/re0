@@ -91,13 +91,70 @@ export interface PlanCapabilities {
   publicReviewRequired: boolean;
   /** requirement.md 4.1: only Pro may buy call packs. Derived, not edited. */
   addonPurchase: boolean;
+  /**
+   * Showcase pages (lib/domain/showcase.ts): how many of the workspace's
+   * libraries may have one, -1 for no cap. Free gets one, Pro any number;
+   * a stored value on the version overrides the tier default.
+   */
+  showcasePages: number;
+  /** Whether the showcase page's footer brand may be switched off. */
+  showcaseBranding: boolean;
+  /** How many leads a showcase page keeps for its owner to read, -1 for no cap. Free 100, Pro any number. */
+  showcaseLeadsRetained: number;
+  /** Whether a showcase page may sit on the owner's own subdomain. Pro only. */
+  showcaseCustomDomain: boolean;
+  /**
+   * Website widget (lib/domain/site-key.ts): how many live site keys the
+   * workspace may hold across its libraries, -1 for no cap. Free gets one,
+   * Pro any number; a stored value on the version overrides the tier default.
+   */
+  siteKeys: number;
+}
+
+export interface ShowcaseCapabilities {
+  showcasePages: number;
+  showcaseBranding: boolean;
+  showcaseLeadsRetained: number;
+  showcaseCustomDomain: boolean;
+}
+
+export interface WidgetCapabilities {
+  siteKeys: number;
+}
+
+/** The tier's default for the widget entitlement, before any stored override. */
+export function widgetDefaultsFor(tier: PlanTierId): WidgetCapabilities {
+  return { siteKeys: tier === 'pro' ? -1 : 1 };
+}
+
+/** Whether one more site key fits under the plan's cap (-1 = no cap). */
+export function siteKeysAllowed(limit: number, liveKeys: number): boolean {
+  return limit < 0 || liveKeys < limit;
+}
+
+/** The tier's defaults for the showcase entitlements, before any stored override. */
+export function showcaseDefaultsFor(tier: PlanTierId): ShowcaseCapabilities {
+  return tier === 'pro'
+    ? { showcasePages: -1, showcaseBranding: true, showcaseLeadsRetained: -1, showcaseCustomDomain: true }
+    : { showcasePages: 1, showcaseBranding: false, showcaseLeadsRetained: 100, showcaseCustomDomain: false };
 }
 
 export function capabilitiesFor(
   tier: PlanTierId,
   publicReviewRequired: boolean,
+  surfaces: Partial<ShowcaseCapabilities & WidgetCapabilities> = {},
 ): PlanCapabilities {
-  return { publicReviewRequired, addonPurchase: tier === 'pro' };
+  const defaults = showcaseDefaultsFor(tier);
+  const widget = widgetDefaultsFor(tier);
+  return {
+    publicReviewRequired,
+    addonPurchase: tier === 'pro',
+    showcasePages: surfaces.showcasePages ?? defaults.showcasePages,
+    showcaseBranding: surfaces.showcaseBranding ?? defaults.showcaseBranding,
+    showcaseLeadsRetained: surfaces.showcaseLeadsRetained ?? defaults.showcaseLeadsRetained,
+    showcaseCustomDomain: surfaces.showcaseCustomDomain ?? defaults.showcaseCustomDomain,
+    siteKeys: surfaces.siteKeys ?? widget.siteKeys,
+  };
 }
 
 /** Reads a stored capability blob without trusting its shape. */
@@ -106,7 +163,20 @@ export function readCapabilities(
   stored: Record<string, unknown> | null | undefined,
 ): PlanCapabilities {
   const value = stored?.publicReviewRequired;
-  return capabilitiesFor(tier, typeof value === 'boolean' ? value : true);
+  const pages = stored?.showcasePages;
+  const branding = stored?.showcaseBranding;
+  const leads = stored?.showcaseLeadsRetained;
+  const domain = stored?.showcaseCustomDomain;
+  const keys = stored?.siteKeys;
+  const cap = (candidate: unknown): candidate is number =>
+    typeof candidate === 'number' && Number.isInteger(candidate) && candidate >= -1;
+  return capabilitiesFor(tier, typeof value === 'boolean' ? value : true, {
+    ...(cap(pages) ? { showcasePages: pages } : {}),
+    ...(typeof branding === 'boolean' ? { showcaseBranding: branding } : {}),
+    ...(cap(leads) ? { showcaseLeadsRetained: leads } : {}),
+    ...(typeof domain === 'boolean' ? { showcaseCustomDomain: domain } : {}),
+    ...(cap(keys) ? { siteKeys: keys } : {}),
+  });
 }
 
 /** A validated row, ready to insert. Amounts are minor units; capacity is bytes. */
@@ -403,7 +473,12 @@ export function isSamePlanVersion(
     draft.buildBaseCalls === live.buildBaseCalls &&
     draft.buildTokensPerCall === live.buildTokensPerCall &&
     draft.buildPagesPerCall === live.buildPagesPerCall &&
-    draft.capabilities.publicReviewRequired === live.capabilities.publicReviewRequired
+    draft.capabilities.publicReviewRequired === live.capabilities.publicReviewRequired &&
+    draft.capabilities.showcasePages === live.capabilities.showcasePages &&
+    draft.capabilities.showcaseBranding === live.capabilities.showcaseBranding &&
+    draft.capabilities.showcaseLeadsRetained === live.capabilities.showcaseLeadsRetained &&
+    draft.capabilities.showcaseCustomDomain === live.capabilities.showcaseCustomDomain &&
+    draft.capabilities.siteKeys === live.capabilities.siteKeys
   );
 }
 

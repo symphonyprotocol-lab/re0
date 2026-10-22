@@ -30,7 +30,7 @@ export default async function ContactPage() {
 
   return (
     <>
-      <section className="mx-auto w-full max-w-[1080px] px-5 pt-11 pb-12">
+      <section className="mx-auto w-full max-w-[1200px] px-5 pt-11 pb-12">
         <SectionHeading eyebrow="CONTACT" title={c.title} as="h1" size="lg" />
         <p className="mt-3 max-w-[70ch] text-[13px] leading-[1.7] text-muted">{c.lede}</p>
 
@@ -62,7 +62,7 @@ export default async function ContactPage() {
         </div>
       </section>
 
-      <section className="mx-auto w-full max-w-[1080px] border-t border-line px-5 pt-12 pb-14">
+      <section className="mx-auto w-full max-w-[1200px] border-t border-line px-5 pt-12 pb-14">
         <SectionHeading eyebrow="CHECKLIST" title={c.checklistTitle} />
         <p className="mt-3 text-[13px] text-muted">{c.checklistNote}</p>
         <Card className="mt-6 p-6">
@@ -86,7 +86,7 @@ export default async function ContactPage() {
         </Card>
       </section>
 
-      <section className="mx-auto w-full max-w-[1080px] border-t border-line px-5 pt-12 pb-16">
+      <section className="mx-auto w-full max-w-[1200px] border-t border-line px-5 pt-12 pb-16">
         <SectionHeading eyebrow="ELSEWHERE" title={c.elsewhereTitle} />
         <div className="mt-6 grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
           {c.elsewhere.map((item, index) => (

@@ -130,20 +130,21 @@ export function Notice({
 }: {
   icon: ReactNode;
   title: string;
-  body: string;
+  /** Left out, the notice is a single line: the title alone on a slimmer bar. */
+  body?: string;
   action?: ReactNode;
   tone?: 'brand' | 'plain';
 }) {
   return (
     <section
-      className={`flex flex-wrap items-center gap-4 rounded-md border px-[19px] py-4 ${
+      className={`flex flex-wrap items-center gap-4 rounded-md border px-[19px] ${body ? 'py-4' : 'py-2.5'} ${
         tone === 'brand' ? 'border-publine bg-brandsoft' : 'border-line bg-card'
       }`}
     >
       <IconTile tone="card">{icon}</IconTile>
       <div className="flex min-w-[220px] flex-1 flex-col gap-1">
         <p className="text-[13px] leading-[1.4] font-medium text-ink">{title}</p>
-        <p className="text-[11px] leading-[1.5] text-muted">{body}</p>
+        {body ? <p className="text-[11px] leading-[1.5] text-muted">{body}</p> : null}
       </div>
       {action}
     </section>

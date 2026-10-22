@@ -121,6 +121,7 @@ export async function listWorkspaceWidgetSites(workspaceId: string): Promise<Wid
     .where(
       and(
         eq(schema.siteKey.workspaceId, workspaceId),
+        eq(schema.siteKey.kind, 'embed'),
         isNull(schema.siteKey.revokedAt),
         isNull(schema.library.deletedAt),
       ),

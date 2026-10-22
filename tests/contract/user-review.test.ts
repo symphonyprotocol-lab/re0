@@ -11,13 +11,13 @@ import {
 } from '@/lib/domain/library';
 
 describe('lifecycleAfterBuild', () => {
-  it('publishes a private library and queues a public one for review', () => {
+  it('publishes a private library and leaves a public one for its owner to submit', () => {
     expect(lifecycleAfterBuild({ lifecycleStatus: 'draft', visibility: 'private', isPlatformLibrary: false })).toBe('published');
-    expect(lifecycleAfterBuild({ lifecycleStatus: 'draft', visibility: 'public', isPlatformLibrary: false })).toBe('submitted');
+    expect(lifecycleAfterBuild({ lifecycleStatus: 'draft', visibility: 'public', isPlatformLibrary: false })).toBeNull();
   });
 
-  it('resubmits a public library sent back for changes, and leaves a reviewed one alone', () => {
-    expect(lifecycleAfterBuild({ lifecycleStatus: 'changes_requested', visibility: 'public', isPlatformLibrary: false })).toBe('submitted');
+  it('does not resubmit a public library sent back for changes, and leaves a reviewed one alone', () => {
+    expect(lifecycleAfterBuild({ lifecycleStatus: 'changes_requested', visibility: 'public', isPlatformLibrary: false })).toBeNull();
     expect(lifecycleAfterBuild({ lifecycleStatus: 'submitted', visibility: 'public', isPlatformLibrary: false })).toBeNull();
     expect(lifecycleAfterBuild({ lifecycleStatus: 'published', visibility: 'public', isPlatformLibrary: false })).toBeNull();
   });

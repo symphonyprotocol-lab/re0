@@ -29,7 +29,7 @@ export async function generateMetadata(): Promise<Metadata> {
   return { title: (await getMessages()).admin.libraries.title };
 }
 
-const REVIEWS: LibraryReviewFilter[] = ['all', 'pending', 'approved', 'rejected'];
+const REVIEWS: LibraryReviewFilter[] = ['all', 'pending', 'approved', 'rejected', 'sample'];
 
 /** How the lifecycle enum reads on screen. requirement.md 5.3, 6.1. */
 const LIFECYCLE_TONE: Record<string, 'warn' | 'ok' | 'danger' | 'neutral'> = {
@@ -86,6 +86,7 @@ export default async function AdminLibrariesPage({
           { id: 'pending', label: l.tabs.pending, count: counts.pending, href: href('pending') },
           { id: 'approved', label: l.tabs.approved, count: counts.approved, href: href('approved') },
           { id: 'rejected', label: l.tabs.rejected, count: counts.rejected, href: href('rejected') },
+          { id: 'sample', label: l.tabs.sample, count: counts.sample, href: href('sample') },
           { id: 'claims', label: l.tabs.claims, count: counts.claims, href: '/admin/claims' },
         ]}
       />

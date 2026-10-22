@@ -8,9 +8,10 @@
  * and duplicating it three times is how the three would drift apart.
  */
 import {
-  IngestionFailure,
-  INGESTION_LIMITS,
   documentFormat,
+  htmlTitle,
+  INGESTION_LIMITS,
+  IngestionFailure,
   isRenderedShell,
   parseSourceConfig,
 } from '@/lib/domain/ingestion';
@@ -102,7 +103,9 @@ async function fetchPage(target: string): Promise<FetchedResource> {
 
   if (resource.contentType.includes('html') && isRenderedShell(resource.body)) {
     const rendered = await renderIfConfigured(target);
-    if (rendered) return rendered;
+    /* The shell has no content, but it usually has the page's `<title>`; the
+       rendered markdown often has neither a level-1 heading nor that. */
+    if (rendered) return rendered.title ? rendered : withShellTitle(rendered, resource.body);
     throw new IngestionFailure(
       'source_unrendered',
       'fetch-snapshot',
@@ -119,12 +122,18 @@ async function renderIfConfigured(target: string): Promise<FetchedResource | nul
   return renderer.render(new URL(target));
 }
 
+function withShellTitle(rendered: FetchedResource, shellHtml: string): FetchedResource {
+  const title = htmlTitle(shellHtml);
+  return title ? { ...rendered, title } : rendered;
+}
+
 function toFile(resource: FetchedResource, entry: URL): FetchedFile {
   return {
     path: withFormat(pathOf(resource.url, entry), resource.contentType),
     url: resource.url,
     content: resource.body,
     fetchedVia: resource.renderedBy ?? 'direct',
+    ...(resource.title ? { title: resource.title } : {}),
   };
 }
 

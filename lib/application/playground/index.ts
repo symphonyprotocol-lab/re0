@@ -27,6 +27,7 @@ import {
   PLAYGROUND_SYSTEM_PROMPT,
   REWRITE_LIMITS,
   REWRITE_SYSTEM_PROMPT,
+  type HistoryTurn,
   type RewriteHint,
 } from '@/lib/domain/generation';
 import { retrievalBudgetFor } from '@/lib/domain/retrieval-config';
@@ -70,10 +71,14 @@ import { libraryRewriteHints } from './rewrite-hints';
  * once to restate the question in the corpus's language and vocabulary
  * (lib/domain/generation.ts `REWRITE_SYSTEM_PROMPT`), and retrieval runs
  * again with that query -- unmetered, since the exchange already reserved its
- * Call. The rewrite produces no facts: a retry that confirms continues into
- * the same binding as a first pass would, and one that misses is the same
- * no-context as before. It never runs without a usable model, and never on a
- * question that confirmed; its cost lands in the same ledger as generation's.
+ * Call. The same call resolves a follow-up: a caller that sends the turns
+ * before the question has them shown to the rewrite, so "and the price?"
+ * is restated against them in the one line -- never a call of its own, and
+ * never before the question as typed has been tried. The rewrite produces
+ * no facts: a retry that confirms continues into the same binding as a
+ * first pass would, and one that misses is the same no-context as before.
+ * It never runs without a usable model, and never on a question that
+ * confirmed; its cost lands in the same ledger as generation's.
  */
 
 export interface PlaygroundAnswer {
@@ -107,7 +112,8 @@ export type PlaygroundEvent =
   /**
    * The first pass missed and the retry with this query confirmed: the
    * `gather` and `context` that follow are the retry's. So a client can say
-   * "searched as …". Never emitted when the retry misses too.
+   * "searched as …". A follow-up resolved against the history arrives the
+   * same way. Never emitted when the retry misses too.
    */
   | { type: 'rewrite'; query: string }
   | { type: 'context'; chunks: GatheredChunk[]; requestId: string }
@@ -169,11 +175,18 @@ export interface PlaygroundInput {
   question: string;
   /** Which configured model to use. Absent means the console's default. */
   modelSlug?: string | null;
+  /**
+   * The turns before this question, for a follow-up (lib/domain/generation.ts
+   * `FOLLOW_UP_LIMITS`). Shown only to the resolving call that restates the
+   * question; never to retrieval or the answer, which rule 4 keeps to this
+   * request's passages. Empty or absent means a question that stands alone.
+   */
+  history?: readonly HistoryTurn[];
 }
 
 export async function* streamPlayground(
   caller: CallerContext,
-  input: PlaygroundInput,
+  rawInput: PlaygroundInput,
   dependencies: PlaygroundDependencies = defaultDependencies,
 ): AsyncGenerator<PlaygroundEvent> {
   const startedAt = Date.now();
@@ -185,7 +198,7 @@ export async function* streamPlayground(
    * budget: the degraded outcome shows chunks, and they have to be fetched.
    */
   const audience = await dependencies.audience(caller).catch((): LlmAudience => 'trial');
-  const config = await dependencies.config(input.modelSlug, audience).catch(() => null);
+  const config = await dependencies.config(rawInput.modelSlug, audience).catch(() => null);
   /* `hasCredential` rather than the key itself: this runs before retrieval,
      only to size the budget, and opening a provider secret here would mean
      holding it for the length of a retrieval that may not need it. */
@@ -216,6 +229,29 @@ export async function* streamPlayground(
   }
 
   /*
+   * The credential is opened once, lazily, for whichever model calls follow:
+   * a key that cannot be opened -- sealed under a rotated secret -- reaches
+   * the adapter as an empty one and is refused there, which is the same
+   * degradation as any other unavailable provider.
+   */
+  let apiKey: Promise<string> | null = null;
+  const credential = (): Promise<string> =>
+    (apiKey ??= usable
+      ? dependencies.credential(usable.id).then(
+          (key) => key ?? '',
+          () => '',
+        )
+      : Promise.resolve(''));
+
+  /*
+   * The question is retrieved as typed, history or not: a follow-up that
+   * stands on its own finds its page without a model. The turns ride along
+   * to the rewrite on a miss (module comment), which restates it against
+   * them in the same call that puts it in the site's words.
+   */
+  const input = rawInput;
+
+  /*
    * The retrieval settings are read once and handed to retrieval, so the
    * budget computed here and the recall it bounds come from the same row --
    * a save landing between two reads would otherwise size one by the other.
@@ -241,21 +277,6 @@ export async function* streamPlayground(
     retrievalDependencies,
   );
   yield { type: 'gather', libraries: retrieved.libraries };
-
-  /*
-   * The credential is opened once, lazily, for whichever model calls follow:
-   * a key that cannot be opened -- sealed under a rotated secret -- reaches
-   * the adapter as an empty one and is refused there, which is the same
-   * degradation as any other unavailable provider.
-   */
-  let apiKey: Promise<string> | null = null;
-  const credential = (): Promise<string> =>
-    (apiKey ??= usable
-      ? dependencies.credential(usable.id).then(
-          (key) => key ?? '',
-          () => '',
-        )
-      : Promise.resolve(''));
 
   if (!retrieved.libraries.some((library) => library.confirmed)) {
     /*
@@ -422,8 +443,8 @@ export async function* streamPlayground(
  * reply that is the question again. Every failure is the no-context the
  * exchange was headed for anyway, so none is an error.
  *
- * Bounded on purpose: a few seconds of idle clock (the entry's own if it is
- * tighter), a hard output cap, one attempt. A reasoning model is asked for
+ * Bounded on purpose: the entry's own idle clock, the one the operator set
+ * for the provider, a hard output cap, one attempt. A reasoning model is asked for
  * its least effort; the prompt wants a line back, not a deliberation. Its
  * tokens are recorded like generation's -- one more `llm_cost_event` on the
  * same library, never the question or the reply.
@@ -470,9 +491,9 @@ async function rewriteOnMiss(
       .llm({ baseUrl: usable.baseUrl, model: usable.model, apiKey })
       .stream({
         systemPrompt: REWRITE_SYSTEM_PROMPT,
-        userMessage: buildRewritePrompt(input.question, described),
+        userMessage: buildRewritePrompt(input.question, described, input.history ?? []),
         maxOutputTokens: REWRITE_LIMITS.maxOutputTokens,
-        timeoutMs: Math.min(usable.timeoutMs, REWRITE_LIMITS.timeoutMs),
+        timeoutMs: usable.timeoutMs,
         reasoningEffort: usable.reasoningEffort ? 'minimal' : null,
       });
     for await (const delta of stream.textStream) {

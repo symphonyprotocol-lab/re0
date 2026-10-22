@@ -11,6 +11,7 @@ import {
   BracesIcon,
   CircleCheckIcon,
   ClockIcon,
+  GlobeIcon,
   KeyIcon,
   MessagesSquareIcon,
   PlusIcon,
@@ -235,6 +236,7 @@ export default async function HomePage() {
                 <MessagesSquareIcon size={16} />
                 {t.home.widget.cta}
               </Button>
+              <span className="text-caption text-muted">{t.home.widget.planNote}</span>
             </div>
           </div>
 
@@ -290,6 +292,83 @@ export default async function HomePage() {
               </div>
             </div>
           </ShowcaseCard>
+        </div>
+      </section>
+
+      {/*
+        Shared page -- the library as a page of its own (lib/domain/showcase.ts),
+        mirrored so the page's still sits on the left and the copy on the
+        right, the way the widget above runs copy first.
+      */}
+      <section className="wash-band">
+        <div className="mx-auto grid w-full max-w-[1200px] grid-cols-1 items-center gap-12 px-5 py-20 lg:grid-cols-[460px_minmax(0,1fr)]">
+          {/* A still of a published page: the introduction and the ask box
+              under it. Markup only -- the real one is app/s/. */}
+          <ShowcaseCard className="order-2 lg:order-1">
+            <div aria-hidden className="overflow-hidden rounded-xl border border-line bg-card">
+              <div className="flex items-start gap-3 px-5 pt-5 pb-4">
+                <span className="flex size-11 shrink-0 items-center justify-center rounded-lg bg-brand text-[15px] font-semibold text-white">
+                  {t.home.showcase.demoName.slice(0, 1)}
+                </span>
+                <div className="min-w-0">
+                  <p className="text-[10px] font-medium tracking-[0.08em] text-brandink uppercase">
+                    {t.home.showcase.demoKind}
+                  </p>
+                  <p className="mt-0.5 truncate text-[15px] font-semibold text-ink">{t.home.showcase.demoName}</p>
+                  <p className="text-[12px] text-muted">{t.home.showcase.demoTagline}</p>
+                </div>
+              </div>
+              <ul className="flex flex-wrap gap-1.5 px-5 pb-4">
+                {t.home.showcase.demoFacts.map((fact) => (
+                  <li key={fact} className="rounded-full border border-line bg-subtle px-2.5 py-1 text-[11px] text-steel">
+                    {fact}
+                  </li>
+                ))}
+              </ul>
+              <div className="border-t border-line bg-subtle px-5 py-4">
+                <p className="text-[13px] font-semibold text-ink">{t.home.showcase.demoAsk}</p>
+                <p className="mt-1 text-[11px] leading-[1.5] text-muted">{t.home.showcase.demoAskHint}</p>
+                <div className="mt-3 flex flex-wrap gap-1.5">
+                  {t.home.showcase.demoQuestions.map((question) => (
+                    <span key={question} className="rounded-full border border-line bg-card px-2.5 py-1 text-[11px] text-ink">
+                      {question}
+                    </span>
+                  ))}
+                </div>
+                <div className="mt-3 flex items-center gap-2">
+                  <span className="flex h-9 flex-1 items-center rounded-lg border border-line bg-card px-3 text-[12px] text-muted">
+                    {t.home.showcase.demoPlaceholder}
+                  </span>
+                  <span className="flex h-9 items-center rounded-lg bg-brand px-3.5 text-[12px] font-semibold text-white">
+                    {t.showcase.send}
+                  </span>
+                </div>
+              </div>
+            </div>
+          </ShowcaseCard>
+
+          <div className="order-1 flex flex-col items-start lg:order-2">
+            <span className="eyebrow">{t.home.showcase.eyebrow}</span>
+            <h2 className="mt-4 max-w-[22ch] text-heading-sm font-semibold tracking-[0.018em] text-ink">
+              {t.home.showcase.title}
+            </h2>
+            <p className="mt-4 max-w-[58ch] text-subheading text-muted">{t.home.showcase.lede}</p>
+            <ul className="mt-6 flex flex-col gap-2.5 text-body text-ink">
+              {t.home.showcase.points.map((point) => (
+                <li key={point} className="flex items-start gap-2.5">
+                  <CircleCheckIcon size={16} className="mt-[3px] shrink-0 text-brandink" />
+                  {point}
+                </li>
+              ))}
+            </ul>
+            <div className="mt-8 flex flex-wrap items-center gap-3">
+              <Button href="/dashboard/showcases" size="md">
+                <GlobeIcon size={16} />
+                {t.home.showcase.cta}
+              </Button>
+              <span className="text-caption text-muted">{t.home.showcase.planNote}</span>
+            </div>
+          </div>
         </div>
       </section>
 

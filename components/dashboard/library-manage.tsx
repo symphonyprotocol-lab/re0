@@ -18,6 +18,9 @@ import type {
   UpdateParseScopeActionResult,
 } from '@/app/dashboard/libraries/[libraryId]/actions';
 import type { Visibility } from '@/lib/domain';
+import { describeReviewNote } from '@/lib/domain/auto-review';
+import { checklistFeedback, type ReviewChecklist } from '@/lib/domain/review';
+import { EMPTY_RIGHTS, RightsFields, RightsHiddenFields, rightsComplete, type RightsAnswer } from '@/components/dashboard/rights-fields';
 import {
   INDEX_DEPTHS,
   parseScopeApplies,
@@ -83,16 +86,21 @@ export function ResultLine({ ok, children }: { ok: boolean; children: React.Reac
 export function ReviewPipeline({
   entries,
   note,
+  checks = null,
   compact = false,
 }: {
   entries: ReviewPipelineEntry[];
   /** The latest reviewer feedback, if any. */
   note?: string | null;
+  /** The latest decision's 7.4 checklist (lib/domain/review.ts): the owner reads which check failed. */
+  checks?: ReviewChecklist | null;
   compact?: boolean;
 }) {
   const { t } = useI18n();
   const p = t.dashboard.libraries.manage.pipeline;
   const reviewActive = entries.some((entry) => entry.step === 'review' && entry.state === 'active');
+  const say = (text: string) => describeReviewNote(text, t.dashboard.libraries.rulesReasons);
+  const checkLines = checks ? checklistFeedback(checks) : [];
   return (
     <div className={`flex flex-col ${compact ? 'gap-1.5' : 'gap-3'}`}>
       <ol className={`flex flex-wrap ${compact ? 'gap-x-3 gap-y-1' : 'gap-x-5 gap-y-2'}`}>
@@ -131,8 +139,24 @@ export function ReviewPipeline({
       ) : null}
       {note ? (
         <p className={`${compact ? 'text-[10.5px]' : 'text-[11px]'} leading-[1.5] text-rose`}>
-          {fill(p.feedback, { note })}
+          {fill(p.feedback, { note: say(note) })}
         </p>
+      ) : null}
+      {!compact && checkLines.length > 0 ? (
+        <ul className="flex flex-col gap-1 text-[11px] leading-[1.5]">
+          {checkLines.map((line) => (
+            <li key={line.check} className="flex items-start gap-1.5">
+              <span className={`mt-px shrink-0 ${line.verdict === 'fail' ? 'text-rose' : 'text-muted'}`}>
+                <CircleXIcon size={13} />
+              </span>
+              <span className="text-steel">
+                <span className="font-medium text-ink">{p.checks[line.check]}</span>
+                {`：${p.verdicts[line.verdict]}`}
+                {line.note ? `，${say(line.note)}` : ''}
+              </span>
+            </li>
+          ))}
+        </ul>
       ) : null}
     </div>
   );
@@ -148,7 +172,9 @@ export type OwnerLifecycleFormAction = (
 const ACTION_ICONS: Record<OwnerLifecycleAction, (props: { size?: number }) => React.ReactElement> = {
   pause: BanIcon,
   resume: CheckIcon,
+  submit: ArrowUpRightIcon,
   resubmit: ArrowUpRightIcon,
+  appeal: ArrowUpRightIcon,
 };
 
 /**
@@ -181,8 +207,18 @@ export function OwnerActionButton({
     }
   }, [state, router]);
 
-  const confirmText = verb === 'pause' ? m.pauseConfirm : verb === 'resume' ? m.resumeConfirm : m.resubmitConfirm;
-  const label = verb === 'pause' ? m.pause : verb === 'resume' ? m.resume : m.resubmit;
+  const confirmText =
+    verb === 'pause'
+      ? m.pauseConfirm
+      : verb === 'resume'
+        ? m.resumeConfirm
+        : verb === 'submit'
+          ? m.submitConfirm
+          : verb === 'appeal'
+            ? m.appealConfirm
+            : m.resubmitConfirm;
+  const label =
+    verb === 'pause' ? m.pause : verb === 'resume' ? m.resume : verb === 'submit' ? m.submit : verb === 'appeal' ? m.appeal : m.resubmit;
 
   return (
     <div className="flex flex-col items-end gap-1.5">
@@ -251,16 +287,21 @@ export type EditMetadataFormAction = (
 export function LibraryMetadataForm({
   libraryId,
   initial,
+  rightsDeclared,
   action,
 }: {
   libraryId: string;
   initial: { title: string; description: string | null; language: string | null; visibility: Visibility };
+  /** A declaration permitting a public library is on the row; going public without one asks for it here. */
+  rightsDeclared: boolean;
   action: EditMetadataFormAction;
 }) {
   const { t } = useI18n();
   const m = t.dashboard.libraryDetail.manage.metadata;
   const [state, formAction, pending] = useActionState(action, null);
   const [visibility, setVisibility] = useState<Visibility>(initial.visibility);
+  const [rights, setRights] = useState<RightsAnswer>(EMPTY_RIGHTS);
+  const needsRights = visibility === 'public' && !rightsDeclared;
   const router = useRouter();
   const formId = useId();
 
@@ -307,6 +348,13 @@ export function LibraryMetadataForm({
           </div>
           <span className="text-[10px] leading-[1.5] text-muted">{m.visibilityNote}</span>
         </div>
+        {needsRights ? (
+          <div className="flex flex-col gap-3 rounded-md border border-line bg-subtle p-4 sm:col-span-2">
+            <p className="text-[11.5px] leading-[1.5] text-steel">{m.rightsNeeded}</p>
+            <RightsHiddenFields value={rights} />
+            <RightsFields value={rights} onChange={setRights} compact />
+          </div>
+        ) : null}
       </div>
       <footer className="flex flex-wrap items-center justify-between gap-3 border-t border-line pt-4">
         <span className="min-w-0 flex-1">
@@ -316,7 +364,11 @@ export function LibraryMetadataForm({
             </ResultLine>
           ) : null}
         </span>
-        <button type="submit" disabled={pending} className={PRIMARY}>
+        <button
+          type="submit"
+          disabled={pending || (needsRights && (!rightsComplete(rights) || rights.generation === 'generated'))}
+          className={PRIMARY}
+        >
           {pending ? <SpinnerIcon size={14} className="motion-safe:animate-spin" /> : null}
           {pending ? m.pending : m.submit}
         </button>

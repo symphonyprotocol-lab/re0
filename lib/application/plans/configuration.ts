@@ -17,7 +17,9 @@ import { uuidv7 } from '@/lib/domain/id';
 import {
   PLAN_TIER_IDS,
   PlanChangeRefused,
+  capabilitiesFor,
   isSamePlanVersion,
+  tierHasEntitlements,
   parsePlanVersionDraft,
   readCapabilities,
   type PlanCapabilities,
@@ -234,6 +236,20 @@ export async function createPlanVersion(
   const draft = parsePlanVersionDraft(input);
 
   const live = await currentPlanVersion(draft.planId);
+  /*
+   * The showcase entitlements (lib/domain/showcase.ts) have no field on the
+   * console form: a version carries them over from the one it supersedes,
+   * so an override set on the live row survives a price edit instead of
+   * silently falling back to the tier default.
+   */
+  if (live && tierHasEntitlements(draft.planId)) {
+    draft.capabilities = capabilitiesFor(draft.planId, draft.capabilities.publicReviewRequired, {
+      showcasePages: live.capabilities.showcasePages,
+      showcaseBranding: live.capabilities.showcaseBranding,
+      showcaseLeadsRetained: live.capabilities.showcaseLeadsRetained,
+      showcaseCustomDomain: live.capabilities.showcaseCustomDomain,
+    });
+  }
   /*
    * Checked before `no_change`, because the two answer different questions and
    * the operator needs the one about the world moving under them. A stale form

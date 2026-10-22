@@ -91,7 +91,12 @@ function unrendered(name: RenderProviderName, target: URL, detail: string): Inge
 }
 
 /** A provider's answer, held to the per-document cap like a fetched page. */
-function markdownResource(name: RenderProviderName, target: URL, markdown: unknown): FetchedResource {
+function markdownResource(
+  name: RenderProviderName,
+  target: URL,
+  markdown: unknown,
+  title?: unknown,
+): FetchedResource {
   if (typeof markdown !== 'string' || markdown.trim().length === 0) {
     throw unrendered(name, target, 'no markdown in the response');
   }
@@ -99,12 +104,21 @@ function markdownResource(name: RenderProviderName, target: URL, markdown: unkno
   if (bytes > INGESTION_LIMITS.maxDocumentBytes) {
     throw new IngestionFailure('source_too_large', 'fetch-snapshot', `${target.host} rendered too much`);
   }
-  return { url: target.toString(), contentType: 'text/markdown', body: markdown, bytes, renderedBy: name };
+  const declared = typeof title === 'string' && title.trim().length > 0 ? title.trim() : undefined;
+  return {
+    url: target.toString(),
+    contentType: 'text/markdown',
+    body: markdown,
+    bytes,
+    renderedBy: name,
+    ...(declared ? { title: declared } : {}),
+  };
 }
 
 interface FirecrawlAnswer {
   success?: boolean;
-  data?: { markdown?: unknown };
+  /** `metadata.title` is the page's `<title>`, which the markdown may lack. */
+  data?: { markdown?: unknown; metadata?: { title?: unknown } };
   error?: unknown;
 }
 
@@ -142,7 +156,7 @@ function firecrawl(endpoint: Endpoint): PageRenderer {
       if (answer.success === false) {
         throw unrendered('firecrawl', target, typeof answer.error === 'string' ? answer.error : 'refused');
       }
-      return markdownResource('firecrawl', target, answer.data?.markdown);
+      return markdownResource('firecrawl', target, answer.data?.markdown, answer.data?.metadata?.title);
     },
   };
 }

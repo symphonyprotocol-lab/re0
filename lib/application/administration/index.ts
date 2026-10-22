@@ -88,6 +88,7 @@ export {
 } from './manage-platform-libraries';
 export {
   addEvalQuestion,
+  adoptEvalQuestion,
   getLibraryBenchmark,
   removeEvalQuestion,
   runLibraryEvaluation,
@@ -176,6 +177,7 @@ export {
   type UpdateRetrievalConfigInput,
 } from './manage-retrieval-config';
 export {
+  closeReviewSample,
   getUserLibrary,
   reviewUserLibrary,
   MANUAL_REVIEW_STAGE,
@@ -183,6 +185,19 @@ export {
   type UserLibraryDetail,
   type UserLibraryReviewView,
 } from './review-libraries';
+export {
+  listFlaggedDocuments,
+  listReviewDocuments,
+  probeReviewLibrary,
+  readReviewDocument,
+  reviewable,
+  reviewScore,
+  type ProbeResult,
+  type ReviewableLibrary,
+  type ReviewDocument,
+  type ReviewDocumentRow,
+  type ReviewScore,
+} from './review-content';
 export {
   generateSettlements,
   isSettlementStatusFilter,

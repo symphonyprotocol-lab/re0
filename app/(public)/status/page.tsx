@@ -118,7 +118,7 @@ export default async function StatusPage() {
 
   return (
     <>
-      <section className="mx-auto w-full max-w-[1080px] px-5 pt-11 pb-12">
+      <section className="mx-auto w-full max-w-[1200px] px-5 pt-11 pb-12">
         <SectionHeading eyebrow="STATUS" title={st.title} as="h1" size="lg" />
         <p className="mt-3 max-w-[70ch] text-[13px] leading-[1.7] text-muted">
           {fill(st.lede, { days: status.windowDays })}
@@ -151,7 +151,7 @@ export default async function StatusPage() {
         </Card>
       </section>
 
-      <section className="mx-auto w-full max-w-[1080px] border-t border-line px-5 pt-12 pb-14">
+      <section className="mx-auto w-full max-w-[1200px] border-t border-line px-5 pt-12 pb-14">
         <SectionHeading eyebrow="COMPONENTS" title={st.componentsTitle} />
         <p className="mt-3 text-[13px] text-muted">{st.componentsNote}</p>
 
@@ -212,7 +212,7 @@ export default async function StatusPage() {
         <p className="mt-5 text-[12px] text-faint">{st.uptimeFootnote}</p>
       </section>
 
-      <section className="mx-auto w-full max-w-[1080px] border-t border-line px-5 pt-12 pb-14">
+      <section className="mx-auto w-full max-w-[1200px] border-t border-line px-5 pt-12 pb-14">
         <SectionHeading eyebrow="INCIDENTS" title={st.incidentsTitle} />
         <p className="mt-3 text-[13px] text-muted">{st.incidentsNote}</p>
 
@@ -255,7 +255,7 @@ export default async function StatusPage() {
         <p className="mt-5 text-[12px] text-faint">{live.derivedNote}</p>
       </section>
 
-      <section className="mx-auto w-full max-w-[1080px] border-t border-line px-5 pt-12 pb-16">
+      <section className="mx-auto w-full max-w-[1200px] border-t border-line px-5 pt-12 pb-16">
         <SectionHeading eyebrow="REPORT" title={st.reportTitle} />
         <div className="mt-6 grid gap-4 md:grid-cols-2">
           <Card className="p-6">

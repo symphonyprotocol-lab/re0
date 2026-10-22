@@ -26,6 +26,7 @@ export function PlatformBenchmarkPanel({
   addAction,
   removeAction,
   runAction,
+  adoptAction,
 }: {
   libraryId: string;
   view: LibraryBenchmarkView;
@@ -34,12 +35,16 @@ export function PlatformBenchmarkPanel({
   addAction: PlatformAction;
   removeAction: PlatformAction;
   runAction: PlatformAction;
+  /** Adopt an owner's question into the scored set (review-visibility-proposal.md 5.2); absent where owners write none. */
+  adoptAction?: PlatformAction;
 }) {
   const { t } = useI18n();
   const b = t.admin.platformLibraryDetail.benchmark;
   const [ran, run, running] = useActionState(runAction, null);
   const { questions, limits, score } = view;
-  const missing = Math.max(0, limits.min - questions.length);
+  /* Only the platform's own questions score; an owner's count toward nothing until adopted. */
+  const scoredQuestions = questions.filter((question) => question.author === 'admin').length;
+  const missing = Math.max(0, limits.min - scoredQuestions);
 
   return (
     <Panel className="overflow-hidden">
@@ -113,6 +118,7 @@ export function PlatformBenchmarkPanel({
                 libraryId={libraryId}
                 question={question}
                 action={removeAction}
+                adoptAction={adoptAction}
               />
             ))}
           </ul>
@@ -130,14 +136,17 @@ function QuestionRow({
   libraryId,
   question,
   action,
+  adoptAction,
 }: {
   libraryId: string;
   question: EvalQuestionView;
   action: PlatformAction;
+  adoptAction?: PlatformAction;
 }) {
   const { t } = useI18n();
   const b = t.admin.platformLibraryDetail.benchmark;
   const [state, remove, pending] = useActionState(action, null);
+  const [adopted, adopt, adopting] = useActionState(adoptAction ?? action, null);
 
   return (
     <li className="flex flex-col gap-1.5 border-b border-line/70 py-2.5 last:border-b-0">
@@ -146,7 +155,18 @@ function QuestionRow({
           {question.question}
         </p>
         <div className="flex shrink-0 items-center gap-2">
+          {question.author === 'owner' ? <Pill tone="info">{b.authorOwner}</Pill> : null}
           <LastResult question={question} />
+          {question.author === 'owner' && adoptAction ? (
+            <form onSubmit={submitOn(adopt)}>
+              <input type="hidden" name="libraryId" value={libraryId} />
+              <input type="hidden" name="questionId" value={question.id} />
+              <ConsoleButton type="submit" variant="ghost" size="sm" disabled={adopting}>
+                <SparklesIcon size={13} />
+                {b.adopt}
+              </ConsoleButton>
+            </form>
+          ) : null}
           <form onSubmit={submitOn(remove)}>
             <input type="hidden" name="libraryId" value={libraryId} />
             <input type="hidden" name="questionId" value={question.id} />
@@ -170,6 +190,7 @@ function QuestionRow({
         ) : null}
       </p>
       <Refusal state={state} />
+      {adoptAction ? <Refusal state={adopted} /> : null}
     </li>
   );
 }

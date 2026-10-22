@@ -166,9 +166,27 @@ async function library(
     location,
     domainVerificationId: await verifiedDomain(workspaceId, location),
     slug,
+    /* A public library is created with its rights declared (lib/domain/rights.ts). */
+    rights: { origin: 'own', license: 'open_source', generation: 'human' },
   });
   libraries.push(created.libraryId);
   return { libraryId: created.libraryId, publicId: created.publicId, operationId: created.operationId };
+}
+
+/** The owner's self-check questions a submission needs (lib/domain/library.ts `SUBMISSION_MIN_QUESTIONS`). */
+async function questions(libraryId: string, n = 5): Promise<void> {
+  await db()
+    .insert(schema.libraryEvalQuestion)
+    .values(
+      Array.from({ length: n }, (_, at) => ({
+        id: uuidv7(),
+        libraryId,
+        author: 'owner',
+        question: `What does section ${at + 1} say?`,
+        /* Unanswerable on purpose: a verified source whose questions hit would auto-publish, and these tests want the queue. */
+        expectedText: `never-in-this-fixture-${at + 1}`,
+      })),
+    );
 }
 
 /** Builds and publishes, so the library has an indexed current version. */
@@ -279,6 +297,9 @@ describeWithDb('owner library management', () => {
       await database
         .delete(schema.libraryReview)
         .where(inArray(schema.libraryReview.libraryId, libraries));
+      await database
+        .delete(schema.libraryEvalQuestion)
+        .where(inArray(schema.libraryEvalQuestion.libraryId, libraries));
       await database
         .delete(schema.libraryVersion)
         .where(inArray(schema.libraryVersion.libraryId, libraries));
@@ -491,6 +512,11 @@ describeWithDb('owner library management', () => {
     await reviewerDecision(created.libraryId, 'request_changes', [note], new Date(Date.now() - 60_000));
     await setLifecycle(created.libraryId, 'changes_requested');
 
+    /* Without the question set the resubmission is refused; with it, it queues. */
+    expect(
+      await refusalOf(applyOwnerLifecycleAction({ workspaceId, role: 'owner', libraryId: created.libraryId, action: 'resubmit' })),
+    ).toBe('invalid_request');
+    await questions(created.libraryId);
     const resubmitted = await applyOwnerLifecycleAction({
       workspaceId,
       role: 'owner',
@@ -500,7 +526,8 @@ describeWithDb('owner library management', () => {
     expect(resubmitted.lifecycleStatus).toBe('submitted');
     expect(await lifecycleOf(created.libraryId)).toBe('submitted');
 
-    const rows = await reviews(created.libraryId);
+    /* The rules layer answered the resubmission with a hold row of its own (stage `rules`); the rest are the person's. */
+    const rows = (await reviews(created.libraryId)).filter((row) => row.stage !== 'rules' && row.stage !== 'model');
     expect(rows).toHaveLength(2);
     /* The reviewer's note stays readable beside the new submission. */
     expect(rows[0]?.stage).toBe('review');
@@ -690,6 +717,8 @@ describeWithDb('owner library management', () => {
     const live = await library(workspaceId, { visibility: 'private' });
     await build(live.libraryId);
     await setLifecycle(live.libraryId, 'published');
+    /* Going public never queues by itself: the library parks in draft, and the
+       owner submits it once the materials are in (review-visibility-proposal.md 5). */
     const toPublic = await editLibraryMetadata({
       workspaceId,
       role: 'owner',
@@ -698,8 +727,14 @@ describeWithDb('owner library management', () => {
       visibility: 'public',
     });
     expect(toPublic.visibility).toBe('public');
-    expect(toPublic.lifecycleStatus).toBe('submitted');
-    expect(toPublic.queuedForReview).toBe(true);
+    expect(toPublic.lifecycleStatus).toBe('draft');
+    expect(toPublic.queuedForReview).toBe(false);
+    expect(
+      await refusalOf(applyOwnerLifecycleAction({ workspaceId, role: 'owner', libraryId: live.libraryId, action: 'submit' })),
+    ).toBe('invalid_request');
+    await questions(live.libraryId);
+    const submitted = await applyOwnerLifecycleAction({ workspaceId, role: 'owner', libraryId: live.libraryId, action: 'submit' });
+    expect(submitted.lifecycleStatus).toBe('submitted');
     expect(await lifecycleOf(live.libraryId)).toBe('submitted');
 
     /* public -> private while waiting on a reviewer: with an indexed version

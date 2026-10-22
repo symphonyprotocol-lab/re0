@@ -6,6 +6,8 @@ import {
   isSecureDeployment,
   SESSION_COOKIE_NAMES,
 } from '@/lib/http/cookie-names';
+import { isOwnHostOf } from '@/lib/domain/showcase';
+import { PUBLIC_ORIGIN } from '@/lib/site/origin';
 
 /**
  * Cheap gate in front of the dashboard, and the browser half of the sliding
@@ -56,8 +58,54 @@ function slideCookie(
   return response;
 }
 
+/**
+ * Hosts that are this deployment: the configured base URL, the public
+ * origin, Vercel's own, and a laptop. Anything else that reaches us is a
+ * customer's subdomain pointed at a showcase page (lib/application/
+ * showcase/domain.ts), served by the by-host page; the mapping is read
+ * there, not here, so the middleware never touches a database.
+ */
+function ownHostsOfDeployment(): string[] {
+  const hosts = ['localhost', '127.0.0.1', 'vercel.app'];
+  for (const origin of [process.env.APP_BASE_URL, PUBLIC_ORIGIN]) {
+    if (!origin) continue;
+    try {
+      hosts.push(new URL(origin).hostname);
+    } catch {
+      /* not a URL */
+    }
+  }
+  /* Vercel names the deployment's own addresses; an operator names any other alias (staging, a preview domain). */
+  for (const host of [process.env.VERCEL_URL, process.env.VERCEL_BRANCH_URL, process.env.VERCEL_PROJECT_PRODUCTION_URL]) {
+    if (host) hosts.push(host);
+  }
+  for (const host of (process.env.SHOWCASE_OWN_HOSTS ?? '').split(',')) {
+    if (host.trim()) hosts.push(host.trim());
+  }
+  return hosts;
+}
+
+/** The request header the by-host page requires, so it cannot be opened by path on our own host. */
+export const CUSTOM_HOST_HEADER = 'x-re0-custom-host';
+
+/** What a custom host serves itself: the page, its own routes and assets; everything else is the page's 404. */
+function stayOnCustomHost(path: string): boolean {
+  return path.startsWith('/s/') || path.startsWith('/api/') || path.startsWith('/_next/') || path.startsWith('/vendor/') || path.startsWith('/.well-known/');
+}
+
 export function middleware(request: NextRequest): NextResponse {
   const path = request.nextUrl.pathname;
+
+  const host = (request.headers.get('host') ?? '').toLowerCase();
+  /* A host with no dot is a machine on a desk, never a customer's domain. */
+  if (host && host.includes('.') && !isOwnHostOf(host, ownHostsOfDeployment()) && !stayOnCustomHost(path)) {
+    const bare = host.replace(/:\d+$/, '');
+    const target = request.nextUrl.clone();
+    target.pathname = `/s/by-host/${bare}${path === '/' ? '' : path}`;
+    const requestHeaders = new Headers(request.headers);
+    requestHeaders.set(CUSTOM_HOST_HEADER, bare);
+    return NextResponse.rewrite(target, { request: { headers: requestHeaders } });
+  }
   /* Query string included: `safeReturnTo` preserves it on the way back. */
   const returnTo = path + request.nextUrl.search;
 

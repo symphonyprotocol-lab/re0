@@ -27,6 +27,7 @@ const eligible: ExpertCandidate = {
   lifecycleStatus: 'published',
   ownerSubscribed: true,
   expertTaggedAt: null,
+  evalReady: true,
 };
 
 describe('applicationBlocker', () => {
@@ -79,12 +80,14 @@ describe('applicationBlocker', () => {
 });
 
 describe('expertChecks and expertEarning', () => {
-  it('lists each of the three conditions on its own', () => {
+  it('lists each of the four conditions on its own', () => {
     expect(expertChecks({ ...eligible, ownerSubscribed: false })).toEqual({
       public: true,
       published: true,
       subscribed: false,
+      eval_ready: true,
     });
+    expect(expertChecks({ ...eligible, evalReady: false }).eval_ready).toBe(false);
   });
 
   it('earns only while tagged and every condition holds', () => {

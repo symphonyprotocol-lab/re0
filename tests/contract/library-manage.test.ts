@@ -113,7 +113,8 @@ describe('visibilityTransition', () => {
   });
 
   it('queues a live private library for review when it goes public', () => {
-    expect(visibilityTransition({ from: 'private', to: 'public', ...at('published') })).toBe('submitted');
+    /* Never live unreviewed: it waits in draft for the owner's submission (review-visibility-proposal.md 5). */
+    expect(visibilityTransition({ from: 'private', to: 'public', ...at('published') })).toBe('draft');
     /* A draft waits for its build, which queues it (`lifecycleAfterBuild`). */
     expect(visibilityTransition({ from: 'private', to: 'public', ...at('draft', false) })).toBeNull();
   });
@@ -145,7 +146,7 @@ describe('editWorkspaceLibrary', () => {
     expect(edit.title).toBe('Design notes');
     expect(edit.description).toBe('internal');
     expect(edit.language).toBe('zh');
-    expect(edit.lifecycleStatus).toBe('submitted');
+    expect(edit.lifecycleStatus).toBe('draft');
   });
 
   it('drops an empty optional field rather than storing a blank', () => {

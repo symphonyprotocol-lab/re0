@@ -3,10 +3,6 @@ import { LibraryList, type LibraryBucket, type LibraryListRow } from '@/componen
 import { LiveRefresh } from '@/components/dashboard/live-refresh';
 import { describeBuild } from '@/lib/dashboard/build-progress';
 import {
-  LibraryOwnership,
-  type LibraryOwnershipRow,
-} from '@/components/dashboard/library-ownership';
-import {
   ActionButton,
   Notice,
   PageHeader,
@@ -21,7 +17,6 @@ import {
   PlusIcon,
   ShieldCheckIcon,
 } from '@/components/ui/icons';
-import { listWorkspaceClaims, ownershipForLibraries } from '@/lib/application/claims';
 import {
   canDeleteLibraries,
   canManageLibraries,
@@ -29,11 +24,10 @@ import {
   type WorkspaceLibraryRow,
 } from '@/lib/application/libraries';
 import { quoteBuild } from '@/lib/application/plans';
-import { remainingDays } from '@/lib/domain/claim';
 import { rebuildBlocked, reviewPipeline } from '@/lib/domain/library';
 import { requireSession } from '@/lib/http/session';
 import { getMessages, translations } from '@/lib/i18n/server';
-import { deleteWorkspaceLibraryAction, releaseLibraryOwnershipAction } from './actions';
+import { deleteWorkspaceLibraryAction } from './actions';
 import { rebuildLibraryAction } from './[libraryId]/actions';
 
 export async function generateMetadata(): Promise<Metadata> {
@@ -147,67 +141,6 @@ export default async function DashboardLibrariesPage() {
     };
   });
 
-  /*
-   * requirement.md 5.2: the list says where each public library stands with
-   * this workspace. Ownership is a claim fact, not a library column, so it is
-   * read through the claim use cases and rendered in its own panel.
-   *
-   * Two reads, because the panel's five states live in two places.
-   * `listWorkspaceLibraries` is scoped to `owner_workspace_id`, so what it can
-   * say is only `owned` or `claimed`; a claim still running, one that failed,
-   * and a library back in the unowned pool are all on libraries this workspace
-   * does not own, and only its claims know about them. Reading just the first
-   * left three of the five states unreachable and `disputed` hardcoded false.
-   */
-  const publicLibraries = libraries.filter((row) => row.visibility === 'public');
-  const [ownership, claims] = await Promise.all([
-    ownershipForLibraries(session.workspace.id, publicLibraries.map((row) => row.id)),
-    listWorkspaceClaims(session.workspace.id),
-  ]);
-  const now = new Date();
-  const ownershipRows: LibraryOwnershipRow[] = publicLibraries.map((row) => {
-    const view = ownership.get(row.id) ?? { kind: 'unclaimed' as const };
-    return {
-      id: row.id,
-      publicId: row.publicId,
-      title: row.title,
-      kind: view.kind,
-      claimedAt: view.kind === 'claimed' && view.claimedAt ? date.format(view.claimedAt) : null,
-      remainingDays: view.kind === 'pending' ? remainingDays(view.expiresAt, now) : null,
-      failureReason: view.kind === 'failed' ? view.failureReason : null,
-      claimId: view.kind === 'pending' || view.kind === 'failed' ? view.claimId : null,
-      /* We own these, so no other workspace's ownership is in the way. */
-      disputed: false,
-    };
-  });
-
-  /*
-   * The claims on libraries we do not own, newest first, one row per library.
-   * A settled claim -- expired or revoked -- leaves the library claimable
-   * again, which is what `unclaimed` offers; a verified one on a library the
-   * owner-scoped list did not return means ownership moved on, and there is
-   * nothing here for this workspace to do about it.
-   */
-  const owned = new Set(libraries.map((row) => row.id));
-  const seen = new Set<string>();
-  for (const claim of claims) {
-    if (owned.has(claim.libraryId) || seen.has(claim.libraryId)) continue;
-    seen.add(claim.libraryId);
-    if (claim.status === 'verified') continue;
-    ownershipRows.push({
-      id: claim.libraryId,
-      publicId: claim.libraryPublicId,
-      title: claim.libraryTitle,
-      kind:
-        claim.status === 'pending' ? 'pending' : claim.status === 'failed' ? 'failed' : 'unclaimed',
-      claimedAt: null,
-      remainingDays: claim.status === 'pending' ? remainingDays(claim.expiresAt, now) : null,
-      failureReason: claim.status === 'failed' ? claim.failureReason : null,
-      claimId: claim.id,
-      disputed: claim.disputed,
-    });
-  }
-
   return (
     <div className="flex flex-col gap-[18px]">
       {/* A building row's readout changes by the window; poll while one is open. */}
@@ -239,8 +172,7 @@ export default async function DashboardLibrariesPage() {
       <Notice
         tone="brand"
         icon={<ShieldCheckIcon size={18} />}
-        title={l.reviewNoticeTitle}
-        body={l.reviewNoticeBody}
+        title={l.reviewNotice}
       />
 
       {/* requirement.md 5.2: refresh and deletion are for the library's
@@ -252,12 +184,6 @@ export default async function DashboardLibrariesPage() {
         rebuildQuote={quote ?? undefined}
       />
 
-      <LibraryOwnership
-        rows={ownershipRows}
-        releaseAction={
-          canDeleteLibraries(session.workspace.role) ? releaseLibraryOwnershipAction : undefined
-        }
-      />
     </div>
   );
 }

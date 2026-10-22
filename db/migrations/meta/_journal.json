@@ -330,6 +330,69 @@
       "when": 1792379039164,
       "tag": "0046_library_faq",
       "breakpoints": true
+    },
+    {
+      "idx": 47,
+      "version": "7",
+      "when": 1792379040164,
+      "tag": "0047_library_showcase",
+      "breakpoints": true
+    },
+    {
+      "idx": 48,
+      "version": "7",
+      "when": 1792379041164,
+      "tag": "0048_showcase_lead",
+      "breakpoints": true
+    },
+    {
+      "idx": 49,
+      "version": "7",
+      "when": 1792379042164,
+      "tag": "0049_showcase_gate",
+      "breakpoints": true
+    },
+    {
+      "idx": 50,
+      "version": "7",
+      "when": 1792379043164,
+      "tag": "0050_showcase_domain",
+      "breakpoints": true
+    },
+    {
+      "idx": 51,
+      "version": "7",
+      "when": 1792379044164,
+      "tag": "0051_review_checklist",
+      "breakpoints": true
+    },
+    {
+      "idx": 52,
+      "version": "7",
+      "when": 1792379045164,
+      "tag": "0052_submission_materials",
+      "breakpoints": true
+    },
+    {
+      "idx": 53,
+      "version": "7",
+      "when": 1792379046164,
+      "tag": "0053_review_rules",
+      "breakpoints": true
+    },
+    {
+      "idx": 54,
+      "version": "7",
+      "when": 1792379047164,
+      "tag": "0054_model_review",
+      "breakpoints": true
+    },
+    {
+      "idx": 55,
+      "version": "7",
+      "when": 1792379048164,
+      "tag": "0055_expert_materials",
+      "breakpoints": true
     }
   ]
 }

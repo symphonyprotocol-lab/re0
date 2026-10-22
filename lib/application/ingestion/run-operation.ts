@@ -27,6 +27,8 @@ import {
   type SettledBuildCharge,
 } from '@/lib/application/plans/build-quota';
 import { BUILD_RESERVATION_TTL_MS } from '@/lib/application/plans/quota';
+import { runModelReview } from '@/lib/application/review/model';
+import { MODEL_REVIEW_OPERATION } from '@/lib/application/review/stages';
 import { advanceLifecycleAfterBuild } from './advance-lifecycle';
 import { buildVersion } from './build-version';
 import { publishVersion } from './publish-version';
@@ -36,6 +38,7 @@ import type { IngestionDependencies } from './dependencies';
 
 export type OperationOutcome =
   | { status: 'succeeded'; versionId: string; documents: number; chunks: number }
+  | { status: 'reviewed'; outcome: 'reviewed' | 'deferred' | 'lost' | 'skipped' }
   | { status: 'purged'; documents: number; chunks: number; objects: number }
   | { status: 'skipped'; reason: 'unchanged' }
   | { status: 'failed'; error: IngestionErrorCode }
@@ -95,6 +98,20 @@ export async function runOperation(input: {
 
   if (operation.operationType === DELETE_OPERATION) {
     return purge(operation.id, operation.libraryId, input.dependencies);
+  }
+
+  /*
+   * A model review is not a build: nothing is fetched, parsed or indexed,
+   * and the library's status is not touched by its running. The claim
+   * above is handed back so the review runner can take it as its own.
+   */
+  if (operation.operationType === MODEL_REVIEW_OPERATION) {
+    await database
+      .update(schema.workflowOperation)
+      .set({ status: 'pending', attempts: sql`${schema.workflowOperation.attempts} - 1` })
+      .where(eq(schema.workflowOperation.id, operation.id));
+    const reviewed = await runModelReview({ operationId: operation.id });
+    return { status: 'reviewed', outcome: reviewed.status };
   }
 
   /*

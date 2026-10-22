@@ -12,6 +12,7 @@ import {
   KeyIcon,
   LayoutDashboardIcon,
   SettingsIcon,
+  SparklesIcon,
   ShieldCheckIcon,
   SpinnerIcon,
 } from '@/components/ui/icons';
@@ -24,12 +25,15 @@ export function DashboardSidebar({
   workspaceInitial = WORKSPACE_INITIAL,
   planName,
   usage,
+  leadsNew = 0,
 }: {
   workspaceName: string;
   workspaceInitial?: string;
   planName: string;
   /** This period's metered calls against the plan allowance, from the ledger. */
   usage: { used: number; limit: number };
+  /** Unhandled showcase leads across the workspace (lib/application/showcase/leads.ts). */
+  leadsNew?: number;
 }) {
   const { locale, t } = useI18n();
   const pathname = usePathname();
@@ -40,6 +44,7 @@ export function DashboardSidebar({
     { href: '/dashboard/libraries', label: t.dashboard.nav.libraries, Icon: DatabaseIcon },
     { href: '/dashboard/api-keys', label: t.dashboard.nav.apiKeys, Icon: KeyIcon },
     { href: '/dashboard/widget', label: t.dashboard.nav.widget, Icon: GlobeIcon },
+    { href: '/dashboard/showcases', label: t.dashboard.nav.showcases, Icon: SparklesIcon, badge: leadsNew },
     { href: '/dashboard/requests', label: t.dashboard.nav.requests, Icon: FileTextIcon },
     { href: '/dashboard/revenue', label: t.dashboard.nav.revenue, Icon: CircleDollarSignIcon },
     { href: '/dashboard/policies', label: t.dashboard.nav.policies, Icon: ShieldCheckIcon },
@@ -61,7 +66,7 @@ export function DashboardSidebar({
         <p className="px-2 pb-1.5 text-[10px] font-medium tracking-[0.09em] text-muted">
           {t.dashboard.nav.section}
         </p>
-        {nav.map(({ href, label, Icon }) => {
+        {nav.map(({ href, label, Icon, badge }) => {
           const active = pathname === href;
           return (
             <Link
@@ -74,6 +79,11 @@ export function DashboardSidebar({
             >
               <Icon size={15} />
               {label}
+              {badge ? (
+                <span className="ml-auto rounded-full bg-brand px-1.5 py-0.5 text-[10px] leading-none font-medium text-onbrand">
+                  {number.format(badge)}
+                </span>
+              ) : null}
               <NavPending />
             </Link>
           );

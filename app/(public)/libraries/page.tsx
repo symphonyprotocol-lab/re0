@@ -106,7 +106,7 @@ export default async function CatalogPage({ searchParams }: Search) {
   const last = query ? entries.length : Math.min(totalCount, page * CATALOG_PAGE_SIZE);
 
   return (
-    <section className="mx-auto w-full max-w-[1080px] px-5 pt-11 pb-16">
+    <section className="mx-auto w-full max-w-[1200px] px-5 pt-11 pb-16">
       <SectionHeading
         eyebrow="KNOWLEDGE DIRECTORY"
         title={c.title}

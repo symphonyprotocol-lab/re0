@@ -23,7 +23,7 @@ export default async function AboutPage() {
   return (
     <>
       <section>
-        <div className="mx-auto w-full max-w-[1080px] px-5 pt-11 pb-14">
+        <div className="mx-auto w-full max-w-[1200px] px-5 pt-11 pb-14">
           <SectionHeading eyebrow="ABOUT" title={a.title} as="h1" size="lg" />
           <p className="mt-4 max-w-[70ch] text-[15px] leading-[1.75] text-muted">
             {a.lede}
@@ -36,7 +36,7 @@ export default async function AboutPage() {
         </div>
       </section>
 
-      <section className="mx-auto w-full max-w-[1080px] border-t border-line px-5 pt-12 pb-14">
+      <section className="mx-auto w-full max-w-[1200px] border-t border-line px-5 pt-12 pb-14">
         <SectionHeading eyebrow="WHY" title={a.whyTitle} />
         <div className="mt-7 flex flex-col">
           {a.problems.map((item) => (
@@ -50,7 +50,7 @@ export default async function AboutPage() {
         </div>
       </section>
 
-      <section className="mx-auto w-full max-w-[1080px] border-t border-line px-5 pt-12 pb-14">
+      <section className="mx-auto w-full max-w-[1200px] border-t border-line px-5 pt-12 pb-14">
         <SectionHeading eyebrow="PRINCIPLES" title={a.principlesTitle} />
         <div className="mt-7 grid gap-4 md:grid-cols-2">
           {a.principles.map(({ title, body }, index) => {
@@ -70,7 +70,7 @@ export default async function AboutPage() {
         </div>
       </section>
 
-      <section className="mx-auto w-full max-w-[1080px] border-t border-line px-5 pt-12 pb-14">
+      <section className="mx-auto w-full max-w-[1200px] border-t border-line px-5 pt-12 pb-14">
         <SectionHeading eyebrow="SCOPE" title={a.scopeTitle} />
         <p className="mt-3 text-[13px] text-muted">{a.scopeNote}</p>
         <div className="mt-7 grid gap-x-10 gap-y-6 sm:grid-cols-2">
@@ -86,7 +86,7 @@ export default async function AboutPage() {
         </div>
       </section>
 
-      <section className="mx-auto w-full max-w-[1080px] border-t border-line px-5 pt-12 pb-16">
+      <section className="mx-auto w-full max-w-[1200px] border-t border-line px-5 pt-12 pb-16">
         <Card className="flex flex-col items-start gap-5 p-7 sm:flex-row sm:items-center sm:justify-between">
           <div className="flex items-start gap-3.5">
             <span className="mt-0.5 text-brandink">

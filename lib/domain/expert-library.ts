@@ -12,6 +12,8 @@
  * same way.
  */
 import type { LifecycleStatus, Visibility } from '@/lib/domain';
+import { fingerprint } from './fingerprint';
+import { isReviewVerdict, REVIEW_CHECK_NOTE_MAX_LENGTH, type ReviewChecklistItem } from './review';
 
 export const EXPERT_APPLICATION_STATUSES = [
   'pending',
@@ -57,6 +59,13 @@ export const EXPERT_LIBRARY_ERRORS = [
   'not_published',
   /** The owner workspace is not on a paid plan right now. */
   'not_subscribed',
+  /** The question set is too small, not evaluated on the current version, or answered too poorly (review-visibility-proposal.md 5.3). */
+  'eval_not_ready',
+  /** The structured materials are incomplete or unusable. */
+  'invalid_materials',
+  /** A decision came without the expert checklist, or with one that contradicts it (6.5). */
+  'checklist_required',
+  'checklist_mismatch',
   'already_pending',
   'already_tagged',
   /** A rejection or revocation is too recent. */
@@ -98,14 +107,17 @@ export interface ExpertCandidate {
   lifecycleStatus: LifecycleStatus;
   ownerSubscribed: boolean;
   expertTaggedAt: Date | null;
+  /** `expertEvalReady`: the question set is big enough and the current version answers it well enough. */
+  evalReady: boolean;
 }
 
 /**
  * The checks an owner's application has to pass, in the order the dashboard
- * lists them (prd 4.1, 5). Returned as a list rather than a single verdict so
- * the panel can show every unmet condition at once instead of one per visit.
+ * lists them (prd 4.1, 5; review-visibility-proposal.md 5.3). Returned as a
+ * list rather than a single verdict so the panel can show every unmet
+ * condition at once instead of one per visit.
  */
-export const EXPERT_CHECKS = ['public', 'published', 'subscribed'] as const;
+export const EXPERT_CHECKS = ['public', 'published', 'subscribed', 'eval_ready'] as const;
 
 export type ExpertCheck = (typeof EXPERT_CHECKS)[number];
 
@@ -114,12 +126,180 @@ export function expertChecks(candidate: ExpertCandidate): Record<ExpertCheck, bo
     public: candidate.visibility === 'public',
     published: candidate.lifecycleStatus === 'published',
     subscribed: candidate.ownerSubscribed,
+    eval_ready: candidate.evalReady,
   };
 }
 
 /** True when every check in `expertChecks` passes. */
 export function expertEligible(candidate: ExpertCandidate): boolean {
   return Object.values(expertChecks(candidate)).every(Boolean);
+}
+
+/* ------------------------------------------------------------- evaluation */
+
+/** What the library's question set says about it, as the expert gate reads it. */
+export interface ExpertEvaluation {
+  /** Every question on the library, the owner's and the platform's. */
+  questions: number;
+  /** Of those, asked of the current version. */
+  evaluatedOnCurrent: number;
+  /** Of those, answered within the top results. */
+  hitsOnCurrent: number;
+}
+
+export interface ExpertEvalRules {
+  /** Questions a library needs before it may apply; 0 waives the gate. */
+  minQuestions: number;
+  /** Share of them, 0-100, the current version must answer. */
+  minHitRate: number;
+}
+
+/** 0-100, or null until any question was asked of the current version. */
+export function expertHitRate(evaluation: ExpertEvaluation): number | null {
+  if (evaluation.evaluatedOnCurrent === 0) return null;
+  return Math.round((evaluation.hitsOnCurrent / evaluation.evaluatedOnCurrent) * 100);
+}
+
+/**
+ * The evaluation gate (review-visibility-proposal.md 5.3): enough
+ * questions, every one of them asked of the version that would earn, and
+ * enough of them answered. A platform that sets the minimum to zero has
+ * waived the gate, and a library with no questions then passes it.
+ */
+export function expertEvalReady(evaluation: ExpertEvaluation, rules: ExpertEvalRules): boolean {
+  if (evaluation.questions < rules.minQuestions) return false;
+  if (evaluation.questions === 0) return rules.minQuestions === 0;
+  if (evaluation.evaluatedOnCurrent < evaluation.questions) return false;
+  const hitRate = expertHitRate(evaluation);
+  return hitRate !== null && hitRate >= rules.minHitRate;
+}
+
+/* -------------------------------------------------------------- materials */
+
+/** The applicant's structured statement (review-visibility-proposal.md 5.3); the note stays, optional. */
+export const EXPERT_MATERIAL_LIMITS = { scope: 500, maintenance: 300, credentials: 500, note: EXPERT_NOTE_MAX_LENGTH } as const;
+
+export interface ExpertMaterials {
+  /** What the library covers and what it does not. */
+  scope: string;
+  /** How, and how often, it is kept current. */
+  maintenance: string;
+  /** Who the applicant is to speak for this content. */
+  credentials: string;
+  note: string;
+}
+
+function cleanText(value: unknown, max: number): string | undefined {
+  if (value === null || value === undefined) return '';
+  if (typeof value !== 'string') return undefined;
+  const trimmed = value.trim();
+  if (trimmed.length > max) return undefined;
+  // eslint-disable-next-line no-control-regex
+  if (/[\u0000-\u0008\u000b\u000c\u000e-\u001f\u007f]/.test(trimmed)) return undefined;
+  return trimmed;
+}
+
+/**
+ * The materials as the form posts them. `undefined` when a required field
+ * is missing or any field is unusable -- the one case the caller refuses;
+ * the three statements are required, the note is not.
+ */
+export function parseExpertMaterials(input: {
+  scope?: unknown;
+  maintenance?: unknown;
+  credentials?: unknown;
+  note?: unknown;
+}): ExpertMaterials | undefined {
+  const scope = cleanText(input.scope, EXPERT_MATERIAL_LIMITS.scope);
+  const maintenance = cleanText(input.maintenance, EXPERT_MATERIAL_LIMITS.maintenance);
+  const credentials = cleanText(input.credentials, EXPERT_MATERIAL_LIMITS.credentials);
+  const note = cleanText(input.note, EXPERT_MATERIAL_LIMITS.note);
+  if (scope === undefined || maintenance === undefined || credentials === undefined || note === undefined) return undefined;
+  if (scope.length === 0 || maintenance.length === 0 || credentials.length === 0) return undefined;
+  return { scope, maintenance, credentials, note };
+}
+
+/** A stored statement read back without trusting its shape; null for an application made before it existed. */
+export function readExpertMaterials(stored: unknown): ExpertMaterials | null {
+  if (!stored || typeof stored !== 'object') return null;
+  const record = stored as Record<string, unknown>;
+  const text = (value: unknown) => (typeof value === 'string' ? value : '');
+  if (!text(record.scope) && !text(record.maintenance) && !text(record.credentials)) return null;
+  return { scope: text(record.scope), maintenance: text(record.maintenance), credentials: text(record.credentials), note: text(record.note) };
+}
+
+/* --------------------------------------------------------------- checklist */
+
+/**
+ * What the reviewer judges before granting the tag (review-visibility-
+ * proposal.md 6.5): the statements, the sampled questions and the
+ * library's record in use. Same shape as the public checklist
+ * (lib/domain/review.ts), so the forms and the storage are one pattern.
+ */
+export const EXPERT_REVIEW_CHECKS = ['scope_clear', 'maintenance_credible', 'credentials_match', 'sample_ok', 'usage_ok'] as const;
+
+export type ExpertReviewCheck = (typeof EXPERT_REVIEW_CHECKS)[number];
+
+export type ExpertChecklist = Record<ExpertReviewCheck, ReviewChecklistItem>;
+
+export function parseExpertChecklist(input: unknown): ExpertChecklist | null {
+  const read =
+    typeof FormData !== 'undefined' && input instanceof FormData
+      ? (key: string) => input.get(key)
+      : input && typeof input === 'object'
+        ? (key: string) => (input as Record<string, unknown>)[key]
+        : null;
+  if (!read) return null;
+  const checklist = {} as ExpertChecklist;
+  for (const check of EXPERT_REVIEW_CHECKS) {
+    const verdict = read(`check.${check}`);
+    if (!isReviewVerdict(verdict)) return null;
+    const note = cleanText(read(`note.${check}`), REVIEW_CHECK_NOTE_MAX_LENGTH);
+    if (note === undefined) return null;
+    checklist[check] = { verdict, note };
+  }
+  return checklist;
+}
+
+export function readExpertChecklist(stored: unknown): ExpertChecklist | null {
+  if (!stored || typeof stored !== 'object') return null;
+  const record = stored as Record<string, unknown>;
+  const checklist = {} as ExpertChecklist;
+  for (const check of EXPERT_REVIEW_CHECKS) {
+    const item = record[check];
+    if (!item || typeof item !== 'object') return null;
+    const { verdict, note } = item as { verdict?: unknown; note?: unknown };
+    if (!isReviewVerdict(verdict)) return null;
+    checklist[check] = { verdict, note: typeof note === 'string' ? note : '' };
+  }
+  return checklist;
+}
+
+/** An approval cannot carry a failed check; a rejection has to name one. `unsure` blocks neither. */
+export function expertChecklistAllows(decision: 'approve' | 'reject', checklist: ExpertChecklist): boolean {
+  const failing = EXPERT_REVIEW_CHECKS.filter((check) => checklist[check].verdict === 'fail').length;
+  return decision === 'approve' ? failing === 0 : failing > 0;
+}
+
+/* ---------------------------------------------------------------- sampling */
+
+export const EXPERT_SAMPLE_SIZE = 4;
+
+/**
+ * Which questions the reviewer re-asks (review-visibility-proposal.md 6.5):
+ * `n` distinct indexes drawn by a seed, so the same application shows the
+ * same draw on every visit and two reviewers see the same questions.
+ */
+export function sampleExpertQuestions(total: number, seed: string, n = EXPERT_SAMPLE_SIZE): number[] {
+  if (total <= 0) return [];
+  if (total <= n) return Array.from({ length: total }, (_, at) => at);
+  let state = BigInt(`0x${fingerprint(seed)}`) || 1n;
+  const picked = new Set<number>();
+  while (picked.size < n) {
+    state = (state * 6364136223846793005n + 1442695040888963407n) & 0xffffffffffffffffn;
+    picked.add(Number((state >> 33n) % BigInt(total)));
+  }
+  return [...picked].sort((a, b) => a - b);
 }
 
 /**
@@ -141,6 +321,7 @@ export function applicationBlocker(input: {
   if (!checks.public) return 'not_public';
   if (!checks.published) return 'not_published';
   if (!checks.subscribed) return 'not_subscribed';
+  if (!checks.eval_ready) return 'eval_not_ready';
   if (input.hasPending) return 'already_pending';
   if (
     input.lastDecidedAt !== null &&
@@ -213,6 +394,7 @@ export const APPROVAL_CHECKS = [
   'owner_unchanged',
   'subscribed',
   'ready_version',
+  'eval_ready',
 ] as const;
 
 export type ApprovalCheck = (typeof APPROVAL_CHECKS)[number];
@@ -230,6 +412,7 @@ export function approvalChecks(input: {
     owner_unchanged: input.ownerWorkspaceId === input.applicantWorkspaceId,
     subscribed: owner.subscribed,
     ready_version: input.hasReadyVersion,
+    eval_ready: owner.eval_ready,
   };
 }
 
@@ -243,5 +426,8 @@ export function approvalAllowed(checks: Record<ApprovalCheck, boolean>): boolean
  * subscription, and earning resumes by itself when the condition does.
  */
 export function expertEarning(candidate: ExpertCandidate): boolean {
-  return candidate.expertTaggedAt !== null && expertEligible(candidate);
+  /* The evaluation gate is an application's, not a tag's: a granted tag earns
+     on the three conditions prd 4.3 names, whatever the question set does later. */
+  const checks = expertChecks(candidate);
+  return candidate.expertTaggedAt !== null && checks.public && checks.published && checks.subscribed;
 }
