@@ -218,6 +218,7 @@ describeWithDb('notion page import', () => {
         userId,
         title: 'Handbook',
         visibility: 'public',
+        rights: { origin: 'own', license: 'open_source', generation: 'human' },
         sourceType: 'notion',
         location,
         slug: 'handbook',
@@ -229,7 +230,7 @@ describeWithDb('notion page import', () => {
     await expect(attempt('https://www.notion.so/acme/no-id-here')).rejects.toMatchObject({ refusal: 'not_found' });
     /* No account at all on the call: refused before anything is read. */
     await expect(
-      createWorkspaceLibrary({ role: 'owner', workspaceId, title: 'x', visibility: 'public', sourceType: 'notion', location: PAGE_URL, slug: 'x' }),
+      createWorkspaceLibrary({ role: 'owner', workspaceId, title: 'x', visibility: 'public', rights: { origin: 'own', license: 'open_source', generation: 'human' }, sourceType: 'notion', location: PAGE_URL, slug: 'x' }),
     ).rejects.toMatchObject({ code: 'access_denied' });
 
     /* The one that passes: location from Notion's spelling, the account on the source. */
