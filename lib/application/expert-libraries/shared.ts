@@ -15,10 +15,10 @@ import {
   type ExpertEvaluation,
 } from '@/lib/domain/expert-library';
 import { recordAudit } from '@/lib/application/administration/audit';
-import { activeReviewRules } from '@/lib/application/review/config';
 import { ref } from '@/lib/application/administration/column-ref';
 import { paidSubscriptionExists } from '@/lib/application/plans/in-force';
 import { db, schema } from '@/lib/infrastructure/postgres/client';
+import { activeExpertThresholds } from './thresholds';
 
 export const AUDIT_TARGET = 'expert_application';
 
@@ -151,8 +151,8 @@ export async function candidateOf(
 
 /** The thresholds the gate is judged by right now, for the panels that explain it. */
 export async function expertEvalRules(): Promise<ExpertEvalRules> {
-  const rules = await activeReviewRules();
-  return { minQuestions: rules.expertMinQuestions, minHitRate: rules.expertHitRateMin };
+  const thresholds = await activeExpertThresholds();
+  return { minQuestions: thresholds.expertMinQuestions, minHitRate: thresholds.expertHitRateMin };
 }
 
 /** The workspace's own live user library, by id. */

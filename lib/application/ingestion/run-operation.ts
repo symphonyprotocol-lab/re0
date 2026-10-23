@@ -27,8 +27,6 @@ import {
   type SettledBuildCharge,
 } from '@/lib/application/plans/build-quota';
 import { BUILD_RESERVATION_TTL_MS } from '@/lib/application/plans/quota';
-import { runModelReview } from '@/lib/application/review/model';
-import { MODEL_REVIEW_OPERATION } from '@/lib/application/review/stages';
 import { advanceLifecycleAfterBuild } from './advance-lifecycle';
 import { buildVersion } from './build-version';
 import { publishVersion } from './publish-version';
@@ -38,7 +36,6 @@ import type { IngestionDependencies } from './dependencies';
 
 export type OperationOutcome =
   | { status: 'succeeded'; versionId: string; documents: number; chunks: number }
-  | { status: 'reviewed'; outcome: 'reviewed' | 'deferred' | 'lost' | 'skipped' }
   | { status: 'purged'; documents: number; chunks: number; objects: number }
   | { status: 'skipped'; reason: 'unchanged' }
   | { status: 'failed'; error: IngestionErrorCode }
@@ -46,6 +43,9 @@ export type OperationOutcome =
 
 /** The operation type `markLibraryDeleted` queues; everything else is a build. */
 const DELETE_OPERATION = 'delete';
+
+/** Queued by the public-review model layer until 2026-10-23; a row still waiting is cancelled, never built. */
+const MODEL_REVIEW_OPERATION = 'model_review';
 
 /** Attempts before an operation stops being retried. */
 export const MAX_ATTEMPTS = 3;
@@ -100,18 +100,13 @@ export async function runOperation(input: {
     return purge(operation.id, operation.libraryId, input.dependencies);
   }
 
-  /*
-   * A model review is not a build: nothing is fetched, parsed or indexed,
-   * and the library's status is not touched by its running. The claim
-   * above is handed back so the review runner can take it as its own.
-   */
+  /* Public review is over; a model review that was still queued has nothing to do. */
   if (operation.operationType === MODEL_REVIEW_OPERATION) {
     await database
       .update(schema.workflowOperation)
-      .set({ status: 'pending', attempts: sql`${schema.workflowOperation.attempts} - 1` })
+      .set({ status: 'cancelled', updatedAt: new Date() })
       .where(eq(schema.workflowOperation.id, operation.id));
-    const reviewed = await runModelReview({ operationId: operation.id });
-    return { status: 'reviewed', outcome: reviewed.status };
+    return { status: 'skipped', reason: 'unchanged' };
   }
 
   /*
@@ -193,9 +188,9 @@ export async function runOperation(input: {
           : null,
     });
 
-    /* A user library, by contrast, does move: private goes live, public
-       joins the review queue (`lifecycleAfterBuild`). Platform rows are
-       left alone, as the comment above says. */
+    /* A user library, by contrast, does move: it goes live under either
+       visibility (`lifecycleAfterBuild`). Platform rows are left alone, as
+       the comment above says. */
     await advanceLifecycleAfterBuild(operation.libraryId);
 
     await finish(operation.id, 'succeeded', null);

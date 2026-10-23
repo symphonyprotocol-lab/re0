@@ -19,7 +19,6 @@ import { AppError } from '@/contracts/errors';
 import type { LifecycleStatus, Visibility } from '@/lib/domain';
 import { uuidv7 } from '@/lib/domain/id';
 import {
-  appealableDecision,
   draftParseScope,
   editWorkspaceLibrary,
   EMPTY_PARSE_SCOPE,
@@ -44,7 +43,6 @@ import {
   rightsPosted,
   type RightsDeclaration,
 } from '@/lib/domain/rights';
-import { runRulesLayer } from '@/lib/application/review/rules';
 import { canManageLibraries, type WorkspaceRole } from './delete';
 import { libraryMaterials } from './materials';
 
@@ -160,37 +158,17 @@ export interface OwnerLifecycleResult {
   lifecycleStatus: LifecycleStatus;
   /** Pause only: how many queued fetches were withdrawn with it. */
   cancelledOperations: number;
-  /** A submission the rules layer held: the model review to run off the request (lib/application/review/model.ts). */
-  modelReviewOperationId?: string | null;
-}
-
-/** The newest review rows, newest first, as `appealableDecision` reads them. */
-async function recentReviews(reader: Reader, libraryId: string) {
-  return reader
-    .select({
-      id: schema.libraryReview.id,
-      stage: schema.libraryReview.stage,
-      outcome: schema.libraryReview.outcome,
-      appealOf: schema.libraryReview.appealOf,
-    })
-    .from(schema.libraryReview)
-    .where(eq(schema.libraryReview.libraryId, libraryId))
-    .orderBy(desc(schema.libraryReview.createdAt), desc(schema.libraryReview.id))
-    .limit(10);
 }
 
 /**
- * Pause, resume or resubmit one of the workspace's libraries.
+ * Pause or resume one of the workspace's libraries.
  *
  * - pause: `published` -> `suspended`. The library leaves retrieval at once
  *   and its queued fetches are cancelled, so nothing rebuilds it while it is
  *   stopped; a build already running finishes but `lifecycleAfterBuild`
  *   leaves a suspended library where it is.
  * - resume: `suspended` -> `published`, only when the newest review row is
- *   the owner's own pause. A reviewer's suspension is not lifted here.
- * - resubmit: `changes_requested` -> `submitted` for a public library whose
- *   current version is indexed, writing a new review row so the queue sees
- *   a fresh submission.
+ *   the owner's own pause. A suspension by the platform is not lifted here.
  *
  * The status update is guarded on the status it was read at, so two clicks
  * at once cannot both succeed.
@@ -204,21 +182,12 @@ export async function applyOwnerLifecycleAction(
 
   return database.transaction(async (tx) => {
     const target = await ownedLibrary(tx, input.workspaceId, input.libraryId, true);
-    const [review, ready, materials, recent] = await Promise.all([
-      latestReview(tx, target.id),
-      hasReadyVersion(tx, target.currentVersionId),
-      libraryMaterials(tx, target.id),
-      recentReviews(tx, target.id),
-    ]);
-    const appealOf = appealableDecision(recent);
+    const review = await latestReview(tx, target.id);
     const available = ownerActionAvailable(
       {
         lifecycleStatus: target.lifecycleStatus,
         visibility: target.visibility,
         pausedByOwner: isOwnerPause(review),
-        hasReadyVersion: ready,
-        materialsReady: materials.ready,
-        appealable: appealOf !== null,
       },
       input.action,
     );
@@ -267,25 +236,14 @@ export async function applyOwnerLifecycleAction(
       stage: OWNER_REVIEW_STAGE,
       outcome: input.action,
       feedback: [],
-      /* An appeal names the machine decision it disputes; a person answers it. */
-      appealOf: input.action === 'appeal' ? appealOf : null,
+      appealOf: null,
       reviewerId: null,
       createdAt: now,
-      /* A submission is undecided until a reviewer answers; the owner's
-         own pause and its lifting are decided the moment they are made. */
-      decidedAt: input.action === 'submit' || input.action === 'resubmit' || input.action === 'appeal' ? null : now,
+      /* The owner's own pause and its lifting are decided the moment they are made. */
+      decidedAt: now,
     });
 
     return { publicId: target.publicId, lifecycleStatus: next, cancelledOperations };
-  }).then(async (result): Promise<OwnerLifecycleResult> => {
-    /* A submission's first reader is the rules layer; it may publish, send
-       back or hold. An appeal skips it: a machine sent the library back,
-       and the owner asked for a person. */
-    if (result.lifecycleStatus === 'submitted' && input.action !== 'appeal') {
-      const run = await runRulesLayer(input.libraryId);
-      if (run) return { ...result, lifecycleStatus: run.lifecycleStatus, modelReviewOperationId: run.modelReviewOperationId };
-    }
-    return result;
   });
 }
 
@@ -311,16 +269,13 @@ export interface EditLibraryMetadataResult {
   /** Where the library is after the edit; a visibility change may move it. */
   lifecycleStatus: LifecycleStatus;
   /** True when the visibility change put the library into the review queue. */
-  queuedForReview: boolean;
-  /** A queued submission the rules layer held: the model review to run off the request. */
-  modelReviewOperationId?: string | null;
 }
 
 /**
  * Edits title, description, language and visibility. What a visibility
- * change does to the lifecycle is `visibilityTransition`'s decision; a
- * public library that goes private stops waiting on a reviewer, a private
- * one that goes public queues for one. A field that is too long is refused,
+ * change does to the lifecycle is `visibilityTransition`'s decision; going
+ * public needs a rights declaration that permits it, and nothing waits on
+ * a reviewer afterwards (2026-10-23). A field that is too long is refused,
  * never truncated.
  */
 export async function editLibraryMetadata(
@@ -380,18 +335,7 @@ export async function editLibraryMetadata(
       })
       .where(eq(schema.library.id, target.id));
 
-    return {
-      publicId: target.publicId,
-      visibility: edit.visibility,
-      lifecycleStatus: next,
-      queuedForReview: next === 'submitted' && target.lifecycleStatus !== 'submitted',
-    };
-  }).then(async (result): Promise<EditLibraryMetadataResult> => {
-    if (result.queuedForReview) {
-      const run = await runRulesLayer(input.libraryId);
-      if (run) return { ...result, lifecycleStatus: run.lifecycleStatus, modelReviewOperationId: run.modelReviewOperationId };
-    }
-    return result;
+    return { publicId: target.publicId, visibility: edit.visibility, lifecycleStatus: next };
   });
 }
 

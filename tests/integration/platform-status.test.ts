@@ -12,7 +12,7 @@
  * Runs only when TEST_DATABASE_URL points at a disposable database.
  */
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
-import { and, eq, inArray, isNull, sql } from 'drizzle-orm';
+import { and, eq, inArray, sql } from 'drizzle-orm';
 
 const TEST_DATABASE_URL = process.env.TEST_DATABASE_URL;
 const describeWithDb = TEST_DATABASE_URL ? describe : describe.skip;
@@ -22,7 +22,6 @@ process.env.SESSION_SIGNING_SECRET ??= 'test-secret-that-is-long-enough-000000';
 
 const { platformStatus } = await import('@/lib/application/status');
 const { dayKey, shareBps, STATUS_WINDOW_DAYS } = await import('@/lib/domain/status');
-const { REVIEW_STATUSES } = await import('@/lib/application/administration/list-libraries');
 const { db, schema } = await import('@/lib/infrastructure/postgres/client');
 const { uuidv7 } = await import('@/lib/domain/id');
 
@@ -260,32 +259,6 @@ describeWithDb('the public status page', () => {
     expect(stripDay(after, 'indexing', dayKey(daysAgo(38)))).toBe('degraded');
     expect(stripDay(after, 'indexing', dayKey(daysAgo(36)))).toBe('ok');
     expect(stripDay(after, 'indexing', dayKey(daysAgo(37)))).toBeNull();
-  });
-
-  it('measures the review queue the console measures, and no other', async () => {
-    /* A platform library in `submitted` moved nothing: it is not a queue. */
-    expect(withPlatformOnly.review).toEqual(before.review);
-    expect(component(withPlatformOnly, 'review').health).toBe(
-      component(before, 'review').health,
-    );
-
-    expect(after.review.pending).toBe(before.review.pending + 2);
-    expect(after.review.overdue).toBe(before.review.overdue + 1);
-    expect(after.review.oldestWaitingMs).toBeGreaterThanOrEqual(9 * DAY_MS - 60_000);
-
-    /* The same depth the console's queue reports, from the same definition. */
-    const [row] = await db()
-      .select({ n: sql<number>`count(*)::int` })
-      .from(schema.library)
-      .where(
-        and(
-          isNull(schema.library.deletedAt),
-          eq(schema.library.isPlatformLibrary, false),
-          inArray(schema.library.lifecycleStatus, [...REVIEW_STATUSES.pending]),
-        ),
-      );
-    expect(after.review.pending).toBe(row!.n);
-    expect(component(after, 'review').health).toBe('degraded');
   });
 
   it('leaves the refresh schedule alone when nothing is scheduled', async () => {

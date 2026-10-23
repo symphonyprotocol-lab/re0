@@ -2,27 +2,24 @@
 
 import { useRouter } from 'next/navigation';
 import { useActionState, useEffect, useRef, useState } from 'react';
-import { OwnerActionButton, PRIMARY, ResultLine, SECONDARY, type OwnerLifecycleFormAction } from '@/components/dashboard/library-manage';
+import { PRIMARY, ResultLine, SECONDARY } from '@/components/dashboard/library-manage';
 import { EMPTY_RIGHTS, RightsFields, RightsHiddenFields, rightsComplete, type RightsAnswer } from '@/components/dashboard/rights-fields';
 import { PANEL } from '@/components/dashboard/ui';
-import { CheckIcon, CircleXIcon, PlusIcon, SpinnerIcon, TrashIcon } from '@/components/ui/icons';
+import { PlusIcon, SpinnerIcon, TrashIcon } from '@/components/ui/icons';
 import type { MaterialsActionResult } from '@/app/dashboard/libraries/[libraryId]/actions';
 import type { LibraryMaterials, OwnerEvalQuestions, OwnerEvalQuestionView } from '@/lib/application/libraries';
 import type { Visibility } from '@/lib/domain';
 import { EVAL_LIMITS } from '@/lib/domain/benchmark';
-import type { SubmissionBlocker } from '@/lib/domain/library';
 import { useI18n } from '@/lib/i18n/client';
 import { fill } from '@/lib/i18n/format';
 
 /**
- * The owner's submission materials (review-visibility-proposal.md 5): the
- * rights declaration a public review reads first, and the self-check
- * questions it may bring. A public library is not queued until the
- * declaration is in; the panel says what is still missing, and the submit
- * button appears when nothing is. The questions are optional for publishing
- * (2026-10-23) and required of an expert-library application; they are
- * asked at every build so the owner sees how theirs fare, but only the
- * platform's own questions move the Benchmark.
+ * The owner's declaration and question set (review-visibility-proposal.md
+ * 5): the rights declaration a public library carries, and the self-check
+ * questions an expert-library application is judged by. Neither holds a
+ * library back from publishing -- public review before publication ended
+ * on 2026-10-23. The questions are asked at every build so the owner sees
+ * how theirs fare, but only the platform's own questions move the Benchmark.
  */
 
 type MaterialsAction = (previous: MaterialsActionResult | null, form: FormData) => Promise<MaterialsActionResult>;
@@ -39,7 +36,6 @@ export function LibraryMaterialsPanel({
   canEdit,
   materials,
   questions,
-  submit,
   actions,
 }: {
   libraryId: string;
@@ -47,8 +43,6 @@ export function LibraryMaterialsPanel({
   canEdit: boolean;
   materials: LibraryMaterials;
   questions: OwnerEvalQuestions;
-  /** The confirmation that hands the library to review, when the domain rule offers it right now. */
-  submit: { verb: 'submit' | 'resubmit'; publicId: string; action: OwnerLifecycleFormAction } | null;
   actions: MaterialsPanelActions;
 }) {
   const { t } = useI18n();
@@ -65,7 +59,6 @@ export function LibraryMaterialsPanel({
     }
   }, [declared, router]);
 
-  const blockerText = (blocker: SubmissionBlocker) => m.blockers[blocker];
   const showRightsForm = canEdit && (materials.rights === null || editingRights);
 
   return (
@@ -74,30 +67,6 @@ export function LibraryMaterialsPanel({
         <h2 className="text-[15px] font-medium text-ink">{m.title}</h2>
         <p className="text-[11px] leading-[1.6] text-muted">{visibility === 'public' ? m.descriptionPublic : m.descriptionPrivate}</p>
       </div>
-
-      {visibility === 'public' ? (
-        <div className="flex flex-wrap items-start justify-between gap-3 rounded-md border border-line bg-subtle px-3.5 py-3">
-          <ul className="flex min-w-[200px] flex-1 flex-col gap-1.5 text-[12px]">
-            {materials.blockers.length === 0 ? (
-              <li className="flex items-center gap-1.5 text-brandink">
-                <CheckIcon size={14} />
-                {submit ? m.readySubmit : m.ready}
-              </li>
-            ) : (
-              materials.blockers.map((blocker) => (
-                <li key={blocker} className="flex items-start gap-1.5 text-rose">
-                  <CircleXIcon size={14} className="mt-px shrink-0" />
-                  {blockerText(blocker)}
-                </li>
-              ))
-            )}
-          </ul>
-          {/* The confirmation: the owner's act that hands the library to the platform's review. */}
-          {submit && materials.blockers.length === 0 ? (
-            <OwnerActionButton libraryId={libraryId} publicId={submit.publicId} action={submit.action} verb={submit.verb} />
-          ) : null}
-        </div>
-      ) : null}
 
       {/* The rights declaration. */}
       <div className="flex flex-col gap-3 border-t border-line pt-4">

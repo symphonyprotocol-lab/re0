@@ -11,9 +11,10 @@
  * - `indexing`: `workflow_operation` -- builds and refreshes finish as
  *   `succeeded`, `skipped` or `failed`;
  * - `refresh`: the refresh schedule -- a timed source whose due time has
- *   passed by more than a day is a refresh the platform owes;
- * - `review`: the review queue -- a public submission waiting more than a
- *   day is a promise (requirement.md 5.2: 预计时间) not kept.
+ *   passed by more than a day is a refresh the platform owes.
+ *
+ * The review queue was a component until 2026-10-23, when public review
+ * before publication ended; nothing waits on the platform any more.
  *
  * An incident is a run of days on which a component's failure rate crossed
  * its threshold. It is derived every time the page renders and has no prose
@@ -22,9 +23,9 @@
 
 export const STATUS_WINDOW_DAYS = 90;
 
-export type ComponentId = 'retrieval' | 'indexing' | 'refresh' | 'review';
+export type ComponentId = 'retrieval' | 'indexing' | 'refresh';
 
-export const COMPONENT_IDS: readonly ComponentId[] = ['retrieval', 'indexing', 'refresh', 'review'];
+export const COMPONENT_IDS: readonly ComponentId[] = ['retrieval', 'indexing', 'refresh'];
 
 export type Health = 'ok' | 'degraded' | 'unknown';
 
@@ -55,19 +56,11 @@ export interface RefreshFacts {
   nextDueAt: Date | null;
 }
 
-export interface ReviewFacts {
-  pending: number;
-  /** Waiting longer than the grace period. */
-  overdue: number;
-  oldestWaitingMs: number | null;
-}
-
 export interface StatusFacts {
   now: Date;
   api: ApiDay[];
   operations: OperationDay[];
   refresh: RefreshFacts;
-  review: ReviewFacts;
 }
 
 /** A day on a component's 90-day strip. */
@@ -111,7 +104,6 @@ export interface PlatformStatus {
   components: ComponentStatus[];
   incidents: Incident[];
   refresh: RefreshFacts;
-  review: ReviewFacts;
 }
 
 /**
@@ -266,8 +258,8 @@ export function summarizeStatus(facts: StatusFacts): PlatformStatus {
     today: { finished: opsToday?.finished ?? 0, failed: opsToday?.failed ?? 0 },
   };
 
-  /* Refresh and review are states, not logs: the tables hold what is due
-     now, not what was due last month, so they have a health and no strip. */
+  /* Refresh is a state, not a log: the tables hold what is due now, not
+     what was due last month, so it has a health and no strip. */
   const refresh: ComponentStatus = {
     id: 'refresh',
     health:
@@ -276,14 +268,6 @@ export function summarizeStatus(facts: StatusFacts): PlatformStatus {
       facts.refresh.scheduled > 0
         ? 10_000 - shareBps(facts.refresh.overdue, facts.refresh.scheduled)
         : null,
-    strip: [],
-    today: {},
-  };
-
-  const review: ComponentStatus = {
-    id: 'review',
-    health: facts.review.overdue > 0 ? 'degraded' : 'ok',
-    successBps: null,
     strip: [],
     today: {},
   };
@@ -302,9 +286,8 @@ export function summarizeStatus(facts: StatusFacts): PlatformStatus {
   return {
     checkedAt: facts.now,
     windowDays: days.length,
-    components: [retrieval, indexing, refresh, review],
+    components: [retrieval, indexing, refresh],
     incidents,
     refresh: facts.refresh,
-    review: facts.review,
   };
 }

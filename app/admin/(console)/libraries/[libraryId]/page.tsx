@@ -17,11 +17,10 @@ import {
 } from '@/components/admin/ui';
 import { PlatformBenchmarkPanel } from '@/components/admin/platform-benchmark-panel';
 import { ReviewProbe } from '@/components/admin/review-probe';
-import { SampleClose } from '@/components/admin/sample-close';
-import { describeReviewNote } from '@/lib/domain/auto-review';
+import { describeReviewNote } from '@/lib/domain/review';
 import { UserReviewControls } from '@/components/admin/user-library-controls';
 import Link from 'next/link';
-import { ChevronLeftIcon, LockIcon, ShieldCheckIcon } from '@/components/ui/icons';
+import { ChevronLeftIcon, LockIcon } from '@/components/ui/icons';
 import {
   getLibraryBenchmark,
   getUserLibrary,
@@ -30,7 +29,6 @@ import {
   reviewScore,
 } from '@/lib/application/administration';
 import { documentsPage, documentsPageSize, DOCUMENTS_PAGE_SIZES } from '@/lib/application/libraries';
-import { REVIEW_CHECKS } from '@/lib/domain/review';
 import { currentAdminSession, requireAdminCapability } from '@/lib/http/admin';
 import { fill } from '@/lib/i18n/format';
 import { getMessages } from '@/lib/i18n/server';
@@ -38,7 +36,6 @@ import { bytes, initialsOf, utcStamp } from '../../list-params';
 import {
   addReviewEvalQuestionAction,
   adoptReviewEvalQuestionAction,
-  closeSampleAction,
   probeUserLibraryAction,
   removeReviewEvalQuestionAction,
   reviewUserLibraryAction,
@@ -188,22 +185,6 @@ export default async function AdminUserLibraryPage({
         <ConsoleNotice icon={<LockIcon size={18} />} title={visibility} body={l.privateNote} />
       ) : null}
 
-      {/* The owner disputes a machine send-back: a person decides, and the machine's notes are in the log below. */}
-      {record.openAppeal ? (
-        <ConsoleNotice icon={<ShieldCheckIcon size={18} />} title={d.appeal.title} body={d.appeal.body} />
-      ) : null}
-
-      {/* Drawn for a look after the rules layer published it (review-visibility-proposal.md 6.3). */}
-      {record.openSample ? (
-        <Panel className="flex flex-col gap-3 px-[19px] py-4">
-          <div className="flex flex-col gap-1">
-            <p className="text-[13px] font-semibold tracking-[-0.023em] text-ink">{d.sample.title}</p>
-            <p className="text-[12px] leading-[1.55] tracking-[-0.023em] text-muted">{d.sample.body}</p>
-          </div>
-          <SampleClose libraryId={record.id} action={closeSampleAction} />
-        </Panel>
-      ) : null}
-
       <Panel className="overflow-hidden">
         <PanelHead title={d.basics.title} description={d.basics.description} />
         <dl className="grid grid-cols-1 gap-x-6 px-[19px] py-1.5 sm:grid-cols-2">
@@ -250,7 +231,7 @@ export default async function AdminUserLibraryPage({
 
       {reviewing ? (
         <>
-          {/* 7.4 item 1 starts here: what the owner declared, and what they brought to check the library by. */}
+          {/* What the owner declared, and the question set the expert gate judges (review-visibility-proposal.md 5). */}
           <Panel>
             <PanelHead title={d.materials.title} description={d.materials.description} />
             <dl className="grid grid-cols-1 gap-x-6 px-[19px] py-1 sm:grid-cols-2">
@@ -278,22 +259,6 @@ export default async function AdminUserLibraryPage({
               <Fact
                 label={d.materials.questions}
                 value={fill(d.materials.questionsValue, { total: record.materials.questions, owner: record.materials.ownerQuestions })}
-              />
-              <Fact
-                label={d.materials.readiness}
-                value={
-                  record.materials.ready ? (
-                    <Pill tone="ok">{d.materials.ready}</Pill>
-                  ) : (
-                    <span className="flex flex-wrap gap-1">
-                      {record.materials.blockers.map((blocker) => (
-                        <Pill key={blocker} tone="warn">
-                          {d.materials.blockers[blocker]}
-                        </Pill>
-                      ))}
-                    </span>
-                  )
-                }
               />
             </dl>
           </Panel>
@@ -494,27 +459,7 @@ export default async function AdminUserLibraryPage({
                   </td>
                   <td className={TD}>{review.reviewerEmail ?? d.basics.none}</td>
                   <td className={TD}>
-                    <span className="flex flex-col gap-1">
-                      <span>{review.feedback.map((line) => describeReviewNote(line, t.dashboard.libraries.rulesReasons)).join(' ') || d.basics.none}</span>
-                      {review.checklist ? (
-                        <span className="flex flex-wrap gap-1">
-                          {REVIEW_CHECKS.map((check) => (
-                            <Pill
-                              key={check}
-                              tone={
-                                review.checklist?.[check].verdict === 'pass'
-                                  ? 'ok'
-                                  : review.checklist?.[check].verdict === 'fail'
-                                    ? 'danger'
-                                    : 'warn'
-                              }
-                            >
-                              {t.admin.libraries.dialogs.checklist.items[check]}
-                            </Pill>
-                          ))}
-                        </span>
-                      ) : null}
-                    </span>
+                    {review.feedback.map((line) => describeReviewNote(line, t.dashboard.libraries.rulesReasons)).join(' ') || d.basics.none}
                   </td>
                 </tr>
               ))}

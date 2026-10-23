@@ -6,9 +6,12 @@ import {
   decideExpertApplication,
   expertSampleProbe,
   revokeExpertTag,
+  updateExpertThresholds,
   type ExpertSample,
 } from '@/lib/application/expert-libraries';
+import { AdminChangeRefused } from '@/lib/domain/admin';
 import { ExpertLibraryRefused, type ExpertLibraryError } from '@/lib/domain/expert-library';
+import { EXPERT_THRESHOLD_KEYS, ExpertThresholdsRefused, type ExpertThresholdKey } from '@/lib/domain/expert-thresholds';
 import { requireAdminCapability } from '@/lib/http/admin';
 import { clientAddress } from '@/lib/http/client-address';
 
@@ -119,5 +122,39 @@ export async function revokeExpertAction(
     return { ok: true, voidedEvents };
   } catch (error) {
     return refused(error, 'expert revoke');
+  }
+}
+
+/* ---------------------------------------------------------- thresholds */
+
+export type ExpertThresholdsError = 'out_of_range' | 'reason_required' | 'unavailable';
+
+export interface ExpertThresholdsActionResult {
+  ok: boolean;
+  error?: ExpertThresholdsError;
+  /** Which threshold was refused, for the error that names one. */
+  field?: ExpertThresholdKey;
+}
+
+/** Save the expert gate's thresholds (lib/domain/expert-thresholds.ts); every save is an immutable row with a reason. */
+export async function updateExpertThresholdsAction(
+  _previous: ExpertThresholdsActionResult | null,
+  form: FormData,
+): Promise<ExpertThresholdsActionResult> {
+  const session = await requireAdminCapability('expertLibraries');
+  try {
+    const values: Partial<Record<ExpertThresholdKey, number>> = {};
+    for (const key of EXPERT_THRESHOLD_KEYS) {
+      const raw = text(form, key).trim();
+      if (raw !== '') values[key] = Number(raw);
+    }
+    await updateExpertThresholds({ actor: await actor(session), values, reason: text(form, 'reason') });
+    revalidatePath('/admin/expert-libraries/thresholds');
+    return { ok: true };
+  } catch (error) {
+    if (error instanceof ExpertThresholdsRefused) return { ok: false, error: error.code, field: error.field };
+    if (error instanceof AdminChangeRefused && error.code === 'reason_required') return { ok: false, error: 'reason_required' };
+    console.error(`expert thresholds update failed: ${error instanceof Error ? error.message : 'unknown'}`);
+    return { ok: false, error: 'unavailable' };
   }
 }

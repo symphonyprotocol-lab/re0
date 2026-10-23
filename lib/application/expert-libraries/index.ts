@@ -40,3 +40,12 @@ export {
   type RevokeExpertTagInput,
   type RevokeExpertTagResult,
 } from './admin';
+export {
+  activeExpertThresholds,
+  readExpertThresholdsConfiguration,
+  updateExpertThresholds,
+  type ActiveExpertThresholds,
+  type ExpertThresholdsConfiguration,
+  type ExpertThresholdsRow,
+  type UpdateExpertThresholdsInput,
+} from './thresholds';

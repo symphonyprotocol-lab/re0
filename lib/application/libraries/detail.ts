@@ -3,7 +3,7 @@
  *
  * The list answers "which libraries do I have"; this answers the questions
  * the list cannot: is it ready to query, what is the current version, what
- * is queued or failed, and what did the reviewer say. Read-only, like the
+ * is queued or failed, and what the platform said about it. Read-only, like the
  * list -- the verbs live in their own modules (`rebuild.ts`, `files.ts`,
  * `delete.ts`). A library this workspace does not own is null, the same as
  * one that does not exist (architecture.md 5.2).
@@ -12,7 +12,6 @@ import { and, desc, eq, inArray, isNull, sql } from 'drizzle-orm';
 import { isQueryable, type IndexStatus, type LifecycleStatus, type Visibility } from '@/lib/domain';
 import { ref } from '@/lib/application/administration/column-ref';
 import {
-  appealableDecision,
   isOwnerPause,
   isRefreshPolicy,
   isUploadSourceType,
@@ -23,7 +22,6 @@ import {
 } from '@/lib/domain/library';
 import { BUILD_ENTRYPOINT } from '@/lib/domain/build-billing';
 import type { BuildProgress, IngestionStage } from '@/lib/domain/ingestion';
-import { readReviewChecklist, type ReviewChecklist } from '@/lib/domain/review';
 import { db, schema } from '@/lib/infrastructure/postgres/client';
 import { libraryMaterials, type LibraryMaterials } from './materials';
 
@@ -58,14 +56,12 @@ export interface WorkspaceLibraryDetail {
     /** The stored cadence; null when the source has none or it is unreadable. */
     refreshPolicy: RefreshPolicy | null;
   } | null;
-  /** The current version is indexed; a resubmission needs one. */
+  /** The current version is indexed. */
   hasReadyVersion: boolean;
   /** True when the library is suspended by its owner's own pause. */
   pausedByOwner: boolean;
-  /** The rights declaration and the question set, and what a public submission still lacks (lib/domain/library.ts). */
+  /** The rights declaration and the question set (lib/application/libraries/materials.ts). */
   materials: LibraryMaterials;
-  /** The machine send-back the owner may appeal, when the newest decision is one (`appealableDecision`). */
-  appealableDecision: string | null;
   versions: {
     id: string;
     label: string;
@@ -87,15 +83,12 @@ export interface WorkspaceLibraryDetail {
     createdAt: string;
     updatedAt: string;
   }[];
+  /** The owner's pauses and the platform's suspensions, newest first; older rows from the review era read too. */
   reviews: {
     id: string;
     stage: string;
     outcome: string | null;
-    /** The machine decision this row appeals, on an `appeal` row. */
-    appealOf: string | null;
     feedback: string[];
-    /** The reviewer's 7.4 checklist (lib/domain/review.ts); null on older rows and safety pauses. */
-    checklist: ReviewChecklist | null;
     decidedAt: string | null;
   }[];
 }
@@ -262,7 +255,6 @@ export async function workspaceLibraryDetail(input: {
     hasReadyVersion: current?.indexStatus === 'ready',
     pausedByOwner: record.lifecycleStatus === 'suspended' && isOwnerPause(reviews[0]),
     materials: await libraryMaterials(database, record.id),
-    appealableDecision: appealableDecision(reviews),
     versions: versions.map((version) => ({
       id: version.id,
       label: version.label,
@@ -280,8 +272,10 @@ export async function workspaceLibraryDetail(input: {
       updatedAt: operation.updatedAt.toISOString(),
     })),
     reviews: reviews.map((review) => ({
-      ...review,
-      checklist: readReviewChecklist(review.checklist),
+      id: review.id,
+      stage: review.stage,
+      outcome: review.outcome,
+      feedback: review.feedback,
       decidedAt: iso(review.decidedAt),
     })),
   };

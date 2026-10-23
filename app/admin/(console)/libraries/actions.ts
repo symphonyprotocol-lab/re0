@@ -2,12 +2,9 @@
 
 import { headers } from 'next/headers';
 import { revalidatePath } from 'next/cache';
-import { updateReviewRules } from '@/lib/application/review';
-import { REVIEW_RULE_KEYS, ReviewRulesRefused, type ReviewRuleKey } from '@/lib/domain/auto-review';
 import {
   addEvalQuestion,
   adoptEvalQuestion,
-  closeReviewSample,
   probeReviewLibrary,
   removeEvalQuestion,
   reviewable,
@@ -17,14 +14,14 @@ import {
 } from '@/lib/application/administration';
 import { AdminChangeRefused } from '@/lib/domain/admin';
 import { isUserReviewAction, PlatformLibraryRefused } from '@/lib/domain/library';
-import { REVIEW_CHECKS } from '@/lib/domain/review';
 import { requireAdminCapability } from '@/lib/http/admin';
 import { clientAddress } from '@/lib/http/client-address';
 import type { PlatformLibraryActionResult } from '../platform-libraries/actions';
 
 /**
- * The mutations behind the user-library screens: a review decision, and the
- * reviewer's instruments -- a probe question and the library's test set.
+ * The mutations behind the user-library screens: a suspension or its
+ * lifting, and the console's instruments -- a probe question and the
+ * library's test set.
  *
  * Each re-resolves the session and re-checks the `libraries` capability like
  * every console action -- a server action is a public endpoint with a
@@ -51,11 +48,7 @@ function refused(error: unknown, context: string): PlatformLibraryActionResult {
 
 const text = (form: FormData, field: string) => String(form.get(field) ?? '');
 
-/**
- * A review decision. A public library's form carries the 7.4 checklist as
- * `check.<id>` and `note.<id>` fields (lib/domain/review.ts); the use case
- * decides whether one is required and whether it agrees with the verb.
- */
+/** Suspend a live user library or restore a suspended one, with a reason the owner reads. */
 export async function reviewUserLibraryAction(
   _previous: PlatformLibraryActionResult | null,
   form: FormData,
@@ -64,72 +57,14 @@ export async function reviewUserLibraryAction(
   const libraryId = text(form, 'libraryId');
   const action = text(form, 'action');
   if (!isUserReviewAction(action)) return { ok: false, error: 'invalid_transition' };
-  const hasChecklist = REVIEW_CHECKS.some((check) => form.has(`check.${check}`));
 
   try {
-    await reviewUserLibrary({
-      actor: await actor(session),
-      libraryId,
-      action,
-      reason: text(form, 'reason'),
-      ...(hasChecklist ? { checklist: form } : {}),
-    });
+    await reviewUserLibrary({ actor: await actor(session), libraryId, action, reason: text(form, 'reason') });
     revalidatePath('/admin/libraries');
     revalidatePath(`/admin/libraries/${libraryId}`);
     return { ok: true };
   } catch (error) {
     return refused(error, 'review library');
-  }
-}
-
-/** Close an open sample on an auto-published library: a person looked and found nothing wrong. */
-export async function closeSampleAction(
-  _previous: PlatformLibraryActionResult | null,
-  form: FormData,
-): Promise<PlatformLibraryActionResult> {
-  const session = await requireAdminCapability('libraries');
-  const libraryId = text(form, 'libraryId');
-  try {
-    await closeReviewSample({ actor: await actor(session), libraryId, reason: text(form, 'reason') });
-    revalidatePath('/admin/libraries');
-    revalidatePath(`/admin/libraries/${libraryId}`);
-    return { ok: true, libraryId };
-  } catch (error) {
-    return refused(error, 'close sample');
-  }
-}
-
-/* --------------------------------------------------------------- rules */
-
-export type ReviewRulesError = 'out_of_range' | 'reason_required' | 'unavailable';
-
-export interface ReviewRulesActionResult {
-  ok: boolean;
-  error?: ReviewRulesError;
-  /** Which threshold was refused, for the error that names one. */
-  field?: ReviewRuleKey;
-}
-
-/** Save the rules layer's thresholds (lib/domain/auto-review.ts); every save is an immutable row with a reason. */
-export async function updateReviewRulesAction(
-  _previous: ReviewRulesActionResult | null,
-  form: FormData,
-): Promise<ReviewRulesActionResult> {
-  const session = await requireAdminCapability('libraries');
-  try {
-    const values: Partial<Record<ReviewRuleKey, number>> = {};
-    for (const key of REVIEW_RULE_KEYS) {
-      const raw = text(form, key).trim();
-      if (raw !== '') values[key] = Number(raw);
-    }
-    await updateReviewRules({ actor: await actor(session), values, reason: text(form, 'reason') });
-    revalidatePath('/admin/libraries/rules');
-    return { ok: true };
-  } catch (error) {
-    if (error instanceof ReviewRulesRefused) return { ok: false, error: error.code, field: error.field };
-    if (error instanceof AdminChangeRefused && error.code === 'reason_required') return { ok: false, error: 'reason_required' };
-    console.error(`review rules update failed: ${error instanceof Error ? error.message : 'unknown'}`);
-    return { ok: false, error: 'unavailable' };
   }
 }
 

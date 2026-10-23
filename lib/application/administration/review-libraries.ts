@@ -1,18 +1,17 @@
 /**
- * The reviewer's side of a user library. requirement.md 5.3 and 7.4.
+ * The platform's side of a user library. requirement.md 5.3 and 7.4.
  *
- * A public user library reaches `submitted` when its first version is built
- * (`advanceLifecycleAfterBuild`), and from there a reviewer approves it,
- * asks for changes, or rejects it. A private library is never reviewed; the
- * same verbs read as a safety pause and its lifting, and the domain rule
- * (`reviewActionAvailable`) is what keeps a reviewer from sending a private
- * library back for "changes" nobody asked for.
+ * Since 2026-10-23 a user library publishes when its build lands, under
+ * either visibility; what the console keeps is the compliance hand over
+ * content that is live: a suspension (`reject`) and its lifting
+ * (`approve`), each with a reason, decided by the domain rule
+ * (`reviewActionAvailable`).
  *
  * Every decision writes two rows: a `library_review` entry, which is the
- * feedback the owner sees on their dashboard, and an audit entry, which is
- * the record requirement.md 7.4 demands of every review action. The
- * lifecycle update is guarded on the status it was read at, so two reviewers
- * deciding the same library at once cannot both succeed.
+ * note the owner reads on their dashboard, and an audit entry, which is
+ * the record requirement.md 7.4 demands of every such action. The
+ * lifecycle update is guarded on the status it was read at, so two
+ * administrators deciding the same library at once cannot both succeed.
  */
 import { and, desc, eq, sql } from 'drizzle-orm';
 import { normalizeReason } from '@/lib/domain/admin';
@@ -24,16 +23,8 @@ import {
   reviewTarget,
   type UserReviewAction,
 } from '@/lib/domain/library';
-import {
-  checklistAllows,
-  checklistRequired,
-  parseReviewChecklist,
-  readReviewChecklist,
-  type ReviewChecklist,
-} from '@/lib/domain/review';
 import { db, schema } from '@/lib/infrastructure/postgres/client';
 import { libraryMaterials, type LibraryMaterials } from '@/lib/application/libraries/materials';
-import { SAMPLE_REVIEW_STAGE } from '@/lib/application/review/stages';
 import { recordAudit } from './audit';
 import { ref } from './column-ref';
 import type { PlatformActor } from './manage-platform-libraries';
@@ -46,12 +37,10 @@ export const MANUAL_REVIEW_STAGE = 'manual';
 
 export interface UserLibraryReviewView {
   id: string;
-  /** `manual`, the owner's `owner`, the rules layer's `rules`, or a `sample` it drew. */
+  /** `manual`, the owner's `owner`; older rows carry the review era's `rules`, `model` and `sample`. */
   stage: string;
   outcome: string | null;
   feedback: string[];
-  /** The 7.4 checklist behind the decision; null on a safety pause or an older row. */
-  checklist: ReviewChecklist | null;
   reviewerEmail: string | null;
   decidedAt: Date | null;
   createdAt: Date;
@@ -87,11 +76,7 @@ export interface UserLibraryDetail {
     isCurrent: boolean;
   }[];
   reviews: UserLibraryReviewView[];
-  /** An auto-published library drawn for a person's look, not yet closed (lib/application/review/rules.ts). */
-  openSample: boolean;
-  /** The owner appealed a machine send-back and a person has not answered yet. */
-  openAppeal: boolean;
-  /** The owner's submission materials (review-visibility-proposal.md 5): the declaration and the question set. */
+  /** The owner's declaration and question set (review-visibility-proposal.md 5). */
   materials: LibraryMaterials;
   operations: {
     id: string;
@@ -168,7 +153,6 @@ export async function getUserLibrary(libraryId: string): Promise<UserLibraryDeta
         stage: schema.libraryReview.stage,
         outcome: schema.libraryReview.outcome,
         feedback: schema.libraryReview.feedback,
-        checklist: schema.libraryReview.checklist,
         decidedAt: schema.libraryReview.decidedAt,
         createdAt: schema.libraryReview.createdAt,
         reviewerEmail: sql<string | null>`(
@@ -244,54 +228,13 @@ export async function getUserLibrary(libraryId: string): Promise<UserLibraryDeta
       stage: review.stage,
       outcome: review.outcome,
       feedback: review.feedback,
-      checklist: readReviewChecklist(review.checklist),
       reviewerEmail: review.reviewerEmail,
       decidedAt: review.decidedAt,
       createdAt: review.createdAt,
     })),
-    openSample: reviews.some((review) => review.stage === SAMPLE_REVIEW_STAGE && review.decidedAt === null),
-    openAppeal: reviews[0]?.stage === 'owner' && reviews[0].outcome === 'appeal' && reviews[0].decidedAt === null,
     materials: await libraryMaterials(database, record.id),
     operations,
   };
-}
-
-/**
- * A reviewer's look at an auto-published library that was drawn for one
- * (review-visibility-proposal.md 6.3): nothing was wrong, the sample is
- * closed. Anything wrong goes through `reviewUserLibrary` instead, whose
- * decision closes the sample too.
- */
-export async function closeReviewSample(input: {
-  actor: PlatformActor;
-  libraryId: string;
-  reason: string;
-}): Promise<void> {
-  const reason = normalizeReason(input.reason);
-  if (!isUuid(input.libraryId)) throw new PlatformLibraryRefused('not_found', 'no such library');
-  const now = new Date();
-  const closed = await db()
-    .update(schema.libraryReview)
-    .set({ outcome: 'approve', feedback: [reason], reviewerId: input.actor.administratorId, decidedAt: now })
-    .where(
-      and(
-        eq(schema.libraryReview.libraryId, input.libraryId),
-        eq(schema.libraryReview.stage, SAMPLE_REVIEW_STAGE),
-        sql`${schema.libraryReview.decidedAt} is null`,
-      ),
-    )
-    .returning({ id: schema.libraryReview.id });
-  if (closed.length === 0) throw new PlatformLibraryRefused('invalid_transition', 'no open sample on this library');
-
-  await recordAudit({
-    administratorId: input.actor.administratorId,
-    action: 'user_library.sample_ok',
-    targetType: AUDIT_TARGET,
-    targetId: input.libraryId,
-    reason,
-    clientAddress: input.actor.clientAddress ?? null,
-    result: 'success',
-  });
 }
 
 export interface ReviewResult {
@@ -300,22 +243,17 @@ export interface ReviewResult {
 }
 
 /**
- * One review decision. The reason is required -- it is what the owner reads
- * on their dashboard and what the audit log keeps -- and approval needs an
- * indexed current version, for the same reason platform publication does:
- * the console must never produce a published library with an empty index.
- *
- * A public library's decision also carries requirement.md 7.4's checklist
- * (lib/domain/review.ts): five verdicts that have to agree with the verb.
- * A private library's pause and its lifting take a reason alone.
+ * One decision: suspend a live library or restore a suspended one. The
+ * reason is required -- it is what the owner reads on their dashboard and
+ * what the audit log keeps -- and a restoration needs an indexed current
+ * version, for the same reason platform publication does: the console must
+ * never produce a published library with an empty index.
  */
 export async function reviewUserLibrary(input: {
   actor: PlatformActor;
   libraryId: string;
   action: UserReviewAction;
   reason: string;
-  /** The checklist as the form posted it, or as an object; absent on a private library. */
-  checklist?: unknown;
 }): Promise<ReviewResult> {
   const reason = normalizeReason(input.reason);
   if (!isUuid(input.libraryId)) throw new PlatformLibraryRefused('not_found', 'no such library');
@@ -344,15 +282,6 @@ export async function reviewUserLibrary(input: {
       target.lifecycleStatus === 'archived' ? 'archived' : 'invalid_transition',
       `cannot ${input.action} a ${target.visibility} ${target.lifecycleStatus} library`,
     );
-  }
-
-  let checklist: ReviewChecklist | null = null;
-  if (checklistRequired(target.visibility)) {
-    checklist = input.checklist === undefined ? null : parseReviewChecklist(input.checklist);
-    if (!checklist) throw new PlatformLibraryRefused('checklist_required', 'a public review records the checklist');
-    if (!checklistAllows(input.action, checklist)) {
-      throw new PlatformLibraryRefused('checklist_mismatch', `the checklist does not support ${input.action}`);
-    }
   }
 
   if (input.action === 'approve') {
@@ -398,22 +327,11 @@ export async function reviewUserLibrary(input: {
       stage: MANUAL_REVIEW_STAGE,
       outcome: input.action,
       feedback: [reason],
-      checklist,
+      checklist: null,
       reviewerId: input.actor.administratorId ?? null,
       createdAt: now,
       decidedAt: now,
     });
-    /* A decision on a sampled library answers the sample as well. */
-    await tx
-      .update(schema.libraryReview)
-      .set({ outcome: input.action, reviewerId: input.actor.administratorId ?? null, decidedAt: now })
-      .where(
-        and(
-          eq(schema.libraryReview.libraryId, target.id),
-          eq(schema.libraryReview.stage, SAMPLE_REVIEW_STAGE),
-          sql`${schema.libraryReview.decidedAt} is null`,
-        ),
-      );
   });
 
   await recordAudit({
@@ -423,13 +341,7 @@ export async function reviewUserLibrary(input: {
     targetId: target.id,
     reason,
     beforeValue: { publicId: target.publicId, lifecycleStatus: target.lifecycleStatus },
-    afterValue: {
-      publicId: target.publicId,
-      lifecycleStatus: next,
-      ...(checklist
-        ? { checklist: Object.fromEntries(Object.entries(checklist).map(([check, item]) => [check, item.verdict])) }
-        : {}),
-    },
+    afterValue: { publicId: target.publicId, lifecycleStatus: next },
     clientAddress: input.actor.clientAddress ?? null,
     result: 'success',
   });

@@ -24,7 +24,6 @@ const quiet: StatusFacts = {
   api: [],
   operations: [],
   refresh: { scheduled: 0, overdue: 0, open: 0, nextDueAt: null },
-  review: { pending: 0, overdue: 0, oldestWaitingMs: null },
 };
 
 const component = (id: string, facts: StatusFacts) =>
@@ -41,12 +40,7 @@ describe('window', () => {
 describe('a platform with no rows', () => {
   it('knows nothing rather than claiming health', () => {
     const status = summarizeStatus(quiet);
-    expect(status.components.map((entry) => entry.health)).toEqual([
-      'unknown',
-      'unknown',
-      'unknown',
-      'ok',
-    ]);
+    expect(status.components.map((entry) => entry.health)).toEqual(['unknown', 'unknown', 'unknown']);
     expect(status.components[0]!.successBps).toBeNull();
     expect(status.components[0]!.strip.every((day) => day.health === null)).toBe(true);
     expect(status.incidents).toEqual([]);
@@ -109,7 +103,7 @@ describe('indexing', () => {
   });
 });
 
-describe('refresh and review', () => {
+describe('refresh', () => {
   it('an overdue timed source degrades refresh; nothing scheduled is unknown', () => {
     expect(
       component('refresh', {
@@ -124,21 +118,6 @@ describe('refresh and review', () => {
       }).health,
     ).toBe('ok');
     expect(component('refresh', quiet).health).toBe('unknown');
-  });
-
-  it('a review waiting past the grace period degrades the queue', () => {
-    expect(
-      component('review', {
-        ...quiet,
-        review: { pending: 3, overdue: 1, oldestWaitingMs: 90_000_000 },
-      }).health,
-    ).toBe('degraded');
-    expect(
-      component('review', {
-        ...quiet,
-        review: { pending: 3, overdue: 0, oldestWaitingMs: 1_000 },
-      }).health,
-    ).toBe('ok');
   });
 });
 

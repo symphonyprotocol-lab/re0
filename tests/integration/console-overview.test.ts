@@ -9,7 +9,7 @@
  * a reading taken before the fixture and one taken after.
  */
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
-import { eq, inArray, sql } from 'drizzle-orm';
+import { eq, inArray } from 'drizzle-orm';
 
 const TEST_DATABASE_URL = process.env.TEST_DATABASE_URL;
 const describeWithDb = TEST_DATABASE_URL ? describe : describe.skip;
@@ -19,9 +19,6 @@ process.env.SESSION_SIGNING_SECRET ??= 'test-secret-that-is-long-enough-000000';
 
 const { consoleOverview, healthNeedsAttention } = await import(
   '@/lib/application/administration/overview'
-);
-const { pendingReviewQueue, waitingSince } = await import(
-  '@/lib/application/administration/list-libraries'
 );
 const { recordAudit } = await import('@/lib/application/administration/audit');
 const { ADMIN_CAPABILITIES } = await import('@/lib/domain/admin');
@@ -221,36 +218,9 @@ describeWithDb('the operations overview', () => {
     expect(dayKey(after.growth![29]!.day)).toBe(dayKey(now));
   });
 
-  it('counts live libraries and lists the ones waiting for review', () => {
+  it('counts libraries in this window and the one before it', () => {
     expect(after.libraries!.total - before.libraries!.total).toBe(3);
     expect(after.libraries!.inWindow - before.libraries!.inWindow).toBe(2);
-    expect(after.health.review.pending - before.health.review.pending).toBe(2);
-    expect(after.health.review.overdue - before.health.review.overdue).toBe(1);
-  });
-
-  it('lists the queue longest wait first, measured from the build that submitted it', async () => {
-    /*
-     * Against a database that may hold other pending libraries, the queue is
-     * read wide enough to be sure both fixtures are in it; what is asserted
-     * is their order, and that the year-old, freshly rebuilt library waits
-     * three hours rather than a year or five minutes.
-     */
-    const queue = await pendingReviewQueue({ limit: 1000 });
-    const ids = queue.map((row) => row.id);
-    expect(ids.indexOf(libraryIds[1]!)).toBeGreaterThanOrEqual(0);
-    expect(ids.indexOf(libraryIds[1]!)).toBeLessThan(ids.indexOf(libraryIds[0]!));
-
-    const oldest = after.health.review.oldestWaitingMs!;
-    expect(oldest).toBeGreaterThanOrEqual(2 * DAY_MS - 1000);
-    expect(oldest).toBeLessThanOrEqual(Math.max(2 * DAY_MS + 1000, before.health.review.oldestWaitingMs ?? 0));
-
-    /* The rebuilt library alone: three hours, from a session that sees only it. */
-    const [rebuilt] = await database()
-      .select({ waitedMs: sql<number>`extract(epoch from (${now} - ${waitingSince})) * 1000` })
-      .from(schema.library)
-      .where(eq(schema.library.id, libraryIds[0]!));
-    expect(Number(rebuilt!.waitedMs)).toBeGreaterThanOrEqual(3 * HOUR_MS - 1000);
-    expect(Number(rebuilt!.waitedMs)).toBeLessThan(4 * HOUR_MS);
   });
 
   it('reads service health from the request log and the operation queue', () => {
@@ -277,9 +247,7 @@ describeWithDb('the operations overview', () => {
     expect(support.conversionBps).toBeNull();
     expect(support.growth!.every((point) => point.paid === 0)).toBe(true);
     expect(support.libraries).toBeNull();
-    expect(support.pendingQueue).toBeNull();
     expect(support.revenue).toBeNull();
     expect(support.activity).toBeNull();
-    expect(support.health.review.pending).toBeGreaterThanOrEqual(2);
   });
 });

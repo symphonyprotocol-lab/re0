@@ -508,7 +508,7 @@ export function ImportWizard({
         indexStatus: 'pending',
         building: !awaitingFiles,
       })
-    : REVIEW_PIPELINE_STEPS.filter((step) => (step === 'review' || step === 'materials' ? visibility === 'public' : true)).map(
+    : REVIEW_PIPELINE_STEPS.map(
         (step) => ({
           step,
           state:

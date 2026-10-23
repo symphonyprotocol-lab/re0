@@ -31,7 +31,7 @@ const {
   withdrawExpertApplication,
 } = await import('@/lib/application/expert-libraries');
 const { ExpertLibraryRefused } = await import('@/lib/domain/expert-library');
-const { DEFAULT_REVIEW_RULES } = await import('@/lib/domain/auto-review');
+const { DEFAULT_EXPERT_THRESHOLDS } = await import('@/lib/domain/expert-thresholds');
 const { revenuePeriodId } = await import('@/lib/domain');
 const { EMBEDDING_COLUMN_DIMENSIONS } = await import('@/lib/infrastructure/ai/providers');
 const { db, schema } = await import('@/lib/infrastructure/postgres/client');
@@ -120,10 +120,10 @@ function checklist(fail?: string): Record<string, string> {
 /**
  * The fixtures carry no question set, so the evaluation gate
  * (review-visibility-proposal.md 5.3) is waived for these tests: a saved
- * rules row with a zero question floor, which is the platform's own switch.
+ * thresholds row with a zero question floor, which is the platform's own switch.
  */
 async function waiveEvalGate(): Promise<void> {
-  await db().insert(schema.reviewConfig).values({ id: uuidv7(), ...DEFAULT_REVIEW_RULES, expertMinQuestions: 0 });
+  await db().insert(schema.reviewConfig).values({ id: uuidv7(), ...DEFAULT_EXPERT_THRESHOLDS, expertMinQuestions: 0 });
 }
 
 async function subscribed(workspaceId: string, planId: 'pro' | 'free' = 'pro'): Promise<string> {

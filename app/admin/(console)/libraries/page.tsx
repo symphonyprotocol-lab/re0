@@ -29,7 +29,7 @@ export async function generateMetadata(): Promise<Metadata> {
   return { title: (await getMessages()).admin.libraries.title };
 }
 
-const REVIEWS: LibraryReviewFilter[] = ['all', 'pending', 'approved', 'rejected', 'sample'];
+const REVIEWS: LibraryReviewFilter[] = ['all', 'approved', 'rejected'];
 
 /** How the lifecycle enum reads on screen. requirement.md 5.3, 6.1. */
 const LIFECYCLE_TONE: Record<string, 'warn' | 'ok' | 'danger' | 'neutral'> = {
@@ -43,13 +43,13 @@ const LIFECYCLE_TONE: Record<string, 'warn' | 'ok' | 'danger' | 'neutral'> = {
 };
 
 /**
- * User libraries and the public review queue -- design source frame `zcHnx`.
+ * User libraries -- design source frame `zcHnx`.
  *
- * Reads the real `library` table. Each row carries the reviewer's verbs that
- * apply to its state (`UserReviewControls`): a public library that has built
- * its first version waits here as `submitted`; a private one is never
- * reviewed and only offers a safety pause. The detail page behind the eye
- * shows sources, versions and the review history.
+ * Reads the real `library` table. Each row carries the platform's verbs
+ * that apply to its state (`UserReviewControls`): a live library offers a
+ * suspension, a suspended one its lifting; nothing waits for review since
+ * 2026-10-23. The detail page behind the eye shows sources, versions and
+ * the history of pauses and suspensions.
  */
 export default async function AdminLibrariesPage({
   searchParams,
@@ -83,10 +83,8 @@ export default async function AdminLibrariesPage({
         activeId={review}
         tabs={[
           { id: 'all', label: l.tabs.all, count: counts.all, href: href('all') },
-          { id: 'pending', label: l.tabs.pending, count: counts.pending, href: href('pending') },
           { id: 'approved', label: l.tabs.approved, count: counts.approved, href: href('approved') },
           { id: 'rejected', label: l.tabs.rejected, count: counts.rejected, href: href('rejected') },
-          { id: 'sample', label: l.tabs.sample, count: counts.sample, href: href('sample') },
           { id: 'claims', label: l.tabs.claims, count: counts.claims, href: '/admin/claims' },
         ]}
       />
@@ -100,7 +98,6 @@ export default async function AdminLibrariesPage({
               value={review}
               options={[
                 { id: 'all', label: f.all },
-                { id: 'pending', label: f.reviewPending },
                 { id: 'approved', label: f.reviewApproved },
                 { id: 'rejected', label: f.reviewRejected },
               ]}

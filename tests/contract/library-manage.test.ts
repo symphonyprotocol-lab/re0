@@ -43,7 +43,6 @@ const OWNED = {
   lifecycleStatus: 'published' as LifecycleStatus,
   visibility: 'public' as const,
   pausedByOwner: false,
-  hasReadyVersion: true,
 };
 
 describe('ownerActionAvailable', () => {
@@ -63,27 +62,15 @@ describe('ownerActionAvailable', () => {
     expect(ownerActionAvailable({ ...OWNED, pausedByOwner: true }, 'resume')).toBe(false);
   });
 
-  it('resubmits a public library that was sent back and has an index', () => {
-    const returned = { ...OWNED, lifecycleStatus: 'changes_requested' as LifecycleStatus };
-    expect(ownerActionAvailable(returned, 'resubmit')).toBe(true);
-    /* No index means nothing for a reviewer to look at. */
-    expect(ownerActionAvailable({ ...returned, hasReadyVersion: false }, 'resubmit')).toBe(false);
-    /* A private library is never reviewed by a person. */
-    expect(ownerActionAvailable({ ...returned, visibility: 'private' }, 'resubmit')).toBe(false);
-    expect(ownerActionAvailable(OWNED, 'resubmit')).toBe(false);
-  });
-
   it('offers nothing over an archived library', () => {
     const archived = { ...OWNED, lifecycleStatus: 'archived' as LifecycleStatus, pausedByOwner: true };
     expect(ownerActionAvailable(archived, 'pause')).toBe(false);
     expect(ownerActionAvailable(archived, 'resume')).toBe(false);
-    expect(ownerActionAvailable(archived, 'resubmit')).toBe(false);
   });
 
   it('lands each verb where it says', () => {
     expect(ownerActionTarget('pause')).toBe('suspended');
     expect(ownerActionTarget('resume')).toBe('published');
-    expect(ownerActionTarget('resubmit')).toBe('submitted');
   });
 });
 
@@ -102,20 +89,20 @@ describe('visibilityTransition', () => {
     hasReadyVersion,
   });
 
-  it('takes a public library out of the queue when it goes private', () => {
-    /* Waiting on a person, with an index: nothing is left to wait for. */
+  it('settles a review-era state by the index when the visibility changes', () => {
+    /* Left waiting by the review era, with an index: live now, under either visibility. */
     expect(visibilityTransition({ from: 'public', to: 'private', ...at('submitted') })).toBe('published');
     expect(visibilityTransition({ from: 'public', to: 'private', ...at('reviewing') })).toBe('published');
     /* Sent back with no index: its first build is what publishes it. */
     expect(visibilityTransition({ from: 'public', to: 'private', ...at('changes_requested', false) })).toBe('draft');
-    /* Already live, and a private library is live too. */
+    /* Already live, and live under the other visibility too. */
     expect(visibilityTransition({ from: 'public', to: 'private', ...at('published') })).toBeNull();
   });
 
-  it('queues a live private library for review when it goes public', () => {
-    /* Never live unreviewed: it waits in draft for the owner's submission (review-visibility-proposal.md 5). */
-    expect(visibilityTransition({ from: 'private', to: 'public', ...at('published') })).toBe('draft');
-    /* A draft waits for its build, which queues it (`lifecycleAfterBuild`). */
+  it('keeps a live private library live when it goes public (2026-10-23)', () => {
+    /* No review before publication: the declaration is checked by the edit, and the library stays live. */
+    expect(visibilityTransition({ from: 'private', to: 'public', ...at('published') })).toBeNull();
+    /* A draft waits for its build, which publishes it (`lifecycleAfterBuild`). */
     expect(visibilityTransition({ from: 'private', to: 'public', ...at('draft', false) })).toBeNull();
   });
 
@@ -146,7 +133,8 @@ describe('editWorkspaceLibrary', () => {
     expect(edit.title).toBe('Design notes');
     expect(edit.description).toBe('internal');
     expect(edit.language).toBe('zh');
-    expect(edit.lifecycleStatus).toBe('draft');
+    /* A live private library stays live when it goes public (2026-10-23): no lifecycle move rides with the edit. */
+    expect(edit.lifecycleStatus).toBeNull();
   });
 
   it('drops an empty optional field rather than storing a blank', () => {
@@ -233,29 +221,16 @@ describe('parseScopeOf', () => {
 });
 
 describe('reviewPipeline', () => {
-  it('skips the human step for a private library', () => {
-    const steps = reviewPipeline({
-      visibility: 'private',
-      lifecycleStatus: 'published',
-      indexStatus: 'ready',
-      building: false,
-    }).map((entry) => entry.step);
-    expect(steps).toEqual(['rights', 'parse', 'safety', 'publish']);
+  it('has the same four steps under either visibility', () => {
+    for (const visibility of ['private', 'public'] as const) {
+      const steps = reviewPipeline({ visibility, lifecycleStatus: 'published', indexStatus: 'ready', building: false }).map(
+        (entry) => entry.step,
+      );
+      expect(steps).toEqual(['rights', 'parse', 'safety', 'publish']);
+    }
   });
 
-  it('marks the human step active while a public library waits', () => {
-    const entries = reviewPipeline({
-      visibility: 'public',
-      lifecycleStatus: 'submitted',
-      indexStatus: 'ready',
-      building: false,
-    });
-    expect(entries.find((entry) => entry.step === 'parse')?.state).toBe('done');
-    expect(entries.find((entry) => entry.step === 'review')?.state).toBe('active');
-    expect(entries.find((entry) => entry.step === 'publish')?.state).toBe('pending');
-  });
-
-  it('shows a build in flight as parsing, not as waiting for a person', () => {
+  it('shows a build in flight as parsing, with publication still to come', () => {
     const entries = reviewPipeline({
       visibility: 'public',
       lifecycleStatus: 'draft',
@@ -263,7 +238,7 @@ describe('reviewPipeline', () => {
       building: true,
     });
     expect(entries.find((entry) => entry.step === 'parse')?.state).toBe('active');
-    expect(entries.find((entry) => entry.step === 'review')?.state).toBe('pending');
+    expect(entries.find((entry) => entry.step === 'publish')?.state).toBe('pending');
   });
 
   it('blocks the step that is actually blocked', () => {
@@ -274,13 +249,21 @@ describe('reviewPipeline', () => {
       building: false,
     });
     expect(failed.find((entry) => entry.step === 'parse')?.state).toBe('blocked');
-    const returned = reviewPipeline({
+    const stopped = reviewPipeline({
       visibility: 'public',
-      lifecycleStatus: 'changes_requested',
+      lifecycleStatus: 'suspended',
       indexStatus: 'ready',
       building: false,
     });
-    expect(returned.find((entry) => entry.step === 'review')?.state).toBe('blocked');
+    expect(stopped.find((entry) => entry.step === 'publish')?.state).toBe('blocked');
+    const undeclared = reviewPipeline({
+      visibility: 'public',
+      lifecycleStatus: 'draft',
+      indexStatus: 'ready',
+      building: false,
+      rightsDeclared: false,
+    });
+    expect(undeclared.find((entry) => entry.step === 'rights')?.state).toBe('blocked');
   });
 
   it('finishes only when the lifecycle and the index agree', () => {
@@ -291,6 +274,14 @@ describe('reviewPipeline', () => {
       building: false,
     });
     expect(live.every((entry) => entry.state === 'done')).toBe(true);
+    /* Indexed but not yet moved: publication is the active step, not done. */
+    const landing = reviewPipeline({
+      visibility: 'public',
+      lifecycleStatus: 'draft',
+      indexStatus: 'ready',
+      building: false,
+    });
+    expect(landing.find((entry) => entry.step === 'publish')?.state).toBe('active');
   });
 });
 

@@ -11,7 +11,6 @@ import {
 } from '@/components/dashboard/ui';
 import {
   BadgeCheckIcon,
-  ClockIcon,
   DatabaseIcon,
   FileTextIcon,
   PlusIcon,
@@ -34,32 +33,23 @@ export async function generateMetadata(): Promise<Metadata> {
   return { title: (await getMessages()).dashboard.libraries.title };
 }
 
-const STAT_ICONS = [DatabaseIcon, BadgeCheckIcon, ClockIcon, FileTextIcon];
+const STAT_ICONS = [DatabaseIcon, BadgeCheckIcon, FileTextIcon];
 
 /**
  * Lifecycle plus index state collapse to the design's four-way marker: live
- * (published and queryable), pending (anywhere in review or still indexing),
- * blocked (suspended, rejected or failed), exempt (a private draft that never
- * enters review). The bucket keeps `changes_requested` apart from the rest
- * of `blocked`, because it has a filter of its own (requirement.md 5.2).
+ * (published and queryable), pending (still indexing), blocked (suspended
+ * or failed), exempt (a draft with nothing queued). Nothing waits for
+ * review since 2026-10-23.
  */
 function bucketOf(row: WorkspaceLibraryRow): LibraryBucket {
-  if (row.lifecycleStatus === 'changes_requested') return 'changes';
   if (row.lifecycleStatus === 'suspended' || row.indexStatus === 'failed') return 'blocked';
   if (row.lifecycleStatus === 'published' && row.indexStatus === 'ready') return 'live';
-  if (
-    row.lifecycleStatus === 'submitted' ||
-    row.lifecycleStatus === 'reviewing' ||
-    row.indexStatus === 'processing' ||
-    row.indexStatus === 'pending'
-  ) {
-    return 'pending';
-  }
+  if (row.indexStatus === 'processing' || row.indexStatus === 'pending') return 'pending';
   return 'exempt';
 }
 
 function toneOf(bucket: LibraryBucket): StatusTone {
-  return bucket === 'changes' ? 'blocked' : bucket;
+  return bucket;
 }
 
 export default async function DashboardLibrariesPage() {
@@ -83,22 +73,17 @@ export default async function DashboardLibrariesPage() {
   const published = libraries.filter(
     (row) => row.lifecycleStatus === 'published' && row.indexStatus === 'ready',
   ).length;
-  const inReview = libraries.filter(
-    (row) => row.lifecycleStatus === 'submitted' || row.lifecycleStatus === 'reviewing',
-  ).length;
   const totalChunks = libraries.reduce((sum, row) => sum + row.totalChunks, 0);
 
   const stats = [
     { key: 'total', value: number.format(libraries.length), label: l.stats.total },
     { key: 'published', value: number.format(published), label: l.stats.published },
-    { key: 'review', value: number.format(inReview), label: l.stats.review },
     { key: 'chunks', value: number.format(totalChunks), label: l.stats.chunks },
   ];
 
-  /* The label says the specific thing where the tone cannot: sent back,
-     paused by the owner, suspended by a reviewer, or a failed build. */
+  /* The label says the specific thing where the tone cannot: paused by the
+     owner, suspended by the platform, or a failed build. */
   const statusLabel = (row: WorkspaceLibraryRow, bucket: LibraryBucket): string => {
-    if (bucket === 'changes') return m.statuses.changes;
     if (bucket === 'blocked') {
       if (row.lifecycleStatus === 'suspended') return row.pausedByOwner ? m.statuses.paused : m.statuses.suspended;
       return m.statuses.failed;
@@ -108,8 +93,8 @@ export default async function DashboardLibrariesPage() {
 
   const rows: LibraryListRow[] = libraries.map((row) => {
     const bucket = bucketOf(row);
-    /* requirement.md 5.2: every public library that is not yet live shows
-       where it is in the publishing pipeline. */
+    /* requirement.md 5.2: a public library that is not yet live shows where
+       its build stands in the publishing pipeline. */
     const inPipeline =
       row.visibility === 'public' && bucket !== 'live' && row.lifecycleStatus !== 'archived';
     return {
@@ -160,7 +145,7 @@ export default async function DashboardLibrariesPage() {
       />
 
       {/* Counters -- design source `fiSE2`. */}
-      <section className="grid grid-cols-2 gap-[9px] sm:grid-cols-4">
+      <section className="grid grid-cols-2 gap-[9px] sm:grid-cols-3">
         {stats.map((stat, index) => {
           const Icon = STAT_ICONS[index] ?? DatabaseIcon;
           return (

@@ -1,16 +1,14 @@
 /**
  * Moves a user library's lifecycle once a build has published a version.
  *
- * Ingestion does not decide review or visibility: requirement.md 6.2 keeps
+ * Ingestion does not decide visibility: requirement.md 6.2 keeps
  * `lifecycle_status`, `visibility` and `index_status` apart, and the build
- * only ever writes the index. But a private user library still has to get
- * *somewhere* once its first version is live: it is queryable from now on.
- * A public one is not the build's to move -- it waits, indexed, for its
- * owner to bring the materials and submit it (review-visibility-proposal.md
- * 5; libraries/manage.ts `applyOwnerLifecycleAction`), and the review
- * layers run from that submission. The rule is pure (`lifecycleAfterBuild`);
- * this applies it, guarded on the status it read so a reviewer deciding at
- * the same moment is not overwritten.
+ * only ever writes the index. But a user library still has to get
+ * *somewhere* once its first version is live: it is queryable from now on,
+ * under either visibility (public review before publication ended on
+ * 2026-10-23). The rule is pure (`lifecycleAfterBuild`); this applies it,
+ * guarded on the status it read so a suspension landing at the same moment
+ * is not overwritten.
  */
 import { and, eq } from 'drizzle-orm';
 import { lifecycleAfterBuild } from '@/lib/domain/library';

@@ -1,24 +1,17 @@
 /**
- * Use cases: user libraries and their review queue, and ownership claims.
+ * Use cases: user libraries, by where they stand, and ownership claims.
  *
  * Both read `library`; what separates them is the join to `library_claim`.
  * Ingestion is not built yet (architecture.md 21), so these lists are
  * legitimately empty rather than seeded with something that looks like content.
  */
-import { and, asc, count, desc, eq, ilike, inArray, isNull, or, sql } from 'drizzle-orm';
+import { and, count, desc, eq, ilike, inArray, isNull, or, sql } from 'drizzle-orm';
 import { db, schema } from '@/lib/infrastructure/postgres/client';
 import { ref } from './column-ref';
 import { likePattern } from './like-pattern';
 
-/** `sample`: auto-published libraries drawn for a person's look (lib/application/review/rules.ts), not yet closed. */
-export type LibraryReviewFilter = 'all' | 'pending' | 'approved' | 'rejected' | 'sample';
-
-const OPEN_SAMPLE = sql`exists (
-  select 1 from ${schema.libraryReview}
-  where ${ref(schema.libraryReview.libraryId)} = ${ref(schema.library.id)}
-    and ${ref(schema.libraryReview.stage)} = 'sample'
-    and ${ref(schema.libraryReview.decidedAt)} is null
-)`;
+/** The console's tabs over user libraries: live ones, and ones the platform or their owner stopped. */
+export type LibraryReviewFilter = 'all' | 'approved' | 'rejected';
 
 export interface ConsoleLibraryRow {
   id: string;
@@ -30,7 +23,7 @@ export interface ConsoleLibraryRow {
   visibility: 'public' | 'private';
   lifecycleStatus: string;
   createdAt: Date;
-  /** Whether the current version is indexed, which approval requires. */
+  /** Whether the current version is indexed, which a restoration requires. */
   hasReadyVersion: boolean;
 }
 
@@ -54,37 +47,15 @@ const ownerName = sql<string | null>`(
 )`;
 
 /**
- * The design's review tabs against the lifecycle enum. There is no single
- * `rejected` state: requirement.md 5.3 gives a reviewer approve, reject and
- * request-changes, and the schema spells the last two as `changes_requested`
- * and `suspended`, with `archived` for a library taken out of circulation.
+ * The console's tabs against the lifecycle enum. `approved` is what is live;
+ * `rejected` is what was stopped -- by the platform, by its owner, or taken
+ * out of circulation. The review-era states (`submitted`, `reviewing`,
+ * `changes_requested`) are no longer written and belong to neither tab.
  */
 export const REVIEW_STATUSES = {
-  pending: ['submitted', 'reviewing'],
   approved: ['published'],
-  rejected: ['changes_requested', 'suspended', 'archived'],
+  rejected: ['suspended', 'archived'],
 } as const;
-
-/**
- * When a library entered the reviewer's queue.
- *
- * `library` keeps no timestamp of the move to `submitted`, and `library_review`
- * is written on a decision, not a submission. What the tables do hold is
- * enough: a public library is submitted by the build that lands a version
- * (`lifecycleAfterBuild`), so the submission is the first version built after
- * the last decision -- or the first version ever, when nobody has decided
- * yet. Measured that way, an owner rebuilding their submission every day does
- * not reset the reviewer's clock, and a resubmission after `changes_requested`
- * counts from the resubmission rather than from the library's birth.
- */
-export const waitingSince = sql<Date>`coalesce((
-  select min(${ref(schema.libraryVersion.createdAt)}) from ${schema.libraryVersion}
-  where ${ref(schema.libraryVersion.libraryId)} = ${ref(schema.library.id)}
-    and ${ref(schema.libraryVersion.createdAt)} > coalesce((
-      select max(${ref(schema.libraryReview.decidedAt)}) from ${schema.libraryReview}
-      where ${ref(schema.libraryReview.libraryId)} = ${ref(schema.library.id)}
-    ), '-infinity'::timestamptz)
-), ${ref(schema.library.createdAt)})`;
 
 /** User libraries that still exist; a deleted one is a tombstone (8.4). */
 const LIVE_USER_LIBRARY = and(
@@ -105,22 +76,6 @@ const LIBRARY_ROW = {
   hasReadyVersion,
 };
 
-/**
- * The libraries a reviewer should look at next: those waiting, longest wait
- * first. One statement, for the overview panel that shows the head of the
- * queue beside a tile that reports how long its oldest member has waited --
- * the two have to agree on which library that is.
- */
-export async function pendingReviewQueue(input: { limit?: number } = {}): Promise<ConsoleLibraryRow[]> {
-  const rows = await db()
-    .select(LIBRARY_ROW)
-    .from(schema.library)
-    .where(and(LIVE_USER_LIBRARY, inArray(schema.library.lifecycleStatus, [...REVIEW_STATUSES.pending])))
-    .orderBy(asc(waitingSince), asc(schema.library.id))
-    .limit(input.limit ?? 5);
-  return rows.map(normalize);
-}
-
 function reviewCondition(filter: LibraryReviewFilter) {
   /*
    * The filter arrives as a cast, not a parse -- the export route hands
@@ -128,12 +83,9 @@ function reviewCondition(filter: LibraryReviewFilter) {
    * back to `all` rather than spreading `undefined` into a 500.
    */
   switch (filter) {
-    case 'pending':
     case 'approved':
     case 'rejected':
       return inArray(schema.library.lifecycleStatus, [...REVIEW_STATUSES[filter]]);
-    case 'sample':
-      return OPEN_SAMPLE;
     default:
       return undefined;
   }
@@ -156,7 +108,7 @@ export async function listUserLibraries(input: {
     reviewCondition(input.review ?? 'all'),
   ].filter(Boolean);
 
-  const [rows, [totalRow], statusRows, [claimRow], [sampleRow]] = await Promise.all([
+  const [rows, [totalRow], statusRows, [claimRow]] = await Promise.all([
     database
       .select(LIBRARY_ROW)
       .from(schema.library)
@@ -173,7 +125,6 @@ export async function listUserLibraries(input: {
       .select({ n: count() })
       .from(schema.libraryClaim)
       .where(eq(schema.libraryClaim.status, 'pending')),
-    database.select({ n: count() }).from(schema.library).where(and(base, OPEN_SAMPLE)),
   ]);
 
   const byStatus = new Map<string, number>(statusRows.map((row) => [row.status, row.n]));
@@ -185,10 +136,8 @@ export async function listUserLibraries(input: {
     total: totalRow?.n ?? 0,
     counts: {
       all: [...byStatus.values()].reduce((a, b) => a + b, 0),
-      pending: sum(REVIEW_STATUSES.pending),
       approved: sum(REVIEW_STATUSES.approved),
       rejected: sum(REVIEW_STATUSES.rejected),
-      sample: sampleRow?.n ?? 0,
       claims: claimRow?.n ?? 0,
     },
   };
