@@ -1,6 +1,6 @@
 import Link from 'next/link';
 import type { ReactNode } from 'react';
-import { ArrowUpRightIcon } from '@/components/ui/icons';
+import { ArrowUpRightIcon, ChevronLeftIcon } from '@/components/ui/icons';
 
 /** Card chrome shared by every panel in the dashboard design frames. */
 export const PANEL = 'rounded-lg border border-line bg-card';
@@ -57,6 +57,23 @@ export function PanelHeading({
 }
 
 /** The brand action in page and panel headers. */
+/**
+ * The way back up from a page that sits under another: a small bordered
+ * chip with a chevron, drawn like the page's own secondary buttons rather
+ * than a bare text link, so the eye finds it among the heading and badges.
+ */
+export function BackLink({ href, children }: { href: string; children: ReactNode }) {
+  return (
+    <Link
+      href={href}
+      className="group inline-flex h-7 w-fit items-center gap-1 rounded-md border border-line bg-card pr-2.5 pl-1.5 text-[11.5px] font-medium text-steel transition-colors hover:border-brand/40 hover:bg-brandsoft hover:text-brandink"
+    >
+      <ChevronLeftIcon size={13} className="transition-transform group-hover:-translate-x-0.5" />
+      {children}
+    </Link>
+  );
+}
+
 export function ActionButton({
   href,
   children,

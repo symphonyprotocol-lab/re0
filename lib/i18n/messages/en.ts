@@ -1252,7 +1252,7 @@ export const en: Dictionary = {
         qa: 'Visitor questions',
         settings: 'Settings',
       },
-      back: '← Back to libraries',
+      back: 'Back to libraries',
       eyebrow: 'Library details',
       ready: {
         title: 'Ready to query',
@@ -1345,7 +1345,7 @@ export const en: Dictionary = {
       },
       documentPreview: {
         metaTitle: 'Document preview',
-        back: '← Back to library',
+        back: 'Back to library',
         source: 'Source',
         chunks: '{n} chunks · {tokens} tokens',
         chunk: 'Chunk {ordinal}',
@@ -1873,7 +1873,7 @@ export const en: Dictionary = {
     },
     libraryFiles: {
       metaTitle: 'PDF files',
-      back: '← Back to libraries',
+      back: 'Back to libraries',
       title: 'PDF files',
       description:
         'The files of {title}. Saving a change queues a rebuild; the previous version keeps serving until the new one publishes.',
@@ -1907,7 +1907,7 @@ export const en: Dictionary = {
     },
     newLibrary: {
       metaTitle: 'Add a library',
-      back: '← Back to libraries',
+      back: 'Back to libraries',
       title: 'Add a library',
       description:
         'Pick a source and set its scope. Public libraries enter review once submitted.',

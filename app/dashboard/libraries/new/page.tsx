@@ -1,5 +1,4 @@
 import type { Metadata } from 'next';
-import Link from 'next/link';
 import {
   ImportWizard,
   type GithubImportState,
@@ -11,7 +10,7 @@ import {
   prepareUploadAction,
   startDomainVerificationAction,
 } from './actions';
-import { PANEL } from '@/components/dashboard/ui';
+import { BackLink, PANEL } from '@/components/dashboard/ui';
 import { listImportablePages, listImportableRepositories } from '@/lib/application/auth';
 import { canManageLibraries } from '@/lib/application/libraries';
 import { quoteBuild } from '@/lib/application/plans';
@@ -99,12 +98,7 @@ export default async function DashboardAddLibraryPage({
     return (
       <div className="flex flex-col gap-4">
         <header className="flex flex-col gap-[5px]">
-          <Link
-            href="/dashboard/libraries"
-            className="text-[12px] text-brandink transition-colors hover:text-brandink"
-          >
-            {n.back}
-          </Link>
+          <BackLink href="/dashboard/libraries">{n.back}</BackLink>
           <h1 className="mt-1.5 text-[25px] leading-[1.5] font-medium text-ink">
             {n.denied.title}
           </h1>
@@ -134,12 +128,7 @@ export default async function DashboardAddLibraryPage({
       {/* Page header -- design source frame `ISF8H`. */}
       <header className="flex flex-wrap items-start justify-between gap-5">
         <div className="flex flex-col gap-[5px]">
-          <Link
-            href="/dashboard/libraries"
-            className="text-[12px] text-brandink transition-colors hover:text-brandink"
-          >
-            {n.back}
-          </Link>
+          <BackLink href="/dashboard/libraries">{n.back}</BackLink>
           <h1 className="mt-1.5 text-[25px] leading-[1.5] font-medium text-ink">
             {n.title}
           </h1>

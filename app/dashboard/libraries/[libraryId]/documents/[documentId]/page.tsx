@@ -1,5 +1,5 @@
 import type { Metadata } from 'next';
-import Link from 'next/link';
+import { BackLink } from '@/components/dashboard/ui';
 import { notFound } from 'next/navigation';
 import { DocumentText } from '@/components/document-text';
 import { documentPreview, workspaceLibraryDetail } from '@/lib/application/libraries';
@@ -32,12 +32,7 @@ export default async function DashboardDocumentPreviewPage({
   return (
     <div className="flex flex-col gap-4">
       <header className="flex flex-col gap-[5px]">
-        <Link
-          href={`/dashboard/libraries/${library.id}`}
-          className="text-[12px] text-brandink transition-colors hover:text-brandink"
-        >
-          {d.back}
-        </Link>
+        <BackLink href={`/dashboard/libraries/${library.id}`}>{d.back}</BackLink>
         <h1 className="mt-1.5 text-[22px] leading-[1.4] font-medium text-ink">
           {document.title}
         </h1>

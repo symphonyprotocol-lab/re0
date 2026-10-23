@@ -1211,7 +1211,7 @@ export const zh = {
         qa: '访客问答',
         settings: '设置',
       },
-      back: '← 返回知识库列表',
+      back: '返回知识库列表',
       eyebrow: '知识库详情',
       ready: {
         title: '已就绪，可以检索',
@@ -1302,7 +1302,7 @@ export const zh = {
       },
       documentPreview: {
         metaTitle: '文档预览',
-        back: '← 返回知识库',
+        back: '返回知识库',
         source: '来源',
         chunks: '{n} 个 Chunk · {tokens} Token',
         chunk: 'Chunk {ordinal}',
@@ -1828,7 +1828,7 @@ export const zh = {
     },
     libraryFiles: {
       metaTitle: 'PDF 文件',
-      back: '← 返回知识库列表',
+      back: '返回知识库列表',
       title: 'PDF 文件',
       description: '{title} 的文件。增删后保存，会排队重新构建；在新版本发布前，旧版本继续提供检索。',
       currentTitle: '已有文件',
@@ -1860,7 +1860,7 @@ export const zh = {
     },
     newLibrary: {
       metaTitle: '添加知识库',
-      back: '← 返回知识库',
+      back: '返回知识库',
       title: '添加知识库',
       description: '选择来源并配置访问范围，公开知识库提交后会进入审核流程。',
       stepsLabel: '添加步骤',

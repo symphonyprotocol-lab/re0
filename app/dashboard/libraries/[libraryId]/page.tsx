@@ -16,7 +16,7 @@ import { RebuildLibraryButton } from '@/components/dashboard/library-rebuild';
 import { LibraryFaqPanel } from '@/components/dashboard/library-faq';
 import { LibraryWidgetPanel } from '@/components/dashboard/library-widget';
 import { LibraryShowcasePanel } from '@/components/dashboard/library-showcase';
-import { Badge, IconTile, PANEL, StatusLabel, type StatusTone } from '@/components/dashboard/ui';
+import { BackLink, Badge, IconTile, PANEL, StatusLabel, type StatusTone } from '@/components/dashboard/ui';
 import {
   ArrowRightIcon,
   BadgeCheckIcon,
@@ -257,12 +257,7 @@ export default async function DashboardLibraryPage({
       <LiveRefresh active={library.building} />
       <header className="flex flex-wrap items-start justify-between gap-5">
         <div className="flex min-w-0 flex-col gap-[5px]">
-          <Link
-            href="/dashboard/libraries"
-            className="text-[12px] text-brandink transition-colors hover:text-brandink"
-          >
-            {d.back}
-          </Link>
+          <BackLink href="/dashboard/libraries">{d.back}</BackLink>
           <h1 className="mt-1.5 truncate text-[25px] leading-[1.5] font-medium text-ink">
             {library.title}
           </h1>
