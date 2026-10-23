@@ -12,7 +12,9 @@ const GRID =
 
 /** What one row of the live log renders. Mapped from the API by the page. */
 export interface RequestLogView {
+  /** The log row's own key, unique; `requestId` may repeat across rows of one request. */
   id: string;
+  requestId: string;
   time: string;
   operation: string;
   surface: string;
@@ -220,7 +222,7 @@ export function RequestLog({
                 <span className="text-[12px] font-medium text-steel">
                   {entry.time}
                 </span>
-                <span className="font-mono text-[10px] text-muted">{entry.id.slice(0, 14)}</span>
+                <span className="font-mono text-[10px] text-muted">{entry.requestId.slice(0, 14)}</span>
               </span>
               <span className="flex min-w-0 flex-col gap-1">
                 <span className="truncate text-[11px] text-steel">

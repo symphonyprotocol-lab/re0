@@ -110,7 +110,8 @@ export default async function DashboardRequestsPage({
   });
   const surfaces = r.filters.entrypoints;
   const entries: RequestLogView[] = requests.map((row) => ({
-    id: row.requestId,
+    id: row.id,
+    requestId: row.requestId,
     time: time.format(new Date(row.createdAt)),
     operation: row.operation,
     surface:
