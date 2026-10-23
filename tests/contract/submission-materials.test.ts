@@ -9,7 +9,6 @@ import {
   lifecycleAfterBuild,
   ownerActionAvailable,
   reviewPipeline,
-  SUBMISSION_MIN_QUESTIONS,
   submissionBlockers,
   submissionReady,
   visibilityTransition,
@@ -62,13 +61,11 @@ describe('rights declaration', () => {
 });
 
 describe('submission materials', () => {
-  it('names what is missing, in the order the owner fixes it', () => {
-    expect(submissionBlockers({ rightsDeclared: false, rightsAllowPublic: false, questions: 0 })).toEqual(['rights', 'questions']);
-    expect(submissionBlockers({ rightsDeclared: true, rightsAllowPublic: false, questions: 9 })).toEqual(['rights_generated']);
-    expect(submissionBlockers({ rightsDeclared: true, rightsAllowPublic: true, questions: SUBMISSION_MIN_QUESTIONS - 1 })).toEqual([
-      'questions',
-    ]);
-    expect(submissionReady({ rightsDeclared: true, rightsAllowPublic: true, questions: SUBMISSION_MIN_QUESTIONS })).toBe(true);
+  it('asks for the declaration alone; the question set is the expert gate\'s (2026-10-23)', () => {
+    expect(submissionBlockers({ rightsDeclared: false, rightsAllowPublic: false })).toEqual(['rights']);
+    expect(submissionBlockers({ rightsDeclared: true, rightsAllowPublic: false })).toEqual(['rights_generated']);
+    expect(submissionBlockers({ rightsDeclared: true, rightsAllowPublic: true })).toEqual([]);
+    expect(submissionReady({ rightsDeclared: true, rightsAllowPublic: true })).toBe(true);
   });
 
   it('leaves a public build for its owner to submit, and publishes a private one', () => {

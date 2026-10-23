@@ -13,7 +13,6 @@
  */
 import type { RightsDeclaration } from './rights';
 import { rightsAllowPublic } from './rights';
-import { SUBMISSION_MIN_QUESTIONS } from './library';
 import { REVIEW_CHECKS, type ReviewCheck, type ReviewChecklist } from './review';
 
 /* ------------------------------------------------------------------ rules */
@@ -132,8 +131,11 @@ export const RULES_REASONS = [
   'no_license',
   'rights_missing',
   'rights_generated',
+  /* Written by send-backs before 2026-10-23, when a public submission needed 5 self-check questions; kept so those rows still read. */
   'too_few_questions',
   'auto_publish_off',
+  /* The owner brought no self-check questions, so the rules have nothing to publish on; the model layer looks. */
+  'no_questions',
   /* Written by holds before 2026-10-22, when an unverified source always waited for the model layer; kept so those rows still read. */
   'source_unverified',
   'flagged_files',
@@ -197,7 +199,6 @@ const GATE_CHECK: Partial<Record<RulesReason, ReviewCheck>> = {
   no_license: 'source_firsthand',
   rights_missing: 'source_firsthand',
   rights_generated: 'source_firsthand',
-  too_few_questions: 'completeness',
 };
 
 function blank(): ReviewChecklist {
@@ -215,7 +216,6 @@ export function rulesVerdict(facts: RulesFacts, rules: ReviewRules): RulesVerdic
   if (facts.sourceType === 'github' && !facts.hasLicense && facts.rights?.license !== 'granted') reasons.push('no_license');
   if (!facts.rights) reasons.push('rights_missing');
   else if (!rightsAllowPublic(facts.rights)) reasons.push('rights_generated');
-  if (facts.questions < SUBMISSION_MIN_QUESTIONS) reasons.push('too_few_questions');
 
   if (reasons.length > 0) {
     for (const reason of reasons) {
@@ -233,6 +233,8 @@ export function rulesVerdict(facts: RulesFacts, rules: ReviewRules): RulesVerdic
    * construction and public already, so for it the only question left is
    * whether the library answers what its owner says it answers: the
    * self-check set has to have been asked of this version and to pass.
+   * The set is optional since 2026-10-23, so a library that brought none
+   * has nothing for the rules to publish on and goes to the model layer.
    * An unverified source (an upload, a Notion page) proves nothing about
    * who owns the content, so it clears the full list instead: nothing
    * flagged, Trust and Benchmark over their lines, and an owner who has
@@ -240,7 +242,8 @@ export function rulesVerdict(facts: RulesFacts, rules: ReviewRules): RulesVerdic
    * model layer (6.1, 2026-10-22). The platform's switch stops both.
    */
   if (rules.autoPublish !== 1) reasons.push('auto_publish_off');
-  if (facts.ownerHitRate === null) reasons.push('hit_rate_unknown');
+  if (facts.questions === 0) reasons.push('no_questions');
+  else if (facts.ownerHitRate === null) reasons.push('hit_rate_unknown');
   else if (facts.ownerHitRate < rules.ownerHitRateMin) reasons.push('hit_rate_low');
   if (!facts.sourceVerified) {
     if (facts.flaggedFiles > 0) reasons.push('flagged_files');

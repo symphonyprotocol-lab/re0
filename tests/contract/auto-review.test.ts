@@ -77,7 +77,14 @@ describe('rulesVerdict', () => {
     expect(rulesVerdict({ ...clean, rights: { ...rights, generation: 'generated' } }, DEFAULT_REVIEW_RULES).reasons).toEqual([
       'rights_generated',
     ]);
-    expect(rulesVerdict({ ...clean, questions: 4 }, DEFAULT_REVIEW_RULES).reasons).toEqual(['too_few_questions']);
+    /* A small or absent question set is no longer a gate (2026-10-23). */
+    expect(rulesVerdict({ ...clean, questions: 4 }, DEFAULT_REVIEW_RULES).decision).toBe('publish');
+  });
+
+  it('leaves a library that brought no questions to the model layer', () => {
+    const verdict = rulesVerdict({ ...clean, questions: 0, ownerHitRate: null }, DEFAULT_REVIEW_RULES);
+    expect(verdict.decision).toBe('hold');
+    expect(verdict.reasons).toEqual(['no_questions']);
   });
 
   it('publishes a verified source on its question set alone, whatever the scores say', () => {

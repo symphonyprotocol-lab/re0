@@ -1,6 +1,8 @@
 /**
- * The owner's submission materials: the rights declaration and the
- * self-check questions a public review reads first.
+ * The owner's submission materials: the rights declaration a public
+ * submission needs, and the self-check questions it may bring -- optional
+ * for publishing since 2026-10-23, required of an expert-library
+ * application (lib/domain/expert-library.ts).
  * review-visibility-proposal.md 5.1 and 5.2; rules in lib/domain/rights.ts
  * and lib/domain/library.ts (`submissionBlockers`).
  *
@@ -17,7 +19,6 @@ import { draftEvalQuestion, EVAL_MAX_QUESTIONS } from '@/lib/domain/benchmark';
 import { uuidv7 } from '@/lib/domain/id';
 import {
   PlatformLibraryRefused,
-  SUBMISSION_MIN_QUESTIONS,
   submissionBlockers,
   submissionReady,
   type SubmissionBlocker,
@@ -73,7 +74,6 @@ export async function libraryMaterials(reader: Reader, libraryId: string): Promi
   const materials = {
     rightsDeclared: rights !== null,
     rightsAllowPublic: rights ? rightsAllowPublic(rights) : false,
-    questions,
   };
   return {
     rights,
@@ -173,7 +173,8 @@ export interface OwnerEvalQuestionView {
 
 export interface OwnerEvalQuestions {
   questions: OwnerEvalQuestionView[];
-  limits: { min: number; max: number };
+  /** The library's cap; the expert gate's minimum lives with its rules (expert-libraries/owner.ts). */
+  limits: { max: number };
 }
 
 /** The library's questions, the owner's and the platform's, for the owner's panel. */
@@ -203,7 +204,7 @@ export async function listLibraryEvalQuestions(input: {
       lastRank: row.lastRank,
       lastRunIsCurrent: row.lastVersionId !== null && row.lastVersionId === library?.currentVersionId,
     })),
-    limits: { min: SUBMISSION_MIN_QUESTIONS, max: EVAL_MAX_QUESTIONS },
+    limits: { max: EVAL_MAX_QUESTIONS },
   };
 }
 

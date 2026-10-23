@@ -173,7 +173,7 @@ async function library(
   return { libraryId: created.libraryId, publicId: created.publicId, operationId: created.operationId };
 }
 
-/** The owner's self-check questions a submission needs (lib/domain/library.ts `SUBMISSION_MIN_QUESTIONS`). */
+/** The owner's self-check questions, optional for a submission since 2026-10-23; these fixtures bring some so the rules layer has a hit rate to judge. */
 async function questions(libraryId: string, n = 5): Promise<void> {
   await db()
     .insert(schema.libraryEvalQuestion)
@@ -512,10 +512,8 @@ describeWithDb('owner library management', () => {
     await reviewerDecision(created.libraryId, 'request_changes', [note], new Date(Date.now() - 60_000));
     await setLifecycle(created.libraryId, 'changes_requested');
 
-    /* Without the question set the resubmission is refused; with it, it queues. */
-    expect(
-      await refusalOf(applyOwnerLifecycleAction({ workspaceId, role: 'owner', libraryId: created.libraryId, action: 'resubmit' })),
-    ).toBe('invalid_request');
+    /* The declaration was made at creation, so the resubmission queues; the
+       question set is optional (2026-10-23) and here only gives the rules a hit rate. */
     await questions(created.libraryId);
     const resubmitted = await applyOwnerLifecycleAction({
       workspaceId,
@@ -729,10 +727,7 @@ describeWithDb('owner library management', () => {
     expect(toPublic.visibility).toBe('public');
     expect(toPublic.lifecycleStatus).toBe('draft');
     expect(toPublic.queuedForReview).toBe(false);
-    expect(
-      await refusalOf(applyOwnerLifecycleAction({ workspaceId, role: 'owner', libraryId: live.libraryId, action: 'submit' })),
-    ).toBe('invalid_request');
-    await questions(live.libraryId);
+    /* No question set at all: since 2026-10-23 the declaration alone lets it submit. */
     const submitted = await applyOwnerLifecycleAction({ workspaceId, role: 'owner', libraryId: live.libraryId, action: 'submit' });
     expect(submitted.lifecycleStatus).toBe('submitted');
     expect(await lifecycleOf(live.libraryId)).toBe('submitted');

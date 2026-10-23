@@ -149,14 +149,14 @@ export function ReviewPipeline({
         <p
           className={`flex flex-wrap items-center gap-x-2 gap-y-1 ${
             compact ? 'text-[10.5px]' : 'text-[11px]'
-          } leading-[1.5] text-brandink`}
+          } leading-[1.5] text-rose`}
         >
           <PencilIcon size={compact ? 12 : 13} className="shrink-0" />
           <span>{p.materialsHint}</span>
           {materialsHref ? (
             <Link
               href={materialsHref}
-              className="inline-flex items-center gap-1 font-medium underline decoration-brand/40 underline-offset-2 hover:decoration-brand"
+              className="inline-flex items-center gap-1 font-medium underline decoration-rose/40 underline-offset-2 hover:decoration-rose"
             >
               {p.materialsLink}
               <ArrowRightIcon size={compact ? 11 : 12} />
