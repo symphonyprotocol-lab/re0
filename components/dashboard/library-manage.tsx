@@ -1,15 +1,18 @@
 'use client';
 
+import Link from 'next/link';
 import { useRouter } from 'next/navigation';
 import { useActionState, useEffect, useId, useState } from 'react';
 import { DeleteLibraryControl, type DeleteLibraryAction, type DeleteLibraryTarget } from '@/components/dashboard/library-delete';
 import { PANEL } from '@/components/dashboard/ui';
 import {
+  ArrowRightIcon,
   ArrowUpRightIcon,
   BanIcon,
   CheckIcon,
   CircleCheckIcon,
   CircleXIcon,
+  PencilIcon,
   SpinnerIcon,
 } from '@/components/ui/icons';
 import type {
@@ -82,12 +85,19 @@ export function ResultLine({ ok, children }: { ok: boolean; children: React.Reac
  * library stands in it (`reviewPipeline`). The expected time sits on the
  * human step and the reviewer's note under it, so an owner reads all three
  * in one place.
+ *
+ * The materials step is the one the owner has to act on
+ * (review-visibility-proposal.md 5), so while it is the active one the strip
+ * says so under the steps and, given `materialsHref`, links to the panel --
+ * a numbered circle alone does not tell a reader the pipeline is waiting on
+ * them rather than on the platform.
  */
 export function ReviewPipeline({
   entries,
   note,
   checks = null,
   compact = false,
+  materialsHref = null,
 }: {
   entries: ReviewPipelineEntry[];
   /** The latest reviewer feedback, if any. */
@@ -95,10 +105,13 @@ export function ReviewPipeline({
   /** The latest decision's 7.4 checklist (lib/domain/review.ts): the owner reads which check failed. */
   checks?: ReviewChecklist | null;
   compact?: boolean;
+  /** Where the submission materials are filled in; the hint links there while that step is active. */
+  materialsHref?: string | null;
 }) {
   const { t } = useI18n();
   const p = t.dashboard.libraries.manage.pipeline;
   const reviewActive = entries.some((entry) => entry.step === 'review' && entry.state === 'active');
+  const materialsActive = entries.some((entry) => entry.step === 'materials' && entry.state === 'active');
   const say = (text: string) => describeReviewNote(text, t.dashboard.libraries.rulesReasons);
   const checkLines = checks ? checklistFeedback(checks) : [];
   return (
@@ -132,6 +145,25 @@ export function ReviewPipeline({
           </li>
         ))}
       </ol>
+      {materialsActive ? (
+        <p
+          className={`flex flex-wrap items-center gap-x-2 gap-y-1 ${
+            compact ? 'text-[10.5px]' : 'text-[11px]'
+          } leading-[1.5] text-brandink`}
+        >
+          <PencilIcon size={compact ? 12 : 13} className="shrink-0" />
+          <span>{p.materialsHint}</span>
+          {materialsHref ? (
+            <Link
+              href={materialsHref}
+              className="inline-flex items-center gap-1 font-medium underline decoration-brand/40 underline-offset-2 hover:decoration-brand"
+            >
+              {p.materialsLink}
+              <ArrowRightIcon size={compact ? 11 : 12} />
+            </Link>
+          ) : null}
+        </p>
+      ) : null}
       {reviewActive ? (
         <p className={`${compact ? 'text-[10.5px]' : 'text-[11px]'} text-muted`}>
           {p.expected}

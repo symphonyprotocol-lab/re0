@@ -257,7 +257,12 @@ export function LibraryList({
                 {library.pipeline || library.note ? (
                   <div className="border-t border-line/60 bg-subtle/60 px-[18px] py-2.5 pl-[62px]">
                     {library.pipeline ? (
-                      <ReviewPipeline entries={library.pipeline} note={library.note} compact />
+                      <ReviewPipeline
+                        entries={library.pipeline}
+                        note={library.note}
+                        materialsHref={`/dashboard/libraries/${library.id}#materials`}
+                        compact
+                      />
                     ) : (
                       <p className="text-[10.5px] leading-[1.5] text-rose">
                         {describeReviewNote(library.note ?? '', t.dashboard.libraries.rulesReasons)}

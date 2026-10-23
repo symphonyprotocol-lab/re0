@@ -399,6 +399,7 @@ export default async function DashboardLibraryPage({
               entries={pipeline}
               note={library.reviews.find((review) => review.feedback[0])?.feedback[0] ?? null}
               checks={library.reviews.find((review) => review.checklist)?.checklist ?? null}
+              materialsHref="#materials"
             />
           </div>
         </section>
