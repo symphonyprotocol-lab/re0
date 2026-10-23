@@ -4,7 +4,7 @@
  * same predicate retrieval admits, so the directory never advertises what a
  * query would then refuse (architecture.md 5.2).
  */
-import { and, desc, eq, gte, inArray, isNotNull, isNull, lt, sql, type SQL } from 'drizzle-orm';
+import { and, asc, desc, eq, gte, inArray, isNotNull, isNull, lt, sql, type SQL } from 'drizzle-orm';
 import { refreshSchedule, type ScheduledSource } from '@/lib/application/ingestion';
 import { db, schema } from '@/lib/infrastructure/postgres/client';
 import { ref } from '@/lib/application/administration/column-ref';
@@ -407,4 +407,34 @@ export async function publicLibraryHeading(
     .where(and(ROUTABLE, eq(schema.library.publicId, publicId)))
     .limit(1);
   return row ?? null;
+}
+
+/** A routable library's address and the date its content last changed. */
+export interface PublicLibraryLocation {
+  publicId: string;
+  updatedAt: string | null;
+}
+
+/**
+ * Every routable library, for the sitemap (app/sitemap.ts): the same
+ * predicate the directory and retrieval admit, so a crawler is sent exactly
+ * where a visitor can go and a withdrawn or unpublished library drops out
+ * on the next build of the file. Ordered by id so two builds of the file
+ * list the same rows in the same order; capped at the size of one sitemap.
+ */
+export async function listPublicLibraryLocations(): Promise<PublicLibraryLocation[]> {
+  const rows = await db()
+    .select({
+      publicId: schema.library.publicId,
+      lastSuccessfulRefreshAt: schema.library.lastSuccessfulRefreshAt,
+      createdAt: schema.library.createdAt,
+    })
+    .from(schema.library)
+    .where(ROUTABLE)
+    .orderBy(asc(schema.library.publicId))
+    .limit(50_000);
+  return rows.map((row) => ({
+    publicId: row.publicId,
+    updatedAt: (row.lastSuccessfulRefreshAt ?? row.createdAt)?.toISOString() ?? null,
+  }));
 }

@@ -14,12 +14,14 @@ export {
 export {
   countPublicLibraries,
   listPublicLibraries,
+  listPublicLibraryLocations,
   publicLibraryDetail,
   publicLibraryHeading,
   CATALOG_PAGE_SIZE,
   POPULARITY_WINDOW_DAYS,
   type CatalogEntry,
   type PublicLibraryDetail,
+  type PublicLibraryLocation,
   type PublicLibrarySource,
   type PublicLibraryVersion,
 } from './catalog';

@@ -3,6 +3,7 @@ import { cache } from 'react';
 import Link from 'next/link';
 import { notFound } from 'next/navigation';
 import { Button, Card, Chip } from '@/components/ui/primitives';
+import { JsonLd } from '@/components/seo/json-ld';
 import { publicClaimStatus } from '@/lib/application/claims';
 import { POPULARITY_WINDOW_DAYS, publicLibraryDetail } from '@/lib/application/libraries';
 import { API_KEY_PLACEHOLDER } from '@/lib/dashboard/snippets';
@@ -30,8 +31,12 @@ const libraryDetail = cache(publicLibraryDetail);
 export async function generateMetadata({ params }: Params): Promise<Metadata> {
   const [{ libraryId }, t] = await Promise.all([params, getMessages()]);
   const entry = await libraryDetail(`/${libraryId.join('/')}`);
-  if (!entry) return { title: t.library.fallbackTitle };
-  return { title: entry.title, description: entry.description ?? undefined };
+  if (!entry) return { title: t.library.fallbackTitle, robots: { index: false } };
+  return {
+    title: entry.title,
+    description: entry.description ?? undefined,
+    alternates: { canonical: `/libraries${entry.publicId}` },
+  };
 }
 
 function Stat({ label, value, note }: { label: string; value: string; note: string }) {
@@ -132,8 +137,19 @@ export default async function LibraryDetailPage({ params }: Params) {
   const claim = entry.claimedBy ? await publicClaimStatus(entry.publicId) : null;
   const claimedAt = claim?.claimedAt ? date.format(claim.claimedAt) : null;
 
+  /* The trail a search result shows under the page's title, in the words the page's own breadcrumb uses. */
+  const breadcrumbs = {
+    '@context': 'https://schema.org',
+    '@type': 'BreadcrumbList',
+    itemListElement: [
+      { '@type': 'ListItem', position: 1, name: l.breadcrumb, item: publicUrl('/libraries') },
+      { '@type': 'ListItem', position: 2, name: entry.title, item: publicUrl(`/libraries${entry.publicId}`) },
+    ],
+  };
+
   return (
     <section className="mx-auto w-full max-w-[1200px] px-5 pt-7 pb-14">
+      <JsonLd data={breadcrumbs} />
       <nav className="flex items-center gap-2 text-[12px] text-muted">
         <Link href="/libraries" className="hover:text-ink">
           {l.breadcrumb}

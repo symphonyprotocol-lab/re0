@@ -27,6 +27,9 @@ export const LOCALE_COOKIE_MAX_AGE = 365 * 24 * 60 * 60;
 /** `lang` attribute for `<html>`; distinct from the cookie value. */
 export const HTML_LANG: Record<Locale, string> = { zh: 'zh-CN', en: 'en' };
 
+/** `og:locale`, which wants the underscore form. */
+export const OG_LOCALE: Record<Locale, string> = { zh: 'zh_CN', en: 'en_US' };
+
 /** How each language names itself, for the switcher. */
 export const LOCALE_LABEL: Record<Locale, string> = { zh: '中文', en: 'English' };
 
