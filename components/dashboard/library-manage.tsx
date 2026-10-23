@@ -3,6 +3,7 @@
 import { useRouter } from 'next/navigation';
 import { useActionState, useEffect, useId, useState } from 'react';
 import { DeleteLibraryControl, type DeleteLibraryAction, type DeleteLibraryTarget } from '@/components/dashboard/library-delete';
+import { startNavigationProgress } from '@/components/dashboard/navigation-progress';
 import { PANEL } from '@/components/dashboard/ui';
 import { BanIcon, CheckIcon, CircleCheckIcon, CircleXIcon, SpinnerIcon } from '@/components/ui/icons';
 import type {
@@ -225,7 +226,10 @@ export function DetailDeleteControl({
       action={action}
       target={target}
       variant="button"
-      onDeleted={() => router.push('/dashboard/libraries')}
+      onDeleted={() => {
+        startNavigationProgress();
+        router.push('/dashboard/libraries');
+      }}
     />
   );
 }

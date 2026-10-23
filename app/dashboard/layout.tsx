@@ -1,6 +1,7 @@
 import type { Metadata } from 'next';
 import type { ReactNode } from 'react';
 import { DashboardHeader } from '@/components/dashboard/header';
+import { NavigationProgress } from '@/components/dashboard/navigation-progress';
 import { DashboardSidebar } from '@/components/dashboard/sidebar';
 import { countNewLeads } from '@/lib/application/showcase';
 import { workspaceUsage } from '@/lib/http/dashboard';
@@ -42,6 +43,7 @@ export default async function DashboardLayout({ children }: { children: ReactNod
   return (
     <LocaleProvider locale={locale} messages={t}>
       <div className="product-surface dashboard-wash flex min-h-screen flex-col">
+        <NavigationProgress />
         <DashboardHeader workspaceName={workspace.name} workspaceInitial={workspace.initial} />
         <div className="flex-1">
           <div className="mx-auto flex w-full max-w-[1200px] flex-col items-start gap-7 px-5 pt-[34px] pb-16 lg:flex-row">

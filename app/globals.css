@@ -419,3 +419,12 @@ html[data-theme='dark']:has(.site-surface) {
 .dashboard-wash {
   background-color: var(--color-surface);
 }
+
+/* The dashboard's navigation bar (components/dashboard/navigation-progress.tsx):
+   quick at first, then creeping, never reaching the end until the page lands. */
+@keyframes nav-progress {
+  from { width: 8%; }
+  20% { width: 45%; }
+  60% { width: 75%; }
+  to { width: 92%; }
+}

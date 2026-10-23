@@ -9,6 +9,7 @@ import { ReviewPipeline } from '@/components/dashboard/library-manage';
 import { RebuildLibraryControl, type RebuildLibraryAction } from '@/components/dashboard/library-rebuild';
 import type { BuildQuote } from '@/lib/application/plans/build-quota';
 import { Badge, PANEL, SearchField, StatusLabel, type StatusTone } from '@/components/dashboard/ui';
+import { LinkPending } from '@/components/dashboard/link-pending';
 import { ArrowRightIcon, FileTextIcon } from '@/components/ui/icons';
 import type { ReviewPipelineEntry } from '@/lib/domain/library';
 import { useI18n } from '@/lib/i18n/client';
@@ -236,7 +237,9 @@ export function LibraryList({
 
                 <span className="text-[12px] text-muted">{library.updated}</span>
 
-                <ArrowRightIcon size={14} className="text-muted" />
+                <LinkPending size={14} className="text-brandink">
+                  <ArrowRightIcon size={14} className="text-muted" />
+                </LinkPending>
               </>
             );
             /* Room on the right for the controls, which sit beside the row
