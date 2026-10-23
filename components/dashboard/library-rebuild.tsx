@@ -1,7 +1,7 @@
 'use client';
 
 import { useRouter } from 'next/navigation';
-import { useActionState, useEffect, useMemo, useState } from 'react';
+import { useActionState, useEffect, useMemo, useRef, useState } from 'react';
 import { CircleCheckIcon, CircleXIcon, RefreshIcon, SpinnerIcon } from '@/components/ui/icons';
 import { PRIMARY, SECONDARY } from '@/components/dashboard/library-manage';
 import type { RebuildLibraryActionResult } from '@/app/dashboard/libraries/[libraryId]/actions';
@@ -121,6 +121,12 @@ export function RebuildLibraryButton({
  * icon opens the cost under the row; confirming there queues the build, and
  * the one-line result replaces it -- requirement.md 5.2 asks for a definite
  * result, not a ceremony, so there is no dialog.
+ *
+ * The card is fixed to the viewport rather than absolute to the row: the list
+ * sits inside an `overflow-x-auto` scroller (and a clipped panel), and an
+ * absolute card hanging below the last row was cut off at the panel's edge.
+ * It is anchored to the icon's bottom-right on open and follows it through
+ * scrolls and resizes, so it reads as the same popover without the clipping.
  */
 export function RebuildLibraryControl({
   libraryId,
@@ -154,9 +160,40 @@ export function RebuildLibraryControl({
         : m.refreshFailed
     : null;
 
+  /* Where the card goes: just under the icon, flush with its right edge,
+     never closer than 16px to the viewport's edge. Recomputed on every
+     scroll (captured, so the list's own scroller counts) and resize while
+     something is showing; hidden until the first measurement lands. */
+  const anchor = useRef<HTMLButtonElement>(null);
+  const floating = confirming || message !== null;
+  const [place, setPlace] = useState<{ top: number; right: number } | null>(null);
+  useEffect(() => {
+    if (!floating) {
+      setPlace(null);
+      return;
+    }
+    const update = () => {
+      const rect = anchor.current?.getBoundingClientRect();
+      if (!rect) return;
+      setPlace({
+        top: rect.bottom + 4,
+        right: Math.max(16, document.documentElement.clientWidth - rect.right),
+      });
+    };
+    update();
+    window.addEventListener('scroll', update, true);
+    window.addEventListener('resize', update);
+    return () => {
+      window.removeEventListener('scroll', update, true);
+      window.removeEventListener('resize', update);
+    };
+  }, [floating]);
+  const floatStyle = place ? { top: place.top, right: place.right } : { visibility: 'hidden' as const };
+
   return (
-    <div className="relative flex items-center">
+    <div className="flex items-center">
       <button
+        ref={anchor}
         type="button"
         aria-label={m.refresh}
         title={m.refresh}
@@ -170,7 +207,8 @@ export function RebuildLibraryControl({
       {confirming ? (
         <form
           action={formAction}
-          className="absolute top-full right-0 z-20 mt-1 flex w-[320px] max-w-[calc(100vw-32px)] flex-col gap-2.5 rounded-md border border-line bg-card p-3 shadow-md"
+          style={floatStyle}
+          className="fixed z-20 flex w-[320px] max-w-[calc(100vw-32px)] flex-col gap-2.5 rounded-md border border-line bg-card p-3 shadow-md"
         >
           <input type="hidden" name="libraryId" value={libraryId} />
           <BuildCostNotice quote={quote} />
@@ -187,7 +225,8 @@ export function RebuildLibraryControl({
       ) : message ? (
         <span
           role="status"
-          className={`absolute top-full right-0 z-10 mt-1 flex w-max max-w-[240px] items-start gap-1.5 rounded-md border border-line bg-card px-2 py-1.5 text-left text-[10.5px] leading-[1.45] shadow-md ${
+          style={floatStyle}
+          className={`fixed z-10 flex w-max max-w-[240px] items-start gap-1.5 rounded-md border border-line bg-card px-2 py-1.5 text-left text-[10.5px] leading-[1.45] shadow-md ${
             state?.ok ? 'text-brandink' : 'text-rose'
           }`}
         >

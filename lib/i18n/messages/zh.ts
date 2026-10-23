@@ -1180,6 +1180,9 @@ export const zh = {
           expected: '平台审核由规则与模型自动完成，通常数分钟内；模型暂不可用时排队重试。退回后可申诉一次，申诉由人工处理。',
           feedback: '审核反馈：{note}',
           noFeedback: '暂无审核反馈。',
+          /** 提交材料这一步归所有者：轮到它时说明，并给出入口。 */
+          materialsHint: '轮到你了：补齐权利声明和自检题集，确认提交后进入平台审核。',
+          materialsLink: '去填写材料',
           /** requirement.md 7.4 的五条审核项，审核员逐条给出的结论。 */
           checks: {
             source_firsthand: '权利声明与来源',

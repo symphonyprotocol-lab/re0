@@ -1221,6 +1221,9 @@ export const en: Dictionary = {
           expected: 'Platform review is done by the rules and a model, usually within minutes; when the model is unavailable it is queued for a retry. A send-back can be appealed once, and a person answers the appeal.',
           feedback: 'Reviewer feedback: {note}',
           noFeedback: 'No reviewer feedback yet.',
+          /** The materials step is the owner's: said when it is the active one, with a way there. */
+          materialsHint: 'Your turn: complete the rights declaration and the self-check questions, then confirm to enter platform review.',
+          materialsLink: 'Fill in the materials',
           /** requirement.md 7.4's five checks, with the reviewer's verdict on each. */
           checks: {
             source_firsthand: 'Rights and source',
