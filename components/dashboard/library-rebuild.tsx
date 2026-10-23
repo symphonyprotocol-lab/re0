@@ -52,22 +52,57 @@ function BuildCostNotice({ quote }: { quote: BuildQuote }) {
   );
 }
 
-/** The detail page's Rebuild button: a click opens the cost, a second one queues. */
-export function RebuildLibraryButton({
-  libraryId,
-  action,
-  quote,
-  disabled = false,
-}: {
+/**
+ * The detail page's Rebuild button and the list's per-row refresh icon: the
+ * same action, the same floating card. A click opens the cost under the
+ * trigger; confirming there queues the build, and a one-line result takes
+ * the card's place -- requirement.md 5.2 asks for a definite result, not a
+ * ceremony, so there is no dialog. Escape or a click outside closes it.
+ *
+ * The card is fixed to the viewport rather than absolute to the trigger: the
+ * list sits inside an `overflow-x-auto` scroller (and a clipped panel), and an
+ * absolute card hanging below the last row was cut off at the panel's edge;
+ * on the detail page an inline card pushed the header apart. It is anchored
+ * to the trigger's bottom-right on open and follows it through scrolls and
+ * resizes, so it reads as one popover wherever it opens.
+ */
+export function RebuildLibraryButton(props: RebuildControlProps) {
+  return <RebuildPopover {...props} variant="button" />;
+}
+
+export function RebuildLibraryControl(props: RebuildControlProps) {
+  return <RebuildPopover {...props} variant="icon" />;
+}
+
+interface RebuildControlProps {
   libraryId: string;
   action: RebuildLibraryAction;
   quote: BuildQuote;
   disabled?: boolean;
-}) {
+}
+
+function RebuildPopover({
+  libraryId,
+  action,
+  quote,
+  disabled = false,
+  variant,
+}: RebuildControlProps & { variant: 'button' | 'icon' }) {
   const { t } = useI18n();
-  const a = t.dashboard.libraryDetail.actions;
+  /* The detail page and the list word the same outcome for where each stands. */
+  const copy =
+    variant === 'button'
+      ? (() => {
+          const a = t.dashboard.libraryDetail.actions;
+          return { label: a.rebuild, cancel: a.rebuildCancel, confirm: a.rebuildConfirm, working: a.rebuilding, queued: a.rebuildQueued, quota: a.rebuildQuota, failed: a.rebuildFailed };
+        })()
+      : (() => {
+          const m = t.dashboard.libraries.manage;
+          return { label: m.refresh, cancel: m.refreshCancel, confirm: m.refreshConfirm, working: m.refreshing, queued: m.refreshQueued, quota: m.refreshQuota, failed: m.refreshFailed };
+        })();
   const [state, formAction, pending] = useActionState(action, null);
   const [confirming, setConfirming] = useState(false);
+  const [dismissed, setDismissed] = useState(false);
   const router = useRouter();
 
   /* The run starts after the response; pull the page again so the banner
@@ -77,94 +112,17 @@ export function RebuildLibraryButton({
       setConfirming(false);
       router.refresh();
     }
+    setDismissed(false);
   }, [state, router]);
 
-  return (
-    <div className="flex flex-col items-end gap-1.5">
-      {confirming ? (
-        <form action={formAction} className="flex w-[340px] max-w-full flex-col gap-2.5 rounded-md border border-line bg-subtle p-3">
-          <input type="hidden" name="libraryId" value={libraryId} />
-          <BuildCostNotice quote={quote} />
-          <span className="flex justify-end gap-2">
-            <button type="button" onClick={() => setConfirming(false)} disabled={pending} className={SECONDARY}>
-              {a.rebuildCancel}
-            </button>
-            <button type="submit" disabled={pending || !quote.affordable} className={PRIMARY}>
-              {pending ? <SpinnerIcon size={14} className="motion-safe:animate-spin" /> : <RefreshIcon size={14} />}
-              {pending ? a.rebuilding : a.rebuildConfirm}
-            </button>
-          </span>
-        </form>
-      ) : (
-        <button type="button" onClick={() => setConfirming(true)} disabled={disabled} className={SECONDARY}>
-          <RefreshIcon size={14} />
-          {a.rebuild}
-        </button>
-      )}
-      {state ? (
-        <span
-          role="status"
-          className={`max-w-[340px] text-right text-[11px] leading-[1.5] ${
-            state.ok ? 'text-brandink' : 'text-rose'
-          }`}
-        >
-          {state.ok ? a.rebuildQueued : state.error === 'quota' ? a.rebuildQuota : a.rebuildFailed}
-        </span>
-      ) : null}
-    </div>
-  );
-}
+  const message = state && !dismissed ? (state.ok ? copy.queued : state.error === 'quota' ? copy.quota : copy.failed) : null;
 
-/**
- * The list's per-row refresh: the same action as the detail page's Rebuild
- * button, drawn as an icon beside the row (next to files and delete). The
- * icon opens the cost under the row; confirming there queues the build, and
- * the one-line result replaces it -- requirement.md 5.2 asks for a definite
- * result, not a ceremony, so there is no dialog.
- *
- * The card is fixed to the viewport rather than absolute to the row: the list
- * sits inside an `overflow-x-auto` scroller (and a clipped panel), and an
- * absolute card hanging below the last row was cut off at the panel's edge.
- * It is anchored to the icon's bottom-right on open and follows it through
- * scrolls and resizes, so it reads as the same popover without the clipping.
- */
-export function RebuildLibraryControl({
-  libraryId,
-  action,
-  quote,
-  disabled = false,
-}: {
-  libraryId: string;
-  action: RebuildLibraryAction;
-  quote: BuildQuote;
-  disabled?: boolean;
-}) {
-  const { t } = useI18n();
-  const m = t.dashboard.libraries.manage;
-  const [state, formAction, pending] = useActionState(action, null);
-  const [confirming, setConfirming] = useState(false);
-  const router = useRouter();
-
-  useEffect(() => {
-    if (state?.ok) {
-      setConfirming(false);
-      router.refresh();
-    }
-  }, [state, router]);
-
-  const message = state
-    ? state.ok
-      ? m.refreshQueued
-      : state.error === 'quota'
-        ? m.refreshQuota
-        : m.refreshFailed
-    : null;
-
-  /* Where the card goes: just under the icon, flush with its right edge,
+  /* Where the card goes: just under the trigger, flush with its right edge,
      never closer than 16px to the viewport's edge. Recomputed on every
      scroll (captured, so the list's own scroller counts) and resize while
      something is showing; hidden until the first measurement lands. */
   const anchor = useRef<HTMLButtonElement>(null);
+  const card = useRef<HTMLElement | null>(null);
   const floating = confirming || message !== null;
   const [place, setPlace] = useState<{ top: number; right: number } | null>(null);
   useEffect(() => {
@@ -176,57 +134,101 @@ export function RebuildLibraryControl({
       const rect = anchor.current?.getBoundingClientRect();
       if (!rect) return;
       setPlace({
-        top: rect.bottom + 4,
+        top: rect.bottom + 6,
         right: Math.max(16, document.documentElement.clientWidth - rect.right),
       });
+    };
+    const close = () => {
+      if (pending) return;
+      setConfirming(false);
+      setDismissed(true);
+    };
+    const onKey = (event: KeyboardEvent) => {
+      if (event.key === 'Escape') close();
+    };
+    const onPointer = (event: PointerEvent) => {
+      const target = event.target as Node;
+      if (card.current?.contains(target) || anchor.current?.contains(target)) return;
+      close();
     };
     update();
     window.addEventListener('scroll', update, true);
     window.addEventListener('resize', update);
+    document.addEventListener('keydown', onKey);
+    document.addEventListener('pointerdown', onPointer);
     return () => {
       window.removeEventListener('scroll', update, true);
       window.removeEventListener('resize', update);
+      document.removeEventListener('keydown', onKey);
+      document.removeEventListener('pointerdown', onPointer);
     };
-  }, [floating]);
+  }, [floating, pending]);
   const floatStyle = place ? { top: place.top, right: place.right } : { visibility: 'hidden' as const };
+
+  const toggle = () => {
+    setDismissed(true);
+    setConfirming((open) => !open);
+  };
 
   return (
     <div className="flex items-center">
-      <button
-        ref={anchor}
-        type="button"
-        aria-label={m.refresh}
-        title={m.refresh}
-        aria-expanded={confirming}
-        onClick={() => setConfirming((open) => !open)}
-        disabled={disabled || pending}
-        className="inline-flex size-[30px] shrink-0 items-center justify-center rounded-md border border-line bg-card text-muted transition-colors hover:bg-subtle hover:text-ink disabled:opacity-40"
-      >
-        {pending ? <SpinnerIcon size={14} className="motion-safe:animate-spin" /> : <RefreshIcon size={14} />}
-      </button>
+      {variant === 'button' ? (
+        <button
+          ref={anchor}
+          type="button"
+          aria-expanded={confirming}
+          onClick={toggle}
+          disabled={disabled || pending}
+          className={`${SECONDARY} ${confirming ? 'border-brand/50 bg-brandsoft text-brandink' : ''}`}
+        >
+          {pending ? <SpinnerIcon size={14} className="motion-safe:animate-spin" /> : <RefreshIcon size={14} />}
+          {copy.label}
+        </button>
+      ) : (
+        <button
+          ref={anchor}
+          type="button"
+          aria-label={copy.label}
+          title={copy.label}
+          aria-expanded={confirming}
+          onClick={toggle}
+          disabled={disabled || pending}
+          className={`inline-flex size-[30px] shrink-0 items-center justify-center rounded-md border transition-colors disabled:opacity-40 ${
+            confirming ? 'border-brand/50 bg-brandsoft text-brandink' : 'border-line bg-card text-muted hover:bg-subtle hover:text-ink'
+          }`}
+        >
+          {pending ? <SpinnerIcon size={14} className="motion-safe:animate-spin" /> : <RefreshIcon size={14} />}
+        </button>
+      )}
       {confirming ? (
         <form
+          ref={(node) => {
+            card.current = node;
+          }}
           action={formAction}
           style={floatStyle}
-          className="fixed z-20 flex w-[320px] max-w-[calc(100vw-32px)] flex-col gap-2.5 rounded-md border border-line bg-card p-3 shadow-md"
+          className="fixed z-30 flex w-[320px] max-w-[calc(100vw-32px)] flex-col gap-2.5 rounded-md border border-line bg-card p-3 shadow-md motion-safe:animate-[popover-in_120ms_ease-out]"
         >
           <input type="hidden" name="libraryId" value={libraryId} />
           <BuildCostNotice quote={quote} />
           <span className="flex justify-end gap-2">
             <button type="button" onClick={() => setConfirming(false)} disabled={pending} className={SECONDARY}>
-              {m.refreshCancel}
+              {copy.cancel}
             </button>
             <button type="submit" disabled={pending || !quote.affordable} className={PRIMARY}>
               {pending ? <SpinnerIcon size={14} className="motion-safe:animate-spin" /> : <RefreshIcon size={14} />}
-              {pending ? m.refreshing : m.refreshConfirm}
+              {pending ? copy.working : copy.confirm}
             </button>
           </span>
         </form>
       ) : message ? (
         <span
+          ref={(node) => {
+            card.current = node;
+          }}
           role="status"
           style={floatStyle}
-          className={`fixed z-10 flex w-max max-w-[240px] items-start gap-1.5 rounded-md border border-line bg-card px-2 py-1.5 text-left text-[10.5px] leading-[1.45] shadow-md ${
+          className={`fixed z-30 flex w-max max-w-[280px] items-start gap-1.5 rounded-md border border-line bg-card px-2.5 py-2 text-left text-[11px] leading-[1.45] shadow-md motion-safe:animate-[popover-in_120ms_ease-out] ${
             state?.ok ? 'text-brandink' : 'text-rose'
           }`}
         >
