@@ -1083,8 +1083,9 @@ export const zh = {
         no_license: 'GitHub 仓库没有许可证文件，且声明里未选「明确授权」。',
         rights_missing: '缺少权利声明。',
         rights_generated: '声明为主体由模型生成的内容，不能作为公开知识库。',
-        too_few_questions: '自检问题不足 5 个。',
+        too_few_questions: '自检问题不足 5 个（2026-10-23 前的要求）。',
         auto_publish_off: '平台已关闭规则层自动发布，交由模型审核。',
+        no_questions: '没有提供自检问题，规则层无从据以发布，交由模型审核。',
         source_unverified: '来源无法机器验证（上传文件或 Notion），按当时的规则留给模型层与人工。',
         flagged_files: '扫描标记了部分文件，交由模型审核。',
         trust_low: 'Trust Score 低于自动发布线，交由模型审核。',
@@ -1172,7 +1173,7 @@ export const zh = {
             rights: '确认发布权利和来源透明度',
             parse: '检查链接、文件与文档结构',
             safety: '评估完整性、适用边界和风险',
-            materials: '补齐权利声明和自检题集，确认提交',
+            materials: '补齐权利声明，确认提交',
             review: '规则与模型自动审核，通常数分钟内完成',
             publish: '生成不可变版本并开放检索',
           },
@@ -1181,7 +1182,7 @@ export const zh = {
           feedback: '审核反馈：{note}',
           noFeedback: '暂无审核反馈。',
           /** 提交材料这一步归所有者：轮到它时说明，并给出入口。 */
-          materialsHint: '轮到你了：补齐权利声明和自检题集，确认提交后进入平台审核。',
+          materialsHint: '轮到你了：补齐权利声明，确认提交后进入平台审核。',
           materialsLink: '去填写材料',
           /** requirement.md 7.4 的五条审核项，审核员逐条给出的结论。 */
           checks: {
@@ -1251,7 +1252,7 @@ export const zh = {
         reviewTitle: '等待平台审核',
         reviewBody: '版本已索引，公开知识库通过平台审核后才能被检索；审核由规则与模型自动完成，通常数分钟内。',
         awaitingTitle: '已构建，等待提交审核',
-        awaitingBody: '版本已索引。补齐下方「提交材料」里的权利声明和自检题集，再确认提交，进入平台审核。',
+        awaitingBody: '版本已索引。补齐下方「提交材料」里的权利声明，再确认提交，进入平台审核。',
         awaitingReadyBody: '版本已索引，材料齐全。在下方「提交材料」里确认提交，进入平台审核。',
         changesTitle: '审核要求修改',
         changesBody: '审核反馈：{note}。按反馈调整来源、文件或材料，需要时重新构建，然后在「提交材料」里重新提交。',
@@ -1361,14 +1362,13 @@ export const zh = {
       /** 提交材料面板。review-visibility-proposal.md 5。 */
       materials: {
         title: '提交材料',
-        descriptionPublic: '公开知识库进入审核队列前要带两样东西：权利声明和至少 5 个自检问题。审核员先读它们，再读内容。',
+        descriptionPublic: '公开知识库进入审核队列前要带权利声明，审核员先读它，再读内容。自检题集在这里是可选项，只有申请专家库时才要求。',
         descriptionPrivate: '私有知识库不需要这些；现在准备好，之后改为公开时就能直接提交。',
         ready: '材料齐全，索引就绪后即可提交审核。',
         readySubmit: '材料齐全。确认提交后进入平台审核。',
         blockers: {
           rights: '还没有权利声明。',
           rights_generated: '声明为主体由模型生成的内容，不能作为公开知识库。',
-          questions: '自检问题还差：至少 {min} 个，现在 {n} 个。',
         },
         rightsTitle: '权利声明',
         rightsHint: '来源归属、许可和撰写方式，由你负责；审核员会核对。',
@@ -1377,7 +1377,7 @@ export const zh = {
         rightsNone: '所有者还没有声明。',
         cancel: '取消',
         questionsTitle: '自检题集',
-        questionsHint: '访客可能会问的问题，各配一个答案位置（来源 URL 或文档标题的片段、正文应包含的文字，至少一项）。至少 {min} 个，整个知识库最多 {max} 个。新加的问题会立刻单独试检索一次，之后每次构建再整套重跑，结果显示在这里；你写的问题不计入 Benchmark，审核员采纳后才计分。',
+        questionsHint: '发布不要求题集；申请专家库时题集须达到「专家库」标签页所示门槛。访客可能会问的问题，各配一个答案位置（来源 URL 或文档标题的片段、正文应包含的文字，至少一项），整个知识库最多 {max} 个。新加的问题会立刻单独试检索一次，之后每次构建再整套重跑，结果显示在这里；你写的问题不计入 Benchmark，审核员采纳后才计分。',
         questionsEmpty: '还没有问题。',
         questionPlaceholder: '问题，例：Free 套餐每月能访问多少次？',
         expectedSource: '答案所在来源',
@@ -3314,7 +3314,7 @@ export const zh = {
           questionsValue: '共 {total} 题，其中所有者 {owner} 题',
           readiness: '提交条件',
           ready: '齐全',
-          blockers: { rights: '缺权利声明', rights_generated: '声明为模型生成', questions: '题数不足' },
+          blockers: { rights: '缺权利声明', rights_generated: '声明为模型生成' },
         },
         /** 审核员看得见的内容。review-visibility-proposal.md 4。 */
         scores: {

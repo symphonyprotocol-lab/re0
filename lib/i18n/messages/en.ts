@@ -1122,8 +1122,9 @@ export const en: Dictionary = {
         no_license: 'The GitHub repository has no licence file and the declaration does not claim an explicit permission.',
         rights_missing: 'No rights declaration.',
         rights_generated: 'Declared as mostly model-generated, which is not accepted as a public library.',
-        too_few_questions: 'Fewer than 5 self-check questions.',
+        too_few_questions: 'Fewer than 5 self-check questions (a requirement until 2026-10-23).',
         auto_publish_off: 'Rules-layer auto-publish is switched off; passed to the model.',
+        no_questions: 'No self-check questions were provided, so the rules have nothing to publish on; passed to the model.',
         source_unverified: 'The source cannot be verified by machine (uploaded files or Notion); left for the model layer and a reviewer under the rules of the time.',
         flagged_files: 'The scan flagged some files; passed to the model.',
         trust_low: 'The Trust Score is below the auto-publish floor; passed to the model.',
@@ -1213,7 +1214,7 @@ export const en: Dictionary = {
             rights: 'Confirm publishing rights and source transparency',
             parse: 'Check links, files and document structure',
             safety: 'Assess completeness, boundaries and risk',
-            materials: 'Complete the rights declaration and the self-check questions, then confirm',
+            materials: 'Complete the rights declaration, then confirm',
             review: 'Rules and a model, automatically; usually minutes',
             publish: 'Produce an immutable version and open it to retrieval',
           },
@@ -1222,7 +1223,7 @@ export const en: Dictionary = {
           feedback: 'Reviewer feedback: {note}',
           noFeedback: 'No reviewer feedback yet.',
           /** The materials step is the owner's: said when it is the active one, with a way there. */
-          materialsHint: 'Your turn: complete the rights declaration and the self-check questions, then confirm to enter platform review.',
+          materialsHint: 'Your turn: complete the rights declaration, then confirm to enter platform review.',
           materialsLink: 'Fill in the materials',
           /** requirement.md 7.4's five checks, with the reviewer's verdict on each. */
           checks: {
@@ -1294,7 +1295,7 @@ export const en: Dictionary = {
         reviewBody:
           'The version is indexed. A public library is retrievable once the platform review passes; the rules and a model do it, usually within minutes.',
         awaitingTitle: 'Built, awaiting your submission',
-        awaitingBody: 'The version is indexed. Complete the rights declaration and the self-check questions under Submission materials below, then confirm to enter platform review.',
+        awaitingBody: 'The version is indexed. Complete the rights declaration under Submission materials below, then confirm to enter platform review.',
         awaitingReadyBody: 'The version is indexed and the materials are complete. Confirm under Submission materials below to enter platform review.',
         changesTitle: 'Changes requested',
         changesBody:
@@ -1405,14 +1406,13 @@ export const en: Dictionary = {
       /** The submission-materials panel. review-visibility-proposal.md 5. */
       materials: {
         title: 'Submission materials',
-        descriptionPublic: 'A public library brings two things to the review queue: a rights declaration and at least 5 self-check questions. The reviewer reads them before the content.',
+        descriptionPublic: 'A public library brings a rights declaration to the review queue; the reviewer reads it before the content. Self-check questions are optional here and required only to apply for an expert library.',
         descriptionPrivate: 'A private library needs neither; preparing them now lets it submit the moment it goes public.',
         ready: 'Materials complete; it can be submitted once the index is ready.',
         readySubmit: 'Materials complete. Confirm to enter platform review.',
         blockers: {
           rights: 'No rights declaration yet.',
           rights_generated: 'Declared as mostly model-generated, which is not accepted as a public library.',
-          questions: 'Self-check questions missing: at least {min} needed, {n} so far.',
         },
         rightsTitle: 'Rights declaration',
         rightsHint: 'Source ownership, licence and how it was written; yours to declare, the reviewer’s to check.',
@@ -1421,7 +1421,7 @@ export const en: Dictionary = {
         rightsNone: 'The owner has not declared yet.',
         cancel: 'Cancel',
         questionsTitle: 'Self-check questions',
-        questionsHint: 'Questions a visitor might ask, each with where the answer is (a fragment of the source URL or document title, text the passage must contain, at least one). At least {min}; the library holds {max} at most. A new question is tried at once on its own, every build asks the whole set again, and the result shows here; your questions do not move the Benchmark until a reviewer adopts them.',
+        questionsHint: 'Optional for publishing; an expert-library application needs a set that meets the threshold shown on the Expert tab. Questions a visitor might ask, each with where the answer is (a fragment of the source URL or document title, text the passage must contain, at least one); the library holds {max} at most. A new question is tried at once on its own, every build asks the whole set again, and the result shows here; your questions do not move the Benchmark until a reviewer adopts them.',
         questionsEmpty: 'No questions yet.',
         questionPlaceholder: 'Question, e.g. How many visits does the Free plan allow a month?',
         expectedSource: 'Answer source',
@@ -3421,7 +3421,7 @@ export const en: Dictionary = {
           questionsValue: '{total} questions, {owner} by the owner',
           readiness: 'Submission',
           ready: 'Complete',
-          blockers: { rights: 'No declaration', rights_generated: 'Declared model-generated', questions: 'Too few questions' },
+          blockers: { rights: 'No declaration', rights_generated: 'Declared model-generated' },
         },
         /** What the reviewer may read. review-visibility-proposal.md 4. */
         scores: {

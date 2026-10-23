@@ -443,9 +443,9 @@ export default async function DashboardLibraryPage({
                 </dl>
 
                 {/* What a public submission brings (review-visibility-proposal.md 5): the
-                    rights declaration and the self-check questions, and the confirmation
-                    that hands the library to the platform's review. Shown for a private
-                    library too, so declaring and asking happen before it goes public. */}
+                    rights declaration, the optional self-check questions, and the
+                    confirmation that hands the library to the platform's review. Shown for
+                    a private library too, so declaring happens before it goes public. */}
                 {library.lifecycleStatus !== 'archived' ? (
                   <LibraryMaterialsPanel
                     libraryId={library.id}

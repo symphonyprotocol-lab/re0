@@ -684,15 +684,16 @@ export function lifecycleAfterBuild(input: {
 
 /**
  * What a public submission has to bring (review-visibility-proposal.md 5):
- * a rights declaration that permits a public library (lib/domain/rights.ts),
- * and enough questions for the reviewer to check the library by. The
- * questions are counted whoever wrote them, so a reviewer adopting an
- * owner's question into the scored set does not pull the library back
- * under the line.
+ * a rights declaration that permits a public library (lib/domain/rights.ts).
+ *
+ * The self-check question set is no longer part of it (2026-10-23). A
+ * public library may bring one -- the rules layer publishes a verified
+ * source on its hit rate, and the model layer reads it -- but a library
+ * without one is not kept out of the queue. The set is required only of
+ * an expert-library application, whose own gate counts it
+ * (lib/domain/expert-library.ts `expertEvalReady`).
  */
-export const SUBMISSION_MIN_QUESTIONS = 5;
-
-export const SUBMISSION_BLOCKERS = ['rights', 'rights_generated', 'questions'] as const;
+export const SUBMISSION_BLOCKERS = ['rights', 'rights_generated'] as const;
 
 export type SubmissionBlocker = (typeof SUBMISSION_BLOCKERS)[number];
 
@@ -700,7 +701,6 @@ export interface SubmissionMaterials {
   rightsDeclared: boolean;
   /** `rightsAllowPublic` of the declaration; irrelevant when none. */
   rightsAllowPublic: boolean;
-  questions: number;
 }
 
 /** What still stands between this library and the review queue, in the order the owner fixes them. */
@@ -708,7 +708,6 @@ export function submissionBlockers(materials: SubmissionMaterials): SubmissionBl
   const blockers: SubmissionBlocker[] = [];
   if (!materials.rightsDeclared) blockers.push('rights');
   else if (!materials.rightsAllowPublic) blockers.push('rights_generated');
-  if (materials.questions < SUBMISSION_MIN_QUESTIONS) blockers.push('questions');
   return blockers;
 }
 

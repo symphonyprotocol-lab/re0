@@ -16,11 +16,13 @@ import { fill } from '@/lib/i18n/format';
 
 /**
  * The owner's submission materials (review-visibility-proposal.md 5): the
- * rights declaration and the self-check questions a public review reads
- * first. A public library is not queued until both are in; the panel says
- * what is still missing, and the header's submit button appears when
- * nothing is. The questions are asked at every build so the owner sees how
- * theirs fare, but only the platform's own questions move the Benchmark.
+ * rights declaration a public review reads first, and the self-check
+ * questions it may bring. A public library is not queued until the
+ * declaration is in; the panel says what is still missing, and the submit
+ * button appears when nothing is. The questions are optional for publishing
+ * (2026-10-23) and required of an expert-library application; they are
+ * asked at every build so the owner sees how theirs fare, but only the
+ * platform's own questions move the Benchmark.
  */
 
 type MaterialsAction = (previous: MaterialsActionResult | null, form: FormData) => Promise<MaterialsActionResult>;
@@ -63,8 +65,7 @@ export function LibraryMaterialsPanel({
     }
   }, [declared, router]);
 
-  const blockerText = (blocker: SubmissionBlocker) =>
-    blocker === 'questions' ? fill(m.blockers.questions, { min: questions.limits.min, n: materials.questions }) : m.blockers[blocker];
+  const blockerText = (blocker: SubmissionBlocker) => m.blockers[blocker];
   const showRightsForm = canEdit && (materials.rights === null || editingRights);
 
   return (
@@ -165,7 +166,7 @@ export function LibraryMaterialsPanel({
         <div className="flex flex-col gap-0.5">
           <h3 className="text-[13px] font-medium text-ink">{m.questionsTitle}</h3>
           <p className="text-[11px] leading-[1.5] text-muted">
-            {fill(m.questionsHint, { min: questions.limits.min, max: questions.limits.max })}
+            {fill(m.questionsHint, { max: questions.limits.max })}
           </p>
         </div>
         {questions.questions.length === 0 ? (
