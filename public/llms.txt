@@ -14,30 +14,30 @@ Core product principles:
 
 ## Public pages
 
-- [Home](https://re0.com/): Product overview, MCP connection details, and featured knowledge libraries.
-- [Knowledge directory](https://re0.com/libraries): Browse and search public knowledge libraries.
-- [Online playground](https://re0.com/playground): Try retrieval against public libraries.
-- [Pricing](https://re0.com/pricing): Free, Pro, and additional-call pricing and limits.
-- [About](https://re0.com/about): Re0's purpose, principles, and product scope.
-- [Service status](https://re0.com/status): Current retrieval, indexing, refresh, and review status.
-- [Contact](https://re0.com/contact): Support, claims, partnerships, and security contacts.
-- [Legal](https://re0.com/legal): Index of the two legal documents.
-- [Terms of service](https://re0.com/legal/terms): Accounts, acceptable use, content and copyright, billing, revenue share, refund policy, and liability.
-- [Privacy notice](https://re0.com/legal/privacy): What Re0 collects, how it is used and shared, retention, cookies, and your rights.
+- [Home](https://re0.io/): Product overview, MCP connection details, and featured knowledge libraries.
+- [Knowledge directory](https://re0.io/libraries): Browse and search public knowledge libraries.
+- [Online playground](https://re0.io/playground): Try retrieval against public libraries.
+- [Pricing](https://re0.io/pricing): Free, Pro, and additional-call pricing and limits.
+- [About](https://re0.io/about): Re0's purpose, principles, and product scope.
+- [Service status](https://re0.io/status): Current retrieval, indexing, refresh, and review status.
+- [Contact](https://re0.io/contact): Support, claims, partnerships, and security contacts.
+- [Legal](https://re0.io/legal): Index of the two legal documents.
+- [Terms of service](https://re0.io/legal/terms): Accounts, acceptable use, content and copyright, billing, revenue share, refund policy, and liability.
+- [Privacy notice](https://re0.io/legal/privacy): What Re0 collects, how it is used and shared, retention, cookies, and your rights.
 
 ## Agent and developer access
 
-- [MCP endpoint](https://re0.com/mcp): Remote MCP endpoint for resolving libraries and querying documents. MCP clients should connect to this URL; it is not a human-readable documentation page.
-- [REST API](https://re0.com/api/v1): Versioned API namespace. Authentication is required for non-public or account-scoped operations.
-- [Agent Skills index](https://re0.com/.well-known/agent-skills/index.json): Machine-readable discovery for retrieval, submission, and ownership workflows.
+- [MCP endpoint](https://re0.io/mcp): Remote MCP endpoint for resolving libraries and querying documents. MCP clients should connect to this URL; it is not a human-readable documentation page.
+- [REST API](https://re0.io/api/v1): Versioned API namespace. Authentication is required for non-public or account-scoped operations.
+- [Agent Skills index](https://re0.io/.well-known/agent-skills/index.json): Machine-readable discovery for retrieval, submission, and ownership workflows.
 
-Every content page also has a compact Markdown representation: append `.md` to its path before the query string, for example `https://re0.com/libraries.md?q=next.js` or `https://re0.com/about.md`.
+Every content page also has a compact Markdown representation: append `.md` to its path before the query string, for example `https://re0.io/libraries.md?q=next.js` or `https://re0.io/about.md`.
 
 The retrieval flow has two stages: resolve a library ID, then query documents in that library. Returned context includes citations and version information. Private libraries and dashboard data require authorization and must not be crawled or inferred from public content.
 
 ## Notes for automated systems
 
-- Prefer canonical URLs on `https://re0.com`.
+- Prefer canonical URLs on `https://re0.io`.
 - Treat public library detail pages under `/libraries/` as the authoritative human-readable descriptions of those libraries.
 - Do not crawl `/dashboard`, `/admin`, `/api`, `/mcp`, `/files`, `/login`, or ownership-claim workflows.
-- See [robots.txt](https://re0.com/robots.txt) for crawler rules and [sitemap.xml](https://re0.com/sitemap.xml) for indexable top-level pages.
+- See [robots.txt](https://re0.io/robots.txt) for crawler rules and [sitemap.xml](https://re0.io/sitemap.xml) for indexable top-level pages.

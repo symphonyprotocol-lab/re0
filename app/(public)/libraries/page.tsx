@@ -13,12 +13,28 @@ import { resolveLibrary } from '@/lib/application/retrieval/resolve-library';
 import { fill } from '@/lib/i18n/format';
 import { getMessages, translations } from '@/lib/i18n/server';
 
-export async function generateMetadata(): Promise<Metadata> {
-  const { catalog: c } = await getMessages();
-  return { title: c.metaTitle, description: c.metaDescription };
-}
-
 type Search = { searchParams: Promise<{ q?: string; sort?: string; page?: string }> };
+
+/**
+ * A search result is one visitor's view of the directory, so it points a
+ * crawler at the directory and asks not to be indexed itself; a later page
+ * of the directory is a page in its own right and names itself. The sort is
+ * the same rows in another order, so neither canonical mentions it.
+ */
+export async function generateMetadata({ searchParams }: Search): Promise<Metadata> {
+  const [{ q, page }, { catalog: c }] = await Promise.all([searchParams, getMessages()]);
+  const query = (q ?? '').trim();
+  const pageNumber = Number.parseInt(page ?? '1', 10);
+  const later = !query && Number.isFinite(pageNumber) && pageNumber > 1;
+  const canonical = later ? `/libraries?page=${pageNumber}` : '/libraries';
+  return {
+    title: c.metaTitle,
+    description: c.metaDescription,
+    alternates: { canonical },
+    openGraph: { url: canonical },
+    ...(query ? { robots: { index: false, follow: true } } : {}),
+  };
+}
 
 /** `/libraries?sort=…&q=…&page=…`, with the defaults left off. */
 function directoryHref(input: { sort: 'popular' | 'recent'; query: string; page: number }): string {

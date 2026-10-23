@@ -3,6 +3,8 @@ import type { ReactNode } from 'react';
 import Link from 'next/link';
 import { PendingSubmitButton } from '@/components/ui/pending-submit-button';
 import { SectionHeading } from '@/components/ui/primitives';
+import { JsonLd } from '@/components/seo/json-ld';
+import { PUBLIC_ORIGIN, publicUrl } from '@/lib/site/origin';
 import {
   ArrowRightIcon,
   CheckIcon,
@@ -100,8 +102,29 @@ export default async function PricingPage() {
   const { pricing: p } = await getMessages();
   const plans = PLAN_FACTS.map((facts) => ({ ...facts, ...p.plans[facts.id] }));
 
+  /* The three prices as a search engine reads them: the same figures the
+     cards print, taken from the same facts, so the two cannot drift apart. */
+  const offers = {
+    '@context': 'https://schema.org',
+    '@type': 'SoftwareApplication',
+    name: 'Re0',
+    url: PUBLIC_ORIGIN,
+    applicationCategory: 'DeveloperApplication',
+    operatingSystem: 'Web',
+    description: p.metaDescription,
+    offers: plans.map((plan) => ({
+      '@type': 'Offer',
+      name: plan.name,
+      description: plan.calls,
+      price: plan.price.replace('$', ''),
+      priceCurrency: 'USD',
+      url: publicUrl('/pricing'),
+    })),
+  };
+
   return (
     <>
+      <JsonLd data={offers} />
       {/*
         * Plans and the comparison table share one tinted band. The negative
         * margin pulls it up behind the floating header capsule (54px pill plus

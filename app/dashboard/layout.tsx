@@ -1,3 +1,4 @@
+import type { Metadata } from 'next';
 import type { ReactNode } from 'react';
 import { DashboardHeader } from '@/components/dashboard/header';
 import { DashboardSidebar } from '@/components/dashboard/sidebar';
@@ -7,6 +8,9 @@ import { requireSession } from '@/lib/http/session';
 import { LocaleProvider } from '@/lib/i18n/client';
 import { fill } from '@/lib/i18n/format';
 import { translations } from '@/lib/i18n/server';
+
+/** Signed-in only; `robots.ts` keeps crawlers out and the page says so itself for any link that reaches one. */
+export const metadata: Metadata = { robots: { index: false, follow: false } };
 
 /**
  * Dashboard shell -- design source frame `E4GWD`.

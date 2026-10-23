@@ -1,4 +1,8 @@
+import type { Metadata } from 'next';
 import type { ReactNode } from 'react';
+
+/** Signed-in only; `robots.ts` keeps crawlers out and the page says so itself for any link that reaches one. */
+export const metadata: Metadata = { robots: { index: false, follow: false } };
 
 /**
  * Outermost admin surface.
