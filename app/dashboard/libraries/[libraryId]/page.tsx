@@ -373,7 +373,7 @@ export default async function DashboardLibraryPage({
           {
             id: 'overview',
             label: d.tabs.overview,
-            anchors: ['materials', 'basics', 'reviews'],
+            anchors: ['basics', 'materials', 'reviews'],
             panel: (
               <>
                 {/* Plain one-row readout, not four cards: the banner above already carries
@@ -403,21 +403,6 @@ export default async function DashboardLibraryPage({
                   ))}
                 </dl>
 
-                {/* The owner's declaration and question set (review-visibility-proposal.md 5):
-                    the rights a public library carries, and the questions an expert application
-                    is judged by. Shown for a private library too, so declaring happens before it
-                    goes public. */}
-                {library.lifecycleStatus !== 'archived' ? (
-                  <LibraryMaterialsPanel
-                    libraryId={library.id}
-                    visibility={library.visibility}
-                    canEdit={canEdit}
-                    materials={library.materials}
-                    questions={evalQuestions}
-                    actions={{ declare: declareRightsAction, add: addOwnerEvalQuestionAction, remove: removeOwnerEvalQuestionAction }}
-                  />
-                ) : null}
-
                 <section className={`${PANEL} p-6`}>
                   <h2 className="text-[15px] font-medium text-ink">{d.basics.title}</h2>
                   <dl className="mt-3 grid grid-cols-1 gap-x-8 gap-y-2 text-[12px] sm:grid-cols-2">
@@ -444,6 +429,21 @@ export default async function DashboardLibraryPage({
                     ))}
                   </dl>
                 </section>
+
+                {/* The owner's declaration and question set (review-visibility-proposal.md 5):
+                    the rights a public library carries, and the questions an expert application
+                    is judged by. Shown for a private library too, so declaring happens before it
+                    goes public. */}
+                {library.lifecycleStatus !== 'archived' ? (
+                  <LibraryMaterialsPanel
+                    libraryId={library.id}
+                    visibility={library.visibility}
+                    canEdit={canEdit}
+                    materials={library.materials}
+                    questions={evalQuestions}
+                    actions={{ declare: declareRightsAction, add: addOwnerEvalQuestionAction, remove: removeOwnerEvalQuestionAction }}
+                  />
+                ) : null}
                 {library.visibility === 'public' || library.reviews.length > 0 ? (
                   <section className={`${PANEL} p-0.5`}>
                     <div className="px-6 py-4">
