@@ -19,6 +19,8 @@ import {
   type UserAccountStatus,
 } from '@/lib/domain/admin';
 import { db, schema } from '@/lib/infrastructure/postgres/client';
+import { subscriptionRenewal, type WorkspacePlanVersion } from '@/lib/application/plans/billing';
+import { IN_FORCE_FIRST, subscriptionInForce } from '@/lib/application/plans/in-force';
 import { recordAudit } from './audit';
 import { startOfMonth } from './list-users';
 
@@ -35,6 +37,8 @@ export interface UserWorkspaceView {
   planName: string;
   monthlyCalls: number | null;
   periodEnd: Date | null;
+  /** Renews or cancels at the period's end; null when no provider bills it. */
+  renewal: WorkspacePlanVersion['renewal'];
 }
 
 export interface UserLibraryView {
@@ -179,6 +183,8 @@ export async function getConsoleUser(
             planName: schema.plan.name,
             monthlyCalls: schema.planVersion.monthlyCalls,
             periodEnd: schema.subscription.periodEnd,
+            providerSubscriptionId: schema.subscription.providerSubscriptionId,
+            cancelAt: schema.subscription.cancelAt,
           })
           .from(schema.subscription)
           .innerJoin(
@@ -186,12 +192,15 @@ export async function getConsoleUser(
             eq(schema.planVersion.id, schema.subscription.planVersionId),
           )
           .innerJoin(schema.plan, eq(schema.plan.id, schema.planVersion.planId))
+          /*
+           * The rule billing and the quota use, not "any active row": a Pro
+           * workspace also has the Free row signup wrote, and which of the two
+           * this page showed used to depend on row order.
+           */
           .where(
-            and(
-              inArray(schema.subscription.workspaceId, workspaceIds),
-              eq(schema.subscription.status, 'active'),
-            ),
-          ),
+            and(inArray(schema.subscription.workspaceId, workspaceIds), subscriptionInForce()),
+          )
+          .orderBy(...IN_FORCE_FIRST),
     workspaceIds.length === 0
       ? []
       : database
@@ -324,7 +333,11 @@ export async function getConsoleUser(
       .where(and(eq(schema.auditLog.targetType, 'user'), eq(schema.auditLog.targetId, userId))),
   ]);
 
-  const planByWorkspace = new Map(subscriptions.map((row) => [row.workspaceId, row]));
+  /* Ordered by IN_FORCE_FIRST, so the first row per workspace is the one in force. */
+  const planByWorkspace = new Map<string, (typeof subscriptions)[number]>();
+  for (const row of subscriptions) {
+    if (!planByWorkspace.has(row.workspaceId)) planByWorkspace.set(row.workspaceId, row);
+  }
 
   return {
     id: account.id,
@@ -344,6 +357,7 @@ export async function getConsoleUser(
         planName: plan?.planName ?? 'Free',
         monthlyCalls: plan?.monthlyCalls ?? null,
         periodEnd: plan?.periodEnd ?? null,
+        renewal: plan ? subscriptionRenewal(plan) : null,
       };
     }),
     libraries,

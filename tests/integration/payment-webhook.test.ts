@@ -55,6 +55,7 @@ function subscriptionEvent(notice: Partial<SubscriptionNotice>, eventId?: string
       status: 'active',
       periodStart: T0,
       periodEnd: new Date(T0.getTime() + 30 * DAY),
+      cancelAt: null,
       workspaceId,
       planVersionId: proVersion,
       observedAt: T0,
@@ -176,6 +177,28 @@ describeWithDb('applying payment notifications', () => {
     const [paid] = (await workspaceSubscriptions()).filter((row) => row.providerSubscriptionId);
     expect(paid?.periodEnd).toEqual(renewedEnd);
     expect(paid?.planVersionId).toBe(proVersion);
+  });
+
+  it('records a scheduled cancellation, keeps Pro until it lands, and clears it when withdrawn', async () => {
+    /* A period that contains now, so the row is in force while the cancellation waits. */
+    const cancelAt = new Date(T0.getTime() + 30 * DAY);
+    const cancelling = subscriptionEvent({
+      periodStart: T0,
+      periodEnd: cancelAt,
+      cancelAt,
+      observedAt: new Date(T0.getTime() + 1500),
+    });
+    expect(await applyPaymentNotification(cancelling)).toBe('applied');
+    expect(await hasPaidSubscription(workspaceId)).toBe(true);
+    expect((await workspacePlanVersion(workspaceId)).renewal).toEqual({ kind: 'cancels', at: cancelAt });
+
+    const withdrawn = subscriptionEvent({
+      periodStart: T0,
+      periodEnd: cancelAt,
+      observedAt: new Date(T0.getTime() + 1600),
+    });
+    expect(await applyPaymentNotification(withdrawn)).toBe('applied');
+    expect((await workspacePlanVersion(workspaceId)).renewal).toEqual({ kind: 'renews', at: cancelAt });
   });
 
   it('keeps Pro in force between the period end and the renewal webhook', async () => {

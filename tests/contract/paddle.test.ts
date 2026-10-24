@@ -221,8 +221,32 @@ describe('subscription mapping', () => {
       workspaceId: WORKSPACE,
       planVersionId: VERSION,
       periodEnd: new Date('2026-11-02T10:00:00Z'),
+      cancelAt: null,
       observedAt: new Date('2026-10-02T10:00:06Z'),
     });
+  });
+
+  it('reads a scheduled cancellation, and only a cancellation, as the end', () => {
+    const base = {
+      id: 'sub_01',
+      status: 'active',
+      customer_id: 'ctm_01',
+      custom_data: null,
+      current_billing_period: { starts_at: '2026-10-02T10:00:00Z', ends_at: '2026-11-02T10:00:00Z' },
+      updated_at: '2026-10-05T08:00:00Z',
+    };
+    const cancelling = subscriptionNotice({
+      ...base,
+      scheduled_change: { action: 'cancel', effective_at: '2026-11-02T10:00:00Z' },
+    });
+    /* Still active until then: the cancellation is a date, not a status. */
+    expect(cancelling).toMatchObject({ status: 'active', cancelAt: new Date('2026-11-02T10:00:00Z') });
+
+    const pausing = subscriptionNotice({
+      ...base,
+      scheduled_change: { action: 'pause', effective_at: '2026-11-02T10:00:00Z' },
+    });
+    expect(pausing.cancelAt).toBeNull();
   });
 });
 

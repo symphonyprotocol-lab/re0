@@ -376,6 +376,13 @@ export const subscription = pgTable(
     periodStart: timestamp('period_start', { withTimezone: true }).notNull(),
     periodEnd: timestamp('period_end', { withTimezone: true }).notNull(),
     /**
+     * When a cancellation the subscriber has already asked for takes effect.
+     * The provider keeps the subscription `active` until then, so without this
+     * a subscription that will lapse reads the same as one that renews. Null
+     * means it renews -- or, on a Free row, that nothing renews it.
+     */
+    cancelAt: timestamp('cancel_at', { withTimezone: true }),
+    /**
      * When the provider says this state was true. Webhooks arrive out of
      * order, so an event only overwrites a row whose state is older than its
      * own. Null on rows no provider wrote -- the Free subscription signup

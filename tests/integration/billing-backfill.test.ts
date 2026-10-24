@@ -153,6 +153,7 @@ describeWithDb('backfilling a billing document from the provider', () => {
           status: 'active',
           periodStart: T0,
           periodEnd: new Date(T0.getTime() + 30 * DAY),
+          cancelAt: null,
           workspaceId,
           planVersionId: proVersion,
           observedAt: T0,

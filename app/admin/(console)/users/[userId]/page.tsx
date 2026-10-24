@@ -129,9 +129,14 @@ export default async function AdminUserDetailPage({
           label={d.metrics.plan}
           value={workspace?.planName ?? 'Free'}
           note={
-            workspace?.periodEnd
-              ? fill(d.metrics.planNote, { date: utcDate(workspace.periodEnd) })
-              : d.metrics.planNoteNone
+            workspace?.renewal
+              ? fill(
+                  workspace.renewal.kind === 'cancels' ? d.metrics.planCancels : d.metrics.planRenews,
+                  { date: utcDate(workspace.renewal.at) },
+                )
+              : workspace?.periodEnd
+                ? fill(d.metrics.planNote, { date: utcDate(workspace.periodEnd) })
+                : d.metrics.planNoteNone
           }
         />
         <Metric

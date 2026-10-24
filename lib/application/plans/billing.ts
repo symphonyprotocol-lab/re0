@@ -34,6 +34,12 @@ export interface WorkspacePlanVersion {
   subscribed: boolean;
   periodStart: Date;
   periodEnd: Date;
+  /**
+   * What happens at the end of a provider-billed subscription's period: it
+   * renews, or a cancellation the subscriber asked for takes effect. Null on
+   * the Free default and the Free row, which nothing bills or renews.
+   */
+  renewal: { kind: 'renews' | 'cancels'; at: Date } | null;
 }
 
 /**
@@ -49,6 +55,8 @@ export async function workspacePlanVersion(workspaceId: string): Promise<Workspa
       planVersionId: schema.subscription.planVersionId,
       periodStart: schema.subscription.periodStart,
       periodEnd: schema.subscription.periodEnd,
+      providerSubscriptionId: schema.subscription.providerSubscriptionId,
+      cancelAt: schema.subscription.cancelAt,
     })
     .from(schema.subscription)
     .where(
@@ -88,6 +96,7 @@ export async function workspacePlanVersion(workspaceId: string): Promise<Workspa
         apiKeyLimit: version.apiKeyLimit,
         subscribed: true,
         ...windowInForce(active),
+        renewal: subscriptionRenewal(active),
       };
     }
   }
@@ -114,7 +123,24 @@ export async function workspacePlanVersion(workspaceId: string): Promise<Workspa
     subscribed: false,
     periodStart,
     periodEnd,
+    renewal: null,
   };
+}
+
+/**
+ * Renews or cancels, and when. The row's own period end, not the in-force
+ * window: during the renewal grace that window has already moved on, but the
+ * date the provider charges, or stops, is still the one it reported.
+ */
+export function subscriptionRenewal(row: {
+  providerSubscriptionId: string | null;
+  periodEnd: Date;
+  cancelAt: Date | null;
+}): WorkspacePlanVersion['renewal'] {
+  if (!row.providerSubscriptionId) return null;
+  return row.cancelAt
+    ? { kind: 'cancels', at: row.cancelAt }
+    : { kind: 'renews', at: row.periodEnd };
 }
 
 /** The UTC calendar month around `now`: the Free tier's period. */

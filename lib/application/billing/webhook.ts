@@ -205,10 +205,16 @@ async function projectSubscription(
     isNull(schema.subscription.observedAt),
     lte(schema.subscription.observedAt, notice.observedAt),
   );
+  /*
+   * `cancelAt` is written as stated, null included: a subscription event
+   * carries the whole entity, so a missing scheduled change means the
+   * subscriber took the cancellation back.
+   */
   const state = {
     status: notice.status,
     periodStart,
     periodEnd,
+    cancelAt: notice.cancelAt,
     observedAt: notice.observedAt,
   };
 
