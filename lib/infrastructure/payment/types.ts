@@ -28,6 +28,11 @@ export interface ProviderSubscriptionNotice {
   /** Null when the notification carried no current period (a cancelled one). */
   periodStart: Date | null;
   periodEnd: Date | null;
+  /**
+   * When a cancellation already asked for takes effect; null when the
+   * subscription renews. Stated by every notice, so a null clears it.
+   */
+  cancelAt: Date | null;
   /** From the checkout's custom data; null on a subscription nobody tagged. */
   workspaceId: string | null;
   planVersionId: string | null;

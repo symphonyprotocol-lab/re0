@@ -2347,6 +2347,9 @@ export const zh = {
         free: '适合个人探索和小型知识库。',
         pro: '适合持续调用和更大容量的知识库。',
       },
+      /** 由支付服务计费的订阅，本期结束时会发生什么。 */
+      planRenews: '将于 {date} 自动续费',
+      planCancels: '已取消续费，{date} 到期后回到免费版',
       planPerks: {
         libraries: '最多创建 {count} 个知识库',
         librarySize: '每个知识库容量不超过 {mb} MB',
@@ -2999,6 +3002,8 @@ export const zh = {
       metrics: {
         plan: '订阅套餐',
         planNote: '账期至 {date}',
+        planRenews: '{date} 自动续费',
+        planCancels: '已取消续费，{date} 到期',
         planNoteNone: '无订阅账期',
         libraries: '知识库',
         librariesNote: '公开 {public} · 私有 {private}',

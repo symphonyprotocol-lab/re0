@@ -462,6 +462,18 @@ export default async function DashboardSettingsPage({
               <span className="text-[13px] text-muted">{plan.period}</span>
             </p>
             <p className="text-[11px] text-muted">{plan.note}</p>
+            {/* A cancellation leaves the plan active to the period's end; this is the only place it shows. */}
+            {planVersion.renewal ? (
+              <p
+                className={`text-[11px] ${
+                  planVersion.renewal.kind === 'cancels' ? 'text-amberink' : 'text-steel'
+                }`}
+              >
+                {fill(planVersion.renewal.kind === 'cancels' ? g.planCancels : g.planRenews, {
+                  date: utcDate.format(planVersion.renewal.at),
+                })}
+              </p>
+            ) : null}
           </div>
 
           <ul className="flex flex-1 flex-col gap-3 px-5 py-4">

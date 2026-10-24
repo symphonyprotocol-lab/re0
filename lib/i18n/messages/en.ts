@@ -2423,6 +2423,9 @@ export const en: Dictionary = {
         free: 'For personal exploration and small libraries.',
         pro: 'For steady traffic and larger libraries.',
       },
+      /** What happens at the end of a provider-billed subscription's period. */
+      planRenews: 'Renews on {date}',
+      planCancels: 'Cancelled: ends on {date}, then back to Free',
       planPerks: {
         libraries: 'Up to {count} libraries',
         librarySize: 'Up to {mb} MB per library',
@@ -3102,6 +3105,8 @@ export const en: Dictionary = {
       metrics: {
         plan: 'Plan',
         planNote: 'Period ends {date}',
+        planRenews: 'Renews {date}',
+        planCancels: 'Cancelled, ends {date}',
         planNoteNone: 'No billing period',
         libraries: 'Libraries',
         librariesNote: '{public} public · {private} private',

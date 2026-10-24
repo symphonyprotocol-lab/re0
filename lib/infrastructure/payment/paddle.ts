@@ -187,6 +187,8 @@ export interface PaddleSubscription {
   customer_id: string | null;
   custom_data: Record<string, unknown> | null;
   current_billing_period: { starts_at: string; ends_at: string } | null;
+  /** A change that takes effect later: `cancel`, `pause` or `resume`. */
+  scheduled_change?: { action: string; effective_at: string } | null;
   updated_at: string;
   /** Only on `subscription.created`: the checkout that started it. */
   transaction_id?: string | null;
@@ -260,14 +262,21 @@ export function paddleSubscriptionStatus(status: string): ProviderSubscriptionSt
   }
 }
 
+/**
+ * Cancelling in Paddle's portal leaves the subscription `active` to the end of
+ * the period and records the intent as a scheduled change; only that says it
+ * will not renew. A scheduled pause is not read as one: it resumes.
+ */
 export function subscriptionNotice(subscription: PaddleSubscription): ProviderSubscriptionNotice {
   const custom = readCustomData(subscription.custom_data);
+  const scheduled = subscription.scheduled_change;
   return {
     externalId: subscription.id,
     customerId: subscription.customer_id,
     status: paddleSubscriptionStatus(subscription.status),
     periodStart: date(subscription.current_billing_period?.starts_at),
     periodEnd: date(subscription.current_billing_period?.ends_at),
+    cancelAt: scheduled?.action === 'cancel' ? date(scheduled.effective_at) : null,
     workspaceId: custom.workspaceId,
     planVersionId: custom.planVersionId,
     observedAt: date(subscription.updated_at) ?? new Date(),
