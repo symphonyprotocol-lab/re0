@@ -1,5 +1,5 @@
 import type { Metadata } from 'next';
-import type { ReactNode } from 'react';
+import { cache, type ReactNode } from 'react';
 import Link from 'next/link';
 import { PendingSubmitButton } from '@/components/ui/pending-submit-button';
 import { SectionHeading } from '@/components/ui/primitives';
@@ -13,15 +13,43 @@ import {
   PackagePlusIcon,
   SparklesIcon,
 } from '@/components/ui/icons';
-import { getMessages } from '@/lib/i18n/server';
+import { currentPlanVersion } from '@/lib/application/plans';
+import { FALLBACK_PRICING, pricingFigures, type PricedVersion, type PricingVersions } from '@/lib/domain/pricing-page';
+import type { PlanTierId } from '@/lib/domain/plans';
+import { fill } from '@/lib/i18n/format';
+import { translations } from '@/lib/i18n/server';
 import { startCheckoutAction } from '@/app/dashboard/settings/actions';
 
 export async function generateMetadata(): Promise<Metadata> {
-  const { pricing } = await getMessages();
-  return { title: pricing.metaTitle, description: pricing.metaDescription };
+  const [{ locale, t }, versions] = await Promise.all([translations(), livePricing()]);
+  const figures = pricingFigures(versions, new Intl.NumberFormat(locale), t.pricing.surfaces);
+  return {
+    title: t.pricing.metaTitle,
+    description: fill(t.pricing.metaDescription, { freeCalls: figures.free.calls, proPrice: figures.pro.price }),
+  };
 }
 
-/** Identity, price and icon per plan; the words come from the dictionary. */
+/**
+ * The live version of each tier, or the seed's figures for a tier that has
+ * none (`FALLBACK_PRICING`). A database that cannot be read renders the
+ * seed's figures rather than an error page: the page is public and cached.
+ */
+/* Metadata and the page share one read per request. */
+const livePricing = cache(async (): Promise<PricingVersions> => {
+  /* Read per request (the page reads the locale cookie), so a version saved in the console shows at once. */
+  const read = async (tier: PlanTierId): Promise<PricedVersion> => {
+    try {
+      return (await currentPlanVersion(tier)) ?? FALLBACK_PRICING[tier];
+    } catch (error) {
+      console.error(`pricing: plan ${tier} unreadable: ${error instanceof Error ? error.message : 'unknown'}`);
+      return FALLBACK_PRICING[tier];
+    }
+  };
+  const [free, pro, addon] = await Promise.all([read('free'), read('pro'), read('addon')]);
+  return { free, pro, addon };
+});
+
+/** Identity and icon per plan; the words come from the dictionary, the figures from the live versions. */
 /**
  * Each card's button goes where that plan is acted on. Free is a link to the
  * dashboard; the paid two post straight to the checkout action, so a signed-in
@@ -34,7 +62,6 @@ const PLAN_FACTS = [
   {
     id: 'free',
     name: 'Free',
-    price: '$0',
     icon: <GiftIcon size={18} />,
     featured: false,
     href: '/dashboard',
@@ -42,7 +69,6 @@ const PLAN_FACTS = [
   {
     id: 'pro',
     name: 'Pro',
-    price: '$5',
     icon: <SparklesIcon size={18} />,
     featured: true,
     checkout: 'subscription',
@@ -50,7 +76,6 @@ const PLAN_FACTS = [
   {
     id: 'addon',
     name: 'Additional Calls',
-    price: '$5',
     icon: <PackagePlusIcon size={18} />,
     featured: false,
     checkout: 'pack',
@@ -99,8 +124,51 @@ function CtaBanner({
 }
 
 export default async function PricingPage() {
-  const { pricing: p } = await getMessages();
-  const plans = PLAN_FACTS.map((facts) => ({ ...facts, ...p.plans[facts.id] }));
+  const [{ locale, t }, versions] = await Promise.all([translations(), livePricing()]);
+  const p = t.pricing;
+  const number = new Intl.NumberFormat(locale);
+  const figures = pricingFigures(versions, number, p.surfaces);
+  const plans = PLAN_FACTS.map((facts) => {
+    const words = p.plans[facts.id];
+    const values = figures[facts.id];
+    return {
+      ...facts,
+      ...words,
+      price: values.price,
+      calls: fill(words.calls, values),
+      points: words.points.map((point) => fill(point, values)),
+    };
+  });
+  const r = p.compareRows;
+  const { free, pro, addon } = figures;
+  const compare: [string, string, string, string][] = [
+    [r.price, free.price, pro.price, fill(r.pricePack, { price: addon.price })],
+    [r.calls, fill(r.callsMonthly, free), fill(r.callsMonthly, pro), fill(r.callsPack, addon)],
+    [r.publicLibraries, r.allIncluded, r.allIncluded, r.inherits],
+    [r.ownLibraries, fill(r.upTo, { n: free.libraries }), fill(r.upTo, { n: pro.libraries }), r.inherits],
+    [r.size, free.size, pro.size, r.inherits],
+    [r.widget, free.siteKeys, pro.siteKeys, r.inherits],
+    [r.pages, free.showcasePages, pro.showcasePages, r.inherits],
+    [r.builds, fill(r.buildRate, free), fill(r.buildRate, pro), r.inherits],
+    [r.packs, r.none, r.packsAvailable, r.packsSelf],
+    [r.tokens, '$0', '$0', '$0'],
+  ];
+  const faq = p.faq.map((item) => ({
+    q: item.q,
+    a: fill(item.a, {
+      packCalls: addon.calls,
+      freeLibraries: free.libraries,
+      freeSize: free.size,
+      proLibraries: pro.libraries,
+      proSize: pro.size,
+      freeSurfaces: free.surfaces,
+      proSurfaces: pro.surfaces,
+      base: pro.base,
+      tokens: pro.tokens,
+      pages: pro.pages,
+      share: pro.share,
+    }),
+  }));
 
   /* The three prices as a search engine reads them: the same figures the
      cards print, taken from the same facts, so the two cannot drift apart. */
@@ -111,12 +179,12 @@ export default async function PricingPage() {
     url: PUBLIC_ORIGIN,
     applicationCategory: 'DeveloperApplication',
     operatingSystem: 'Web',
-    description: p.metaDescription,
+    description: fill(p.metaDescription, { freeCalls: free.calls, proPrice: pro.price }),
     offers: plans.map((plan) => ({
       '@type': 'Offer',
       name: plan.name,
       description: plan.calls,
-      price: plan.price.replace('$', ''),
+      price: plan.price.replace('$', '').replace(/,/g, ''),
       priceCurrency: 'USD',
       url: publicUrl('/pricing'),
     })),
@@ -247,10 +315,10 @@ export default async function PricingPage() {
                   </tr>
                 </thead>
                 <tbody className="text-[11px]">
-                  {p.compare.map((row, i) => (
+                  {compare.map((row, i) => (
                     <tr
                       key={row[0]}
-                      className={`h-[54px] ${i === p.compare.length - 1 ? '' : 'border-b border-line'}`}
+                      className={`h-[54px] ${i === compare.length - 1 ? '' : 'border-b border-line'}`}
                     >
                       <td className="px-[17px] font-medium text-ink">{row[0]}</td>
                       <td className="px-[17px] text-steel">{row[1]}</td>
@@ -290,7 +358,7 @@ export default async function PricingPage() {
         </div>
 
         <dl className="min-w-0 flex-1 border-t border-line pt-0.5">
-          {p.faq.map((item) => (
+          {faq.map((item) => (
             <div key={item.q} className="flex flex-col gap-[7px] border-b border-line pt-[18px] pb-5">
               <dt className="text-[13px] leading-[1.5] font-medium text-ink">
                 {item.q}

@@ -73,11 +73,6 @@ export async function createPlanVersionAction(
       buildBaseCalls: String(form.get('buildBaseCalls') ?? ''),
       buildTokensPerCall: String(form.get('buildTokensPerCall') ?? ''),
       buildPagesPerCall: String(form.get('buildPagesPerCall') ?? ''),
-      /*
-       * An unchecked checkbox posts nothing at all, so absence is "off" here
-       * rather than "unset" -- the dialog always renders the control.
-       */
-      publicReviewRequired: form.get('publicReviewRequired') !== null,
       reason: String(form.get('reason') ?? ''),
     });
     revalidatePath('/admin/plans');

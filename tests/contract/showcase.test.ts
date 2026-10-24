@@ -179,8 +179,8 @@ describe('status', () => {
 
 describe('plan entitlement', () => {
   it('gives Free one page with the brand line fixed, and Pro any number without it', () => {
-    expect(capabilitiesFor('free', true)).toMatchObject({ showcasePages: 1, showcaseBranding: false, showcaseLeadsRetained: 100, showcaseCustomDomain: false });
-    expect(capabilitiesFor('pro', true)).toMatchObject({ showcasePages: -1, showcaseBranding: true, showcaseLeadsRetained: -1, showcaseCustomDomain: true });
+    expect(capabilitiesFor('free')).toMatchObject({ showcasePages: 1, showcaseBranding: false, showcaseLeadsRetained: 100, showcaseCustomDomain: false });
+    expect(capabilitiesFor('pro')).toMatchObject({ showcasePages: -1, showcaseBranding: true, showcaseLeadsRetained: -1, showcaseCustomDomain: true });
     expect(readCapabilities('free', { showcaseCustomDomain: true })).toMatchObject({ showcaseCustomDomain: true });
     expect(readCapabilities('free', { showcaseLeadsRetained: 5 })).toMatchObject({ showcaseLeadsRetained: 5 });
     expect(readCapabilities('free', { showcaseLeadsRetained: -3 })).toMatchObject({ showcaseLeadsRetained: 100 });

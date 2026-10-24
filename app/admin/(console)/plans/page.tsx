@@ -307,14 +307,12 @@ function perksFor(live: PlanVersionRow, p: PlanCopy, number: NumberFormat): stri
       p.perkInherit,
     ];
   }
-  const perks = [
+  return [
     fill(p.perkCalls, { calls: number(live.monthlyCalls) }),
     fill(p.perkLibraries, { count: number(live.libraryLimit) }),
     fill(p.perkSize, { size: `${number(bytesToMb(live.librarySizeBytesLimit))} MB` }),
     fill(p.perkKeys, { count: number(live.apiKeyLimit) }),
   ];
-  if (live.capabilities.publicReviewRequired) perks.push(p.perkReview);
-  return perks;
 }
 
 /** One line describing the live version, for the dialog's "this is what you are superseding". */
@@ -384,7 +382,6 @@ function targetFor(
       buildBaseCalls: String(live?.buildBaseCalls ?? DEFAULT_BUILD_RATES.baseCalls),
       buildTokensPerCall: String(live?.buildTokensPerCall ?? DEFAULT_BUILD_RATES.tokensPerCall),
       buildPagesPerCall: String(live?.buildPagesPerCall ?? DEFAULT_BUILD_RATES.pagesPerCall),
-      publicReviewRequired: live?.capabilities.publicReviewRequired ?? true,
     },
   };
 }
@@ -427,12 +424,6 @@ function quotaRows(
           tokens: number(live.buildTokensPerCall),
           pages: number(live.buildPagesPerCall),
         }),
-      ),
-    },
-    {
-      label: p.quotaLabels.review,
-      cells: cell((live) =>
-        live.capabilities.publicReviewRequired ? p.required : p.notRequired,
       ),
     },
   ];

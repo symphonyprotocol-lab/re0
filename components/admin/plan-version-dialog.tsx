@@ -32,7 +32,6 @@ export interface PlanVersionTarget {
     buildBaseCalls: string;
     buildTokensPerCall: string;
     buildPagesPerCall: string;
-    publicReviewRequired: boolean;
   };
 }
 
@@ -307,24 +306,7 @@ function PlanVersionDialog({
 
           {isPack ? (
             <p className="text-[11px] leading-[1.55] tracking-[-0.023em] text-muted">{p.packNote}</p>
-          ) : (
-            <label className="flex items-center gap-2.5 rounded-[8px] border-2 border-line bg-subtle px-2.5 py-2.5">
-              <input
-                type="checkbox"
-                name="publicReviewRequired"
-                defaultChecked={target.defaults.publicReviewRequired}
-                className="size-[15px] shrink-0 accent-brand"
-              />
-              <span className="flex min-w-0 flex-col gap-[3px]">
-                <span className="text-[11px] font-semibold tracking-[-0.023em] text-steel">
-                  {p.reviewToggle}
-                </span>
-                <span className="text-[11px] leading-[1.5] tracking-[-0.023em] text-muted">
-                  {p.reviewToggleHint}
-                </span>
-              </span>
-            </label>
-          )}
+          ) : null}
 
           <Field label={p.reason}>
             <input
