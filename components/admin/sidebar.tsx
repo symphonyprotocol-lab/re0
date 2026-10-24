@@ -41,12 +41,10 @@ import { useI18n } from '@/lib/i18n/client';
  * not offered a door that bounces them back.
  */
 export function AdminSidebar({
-  pendingReviews,
   openRefreshes,
   pendingExpert,
   capabilities,
 }: {
-  pendingReviews: number;
   /** Platform refreshes queued or running, on the queue item. */
   openRefreshes: number;
   /** Expert-library applications waiting for a decision. */
@@ -77,15 +75,7 @@ export function AdminSidebar({
       label: nav.business,
       items: [
         { href: '/admin/users', label: nav.users, Icon: UsersIcon, needs: 'users' },
-        {
-          href: '/admin/libraries',
-          label: nav.libraries,
-          Icon: DatabaseIcon,
-          badge: pendingReviews,
-          needs: 'libraries',
-        },
-        /* The rules layer's thresholds sit with review, whose first reader it is (review-visibility-proposal.md 6.1). */
-        { href: '/admin/libraries/rules', label: nav.reviewRules, Icon: SlidersIcon, needs: 'libraries' },
+        { href: '/admin/libraries', label: nav.libraries, Icon: DatabaseIcon, needs: 'libraries' },
         {
           href: '/admin/platform-libraries',
           label: nav.platformLibraries,
@@ -106,9 +96,10 @@ export function AdminSidebar({
          */
         { href: '/admin/claims', label: nav.claims, Icon: ScaleIcon, needs: 'claims' },
         /*
-         * The expert queue sits beside review and ownership: it is the third
-         * judgment the console makes about a user library, and the one that
-         * decides whether it earns (expert-library-prd.md 6.1).
+         * The expert queue sits beside ownership: it is the one approval the
+         * console still makes about a user library, and it decides whether
+         * the library earns (expert-library-prd.md 6.1). Its thresholds are
+         * the page beside it (review-visibility-proposal.md 5.3).
          */
         {
           href: '/admin/expert-libraries',
@@ -117,6 +108,7 @@ export function AdminSidebar({
           badge: pendingExpert,
           needs: 'expertLibraries',
         },
+        { href: '/admin/expert-libraries/thresholds', label: nav.expertThresholds, Icon: SlidersIcon, needs: 'expertLibraries' },
         /* Showcase pages are user content on an address of ours (lib/domain/showcase.ts): content review's to take down. */
         { href: '/admin/showcases', label: nav.showcases, Icon: GlobeIcon, needs: 'libraries' },
       ],

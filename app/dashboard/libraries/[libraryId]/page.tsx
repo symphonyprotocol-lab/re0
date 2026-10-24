@@ -1,5 +1,3 @@
-import { describeReviewNote } from '@/lib/domain/auto-review';
-import { checklistFeedback } from '@/lib/domain/review';
 import type { Metadata } from 'next';
 import Link from 'next/link';
 import { notFound } from 'next/navigation';
@@ -18,7 +16,7 @@ import { RebuildLibraryButton } from '@/components/dashboard/library-rebuild';
 import { LibraryFaqPanel } from '@/components/dashboard/library-faq';
 import { LibraryWidgetPanel } from '@/components/dashboard/library-widget';
 import { LibraryShowcasePanel } from '@/components/dashboard/library-showcase';
-import { Badge, IconTile, PANEL, StatusLabel, type StatusTone } from '@/components/dashboard/ui';
+import { BackLink, Badge, IconTile, PANEL, StatusLabel, type StatusTone } from '@/components/dashboard/ui';
 import {
   ArrowRightIcon,
   BadgeCheckIcon,
@@ -60,6 +58,8 @@ import {
   showcaseStats,
 } from '@/lib/application/showcase';
 import { siteKeysAllowed } from '@/lib/domain/plans';
+import { describeReviewNote } from '@/lib/domain/review';
+import { rightsAllowPublic } from '@/lib/domain/rights';
 import { showcasePagesAllowed, showcasePath } from '@/lib/domain/showcase';
 import { configuredBaseUrl } from '@/lib/http/base-url';
 import { PUBLIC_ORIGIN } from '@/lib/site/origin';
@@ -205,35 +205,16 @@ export default async function DashboardLibraryPage({
   const latestNote = library.reviews.find((review) => review.feedback[0])?.feedback[0] ?? d.basics.none;
   const lastFailure = library.operations.find((operation) => operation.status === 'failed');
   const routable = library.visibility === 'public' && library.queryable;
-  /* requirement.md 5.2: pause, resume and resubmit are the owner's, each
-     offered only when the domain rule says it applies right now. */
+  /* requirement.md 5.2: pause and resume are the owner's, each offered only
+     when the domain rule says it applies right now. */
   const ownerContext = {
     lifecycleStatus: library.lifecycleStatus,
     visibility: library.visibility,
     pausedByOwner: library.pausedByOwner,
-    hasReadyVersion: library.hasReadyVersion,
-    materialsReady: library.materials.ready,
-    appealable: library.appealableDecision !== null,
   };
-  const ownerVerbs = canEdit
+  const headerVerbs = canEdit
     ? OWNER_LIFECYCLE_ACTIONS.filter((verb) => ownerActionAvailable(ownerContext, verb))
     : [];
-  /* The confirmation lives with the materials it confirms (the panel below); the header keeps the rest. */
-  const submitVerb = ownerVerbs.find((verb): verb is 'submit' | 'resubmit' => verb === 'submit' || verb === 'resubmit') ?? null;
-  const headerVerbs = ownerVerbs.filter((verb) => verb !== submitVerb);
-  /* The materials step is the owner's (review-visibility-proposal.md 5): while a built public
-     library waits on them, the overview tab says so, whichever tab is open. */
-  const awaitingSubmission =
-    library.visibility === 'public' &&
-    library.hasReadyVersion &&
-    (library.lifecycleStatus === 'draft' || library.lifecycleStatus === 'changes_requested');
-  const overviewBadge = !awaitingSubmission
-    ? null
-    : library.materials.blockers.length > 0
-      ? { label: d.tabs.materialsMissing, tone: 'alert' as const }
-      : submitVerb
-        ? { label: d.tabs.materialsReady, tone: 'brand' as const }
-        : null;
   const inPipeline =
     library.visibility === 'public' && !library.queryable && library.lifecycleStatus !== 'archived';
   const pipeline = inPipeline
@@ -242,7 +223,7 @@ export default async function DashboardLibraryPage({
         lifecycleStatus: library.lifecycleStatus,
         indexStatus: library.indexStatus,
         building: library.building,
-        rightsDeclared: library.materials.rights !== null && !library.materials.blockers.includes('rights_generated'),
+        rightsDeclared: library.materials.rights !== null && rightsAllowPublic(library.materials.rights),
       })
     : null;
   const tile = TILE_COLORS[[...library.publicId].reduce((hash, char) => (hash * 31 + char.charCodeAt(0)) >>> 0, 0) % TILE_COLORS.length]!;
@@ -258,23 +239,11 @@ export default async function DashboardLibraryPage({
           /* Where it is, from the build's own reports, once there are any. */
           body: [d.ready.buildingBody, describeBuild(t.admin.refreshQueue, library.build)].filter(Boolean).join(' '),
         }
-      : library.lifecycleStatus === 'changes_requested'
-        ? { tone: 'blocked' as StatusTone, icon: <ShieldCheckIcon size={18} />, title: d.ready.changesTitle, body: fill(d.ready.changesBody, { note: latestNote }) }
-        : library.lifecycleStatus === 'suspended'
-          ? { tone: 'blocked' as StatusTone, icon: <LockIcon size={18} />, title: d.ready.suspendedTitle, body: fill(d.ready.suspendedBody, { note: latestNote }) }
-          : library.indexStatus === 'failed' && lastFailure
-            ? { tone: 'blocked' as StatusTone, icon: <ClockIcon size={18} />, title: d.ready.failedTitle, body: fill(d.ready.failedBody, { error: label(t.admin.ingestionErrors, lastFailure.error) }) }
-            : library.lifecycleStatus === 'submitted' || library.lifecycleStatus === 'reviewing'
-              ? { tone: 'pending' as StatusTone, icon: <ShieldCheckIcon size={18} />, title: d.ready.reviewTitle, body: `${d.ready.reviewBody} ${m.reviewExpected}` }
-              : library.visibility === 'public' && library.hasReadyVersion
-                ? {
-                    /* Built and indexed; the owner's materials and confirmation are what is left (review-visibility-proposal.md 5). */
-                    tone: 'pending' as StatusTone,
-                    icon: <ShieldCheckIcon size={18} />,
-                    title: d.ready.awaitingTitle,
-                    body: library.materials.ready ? d.ready.awaitingReadyBody : d.ready.awaitingBody,
-                  }
-                : { tone: 'exempt' as StatusTone, icon: <ClockIcon size={18} />, title: d.ready.idleTitle, body: d.ready.idleBody };
+      : library.lifecycleStatus === 'suspended'
+        ? { tone: 'blocked' as StatusTone, icon: <LockIcon size={18} />, title: d.ready.suspendedTitle, body: fill(d.ready.suspendedBody, { note: latestNote }) }
+        : library.indexStatus === 'failed' && lastFailure
+          ? { tone: 'blocked' as StatusTone, icon: <ClockIcon size={18} />, title: d.ready.failedTitle, body: fill(d.ready.failedBody, { error: label(t.admin.ingestionErrors, lastFailure.error) }) }
+          : { tone: 'exempt' as StatusTone, icon: <ClockIcon size={18} />, title: d.ready.idleTitle, body: d.ready.idleBody };
 
   const statusLabels: Record<StatusTone, string> = {
     live: l.statuses.live,
@@ -288,12 +257,7 @@ export default async function DashboardLibraryPage({
       <LiveRefresh active={library.building} />
       <header className="flex flex-wrap items-start justify-between gap-5">
         <div className="flex min-w-0 flex-col gap-[5px]">
-          <Link
-            href="/dashboard/libraries"
-            className="text-[12px] text-brandink transition-colors hover:text-brandink"
-          >
-            {d.back}
-          </Link>
+          <BackLink href="/dashboard/libraries">{d.back}</BackLink>
           <h1 className="mt-1.5 truncate text-[25px] leading-[1.5] font-medium text-ink">
             {library.title}
           </h1>
@@ -397,9 +361,7 @@ export default async function DashboardLibraryPage({
             <p className="text-[13px] leading-[1.4] font-medium text-ink">{l.manage.pipeline.title}</p>
             <ReviewPipeline
               entries={pipeline}
-              note={library.reviews.find((review) => review.feedback[0])?.feedback[0] ?? null}
-              checks={library.reviews.find((review) => review.checklist)?.checklist ?? null}
-              materialsHref="#materials"
+              note={library.lifecycleStatus === 'suspended' ? (library.reviews.find((review) => review.feedback[0])?.feedback[0] ?? null) : null}
             />
           </div>
         </section>
@@ -411,8 +373,7 @@ export default async function DashboardLibraryPage({
           {
             id: 'overview',
             label: d.tabs.overview,
-            badge: overviewBadge,
-            anchors: ['materials', 'basics', 'reviews'],
+            anchors: ['basics', 'materials', 'reviews'],
             panel: (
               <>
                 {/* Plain one-row readout, not four cards: the banner above already carries
@@ -442,22 +403,6 @@ export default async function DashboardLibraryPage({
                   ))}
                 </dl>
 
-                {/* What a public submission brings (review-visibility-proposal.md 5): the
-                    rights declaration, the optional self-check questions, and the
-                    confirmation that hands the library to the platform's review. Shown for
-                    a private library too, so declaring happens before it goes public. */}
-                {library.lifecycleStatus !== 'archived' ? (
-                  <LibraryMaterialsPanel
-                    libraryId={library.id}
-                    visibility={library.visibility}
-                    canEdit={canEdit}
-                    materials={library.materials}
-                    questions={evalQuestions}
-                    submit={submitVerb ? { verb: submitVerb, publicId: library.publicId, action: ownerLifecycleAction } : null}
-                    actions={{ declare: declareRightsAction, add: addOwnerEvalQuestionAction, remove: removeOwnerEvalQuestionAction }}
-                  />
-                ) : null}
-
                 <section className={`${PANEL} p-6`}>
                   <h2 className="text-[15px] font-medium text-ink">{d.basics.title}</h2>
                   <dl className="mt-3 grid grid-cols-1 gap-x-8 gap-y-2 text-[12px] sm:grid-cols-2">
@@ -484,6 +429,21 @@ export default async function DashboardLibraryPage({
                     ))}
                   </dl>
                 </section>
+
+                {/* The owner's declaration and question set (review-visibility-proposal.md 5):
+                    the rights a public library carries, and the questions an expert application
+                    is judged by. Shown for a private library too, so declaring happens before it
+                    goes public. */}
+                {library.lifecycleStatus !== 'archived' ? (
+                  <LibraryMaterialsPanel
+                    libraryId={library.id}
+                    visibility={library.visibility}
+                    canEdit={canEdit}
+                    materials={library.materials}
+                    questions={evalQuestions}
+                    actions={{ declare: declareRightsAction, add: addOwnerEvalQuestionAction, remove: removeOwnerEvalQuestionAction }}
+                  />
+                ) : null}
                 {library.visibility === 'public' || library.reviews.length > 0 ? (
                   <section className={`${PANEL} p-0.5`}>
                     <div className="px-6 py-4">
@@ -496,17 +456,8 @@ export default async function DashboardLibraryPage({
                         when(review.decidedAt),
                         review.stage === OWNER_REVIEW_STAGE && isOwnerLifecycleAction(review.outcome)
                           ? m.outcomes[review.outcome]
-                          : review.stage === 'sample' && !review.outcome
-                            ? d.reviews.sampleOpen
-                            : `${label(d.reviews.outcomes, review.outcome)}${review.stage === 'rules' || review.stage === 'sample' ? ` · ${label(d.reviews.stages, review.stage)}` : ''}`,
-                        [
-                          review.feedback.map((line) => describeReviewNote(line, l.rulesReasons)).join(' ') || d.basics.none,
-                          ...(review.checklist
-                            ? checklistFeedback(review.checklist).map((line) =>
-                                `${l.manage.pipeline.checks[line.check]}：${l.manage.pipeline.verdicts[line.verdict]}${line.note ? `，${describeReviewNote(line.note, l.rulesReasons)}` : ''}`,
-                              )
-                            : []),
-                        ].join(' '),
+                          : `${label(d.reviews.outcomes, review.outcome)}${review.stage !== 'manual' && review.stage !== OWNER_REVIEW_STAGE ? ` · ${label(d.reviews.stages, review.stage)}` : ''}`,
+                        review.feedback.map((line) => describeReviewNote(line, l.rulesReasons)).join(' ') || d.basics.none,
                       ])}
                     />
                   </section>

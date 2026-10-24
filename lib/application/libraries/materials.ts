@@ -1,10 +1,10 @@
 /**
- * The owner's submission materials: the rights declaration a public
- * submission needs, and the self-check questions it may bring -- optional
- * for publishing since 2026-10-23, required of an expert-library
- * application (lib/domain/expert-library.ts).
- * review-visibility-proposal.md 5.1 and 5.2; rules in lib/domain/rights.ts
- * and lib/domain/library.ts (`submissionBlockers`).
+ * The owner's declaration and question set: the rights declaration a
+ * public library carries (required to go public, lib/domain/rights.ts) and
+ * the self-check questions an expert-library application is judged by
+ * (lib/domain/expert-library.ts). Neither holds a library back from
+ * publishing: public review before publication ended on 2026-10-23.
+ * review-visibility-proposal.md 5.1 and 5.2.
  *
  * The questions share `library_eval_question` with the platform's own test
  * set, told apart by `author`. An owner writes and removes their own; the
@@ -17,12 +17,7 @@ import { and, asc, count, eq, isNull } from 'drizzle-orm';
 import { AppError } from '@/contracts/errors';
 import { draftEvalQuestion, EVAL_MAX_QUESTIONS } from '@/lib/domain/benchmark';
 import { uuidv7 } from '@/lib/domain/id';
-import {
-  PlatformLibraryRefused,
-  submissionBlockers,
-  submissionReady,
-  type SubmissionBlocker,
-} from '@/lib/domain/library';
+import { PlatformLibraryRefused } from '@/lib/domain/library';
 import {
   parseRightsDeclaration,
   readRightsDeclaration,
@@ -51,11 +46,9 @@ export interface LibraryMaterials {
   /** Every question on the library, whoever wrote it. */
   questions: number;
   ownerQuestions: number;
-  blockers: SubmissionBlocker[];
-  ready: boolean;
 }
 
-/** What the library has brought, and what it still lacks, for the submission rules. */
+/** The declaration and the question counts, for the owner's panel and the console. */
 export async function libraryMaterials(reader: Reader, libraryId: string): Promise<LibraryMaterials> {
   const [[row], [counts], ownerQuestions] = await Promise.all([
     reader
@@ -69,19 +62,7 @@ export async function libraryMaterials(reader: Reader, libraryId: string): Promi
       .where(eq(schema.libraryEvalQuestion.libraryId, libraryId)),
     ownerQuestionCount(reader, libraryId),
   ]);
-  const rights = readRightsDeclaration(row?.rights);
-  const questions = counts?.questions ?? 0;
-  const materials = {
-    rightsDeclared: rights !== null,
-    rightsAllowPublic: rights ? rightsAllowPublic(rights) : false,
-  };
-  return {
-    rights,
-    questions,
-    ownerQuestions,
-    blockers: submissionBlockers(materials),
-    ready: submissionReady(materials),
-  };
+  return { rights: readRightsDeclaration(row?.rights), questions: counts?.questions ?? 0, ownerQuestions };
 }
 
 async function ownerQuestionCount(reader: Reader, libraryId: string): Promise<number> {

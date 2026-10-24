@@ -1,18 +1,8 @@
 /**
- * What a public submission brings (review-visibility-proposal.md 5): the
- * rights declaration (lib/domain/rights.ts) and the question set, and how
- * their absence holds a public library back from the review queue
- * (lib/domain/library.ts).
+ * The owner's rights declaration (review-visibility-proposal.md 5.1,
+ * lib/domain/rights.ts): what it records, and what it permits.
  */
 import { describe, expect, it } from 'vitest';
-import {
-  lifecycleAfterBuild,
-  ownerActionAvailable,
-  reviewPipeline,
-  submissionBlockers,
-  submissionReady,
-  visibilityTransition,
-} from '@/lib/domain/library';
 import {
   parseRightsDeclaration,
   readRightsDeclaration,
@@ -57,54 +47,5 @@ describe('rights declaration', () => {
     const assisted = parseRightsDeclaration({ ...answer, generation: 'assisted' }, { userId: null, now })!;
     expect(rightsAllowPublic(generated)).toBe(false);
     expect(rightsAllowPublic(assisted)).toBe(true);
-  });
-});
-
-describe('submission materials', () => {
-  it('asks for the declaration alone; the question set is the expert gate\'s (2026-10-23)', () => {
-    expect(submissionBlockers({ rightsDeclared: false, rightsAllowPublic: false })).toEqual(['rights']);
-    expect(submissionBlockers({ rightsDeclared: true, rightsAllowPublic: false })).toEqual(['rights_generated']);
-    expect(submissionBlockers({ rightsDeclared: true, rightsAllowPublic: true })).toEqual([]);
-    expect(submissionReady({ rightsDeclared: true, rightsAllowPublic: true })).toBe(true);
-  });
-
-  it('leaves a public build for its owner to submit, and publishes a private one', () => {
-    const base = { lifecycleStatus: 'draft' as const, isPlatformLibrary: false };
-    expect(lifecycleAfterBuild({ ...base, visibility: 'public' })).toBeNull();
-    expect(lifecycleAfterBuild({ ...base, lifecycleStatus: 'changes_requested', visibility: 'public' })).toBeNull();
-    expect(lifecycleAfterBuild({ ...base, visibility: 'private' })).toBe('published');
-  });
-
-  it("offers the owner's submit once a held draft is ready, and a resubmit only when ready", () => {
-    const held = { lifecycleStatus: 'draft' as const, visibility: 'public' as const, pausedByOwner: false, hasReadyVersion: true };
-    expect(ownerActionAvailable({ ...held, materialsReady: false }, 'submit')).toBe(false);
-    expect(ownerActionAvailable({ ...held, materialsReady: true }, 'submit')).toBe(true);
-    expect(ownerActionAvailable({ ...held, hasReadyVersion: false, materialsReady: true }, 'submit')).toBe(false);
-    expect(ownerActionAvailable({ ...held, visibility: 'private', materialsReady: true }, 'submit')).toBe(false);
-    const returned = { ...held, lifecycleStatus: 'changes_requested' as const };
-    expect(ownerActionAvailable({ ...returned, materialsReady: false }, 'resubmit')).toBe(false);
-    expect(ownerActionAvailable({ ...returned, materialsReady: true }, 'resubmit')).toBe(true);
-    expect(ownerActionAvailable(returned, 'resubmit')).toBe(true);
-  });
-
-  it('parks a live library that goes public in draft for its owner to submit, never live', () => {
-    const live = { from: 'private' as const, to: 'public' as const, lifecycleStatus: 'published' as const, hasReadyVersion: true };
-    expect(visibilityTransition(live)).toBe('draft');
-  });
-
-  it('shows the materials step for a public library only, active once the build is done', () => {
-    const input = { visibility: 'public' as const, lifecycleStatus: 'draft' as const, indexStatus: 'ready' as const, building: false };
-    expect(reviewPipeline(input).map((entry) => entry.step)).toEqual(['rights', 'parse', 'safety', 'materials', 'review', 'publish']);
-    expect(reviewPipeline(input).find((entry) => entry.step === 'materials')?.state).toBe('active');
-    expect(reviewPipeline({ ...input, indexStatus: 'pending' }).find((entry) => entry.step === 'materials')?.state).toBe('pending');
-    expect(reviewPipeline({ ...input, lifecycleStatus: 'submitted' }).find((entry) => entry.step === 'materials')?.state).toBe('done');
-    expect(reviewPipeline({ ...input, visibility: 'private' }).map((entry) => entry.step)).toEqual(['rights', 'parse', 'safety', 'publish']);
-  });
-
-  it('blocks the pipeline’s rights step until the declaration is in', () => {
-    const input = { visibility: 'public' as const, lifecycleStatus: 'draft' as const, indexStatus: 'ready' as const, building: false };
-    expect(reviewPipeline({ ...input, rightsDeclared: false })[0]).toEqual({ step: 'rights', state: 'blocked' });
-    expect(reviewPipeline({ ...input, rightsDeclared: true })[0]).toEqual({ step: 'rights', state: 'done' });
-    expect(reviewPipeline(input)[0]).toEqual({ step: 'rights', state: 'done' });
   });
 });

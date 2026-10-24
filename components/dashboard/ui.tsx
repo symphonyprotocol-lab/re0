@@ -1,6 +1,7 @@
 import Link from 'next/link';
 import type { ReactNode } from 'react';
-import { ArrowUpRightIcon } from '@/components/ui/icons';
+import { LinkPending } from '@/components/dashboard/link-pending';
+import { ArrowUpRightIcon, ChevronLeftIcon } from '@/components/ui/icons';
 
 /** Card chrome shared by every panel in the dashboard design frames. */
 export const PANEL = 'rounded-lg border border-line bg-card';
@@ -57,6 +58,25 @@ export function PanelHeading({
 }
 
 /** The brand action in page and panel headers. */
+/**
+ * The way back up from a page that sits under another: a small bordered
+ * chip with a chevron, drawn like the page's own secondary buttons rather
+ * than a bare text link, so the eye finds it among the heading and badges.
+ */
+export function BackLink({ href, children }: { href: string; children: ReactNode }) {
+  return (
+    <Link
+      href={href}
+      className="group inline-flex h-7 w-fit items-center gap-1 rounded-md border border-line bg-card pr-2.5 pl-1.5 text-[11.5px] font-medium text-steel transition-colors hover:border-brand/40 hover:bg-brandsoft hover:text-brandink"
+    >
+      <LinkPending size={13}>
+        <ChevronLeftIcon size={13} className="transition-transform group-hover:-translate-x-0.5" />
+      </LinkPending>
+      {children}
+    </Link>
+  );
+}
+
 export function ActionButton({
   href,
   children,
@@ -73,9 +93,10 @@ export function ActionButton({
   return (
     <Link
       href={href}
-      className={`inline-flex h-10 shrink-0 items-center gap-1.5 rounded-md px-4 text-caption font-medium transition-colors ${style}`}
+      className={`inline-flex h-10 shrink-0 items-center gap-1.5 rounded-md px-4 text-caption font-medium transition-colors active:scale-[0.98] ${style}`}
     >
       {children}
+      <LinkPending size={14} />
     </Link>
   );
 }

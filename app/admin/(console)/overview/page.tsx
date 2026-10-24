@@ -14,9 +14,7 @@ import {
   ArrowUpRightIcon,
   CalendarIcon,
   CircleDollarSignIcon,
-  ClockIcon,
   DatabaseIcon,
-  FileTextIcon,
   ReceiptIcon,
   TrendingUpIcon,
   UsersIcon,
@@ -40,7 +38,7 @@ import { requireAdmin } from '@/lib/http/admin';
 import type { Dictionary } from '@/lib/i18n/dictionary';
 import { fill } from '@/lib/i18n/format';
 import { getMessages } from '@/lib/i18n/server';
-import { bytes, money, oneOf } from '../list-params';
+import { money, oneOf } from '../list-params';
 
 export async function generateMetadata(): Promise<Metadata> {
   return { title: (await getMessages()).admin.overview.title };
@@ -144,25 +142,12 @@ export default async function AdminOverviewPage({
     caption: fill(o.newInWindow, { count: counts?.inWindow ?? 0 }),
   });
 
-  const review = view.health.review;
   const revenue = view.revenue;
 
   const tiles: StatTile[] = (
     [
       { need: 'users', label: o.stats.users, Icon: UsersIcon, ...windowed(view.users) },
       { need: 'libraries', label: o.stats.libraries, Icon: DatabaseIcon, ...windowed(view.libraries) },
-      {
-        need: 'libraries',
-        label: o.stats.pending,
-        Icon: ClockIcon,
-        value: review.pending.toLocaleString('en-US'),
-        changeBps: null,
-        deltaLabel: '',
-        caption:
-          review.oldestWaitingMs === null
-            ? o.pendingNone
-            : fill(o.pendingOldest, { duration: duration(review.oldestWaitingMs, o) }),
-      },
       /*
        * Money is compared month to month whatever the range control says --
        * that is how the billing screen and the provider's statements cut it
@@ -229,14 +214,6 @@ export default async function AdminOverviewPage({
       label: o.health.builds,
       value: fill(o.health.buildsValue, builds),
       percent: finished === 0 ? 100 : (builds.succeeded / finished) * 100,
-    },
-    {
-      label: o.health.review,
-      value:
-        review.pending === 0
-          ? o.health.reviewNone
-          : fill(o.health.reviewValue, { count: review.pending, overdue: review.overdue }),
-      percent: review.pending === 0 ? 100 : ((review.pending - review.overdue) / review.pending) * 100,
     },
   ];
 
@@ -384,59 +361,6 @@ export default async function AdminOverviewPage({
             </div>
             <GrowthChart points={view.growth} showPaid={view.growthIncludesPaid} />
           </div>
-        </Panel>
-      ) : null}
-
-      {/* Review queue. */}
-      {can('libraries') && view.pendingQueue ? (
-        <Panel>
-          <PanelHead
-            title={o.pendingTitle}
-            description={o.pendingSubtitle}
-            action={
-              <Link
-                href="/admin/libraries?status=pending"
-                className="inline-flex items-center gap-1.5 text-[12px] tracking-[-0.023em] text-brandink hover:text-brand"
-              >
-                {o.pendingAll}
-                <ArrowUpRightIcon size={13} />
-              </Link>
-            }
-          />
-          {view.pendingQueue.length === 0 ? (
-            <p className="px-[15px] py-5 text-[12px] tracking-[-0.023em] text-muted">{o.pendingEmpty}</p>
-          ) : (
-            <ul>
-              {view.pendingQueue.map((library, index) => (
-                <li
-                  key={library.id}
-                  className={`flex flex-wrap items-center gap-3 px-[15px] py-3.5 ${
-                    index < view.pendingQueue!.length - 1 ? 'border-b-2 border-line' : ''
-                  }`}
-                >
-                  <span className="flex size-[34px] shrink-0 items-center justify-center rounded-[8px] bg-ambersoft text-amberink">
-                    <FileTextIcon size={16} />
-                  </span>
-                  <span className="flex min-w-0 flex-1 flex-col gap-1">
-                    <span className="truncate text-[12px] font-medium tracking-[-0.023em] text-ink">
-                      {library.title}
-                    </span>
-                    <span className="truncate text-[11px] tracking-[-0.023em] text-muted">
-                      {[library.ownerName, library.sourceType, bytes(library.storageBytes)]
-                        .filter((part) => part && part !== '—')
-                        .join(' · ') || library.publicId}
-                    </span>
-                  </span>
-                  <ConsoleButton
-                    href={`/admin/libraries/${library.id}`}
-                    className="h-[30px] border-publine text-brandink"
-                  >
-                    {t.admin.actions.review}
-                  </ConsoleButton>
-                </li>
-              ))}
-            </ul>
-          )}
         </Panel>
       ) : null}
 

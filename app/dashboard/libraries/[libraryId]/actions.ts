@@ -102,28 +102,11 @@ export async function rebuildLibraryAction(
   }
 }
 
-/**
- * A model review the rules layer queued (lib/application/review/model.ts)
- * runs after the response, like a first build does: the owner sees
- * "submitted" at once, and the model's answer lands in the review log a
- * little later. The drain picks it up if this never runs.
- */
-function runOffRequest(operationId: string | null | undefined): void {
-  if (!operationId) return;
-  after(async () => {
-    try {
-      await runOperation({ operationId });
-    } catch (error) {
-      console.error(`model review run failed: ${error instanceof Error ? error.message : 'unknown'}`);
-    }
-  });
-}
-
 /* ------------------------------------------------------ owner management */
 
 /**
- * The owner's verbs beside rebuild (requirement.md 5.2): pause, resume and
- * resubmit, each answering with where the library now is. The use case
+ * The owner's verbs beside rebuild (requirement.md 5.2): pause and resume,
+ * each answering with where the library now is. The use case
  * re-checks the role and the domain rule; the page only decides what is
  * drawn.
  */
@@ -151,7 +134,6 @@ export async function ownerLifecycleAction(
       libraryId,
       action,
     });
-    runOffRequest(result.modelReviewOperationId);
     revalidatePath(`/dashboard/libraries/${libraryId}`);
     revalidatePath('/dashboard/libraries');
     return {
@@ -176,7 +158,6 @@ export interface EditLibraryMetadataActionResult {
   ok: boolean;
   lifecycleStatus?: LifecycleStatus;
   /** True when the visibility change queued the library for review. */
-  queuedForReview?: boolean;
   error?:
     | 'not_found'
     | 'access_denied'
@@ -316,10 +297,9 @@ export async function editLibraryMetadataAction(
       visibility: String(form.get('visibility') ?? ''),
       rights: rightsOf(form),
     });
-    runOffRequest(result.modelReviewOperationId);
     revalidatePath(`/dashboard/libraries/${libraryId}`);
     revalidatePath('/dashboard/libraries');
-    return { ok: true, lifecycleStatus: result.lifecycleStatus, queuedForReview: result.queuedForReview };
+    return { ok: true, lifecycleStatus: result.lifecycleStatus };
   } catch (error) {
     if (error instanceof PlatformLibraryRefused) {
       if (error.code === 'invalid_title') return { ok: false, error: 'invalid_title' };

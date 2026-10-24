@@ -195,6 +195,12 @@ export async function recordRequestLog(entry: {
 }
 
 export interface RequestLogRow {
+  /**
+   * The row's own key. Not `requestId`: one request may write several rows --
+   * a showcase draft runs each probe as its own charged retrieval under the
+   * request that asked for the draft -- so the request id repeats.
+   */
+  id: string;
   requestId: string;
   operation: string;
   libraryPublicId: string | null;
@@ -239,6 +245,7 @@ function requestConditions(workspaceId: string, filter: Partial<RequestFilter>):
 }
 
 const REQUEST_SELECTION = {
+  id: schema.requestLog.id,
   requestId: schema.requestLog.requestId,
   operation: schema.requestLog.operation,
   libraryPublicId: schema.requestLog.libraryPublicId,
@@ -252,6 +259,7 @@ const REQUEST_SELECTION = {
 };
 
 interface RequestSelection {
+  id: string;
   requestId: string;
   operation: string;
   libraryPublicId: string | null;
@@ -266,6 +274,7 @@ interface RequestSelection {
 
 function toRow(row: RequestSelection): RequestLogRow {
   return {
+    id: row.id,
     requestId: row.requestId,
     operation: row.operation,
     libraryPublicId: row.libraryPublicId,

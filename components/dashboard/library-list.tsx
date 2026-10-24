@@ -1,5 +1,5 @@
 'use client';
-import { describeReviewNote } from '@/lib/domain/auto-review';
+import { describeReviewNote } from '@/lib/domain/review';
 
 import Link from 'next/link';
 import { useMemo, useState } from 'react';
@@ -9,6 +9,7 @@ import { ReviewPipeline } from '@/components/dashboard/library-manage';
 import { RebuildLibraryControl, type RebuildLibraryAction } from '@/components/dashboard/library-rebuild';
 import type { BuildQuote } from '@/lib/application/plans/build-quota';
 import { Badge, PANEL, SearchField, StatusLabel, type StatusTone } from '@/components/dashboard/ui';
+import { LinkPending } from '@/components/dashboard/link-pending';
 import { ArrowRightIcon, FileTextIcon } from '@/components/ui/icons';
 import type { ReviewPipelineEntry } from '@/lib/domain/library';
 import { useI18n } from '@/lib/i18n/client';
@@ -21,9 +22,9 @@ import { fill } from '@/lib/i18n/format';
  * of its own and a suspended library is not one the owner can fix by
  * editing.
  */
-export type LibraryBucket = 'live' | 'pending' | 'changes' | 'blocked' | 'exempt';
+export type LibraryBucket = 'live' | 'pending' | 'blocked' | 'exempt';
 
-export type LibraryFilter = 'all' | 'public' | 'private' | 'pending' | 'changes' | 'blocked';
+export type LibraryFilter = 'all' | 'public' | 'private' | 'pending' | 'blocked';
 
 /** Rows a page of the list shows; the filters and the search narrow the whole list first. */
 export const LIBRARIES_PAGE_SIZE = 10;
@@ -124,7 +125,6 @@ export function LibraryList({
     { id: 'public', label: m.filters.public },
     { id: 'private', label: m.filters.private },
     { id: 'pending', label: m.filters.pending },
-    { id: 'changes', label: m.filters.changes },
     { id: 'blocked', label: m.filters.blocked },
   ];
 
@@ -237,7 +237,9 @@ export function LibraryList({
 
                 <span className="text-[12px] text-muted">{library.updated}</span>
 
-                <ArrowRightIcon size={14} className="text-muted" />
+                <LinkPending size={14} className="text-brandink">
+                  <ArrowRightIcon size={14} className="text-muted" />
+                </LinkPending>
               </>
             );
             /* Room on the right for the controls, which sit beside the row
@@ -252,17 +254,12 @@ export function LibraryList({
                 >
                   {cells}
                 </Link>
-                {/* requirement.md 5.2: a public library shows its review
-                    steps, the expected time and the reviewer's feedback. */}
+                {/* requirement.md 5.2: a public library shows its publishing
+                    steps and the platform's note, if it left one. */}
                 {library.pipeline || library.note ? (
                   <div className="border-t border-line/60 bg-subtle/60 px-[18px] py-2.5 pl-[62px]">
                     {library.pipeline ? (
-                      <ReviewPipeline
-                        entries={library.pipeline}
-                        note={library.note}
-                        materialsHref={`/dashboard/libraries/${library.id}#materials`}
-                        compact
-                      />
+                      <ReviewPipeline entries={library.pipeline} note={library.note} compact />
                     ) : (
                       <p className="text-[10.5px] leading-[1.5] text-rose">
                         {describeReviewNote(library.note ?? '', t.dashboard.libraries.rulesReasons)}

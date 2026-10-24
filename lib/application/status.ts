@@ -2,12 +2,11 @@
  * Use case: the public status page's figures, read from the tables that
  * recorded them (requirement.md 13.3 可观测性). The page is the platform's own
  * monitor: the API log says what was served, the operation log what was
- * built, the refresh schedule what is owed, the review queue what waits.
+ * built, the refresh schedule what is owed.
  * The arithmetic is `lib/domain/status.ts`; this only fetches.
  */
-import { and, eq, gte, inArray, isNull, sql, type AnyColumn } from 'drizzle-orm';
+import { and, gte, inArray, sql, type AnyColumn } from 'drizzle-orm';
 import { refreshSchedule } from '@/lib/application/ingestion';
-import { REVIEW_STATUSES, waitingSince } from '@/lib/application/administration/list-libraries';
 import {
   STATUS_WINDOW_DAYS,
   summarizeStatus,
@@ -21,7 +20,7 @@ export type { ComponentStatus, Incident, PlatformStatus } from '@/lib/domain/sta
 
 const DAY_MS = 24 * 60 * 60 * 1000;
 
-/** How long a due refresh or a waiting review may stand before it counts against the platform. */
+/** How long a due refresh may stand before it counts against the platform. */
 const GRACE_MS = DAY_MS;
 
 const FETCHING_OPERATIONS = ['refresh', 'ingest'] as const;
@@ -36,7 +35,7 @@ export async function platformStatus(now: Date = new Date()): Promise<PlatformSt
   const utcDay = (column: AnyColumn) =>
     sql<string>`(${column} at time zone 'UTC')::date::text`;
 
-  const [api, operations, schedule, [reviewRow]] = await Promise.all([
+  const [api, operations, schedule] = await Promise.all([
     database
       .select({
         day: utcDay(schema.requestLog.createdAt),
@@ -64,26 +63,6 @@ export async function platformStatus(now: Date = new Date()): Promise<PlatformSt
       )
       .groupBy(sql`1`),
     refreshSchedule(now),
-    database
-      .select({
-        pending: sql<number>`count(*)::int`,
-        oldest: sql<Date | null>`min(${waitingSince})`,
-        overdue: sql<number>`(count(*) filter (where ${waitingSince} < ${new Date(now.getTime() - GRACE_MS)}))::int`,
-      })
-      .from(schema.library)
-      .where(
-        and(
-          isNull(schema.library.deletedAt),
-          /*
-           * User libraries only, exactly as the console's review queue and
-           * overview count them: a platform library left in `submitted` is
-           * not work a reviewer can pick up, and counting it here made the
-           * public page report an overdue queue the console said was empty.
-           */
-          eq(schema.library.isPlatformLibrary, false),
-          inArray(schema.library.lifecycleStatus, [...REVIEW_STATUSES.pending]),
-        ),
-      ),
   ]);
 
   const timed = schedule.filter((source) => source.dueAt !== null);
@@ -94,7 +73,6 @@ export async function platformStatus(now: Date = new Date()): Promise<PlatformSt
     .filter((source) => source.dueAt!.getTime() > now.getTime())
     .map((source) => source.dueAt!)
     .sort((a, b) => a.getTime() - b.getTime());
-  const oldest = reviewRow?.oldest ? new Date(reviewRow.oldest) : null;
 
   return summarizeStatus({
     now,
@@ -114,11 +92,6 @@ export async function platformStatus(now: Date = new Date()): Promise<PlatformSt
       overdue: overdue.length,
       open: schedule.filter((source) => source.open).length,
       nextDueAt: upcoming[0] ?? null,
-    },
-    review: {
-      pending: reviewRow?.pending ?? 0,
-      overdue: reviewRow?.overdue ?? 0,
-      oldestWaitingMs: oldest ? Math.max(0, now.getTime() - oldest.getTime()) : null,
     },
   });
 }

@@ -34,26 +34,12 @@ import { db, schema } from '@/lib/infrastructure/postgres/client';
 import { recentAuditEntries, type ConsoleAuditRow } from './list-audit';
 import { activeLlmConfig } from './manage-llm-config';
 import { retrievalProviderStatus } from './manage-retrieval-config';
-import {
-  pendingReviewQueue,
-  REVIEW_STATUSES,
-  waitingSince,
-  type ConsoleLibraryRow,
-} from './list-libraries';
 
 /** Total now, and how many arrived in this window and the one before it. */
 export interface WindowedCount {
   total: number;
   inWindow: number;
   inPreviousWindow: number;
-}
-
-export interface ReviewQueueState {
-  pending: number;
-  /** How long the longest-waiting library has waited; null when nothing waits. */
-  oldestWaitingMs: number | null;
-  /** Pending libraries that have waited more than a day. */
-  overdue: number;
 }
 
 export interface OverviewHealth {
@@ -63,7 +49,6 @@ export interface OverviewHealth {
   index: { ready: number; failed: number; building: number; total: number };
   /** Build and refresh operations: waiting or running now, finished in 24 hours. */
   builds: { open: number; succeeded: number; failed: number };
-  review: ReviewQueueState;
 }
 
 /**
@@ -107,7 +92,6 @@ export interface ConsoleOverview {
   paidWorkspaces: number | null;
   /** Present with the `libraries` capability. */
   libraries: WindowedCount | null;
-  pendingQueue: ConsoleLibraryRow[] | null;
   /** Present with the `billing` capability. */
   revenue: BillingSummary | null;
   /** Present with the `audit` capability. */
@@ -121,8 +105,7 @@ export interface OverviewInput {
   range: OverviewRange;
   capabilities: readonly AdminCapability[];
   now?: Date;
-  /** How many waiting libraries and recent events to list. */
-  queueLimit?: number;
+  /** How many recent events to list. */
   activityLimit?: number;
 }
 
@@ -142,11 +125,6 @@ export async function consoleOverview(input: OverviewInput): Promise<ConsoleOver
   const can = (capability: AdminCapability) => input.capabilities.includes(capability);
 
   const liveLibrary = isNull(schema.library.deletedAt);
-  const pendingUserLibrary = and(
-    liveLibrary,
-    eq(schema.library.isPlatformLibrary, false),
-    inArray(schema.library.lifecycleStatus, [...REVIEW_STATUSES.pending]),
-  );
 
   /*
    * Like against like: the current window runs from its first midnight to
@@ -170,13 +148,11 @@ export async function consoleOverview(input: OverviewInput): Promise<ConsoleOver
     paidDays,
     paidWorkspaces,
     libraryRow,
-    pendingQueue,
     revenue,
     activity,
     [apiRow],
     [indexRow],
     [buildRow],
-    [reviewRow],
     subscriberModel,
   ] = await Promise.all([
     can('users')
@@ -236,7 +212,6 @@ export async function consoleOverview(input: OverviewInput): Promise<ConsoleOver
           .where(liveLibrary)
           .then((rows) => rows[0])
       : null,
-    can('libraries') ? pendingReviewQueue({ limit: input.queueLimit ?? 5 }) : null,
     can('billing') ? billingSummary(now) : null,
     can('audit') ? recentAuditEntries({ limit: input.activityLimit ?? 6 }) : null,
 
@@ -284,14 +259,6 @@ export async function consoleOverview(input: OverviewInput): Promise<ConsoleOver
           gte(schema.workflowOperation.updatedAt, dayAgo),
         ),
       ),
-    database
-      .select({
-        pending: count(),
-        oldest: sql<Date | null>`min(${waitingSince})`,
-        overdue: sql<number>`(count(*) filter (where ${waitingSince} < ${dayAgo}))::int`,
-      })
-      .from(schema.library)
-      .where(pendingUserLibrary),
     /*
      * The registry read cannot take the page down: a service row that says
      * "unknown" is honest, a landing page that 500s over it is not.
@@ -312,8 +279,6 @@ export async function consoleOverview(input: OverviewInput): Promise<ConsoleOver
       )
     : null;
 
-  const oldest = reviewRow?.oldest ? new Date(reviewRow.oldest) : null;
-
   return {
     range: input.range,
     users: userRow ?? null,
@@ -323,7 +288,6 @@ export async function consoleOverview(input: OverviewInput): Promise<ConsoleOver
       userRow && paidWorkspaces !== null ? shareBps(paidWorkspaces, userRow.total) : null,
     paidWorkspaces,
     libraries: libraryRow ?? null,
-    pendingQueue,
     revenue,
     activity,
     health: {
@@ -338,11 +302,6 @@ export async function consoleOverview(input: OverviewInput): Promise<ConsoleOver
         open: buildRow?.open ?? 0,
         succeeded: buildRow?.succeeded ?? 0,
         failed: buildRow?.failed ?? 0,
-      },
-      review: {
-        pending: reviewRow?.pending ?? 0,
-        oldestWaitingMs: oldest ? Math.max(0, now.getTime() - oldest.getTime()) : null,
-        overdue: reviewRow?.overdue ?? 0,
       },
     },
     services: {
@@ -364,10 +323,5 @@ export async function consoleOverview(input: OverviewInput): Promise<ConsoleOver
 export function healthNeedsAttention(health: OverviewHealth): boolean {
   const api = health.api;
   const apiDegraded = api.requests > 0 && api.failures / api.requests > 0.01;
-  return (
-    apiDegraded ||
-    health.index.failed > 0 ||
-    health.builds.failed > 0 ||
-    health.review.overdue > 0
-  );
+  return apiDegraded || health.index.failed > 0 || health.builds.failed > 0;
 }

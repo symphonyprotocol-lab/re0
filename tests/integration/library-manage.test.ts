@@ -173,22 +173,6 @@ async function library(
   return { libraryId: created.libraryId, publicId: created.publicId, operationId: created.operationId };
 }
 
-/** The owner's self-check questions, optional for a submission since 2026-10-23; these fixtures bring some so the rules layer has a hit rate to judge. */
-async function questions(libraryId: string, n = 5): Promise<void> {
-  await db()
-    .insert(schema.libraryEvalQuestion)
-    .values(
-      Array.from({ length: n }, (_, at) => ({
-        id: uuidv7(),
-        libraryId,
-        author: 'owner',
-        question: `What does section ${at + 1} say?`,
-        /* Unanswerable on purpose: a verified source whose questions hit would auto-publish, and these tests want the queue. */
-        expectedText: `never-in-this-fixture-${at + 1}`,
-      })),
-    );
-}
-
 /** Builds and publishes, so the library has an indexed current version. */
 async function build(libraryId: string, declared?: { folders?: string[]; excludeFolders?: string[] }) {
   const built = await buildVersion({
@@ -501,103 +485,6 @@ describeWithDb('owner library management', () => {
     expect(await lifecycleOf(created.libraryId)).toBe('suspended');
   });
 
-  /* -------------------------------------------------------------- resubmit */
-
-  it('resubmits a returned public library and refuses every other state', async () => {
-    const workspaceId = await workspaceOnPlan();
-    const created = await library(workspaceId, { visibility: 'public' });
-    await build(created.libraryId);
-
-    const note = 'Please remove the vendored third-party manuals.';
-    await reviewerDecision(created.libraryId, 'request_changes', [note], new Date(Date.now() - 60_000));
-    await setLifecycle(created.libraryId, 'changes_requested');
-
-    /* The declaration was made at creation, so the resubmission queues; the
-       question set is optional (2026-10-23) and here only gives the rules a hit rate. */
-    await questions(created.libraryId);
-    const resubmitted = await applyOwnerLifecycleAction({
-      workspaceId,
-      role: 'owner',
-      libraryId: created.libraryId,
-      action: 'resubmit',
-    });
-    expect(resubmitted.lifecycleStatus).toBe('submitted');
-    expect(await lifecycleOf(created.libraryId)).toBe('submitted');
-
-    /* The rules layer answered the resubmission with a hold row of its own (stage `rules`); the rest are the person's. */
-    const rows = (await reviews(created.libraryId)).filter((row) => row.stage !== 'rules' && row.stage !== 'model');
-    expect(rows).toHaveLength(2);
-    /* The reviewer's note stays readable beside the new submission. */
-    expect(rows[0]?.stage).toBe('review');
-    expect(rows[0]?.feedback).toEqual([note]);
-    const fresh = rows[1]!;
-    expect(fresh.stage).toBe(OWNER_REVIEW_STAGE);
-    expect(fresh.outcome).toBe('resubmit');
-    /* Undecided until a reviewer answers. */
-    expect(fresh.decidedAt).toBeNull();
-    expect(fresh.versionId).toBe((await libraryRow(created.libraryId))?.currentVersionId);
-
-    /* Now that it is `submitted`, resubmitting again is refused. */
-    expect(
-      await refusalOf(
-        applyOwnerLifecycleAction({
-          workspaceId,
-          role: 'owner',
-          libraryId: created.libraryId,
-          action: 'resubmit',
-        }),
-      ),
-    ).toBe('invalid_request');
-
-    /* A private library the reviewer never saw, and a published one. */
-    for (const state of ['draft', 'published', 'suspended', 'reviewing'] as const) {
-      await setLifecycle(created.libraryId, state);
-      expect(
-        await refusalOf(
-          applyOwnerLifecycleAction({
-            workspaceId,
-            role: 'owner',
-            libraryId: created.libraryId,
-            action: 'resubmit',
-          }),
-        ),
-      ).toBe('invalid_request');
-    }
-
-    /* `changes_requested` is not enough on its own: a private library is not
-       in the review queue, and one with no indexed version has nothing to
-       hand a reviewer. */
-    const priv = await library(workspaceId, { visibility: 'private' });
-    await build(priv.libraryId);
-    await setLifecycle(priv.libraryId, 'changes_requested');
-    expect(
-      await refusalOf(
-        applyOwnerLifecycleAction({
-          workspaceId,
-          role: 'owner',
-          libraryId: priv.libraryId,
-          action: 'resubmit',
-        }),
-      ),
-    ).toBe('invalid_request');
-
-    const unbuilt = await library(workspaceId, { visibility: 'public' });
-    await setLifecycle(unbuilt.libraryId, 'changes_requested');
-    expect(
-      await refusalOf(
-        applyOwnerLifecycleAction({
-          workspaceId,
-          role: 'owner',
-          libraryId: unbuilt.libraryId,
-          action: 'resubmit',
-        }),
-      ),
-    ).toBe('invalid_request');
-    /* Nothing was written for a refused verb. */
-    expect(await reviews(unbuilt.libraryId)).toHaveLength(0);
-    expect(await lifecycleOf(unbuilt.libraryId)).toBe('changes_requested');
-  });
-
   /* -------------------------------------------------------------- metadata */
 
   it('persists title, description and language, and refuses over-long fields', async () => {
@@ -614,7 +501,6 @@ describeWithDb('owner library management', () => {
       visibility: 'private',
     });
     expect(edited.visibility).toBe('private');
-    expect(edited.queuedForReview).toBe(false);
 
     const row = await libraryRow(created.libraryId);
     expect(row?.title).toBe('Quartzloft handbook');
@@ -711,12 +597,11 @@ describeWithDb('owner library management', () => {
   it('applies the visibility transition rules in both directions', async () => {
     const workspaceId = await workspaceOnPlan();
 
-    /* private -> public, published: queues for review. */
+    /* private -> public, published: stays live. Going public needs the
+       declaration (made at creation here); nothing waits for review since 2026-10-23. */
     const live = await library(workspaceId, { visibility: 'private' });
     await build(live.libraryId);
     await setLifecycle(live.libraryId, 'published');
-    /* Going public never queues by itself: the library parks in draft, and the
-       owner submits it once the materials are in (review-visibility-proposal.md 5). */
     const toPublic = await editLibraryMetadata({
       workspaceId,
       role: 'owner',
@@ -725,15 +610,10 @@ describeWithDb('owner library management', () => {
       visibility: 'public',
     });
     expect(toPublic.visibility).toBe('public');
-    expect(toPublic.lifecycleStatus).toBe('draft');
-    expect(toPublic.queuedForReview).toBe(false);
-    /* No question set at all: since 2026-10-23 the declaration alone lets it submit. */
-    const submitted = await applyOwnerLifecycleAction({ workspaceId, role: 'owner', libraryId: live.libraryId, action: 'submit' });
-    expect(submitted.lifecycleStatus).toBe('submitted');
-    expect(await lifecycleOf(live.libraryId)).toBe('submitted');
+    expect(toPublic.lifecycleStatus).toBe('published');
+    expect(await lifecycleOf(live.libraryId)).toBe('published');
 
-    /* public -> private while waiting on a reviewer: with an indexed version
-       it goes live, and no review is required again. */
+    /* public -> private: live stays live. */
     const back = await editLibraryMetadata({
       workspaceId,
       role: 'owner',
@@ -742,10 +622,9 @@ describeWithDb('owner library management', () => {
       visibility: 'private',
     });
     expect(back.lifecycleStatus).toBe('published');
-    expect(back.queuedForReview).toBe(false);
     expect((await libraryRow(live.libraryId))?.visibility).toBe('private');
 
-    /* private -> public on a draft: the build queues it, not this edit. */
+    /* private -> public on a draft: the build publishes it, not this edit. */
     const draft = await library(workspaceId, { visibility: 'private' });
     const draftPublic = await editLibraryMetadata({
       workspaceId,
@@ -755,9 +634,8 @@ describeWithDb('owner library management', () => {
       visibility: 'public',
     });
     expect(draftPublic.lifecycleStatus).toBe('draft');
-    expect(draftPublic.queuedForReview).toBe(false);
 
-    /* public -> private with no indexed version goes back to draft. */
+    /* A review-era state with no indexed version goes back to draft. */
     await setLifecycle(draft.libraryId, 'submitted');
     const draftPrivate = await editLibraryMetadata({
       workspaceId,

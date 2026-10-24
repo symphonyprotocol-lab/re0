@@ -1,28 +1,17 @@
 'use client';
 
-import Link from 'next/link';
 import { useRouter } from 'next/navigation';
 import { useActionState, useEffect, useId, useState } from 'react';
 import { DeleteLibraryControl, type DeleteLibraryAction, type DeleteLibraryTarget } from '@/components/dashboard/library-delete';
+import { startNavigationProgress } from '@/components/dashboard/navigation-progress';
 import { PANEL } from '@/components/dashboard/ui';
-import {
-  ArrowRightIcon,
-  ArrowUpRightIcon,
-  BanIcon,
-  CheckIcon,
-  CircleCheckIcon,
-  CircleXIcon,
-  PencilIcon,
-  SpinnerIcon,
-} from '@/components/ui/icons';
+import { BanIcon, CheckIcon, CircleCheckIcon, CircleXIcon, SpinnerIcon } from '@/components/ui/icons';
 import type {
   EditLibraryMetadataActionResult,
   OwnerLifecycleActionResult,
   UpdateParseScopeActionResult,
 } from '@/app/dashboard/libraries/[libraryId]/actions';
 import type { Visibility } from '@/lib/domain';
-import { describeReviewNote } from '@/lib/domain/auto-review';
-import { checklistFeedback, type ReviewChecklist } from '@/lib/domain/review';
 import { EMPTY_RIGHTS, RightsFields, RightsHiddenFields, rightsComplete, type RightsAnswer } from '@/components/dashboard/rights-fields';
 import {
   INDEX_DEPTHS,
@@ -34,13 +23,14 @@ import {
   type RefreshPolicy,
   type ReviewPipelineEntry,
 } from '@/lib/domain/library';
+import { describeReviewNote } from '@/lib/domain/review';
 import { useI18n } from '@/lib/i18n/client';
 import { fill } from '@/lib/i18n/format';
 
 /**
  * The owner's management controls on a library's page (requirement.md 5.2):
- * pause / resume / resubmit, the metadata form, the parse-scope form, and
- * delete, beside the rebuild button. Every control posts to an action that
+ * pause / resume, the metadata form, the parse-scope form, and delete,
+ * beside the rebuild button. Every control posts to an action that
  * re-checks the role; a non-manager is not shown them at all, and the page
  * says so (`manage.readOnly`).
  */
@@ -81,39 +71,24 @@ export function ResultLine({ ok, children }: { ok: boolean; children: React.Reac
 /* ---------------------------------------------------------- pipeline strip */
 
 /**
- * The public publishing pipeline requirement.md 5.2 names, with where this
- * library stands in it (`reviewPipeline`). The expected time sits on the
- * human step and the reviewer's note under it, so an owner reads all three
- * in one place.
- *
- * The materials step is the one the owner has to act on
- * (review-visibility-proposal.md 5), so while it is the active one the strip
- * says so under the steps and, given `materialsHref`, links to the panel --
- * a numbered circle alone does not tell a reader the pipeline is waiting on
- * them rather than on the platform.
+ * The publishing pipeline requirement.md 5.2 names, with where this library
+ * stands in it (`reviewPipeline`): rights, parsing, the safety scan,
+ * publication. The materials and review steps went with public review on
+ * 2026-10-23. `note` is the platform's latest word on a suspended library.
  */
 export function ReviewPipeline({
   entries,
   note,
-  checks = null,
   compact = false,
-  materialsHref = null,
 }: {
   entries: ReviewPipelineEntry[];
-  /** The latest reviewer feedback, if any. */
+  /** The latest note from the platform, if any. */
   note?: string | null;
-  /** The latest decision's 7.4 checklist (lib/domain/review.ts): the owner reads which check failed. */
-  checks?: ReviewChecklist | null;
   compact?: boolean;
-  /** Where the submission materials are filled in; the hint links there while that step is active. */
-  materialsHref?: string | null;
 }) {
   const { t } = useI18n();
   const p = t.dashboard.libraries.manage.pipeline;
-  const reviewActive = entries.some((entry) => entry.step === 'review' && entry.state === 'active');
-  const materialsActive = entries.some((entry) => entry.step === 'materials' && entry.state === 'active');
   const say = (text: string) => describeReviewNote(text, t.dashboard.libraries.rulesReasons);
-  const checkLines = checks ? checklistFeedback(checks) : [];
   return (
     <div className={`flex flex-col ${compact ? 'gap-1.5' : 'gap-3'}`}>
       <ol className={`flex flex-wrap ${compact ? 'gap-x-3 gap-y-1' : 'gap-x-5 gap-y-2'}`}>
@@ -145,50 +120,10 @@ export function ReviewPipeline({
           </li>
         ))}
       </ol>
-      {materialsActive ? (
-        <p
-          className={`flex flex-wrap items-center gap-x-2 gap-y-1 ${
-            compact ? 'text-[10.5px]' : 'text-[11px]'
-          } leading-[1.5] text-rose`}
-        >
-          <PencilIcon size={compact ? 12 : 13} className="shrink-0" />
-          <span>{p.materialsHint}</span>
-          {materialsHref ? (
-            <Link
-              href={materialsHref}
-              className="inline-flex items-center gap-1 font-medium underline decoration-rose/40 underline-offset-2 hover:decoration-rose"
-            >
-              {p.materialsLink}
-              <ArrowRightIcon size={compact ? 11 : 12} />
-            </Link>
-          ) : null}
-        </p>
-      ) : null}
-      {reviewActive ? (
-        <p className={`${compact ? 'text-[10.5px]' : 'text-[11px]'} text-muted`}>
-          {p.expected}
-        </p>
-      ) : null}
       {note ? (
         <p className={`${compact ? 'text-[10.5px]' : 'text-[11px]'} leading-[1.5] text-rose`}>
           {fill(p.feedback, { note: say(note) })}
         </p>
-      ) : null}
-      {!compact && checkLines.length > 0 ? (
-        <ul className="flex flex-col gap-1 text-[11px] leading-[1.5]">
-          {checkLines.map((line) => (
-            <li key={line.check} className="flex items-start gap-1.5">
-              <span className={`mt-px shrink-0 ${line.verdict === 'fail' ? 'text-rose' : 'text-muted'}`}>
-                <CircleXIcon size={13} />
-              </span>
-              <span className="text-steel">
-                <span className="font-medium text-ink">{p.checks[line.check]}</span>
-                {`：${p.verdicts[line.verdict]}`}
-                {line.note ? `，${say(line.note)}` : ''}
-              </span>
-            </li>
-          ))}
-        </ul>
       ) : null}
     </div>
   );
@@ -204,9 +139,6 @@ export type OwnerLifecycleFormAction = (
 const ACTION_ICONS: Record<OwnerLifecycleAction, (props: { size?: number }) => React.ReactElement> = {
   pause: BanIcon,
   resume: CheckIcon,
-  submit: ArrowUpRightIcon,
-  resubmit: ArrowUpRightIcon,
-  appeal: ArrowUpRightIcon,
 };
 
 /**
@@ -239,18 +171,8 @@ export function OwnerActionButton({
     }
   }, [state, router]);
 
-  const confirmText =
-    verb === 'pause'
-      ? m.pauseConfirm
-      : verb === 'resume'
-        ? m.resumeConfirm
-        : verb === 'submit'
-          ? m.submitConfirm
-          : verb === 'appeal'
-            ? m.appealConfirm
-            : m.resubmitConfirm;
-  const label =
-    verb === 'pause' ? m.pause : verb === 'resume' ? m.resume : verb === 'submit' ? m.submit : verb === 'appeal' ? m.appeal : m.resubmit;
+  const confirmText = verb === 'pause' ? m.pauseConfirm : m.resumeConfirm;
+  const label = verb === 'pause' ? m.pause : m.resume;
 
   return (
     <div className="flex flex-col items-end gap-1.5">
@@ -304,7 +226,10 @@ export function DetailDeleteControl({
       action={action}
       target={target}
       variant="button"
-      onDeleted={() => router.push('/dashboard/libraries')}
+      onDeleted={() => {
+        startNavigationProgress();
+        router.push('/dashboard/libraries');
+      }}
     />
   );
 }
@@ -392,7 +317,7 @@ export function LibraryMetadataForm({
         <span className="min-w-0 flex-1">
           {state ? (
             <ResultLine ok={state.ok}>
-              {state.ok ? (state.queuedForReview ? m.savedQueued : m.saved) : m.errors[state.error ?? 'unavailable']}
+              {state.ok ? m.saved : m.errors[state.error ?? 'unavailable']}
             </ResultLine>
           ) : null}
         </span>

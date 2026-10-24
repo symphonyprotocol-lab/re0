@@ -1399,12 +1399,7 @@ export const reviewConfig = pgTable(
   'review_config',
   {
     id: uuid('id').primaryKey(),
-    trustMin: integer('trust_min').notNull(),
-    benchmarkMin: integer('benchmark_min').notNull(),
-    ownerHitRateMin: integer('owner_hit_rate_min').notNull(),
-    duplicateMax: integer('duplicate_max').notNull(),
-    sampleRate: integer('sample_rate').notNull(),
-    autoPublish: integer('auto_publish').notNull(),
+    /* The public-review thresholds this table was made for were dropped on 2026-10-23 (migration 0056); the expert gate's remain. */
     expertMinQuestions: integer('expert_min_questions').notNull().default(10),
     expertHitRateMin: integer('expert_hit_rate_min').notNull().default(70),
     createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),

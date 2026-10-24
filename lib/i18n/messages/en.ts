@@ -398,7 +398,6 @@ export const en: Dictionary = {
         },
         indexing: { name: 'Builds and indexing', detail: 'Source fetching, parsing, chunking and version publishing' },
         refresh: { name: 'Scheduled refresh', detail: 'Whether platform libraries are refreshed on their policy' },
-        review: { name: 'Review queue', detail: 'How long public submissions have waited' },
       },
       healthUnknown: 'No data',
       successRate: '{days}-day success rate',
@@ -410,10 +409,6 @@ export const en: Dictionary = {
       refreshOverdue: '{count} overdue by more than a day',
       refreshOpen: '{count} refreshing now',
       nextDue: 'Next scheduled check {when}',
-      reviewPending: '{count} waiting for review',
-      reviewOverdue: '{count} waiting more than a day',
-      reviewOldest: 'Longest wait {hours} h',
-      reviewEmpty: 'Queue is empty',
       incidentTitle: '{component} failure rate above threshold',
       incidentBody: '{days} day(s), peak failure rate {peak}%. Derived from the records by this page’s thresholds; no hand-written account.',
       incidentsEmpty: 'No day crossed a threshold in the last {days} days.',
@@ -1096,7 +1091,7 @@ export const en: Dictionary = {
       title: 'Libraries',
       description: 'Manage the public and private knowledge your agents can retrieve.',
       addLibrary: 'Add a library',
-      reviewNotice: 'Public libraries are reviewed before they publish; private libraries skip review.',
+      reviewNotice: 'Public libraries publish as soon as their build passes the scan; the platform may suspend one that breaks the rules.',
       viewPlans: 'See plans',
       searchPlaceholder: 'Search libraries…',
       columns: ['Library', 'Scope', 'Chunks', 'Review', 'Updated'],
@@ -1143,7 +1138,6 @@ export const en: Dictionary = {
       stats: {
         total: 'Libraries',
         published: 'Published',
-        review: 'In review',
         chunks: 'Chunks indexed',
       },
       filters: { all: 'All', live: 'Published', pending: 'In progress', blocked: 'Blocked' },
@@ -1182,12 +1176,10 @@ export const en: Dictionary = {
         filters: {
           public: 'Public',
           private: 'Private',
-          pending: 'In review',
-          changes: 'Changes requested',
+          pending: 'Building',
           blocked: 'Paused / failed',
         },
         statuses: {
-          changes: 'Changes requested',
           paused: 'Paused',
           suspended: 'Suspended',
           failed: 'Build failed',
@@ -1201,39 +1193,21 @@ export const en: Dictionary = {
         refreshQuota: 'Your available balance cannot cover a build.',
         filesMarkdown: 'Manage Markdown files',
         pipeline: {
-          title: 'Review progress',
+          title: 'Publishing progress',
           steps: {
             rights: 'Rights and source',
             parse: 'Content parsing',
             safety: 'Quality and safety',
-            materials: 'Submission materials',
-            review: 'Platform review',
             publish: 'Publish',
           },
           notes: {
             rights: 'Confirm publishing rights and source transparency',
             parse: 'Check links, files and document structure',
             safety: 'Assess completeness, boundaries and risk',
-            materials: 'Complete the rights declaration, then confirm',
-            review: 'Rules and a model, automatically; usually minutes',
             publish: 'Produce an immutable version and open it to retrieval',
           },
           states: { done: 'Done', active: 'In progress', pending: 'Pending', blocked: 'Blocked' },
-          expected: 'Platform review is done by the rules and a model, usually within minutes; when the model is unavailable it is queued for a retry. A send-back can be appealed once, and a person answers the appeal.',
-          feedback: 'Reviewer feedback: {note}',
-          noFeedback: 'No reviewer feedback yet.',
-          /** The materials step is the owner's: said when it is the active one, with a way there. */
-          materialsHint: 'Your turn: complete the rights declaration, then confirm to enter platform review.',
-          materialsLink: 'Fill in the materials',
-          /** requirement.md 7.4's five checks, with the reviewer's verdict on each. */
-          checks: {
-            source_firsthand: 'Rights and source',
-            structure: 'Links, files and structure',
-            completeness: 'Completeness, scope and staleness',
-            safety: 'Malicious content, injection, credentials and privacy',
-            score_threshold: 'Score threshold',
-          },
-          verdicts: { pass: 'passes', fail: 'fails', unsure: 'unsure' },
+          feedback: 'Platform note: {note}',
         },
         readOnly: 'Only a workspace owner or admin can manage libraries; you have a read-only view.',
       },
@@ -1277,10 +1251,8 @@ export const en: Dictionary = {
         content: 'Content and builds',
         qa: 'Visitor questions',
         settings: 'Settings',
-        materialsMissing: 'Materials missing',
-        materialsReady: 'Ready to submit',
       },
-      back: '← Back to libraries',
+      back: 'Back to libraries',
       eyebrow: 'Library details',
       ready: {
         title: 'Ready to query',
@@ -1291,15 +1263,6 @@ export const en: Dictionary = {
         failedTitle: 'The last build failed',
         failedBody:
           'Reason: {error}. Fix the source and press Rebuild; a version that was already published keeps serving.',
-        reviewTitle: 'Awaiting review',
-        reviewBody:
-          'The version is indexed. A public library is retrievable once the platform review passes; the rules and a model do it, usually within minutes.',
-        awaitingTitle: 'Built, awaiting your submission',
-        awaitingBody: 'The version is indexed. Complete the rights declaration under Submission materials below, then confirm to enter platform review.',
-        awaitingReadyBody: 'The version is indexed and the materials are complete. Confirm under Submission materials below to enter platform review.',
-        changesTitle: 'Changes requested',
-        changesBody:
-          'Reviewer feedback: {note}. Adjust the source, files or materials, rebuild if needed, then resubmit under Submission materials.',
         suspendedTitle: 'Rejected or suspended',
         suspendedBody: 'Reason: {note}. The library is out of retrieval; contact the platform if you disagree.',
         idleTitle: 'Not built yet',
@@ -1382,7 +1345,7 @@ export const en: Dictionary = {
       },
       documentPreview: {
         metaTitle: 'Document preview',
-        back: '← Back to library',
+        back: 'Back to library',
         source: 'Source',
         chunks: '{n} chunks · {tokens} tokens',
         chunk: 'Chunk {ordinal}',
@@ -1396,26 +1359,19 @@ export const en: Dictionary = {
         costFree: 'Not billed',
       },
       reviews: {
-        title: 'Review history',
-        columns: ['When', 'Outcome', 'Feedback'],
-        empty: 'No review yet.',
+        title: 'Pauses and suspensions',
+        columns: ['When', 'Outcome', 'Note'],
+        empty: 'Nothing yet.',
         outcomes: { approve: 'Approved', request_changes: 'Changes requested', reject: 'Rejected / suspended', hold: 'Passed on' },
         stages: { rules: 'rules layer', model: 'model layer', sample: 'sample' },
-        sampleOpen: 'Post-publish sample open',
       },
       /** The submission-materials panel. review-visibility-proposal.md 5. */
       materials: {
-        title: 'Submission materials',
-        descriptionPublic: 'A public library brings a rights declaration to the review queue; the reviewer reads it before the content. Self-check questions are optional here and required only to apply for an expert library.',
-        descriptionPrivate: 'A private library needs neither; preparing them now lets it submit the moment it goes public.',
-        ready: 'Materials complete; it can be submitted once the index is ready.',
-        readySubmit: 'Materials complete. Confirm to enter platform review.',
-        blockers: {
-          rights: 'No rights declaration yet.',
-          rights_generated: 'Declared as mostly model-generated, which is not accepted as a public library.',
-        },
+        title: 'Declaration and questions',
+        descriptionPublic: 'A public library carries a rights declaration, which the platform checks against the content if the library is reported. Self-check questions are optional, and required only to apply for an expert library.',
+        descriptionPrivate: 'A private library needs neither; a declaration made now is what lets it go public later.',
         rightsTitle: 'Rights declaration',
-        rightsHint: 'Source ownership, licence and how it was written; yours to declare, the reviewer’s to check.',
+        rightsHint: 'Source ownership, licence and how it was written; yours to declare, and what the platform holds you to.',
         rightsEdit: 'Edit declaration',
         rightsSubmit: 'Save declaration',
         rightsNone: 'The owner has not declared yet.',
@@ -1529,29 +1485,18 @@ export const en: Dictionary = {
         },
       },
       manage: {
-        reviewExpected: 'The rules and a model review it automatically, usually within minutes.',
         readOnly: 'Only a workspace owner or admin can manage this library; you have a read-only view.',
         pause: 'Pause',
         resume: 'Resume',
-        appeal: 'Appeal',
-        appealConfirm:
-          'An appeal hands this machine send-back straight to a human reviewer, past the rules and model layers; each machine decision can be appealed once. Content and materials stay as they are.',
-        submit: 'Submit for review',
-        submitConfirm: 'The library enters the review queue; the reviewer reads the rights declaration, the question set and the content, usually within 1–2 business days.',
-        resubmit: 'Resubmit for review',
         pauseConfirm:
           'Pausing takes the library out of retrieval at once and cancels queued refreshes; you can resume any time.',
         resumeConfirm: 'Resuming reopens the library to retrieval at once.',
-        resubmitConfirm: 'Resubmitting puts the library back in the review queue, usually answered within 1–2 business days.',
         working: 'Working…',
         confirm: 'Confirm',
         cancel: 'Cancel',
         results: {
           pause: 'Paused: {publicId} left retrieval and {n} queued refresh(es) were cancelled.',
           resume: 'Resumed: {publicId} is open to retrieval again.',
-          submit: 'Submitted: {publicId} is in the review queue, expected within 1–2 business days.',
-          appeal: 'Appealed: {publicId} is with a human reviewer, expected within 1–2 business days.',
-          resubmit: 'Resubmitted: {publicId} is back in the review queue, expected within 1–2 business days.',
         },
         errors: {
           not_found: 'That library was not found — it may already be deleted.',
@@ -1559,8 +1504,7 @@ export const en: Dictionary = {
           invalid: 'This action is not available in the library’s current state. Reload and try again.',
           unavailable: 'The action did not complete. Try again later.',
         },
-        pausedByReviewer:
-          'This library was suspended by platform review and cannot be resumed here; address the feedback and contact the platform.',
+        pausedByReviewer: 'This library was suspended by the platform and cannot be resumed here; address the note and contact the platform.',
         outcomes: { pause: 'Paused by owner', resume: 'Resumed by owner', submit: 'Submitted', resubmit: 'Resubmitted', appeal: 'Appealed' },
         metadata: {
           title: 'Edit metadata',
@@ -1572,12 +1516,10 @@ export const en: Dictionary = {
           visibilityLabel: 'Visibility',
           visibilityPublic: 'Public',
           visibilityPrivate: 'Private',
-          visibilityNote:
-            'Public to private leaves the review queue at once (an indexed version goes live); private to public sends a live library back to review.',
+          visibilityNote: 'A visibility change takes effect at once; going public needs a rights declaration that permits it.',
           submit: 'Save',
           pending: 'Saving…',
           saved: 'Saved.',
-          savedQueued: 'Saved; the library is now in the review queue, expected within 1–2 business days.',
           errors: {
             not_found: 'That library was not found — it may already be deleted.',
             access_denied: 'Only a workspace owner or admin can edit a library.',
@@ -1931,7 +1873,7 @@ export const en: Dictionary = {
     },
     libraryFiles: {
       metaTitle: 'PDF files',
-      back: '← Back to libraries',
+      back: 'Back to libraries',
       title: 'PDF files',
       description:
         'The files of {title}. Saving a change queues a rebuild; the previous version keeps serving until the new one publishes.',
@@ -1965,7 +1907,7 @@ export const en: Dictionary = {
     },
     newLibrary: {
       metaTitle: 'Add a library',
-      back: '← Back to libraries',
+      back: 'Back to libraries',
       title: 'Add a library',
       description:
         'Pick a source and set its scope. Public libraries enter review once submitted.',
@@ -2140,7 +2082,7 @@ export const en: Dictionary = {
       sourceHint: 'Choose one source. A library has exactly one; for a second source, create another library.',
       back2: 'Back',
       continue: 'Continue',
-      reviewTitle: 'Public publishing review',
+      reviewTitle: 'Publishing steps',
       reviewDescription: 'Every public library must pass these checks.',
       privateSkips: 'Private libraries skip the review process',
       markdown: {
@@ -2576,7 +2518,7 @@ export const en: Dictionary = {
       audit: 'Audit',
       claims: 'Ownership',
       expertLibraries: 'Expert libraries',
-      reviewRules: 'Review rules',
+      expertThresholds: 'Expert thresholds',
     },
     statuses: {
       invited: 'Invited',
@@ -2588,7 +2530,6 @@ export const en: Dictionary = {
       all: 'All',
       userActive: 'Active',
       userSuspended: 'Suspended',
-      reviewPending: 'Awaiting review',
       reviewApproved: 'Approved',
       reviewRejected: 'Rejected',
       claimPending: 'Awaiting proof',
@@ -2662,7 +2603,7 @@ export const en: Dictionary = {
       pending: '{count} awaiting review',
       claims: 'Ownership & claims',
       expertLibraries: 'Expert libraries',
-      reviewRules: 'Review rules',
+      expertThresholds: 'Expert thresholds',
       showcases: 'Showcase pages',
     },
     models: {
@@ -2833,37 +2774,29 @@ export const en: Dictionary = {
       },
     },
     /** The rules layer's thresholds. review-visibility-proposal.md 6.1, lib/domain/auto-review.ts. */
-    reviewRules: {
-      title: 'Review rules',
+    expertThresholds: {
+      title: 'Expert thresholds',
       description:
-        'A public library that reaches the review queue meets the rules layer first: a failed hard gate sends it back to its owner. A GitHub, website, llms.txt or OpenAPI source proved its control at creation and is public already, so it publishes once its self-check questions pass on the current version; an upload or a Notion page also needs the Trust, Benchmark, no-flagged-files and not-first-public-library conditions below; the rest goes to the model layer: a clean checklist publishes, a failed or unsettled item sends the owner back, and an unavailable model is retried from the queue. A person handles only appeals, samples and reports. A question set not yet evaluated on the current version is evaluated at submission. Every save is a new row with a reason.',
-      currentTitle: 'Rules in force',
+        'What an expert-library application is judged by (the expert tag is the one approval the platform still makes about a user library): how many questions the library brings, and the share of them its current version answers. Every save is a new row with a reason.',
+      currentTitle: 'Thresholds in force',
       since: 'Since',
       defaultsInForce: 'Never saved; the defaults are in force.',
-      gatesNote:
-        'The hard gates are not configurable: a quarantined file, an index not ready or empty, a duplicate of a published library, a GitHub source without a licence or a granted permission, a missing or model-generated rights declaration, fewer than 5 self-check questions.',
-      configTitle: 'Change the rules',
-      configDescription: 'A save applies to the next submission that reaches the queue.',
+      gateNote:
+        'The other conditions are not configurable: the library is public and published, the workspace is on a paid plan, no application is pending, and the cooldown after a rejection or revocation has passed.',
+      configTitle: 'Change the thresholds',
+      configDescription: 'A save applies to the next application.',
       seedCurrent: 'Start from current',
       seedDefaults: 'Start from defaults',
       fields: {
-        trustMin: { label: 'Trust floor for auto-publish', hint: 'Below it, the model decides' },
-        benchmarkMin: { label: 'Benchmark floor for auto-publish', hint: 'Below it, the model decides' },
-        ownerHitRateMin: { label: 'Owner question hit rate floor (%)', hint: 'Share of the owner’s questions the current version answers' },
-        duplicateMax: { label: 'Duplicate similarity (%)', hint: 'Content this similar to any published library is sent back' },
-        sampleRate: { label: 'Post-publish sample (%)', hint: 'Share of auto-published libraries a person still looks at' },
-        autoPublish: { label: 'Allow auto-publish', hint: '0 lets the rules layer publish nothing (everything goes to the model); 1 publishes what clears the conditions' },
-        expertMinQuestions: { label: 'Expert application: question floor', hint: 'Fewer questions cannot apply; 0 waives it' },
-        expertHitRateMin: { label: 'Expert application: hit rate floor (%)', hint: 'Share of the whole set the current version answers' },
+        expertMinQuestions: { label: 'Question floor', hint: 'Fewer questions cannot apply; 0 waives it' },
+        expertHitRateMin: { label: 'Hit rate floor (%)', hint: 'Share of the whole set the current version answers' },
       },
-      on: 'On',
-      off: 'Off',
       reason: 'Reason (written to the audit log)',
-      save: 'Save rules',
-      saved: 'Saved; in force for the next submission.',
+      save: 'Save thresholds',
+      saved: 'Saved; in force for the next application.',
       historyTitle: 'History',
-      historyColumns: ['When', 'Trust / Benchmark', 'Hit rate', 'Duplicate', 'Sample', 'Auto-publish', 'Expert questions / hit rate'],
-      none: 'No rules have been saved yet.',
+      historyColumns: ['When', 'Question floor', 'Hit rate floor'],
+      none: 'No thresholds have been saved yet.',
       inForce: 'In force',
       errors: {
         out_of_range: '“{field}” must be an integer between {min} and {max}.',
@@ -2932,7 +2865,6 @@ export const en: Dictionary = {
       export: 'Export',
       view: 'View',
       edit: 'Edit',
-      review: 'Review',
       more: 'More actions',
       prev: 'Previous',
       next: 'Next',
@@ -3018,20 +2950,17 @@ export const en: Dictionary = {
     },
     overview: {
       title: 'Overview',
-      description: 'Users, review queue and subscription health at a glance.',
+      description: 'Users, libraries and subscription health at a glance.',
       range: 'Last {days} days',
       stats: {
         users: 'Registered users',
         libraries: 'Libraries',
-        pending: 'Awaiting review',
         revenue: 'Revenue this month',
       },
       newInWindow: '{count} new this period',
       previousWindow: 'vs previous period',
       previousMonth: 'vs last month',
       previousMonthNone: 'Nothing collected last month',
-      pendingOldest: 'Longest wait {duration}',
-      pendingNone: 'Queue is empty',
       growthTitle: 'User growth',
       growthSubtitle: 'Sign-ups and paid conversion',
       growthNewUsers: 'New users',
@@ -3039,10 +2968,6 @@ export const en: Dictionary = {
       seriesUsers: 'Registered',
       seriesPaid: 'Paid',
       pointTitle: '{day}: {users} registered, {paid} paid',
-      pendingTitle: 'Libraries awaiting review',
-      pendingSubtitle: 'Public content that needs a decision',
-      pendingAll: 'View all',
-      pendingEmpty: 'No library is waiting for review.',
       activityTitle: 'Live activity',
       activitySubtitle: 'The latest administrative actions in the audit log',
       activityLink: 'Audit log',
@@ -3062,9 +2987,6 @@ export const en: Dictionary = {
         indexNone: 'No libraries yet',
         builds: 'Build queue',
         buildsValue: '{open} in progress · {succeeded} finished and {failed} failed in 24 h',
-        review: 'Review queue',
-        reviewValue: '{count} pending, {overdue} older than a day',
-        reviewNone: 'Nothing waiting for review',
       },
       ago: {
         now: 'just now',
@@ -3229,13 +3151,11 @@ export const en: Dictionary = {
     },
     libraries: {
       title: 'User libraries',
-      description: 'Review user-submitted content and run the public approval flow.',
+      description: 'User libraries and the platform’s hand over them: a live library can be suspended, a suspended one restored; every decision is written to the audit log.',
       tabs: {
         all: 'All libraries',
-        pending: 'Awaiting review',
         approved: 'Approved',
         rejected: 'Rejected',
-        sample: 'Samples',
         claims: 'Claims & disputes',
       },
       searchPlaceholder: 'Search library name, owner or ID',
@@ -3264,37 +3184,14 @@ export const en: Dictionary = {
       privateNote:
         'Private libraries are not reviewed: they publish as soon as the index is ready. Only a safety pause and its lifting are offered here.',
       actions: {
-        approve: 'Approve',
         restore: 'Restore',
-        requestChanges: 'Request changes',
-        reject: 'Reject',
         suspend: 'Suspend',
       },
       dialogs: {
         cancel: 'Cancel',
         close: 'Close',
-        auditNote: 'The reason is written to the audit log and shown to the library owner as review feedback.',
-        /** requirement.md 7.4's five checks, one verdict each. lib/domain/review.ts. */
-        checklist: {
-          title: 'Review checklist',
-          hint: 'One verdict per item of requirement.md 7.4. An approval cannot carry a “Fails”; a send-back or rejection needs at least one. Notes are shown to the owner.',
-          items: {
-            source_firsthand: 'Rights statement and first-hand source',
-            structure: 'Links, files and document structure',
-            completeness: 'Completeness, scope and staleness',
-            safety: 'Malicious content, injection, credentials and privacy',
-            score_threshold: 'Citation, Trust and Benchmark thresholds',
-          },
-          verdicts: { pass: 'Passes', fail: 'Fails', unsure: 'Unsure' },
-          noteLabel: 'note',
-          notePlaceholder: 'Note (visible to the owner, optional)',
-          approveNeedsNoFail: 'The checklist has a “Fails”, so this cannot be approved; send it back or reject it instead.',
-          changesNeedFail: 'A send-back or rejection needs at least one “Fails”, so the owner knows what to change.',
-        },
+        auditNote: 'The reason is written to the audit log and shown to the library owner.',
         approve: {
-          title: 'Approve',
-          description:
-            'The library enters public retrieval and the catalogue; a library eligible for revenue share starts earning from now.',
           restoreTitle: 'Restore',
           restoreDescription:
             'The library returns to retrieval. Its versions and index were kept, so nothing needs rebuilding.',
@@ -3304,20 +3201,8 @@ export const en: Dictionary = {
           pending: 'Submitting…',
           blocked: 'No indexed version yet, so it cannot be approved; wait for the owner’s build to finish.',
         },
-        requestChanges: {
-          title: 'Request changes',
-          description:
-            'The library goes back to its owner. After they change the source or files and rebuild, it enters review again; it is out of retrieval meanwhile.',
-          reason: 'What needs to change (visible to the owner)',
-          reasonPlaceholder: 'e.g. no licence statement; chapter 3 documents a removed API',
-          submit: 'Send back',
-          pending: 'Submitting…',
-        },
         reject: {
-          title: 'Reject',
           suspendTitle: 'Suspend library',
-          description:
-            'The library leaves retrieval and the catalogue; versions and index are kept, and a later approval restores it.',
           suspendDescription:
             'The library leaves retrieval immediately; versions and index are kept, and restoring puts it back.',
           consequences: [
@@ -3378,7 +3263,7 @@ export const en: Dictionary = {
         },
         reviews: {
           title: 'Review history',
-          description: 'Every decision is written to the audit log and shown to the owner as feedback',
+          description: 'Pauses by the owner and suspensions by the platform, newest first; rows from the review era read as recorded.',
           columns: ['When', 'Outcome', 'Reviewer', 'Note'],
           empty: 'No review yet.',
           outcomes: {
@@ -3390,23 +3275,10 @@ export const en: Dictionary = {
           stages: { manual: 'reviewer', owner: 'owner', rules: 'rules layer', model: 'model layer', sample: 'sample' },
           sampleOpen: 'Sample open',
         },
-        /** The owner's appeal of a machine send-back. review-visibility-proposal.md 6.3. */
-        appeal: {
-          title: 'The owner appealed a machine send-back',
-          body: 'The rules or model layer sent this library back and the owner disputes it; you decide. The machine’s checklist and reasons are in the review log below; content and materials are unchanged.',
-        },
-        /** Post-publish sampling. review-visibility-proposal.md 6.3. */
-        sample: {
-          title: 'Auto-published by the rules layer and drawn for a look',
-          body: 'Read through the content, the safety findings and a probe. Close the sample if nothing is wrong; otherwise use Request changes or Suspend above, which close it with the decision.',
-          close: 'Sample passed',
-          reason: 'Review note',
-          reasonPlaceholder: 'e.g. read 5 sampled documents; source matches the declaration',
-        },
         /** The owner's submission materials. review-visibility-proposal.md 5. */
         materials: {
           title: 'Submission materials',
-          description: 'The owner’s rights declaration and question set; 7.4 item 1 starts by checking the declaration against the content.',
+          description: 'The owner’s rights declaration and question set: the declaration is what a report is checked against, the questions are the expert gate’s.',
           rights: 'Rights declaration',
           undeclared: 'Not declared',
           origin: 'Source ownership',
@@ -3419,9 +3291,6 @@ export const en: Dictionary = {
           generations: { human: 'Written by people', assisted: 'Model-assisted, reviewed by people', generated: 'Mostly model-generated' },
           questions: 'Question set',
           questionsValue: '{total} questions, {owner} by the owner',
-          readiness: 'Submission',
-          ready: 'Complete',
-          blockers: { rights: 'No declaration', rights_generated: 'Declared model-generated' },
         },
         /** What the reviewer may read. review-visibility-proposal.md 4. */
         scores: {

@@ -2,7 +2,7 @@ import type { Metadata } from 'next';
 import { unstable_cache } from 'next/cache';
 import Link from 'next/link';
 import { Card, Chip, SectionHeading } from '@/components/ui/primitives';
-import { CircleCheckIcon, ClockIcon, ShieldCheckIcon } from '@/components/ui/icons';
+import { CircleCheckIcon, ClockIcon } from '@/components/ui/icons';
 import { platformStatus, type ComponentStatus } from '@/lib/application/status';
 import { fill } from '@/lib/i18n/format';
 import { getMessages, translations } from '@/lib/i18n/server';
@@ -97,22 +97,6 @@ export default async function StatusPage() {
             ? [fill(live.nextDue, { when: dateTime.format(status.refresh.nextDueAt) })]
             : []),
         ];
-      case 'review':
-        return status.review.pending === 0
-          ? [live.reviewEmpty]
-          : [
-              fill(live.reviewPending, { count: number.format(status.review.pending) }),
-              ...(status.review.overdue > 0
-                ? [fill(live.reviewOverdue, { count: number.format(status.review.overdue) })]
-                : []),
-              ...(status.review.oldestWaitingMs !== null
-                ? [
-                    fill(live.reviewOldest, {
-                      hours: number.format(Math.round(status.review.oldestWaitingMs / 3_600_000)),
-                    }),
-                  ]
-                : []),
-            ];
     }
   };
 

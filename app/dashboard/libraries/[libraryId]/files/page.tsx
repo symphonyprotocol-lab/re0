@@ -1,5 +1,5 @@
 import type { Metadata } from 'next';
-import Link from 'next/link';
+import { BackLink } from '@/components/dashboard/ui';
 import { notFound } from 'next/navigation';
 import { LibraryFiles } from '@/components/dashboard/library-files';
 import { canManageLibraries, libraryFiles } from '@/lib/application/libraries';
@@ -37,12 +37,7 @@ export default async function DashboardLibraryFilesPage({
     <div className="flex flex-col gap-4">
       <header className="flex flex-wrap items-start justify-between gap-5">
         <div className="flex flex-col gap-[5px]">
-          <Link
-            href="/dashboard/libraries"
-            className="text-[12px] text-brandink transition-colors hover:text-brandink"
-          >
-            {f.back}
-          </Link>
+          <BackLink href="/dashboard/libraries">{f.back}</BackLink>
           <h1 className="mt-1.5 text-[25px] leading-[1.5] font-medium text-ink">
             {view.kind === 'markdown' ? f.markdown.title : f.title}
           </h1>

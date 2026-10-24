@@ -569,6 +569,21 @@ describeWithDb('usage and request log', () => {
    * paged reader exactly -- same rows, same order -- including across a batch
    * boundary, so the export needs more rows than one batch holds.
    */
+  it('gives each row its own id when one request writes several', async () => {
+    /* A showcase draft runs each probe as its own charged retrieval under one request id. */
+    const { workspaceId } = await workspaceWithKey();
+    const shared = `draft-${crypto.randomUUID().slice(0, 8)}`;
+    await logRows(workspaceId, [
+      { requestId: shared, createdAt: new Date(day(1).getTime() + 600_000) },
+      { requestId: shared, createdAt: new Date(day(1).getTime() + 600_000) },
+      { requestId: shared, createdAt: new Date(day(1).getTime() + 600_000) },
+    ]);
+    const { rows } = await queryRequests(workspaceId, { query: shared });
+    expect(rows).toHaveLength(3);
+    expect(rows.every((row) => row.requestId === shared)).toBe(true);
+    expect(new Set(rows.map((row) => row.id)).size).toBe(3);
+  });
+
   it('walks the whole filtered log for the export, matching the paged read', async () => {
     const { workspaceId } = await workspaceWithKey();
     const stamp = crypto.randomUUID().slice(0, 8);

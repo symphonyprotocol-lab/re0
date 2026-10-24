@@ -31,7 +31,6 @@ export {
 export {
   listUserLibraries,
   listClaims,
-  pendingReviewQueue,
   type ConsoleLibraryRow,
   type ConsoleClaimRow,
   type LibraryReviewFilter,
@@ -43,7 +42,6 @@ export {
   type ConsoleOverview,
   type OverviewHealth,
   type OverviewInput,
-  type ReviewQueueState,
   type WindowedCount,
 } from './overview';
 export {
@@ -177,7 +175,6 @@ export {
   type UpdateRetrievalConfigInput,
 } from './manage-retrieval-config';
 export {
-  closeReviewSample,
   getUserLibrary,
   reviewUserLibrary,
   MANUAL_REVIEW_STAGE,

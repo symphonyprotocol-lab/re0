@@ -4,29 +4,34 @@ import { useActionState, useState } from 'react';
 import { Bounded, FIELD, Field, range } from '@/components/admin/form-fields';
 import { submitOn } from '@/components/admin/platform-library-shared';
 import { ConsoleButton } from '@/components/admin/ui';
-import type { ReviewRulesActionResult } from '@/app/admin/(console)/libraries/actions';
-import { DEFAULT_REVIEW_RULES, REVIEW_RULE_BOUNDS, REVIEW_RULE_KEYS, type ReviewRules } from '@/lib/domain/auto-review';
+import type { ExpertThresholdsActionResult } from '@/app/admin/(console)/expert-libraries/actions';
+import {
+  DEFAULT_EXPERT_THRESHOLDS,
+  EXPERT_THRESHOLD_BOUNDS,
+  EXPERT_THRESHOLD_KEYS,
+  type ExpertThresholds,
+} from '@/lib/domain/expert-thresholds';
 import { useI18n } from '@/lib/i18n/client';
 import { fill } from '@/lib/i18n/format';
 
 /**
- * The rules layer's thresholds, one form (review-visibility-proposal.md
- * 6.1). Like retrieval's tunables: every save mints an immutable row that
- * is in force for the next submission, the inputs are seeded from the
- * rules in force, and the defaults chip re-seeds them from the domain.
+ * The expert gate's thresholds, one form (review-visibility-proposal.md
+ * 5.3). Like retrieval's tunables: every save mints an immutable row that
+ * is in force for the next application, the inputs are seeded from the
+ * thresholds in force, and the defaults chip re-seeds them from the domain.
  */
-export function ReviewRulesForm({
+export function ExpertThresholdsForm({
   current,
   action,
 }: {
-  current: ReviewRules;
-  action: (previous: ReviewRulesActionResult | null, form: FormData) => Promise<ReviewRulesActionResult>;
+  current: ExpertThresholds;
+  action: (previous: ExpertThresholdsActionResult | null, form: FormData) => Promise<ExpertThresholdsActionResult>;
 }) {
   const { t } = useI18n();
-  const p = t.admin.reviewRules;
+  const p = t.admin.expertThresholds;
   const [state, formAction, pending] = useActionState(action, null);
   const [seed, setSeed] = useState<'current' | 'defaults'>('current');
-  const values = seed === 'current' ? current : DEFAULT_REVIEW_RULES;
+  const values = seed === 'current' ? current : DEFAULT_EXPERT_THRESHOLDS;
 
   return (
     <div className="flex flex-col">
@@ -48,9 +53,9 @@ export function ReviewRulesForm({
 
       <form key={seed} onSubmit={submitOn(formAction)} className="flex flex-col gap-4 px-[19px] py-4">
         <div className="grid gap-4 sm:grid-cols-2">
-          {REVIEW_RULE_KEYS.map((key) => (
-            <Field key={key} label={p.fields[key].label} hint={`${p.fields[key].hint} · ${range(REVIEW_RULE_BOUNDS[key])}`}>
-              <Bounded name={key} value={values[key]} range={REVIEW_RULE_BOUNDS[key]} />
+          {EXPERT_THRESHOLD_KEYS.map((key) => (
+            <Field key={key} label={p.fields[key].label} hint={`${p.fields[key].hint} · ${range(EXPERT_THRESHOLD_BOUNDS[key])}`}>
+              <Bounded name={key} value={values[key]} range={EXPERT_THRESHOLD_BOUNDS[key]} />
             </Field>
           ))}
         </div>
@@ -62,8 +67,8 @@ export function ReviewRulesForm({
             {state.error === 'out_of_range' && state.field
               ? fill(p.errors.out_of_range, {
                   field: p.fields[state.field].label,
-                  min: String(REVIEW_RULE_BOUNDS[state.field].min),
-                  max: String(REVIEW_RULE_BOUNDS[state.field].max),
+                  min: String(EXPERT_THRESHOLD_BOUNDS[state.field].min),
+                  max: String(EXPERT_THRESHOLD_BOUNDS[state.field].max),
                 })
               : p.errors[state.error === 'reason_required' ? 'reason_required' : 'unavailable']}
           </p>
