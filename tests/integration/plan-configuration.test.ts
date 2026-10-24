@@ -118,7 +118,6 @@ describeWithDb('plan configuration', () => {
       librarySizeMb: '120',
       apiKeyLimit: '25',
       shareRate: '20',
-      publicReviewRequired: true,
       reason: 'raise the Pro allowance',
     });
     mintedVersionIds.push(result.planVersionId);
@@ -188,7 +187,6 @@ describeWithDb('plan configuration', () => {
         librarySizeMb: '100',
         apiKeyLimit: '20',
         shareRate: '20',
-        publicReviewRequired: true,
         reason: 'submitted from a stale dialog',
       }),
     );
@@ -212,7 +210,6 @@ describeWithDb('plan configuration', () => {
         librarySizeMb: '120',
         apiKeyLimit: '25',
         shareRate: '20',
-        publicReviewRequired: true,
         reason: 'no change at all',
       }),
     ).rejects.toThrow(PlanChangeRefused);
@@ -231,7 +228,6 @@ describeWithDb('plan configuration', () => {
         librarySizeMb: '120',
         apiKeyLimit: '25',
         shareRate: '20',
-        publicReviewRequired: true,
         reason: '   ',
       }),
     ).rejects.toThrow(AdminChangeRefused);

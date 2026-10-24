@@ -101,7 +101,6 @@ describe('plan version build rates', () => {
     librarySizeMb: '100',
     apiKeyLimit: '20',
     shareRate: '20',
-    publicReviewRequired: true,
   };
 
   it('defaults a form that never asked for them', () => {

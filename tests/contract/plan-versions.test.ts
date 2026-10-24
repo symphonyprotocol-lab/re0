@@ -33,7 +33,6 @@ const PRO: PlanVersionInput = {
   librarySizeMb: '100',
   apiKeyLimit: '20',
   shareRate: '20',
-  publicReviewRequired: true,
 };
 
 function refusal(input: PlanVersionInput): PlanChangeError | 'accepted' {
@@ -141,7 +140,7 @@ describe('a proposed version', () => {
       buildBaseCalls: 1,
       buildTokensPerCall: 20_000,
       buildPagesPerCall: 5,
-      capabilities: capabilitiesFor('pro', true),
+      capabilities: capabilitiesFor('pro'),
     });
   });
 
@@ -199,7 +198,7 @@ describe('the Additional Calls pack', () => {
       buildBaseCalls: PACK_INHERITS_PRO,
       buildTokensPerCall: PACK_INHERITS_PRO,
       buildPagesPerCall: PACK_INHERITS_PRO,
-      capabilities: capabilitiesFor('addon', true),
+      capabilities: capabilitiesFor('addon'),
     });
   });
 
@@ -223,28 +222,21 @@ describe('the Additional Calls pack', () => {
 });
 
 describe('capabilities', () => {
-  it('treats a missing public-review flag as required', () => {
-    expect(readCapabilities('pro', {}).publicReviewRequired).toBe(true);
-    expect(readCapabilities('pro', null).publicReviewRequired).toBe(true);
-    expect(readCapabilities('pro', { publicReviewRequired: 'yes' }).publicReviewRequired).toBe(true);
-  });
-
-  it('reads a flag that was actually stored', () => {
-    expect(readCapabilities('pro', { publicReviewRequired: false }).publicReviewRequired).toBe(
-      false,
-    );
+  it('ignores the public-review flag older versions still carry (2026-10-23)', () => {
+    expect(readCapabilities('pro', { publicReviewRequired: false })).not.toHaveProperty('publicReviewRequired');
+    expect(readCapabilities('pro', { publicReviewRequired: true })).toEqual(readCapabilities('pro', {}));
   });
 
   it('derives pack purchase from the tier rather than from the form', () => {
-    expect(capabilitiesFor('pro', true).addonPurchase).toBe(true);
-    expect(capabilitiesFor('free', true).addonPurchase).toBe(false);
-    expect(capabilitiesFor('addon', true).addonPurchase).toBe(false);
+    expect(capabilitiesFor('pro').addonPurchase).toBe(true);
+    expect(capabilitiesFor('free').addonPurchase).toBe(false);
+    expect(capabilitiesFor('addon').addonPurchase).toBe(false);
   });
 
   /* The website widget: Free holds one site key, Pro any number; a stored cap wins over the tier. */
   it('caps site keys on Free and lifts the cap on Pro', () => {
-    expect(capabilitiesFor('free', true).siteKeys).toBe(1);
-    expect(capabilitiesFor('pro', true).siteKeys).toBe(-1);
+    expect(capabilitiesFor('free').siteKeys).toBe(1);
+    expect(capabilitiesFor('pro').siteKeys).toBe(-1);
     expect(readCapabilities('free', {}).siteKeys).toBe(1);
     expect(readCapabilities('free', { siteKeys: 3 }).siteKeys).toBe(3);
     expect(readCapabilities('free', { siteKeys: 'many' }).siteKeys).toBe(1);
@@ -276,7 +268,7 @@ describe('isSamePlanVersion', () => {
     buildBaseCalls: 1,
     buildTokensPerCall: 20_000,
     buildPagesPerCall: 5,
-    capabilities: capabilitiesFor('pro', true),
+    capabilities: capabilitiesFor('pro'),
   };
 
   it('recognises a no-op', () => {
@@ -297,7 +289,7 @@ describe('isSamePlanVersion', () => {
     expect(
       isSamePlanVersion(draft, {
         ...live,
-        capabilities: capabilitiesFor('pro', false),
+        capabilities: { ...capabilitiesFor('pro'), siteKeys: 3 },
       }),
     ).toBe(false);
   });
@@ -331,22 +323,11 @@ describe('usdHeadline', () => {
   });
 });
 
-/**
- * The pack never renders the review toggle, so an absent checkbox in a posted
- * form means "not asked" -- storing it as `false` would put a policy on a row
- * that grants none, and disagree with what the seed migration wrote.
- */
 describe('a pack version', () => {
-  it('keeps the platform default when the form says nothing about review', () => {
+  it('carries no entitlement of its own', () => {
     const draft = parsePlanVersionDraft({ planId: 'addon', price: '5', calls: '5000' });
-    expect(draft.capabilities.publicReviewRequired).toBe(true);
-    const posted = parsePlanVersionDraft({
-      planId: 'addon',
-      price: '5',
-      calls: '5000',
-      publicReviewRequired: false,
-    });
-    expect(posted.capabilities.publicReviewRequired).toBe(true);
+    expect(draft.capabilities).toEqual(capabilitiesFor('addon'));
+    expect(draft.capabilities).not.toHaveProperty('publicReviewRequired');
   });
 });
 

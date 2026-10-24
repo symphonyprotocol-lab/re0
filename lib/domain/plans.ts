@@ -83,12 +83,15 @@ export function bytesToMb(bytes: number): number {
 /* ------------------------------------------------------------------ shapes */
 
 /**
- * What the console can set on a version. `publicReviewRequired` is the one
- * capability requirement.md 5.3 asks the plan screen to configure; it is stored
- * in the version's capability JSON so it freezes with the rest of the row.
+ * The entitlements a version carries beyond its numeric columns, stored in
+ * its capability JSON so they freeze with the rest of the row.
+ *
+ * `publicReviewRequired` used to be one: whether a tier's public libraries
+ * waited for review. Public review before publication ended on 2026-10-23,
+ * so the flag is no longer read or written; versions minted before then
+ * still carry it in their JSON, and it is ignored there.
  */
 export interface PlanCapabilities {
-  publicReviewRequired: boolean;
   /** requirement.md 4.1: only Pro may buy call packs. Derived, not edited. */
   addonPurchase: boolean;
   /**
@@ -141,13 +144,11 @@ export function showcaseDefaultsFor(tier: PlanTierId): ShowcaseCapabilities {
 
 export function capabilitiesFor(
   tier: PlanTierId,
-  publicReviewRequired: boolean,
   surfaces: Partial<ShowcaseCapabilities & WidgetCapabilities> = {},
 ): PlanCapabilities {
   const defaults = showcaseDefaultsFor(tier);
   const widget = widgetDefaultsFor(tier);
   return {
-    publicReviewRequired,
     addonPurchase: tier === 'pro',
     showcasePages: surfaces.showcasePages ?? defaults.showcasePages,
     showcaseBranding: surfaces.showcaseBranding ?? defaults.showcaseBranding,
@@ -162,7 +163,6 @@ export function readCapabilities(
   tier: PlanTierId,
   stored: Record<string, unknown> | null | undefined,
 ): PlanCapabilities {
-  const value = stored?.publicReviewRequired;
   const pages = stored?.showcasePages;
   const branding = stored?.showcaseBranding;
   const leads = stored?.showcaseLeadsRetained;
@@ -170,7 +170,7 @@ export function readCapabilities(
   const keys = stored?.siteKeys;
   const cap = (candidate: unknown): candidate is number =>
     typeof candidate === 'number' && Number.isInteger(candidate) && candidate >= -1;
-  return capabilitiesFor(tier, typeof value === 'boolean' ? value : true, {
+  return capabilitiesFor(tier, {
     ...(cap(pages) ? { showcasePages: pages } : {}),
     ...(typeof branding === 'boolean' ? { showcaseBranding: branding } : {}),
     ...(cap(leads) ? { showcaseLeadsRetained: leads } : {}),
@@ -280,7 +280,6 @@ export interface PlanVersionInput {
   buildBaseCalls?: string;
   buildTokensPerCall?: string;
   buildPagesPerCall?: string;
-  publicReviewRequired?: boolean;
 }
 
 /**
@@ -318,19 +317,11 @@ export function parsePlanVersionDraft(input: PlanVersionInput): PlanVersionDraft
     throw new PlanChangeRefused('invalid_calls', 'the call allowance must be a whole number');
   }
 
-  const publicReviewRequired = input.publicReviewRequired ?? true;
-
   if (!tierHasEntitlements(planId)) {
     /*
      * A pack version carries only its price and its calls. Any entitlement
      * posted alongside them is ignored rather than stored, so nothing can ever
      * read a ceiling off a row that does not grant one.
-     *
-     * The review flag is stored as `true` for the same reason the ceilings are
-     * stored as the sentinel: the pack has no policy of its own, its buyer is
-     * governed by their Pro version, and this matches what the seed wrote. The
-     * console never offers the toggle here, so an absent checkbox in the posted
-     * form is "not asked", not "turned off".
      */
     return {
       planId,
@@ -344,7 +335,7 @@ export function parsePlanVersionDraft(input: PlanVersionInput): PlanVersionDraft
       buildBaseCalls: PACK_INHERITS_PRO,
       buildTokensPerCall: PACK_INHERITS_PRO,
       buildPagesPerCall: PACK_INHERITS_PRO,
-      capabilities: capabilitiesFor(planId, true),
+      capabilities: capabilitiesFor(planId),
     };
   }
 
@@ -409,7 +400,7 @@ export function parsePlanVersionDraft(input: PlanVersionInput): PlanVersionDraft
     buildBaseCalls,
     buildTokensPerCall,
     buildPagesPerCall,
-    capabilities: capabilitiesFor(planId, publicReviewRequired),
+    capabilities: capabilitiesFor(planId),
   };
 }
 
@@ -473,7 +464,6 @@ export function isSamePlanVersion(
     draft.buildBaseCalls === live.buildBaseCalls &&
     draft.buildTokensPerCall === live.buildTokensPerCall &&
     draft.buildPagesPerCall === live.buildPagesPerCall &&
-    draft.capabilities.publicReviewRequired === live.capabilities.publicReviewRequired &&
     draft.capabilities.showcasePages === live.capabilities.showcasePages &&
     draft.capabilities.showcaseBranding === live.capabilities.showcaseBranding &&
     draft.capabilities.showcaseLeadsRetained === live.capabilities.showcaseLeadsRetained &&

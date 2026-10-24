@@ -143,52 +143,79 @@ export const en: Dictionary = {
   pricing: {
     metaTitle: 'Pricing',
     metaDescription:
-      'Billed per API call, never per token. Free includes 1,000 calls a month; Pro is $5 a month.',
+      'Billed per API call, never per token. Free includes {freeCalls} calls a month; Pro is {proPrice} a month.',
     title: 'Pick the call volume that fits',
     headerNote: 'Every plan uses the same REST API and MCP',
+    /**
+     * The figures below are filled from the plan versions in force
+     * (app/(public)/pricing/page.tsx), so the page always prints what checkout
+     * charges and what the plan grants. Placeholders: {calls} {libraries}
+     * {size} {price} {tokens} {pages} {share}.
+     */
     plans: {
       free: {
         kicker: 'Try it out',
         unit: 'free forever',
-        calls: '1,000 API calls a month',
+        calls: '{calls} API calls a month',
         blurb: 'For validating an idea or a light personal project — start building libraries on the free tier.',
-        points: ['Up to 5 of your own libraries', 'Up to 20 MB per library', '1 website widget key and 1 shared page', 'Query every public library'],
+        points: ['Up to {libraries} of your own libraries', 'Up to {size} per library', '{surfaces}', 'Query every public library'],
         cta: 'Start free',
       },
       pro: {
         kicker: 'Recommended',
         unit: '/ month',
-        calls: '5,000 API calls a month',
+        calls: '{calls} API calls a month',
         blurb: 'For ongoing use that needs more libraries and more room for content.',
-        points: ['Up to 25 of your own libraries', 'Up to 100 MB per library', 'Unlimited widget keys and shared pages', 'Everything in Free'],
+        points: ['Up to {libraries} of your own libraries', 'Up to {size} per library', '{surfaces}', 'Everything in Free'],
         cta: 'Upgrade to Pro',
       },
       addon: {
         kicker: 'Pro only',
         unit: '/ pack',
-        calls: '+5,000 API calls',
+        calls: '+{calls} API calls',
         blurb: 'Top up when the current period runs short, without changing your Pro plan.',
-        points: ['5,000 calls per pack', 'Added to your balance immediately', 'Balance never expires'],
+        points: ['{calls} calls per pack', 'Added to your balance immediately', 'Balance never expires'],
         cta: 'Buy a call pack',
       },
+    },
+    /** The widget and shared-page line of a card, and the two cells of the table. */
+    surfaces: {
+      keys: '{n} website widget key',
+      keysMany: '{n} website widget keys',
+      keysUnlimited: 'Unlimited widget keys',
+      pages: '{n} shared page',
+      pagesMany: '{n} shared pages',
+      pagesUnlimited: 'unlimited shared pages',
+      join: '{keys} and {pages}',
+      unlimited: 'Unlimited',
     },
     callNote:
       'One accepted API or MCP query = 1 API call. The length of the response never changes the price. Building a library is priced from the content it adds; an unchanged source costs nothing.',
     compareTitle: 'Plans side by side',
     compareNote: 'Prices in USD, charged per monthly period',
     compareHeadCapability: 'Capability',
-    compare: [
-      ['Monthly price', '$0', '$5', '$5 / pack'],
-      ['Included API calls', '1,000 / month', '5,000 / month', '+5,000'],
-      ['Public libraries', 'All included', 'All included', 'Inherits Pro'],
-      ['Your own libraries', 'Up to 5', 'Up to 25', 'Inherits Pro'],
-      ['Size per library', '20 MB', '100 MB', 'Inherits Pro'],
-      ['Website widget (site keys)', '1', 'Unlimited', 'Inherits Pro'],
-      ['Shared pages', '1', 'Unlimited', 'Inherits Pro'],
-      ['Library builds', '1 call per 20k new tokens', '1 call per 20k new tokens', 'Inherits Pro'],
-      ['Extra call packs', '—', 'Available', 'Is a call pack'],
-      ['Token charges', '$0', '$0', '$0'],
-    ] as [string, string, string, string][],
+    compareRows: {
+      price: 'Monthly price',
+      pricePack: '{price} / pack',
+      calls: 'Included API calls',
+      callsMonthly: '{calls} / month',
+      callsPack: '+{calls}',
+      publicLibraries: 'Public libraries',
+      allIncluded: 'All included',
+      ownLibraries: 'Your own libraries',
+      upTo: 'Up to {n}',
+      size: 'Size per library',
+      widget: 'Website widget (site keys)',
+      pages: 'Shared pages',
+      builds: 'Library builds',
+      buildRate: '1 call per {tokens} new tokens',
+      packs: 'Extra call packs',
+      packsAvailable: 'Available',
+      packsSelf: 'Is a call pack',
+      tokens: 'Token charges',
+      inherits: 'Inherits Pro',
+      none: '—',
+    },
     shareBanner: {
       eyebrow: 'Publisher revenue share',
       title: 'Make maintaining a library worth it.',
@@ -211,23 +238,23 @@ export const en: Dictionary = {
       },
       {
         q: 'Do call packs renew automatically?',
-        a: 'No. Each pack adds 5,000 calls once, the balance never expires, and your existing plan is unchanged.',
+        a: 'No. Each pack adds {packCalls} calls once, the balance never expires, and your existing plan is unchanged.',
       },
       {
         q: 'What are the limits on libraries I create?',
-        a: 'Free allows up to 5 libraries of at most 20 MB each; Pro allows up to 25 libraries of at most 100 MB each.',
+        a: 'Free allows up to {freeLibraries} libraries of at most {freeSize} each; Pro allows up to {proLibraries} libraries of at most {proSize} each.',
       },
       {
         q: 'How many website widgets and shared pages can I create?',
-        a: 'Free includes one site key for the website widget and one shared page per workspace. Pro removes both caps: a key for every site and a page for every library.',
+        a: 'Free: {freeSurfaces} per workspace. Pro: {proSurfaces}.',
       },
       {
         q: 'Does creating or refreshing a library consume calls?',
-        a: 'Yes, priced from what the build adds: 1 call per successful build, 1 call per 20,000 new tokens, and 1 call per 5 pages fetched for website sources. Calls are debited only when the version publishes; a refresh of an unchanged source, a failed build and a rebuild forced by a platform upgrade cost nothing. The size limit is a ceiling, not an allowance: a full 20 MB library costs roughly 250 calls.',
+        a: 'Yes, priced from what the build adds: a base of {base} per successful build, 1 call per {tokens} new tokens, and 1 call per {pages} pages fetched for website sources. Calls are debited only when the version publishes; a refresh of an unchanged source, a failed build and a rebuild forced by a platform upgrade cost nothing. The size limit is a ceiling, not an allowance.',
       },
       {
-        q: 'Can I earn a share from a public library I submit?',
-        a: 'Yes. Public libraries that pass review earn a share of platform revenue based on how often they are successfully retrieved — an initial 20% rate, allocated linearly by call volume rather than weighted by Trust Score. Private and platform-owned libraries do not take part, and the share never changes what you pay as a caller.',
+        q: 'Can I earn a share from a public library I publish?',
+        a: 'Yes, once it is approved as an expert library. An expert library earns a share of platform revenue based on how often it is successfully retrieved — {share} of it, allocated linearly by call volume rather than weighted by Trust Score. Private and platform-owned libraries do not take part, and the share never changes what you pay as a caller.',
       },
     ],
     freeBanner: {
@@ -3879,8 +3906,6 @@ export const en: Dictionary = {
       inherit: 'Inherits Pro',
       none: '—',
       free: 'Free',
-      required: 'Required',
-      notRequired: 'Not required',
       versionName: '{name} v{index}',
       subscriberCount: '{count} subscriptions',
       perkCalls: '{calls} calls a month',
@@ -3890,7 +3915,6 @@ export const en: Dictionary = {
       perkKeys: '{count} API keys',
       perkShare: '{rate}% publisher share',
       perkInherit: 'Inherits Pro entitlements',
-      perkReview: 'Public libraries are reviewed',
       quotaTitle: 'Plan quota configuration',
       quotaSubtitle: 'The ceilings users can create and call against',
       liveBadge: 'Live versions',
@@ -3903,7 +3927,6 @@ export const en: Dictionary = {
         keys: 'API keys',
         share: 'Publisher share',
         build: 'Library build rates',
-        review: 'Public library review',
       },
       buildRateSummary: '{base} base · per {tokens} tokens · per {pages} pages',
       immutableNote:
@@ -3960,8 +3983,6 @@ export const en: Dictionary = {
       hintBuildPagesPerCall: 'Website, llms.txt and OpenAPI sources only',
       packNote:
         'A pack buys calls only: the buyer keeps the Pro library, capacity and key ceilings they already had.',
-      reviewToggle: 'Public libraries must be reviewed',
-      reviewToggleHint: 'With this off, public libraries on this plan publish without review',
       reason: 'Reason (recorded in the audit log)',
       reasonPlaceholder: 'e.g. Pro monthly allowance raised to 5,000',
       cancel: 'Cancel',

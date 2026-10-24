@@ -243,7 +243,7 @@ export async function createPlanVersion(
    * silently falling back to the tier default.
    */
   if (live && tierHasEntitlements(draft.planId)) {
-    draft.capabilities = capabilitiesFor(draft.planId, draft.capabilities.publicReviewRequired, {
+    draft.capabilities = capabilitiesFor(draft.planId, {
       showcasePages: live.capabilities.showcasePages,
       showcaseBranding: live.capabilities.showcaseBranding,
       showcaseLeadsRetained: live.capabilities.showcaseLeadsRetained,
