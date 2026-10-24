@@ -453,6 +453,10 @@ function listAdjustments(config: PaddleConfig, transactionId: string): Promise<P
   return call<PaddleAdjustment[]>(config, 'GET', `/adjustments?${query}`);
 }
 
+function getSubscription(config: PaddleConfig, id: string): Promise<PaddleSubscription> {
+  return call<PaddleSubscription>(config, 'GET', `/subscriptions/${encodeURIComponent(id)}`);
+}
+
 /** The body of `POST /transactions` for one checkout. Exported for its test. */
 export function checkoutTransactionBody(config: PaddleConfig, input: CheckoutInput) {
   const subscription = input.kind === 'subscription';
@@ -528,6 +532,36 @@ export function paddleAdapter(config: PaddleConfig): PaymentAdapter {
         `/transactions/${encodeURIComponent(externalId)}/invoice?disposition=attachment`,
       );
       return invoice.url;
+    },
+
+    /*
+     * The same reads a transaction event triggers, plus the subscription, which
+     * a webhook would have delivered as an event of its own. A subscription
+     * missing our tag takes it from this transaction, as `verifyWebhook` takes
+     * it from the one that started the subscription.
+     */
+    async fetchDocument(externalId) {
+      const [transaction, adjustments] = await Promise.all([
+        getTransaction(config, externalId),
+        listAdjustments(config, externalId),
+      ]);
+      const entity = transaction.subscription_id
+        ? await getSubscription(config, transaction.subscription_id)
+        : null;
+      let subscription: ProviderSubscriptionNotice | null = null;
+      if (entity) {
+        subscription = subscriptionNotice(entity);
+        if (!subscription.workspaceId) {
+          const origin = readCustomData(transaction.custom_data);
+          subscription.workspaceId = origin.workspaceId;
+          subscription.planVersionId ??= origin.planVersionId;
+        }
+      }
+      return {
+        document: transactionNotice(transaction, adjustments, products),
+        subscription,
+        payload: { transaction, adjustments, subscription: entity },
+      };
     },
 
     async verifyWebhook(rawBody, signature): Promise<PaymentNotification> {

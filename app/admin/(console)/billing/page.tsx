@@ -1,5 +1,6 @@
 import type { Metadata } from 'next';
 import { redirect } from 'next/navigation';
+import { BackfillDocument } from '@/components/admin/backfill-document';
 import { BillingStatusPill } from '@/components/admin/billing-status';
 import { FilterSelect } from '@/components/admin/list-controls';
 import {
@@ -33,6 +34,7 @@ import type { Dictionary } from '@/lib/i18n/dictionary';
 import { fill } from '@/lib/i18n/format';
 import { getMessages } from '@/lib/i18n/server';
 import { money, oneOf, PAGE_SIZE, pageNumber, pageWindow, searchTerm, utcDate } from '../list-params';
+import { backfillDocumentAction } from './actions';
 
 export async function generateMetadata(): Promise<Metadata> {
   return { title: (await getMessages()).admin.billing.title };
@@ -43,12 +45,13 @@ export async function generateMetadata(): Promise<Metadata> {
  *
  * A read-only mirror, and that is a product rule rather than an unfinished
  * screen: re0 never moves money, so refunds, retries and payment links all
- * happen at the Payment Provider (requirement.md 4.3, 5.3). There is no server
- * action behind this page and no row control that changes anything -- the two
- * controls open the document and export the list.
+ * happen at the Payment Provider (requirement.md 4.3, 5.3). No row control
+ * changes anything -- the two controls open the document and export the list.
+ * The one server action is the backfill in the header, and it changes nothing
+ * the provider did not report: it re-reads a document whose webhook was lost.
  *
  * Every figure is read from `billing_document`, which only the provider's own
- * events write. A platform with no provider connected shows zeroes and an empty
+ * events -- delivered, or re-read by that backfill -- write. A platform with no provider connected shows zeroes and an empty
  * table, because a billing screen that guesses is worse than one that says it
  * knows nothing. The subscription count is the exception, and deliberately so:
  * it comes from `subscription`, so it stays true before the mirror has a row.
@@ -89,7 +92,12 @@ export default async function AdminBillingPage({
 
   return (
     <div className="flex flex-col gap-[18px]">
-      <ConsolePageHeader eyebrow={t.admin.eyebrow} title={b.title} description={b.description} />
+      <ConsolePageHeader
+        eyebrow={t.admin.eyebrow}
+        title={b.title}
+        description={b.description}
+        action={paddleConfig() ? <BackfillDocument action={backfillDocumentAction} /> : undefined}
+      />
 
       <section className="grid grid-cols-1 gap-3 sm:grid-cols-2 xl:grid-cols-4">
         {[

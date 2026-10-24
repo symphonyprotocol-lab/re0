@@ -67,6 +67,19 @@ export type PaymentNotification = NotificationEnvelope &
   );
 
 /**
+ * One provider document as it stands now, read by id rather than announced by
+ * a webhook. `document` is null on the same terms as a notification's: not yet
+ * a billing document, or not something re0 sells. `subscription` is the
+ * subscription it bills, read alongside so a backfill can place both.
+ */
+export interface ProviderDocumentSnapshot {
+  document: ProviderDocumentNotice | null;
+  subscription: ProviderSubscriptionNotice | null;
+  /** The provider's own entities, kept with the backfill's event record. */
+  payload: unknown;
+}
+
+/**
  * Where a checkout stands at the provider. `open` can still be paid, `paid`
  * has been (or is being) charged, `closed` never will be.
  */
@@ -90,6 +103,12 @@ export interface PaymentAdapter {
    * collected document. The provider issues it; nothing is rendered here.
    */
   invoiceUrl(externalId: string): Promise<string>;
+  /**
+   * Reads one document, and the subscription it bills, from the provider's
+   * API: the console's backfill for a webhook that never arrived. Throws
+   * `PaymentProviderError` with the provider's status when it has no such id.
+   */
+  fetchDocument(externalId: string): Promise<ProviderDocumentSnapshot>;
   /**
    * Verifies the signature over the raw body and turns the event into a
    * notice. Throws `WebhookRejected` when the signature does not hold; any

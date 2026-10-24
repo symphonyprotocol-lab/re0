@@ -60,14 +60,16 @@ function slideCookie(
 
 /**
  * Hosts that are this deployment: the configured base URL, the public
- * origin, Vercel's own, and a laptop. Anything else that reaches us is a
- * customer's subdomain pointed at a showcase page (lib/application/
- * showcase/domain.ts), served by the by-host page; the mapping is read
- * there, not here, so the middleware never touches a database.
+ * origin, the checkout's own address, Vercel's own, and a laptop. Anything
+ * else that reaches us is a customer's subdomain pointed at a showcase page
+ * (lib/application/showcase/domain.ts), served by the by-host page; the
+ * mapping is read there, not here, so the middleware never touches a
+ * database.
  */
 function ownHostsOfDeployment(): string[] {
   const hosts = ['localhost', '127.0.0.1', 'vercel.app'];
-  for (const origin of [process.env.APP_BASE_URL, PUBLIC_ORIGIN]) {
+  /* PADDLE_CHECKOUT_BASE_URL is the tunnel local development serves the checkout through (lib/infrastructure/payment/paddle.ts). */
+  for (const origin of [process.env.APP_BASE_URL, PUBLIC_ORIGIN, process.env.PADDLE_CHECKOUT_BASE_URL]) {
     if (!origin) continue;
     try {
       hosts.push(new URL(origin).hostname);
