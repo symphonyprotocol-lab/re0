@@ -97,8 +97,8 @@ export default async function DashboardOverviewPage() {
   }[] = [
     {
       label: o.stats.calls,
-      value: `${number.format(overview.callsThisPeriod)} / ${number.format(overview.planAllowance)}`,
-      quota: { used: overview.callsThisPeriod, limit: Math.max(1, overview.planAllowance) },
+      value: `${number.format(overview.planCallsThisPeriod)} / ${number.format(overview.planAllowance)}`,
+      quota: { used: overview.planCallsThisPeriod, limit: Math.max(1, overview.planAllowance) },
     },
     {
       label: o.stats.tokens,

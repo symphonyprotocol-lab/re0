@@ -26,7 +26,7 @@ import {
   ShieldCheckIcon,
 } from '@/components/ui/icons';
 import Link from 'next/link';
-import { CheckoutSync } from '@/components/dashboard/checkout-sync';
+import { CheckoutSync, RefreshOnReturn } from '@/components/dashboard/checkout-sync';
 import { PendingSubmitButton } from '@/components/ui/pending-submit-button';
 import {
   disconnectGithubAction,
@@ -305,11 +305,30 @@ export default async function DashboardSettingsPage({
     {
       ...g.meters.calls,
       value: fill(g.meters.calls.value, {
-        used: number.format(overview.callsThisPeriod),
+        used: number.format(overview.planCallsThisPeriod),
         limit: number.format(overview.planAllowance),
       }),
-      percent: percent(overview.callsThisPeriod, overview.planAllowance),
+      percent: percent(overview.planCallsThisPeriod, overview.planAllowance),
+      /* Calls past the allowance were paid by packs; said under the meter rather than overflowing it. */
+      note:
+        overview.addonCallsThisPeriod > 0
+          ? fill(g.meters.calls.fromPacks, { n: number.format(overview.addonCallsThisPeriod) })
+          : null,
     },
+    /* The packs' balance, from the first one bought; it has no period, so it is not "this period's". */
+    ...(overview.addonGranted > 0
+      ? [
+          {
+            ...g.meters.packs,
+            value: fill(g.meters.packs.value, {
+              remaining: number.format(overview.addonBalanceRemaining),
+              granted: number.format(overview.addonGranted),
+            }),
+            percent: percent(overview.addonBalanceRemaining, overview.addonGranted),
+            note: g.meters.packs.note,
+          },
+        ]
+      : []),
   ];
 
   const outcome = isGithubConnectOutcome(params.github)
@@ -370,6 +389,8 @@ export default async function DashboardSettingsPage({
 
   return (
     <div className="flex flex-col gap-4">
+      {/* Back from a checkout in another tab, or after a slow webhook: the plan and billing cards catch up on return. */}
+      <RefreshOnReturn />
       <PageHeader
         eyebrow={g.eyebrow}
         title={g.title}
@@ -471,7 +492,9 @@ export default async function DashboardSettingsPage({
                       planVersion.subscribed,
                       overview.planAllowance,
                       overview.addonBalanceRemaining,
+                      overview.addonGranted,
                       billing.rows[0]?.id ?? null,
+                      billing.rows[0]?.status ?? null,
                     ])}
                   />
                 ) : null}
@@ -578,12 +601,13 @@ export default async function DashboardSettingsPage({
           description={billingPeriod}
           aside={<ArrowLink href="/dashboard/requests">{g.usageLink}</ArrowLink>}
         />
-        <div className="grid gap-6 px-5 py-5 sm:grid-cols-3">
+        <div className={`grid gap-6 px-5 py-5 sm:grid-cols-2 ${usageMeters.length > 3 ? 'lg:grid-cols-4' : 'lg:grid-cols-3'}`}>
           {usageMeters.map((meter) => (
             <div key={meter.label} className="flex flex-col gap-1">
               <p className="text-[12px] text-steel">{meter.value}</p>
               <p className="text-[11px] text-muted">{meter.label}</p>
               <Meter value={meter.percent} className="mt-2" />
+              {'note' in meter && meter.note ? <p className="mt-1 text-[10.5px] leading-[1.5] text-muted">{meter.note}</p> : null}
             </div>
           ))}
         </div>

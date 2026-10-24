@@ -976,6 +976,8 @@ export const en: Dictionary = {
     shell: {
       planLine: '{plan} plan',
       monthlyCalls: 'Calls this month',
+      callPacks: 'Call packs',
+      callPacksLeft: '{n} left',
       upgrade: 'Upgrade plan',
       signOut: 'Sign out',
       loading: 'Loading…',
@@ -2431,7 +2433,12 @@ export const en: Dictionary = {
       meters: {
         libraries: { value: '{used} / {limit}', label: 'Libraries' },
         largest: { value: '{used} / {limit} MB', label: 'Largest library' },
-        calls: { value: '{used} / {limit}', label: 'API calls' },
+        calls: { value: '{used} / {limit}', label: 'API calls (monthly allowance)', fromPacks: '+{n} paid from call packs after the allowance ran out' },
+        packs: {
+          value: '{remaining} / {granted} left',
+          label: 'Call pack balance',
+          note: 'Spent only after the monthly allowance runs out; never expires.',
+        },
       },
       providerManaged: 'The account is secured by your sign-in provider',
       planTitle: 'Subscription',

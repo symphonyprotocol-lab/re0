@@ -51,7 +51,12 @@ export default async function DashboardLayout({ children }: { children: ReactNod
               workspaceName={workspace.name}
               workspaceInitial={workspace.initial}
               planName={fill(t.dashboard.shell.planLine, { plan: workspace.planName })}
-              usage={{ used: overview.callsThisPeriod, limit: overview.planAllowance }}
+              usage={{
+                used: overview.planCallsThisPeriod,
+                limit: overview.planAllowance,
+                packRemaining: overview.addonBalanceRemaining,
+                packGranted: overview.addonGranted,
+              }}
               leadsNew={leadsNew}
             />
             <main className="w-full min-w-0 flex-1">{children}</main>
