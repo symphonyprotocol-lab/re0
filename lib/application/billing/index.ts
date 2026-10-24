@@ -6,8 +6,17 @@
  * reads, because requirement.md 5.3 puts every human billing action at the
  * Payment Provider, and the only thing that writes is the webhook the provider
  * itself drives. Checkout and the portal write nothing -- they hand the buyer
- * to the provider, and the webhook reports back what happened there.
+ * to the provider, and the webhook reports back what happened there. The
+ * console's backfill is the webhook's path too, fed by reading the provider's
+ * API instead of waiting for a notification that was lost.
  */
+export {
+  BACKFILL_REFUSALS,
+  backfillProviderDocument,
+  BackfillRefused,
+  type BackfillRefusal,
+  type BackfillResult,
+} from './backfill';
 export {
   billingSummary,
   getBillingDocument,
