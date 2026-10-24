@@ -35,13 +35,19 @@ export interface UsageOverview {
   buckets: UsageBucket[];
   periodStart: string;
   periodEnd: string;
-  /** Everything debited from the allowance this period: retrieval and build. */
+  /** Every call billed this period, retrieval and build, whichever balance paid for it. */
   callsThisPeriod: number;
+  /** Of those, the ones the monthly allowance paid for; never more than `planAllowance`. */
+  planCallsThisPeriod: number;
+  /** Of those, the ones call packs paid for -- only once the allowance ran out (quota.ts deduction order). */
+  addonCallsThisPeriod: number;
   retrievalCallsThisPeriod: number;
   buildCallsThisPeriod: number;
   returnedTokensThisPeriod: number;
   planAllowance: number;
   addonBalanceRemaining: number;
+  /** Calls ever granted by packs; with the balance, how much of them is spent. Zero before the first pack. */
+  addonGranted: number;
 }
 
 /** Rebuild the workspace's daily buckets from its usage events. */
@@ -127,6 +133,11 @@ export async function usageOverview(workspaceId: string): Promise<UsageOverview>
       retrieval: sql<number>`coalesce(sum(${schema.usageEvent.calls}) filter (where ${schema.usageEvent.entrypoint} <> ${BUILD_ENTRYPOINT}), 0)::int`,
       build: sql<number>`coalesce(sum(${schema.usageEvent.calls}) filter (where ${schema.usageEvent.entrypoint} = ${BUILD_ENTRYPOINT}), 0)::int`,
       tokens: sql<number>`coalesce(sum(${schema.usageEvent.returnedTokens}), 0)::bigint`,
+      /* By the source that paid: a whole event for `addon`, the pack's share of a build that split. */
+      addon: sql<number>`coalesce(sum(case
+        when ${schema.usageEvent.debitSource} = 'addon' then ${schema.usageEvent.calls}
+        when ${schema.usageEvent.debitSource} = 'split' then coalesce((${schema.usageEvent.buildDetail} ->> 'addonCalls')::int, 0)
+        else 0 end), 0)::int`,
     })
     .from(schema.usageEvent)
     .where(
@@ -139,6 +150,7 @@ export async function usageOverview(workspaceId: string): Promise<UsageOverview>
   const [addon] = await database
     .select({
       remaining: sql<number>`coalesce(sum(${schema.addonGrant.callsGranted} - ${schema.addonGrant.callsConsumed}), 0)::int`,
+      granted: sql<number>`coalesce(sum(${schema.addonGrant.callsGranted}), 0)::int`,
     })
     .from(schema.addonGrant)
     .where(eq(schema.addonGrant.workspaceId, workspaceId));
@@ -152,11 +164,14 @@ export async function usageOverview(workspaceId: string): Promise<UsageOverview>
     periodStart: periodStart.toISOString(),
     periodEnd: periodEnd.toISOString(),
     callsThisPeriod: (inPeriod?.retrieval ?? 0) + (inPeriod?.build ?? 0),
+    addonCallsThisPeriod: inPeriod?.addon ?? 0,
+    planCallsThisPeriod: Math.max(0, (inPeriod?.retrieval ?? 0) + (inPeriod?.build ?? 0) - (inPeriod?.addon ?? 0)),
     retrievalCallsThisPeriod: inPeriod?.retrieval ?? 0,
     buildCallsThisPeriod: inPeriod?.build ?? 0,
     returnedTokensThisPeriod: Number(inPeriod?.tokens ?? 0),
     planAllowance: allowance,
     addonBalanceRemaining: addon?.remaining ?? 0,
+    addonGranted: addon?.granted ?? 0,
   };
 }
 

@@ -164,7 +164,7 @@ export default async function DashboardRequestsPage({
         title={r.trendTitle}
         subtitle={r.trendSubtitle}
         legend={fill(r.trendLegend, {
-          used: number.format(overview.callsThisPeriod),
+          used: number.format(overview.planCallsThisPeriod),
           limit: number.format(overview.planAllowance),
         })}
         bars={bars}

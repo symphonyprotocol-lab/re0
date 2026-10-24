@@ -19,6 +19,7 @@ const { buildVersion, memoryObjectStore, publishVersion } = await import(
   '@/lib/application/ingestion'
 );
 const { queryDocs } = await import('@/lib/application/retrieval/query-docs');
+const { usageOverview } = await import('@/lib/application/plans/usage');
 const { createPlatformLibrary } = await import(
   '@/lib/application/administration/manage-platform-libraries'
 );
@@ -209,6 +210,10 @@ describeWithDb('query-docs', () => {
       await database
         .delete(schema.addonGrant)
         .where(inArray(schema.addonGrant.workspaceId, workspaces));
+      /* `usageOverview` rebuilds the daily buckets it reads. */
+      await database
+        .delete(schema.usageSummary)
+        .where(inArray(schema.usageSummary.workspaceId, workspaces));
       await database
         .delete(schema.subscription)
         .where(inArray(schema.subscription.workspaceId, workspaces));
@@ -381,6 +386,14 @@ describeWithDb('query-docs', () => {
     await expect(queryDocs(caller(workspaceId), input, noEmbeddings)).rejects.toMatchObject({
       code: 'quota_exceeded',
     });
+
+    /* The dashboard's split of the same period: one call on the allowance, one on the pack, nothing left. */
+    const overview = await usageOverview(workspaceId);
+    expect(overview.callsThisPeriod).toBe(2);
+    expect(overview.planCallsThisPeriod).toBe(1);
+    expect(overview.addonCallsThisPeriod).toBe(1);
+    expect(overview.addonGranted).toBe(1);
+    expect(overview.addonBalanceRemaining).toBe(0);
   });
 
   it('serves anonymous callers on public libraries without metering', async () => {

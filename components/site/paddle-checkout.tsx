@@ -107,7 +107,8 @@ export function PaddleCheckout({
           </button>
         ) : null}
         <Link
-          href="/dashboard/settings#plan"
+          /* After a paid checkout the settings page waits for the webhook (CheckoutSync); before it, it is just the plan card. */
+          href={phase === 'completed' ? '/dashboard/settings?checkout=success#plan' : '/dashboard/settings#plan'}
           className="flex h-10 items-center rounded-full border border-line px-5 text-[13px] text-ink transition-colors hover:bg-subtle"
         >
           {labels.back}

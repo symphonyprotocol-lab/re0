@@ -928,6 +928,8 @@ export const zh = {
     shell: {
       planLine: '{plan} 计划',
       monthlyCalls: '本月调用',
+      callPacks: '调用包',
+      callPacksLeft: '剩余 {n}',
       upgrade: '升级计划',
       signOut: '退出登录',
       loading: '加载中…',
@@ -2355,7 +2357,12 @@ export const zh = {
       meters: {
         libraries: { value: '{used} / {limit} 个', label: '知识库' },
         largest: { value: '{used} / {limit} MB', label: '最大单库用量' },
-        calls: { value: '{used} / {limit} 次', label: 'API 调用' },
+        calls: { value: '{used} / {limit} 次', label: 'API 调用（月度额度）', fromPacks: '额度用完后另有 {n} 次由调用包抵扣' },
+        packs: {
+          value: '剩余 {remaining} / {granted} 次',
+          label: '调用包余额',
+          note: '月度额度用完后才扣减，余额不过期。',
+        },
       },
       providerManaged: '账户由登录服务商安全管理',
       planTitle: '订阅信息',

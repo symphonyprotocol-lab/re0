@@ -18,6 +18,7 @@ import {
 } from '@/components/ui/icons';
 import { WORKSPACE_INITIAL } from '@/lib/dashboard/snippets';
 import { useI18n } from '@/lib/i18n/client';
+import { fill } from '@/lib/i18n/format';
 
 /** Workspace rail -- design source frame `E4GWD`, aside `itqF4`. */
 export function DashboardSidebar({
@@ -30,8 +31,12 @@ export function DashboardSidebar({
   workspaceName: string;
   workspaceInitial?: string;
   planName: string;
-  /** This period's metered calls against the plan allowance, from the ledger. */
-  usage: { used: number; limit: number };
+  /**
+   * This period's calls the plan allowance paid for, against that allowance;
+   * and the call packs' balance against all they ever granted (0 before the
+   * first pack, which hides the line).
+   */
+  usage: { used: number; limit: number; packRemaining?: number; packGranted?: number };
   /** Unhandled showcase leads across the workspace (lib/application/showcase/leads.ts). */
   leadsNew?: number;
 }) {
@@ -51,6 +56,9 @@ export function DashboardSidebar({
     { href: '/dashboard/settings', label: t.dashboard.nav.settings, Icon: SettingsIcon },
   ];
   const percent = Math.min(100, Math.round((usage.used / Math.max(1, usage.limit)) * 100));
+  const packGranted = usage.packGranted ?? 0;
+  const packRemaining = usage.packRemaining ?? 0;
+  const packPercent = packGranted > 0 ? Math.min(100, Math.round((packRemaining / packGranted) * 100)) : 0;
 
   return (
     <aside className="flex w-full shrink-0 flex-col gap-4 rounded-lg border border-line bg-card/92 p-4 lg:sticky lg:top-[112px] lg:w-[210px]">
@@ -100,6 +108,20 @@ export function DashboardSidebar({
         <div className="mt-2.5 h-1 overflow-hidden rounded-full bg-mutedbg">
           <div className="h-full rounded-full bg-brand" style={{ width: `${percent}%` }} />
         </div>
+        {/* Call packs are spent once the allowance runs out (lib/application/plans/quota.ts); shown from the first one bought. */}
+        {packGranted > 0 ? (
+          <>
+            <p className="mt-3 flex items-baseline justify-between gap-2 text-[10px] text-muted">
+              {t.dashboard.shell.callPacks}
+              <span className="text-[11px] text-ink">
+                {fill(t.dashboard.shell.callPacksLeft, { n: number.format(packRemaining) })}
+              </span>
+            </p>
+            <div className="mt-1.5 h-1 overflow-hidden rounded-full bg-mutedbg">
+              <div className="h-full rounded-full bg-brand/45" style={{ width: `${packPercent}%` }} />
+            </div>
+          </>
+        ) : null}
         <Link
           href="/pricing"
           className="mt-2.5 flex items-center justify-between text-[11px] text-brandink transition-colors hover:text-brandink"

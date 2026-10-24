@@ -242,6 +242,7 @@ describeWithDb('library build billing', () => {
       await database
         .delete(schema.usageSummary)
         .where(inArray(schema.usageSummary.workspaceId, workspaces));
+      await database.delete(schema.addonGrant).where(inArray(schema.addonGrant.workspaceId, workspaces));
       await database
         .delete(schema.subscription)
         .where(inArray(schema.subscription.workspaceId, workspaces));
@@ -299,6 +300,38 @@ describeWithDb('library build billing', () => {
     expect(await buildEvent(again)).toBeNull();
     expect(await pendingSeats(owner)).toBe(0);
     expect((await usageOverview(owner)).buildCallsThisPeriod).toBe(expected);
+  });
+
+  it('splits a build across the allowance and a call pack once the allowance runs short', async () => {
+    const owner = await workspace('build-billing split');
+    await subscribed(owner, 2);
+    const grantId = uuidv7();
+    await db().insert(schema.addonGrant).values({ id: grantId, workspaceId: owner, callsGranted: 1_000, callsConsumed: 0, priceMinor: 500 });
+    const libraryId = await library('split', owner);
+    const operationId = await queue(libraryId);
+
+    const outcome = await runOperation({ operationId, dependencies: dependencies() });
+    expect(outcome.status).toBe('succeeded');
+    const event = await buildEvent(operationId);
+    const calls = event!.calls;
+    expect(calls).toBeGreaterThan(2);
+
+    /* The allowance pays first, the pack the rest -- one event, both shares recorded. */
+    expect(event!.debitSource).toBe('split');
+    expect(event!.addonGrantId).toBe(grantId);
+    const detail = event!.buildDetail as { planCalls: number; addonCalls: number };
+    expect(detail.planCalls).toBe(2);
+    expect(detail.addonCalls).toBe(calls - 2);
+    const [grant] = await db().select().from(schema.addonGrant).where(eq(schema.addonGrant.id, grantId));
+    expect(grant!.callsConsumed).toBe(calls - 2);
+
+    /* What the dashboard prints: the allowance full, the excess on the pack, the pack's balance. */
+    const overview = await usageOverview(owner);
+    expect(overview.callsThisPeriod).toBe(calls);
+    expect(overview.planCallsThisPeriod).toBe(2);
+    expect(overview.addonCallsThisPeriod).toBe(calls - 2);
+    expect(overview.addonGranted).toBe(1_000);
+    expect(overview.addonBalanceRemaining).toBe(1_000 - (calls - 2));
   });
 
   it('stops before embedding, unbilled, when the price exceeds the balance', async () => {
