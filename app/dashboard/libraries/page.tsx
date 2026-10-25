@@ -103,6 +103,7 @@ export default async function DashboardLibrariesPage() {
       title: row.title,
       version: row.versionLabel,
       scope: row.visibility,
+      expert: row.expert,
       chunks: row.totalChunks,
       status: toneOf(bucket),
       statusLabel: statusLabel(row, bucket),

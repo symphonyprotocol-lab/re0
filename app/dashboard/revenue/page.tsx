@@ -1,7 +1,7 @@
 import type { Metadata } from 'next';
 import { RedeemEarningsButton } from '@/components/dashboard/earning-credit';
 import { MiniTrend } from '@/components/dashboard/mini-trend';
-import { PANEL, PageHeader, StatTile } from '@/components/dashboard/ui';
+import { ActionButton, PANEL, PageHeader, StatTile } from '@/components/dashboard/ui';
 import {
   BracesIcon,
   CircleDollarSignIcon,
@@ -84,7 +84,16 @@ export default async function DashboardRevenuePage() {
 
   return (
     <div className="flex flex-col gap-4">
-      <PageHeader eyebrow={r.eyebrow} title={r.title} description={r.description} />
+      <PageHeader
+        eyebrow={r.eyebrow}
+        title={r.title}
+        description={r.description}
+        action={
+          <ActionButton href="/dashboard/revenue/rules" variant="outline">
+            {r.rulesLink}
+          </ActionButton>
+        }
+      />
 
       <section className="grid grid-cols-2 gap-[9px] sm:grid-cols-4">
         {stats.map(({ key, value, label, Icon }) => (

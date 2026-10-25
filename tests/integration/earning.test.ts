@@ -2,9 +2,9 @@
  * Earning events, against a real database. architecture.md 11.4 and
  * publisher-revenue-share.md 3.1/5: one earning event per attributable call,
  * written in the same transaction as the usage event, frozen at the caller's
- * plan version and share rate -- and refused for self-calls, platform
- * libraries, unclaimed libraries, anonymous callers, replays and calls past
- * the daily cap.
+ * plan version and share rate -- and refused for self-calls, calls from a
+ * workspace related to the owner, platform libraries, unclaimed libraries,
+ * anonymous callers, replays and calls past the daily cap.
  *
  * Runs only when TEST_DATABASE_URL points at a disposable database.
  */
@@ -28,6 +28,7 @@ const { uuidv7 } = await import('@/lib/domain/id');
 
 const created: string[] = [];
 const workspaces: string[] = [];
+const users: string[] = [];
 const planVersions: string[] = [];
 const store = memoryObjectStore();
 
@@ -98,7 +99,11 @@ async function workspace(name: string): Promise<string> {
   return id;
 }
 
-async function subscribed(workspaceId: string, shareRateBps = 2_000): Promise<string> {
+async function subscribed(
+  workspaceId: string,
+  shareRateBps = 2_000,
+  providerCustomerId: string | null = null,
+): Promise<string> {
   const database = db();
   const planVersionId = uuidv7();
   planVersions.push(planVersionId);
@@ -123,10 +128,31 @@ async function subscribed(workspaceId: string, shareRateBps = 2_000): Promise<st
     workspaceId,
     planVersionId,
     status: 'active',
+    providerCustomerId,
     periodStart: new Date(Date.now() - 86_400_000),
     periodEnd: new Date(Date.now() + 86_400_000),
   });
   return planVersionId;
+}
+
+/** One person, a member of each workspace in the role given for it. */
+async function member(
+  roles: Record<string, 'owner' | 'admin' | 'developer' | 'viewer'>,
+): Promise<void> {
+  const userId = crypto.randomUUID();
+  users.push(userId);
+  await db().insert(schema.user).values({ id: userId, email: `earning-${userId}@example.test` });
+  await db()
+    .insert(schema.workspaceMember)
+    .values(Object.entries(roles).map(([workspaceId, role]) => ({ workspaceId, userId, role })));
+}
+
+async function earned(requestId: string): Promise<number> {
+  const rows = await db()
+    .select({ id: schema.earningEvent.id })
+    .from(schema.earningEvent)
+    .where(eq(schema.earningEvent.requestId, requestId));
+  return rows.length;
 }
 
 /**
@@ -219,7 +245,13 @@ describeWithDb('earning events', () => {
       await database
         .delete(schema.subscription)
         .where(inArray(schema.subscription.workspaceId, workspaces));
+      await database
+        .delete(schema.workspaceMember)
+        .where(inArray(schema.workspaceMember.workspaceId, workspaces));
       await database.delete(schema.workspace).where(inArray(schema.workspace.id, workspaces));
+    }
+    if (users.length > 0) {
+      await database.delete(schema.user).where(inArray(schema.user.id, users));
     }
     if (planVersions.length > 0) {
       await database
@@ -296,6 +328,64 @@ describeWithDb('earning events', () => {
         .where(eq(schema.earningEvent.libraryId, ownLibrary)),
     ).toHaveLength(0);
     void unclaimed;
+  });
+
+  /**
+   * publisher-revenue-share.md 5: one payer is one party. A reader whose
+   * subscription sits under the owner's provider customer is the owner
+   * reading their own library from a second workspace -- billed, not earned.
+   * A reader under a different customer still earns.
+   */
+  it('refuses calls from a workspace under the owner\'s payer', async () => {
+    const stamp = Date.now();
+    const customer = `ctm_${crypto.randomUUID()}`;
+    const owner = await workspace('earning-payer-owner');
+    await subscribed(owner, 2_000, customer);
+    await userLibrary(`earn-payer-${stamp}`, owner);
+
+    const sibling = await workspace('earning-payer-sibling');
+    await subscribed(sibling, 2_000, customer);
+    const fromSibling = caller(sibling);
+    const output = await queryDocs(fromSibling, input(`earn-payer-${stamp}`), noEmbeddings);
+    expect(output.chunks.length).toBeGreaterThan(0);
+    const [usage] = await db()
+      .select()
+      .from(schema.usageEvent)
+      .where(eq(schema.usageEvent.requestId, fromSibling.requestId));
+    expect(usage).toBeDefined();
+    expect(await earned(fromSibling.requestId)).toBe(0);
+
+    const stranger = await workspace('earning-payer-stranger');
+    await subscribed(stranger, 2_000, `ctm_${crypto.randomUUID()}`);
+    const fromStranger = caller(stranger);
+    await queryDocs(fromStranger, input(`earn-payer-${stamp}`), noEmbeddings);
+    expect(await earned(fromStranger.requestId)).toBe(1);
+  });
+
+  /**
+   * One controller is one party too: a person who is owner or admin of both
+   * workspaces. A developer seat in the reader's workspace runs neither its
+   * billing nor its keys, so it relates nothing.
+   */
+  it('refuses calls from a workspace the owner\'s controller also runs', async () => {
+    const stamp = Date.now();
+    const owner = await workspace('earning-controller-owner');
+    await subscribed(owner);
+    await userLibrary(`earn-controller-${stamp}`, owner);
+
+    const controlled = await workspace('earning-controller-sibling');
+    await subscribed(controlled);
+    await member({ [owner]: 'owner', [controlled]: 'admin' });
+    const fromControlled = caller(controlled);
+    await queryDocs(fromControlled, input(`earn-controller-${stamp}`), noEmbeddings);
+    expect(await earned(fromControlled.requestId)).toBe(0);
+
+    const colleague = await workspace('earning-controller-colleague');
+    await subscribed(colleague);
+    await member({ [owner]: 'owner', [colleague]: 'developer' });
+    const fromColleague = caller(colleague);
+    await queryDocs(fromColleague, input(`earn-controller-${stamp}`), noEmbeddings);
+    expect(await earned(fromColleague.requestId)).toBe(1);
   });
 
   /**

@@ -25,7 +25,7 @@ export interface PackRate {
 /**
  * How many calls an amount buys at the pack rate, rounded up.
  *
- * The threshold the payout rail needs ($5, a channel-fee floor) does not
+ * The threshold the payout rail needs ($20, a channel-fee floor) does not
  * apply: redeeming costs nothing per transaction. Rounding goes the
  * publisher's way: the statements are marked fully redeemed, so a fraction of
  * a call that was rounded away would be money the ledger says left and the

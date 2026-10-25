@@ -1205,6 +1205,7 @@ export const en: Dictionary = {
         filters: {
           public: 'Public',
           private: 'Private',
+          expert: 'Expert',
           pending: 'Building',
           blocked: 'Paused / failed',
         },
@@ -1492,6 +1493,7 @@ export const en: Dictionary = {
         noteLabel: 'Note for the reviewer (optional, up to 500 characters)',
         notePlaceholder: 'e.g. The official SDK documentation our team maintains, covering every public API, updated weekly with each release.',
         cancel: 'Cancel',
+        close: 'Close',
         working: 'Submitting…',
         applySubmit: 'Submit application',
         withdrawSubmit: 'Withdraw',
@@ -2294,6 +2296,7 @@ export const en: Dictionary = {
         historyEmpty: 'Nothing redeemed yet.',
       },
       exportStatement: 'Export statement',
+      rulesLink: 'Revenue rules',
       trendTitle: 'Revenue trend',
       trendSubtitle: 'Last 12 days · current period',
       trendLegend: '51,360 shareable calls · 20% rate',
@@ -2307,6 +2310,143 @@ export const en: Dictionary = {
       countLine: 'Showing {shown} of {total} libraries',
       previous: 'Prev',
       next: 'Next',
+    },
+    revenueRules: {
+      metaTitle: 'Revenue rules',
+      eyebrow: 'Publisher',
+      title: 'Revenue rules',
+      description: 'How an expert library earns a share of platform revenue, which retrievals do not count, and when the money can be used. Prices and rates on this page are read from the plan versions in force.',
+      back: 'Back to revenue',
+      summaryTitle: 'In one sentence',
+      summary:
+        'Each month the platform sets aside {rate} of its net revenue and spreads it evenly over every billed retrieval that month. When someone else retrieves from your expert library, that retrieval’s share is credited to you; earnings settle monthly and can be redeemed as calls {holdDays} days later.',
+      eligible: {
+        title: 'Which retrievals earn',
+        lead: 'A retrieval credits the library’s owner only when all of these hold:',
+        items: [
+          'The library is public, published and carries the expert tag (apply on the library page; an administrator approves).',
+          'The owner workspace is on a paid plan at the moment of the retrieval. Earning stops when the subscription lapses and resumes on renewal.',
+          'The library’s source rights are verified: GitHub, website and llms.txt sources need an approved claim.',
+          'The retrieval comes from a signed-in workspace and reads content through `query-docs`. Anonymous trials and `resolve-library-id`, which only finds libraries, do not count.',
+          'The caller is neither the owner nor a workspace related to the owner (see the abuse rules below).',
+          'The caller has not yet reached {cap} earning retrievals of this library today.',
+        ],
+      },
+      formula: {
+        title: 'How the amount is computed',
+        lead: 'After each month (a UTC calendar month) ends, the platform closes the period and settles it with this formula:',
+        expression: 'Your monthly earnings = platform net revenue × {rate} × your library’s counted retrievals ÷ all billed retrievals on the platform',
+        notes: [
+          'Net revenue is the subscription and call-pack money actually collected that month, refunds already deducted.',
+          'The denominator is every billed retrieval on the platform, including those of platform and private libraries. Their share of revenue stays out of the pool, so only the part spent on expert libraries is shared. Calls spent building libraries are not in the denominator.',
+          'The share rate comes from the caller’s plan version and is frozen at the retrieval; Pro is currently {rate}. A later change does not touch retrievals already made.',
+          'Allocation is linear in retrievals and never weighted by trust or evaluation scores; scores only decide whether a library can get the expert tag.',
+          'Amounts are rounded down to the cent.',
+        ],
+        consequence: 'So a retrieval has no fixed price: the fewer retrievals the platform serves, the more each one is worth.',
+      },
+      examples: {
+        title: 'Worked examples',
+        note: 'Computed with the current Pro plan: {proPrice} / month, {proCalls} retrievals included, {rate} share rate. Platform sizes are hypothetical.',
+        single: {
+          title: 'Example 1: someone retrieves from your library once',
+          scenario: 'Assume every Pro subscriber uses exactly their monthly allowance.',
+          lines: [
+            'Revenue behind one retrieval: {proPrice} ÷ {proCalls} = {perCallRevenue}',
+            '{rate} of it goes to the owner: {perCallRevenue} × {rate} = {perCall}',
+          ],
+          result: 'About {perCall} per retrieval, so roughly {callsPerDollar} retrievals make $1. Real subscribers rarely use their whole allowance, which shrinks the denominator and makes each retrieval worth more, as example 2 shows.',
+        },
+        month: {
+          title: 'Example 2: one month',
+          scenario:
+            'Assume the platform has 100 Pro subscribers this month, {revenue} of net revenue. On average they use half their allowance, {totalCalls} billed retrievals in all, and {libraryCalls} of them are other workspaces retrieving from your expert library, all qualifying.',
+          lines: [
+            'Pool: {revenue} × {rate} = {pool}',
+            'Your share: {libraryCalls} ÷ {totalCalls} = {share}',
+            'Your earnings: {pool} × {share} = {earning}',
+          ],
+          result: '{earning} this month, {perCallMonth} per retrieval: more than example 1, because the denominator is half the full-usage one.',
+        },
+        cap: {
+          title: 'Example 3: one reader can only earn you so much',
+          scenario: 'One reader retrieves from your library {readerCalls} times in a day.',
+          lines: [
+            'Counted for earnings: the first {cap}',
+            'The other {overCalls}: billed to the reader as usual, but credited to no one',
+          ],
+          result: 'That reader can earn you at most {cap} retrievals’ worth a day; the count restarts at 00:00 UTC.',
+        },
+        related: {
+          title: 'Example 4: retrieving your own library from another workspace',
+          scenario:
+            'You retrieve from your own library 1,000 times out of another workspace that is paid for by the same payment account (or where you are owner or admin on both sides).',
+          lines: [
+            'Already related at retrieval time: the 1,000 calls are billed, and earn $0',
+            'Related only later, before the period closes: the close voids those earnings in one sweep',
+          ],
+          result: 'You earn $0, and you paid for those 1,000 retrievals yourself.',
+        },
+        redeem: {
+          title: 'Example 5: redeeming example 2 as calls',
+          scenario: 'Example 2’s period closes on {lockDate} and settles at {earning}.',
+          lines: [
+            'Hold: {holdDays} days from the close, redeemable from {releaseDate}',
+            'Conversion: {earning} × {packCalls} ÷ {packPrice} = {redeemCalls} calls (rounded up)',
+          ],
+          result: 'Press “Redeem as calls” on the revenue page and {redeemCalls} calls land on this workspace. They never expire and are spent after the plan allowance.',
+        },
+      },
+      timeline: {
+        title: 'When the money can be used',
+        steps: [
+          {
+            title: 'Accrual',
+            body: 'Each qualifying retrieval records an earning event, with no amount yet; the revenue page shows this period’s counted retrievals.',
+          },
+          {
+            title: 'Close',
+            body: 'After the period ends the platform closes it and computes the amounts with the formula above. A closed period never changes.',
+          },
+          {
+            title: 'Hold for {holdDays} days',
+            body: 'The window for refunds and chargebacks. During it the amount shows as held.',
+          },
+          {
+            title: 'Redeem as calls',
+            body: 'After the hold, a workspace owner or admin can turn all settled earnings into Additional Calls at once. There is no minimum: any positive amount buys at least one call.',
+          },
+          {
+            title: 'Cash payout (not yet available)',
+            body: 'Once available, it pays out only after {threshold} has accrued and keeps accruing below that. Payouts run through a separate payment service; the platform keeps no bank details.',
+          },
+        ],
+      },
+      antiAbuse: {
+        title: 'Abuse rules',
+        lead: 'Once sharing pays, inflating traffic pays too. These retrievals are billed as usual but earn nothing:',
+        items: [
+          'Retrieving your own library.',
+          'Retrieving from a related workspace: both sides have used the same payment account, or one person is owner or admin of both. Checked at retrieval and again, against the links as they stand, when the month closes.',
+          'A reader’s retrievals of one library beyond {cap} in a day.',
+          'Anonymous trials, and `resolve-library-id`, which finds libraries without reading them.',
+          'Libraries whose sources have not passed a claim.',
+        ],
+        voidLead: 'Earnings already recorded are voided or withheld when:',
+        voidItems: [
+          'The expert tag is revoked: earnings of every period not yet closed are voided.',
+          'The library is suspended: that period’s earnings void at close; closed periods are not reopened.',
+          'While the library is suspended or withdrawn, settled earnings cannot be redeemed; they become redeemable again once it is republished.',
+          'Refunds come straight off the month’s net revenue, shrinking the pool; the hold exists for exactly this.',
+        ],
+      },
+      principles: {
+        title: 'What earnings never affect',
+        items: [
+          'Ranking: earnings data never enters recall, ranking or candidate generation, so what readers see has nothing to do with who earns what.',
+          'What readers pay: the share is cut from revenue the platform already has; callers are never charged extra.',
+        ],
+      },
     },
     policies: {
       metaTitle: 'Access rules',

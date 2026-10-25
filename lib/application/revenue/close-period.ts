@@ -10,7 +10,8 @@
  *
  *   1. voiding -- earning events of libraries suspended *now* are marked
  *      `flagged` (the acceptance rule: suspension voids the current period's
- *      unpaid earnings, and never touches periods already locked);
+ *      unpaid earnings, and never touches periods already locked), and so
+ *      are events whose caller is related to the owner by now;
  *   2. the pool -- net revenue from the period's billing documents, times the
  *      attributable share, times each event group's frozen share rate. Rates
  *      are grouped, not averaged: a Pro caller's calls carry Pro's rate;
@@ -26,6 +27,8 @@ import { allocatablePoolMinor, settlementAmountMinor } from '@/lib/domain';
 import { PLAN_CURRENCY } from '@/lib/domain/plans';
 import { BUILD_ENTRYPOINT } from '@/lib/domain/build-billing';
 import { db, schema } from '@/lib/infrastructure/postgres/client';
+import { ref } from '@/lib/application/administration/column-ref';
+import { workspacesRelated } from '@/lib/application/plans/related-workspaces';
 
 export interface PeriodAllocation {
   ownerWorkspaceId: string;
@@ -112,6 +115,28 @@ export async function closePeriod(periodId: string): Promise<ClosedPeriod> {
               .from(schema.library)
               .where(eq(schema.library.lifecycleStatus, 'suspended')),
           ),
+        ),
+      );
+
+    /*
+     * Related callers, re-judged at lock time (share doc 5). The call-time
+     * gate in commitCall sees the links that existed then; a link made later
+     * in the period -- the reader subscribes under the publisher's customer,
+     * or one person takes admin of both -- reaches back over the period's
+     * open events here, and stops at locked periods like the voiding above.
+     */
+    await tx
+      .update(schema.earningEvent)
+      .set({ flagged: true })
+      .where(
+        and(
+          eq(schema.earningEvent.periodId, periodId),
+          eq(schema.earningEvent.flagged, false),
+          sql`exists(
+            select 1 from ${schema.usageEvent} u
+            where u.request_id = ${ref(schema.earningEvent.requestId)}
+              and ${workspacesRelated(sql.raw('u.workspace_id'), ref(schema.earningEvent.ownerWorkspaceId))}
+          )`,
         ),
       );
 

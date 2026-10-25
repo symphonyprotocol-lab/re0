@@ -24,7 +24,7 @@ import { fill } from '@/lib/i18n/format';
  */
 export type LibraryBucket = 'live' | 'pending' | 'blocked' | 'exempt';
 
-export type LibraryFilter = 'all' | 'public' | 'private' | 'pending' | 'blocked';
+export type LibraryFilter = 'all' | 'public' | 'private' | 'expert' | 'pending' | 'blocked';
 
 /** Rows a page of the list shows; the filters and the search narrow the whole list first. */
 export const LIBRARIES_PAGE_SIZE = 10;
@@ -39,6 +39,8 @@ export interface LibraryListRow {
   title: string;
   version: string | null;
   scope: 'public' | 'private';
+  /** Carries the expert-library tag. */
+  expert: boolean;
   chunks: number;
   /** StatusLabel tone + its translated label, derived from lifecycle+index. */
   status: StatusTone;
@@ -75,6 +77,8 @@ function matches(row: LibraryListRow, filter: LibraryFilter): boolean {
     case 'public':
     case 'private':
       return row.scope === filter;
+    case 'expert':
+      return row.expert;
     default:
       return row.bucket === filter;
   }
@@ -119,11 +123,13 @@ export function LibraryList({
   };
 
   /* requirement.md 5.2: 全部 / 公开 / 私有 / 审核中 / 需修改, plus the paused
-     and failed bucket so nothing an owner has to act on is unreachable. */
+     and failed bucket so nothing an owner has to act on is unreachable, and
+     the expert-tagged ones (expert-library-prd.md 4.3). */
   const filters: { id: LibraryFilter; label: string }[] = [
     { id: 'all', label: l.filters.all },
     { id: 'public', label: m.filters.public },
     { id: 'private', label: m.filters.private },
+    { id: 'expert', label: m.filters.expert },
     { id: 'pending', label: m.filters.pending },
     { id: 'blocked', label: m.filters.blocked },
   ];
@@ -206,8 +212,9 @@ export function LibraryList({
                     {library.initial}
                   </span>
                   <span className="flex min-w-0 flex-col gap-1">
-                    <span className="flex items-center gap-1 text-[13px] text-ink">
+                    <span className="flex items-center gap-1.5 text-[13px] text-ink">
                       <span className="truncate">{library.title}</span>
+                      {library.expert ? <Badge tone="brand">{t.dashboard.libraryDetail.expert.badge}</Badge> : null}
                     </span>
                     <span className="truncate text-[10px] text-muted">
                       {library.slug}
