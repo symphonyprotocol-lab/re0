@@ -8,12 +8,15 @@
  * S3 bucket, which in practice means a pipeline with no integration test.
  */
 import { modelAdapters } from '@/lib/application/administration/manage-model-config';
+import { resolvePageRenderer } from '@/lib/application/administration/manage-render-config';
 import type { EmbeddingAdapter } from '@/lib/infrastructure/ai/providers';
 import type { EvaluationDependencies } from './evaluate';
 import { fetchSnapshot } from '@/lib/infrastructure/connectors';
 import type { FetchSnapshotInput, SourceSnapshot } from '@/lib/infrastructure/connectors';
 import type { ObjectStore } from '@/lib/infrastructure/objects/store';
 import { isObjectStoreConfigured, objectStore } from '@/lib/infrastructure/objects/store';
+
+const WEB_SOURCES = new Set<FetchSnapshotInput['type']>(['website', 'llms_txt', 'openapi']);
 
 export interface IngestionDependencies {
   fetchSnapshot(input: FetchSnapshotInput): Promise<SourceSnapshot>;
@@ -38,7 +41,15 @@ export interface IngestionDependencies {
 }
 
 export const defaultDependencies: IngestionDependencies = {
-  fetchSnapshot,
+  /* The rendering fallback is console configuration, resolved once per
+     source: the keys a source's first pages find spent stay set aside for
+     the rest of its pages. Only web sources ever reach it. */
+  fetchSnapshot: async (input) =>
+    fetchSnapshot(
+      input.renderer === undefined && WEB_SOURCES.has(input.type)
+        ? { ...input, renderer: await resolvePageRenderer() }
+        : input,
+    ),
   /* Reached only after `configured()` said there was one, so a throw here is
      a model switched off between the check and the build rather than an
      installation that never configured one. */

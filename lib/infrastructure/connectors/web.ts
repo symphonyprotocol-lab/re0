@@ -16,7 +16,7 @@ import {
   parseSourceConfig,
 } from '@/lib/domain/ingestion';
 import { fetchDocument, type FetchedResource } from './http';
-import { pageRenderer } from './render';
+import { pageRenderer, type PageRenderer } from './render';
 import type { FetchedFile, SourceSnapshot } from './types';
 
 export type WebSourceType = 'website' | 'llms_txt' | 'openapi';
@@ -29,15 +29,22 @@ export async function fetchWebSnapshot(input: {
   location: string;
   /** Website/llms_txt: how many child-page or nested-index levels to follow. */
   indexDepth?: number;
+  /**
+   * The rendering fallback, resolved by the caller from the console's
+   * configuration; null switches it off. Absent reads the deployment's
+   * variables, which is what a caller without a console runs on.
+   */
+  renderer?: PageRenderer | null;
 }): Promise<SourceSnapshot> {
   const entry = new URL(input.location);
   const indexDepth = boundedDepth(input.indexDepth);
+  const renderer = input.renderer === undefined ? pageRenderer() : input.renderer;
   const files =
     input.type === 'openapi'
-      ? [await fetchOne(entry.toString(), entry)]
+      ? [await fetchOne(entry.toString(), entry, renderer)]
       : input.type === 'llms_txt'
-        ? await fetchIndex(entry, indexDepth)
-        : await crawl(entry, indexDepth);
+        ? await fetchIndex(entry, indexDepth, renderer)
+        : await crawl(entry, indexDepth, renderer);
 
   if (files.length === 0) {
     throw new IngestionFailure('source_empty', 'discover-parse', 'nothing was fetched');
@@ -64,8 +71,12 @@ function boundedDepth(value: number | undefined): number {
   return Math.min(Math.max(value ?? 0, 0), INGESTION_LIMITS.maxCrawlDepth);
 }
 
-async function fetchOne(target: string, entry: URL): Promise<FetchedFile> {
-  return toFile(await fetchPage(target), entry);
+async function fetchOne(
+  target: string,
+  entry: URL,
+  renderer: PageRenderer | null,
+): Promise<FetchedFile> {
+  return toFile(await fetchPage(target, renderer), entry);
 }
 
 /**
@@ -83,7 +94,7 @@ async function fetchOne(target: string, entry: URL): Promise<FetchedFile> {
  * code rather than `parse_failed`, so the console can count how many
  * sources need a browser before deciding whether to pay for one.
  */
-async function fetchPage(target: string): Promise<FetchedResource> {
+async function fetchPage(target: string, renderer: PageRenderer | null): Promise<FetchedResource> {
   let resource: FetchedResource;
   try {
     resource = await fetchDocument(target, { maxBytes: INGESTION_LIMITS.maxDocumentBytes });
@@ -95,14 +106,14 @@ async function fetchPage(target: string): Promise<FetchedResource> {
        * renderer re-checks the address and throws again, and the original
        * refusal is what the operator sees.
        */
-      const rendered = await renderIfConfigured(target).catch(() => null);
+      const rendered = await renderIfConfigured(target, renderer).catch(() => null);
       if (rendered) return rendered;
     }
     throw error;
   }
 
   if (resource.contentType.includes('html') && isRenderedShell(resource.body)) {
-    const rendered = await renderIfConfigured(target);
+    const rendered = await renderIfConfigured(target, renderer);
     /* The shell has no content, but it usually has the page's `<title>`; the
        rendered markdown often has neither a level-1 heading nor that. */
     if (rendered) return rendered.title ? rendered : withShellTitle(rendered, resource.body);
@@ -116,8 +127,10 @@ async function fetchPage(target: string): Promise<FetchedResource> {
 }
 
 /** Null when no renderer is configured; the renderer's own failure otherwise. */
-async function renderIfConfigured(target: string): Promise<FetchedResource | null> {
-  const renderer = pageRenderer();
+async function renderIfConfigured(
+  target: string,
+  renderer: PageRenderer | null,
+): Promise<FetchedResource | null> {
   if (!renderer) return null;
   return renderer.render(new URL(target));
 }
@@ -155,8 +168,12 @@ function toFile(resource: FetchedResource, entry: URL): FetchedFile {
  * is, and following links out of the listed pages would replace that
  * statement with a walk.
  */
-async function fetchIndex(entry: URL, depth: number): Promise<FetchedFile[]> {
-  const index = await fetchPage(entry.toString());
+async function fetchIndex(
+  entry: URL,
+  depth: number,
+  renderer: PageRenderer | null,
+): Promise<FetchedFile[]> {
+  const index = await fetchPage(entry.toString(), renderer);
 
   const files: FetchedFile[] = [toFile(index, entry)];
   const seen = new Set<string>([normalizeUrl(entry)]);
@@ -180,7 +197,7 @@ async function fetchIndex(entry: URL, depth: number): Promise<FetchedFile[]> {
       followed += 1;
       let page: FetchedResource;
       try {
-        page = await fetchPage(url.toString());
+        page = await fetchPage(url.toString(), renderer);
       } catch (error) {
         if (error instanceof IngestionFailure) continue;
         throw error;
@@ -192,7 +209,7 @@ async function fetchIndex(entry: URL, depth: number): Promise<FetchedFile[]> {
 
   for (const target of targets.slice(0, INGESTION_LIMITS.maxIndexPages)) {
     try {
-      files.push(await fetchOne(target.toString(), entry));
+      files.push(await fetchOne(target.toString(), entry, renderer));
     } catch (error) {
       /*
        * One dead link in an index is not a reason to abandon the build. A
@@ -240,7 +257,11 @@ const BARE_INDEX_URL = /https?:\/\/[^\s<>"'()]+\/llms(?:-full)?\.txt/gi;
  * crawl reaches from the entry point are the ones the site itself considers
  * important.
  */
-async function crawl(entry: URL, maxDepth: number): Promise<FetchedFile[]> {
+async function crawl(
+  entry: URL,
+  maxDepth: number,
+  renderer: PageRenderer | null,
+): Promise<FetchedFile[]> {
   const seen = new Set<string>([normalizeUrl(entry)]);
   let frontier: { url: URL; depth: number }[] = [{ url: entry, depth: 0 }];
   /* A sitemap page is a child discovered from the entry point, not another
@@ -264,7 +285,7 @@ async function crawl(entry: URL, maxDepth: number): Promise<FetchedFile[]> {
 
       let resource;
       try {
-        resource = await fetchPage(current.url.toString());
+        resource = await fetchPage(current.url.toString(), renderer);
       } catch (error) {
         // The entry point failing is fatal; a page discovered from it is not.
         if (files.length === 0) throw error;

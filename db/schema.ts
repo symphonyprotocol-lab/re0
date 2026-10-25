@@ -33,6 +33,8 @@ import { sql } from 'drizzle-orm';
 export const visibilityEnum = pgEnum('visibility', ['public', 'private']);
 /** The retrieval models the console configures; see `providerModelConfig`. */
 export const modelKindEnum = pgEnum('model_kind', ['embedding', 'rerank']);
+/** The page-rendering fallbacks; see `renderConfig`. `lib/domain/render-config.ts`. */
+export const renderProviderEnum = pgEnum('render_provider', ['firecrawl', 'anysearch', 'jina']);
 export const lifecycleStatusEnum = pgEnum('lifecycle_status', [
   'draft',
   'submitted',
@@ -1539,6 +1541,65 @@ export const providerModelConfig = pgTable(
 );
 
 /**
+ * The rendering fallback a website build reaches when a site refuses the
+ * plain fetch or serves a script shell. architecture.md 8.2. Append-only like
+ * `provider_model_config`: one provider in force, the newest row. No row at
+ * all means the deployment's `RENDER_PROVIDER*` variables.
+ */
+export const renderConfig = pgTable(
+  'render_config',
+  {
+    id: uuid('id').primaryKey(),
+    provider: renderProviderEnum('provider').notNull(),
+    /**
+     * A self-hosted instance; null calls the vendor's hosted API. Stored keys
+     * are only ever sent to the hosted API, so a row with a base URL calls
+     * without authentication.
+     */
+    baseUrl: text('base_url'),
+    enabled: boolean('enabled').notNull().default(true),
+    createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
+  },
+  (t) => [index('render_config_time_idx').on(t.createdAt.desc())],
+);
+
+/**
+ * Each provider's pool of API keys, tried in `position` order. Mutable, unlike
+ * the configuration: a build records here that the provider called a key
+ * spent or refused, and every console change is in the audit chain instead.
+ */
+export const renderProviderKey = pgTable(
+  'render_provider_key',
+  {
+    id: uuid('id').primaryKey(),
+    provider: renderProviderEnum('provider').notNull(),
+    label: text('label').notNull(),
+    /** Sealed like `provider_model_config.api_key_cipher`. */
+    apiKeyCipher: text('api_key_cipher').notNull(),
+    position: integer('position').notNull(),
+    enabled: boolean('enabled').notNull().default(true),
+    /**
+     * What the provider last said was wrong with the key -- `exhausted` (402)
+     * or `rejected` (401, AnySearch's 403) -- and when. A key that failed
+     * within `RENDER_KEY_COOLDOWN_MS` is tried after the others; it is never
+     * switched off by a build. Cleared when it answers again or from the
+     * console.
+     */
+    failure: text('failure').$type<'exhausted' | 'rejected'>(),
+    failureDetail: text('failure_detail'),
+    failedAt: timestamp('failed_at', { withTimezone: true }),
+    createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
+  },
+  (t) => [
+    index('render_provider_key_order_idx').on(t.provider, t.position),
+    check(
+      'render_provider_key_failure',
+      sql`${t.failure} is null or ${t.failure} in ('exhausted', 'rejected')`,
+    ),
+  ],
+);
+
+/**
  * Which registry entry answers which callers: the model the platform spends
  * on a visitor who has paid nothing (`trial`: anonymous, or a workspace on
  * the free plan) and the one a paid subscription buys (`subscriber`).
@@ -1848,7 +1909,7 @@ export const workflowOperation = pgTable(
     fetchSummary: jsonb('fetch_summary').$type<{
       direct: number;
       rendered: number;
-      renderer: 'firecrawl' | 'jina' | null;
+      renderer: 'firecrawl' | 'anysearch' | 'jina' | null;
     }>(),
     /**
      * Where a running build is: the architecture.md 8.2 step it is in and

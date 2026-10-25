@@ -76,6 +76,7 @@ import { platformTermWeight } from './term-weights';
 import type { FetchedFile, SourceSnapshot } from '@/lib/infrastructure/connectors';
 import { defaultDependencies, type IngestionDependencies } from './dependencies';
 import type { BuildFacts } from '@/lib/domain/build-billing';
+import { librarySizeCeiling } from '@/lib/application/plans/build-quota';
 
 export interface BuildInput {
   libraryId: string;
@@ -180,6 +181,7 @@ export async function buildVersion(input: BuildInput): Promise<BuildOutcome> {
       publicId: schema.library.publicId,
       title: schema.library.title,
       isPlatformLibrary: schema.library.isPlatformLibrary,
+      ownerWorkspaceId: schema.library.ownerWorkspaceId,
       lifecycleStatus: schema.library.lifecycleStatus,
       currentVersionId: schema.library.currentVersionId,
       language: schema.library.language,
@@ -428,6 +430,28 @@ export async function buildVersion(input: BuildInput): Promise<BuildOutcome> {
       .set({ lastCheckedAt: new Date() })
       .where(eq(schema.library.id, library.id));
     return { changed: false, digest };
+  }
+
+  /*
+   * requirement.md 4.1: a workspace library holds no more content than its
+   * plan's per-library ceiling. Measured the way `storage_bytes` is -- the
+   * encoded bytes of every source, carried ones included -- and refused here,
+   * after the fetch and before anything is parsed, embedded or priced, so an
+   * oversized build costs neither side anything. Only a build that would
+   * write a version is held to it: an unchanged refresh above returned first,
+   * and a library already over the ceiling keeps serving what it has.
+   * Platform libraries are the operator's and have no plan.
+   */
+  if (!library.isPlatformLibrary && library.ownerWorkspaceId) {
+    const ceiling = await librarySizeCeiling(library.ownerWorkspaceId);
+    const total = plans.reduce((sum, plan) => sum + plan.record.bytes, 0);
+    if (ceiling !== null && total > ceiling) {
+      throw new IngestionFailure(
+        'library_too_large',
+        'fetch-snapshot',
+        `the content is ${total} bytes, over the plan's ${ceiling}`,
+      );
+    }
   }
 
   const faqFiles: SourceFile[] = faqEntries.map((entry) => ({

@@ -9,6 +9,7 @@
  * is a check one of them will forget.
  */
 import { IngestionFailure, type IngestionStage } from '@/lib/domain/ingestion';
+import type { RenderProviderName } from '@/lib/domain/render-config';
 
 const TIMEOUT_MS = 20_000;
 const MAX_REDIRECTS = 4;
@@ -124,7 +125,7 @@ export interface FetchedResource {
   body: string;
   bytes: number;
   /** Set when a rendering provider produced the body rather than a plain fetch. */
-  renderedBy?: 'firecrawl' | 'jina';
+  renderedBy?: RenderProviderName;
   /**
    * The page's declared title when it is known apart from the body: a
    * renderer's metadata, or the `<title>` of the shell the page was fetched
@@ -222,15 +223,30 @@ export async function fetchDocument(
 
     if (response.status === 401 || response.status === 403) {
       await response.body?.cancel();
-      throw new IngestionFailure('source_forbidden', STAGE, `${url.host} refused the request`);
+      throw new IngestionFailure(
+        'source_forbidden',
+        STAGE,
+        `${url.host} refused the request`,
+        response.status,
+      );
     }
     if (response.status === 404 || response.status === 410) {
       await response.body?.cancel();
-      throw new IngestionFailure('source_empty', STAGE, `${url.host} has nothing at that path`);
+      throw new IngestionFailure(
+        'source_empty',
+        STAGE,
+        `${url.host} has nothing at that path`,
+        response.status,
+      );
     }
     if (!response.ok) {
       await response.body?.cancel();
-      throw new IngestionFailure('source_unreachable', STAGE, `${url.host} answered ${response.status}`);
+      throw new IngestionFailure(
+        'source_unreachable',
+        STAGE,
+        `${url.host} answered ${response.status}`,
+        response.status,
+      );
     }
 
     /*

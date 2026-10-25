@@ -105,6 +105,18 @@ export async function assertBuildAffordable(input: {
   return quote;
 }
 
+/**
+ * requirement.md 4.1: the most content, in bytes, one of the workspace's
+ * libraries may hold -- the version in force's ceiling, else the newest
+ * Free one, the same window the quote reads. Null when no version carries
+ * a ceiling at all (a deployment that skipped the seed): refusing every
+ * build there would be the bug, not the plan.
+ */
+export async function librarySizeCeiling(workspaceId: string): Promise<number | null> {
+  const window = await db().transaction((tx) => planWindow(tx, workspaceId));
+  return window.librarySizeBytesLimit > 0 ? window.librarySizeBytesLimit : null;
+}
+
 /** One build's open seat, carried from `openBuildCharge` to its close. */
 export interface BuildCharge {
   operationId: string;

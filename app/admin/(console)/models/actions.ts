@@ -8,14 +8,20 @@ import {
   openModelCredential,
   probeLlmConfig,
   probeModelConfig,
+  probeRenderConfig,
   recordAudit,
   updateLlmAssignment,
   updateLlmConfig,
   updateModelConfig,
+  updateRenderConfig,
+  updateRenderKeys,
   LlmConfigRefused,
   ModelConfigRefused,
+  RenderConfigRefused,
+  RENDER_PROBE_URL,
   type LlmProbeResult,
   type ModelProbeResult,
+  type RenderProbeResult,
 } from '@/lib/application/administration';
 import {
   priceMicroFromUsd,
@@ -400,5 +406,122 @@ export async function testModelConfigAction(form: FormData): Promise<ModelProbeA
   });
 
   const result = await probeModelConfig({ kind, baseUrl: target, model, apiKey, dimensions, timeoutMs });
+  return { kind: 'result', ...result };
+}
+
+export type RenderConfigError =
+  | 'invalid_provider'
+  | 'invalid_base_url'
+  | 'invalid_api_key'
+  | 'too_many_keys'
+  | 'unknown_key'
+  | 'reason_required'
+  | 'unavailable';
+
+export interface RenderConfigActionResult {
+  ok: boolean;
+  error?: RenderConfigError;
+}
+
+function renderRefusal(error: unknown, what: string): RenderConfigActionResult {
+  if (error instanceof RenderConfigRefused) return { ok: false, error: error.code };
+  if (error instanceof AdminChangeRefused && error.code === 'reason_required') {
+    return { ok: false, error: 'reason_required' };
+  }
+  console.error(`${what} failed: ${error instanceof Error ? error.message : 'unknown'}`);
+  return { ok: false, error: 'unavailable' };
+}
+
+/** The rendering fallback's provider: switching vendor, self-hosting and switching it off are one append. */
+export async function updateRenderConfigAction(
+  _previous: RenderConfigActionResult | null,
+  form: FormData,
+): Promise<RenderConfigActionResult> {
+  const session = await requireAdminCapability('models');
+  try {
+    await updateRenderConfig({
+      actor: actorOf(session, await headers()),
+      provider: String(form.get('provider') ?? ''),
+      baseUrl: String(form.get('baseUrl') ?? ''),
+      /* An unchecked checkbox posts nothing: absence is "off". */
+      enabled: form.get('enabled') !== null,
+      reason: String(form.get('reason') ?? ''),
+    });
+    revalidatePath('/admin/models');
+    return { ok: true };
+  } catch (error) {
+    return renderRefusal(error, 'render config');
+  }
+}
+
+/**
+ * The key pool of one provider, saved whole. The form posts the kept keys in
+ * their new order as repeated `keep` ids, each with `label:<id>`, and
+ * `enabled:<id>` / `clear:<id>` when checked; new keys come one per line.
+ */
+export async function updateRenderKeysAction(
+  _previous: RenderConfigActionResult | null,
+  form: FormData,
+): Promise<RenderConfigActionResult> {
+  const session = await requireAdminCapability('models');
+  try {
+    const keep = form.getAll('keep').map((value) => {
+      const id = String(value);
+      return {
+        id,
+        label: String(form.get(`label:${id}`) ?? ''),
+        enabled: form.get(`enabled:${id}`) !== null,
+        clearFailure: form.get(`clear:${id}`) !== null,
+      };
+    });
+    const add = String(form.get('add') ?? '')
+      .split(/\r?\n/)
+      .map((line) => line.trim())
+      .filter((line) => line.length > 0)
+      .map((apiKey) => ({ label: '', apiKey }));
+    await updateRenderKeys({
+      actor: actorOf(session, await headers()),
+      provider: String(form.get('provider') ?? ''),
+      keep,
+      add,
+      reason: String(form.get('reason') ?? ''),
+    });
+    revalidatePath('/admin/models');
+    return { ok: true };
+  } catch (error) {
+    return renderRefusal(error, 'render keys');
+  }
+}
+
+export type RenderProbeActionResult =
+  | ({ kind: 'result' } & RenderProbeResult)
+  | { kind: 'refused'; error: 'invalid_provider' | 'invalid_base_url' | 'no_key' };
+
+/**
+ * One render of a fixed public page through the configuration as typed. The
+ * target is not the operator's to choose: this is a check of the service and
+ * its keys, not a way to have the server fetch an address on request.
+ */
+export async function testRenderConfigAction(form: FormData): Promise<RenderProbeActionResult> {
+  const session = await requireAdminCapability('models');
+  const provider = String(form.get('provider') ?? '');
+  const baseUrl = String(form.get('baseUrl') ?? '');
+
+  /* Audited like the model probes: an outbound call the operator points. */
+  const bag = await headers();
+  await recordAudit({
+    administratorId: session.administratorId,
+    action: 'render_config.probe',
+    targetType: 'render_config',
+    targetId: `${provider}:${baseUrl.trim() || 'hosted'}`,
+    reason: `render ${RENDER_PROBE_URL}`,
+    clientAddress: clientAddress(bag),
+    result: 'success',
+  });
+
+  const result = await probeRenderConfig({ provider, baseUrl });
+  if ('refused' in result) return { kind: 'refused', error: result.refused };
+  /* A probe can mark a key spent; the pool on the page should say so. */
+  revalidatePath('/admin/models');
   return { kind: 'result', ...result };
 }

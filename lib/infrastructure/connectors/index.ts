@@ -19,10 +19,12 @@ import { fetchGithubSnapshot } from './github';
 import { fetchMarkdownSnapshot } from './markdown';
 import { fetchNotionSnapshot } from './notion';
 import { fetchPdfSnapshot } from './pdf';
+import type { PageRenderer } from './render';
 import { fetchWebSnapshot } from './web';
 import type { SourceSnapshot } from './types';
 
 export type { FetchedFile, SourceSnapshot } from './types';
+export type { PageRenderer } from './render';
 
 export interface FetchSnapshotInput {
   type: ConnectedSourceType;
@@ -36,6 +38,12 @@ export interface FetchSnapshotInput {
    * back to the platform's own configuration.
    */
   credential?: string;
+  /**
+   * The rendering fallback for website, `llms.txt` and OpenAPI sources,
+   * resolved by the caller from the console (`manage-render-config.ts`);
+   * null is "off". Absent reads the deployment's variables.
+   */
+  renderer?: PageRenderer | null;
 }
 
 export async function fetchSnapshot(input: FetchSnapshotInput): Promise<SourceSnapshot> {
@@ -82,6 +90,7 @@ async function fetchUnscoped(input: FetchSnapshotInput): Promise<SourceSnapshot>
         type: input.type,
         location: input.location,
         indexDepth: indexDepthOf(input.config ?? {}),
+        renderer: input.renderer,
       });
     case 'notion':
       return fetchNotionSnapshot({ location: input.location, token: input.credential });
