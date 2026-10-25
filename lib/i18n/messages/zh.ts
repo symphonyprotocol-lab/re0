@@ -2654,6 +2654,7 @@ export const zh = {
       source_unreachable: '来源没有响应，稍后会重试。',
       source_forbidden: '来源拒绝了请求，或该地址不允许抓取。',
       source_too_large: '来源内容超过单次构建的上限。',
+      library_too_large: '内容超过套餐的单个知识库容量上限，已在解析前停止，未扣费；升级套餐或缩小来源范围后重试。',
       source_empty: '来源没有返回可索引的内容。',
       source_unrendered: '该站点返回的是需要浏览器渲染的 JS 空壳，且未配置渲染服务或渲染失败。',
       unsafe_content: '抓取到的文档全部被安全扫描隔离。',

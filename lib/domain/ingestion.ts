@@ -175,6 +175,11 @@ export const INGESTION_ERRORS = [
   'source_unreachable',
   'source_forbidden',
   'source_too_large',
+  /**
+   * requirement.md 4.1: the library's content is over its plan's per-library
+   * ceiling. Not retried -- the source will be as large next time.
+   */
+  'library_too_large',
   'source_empty',
   'source_unrendered',
   'unsafe_content',

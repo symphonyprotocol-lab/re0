@@ -2729,6 +2729,8 @@ export const en: Dictionary = {
       source_unreachable: 'The source did not answer. It will be retried.',
       source_forbidden: 'The source refused the request, or the location is not one we may fetch.',
       source_too_large: 'The source served more than one build may take.',
+      library_too_large:
+        "The content is over the plan's per-library size; it stopped before parsing and nothing was charged. Upgrade the plan or narrow the source, then retry.",
       source_empty: 'The source served nothing that can be indexed.',
       source_unrendered:
         'The site serves a JavaScript shell that needs a browser to render, and no rendering provider is configured or it failed.',
