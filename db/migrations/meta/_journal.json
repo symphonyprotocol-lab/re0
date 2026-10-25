@@ -407,6 +407,13 @@
       "when": 1792379050164,
       "tag": "0057_subscription_cancel_at",
       "breakpoints": true
+    },
+    {
+      "idx": 58,
+      "version": "7",
+      "when": 1793000000000,
+      "tag": "0058_render_config",
+      "breakpoints": true
     }
   ]
 }

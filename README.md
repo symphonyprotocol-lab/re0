@@ -201,12 +201,14 @@ curl -s http://localhost:3002/v2/scrape -H 'content-type: application/json' \
   -d '{"url":"https://example.com","formats":["markdown"]}'
 ```
 
-然后在 `.env.local` 里指向它（不需要 Key，自建实例关闭了鉴权）：
+然后在后台「模型配置 → 网页渲染」里选 Firecrawl、自托管地址填 `http://localhost:3002`（不需要 Key，自建实例关闭了鉴权）。后台从未保存过渲染配置时，也可以在 `.env.local` 里指向它：
 
 ```text
 RENDER_PROVIDER=firecrawl
 RENDER_PROVIDER_BASE_URL=http://localhost:3002
 ```
+
+同一页还能切换到 AnySearch（`POST https://api.anysearch.com/v1/extract`）或 Jina Reader，并为每家维护一组按顺序使用的 API Key：一个 Key 额度用完（402）或失效（401）就自动换下一个。
 
 镜像来自 `ghcr.io/firecrawl`（`nuq-postgres` 未公开，`docker/firecrawl/nuq-postgres` 里保存了一份构建文件本地构建）。若本机 Docker 守护进程拉 ghcr.io 报 `denied`，用 `docker/firecrawl/pull-ghcr-image.py` 在主机上下载后 `docker load`。队列数据不做持久化，`docker compose ... down` 即清空。
 

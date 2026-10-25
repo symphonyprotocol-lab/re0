@@ -55,7 +55,7 @@
 
 | 步骤 | 计量 | 适用来源 |
 | --- | --- | --- |
-| 抓取（Firecrawl 托管 API） | 页数 | website、llms_txt、openapi |
+| 抓取（渲染服务托管 API：Firecrawl / AnySearch / Jina） | 页数 | website、llms_txt、openapi |
 | Embedding | Token 数 | 全部来源 |
 
 github、notion 走各自 API，pdf 是用户上传，都没有抓取费。画像（`rebuild-profile.ts`）是词频统计，不走 LLM；存证走链上但已承诺免费。

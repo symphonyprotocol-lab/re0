@@ -125,7 +125,7 @@ export interface BuildProgress {
  * operator deciding whether to pay for a renderer wants to know how often it
  * was needed.
  */
-export type FetchMethod = 'direct' | 'firecrawl' | 'jina';
+export type FetchMethod = 'direct' | 'firecrawl' | 'anysearch' | 'jina';
 
 export interface FetchSummary {
   /** Pages our own fetch answered. */
@@ -208,6 +208,12 @@ export class IngestionFailure extends Error {
     readonly code: IngestionErrorCode,
     readonly stage: IngestionStage,
     message: string,
+    /**
+     * The HTTP status behind a failed request, when there was one. Read by
+     * the rendering fallback to tell a spent or refused key (402, 401/403,
+     * 429) from a page the provider could not render.
+     */
+    readonly httpStatus?: number,
   ) {
     super(message);
     this.name = 'IngestionFailure';

@@ -165,6 +165,21 @@ export {
   type UpdateModelConfigInput,
 } from './manage-model-config';
 export {
+  probeRenderConfig,
+  readRenderConfiguration,
+  resolvePageRenderer,
+  updateRenderConfig,
+  updateRenderKeys,
+  RenderConfigRefused,
+  RENDER_PROBE_URL,
+  type RenderConfigRow,
+  type RenderConfiguration,
+  type RenderKeyRow,
+  type RenderProbeResult,
+  type UpdateRenderConfigInput,
+  type UpdateRenderKeysInput,
+} from './manage-render-config';
+export {
   activeRetrievalSettings,
   readRetrievalConfiguration,
   retrievalProviderStatus,

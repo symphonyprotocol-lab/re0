@@ -2,6 +2,7 @@ import type { Metadata } from 'next';
 import { LlmAssignmentForm } from '@/components/admin/llm-assignment-form';
 import { LlmConfigForm } from '@/components/admin/llm-config-form';
 import { ModelConfigForm } from '@/components/admin/model-config-form';
+import { RenderConfigForm } from '@/components/admin/render-config-form';
 import {
   ConsoleNotice,
   ConsolePageHeader,
@@ -14,7 +15,11 @@ import {
   TD,
   TH,
 } from '@/components/admin/ui';
-import { readLlmConfiguration, readModelConfiguration } from '@/lib/application/administration';
+import {
+  readLlmConfiguration,
+  readModelConfiguration,
+  readRenderConfiguration,
+} from '@/lib/application/administration';
 import { SparklesIcon } from '@/components/ui/icons';
 import { LLM_AUDIENCES, priceUsdFromMicro } from '@/lib/domain/generation';
 import { requireAdminCapability } from '@/lib/http/admin';
@@ -24,9 +29,12 @@ import {
   testLlmConfigAction,
   testLlmEntryAction,
   testModelConfigAction,
+  testRenderConfigAction,
   updateLlmAssignmentAction,
   updateLlmConfigAction,
   updateModelConfigAction,
+  updateRenderConfigAction,
+  updateRenderKeysAction,
 } from './actions';
 
 export async function generateMetadata(): Promise<Metadata> {
@@ -61,11 +69,30 @@ export default async function AdminModelsPage() {
     { locale, t },
     { entries, assignment, resolved, history, stats },
     models,
-  ] = await Promise.all([translations(), readLlmConfiguration(), readModelConfiguration()]);
+    rendering,
+  ] = await Promise.all([
+    translations(),
+    readLlmConfiguration(),
+    readModelConfiguration(),
+    readRenderConfiguration(),
+  ]);
   const p = t.admin.llm;
   const m = t.admin.models;
+  const r = t.admin.render;
   const number = new Intl.NumberFormat(locale);
   const date = new Intl.DateTimeFormat(locale, { dateStyle: 'medium', timeStyle: 'short' });
+  const renderStatus = rendering.current
+    ? rendering.current.enabled
+      ? fill(rendering.current.baseUrl ? r.inForceSelfHosted : r.inForce, {
+          provider: r.providers[rendering.current.provider],
+        })
+      : r.disabled
+    : rendering.environment
+      ? fill(r.fromEnvironment, {
+          provider: r.providers[rendering.environment.provider],
+          keys: number.format(rendering.environment.keys),
+        })
+      : r.unset;
 
   return (
     <div className="flex flex-col gap-[22px]">
@@ -91,6 +118,79 @@ export default async function AdminModelsPage() {
           action={updateModelConfigAction}
           probe={testModelConfigAction}
         />
+      </Panel>
+
+      <Panel>
+        <PanelHead title={r.title} description={r.description} />
+        <div className="flex flex-wrap items-center gap-2 px-[19px] pt-4">
+          <Pill tone={rendering.usable ? 'ok' : 'neutral'}>
+            {rendering.usable ? r.stateOn : r.stateOff}
+          </Pill>
+          <span className="text-[12px] tracking-[-0.023em] text-steel">{renderStatus}</span>
+        </div>
+        {rendering.credentialKeyConfigured ? null : (
+          <p className="px-[19px] pt-2 text-[12px] tracking-[-0.023em] text-danger">
+            {r.credentialKeyMissing}
+          </p>
+        )}
+        <RenderConfigForm
+          current={
+            rendering.current
+              ? {
+                  provider: rendering.current.provider,
+                  baseUrl: rendering.current.baseUrl,
+                  enabled: rendering.current.enabled,
+                }
+              : null
+          }
+          keys={Object.fromEntries(
+            Object.entries(rendering.keys).map(([provider, rows]) => [
+              provider,
+              rows.map((row) => ({
+                id: row.id,
+                label: row.label,
+                enabled: row.enabled,
+                failure: row.failure,
+                failedAt: row.failedAt?.toISOString() ?? null,
+                coolingDown: row.coolingDown,
+              })),
+            ]),
+          ) as Parameters<typeof RenderConfigForm>[0]['keys']}
+          saveConfig={updateRenderConfigAction}
+          saveKeys={updateRenderKeysAction}
+          probe={testRenderConfigAction}
+        />
+        {rendering.history.length > 0 ? (
+          <TableScroller>
+            <table className="w-full border-t-2 border-line">
+              <thead>
+                <tr className="border-b-2 border-line">
+                  {r.historyColumns.map((column) => (
+                    <th key={column} className={TH}>
+                      {column}
+                    </th>
+                  ))}
+                </tr>
+              </thead>
+              <tbody>
+                {rendering.history.map((row) => (
+                  <tr key={row.id} className="border-b border-line last:border-b-0">
+                    <td className={TD}>{date.format(row.createdAt)}</td>
+                    <td className={TD}>{r.providers[row.provider]}</td>
+                    <td className={TD}>
+                      <span className="font-mono text-[10.5px]">{row.baseUrl ?? r.hosted}</span>
+                    </td>
+                    <td className={TD}>
+                      <Pill tone={row.enabled ? 'ok' : 'neutral'}>
+                        {row.enabled ? p.stateEnabled : p.stateDisabled}
+                      </Pill>
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </TableScroller>
+        ) : null}
       </Panel>
 
       <Panel>

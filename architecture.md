@@ -551,7 +551,7 @@ stateDiagram-v2
 Website 与 `llms.txt` 来源都通过 `source.config.indexDepth` 选择嵌套深度（0–3 层，默认 0）。Website 每层跟进同域、仍在入口路径范围内的子页面，sitemap 发现页算第 1 层；`llms.txt` 每层跟进同域嵌套索引。
 
 1. `validate-source`：套餐、容量、URL、授权和配置 Schema；
-2. `fetch-snapshot`：抓取后计算 Source Digest 并写对象存储。网站来源先直接抓取（浏览器样 UA、`Accept: text/markdown` 协商、sitemap 发现），只有被拒（403）或页面是 JS 空壳时才调用远程渲染服务（`RENDER_PROVIDER`，Firecrawl 或 Jina Reader，可替换）取 Markdown；渲染目标同样经过 §15.1 的地址校验，渲染结果同样受单文档大小上限约束。未配置渲染服务时入口页为空壳以 `source_unrendered` 失败，这个独立错误码让后台能统计需要渲染的来源比例。多来源库按来源比对：版本在 `library_version.source_digests` 里记下每个来源的摘要、字节数和评分事实，下次构建时摘要未变的来源不再解析和向量化，其文档与 Chunk（含向量）从当前版本复制到新版本（`document.source_id` 记录归属，归一化对象共享不重写）；只有变化的来源走完整管线。命名一个来源的刷新（`workflow_operation.source_id`）连其他来源都不抓取，直接沿用。解析器、分块器、Embedding 模型或分词配置任一变化时不复用，整库重建。用户库只有一个来源（认领和分成按来源验证，多来源会让验证一个来源就拿到整个库）；多来源只用于平台库，Library ID 的命名空间由第一个来源决定。`llms.txt` 来源只抓索引列出的文档，不从这些页面继续爬；索引正文里提到的同域嵌套索引（如 ethereum.org 的 `/developers/docs/llms.txt`，无论是 Markdown 链接还是裸 URL）是否跟进由来源自己设定（`source.config.indexDepth`，0–3 层，默认 0 即不跟进），最多 `maxNestedIndexes` 个，文档总数上限 `maxIndexPages`。PDF 来源从对象存储读回向导上传的文件（单文件 30 MB 以内），用 pdf.js（unpdf）就地抽取文本层；只有当至多一半页面有文本层时（扫描件）才把整个文件交给 OCR 服务（`OCR_PROVIDER`，目前为 ocr.space，可替换）识别，未配置 OCR 时扫描件解析为空文档，由 `discover-parse` 报 `parse_failed`。文件以 multipart 直接上传给 OCR 厂商，不签发对象存储的临时 URL；页数与大小上限由厂商套餐决定，超出时厂商的拒绝原样以 `parse_failed` 上报；
+2. `fetch-snapshot`：抓取后计算 Source Digest 并写对象存储。网站来源先直接抓取（浏览器样 UA、`Accept: text/markdown` 协商、sitemap 发现），只有被拒（403）或页面是 JS 空壳时才调用远程渲染服务（Firecrawl、AnySearch 或 Jina Reader，在后台「模型配置」页选择，可替换）取 Markdown。渲染配置只追加（`render_config`，最新一条生效；从未保存时沿用 `RENDER_PROVIDER*` 环境变量），每家服务各有一个有序的 API Key 池（`render_provider_key`，加密存储）：构建按顺序使用，厂商返回 402（额度用完）或 401（Key 无效，AnySearch 另含 403）时换下一个 Key 并标记，被标记的 Key 6 小时内排到最后但放弃前仍会再试，首次成功即清除标记；429 只在本次构建内跳过。Firecrawl 的 403 是不支持该网站，不算 Key 失效。已存的 Key 只发往厂商官方地址，配置了自托管地址时不带 Key 调用；渲染目标同样经过 §15.1 的地址校验，渲染结果同样受单文档大小上限约束。未配置渲染服务时入口页为空壳以 `source_unrendered` 失败，这个独立错误码让后台能统计需要渲染的来源比例。多来源库按来源比对：版本在 `library_version.source_digests` 里记下每个来源的摘要、字节数和评分事实，下次构建时摘要未变的来源不再解析和向量化，其文档与 Chunk（含向量）从当前版本复制到新版本（`document.source_id` 记录归属，归一化对象共享不重写）；只有变化的来源走完整管线。命名一个来源的刷新（`workflow_operation.source_id`）连其他来源都不抓取，直接沿用。解析器、分块器、Embedding 模型或分词配置任一变化时不复用，整库重建。用户库只有一个来源（认领和分成按来源验证，多来源会让验证一个来源就拿到整个库）；多来源只用于平台库，Library ID 的命名空间由第一个来源决定。`llms.txt` 来源只抓索引列出的文档，不从这些页面继续爬；索引正文里提到的同域嵌套索引（如 ethereum.org 的 `/developers/docs/llms.txt`，无论是 Markdown 链接还是裸 URL）是否跟进由来源自己设定（`source.config.indexDepth`，0–3 层，默认 0 即不跟进），最多 `maxNestedIndexes` 个，文档总数上限 `maxIndexPages`。PDF 来源从对象存储读回向导上传的文件（单文件 30 MB 以内），用 pdf.js（unpdf）就地抽取文本层；只有当至多一半页面有文本层时（扫描件）才把整个文件交给 OCR 服务（`OCR_PROVIDER`，目前为 ocr.space，可替换）识别，未配置 OCR 时扫描件解析为空文档，由 `discover-parse` 报 `parse_failed`。文件以 multipart 直接上传给 OCR 厂商，不签发对象存储的临时 URL；页数与大小上限由厂商套餐决定，超出时厂商的拒绝原样以 `parse_failed` 上报；
 3. `scan`：恶意文件、Secrets、PII、Prompt Injection 和链接安全；
 4. `discover-parse`：只解析允许的文件和页面；
 5. `normalize-cite`：产生统一文档格式和 Citation；
@@ -1131,9 +1131,9 @@ API_KEY_HASH_SECRET
 CREDENTIAL_ENCRYPTION_KEY      # 密封后台保存的模型凭据，见 §9.7；轮换后所有已存密钥读不出来，需重新录入
 EMBEDDING_PROVIDER_API_KEY     # 可选，升级兼容：后台从未保存过向量模型时的兜底（连同 EMBEDDING_PROVIDER_BASE_URL、EMBEDDING_MODEL），首次保存后不再读取
 RERANK_PROVIDER_API_KEY        # 可选，同上，重排模型的兜底；需与 RERANK_PROVIDER_BASE_URL 同时设置（RERANK_MODEL 可选）
-RENDER_PROVIDER                # 可选，firecrawl | jina：网站来源被拒或返回 JS 空壳时的渲染兜底，见 §8.2
-RENDER_PROVIDER_API_KEY
-RENDER_PROVIDER_BASE_URL       # 可选，自托管实例的地址（如 http://firecrawl:3002）；设了它 key 可省略，内网 http 允许但不允许重定向
+RENDER_PROVIDER                # 可选，升级兼容：firecrawl | anysearch | jina，网站来源被拒或返回 JS 空壳时的渲染兜底（§8.2）；后台首次保存渲染配置后不再读取
+RENDER_PROVIDER_API_KEY        # 可选，同上；多个 Key 用逗号分隔，按顺序轮换
+RENDER_PROVIDER_BASE_URL       # 可选，同上，自托管实例的地址（如 http://firecrawl:3002）；设了它 key 可省略，内网 http 允许但不允许重定向
 OCR_PROVIDER                   # 可选，ocrspace：上传的 PDF 没有文本层（扫描件）时的 OCR 兜底，见 §8.2
 OCR_PROVIDER_API_KEY
 OCR_PROVIDER_BASE_URL          # 可选，付费套餐的区域端点（如 https://apipro1.ocr.space）；不设则用公共 API
