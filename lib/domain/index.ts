@@ -106,11 +106,12 @@ export const DAILY_ATTRIBUTABLE_CALL_CAP = 200;
 /**
  * publisher-revenue-share.md 3.4: below this a period's earnings roll over.
  *
- * $5, down from $20 on 2026-10-05. At Pro's price an attributable call earns
- * at most $0.0002, so $20 was on the order of a hundred thousand calls to one
- * library -- a threshold the long tail the share exists for would never reach.
+ * $20, back up from $5 on 2026-10-24 ($5 had replaced $20 on 2026-10-05).
+ * Cash payout is still stage 3 and the default exit is credit, which has no
+ * threshold at all -- so the long tail redeems as calls, and the cash rail
+ * pays out in amounts its per-transfer fee does not swallow.
  */
-export const PAYOUT_THRESHOLD_MINOR = 500;
+export const PAYOUT_THRESHOLD_MINOR = 2_000;
 /** publisher-revenue-share.md 3.4: the refund/chargeback window before payout. */
 export const PAYOUT_HOLD_DAYS = 45;
 

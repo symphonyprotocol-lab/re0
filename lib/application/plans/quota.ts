@@ -37,6 +37,7 @@ import { DEFAULT_BUILD_RATES, type BuildRates } from '@/lib/domain/build-billing
 import { db, schema } from '@/lib/infrastructure/postgres/client';
 import { IN_FORCE_FIRST, subscriptionInForce, windowInForce } from '@/lib/application/plans/in-force';
 import { PLAN_VERSION_NEWEST_FIRST } from './configuration';
+import { workspacesRelated } from './related-workspaces';
 
 /**
  * How long a pending reservation can hold a seat.
@@ -308,6 +309,10 @@ export async function commitCall(input: {
      * attributable cap for this library, counted here in the same
      * transaction. Over the cap the call bills normally and earns nothing.
      * `written.length > 0` plus the unique request id keep replays at one.
+     *
+     * Section 5 widens "the owner" to every workspace related to it -- one
+     * payer or one controller (related-workspaces.ts). Read last, after the
+     * cheap gates, so only calls that would otherwise earn pay for it.
      */
     const facts = input.libraryFacts;
     if (
@@ -316,7 +321,8 @@ export async function commitCall(input: {
       facts.rightsVerified &&
       reservation.planVersionId &&
       facts.ownerWorkspaceId !== reservation.workspaceId &&
-      isRevenueEligible(facts)
+      isRevenueEligible(facts) &&
+      !(await callerRelatedToOwner(tx, reservation.workspaceId, facts.ownerWorkspaceId!))
     ) {
       const dayStart = new Date();
       dayStart.setUTCHours(0, 0, 0, 0);
@@ -350,6 +356,27 @@ export async function commitCall(input: {
       }
     }
   });
+}
+
+/** publisher-revenue-share.md 5: a related caller earns its owner nothing. */
+async function callerRelatedToOwner(
+  tx: Tx,
+  callerWorkspaceId: string,
+  ownerWorkspaceId: string,
+): Promise<boolean> {
+  const [row] = await tx
+    .select({
+      related: workspacesRelated(
+        sql`${callerWorkspaceId}::uuid`,
+        sql`${ownerWorkspaceId}::uuid`,
+      ).mapWith(
+        /* The driver may hand a raw-SQL boolean back as 't'/'f' text. */
+        (value): boolean => value === true || value === 't',
+      ),
+    })
+    .from(schema.workspace)
+    .where(eq(schema.workspace.id, callerWorkspaceId));
+  return row?.related ?? false;
 }
 
 /** A platform-internal failure: the seat is released, no event is written. */

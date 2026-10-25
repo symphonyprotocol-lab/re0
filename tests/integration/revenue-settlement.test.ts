@@ -2,8 +2,9 @@
  * Closing a revenue period, against a real database. publisher-revenue-share.md
  * 3.2/3.3/8: the pool prices each rate group at its frozen rate, allocation
  * is linear in attributable calls with sum <= pool, a second close returns
- * the locked numbers, and a suspended library's events void at close --
- * exactly once, and never for a period already locked.
+ * the locked numbers, and a suspended library's events -- and a related
+ * caller's -- void at close, exactly once, and never for a period already
+ * locked.
  *
  * All fixture rows live in 2020 periods, which nothing else writes to, so
  * the aggregates here are exact regardless of what parallel suites meter.
@@ -31,6 +32,7 @@ const libraries: string[] = [];
 const planVersions: string[] = [];
 const periods: string[] = [];
 const publisherAccounts: string[] = [];
+const users: string[] = [];
 const administratorId = crypto.randomUUID();
 const administratorEmail = `settle-admin-${Date.now()}@example.test`;
 
@@ -178,7 +180,13 @@ describeWithDb('revenue settlement', () => {
       await database
         .delete(schema.billingDocument)
         .where(inArray(schema.billingDocument.workspaceId, workspaces));
+      await database
+        .delete(schema.workspaceMember)
+        .where(inArray(schema.workspaceMember.workspaceId, workspaces));
       await database.delete(schema.workspace).where(inArray(schema.workspace.id, workspaces));
+    }
+    if (users.length > 0) {
+      await database.delete(schema.user).where(inArray(schema.user.id, users));
     }
     if (planVersions.length > 0) {
       await database
@@ -293,6 +301,47 @@ describeWithDb('revenue settlement', () => {
         and(eq(schema.earningEvent.libraryId, suspended), eq(schema.earningEvent.flagged, true)),
       );
     expect(voided).toHaveLength(4);
+  });
+
+  /**
+   * Share doc 5, re-judged at close: the call-time gate saw no link, but by
+   * lock time one person runs both the reader's workspace and the owner's.
+   * The reader's events void; an unrelated reader's stand.
+   */
+  it('voids calls from a workspace related to the owner by close', async () => {
+    periods.push('2020-08');
+    const at = new Date('2020-08-15T00:00:00Z');
+    const related = await workspace('settle-related-reader');
+    const stranger = await workspace('settle-stranger-reader');
+    const owner = await workspace('settle-related-owner');
+    const plan = await planVersion(2_000);
+    const libraryId = await library('settle-related', owner);
+
+    await calls({ period: '2020-08', at, reader: related, libraryId, owner, planVersionId: plan, shareRateBps: 2_000, billed: 3, earning: 3 });
+    await calls({ period: '2020-08', at, reader: stranger, libraryId, owner, planVersionId: plan, shareRateBps: 2_000, billed: 2, earning: 2 });
+    await revenue(at, stranger, 5_000);
+
+    const userId = crypto.randomUUID();
+    users.push(userId);
+    await db().insert(schema.user).values({ id: userId, email: `settle-${userId}@example.test` });
+    await db().insert(schema.workspaceMember).values([
+      { workspaceId: owner, userId, role: 'owner' as const },
+      { workspaceId: related, userId, role: 'admin' as const },
+    ]);
+
+    const closed = await closePeriod('2020-08');
+    expect(closed.totalAttributableCalls).toBe(2);
+    expect(closed.allocations).toEqual([
+      expect.objectContaining({ ownerWorkspaceId: owner, attributableCalls: 2 }),
+    ]);
+
+    const voided = await db()
+      .select()
+      .from(schema.earningEvent)
+      .where(
+        and(eq(schema.earningEvent.libraryId, libraryId), eq(schema.earningEvent.flagged, true)),
+      );
+    expect(voided).toHaveLength(3);
   });
 
   it('materialises statements, defers accountless owners, and audits the run', async () => {
