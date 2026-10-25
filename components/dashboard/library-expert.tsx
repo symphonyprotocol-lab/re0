@@ -1,7 +1,9 @@
 'use client';
 
 import { useRouter } from 'next/navigation';
-import { useActionState, useEffect, useState } from 'react';
+import { useActionState, useEffect, useId, useState } from 'react';
+import { ConsoleDialog } from '@/components/admin/console-dialog';
+import { submitOn } from '@/components/admin/platform-library-shared';
 import { Badge, PANEL } from '@/components/dashboard/ui';
 import { AREA, PRIMARY, ResultLine, SECONDARY } from '@/components/dashboard/library-manage';
 import { AwardIcon, CheckIcon, CircleXIcon, SpinnerIcon } from '@/components/ui/icons';
@@ -197,9 +199,10 @@ export function LibraryExpertPanel(props: ExpertPanelProps) {
 }
 
 /**
- * The one verb: apply opens an inline confirmation with the optional note;
- * withdraw confirms and posts. The result is spoken under the button and the
- * page is pulled again so the headline follows.
+ * The one verb: apply opens a dialog holding the structured statement and
+ * the optional note; withdraw opens one that confirms and posts. The dialog
+ * closes on success, the result is spoken under the button, and the page is
+ * pulled again so the headline follows.
  */
 function ExpertVerb({
   libraryId,
@@ -214,90 +217,130 @@ function ExpertVerb({
 }) {
   const { t } = useI18n();
   const e = t.dashboard.libraryDetail.expert;
-  const [state, formAction, pending] = useActionState(action, null);
-  const [confirming, setConfirming] = useState(false);
+  const [open, setOpen] = useState(false);
+  /* Bumped per opening, so a refusal from the last attempt does not greet the next one. */
+  const [attempt, setAttempt] = useState(0);
+  const [done, setDone] = useState<'apply' | 'withdraw' | null>(null);
   const router = useRouter();
-
-  useEffect(() => {
-    if (state?.ok) {
-      setConfirming(false);
-      router.refresh();
-    }
-  }, [state, router]);
 
   return (
     <div className="flex flex-col items-end gap-1.5">
-      {confirming ? (
-        <form
-          action={formAction}
-          className="flex w-[min(360px,80vw)] flex-col gap-2 rounded-md border border-line bg-subtle p-3"
-        >
-          <input type="hidden" name="libraryId" value={libraryId} />
-          <p className="text-[11px] leading-[1.5] text-steel">
-            {mode === 'apply' ? e.applyConfirm : e.withdrawConfirm}
-          </p>
-          {mode === 'apply' ? (
-            <>
-              {/* The structured statement (review-visibility-proposal.md 5.3): three required answers, then the note. */}
-              {(['scope', 'maintenance', 'credentials'] as const).map((field) => (
-                <label key={field} className="flex flex-col gap-1">
-                  <span className="text-[11px] font-medium text-steel">{e.materials[field].label}</span>
-                  <textarea
-                    name={field}
-                    required
-                    maxLength={EXPERT_MATERIAL_LIMITS[field]}
-                    placeholder={e.materials[field].placeholder}
-                    className={AREA}
-                  />
-                </label>
-              ))}
-              <label className="flex flex-col gap-1">
-                <span className="text-[11px] font-medium text-steel">{e.noteLabel}</span>
-                <textarea
-                  name="note"
-                  maxLength={EXPERT_NOTE_MAX_LENGTH}
-                  placeholder={e.notePlaceholder}
-                  className={AREA}
-                />
-              </label>
-            </>
-          ) : null}
-          <span className="flex justify-end gap-2">
-            <button type="button" onClick={() => setConfirming(false)} disabled={pending} className={SECONDARY}>
-              {e.cancel}
-            </button>
-            <button
-              type="submit"
-              disabled={pending}
-              className={mode === 'withdraw' ? `${PRIMARY} bg-rose hover:bg-rose/90` : PRIMARY}
-            >
-              {pending ? <SpinnerIcon size={14} className="motion-safe:animate-spin" /> : <AwardIcon size={14} />}
-              {pending ? e.working : mode === 'apply' ? e.applySubmit : e.withdrawSubmit}
-            </button>
-          </span>
-        </form>
-      ) : (
-        <button
-          type="button"
-          onClick={() => setConfirming(true)}
-          disabled={disabled}
-          className={mode === 'apply' ? PRIMARY : SECONDARY}
-        >
-          <AwardIcon size={14} />
-          {mode === 'apply' ? e.apply : e.withdraw}
-        </button>
-      )}
-      {state ? (
+      <button
+        type="button"
+        onClick={() => {
+          setDone(null);
+          setOpen(true);
+        }}
+        disabled={disabled}
+        className={mode === 'apply' ? PRIMARY : SECONDARY}
+      >
+        <AwardIcon size={14} />
+        {mode === 'apply' ? e.apply : e.withdraw}
+      </button>
+      {open ? (
+        <ExpertDialog
+          key={attempt}
+          libraryId={libraryId}
+          mode={mode}
+          action={action}
+          onClose={(succeeded) => {
+            setOpen(false);
+            setAttempt((value) => value + 1);
+            if (succeeded) {
+              setDone(succeeded);
+              router.refresh();
+            }
+          }}
+        />
+      ) : null}
+      {done ? (
         <span className="max-w-[360px] text-right">
-          <ResultLine ok={state.ok}>
-            {state.ok
-              ? state.action === 'withdraw'
-                ? e.withdrawn
-                : e.applied
-              : (e.errors[state.error as keyof typeof e.errors] ?? e.errors.unavailable)}
-          </ResultLine>
+          <ResultLine ok>{done === 'withdraw' ? e.withdrawn : e.applied}</ResultLine>
         </span>
       ) : null}
     </div>
+  );
+}
+
+function ExpertDialog({
+  libraryId,
+  mode,
+  action,
+  onClose,
+}: {
+  libraryId: string;
+  mode: 'apply' | 'withdraw';
+  action: ExpertFormAction;
+  onClose: (succeeded: 'apply' | 'withdraw' | null) => void;
+}) {
+  const { t } = useI18n();
+  const e = t.dashboard.libraryDetail.expert;
+  const [state, dispatch, pending] = useActionState(action, null);
+  const formId = useId();
+
+  useEffect(() => {
+    if (state?.ok) onClose(state.action === 'withdraw' ? 'withdraw' : 'apply');
+  }, [state, onClose]);
+
+  return (
+    <ConsoleDialog
+      onClose={() => onClose(null)}
+      busy={pending}
+      closeLabel={e.close}
+      width={mode === 'apply' ? 'form' : 'confirm'}
+      title={mode === 'apply' ? e.apply : e.withdraw}
+      description={mode === 'apply' ? e.applyConfirm : e.withdrawConfirm}
+      footer={(dismissBlocked) => (
+        <>
+          <button type="button" onClick={() => onClose(null)} disabled={dismissBlocked} className={SECONDARY}>
+            {e.cancel}
+          </button>
+          <button
+            type="submit"
+            form={formId}
+            disabled={pending}
+            className={mode === 'withdraw' ? `${PRIMARY} bg-rose hover:bg-rose/90` : PRIMARY}
+          >
+            {pending ? <SpinnerIcon size={14} className="motion-safe:animate-spin" /> : <AwardIcon size={14} />}
+            {pending ? e.working : mode === 'apply' ? e.applySubmit : e.withdrawSubmit}
+          </button>
+        </>
+      )}
+    >
+      {/* `submitOn` keeps what was typed when the server refuses it. */}
+      <form id={formId} onSubmit={submitOn(dispatch)} className="flex flex-col gap-3">
+        <input type="hidden" name="libraryId" value={libraryId} />
+        {state && !state.ok ? (
+          <ResultLine ok={false}>{e.errors[state.error as keyof typeof e.errors] ?? e.errors.unavailable}</ResultLine>
+        ) : null}
+        {mode === 'apply' ? (
+          <>
+            {/* The structured statement (review-visibility-proposal.md 5.3): three required answers, then the note. */}
+            {(['scope', 'maintenance', 'credentials'] as const).map((field, index) => (
+              <label key={field} className="flex flex-col gap-1">
+                <span className="text-[11px] font-medium text-steel">{e.materials[field].label}</span>
+                <textarea
+                  name={field}
+                  required
+                  maxLength={EXPERT_MATERIAL_LIMITS[field]}
+                  placeholder={e.materials[field].placeholder}
+                  className={AREA}
+                  {...(index === 0 ? { 'data-dialog-autofocus': true } : {})}
+                />
+              </label>
+            ))}
+            <label className="flex flex-col gap-1">
+              <span className="text-[11px] font-medium text-steel">{e.noteLabel}</span>
+              <textarea
+                name="note"
+                maxLength={EXPERT_NOTE_MAX_LENGTH}
+                placeholder={e.notePlaceholder}
+                className={AREA}
+              />
+            </label>
+          </>
+        ) : null}
+      </form>
+    </ConsoleDialog>
   );
 }

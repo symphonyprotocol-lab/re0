@@ -1158,6 +1158,7 @@ export const zh = {
         filters: {
           public: '公开',
           private: '私有',
+          expert: '专家库',
           pending: '构建中',
           blocked: '已暂停 / 失败',
         },
@@ -1443,6 +1444,7 @@ export const zh = {
         noteLabel: '给审批员的说明（可选，不超过 500 字）',
         notePlaceholder: '例如：这是我们团队维护的官方 SDK 文档，覆盖全部公开 API，每周随版本更新。',
         cancel: '取消',
+        close: '关闭',
         working: '提交中…',
         applySubmit: '确认申请',
         withdrawSubmit: '确认撤回',

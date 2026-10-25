@@ -1205,6 +1205,7 @@ export const en: Dictionary = {
         filters: {
           public: 'Public',
           private: 'Private',
+          expert: 'Expert',
           pending: 'Building',
           blocked: 'Paused / failed',
         },
@@ -1492,6 +1493,7 @@ export const en: Dictionary = {
         noteLabel: 'Note for the reviewer (optional, up to 500 characters)',
         notePlaceholder: 'e.g. The official SDK documentation our team maintains, covering every public API, updated weekly with each release.',
         cancel: 'Cancel',
+        close: 'Close',
         working: 'Submitting…',
         applySubmit: 'Submit application',
         withdrawSubmit: 'Withdraw',
