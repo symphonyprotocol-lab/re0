@@ -14,7 +14,7 @@
  * (later) the external payment account. Tax and KYC stay with the payment
  * provider (3.4: the platform holds no bank details and no funds).
  */
-import { and, desc, eq, inArray, sql } from 'drizzle-orm';
+import { and, desc, eq, inArray, isNotNull, isNull, or, sql } from 'drizzle-orm';
 import {
   PAYOUT_HOLD_DAYS,
   PAYOUT_THRESHOLD_MINOR,
@@ -22,6 +22,7 @@ import {
 } from '@/lib/domain';
 import { uuidv7 } from '@/lib/domain/id';
 import { db, schema } from '@/lib/infrastructure/postgres/client';
+import type { PeriodPool } from './close-period';
 import { earningCredit, type EarningCredit } from './redeem-credit';
 
 export interface PublisherPeriodEarning {
@@ -30,6 +31,26 @@ export interface PublisherPeriodEarning {
   attributableCalls: number;
   /** Null until the period locks -- there is no pool to allocate from yet. */
   amountMinor: number | null;
+  /**
+   * The open period's amount if it closed now, from the live pool the caller
+   * passed in. Null for a locked period, and for an open one without it.
+   */
+  estimateMinor: number | null;
+}
+
+/** One expert library's share of the same ledger. */
+export interface PublisherLibraryEarning {
+  libraryId: string;
+  publicId: string;
+  title: string;
+  deleted: boolean;
+  /** Tagged now; a library that lost the tag keeps its history. */
+  expertTagged: boolean;
+  /** Newest first, over the same periods as `PublisherEarnings.periods`. */
+  periods: PublisherPeriodEarning[];
+  /** Locked periods, all of them -- not only the ones shown. */
+  settledMinor: number;
+  settledCalls: number;
 }
 
 export interface PublisherEarnings {
@@ -42,6 +63,11 @@ export interface PublisherEarnings {
   /** Sum of the locked periods' amounts, whatever has since become of them. */
   accruedMinor: number;
   /**
+   * Per library. Each amount is floored on its own, so a period's libraries
+   * can sum to a few cents under the workspace's amount for it.
+   */
+  libraries: PublisherLibraryEarning[];
+  /**
    * The statement side: what is past its hold and can become Additional
    * Calls now, what is still held, and what has already been redeemed
    * (publisher-revenue-share.md 3.4).
@@ -53,7 +79,28 @@ export interface PublisherEarnings {
 
 const PERIODS_SHOWN = 12;
 
-export async function publisherEarnings(workspaceId: string): Promise<PublisherEarnings> {
+function amountFor(
+  period: { poolMinor: number; totalAttributableCalls: number } | undefined,
+  calls: number,
+): number | null {
+  return period
+    ? settlementAmountMinor({
+        poolMinor: period.poolMinor,
+        libraryAttributableCalls: calls,
+        totalAttributableCalls: Number(period.totalAttributableCalls),
+      })
+    : null;
+}
+
+/**
+ * `live` is the open period's pool as `livePeriodPool` computes it. It is a
+ * platform-wide scan, so the caller decides whether and how often to pay for
+ * it; without it the open period shows calls and no estimate.
+ */
+export async function publisherEarnings(
+  workspaceId: string,
+  live: { periodId: string; pool: PeriodPool } | null = null,
+): Promise<PublisherEarnings> {
   const database = db();
 
   const [account] = await database
@@ -79,9 +126,52 @@ export async function publisherEarnings(workspaceId: string): Promise<PublisherE
     .orderBy(desc(schema.earningEvent.periodId))
     .limit(PERIODS_SHOWN);
 
+  /*
+   * Per library and period, every period: the history totals cover all of
+   * it, the rows only the periods shown above. Libraries x periods is small.
+   */
+  const byLibraryPeriod = await database
+    .select({
+      libraryId: schema.earningEvent.libraryId,
+      periodId: schema.earningEvent.periodId,
+      calls: sql<number>`count(*)::int`,
+    })
+    .from(schema.earningEvent)
+    .where(
+      and(
+        eq(schema.earningEvent.ownerWorkspaceId, workspaceId),
+        eq(schema.earningEvent.flagged, false),
+      ),
+    )
+    .groupBy(schema.earningEvent.libraryId, schema.earningEvent.periodId);
+
+  /* The owner's expert libraries, plus any that earned and have since changed. */
+  const libraryRows = await database
+    .select({
+      id: schema.library.id,
+      publicId: schema.library.publicId,
+      title: schema.library.title,
+      deletedAt: schema.library.deletedAt,
+      expertTaggedAt: schema.library.expertTaggedAt,
+    })
+    .from(schema.library)
+    .where(
+      or(
+        and(
+          eq(schema.library.ownerWorkspaceId, workspaceId),
+          isNotNull(schema.library.expertTaggedAt),
+          isNull(schema.library.deletedAt),
+        ),
+        byLibraryPeriod.length === 0
+          ? undefined
+          : inArray(schema.library.id, [...new Set(byLibraryPeriod.map((row) => row.libraryId))]),
+      ),
+    );
+
   /* All the period rows at once -- one round trip, not one per period. */
+  const periodIds = [...new Set(byLibraryPeriod.map((row) => row.periodId))];
   const periodRows =
-    byPeriod.length === 0
+    periodIds.length === 0
       ? []
       : await database
           .select({
@@ -91,30 +181,61 @@ export async function publisherEarnings(workspaceId: string): Promise<PublisherE
             lockedAt: schema.revenuePeriod.lockedAt,
           })
           .from(schema.revenuePeriod)
-          .where(
-            inArray(
-              schema.revenuePeriod.id,
-              byPeriod.map((row) => row.periodId),
-            ),
-          );
-  const periodById = new Map(periodRows.map((period) => [period.id, period]));
+          .where(inArray(schema.revenuePeriod.id, periodIds));
+  const lockedById = new Map(
+    periodRows.filter((period) => period.lockedAt).map((period) => [period.id, period]),
+  );
+  const livePool =
+    live && !lockedById.has(live.periodId) ? new Map([[live.periodId, live.pool]]) : new Map();
+
+  function periodEarning(periodId: string, calls: number): PublisherPeriodEarning {
+    const locked = lockedById.has(periodId);
+    return {
+      periodId,
+      locked,
+      attributableCalls: calls,
+      amountMinor: locked ? amountFor(lockedById.get(periodId), calls) : null,
+      estimateMinor: locked ? null : amountFor(livePool.get(periodId), calls),
+    };
+  }
+
   const credit = await earningCredit(account?.id ?? null);
 
-  const periods: PublisherPeriodEarning[] = [];
-  let accruedMinor = 0;
-  for (const row of byPeriod) {
-    const period = periodById.get(row.periodId);
-    const locked = Boolean(period?.lockedAt);
-    const amountMinor = locked
-      ? settlementAmountMinor({
-          poolMinor: period!.poolMinor,
-          libraryAttributableCalls: row.calls,
-          totalAttributableCalls: Number(period!.totalAttributableCalls),
-        })
-      : null;
-    if (amountMinor !== null) accruedMinor += amountMinor;
-    periods.push({ periodId: row.periodId, locked, attributableCalls: row.calls, amountMinor });
-  }
+  const periods = byPeriod.map((row) => periodEarning(row.periodId, row.calls));
+  const accruedMinor = periods.reduce((total, period) => total + (period.amountMinor ?? 0), 0);
+
+  const shownPeriods = periods.map((period) => period.periodId);
+  const libraries = libraryRows.map((library): PublisherLibraryEarning => {
+    const rows = byLibraryPeriod.filter((row) => row.libraryId === library.id);
+    const callsByPeriod = new Map(rows.map((row) => [row.periodId, row.calls]));
+    let settledMinor = 0;
+    let settledCalls = 0;
+    for (const row of rows) {
+      const amount = amountFor(lockedById.get(row.periodId), row.calls);
+      if (amount === null) continue;
+      settledMinor += amount;
+      settledCalls += row.calls;
+    }
+    return {
+      libraryId: library.id,
+      publicId: library.publicId,
+      title: library.title,
+      deleted: library.deletedAt !== null,
+      expertTagged: library.expertTaggedAt !== null,
+      periods: shownPeriods
+        .filter((periodId) => callsByPeriod.has(periodId))
+        .map((periodId) => periodEarning(periodId, callsByPeriod.get(periodId)!)),
+      settledMinor,
+      settledCalls,
+    };
+  });
+  /* Biggest earners first; a tagged library that has not earned yet goes last. */
+  libraries.sort(
+    (a, b) =>
+      b.settledMinor - a.settledMinor ||
+      (b.periods[0]?.attributableCalls ?? 0) - (a.periods[0]?.attributableCalls ?? 0) ||
+      a.title.localeCompare(b.title),
+  );
 
   return {
     account: account
@@ -126,6 +247,7 @@ export async function publisherEarnings(workspaceId: string): Promise<PublisherE
       : null,
     periods,
     accruedMinor,
+    libraries,
     credit,
     payoutThresholdMinor: PAYOUT_THRESHOLD_MINOR,
     holdDays: PAYOUT_HOLD_DAYS,

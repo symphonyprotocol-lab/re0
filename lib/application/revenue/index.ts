@@ -50,11 +50,18 @@ export function isAttributableCall(input: {
   return input.callerWorkspaceId !== input.library.ownerWorkspaceId;
 }
 
-export { closePeriod, type ClosedPeriod, type PeriodAllocation } from './close-period';
+export {
+  closePeriod,
+  livePeriodPool,
+  type ClosedPeriod,
+  type PeriodAllocation,
+  type PeriodPool,
+} from './close-period';
 export {
   acceptPublisherAgreement,
   publisherEarnings,
   type PublisherEarnings,
+  type PublisherLibraryEarning,
   type PublisherPeriodEarning,
 } from './publisher-earnings';
 export {

@@ -32,6 +32,8 @@ import {
   documentsPage,
   documentsPageSize,
   DOCUMENTS_PAGE_SIZES,
+  LIBRARY_USAGE_PAGE_SIZE,
+  libraryUsageLog,
   listVersionDocuments,
   workspaceLibraryDetail,
 } from '@/lib/application/libraries';
@@ -156,7 +158,9 @@ export default async function DashboardLibraryPage({
   /* The widget's history, a page at a time (`?qa=`), newest first. */
   const qaPage = Math.max(1, Math.floor(Number(query.qa) || 1));
   const entitlement = await showcaseEntitlement(session.workspace.id, { fresh: true });
-  const [documents, siteKeys, expert, exchanges, exchangeStats, faqGroups, faqEntries, showcase, showcaseFigures, showcaseCount, showcaseLeads, siteKeyCap, siteKeyCount] = await Promise.all([
+  /* Calls served from the library, a page at a time (`?usage=`), newest first. */
+  const usagePage = Math.max(1, Math.floor(Number(query.usage) || 1));
+  const [documents, siteKeys, expert, exchanges, exchangeStats, faqGroups, faqEntries, showcase, showcaseFigures, showcaseCount, showcaseLeads, siteKeyCap, siteKeyCount, usage] = await Promise.all([
     currentVersionId
       ? listVersionDocuments({
           libraryId: library.id,
@@ -184,7 +188,10 @@ export default async function DashboardLibraryPage({
     listShowcaseLeads({ workspaceId: session.workspace.id, libraryId: library.id, retained: entitlement.leadsRetained, limit: LEADS_SHOWN }),
     siteKeyEntitlement(session.workspace.id),
     countWorkspaceSiteKeys(session.workspace.id),
+    libraryUsageLog({ workspaceId: session.workspace.id, libraryId: library.id, page: usagePage }),
   ]);
+  const usagePages = Math.max(1, Math.ceil(usage.total / LIBRARY_USAGE_PAGE_SIZE));
+  const usageHref = (page: number) => `/dashboard/libraries/${library.id}?usage=${page}#usage`;
   const showcaseOrigin = configuredBaseUrl() ?? PUBLIC_ORIGIN;
   const showcaseQr = showcase ? await qrCodeSvg(`${showcaseOrigin}${showcasePath(showcase.slug)}`) : null;
   const qaPages = Math.max(1, Math.ceil(exchanges.total / EXCHANGE_PAGE_SIZE));
@@ -267,6 +274,7 @@ export default async function DashboardLibraryPage({
               {library.visibility === 'public' ? l.scopePublic : l.scopePrivate}
             </Badge>
             <Badge tone="neutral">{label(d.lifecycle, library.lifecycleStatus)}</Badge>
+            {expert?.taggedAt ? <Badge tone="brand">{d.expert.badge}</Badge> : null}
           </p>
         </div>
         <div className="flex flex-wrap items-start gap-2">
@@ -748,6 +756,88 @@ export default async function DashboardLibraryPage({
                 ) : null}
                 </>
               ) : null,
+          },
+          {
+            id: 'usage',
+            label: d.tabs.usage,
+            panel: (
+              /* Every served call, whoever made it -- the count billing and revenue share see. */
+              <section id="usage" className={`${PANEL} scroll-mt-4 p-0.5`}>
+                <div className="flex flex-wrap items-start justify-between gap-3 px-6 py-4">
+                  <div>
+                    <h2 className="text-[15px] font-medium text-ink">{d.usage.title}</h2>
+                    <p className="mt-0.5 text-[11px] text-muted">{d.usage.description}</p>
+                  </div>
+                </div>
+                <dl className="grid grid-cols-2 gap-3 px-6 pb-4 sm:grid-cols-4">
+                  {[
+                    [d.usage.stats.total, usage.summary.total],
+                    [d.usage.stats.thisMonth, usage.summary.thisMonth],
+                    [d.usage.stats.readers, usage.summary.readersThisMonth],
+                    [d.usage.stats.earned, usage.summary.earnedThisMonth],
+                  ].map(([key, value]) => (
+                    <div key={String(key)} className="flex flex-col gap-0.5">
+                      <dt className="text-[11px] text-muted">{key}</dt>
+                      <dd className="text-[17px] leading-[1.4] font-medium text-ink">
+                        {number.format(Number(value))}
+                      </dd>
+                    </div>
+                  ))}
+                </dl>
+                {usage.entries.some((entry) => entry.earning === 'none') ? (
+                  <p className="border-t border-line px-6 py-3 text-[11px] leading-[1.6] text-muted">{d.usage.whyNot}</p>
+                ) : null}
+                <Table
+                  columns={d.usage.columns}
+                  empty={d.usage.empty}
+                  rows={usage.entries.map((entry) => [
+                    <span key="t" className="whitespace-nowrap text-steel">{when(entry.createdAt)}</span>,
+                    <span key="c" className="flex flex-col gap-0.5">
+                      <span>{d.usage.callers[entry.caller]}</span>
+                      <span className="text-[10.5px] text-muted">
+                        {label(d.usage.entrypoints, entry.entrypoint)} · {label(d.usage.operations, entry.operation)}
+                      </span>
+                    </span>,
+                    <span key="v" className="font-mono text-[11px] text-steel">{entry.versionLabel ?? '—'}</span>,
+                    <span key="s" className={entry.statusCode < 400 ? 'text-steel' : 'text-rose'}>
+                      {entry.statusCode}
+                    </span>,
+                    <span key="r" className="whitespace-nowrap text-steel">
+                      {entry.returnedTokens === null ? '—' : number.format(entry.returnedTokens)}
+                      {entry.latencyMs === null ? null : (
+                        <span className="ml-1.5 text-[10.5px] text-muted">{number.format(entry.latencyMs)} ms</span>
+                      )}
+                    </span>,
+                    entry.earning === 'none' ? (
+                      <span key="e" className="text-muted">—</span>
+                    ) : (
+                      <Badge key="e" tone={entry.earning === 'earned' ? 'brand' : 'neutral'}>
+                        {d.usage.earning[entry.earning]}
+                      </Badge>
+                    ),
+                  ])}
+                />
+                {usage.total > LIBRARY_USAGE_PAGE_SIZE ? (
+                  <div className="flex flex-wrap items-center justify-between gap-3 border-t border-line px-6 py-3">
+                    <p className="text-[11px] text-muted">
+                      {fill(d.usage.page, { page: usagePage, pages: usagePages, total: number.format(usage.total) })}
+                    </p>
+                    <span className="flex items-center gap-2">
+                      {usagePage > 1 ? (
+                        <Link href={usageHref(usagePage - 1)} className={PAGER}>
+                          {d.documents.prev}
+                        </Link>
+                      ) : null}
+                      {usagePage < usagePages ? (
+                        <Link href={usageHref(usagePage + 1)} className={PAGER}>
+                          {d.documents.next}
+                        </Link>
+                      ) : null}
+                    </span>
+                  </div>
+                ) : null}
+              </section>
+            ),
           },
           {
             id: 'settings',

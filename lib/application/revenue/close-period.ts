@@ -140,83 +140,8 @@ export async function closePeriod(periodId: string): Promise<ClosedPeriod> {
         ),
       );
 
-    /*
-     * Net revenue: documents collected in the period, refunds already
-     * deducted. Windowed by `paid_at` -- when the money arrived -- on the
-     * same collected basis as `billingSummary`: a December invoice paid in
-     * January is January's revenue, and an `issued_at` window would freeze it
-     * out of every pool once December locks. Only USD documents count;
-     * a foreign-currency amount summed minor-for-minor into the USD pool
-     * would be adding francs to dollars.
-     */
-    const [revenue] = await tx
-      .select({
-        net: sql<number>`coalesce(sum(${schema.billingDocument.amountMinor} - ${schema.billingDocument.refundedMinor}), 0)::bigint`,
-      })
-      .from(schema.billingDocument)
-      .where(
-        and(
-          inArray(schema.billingDocument.status, ['paid', 'refunded']),
-          eq(schema.billingDocument.currency, PLAN_CURRENCY),
-          gte(schema.billingDocument.paidAt, start),
-          lt(schema.billingDocument.paidAt, end),
-        ),
-      );
-    const netRevenueMinor = Number(revenue?.net ?? 0);
-
-    /*
-     * Retrieval only. library-build-billing.md 5.5: a build's usage event is
-     * a billed call, but it consumed no library's content and can earn
-     * nobody anything, so it stays out of both the attributable count and
-     * this denominator -- inside it, a workspace that builds a lot would
-     * dilute every publisher's share.
-     */
-    const [billed] = await tx
-      .select({ n: sql<number>`count(*)::int` })
-      .from(schema.usageEvent)
-      .where(
-        and(
-          gte(schema.usageEvent.createdAt, start),
-          lt(schema.usageEvent.createdAt, end),
-          ne(schema.usageEvent.entrypoint, BUILD_ENTRYPOINT),
-        ),
-      );
-    const totalBilledCalls = billed?.n ?? 0;
-
-    /*
-     * The pool honours each event's frozen rate: group by rate, price each
-     * group's share of revenue at its own rate, sum. Averaging first would
-     * quietly move money between publishers whose readers sit on different
-     * plans.
-     */
-    const rateGroups = await tx
-      .select({
-        shareRateBps: schema.earningEvent.shareRateBps,
-        calls: sql<number>`count(*)::int`,
-      })
-      .from(schema.earningEvent)
-      .where(and(eq(schema.earningEvent.periodId, periodId), eq(schema.earningEvent.flagged, false)))
-      .groupBy(schema.earningEvent.shareRateBps);
-
-    const totalAttributableCalls = rateGroups.reduce((total, group) => total + group.calls, 0);
-    const poolMinor = rateGroups.reduce(
-      (total, group) =>
-        total +
-        allocatablePoolMinor({
-          netRevenueMinor,
-          shareRateBps: group.shareRateBps,
-          totalAttributableCalls: group.calls,
-          totalBilledCalls,
-        }),
-      0,
-    );
-    const shareRateBps =
-      totalAttributableCalls === 0
-        ? 0
-        : Math.floor(
-            rateGroups.reduce((sum, group) => sum + group.shareRateBps * group.calls, 0) /
-              totalAttributableCalls,
-          );
+    const { netRevenueMinor, totalBilledCalls, totalAttributableCalls, shareRateBps, poolMinor } =
+      await periodPool(tx, periodId, start, end);
 
     await tx
       .update(schema.revenuePeriod)
@@ -244,6 +169,120 @@ export async function closePeriod(periodId: string): Promise<ClosedPeriod> {
 }
 
 type Tx = Parameters<Parameters<ReturnType<typeof db>['transaction']>[0]>[0];
+
+export interface PeriodPool {
+  netRevenueMinor: number;
+  totalBilledCalls: number;
+  totalAttributableCalls: number;
+  shareRateBps: number;
+  poolMinor: number;
+}
+
+/**
+ * The pool arithmetic of a close, on its own so the dashboard's live estimate
+ * runs the very same sums over a period that is still open. Read-only: the
+ * voiding that precedes it in a close is the caller's business.
+ */
+async function periodPool(
+  executor: Pick<Tx, 'select'>,
+  periodId: string,
+  start: Date,
+  end: Date,
+): Promise<PeriodPool> {
+  /*
+   * Net revenue: documents collected in the period, refunds already
+   * deducted. Windowed by `paid_at` -- when the money arrived -- on the
+   * same collected basis as `billingSummary`: a December invoice paid in
+   * January is January's revenue, and an `issued_at` window would freeze it
+   * out of every pool once December locks. Only USD documents count;
+   * a foreign-currency amount summed minor-for-minor into the USD pool
+   * would be adding francs to dollars.
+   */
+  const [revenue] = await executor
+    .select({
+      net: sql<number>`coalesce(sum(${schema.billingDocument.amountMinor} - ${schema.billingDocument.refundedMinor}), 0)::bigint`,
+    })
+    .from(schema.billingDocument)
+    .where(
+      and(
+        inArray(schema.billingDocument.status, ['paid', 'refunded']),
+        eq(schema.billingDocument.currency, PLAN_CURRENCY),
+        gte(schema.billingDocument.paidAt, start),
+        lt(schema.billingDocument.paidAt, end),
+      ),
+    );
+  const netRevenueMinor = Number(revenue?.net ?? 0);
+
+  /*
+   * Retrieval only. library-build-billing.md 5.5: a build's usage event is
+   * a billed call, but it consumed no library's content and can earn
+   * nobody anything, so it stays out of both the attributable count and
+   * this denominator -- inside it, a workspace that builds a lot would
+   * dilute every publisher's share.
+   */
+  const [billed] = await executor
+    .select({ n: sql<number>`count(*)::int` })
+    .from(schema.usageEvent)
+    .where(
+      and(
+        gte(schema.usageEvent.createdAt, start),
+        lt(schema.usageEvent.createdAt, end),
+        ne(schema.usageEvent.entrypoint, BUILD_ENTRYPOINT),
+      ),
+    );
+  const totalBilledCalls = billed?.n ?? 0;
+
+  /*
+   * The pool honours each event's frozen rate: group by rate, price each
+   * group's share of revenue at its own rate, sum. Averaging first would
+   * quietly move money between publishers whose readers sit on different
+   * plans.
+   */
+  const rateGroups = await executor
+    .select({
+      shareRateBps: schema.earningEvent.shareRateBps,
+      calls: sql<number>`count(*)::int`,
+    })
+    .from(schema.earningEvent)
+    .where(and(eq(schema.earningEvent.periodId, periodId), eq(schema.earningEvent.flagged, false)))
+    .groupBy(schema.earningEvent.shareRateBps);
+
+  const totalAttributableCalls = rateGroups.reduce((total, group) => total + group.calls, 0);
+  const poolMinor = rateGroups.reduce(
+    (total, group) =>
+      total +
+      allocatablePoolMinor({
+        netRevenueMinor,
+        shareRateBps: group.shareRateBps,
+        totalAttributableCalls: group.calls,
+        totalBilledCalls,
+      }),
+    0,
+  );
+  const shareRateBps =
+    totalAttributableCalls === 0
+      ? 0
+      : Math.floor(
+          rateGroups.reduce((sum, group) => sum + group.shareRateBps * group.calls, 0) /
+            totalAttributableCalls,
+        );
+
+  return { netRevenueMinor, totalBilledCalls, totalAttributableCalls, shareRateBps, poolMinor };
+}
+
+/**
+ * What the open period's pool comes to if it closed now: month to date, its
+ * unflagged events as they stand. An estimate -- the close still voids events
+ * of libraries suspended by then and of callers related by then, and revenue
+ * keeps arriving until the month ends.
+ */
+export async function livePeriodPool(periodId: string): Promise<PeriodPool> {
+  const match = PERIOD_ID.exec(periodId);
+  if (!match) throw new AppError('invalid_request', 'a period id looks like 2026-08');
+  const start = new Date(Date.UTC(Number(match[1]), Number(match[2]) - 1, 1));
+  const end = new Date(Date.UTC(Number(match[1]), Number(match[2]), 1));
+  return periodPool(db(), periodId, start, end);
+}
 
 /**
  * Per-owner allocation, linear in attributable calls -- recomputable at any

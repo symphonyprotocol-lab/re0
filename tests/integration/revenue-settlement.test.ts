@@ -6,7 +6,7 @@
  * caller's -- void at close, exactly once, and never for a period already
  * locked.
  *
- * All fixture rows live in 2020 periods, which nothing else writes to, so
+ * All fixture rows live in 2019 and 2020 periods, which nothing else writes to, so
  * the aggregates here are exact regardless of what parallel suites meter.
  *
  * Runs only when TEST_DATABASE_URL points at a disposable database.
@@ -20,7 +20,10 @@ const describeWithDb = TEST_DATABASE_URL ? describe : describe.skip;
 process.env.DATABASE_URL = TEST_DATABASE_URL ?? 'postgres://unused';
 process.env.SESSION_SIGNING_SECRET ??= 'test-secret-that-is-long-enough-000000';
 
-const { closePeriod } = await import('@/lib/application/revenue');
+const { closePeriod, livePeriodPool, publisherEarnings } = await import(
+  '@/lib/application/revenue'
+);
+const { libraryUsageLog } = await import('@/lib/application/libraries');
 const { generateSettlements, listSettlements } = await import(
   '@/lib/application/administration/settlements'
 );
@@ -262,6 +265,53 @@ describeWithDb('revenue settlement', () => {
     expect(again.alreadyLocked).toBe(true);
     expect(again.poolMinor).toBe(closed.poolMinor);
     expect(again.allocations).toEqual(closed.allocations);
+  });
+
+  it('splits earnings by library, and the live estimate matches the close', async () => {
+    periods.push('2019-03', '2019-04');
+    const reader = await workspace('settle-split-reader');
+    const owner = await workspace('settle-split-owner');
+    const plan = await planVersion(2_000);
+    const first = await library('settle-split-1', owner);
+    const second = await library('settle-split-2', owner);
+
+    for (const [period, at] of [
+      ['2019-03', new Date('2019-03-10T00:00:00Z')],
+      ['2019-04', new Date('2019-04-10T00:00:00Z')],
+    ] as const) {
+      await calls({ period, at, reader, libraryId: first, owner, planVersionId: plan, shareRateBps: 2_000, billed: 3, earning: 3 });
+      await calls({ period, at, reader, libraryId: second, owner, planVersionId: plan, shareRateBps: 2_000, billed: 2, earning: 2 });
+      await revenue(at, reader, 10_000);
+    }
+    /* The owner's own call is served and logged, but earns nothing. */
+    await calls({ period: '2019-04', at: new Date('2019-04-11T00:00:00Z'), reader: owner, libraryId: first, owner, planVersionId: plan, shareRateBps: 2_000, billed: 1, earning: 0 });
+
+    await closePeriod('2019-03');
+    const live = await livePeriodPool('2019-04');
+    // floor(10000 * 2000 * (5/6) / 10000) = 1666
+    expect(live).toMatchObject({ totalAttributableCalls: 5, totalBilledCalls: 6, poolMinor: 1_666 });
+
+    const before = await publisherEarnings(owner, { periodId: '2019-04', pool: live });
+    const byId = new Map(before.libraries.map((entry) => [entry.libraryId, entry]));
+    // 2019-03 pool: floor(10000 * 2000 * 1 / 10000) = 2000, split 3:2
+    expect(byId.get(first)).toMatchObject({ settledMinor: 1_200, settledCalls: 3 });
+    expect(byId.get(second)).toMatchObject({ settledMinor: 800, settledCalls: 2 });
+    const openFirst = byId.get(first)!.periods.find((period) => period.periodId === '2019-04');
+    expect(openFirst).toMatchObject({ locked: false, amountMinor: null, estimateMinor: 999 });
+    expect(before.libraries[0]!.libraryId).toBe(first);
+
+    /* Closing with nothing new changes no figure: the estimate was the close. */
+    await closePeriod('2019-04');
+    const after = await publisherEarnings(owner);
+    const closedFirst = after.libraries
+      .find((entry) => entry.libraryId === first)!
+      .periods.find((period) => period.periodId === '2019-04');
+    expect(closedFirst).toMatchObject({ locked: true, amountMinor: 999, estimateMinor: null });
+
+    const log = await libraryUsageLog({ workspaceId: owner, libraryId: first, page: 1 });
+    expect(log.total).toBe(7);
+    expect(log.entries[0]).toMatchObject({ caller: 'self', earning: 'none' });
+    expect(log.entries.filter((entry) => entry.caller === 'reader' && entry.earning === 'earned')).toHaveLength(6);
   });
 
   it('voids a suspended library at close, and only then', async () => {

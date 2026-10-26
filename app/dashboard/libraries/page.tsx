@@ -19,6 +19,7 @@ import {
 import {
   canDeleteLibraries,
   canManageLibraries,
+  libraryUsageCounts,
   listWorkspaceLibraries,
   type WorkspaceLibraryRow,
 } from '@/lib/application/libraries';
@@ -67,6 +68,7 @@ export default async function DashboardLibrariesPage() {
        sources decides whether the per-row refresh is offered at all. */
     manager ? quoteBuild({ workspaceId: session.workspace.id, fetchesPages: true }) : null,
   ]);
+  const usage = await libraryUsageCounts(libraries.map((row) => row.id));
   const number = new Intl.NumberFormat(locale);
   const date = new Intl.DateTimeFormat(locale, { dateStyle: 'medium' });
 
@@ -105,6 +107,7 @@ export default async function DashboardLibrariesPage() {
       scope: row.visibility,
       expert: row.expert,
       chunks: row.totalChunks,
+      calls: usage.get(row.id) ?? { total: 0, thisMonth: 0 },
       status: toneOf(bucket),
       statusLabel: statusLabel(row, bucket),
       bucket,

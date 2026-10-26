@@ -42,6 +42,8 @@ export interface LibraryListRow {
   /** Carries the expert-library tag. */
   expert: boolean;
   chunks: number;
+  /** Calls served from the library, all time and this UTC month (builds excluded). */
+  calls: { total: number; thisMonth: number };
   /** StatusLabel tone + its translated label, derived from lifecycle+index. */
   status: StatusTone;
   statusLabel: string;
@@ -187,9 +189,9 @@ export function LibraryList({
       ) : null}
 
       <div className="overflow-x-auto">
-        <div className="min-w-[620px]">
+        <div className="min-w-[700px]">
           <div
-            className={`grid grid-cols-[minmax(0,1fr)_104px_74px_94px_92px_18px] items-center bg-subtle px-[18px] py-3 text-[11px] font-medium text-muted ${controlPad}`}
+            className={`grid grid-cols-[minmax(0,1fr)_104px_74px_84px_94px_92px_18px] items-center bg-subtle px-[18px] py-3 text-[11px] font-medium text-muted ${controlPad}`}
           >
             {l.columns.map((column) => (
               <span key={column}>{column}</span>
@@ -233,6 +235,13 @@ export function LibraryList({
                   {number.format(library.chunks)}
                 </span>
 
+                <span className="flex flex-col gap-0.5" title={l.callsHint}>
+                  <span className="text-[12px] text-steel">{number.format(library.calls.total)}</span>
+                  <span className="text-[10px] text-muted">
+                    {fill(l.callsThisMonth, { calls: number.format(library.calls.thisMonth) })}
+                  </span>
+                </span>
+
                 <span className="flex min-w-0 flex-col gap-1">
                   <StatusLabel tone={library.status}>{library.statusLabel}</StatusLabel>
                   {library.buildNote ? (
@@ -251,7 +260,7 @@ export function LibraryList({
             );
             /* Room on the right for the controls, which sit beside the row
                rather than inside it -- see DeleteLibraryControl. */
-            const rowClass = `grid grid-cols-[minmax(0,1fr)_104px_74px_94px_92px_18px] items-center border-t border-line px-[18px] py-[19px] ${controlPad}`;
+            const rowClass = `grid grid-cols-[minmax(0,1fr)_104px_74px_84px_94px_92px_18px] items-center border-t border-line px-[18px] py-[19px] ${controlPad}`;
 
             return (
               <div key={library.id} className="relative">

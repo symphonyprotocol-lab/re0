@@ -57,6 +57,14 @@ export {
 } from './delete';
 export { workspaceLibraryDetail, type WorkspaceLibraryDetail } from './detail';
 export {
+  libraryUsageCounts,
+  libraryUsageLog,
+  LIBRARY_USAGE_PAGE_SIZE,
+  type LibraryUsageCount,
+  type LibraryUsageEntry,
+  type LibraryUsageLog,
+} from './usage';
+export {
   addOwnerEvalQuestion,
   declareLibraryRights,
   libraryMaterials,
