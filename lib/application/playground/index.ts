@@ -1,4 +1,4 @@
-import type { CallerContext } from '@/lib/application/retrieval';
+import { resolveLibraryId, type CallerContext } from '@/lib/application/retrieval';
 import {
   gatherAcrossLibraries,
   type GatheredChunk,
@@ -19,7 +19,7 @@ import {
 import { hasPaidSubscription } from '@/lib/application/plans';
 import type { LlmAudience } from '@/lib/domain/generation';
 import {
-  buildContextBlock,
+  buildAnswerMessage,
   buildRewritePrompt,
   llmCostMicroUsd,
   openCitedAnswer,
@@ -159,7 +159,7 @@ async function audienceOf(caller: CallerContext): Promise<LlmAudience> {
   return (await hasPaidSubscription(caller.workspaceId)) ? 'subscriber' : 'trial';
 }
 
-const defaultDependencies: PlaygroundDependencies = {
+export const defaultPlaygroundDependencies: PlaygroundDependencies = {
   config: activeLlmConfig,
   audience: audienceOf,
   llm: llmAdapter,
@@ -189,7 +189,7 @@ export interface PlaygroundInput {
 export async function* streamPlayground(
   caller: CallerContext,
   rawInput: PlaygroundInput,
-  dependencies: PlaygroundDependencies = defaultDependencies,
+  dependencies: PlaygroundDependencies = defaultPlaygroundDependencies,
 ): AsyncGenerator<PlaygroundEvent> {
   const startedAt = Date.now();
 
@@ -199,51 +199,10 @@ export async function* streamPlayground(
    * is untouched. With nothing configured, retrieval still runs at the default
    * budget: the degraded outcome shows chunks, and they have to be fetched.
    */
-  const audience = await dependencies.audience(caller).catch((): LlmAudience => 'trial');
-  const config = await dependencies.config(rawInput.modelSlug, audience).catch(() => null);
-  /* `hasCredential` rather than the key itself: this runs before retrieval,
-     only to size the budget, and opening a provider secret here would mean
-     holding it for the length of a retrieval that may not need it. */
-  const usable = config && config.enabled && config.hasCredential ? config : null;
+  const { usable, event: modelEvent } = await resolveModel(caller, rawInput.modelSlug, dependencies);
+  if (modelEvent) yield modelEvent;
 
-  if (usable) {
-    /*
-     * Which model answers is part of what the reader is shown: a subscriber
-     * sees that the model its plan buys is the one answering, and a trial
-     * caller learns what a paid plan would answer with -- when the console
-     * has assigned one, and it is not the model already answering.
-     */
-    const subscriber =
-      audience === 'trial' ? await dependencies.config(null, 'subscriber').catch(() => null) : null;
-    const upgrade =
-      subscriber && subscriber.slug !== usable.slug && subscriber.assignedTo.includes('subscriber')
-        ? subscriber.label
-        : null;
-    yield {
-      type: 'model',
-      label: usable.label,
-      audience:
-        audience === 'subscriber' && usable.assignedTo.includes('subscriber')
-          ? 'subscriber'
-          : 'trial',
-      upgrade,
-    };
-  }
-
-  /*
-   * The credential is opened once, lazily, for whichever model calls follow:
-   * a key that cannot be opened -- sealed under a rotated secret -- reaches
-   * the adapter as an empty one and is refused there, which is the same
-   * degradation as any other unavailable provider.
-   */
-  let apiKey: Promise<string> | null = null;
-  const credential = (): Promise<string> =>
-    (apiKey ??= usable
-      ? dependencies.credential(usable.id).then(
-          (key) => key ?? '',
-          () => '',
-        )
-      : Promise.resolve(''));
+  const credential = lazyCredential(usable, dependencies);
 
   /*
    * The question is retrieved as typed, history or not: a follow-up that
@@ -278,6 +237,7 @@ export async function* streamPlayground(
     { libraries: input.libraries, query: input.question, maxTokens },
     retrievalDependencies,
   );
+  let rewrittenQuery: string | null = null;
   yield { type: 'gather', libraries: retrieved.libraries };
 
   if (!retrieved.libraries.some((library) => library.confirmed)) {
@@ -302,6 +262,7 @@ export async function* streamPlayground(
 
     if (rewritten && retry && retry.libraries.some((library) => library.confirmed)) {
       retrieved = retry;
+      rewrittenQuery = rewritten;
       yield { type: 'rewrite', query: rewritten };
       yield { type: 'gather', libraries: retrieved.libraries };
     } else {
@@ -315,6 +276,159 @@ export async function* streamPlayground(
       return;
     }
   }
+
+  yield* answerFromContext(
+    caller,
+    {
+      libraries: input.libraries,
+      question: input.question,
+      /* A follow-up's rewrite is also what the question meant; a first
+         question's is only the site's words for it, and adds nothing. */
+      resolved: input.history && input.history.length > 0 ? rewrittenQuery : null,
+      retrieved,
+      usable,
+      credential,
+      startedAt,
+    },
+    dependencies,
+  );
+}
+
+/** How many routed candidates one fixed exchange reads. */
+const CANDIDATES_READ = 3;
+
+/** Where the fixed path will look: the candidates in routing order, and the one metered on. */
+export interface RoutedQuestion {
+  candidates: GatherLibrary[];
+  top: { libraryId: string; title: string; version: string | null } | null;
+  /** Routing found nothing and the candidates are the libraries the last turn answered from. */
+  followUp: boolean;
+}
+
+/**
+ * Routing for the fixed path (architecture.md 9.6): the question through
+ * resolve-library-id, the top candidates read.
+ *
+ * A follow-up such as "where do I download it?" names no library, so routing
+ * on its words alone finds nothing. When that happens and the conversation
+ * has an earlier turn that answered from some library, those libraries are
+ * the candidates -- the visitor is still talking about them. They are only a
+ * hint from the client: every read checks visibility again, and the rewrite
+ * on a miss restates the question against the turns before it is retried.
+ */
+export async function routeQuestion(
+  caller: CallerContext,
+  question: string,
+  history: readonly HistoryTurn[],
+  resolve: typeof resolveLibraryId = resolveLibraryId,
+): Promise<RoutedQuestion> {
+  const resolved = await resolve(caller, { query: question });
+  const candidates = resolved.results.slice(0, CANDIDATES_READ).map((candidate) => ({
+    libraryId: candidate.libraryId,
+    title: candidate.title,
+  }));
+  const top = resolved.results[0];
+  if (top) {
+    return {
+      candidates,
+      top: { libraryId: top.libraryId, title: top.title, version: top.version },
+      followUp: false,
+    };
+  }
+  const previous = [...history].reverse().find((turn) => turn.libraries && turn.libraries.length > 0);
+  const carried = (previous?.libraries ?? []).slice(0, CANDIDATES_READ);
+  if (carried.length === 0) return { candidates: [], top: null, followUp: false };
+  return {
+    candidates: carried,
+    top: { libraryId: carried[0]!.libraryId, title: carried[0]!.title, version: null },
+    followUp: true,
+  };
+}
+
+/**
+ * The model this caller is answered by, and the event that says so.
+ *
+ * Which model answers is part of what the reader is shown: a subscriber sees
+ * that the model its plan buys is the one answering, and a trial caller
+ * learns what a paid plan would answer with -- when the console has assigned
+ * one, and it is not the model already answering. `usable` is null when no
+ * entry is configured, on, and holding a credential.
+ */
+export async function resolveModel(
+  caller: CallerContext,
+  modelSlug: string | null | undefined,
+  dependencies: PlaygroundDependencies,
+): Promise<{ usable: LlmConfigRow | null; event: Extract<PlaygroundEvent, { type: 'model' }> | null }> {
+  const audience = await dependencies.audience(caller).catch((): LlmAudience => 'trial');
+  const config = await dependencies.config(modelSlug, audience).catch(() => null);
+  /* `hasCredential` rather than the key itself: this runs before retrieval,
+     only to size the budget, and opening a provider secret here would mean
+     holding it for the length of a retrieval that may not need it. */
+  const usable = config && config.enabled && config.hasCredential ? config : null;
+  if (!usable) return { usable: null, event: null };
+
+  const subscriber =
+    audience === 'trial' ? await dependencies.config(null, 'subscriber').catch(() => null) : null;
+  const upgrade =
+    subscriber && subscriber.slug !== usable.slug && subscriber.assignedTo.includes('subscriber')
+      ? subscriber.label
+      : null;
+  return {
+    usable,
+    event: {
+      type: 'model',
+      label: usable.label,
+      audience:
+        audience === 'subscriber' && usable.assignedTo.includes('subscriber') ? 'subscriber' : 'trial',
+      upgrade,
+    },
+  };
+}
+
+/**
+ * The credential, opened once, lazily, for whichever model calls follow: a
+ * key that cannot be opened -- sealed under a rotated secret -- reaches the
+ * adapter as an empty one and is refused there, which is the same
+ * degradation as any other unavailable provider.
+ */
+export function lazyCredential(
+  usable: LlmConfigRow | null,
+  dependencies: PlaygroundDependencies,
+): () => Promise<string> {
+  let apiKey: Promise<string> | null = null;
+  return () =>
+    (apiKey ??= usable
+      ? dependencies.credential(usable.id).then(
+          (key) => key ?? '',
+          () => '',
+        )
+      : Promise.resolve(''));
+}
+
+/** What the answer phase needs: the context retrieval settled on, and the model to answer with. */
+export interface AnswerContext {
+  /** The exchange's libraries in order; the first is the one costs are recorded against. */
+  libraries: readonly GatherLibrary[];
+  question: string;
+  /** The question restated from the conversation, when it was a follow-up (`buildAnswerMessage`). */
+  resolved: string | null;
+  retrieved: { chunks: GatheredChunk[]; libraries: GatheredLibrary[]; requestId: string };
+  usable: LlmConfigRow | null;
+  credential: () => Promise<string>;
+  startedAt: number;
+}
+
+/**
+ * The second half of every exchange, fixed or planned: the context event,
+ * then the FAQ's own answer or the model's, bound sentence by sentence.
+ * Rules 2, 4 and 5 live here, so both paths answer under the same ones.
+ */
+export async function* answerFromContext(
+  caller: CallerContext,
+  context: AnswerContext,
+  dependencies: PlaygroundDependencies,
+): AsyncGenerator<PlaygroundEvent> {
+  const { retrieved, usable, credential, startedAt } = context;
 
   yield {
     type: 'context',
@@ -371,7 +485,7 @@ export async function* streamPlayground(
       })
       .stream({
         systemPrompt: PLAYGROUND_SYSTEM_PROMPT,
-        userMessage: `${buildContextBlock(excerpts)}\n\nQuestion: ${input.question}`,
+        userMessage: buildAnswerMessage(excerpts, context.question, context.resolved),
         maxOutputTokens: usable.maxOutputTokens,
         timeoutMs: usable.timeoutMs,
         /* Null for a model that does not reason -- the console cannot store an
@@ -429,7 +543,7 @@ export async function* streamPlayground(
 
   /* The tokens were spent whatever the binding above decided. */
   if (completed) {
-    await recordUsage(dependencies, caller, input, usable, await stream.usage, startedAt);
+    await recordUsage(dependencies, caller, context, usable, await stream.usage, startedAt);
   }
 
   yield {
@@ -519,10 +633,10 @@ async function rewriteOnMiss(
  * a serverless function may freeze right after responding and a write left
  * floating simply vanishes.
  */
-async function recordUsage(
+export async function recordUsage(
   dependencies: PlaygroundDependencies,
   caller: CallerContext,
-  input: PlaygroundInput,
+  input: { libraries: readonly GatherLibrary[] },
   usable: LlmConfigRow,
   usage: {
     promptTokens: number;
@@ -566,7 +680,7 @@ async function recordUsage(
  * too short or the model ignored the citation format. The reason is logged
  * without the question, the excerpts or the completion (architecture.md 17.1).
  */
-function logDegraded(reason: string, error: unknown): void {
+export function logDegraded(reason: string, error: unknown): void {
   const detail = error instanceof Error ? `: ${error.message}` : '';
   console.error(`playground degraded (${reason})${detail}`);
 }
@@ -581,7 +695,7 @@ function logDegraded(reason: string, error: unknown): void {
 export async function askPlayground(
   caller: CallerContext,
   input: PlaygroundInput,
-  dependencies: PlaygroundDependencies = defaultDependencies,
+  dependencies: PlaygroundDependencies = defaultPlaygroundDependencies,
 ): Promise<PlaygroundAnswer> {
   let chunks: GatheredChunk[] = [];
   let libraries: GatheredLibrary[] = [];

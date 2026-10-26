@@ -10,12 +10,16 @@ import type { RetrievalSettingKey } from '@/lib/domain/retrieval-config';
  * reaches a server component as a client reference, not as an array.
  */
 export const RETRIEVAL_SETTING_GROUPS: {
-  id: 'chunk' | 'rerank' | 'cache' | 'playground' | 'routing';
+  id: 'chunk' | 'rerank' | 'cache' | 'playground' | 'agent' | 'routing';
   keys: RetrievalSettingKey[];
 }[] = [
   { id: 'chunk', keys: ['recallLimit', 'rrfK'] },
   { id: 'rerank', keys: ['rerankWindow', 'rerankDocumentChars'] },
   { id: 'cache', keys: ['cacheTtlSeconds'] },
   { id: 'playground', keys: ['playgroundTokensDefault', 'playgroundTokensMax'] },
+  {
+    id: 'agent',
+    keys: ['playgroundAgent', 'playgroundAgentSteps', 'playgroundAgentQueries', 'playgroundAgentResolves'],
+  },
   { id: 'routing', keys: ['routingRecallLimit', 'routingRareSampleCap', 'routingResultLimit'] },
 ];

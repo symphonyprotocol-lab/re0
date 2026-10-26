@@ -13,9 +13,19 @@
  * text stream through would put unbindable prose on screen and then take it
  * back, which is the thing that rule forbids.
  *
- * One exchange is one question. No history is replayed to the model -- rule 4
- * confines it to the chunks this request retrieved, and a transcript in the
- * prompt is exactly the outside knowledge that rule excludes.
+ * The body may carry the turns before the question (`history`, at most three,
+ * clipped by `normaliseHistory`). They resolve what a follow-up refers to and
+ * nothing else: the planner (agent mode) or the rewrite on a miss (fixed
+ * path) is shown them as data, and the answering call never is -- rule 4
+ * confines the answer to the chunks this request retrieved, and a transcript
+ * in that prompt is exactly the outside knowledge the rule excludes.
+ *
+ * Two paths (playground-agent-proposal.md). With the console's agent switch
+ * on and a model that declares tool calling, the model plans its own
+ * resolve-library-id and query-docs calls and the transcript shows each one
+ * as it runs (`data-step`). Otherwise the fixed path below routes the
+ * question once and reads the top candidates; a follow-up that routes
+ * nowhere reads the libraries the last turn answered from.
  *
  * Which model runs is the console's decision, never the caller's: the body has
  * no model field, so a visitor cannot spend the platform's budget on the most
@@ -40,17 +50,19 @@ import { AppError } from '@/contracts/errors';
 import { libraryIdSchema } from '@/contracts/schemas';
 import { requireScope } from '@/lib/application/auth';
 import { publicLibraryHeading } from '@/lib/application/libraries';
-import { resolveLibraryId } from '@/lib/application/retrieval';
-import { streamPlayground } from '@/lib/application/playground';
+import { routeQuestion, streamPlayground } from '@/lib/application/playground';
+import {
+  playgroundAgentOn,
+  streamAgentPlayground,
+  type AgentEvent,
+} from '@/lib/application/playground/agent';
 import { fencedCodeBlocks } from '@/lib/domain/code-blocks';
+import { normaliseHistory } from '@/lib/domain/generation';
 import { playgroundCaller } from '@/lib/http/retrieval-caller';
 import { errorResponse, newRequestId } from '@/lib/http/respond';
 import type { PlaygroundUIMessage } from '@/lib/http/playground-stream';
 
 export const runtime = 'nodejs';
-
-/** How many routed candidates one exchange reads. */
-const CANDIDATES_READ = 3;
 
 export async function POST(request: NextRequest): Promise<Response> {
   const requestId = newRequestId();
@@ -63,9 +75,9 @@ export async function POST(request: NextRequest): Promise<Response> {
     requireScope(caller, 'knowledge:search');
     requireScope(caller, 'knowledge:read');
 
-    let body: { question?: unknown; libraryId?: unknown };
+    let body: { question?: unknown; libraryId?: unknown; history?: unknown };
     try {
-      body = (await request.json()) as { question?: unknown; libraryId?: unknown };
+      body = (await request.json()) as { question?: unknown; libraryId?: unknown; history?: unknown };
     } catch {
       throw new AppError('invalid_request', 'the body must be JSON');
     }
@@ -81,57 +93,70 @@ export async function POST(request: NextRequest): Promise<Response> {
       throw new AppError('invalid_request', 'libraryId must look like /owner/name');
     }
 
-    /*
-     * Routing runs before the stream opens. It is one round trip and it
-     * decides whether there is anything to stream at all, so a failure here
-     * can still be an honest error response rather than a stream that opens
-     * only to say nothing happened. A pinned library skips it: the caller
-     * already chose, and an id that is not a routable public library is a
-     * 404 here exactly as it would be on the detail page.
-     */
-    let candidates: { libraryId: string; title: string }[];
-    let top: { libraryId: string; title: string; version: string | null } | null;
+    const history = normaliseHistory(body.history);
+
+    /* A pinned id that is not a routable public library is a 404 here, before
+       any stream opens, exactly as it would be on the detail page. */
+    let pinned: { libraryId: string; title: string; version: string | null } | null = null;
     if (pinnedId) {
       const heading = await publicLibraryHeading(pinnedId.data);
       if (!heading) throw new AppError('library_not_found', 'no public library with that id');
-      candidates = [{ libraryId: heading.publicId, title: heading.title }];
-      top = { libraryId: heading.publicId, title: heading.title, version: heading.version };
+      pinned = { libraryId: heading.publicId, title: heading.title, version: heading.version };
+    }
+
+    let events: AsyncIterable<AgentEvent>;
+    if (await playgroundAgentOn(caller)) {
+      events = streamAgentPlayground(caller, { question, history, pinned });
     } else {
-      const resolved = await resolveLibraryId(caller, { query: question });
-      candidates = resolved.results.slice(0, CANDIDATES_READ).map((candidate) => ({
-        libraryId: candidate.libraryId,
-        title: candidate.title,
-      }));
-      top = resolved.results[0] ?? null;
+      /*
+       * Routing runs before the stream opens. It is one round trip and it
+       * decides whether there is anything to stream at all, so a failure here
+       * can still be an honest error response rather than a stream that opens
+       * only to say nothing happened. A pinned library skips it: the caller
+       * already chose.
+       */
+      const routed = pinned
+        ? {
+            candidates: [{ libraryId: pinned.libraryId, title: pinned.title }],
+            top: pinned,
+          }
+        : await routeQuestion(caller, question, history);
+      events = (async function* fixed(): AsyncGenerator<AgentEvent> {
+        yield { type: 'routing', candidates: routed.candidates, top: routed.top, pinned: pinned !== null };
+        if (!routed.top) {
+          yield { type: 'no_library' };
+          return;
+        }
+        yield* streamPlayground(caller, { libraries: routed.candidates, question, history });
+      })();
     }
 
     const stream = createUIMessageStream<PlaygroundUIMessage>({
       execute: async ({ writer }) => {
         writer.write({ type: 'start' });
-        writer.write({
-          type: 'data-routing',
-          data: {
-            question,
-            candidates,
-            libraryId: top?.libraryId ?? null,
-            libraryTitle: top?.title ?? null,
-            version: top?.version ?? null,
-            requestId,
-            pinned: pinnedId !== null,
-          },
-        });
-
-        if (!top) {
-          writer.write({ type: 'data-outcome', data: { kind: 'no_library' } });
-          return;
-        }
-
         try {
-          for await (const event of streamPlayground(caller, {
-            libraries: candidates,
-            question,
-          })) {
-            if (event.type === 'gather') {
+          for await (const event of events) {
+            if (event.type === 'routing') {
+              writer.write({
+                type: 'data-routing',
+                data: {
+                  question,
+                  candidates: event.candidates,
+                  libraryId: event.top?.libraryId ?? null,
+                  libraryTitle: event.top?.title ?? null,
+                  version: event.top?.version ?? null,
+                  requestId,
+                  pinned: event.pinned,
+                },
+              });
+            } else if (event.type === 'no_library') {
+              writer.write({ type: 'data-outcome', data: { kind: 'no_library' } });
+            } else if (event.type === 'step') {
+              /* Same id twice: the running card is replaced by the finished one. */
+              writer.write({ type: 'data-step', id: event.step.id, data: event.step });
+            } else if (event.type === 'resolved') {
+              writer.write({ type: 'data-resolved', data: { question: event.question } });
+            } else if (event.type === 'gather') {
               writer.write({
                 type: 'data-gather',
                 data: { libraries: event.libraries },

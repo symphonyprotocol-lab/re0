@@ -22,6 +22,7 @@ import type {
   PlaygroundOutcome,
   PlaygroundRouting,
   PlaygroundSource,
+  PlaygroundStep,
   PlaygroundUIMessage,
 } from '@/lib/http/playground-stream';
 import { fill } from '@/lib/i18n/format';
@@ -49,27 +50,67 @@ import { fill } from '@/lib/i18n/format';
  */
 
 /**
- * One question per request, and only the question.
+ * The question, and the few turns before it.
  *
- * `useChat` would post the whole transcript by default. Rule 4 confines the
- * model to the chunks this request retrieved, so replaying earlier turns would
- * hand it exactly the outside knowledge that rule excludes -- and the server
- * does not read them anyway. `pinned` is read at send time, so unpinning
- * mid-session takes effect on the next question without a new transport.
+ * `useChat` would post the whole transcript as messages. What is sent instead
+ * is the question plus, for the last few finished turns, what the visitor saw:
+ * the question, the bound sentences of the answer, and the libraries it drew
+ * on. The server shows them only to whatever resolves a follow-up -- the
+ * planner, or the rewrite on a miss -- and never to the answering call, which
+ * rule 4 keeps to this request's passages (lib/domain/generation.ts
+ * `normaliseHistory` clips them again there). `pinned` is read at send time,
+ * so unpinning mid-session takes effect on the next question without a new
+ * transport.
  */
 function playgroundTransport(pinned: { current: string | null }) {
   return new DefaultChatTransport<PlaygroundUIMessage>({
     api: '/api/playground',
     prepareSendMessagesRequest: ({ messages }) => {
       const last = messages[messages.length - 1];
-      const question = (last?.parts ?? [])
-        .filter((part) => part.type === 'text')
-        .map((part) => part.text)
-        .join(' ')
-        .trim();
-      return { body: { question, libraryId: pinned.current } };
+      return {
+        body: {
+          question: textOf(last),
+          libraryId: pinned.current,
+          history: historyOf(messages.slice(0, -1)),
+        },
+      };
     },
   });
+}
+
+function textOf(message: PlaygroundUIMessage | undefined): string {
+  return (message?.parts ?? [])
+    .filter((part) => part.type === 'text')
+    .map((part) => part.text)
+    .join(' ')
+    .trim();
+}
+
+/** How many earlier turns ride along; the server keeps the same number. */
+const HISTORY_TURNS = 3;
+
+/** Each finished question-and-answer pair, newest last: what the visitor was shown. */
+function historyOf(messages: PlaygroundUIMessage[]) {
+  const turns: {
+    question: string;
+    answer: string;
+    libraries: { libraryId: string; title: string }[];
+  }[] = [];
+  messages.forEach((message, at) => {
+    if (message.role !== 'assistant') return;
+    const asked = messages[at - 1];
+    if (!asked || asked.role !== 'user') return;
+    const turn = readTurn(message);
+    if (turn.outcome === null) return;
+    turns.push({
+      question: textOf(asked),
+      answer: turn.claims.map((entry) => entry.claim).join(' '),
+      libraries: (turn.gather?.libraries ?? [])
+        .filter((library) => library.confirmed)
+        .map((library) => ({ libraryId: library.libraryId, title: library.title })),
+    });
+  });
+  return turns.slice(-HISTORY_TURNS);
 }
 
 function AssistantMark() {
@@ -114,15 +155,23 @@ function ToolCall({
   name,
   params,
   open = false,
+  running = false,
 }: {
   name: string;
   params: readonly (readonly [string, string])[];
   open?: boolean;
+  /** The call has been made and its result is not back yet. */
+  running?: boolean;
 }) {
   return (
     <details open={open} className="group rounded-md border border-line/70 bg-tray p-2.5">
       <summary className="flex cursor-pointer list-none items-center justify-between gap-3">
-        <code className="font-mono text-[11.5px] font-medium text-ink">{name}</code>
+        <span className="flex items-center gap-2">
+          <code className="font-mono text-[11.5px] font-medium text-ink">{name}</code>
+          {running ? (
+            <span aria-hidden className="size-1.5 animate-pulse rounded-full bg-faint" />
+          ) : null}
+        </span>
         <span
           aria-hidden
           className="text-[10px] text-faint transition-transform group-open:rotate-180"
@@ -158,6 +207,10 @@ interface Turn {
   model: PlaygroundModel | null;
   /** The retry's query, when the question missed as asked and the retry confirmed. */
   rewrite: string | null;
+  /** The planner's calls, in the order made (agent mode). */
+  steps: PlaygroundStep[];
+  /** The planner's restatement of a follow-up. */
+  resolved: string | null;
   sources: PlaygroundSource[];
   claims: { claim: string; chunkIds: string[] }[];
   outcome: PlaygroundOutcome | null;
@@ -169,6 +222,8 @@ function readTurn(message: PlaygroundUIMessage): Turn {
     gather: null,
     model: null,
     rewrite: null,
+    steps: [],
+    resolved: null,
     sources: [],
     claims: [],
     outcome: null,
@@ -178,6 +233,8 @@ function readTurn(message: PlaygroundUIMessage): Turn {
     else if (part.type === 'data-gather') turn.gather = part.data;
     else if (part.type === 'data-model') turn.model = part.data;
     else if (part.type === 'data-rewrite') turn.rewrite = part.data.query;
+    else if (part.type === 'data-step') turn.steps.push(part.data);
+    else if (part.type === 'data-resolved') turn.resolved = part.data.question;
     else if (part.type === 'data-sources') turn.sources = part.data.sources;
     else if (part.type === 'data-claim') turn.claims.push(part.data);
     else if (part.type === 'data-outcome') turn.outcome = part.data.kind;
@@ -351,6 +408,21 @@ function Pending({ label }: { label: string }) {
   );
 }
 
+/** What a planner's call was asked, and what it came back with. */
+function stepParams(step: PlaygroundStep): (readonly [string, string])[] {
+  const params: (readonly [string, string])[] = [];
+  if (step.libraryId) params.push(['libraryId', JSON.stringify(step.libraryId)]);
+  params.push(['query', JSON.stringify(step.query)]);
+  if (step.status === 'running') return params;
+  if (step.error) params.push(['error', step.error]);
+  else if (step.results) params.push(['results', JSON.stringify(step.results)]);
+  else if (step.confirmed !== null) {
+    params.push(['confirmed', String(step.confirmed)]);
+    if (step.version) params.push(['version', JSON.stringify(step.version)]);
+  }
+  return params;
+}
+
 function AssistantTurn({
   message,
   streaming,
@@ -363,7 +435,7 @@ function AssistantTurn({
   const turn = readTurn(message);
   const numbers = sourceNumbers(turn);
 
-  if (turn.routing === null) {
+  if (turn.routing === null && turn.steps.length === 0 && turn.outcome === null) {
     return (
       <AssistantRow>
         <Pending label={t.resolving} />
@@ -377,9 +449,10 @@ function AssistantTurn({
    * (scatter-gather, architecture.md 9.6), and the note under them says
    * which ones fit the question well enough to answer.
    */
-  const candidates = turn.routing.candidates;
+  const routing = turn.routing;
+  const candidates = routing?.candidates ?? [];
   const routingParams: (readonly [string, string])[] = [
-    ['query', JSON.stringify(turn.routing.question)],
+    ['query', JSON.stringify(routing?.question ?? '')],
   ];
   if (candidates.length > 0) {
     routingParams.push(['results', JSON.stringify(candidates.map((c) => c.libraryId))]);
@@ -394,19 +467,33 @@ function AssistantTurn({
     <AssistantRow>
       {/* A pinned exchange never ran resolve-library-id, so it is not shown
           as if it had: the transcript is the real call sequence. */}
-      {turn.routing.pinned ? null : (
+      {routing && !routing.pinned ? (
         <ToolCall name="resolve-library-id" params={routingParams} />
-      )}
+      ) : null}
       {candidates.map((candidate) => (
         <ToolCall
           key={candidate.libraryId}
           name="query-docs"
           params={[
             ['libraryId', JSON.stringify(candidate.libraryId)],
-            ['query', JSON.stringify(turn.routing!.question)],
+            ['query', JSON.stringify(routing!.question)],
           ]}
         />
       ))}
+      {/* Agent mode: the planner's own calls, each shown as it runs. */}
+      {turn.steps.map((step) => (
+        <ToolCall
+          key={step.id}
+          name={step.tool}
+          running={step.status === 'running'}
+          params={stepParams(step)}
+        />
+      ))}
+      {turn.resolved !== null ? (
+        <p className="text-[11.5px] leading-[1.7] text-faint">
+          {fill(t.resolvedNote, { question: turn.resolved })}
+        </p>
+      ) : null}
       {/* The retry is a real second read of every candidate, shown as one. */}
       {turn.rewrite !== null
         ? candidates.map((candidate) => (

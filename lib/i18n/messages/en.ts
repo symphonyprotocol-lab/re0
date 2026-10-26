@@ -847,6 +847,7 @@ export const en: Dictionary = {
       'Answering from {list} together — generated only from their retrieved passages; each source names its library.',
     routedSkipped: '{list} was also read, but its passages did not fit the question and were not used.',
     rewriteNote: 'The question as asked found nothing relevant, so it was searched again as “{query}”.',
+    resolvedNote: 'Read in light of the earlier turns as “{question}”.',
     noLibraryTitle: 'No library matched',
     noLibraryBody:
       'No published library matched this question, so nothing was retrieved and no answer was generated.',
@@ -3074,6 +3075,7 @@ export const en: Dictionary = {
         rerank: 'Rerank',
         cache: 'Cache',
         playground: 'Playground budget',
+        agent: 'Playground agent',
         routing: 'Library routing (resolve-library-id)',
       },
       fields: {
@@ -3087,6 +3089,10 @@ export const en: Dictionary = {
         routingRecallLimit: { label: 'Recall per path', hint: 'Candidates each routing path contributes' },
         routingRareSampleCap: { label: 'Rare-term sample cap', hint: 'Chunk rows the rare-term path may read' },
         routingResultLimit: { label: 'Candidates returned', hint: 'At most the recall width' },
+        playgroundAgent: { label: 'Agent mode', hint: '1: a model that declares tool calling plans its own searches; 0: off' },
+        playgroundAgentSteps: { label: 'Planner steps', hint: 'Including the closing answer step, 2–6' },
+        playgroundAgentQueries: { label: 'query-docs calls', hint: 'Library reads per question' },
+        playgroundAgentResolves: { label: 'resolve calls', hint: 'Library lookups per question; 0 uses only the libraries in the conversation' },
       },
       reason: 'Reason for this change',
       save: 'Save as new version',
