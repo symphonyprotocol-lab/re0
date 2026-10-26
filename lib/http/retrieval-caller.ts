@@ -103,9 +103,9 @@ export async function retrievalCaller(
  *
  * The playground is for signed-in users: its answers are generated at the
  * platform's cost, and an anonymous visitor only ever had the trial rate
- * limit standing between that cost and the open internet. The page itself
- * sends a visitor without a session to the login (app/(public)/playground);
- * this is the same rule for a request that skips the page.
+ * limit standing between that cost and the open internet. The page lets
+ * anyone look and asks a visitor without a session to sign in when they send
+ * (components/site/playground); this is the rule itself, for every request.
  *
  * The retrieval endpoints above stay key-only -- a cookie must not
  * authenticate a cross-site POST to /v1. The playground is the site's own

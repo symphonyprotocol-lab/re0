@@ -12,6 +12,7 @@ import {
 } from 'react';
 
 import { ClaimText } from '@/components/site/claim-text';
+import { SignInDialog } from '@/components/site/sign-in-dialog';
 import { Re0Mark } from '@/components/ui/icons';
 import { useI18n } from '@/lib/i18n/client';
 import type { Dictionary } from '@/lib/i18n/dictionary';
@@ -501,18 +502,48 @@ function AssistantTurn({
 }
 
 /** The uniform envelope carries a code; anything else is a generic failure. */
-function errorMessage(error: Error | undefined, t: Dictionary['playground']): string | null {
+/** The error envelope's code, or null for a transport failure or an empty body. */
+function errorCode(error: Error | undefined): string | null {
   if (!error) return null;
   try {
-    const body = JSON.parse(error.message) as { error?: { code?: string } };
-    const code = body.error?.code;
-    if (code === 'rate_limited' || code === 'quota_exceeded') return t.rateLimited;
-    /* The session ended while the page stayed open; the page itself needs one. */
-    if (code === 'access_denied') return t.signInRequired;
+    return (JSON.parse(error.message) as { error?: { code?: string } }).error?.code ?? null;
   } catch {
-    /* Not the envelope -- a transport failure, or an empty body. */
+    return null;
   }
+}
+
+function errorMessage(error: Error | undefined, t: Dictionary['playground']): string | null {
+  if (!error) return null;
+  const code = errorCode(error);
+  if (code === 'rate_limited' || code === 'quota_exceeded') return t.rateLimited;
+  /* The session ended while the page stayed open. */
+  if (code === 'access_denied') return t.signInRequired;
   return t.askError;
+}
+
+/**
+ * Where a question typed before signing in waits out the OAuth round trip.
+ * Session storage: the same tab, and gone with it. Every access is guarded --
+ * a private window or blocked storage just loses the draft.
+ */
+const DRAFT_KEY = 're0:playground-draft';
+
+function keepDraft(question: string): void {
+  try {
+    sessionStorage.setItem(DRAFT_KEY, question);
+  } catch {
+    /* storage unavailable */
+  }
+}
+
+function takeDraft(): string | null {
+  try {
+    const draft = sessionStorage.getItem(DRAFT_KEY);
+    sessionStorage.removeItem(DRAFT_KEY);
+    return draft;
+  } catch {
+    return null;
+  }
 }
 
 export function Playground({
@@ -522,8 +553,15 @@ export function Playground({
    * from the chip above the composer.
    */
   initialLibrary = null,
+  /**
+   * Whether a session is behind this render. The page is open to everyone;
+   * sending is not (`playgroundCaller`), so a visitor without one is asked to
+   * sign in at the moment they send, and their question waits for them.
+   */
+  signedIn,
 }: {
   initialLibrary?: string | null;
+  signedIn: boolean;
 }) {
   const { t: messages } = useI18n();
   const t = messages.playground;
@@ -536,6 +574,16 @@ export function Playground({
   const transport = useMemo(() => playgroundTransport(pinned), []);
   const scroller = useRef<HTMLDivElement>(null);
   const composer = useRef<HTMLTextAreaElement>(null);
+  const [signingIn, setSigningIn] = useState(false);
+
+  /* Back from signing in: the question asked before it is in the composer, ready to send. */
+  useEffect(() => {
+    if (!signedIn) return;
+    const draft = takeDraft();
+    if (!draft) return;
+    setQuestion(draft);
+    composer.current?.focus();
+  }, [signedIn]);
 
   const {
     messages: turns,
@@ -561,9 +609,24 @@ export function Playground({
     if (distance < 160) box.scrollTo({ top: box.scrollHeight });
   }, [turns, status]);
 
+  /* A session that ended while the page stayed open is asked for again, the same way. */
+  const lastAsked = useRef('');
+  const sessionEnded = errorCode(error) === 'access_denied';
+  useEffect(() => {
+    if (!sessionEnded) return;
+    if (lastAsked.current) keepDraft(lastAsked.current);
+    setSigningIn(true);
+  }, [sessionEnded]);
+
   function submit(text: string) {
     const asked = text.trim();
     if (!asked || busy) return;
+    if (!signedIn) {
+      keepDraft(asked);
+      setSigningIn(true);
+      return;
+    }
+    lastAsked.current = asked;
     setQuestion('');
     void sendMessage({ text: asked });
   }
@@ -711,6 +774,18 @@ export function Playground({
         <br />
         {t.footnoteLine2}
       </p>
+
+      {signingIn ? (
+        <SignInDialog
+          returnTo={
+            pinnedLibrary ? `/playground?library=${encodeURIComponent(pinnedLibrary)}` : '/playground'
+          }
+          title={t.signInTitle}
+          subtitle={t.signInSubtitle}
+          closeLabel={t.signInClose}
+          onClose={() => setSigningIn(false)}
+        />
+      ) : null}
     </div>
   );
 }

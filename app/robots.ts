@@ -18,7 +18,6 @@ export default function robots(): MetadataRoute.Robots {
       disallow: [
         '/admin/',
         '/dashboard/',
-        '/playground',
         '/api/',
         '/files/',
         '/embed',
