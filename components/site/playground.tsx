@@ -13,7 +13,7 @@ import {
 
 import { ClaimText } from '@/components/site/claim-text';
 import { SignInDialog } from '@/components/site/sign-in-dialog';
-import { Re0Mark } from '@/components/ui/icons';
+import { Re0Mark, RotateCwIcon } from '@/components/ui/icons';
 import { useI18n } from '@/lib/i18n/client';
 import type { Dictionary } from '@/lib/i18n/dictionary';
 import type {
@@ -390,19 +390,11 @@ function SourceLine({
   );
 }
 
-/** Three dots while the server is routing and retrieving. */
+/** A turning arrow while the server is routing and retrieving. */
 function Pending({ label }: { label: string }) {
   return (
     <p className="flex items-center gap-2 text-[12.5px] text-muted">
-      <span aria-hidden className="flex gap-1">
-        {[0, 1, 2].map((dot) => (
-          <span
-            key={dot}
-            className="size-1.5 animate-pulse rounded-full bg-faint"
-            style={{ animationDelay: `${dot * 160}ms` }}
-          />
-        ))}
-      </span>
+      <RotateCwIcon size={14} className="shrink-0 animate-spin text-faint" />
       {label}
     </p>
   );
