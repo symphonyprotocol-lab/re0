@@ -18,15 +18,14 @@ export const revalidate = 3600;
  * successful refresh, which is when its content actually moved.
  *
  * Absent on purpose: the sign-in, the checkout, the claim flow and
- * everything behind a session (app/robots.ts keeps crawlers off those), and
- * shared pages under `/s/`, which are a customer's and are indexed, or not,
- * by their own setting.
+ * everything behind a session, the playground included (app/robots.ts keeps
+ * crawlers off those), and shared pages under `/s/`, which are a customer's
+ * and are indexed, or not, by their own setting.
  */
 export default async function sitemap(): Promise<MetadataRoute.Sitemap> {
   const pages: MetadataRoute.Sitemap = [
     { url: publicUrl('/'), changeFrequency: 'daily', priority: 1 },
     { url: publicUrl('/libraries'), changeFrequency: 'daily', priority: 0.9 },
-    { url: publicUrl('/playground'), changeFrequency: 'monthly', priority: 0.8 },
     { url: publicUrl('/pricing'), changeFrequency: 'monthly', priority: 0.8 },
     { url: publicUrl('/about'), changeFrequency: 'monthly', priority: 0.6 },
     { url: publicUrl('/status'), changeFrequency: 'hourly', priority: 0.4 },

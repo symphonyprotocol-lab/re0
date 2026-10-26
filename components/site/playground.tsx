@@ -16,7 +16,6 @@ import { Re0Mark } from '@/components/ui/icons';
 import { useI18n } from '@/lib/i18n/client';
 import type { Dictionary } from '@/lib/i18n/dictionary';
 import type {
-  PlaygroundAllowance,
   PlaygroundGather,
   PlaygroundModel,
   PlaygroundOutcome,
@@ -153,7 +152,6 @@ function WarnCard({ title, body }: { title: string; body: string }) {
 
 /** What one assistant turn accumulated, gathered out of its stream parts. */
 interface Turn {
-  allowance: PlaygroundAllowance | null;
   routing: PlaygroundRouting | null;
   gather: PlaygroundGather | null;
   model: PlaygroundModel | null;
@@ -166,7 +164,6 @@ interface Turn {
 
 function readTurn(message: PlaygroundUIMessage): Turn {
   const turn: Turn = {
-    allowance: null,
     routing: null,
     gather: null,
     model: null,
@@ -176,8 +173,7 @@ function readTurn(message: PlaygroundUIMessage): Turn {
     outcome: null,
   };
   for (const part of message.parts) {
-    if (part.type === 'data-allowance') turn.allowance = part.data;
-    else if (part.type === 'data-routing') turn.routing = part.data;
+    if (part.type === 'data-routing') turn.routing = part.data;
     else if (part.type === 'data-gather') turn.gather = part.data;
     else if (part.type === 'data-model') turn.model = part.data;
     else if (part.type === 'data-rewrite') turn.rewrite = part.data.query;
@@ -511,6 +507,8 @@ function errorMessage(error: Error | undefined, t: Dictionary['playground']): st
     const body = JSON.parse(error.message) as { error?: { code?: string } };
     const code = body.error?.code;
     if (code === 'rate_limited' || code === 'quota_exceeded') return t.rateLimited;
+    /* The session ended while the page stayed open; the page itself needs one. */
+    if (code === 'access_denied') return t.signInRequired;
   } catch {
     /* Not the envelope -- a transport failure, or an empty body. */
   }
@@ -550,16 +548,6 @@ export function Playground({
   });
 
   const busy = status === 'submitted' || status === 'streaming';
-
-  /*
-   * Rule 8: where the visitor stands, from the newest exchange the server
-   * answered. Nothing is shown before the first one -- the count is the
-   * limiter's, and the page does not guess at it.
-   */
-  const allowance = [...turns]
-    .reverse()
-    .map((message) => (message.role === 'assistant' ? readTurn(message).allowance : null))
-    .find((entry) => entry !== null) ?? null;
 
   /*
    * Follow the stream, but only for a reader who is already at the bottom --
@@ -717,36 +705,6 @@ export function Playground({
           </div>
         </form>
       </div>
-
-      {allowance ? (
-        <p
-          aria-live="polite"
-          className="mt-3 text-center text-[11.5px] leading-[1.7] text-muted"
-        >
-          {allowance.anonymous ? (
-            <>
-              <span className="font-medium text-ink">
-                {allowance.remaining !== null && allowance.remaining > 0
-                  ? fill(t.allowance.anonymous, {
-                      remaining: allowance.remaining,
-                      limit: allowance.limit ?? 0,
-                      /* The limiter owns the window length; the copy only
-                         reports it, so changing the rule cannot leave the
-                         line claiming an hour it no longer means. */
-                      hours: Math.round((allowance.windowSeconds ?? 3_600) / 3_600),
-                    })
-                  : t.allowance.anonymousExhausted}
-              </span>{' '}
-              {t.allowance.signedInDifference}{' '}
-              <a href="/login" className="font-medium text-brandink underline-offset-2 hover:underline">
-                {t.allowance.signIn}
-              </a>
-            </>
-          ) : (
-            t.allowance.signedIn
-          )}
-        </p>
-      ) : null}
 
       <p className="mt-3.5 text-center text-[11.5px] leading-[1.7] text-faint">
         {t.footnoteLine1}

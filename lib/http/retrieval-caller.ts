@@ -22,17 +22,16 @@ import { strictRateLimit } from '@/lib/infrastructure/cache/strict-rate-limit';
  * A long window rather than a generous hourly one: ten questions is enough to
  * decide whether the answers are worth an account, and spreading them over
  * five hours means a scraper waits out four idle hours per ten requests
- * instead of resetting every hour. The window length reaches the playground
- * with the count (`TrialAllowance`), so the copy says how long it is rather
- * than assuming an hour.
+ * instead of resetting every hour. The window length goes out with the count
+ * (`TrialAllowance`, `trialHeaders`), so a client can say how long it is
+ * rather than assume an hour.
  */
 export const ANONYMOUS_RATE_RULE: RateLimitRule = { limit: 10, windowSeconds: 18_000 };
 
 /**
  * What an anonymous caller has left of the trial window, counted after this
- * request. requirement.md 5.1 rule 8: the playground must show the remaining
- * count, so the limiter's verdict rides along with the caller instead of
- * being dropped on the floor once it said yes.
+ * request. The limiter's verdict rides along with the caller instead of
+ * being dropped on the floor once it said yes, so the response can report it.
  */
 export interface TrialAllowance {
   limit: number;
@@ -100,22 +99,25 @@ export async function retrievalCaller(
 }
 
 /**
- * The playground's caller: an API key, else the browser session, else
- * anonymous.
+ * The playground's caller: an API key, else the browser session. Nobody else.
+ *
+ * The playground is for signed-in users: its answers are generated at the
+ * platform's cost, and an anonymous visitor only ever had the trial rate
+ * limit standing between that cost and the open internet. The page itself
+ * sends a visitor without a session to the login (app/(public)/playground);
+ * this is the same rule for a request that skips the page.
  *
  * The retrieval endpoints above stay key-only -- a cookie must not
  * authenticate a cross-site POST to /v1. The playground is the site's own
  * page, and its promise to a signed-in visitor ("each exchange counts as one
- * API call") is only kept if the session is what the request runs as: metered
- * by the workspace's quota rather than the anonymous limit, and answered by
- * the models the workspace's plan buys. A session that cannot be resolved --
- * expired, or the database briefly unreachable -- degrades to anonymous, the
- * way the marketing header does.
+ * API call") is only kept if the session is what the request runs as:
+ * metered by the workspace's quota, and answered by the models the
+ * workspace's plan buys.
  */
 export async function playgroundCaller(
   request: NextRequest,
   requestId: string,
-): Promise<RetrievalCaller> {
+): Promise<CallerContext> {
   const principal = await resolveApiKey(request.headers.get('authorization'));
   if (principal) {
     return {
@@ -125,27 +127,18 @@ export async function playgroundCaller(
       anonymous: false,
       scopes: principal.scopes,
       entrypoint: 'web',
-      trial: null,
     };
   }
 
-  const session = await resolveSession(request.cookies.get(SESSION_COOKIE)?.value).catch(
-    (error: unknown) => {
-      console.warn(`session lookup failed: ${error instanceof Error ? error.message : 'unknown'}`);
-      return null;
-    },
-  );
-  if (session) {
-    return {
-      workspaceId: session.workspace.id,
-      apiKeyId: null,
-      requestId,
-      anonymous: false,
-      entrypoint: 'web',
-      trial: null,
-    };
+  const session = await resolveSession(request.cookies.get(SESSION_COOKIE)?.value);
+  if (!session) {
+    throw new AppError('access_denied', 'sign in to use the playground');
   }
-
-  const caller = await retrievalCaller(request, requestId);
-  return { ...caller, entrypoint: 'web' };
+  return {
+    workspaceId: session.workspace.id,
+    apiKeyId: null,
+    requestId,
+    anonymous: false,
+    entrypoint: 'web',
+  };
 }

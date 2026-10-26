@@ -857,7 +857,8 @@ export const en: Dictionary = {
     sourcesLabel: 'Sources',
     askErrorTitle: 'That did not go through',
     askError: 'Something went wrong. Try again shortly.',
-    rateLimited: 'The trial limit is reached — try again later, or sign in or subscribe to continue.',
+    rateLimited: 'Your workspace is out of calls, or this was too many questions too fast — try again later, or subscribe or buy a call pack to continue.',
+    signInRequired: 'Your session has ended. Reload the page and sign in again to continue.',
     thinkingLive: 'Answering from the retrieved passages…',
     inputPlaceholder: 'Ask a question… (Enter to send, Shift+Enter for a new line)',
     send: 'Send',
@@ -868,15 +869,10 @@ export const en: Dictionary = {
       'How are theme variables defined in Tailwind v4?',
     ],
     footnoteLine1:
-      'Anonymous use is rate limited by IP. Once signed in, each exchange counts as 1 API call and the platform absorbs the generation cost.',
+      'Each exchange counts as 1 API call against your workspace quota; the platform absorbs the generation cost.',
     footnoteLine2:
       'Every factual statement in an answer must bind to a chunk returned by this retrieval; anything that cannot be bound is not presented as fact.',
     allowance: {
-      anonymous: 'Anonymous trial: {remaining} of {limit} left in this {hours}-hour window',
-      anonymousExhausted: 'Anonymous trial: nothing left in this window',
-      signedInDifference: 'Signing in lifts this limit; each exchange then counts as 1 API call against your workspace quota.',
-      signIn: 'Sign in',
-      signedIn: 'Signed in: each exchange counts as 1 API call against your workspace quota.',
       pinnedTo: 'Querying {library} only',
       unpin: 'Route automatically instead',
       codeLabel: 'Code',

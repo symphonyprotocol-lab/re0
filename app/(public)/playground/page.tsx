@@ -1,5 +1,6 @@
 import type { Metadata } from 'next';
 import { Playground } from '@/components/site/playground';
+import { requireSession } from '@/lib/http/session';
 import { getMessages } from '@/lib/i18n/server';
 
 export async function generateMetadata(): Promise<Metadata> {
@@ -9,10 +10,19 @@ export async function generateMetadata(): Promise<Metadata> {
 
 type Search = { searchParams: Promise<{ library?: string }> };
 
-/** `?library=/owner/repo` pins the transcript to one public library (the detail page's entry). */
+/**
+ * `?library=/owner/repo` pins the transcript to one public library (the detail page's entry).
+ *
+ * Signed-in users only: a visitor without a session goes to the login and
+ * comes back here, pin included. The route behind it refuses the same
+ * callers (`playgroundCaller`), so the page is not the guard.
+ */
 export default async function PlaygroundPage({ searchParams }: Search) {
   const [{ library }, { playground }] = await Promise.all([searchParams, getMessages()]);
   const initialLibrary = library && library.startsWith('/') ? library.slice(0, 256) : null;
+  await requireSession(
+    initialLibrary ? `/playground?library=${encodeURIComponent(initialLibrary)}` : '/playground',
+  );
 
   return (
     <section>

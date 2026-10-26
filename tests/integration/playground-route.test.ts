@@ -9,9 +9,13 @@
  * matters: requirement.md 5.1 rule 5 is enforced by there being no channel
  * through which unbound prose could reach the client.
  *
+ * The route is for signed-in users, so the requests carry a real session
+ * cookie, minted by the login use case against a stand-in provider; one case
+ * checks that a request without one is refused before anything runs.
+ *
  * Runs only when TEST_DATABASE_URL points at a disposable database.
  */
-import { afterAll, describe, expect, it } from 'vitest';
+import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { NextRequest } from 'next/server';
 import { eq, inArray } from 'drizzle-orm';
 
@@ -33,6 +37,11 @@ const { EMBEDDING_COLUMN_DIMENSIONS } = await import('@/lib/infrastructure/ai/pr
 const { db, schema } = await import('@/lib/infrastructure/postgres/client');
 const { uuidv7 } = await import('@/lib/domain/id');
 const { POST: playgroundRoute } = await import('@/app/api/playground/route');
+const { completeOAuth } = await import('@/lib/application/auth/complete-oauth');
+const { resolveSession } = await import('@/lib/application/auth/resolve-session');
+const { seal } = await import('@/lib/infrastructure/crypto/sealed');
+const { OAUTH_STATE_TTL_MS } = await import('@/lib/domain/auth');
+const { SESSION_COOKIE } = await import('@/lib/http/cookie-names');
 
 const actor = { administratorId: null as unknown as string, email: 'ops@example.test' };
 const created: string[] = [];
@@ -101,17 +110,85 @@ async function publishedLibrary(slug: string): Promise<string> {
   return libraryId;
 }
 
-function ask(question: unknown): NextRequest {
+/** The signed-in visitor every request runs as; set by `signIn`. */
+let sessionToken = '';
+let userId = '';
+
+/** A real session, through the login use case; only the provider's network call is stood in for. */
+async function signIn(): Promise<void> {
+  const subject = `pgr-${Date.now()}`;
+  const state = 'state-for-playground-route';
+  const now = new Date();
+  const result = await completeOAuth({
+    provider: 'github',
+    code: 'code',
+    state,
+    sealedHandshake: await seal({
+      provider: 'github',
+      state,
+      nonce: 'nonce',
+      codeVerifier: 'verifier',
+      returnTo: '/playground',
+      expiresAt: now.getTime() + OAUTH_STATE_TTL_MS,
+    }),
+    redirectUri: 'https://example.test/api/auth/github/callback',
+    workspaceNaming: { personalWorkspace: '{owner} 的空间', fallbackOwner: '个人' },
+    adapter: {
+      supportsPkce: () => false,
+      authorizeUrl: () => 'https://example.test/authorize',
+      exchange: async () => ({
+        provider: 'github' as const,
+        subject,
+        email: `${subject}@example.test`,
+        emailVerified: true,
+        displayName: 'Playground Tester',
+        avatarUrl: null,
+      }),
+    },
+    now,
+  });
+  sessionToken = result.sessionToken;
+  userId = (await resolveSession(sessionToken))!.user.id;
+}
+
+function ask(question: unknown, signedIn = true): NextRequest {
   return new NextRequest('https://example.test/api/playground', {
     method: 'POST',
-    headers: { 'content-type': 'application/json' },
+    headers: {
+      'content-type': 'application/json',
+      ...(signedIn ? { cookie: `${SESSION_COOKIE}=${sessionToken}` } : {}),
+    },
     body: JSON.stringify({ question }),
   });
 }
 
 describeWithDb('playground route', () => {
+  beforeAll(signIn);
+
   afterAll(async () => {
     const database = db();
+    if (userId) {
+      const memberships = await database
+        .select({ id: schema.workspaceMember.workspaceId })
+        .from(schema.workspaceMember)
+        .where(eq(schema.workspaceMember.userId, userId));
+      const workspaceIds = memberships.map((row) => row.id);
+      if (workspaceIds.length > 0) {
+        await database.delete(schema.usageEvent).where(inArray(schema.usageEvent.workspaceId, workspaceIds));
+        await database
+          .delete(schema.usageReservation)
+          .where(inArray(schema.usageReservation.workspaceId, workspaceIds));
+        await database.delete(schema.requestLog).where(inArray(schema.requestLog.workspaceId, workspaceIds));
+        await database.delete(schema.subscription).where(inArray(schema.subscription.workspaceId, workspaceIds));
+      }
+      await database.delete(schema.userSession).where(eq(schema.userSession.userId, userId));
+      await database.delete(schema.workspaceMember).where(eq(schema.workspaceMember.userId, userId));
+      if (workspaceIds.length > 0) {
+        await database.delete(schema.workspace).where(inArray(schema.workspace.id, workspaceIds));
+      }
+      await database.delete(schema.oauthAccount).where(eq(schema.oauthAccount.userId, userId));
+      await database.delete(schema.user).where(eq(schema.user.id, userId));
+    }
     if (created.length === 0) return;
     await database
       .update(schema.library)
@@ -137,6 +214,20 @@ describeWithDb('playground route', () => {
       .where(inArray(schema.libraryAlias.libraryId, created));
     await database.delete(schema.auditLog).where(inArray(schema.auditLog.targetId, created));
     await database.delete(schema.library).where(inArray(schema.library.id, created));
+  });
+
+  it('refuses a caller without a session before anything is read', async () => {
+    const response = await playgroundRoute(ask('when are zug-tide tables recalibrated', false));
+    expect(response.status).toBe(403);
+    expect(await response.json()).toMatchObject({ error: { code: 'access_denied' } });
+
+    /* A cookie that names no live session is no better. */
+    const forged = new NextRequest('https://example.test/api/playground', {
+      method: 'POST',
+      headers: { 'content-type': 'application/json', cookie: `${SESSION_COOKIE}=not-a-session` },
+      body: JSON.stringify({ question: 'anything' }),
+    });
+    expect((await playgroundRoute(forged)).status).toBe(403);
   });
 
   it('routes to the top library and degrades to sourced passages without an LLM', async () => {

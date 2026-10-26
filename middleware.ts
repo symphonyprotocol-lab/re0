@@ -191,14 +191,16 @@ export function middleware(request: NextRequest): NextResponse {
   }
 
   /*
-   * Only the dashboard is gated. Everywhere else an anonymous visitor is a
-   * visitor, and the request is matched purely so a signed-in one gets the
-   * cookie above: `resolveSession` slides the row on every page that renders
-   * the site header, so a reader who lives in the playground kept a live
-   * session while the browser dropped the cookie on the thirtieth day after
-   * sign-in -- signed out precisely because they had never stopped reading.
+   * Only the dashboard and the playground are gated. Everywhere else an
+   * anonymous visitor is a visitor, and the request is matched purely so a
+   * signed-in one gets the cookie above: `resolveSession` slides the row on
+   * every page that renders the site header, so a reader who lives in the
+   * playground kept a live session while the browser dropped the cookie on
+   * the thirtieth day after sign-in -- signed out precisely because they had
+   * never stopped reading. The playground page checks the session itself
+   * (app/(public)/playground); this only spares an anonymous visitor the render.
    */
-  if (!path.startsWith('/dashboard')) return NextResponse.next();
+  if (!path.startsWith('/dashboard') && path !== '/playground') return NextResponse.next();
 
   const login = new URL('/login', request.url);
   login.searchParams.set('returnTo', returnTo);
