@@ -162,6 +162,7 @@ export default async function AdminLoginPage({
 
             <BootstrapForm
               secret={bootstrap.secret}
+              ticket={bootstrap.ticket}
               provisioningUri={bootstrap.provisioningUri}
               qrSvg={bootstrapQr}
               copy={{

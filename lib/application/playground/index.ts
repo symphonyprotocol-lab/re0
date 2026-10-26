@@ -70,8 +70,10 @@ import { libraryRewriteHints } from './rewrite-hints';
  * When no library confirms and a model is configured, the model is asked
  * once to restate the question in the corpus's language and vocabulary
  * (lib/domain/generation.ts `REWRITE_SYSTEM_PROMPT`), and retrieval runs
- * again with that query -- unmetered, since the exchange already reserved its
- * Call. The same call resolves a follow-up: a caller that sends the turns
+ * again with that query. The first pass confirmed nothing, so it released its
+ * seat (retrieval/gather.ts); the retry reserves the exchange's one Call
+ * again, under the same request id, and keeps it only if it finds context.
+ * The same call resolves a follow-up: a caller that sends the turns
  * before the question has them shown to the rewrite, so "and the price?"
  * is restated against them in the one line -- never a call of its own, and
  * never before the question as typed has been tried. The rewrite produces
@@ -290,7 +292,7 @@ export async function* streamPlayground(
     const retry = rewritten
       ? await gather(
           caller,
-          { libraries: input.libraries, query: rewritten, maxTokens, meter: false },
+          { libraries: input.libraries, query: rewritten, maxTokens },
           retrievalDependencies,
         ).catch((error: unknown) => {
           logDegraded('retry retrieval failed', error);

@@ -1,9 +1,11 @@
 /**
  * Rewrite on miss, as a decision. architecture.md 9.5 and 9.6: when no
  * library confirms the question as asked, and only then, and only with a
- * usable model, the playground asks for one reformulation and reads again --
- * unmetered. A retry that confirms answers from its chunks; one that misses,
- * or a rewrite that fails, is the same no-context as before.
+ * usable model, the playground asks for one reformulation and reads again.
+ * The miss released its seat, so the retry is metered: the exchange's one
+ * Call is kept only if the retry finds context. A retry that confirms
+ * answers from its chunks; one that misses, or a rewrite that fails, is the
+ * same no-context as before.
  *
  * Everything below the playground is faked through its dependency seams, so
  * this runs without a database or a provider.
@@ -182,7 +184,8 @@ describe('playground rewrite on miss', () => {
     const { gathers, llmCalls, costs, events, types } = await run({ passes: [false, true] });
     expect(gathers).toEqual([
       { query: '会员怎么开通?', meter: true },
-      { query: 'how to subscribe to a plan', meter: false },
+      /* Metered: the miss gave its seat back (gather.ts), and only a retry with context keeps one. */
+      { query: 'how to subscribe to a plan', meter: true },
     ]);
     /* The rewrite call is bounded by its output cap and the entry's own clock, and describes the site from its profile. */
     const rewrite = llmCalls[0]!;

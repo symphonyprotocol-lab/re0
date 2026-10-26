@@ -55,18 +55,6 @@ export interface PlaygroundRouting {
   pinned: boolean;
 }
 
-/**
- * Where the caller stands after this exchange (requirement.md 5.1 rule 8).
- * Anonymous: the trial window's count. Signed in or keyed: metered by the
- * workspace's quota instead, one Call per exchange, and no window at all.
- */
-export interface PlaygroundAllowance {
-  anonymous: boolean;
-  limit: number | null;
-  remaining: number | null;
-  windowSeconds: number | null;
-}
-
 /** Which configured model is answering, and whether a paid plan would offer another. */
 export interface PlaygroundModel {
   label: string;
@@ -81,7 +69,6 @@ export type PlaygroundUIMessage = UIMessage<
   never,
   {
     routing: PlaygroundRouting;
-    allowance: PlaygroundAllowance;
     gather: PlaygroundGather;
     model: PlaygroundModel;
     /**

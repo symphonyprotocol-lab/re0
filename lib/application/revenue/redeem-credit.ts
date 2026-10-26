@@ -30,6 +30,7 @@ import {
   type PackRate,
 } from '@/lib/domain';
 import { holdEndsAt } from '@/lib/domain/admin';
+import { PLAN_CURRENCY } from '@/lib/domain/plans';
 import { uuidv7 } from '@/lib/domain/id';
 import type { WorkspaceRole } from '@/lib/application/libraries/delete';
 import type { Tx } from '@/lib/application/plans/quota';
@@ -142,6 +143,8 @@ export async function earningCredit(
             and(
               eq(schema.settlement.publisherAccountId, accountId),
               eq(schema.settlement.status, 'accrued'),
+              /* What the button can convert: the redeem below prices USD only. */
+              eq(schema.settlement.currency, PLAN_CURRENCY),
               isNotNull(schema.revenuePeriod.lockedAt),
             ),
           )
@@ -241,7 +244,7 @@ export async function redeemEarningsAsCalls(input: {
     /* One currency per redemption: the pack is priced in USD and so is every
        statement today, but a row in another currency must not be converted
        at the USD rate. It stays accrued for a rail that can price it. */
-    const convertible = rows.filter((row) => row.currency === 'USD');
+    const convertible = rows.filter((row) => row.currency === PLAN_CURRENCY);
     const amountMinor = convertible.reduce((sum, row) => sum + Number(row.amountMinor), 0);
     const calls = creditCallsFor(amountMinor, pack);
     if (convertible.length === 0 || calls < 1) {
@@ -257,7 +260,7 @@ export async function redeemEarningsAsCalls(input: {
       workspaceId: input.workspaceId,
       callsGranted: calls,
       priceMinor: amountMinor,
-      currency: 'USD',
+      currency: PLAN_CURRENCY,
       publisherAccountId: account.id,
       redeemedBy: redeemedByTag(input.actor),
     });
@@ -271,6 +274,6 @@ export async function redeemEarningsAsCalls(input: {
         ),
       );
 
-    return { grantId, amountMinor, currency: 'USD', calls, statements: convertible.length };
+    return { grantId, amountMinor, currency: PLAN_CURRENCY, calls, statements: convertible.length };
   });
 }

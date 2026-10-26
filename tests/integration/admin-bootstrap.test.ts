@@ -29,14 +29,15 @@ const { resolveAdminSession } = await import(
 );
 const { AdminChangeRefused } = await import('@/lib/domain/admin');
 const { base32Decode } = await import('@/lib/domain/totp');
-const { unseal } = await import('@/lib/infrastructure/crypto/sealed');
+const { seal, unseal } = await import('@/lib/infrastructure/crypto/sealed');
 const { db, schema } = await import('@/lib/infrastructure/postgres/client');
 
 const PASSWORD = 'a password long enough to pass';
 const EMAIL = `founder-${Date.now()}@example.test`;
 
-/** The secret the first offer handed out; kept so a later case can still pass MFA. */
+/** The secret the first offer handed out, and its ticket; kept so a later case can still pass MFA. */
 let offeredSecret = '';
+let offeredTicket = '';
 
 /** The code an authenticator loaded with `secret` would be showing now. */
 async function codeFor(secret: string, now = new Date()): Promise<string> {
@@ -84,7 +85,58 @@ describeWithDb('first administrator', () => {
     const offer = await offerBootstrap();
     expect(offer?.secret).toMatch(/^[A-Z2-7]+$/);
     expect(offer?.provisioningUri).toContain('otpauth://totp/');
+    expect(offer?.ticket).toBeTruthy();
     offeredSecret = offer!.secret;
+    offeredTicket = offer!.ticket;
+  });
+
+  it('mints a new secret per render rather than deriving one from the signing key', async () => {
+    /*
+     * A derived seed was the same for every installation sharing
+     * SESSION_SIGNING_SECRET, so an empty dev console printed production's.
+     * Two renders must now disagree, and the ticket must not show the secret.
+     */
+    const first = await offerBootstrap();
+    const second = await offerBootstrap();
+    expect(first!.secret).not.toBe(second!.secret);
+    expect(first!.ticket).not.toContain(first!.secret);
+  });
+
+  it('refuses a secret the server did not mint for this form', async () => {
+    const offer = await offerBootstrap();
+    const code = await codeFor(offer!.secret);
+    const attempt = (ticket: string) =>
+      bootstrapFirstAdministrator({
+        email: EMAIL,
+        username: 'Founder',
+        password: PASSWORD,
+        mfaCode: code,
+        ticket,
+      }).catch((reason: unknown) => reason);
+
+    const forged = await attempt('not-a-ticket');
+    const otherPurpose = await attempt(
+      await seal({
+        purpose: 'admin-totp',
+        binding: 'invite:someone-else',
+        secret: offer!.secret,
+        expiresAt: Date.now() + 60_000,
+      }),
+    );
+    const expired = await attempt(
+      await seal({
+        purpose: 'admin-totp',
+        binding: 'bootstrap',
+        secret: offer!.secret,
+        expiresAt: Date.now() - 1,
+      }),
+    );
+
+    for (const error of [forged, otherPurpose, expired]) {
+      expect(error).toBeInstanceOf(AdminChangeRefused);
+      expect((error as InstanceType<typeof AdminChangeRefused>).code).toBe('invalid_input');
+    }
+    expect(await hasAnyAdministrator()).toBe(false);
   });
 
   it('refuses a weak password without writing anything', async () => {
@@ -93,6 +145,7 @@ describeWithDb('first administrator', () => {
       username: 'Founder',
       password: 'short',
       mfaCode: '000000',
+      ticket: offeredTicket,
     }).catch((reason: unknown) => reason);
 
     expect(error).toBeInstanceOf(AdminChangeRefused);
@@ -110,6 +163,7 @@ describeWithDb('first administrator', () => {
       username: 'Founder',
       password: PASSWORD,
       mfaCode: wrong,
+      ticket: offer!.ticket,
     }).catch((reason: unknown) => reason);
 
     expect(error).toBeInstanceOf(AdminChangeRefused);
@@ -124,6 +178,7 @@ describeWithDb('first administrator', () => {
       username: '  Founder  ',
       password: PASSWORD,
       mfaCode: await codeFor(offer!.secret),
+      ticket: offer!.ticket,
     });
 
     const [row] = await db()
@@ -166,6 +221,7 @@ describeWithDb('first administrator', () => {
       username: 'Second',
       password: PASSWORD,
       mfaCode: await codeFor(offeredSecret),
+      ticket: offeredTicket,
     }).catch((reason: unknown) => reason);
 
     expect(error).toBeInstanceOf(AdminChangeRefused);

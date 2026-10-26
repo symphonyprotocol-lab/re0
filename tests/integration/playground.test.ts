@@ -330,6 +330,77 @@ describeWithDb('playground', () => {
     expect(byId.get(`/websites/pg-gather-missing-${stamp}`)).toMatchObject({ failed: true, confirmed: false });
   });
 
+  it('charges a signed-in exchange to the library that answered, and nothing for no context', async () => {
+    const stamp = Date.now();
+    await publishedLibrary(
+      `pg-meter-c-${stamp}`,
+      '# Orchard notes\n\nThe quorl-apple harvest is pressed every equinox.',
+    );
+    const answering = await publishedLibrary(`pg-meter-a-${stamp}`);
+    const workspaceId = crypto.randomUUID();
+    await db().insert(schema.workspace).values({ id: workspaceId, name: 'playground-meter' });
+    const signedIn = () => ({
+      workspaceId,
+      apiKeyId: null,
+      requestId: `req_${crypto.randomUUID()}`,
+      anonymous: false,
+      entrypoint: 'web' as const,
+    });
+    const eventsOf = (requestId: string) =>
+      db()
+        .select({ libraryId: schema.usageEvent.libraryId })
+        .from(schema.usageEvent)
+        .where(eq(schema.usageEvent.requestId, requestId));
+    const seatOf = async (requestId: string) => {
+      const [seat] = await db()
+        .select({ status: schema.usageReservation.status })
+        .from(schema.usageReservation)
+        .where(eq(schema.usageReservation.requestId, requestId));
+      return seat?.status;
+    };
+
+    try {
+      /* Routed first but unconfirmed: the Call goes to the library whose passages answered. */
+      const answered = signedIn();
+      const output = await askPlayground(
+        answered,
+        {
+          libraries: [
+            { libraryId: `/websites/pg-meter-c-${stamp}`, title: 'C' },
+            { libraryId: `/websites/pg-meter-a-${stamp}`, title: 'A' },
+          ],
+          question: 'rove beetle exposure',
+        },
+        playgroundDeps({ completion: 'Rinse with water. [ref:1]' }),
+      );
+      expect(output.kind).toBe('answer');
+      expect(await eventsOf(answered.requestId)).toEqual([{ libraryId: answering }]);
+      expect(await seatOf(answered.requestId)).toBe('committed');
+
+      /* Nothing confirmed: the reader sees no context and is charged nothing. */
+      const missed = signedIn();
+      const none = await askPlayground(
+        missed,
+        {
+          libraries: [{ libraryId: `/websites/pg-meter-c-${stamp}`, title: 'C' }],
+          question: 'rove beetle exposure',
+        },
+        playgroundDeps({ config: null }),
+      );
+      expect(none.kind).toBe('no_context');
+      expect(await eventsOf(missed.requestId)).toEqual([]);
+      expect(await seatOf(missed.requestId)).toBe('released');
+    } finally {
+      const database = db();
+      await database.delete(schema.usageEvent).where(eq(schema.usageEvent.workspaceId, workspaceId));
+      await database
+        .delete(schema.usageReservation)
+        .where(eq(schema.usageReservation.workspaceId, workspaceId));
+      await database.delete(schema.requestLog).where(eq(schema.requestLog.workspaceId, workspaceId));
+      await database.delete(schema.workspace).where(eq(schema.workspace.id, workspaceId));
+    }
+  });
+
   it('never calls the model without context, and degrades on provider failure', async () => {
     const stamp = Date.now();
     await publishedLibrary(`pg-degrade-${stamp}`);

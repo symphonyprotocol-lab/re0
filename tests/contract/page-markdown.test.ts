@@ -88,4 +88,64 @@ describe('Markdown page representations', () => {
       fetchPage.mockRestore();
     }
   });
+
+  it('lets the renderer\'s own fetch of a literal `.md` page through', () => {
+    const response = middleware(
+      new NextRequest('https://re0.test/libraries/owner/notes.md', {
+        headers: { 'x-re0-markdown-source': '1' },
+      }),
+    );
+
+    expect(response.headers.get('x-middleware-rewrite')).toBeNull();
+  });
+
+  it('serves the literal page when the path without `.md` is no page', async () => {
+    /* A library mirroring a repository named `notes.md`: /owner/notes does not exist. */
+    const fetchPage = vi.spyOn(globalThis, 'fetch').mockImplementation(async (input) => {
+      const url = input instanceof URL ? input : new URL(String(input));
+      return url.pathname === '/libraries/owner/notes.md'
+        ? new Response('<html><body><main><h1>notes.md</h1></main></body></html>', {
+            status: 200,
+            headers: { 'content-type': 'text/html; charset=utf-8' },
+          })
+        : new Response('not found', { status: 404, headers: { 'content-type': 'text/html' } });
+    });
+    try {
+      const response = await renderMarkdownPage(
+        new NextRequest('https://re0.test/libraries/owner/notes.md', {
+          headers: { 'x-re0-markdown-page': '/libraries/owner/notes' },
+        }),
+      );
+
+      expect(response.status).toBe(200);
+      expect(response.headers.get('content-type')).toContain('text/html');
+      expect(await response.text()).toContain('<h1>notes.md</h1>');
+      const literal = fetchPage.mock.calls[1]?.[0] as URL;
+      expect(literal.pathname).toBe('/libraries/owner/notes.md');
+      expect(new Headers(fetchPage.mock.calls[1]?.[1]?.headers).get('x-re0-markdown-source')).toBe('1');
+    } finally {
+      fetchPage.mockRestore();
+    }
+  });
+
+  it('keeps a plain 404 when neither reading is a page', async () => {
+    const fetchPage = vi.spyOn(globalThis, 'fetch').mockImplementation(
+      async () => new Response('<html><body><main><h1>Not found</h1></main></body></html>', {
+        status: 404,
+        headers: { 'content-type': 'text/html' },
+      }),
+    );
+    try {
+      const response = await renderMarkdownPage(
+        new NextRequest('https://re0.test/libraries/owner/missing.md', {
+          headers: { 'x-re0-markdown-page': '/libraries/owner/missing' },
+        }),
+      );
+
+      expect(response.status).toBe(404);
+      expect(response.headers.get('content-type')).toContain('text/markdown');
+    } finally {
+      fetchPage.mockRestore();
+    }
+  });
 });

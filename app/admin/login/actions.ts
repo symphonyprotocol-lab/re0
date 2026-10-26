@@ -33,6 +33,7 @@ export async function bootstrapAdministratorAction(
       username: String(form.get('username') ?? ''),
       password,
       mfaCode: String(form.get('mfa') ?? ''),
+      ticket: String(form.get('ticket') ?? ''),
       clientAddress: clientAddress(bag),
     });
     return { ok: true };

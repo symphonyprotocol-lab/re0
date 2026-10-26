@@ -109,6 +109,7 @@ async function statement(input: {
   libraryId: string;
   amountMinor: number;
   status?: 'accrued' | 'voided';
+  currency?: string;
 }): Promise<string> {
   const id = uuidv7();
   await db().insert(schema.settlement).values({
@@ -118,7 +119,7 @@ async function statement(input: {
     libraryId: input.libraryId,
     attributableCalls: 10,
     amountMinor: input.amountMinor,
-    currency: 'USD',
+    currency: input.currency ?? 'USD',
     status: input.status ?? 'accrued',
   });
   return id;
@@ -322,6 +323,37 @@ describeWithDb('earning credit', () => {
         [bad, 'accrued'],
       ]),
     );
+  });
+
+  it('shows as redeemable only what the redeem converts', async () => {
+    const now = new Date();
+    const owner = await workspace('credit-owner-currency');
+    const account = await publisherAccount(owner);
+    const usd = await library('credit-usd', owner);
+    const eur = await library('credit-eur', owner);
+    await lockedPeriod('2022-07', new Date(now.getTime() - (PAYOUT_HOLD_DAYS + 1) * DAY));
+    await statement({ periodId: '2022-07', publisherAccountId: account, libraryId: usd, amountMinor: 400 });
+    const foreign = await statement({
+      periodId: '2022-07',
+      publisherAccountId: account,
+      libraryId: eur,
+      amountMinor: 900,
+      currency: 'EUR',
+    });
+
+    const before = await earningCredit(account, now);
+    expect(before).toMatchObject({ redeemableMinor: 400, redeemableStatements: 1, redeemableCalls: 4_000 });
+
+    const redeemed = await redeemEarningsAsCalls({ workspaceId: owner, actor: ACTOR, now });
+    expect(redeemed).toMatchObject({ amountMinor: before.redeemableMinor, calls: before.redeemableCalls });
+
+    /* The foreign statement waits for a rail that can price it, and is not shown as convertible meanwhile. */
+    const [row] = await db()
+      .select({ status: schema.settlement.status })
+      .from(schema.settlement)
+      .where(eq(schema.settlement.id, foreign));
+    expect(row?.status).toBe('accrued');
+    expect((await earningCredit(account, now)).redeemableMinor).toBe(0);
   });
 
   it('gives two racing redeems one grant between them', async () => {

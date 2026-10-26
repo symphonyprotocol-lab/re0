@@ -22,13 +22,12 @@
  * expensive entry configured. What the caller's plan buys decides which
  * entries it is answered by (the console's `audience`).
  *
- * Anonymous is the normal case here and rides the fail-closed anonymous rate
- * limit; a signed-in visitor runs as their workspace, metered by its quota
- * and answered by its plan's models; a Bearer key works the same way, and is
- * held to the same scopes it would need on /v1 -- one exchange routes and
- * then reads context, so a key that may do neither must not do both here.
- * Either way the stream's first data part says where the caller stands
- * (rule 8).
+ * Signed-in callers only (`playgroundCaller`): a visitor runs as their
+ * workspace, metered by its quota and answered by its plan's models; a
+ * Bearer key works the same way, and is held to the same scopes it would
+ * need on /v1 -- one exchange routes and then reads context, so a key that
+ * may do neither must not do both here. Anyone else is refused before
+ * anything is read or generated.
  *
  * An optional `libraryId` pins the exchange to one public library -- the
  * detail page's fixed entry (requirement.md 5.1: 针对该库的固定查询入口，复用
@@ -44,9 +43,9 @@ import { publicLibraryHeading } from '@/lib/application/libraries';
 import { resolveLibraryId } from '@/lib/application/retrieval';
 import { streamPlayground } from '@/lib/application/playground';
 import { fencedCodeBlocks } from '@/lib/domain/code-blocks';
-import { playgroundCaller, trialHeaders } from '@/lib/http/retrieval-caller';
+import { playgroundCaller } from '@/lib/http/retrieval-caller';
 import { errorResponse, newRequestId } from '@/lib/http/respond';
-import type { PlaygroundAllowance, PlaygroundUIMessage } from '@/lib/http/playground-stream';
+import type { PlaygroundUIMessage } from '@/lib/http/playground-stream';
 
 export const runtime = 'nodejs';
 
@@ -59,8 +58,8 @@ export async function POST(request: NextRequest): Promise<Response> {
     const caller = await playgroundCaller(request, requestId);
     /* A Bearer key reaches this route too, and one exchange spends the same
        quota /v1 does: routing reads the catalogue and the answer reads chunks,
-       so a key must hold both scopes here as it would there. Session and
-       anonymous callers carry no scopes and pass (requireScope). */
+       so a key must hold both scopes here as it would there. A session
+       carries no scopes and passes (requireScope). */
     requireScope(caller, 'knowledge:search');
     requireScope(caller, 'knowledge:read');
 
@@ -106,19 +105,9 @@ export async function POST(request: NextRequest): Promise<Response> {
       top = resolved.results[0] ?? null;
     }
 
-    const allowance: PlaygroundAllowance = caller.trial
-      ? {
-          anonymous: true,
-          limit: caller.trial.limit,
-          remaining: caller.trial.remaining,
-          windowSeconds: caller.trial.windowSeconds,
-        }
-      : { anonymous: false, limit: null, remaining: null, windowSeconds: null };
-
     const stream = createUIMessageStream<PlaygroundUIMessage>({
       execute: async ({ writer }) => {
         writer.write({ type: 'start' });
-        writer.write({ type: 'data-allowance', data: allowance });
         writer.write({
           type: 'data-routing',
           data: {
@@ -201,7 +190,7 @@ export async function POST(request: NextRequest): Promise<Response> {
 
     return createUIMessageStreamResponse({
       stream,
-      headers: { 'cache-control': 'private, no-store', ...trialHeaders(caller.trial) },
+      headers: { 'cache-control': 'private, no-store' },
     });
   } catch (error) {
     return errorResponse(error, requestId) as unknown as NextResponse;

@@ -16,7 +16,7 @@ Core product principles:
 
 - [Home](https://re0.io/): Product overview, MCP connection details, and featured knowledge libraries.
 - [Knowledge directory](https://re0.io/libraries): Browse and search public knowledge libraries.
-- [Online playground](https://re0.io/playground): Try retrieval against public libraries.
+- [Online playground](https://re0.io/playground): Try retrieval against public libraries (sending a question requires sign-in).
 - [Pricing](https://re0.io/pricing): Free, Pro, and additional-call pricing and limits.
 - [About](https://re0.io/about): Re0's purpose, principles, and product scope.
 - [Service status](https://re0.io/status): Current retrieval, indexing, refresh, and review status.

@@ -23,10 +23,10 @@ import {
   type AdminRoleId,
   type AdminStatus,
 } from '@/lib/domain/admin';
-import { base32Encode, totpProvisioningUri, verifyTotpCounter } from '@/lib/domain/totp';
+import { randomTotpSecret, totpProvisioningUri, verifyTotpCounter } from '@/lib/domain/totp';
 import { db, schema } from '@/lib/infrastructure/postgres/client';
-import { seal } from '@/lib/infrastructure/crypto/sealed';
-import { hmacSha256, hmacSha256Bytes, randomToken } from '@/lib/infrastructure/crypto/tokens';
+import { seal, unseal } from '@/lib/infrastructure/crypto/sealed';
+import { hmacSha256, randomToken } from '@/lib/infrastructure/crypto/tokens';
 import { likePattern } from './like-pattern';
 import { hashAdminPassword } from './password';
 import { recordAudit } from './audit';
@@ -52,20 +52,70 @@ function inviteTokenHash(token: string): Promise<string> {
 }
 
 /**
- * The TOTP secret an invitation is worth, derived rather than chosen.
- *
- * It used to be minted per render and carried back through a hidden form field,
- * which meant the browser decided what got stored: a caller could post a
- * one-byte secret and reach `active` with a second factor worth 256 guesses.
- * Deriving it from the invitation token under the server's signing key removes
- * the client from the decision entirely, and as a bonus makes it stable across
- * reloads -- the same invitation always shows the same secret.
- *
- * 20 bytes is what RFC 4226 recommends for HMAC-SHA1.
+ * How long a rendered enrolment form stays good. Long enough to fetch a phone
+ * and scan a code; short enough that a page left open is not a standing offer.
  */
-async function secretForInvite(token: string): Promise<string> {
-  const bytes = await hmacSha256Bytes(signingSecret(), `admin-totp:${token}`);
-  return base32Encode(bytes.slice(0, 20));
+const ENROLMENT_TICKET_TTL_MS = 30 * 60 * 1000;
+
+/** `randomTotpSecret`'s 20 bytes (RFC 4226's recommendation), as base32. */
+const TOTP_SECRET_PATTERN = /^[A-Z2-7]{32}$/;
+
+interface EnrolmentTicket {
+  purpose: 'admin-totp';
+  /** What the secret may be bound to: `bootstrap`, or `invite:<token hash>`. */
+  binding: string;
+  secret: string;
+  expiresAt: number;
+}
+
+/**
+ * A fresh TOTP secret, and the sealed ticket that carries it back.
+ *
+ * Random per render, not derived. Deriving it from `SESSION_SIGNING_SECRET`
+ * made the second factor a function of a secret that every environment shares
+ * (architecture.md 3.2): any checkout with that secret and an empty console
+ * printed the production super administrator's seed, and anyone holding the
+ * secret could recompute an invitee's. A random seed is known only to whoever
+ * saw that one render.
+ *
+ * The ticket is what keeps the browser out of the decision, which is why the
+ * derivation existed: it is AES-GCM sealed, so a caller cannot post a secret of
+ * its choosing, and it names the invitation (or the empty console) it was
+ * minted for, so one invitation's ticket cannot enrol another.
+ */
+async function mintEnrolmentTicket(
+  binding: string,
+  now: Date = new Date(),
+): Promise<{ secret: string; ticket: string }> {
+  const secret = randomTotpSecret();
+  const ticket: EnrolmentTicket = {
+    purpose: 'admin-totp',
+    binding,
+    secret,
+    expiresAt: now.getTime() + ENROLMENT_TICKET_TTL_MS,
+  };
+  return { secret, ticket: await seal(ticket) };
+}
+
+/** The secret a ticket carries, or null when it is forged, expired or minted for something else. */
+async function secretFromTicket(
+  ticket: string | null | undefined,
+  binding: string,
+  now: Date,
+): Promise<string | null> {
+  const opened = await unseal<Partial<EnrolmentTicket>>(ticket);
+  if (
+    !opened ||
+    opened.purpose !== 'admin-totp' ||
+    opened.binding !== binding ||
+    typeof opened.expiresAt !== 'number' ||
+    opened.expiresAt <= now.getTime() ||
+    typeof opened.secret !== 'string' ||
+    !TOTP_SECRET_PATTERN.test(opened.secret)
+  ) {
+    return null;
+  }
+  return opened.secret;
 }
 
 export interface AdministratorRow {
@@ -597,16 +647,18 @@ export interface EnrolmentOffer {
   /** Base32, shown once so it can be typed into an authenticator app. */
   secret: string;
   provisioningUri: string;
+  /** Posted back with the form; the only way `completeEnrolment` learns the secret. */
+  ticket: string;
 }
 
 /**
- * What a live invitation is worth: who it is for, and the TOTP secret it binds.
+ * What a live invitation is worth: who it is for, and a TOTP secret to bind.
  *
- * The secret is derived from the token, not minted here, so rendering this page
- * twice shows the same one and `completeEnrolment` can recompute it without
- * being told.
+ * Minted per render (`mintEnrolmentTicket`), so a reload shows a new secret;
+ * the form carries its own back as a sealed ticket tied to this invitation.
  */
 export async function offerEnrolment(token: string): Promise<EnrolmentOffer> {
+  const tokenHash = await inviteTokenHash(token);
   const [row] = await db()
     .select({
       id: schema.administrator.id,
@@ -616,20 +668,21 @@ export async function offerEnrolment(token: string): Promise<EnrolmentOffer> {
       inviteExpiresAt: schema.administrator.inviteExpiresAt,
     })
     .from(schema.administrator)
-    .where(eq(schema.administrator.inviteTokenHash, await inviteTokenHash(token)))
+    .where(eq(schema.administrator.inviteTokenHash, tokenHash))
     .limit(1);
 
   if (!row || row.status !== 'invited' || !isInviteLive(row.inviteExpiresAt, new Date())) {
     throw new AdminChangeRefused('invite_invalid', 'invitation is unknown, used or expired');
   }
 
-  const secret = await secretForInvite(token);
+  const { secret, ticket } = await mintEnrolmentTicket(`invite:${tokenHash}`);
   return {
     administratorId: row.id,
     email: row.email,
     username: row.username,
     secret,
     provisioningUri: totpProvisioningUri({ secret, account: row.email, issuer: 're0' }),
+    ticket,
   };
 }
 
@@ -643,6 +696,8 @@ export async function offerEnrolment(token: string): Promise<EnrolmentOffer> {
  */
 export async function completeEnrolment(input: {
   token: string;
+  /** The sealed ticket `offerEnrolment` printed into the form. */
+  ticket: string;
   password: string;
   mfaCode: string;
   clientAddress?: string | null;
@@ -656,6 +711,7 @@ export async function completeEnrolment(input: {
 
   const now = new Date();
   const database = db();
+  const tokenHash = await inviteTokenHash(input.token);
   const [row] = await database
     .select({
       id: schema.administrator.id,
@@ -664,15 +720,18 @@ export async function completeEnrolment(input: {
       inviteExpiresAt: schema.administrator.inviteExpiresAt,
     })
     .from(schema.administrator)
-    .where(eq(schema.administrator.inviteTokenHash, await inviteTokenHash(input.token)))
+    .where(eq(schema.administrator.inviteTokenHash, tokenHash))
     .limit(1);
 
   if (!row || row.status !== 'invited' || !isInviteLive(row.inviteExpiresAt, now)) {
     throw new AdminChangeRefused('invite_invalid', 'invitation is unknown, used or expired');
   }
 
-  // Recomputed from the token: the caller has no say in which secret is bound.
-  const secret = await secretForInvite(input.token);
+  // Only the ticket minted for this invitation names a secret; the caller cannot pick one.
+  const secret = await secretFromTicket(input.ticket, `invite:${tokenHash}`, now);
+  if (secret === null) {
+    throw new AdminChangeRefused('invalid_input', 'the enrolment form expired; reload it');
+  }
   const counter = await verifyTotpCounter(secret, input.mfaCode, now);
   if (counter === null) {
     throw new AdminChangeRefused('invalid_input', 'that code does not match the secret');
@@ -729,18 +788,6 @@ export async function completeEnrolment(input: {
  * re-reads it inside the transaction that writes, so a request that skips the
  * page and posts straight at the action is answered the same way.
  */
-async function secretForBootstrap(): Promise<string> {
-  /*
-   * Derived like an invitation's secret (`secretForInvite`), and for the same
-   * reason: the browser must not get to choose what gets stored. With no
-   * invitation there is no per-account input, so the signing key is the whole
-   * of it -- which also makes the QR stable across reloads. It is exposed to
-   * anyone who can reach the page, but so is the ability to claim the account
-   * outright, so it buys an attacker nothing they did not already have.
-   */
-  const bytes = await hmacSha256Bytes(signingSecret(), 'admin-totp:bootstrap');
-  return base32Encode(bytes.slice(0, 20));
-}
 
 /** Whether the console has an owner yet. Cheap enough to call on every render. */
 export async function hasAnyAdministrator(): Promise<boolean> {
@@ -754,15 +801,20 @@ export async function hasAnyAdministrator(): Promise<boolean> {
 export interface BootstrapOffer {
   secret: string;
   provisioningUri: string;
+  /** Posted back with the form, as an invitation's is. */
+  ticket: string;
 }
+
+const BOOTSTRAP_BINDING = 'bootstrap';
 
 /** The second factor to bind, or null once the installation has an administrator. */
 export async function offerBootstrap(): Promise<BootstrapOffer | null> {
   if (await hasAnyAdministrator()) return null;
-  const secret = await secretForBootstrap();
+  const { secret, ticket } = await mintEnrolmentTicket(BOOTSTRAP_BINDING);
   return {
     secret,
     provisioningUri: totpProvisioningUri({ secret, account: 'administrator', issuer: 're0' }),
+    ticket,
   };
 }
 
@@ -771,6 +823,8 @@ export async function bootstrapFirstAdministrator(input: {
   username: string;
   password: string;
   mfaCode: string;
+  /** The sealed ticket `offerBootstrap` printed into the form. */
+  ticket: string;
   clientAddress?: string | null;
 }): Promise<{ administratorId: string }> {
   const email = input.email.trim().toLowerCase();
@@ -786,7 +840,10 @@ export async function bootstrapFirstAdministrator(input: {
   }
 
   const now = new Date();
-  const secret = await secretForBootstrap();
+  const secret = await secretFromTicket(input.ticket, BOOTSTRAP_BINDING, now);
+  if (secret === null) {
+    throw new AdminChangeRefused('invalid_input', 'the registration form expired; reload it');
+  }
   const counter = await verifyTotpCounter(secret, input.mfaCode, now);
   if (counter === null) {
     throw new AdminChangeRefused('invalid_input', 'that code does not match the secret');

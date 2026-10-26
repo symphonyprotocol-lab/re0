@@ -35,12 +35,15 @@ export interface EnrolCopy {
 export function EnrolmentForm({
   token,
   secret,
+  ticket,
   provisioningUri,
   qrSvg,
   copy,
 }: {
   token: string;
   secret: string;
+  /** The sealed secret, posted back so the server binds exactly the one shown. */
+  ticket: string;
   provisioningUri: string;
   /** Inline SVG built on the server from `provisioningUri`; null if it failed. */
   qrSvg: string | null;
@@ -72,6 +75,7 @@ export function EnrolmentForm({
   return (
     <form action={submit} className="flex flex-col gap-4">
       <input type="hidden" name="token" value={token} />
+      <input type="hidden" name="ticket" value={ticket} />
 
       <div className="rounded-[8px] border-2 border-line bg-subtle p-3.5">
         <p className="text-[11px] font-semibold tracking-[-0.023em] text-steel">
