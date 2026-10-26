@@ -80,7 +80,7 @@ export interface ReservedCall {
   workspaceId: string;
   requestId: string;
   debitSource: DebitSource;
-  /** The oldest grant with balance, chosen now, consumed at commit. */
+  /** The oldest grant with balance now; `commitCall` pays from it if it still has some, else the next. */
   addonGrantId: string | null;
   /**
    * The plan version the call bills against, pinned at reservation. The
@@ -175,6 +175,19 @@ export async function reserveCall(input: {
         requestId: input.requestId,
         status: 'pending',
       });
+    } else if (existing?.status === 'released') {
+      /*
+       * A request whose seat went back is being served again -- the
+       * playground retrying a missed question under the same request id
+       * (retrieval/gather.ts). It was just admitted above without its old
+       * seat, so it has to hold one again: left `released`, it would be
+       * invisible to every other reservation while it runs. The clock
+       * restarts with it, for the abandoned-seat sweep.
+       */
+      await tx
+        .update(schema.usageReservation)
+        .set({ status: 'pending', createdAt: new Date() })
+        .where(eq(schema.usageReservation.id, reservationId));
     }
 
     /* This reservation occupies a seat: report what is left after it. */
@@ -262,6 +275,18 @@ export async function commitCall(input: {
       .where(eq(schema.workspace.id, reservation.workspaceId))
       .for('update');
 
+    /*
+     * The grant is settled here, under the lock, not trusted from the
+     * reservation. `reserveCall` picks the oldest grant with balance but
+     * cannot see which grants other pending seats will drain, so two calls
+     * reserved back to back on a grant's last call both name it -- and the
+     * loser's guarded decrement below used to match nothing, a call served
+     * and paid from no pack. The reserved grant is kept while it still has
+     * balance; otherwise the next oldest one pays, as a build's would.
+     */
+    const addonGrantId =
+      reservation.debitSource === 'addon' ? await grantForCommit(tx, reservation) : null;
+
     const written = await tx
       .insert(schema.usageEvent)
       .values({
@@ -273,7 +298,7 @@ export async function commitCall(input: {
         operation: input.operation,
         entrypoint: input.entrypoint,
         debitSource: reservation.debitSource,
-        addonGrantId: reservation.addonGrantId,
+        addonGrantId,
         statusCode: input.statusCode,
         latencyMs: input.latencyMs,
         inputTokens: input.inputTokens,
@@ -289,16 +314,22 @@ export async function commitCall(input: {
 
     /* Balance decrements only when the event was actually written -- a replay
        must not consume the pack twice. requirement.md 4.3. */
-    if (written.length > 0 && reservation.debitSource === 'addon' && reservation.addonGrantId) {
+    if (written.length > 0 && addonGrantId) {
       await tx
         .update(schema.addonGrant)
         .set({ callsConsumed: sql`${schema.addonGrant.callsConsumed} + 1` })
         .where(
           and(
-            eq(schema.addonGrant.id, reservation.addonGrantId),
+            eq(schema.addonGrant.id, addonGrantId),
             lt(schema.addonGrant.callsConsumed, schema.addonGrant.callsGranted),
           ),
         );
+    } else if (written.length > 0 && reservation.debitSource === 'addon') {
+      /* Admitted on a balance that was spent before this commit: served, and
+         the platform absorbs it, as a build's shortfall is (build-quota.ts). */
+      console.error(
+        `quota: call ${reservation.requestId} debited the pack, but workspace ${reservation.workspaceId} has no balance left`,
+      );
     }
 
     /*
@@ -356,6 +387,23 @@ export async function commitCall(input: {
       }
     }
   });
+}
+
+/** The grant a committing addon call is paid from: the reserved one while it has balance, else the oldest that does. */
+async function grantForCommit(tx: Tx, reservation: ReservedCall): Promise<string | null> {
+  if (reservation.addonGrantId) {
+    const [reserved] = await tx
+      .select({ id: schema.addonGrant.id })
+      .from(schema.addonGrant)
+      .where(
+        and(
+          eq(schema.addonGrant.id, reservation.addonGrantId),
+          lt(schema.addonGrant.callsConsumed, schema.addonGrant.callsGranted),
+        ),
+      );
+    if (reserved) return reserved.id;
+  }
+  return oldestGrantWithBalance(tx, reservation.workspaceId);
 }
 
 /** publisher-revenue-share.md 5: a related caller earns its owner nothing. */

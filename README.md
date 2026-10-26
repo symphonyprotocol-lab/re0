@@ -114,7 +114,7 @@
 - Aptos 账户与 Anchor Signer 私钥（非生产使用 Testnet）
 - Workflow 名称与 Webhook Secret
 
-反过来，凡是加密或哈希落库内容的 Secret，三套环境必须取同一个值：`SESSION_SIGNING_SECRET`（GitHub / Notion 授权令牌的封装、管理员邀请哈希与 TOTP 种子）、`API_KEY_HASH_SECRET`、`CREDENTIAL_ENCRYPTION_KEY`。各持一份的话，一个环境写下的行在另一个环境打不开。
+反过来，凡是加密或哈希落库内容的 Secret，三套环境必须取同一个值：`SESSION_SIGNING_SECRET`（GitHub / Notion 授权令牌的封装、管理员邀请哈希与落库 TOTP 种子的封装）、`API_KEY_HASH_SECRET`、`CREDENTIAL_ENCRYPTION_KEY`。各持一份的话，一个环境写下的行在另一个环境打不开。
 
 **禁止把 Production 数据复制到 Preview**——私有知识库里是用户授权的 Notion 页面与私有仓库内容，测试数据必须脱敏或由 Fixture 生成。
 

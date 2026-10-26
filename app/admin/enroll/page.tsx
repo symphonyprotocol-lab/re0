@@ -69,6 +69,7 @@ export default async function AdminEnrolPage({
             <EnrolmentForm
               token={token}
               secret={offer.secret}
+              ticket={offer.ticket}
               provisioningUri={offer.provisioningUri}
               qrSvg={qr}
               copy={{

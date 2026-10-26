@@ -29,6 +29,7 @@ export async function completeEnrolmentAction(
   try {
     await completeEnrolment({
       token: String(form.get('token') ?? ''),
+      ticket: String(form.get('ticket') ?? ''),
       password,
       mfaCode: String(form.get('mfa') ?? ''),
       clientAddress: clientAddress(bag),

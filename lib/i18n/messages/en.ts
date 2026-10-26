@@ -862,7 +862,6 @@ export const en: Dictionary = {
     inputPlaceholder: 'Ask a question… (Enter to send, Shift+Enter for a new line)',
     send: 'Send',
     stop: 'Stop generating',
-    suggestionsTitle: 'Ask about any library or framework',
     suggestions: [
       'How do I do server-side auth in the Next.js App Router?',
       'How do I write a Drizzle migration inside a transaction?',

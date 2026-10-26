@@ -17,12 +17,10 @@ export default async function PlaygroundPage({ searchParams }: Search) {
   return (
     <section>
       <div className="mx-auto w-full max-w-[1200px] px-5 pt-14 pb-20">
-        <h1 className="text-center text-[26px] leading-[1.35] font-medium text-ink sm:text-[30px]">
-          {playground.title}
-        </h1>
-        <div className="mt-9">
-          <Playground initialLibrary={initialLibrary} />
-        </div>
+        {/* The visible title lives in the empty transcript and leaves with the
+            first question; the page keeps its heading for the whole session. */}
+        <h1 className="sr-only">{playground.title}</h1>
+        <Playground initialLibrary={initialLibrary} />
       </div>
     </section>
   );

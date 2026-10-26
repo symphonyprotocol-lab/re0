@@ -146,14 +146,15 @@ describeWithDb('managing administrators', () => {
     ).rejects.toMatchObject({ loginError: 'invalid_credentials' });
   });
 
-  it('derives the enrolment secret from the invitation, not from the caller', async () => {
-    // Rendering the page twice must offer the same secret, and nothing the
-    // client sends can change which one gets bound.
+  it('mints the enrolment secret per render, bound to the invitation', async () => {
+    // Nothing derivable from the signing key: two renders disagree, and the
+    // QR carries the secret this render's ticket will bind.
     const first = await offerEnrolment(inviteToken);
     const second = await offerEnrolment(inviteToken);
-    expect(first.secret).toBe(second.secret);
+    expect(first.secret).not.toBe(second.secret);
     expect(first.secret.length).toBeGreaterThanOrEqual(32);
     expect(first.provisioningUri).toContain(`secret=${first.secret}`);
+    expect(first.ticket).not.toContain(first.secret);
   });
 
   it('refuses a second invitation to the same address', async () => {
@@ -169,6 +170,7 @@ describeWithDb('managing administrators', () => {
     await expect(
       completeEnrolment({
         token: inviteToken,
+        ticket: offer.ticket,
         password: 'short',
         mfaCode: '000000',
       }),
@@ -177,13 +179,25 @@ describeWithDb('managing administrators', () => {
     await expect(
       completeEnrolment({
         token: inviteToken,
+        ticket: offer.ticket,
         password: 'a password long enough',
         mfaCode: '000000',
       }),
     ).rejects.toMatchObject({ code: 'invalid_input' });
 
+    // The right code is not enough without the ticket that names its secret.
+    await expect(
+      completeEnrolment({
+        token: inviteToken,
+        ticket: 'forged',
+        password: 'a password long enough',
+        mfaCode: await codeFor(offer.secret),
+      }),
+    ).rejects.toMatchObject({ code: 'invalid_input' });
+
     await completeEnrolment({
       token: inviteToken,
+      ticket: offer.ticket,
       password: 'a password long enough',
       mfaCode: await codeFor(offer.secret),
     });

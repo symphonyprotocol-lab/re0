@@ -116,10 +116,16 @@ export function middleware(request: NextRequest): NextResponse {
    * Rewrite before the session gates so the renderer can fetch the canonical
    * page with this request's credentials and preserve its normal access rule.
    * `/.md` is the representation of the home page.
+   *
+   * Not for the renderer's own fetches (`x-re0-markdown-source`): when the
+   * path without the suffix is no page, it asks for the literal one -- a
+   * library mirroring a repository named `notes.md` -- and that request must
+   * reach the page rather than come back here.
    */
   if (
     (path === '/.md' || path.endsWith('.md')) &&
-    !path.startsWith('/.well-known/agent-skills/')
+    !path.startsWith('/.well-known/agent-skills/') &&
+    !request.headers.has('x-re0-markdown-source')
   ) {
     const sourcePath = path === '/.md' ? '/' : path.slice(0, -3) || '/';
     const markdown = request.nextUrl.clone();

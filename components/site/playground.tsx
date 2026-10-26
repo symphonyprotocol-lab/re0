@@ -603,16 +603,20 @@ export function Playground({
                 in the space they are about to fill, rather than crowding the
                 composer for the one moment before the first question. */}
             {turns.length === 0 && !failure ? (
-              <div className="m-auto flex w-full max-w-[380px] flex-col items-center gap-3 py-8">
-                <p className="text-[15px] font-medium text-muted">
-                  {t.suggestionsTitle}
+              <div className="m-auto flex w-full max-w-[560px] flex-col items-center gap-3 py-8">
+                {/* Decorative: the page's own h1 (app/(public)/playground) names it for assistive technology. */}
+                <p
+                  aria-hidden
+                  className="mb-3 text-center text-[26px] leading-[1.35] font-medium text-ink sm:text-[30px]"
+                >
+                  {t.title}
                 </p>
                 {t.suggestions.map((suggestion) => (
                   <button
                     key={suggestion}
                     type="button"
                     onClick={() => submit(suggestion)}
-                    className="w-full rounded-md border border-line bg-subtle px-4 py-2.5 text-[12.5px] text-muted transition-colors hover:border-brand/50 hover:bg-tray hover:text-ink"
+                    className="w-full max-w-[380px] rounded-md border border-line bg-subtle px-4 py-2.5 text-[12.5px] text-muted transition-colors hover:border-brand/50 hover:bg-tray hover:text-ink"
                   >
                     {suggestion}
                   </button>

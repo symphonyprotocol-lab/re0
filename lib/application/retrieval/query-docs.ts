@@ -24,6 +24,7 @@ import {
   recordRequestLog,
   releaseCall,
   reserveCall,
+  type EarningLibraryFacts,
   type ReservedCall,
 } from '@/lib/application/plans';
 import { httpStatusFor } from '@/contracts/errors';
@@ -100,7 +101,24 @@ export const RETRIEVAL_CONFIG_VERSION = 're0-retrieval-2';
  */
 export type QueryDocsResult = QueryDocsOutput & {
   confidence: RetrievalConfidence | null;
+  /** What committing this read as the served call would record (`commitServedCall`). */
+  served: ServedCall;
+  /**
+   * The seat a `meter: 'deferred'` read holds, still pending: the caller
+   * commits it against whichever library it decides was served, or releases
+   * it. Null for every other mode.
+   */
+  reservation: ReservedCall | null;
 };
+
+/** One read's facts for the usage and earning events, kept so a deferred seat can be committed against it. */
+export interface ServedCall {
+  libraryId: string;
+  versionId: string;
+  returnedTokens: number;
+  latencyMs: number;
+  libraryFacts: EarningLibraryFacts;
+}
 /** The key's policy slot for callers with no workspace and hence no policy. */
 const NO_POLICY = 'p0';
 /** The key's configuration slot when the defaults are in force. */
@@ -111,26 +129,53 @@ export async function queryDocs(
   input: QueryDocsInput,
   dependencies: RetrievalDependencies = defaultRetrievalDependencies(),
 ): Promise<QueryDocsOutput> {
-  const { confidence: _confidence, ...output } = await queryDocsDetailed(
-    caller,
-    input,
-    dependencies,
-  );
+  const {
+    confidence: _confidence,
+    served: _served,
+    reservation: _reservation,
+    ...output
+  } = await queryDocsDetailed(caller, input, dependencies);
   return output;
 }
 
 /**
- * How one retrieval is accounted for.
+ * How one retrieval is accounted for. Both modes below are for the
+ * scatter-gather (retrieval/gather.ts) behind the playground, the widget and
+ * showcase drafts, and never reachable from /v1 or MCP, where each call is a
+ * served call.
  *
- * `meter: false` is for the playground's scatter-gather (retrieval/gather.ts):
- * one exchange is one Call, charged to and earned by the routed library, and
- * the other candidates it also reads are not served calls -- no reservation,
- * no earning event, no request-log row. Every gate before the reservation
- * (visibility, state, policy) still applies, and the cache is still used.
- * Never reachable from /v1 or MCP, where each call is a served call.
+ * `meter: false`: not a served call -- no reservation, no earning event, no
+ * request-log row. Every gate before the reservation (visibility, state,
+ * policy) still applies, and the cache is still used.
+ *
+ * `meter: 'deferred'`: the seat is reserved before retrieval exactly as a
+ * metered read's is, so quota still refuses up front, but it is handed back
+ * pending in `reservation` rather than committed or released, even when this
+ * read found nothing: one exchange is one Call, and which library served it
+ * is only known once every candidate's retrieval has been judged.
  */
 export interface QueryDocsOptions {
-  meter?: boolean;
+  meter?: boolean | 'deferred';
+}
+
+/** Commits a deferred seat as the call `served` describes: one usage event, and its earning when eligible. */
+export async function commitServedCall(
+  caller: CallerContext,
+  reservation: ReservedCall,
+  served: ServedCall,
+): Promise<void> {
+  await commitCall({
+    reservation,
+    libraryId: served.libraryId,
+    versionId: served.versionId,
+    operation: 'context',
+    entrypoint: entrypointOf(caller),
+    statusCode: 200,
+    latencyMs: served.latencyMs,
+    inputTokens: null,
+    returnedTokens: served.returnedTokens,
+    libraryFacts: served.libraryFacts,
+  });
 }
 
 export async function queryDocsDetailed(
@@ -141,7 +186,7 @@ export async function queryDocsDetailed(
 ): Promise<QueryDocsResult> {
   const startedAt = Date.now();
   const database = db();
-  const meter = options.meter !== false;
+  const meter = options.meter ?? true;
   /*
    * The request log (architecture.md 6.3): outcome, library, latency --
    * never the query text (17.1). Awaited but best-effort: the catch keeps a
@@ -195,7 +240,7 @@ async function queryDocsInner(
   dependencies: RetrievalDependencies,
   startedAt: number,
   database: ReturnType<typeof db>,
-  meter: boolean,
+  meter: boolean | 'deferred',
 ): Promise<QueryDocsResult> {
   const settings = await (dependencies.settings ?? activeRetrievalSettings)();
 
@@ -306,6 +351,46 @@ async function queryDocsInner(
         })
       : null;
 
+  /* ----------------------------------------------------------- meter */
+
+  /*
+   * requirement.md §4.2: a call that returns nothing is not charged. The
+   * seat goes back, no usage event is written and nothing earns -- the
+   * library answered no question. Decided 2026-10-05: an empty result is
+   * the catalogue's failure, not the caller's purchase. Anything else is
+   * committed here, unless the caller deferred that decision.
+   */
+  const settle = async (
+    chunks: ChunkResult[],
+    confidence: RetrievalConfidence | null,
+  ): Promise<QueryDocsResult> => {
+    const served: ServedCall = {
+      libraryId: library.id,
+      versionId: version.id,
+      returnedTokens: chunks.reduce((total, chunk) => total + chunk.tokens, 0),
+      latencyMs: Date.now() - startedAt,
+      libraryFacts: library,
+    };
+    const answer = {
+      libraryId: library.publicId,
+      version: version.label,
+      chunks,
+      requestId: caller.requestId,
+      confidence,
+      served,
+    };
+    /* Deferred, empty or not: another candidate may still have served the exchange. */
+    if (reservation && meter === 'deferred') {
+      return { ...answer, usage: usageOf(reservation), reservation };
+    }
+    if (reservation && chunks.length === 0) {
+      await releaseCall(reservation.reservationId);
+      return { ...answer, usage: usageAfterRelease(reservation), reservation: null };
+    }
+    if (reservation) await commitServedCall(caller, reservation, served);
+    return { ...answer, usage: usageOf(reservation), reservation: null };
+  };
+
   try {
     /* ----------------------------------------------------------- cache */
 
@@ -343,43 +428,8 @@ async function queryDocsInner(
         } catch {
           chunks = null; /* a corrupt entry is a miss, never an error */
         }
-        if (chunks) {
-          if (reservation && chunks.length === 0) {
-            /* An empty answer is not a served call, cached or not (§4.2). */
-            await releaseCall(reservation.reservationId);
-            return {
-              libraryId: library.publicId,
-              version: version.label,
-              chunks,
-              usage: usageAfterRelease(reservation),
-              requestId: caller.requestId,
-              confidence,
-            };
-          }
-          if (reservation) {
-            await commitCall({
-              reservation,
-              libraryId: library.id,
-              versionId: version.id,
-              operation: 'context',
-              entrypoint: entrypointOf(caller),
-              statusCode: 200,
-              latencyMs: Date.now() - startedAt,
-              inputTokens: null,
-              returnedTokens: chunks.reduce((total, chunk) => total + chunk.tokens, 0),
-              /* A cache hit is still a served call, and it still earns. */
-              libraryFacts: library,
-            });
-          }
-          return {
-            libraryId: library.publicId,
-            version: version.label,
-            chunks,
-            usage: usageOf(reservation),
-            requestId: caller.requestId,
-            confidence,
-          };
-        }
+        /* A cache hit is still a served call, and it still earns. */
+        if (chunks) return await settle(chunks, confidence);
       }
     }
 
@@ -401,49 +451,7 @@ async function queryDocsInner(
       }).catch(() => {});
     }
 
-    /* ----------------------------------------------------------- meter */
-
-    /*
-     * requirement.md §4.2: a call that returns nothing is not charged. The
-     * seat goes back, no usage event is written and nothing earns -- the
-     * library answered no question. Decided 2026-10-05: an empty result
-     * is the catalogue's failure, not the caller's purchase.
-     */
-    const returnedTokens = chunks.reduce((total, chunk) => total + chunk.tokens, 0);
-    if (reservation && chunks.length === 0) {
-      await releaseCall(reservation.reservationId);
-      return {
-        libraryId: library.publicId,
-        version: version.label,
-        chunks,
-        usage: usageAfterRelease(reservation),
-        requestId: caller.requestId,
-        confidence,
-      };
-    }
-    if (reservation) {
-      await commitCall({
-        reservation,
-        libraryId: library.id,
-        versionId: version.id,
-        operation: 'context',
-        entrypoint: entrypointOf(caller),
-        statusCode: 200,
-        latencyMs: Date.now() - startedAt,
-        inputTokens: null,
-        returnedTokens,
-        libraryFacts: library,
-      });
-    }
-
-    return {
-      libraryId: library.publicId,
-      version: version.label,
-      chunks,
-      usage: usageOf(reservation),
-      requestId: caller.requestId,
-      confidence,
-    };
+    return await settle(chunks, confidence);
   } catch (error) {
     /*
      * §11.1: a platform failure releases the seat and writes no event. A

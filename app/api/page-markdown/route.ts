@@ -35,13 +35,31 @@ async function render(request: NextRequest, head: boolean): Promise<Response> {
     const value = request.headers.get(name);
     if (value) headers.set(name, value);
   }
+  const fetchPage = (url: URL) =>
+    fetch(url, { method: head ? 'HEAD' : 'GET', headers, cache: 'no-store', redirect: 'manual' });
 
-  const page = await fetch(sourceUrl, {
-    method: head ? 'HEAD' : 'GET',
-    headers,
-    cache: 'no-store',
-    redirect: 'manual',
-  });
+  const page = await fetchPage(sourceUrl);
+
+  /*
+   * Library ids may contain dots, so a library can be named like the
+   * representation suffix (a repository `notes.md`). When the path without
+   * the suffix is no page, the request was for that literal page: serve it
+   * as HTML. The header above keeps the middleware from rewriting it again.
+   */
+  if (page.status === 404 && sourceUrl.pathname !== '/') {
+    const literalUrl = new URL(sourceUrl);
+    literalUrl.pathname = `${sourceUrl.pathname}.md`;
+    const literal = await fetchPage(literalUrl);
+    const literalType = literal.headers.get('content-type') ?? '';
+    if (literal.ok && literalType.toLowerCase().includes('text/html')) {
+      await page.body?.cancel();
+      return new NextResponse(head ? null : literal.body, {
+        status: literal.status,
+        headers: { 'content-type': literalType, 'cache-control': 'private, no-store', vary: 'Cookie, Accept-Language' },
+      });
+    }
+    await literal.body?.cancel();
+  }
 
   if (page.status >= 300 && page.status < 400) {
     const location = page.headers.get('location');

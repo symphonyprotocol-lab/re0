@@ -21,12 +21,15 @@
  *   effect an interleave by rank -- each confirmed library's best passage
  *   comes before any library's second -- and a reranker, when on, scores
  *   every library's head on the same scale;
- * - meters one Call, on the routed top candidate. The other reads are
- *   unmetered (query-docs.ts `meter`): one exchange is one Call whatever the
- *   router found, and the top candidate is the library the single-library
- *   path would have charged and credited. A caller that has already paid for
- *   this exchange -- the playground retrying a missed question in other
- *   words -- passes `meter: false` and nothing is reserved at all.
+ * - meters one Call, and only for an exchange that has context. The top
+ *   candidate reserves the seat before anything is read (query-docs.ts
+ *   `meter: 'deferred'`), so quota still refuses up front; the other reads
+ *   are unmetered. Once every retrieval is judged and merged, the seat is
+ *   committed against the library whose passage leads the context -- the one
+ *   that is credited -- or released when no passage made it in. Charging the
+ *   top candidate whatever it returned billed a reader the "nothing
+ *   relevant" card, and paid a library whose passages were thrown away while
+ *   the one that answered earned nothing.
  *
  * A failure of the top candidate is the exchange's failure, as before. A
  * failure of any other candidate drops that library and keeps the exchange:
@@ -39,7 +42,9 @@ import { excerptsOf } from '@/lib/domain/generation';
 import type { EmbeddingAdapter } from '@/lib/infrastructure/ai/providers';
 import { confirmsRetrieval } from '@/lib/domain/routing';
 import type { CallerContext } from './index';
+import { releaseCall } from '@/lib/application/plans';
 import {
+  commitServedCall,
   defaultRetrievalDependencies,
   queryDocsDetailed,
   type QueryDocsResult,
@@ -85,15 +90,11 @@ export interface GatherResult {
 }
 
 export interface GatherInput {
-  /** In routing order; the first is the metered one. At least one. */
+  /** In routing order; the first reserves the exchange's seat. At least one. */
   libraries: readonly GatherLibrary[];
   query: string;
   maxTokens: number;
-  /**
-   * False for the playground's retry with a rewritten question: the exchange
-   * reserved its one Call on the first pass, and a second read for the same
-   * question is not a second served call (query-docs.ts `meter`). Default true.
-   */
+  /** False reads without metering at all (query-docs.ts `meter`). Default true. */
   meter?: boolean;
 }
 
@@ -107,7 +108,7 @@ export async function gatherAcrossLibraries(
 
   const shared = shareQueryEmbedding(dependencies);
 
-  const retrieve = (library: GatherLibrary, meter: boolean) =>
+  const retrieve = (library: GatherLibrary, meter: boolean | 'deferred') =>
     queryDocsDetailed(
       caller,
       {
@@ -121,13 +122,29 @@ export async function gatherAcrossLibraries(
     );
 
   const settled = await Promise.allSettled([
-    retrieve(top, input.meter !== false),
+    retrieve(top, input.meter === false ? false : 'deferred'),
     ...rest.map((library) => retrieve(library, false)),
   ]);
 
   const first = settled[0]!;
   if (first.status === 'rejected') throw first.reason;
+  /* Pending until the confirmations below say who served the exchange. */
+  const seat = first.value.reservation;
+  try {
+    return await judge(input, settled, seat, caller, first.value.requestId);
+  } catch (error) {
+    if (seat) await releaseCall(seat.reservationId).catch(() => {});
+    throw error;
+  }
+}
 
+async function judge(
+  input: GatherInput,
+  settled: PromiseSettledResult<QueryDocsResult>[],
+  seat: QueryDocsResult['reservation'],
+  caller: CallerContext,
+  requestId: string,
+): Promise<GatherResult> {
   const questionHasHan = containsCjk(input.query);
   const results: { library: GatherLibrary; result: QueryDocsResult | null }[] = [];
   input.libraries.forEach((library, at) => {
@@ -193,6 +210,18 @@ export async function gatherAcrossLibraries(
     contributed.set(entry.order, (contributed.get(entry.order) ?? 0) + 1);
   }
 
+  /*
+   * The exchange's one Call: charged, and credited to the library whose
+   * passage leads the merged context -- or released when nothing made it
+   * in, which is the "nothing relevant" card and no answer at all.
+   */
+  if (seat) {
+    const lead = pool.find((entry) => chunks.includes(entry.chunk));
+    const served = lead ? results[lead.order]?.result?.served : undefined;
+    if (served) await commitServedCall(caller, seat, served);
+    else await releaseCall(seat.reservationId);
+  }
+
   return {
     chunks,
     libraries: results.map(({ library, result }, order) => ({
@@ -205,7 +234,7 @@ export async function gatherAcrossLibraries(
       failed: result === null,
       excerpts: result ? excerptsOf(result.chunks.map((chunk) => chunk.text)) : [],
     })),
-    requestId: first.value.requestId,
+    requestId,
   };
 }
 

@@ -38,11 +38,14 @@ export interface BootstrapCopy {
  */
 export function BootstrapForm({
   secret,
+  ticket,
   provisioningUri,
   qrSvg,
   copy,
 }: {
   secret: string;
+  /** The sealed secret, posted back so the server binds exactly the one shown. */
+  ticket: string;
   provisioningUri: string;
   /** Inline SVG built on the server from `provisioningUri`; null if it failed. */
   qrSvg: string | null;
@@ -73,6 +76,7 @@ export function BootstrapForm({
 
   return (
     <form action={submit} className="mt-6 flex flex-col gap-4">
+      <input type="hidden" name="ticket" value={ticket} />
       <Field label={copy.emailLabel}>
         <input
           name="email"

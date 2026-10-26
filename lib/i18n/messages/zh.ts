@@ -816,7 +816,6 @@ export const zh = {
     inputPlaceholder: '输入你的问题…（Enter 发送，Shift+Enter 换行）',
     send: '发送',
     stop: '停止生成',
-    suggestionsTitle: '任何库或框架，都可以问',
     suggestions: [
       'Next.js App Router 怎么做服务端鉴权？',
       'Drizzle 如何写一个带事务的迁移？',
