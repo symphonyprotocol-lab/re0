@@ -219,14 +219,6 @@ export interface EarningLibraryFacts {
   ownerWorkspaceId: string | null;
   isPlatformLibrary: boolean;
   /**
-   * requirement.md 7.3: `owner_workspace_id` alone proves access, not rights.
-   * Sources gated behind a claim (github, website, llms_txt) earn only after
-   * one verified; self-owned source types are rights-verified by creation.
-   * Workspaces could otherwise mint a library over someone else's repository
-   * and collect its share without ever passing the claim.
-   */
-  rightsVerified: boolean;
-  /**
    * expert-library-prd.md 4.4: the console's expert tag, and whether the
    * owner workspace is on a paid plan at the moment of the call. Both are
    * read with the library, before the reservation, so the judgment inside
@@ -349,7 +341,6 @@ export async function commitCall(input: {
     if (
       written.length > 0 &&
       facts &&
-      facts.rightsVerified &&
       reservation.planVersionId &&
       facts.ownerWorkspaceId !== reservation.workspaceId &&
       isRevenueEligible(facts) &&

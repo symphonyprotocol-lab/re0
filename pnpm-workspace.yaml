@@ -3,7 +3,10 @@ allowBuilds:
 
 # Dependabot-flagged ranges pinned inside next and drizzle-kit's tooling; the
 # patched releases are API-compatible. Mirrors "overrides" in package.json for npm.
+# zod: @vercel/cli-config (via @vercel/blob -> @vercel/oidc) pins 4.1.11 exactly,
+# below GHSA-mrhx-c7xc-m3w5's 4.6.6 fix; it uses zod for config validation only.
 overrides:
   postcss: '>=8.5.23'
   sharp: '>=0.35.5'
   esbuild: '>=0.25.0'
+  zod: '^4.6.7'

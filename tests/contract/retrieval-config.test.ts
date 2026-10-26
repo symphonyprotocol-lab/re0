@@ -30,6 +30,10 @@ describe('defaults', () => {
       routingRecallLimit: 24,
       routingRareSampleCap: 400,
       routingResultLimit: 10,
+      playgroundAgent: 0,
+      playgroundAgentSteps: 4,
+      playgroundAgentQueries: 3,
+      playgroundAgentResolves: 2,
     });
   });
 

@@ -86,7 +86,7 @@
 `commitCall` 写 `earning_event` 的条件在既有基础上增加两项，全部在同一事务内、使用进入事务前已取得的事实判断（architecture.md 11.4）：
 
 ```text
-既有：written && rightsVerified && planVersionId && caller ≠ owner
+既有：written && planVersionId && caller ≠ owner
       && public && published && owner ≠ null && !platform && 日上限内
 新增：&& library.expert_tagged_at IS NOT NULL
       && owner 工作空间 subscriptionInForce 且 plan ≠ free

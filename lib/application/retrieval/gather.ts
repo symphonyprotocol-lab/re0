@@ -175,40 +175,16 @@ async function judge(
    * passages that had nothing to do with it, while an English question about
    * that same corpus took the strict one and refused the passages that did.
    */
-  const confirmed = results.map(({ result }) => {
-    if (result === null) return false;
-    if (result.confidence === null) return true;
-    const corpusHasHan = result.chunks.some((chunk) => containsCjk(chunk.text));
-    return confirmsRetrieval(result.confidence, { crossScript: questionHasHan !== corpusHasHan });
-  });
+  const confirmed = results.map(({ result }) =>
+    result === null ? false : readConfirms(result, questionHasHan),
+  );
 
-  const pool: { chunk: GatheredChunk; order: number; rank: number }[] = [];
-  results.forEach(({ library, result }, order) => {
-    if (!result || !confirmed[order]) return;
-    result.chunks.forEach((chunk, rank) => {
-      pool.push({
-        chunk: {
-          ...chunk,
-          libraryId: result.libraryId,
-          libraryTitle: library.title,
-          version: result.version,
-        },
-        order,
-        rank,
-      });
-    });
-  });
-  pool.sort((a, b) => b.chunk.score - a.chunk.score || a.order - b.order || a.rank - b.rank);
-
-  const chunks: GatheredChunk[] = [];
-  const contributed = new Map<number, number>();
-  let budget = input.maxTokens;
-  for (const entry of pool) {
-    if (entry.chunk.tokens > budget) continue;
-    budget -= entry.chunk.tokens;
-    chunks.push(entry.chunk);
-    contributed.set(entry.order, (contributed.get(entry.order) ?? 0) + 1);
-  }
+  const { pool, chunks, contributed } = mergeReads(
+    results.map(({ library, result }, order) =>
+      result && confirmed[order] ? { title: library.title, result } : null,
+    ),
+    input.maxTokens,
+  );
 
   /*
    * The exchange's one Call: charged, and credited to the library whose
@@ -236,6 +212,65 @@ async function judge(
     })),
     requestId,
   };
+}
+
+/**
+ * Whether one library's read fits its query well enough to be context.
+ *
+ * Shared with the playground's agent (playground/agent.ts), whose reads are
+ * one library and one query each, so the two paths cannot disagree about
+ * what "confirmed" means.
+ */
+export function readConfirms(result: QueryDocsResult, queryHasHan: boolean): boolean {
+  if (result.confidence === null) return true;
+  const corpusHasHan = result.chunks.some((chunk) => containsCjk(chunk.text));
+  return confirmsRetrieval(result.confidence, { crossScript: queryHasHan !== corpusHasHan });
+}
+
+/**
+ * Confirmed reads merged into one context: by score, then read order, then
+ * rank within the read, trimmed to the budget once. A null entry is a read
+ * that did not confirm and keeps its place in the order. A chunk two reads
+ * both returned is kept once, at its better position.
+ */
+export function mergeReads(
+  reads: readonly ({ title: string; result: QueryDocsResult } | null)[],
+  maxTokens: number,
+): {
+  pool: { chunk: GatheredChunk; order: number; rank: number }[];
+  chunks: GatheredChunk[];
+  contributed: Map<number, number>;
+} {
+  const pool: { chunk: GatheredChunk; order: number; rank: number }[] = [];
+  reads.forEach((read, order) => {
+    if (!read) return;
+    read.result.chunks.forEach((chunk, rank) => {
+      pool.push({
+        chunk: {
+          ...chunk,
+          libraryId: read.result.libraryId,
+          libraryTitle: read.title,
+          version: read.result.version,
+        },
+        order,
+        rank,
+      });
+    });
+  });
+  pool.sort((a, b) => b.chunk.score - a.chunk.score || a.order - b.order || a.rank - b.rank);
+
+  const chunks: GatheredChunk[] = [];
+  const seen = new Set<string>();
+  const contributed = new Map<number, number>();
+  let budget = maxTokens;
+  for (const entry of pool) {
+    if (seen.has(entry.chunk.chunkId) || entry.chunk.tokens > budget) continue;
+    seen.add(entry.chunk.chunkId);
+    budget -= entry.chunk.tokens;
+    chunks.push(entry.chunk);
+    contributed.set(entry.order, (contributed.get(entry.order) ?? 0) + 1);
+  }
+  return { pool, chunks, contributed };
 }
 
 /**

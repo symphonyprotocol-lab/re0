@@ -11,7 +11,8 @@
  * counts as numbers.
  */
 import { createOpenAICompatible } from '@ai-sdk/openai-compatible';
-import { streamText } from 'ai';
+import { dynamicTool, isStepCount, streamText } from 'ai';
+import type { ZodType } from 'zod';
 import { openThinkFilter, TIMEOUT_MS } from '@/lib/domain/generation';
 import { ProviderUnavailable } from './providers';
 
@@ -52,6 +53,57 @@ export interface LlmAdapter {
     /** Only for a model configured as a reasoning one; omitted otherwise. */
     reasoningEffort?: 'minimal' | 'low' | 'medium' | 'high' | null;
   }): LlmStream;
+  /**
+   * A tool loop that only calls tools (playground/agent.ts). Optional, so a
+   * test's adapter that only answers still satisfies the type; the agent
+   * treats an adapter without it as a model that cannot plan.
+   */
+  plan?(input: PlanInput): LlmPlan;
+}
+
+/** One tool the planner may call. Input is validated against `input` before `execute` runs. */
+export interface PlannerTool {
+  name: string;
+  description: string;
+  input: ZodType;
+  /** Returns what the model is shown. A thrown error ends the loop (see `LlmPlan.events`). */
+  execute(input: unknown): Promise<unknown>;
+}
+
+export interface PlanInput {
+  systemPrompt: string;
+  userMessage: string;
+  tools: PlannerTool[];
+  /**
+   * The tool whose call ends the loop -- unless its result is
+   * `{ done: false }`, which the model reads as "not yet" and carries on.
+   */
+  finishTool: string;
+  /** Model steps, the finishing call included; the last step offers only `finishTool`. */
+  maxSteps: number;
+  /** Per step. */
+  maxOutputTokens: number;
+  /** Idle time, as for `stream`. */
+  timeoutMs: number;
+  /** The whole loop. */
+  totalMs: number;
+  reasoningEffort?: 'minimal' | 'low' | 'medium' | 'high' | null;
+}
+
+/** What the loop reports as it goes: each call as it is made, each result as it lands. */
+export type PlanEvent =
+  | { type: 'call'; id: string; tool: string; input: unknown }
+  | { type: 'result'; id: string; tool: string; output: unknown };
+
+export interface LlmPlan {
+  /**
+   * In order. Throws `ProviderUnavailable` when the model call fails or a
+   * clock runs out, and rethrows -- unwrapped -- whatever a tool's `execute`
+   * threw, so the caller can tell its own refusal from the provider's.
+   */
+  events: AsyncIterable<PlanEvent>;
+  /** Summed over every step; never rejects, as for `stream`. */
+  usage: LlmStream['usage'];
 }
 
 /**
@@ -156,18 +208,127 @@ export function llmAdapter(config: { baseUrl: string; model: string; apiKey: str
             clock.stop();
           }
         })(),
-        usage: Promise.resolve(result.usage).then(
-          (usage) => ({
-            promptTokens: usage.inputTokens ?? 0,
-            completionTokens: usage.outputTokens ?? 0,
-            cachedTokens: usage.inputTokenDetails.cacheReadTokens ?? 0,
-            reasoningTokens: usage.outputTokenDetails.reasoningTokens ?? 0,
+        usage: usageOf(result.usage),
+      };
+    },
+
+    plan(input) {
+      const clock = deadlines(input.timeoutMs, input.totalMs);
+      /* A tool's own failure, kept so it surfaces as itself: the SDK reports
+         it in-band as a tool error and would otherwise carry on looping. */
+      const toolFailure: { failed: boolean; error?: unknown } = { failed: false };
+
+      const tools = Object.fromEntries(
+        input.tools.map((entry) => [
+          entry.name,
+          dynamicTool({
+            description: entry.description,
+            inputSchema: entry.input,
+            execute: async (args: unknown) => {
+              try {
+                return await entry.execute(args);
+              } catch (error) {
+                if (!toolFailure.failed) Object.assign(toolFailure, { failed: true, error });
+                clock.abort();
+                throw error;
+              }
+            },
           }),
-          () => ({ promptTokens: 0, completionTokens: 0, cachedTokens: 0, reasoningTokens: 0 }),
-        ),
+        ]),
+      );
+
+      const result = streamText({
+        model: provider.chatModel(config.model),
+        system: input.systemPrompt,
+        prompt: input.userMessage,
+        tools,
+        /* Tool calls only: nothing the planner writes is ever an answer. */
+        toolChoice: 'required',
+        stopWhen: [
+          isStepCount(input.maxSteps),
+          ({ steps }) =>
+            (steps[steps.length - 1]?.toolResults ?? []).some(
+              (result) =>
+                result.toolName === input.finishTool &&
+                (result.output as { done?: unknown } | undefined)?.done !== false,
+            ),
+        ],
+        prepareStep: ({ stepNumber }) =>
+          stepNumber >= input.maxSteps - 1 ? { activeTools: [input.finishTool] } : {},
+        maxOutputTokens: input.maxOutputTokens,
+        temperature: 0,
+        maxRetries: 0,
+        abortSignal: clock.signal,
+        ...(input.reasoningEffort
+          ? { providerOptions: { [PROVIDER_NAME]: { reasoningEffort: input.reasoningEffort } } }
+          : {}),
+      });
+
+      return {
+        events: (async function* events(): AsyncGenerator<PlanEvent> {
+          try {
+            for await (const part of result.fullStream) {
+              if (part.type === 'tool-call') {
+                clock.touch();
+                yield { type: 'call', id: part.toolCallId, tool: part.toolName, input: part.input };
+              } else if (part.type === 'tool-result') {
+                clock.touch();
+                yield { type: 'result', id: part.toolCallId, tool: part.toolName, output: part.output };
+              } else if (part.type === 'tool-error') {
+                /* Input the schema refused: the model is shown the error and may
+                   try again, and the call it made still needs closing. */
+                clock.touch();
+                yield {
+                  type: 'result',
+                  id: part.toolCallId,
+                  tool: part.toolName,
+                  output: { error: 'invalid_input' },
+                };
+              } else if (
+                part.type === 'text-delta' ||
+                part.type === 'reasoning-delta' ||
+                part.type === 'tool-input-delta'
+              ) {
+                clock.touch();
+              } else if (part.type === 'error') {
+                throw part.error;
+              } else if (part.type === 'abort') {
+                throw new Error('aborted');
+              }
+            }
+          } catch (error) {
+            if (toolFailure.failed) throw toolFailure.error;
+            throw new ProviderUnavailable(
+              'llm',
+              clock.expired ?? (error instanceof Error ? error.message : 'plan failed'),
+            );
+          } finally {
+            clock.stop();
+          }
+          if (toolFailure.failed) throw toolFailure.error;
+        })(),
+        usage: usageOf(result.totalUsage),
       };
     },
   };
+}
+
+/** The SDK's usage as plain numbers; a failed call reads as zero rather than rejecting. */
+function usageOf(usage: PromiseLike<{
+  inputTokens?: number;
+  outputTokens?: number;
+  inputTokenDetails: { cacheReadTokens?: number };
+  outputTokenDetails: { reasoningTokens?: number };
+}>): LlmStream['usage'] {
+  return Promise.resolve(usage).then(
+    (value) => ({
+      promptTokens: value.inputTokens ?? 0,
+      completionTokens: value.outputTokens ?? 0,
+      cachedTokens: value.inputTokenDetails.cacheReadTokens ?? 0,
+      reasoningTokens: value.outputTokenDetails.reasoningTokens ?? 0,
+    }),
+    () => ({ promptTokens: 0, completionTokens: 0, cachedTokens: 0, reasoningTokens: 0 }),
+  );
 }
 
 /**
@@ -178,11 +339,16 @@ export function llmAdapter(config: { baseUrl: string; model: string; apiKey: str
  * a timer holding the process open. `expired` says which clock fired, for the
  * failure message, and stays null when the abort came from anywhere else.
  */
-function deadlines(idleMs: number): {
+function deadlines(
+  idleMs: number,
+  ceilingMs: number = STREAM_CEILING_MS,
+): {
   signal: AbortSignal;
   expired: string | null;
   touch(): void;
   stop(): void;
+  /** Aborts without naming a clock: a tool failed, and the loop must not carry on. */
+  abort(): void;
 } {
   const controller = new AbortController();
   let idle: ReturnType<typeof setTimeout> | undefined;
@@ -198,6 +364,9 @@ function deadlines(idleMs: number): {
       clearTimeout(idle);
       clearTimeout(ceiling);
     },
+    abort(): void {
+      controller.abort();
+    },
   };
 
   function expire(reason: string): void {
@@ -206,8 +375,8 @@ function deadlines(idleMs: number): {
   }
 
   const ceiling = setTimeout(
-    () => expire(`still streaming after ${STREAM_CEILING_MS} ms`),
-    STREAM_CEILING_MS,
+    () => expire(`still streaming after ${ceilingMs} ms`),
+    ceilingMs,
   );
   clock.touch();
   return clock;

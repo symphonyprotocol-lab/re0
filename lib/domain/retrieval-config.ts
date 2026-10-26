@@ -26,6 +26,10 @@ export const RETRIEVAL_SETTING_KEYS = [
   'routingRecallLimit',
   'routingRareSampleCap',
   'routingResultLimit',
+  'playgroundAgent',
+  'playgroundAgentSteps',
+  'playgroundAgentQueries',
+  'playgroundAgentResolves',
 ] as const;
 
 export type RetrievalSettingKey = (typeof RETRIEVAL_SETTING_KEYS)[number];
@@ -86,6 +90,19 @@ export const RETRIEVAL_SETTING_BOUNDS: Record<RetrievalSettingKey, RetrievalSett
   routingRareSampleCap: { min: 50, max: 5_000, default: 400 },
   /** Candidates resolve-library-id returns. */
   routingResultLimit: { min: 1, max: 50, default: 10 },
+  /**
+   * 1 lets a model that declares tool calling plan the playground's searches
+   * itself (playground/agent.ts); 0 keeps every exchange on the fixed
+   * route-then-gather path. Off by default: the agent costs a few model
+   * calls per question where the fixed path costs one.
+   */
+  playgroundAgent: { min: 0, max: 1, default: 0 },
+  /** Model steps the planner may take, its closing `answer` call included. */
+  playgroundAgentSteps: { min: 2, max: 6, default: 4 },
+  /** `query_docs` calls one exchange may make: each is a read of one library. */
+  playgroundAgentQueries: { min: 1, max: 6, default: 3 },
+  /** `resolve_library_id` calls one exchange may make; 0 leaves the planner to the libraries the turns name. */
+  playgroundAgentResolves: { min: 0, max: 4, default: 2 },
 };
 
 export const DEFAULT_RETRIEVAL_SETTINGS: RetrievalSettings = Object.fromEntries(

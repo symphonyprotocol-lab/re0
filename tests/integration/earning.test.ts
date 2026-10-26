@@ -179,7 +179,6 @@ async function userLibrary(slug: string, ownerWorkspaceId: string | null): Promi
   await database.insert(schema.source).values({
     id: uuidv7(),
     libraryId,
-    /* Self-owned type: rights-verified by creation (requirement.md 7.3.2). */
     type: 'openapi',
     location: `https://example.test/${slug}`,
   });
@@ -389,50 +388,29 @@ describeWithDb('earning events', () => {
   });
 
   /**
-   * requirement.md 7.3: owner_workspace_id proves access, not rights. A
-   * claim-gated source (website) earns nothing until a claim verifies --
-   * otherwise a workspace could mint a library over someone else's site and
-   * collect its share without ever passing the claim.
+   * Ownership of a repository, website, llms.txt or OpenAPI source is
+   * verified when the workspace creates the library, so an owned library
+   * earns from its first call -- no claim on top (2026-10-26).
    */
-  it('refuses claim-gated sources until a claim verifies', async () => {
+  it('earns for an owned repository library without a claim', async () => {
     const stamp = Date.now();
     const owner = await workspace('earning-rights-owner');
     await subscribed(owner);
     const libraryId = await userLibrary(`earn-rights-${stamp}`, owner);
     await db()
       .update(schema.source)
-      .set({ type: 'website' })
+      .set({ type: 'github' })
       .where(eq(schema.source.libraryId, libraryId));
     const reader = await workspace('earning-rights-reader');
     await subscribed(reader);
 
-    const unverified = caller(reader);
-    await queryDocs(unverified, input(`earn-rights-${stamp}`), noEmbeddings);
+    const call = caller(reader);
+    await queryDocs(call, input(`earn-rights-${stamp}`), noEmbeddings);
     expect(
       await db()
         .select()
         .from(schema.earningEvent)
-        .where(eq(schema.earningEvent.requestId, unverified.requestId)),
-    ).toHaveLength(0);
-
-    await db().insert(schema.libraryClaim).values({
-      id: uuidv7(),
-      libraryId,
-      claimantWorkspaceId: owner,
-      method: 'dns_txt',
-      challengeTokenHash: 'fixture-hash',
-      status: 'verified',
-      expiresAt: new Date(Date.now() + 86_400_000),
-      verifiedAt: new Date(),
-    });
-
-    const verified = caller(reader);
-    await queryDocs(verified, input(`earn-rights-${stamp}`), noEmbeddings);
-    expect(
-      await db()
-        .select()
-        .from(schema.earningEvent)
-        .where(eq(schema.earningEvent.requestId, verified.requestId)),
+        .where(eq(schema.earningEvent.requestId, call.requestId)),
     ).toHaveLength(1);
   });
 

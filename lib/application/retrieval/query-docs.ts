@@ -474,27 +474,9 @@ const librarySelection = {
   isPlatformLibrary: schema.library.isPlatformLibrary,
   currentVersionId: schema.library.currentVersionId,
   /*
-   * The earning gate's rights fact (requirement.md 7.3): true when no source
-   * needs a claim, or when one has verified. Computed here so commitCall
-   * judges on fields already determined, never a post-hoc query (11.4).
-   */
-  rightsVerified: sql`(
-    not exists(
-      select 1 from ${schema.source} s
-      where s.library_id = ${ref(schema.library.id)}
-        and s.type in ('github', 'website', 'llms_txt')
-    )
-    or exists(
-      select 1 from ${schema.libraryClaim} c
-      where c.library_id = ${ref(schema.library.id)} and c.status = 'verified'
-    )
-  )`.mapWith(
-    /* The driver may hand a raw-SQL boolean back as 't'/'f' text. */
-    (value): boolean => value === true || value === 't',
-  ),
-  /*
    * The two expert-library facts (expert-library-prd.md 4.4), read with the
-   * rest for the same reason as `rightsVerified`. Neither is consulted by
+   * rest so commitCall judges on fields already determined, never a
+   * post-hoc query (architecture.md 11.4). Neither is consulted by
    * recall or ranking -- they ride along only to reach `commitCall`.
    */
   expertTaggedAt: schema.library.expertTaggedAt,

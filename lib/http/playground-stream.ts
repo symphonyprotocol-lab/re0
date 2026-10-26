@@ -65,6 +65,23 @@ export interface PlaygroundModel {
 
 export type PlaygroundOutcome = 'answer' | 'degraded' | 'no_context' | 'no_library';
 
+/**
+ * One tool call the planner made (agent mode, playground/agent.ts), written
+ * twice under the call's id: running, then done with what it found. The
+ * transcript is the real call sequence, as it is on the fixed path.
+ */
+export interface PlaygroundStep {
+  id: string;
+  tool: 'resolve-library-id' | 'query-docs';
+  query: string;
+  libraryId: string | null;
+  status: 'running' | 'done';
+  results: string[] | null;
+  confirmed: boolean | null;
+  version: string | null;
+  error: string | null;
+}
+
 export type PlaygroundUIMessage = UIMessage<
   never,
   {
@@ -76,6 +93,9 @@ export type PlaygroundUIMessage = UIMessage<
      * `gather` and `sources` after it are the retry's (playground/index.ts).
      */
     rewrite: { query: string };
+    step: PlaygroundStep;
+    /** The planner's restatement of a follow-up; the answer was asked it alongside the question. */
+    resolved: { question: string };
     sources: { sources: PlaygroundSource[] };
     /** One bound sentence. `chunkIds` are its footnotes, in citation order. */
     claim: { claim: string; chunkIds: string[] };

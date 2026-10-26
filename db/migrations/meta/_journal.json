@@ -414,6 +414,13 @@
       "when": 1793000000000,
       "tag": "0058_render_config",
       "breakpoints": true
+    },
+    {
+      "idx": 59,
+      "version": "7",
+      "when": 1793100000000,
+      "tag": "0059_playground_agent",
+      "breakpoints": true
     }
   ]
 }

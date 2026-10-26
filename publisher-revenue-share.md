@@ -126,7 +126,7 @@ publisher_earning(P) = pool × (P 名下可计分成 Call 数 / 全部可计分�
 
 | 条件 | 依据 |
 | --- | --- |
-| 已完成来源权利验证 | [requirement.md](./requirement.md) 第 7.3 节：认领通过，库有明确 Owner |
+| 库有明确 Owner | 来源所有权在创建知识库时已验证，分成不再另行要求认领（2026-10-26） |
 | 已通过公开审核并发布 | 第 7.4 节五道关 |
 | Trust Score 与 Benchmark Score 达到分成门槛 | 门槛高于普通上架门槛，具体值配置化 |
 | 已在支付服务完成身份与税务信息 | 由 Provider 承担 KYC，平台不自行收集 |
