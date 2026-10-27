@@ -54,6 +54,16 @@ export interface BillingDocumentRow {
 export interface BillingListInput {
   query?: string;
   status?: BillingStatusFilter;
+  /** Subscription periods or call packs; absent or `all` for both. */
+  kind?: BillingDocumentKind | 'all';
+  /**
+   * Issued on or after this UTC day, `YYYY-MM-DD`. The list is dated by
+   * issue -- it is the column it prints and sorts by -- unlike the revenue
+   * figures, which are dated by when the money arrived.
+   */
+  from?: string;
+  /** Issued on or before this UTC day, inclusive. */
+  to?: string;
   /** Narrows to one workspace's history. */
   workspaceId?: string;
   limit?: number;
@@ -174,9 +184,97 @@ function billingFilter(input: BillingListInput) {
       ? eq(schema.billingDocument.status, input.status)
       : undefined,
     input.workspaceId ? eq(schema.billingDocument.workspaceId, input.workspaceId) : undefined,
+    input.kind && input.kind !== 'all' ? eq(schema.billingDocument.kind, input.kind) : undefined,
+    input.from ? gte(schema.billingDocument.issuedAt, utcDay(input.from)) : undefined,
+    input.to
+      ? lt(schema.billingDocument.issuedAt, new Date(utcDay(input.to).getTime() + 86_400_000))
+      : undefined,
   ].filter(Boolean);
 
   return conditions.length > 0 ? and(...conditions) : undefined;
+}
+
+/** A `YYYY-MM-DD` day as its first UTC instant. Callers pass validated days. */
+function utcDay(day: string): Date {
+  return new Date(`${day}T00:00:00Z`);
+}
+
+/** A day as it arrives from a query string, or nothing: `YYYY-MM-DD` and real. */
+export function dayParam(value: unknown): string | undefined {
+  if (typeof value !== 'string' || !/^\d{4}-\d{2}-\d{2}$/.test(value)) return undefined;
+  const at = utcDay(value);
+  return Number.isNaN(at.getTime()) || at.toISOString().slice(0, 10) !== value ? undefined : value;
+}
+
+/* ------------------------------------------------------------------ trend */
+
+export interface RevenuePoint {
+  /** `YYYY-MM-DD` for a day, `YYYY-MM` for a month, UTC. */
+  bucket: string;
+  /** Collected minus refunded, USD minor units. */
+  netMinor: number;
+  documents: number;
+}
+
+/**
+ * Collected revenue per UTC day for the last `days` days and per month for the
+ * last `months` months, zero-filled, oldest first. Same basis as the revenue
+ * card and the revenue-share pool: collected documents, USD only, dated by
+ * `paid_at`, refunds deducted. `kind` narrows it like the list filter does.
+ */
+export async function billingRevenueTrend(input: {
+  days: number;
+  months: number;
+  kind?: BillingDocumentKind | 'all';
+  now?: Date;
+}): Promise<{ daily: RevenuePoint[]; monthly: RevenuePoint[] }> {
+  const now = input.now ?? new Date();
+  const dayStart = new Date(
+    Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), now.getUTCDate() - (input.days - 1)),
+  );
+  const monthStart = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth() - (input.months - 1), 1));
+  const since = dayStart < monthStart ? dayStart : monthStart;
+  const collected = BILLING_DOCUMENT_STATUSES.filter(isCollected);
+  const day = sql<string>`to_char(${schema.billingDocument.paidAt} at time zone 'UTC', 'YYYY-MM-DD')`;
+
+  const rows = await db()
+    .select({
+      day,
+      netMinor: sql<number>`coalesce(sum(${schema.billingDocument.amountMinor} - ${schema.billingDocument.refundedMinor}), 0)::bigint`,
+      documents: count(),
+    })
+    .from(schema.billingDocument)
+    .where(
+      and(
+        inArray(schema.billingDocument.status, collected),
+        eq(schema.billingDocument.currency, PLAN_CURRENCY),
+        gte(schema.billingDocument.paidAt, since),
+        input.kind && input.kind !== 'all' ? eq(schema.billingDocument.kind, input.kind) : undefined,
+      ),
+    )
+    .groupBy(day);
+
+  const byDay = new Map<string, RevenuePoint>();
+  const byMonth = new Map<string, RevenuePoint>();
+  for (const row of rows) {
+    const point = { netMinor: Number(row.netMinor), documents: row.documents };
+    byDay.set(row.day, { bucket: row.day, ...point });
+    const month = byMonth.get(row.day.slice(0, 7)) ?? { bucket: row.day.slice(0, 7), netMinor: 0, documents: 0 };
+    month.netMinor += point.netMinor;
+    month.documents += point.documents;
+    byMonth.set(month.bucket, month);
+  }
+
+  const daily = Array.from({ length: input.days }, (_, index) => {
+    const bucket = new Date(dayStart.getTime() + index * 86_400_000).toISOString().slice(0, 10);
+    return byDay.get(bucket) ?? { bucket, netMinor: 0, documents: 0 };
+  });
+  const monthly = Array.from({ length: input.months }, (_, index) => {
+    const at = new Date(Date.UTC(monthStart.getUTCFullYear(), monthStart.getUTCMonth() + index, 1));
+    const bucket = at.toISOString().slice(0, 7);
+    return byMonth.get(bucket) ?? { bucket, netMinor: 0, documents: 0 };
+  });
+  return { daily, monthly };
 }
 
 /* ----------------------------------------------------------------- summary */

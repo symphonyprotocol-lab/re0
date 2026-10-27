@@ -227,5 +227,14 @@ export {
   type SettlementStatusFilter,
   type SettlementSummary,
 } from './settlements';
+export {
+  consolePayouts,
+  markPayoutFailed,
+  markPayoutPaid,
+  type ConsolePayoutRow,
+  type ConsolePayouts,
+  type PayoutActor,
+  type ResolvedPayout,
+} from './payouts';
 export { resetAdministratorMfa, type MfaResetResult } from './manage-administrators';
 export { revokeUserApiKey, revokeUserSession, type UserRevocation } from './manage-users';

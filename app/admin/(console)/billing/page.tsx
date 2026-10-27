@@ -2,6 +2,8 @@ import type { Metadata } from 'next';
 import { redirect } from 'next/navigation';
 import { BackfillDocument } from '@/components/admin/backfill-document';
 import { BillingStatusPill } from '@/components/admin/billing-status';
+import { ConsoleTrend } from '@/components/admin/console-trend';
+import { dayTick, minorOnNarrow } from '@/components/dashboard/mini-trend';
 import { FilterSelect } from '@/components/admin/list-controls';
 import {
   CONSOLE_PANEL,
@@ -21,12 +23,18 @@ import {
 } from '@/components/admin/ui';
 import { EyeIcon, ReceiptIcon } from '@/components/ui/icons';
 import {
+  BILLING_DOCUMENT_KINDS,
   BILLING_STATUS_FILTERS,
   percentFromBps,
   type BillingDocumentKind,
   type BillingStatusFilter,
 } from '@/lib/domain/billing';
-import { billingSummary, listBillingDocuments } from '@/lib/application/billing';
+import {
+  billingRevenueTrend,
+  billingSummary,
+  dayParam,
+  listBillingDocuments,
+} from '@/lib/application/billing';
 import { paddleConfig } from '@/lib/infrastructure/payment/paddle';
 import { changeBps } from '@/lib/domain/overview';
 import { requireAdminCapability } from '@/lib/http/admin';
@@ -69,11 +77,24 @@ export default async function AdminBillingPage({
   const b = t.admin.billing;
   const query = searchTerm(params.q);
   const status = oneOf(params.status, BILLING_STATUS_FILTERS, 'all');
+  const kind = oneOf(params.kind, ['all', ...BILLING_DOCUMENT_KINDS] as const, 'all');
+  const from = dayParam(params.from);
+  const to = dayParam(params.to);
   const page = pageNumber(params.page);
+  const filtered = Boolean(query) || status !== 'all' || kind !== 'all' || Boolean(from) || Boolean(to);
 
-  const [{ rows, total }, summary] = await Promise.all([
-    listBillingDocuments({ query, status, limit: PAGE_SIZE, offset: (page - 1) * PAGE_SIZE }),
+  const [{ rows, total }, summary, trend] = await Promise.all([
+    listBillingDocuments({
+      query,
+      status,
+      kind,
+      from,
+      to,
+      limit: PAGE_SIZE,
+      offset: (page - 1) * PAGE_SIZE,
+    }),
     billingSummary(),
+    billingRevenueTrend({ days: TREND_DAYS, months: TREND_MONTHS, kind }),
   ]);
 
   const view = pageWindow({ page, total, rows: rows.length });
@@ -82,6 +103,9 @@ export default async function AdminBillingPage({
     const next = new URLSearchParams();
     if (query) next.set('q', query);
     if (status !== 'all') next.set('status', status);
+    if (kind !== 'all') next.set('kind', kind);
+    if (from) next.set('from', from);
+    if (to) next.set('to', to);
     if (target > 1) next.set('page', String(target));
     return next.size > 0 ? `/admin/billing?${next.toString()}` : '/admin/billing';
   };
@@ -89,6 +113,20 @@ export default async function AdminBillingPage({
   if (total > 0 && page > view.pageCount) redirect(link(view.pageCount));
 
   const cash = (minor: number) => money(minor, summary.currency);
+
+  /* Every bar labelled; on a phone only every other month and every fifth day. */
+  const monthlyBars = trend.monthly.map((point, index) => ({
+    label: point.bucket,
+    minor: minorOnNarrow(index, TREND_MONTHS, 2),
+    hint: fill(b.trend.hint, { bucket: point.bucket, count: point.documents }),
+    value: point.netMinor / 100,
+  }));
+  const dailyBars = trend.daily.map((point, index) => ({
+    label: dayTick(point.bucket, index === 0),
+    minor: minorOnNarrow(index, TREND_DAYS, 5),
+    hint: fill(b.trend.hint, { bucket: point.bucket, count: point.documents }),
+    value: point.netMinor / 100,
+  }));
 
   return (
     <div className="flex flex-col gap-[18px]">
@@ -143,6 +181,8 @@ export default async function AdminBillingPage({
         ))}
       </section>
 
+      <ConsoleTrend daily={dailyBars} monthly={monthlyBars} copy={b.trend} />
+
       {/*
         * Said once, in the place where the absence of a refund button would
         * otherwise read as a missing feature.
@@ -175,11 +215,29 @@ export default async function AdminBillingPage({
               value={status}
               options={statusOptions(b, t.admin.filters.all)}
             />
+            <FilterSelect
+              name="kind"
+              label={b.kindFilter}
+              value={kind}
+              options={[
+                { id: 'all', label: b.kindAll },
+                ...BILLING_DOCUMENT_KINDS.map((id) => ({ id, label: b.kinds[id] })),
+              ]}
+            />
+            <label className={DATE_FIELD}>
+              <span className="text-muted">{b.dateFrom}</span>
+              <input type="date" name="from" defaultValue={from ?? ''} max={to} className={DATE_INPUT} />
+            </label>
+            <label className={DATE_FIELD}>
+              <span className="text-muted">{b.dateTo}</span>
+              <input type="date" name="to" defaultValue={to ?? ''} min={from} className={DATE_INPUT} />
+            </label>
             <ConsoleButton type="submit">{t.admin.administrators.searchSubmit}</ConsoleButton>
             <ExportLink
               resource="billing"
               query={query}
               status={status}
+              filters={{ kind, from, to }}
               label={t.admin.actions.export}
             />
           </ListToolbar>
@@ -211,7 +269,7 @@ export default async function AdminBillingPage({
                    * unfiltered list, where it is the likely explanation.
                    */
                   note={
-                    query || status !== 'all'
+                    filtered
                       ? undefined
                       : paddleConfig()
                         ? b.noneYet
@@ -285,6 +343,15 @@ export default async function AdminBillingPage({
 }
 
 type BillingCopy = Dictionary['admin']['billing'];
+
+/** The trend's two ranges: a month of days, a year of months. */
+const TREND_DAYS = 30;
+const TREND_MONTHS = 12;
+
+/** A date filter framed like the toolbar's selects. */
+const DATE_FIELD =
+  'inline-flex h-[37px] shrink-0 items-center gap-1.5 rounded-[7px] border-2 border-line bg-card px-2.5 text-[12px] tracking-[-0.023em] text-steel';
+const DATE_INPUT = 'h-full bg-transparent text-[12px] text-steel focus:outline-none';
 
 function planLabel(
   planId: string | null,

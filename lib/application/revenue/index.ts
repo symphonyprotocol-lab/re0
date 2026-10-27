@@ -59,7 +59,9 @@ export {
 } from './close-period';
 export {
   acceptPublisherAgreement,
+  publisherDailyEarnings,
   publisherEarnings,
+  type PublisherDayEarning,
   type PublisherEarnings,
   type PublisherLibraryEarning,
   type PublisherPeriodEarning,
@@ -74,3 +76,10 @@ export {
   type RedeemActor,
   type RedeemedEarnings,
 } from './redeem-credit';
+export {
+  earningPayouts,
+  requestPayout,
+  type EarningPayouts,
+  type PublisherPayout,
+  type RequestedPayout,
+} from './payout';

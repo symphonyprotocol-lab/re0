@@ -66,8 +66,9 @@ export interface OverviewServices {
   /** Embeddings and storage together: whether a version could be built at all. */
   ingestion: boolean;
   /**
-   * Always false: there is no payment adapter yet (publisher-revenue-share.md
-   * stage 3), so payouts cannot execute. Stated rather than omitted.
+   * Always false: no payout service is connected (publisher-revenue-share.md
+   * stage 3). Cash is paid by hand from the settlements queue instead, which
+   * is an operator, not a service. Stated rather than omitted.
    */
   payments: false;
 }

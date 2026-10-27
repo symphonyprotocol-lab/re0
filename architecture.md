@@ -453,7 +453,7 @@ API Key 格式使用 `mm_live_` / `mm_test_` 前缀。服务端只保存：
 | `publisher_account` | 发布者主体、支付服务账户、税务状态、协议版本 |
 | `earning_event` | 只追加的分成事实：Usage Event、Library/Version、Plan Version、share_rate、账期、状态 |
 | `revenue_period` | 账期净收入、可分配池、可计分成 Call 总数、结算状态 |
-| `payout` | 出账金额、Provider 引用、状态与失败原因 |
+| `payout` | 出账金额、方式（paypal）、收款 PayPal 邮箱、交易号、状态（requested / paid / failed）、失败原因、申请人与处理人 |
 | `anchor_batch` | 批次类型、Leaf Schema 版本、Merkle Root、Leaf 数、窗口区间、网络、交易哈希、状态、重试次数、确认时间 |
 | `anchor_leaf` | 批次 ID、Leaf 哈希、Leaf Schema 版本、Subject 类型与 ID、Leaf 序号、Merkle Proof |
 | `workflow_operation` | Ingest/Refresh/Delete 状态、Digest、Attempt、错误 |
@@ -846,7 +846,7 @@ Payment Provider 为 **Paddle Billing**（`lib/infrastructure/payment/paddle.ts`
 - 账期结算是批处理，跑在请求路径之外；结算只读 `earning_event` 与 `revenue_period`，可重复执行且幂等；
 - 回冲与作废产生新的 `earning_event` 记录，不修改历史行；
 - **检索链路不得读取任何收益字段。** §9 的召回、融合与 Rerank 输入中不存在 `earning_event`、`publisher_account` 或 `payout`。这条与 §10 的 Policy 先于检索同属硬约束：一旦排序可被收益影响，Trust/Benchmark 分数就失去意义；
-- 平台不持有资金。`payout` 只保存外部支付服务的引用与状态，不保存银行账号、卡号或税务证件。
+- 平台不持有资金。`payout` 只保存收款 PayPal 邮箱、交易号与状态，不保存银行账号、卡号或税务证件；人工打款在系统外完成，系统只登记结果。
 
 ## 12. REST API
 
@@ -1216,7 +1216,7 @@ Upstash Redis 不在此列：它替代的是上一版运行平台自带的限流
 
 认领排在分成之前不是编排偏好：`owner_workspace_id` 是分成的收款主体，没有它 `earning_event` 无法确定归属，先做分成会产生一批无主的收益记录。
 
-分成的实际出账（Payout）排在第 10 步之后，前置条件是账期分配数据可用 Usage Event 独立复算，见 [publisher-revenue-share.md](./publisher-revenue-share.md) 第 9 节。
+分成的现金出账先以人工 PayPal 打款提供（发布者申请、后台登记交易号）；接入自动出账服务排在第 10 步之后，前置条件是账期分配数据可用 Usage Event 独立复算，见 [publisher-revenue-share.md](./publisher-revenue-share.md) 第 3.4、9 节。
 
 链上存证已进入基线，设计见 [aptos-anchoring-proposal.md](./aptos-anchoring-proposal.md)。它是 §8.5 的旁路能力：第 11–12 步整体延后或失败都不影响第 1–10 步的交付与运行。Anchor Signer 私钥由环境变量持有，不引入 KMS——提案 1.1 版撤销了 1.0 版的 KMS 决定，风险条目见其第 0.1 节；因此 Earning Anchor（第 12 步）只等分成侧跑出可复算的真实数据。代价是密钥轮换要发布一个新的 Code Object，该演练是 Earning Anchor 的上线门禁，见提案 §4.11.1。
 

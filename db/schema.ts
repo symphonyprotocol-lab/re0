@@ -1801,35 +1801,74 @@ export const revenuePeriod = pgTable(
   },
 );
 
-export const settlement = pgTable('settlement', {
-  id: uuid('id').primaryKey(),
-  periodId: text('period_id').notNull().references(() => revenuePeriod.id),
-  publisherAccountId: uuid('publisher_account_id').notNull().references(() => publisherAccount.id),
-  libraryId: uuid('library_id').notNull().references(() => library.id),
-  attributableCalls: bigint('attributable_calls', { mode: 'number' }).notNull(),
-  amountMinor: bigint('amount_minor', { mode: 'number' }).notNull(),
-  currency: text('currency').notNull().default('USD'),
-  status: settlementStatusEnum('status').notNull(),
-  statementDigest: text('statement_digest'),
-  /**
-   * The grant a `redeemed` statement became, so the discharge is traceable in
-   * both directions: statement -> calls here, calls -> statements by joining
-   * back. Null unless the status is `redeemed`.
-   */
-  addonGrantId: uuid('addon_grant_id').references(() => addonGrant.id),
-  createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
-});
+export const settlement = pgTable(
+  'settlement',
+  {
+    id: uuid('id').primaryKey(),
+    periodId: text('period_id').notNull().references(() => revenuePeriod.id),
+    publisherAccountId: uuid('publisher_account_id').notNull().references(() => publisherAccount.id),
+    libraryId: uuid('library_id').notNull().references(() => library.id),
+    attributableCalls: bigint('attributable_calls', { mode: 'number' }).notNull(),
+    amountMinor: bigint('amount_minor', { mode: 'number' }).notNull(),
+    currency: text('currency').notNull().default('USD'),
+    status: settlementStatusEnum('status').notNull(),
+    statementDigest: text('statement_digest'),
+    /**
+     * The grant a `redeemed` statement became, so the discharge is traceable in
+     * both directions: statement -> calls here, calls -> statements by joining
+     * back. Null unless the status is `redeemed`.
+     */
+    addonGrantId: uuid('addon_grant_id').references(() => addonGrant.id),
+    /**
+     * The cash payout the statement is in: set while it is `held` in a request
+     * and kept once `paid`; cleared when the payout fails and the statement
+     * returns to `accrued`. The foreign key lives in the migration only, for the
+     * same forward-reference reason as `addon_grant.publisher_account_id`.
+     */
+    payoutId: uuid('payout_id'),
+    createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
+  },
+  /** "Which statements does this payout cover", read when it is marked paid or failed. */
+  (t) => [index('settlement_payout_idx').on(t.payoutId)],
+);
 
-export const payout = pgTable('payout', {
-  id: uuid('id').primaryKey(),
-  publisherAccountId: uuid('publisher_account_id').notNull().references(() => publisherAccount.id),
-  amountMinor: bigint('amount_minor', { mode: 'number' }).notNull(),
-  currency: text('currency').notNull().default('USD'),
-  providerReference: text('provider_reference'),
-  status: text('status').notNull(),
-  failureReason: text('failure_reason'),
-  createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
-});
+/**
+ * A cash payout, paid by hand (publisher-revenue-share.md 3.4): the publisher
+ * requests it with a PayPal address, an operator sends the money from the
+ * platform's PayPal account and records the transaction id here. `status` is
+ * `requested`, `paid` or `failed`; at most one request per publisher is open.
+ */
+export const payout = pgTable(
+  'payout',
+  {
+    id: uuid('id').primaryKey(),
+    publisherAccountId: uuid('publisher_account_id').notNull().references(() => publisherAccount.id),
+    amountMinor: bigint('amount_minor', { mode: 'number' }).notNull(),
+    currency: text('currency').notNull().default('USD'),
+    /** The rail; `paypal` is the only one. */
+    method: text('method').notNull().default('paypal'),
+    /** Where the money goes: a PayPal account email, never a card or bank number. */
+    payeeEmail: text('payee_email'),
+    /** The PayPal transaction id the operator entered when marking it paid. */
+    providerReference: text('provider_reference'),
+    status: text('status').notNull(),
+    failureReason: text('failure_reason'),
+    /** Who asked for it, as `user:<id>` or `api_key:<id>`, like `addon_grant.redeemed_by`. */
+    requestedBy: text('requested_by'),
+    /** The administrator who marked it paid or failed; FK in the migration only. */
+    resolvedBy: uuid('resolved_by'),
+    resolvedAt: timestamp('resolved_at', { withTimezone: true }),
+    createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
+  },
+  (t) => [
+    /** One open request per publisher: a second press cannot split the statements. */
+    uniqueIndex('payout_open_uq')
+      .on(t.publisherAccountId)
+      .where(sql`${t.status} = 'requested'`),
+    /** The console queue, oldest request first. */
+    index('payout_status_time_idx').on(t.status, t.createdAt),
+  ],
+);
 
 // ---------------------------------------------------------------- anchoring
 
