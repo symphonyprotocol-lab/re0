@@ -327,6 +327,7 @@ export function ExportLink({
   query,
   status,
   period,
+  filters,
   label,
 }: {
   resource: string;
@@ -334,12 +335,17 @@ export function ExportLink({
   status?: string;
   /** A settlement period; only that export reads it. */
   period?: string;
+  /** Any other filters the list carries, e.g. billing's kind and dates; empty ones are dropped. */
+  filters?: Record<string, string | undefined>;
   label: string;
 }) {
   const params = new URLSearchParams();
   if (query) params.set('q', query);
   if (status && status !== 'all') params.set('status', status);
   if (period) params.set('period', period);
+  for (const [key, value] of Object.entries(filters ?? {})) {
+    if (value && value !== 'all') params.set(key, value);
+  }
   const suffix = params.size > 0 ? `?${params.toString()}` : '';
 
   return (

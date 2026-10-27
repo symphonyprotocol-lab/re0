@@ -1,7 +1,11 @@
 import type { Metadata } from 'next';
 import { redirect } from 'next/navigation';
+import { CopyValue } from '@/components/admin/copy-value';
 import { GenerateSettlements } from '@/components/admin/generate-settlements';
 import { FilterSelect } from '@/components/admin/list-controls';
+import { PayoutControls } from '@/components/admin/payout-controls';
+import { ConsoleTrend } from '@/components/admin/console-trend';
+import { dayTick, minorOnNarrow } from '@/components/dashboard/mini-trend';
 import {
   CONSOLE_PANEL,
   ConsoleButton,
@@ -12,6 +16,7 @@ import {
   ListToolbar,
   Pagination,
   Panel,
+  PanelHead,
   Pill,
   TableScroller,
   TD,
@@ -19,6 +24,7 @@ import {
 } from '@/components/admin/ui';
 import { CircleDollarSignIcon } from '@/components/ui/icons';
 import {
+  consolePayouts,
   listSettlements,
   periodParam,
   SETTLEMENT_STATUS_FILTERS,
@@ -26,13 +32,28 @@ import {
   settlementSummary,
   type SettlementStatus,
 } from '@/lib/application/administration';
+import { livePeriodPool, publisherDailyEarnings } from '@/lib/application/revenue';
+import { recentPeriodIds, revenuePeriodId, type PayoutStatus } from '@/lib/domain';
 import { percentFromBps } from '@/lib/domain/billing';
 import { requireAdminCapability } from '@/lib/http/admin';
 import type { Dictionary } from '@/lib/i18n/dictionary';
 import { fill } from '@/lib/i18n/format';
 import { getMessages } from '@/lib/i18n/server';
-import { money, oneOf, PAGE_SIZE, pageNumber, pageWindow, searchTerm, utcDate } from '../list-params';
-import { generateSettlementsAction } from './actions';
+import {
+  money,
+  oneOf,
+  PAGE_SIZE,
+  pageNumber,
+  pageWindow,
+  searchTerm,
+  utcDate,
+  utcStamp,
+} from '../list-params';
+import {
+  generateSettlementsAction,
+  markPayoutFailedAction,
+  markPayoutPaidAction,
+} from './actions';
 
 export async function generateMetadata(): Promise<Metadata> {
   return { title: (await getMessages()).admin.settlements.title };
@@ -45,6 +66,16 @@ const STATUS_TONE: Record<SettlementStatus, 'neutral' | 'warn' | 'ok' | 'danger'
   redeemed: 'ok',
   clawed_back: 'danger',
   voided: 'neutral',
+};
+
+/** The trend's two ranges: a month of days, a year of periods. */
+const TREND_DAYS = 30;
+const TREND_PERIODS = 12;
+
+const PAYOUT_TONE: Record<PayoutStatus, 'neutral' | 'warn' | 'ok' | 'danger'> = {
+  requested: 'warn',
+  paid: 'ok',
+  failed: 'danger',
 };
 
 function statusLabel(f: Dictionary['admin']['filters'], status: SettlementStatus): string {
@@ -72,12 +103,13 @@ function statusLabel(f: Dictionary['admin']['filters'], status: SettlementStatus
  * weighted by Trust Score (publisher-revenue-share.md 6.2), so the table shows
  * the call count the money is derived from rather than any score.
  *
- * There is no payout control, and that is a product fact rather than a gap:
- * stage 3 of the share doc connects an external payment service, and until it
- * does the console cannot move money. Statements still leave the books one
- * way -- the publisher redeems them as Additional Calls from their dashboard
- * (share doc 3.4) -- which the console shows as `redeemed` and totals beside
- * cash paid out, but never triggers. The notice says both.
+ * Statements leave the books two ways (share doc 3.4). The publisher redeems
+ * them as Additional Calls from their dashboard, which the console shows as
+ * `redeemed` but never triggers. Or the publisher requests a cash payout to a
+ * PayPal address, which lands in the payout queue here: no payment service
+ * is connected, so an operator sends the money from the platform's PayPal
+ * account and then marks the request paid with the transaction id -- or
+ * failed, which hands the statements back.
  */
 export default async function AdminSettlementsPage({
   searchParams,
@@ -98,11 +130,21 @@ export default async function AdminSettlementsPage({
   const period = periodParam(params.period);
   const page = pageNumber(params.page);
 
-  const periods = await settlementPeriods();
-  const [{ rows, total }, summary] = await Promise.all([
+  const now = new Date();
+  const currentPeriod = revenuePeriodId(now);
+  const [periods, livePool] = await Promise.all([
+    settlementPeriods(now),
+    /* The open period's pool so far: one platform scan, and only operators open this page. */
+    livePeriodPool(currentPeriod),
+  ]);
+  const live = { periodId: currentPeriod, pool: livePool };
+  const [{ rows, total }, summary, payouts, daily] = await Promise.all([
     listSettlements({ query, status, period, limit: PAGE_SIZE, offset: (page - 1) * PAGE_SIZE }),
     settlementSummary(periods),
+    consolePayouts(),
+    publisherDailyEarnings(null, TREND_DAYS, live, now),
   ]);
+  const p = s.payouts;
   const view = pageWindow({ page, total, rows: rows.length });
 
   const link = (target: number) => {
@@ -118,6 +160,36 @@ export default async function AdminSettlementsPage({
 
   const cash = (minor: number) => money(minor, summary.currency);
   const latest = summary.latest;
+
+  /*
+   * The trend: a year of periods (the open one at its live pool) and a month
+   * of days, oldest first and zero-filled. Every bar is labelled; on a phone
+   * only every other month and every fifth day keep theirs.
+   */
+  const tr = s.trend;
+  const periodById = new Map(periods.map((entry) => [entry.id, entry]));
+  const monthly = recentPeriodIds(now, TREND_PERIODS).map((id, index) => {
+    const entry = periodById.get(id);
+    const open = id === currentPeriod && !entry?.locked;
+    const poolMinor = open ? livePool.poolMinor : (entry?.poolMinor ?? 0);
+    const netMinor = open ? livePool.netRevenueMinor : (entry?.netRevenueMinor ?? 0);
+    return {
+      label: id,
+      minor: minorOnNarrow(index, TREND_PERIODS, 2),
+      hint: fill(open ? tr.monthHintOpen : tr.monthHint, {
+        period: id,
+        net: cash(netMinor),
+        settled: cash(entry?.settledMinor ?? 0),
+      }),
+      value: poolMinor / 100,
+    };
+  });
+  const dailyBars = daily.map((day, index) => ({
+    label: dayTick(day.date, index === 0),
+    minor: minorOnNarrow(index, TREND_DAYS, 5),
+    hint: fill(tr.dayHint, { day: day.date, calls: day.attributableCalls }),
+    value: day.amountMinor / 100,
+  }));
 
   const stats = [
     {
@@ -137,6 +209,7 @@ export default async function AdminSettlementsPage({
       caption: fill(l.stats.accruedCaption, {
         count: summary.accruedCount,
         publishers: summary.publishers,
+        inPayout: cash(summary.inPayoutMinor),
       }),
     },
     {
@@ -188,6 +261,8 @@ export default async function AdminSettlementsPage({
         ))}
       </section>
 
+      <ConsoleTrend daily={dailyBars} monthly={monthly} copy={tr} />
+
       <ConsoleNotice
         icon={<CircleDollarSignIcon size={18} />}
         title={l.payoutTitle}
@@ -203,6 +278,132 @@ export default async function AdminSettlementsPage({
           />
         }
       />
+
+      <Panel>
+        <PanelHead
+          title={fill(p.title, { count: payouts.open.length })}
+          description={fill(p.description, { threshold: cash(summary.payoutThresholdMinor) })}
+        />
+        <TableScroller>
+          <table className="w-full min-w-[900px] border-collapse text-left">
+            <thead>
+              <tr>
+                {p.openColumns.map((column) => (
+                  <th key={column} scope="col" className={TH}>
+                    {column}
+                  </th>
+                ))}
+              </tr>
+            </thead>
+            <tbody>
+              {payouts.open.length === 0 ? (
+                <EmptyRow columns={p.openColumns.length} message={p.openEmpty} />
+              ) : null}
+              {payouts.open.map((payout) => (
+                <tr key={payout.id} className="border-t-2 border-line">
+                  <td className={TD}>{utcStamp(payout.createdAt)}</td>
+                  <td className={TD}>
+                    <span className="flex min-w-0 flex-col gap-[3px]">
+                      <span className="truncate text-[12px] font-medium text-ink">{payout.publisherName}</span>
+                      <span className="truncate font-mono text-[11px] text-muted">
+                        {payout.publisherWorkspaceId}
+                      </span>
+                    </span>
+                  </td>
+                  <td className={TD}>
+                    <span className="flex items-center gap-2">
+                      <span className="truncate font-mono text-[12px] text-ink">{payout.payeeEmail}</span>
+                      {payout.payeeEmail ? (
+                        <CopyValue value={payout.payeeEmail} label={p.copy} copiedLabel={p.copied} />
+                      ) : null}
+                    </span>
+                  </td>
+                  <td className={TD}>
+                    <span className="flex flex-col items-start gap-[3px]">
+                      <span className="font-semibold text-ink">
+                        {money(payout.amountMinor, payout.currency)}
+                      </span>
+                      {payout.withheldMinor > 0 ? (
+                        <Pill tone="danger">
+                          {fill(p.withheld, { amount: money(payout.withheldMinor, payout.currency) })}
+                        </Pill>
+                      ) : null}
+                    </span>
+                  </td>
+                  <td className={TD}>
+                    <span className="flex flex-col gap-[3px]">
+                      <span>{fill(p.statements, { count: payout.statements })}</span>
+                      <span className="text-[11px] text-muted">{payout.periods.join(', ')}</span>
+                    </span>
+                  </td>
+                  <td className={`${TD} text-right`}>
+                    <PayoutControls
+                      payout={{
+                        id: payout.id,
+                        amountMinor: payout.amountMinor,
+                        currency: payout.currency,
+                        payeeEmail: payout.payeeEmail,
+                      }}
+                      paidAction={markPayoutPaidAction}
+                      failedAction={markPayoutFailedAction}
+                    />
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </TableScroller>
+
+        {payouts.resolved.length > 0 ? (
+          <>
+            <h3 className="border-t-2 border-line px-[19px] pt-4 pb-2 text-[13px] tracking-[-0.023em] text-ink">
+              {p.resolvedTitle}
+            </h3>
+            <TableScroller>
+              <table className="w-full min-w-[900px] border-collapse text-left">
+                <thead>
+                  <tr>
+                    {p.resolvedColumns.map((column) => (
+                      <th key={column} scope="col" className={TH}>
+                        {column}
+                      </th>
+                    ))}
+                  </tr>
+                </thead>
+                <tbody>
+                  {payouts.resolved.map((payout) => (
+                    <tr key={payout.id} className="border-t-2 border-line">
+                      <td className={TD}>
+                        {payout.resolvedAt ? utcStamp(payout.resolvedAt) : '—'}
+                      </td>
+                      <td className={TD}>
+                        <span className="truncate text-[12px] text-ink">{payout.publisherName}</span>
+                      </td>
+                      <td className={TD}>
+                        <span className="truncate font-mono text-[12px]">{payout.payeeEmail}</span>
+                      </td>
+                      <td className={`${TD} font-semibold text-ink`}>
+                        {money(payout.amountMinor, payout.currency)}
+                      </td>
+                      <td className={TD}>
+                        <Pill tone={PAYOUT_TONE[payout.status]}>{p.status[payout.status]}</Pill>
+                      </td>
+                      <td className={TD}>
+                        {payout.status === 'failed' ? (
+                          <span className="text-err">{payout.failureReason}</span>
+                        ) : (
+                          <code className="font-mono text-[11px] text-ink">{payout.providerReference}</code>
+                        )}
+                      </td>
+                      <td className={TD}>{payout.resolvedByEmail ?? '—'}</td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </TableScroller>
+          </>
+        ) : null}
+      </Panel>
 
       <Panel>
         {/* GET, so a filtered page is a URL an operator can keep or share. */}

@@ -1,13 +1,19 @@
 'use server';
 
 import { revalidatePath } from 'next/cache';
-import { canRedeemEarnings, redeemEarningsAsCalls } from '@/lib/application/revenue';
-import { EarningCreditRefused, type EarningCreditError } from '@/lib/domain';
+import { canRedeemEarnings, redeemEarningsAsCalls, requestPayout } from '@/lib/application/revenue';
+import {
+  EarningCreditRefused,
+  PayoutRefused,
+  type EarningCreditError,
+  type PayoutError,
+} from '@/lib/domain';
 import { requireSession } from '@/lib/http/session';
 
 /**
- * The one mutation on the revenue screen: turn every redeemable statement
- * into Additional Calls (publisher-revenue-share.md 3.4).
+ * The two mutations on the revenue screen (publisher-revenue-share.md 3.4):
+ * turn every redeemable statement into Additional Calls, or ask for the same
+ * statements to be paid out in cash to a PayPal address.
  *
  * Re-resolves the session and re-checks the role: a server action is a public
  * endpoint with a generated name, and the page hiding the button from viewers
@@ -47,6 +53,42 @@ export async function redeemEarningsAction(
     console.error(
       `earning redemption failed: ${error instanceof Error ? error.message : 'unknown'}`,
     );
+    return { ok: false, error: 'failed' };
+  }
+}
+
+export interface RequestPayoutActionResult {
+  ok: boolean;
+  error?: PayoutError | 'forbidden' | 'failed';
+  outcome?: { amountMinor: number; statements: number; payeeEmail: string };
+}
+
+export async function requestPayoutAction(
+  _previous: RequestPayoutActionResult | null,
+  form: FormData,
+): Promise<RequestPayoutActionResult> {
+  const session = await requireSession('/dashboard/revenue');
+  /* Cash spends the same statements the credit does, so the same roles may. */
+  if (!canRedeemEarnings(session.workspace.role)) return { ok: false, error: 'forbidden' };
+
+  try {
+    const result = await requestPayout({
+      workspaceId: session.workspace.id,
+      actor: { kind: 'user', id: session.user.id },
+      payeeEmail: String(form.get('payeeEmail') ?? ''),
+    });
+    revalidatePath('/dashboard/revenue');
+    return {
+      ok: true,
+      outcome: {
+        amountMinor: result.amountMinor,
+        statements: result.statements,
+        payeeEmail: result.payeeEmail,
+      },
+    };
+  } catch (error) {
+    if (error instanceof PayoutRefused) return { ok: false, error: error.code };
+    console.error(`payout request failed: ${error instanceof Error ? error.message : 'unknown'}`);
     return { ok: false, error: 'failed' };
   }
 }

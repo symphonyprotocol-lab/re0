@@ -15,8 +15,8 @@
  * than no export at all -- it looks like a record.
  */
 import type { AdminCapability } from '@/lib/domain/admin';
-import { isBillingStatusFilter } from '@/lib/domain/billing';
-import { listBillingDocuments } from '@/lib/application/billing';
+import { isBillingDocumentKind, isBillingStatusFilter } from '@/lib/domain/billing';
+import { dayParam, listBillingDocuments } from '@/lib/application/billing';
 import { isExpertFilter, listExpertApplications } from '@/lib/application/expert-libraries';
 import { toCsv } from './csv';
 import { listAuditEntries, type AuditResultFilter } from './list-audit';
@@ -31,6 +31,10 @@ export interface ExportRequest {
   status?: string;
   /** A settlement period, `YYYY-MM`; only the settlements export reads it. */
   period?: string;
+  /** Billing's document kind and issue-date range; only that export reads them. */
+  kind?: string;
+  from?: string;
+  to?: string;
   limit?: number;
 }
 
@@ -142,6 +146,10 @@ export const CONSOLE_EXPORTS: Record<string, ConsoleExport> = {
          * with a default, and `audit_log.result` is plain text.
          */
         status: isBillingStatusFilter(input.status) ? input.status : 'all',
+        /* Narrowed for the same reason: `kind` is an enum too, and the days must be real days. */
+        kind: isBillingDocumentKind(input.kind) ? input.kind : 'all',
+        from: dayParam(input.from),
+        to: dayParam(input.to),
         limit: EXPORT_LIMIT,
       });
       /*

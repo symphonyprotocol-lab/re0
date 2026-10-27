@@ -8,8 +8,12 @@
 import { NextResponse, type NextRequest } from 'next/server';
 import { AppError } from '@/contracts/errors';
 import { requireScope, resolveApiKey } from '@/lib/application/auth/api-key';
-import { acceptPublisherAgreement, publisherEarnings } from '@/lib/application/revenue';
-import { API_KEY_MANAGEMENT_SCOPE } from '@/lib/domain/api-key';
+import {
+  acceptPublisherAgreement,
+  publisherEarnings,
+  type EarningPayouts,
+} from '@/lib/application/revenue';
+import { API_KEY_MANAGEMENT_SCOPE, hasScope } from '@/lib/domain/api-key';
 import { errorResponse, newRequestId } from '@/lib/http/respond';
 
 export const runtime = 'nodejs';
@@ -19,23 +23,41 @@ export const runtime = 'nodejs';
  * account-level change and needs the management scope, like key management
  * and redeeming earnings do.
  */
-async function workspaceOf(
-  request: NextRequest,
-  access: 'read' | 'manage' = 'read',
-): Promise<string> {
+async function principalOf(request: NextRequest, access: 'read' | 'manage' = 'read') {
   const principal = await resolveApiKey(request.headers.get('authorization'));
   if (!principal) throw new AppError('invalid_api_key', 'an API key is required');
   if (access === 'manage') requireScope(principal, API_KEY_MANAGEMENT_SCOPE);
-  return principal.workspaceId;
+  return principal;
+}
+
+/**
+ * The payee address is personal data and only the keys that may request a
+ * payout get to see it; a read key -- the kind handed to CI or an
+ * integration -- still sees amounts and statuses.
+ */
+function withoutPayeeEmails(payouts: EarningPayouts): EarningPayouts {
+  const strip = <T extends { payeeEmail: string | null }>(payout: T): T => ({
+    ...payout,
+    payeeEmail: null,
+  });
+  return {
+    ...payouts,
+    open: payouts.open ? strip(payouts.open) : null,
+    history: payouts.history.map(strip),
+    lastPayeeEmail: null,
+  };
 }
 
 export async function GET(request: NextRequest): Promise<NextResponse> {
   const requestId = newRequestId();
   try {
-    const workspaceId = await workspaceOf(request);
-    const earnings = await publisherEarnings(workspaceId);
+    const principal = await principalOf(request);
+    const earnings = await publisherEarnings(principal.workspaceId);
+    const payouts = hasScope(principal.scopes, API_KEY_MANAGEMENT_SCOPE)
+      ? earnings.payouts
+      : withoutPayeeEmails(earnings.payouts);
     return NextResponse.json(
-      { ...earnings, requestId },
+      { ...earnings, payouts, requestId },
       { headers: { 'cache-control': 'private, no-store' } },
     );
   } catch (error) {
@@ -46,7 +68,7 @@ export async function GET(request: NextRequest): Promise<NextResponse> {
 export async function POST(request: NextRequest): Promise<NextResponse> {
   const requestId = newRequestId();
   try {
-    const workspaceId = await workspaceOf(request, 'manage');
+    const { workspaceId } = await principalOf(request, 'manage');
 
     let body: { agreementVersion?: unknown };
     try {

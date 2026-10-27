@@ -452,7 +452,7 @@ export interface LeadInput {
 }
 
 /** Enough of an address to send to: one `@`, something on both sides, a dot in the host. */
-const EMAIL_SHAPE = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+export const EMAIL_SHAPE = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
 
 /**
  * A lead as the form posts it: the address lower-cased and required, the

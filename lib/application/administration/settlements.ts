@@ -7,12 +7,12 @@
  * neither moves money. `generateSettlements` is the console end of stage 1:
  * it locks a finished period (`closePeriod`, which is what freezes the pool)
  * and writes one `settlement` row per publisher library from the unflagged
- * events. Nothing here writes a `payout` -- there is no payment adapter, and a
- * payout row that no provider executed would be a claim the ledger cannot
- * back (3.4: the platform holds no funds). Statements do leave the books one
- * way: the publisher redeems them as Additional Calls from their dashboard
+ * events. Nothing here writes a `payout`. Statements leave the books two
+ * ways: the publisher redeems them as Additional Calls from their dashboard
  * (lib/application/revenue/redeem-credit), which is why `redeemed` is a status
- * the console filters and totals but never sets.
+ * the console filters and totals but never sets; or the publisher requests a
+ * PayPal payout, which an operator pays by hand and closes in ./payouts --
+ * the only place a statement becomes `paid`.
  *
  * Every write takes a reason and lands in the audit chain (requirement.md
  * 5.3): generating statements is the one console action that puts a number
@@ -266,11 +266,16 @@ export async function settlementPeriods(now: Date = new Date()): Promise<Settlem
 export interface SettlementSummary {
   /** The newest locked period, whose figures the tiles quote. */
   latest: SettlementPeriodView | null;
-  /** Statements accrued and not yet paid, across every period. */
+  /**
+   * Statements owed and not yet discharged, across every period: `accrued`,
+   * plus `held` -- in a payout request an operator has not paid yet.
+   */
   accruedMinor: number;
   accruedCount: number;
-  /** Publishers with something accrued. */
+  /** Publishers with something owed. */
   publishers: number;
+  /** The `held` part of `accruedMinor`: waiting in the payout queue. */
+  inPayoutMinor: number;
   /** Money that left the books, and money that came back or was voided. */
   paidMinor: number;
   /** Statements discharged as Additional Calls instead (share doc 3.4). */
@@ -289,9 +294,10 @@ export async function settlementSummary(
 
   const [totals] = await database
     .select({
-      accruedMinor: sql<number>`coalesce(sum(${schema.settlement.amountMinor}) filter (where ${schema.settlement.status} = 'accrued'), 0)::bigint`,
-      accruedCount: sql<number>`(count(*) filter (where ${schema.settlement.status} = 'accrued'))::int`,
-      publishers: sql<number>`(count(distinct ${schema.settlement.publisherAccountId}) filter (where ${schema.settlement.status} = 'accrued'))::int`,
+      accruedMinor: sql<number>`coalesce(sum(${schema.settlement.amountMinor}) filter (where ${schema.settlement.status} in ('accrued', 'held')), 0)::bigint`,
+      accruedCount: sql<number>`(count(*) filter (where ${schema.settlement.status} in ('accrued', 'held')))::int`,
+      publishers: sql<number>`(count(distinct ${schema.settlement.publisherAccountId}) filter (where ${schema.settlement.status} in ('accrued', 'held')))::int`,
+      inPayoutMinor: sql<number>`coalesce(sum(${schema.settlement.amountMinor}) filter (where ${schema.settlement.status} = 'held'), 0)::bigint`,
       paidMinor: sql<number>`coalesce(sum(${schema.settlement.amountMinor}) filter (where ${schema.settlement.status} = 'paid'), 0)::bigint`,
       redeemedMinor: sql<number>`coalesce(sum(${schema.settlement.amountMinor}) filter (where ${schema.settlement.status} = 'redeemed'), 0)::bigint`,
       reversedMinor: sql<number>`coalesce(sum(${schema.settlement.amountMinor}) filter (where ${schema.settlement.status} in ('clawed_back', 'voided')), 0)::bigint`,
@@ -305,6 +311,7 @@ export async function settlementSummary(
     accruedMinor: Number(totals?.accruedMinor ?? 0),
     accruedCount: totals?.accruedCount ?? 0,
     publishers: Number(totals?.publishers ?? 0),
+    inPayoutMinor: Number(totals?.inPayoutMinor ?? 0),
     paidMinor: Number(totals?.paidMinor ?? 0),
     redeemedMinor: Number(totals?.redeemedMinor ?? 0),
     reversedMinor: Number(totals?.reversedMinor ?? 0),

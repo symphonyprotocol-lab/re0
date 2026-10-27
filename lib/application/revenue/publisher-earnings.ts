@@ -14,7 +14,7 @@
  * (later) the external payment account. Tax and KYC stay with the payment
  * provider (3.4: the platform holds no bank details and no funds).
  */
-import { and, desc, eq, inArray, isNotNull, isNull, or, sql } from 'drizzle-orm';
+import { and, desc, eq, gte, inArray, isNotNull, isNull, or, sql } from 'drizzle-orm';
 import {
   PAYOUT_HOLD_DAYS,
   PAYOUT_THRESHOLD_MINOR,
@@ -23,6 +23,7 @@ import {
 import { uuidv7 } from '@/lib/domain/id';
 import { db, schema } from '@/lib/infrastructure/postgres/client';
 import type { PeriodPool } from './close-period';
+import { earningPayouts, type EarningPayouts } from './payout';
 import { earningCredit, type EarningCredit } from './redeem-credit';
 
 export interface PublisherPeriodEarning {
@@ -73,6 +74,12 @@ export interface PublisherEarnings {
    * (publisher-revenue-share.md 3.4).
    */
   credit: EarningCredit;
+  /**
+   * Cash paid by hand over PayPal (3.4): the open request, the history, and
+   * what has been paid. A request covers the same statements `credit` calls
+   * redeemable, once they reach `payoutThresholdMinor`.
+   */
+  payouts: EarningPayouts;
   payoutThresholdMinor: number;
   holdDays: number;
 }
@@ -199,7 +206,10 @@ export async function publisherEarnings(
     };
   }
 
-  const credit = await earningCredit(account?.id ?? null);
+  const [credit, payouts] = await Promise.all([
+    earningCredit(account?.id ?? null),
+    earningPayouts(account?.id ?? null),
+  ]);
 
   const periods = byPeriod.map((row) => periodEarning(row.periodId, row.calls));
   const accruedMinor = periods.reduce((total, period) => total + (period.amountMinor ?? 0), 0);
@@ -249,9 +259,109 @@ export async function publisherEarnings(
     accruedMinor,
     libraries,
     credit,
+    payouts,
     payoutThresholdMinor: PAYOUT_THRESHOLD_MINOR,
     holdDays: PAYOUT_HOLD_DAYS,
   };
+}
+
+/** One UTC day of earnings, for the dashboard's and the console's daily trend. */
+export interface PublisherDayEarning {
+  /** `YYYY-MM-DD`, UTC. */
+  date: string;
+  attributableCalls: number;
+  /**
+   * The day's calls at their period's rate per call: the locked pool for a
+   * closed period, the live pool for the open one, zero for an open period
+   * without it. Fractional -- the ledger floors per period and per library,
+   * not per day, so a period's days sum to within a few cents of its amount.
+   */
+  amountMinor: number;
+}
+
+/**
+ * The last `days` UTC days, today included, zero-filled. A day has no amount
+ * of its own in the ledger -- allocation is per period -- so this spreads each
+ * period's amount over its days in proportion to their calls, which is the
+ * same linear rule the period itself is allocated by.
+ *
+ * `workspaceId` narrows it to one publisher; null is the whole platform, what
+ * the console's settlements trend plots.
+ */
+export async function publisherDailyEarnings(
+  workspaceId: string | null,
+  days: number,
+  live: { periodId: string; pool: PeriodPool } | null = null,
+  now: Date = new Date(),
+): Promise<PublisherDayEarning[]> {
+  const database = db();
+  const since = new Date(
+    Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), now.getUTCDate() - (days - 1)),
+  );
+  const date = sql<string>`to_char(${schema.earningEvent.createdAt} at time zone 'UTC', 'YYYY-MM-DD')`;
+
+  const rows = await database
+    .select({
+      date,
+      periodId: schema.earningEvent.periodId,
+      calls: sql<number>`count(*)::int`,
+    })
+    .from(schema.earningEvent)
+    .where(
+      and(
+        workspaceId === null ? undefined : eq(schema.earningEvent.ownerWorkspaceId, workspaceId),
+        eq(schema.earningEvent.flagged, false),
+        gte(schema.earningEvent.createdAt, since),
+      ),
+    )
+    .groupBy(date, schema.earningEvent.periodId);
+
+  const periodIds = [...new Set(rows.map((row) => row.periodId))];
+  const locked =
+    periodIds.length === 0
+      ? []
+      : await database
+          .select({
+            id: schema.revenuePeriod.id,
+            poolMinor: schema.revenuePeriod.poolMinor,
+            totalAttributableCalls: schema.revenuePeriod.totalAttributableCalls,
+          })
+          .from(schema.revenuePeriod)
+          .where(
+            and(
+              inArray(schema.revenuePeriod.id, periodIds),
+              isNotNull(schema.revenuePeriod.lockedAt),
+            ),
+          );
+  const perCall = new Map(
+    locked.map((period) => [
+      period.id,
+      Number(period.totalAttributableCalls) > 0
+        ? Number(period.poolMinor) / Number(period.totalAttributableCalls)
+        : 0,
+    ]),
+  );
+  if (live && !perCall.has(live.periodId) && live.pool.totalAttributableCalls > 0) {
+    perCall.set(live.periodId, live.pool.poolMinor / live.pool.totalAttributableCalls);
+  }
+
+  const byDate = new Map<string, { calls: number; amountMinor: number }>();
+  for (const row of rows) {
+    const day = byDate.get(row.date) ?? { calls: 0, amountMinor: 0 };
+    day.calls += row.calls;
+    day.amountMinor += row.calls * (perCall.get(row.periodId) ?? 0);
+    byDate.set(row.date, day);
+  }
+
+  return Array.from({ length: days }, (_, index) => {
+    const key = new Date(since.getTime() + index * 86_400_000).toISOString().slice(0, 10);
+    const day = byDate.get(key);
+    return {
+      date: key,
+      attributableCalls: day?.calls ?? 0,
+      amountMinor: day?.amountMinor ?? 0,
+    };
+  });
 }
 
 /**

@@ -104,11 +104,12 @@ export function isQueryable(input: {
 export const DAILY_ATTRIBUTABLE_CALL_CAP = 200;
 
 /**
- * publisher-revenue-share.md 3.4: below this a period's earnings roll over.
+ * publisher-revenue-share.md 3.4: the least a cash payout request may carry;
+ * below it a publisher's earnings keep accumulating.
  *
  * $20, back up from $5 on 2026-10-24 ($5 had replaced $20 on 2026-10-05).
- * Cash payout is still stage 3 and the default exit is credit, which has no
- * threshold at all -- so the long tail redeems as calls, and the cash rail
+ * Cash is paid by hand over PayPal and the default exit is credit, which has
+ * no threshold at all -- so the long tail redeems as calls, and the cash rail
  * pays out in amounts its per-transfer fee does not swallow.
  */
 export const PAYOUT_THRESHOLD_MINOR = 2_000;
@@ -121,6 +122,17 @@ export {
   type EarningCreditError,
   type PackRate,
 } from './credit';
+export {
+  normalizePayeeEmail,
+  PAYOUT_METHOD,
+  PAYOUT_REFERENCE_MAX_LENGTH,
+  PAYOUT_STATUSES,
+  PayoutRefused,
+  PayoutResolveRefused,
+  type PayoutError,
+  type PayoutResolveError,
+  type PayoutStatus,
+} from './payout';
 
 /**
  * The earning period an event lands in: the platform's revenue period, a UTC
@@ -129,6 +141,15 @@ export {
  */
 export function revenuePeriodId(at: Date): string {
   return `${at.getUTCFullYear()}-${String(at.getUTCMonth() + 1).padStart(2, '0')}`;
+}
+
+/** The `count` periods ending with the one `at` falls in, oldest first. */
+export function recentPeriodIds(at: Date, count: number): string[] {
+  return Array.from({ length: count }, (_, index) =>
+    revenuePeriodId(
+      new Date(Date.UTC(at.getUTCFullYear(), at.getUTCMonth() - (count - 1 - index), 1)),
+    ),
+  );
 }
 
 /**

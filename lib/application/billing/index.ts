@@ -18,7 +18,9 @@ export {
   type BackfillResult,
 } from './backfill';
 export {
+  billingRevenueTrend,
   billingSummary,
+  dayParam,
   getBillingDocument,
   listBillingDocuments,
   startOfUtcMonth,
@@ -26,6 +28,7 @@ export {
   type BillingDocumentRow,
   type BillingListInput,
   type BillingSummary,
+  type RevenuePoint,
 } from './list-documents';
 export {
   mirrorProviderDocument,

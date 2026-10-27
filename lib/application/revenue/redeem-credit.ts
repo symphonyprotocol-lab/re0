@@ -3,8 +3,9 @@
  * 3.4: the collection provider (Paddle) cannot pay a third party, so the live
  * discharge path for a statement is a grant on the publisher's own workspace,
  * priced at the Additional Calls version in force. The platform still holds no
- * funds: a grant is an entitlement on our service, and `payout` stays
- * untouched for the external payout service of stage 3.
+ * funds: a grant is an entitlement on our service, and `payout` is not
+ * written here -- cash goes through the manual PayPal request in ./payout,
+ * which takes the same statements and so excludes them from this path.
  *
  * What is redeemable is decided by the same hold the payout rail uses --
  * accrued statements whose period locked at least PAYOUT_HOLD_DAYS ago -- plus
@@ -92,13 +93,16 @@ export interface EarningCredit {
 
 const REDEMPTIONS_SHOWN = 12;
 
-/** `locked_at + hold <= now`: the statement has left the refund window. */
-function pastHold(now: Date) {
+/**
+ * `locked_at + hold <= now`: the statement has left the refund window.
+ * Shared with the cash payout request, which releases on the same hold.
+ */
+export function pastHold(now: Date) {
   return sql`${schema.revenuePeriod.lockedAt} + make_interval(days => ${PAYOUT_HOLD_DAYS}) <= ${now}`;
 }
 
 /** The library still earns: suspended and withdrawn libraries do not (share doc 5). */
-function libraryEarns() {
+export function libraryEarns() {
   return eq(schema.library.lifecycleStatus, 'published');
 }
 
