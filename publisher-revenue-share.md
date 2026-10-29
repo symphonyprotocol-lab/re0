@@ -1,9 +1,11 @@
 # Re0 发布者调用分成设计
 
+> **本文已于 2026-10-29 废止。** 发布者调用分成随 Pro 套餐一并取消：Pro 取消后没有分成来源，创作者的回报改为频道订阅收入，平台收取 20% 管理费；账期结算、持有期、PayPal 出账与结算单上链的流程保留并改记频道收入。替代规则见 [agent-first-proposal.md](./agent-first-proposal.md) 第 6.9、8.3 节与 requirement.md 第 4.4 节。以下正文保留作历史记录，不再是产品规则。
+
 - 版本：1.2
 - 更新日期：2026-10-26（3.4 节：现金出账先以人工 PayPal 打款上线，自动出账服务留作阶段 3）
 - 历史：1.1（2026-10-14）账户抵扣作为默认离账方式；收款与出账拆为两个 Provider
-- 状态：**MVP 基线的一部分**
+- 状态：**废止（2026-10-29）**，见上方说明
 - 上级文档：[requirement.md](./requirement.md) 第 4.4 节
 - 关联文档：[architecture.md](./architecture.md)、[aptos-anchoring-proposal.md](./aptos-anchoring-proposal.md)
 
