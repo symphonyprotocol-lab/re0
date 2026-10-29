@@ -1,10 +1,10 @@
 /**
- * Manual cash payouts, against a real database. publisher-revenue-share.md
- * 3.4: a request holds every statement past its hold (at least the $20
- * threshold) for one PayPal address, takes them out of reach of the credit
- * path, allows one open request per publisher; an operator marks it paid with
- * the PayPal transaction id -- the only way a statement becomes `paid` -- or
- * failed, which returns the statements to `accrued`.
+ * Manual cash payouts, against a real database. agent-first-proposal.md 6.9:
+ * a request holds every statement past its hold (at least the $20 threshold)
+ * for one PayPal address, takes them out of reach of the credit path, allows
+ * one open request per creator; an operator marks it paid with the PayPal
+ * transaction id -- the only way a statement becomes `paid` -- or failed,
+ * which returns the statements to `accrued`.
  *
  * Fixture rows live in 2018 periods, isolated from every parallel suite.
  *
@@ -36,7 +36,6 @@ const { GET: revenueGet } = await import('@/app/api/v1/revenue/route');
 
 const DAY = 24 * 60 * 60 * 1000;
 const workspaces: string[] = [];
-const libraries: string[] = [];
 const periods: string[] = [];
 const publisherAccounts: string[] = [];
 const administratorId = uuidv7();
@@ -59,40 +58,14 @@ async function publisherAccount(workspaceId: string): Promise<string> {
   return id;
 }
 
-async function library(slug: string, owner: string, lifecycle = 'published'): Promise<string> {
-  const id = crypto.randomUUID();
-  libraries.push(id);
-  await db().insert(schema.library).values({
-    id,
-    publicId: `/websites/${slug}`,
-    title: `Payout fixture ${slug}`,
-    ownerWorkspaceId: owner,
-    isPlatformLibrary: false,
-    visibility: 'public',
-    lifecycleStatus: lifecycle as 'published',
-    indexStatus: 'ready',
-  });
-  return id;
-}
-
 async function lockedPeriod(id: string, lockedAt: Date): Promise<void> {
   periods.push(id);
-  await db().insert(schema.revenuePeriod).values({
-    id,
-    netRevenueMinor: 100_000,
-    currency: 'USD',
-    totalBilledCalls: 1_000,
-    totalAttributableCalls: 100,
-    shareRateBps: 2_000,
-    poolMinor: 20_000,
-    lockedAt,
-  });
+  await db().insert(schema.revenuePeriod).values({ id, currency: 'USD', totalAmountMinor: 0, lockedAt });
 }
 
 async function statement(input: {
   periodId: string;
   publisherAccountId: string;
-  libraryId: string;
   amountMinor: number;
 }): Promise<string> {
   const id = uuidv7();
@@ -100,8 +73,6 @@ async function statement(input: {
     id,
     periodId: input.periodId,
     publisherAccountId: input.publisherAccountId,
-    libraryId: input.libraryId,
-    attributableCalls: 10,
     amountMinor: input.amountMinor,
     currency: 'USD',
     status: 'accrued',
@@ -165,9 +136,6 @@ describeWithDb('manual payouts', () => {
         .delete(schema.publisherAccount)
         .where(inArray(schema.publisherAccount.id, publisherAccounts));
     }
-    if (libraries.length > 0) {
-      await database.delete(schema.library).where(inArray(schema.library.id, libraries));
-    }
     if (periods.length > 0) {
       await database.delete(schema.revenuePeriod).where(inArray(schema.revenuePeriod.id, periods));
     }
@@ -190,16 +158,13 @@ describeWithDb('manual payouts', () => {
     const now = new Date();
     const owner = await workspace('payout-owner');
     const account = await publisherAccount(owner);
-    const lib = await library('payout-a', owner);
-    const withdrawn = await library('payout-withdrawn', owner, 'suspended');
     await lockedPeriod('2018-01', new Date(now.getTime() - (PAYOUT_HOLD_DAYS + 20) * DAY));
     await lockedPeriod('2018-02', new Date(now.getTime() - 5 * DAY));
 
-    const a = await statement({ periodId: '2018-01', publisherAccountId: account, libraryId: lib, amountMinor: 1_500 });
-    const b = await statement({ periodId: '2018-01', publisherAccountId: account, libraryId: lib, amountMinor: 900 });
-    /* Still inside the hold, and on a suspended library: neither goes in. */
-    const held = await statement({ periodId: '2018-02', publisherAccountId: account, libraryId: lib, amountMinor: 700 });
-    const suspended = await statement({ periodId: '2018-01', publisherAccountId: account, libraryId: withdrawn, amountMinor: 400 });
+    const a = await statement({ periodId: '2018-01', publisherAccountId: account, amountMinor: 1_500 });
+    const b = await statement({ periodId: '2018-01', publisherAccountId: account, amountMinor: 900 });
+    /* Still inside the hold: stays out of the request. */
+    const held = await statement({ periodId: '2018-02', publisherAccountId: account, amountMinor: 700 });
 
     await expect(
       requestPayout({ workspaceId: owner, actor: ACTOR, payeeEmail: 'not an email', now }),
@@ -218,11 +183,10 @@ describeWithDb('manual payouts', () => {
       statements: 2,
     });
 
-    const afterRequest = await statuses([a, b, held, suspended]);
+    const afterRequest = await statuses([a, b, held]);
     expect(afterRequest.get(a)).toMatchObject({ status: 'held', payoutId: requested.payoutId });
     expect(afterRequest.get(b)).toMatchObject({ status: 'held', payoutId: requested.payoutId });
     expect(afterRequest.get(held)).toMatchObject({ status: 'accrued', payoutId: null });
-    expect(afterRequest.get(suspended)).toMatchObject({ status: 'accrued', payoutId: null });
 
     /* Held statements are out of reach of the credit path and of a second request. */
     await expect(
@@ -247,7 +211,6 @@ describeWithDb('manual payouts', () => {
       statements: 2,
       periods: ['2018-01'],
       publisherWorkspaceId: owner,
-      withheldMinor: 0,
     });
 
     /* Still owed while it waits: counted in the console's total, and broken out. */
@@ -301,13 +264,12 @@ describeWithDb('manual payouts', () => {
     expect(payouts.lastPayeeEmail).toBe('publisher@example.test');
   });
 
-  it('returns a failed payout to the publisher, who may request again', async () => {
+  it('returns a failed payout to the creator, who may request again', async () => {
     const now = new Date();
     const owner = await workspace('payout-owner-failed');
     const account = await publisherAccount(owner);
-    const lib = await library('payout-failed', owner);
     await lockedPeriod('2018-03', new Date(now.getTime() - (PAYOUT_HOLD_DAYS + 1) * DAY));
-    const a = await statement({ periodId: '2018-03', publisherAccountId: account, libraryId: lib, amountMinor: 2_000 });
+    const a = await statement({ periodId: '2018-03', publisherAccountId: account, amountMinor: 2_000 });
 
     const first = await requestPayout({ workspaceId: owner, actor: ACTOR, payeeEmail: 'wrong@example.test', now });
     const failed = await markPayoutFailed({
@@ -337,9 +299,8 @@ describeWithDb('manual payouts', () => {
     const now = new Date();
     const owner = await workspace('payout-owner-small');
     const account = await publisherAccount(owner);
-    const lib = await library('payout-small', owner);
     await lockedPeriod('2018-04', new Date(now.getTime() - (PAYOUT_HOLD_DAYS + 1) * DAY));
-    const a = await statement({ periodId: '2018-04', publisherAccountId: account, libraryId: lib, amountMinor: 1_999 });
+    const a = await statement({ periodId: '2018-04', publisherAccountId: account, amountMinor: 1_999 });
 
     await expect(
       requestPayout({ workspaceId: owner, actor: ACTOR, payeeEmail: 'small@example.test', now }),
@@ -352,13 +313,29 @@ describeWithDb('manual payouts', () => {
     ).rejects.toMatchObject({ code: 'no_account' });
   });
 
+  /* A refund period's negative statement comes along and lowers the cash sent. */
+  it('nets a negative statement into the request', async () => {
+    const now = new Date();
+    const owner = await workspace('payout-owner-refund');
+    const account = await publisherAccount(owner);
+    await lockedPeriod('2018-09', new Date(now.getTime() - (PAYOUT_HOLD_DAYS + 2) * DAY));
+    await lockedPeriod('2018-10', new Date(now.getTime() - (PAYOUT_HOLD_DAYS + 1) * DAY));
+    const income = await statement({ periodId: '2018-09', publisherAccountId: account, amountMinor: 3_000 });
+    const refund = await statement({ periodId: '2018-10', publisherAccountId: account, amountMinor: -500 });
+
+    const requested = await requestPayout({ workspaceId: owner, actor: ACTOR, payeeEmail: 'net@example.test', now });
+    expect(requested).toMatchObject({ amountMinor: 2_500, statements: 2 });
+    const rows = await statuses([income, refund]);
+    expect(rows.get(income)).toMatchObject({ status: 'held', payoutId: requested.payoutId });
+    expect(rows.get(refund)).toMatchObject({ status: 'held', payoutId: requested.payoutId });
+  });
+
   it('gives two racing requests one payout between them', async () => {
     const now = new Date();
     const owner = await workspace('payout-owner-race');
     const account = await publisherAccount(owner);
-    const lib = await library('payout-race', owner);
     await lockedPeriod('2018-05', new Date(now.getTime() - (PAYOUT_HOLD_DAYS + 1) * DAY));
-    await statement({ periodId: '2018-05', publisherAccountId: account, libraryId: lib, amountMinor: 5_000 });
+    await statement({ periodId: '2018-05', publisherAccountId: account, amountMinor: 5_000 });
 
     const outcomes = await Promise.allSettled(
       Array.from({ length: 4 }, () =>
@@ -379,9 +356,8 @@ describeWithDb('manual payouts', () => {
   it('requests through the API with the management scope only', async () => {
     const owner = await workspace('payout-owner-api');
     const account = await publisherAccount(owner);
-    const lib = await library('payout-api', owner);
     await lockedPeriod('2018-06', new Date(Date.now() - (PAYOUT_HOLD_DAYS + 1) * DAY));
-    await statement({ periodId: '2018-06', publisherAccountId: account, libraryId: lib, amountMinor: 2_500 });
+    await statement({ periodId: '2018-06', publisherAccountId: account, amountMinor: 2_500 });
 
     const readOnly = await apiKeyFor(owner, ['knowledge:search']);
     const refused = await payoutPost(payoutRequest(readOnly.key, { paypalEmail: 'api@example.test' }));
@@ -404,49 +380,12 @@ describeWithDb('manual payouts', () => {
     expect(row).toEqual({ requestedBy: `api_key:${keyId}`, payeeEmail: 'api@example.test' });
   });
 
-  it('refuses to mark paid a payout whose library stopped earning, and fails it back', async () => {
-    const now = new Date();
-    const owner = await workspace('payout-owner-withheld');
-    const account = await publisherAccount(owner);
-    const healthy = await library('payout-healthy', owner);
-    const later = await library('payout-later-suspended', owner);
-    await lockedPeriod('2018-07', new Date(now.getTime() - (PAYOUT_HOLD_DAYS + 1) * DAY));
-    const good = await statement({ periodId: '2018-07', publisherAccountId: account, libraryId: healthy, amountMinor: 2_000 });
-    const bad = await statement({ periodId: '2018-07', publisherAccountId: account, libraryId: later, amountMinor: 800 });
-
-    const requested = await requestPayout({ workspaceId: owner, actor: ACTOR, payeeEmail: 'w@example.test', now });
-    expect(requested.amountMinor).toBe(2_800);
-
-    /* Suspended after the request, before the operator pays. */
-    await db().update(schema.library).set({ lifecycleStatus: 'suspended' }).where(eq(schema.library.id, later));
-
-    const queued = (await consolePayouts()).open.find((row) => row.id === requested.payoutId);
-    expect(queued?.withheldMinor).toBe(800);
-
-    await expect(
-      markPayoutPaid({ actor: OPERATOR, payoutId: requested.payoutId, reference: 'TX-W', reason: 'sent' }),
-    ).rejects.toMatchObject({ code: 'payout_withheld' });
-    const stillHeld = await statuses([good, bad]);
-    expect(stillHeld.get(good)).toMatchObject({ status: 'held' });
-    expect(stillHeld.get(bad)).toMatchObject({ status: 'held' });
-
-    await markPayoutFailed({ actor: OPERATOR, payoutId: requested.payoutId, reason: 'library suspended' });
-    const released = await statuses([good, bad]);
-    expect(released.get(good)).toMatchObject({ status: 'accrued', payoutId: null });
-    expect(released.get(bad)).toMatchObject({ status: 'accrued', payoutId: null });
-
-    /* The healthy part is requestable again; the suspended part stays withheld. */
-    const again = await requestPayout({ workspaceId: owner, actor: ACTOR, payeeEmail: 'w@example.test', now });
-    expect(again).toMatchObject({ amountMinor: 2_000, statements: 1 });
-  });
-
   it('shows the PayPal address only to keys that may request a payout', async () => {
     const now = new Date();
     const owner = await workspace('payout-owner-read');
     const account = await publisherAccount(owner);
-    const lib = await library('payout-read', owner);
     await lockedPeriod('2018-08', new Date(now.getTime() - (PAYOUT_HOLD_DAYS + 1) * DAY));
-    await statement({ periodId: '2018-08', publisherAccountId: account, libraryId: lib, amountMinor: 2_000 });
+    await statement({ periodId: '2018-08', publisherAccountId: account, amountMinor: 2_000 });
     await requestPayout({ workspaceId: owner, actor: ACTOR, payeeEmail: 'private@example.test', now });
 
     const read = (key: string) =>

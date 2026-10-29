@@ -12,7 +12,6 @@ import { queryDocs as queryDocsUseCase } from './query-docs';
  *   -> enforce visibility -> apply workspace policy -> reserve one call
  *   -> FTS + vector recall within the pinned version -> fuse -> rerank
  *   -> dedupe and safety filter -> trim to maxTokens -> append usage event
- *   -> append earning event when attributable
  */
 
 export interface CallerContext {

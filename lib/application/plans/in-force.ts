@@ -39,7 +39,7 @@ const s = schema.subscription;
  * caller has: drizzle column chunks in a query on `subscription` itself, or
  * raw aliased names inside a correlated subquery (`paidSubscriptionExists`).
  * One definition, so the grace window and the status test cannot drift apart
- * between the quota path and the earning gate.
+ * between the quota path and the correlated reads.
  */
 interface SubscriptionColumns {
   status: SQL;

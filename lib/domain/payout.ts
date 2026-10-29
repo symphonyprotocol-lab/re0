@@ -1,15 +1,15 @@
 /**
- * Cash payouts, paid by hand. publisher-revenue-share.md 3.4.
+ * Cash payouts, paid by hand. agent-first-proposal.md 6.9.
  *
  * No payout service is connected, so cash leaves the books the slow way: the
- * publisher asks for everything past its hold to be sent to a PayPal address,
+ * creator asks for everything past its hold to be sent to a PayPal address,
  * an operator sends it from the platform's PayPal account and records the
  * transaction id. These are the rules both ends share; which statements a
- * request covers is the same hold-and-library test the credit path uses.
+ * request covers is the same hold test the credit path uses.
  *
  * The payee is a PayPal email and nothing else. An email moves no money on
- * its own, so storing it does not break the share doc's rule that the
- * platform keeps no card or bank details.
+ * its own, so storing it does not break the rule that the platform keeps no
+ * card or bank details.
  */
 
 import { EMAIL_SHAPE } from './showcase';
@@ -65,13 +65,6 @@ export type PayoutResolveError =
   | 'payout_resolved'
   /** Marking it paid needs the PayPal transaction id. */
   | 'reference_required'
-  /**
-   * It covers a statement whose library was suspended or unpublished after
-   * the request: that money is withheld (share doc 5), so the payout cannot
-   * be marked paid as requested -- mark it failed and let the publisher ask
-   * again for what still earns.
-   */
-  | 'payout_withheld'
   | 'invalid_input';
 
 export class PayoutResolveRefused extends Error {

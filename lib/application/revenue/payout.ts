@@ -1,15 +1,15 @@
 /**
- * Requesting a cash payout, and reading the payouts back. publisher-revenue-
- * share.md 3.4: no payout service is connected, so cash is paid by hand. The
- * publisher asks for everything past its hold to go to a PayPal address; the
- * statements it covers move from `accrued` to `held`, which takes them out of
- * reach of the credit path, and wait for an operator. The operator's side --
- * marking the payout `paid` with the PayPal transaction id, or `failed` -- is
- * lib/application/administration/payouts.
+ * Requesting a cash payout, and reading the payouts back. agent-first-
+ * proposal.md 6.9: no payout service is connected, so cash is paid by hand.
+ * The creator asks for everything past its hold to go to a PayPal address;
+ * the statements it covers move from `accrued` to `held`, which takes them
+ * out of reach of the credit path, and wait for an operator. The operator's
+ * side -- marking the payout `paid` with the PayPal transaction id, or
+ * `failed` -- is lib/application/administration/payouts.
  *
  * What a request covers is exactly what the credit button would convert: the
- * same hold, the same "library still earns" rule, USD only. The one rule of
- * its own is the threshold -- cash pays a per-transfer fee, credit does not.
+ * same hold, USD only, negatives netted. The one rule of its own is the
+ * threshold -- cash pays a per-transfer fee, credit does not.
  *
  * Concurrency follows the redeem: the publisher account row is locked first
  * and the statements `FOR UPDATE`, so a request racing a redeem (or a second
@@ -27,7 +27,7 @@ import {
 import { uuidv7 } from '@/lib/domain/id';
 import { PLAN_CURRENCY } from '@/lib/domain/plans';
 import { db, schema } from '@/lib/infrastructure/postgres/client';
-import { libraryEarns, pastHold, redeemedByTag, type RedeemActor } from './redeem-credit';
+import { pastHold, redeemedByTag, type RedeemActor } from './redeem-credit';
 
 export interface PublisherPayout {
   id: string;
@@ -151,7 +151,6 @@ export async function requestPayout(input: {
       .select({ id: schema.settlement.id, amountMinor: schema.settlement.amountMinor })
       .from(schema.settlement)
       .innerJoin(schema.revenuePeriod, eq(schema.revenuePeriod.id, schema.settlement.periodId))
-      .innerJoin(schema.library, eq(schema.library.id, schema.settlement.libraryId))
       .where(
         and(
           eq(schema.settlement.publisherAccountId, account.id),
@@ -160,7 +159,6 @@ export async function requestPayout(input: {
           eq(schema.settlement.currency, PLAN_CURRENCY),
           isNotNull(schema.revenuePeriod.lockedAt),
           pastHold(now),
-          libraryEarns(),
         ),
       )
       .for('update', { of: schema.settlement });

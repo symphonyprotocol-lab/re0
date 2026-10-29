@@ -761,7 +761,7 @@ export default async function DashboardLibraryPage({
             id: 'usage',
             label: d.tabs.usage,
             panel: (
-              /* Every served call, whoever made it -- the count billing and revenue share see. */
+              /* Every served call, whoever made it -- the count billing sees. */
               <section id="usage" className={`${PANEL} scroll-mt-4 p-0.5`}>
                 <div className="flex flex-wrap items-start justify-between gap-3 px-6 py-4">
                   <div>
@@ -769,12 +769,11 @@ export default async function DashboardLibraryPage({
                     <p className="mt-0.5 text-[11px] text-muted">{d.usage.description}</p>
                   </div>
                 </div>
-                <dl className="grid grid-cols-2 gap-3 px-6 pb-4 sm:grid-cols-4">
+                <dl className="grid grid-cols-3 gap-3 px-6 pb-4">
                   {[
                     [d.usage.stats.total, usage.summary.total],
                     [d.usage.stats.thisMonth, usage.summary.thisMonth],
                     [d.usage.stats.readers, usage.summary.readersThisMonth],
-                    [d.usage.stats.earned, usage.summary.earnedThisMonth],
                   ].map(([key, value]) => (
                     <div key={String(key)} className="flex flex-col gap-0.5">
                       <dt className="text-[11px] text-muted">{key}</dt>
@@ -784,9 +783,6 @@ export default async function DashboardLibraryPage({
                     </div>
                   ))}
                 </dl>
-                {usage.entries.some((entry) => entry.earning === 'none') ? (
-                  <p className="border-t border-line px-6 py-3 text-[11px] leading-[1.6] text-muted">{d.usage.whyNot}</p>
-                ) : null}
                 <Table
                   columns={d.usage.columns}
                   empty={d.usage.empty}
@@ -808,13 +804,6 @@ export default async function DashboardLibraryPage({
                         <span className="ml-1.5 text-[10.5px] text-muted">{number.format(entry.latencyMs)} ms</span>
                       )}
                     </span>,
-                    entry.earning === 'none' ? (
-                      <span key="e" className="text-muted">—</span>
-                    ) : (
-                      <Badge key="e" tone={entry.earning === 'earned' ? 'brand' : 'neutral'}>
-                        {d.usage.earning[entry.earning]}
-                      </Badge>
-                    ),
                   ])}
                 />
                 {usage.total > LIBRARY_USAGE_PAGE_SIZE ? (

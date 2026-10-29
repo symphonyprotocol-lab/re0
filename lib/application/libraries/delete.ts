@@ -22,9 +22,9 @@
  *   cancelled, so no alias resolves to it and no refresh rebuilds it;
  * - one Delete Operation is queued for the workflow.
  *
- * The `library` row itself is never removed. `usage_event`, `earning_event`
- * and `settlement` are append-only facts that reference it, and a deleted
- * library's billing history is still history. The Library ID is released:
+ * The `library` row itself is never removed. `usage_event` is an append-only
+ * fact that references it, and a deleted library's billing history is still
+ * history. The Library ID is released:
  * `library_public_id_uq` is partial over live rows, so the workspace that
  * deleted `/owner/repo` can add it again.
  *

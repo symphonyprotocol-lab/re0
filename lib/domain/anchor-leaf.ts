@@ -121,17 +121,15 @@ export function auditHeadLeaf(input: AuditHeadLeafInput): Promise<string> {
   );
 }
 
+/**
+ * One statement: a publisher account's summed share for one period. The
+ * amount is an integer in minor units, so it frames as decimal text with no
+ * float on either side; a negative statement (refunds outweighed income)
+ * frames with its sign.
+ */
 export interface EarningLeafInput {
   publisherAccountId: string;
   periodId: string;
-  attributableCalls: number;
-  /**
-   * The rate exactly as the immutable plan version records it, as text. Never a
-   * float: 0.2 does not serialise identically everywhere, and a leaf nobody can
-   * reproduce is a leaf that proves nothing.
-   */
-  shareRate: string;
-  planVersionId: string;
   amountMinor: number;
   currency: string;
   /** Covers the statement's full line-by-line detail (proposal 4.2). */
@@ -147,9 +145,6 @@ export function earningStatementLeaf(input: EarningLeafInput): Promise<string> {
       String(ANCHOR_LEAF_SCHEMA_VERSION),
       input.publisherAccountId,
       input.periodId,
-      String(input.attributableCalls),
-      input.shareRate,
-      input.planVersionId,
       String(input.amountMinor),
       input.currency,
       input.statementDigest,

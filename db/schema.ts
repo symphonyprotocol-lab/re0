@@ -110,7 +110,7 @@ export const settlementStatusEnum = pgEnum('settlement_status', [
   'paid',
   /**
    * Discharged as Additional Calls rather than money: the publisher turned the
-   * statement into an `addon_grant` (publisher-revenue-share.md 3.4). Distinct
+   * statement into an `addon_grant` (agent-first-proposal.md 6.9). Distinct
    * from `paid` so the books still say what left as cash and what never did.
    */
   'redeemed',
@@ -418,8 +418,8 @@ export const addonGrant = pgTable(
     currency: text('currency').notNull().default('USD'),
     providerOrderId: text('provider_order_id'),
     /**
-     * Set when the grant was not bought but redeemed: a publisher turned
-     * settled earnings into calls (publisher-revenue-share.md 3.4). Then
+     * Set when the grant was not bought but redeemed: a creator turned
+     * settled earnings into calls (agent-first-proposal.md 6.9). Then
      * `price_minor` is the earnings consumed, not a pack price, and the grant
      * is not a purchase -- `workspaceBilling` must not count it as one.
      *
@@ -591,10 +591,10 @@ export const library = pgTable(
      * The tombstone. architecture.md 8.4: a delete first makes the library
      * unreachable in Postgres -- this column, `archived`, `deleting`, and the
      * publication pointer withdrawn -- and the Delete Workflow then removes
-     * the content. The row itself stays: `usage_event`, `earning_event` and
-     * `settlement` are append-only facts that reference it, and a deleted
-     * library's billing history is still history. Every list and lookup of
-     * live libraries filters on this being null.
+     * the content. The row itself stays: `usage_event` is an append-only fact
+     * that references it, and a deleted library's billing history is still
+     * history. Every list and lookup of live libraries filters on this being
+     * null.
      */
     deletedAt: timestamp('deleted_at', { withTimezone: true }),
     /**
@@ -1764,51 +1764,62 @@ export const publisherAccount = pgTable(
 );
 
 /**
- * Written in the same transaction as the usage event. architecture.md 11.4.
- * Requires the target library to have an owner, so unclaimed libraries earn nothing.
+ * One amount credited to a creator's workspace, or taken back from it: the
+ * ledger the monthly close sums. agent-first-proposal.md 6.9: a channel
+ * subscription collection writes the creator's share as a positive row, a
+ * refund or chargeback writes the negative, and a written-off balance writes
+ * what the platform absorbed. Nothing writes it yet -- the collection side
+ * arrives with channel subscriptions -- but the close, the statements, the
+ * hold and the payout rails read it as it stands.
+ *
+ * `flagged` excludes a row from every sum without deleting it, so a ledger
+ * correction stays visible. Nothing sets it today.
  */
 export const earningEvent = pgTable(
   'earning_event',
   {
     id: uuid('id').primaryKey(),
-    requestId: text('request_id').notNull(),
-    libraryId: uuid('library_id').notNull().references(() => library.id),
-    versionId: uuid('version_id').references(() => libraryVersion.id),
     ownerWorkspaceId: uuid('owner_workspace_id').notNull().references(() => workspace.id),
-    planVersionId: uuid('plan_version_id').notNull().references(() => planVersion.id),
-    shareRateBps: integer('share_rate_bps').notNull(),
+    /** The creator's share in minor units; negative for a refund or chargeback. */
+    amountMinor: bigint('amount_minor', { mode: 'number' }).notNull(),
+    /** What produced the row, e.g. `channel_subscription`, `refund`, `chargeback`, `written_off`. */
+    source: text('source').notNull(),
+    /** The provider's transaction id, when the row mirrors one; the refund of a payment names the same id. */
+    reference: text('reference'),
     periodId: text('period_id').notNull(),
     flagged: boolean('flagged').notNull().default(false),
     createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
   },
-  (t) => [
-    uniqueIndex('earning_event_request_uq').on(t.requestId),
-    index('earning_event_period_library_idx').on(t.periodId, t.libraryId),
-  ],
+  (t) => [index('earning_event_period_owner_idx').on(t.periodId, t.ownerWorkspaceId)],
 );
 
+/**
+ * A UTC calendar month of the ledger. Inserted by the close, which takes it
+ * `FOR UPDATE`; `locked_at` set means the sums are frozen and a re-run returns
+ * them instead of recomputing.
+ */
 export const revenuePeriod = pgTable(
   'revenue_period',
   {
     id: text('id').primaryKey(),
-    netRevenueMinor: bigint('net_revenue_minor', { mode: 'number' }).notNull(),
     currency: text('currency').notNull().default('USD'),
-    totalBilledCalls: bigint('total_billed_calls', { mode: 'number' }).notNull(),
-    totalAttributableCalls: bigint('total_attributable_calls', { mode: 'number' }).notNull(),
-    shareRateBps: integer('share_rate_bps').notNull(),
-    poolMinor: bigint('pool_minor', { mode: 'number' }).notNull(),
+    /** What the close summed over the period's unflagged events, all owners together. */
+    totalAmountMinor: bigint('total_amount_minor', { mode: 'number' }).notNull().default(0),
     lockedAt: timestamp('locked_at', { withTimezone: true }),
   },
 );
 
+/**
+ * One statement per publisher account per period: the owner's unflagged
+ * events in the period, summed. The row is what the hold, the credit path and
+ * the payout rail act on, and what the earning anchor commits to.
+ */
 export const settlement = pgTable(
   'settlement',
   {
     id: uuid('id').primaryKey(),
     periodId: text('period_id').notNull().references(() => revenuePeriod.id),
     publisherAccountId: uuid('publisher_account_id').notNull().references(() => publisherAccount.id),
-    libraryId: uuid('library_id').notNull().references(() => library.id),
-    attributableCalls: bigint('attributable_calls', { mode: 'number' }).notNull(),
     amountMinor: bigint('amount_minor', { mode: 'number' }).notNull(),
     currency: text('currency').notNull().default('USD'),
     status: settlementStatusEnum('status').notNull(),
@@ -1833,7 +1844,7 @@ export const settlement = pgTable(
 );
 
 /**
- * A cash payout, paid by hand (publisher-revenue-share.md 3.4): the publisher
+ * A cash payout, paid by hand (agent-first-proposal.md 6.9): the creator
  * requests it with a PayPal address, an operator sends the money from the
  * platform's PayPal account and records the transaction id here. `status` is
  * `requested`, `paid` or `failed`; at most one request per publisher is open.

@@ -1,9 +1,8 @@
 /**
- * GET /api/v1/revenue -- the workspace's publisher earnings; POST accepts the
- * publisher agreement and opens the account. publisher-revenue-share.md
- * stage 2: figures are recomputed from the ledger on every read, and the
- * platform holds no funds -- the numbers describe accounting, not a balance
- * anyone can move.
+ * GET /api/v1/revenue -- the workspace's creator earnings; POST accepts the
+ * publisher agreement and opens the account. agent-first-proposal.md 6.9:
+ * figures are recomputed from the ledger on every read -- the numbers
+ * describe accounting, not a balance anyone can move.
  */
 import { NextResponse, type NextRequest } from 'next/server';
 import { AppError } from '@/contracts/errors';

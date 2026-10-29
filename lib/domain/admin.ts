@@ -366,48 +366,45 @@ export function isUserAccountStatus(value: unknown): value is UserAccountStatus 
 /* ------------------------------------------------ settlement statements */
 
 /**
- * Where a locked period's pool goes, as statement rows -- the console's
- * "generate statements" step, kept pure so the rules can be pinned without
- * a database (publisher-revenue-share.md 3.3, 3.4, 8).
+ * What a locked period's per-owner sums become, as statement rows -- the
+ * console's "generate statements" step, kept pure so the rules can be pinned
+ * without a database (agent-first-proposal.md 6.9).
  *
- * The inputs are what the ledger holds: the frozen period figures, the
- * unflagged earning events grouped by owner and library, the publisher
- * accounts that exist, and the statements already written for the period.
- * The output is only what is missing. Running it twice over the same ledger
- * therefore plans nothing the second time, which is the idempotency the
- * console action depends on -- the button can be pressed again after a
- * publisher finally accepts the agreement, and only that publisher's rows
- * appear.
+ * The inputs are what the ledger holds: the period, the unflagged earning
+ * events summed per owner, the publisher accounts that exist, and the
+ * accounts that already have a statement for the period. The output is only
+ * what is missing. Running it twice over the same ledger therefore plans
+ * nothing the second time, which is the idempotency the console action
+ * depends on -- the button can be pressed again after a creator finally
+ * accepts the agreement, and only that creator's row appears.
  *
- * Allocation is linear in attributable calls with the floor taken per
- * library, so the sum of a period's statements never exceeds its pool and
- * every row is recomputable from the events plus the period row. Nothing is
- * weighted by Trust Score (publisher-revenue-share.md 6.2).
+ * One statement per account per period, carrying the sum as it is: a period
+ * in which refunds outweighed income yields a negative statement, which the
+ * credit and payout rails net against later positives rather than skipping.
+ * A sum of zero yields no row -- nothing to hold or pay.
  */
 export interface SettlementPlanInput {
-  period: { id: string; poolMinor: number; totalAttributableCalls: number; currency: string };
-  /** Unflagged events per (owner workspace, library). */
-  groups: { ownerWorkspaceId: string; libraryId: string; calls: number }[];
+  period: { id: string; currency: string };
+  /** Unflagged events summed per owner workspace. */
+  owners: { ownerWorkspaceId: string; amountMinor: number }[];
   /** Workspace id -> publisher account id, for every owner with an account. */
   accounts: ReadonlyMap<string, string>;
-  /** Library ids that already carry a statement for this period. */
+  /** Publisher account ids that already carry a statement for this period. */
   existing: ReadonlySet<string>;
 }
 
 export interface PlannedStatement {
   periodId: string;
   publisherAccountId: string;
-  libraryId: string;
-  attributableCalls: number;
   amountMinor: number;
   currency: string;
 }
 
 export interface SettlementPlan {
   rows: PlannedStatement[];
-  /** Libraries whose owner has no publisher account yet; their events wait. */
+  /** Owners without a publisher account yet; their events wait. */
   withoutAccount: number;
-  /** Libraries that already had a statement and were left alone. */
+  /** Accounts that already had a statement and were left alone. */
   alreadyPresent: number;
 }
 
@@ -416,25 +413,21 @@ export function planSettlementStatements(input: SettlementPlanInput): Settlement
   let withoutAccount = 0;
   let alreadyPresent = 0;
 
-  const total = input.period.totalAttributableCalls;
-  for (const group of input.groups) {
-    if (group.calls <= 0) continue;
-    if (input.existing.has(group.libraryId)) {
-      alreadyPresent += 1;
-      continue;
-    }
-    const publisherAccountId = input.accounts.get(group.ownerWorkspaceId);
+  for (const owner of input.owners) {
+    if (owner.amountMinor === 0) continue;
+    const publisherAccountId = input.accounts.get(owner.ownerWorkspaceId);
     if (!publisherAccountId) {
       withoutAccount += 1;
+      continue;
+    }
+    if (input.existing.has(publisherAccountId)) {
+      alreadyPresent += 1;
       continue;
     }
     rows.push({
       periodId: input.period.id,
       publisherAccountId,
-      libraryId: group.libraryId,
-      attributableCalls: group.calls,
-      amountMinor:
-        total <= 0 ? 0 : Math.floor((input.period.poolMinor * group.calls) / total),
+      amountMinor: owner.amountMinor,
       currency: input.period.currency,
     });
   }
@@ -454,8 +447,8 @@ export function isSettleablePeriod(periodId: string, now: Date): boolean {
 
 /**
  * When a locked period's statements leave the hold window
- * (publisher-revenue-share.md 3.4): the refund and chargeback window counted
- * from the lock, not from the calls.
+ * (agent-first-proposal.md 6.9): the refund and chargeback window counted
+ * from the lock, not from the collections.
  */
 export function holdEndsAt(lockedAt: Date, holdDays: number): Date {
   return new Date(lockedAt.getTime() + holdDays * 24 * 60 * 60 * 1000);

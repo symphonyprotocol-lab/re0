@@ -27,8 +27,7 @@ export interface SettlementActionResult {
   /** What the run did, so the dialog can report it in numbers. */
   outcome?: {
     periodId: string;
-    poolMinor: number;
-    totalAttributableCalls: number;
+    totalAmountMinor: number;
     created: number;
     createdMinor: number;
     withoutAccount: number;
@@ -58,8 +57,7 @@ export async function generateSettlementsAction(
       ok: true,
       outcome: {
         periodId: result.periodId,
-        poolMinor: result.poolMinor,
-        totalAttributableCalls: result.totalAttributableCalls,
+        totalAmountMinor: result.totalAmountMinor,
         created: result.created,
         createdMinor: result.createdMinor,
         withoutAccount: result.withoutAccount,

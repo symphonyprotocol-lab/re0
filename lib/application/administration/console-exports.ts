@@ -195,8 +195,8 @@ export const CONSOLE_EXPORTS: Record<string, ConsoleExport> = {
        * statement digest so a publisher's copy can be checked against ours.
        */
       return toCsv(
-        ['statement_id', 'period', 'publisher', 'publisher_workspace_id', 'library_id', 'library', 'attributable_calls', 'amount_minor', 'currency', 'status', 'statement_digest', 'created', 'hold_ends'],
-        rows.map((r) => [r.id, r.periodId, r.publisherName, r.publisherWorkspaceId, r.libraryPublicId, r.libraryTitle, r.attributableCalls, r.amountMinor, r.currency, r.status, r.statementDigest, r.createdAt, r.holdEndsAt]),
+        ['statement_id', 'period', 'publisher', 'publisher_workspace_id', 'amount_minor', 'currency', 'status', 'statement_digest', 'created', 'hold_ends'],
+        rows.map((r) => [r.id, r.periodId, r.publisherName, r.publisherWorkspaceId, r.amountMinor, r.currency, r.status, r.statementDigest, r.createdAt, r.holdEndsAt]),
       );
     },
   },

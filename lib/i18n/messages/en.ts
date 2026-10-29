@@ -13,7 +13,7 @@ export const en: Dictionary = {
     siteName: 'Re0',
     titleTemplate: '%s · Re0',
     description:
-      'Trustworthy knowledge, built for every AI agent. Search public libraries and feed your agent current context that carries its version, source and citation.',
+      'Re0 is your data asset agent for life, work and business: every answer cites its source, and every version is verifiable.',
   },
 
   nav: {
@@ -30,7 +30,7 @@ export const en: Dictionary = {
 
   footer: {
     copyright: '© 2026, Re0',
-    tagline: 'Trustworthy knowledge behind every AI decision.',
+    tagline: 'Your data asset agent for life, work & business',
     status: 'Status',
     about: 'About',
     contact: 'Contact',
@@ -38,36 +38,15 @@ export const en: Dictionary = {
   },
 
   home: {
-    badge: 'Verified, continuously refreshed, traceable',
-    title: 'Trustworthy knowledge for your agents, your site and every visitor',
-    lede: 'Build a cited library from your docs and pages, then connect it to Claude, Codex or Cursor, embed it on your own site, or share it as a page of its own. Every answer keeps its source.',
-    install: 'Copy MCP URL',
-    installCopied: 'Copied',
-    getKey: 'Get an API key',
+    badge: 'Cited, versioned, verifiable',
+    title: 'Your data asset agent for life, work & business',
+    lede: 'Every answer cites its source. Every version is verifiable.',
     tryOnline: 'Try it online',
     heroPoints: [
       'Public libraries are free to query',
       'Every answer keeps its citation',
-      'One library behind agents, widget and shared page',
+      'Every version is immutable and anchored on chain',
     ],
-    /* The same library's three outlets, ordered by how far the reader is from the product. */
-    uses: {
-      agent: {
-        title: 'Connect your agent',
-        text: 'Plug it into Claude, Codex, Cursor or an agent of your own over MCP or the API, every result cited.',
-        link: 'Browse libraries to connect',
-      },
-      widget: {
-        title: 'Put it on your site',
-        text: 'Paste one line of script and visitors ask in the corner; answers come from your content only, with the page cited.',
-        link: 'See how the widget works',
-      },
-      showcase: {
-        title: 'Share it as a page',
-        text: 'An introduction drafted from the library, with cited Q&A beneath. Send the link, or print the QR code.',
-        link: 'See a shared page',
-      },
-    },
     directoryEyebrow: 'Knowledge directory',
     directoryTitle: 'Browse specialist libraries and take only the context you need',
     submitLibrary: 'Submit a library',
@@ -77,88 +56,10 @@ export const en: Dictionary = {
     recentlyUpdated: 'Recently updated',
     sampleNote: 'Top {count} public libraries by calls in the last {days} days',
     viewFullCatalog: 'View the full directory',
-    publishers: {
-      eyebrow: 'Publisher revenue share',
-      title: 'Publish an expert library and earn on every retrieval',
-      lede: 'Each month the platform sets aside {rate} of its net revenue and shares it among expert-library publishers by retrieval count. When someone retrieves from your library through an agent or the API, that retrieval’s share is credited to you.',
-      steps: [
-        {
-          title: 'Publish and earn the expert tag',
-          text: 'Publish a public library and claim its sources, then apply for the expert tag on the library page. Earnings start once an administrator approves.',
-        },
-        {
-          title: 'Every retrieval accrues',
-          text: 'Each read of your library from another workspace counts toward the month’s share. Your own reads, linked workspaces and one reader’s reads beyond {cap} a day do not.',
-        },
-        {
-          title: 'Settled monthly, as calls or cash',
-          text: 'The month closes, and after a {holdDays}-day hold the earnings can become calls, or be paid out to PayPal once they reach {threshold}.',
-        },
-      ],
-      cta: 'See the revenue rules',
-      note: 'Earnings never touch ranking, and readers never pay more for them.',
-    },
-    surfacesNote: 'Connect once and keep trustworthy knowledge consistent across your workflow',
     ctaEyebrow: 'Start with one traceable query',
     ctaTitle: 'Less guessing from your agent, more grounding.',
     ctaPricing: 'See pricing',
     ctaBrowse: 'Browse the library directory',
-    widget: {
-      eyebrow: 'Website widget',
-      title: 'Put the same answers on your own site',
-      lede:
-        'Build a library from your website or docs, paste one line of script, and a chat bubble answers visitors from your content only, citing the pages it used and opening them on request.',
-      points: [
-        'One script tag; no build step and no changes to your pages',
-        'Answers come only from your library, with the source page beside each one',
-        'An allowlist of origins and a daily limit keep the key safe to publish',
-      ],
-      snippetLabel: 'The whole integration',
-      snippetNote: 'Create a site key on a library’s page in the dashboard; the snippet is ready to copy there.',
-      planNote: 'Free includes one site key; Pro has no cap.',
-      demoTitle: 'Shop help centre',
-      demoSubtitle: 'Ask about this site',
-      demoQuestion: 'How do I return an order?',
-      demoAnswer: 'Orders can be returned within thirty days of delivery with the original receipt.',
-      demoSources: 'Related pages',
-      demoSource: 'Returns and refunds',
-      demoOpen: 'Open',
-      demoPlaceholder: 'Ask a question…',
-      cta: 'Add it to your site',
-    },
-    showcase: {
-      eyebrow: 'Shared page',
-      title: 'Share a library as a page of its own',
-      lede:
-        'Turn a library into a standalone company or product page: an introduction drafted from its own content on top, and underneath a Q&A that answers visitors from the library only, every sentence cited. Send the link, or print the QR code.',
-      points: [
-        'A first draft is written from the library; edit it and publish, with no review queue',
-        'Public or link-only, with an optional password and expiry date',
-        'Visitors leave their contact when the answer is not there, and the leads land in your dashboard',
-      ],
-      planNote: 'Free includes one shared page; Pro has no cap.',
-      demoKind: 'Company',
-      demoName: 'Acme Robotics',
-      demoTagline: 'Warehouse robots that learn the floor',
-      demoFacts: ['Founded 2021', 'Shanghai', '40 people'],
-      demoAsk: 'Questions? Just ask',
-      demoAskHint: 'Answers come from Acme’s own knowledge base, each sentence cited to its page.',
-      demoQuestions: ['What does Acme do?', 'How is the Team plan priced?'],
-      demoPlaceholder: 'Type your question…',
-      cta: 'Share a library',
-    },
-    connect: {
-      promptTab: 'Prompt',
-      mcpTab: 'MCP endpoint',
-      /* Addressed to the model, not to the reader: it is pasted into a client
-         that can edit its own MCP configuration, and the model does the rest. */
-      prompt:
-        'Add an MCP server named "re0" at {url} using HTTP transport, then confirm it is connected and list the tools it exposes.',
-      promptCopy: 'Copy prompt',
-      promptNote:
-        'Paste it into Claude, Codex, Cursor or any client that can edit its own MCP config, and let the model do the setup.',
-      mcpNote: 'Paste the endpoint into any client that takes an MCP server URL.',
-    },
   },
 
   pricing: {
@@ -282,150 +183,6 @@ export const en: Dictionary = {
       eyebrow: 'Start on the free tier',
       title: 'Prove the value first, upgrade later.',
       cta: 'Query public libraries for free',
-    },
-  },
-
-  /** Revenue rules for expert-library publishers: the public page at /publishers, linked from home and pricing. */
-  publishers: {
-    metaTitle: 'Publisher revenue rules',
-    metaDescription: 'Publish an expert library on Re0 and earn a share of platform net revenue for every retrieval: which retrievals count, how the money is worked out, and when it can be redeemed as calls or paid out.',
-    title: 'Publisher revenue rules',
-    description: 'How an expert library earns a share of platform revenue, which retrievals do not count, and when the money can be used. Prices and rates on this page are read from the plan versions in force.',
-    summaryTitle: 'In one sentence',
-    summary:
-      'Each month the platform sets aside {rate} of its net revenue and spreads it evenly over every billed retrieval that month. When someone else retrieves from your expert library, that retrieval’s share is credited to you; earnings settle monthly and can be redeemed as calls {holdDays} days later.',
-    eligible: {
-      title: 'Which retrievals earn',
-      lead: 'A retrieval credits the library’s owner only when all of these hold:',
-      items: [
-        'The library is public, published and carries the expert tag (apply on the library page; an administrator approves).',
-        'The owner workspace is on a paid plan at the moment of the retrieval. Earning stops when the subscription lapses and resumes on renewal.',
-        'The library’s source rights are verified: GitHub, website and llms.txt sources need an approved claim.',
-        'The retrieval comes from a signed-in workspace and reads content through `query-docs`. Anonymous trials and `resolve-library-id`, which only finds libraries, do not count.',
-        'The caller is neither the owner nor a workspace related to the owner (see the abuse rules below).',
-        'The caller has not yet reached {cap} earning retrievals of this library today.',
-      ],
-    },
-    formula: {
-      title: 'How the amount is computed',
-      lead: 'After each month (a UTC calendar month) ends, the platform closes the period and settles it with this formula:',
-      expression: 'Your monthly earnings = platform net revenue × {rate} × your library’s counted retrievals ÷ all billed retrievals on the platform',
-      notes: [
-        'Net revenue is the subscription and call-pack money actually collected that month, refunds already deducted.',
-        'The denominator is every billed retrieval on the platform, including those of platform and private libraries. Their share of revenue stays out of the pool, so only the part spent on expert libraries is shared. Calls spent building libraries are not in the denominator.',
-        'The share rate comes from the caller’s plan version and is frozen at the retrieval; Pro is currently {rate}. A later change does not touch retrievals already made.',
-        'Allocation is linear in retrievals and never weighted by trust or evaluation scores; scores only decide whether a library can get the expert tag.',
-        'Amounts are rounded down to the cent.',
-      ],
-      consequence: 'So a retrieval has no fixed price: the fewer retrievals the platform serves, the more each one is worth.',
-    },
-    examples: {
-      title: 'Worked examples',
-      note: 'Computed with the current Pro plan: {proPrice} / month, {proCalls} retrievals included, {rate} share rate. Platform sizes are hypothetical.',
-      single: {
-        title: 'Example 1: someone retrieves from your library once',
-        scenario: 'Assume every Pro subscriber uses exactly their monthly allowance.',
-        lines: [
-          'Revenue behind one retrieval: {proPrice} ÷ {proCalls} = {perCallRevenue}',
-          '{rate} of it goes to the owner: {perCallRevenue} × {rate} = {perCall}',
-        ],
-        result: 'About {perCall} per retrieval, so roughly {callsPerDollar} retrievals make $1. Real subscribers rarely use their whole allowance, which shrinks the denominator and makes each retrieval worth more, as example 2 shows.',
-      },
-      month: {
-        title: 'Example 2: one month',
-        scenario:
-          'Assume the platform has 100 Pro subscribers this month, {revenue} of net revenue. On average they use half their allowance, {totalCalls} billed retrievals in all, and {libraryCalls} of them are other workspaces retrieving from your expert library, all qualifying.',
-        lines: [
-          'Pool: {revenue} × {rate} = {pool}',
-          'Your share: {libraryCalls} ÷ {totalCalls} = {share}',
-          'Your earnings: {pool} × {share} = {earning}',
-        ],
-        result: '{earning} this month, {perCallMonth} per retrieval: more than example 1, because the denominator is half the full-usage one.',
-      },
-      cap: {
-        title: 'Example 3: one reader can only earn you so much',
-        scenario: 'One reader retrieves from your library {readerCalls} times in a day.',
-        lines: [
-          'Counted for earnings: the first {cap}',
-          'The other {overCalls}: billed to the reader as usual, but credited to no one',
-        ],
-        result: 'That reader can earn you at most {cap} retrievals’ worth a day; the count restarts at 00:00 UTC.',
-      },
-      related: {
-        title: 'Example 4: retrieving your own library from another workspace',
-        scenario:
-          'You retrieve from your own library 1,000 times out of another workspace that is paid for by the same payment account (or where you are owner or admin on both sides).',
-        lines: [
-          'Already related at retrieval time: the 1,000 calls are billed, and earn $0',
-          'Related only later, before the period closes: the close voids those earnings in one sweep',
-        ],
-        result: 'You earn $0, and you paid for those 1,000 retrievals yourself.',
-      },
-      redeem: {
-        title: 'Example 5: redeeming example 2 as calls',
-        scenario: 'Example 2’s period closes on {lockDate} and settles at {earning}.',
-        lines: [
-          'Hold: {holdDays} days from the close, redeemable from {releaseDate}',
-          'Conversion: {earning} × {packCalls} ÷ {packPrice} = {redeemCalls} calls (rounded up)',
-        ],
-        result: 'Press “Redeem as calls” on the revenue page and {redeemCalls} calls land on this workspace. They never expire and are spent after the plan allowance.',
-      },
-    },
-    timeline: {
-      title: 'When the money can be used',
-      steps: [
-        {
-          title: 'Accrual',
-          body: 'Each qualifying retrieval records an earning event, with no amount yet; the revenue page shows this period’s counted retrievals.',
-        },
-        {
-          title: 'Close',
-          body: 'After the period ends the platform closes it and computes the amounts with the formula above. A closed period never changes.',
-        },
-        {
-          title: 'Hold for {holdDays} days',
-          body: 'The window for refunds and chargebacks. During it the amount shows as held.',
-        },
-        {
-          title: 'Redeem as calls',
-          body: 'After the hold, a workspace owner or admin can turn all settled earnings into Additional Calls at once. There is no minimum: any positive amount buys at least one call.',
-        },
-        {
-          title: 'Or withdraw to PayPal',
-          body: 'Once what is past its hold reaches {threshold}, request a payout from the revenue page with your PayPal email; the platform sends it by hand and records the PayPal transaction id. Below {threshold} it keeps accruing. Only your PayPal email is recorded — never card or bank numbers.',
-        },
-      ],
-    },
-    antiAbuse: {
-      title: 'Abuse rules',
-      lead: 'Once sharing pays, inflating traffic pays too. These retrievals are billed as usual but earn nothing:',
-      items: [
-        'Retrieving your own library.',
-        'Retrieving from a related workspace: both sides have used the same payment account, or one person is owner or admin of both. Checked at retrieval and again, against the links as they stand, when the month closes.',
-        'A reader’s retrievals of one library beyond {cap} in a day.',
-        'Anonymous trials, and `resolve-library-id`, which finds libraries without reading them.',
-        'Libraries whose sources have not passed a claim.',
-      ],
-      voidLead: 'Earnings already recorded are voided or withheld when:',
-      voidItems: [
-        'The expert tag is revoked: earnings of every period not yet closed are voided.',
-        'The library is suspended: that period’s earnings void at close; closed periods are not reopened.',
-        'While the library is suspended or withdrawn, settled earnings cannot be redeemed; they become redeemable again once it is republished.',
-        'Refunds come straight off the month’s net revenue, shrinking the pool; the hold exists for exactly this.',
-      ],
-    },
-    principles: {
-      title: 'What earnings never affect',
-      items: [
-        'Ranking: earnings data never enters recall, ranking or candidate generation, so what readers see has nothing to do with who earns what.',
-        'What readers pay: the share is cut from revenue the platform already has; callers are never charged extra.',
-      ],
-    },
-    closing: {
-      eyebrow: 'Start earning',
-      title: 'Publish an expert library and get paid each time it is retrieved.',
-      submit: 'Submit a library',
-      earnings: 'See my earnings',
     },
   },
 
@@ -2073,15 +1830,12 @@ export const en: Dictionary = {
           total: 'Calls to date',
           thisMonth: 'Calls this month',
           readers: 'Reader workspaces this month',
-          earned: 'Attributable calls this month',
         },
-        columns: ['Time', 'Caller', 'Version', 'Status', 'Tokens returned', 'Revenue share'],
+        columns: ['Time', 'Caller', 'Version', 'Status', 'Tokens returned'],
         empty: 'No calls yet.',
         callers: { self: 'This workspace', reader: 'Reader' },
         entrypoints: { rest: 'REST API', mcp: 'MCP', web: 'Web' },
         operations: { 'query-docs': 'Query', context: 'Context' },
-        earning: { earned: 'Attributable', voided: 'Voided' },
-        whyNot: 'Calls with no revenue share did not earn. The usual reasons: the library has no expert tag, or its owner is not on a paid plan; the caller is you, or related to you (the same paying account, or one person who is owner or admin of both); or that reader has reached the daily cap of earning calls on this library.',
         page: 'Page {page} of {pages}, {total} calls',
       },
     },
@@ -2433,34 +2187,20 @@ export const en: Dictionary = {
     },
     revenue: {
       metaTitle: 'Revenue',
-      eyebrow: 'PUBLISHER',
+      eyebrow: 'CREATOR',
       title: 'Revenue',
       description:
-        'Public libraries that carry the expert tag, and whose owner is on a paid plan, earn a share of platform revenue for the calls they serve. Apply for the tag on the library’s page.',
+        'What this workspace has earned, settled by month. Each period is the sum of the amounts recorded for it; once a period locks, its settled amount can be redeemed as calls or paid out after the hold.',
       stats: {
-        accrued: 'Accrued (locked periods)',
-        currentCalls: 'Attributable calls, this period',
-        liveEstimate: 'Live estimate, this period · {calls} calls',
+        accrued: 'Settled (locked periods)',
+        thisPeriod: 'This period so far',
         lockedPeriods: 'Periods settled',
         threshold: 'Payout threshold',
       },
-      periodColumns: ['Period', 'Attributable calls', 'Status', 'Amount'],
+      periodColumns: ['Period', 'Status', 'Amount'],
       statusLocked: 'Settled',
       statusAccruing: 'Accruing',
-      pendingAmount: 'settles at close',
-      estimate: 'estimate',
-      libraries: {
-        title: 'Earnings by expert library',
-        description:
-          'This period is estimated live from platform revenue and calls so far (refreshed every {minutes} minutes); the close sets the final amount. Settled is the total over every locked period. Open a row for its periods.',
-        columns: ['Expert library', 'Calls this period', 'Live estimate', 'Settled to date'],
-        settledCalls: '{calls} calls',
-        historyEmpty: 'No attributable calls yet.',
-        deleted: 'Deleted',
-        untagged: 'No longer tagged',
-        empty: 'No expert libraries yet — apply for the expert tag on a public library’s page.',
-      },
-      periodsEmpty: 'No attributable calls yet — public libraries with the expert tag earn as readers query them; apply on the library’s page.',
+      periodsEmpty: 'Nothing earned yet. Income recorded for this workspace appears here by period.',
       noAccountNotice:
         'Earnings accrue to this workspace, but redeeming them as calls or paying them out needs a publisher account: accept the publisher agreement via the API to open one.',
       holdNote: 'Amounts can be redeemed as calls {days} days after their period locks, or withdrawn to PayPal once they reach {threshold}.',
@@ -2473,7 +2213,6 @@ export const en: Dictionary = {
         statements: '{count} statements',
         held: 'Held',
         nextRelease: 'redeemable from {date}',
-        withheld: 'Another {amount} is withheld while its library is suspended or unpublished.',
         redeemed: '{calls} calls in total',
         rate: 'Current rate {price} per {calls} calls',
         noRate: 'No pack price is configured, so nothing can be redeemed yet.',
@@ -2516,26 +2255,13 @@ export const en: Dictionary = {
         status: { requested: 'Processing', paid: 'Paid', failed: 'Failed' },
         historyColumns: ['Requested', 'Amount', 'PayPal', 'Status', 'Transaction id / reason'],
       },
-      exportStatement: 'Export statement',
-      rulesLink: 'Revenue rules',
       trend: {
         title: 'Revenue trend',
-        monthSubtitle: 'Last 12 periods · the current one is a live estimate',
-        daySubtitle: 'Last 30 days · each day’s calls at its period’s amount per call; the current period is a live estimate',
+        monthSubtitle: 'Last 12 periods · the current one is still accruing',
+        daySubtitle: 'Last 30 days · amounts recorded each day',
         grainLabel: 'Granularity',
         grains: { day: 'Daily', month: 'Monthly' },
       },
-      trendLegend: '51,360 shareable calls · 20% rate',
-      searchPlaceholder: 'Search a library or Library ID…',
-      columns: ['Library', 'Shareable calls', 'Rate', 'Period', 'Status', 'Estimated'],
-      filterPeriod: 'Period',
-      filterStatus: 'Settlement',
-      filterLibrary: 'Library',
-      statusOptions: ['All statuses', 'Accrued', 'Held', 'Paid out'],
-      libraryOptions: ['All libraries', 'Public', 'Private'],
-      countLine: 'Showing {shown} of {total} libraries',
-      previous: 'Prev',
-      next: 'Next',
     },
     policies: {
       metaTitle: 'Access rules',
@@ -4490,17 +4216,17 @@ export const en: Dictionary = {
     settlements: {
       title: 'Settlements',
       description:
-        'Per-period distributable pool, publisher allocations, clawbacks and voided statements.',
-      searchPlaceholder: 'Search publisher, Library ID or statement number',
+        'Per-period creator earnings, their statements, clawbacks and voided statements.',
+      searchPlaceholder: 'Search publisher or statement number',
       generate: 'Generate statement',
-      columns: ['Statement', 'Publisher', 'Library', 'Shareable calls', 'Period', 'Amount', 'Status'],
+      columns: ['Statement', 'Publisher', 'Period', 'Amount', 'Status'],
       showing: 'Showing {from}–{to} of {total} statements',
       empty: 'No statements for this period yet.',
       ledger: {
         stats: {
-          pool: 'Pool, latest locked period',
-          poolCaption: '{period} · net revenue {net} · share rate {rate}%',
-          poolNone: 'No period has been locked yet',
+          total: 'Earnings, latest locked period',
+          totalCaption: '{period} · all creators together',
+          totalNone: 'No period has been locked yet',
           accrued: 'Accrued, awaiting payout',
           accruedCaption: '{count} statements · {publishers} publishers · {inPayout} of it in payout',
           paid: 'Paid out and redeemed',
@@ -4521,22 +4247,22 @@ export const en: Dictionary = {
         digest: 'Digest',
         generateTitle: 'Generate statements',
         generateDescription:
-          'Locks the chosen period and writes one statement per publisher library from its attributable calls. Running it again never duplicates a row.',
+          'Locks the chosen period and writes one statement per publisher from the amounts recorded for them. Running it again never duplicates a row.',
         generatePeriod: 'Period',
         generatePeriodOption: '{period} · {events} earning events · {statements} statements',
         generateNoPeriods: 'No finished period has recorded earning events yet.',
-        generateNote: 'Once locked, the pool no longer changes; earnings of libraries suspended right now are voided at the lock.',
+        generateNote: 'Once locked, the period’s sums no longer change; a correction afterwards is a new event in a later period.',
         reason: 'Reason',
         reasonPlaceholder: 'Recorded in the audit log; required',
         confirm: 'Generate',
         pending: 'Generating…',
         cancel: 'Cancel',
         close: 'Close',
-        done: 'Period {period} is locked: pool {pool} over {calls} attributable calls.',
+        done: 'Period {period} is locked: {total} earned in total.',
         doneCreated: '{count} statements written, {amount} in total.',
         doneNone: 'No new statements.',
-        doneSkipped: '{count} libraries belong to owners who have not accepted the publisher agreement; their earnings wait for the next run.',
-        doneExisting: '{count} libraries already had a statement and were left alone.',
+        doneSkipped: '{count} owners have not accepted the publisher agreement; their earnings wait for the next run.',
+        doneExisting: '{count} publishers already had a statement and were left alone.',
         errors: {
           period_invalid: 'The period must be a finished month, e.g. 2026-08.',
           reason_required: 'Give a reason; it is recorded in the audit log.',
@@ -4544,15 +4270,15 @@ export const en: Dictionary = {
         },
       },
       trend: {
-        title: 'Revenue share trend',
-        monthSubtitle: 'The allocatable pool of the last 12 periods; the current one is computed live',
-        daySubtitle: 'Attributable calls of the last 30 days, valued at their period’s amount per call',
+        title: 'Creator earnings trend',
+        monthSubtitle: 'Creator earnings of the last 12 periods; the current one is still accruing',
+        daySubtitle: 'Amounts recorded over the last 30 days',
         total: 'Total',
         grainLabel: 'Granularity',
         grains: { day: 'Daily', month: 'Monthly' },
-        monthHint: '{period} · net revenue {net} · statements {settled} · pool',
-        monthHintOpen: '{period} (open) · net revenue so far {net} · live pool',
-        dayHint: '{day} · {calls} attributable calls ·',
+        monthHint: '{period} · statements {settled} · earned',
+        monthHintOpen: '{period} (open) · earned so far',
+        dayHint: '{day} · {events} events ·',
       },
       payouts: {
         title: 'Payout queue ({count})',
@@ -4561,7 +4287,6 @@ export const en: Dictionary = {
         openColumns: ['Requested (UTC)', 'Publisher', 'PayPal email', 'Amount', 'Statements', ''],
         openEmpty: 'No payout requests are waiting.',
         statements: '{count} statements',
-        withheld: '{amount} on a suspended or unpublished library',
         copy: 'Copy',
         copied: 'Copied',
         resolvedTitle: 'Recently resolved',
@@ -4590,7 +4315,6 @@ export const en: Dictionary = {
           not_found: 'This payout no longer exists.',
           payout_resolved: 'Someone has already resolved this payout; reload the page.',
           reference_required: 'Enter the PayPal transaction id.',
-          payout_withheld: 'This payout includes earnings of a suspended or unpublished library, so it cannot be marked paid as requested. Mark it failed; the publisher can request the rest again.',
           reason_required: 'Give a reason; it is recorded in the audit log.',
           invalid_input: 'Something in the form is not right; check it and try again.',
         },
