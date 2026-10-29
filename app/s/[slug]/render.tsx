@@ -5,13 +5,12 @@ import { notFound, permanentRedirect, redirect } from 'next/navigation';
 import { ShowcaseBeacon, TrackedLink } from '@/components/showcase/showcase-beacon';
 import { ShowcaseChat } from '@/components/showcase/showcase-chat';
 import { ShowcaseUnlock } from '@/components/showcase/showcase-unlock';
-import { LocaleSwitcher } from '@/components/site/locale-switcher';
 import { Re0Mark } from '@/components/ui/icons';
 import { showcaseFieldsFor, showcasePath, type ShowcaseField } from '@/lib/domain/showcase';
 import { LocaleProvider } from '@/lib/i18n/client';
 import { messagesFor, type Dictionary } from '@/lib/i18n/dictionary';
 import { fill } from '@/lib/i18n/format';
-import { isLocale, LOCALE_COOKIE, type Locale } from '@/lib/i18n/locale';
+import { HTML_LANG, OG_LOCALE } from '@/lib/i18n/locale';
 import { showcaseGateFor } from '@/lib/http/showcase-gate';
 import { publicUrl } from '@/lib/site/origin';
 import { PREVIEW_PARAM, showcaseLookup } from './lookup';
@@ -32,15 +31,12 @@ const display = Bricolage_Grotesque({ subsets: ['latin'], variable: '--font-bric
  * us is the line at the foot. A page that is not published is a 404 like
  * a missing one; a slug the page used to have redirects to the current one.
  *
- * The language is the reader's choice when they have made one (the same
- * cookie the rest of the site honours), else the owner's setting for the
- * page: a visitor in Shanghai sent a Chinese page should not get English
- * because their browser says so.
+ * The language is the owner's setting for the page, and nothing else: the
+ * content was written in it, so the frame around the content -- the ask
+ * window, the gate, the footer -- speaks it too. The site's language cookie
+ * is not consulted; it used to win, and a reader who had picked 中文 on the
+ * dashboard got an English page asking its questions in Chinese.
  */
-async function pageLocale(fallback: Locale): Promise<Locale> {
-  const chosen = (await cookies()).get(LOCALE_COOKIE)?.value;
-  return isLocale(chosen) ? chosen : fallback;
-}
 
 /** The address the page is canonical at: its own host when it has one, else `/s/{slug}` on ours. */
 function canonicalOf(slug: string, customHost: string | null): string {
@@ -65,6 +61,7 @@ export async function showcaseMetadata(slug: string, preview: boolean, customHos
       description,
       type: 'website',
       url: canonicalOf(page.slug, customHost),
+      locale: OG_LOCALE[page.locale],
     },
     twitter: { card: 'summary_large_image', title: content.name, description },
   };
@@ -111,7 +108,7 @@ export async function ShowcaseScreen({ slug, preview, customHost }: { slug: stri
   }
   if (found.kind !== 'page') notFound();
   const { page } = found;
-  const locale = await pageLocale(page.locale);
+  const locale = page.locale;
   const t = messagesFor(locale);
   const s: Dictionary['showcase'] = t.showcase;
   const content = page.document.content;
@@ -125,7 +122,7 @@ export async function ShowcaseScreen({ slug, preview, customHost }: { slug: stri
   if (gate !== 'open') {
     return (
       <LocaleProvider locale={locale} messages={t}>
-        <div className="product-surface site-surface flex min-h-screen flex-col items-center justify-center gap-6 bg-subtle px-5 py-16 text-ink">
+        <div lang={HTML_LANG[locale]} className="product-surface site-surface flex min-h-screen flex-col items-center justify-center gap-6 bg-subtle px-5 py-16 text-ink">
           <div className="flex flex-col items-center gap-3 text-center">
             {page.hasLogo && gate === 'locked' ? (
               // eslint-disable-next-line @next/next/no-img-element
@@ -175,7 +172,9 @@ export async function ShowcaseScreen({ slug, preview, customHost }: { slug: stri
 
   return (
     <LocaleProvider locale={locale} messages={t}>
+      {/* `<html lang>` is the visitor's (app/layout.tsx); the page's own language is set here. */}
       <div
+        lang={HTML_LANG[locale]}
         className={`${display.variable} product-surface site-surface flex min-h-screen flex-col bg-card text-ink`}
         style={{ ['--showcase-accent' as string]: page.accent }}
       >
@@ -358,20 +357,18 @@ export async function ShowcaseScreen({ slug, preview, customHost }: { slug: stri
           </section>
         ) : null}
 
-        <footer className="mt-auto border-t border-line bg-subtle">
-          <div className={`${container} flex flex-wrap items-center justify-between gap-3 py-5 text-[12px] text-muted`}>
-            {page.showBranding ? (
+        {/* No language menu: it could only turn the frame, never the owner's words. */}
+        {page.showBranding ? (
+          <footer className="mt-auto border-t border-line bg-subtle">
+            <div className={`${container} flex flex-wrap items-center gap-3 py-5 text-[12px] text-muted`}>
               <a href={brandHref} className="inline-flex items-center gap-1.5 hover:text-ink" rel="noopener">
                 <Re0Mark size={14} />
                 <span>{s.poweredBy}</span>
                 <span className="text-brandink">{s.createYours}</span>
               </a>
-            ) : (
-              <span />
-            )}
-            <LocaleSwitcher />
-          </div>
-        </footer>
+            </div>
+          </footer>
+        ) : null}
       </div>
     </LocaleProvider>
   );
