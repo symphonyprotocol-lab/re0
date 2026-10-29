@@ -85,9 +85,9 @@ export function isVerifiableHostname(value: string): boolean {
 /**
  * The domain a source is verified against.
  *
- * A website, `llms.txt` or OpenAPI source is a URL, and its host is the
- * domain -- 7.3.2 gives all three the same DNS TXT / well-known challenge. A
- * GitHub source has no domain of its own: 7.3.2 falls back to the repository's
+ * A website source is a URL, and its host is the domain -- 7.3.2 gives it
+ * the DNS TXT / well-known challenge. A GitHub source has no domain of its
+ * own: 7.3.2 falls back to the repository's
  * *home* domain, which only the repository can say, so the caller supplies it
  * (from the repository's `homepage`) and this validates it like any other.
  * Subdomains are not folded into their parent -- 7.3.2 says a parent's
@@ -101,11 +101,7 @@ export function verificationDomain(input: {
   let candidate: string | null = null;
   if (input.sourceType === 'github') {
     candidate = hostOf(input.homepage);
-  } else if (
-    input.sourceType === 'website' ||
-    input.sourceType === 'llms_txt' ||
-    input.sourceType === 'openapi'
-  ) {
+  } else if (input.sourceType === 'website') {
     candidate = hostOf(input.location);
   }
   if (!candidate) return null;
@@ -235,8 +231,8 @@ export function isDisputedClaim(input: {
  * right to abandon a *claimed* library: it goes back to the unowned pool and
  * somebody else may prove control of the same source.
  *
- * A library whose creator is its owner by construction -- an upload, an
- * OpenAPI file, a Notion connection -- has no claim to release. Releasing one
+ * A library whose creator is its owner by construction -- an upload, a
+ * Notion connection -- has no claim to release. Releasing one
  * would strand it: `owner_workspace_id` is the tenancy key for manage,
  * rebuild, delete and detail, and `claimMethodsFor` offers those source types
  * no way back in, so the library would stay public, live and unmanageable by

@@ -2087,7 +2087,7 @@ export const zh = {
         verify: {
           title: '证明 {host} 归你所有',
           intro:
-            '网站、llms.txt 和 OpenAPI 知识库的内容完全来自这个域名，因此只有控制该域名的人才能创建。任选一种方式完成验证，挑战 7 天内有效。',
+            '网站知识库的内容完全来自这个域名，因此只有控制该域名的人才能创建。任选一种方式完成验证，挑战 7 天内有效。',
           hostInvalid: '请先返回上一步，填写合法的 https 来源地址。',
           methodDns: 'DNS TXT 记录',
           methodDnsNote: '在你的 DNS 服务商处添加一条 TXT 记录，通常最快。',
@@ -2125,8 +2125,6 @@ export const zh = {
         sources: {
           github: { name: 'GitHub', note: '你名下或由你管理的公开 GitHub 仓库。' },
           website: { name: '网站', note: '爬取一个文档站点。' },
-          llms_txt: { name: 'llms.txt', note: '站点发布的 llms.txt 索引。' },
-          openapi: { name: 'OpenAPI', note: 'OpenAPI/Swagger 文档 URL。' },
           notion: { name: 'Notion', note: '从你自己的 Notion 账号共享的页面。' },
           pdf: { name: 'PDF 上传', note: '从本机上传 PDF 文件，也可以先建库、之后再添加。' },
           markdown: { name: 'Markdown / MDX', note: '从本机上传 .md / .mdx 文档，也可以先建库、之后再添加。' },
@@ -2134,13 +2132,11 @@ export const zh = {
         titleLabel: '知识库名称',
         locationLabel: '来源位置',
         indexDepthLabel: '嵌套索引',
-        indexDepthHint: '网站按同域、同路径范围继续抓取子页面；llms.txt 按同域继续跟进嵌套索引。最多 3 层，默认不跟进。',
+        indexDepthHint: '网站按同域、同路径范围继续抓取子页面。最多 3 层，默认不跟进。',
         indexDepths: { 0: '不跟进（默认）', 1: '跟进 1 层', 2: '跟进 2 层', 3: '跟进 3 层' },
         locations: {
           github: 'owner/repo 或仓库 URL',
           website: 'https://docs.example.com',
-          llms_txt: 'https://example.com/llms.txt',
-          openapi: 'https://api.example.com/openapi.json',
           notion: '你在 Notion 上共享给 re0 的页面',
           pdf: '',
           markdown: '',
@@ -2506,8 +2502,8 @@ export const zh = {
         connectedTitle: '已连接来源',
         sources: {
           repos: { name: '公开代码仓库', note: 'GitHub 上的开源仓库' },
-          sites: { name: '网站', note: '公开文档站、指南与 llms.txt' },
-          schema: { name: 'OpenAPI 与 Markdown', note: '通过 URL 导入的 API Schema 与文档' },
+          sites: { name: '网站', note: '公开文档站与指南' },
+          schema: { name: 'Markdown', note: '上传的 Markdown / MDX 文档' },
           uploads: { name: '上传文件', note: '上传的 PDF 文件' },
           notion: { name: 'Notion', note: '已授权的页面与团队数据库' },
           private: { name: '私有知识库', note: '当前工作空间创建的私有内容' },
@@ -3649,8 +3645,6 @@ export const zh = {
       sourceTypes: {
         github: 'GitHub',
         website: 'Website',
-        llms_txt: 'llms.txt',
-        openapi: 'OpenAPI',
         notion: 'Notion',
         markdown: 'Markdown',
         pdf: 'PDF',
@@ -4055,7 +4049,7 @@ export const zh = {
         fieldLocation: '位置',
         hintLocation: '网页与文档来源必须是 https 地址，GitHub 填 owner/repository。',
         fieldIndexDepth: '嵌套索引',
-        hintIndexDepth: '网站按同域、同路径范围继续抓取子页面；llms.txt 按同域继续跟进嵌套索引。最多 3 层，默认不跟进。',
+        hintIndexDepth: '网站按同域、同路径范围继续抓取子页面。最多 3 层，默认不跟进。',
         indexDepths: { 0: '不跟进（默认）', 1: '跟进 1 层', 2: '跟进 2 层', 3: '跟进 3 层' },
         typeLocked: '类型不可修改：已构建的版本记录了它，改动会让那些版本声称来自另一种来源。',
       },

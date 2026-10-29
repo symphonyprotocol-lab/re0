@@ -382,9 +382,9 @@ describeWithDb('library deletion', () => {
       workspaceId,
       title: 'Not yours',
       visibility: 'private',
-      sourceType: 'openapi',
-      location: 'https://api.example.test/openapi.json',
-      domainVerificationId: await verifiedDomain(workspaceId, 'https://api.example.test/openapi.json'),
+      sourceType: 'website',
+      location: 'https://api.example.test/reference/',
+      domainVerificationId: await verifiedDomain(workspaceId, 'https://api.example.test/reference/'),
       slug: `not-yours-${stamp}`,
     });
     libraries.push(created.libraryId);
@@ -534,9 +534,9 @@ describeWithDb('library deletion', () => {
       workspaceId,
       title: 'User library',
       visibility: 'private',
-      sourceType: 'openapi',
-      location: 'https://api.example.test/openapi.json',
-      domainVerificationId: await verifiedDomain(workspaceId, 'https://api.example.test/openapi.json'),
+      sourceType: 'website',
+      location: 'https://api.example.test/reference/',
+      domainVerificationId: await verifiedDomain(workspaceId, 'https://api.example.test/reference/'),
       slug: `user-owned-${stamp}`,
     });
     libraries.push(user.libraryId);

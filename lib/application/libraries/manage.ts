@@ -365,7 +365,7 @@ export interface UpdateParseScopeResult {
 /**
  * Stores the owner's parse scope on the source under the names `re0.json`
  * uses (`folders`, `excludeFolders`, `excludeFiles`; requirement.md 7.2) plus
- * `indexDepth` for a website or `llms.txt` source, and the refresh cadence where the
+ * `indexDepth` for a website source, and the refresh cadence where the
  * source has something to re-fetch. The next build applies it
  * (`fetchSnapshot` filters the snapshot); this call queues none, because
  * the owner may still be editing and the rebuild button is beside the form.
@@ -390,8 +390,8 @@ export async function updateParseScope(input: UpdateParseScopeInput): Promise<Up
     /*
      * The two halves of the form are decided together, and before either is
      * read: the scope half applies to fewer sources than the cadence half, so
-     * asking the scope first refused an OpenAPI or Notion library's perfectly
-     * valid "set this to daily". Refusals carry the field's own code
+     * asking the scope first refused a Notion library's perfectly valid
+     * "set this to daily". Refusals carry the field's own code
      * (`PlatformLibraryRefused`).
      */
     const plan = planScopeSave({

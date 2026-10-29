@@ -414,7 +414,7 @@ export function ParseScopeForm({
         </div>
       ) : null}
       <div className="grid gap-4 sm:grid-cols-2">
-        {sourceType === 'website' || sourceType === 'llms_txt' ? (
+        {sourceType === 'website' ? (
           <Field label={m.indexDepthLabel} hint={w.indexDepthHint}>
             <select name="indexDepth" defaultValue={String(scope.indexDepth)} className={FIELD}>
               {INDEX_DEPTHS.map((depth) => (

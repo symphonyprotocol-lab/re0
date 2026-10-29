@@ -267,7 +267,7 @@ function CreateDialog({
             />
           </Field>
 
-          {sourceType === 'website' || sourceType === 'llms_txt' ? (
+          {sourceType === 'website' ? (
             <Field
               label={t.admin.platformLibraryDetail.sourceDialog.fieldIndexDepth}
               hint={t.admin.platformLibraryDetail.sourceDialog.hintIndexDepth}

@@ -84,11 +84,9 @@ describe('method availability per source type', () => {
     expect(defaultClaimMethod('github')).toBe('github_permission');
   });
 
-  it('gives a website or llms.txt source the two domain methods, DNS first', () => {
-    for (const type of ['website', 'llms_txt'] as SourceType[]) {
-      expect(claimMethodsFor(type)).toEqual(['dns_txt', 'well_known']);
-      expect(defaultClaimMethod(type)).toBe('dns_txt');
-    }
+  it('gives a website source the two domain methods, DNS first', () => {
+    expect(claimMethodsFor('website')).toEqual(['dns_txt', 'well_known']);
+    expect(defaultClaimMethod('website')).toBe('dns_txt');
   });
 
   it('gives the self-owned source types no method at all', () => {
@@ -100,7 +98,7 @@ describe('method availability per source type', () => {
   });
 
   it('never offers the GitHub method to a source that is not a repository', () => {
-    for (const type of ['website', 'llms_txt', 'markdown', 'pdf', 'openapi', 'notion'] as SourceType[]) {
+    for (const type of ['website', 'markdown', 'pdf', 'notion'] as SourceType[]) {
       expect(claimMethodsFor(type)).not.toContain('github_permission');
     }
   });
@@ -326,12 +324,12 @@ describe('check lists', () => {
 /* ------------------------------------------------------- verification target */
 
 describe('verification target', () => {
-  it('takes a website or llms.txt source at its own host, without www', () => {
+  it('takes a website source at its own host, without www', () => {
     expect(
       verificationDomain({ sourceType: 'website', location: 'https://www.Example.com/docs' }),
     ).toBe('example.com');
     expect(
-      verificationDomain({ sourceType: 'llms_txt', location: 'https://docs.example.com/llms.txt' }),
+      verificationDomain({ sourceType: 'website', location: 'https://docs.example.com/guide' }),
     ).toBe('docs.example.com');
   });
 
@@ -446,21 +444,13 @@ describe('ownership as one workspace sees it', () => {
 describe('which sources a claim may name', () => {
   /*
    * `visibleLibrary` filters the claim page's target by this list, so it has
-   * to agree with `claimMethodsFor` exactly. When it does not, a pdf or an
-   * OpenAPI library reaches a claim form with no method to pick and a Start
+   * to agree with `claimMethodsFor` exactly. When it does not, a pdf or a
+   * Notion library reaches a claim form with no method to pick and a Start
    * button that can only fail.
    */
   it('is exactly the set of source types that have a method', () => {
     const withMethods = (
-      [
-        'github',
-        'website',
-        'llms_txt',
-        'markdown',
-        'pdf',
-        'openapi',
-        'notion',
-      ] as SourceType[]
+      ['github', 'website', 'markdown', 'pdf', 'notion'] as SourceType[]
     ).filter((type) => claimMethodsFor(type).length > 0);
     expect([...CLAIMABLE_SOURCE_TYPES].sort()).toEqual(withMethods.sort());
   });
@@ -523,7 +513,7 @@ describe('which ownership can be given up', () => {
    * 7.3.5 is about a *claimed* library going back to the unowned pool.
    * Releasing a library whose creator is its owner would strand it: the owner
    * column is the tenancy key for manage, rebuild, delete and detail, and an
-   * upload or an OpenAPI source has no claim method to get back in with.
+   * upload or a Notion source has no claim method to get back in with.
    */
   it('is claimed ownership only', () => {
     expect(isReleasableOwnership('claimed')).toBe(true);

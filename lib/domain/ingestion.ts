@@ -243,14 +243,6 @@ export const INGESTION_LIMITS = {
   maxCrawlDepth: 3,
   /** How many pages a crawl may pull. */
   maxCrawlPages: 200,
-  /**
-   * How many documents an llms.txt may list, nested indexes included. Higher
-   * than the crawl cap because an index is a curated list of documentation,
-   * not a walk that can wander into a marketing site.
-   */
-  maxIndexPages: 500,
-  /** How many nested llms.txt indexes one index may point at. */
-  maxNestedIndexes: 10,
 } as const;
 
 /* ------------------------------------------------------------------ lookup */
@@ -793,11 +785,12 @@ function codePointText(point: number): string {
 /**
  * A JSON document rendered as readable text.
  *
- * An OpenAPI document is the case that matters, and what a reader wants from
- * one is the paths, the operations and their descriptions -- not the JSON. A
- * spec is therefore flattened into `path: value` lines under headings, which
- * chunk and cite sensibly. Anything that is not recognisable JSON is left as it
- * arrived, because YAML with its own indentation already reads as text.
+ * An API description committed to a repository is the case that matters, and
+ * what a reader wants from one is the paths, the operations and their
+ * descriptions -- not the JSON. A spec is therefore flattened into
+ * `path: value` lines under headings, which chunk and cite sensibly. Anything
+ * that is not recognisable JSON is left as it arrived, because YAML with its
+ * own indentation already reads as text.
  */
 export function structuredToText(content: string): string {
   let parsed: unknown;

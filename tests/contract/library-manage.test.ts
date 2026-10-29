@@ -166,7 +166,6 @@ describe('draftParseScope', () => {
   });
 
   it('keeps the nested depth where web children are followed', () => {
-    expect(draftParseScope({ sourceType: 'llms_txt', indexDepth: '2' }).indexDepth).toBe(2);
     expect(draftParseScope({ sourceType: 'website', indexDepth: '2' }).indexDepth).toBe(2);
     expect(draftParseScope({ sourceType: 'github', indexDepth: '2' }).indexDepth).toBe(0);
   });
@@ -185,7 +184,6 @@ describe('draftParseScope', () => {
   it('refuses a source whose files have no paths to select', () => {
     expect(parseScopeApplies('github')).toBe(true);
     expect(parseScopeApplies('website')).toBe(true);
-    expect(parseScopeApplies('llms_txt')).toBe(true);
     expect(parseScopeApplies('pdf')).toBe(false);
     expect(parseScopeApplies('markdown')).toBe(false);
     expect(() => draftParseScope({ sourceType: 'pdf', folders: 'docs' })).toThrow(PlatformLibraryRefused);
@@ -368,9 +366,8 @@ describe('parse scope precedence', () => {
     });
   });
 
-  it('keeps nested depth only for website and llms.txt sources', () => {
-    const depth = draftParseScope({ sourceType: 'llms_txt', indexDepth: '2' });
-    expect(withOwnerParseScope({}, depth, 'llms_txt').indexDepth).toBe(2);
+  it('keeps nested depth only for website sources', () => {
+    const depth = draftParseScope({ sourceType: 'website', indexDepth: '2' });
     expect(withOwnerParseScope({}, depth, 'website').indexDepth).toBe(2);
     expect(withOwnerParseScope({}, depth, 'github').indexDepth).toBeUndefined();
   });
@@ -379,19 +376,17 @@ describe('parse scope precedence', () => {
 describe('planScopeSave', () => {
   /*
    * The configure form carries two settings behind one button, and they do
-   * not belong to the same set of sources: OpenAPI and Notion have a refresh
-   * cadence and no parse scope, so asking the scope half first made "Daily"
-   * unsavable for them.
+   * not belong to the same set of sources: Notion has a refresh cadence and
+   * no parse scope, so asking the scope half first made "Daily" unsavable
+   * for it.
    */
   it('saves a cadence for a source that has no parse scope', () => {
-    for (const type of ['openapi', 'notion']) {
-      expect(refreshPolicyEditable(type)).toBe(true);
-      expect(parseScopeApplies(type)).toBe(false);
-      expect(planScopeSave({ sourceType: type, cadencePosted: true })).toEqual({
-        scope: false,
-        cadence: true,
-      });
-    }
+    expect(refreshPolicyEditable('notion')).toBe(true);
+    expect(parseScopeApplies('notion')).toBe(false);
+    expect(planScopeSave({ sourceType: 'notion', cadencePosted: true })).toEqual({
+      scope: false,
+      cadence: true,
+    });
   });
 
   it('saves both halves for a source that has both', () => {
@@ -411,7 +406,7 @@ describe('planScopeSave', () => {
       expect(() => planScopeSave({ sourceType: type, cadencePosted: true })).toThrow(PlatformLibraryRefused);
     }
     /* Nothing posted at all against a cadence-only source is still nothing. */
-    expect(() => planScopeSave({ sourceType: 'openapi', cadencePosted: false })).toThrow(
+    expect(() => planScopeSave({ sourceType: 'notion', cadencePosted: false })).toThrow(
       PlatformLibraryRefused,
     );
   });
@@ -456,8 +451,6 @@ describe('rebuild affordance', () => {
      on one and refuse it on the other. */
   it('quotes a page-fetching source against the crawl limit and nothing else', () => {
     expect(buildFetchesPages('website')).toBe(true);
-    expect(buildFetchesPages('llms_txt')).toBe(true);
-    expect(buildFetchesPages('openapi')).toBe(true);
     expect(buildFetchesPages('github')).toBe(false);
     expect(buildFetchesPages('notion')).toBe(false);
     expect(buildFetchesPages('pdf')).toBe(false);

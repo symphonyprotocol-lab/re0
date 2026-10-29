@@ -1,11 +1,9 @@
 /**
- * Websites, `llms.txt` indexes and OpenAPI documents.
+ * Websites: a breadth-first crawl from one entry point, same host only.
  *
- * Three source types share one connector because they differ only in how the
- * list of documents is discovered: a crawl finds it by following links, an
- * `llms.txt` is handed the list, and an OpenAPI document is a list of one.
- * Everything after discovery -- fetching, capping, ordering -- is identical,
- * and duplicating it three times is how the three would drift apart.
+ * Discovery finds the list of documents by following links (seeded by the
+ * site's sitemap when it has one); fetching, capping and ordering come after
+ * and do not depend on how a page was found.
  */
 import {
   documentFormat,
@@ -19,15 +17,12 @@ import { fetchDocument, type FetchedResource } from './http';
 import { pageRenderer, type PageRenderer } from './render';
 import type { FetchedFile, SourceSnapshot } from './types';
 
-export type WebSourceType = 'website' | 'llms_txt' | 'openapi';
-
 /** How many sitemap files one crawl reads. An index with more is a whole site. */
 const MAX_SITEMAPS = 10;
 
 export async function fetchWebSnapshot(input: {
-  type: WebSourceType;
   location: string;
-  /** Website/llms_txt: how many child-page or nested-index levels to follow. */
+  /** How many child-page levels to follow. */
   indexDepth?: number;
   /**
    * The rendering fallback, resolved by the caller from the console's
@@ -39,12 +34,7 @@ export async function fetchWebSnapshot(input: {
   const entry = new URL(input.location);
   const indexDepth = boundedDepth(input.indexDepth);
   const renderer = input.renderer === undefined ? pageRenderer() : input.renderer;
-  const files =
-    input.type === 'openapi'
-      ? [await fetchOne(entry.toString(), entry, renderer)]
-      : input.type === 'llms_txt'
-        ? await fetchIndex(entry, indexDepth, renderer)
-        : await crawl(entry, indexDepth, renderer);
+  const files = await crawl(entry, indexDepth, renderer);
 
   if (files.length === 0) {
     throw new IngestionFailure('source_empty', 'discover-parse', 'nothing was fetched');
@@ -69,14 +59,6 @@ export async function fetchWebSnapshot(input: {
 function boundedDepth(value: number | undefined): number {
   if (!Number.isInteger(value)) return 0;
   return Math.min(Math.max(value ?? 0, 0), INGESTION_LIMITS.maxCrawlDepth);
-}
-
-async function fetchOne(
-  target: string,
-  entry: URL,
-  renderer: PageRenderer | null,
-): Promise<FetchedFile> {
-  return toFile(await fetchPage(target, renderer), entry);
 }
 
 /**
@@ -149,99 +131,6 @@ function toFile(resource: FetchedResource, entry: URL): FetchedFile {
     ...(resource.title ? { title: resource.title } : {}),
   };
 }
-
-/**
- * An `llms.txt` index: fetch it, then fetch every document it links to.
- *
- * Links are restricted to the host the index was served from. An index is a
- * list of *this* site's documentation, and following it to another host would
- * let one site's index decide what gets published under another site's Library
- * ID -- the same reason architecture.md 15.1 treats source scope as a security
- * property rather than a convenience.
- *
- * An index may point at further indexes -- ethereum.org's top-level file
- * names `/developers/docs/llms.txt` for the developer documentation, in prose
- * rather than as a link. Whether those are followed, and how deep, is the
- * source's own setting (`indexDepth`, default none): same host, a bounded
- * number of indexes, and the documents they list join the set. Pages are
- * never crawled from: an index is the site saying what its documentation
- * is, and following links out of the listed pages would replace that
- * statement with a walk.
- */
-async function fetchIndex(
-  entry: URL,
-  depth: number,
-  renderer: PageRenderer | null,
-): Promise<FetchedFile[]> {
-  const index = await fetchPage(entry.toString(), renderer);
-
-  const files: FetchedFile[] = [toFile(index, entry)];
-  const seen = new Set<string>([normalizeUrl(entry)]);
-  const targets: URL[] = [];
-  /* Indexes still to expand, each with the level it sits at. */
-  const indexes: { url: URL; level: number; body: string }[] = [{ url: entry, level: 0, body: index.body }];
-  let followed = 0;
-
-  while (indexes.length > 0) {
-    const current = indexes.shift()!;
-    for (const url of indexLinks(current.body, current.url)) {
-      if (url.hostname !== entry.hostname) continue;
-      const key = normalizeUrl(url);
-      if (seen.has(key)) continue;
-      seen.add(key);
-      if (!isIndexUrl(url)) {
-        targets.push(url);
-        continue;
-      }
-      if (current.level >= depth || followed >= INGESTION_LIMITS.maxNestedIndexes) continue;
-      followed += 1;
-      let page: FetchedResource;
-      try {
-        page = await fetchPage(url.toString(), renderer);
-      } catch (error) {
-        if (error instanceof IngestionFailure) continue;
-        throw error;
-      }
-      files.push(toFile(page, entry));
-      indexes.push({ url, level: current.level + 1, body: page.body });
-    }
-  }
-
-  for (const target of targets.slice(0, INGESTION_LIMITS.maxIndexPages)) {
-    try {
-      files.push(await fetchOne(target.toString(), entry, renderer));
-    } catch (error) {
-      /*
-       * One dead link in an index is not a reason to abandon the build. A
-       * failure that means the whole source is unusable -- the index itself --
-       * has already been thrown above, before this loop.
-       */
-      if (error instanceof IngestionFailure) continue;
-      throw error;
-    }
-  }
-  return dedupe(files);
-}
-
-/** `llms.txt` and `llms-full.txt`, wherever they sit. */
-function isIndexUrl(url: URL): boolean {
-  return /\/llms(?:-full)?\.txt$/i.test(url.pathname);
-}
-
-/**
- * Everything an index points at: its Markdown links, plus bare URLs of
- * further indexes that the prose mentions without linking.
- */
-function indexLinks(body: string, base: URL): URL[] {
-  const found = markdownLinks(body, base);
-  for (const match of body.matchAll(BARE_INDEX_URL)) {
-    const url = toUrl(match[0], base);
-    if (url) found.push(url);
-  }
-  return found;
-}
-
-const BARE_INDEX_URL = /https?:\/\/[^\s<>"'()]+\/llms(?:-full)?\.txt/gi;
 
 /**
  * A breadth-first crawl from one entry point, same host only.
@@ -343,7 +232,7 @@ function inScope(link: URL, entry: URL): boolean {
  * reading `/whitepaper` as a *file* in `/` scoped one whitepaper's Library ID
  * to the whole of ethereum.org -- two hundred pages, one of them the
  * whitepaper. Only a last segment with an extension (`/docs/index.html`,
- * `/llms.txt`) is a file, and scopes to its directory; a segment such as
+ * `/robots.txt`) is a file, and scopes to its directory; a segment such as
  * `/v2.0` reads the same way, and errs wider, which is the harmless side.
  */
 function basePath(entry: URL): string {

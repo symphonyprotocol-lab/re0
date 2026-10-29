@@ -16,8 +16,6 @@ import type { FetchSnapshotInput, SourceSnapshot } from '@/lib/infrastructure/co
 import type { ObjectStore } from '@/lib/infrastructure/objects/store';
 import { isObjectStoreConfigured, objectStore } from '@/lib/infrastructure/objects/store';
 
-const WEB_SOURCES = new Set<FetchSnapshotInput['type']>(['website', 'llms_txt', 'openapi']);
-
 export interface IngestionDependencies {
   fetchSnapshot(input: FetchSnapshotInput): Promise<SourceSnapshot>;
   /**
@@ -43,10 +41,10 @@ export interface IngestionDependencies {
 export const defaultDependencies: IngestionDependencies = {
   /* The rendering fallback is console configuration, resolved once per
      source: the keys a source's first pages find spent stay set aside for
-     the rest of its pages. Only web sources ever reach it. */
+     the rest of its pages. Only a website source ever reaches it. */
   fetchSnapshot: async (input) =>
     fetchSnapshot(
-      input.renderer === undefined && WEB_SOURCES.has(input.type)
+      input.renderer === undefined && input.type === 'website'
         ? { ...input, renderer: await resolvePageRenderer() }
         : input,
     ),

@@ -195,8 +195,8 @@ export async function prepareUploadAction(
 /* ------------------------------------------------------ domain challenges */
 
 /**
- * The domain challenge (requirement.md 7.3.2) the wizard walks a website,
- * llms.txt or OpenAPI library through before it may be created. Two calls:
+ * The domain challenge (requirement.md 7.3.2) the wizard walks a website
+ * library through before it may be created. Two calls:
  * start hands back the one plaintext copy of the token with where to put it;
  * check asks DNS or the host and says whether it was found. Both answer with
  * stable codes only -- no DNS payload, no fetched body (requirement.md 7.3.7).

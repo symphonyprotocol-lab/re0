@@ -24,7 +24,7 @@ describe('nested Library IDs', () => {
     expect(normalizePublicId('website', 'websites/Ethereum/WhitePaper/')).toBe(
       '/websites/ethereum/whitepaper',
     );
-    expect(normalizePublicId('openapi', '/docs/acme/billing/v2-api')).toBe('/docs/acme/billing/v2-api');
+    expect(normalizePublicId('pdf', '/docs/acme/billing/v2-api')).toBe('/docs/acme/billing/v2-api');
     expect(normalizePublicId('notion', '/notion/team/handbook')).toBe('/notion/team/handbook');
   });
 
