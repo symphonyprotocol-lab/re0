@@ -13,9 +13,9 @@
  * already gone succeeds (the store treats 404 as done), so a run that failed
  * halfway through its keys picks up where it left off.
  *
- * What stays: `library_version` rows, as metadata. `usage_event` and
- * `earning_event` reference them by id, and a version that was billed against
- * remains a fact about the past. Their chunks and documents are gone, which is
+ * What stays: `library_version` rows, as metadata. `usage_event` references
+ * them by id, and a version that was billed against remains a fact about the
+ * past. Their chunks and documents are gone, which is
  * what `library.index_status = 'deleting'` on the tombstone says.
  *
  * What also goes: any anchoring proof for those versions

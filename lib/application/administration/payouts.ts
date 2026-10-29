@@ -1,6 +1,6 @@
 /**
- * The operator's half of a manual cash payout (publisher-revenue-share.md
- * 3.4). A publisher's request (lib/application/revenue/payout) holds their
+ * The operator's half of a manual cash payout (agent-first-proposal.md 6.9).
+ * A creator's request (lib/application/revenue/payout) holds their
  * statements; an operator sends the money from the platform's PayPal account
  * outside this system and then records the outcome here:
  *
@@ -13,16 +13,8 @@
  * Both take the payout row `FOR UPDATE` and act only on a `requested` one, so
  * two operators pressing at once resolve it once. Both land in the audit
  * chain with a reason (requirement.md 5.3).
- *
- * A library can be suspended or unpublished between the request and the
- * payment. Its statements are then withheld (share doc 5) exactly as the
- * credit path withholds them, so "paid" is refused while the payout covers
- * one; the queue flags such payouts before anyone sends money, and marking
- * them failed returns everything to the ledger, where the withheld part
- * stays put and the rest can be requested again.
  */
-import { and, asc, count, desc, eq, inArray, ne, not, sql } from 'drizzle-orm';
-import { libraryEarns } from '@/lib/application/revenue/redeem-credit';
+import { and, asc, count, desc, eq, inArray, ne, sql } from 'drizzle-orm';
 import {
   PAYOUT_REFERENCE_MAX_LENGTH,
   PayoutResolveRefused,
@@ -44,11 +36,6 @@ export interface ConsolePayoutRow {
   statements: number;
   /** The periods the statements came from, oldest first. */
   periods: string[];
-  /**
-   * Covered statements whose library no longer earns. Non-zero means the
-   * payout cannot be marked paid; it has to be marked failed.
-   */
-  withheldMinor: number;
   requestedBy: string | null;
   createdAt: Date;
   providerReference: string | null;
@@ -104,7 +91,7 @@ export async function consolePayouts(): Promise<ConsolePayouts> {
       .limit(RESOLVED_SHOWN),
   ]);
 
-  /* What each open payout covers, and whether a library in it stopped earning. */
+  /* What each open payout covers. */
   const openIds = openRows.map((row) => row.id);
   const covered =
     openIds.length === 0
@@ -114,10 +101,8 @@ export async function consolePayouts(): Promise<ConsolePayouts> {
             payoutId: schema.settlement.payoutId,
             statements: count(),
             periods: sql<string[]>`array_agg(distinct ${schema.settlement.periodId} order by ${schema.settlement.periodId})`,
-            withheldMinor: sql<number>`coalesce(sum(${schema.settlement.amountMinor}) filter (where not (${libraryEarns()})), 0)::bigint`,
           })
           .from(schema.settlement)
-          .innerJoin(schema.library, eq(schema.library.id, schema.settlement.libraryId))
           .where(inArray(schema.settlement.payoutId, openIds))
           .groupBy(schema.settlement.payoutId);
   const byPayout = new Map(covered.map((row) => [row.payoutId, row]));
@@ -128,7 +113,6 @@ export async function consolePayouts(): Promise<ConsolePayouts> {
     status: row.status as PayoutStatus,
     statements: byPayout.get(row.id)?.statements ?? 0,
     periods: byPayout.get(row.id)?.periods ?? [],
-    withheldMinor: Number(byPayout.get(row.id)?.withheldMinor ?? 0),
   });
 
   return { open: openRows.map(shape), resolved: resolvedRows.map(shape) };
@@ -184,24 +168,6 @@ export async function markPayoutPaid(input: {
 
   const outcome = await db().transaction(async (tx) => {
     const payout = await openPayout(tx, input.payoutId);
-    /* Read under the payout lock: a suspension committed before this point is seen. */
-    const [withheld] = await tx
-      .select({ n: count() })
-      .from(schema.settlement)
-      .innerJoin(schema.library, eq(schema.library.id, schema.settlement.libraryId))
-      .where(
-        and(
-          eq(schema.settlement.payoutId, payout.id),
-          eq(schema.settlement.status, 'held'),
-          not(libraryEarns()),
-        ),
-      );
-    if ((withheld?.n ?? 0) > 0) {
-      throw new PayoutResolveRefused(
-        'payout_withheld',
-        'the payout covers a library that is suspended or no longer published',
-      );
-    }
     await tx
       .update(schema.payout)
       .set({

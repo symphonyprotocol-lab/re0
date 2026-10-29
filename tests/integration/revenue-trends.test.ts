@@ -26,9 +26,6 @@ const { db, schema } = await import('@/lib/infrastructure/postgres/client');
 const { uuidv7 } = await import('@/lib/domain/id');
 
 const workspaces: string[] = [];
-const libraries: string[] = [];
-const planVersions: string[] = [];
-const periods: string[] = [];
 
 async function workspace(name: string): Promise<string> {
   const id = crypto.randomUUID();
@@ -93,17 +90,6 @@ describeWithDb('revenue trends', () => {
       await database
         .delete(schema.billingDocument)
         .where(inArray(schema.billingDocument.workspaceId, workspaces));
-    }
-    if (libraries.length > 0) {
-      await database.delete(schema.library).where(inArray(schema.library.id, libraries));
-    }
-    if (periods.length > 0) {
-      await database.delete(schema.revenuePeriod).where(inArray(schema.revenuePeriod.id, periods));
-    }
-    if (planVersions.length > 0) {
-      await database.delete(schema.planVersion).where(inArray(schema.planVersion.id, planVersions));
-    }
-    if (workspaces.length > 0) {
       await database.delete(schema.workspace).where(inArray(schema.workspace.id, workspaces));
     }
   });
@@ -150,80 +136,38 @@ describeWithDb('revenue trends', () => {
     expect(packs.monthly.map((point) => point.netMinor)).toEqual([0, 0, 600]);
   });
 
-  it('spreads earnings over days at each period’s amount per call', async () => {
+  it('sums each day’s recorded amounts, flagged rows left out', async () => {
     const owner = await workspace('trend-earnings');
-    const libraryId = crypto.randomUUID();
-    libraries.push(libraryId);
-    await db().insert(schema.library).values({
-      id: libraryId,
-      publicId: `/websites/trend-${libraryId.slice(0, 8)}`,
-      title: 'Trend fixture',
-      ownerWorkspaceId: owner,
-      isPlatformLibrary: false,
-      visibility: 'public',
-      lifecycleStatus: 'published',
-      indexStatus: 'ready',
-    });
-    const planVersionId = uuidv7();
-    planVersions.push(planVersionId);
-    await db().insert(schema.planVersion).values({
-      id: planVersionId,
-      planId: 'pro',
-      priceMinor: 1_000,
-      monthlyCalls: 5_000,
-      libraryLimit: 25,
-      librarySizeBytesLimit: 0,
-      apiKeyLimit: 5,
-      capabilities: {},
-      createdAt: new Date('2000-01-01T00:00:00Z'),
-    });
-    /* February is locked at 10 minor units a call; March is open. */
-    periods.push('2017-02');
-    await db().insert(schema.revenuePeriod).values({
-      id: '2017-02',
-      netRevenueMinor: 5_000,
-      totalBilledCalls: 200,
-      totalAttributableCalls: 100,
-      shareRateBps: 2_000,
-      poolMinor: 1_000,
-      lockedAt: new Date('2017-03-01T02:00:00Z'),
-    });
-
-    const event = (createdAt: string, periodId: string, flagged = false) => ({
+    const event = (createdAt: string, periodId: string, amountMinor: number, flagged = false) => ({
       id: uuidv7(),
-      requestId: `trend-${crypto.randomUUID()}`,
-      libraryId,
       ownerWorkspaceId: owner,
-      planVersionId,
-      shareRateBps: 2_000,
+      amountMinor,
+      source: amountMinor < 0 ? 'refund' : 'channel_subscription',
       periodId,
       flagged,
       createdAt: new Date(createdAt),
     });
     await db().insert(schema.earningEvent).values([
-      event('2017-02-27T10:00:00Z', '2017-02'),
-      event('2017-02-27T11:00:00Z', '2017-02'),
-      event('2017-02-27T12:00:00Z', '2017-02'),
-      /* Voided at the lock: earns nothing on any day. */
-      event('2017-02-27T13:00:00Z', '2017-02', true),
-      event('2017-03-01T09:00:00Z', '2017-03'),
-      event('2017-03-01T10:00:00Z', '2017-03'),
+      event('2017-02-27T10:00:00Z', '2017-02', 10),
+      event('2017-02-27T11:00:00Z', '2017-02', 10),
+      event('2017-02-27T12:00:00Z', '2017-02', 10),
+      /* Flagged: counted nowhere, on any day. */
+      event('2017-02-27T13:00:00Z', '2017-02', 500, true),
+      event('2017-03-01T09:00:00Z', '2017-03', 80),
+      event('2017-03-01T10:00:00Z', '2017-03', -20),
     ]);
 
     const now = new Date('2017-03-01T12:00:00Z');
-    const live = {
-      periodId: '2017-03',
-      pool: { netRevenueMinor: 3_000, totalBilledCalls: 40, totalAttributableCalls: 20, shareRateBps: 2_000, poolMinor: 600 },
-    };
-    const days = await publisherDailyEarnings(owner, 3, live, now);
+    const days = await publisherDailyEarnings(owner, 3, now);
     expect(days).toEqual([
-      { date: '2017-02-27', attributableCalls: 3, amountMinor: 30 },
-      { date: '2017-02-28', attributableCalls: 0, amountMinor: 0 },
-      { date: '2017-03-01', attributableCalls: 2, amountMinor: 60 },
+      { date: '2017-02-27', events: 3, amountMinor: 30 },
+      { date: '2017-02-28', events: 0, amountMinor: 0 },
+      { date: '2017-03-01', events: 2, amountMinor: 60 },
     ]);
 
-    /* Without the live pool the open period's days count calls but no amount. */
-    const unpriced = await publisherDailyEarnings(owner, 1, null, now);
-    expect(unpriced).toEqual([{ date: '2017-03-01', attributableCalls: 2, amountMinor: 0 }]);
+    /* The platform-wide series includes this owner's day. */
+    const platform = await publisherDailyEarnings(null, 1, now);
+    expect(platform[0]?.date).toBe('2017-03-01');
+    expect(platform[0]!.amountMinor).toBeGreaterThanOrEqual(60);
   });
 });

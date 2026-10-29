@@ -7,8 +7,8 @@
  * Ownership vs rights, deliberately split: `owner_workspace_id` is set to the
  * creator so the dashboard and private visibility work, but that is *access*,
  * not *rights*. Sources that requirement.md 7.3 gates behind a claim (github,
- * website) do not earn until a claim verifies -- enforced where the earning
- * event is written, not here.
+ * website) hold their rights only once a claim verifies -- checked where
+ * rights are read, not here.
  *
  * For a website, the one source fetched from a host, control of that host is
  * proven *before* the library exists: the wizard

@@ -11,7 +11,7 @@ import {
 import { requireSession } from '@/lib/http/session';
 
 /**
- * The two mutations on the revenue screen (publisher-revenue-share.md 3.4):
+ * The two mutations on the revenue screen (agent-first-proposal.md 6.9):
  * turn every redeemable statement into Additional Calls, or ask for the same
  * statements to be paid out in cash to a PayPal address.
  *

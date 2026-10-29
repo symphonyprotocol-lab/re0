@@ -1,6 +1,6 @@
 /**
  * POST /api/v1/revenue/payout -- request a cash payout of every statement
- * past its hold to a PayPal address. publisher-revenue-share.md 3.4: the same
+ * past its hold to a PayPal address. agent-first-proposal.md 6.9: the same
  * step as the dashboard form; an operator pays it by hand and the outcome
  * shows up in GET /api/v1/revenue under `payouts`.
  *

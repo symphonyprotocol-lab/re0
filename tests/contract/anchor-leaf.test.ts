@@ -85,9 +85,6 @@ describe('earning statement leaf', () => {
   const STATEMENT = {
     publisherAccountId: 'acct-1',
     periodId: '2026-01',
-    attributableCalls: 1_200,
-    shareRate: '0.20',
-    planVersionId: 'plan-v3',
     amountMinor: 4_800,
     currency: 'USD',
     statementDigest: '9'.repeat(64),
@@ -97,22 +94,17 @@ describe('earning statement leaf', () => {
   it('changes when the money changes', async () => {
     const base = await earningStatementLeaf(STATEMENT);
     const variants = [
-      { ...STATEMENT, attributableCalls: 1_201 },
-      { ...STATEMENT, shareRate: '0.21' },
+      { ...STATEMENT, publisherAccountId: 'acct-2' },
+      { ...STATEMENT, periodId: '2026-02' },
       { ...STATEMENT, amountMinor: 4_801 },
+      /* A refund period's statement is the same digits with a sign. */
+      { ...STATEMENT, amountMinor: -4_800 },
       { ...STATEMENT, currency: 'EUR' },
       { ...STATEMENT, statementDigest: '8'.repeat(64) },
-      { ...STATEMENT, planVersionId: 'plan-v4' },
+      { ...STATEMENT, salt: '6'.repeat(64) },
     ];
     const leaves = await Promise.all(variants.map(earningStatementLeaf));
     expect(new Set([base, ...leaves]).size).toBe(variants.length + 1);
-  });
-
-  /* The rate is text so that 0.20 and 0.2 are not the same statement. */
-  it('treats a differently written rate as a different statement', async () => {
-    expect(await earningStatementLeaf({ ...STATEMENT, shareRate: '0.2' })).not.toBe(
-      await earningStatementLeaf({ ...STATEMENT, shareRate: '0.20' }),
-    );
   });
 });
 

@@ -24,11 +24,9 @@ import {
   recordRequestLog,
   releaseCall,
   reserveCall,
-  type EarningLibraryFacts,
   type ReservedCall,
 } from '@/lib/application/plans';
 import { httpStatusFor } from '@/contracts/errors';
-import { paidSubscriptionExists } from '@/lib/application/plans/in-force';
 import { pinPolicy, policyIsOpen, policyVerdictFor } from '@/lib/application/policies';
 import { db, schema } from '@/lib/infrastructure/postgres/client';
 import type { EmbeddingAdapter, RerankAdapter } from '@/lib/infrastructure/ai/providers';
@@ -41,7 +39,6 @@ import {
   retrievalCache,
   type RetrievalCache,
 } from '@/lib/infrastructure/cache/redis';
-import { ref } from '@/lib/application/administration/column-ref';
 import {
   activeRetrievalSettings,
   type ActiveRetrievalSettings,
@@ -111,13 +108,12 @@ export type QueryDocsResult = QueryDocsOutput & {
   reservation: ReservedCall | null;
 };
 
-/** One read's facts for the usage and earning events, kept so a deferred seat can be committed against it. */
+/** One read's facts for the usage event, kept so a deferred seat can be committed against it. */
 export interface ServedCall {
   libraryId: string;
   versionId: string;
   returnedTokens: number;
   latencyMs: number;
-  libraryFacts: EarningLibraryFacts;
 }
 /** The key's policy slot for callers with no workspace and hence no policy. */
 const NO_POLICY = 'p0';
@@ -144,7 +140,7 @@ export async function queryDocs(
  * showcase drafts, and never reachable from /v1 or MCP, where each call is a
  * served call.
  *
- * `meter: false`: not a served call -- no reservation, no earning event, no
+ * `meter: false`: not a served call -- no reservation, no usage event, no
  * request-log row. Every gate before the reservation (visibility, state,
  * policy) still applies, and the cache is still used.
  *
@@ -158,7 +154,7 @@ export interface QueryDocsOptions {
   meter?: boolean | 'deferred';
 }
 
-/** Commits a deferred seat as the call `served` describes: one usage event, and its earning when eligible. */
+/** Commits a deferred seat as the call `served` describes: one usage event. */
 export async function commitServedCall(
   caller: CallerContext,
   reservation: ReservedCall,
@@ -174,7 +170,6 @@ export async function commitServedCall(
     latencyMs: served.latencyMs,
     inputTokens: null,
     returnedTokens: served.returnedTokens,
-    libraryFacts: served.libraryFacts,
   });
 }
 
@@ -355,8 +350,8 @@ async function queryDocsInner(
 
   /*
    * requirement.md §4.2: a call that returns nothing is not charged. The
-   * seat goes back, no usage event is written and nothing earns -- the
-   * library answered no question. Decided 2026-10-05: an empty result is
+   * seat goes back and no usage event is written -- the library answered no
+   * question. Decided 2026-10-05: an empty result is
    * the catalogue's failure, not the caller's purchase. Anything else is
    * committed here, unless the caller deferred that decision.
    */
@@ -369,7 +364,6 @@ async function queryDocsInner(
       versionId: version.id,
       returnedTokens: chunks.reduce((total, chunk) => total + chunk.tokens, 0),
       latencyMs: Date.now() - startedAt,
-      libraryFacts: library,
     };
     const answer = {
       libraryId: library.publicId,
@@ -473,16 +467,6 @@ const librarySelection = {
   ownerWorkspaceId: schema.library.ownerWorkspaceId,
   isPlatformLibrary: schema.library.isPlatformLibrary,
   currentVersionId: schema.library.currentVersionId,
-  /*
-   * The two expert-library facts (expert-library-prd.md 4.4), read with the
-   * rest so commitCall judges on fields already determined, never a
-   * post-hoc query (architecture.md 11.4). Neither is consulted by
-   * recall or ranking -- they ride along only to reach `commitCall`.
-   */
-  expertTaggedAt: schema.library.expertTaggedAt,
-  ownerSubscribed: paidSubscriptionExists(ref(schema.library.ownerWorkspaceId)).mapWith(
-    (value): boolean => value === true || value === 't',
-  ),
 };
 
 export interface PinnedVersion {

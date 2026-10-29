@@ -32,9 +32,8 @@ import {
   settlementSummary,
   type SettlementStatus,
 } from '@/lib/application/administration';
-import { livePeriodPool, publisherDailyEarnings } from '@/lib/application/revenue';
+import { publisherDailyEarnings } from '@/lib/application/revenue';
 import { recentPeriodIds, revenuePeriodId, type PayoutStatus } from '@/lib/domain';
-import { percentFromBps } from '@/lib/domain/billing';
 import { requireAdminCapability } from '@/lib/http/admin';
 import type { Dictionary } from '@/lib/i18n/dictionary';
 import { fill } from '@/lib/i18n/format';
@@ -96,16 +95,16 @@ function statusLabel(f: Dictionary['admin']['filters'], status: SettlementStatus
 }
 
 /**
- * Publisher settlements -- design source frame `buNhV`.
+ * Creator settlements -- design source frame `buNhV`.
  *
  * Reads the real ledger: `revenue_period`, `earning_event`, `settlement` and
- * `publisher_account`. Allocation is linear in attributable calls and never
- * weighted by Trust Score (publisher-revenue-share.md 6.2), so the table shows
- * the call count the money is derived from rather than any score.
+ * `publisher_account`. Every event carries its own amount
+ * (agent-first-proposal.md 6.9), so a period's figure is a sum and the table
+ * shows the amount a statement carries, nothing it was derived from.
  *
- * Statements leave the books two ways (share doc 3.4). The publisher redeems
- * them as Additional Calls from their dashboard, which the console shows as
- * `redeemed` but never triggers. Or the publisher requests a cash payout to a
+ * Statements leave the books two ways. The creator redeems them as
+ * Additional Calls from their dashboard, which the console shows as
+ * `redeemed` but never triggers. Or the creator requests a cash payout to a
  * PayPal address, which lands in the payout queue here: no payment service
  * is connected, so an operator sends the money from the platform's PayPal
  * account and then marks the request paid with the transaction id -- or
@@ -132,17 +131,12 @@ export default async function AdminSettlementsPage({
 
   const now = new Date();
   const currentPeriod = revenuePeriodId(now);
-  const [periods, livePool] = await Promise.all([
-    settlementPeriods(now),
-    /* The open period's pool so far: one platform scan, and only operators open this page. */
-    livePeriodPool(currentPeriod),
-  ]);
-  const live = { periodId: currentPeriod, pool: livePool };
+  const periods = await settlementPeriods(now);
   const [{ rows, total }, summary, payouts, daily] = await Promise.all([
     listSettlements({ query, status, period, limit: PAGE_SIZE, offset: (page - 1) * PAGE_SIZE }),
     settlementSummary(periods),
     consolePayouts(),
-    publisherDailyEarnings(null, TREND_DAYS, live, now),
+    publisherDailyEarnings(null, TREND_DAYS, now),
   ]);
   const p = s.payouts;
   const view = pageWindow({ page, total, rows: rows.length });
@@ -162,46 +156,39 @@ export default async function AdminSettlementsPage({
   const latest = summary.latest;
 
   /*
-   * The trend: a year of periods (the open one at its live pool) and a month
-   * of days, oldest first and zero-filled. Every bar is labelled; on a phone
-   * only every other month and every fifth day keep theirs.
+   * The trend: a year of periods (a locked one at its frozen total, the open
+   * one at its running sum) and a month of days, oldest first and
+   * zero-filled. Every bar is labelled; on a phone only every other month and
+   * every fifth day keep theirs.
    */
   const tr = s.trend;
   const periodById = new Map(periods.map((entry) => [entry.id, entry]));
   const monthly = recentPeriodIds(now, TREND_PERIODS).map((id, index) => {
     const entry = periodById.get(id);
     const open = id === currentPeriod && !entry?.locked;
-    const poolMinor = open ? livePool.poolMinor : (entry?.poolMinor ?? 0);
-    const netMinor = open ? livePool.netRevenueMinor : (entry?.netRevenueMinor ?? 0);
+    const amountMinor = entry?.locked ? entry.totalAmountMinor : (entry?.eventsMinor ?? 0);
     return {
       label: id,
       minor: minorOnNarrow(index, TREND_PERIODS, 2),
       hint: fill(open ? tr.monthHintOpen : tr.monthHint, {
         period: id,
-        net: cash(netMinor),
         settled: cash(entry?.settledMinor ?? 0),
       }),
-      value: poolMinor / 100,
+      value: amountMinor / 100,
     };
   });
   const dailyBars = daily.map((day, index) => ({
     label: dayTick(day.date, index === 0),
     minor: minorOnNarrow(index, TREND_DAYS, 5),
-    hint: fill(tr.dayHint, { day: day.date, calls: day.attributableCalls }),
+    hint: fill(tr.dayHint, { day: day.date, events: day.events }),
     value: day.amountMinor / 100,
   }));
 
   const stats = [
     {
-      label: l.stats.pool,
-      value: cash(latest?.poolMinor ?? 0),
-      caption: latest
-        ? fill(l.stats.poolCaption, {
-            period: latest.id,
-            net: cash(latest.netRevenueMinor),
-            rate: percentFromBps(latest.shareRateBps),
-          })
-        : l.stats.poolNone,
+      label: l.stats.total,
+      value: cash(latest?.totalAmountMinor ?? 0),
+      caption: latest ? fill(l.stats.totalCaption, { period: latest.id }) : l.stats.totalNone,
     },
     {
       label: l.stats.accrued,
@@ -318,17 +305,8 @@ export default async function AdminSettlementsPage({
                       ) : null}
                     </span>
                   </td>
-                  <td className={TD}>
-                    <span className="flex flex-col items-start gap-[3px]">
-                      <span className="font-semibold text-ink">
-                        {money(payout.amountMinor, payout.currency)}
-                      </span>
-                      {payout.withheldMinor > 0 ? (
-                        <Pill tone="danger">
-                          {fill(p.withheld, { amount: money(payout.withheldMinor, payout.currency) })}
-                        </Pill>
-                      ) : null}
-                    </span>
+                  <td className={`${TD} font-semibold text-ink`}>
+                    {money(payout.amountMinor, payout.currency)}
                   </td>
                   <td className={TD}>
                     <span className="flex flex-col gap-[3px]">
@@ -447,7 +425,7 @@ export default async function AdminSettlementsPage({
         </form>
 
         <TableScroller>
-          <table className="w-full min-w-[900px] border-collapse text-left">
+          <table className="w-full min-w-[720px] border-collapse text-left">
             <thead>
               <tr>
                 {s.columns.map((column) => (
@@ -491,15 +469,6 @@ export default async function AdminSettlementsPage({
                     </span>
                   </td>
                   <td className={TD}>
-                    <span className="flex min-w-0 flex-col gap-[3px]">
-                      <span className="truncate text-[12px] text-ink">{row.libraryTitle}</span>
-                      <code className="truncate font-mono text-[11px] tracking-[-0.01em] text-steel">
-                        {row.libraryPublicId}
-                      </code>
-                    </span>
-                  </td>
-                  <td className={TD}>{row.attributableCalls.toLocaleString('en-US')}</td>
-                  <td className={TD}>
                     <span className="flex flex-col gap-[3px]">
                       <span>{row.periodId}</span>
                       {row.holdEndsAt ? (
@@ -511,7 +480,7 @@ export default async function AdminSettlementsPage({
                   </td>
                   <td
                     className={`${TD} font-semibold ${
-                      row.status === 'clawed_back' ? 'text-err' : 'text-ink'
+                      row.status === 'clawed_back' || row.amountMinor < 0 ? 'text-err' : 'text-ink'
                     }`}
                   >
                     {money(row.status === 'clawed_back' ? -row.amountMinor : row.amountMinor, row.currency)}

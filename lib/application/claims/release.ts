@@ -1,8 +1,8 @@
 /**
  * Use case: an owner gives a library up. requirement.md 7.3.5.
  *
- * The library returns to having no owner and stops earning (7.3.6); the
- * verified claim that made this workspace the owner is closed as `revoked`
+ * The library returns to having no owner; the verified claim that made this
+ * workspace the owner is closed as `revoked`
  * with the release named as the reason, so the record shows how ownership
  * ended rather than a claim that still says `verified` on an unowned library.
  *

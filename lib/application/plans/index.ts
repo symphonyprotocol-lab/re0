@@ -14,7 +14,6 @@ export {
   hasPaidSubscription,
   releaseCall,
   reserveCall,
-  type EarningLibraryFacts,
   type QuotaState,
   type ReservedCall,
 } from './quota';

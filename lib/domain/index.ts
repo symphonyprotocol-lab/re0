@@ -81,22 +81,8 @@ export function isQueryable(input: {
 }
 
 /**
- * requirement.md 4.4 and 7.3.6: only claimed public user libraries earn.
- * Platform libraries, private libraries and unclaimed libraries do not,
- * and unclaimed traffic must not dilute other publishers either.
- */
-/**
- * publisher-revenue-share.md 5: a caller workspace's attributable calls to
- * one library are capped per day; calls past the cap bill normally but earn
- * nothing, so buying traffic to one's own catalogue stops paying at the cap.
- * The share doc leaves the number open until real distributions exist and
- * says to launch conservative -- this is that conservative value.
- */
-export const DAILY_ATTRIBUTABLE_CALL_CAP = 200;
-
-/**
- * publisher-revenue-share.md 3.4: the least a cash payout request may carry;
- * below it a publisher's earnings keep accumulating.
+ * agent-first-proposal.md 6.9: the least a cash payout request may carry;
+ * below it a creator's earnings keep accumulating.
  *
  * $20, back up from $5 on 2026-10-24 ($5 had replaced $20 on 2026-10-05).
  * Cash is paid by hand over PayPal and the default exit is credit, which has
@@ -104,7 +90,12 @@ export const DAILY_ATTRIBUTABLE_CALL_CAP = 200;
  * pays out in amounts its per-transfer fee does not swallow.
  */
 export const PAYOUT_THRESHOLD_MINOR = 2_000;
-/** publisher-revenue-share.md 3.4: the refund/chargeback window before payout. */
+/**
+ * The refund/chargeback window before a statement can be redeemed or paid.
+ * agent-first-proposal.md 6.9 moves it to 120 days with channel
+ * subscriptions, whose card chargebacks reach back that far; until then the
+ * ledger holds nothing a card can charge back, so 45 stands.
+ */
 export const PAYOUT_HOLD_DAYS = 45;
 
 export {
@@ -128,7 +119,7 @@ export {
 /**
  * The earning period an event lands in: the platform's revenue period, a UTC
  * calendar month (revenue_period rows key settlement by it). Not the
- * caller's subscription period -- the pool is computed platform-wide.
+ * subscriber's billing period -- statements close for everyone at once.
  */
 export function revenuePeriodId(at: Date): string {
   return `${at.getUTCFullYear()}-${String(at.getUTCMonth() + 1).padStart(2, '0')}`;
@@ -140,33 +131,6 @@ export function recentPeriodIds(at: Date, count: number): string[] {
     revenuePeriodId(
       new Date(Date.UTC(at.getUTCFullYear(), at.getUTCMonth() - (count - 1 - index), 1)),
     ),
-  );
-}
-
-/**
- * requirement.md 4.4 and expert-library-prd.md 4.4: a served call earns only
- * for a claimed, published public user library that carries the expert tag
- * and whose owner is on a paid plan right now. The tag is the console's
- * judgment that the content is worth paying for; the subscription is the
- * owner's standing in the programme. Both are read at call time, so a lapsed
- * subscription or a library made private stops earning at once and resumes
- * by itself -- the tag is not withdrawn for either.
- */
-export function isRevenueEligible(input: {
-  visibility: Visibility;
-  lifecycleStatus: LifecycleStatus;
-  ownerWorkspaceId: string | null;
-  isPlatformLibrary: boolean;
-  expertTaggedAt: Date | null;
-  ownerSubscribed: boolean;
-}): boolean {
-  return (
-    input.visibility === 'public' &&
-    input.lifecycleStatus === 'published' &&
-    input.ownerWorkspaceId !== null &&
-    !input.isPlatformLibrary &&
-    input.expertTaggedAt !== null &&
-    input.ownerSubscribed
   );
 }
 
@@ -183,33 +147,4 @@ export function nextDebitSource(input: {
   if (input.planAllowanceRemaining > 0) return 'plan';
   if (input.addonBalanceRemaining > 0) return 'addon';
   return null;
-}
-
-/** requirement.md 4.4: pool = net revenue * share rate * attributable share. */
-export function allocatablePoolMinor(input: {
-  netRevenueMinor: number;
-  shareRateBps: number;
-  totalAttributableCalls: number;
-  totalBilledCalls: number;
-}): number {
-  if (input.totalBilledCalls <= 0) return 0;
-  const attributableShare = input.totalAttributableCalls / input.totalBilledCalls;
-  return Math.floor(
-    (input.netRevenueMinor * input.shareRateBps * attributableShare) / 10_000,
-  );
-}
-
-/**
- * requirement.md 4.4: linear in attributable calls. Never weighted by Trust Score --
- * scores decide eligibility, not amount.
- */
-export function settlementAmountMinor(input: {
-  poolMinor: number;
-  libraryAttributableCalls: number;
-  totalAttributableCalls: number;
-}): number {
-  if (input.totalAttributableCalls <= 0) return 0;
-  return Math.floor(
-    (input.poolMinor * input.libraryAttributableCalls) / input.totalAttributableCalls,
-  );
 }

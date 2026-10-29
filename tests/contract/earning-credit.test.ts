@@ -1,5 +1,5 @@
 /**
- * The conversion behind "redeem as calls" (publisher-revenue-share.md 3.4):
+ * The conversion behind "redeem as calls" (agent-first-proposal.md 6.9):
  * settled earnings buy Additional Calls at the pack rate, rounded up in the
  * publisher's favour, and only those who run the workspace may trigger it.
  */
