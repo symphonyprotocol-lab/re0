@@ -1,13 +1,15 @@
 import type { Metadata } from 'next';
 import { headers } from 'next/headers';
-import { redirect } from 'next/navigation';
+import { notFound, redirect } from 'next/navigation';
 import { customHostOf } from '@/lib/application/showcase';
+import { surfaceEnabled } from '@/lib/domain/surfaces';
 import { PREVIEW_PARAM, showcaseLookup, wantsPreview } from './lookup';
 import { ShowcaseScreen, showcaseMetadata } from './render';
 
 type Params = { params: Promise<{ slug: string }>; searchParams: Promise<Record<string, string | string[] | undefined>> };
 
 export async function generateMetadata({ params, searchParams }: Params): Promise<Metadata> {
+  if (!surfaceEnabled('showcase')) return { robots: { index: false } };
   const [{ slug }, query] = await Promise.all([params, searchParams]);
   return showcaseMetadata(slug, wantsPreview(query[PREVIEW_PARAM]), null);
 }
@@ -20,6 +22,8 @@ export async function generateMetadata({ params, searchParams }: Params): Promis
  * draws it.
  */
 export default async function ShowcasePage({ params, searchParams }: Params) {
+  /* agent-first-proposal.md 3.6: shared pages are offline; channels (P1) take their place. */
+  if (!surfaceEnabled('showcase')) notFound();
   const [{ slug }, query] = await Promise.all([params, searchParams]);
   const preview = wantsPreview(query[PREVIEW_PARAM]);
   const found = await showcaseLookup(slug, preview);

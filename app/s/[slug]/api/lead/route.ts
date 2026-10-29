@@ -8,6 +8,7 @@
  */
 import type { NextRequest } from 'next/server';
 import { NextResponse } from 'next/server';
+import { surfaceEnabled } from '@/lib/domain/surfaces';
 import { AppError } from '@/contracts/errors';
 import { LeadInvalid, recordShowcaseLead, resolveShowcasePrincipal } from '@/lib/application/showcase';
 import { rateLimitKey } from '@/lib/http/auth-endpoints';
@@ -23,6 +24,8 @@ const VISITOR_RULE = { limit: 5, windowSeconds: 3_600 };
 const PAGE_RULE = { limit: 200, windowSeconds: 86_400 };
 
 export async function POST(request: NextRequest, context: { params: Promise<{ slug: string }> }): Promise<Response> {
+  /* agent-first-proposal.md 3.6: shared pages are offline. */
+  if (!surfaceEnabled('showcase')) return new NextResponse(null, { status: 404 });
   const requestId = newRequestId();
   try {
     const { slug } = await context.params;

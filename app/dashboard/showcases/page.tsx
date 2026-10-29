@@ -1,5 +1,6 @@
 import type { Metadata } from 'next';
 import Link from 'next/link';
+import { notFound } from 'next/navigation';
 import { CopyButton } from '@/components/dashboard/copy-button';
 import {
   ActionButton,
@@ -15,6 +16,7 @@ import { listWorkspaceShowcases } from '@/lib/application/showcase';
 import { countWorkspaceLibraries } from '@/lib/application/libraries';
 import { showcasePath } from '@/lib/domain/showcase';
 import { configuredBaseUrl } from '@/lib/http/base-url';
+import { surfaceEnabled } from '@/lib/domain/surfaces';
 import { requireSession } from '@/lib/http/session';
 import { fill } from '@/lib/i18n/format';
 import { getMessages, translations } from '@/lib/i18n/server';
@@ -35,6 +37,8 @@ const GRID = 'grid grid-cols-[minmax(0,1.4fr)_110px_minmax(0,1.6fr)_150px_90px_9
  * of them and the way to the one that needs attention.
  */
 export default async function DashboardShowcasesPage() {
+  /* agent-first-proposal.md 3.6: the surface is offline; its screen is not served. */
+  if (!surfaceEnabled('showcase')) notFound();
   const [session, { locale, t }] = await Promise.all([requireSession('/dashboard/showcases'), translations()]);
   const w = t.dashboard.showcases;
   const s = t.dashboard.libraryDetail.showcase;

@@ -18,6 +18,7 @@ import { AppError } from '@/contracts/errors';
 import { queryDocsInputSchema, resolveLibraryInputSchema } from '@/contracts/schemas';
 import { requireScope } from '@/lib/application/auth';
 import { queryDocs, resolveLibraryId } from '@/lib/application/retrieval';
+import { surfaceEnabled } from '@/lib/domain/surfaces';
 import { retrievalCaller } from '@/lib/http/retrieval-caller';
 import { newRequestId } from '@/lib/http/respond';
 
@@ -94,6 +95,8 @@ function toolFailure(id: number | string | null, error: unknown): NextResponse {
 }
 
 export async function POST(request: NextRequest): Promise<NextResponse> {
+  /* agent-first-proposal.md 3.6: MCP is offline; A2A (P1) takes its place. */
+  if (!surfaceEnabled('mcp')) return new NextResponse(null, { status: 404 });
   const requestId = newRequestId();
 
   let message: JsonRpcRequest;
@@ -171,5 +174,6 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
 
 /** Stateless: there is no server-initiated stream to open. */
 export async function GET(): Promise<NextResponse> {
+  if (!surfaceEnabled('mcp')) return new NextResponse(null, { status: 404 });
   return new NextResponse(null, { status: 405, headers: { allow: 'POST' } });
 }

@@ -80,6 +80,7 @@ import {
   reviewPipeline,
 } from '@/lib/domain/library';
 import { widgetReady } from '@/lib/domain/site-key';
+import { surfaceEnabled } from '@/lib/domain/surfaces';
 import { getMessages, translations } from '@/lib/i18n/server';
 import { deleteWorkspaceLibraryAction } from '../actions';
 import {
@@ -375,7 +376,8 @@ export default async function DashboardLibraryPage({
         </section>
       ) : null}
 
-      {/* The rest of the page, one group at a time (LibraryTabs); the hash picks the group. */}
+      {/* The rest of the page, one group at a time (LibraryTabs); the hash picks the group.
+          The widget and shared-page groups are offline (lib/domain/surfaces.ts) and filtered out below. */}
       <LibraryTabs
         tabs={[
           {
@@ -913,7 +915,7 @@ export default async function DashboardLibraryPage({
                 </>
               ) : null,
           },
-        ]}
+        ].filter((tab) => (tab.id === 'widget' ? surfaceEnabled('widget') : tab.id === 'showcase' ? surfaceEnabled('showcase') : true))}
       />
     </div>
   );

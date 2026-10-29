@@ -1,5 +1,6 @@
 import type { Metadata } from 'next';
 import Link from 'next/link';
+import { notFound } from 'next/navigation';
 import { CopyButton } from '@/components/dashboard/copy-button';
 import { WidgetPreview } from '@/components/dashboard/widget-preview';
 import {
@@ -25,6 +26,7 @@ import {
 import { listWorkspaceWidgetSites, SITE_KEYS_PER_LIBRARY } from '@/lib/application/embed';
 import { countWorkspaceLibraries } from '@/lib/application/libraries';
 import { embedSnippet } from '@/lib/domain/site-key';
+import { surfaceEnabled } from '@/lib/domain/surfaces';
 import { requireSession } from '@/lib/http/session';
 import { fill } from '@/lib/i18n/format';
 import { getMessages, translations } from '@/lib/i18n/server';
@@ -52,6 +54,8 @@ const GRID = 'grid grid-cols-[minmax(0,1fr)_120px_84px_84px_150px] items-center 
  * allowed the site and is waiting for the snippet to go live.
  */
 export default async function DashboardWidgetPage() {
+  /* agent-first-proposal.md 3.6: the surface is offline; its screen is not served. */
+  if (!surfaceEnabled('widget')) notFound();
   const [session, { locale, t }] = await Promise.all([
     requireSession('/dashboard/widget'),
     translations(),

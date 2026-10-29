@@ -4,6 +4,7 @@
  * page's assets are served; the rest are a 404.
  */
 import { NextResponse, type NextRequest } from 'next/server';
+import { surfaceEnabled } from '@/lib/domain/surfaces';
 import { showcaseAssetKeyFor } from '@/lib/application/showcase';
 import { currentSession } from '@/lib/http/session';
 import { showcaseGateFor } from '@/lib/http/showcase-gate';
@@ -13,6 +14,8 @@ import { isObjectStoreConfigured, objectStore } from '@/lib/infrastructure/objec
 const TTL_SECONDS = 300;
 
 export async function GET(request: NextRequest, context: { params: Promise<{ slug: string }> }): Promise<Response> {
+  /* agent-first-proposal.md 3.6: shared pages are offline. */
+  if (!surfaceEnabled('showcase')) return new NextResponse(null, { status: 404 });
   const { slug } = await context.params;
   const preview = wantsPreview(new URL(request.url).searchParams.get(PREVIEW_PARAM));
   const session = preview ? await currentSession().catch(() => null) : null;

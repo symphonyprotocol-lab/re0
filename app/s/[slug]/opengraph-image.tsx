@@ -1,5 +1,6 @@
 import { ImageResponse } from 'next/og';
 import { isShowcaseExpired } from '@/lib/domain/showcase';
+import { surfaceEnabled } from '@/lib/domain/surfaces';
 import { showcaseLookup } from './lookup';
 
 /**
@@ -13,6 +14,7 @@ export const size = { width: 1200, height: 630 };
 export const contentType = 'image/png';
 
 export default async function Image({ params }: { params: Promise<{ slug: string }> }) {
+  if (!surfaceEnabled('showcase')) return new Response(null, { status: 404 });
   const { slug } = await params;
   const found = await showcaseLookup(slug, false);
   const page = found.kind === 'page' ? found.page : null;

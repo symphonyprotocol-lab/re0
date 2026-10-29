@@ -7,6 +7,7 @@ import {
   SESSION_COOKIE_NAMES,
 } from '@/lib/http/cookie-names';
 import { isOwnHostOf } from '@/lib/domain/showcase';
+import { surfaceEnabled } from '@/lib/domain/surfaces';
 import { PUBLIC_ORIGIN } from '@/lib/site/origin';
 
 /**
@@ -100,7 +101,8 @@ export function middleware(request: NextRequest): NextResponse {
 
   const host = (request.headers.get('host') ?? '').toLowerCase();
   /* A host with no dot is a machine on a desk, never a customer's domain. */
-  if (host && host.includes('.') && !isOwnHostOf(host, ownHostsOfDeployment()) && !stayOnCustomHost(path)) {
+  /* Shared pages are offline (agent-first-proposal.md 3.6), so a foreign host is served like our own and finds nothing. */
+  if (surfaceEnabled('showcase') && host && host.includes('.') && !isOwnHostOf(host, ownHostsOfDeployment()) && !stayOnCustomHost(path)) {
     const bare = host.replace(/:\d+$/, '');
     const target = request.nextUrl.clone();
     target.pathname = `/s/by-host/${bare}${path === '/' ? '' : path}`;

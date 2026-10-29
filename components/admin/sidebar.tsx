@@ -22,6 +22,7 @@ import {
   UsersIcon,
 } from '@/components/ui/icons';
 import type { AdminCapability } from '@/lib/domain/admin';
+import { surfaceEnabled } from '@/lib/domain/surfaces';
 import { useI18n } from '@/lib/i18n/client';
 
 /**
@@ -109,8 +110,10 @@ export function AdminSidebar({
           needs: 'expertLibraries',
         },
         { href: '/admin/expert-libraries/thresholds', label: nav.expertThresholds, Icon: SlidersIcon, needs: 'expertLibraries' },
-        /* Showcase pages are user content on an address of ours (lib/domain/showcase.ts): content review's to take down. */
-        { href: '/admin/showcases', label: nav.showcases, Icon: GlobeIcon, needs: 'libraries' },
+        /* Showcase pages are user content on an address of ours (lib/domain/showcase.ts): content review's to take down. Offline since the agent-first turn. */
+        ...(surfaceEnabled('showcase')
+          ? [{ href: '/admin/showcases', label: nav.showcases, Icon: GlobeIcon, needs: 'libraries' as const }]
+          : []),
       ],
     },
     {

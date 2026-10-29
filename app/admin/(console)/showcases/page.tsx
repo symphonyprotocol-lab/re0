@@ -1,4 +1,5 @@
 import type { Metadata } from 'next';
+import { notFound } from 'next/navigation';
 import { ShowcaseControls } from '@/components/admin/showcase-controls';
 import { FilterSelect } from '@/components/admin/list-controls';
 import {
@@ -19,6 +20,7 @@ import {
 import { ArrowUpRightIcon } from '@/components/ui/icons';
 import { listConsoleShowcases, SHOWCASE_CONSOLE_FILTERS, type ShowcaseConsoleFilter } from '@/lib/application/showcase';
 import { showcasePath } from '@/lib/domain/showcase';
+import { surfaceEnabled } from '@/lib/domain/surfaces';
 import { requireAdminCapability } from '@/lib/http/admin';
 import { fill } from '@/lib/i18n/format';
 import { getMessages } from '@/lib/i18n/server';
@@ -47,6 +49,8 @@ export default async function AdminShowcasesPage({
 }: {
   searchParams: Promise<Record<string, string | string[] | undefined>>;
 }) {
+  /* agent-first-proposal.md 3.6: shared pages are offline; nothing to moderate. */
+  if (!surfaceEnabled('showcase')) notFound();
   const [, params, t] = await Promise.all([requireAdminCapability('libraries'), searchParams, getMessages()]);
   const x = t.admin.showcases;
   const s = t.dashboard.libraryDetail.showcase;

@@ -17,6 +17,7 @@ import {
   SpinnerIcon,
 } from '@/components/ui/icons';
 import { WORKSPACE_INITIAL } from '@/lib/dashboard/snippets';
+import { surfaceEnabled } from '@/lib/domain/surfaces';
 import { useI18n } from '@/lib/i18n/client';
 import { fill } from '@/lib/i18n/format';
 
@@ -48,8 +49,11 @@ export function DashboardSidebar({
     { href: '/dashboard', label: t.dashboard.nav.overview, Icon: LayoutDashboardIcon },
     { href: '/dashboard/libraries', label: t.dashboard.nav.libraries, Icon: DatabaseIcon },
     { href: '/dashboard/api-keys', label: t.dashboard.nav.apiKeys, Icon: KeyIcon },
-    { href: '/dashboard/widget', label: t.dashboard.nav.widget, Icon: GlobeIcon },
-    { href: '/dashboard/showcases', label: t.dashboard.nav.showcases, Icon: SparklesIcon, badge: leadsNew },
+    /* Offline surfaces (lib/domain/surfaces.ts) keep no entry in the rail. */
+    ...(surfaceEnabled('widget') ? [{ href: '/dashboard/widget', label: t.dashboard.nav.widget, Icon: GlobeIcon }] : []),
+    ...(surfaceEnabled('showcase')
+      ? [{ href: '/dashboard/showcases', label: t.dashboard.nav.showcases, Icon: SparklesIcon, badge: leadsNew }]
+      : []),
     { href: '/dashboard/requests', label: t.dashboard.nav.requests, Icon: FileTextIcon },
     { href: '/dashboard/revenue', label: t.dashboard.nav.revenue, Icon: CircleDollarSignIcon },
     { href: '/dashboard/policies', label: t.dashboard.nav.policies, Icon: ShieldCheckIcon },

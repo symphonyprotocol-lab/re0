@@ -1,6 +1,7 @@
 import type { Metadata } from 'next';
 import { headers } from 'next/headers';
 import { notFound } from 'next/navigation';
+import { surfaceEnabled } from '@/lib/domain/surfaces';
 import { messagesFor } from '@/lib/i18n/dictionary';
 import { hostLookup } from '../../../[slug]/lookup';
 import { ShowcaseScreen, showcaseMetadata } from '../../../[slug]/render';
@@ -20,6 +21,7 @@ async function rewrittenFor(host: string): Promise<boolean> {
 }
 
 export async function generateMetadata({ params }: Params): Promise<Metadata> {
+  if (!surfaceEnabled('showcase')) return { robots: { index: false } };
   const { host, path } = await params;
   const found = (path && path.length > 0) || !(await rewrittenFor(host)) ? null : await hostLookup(host);
   if (!found) return { title: messagesFor('en').showcase.fallbackTitle, robots: { index: false } };
@@ -27,6 +29,8 @@ export async function generateMetadata({ params }: Params): Promise<Metadata> {
 }
 
 export default async function ShowcaseByHostPage({ params }: Params) {
+  /* agent-first-proposal.md 3.6: shared pages are offline. */
+  if (!surfaceEnabled('showcase')) notFound();
   const { host, path } = await params;
   if ((path && path.length > 0) || !(await rewrittenFor(host))) notFound();
   const found = await hostLookup(host);

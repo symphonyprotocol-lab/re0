@@ -17,6 +17,7 @@ import type { NextRequest } from 'next/server';
 import { AppError } from '@/contracts/errors';
 import { noteWidgetOrigin, resolveSiteKey, type SiteKeyPrincipal } from '@/lib/application/embed';
 import { originAllowed, frameAncestors, normaliseOrigin } from '@/lib/domain/site-key';
+import { surfaceEnabled } from '@/lib/domain/surfaces';
 import { isPreviewOwner, isPreviewParent } from '@/lib/http/embed-preview';
 import { messagesFor } from '@/lib/i18n/dictionary';
 import { HTML_LANG, negotiateLocale } from '@/lib/i18n/locale';
@@ -58,6 +59,8 @@ ${input.body}
 }
 
 export async function GET(request: NextRequest): Promise<Response> {
+  /* agent-first-proposal.md 3.6: the widget is offline; its page is not served. */
+  if (!surfaceEnabled('widget')) return new Response(null, { status: 404 });
   const url = new URL(request.url);
   const key = url.searchParams.get('key');
   const parent = url.searchParams.get('parent');
