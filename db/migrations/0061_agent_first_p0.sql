@@ -18,11 +18,14 @@
 -- purge-library.ts and delete.ts take a library apart. `usage_event` is the
 -- billing ledger: its rows are detached, never deleted. Object-store blobs of
 -- those documents are not reachable from SQL and are swept by the uploads
--- purge, which deletes unreferenced objects.
-CREATE TEMP TABLE doomed_library ON COMMIT DROP AS
+-- purge, which deletes unreferenced objects. The scratch tables are session
+-- temp tables dropped by hand, not `ON COMMIT DROP`: the test runner feeds
+-- each statement to psql in autocommit mode, where a commit-scoped table
+-- would be gone before the second statement ran.
+CREATE TEMP TABLE doomed_library AS
   SELECT DISTINCT library_id AS id FROM "source" WHERE "type" IN ('llms_txt', 'openapi');
 --> statement-breakpoint
-CREATE TEMP TABLE doomed_version ON COMMIT DROP AS
+CREATE TEMP TABLE doomed_version AS
   SELECT id FROM "library_version" WHERE library_id IN (SELECT id FROM doomed_library);
 --> statement-breakpoint
 DELETE FROM "chunk" WHERE library_id IN (SELECT id FROM doomed_library);
@@ -66,6 +69,10 @@ DELETE FROM "library_version" WHERE library_id IN (SELECT id FROM doomed_library
 DELETE FROM "source" WHERE library_id IN (SELECT id FROM doomed_library);
 --> statement-breakpoint
 DELETE FROM "library" WHERE id IN (SELECT id FROM doomed_library);
+--> statement-breakpoint
+DROP TABLE doomed_version;
+--> statement-breakpoint
+DROP TABLE doomed_library;
 --> statement-breakpoint
 ALTER TYPE "source_type" RENAME TO "source_type_old";
 --> statement-breakpoint

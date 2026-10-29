@@ -30,6 +30,7 @@ const { uuidv7 } = await import('@/lib/domain/id');
 const { GET: searchRoute } = await import('@/app/api/v1/libraries/search/route');
 const { GET: contextRoute } = await import('@/app/api/v1/context/route');
 const { POST: mcpRoute } = await import('@/app/mcp/route');
+const { surfaceEnabled } = await import('@/lib/domain/surfaces');
 
 const actor = { administratorId: null as unknown as string, email: 'ops@example.test' };
 const created: string[] = [];
@@ -156,7 +157,22 @@ function mcpPost(body: unknown, headers: Record<string, string> = {}): NextReque
   });
 }
 
+/* MCP is offline (agent-first-proposal.md 3.6, lib/domain/surfaces.ts); the route answers 404 until it is switched back on. */
+const whileOn = surfaceEnabled('mcp') ? it : it.skip;
+
 describeWithDb('rest and mcp entry', () => {
+  it('answers 404 on the MCP endpoint while the surface is off', async () => {
+    if (surfaceEnabled('mcp')) return;
+    const response = await mcpRoute(
+      new NextRequest('https://api.example.test/mcp', {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({ jsonrpc: '2.0', id: 1, method: 'initialize', params: {} }),
+      }),
+    );
+    expect(response.status).toBe(404);
+  });
+
   afterAll(async () => {
     const database = db();
     if (created.length > 0) {
@@ -272,7 +288,7 @@ describeWithDb('rest and mcp entry', () => {
     expect(badKey.status).toBe(401);
   });
 
-  it('speaks MCP: initialize, list tools, call both', async () => {
+  whileOn('speaks MCP: initialize, list tools, call both', async () => {
     const stamp = Date.now();
     await publishedLibrary(`entry-mcp-${stamp}`);
     const { key } = await workspaceWithKey();
