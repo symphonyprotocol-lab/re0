@@ -1,22 +1,11 @@
 /**
- * The owner's declaration and question set: the rights declaration a
- * public library carries (required to go public, lib/domain/rights.ts) and
- * the self-check questions an expert-library application is judged by
- * (lib/domain/expert-library.ts). Neither holds a library back from
- * publishing: public review before publication ended on 2026-10-23.
- * review-visibility-proposal.md 5.1 and 5.2.
- *
- * The questions share `library_eval_question` with the platform's own test
- * set, told apart by `author`. An owner writes and removes their own; the
- * platform's they can read but not touch. Only `admin` questions move the
- * Benchmark (ingestion/evaluate.ts): a reviewer adopts an owner's question
- * into the scored set from the console (administration/manage-eval-
- * questions.ts), which is the one way an owner's question starts counting.
+ * The owner's rights declaration: what a public library carries about where
+ * its content came from (required to go public, lib/domain/rights.ts). It
+ * does not hold a library back from publishing: public review before
+ * publication ended on 2026-10-23. review-visibility-proposal.md 5.1.
  */
-import { and, asc, count, eq, isNull } from 'drizzle-orm';
+import { and, eq, isNull } from 'drizzle-orm';
 import { AppError } from '@/contracts/errors';
-import { draftEvalQuestion, EVAL_MAX_QUESTIONS } from '@/lib/domain/benchmark';
-import { uuidv7 } from '@/lib/domain/id';
 import { PlatformLibraryRefused } from '@/lib/domain/library';
 import {
   parseRightsDeclaration,
@@ -24,7 +13,6 @@ import {
   rightsAllowPublic,
   type RightsDeclaration,
 } from '@/lib/domain/rights';
-import { evaluateVersion, type EvaluationDependencies } from '@/lib/application/ingestion/evaluate';
 import { db, schema } from '@/lib/infrastructure/postgres/client';
 import { canManageLibraries, type WorkspaceRole } from './delete';
 
@@ -32,45 +20,20 @@ const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
 type Reader = Pick<ReturnType<typeof db>, 'select'>;
 
-export const EVAL_AUTHORS = ['owner', 'admin'] as const;
-export type EvalAuthor = (typeof EVAL_AUTHORS)[number];
-
-function authorOf(value: string): EvalAuthor {
-  return value === 'owner' ? 'owner' : 'admin';
-}
-
 /* --------------------------------------------------------------- readiness */
 
 export interface LibraryMaterials {
   rights: RightsDeclaration | null;
-  /** Every question on the library, whoever wrote it. */
-  questions: number;
-  ownerQuestions: number;
 }
 
-/** The declaration and the question counts, for the owner's panel and the console. */
+/** The declaration, for the owner's panel and the console. */
 export async function libraryMaterials(reader: Reader, libraryId: string): Promise<LibraryMaterials> {
-  const [[row], [counts], ownerQuestions] = await Promise.all([
-    reader
-      .select({ rights: schema.library.rightsDeclaration })
-      .from(schema.library)
-      .where(eq(schema.library.id, libraryId))
-      .limit(1),
-    reader
-      .select({ questions: count() })
-      .from(schema.libraryEvalQuestion)
-      .where(eq(schema.libraryEvalQuestion.libraryId, libraryId)),
-    ownerQuestionCount(reader, libraryId),
-  ]);
-  return { rights: readRightsDeclaration(row?.rights), questions: counts?.questions ?? 0, ownerQuestions };
-}
-
-async function ownerQuestionCount(reader: Reader, libraryId: string): Promise<number> {
   const [row] = await reader
-    .select({ n: count() })
-    .from(schema.libraryEvalQuestion)
-    .where(and(eq(schema.libraryEvalQuestion.libraryId, libraryId), eq(schema.libraryEvalQuestion.author, 'owner')));
-  return row?.n ?? 0;
+    .select({ rights: schema.library.rightsDeclaration })
+    .from(schema.library)
+    .where(eq(schema.library.id, libraryId))
+    .limit(1);
+  return { rights: readRightsDeclaration(row?.rights) };
 }
 
 /* ------------------------------------------------------------------ rights */
@@ -84,8 +47,6 @@ async function ownedLibrary(reader: Reader, workspaceId: string, libraryId: stri
       publicId: schema.library.publicId,
       visibility: schema.library.visibility,
       rights: schema.library.rightsDeclaration,
-      indexStatus: schema.library.indexStatus,
-      currentVersionId: schema.library.currentVersionId,
     })
     .from(schema.library)
     .where(
@@ -136,137 +97,4 @@ export async function declareLibraryRights(input: DeclareRightsInput): Promise<R
     .set({ rightsDeclaration: declaration })
     .where(eq(schema.library.id, target.id));
   return declaration;
-}
-
-/* --------------------------------------------------------------- questions */
-
-export interface OwnerEvalQuestionView {
-  id: string;
-  question: string;
-  expectedSource: string | null;
-  expectedText: string | null;
-  author: EvalAuthor;
-  lastEvaluatedAt: string | null;
-  /** 1-based; null with a `lastEvaluatedAt` is a miss. */
-  lastRank: number | null;
-  lastRunIsCurrent: boolean;
-}
-
-export interface OwnerEvalQuestions {
-  questions: OwnerEvalQuestionView[];
-  /** The library's cap; the expert gate's minimum lives with its rules (expert-libraries/owner.ts). */
-  limits: { max: number };
-}
-
-/** The library's questions, the owner's and the platform's, for the owner's panel. */
-export async function listLibraryEvalQuestions(input: {
-  workspaceId: string;
-  libraryId: string;
-}): Promise<OwnerEvalQuestions> {
-  const database = db();
-  const target = await ownedLibrary(database, input.workspaceId, input.libraryId);
-  const [library] = await database
-    .select({ currentVersionId: schema.library.currentVersionId })
-    .from(schema.library)
-    .where(eq(schema.library.id, target.id));
-  const rows = await database
-    .select()
-    .from(schema.libraryEvalQuestion)
-    .where(eq(schema.libraryEvalQuestion.libraryId, target.id))
-    .orderBy(asc(schema.libraryEvalQuestion.createdAt));
-  return {
-    questions: rows.map((row) => ({
-      id: row.id,
-      question: row.question,
-      expectedSource: row.expectedSource,
-      expectedText: row.expectedText,
-      author: authorOf(row.author),
-      lastEvaluatedAt: row.lastEvaluatedAt?.toISOString() ?? null,
-      lastRank: row.lastRank,
-      lastRunIsCurrent: row.lastVersionId !== null && row.lastVersionId === library?.currentVersionId,
-    })),
-    limits: { max: EVAL_MAX_QUESTIONS },
-  };
-}
-
-export interface AddOwnerEvalQuestionInput {
-  workspaceId: string;
-  role: WorkspaceRole;
-  libraryId: string;
-  question: string;
-  expectedSource?: string | null;
-  expectedText?: string | null;
-  /** The retrieval the question is tried with; tests substitute their own. */
-  dependencies?: EvaluationDependencies;
-}
-
-/**
- * Add one of the owner's questions. The library's whole set shares the cap.
- *
- * A question written after the build would otherwise wait for the next
- * build or the submission to be asked, so the new one is tried at once,
- * alone, against the current ready version -- the same unmetered retrieval
- * the build uses (ingestion/evaluate.ts). The rest of the set keeps its
- * result and the Benchmark is not touched: an owner's question never scores
- * (5.2), and no score row is written here. A try that cannot run leaves the
- * question unevaluated, and the add still stands.
- */
-export async function addOwnerEvalQuestion(
-  input: AddOwnerEvalQuestionInput,
-): Promise<{ questionId: string; evaluated: boolean }> {
-  assertManager(input.role, 'edit the question set');
-  const drafted = draftEvalQuestion(input);
-  if (!drafted.ok) throw new PlatformLibraryRefused('eval_question_invalid', drafted.refusal);
-  const database = db();
-  const target = await ownedLibrary(database, input.workspaceId, input.libraryId);
-  const [existing] = await database
-    .select({ n: count() })
-    .from(schema.libraryEvalQuestion)
-    .where(eq(schema.libraryEvalQuestion.libraryId, target.id));
-  if ((existing?.n ?? 0) >= EVAL_MAX_QUESTIONS) {
-    throw new PlatformLibraryRefused('eval_question_limit', 'the question set is full');
-  }
-  const questionId = uuidv7();
-  await database.insert(schema.libraryEvalQuestion).values({
-    id: questionId,
-    libraryId: target.id,
-    author: 'owner',
-    ...drafted.draft,
-  });
-  if (target.indexStatus !== 'ready' || !target.currentVersionId) return { questionId, evaluated: false };
-  try {
-    const run = await evaluateVersion(
-      database,
-      { libraryId: target.id, versionId: target.currentVersionId, questionIds: [questionId] },
-      input.dependencies,
-    );
-    return { questionId, evaluated: run !== null };
-  } catch (error) {
-    console.error(`trying question ${questionId} of ${target.id} failed: ${error instanceof Error ? error.message : 'unknown'}`);
-    return { questionId, evaluated: false };
-  }
-}
-
-/** Remove one of the owner's questions; the platform's are not theirs to remove. */
-export async function removeOwnerEvalQuestion(input: {
-  workspaceId: string;
-  role: WorkspaceRole;
-  libraryId: string;
-  questionId: string;
-}): Promise<void> {
-  assertManager(input.role, 'edit the question set');
-  const database = db();
-  const target = await ownedLibrary(database, input.workspaceId, input.libraryId);
-  if (!UUID.test(input.questionId)) throw new AppError('invalid_request', 'no such question');
-  const removed = await database
-    .delete(schema.libraryEvalQuestion)
-    .where(
-      and(
-        eq(schema.libraryEvalQuestion.id, input.questionId),
-        eq(schema.libraryEvalQuestion.libraryId, target.id),
-        eq(schema.libraryEvalQuestion.author, 'owner'),
-      ),
-    )
-    .returning({ id: schema.libraryEvalQuestion.id });
-  if (removed.length === 0) throw new AppError('invalid_request', 'no such question of yours');
 }

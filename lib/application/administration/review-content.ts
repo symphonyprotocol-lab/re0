@@ -204,7 +204,7 @@ export type ProbeDependencies = Pick<RetrievalDependencies, 'embeddings' | 'rera
 /**
  * Ask the library a question as a caller would, with none of what a call
  * is: no policy, no reservation, no usage event, no cache, no request log.
- * The same path as the build's benchmark evaluation (ingestion/evaluate.ts),
+ * The ranking itself is `rankChunks`, the same path a served call takes,
  * which is what makes the ranks the reviewer sees the ranks a caller gets.
  * Works on a library in any lifecycle state, since the point is to read a
  * library that is *not* published yet.

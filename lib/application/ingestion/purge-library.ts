@@ -141,10 +141,6 @@ export async function purgeLibrary(input: {
     await tx.delete(schema.libraryProfile).where(eq(schema.libraryProfile.libraryId, library.id));
     /* Derived from content that no longer exists; recomputed if it ever returns. */
     await tx.delete(schema.libraryScore).where(eq(schema.libraryScore.libraryId, library.id));
-    /* Questions about content that no longer exists. */
-    await tx
-      .delete(schema.libraryEvalQuestion)
-      .where(eq(schema.libraryEvalQuestion.libraryId, library.id));
     /* What visitors asked of it, and what the owner answered: both go with the library. */
     await tx.delete(schema.widgetExchange).where(eq(schema.widgetExchange.libraryId, library.id));
     await tx.delete(schema.libraryFaq).where(eq(schema.libraryFaq.libraryId, library.id));

@@ -176,8 +176,6 @@ export default async function LibraryDetailPage({ params }: Params) {
             ) : (
               <Chip tone="warn">{l.unclaimed}</Chip>
             )}
-            {/* expert-library-prd.md 5: the console's judgment, shown and not ranked on. */}
-            {entry.isExpert ? <Chip tone="good">{l.expert}</Chip> : null}
           </div>
 
           <div className="mt-2.5 flex flex-wrap items-center gap-2">

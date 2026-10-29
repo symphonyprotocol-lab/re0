@@ -136,19 +136,6 @@ export const billingDocumentStatusEnum = pgEnum('billing_document_status', [
   'uncollectible',
 ]);
 export const policyModeEnum = pgEnum('policy_mode', ['quality', 'select']);
-/**
- * An owner's application to have a public library tagged as an expert
- * library (expert-library-prd.md 4.5). `approved` and `library.expert_tagged_at`
- * move together; `revoked` is an approval an administrator later withdrew.
- */
-export const expertApplicationStatusEnum = pgEnum('expert_application_status', [
-  'pending',
-  'approved',
-  'rejected',
-  'withdrawn',
-  'revoked',
-]);
-
 /** Which door a site key opens: the widget on the owner's site, or a showcase page of ours. */
 export const siteKeyKindEnum = pgEnum('site_key_kind', ['embed', 'showcase']);
 export const showcaseKindEnum = pgEnum('showcase_kind', ['company', 'product']);
@@ -1060,48 +1047,6 @@ export const libraryClaim = pgTable(
 );
 
 /**
- * An expert-library application. expert-library-prd.md 4.5, 7.
- *
- * Append-only history: a rejection and a later revocation are two rows that
- * stay, and the detail screens list them all. The partial unique index keeps
- * one pending application per library. `workspace_id` is the owner at the
- * time of applying, kept so a later ownership transfer does not rewrite who
- * asked. `decided_by_admin_id` is not a foreign key, like
- * `library_claim.ruling_admin_id`: the decision outlives the account.
- */
-export const expertApplication = pgTable(
-  'expert_application',
-  {
-    id: uuid('id').primaryKey(),
-    libraryId: uuid('library_id').notNull().references(() => library.id),
-    workspaceId: uuid('workspace_id').notNull().references(() => workspace.id),
-    status: expertApplicationStatusEnum('status').notNull(),
-    /** The applicant's statement for the reviewer; optional, capped at 500. */
-    note: text('note'),
-    /**
-     * The applicant's structured statement (lib/domain/expert-library.ts
-     * `ExpertMaterials`): scope, maintenance, credentials and the note.
-     * Null on applications made before it existed.
-     */
-    materials: jsonb('materials').$type<{ scope: string; maintenance: string; credentials: string; note: string }>(),
-    /** The reviewer's checklist behind the decision (`ExpertChecklist`); null on a revocation and older rows. */
-    checklist: jsonb('checklist').$type<Record<string, { verdict: string; note: string }>>(),
-    /** Why it was approved, rejected or revoked; the owner reads this. */
-    decisionReason: text('decision_reason'),
-    decidedByAdminId: uuid('decided_by_admin_id'),
-    decidedAt: timestamp('decided_at', { withTimezone: true }),
-    createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
-  },
-  (t) => [
-    uniqueIndex('expert_application_pending_uq')
-      .on(t.libraryId)
-      .where(sql`${t.status} = 'pending'`),
-    index('expert_application_library_idx').on(t.libraryId, t.createdAt.desc()),
-    index('expert_application_status_idx').on(t.status, t.createdAt.desc()),
-  ],
-);
-
-/**
  * A challenge proving a workspace controls a host, met before a website,
  * llms.txt or OpenAPI library may be created from it (requirement.md 7.3.2,
  * architecture.md 5.4, lib/domain/domain-verification.ts). Reuses the claim
@@ -1142,50 +1087,6 @@ export const libraryScore = pgTable(
   },
   /** "This library's newest score", which the catalogue reads per row. */
   (t) => [index('library_score_current_idx').on(t.libraryId, t.computedAt.desc())],
-);
-
-/**
- * A library's test set: questions with a known answer location, put to every
- * build through the real retrieval (lib/domain/benchmark.ts,
- * ingestion/evaluate.ts). requirement.md 6.3.
- *
- * Rows belong to the library, not to a version -- the same question is asked
- * of each build, which is what makes two builds' hit rates comparable. The
- * `last_*` columns are the most recent run only; the aggregate a score was
- * computed from is frozen on that `library_score.breakdown`.
- */
-export const libraryEvalQuestion = pgTable(
-  'library_eval_question',
-  {
-    id: uuid('id').primaryKey(),
-    libraryId: uuid('library_id').notNull().references(() => library.id),
-    question: text('question').notNull(),
-    /**
-     * Who wrote it: `admin` for the platform's own measuring instrument,
-     * `owner` for the library owner's self-check (review-visibility-
-     * proposal.md 5.2). Only `admin` questions move the Benchmark; a
-     * reviewer adopts an owner's question by setting this to `admin`.
-     */
-    author: text('author').notNull().default('admin'),
-    /** Matched against a passage's source URL and document title. */
-    expectedSource: text('expected_source'),
-    /** Matched against a passage's body. */
-    expectedText: text('expected_text'),
-    /** No foreign key: a version may be purged while its questions stay. */
-    lastVersionId: uuid('last_version_id'),
-    /** 1-based rank of the first satisfying passage; null is a miss. */
-    lastRank: integer('last_rank'),
-    lastEvaluatedAt: timestamp('last_evaluated_at', { withTimezone: true }),
-    createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
-  },
-  (t) => [
-    index('library_eval_question_library_idx').on(t.libraryId, t.createdAt),
-    check(
-      'library_eval_question_expectation',
-      sql`${t.expectedSource} is not null or ${t.expectedText} is not null`,
-    ),
-    check('library_eval_question_author', sql`${t.author} in ('owner', 'admin')`),
-  ],
 );
 
 export const document = pgTable(
@@ -1398,24 +1299,6 @@ export const libraryProfileVector = pgTable(
  * code used before this table existed. The newest row's id joins every
  * public cache key, so a change retires cached results without a flush.
  */
-/**
- * The public-review rules in force as the newest row (lib/domain/auto-review.ts
- * `ReviewRules`). Append-only like `retrieval_config`: a save mints a row,
- * and the history is the record of what the rules layer was deciding by
- * when. An empty table means the domain defaults.
- */
-export const reviewConfig = pgTable(
-  'review_config',
-  {
-    id: uuid('id').primaryKey(),
-    /* The public-review thresholds this table was made for were dropped on 2026-10-23 (migration 0056); the expert gate's remain. */
-    expertMinQuestions: integer('expert_min_questions').notNull().default(10),
-    expertHitRateMin: integer('expert_hit_rate_min').notNull().default(70),
-    createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
-  },
-  (t) => [index('review_config_time_idx').on(t.createdAt.desc())],
-);
-
 export const retrievalConfig = pgTable(
   'retrieval_config',
   {

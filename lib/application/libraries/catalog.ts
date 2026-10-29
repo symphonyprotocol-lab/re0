@@ -156,8 +156,6 @@ export interface PublicLibraryDetail {
   domainTag: string | null;
   language: string | null;
   claimedBy: string | null;
-  /** expert-library-prd.md 5: the console's expert tag, shown as a badge. */
-  isExpert: boolean;
   storageBytes: number;
   version: {
     label: string;
@@ -213,7 +211,6 @@ export async function publicLibraryDetail(publicId: string): Promise<PublicLibra
       language: schema.library.language,
       ownerWorkspaceId: schema.library.ownerWorkspaceId,
       isPlatformLibrary: schema.library.isPlatformLibrary,
-      expertTaggedAt: schema.library.expertTaggedAt,
       storageBytes: schema.library.storageBytes,
       lastCheckedAt: schema.library.lastCheckedAt,
       lastSuccessfulRefreshAt: schema.library.lastSuccessfulRefreshAt,
@@ -339,7 +336,6 @@ export async function publicLibraryDetail(publicId: string): Promise<PublicLibra
     domainTag: row.domainTag,
     language: row.language,
     claimedBy,
-    isExpert: row.expertTaggedAt !== null,
     storageBytes: row.storageBytes,
     version: {
       label: row.label,

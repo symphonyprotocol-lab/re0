@@ -17,7 +17,6 @@
 import type { AdminCapability } from '@/lib/domain/admin';
 import { isBillingDocumentKind, isBillingStatusFilter } from '@/lib/domain/billing';
 import { dayParam, listBillingDocuments } from '@/lib/application/billing';
-import { isExpertFilter, listExpertApplications } from '@/lib/application/expert-libraries';
 import { toCsv } from './csv';
 import { listAuditEntries, type AuditResultFilter } from './list-audit';
 import { listClaims, listUserLibraries, type ClaimFilter, type LibraryReviewFilter } from './list-libraries';
@@ -112,22 +111,6 @@ export const CONSOLE_EXPORTS: Record<string, ConsoleExport> = {
       return toCsv(
         ['library_id', 'library', 'claimant', 'method', 'opened', 'current_owner', 'status'],
         rows.map((r) => [r.libraryPublicId, r.libraryTitle, r.claimantName, r.method, r.openedAt, r.currentOwner, r.status]),
-      );
-    },
-  },
-  'expert-libraries': {
-    capability: 'expertLibraries',
-    filename: 'expert-applications',
-    async build(input) {
-      const { rows } = await listExpertApplications({
-        query: input.query,
-        /* Narrowed, not cast: the status is a Postgres enum (see `billing`). */
-        status: isExpertFilter(input.status) ? input.status : 'all',
-        limit: EXPORT_LIMIT,
-      });
-      return toCsv(
-        ['library_id', 'library', 'applicant', 'applied', 'decided', 'owner_subscribed', 'visibility', 'lifecycle_status', 'status'],
-        rows.map((r) => [r.libraryPublicId, r.libraryTitle, r.workspaceName, r.createdAt, r.decidedAt, r.ownerSubscribed, r.visibility, r.lifecycleStatus, r.status]),
       );
     },
   },

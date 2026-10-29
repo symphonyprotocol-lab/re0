@@ -2,7 +2,6 @@ import type { ReactNode } from 'react';
 import { AdminHeader } from '@/components/admin/header';
 import { AdminSidebar } from '@/components/admin/sidebar';
 import { platformLibrarySummary } from '@/lib/application/administration';
-import { pendingExpertApplications } from '@/lib/application/expert-libraries';
 import { requireAdmin } from '@/lib/http/admin';
 import { LocaleProvider } from '@/lib/i18n/client';
 import { translations } from '@/lib/i18n/server';
@@ -24,20 +23,16 @@ import { translations } from '@/lib/i18n/server';
  */
 export default async function ConsoleLayout({ children }: { children: ReactNode }) {
   const [session, { locale, t }] = await Promise.all([requireAdmin(), translations()]);
-  /* The rail's badges are the same counts the queues show, read here rather than from a fixture. */
-  const [refreshes, pendingExpert] = await Promise.all([
-    session.capabilities.includes('platformLibraries')
-      ? platformLibrarySummary()
-      : { queuedRefreshes: 0 },
-    session.capabilities.includes('expertLibraries') ? pendingExpertApplications() : 0,
-  ]);
+  /* The rail's badge is the same count the queue shows, read here rather than from a fixture. */
+  const refreshes = session.capabilities.includes('platformLibraries')
+    ? await platformLibrarySummary()
+    : { queuedRefreshes: 0 };
 
   return (
     <LocaleProvider locale={locale} messages={t}>
       <div className="console-wash flex min-h-screen flex-col lg:flex-row">
         <AdminSidebar
           openRefreshes={refreshes.queuedRefreshes}
-          pendingExpert={pendingExpert}
           capabilities={session.capabilities}
         />
         <div className="flex min-w-0 flex-1 flex-col">

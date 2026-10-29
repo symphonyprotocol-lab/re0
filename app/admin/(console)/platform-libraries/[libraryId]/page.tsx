@@ -8,7 +8,6 @@ import {
   type PlatformLibraryTarget,
 } from '@/components/admin/platform-library-controls';
 import { PlatformLibraryFiles } from '@/components/admin/platform-library-files';
-import { PlatformBenchmarkPanel } from '@/components/admin/platform-benchmark-panel';
 import { PlatformProfilePanel } from '@/components/admin/platform-profile-panel';
 import {
   AddPlatformSourceControl,
@@ -32,7 +31,6 @@ import {
 import { ChevronLeftIcon, GlobeIcon } from '@/components/ui/icons';
 import Link from 'next/link';
 import {
-  getLibraryBenchmark,
   getPlatformLibrary,
   type PlatformLibraryDetail,
 } from '@/lib/application/administration';
@@ -51,15 +49,12 @@ import { fill } from '@/lib/i18n/format';
 import { getMessages } from '@/lib/i18n/server';
 import { bytes, initialsOf, utcInstant, utcStamp } from '../../list-params';
 import {
-  addEvalQuestionAction,
   addPlatformSourceAction,
   deletePlatformLibraryAction,
   preparePlatformUploadAction,
   rebuildPlatformLibraryProfileAction,
   refreshPlatformLibraryAction,
-  removeEvalQuestionAction,
   removePlatformSourceAction,
-  runLibraryEvaluationAction,
   setPlatformLifecycleAction,
   updatePlatformFilesAction,
   updatePlatformLibraryAction,
@@ -144,7 +139,6 @@ export default async function AdminPlatformLibraryPage({
       })
     : { documents: [], total: 0 };
   const docsPages = Math.max(1, Math.ceil(documents.total / docsSize));
-  const benchmark = await getLibraryBenchmark(record.id);
   const docsHref = (page: number, size: number = docsSize) =>
     `/admin/platform-libraries/${record.id}?docs=${page}&size=${size}#documents`;
 
@@ -390,17 +384,6 @@ export default async function AdminPlatformLibraryPage({
         stamp={utcStamp}
         t={d}
       />
-
-      {benchmark ? (
-        <PlatformBenchmarkPanel
-          libraryId={record.id}
-          view={benchmark}
-          canEvaluate={record.currentVersionId !== null}
-          addAction={addEvalQuestionAction}
-          removeAction={removeEvalQuestionAction}
-          runAction={runLibraryEvaluationAction}
-        />
-      ) : null}
 
       <div id="documents" className="scroll-mt-4" />
       <Panel>

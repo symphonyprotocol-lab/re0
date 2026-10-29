@@ -32,8 +32,6 @@ export interface WorkspaceLibraryRow {
   build: { stage: IngestionStage | null; progress: BuildProgress | null } | null;
   /** True when the library is suspended by its owner's own pause, which the owner may lift. */
   pausedByOwner: boolean;
-  /** Carries the expert-library tag (expert-library-prd.md 4.3), whether or not it is earning right now. */
-  expert: boolean;
 }
 
 export async function listWorkspaceLibraries(workspaceId: string): Promise<WorkspaceLibraryRow[]> {
@@ -46,7 +44,6 @@ export async function listWorkspaceLibraries(workspaceId: string): Promise<Works
       lifecycleStatus: schema.library.lifecycleStatus,
       indexStatus: schema.library.indexStatus,
       storageBytes: schema.library.storageBytes,
-      expertTaggedAt: schema.library.expertTaggedAt,
       lastSuccessfulRefreshAt: schema.library.lastSuccessfulRefreshAt,
       createdAt: schema.library.createdAt,
       versionLabel: schema.libraryVersion.label,
@@ -159,7 +156,6 @@ export async function listWorkspaceLibraries(workspaceId: string): Promise<Works
     building: building.has(row.id),
     build: builds.get(row.id) ?? null,
     pausedByOwner: row.lifecycleStatus === 'suspended' && ownerPaused.has(row.id),
-    expert: row.expertTaggedAt !== null,
   }));
 }
 

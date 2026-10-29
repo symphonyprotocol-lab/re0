@@ -4,9 +4,9 @@
  * (architecture.md 9.2).
  *
  * Separate so a second caller can rank against a version without being a
- * served call: the build's benchmark evaluation (ingestion/evaluate.ts) asks
- * a library its own test questions, and those must go through exactly the
- * retrieval a user's question would, or the score measures something else.
+ * served call: a reviewer's probe (administration/review-content.ts) asks a
+ * library a question, and it must go through exactly the retrieval a user's
+ * question would, or the reviewer sees ranks a caller never gets.
  * Authorization, the policy, the reservation and the cache all stay in
  * `queryDocs`; nothing here may be reached from /v1 or MCP except through it.
  */
