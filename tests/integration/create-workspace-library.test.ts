@@ -100,7 +100,7 @@ function dependencies() {
   };
 }
 
-async function workspaceOnPlan(libraryLimit: number): Promise<string> {
+async function workspaceOnPlan(): Promise<string> {
   const database = db();
   const workspaceId = crypto.randomUUID();
   workspaces.push(workspaceId);
@@ -110,14 +110,11 @@ async function workspaceOnPlan(libraryLimit: number): Promise<string> {
   planVersions.push(planVersionId);
   await database.insert(schema.planVersion).values({
     id: planVersionId,
-    planId: 'pro',
-    priceMinor: 2000,
+    planId: 'free',
+    priceMinor: 0,
     currency: 'USD',
     monthlyCalls: 1_000,
-    libraryLimit,
-    librarySizeBytesLimit: 1_000_000,
     apiKeyLimit: 5,
-    shareRateBps: 2000,
     capabilities: {},
     createdAt: new Date('2000-01-01T00:00:00Z'),
   });
@@ -193,7 +190,7 @@ describeWithDb('workspace library creation', () => {
 
   it('creates, queues, builds and serves a private library to its owner', async () => {
     const stamp = Date.now();
-    const workspaceId = await workspaceOnPlan(5);
+    const workspaceId = await workspaceOnPlan();
 
     const created = await createWorkspaceLibrary({
       role: 'owner',
@@ -290,7 +287,7 @@ describeWithDb('workspace library creation', () => {
 
   it('creates a library from uploaded PDFs and builds it from the store', async () => {
     const stamp = Date.now();
-    const workspaceId = await workspaceOnPlan(5);
+    const workspaceId = await workspaceOnPlan();
     const bytes = new Uint8Array(await readFile(new URL('../fixtures/handbook.pdf', import.meta.url)));
 
     /* The wizard's two halves: room in the bucket, then the browser's PUT. */
@@ -380,7 +377,7 @@ describeWithDb('workspace library creation', () => {
 
   it('creates an empty PDF library, then fills it in from the files page and rebuilds', async () => {
     const stamp = Date.now();
-    const workspaceId = await workspaceOnPlan(5);
+    const workspaceId = await workspaceOnPlan();
     const bytes = new Uint8Array(await readFile(new URL('../fixtures/handbook.pdf', import.meta.url)));
 
     /* No files, no build: the library waits. */
@@ -407,7 +404,7 @@ describeWithDb('workspace library creation', () => {
     ).toHaveLength(0);
 
     /* Another workspace's library is nobody's business: not found, not refused. */
-    const stranger = await workspaceOnPlan(5);
+    const stranger = await workspaceOnPlan();
     expect(await libraryFiles({ workspaceId: stranger, libraryId: created.libraryId })).toBeNull();
     await expect(
       updateLibraryFiles({ workspaceId: stranger, role: 'owner', libraryId: created.libraryId, remove: [crypto.randomUUID()] }),
@@ -481,9 +478,9 @@ describeWithDb('workspace library creation', () => {
     ).rejects.toMatchObject({ code: 'access_denied' });
   });
 
-  it('enforces the plan limit and public-id uniqueness', async () => {
+  it('enforces public-id uniqueness', async () => {
     const stamp = Date.now();
-    const workspaceId = await workspaceOnPlan(1);
+    const workspaceId = await workspaceOnPlan();
 
     const first = await createWorkspaceLibrary({
       role: 'owner',
@@ -497,24 +494,11 @@ describeWithDb('workspace library creation', () => {
     });
     libraries.push(first.libraryId);
 
+    const other = await workspaceOnPlan();
     await expect(
       createWorkspaceLibrary({
         role: 'owner',
-        workspaceId,
-        title: 'Second',
-        visibility: 'private',
-        sourceType: 'website',
-        location: 'https://api.example.test/reference/',
-        domainVerificationId: await verifiedDomain(workspaceId, 'https://api.example.test/reference/'),
-        slug: `second-${stamp}`,
-      }),
-    ).rejects.toMatchObject({ code: 'library_limit_exceeded' });
-
-    const other = await workspaceOnPlan(5);
-    await expect(
-      createWorkspaceLibrary({
-        role: 'owner',
-      workspaceId: other,
+        workspaceId: other,
         title: 'Duplicate id',
         visibility: 'private',
         sourceType: 'website',
@@ -527,7 +511,7 @@ describeWithDb('workspace library creation', () => {
     await expect(
       createWorkspaceLibrary({
         role: 'owner',
-      workspaceId: other,
+        workspaceId: other,
         title: 'Bad location',
         visibility: 'private',
         sourceType: 'github',

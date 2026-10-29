@@ -130,7 +130,7 @@ export function DashboardSidebar({
           href="/pricing"
           className="mt-2.5 flex items-center justify-between text-[11px] text-brandink transition-colors hover:text-brandink"
         >
-          {t.dashboard.shell.upgrade}
+          {t.dashboard.shell.buyCalls}
           <ArrowUpRightIcon size={13} />
         </Link>
       </div>

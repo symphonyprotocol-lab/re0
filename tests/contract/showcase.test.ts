@@ -178,15 +178,15 @@ describe('status', () => {
 });
 
 describe('plan entitlement', () => {
-  it('gives Free one page with the brand line fixed, and Pro any number without it', () => {
-    expect(capabilitiesFor('free')).toMatchObject({ showcasePages: 1, showcaseBranding: false, showcaseLeadsRetained: 100, showcaseCustomDomain: false });
-    expect(capabilitiesFor('pro')).toMatchObject({ showcasePages: -1, showcaseBranding: true, showcaseLeadsRetained: -1, showcaseCustomDomain: true });
-    expect(readCapabilities('free', { showcaseCustomDomain: true })).toMatchObject({ showcaseCustomDomain: true });
-    expect(readCapabilities('free', { showcaseLeadsRetained: 5 })).toMatchObject({ showcaseLeadsRetained: 5 });
-    expect(readCapabilities('free', { showcaseLeadsRetained: -3 })).toMatchObject({ showcaseLeadsRetained: 100 });
-    expect(readCapabilities('free', { showcasePages: 3, showcaseBranding: true })).toMatchObject({ showcasePages: 3, showcaseBranding: true });
-    expect(readCapabilities('free', { showcasePages: 'many', showcaseBranding: 'yes' })).toMatchObject({ showcasePages: 1, showcaseBranding: false });
-    expect(readCapabilities('free', { showcasePages: -5 })).toMatchObject({ showcasePages: 1 });
+  it('gives every version one page with the brand line fixed, unless the version says otherwise', () => {
+    expect(capabilitiesFor()).toMatchObject({ showcasePages: 1, showcaseBranding: false, showcaseLeadsRetained: 100, showcaseCustomDomain: false });
+    expect(capabilitiesFor({ showcasePages: -1, showcaseBranding: true })).toMatchObject({ showcasePages: -1, showcaseBranding: true });
+    expect(readCapabilities({ showcaseCustomDomain: true })).toMatchObject({ showcaseCustomDomain: true });
+    expect(readCapabilities({ showcaseLeadsRetained: 5 })).toMatchObject({ showcaseLeadsRetained: 5 });
+    expect(readCapabilities({ showcaseLeadsRetained: -3 })).toMatchObject({ showcaseLeadsRetained: 100 });
+    expect(readCapabilities({ showcasePages: 3, showcaseBranding: true })).toMatchObject({ showcasePages: 3, showcaseBranding: true });
+    expect(readCapabilities({ showcasePages: 'many', showcaseBranding: 'yes' })).toMatchObject({ showcasePages: 1, showcaseBranding: false });
+    expect(readCapabilities({ showcasePages: -5 })).toMatchObject({ showcasePages: 1 });
   });
 
   it('counts live pages against the cap', () => {

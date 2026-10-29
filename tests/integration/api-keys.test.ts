@@ -42,14 +42,11 @@ async function workspaceOnPlan(apiKeyLimit: number): Promise<string> {
   planVersions.push(planVersionId);
   await database.insert(schema.planVersion).values({
     id: planVersionId,
-    planId: 'pro',
-    priceMinor: 2000,
+    planId: 'free',
+    priceMinor: 0,
     currency: 'USD',
     monthlyCalls: 100,
-    libraryLimit: 10,
-    librarySizeBytesLimit: 1_000_000,
     apiKeyLimit,
-    shareRateBps: 2000,
     capabilities: {},
     createdAt: new Date('2000-01-01T00:00:00Z'),
   });

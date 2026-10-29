@@ -14,7 +14,7 @@ import { canManageLibraries, type WorkspaceRole } from '@/lib/application/librar
 import { PLAN_VERSION_NEWEST_FIRST } from '@/lib/application/plans/configuration';
 import { IN_FORCE_FIRST, subscriptionInForce } from '@/lib/application/plans/in-force';
 import { uuidv7 } from '@/lib/domain/id';
-import { readCapabilities, siteKeysAllowed, type PlanTierId } from '@/lib/domain/plans';
+import { readCapabilities, siteKeysAllowed } from '@/lib/domain/plans';
 import {
   parseAccent,
   parseDailyLimit,
@@ -83,8 +83,7 @@ export async function siteKeyEntitlement(workspaceId: string): Promise<number> {
         .orderBy(...PLAN_VERSION_NEWEST_FIRST)
         .limit(1)
     )[0];
-  const tier = (version?.planId ?? 'free') as PlanTierId;
-  return readCapabilities(tier, version?.capabilities).siteKeys;
+  return readCapabilities(version?.capabilities).siteKeys;
 }
 
 /** Live embed keys across the workspace's libraries; what the plan's cap counts. */

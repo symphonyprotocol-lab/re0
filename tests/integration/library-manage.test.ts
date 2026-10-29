@@ -114,7 +114,7 @@ function dependencies(declared?: { folders?: string[]; excludeFolders?: string[]
   };
 }
 
-async function workspaceOnPlan(libraryLimit = 10): Promise<string> {
+async function workspaceOnPlan(): Promise<string> {
   const database = db();
   const workspaceId = crypto.randomUUID();
   workspaces.push(workspaceId);
@@ -124,14 +124,11 @@ async function workspaceOnPlan(libraryLimit = 10): Promise<string> {
   planVersions.push(planVersionId);
   await database.insert(schema.planVersion).values({
     id: planVersionId,
-    planId: 'pro',
-    priceMinor: 2000,
+    planId: 'free',
+    priceMinor: 0,
     currency: 'USD',
     monthlyCalls: 1_000,
-    libraryLimit,
-    librarySizeBytesLimit: 1_000_000,
     apiKeyLimit: 5,
-    shareRateBps: 2000,
     capabilities: {},
     createdAt: new Date('2000-01-01T00:00:00Z'),
   });

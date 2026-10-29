@@ -142,6 +142,8 @@ export default async function DashboardLibraryPage({
   const quote = await quoteBuild({
     workspaceId: session.workspace.id,
     fetchesPages: buildFetchesPages(library.source?.type),
+    /* A rebuild replaces this library's bytes, so they are not storage it competes with. */
+    libraryId: library.id,
   });
   const currentVersionId = library.versions.find((version) => version.isCurrent)?.id ?? null;
   const docsPage = documentsPage(query.docs);

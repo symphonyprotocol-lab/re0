@@ -24,6 +24,12 @@ export {
   type BuildQuote,
 } from './build-quota';
 export {
+  extendStorageTier,
+  workspaceStorage,
+  workspaceStorageTier,
+  type WorkspaceStorage,
+} from './storage';
+export {
   PLAN_VERSION_NEWEST_FIRST,
   createPlanVersion,
   currentPlanVersion,

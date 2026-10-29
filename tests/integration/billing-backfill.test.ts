@@ -18,7 +18,6 @@ process.env.DATABASE_URL = TEST_DATABASE_URL ?? 'postgres://unused';
 process.env.SESSION_SIGNING_SECRET ??= 'test-secret-that-is-long-enough-000000';
 
 const { applyProviderSnapshot, BackfillRefused } = await import('@/lib/application/billing/backfill');
-const { hasPaidSubscription } = await import('@/lib/application/plans/quota');
 const { PLAN_VERSION_NEWEST_FIRST } = await import('@/lib/application/plans/configuration');
 const { db, schema } = await import('@/lib/infrastructure/postgres/client');
 const { uuidv7 } = await import('@/lib/domain/id');
@@ -34,7 +33,6 @@ const meta = { administratorId: uuidv7() };
 const DAY = 86_400_000;
 const T0 = new Date(Date.now() - DAY);
 
-let proVersion = '';
 let addonVersion = '';
 let addonCalls = 0;
 
@@ -70,8 +68,8 @@ function documentNotice(
   };
 }
 
-function snapshot(document: DocumentNotice | null, subscription: Snapshot['subscription'] = null): Snapshot {
-  return { document, subscription, payload: { test: true } };
+function snapshot(document: DocumentNotice | null): Snapshot {
+  return { document, payload: { test: true } };
 }
 
 describeWithDb('backfilling a billing document from the provider', () => {
@@ -86,8 +84,7 @@ describeWithDb('backfilling a billing document from the provider', () => {
           .orderBy(...PLAN_VERSION_NEWEST_FIRST)
           .limit(1)
       )[0]!;
-    const [pro, addon] = await Promise.all([newest('pro'), newest('addon')]);
-    proVersion = pro.id;
+    const addon = await newest('addon');
     addonVersion = addon.id;
     addonCalls = addon.monthlyCalls;
     await database.insert(schema.workspace).values({ id: workspaceId, name: 'Backfill Fixture' });
@@ -109,7 +106,6 @@ describeWithDb('backfilling a billing document from the provider', () => {
       previousStatus: null,
       status: 'paid',
       grantedCalls: addonCalls,
-      subscription: null,
     });
 
     const [document] = await db()
@@ -133,42 +129,6 @@ describeWithDb('backfilling a billing document from the provider', () => {
       .from(schema.addonGrant)
       .where(eq(schema.addonGrant.providerOrderId, `txn_${tag}_pack`));
     expect(grants).toHaveLength(1);
-  });
-
-  it('places the subscription first, so a subscription invoice is linked to it', async () => {
-    const subscriptionId = `sub_${tag}`;
-    expect(await hasPaidSubscription(workspaceId)).toBe(false);
-
-    const result = await applyProviderSnapshot(
-      provider,
-      snapshot(
-        documentNotice(
-          `txn_${tag}_sub`,
-          { kind: 'subscription', periodStart: T0, periodEnd: new Date(T0.getTime() + 30 * DAY) },
-          { planVersionId: proVersion, subscriptionExternalId: subscriptionId },
-        ),
-        {
-          externalId: subscriptionId,
-          customerId: `ctm_${tag}`,
-          status: 'active',
-          periodStart: T0,
-          periodEnd: new Date(T0.getTime() + 30 * DAY),
-          cancelAt: null,
-          workspaceId,
-          planVersionId: proVersion,
-          observedAt: T0,
-        },
-      ),
-      meta,
-    );
-    expect(result).toMatchObject({ created: true, status: 'paid', subscription: 'applied' });
-    expect(await hasPaidSubscription(workspaceId)).toBe(true);
-
-    const [document] = await db()
-      .select({ subscriptionId: schema.billingDocument.subscriptionId })
-      .from(schema.billingDocument)
-      .where(eq(schema.billingDocument.id, result.documentId));
-    expect(document?.subscriptionId).not.toBeNull();
   });
 
   it('refuses a transaction that is not a billing document', async () => {

@@ -933,8 +933,6 @@ export function ImportWizard({
                   ? w.errorGithub[state.refusal ?? 'not_found']
                   : state.error === 'notion'
                     ? w.errorNotion[state.notionRefusal ?? 'not_found']
-                    : state.error === 'limit'
-                    ? w.errorLimit
                     : state.error === 'quota'
                     ? w.errorQuota
                     : state.error === 'denied'

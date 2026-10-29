@@ -1,7 +1,7 @@
 /**
- * The pricing page's Free / Pro boundaries, against the seeded plan versions:
- * monthly calls, self-built libraries, per-library size and site keys. Each
- * case fills the workspace to one under the advertised ceiling, takes the
+ * The pricing page's boundaries, against the seeded plan version and the two
+ * storage tiers: monthly calls, the workspace's total storage, and site keys.
+ * Each case fills the workspace to one under the advertised ceiling, takes the
  * last slot, and expects the next one refused.
  *
  * Runs only when TEST_DATABASE_URL points at a disposable database.
@@ -15,69 +15,59 @@ const describeWithDb = TEST_DATABASE_URL ? describe : describe.skip;
 process.env.DATABASE_URL = TEST_DATABASE_URL ?? 'postgres://unused';
 process.env.SESSION_SIGNING_SECRET ??= 'test-secret-that-is-long-enough-000000';
 
-const { createWorkspaceLibrary } = await import('@/lib/application/libraries');
 const { reserveCall, PLAN_VERSION_NEWEST_FIRST } = await import('@/lib/application/plans');
+const { workspaceStorage } = await import('@/lib/application/plans/storage');
 const { createSiteKey } = await import('@/lib/application/embed');
 const { createPlatformLibrary } = await import(
   '@/lib/application/administration/manage-platform-libraries'
 );
 const { buildVersion, memoryObjectStore } = await import('@/lib/application/ingestion');
 const { EMBEDDING_COLUMN_DIMENSIONS } = await import('@/lib/infrastructure/ai/providers');
+const { storageCapacityBytes } = await import('@/lib/domain/plans');
 const { db, schema } = await import('@/lib/infrastructure/postgres/client');
 const { uuidv7 } = await import('@/lib/domain/id');
 
 const store = memoryObjectStore();
 const workspaces: string[] = [];
-const planVersions: string[] = [];
+const users: string[] = [];
 const SITE = 'https://shop.example.test';
 
-async function newestVersion(planId: 'free' | 'pro') {
+async function newestFreeVersion() {
   const [version] = await db()
     .select()
     .from(schema.planVersion)
-    .where(eq(schema.planVersion.planId, planId))
+    .where(eq(schema.planVersion.planId, 'free'))
     .orderBy(...PLAN_VERSION_NEWEST_FIRST)
     .limit(1);
-  if (!version) throw new Error(`no ${planId} version seeded`);
+  if (!version) throw new Error('no free version seeded');
   return version;
 }
 
 /**
- * A Pro version of the test's own, older than any real one: the live Pro
- * version's figures by default. Subscribing to the live row itself would
- * count against it in the console's history (plan-configuration.test.ts).
+ * A workspace on Free -- the absence of a subscription -- owned by a user on
+ * the given storage tier. The tier is the owner's (agent-first-proposal.md
+ * 8.1), so the capacity test needs the member row; the others do not care.
  */
-async function proVersion(overrides: { librarySizeBytesLimit?: number } = {}): Promise<string> {
-  const { id: _live, createdAt: _at, ...live } = await newestVersion('pro');
-  const id = uuidv7();
-  planVersions.push(id);
-  await db()
-    .insert(schema.planVersion)
-    .values({ ...live, ...overrides, id, createdAt: new Date('2000-01-01T00:00:00Z') });
-  return id;
-}
-
-/** Free is the absence of a subscription; Pro is one on a copy of the live Pro version. */
-async function workspaceOn(tier: 'free' | 'pro', planVersionId?: string): Promise<string> {
+async function workspaceOn(tier: 'base' | 'extended'): Promise<string> {
   const database = db();
   const workspaceId = crypto.randomUUID();
+  const userId = uuidv7();
   workspaces.push(workspaceId);
+  users.push(userId);
+  await database.insert(schema.user).values({
+    id: userId,
+    email: `limits-${userId}@example.test`,
+    displayName: 'Limits Owner',
+    status: 'active',
+    storageTier: tier,
+  });
   await database.insert(schema.workspace).values({ id: workspaceId, name: `limits-${tier}` });
-  if (tier === 'pro') {
-    await database.insert(schema.subscription).values({
-      id: uuidv7(),
-      workspaceId,
-      planVersionId: planVersionId ?? (await proVersion()),
-      status: 'active',
-      periodStart: new Date(Date.now() - 86_400_000),
-      periodEnd: new Date(Date.now() + 86_400_000),
-    });
-  }
+  await database.insert(schema.workspaceMember).values({ workspaceId, userId, role: 'owner' });
   return workspaceId;
 }
 
-/** `n` draft libraries owned by the workspace, written directly. */
-async function fillLibraries(workspaceId: string, n: number): Promise<string[]> {
+/** `n` draft libraries owned by the workspace, written directly, each holding `storageBytes`. */
+async function fillLibraries(workspaceId: string, n: number, storageBytes = 0): Promise<string[]> {
   const ids = Array.from({ length: n }, () => uuidv7());
   if (n === 0) return ids;
   await db()
@@ -93,22 +83,10 @@ async function fillLibraries(workspaceId: string, n: number): Promise<string[]> 
         visibility: 'private' as const,
         lifecycleStatus: 'draft' as const,
         indexStatus: 'pending' as const,
+        storageBytes,
       })),
     );
   return ids;
-}
-
-function createEmpty(workspaceId: string, slug: string) {
-  return createWorkspaceLibrary({
-    role: 'owner',
-    workspaceId,
-    title: slug,
-    visibility: 'private',
-    sourceType: 'markdown',
-    location: '',
-    slug,
-    store,
-  });
 }
 
 /** Consumption up to `calls`, as one weighted usage event. */
@@ -170,58 +148,37 @@ async function buildOwned(workspaceId: string, content: string) {
 }
 
 describeWithDb('pricing page boundaries', () => {
-  /* The subscriptions go so the versions can; the rest is disposable fixture data. */
   afterAll(async () => {
     const database = db();
     if (workspaces.length > 0) {
-      await database.delete(schema.subscription).where(inArray(schema.subscription.workspaceId, workspaces));
+      await database
+        .delete(schema.workspaceMember)
+        .where(inArray(schema.workspaceMember.workspaceId, workspaces));
     }
-    if (planVersions.length > 0) {
-      await database.delete(schema.planVersion).where(inArray(schema.planVersion.id, planVersions));
+    if (users.length > 0) {
+      await database.delete(schema.user).where(inArray(schema.user.id, users));
     }
   });
 
   it('seeds the figures the pricing page prints', async () => {
-    const free = await newestVersion('free');
-    const pro = await newestVersion('pro');
-    expect([free.monthlyCalls, free.libraryLimit, free.librarySizeBytesLimit]).toEqual([1_000, 5, 20 * 1024 * 1024]);
-    expect([pro.monthlyCalls, pro.libraryLimit, pro.librarySizeBytesLimit]).toEqual([5_000, 25, 100 * 1024 * 1024]);
+    const free = await newestFreeVersion();
+    expect([free.monthlyCalls, free.apiKeyLimit]).toEqual([1_000, 20]);
+    expect(storageCapacityBytes('base')).toBe(500 * 1024 * 1024);
+    expect(storageCapacityBytes('extended')).toBe(2 * 1024 * 1024 * 1024);
   });
 
-  for (const [tier, allowance] of [
-    ['free', 1_000],
-    ['pro', 5_000],
-  ] as const) {
-    it(`${tier}: admits call ${allowance} and refuses call ${allowance + 1}`, async () => {
-      const workspaceId = await workspaceOn(tier);
-      await spend(workspaceId, allowance - 1);
-      const last = await reserveCall({ workspaceId, requestId: `limits-${uuidv7()}` });
-      expect(last).toMatchObject({ debitSource: 'plan', planAllowanceRemaining: 0 });
-      await expect(reserveCall({ workspaceId, requestId: `limits-${uuidv7()}` })).rejects.toMatchObject({
-        code: 'quota_exceeded',
-      });
+  it('admits call 1,000 and refuses call 1,001', async () => {
+    const workspaceId = await workspaceOn('base');
+    await spend(workspaceId, 999);
+    const last = await reserveCall({ workspaceId, requestId: `limits-${uuidv7()}` });
+    expect(last).toMatchObject({ debitSource: 'plan', planAllowanceRemaining: 0 });
+    await expect(reserveCall({ workspaceId, requestId: `limits-${uuidv7()}` })).rejects.toMatchObject({
+      code: 'quota_exceeded',
     });
-  }
+  });
 
-  for (const [tier, limit] of [
-    ['free', 5],
-    ['pro', 25],
-  ] as const) {
-    it(`${tier}: creates library ${limit} and refuses library ${limit + 1}`, async () => {
-      const workspaceId = await workspaceOn(tier);
-      await fillLibraries(workspaceId, limit - 1);
-      const stamp = uuidv7().slice(-12);
-      await expect(createEmpty(workspaceId, `last-${stamp}`)).resolves.toMatchObject({
-        libraryId: expect.any(String),
-      });
-      await expect(createEmpty(workspaceId, `over-${stamp}`)).rejects.toMatchObject({
-        code: 'library_limit_exceeded',
-      });
-    });
-  }
-
-  it('free: one site key across the workspace', async () => {
-    const workspaceId = await workspaceOn('free');
+  it('one site key across the workspace', async () => {
+    const workspaceId = await workspaceOn('base');
     const [a, b] = await fillLibraries(workspaceId, 2);
     await createSiteKey({ workspaceId, role: 'owner', libraryId: a!, name: 'One', origins: SITE });
     await expect(
@@ -229,41 +186,42 @@ describeWithDb('pricing page boundaries', () => {
     ).rejects.toMatchObject({ code: 'api_key_limit_exceeded', ceiling: 'plan' });
   });
 
-  it('pro: no workspace cap on site keys, only the per-library ceiling', async () => {
-    const workspaceId = await workspaceOn('pro');
-    const [a, b, c] = await fillLibraries(workspaceId, 3);
-    for (const libraryId of [a!, b!]) {
-      for (let i = 0; i < 5; i += 1) {
-        await createSiteKey({ workspaceId, role: 'owner', libraryId, name: `k${i}`, origins: SITE });
-      }
-    }
-    await expect(
-      createSiteKey({ workspaceId, role: 'owner', libraryId: c!, name: 'eleventh', origins: SITE }),
-    ).resolves.toMatchObject({ name: 'eleventh' });
-    await expect(
-      createSiteKey({ workspaceId, role: 'owner', libraryId: a!, name: 'sixth', origins: SITE }),
-    ).rejects.toMatchObject({ code: 'api_key_limit_exceeded', ceiling: 'library' });
-  });
-
-  it('builds content at the plan’s per-library size and refuses a byte over', async () => {
-    /* A 1 KB ceiling stands in for 20 MB: the same column, the same code path. */
-    const ceiling = 1024;
-    const workspaceId = await workspaceOn('pro', await proVersion({ librarySizeBytesLimit: ceiling }));
+  it('builds content up to the workspace’s total capacity and refuses a byte over', async () => {
+    /*
+     * The ceiling is the workspace's, not the library's: a filler library
+     * already holding all but 1 KB of the base tier leaves this build 1 KB.
+     */
+    const room = 1024;
+    const workspaceId = await workspaceOn('base');
+    await fillLibraries(workspaceId, 1, storageCapacityBytes('base') - room);
+    expect((await workspaceStorage(workspaceId)).remainingBytes).toBe(room);
 
     const header = '# Manual\n\n';
-    const at = header + 'q'.repeat(ceiling - header.length);
+    const at = header + 'q'.repeat(room - header.length);
     const over = at + 'q';
-    expect(Buffer.byteLength(at)).toBe(ceiling);
+    expect(Buffer.byteLength(at)).toBe(room);
 
     await expect(buildOwned(workspaceId, at)).resolves.toMatchObject({ changed: true });
+    expect((await workspaceStorage(workspaceId)).remainingBytes).toBe(0);
     await expect(buildOwned(workspaceId, over)).rejects.toMatchObject({
       code: 'library_too_large',
       stage: 'fetch-snapshot',
     });
 
     /* Multi-byte text counts as UTF-8 bytes, not characters. */
-    const han = header + '知'.repeat(Math.ceil((ceiling - header.length) / 3) + 1);
-    expect(han.length).toBeLessThan(ceiling);
+    const han = header + '知'.repeat(Math.ceil((room - header.length) / 3) + 1);
+    expect(han.length).toBeLessThan(room);
     await expect(buildOwned(workspaceId, han)).rejects.toMatchObject({ code: 'library_too_large' });
+  });
+
+  it('gives an owner who has bought a pack the extended capacity', async () => {
+    const workspaceId = await workspaceOn('extended');
+    await fillLibraries(workspaceId, 1, storageCapacityBytes('base'));
+    const storage = await workspaceStorage(workspaceId);
+    expect(storage.tier).toBe('extended');
+    expect(storage.remainingBytes).toBe(storageCapacityBytes('extended') - storageCapacityBytes('base'));
+
+    /* Over the base tier already, and still room to build. */
+    await expect(buildOwned(workspaceId, '# Manual\n\nroom to spare')).resolves.toMatchObject({ changed: true });
   });
 });

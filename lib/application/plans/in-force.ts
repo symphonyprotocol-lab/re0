@@ -15,7 +15,7 @@
  * **A provider-billed row survives its own period end by a day.** The provider
  * renews at exactly `period_end`, and the webhook that moves the period lands
  * after it -- seconds normally, longer when delivery is retried. Without the
- * grace, every renewal dropped a Pro workspace to Free for that gap. A renewal
+ * grace, every renewal dropped a paid workspace to Free for that gap. A renewal
  * whose payment fails does not ride the grace: the provider reports it
  * `past_due`, which is not `active`. The Free row never gets one; nothing
  * renews it.

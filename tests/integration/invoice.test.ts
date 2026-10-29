@@ -21,7 +21,6 @@ const PADDLE_ENV = {
   PADDLE_API_KEY: 'pdl_sdbx_apikey_test',
   PADDLE_WEBHOOK_SECRET: 'pdl_ntfset_test',
   PADDLE_CLIENT_TOKEN: 'test_token',
-  PADDLE_PRO_PRODUCT_ID: 'pro_test_pro',
   PADDLE_ADDON_PRODUCT_ID: 'pro_test_pack',
   PADDLE_ENVIRONMENT: 'sandbox',
   APP_BASE_URL: 'https://re0.test',

@@ -161,8 +161,8 @@ export async function listWorkspaceLibraries(workspaceId: string): Promise<Works
 
 /**
  * The workspace's libraries that still exist. A deleted one is a tombstone
- * (`deleted_at`), kept for billing history and shown nowhere -- and it no
- * longer counts against the plan's library limit.
+ * (`deleted_at`), kept for billing history and shown nowhere -- and its
+ * bytes no longer count against the workspace's storage.
  */
 const OWNED_AND_LIVE = (workspaceId: string) =>
   and(eq(schema.library.ownerWorkspaceId, workspaceId), isNull(schema.library.deletedAt));
@@ -175,11 +175,4 @@ export async function countWorkspaceLibraries(workspaceId: string): Promise<numb
   return row?.n ?? 0;
 }
 
-/** The biggest library the workspace owns, in bytes -- what the per-library ceiling is measured against. */
-export async function largestWorkspaceLibraryBytes(workspaceId: string): Promise<number> {
-  const [row] = await db()
-    .select({ bytes: sql<number>`coalesce(max(${schema.library.storageBytes}), 0)::bigint` })
-    .from(schema.library)
-    .where(OWNED_AND_LIVE(workspaceId));
-  return Number(row?.bytes ?? 0);
-}
+

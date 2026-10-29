@@ -49,6 +49,8 @@ async function expectRefusal(promise: Promise<unknown>): Promise<string> {
 const mintedVersionIds: string[] = [];
 const workspaceId = uuidv7();
 let subscriptionId = '';
+/** The live Free version before this suite minted its successor. */
+let subscribedVersionId = '';
 
 describeWithDb('plan configuration', () => {
   beforeAll(async () => {
@@ -80,9 +82,9 @@ describeWithDb('plan configuration', () => {
       .where(eq(schema.administrator.id, actor.administratorId));
   });
 
-  it('reads the seeded catalogue: three tiers, each with a live version', async () => {
+  it('reads the seeded catalogue: two tiers, each with a live version', async () => {
     const { tiers } = await listPlanConfiguration();
-    expect(tiers.map((tier) => tier.id)).toEqual(['free', 'pro', 'addon']);
+    expect(tiers.map((tier) => tier.id)).toEqual(['free', 'addon']);
     for (const tier of tiers) {
       expect(tier.live).not.toBeNull();
       expect(tier.live?.currency).toBe('USD');
@@ -90,12 +92,19 @@ describeWithDb('plan configuration', () => {
     }
   });
 
+  /*
+   * Free is the only tier a subscription can point at, so it is the one minted
+   * here. The successor keeps the seeded allowance and price and raises only
+   * the key ceiling: other suites read the newest Free version's calls off the
+   * live catalogue while this one runs, and must keep finding the seeded figure.
+   */
   it('leaves an existing subscription on the version it was sold', async () => {
     const database = db();
-    const before = await currentPlanVersion('pro');
+    const before = await currentPlanVersion('free');
     expect(before).not.toBeNull();
 
     await database.insert(schema.workspace).values({ id: workspaceId, name: 'Plan Fixture' });
+    subscribedVersionId = before!.id;
     subscriptionId = uuidv7();
     const now = new Date();
     await database.insert(schema.subscription).values({
@@ -109,16 +118,13 @@ describeWithDb('plan configuration', () => {
 
     const result = await createPlanVersion({
       actor,
-      planId: 'pro',
+      planId: 'free',
       expectedLiveVersionId: before!.id,
       currency: 'USD',
-      price: '6.00',
-      calls: '6000',
-      libraryLimit: '30',
-      librarySizeMb: '120',
-      apiKeyLimit: '25',
-      shareRate: '20',
-      reason: 'raise the Pro allowance',
+      price: '0',
+      calls: String(before!.monthlyCalls),
+      apiKeyLimit: String(before!.apiKeyLimit + 5),
+      reason: 'raise the Free key ceiling',
     });
     mintedVersionIds.push(result.planVersionId);
 
@@ -141,17 +147,17 @@ describeWithDb('plan configuration', () => {
     expect(subscription?.planVersionId).toBe(before!.id);
 
     // The new one is what a new subscription would be sold.
-    const live = await currentPlanVersion('pro');
+    const live = await currentPlanVersion('free');
     expect(live?.id).toBe(result.planVersionId);
-    expect(live?.priceMinor).toBe(600);
-    expect(live?.librarySizeBytesLimit).toBe(120 * 1_048_576);
+    expect(live?.apiKeyLimit).toBe(before!.apiKeyLimit + 5);
   });
 
   it('shows the superseded row still billing on the history', async () => {
     const { history } = await listPlanConfiguration();
-    const superseded = history.find((row) => row.id !== mintedVersionIds[0] && row.planId === 'pro');
+    const superseded = history.find((row) => row.id === subscribedVersionId);
     expect(superseded?.isLive).toBe(false);
-    expect(superseded?.subscriptions).toBe(1);
+    /* Signup writes a Free row per workspace, so other fixtures may be on it too; ours is among them. */
+    expect(superseded?.subscriptions).toBeGreaterThanOrEqual(1);
 
     const live = history.find((row) => row.id === mintedVersionIds[0]);
     expect(live?.isLive).toBe(true);
@@ -164,70 +170,68 @@ describeWithDb('plan configuration', () => {
       .from(schema.auditLog)
       .where(eq(schema.auditLog.targetId, mintedVersionIds[0]!));
     expect(entry?.action).toBe('plan.create_version');
-    expect(entry?.reason).toBe('raise the Pro allowance');
-    expect((entry?.beforeValue as { priceMinor?: number })?.priceMinor).toBe(500);
-    expect((entry?.afterValue as { priceMinor?: number })?.priceMinor).toBe(600);
+    expect(entry?.reason).toBe('raise the Free key ceiling');
+    const before = entry?.beforeValue as { apiKeyLimit?: number };
+    const after = entry?.afterValue as { apiKeyLimit?: number };
+    expect(after?.apiKeyLimit).toBe((before?.apiKeyLimit ?? 0) + 5);
   });
 
   it('refuses a submit whose form was built against a version that has moved', async () => {
     /*
      * The lost update this guard exists for: a dialog opened against the
-     * seeded Pro version, still open while the case above minted a successor,
-     * would otherwise supersede a price rise it never displayed.
+     * version the case above superseded, still open while it minted the
+     * successor, would otherwise supersede a change it never displayed.
      */
+    const live = (await currentPlanVersion('free'))!;
     const stale = await expectRefusal(
       createPlanVersion({
         actor,
-        planId: 'pro',
-        expectedLiveVersionId: '01920000-0000-7000-8000-000000000002',
+        planId: 'free',
+        expectedLiveVersionId: subscribedVersionId,
         currency: 'USD',
-        price: '5.00',
-        calls: '5000',
-        libraryLimit: '25',
-        librarySizeMb: '100',
-        apiKeyLimit: '20',
-        shareRate: '20',
+        price: '0',
+        calls: String(live.monthlyCalls),
+        apiKeyLimit: '1',
         reason: 'submitted from a stale dialog',
       }),
     );
     expect(stale).toBe('superseded');
 
-    const live = await currentPlanVersion('pro');
-    expect(live?.id).toBe(mintedVersionIds[0]);
-    expect(live?.priceMinor).toBe(600);
+    const after = await currentPlanVersion('free');
+    expect(after?.id).toBe(mintedVersionIds[0]);
+    expect(after?.apiKeyLimit).toBe(live.apiKeyLimit);
   });
 
   it('refuses to mint a version identical to the live one', async () => {
+    const live = (await currentPlanVersion('free'))!;
     await expect(
       createPlanVersion({
         actor,
-        planId: 'pro',
+        planId: 'free',
         expectedLiveVersionId: mintedVersionIds[0]!,
         currency: 'USD',
-        price: '6.00',
-        calls: '6000',
-        libraryLimit: '30',
-        librarySizeMb: '120',
-        apiKeyLimit: '25',
-        shareRate: '20',
+        price: '0',
+        calls: String(live.monthlyCalls),
+        apiKeyLimit: String(live.apiKeyLimit),
+        buildBaseCalls: String(live.buildBaseCalls),
+        buildTokensPerCall: String(live.buildTokensPerCall),
+        buildPagesPerCall: String(live.buildPagesPerCall),
         reason: 'no change at all',
       }),
     ).rejects.toThrow(PlanChangeRefused);
   });
 
   it('refuses to mint one without a reason for the audit log', async () => {
+    const live = (await currentPlanVersion('free'))!;
     await expect(
       createPlanVersion({
         actor,
-        planId: 'pro',
+        planId: 'free',
         expectedLiveVersionId: mintedVersionIds[0]!,
         currency: 'USD',
-        price: '7.00',
-        calls: '7000',
-        libraryLimit: '30',
-        librarySizeMb: '120',
-        apiKeyLimit: '25',
-        shareRate: '20',
+        price: '0',
+        calls: String(live.monthlyCalls),
+        apiKeyLimit: '7777',
         reason: '   ',
       }),
     ).rejects.toThrow(AdminChangeRefused);
@@ -235,6 +239,6 @@ describeWithDb('plan configuration', () => {
 
   it('writes nothing when it refuses', async () => {
     const { history } = await listPlanConfiguration();
-    expect(history.filter((row) => row.planId === 'pro' && row.priceMinor === 700)).toHaveLength(0);
+    expect(history.filter((row) => row.planId === 'free' && row.apiKeyLimit === 7777)).toHaveLength(0);
   });
 });

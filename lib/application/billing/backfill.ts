@@ -14,8 +14,8 @@
  *
  * Each run is recorded as a `payment_event` of its own, with what the provider
  * returned, under a fresh id. Re-running is safe without the event key: the
- * mirror is keyed on the document, the pack grant on the order, the
- * subscription on the provider's id, and each is guarded against older state.
+ * mirror is keyed on the document and the pack grant on the order, and each
+ * is guarded against older state.
  * A fresh id also means a run that could not be placed -- no workspace, no
  * pack version -- can be tried again once that is fixed, where a reused key
  * would answer `redelivered` forever.
@@ -32,7 +32,7 @@ import {
 } from '@/lib/infrastructure/payment/provider';
 import { db, schema } from '@/lib/infrastructure/postgres/client';
 import { recordAudit } from '@/lib/application/administration/audit';
-import { applyPaymentNotification, type PaymentWebhookOutcome } from './webhook';
+import { applyPaymentNotification } from './webhook';
 
 export const BACKFILL_REFUSALS = [
   'reason_required',
@@ -68,8 +68,6 @@ export interface BackfillResult {
   status: BillingDocumentStatus;
   /** Calls granted by this run; null when it granted none, including an earlier grant. */
   grantedCalls: number | null;
-  /** What the run did to the subscription the document bills, when it bills one. */
-  subscription: PaymentWebhookOutcome | null;
 }
 
 /** Wide enough for any provider's ids, narrow enough to keep a URL path segment honest. */
@@ -144,7 +142,6 @@ export async function backfillProviderDocument(input: {
       documentId: result.documentId,
       status: result.status,
       grantedCalls: result.grantedCalls,
-      subscription: result.subscription,
     },
     before,
   );
@@ -152,10 +149,8 @@ export async function backfillProviderDocument(input: {
 }
 
 /**
- * Applies what the provider reported, subscription first: a document is linked
- * to the subscription row it bills, so that row has to exist by the time the
- * document is placed. Exported for its integration test, which has no
- * provider to read from.
+ * Applies what the provider reported through the webhook's own path. Exported
+ * for its integration test, which has no provider to read from.
  */
 export async function applyProviderSnapshot(
   provider: string,
@@ -165,17 +160,6 @@ export async function applyProviderSnapshot(
   const notice = snapshot.document;
   if (!notice) throw new BackfillRefused('not_billable');
   const payload = { source: 'console_backfill', administratorId: meta.administratorId, ...asObject(snapshot.payload) };
-
-  const subscription = snapshot.subscription
-    ? await applyPaymentNotification({
-        provider,
-        externalEventId: `backfill_${uuidv7()}`,
-        eventType: 'subscription.backfill',
-        payload,
-        subject: 'subscription',
-        subscription: snapshot.subscription,
-      })
-    : null;
 
   const externalId = notice.document.externalId;
   const before = await mirroredState(provider, externalId);
@@ -207,7 +191,6 @@ export async function applyProviderSnapshot(
     previousStatus: before?.status ?? null,
     status: after.status,
     grantedCalls: grantAfter && !grantBefore ? grantAfter.callsGranted : null,
-    subscription,
   };
 }
 

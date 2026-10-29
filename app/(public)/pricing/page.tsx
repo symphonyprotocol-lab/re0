@@ -1,18 +1,11 @@
 import type { Metadata } from 'next';
-import { cache, type ReactNode } from 'react';
+import { cache } from 'react';
 import Link from 'next/link';
 import { PendingSubmitButton } from '@/components/ui/pending-submit-button';
 import { SectionHeading } from '@/components/ui/primitives';
 import { JsonLd } from '@/components/seo/json-ld';
 import { PUBLIC_ORIGIN, publicUrl } from '@/lib/site/origin';
-import {
-  ArrowRightIcon,
-  CheckIcon,
-  CircleHelpIcon,
-  GiftIcon,
-  PackagePlusIcon,
-  SparklesIcon,
-} from '@/components/ui/icons';
+import { ArrowRightIcon, CheckIcon, CircleHelpIcon, GiftIcon, PackagePlusIcon } from '@/components/ui/icons';
 import { currentPlanVersion } from '@/lib/application/plans';
 import { FALLBACK_PRICING, pricingFigures, type PricedVersion, type PricingVersions } from '@/lib/domain/pricing-page';
 import type { PlanTierId } from '@/lib/domain/plans';
@@ -22,10 +15,14 @@ import { startCheckoutAction } from '@/app/dashboard/settings/actions';
 
 export async function generateMetadata(): Promise<Metadata> {
   const [{ locale, t }, versions] = await Promise.all([translations(), livePricing()]);
-  const figures = pricingFigures(versions, new Intl.NumberFormat(locale), t.pricing.surfaces);
+  const figures = pricingFigures(versions, new Intl.NumberFormat(locale));
   return {
     title: t.pricing.metaTitle,
-    description: fill(t.pricing.metaDescription, { freeCalls: figures.free.calls, proPrice: figures.pro.price }),
+    description: fill(t.pricing.metaDescription, {
+      freeCalls: figures.free.calls,
+      packPrice: figures.addon.price,
+      packCalls: figures.addon.calls,
+    }),
   };
 }
 
@@ -45,18 +42,18 @@ const livePricing = cache(async (): Promise<PricingVersions> => {
       return FALLBACK_PRICING[tier];
     }
   };
-  const [free, pro, addon] = await Promise.all([read('free'), read('pro'), read('addon')]);
-  return { free, pro, addon };
+  const [free, addon] = await Promise.all([read('free'), read('addon')]);
+  return { free, addon };
 });
 
-/** Identity and icon per plan; the words come from the dictionary, the figures from the live versions. */
 /**
- * Each card's button goes where that plan is acted on. Free is a link to the
- * dashboard; the paid two post straight to the checkout action, so a signed-in
- * buyer lands on the provider's checkout without a stop on the settings page.
- * The action sends a signed-out visitor through login to the settings plan
- * card, and a refusal (a pack before Pro, a second subscription) to the same
- * card with the reason printed.
+ * Identity and icon per plan; the words come from the dictionary, the figures
+ * from the live versions. Each card's button goes where that plan is acted on:
+ * Free is a link to the dashboard; the pack posts straight to the checkout
+ * action, so a signed-in buyer lands on the provider's checkout without a stop
+ * on the settings page. The action sends a signed-out visitor through login to
+ * the settings plan card, and a refusal to the same card with the reason
+ * printed. Anyone may buy a pack (agent-first-proposal.md 8.1).
  */
 const PLAN_FACTS = [
   {
@@ -67,18 +64,11 @@ const PLAN_FACTS = [
     href: '/dashboard',
   },
   {
-    id: 'pro',
-    name: 'Pro',
-    icon: <SparklesIcon size={18} />,
-    featured: true,
-    checkout: 'subscription',
-  },
-  {
     id: 'addon',
     name: 'Additional Calls',
     icon: <PackagePlusIcon size={18} />,
-    featured: false,
-    checkout: 'pack',
+    featured: true,
+    checkout: true,
   },
 ] as const;
 
@@ -127,10 +117,12 @@ export default async function PricingPage() {
   const [{ locale, t }, versions] = await Promise.all([translations(), livePricing()]);
   const p = t.pricing;
   const number = new Intl.NumberFormat(locale);
-  const figures = pricingFigures(versions, number, p.surfaces);
+  const figures = pricingFigures(versions, number);
+  /* Every template may name the two storage capacities beside its own tier's figures. */
+  const storage = { storage: figures.storage.base, storageExtended: figures.storage.extended };
   const plans = PLAN_FACTS.map((facts) => {
     const words = p.plans[facts.id];
-    const values = figures[facts.id];
+    const values = { ...figures[facts.id], ...storage };
     return {
       ...facts,
       ...words,
@@ -140,37 +132,32 @@ export default async function PricingPage() {
     };
   });
   const r = p.compareRows;
-  const { free, pro, addon } = figures;
-  const compare: [string, string, string, string][] = [
-    [r.price, free.price, pro.price, fill(r.pricePack, { price: addon.price })],
-    [r.calls, fill(r.callsMonthly, free), fill(r.callsMonthly, pro), fill(r.callsPack, addon)],
-    [r.publicLibraries, r.allIncluded, r.allIncluded, r.inherits],
-    [r.ownLibraries, fill(r.upTo, { n: free.libraries }), fill(r.upTo, { n: pro.libraries }), r.inherits],
-    [r.size, free.size, pro.size, r.inherits],
-    [r.widget, free.siteKeys, pro.siteKeys, r.inherits],
-    [r.pages, free.showcasePages, pro.showcasePages, r.inherits],
-    [r.builds, fill(r.buildRate, free), fill(r.buildRate, pro), r.inherits],
-    [r.packs, r.none, r.packsAvailable, r.packsSelf],
-    [r.tokens, '$0', '$0', '$0'],
+  const { free, addon } = figures;
+  const compare: [string, string, string][] = [
+    [r.price, free.price, fill(r.pricePack, { price: addon.price })],
+    [r.calls, fill(r.callsMonthly, free), fill(r.callsPack, addon)],
+    [r.publicLibraries, r.allIncluded, r.sameAsFree],
+    [r.ownLibraries, r.unlimited, r.sameAsFree],
+    [r.storage, figures.storage.base, fill(r.storageAfterPack, { storage: figures.storage.extended })],
+    [r.keys, fill(r.keysCount, { n: free.keys }), r.sameAsFree],
+    [r.builds, fill(r.buildRate, free), r.sameAsFree],
+    [r.packs, r.packsAvailable, r.packsSelf],
+    [r.tokens, '$0', '$0'],
   ];
   const faq = p.faq.map((item) => ({
     q: item.q,
     a: fill(item.a, {
       packCalls: addon.calls,
-      freeLibraries: free.libraries,
-      freeSize: free.size,
-      proLibraries: pro.libraries,
-      proSize: pro.size,
-      freeSurfaces: free.surfaces,
-      proSurfaces: pro.surfaces,
-      base: pro.base,
-      tokens: pro.tokens,
-      pages: pro.pages,
-      share: pro.share,
+      packPrice: addon.price,
+      keys: free.keys,
+      base: free.base,
+      tokens: free.tokens,
+      pages: free.pages,
+      ...storage,
     }),
   }));
 
-  /* The three prices as a search engine reads them: the same figures the
+  /* The two prices as a search engine reads them: the same figures the
      cards print, taken from the same facts, so the two cannot drift apart. */
   const offers = {
     '@context': 'https://schema.org',
@@ -179,7 +166,7 @@ export default async function PricingPage() {
     url: PUBLIC_ORIGIN,
     applicationCategory: 'DeveloperApplication',
     operatingSystem: 'Web',
-    description: fill(p.metaDescription, { freeCalls: free.calls, proPrice: pro.price }),
+    description: fill(p.metaDescription, { freeCalls: free.calls, packPrice: addon.price, packCalls: addon.calls }),
     offers: plans.map((plan) => ({
       '@type': 'Offer',
       name: plan.name,
@@ -209,7 +196,7 @@ export default async function PricingPage() {
             action={<p className="text-[11px] text-muted">{p.headerNote}</p>}
           />
 
-          <div className="mt-3.5 grid gap-3.5 md:grid-cols-3">
+          <div className="mx-auto mt-3.5 grid max-w-[800px] gap-3.5 md:grid-cols-2">
             {plans.map((plan) => (
               <article
                 key={plan.id}
@@ -261,7 +248,6 @@ export default async function PricingPage() {
                 <div className="mt-auto pt-[22px]">
                   {'checkout' in plan ? (
                     <form action={startCheckoutAction}>
-                      <input type="hidden" name="kind" value={plan.checkout} />
                       <PendingSubmitButton
                         className={`${PLAN_BUTTON} ${plan.featured ? PLAN_BUTTON_FEATURED : PLAN_BUTTON_PLAIN}`}
                       >
@@ -299,19 +285,17 @@ export default async function PricingPage() {
 
           <div className="mt-[25px] overflow-hidden rounded-md border border-line bg-card p-0.5">
             <div className="overflow-x-auto">
-              <table className="w-full min-w-[640px] table-fixed text-left">
+              <table className="w-full min-w-[560px] table-fixed text-left">
                 <colgroup>
-                  <col className="w-[32.2%]" />
-                  <col className="w-[22.2%]" />
-                  <col className="w-[22.2%]" />
-                  <col className="w-[23.4%]" />
+                  <col className="w-[40%]" />
+                  <col className="w-[30%]" />
+                  <col className="w-[30%]" />
                 </colgroup>
                 <thead>
                   <tr className="h-[42px] border-b border-line bg-mutedbg text-[10px] text-muted">
                     <th className="px-[17px] font-normal">{p.compareHeadCapability}</th>
                     <th className="px-[17px] font-medium">FREE</th>
-                    <th className="px-[17px] font-medium text-brandink">PRO</th>
-                    <th className="px-[17px] font-medium">ADDITIONAL CALLS</th>
+                    <th className="px-[17px] font-medium text-brandink">ADDITIONAL CALLS</th>
                   </tr>
                 </thead>
                 <tbody className="text-[11px]">
@@ -323,7 +307,6 @@ export default async function PricingPage() {
                       <td className="px-[17px] font-medium text-ink">{row[0]}</td>
                       <td className="px-[17px] text-steel">{row[1]}</td>
                       <td className="px-[17px] font-medium text-brandink">{row[2]}</td>
-                      <td className="px-[17px] text-steel">{row[3]}</td>
                     </tr>
                   ))}
                 </tbody>
@@ -332,18 +315,6 @@ export default async function PricingPage() {
           </div>
         </div>
       </div>
-
-      {/*
-        * The compare band ends in a hard rule, so this banner needs the breathing
-        * room the FAQ's bottom padding gives the one below it.
-        */}
-      <CtaBanner
-        eyebrow={p.shareBanner.eyebrow}
-        title={p.shareBanner.title}
-        cta={p.shareBanner.cta}
-        href="/publishers"
-        className="mt-[68px]"
-      />
 
       <section className="mx-auto flex w-full max-w-[1200px] flex-col gap-10 px-5 py-[68px] md:flex-row md:gap-[72px]">
         <div className="md:w-[300px] md:shrink-0">

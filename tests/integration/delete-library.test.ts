@@ -109,7 +109,7 @@ function dependencies() {
   };
 }
 
-async function workspaceOnPlan(libraryLimit: number): Promise<string> {
+async function workspaceOnPlan(): Promise<string> {
   const database = db();
   const workspaceId = crypto.randomUUID();
   workspaces.push(workspaceId);
@@ -119,14 +119,11 @@ async function workspaceOnPlan(libraryLimit: number): Promise<string> {
   planVersions.push(planVersionId);
   await database.insert(schema.planVersion).values({
     id: planVersionId,
-    planId: 'pro',
-    priceMinor: 2000,
+    planId: 'free',
+    priceMinor: 0,
     currency: 'USD',
     monthlyCalls: 1_000,
-    libraryLimit,
-    librarySizeBytesLimit: 1_000_000,
     apiKeyLimit: 5,
-    shareRateBps: 2000,
     capabilities: {},
     createdAt: new Date('2000-01-01T00:00:00Z'),
   });
@@ -226,8 +223,8 @@ describeWithDb('library deletion', () => {
   it('makes the library unreachable at once, then purges its content', async () => {
     const stamp = Date.now();
     const database = db();
-    /* A one-library plan: re-creating the id below proves the slot came back. */
-    const workspaceId = await workspaceOnPlan(1);
+    /* Re-creating the id below proves a deleted library releases it. */
+    const workspaceId = await workspaceOnPlan();
     const slug = `handbook-deleted-${stamp}`;
 
     const created = await createWorkspaceLibrary({
@@ -374,8 +371,8 @@ describeWithDb('library deletion', () => {
 
   it('refuses a viewer, a stranger and a platform library alike', async () => {
     const stamp = Date.now();
-    const workspaceId = await workspaceOnPlan(5);
-    const stranger = await workspaceOnPlan(5);
+    const workspaceId = await workspaceOnPlan();
+    const stranger = await workspaceOnPlan();
 
     const created = await createWorkspaceLibrary({
       role: 'owner',
@@ -427,7 +424,7 @@ describeWithDb('library deletion', () => {
   it('cancels queued work and refuses to build or purge the wrong thing', async () => {
     const stamp = Date.now();
     const database = db();
-    const workspaceId = await workspaceOnPlan(5);
+    const workspaceId = await workspaceOnPlan();
 
     const created = await createWorkspaceLibrary({
       role: 'owner',
@@ -528,7 +525,7 @@ describeWithDb('library deletion', () => {
     ).toBe('not_found');
 
     /* ...and a user library is not the console's to delete. */
-    const workspaceId = await workspaceOnPlan(5);
+    const workspaceId = await workspaceOnPlan();
     const user = await createWorkspaceLibrary({
       role: 'owner',
       workspaceId,
@@ -555,7 +552,7 @@ describeWithDb('library deletion', () => {
   it('takes the anchoring proof with the library', async () => {
     const stamp = Date.now();
     const database = db();
-    const workspaceId = await workspaceOnPlan(1);
+    const workspaceId = await workspaceOnPlan();
 
     const created = await createWorkspaceLibrary({
       role: 'owner',

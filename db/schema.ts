@@ -165,6 +165,15 @@ export const user = pgTable('user', {
   displayName: text('display_name'),
   avatarUrl: text('avatar_url'),
   status: text('status').notNull().default('active'),
+  /**
+   * How much the user's personal workspace may hold across all its live
+   * libraries: `base` (500 MB) or `extended` (2 GB). agent-first-proposal.md
+   * 8.1 -- raised for good by the first Additional Calls purchase, later also
+   * by the first channel subscription, and never lowered. On the user rather
+   * than the workspace because purchases and subscriptions are the user's.
+   * `lib/domain/plans.ts` `STORAGE_TIERS`.
+   */
+  storageTier: text('storage_tier').notNull().default('base'),
   createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
   updatedAt: timestamp('updated_at', { withTimezone: true }).notNull().defaultNow(),
 });
@@ -331,8 +340,11 @@ export const planVersion = pgTable(
     priceMinor: integer('price_minor').notNull(),
     currency: text('currency').notNull().default('USD'),
     monthlyCalls: integer('monthly_calls').notNull(),
-    libraryLimit: integer('library_limit').notNull(),
-    librarySizeBytesLimit: bigint('library_size_bytes_limit', { mode: 'number' }).notNull(),
+    /**
+     * Keys valid at once. The only per-workspace ceiling a version still
+     * carries: the library count is uncapped and content is bounded by the
+     * owner's `user.storage_tier` (agent-first-proposal.md 8.1).
+     */
     apiKeyLimit: integer('api_key_limit').notNull(),
     /** Publisher share rate, frozen per version. requirement.md 4.4 */
     shareRateBps: integer('share_rate_bps').notNull().default(2000),

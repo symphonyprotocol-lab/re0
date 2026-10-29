@@ -25,10 +25,7 @@ export interface PlanVersionTarget {
   defaults: {
     price: string;
     calls: string;
-    libraryLimit: string;
-    librarySizeMb: string;
     apiKeyLimit: string;
-    shareRate: string;
     buildBaseCalls: string;
     buildTokensPerCall: string;
     buildPagesPerCall: string;
@@ -113,7 +110,7 @@ function PlanVersionDialog({
 
   /*
    * The tier decides which fields exist at all. A pack grants calls and nothing
-   * else (requirement.md 4.1), so offering it a library ceiling would be
+   * else (agent-first-proposal.md 8.1), so offering it a key ceiling would be
    * offering a value nothing ever reads.
    */
   const isPack = target.planId === 'addon';
@@ -237,39 +234,12 @@ function PlanVersionDialog({
 
             {isPack ? null : (
               <>
-                <Field label={p.fieldLibraryLimit} hint={p.hintLibraryLimit}>
-                  <input
-                    name="libraryLimit"
-                    required
-                    inputMode="numeric"
-                    defaultValue={target.defaults.libraryLimit}
-                    className={FIELD}
-                  />
-                </Field>
-                <Field label={p.fieldLibrarySize} hint={p.hintLibrarySize}>
-                  <input
-                    name="librarySizeMb"
-                    required
-                    inputMode="numeric"
-                    defaultValue={target.defaults.librarySizeMb}
-                    className={FIELD}
-                  />
-                </Field>
                 <Field label={p.fieldApiKeyLimit} hint={p.hintApiKeyLimit}>
                   <input
                     name="apiKeyLimit"
                     required
                     inputMode="numeric"
                     defaultValue={target.defaults.apiKeyLimit}
-                    className={FIELD}
-                  />
-                </Field>
-                <Field label={p.fieldShareRate} hint={p.hintShareRate}>
-                  <input
-                    name="shareRate"
-                    required
-                    inputMode="decimal"
-                    defaultValue={target.defaults.shareRate}
                     className={FIELD}
                   />
                 </Field>
