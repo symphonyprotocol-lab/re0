@@ -2140,7 +2140,7 @@ export const en: Dictionary = {
         verify: {
           title: 'Prove that {host} is yours',
           intro:
-            'A website, llms.txt or OpenAPI library is built from whatever this host serves, so only whoever controls the host may create it. Pick one way to prove it; the challenge stays valid for 7 days.',
+            'A website library is built from whatever this host serves, so only whoever controls the host may create it. Pick one way to prove it; the challenge stays valid for 7 days.',
           hostInvalid: 'Go back and enter a valid https source location first.',
           methodDns: 'DNS TXT record',
           methodDnsNote: 'Add one TXT record at your DNS provider. Usually the quickest.',
@@ -2178,8 +2178,6 @@ export const en: Dictionary = {
         sources: {
           github: { name: 'GitHub', note: 'A public repository you own or administer on GitHub.' },
           website: { name: 'Website', note: 'Crawl a documentation site.' },
-          llms_txt: { name: 'llms.txt', note: 'A site’s published llms.txt index.' },
-          openapi: { name: 'OpenAPI', note: 'An OpenAPI/Swagger document URL.' },
           notion: { name: 'Notion', note: 'A page you shared from your own Notion account.' },
           pdf: { name: 'PDF upload', note: 'PDF files from your computer, now or after the library exists.' },
           markdown: { name: 'Markdown / MDX', note: '.md / .mdx documents from your computer, now or after the library exists.' },
@@ -2187,13 +2185,11 @@ export const en: Dictionary = {
         titleLabel: 'Library title',
         locationLabel: 'Source location',
         indexDepthLabel: 'Nested indexes',
-        indexDepthHint: 'Websites follow in-scope child pages; llms.txt follows same-host nested indexes. Up to 3 levels; none by default.',
+        indexDepthHint: 'Websites follow in-scope child pages. Up to 3 levels; none by default.',
         indexDepths: { 0: 'Do not follow (default)', 1: 'Follow 1 level', 2: 'Follow 2 levels', 3: 'Follow 3 levels' },
         locations: {
           github: 'owner/repo, or the repository URL',
           website: 'https://docs.example.com',
-          llms_txt: 'https://example.com/llms.txt',
-          openapi: 'https://api.example.com/openapi.json',
           notion: 'A page you shared with re0 on Notion',
           pdf: '',
           markdown: '',
@@ -2573,11 +2569,8 @@ export const en: Dictionary = {
         connectedTitle: 'CONNECTED SOURCES',
         sources: {
           repos: { name: 'Public repositories', note: 'Open-source repositories on GitHub' },
-          sites: { name: 'Websites', note: 'Public documentation sites, guides and llms.txt' },
-          schema: {
-            name: 'OpenAPI and Markdown',
-            note: 'API schemas and documents imported from a URL',
-          },
+          sites: { name: 'Websites', note: 'Public documentation sites and guides' },
+          schema: { name: 'Markdown', note: 'Uploaded Markdown / MDX documents' },
           uploads: { name: 'Uploaded files', note: 'Uploaded PDF files' },
           notion: { name: 'Notion', note: 'Authorised pages and team databases' },
           private: { name: 'Private libraries', note: 'Private content this workspace created' },
@@ -3765,8 +3758,6 @@ export const en: Dictionary = {
       sourceTypes: {
         github: 'GitHub',
         website: 'Website',
-        llms_txt: 'llms.txt',
-        openapi: 'OpenAPI',
         notion: 'Notion',
         markdown: 'Markdown',
         pdf: 'PDF',
@@ -4175,7 +4166,7 @@ export const en: Dictionary = {
         fieldLocation: 'Location',
         hintLocation: 'Web and document sources must be https; GitHub takes owner/repository.',
         fieldIndexDepth: 'Nested indexes',
-        hintIndexDepth: 'Websites follow in-scope child pages; llms.txt follows same-host nested indexes. Up to 3 levels; none by default.',
+        hintIndexDepth: 'Websites follow in-scope child pages. Up to 3 levels; none by default.',
         indexDepths: { 0: 'Do not follow (default)', 1: 'Follow 1 level', 2: 'Follow 2 levels', 3: 'Follow 3 levels' },
         typeLocked: 'The type is fixed: versions already built name it, and changing it would make them claim a source they did not come from.',
       },

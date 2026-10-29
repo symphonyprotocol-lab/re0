@@ -141,7 +141,7 @@ async function administrator(): Promise<{ administratorId: string; email: string
 
 interface LibraryOptions {
   ownerWorkspaceId?: string | null;
-  sourceType?: 'github' | 'website' | 'llms_txt' | 'openapi' | 'notion' | 'markdown';
+  sourceType?: 'github' | 'website' | 'notion' | 'markdown';
   location?: string;
   visibility?: 'public' | 'private';
   lifecycleStatus?: 'published' | 'archived';

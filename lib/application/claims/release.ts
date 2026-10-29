@@ -8,8 +8,8 @@
  *
  * Only a *claimed* library can be released. 7.3.5 describes abandoning
  * ownership as a claimed library returning to the unowned pool; a library
- * whose creator is its owner by construction -- an upload, an OpenAPI file, a
- * Notion connection -- never made that round trip and has no claim to give
+ * whose creator is its owner by construction -- an upload, a Notion
+ * connection -- never made that round trip and has no claim to give
  * up. Releasing one would strand it for good: `owner_workspace_id` is the
  * tenancy key for manage, rebuild, delete, detail and files, and
  * `claimMethodsFor` offers those source types no way back in, so the library

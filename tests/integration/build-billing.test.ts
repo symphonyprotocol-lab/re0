@@ -144,7 +144,7 @@ async function library(slug: string, ownerWorkspaceId: string | null): Promise<s
   await database.insert(schema.source).values({
     id: uuidv7(),
     libraryId,
-    type: 'openapi',
+    type: 'website',
     location: `https://example.test/${slug}`,
   });
   return libraryId;

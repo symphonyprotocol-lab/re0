@@ -33,7 +33,7 @@ import { uuidv7 } from './id';
  * operator can type -- so a console form that offered them would be offering a
  * library that can never fetch anything.
  */
-export const PLATFORM_SOURCE_TYPES = ['github', 'website', 'llms_txt', 'openapi', 'notion'] as const;
+export const PLATFORM_SOURCE_TYPES = ['github', 'website', 'notion'] as const;
 
 export type PlatformSourceType = (typeof PLATFORM_SOURCE_TYPES)[number];
 
@@ -339,10 +339,10 @@ export function refreshDueAt(policy: RefreshPolicy | 'unknown', lastCheckedAt: D
  * fixes four shapes and this is the whole mapping:
  *
  * - a Git repository is `/owner/repository`;
- * - a crawled site, and the `llms.txt` that describes one, are `/websites/slug`;
+ * - a crawled site is `/websites/slug`;
  * - a Notion space is `/notion/slug`;
- * - anything else the platform assembles -- an OpenAPI document included -- is
- *   `/docs/slug`, the namespace requirement.md reserves for uploaded material.
+ * - an upload is `/docs/slug`, the namespace requirement.md reserves for
+ *   uploaded material.
  *
  * The three slug namespaces nest: `/websites/ethereum/whitepaper` is a library
  * of its own, grouped under `/websites/ethereum` in the catalogue. A repository
@@ -354,8 +354,6 @@ export function refreshDueAt(policy: RefreshPolicy | 'unknown', lastCheckedAt: D
 const ID_NAMESPACE: Record<ConnectedSourceType, 'repository' | 'websites' | 'notion' | 'docs'> = {
   github: 'repository',
   website: 'websites',
-  llms_txt: 'websites',
-  openapi: 'docs',
   notion: 'notion',
   pdf: 'docs',
   markdown: 'docs',
@@ -799,7 +797,7 @@ export interface PlatformLibraryDraft {
   sourceType: PlatformLibraryType;
   location: string;
   refreshPolicy: RefreshPolicy;
-  /** Website/llms.txt only: child pages or nested indexes to follow. */
+  /** Website only: child-page levels to follow. */
   indexDepth: IndexDepth;
   /** `pdf` only: the uploads the manifest listed, keyed under the platform prefix. */
   files: UploadedFile[];
@@ -813,7 +811,7 @@ export interface PlatformLibraryInput {
   location: string;
   /** Ignored for `pdf`: there is nothing to re-fetch, so it is always manual. */
   refreshPolicy: string;
-  /** Website/llms.txt only: child pages or nested indexes to follow. */
+  /** Website only: child-page levels to follow. */
   indexDepth?: unknown;
   /**
    * `pdf` only: the manifest the console posted after uploading, as parsed
@@ -897,10 +895,7 @@ export function draftPlatformLibrary(input: PlatformLibraryInput): PlatformLibra
     sourceType,
     location,
     refreshPolicy,
-    indexDepth:
-      sourceType === 'website' || sourceType === 'llms_txt'
-        ? parseIndexDepth(input.indexDepth)
-        : DEFAULT_INDEX_DEPTH,
+    indexDepth: sourceType === 'website' ? parseIndexDepth(input.indexDepth) : DEFAULT_INDEX_DEPTH,
     files,
   };
 }
@@ -998,11 +993,10 @@ export function editPlatformLibrary(input: PlatformLibraryEditInput): PlatformLi
 /* ----------------------------------------------------------------- sources */
 
 /**
- * How many nested levels a web source follows. For `llms.txt`, each level
- * follows same-host indexes named by the previous one. For a website, each
- * level follows child-page links (and sitemap pages count as level one).
- * Zero is the default. Stored on `source.config.indexDepth`; meaningless for
- * other source types.
+ * How many nested levels a website crawl follows: each level follows
+ * child-page links (and sitemap pages count as level one). Zero is the
+ * default. Stored on `source.config.indexDepth`; meaningless for other
+ * source types.
  */
 export const INDEX_DEPTHS = [0, 1, 2, 3] as const;
 
@@ -1044,7 +1038,7 @@ export function draftPlatformSource(input: {
   type: string;
   location: string;
   refreshPolicy: string;
-  /** Only read for website and `llms_txt`; every other type stores the default. */
+  /** Only read for website; every other type stores the default. */
   indexDepth?: unknown;
   /** `pdf` only: the manifest the console posted after uploading; absent adds an empty source. */
   uploads?: unknown;
@@ -1082,10 +1076,7 @@ export function draftPlatformSource(input: {
     type: input.type,
     location,
     refreshPolicy: input.refreshPolicy,
-    indexDepth:
-      input.type === 'website' || input.type === 'llms_txt'
-        ? parseIndexDepth(input.indexDepth)
-        : DEFAULT_INDEX_DEPTH,
+    indexDepth: input.type === 'website' ? parseIndexDepth(input.indexDepth) : DEFAULT_INDEX_DEPTH,
     files: [],
   };
 }
@@ -1276,8 +1267,8 @@ export function editWorkspaceLibrary(input: {
  * The owner's parse scope: which paths of the source a build indexes.
  * Stored on `source.config` under the same names `re0.json` uses
  * (requirement.md 7.2 -- `folders`, `excludeFolders`, `excludeFiles`), so a
- * reader of either sees one vocabulary, plus `indexDepth` for a website or
- * `llms.txt` source. Applied by the connector registry after the fetch, with
+ * reader of either sees one vocabulary, plus `indexDepth` for a website
+ * source. Applied by the connector registry after the fetch, with
  * the same rule as the repository's own file (`pathIncluded`): exclusions win.
  */
 export interface ParseScope {
@@ -1299,7 +1290,7 @@ export const PARSE_SCOPE_LIMITS = { maxEntries: 64, maxPathLength: 200 } as cons
 
 /** Source types whose files have paths a scope can select. */
 export function parseScopeApplies(type: string): boolean {
-  return type === 'github' || type === 'website' || type === 'llms_txt';
+  return type === 'github' || type === 'website';
 }
 
 /** The scope a source's stored config carries; malformed entries are dropped. */
@@ -1346,9 +1337,7 @@ export function draftParseScope(input: {
     excludeFolders: scopeLines(input.excludeFolders),
     excludeFiles: scopeLines(input.excludeFiles),
     indexDepth:
-      input.sourceType === 'website' || input.sourceType === 'llms_txt'
-        ? parseIndexDepth(input.indexDepth)
-        : DEFAULT_INDEX_DEPTH,
+      input.sourceType === 'website' ? parseIndexDepth(input.indexDepth) : DEFAULT_INDEX_DEPTH,
   };
 }
 
@@ -1393,12 +1382,12 @@ export function refreshPolicyEditable(type: string): boolean {
  *
  * The form carries two settings behind one button and they do not belong to
  * the same set of sources: the parse scope needs paths to select
- * (`parseScopeApplies` -- github, website, llms_txt), while the refresh
- * cadence needs only something to re-fetch (`refreshPolicyEditable` -- every
- * connected source that is not an upload, so OpenAPI and Notion too). A save
- * is therefore refused only when the source offers neither half, never
- * because the scope half happens not to apply: an OpenAPI library setting its
- * cadence to daily is a legitimate save with no scope in it.
+ * (`parseScopeApplies` -- github, website), while the refresh cadence needs
+ * only something to re-fetch (`refreshPolicyEditable` -- every connected
+ * source that is not an upload, so Notion too). A save is therefore refused
+ * only when the source offers neither half, never because the scope half
+ * happens not to apply: a Notion library setting its cadence to daily is a
+ * legitimate save with no scope in it.
  */
 export interface ScopeSavePlan {
   /** The scope fields are the owner's to set on this source. */
@@ -1465,7 +1454,7 @@ export function withOwnerParseScope(
     /* Clearing every field hands the source back to its own `re0.json`. */
     [OWNER_SCOPED_KEY]: !parseScopeIsEmpty(scope),
   };
-  if (sourceType === 'website' || sourceType === 'llms_txt') {
+  if (sourceType === 'website') {
     next.indexDepth = scope.indexDepth;
   }
   return next;

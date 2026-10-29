@@ -57,13 +57,12 @@ export const PRIVATE_SOURCE_TYPE = 'private';
 
 /**
  * The six switches the console shows (requirement.md 5.2), each covering the
- * stored source types it stands for. Ingestion knows `llms_txt` and `website`
- * apart; a rule about websites means both.
+ * stored source types it stands for.
  */
 export const POLICY_SOURCE_GROUPS = {
   repos: ['github'],
-  sites: ['website', 'llms_txt'],
-  schema: ['openapi', 'markdown'],
+  sites: ['website'],
+  schema: ['markdown'],
   uploads: ['pdf'],
   notion: ['notion'],
   private: [PRIVATE_SOURCE_TYPE],

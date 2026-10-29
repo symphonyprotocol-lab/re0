@@ -240,7 +240,7 @@ describe('the private switch', () => {
     let p = policy({});
     expect(sourceGroupEnabled(p, 'sites')).toBe(true);
     p = withSourceGroup(p, 'sites', false);
-    expect(p.sourceTypes).toEqual({ website: false, llms_txt: false });
+    expect(p.sourceTypes).toEqual({ website: false });
     expect(sourceGroupEnabled(p, 'sites')).toBe(false);
     expect(sourceGroupEnabled(p, 'repos')).toBe(true);
     p = withSourceGroup(p, 'sites', true);

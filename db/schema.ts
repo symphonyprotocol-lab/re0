@@ -67,10 +67,8 @@ export const claimMethodEnum = pgEnum('claim_method', [
 export const sourceTypeEnum = pgEnum('source_type', [
   'github',
   'website',
-  'llms_txt',
   'markdown',
   'pdf',
-  'openapi',
   'notion',
 ]);
 export const workspaceRoleEnum = pgEnum('workspace_role', [
@@ -1102,8 +1100,8 @@ export const expertApplication = pgTable(
 );
 
 /**
- * A challenge proving a workspace controls a host, met before a website,
- * llms.txt or OpenAPI library may be created from it (requirement.md 7.3.2,
+ * A challenge proving a workspace controls a host, met before a website
+ * library may be created from it (requirement.md 7.3.2,
  * architecture.md 5.4, lib/domain/domain-verification.ts). Reuses the claim
  * enums: a domain challenge is a claim made before the library exists, and
  * a verified one is copied onto `library_claim` when the library is created.

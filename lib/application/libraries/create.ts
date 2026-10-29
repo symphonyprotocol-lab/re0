@@ -7,11 +7,11 @@
  * Ownership vs rights, deliberately split: `owner_workspace_id` is set to the
  * creator so the dashboard and private visibility work, but that is *access*,
  * not *rights*. Sources that requirement.md 7.3 gates behind a claim (github,
- * website, llms_txt, openapi) do not earn until a claim verifies -- enforced
- * where the earning event is written, not here.
+ * website) do not earn until a claim verifies -- enforced where the earning
+ * event is written, not here.
  *
- * For the three sources fetched from a host -- website, llms_txt, openapi --
- * control of that host is proven *before* the library exists: the wizard
+ * For a website, the one source fetched from a host, control of that host is
+ * proven *before* the library exists: the wizard
  * starts a domain challenge (domain-verification.ts) and creation refuses
  * anything but a verified, unspent challenge for the source's host. The
  * challenge is spent here, inside the same transaction that writes the rows,
@@ -75,13 +75,12 @@ export interface CreateWorkspaceLibraryInput {
    * no build is queued until they do.
    */
   uploads?: unknown;
-  /** For website/llms_txt: how many child-page or nested-index levels to follow. */
+  /** For website: how many child-page levels to follow. */
   indexDepth?: unknown;
   /**
-   * For website, llms_txt and openapi: the verified domain challenge for the
-   * source's host, as `startDomainVerification` issued it and
-   * `checkDomainVerification` verified it. Required for those types; spent
-   * on this library.
+   * For website: the verified domain challenge for the source's host, as
+   * `startDomainVerification` issued it and `checkDomainVerification`
+   * verified it. Required for that type; spent on this library.
    */
   domainVerificationId?: unknown;
   description?: string | null;
@@ -229,7 +228,7 @@ export async function createWorkspaceLibrary(
     sourceConfig = { pageId: check.pageId, [NOTION_SOURCE_USER_KEY]: input.userId };
   } else if (isUpload) {
     sourceConfig = { files: uploaded };
-  } else if (input.sourceType === 'website' || input.sourceType === 'llms_txt') {
+  } else if (input.sourceType === 'website') {
     sourceConfig = { indexDepth: parseIndexDepth(input.indexDepth) };
   }
 

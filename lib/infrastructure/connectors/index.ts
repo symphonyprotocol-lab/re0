@@ -39,9 +39,9 @@ export interface FetchSnapshotInput {
    */
   credential?: string;
   /**
-   * The rendering fallback for website, `llms.txt` and OpenAPI sources,
-   * resolved by the caller from the console (`manage-render-config.ts`);
-   * null is "off". Absent reads the deployment's variables.
+   * The rendering fallback for website sources, resolved by the caller from
+   * the console (`manage-render-config.ts`); null is "off". Absent reads the
+   * deployment's variables.
    */
   renderer?: PageRenderer | null;
 }
@@ -84,10 +84,7 @@ async function fetchUnscoped(input: FetchSnapshotInput): Promise<SourceSnapshot>
     case 'github':
       return fetchGithubSnapshot({ location: input.location });
     case 'website':
-    case 'llms_txt':
-    case 'openapi':
       return fetchWebSnapshot({
-        type: input.type,
         location: input.location,
         indexDepth: indexDepthOf(input.config ?? {}),
         renderer: input.renderer,

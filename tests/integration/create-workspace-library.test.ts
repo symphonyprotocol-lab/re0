@@ -490,9 +490,9 @@ describeWithDb('workspace library creation', () => {
       workspaceId,
       title: 'Only one',
       visibility: 'private',
-      sourceType: 'openapi',
-      location: 'https://api.example.test/openapi.json',
-      domainVerificationId: await verifiedDomain(workspaceId, 'https://api.example.test/openapi.json'),
+      sourceType: 'website',
+      location: 'https://api.example.test/reference/',
+      domainVerificationId: await verifiedDomain(workspaceId, 'https://api.example.test/reference/'),
       slug: `only-one-${stamp}`,
     });
     libraries.push(first.libraryId);
@@ -503,9 +503,9 @@ describeWithDb('workspace library creation', () => {
         workspaceId,
         title: 'Second',
         visibility: 'private',
-        sourceType: 'openapi',
-        location: 'https://api.example.test/openapi.json',
-        domainVerificationId: await verifiedDomain(workspaceId, 'https://api.example.test/openapi.json'),
+        sourceType: 'website',
+        location: 'https://api.example.test/reference/',
+        domainVerificationId: await verifiedDomain(workspaceId, 'https://api.example.test/reference/'),
         slug: `second-${stamp}`,
       }),
     ).rejects.toMatchObject({ code: 'library_limit_exceeded' });
@@ -517,9 +517,9 @@ describeWithDb('workspace library creation', () => {
       workspaceId: other,
         title: 'Duplicate id',
         visibility: 'private',
-        sourceType: 'openapi',
-        location: 'https://api.example.test/openapi.json',
-        domainVerificationId: await verifiedDomain(other, 'https://api.example.test/openapi.json'),
+        sourceType: 'website',
+        location: 'https://api.example.test/reference/',
+        domainVerificationId: await verifiedDomain(other, 'https://api.example.test/reference/'),
         slug: `only-one-${stamp}`,
       }),
     ).rejects.toMatchObject({ code: 'invalid_request' });

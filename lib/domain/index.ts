@@ -31,10 +31,8 @@ export type ClaimMethod = 'github_permission' | 'dns_txt' | 'well_known';
 export type SourceType =
   | 'github'
   | 'website'
-  | 'llms_txt'
   | 'markdown'
   | 'pdf'
-  | 'openapi'
   | 'notion';
 
 /** requirement.md 7.3.2: these source types have no claim flow; the creator owns them. */
@@ -51,22 +49,15 @@ export const SELF_OWNED_SOURCE_TYPES: readonly SourceType[] = [
  * `claimMethodsFor` -- a type advertising a method it cannot be claimed
  * through, or the reverse, is a dead end on the claim form.
  */
-export const CLAIMABLE_SOURCE_TYPES: readonly SourceType[] = [
-  'github',
-  'website',
-  'llms_txt',
-  'openapi',
-];
+export const CLAIMABLE_SOURCE_TYPES: readonly SourceType[] = ['github', 'website'];
 
 export function claimMethodsFor(type: SourceType): readonly ClaimMethod[] {
   switch (type) {
     case 'github':
       return ['github_permission', 'dns_txt', 'well_known'];
-    /* An OpenAPI document is fetched from a host like a website is, and its
-       creation is gated on the same domain challenge (lib/domain/domain-verification.ts). */
+    /* A website is fetched from a host, and its creation is gated on the
+       domain challenge (lib/domain/domain-verification.ts). */
     case 'website':
-    case 'llms_txt':
-    case 'openapi':
       return ['dns_txt', 'well_known'];
     default:
       return [];

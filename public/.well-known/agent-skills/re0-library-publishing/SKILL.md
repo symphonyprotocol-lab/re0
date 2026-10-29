@@ -15,14 +15,14 @@ Collect and enter:
 
 - `title`: 1–120 characters.
 - `visibility`: `public` or `private`. Public sources enter the review lifecycle; private sources remain workspace-only.
-- `sourceType`: `github`, `website`, `llms_txt`, `openapi`, `notion`, `pdf`, or `markdown`.
+- `sourceType`: `github`, `website`, `notion`, `pdf`, or `markdown`.
 - `location`: the repository, URL, or connected Notion page. It is not entered for uploaded PDF/Markdown sources.
 - `slug`: the stable ID segment for non-GitHub sources.
 - `description` and `language`: optional metadata.
-- `indexDepth`: for `website` and `llms_txt` sources when nested pages should be followed.
+- `indexDepth`: for `website` sources when nested pages should be followed.
 - Files: `.pdf` for PDF sources, or `.md`/`.mdx` for Markdown sources; at most 20 files and 30 MiB per file.
 
-GitHub and Notion imports require the user's corresponding connected account. `website`, `llms_txt`, and `openapi` sources require completing the domain-control challenge shown by the wizard before creation. Report the queued/build/review state returned by the UI; do not promise immediate public availability.
+GitHub and Notion imports require the user's corresponding connected account. `website` sources require completing the domain-control challenge shown by the wizard before creation. Report the queued/build/review state returned by the UI; do not promise immediate public availability.
 
 ## Claim an existing library
 

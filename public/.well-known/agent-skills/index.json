@@ -13,7 +13,7 @@
       "type": "skill-md",
       "description": "Submit a knowledge source to Re0 or claim an existing public library when a user wants to publish, manage, or prove ownership of documentation.",
       "url": "/.well-known/agent-skills/re0-library-publishing/SKILL.md",
-      "digest": "sha256:21ef6d767e38b8b9ae4dc21d520c37966ff24c3133adb5483415f54fce9c7671"
+      "digest": "sha256:29108f0bf27e3e1130b17f071db60b26ba203d255f3a40f19eecc913ec36f1f6"
     }
   ]
 }

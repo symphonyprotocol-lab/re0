@@ -264,7 +264,7 @@ describe('parsing', () => {
     expect(text).not.toContain('evil');
   });
 
-  it('renders an OpenAPI document as readable lines, not as JSON', () => {
+  it('renders a committed API description as readable lines, not as JSON', () => {
     const text = structuredToText(
       JSON.stringify({ paths: { '/users': { get: { summary: 'List users' } } } }),
     );

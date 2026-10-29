@@ -55,9 +55,9 @@ describe('Library IDs', () => {
     expect(normalizePublicId('github', '/Vercel/Next.js')).toBe('/Vercel/Next.js');
   });
 
-  it('publishes a site and its llms.txt under /websites/slug', () => {
+  it('publishes a site under /websites/slug', () => {
     expect(normalizePublicId('website', '/websites/nextjs')).toBe('/websites/nextjs');
-    expect(normalizePublicId('llms_txt', 'websites/nextjs')).toBe('/websites/nextjs');
+    expect(normalizePublicId('website', 'websites/nextjs')).toBe('/websites/nextjs');
   });
 
   it('folds a slug to lower case rather than minting two libraries for one site', () => {
@@ -70,12 +70,12 @@ describe('Library IDs', () => {
 
   it('publishes Notion under /notion/slug and everything else under /docs/slug', () => {
     expect(normalizePublicId('notion', '/notion/handbook')).toBe('/notion/handbook');
-    expect(normalizePublicId('openapi', '/docs/openai-api')).toBe('/docs/openai-api');
+    expect(normalizePublicId('pdf', '/docs/openai-api')).toBe('/docs/openai-api');
   });
 
   it('refuses an id from another source type’s namespace', () => {
     expect(normalizePublicId('website', '/docs/nextjs')).toBeNull();
-    expect(normalizePublicId('openapi', '/websites/openai')).toBeNull();
+    expect(normalizePublicId('pdf', '/websites/openai')).toBeNull();
     expect(normalizePublicId('github', '/websites/nextjs')).toBeNull();
   });
 
@@ -91,7 +91,7 @@ describe('Library IDs', () => {
   it('names the namespace the form has to hint at', () => {
     expect(namespaceFor('github')).toBe('/owner/repository');
     expect(namespaceFor('website')).toBe('/websites/slug');
-    expect(namespaceFor('openapi')).toBe('/docs/slug');
+    expect(namespaceFor('pdf')).toBe('/docs/slug');
     expect(namespaceFor('notion')).toBe('/notion/slug');
   });
 });
@@ -175,13 +175,7 @@ describe('the create form', () => {
   });
 
   it('offers only the source types an operator can give a location for', () => {
-    expect([...PLATFORM_SOURCE_TYPES]).toEqual([
-      'github',
-      'website',
-      'llms_txt',
-      'openapi',
-      'notion',
-    ]);
+    expect([...PLATFORM_SOURCE_TYPES]).toEqual(['github', 'website', 'notion']);
     // Uploads arrive through object storage, not through a typed location.
     expect(isPlatformSourceType('markdown')).toBe(false);
     expect(isPlatformSourceType('pdf')).toBe(false);
@@ -333,18 +327,17 @@ describe('sources', () => {
     expect(draft).toEqual({ type: 'github', location: 'vercel/next.js', refreshPolicy: 'weekly', indexDepth: 0, files: [] });
   });
 
-  it('keeps nested depth for website and llms.txt sources, defaulting to none', () => {
-    const index = draftPlatformSource({
-      type: 'llms_txt',
-      location: 'https://docs.example.test/llms.txt',
+  it('keeps nested depth for website sources, defaulting to none', () => {
+    const site = draftPlatformSource({
+      type: 'website',
+      location: 'https://docs.example.test/',
       refreshPolicy: 'daily',
       indexDepth: '2',
     });
-    expect(index.indexDepth).toBe(2);
-    expect(draftPlatformSource({ type: 'llms_txt', location: 'https://docs.example.test/llms.txt', refreshPolicy: 'daily' }).indexDepth).toBe(0);
-    expect(draftPlatformSource({ type: 'llms_txt', location: 'https://docs.example.test/llms.txt', refreshPolicy: 'daily', indexDepth: '9' }).indexDepth).toBe(0);
-    expect(draftPlatformSource({ type: 'website', location: 'https://docs.example.test/', refreshPolicy: 'daily', indexDepth: '2' }).indexDepth).toBe(2);
-    expect(draftPlatformSource({ type: 'openapi', location: 'https://docs.example.test/openapi.json', refreshPolicy: 'daily', indexDepth: '2' }).indexDepth).toBe(0);
+    expect(site.indexDepth).toBe(2);
+    expect(draftPlatformSource({ type: 'website', location: 'https://docs.example.test/', refreshPolicy: 'daily' }).indexDepth).toBe(0);
+    expect(draftPlatformSource({ type: 'website', location: 'https://docs.example.test/', refreshPolicy: 'daily', indexDepth: '9' }).indexDepth).toBe(0);
+    expect(draftPlatformSource({ type: 'notion', location: 'https://www.notion.so/example/Page-1', refreshPolicy: 'daily', indexDepth: '2' }).indexDepth).toBe(0);
   });
 
   it('refuses an unusable location, an unknown type and an unknown cadence', () => {
