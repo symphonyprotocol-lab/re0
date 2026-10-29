@@ -5,7 +5,6 @@ import { usePathname } from 'next/navigation';
 import type { ReactElement } from 'react';
 import {
   ArrowUpRightIcon,
-  AwardIcon,
   CircleDollarSignIcon,
   DatabaseIcon,
   FilterIcon,
@@ -43,13 +42,10 @@ import { useI18n } from '@/lib/i18n/client';
  */
 export function AdminSidebar({
   openRefreshes,
-  pendingExpert,
   capabilities,
 }: {
   /** Platform refreshes queued or running, on the queue item. */
   openRefreshes: number;
-  /** Expert-library applications waiting for a decision. */
-  pendingExpert: number;
   capabilities: readonly AdminCapability[];
 }) {
   const { t } = useI18n();
@@ -96,20 +92,6 @@ export function AdminSidebar({
          * and its own capability keeps a reviewer out (lib/domain/admin.ts).
          */
         { href: '/admin/claims', label: nav.claims, Icon: ScaleIcon, needs: 'claims' },
-        /*
-         * The expert queue sits beside ownership: it is the one approval the
-         * console still makes about a user library, and it decides whether
-         * the library earns (expert-library-prd.md 6.1). Its thresholds are
-         * the page beside it (review-visibility-proposal.md 5.3).
-         */
-        {
-          href: '/admin/expert-libraries',
-          label: nav.expertLibraries,
-          Icon: AwardIcon,
-          badge: pendingExpert,
-          needs: 'expertLibraries',
-        },
-        { href: '/admin/expert-libraries/thresholds', label: nav.expertThresholds, Icon: SlidersIcon, needs: 'expertLibraries' },
         /* Showcase pages are user content on an address of ours (lib/domain/showcase.ts): content review's to take down. Offline since the agent-first turn. */
         ...(surfaceEnabled('showcase')
           ? [{ href: '/admin/showcases', label: nav.showcases, Icon: GlobeIcon, needs: 'libraries' as const }]

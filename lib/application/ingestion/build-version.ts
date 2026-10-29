@@ -51,7 +51,6 @@ import {
   type IngestionStage,
 } from '@/lib/domain/ingestion';
 import { uuidv7 } from '@/lib/domain/id';
-import { evaluateVersion, evaluationBreakdown } from './evaluate';
 import { segmentCjkForIndex } from '@/lib/domain/cjk';
 import {
   CentroidAccumulator,
@@ -1023,19 +1022,7 @@ export async function buildVersion(input: BuildInput): Promise<BuildOutcome> {
     .filter((value): value is Date => value !== null && !Number.isNaN(value.getTime()))
     .sort((a, b) => b.getTime() - a.getTime())[0];
 
-  /*
-   * The library's test set, asked of the version just made ready and through
-   * the retrieval a caller gets (ingestion/evaluate.ts). Null when there are
-   * no questions or they could not be run; the build goes on either way.
-   */
-  const evaluation = await evaluateVersion(
-    database,
-    { libraryId: library.id, versionId },
-    dependencies.retrieval?.(),
-  );
-
   const scores = scoreLibrary({
-    evaluation,
     verified: false,
     isPlatformLibrary: library.isPlatformLibrary,
     documents: rows.length,
@@ -1059,7 +1046,6 @@ export async function buildVersion(input: BuildInput): Promise<BuildOutcome> {
       tokens: totalTokens,
       flaggedFiles,
       quarantinedFiles: files.length - safe.length,
-      ...evaluationBreakdown(scores.structural, evaluation),
     },
   });
 

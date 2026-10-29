@@ -652,8 +652,7 @@ export function lifecycleActionAvailable(
  * - a user library goes live as soon as the security scan and the index
  *   have passed, so `published` -- whatever its visibility. Public review
  *   before publication ended on 2026-10-23; the platform's hand on a public
- *   library is a suspension afterwards (`reviewActionAvailable`), and the
- *   expert tag keeps its own approval (lib/domain/expert-library.ts);
+ *   library is a suspension afterwards (`reviewActionAvailable`);
  * - a platform library is published by an operator, never by a build;
  * - a suspended or archived library stays where it was put. A rebuild is not
  *   a way around a suspension.
@@ -756,9 +755,6 @@ export const PLATFORM_LIBRARY_ERRORS = [
   'checklist_required',
   /** The checklist's verdicts contradict the verb: an approval with a failed check, or a send-back with none. */
   'checklist_mismatch',
-  'eval_question_invalid',
-  'eval_question_limit',
-  'eval_unavailable',
   'unavailable',
 ] as const;
 

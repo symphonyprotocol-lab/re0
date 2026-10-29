@@ -105,7 +105,6 @@ export default async function DashboardLibrariesPage() {
       title: row.title,
       version: row.versionLabel,
       scope: row.visibility,
-      expert: row.expert,
       chunks: row.totalChunks,
       calls: usage.get(row.id) ?? { total: 0, thisMonth: 0 },
       status: toneOf(bucket),

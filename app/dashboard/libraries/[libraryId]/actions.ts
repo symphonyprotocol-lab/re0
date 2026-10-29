@@ -5,11 +5,9 @@ import { after } from 'next/server';
 import { AppError } from '@/contracts/errors';
 import { runOperation } from '@/lib/application/ingestion';
 import {
-  addOwnerEvalQuestion,
   applyOwnerLifecycleAction,
   declareLibraryRights,
   editLibraryMetadata,
-  removeOwnerEvalQuestion,
   requestLibraryRebuild,
   updateParseScope,
 } from '@/lib/application/libraries';
@@ -31,8 +29,6 @@ import {
   type SiteKeyRefusal,
 } from '@/lib/application/embed';
 import type { FaqRefusal } from '@/lib/domain/faq';
-import { applyForExpertTag, withdrawExpertApplication } from '@/lib/application/expert-libraries';
-import { ExpertLibraryRefused, type ExpertLibraryError } from '@/lib/domain/expert-library';
 import { requireSession } from '@/lib/http/session';
 import {
   applyShowcaseVerb,
@@ -182,9 +178,8 @@ function rightsOf(form: FormData) {
 /* ------------------------------------------------------------- materials */
 
 /**
- * The owner's submission materials (review-visibility-proposal.md 5):
- * declare rights, add and remove self-check questions. One result shape;
- * the panel shows the line for the refusal.
+ * The owner's rights declaration (review-visibility-proposal.md 5.1). One
+ * result shape; the panel shows the line for the refusal.
  */
 export interface MaterialsActionResult {
   ok: boolean;
@@ -194,8 +189,6 @@ export interface MaterialsActionResult {
     | 'invalid'
     | 'rights_invalid'
     | 'rights_generated'
-    | 'question_invalid'
-    | 'question_limit'
     | 'unavailable';
 }
 
@@ -203,8 +196,6 @@ function materialsRefusal(error: unknown, verb: string): MaterialsActionResult {
   if (error instanceof PlatformLibraryRefused) {
     if (error.code === 'rights_invalid' || error.code === 'rights_required') return { ok: false, error: 'rights_invalid' };
     if (error.code === 'rights_generated') return { ok: false, error: 'rights_generated' };
-    if (error.code === 'eval_question_invalid') return { ok: false, error: 'question_invalid' };
-    if (error.code === 'eval_question_limit') return { ok: false, error: 'question_limit' };
   }
   if (error instanceof AppError) {
     if (error.code === 'library_not_found') return { ok: false, error: 'not_found' };
@@ -234,48 +225,6 @@ export async function declareRightsAction(
     return { ok: true };
   } catch (error) {
     return materialsRefusal(error, 'declare rights');
-  }
-}
-
-export async function addOwnerEvalQuestionAction(
-  _previous: MaterialsActionResult | null,
-  form: FormData,
-): Promise<MaterialsActionResult> {
-  const libraryId = String(form.get('libraryId') ?? '');
-  const session = await requireSession(`/dashboard/libraries/${libraryId}`);
-  try {
-    await addOwnerEvalQuestion({
-      workspaceId: session.workspace.id,
-      role: session.workspace.role,
-      libraryId,
-      question: String(form.get('question') ?? ''),
-      expectedSource: String(form.get('expectedSource') ?? ''),
-      expectedText: String(form.get('expectedText') ?? ''),
-    });
-    revalidatePath(`/dashboard/libraries/${libraryId}`);
-    return { ok: true };
-  } catch (error) {
-    return materialsRefusal(error, 'add question');
-  }
-}
-
-export async function removeOwnerEvalQuestionAction(
-  _previous: MaterialsActionResult | null,
-  form: FormData,
-): Promise<MaterialsActionResult> {
-  const libraryId = String(form.get('libraryId') ?? '');
-  const session = await requireSession(`/dashboard/libraries/${libraryId}`);
-  try {
-    await removeOwnerEvalQuestion({
-      workspaceId: session.workspace.id,
-      role: session.workspace.role,
-      libraryId,
-      questionId: String(form.get('questionId') ?? ''),
-    });
-    revalidatePath(`/dashboard/libraries/${libraryId}`);
-    return { ok: true };
-  } catch (error) {
-    return materialsRefusal(error, 'remove question');
   }
 }
 
@@ -462,71 +411,6 @@ export async function revokeSiteKeyAction(
     return { ok: true };
   } catch (error) {
     return siteKeyRefusal(error, 'revoke');
-  }
-}
-
-/* ------------------------------------------------------- expert library */
-
-/**
- * The owner's two moves over the expert tag (expert-library-prd.md 5): open
- * an application, or withdraw the pending one. The use case re-checks the
- * role and reads every precondition under the library's row lock; the panel
- * only decides what is drawn, and the refusal codes it gets back are the
- * domain's own so the dictionary can name each missing condition.
- */
-export interface ExpertApplicationActionResult {
-  ok: boolean;
-  action?: 'apply' | 'withdraw';
-  error?: ExpertLibraryError | 'unavailable';
-}
-
-export async function applyExpertAction(
-  _previous: ExpertApplicationActionResult | null,
-  form: FormData,
-): Promise<ExpertApplicationActionResult> {
-  const libraryId = String(form.get('libraryId') ?? '');
-  const session = await requireSession(`/dashboard/libraries/${libraryId}`);
-  try {
-    await applyForExpertTag({
-      workspaceId: session.workspace.id,
-      role: session.workspace.role,
-      libraryId,
-      materials: {
-        scope: form.get('scope'),
-        maintenance: form.get('maintenance'),
-        credentials: form.get('credentials'),
-        note: form.get('note'),
-      },
-      userId: session.user.id,
-    });
-    revalidatePath(`/dashboard/libraries/${libraryId}`);
-    return { ok: true, action: 'apply' };
-  } catch (error) {
-    if (error instanceof ExpertLibraryRefused) return { ok: false, error: error.code };
-    console.error(`expert application failed: ${error instanceof Error ? error.message : 'unknown'}`);
-    return { ok: false, error: 'unavailable' };
-  }
-}
-
-export async function withdrawExpertAction(
-  _previous: ExpertApplicationActionResult | null,
-  form: FormData,
-): Promise<ExpertApplicationActionResult> {
-  const libraryId = String(form.get('libraryId') ?? '');
-  const session = await requireSession(`/dashboard/libraries/${libraryId}`);
-  try {
-    await withdrawExpertApplication({
-      workspaceId: session.workspace.id,
-      role: session.workspace.role,
-      libraryId,
-      userId: session.user.id,
-    });
-    revalidatePath(`/dashboard/libraries/${libraryId}`);
-    return { ok: true, action: 'withdraw' };
-  } catch (error) {
-    if (error instanceof ExpertLibraryRefused) return { ok: false, error: error.code };
-    console.error(`expert withdrawal failed: ${error instanceof Error ? error.message : 'unknown'}`);
-    return { ok: false, error: 'unavailable' };
   }
 }
 

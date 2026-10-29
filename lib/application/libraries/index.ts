@@ -65,17 +65,10 @@ export {
   type LibraryUsageLog,
 } from './usage';
 export {
-  addOwnerEvalQuestion,
   declareLibraryRights,
   libraryMaterials,
-  listLibraryEvalQuestions,
-  removeOwnerEvalQuestion,
-  type AddOwnerEvalQuestionInput,
   type DeclareRightsInput,
-  type EvalAuthor,
   type LibraryMaterials,
-  type OwnerEvalQuestions,
-  type OwnerEvalQuestionView,
 } from './materials';
 export { requestLibraryRebuild, type RebuildResult } from './rebuild';
 export {

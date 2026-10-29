@@ -282,9 +282,6 @@ describeWithDb('owner library management', () => {
         .delete(schema.libraryReview)
         .where(inArray(schema.libraryReview.libraryId, libraries));
       await database
-        .delete(schema.libraryEvalQuestion)
-        .where(inArray(schema.libraryEvalQuestion.libraryId, libraries));
-      await database
         .delete(schema.libraryVersion)
         .where(inArray(schema.libraryVersion.libraryId, libraries));
       await database

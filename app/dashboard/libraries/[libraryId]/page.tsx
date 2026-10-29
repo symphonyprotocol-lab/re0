@@ -3,7 +3,6 @@ import Link from 'next/link';
 import { notFound } from 'next/navigation';
 import { LibraryMaterialsPanel } from '@/components/dashboard/library-materials';
 import { LiveRefresh } from '@/components/dashboard/live-refresh';
-import { listLibraryEvalQuestions } from '@/lib/application/libraries/materials';
 import { describeBuild } from '@/lib/dashboard/build-progress';
 import {
   DetailDeleteControl,
@@ -48,7 +47,6 @@ import {
   siteKeyEntitlement,
   widgetExchangeStats,
 } from '@/lib/application/embed';
-import { expertPanel } from '@/lib/application/expert-libraries';
 import { qrCodeSvg } from '@/lib/application/administration/qr-code';
 import {
   countWorkspaceShowcases,
@@ -65,7 +63,6 @@ import { rightsAllowPublic } from '@/lib/domain/rights';
 import { showcasePagesAllowed, showcasePath } from '@/lib/domain/showcase';
 import { configuredBaseUrl } from '@/lib/http/base-url';
 import { PUBLIC_ORIGIN } from '@/lib/site/origin';
-import { LibraryExpertPanel } from '@/components/dashboard/library-expert';
 import { LibraryTabs } from '@/components/dashboard/library-tabs';
 import { requireSession } from '@/lib/http/session';
 import { fill } from '@/lib/i18n/format';
@@ -84,11 +81,8 @@ import { surfaceEnabled } from '@/lib/domain/surfaces';
 import { getMessages, translations } from '@/lib/i18n/server';
 import { deleteWorkspaceLibraryAction } from '../actions';
 import {
-  addOwnerEvalQuestionAction,
-  applyExpertAction,
   createSiteKeyAction,
   declareRightsAction,
-  removeOwnerEvalQuestionAction,
   deleteFaqEntryAction,
   editLibraryMetadataAction,
   ownerLifecycleAction,
@@ -97,7 +91,6 @@ import {
   saveFaqEntryAction,
   updateParseScopeAction,
   updateSiteKeyAction,
-  withdrawExpertAction,
   deleteShowcaseAction,
   draftShowcaseAction,
   enableShowcaseAction,
@@ -145,8 +138,6 @@ export default async function DashboardLibraryPage({
   ]);
   const library = await workspaceLibraryDetail({ workspaceId: session.workspace.id, libraryId });
   if (!library) notFound();
-  /* The owner's self-check questions, beside the platform's (review-visibility-proposal.md 5.2). */
-  const evalQuestions = await listLibraryEvalQuestions({ workspaceId: session.workspace.id, libraryId: library.id });
   /* library-build-billing.md 4.1: what a rebuild may cost, shown when the button is pressed. */
   const quote = await quoteBuild({
     workspaceId: session.workspace.id,
@@ -161,7 +152,7 @@ export default async function DashboardLibraryPage({
   const entitlement = await showcaseEntitlement(session.workspace.id, { fresh: true });
   /* Calls served from the library, a page at a time (`?usage=`), newest first. */
   const usagePage = Math.max(1, Math.floor(Number(query.usage) || 1));
-  const [documents, siteKeys, expert, exchanges, exchangeStats, faqGroups, faqEntries, showcase, showcaseFigures, showcaseCount, showcaseLeads, siteKeyCap, siteKeyCount, usage] = await Promise.all([
+  const [documents, siteKeys, exchanges, exchangeStats, faqGroups, faqEntries, showcase, showcaseFigures, showcaseCount, showcaseLeads, siteKeyCap, siteKeyCount, usage] = await Promise.all([
     currentVersionId
       ? listVersionDocuments({
           libraryId: library.id,
@@ -171,8 +162,6 @@ export default async function DashboardLibraryPage({
         })
       : { documents: [], total: 0 },
     listSiteKeys({ workspaceId: session.workspace.id, libraryId: library.id }),
-    /* expert-library-prd.md 5: where the library stands on the expert tag. */
-    expertPanel({ workspaceId: session.workspace.id, libraryId: library.id }),
     listWidgetExchanges({
       workspaceId: session.workspace.id,
       libraryId: library.id,
@@ -275,7 +264,6 @@ export default async function DashboardLibraryPage({
               {library.visibility === 'public' ? l.scopePublic : l.scopePrivate}
             </Badge>
             <Badge tone="neutral">{label(d.lifecycle, library.lifecycleStatus)}</Badge>
-            {expert?.taggedAt ? <Badge tone="brand">{d.expert.badge}</Badge> : null}
           </p>
         </div>
         <div className="flex flex-wrap items-start gap-2">
@@ -440,18 +428,16 @@ export default async function DashboardLibraryPage({
                   </dl>
                 </section>
 
-                {/* The owner's declaration and question set (review-visibility-proposal.md 5):
-                    the rights a public library carries, and the questions an expert application
-                    is judged by. Shown for a private library too, so declaring happens before it
-                    goes public. */}
+                {/* The owner's rights declaration (review-visibility-proposal.md 5.1), which a
+                    public library carries. Shown for a private library too, so declaring happens
+                    before it goes public. */}
                 {library.lifecycleStatus !== 'archived' ? (
                   <LibraryMaterialsPanel
                     libraryId={library.id}
                     visibility={library.visibility}
                     canEdit={canEdit}
                     materials={library.materials}
-                    questions={evalQuestions}
-                    actions={{ declare: declareRightsAction, add: addOwnerEvalQuestionAction, remove: removeOwnerEvalQuestionAction }}
+                    actions={{ declare: declareRightsAction }}
                   />
                 ) : null}
                 {library.visibility === 'public' || library.reviews.length > 0 ? (
@@ -844,74 +830,32 @@ export default async function DashboardLibraryPage({
           {
             id: 'settings',
             label: d.tabs.settings,
-            anchors: ['metadata', 'expert'],
+            anchors: ['metadata'],
             panel:
-              library.lifecycleStatus !== 'archived' && (canEdit || expert) ? (
+              library.lifecycleStatus !== 'archived' && canEdit ? (
                 <>
-                {/* requirement.md 5.2: metadata and parse scope are the owner's to
-                    edit; the forms post to actions that re-check the role. */}
-                {canEdit ? (
-                  <>
-                    <LibraryMetadataForm
-                      libraryId={library.id}
-                      initial={{
-                        title: library.title,
-                        description: library.description,
-                        language: library.language,
-                        visibility: library.visibility,
-                      }}
-                      rightsDeclared={library.materials.rights !== null}
-                      action={editLibraryMetadataAction}
-                    />
-                    {library.source ? (
-                      <ParseScopeForm
-                        libraryId={library.id}
-                        sourceType={library.source.type}
-                        scope={library.source.scope}
-                        refreshPolicy={library.source.refreshPolicy}
-                        action={updateParseScopeAction}
-                      />
-                    ) : null}
-                  </>
-                ) : null}
-                {/* expert-library-prd.md 5: the expert tag. Shown for a private library
-                    too: its checklist is how an owner learns what the tag needs. */}
-                {expert ? (
-                  <LibraryExpertPanel
+                  {/* requirement.md 5.2: metadata and parse scope are the owner's to
+                      edit; the forms post to actions that re-check the role. */}
+                  <LibraryMetadataForm
                     libraryId={library.id}
-                    taggedAt={expert.taggedAt?.toISOString() ?? null}
-                    checks={expert.checks}
-                    evaluation={expert.evaluation}
-                    earning={expert.earning}
-                    blocker={expert.blocker}
-                    reapplyAllowedAt={expert.reapplyAllowedAt?.toISOString() ?? null}
-                    pending={
-                      expert.pending
-                        ? { id: expert.pending.id, createdAt: expert.pending.createdAt.toISOString(), note: expert.pending.note }
-                        : null
-                    }
-                    latest={
-                      expert.latest
-                        ? {
-                            status: expert.latest.status,
-                            decisionReason: expert.latest.decisionReason,
-                            decidedAt: expert.latest.decidedAt?.toISOString() ?? null,
-                            createdAt: expert.latest.createdAt.toISOString(),
-                          }
-                        : null
-                    }
-                    history={expert.history.map((row) => ({
-                      id: row.id,
-                      status: row.status,
-                      decisionReason: row.decisionReason,
-                      decidedAt: row.decidedAt?.toISOString() ?? null,
-                      createdAt: row.createdAt.toISOString(),
-                    }))}
-                    canEdit={canEdit}
-                    applyAction={applyExpertAction}
-                    withdrawAction={withdrawExpertAction}
+                    initial={{
+                      title: library.title,
+                      description: library.description,
+                      language: library.language,
+                      visibility: library.visibility,
+                    }}
+                    rightsDeclared={library.materials.rights !== null}
+                    action={editLibraryMetadataAction}
                   />
-                ) : null}
+                  {library.source ? (
+                    <ParseScopeForm
+                      libraryId={library.id}
+                      sourceType={library.source.type}
+                      scope={library.source.scope}
+                      refreshPolicy={library.source.refreshPolicy}
+                      action={updateParseScopeAction}
+                    />
+                  ) : null}
                 </>
               ) : null,
           },

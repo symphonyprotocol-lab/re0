@@ -125,9 +125,8 @@ describeWithDb('console sign-in', () => {
     const session = await resolveAdminSession(token);
     expect(session?.administratorId).toBe(administratorId);
     expect(session?.roles).toEqual(['reviewer']);
-    // requirement.md 3.1 and expert-library-prd.md 3: a reviewer reaches user
-    // libraries and the expert queue, and nothing else.
-    expect(session?.capabilities).toEqual(['libraries', 'expertLibraries']);
+    // requirement.md 3.1: a reviewer reaches user libraries and nothing else.
+    expect(session?.capabilities).toEqual(['libraries']);
   });
 
   it('slides a console session forward when it is used inside its window', async () => {

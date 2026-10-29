@@ -3,13 +3,8 @@
 import { headers } from 'next/headers';
 import { revalidatePath } from 'next/cache';
 import {
-  addEvalQuestion,
-  adoptEvalQuestion,
   probeReviewLibrary,
-  removeEvalQuestion,
-  reviewable,
   reviewUserLibrary,
-  runLibraryEvaluation,
   type ProbeResult,
 } from '@/lib/application/administration';
 import { AdminChangeRefused } from '@/lib/domain/admin';
@@ -20,8 +15,7 @@ import type { PlatformLibraryActionResult } from '../platform-libraries/actions'
 
 /**
  * The mutations behind the user-library screens: a suspension or its
- * lifting, and the console's instruments -- a probe question and the
- * library's test set.
+ * lifting, and the console's one instrument, a probe question.
  *
  * Each re-resolves the session and re-checks the `libraries` capability like
  * every console action -- a server action is a public endpoint with a
@@ -84,87 +78,5 @@ export async function probeUserLibraryAction(
     return { ok: true, libraryId, probe };
   } catch (error) {
     return refused(error, 'review probe');
-  }
-}
-
-/*
- * The test set, for a reviewer. The use cases are the platform console's
- * (manage-eval-questions.ts); what differs is the gate -- the `libraries`
- * capability, and only a public user library -- so a reviewer cannot reach
- * a platform library's questions through these.
- */
-
-async function reviewableOrRefuse(libraryId: string): Promise<void> {
-  if (!(await reviewable(libraryId))) throw new PlatformLibraryRefused('not_found', 'no such library');
-}
-
-export async function addReviewEvalQuestionAction(
-  _previous: PlatformLibraryActionResult | null,
-  form: FormData,
-): Promise<PlatformLibraryActionResult> {
-  const session = await requireAdminCapability('libraries');
-  const libraryId = text(form, 'libraryId');
-  try {
-    await reviewableOrRefuse(libraryId);
-    await addEvalQuestion({
-      actor: await actor(session),
-      libraryId,
-      question: text(form, 'question'),
-      expectedSource: text(form, 'expectedSource'),
-      expectedText: text(form, 'expectedText'),
-    });
-    revalidatePath(`/admin/libraries/${libraryId}`);
-    return { ok: true, libraryId };
-  } catch (error) {
-    return refused(error, 'review eval question add');
-  }
-}
-
-export async function removeReviewEvalQuestionAction(
-  _previous: PlatformLibraryActionResult | null,
-  form: FormData,
-): Promise<PlatformLibraryActionResult> {
-  const session = await requireAdminCapability('libraries');
-  const libraryId = text(form, 'libraryId');
-  try {
-    await reviewableOrRefuse(libraryId);
-    await removeEvalQuestion({ actor: await actor(session), libraryId, questionId: text(form, 'questionId') });
-    revalidatePath(`/admin/libraries/${libraryId}`);
-    return { ok: true, libraryId };
-  } catch (error) {
-    return refused(error, 'review eval question remove');
-  }
-}
-
-/** Adopt an owner's self-check question into the scored set; from then on it moves the Benchmark. */
-export async function adoptReviewEvalQuestionAction(
-  _previous: PlatformLibraryActionResult | null,
-  form: FormData,
-): Promise<PlatformLibraryActionResult> {
-  const session = await requireAdminCapability('libraries');
-  const libraryId = text(form, 'libraryId');
-  try {
-    await reviewableOrRefuse(libraryId);
-    await adoptEvalQuestion({ actor: await actor(session), libraryId, questionId: text(form, 'questionId') });
-    revalidatePath(`/admin/libraries/${libraryId}`);
-    return { ok: true, libraryId };
-  } catch (error) {
-    return refused(error, 'review eval question adopt');
-  }
-}
-
-export async function runReviewEvaluationAction(
-  _previous: PlatformLibraryActionResult | null,
-  form: FormData,
-): Promise<PlatformLibraryActionResult> {
-  const session = await requireAdminCapability('libraries');
-  const libraryId = text(form, 'libraryId');
-  try {
-    await reviewableOrRefuse(libraryId);
-    const evaluated = await runLibraryEvaluation({ actor: await actor(session), libraryId });
-    revalidatePath(`/admin/libraries/${libraryId}`);
-    return { ok: true, libraryId, evaluated };
-  } catch (error) {
-    return refused(error, 'review evaluation');
   }
 }
