@@ -1,9 +1,10 @@
 /**
  * The workspace's showcase pages in one place, for the dashboard's
- * "shared pages" screen: every library of the workspace, the page it has
- * (or has not), where the page stands, and the last thirty days of what
- * visitors did there. Pages are made and edited on each library's page;
- * this is the view across all of them.
+ * "shared pages" screen: every library of the workspace that has a page,
+ * where the page stands, and the last thirty days of what visitors did
+ * there. A library without a page is left out -- the list is of pages, and
+ * making one starts on the library's own page; this is the view across all
+ * of them.
  */
 import { and, desc, eq, isNull, sql } from 'drizzle-orm';
 import type { AnyPgColumn } from 'drizzle-orm/pg-core';
@@ -16,7 +17,6 @@ export interface WorkspaceShowcaseRow {
   libraryId: string;
   libraryTitle: string;
   libraryPublicId: string;
-  /** Null when the library has no page yet. */
   page: {
     id: string;
     name: string;
@@ -28,7 +28,7 @@ export interface WorkspaceShowcaseRow {
     expired: boolean;
     customHost: string | null;
     publishedAt: string | null;
-  } | null;
+  };
   /** The last thirty days. */
   views: number;
   questions: number;
@@ -63,7 +63,7 @@ export async function listWorkspaceShowcases(workspaceId: string, days = 30): Pr
       unhandledLeads: sql<number>`coalesce((select count(*) from ${schema.showcaseLead} where ${schema.showcaseLead.showcaseId} = ${schema.libraryShowcase.id} and ${schema.showcaseLead.status} = 'new'), 0)::int`,
     })
     .from(schema.library)
-    .leftJoin(
+    .innerJoin(
       schema.libraryShowcase,
       and(eq(schema.libraryShowcase.libraryId, schema.library.id), isNull(schema.libraryShowcase.deletedAt)),
     )
@@ -80,30 +80,28 @@ export async function listWorkspaceShowcases(workspaceId: string, days = 30): Pr
     libraryId: row.libraryId,
     libraryTitle: row.libraryTitle,
     libraryPublicId: row.libraryPublicId,
-    page: row.showcase
-      ? {
-          id: row.showcase.id,
-          name: readShowcaseRow(row.showcase).document.content.name || row.libraryTitle,
-          slug: row.showcase.slug,
-          kind: row.showcase.kind,
-          status: row.showcase.status,
-          access: row.showcase.access,
-          hasPassword: row.showcase.passwordHash !== null,
-          expired: isShowcaseExpired(row.showcase.expiresAt),
-          customHost: row.customHost ?? null,
-          publishedAt: row.showcase.publishedAt?.toISOString() ?? null,
-        }
-      : null,
-    views: row.showcase ? row.views : 0,
-    questions: row.showcase ? row.questions : 0,
-    leads: row.showcase ? row.leads : 0,
-    unhandledLeads: row.showcase ? row.unhandledLeads : 0,
+    page: {
+      id: row.showcase.id,
+      name: readShowcaseRow(row.showcase).document.content.name || row.libraryTitle,
+      slug: row.showcase.slug,
+      kind: row.showcase.kind,
+      status: row.showcase.status,
+      access: row.showcase.access,
+      hasPassword: row.showcase.passwordHash !== null,
+      expired: isShowcaseExpired(row.showcase.expiresAt),
+      customHost: row.customHost ?? null,
+      publishedAt: row.showcase.publishedAt?.toISOString() ?? null,
+    },
+    views: row.views,
+    questions: row.questions,
+    leads: row.leads,
+    unhandledLeads: row.unhandledLeads,
   }));
 
   return {
     rows: view,
     days,
-    published: view.filter((row) => row.page?.status === 'published').length,
+    published: view.filter((row) => row.page.status === 'published').length,
     views: view.reduce((total, row) => total + row.views, 0),
     questions: view.reduce((total, row) => total + row.questions, 0),
     unhandledLeads: view.reduce((total, row) => total + row.unhandledLeads, 0),

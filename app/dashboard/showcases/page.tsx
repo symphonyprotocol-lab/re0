@@ -28,8 +28,9 @@ const GRID = 'grid grid-cols-[minmax(0,1.4fr)_110px_minmax(0,1.6fr)_150px_90px_9
 
 /**
  * The workspace's shared pages in one place (lib/domain/showcase.ts): one
- * row per library, with the page it has, where it stands, its address and
- * the last thirty days of visitors, questions and leads. Pages are made
+ * row per page -- a library without one is not listed -- with where it
+ * stands, its address and the last thirty days of visitors, questions and
+ * leads. Pages are made
  * and edited on each library's page; this screen is the view across all
  * of them and the way to the one that needs attention.
  */
@@ -43,7 +44,7 @@ export default async function DashboardShowcasesPage() {
   ]);
   const number = new Intl.NumberFormat(locale);
   const origin = configuredBaseUrl() ?? PUBLIC_ORIGIN;
-  const addressOf = (page: NonNullable<(typeof overview.rows)[number]['page']>) =>
+  const addressOf = (page: (typeof overview.rows)[number]['page']) =>
     page.customHost ? `https://${page.customHost}/` : `${origin}${showcasePath(page.slug)}`;
 
   const stats = [
@@ -90,61 +91,47 @@ export default async function DashboardShowcasesPage() {
               {overview.rows.map((row) => {
                 const manageHref = `/dashboard/libraries/${row.libraryId}#showcase`;
                 const page = row.page;
-                const address = page ? addressOf(page) : null;
+                const address = addressOf(page);
                 return (
                   <div key={row.libraryId} className={`${GRID} border-t border-line px-5 py-3 text-[12px]`}>
                     <span className="flex min-w-0 flex-col gap-0.5">
                       <Link href={manageHref} className="truncate font-medium text-ink hover:text-brandink">
-                        {page?.name ?? row.libraryTitle}
+                        {page.name}
                       </Link>
                       <span className="truncate text-[11px] text-muted">
                         {row.libraryTitle} · {row.libraryPublicId}
                       </span>
                     </span>
                     <span className="flex flex-wrap items-center gap-1">
-                      {page ? (
-                        <>
-                          <Badge tone={page.status === 'published' ? 'public' : 'neutral'}>{s.status[page.status]}</Badge>
-                          {page.expired ? <Badge tone="private">{s.statusExpired}</Badge> : null}
-                          {page.hasPassword && !page.expired ? <Badge tone="neutral">{s.statusLocked}</Badge> : null}
-                        </>
-                      ) : (
-                        <Badge tone="neutral">{w.list.none}</Badge>
-                      )}
+                      <Badge tone={page.status === 'published' ? 'public' : 'neutral'}>{s.status[page.status]}</Badge>
+                      {page.expired ? <Badge tone="private">{s.statusExpired}</Badge> : null}
+                      {page.hasPassword && !page.expired ? <Badge tone="neutral">{s.statusLocked}</Badge> : null}
                     </span>
                     <span className="flex min-w-0 items-center gap-1.5">
-                      {page && address ? (
-                        <>
-                          <code className="min-w-0 flex-1 truncate font-mono text-[11px] text-steel">{address}</code>
-                          <CopyButton value={address} label={w.list.copy} className="shrink-0 text-muted hover:bg-mutedbg" />
-                          {page.status === 'published' ? (
-                            <a
-                              href={address}
-                              target="_blank"
-                              rel="noreferrer"
-                              aria-label={w.list.open}
-                              className="inline-flex size-[30px] shrink-0 items-center justify-center rounded-md text-muted hover:bg-mutedbg"
-                            >
-                              <ArrowUpRightIcon size={15} />
-                            </a>
-                          ) : null}
-                        </>
-                      ) : (
-                        <span className="text-muted">—</span>
-                      )}
+                      <code className="min-w-0 flex-1 truncate font-mono text-[11px] text-steel">{address}</code>
+                      <CopyButton value={address} label={w.list.copy} className="shrink-0 text-muted hover:bg-mutedbg" />
+                      {page.status === 'published' ? (
+                        <a
+                          href={address}
+                          target="_blank"
+                          rel="noreferrer"
+                          aria-label={w.list.open}
+                          className="inline-flex size-[30px] shrink-0 items-center justify-center rounded-md text-muted hover:bg-mutedbg"
+                        >
+                          <ArrowUpRightIcon size={15} />
+                        </a>
+                      ) : null}
                     </span>
                     <span className="text-[11.5px] text-steel">
-                      {page ? fill(w.list.stats, { views: number.format(row.views), questions: number.format(row.questions) }) : '—'}
+                      {fill(w.list.stats, { views: number.format(row.views), questions: number.format(row.questions) })}
                     </span>
                     <span>
                       {row.unhandledLeads > 0 ? (
                         <Link href={manageHref} className="inline-flex">
                           <Badge tone="public">{fill(w.list.leadsUnhandled, { n: number.format(row.unhandledLeads) })}</Badge>
                         </Link>
-                      ) : page ? (
-                        <span className="text-[11.5px] text-muted">{number.format(row.leads)}</span>
                       ) : (
-                        <span className="text-muted">—</span>
+                        <span className="text-[11.5px] text-muted">{number.format(row.leads)}</span>
                       )}
                     </span>
                     <span>
@@ -152,7 +139,7 @@ export default async function DashboardShowcasesPage() {
                         href={manageHref}
                         className="inline-flex h-8 items-center rounded-md border border-line bg-card px-3 text-[11.5px] font-medium text-ink hover:bg-subtle"
                       >
-                        {page ? w.list.manage : w.list.create}
+                        {w.list.manage}
                       </Link>
                     </span>
                   </div>
