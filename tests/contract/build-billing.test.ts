@@ -18,7 +18,7 @@ import {
   quoteBuildCap,
 } from '@/lib/domain/build-billing';
 import { INGESTION_ERRORS, OPERATION_TRIGGERS } from '@/lib/domain/ingestion';
-import { PACK_INHERITS_PRO, parsePlanVersionDraft, PlanChangeRefused } from '@/lib/domain/plans';
+import { PACK_NO_ENTITLEMENT, parsePlanVersionDraft, PlanChangeRefused } from '@/lib/domain/plans';
 
 const facts = (freshTokens: number, pagesFetched = 0, platformRebuild = false) => ({
   freshTokens,
@@ -54,13 +54,13 @@ describe('priceBuild', () => {
   });
 
   it('treats the pack sentinel rates as no charge rather than a division by zero', () => {
-    const pack = { baseCalls: PACK_INHERITS_PRO, tokensPerCall: PACK_INHERITS_PRO, pagesPerCall: PACK_INHERITS_PRO };
+    const pack = { baseCalls: PACK_NO_ENTITLEMENT, tokensPerCall: PACK_NO_ENTITLEMENT, pagesPerCall: PACK_NO_ENTITLEMENT };
     expect(priceBuild(facts(100_000, 50), pack)).toBe(0);
   });
 });
 
 describe('quoteBuildCap', () => {
-  it('is bounded by the plan capacity and the crawl limit', () => {
+  it('is bounded by the storage left in the workspace and the crawl limit', () => {
     const cap = quoteBuildCap({
       rates: DEFAULT_BUILD_RATES,
       capacityBytes: 20 * 1_048_576,
@@ -69,7 +69,7 @@ describe('quoteBuildCap', () => {
     expect(cap).toBe(1 + 263 + 40);
   });
 
-  it('uses a tighter estimate when the wizard has one, but never above capacity', () => {
+  it('uses a tighter estimate when the wizard has one, but never above the storage left', () => {
     const rates = DEFAULT_BUILD_RATES;
     expect(quoteBuildCap({ rates, capacityBytes: 1_000_000, pageLimit: 0, estimatedBytes: 40_000 })).toBe(2);
     expect(quoteBuildCap({ rates, capacityBytes: 1_000_000, pageLimit: 0, estimatedBytes: 9_999_999 })).toBe(
@@ -92,31 +92,28 @@ describe('build billing mode', () => {
 });
 
 describe('plan version build rates', () => {
-  const pro = {
-    planId: 'pro',
+  const free = {
+    planId: 'free',
     currency: 'USD',
-    price: '5.00',
-    calls: '5000',
-    libraryLimit: '25',
-    librarySizeMb: '100',
+    price: '0',
+    calls: '1000',
     apiKeyLimit: '20',
-    shareRate: '20',
   };
 
   it('defaults a form that never asked for them', () => {
-    const draft = parsePlanVersionDraft(pro);
+    const draft = parsePlanVersionDraft(free);
     expect(draft.buildBaseCalls).toBe(DEFAULT_BUILD_RATES.baseCalls);
     expect(draft.buildTokensPerCall).toBe(DEFAULT_BUILD_RATES.tokensPerCall);
     expect(draft.buildPagesPerCall).toBe(DEFAULT_BUILD_RATES.pagesPerCall);
   });
 
   it('accepts typed rates and refuses a rate that is not a whole number in range', () => {
-    const draft = parsePlanVersionDraft({ ...pro, buildBaseCalls: '2', buildTokensPerCall: '10000', buildPagesPerCall: '3' });
+    const draft = parsePlanVersionDraft({ ...free, buildBaseCalls: '2', buildTokensPerCall: '10000', buildPagesPerCall: '3' });
     expect([draft.buildBaseCalls, draft.buildTokensPerCall, draft.buildPagesPerCall]).toEqual([2, 10_000, 3]);
     for (const bad of [{ buildTokensPerCall: '0' }, { buildPagesPerCall: '1.5' }, { buildBaseCalls: '-1' }]) {
-      expect(() => parsePlanVersionDraft({ ...pro, ...bad })).toThrow(PlanChangeRefused);
+      expect(() => parsePlanVersionDraft({ ...free, ...bad })).toThrow(PlanChangeRefused);
       try {
-        parsePlanVersionDraft({ ...pro, ...bad });
+        parsePlanVersionDraft({ ...free, ...bad });
       } catch (error) {
         expect((error as PlanChangeRefused).code).toBe('invalid_build_rate');
       }

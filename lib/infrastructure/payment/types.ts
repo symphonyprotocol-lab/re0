@@ -2,13 +2,11 @@
  * The shapes and errors shared by the payment boundary and its adapters.
  * See ./provider for what the boundary is for.
  */
-import type { BillingDocumentKind, ProviderDocumentInput } from '@/lib/domain/billing';
-
-/** The provider-side states a subscription row can hold. Mirrors the enum. */
-export type ProviderSubscriptionStatus = 'active' | 'past_due' | 'canceled' | 'trialing' | 'paused';
+import type { ProviderDocumentInput } from '@/lib/domain/billing';
 
 export interface CheckoutInput {
-  kind: BillingDocumentKind;
+  /** Only the Additional Calls pack is sold; nothing opens a subscription checkout. */
+  kind: 'pack';
   workspaceId: string;
   /** The immutable version being bought; its price is the price charged. */
   planVersionId: string;
@@ -20,31 +18,17 @@ export interface CheckoutInput {
   customerId: string | null;
 }
 
-/** A provider subscription as a notification describes it. */
-export interface ProviderSubscriptionNotice {
-  externalId: string;
-  customerId: string | null;
-  status: ProviderSubscriptionStatus;
-  /** Null when the notification carried no current period (a cancelled one). */
-  periodStart: Date | null;
-  periodEnd: Date | null;
-  /**
-   * When a cancellation already asked for takes effect; null when the
-   * subscription renews. Stated by every notice, so a null clears it.
-   */
-  cancelAt: Date | null;
-  /** From the checkout's custom data; null on a subscription nobody tagged. */
-  workspaceId: string | null;
-  planVersionId: string | null;
-  observedAt: Date;
-}
-
 /** A provider billing document, as it currently stands at the provider. */
 export interface ProviderDocumentNotice {
   document: ProviderDocumentInput;
   workspaceId: string | null;
   planVersionId: string | null;
-  /** The provider subscription this document bills, when it bills one. */
+  /**
+   * The provider subscription this document bills, when it bills one. re0
+   * sells no subscription product (agent-first-proposal.md 8.1), so this is
+   * set only on a document from a subscription that predates that; it is
+   * kept for the mirror's record and binds nothing.
+   */
   subscriptionExternalId: string | null;
   customerId: string | null;
   /** How many packs were bought, for a pack document. */
@@ -61,25 +45,27 @@ interface NotificationEnvelope {
 
 export type PaymentNotification = NotificationEnvelope &
   (
-    | { subject: 'subscription'; subscription: ProviderSubscriptionNotice }
     /*
      * `document` is null for a transaction that is not yet a billing document
      * at all -- a checkout opened and abandoned, which the provider tracks
      * and the mirror has no business listing.
      */
     | { subject: 'document'; document: ProviderDocumentNotice | null }
+    /*
+     * Not an event re0 acts on. Subscription events are among them: nothing
+     * sells a subscription since Pro was removed, and a channel subscription
+     * (agent-first-proposal.md 6.9) will be its own model when it arrives.
+     */
     | { subject: 'ignored' }
   );
 
 /**
  * One provider document as it stands now, read by id rather than announced by
  * a webhook. `document` is null on the same terms as a notification's: not yet
- * a billing document, or not something re0 sells. `subscription` is the
- * subscription it bills, read alongside so a backfill can place both.
+ * a billing document, or not something re0 sells.
  */
 export interface ProviderDocumentSnapshot {
   document: ProviderDocumentNotice | null;
-  subscription: ProviderSubscriptionNotice | null;
   /** The provider's own entities, kept with the backfill's event record. */
   payload: unknown;
 }
@@ -109,9 +95,9 @@ export interface PaymentAdapter {
    */
   invoiceUrl(externalId: string): Promise<string>;
   /**
-   * Reads one document, and the subscription it bills, from the provider's
-   * API: the console's backfill for a webhook that never arrived. Throws
-   * `PaymentProviderError` with the provider's status when it has no such id.
+   * Reads one document from the provider's API: the console's backfill for
+   * a webhook that never arrived. Throws `PaymentProviderError` with the
+   * provider's status when it has no such id.
    */
   fetchDocument(externalId: string): Promise<ProviderDocumentSnapshot>;
   /**

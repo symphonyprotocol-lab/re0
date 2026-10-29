@@ -7,14 +7,14 @@
  * console, the tests and any future admin API answer the same way.
  *
  * The catalogue is closed by product decision, not by convenience:
- * requirement.md 4.3 says the self-serve catalogue is Free, Pro and the
- * Additional Calls pack, with no Enterprise tier and no currency but USD, and
- * that the console maintains the Plan Version of exactly those three.
+ * agent-first-proposal.md 8.1 leaves one tier, Free, and one thing to buy,
+ * the Additional Calls pack. There is no Pro, no Enterprise and no currency
+ * but USD, and the console maintains the Plan Version of exactly those two.
  */
 
 import { BUILD_RATE_LIMITS, DEFAULT_BUILD_RATES } from './build-billing';
 
-export const PLAN_TIER_IDS = ['free', 'pro', 'addon'] as const;
+export const PLAN_TIER_IDS = ['free', 'addon'] as const;
 
 export type PlanTierId = (typeof PLAN_TIER_IDS)[number];
 
@@ -27,16 +27,14 @@ export const PLAN_CURRENCY = 'USD';
 
 /**
  * The pack is not a subscription tier (architecture.md 6.1). It buys calls and
- * nothing else: its buyer keeps the Pro entitlements they already had
- * (requirement.md 4.1, "沿用 Pro 权限"), so a pack version carries no library,
- * capacity or key ceiling of its own, and no share rate -- a settlement reads
- * the rate off the subscription's plan version, and no subscription points at
- * a pack.
+ * nothing else: anyone may buy one (agent-first-proposal.md 8.1), and the
+ * buyer keeps Free's key ceiling and build rates, so a pack version carries no
+ * ceiling or rate of its own, and no subscription points at a pack.
  *
  * Those columns are `NOT NULL`, so a pack version stores this sentinel rather
  * than a number that would read as a real ceiling of zero.
  */
-export const PACK_INHERITS_PRO = 0;
+export const PACK_NO_ENTITLEMENT = 0;
 
 export function tierHasEntitlements(tier: PlanTierId): boolean {
   return tier !== 'addon';
@@ -47,35 +45,56 @@ export function tierIsFree(tier: PlanTierId): boolean {
   return tier === 'free';
 }
 
+/* ----------------------------------------------------------------- storage */
+
+/**
+ * agent-first-proposal.md 8.1: a workspace's content is bounded as a whole,
+ * not per library. Every user starts on `base`; the first Additional Calls
+ * purchase (and, later, the first channel subscription) moves them to
+ * `extended` for good. The tier sits on the user and applies to their
+ * personal workspace, because purchases and subscriptions are the user's.
+ */
+export const STORAGE_TIERS = ['base', 'extended'] as const;
+
+export type StorageTier = (typeof STORAGE_TIERS)[number];
+
+export function isStorageTier(value: unknown): value is StorageTier {
+  return typeof value === 'string' && (STORAGE_TIERS as readonly string[]).includes(value);
+}
+
+export const BYTES_PER_MB = 1_048_576;
+
+const STORAGE_CAPACITY_BYTES: Record<StorageTier, number> = {
+  base: 500 * BYTES_PER_MB,
+  extended: 2_048 * BYTES_PER_MB,
+};
+
+/** What a workspace on this tier may hold across all its live libraries, in bytes. */
+export function storageCapacityBytes(tier: StorageTier): number {
+  return STORAGE_CAPACITY_BYTES[tier];
+}
+
 /* ------------------------------------------------------------------ limits */
 
 /**
  * Ceilings on what a console form may mint.
  *
  * These are not product limits -- they are the boundary between a typo and an
- * instruction. A mistyped price with an extra zero is a real refund queue, and
- * a mistyped byte ceiling is an ingestion bill, so both are refused here rather
- * than discovered later.
+ * instruction. A mistyped price with an extra zero is a real refund queue, so
+ * it is refused here rather than discovered later.
  */
 export const PLAN_LIMITS = {
   /** $0 to $10,000 a month, in cents. */
   priceMinor: { min: 0, max: 1_000_000 },
   monthlyCalls: { min: 1, max: 100_000_000 },
-  libraryLimit: { min: 1, max: 100_000 },
-  /** 1 MB to 100 GB, held in whole megabytes because that is how it is edited. */
-  librarySizeMb: { min: 1, max: 102_400 },
   apiKeyLimit: { min: 1, max: 10_000 },
-  /** requirement.md 4.4: the publisher share, in basis points. */
-  shareRateBps: { min: 0, max: 10_000 },
 } as const;
-
-export const BYTES_PER_MB = 1_048_576;
 
 export function mbToBytes(megabytes: number): number {
   return megabytes * BYTES_PER_MB;
 }
 
-/** Exact when the stored value is a whole number of MB, which every minted one is. */
+/** Exact when the stored value is a whole number of MB, which every tier's capacity is. */
 export function bytesToMb(bytes: number): number {
   return Math.round(bytes / BYTES_PER_MB);
 }
@@ -86,31 +105,23 @@ export function bytesToMb(bytes: number): number {
  * The entitlements a version carries beyond its numeric columns, stored in
  * its capability JSON so they freeze with the rest of the row.
  *
- * `publicReviewRequired` used to be one: whether a tier's public libraries
- * waited for review. Public review before publication ended on 2026-10-23,
- * so the flag is no longer read or written; versions minted before then
- * still carry it in their JSON, and it is ignored there.
+ * Only the website widget and the showcase pages still read these, and both
+ * are switched off behind `lib/domain/surfaces.ts`; the values are kept so
+ * those modules compile and so a version minted before the switch-off still
+ * reads back. Older versions also carry `publicReviewRequired` (review ended
+ * 2026-10-23) and `addonPurchase` (packs opened to everyone 2026-10-29) in
+ * their JSON; both are ignored.
  */
 export interface PlanCapabilities {
-  /** requirement.md 4.1: only Pro may buy call packs. Derived, not edited. */
-  addonPurchase: boolean;
-  /**
-   * Showcase pages (lib/domain/showcase.ts): how many of the workspace's
-   * libraries may have one, -1 for no cap. Free gets one, Pro any number;
-   * a stored value on the version overrides the tier default.
-   */
+  /** Showcase pages (lib/domain/showcase.ts): how many libraries may have one, -1 for no cap. */
   showcasePages: number;
   /** Whether the showcase page's footer brand may be switched off. */
   showcaseBranding: boolean;
-  /** How many leads a showcase page keeps for its owner to read, -1 for no cap. Free 100, Pro any number. */
+  /** How many leads a showcase page keeps for its owner to read, -1 for no cap. */
   showcaseLeadsRetained: number;
-  /** Whether a showcase page may sit on the owner's own subdomain. Pro only. */
+  /** Whether a showcase page may sit on the owner's own subdomain. */
   showcaseCustomDomain: boolean;
-  /**
-   * Website widget (lib/domain/site-key.ts): how many live site keys the
-   * workspace may hold across its libraries, -1 for no cap. Free gets one,
-   * Pro any number; a stored value on the version overrides the tier default.
-   */
+  /** Website widget (lib/domain/site-key.ts): live site keys across the workspace, -1 for no cap. */
   siteKeys: number;
 }
 
@@ -125,44 +136,28 @@ export interface WidgetCapabilities {
   siteKeys: number;
 }
 
-/** The tier's default for the widget entitlement, before any stored override. */
-export function widgetDefaultsFor(tier: PlanTierId): WidgetCapabilities {
-  return { siteKeys: tier === 'pro' ? -1 : 1 };
-}
+/** The one default every version shares, now that there is no tier to vary it by. */
+export const DEFAULT_CAPABILITIES: PlanCapabilities = {
+  showcasePages: 1,
+  showcaseBranding: false,
+  showcaseLeadsRetained: 100,
+  showcaseCustomDomain: false,
+  siteKeys: 1,
+};
 
 /** Whether one more site key fits under the plan's cap (-1 = no cap). */
 export function siteKeysAllowed(limit: number, liveKeys: number): boolean {
   return limit < 0 || liveKeys < limit;
 }
 
-/** The tier's defaults for the showcase entitlements, before any stored override. */
-export function showcaseDefaultsFor(tier: PlanTierId): ShowcaseCapabilities {
-  return tier === 'pro'
-    ? { showcasePages: -1, showcaseBranding: true, showcaseLeadsRetained: -1, showcaseCustomDomain: true }
-    : { showcasePages: 1, showcaseBranding: false, showcaseLeadsRetained: 100, showcaseCustomDomain: false };
-}
-
 export function capabilitiesFor(
-  tier: PlanTierId,
   surfaces: Partial<ShowcaseCapabilities & WidgetCapabilities> = {},
 ): PlanCapabilities {
-  const defaults = showcaseDefaultsFor(tier);
-  const widget = widgetDefaultsFor(tier);
-  return {
-    addonPurchase: tier === 'pro',
-    showcasePages: surfaces.showcasePages ?? defaults.showcasePages,
-    showcaseBranding: surfaces.showcaseBranding ?? defaults.showcaseBranding,
-    showcaseLeadsRetained: surfaces.showcaseLeadsRetained ?? defaults.showcaseLeadsRetained,
-    showcaseCustomDomain: surfaces.showcaseCustomDomain ?? defaults.showcaseCustomDomain,
-    siteKeys: surfaces.siteKeys ?? widget.siteKeys,
-  };
+  return { ...DEFAULT_CAPABILITIES, ...surfaces };
 }
 
 /** Reads a stored capability blob without trusting its shape. */
-export function readCapabilities(
-  tier: PlanTierId,
-  stored: Record<string, unknown> | null | undefined,
-): PlanCapabilities {
+export function readCapabilities(stored: Record<string, unknown> | null | undefined): PlanCapabilities {
   const pages = stored?.showcasePages;
   const branding = stored?.showcaseBranding;
   const leads = stored?.showcaseLeadsRetained;
@@ -170,7 +165,7 @@ export function readCapabilities(
   const keys = stored?.siteKeys;
   const cap = (candidate: unknown): candidate is number =>
     typeof candidate === 'number' && Number.isInteger(candidate) && candidate >= -1;
-  return capabilitiesFor(tier, {
+  return capabilitiesFor({
     ...(cap(pages) ? { showcasePages: pages } : {}),
     ...(typeof branding === 'boolean' ? { showcaseBranding: branding } : {}),
     ...(cap(leads) ? { showcaseLeadsRetained: leads } : {}),
@@ -179,16 +174,13 @@ export function readCapabilities(
   });
 }
 
-/** A validated row, ready to insert. Amounts are minor units; capacity is bytes. */
+/** A validated row, ready to insert. Amounts are minor units. */
 export interface PlanVersionDraft {
   planId: PlanTierId;
   priceMinor: number;
   currency: typeof PLAN_CURRENCY;
   monthlyCalls: number;
-  libraryLimit: number;
-  librarySizeBytesLimit: number;
   apiKeyLimit: number;
-  shareRateBps: number;
   /** library-build-billing.md 3.3; the pack carries the 0 sentinel in all three. */
   buildBaseCalls: number;
   buildTokensPerCall: number;
@@ -203,10 +195,7 @@ export const PLAN_CHANGE_ERRORS = [
   'unsupported_currency',
   'invalid_price',
   'invalid_calls',
-  'invalid_library_limit',
-  'invalid_library_size',
   'invalid_api_key_limit',
-  'invalid_share_rate',
   'invalid_build_rate',
   'free_must_be_free',
   'no_change',
@@ -272,10 +261,7 @@ export interface PlanVersionInput {
   price: string;
   /** Monthly allowance for a tier; calls per pack for the addon. */
   calls: string;
-  libraryLimit?: string;
-  librarySizeMb?: string;
   apiKeyLimit?: string;
-  shareRate?: string;
   /** library-build-billing.md 3.3, as typed. Absent means "keep the defaults". */
   buildBaseCalls?: string;
   buildTokensPerCall?: string;
@@ -328,35 +314,17 @@ export function parsePlanVersionDraft(input: PlanVersionInput): PlanVersionDraft
       priceMinor,
       currency: PLAN_CURRENCY,
       monthlyCalls,
-      libraryLimit: PACK_INHERITS_PRO,
-      librarySizeBytesLimit: PACK_INHERITS_PRO,
-      apiKeyLimit: PACK_INHERITS_PRO,
-      shareRateBps: PACK_INHERITS_PRO,
-      buildBaseCalls: PACK_INHERITS_PRO,
-      buildTokensPerCall: PACK_INHERITS_PRO,
-      buildPagesPerCall: PACK_INHERITS_PRO,
-      capabilities: capabilitiesFor(planId),
+      apiKeyLimit: PACK_NO_ENTITLEMENT,
+      buildBaseCalls: PACK_NO_ENTITLEMENT,
+      buildTokensPerCall: PACK_NO_ENTITLEMENT,
+      buildPagesPerCall: PACK_NO_ENTITLEMENT,
+      capabilities: capabilitiesFor(),
     };
-  }
-
-  const libraryLimit = wholeNumber(input.libraryLimit ?? '');
-  if (libraryLimit === null || !within(libraryLimit, PLAN_LIMITS.libraryLimit)) {
-    throw new PlanChangeRefused('invalid_library_limit', 'the library ceiling must be a number');
-  }
-
-  const librarySizeMb = wholeNumber(input.librarySizeMb ?? '');
-  if (librarySizeMb === null || !within(librarySizeMb, PLAN_LIMITS.librarySizeMb)) {
-    throw new PlanChangeRefused('invalid_library_size', 'the capacity ceiling must be in whole MB');
   }
 
   const apiKeyLimit = wholeNumber(input.apiKeyLimit ?? '');
   if (apiKeyLimit === null || !within(apiKeyLimit, PLAN_LIMITS.apiKeyLimit)) {
     throw new PlanChangeRefused('invalid_api_key_limit', 'the API key ceiling must be a number');
-  }
-
-  const shareRateBps = parseSharePercent(input.shareRate ?? '');
-  if (shareRateBps === null || !within(shareRateBps, PLAN_LIMITS.shareRateBps)) {
-    throw new PlanChangeRefused('invalid_share_rate', 'the publisher share must be 0-100%');
   }
 
   /*
@@ -393,29 +361,12 @@ export function parsePlanVersionDraft(input: PlanVersionInput): PlanVersionDraft
     priceMinor,
     currency: PLAN_CURRENCY,
     monthlyCalls,
-    libraryLimit,
-    librarySizeBytesLimit: mbToBytes(librarySizeMb),
     apiKeyLimit,
-    shareRateBps,
     buildBaseCalls,
     buildTokensPerCall,
     buildPagesPerCall,
-    capabilities: capabilitiesFor(planId),
+    capabilities: capabilitiesFor(),
   };
-}
-
-/** A percentage as typed -- "20", "17.5" -- as basis points. */
-export function parseSharePercent(raw: string): number | null {
-  const trimmed = raw.trim();
-  const match = /^(\d{1,3})(?:\.(\d{1,2}))?$/.exec(trimmed);
-  if (!match) return null;
-  const fraction = (match[2] ?? '').padEnd(2, '0');
-  return Number(match[1]) * 100 + Number(fraction);
-}
-
-export function sharePercentFromBps(bps: number): string {
-  const percent = bps / 100;
-  return Number.isInteger(percent) ? String(percent) : percent.toFixed(2).replace(/0$/, '');
 }
 
 /** A minor-unit amount as an editable string: 500 -> "5.00". */
@@ -442,10 +393,7 @@ export function isSamePlanVersion(
     priceMinor: number;
     currency: string;
     monthlyCalls: number;
-    libraryLimit: number;
-    librarySizeBytesLimit: number;
     apiKeyLimit: number;
-    shareRateBps: number;
     buildBaseCalls: number;
     buildTokensPerCall: number;
     buildPagesPerCall: number;
@@ -457,10 +405,7 @@ export function isSamePlanVersion(
     draft.priceMinor === live.priceMinor &&
     draft.currency === live.currency &&
     draft.monthlyCalls === live.monthlyCalls &&
-    draft.libraryLimit === live.libraryLimit &&
-    draft.librarySizeBytesLimit === live.librarySizeBytesLimit &&
     draft.apiKeyLimit === live.apiKeyLimit &&
-    draft.shareRateBps === live.shareRateBps &&
     draft.buildBaseCalls === live.buildBaseCalls &&
     draft.buildTokensPerCall === live.buildTokensPerCall &&
     draft.buildPagesPerCall === live.buildPagesPerCall &&

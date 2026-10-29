@@ -36,10 +36,7 @@ export interface PlanVersionRow {
   priceMinor: number;
   currency: string;
   monthlyCalls: number;
-  libraryLimit: number;
-  librarySizeBytesLimit: number;
   apiKeyLimit: number;
-  shareRateBps: number;
   /** library-build-billing.md 3.3. */
   buildBaseCalls: number;
   buildTokensPerCall: number;
@@ -113,14 +110,11 @@ function toRow(row: RawVersion, subscriptions: number): PlanVersionRow {
     priceMinor: row.priceMinor,
     currency: row.currency,
     monthlyCalls: row.monthlyCalls,
-    libraryLimit: row.libraryLimit,
-    librarySizeBytesLimit: row.librarySizeBytesLimit,
     apiKeyLimit: row.apiKeyLimit,
-    shareRateBps: row.shareRateBps,
     buildBaseCalls: row.buildBaseCalls,
     buildTokensPerCall: row.buildTokensPerCall,
     buildPagesPerCall: row.buildPagesPerCall,
-    capabilities: readCapabilities(planId, row.capabilities),
+    capabilities: readCapabilities(row.capabilities),
     createdAt: row.createdAt,
     subscriptions,
     isLive: false,
@@ -243,7 +237,7 @@ export async function createPlanVersion(
    * silently falling back to the tier default.
    */
   if (live && tierHasEntitlements(draft.planId)) {
-    draft.capabilities = capabilitiesFor(draft.planId, {
+    draft.capabilities = capabilitiesFor({
       showcasePages: live.capabilities.showcasePages,
       showcaseBranding: live.capabilities.showcaseBranding,
       showcaseLeadsRetained: live.capabilities.showcaseLeadsRetained,
@@ -286,10 +280,7 @@ export async function createPlanVersion(
       priceMinor: draft.priceMinor,
       currency: draft.currency,
       monthlyCalls: draft.monthlyCalls,
-      libraryLimit: draft.libraryLimit,
-      librarySizeBytesLimit: draft.librarySizeBytesLimit,
       apiKeyLimit: draft.apiKeyLimit,
-      shareRateBps: draft.shareRateBps,
       buildBaseCalls: draft.buildBaseCalls,
       buildTokensPerCall: draft.buildTokensPerCall,
       buildPagesPerCall: draft.buildPagesPerCall,
@@ -323,10 +314,7 @@ function auditShape(version: {
   priceMinor: number;
   currency: string;
   monthlyCalls: number;
-  libraryLimit: number;
-  librarySizeBytesLimit: number;
   apiKeyLimit: number;
-  shareRateBps: number;
   buildBaseCalls: number;
   buildTokensPerCall: number;
   buildPagesPerCall: number;
@@ -338,10 +326,7 @@ function auditShape(version: {
     priceMinor: version.priceMinor,
     currency: version.currency,
     monthlyCalls: version.monthlyCalls,
-    libraryLimit: version.libraryLimit,
-    librarySizeBytesLimit: version.librarySizeBytesLimit,
     apiKeyLimit: version.apiKeyLimit,
-    shareRateBps: version.shareRateBps,
     buildBaseCalls: version.buildBaseCalls,
     buildTokensPerCall: version.buildTokensPerCall,
     buildPagesPerCall: version.buildPagesPerCall,

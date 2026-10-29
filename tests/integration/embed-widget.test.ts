@@ -114,14 +114,11 @@ async function workspaceOnPlan(
   planVersions.push(planVersionId);
   await database.insert(schema.planVersion).values({
     id: planVersionId,
-    planId: 'pro',
-    priceMinor: 2000,
+    planId: 'free',
+    priceMinor: 0,
     currency: 'USD',
     monthlyCalls,
-    libraryLimit: 10,
-    librarySizeBytesLimit: 1_000_000,
     apiKeyLimit: 5,
-    shareRateBps: 2000,
     capabilities,
     createdAt: new Date('2000-01-01T00:00:00Z'),
   });
@@ -281,13 +278,13 @@ describeWithDb('website widget', () => {
       createSiteKey({ workspaceId, role: 'owner', libraryId: second, name: 'Two', origins: SITE }),
     ).resolves.toMatchObject({ name: 'Two' });
 
-    /* The stock Pro version above carries no cap: the per-library ceiling is the only one. */
-    const pro = await workspaceOnPlan();
-    const library = await ownedLibrary(pro, `widget-cap-pro-${Date.now()}`);
+    /* A version with the cap lifted: the per-library ceiling is the only one left. */
+    const uncapped = await workspaceOnPlan(1_000, { siteKeys: -1 });
+    const library = await ownedLibrary(uncapped, `widget-cap-uncapped-${Date.now()}`);
     for (const name of ['a', 'b']) {
-      await createSiteKey({ workspaceId: pro, role: 'owner', libraryId: library, name, origins: SITE });
+      await createSiteKey({ workspaceId: uncapped, role: 'owner', libraryId: library, name, origins: SITE });
     }
-    expect((await listSiteKeys({ workspaceId: pro, libraryId: library })).length).toBe(2);
+    expect((await listSiteKeys({ workspaceId: uncapped, libraryId: library })).length).toBe(2);
   });
 
   it('mints a key the owner can read back, and refuses bad settings by field', async () => {
@@ -712,7 +709,7 @@ describeWithDb('website widget', () => {
   });
 
   it("tells the visitor the assistant is unavailable when the workspace's quota is spent", async () => {
-    const workspaceId = await workspaceOnPlan(0);
+    const workspaceId = await workspaceOnPlan();
     const libraryId = await ownedLibrary(workspaceId, `widget-quota-${Date.now()}`);
     const key = await createSiteKey({ workspaceId, role: 'owner', libraryId, name: 'Broke', origins: SITE });
 

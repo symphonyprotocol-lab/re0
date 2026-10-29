@@ -13,7 +13,7 @@
 export interface BuildRates {
   /** The fixed part of every priced build. */
   baseCalls: number;
-  /** Fresh tokens per Call; 0 only on the pack sentinel (`PACK_INHERITS_PRO`). */
+  /** Fresh tokens per Call; 0 only on the pack sentinel (`PACK_NO_ENTITLEMENT`). */
   tokensPerCall: number;
   /** Fetched pages per Call; 0 only on the pack sentinel. */
   pagesPerCall: number;
@@ -70,14 +70,14 @@ export function priceBuild(facts: BuildFacts, rates: BuildRates): number {
 }
 
 /**
- * The most a build can cost before anything is fetched: the plan's capacity
- * ceiling turned into tokens at four bytes each, plus the crawl page limit
- * for sources that fetch pages. What the wizard shows and what the
- * reservation holds until the real figure is known.
+ * The most a build can cost before anything is fetched: the storage the
+ * workspace has left turned into tokens at four bytes each, plus the crawl
+ * page limit for sources that fetch pages. What the wizard shows and what
+ * the reservation holds until the real figure is known.
  */
 export function quoteBuildCap(input: {
   rates: BuildRates;
-  /** The plan's per-library content ceiling, in bytes. */
+  /** The most content this build may add to the workspace, in bytes. */
   capacityBytes: number;
   /** The most pages the connector may fetch; 0 for sources that fetch none. */
   pageLimit: number;

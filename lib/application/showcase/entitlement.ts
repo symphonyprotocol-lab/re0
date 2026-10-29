@@ -4,7 +4,7 @@
  * the way billing does: the subscription's version, else the newest Free one.
  */
 import { and, count, eq, isNull } from 'drizzle-orm';
-import { readCapabilities, type PlanTierId } from '@/lib/domain/plans';
+import { readCapabilities } from '@/lib/domain/plans';
 import type { ShowcaseEntitlement } from '@/lib/domain/showcase';
 import { PLAN_VERSION_NEWEST_FIRST } from '@/lib/application/plans/configuration';
 import { IN_FORCE_FIRST, subscriptionInForce } from '@/lib/application/plans/in-force';
@@ -68,12 +68,11 @@ async function readEntitlement(workspaceId: string): Promise<WorkspaceShowcaseEn
         .orderBy(...PLAN_VERSION_NEWEST_FIRST)
         .limit(1);
 
-  const tier = (version?.planId ?? 'free') as PlanTierId;
-  const capabilities = readCapabilities(tier, version?.capabilities);
+  const capabilities = readCapabilities(version?.capabilities);
   return {
     pages: capabilities.showcasePages,
     brandingOptional: capabilities.showcaseBranding,
-    paid: Boolean(active) && tier !== 'free',
+    paid: Boolean(active) && version?.planId !== 'free',
     leadsRetained: capabilities.showcaseLeadsRetained,
     customDomain: capabilities.showcaseCustomDomain,
   };

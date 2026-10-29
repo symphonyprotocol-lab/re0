@@ -76,7 +76,7 @@ import { platformTermWeight } from './term-weights';
 import type { FetchedFile, SourceSnapshot } from '@/lib/infrastructure/connectors';
 import { defaultDependencies, type IngestionDependencies } from './dependencies';
 import type { BuildFacts } from '@/lib/domain/build-billing';
-import { librarySizeCeiling } from '@/lib/application/plans/build-quota';
+import { workspaceStorage } from '@/lib/application/plans/storage';
 
 export interface BuildInput {
   libraryId: string;
@@ -433,23 +433,25 @@ export async function buildVersion(input: BuildInput): Promise<BuildOutcome> {
   }
 
   /*
-   * requirement.md 4.1: a workspace library holds no more content than its
-   * plan's per-library ceiling. Measured the way `storage_bytes` is -- the
-   * encoded bytes of every source, carried ones included -- and refused here,
-   * after the fetch and before anything is parsed, embedded or priced, so an
-   * oversized build costs neither side anything. Only a build that would
-   * write a version is held to it: an unchanged refresh above returned first,
-   * and a library already over the ceiling keeps serving what it has.
-   * Platform libraries are the operator's and have no plan.
+   * agent-first-proposal.md 8.1: a workspace holds no more content, across
+   * all its live libraries, than the owner's storage tier allows. This build
+   * is measured the way `storage_bytes` is -- the encoded bytes of every
+   * source, carried ones included -- added to what the workspace's *other*
+   * libraries hold (a rebuild replaces this library's bytes), and refused
+   * here, after the fetch and before anything is parsed, embedded or priced,
+   * so an oversized build costs neither side anything. Only a build that
+   * would write a version is held to it: an unchanged refresh above returned
+   * first, and a workspace already over capacity keeps serving what it has.
+   * Platform libraries are the operator's and have no tier.
    */
   if (!library.isPlatformLibrary && library.ownerWorkspaceId) {
-    const ceiling = await librarySizeCeiling(library.ownerWorkspaceId);
+    const storage = await workspaceStorage(library.ownerWorkspaceId, { excludeLibraryId: library.id });
     const total = plans.reduce((sum, plan) => sum + plan.record.bytes, 0);
-    if (ceiling !== null && total > ceiling) {
+    if (storage.usedBytes + total > storage.capacityBytes) {
       throw new IngestionFailure(
         'library_too_large',
         'fetch-snapshot',
-        `the content is ${total} bytes, over the plan's ${ceiling}`,
+        `the content is ${total} bytes, and the workspace has ${storage.remainingBytes} of ${storage.capacityBytes} left`,
       );
     }
   }

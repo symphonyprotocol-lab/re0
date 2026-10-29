@@ -34,6 +34,7 @@ import { INGESTION_LIMITS, type OperationTrigger } from '@/lib/domain/ingestion'
 import { requiresDomainVerification } from '@/lib/domain/domain-verification';
 import { db, schema } from '@/lib/infrastructure/postgres/client';
 import { countConsumption, oldestGrantWithBalance, planWindow, type Tx } from './quota';
+import { workspaceStorage } from './storage';
 
 /** How the deployment is billing builds right now. */
 export function currentBuildBillingMode(): BuildBillingMode {
@@ -43,7 +44,7 @@ export function currentBuildBillingMode(): BuildBillingMode {
 export interface BuildQuote {
   mode: BuildBillingMode;
   rates: BuildRates;
-  /** The most this build can cost, from the capacity ceiling or a tighter estimate. */
+  /** The most this build can cost, from the storage left in the workspace or a tighter estimate. */
   maxCalls: number;
   planAllowanceRemaining: number;
   addonBalanceRemaining: number;
@@ -62,14 +63,17 @@ export async function quoteBuild(input: {
   fetchesPages: boolean;
   /** Upload bytes, repository size -- when the wizard knows one. */
   estimatedBytes?: number;
+  /** The library being rebuilt, whose own bytes the build replaces rather than adds to. */
+  libraryId?: string;
 }): Promise<BuildQuote> {
   return db().transaction(async (tx) => {
     const window = await planWindow(tx, input.workspaceId);
     const counted = await countConsumption(tx, input.workspaceId, window.periodStart, window.periodEnd);
     const remaining = remainingOf(window.allowance, counted);
+    const storage = await workspaceStorage(input.workspaceId, { excludeLibraryId: input.libraryId, executor: tx });
     const maxCalls = quoteBuildCap({
       rates: window.buildRates,
-      capacityBytes: window.librarySizeBytesLimit,
+      capacityBytes: storage.remainingBytes,
       pageLimit: input.fetchesPages ? INGESTION_LIMITS.maxCrawlPages : 0,
       estimatedBytes: input.estimatedBytes,
     });
@@ -103,18 +107,6 @@ export async function assertBuildAffordable(input: {
     );
   }
   return quote;
-}
-
-/**
- * requirement.md 4.1: the most content, in bytes, one of the workspace's
- * libraries may hold -- the version in force's ceiling, else the newest
- * Free one, the same window the quote reads. Null when no version carries
- * a ceiling at all (a deployment that skipped the seed): refusing every
- * build there would be the bug, not the plan.
- */
-export async function librarySizeCeiling(workspaceId: string): Promise<number | null> {
-  const window = await db().transaction((tx) => planWindow(tx, workspaceId));
-  return window.librarySizeBytesLimit > 0 ? window.librarySizeBytesLimit : null;
 }
 
 /** One build's open seat, carried from `openBuildCharge` to its close. */
@@ -177,9 +169,10 @@ export async function openBuildCharge(input: {
     if (!locked) return null;
 
     const window = await planWindow(tx, workspaceId);
+    const storage = await workspaceStorage(workspaceId, { excludeLibraryId: input.libraryId, executor: tx });
     const cap = quoteBuildCap({
       rates: window.buildRates,
-      capacityBytes: window.librarySizeBytesLimit,
+      capacityBytes: storage.remainingBytes,
       pageLimit: fetchesPages ? INGESTION_LIMITS.maxCrawlPages : 0,
     });
 

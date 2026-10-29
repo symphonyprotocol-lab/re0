@@ -59,16 +59,16 @@
 
 ## 套餐
 
-以 USD 计价，只有以下三档，不设 Enterprise。
+以 USD 计价，只有一档免费额度和一个加购包，不设 Pro 或 Enterprise（agent-first-proposal.md 8.1）。
 
-| | Free | Pro | Additional Calls |
-| --- | --- | --- | --- |
-| 月费 | $0 | $5 / 月 | $5 / 包，一次性 |
-| API/MCP Calls | 1,000 / 月 | 5,000 / 月 | +5,000 Calls |
-| Calls 有效期 | 当账期，期末清零 | 当账期，期末清零 | **不过期**，跨账期结转 |
-| 自建知识库 | 5 个 | 25 个 | 沿用 Pro |
-| 单库容量 | 20 MB | 100 MB | 沿用 Pro |
-| 有效 API Key | 3 个 | 20 个 | 沿用 Pro |
+| | Free | Additional Calls |
+| --- | --- | --- |
+| 价格 | $0 | $5 / 包，一次性，所有人可购买 |
+| API Calls | 1,000 / 月 | +5,000 Calls |
+| Calls 有效期 | 当账期，期末清零 | **不过期**，跨账期结转 |
+| 自建知识库 | 不限数量 | 同 Free |
+| 工作空间总容量 | 500 MB；买过调用包后永久 2 GB（`user.storage_tier`） | 首次购买即提升 |
+| 有效 API Key | 20 个 | 同 Free |
 
 扣减顺序固定为「先套餐额度、后调用包余额」。公开知识库全部可查，无需逐库购买。
 
@@ -170,7 +170,7 @@ DATABASE_URL_UNPOOLED='<主分支直连串>' npm run db:migrate
 
 顺序按 [architecture.md](./architecture.md) 第 19.2 节排：主分支先迁移，再发布依赖新 Schema 的代码。
 
-`0002_seed_plans.sql` 会写入 Free 和 Pro 的 Plan Version——首次登录要在同一个事务里创建 Free 订阅，因此迁移必须先于任何流量执行。
+`0002_seed_plans.sql` 会写入 Free 的 Plan Version（Pro 已在后续迁移中删除）——首次登录要在同一个事务里创建 Free 订阅，因此迁移必须先于任何流量执行。
 
 ### 后台的首位管理员
 

@@ -34,7 +34,6 @@ export interface CreateLibraryResult {
   error?:
     | 'invalid'
     | 'taken'
-    | 'limit'
     | 'quota'
     | 'denied'
     | 'unavailable'
@@ -126,9 +125,6 @@ export async function createWorkspaceLibraryAction(
        and a refusal here is a refusal, not an outage. */
     if (error instanceof AppError && error.code === 'access_denied') {
       return { ok: false, error: 'denied' };
-    }
-    if (error instanceof AppError && error.code === 'library_limit_exceeded') {
-      return { ok: false, error: 'limit' };
     }
     if (error instanceof AppError && error.code === 'quota_exceeded') {
       return { ok: false, error: 'quota' };

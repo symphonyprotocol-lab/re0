@@ -17,7 +17,7 @@
  * challenge is spent here, inside the same transaction that writes the rows,
  * and copied onto `library_claim` so the library is born claimed.
  */
-import { and, count, eq, isNull } from 'drizzle-orm';
+import { and, eq } from 'drizzle-orm';
 import { AppError } from '@/contracts/errors';
 import { uuidv7 } from '@/lib/domain/id';
 import {
@@ -43,9 +43,7 @@ import { requiresDomainVerification } from '@/lib/domain/domain-verification';
 import { consumeDomainVerification } from './domain-verification';
 import { isObjectStoreConfigured, objectStore, type ObjectStore } from '@/lib/infrastructure/objects/store';
 import { db, schema } from '@/lib/infrastructure/postgres/client';
-import { IN_FORCE_FIRST, subscriptionInForce } from '@/lib/application/plans/in-force';
 import { canManageLibraries, type WorkspaceRole } from './delete';
-import { PLAN_VERSION_NEWEST_FIRST } from '@/lib/application/plans/configuration';
 import { assertBuildAffordable } from '@/lib/application/plans/build-quota';
 
 export interface CreateWorkspaceLibraryInput {
@@ -253,12 +251,13 @@ export async function createWorkspaceLibrary(
 
   const database = db();
 
-  const limit = await libraryLimit(input.workspaceId);
   /*
    * library-build-billing.md 4.1: a workspace that cannot cover a build's
    * base fee is refused before a row exists, rather than handed a library
-   * whose first build can only fail. Read before the lock, like the limit:
-   * the reservation itself is taken by the worker under the lock.
+   * whose first build can only fail. Read before the lock: the reservation
+   * itself is taken by the worker under the lock. There is no ceiling on
+   * how many libraries a workspace holds (agent-first-proposal.md 8.1); its
+   * content is bounded as a whole, at build time, by the owner's storage tier.
    */
   if (!isUpload || uploaded.length > 0) {
     await assertBuildAffordable({
@@ -292,20 +291,6 @@ export async function createWorkspaceLibrary(
         .where(eq(schema.workspace.id, input.workspaceId))
         .for('update');
       if (!locked) throw new AppError('access_denied', 'no such workspace');
-
-      /* Deleted libraries are tombstones; they gave their slot back. */
-      const [owned] = await tx
-        .select({ n: count() })
-        .from(schema.library)
-        .where(
-          and(
-            eq(schema.library.ownerWorkspaceId, input.workspaceId),
-            isNull(schema.library.deletedAt),
-          ),
-        );
-      if ((owned?.n ?? 0) >= limit) {
-        throw new AppError('library_limit_exceeded', 'the plan’s library limit is reached');
-      }
 
       await tx.insert(schema.library).values({
         id: libraryId,
@@ -381,28 +366,3 @@ export async function confirmUploads(
   }
 }
 
-/** The plan's library ceiling: active subscription's version, or newest Free. */
-async function libraryLimit(workspaceId: string): Promise<number> {
-  const database = db();
-  const [active] = await database
-    .select({ limit: schema.planVersion.libraryLimit })
-    .from(schema.subscription)
-    .innerJoin(schema.planVersion, eq(schema.planVersion.id, schema.subscription.planVersionId))
-    .where(
-      and(eq(schema.subscription.workspaceId, workspaceId), subscriptionInForce()),
-    )
-    .orderBy(...IN_FORCE_FIRST)
-    .limit(1);
-  if (active) return active.limit;
-
-  const [free] = await database
-    .select({ limit: schema.planVersion.libraryLimit })
-    .from(schema.planVersion)
-    .where(eq(schema.planVersion.planId, 'free'))
-    /* The id tiebreak, as every other plan-version reader uses: `created_at`
-       defaults to the transaction clock, so versions minted together tie on
-       it and a tie would hand out an allowance the console never published. */
-    .orderBy(...PLAN_VERSION_NEWEST_FIRST)
-    .limit(1);
-  return free?.limit ?? 1;
-}

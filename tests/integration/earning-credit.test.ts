@@ -62,10 +62,7 @@ async function packVersion(): Promise<void> {
     priceMinor: 500,
     currency: 'USD',
     monthlyCalls: 5_000,
-    libraryLimit: 0,
-    librarySizeBytesLimit: 0,
     apiKeyLimit: 0,
-    shareRateBps: 0,
     capabilities: {},
     createdAt: new Date('2100-01-01T00:00:00Z'),
   });

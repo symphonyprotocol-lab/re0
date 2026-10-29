@@ -544,8 +544,6 @@ export interface PlanWindow {
   shareRateBps: number;
   /** library-build-billing.md 3.3: what a build costs on this version. */
   buildRates: BuildRates;
-  /** requirement.md 4.1: the per-library content ceiling, which bounds a build's quote. */
-  librarySizeBytesLimit: number;
 }
 
 export async function planWindow(tx: Tx, workspaceId: string): Promise<PlanWindow> {
@@ -573,7 +571,6 @@ export async function planWindow(tx: Tx, workspaceId: string): Promise<PlanWindo
       planVersionId: active.planVersionId,
       shareRateBps: version?.shareRateBps ?? 0,
       buildRates: buildRatesOf(version),
-      librarySizeBytesLimit: version?.librarySizeBytesLimit ?? 0,
     };
   }
 
@@ -594,7 +591,6 @@ export async function planWindow(tx: Tx, workspaceId: string): Promise<PlanWindo
     planVersionId: free?.id ?? null,
     shareRateBps: free?.shareRateBps ?? 0,
     buildRates: buildRatesOf(free),
-    librarySizeBytesLimit: free?.librarySizeBytesLimit ?? 0,
   };
 }
 
@@ -605,7 +601,6 @@ const PLAN_WINDOW_COLUMNS = {
   buildBaseCalls: schema.planVersion.buildBaseCalls,
   buildTokensPerCall: schema.planVersion.buildTokensPerCall,
   buildPagesPerCall: schema.planVersion.buildPagesPerCall,
-  librarySizeBytesLimit: schema.planVersion.librarySizeBytesLimit,
 };
 
 /** No version at all (a deployment that skipped the seed) builds at the defaults. */

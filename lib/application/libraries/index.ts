@@ -7,7 +7,6 @@ export function notImplemented(name: string): never {
 
 export {
   countWorkspaceLibraries,
-  largestWorkspaceLibraryBytes,
   listWorkspaceLibraries,
   type WorkspaceLibraryRow,
 } from './workspace';

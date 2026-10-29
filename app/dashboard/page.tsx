@@ -259,9 +259,6 @@ export default async function DashboardOverviewPage() {
               {o.usageSubtitle}
             </p>
           </div>
-          <span className="inline-flex h-[29px] items-center rounded-md border border-publine px-[11px]">
-            <ArrowLink href="/pricing">{o.usageUpgrade}</ArrowLink>
-          </span>
         </div>
         <UsageChart days={days} />
       </section>

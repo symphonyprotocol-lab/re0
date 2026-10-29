@@ -101,14 +101,11 @@ async function subscribed(workspaceId: string, monthlyCalls: number): Promise<st
   planVersions.push(planVersionId);
   await database.insert(schema.planVersion).values({
     id: planVersionId,
-    planId: 'pro',
-    priceMinor: 500,
+    planId: 'free',
+    priceMinor: 0,
     currency: 'USD',
     monthlyCalls,
-    libraryLimit: 10,
-    librarySizeBytesLimit: 1_000_000,
     apiKeyLimit: 5,
-    shareRateBps: 2_000,
     buildBaseCalls: 1,
     buildTokensPerCall: TOKENS_PER_CALL,
     buildPagesPerCall: 5,

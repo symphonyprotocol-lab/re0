@@ -87,7 +87,7 @@ function dependencies(content: string) {
   };
 }
 
-async function workspaceOnPlan(libraryLimit: number): Promise<string> {
+async function workspaceOnPlan(): Promise<string> {
   const database = db();
   const workspaceId = crypto.randomUUID();
   workspaces.push(workspaceId);
@@ -96,14 +96,11 @@ async function workspaceOnPlan(libraryLimit: number): Promise<string> {
   planVersions.push(planVersionId);
   await database.insert(schema.planVersion).values({
     id: planVersionId,
-    planId: 'pro',
-    priceMinor: 2000,
+    planId: 'free',
+    priceMinor: 0,
     currency: 'USD',
     monthlyCalls: 1_000,
-    libraryLimit,
-    librarySizeBytesLimit: 1_000_000,
     apiKeyLimit: 5,
-    shareRateBps: 2000,
     capabilities: {},
     createdAt: new Date('2000-01-01T00:00:00Z'),
   });
@@ -178,7 +175,7 @@ describeWithDb('nested library ids', () => {
 
   it('serves a parent and its nested library under their own ids, and still pins versions', async () => {
     const stamp = Date.now();
-    const workspaceId = await workspaceOnPlan(5);
+    const workspaceId = await workspaceOnPlan();
     const parentSlug = `chain-${stamp}`;
 
     const parent = await publish(
