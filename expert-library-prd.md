@@ -1,8 +1,10 @@
 # Re0 专家库审批与分成资格 PRD
 
+> **本文已于 2026-10-29 废止。** 专家库标签、专家申请、管理员审批、门槛配置与自检问题随发布者分成一并取消；Benchmark 只剩结构分。替代规则见 [agent-first-proposal.md](./agent-first-proposal.md) 第 3.6、9 节。以下正文保留作历史记录，不再是产品规则。
+
 - 版本：1.0
 - 日期：2026-10-17
-- 状态：已自审，随本文一并实现
+- 状态：**废止（2026-10-29）**，见上方说明
 - 上级文档：[requirement.md](./requirement.md) 第 4.4 节、第 5.3 节
 - 关联文档：[publisher-revenue-share.md](./publisher-revenue-share.md)、[architecture.md](./architecture.md)
 
