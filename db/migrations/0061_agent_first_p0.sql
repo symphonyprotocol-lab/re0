@@ -145,3 +145,62 @@ ALTER TABLE "settlement"
   DROP COLUMN "library_id",
   DROP COLUMN "attributable_calls";
 --> statement-breakpoint
+
+-- ------------------------------------------------------------------- plans
+-- One tier plus the pack (proposal 8.1, 13.3 items 5, 6, 16): Pro is deleted
+-- without compensation, Additional Calls are for everyone, the library count
+-- is uncapped, content is bounded by the owner's storage tier (500 MB, or
+-- 2 GB once the user has bought a pack), and 20 API keys for all.
+ALTER TABLE "user" ADD COLUMN "storage_tier" text NOT NULL DEFAULT 'base';
+--> statement-breakpoint
+-- Anyone whose workspace already bought a pack is on the extended tier.
+UPDATE "user" SET "storage_tier" = 'extended', "updated_at" = now()
+WHERE "id" IN (
+  SELECT wm."user_id" FROM "workspace_member" wm
+  JOIN "addon_grant" ag ON ag."workspace_id" = wm."workspace_id"
+  WHERE wm."role" = 'owner' AND ag."publisher_account_id" IS NULL
+);
+--> statement-breakpoint
+-- Rows that point at a Pro version go first; the billing mirror keeps its
+-- documents (money that was collected) with the link cleared.
+UPDATE "billing_document" SET "plan_version_id" = NULL
+WHERE "plan_version_id" IN (SELECT "id" FROM "plan_version" WHERE "plan_id" = 'pro');
+--> statement-breakpoint
+UPDATE "billing_document" SET "subscription_id" = NULL
+WHERE "subscription_id" IN (
+  SELECT s."id" FROM "subscription" s JOIN "plan_version" pv ON pv."id" = s."plan_version_id"
+  WHERE pv."plan_id" = 'pro'
+);
+--> statement-breakpoint
+DELETE FROM "payment_checkout"
+WHERE "plan_version_id" IN (SELECT "id" FROM "plan_version" WHERE "plan_id" = 'pro');
+--> statement-breakpoint
+-- Every workspace has the Free row signup wrote, and Free is also the absence
+-- of a row (planWindow falls back to the newest Free version), so Pro rows are
+-- dropped rather than moved.
+DELETE FROM "subscription"
+WHERE "plan_version_id" IN (SELECT "id" FROM "plan_version" WHERE "plan_id" = 'pro');
+--> statement-breakpoint
+DELETE FROM "plan_version" WHERE "plan_id" = 'pro';
+--> statement-breakpoint
+DELETE FROM "plan" WHERE "id" = 'pro';
+--> statement-breakpoint
+ALTER TABLE "plan_version" DROP COLUMN "library_limit";
+--> statement-breakpoint
+ALTER TABLE "plan_version" DROP COLUMN "library_size_bytes_limit";
+--> statement-breakpoint
+-- The share rate was the per-retrieval programme's; the channel fee lives on
+-- channel plan versions (proposal 6.9), not here.
+ALTER TABLE "plan_version" DROP COLUMN "share_rate_bps";
+--> statement-breakpoint
+-- A new live Free version with 20 keys; everything else copied from the
+-- current newest Free version. Versions are immutable, so a new row.
+INSERT INTO "plan_version" (
+  "id", "plan_id", "price_minor", "currency", "monthly_calls", "api_key_limit",
+  "build_base_calls", "build_tokens_per_call", "build_pages_per_call", "capabilities"
+)
+SELECT '01920000-0000-7000-8000-000000000004', 'free', "price_minor", "currency", "monthly_calls", 20,
+  "build_base_calls", "build_tokens_per_call", "build_pages_per_call", "capabilities"
+FROM "plan_version" WHERE "plan_id" = 'free'
+ORDER BY "created_at" DESC, "id" DESC LIMIT 1
+ON CONFLICT ("id") DO NOTHING;

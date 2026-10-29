@@ -346,8 +346,6 @@ export const planVersion = pgTable(
      * owner's `user.storage_tier` (agent-first-proposal.md 8.1).
      */
     apiKeyLimit: integer('api_key_limit').notNull(),
-    /** Publisher share rate, frozen per version. requirement.md 4.4 */
-    shareRateBps: integer('share_rate_bps').notNull().default(2000),
     /**
      * What a library build costs, frozen per version like every price here.
      * library-build-billing.md 3.3; `lib/domain/build-billing.ts` `BuildRates`.
