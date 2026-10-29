@@ -583,14 +583,6 @@ export const library = pgTable(
      */
     deletedAt: timestamp('deleted_at', { withTimezone: true }),
     /**
-     * The expert-library tag (expert-library-prd.md 4.3). Null means the
-     * library is not one. Written only by the console's approval and cleared
-     * only by its revocation; nothing in ingestion, review or ownership
-     * touches it. Read by exactly one decision -- whether a served call earns
-     * (`commitCall`) -- and never by retrieval or ranking.
-     */
-    expertTaggedAt: timestamp('expert_tagged_at', { withTimezone: true }),
-    /**
      * The owner's rights declaration (lib/domain/rights.ts): origin,
      * licence, how the content was written, their note, who declared and
      * when. Required before a public library may be submitted
