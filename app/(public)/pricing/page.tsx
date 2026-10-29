@@ -341,7 +341,7 @@ export default async function PricingPage() {
         eyebrow={p.shareBanner.eyebrow}
         title={p.shareBanner.title}
         cta={p.shareBanner.cta}
-        href="/contact"
+        href="/publishers"
         className="mt-[68px]"
       />
 

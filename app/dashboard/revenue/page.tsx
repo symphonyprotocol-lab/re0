@@ -169,7 +169,7 @@ export default async function DashboardRevenuePage() {
         title={r.title}
         description={r.description}
         action={
-          <ActionButton href="/dashboard/revenue/rules" variant="outline">
+          <ActionButton href="/publishers" variant="outline">
             {r.rulesLink}
           </ActionButton>
         }

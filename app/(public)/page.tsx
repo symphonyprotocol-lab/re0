@@ -10,6 +10,7 @@ import {
   ArrowUpRightIcon,
   BracesIcon,
   CircleCheckIcon,
+  CircleDollarSignIcon,
   ClockIcon,
   GlobeIcon,
   KeyIcon,
@@ -18,10 +19,13 @@ import {
   SparklesIcon,
 } from '@/components/ui/icons';
 import { listPublicLibraries, POPULARITY_WINDOW_DAYS } from '@/lib/application/libraries';
+import { currentPlanVersion } from '@/lib/application/plans';
+import { DAILY_ATTRIBUTABLE_CALL_CAP, PAYOUT_HOLD_DAYS, PAYOUT_THRESHOLD_MINOR } from '@/lib/domain';
+import { FALLBACK_PRICING } from '@/lib/domain/pricing-page';
 import { embedSnippet } from '@/lib/domain/site-key';
 import { publicUrl } from '@/lib/site/origin';
 import { fill } from '@/lib/i18n/format';
-import { getMessages } from '@/lib/i18n/server';
+import { translations } from '@/lib/i18n/server';
 
 /** Vendor logomarks where the surface has one; the design source's glyph otherwise. */
 const SURFACES = [
@@ -39,8 +43,29 @@ const USES = [
   { id: 'showcase', href: '#showcase', Icon: GlobeIcon },
 ] as const;
 
+/**
+ * The publisher section's figures: the share rate of the Pro version in
+ * force, and the limits the ledger enforces, as /publishers prints them. A
+ * database that cannot be read prints the seed's rate rather than failing the
+ * home page over a sentence.
+ */
+async function publisherValues(locale: string) {
+  const pro = await currentPlanVersion('pro').catch((error: unknown) => {
+    console.error(`home: plan pro unreadable: ${error instanceof Error ? error.message : 'unknown'}`);
+    return null;
+  });
+  const rateBps = (pro ?? FALLBACK_PRICING.pro).shareRateBps;
+  return {
+    rate: new Intl.NumberFormat(locale, { style: 'percent', maximumFractionDigits: 2 }).format(rateBps / 10_000),
+    cap: new Intl.NumberFormat(locale).format(DAILY_ATTRIBUTABLE_CALL_CAP),
+    holdDays: PAYOUT_HOLD_DAYS,
+    threshold: `$${(PAYOUT_THRESHOLD_MINOR / 100).toFixed(2)}`,
+  };
+}
+
 export default async function HomePage() {
-  const t = await getMessages();
+  const { locale, t } = await translations();
+  const publishing = await publisherValues(locale);
   /* The MCP endpoint a person pastes into their client: the one thing every
      surface in the hero row shares. It is always the public host -- a visitor
      reading a preview deployment still has to connect to the real one.
@@ -399,9 +424,53 @@ export default async function HomePage() {
         </div>
       </section>
 
-      {/* Closing call to action, back on the paper canvas. */}
-      <section>
-        <div className="mx-auto flex w-full max-w-[1200px] flex-col items-start justify-between gap-8 px-5 py-20 sm:flex-row sm:items-center">
+      {/*
+        Publisher revenue share -- the directory's other side. Having seen
+        the libraries, a reader who could publish one learns that an expert
+        library earns on every retrieval; the rules themselves are the public
+        /publishers page. Back on paper after the tinted directory.
+      */}
+      <section id="publishers" className="scroll-mt-24">
+        <div className="mx-auto grid w-full max-w-[1200px] grid-cols-1 items-center gap-12 px-5 py-20 lg:grid-cols-[minmax(0,1fr)_480px]">
+          <div className="flex flex-col items-start">
+            <span className="eyebrow">{t.home.publishers.eyebrow}</span>
+            <h2 className="mt-4 max-w-[22ch] text-heading-sm font-semibold tracking-[0.018em] text-ink">
+              {t.home.publishers.title}
+            </h2>
+            <p className="mt-4 max-w-[58ch] text-subheading text-muted">
+              {fill(t.home.publishers.lede, publishing)}
+            </p>
+            <div className="mt-8 flex flex-wrap items-center gap-3">
+              <Button href="/publishers" size="md">
+                <CircleDollarSignIcon size={16} />
+                {t.home.publishers.cta}
+                <ArrowRightIcon size={15} />
+              </Button>
+              <span className="text-caption text-muted">{t.home.publishers.note}</span>
+            </div>
+          </div>
+
+          <ol className="flex flex-col gap-3">
+            {t.home.publishers.steps.map((step, i) => (
+              <li key={step.title}>
+                <Card className="flex gap-4 p-5">
+                  <span className="flex size-8 shrink-0 items-center justify-center rounded-full bg-brandsoft font-mono text-[12px] font-medium text-brandink">
+                    {i + 1}
+                  </span>
+                  <div className="min-w-0">
+                    <h3 className="text-body font-semibold text-ink">{step.title}</h3>
+                    <p className="mt-1.5 text-caption leading-[1.6] text-muted">{fill(step.text, publishing)}</p>
+                  </div>
+                </Card>
+              </li>
+            ))}
+          </ol>
+        </div>
+      </section>
+
+      {/* Closing call to action, on paper under a rule that parts it from the section above. */}
+      <section className="mx-auto w-full max-w-[1200px] px-5">
+        <div className="flex w-full flex-col items-start justify-between gap-8 border-t border-line py-20 sm:flex-row sm:items-center">
           <div className="flex flex-col gap-2">
             <span className="eyebrow">{t.home.ctaEyebrow}</span>
             <h2 className="max-w-[22ch] text-heading-sm font-semibold tracking-[0.018em] text-ink">

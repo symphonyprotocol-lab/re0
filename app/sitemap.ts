@@ -28,6 +28,7 @@ export default async function sitemap(): Promise<MetadataRoute.Sitemap> {
     { url: publicUrl('/libraries'), changeFrequency: 'daily', priority: 0.9 },
     { url: publicUrl('/playground'), changeFrequency: 'monthly', priority: 0.8 },
     { url: publicUrl('/pricing'), changeFrequency: 'monthly', priority: 0.8 },
+    { url: publicUrl('/publishers'), changeFrequency: 'monthly', priority: 0.6 },
     { url: publicUrl('/about'), changeFrequency: 'monthly', priority: 0.6 },
     { url: publicUrl('/status'), changeFrequency: 'hourly', priority: 0.4 },
     { url: publicUrl('/contact'), changeFrequency: 'yearly', priority: 0.5 },
