@@ -36,6 +36,7 @@
 | [expert-data-track-proposal.md](./expert-data-track-proposal.md) | 专家训练数据、授权交付与专业评测的集成方案 | MVP 后扩展，待评审 |
 | [self-hosting-proposal.md](./self-hosting-proposal.md) | Docker 私有部署形态：镜像、编排、与托管版的差异 | 待评审 |
 | [review-visibility-proposal.md](./review-visibility-proposal.md) | 公开审核与专家审批：审核员可见内容、提交材料、规则/模型/人工三层审核 | 待评审 |
+| [agent-first-proposal.md](./agent-first-proposal.md) | 转向 Agent 优先：按来源分类型的数据资产、频道与 20% 管理费的订阅、三层 Agent Card 与 A2A；下线网站插件、分享页、MCP，取消 Pro、专家库与发布者分成 | 评审中 |
 | `knowleg-market.pen` | 设计稿，27 个画板（Pencil 格式，需用 Pencil 打开） | — |
 
 冲突时的决策顺序以 [requirement.md](./requirement.md) 第 1 节为准：产品规则 → 设计稿 → 架构约束 → Context7 接入模式 → 旧文档与旧设计稿。本文只是索引，不是权威来源。
