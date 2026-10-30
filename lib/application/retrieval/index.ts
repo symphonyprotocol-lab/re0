@@ -25,10 +25,10 @@ export interface CallerContext {
    */
   scopes?: readonly string[];
   /**
-   * Which door: `rest`, `mcp` or `web`. Recorded on the usage event and the
+   * Which door: `rest`, `mcp`, `web` or `a2a`. Recorded on the usage event and the
    * request log. Absent means "rest if a key, else web", the pre-MCP reading.
    */
-  entrypoint?: 'rest' | 'mcp' | 'web';
+  entrypoint?: 'rest' | 'mcp' | 'web' | 'a2a';
 }
 
 export async function resolveLibraryId(

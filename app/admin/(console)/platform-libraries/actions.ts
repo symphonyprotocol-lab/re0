@@ -17,7 +17,7 @@ import {
 } from '@/lib/application/administration';
 import { runOperation } from '@/lib/application/ingestion';
 import { preparePlatformUploads } from '@/lib/application/libraries';
-import type { PrepareUploadResult } from '@/app/dashboard/libraries/new/actions';
+import type { PrepareUploadResult } from '@/app/dashboard/assets/new/actions';
 import { AppError } from '@/contracts/errors';
 import { AdminChangeRefused } from '@/lib/domain/admin';
 import {

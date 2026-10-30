@@ -46,6 +46,7 @@ import { containsCjk } from '@/lib/domain/cjk';
 import { admitsCandidate, RARE_TERM_MAX_DOCUMENTS } from '@/lib/domain/routing';
 import { pinPolicy, policyIsOpen, policyVerdicts } from '@/lib/application/policies';
 import { db, schema } from '@/lib/infrastructure/postgres/client';
+import { readableBy } from '@/lib/application/channels/visibility';
 import type { EmbeddingAdapter } from '@/lib/infrastructure/ai/providers';
 import {
   activeRetrievalSettings,
@@ -458,11 +459,12 @@ export async function resolveLibrary(
 }
 
 /**
- * architecture.md 5.2 and 9.6: an invisible private library and a nonexistent
- * one must be indistinguishable, so invisibility is a recall predicate, never
- * an application-layer filter over recalled rows.
+ * architecture.md 5.2 and 9.6: an invisible asset and a nonexistent one must
+ * be indistinguishable, so invisibility is a recall predicate, never an
+ * application-layer filter over recalled rows. Who may see what is
+ * channels/visibility.ts's alone (agent-first-proposal.md 6.2).
  */
-function visibleTo(caller: CallerContext): SQL {
+export function visibleTo(caller: Pick<CallerContext, 'workspaceId'>): SQL {
   const routable = and(
     eq(schema.library.lifecycleStatus, 'published'),
     eq(schema.library.indexStatus, 'ready'),
@@ -470,14 +472,7 @@ function visibleTo(caller: CallerContext): SQL {
     /* Implied by the three above for a tombstone; stated so it stays true. */
     isNull(schema.library.deletedAt),
   )!;
-  if (!caller.workspaceId) return and(routable, eq(schema.library.visibility, 'public'))!;
-  return and(
-    routable,
-    or(
-      eq(schema.library.visibility, 'public'),
-      eq(schema.library.ownerWorkspaceId, caller.workspaceId),
-    ),
-  )!;
+  return and(routable, readableBy(caller.workspaceId))!;
 }
 
 /**

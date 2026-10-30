@@ -9,7 +9,7 @@ import {
 } from '@/components/dashboard/pdf-uploader';
 import { PANEL } from '@/components/dashboard/ui';
 import { FileTextIcon, RefreshIcon } from '@/components/ui/icons';
-import type { UpdateLibraryFilesActionResult } from '@/app/dashboard/libraries/[libraryId]/files/actions';
+import type { UpdateLibraryFilesActionResult } from '@/app/dashboard/assets/[libraryId]/files/actions';
 import { UPLOAD_LIMITS, type UploadedFile, type UploadSourceType } from '@/lib/domain/library';
 import { useI18n } from '@/lib/i18n/client';
 import { fill } from '@/lib/i18n/format';

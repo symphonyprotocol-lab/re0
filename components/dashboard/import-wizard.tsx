@@ -24,7 +24,7 @@ import type {
   CheckDomainVerificationResult,
   CreateLibraryResult,
   StartDomainVerificationResult,
-} from '@/app/dashboard/libraries/new/actions';
+} from '@/app/dashboard/assets/new/actions';
 import {
   requiresDomainVerification,
   verificationHost,
@@ -53,9 +53,11 @@ import { fill } from '@/lib/i18n/format';
 
 /**
  * Import wizard -- design source frame `ISF8H`, live end to end. Four steps:
- * pick the connector-backed source, describe the library, choose visibility,
- * confirm. A website source gets a fifth step between details and
- * visibility: prove control of the source's host by a DNS TXT record or a
+ * pick the connector-backed source, describe the asset, declare rights
+ * (optional), confirm. Every new asset starts in no channel, its owner's
+ * alone (agent-first-proposal.md 3.3, 6.2); putting it in a channel is a
+ * separate step afterwards. A website source gets a fifth step between
+ * details and rights: prove control of the source's host by a DNS TXT record or a
  * well-known file (requirement.md 7.3.2), because the server refuses to
  * create such a library without a verified challenge. Submission
  * writes the rows and queues the build (create.ts); the request never waits
@@ -137,7 +139,6 @@ interface WizardDraft {
   location: string;
   description: string;
   language: string;
-  visibility: 'public' | 'private';
   indexDepth: IndexDepth;
   /** The rights declaration's answers (components/dashboard/rights-fields.tsx). */
   rights: RightsAnswer;
@@ -180,7 +181,6 @@ function readDraft(workspaceId: string): WizardDraft | null {
       location: String(draft.location ?? ''),
       description: String(draft.description ?? ''),
       language: String(draft.language ?? ''),
-      visibility: draft.visibility === 'private' ? 'private' : 'public',
       indexDepth: parseIndexDepth(draft.indexDepth),
       rights: readRightsAnswer(draft.rights),
       savedAt: draft.savedAt,
@@ -293,11 +293,9 @@ export function ImportWizard({
   const [location, setLocation] = useState('');
   const [description, setDescription] = useState('');
   const [language, setLanguage] = useState('');
-  const [visibility, setVisibility] = useState<'public' | 'private'>('public');
   const [indexDepth, setIndexDepth] = useState<IndexDepth>(0);
-  /* The rights declaration (lib/domain/rights.ts): a public library is
-     created with one, and one that declares model-generated content cannot
-     be public at all -- the step says so and offers private instead. */
+  /* The rights declaration (lib/domain/rights.ts): optional here, since a new
+     asset is its owner's alone; moving it into a public channel checks it. */
   const [rights, setRights] = useState<RightsAnswer>(EMPTY_RIGHTS);
   /* The domain challenge for the source's host, once started. Ignored the
      moment the location points at another host: a challenge is bound to
@@ -343,14 +341,10 @@ export function ImportWizard({
   const host = needsVerification ? verificationHost(location) : null;
   const liveChallenge = challenge && host !== null && challenge.host === host ? challenge : null;
   const verificationComplete = !needsVerification || (liveChallenge?.verified ?? false);
-  /* A public library needs the whole declaration and one that permits it; a
-     private one may leave it empty, but a half-filled one would be refused
-     by the server, so it has to be all or nothing. */
+  /* The declaration may be left empty, but a half-filled one would be
+     refused by the server, so it is all or nothing. */
   const rightsStarted = rights.origin !== '' || rights.license !== '' || rights.generation !== '';
-  const rightsOk =
-    visibility === 'private'
-      ? !rightsStarted || rightsComplete(rights)
-      : rightsComplete(rights) && rights.generation !== 'generated';
+  const rightsOk = !rightsStarted || rightsComplete(rights);
 
   const canContinue =
     current === 'source'
@@ -379,7 +373,6 @@ export function ImportWizard({
     setLocation(draft.location);
     setDescription(draft.description);
     setLanguage(draft.language);
-    setVisibility(draft.visibility);
     setIndexDepth(draft.indexDepth);
     if (!returned && draft.source) {
       setSource(draft.source);
@@ -411,7 +404,6 @@ export function ImportWizard({
       location,
       description,
       language,
-      visibility,
       indexDepth,
       rights,
       savedAt: at,
@@ -434,7 +426,6 @@ export function ImportWizard({
     location,
     description,
     language,
-    visibility,
     indexDepth,
     rights,
   ]);
@@ -473,7 +464,6 @@ export function ImportWizard({
     setLocation('');
     setDescription('');
     setLanguage('');
-    setVisibility('public');
     setIndexDepth(0);
     setChallenge(null);
     setConfirmed(false);
@@ -497,7 +487,6 @@ export function ImportWizard({
      the create left behind (a draft with a build queued, or none at all). */
   const pipeline: ReviewPipelineEntry[] = state?.ok
     ? reviewPipeline({
-        visibility,
         lifecycleStatus: 'draft',
         indexStatus: 'pending',
         building: !awaitingFiles,
@@ -564,7 +553,7 @@ export function ImportWizard({
 
       <p className="flex items-center gap-1.5 border-t border-line pt-3.5 text-[11px] text-muted">
         <LockIcon size={13} />
-        {visibility === 'private' ? n.pipeline.privateFlow : n.privateSkips}
+        {n.pipeline.privateFlow}
       </p>
     </aside>
   );
@@ -586,7 +575,7 @@ export function ImportWizard({
           </p>
           <Link
             href={
-              awaitingFiles ? `/dashboard/libraries/${state.libraryId}/files` : '/dashboard/libraries'
+              awaitingFiles ? `/dashboard/assets/${state.libraryId}/files` : '/dashboard/assets'
             }
             className="mt-2 inline-flex h-[35px] items-center gap-1.5 rounded-md bg-brand px-3.5 text-[12px] font-medium text-white hover:bg-brand/90"
           >
@@ -670,7 +659,6 @@ export function ImportWizard({
           <input type="hidden" name="location" value={location} />
           <input type="hidden" name="description" value={description} />
           <input type="hidden" name="language" value={language} />
-          <input type="hidden" name="visibility" value={visibility} />
           <input type="hidden" name="indexDepth" value={String(indexDepth)} />
           <RightsHiddenFields value={rights} />
           <input
@@ -836,43 +824,12 @@ export function ImportWizard({
             ) : null}
 
             {current === 'visibility' ? (
-              <div className="mt-4 grid gap-2.5 sm:grid-cols-2">
-                {(['public', 'private'] as const).map((option) => (
-                  <button
-                    key={option}
-                    type="button"
-                    onClick={() => setVisibility(option)}
-                    aria-pressed={visibility === option}
-                    className={`flex flex-col gap-2 rounded-md border p-4 text-left transition-colors ${
-                      visibility === option
-                        ? 'border-brand bg-brandsoft'
-                        : 'border-line bg-card hover:bg-subtle'
-                    }`}
-                  >
-                    <span className="text-[13px] text-ink">
-                      {option === 'public' ? w.visibilityPublic : w.visibilityPrivate}
-                    </span>
-                    <span className="text-[11px] leading-[1.6] text-muted">
-                      {option === 'public' ? w.visibilityPublicNote : w.visibilityPrivateNote}
-                    </span>
-                  </button>
-                ))}
-              </div>
-            ) : null}
-            {current === 'visibility' ? (
-              <div className="mt-5 flex flex-col gap-3 border-t border-line pt-4">
+              <div className="mt-4 flex flex-col gap-3">
                 <div className="flex flex-col gap-0.5">
                   <h3 className="text-[13px] font-medium text-ink">{w.rightsTitle}</h3>
-                  <p className="text-[11px] leading-[1.6] text-muted">
-                    {visibility === 'public' ? w.rightsHintPublic : w.rightsHintPrivate}
-                  </p>
+                  <p className="text-[11px] leading-[1.6] text-muted">{w.rightsHintPrivate}</p>
                 </div>
                 <RightsFields value={rights} onChange={setRights} />
-                {visibility === 'public' && rights.generation === 'generated' ? (
-                  <button type="button" onClick={() => setVisibility('private')} className="self-start text-[12px] text-brandink underline-offset-2 hover:underline">
-                    {w.rightsSwitchPrivate}
-                  </button>
-                ) : null}
               </div>
             ) : null}
 
@@ -891,10 +848,7 @@ export function ImportWizard({
                   ...(needsVerification
                     ? [[w.stepVerify, liveChallenge?.verified ? liveChallenge.host : '—']]
                     : []),
-                  [
-                    w.stepVisibility,
-                    visibility === 'public' ? w.visibilityPublic : w.visibilityPrivate,
-                  ],
+                  [w.channelLabel, w.channelNone],
                   ...(rightsComplete(rights)
                     ? [
                         [

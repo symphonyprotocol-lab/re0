@@ -4,7 +4,7 @@ import { useRouter } from 'next/navigation';
 import { useActionState, useEffect, useMemo, useRef, useState } from 'react';
 import { CircleCheckIcon, CircleXIcon, RefreshIcon, SpinnerIcon } from '@/components/ui/icons';
 import { PRIMARY, SECONDARY } from '@/components/dashboard/library-manage';
-import type { RebuildLibraryActionResult } from '@/app/dashboard/libraries/[libraryId]/actions';
+import type { RebuildLibraryActionResult } from '@/app/dashboard/assets/[libraryId]/actions';
 import type { BuildQuote } from '@/lib/application/plans/build-quota';
 import { useI18n } from '@/lib/i18n/client';
 import { fill } from '@/lib/i18n/format';

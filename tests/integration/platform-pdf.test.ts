@@ -138,7 +138,7 @@ describeWithDb('platform pdf libraries', () => {
     expect(emptied.operationId).toBeNull();
   });
 
-  it('adds a pdf source to a website library once, and builds that source alone', async () => {
+  it('refuses a pdf source on a website asset: one asset, one source', async () => {
     const library = await createPlatformLibrary({
       actor,
       title: 'Site With Manual',
@@ -150,40 +150,23 @@ describeWithDb('platform pdf libraries', () => {
     });
     created.push(library.libraryId);
 
+    /* agent-first-proposal.md 3.1: the manual is an asset of its own now. */
     const batchId = uuidv7();
     const file = await upload(batchId, 16);
-    const added = await addPlatformLibrarySource({
-      actor,
-      libraryId: library.libraryId,
-      type: 'pdf',
-      location: '',
-      refreshPolicy: 'daily',
-      uploads: { batchId, files: [file] },
-      reason: 'attach the manual',
-      store,
-    });
-    expect(added.operationId).not.toBeNull();
-    const [operation] = await db()
-      .select({ sourceId: schema.workflowOperation.sourceId, type: schema.workflowOperation.operationType })
-      .from(schema.workflowOperation)
-      .where(eq(schema.workflowOperation.id, added.operationId!));
-    expect(operation).toEqual({ sourceId: added.sourceId, type: 'refresh' });
-
-    const record = await getPlatformLibrary(library.libraryId);
-    expect(record?.sources.map((s) => s.type).sort()).toEqual(['pdf', 'website']);
-    expect(record?.files?.map((f) => f.id)).toEqual([file.id]);
-
-    const second = await refusalOf(
+    const refused = await refusalOf(
       addPlatformLibrarySource({
         actor,
         libraryId: library.libraryId,
         type: 'pdf',
         location: '',
-        refreshPolicy: 'manual',
-        reason: 'a second one',
+        refreshPolicy: 'daily',
+        uploads: { batchId, files: [file] },
+        reason: 'attach the manual',
         store,
       }),
     );
-    expect(second).toBe('pdf_source_exists');
+    expect(refused).toBe('source_exists');
+    const record = await getPlatformLibrary(library.libraryId);
+    expect(record?.sources.map((s) => s.type)).toEqual(['website']);
   });
 });

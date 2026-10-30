@@ -30,7 +30,6 @@ import { sql } from 'drizzle-orm';
 
 // ---------------------------------------------------------------- enums
 
-export const visibilityEnum = pgEnum('visibility', ['public', 'private']);
 /** The retrieval models the console configures; see `providerModelConfig`. */
 export const modelKindEnum = pgEnum('model_kind', ['embedding', 'rerank']);
 /** The page-rendering fallbacks; see `renderConfig`. `lib/domain/render-config.ts`. */
@@ -271,13 +270,24 @@ export const notionConnection = pgTable(
   (t) => [uniqueIndex('notion_connection_user_uq').on(t.userId)],
 );
 
-export const workspace = pgTable('workspace', {
-  id: uuid('id').primaryKey(),
-  name: text('name').notNull(),
-  /** `personal` is the only kind in the MVP; team workspaces reuse the table. */
-  kind: text('kind').notNull().default('personal'),
-  createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
-});
+export const workspace = pgTable(
+  'workspace',
+  {
+    id: uuid('id').primaryKey(),
+    name: text('name').notNull(),
+    /** `personal` is the only kind in the MVP; team workspaces reuse the table. */
+    kind: text('kind').notNull().default('personal'),
+    /**
+     * The workspace's public name (agent-first-proposal.md 12): `/u/{handle}`
+     * and the user Agent Card. On the workspace rather than the user because
+     * channels, assets and A2A identity all belong to workspaces. Null means
+     * no public page; `lib/domain/handle.ts` says what a handle may be.
+     */
+    handle: text('handle'),
+    createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
+  },
+  (t) => [uniqueIndex('workspace_handle_uq').on(t.handle)],
+);
 
 export const workspaceMember = pgTable(
   'workspace_member',
@@ -574,7 +584,18 @@ export const library = pgTable(
      */
     ownerWorkspaceId: uuid('owner_workspace_id').references(() => workspace.id),
     isPlatformLibrary: boolean('is_platform_library').notNull().default(false),
-    visibility: visibilityEnum('visibility').notNull(),
+    /**
+     * Which of the seven asset types this is (agent-first-proposal.md 3.2,
+     * `lib/domain/asset.ts` `ASSET_KINDS`); follows from the one source.
+     */
+    kind: text('kind').$type<'website' | 'upload' | 'github' | 'notion' | 'post' | 'audio' | 'qa'>().notNull(),
+    /**
+     * `free` or `paid`, meaningful only inside a channel (proposal 6.2): who
+     * may read an asset follows from the channel it is in and this flag, not
+     * from a visibility column of its own. Reset to `free` whenever the asset
+     * leaves its channel.
+     */
+    access: text('access').$type<'free' | 'paid'>().notNull().default('free'),
     lifecycleStatus: lifecycleStatusEnum('lifecycle_status').notNull(),
     indexStatus: indexStatusEnum('index_status').notNull(),
     currentVersionId: uuid('current_version_id'),
@@ -619,7 +640,7 @@ export const library = pgTable(
       .on(t.publicId)
       .where(sql`${t.deletedAt} is null`),
     index('library_owner_idx').on(t.ownerWorkspaceId),
-    index('library_visibility_lifecycle_idx').on(t.visibility, t.lifecycleStatus),
+    index('library_lifecycle_idx').on(t.lifecycleStatus, t.indexStatus),
     /**
      * The console's platform-library list reads `library` the other way round
      * from the catalogue: it starts from `is_platform_library`, and the false
@@ -629,6 +650,78 @@ export const library = pgTable(
     index('library_platform_idx')
       .on(t.lifecycleStatus, t.createdAt.desc())
       .where(sql`${t.isPlatformLibrary}`),
+  ],
+);
+
+/**
+ * A channel: the one way an asset is shown to anyone but its owner
+ * (agent-first-proposal.md 6.1). `workspace_id` is null only for the
+ * platform's own channel, which holds the platform assets. `visibility` and
+ * `status` together with the asset's `access` decide who sees what
+ * (lib/domain/channel.ts, proposal 6.2). `profile` aggregates the public
+ * assets' profiles for channel-level routing (proposal 3.7).
+ */
+export const channel = pgTable(
+  'channel',
+  {
+    id: uuid('id').primaryKey(),
+    slug: text('slug').notNull(),
+    workspaceId: uuid('workspace_id').references(() => workspace.id, { onDelete: 'cascade' }),
+    title: text('title').notNull(),
+    description: text('description'),
+    visibility: text('visibility').$type<'public' | 'private'>().notNull().default('public'),
+    status: text('status').$type<'active' | 'suspended'>().notNull().default('active'),
+    /** A subscriber's daily retrieval cap the creator may set; null is no cap (proposal 6.10). */
+    subscriberDailyLimit: integer('subscriber_daily_limit'),
+    profile: jsonb('profile').$type<Record<string, unknown>>().notNull().default({}),
+    createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
+    updatedAt: timestamp('updated_at', { withTimezone: true }).notNull().defaultNow(),
+  },
+  (t) => [
+    uniqueIndex('channel_slug_uq').on(t.slug),
+    index('channel_workspace_idx').on(t.workspaceId),
+  ],
+);
+
+/**
+ * Which channel an asset is in. `asset_id` is the key: an asset is in at most
+ * one channel (proposal 6.1). Cascades with the channel and with a purged
+ * asset; a soft-deleted asset is taken out by the delete use case.
+ */
+export const channelAsset = pgTable(
+  'channel_asset',
+  {
+    assetId: uuid('asset_id')
+      .primaryKey()
+      .references(() => library.id, { onDelete: 'cascade' }),
+    channelId: uuid('channel_id')
+      .notNull()
+      .references(() => channel.id, { onDelete: 'cascade' }),
+    pinnedAt: timestamp('pinned_at', { withTimezone: true }),
+    publishedAt: timestamp('published_at', { withTimezone: true }).notNull().defaultNow(),
+    scheduledAt: timestamp('scheduled_at', { withTimezone: true }),
+  },
+  (t) => [index('channel_asset_channel_idx').on(t.channelId, t.publishedAt.desc())],
+);
+
+/**
+ * One distinct visitor of a channel on one day, for the directory's activity
+ * term (proposal 6.4): by user, by calling workspace, or by the hashed key the
+ * anonymous rate limiter uses. No address and no query is ever written here.
+ */
+export const channelVisit = pgTable(
+  'channel_visit',
+  {
+    channelId: uuid('channel_id')
+      .notNull()
+      .references(() => channel.id, { onDelete: 'cascade' }),
+    visitorKind: text('visitor_kind').$type<'user' | 'workspace' | 'anonymous'>().notNull(),
+    visitorKey: text('visitor_key').notNull(),
+    visitedOn: date('visited_on', { mode: 'string' }).notNull(),
+  },
+  (t) => [
+    primaryKey({ columns: [t.channelId, t.visitorKind, t.visitorKey, t.visitedOn] }),
+    index('channel_visit_day_idx').on(t.visitedOn),
   ],
 );
 
@@ -1317,6 +1410,12 @@ export const retrievalConfig = pgTable(
     playgroundAgentSteps: integer('playground_agent_steps').notNull().default(4),
     playgroundAgentQueries: integer('playground_agent_queries').notNull().default(3),
     playgroundAgentResolves: integer('playground_agent_resolves').notNull().default(2),
+    /** The channel directory's 热门 weights, in basis points (agent-first-proposal.md 6.4). */
+    channelActivityBps: integer('channel_activity_bps').notNull().default(5000),
+    channelFreshnessBps: integer('channel_freshness_bps').notNull().default(2500),
+    channelQualityBps: integer('channel_quality_bps').notNull().default(2500),
+    /** Half-life of the directory's freshness term, in days. */
+    channelHalfLifeDays: integer('channel_half_life_days').notNull().default(14),
     createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
   },
   (t) => [index('retrieval_config_time_idx').on(t.createdAt.desc())],
@@ -2069,5 +2168,37 @@ export const auditLog = pgTable(
     index('audit_log_seq_idx').on(t.seq.desc()),
     /** One target's history, newest first -- how the console reads the log. */
     index('audit_log_target_idx').on(t.targetType, t.targetId, t.seq.desc()),
+  ],
+);
+
+/**
+ * A2A tasks (agent-first-proposal.md 7.6, 7.8). The SDK keeps tasks in one
+ * function instance's memory; this is the store every instance shares
+ * (lib/application/a2a/task-store.ts). Scoped by tenant and calling workspace
+ * -- null for an anonymous caller. `history` and `artifacts` carry the bodies
+ * and are cleared at `body_purge_at` (proposal 10).
+ */
+export const a2aTask = pgTable(
+  'a2a_task',
+  {
+    id: text('id').primaryKey(),
+    contextId: text('context_id').notNull(),
+    workspaceId: uuid('workspace_id').references(() => workspace.id, { onDelete: 'cascade' }),
+    apiKeyId: uuid('api_key_id'),
+    tenant: text('tenant').notNull().default(''),
+    skill: text('skill'),
+    state: text('state').notNull(),
+    status: jsonb('status').$type<Record<string, unknown>>().notNull().default({}),
+    history: jsonb('history').$type<unknown[]>().notNull().default([]),
+    artifacts: jsonb('artifacts').$type<unknown[]>().notNull().default([]),
+    metadata: jsonb('metadata').$type<Record<string, unknown>>(),
+    workflowRunId: text('workflow_run_id'),
+    bodyPurgeAt: timestamp('body_purge_at', { withTimezone: true }).notNull(),
+    createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
+    updatedAt: timestamp('updated_at', { withTimezone: true }).notNull().defaultNow(),
+  },
+  (t) => [
+    index('a2a_task_owner_idx').on(t.workspaceId, t.tenant, t.updatedAt.desc()),
+    index('a2a_task_purge_idx').on(t.bodyPurgeAt),
   ],
 );

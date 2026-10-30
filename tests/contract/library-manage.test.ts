@@ -36,19 +36,16 @@ import {
   withOwnerParseScope,
   uploadFileName,
   uploadKey,
-  visibilityTransition,
 } from '@/lib/domain/library';
 
 const OWNED = {
   lifecycleStatus: 'published' as LifecycleStatus,
-  visibility: 'public' as const,
   pausedByOwner: false,
 };
 
 describe('ownerActionAvailable', () => {
   it('pauses only a live library', () => {
     expect(ownerActionAvailable(OWNED, 'pause')).toBe(true);
-    expect(ownerActionAvailable({ ...OWNED, visibility: 'private' }, 'pause')).toBe(true);
     for (const state of ['draft', 'submitted', 'reviewing', 'changes_requested', 'suspended'] as const) {
       expect(ownerActionAvailable({ ...OWNED, lifecycleStatus: state }, 'pause')).toBe(false);
     }
@@ -83,74 +80,35 @@ describe('isOwnerPause', () => {
   });
 });
 
-describe('visibilityTransition', () => {
-  const at = (lifecycleStatus: LifecycleStatus, hasReadyVersion = true) => ({
-    lifecycleStatus,
-    hasReadyVersion,
-  });
-
-  it('settles a review-era state by the index when the visibility changes', () => {
-    /* Left waiting by the review era, with an index: live now, under either visibility. */
-    expect(visibilityTransition({ from: 'public', to: 'private', ...at('submitted') })).toBe('published');
-    expect(visibilityTransition({ from: 'public', to: 'private', ...at('reviewing') })).toBe('published');
-    /* Sent back with no index: its first build is what publishes it. */
-    expect(visibilityTransition({ from: 'public', to: 'private', ...at('changes_requested', false) })).toBe('draft');
-    /* Already live, and live under the other visibility too. */
-    expect(visibilityTransition({ from: 'public', to: 'private', ...at('published') })).toBeNull();
-  });
-
-  it('keeps a live private library live when it goes public (2026-10-23)', () => {
-    /* No review before publication: the declaration is checked by the edit, and the library stays live. */
-    expect(visibilityTransition({ from: 'private', to: 'public', ...at('published') })).toBeNull();
-    /* A draft waits for its build, which publishes it (`lifecycleAfterBuild`). */
-    expect(visibilityTransition({ from: 'private', to: 'public', ...at('draft', false) })).toBeNull();
-  });
-
-  it('never lifts a suspension and never moves an unchanged visibility', () => {
-    expect(visibilityTransition({ from: 'public', to: 'private', ...at('suspended') })).toBeNull();
-    expect(visibilityTransition({ from: 'private', to: 'public', ...at('suspended') })).toBeNull();
-    expect(visibilityTransition({ from: 'public', to: 'public', ...at('submitted') })).toBeNull();
-  });
-
-  it('refuses an archived library outright', () => {
-    expect(() =>
-      visibilityTransition({ from: 'public', to: 'private', ...at('archived') }),
-    ).toThrow(PlatformLibraryRefused);
-  });
-});
-
 describe('editWorkspaceLibrary', () => {
-  const current = { visibility: 'private' as const, lifecycleStatus: 'published' as LifecycleStatus, hasReadyVersion: true };
+  const current = { lifecycleStatus: 'published' as LifecycleStatus };
 
-  it('trims what it keeps and carries the visibility move with it', () => {
+  it('trims what it keeps', () => {
     const edit = editWorkspaceLibrary({
       title: '  Design notes  ',
       description: ' internal ',
       language: ' zh ',
-      visibility: 'public',
       current,
     });
     expect(edit.title).toBe('Design notes');
     expect(edit.description).toBe('internal');
     expect(edit.language).toBe('zh');
-    /* A live private library stays live when it goes public (2026-10-23): no lifecycle move rides with the edit. */
-    expect(edit.lifecycleStatus).toBeNull();
+    /* Who sees the asset is its channel now (agent-first-proposal.md 6.2), not a field of this edit. */
+    expect(Object.keys(edit).sort()).toEqual(['description', 'language', 'title']);
   });
 
   it('drops an empty optional field rather than storing a blank', () => {
-    const edit = editWorkspaceLibrary({ title: 'x', description: '  ', visibility: 'private', current });
+    const edit = editWorkspaceLibrary({ title: 'x', description: '  ', current });
     expect(edit.description).toBeNull();
     expect(edit.language).toBeNull();
-    expect(edit.lifecycleStatus).toBeNull();
   });
 
-  it('refuses an empty or over-long title, and an unknown visibility', () => {
-    expect(() => editWorkspaceLibrary({ title: '   ', visibility: 'private', current })).toThrow(PlatformLibraryRefused);
-    expect(() => editWorkspaceLibrary({ title: 'x'.repeat(121), visibility: 'private', current })).toThrow(PlatformLibraryRefused);
-    expect(() => editWorkspaceLibrary({ title: 'x', visibility: 'unlisted', current })).toThrow(PlatformLibraryRefused);
+  it('refuses an empty or over-long title, and an archived library', () => {
+    expect(() => editWorkspaceLibrary({ title: '   ', current })).toThrow(PlatformLibraryRefused);
+    expect(() => editWorkspaceLibrary({ title: 'x'.repeat(121), current })).toThrow(PlatformLibraryRefused);
+    expect(() => editWorkspaceLibrary({ title: 'x', current: { lifecycleStatus: 'archived' } })).toThrow(PlatformLibraryRefused);
   });
 });
-
 describe('draftParseScope', () => {
   it('reads one path per line or comma, deduplicated and normalised', () => {
     const scope = draftParseScope({
@@ -219,18 +177,15 @@ describe('parseScopeOf', () => {
 });
 
 describe('reviewPipeline', () => {
-  it('has the same four steps under either visibility', () => {
-    for (const visibility of ['private', 'public'] as const) {
-      const steps = reviewPipeline({ visibility, lifecycleStatus: 'published', indexStatus: 'ready', building: false }).map(
-        (entry) => entry.step,
-      );
-      expect(steps).toEqual(['rights', 'parse', 'safety', 'publish']);
-    }
+  it('has the same four steps, in a channel or not', () => {
+    const steps = reviewPipeline({ lifecycleStatus: 'published', indexStatus: 'ready', building: false }).map(
+      (entry) => entry.step,
+    );
+    expect(steps).toEqual(['rights', 'parse', 'safety', 'publish']);
   });
 
   it('shows a build in flight as parsing, with publication still to come', () => {
     const entries = reviewPipeline({
-      visibility: 'public',
       lifecycleStatus: 'draft',
       indexStatus: 'pending',
       building: true,
@@ -241,21 +196,18 @@ describe('reviewPipeline', () => {
 
   it('blocks the step that is actually blocked', () => {
     const failed = reviewPipeline({
-      visibility: 'public',
       lifecycleStatus: 'draft',
       indexStatus: 'failed',
       building: false,
     });
     expect(failed.find((entry) => entry.step === 'parse')?.state).toBe('blocked');
     const stopped = reviewPipeline({
-      visibility: 'public',
       lifecycleStatus: 'suspended',
       indexStatus: 'ready',
       building: false,
     });
     expect(stopped.find((entry) => entry.step === 'publish')?.state).toBe('blocked');
     const undeclared = reviewPipeline({
-      visibility: 'public',
       lifecycleStatus: 'draft',
       indexStatus: 'ready',
       building: false,
@@ -266,7 +218,6 @@ describe('reviewPipeline', () => {
 
   it('finishes only when the lifecycle and the index agree', () => {
     const live = reviewPipeline({
-      visibility: 'public',
       lifecycleStatus: 'published',
       indexStatus: 'ready',
       building: false,
@@ -274,7 +225,6 @@ describe('reviewPipeline', () => {
     expect(live.every((entry) => entry.state === 'done')).toBe(true);
     /* Indexed but not yet moved: publication is the active step, not done. */
     const landing = reviewPipeline({
-      visibility: 'public',
       lifecycleStatus: 'draft',
       indexStatus: 'ready',
       building: false,
@@ -432,14 +382,10 @@ describe('library metadata lengths', () => {
   });
 
   it('is the same rule the edit form applies', () => {
-    const current = {
-      visibility: 'private' as const,
-      lifecycleStatus: 'draft' as LifecycleStatus,
-      hasReadyVersion: false,
-    };
+    const current = { lifecycleStatus: 'draft' as LifecycleStatus };
     const long = 'x'.repeat(DESCRIPTION_MAX_LENGTH + 1);
     expect(() =>
-      editWorkspaceLibrary({ title: 'Manual', description: long, visibility: 'private', current }),
+      editWorkspaceLibrary({ title: 'Manual', description: long, current }),
     ).toThrow(PlatformLibraryRefused);
     expect(() => libraryDescription(long)).toThrow(PlatformLibraryRefused);
   });

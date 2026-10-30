@@ -58,7 +58,7 @@ export function notionPageId(location: string): string | null {
 }
 
 /** Where the connect flow lands when nothing better is known: the wizard. */
-export const NOTION_CONNECT_RETURN_TO = '/dashboard/libraries/new';
+export const NOTION_CONNECT_RETURN_TO = '/dashboard/assets/new';
 
 /** The in-flight connect handshake, sealed in its own short-lived cookie. */
 export interface NotionConnectHandshake {

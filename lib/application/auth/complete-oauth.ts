@@ -23,6 +23,7 @@ import { unseal } from '@/lib/infrastructure/crypto/sealed';
 import { randomToken, timingSafeEqual } from '@/lib/infrastructure/crypto/tokens';
 import { identityAdapter, type IdentityAdapter } from '@/lib/infrastructure/identity/oauth';
 import { db, schema } from '@/lib/infrastructure/postgres/client';
+import { freeHandleFor } from '@/lib/application/workspaces/handle';
 import { isHandshakeShape, type Handshake } from '@/lib/application/auth/handshake';
 import { sessionTokenHash } from '@/lib/application/auth/session-token';
 import { PLAN_VERSION_NEWEST_FIRST } from '@/lib/application/plans';
@@ -210,6 +211,9 @@ async function ensurePersonalWorkspace(
     id: workspaceId,
     name: personalWorkspaceName(profile, naming),
     kind: 'personal',
+    /* The public name for `/u/{handle}` and the user card (agent-first-
+       proposal.md 12); the owner can change it from settings. */
+    handle: await freeHandleFor(tx, profile.email, workspaceId),
     createdAt: now,
   });
   await tx.insert(schema.workspaceMember).values({

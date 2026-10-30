@@ -133,7 +133,7 @@ async function library(slug: string, ownerWorkspaceId: string | null): Promise<s
     title: `Build billing fixture ${slug}`,
     ownerWorkspaceId,
     isPlatformLibrary: ownerWorkspaceId === null,
-    visibility: 'private',
+    kind: 'website',
     lifecycleStatus: 'draft',
     indexStatus: 'pending',
     language: 'en',

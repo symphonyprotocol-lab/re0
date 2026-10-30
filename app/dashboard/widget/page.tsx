@@ -98,9 +98,9 @@ export default async function DashboardWidgetPage() {
   /* A key is minted on its library's page; send the owner to the right one. */
   const action =
     libraryCount === 0 ? (
-      <ActionButton href="/dashboard/libraries/new">{w.createLibrary}</ActionButton>
+      <ActionButton href="/dashboard/assets/new">{w.createLibrary}</ActionButton>
     ) : (
-      <ActionButton href="/dashboard/libraries" variant={first ? 'outline' : 'primary'}>
+      <ActionButton href="/dashboard/assets" variant={first ? 'outline' : 'primary'}>
         {w.pickLibrary}
       </ActionButton>
     );
@@ -176,7 +176,7 @@ export default async function DashboardWidgetPage() {
 
               {keys.map((key) => {
                 const keySnippet = embedSnippet(loader, key.key);
-                const manageHref = `/dashboard/libraries/${key.library.id}#widget`;
+                const manageHref = `/dashboard/assets/${key.library.id}#widget`;
                 return (
                   <div key={key.id} className="border-t border-line">
                     <div className="flex flex-wrap items-center justify-between gap-3 bg-subtle/50 px-5 py-3">

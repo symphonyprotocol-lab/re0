@@ -10,7 +10,7 @@ import type { ClaimMethod, ClaimStatus, SourceType } from '@/lib/domain';
 import type { ClaimCheckKey, ClaimCheckView } from '@/lib/domain/claim';
 import { useI18n } from '@/lib/i18n/client';
 import { fill } from '@/lib/i18n/format';
-import type { ClaimActionResult } from '@/app/(public)/libraries/claim/actions';
+import type { ClaimActionResult } from '@/app/(public)/assets/claim/actions';
 
 type Action = (previous: ClaimActionResult | null, form: FormData) => Promise<ClaimActionResult>;
 
@@ -113,7 +113,7 @@ export function ClaimFlow({
         onStarted={(challenge) => {
           setStarted(challenge);
           /* A reload lands on the claim, minus the token, which is the rule. */
-          window.history.replaceState(null, '', `/libraries/claim?claim=${encodeURIComponent(challenge.claimId)}`);
+          window.history.replaceState(null, '', `/assets/claim?claim=${encodeURIComponent(challenge.claimId)}`);
         }}
       />
     );
@@ -206,7 +206,7 @@ function StartPanel({
                   c.start
                 )}
               </button>
-              <Link href={`/libraries/${target.publicId.replace(/^\//, '')}`} className={OUTLINE}>
+              <Link href={`/assets/${target.publicId.replace(/^\//, '')}`} className={OUTLINE}>
                 {c.backToLibrary}
               </Link>
             </div>
@@ -372,7 +372,7 @@ function ClaimPanel({
           <p className="text-[12.5px] leading-[1.7] text-muted">{c.reasons[shownReason].next}</p>
           {shownReason === 'challenge_expired' || status !== 'pending' ? (
             <Link
-              href={`/libraries/claim?library=${encodeURIComponent(claim.libraryPublicId)}`}
+              href={`/assets/claim?library=${encodeURIComponent(claim.libraryPublicId)}`}
               className={`${OUTLINE} mt-1 self-start`}
             >
               {c.newClaim}

@@ -8,6 +8,7 @@
  */
 import { afterAll, describe, expect, it } from 'vitest';
 import { eq, inArray } from 'drizzle-orm';
+import { unshare } from '../fixtures/channels';
 
 const TEST_DATABASE_URL = process.env.TEST_DATABASE_URL;
 const describeWithDb = TEST_DATABASE_URL ? describe : describe.skip;
@@ -80,7 +81,7 @@ async function fillLibraries(workspaceId: string, n: number, storageBytes = 0): 
         language: 'en',
         ownerWorkspaceId: workspaceId,
         isPlatformLibrary: false,
-        visibility: 'private' as const,
+        kind: 'website' as const,
         lifecycleStatus: 'draft' as const,
         indexStatus: 'pending' as const,
         storageBytes,
@@ -118,8 +119,9 @@ async function buildOwned(workspaceId: string, content: string) {
   });
   await db()
     .update(schema.library)
-    .set({ isPlatformLibrary: false, ownerWorkspaceId: workspaceId, visibility: 'private' })
+    .set({ isPlatformLibrary: false, ownerWorkspaceId: workspaceId })
     .where(eq(schema.library.id, libraryId));
+  await unshare(libraryId);
   return buildVersion({
     libraryId,
     operationId: uuidv7(),

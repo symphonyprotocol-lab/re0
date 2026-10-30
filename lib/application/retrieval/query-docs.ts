@@ -29,6 +29,7 @@ import {
 import { httpStatusFor } from '@/contracts/errors';
 import { pinPolicy, policyIsOpen, policyVerdictFor } from '@/lib/application/policies';
 import { db, schema } from '@/lib/infrastructure/postgres/client';
+import { sharedWithEveryone } from '@/lib/application/channels/visibility';
 import type { EmbeddingAdapter, RerankAdapter } from '@/lib/infrastructure/ai/providers';
 import type { CallerContext } from './index';
 import { rankChunks } from './rank';
@@ -225,7 +226,7 @@ export async function queryDocsDetailed(
 }
 
 /** The door the caller came through; the pre-MCP reading when unstated. */
-function entrypointOf(caller: CallerContext): 'rest' | 'mcp' | 'web' {
+function entrypointOf(caller: CallerContext): 'rest' | 'mcp' | 'web' | 'a2a' {
   return caller.entrypoint ?? (caller.apiKeyId ? 'rest' : 'web');
 }
 
@@ -288,12 +289,14 @@ async function queryDocsInner(
   const versionLabel = library ? (match?.versionLabel ?? null) : null;
 
   /*
-   * architecture.md 5.2: an invisible private library and a nonexistent one
-   * answer identically, before anything else about them is examined.
+   * architecture.md 5.2: an invisible asset and a nonexistent one answer
+   * identically, before anything else about them is examined. Visible means
+   * shared with everyone -- free in a public channel -- or the caller's own
+   * (agent-first-proposal.md 6.2, channels/visibility.ts).
    */
   const visible =
     library &&
-    (library.visibility === 'public' ||
+    (library.shared ||
       (caller.workspaceId !== null && library.ownerWorkspaceId === caller.workspaceId));
   if (!library || !visible) {
     throw new AppError('library_not_found', 'no such library');
@@ -390,8 +393,8 @@ async function queryDocsInner(
 
     /*
      * architecture.md 9.4, checked only now: a hit has already passed the
-     * same visibility, state and quota gates as a miss. Public libraries
-     * only -- a public version's chunks are identical for every caller, so
+     * same visibility, state and quota gates as a miss. Shared assets
+     * only -- a shared version's chunks are identical for every caller, so
      * one shared entry is safe, while caching private responses would demand
      * the per-workspace encrypted partition 9.4 prescribes and is deferred
      * with it. The canonical JSON is the only cached shape; TXT derives from
@@ -399,7 +402,7 @@ async function queryDocsInner(
      * on hits exactly as on misses: a cached answer is still a served call.
      * A TTL of zero is the console switching the cache off.
      */
-    const cacheable = library.visibility === 'public' && settings.cacheTtlSeconds > 0;
+    const cacheable = Boolean(library.shared) && settings.cacheTtlSeconds > 0;
     const cacheKey = cacheable
       ? `ctx:pub:${version.id}:${pinnedPolicy.versionId ?? NO_POLICY}:${await sha256Hex(input.query)}:${input.maxTokens}:${RETRIEVAL_CONFIG_VERSION}:${settings.configId ?? NO_CONFIG}`
       : null;
@@ -461,7 +464,8 @@ async function queryDocsInner(
 const librarySelection = {
   id: schema.library.id,
   publicId: schema.library.publicId,
-  visibility: schema.library.visibility,
+  /** Free in a public, active channel: readable by everyone. */
+  shared: sql<boolean>`${sharedWithEveryone()}`,
   lifecycleStatus: schema.library.lifecycleStatus,
   indexStatus: schema.library.indexStatus,
   ownerWorkspaceId: schema.library.ownerWorkspaceId,

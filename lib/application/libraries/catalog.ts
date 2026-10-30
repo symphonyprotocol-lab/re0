@@ -1,14 +1,18 @@
 /**
- * The public catalogue: what an anonymous visitor may browse. Only routable
- * libraries appear -- public, published, with a ready current version -- the
- * same predicate retrieval admits, so the directory never advertises what a
- * query would then refuse (architecture.md 5.2).
+ * The public catalogue: what an anonymous visitor may read. Only routable
+ * assets appear -- free in a public channel (agent-first-proposal.md 6.2),
+ * published, with a ready current version -- the same predicate retrieval
+ * admits, so a page never advertises what a query would then refuse
+ * (architecture.md 5.2). The channel directory and channel pages list
+ * channels (lib/application/channels); this is the per-asset view beneath.
  */
 import { and, asc, desc, eq, gte, inArray, isNotNull, isNull, lt, sql, type SQL } from 'drizzle-orm';
 import { refreshSchedule, type ScheduledSource } from '@/lib/application/ingestion';
 import { db, schema } from '@/lib/infrastructure/postgres/client';
 import { ref } from '@/lib/application/administration/column-ref';
 import { parseSourceConfig } from '@/lib/domain/ingestion';
+import { sharedWithEveryone } from '@/lib/application/channels/visibility';
+import { channelsOfAssets } from '@/lib/application/channels/membership';
 
 export interface CatalogEntry {
   publicId: string;
@@ -29,7 +33,7 @@ export const POPULARITY_WINDOW_DAYS = 30;
 const DAY_MS = 24 * 60 * 60 * 1000;
 
 const ROUTABLE: SQL = and(
-  eq(schema.library.visibility, 'public'),
+  sharedWithEveryone(),
   eq(schema.library.lifecycleStatus, 'published'),
   eq(schema.library.indexStatus, 'ready'),
   isNotNull(schema.library.currentVersionId),
@@ -152,6 +156,8 @@ export interface PublicLibrarySource {
 export interface PublicLibraryDetail {
   publicId: string;
   title: string;
+  /** The public channel the asset is shown in (agent-first-proposal.md 6.1). */
+  channel: { slug: string; title: string } | null;
   description: string | null;
   domainTag: string | null;
   language: string | null;
@@ -329,9 +335,12 @@ export async function publicLibraryDetail(publicId: string): Promise<PublicLibra
     .filter((date): date is Date => date !== null)
     .sort((a, b) => b.getTime() - a.getTime())[0];
 
+  const channel = (await channelsOfAssets([row.id], database)).get(row.id) ?? null;
+
   return {
     publicId: row.publicId,
     title: row.title,
+    channel: channel ? { slug: channel.slug, title: channel.title } : null,
     description: row.description,
     domainTag: row.domainTag,
     language: row.language,

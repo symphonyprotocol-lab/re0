@@ -33,6 +33,7 @@ const { db, schema } = await import('@/lib/infrastructure/postgres/client');
 const { uuidv7 } = await import('@/lib/domain/id');
 const { eq, inArray } = await import('drizzle-orm');
 import type { AnchorSigner, AnchorSubmission } from '@/lib/infrastructure/chain/anchor-signer';
+import { shareInPublicChannel } from '../fixtures/channels';
 
 const stamp = Date.now();
 const workspaceId = crypto.randomUUID();
@@ -87,10 +88,12 @@ async function publishedVersion(input: {
     publicId: `/batches-${stamp}/${input.slug}`,
     title: `Batch fixture ${input.slug}`,
     ownerWorkspaceId: workspaceId,
-    visibility: input.visibility ?? 'public',
+    kind: 'website',
     lifecycleStatus: 'published',
     indexStatus: 'ready',
   });
+  /* Public means free in a public channel now (agent-first-proposal.md 6.2). */
+  if ((input.visibility ?? 'public') === 'public') await shareInPublicChannel(libraryId);
   const versionId = uuidv7();
   versionIds.push(versionId);
   await database.insert(schema.libraryVersion).values({

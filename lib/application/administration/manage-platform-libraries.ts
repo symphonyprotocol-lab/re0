@@ -63,6 +63,9 @@ import { PROFILE_VERSION } from '@/lib/domain/profile';
 import { rebuildProfile } from '@/lib/application/ingestion/rebuild-profile';
 import type { ObjectStore } from '@/lib/infrastructure/objects/store';
 import { db, schema } from '@/lib/infrastructure/postgres/client';
+import { assetKindOf } from '@/lib/domain/asset';
+import { PLATFORM_CHANNEL_ID } from '@/lib/domain/channel';
+import { exposure } from '@/lib/application/channels/visibility';
 import { recordAudit } from './audit';
 import { ref } from './column-ref';
 import { likePattern } from './like-pattern';
@@ -407,7 +410,7 @@ export async function getPlatformLibrary(libraryId: string): Promise<PlatformLib
       description: schema.library.description,
       domainTag: schema.library.domainTag,
       language: schema.library.language,
-      visibility: schema.library.visibility,
+      visibility: exposure(),
       lifecycleStatus: schema.library.lifecycleStatus,
       indexStatus: schema.library.indexStatus,
       storageBytes: schema.library.storageBytes,
@@ -673,8 +676,9 @@ export interface CreatePlatformLibraryResult {
  *
  * The row is deliberately born `draft`/`pending` rather than published: nothing
  * has been fetched, so there is no version to serve and `isQueryable` would be
- * false whatever this wrote. Visibility is `public` from the start because that
- * is what a platform library is for -- it is the lifecycle, not the visibility,
+ * false whatever this wrote. It joins the platform's public channel from the
+ * start because that is what a platform library is for -- it is the
+ * lifecycle, not the channel,
  * that keeps it out of the catalogue until it is ready (requirement.md 6.2
  * keeps the two independent, and this is exactly the case that needs them to
  * be).
@@ -749,9 +753,16 @@ export async function createPlatformLibrary(
         language: draft.language,
         ownerWorkspaceId: null,
         isPlatformLibrary: true,
-        visibility: 'public',
+        kind: assetKindOf(draft.sourceType),
         lifecycleStatus: 'draft',
         indexStatus: 'pending',
+      });
+      /* A platform asset lives in the platform's own public channel
+         (agent-first-proposal.md 3.4); its lifecycle, not the channel, is
+         what keeps a draft out of retrieval. */
+      await tx.insert(schema.channelAsset).values({
+        assetId: libraryId,
+        channelId: PLATFORM_CHANNEL_ID,
       });
       await tx.insert(schema.source).values({
         id: sourceId,
@@ -1160,12 +1171,12 @@ export async function updatePlatformLibrary(input: {
 /* ---------------------------------------------------------------- sources */
 
 /**
- * Adds a source to a library. requirement.md 6.1 allows more than one.
+ * Adds the source to a platform asset that has none.
  *
- * The new source's type is free to differ from the existing ones -- a project
- * documented in a repository and on a site is one library, not two -- but the
- * Library ID does not move, because the id is what other people have already
- * written down.
+ * An asset has exactly one source (agent-first-proposal.md 3.1): a project
+ * documented in a repository and on a site is two assets now, side by side
+ * in the platform channel. What is left of this verb is giving a source back
+ * to an asset whose last source was removed; anything else is refused.
  */
 export async function addPlatformLibrarySource(input: {
   actor: PlatformActor;
@@ -1190,6 +1201,14 @@ export async function addPlatformLibrarySource(input: {
 
   if (target.lifecycleStatus === 'archived') {
     throw new PlatformLibraryRefused('archived', 'an archived library takes no new sources');
+  }
+  const [present] = await database
+    .select({ id: schema.source.id })
+    .from(schema.source)
+    .where(eq(schema.source.libraryId, target.id))
+    .limit(1);
+  if (present) {
+    throw new PlatformLibraryRefused('source_exists', 'an asset has exactly one source');
   }
 
   /*
@@ -1599,7 +1618,7 @@ export async function deletePlatformLibrary(input: {
     database
       .select({
         title: schema.library.title,
-        visibility: schema.library.visibility,
+        visibility: exposure(),
         indexStatus: schema.library.indexStatus,
         storageBytes: schema.library.storageBytes,
       })

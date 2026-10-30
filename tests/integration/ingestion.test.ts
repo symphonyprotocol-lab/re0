@@ -31,7 +31,7 @@ process.env.SESSION_SIGNING_SECRET ??= 'test-secret-that-is-long-enough-000000';
 const { buildVersion, memoryObjectStore, runOperation, drainOperations } = await import(
   '@/lib/application/ingestion'
 );
-const { createPlatformLibrary, addPlatformLibrarySource, requestPlatformLibraryRefresh } = await import(
+const { createPlatformLibrary, requestPlatformLibraryRefresh } = await import(
   '@/lib/application/administration/manage-platform-libraries'
 );
 const { EMBEDDING_COLUMN_DIMENSIONS } = await import('@/lib/infrastructure/ai/providers');
@@ -219,13 +219,17 @@ describeWithDb('ingestion', () => {
     const libraryId = await fixtureLibrary(slug);
     const siteA = 'https://example.test/docs';
     const siteB = 'https://example.test/api';
-    await addPlatformLibrarySource({
-      actor,
+    /* One asset has one source since P1 (agent-first-proposal.md 3.1) and the
+       console refuses a second, but the builder still keys digests per source
+       -- the shape libraries had before migration 0062 split them -- so a
+       second source is written directly to keep that path covered. */
+    await db().insert(schema.source).values({
+      id: uuidv7(),
       libraryId,
       type: 'website',
       location: siteB,
-      refreshPolicy: 'manual',
-      reason: 'second source',
+      config: { indexDepth: 0 },
+      refreshPolicy: { cadence: 'manual' },
     });
     const sources = await db()
       .select({ id: schema.source.id, location: schema.source.location })

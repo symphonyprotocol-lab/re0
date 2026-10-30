@@ -36,6 +36,7 @@ import {
   type AnchorSigner,
 } from '@/lib/infrastructure/chain/anchor-signer';
 import { db, schema } from '@/lib/infrastructure/postgres/client';
+import { exposure } from '@/lib/application/channels/visibility';
 
 /** Leaves per batch. One transaction either way; this bounds the run's memory. */
 const VERSION_BATCH_LIMIT = 500;
@@ -156,7 +157,7 @@ export async function anchorPublishedVersions(
       sourceDigest: schema.libraryVersion.sourceDigest,
       contentMerkleRoot: schema.libraryVersion.contentMerkleRoot,
       publishedAt: schema.libraryVersion.publishedAt,
-      visibility: schema.library.visibility,
+      visibility: exposure(),
       ownerWorkspaceId: schema.library.ownerWorkspaceId,
     })
     .from(schema.libraryVersion)
@@ -191,8 +192,9 @@ export async function anchorPublishedVersions(
         contentMerkleRoot: row.contentMerkleRoot as string,
         publishedAt: row.publishedAt as Date,
         /*
-         * Public libraries anchor an open preimage so anyone can recompute the
-         * leaf; a private one is salted per workspace, so the chain cannot be
+         * Assets in a public channel anchor an open preimage so anyone can
+         * recompute the leaf; one that is its owner's alone is salted per
+         * workspace, so the chain cannot be
          * used to test candidate content against it (proposal 3.2, 4.2). The
          * library id is the fallback scope for the case the schema allows but
          * ownership has not filled in -- still unguessable, still per subject.

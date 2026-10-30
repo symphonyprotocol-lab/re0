@@ -14,6 +14,7 @@ import type { WorkspaceRole } from '@/lib/application/libraries/delete';
 import type { RateLimitRule } from '@/lib/infrastructure/cache/redis';
 import { strictRateLimit } from '@/lib/infrastructure/cache/strict-rate-limit';
 import { db, schema } from '@/lib/infrastructure/postgres/client';
+import { listedInPublicChannel } from '@/lib/application/channels/visibility';
 
 export interface ClaimableLibrary {
   id: string;
@@ -61,7 +62,8 @@ async function claimable(identity: SQL): Promise<ClaimableLibrary> {
     .where(
       and(
         identity,
-        eq(schema.library.visibility, 'public'),
+        /* Only what others can see is claimable by others (agent-first-proposal.md 6.2). */
+        listedInPublicChannel(),
         eq(schema.library.isPlatformLibrary, false),
         ne(schema.library.lifecycleStatus, 'archived'),
         isNull(schema.library.deletedAt),

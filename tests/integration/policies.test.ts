@@ -10,6 +10,7 @@
 import { afterAll, describe, expect, it } from 'vitest';
 import { NextRequest } from 'next/server';
 import { eq, inArray, sql } from 'drizzle-orm';
+import { shareInPublicChannel } from '../fixtures/channels';
 
 const TEST_DATABASE_URL = process.env.TEST_DATABASE_URL;
 const describeWithDb = TEST_DATABASE_URL ? describe : describe.skip;
@@ -216,11 +217,13 @@ async function plainLibrary(input: {
     title: `Preview fixture ${input.publicId}`,
     ownerWorkspaceId: input.ownerWorkspaceId ?? null,
     isPlatformLibrary: input.isPlatformLibrary ?? false,
-    visibility: input.visibility,
+    kind: 'website',
     lifecycleStatus: 'published',
     indexStatus: input.indexStatus ?? 'ready',
     lastSuccessfulRefreshAt: input.lastSuccessfulRefreshAt ?? null,
   });
+  /* Public means free in a public channel now (agent-first-proposal.md 6.2). */
+  if (input.visibility === 'public') await shareInPublicChannel(libraryId);
   if (input.currentVersion !== false) {
     const versionId = uuidv7();
     await database.insert(schema.libraryVersion).values({
@@ -276,9 +279,10 @@ async function reachableByEvaluator(
         and ${schema.library.lifecycleStatus} = 'published'
         and ${schema.library.indexStatus} = 'ready'
         and ${schema.library.currentVersionId} is not null
-        and (${schema.library.visibility} = 'public'
-          or (${schema.library.visibility} = 'private'
-            and ${schema.library.ownerWorkspaceId} = ${workspaceId}))`,
+        and ((${schema.library.access} = 'free' and exists (
+              select 1 from channel_asset ca join channel c on c.id = ca.channel_id
+              where ca.asset_id = "library"."id" and c.visibility = 'public' and c.status = 'active'))
+          or ${schema.library.ownerWorkspaceId} = ${workspaceId})`,
     );
   const verdicts = await policyVerdicts(
     policy,

@@ -143,7 +143,12 @@ export function normalizePolicyMode(policy: WorkspacePolicy): WorkspacePolicy {
 
 export interface PolicySubject {
   publicId: string;
-  /** Every source type the library ingests from (plus `private` when it is). */
+  /**
+   * The channel id `/channels/{slug}` the asset is in, or null. An entry
+   * naming a channel covers every asset in it (agent-first-proposal.md 6.1).
+   */
+  channel?: string | null;
+  /** Every source type the library ingests from (plus `private` when it is its owner's alone). */
   sourceTypes: string[];
   /** Hostnames of the library's sources, lower-cased; empty when none apply. */
   domains?: string[];
@@ -263,16 +268,26 @@ export function isDomainEntry(entry: string): boolean {
   return !entry.startsWith('/');
 }
 
+/** A channel entry: `/channels/{slug}`, or `/channels/*` for every channel. */
+export function isChannelEntry(entry: string): boolean {
+  return entry.toLowerCase().startsWith(`${CHANNEL_ENTRY_PREFIX}/`);
+}
+
+const CHANNEL_ENTRY_PREFIX = '/channels';
+
 export function listedIn(
   entries: readonly string[],
-  subject: string | Pick<PolicySubject, 'publicId' | 'domains'>,
+  subject: string | Pick<PolicySubject, 'publicId' | 'domains' | 'channel'>,
 ): boolean {
   const publicId = typeof subject === 'string' ? subject : subject.publicId;
   const domains = typeof subject === 'string' ? [] : (subject.domains ?? []);
+  const channel = typeof subject === 'string' ? null : (subject.channel ?? null);
   return entries.some((entry) =>
     isDomainEntry(entry)
       ? domains.some((host) => domainEntryMatches(entry, host))
-      : libraryEntryMatches(entry, publicId),
+      : isChannelEntry(entry)
+        ? channel !== null && libraryEntryMatches(entry, channel)
+        : libraryEntryMatches(entry, publicId),
   );
 }
 
@@ -282,7 +297,7 @@ const ID_SEGMENT = /^[a-z0-9][a-z0-9._-]*$/i;
 const DOMAIN = /^(?=.{1,253}$)([a-z0-9]([a-z0-9-]{0,61}[a-z0-9])?\.)+[a-z][a-z0-9-]{1,62}$/i;
 export const MAX_ENTRY_LENGTH = 258;
 
-export type PolicyEntryKind = 'library' | 'organisation' | 'domain';
+export type PolicyEntryKind = 'library' | 'organisation' | 'domain' | 'channel';
 
 export interface ParsedPolicyEntry {
   /** The canonical form the policy stores. */
@@ -299,7 +314,9 @@ export interface ParsedPolicyEntry {
  *   - an organisation, `vercel`, `@vercel`, `/vercel` or `/vercel/*`, which
  *     becomes `/vercel/*` -- every repository the owner publishes;
  *   - a domain, `docs.example.com`, with or without a scheme or path, which
- *     covers every library whose sources live on that host.
+ *     covers every library whose sources live on that host;
+ *   - a channel, `/channels/{slug}`, which covers every asset in that
+ *     channel (agent-first-proposal.md 6.1).
  *
  * Website slugs are typed by whoever publishes the library, so a domain is
  * kept as a domain rather than guessed into a `/websites/…` id.
@@ -332,6 +349,11 @@ export function parsePolicyEntry(raw: string): ParsedPolicyEntry | null {
   const named = wildcard ? segments.slice(0, -1) : segments;
   if (named.length === 0 || named.length > 6) return null;
   if (!named.every((segment) => ID_SEGMENT.test(segment))) return null;
+  /* `channels` is a reserved owner (lib/domain/reserved-names.ts), so a
+     two-segment id under it can only be a channel. */
+  if (named[0]!.toLowerCase() === 'channels' && (named.length === 2 || (named.length === 1 && wildcard))) {
+    return { entry: `/${named.join('/').toLowerCase()}${wildcard ? '/*' : ''}`, kind: 'channel' };
+  }
   if (named.length === 1) {
     return { entry: `/${named[0]}/*`, kind: 'organisation' };
   }

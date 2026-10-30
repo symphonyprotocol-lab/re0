@@ -42,7 +42,7 @@ function isGrantHandshake(value: unknown): value is GrantHandshake {
 }
 
 export function claimPagePath(claimId: string): string {
-  return `/libraries/claim?claim=${encodeURIComponent(claimId)}`;
+  return `/assets/claim?claim=${encodeURIComponent(claimId)}`;
 }
 
 export interface BeginGithubGrantInput {

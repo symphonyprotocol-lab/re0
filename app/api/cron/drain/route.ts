@@ -6,13 +6,16 @@
  * this is the safety net: operations whose follow-up run died with the function,
  * retries of failed ones, and the upload sweep that runs at the end of each
  * drain. It is also the schedule: each call first queues a refresh for every
- * platform source whose policy says it is due (`scheduleDueRefreshes`).
+ * platform source whose policy says it is due (`scheduleDueRefreshes`), and
+ * it clears the message bodies of A2A tasks past their 30 days
+ * (agent-first-proposal.md 10).
  * Vercel Cron calls it with `Authorization: Bearer $CRON_SECRET`;
  * anything else is a 401, so the route cannot be used to make the platform
  * do work on demand.
  */
 import { NextResponse } from 'next/server';
 import { drainOperations, isIngestionConfigured, scheduleDueRefreshes } from '@/lib/application/ingestion';
+import { purgeA2aTaskBodies } from '@/lib/application/a2a/task-store';
 
 export const maxDuration = 300;
 
@@ -29,12 +32,18 @@ export async function GET(request: Request): Promise<Response> {
    */
   const scheduled = (await isIngestionConfigured()) ? await scheduleDueRefreshes() : [];
   const outcomes = await drainOperations({ limit: 10 });
+  /* Best-effort housekeeping: a missed purge is caught by the next drain. */
+  const purgedTasks = await purgeA2aTaskBodies().catch((error: unknown) => {
+    console.error(`a2a purge failed: ${error instanceof Error ? error.message : 'unknown'}`);
+    return 0;
+  });
 
   return NextResponse.json(
     {
       scheduled: scheduled.length,
       drained: outcomes.length,
       outcomes: outcomes.map((outcome) => outcome.status),
+      purgedTasks,
     },
     { headers: { 'cache-control': 'no-store' } },
   );

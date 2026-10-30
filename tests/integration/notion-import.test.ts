@@ -122,7 +122,7 @@ const GRANT = {
 /** The consent round trip with a fake exchange: begin, then complete with the state the cookie carries. */
 async function connect(userId: string, grant = GRANT) {
   const started = await beginNotionConnect({
-    returnTo: '/dashboard/libraries/new',
+    returnTo: '/dashboard/assets/new',
     redirectUri: 'http://localhost:3000/api/auth/notion/callback/connect',
   });
   expect(started.redirectUrl).toContain('https://api.notion.com/v1/oauth/authorize?');
@@ -188,7 +188,7 @@ describeWithDb('notion page import', () => {
     ).rejects.toMatchObject({ loginError: 'oauth_failed' });
 
     const connected = await connect(userId);
-    expect(connected).toEqual({ workspaceName: 'Acme', returnTo: '/dashboard/libraries/new' });
+    expect(connected).toEqual({ workspaceName: 'Acme', returnTo: '/dashboard/assets/new' });
 
     /* Sealed at rest: the token is not in the row, and reading it back needs the key. */
     const [row] = await db().select().from(schema.notionConnection).where(eq(schema.notionConnection.userId, userId));
@@ -214,7 +214,6 @@ describeWithDb('notion page import', () => {
         workspaceId,
         userId,
         title: 'Handbook',
-        visibility: 'public',
         rights: { origin: 'own', license: 'open_source', generation: 'human' },
         sourceType: 'notion',
         location,
@@ -227,7 +226,7 @@ describeWithDb('notion page import', () => {
     await expect(attempt('https://www.notion.so/acme/no-id-here')).rejects.toMatchObject({ refusal: 'not_found' });
     /* No account at all on the call: refused before anything is read. */
     await expect(
-      createWorkspaceLibrary({ role: 'owner', workspaceId, title: 'x', visibility: 'public', rights: { origin: 'own', license: 'open_source', generation: 'human' }, sourceType: 'notion', location: PAGE_URL, slug: 'x' }),
+      createWorkspaceLibrary({ role: 'owner', workspaceId, title: 'x', rights: { origin: 'own', license: 'open_source', generation: 'human' }, sourceType: 'notion', location: PAGE_URL, slug: 'x' }),
     ).rejects.toMatchObject({ code: 'access_denied' });
 
     /* The one that passes: location from Notion's spelling, the account on the source. */

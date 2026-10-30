@@ -15,6 +15,7 @@ import {
 } from '@/lib/domain/rights';
 import { db, schema } from '@/lib/infrastructure/postgres/client';
 import { canManageLibraries, type WorkspaceRole } from './delete';
+import { listedInPublicChannel } from '@/lib/application/channels/visibility';
 
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
@@ -45,8 +46,8 @@ async function ownedLibrary(reader: Reader, workspaceId: string, libraryId: stri
     .select({
       id: schema.library.id,
       publicId: schema.library.publicId,
-      visibility: schema.library.visibility,
       rights: schema.library.rightsDeclaration,
+      listed: listedInPublicChannel(),
     })
     .from(schema.library)
     .where(
@@ -79,9 +80,10 @@ export interface DeclareRightsInput {
 
 /**
  * Record or replace the owner's declaration. A declaration that does not
- * permit a public library is still recorded on a private one -- it is the
- * owner's statement about their content -- and refused on a public one,
- * which must not carry a declaration it cannot publish under.
+ * permit public distribution is still recorded on an asset that is its
+ * owner's alone -- it is the owner's statement about their content -- and
+ * refused on one in a public channel, which must not carry a declaration it
+ * cannot be shown under (agent-first-proposal.md 6.11).
  */
 export async function declareLibraryRights(input: DeclareRightsInput): Promise<RightsDeclaration> {
   assertManager(input.role, 'declare rights');
@@ -89,7 +91,7 @@ export async function declareLibraryRights(input: DeclareRightsInput): Promise<R
   const target = await ownedLibrary(database, input.workspaceId, input.libraryId);
   const declaration = parseRightsDeclaration(input.rights, { userId: input.userId, now: new Date() });
   if (!declaration) throw new PlatformLibraryRefused('rights_invalid', 'the declaration is incomplete');
-  if (target.visibility === 'public' && !rightsAllowPublic(declaration)) {
+  if (target.listed && !rightsAllowPublic(declaration)) {
     throw new PlatformLibraryRefused('rights_generated', 'model-generated content is not accepted as public');
   }
   await database

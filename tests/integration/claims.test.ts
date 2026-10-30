@@ -25,6 +25,7 @@
  */
 import { afterAll, beforeEach, describe, expect, it, vi } from 'vitest';
 import { and, eq, inArray } from 'drizzle-orm';
+import { shareInPublicChannel, unshare } from '../fixtures/channels';
 
 const TEST_DATABASE_URL = process.env.TEST_DATABASE_URL;
 const describeWithDb = TEST_DATABASE_URL ? describe : describe.skip;
@@ -160,10 +161,12 @@ async function library(options: LibraryOptions = {}): Promise<{ id: string; publ
       title: 'Claim Test Library',
       ownerWorkspaceId: options.ownerWorkspaceId ?? null,
       isPlatformLibrary: options.isPlatformLibrary ?? false,
-      visibility: options.visibility ?? 'public',
+      kind: options.sourceType === 'github' ? 'github' : 'website',
       lifecycleStatus: options.lifecycleStatus ?? 'published',
       indexStatus: 'ready',
     });
+  /* Claimable means listed in a public channel now (agent-first-proposal.md 6.2). */
+  if ((options.visibility ?? 'public') === 'public' && !options.isPlatformLibrary) await shareInPublicChannel(id);
   await db()
     .insert(schema.source)
     .values({
@@ -644,7 +647,7 @@ describeWithDb('ownership claims', () => {
         startClaim({ workspaceId, role: 'owner', libraryPublicId: privately.publicId, method: 'dns_txt' }),
         startClaim({ workspaceId, role: 'owner', libraryPublicId: archived.publicId, method: 'dns_txt' }),
       ]);
-      await db().update(schema.library).set({ visibility: 'private' }).where(eq(schema.library.id, privately.id));
+      await unshare(privately.id);
       await db().update(schema.library).set({ lifecycleStatus: 'archived' }).where(eq(schema.library.id, archived.id));
 
       outbound.outcome = 'matched';

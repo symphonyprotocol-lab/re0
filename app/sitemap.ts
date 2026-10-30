@@ -1,5 +1,6 @@
 import type { MetadataRoute } from 'next';
 import { listPublicLibraryLocations } from '@/lib/application/libraries';
+import { publicCardSubjects } from '@/lib/application/channels';
 import { publicUrl } from '@/lib/site/origin';
 
 /**
@@ -11,8 +12,9 @@ import { publicUrl } from '@/lib/site/origin';
 export const revalidate = 3600;
 
 /**
- * The public pages a crawler should know about, then every routable
- * library. The static pages carry no `lastModified`: a date we cannot vouch
+ * The public pages a crawler should know about, then every public channel
+ * and user page with their Agent Cards (agent-first-proposal.md 7.1), then
+ * every asset shared with everyone. The static pages carry no `lastModified`: a date we cannot vouch
  * for is worse than none, and a crawler that reads one as "changed today"
  * on every fetch learns to ignore it. A library's date is its last
  * successful refresh, which is when its content actually moved.
@@ -25,7 +27,8 @@ export const revalidate = 3600;
 export default async function sitemap(): Promise<MetadataRoute.Sitemap> {
   const pages: MetadataRoute.Sitemap = [
     { url: publicUrl('/'), changeFrequency: 'daily', priority: 1 },
-    { url: publicUrl('/libraries'), changeFrequency: 'daily', priority: 0.9 },
+    { url: publicUrl('/channels'), changeFrequency: 'daily', priority: 0.9 },
+    { url: publicUrl('/.well-known/agent-card.json'), changeFrequency: 'weekly', priority: 0.6 },
     { url: publicUrl('/playground'), changeFrequency: 'monthly', priority: 0.8 },
     { url: publicUrl('/pricing'), changeFrequency: 'monthly', priority: 0.8 },
     { url: publicUrl('/about'), changeFrequency: 'monthly', priority: 0.6 },
@@ -36,12 +39,25 @@ export default async function sitemap(): Promise<MetadataRoute.Sitemap> {
     { url: publicUrl('/legal/privacy'), changeFrequency: 'yearly', priority: 0.3 },
   ];
 
+  const subjects = await publicCardSubjects();
+  const channels = subjects.channels.flatMap((channel) => {
+    const lastModified = channel.lastUpdatedAt ? new Date(channel.lastUpdatedAt) : undefined;
+    return [
+      { url: publicUrl(`/channels/${channel.slug}`), lastModified, changeFrequency: 'daily' as const, priority: 0.8 },
+      { url: publicUrl(`/a2a/channels/${channel.slug}/agent-card.json`), lastModified, changeFrequency: 'weekly' as const, priority: 0.5 },
+    ];
+  });
+  const users = subjects.handles.flatMap((handle) => [
+    { url: publicUrl(`/u/${handle}`), changeFrequency: 'weekly' as const, priority: 0.6 },
+    { url: publicUrl(`/a2a/users/${handle}/agent-card.json`), changeFrequency: 'weekly' as const, priority: 0.4 },
+  ]);
+
   const libraries = (await listPublicLibraryLocations()).map((library) => ({
-    url: publicUrl(`/libraries${library.publicId}`),
+    url: publicUrl(`/assets${library.publicId}`),
     lastModified: library.updatedAt ? new Date(library.updatedAt) : undefined,
     changeFrequency: 'weekly' as const,
     priority: 0.7,
   }));
 
-  return [...pages, ...libraries];
+  return [...pages, ...channels, ...users, ...libraries];
 }

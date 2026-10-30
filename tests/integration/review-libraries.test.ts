@@ -11,6 +11,7 @@
  */
 import { afterAll, describe, expect, it } from 'vitest';
 import { and, eq, inArray } from 'drizzle-orm';
+import { shareInPublicChannel } from '../fixtures/channels';
 
 const TEST_DATABASE_URL = process.env.TEST_DATABASE_URL;
 const describeWithDb = TEST_DATABASE_URL ? describe : describe.skip;
@@ -171,7 +172,6 @@ describeWithDb('user library review', () => {
       workspaceId,
       role: 'owner',
       title: 'Private Guide',
-      visibility: 'private',
       sourceType: 'website',
       location: 'https://docs.example.test/private',
       domainVerificationId: await verifiedDomain(workspaceId, 'https://docs.example.test/private'),
@@ -209,7 +209,6 @@ describeWithDb('user library review', () => {
       workspaceId,
       role: 'owner',
       title: 'Public Guide',
-      visibility: 'public',
       sourceType: 'website',
       location: 'https://docs.example.test/public',
       domainVerificationId: await verifiedDomain(workspaceId, 'https://docs.example.test/public'),
@@ -217,6 +216,8 @@ describeWithDb('user library review', () => {
       rights: { origin: 'own', license: 'open_source', generation: 'human' },
     });
     libraries.push(created.libraryId);
+    /* Public means listed in a public channel now (agent-first-proposal.md 6.2). */
+    await shareInPublicChannel(created.libraryId);
 
     /* Nothing to decide before the first version exists. */
     expect(await refusalOf(reviewUserLibrary({ actor, libraryId: created.libraryId, action: 'reject', reason: 'early' }))).toBe(

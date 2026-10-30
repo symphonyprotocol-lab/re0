@@ -96,8 +96,8 @@ describe('connect handshake and outcome', () => {
   });
 
   it('lands back on an in-app path with the outcome, never elsewhere', () => {
-    expect(connectReturnPath('/dashboard/libraries/new', 'connected')).toBe(
-      '/dashboard/libraries/new?github=connected',
+    expect(connectReturnPath('/dashboard/assets/new', 'connected')).toBe(
+      '/dashboard/assets/new?github=connected',
     );
     expect(connectReturnPath('https://evil.example/x', 'failed')).toBe('/dashboard?github=failed');
     expect(connectReturnPath('//evil.example', 'canceled')).toBe('/dashboard?github=canceled');

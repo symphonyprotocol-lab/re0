@@ -25,8 +25,8 @@ import { PlatformLibraryRefused } from '@/lib/domain/library';
 import { isSafetyFinding, type SafetyFinding } from '@/lib/domain/ingestion';
 import { DEFAULT_RETRIEVAL_SETTINGS } from '@/lib/domain/retrieval-config';
 import { REVIEW_PROBE_MAX_LENGTH } from '@/lib/domain/review';
-import type { Visibility } from '@/lib/domain';
 import { db, schema } from '@/lib/infrastructure/postgres/client';
+import { exposure } from '@/lib/application/channels/visibility';
 import { originDigest, recordAudit } from './audit';
 import type { PlatformActor } from './manage-platform-libraries';
 
@@ -40,15 +40,15 @@ const FLAGGED_LIMIT = 50;
 export interface ReviewableLibrary {
   id: string;
   publicId: string;
-  visibility: Visibility;
+  visibility: 'public' | 'private';
   currentVersionId: string | null;
 }
 
 /**
- * The library, if a reviewer may read its content: a user library that is
- * public and not deleted. Null otherwise, with no distinction between
- * "private" and "does not exist" -- a private library's existence is the
- * owner's business.
+ * The library, if a reviewer may read its content: a user asset listed in a
+ * public channel and not deleted. Null otherwise, with no distinction
+ * between "the owner's alone" and "does not exist" -- an unlisted asset's
+ * existence is the owner's business.
  */
 export async function reviewable(libraryId: string): Promise<ReviewableLibrary | null> {
   if (!isUuid(libraryId)) return null;
@@ -56,7 +56,7 @@ export async function reviewable(libraryId: string): Promise<ReviewableLibrary |
     .select({
       id: schema.library.id,
       publicId: schema.library.publicId,
-      visibility: schema.library.visibility,
+      visibility: exposure(),
       currentVersionId: schema.library.currentVersionId,
       isPlatformLibrary: schema.library.isPlatformLibrary,
     })

@@ -172,7 +172,7 @@ export default async function DashboardOverviewPage() {
         title={o.title}
         description={o.description}
         action={
-          <ActionButton href="/dashboard/libraries/new">
+          <ActionButton href="/dashboard/assets/new">
             <PlusIcon size={15} />
             {o.addLibrary}
           </ActionButton>

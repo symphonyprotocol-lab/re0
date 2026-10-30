@@ -29,6 +29,7 @@ import Link from 'next/link';
 import { CheckoutSync, RefreshOnReturn } from '@/components/dashboard/checkout-sync';
 import { PendingSubmitButton } from '@/components/ui/pending-submit-button';
 import {
+  changeHandleAction,
   disconnectGithubAction,
   disconnectNotionAction,
   openBillingPortalAction,
@@ -56,6 +57,7 @@ import { currentLocale, getMessages } from '@/lib/i18n/server';
 import { fill } from '@/lib/i18n/format';
 import { isNotionOAuthConfigured } from '@/lib/infrastructure/identity/notion';
 import { requireSession } from '@/lib/http/session';
+import { workspaceHandle } from '@/lib/application/workspaces/handle';
 
 export async function generateMetadata(): Promise<Metadata> {
   return { title: (await getMessages()).dashboard.settings.metaTitle };
@@ -221,6 +223,7 @@ export default async function DashboardSettingsPage({
     storage,
     billing,
     providerCustomer,
+    handle,
   ] = await Promise.all([
     getMessages(),
     currentLocale(),
@@ -234,7 +237,9 @@ export default async function DashboardSettingsPage({
     workspaceStorage(workspaceId),
     listBillingDocuments({ workspaceId, limit: BILLING_ROWS }),
     workspaceProviderCustomer(workspaceId),
+    workspaceHandle(workspaceId),
   ]);
+  const handleNotice = typeof (params as Record<string, unknown>).handle === 'string' ? String((params as Record<string, unknown>).handle) : null;
   const g = t.dashboard.settings;
   const number = new Intl.NumberFormat(locale);
   const date = new Intl.DateTimeFormat(locale, { dateStyle: 'medium' });
@@ -440,6 +445,35 @@ export default async function DashboardSettingsPage({
               </div>
             ))}
           </dl>
+
+          {/* The workspace's public name: `/u/{handle}` and the user Agent Card (agent-first-proposal.md 12). */}
+          <form id="handle" action={changeHandleAction} className="flex flex-col gap-2 border-t border-line px-5 py-4">
+            <span className="text-[11px] font-medium text-steel">{g.handle.label}</span>
+            <span className="flex items-center gap-2">
+              <span className="flex min-w-0 flex-1 items-center rounded-md border border-line bg-field pl-3">
+                <span className="text-[12px] text-muted">/u/</span>
+                <input
+                  name="handle"
+                  defaultValue={handle ?? ''}
+                  required
+                  minLength={3}
+                  maxLength={32}
+                  disabled={session.workspace.role !== 'owner'}
+                  className="h-9 min-w-0 flex-1 bg-transparent pr-3 text-[12.5px] text-ink focus:outline-none"
+                />
+              </span>
+              <button
+                type="submit"
+                disabled={session.workspace.role !== 'owner'}
+                className="inline-flex h-9 items-center rounded-md border border-line bg-card px-3 text-[12px] font-medium text-ink hover:bg-subtle disabled:opacity-50"
+              >
+                {g.handle.save}
+              </button>
+            </span>
+            <span className={`text-[10.5px] leading-[1.5] ${handleNotice && handleNotice !== 'saved' ? 'text-rose' : 'text-muted'}`}>
+              {handleNotice ? ((g.handle.notices as Record<string, string>)[handleNotice] ?? g.handle.notices.unavailable) : g.handle.hint}
+            </span>
+          </form>
 
           <footer className="flex items-center gap-2 border-t border-line px-5 py-3.5">
             <ShieldCheckIcon size={14} className="text-muted" />

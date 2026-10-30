@@ -317,7 +317,7 @@ describeWithDb('platform libraries', () => {
       publicId: `/websites/${slug}-user`,
       title: 'Someone else’s library',
       isPlatformLibrary: false,
-      visibility: 'public',
+      kind: 'website',
       lifecycleStatus: 'published',
       indexStatus: 'ready',
     });
@@ -436,43 +436,38 @@ describeWithDb('platform libraries', () => {
       ),
     ).toBe('last_source');
 
-    const { sourceId } = await addPlatformLibrarySource({
-      actor,
-      libraryId,
-      type: 'github',
-      location: 'https://github.com/vercel/next.js',
-      refreshPolicy: 'weekly',
-      reason: 'integration test add',
-    });
+    /* One asset, one source (agent-first-proposal.md 3.1): a second is refused. */
+    expect(
+      await refusalOf(
+        addPlatformLibrarySource({
+          actor,
+          libraryId,
+          type: 'github',
+          location: 'https://github.com/vercel/next.js',
+          refreshPolicy: 'weekly',
+          reason: 'integration test add',
+        }),
+      ),
+    ).toBe('source_exists');
 
-    const [added] = await database
-      .select()
+    /* The one source is still edited in place. */
+    const [only] = await database
+      .select({ id: schema.source.id, location: schema.source.location })
       .from(schema.source)
-      .where(eq(schema.source.id, sourceId));
-    expect(added?.type).toBe('github');
-    // Normalized on the way in, exactly as the create form does it.
-    expect(added?.location).toBe('vercel/next.js');
-
+      .where(eq(schema.source.libraryId, libraryId));
     await updatePlatformLibrarySource({
       actor,
       libraryId,
-      sourceId,
-      location: 'vercel/next.js',
+      sourceId: only!.id,
+      location: only!.location,
       refreshPolicy: 'manual',
       reason: 'integration test edit source',
     });
     const [edited] = await database
       .select()
       .from(schema.source)
-      .where(eq(schema.source.id, sourceId));
+      .where(eq(schema.source.id, only!.id));
     expect((edited?.refreshPolicy as { cadence?: string }).cadence).toBe('manual');
-
-    await removePlatformLibrarySource({
-      actor,
-      libraryId,
-      sourceId,
-      reason: 'integration test remove',
-    });
     const remaining = await database
       .select({ id: schema.source.id })
       .from(schema.source)
@@ -508,9 +503,7 @@ describeWithDb('platform libraries', () => {
     const actions = new Set(entries.map((entry) => entry.action));
     for (const action of [
       'platform_library.update',
-      'platform_library.source_add',
       'platform_library.source_update',
-      'platform_library.source_remove',
     ]) {
       expect(actions.has(action)).toBe(true);
     }
@@ -588,13 +581,17 @@ describeWithDb('platform libraries', () => {
     const database = db();
     const libraryId = created[0] as string;
 
-    const first = await addPlatformLibrarySource({
-      actor,
+    /* A second source, written directly: the console refuses one since P1
+       (agent-first-proposal.md 3.1), and this guards a library from before
+       migration 0062 split them. */
+    const first = { sourceId: uuidv7() };
+    await database.insert(schema.source).values({
+      id: first.sourceId,
       libraryId,
       type: 'website',
       location: 'https://example.test/a',
-      refreshPolicy: 'manual',
-      reason: 'integration test',
+      config: { indexDepth: 0 },
+      refreshPolicy: { cadence: 'manual' },
     });
     const existing = await database
       .select({ id: schema.source.id })

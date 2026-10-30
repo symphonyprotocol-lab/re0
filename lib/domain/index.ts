@@ -5,8 +5,6 @@
  * See architecture.md 4.
  */
 
-export type Visibility = 'public' | 'private';
-
 export type LifecycleStatus =
   | 'draft'
   | 'submitted'

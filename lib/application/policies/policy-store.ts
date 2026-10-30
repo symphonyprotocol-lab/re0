@@ -12,6 +12,7 @@ import { desc, eq, inArray, sql } from 'drizzle-orm';
 import { AppError } from '@/contracts/errors';
 import type { PolicyPatch, PolicyResponse, WorkspacePolicyView } from '@/contracts/schemas';
 import {
+  isChannelEntry,
   isDomainEntry,
   normalizePolicyMode,
   OPEN_POLICY,
@@ -23,6 +24,7 @@ import {
 import { uuidv7 } from '@/lib/domain/id';
 import { db, schema, type Database } from '@/lib/infrastructure/postgres/client';
 import { ref } from '@/lib/application/administration/column-ref';
+import { sharedWithEveryone } from '@/lib/application/channels/visibility';
 
 export interface PinnedPolicy {
   versionId: string | null;
@@ -184,7 +186,7 @@ export async function patchPolicy(
           id: uuidv7(),
           policyVersionId: versionId,
           kind: row.kind,
-          targetType: isDomainEntry(row.value) ? 'domain' : 'library',
+          targetType: isDomainEntry(row.value) ? 'domain' : isChannelEntry(row.value) ? 'channel' : 'library',
           targetValue: row.value,
         })),
       );
@@ -217,8 +219,8 @@ function toView(policy: WorkspacePolicy): WorkspacePolicyView {
 
 /**
  * How many libraries this policy admits for the workspace -- the number the
- * console shows next to a rule change (requirement.md 5.2): the routable
- * public catalogue plus the workspace's own private libraries.
+ * console shows next to a rule change (requirement.md 5.2): everything shared
+ * with everyone plus the workspace's own assets (agent-first-proposal.md 6.2).
  *
  * Every rule the evaluator (lib/domain/policy.ts) can decide from stored
  * facts is counted here in SQL: the source switches, the three lists, and
@@ -240,11 +242,11 @@ export async function countReachableLibraries(
     sql`${schema.library.lifecycleStatus} = 'published'`,
     sql`${schema.library.indexStatus} = 'ready'`,
     sql`${schema.library.currentVersionId} is not null`,
+    /* The `private` switch covers the owner's assets that are not in a
+       public channel; with it off, only what is shared with everyone. */
     privateDisabled
-      ? sql`${schema.library.visibility} = 'public'`
-      : sql`(${schema.library.visibility} = 'public'
-          or (${schema.library.visibility} = 'private'
-            and ${schema.library.ownerWorkspaceId} = ${workspaceId}))`,
+      ? sharedWithEveryone()
+      : sql`(${sharedWithEveryone()} or ${schema.library.ownerWorkspaceId} = ${workspaceId})`,
   ];
   if (disabledTypes.length > 0) {
     clauses.push(sql`not exists (
@@ -312,7 +314,10 @@ export async function countReachableLibraries(
  */
 function listedInSql(entries: readonly string[]) {
   const domains = entries.filter(isDomainEntry).map((entry) => entry.toLowerCase());
-  const ids = entries.filter((entry) => !isDomainEntry(entry)).map((entry) => entry.toLowerCase());
+  const channels = entries.filter(isChannelEntry).map((entry) => entry.toLowerCase());
+  const ids = entries
+    .filter((entry) => !isDomainEntry(entry) && !isChannelEntry(entry))
+    .map((entry) => entry.toLowerCase());
   const exact = ids.filter((entry) => !entry.endsWith('/*'));
   const prefixes = ids.filter((entry) => entry.endsWith('/*')).map((entry) => entry.slice(0, -2));
   const clauses = [
@@ -321,6 +326,15 @@ function listedInSql(entries: readonly string[]) {
       sql`${PUBLIC_ID} = ${prefix}`,
       sql`${PUBLIC_ID} like ${`${escapeLike(prefix)}/%`}`,
     ]),
+    ...channels.map((entry) => {
+      const named = entry.endsWith('/*') ? null : entry;
+      return sql`exists (
+        select 1 from ${schema.channelAsset} ca
+        join ${schema.channel} c on c.id = ca.channel_id
+        where ca.asset_id = ${ref(schema.library.id)}
+          ${named ? sql`and '/channels/' || c.slug = ${named}` : sql``}
+      )`;
+    }),
     ...domains.map(
       (domain) => sql`exists (
         select 1 from ${schema.source} s

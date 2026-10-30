@@ -2,7 +2,7 @@
 
 - 版本：4.0
 - 更新日期：2026-10-29（按 [agent-first-proposal.md](./agent-first-proposal.md) 第 3.4 节与第 11 节改写：资产与频道术语；删除 MCP Server 一节，新增 A2A Server；分成记账改为频道收入记账；各节编号保持不变）
-- 状态：架构基线；P0 已实施的部分与 P1 及之后的目标设计在文中以「阶段」标注区分；§4.1 登记专家模块的技术边界
+- 状态：架构基线；P0、P1 已实施（P1：2026-10-30），P2 及之后的目标设计在文中以「阶段」标注区分；§4.1 登记专家模块的技术边界
 - 产品需求：[requirement.md](./requirement.md)
 - 设计依据：[knowleg-market.pen](./knowleg-market.pen)
 - 转向依据：[agent-first-proposal.md](./agent-first-proposal.md)
@@ -416,7 +416,7 @@ API Key 格式使用 `mm_live_` / `mm_test_` 前缀。服务端只保存：
 - **唯一写入口**：`owner_workspace_id` 只能由「`verified` 的认领」或「管理员争议裁定」写入，不存在第三条路径；Ingestion、审核和刷新都不得触碰该字段；
 - **登录身份不是证据**：OAuth Subject 只回答「你是谁」。GitHub 权限校验必须用用户自己的 Token 向 GitHub 查询其对目标仓库的权限级别，并核对返回的仓库 ID 与 `source` 记录一致，不能只比对仓库名字符串；
 - **挑战 Token**：高熵随机值，只保存 Hash；与 `(申请人, library_id, 验证方式)` 绑定并带 7 天过期；校验时按 Hash 比对，明文只在生成时返回一次；
-- **域名验证**：网站资产的域名挑战记录在 `domain_verification`（`lib/domain/domain-verification.ts`、`lib/application/libraries/domain-verification.ts`），与 `(workspace, host, 验证方式)` 绑定；明文 Token 只返回给发起方，之后每次校验都由客户端带回并按 Hash 比对，错误 Token 与不存在的挑战返回相同结果。消费挑战时要求状态为 `verified`、域名与来源 host 完全一致（子域不继承）、验证时间在 1 小时以内，并同事务写入一条 `verified` 的 `library_claim`，任一条件不满足则整体回滚。**阶段**：现有实现在 `createWorkspaceLibrary` 创建网站资产时就消费挑战（`consumed_library_id`）；随频道落地（P1），消费点改到「把来源型资产放进公开频道」的用例里，创建不属于频道的资产不再要求验证（requirement.md 7.3.1）。`llms.txt` 与 OpenAPI 来源已删除；
+- **域名验证**：网站资产的域名挑战记录在 `domain_verification`（`lib/domain/domain-verification.ts`、`lib/application/libraries/domain-verification.ts`），与 `(workspace, host, 验证方式)` 绑定；明文 Token 只返回给发起方，之后每次校验都由客户端带回并按 Hash 比对，错误 Token 与不存在的挑战返回相同结果。消费挑战时要求状态为 `verified`、域名与来源 host 完全一致（子域不继承）、验证时间在 1 小时以内，并同事务写入一条 `verified` 的 `library_claim`，任一条件不满足则整体回滚。**阶段**：`createWorkspaceLibrary` 仍在创建网站资产时消费挑战（`consumed_library_id`）；P1 起「放进公开频道」的用例（`lib/application/channels/manage.ts` `moveAsset`）检查网站有本工作空间已验证的认领、GitHub 库有导入时记下的仓库归属，缺了即拒。把消费点挪到移入公开频道时、创建不属于频道的资产不再要求验证（requirement.md 7.3.1），尚未实施。`llms.txt` 与 OpenAPI 来源已删除；
 - **DNS 与 well-known 校验走同一条出网安全通道**：复用 §15.1 的解析与抓取约束（禁止私网、Metadata Endpoint、Loopback、重定向绕过），验证请求不因用途特殊而放宽；DNS 查询使用受控解析器，不接受用户指定的 nameserver；
 - **并发**：同一 `library_id` 的 `pending` 认领由部分唯一索引保证只有一个；校验通过时在单事务内完成「认领置 verified + 写 owner + 追加审计事件」，失败则整体回滚，避免出现有 owner 却无认领记录的状态；
 - **限流与冷却**：发起与重试按 `账户` 和 `library_id` 双维度限流，承载在 §11.2 的同一限流设施；连续失败到阈值后锁定入口，需人工解锁；
@@ -453,7 +453,8 @@ API Key 格式使用 `mm_live_` / `mm_test_` 前缀。服务端只保存：
 | `library` | 一项资产：稳定 ID、Workspace、`kind`（七种资产类型）、`access`（`free` / `paid`，移出频道时重置为 `free`）、生命周期、当前版本、删除墓碑（`deleted_at`，见 §8.4）；`visibility` 列随频道落地删除（P1），可见性由所在频道与 `access` 决定；P5 改名 `asset` |
 | `library_alias` | 旧 ID 到新 ID 的 Redirect |
 | `channel` | 频道：`slug`、`workspace_id`、`title`、`description`、`visibility`（public / private，默认 public）、`status`、`subscriber_daily_limit`（可空）、`profile`（频道画像，§9.6）（P1） |
-| `channel_asset` | 资产归属：`channel_id`、`asset_id`（**唯一**，一项资产最多属于一个频道）、`pinned_at`、`published_at`、`scheduled_at`（P1） |
+| `channel_asset` | 资产归属：`channel_id`、`asset_id`（**唯一**，一项资产最多属于一个频道）、`pinned_at`、`published_at`、`scheduled_at`（P1）。平台资产放在 `workspace_id` 为空的平台频道 `re0` 里 |
+| `channel_visit` | 频道目录「热门」的活跃度输入：`channel_id`、`visitor_kind`（user / workspace / anonymous）、`visitor_key`（用户、调用方工作空间或匿名限流用的哈希键）、`visited_on`，每位访问者每天一行，所有者不记（P1）；权重与半衰期在 `retrieval_config` 的 `channel_*` 列 |
 | `source` | 类型（`website`、`github`、`pdf`、`markdown`、`notion`，新增 `editor`、`audio`；`llms_txt`、`openapi` 已删除）、位置、配置、Credential Reference、刷新策略；每项资产只有一个 Source |
 | `library_version` | Source Digest、解析版本、质量、不可变状态 |
 | `document` | 规范化文档元数据和对象存储 Key |

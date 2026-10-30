@@ -63,8 +63,8 @@ describe('connect handshake and outcome', () => {
   });
 
   it('lands back on an in-app path with the outcome, never elsewhere', () => {
-    expect(notionConnectReturnPath('/dashboard/libraries/new', 'connected')).toBe(
-      '/dashboard/libraries/new?notion=connected',
+    expect(notionConnectReturnPath('/dashboard/assets/new', 'connected')).toBe(
+      '/dashboard/assets/new?notion=connected',
     );
     expect(notionConnectReturnPath('https://evil.example/x', 'failed')).toBe('/dashboard?notion=failed');
     expect(notionConnectReturnPath('//evil.example', 'canceled')).toBe('/dashboard?notion=canceled');
