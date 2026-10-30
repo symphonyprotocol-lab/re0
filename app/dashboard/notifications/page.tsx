@@ -46,7 +46,15 @@ export default async function NotificationsPage() {
                 title: text(row.payload.title),
                 channel: text(row.payload.channelTitle),
               });
-              const href = publicId ? `/assets${publicId}` : row.kind === 'new_question' ? '/dashboard/questions' : null;
+              /* A refused scheduled publication opens its editor, which words the refusal. */
+              const failed = row.kind === 'publish_failed' ? text(row.payload.assetId) : '';
+              const href = failed
+                ? `/dashboard/posts/${failed}?notice=${encodeURIComponent(text(row.payload.reason))}`
+                : publicId
+                  ? `/assets${publicId}`
+                  : row.kind === 'new_question'
+                    ? '/dashboard/questions'
+                    : null;
               return (
                 <li key={row.id} className={`flex items-center justify-between gap-3 px-5 py-3 text-[12.5px] ${row.read ? 'text-steel' : 'text-ink'}`}>
                   {href ? (

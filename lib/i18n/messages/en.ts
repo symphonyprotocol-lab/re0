@@ -5269,6 +5269,7 @@ export const en: Dictionary = {
         free: 'Free',
         paid: 'Paid (subscribers only)',
         paidHint: 'Paid needs subscriptions switched on for the channel.',
+        sells: 'subscriptions on',
         save: 'Save draft',
         publish: 'Publish now',
         schedule: 'Schedule',
@@ -5365,6 +5366,7 @@ export const en: Dictionary = {
           comment_reply: 'Someone replied to your comment on "{title}"',
           new_question: 'A new question for "{title}"',
           question_answered: 'Your question was answered: {title}',
+          publish_failed: '"{title}" could not be published as scheduled and is back in drafts; open the editor to see why',
         },
       },
       commerce: {

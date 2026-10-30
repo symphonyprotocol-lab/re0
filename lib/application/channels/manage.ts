@@ -235,9 +235,12 @@ export interface MoveAssetResult {
  * not carried to the next. A move into a public channel is refused unless the
  * asset may be public (`assertMayBePublic`).
  */
-export async function moveAsset(input: MoveAssetInput): Promise<MoveAssetResult> {
+export async function moveAsset(input: MoveAssetInput, within?: Tx): Promise<MoveAssetResult> {
   assertManager(input.role);
-  const result = await db().transaction(async (tx) => {
+  /* `within`: the caller's transaction, so the move commits or rolls back with
+     its other writes -- publishing a post (editorial/assets.ts). */
+  const run = <T>(work: (tx: Tx) => Promise<T>) => (within ? work(within) : db().transaction(work));
+  const result = await run(async (tx) => {
     const asset = await ownedAsset(tx, input.workspaceId, input.assetId);
     const [current] = await tx
       .select({ channelId: schema.channelAsset.channelId })
@@ -276,6 +279,8 @@ export async function moveAsset(input: MoveAssetInput): Promise<MoveAssetResult>
     return { from, to: target.id, madePublic: target.visibility === 'public' };
   });
 
+  /* Inside a caller's transaction nothing is committed yet: the caller refreshes after its commit. */
+  if (within) return result;
   /* The aggregate profiles follow membership; best-effort, never the move's failure. */
   for (const channelId of new Set([result.from, result.to])) {
     if (channelId) await refreshChannelProfile(channelId).catch(() => {});

@@ -353,12 +353,14 @@ export async function setAssetAccess(input: {
   role: WorkspaceRole;
   assetId: string;
   access: unknown;
-}): Promise<void> {
+}, within?: Tx): Promise<void> {
   if (!canManageAssets(input.role)) throw new ChannelCommerceRefused('not_owner', 'only a workspace owner or admin can change access');
   if (!isAssetAccess(input.access)) throw new AppError('invalid_request', 'access is free or paid');
   const access = input.access;
   if (!UUID.test(input.assetId)) throw new ChannelCommerceRefused('not_found', 'no such asset');
-  await db().transaction(async (tx) => {
+  /* `within`: the caller's transaction -- publishing a post sets access with its move and its body (editorial/assets.ts). */
+  const run = (work: (tx: Tx) => Promise<void>) => (within ? work(within) : db().transaction(work));
+  await run(async (tx) => {
     const [row] = await tx
       .select({ channelId: schema.channelAsset.channelId, enabledAt: schema.channel.subscriptionsEnabledAt })
       .from(schema.channelAsset)

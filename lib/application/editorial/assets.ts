@@ -19,11 +19,16 @@
  *
  * A draft may name a channel and an access level; publishing moves the asset
  * there through `moveAsset` (with its rights and claim gates) and then sets
- * `access` (`setAssetAccess`, which needs subscriptions on for `paid`). A
- * scheduled publication waits on `publish_at` for the queue drain.
+ * `access` (`setAssetAccess`, which needs subscriptions on for `paid`). Both
+ * run in the transaction that writes the published text, so a post marked
+ * `paid` is never live free: a refused move or access change leaves the old
+ * text, place and access exactly as they were. A scheduled publication waits
+ * on `publish_at` for the queue drain.
  */
 import { and, desc, eq, inArray, isNotNull, isNull, lte } from 'drizzle-orm';
 import { AppError } from '@/contracts/errors';
+import { ChannelRefused } from '@/lib/domain/channel';
+import { ChannelCommerceRefused } from '@/lib/domain/channel-commerce';
 import {
   EDITORIAL_LIMITS,
   editorialPublicId,
@@ -42,11 +47,13 @@ import { uuidv7 } from '@/lib/domain/id';
 import { parseRightsDeclaration, rightsPosted, type RightsDeclaration } from '@/lib/domain/rights';
 import { db, schema, type Database } from '@/lib/infrastructure/postgres/client';
 import { moveAsset } from '@/lib/application/channels/manage';
+import { refreshChannelProfile } from '@/lib/application/channels/profile';
 import { setAssetAccess } from '@/lib/application/channels/subscriptions';
 import { canManageAssets, type WorkspaceRole } from '@/lib/application/assets/delete';
 import { queueBuildUnlessPending } from '@/lib/application/assets/queue-build';
 import { assertBuildAffordable } from '@/lib/application/plans/build-quota';
 import type { Tx } from '@/lib/application/plans/quota';
+import { notify, workspaceManagers } from '@/lib/application/notifications';
 
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
@@ -60,6 +67,31 @@ export interface EditorActor {
 
 function assertEditor(role: WorkspaceRole): void {
   if (!canManageAssets(role)) throw new EditorialRefused('not_owner', 'only a workspace owner or admin can publish');
+}
+
+/**
+ * Whether a draft may go where it says at the access it says: the channel is
+ * the workspace's own, and `paid` needs a channel that sells subscriptions
+ * (proposal 6.2). Checked when the draft is saved and again when it is
+ * published, since the channel may change in between; `moveAsset` and
+ * `setAssetAccess` check their rules again inside the publishing
+ * transaction, which is what finally holds.
+ */
+async function assertPlacement(
+  executor: Executor,
+  workspaceId: string,
+  target: { channelId: string | null; access: AssetAccess },
+): Promise<void> {
+  const [channel] = target.channelId
+    ? await executor
+        .select({ enabledAt: schema.channel.subscriptionsEnabledAt })
+        .from(schema.channel)
+        .where(and(eq(schema.channel.id, target.channelId), eq(schema.channel.workspaceId, workspaceId)))
+    : [];
+  if (target.channelId && !channel) throw new EditorialRefused('not_found', 'no such channel');
+  if (target.access === 'paid' && !channel?.enabledAt) {
+    throw new ChannelCommerceRefused('subscriptions_disabled', 'paid needs a channel with subscriptions switched on');
+  }
 }
 
 /* ------------------------------------------------------------------ create */
@@ -250,14 +282,9 @@ export async function saveEditorialDraft(input: SaveDraftInput): Promise<void> {
   const bodyMax = asset.kind === 'audio' ? EDITORIAL_LIMITS.notesMax : EDITORIAL_LIMITS.bodyMax;
   if (input.body.length > bodyMax) throw new EditorialRefused('invalid_body', `the text is longer than ${bodyMax} characters`);
   const channelId = input.channelId && UUID.test(input.channelId) ? input.channelId : null;
-  if (channelId) {
-    const [channel] = await database
-      .select({ id: schema.channel.id })
-      .from(schema.channel)
-      .where(and(eq(schema.channel.id, channelId), eq(schema.channel.workspaceId, input.workspaceId)));
-    if (!channel) throw new EditorialRefused('not_found', 'no such channel');
-  }
   const access = isAssetAccess(input.access) ? input.access : 'free';
+  /* An empty channel keeps the asset where it is, so `paid` is checked against that one. */
+  await assertPlacement(database, input.workspaceId, { channelId: channelId ?? asset.channelId, access });
   const values = {
     title,
     summary,
@@ -311,9 +338,10 @@ export async function unscheduleEditorial(input: EditorActor & { assetId: string
 }
 
 /**
- * The publication itself: compose the indexed document from the draft,
- * write it to the source, queue the build, then put the asset where the
- * draft says. Returns the build to run.
+ * The publication itself: compose the indexed document from the draft, put
+ * the asset where the draft says, write the document to the source and queue
+ * the build -- one transaction, so a refused move or access change writes
+ * nothing. Returns the build to run.
  */
 async function publishNow(asset: EditorialAsset, actor: EditorActor): Promise<string> {
   const database = db();
@@ -363,10 +391,22 @@ async function publishNow(asset: EditorialAsset, actor: EditorActor): Promise<st
     path = images.length ? `post-${(await sha256Hex(images.map((image) => image.sha256 ?? image.id).sort().join(','))).slice(0, 16)}.md` : 'post.md';
   }
 
+  const target = draft.channelId ?? asset.channelId;
+  const moved = draft.channelId !== null && draft.channelId !== asset.channelId;
+  /* Refused before anything is written; the transaction below holds the same rules under its locks. */
+  await assertPlacement(database, actor.workspaceId, { channelId: target, access: draft.access });
   /* asset-build-billing.md 4.1: refused before anything is written, like a new asset's first build. */
   await assertBuildAffordable({ workspaceId: actor.workspaceId, fetchesPages: false });
 
   const operationId = await database.transaction(async (tx) => {
+    if (moved) {
+      await moveAsset({ workspaceId: actor.workspaceId, role: actor.role, assetId: asset.id, channelId: draft.channelId }, tx);
+    }
+    /* A move resets access to free (proposal 6.1), so compare against what the asset holds now. */
+    const accessNow = moved ? 'free' : asset.access;
+    if (target && draft.access !== accessNow) {
+      await setAssetAccess({ workspaceId: actor.workspaceId, role: actor.role, assetId: asset.id, access: draft.access }, tx);
+    }
     await tx
       .update(schema.asset)
       .set({ title, description: draft.summary })
@@ -380,26 +420,40 @@ async function publishNow(asset: EditorialAsset, actor: EditorActor): Promise<st
     return queueBuildUnlessPending(tx, asset.id);
   });
 
-  const moved = draft.channelId !== null && draft.channelId !== asset.channelId;
+  /* The aggregate profiles follow membership; best-effort, after the commit, as `moveAsset` does on its own. */
   if (moved) {
-    await moveAsset({ workspaceId: actor.workspaceId, role: actor.role, assetId: asset.id, channelId: draft.channelId });
-  }
-  /* A move resets access to free (proposal 6.1), so compare against what the asset holds now. */
-  const accessNow = moved ? 'free' : asset.access;
-  if ((draft.channelId ?? asset.channelId) && draft.access !== accessNow) {
-    await setAssetAccess({ workspaceId: actor.workspaceId, role: actor.role, assetId: asset.id, access: draft.access });
+    for (const channelId of [asset.channelId, draft.channelId]) {
+      if (channelId) await refreshChannelProfile(channelId).catch(() => {});
+    }
   }
   return operationId;
+}
+
+/** The stable code of a rule that refused a publication, or null for a failure of ours. */
+function refusedBy(error: unknown): string | null {
+  if (error instanceof EditorialRefused || error instanceof ChannelRefused || error instanceof ChannelCommerceRefused || error instanceof AppError) {
+    return error.code;
+  }
+  return null;
 }
 
 /**
  * The drain's half of scheduling: every draft whose time has come is
  * published as its owner, and its build queued. One failure does not stop
- * the rest; the failed draft stays scheduled and is tried again next drain.
+ * the rest. A draft a rule refuses (its channel no longer sells, a build it
+ * cannot afford) goes back to a plain draft and the creator is told why --
+ * retrying it every drain would refuse it every time. A failure of ours
+ * leaves it scheduled, and the next drain tries again: `publish_at` is
+ * cleared only by the transaction that publishes.
  */
 export async function publishDueDrafts(now: Date = new Date(), limit = 20): Promise<{ published: string[]; operations: string[] }> {
   const due = await db()
-    .select({ assetId: schema.postDraft.assetId, workspaceId: schema.asset.ownerWorkspaceId, userId: schema.postDraft.updatedBy })
+    .select({
+      assetId: schema.postDraft.assetId,
+      workspaceId: schema.asset.ownerWorkspaceId,
+      userId: schema.postDraft.updatedBy,
+      title: schema.postDraft.title,
+    })
     .from(schema.postDraft)
     .innerJoin(schema.asset, eq(schema.asset.id, schema.postDraft.assetId))
     .where(and(isNotNull(schema.postDraft.publishAt), lte(schema.postDraft.publishAt, now), isNull(schema.asset.deletedAt)))
@@ -408,13 +462,22 @@ export async function publishDueDrafts(now: Date = new Date(), limit = 20): Prom
   const operations: string[] = [];
   for (const row of due) {
     if (!row.workspaceId) continue;
+    const workspaceId = row.workspaceId;
     try {
-      const actor = { workspaceId: row.workspaceId, role: 'owner' as const, userId: row.userId };
-      const asset = await ownedEditorialAsset(db(), row.workspaceId, row.assetId);
+      const actor = { workspaceId, role: 'owner' as const, userId: row.userId };
+      const asset = await ownedEditorialAsset(db(), workspaceId, row.assetId);
       operations.push(await publishNow(asset, actor));
       published.push(row.assetId);
     } catch (error) {
-      console.error(`scheduled publication of ${row.assetId} failed: ${error instanceof Error ? error.message : 'unknown'}`);
+      const reason = refusedBy(error);
+      console.error(`scheduled publication of ${row.assetId} ${reason ? `refused: ${reason}` : `failed: ${error instanceof Error ? error.message : 'unknown'}`}`);
+      if (!reason) continue;
+      await db()
+        .transaction(async (tx) => {
+          await tx.update(schema.postDraft).set({ publishAt: null }).where(eq(schema.postDraft.assetId, row.assetId));
+          await notify(await workspaceManagers(workspaceId, tx), 'publish_failed', { assetId: row.assetId, title: row.title, reason }, tx);
+        })
+        .catch(() => {});
     }
   }
   return { published, operations };

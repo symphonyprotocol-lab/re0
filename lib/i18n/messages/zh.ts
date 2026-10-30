@@ -5132,6 +5132,7 @@ export const zh = {
         free: '免费',
         paid: '付费（仅订阅者）',
         paidHint: '付费需要频道已开通订阅。',
+        sells: '已开通订阅',
         save: '保存草稿',
         publish: '立即发布',
         schedule: '定时发布',
@@ -5228,6 +5229,7 @@ export const zh = {
           comment_reply: '有人回复了你在「{title}」下的评论',
           new_question: '「{title}」有新的待答问题',
           question_answered: '你的问题有了回答：{title}',
+          publish_failed: '「{title}」没能按计划发布，已退回草稿，打开编辑器查看原因',
         },
       },
       commerce: {
