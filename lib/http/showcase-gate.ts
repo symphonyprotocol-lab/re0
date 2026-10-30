@@ -78,7 +78,7 @@ export async function showcaseGateFor(cookies: CookieJar, gate: ShowcaseGateInpu
 export async function assertShowcaseOpen(request: NextRequest, gate: ShowcaseGateInput): Promise<void> {
   const state = await showcaseGateFor(request.cookies, gate);
   if (state === 'locked') throw new AppError('access_denied', 'this page asks for a password');
-  if (state === 'expired') throw new AppError('library_not_found', 'this page has expired');
+  if (state === 'expired') throw new AppError('asset_not_found', 'this page has expired');
 }
 
 export function setShowcaseUnlockCookie(response: NextResponse, cookie: { name: string; value: string; expires: Date }, slug: string): void {

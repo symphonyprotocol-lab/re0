@@ -298,10 +298,10 @@ async function queryDocsInner(
    */
   const visible = asset && asset.readable;
   if (!asset || !visible) {
-    throw new AppError('library_not_found', 'no such asset');
+    throw new AppError('asset_not_found', 'no such asset');
   }
   if (asset.lifecycleStatus === 'suspended') {
-    throw new AppError('library_suspended', 'the asset is suspended');
+    throw new AppError('asset_suspended', 'the asset is suspended');
   }
   if (
     !isQueryable({
@@ -310,7 +310,7 @@ async function queryDocsInner(
     }) ||
     !asset.currentVersionId
   ) {
-    throw new AppError('library_not_ready', 'the asset has no queryable version');
+    throw new AppError('asset_not_ready', 'the asset has no queryable version');
   }
 
   /*
@@ -499,7 +499,7 @@ async function pinVersion(
     .from(schema.assetVersion)
     .where(eq(schema.assetVersion.id, versionId));
   if (!version || version.indexStatus !== 'ready') {
-    throw new AppError('library_not_ready', 'the asset has no queryable version');
+    throw new AppError('asset_not_ready', 'the asset has no queryable version');
   }
   return version;
 }
@@ -528,7 +528,7 @@ async function pinLabeledVersion(
       ),
     );
   if (!version) {
-    throw new AppError('library_not_found', 'no such version for this asset');
+    throw new AppError('asset_not_found', 'no such version for this asset');
   }
   return version;
 }

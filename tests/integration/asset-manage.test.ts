@@ -24,7 +24,7 @@
  *   regression that made the next build index everything -- while a connector
  *   that does declare a scope still stamps it when the owner has not overridden;
  * - every verb is refused for a `developer` or `viewer`, and an asset another
- *   workspace owns answers `library_not_found`, as a missing one does.
+ *   workspace owns answers `asset_not_found`, as a missing one does.
  *
  * Runs only when TEST_DATABASE_URL points at a disposable database.
  */
@@ -830,7 +830,7 @@ describeWithDb('owner asset management', () => {
             action: 'pause',
           }),
         ),
-      ).toBe('library_not_found');
+      ).toBe('asset_not_found');
       expect(
         await refusalOf(
           editAssetMetadata({
@@ -840,7 +840,7 @@ describeWithDb('owner asset management', () => {
             title: 'Mine now',
           }),
         ),
-      ).toBe('library_not_found');
+      ).toBe('asset_not_found');
       expect(
         await refusalOf(
           updateParseScope({
@@ -850,7 +850,7 @@ describeWithDb('owner asset management', () => {
             folders: 'docs',
           }),
         ),
-      ).toBe('library_not_found');
+      ).toBe('asset_not_found');
     }
 
     /* The refused calls wrote nothing. */
@@ -882,6 +882,6 @@ describeWithDb('owner asset management', () => {
           action: 'pause',
         }),
       ),
-    ).toBe('library_not_found');
+    ).toBe('asset_not_found');
   });
 });

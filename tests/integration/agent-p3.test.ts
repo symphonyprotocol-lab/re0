@@ -346,7 +346,7 @@ describeWithDb('P3: articles, comments, subscriptions, payouts and audio', () =>
       expect((await a2aSearch(tenant, who?.workspaceId ?? null, query)).filter((hit) => hit.assetId === post.publicId)).toHaveLength(0);
       if (who) {
         expect((await rest(who.key, post.publicId, query)).status).toBe(404);
-        expect(await refusal(queryDocs(caller(who.workspaceId, 'rest'), { assetId: post.publicId, query, maxTokens: 4000, format: 'json' }, noModels))).toBe('library_not_found');
+        expect(await refusal(queryDocs(caller(who.workspaceId, 'rest'), { assetId: post.publicId, query, maxTokens: 4000, format: 'json' }, noModels))).toBe('asset_not_found');
       }
     };
 

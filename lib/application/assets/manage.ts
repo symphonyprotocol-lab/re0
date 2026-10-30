@@ -6,7 +6,7 @@
  *
  * Every verb here re-checks the role (`canManageAssets`) and looks the
  * asset up by ownership, so an asset this workspace does not own answers
- * `library_not_found` -- the same as one that does not exist (architecture.md
+ * `asset_not_found` -- the same as one that does not exist (architecture.md
  * 5.2). The rules of what may happen are in `lib/domain/asset.ts`; this
  * module reads the facts those rules need and writes what they decide.
  *
@@ -61,14 +61,14 @@ interface OwnedAsset {
 
 type Reader = Pick<ReturnType<typeof db>, 'select'>;
 
-/** The workspace's own live user asset, or `library_not_found`. */
+/** The workspace's own live user asset, or `asset_not_found`. */
 async function ownedAsset(
   reader: Reader,
   workspaceId: string,
   assetId: string,
   lock = false,
 ): Promise<OwnedAsset> {
-  if (!UUID.test(assetId)) throw new AppError('library_not_found', 'no such asset');
+  if (!UUID.test(assetId)) throw new AppError('asset_not_found', 'no such asset');
   const query = reader
     .select({
       id: schema.asset.id,
@@ -86,7 +86,7 @@ async function ownedAsset(
       ),
     );
   const [row] = lock ? await query.for('update') : await query.limit(1);
-  if (!row) throw new AppError('library_not_found', 'no such asset');
+  if (!row) throw new AppError('asset_not_found', 'no such asset');
   return row;
 }
 

@@ -64,7 +64,7 @@ export async function updateAssetFilesAction(
     return { ok: true, queued: operationId !== null };
   } catch (error) {
     if (error instanceof AppError) {
-      if (error.code === 'library_not_found') return { ok: false, error: 'not_found' };
+      if (error.code === 'asset_not_found') return { ok: false, error: 'not_found' };
       if (error.code === 'access_denied') return { ok: false, error: 'access_denied' };
       if (error.code === 'quota_exceeded') return { ok: false, error: 'quota' };
       if (error.code === 'invalid_request') {

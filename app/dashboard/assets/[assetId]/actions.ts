@@ -91,7 +91,7 @@ export async function rebuildAssetAction(
     return { ok: true, created };
   } catch (error) {
     if (error instanceof AppError) {
-      if (error.code === 'library_not_found') return { ok: false, error: 'not_found' };
+      if (error.code === 'asset_not_found') return { ok: false, error: 'not_found' };
       if (error.code === 'access_denied') return { ok: false, error: 'access_denied' };
       if (error.code === 'invalid_request') return { ok: false, error: 'invalid' };
       if (error.code === 'quota_exceeded') return { ok: false, error: 'quota' };
@@ -143,7 +143,7 @@ export async function ownerLifecycleAction(
     };
   } catch (error) {
     if (error instanceof AppError) {
-      if (error.code === 'library_not_found') return { ok: false, error: 'not_found' };
+      if (error.code === 'asset_not_found') return { ok: false, error: 'not_found' };
       if (error.code === 'access_denied') return { ok: false, error: 'access_denied' };
       if (error.code === 'invalid_request') return { ok: false, error: 'invalid' };
     }
@@ -201,7 +201,7 @@ function materialsRefusal(error: unknown, verb: string): MaterialsActionResult {
     if (error.code === 'rights_generated') return { ok: false, error: 'rights_generated' };
   }
   if (error instanceof AppError) {
-    if (error.code === 'library_not_found') return { ok: false, error: 'not_found' };
+    if (error.code === 'asset_not_found') return { ok: false, error: 'not_found' };
     if (error.code === 'access_denied') return { ok: false, error: 'access_denied' };
     if (error.code === 'invalid_request') return { ok: false, error: 'invalid' };
   }
@@ -260,7 +260,7 @@ export async function editAssetMetadataAction(
       return { ok: false, error: 'invalid_metadata' };
     }
     if (error instanceof AppError) {
-      if (error.code === 'library_not_found') return { ok: false, error: 'not_found' };
+      if (error.code === 'asset_not_found') return { ok: false, error: 'not_found' };
       if (error.code === 'access_denied') return { ok: false, error: 'access_denied' };
       if (error.code === 'invalid_request') return { ok: false, error: 'invalid_metadata' };
     }
@@ -311,7 +311,7 @@ export async function updateParseScopeAction(
       return { ok: false, error: 'invalid_scope', detail: error.message };
     }
     if (error instanceof AppError) {
-      if (error.code === 'library_not_found') return { ok: false, error: 'not_found' };
+      if (error.code === 'asset_not_found') return { ok: false, error: 'not_found' };
       if (error.code === 'access_denied') return { ok: false, error: 'access_denied' };
       if (error.code === 'invalid_request') return { ok: false, error: 'invalid_scope' };
     }
@@ -339,7 +339,7 @@ function siteKeyRefusal(error: unknown, verb: string): SiteKeyActionResult {
   if (error instanceof AppError) {
     if (error.code === 'api_key_limit_exceeded') return { ok: false, error: 'limit' };
     if (error.code === 'access_denied') return { ok: false, error: 'denied' };
-    if (error.code === 'library_not_found') return { ok: false, error: 'not_found' };
+    if (error.code === 'asset_not_found') return { ok: false, error: 'not_found' };
   }
   console.error(`${verb} site key failed: ${error instanceof Error ? error.message : 'unknown'}`);
   return { ok: false, error: 'unavailable' };
@@ -432,7 +432,7 @@ function faqRefusal(error: unknown, verb: string): FaqActionResult {
   if (error instanceof FaqInvalid) return { ok: false, error: error.field };
   if (error instanceof AppError) {
     if (error.code === 'access_denied') return { ok: false, error: 'denied' };
-    if (error.code === 'library_not_found') return { ok: false, error: 'not_found' };
+    if (error.code === 'asset_not_found') return { ok: false, error: 'not_found' };
     if (error.code === 'quota_exceeded') return { ok: false, error: 'quota' };
   }
   console.error(`${verb} faq entry failed: ${error instanceof Error ? error.message : 'unknown'}`);
@@ -522,8 +522,8 @@ function showcaseRefusal(error: unknown, verb: string): ShowcaseActionResult {
     if (error.code === 'claim_verification_failed') return { ok: false, error: 'domain_limit' };
     if (error.code === 'provider_unavailable') return { ok: false, error: 'domain_provider' };
     if (error.code === 'access_denied') return { ok: false, error: 'denied' };
-    if (error.code === 'library_not_found') return { ok: false, error: 'not_found' };
-    if (error.code === 'library_not_ready') return { ok: false, error: 'not_ready' };
+    if (error.code === 'asset_not_found') return { ok: false, error: 'not_found' };
+    if (error.code === 'asset_not_ready') return { ok: false, error: 'not_ready' };
     if (error.code === 'quota_exceeded') return { ok: false, error: 'quota' };
     if (error.code === 'rate_limited') return { ok: false, error: 'rate_limited' };
   }

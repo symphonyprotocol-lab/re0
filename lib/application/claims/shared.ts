@@ -28,7 +28,7 @@ export interface ClaimableAsset {
 /**
  * An asset a claim may name: public, live, built from one claimable source,
  * and not the platform's own. Anything else -- private, deleted, archived,
- * platform-curated, or simply absent -- is the same `library_not_found`.
+ * platform-curated, or simply absent -- is the same `asset_not_found`.
  */
 export async function visibleAsset(publicId: string): Promise<ClaimableAsset> {
   return claimable(eq(schema.asset.publicId, publicId));
@@ -84,7 +84,7 @@ async function claimable(identity: SQL): Promise<ClaimableAsset> {
 }
 
 export function notFound(): AppError {
-  return new AppError('library_not_found', 'no such asset');
+  return new AppError('asset_not_found', 'no such asset');
 }
 
 export function failure(reason: ClaimFailureReason, message: string): AppError {

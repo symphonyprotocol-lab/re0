@@ -169,7 +169,7 @@ export async function updateShowcaseLead(input: {
   const scope = and(ownerScope(input.workspaceId, input.assetId), eq(schema.showcaseLead.id, input.leadId));
   if (input.verb === 'delete') {
     const deleted = await db().delete(schema.showcaseLead).where(scope).returning({ id: schema.showcaseLead.id });
-    if (deleted.length === 0) throw new AppError('library_not_found', 'no such lead');
+    if (deleted.length === 0) throw new AppError('asset_not_found', 'no such lead');
     return;
   }
   if (!isLeadStatus(input.verb)) throw new AppError('invalid_request', 'unknown lead verb');
@@ -178,7 +178,7 @@ export async function updateShowcaseLead(input: {
     .set({ status: input.verb, handledAt: input.verb === 'handled' ? new Date() : null })
     .where(scope)
     .returning({ id: schema.showcaseLead.id });
-  if (updated.length === 0) throw new AppError('library_not_found', 'no such lead');
+  if (updated.length === 0) throw new AppError('asset_not_found', 'no such lead');
 }
 
 /** Every listed lead as CSV, for the owner's export. */

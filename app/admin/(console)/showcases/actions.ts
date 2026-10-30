@@ -45,7 +45,7 @@ export async function moderateShowcaseAction(
   } catch (error) {
     if (error instanceof AdminChangeRefused && error.code === 'reason_required') return { ok: false, error: 'reason_required' };
     if (error instanceof AppError) {
-      if (error.code === 'library_not_found') return { ok: false, error: 'not_found' };
+      if (error.code === 'asset_not_found') return { ok: false, error: 'not_found' };
       if (error.code === 'invalid_request') return { ok: false, error: 'not_applicable' };
     }
     console.error(`showcase ${verb} failed: ${error instanceof Error ? error.message : 'unknown'}`);

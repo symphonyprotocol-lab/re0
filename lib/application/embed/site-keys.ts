@@ -115,7 +115,7 @@ function view(row: typeof schema.siteKey.$inferSelect): SiteKeyView {
   };
 }
 
-/** The asset must be this workspace's own and alive; else `library_not_found`. Shared with the FAQ use cases. */
+/** The asset must be this workspace's own and alive; else `asset_not_found`. Shared with the FAQ use cases. */
 export async function requireOwnedAsset(workspaceId: string, assetId: string): Promise<void> {
   const [row] = await db()
     .select({ id: schema.asset.id })
@@ -129,7 +129,7 @@ export async function requireOwnedAsset(workspaceId: string, assetId: string): P
       ),
     )
     .limit(1);
-  if (!row) throw new AppError('library_not_found', 'no such asset in this workspace');
+  if (!row) throw new AppError('asset_not_found', 'no such asset in this workspace');
 }
 
 export async function listSiteKeys(input: {
@@ -297,10 +297,10 @@ export async function updateSiteKey(input: UpdateSiteKeyInput): Promise<SiteKeyV
     .from(schema.siteKey)
     .where(scope)
     .limit(1);
-  if (!current) throw new AppError('library_not_found', 'no such site key');
+  if (!current) throw new AppError('asset_not_found', 'no such site key');
   const settings = settingsOf(input, current);
   const [row] = await db().update(schema.siteKey).set(settings).where(scope).returning();
-  if (!row) throw new AppError('library_not_found', 'no such site key');
+  if (!row) throw new AppError('asset_not_found', 'no such site key');
   return view(row);
 }
 
@@ -325,5 +325,5 @@ export async function revokeSiteKey(input: {
       ),
     )
     .returning({ id: schema.siteKey.id });
-  if (revoked.length === 0) throw new AppError('library_not_found', 'no such site key');
+  if (revoked.length === 0) throw new AppError('asset_not_found', 'no such site key');
 }

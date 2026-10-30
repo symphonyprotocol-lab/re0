@@ -48,7 +48,7 @@ export interface ClaimActionResult {
 
 function refused(error: unknown): ClaimActionResult {
   if (error instanceof AppError) {
-    if (error.code === 'library_not_found') return { ok: false, error: 'not_found' };
+    if (error.code === 'asset_not_found') return { ok: false, error: 'not_found' };
     if (error.code === 'access_denied') return { ok: false, error: 'access_denied' };
     /*
      * The check did not run, so there is no reason code to show and no

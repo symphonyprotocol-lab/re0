@@ -54,12 +54,12 @@ export async function releaseOwnership(
         ),
       )
       .for('update');
-    if (!asset) throw new AppError('library_not_found', 'no such asset');
+    if (!asset) throw new AppError('asset_not_found', 'no such asset');
 
     /*
      * The verified claim is what makes this a release rather than an orphaning,
      * so it is closed first and its absence refuses the whole thing. Same
-     * `library_not_found` as an asset this workspace does not own: from the
+     * `asset_not_found` as an asset this workspace does not own: from the
      * caller's side both mean "there is no ownership here you can give up".
      */
     const closed = await tx
@@ -75,7 +75,7 @@ export async function releaseOwnership(
       .returning({ id: schema.assetClaim.id });
     if (closed.length === 0) {
       throw new AppError(
-        'library_not_found',
+        'asset_not_found',
         'this asset was never claimed; its creator is its owner',
       );
     }

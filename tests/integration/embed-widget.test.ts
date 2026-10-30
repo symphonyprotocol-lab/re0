@@ -344,7 +344,7 @@ describeWithDb('website widget', () => {
     const other = await workspaceOnPlan();
     await expect(
       createSiteKey({ workspaceId: other, role: 'owner', assetId, name: 'x', origins: SITE }),
-    ).rejects.toMatchObject({ code: 'library_not_found' });
+    ).rejects.toMatchObject({ code: 'asset_not_found' });
 
     const updated = await updateSiteKey({
       workspaceId,

@@ -395,11 +395,11 @@ describe('playground agent', () => {
         { tool: 'query_docs', input: { assetId: EDIT2.assetId, query: 'download edit2' } },
         { tool: 'answer', input: { question: 'x' } },
       ],
-      reads: { [OTHER.assetId]: new AppError('library_not_found', 'gone') },
+      reads: { [OTHER.assetId]: new AppError('asset_not_found', 'gone') },
     });
     expect(outcome(events)).toEqual(['answer']);
     const refused = events.find((event) => event.type === 'step' && event.step.error !== null);
-    expect(refused?.type === 'step' && refused.step.error).toBe('library_not_found');
+    expect(refused?.type === 'step' && refused.step.error).toBe('asset_not_found');
     /* The refused read reserved nothing, so the next one holds the seat. */
     expect(calls.reads.map((read) => read.meter)).toEqual(['deferred', 'deferred']);
   });

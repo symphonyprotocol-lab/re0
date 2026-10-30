@@ -439,7 +439,7 @@ describeWithDb('ownership claims', () => {
           refusalOf(startClaim({ workspaceId, role: 'owner', assetPublicId: publicId, method: 'dns_txt' })),
         ),
       );
-      expect(answers).toEqual(Array(answers.length).fill('library_not_found'));
+      expect(answers).toEqual(Array(answers.length).fill('asset_not_found'));
     });
 
     it('refuses a method the source type does not offer', async () => {
@@ -653,7 +653,7 @@ describeWithDb('ownership claims', () => {
       outbound.outcome = 'matched';
       for (const claim of opened) {
         expect(await refusalOf(verifyClaim({ claimId: claim.claimId, workspaceId, role: 'owner' }))).toBe(
-          'library_not_found',
+          'asset_not_found',
         );
       }
       expect(await ownerOf(privately.id)).toBeNull();
@@ -696,7 +696,7 @@ describeWithDb('ownership claims', () => {
       });
 
       expect(await refusalOf(verifyClaim({ claimId: started.claimId, workspaceId: stranger, role: 'owner' }))).toBe(
-        'library_not_found',
+        'asset_not_found',
       );
       expect(await refusalOf(verifyClaim({ claimId: started.claimId, workspaceId, role: 'viewer' }))).toBe(
         'access_denied',
@@ -784,7 +784,7 @@ describeWithDb('ownership claims', () => {
 
       expect(
         await refusalOf(releaseOwnership({ workspaceId: creator, role: 'owner', assetId: target.id })),
-      ).toBe('library_not_found');
+      ).toBe('asset_not_found');
       /* The point of the refusal: the asset still has somebody who can manage it. */
       expect(await ownerOf(target.id)).toBe(creator);
     });
@@ -798,7 +798,7 @@ describeWithDb('ownership claims', () => {
       ).toBe('access_denied');
       expect(
         await refusalOf(releaseOwnership({ workspaceId: stranger, role: 'owner', assetId: owned.assetId })),
-      ).toBe('library_not_found');
+      ).toBe('asset_not_found');
       expect(await ownerOf(owned.assetId)).toBe(owned.workspaceId);
     });
   });
@@ -1023,8 +1023,8 @@ describeWithDb('ownership claims', () => {
       expect(rows.every((row) => row.assetPublicId !== b.publicId)).toBe(true);
 
       /* A claim id is not a capability: the other workspace's is not readable. */
-      expect(await refusalOf(claimForClaimant(mine, other.claimId))).toBe('library_not_found');
-      expect(await refusalOf(claimForClaimant(mine, 'junk'))).toBe('library_not_found');
+      expect(await refusalOf(claimForClaimant(mine, other.claimId))).toBe('asset_not_found');
+      expect(await refusalOf(claimForClaimant(mine, 'junk'))).toBe('asset_not_found');
     });
 
     it('marks the disputed rows exactly as isDisputedClaim does', async () => {

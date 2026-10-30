@@ -30,7 +30,7 @@ export async function requestAssetRebuild(input: {
   if (!canManageAssets(input.role)) {
     throw new AppError('access_denied', 'only a workspace owner or admin can rebuild an asset');
   }
-  if (!UUID.test(input.assetId)) throw new AppError('library_not_found', 'no such asset');
+  if (!UUID.test(input.assetId)) throw new AppError('asset_not_found', 'no such asset');
 
   /* asset-build-billing.md 4.1: refused before it is queued when the
      balance cannot cover the base fee. The source type decides whether the
@@ -58,7 +58,7 @@ export async function requestAssetRebuild(input: {
         ),
       )
       .for('update');
-    if (!locked) throw new AppError('library_not_found', 'no such asset');
+    if (!locked) throw new AppError('asset_not_found', 'no such asset');
     if (locked.lifecycleStatus === 'archived') {
       throw new AppError('invalid_request', 'an archived asset is not rebuilt');
     }

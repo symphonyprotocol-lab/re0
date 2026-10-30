@@ -214,7 +214,7 @@ export async function saveFaqEntry(input: SaveFaqEntryInput): Promise<FaqChangeR
         ),
       )
       .returning();
-    if (!row) throw new AppError('library_not_found', 'no such FAQ entry');
+    if (!row) throw new AppError('asset_not_found', 'no such FAQ entry');
   } else {
     const [existing] = await database
       .select({ n: count() })
@@ -271,6 +271,6 @@ export async function deleteFaqEntry(input: {
       ),
     )
     .returning({ id: schema.assetFaq.id });
-  if (removed.length === 0) throw new AppError('library_not_found', 'no such FAQ entry');
+  if (removed.length === 0) throw new AppError('asset_not_found', 'no such FAQ entry');
   return { entry: null, operationId: await queueBuildUnlessPending(db(), input.assetId) };
 }

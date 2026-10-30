@@ -220,7 +220,7 @@ describeWithDb('nested asset ids', () => {
 
     /* ...and one that is neither is nothing. */
     await expect(ask(`${parent.publicId}/nothing-here`, 'glimmerstone')).rejects.toMatchObject({
-      code: 'library_not_found',
+      code: 'asset_not_found',
     });
 
     /* A slug shaped like a version label is refused at creation. */

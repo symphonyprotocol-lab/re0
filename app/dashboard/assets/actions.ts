@@ -60,7 +60,7 @@ export async function deleteWorkspaceAssetAction(
 
     return { ok: true, publicId };
   } catch (error) {
-    if (error instanceof AppError && error.code === 'library_not_found') {
+    if (error instanceof AppError && error.code === 'asset_not_found') {
       return { ok: false, error: 'not_found' };
     }
     if (error instanceof AppError && error.code === 'access_denied') {

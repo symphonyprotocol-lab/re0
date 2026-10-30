@@ -1,5 +1,5 @@
 /**
- * GET /api/v1/libraries/search -- asset-level discovery. architecture.md
+ * GET /api/v1/assets/search -- asset-level discovery. architecture.md
  * 12.1: `query` is the primary input and `assetName` an optional hint,
  * because a user-uploaded asset's name says nothing about its content
  * (architecture.md 9.6). Anonymous callers are admitted through the anonymous

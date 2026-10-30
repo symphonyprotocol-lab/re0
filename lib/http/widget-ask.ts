@@ -61,9 +61,9 @@ export type WidgetStreamLine =
 const UNAVAILABLE_CODES = new Set<string>([
   'quota_exceeded',
   'subscription_required',
-  'library_not_ready',
-  'library_suspended',
-  'library_not_found',
+  'asset_not_ready',
+  'asset_suspended',
+  'asset_not_found',
   'access_rule_blocked',
   'access_denied',
 ]);

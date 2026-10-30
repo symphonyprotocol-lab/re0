@@ -113,7 +113,7 @@ describe('prepareUploads', () => {
         files: [{ name: 'a.pdf', size: UPLOAD_LIMITS.maxFileBytes + 1 }],
         store,
       }),
-    ).rejects.toMatchObject({ code: 'library_size_exceeded' });
+    ).rejects.toMatchObject({ code: 'asset_size_exceeded' });
     await expect(prepareUploads({ workspaceId: WS, role: 'owner', files: [], store })).rejects.toMatchObject({
       code: 'invalid_request',
     });

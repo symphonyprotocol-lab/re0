@@ -105,7 +105,7 @@ async function prepareUploadTickets(input: {
     const name = uploadFileName(file.name, kind);
     if (!name) throw new AppError('invalid_request', 'a file has no usable name');
     if (!Number.isInteger(file.size) || file.size <= 0 || file.size > UPLOAD_LIMITS.maxFileBytes) {
-      throw new AppError('library_size_exceeded', `${name} is empty or over the size limit`);
+      throw new AppError('asset_size_exceeded', `${name} is empty or over the size limit`);
     }
     const id = uuidv7();
     files.push({

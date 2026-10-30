@@ -73,7 +73,7 @@ export function quickstartTabs(input: QuickstartInput): [QuickstartTab, ...Quick
     {
       id: 'search',
       label: input.labels.search,
-      request: `curl "${base}/api/v1/libraries/search?${search}" \\\n  ${auth}`,
+      request: `curl "${base}/api/v1/assets/search?${search}" \\\n  ${auth}`,
       response: JSON.stringify(
         {
           results: [

@@ -39,9 +39,9 @@ export async function assetMaterials(reader: Reader, assetId: string): Promise<A
 
 /* ------------------------------------------------------------------ rights */
 
-/** The workspace's own live user asset, or `library_not_found`. */
+/** The workspace's own live user asset, or `asset_not_found`. */
 async function ownedAsset(reader: Reader, workspaceId: string, assetId: string) {
-  if (!UUID.test(assetId)) throw new AppError('library_not_found', 'no such asset');
+  if (!UUID.test(assetId)) throw new AppError('asset_not_found', 'no such asset');
   const [row] = await reader
     .select({
       id: schema.asset.id,
@@ -59,7 +59,7 @@ async function ownedAsset(reader: Reader, workspaceId: string, assetId: string) 
       ),
     )
     .limit(1);
-  if (!row) throw new AppError('library_not_found', 'no such asset');
+  if (!row) throw new AppError('asset_not_found', 'no such asset');
   return row;
 }
 

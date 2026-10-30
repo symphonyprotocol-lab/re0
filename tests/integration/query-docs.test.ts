@@ -427,11 +427,11 @@ describeWithDb('query-docs', () => {
         format: 'json' as const,
       };
       await expect(queryDocs(caller(null), input, noEmbeddings)).rejects.toMatchObject({
-        code: 'library_not_found',
+        code: 'asset_not_found',
       });
       const stranger = await workspaceOnPlan(100);
       await expect(queryDocs(caller(stranger), input, noEmbeddings)).rejects.toMatchObject({
-        code: 'library_not_found',
+        code: 'asset_not_found',
       });
       const output = await queryDocs(caller(owner), input, noEmbeddings);
       expect(output.chunks.length).toBeGreaterThan(0);

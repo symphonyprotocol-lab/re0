@@ -27,7 +27,7 @@ const { createPlatformAsset } = await import(
 const { EMBEDDING_COLUMN_DIMENSIONS } = await import('@/lib/infrastructure/ai/providers');
 const { db, schema } = await import('@/lib/infrastructure/postgres/client');
 const { uuidv7 } = await import('@/lib/domain/id');
-const { GET: searchRoute } = await import('@/app/api/v1/libraries/search/route');
+const { GET: searchRoute } = await import('@/app/api/v1/assets/search/route');
 const { GET: contextRoute } = await import('@/app/api/v1/context/route');
 const { POST: mcpRoute } = await import('@/app/mcp/route');
 const { surfaceEnabled } = await import('@/lib/domain/surfaces');
@@ -232,7 +232,7 @@ describeWithDb('rest and mcp entry', () => {
     const bearer = { authorization: `Bearer ${key}` };
 
     const search = await searchRoute(
-      get(`/api/v1/libraries/search?query=bearer+token+authentication`, bearer),
+      get(`/api/v1/assets/search?query=bearer+token+authentication`, bearer),
     );
     expect(search.status).toBe(200);
     const found = (await search.json()) as {
@@ -276,14 +276,14 @@ describeWithDb('rest and mcp entry', () => {
     const missing = await contextRoute(get('/api/v1/context?assetId=/none/here&query=x'));
     expect(missing.status).toBe(404);
     const body = (await missing.json()) as { error: { code: string; requestId: string } };
-    expect(body.error.code).toBe('library_not_found');
+    expect(body.error.code).toBe('asset_not_found');
     expect(body.error.requestId.length).toBeGreaterThan(0);
 
-    const invalid = await searchRoute(get('/api/v1/libraries/search'));
+    const invalid = await searchRoute(get('/api/v1/assets/search'));
     expect(invalid.status).toBe(400);
 
     const badKey = await searchRoute(
-      get('/api/v1/libraries/search?query=x', { authorization: 'Bearer mm_test_wrong' }),
+      get('/api/v1/assets/search?query=x', { authorization: 'Bearer mm_test_wrong' }),
     );
     expect(badKey.status).toBe(401);
   });
@@ -357,6 +357,6 @@ describeWithDb('rest and mcp entry', () => {
     );
     const failure = (await refused.json()) as { result: { isError: boolean; content: { text: string }[] } };
     expect(failure.result.isError).toBe(true);
-    expect(failure.result.content[0]!.text).toContain('library_not_found');
+    expect(failure.result.content[0]!.text).toContain('asset_not_found');
   });
 });

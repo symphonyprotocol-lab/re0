@@ -124,7 +124,7 @@ export async function updateAssetFiles(
   if (!canManageAssets(input.role)) {
     throw new AppError('access_denied', 'only a workspace owner or admin can change an asset');
   }
-  if (!UUID.test(input.assetId)) throw new AppError('library_not_found', 'no such asset');
+  if (!UUID.test(input.assetId)) throw new AppError('asset_not_found', 'no such asset');
 
   const remove = input.remove ?? [];
   if (remove.some((id) => typeof id !== 'string' || !UUID.test(id))) {
@@ -145,7 +145,7 @@ export async function updateAssetFiles(
       ),
     )
     .limit(1);
-  if (!kind || !isUploadSourceType(kind.type)) throw new AppError('library_not_found', 'no such asset');
+  if (!kind || !isUploadSourceType(kind.type)) throw new AppError('asset_not_found', 'no such asset');
   const manifest =
     input.add === undefined || input.add === null
       ? { files: [] as UploadedFile[] }
@@ -171,7 +171,7 @@ export async function updateAssetFiles(
       .from(schema.asset)
       .where(ownedPdfAsset(input.workspaceId, input.assetId))
       .for('update');
-    if (!locked) throw new AppError('library_not_found', 'no such asset');
+    if (!locked) throw new AppError('asset_not_found', 'no such asset');
 
     const [source] = await tx
       .select({ id: schema.source.id, config: schema.source.config })
@@ -183,7 +183,7 @@ export async function updateAssetFiles(
         ),
       )
       .limit(1);
-    if (!source) throw new AppError('library_not_found', 'no such asset');
+    if (!source) throw new AppError('asset_not_found', 'no such asset');
 
     const files = mergeUploadedFiles(uploadedFilesOf(source.config), manifest.files, remove);
     if (!files) throw new AppError('invalid_request', 'the file list is not valid');

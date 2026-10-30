@@ -285,7 +285,7 @@ describeWithDb('workspace asset creation', () => {
         { assetId: created.publicId, query: 'quartzloft', maxTokens: 4000, format: 'json' },
         noEmbeddings,
       ),
-    ).rejects.toMatchObject({ code: 'library_not_found' });
+    ).rejects.toMatchObject({ code: 'asset_not_found' });
   });
 
   it('creates an asset from uploaded PDFs and builds it from the store', async () => {
@@ -408,7 +408,7 @@ describeWithDb('workspace asset creation', () => {
     expect(await assetFiles({ workspaceId: stranger, assetId: created.assetId })).toBeNull();
     await expect(
       updateAssetFiles({ workspaceId: stranger, role: 'owner', assetId: created.assetId, remove: [crypto.randomUUID()] }),
-    ).rejects.toMatchObject({ code: 'library_not_found' });
+    ).rejects.toMatchObject({ code: 'asset_not_found' });
 
     /* Upload one file the same way the wizard does, then save it in. */
     const upload = async (name: string) => {

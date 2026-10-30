@@ -243,7 +243,7 @@ describeWithDb('P1: channels, visibility and A2A', () => {
     /* In no channel. */
     expect((await queryDocs(caller(owner), input, noModels)).chunks.length).toBeGreaterThan(0);
     for (const who of [stranger, null]) {
-      expect(await refusal(queryDocs(caller(who), input, noModels))).toBe('library_not_found');
+      expect(await refusal(queryDocs(caller(who), input, noModels))).toBe('asset_not_found');
       const routed = await resolveAsset(caller(who), { query: 'quillwort husbandry' }, noModels);
       expect(routed.results.map((result) => result.assetId)).not.toContain(asset.publicId);
       const scoped = await searchScope(caller(who), { scope: { kind: 'workspace', workspaceId: owner }, query: 'quillwort', maxTokens: 4000 }, noModels);
@@ -259,8 +259,8 @@ describeWithDb('P1: channels, visibility and A2A', () => {
     await channels.editChannel({ workspaceId: owner, role: 'owner', channelId: hidden.id, title: 'Private shelf, renamed' });
     const [stillPrivate] = await db().select({ visibility: schema.channel.visibility }).from(schema.channel).where(eq(schema.channel.id, hidden.id));
     expect(stillPrivate?.visibility).toBe('private');
-    expect(await refusal(queryDocs(caller(stranger), input, noModels))).toBe('library_not_found');
-    expect(await refusal(queryDocs(caller(null), input, noModels))).toBe('library_not_found');
+    expect(await refusal(queryDocs(caller(stranger), input, noModels))).toBe('asset_not_found');
+    expect(await refusal(queryDocs(caller(null), input, noModels))).toBe('asset_not_found');
     expect((await queryDocs(caller(owner), input, noModels)).chunks.length).toBeGreaterThan(0);
   });
 
@@ -307,7 +307,7 @@ describeWithDb('P1: channels, visibility and A2A', () => {
     expect(await move(null)).toMatchObject({ from: other.id, to: null });
     const [afterOut] = await db().select({ access: schema.asset.access }).from(schema.asset).where(eq(schema.asset.id, asset.id));
     expect(afterOut?.access).toBe('free');
-    expect(await refusal(queryDocs(caller(stranger), input, noModels))).toBe('library_not_found');
+    expect(await refusal(queryDocs(caller(stranger), input, noModels))).toBe('asset_not_found');
   });
 
   it('gives a private channel no card and keeps it, and empty channels, out of the directory', async () => {

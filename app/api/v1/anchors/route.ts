@@ -46,7 +46,7 @@ export async function GET(request: NextRequest): Promise<NextResponse> {
 
     const anchor = await publicVersionAnchor(version);
     if (!anchor) {
-      throw new AppError('library_not_found', 'no public version with that id');
+      throw new AppError('asset_not_found', 'no public version with that id');
     }
 
     return NextResponse.json(

@@ -158,7 +158,7 @@ export async function startShowcaseDomain(input: StartShowcaseDomainInput): Prom
   const entitlement = await showcaseEntitlement(input.workspaceId, { fresh: true });
   if (!entitlement.customDomain) throw new ShowcaseDomainInvalid('plan');
   const page = await pageOf(input.workspaceId, input.assetId);
-  if (!page) throw new AppError('library_not_found', 'this asset has no showcase page');
+  if (!page) throw new AppError('asset_not_found', 'this asset has no showcase page');
   if (page.status === 'taken_down') throw new ShowcaseDomainInvalid('status');
   const host = parseCustomHost(input.host, ownHosts());
   if (!host) throw new ShowcaseDomainInvalid('host');
@@ -282,7 +282,7 @@ async function dropDomain(row: Row): Promise<void> {
 export async function removeShowcaseDomain(input: { workspaceId: string; role: WorkspaceRole; assetId: string }): Promise<void> {
   if (!canManageAssets(input.role)) throw new AppError('access_denied', 'only an asset manager can remove a domain');
   const page = await pageOf(input.workspaceId, input.assetId);
-  if (!page) throw new AppError('library_not_found', 'this asset has no showcase page');
+  if (!page) throw new AppError('asset_not_found', 'this asset has no showcase page');
   const row = await rowOf(page.id);
   if (!row) return;
   await dropDomain(row);

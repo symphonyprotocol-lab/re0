@@ -292,7 +292,7 @@ describeWithDb('asset deletion', () => {
         { assetId: created.publicId, query: 'quartzloft', maxTokens: 4000, format: 'json' },
         noEmbeddings,
       ),
-    ).rejects.toMatchObject({ code: 'library_not_found' });
+    ).rejects.toMatchObject({ code: 'asset_not_found' });
 
     /* Content is still there: the purge has not run. */
     const [chunksBefore] = await database
@@ -320,7 +320,7 @@ describeWithDb('asset deletion', () => {
        operation the first one queued. */
     await expect(
       deleteWorkspaceAsset({ workspaceId, role: 'owner', assetId: created.assetId }),
-    ).rejects.toMatchObject({ code: 'library_not_found' });
+    ).rejects.toMatchObject({ code: 'asset_not_found' });
     const repeated = await markAssetDeleted(created.assetId);
     expect(repeated.alreadyDeleted).toBe(true);
     expect(repeated.operationId).toBe(deleted.operationId);
@@ -391,10 +391,10 @@ describeWithDb('asset deletion', () => {
     ).rejects.toMatchObject({ code: 'access_denied' });
     await expect(
       deleteWorkspaceAsset({ workspaceId: stranger, role: 'owner', assetId: created.assetId }),
-    ).rejects.toMatchObject({ code: 'library_not_found' });
+    ).rejects.toMatchObject({ code: 'asset_not_found' });
     await expect(
       deleteWorkspaceAsset({ workspaceId, role: 'owner', assetId: 'not-a-uuid' }),
-    ).rejects.toMatchObject({ code: 'library_not_found' });
+    ).rejects.toMatchObject({ code: 'asset_not_found' });
 
     const platform = await createPlatformAsset({
       actor,
@@ -408,7 +408,7 @@ describeWithDb('asset deletion', () => {
     assets.push(platform.assetId);
     await expect(
       deleteWorkspaceAsset({ workspaceId, role: 'owner', assetId: platform.assetId }),
-    ).rejects.toMatchObject({ code: 'library_not_found' });
+    ).rejects.toMatchObject({ code: 'asset_not_found' });
 
     /* Nothing above touched the row. */
     const [row] = await db()

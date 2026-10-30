@@ -81,7 +81,7 @@ export async function markAssetDeleted(
       .where(eq(schema.asset.id, assetId))
       .for('update');
 
-    if (!row) throw new AppError('library_not_found', 'no such asset');
+    if (!row) throw new AppError('asset_not_found', 'no such asset');
 
     if (row.deletedAt) {
       const [open] = await tx
@@ -192,7 +192,7 @@ export interface DeleteWorkspaceAssetInput {
  *
  * Ownership is a predicate of the lookup, not a check after it. An asset the
  * workspace does not own -- someone else's, or the platform's -- answers
- * `library_not_found`, the same as one that does not exist: architecture.md
+ * `asset_not_found`, the same as one that does not exist: architecture.md
  * 5.2 forbids letting a caller learn that a private asset exists by being
  * refused differently from a stranger.
  */
@@ -202,7 +202,7 @@ export async function deleteWorkspaceAsset(
   if (!canDeleteAssets(input.role)) {
     throw new AppError('access_denied', 'only a workspace owner or admin can delete an asset');
   }
-  if (!isUuid(input.assetId)) throw new AppError('library_not_found', 'no such asset');
+  if (!isUuid(input.assetId)) throw new AppError('asset_not_found', 'no such asset');
 
   const [owned] = await db()
     .select({ id: schema.asset.id })
@@ -217,7 +217,7 @@ export async function deleteWorkspaceAsset(
     )
     .limit(1);
 
-  if (!owned) throw new AppError('library_not_found', 'no such asset');
+  if (!owned) throw new AppError('asset_not_found', 'no such asset');
 
   return markAssetDeleted(owned.id);
 }

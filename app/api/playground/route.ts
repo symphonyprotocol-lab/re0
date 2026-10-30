@@ -100,7 +100,7 @@ export async function POST(request: NextRequest): Promise<Response> {
     let pinned: { assetId: string; title: string; version: string | null } | null = null;
     if (pinnedId) {
       const heading = await publicAssetHeading(pinnedId.data);
-      if (!heading) throw new AppError('library_not_found', 'no public asset with that id');
+      if (!heading) throw new AppError('asset_not_found', 'no public asset with that id');
       pinned = { assetId: heading.publicId, title: heading.title, version: heading.version };
     }
 

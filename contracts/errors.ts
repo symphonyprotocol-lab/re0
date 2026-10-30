@@ -7,10 +7,10 @@
  */
 export const ERROR_CODES = [
   'invalid_request',
-  'library_not_found',
-  'library_not_ready',
-  'library_suspended',
-  'library_size_exceeded',
+  'asset_not_found',
+  'asset_not_ready',
+  'asset_suspended',
+  'asset_size_exceeded',
   'access_denied',
   'access_rule_blocked',
   'quota_exceeded',
@@ -60,10 +60,10 @@ export interface ApiErrorBody {
 
 const DEFAULT_STATUS: Record<ErrorCode, number> = {
   invalid_request: 400,
-  library_not_found: 404,
-  library_not_ready: 409,
-  library_suspended: 409,
-  library_size_exceeded: 413,
+  asset_not_found: 404,
+  asset_not_ready: 409,
+  asset_suspended: 409,
+  asset_size_exceeded: 413,
   access_denied: 403,
   access_rule_blocked: 403,
   quota_exceeded: 429,

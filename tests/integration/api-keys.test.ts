@@ -25,7 +25,7 @@ const { db, schema } = await import('@/lib/infrastructure/postgres/client');
 const { uuidv7 } = await import('@/lib/domain/id');
 const { GET: usageRoute } = await import('@/app/api/v1/usage/route');
 const { GET: requestsRoute } = await import('@/app/api/v1/requests/route');
-const { GET: searchRoute } = await import('@/app/api/v1/libraries/search/route');
+const { GET: searchRoute } = await import('@/app/api/v1/assets/search/route');
 const { GET: contextRoute } = await import('@/app/api/v1/context/route');
 const { POST: mcpRoute } = await import('@/app/mcp/route');
 const { surfaceEnabled } = await import('@/lib/domain/surfaces');
@@ -327,12 +327,12 @@ describeWithDb('api key management', () => {
       expect.objectContaining({ code: 'access_denied' }),
     );
 
-    /* /v1/libraries/search needs knowledge:search. */
+    /* /v1/assets/search needs knowledge:search. */
     expect(
-      (await searchRoute(get('/api/v1/libraries/search?query=ledger', search.key))).status,
+      (await searchRoute(get('/api/v1/assets/search?query=ledger', search.key))).status,
     ).toBe(200);
-    await expectDenied(searchRoute(get('/api/v1/libraries/search?query=ledger', read.key)));
-    await expectDenied(searchRoute(get('/api/v1/libraries/search?query=ledger', usage.key)));
+    await expectDenied(searchRoute(get('/api/v1/assets/search?query=ledger', read.key)));
+    await expectDenied(searchRoute(get('/api/v1/assets/search?query=ledger', usage.key)));
 
     /* /v1/context needs knowledge:read. The holder reaches the use case --
        the asset is not there, which is a 404 and not a refusal. */
@@ -407,7 +407,7 @@ describeWithDb('api key management', () => {
     const principal = await resolveApiKey(`Bearer ${key}`);
     expect([...(principal?.scopes ?? [])].sort()).toEqual([...API_KEY_SCOPES].sort());
 
-    expect((await searchRoute(get('/api/v1/libraries/search?query=ledger', key))).status).toBe(200);
+    expect((await searchRoute(get('/api/v1/assets/search?query=ledger', key))).status).toBe(200);
     expect((await usageRoute(get('/api/v1/usage', key))).status).toBe(200);
     expect(
       (await contextRoute(get('/api/v1/context?assetId=/websites/nothing-here&query=x', key)))

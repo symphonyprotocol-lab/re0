@@ -1,5 +1,5 @@
 ---
-name: re0-library-publishing
+name: re0-asset-publishing
 description: Add a source to Re0 as a data asset or claim an existing public asset when a user wants to publish, manage, or prove ownership of documentation.
 ---
 
@@ -9,7 +9,7 @@ Use the browser workflow to add a new asset and the claims API for automatable o
 
 ## Add a new asset
 
-Open `/dashboard/libraries/new`. Sign-in and an `owner` or `admin` workspace role are required. There is currently no stable public REST endpoint for creating an asset: do not call `GET /api/v1/libraries` or reverse-engineer Next.js server-action requests.
+Open `/dashboard/assets/new`. Sign-in and an `owner` or `admin` workspace role are required. There is currently no stable public REST endpoint for creating an asset: do not call `GET /api/v1/assets` or reverse-engineer Next.js server-action requests.
 
 Collect and enter:
 
@@ -26,7 +26,7 @@ An asset has exactly one source. GitHub and Notion imports require the user's co
 
 ## Claim an existing asset
 
-Use `/libraries/claim?library={libraryId}` for the guided browser flow, or the following API with `Authorization: Bearer <api-key>`.
+Use `/assets/claim?asset={assetId}` for the guided browser flow, or the following API with `Authorization: Bearer <api-key>`.
 
 Start a claim:
 
@@ -34,12 +34,12 @@ Start a claim:
 POST /api/v1/claims
 Content-Type: application/json
 
-{"libraryId":"/owner/project","method":"dns_txt"}
+{"assetId":"/owner/project","method":"dns_txt"}
 ```
 
 Parameters:
 
-- `libraryId` (required): the exact ID of the public asset.
+- `assetId` (required): the exact ID of the public asset.
 - `method` (required): `dns_txt`, `well_known`, or `github_permission`. Available methods depend on the source.
 
 The creation response contains the one available plaintext challenge and its placement instructions. Store it only as long as needed to complete this claim. Place the exact DNS TXT value or well-known file as instructed, wait for it to become reachable, then verify:

@@ -246,7 +246,7 @@ export async function enableShowcase(input: EnableShowcaseInput): Promise<Enable
       .from(schema.asset)
       .where(and(eq(schema.asset.id, input.assetId), isNull(schema.asset.deletedAt)))
       .for('update');
-    if (!asset) throw new AppError('library_not_found', 'no such asset');
+    if (!asset) throw new AppError('asset_not_found', 'no such asset');
 
     if (await loadRow(input.workspaceId, input.assetId, tx)) return false;
     const live = await countWorkspaceShowcases(input.workspaceId, tx);
@@ -322,7 +322,7 @@ export interface UpdateShowcaseInput {
 async function requireManaged(input: { workspaceId: string; role: WorkspaceRole; assetId: string }) {
   if (!canManageAssets(input.role)) throw new AppError('access_denied', 'only an asset manager can edit a showcase page');
   const row = await loadRow(input.workspaceId, input.assetId);
-  if (!row) throw new AppError('library_not_found', 'this asset has no showcase page');
+  if (!row) throw new AppError('asset_not_found', 'this asset has no showcase page');
   if (row.status === 'taken_down') throw new ShowcaseInvalid('status');
   return row;
 }

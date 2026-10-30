@@ -123,7 +123,7 @@ describe('install and quickstart snippets', () => {
       title: 'Handbook',
       labels: { search: 'Search', context: 'Context' },
     });
-    expect(search.request).toContain('https://staging.example.com/api/v1/libraries/search?');
+    expect(search.request).toContain('https://staging.example.com/api/v1/assets/search?');
     expect(search.request).toContain('assetName=handbook');
     expect(search.request).toContain('query=getting+started');
     expect(search.request).toContain(`Bearer ${API_KEY_PLACEHOLDER}`);

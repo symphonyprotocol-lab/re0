@@ -177,7 +177,7 @@ export async function prepareUploadAction(
     return { ok: true, maxFileBytes, ...prepared };
   } catch (error) {
     if (error instanceof AppError) {
-      if (error.code === 'library_size_exceeded') return { ok: false, maxFileBytes, error: 'too_large' };
+      if (error.code === 'asset_size_exceeded') return { ok: false, maxFileBytes, error: 'too_large' };
       if (error.code === 'access_denied') return { ok: false, maxFileBytes, error: 'access_denied' };
       if (error.code === 'invalid_request') return { ok: false, maxFileBytes, error: 'invalid' };
     }

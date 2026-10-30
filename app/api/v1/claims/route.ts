@@ -7,7 +7,7 @@
  *
  * Route Handlers may only call lib/application use cases (architecture.md 4).
  * Failure bodies carry the stable reason code only; an invisible asset is
- * `library_not_found` exactly like a missing one (7.3.7).
+ * `asset_not_found` exactly like a missing one (7.3.7).
  */
 import { NextResponse, type NextRequest } from 'next/server';
 import { AppError } from '@/contracts/errors';

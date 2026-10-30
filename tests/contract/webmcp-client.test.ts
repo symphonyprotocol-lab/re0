@@ -46,7 +46,7 @@ describe('browser WebMCP adapter', () => {
 
   it('forwards calls and preserves readable tool failures', async () => {
     const result = {
-      content: [{ type: 'text', text: 'library_not_found: no such asset' }],
+      content: [{ type: 'text', text: 'asset_not_found: no such asset' }],
       isError: true,
     };
     const fetcher = vi.fn(async (_input: RequestInfo | URL, _init?: RequestInit) =>

@@ -160,7 +160,7 @@ export async function preparePlatformUploadAction(
     return { ok: true, maxFileBytes, ...prepared };
   } catch (error) {
     if (error instanceof AppError) {
-      if (error.code === 'library_size_exceeded') return { ok: false, maxFileBytes, error: 'too_large' };
+      if (error.code === 'asset_size_exceeded') return { ok: false, maxFileBytes, error: 'too_large' };
       if (error.code === 'invalid_request') return { ok: false, maxFileBytes, error: 'invalid' };
     }
     console.error(`platform upload prepare failed: ${error instanceof Error ? error.message : 'unknown'}`);

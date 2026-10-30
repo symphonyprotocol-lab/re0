@@ -76,7 +76,7 @@ export interface GenerateShowcaseDraftResult {
 export async function generateShowcaseDraft(input: GenerateShowcaseDraftInput): Promise<GenerateShowcaseDraftResult> {
   if (!canManageAssets(input.role)) throw new AppError('access_denied', 'only an asset manager can draft a showcase page');
   const current = await assetShowcase({ workspaceId: input.workspaceId, assetId: input.assetId });
-  if (!current) throw new AppError('library_not_found', 'this asset has no showcase page');
+  if (!current) throw new AppError('asset_not_found', 'this asset has no showcase page');
   if (current.status === 'taken_down') throw new ShowcaseInvalid('status');
 
   const [asset] = await db()
@@ -90,8 +90,8 @@ export async function generateShowcaseDraft(input: GenerateShowcaseDraftInput): 
     .from(schema.asset)
     .where(and(eq(schema.asset.id, input.assetId), isNull(schema.asset.deletedAt)))
     .limit(1);
-  if (!asset) throw new AppError('library_not_found', 'no such asset');
-  if (!asset.currentVersionId) throw new AppError('library_not_ready', 'the asset has no indexed version yet');
+  if (!asset) throw new AppError('asset_not_found', 'no such asset');
+  if (!asset.currentVersionId) throw new AppError('asset_not_ready', 'the asset has no indexed version yet');
 
   const paid = current.entitlement.paid;
   if (!paid) {

@@ -136,7 +136,7 @@ export async function moderateShowcase(input: {
     .from(schema.assetShowcase)
     .where(and(eq(schema.assetShowcase.id, input.showcaseId), isNull(schema.assetShowcase.deletedAt)))
     .limit(1);
-  if (!row) throw new AppError('library_not_found', 'no such showcase page');
+  if (!row) throw new AppError('asset_not_found', 'no such showcase page');
   const next = showcaseTransition(row.status, input.verb);
   if (!next) throw new AppError('invalid_request', `cannot ${input.verb} a page that is ${row.status}`);
   const now = new Date();
