@@ -237,7 +237,24 @@ Dot 的答复率、点赞率、近 30 天被问次数不单独建表，从 messa
 
 其余全部不带过去。
 
-## 7. 怎么做
+## 7. AI 调用框架
+
+全部模型调用走 **Vercel AI SDK 7**（仓库里已是 `ai` 7.0.x），不引入 LangChain、LlamaIndex 或任何单家厂商的 SDK。理由：Next.js 原生、流式和前端 hook 一体、一套接口换任何模型、本仓库已有经验。各处用到的能力：
+
+| 用途 | AI SDK 能力 | 说明 |
+| --- | --- | --- |
+| 问答生成 | `streamText` + `createUIMessageStream` | 多 Dot 对话里每个 Dot 一条独立的流，用自定义 data part 带 `dot_id` 与引用，合并进同一个 UI 消息流 |
+| 前端对话 | `@ai-sdk/react` 的 `useChat` | 直接消费上面的消息流，按 `dot_id` 分气泡 |
+| 向量化 | `embedMany` | 切块与问题都用它，1536 维；画像质心在数据库侧算 |
+| 音频转写 | `transcribe`（7.0 起稳定） | 带时间戳的转写结果，按时间段切块 |
+| 结构化输出 | `generateObject` / `Output.object` + zod | 视频脚本（4 镜头、字数上限）、示例问题、Dot 简介建议 |
+| 问答流水线 | 普通函数：检索 → 过滤 → 生成 | **第一版不用 `ToolLoopAgent`**，问答是固定两步，不需要模型自己规划；等有「跨 Dot 追问」这类需求再引入 |
+
+**模型从哪里来**：通过 **Vercel AI Gateway**，模型用 `"provider/model"` 字符串指定，一个 key 用所有厂商，带回退、限额与用量统计；同时保留 `@ai-sdk/openai-compatible`，环境变量 `LLM_BASE_URL` / `LLM_API_KEY` 一配就能指向任何 OpenAI 兼容端点（自建或别家），两种方式由一个 `modelFor(kind)` 函数统一返回，业务代码不感知。模型名全部放环境变量（`GENERATION_MODEL`、`EMBEDDING_MODEL`、`TRANSCRIPTION_MODEL`），**没有后台改模型的页面**，换模型就改配置重新部署；embedding 模型一旦上线不换，换了要全量重算。
+
+**计费对接**：`streamText` 的 `usage` 只进日志和成本看板，不进用户账单；用户按第 2.3 节的固定 credits 收费，与 token 无关。
+
+## 8. 怎么做
 
 在同一个仓库开新分支 `rebuild`：新建空的 Next.js 骨架，只把第 6 节的模块复制进来，迁移从 `0001` 重新开始，Neon dev 分支重置。`develop` 与 `main` 原样保留作参考，`rebuild` 跑通后再决定替换 `main`。不在 develop 上做删除，避免 90% 的删文件 diff 淹没真正的新代码。
 
