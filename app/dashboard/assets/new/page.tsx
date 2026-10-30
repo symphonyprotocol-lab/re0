@@ -14,6 +14,7 @@ import { BackLink, PANEL } from '@/components/dashboard/ui';
 import { listImportablePages, listImportableRepositories } from '@/lib/application/auth';
 import { canManageAssets } from '@/lib/application/assets';
 import { quoteBuild } from '@/lib/application/plans';
+import { workspaceHandle } from '@/lib/application/workspaces/handle';
 import { fill } from '@/lib/i18n/format';
 import { isGithubConnectOutcome } from '@/lib/domain/github';
 import { isNotionConnectOutcome } from '@/lib/domain/notion';
@@ -110,18 +111,48 @@ export default async function DashboardAddAssetPage({
     );
   }
 
-  const [github, notion, quote] = await Promise.all([
+  const [github, notion, quote, handle] = await Promise.all([
     githubImportState(session.user.id),
     notionImportState(session.user.id),
     /* asset-build-billing.md 4.1: the worst case, over the page-fetching
        sources, shown before anything is queued. */
     quoteBuild({ workspaceId: session.workspace.id, fetchesPages: true }),
+    /* An article's or episode's ID carries it: /posts/{handle}/{slug}. */
+    workspaceHandle(session.workspace.id),
   ]);
   const number = new Intl.NumberFormat();
   const cost = n.buildCost;
   const params = await searchParams;
   const outcome = params.github;
   const notionOutcome = params.notion;
+
+  /* Build cost -- asset-build-billing.md 8. */
+  const buildCost = (
+    <aside className={`${PANEL} flex flex-col gap-3 p-6`}>
+      <div className="flex flex-col gap-[3px]">
+        <p className="text-[15px] leading-[1.4] text-ink">{cost.title}</p>
+        <p className="text-[11px] leading-[1.5] text-muted">{cost.description}</p>
+      </div>
+      <ul className="flex flex-col gap-1.5 text-[12px] text-ink">
+        <li>
+          {fill(cost.formula, {
+            base: number.format(quote.rates.baseCalls),
+            tokens: number.format(quote.rates.tokensPerCall),
+            pages: number.format(quote.rates.pagesPerCall),
+          })}
+        </li>
+        <li>{fill(cost.max, { calls: number.format(quote.maxCalls) })}</li>
+        <li className={quote.affordable ? 'text-muted' : 'text-rose'}>
+          {fill(cost.remaining, {
+            plan: number.format(quote.planAllowanceRemaining),
+            addon: number.format(quote.addonBalanceRemaining),
+          })}
+          {quote.affordable ? null : ` ${cost.insufficient}`}
+        </li>
+        {quote.mode === 'shadow' ? <li className="text-muted">{cost.shadow}</li> : null}
+      </ul>
+    </aside>
+  );
 
   return (
     <div className="flex flex-col gap-4">
@@ -138,12 +169,15 @@ export default async function DashboardAddAssetPage({
         </div>
       </header>
 
-      {/* The wizard carries its own draft badge and review pipeline: both
-          say what is actually true of this attempt, which only it knows. */}
+      {/* The wizard carries its own draft badge, review pipeline and cost
+          panel: they say what is actually true of this attempt -- an
+          article or episode builds only when published -- which only it knows. */}
       <ImportWizard
         action={createWorkspaceAssetAction}
         prepare={prepareUploadAction}
         workspaceId={session.workspace.id}
+        handle={handle}
+        buildCost={buildCost}
         github={github}
         githubOutcome={isGithubConnectOutcome(outcome) ? outcome : null}
         notion={notion}
@@ -152,31 +186,6 @@ export default async function DashboardAddAssetPage({
         checkVerification={checkDomainVerificationAction}
       />
 
-      {/* Build cost -- asset-build-billing.md 8. */}
-      <aside className={`${PANEL} flex flex-col gap-3 p-6`}>
-        <div className="flex flex-col gap-[3px]">
-          <p className="text-[15px] leading-[1.4] text-ink">{cost.title}</p>
-          <p className="text-[11px] leading-[1.5] text-muted">{cost.description}</p>
-        </div>
-        <ul className="flex flex-col gap-1.5 text-[12px] text-ink">
-          <li>
-            {fill(cost.formula, {
-              base: number.format(quote.rates.baseCalls),
-              tokens: number.format(quote.rates.tokensPerCall),
-              pages: number.format(quote.rates.pagesPerCall),
-            })}
-          </li>
-          <li>{fill(cost.max, { calls: number.format(quote.maxCalls) })}</li>
-          <li className={quote.affordable ? 'text-muted' : 'text-rose'}>
-            {fill(cost.remaining, {
-              plan: number.format(quote.planAllowanceRemaining),
-              addon: number.format(quote.addonBalanceRemaining),
-            })}
-            {quote.affordable ? null : ` ${cost.insufficient}`}
-          </li>
-          {quote.mode === 'shadow' ? <li className="text-muted">{cost.shadow}</li> : null}
-        </ul>
-      </aside>
     </div>
   );
 }

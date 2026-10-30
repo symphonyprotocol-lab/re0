@@ -2,7 +2,7 @@
  * The P3 rules that need no database (agent-first-proposal.md 6.5-6.9):
  * plan prices and the per-transaction minimum, the creator's share, access
  * by period end, who may read and write comments, what an article or an
- * episode indexes, feed parsing, the commerce settings' spans, and the
+ * episode indexes, which kinds the asset wizard drafts, the commerce settings' spans, and the
  * Paddle channel notices.
  */
 import { describe, expect, it } from 'vitest';
@@ -21,9 +21,10 @@ import { commentPieces, mayReadComments, mayWriteComment, normalizeCommentBody }
 import {
   audioContentType,
   editorialPublicId,
+  editorialSlugFromTitle,
   episodeDocument,
   indexedBody,
-  parseFeed,
+  isWizardEditorialKind,
   postDocument,
   publishInstant,
   qaDocument,
@@ -167,11 +168,14 @@ describe('what articles, episodes and Q&As index', () => {
     expect(() => publishInstant('2028-01-01T00:00Z', now)).toThrow();
   });
 
-  it('reads RSS and Atom items, one draft each', () => {
-    const rss = `<?xml version="1.0"?><rss><channel><item><title>First &amp; best</title><link>https://ex.test/1</link><description><![CDATA[<p>Hello</p>]]></description></item><item><title>Second</title></item></channel></rss>`;
-    expect(parseFeed(rss)).toMatchObject([{ title: 'First & best', link: 'https://ex.test/1', content: '<p>Hello</p>' }, { title: 'Second' }]);
-    const atom = `<feed><entry><title>Atom one</title><link href="https://ex.test/a"/><content>Body</content></entry></feed>`;
-    expect(parseFeed(atom)).toMatchObject([{ title: 'Atom one', link: 'https://ex.test/a', content: 'Body' }]);
+  it('drafts an article or an episode from the asset wizard, never a Q&A, with a flat slug', () => {
+    expect(isWizardEditorialKind('post')).toBe(true);
+    expect(isWizardEditorialKind('audio')).toBe(true);
+    expect(isWizardEditorialKind('qa')).toBe(false);
+    expect(isWizardEditorialKind('website')).toBe(false);
+    expect(editorialSlugFromTitle('Hello, World: v2.0 / notes')).toBe('hello-world-v2-0-notes');
+    /* A title with nothing Latin leaves the slug to the server. */
+    expect(editorialSlugFromTitle('关于检索')).toBe('');
   });
 });
 

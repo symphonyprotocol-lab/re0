@@ -5,7 +5,7 @@ import { canManageAssets } from '@/lib/application/assets';
 import { listQuestions, recentTwinAnswers } from '@/lib/application/questions';
 import { MediaUpload } from '@/components/creator/media-upload';
 import { AUDIO_TYPES, EDITORIAL_LIMITS } from '@/lib/domain/editorial';
-import { confirmMediaAction, prepareMediaAction } from '../posts/actions';
+import { confirmMediaAction, prepareMediaAction } from '../assets/[assetId]/edit/actions';
 import { requireSession } from '@/lib/http/session';
 import { fill } from '@/lib/i18n/format';
 import { getMessages, translations } from '@/lib/i18n/server';

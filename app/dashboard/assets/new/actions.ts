@@ -1,7 +1,9 @@
 'use server';
 
+import { revalidatePath } from 'next/cache';
 import { after } from 'next/server';
 import { AppError } from '@/contracts/errors';
+import { createEditorialAsset } from '@/lib/application/editorial';
 import { runOperation } from '@/lib/application/ingestion';
 import {
   GithubImportRefused,
@@ -19,18 +21,26 @@ import {
 } from '@/lib/application/assets';
 import type { DomainVerificationFailure } from '@/lib/domain/domain-verification';
 import { isConnectedSourceType, isUploadSourceType, PlatformAssetRefused, UPLOAD_LIMITS } from '@/lib/domain/asset';
+import { EditorialRefused, isWizardEditorialKind, type WizardEditorialKind } from '@/lib/domain/editorial';
 import { requireSession } from '@/lib/http/session';
 
 /**
  * The wizard's one mutation. Re-resolves the session like every action -- a
  * server action is a public endpoint with a generated name -- and returns a
  * coarse error code the wizard translates; detail stays server side.
+ *
+ * An article or an episode (`sourceType` `post` / `audio`) is not a
+ * connected source: it is created as an empty draft through
+ * `createEditorialAsset`, nothing is built until it is published from its
+ * editor, and the result says so with `editorial`.
  */
 export interface CreateAssetResult {
   ok: boolean;
   publicId?: string;
-  /** Where the files page of a PDF asset created without files is. */
+  /** Where the files page of a PDF asset created without files is, or the editor of a draft. */
   assetId?: string;
+  /** A draft article or episode: nothing was queued; its editor is next. */
+  editorial?: boolean;
   error?:
     | 'invalid'
     | 'taken'
@@ -41,7 +51,9 @@ export interface CreateAssetResult {
     | 'notion'
     | 'unverified'
     /** A public asset without a usable rights declaration, or one declaring model-generated content. */
-    | 'rights';
+    | 'rights'
+    /** An article or episode needs the workspace's public handle in its ID, and there is none. */
+    | 'handle';
   /** With `error: 'github'`: which import rule the repository failed. */
   refusal?: GithubImportRefusalCode;
   /** With `error: 'notion'`: why the page could not be imported. */
@@ -55,8 +67,9 @@ export async function createWorkspaceAssetAction(
   form: FormData,
 ): Promise<CreateAssetResult> {
   const session = await requireSession('/dashboard/assets/new');
+  const sourceType = String(form.get('sourceType') ?? '');
+  if (isWizardEditorialKind(sourceType)) return createEditorialDraft(session, sourceType, form);
   try {
-    const sourceType = String(form.get('sourceType') ?? '');
     if (!isConnectedSourceType(sourceType)) return { ok: false, error: 'invalid' };
 
     /* The wizard posts an empty manifest field when no file was uploaded;
@@ -84,12 +97,7 @@ export async function createWorkspaceAssetAction(
       domainVerificationId: String(form.get('domainVerificationId') ?? '') || undefined,
       description: String(form.get('description') ?? '') || null,
       language: String(form.get('language') ?? '') || null,
-      rights: {
-        origin: form.get('rightsOrigin') ?? undefined,
-        license: form.get('rightsLicense') ?? undefined,
-        generation: form.get('rightsGeneration') ?? undefined,
-        note: form.get('rightsNote') ?? undefined,
-      },
+      rights: postedRights(form),
     });
     /* Queued, and then run after the response: the wizard says "queued" at
        once, and by the time the owner opens the asset page the first build
@@ -134,6 +142,58 @@ export async function createWorkspaceAssetAction(
       return { ok: false, error: 'unavailable' };
     }
     console.error(`create asset failed: ${error instanceof Error ? error.message : 'unknown'}`);
+    return { ok: false, error: 'unavailable' };
+  }
+}
+
+function postedRights(form: FormData) {
+  return {
+    origin: form.get('rightsOrigin') ?? undefined,
+    license: form.get('rightsLicense') ?? undefined,
+    generation: form.get('rightsGeneration') ?? undefined,
+    note: form.get('rightsNote') ?? undefined,
+  };
+}
+
+/**
+ * An article or an episode: the asset in `draft`, in no channel, with an
+ * empty working copy (agent-first-proposal.md 6.5, 6.6). Only the title, the
+ * slug and the rights declaration come from the wizard; everything else is
+ * written in the editor, and publishing there is what builds and bills.
+ */
+async function createEditorialDraft(
+  session: Awaited<ReturnType<typeof requireSession>>,
+  kind: WizardEditorialKind,
+  form: FormData,
+): Promise<CreateAssetResult> {
+  try {
+    const { assetId, publicId } = await createEditorialAsset({
+      workspaceId: session.workspace.id,
+      role: session.workspace.role,
+      userId: session.user.id,
+      kind,
+      title: String(form.get('title') ?? ''),
+      slug: String(form.get('slug') ?? ''),
+      rights: postedRights(form),
+    });
+    revalidatePath('/dashboard/assets');
+    return { ok: true, assetId, publicId, editorial: true };
+  } catch (error) {
+    if (error instanceof EditorialRefused) {
+      switch (error.code) {
+        case 'not_owner':
+          return { ok: false, error: 'denied' };
+        case 'slug_taken':
+          return { ok: false, error: 'taken' };
+        case 'no_handle':
+          return { ok: false, error: 'handle' };
+        default:
+          return { ok: false, error: 'invalid' };
+      }
+    }
+    /* `createEditorialAsset` refuses a half-filled declaration this way. */
+    if (error instanceof AppError && error.code === 'invalid_request') return { ok: false, error: 'rights' };
+    console.error(`create ${kind} failed: ${error instanceof Error ? error.message : 'unknown'}`);
     return { ok: false, error: 'unavailable' };
   }
 }

@@ -1,4 +1,5 @@
 import type { Metadata } from 'next';
+import Link from 'next/link';
 import { AssetList, type AssetBucket, type AssetListRow } from '@/components/dashboard/asset-list';
 import { LiveRefresh } from '@/components/dashboard/live-refresh';
 import { describeBuild } from '@/lib/dashboard/build-progress';
@@ -9,6 +10,9 @@ import {
   StatTile,
   type StatusTone,
 } from '@/components/dashboard/ui';
+import { ASSET_KINDS, isAssetKind, type AssetKind } from '@/lib/domain/asset-kind';
+import { isWizardEditorialKind } from '@/lib/domain/editorial';
+import { fill } from '@/lib/i18n/format';
 import {
   BadgeCheckIcon,
   DatabaseIcon,
@@ -54,9 +58,20 @@ function toneOf(bucket: AssetBucket): StatusTone {
   return bucket;
 }
 
+/** The list's address with these filters; either may be left off. */
+function listHref(filter: string | undefined, kind: AssetKind | null): string {
+  const params = new URLSearchParams();
+  if (filter === 'unfiled') params.set('filter', filter);
+  if (kind) params.set('kind', kind);
+  const query = params.toString();
+  return query ? `/dashboard/assets?${query}` : '/dashboard/assets';
+}
+
 /**
  * `?filter=unfiled` keeps the assets in no channel, `?kind=` one asset kind
- * (agent-first-proposal.md 4.4: 全部资产（按类型筛选）、未归入频道的资产).
+ * (agent-first-proposal.md 4.4: 全部资产（按类型筛选）、未归入频道的资产);
+ * the two combine. Articles and audio episodes are assets like any other:
+ * created from the wizard, listed here, opened in their editor.
  */
 export default async function DashboardAssetsPage({
   searchParams,
@@ -78,13 +93,17 @@ export default async function DashboardAssetsPage({
        sources decides whether the per-row refresh is offered at all. */
     manager ? quoteBuild({ workspaceId: session.workspace.id, fetchesPages: true }) : null,
   ]);
+  const kindFilter = isAssetKind(query.kind) ? query.kind : null;
   const assets = allAssets.filter(
     (row) =>
-      (query.filter !== 'unfiled' || row.channel === null) && (!query.kind || row.kind === query.kind),
+      (query.filter !== 'unfiled' || row.channel === null) && (kindFilter === null || row.kind === kindFilter),
   );
+  const kinds = t.channels.kinds as Record<AssetKind, string>;
   const usage = await assetUsageCounts(assets.map((row) => row.id));
   const number = new Intl.NumberFormat(locale);
   const date = new Intl.DateTimeFormat(locale, { dateStyle: 'medium' });
+  /* The editor schedules in UTC and says so; the list does too. */
+  const scheduledDate = new Intl.DateTimeFormat(locale, { dateStyle: 'medium', timeStyle: 'short', timeZone: 'UTC' });
 
   const published = assets.filter(
     (row) => row.lifecycleStatus === 'published' && row.indexStatus === 'ready',
@@ -108,7 +127,16 @@ export default async function DashboardAssetsPage({
   };
 
   const rows: AssetListRow[] = assets.map((row) => {
-    const bucket = bucketOf(row);
+    /* An article or episode that is not live is a draft, not a build in
+       waiting: nothing is queued for it until it is published, perhaps on a
+       schedule. Once live it reads like any asset. */
+    const editorial = isWizardEditorialKind(row.kind);
+    const measured = bucketOf(row);
+    const draft = editorial && !row.building && (measured === 'pending' || measured === 'exempt');
+    const bucket: AssetBucket = draft ? 'exempt' : measured;
+    const scheduled = editorial && row.publishAt
+      ? fill(l.editorialStates.scheduled, { date: `${scheduledDate.format(row.publishAt)} UTC` })
+      : null;
     /* requirement.md 5.2: an asset in a public channel that is not yet live
        shows where its build stands in the publishing pipeline. */
     const shared = isPublicChannel(row.channel);
@@ -117,20 +145,26 @@ export default async function DashboardAssetsPage({
       id: row.id,
       slug: row.publicId,
       title: row.title,
+      kindLabel: kinds[row.kind] ?? row.kind,
+      href: editorial ? `/dashboard/assets/${row.id}/edit` : `/dashboard/assets/${row.id}`,
       version: row.versionLabel,
       scope: shared ? 'public' : 'private',
       channel: row.channel ? { title: row.channel.title, href: `/dashboard/channels/${row.channel.id}` } : null,
       chunks: row.totalChunks,
       calls: usage.get(row.id) ?? { total: 0, thisMonth: 0 },
-      status: toneOf(bucket),
-      statusLabel: statusLabel(row, bucket),
+      status: draft && scheduled ? 'pending' : toneOf(bucket),
+      statusLabel: draft ? (scheduled ?? l.editorialStates.draft) : statusLabel(row, bucket),
       bucket,
       updated: row.updatedAt ? date.format(new Date(row.updatedAt)) : '—',
       initial: (row.title.trim()[0] ?? '?').toUpperCase(),
       filesHref: row.hasFiles ? `/dashboard/assets/${row.id}/files` : null,
       filesLabel: row.hasFiles ? (row.sourceType === 'markdown' ? m.filesMarkdown : l.files) : null,
       note: row.reviewNote,
-      buildNote: row.building ? describeBuild(t.admin.refreshQueue, row.build) : null,
+      buildNote: row.building
+        ? describeBuild(t.admin.refreshQueue, row.build)
+        : draft
+          ? null
+          : scheduled,
       pipeline: inPipeline
         ? reviewPipeline({
             lifecycleStatus: row.lifecycleStatus,
@@ -139,7 +173,8 @@ export default async function DashboardAssetsPage({
           })
         : null,
       /* Affordability is said in the refresh confirmation, with the price. */
-      rebuildDisabled: rebuildBlocked({ lifecycleStatus: row.lifecycleStatus, affordable: undefined }),
+      /* A draft has nothing to build from; publishing it from the editor is what builds. */
+      rebuildDisabled: draft || rebuildBlocked({ lifecycleStatus: row.lifecycleStatus, affordable: undefined }),
     };
   });
 
@@ -176,6 +211,25 @@ export default async function DashboardAssetsPage({
         icon={<ShieldCheckIcon size={18} />}
         title={l.reviewNotice}
       />
+
+      {/* By kind: links, so the filter is in the address and survives a reload. */}
+      <nav aria-label={l.kindsLabel} className="flex flex-wrap gap-0 self-start rounded-md bg-mutedbg p-[3px]">
+        {[null, ...ASSET_KINDS].map((kind) => {
+          const active = kind === kindFilter;
+          return (
+            <Link
+              key={kind ?? 'all'}
+              href={listHref(query.filter, kind)}
+              aria-current={active ? 'page' : undefined}
+              className={`inline-flex h-[29px] items-center rounded-md px-[9px] text-[11px] transition-colors ${
+                active ? 'bg-card text-ink shadow-md' : 'text-muted hover:text-ink'
+              }`}
+            >
+              {kind ? kinds[kind] : l.kindAll}
+            </Link>
+          );
+        })}
+      </nav>
 
       {/* requirement.md 5.2: refresh and deletion are for the asset's
           owner side only; everyone else reads. */}

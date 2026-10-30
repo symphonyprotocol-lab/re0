@@ -14,7 +14,7 @@ import { requireSession } from '@/lib/http/session';
 import { fill } from '@/lib/i18n/format';
 import { getMessages, translations } from '@/lib/i18n/server';
 import { and, eq, isNotNull } from 'drizzle-orm';
-import { confirmMediaAction, prepareMediaAction, saveEditorialAction } from '../actions';
+import { confirmMediaAction, prepareMediaAction, saveEditorialAction } from './actions';
 
 export async function generateMetadata(): Promise<Metadata> {
   return { title: (await getMessages()).creator.dashboard.editor.metaTitle };
@@ -33,7 +33,9 @@ function localValue(date: Date | null): string {
  * One article or episode in the editor (agent-first-proposal.md 6.5, 6.6):
  * the draft, where it publishes and at what access, the images or the
  * episode file, and the three ways to leave -- save, publish now, schedule.
- * Publishing is this click; the Agent cannot do it (proposal 5.1).
+ * Publishing is this click; the Agent cannot do it (proposal 5.1). Reached
+ * from the asset list, from the wizard that created the draft, and from the
+ * asset detail page, which sends these two kinds here.
  */
 export default async function EditorPage({
   params,
@@ -43,7 +45,7 @@ export default async function EditorPage({
   searchParams: Promise<Record<string, string | string[] | undefined>>;
 }) {
   const [{ assetId }, query] = await Promise.all([params, searchParams]);
-  const [session, { locale, t }] = await Promise.all([requireSession(`/dashboard/posts/${assetId}`), translations()]);
+  const [session, { locale, t }] = await Promise.all([requireSession(`/dashboard/assets/${assetId}/edit`), translations()]);
   const draft = await readEditorialDraft(session.workspace.id, assetId).catch((error: unknown) => {
     if (error instanceof EditorialRefused && error.code === 'not_found') return null;
     throw error;
@@ -73,7 +75,7 @@ export default async function EditorPage({
   return (
     <div className="flex flex-col gap-4">
       <header className="flex flex-col gap-[5px]">
-        <BackLink href="/dashboard/posts">{c.back}</BackLink>
+        <BackLink href="/dashboard/assets">{c.back}</BackLink>
         <h1 className="mt-1.5 truncate text-[25px] leading-[1.5] font-medium text-ink">{draft.title}</h1>
         <p className="flex flex-wrap items-center gap-3 text-[12.5px] text-muted">
           <span className="font-mono">{draft.asset.publicId}</span>
@@ -95,7 +97,7 @@ export default async function EditorPage({
         <form action={saveEditorialAction} className={`${PANEL} flex flex-col gap-4 p-6`}>
           <input type="hidden" name="assetId" value={draft.asset.id} />
           <label className="flex flex-col gap-1.5">
-            <span className="text-[11px] font-medium text-steel">{t.creator.dashboard.posts.titleLabel}</span>
+            <span className="text-[11px] font-medium text-steel">{c.titleLabel}</span>
             <input name="title" required maxLength={EDITORIAL_LIMITS.titleMax} defaultValue={draft.title} className={`${FIELD} h-10`} />
           </label>
           {!isAudio ? (

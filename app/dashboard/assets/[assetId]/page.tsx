@@ -1,6 +1,6 @@
 import type { Metadata } from 'next';
 import Link from 'next/link';
-import { notFound } from 'next/navigation';
+import { notFound, redirect } from 'next/navigation';
 import { AssetMaterialsPanel } from '@/components/dashboard/asset-materials';
 import { AssetChannelPanel } from '@/components/dashboard/asset-channel';
 import { isPublicChannel, listWorkspaceChannels } from '@/lib/application/channels';
@@ -62,6 +62,7 @@ import {
 } from '@/lib/application/showcase';
 import { siteKeysAllowed } from '@/lib/domain/plans';
 import { describeReviewNote } from '@/lib/domain/review';
+import { isWizardEditorialKind } from '@/lib/domain/editorial';
 import { rightsAllowPublic } from '@/lib/domain/rights';
 import { showcasePagesAllowed, showcasePath } from '@/lib/domain/showcase';
 import { configuredBaseUrl } from '@/lib/http/base-url';
@@ -151,6 +152,8 @@ export default async function DashboardAssetPage({
   ]);
   const asset = await workspaceAssetDetail({ workspaceId: session.workspace.id, assetId });
   if (!asset) notFound();
+  /* An article or episode is worked on in its editor, which says what this page would. */
+  if (isWizardEditorialKind(asset.kind)) redirect(`/dashboard/assets/${asset.id}/edit`);
   /* asset-build-billing.md 4.1: what a rebuild may cost, shown when the button is pressed. */
   const quote = await quoteBuild({
     workspaceId: session.workspace.id,

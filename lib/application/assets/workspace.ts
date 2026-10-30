@@ -37,6 +37,8 @@ export interface WorkspaceAssetRow {
   build: { stage: IngestionStage | null; progress: BuildProgress | null } | null;
   /** True when the asset is suspended by its owner's own pause, which the owner may lift. */
   pausedByOwner: boolean;
+  /** An article's or episode's scheduled publication (its `post_draft`); null for every other kind. */
+  publishAt: Date | null;
 }
 
 export async function listWorkspaceAssets(workspaceId: string): Promise<WorkspaceAssetRow[]> {
@@ -54,9 +56,11 @@ export async function listWorkspaceAssets(workspaceId: string): Promise<Workspac
       createdAt: schema.asset.createdAt,
       versionLabel: schema.assetVersion.label,
       totalChunks: schema.assetVersion.totalChunks,
+      publishAt: schema.postDraft.publishAt,
     })
     .from(schema.asset)
     .leftJoin(schema.assetVersion, eq(schema.assetVersion.id, schema.asset.currentVersionId))
+    .leftJoin(schema.postDraft, eq(schema.postDraft.assetId, schema.asset.id))
     .where(OWNED_AND_LIVE(workspaceId))
     .orderBy(desc(schema.asset.createdAt));
 
@@ -163,6 +167,7 @@ export async function listWorkspaceAssets(workspaceId: string): Promise<Workspac
     building: building.has(row.id),
     build: builds.get(row.id) ?? null,
     pausedByOwner: row.lifecycleStatus === 'suspended' && ownerPaused.has(row.id),
+    publishAt: row.publishAt,
   }));
 }
 

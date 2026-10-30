@@ -16,7 +16,9 @@ import {
   GitHubIcon,
   GlobeIcon,
   LockIcon,
+  MicIcon,
   NotionIcon,
+  PencilIcon,
   ShieldCheckIcon,
   UploadIcon,
 } from '@/components/ui/icons';
@@ -46,6 +48,13 @@ import {
   type ReviewPipelineEntry,
   type UploadSourceType,
 } from '@/lib/domain/asset';
+import {
+  EDITORIAL_LIMITS,
+  EDITORIAL_NAMESPACE,
+  editorialSlugFromTitle,
+  isWizardEditorialKind,
+  type WizardEditorialKind,
+} from '@/lib/domain/editorial';
 import { EMPTY_RIGHTS, RightsFields, RightsHiddenFields, rightsComplete, type RightsAnswer } from '@/components/dashboard/rights-fields';
 import { RIGHTS_GENERATIONS, RIGHTS_LICENSES, RIGHTS_ORIGINS } from '@/lib/domain/rights';
 import { useI18n } from '@/lib/i18n/client';
@@ -53,8 +62,12 @@ import { fill } from '@/lib/i18n/format';
 
 /**
  * Import wizard -- design source frame `ISF8H`, live end to end. Four steps:
- * pick the connector-backed source, describe the asset, declare rights
- * (optional), confirm. Every new asset starts in no channel, its owner's
+ * pick the source, describe the asset, declare rights (optional), confirm.
+ * The sources are in two groups: the connected ones a build imports, and
+ * the two kinds a creator writes on the platform -- an article or an audio
+ * episode (agent-first-proposal.md 6.5, 6.6). Those are created as an empty
+ * draft with a title and an ID only, and the success panel opens their
+ * editor; nothing is built until they are published there. Every new asset starts in no channel, its owner's
  * alone (agent-first-proposal.md 3.3, 6.2); putting it in a channel is a
  * separate step afterwards. A website source gets a fifth step between
  * details and rights: prove control of the source's host by a DNS TXT record or a
@@ -65,8 +78,16 @@ import { fill } from '@/lib/i18n/format';
  * rather than pretending the index exists.
  */
 
-const SOURCES = ['github', 'website', 'notion', 'pdf', 'markdown'] as const;
-type SourceId = (typeof SOURCES)[number];
+const IMPORT_SOURCES = ['github', 'website', 'notion', 'pdf', 'markdown'] as const;
+type ImportSourceId = (typeof IMPORT_SOURCES)[number];
+const SOURCES = [...IMPORT_SOURCES, 'post', 'audio'] as const;
+type SourceId = ImportSourceId | WizardEditorialKind;
+
+/** The source step's two groups, in the order they are shown. */
+const SOURCE_GROUPS: { id: 'import' | 'create'; sources: readonly SourceId[] }[] = [
+  { id: 'import', sources: IMPORT_SOURCES },
+  { id: 'create', sources: ['post', 'audio'] },
+];
 
 const SOURCE_ICONS: Record<SourceId, (props: { size?: number }) => React.ReactElement> = {
   github: GitBranchIcon,
@@ -74,16 +95,23 @@ const SOURCE_ICONS: Record<SourceId, (props: { size?: number }) => React.ReactEl
   notion: NotionIcon,
   pdf: UploadIcon,
   markdown: FileCodeIcon,
+  post: PencilIcon,
+  audio: MicIcon,
 };
 
 /** Only github derives its id from the source; everything else needs a slug. */
-const NEEDS_SLUG: Record<SourceId, string | null> = {
+const NEEDS_SLUG: Record<ImportSourceId, string | null> = {
   github: null,
   website: 'websites',
   notion: 'notion',
   pdf: 'docs',
   markdown: 'docs',
 };
+
+/** The id a title suggests for a source: an article's or episode's slug is flat. */
+function slugFor(source: SourceId | null, title: string): string {
+  return source !== null && isWizardEditorialKind(source) ? editorialSlugFromTitle(title) : slugFromTitle(title);
+}
 
 type StepId = 'source' | 'details' | 'verify' | 'visibility' | 'confirm';
 
@@ -253,6 +281,8 @@ export function ImportWizard({
   action,
   prepare,
   workspaceId,
+  handle,
+  buildCost,
   github,
   githubOutcome = null,
   notion,
@@ -264,6 +294,10 @@ export function ImportWizard({
   prepare: PrepareUploads;
   /** Which workspace's draft this is; the browser keeps one per workspace. */
   workspaceId: string;
+  /** The workspace's public handle, which an article's or episode's ID carries; null when it has none yet. */
+  handle: string | null;
+  /** The build-cost panel; shown for the sources that build on creation. */
+  buildCost?: React.ReactNode;
   github: GithubImportState;
   /** Set when the page was reached by coming back from the GitHub consent. */
   githubOutcome?: GithubConnectOutcome | null;
@@ -316,10 +350,18 @@ export function ImportWizard({
   const [restored, setRestored] = useState(false);
   const loaded = useRef(false);
 
-  const namespace = source ? NEEDS_SLUG[source] : null;
+  const editorialKind: WizardEditorialKind | null =
+    source !== null && isWizardEditorialKind(source) ? source : null;
+  /* An article's or episode's ID is /posts/{handle}/{slug} or /audio/{handle}/{slug}. */
+  const namespace = editorialKind
+    ? `${EDITORIAL_NAMESPACE[editorialKind]}/${handle ?? ''}`
+    : source !== null && !isWizardEditorialKind(source)
+      ? NEEDS_SLUG[source]
+      : null;
   const isUpload = source !== null && isUploadSourceType(source);
   const isMarkdown = source === 'markdown';
-  const needsVerification = source !== null && requiresDomainVerification(source);
+  const needsVerification =
+    source !== null && !isWizardEditorialKind(source) && requiresDomainVerification(source);
   const stepIds: StepId[] = needsVerification
     ? ['source', 'details', 'verify', 'visibility', 'confirm']
     : ['source', 'details', 'visibility', 'confirm'];
@@ -334,10 +376,18 @@ export function ImportWizard({
   const steps = stepIds.map((id) => stepLabels[id]);
 
   /* Files are optional for a PDF asset -- they can be added from its files
-     page once it exists -- but nothing may still be in flight at submit. */
-  const sourceComplete = isUpload ? files.settled : location.trim().length > 0;
+     page once it exists -- but nothing may still be in flight at submit. A
+     draft article or episode has no source to fill in, and its slug may be
+     left empty: the server then makes one up. */
+  const sourceComplete = editorialKind
+    ? true
+    : isUpload
+      ? files.settled
+      : location.trim().length > 0;
   const detailsComplete =
-    title.trim().length > 0 && sourceComplete && (namespace === null || slug.trim().length > 0);
+    title.trim().length > 0 &&
+    sourceComplete &&
+    (namespace === null || editorialKind !== null || slug.trim().length > 0);
   const host = needsVerification ? verificationHost(location) : null;
   const liveChallenge = challenge && host !== null && challenge.host === host ? challenge : null;
   const verificationComplete = !needsVerification || (liveChallenge?.verified ?? false);
@@ -374,13 +424,16 @@ export function ImportWizard({
     setDescription(draft.description);
     setLanguage(draft.language);
     setIndexDepth(draft.indexDepth);
-    if (!returned && draft.source) {
+    /* An article or episode needs the handle its ID carries; without one
+       its card is off, so a draft for it cannot be resumed either. */
+    const resumable = draft.source && (handle !== null || !isWizardEditorialKind(draft.source));
+    if (!returned && resumable) {
       setSource(draft.source);
       setStep(draft.step);
     }
     setSavedAt(draft.savedAt);
     setRestored(true);
-  }, [workspaceId, returned]);
+  }, [workspaceId, returned, handle]);
 
   /* Save on every change, once something has been answered. The stamp the
      badge shows is the one that was written, not the moment of the render. */
@@ -489,7 +542,7 @@ export function ImportWizard({
     ? reviewPipeline({
         lifecycleStatus: 'draft',
         indexStatus: 'pending',
-        building: !awaitingFiles,
+        building: !awaitingFiles && !state.editorial,
       })
     : REVIEW_PIPELINE_STEPS.map(
         (step) => ({
@@ -558,7 +611,39 @@ export function ImportWizard({
     </aside>
   );
 
+  /* An article or episode is billed when it is published, not now. */
+  const costPanel = editorialKind ? (
+    <aside className={`${PANEL} flex flex-col gap-[3px] p-6`}>
+      <p className="text-[15px] leading-[1.4] text-ink">{n.buildCost.title}</p>
+      <p className="text-[11px] leading-[1.5] text-muted">{w.editorialCost}</p>
+    </aside>
+  ) : (
+    buildCost ?? null
+  );
+
   /* --------------------------------------------------------------- render */
+
+  if (state?.ok && state.editorial) {
+    return (
+      <>
+        <section className={`${PANEL} flex flex-col items-start gap-3 p-8`}>
+          <p className="text-[17px] font-medium text-ink">{w.draftTitle}</p>
+          <p className="max-w-[60ch] text-[12.5px] leading-[1.7] text-muted">
+            {fill(w.draftBody, { id: state.publicId ?? '' })}
+          </p>
+          <Link
+            href={`/dashboard/assets/${state.assetId}/edit`}
+            className="mt-2 inline-flex h-[35px] items-center gap-1.5 rounded-md bg-brand px-3.5 text-[12px] font-medium text-white hover:bg-brand/90"
+          >
+            {w.draftCta}
+            <ArrowRightIcon size={14} />
+          </Link>
+        </section>
+        {pipelineAside}
+        {costPanel}
+      </>
+    );
+  }
 
   if (state?.ok) {
     return (
@@ -584,6 +669,7 @@ export function ImportWizard({
           </Link>
         </section>
         {pipelineAside}
+        {costPanel}
       </>
     );
   }
@@ -678,44 +764,91 @@ export function ImportWizard({
                   {n.sourceQuestion}
                 </h2>
                 <p className="mt-1.5 text-[12px] text-muted">{n.sourceHint}</p>
-                <div className="mt-5 grid gap-2.5 sm:grid-cols-2">
-                  {SOURCES.map((id) => {
-                    const Icon = SOURCE_ICONS[id];
-                    const active = source === id;
-                    return (
-                      <button
-                        key={id}
-                        type="button"
-                        onClick={() => setSource(id)}
-                        aria-pressed={active}
-                        className={`flex flex-col gap-2 rounded-md border p-4 text-left transition-colors ${
-                          active ? 'border-brand bg-brandsoft' : 'border-line bg-card hover:bg-subtle'
-                        }`}
-                      >
-                        <span className="flex size-8 items-center justify-center rounded-lg bg-brandsoft text-brandink">
-                          <Icon size={18} />
-                        </span>
-                        <span className="text-[13px] text-ink">
-                          {w.sources[id].name}
-                        </span>
-                        <span className="text-[11px] text-muted">
-                          {w.sources[id].note}
-                        </span>
-                      </button>
-                    );
-                  })}
-                </div>
+                {SOURCE_GROUPS.map((group) => (
+                  <div key={group.id} className="mt-5 flex flex-col gap-2.5">
+                    <h3 className="text-[11px] font-medium text-steel">{w.sourceGroups[group.id]}</h3>
+                    {/* Without a handle an article or episode has no ID to take; the group says where to set one. */}
+                    {group.id === 'create' && handle === null ? (
+                      <p className="text-[11px] text-muted">
+                        {w.noHandle}{' '}
+                        <Link href="/dashboard/settings#handle" className="text-brandink hover:underline">
+                          {w.noHandleCta}
+                        </Link>
+                      </p>
+                    ) : null}
+                    <div className="grid gap-2.5 sm:grid-cols-2">
+                      {group.sources.map((id) => {
+                        const Icon = SOURCE_ICONS[id];
+                        const active = source === id;
+                        const off = handle === null && isWizardEditorialKind(id);
+                        return (
+                          <button
+                            key={id}
+                            type="button"
+                            onClick={() => {
+                              setSource(id);
+                              /* The suggested id follows the source: an article's slug cannot
+                                 hold the dots and slashes a docs id may. One typed by hand stays. */
+                              if (!slugEdited) setSlug(slugFor(id, title));
+                            }}
+                            disabled={off}
+                            aria-pressed={active}
+                            className={`flex flex-col gap-2 rounded-md border p-4 text-left transition-colors disabled:cursor-not-allowed disabled:opacity-50 ${
+                              active ? 'border-brand bg-brandsoft' : 'border-line bg-card hover:bg-subtle disabled:hover:bg-card'
+                            }`}
+                          >
+                            <span className="flex size-8 items-center justify-center rounded-lg bg-brandsoft text-brandink">
+                              <Icon size={18} />
+                            </span>
+                            <span className="text-[13px] text-ink">
+                              {w.sources[id].name}
+                            </span>
+                            <span className="text-[11px] text-muted">
+                              {w.sources[id].note}
+                            </span>
+                          </button>
+                        );
+                      })}
+                    </div>
+                  </div>
+                ))}
               </>
             ) : null}
 
-            {current === 'details' && source ? (
+            {current === 'details' && source !== null && isWizardEditorialKind(source) ? (
               <div className="mt-4 flex max-w-[520px] flex-col gap-4">
                 <Field label={w.titleLabel}>
                   <input
                     value={title}
                     onChange={(event) => {
                       setTitle(event.target.value);
-                      if (!slugEdited) setSlug(slugFromTitle(event.target.value));
+                      if (!slugEdited) setSlug(slugFor(source, event.target.value));
+                    }}
+                    maxLength={EDITORIAL_LIMITS.titleMax}
+                    className={FIELD}
+                  />
+                </Field>
+                <SlugField
+                  namespace={namespace ?? ''}
+                  slug={slug}
+                  hint={fill(w.editorialSlugHint, { prefix: `/${namespace}/` })}
+                  maxLength={64}
+                  placeholder={w.editorialSlugPlaceholder}
+                  onChange={(next) => {
+                    setSlug(next);
+                    setSlugEdited(next.trim().length > 0);
+                  }}
+                />
+                <p className="text-[11px] leading-[1.6] text-muted">{w.editorialNote[source]}</p>
+              </div>
+            ) : current === 'details' && source !== null && !isWizardEditorialKind(source) ? (
+              <div className="mt-4 flex max-w-[520px] flex-col gap-4">
+                <Field label={w.titleLabel}>
+                  <input
+                    value={title}
+                    onChange={(event) => {
+                      setTitle(event.target.value);
+                      if (!slugEdited) setSlug(slugFor(source, event.target.value));
                     }}
                     maxLength={120}
                     className={FIELD}
@@ -769,27 +902,17 @@ export function ImportWizard({
                   </Field>
                 ) : null}
                 {namespace ? (
-                  <Field label={w.slugLabel} hint={fill(w.slugHint, { prefix: `/${namespace}/` })}>
-                    {/* The prefix sits inside the field so the id reads the way
-                        the catalogue shows it, /websites/ethereum/whitepaper; the
-                        operator types only the slug, nested with / if they like. */}
-                    <span className="flex h-9 w-full items-center rounded-md border border-line bg-card pl-2.5 focus-within:border-brand">
-                      <span className="shrink-0 select-none text-[12px] text-muted">
-                        /{namespace}/
-                      </span>
-                      <input
-                        value={slug}
-                        onChange={(event) => {
-                          const next = slugWithoutPrefix(event.target.value, `/${namespace}/`);
-                          setSlug(next);
-                          setSlugEdited(next.trim().length > 0);
-                        }}
-                        maxLength={200 - namespace.length - 2}
-                        placeholder={w.slugPlaceholder}
-                        className="h-full min-w-0 flex-1 bg-transparent pr-2.5 text-[12px] text-ink placeholder:text-muted/70 focus:outline-none"
-                      />
-                    </span>
-                  </Field>
+                  <SlugField
+                    namespace={namespace}
+                    slug={slug}
+                    hint={fill(w.slugHint, { prefix: `/${namespace}/` })}
+                    maxLength={200 - namespace.length - 2}
+                    placeholder={w.slugPlaceholder}
+                    onChange={(next) => {
+                      setSlug(next);
+                      setSlugEdited(next.trim().length > 0);
+                    }}
+                  />
                 ) : (
                   <p className="text-[11px] text-muted">{w.githubIdNote}</p>
                 )}
@@ -838,13 +961,26 @@ export function ImportWizard({
                 {[
                   [w.stepSource, w.sources[source].name],
                   [w.titleLabel, title],
-                  isUpload
+                  ...(editorialKind
+                    ? []
+                    : [
+                        isUpload
+                          ? [
+                              isMarkdown ? md.filesLabel : w.filesLabel,
+                              fill(w.filesCount, { n: String(files.uploaded.length) }),
+                            ]
+                          : [w.locationLabel, location],
+                      ]),
+                  ...(namespace
                     ? [
-                        isMarkdown ? md.filesLabel : w.filesLabel,
-                        fill(w.filesCount, { n: String(files.uploaded.length) }),
+                        [
+                          w.slugLabel,
+                          editorialKind && slug.trim() === ''
+                            ? `/${namespace}/…`
+                            : `/${namespace}/${slug.trim().toLowerCase()}`,
+                        ],
                       ]
-                    : [w.locationLabel, location],
-                  ...(namespace ? [[w.slugLabel, `/${namespace}/${slug.trim().toLowerCase()}`]] : []),
+                    : []),
                   ...(needsVerification
                     ? [[w.stepVerify, liveChallenge?.verified ? liveChallenge.host : '—']]
                     : []),
@@ -899,7 +1035,9 @@ export function ImportWizard({
                           ? w.errorUnverified
                           : state.error === 'rights'
                             ? w.errorRights
-                            : w.errorUnavailable}
+                            : state.error === 'handle'
+                              ? w.noHandle
+                              : w.errorUnavailable}
               </p>
             ) : null}
           </div>
@@ -937,7 +1075,7 @@ export function ImportWizard({
                 }
                 className="inline-flex h-[35px] items-center gap-1.5 rounded-md bg-brand px-3.5 text-[12px] font-medium text-white transition-colors hover:bg-brand/90 disabled:opacity-40"
               >
-                {w.submit}
+                {editorialKind ? w.submitDraft : w.submit}
                 <ArrowRightIcon size={14} />
               </button>
             )}
@@ -945,7 +1083,46 @@ export function ImportWizard({
         </form>
       </section>
       {pipelineAside}
+      {costPanel}
     </>
+  );
+}
+
+/**
+ * The asset ID field. The prefix sits inside the field so the id reads the
+ * way the catalogue shows it, /websites/ethereum/whitepaper; the operator
+ * types only the slug, nested with / where the source allows it.
+ */
+function SlugField({
+  namespace,
+  slug,
+  hint,
+  maxLength,
+  placeholder,
+  onChange,
+}: {
+  namespace: string;
+  slug: string;
+  hint: string;
+  maxLength: number;
+  placeholder: string;
+  onChange: (slug: string) => void;
+}) {
+  const { t } = useI18n();
+  const w = t.dashboard.newAsset.wizard;
+  return (
+    <Field label={w.slugLabel} hint={hint}>
+      <span className="flex h-9 w-full items-center rounded-md border border-line bg-card pl-2.5 focus-within:border-brand">
+        <span className="shrink-0 select-none text-[12px] text-muted">/{namespace}/</span>
+        <input
+          value={slug}
+          onChange={(event) => onChange(slugWithoutPrefix(event.target.value, `/${namespace}/`))}
+          maxLength={maxLength}
+          placeholder={placeholder}
+          className="h-full min-w-0 flex-1 bg-transparent pr-2.5 text-[12px] text-ink placeholder:text-muted/70 focus:outline-none"
+        />
+      </span>
+    </Field>
   );
 }
 

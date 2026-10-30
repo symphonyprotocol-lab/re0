@@ -3,9 +3,8 @@
  * agent-first-proposal.md 3.2, 6.5, 6.6, 6.7.
  *
  * Each is an asset with its own version line, like any other: what differs
- * is where the text comes from. An article is written in the editor (or
- * imported from a URL or a feed item) and its published text is the
- * `editor` source's content; an episode's indexed text is its title and
+ * is where the text comes from. An article is written in the editor and its
+ * published text is the `editor` source's content; an episode's indexed text is its title and
  * show notes only, never a transcript; a Q&A is the question and the
  * creator's written answer. Images and audio files sit in the private
  * bucket; their bytes are never indexed, only an image's caption is.
@@ -19,6 +18,18 @@ export type EditorialKind = (typeof EDITORIAL_KINDS)[number];
 
 export function isEditorialKind(value: unknown): value is EditorialKind {
   return value === 'post' || value === 'audio' || value === 'qa';
+}
+
+/**
+ * The kinds the asset wizard creates as drafts, beside the connected
+ * sources: an article or an episode starts there and is written in its
+ * editor. A Q&A is made by answering a question, never from the wizard.
+ */
+export const WIZARD_EDITORIAL_KINDS = ['post', 'audio'] as const;
+export type WizardEditorialKind = (typeof WIZARD_EDITORIAL_KINDS)[number];
+
+export function isWizardEditorialKind(value: unknown): value is WizardEditorialKind {
+  return value === 'post' || value === 'audio';
 }
 
 /** The asset ID namespace of each kind: `/posts/{handle}/{slug}` and so on (proposal 3.2). */
@@ -69,8 +80,6 @@ export const EDITORIAL_LIMITS = {
   imageMaxBytes: 5 * 1024 * 1024,
   /** An episode: a two-hour MP3 fits, so does a long M4A; a WAV of more than ~15 minutes does not. */
   audioMaxBytes: 150 * 1024 * 1024,
-  /** Items one RSS import creates, newest first. */
-  feedItemsMax: 20,
   uploadUrlTtlSeconds: 15 * 60,
   /** How long a signed image URL works: one page view. */
   imageUrlTtlSeconds: 5 * 60,
@@ -134,8 +143,7 @@ export class EditorialRefused extends Error {
       | 'storage_exceeded'
       | 'not_uploaded'
       | 'no_audio'
-      | 'storage_unavailable'
-      | 'import_failed',
+      | 'storage_unavailable',
     message: string,
   ) {
     super(message);
@@ -213,63 +221,4 @@ export function publishInstant(value: string | null | undefined, now: Date): Dat
     throw new EditorialRefused('invalid_schedule', 'a post can be scheduled at most a year ahead');
   }
   return at.getTime() - now.getTime() <= 60_000 ? null : at;
-}
-
-/* ------------------------------------------------------------------- feeds */
-
-export interface FeedItem {
-  title: string;
-  link: string | null;
-  /** The item's own HTML or text, when the feed carries it. */
-  content: string | null;
-  publishedAt: Date | null;
-}
-
-function decodeEntities(value: string): string {
-  return value
-    .replace(/<!\[CDATA\[([\s\S]*?)\]\]>/g, '$1')
-    .replace(/&lt;/g, '<')
-    .replace(/&gt;/g, '>')
-    .replace(/&quot;/g, '"')
-    .replace(/&#39;|&apos;/g, "'")
-    .replace(/&#(\d+);/g, (_, code: string) => String.fromCodePoint(Number(code)))
-    .replace(/&amp;/g, '&');
-}
-
-function tag(block: string, name: string): string | null {
-  const match = new RegExp(`<${name}(?:\\s[^>]*)?>([\\s\\S]*?)</${name}>`, 'i').exec(block);
-  return match ? decodeEntities(match[1]!).trim() : null;
-}
-
-/**
- * The items of an RSS 2.0 or Atom document, newest first as the feed lists
- * them, at most `limit`. A tolerant reader, not a validator: an item with no
- * title is skipped, everything else is best effort.
- */
-export function parseFeed(xml: string, limit: number = EDITORIAL_LIMITS.feedItemsMax): FeedItem[] {
-  const blocks = [...xml.matchAll(/<(item|entry)(?:\s[^>]*)?>([\s\S]*?)<\/\1>/gi)].map((match) => match[2]!);
-  const items: FeedItem[] = [];
-  for (const block of blocks) {
-    const title = tag(block, 'title');
-    if (!title) continue;
-    const atomLink = /<link[^>]*href="([^"]+)"/i.exec(block)?.[1] ?? null;
-    const link = tag(block, 'link') || atomLink;
-    const content = tag(block, 'content:encoded') ?? tag(block, 'content') ?? tag(block, 'description') ?? tag(block, 'summary');
-    const date = tag(block, 'pubDate') ?? tag(block, 'published') ?? tag(block, 'updated');
-    const publishedAt = date ? new Date(date) : null;
-    items.push({
-      title: title.slice(0, EDITORIAL_LIMITS.titleMax),
-      link: link ? decodeEntities(link) : null,
-      content,
-      publishedAt: publishedAt && !Number.isNaN(publishedAt.getTime()) ? publishedAt : null,
-    });
-    if (items.length >= limit) break;
-  }
-  return items;
-}
-
-/** Whether a fetched body is a feed rather than a page. */
-export function looksLikeFeed(contentType: string, body: string): boolean {
-  if (/(rss|atom)\+xml|application\/xml|text\/xml/i.test(contentType)) return true;
-  return /^\s*(<\?xml[^>]*>\s*)?<(rss|feed)[\s>]/i.test(body);
 }
