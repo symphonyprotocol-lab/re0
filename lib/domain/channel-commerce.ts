@@ -137,6 +137,64 @@ export function creatorBalanceMinor(input: { earnedMinor: number; dischargedMino
   return input.earnedMinor - input.dischargedMinor;
 }
 
+/**
+ * The statements a payout or a redeem may take: every negative one, then
+ * positive ones oldest period first while the total stays within the
+ * balance. A statement leaves whole or not at all (redeem-credit.ts), so
+ * this caps by leaving whole statements accrued. The balance already holds
+ * every refund and chargeback booked, settled or not; a statement total
+ * above it is income the ledger knows has gone back, and paying it would
+ * drive the balance negative -- what proposal 6.9's hold exists to prevent
+ * ("没有出账过的收入遇到拒付直接冲回，不会产生负余额").
+ */
+export function statementsWithinBalance<T extends { amountMinor: number; periodId: string }>(
+  rows: T[],
+  balanceMinor: number,
+): T[] {
+  const taken = rows.filter((row) => row.amountMinor <= 0);
+  let total = taken.reduce((sum, row) => sum + row.amountMinor, 0);
+  const positives = rows
+    .filter((row) => row.amountMinor > 0)
+    .sort((a, b) => (a.periodId < b.periodId ? -1 : a.periodId > b.periodId ? 1 : 0));
+  for (const row of positives) {
+    if (total + row.amountMinor > balanceMinor) break;
+    taken.push(row);
+    total += row.amountMinor;
+  }
+  return taken;
+}
+
+/** What a channel transaction reports it charged, as the ledger checks it against the plan version. */
+export interface ChannelSaleTerms {
+  /** Every line item is the channel product. */
+  onChannelProduct: boolean;
+  currency: string;
+  /** The line items' unit prices times their quantities: what the buyer was quoted, whatever the tax mode. */
+  listPriceMinor: number;
+  discountMinor: number;
+}
+
+/**
+ * Why a transaction tagged as a channel sale does not pay for the plan
+ * version it names, or null when it does. The tag in custom data names the
+ * plan and the buyer, but a buyer can put it on a checkout of their own
+ * (Paddle.js runs with a public token), so what was sold is checked too:
+ * the channel product, the version's currency, at least the version's price,
+ * and no discount -- re0 issues none on channel plans. A renewal bills the
+ * same non-catalogue price, so it passes; a raised minimum is not applied
+ * here, because a subscription keeps the version it bought.
+ */
+export function channelSaleMismatch(
+  sale: ChannelSaleTerms,
+  plan: { priceMinor: number; currency: string },
+): 'product' | 'currency' | 'amount' | null {
+  if (!sale.onChannelProduct) return 'product';
+  if (sale.currency !== plan.currency) return 'currency';
+  if (!Number.isFinite(sale.listPriceMinor) || sale.listPriceMinor < plan.priceMinor) return 'amount';
+  if (!Number.isFinite(sale.discountMinor) || sale.discountMinor !== 0) return 'amount';
+  return null;
+}
+
 /** The paid-distribution confirmation the owner gives when switching subscriptions on (6.11). */
 export const PAID_RIGHTS_STATEMENT =
   'I own, or am licensed to distribute for payment on re0, the content in this channel.';

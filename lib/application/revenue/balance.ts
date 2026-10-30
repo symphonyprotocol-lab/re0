@@ -56,6 +56,55 @@ export function periodIdOf(at: Date): string {
 }
 
 /**
+ * The period an event dated `at` is booked into: its own month while that
+ * is open, else the month running now. A webhook can arrive after its month
+ * closed (an outage, the provider's retry tail); booked into the locked
+ * month it would count in the balance and in no statement until an
+ * operator happened to re-settle that month. Booked forward, the next
+ * statement nets it. The event keeps its own date in `created_at`.
+ *
+ * The month's booking lock (`lockPeriodBooking`) is taken shared, so a
+ * close of that month, which takes it exclusively, waits for this
+ * transaction and sums its event, and this one waits for a close in
+ * progress and then sees the month locked. A lock rather than the period
+ * row, which may not exist before the month's close inserts it. The month
+ * running now cannot be closed (`closePeriod`); if a clock at the month's
+ * edge says it is, the next one is used.
+ */
+export async function openPeriodId(tx: Tx, at: Date, now: Date = new Date()): Promise<string> {
+  const current = periodIdOf(now);
+  const own = periodIdOf(at);
+  const candidates = own < current ? [own, current] : [own];
+  for (const periodId of [...candidates, nextPeriodId(candidates[candidates.length - 1]!)]) {
+    await lockPeriodBooking(tx, periodId, 'shared');
+    const [period] = await tx
+      .select({ lockedAt: schema.revenuePeriod.lockedAt })
+      .from(schema.revenuePeriod)
+      .where(eq(schema.revenuePeriod.id, periodId));
+    if (!period?.lockedAt) return periodId;
+  }
+  throw new Error(`no open revenue period at or after ${current}`);
+}
+
+/**
+ * A month's booking lock, held to the end of the transaction: shared by
+ * everything that books an event into the month, exclusive for its close.
+ */
+export async function lockPeriodBooking(tx: Tx, periodId: string, mode: 'shared' | 'exclusive'): Promise<void> {
+  const key = `revenue_period:${periodId}`;
+  await tx.execute(
+    mode === 'shared'
+      ? sql`select pg_advisory_xact_lock_shared(hashtext(${key}))`
+      : sql`select pg_advisory_xact_lock(hashtext(${key}))`,
+  );
+}
+
+function nextPeriodId(periodId: string): string {
+  const [year, month] = periodId.split('-').map(Number);
+  return periodIdOf(new Date(Date.UTC(year!, month!, 1)));
+}
+
+/**
  * On account deletion: a negative balance is written off rather than
  * collected (proposal 6.9). One `written_off` event of the balance's
  * absolute value brings it to zero; the platform absorbs it. Idempotent per

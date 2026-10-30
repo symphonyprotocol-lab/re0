@@ -12,10 +12,13 @@
  * and nothing else, recomputable from the events alone.
  *
  * The total is frozen at the lock; the per-owner sums are not, and a locked
- * period returns them as they stand now. An event booked into a locked month
- * afterwards therefore shows up here, and the console's `generateSettlements`
- * turns the difference into a correction statement -- the frozen total is
- * what the period came to at the lock, not a cap on what its ledger may say.
+ * period returns them as they stand now. Nothing books into a locked month
+ * any more -- a late webhook lands in the open one (balance.ts
+ * `openPeriodId`), and the close takes the month's booking lock exclusively
+ * so no booking is in flight while it sums -- but an event written there by
+ * hand still shows up here, and the console's `generateSettlements` turns
+ * the difference into a correction statement: the frozen total is what the
+ * period came to at the lock, not a cap on what its ledger may say.
  *
  * Accounting only. No statement or payout row is written here; the console's
  * `generateSettlements` turns the sums into statements.
@@ -23,6 +26,7 @@
 import { and, eq, sql } from 'drizzle-orm';
 import { AppError } from '@/contracts/errors';
 import { db, schema } from '@/lib/infrastructure/postgres/client';
+import { lockPeriodBooking } from './balance';
 
 export interface PeriodAllocation {
   ownerWorkspaceId: string;
@@ -65,6 +69,8 @@ export async function closePeriod(periodId: string): Promise<ClosedPeriod> {
       .from(schema.revenuePeriod)
       .where(eq(schema.revenuePeriod.id, periodId))
       .for('update');
+    /* Waits for every booking into the month in flight; later ones see it locked and book forward. */
+    await lockPeriodBooking(tx, periodId, 'exclusive');
 
     const allocations = await ownerSums(tx, periodId);
 
