@@ -22,7 +22,7 @@ import { db, schema } from '@/lib/infrastructure/postgres/client';
 import { IN_FORCE_FIRST, subscriptionInForce } from '@/lib/application/plans/in-force';
 import { PLAN_VERSION_NEWEST_FIRST } from '@/lib/application/plans/configuration';
 import { hashApiKey } from './api-key';
-import { canManageApiKeys, type WorkspaceRole } from '@/lib/application/libraries';
+import { canManageApiKeys, type WorkspaceRole } from '@/lib/application/assets';
 
 export interface ApiKeyView {
   id: string;

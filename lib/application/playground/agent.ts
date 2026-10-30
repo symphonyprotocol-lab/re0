@@ -1,14 +1,14 @@
 import { z } from 'zod';
 import { AppError, type ErrorCode } from '@/contracts/errors';
-import type { QueryDocsInput, ResolveLibraryInput, ResolveLibraryOutput } from '@/contracts/schemas';
+import type { QueryDocsInput, ResolveAssetInput, ResolveAssetOutput } from '@/contracts/schemas';
 import { activeRetrievalSettings } from '@/lib/application/administration';
 import { releaseCall, type ReservedCall } from '@/lib/application/plans';
-import { resolveLibraryId, type CallerContext } from '@/lib/application/retrieval';
+import { resolveAssetId, type CallerContext } from '@/lib/application/retrieval';
 import {
   mergeReads,
   readConfirms,
-  type GatheredLibrary,
-  type GatherLibrary,
+  type GatheredAsset,
+  type GatherAsset,
 } from '@/lib/application/retrieval/gather';
 import {
   commitServedCall,
@@ -28,7 +28,7 @@ import {
   type PendingActionView,
   type SubscriptionSummary,
 } from '@/lib/application/agent';
-import type { WorkspaceRole } from '@/lib/application/libraries/delete';
+import type { WorkspaceRole } from '@/lib/application/assets/delete';
 import { delegationsForPlanner, type DelegationView } from '@/lib/application/external-agents/delegation';
 import { listExternalAgents, type ExternalAgentView } from '@/lib/application/external-agents/registry';
 import {
@@ -62,9 +62,9 @@ import {
  *
  * The fixed path routes the question once and reads the top candidates with
  * the question's own words. That cannot follow a conversation -- "where do I
- * download it?" names no library -- and cannot search twice for a question
+ * download it?" names no asset -- and cannot search twice for a question
  * that needs two searches. Here a model plans instead: it calls the same
- * resolve-library-id and query-docs an MCP agent calls, as often as the
+ * resolve-asset-id and query-docs an MCP agent calls, as often as the
  * console's caps allow, and ends by calling `answer`.
  *
  * Two phases, and only the second one speaks:
@@ -89,7 +89,7 @@ import {
  * One exchange is one Call, however many reads it took (requirement.md 4.2).
  * The first read reserves the seat, so quota refuses up front; later reads
  * are unmetered, as the scatter-gather's other candidates are. The seat is
- * committed against the library whose passage leads the merged context, or
+ * committed against the asset whose passage leads the merged context, or
  * released when nothing confirmed.
  *
  * Whenever the agent cannot run -- the switch is off, the model declares no
@@ -142,8 +142,8 @@ export const WORKBENCH_LIMITS = { actions: 3, listings: 2 } as const;
 export interface AgentInput {
   question: string;
   history: readonly HistoryTurn[];
-  /** The detail page's fixed library: no resolve tool, and query_docs reads only this one. */
-  pinned: { libraryId: string; title: string; version: string | null } | null;
+  /** The detail page's fixed asset: no resolve tool, and query_docs reads only this one. */
+  pinned: { assetId: string; title: string; version: string | null } | null;
   /** Set for the workbench: the owner's tools join the retrieval ones. */
   workbench?: WorkbenchContext | null;
 }
@@ -151,11 +151,11 @@ export interface AgentInput {
 /** One tool call, as the transcript shows it: first running, then with what it found. */
 export interface AgentStep {
   id: string;
-  tool: 'resolve-library-id' | 'query-docs';
+  tool: 'resolve-asset-id' | 'query-docs';
   query: string;
-  libraryId: string | null;
+  assetId: string | null;
   status: 'running' | 'done';
-  /** Candidate ids, for resolve-library-id. */
+  /** Candidate ids, for resolve-asset-id. */
   results: string[] | null;
   /** For query-docs: whether its passages fit the query well enough to be evidence. */
   confirmed: boolean | null;
@@ -172,12 +172,12 @@ export type AgentEvent =
   /** The fixed path ran (agent off or fallen back): what it routed to. */
   | {
       type: 'routing';
-      candidates: GatherLibrary[];
-      top: { libraryId: string; title: string; version: string | null } | null;
+      candidates: GatherAsset[];
+      top: { assetId: string; title: string; version: string | null } | null;
       pinned: boolean;
     }
-  /** The fixed path routed nowhere: no library to read. */
-  | { type: 'no_library' }
+  /** The fixed path routed nowhere: no asset to read. */
+  | { type: 'no_asset' }
   /** Workbench: a pending action the planner proposed, for the confirmation card. */
   | { type: 'action'; action: PendingActionView }
   /** Workbench: a tool proposal the gate refused, with its reason. */
@@ -188,7 +188,7 @@ export type AgentEvent =
   | { type: 'acted' };
 
 export interface AgentDependencies extends PlaygroundDependencies {
-  resolve?: (caller: CallerContext, input: ResolveLibraryInput) => Promise<ResolveLibraryOutput>;
+  resolve?: (caller: CallerContext, input: ResolveAssetInput) => Promise<ResolveAssetOutput>;
   read?: (
     caller: CallerContext,
     input: QueryDocsInput,
@@ -201,7 +201,7 @@ export interface AgentDependencies extends PlaygroundDependencies {
 
 /**
  * Refusals that end the exchange rather than one read: the caller may not
- * spend anything more, whichever library the planner tries next.
+ * spend anything more, whichever asset the planner tries next.
  */
 const EXCHANGE_REFUSALS: ReadonlySet<ErrorCode> = new Set([
   'quota_exceeded',
@@ -258,18 +258,18 @@ export async function* streamAgentPlayground(
   /* Retrieval reads the settings this exchange was sized by (index.ts). */
   const maxTokens = retrievalBudgetFor(usable.maxInputTokens, settings);
   const retrievalDependencies = { ...retrieval, settings: async () => settings };
-  const resolve = dependencies.resolve ?? resolveLibraryId;
+  const resolve = dependencies.resolve ?? resolveAssetId;
   const read = dependencies.read ?? queryDocsDetailed;
   const commit = dependencies.commit ?? commitServedCall;
   const release = dependencies.release ?? releaseCall;
 
   /* What the planner has found. Lives for this request only. */
-  const reads: { library: GatherLibrary; result: QueryDocsResult; confirmed: boolean }[] = [];
+  const reads: { asset: GatherAsset; result: QueryDocsResult; confirmed: boolean }[] = [];
   const titles = new Map<string, string>();
   for (const turn of input.history) {
-    for (const library of turn.libraries ?? []) titles.set(library.libraryId, library.title);
+    for (const asset of turn.assets ?? []) titles.set(asset.assetId, asset.title);
   }
-  if (input.pinned) titles.set(input.pinned.libraryId, input.pinned.title);
+  if (input.pinned) titles.set(input.pinned.assetId, input.pinned.title);
   const answered = new Map<string, unknown>();
   let resolves = 0;
   let queries = 0;
@@ -285,9 +285,9 @@ export async function* streamAgentPlayground(
   const tools: PlannerTool[] = [];
   if (!input.pinned && settings.playgroundAgentResolves > 0) {
     tools.push({
-      name: 'resolve_library_id',
+      name: 'resolve_asset_id',
       description:
-        'Find libraries whose content matches a query. Returns candidates with their id, title, version and the page titles and terms that matched.',
+        'Find assets whose content matches a query. Returns candidates with their id, title, version and the page titles and terms that matched.',
       input: z.object({ query }),
       execute: async (raw) => {
         const args = raw as { query: string };
@@ -296,10 +296,10 @@ export async function* streamAgentPlayground(
         try {
           const output = await resolve(caller, { query: args.query });
           const candidates = output.results.slice(0, PLANNER_LIMITS.candidates);
-          for (const candidate of candidates) titles.set(candidate.libraryId, candidate.title);
+          for (const candidate of candidates) titles.set(candidate.assetId, candidate.title);
           return {
             results: candidates.map((candidate) => ({
-              libraryId: candidate.libraryId,
+              assetId: candidate.assetId,
               title: candidate.title,
               description: candidate.description,
               version: candidate.version,
@@ -316,15 +316,15 @@ export async function* streamAgentPlayground(
   tools.push({
     name: 'query_docs',
     description: input.pinned
-      ? `Search the library ${input.pinned.libraryId} for passages that answer a query.`
-      : 'Search one library for passages that answer a query. confirmed: false means nothing fit well enough to answer from.',
-    input: z.object({ libraryId: z.string().trim().min(1).max(256), query }),
+      ? `Search the asset ${input.pinned.assetId} for passages that answer a query.`
+      : 'Search one asset for passages that answer a query. confirmed: false means nothing fit well enough to answer from.',
+    input: z.object({ assetId: z.string().trim().min(1).max(256), query }),
     execute: async (raw) => {
-      const args = raw as { libraryId: string; query: string };
-      if (input.pinned && args.libraryId !== input.pinned.libraryId) {
-        return { error: 'only_the_fixed_library', libraryId: input.pinned.libraryId };
+      const args = raw as { assetId: string; query: string };
+      if (input.pinned && args.assetId !== input.pinned.assetId) {
+        return { error: 'only_the_fixed_asset', assetId: input.pinned.assetId };
       }
-      const key = `${args.libraryId}\u0000${args.query}`;
+      const key = `${args.assetId}\u0000${args.query}`;
       if (answered.has(key)) return answered.get(key);
       if (queries >= settings.playgroundAgentQueries) return { error: 'limit_reached' };
       queries += 1;
@@ -333,7 +333,7 @@ export async function* streamAgentPlayground(
       try {
         result = await read(
           caller,
-          { libraryId: args.libraryId, query: args.query, maxTokens, format: 'json' },
+          { assetId: args.assetId, query: args.query, maxTokens, format: 'json' },
           retrievalDependencies,
           /* The exchange's one seat, reserved by its first read (module comment). */
           { meter: metered.seat ? false : 'deferred' },
@@ -346,15 +346,15 @@ export async function* streamAgentPlayground(
       const confirmed = readConfirms(result, containsCjk(args.query));
       const order = reads.length;
       reads.push({
-        library: {
-          libraryId: result.libraryId,
-          title: titles.get(result.libraryId) ?? titles.get(args.libraryId) ?? result.libraryId,
+        asset: {
+          assetId: result.assetId,
+          title: titles.get(result.assetId) ?? titles.get(args.assetId) ?? result.assetId,
         },
         result,
         confirmed,
       });
       const output = {
-        libraryId: result.libraryId,
+        assetId: result.assetId,
         version: result.version,
         confirmed,
         /* What the next query should be written in, when this one missed. */
@@ -433,12 +433,12 @@ export async function* streamAgentPlayground(
           continue;
         }
         if (event.type === 'call') {
-          const args = (event.input ?? {}) as { query?: unknown; libraryId?: unknown };
+          const args = (event.input ?? {}) as { query?: unknown; assetId?: unknown };
           const step: AgentStep = {
             id: event.id,
-            tool: event.tool === 'resolve_library_id' ? 'resolve-library-id' : 'query-docs',
+            tool: event.tool === 'resolve_asset_id' ? 'resolve-asset-id' : 'query-docs',
             query: typeof args.query === 'string' ? args.query : '',
-            libraryId: typeof args.libraryId === 'string' ? args.libraryId : null,
+            assetId: typeof args.assetId === 'string' ? args.assetId : null,
             status: 'running',
             results: null,
             confirmed: null,
@@ -451,10 +451,10 @@ export async function* streamAgentPlayground(
           const step = steps.get(event.id);
           if (!step) continue;
           const output = (event.output ?? {}) as {
-            results?: { libraryId: string }[];
+            results?: { assetId: string }[];
             confirmed?: boolean;
             version?: string;
-            libraryId?: string;
+            assetId?: string;
             error?: string;
           };
           yield {
@@ -462,8 +462,8 @@ export async function* streamAgentPlayground(
             step: {
               ...step,
               status: 'done',
-              libraryId: output.libraryId ?? step.libraryId,
-              results: output.results ? output.results.map((candidate) => candidate.libraryId) : null,
+              assetId: output.assetId ?? step.assetId,
+              results: output.results ? output.results.map((candidate) => candidate.assetId) : null,
               confirmed: typeof output.confirmed === 'boolean' ? output.confirmed : null,
               version: output.version ?? null,
               error: output.error ?? null,
@@ -480,9 +480,9 @@ export async function* streamAgentPlayground(
 
     /* The tokens were spent whatever the plan came to. */
     const usage = await plan.usage;
-    const costLibrary = reads[0]?.library ?? input.pinned ?? titlesHead(titles);
-    if (costLibrary && usage.promptTokens + usage.completionTokens > 0) {
-      await recordUsage(dependencies, caller, { libraries: [costLibrary] }, usable, usage, startedAt);
+    const costAsset = reads[0]?.asset ?? input.pinned ?? titlesHead(titles);
+    if (costAsset && usage.promptTokens + usage.completionTokens > 0) {
+      await recordUsage(dependencies, caller, { assets: [costAsset] }, usable, usage, startedAt);
     }
 
     /* Anything a workbench tool produced that its result event did not flush. */
@@ -500,7 +500,7 @@ export async function* streamAgentPlayground(
       /*
        * The planner found nothing to stand on -- it failed, read nothing, or
        * read only what did not confirm. The fixed path still might: it reads
-       * the libraries the turns name, and its rewrite on a miss is shown the
+       * the assets the turns name, and its rewrite on a miss is shown the
        * site's language and nearest passages, which is what a planner query
        * in the wrong language was missing.
        */
@@ -512,7 +512,7 @@ export async function* streamAgentPlayground(
     }
 
     const { pool, chunks, contributed } = mergeReads(
-      reads.map((entry) => (entry.confirmed ? { title: entry.library.title, result: entry.result } : null)),
+      reads.map((entry) => (entry.confirmed ? { title: entry.asset.title, result: entry.result } : null)),
       maxTokens,
     );
     const lead = pool.find((entry) => chunks.includes(entry.chunk));
@@ -523,8 +523,8 @@ export async function* streamAgentPlayground(
     }
     metered.settled = true;
 
-    const libraries = librariesOf(reads, contributed);
-    yield { type: 'gather', libraries };
+    const assets = assetsOf(reads, contributed);
+    yield { type: 'gather', assets };
     if (chunks.length === 0) {
       console.info(`playground no_context (agent, no confirmed read among ${reads.length})`);
       yield { type: 'context', chunks: [], requestId: caller.requestId };
@@ -533,14 +533,14 @@ export async function* streamAgentPlayground(
     }
     if (resolved) yield { type: 'resolved', question: resolved };
 
-    const leadLibrary = lead ? reads[lead.order]!.library : reads[0]!.library;
+    const leadAsset = lead ? reads[lead.order]!.asset : reads[0]!.asset;
     yield* answerFromContext(
       caller,
       {
-        libraries: [leadLibrary],
+        assets: [leadAsset],
         question: input.question,
         resolved,
-        retrieved: { chunks, libraries, requestId: caller.requestId },
+        retrieved: { chunks, assets, requestId: caller.requestId },
         usable,
         credential,
         startedAt,
@@ -554,7 +554,7 @@ export async function* streamAgentPlayground(
 }
 
 /**
- * The fixed path, for when the agent cannot run: the detail page's library,
+ * The fixed path, for when the agent cannot run: the detail page's asset,
  * or routing (with the follow-up fallback), then the scatter-gather.
  */
 async function* fixedPath(
@@ -564,18 +564,18 @@ async function* fixedPath(
 ): AsyncGenerator<AgentEvent> {
   const routed = input.pinned
     ? {
-        candidates: [{ libraryId: input.pinned.libraryId, title: input.pinned.title }],
+        candidates: [{ assetId: input.pinned.assetId, title: input.pinned.title }],
         top: input.pinned,
       }
     : await routeQuestion(caller, input.question, input.history, dependencies.resolve);
   yield { type: 'routing', candidates: routed.candidates, top: routed.top, pinned: input.pinned !== null };
   if (!routed.top) {
-    yield { type: 'no_library' };
+    yield { type: 'no_asset' };
     return;
   }
   yield* streamPlayground(
     caller,
-    { libraries: routed.candidates, question: input.question, history: input.history },
+    { assets: routed.candidates, question: input.question, history: input.history },
     dependencies,
   );
 }
@@ -589,25 +589,25 @@ function refusal(error: unknown): { error: string } {
   throw error;
 }
 
-/** The first library the conversation named: what a plan that read nothing is costed against. */
-function titlesHead(titles: Map<string, string>): GatherLibrary | null {
+/** The first asset the conversation named: what a plan that read nothing is costed against. */
+function titlesHead(titles: Map<string, string>): GatherAsset | null {
   const first = titles.entries().next();
-  return first.done ? null : { libraryId: first.value[0], title: first.value[1] };
+  return first.done ? null : { assetId: first.value[0], title: first.value[1] };
 }
 
-/** One entry per library read, as the scatter-gather reports its candidates. */
-function librariesOf(
-  reads: { library: GatherLibrary; result: QueryDocsResult; confirmed: boolean }[],
+/** One entry per asset read, as the scatter-gather reports its candidates. */
+function assetsOf(
+  reads: { asset: GatherAsset; result: QueryDocsResult; confirmed: boolean }[],
   contributed: Map<number, number>,
-): GatheredLibrary[] {
-  const byLibrary = new Map<string, GatheredLibrary>();
+): GatheredAsset[] {
+  const byAsset = new Map<string, GatheredAsset>();
   reads.forEach((entry, order) => {
     const nearest = entry.confirmed ? (entry.result.confidence?.faqNearest ?? null) : null;
-    const known = byLibrary.get(entry.library.libraryId);
+    const known = byAsset.get(entry.asset.assetId);
     if (!known) {
-      byLibrary.set(entry.library.libraryId, {
-        libraryId: entry.library.libraryId,
-        title: entry.library.title,
+      byAsset.set(entry.asset.assetId, {
+        assetId: entry.asset.assetId,
+        title: entry.asset.title,
         version: entry.result.version,
         confirmed: entry.confirmed,
         faqNearest: nearest,
@@ -623,7 +623,7 @@ function librariesOf(
       known.faqNearest = nearest;
     }
   });
-  return [...byLibrary.values()];
+  return [...byAsset.values()];
 }
 
 const WORKBENCH_TOOLS: ReadonlySet<string> = new Set([...READ_TOOLS, ...ACTION_TOOLS]);

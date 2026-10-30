@@ -1,9 +1,9 @@
 /**
- * Importing a Notion page into a workspace library: the rules, as pure
+ * Importing a Notion page into a workspace asset: the rules, as pure
  * functions. No fetch, no Next.js, no driver.
  *
  * Notion cannot be read anonymously, and requirement.md 7.3 says a Notion
- * library is "created from the person's own authorised connection; the
+ * asset is "created from the person's own authorised connection; the
  * creator is the owner". So the wizard connects the person's Notion account
  * (a public integration, its own consent, like the GitHub one in github.ts),
  * lists the pages that account shared with the integration, and imports one
@@ -97,7 +97,7 @@ export function isNotionConnectOutcome(value: unknown): value is NotionConnectOu
 
 /**
  * The key on `source.config` naming the account whose Notion grant a source
- * is read with. A platform library has none and is read with the platform's
+ * is read with. A platform asset has none and is read with the platform's
  * own integration token instead.
  */
 export const NOTION_SOURCE_USER_KEY = 'notionUserId';

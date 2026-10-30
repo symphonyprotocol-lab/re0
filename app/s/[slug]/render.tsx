@@ -24,8 +24,8 @@ import { PREVIEW_PARAM, showcaseLookup } from './lookup';
 const display = Bricolage_Grotesque({ subsets: ['latin'], variable: '--font-bricolage', axes: ['wdth'], display: 'swap' });
 
 /**
- * A library shared as a page (lib/domain/showcase.ts): the company or the
- * product on top, in the owner's words, and the library's own Q&A under
+ * An asset shared as a page (lib/domain/showcase.ts): the company or the
+ * product on top, in the owner's words, and the asset's own Q&A under
  * it. Standalone on purpose -- no site header, no catalogue chrome -- since
  * the page is the owner's, sent to their customers, and the only trace of
  * us is the line at the foot. A page that is not published is a 404 like
@@ -93,7 +93,7 @@ function splitFact(fact: string): [string | null, string] {
  * the page prints about itself.
  *
  * It is laid out as the owner's landing page, in their accent and their
- * words. One thing is loud: the library answering, as a live window beside
+ * words. One thing is loud: the asset answering, as a live window beside
  * the name, because a page that answers questions from the owner's own
  * documents is what no other landing page has. Everything else is quiet --
  * the screenshot as a product shot when there is one, the facts as a table,
@@ -184,7 +184,7 @@ export async function ShowcaseScreen({ slug, preview, customHost }: { slug: stri
           <ShowcaseBeacon slug={page.slug} />
         )}
 
-        {/* The hero: the owner's words on the left, the library answering on the right. */}
+        {/* The hero: the owner's words on the left, the asset answering on the right. */}
         <header className="relative overflow-hidden">
           <div
             aria-hidden

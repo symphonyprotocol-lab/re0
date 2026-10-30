@@ -8,10 +8,10 @@ export async function generateMetadata(): Promise<Metadata> {
   return { title: playground.metaTitle, description: playground.metaDescription };
 }
 
-type Search = { searchParams: Promise<{ library?: string }> };
+type Search = { searchParams: Promise<{ asset?: string }> };
 
 /**
- * `?library=/owner/repo` pins the transcript to one public library (the detail page's entry).
+ * `?asset=/owner/repo` pins the transcript to one public asset (the detail page's entry).
  *
  * Open to everyone to look at; asking needs a session. A visitor without
  * one is shown the sign-in dialog when they send (components/site/playground),
@@ -19,12 +19,12 @@ type Search = { searchParams: Promise<{ library?: string }> };
  * decides which of the two they meet first.
  */
 export default async function PlaygroundPage({ searchParams }: Search) {
-  const [{ library }, { playground }, session] = await Promise.all([
+  const [{ asset }, { playground }, session] = await Promise.all([
     searchParams,
     getMessages(),
     optionalSession(),
   ]);
-  const initialLibrary = library && library.startsWith('/') ? library.slice(0, 256) : null;
+  const initialAsset = asset && asset.startsWith('/') ? asset.slice(0, 256) : null;
 
   return (
     <section>
@@ -32,7 +32,7 @@ export default async function PlaygroundPage({ searchParams }: Search) {
         {/* The visible title lives in the empty transcript and leaves with the
             first question; the page keeps its heading for the whole session. */}
         <h1 className="sr-only">{playground.title}</h1>
-        <Playground initialLibrary={initialLibrary} signedIn={session !== null} />
+        <Playground initialAsset={initialAsset} signedIn={session !== null} />
       </div>
     </section>
   );

@@ -1,5 +1,5 @@
 /**
- * Who may see an asset, as SQL predicates over a `library` row.
+ * Who may see an asset, as SQL predicates over a `asset` row.
  * agent-first-proposal.md 6.2; architecture.md 5.2, 9.6, 10.
  *
  * The Policy Engine decides visibility while it fixes which assets and
@@ -27,7 +27,7 @@ export function listedInPublicChannel(): SQL {
   return sql`exists (
     select 1 from ${schema.channelAsset} ca
     join ${schema.channel} c on c.id = ca.channel_id
-    where ca.asset_id = ${ref(schema.library.id)}
+    where ca.asset_id = ${ref(schema.asset.id)}
       and c.visibility = 'public' and c.status = 'active'
   )`;
 }
@@ -37,7 +37,7 @@ export function listedInPublicChannel(): SQL {
  * and free. The predicate anonymous retrieval runs under.
  */
 export function sharedWithEveryone(): SQL {
-  return and(listedInPublicChannel(), eq(schema.library.access, 'free'))!;
+  return and(listedInPublicChannel(), eq(schema.asset.access, 'free'))!;
 }
 
 /**
@@ -49,11 +49,11 @@ export function sharedWithEveryone(): SQL {
  * lib/domain/channel-commerce.ts is the same list.
  */
 export function subscribedPaid(workspaceId: string): SQL {
-  return sql`(${schema.library.access} = 'paid' and exists (
+  return sql`(${schema.asset.access} = 'paid' and exists (
     select 1 from ${schema.channelAsset} ca
     join ${schema.channel} c on c.id = ca.channel_id
     join ${schema.channelSubscription} cs on cs.channel_id = ca.channel_id
-    where ca.asset_id = ${ref(schema.library.id)}
+    where ca.asset_id = ${ref(schema.asset.id)}
       and c.visibility = 'public' and c.status = 'active'
       and cs.workspace_id = ${workspaceId}
       and cs.status in ('active', 'past_due', 'canceled')
@@ -68,7 +68,7 @@ export function subscribedPaid(workspaceId: string): SQL {
  */
 export function readableBy(workspaceId: string | null): SQL {
   if (!workspaceId) return sharedWithEveryone();
-  return or(eq(schema.library.ownerWorkspaceId, workspaceId), sharedWithEveryone(), subscribedPaid(workspaceId))!;
+  return or(eq(schema.asset.ownerWorkspaceId, workspaceId), sharedWithEveryone(), subscribedPaid(workspaceId))!;
 }
 
 /**

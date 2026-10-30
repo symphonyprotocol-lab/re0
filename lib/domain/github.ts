@@ -1,10 +1,10 @@
 /**
- * Importing a GitHub repository into a workspace library: the rules, as pure
+ * Importing a GitHub repository into a workspace asset: the rules, as pure
  * functions. No fetch, no Next.js, no driver.
  *
  * A workspace may only import repositories the signed-in person controls on
  * GitHub, and only those that are public and not forks. Two reasons, both
- * from requirement.md 7.3 and architecture.md 5.4: the library's owner is
+ * from requirement.md 7.3 and architecture.md 5.4: the asset's owner is
  * decided by control of the source, and a fork or a stranger's repository
  * would let anyone publish -- and earn from -- documentation that is not
  * theirs. "Controls" means one of two things: the repository sits under the

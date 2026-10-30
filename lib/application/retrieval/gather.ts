@@ -1,9 +1,9 @@
 /**
  * Scatter-gather over the routed candidates. architecture.md 9.6, layer 3.
  *
- * `query-docs` is one library by contract, and stays so: the cost model of
+ * `query-docs` is one asset by contract, and stays so: the cost model of
  * 9.1 is an exact scan of one pinned version, and a citation, a cache entry
- * and a metered call each name one version. Reading several libraries for
+ * and a metered call each name one version. Reading several assets for
  * one question is therefore a layer above it -- this one -- and not a change
  * to it. The web entry uses this layer; an MCP agent does its own gathering
  * by calling `query-docs` again, which is the 9.6 split of "who decides".
@@ -11,29 +11,29 @@
  * What it does with the candidates the router admitted:
  *
  * - retrieves from every one in parallel, each with the full token budget
- *   -- the per-library scan is cheap, and a fair share decided before
- *   retrieval would starve the library that turns out to hold the answer;
- * - keeps only the libraries whose own retrieval is *confirmed*
- *   (lib/domain/routing.ts): a router candidate is a library that may be
+ *   -- the per-asset scan is cheap, and a fair share decided before
+ *   retrieval would starve the asset that turns out to hold the answer;
+ * - keeps only the assets whose own retrieval is *confirmed*
+ *   (lib/domain/routing.ts): a router candidate is an asset that may be
  *   about the question, and only its chunk distances say whether it is;
  * - merges the surviving chunks by score and trims to the budget once.
  *   Scores are reciprocal-rank sums with one constant, so the merge is in
- *   effect an interleave by rank -- each confirmed library's best passage
- *   comes before any library's second -- and a reranker, when on, scores
- *   every library's head on the same scale;
+ *   effect an interleave by rank -- each confirmed asset's best passage
+ *   comes before any asset's second -- and a reranker, when on, scores
+ *   every asset's head on the same scale;
  * - meters one Call, and only for an exchange that has context. The top
  *   candidate reserves the seat before anything is read (query-docs.ts
  *   `meter: 'deferred'`), so quota still refuses up front; the other reads
  *   are unmetered. Once every retrieval is judged and merged, the seat is
- *   committed against the library whose passage leads the context -- the one
+ *   committed against the asset whose passage leads the context -- the one
  *   that is credited -- or released when no passage made it in. Charging the
  *   top candidate whatever it returned billed a reader the "nothing
- *   relevant" card, and paid a library whose passages were thrown away while
+ *   relevant" card, and paid an asset whose passages were thrown away while
  *   the one that answered earned nothing.
  *
  * A failure of the top candidate is the exchange's failure, as before. A
- * failure of any other candidate drops that library and keeps the exchange:
- * one suspended or racing library must not turn an answerable question into
+ * failure of any other candidate drops that asset and keeps the exchange:
+ * one suspended or racing asset must not turn an answerable question into
  * a degraded card.
  */
 import type { ChunkResult } from '@/contracts/schemas';
@@ -51,20 +51,20 @@ import {
   type RetrievalDependencies,
 } from './query-docs';
 
-export interface GatherLibrary {
-  libraryId: string;
+export interface GatherAsset {
+  assetId: string;
   title: string;
 }
 
-/** A retrieved chunk that remembers which library and version it came from. */
+/** A retrieved chunk that remembers which asset and version it came from. */
 export type GatheredChunk = ChunkResult & {
-  libraryId: string;
-  libraryTitle: string;
+  assetId: string;
+  assetTitle: string;
   version: string;
 };
 
-export interface GatheredLibrary {
-  libraryId: string;
+export interface GatheredAsset {
+  assetId: string;
   title: string;
   /** Null when the retrieval failed before pinning a version. */
   version: string | null;
@@ -85,34 +85,34 @@ export interface GatheredLibrary {
 
 export interface GatherResult {
   chunks: GatheredChunk[];
-  libraries: GatheredLibrary[];
+  assets: GatheredAsset[];
   requestId: string;
 }
 
 export interface GatherInput {
   /** In routing order; the first reserves the exchange's seat. At least one. */
-  libraries: readonly GatherLibrary[];
+  assets: readonly GatherAsset[];
   query: string;
   maxTokens: number;
   /** False reads without metering at all (query-docs.ts `meter`). Default true. */
   meter?: boolean;
 }
 
-export async function gatherAcrossLibraries(
+export async function gatherAcrossAssets(
   caller: CallerContext,
   input: GatherInput,
   dependencies: RetrievalDependencies = defaultRetrievalDependencies(),
 ): Promise<GatherResult> {
-  const [top, ...rest] = input.libraries;
-  if (!top) throw new Error('gather needs at least one library');
+  const [top, ...rest] = input.assets;
+  if (!top) throw new Error('gather needs at least one asset');
 
   const shared = shareQueryEmbedding(dependencies);
 
-  const retrieve = (library: GatherLibrary, meter: boolean | 'deferred') =>
+  const retrieve = (asset: GatherAsset, meter: boolean | 'deferred') =>
     queryDocsDetailed(
       caller,
       {
-        libraryId: library.libraryId,
+        assetId: asset.assetId,
         query: input.query,
         maxTokens: input.maxTokens,
         format: 'json',
@@ -123,7 +123,7 @@ export async function gatherAcrossLibraries(
 
   const settled = await Promise.allSettled([
     retrieve(top, input.meter === false ? false : 'deferred'),
-    ...rest.map((library) => retrieve(library, false)),
+    ...rest.map((asset) => retrieve(asset, false)),
   ]);
 
   const first = settled[0]!;
@@ -146,27 +146,27 @@ async function judge(
   requestId: string,
 ): Promise<GatherResult> {
   const questionHasHan = containsCjk(input.query);
-  const results: { library: GatherLibrary; result: QueryDocsResult | null }[] = [];
-  input.libraries.forEach((library, at) => {
+  const results: { asset: GatherAsset; result: QueryDocsResult | null }[] = [];
+  input.assets.forEach((asset, at) => {
     const outcome = settled[at]!;
     if (outcome.status === 'fulfilled') {
-      results.push({ library, result: outcome.value });
+      results.push({ asset, result: outcome.value });
     } else {
-      /* The library, never the question (architecture.md 17.1). */
+      /* The asset, never the question (architecture.md 17.1). */
       console.error(
-        `gather skipped ${library.libraryId}: ${
+        `gather skipped ${asset.assetId}: ${
           outcome.reason instanceof Error ? outcome.reason.message : 'unknown'
         }`,
       );
-      results.push({ library, result: null });
+      results.push({ asset, result: null });
     }
   });
 
   /*
    * A cache entry from before the confidence existed carries none, and is
-   * trusted as it was -- the same rule the single-library path applied.
+   * trusted as it was -- the same rule the single-asset path applied.
    *
-   * `crossScript` is the question against *this* library's passages, not the
+   * `crossScript` is the question against *this* asset's passages, not the
    * question alone. The two thresholds exist because a non-multilingual
    * embedding puts a question and an answer written in different scripts
    * further apart than it puts two in the same one -- so the comparison needs
@@ -180,14 +180,14 @@ async function judge(
   );
 
   const { pool, chunks, contributed } = mergeReads(
-    results.map(({ library, result }, order) =>
-      result && confirmed[order] ? { title: library.title, result } : null,
+    results.map(({ asset, result }, order) =>
+      result && confirmed[order] ? { title: asset.title, result } : null,
     ),
     input.maxTokens,
   );
 
   /*
-   * The exchange's one Call: charged, and credited to the library whose
+   * The exchange's one Call: charged, and credited to the asset whose
    * passage leads the merged context -- or released when nothing made it
    * in, which is the "nothing relevant" card and no answer at all.
    */
@@ -200,9 +200,9 @@ async function judge(
 
   return {
     chunks,
-    libraries: results.map(({ library, result }, order) => ({
-      libraryId: library.libraryId,
-      title: library.title,
+    assets: results.map(({ asset, result }, order) => ({
+      assetId: asset.assetId,
+      title: asset.title,
       version: result?.version ?? null,
       confirmed: confirmed[order]!,
       faqNearest: result?.confidence?.faqNearest ?? null,
@@ -215,10 +215,10 @@ async function judge(
 }
 
 /**
- * Whether one library's read fits its query well enough to be context.
+ * Whether one asset's read fits its query well enough to be context.
  *
  * Shared with the playground's agent (playground/agent.ts), whose reads are
- * one library and one query each, so the two paths cannot disagree about
+ * one asset and one query each, so the two paths cannot disagree about
  * what "confirmed" means.
  */
 export function readConfirms(result: QueryDocsResult, queryHasHan: boolean): boolean {
@@ -248,8 +248,8 @@ export function mergeReads(
       pool.push({
         chunk: {
           ...chunk,
-          libraryId: read.result.libraryId,
-          libraryTitle: read.title,
+          assetId: read.result.assetId,
+          assetTitle: read.title,
           version: read.result.version,
         },
         order,

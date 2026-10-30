@@ -329,10 +329,10 @@ describeWithDb('P4: re0 as an A2A client, retention, export and deletion', () =>
       await database.delete(schema.a2aTask).where(inArray(schema.a2aTask.workspaceId, workspaces));
     }
     if (assets.length > 0) {
-      await database.delete(schema.workflowOperation).where(inArray(schema.workflowOperation.libraryId, assets));
+      await database.delete(schema.workflowOperation).where(inArray(schema.workflowOperation.assetId, assets));
       await database.delete(schema.channelAsset).where(inArray(schema.channelAsset.assetId, assets));
-      await database.delete(schema.source).where(inArray(schema.source.libraryId, assets));
-      await database.delete(schema.library).where(inArray(schema.library.id, assets));
+      await database.delete(schema.source).where(inArray(schema.source.assetId, assets));
+      await database.delete(schema.asset).where(inArray(schema.asset.id, assets));
     }
     if (workspaces.length > 0) {
       await database.delete(schema.channel).where(inArray(schema.channel.workspaceId, workspaces));
@@ -687,7 +687,7 @@ describeWithDb('P4: re0 as an A2A client, retention, export and deletion', () =>
     const make = async (slug: string) => {
       const id = uuidv7();
       assets.push(id);
-      await database.insert(schema.library).values({
+      await database.insert(schema.asset).values({
         id,
         publicId: `/docs/p4-${slug}-${stamp}`,
         title: `P4 ${slug}`,
@@ -696,14 +696,14 @@ describeWithDb('P4: re0 as an A2A client, retention, export and deletion', () =>
         lifecycleStatus: 'published',
         indexStatus: 'ready',
         createdAt: new Date(Date.now() - 100 * 86_400_000),
-      } as typeof schema.library.$inferInsert);
+      } as typeof schema.asset.$inferInsert);
       return id;
     };
     const privateAsset = await make('private');
     const publicAsset = await make('public');
     /* Just as old, but a build is queued: the owner is working on it. */
     const buildingAsset = await make('building');
-    await database.insert(schema.workflowOperation).values({ id: uuidv7(), libraryId: buildingAsset, operationType: 'refresh', status: 'pending' } as typeof schema.workflowOperation.$inferInsert);
+    await database.insert(schema.workflowOperation).values({ id: uuidv7(), assetId: buildingAsset, operationType: 'refresh', status: 'pending' } as typeof schema.workflowOperation.$inferInsert);
     const channelId = uuidv7();
     await database.insert(schema.channel).values({ id: channelId, slug: `p4-public-${stamp}`, workspaceId: ws.id, title: 'Public', visibility: 'public' } as typeof schema.channel.$inferInsert);
     await database.insert(schema.channelAsset).values({ channelId, assetId: publicAsset } as typeof schema.channelAsset.$inferInsert);
@@ -713,9 +713,9 @@ describeWithDb('P4: re0 as an A2A client, retention, export and deletion', () =>
     expect(await privacy.privateAssetRetention(ws.id)).toBe(90);
     await privacy.expirePrivateAssets();
     const rows = await database
-      .select({ id: schema.library.id, deletedAt: schema.library.deletedAt })
-      .from(schema.library)
-      .where(inArray(schema.library.id, [privateAsset, publicAsset, buildingAsset]));
+      .select({ id: schema.asset.id, deletedAt: schema.asset.deletedAt })
+      .from(schema.asset)
+      .where(inArray(schema.asset.id, [privateAsset, publicAsset, buildingAsset]));
     const byId = new Map(rows.map((row) => [row.id, row.deletedAt]));
     expect(byId.get(privateAsset)).not.toBeNull();
     expect(byId.get(publicAsset)).toBeNull();

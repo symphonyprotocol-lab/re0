@@ -3,7 +3,7 @@
 import { useActionState, useRef, useState, useTransition } from 'react';
 
 import { FIELD, Field } from '@/components/admin/form-fields';
-import { submitOn } from '@/components/admin/platform-library-shared';
+import { submitOn } from '@/components/admin/platform-asset-shared';
 import { ConsoleButton, Pill } from '@/components/admin/ui';
 import type {
   RenderConfigActionResult,

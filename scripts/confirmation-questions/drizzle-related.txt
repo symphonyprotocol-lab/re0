@@ -1,4 +1,4 @@
-# Questions the Drizzle ORM docs answer (library /drizzle-team/drizzle-orm-docs or whatever you named it)
+# Questions the Drizzle ORM docs answer (asset /drizzle-team/drizzle-orm-docs or whatever you named it)
 How do I run a transaction in Drizzle?
 How do I define a one-to-many relation?
 What is the difference between drizzle-kit push and migrate?

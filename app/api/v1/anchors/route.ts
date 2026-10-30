@@ -40,7 +40,7 @@ export async function GET(request: NextRequest): Promise<NextResponse> {
     if (!version || !splitPinnedId(version)) {
       throw new AppError(
         'invalid_request',
-        'version is required as a pinned Library ID, e.g. /owner/repo/20260101-abcdef12',
+        'version is required as a pinned Asset ID, e.g. /owner/repo/20260101-abcdef12',
       );
     }
 

@@ -8,7 +8,7 @@
  *
  * Pure TypeScript -- domain layer rules apply.
  */
-import type { AssetAccess } from './asset';
+import type { AssetAccess } from './asset-kind';
 
 export const CHANNEL_VISIBILITIES = ['public', 'private'] as const;
 export type ChannelVisibility = (typeof CHANNEL_VISIBILITIES)[number];

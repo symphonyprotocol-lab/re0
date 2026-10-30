@@ -49,7 +49,7 @@ export function tierIsFree(tier: PlanTierId): boolean {
 
 /**
  * agent-first-proposal.md 8.1: a workspace's content is bounded as a whole,
- * not per library. Every user starts on `base`; the first Additional Calls
+ * not per asset. Every user starts on `base`; the first Additional Calls
  * purchase (and, later, the first channel subscription) moves them to
  * `extended` for good. The tier sits on the user and applies to their
  * personal workspace, because purchases and subscriptions are the user's.
@@ -69,7 +69,7 @@ const STORAGE_CAPACITY_BYTES: Record<StorageTier, number> = {
   extended: 2_048 * BYTES_PER_MB,
 };
 
-/** What a workspace on this tier may hold across all its live libraries, in bytes. */
+/** What a workspace on this tier may hold across all its live assets, in bytes. */
 export function storageCapacityBytes(tier: StorageTier): number {
   return STORAGE_CAPACITY_BYTES[tier];
 }
@@ -113,7 +113,7 @@ export function bytesToMb(bytes: number): number {
  * their JSON; both are ignored.
  */
 export interface PlanCapabilities {
-  /** Showcase pages (lib/domain/showcase.ts): how many libraries may have one, -1 for no cap. */
+  /** Showcase pages (lib/domain/showcase.ts): how many assets may have one, -1 for no cap. */
   showcasePages: number;
   /** Whether the showcase page's footer brand may be switched off. */
   showcaseBranding: boolean;
@@ -181,7 +181,7 @@ export interface PlanVersionDraft {
   currency: typeof PLAN_CURRENCY;
   monthlyCalls: number;
   apiKeyLimit: number;
-  /** library-build-billing.md 3.3; the pack carries the 0 sentinel in all three. */
+  /** asset-build-billing.md 3.3; the pack carries the 0 sentinel in all three. */
   buildBaseCalls: number;
   buildTokensPerCall: number;
   buildPagesPerCall: number;
@@ -262,7 +262,7 @@ export interface PlanVersionInput {
   /** Monthly allowance for a tier; calls per pack for the addon. */
   calls: string;
   apiKeyLimit?: string;
-  /** library-build-billing.md 3.3, as typed. Absent means "keep the defaults". */
+  /** asset-build-billing.md 3.3, as typed. Absent means "keep the defaults". */
   buildBaseCalls?: string;
   buildTokensPerCall?: string;
   buildPagesPerCall?: string;

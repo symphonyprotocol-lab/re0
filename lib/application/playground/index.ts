@@ -1,9 +1,9 @@
-import { resolveLibraryId, type CallerContext } from '@/lib/application/retrieval';
+import { resolveAssetId, type CallerContext } from '@/lib/application/retrieval';
 import {
-  gatherAcrossLibraries,
+  gatherAcrossAssets,
   type GatheredChunk,
-  type GatheredLibrary,
-  type GatherLibrary,
+  type GatheredAsset,
+  type GatherAsset,
 } from '@/lib/application/retrieval/gather';
 import {
   defaultRetrievalDependencies,
@@ -33,7 +33,7 @@ import {
 import { retrievalBudgetFor } from '@/lib/domain/retrieval-config';
 import { llmAdapter, type LlmAdapter } from '@/lib/infrastructure/ai/llm';
 import { FAQ_LIMITS, faqSentences, isFaqCitation } from '@/lib/domain/faq';
-import { libraryRewriteHints } from './rewrite-hints';
+import { assetRewriteHints } from './rewrite-hints';
 
 /**
  * The playground is the only entry point that produces prose.
@@ -67,7 +67,7 @@ import { libraryRewriteHints } from './rewrite-hints';
  * generation never meters a second.
  *
  * One exception path sits between retrieval and generation: rewrite on miss.
- * When no library confirms and a model is configured, the model is asked
+ * When no asset confirms and a model is configured, the model is asked
  * once to restate the question in the corpus's language and vocabulary
  * (lib/domain/generation.ts `REWRITE_SYSTEM_PROMPT`), and retrieval runs
  * again with that query. The first pass confirmed nothing, so it released its
@@ -87,7 +87,7 @@ export interface PlaygroundAnswer {
   kind: 'answer' | 'no_context' | 'degraded';
   text: string | null;
   chunks: GatheredChunk[];
-  libraries: GatheredLibrary[];
+  assets: GatheredAsset[];
   citations: { claim: string; chunkId: string }[];
   requestId: string;
   /** The query the context was retrieved with, when it was not the question. */
@@ -109,8 +109,8 @@ export type PlaygroundEvent =
       /** For a trial caller, the subscriber default a paid plan would answer with. */
       upgrade: string | null;
     }
-  /** What the scatter-gather read, library by library, before `context`. */
-  | { type: 'gather'; libraries: GatheredLibrary[] }
+  /** What the scatter-gather read, asset by asset, before `context`. */
+  | { type: 'gather'; assets: GatheredAsset[] }
   /**
    * The first pass missed and the retry with this query confirmed: the
    * `gather` and `context` that follow are the retry's. So a client can say
@@ -144,9 +144,9 @@ export interface PlaygroundDependencies {
   recordCost: typeof recordLlmCost;
   retrieval?: RetrievalDependencies;
   /** The scatter-gather itself; a test's seam around the database. */
-  gather?: typeof gatherAcrossLibraries;
-  /** What the rewrite is told about the libraries, by public id (rewrite-hints.ts). */
-  hints?: (libraryIds: readonly string[]) => Promise<RewriteHint[]>;
+  gather?: typeof gatherAcrossAssets;
+  /** What the rewrite is told about the assets, by public id (rewrite-hints.ts). */
+  hints?: (assetIds: readonly string[]) => Promise<RewriteHint[]>;
 }
 
 /**
@@ -175,7 +175,7 @@ export interface PlaygroundInput {
    * first is the one the exchange is metered on; all are read, and the
    * confirmed ones answer together (retrieval/gather.ts).
    */
-  libraries: readonly GatherLibrary[];
+  assets: readonly GatherAsset[];
   question: string;
   /** Which configured model to use. Absent means the console's default. */
   modelSlug?: string | null;
@@ -226,25 +226,25 @@ export async function* streamPlayground(
    * Scatter-gather (retrieval/gather.ts): every routed candidate is read,
    * and only the ones whose own retrieval is confirmed contribute. The
    * confirmation is the stage rule 2 needs -- recall always returns
-   * *something* from a library, its nearest chunks however far, and a model
+   * *something* from an asset, its nearest chunks however far, and a model
    * handed thirty unrelated passages does not reliably say so; it adapts
-   * them. When no library is confirmed there is no context: no model call,
+   * them. When no asset is confirmed there is no context: no model call,
    * and the reader is told nothing relevant was found.
    */
-  const gather = dependencies.gather ?? gatherAcrossLibraries;
+  const gather = dependencies.gather ?? gatherAcrossAssets;
   const maxTokens = retrievalBudgetFor(usable?.maxInputTokens, settings);
   const retrievalDependencies = { ...retrieval, settings: async () => settings };
   let retrieved = await gather(
     caller,
-    { libraries: input.libraries, query: input.question, maxTokens },
+    { assets: input.assets, query: input.question, maxTokens },
     retrievalDependencies,
   );
   let rewrittenQuery: string | null = null;
-  yield { type: 'gather', libraries: retrieved.libraries };
+  yield { type: 'gather', assets: retrieved.assets };
 
-  if (!retrieved.libraries.some((library) => library.confirmed)) {
+  if (!retrieved.assets.some((asset) => asset.confirmed)) {
     /*
-     * Rewrite on miss (module comment). Only the libraries this pass did
+     * Rewrite on miss (module comment). Only the assets this pass did
      * read are described to the model: a candidate whose retrieval was
      * refused is one the caller may not see into.
      */
@@ -254,7 +254,7 @@ export async function* streamPlayground(
     const retry = rewritten
       ? await gather(
           caller,
-          { libraries: input.libraries, query: rewritten, maxTokens },
+          { assets: input.assets, query: rewritten, maxTokens },
           retrievalDependencies,
         ).catch((error: unknown) => {
           logDegraded('retry retrieval failed', error);
@@ -262,14 +262,14 @@ export async function* streamPlayground(
         })
       : null;
 
-    if (rewritten && retry && retry.libraries.some((library) => library.confirmed)) {
+    if (rewritten && retry && retry.assets.some((asset) => asset.confirmed)) {
       retrieved = retry;
       rewrittenQuery = rewritten;
       yield { type: 'rewrite', query: rewritten };
-      yield { type: 'gather', libraries: retrieved.libraries };
+      yield { type: 'gather', assets: retrieved.assets };
     } else {
       console.info(
-        `playground no_context (no confirmed retrieval among ${retrieved.libraries.length} candidates${
+        `playground no_context (no confirmed retrieval among ${retrieved.assets.length} candidates${
           rewritten ? ', after one rewrite' : ''
         })`,
       );
@@ -282,7 +282,7 @@ export async function* streamPlayground(
   yield* answerFromContext(
     caller,
     {
-      libraries: input.libraries,
+      assets: input.assets,
       question: input.question,
       /* A follow-up's rewrite is also what the question meant; a first
          question's is only the site's words for it, and adds nothing. */
@@ -301,19 +301,19 @@ const CANDIDATES_READ = 3;
 
 /** Where the fixed path will look: the candidates in routing order, and the one metered on. */
 export interface RoutedQuestion {
-  candidates: GatherLibrary[];
-  top: { libraryId: string; title: string; version: string | null } | null;
-  /** Routing found nothing and the candidates are the libraries the last turn answered from. */
+  candidates: GatherAsset[];
+  top: { assetId: string; title: string; version: string | null } | null;
+  /** Routing found nothing and the candidates are the assets the last turn answered from. */
   followUp: boolean;
 }
 
 /**
  * Routing for the fixed path (architecture.md 9.6): the question through
- * resolve-library-id, the top candidates read.
+ * resolve-asset-id, the top candidates read.
  *
- * A follow-up such as "where do I download it?" names no library, so routing
+ * A follow-up such as "where do I download it?" names no asset, so routing
  * on its words alone finds nothing. When that happens and the conversation
- * has an earlier turn that answered from some library, those libraries are
+ * has an earlier turn that answered from some asset, those assets are
  * the candidates -- the visitor is still talking about them. They are only a
  * hint from the client: every read checks visibility again, and the rewrite
  * on a miss restates the question against the turns before it is retried.
@@ -322,27 +322,27 @@ export async function routeQuestion(
   caller: CallerContext,
   question: string,
   history: readonly HistoryTurn[],
-  resolve: typeof resolveLibraryId = resolveLibraryId,
+  resolve: typeof resolveAssetId = resolveAssetId,
 ): Promise<RoutedQuestion> {
   const resolved = await resolve(caller, { query: question });
   const candidates = resolved.results.slice(0, CANDIDATES_READ).map((candidate) => ({
-    libraryId: candidate.libraryId,
+    assetId: candidate.assetId,
     title: candidate.title,
   }));
   const top = resolved.results[0];
   if (top) {
     return {
       candidates,
-      top: { libraryId: top.libraryId, title: top.title, version: top.version },
+      top: { assetId: top.assetId, title: top.title, version: top.version },
       followUp: false,
     };
   }
-  const previous = [...history].reverse().find((turn) => turn.libraries && turn.libraries.length > 0);
-  const carried = (previous?.libraries ?? []).slice(0, CANDIDATES_READ);
+  const previous = [...history].reverse().find((turn) => turn.assets && turn.assets.length > 0);
+  const carried = (previous?.assets ?? []).slice(0, CANDIDATES_READ);
   if (carried.length === 0) return { candidates: [], top: null, followUp: false };
   return {
     candidates: carried,
-    top: { libraryId: carried[0]!.libraryId, title: carried[0]!.title, version: null },
+    top: { assetId: carried[0]!.assetId, title: carried[0]!.title, version: null },
     followUp: true,
   };
 }
@@ -409,12 +409,12 @@ export function lazyCredential(
 
 /** What the answer phase needs: the context retrieval settled on, and the model to answer with. */
 export interface AnswerContext {
-  /** The exchange's libraries in order; the first is the one costs are recorded against. */
-  libraries: readonly GatherLibrary[];
+  /** The exchange's assets in order; the first is the one costs are recorded against. */
+  assets: readonly GatherAsset[];
   question: string;
   /** The question restated from the conversation, when it was a follow-up (`buildAnswerMessage`). */
   resolved: string | null;
-  retrieved: { chunks: GatheredChunk[]; libraries: GatheredLibrary[]; requestId: string };
+  retrieved: { chunks: GatheredChunk[]; assets: GatheredAsset[]; requestId: string };
   usable: LlmConfigRow | null;
   credential: () => Promise<string>;
   startedAt: number;
@@ -565,32 +565,32 @@ export async function* answerFromContext(
  * for the provider, a hard output cap, one attempt. A reasoning model is asked for
  * its least effort; the prompt wants a line back, not a deliberation. Its
  * tokens are recorded like generation's -- one more `llm_cost_event` on the
- * same library, never the question or the reply.
+ * same asset, never the question or the reply.
  */
 async function rewriteOnMiss(
   caller: CallerContext,
   input: PlaygroundInput,
   usable: LlmConfigRow,
   apiKey: string,
-  retrieved: { libraries: GatheredLibrary[] },
+  retrieved: { assets: GatheredAsset[] },
   dependencies: PlaygroundDependencies,
 ): Promise<string | null> {
   const startedAt = Date.now();
-  const readable = retrieved.libraries.filter((library) => !library.failed);
+  const readable = retrieved.assets.filter((asset) => !asset.failed);
   if (readable.length === 0) return null;
 
-  const hints = await (dependencies.hints ?? libraryRewriteHints)(
-    readable.map((library) => library.libraryId),
+  const hints = await (dependencies.hints ?? assetRewriteHints)(
+    readable.map((asset) => asset.assetId),
   ).catch((): RewriteHint[] => []);
-  /* A library the reader did not find still has its title to be rewritten
+  /* An asset the reader did not find still has its title to be rewritten
      for; every one is shown the passages its own retrieval came closest to. */
-  const excerptsOf = new Map(readable.map((library) => [library.libraryId, library.excerpts]));
+  const excerptsOf = new Map(readable.map((asset) => [asset.assetId, asset.excerpts]));
   const described: RewriteHint[] = (
     hints.length > 0
       ? hints
-      : readable.map((library) => ({
-          libraryId: library.libraryId,
-          title: library.title,
+      : readable.map((asset) => ({
+          assetId: asset.assetId,
+          title: asset.title,
           description: null,
           language: null,
           documentTitles: [],
@@ -599,7 +599,7 @@ async function rewriteOnMiss(
         }))
   ).map((hint) => ({
     ...hint,
-    excerpts: hint.libraryId ? (excerptsOf.get(hint.libraryId) ?? []) : [],
+    excerpts: hint.assetId ? (excerptsOf.get(hint.assetId) ?? []) : [],
   }));
 
   let text = '';
@@ -638,7 +638,7 @@ async function rewriteOnMiss(
 export async function recordUsage(
   dependencies: PlaygroundDependencies,
   caller: CallerContext,
-  input: { libraries: readonly GatherLibrary[] },
+  input: { assets: readonly GatherAsset[] },
   usable: LlmConfigRow,
   usage: {
     promptTokens: number;
@@ -651,8 +651,8 @@ export async function recordUsage(
   await dependencies
     .recordCost({
       configId: usable.id,
-      /* The metered library: the routed top candidate (gather.ts). */
-      libraryPublicId: input.libraries[0]!.libraryId,
+      /* The metered asset: the routed top candidate (gather.ts). */
+      assetPublicId: input.assets[0]!.assetId,
       workspaceId: caller.workspaceId,
       model: usable.model,
       promptTokens: usage.promptTokens,
@@ -700,7 +700,7 @@ export async function askPlayground(
   dependencies: PlaygroundDependencies = defaultPlaygroundDependencies,
 ): Promise<PlaygroundAnswer> {
   let chunks: GatheredChunk[] = [];
-  let libraries: GatheredLibrary[] = [];
+  let assets: GatheredAsset[] = [];
   let requestId = '';
   let rewrite: string | null = null;
   const citations: { claim: string; chunkId: string }[] = [];
@@ -713,7 +713,7 @@ export async function askPlayground(
     } else if (event.type === 'rewrite') {
       rewrite = event.query;
     } else if (event.type === 'gather') {
-      libraries = event.libraries;
+      assets = event.assets;
     } else if (event.type === 'context') {
       chunks = event.chunks;
       requestId = event.requestId;
@@ -731,7 +731,7 @@ export async function askPlayground(
       kind,
       text: null,
       chunks: kind === 'no_context' ? [] : chunks,
-      libraries,
+      assets,
       citations: [],
       requestId,
       rewrite,
@@ -741,7 +741,7 @@ export async function askPlayground(
     kind,
     text: claims.join(' '),
     chunks,
-    libraries,
+    assets,
     citations,
     requestId,
     rewrite,
@@ -752,17 +752,17 @@ export async function askPlayground(
  * The FAQ chunk's sentences as claims, when the question asked is the FAQ's
  * own: the top chunk is a FAQ document's, it is the nearest FAQ chunk the
  * vector leg saw, and its own distance is within `FAQ_LIMITS.directDistance`.
- * Judged by the chunk, not the library's best distance -- the fused order's
+ * Judged by the chunk, not the asset's best distance -- the fused order's
  * top chunk need not be the nearest -- and matched by chunk id, so which
- * public id the caller named the library by does not matter. Null otherwise.
+ * public id the caller named the asset by does not matter. Null otherwise.
  */
 function directFaqAnswer(retrieved: {
   chunks: GatheredChunk[];
-  libraries: GatheredLibrary[];
+  assets: GatheredAsset[];
 }): Extract<PlaygroundEvent, { type: 'claim' }>[] | null {
   const top = retrieved.chunks[0];
   if (!top || !isFaqCitation(top.citation)) return null;
-  const nearest = retrieved.libraries.find((candidate) => candidate.faqNearest?.chunkId === top.chunkId)?.faqNearest;
+  const nearest = retrieved.assets.find((candidate) => candidate.faqNearest?.chunkId === top.chunkId)?.faqNearest;
   if (!nearest || nearest.distance > FAQ_LIMITS.directDistance) return null;
   const sentences = faqSentences(top.text);
   if (sentences.length === 0) return null;

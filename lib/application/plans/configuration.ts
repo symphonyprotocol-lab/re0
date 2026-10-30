@@ -37,7 +37,7 @@ export interface PlanVersionRow {
   currency: string;
   monthlyCalls: number;
   apiKeyLimit: number;
-  /** library-build-billing.md 3.3. */
+  /** asset-build-billing.md 3.3. */
   buildBaseCalls: number;
   buildTokensPerCall: number;
   buildPagesPerCall: number;

@@ -25,8 +25,8 @@ const { iterateRequests, queryRequests, rebuildUsageSummary, requestStats } = aw
   '@/lib/application/plans'
 );
 const { hashApiKey } = await import('@/lib/application/auth/api-key');
-const { createPlatformLibrary } = await import(
-  '@/lib/application/administration/manage-platform-libraries'
+const { createPlatformAsset } = await import(
+  '@/lib/application/administration/manage-platform-assets'
 );
 const { EMBEDDING_COLUMN_DIMENSIONS } = await import('@/lib/infrastructure/ai/providers');
 const { db, schema } = await import('@/lib/infrastructure/postgres/client');
@@ -100,8 +100,8 @@ function dependencies() {
   };
 }
 
-async function publishedLibrary(slug: string): Promise<string> {
-  const { libraryId } = await createPlatformLibrary({
+async function publishedAsset(slug: string): Promise<string> {
+  const { assetId } = await createPlatformAsset({
     actor,
     title: `Usage fixture ${slug}`,
     publicId: `/websites/${slug}`,
@@ -111,15 +111,15 @@ async function publishedLibrary(slug: string): Promise<string> {
     language: 'en',
     reason: 'integration test fixture',
   });
-  created.push(libraryId);
-  const built = await buildVersion({ libraryId, operationId: uuidv7(), dependencies: dependencies() });
+  created.push(assetId);
+  const built = await buildVersion({ assetId, operationId: uuidv7(), dependencies: dependencies() });
   if (!built.changed) throw new Error('fixture build produced no version');
-  await publishVersion({ libraryId, versionId: built.versionId });
+  await publishVersion({ assetId, versionId: built.versionId });
   await db()
-    .update(schema.library)
+    .update(schema.asset)
     .set({ lifecycleStatus: 'published' })
-    .where(eq(schema.library.id, libraryId));
-  return libraryId;
+    .where(eq(schema.asset.id, assetId));
+  return assetId;
 }
 
 async function workspaceWithKey(): Promise<{ workspaceId: string; key: string }> {
@@ -179,7 +179,7 @@ async function logRows(
   rows: {
     requestId: string;
     operation?: string;
-    libraryPublicId?: string | null;
+    assetPublicId?: string | null;
     entrypoint?: string | null;
     statusCode?: number;
     latencyMs?: number | null;
@@ -196,7 +196,7 @@ async function logRows(
         workspaceId,
         requestId: row.requestId,
         operation: row.operation ?? 'query-docs',
-        libraryPublicId: row.libraryPublicId ?? null,
+        assetPublicId: row.assetPublicId ?? null,
         entrypoint: row.entrypoint === undefined ? 'rest' : row.entrypoint,
         statusCode: row.statusCode ?? 200,
         latencyMs: row.latencyMs === undefined ? 10 : row.latencyMs,
@@ -221,30 +221,30 @@ describeWithDb('usage and request log', () => {
     const database = db();
     if (created.length > 0) {
       await database
-        .update(schema.library)
+        .update(schema.asset)
         .set({ currentVersionId: null })
-        .where(inArray(schema.library.id, created));
-      await database.delete(schema.usageEvent).where(inArray(schema.usageEvent.libraryId, created));
+        .where(inArray(schema.asset.id, created));
+      await database.delete(schema.usageEvent).where(inArray(schema.usageEvent.assetId, created));
       await database
-        .delete(schema.libraryProfileVector)
-        .where(inArray(schema.libraryProfileVector.libraryId, created));
+        .delete(schema.assetProfileVector)
+        .where(inArray(schema.assetProfileVector.assetId, created));
       await database
-        .delete(schema.libraryProfile)
-        .where(inArray(schema.libraryProfile.libraryId, created));
-      await database.delete(schema.chunk).where(inArray(schema.chunk.libraryId, created));
-      await database.delete(schema.document).where(inArray(schema.document.libraryId, created));
+        .delete(schema.assetProfile)
+        .where(inArray(schema.assetProfile.assetId, created));
+      await database.delete(schema.chunk).where(inArray(schema.chunk.assetId, created));
+      await database.delete(schema.document).where(inArray(schema.document.assetId, created));
       await database
-        .delete(schema.libraryVersion)
-        .where(inArray(schema.libraryVersion.libraryId, created));
+        .delete(schema.assetVersion)
+        .where(inArray(schema.assetVersion.assetId, created));
       await database
-        .delete(schema.libraryScore)
-        .where(inArray(schema.libraryScore.libraryId, created));
-      await database.delete(schema.source).where(inArray(schema.source.libraryId, created));
+        .delete(schema.assetScore)
+        .where(inArray(schema.assetScore.assetId, created));
+      await database.delete(schema.source).where(inArray(schema.source.assetId, created));
       await database
-        .delete(schema.libraryAlias)
-        .where(inArray(schema.libraryAlias.libraryId, created));
+        .delete(schema.assetAlias)
+        .where(inArray(schema.assetAlias.assetId, created));
       await database.delete(schema.auditLog).where(inArray(schema.auditLog.targetId, created));
-      await database.delete(schema.library).where(inArray(schema.library.id, created));
+      await database.delete(schema.asset).where(inArray(schema.asset.id, created));
     }
     if (workspaces.length > 0) {
       await database
@@ -273,15 +273,15 @@ describeWithDb('usage and request log', () => {
     /* Anonymous log rows this file created carry no workspace to key on. */
     await database
       .delete(schema.requestLog)
-      .where(sql`${schema.requestLog.libraryPublicId} like '/websites/usage-%'`);
+      .where(sql`${schema.requestLog.assetPublicId} like '/websites/usage-%'`);
   });
 
   it('rebuilds the summary from events and reports quota over the API', async () => {
     const stamp = Date.now();
-    await publishedLibrary(`usage-basic-${stamp}`);
+    await publishedAsset(`usage-basic-${stamp}`);
     const { workspaceId, key } = await workspaceWithKey();
     const input = {
-      libraryId: `/websites/usage-basic-${stamp}`,
+      assetId: `/websites/usage-basic-${stamp}`,
       query: 'flumequarry ledger receipts',
       maxTokens: 4000,
       format: 'json' as const,
@@ -316,14 +316,14 @@ describeWithDb('usage and request log', () => {
 
   it('logs outcomes without the query text, refusals included', async () => {
     const stamp = Date.now();
-    await publishedLibrary(`usage-log-${stamp}`);
+    await publishedAsset(`usage-log-${stamp}`);
     const { workspaceId, key } = await workspaceWithKey();
 
     const served = caller(workspaceId);
     await queryDocs(
       served,
       {
-        libraryId: `/websites/usage-log-${stamp}`,
+        assetId: `/websites/usage-log-${stamp}`,
         query: 'a very identifiable secret question',
         maxTokens: 4000,
         format: 'json',
@@ -332,19 +332,19 @@ describeWithDb('usage and request log', () => {
     );
     await queryDocs(
       caller(workspaceId),
-      { libraryId: '/none/missing', query: 'x', maxTokens: 4000, format: 'json' },
+      { assetId: '/none/missing', query: 'x', maxTokens: 4000, format: 'json' },
       noEmbeddings,
     ).catch(() => {});
 
     const response = await requestsRoute(get('/api/v1/requests', key));
     expect(response.status).toBe(200);
     const body = (await response.json()) as {
-      requests: { statusCode: number; libraryPublicId: string | null; requestId: string }[];
+      requests: { statusCode: number; assetPublicId: string | null; requestId: string }[];
     };
     const ok = body.requests.find((row) => row.requestId === served.requestId);
     expect(ok?.statusCode).toBe(200);
     expect((ok as { entrypoint?: string } | undefined)?.entrypoint).toBe('web');
-    expect(ok?.libraryPublicId).toBe(`/websites/usage-log-${stamp}`);
+    expect(ok?.assetPublicId).toBe(`/websites/usage-log-${stamp}`);
     expect(body.requests.some((row) => row.statusCode === 404)).toBe(true);
 
     /* 17.1: the log never holds the query. */
@@ -365,12 +365,12 @@ describeWithDb('usage and request log', () => {
     const base = new Date(day(1).getTime() + 3_600_000);
 
     await logRows(workspaceId, [
-      { requestId: `a-${stamp}`, entrypoint: 'rest', statusCode: 200, libraryPublicId: '/websites/alpha', createdAt: base },
-      { requestId: `b-${stamp}`, entrypoint: 'mcp', statusCode: 200, libraryPublicId: '/websites/alpha', createdAt: base },
-      { requestId: `c-${stamp}`, entrypoint: 'web', statusCode: 500, libraryPublicId: '/websites/beta', createdAt: base },
-      { requestId: `d-${stamp}`, entrypoint: 'rest', statusCode: 404, libraryPublicId: '/websites/beta', createdAt: base },
+      { requestId: `a-${stamp}`, entrypoint: 'rest', statusCode: 200, assetPublicId: '/websites/alpha', createdAt: base },
+      { requestId: `b-${stamp}`, entrypoint: 'mcp', statusCode: 200, assetPublicId: '/websites/alpha', createdAt: base },
+      { requestId: `c-${stamp}`, entrypoint: 'web', statusCode: 500, assetPublicId: '/websites/beta', createdAt: base },
+      { requestId: `d-${stamp}`, entrypoint: 'rest', statusCode: 404, assetPublicId: '/websites/beta', createdAt: base },
       /* Older than the window the filters below ask for. */
-      { requestId: `e-${stamp}`, entrypoint: 'rest', statusCode: 200, libraryPublicId: '/websites/alpha', createdAt: day(9) },
+      { requestId: `e-${stamp}`, entrypoint: 'rest', statusCode: 200, assetPublicId: '/websites/alpha', createdAt: day(9) },
     ]);
 
     const ids = async (filter: Parameters<typeof queryRequests>[1]) =>
@@ -381,7 +381,7 @@ describeWithDb('usage and request log', () => {
     expect(await ids({ status: 'error' })).toEqual([`c-${stamp}`, `d-${stamp}`].sort());
     expect(await ids({ entrypoint: 'mcp' })).toEqual([`b-${stamp}`]);
     expect(await ids({ entrypoint: 'web' })).toEqual([`c-${stamp}`]);
-    expect(await ids({ library: '/websites/beta' })).toEqual([`c-${stamp}`, `d-${stamp}`].sort());
+    expect(await ids({ asset: '/websites/beta' })).toEqual([`c-${stamp}`, `d-${stamp}`].sort());
     expect(await ids({ query: `d-${stamp}` })).toEqual([`d-${stamp}`]);
     /* `from` is inclusive of its midnight, `to` exclusive of the next one. */
     expect(await ids({ from: day(2), to: new Date(day(1).getTime() + DAY_MS) })).toEqual(
@@ -394,7 +394,7 @@ describeWithDb('usage and request log', () => {
       await ids({
         entrypoint: 'rest',
         status: 'ok',
-        library: '/websites/alpha',
+        asset: '/websites/alpha',
         from: day(2),
         to: new Date(day(1).getTime() + DAY_MS),
       }),
@@ -517,7 +517,7 @@ describeWithDb('usage and request log', () => {
         returnedTokens: null,
         apiKeyId: null,
         latencyMs: null,
-        libraryPublicId: null,
+        assetPublicId: null,
         entrypoint: null,
         createdAt: new Date(day(1).getTime() + 3_600_000),
       },
@@ -541,7 +541,7 @@ describeWithDb('usage and request log', () => {
     expect(bare.apiKeyMasked).toBeNull();
     expect(bare.latencyMs).toBeNull();
     expect(bare.entrypoint).toBeNull();
-    expect(bare.libraryPublicId).toBeNull();
+    expect(bare.assetPublicId).toBeNull();
 
     const orphan = rows.find((row) => row.requestId === `orphan-${stamp}`)!;
     expect(orphan.apiKeyMasked).toBeNull();

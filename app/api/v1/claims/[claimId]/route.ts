@@ -27,7 +27,7 @@ export async function GET(
     return NextResponse.json(
       {
         claimId: claim.id,
-        libraryId: claim.libraryPublicId,
+        assetId: claim.assetPublicId,
         method: claim.method,
         status: claim.status,
         reason: claim.failureReason ?? undefined,

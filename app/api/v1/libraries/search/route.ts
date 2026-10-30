@@ -1,16 +1,16 @@
 /**
- * GET /api/v1/libraries/search -- library-level discovery. architecture.md
- * 12.1: `query` is the primary input and `libraryName` an optional hint,
- * because a user-uploaded library's name says nothing about its content
+ * GET /api/v1/libraries/search -- asset-level discovery. architecture.md
+ * 12.1: `query` is the primary input and `assetName` an optional hint,
+ * because a user-uploaded asset's name says nothing about its content
  * (architecture.md 9.6). Anonymous callers are admitted through the anonymous
  * rate limit; a Bearer API key authenticates a workspace and widens
- * visibility to its own private libraries.
+ * visibility to its own private assets.
  */
 import { NextResponse, type NextRequest } from 'next/server';
 import { AppError } from '@/contracts/errors';
-import { resolveLibraryInputSchema } from '@/contracts/schemas';
+import { resolveAssetInputSchema } from '@/contracts/schemas';
 import { requireScope } from '@/lib/application/auth';
-import { resolveLibraryId } from '@/lib/application/retrieval';
+import { resolveAssetId } from '@/lib/application/retrieval';
 import { retrievalCaller, trialHeaders } from '@/lib/http/retrieval-caller';
 import { errorResponse, newRequestId } from '@/lib/http/respond';
 
@@ -22,15 +22,15 @@ export async function GET(request: NextRequest): Promise<NextResponse> {
     const caller = await retrievalCaller(request, requestId);
     requireScope(caller, 'knowledge:search');
 
-    const parsed = resolveLibraryInputSchema.safeParse({
+    const parsed = resolveAssetInputSchema.safeParse({
       query: request.nextUrl.searchParams.get('query') ?? undefined,
-      libraryName: request.nextUrl.searchParams.get('libraryName') ?? undefined,
+      assetName: request.nextUrl.searchParams.get('assetName') ?? undefined,
     });
     if (!parsed.success) {
       throw new AppError('invalid_request', 'query is required (1-2000 characters)');
     }
 
-    const output = await resolveLibraryId(caller, parsed.data);
+    const output = await resolveAssetId(caller, parsed.data);
     return NextResponse.json(output, {
       headers: { 'cache-control': 'private, no-store', ...trialHeaders(caller.trial) },
     });

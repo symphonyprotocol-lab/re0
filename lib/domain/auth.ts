@@ -76,7 +76,7 @@ export function safeReturnTo(input: unknown): string {
  *
  * The single gate for requirement.md 3.2: suspending an account has to stop
  * *every* way it reaches the platform at once -- the web session, the API key,
- * and the answers its libraries give. Each of those resolves the caller in a
+ * and the answers its assets give. Each of those resolves the caller in a
  * different place, so the rule lives here rather than being re-typed as
  * `status !== 'active'` in each of them, and every new principal resolver has
  * one obvious thing to call.

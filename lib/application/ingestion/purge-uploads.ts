@@ -1,19 +1,19 @@
 /**
  * Sweeps uploads nobody followed up on.
  *
- * The wizard puts PDFs in the store before the library exists (architecture.md
+ * The wizard puts PDFs in the store before the asset exists (architecture.md
  * 7, `uploads/`), so a session that stops after picking files leaves objects
  * and no row. An S3 bucket would expire them by lifecycle rule; Vercel Blob
  * has none, so the drain does it: list the prefix, subtract every key a `pdf`
  * source still lists, and delete what is older than the grace period.
  *
  * Referenced keys are read *after* the listing, so an upload that is created
- * into a library between the two reads is on the referenced side. The other
+ * into an asset between the two reads is on the referenced side. The other
  * race -- a create that lands after this decides -- is closed by age: the
  * grace period is far longer than an upload token lives.
  */
 import { inArray } from 'drizzle-orm';
-import { abandonedUploadKeys, UPLOAD_SOURCE_TYPES, uploadedFilesOf } from '@/lib/domain/library';
+import { abandonedUploadKeys, UPLOAD_SOURCE_TYPES, uploadedFilesOf } from '@/lib/domain/asset';
 import { db, schema } from '@/lib/infrastructure/postgres/client';
 import { defaultDependencies, type IngestionDependencies } from './dependencies';
 

@@ -81,17 +81,17 @@ async function readEntitlement(workspaceId: string): Promise<WorkspaceShowcaseEn
 type Database = ReturnType<typeof db>;
 type Tx = Parameters<Parameters<Database['transaction']>[0]>[0];
 
-/** Pages the workspace has on live libraries; what the plan's cap counts. A deleted library's page is retired with it. */
+/** Pages the workspace has on live assets; what the plan's cap counts. A deleted asset's page is retired with it. */
 export async function countWorkspaceShowcases(workspaceId: string, on: Database | Tx = db()): Promise<number> {
   const [row] = await on
     .select({ n: count() })
-    .from(schema.libraryShowcase)
-    .innerJoin(schema.library, eq(schema.library.id, schema.libraryShowcase.libraryId))
+    .from(schema.assetShowcase)
+    .innerJoin(schema.asset, eq(schema.asset.id, schema.assetShowcase.assetId))
     .where(
       and(
-        eq(schema.libraryShowcase.workspaceId, workspaceId),
-        isNull(schema.libraryShowcase.deletedAt),
-        isNull(schema.library.deletedAt),
+        eq(schema.assetShowcase.workspaceId, workspaceId),
+        isNull(schema.assetShowcase.deletedAt),
+        isNull(schema.asset.deletedAt),
       ),
     );
   return row?.n ?? 0;

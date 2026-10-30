@@ -4,7 +4,7 @@
  * the decision is.
  */
 import { describe, expect, it } from 'vitest';
-import { ABANDONED_UPLOAD_AGE_MS, abandonedUploadKeys } from '@/lib/domain/library';
+import { ABANDONED_UPLOAD_AGE_MS, abandonedUploadKeys } from '@/lib/domain/asset';
 
 const NOW = Date.parse('2026-09-05T12:00:00Z');
 const old = new Date(NOW - ABANDONED_UPLOAD_AGE_MS - 1);

@@ -1,5 +1,5 @@
 /**
- * Deletes uploaded PDFs that no library ever claimed: objects under
+ * Deletes uploaded PDFs that no asset ever claimed: objects under
  * `uploads/` older than a day and listed by no `pdf` source. The drain does
  * the same at the end of every run; this is for doing it by hand.
  *
@@ -7,7 +7,7 @@
  *
  * Safe to run locally because the store is paired with the database: the `dev`
  * Neon branch goes with `recall0-blob-dev` (architecture.md 3.2), so what this
- * machine reads as "no library claims this object" is a statement about the
+ * machine reads as "no asset claims this object" is a statement about the
  * same environment it is deleting from.
  *
  * `.mts` for the same reason as the other scripts: the env has to be loaded

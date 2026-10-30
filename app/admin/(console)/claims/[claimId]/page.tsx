@@ -27,7 +27,7 @@ export async function generateMetadata({ params }: Params): Promise<Metadata> {
   const [{ claimId }, t] = await Promise.all([params, getMessages()]);
   const claim = await claimDetail(claimId);
   if (!claim) return { title: t.admin.claimDetail.title };
-  return { title: fill(t.admin.claimDetail.metaTitle, { library: claim.library.title }) };
+  return { title: fill(t.admin.claimDetail.metaTitle, { asset: claim.asset.title }) };
 }
 
 const CLAIM_TONE: Record<string, 'warn' | 'ok' | 'danger' | 'neutral'> = {
@@ -73,18 +73,18 @@ export default async function AdminClaimDetailPage({ params }: Params) {
     <div className="flex flex-col gap-[18px]">
       <ConsolePageHeader
         eyebrow={d.eyebrow}
-        title={claim.library.title}
-        description={claim.library.publicId}
+        title={claim.asset.title}
+        description={claim.asset.publicId}
         action={
           <span className="flex flex-wrap items-center gap-2">
             <ClaimControls
               variant="button"
               target={{
                 id: claim.id,
-                libraryTitle: claim.library.title,
-                libraryPublicId: claim.library.publicId,
+                assetTitle: claim.asset.title,
+                assetPublicId: claim.asset.publicId,
                 claimantName: claim.claimant.name || '—',
-                initial: initialsOf(claim.library.title),
+                initial: initialsOf(claim.asset.title),
               }}
               status={claim.status}
               disputed={claim.disputed}
@@ -111,11 +111,11 @@ export default async function AdminClaimDetailPage({ params }: Params) {
         <dl className="grid grid-cols-1 gap-x-6 px-[19px] py-1 sm:grid-cols-2">
           <Fact label={d.fields.id} value={<span className="font-mono">{claim.id}</span>} />
           <Fact
-            label={d.fields.library}
+            label={d.fields.asset}
             value={
               <span className="flex flex-wrap items-center gap-2">
-                <span className="font-mono">{claim.library.publicId}</span>
-                {claim.library.deletedAt ? <Pill tone="danger">{d.libraryDeleted}</Pill> : null}
+                <span className="font-mono">{claim.asset.publicId}</span>
+                {claim.asset.deletedAt ? <Pill tone="danger">{d.assetDeleted}</Pill> : null}
               </span>
             }
           />
@@ -124,8 +124,8 @@ export default async function AdminClaimDetailPage({ params }: Params) {
           <Fact
             label={d.fields.source}
             value={
-              claim.library.sourceType
-                ? `${claim.library.sourceType} · ${claim.library.location ?? '—'}`
+              claim.asset.sourceType
+                ? `${claim.asset.sourceType} · ${claim.asset.location ?? '—'}`
                 : '—'
             }
           />

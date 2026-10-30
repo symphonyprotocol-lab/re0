@@ -1,7 +1,7 @@
 /**
  * The little Markdown a cited sentence can carry: bold, inline code, a
  * bullet or a heading at the start of a line. Rendered by hand rather than
- * by a Markdown library because the text is a single sentence with its
+ * by a Markdown asset because the text is a single sentence with its
  * line breaks kept (`whitespace-pre-line` on the paragraph), and a block
  * renderer would fight the inline footnotes that follow it.
  *

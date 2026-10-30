@@ -52,7 +52,7 @@ import {
   type SchemeSnapshot,
 } from '@/lib/domain/external-agent';
 import { uuidv7 } from '@/lib/domain/id';
-import { canManageLibraries, type WorkspaceRole } from '@/lib/application/libraries/delete';
+import { canManageAssets, type WorkspaceRole } from '@/lib/application/assets/delete';
 import { AppError } from '@/contracts/errors';
 import { db, schema } from '@/lib/infrastructure/postgres/client';
 import { findExternalAgent, openCredentialFor, storedCard } from './registry';
@@ -397,7 +397,7 @@ async function remoteCall(
   input: { workspaceId: string; role: WorkspaceRole; delegationId: string },
   call: (client: Client, tenant: string, taskId: string) => Promise<Task>,
 ): Promise<DelegationView> {
-  if (!canManageLibraries(input.role)) throw new AppError('access_denied', 'only a workspace owner or admin can follow a delegation');
+  if (!canManageAssets(input.role)) throw new AppError('access_denied', 'only a workspace owner or admin can follow a delegation');
   const row = await ownedDelegation(input.workspaceId, input.delegationId);
   if (!row) throw new ExternalAgentRefused('not_found', 'no such delegation');
   if (isTerminalRemoteState(row.state) || !row.remoteTaskId) return view(row);

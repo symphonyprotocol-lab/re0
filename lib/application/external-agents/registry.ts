@@ -42,7 +42,7 @@ import {
   type SchemeSnapshot,
 } from '@/lib/domain/external-agent';
 import { uuidv7 } from '@/lib/domain/id';
-import { canManageLibraries, type WorkspaceRole } from '@/lib/application/libraries/delete';
+import { canManageAssets, type WorkspaceRole } from '@/lib/application/assets/delete';
 import { isCredentialKeyConfigured, openCredential, sealCredential } from '@/lib/infrastructure/crypto/credentials';
 import { sha256 } from '@/lib/infrastructure/crypto/tokens';
 import { db, schema } from '@/lib/infrastructure/postgres/client';
@@ -135,7 +135,7 @@ function view(row: AgentListRow, credential: CredentialRow | null): ExternalAgen
 }
 
 function assertManager(role: WorkspaceRole): void {
-  if (!canManageLibraries(role)) {
+  if (!canManageAssets(role)) {
     throw new AppError('access_denied', 'only a workspace owner or admin can manage external agents');
   }
 }

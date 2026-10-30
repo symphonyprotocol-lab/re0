@@ -2,10 +2,10 @@
  * The refresh queue as one screen: what is running, what is waiting, what has
  * just finished, and what the policies will queue next.
  *
- * `manage-platform-libraries.ts` shows a library's own operations on its
- * detail page; this is the view across libraries, for the operator who wants
- * to know whether the drain is keeping up rather than whether one library
- * built. Platform libraries only, like the rest of the console's platform
+ * `manage-platform-assets.ts` shows an asset's own operations on its
+ * detail page; this is the view across assets, for the operator who wants
+ * to know whether the drain is keeping up rather than whether one asset
+ * built. Platform assets only, like the rest of the console's platform
  * screens: a workspace's builds are its own business and show in its
  * dashboard.
  */
@@ -16,7 +16,7 @@ import { db, schema } from '@/lib/infrastructure/postgres/client';
 
 export interface RefreshQueueRow {
   id: string;
-  libraryId: string;
+  assetId: string;
   publicId: string;
   title: string;
   operationType: string;
@@ -66,15 +66,15 @@ export async function listRefreshQueue(
   const recentLimit = Math.max(1, Math.min(200, input.recentLimit ?? 50));
 
   const isPlatform = and(
-    eq(schema.library.isPlatformLibrary, true),
-    isNull(schema.library.deletedAt),
+    eq(schema.asset.isPlatformAsset, true),
+    isNull(schema.asset.deletedAt),
   );
 
   const columns = {
     id: schema.workflowOperation.id,
-    libraryId: schema.library.id,
-    publicId: schema.library.publicId,
-    title: schema.library.title,
+    assetId: schema.asset.id,
+    publicId: schema.asset.publicId,
+    title: schema.asset.title,
     operationType: schema.workflowOperation.operationType,
     sourceId: schema.workflowOperation.sourceId,
     sourceType: schema.source.type,
@@ -94,7 +94,7 @@ export async function listRefreshQueue(
     database
       .select(columns)
       .from(schema.workflowOperation)
-      .innerJoin(schema.library, eq(schema.library.id, schema.workflowOperation.libraryId))
+      .innerJoin(schema.asset, eq(schema.asset.id, schema.workflowOperation.assetId))
       .leftJoin(schema.source, eq(schema.source.id, schema.workflowOperation.sourceId));
 
   const [open, recent, [counted]] = await Promise.all([
@@ -124,7 +124,7 @@ export async function listRefreshQueue(
         ))::int`,
       })
       .from(schema.workflowOperation)
-      .innerJoin(schema.library, eq(schema.library.id, schema.workflowOperation.libraryId))
+      .innerJoin(schema.asset, eq(schema.asset.id, schema.workflowOperation.assetId))
       .where(
         and(
           isPlatform,

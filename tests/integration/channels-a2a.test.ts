@@ -27,11 +27,11 @@ process.env.SESSION_SIGNING_SECRET ??= 'test-secret-that-is-long-enough-000000';
 process.env.APP_BASE_URL ??= 'https://app.example.test';
 
 const { buildVersion, memoryObjectStore, publishVersion } = await import('@/lib/application/ingestion');
-const { createPlatformLibrary } = await import('@/lib/application/administration/manage-platform-libraries');
+const { createPlatformAsset } = await import('@/lib/application/administration/manage-platform-assets');
 const { queryDocs } = await import('@/lib/application/retrieval/query-docs');
-const { resolveLibrary } = await import('@/lib/application/retrieval/resolve-library');
+const { resolveAsset } = await import('@/lib/application/retrieval/resolve-asset');
 const { searchScope } = await import('@/lib/application/retrieval/search-scope');
-const { createWorkspaceLibrary, declareLibraryRights, publicLibraryDetail } = await import('@/lib/application/libraries');
+const { createWorkspaceAsset, declareAssetRights, publicAssetDetail } = await import('@/lib/application/assets');
 const channels = await import('@/lib/application/channels');
 const { ChannelRefused } = await import('@/lib/domain/channel');
 const { changeWorkspaceHandle, HandleRefused } = await import('@/lib/application/workspaces/handle');
@@ -130,7 +130,7 @@ async function workspace(label: string, monthlyCalls = 100): Promise<string> {
 /** A built, published website asset owned by `owner`, in no channel. */
 async function ownedAsset(owner: string, slug: string): Promise<{ id: string; publicId: string }> {
   const publicId = `/websites/${slug}`;
-  const { libraryId } = await createPlatformLibrary({
+  const { assetId } = await createPlatformAsset({
     actor,
     title: `Quillwort notes ${slug}`,
     publicId,
@@ -140,17 +140,17 @@ async function ownedAsset(owner: string, slug: string): Promise<{ id: string; pu
     language: 'en',
     reason: 'P1 integration fixture',
   });
-  assets.push(libraryId);
-  const built = await buildVersion({ libraryId, operationId: uuidv7(), dependencies: dependencies() });
+  assets.push(assetId);
+  const built = await buildVersion({ assetId, operationId: uuidv7(), dependencies: dependencies() });
   if (!built.changed) throw new Error('fixture build produced no version');
-  await publishVersion({ libraryId, versionId: built.versionId });
+  await publishVersion({ assetId, versionId: built.versionId });
   await db()
-    .update(schema.library)
-    .set({ lifecycleStatus: 'published', isPlatformLibrary: false, ownerWorkspaceId: owner })
-    .where(eq(schema.library.id, libraryId));
-  /* Out of the platform channel createPlatformLibrary put it in: the owner's alone. */
-  await db().delete(schema.channelAsset).where(eq(schema.channelAsset.assetId, libraryId));
-  return { id: libraryId, publicId };
+    .update(schema.asset)
+    .set({ lifecycleStatus: 'published', isPlatformAsset: false, ownerWorkspaceId: owner })
+    .where(eq(schema.asset.id, assetId));
+  /* Out of the platform channel createPlatformAsset put it in: the owner's alone. */
+  await db().delete(schema.channelAsset).where(eq(schema.channelAsset.assetId, assetId));
+  return { id: assetId, publicId };
 }
 
 function caller(workspaceId: string | null): CallerContext {
@@ -207,20 +207,20 @@ describeWithDb('P1: channels, visibility and A2A', () => {
     const database = db();
     if (anonymousTasks.length > 0) await database.delete(schema.a2aTask).where(inArray(schema.a2aTask.id, anonymousTasks));
     if (assets.length > 0) {
-      await database.update(schema.library).set({ currentVersionId: null }).where(inArray(schema.library.id, assets));
+      await database.update(schema.asset).set({ currentVersionId: null }).where(inArray(schema.asset.id, assets));
       await database.delete(schema.channelAsset).where(inArray(schema.channelAsset.assetId, assets));
-      await database.delete(schema.usageEvent).where(inArray(schema.usageEvent.libraryId, assets));
-      await database.delete(schema.libraryClaim).where(inArray(schema.libraryClaim.libraryId, assets));
-      await database.delete(schema.libraryProfileVector).where(inArray(schema.libraryProfileVector.libraryId, assets));
-      await database.delete(schema.libraryProfile).where(inArray(schema.libraryProfile.libraryId, assets));
-      await database.delete(schema.chunk).where(inArray(schema.chunk.libraryId, assets));
-      await database.delete(schema.document).where(inArray(schema.document.libraryId, assets));
-      await database.delete(schema.libraryVersion).where(inArray(schema.libraryVersion.libraryId, assets));
-      await database.delete(schema.libraryScore).where(inArray(schema.libraryScore.libraryId, assets));
-      await database.delete(schema.workflowOperation).where(inArray(schema.workflowOperation.libraryId, assets));
-      await database.delete(schema.source).where(inArray(schema.source.libraryId, assets));
+      await database.delete(schema.usageEvent).where(inArray(schema.usageEvent.assetId, assets));
+      await database.delete(schema.assetClaim).where(inArray(schema.assetClaim.assetId, assets));
+      await database.delete(schema.assetProfileVector).where(inArray(schema.assetProfileVector.assetId, assets));
+      await database.delete(schema.assetProfile).where(inArray(schema.assetProfile.assetId, assets));
+      await database.delete(schema.chunk).where(inArray(schema.chunk.assetId, assets));
+      await database.delete(schema.document).where(inArray(schema.document.assetId, assets));
+      await database.delete(schema.assetVersion).where(inArray(schema.assetVersion.assetId, assets));
+      await database.delete(schema.assetScore).where(inArray(schema.assetScore.assetId, assets));
+      await database.delete(schema.workflowOperation).where(inArray(schema.workflowOperation.assetId, assets));
+      await database.delete(schema.source).where(inArray(schema.source.assetId, assets));
       await database.delete(schema.auditLog).where(inArray(schema.auditLog.targetId, assets));
-      await database.delete(schema.library).where(inArray(schema.library.id, assets));
+      await database.delete(schema.asset).where(inArray(schema.asset.id, assets));
     }
     if (workspaces.length > 0) {
       await database.delete(schema.requestLog).where(inArray(schema.requestLog.workspaceId, workspaces));
@@ -238,19 +238,19 @@ describeWithDb('P1: channels, visibility and A2A', () => {
     const owner = await workspace('own');
     const stranger = await workspace('str');
     const asset = await ownedAsset(owner, `p1-hidden-${stamp}`);
-    const input = { libraryId: asset.publicId, query: 'quillwort lighting', maxTokens: 4000, format: 'json' as const };
+    const input = { assetId: asset.publicId, query: 'quillwort lighting', maxTokens: 4000, format: 'json' as const };
 
     /* In no channel. */
     expect((await queryDocs(caller(owner), input, noModels)).chunks.length).toBeGreaterThan(0);
     for (const who of [stranger, null]) {
       expect(await refusal(queryDocs(caller(who), input, noModels))).toBe('library_not_found');
-      const routed = await resolveLibrary(caller(who), { query: 'quillwort husbandry' }, noModels);
-      expect(routed.results.map((result) => result.libraryId)).not.toContain(asset.publicId);
+      const routed = await resolveAsset(caller(who), { query: 'quillwort husbandry' }, noModels);
+      expect(routed.results.map((result) => result.assetId)).not.toContain(asset.publicId);
       const scoped = await searchScope(caller(who), { scope: { kind: 'workspace', workspaceId: owner }, query: 'quillwort', maxTokens: 4000 }, noModels);
       expect(scoped.searchedAssets).toBe(0);
       expect(scoped.chunks).toHaveLength(0);
     }
-    expect(await publicLibraryDetail(asset.publicId)).toBeNull();
+    expect(await publicAssetDetail(asset.publicId)).toBeNull();
 
     /* In a private channel: still the owner's alone. */
     const hidden = await channels.createChannel({ workspaceId: owner, role: 'owner', slug: `p1-private-${stamp}`, title: 'Private shelf', visibility: 'private' });
@@ -272,11 +272,11 @@ describeWithDb('P1: channels, visibility and A2A', () => {
     const move = (channelId: string | null) => channels.moveAsset({ workspaceId: owner, role: 'owner', assetId: asset.id, channelId });
 
     expect(await refusal(move(open.id))).toBe('rights_required');
-    await declareLibraryRights({ workspaceId: owner, role: 'owner', libraryId: asset.id, userId: null, rights: { origin: 'own', license: 'open_source', generation: 'human' } });
+    await declareAssetRights({ workspaceId: owner, role: 'owner', assetId: asset.id, userId: null, rights: { origin: 'own', license: 'open_source', generation: 'human' } });
     expect(await refusal(move(open.id))).toBe('claim_required');
-    await db().insert(schema.libraryClaim).values({
+    await db().insert(schema.assetClaim).values({
       id: uuidv7(),
-      libraryId: asset.id,
+      assetId: asset.id,
       claimantWorkspaceId: owner,
       method: 'dns_txt',
       challengeTokenHash: 'fixture',
@@ -288,24 +288,24 @@ describeWithDb('P1: channels, visibility and A2A', () => {
     expect(await refusal(channels.moveAsset({ workspaceId: stranger, role: 'owner', assetId: asset.id, channelId: open.id }))).toBe('asset_not_found');
 
     expect(await move(open.id)).toMatchObject({ to: open.id, madePublic: true });
-    const input = { libraryId: asset.publicId, query: 'quillwort lighting', maxTokens: 4000, format: 'json' as const };
+    const input = { assetId: asset.publicId, query: 'quillwort lighting', maxTokens: 4000, format: 'json' as const };
     expect((await queryDocs(caller(stranger), input, noModels)).chunks.length).toBeGreaterThan(0);
     expect((await queryDocs(caller(null), input, noModels)).chunks.length).toBeGreaterThan(0);
-    expect((await publicLibraryDetail(asset.publicId))?.channel?.slug).toBe(`p1-open-${stamp}`);
+    expect((await publicAssetDetail(asset.publicId))?.channel?.slug).toBe(`p1-open-${stamp}`);
 
     /* An asset is in at most one channel: a second move replaces the first. */
     const other = await channels.createChannel({ workspaceId: owner, role: 'owner', slug: `p1-other-${stamp}`, title: 'Other', visibility: 'private' });
-    await db().update(schema.library).set({ access: 'paid' }).where(eq(schema.library.id, asset.id));
+    await db().update(schema.asset).set({ access: 'paid' }).where(eq(schema.asset.id, asset.id));
     expect(await move(other.id)).toMatchObject({ from: open.id, to: other.id, madePublic: false });
     const memberships = await db().select().from(schema.channelAsset).where(eq(schema.channelAsset.assetId, asset.id));
     expect(memberships.map((row) => row.channelId)).toEqual([other.id]);
     /* Access describes the asset inside one channel and is not carried to the next. */
-    const [afterMove] = await db().select({ access: schema.library.access }).from(schema.library).where(eq(schema.library.id, asset.id));
+    const [afterMove] = await db().select({ access: schema.asset.access }).from(schema.asset).where(eq(schema.asset.id, asset.id));
     expect(afterMove?.access).toBe('free');
 
-    await db().update(schema.library).set({ access: 'paid' }).where(eq(schema.library.id, asset.id));
+    await db().update(schema.asset).set({ access: 'paid' }).where(eq(schema.asset.id, asset.id));
     expect(await move(null)).toMatchObject({ from: other.id, to: null });
-    const [afterOut] = await db().select({ access: schema.library.access }).from(schema.library).where(eq(schema.library.id, asset.id));
+    const [afterOut] = await db().select({ access: schema.asset.access }).from(schema.asset).where(eq(schema.asset.id, asset.id));
     expect(afterOut?.access).toBe('free');
     expect(await refusal(queryDocs(caller(stranger), input, noModels))).toBe('library_not_found');
   });
@@ -313,9 +313,9 @@ describeWithDb('P1: channels, visibility and A2A', () => {
   it('gives a private channel no card and keeps it, and empty channels, out of the directory', async () => {
     const owner = await workspace('card');
     const asset = await ownedAsset(owner, `p1-card-${stamp}`);
-    await declareLibraryRights({ workspaceId: owner, role: 'owner', libraryId: asset.id, userId: null, rights: { origin: 'own', license: 'open_source', generation: 'human' } });
-    await db().insert(schema.libraryClaim).values({
-      id: uuidv7(), libraryId: asset.id, claimantWorkspaceId: owner, method: 'dns_txt', challengeTokenHash: 'fixture',
+    await declareAssetRights({ workspaceId: owner, role: 'owner', assetId: asset.id, userId: null, rights: { origin: 'own', license: 'open_source', generation: 'human' } });
+    await db().insert(schema.assetClaim).values({
+      id: uuidv7(), assetId: asset.id, claimantWorkspaceId: owner, method: 'dns_txt', challengeTokenHash: 'fixture',
       status: 'verified', expiresAt: new Date(Date.now() + 86_400_000), verifiedAt: new Date(),
     });
     const publicSlug = `p1-pub-${stamp}`;
@@ -367,9 +367,9 @@ describeWithDb('P1: channels, visibility and A2A', () => {
     const owner = await workspace('meter');
     const visitor = await workspace('mvis');
     const asset = await ownedAsset(owner, `p1-meter-${stamp}`);
-    await declareLibraryRights({ workspaceId: owner, role: 'owner', libraryId: asset.id, userId: null, rights: { origin: 'own', license: 'open_source', generation: 'human' } });
-    await db().insert(schema.libraryClaim).values({
-      id: uuidv7(), libraryId: asset.id, claimantWorkspaceId: owner, method: 'dns_txt', challengeTokenHash: 'fixture',
+    await declareAssetRights({ workspaceId: owner, role: 'owner', assetId: asset.id, userId: null, rights: { origin: 'own', license: 'open_source', generation: 'human' } });
+    await db().insert(schema.assetClaim).values({
+      id: uuidv7(), assetId: asset.id, claimantWorkspaceId: owner, method: 'dns_txt', challengeTokenHash: 'fixture',
       status: 'verified', expiresAt: new Date(Date.now() + 86_400_000), verifiedAt: new Date(),
     });
     const slug = `p1-meter-${stamp}`;
@@ -396,7 +396,7 @@ describeWithDb('P1: channels, visibility and A2A', () => {
     expect(((signed.body.result!.task as Record<string, unknown>).status as { state: string }).state).toBe('TASK_STATE_COMPLETED');
     const charged = await usageEventsFor(signed.requestId);
     expect(charged).toHaveLength(1);
-    expect(charged[0]).toMatchObject({ workspaceId: visitor, entrypoint: 'a2a', operation: 'search_context', calls: 1, libraryId: asset.id });
+    expect(charged[0]).toMatchObject({ workspaceId: visitor, entrypoint: 'a2a', operation: 'search_context', calls: 1, assetId: asset.id });
 
     /* Nothing found, nothing charged. */
     const empty = await rpc(tenant, visitor, 'SendMessage', sendParams('zzzqqqxxx nonexistentword'));
@@ -416,9 +416,9 @@ describeWithDb('P1: channels, visibility and A2A', () => {
     const owner = await workspace('task');
     const caller2 = await workspace('tcall');
     const asset = await ownedAsset(owner, `p1-task-${stamp}`);
-    await declareLibraryRights({ workspaceId: owner, role: 'owner', libraryId: asset.id, userId: null, rights: { origin: 'own', license: 'open_source', generation: 'human' } });
-    await db().insert(schema.libraryClaim).values({
-      id: uuidv7(), libraryId: asset.id, claimantWorkspaceId: owner, method: 'dns_txt', challengeTokenHash: 'fixture',
+    await declareAssetRights({ workspaceId: owner, role: 'owner', assetId: asset.id, userId: null, rights: { origin: 'own', license: 'open_source', generation: 'human' } });
+    await db().insert(schema.assetClaim).values({
+      id: uuidv7(), assetId: asset.id, claimantWorkspaceId: owner, method: 'dns_txt', challengeTokenHash: 'fixture',
       status: 'verified', expiresAt: new Date(Date.now() + 86_400_000), verifiedAt: new Date(),
     });
     const slug = `p1-task-${stamp}`;
@@ -503,7 +503,7 @@ describeWithDb('P1: channels, visibility and A2A', () => {
     const owner = await workspace('gh');
     let asked = false;
     const attempt = await refusal(
-      createWorkspaceLibrary({
+      createWorkspaceAsset({
         role: 'owner',
         workspaceId: owner,
         userId: crypto.randomUUID(),
@@ -519,7 +519,7 @@ describeWithDb('P1: channels, visibility and A2A', () => {
     );
     expect(attempt).toBe('invalid_request');
     expect(asked).toBe(false);
-    const rows = await db().select().from(schema.library).where(eq(schema.library.publicId, '/channels/handbook'));
+    const rows = await db().select().from(schema.asset).where(eq(schema.asset.publicId, '/channels/handbook'));
     expect(rows).toHaveLength(0);
   });
 

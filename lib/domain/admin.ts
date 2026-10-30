@@ -8,8 +8,8 @@
 
 export type AdminCapability =
   | 'users'
-  | 'libraries'
-  | 'platformLibraries'
+  | 'assets'
+  | 'platformAssets'
   | 'plans'
   | 'models'
   | 'billing'
@@ -19,8 +19,8 @@ export type AdminCapability =
 
 export const ADMIN_CAPABILITIES: readonly AdminCapability[] = [
   'users',
-  'libraries',
-  'platformLibraries',
+  'assets',
+  'platformAssets',
   'plans',
   'models',
   'billing',
@@ -49,20 +49,20 @@ const ROLE_CAPABILITIES: Record<AdminRoleId, readonly AdminCapability[]> = {
    * named apart here, and a future role can be given one without the other.
    *
    * `claims` is ownership: ruling a dispute, transferring and revoking
-   * (requirement.md 5.3, 7.3.5) rewrite `library.owner_workspace_id`, which
+   * (requirement.md 5.3, 7.3.5) rewrite `asset.owner_workspace_id`, which
    * decides who is paid. That is an operator's decision, not a reviewer's --
    * a reviewer judges whether content may ship, never whose it is.
    */
-  operator: ['users', 'libraries', 'platformLibraries', 'plans', 'models', 'billing', 'claims'],
+  operator: ['users', 'assets', 'platformAssets', 'plans', 'models', 'billing', 'claims'],
   /*
-   * `libraries` and `platformLibraries` are separate capabilities because
+   * `assets` and `platformAssets` are separate capabilities because
    * requirement.md 3.1 gives them to different people: a Reviewer decides
-   * whether a *user's* public library may ship, while creating, refreshing,
-   * suspending and publishing the platform's own libraries is the Operator's
-   * job. One capability covering both would let a reviewer publish a library
+   * whether a *user's* public asset may ship, while creating, refreshing,
+   * suspending and publishing the platform's own assets is the Operator's
+   * job. One capability covering both would let a reviewer publish an asset
    * under re0's name.
    */
-  reviewer: ['libraries'],
+  reviewer: ['assets'],
   support: ['users'],
 };
 

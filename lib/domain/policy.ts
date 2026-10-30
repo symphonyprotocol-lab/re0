@@ -1,8 +1,8 @@
 /**
  * The workspace policy evaluator. architecture.md 10.
  *
- * One pure function decides whether a workspace's policy admits a library,
- * and Library Search, Context Retrieval and the web all call it -- never a
+ * One pure function decides whether a workspace's policy admits an asset,
+ * and Asset Search, Context Retrieval and the web all call it -- never a
  * re-implementation (10.2). The verdict carries a stable reason code; call
  * records store the code and nothing else.
  *
@@ -31,13 +31,13 @@
 export const POLICY_REASONS = [
   'allowed',
   'source_type_disabled',
-  'library_blocked',
+  'asset_blocked',
   'not_in_allowlist',
-  'unverified_library',
+  'unverified_asset',
   'below_trust_threshold',
-  'stale_library',
+  'stale_asset',
   'below_star_threshold',
-  'unlicensed_library',
+  'unlicensed_asset',
   'below_backlink_threshold',
   'below_referring_domain_threshold',
   'below_traffic_threshold',
@@ -46,11 +46,11 @@ export const POLICY_REASONS = [
 export type PolicyReason = (typeof POLICY_REASONS)[number];
 
 /**
- * The switch a private library answers to. Private libraries are not a source
+ * The switch a private asset answers to. Private assets are not a source
  * type -- they are the workspace's own content, whatever it was built from --
  * but requirement.md 5.2 lists them beside the source-type switches, and the
  * evaluator treats the key like one: `sourceTypes.private === false` refuses
- * every private library. `policyVerdicts` adds it to a private subject's
+ * every private asset. `policyVerdicts` adds it to a private subject's
  * `sourceTypes`.
  */
 export const PRIVATE_SOURCE_TYPE = 'private';
@@ -90,9 +90,9 @@ export interface WorkspacePolicy {
   sourceTypes: Record<string, boolean>;
   quality: PolicyQuality;
   /** Policy list entries; see `parsePolicyEntry`. */
-  blockedLibraries: string[];
-  exceptedLibraries: string[];
-  allowedLibraries: string[];
+  blockedAssets: string[];
+  exceptedAssets: string[];
+  allowedAssets: string[];
 }
 
 export const OPEN_QUALITY: PolicyQuality = {
@@ -111,9 +111,9 @@ export const OPEN_POLICY: WorkspacePolicy = {
   mode: null,
   sourceTypes: {},
   quality: OPEN_QUALITY,
-  blockedLibraries: [],
-  exceptedLibraries: [],
-  allowedLibraries: [],
+  blockedAssets: [],
+  exceptedAssets: [],
+  allowedAssets: [],
 };
 
 /** Whether a quality block constrains nothing: every threshold left unset. */
@@ -137,7 +137,7 @@ export function qualityIsOpen(quality: PolicyQuality): boolean {
  */
 export function normalizePolicyMode(policy: WorkspacePolicy): WorkspacePolicy {
   if (policy.mode !== null) return policy;
-  const constrains = !qualityIsOpen(policy.quality) || policy.exceptedLibraries.length > 0;
+  const constrains = !qualityIsOpen(policy.quality) || policy.exceptedAssets.length > 0;
   return constrains ? { ...policy, mode: 'quality' } : policy;
 }
 
@@ -148,9 +148,9 @@ export interface PolicySubject {
    * naming a channel covers every asset in it (agent-first-proposal.md 6.1).
    */
   channel?: string | null;
-  /** Every source type the library ingests from (plus `private` when it is its owner's alone). */
+  /** Every source type the asset ingests from (plus `private` when it is its owner's alone). */
   sourceTypes: string[];
-  /** Hostnames of the library's sources, lower-cased; empty when none apply. */
+  /** Hostnames of the asset's sources, lower-cased; empty when none apply. */
   domains?: string[];
   trustScore: number;
   /** Claimed by a verified owner, or platform-curated. */
@@ -172,43 +172,43 @@ export interface PolicyVerdict {
 
 export function evaluatePolicy(policy: WorkspacePolicy, subject: PolicySubject): PolicyVerdict {
   /*
-   * A library whose chunks include content from any disabled source type is
+   * An asset whose chunks include content from any disabled source type is
    * refused outright: chunks from several sources are co-mingled in one
-   * version, so admitting the library would admit the disabled source.
+   * version, so admitting the asset would admit the disabled source.
    */
   if (subject.sourceTypes.some((type) => policy.sourceTypes[type] === false)) {
     return { allowed: false, reason: 'source_type_disabled' };
   }
 
-  if (listedIn(policy.blockedLibraries, subject)) {
-    return { allowed: false, reason: 'library_blocked' };
+  if (listedIn(policy.blockedAssets, subject)) {
+    return { allowed: false, reason: 'asset_blocked' };
   }
 
   if (policy.mode === 'select') {
-    return listedIn(policy.allowedLibraries, subject)
+    return listedIn(policy.allowedAssets, subject)
       ? { allowed: true, reason: 'allowed' }
       : { allowed: false, reason: 'not_in_allowlist' };
   }
 
   if (policy.mode === 'quality') {
-    if (listedIn(policy.exceptedLibraries, subject)) {
+    if (listedIn(policy.exceptedAssets, subject)) {
       return { allowed: true, reason: 'allowed' };
     }
     const q = policy.quality;
     if (q.requireVerified && !subject.verified) {
-      return { allowed: false, reason: 'unverified_library' };
+      return { allowed: false, reason: 'unverified_asset' };
     }
     if (q.minTrustScore !== null && subject.trustScore < q.minTrustScore) {
       return { allowed: false, reason: 'below_trust_threshold' };
     }
     if (q.maxAgeDays !== null && subject.ageDays !== null && subject.ageDays > q.maxAgeDays) {
-      return { allowed: false, reason: 'stale_library' };
+      return { allowed: false, reason: 'stale_asset' };
     }
     if (below(q.minStars, subject.stars)) {
       return { allowed: false, reason: 'below_star_threshold' };
     }
     if (q.requireLicense && subject.hasLicense === false) {
-      return { allowed: false, reason: 'unlicensed_library' };
+      return { allowed: false, reason: 'unlicensed_asset' };
     }
     if (below(q.minBacklinks, subject.backlinks)) {
       return { allowed: false, reason: 'below_backlink_threshold' };
@@ -232,21 +232,21 @@ function below(threshold: number | null, value: number | null | undefined): bool
 /* ---------------------------------------------------------- list entries */
 
 /**
- * Whether one allow/block/except entry covers a library.
+ * Whether one allow/block/except entry covers an asset.
  *
- * An entry is a Library ID, or a prefix: `/websites/ethereum/*` covers
- * `/websites/ethereum` and every library nested under it (requirement.md 6.1
+ * An entry is an Asset ID, or a prefix: `/websites/ethereum/*` covers
+ * `/websites/ethereum` and every asset nested under it (requirement.md 6.1
  * nests the slug namespaces), and `/vercel/*` covers an organisation's every
  * repository. The star is only meaningful as a whole trailing segment;
  * `/websites/eth*` is not a pattern and matches nothing, which the contract
  * schema refuses before it gets here.
  *
- * Case-insensitively, like a domain entry: a repository Library ID keeps the
+ * Case-insensitively, like a domain entry: a repository Asset ID keeps the
  * case GitHub published it in (`/Vercel/next.js`, see `normalizePublicId`),
  * while whoever types an entry types it however they read it. Comparing the
  * two literally would leave an allow entry silently matching nothing.
  */
-export function libraryEntryMatches(entry: string, publicId: string): boolean {
+export function assetEntryMatches(entry: string, publicId: string): boolean {
   const wanted = entry.toLowerCase();
   const given = publicId.toLowerCase();
   if (!wanted.endsWith('/*')) return given === wanted;
@@ -255,7 +255,7 @@ export function libraryEntryMatches(entry: string, publicId: string): boolean {
 }
 
 /**
- * A domain entry (`docs.example.com`) covers a library whose sources live on
+ * A domain entry (`docs.example.com`) covers an asset whose sources live on
  * that host or under it: `example.com` also covers `docs.example.com`.
  */
 export function domainEntryMatches(entry: string, host: string): boolean {
@@ -286,8 +286,8 @@ export function listedIn(
     isDomainEntry(entry)
       ? domains.some((host) => domainEntryMatches(entry, host))
       : isChannelEntry(entry)
-        ? channel !== null && libraryEntryMatches(entry, channel)
-        : libraryEntryMatches(entry, publicId),
+        ? channel !== null && assetEntryMatches(entry, channel)
+        : assetEntryMatches(entry, publicId),
   );
 }
 
@@ -297,7 +297,7 @@ const ID_SEGMENT = /^[a-z0-9][a-z0-9._-]*$/i;
 const DOMAIN = /^(?=.{1,253}$)([a-z0-9]([a-z0-9-]{0,61}[a-z0-9])?\.)+[a-z][a-z0-9-]{1,62}$/i;
 export const MAX_ENTRY_LENGTH = 258;
 
-export type PolicyEntryKind = 'library' | 'organisation' | 'domain' | 'channel';
+export type PolicyEntryKind = 'asset' | 'organisation' | 'domain' | 'channel';
 
 export interface ParsedPolicyEntry {
   /** The canonical form the policy stores. */
@@ -309,16 +309,16 @@ export interface ParsedPolicyEntry {
  * One typed list entry to its stored form, or null when it is none of the
  * three shapes requirement.md 5.2 names:
  *
- *   - a Library ID, `/vercel/next.js` or `/websites/ethereum/whitepaper`,
+ *   - an Asset ID, `/vercel/next.js` or `/websites/ethereum/whitepaper`,
  *     optionally `/…/*` to cover what nests under it;
  *   - an organisation, `vercel`, `@vercel`, `/vercel` or `/vercel/*`, which
  *     becomes `/vercel/*` -- every repository the owner publishes;
  *   - a domain, `docs.example.com`, with or without a scheme or path, which
- *     covers every library whose sources live on that host;
+ *     covers every asset whose sources live on that host;
  *   - a channel, `/channels/{slug}`, which covers every asset in that
  *     channel (agent-first-proposal.md 6.1).
  *
- * Website slugs are typed by whoever publishes the library, so a domain is
+ * Website slugs are typed by whoever publishes the asset, so a domain is
  * kept as a domain rather than guessed into a `/websites/…` id.
  */
 export function parsePolicyEntry(raw: string): ParsedPolicyEntry | null {
@@ -357,7 +357,7 @@ export function parsePolicyEntry(raw: string): ParsedPolicyEntry | null {
   if (named.length === 1) {
     return { entry: `/${named[0]}/*`, kind: 'organisation' };
   }
-  return { entry: `/${named.join('/')}${wildcard ? '/*' : ''}`, kind: 'library' };
+  return { entry: `/${named.join('/')}${wildcard ? '/*' : ''}`, kind: 'asset' };
 }
 
 export interface ParsedPolicyList {
@@ -367,7 +367,7 @@ export interface ParsedPolicyList {
 
 /**
  * A pasted or uploaded list to entries: one per line or per CSV cell, in any
- * mix; quotes and blank cells dropped, a header cell (`library`, `id`,
+ * mix; quotes and blank cells dropped, a header cell (`asset`, `id`,
  * `domain`…) ignored, duplicates folded. Whatever does not parse is returned
  * so the console can show it rather than silently dropping it.
  */
@@ -394,11 +394,11 @@ export function parsePolicyList(text: string): ParsedPolicyList {
 }
 
 const LIST_HEADERS = new Set([
-  'library',
-  'libraries',
-  'library id',
-  'library_id',
-  'libraryid',
+  'asset',
+  'assets',
+  'asset id',
+  'asset_id',
+  'assetid',
   'id',
   'ids',
   'entry',
@@ -457,9 +457,9 @@ export function diffPolicy(current: WorkspacePolicy, next: WorkspacePolicy): Pol
   }
   if (Object.keys(quality).length > 0) diff.quality = quality;
 
-  const blocked = diffList(current.blockedLibraries, next.blockedLibraries);
-  const excepted = diffList(current.exceptedLibraries, next.exceptedLibraries);
-  const allowed = diffList(current.allowedLibraries, next.allowedLibraries);
+  const blocked = diffList(current.blockedAssets, next.blockedAssets);
+  const excepted = diffList(current.exceptedAssets, next.exceptedAssets);
+  const allowed = diffList(current.allowedAssets, next.allowedAssets);
   if (blocked) diff.blocked = blocked;
   if (excepted) diff.excepted = excepted;
   if (allowed) diff.allowed = allowed;

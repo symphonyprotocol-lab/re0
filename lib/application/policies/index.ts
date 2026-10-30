@@ -8,4 +8,4 @@ export {
   readWorkspacePolicy,
   type WorkspacePolicyState,
 } from './workspace-policy';
-export { countReachableLibraries } from './policy-store';
+export { countReachableAssets } from './policy-store';

@@ -70,7 +70,7 @@ export const RETRIEVAL_SETTING_BOUNDS: Record<RetrievalSettingKey, RetrievalSett
   rerankWindow: { min: 2, max: 200, default: 30 },
   /** Characters of each chunk handed to the reranker; the rest is cost. */
   rerankDocumentChars: { min: 200, max: 20_000, default: 1_500 },
-  /** Public-library result cache. Zero switches the cache off. */
+  /** Public-asset result cache. Zero switches the cache off. */
   cacheTtlSeconds: { min: 0, max: 7 * 24 * 3_600, default: 21_600 },
   /** The playground's excerpt budget when no model is configured. */
   playgroundTokensDefault: {
@@ -90,11 +90,11 @@ export const RETRIEVAL_SETTING_BOUNDS: Record<RetrievalSettingKey, RetrievalSett
     max: RETRIEVAL_TOKENS_MAX_ALLOWED,
     default: 6_000,
   },
-  /** Per-path recall width in resolve-library-id. */
+  /** Per-path recall width in resolve-asset-id. */
   routingRecallLimit: { min: 5, max: 200, default: 24 },
   /** Chunk rows the rare-term path may read; the whole cost model of 9.6. */
   routingRareSampleCap: { min: 50, max: 5_000, default: 400 },
-  /** Candidates resolve-library-id returns. */
+  /** Candidates resolve-asset-id returns. */
   routingResultLimit: { min: 1, max: 50, default: 10 },
   /**
    * 1 lets a model that declares tool calling plan the playground's searches
@@ -105,9 +105,9 @@ export const RETRIEVAL_SETTING_BOUNDS: Record<RetrievalSettingKey, RetrievalSett
   playgroundAgent: { min: 0, max: 1, default: 0 },
   /** Model steps the planner may take, its closing `answer` call included. */
   playgroundAgentSteps: { min: 2, max: 6, default: 4 },
-  /** `query_docs` calls one exchange may make: each is a read of one library. */
+  /** `query_docs` calls one exchange may make: each is a read of one asset. */
   playgroundAgentQueries: { min: 1, max: 6, default: 3 },
-  /** `resolve_library_id` calls one exchange may make; 0 leaves the planner to the libraries the turns name. */
+  /** `resolve_asset_id` calls one exchange may make; 0 leaves the planner to the assets the turns name. */
   playgroundAgentResolves: { min: 0, max: 4, default: 2 },
   /**
    * The channel directory's 热门 score (agent-first-proposal.md 6.4):

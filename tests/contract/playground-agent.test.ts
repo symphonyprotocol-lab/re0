@@ -12,7 +12,7 @@
  */
 import { describe, expect, it } from 'vitest';
 import { AppError } from '@/contracts/errors';
-import type { ResolveLibraryOutput } from '@/contracts/schemas';
+import type { ResolveAssetOutput } from '@/contracts/schemas';
 import type { ReservedCall } from '@/lib/application/plans';
 import type { GatherResult } from '@/lib/application/retrieval/gather';
 import type { QueryDocsResult } from '@/lib/application/retrieval/query-docs';
@@ -48,22 +48,22 @@ const CONFIG = {
   assignedTo: ['trial' as const],
 };
 
-const EDIT2 = { libraryId: '/websites/edit2', title: 'edit2' };
-const OTHER = { libraryId: '/websites/other', title: 'Other' };
+const EDIT2 = { assetId: '/websites/edit2', title: 'edit2' };
+const OTHER = { assetId: '/websites/other', title: 'Other' };
 const caller = { workspaceId: 'ws_1', apiKeyId: null, requestId: 'req_1', anonymous: false };
 
 const HISTORY: HistoryTurn[] = [
   {
     question: 'What is edit2?',
     answer: 'edit2 is a fast editor for text files.',
-    libraries: [EDIT2],
+    assets: [EDIT2],
   },
 ];
 
 /** One read's result, confirmed or not; the first read of an exchange holds the seat. */
-function result(libraryId: string, confirmed: boolean, chunkIds: string[], reservation: ReservedCall | null) {
+function result(assetId: string, confirmed: boolean, chunkIds: string[], reservation: ReservedCall | null) {
   return {
-    libraryId,
+    assetId,
     version: 'v1',
     chunks: chunkIds.map((id, rank) => ({
       chunkId: id,
@@ -75,7 +75,7 @@ function result(libraryId: string, confirmed: boolean, chunkIds: string[], reser
     usage: { callsUsed: 1, planAllowanceRemaining: 10, addonBalanceRemaining: 0 },
     requestId: caller.requestId,
     confidence: confirmed ? { bestDistance: 0.2, keywordHits: 3 } : { bestDistance: 0.9, keywordHits: 0 },
-    served: { libraryId, versionId: `ver_${libraryId}`, returnedTokens: 12, latencyMs: 5 },
+    served: { assetId, versionId: `ver_${assetId}`, returnedTokens: 12, latencyMs: 5 },
     reservation,
   } as unknown as QueryDocsResult;
 }
@@ -87,7 +87,7 @@ interface Fixture {
   script: Script;
   /** Throws after this many calls, as a provider that dies mid-plan. */
   failAfter?: number;
-  /** Per library: confirmed or not, and the chunk ids it returns. */
+  /** Per asset: confirmed or not, and the chunk ids it returns. */
   reads?: Record<string, { confirmed: boolean; chunks: string[] } | AppError>;
   /** Per query, ahead of `reads`. */
   byQuery?: Record<string, { confirmed: boolean; chunks: string[] }>;
@@ -101,7 +101,7 @@ interface Fixture {
 
 function fixture(options: Fixture) {
   const calls = {
-    reads: [] as { libraryId: string; query: string; meter: unknown }[],
+    reads: [] as { assetId: string; query: string; meter: unknown }[],
     resolves: [] as string[],
     commits: [] as string[],
     releases: [] as string[],
@@ -156,8 +156,8 @@ function fixture(options: Fixture) {
     resolve: async (_caller, input) => {
       calls.resolves.push(input.query);
       return {
-        results: [EDIT2, OTHER].map((library) => ({
-          ...library,
+        results: [EDIT2, OTHER].map((asset) => ({
+          ...asset,
           description: null,
           version: 'v1',
           versions: ['v1'],
@@ -168,22 +168,22 @@ function fixture(options: Fixture) {
           evidence: { matchedTitles: ['Install'], matchedTerms: ['download'] },
         })),
         requestId: caller.requestId,
-      } as ResolveLibraryOutput;
+      } as ResolveAssetOutput;
     },
     read: async (_caller, input, _dependencies, readOptions) => {
-      calls.reads.push({ libraryId: input.libraryId, query: input.query, meter: readOptions.meter });
+      calls.reads.push({ assetId: input.assetId, query: input.query, meter: readOptions.meter });
       const planned = options.byQuery?.[input.query] ??
-        options.reads?.[input.libraryId] ?? { confirmed: true, chunks: ['c1'] };
+        options.reads?.[input.assetId] ?? { confirmed: true, chunks: ['c1'] };
       if (planned instanceof AppError) throw planned;
       return result(
-        input.libraryId,
+        input.assetId,
         planned.confirmed,
         planned.chunks,
         readOptions.meter === 'deferred' ? SEAT : null,
       );
     },
     commit: async (_caller, seat, served) => {
-      calls.commits.push(`${seat.reservationId}:${served.libraryId}`);
+      calls.commits.push(`${seat.reservationId}:${served.assetId}`);
     },
     release: async (reservationId) => {
       calls.releases.push(reservationId);
@@ -193,7 +193,7 @@ function fixture(options: Fixture) {
       calls.gathers += 1;
       return {
         chunks: [],
-        libraries: [{ ...EDIT2, version: 'v1', confirmed: false, faqNearest: null, chunks: 0, failed: false, excerpts: [] }],
+        assets: [{ ...EDIT2, version: 'v1', confirmed: false, faqNearest: null, chunks: 0, failed: false, excerpts: [] }],
         requestId: caller.requestId,
       } satisfies GatherResult;
     },
@@ -238,15 +238,15 @@ async function run(options: Fixture, question = 'Where do I download it?') {
 }
 
 const outcome = (events: AgentEvent[]) =>
-  events.flatMap((event) => (event.type === 'done' ? [event.kind] : event.type === 'no_library' ? ['no_library'] : []));
+  events.flatMap((event) => (event.type === 'done' ? [event.kind] : event.type === 'no_asset' ? ['no_asset'] : []));
 const claims = (events: AgentEvent[]) =>
   events.flatMap((event) => (event.type === 'claim' ? [event] : []));
 
 describe('playground agent', () => {
-  it('answers a follow-up from the library the turns name, with the turns kept from the answer', async () => {
+  it('answers a follow-up from the asset the turns name, with the turns kept from the answer', async () => {
     const { events, calls } = await run({
       script: [
-        { tool: 'query_docs', input: { libraryId: EDIT2.libraryId, query: 'download edit2' } },
+        { tool: 'query_docs', input: { assetId: EDIT2.assetId, query: 'download edit2' } },
         { tool: 'answer', input: { question: 'Where do I download edit2?' } },
       ],
     });
@@ -263,48 +263,48 @@ describe('playground agent', () => {
 
     const planner = calls.llm.find((call) => call.system === PLANNER_SYSTEM_PROMPT)!;
     expect(planner.user).toContain('edit2 is a fast editor for text files.');
-    expect(planner.user).toContain(EDIT2.libraryId);
+    expect(planner.user).toContain(EDIT2.assetId);
     const answering = calls.llm.find((call) => call.system === PLAYGROUND_SYSTEM_PROMPT)!;
     expect(answering.user).toContain('Question: Where do I download it?');
     expect(answering.user).toContain('Where do I download edit2?');
     expect(answering.user).not.toContain('fast editor');
 
-    expect(calls.reads).toEqual([{ libraryId: EDIT2.libraryId, query: 'download edit2', meter: 'deferred' }]);
-    expect(calls.commits).toEqual([`seat_1:${EDIT2.libraryId}`]);
+    expect(calls.reads).toEqual([{ assetId: EDIT2.assetId, query: 'download edit2', meter: 'deferred' }]);
+    expect(calls.commits).toEqual([`seat_1:${EDIT2.assetId}`]);
     expect(calls.releases).toEqual([]);
   });
 
   it('never cites a read that did not confirm', async () => {
     const { events, calls } = await run({
       script: [
-        { tool: 'query_docs', input: { libraryId: OTHER.libraryId, query: 'download' } },
-        { tool: 'query_docs', input: { libraryId: EDIT2.libraryId, query: 'download edit2' } },
+        { tool: 'query_docs', input: { assetId: OTHER.assetId, query: 'download' } },
+        { tool: 'query_docs', input: { assetId: EDIT2.assetId, query: 'download edit2' } },
         { tool: 'answer', input: { question: 'Where do I download edit2?' } },
       ],
-      reads: { [OTHER.libraryId]: { confirmed: false, chunks: ['c9'] } },
+      reads: { [OTHER.assetId]: { confirmed: false, chunks: ['c9'] } },
       answer: 'Download edit2 from the releases page. [ref:1] It is also on a mirror. [ref:2]',
     });
 
     const context = events.find((event) => event.type === 'context');
     expect(context?.type === 'context' && context.chunks.map((chunk) => chunk.chunkId)).toEqual(['c1']);
     expect(claims(events).map((claim) => claim.chunkIds)).toEqual([['c1']]);
-    /* One seat, reserved by the first read, committed to the library that served. */
+    /* One seat, reserved by the first read, committed to the asset that served. */
     expect(calls.reads.map((read) => read.meter)).toEqual(['deferred', false]);
-    expect(calls.commits).toEqual([`seat_1:${EDIT2.libraryId}`]);
+    expect(calls.commits).toEqual([`seat_1:${EDIT2.assetId}`]);
   });
 
   it('holds the planner to the console caps', async () => {
     const queries = Array.from({ length: 5 }, (_, at) => ({
       tool: 'query_docs',
-      input: { libraryId: EDIT2.libraryId, query: `query ${at}` },
+      input: { assetId: EDIT2.assetId, query: `query ${at}` },
     }));
     const { calls } = await run({ script: [...queries, { tool: 'answer', input: { question: 'x' } }] });
     /* 4 steps by default: 3 reads would fit, and the fourth step is the cap's. */
     expect(calls.reads.length).toBeLessThanOrEqual(DEFAULT_RETRIEVAL_SETTINGS.playgroundAgentQueries);
   });
 
-  it('reads the same library and query once', async () => {
-    const same = { tool: 'query_docs', input: { libraryId: EDIT2.libraryId, query: 'download edit2' } };
+  it('reads the same asset and query once', async () => {
+    const same = { tool: 'query_docs', input: { assetId: EDIT2.assetId, query: 'download edit2' } };
     const { calls } = await run({ script: [same, same, { tool: 'answer', input: { question: 'x' } }] });
     expect(calls.reads).toHaveLength(1);
   });
@@ -312,11 +312,11 @@ describe('playground agent', () => {
   it('hands a plan that confirmed nothing to the fixed path, with its seat released', async () => {
     const { events, calls } = await run({
       script: [
-        { tool: 'query_docs', input: { libraryId: EDIT2.libraryId, query: 'download edit2' } },
+        { tool: 'query_docs', input: { assetId: EDIT2.assetId, query: 'download edit2' } },
         { tool: 'answer', input: { question: 'x' } },
         { tool: 'answer', input: { question: 'x' } },
       ],
-      reads: { [EDIT2.libraryId]: { confirmed: false, chunks: ['c9'] } },
+      reads: { [EDIT2.assetId]: { confirmed: false, chunks: ['c9'] } },
     });
     expect(events.some((event) => event.type === 'routing')).toBe(true);
     expect(calls.gathers).toBeGreaterThan(0);
@@ -330,9 +330,9 @@ describe('playground agent', () => {
   it('turns down an answer once while nothing has confirmed and reads remain', async () => {
     const { events, calls } = await run({
       script: [
-        { tool: 'query_docs', input: { libraryId: EDIT2.libraryId, query: '下载地址 安装' } },
+        { tool: 'query_docs', input: { assetId: EDIT2.assetId, query: '下载地址 安装' } },
         { tool: 'answer', input: { question: 'x' } },
-        { tool: 'query_docs', input: { libraryId: EDIT2.libraryId, query: 'Where do I download edit2?' } },
+        { tool: 'query_docs', input: { assetId: EDIT2.assetId, query: 'Where do I download edit2?' } },
         { tool: 'answer', input: { question: 'Where do I download edit2?' } },
       ],
       byQuery: { '下载地址 安装': { confirmed: false, chunks: ['c9'] } },
@@ -342,7 +342,7 @@ describe('playground agent', () => {
     expect(outcome(events)).toEqual(['answer']);
   });
 
-  it('tells the planner which language a library is written in', async () => {
+  it('tells the planner which language an asset is written in', async () => {
     const { dependencies } = fixture({ script: [] });
     let shown: unknown = null;
     dependencies.llm = (config) => {
@@ -353,7 +353,7 @@ describe('playground agent', () => {
           const tool = input.tools.find((candidate) => candidate.name === 'query_docs')!;
           return {
             events: (async function* () {
-              shown = await tool.execute({ libraryId: EDIT2.libraryId, query: '下载' });
+              shown = await tool.execute({ assetId: EDIT2.assetId, query: '下载' });
             })(),
             usage: Promise.resolve({ promptTokens: 0, completionTokens: 0, cachedTokens: 0, reasoningTokens: 0 }),
           };
@@ -366,36 +366,36 @@ describe('playground agent', () => {
     expect(shown).toMatchObject({ language: 'English' });
   });
 
-  it('offers no resolve tool on a fixed library, and refuses reads of any other', async () => {
+  it('offers no resolve tool on a fixed asset, and refuses reads of any other', async () => {
     const { calls } = await run({
       pinned: { ...EDIT2, version: 'v1' },
       script: [
-        { tool: 'query_docs', input: { libraryId: OTHER.libraryId, query: 'download' } },
-        { tool: 'query_docs', input: { libraryId: EDIT2.libraryId, query: 'download' } },
+        { tool: 'query_docs', input: { assetId: OTHER.assetId, query: 'download' } },
+        { tool: 'query_docs', input: { assetId: EDIT2.assetId, query: 'download' } },
         { tool: 'answer', input: { question: 'x' } },
       ],
     });
     expect(calls.tools[0]).toEqual(['query_docs', 'answer']);
-    expect(calls.reads.map((read) => read.libraryId)).toEqual([EDIT2.libraryId]);
+    expect(calls.reads.map((read) => read.assetId)).toEqual([EDIT2.assetId]);
   });
 
   it('ends the exchange on a quota refusal, holding no seat', async () => {
     await expect(
       run({
-        script: [{ tool: 'query_docs', input: { libraryId: EDIT2.libraryId, query: 'download' } }],
-        reads: { [EDIT2.libraryId]: new AppError('quota_exceeded', 'no calls left') },
+        script: [{ tool: 'query_docs', input: { assetId: EDIT2.assetId, query: 'download' } }],
+        reads: { [EDIT2.assetId]: new AppError('quota_exceeded', 'no calls left') },
       }),
     ).rejects.toMatchObject({ code: 'quota_exceeded' });
   });
 
-  it('shows the planner a refused library and lets it carry on', async () => {
+  it('shows the planner a refused asset and lets it carry on', async () => {
     const { events, calls } = await run({
       script: [
-        { tool: 'query_docs', input: { libraryId: OTHER.libraryId, query: 'download' } },
-        { tool: 'query_docs', input: { libraryId: EDIT2.libraryId, query: 'download edit2' } },
+        { tool: 'query_docs', input: { assetId: OTHER.assetId, query: 'download' } },
+        { tool: 'query_docs', input: { assetId: EDIT2.assetId, query: 'download edit2' } },
         { tool: 'answer', input: { question: 'x' } },
       ],
-      reads: { [OTHER.libraryId]: new AppError('library_not_found', 'gone') },
+      reads: { [OTHER.assetId]: new AppError('library_not_found', 'gone') },
     });
     expect(outcome(events)).toEqual(['answer']);
     const refused = events.find((event) => event.type === 'step' && event.step.error !== null);
@@ -406,7 +406,7 @@ describe('playground agent', () => {
 
   it('falls back to the fixed path when the planner dies before finding anything', async () => {
     const { events, calls } = await run({
-      script: [{ tool: 'query_docs', input: { libraryId: EDIT2.libraryId, query: 'download' } }],
+      script: [{ tool: 'query_docs', input: { assetId: EDIT2.assetId, query: 'download' } }],
       failAfter: 0,
     });
     expect(events.some((event) => event.type === 'routing')).toBe(true);
@@ -425,9 +425,9 @@ describe('playground agent', () => {
 });
 
 describe('fixed-path routing', () => {
-  it('reads the libraries the last turn answered from when a follow-up routes nowhere', async () => {
+  it('reads the assets the last turn answered from when a follow-up routes nowhere', async () => {
     const { routeQuestion } = await import('@/lib/application/playground');
-    const nothing = async () => ({ results: [], requestId: caller.requestId }) as ResolveLibraryOutput;
+    const nothing = async () => ({ results: [], requestId: caller.requestId }) as ResolveAssetOutput;
 
     const followUp = await routeQuestion(caller, 'Where do I download it?', HISTORY, nothing);
     expect(followUp).toEqual({

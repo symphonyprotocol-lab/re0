@@ -16,7 +16,7 @@ import type { PlaygroundUIMessage } from './playground-stream';
 /** What one exchange showed, for the workbench's record of the conversation. */
 export interface ExchangeRecord {
   claims: { claim: string; chunkIds: string[] }[];
-  sources: { chunkId: string; sourceUrl: string; documentTitle: string; section: string | null; libraryId: string; libraryTitle: string }[];
+  sources: { chunkId: string; sourceUrl: string; documentTitle: string; section: string | null; assetId: string; assetTitle: string }[];
   actions: string[];
   refused: { tool: string; code: string; message: string }[];
   listings: unknown[];
@@ -40,17 +40,17 @@ export function writeAgentEvent(
         data: {
           question: context.question,
           candidates: event.candidates,
-          libraryId: event.top?.libraryId ?? null,
-          libraryTitle: event.top?.title ?? null,
+          assetId: event.top?.assetId ?? null,
+          assetTitle: event.top?.title ?? null,
           version: event.top?.version ?? null,
           requestId: context.requestId,
           pinned: event.pinned,
         },
       });
       return;
-    case 'no_library':
-      writer.write({ type: 'data-outcome', data: { kind: 'no_library' } });
-      if (record) record.outcome = 'no_library';
+    case 'no_asset':
+      writer.write({ type: 'data-outcome', data: { kind: 'no_asset' } });
+      if (record) record.outcome = 'no_asset';
       return;
     case 'step':
       /* Same id twice: the running card is replaced by the finished one. */
@@ -60,7 +60,7 @@ export function writeAgentEvent(
       writer.write({ type: 'data-resolved', data: { question: event.question } });
       return;
     case 'gather':
-      writer.write({ type: 'data-gather', data: { libraries: event.libraries } });
+      writer.write({ type: 'data-gather', data: { assets: event.assets } });
       return;
     case 'model':
       writer.write({ type: 'data-model', data: { label: event.label, audience: event.audience, upgrade: event.upgrade } });
@@ -71,8 +71,8 @@ export function writeAgentEvent(
         sourceUrl: chunk.citation.sourceUrl,
         documentTitle: chunk.citation.documentTitle,
         section: chunk.citation.section,
-        libraryId: chunk.libraryId,
-        libraryTitle: chunk.libraryTitle,
+        assetId: chunk.assetId,
+        assetTitle: chunk.assetTitle,
         codeBlocks: fencedCodeBlocks(chunk.text),
       }));
       writer.write({ type: 'data-sources', data: { sources } });

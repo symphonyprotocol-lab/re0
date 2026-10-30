@@ -1,5 +1,5 @@
 /**
- * Build billing rules, as decisions. library-build-billing.md 3.
+ * Build billing rules, as decisions. asset-build-billing.md 3.
  *
  * The formula is what the Pricing page promises and what the console's rate
  * fields feed, so a change here is a change to the product's price list and
@@ -36,8 +36,8 @@ describe('priceBuild', () => {
     expect(priceBuild(facts(750_000, 196), DEFAULT_BUILD_RATES)).toBe(1 + 38 + 40);
   });
 
-  it('matches the worked examples in library-build-billing.md 3.4', () => {
-    /* A full 20 MB Free library: about five million tokens. */
+  it('matches the worked examples in asset-build-billing.md 3.4', () => {
+    /* A full 20 MB Free asset: about five million tokens. */
     expect(priceBuild(facts(estimateTokens(20 * 1_048_576)), DEFAULT_BUILD_RATES)).toBe(1 + 263);
     /* A 2 MB manual. */
     expect(priceBuild(facts(estimateTokens(2 * 1_000_000)), DEFAULT_BUILD_RATES)).toBe(26);

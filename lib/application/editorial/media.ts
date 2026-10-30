@@ -206,15 +206,15 @@ export async function mediaUrlFor(
       readable: sql<boolean>`${readableBy(viewerWorkspaceId)}`,
     })
     .from(schema.assetMedia)
-    .innerJoin(schema.library, eq(schema.library.id, schema.assetMedia.assetId))
+    .innerJoin(schema.asset, eq(schema.asset.id, schema.assetMedia.assetId))
     .where(
       and(
         eq(schema.assetMedia.id, mediaId),
-        sql`${schema.library.deletedAt} is null`,
+        sql`${schema.asset.deletedAt} is null`,
         /* A draft's files are its owner's preview; everyone else waits for the publication. */
         viewerWorkspaceId
-          ? sql`(${schema.library.ownerWorkspaceId} = ${viewerWorkspaceId} or ${schema.library.lifecycleStatus} = 'published')`
-          : sql`${schema.library.lifecycleStatus} = 'published'`,
+          ? sql`(${schema.asset.ownerWorkspaceId} = ${viewerWorkspaceId} or ${schema.asset.lifecycleStatus} = 'published')`
+          : sql`${schema.asset.lifecycleStatus} = 'published'`,
       ),
     );
   if (!row || !row.readable || row.state !== 'ready') return null;

@@ -37,7 +37,7 @@ import { shareInPublicChannel } from '../fixtures/channels';
 
 const stamp = Date.now();
 const workspaceId = crypto.randomUUID();
-const libraryIds: string[] = [];
+const assetIds: string[] = [];
 const versionIds: string[] = [];
 
 interface Fake extends AnchorSigner {
@@ -81,10 +81,10 @@ async function publishedVersion(input: {
   publishedAt?: Date;
 }): Promise<string> {
   const database = db();
-  const libraryId = crypto.randomUUID();
-  libraryIds.push(libraryId);
-  await database.insert(schema.library).values({
-    id: libraryId,
+  const assetId = crypto.randomUUID();
+  assetIds.push(assetId);
+  await database.insert(schema.asset).values({
+    id: assetId,
     publicId: `/batches-${stamp}/${input.slug}`,
     title: `Batch fixture ${input.slug}`,
     ownerWorkspaceId: workspaceId,
@@ -93,12 +93,12 @@ async function publishedVersion(input: {
     indexStatus: 'ready',
   });
   /* Public means free in a public channel now (agent-first-proposal.md 6.2). */
-  if ((input.visibility ?? 'public') === 'public') await shareInPublicChannel(libraryId);
+  if ((input.visibility ?? 'public') === 'public') await shareInPublicChannel(assetId);
   const versionId = uuidv7();
   versionIds.push(versionId);
-  await database.insert(schema.libraryVersion).values({
+  await database.insert(schema.assetVersion).values({
     id: versionId,
-    libraryId,
+    assetId,
     label: `2026010${versionIds.length}-aaaaaaaa`,
     sourceDigest: `digest-${stamp}-${input.slug}`,
     parserVersion: 'test',
@@ -139,13 +139,13 @@ describeWithDb('anchor batches', () => {
     await db().delete(schema.anchorBatch);
     if (versionIds.length > 0) {
       await db()
-        .update(schema.library)
+        .update(schema.asset)
         .set({ currentVersionId: null })
-        .where(inArray(schema.library.id, libraryIds));
-      await db().delete(schema.libraryVersion).where(inArray(schema.libraryVersion.id, versionIds));
+        .where(inArray(schema.asset.id, assetIds));
+      await db().delete(schema.assetVersion).where(inArray(schema.assetVersion.id, versionIds));
     }
-    if (libraryIds.length > 0) {
-      await db().delete(schema.library).where(inArray(schema.library.id, libraryIds));
+    if (assetIds.length > 0) {
+      await db().delete(schema.asset).where(inArray(schema.asset.id, assetIds));
     }
     await db().delete(schema.workspace).where(eq(schema.workspace.id, workspaceId));
   });

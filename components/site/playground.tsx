@@ -38,7 +38,7 @@ import { fill } from '@/lib/i18n/format';
  *
  * requirement.md 5.1 makes this the only entry point allowed to generate prose,
  * and puts eight hard rules on it. The live path runs through POST
- * /api/playground: the server routes the question to a library (the web
+ * /api/playground: the server routes the question to an asset (the web
  * entry's auto-routing of architecture.md 9.6), retrieves through the shared
  * function, and streams back parts. What renders here follows the same rules
  * the backend enforces:
@@ -60,7 +60,7 @@ import { fill } from '@/lib/i18n/format';
  *
  * `useChat` would post the whole transcript as messages. What is sent instead
  * is the question plus, for the last few finished turns, what the visitor saw:
- * the question, the bound sentences of the answer, and the libraries it drew
+ * the question, the bound sentences of the answer, and the assets it drew
  * on. The server shows them only to whatever resolves a follow-up -- the
  * planner, or the rewrite on a miss -- and never to the answering call, which
  * rule 4 keeps to this request's passages (lib/domain/generation.ts
@@ -82,7 +82,7 @@ function playgroundTransport(
           ? { question: textOf(last), history: historyOf(messages.slice(0, -1)), conversationId: workbench.current }
           : {
               question: textOf(last),
-              libraryId: pinned.current,
+              assetId: pinned.current,
               history: historyOf(messages.slice(0, -1)),
             },
       };
@@ -106,7 +106,7 @@ function historyOf(messages: PlaygroundUIMessage[]) {
   const turns: {
     question: string;
     answer: string;
-    libraries: { libraryId: string; title: string }[];
+    assets: { assetId: string; title: string }[];
   }[] = [];
   messages.forEach((message, at) => {
     if (message.role !== 'assistant') return;
@@ -117,9 +117,9 @@ function historyOf(messages: PlaygroundUIMessage[]) {
     turns.push({
       question: textOf(asked),
       answer: turn.claims.map((entry) => entry.claim).join(' '),
-      libraries: (turn.gather?.libraries ?? [])
-        .filter((library) => library.confirmed)
-        .map((library) => ({ libraryId: library.libraryId, title: library.title })),
+      assets: (turn.gather?.assets ?? [])
+        .filter((asset) => asset.confirmed)
+        .map((asset) => ({ assetId: asset.assetId, title: asset.title })),
     });
   });
   return turns.slice(-HISTORY_TURNS);
@@ -298,8 +298,8 @@ function SourceList({
   citedCount: number;
   t: Dictionary['playground'];
 }) {
-  /* The library is named on each line only when the answer drew on several. */
-  const multiLibrary = new Set(sources.map((source) => source.libraryId)).size > 1;
+  /* The asset is named on each line only when the answer drew on several. */
+  const multiAsset = new Set(sources.map((source) => source.assetId)).size > 1;
   const ordered = [...sources].sort(
     (a, b) => (numbers.get(a.chunkId) ?? 99) - (numbers.get(b.chunkId) ?? 99),
   );
@@ -321,7 +321,7 @@ function SourceList({
           key={source.chunkId}
           source={source}
           number={numbers.get(source.chunkId)}
-          showLibrary={multiLibrary}
+          showAsset={multiAsset}
           codeLabel={t.allowance.codeLabel}
         />
       ))}
@@ -339,7 +339,7 @@ function SourceList({
                 key={source.chunkId}
                 source={source}
                 number={numbers.get(source.chunkId)}
-                showLibrary={multiLibrary}
+                showAsset={multiAsset}
                 codeLabel={t.allowance.codeLabel}
               />
             ))}
@@ -359,24 +359,24 @@ function SourceList({
 function SourceLine({
   source,
   number,
-  showLibrary,
+  showAsset,
   codeLabel,
 }: {
   source: PlaygroundSource;
   number: number | undefined;
-  showLibrary: boolean;
+  showAsset: boolean;
   codeLabel: string;
 }) {
   return (
     <div className="flex flex-col gap-1">
       <p className="flex flex-wrap items-baseline gap-1.5 text-[10.5px] text-muted">
         <span className="rounded bg-cite/12 px-1 font-medium text-cite">{number}</span>
-        {showLibrary ? (
+        {showAsset ? (
           <span
             className="rounded bg-tray px-1 font-mono text-[10px] text-faint"
-            title={source.libraryId}
+            title={source.assetId}
           >
-            {source.libraryTitle}
+            {source.assetTitle}
           </span>
         ) : null}
         <a
@@ -428,7 +428,7 @@ function Pending({ label }: { label: string }) {
 /** What a planner's call was asked, and what it came back with. */
 function stepParams(step: PlaygroundStep): (readonly [string, string])[] {
   const params: (readonly [string, string])[] = [];
-  if (step.libraryId) params.push(['libraryId', JSON.stringify(step.libraryId)]);
+  if (step.assetId) params.push(['assetId', JSON.stringify(step.assetId)]);
   params.push(['query', JSON.stringify(step.query)]);
   if (step.status === 'running') return params;
   if (step.error) params.push(['error', step.error]);
@@ -516,7 +516,7 @@ function AssistantTurn({
   }
 
   /*
-   * The transcript shows the real calls: one resolve-library-id with what it
+   * The transcript shows the real calls: one resolve-asset-id with what it
    * returned, then one query-docs per candidate -- every candidate is read
    * (scatter-gather, architecture.md 9.6), and the note under them says
    * which ones fit the question well enough to answer.
@@ -527,27 +527,27 @@ function AssistantTurn({
     ['query', JSON.stringify(routing?.question ?? '')],
   ];
   if (candidates.length > 0) {
-    routingParams.push(['results', JSON.stringify(candidates.map((c) => c.libraryId))]);
+    routingParams.push(['results', JSON.stringify(candidates.map((c) => c.assetId))]);
   }
-  const gathered = turn.gather?.libraries ?? [];
-  const answering = gathered.filter((library) => library.confirmed);
-  const skipped = gathered.filter((library) => !library.confirmed);
-  const named = (library: { title: string; version: string | null }) =>
-    library.version ? `${library.title} (${library.version})` : library.title;
+  const gathered = turn.gather?.assets ?? [];
+  const answering = gathered.filter((asset) => asset.confirmed);
+  const skipped = gathered.filter((asset) => !asset.confirmed);
+  const named = (asset: { title: string; version: string | null }) =>
+    asset.version ? `${asset.title} (${asset.version})` : asset.title;
 
   return (
     <AssistantRow>
-      {/* A pinned exchange never ran resolve-library-id, so it is not shown
+      {/* A pinned exchange never ran resolve-asset-id, so it is not shown
           as if it had: the transcript is the real call sequence. */}
       {routing && !routing.pinned ? (
-        <ToolCall name="resolve-library-id" params={routingParams} />
+        <ToolCall name="resolve-asset-id" params={routingParams} />
       ) : null}
       {candidates.map((candidate) => (
         <ToolCall
-          key={candidate.libraryId}
+          key={candidate.assetId}
           name="query-docs"
           params={[
-            ['libraryId', JSON.stringify(candidate.libraryId)],
+            ['assetId', JSON.stringify(candidate.assetId)],
             ['query', JSON.stringify(routing!.question)],
           ]}
         />
@@ -570,10 +570,10 @@ function AssistantTurn({
       {turn.rewrite !== null
         ? candidates.map((candidate) => (
             <ToolCall
-              key={`${candidate.libraryId}-rewrite`}
+              key={`${candidate.assetId}-rewrite`}
               name="query-docs"
               params={[
-                ['libraryId', JSON.stringify(candidate.libraryId)],
+                ['assetId', JSON.stringify(candidate.assetId)],
                 ['query', JSON.stringify(turn.rewrite)],
               ]}
             />
@@ -614,8 +614,8 @@ function AssistantTurn({
         <WarnCard key={`refused-${index}`} title={all.dashboard.workbench.refusedTitle} body={refusal.message} />
       ))}
 
-      {turn.outcome === 'no_library' ? (
-        <WarnCard title={t.noLibraryTitle} body={t.noLibraryBody} />
+      {turn.outcome === 'no_asset' ? (
+        <WarnCard title={t.noAssetTitle} body={t.noAssetBody} />
       ) : null}
       {turn.outcome === 'no_context' ? (
         <WarnCard title={t.noContextTitle} body={t.noContextBody} />
@@ -717,11 +717,11 @@ function takeDraft(): string | null {
 
 export function Playground({
   /**
-   * A public Library ID to query instead of auto-routing -- the detail page's
-   * "Try in Playground" (`/playground?library=`). Cleared by the visitor
+   * A public Asset ID to query instead of auto-routing -- the detail page's
+   * "Try in Playground" (`/playground?asset=`). Cleared by the visitor
    * from the chip above the composer.
    */
-  initialLibrary = null,
+  initialAsset = null,
   /**
    * Whether a session is behind this render. The page is open to everyone;
    * sending is not (`playgroundCaller`), so a visitor without one is asked to
@@ -742,7 +742,7 @@ export function Playground({
   /** The conversation so far, rebuilt by the server from what it recorded. */
   initialMessages,
 }: {
-  initialLibrary?: string | null;
+  initialAsset?: string | null;
   signedIn: boolean;
   mode?: 'playground' | 'workbench';
   initialQuestion?: string | null;
@@ -756,11 +756,11 @@ export function Playground({
   const router = useRouter();
   const conversation = useRef<string | null>(conversationId);
   const [question, setQuestion] = useState('');
-  const [pinnedLibrary, setPinnedLibrary] = useState<string | null>(initialLibrary);
-  const pinned = useRef<string | null>(initialLibrary);
+  const [pinnedAsset, setPinnedAsset] = useState<string | null>(initialAsset);
+  const pinned = useRef<string | null>(initialAsset);
   useEffect(() => {
-    pinned.current = pinnedLibrary;
-  }, [pinnedLibrary]);
+    pinned.current = pinnedAsset;
+  }, [pinnedAsset]);
   const transport = useMemo(() => playgroundTransport(pinned, isWorkbench ? conversation : null), [isWorkbench]);
   const scroller = useRef<HTMLDivElement>(null);
   const composer = useRef<HTMLTextAreaElement>(null);
@@ -927,14 +927,14 @@ export function Playground({
         </div>
 
         <form onSubmit={onSubmit} className="p-3.5">
-          {pinnedLibrary ? (
+          {pinnedAsset ? (
             <div className="mb-2 flex flex-wrap items-center gap-2 text-[11px] text-muted">
               <span className="rounded-full bg-brandsoft px-2.5 py-0.5 font-mono text-[10.5px] font-medium text-brandink">
-                {fill(t.allowance.pinnedTo, { library: pinnedLibrary })}
+                {fill(t.allowance.pinnedTo, { asset: pinnedAsset })}
               </span>
               <button
                 type="button"
-                onClick={() => setPinnedLibrary(null)}
+                onClick={() => setPinnedAsset(null)}
                 className="text-[11px] text-faint underline-offset-2 hover:text-ink hover:underline"
               >
                 {t.allowance.unpin}
@@ -997,7 +997,7 @@ export function Playground({
       {signingIn ? (
         <SignInDialog
           returnTo={
-            pinnedLibrary ? `/playground?library=${encodeURIComponent(pinnedLibrary)}` : '/playground'
+            pinnedAsset ? `/playground?asset=${encodeURIComponent(pinnedAsset)}` : '/playground'
           }
           title={t.signInTitle}
           subtitle={t.signInSubtitle}

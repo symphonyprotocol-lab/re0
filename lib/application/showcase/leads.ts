@@ -1,10 +1,10 @@
 /**
  * Leads left on a showcase page (lib/domain/showcase.ts `validateLead`):
- * recorded by the page's lead route once the library could not answer,
- * read and handled by the owner on the library's page.
+ * recorded by the page's lead route once the asset could not answer,
+ * read and handled by the owner on the asset's page.
  *
  * The one place a visitor's personal data lives. It is written here, listed
- * to the owning workspace, exported by it, and deleted with the library;
+ * to the owning workspace, exported by it, and deleted with the asset;
  * nothing else reads it. The plan decides how many the owner sees
  * (`showcaseLeadsRetained`): the rest stay stored but are not listed, so an
  * upgrade shows them rather than finding them gone.
@@ -12,7 +12,7 @@
 import { and, count, desc, eq, isNull } from 'drizzle-orm';
 import { AppError } from '@/contracts/errors';
 import { toCsv } from '@/lib/application/administration/csv';
-import { canManageLibraries, type WorkspaceRole } from '@/lib/application/libraries/delete';
+import { canManageAssets, type WorkspaceRole } from '@/lib/application/assets/delete';
 import { uuidv7 } from '@/lib/domain/id';
 import { isLeadStatus, validateLead, type LeadRefusal, type LeadStatus } from '@/lib/domain/showcase';
 import { db, schema } from '@/lib/infrastructure/postgres/client';
@@ -28,7 +28,7 @@ export class LeadInvalid extends AppError {
 
 export interface RecordLeadInput {
   showcaseId: string;
-  libraryId: string;
+  assetId: string;
   workspaceId: string;
   /** The page's own site key: an exchange id is kept only when it belongs to it. */
   siteKeyId: string;
@@ -56,7 +56,7 @@ export async function recordShowcaseLead(input: RecordLeadInput): Promise<{ id: 
   await db().insert(schema.showcaseLead).values({
     id,
     showcaseId: input.showcaseId,
-    libraryId: input.libraryId,
+    assetId: input.assetId,
     workspaceId: input.workspaceId,
     exchangeId,
     email: validated.lead.email,
@@ -91,17 +91,17 @@ export interface ShowcaseLeadsView {
   retained: number;
 }
 
-const ownerScope = (workspaceId: string, libraryId: string) =>
-  and(eq(schema.showcaseLead.workspaceId, workspaceId), eq(schema.showcaseLead.libraryId, libraryId));
+const ownerScope = (workspaceId: string, assetId: string) =>
+  and(eq(schema.showcaseLead.workspaceId, workspaceId), eq(schema.showcaseLead.assetId, assetId));
 
 /**
- * The library's leads, newest first: as many as the plan lists, and no
+ * The asset's leads, newest first: as many as the plan lists, and no
  * more than `limit` when the caller is a screen (the export passes none and
- * gets every listed lead). The library must be the workspace's own.
+ * gets every listed lead). The asset must be the workspace's own.
  */
 export async function listShowcaseLeads(input: {
   workspaceId: string;
-  libraryId: string;
+  assetId: string;
   retained?: number;
   limit?: number;
 }): Promise<ShowcaseLeadsView> {
@@ -115,7 +115,7 @@ export async function listShowcaseLeads(input: {
     })
     .from(schema.showcaseLead)
     .leftJoin(schema.widgetExchange, eq(schema.widgetExchange.id, schema.showcaseLead.exchangeId))
-    .where(ownerScope(input.workspaceId, input.libraryId))
+    .where(ownerScope(input.workspaceId, input.assetId))
     .orderBy(desc(schema.showcaseLead.createdAt), desc(schema.showcaseLead.id));
   const [rows, [tally]] = await Promise.all([
     caps.length > 0 ? listed.limit(Math.min(...caps)) : listed,
@@ -125,7 +125,7 @@ export async function listShowcaseLeads(input: {
         handled: count(schema.showcaseLead.handledAt),
       })
       .from(schema.showcaseLead)
-      .where(ownerScope(input.workspaceId, input.libraryId)),
+      .where(ownerScope(input.workspaceId, input.assetId)),
   ]);
   const total = tally?.total ?? 0;
   /* count(handled_at) counts the handled rows; the rest are new. */
@@ -157,16 +157,16 @@ export async function countNewLeads(workspaceId: string): Promise<number> {
   return row?.n ?? 0;
 }
 
-/** Mark a lead handled or new again, or delete it. A library manager's right, scoped to the workspace. */
+/** Mark a lead handled or new again, or delete it. An asset manager's right, scoped to the workspace. */
 export async function updateShowcaseLead(input: {
   workspaceId: string;
   role: WorkspaceRole;
-  libraryId: string;
+  assetId: string;
   leadId: string;
   verb: unknown;
 }): Promise<void> {
-  if (!canManageLibraries(input.role)) throw new AppError('access_denied', 'only a library manager can handle leads');
-  const scope = and(ownerScope(input.workspaceId, input.libraryId), eq(schema.showcaseLead.id, input.leadId));
+  if (!canManageAssets(input.role)) throw new AppError('access_denied', 'only an asset manager can handle leads');
+  const scope = and(ownerScope(input.workspaceId, input.assetId), eq(schema.showcaseLead.id, input.leadId));
   if (input.verb === 'delete') {
     const deleted = await db().delete(schema.showcaseLead).where(scope).returning({ id: schema.showcaseLead.id });
     if (deleted.length === 0) throw new AppError('library_not_found', 'no such lead');
@@ -182,7 +182,7 @@ export async function updateShowcaseLead(input: {
 }
 
 /** Every listed lead as CSV, for the owner's export. */
-export async function showcaseLeadsCsv(input: { workspaceId: string; libraryId: string }): Promise<string> {
+export async function showcaseLeadsCsv(input: { workspaceId: string; assetId: string }): Promise<string> {
   const view = await listShowcaseLeads(input);
   return toCsv(
     ['time', 'email', 'name', 'message', 'question', 'status', 'handled_at'],

@@ -19,8 +19,8 @@ process.env.SESSION_SIGNING_SECRET ??= 'test-secret-that-is-long-enough-000000';
 const { reserveCall, PLAN_VERSION_NEWEST_FIRST } = await import('@/lib/application/plans');
 const { workspaceStorage } = await import('@/lib/application/plans/storage');
 const { createSiteKey } = await import('@/lib/application/embed');
-const { createPlatformLibrary } = await import(
-  '@/lib/application/administration/manage-platform-libraries'
+const { createPlatformAsset } = await import(
+  '@/lib/application/administration/manage-platform-assets'
 );
 const { buildVersion, memoryObjectStore } = await import('@/lib/application/ingestion');
 const { EMBEDDING_COLUMN_DIMENSIONS } = await import('@/lib/infrastructure/ai/providers');
@@ -67,12 +67,12 @@ async function workspaceOn(tier: 'base' | 'extended'): Promise<string> {
   return workspaceId;
 }
 
-/** `n` draft libraries owned by the workspace, written directly, each holding `storageBytes`. */
-async function fillLibraries(workspaceId: string, n: number, storageBytes = 0): Promise<string[]> {
+/** `n` draft assets owned by the workspace, written directly, each holding `storageBytes`. */
+async function fillAssets(workspaceId: string, n: number, storageBytes = 0): Promise<string[]> {
   const ids = Array.from({ length: n }, () => uuidv7());
   if (n === 0) return ids;
   await db()
-    .insert(schema.library)
+    .insert(schema.asset)
     .values(
       ids.map((id) => ({
         id,
@@ -80,7 +80,7 @@ async function fillLibraries(workspaceId: string, n: number, storageBytes = 0): 
         title: 'Filler',
         language: 'en',
         ownerWorkspaceId: workspaceId,
-        isPlatformLibrary: false,
+        isPlatformAsset: false,
         kind: 'website' as const,
         lifecycleStatus: 'draft' as const,
         indexStatus: 'pending' as const,
@@ -104,10 +104,10 @@ async function spend(workspaceId: string, calls: number) {
   });
 }
 
-/** A website library owned by the workspace, built from one file of `content`. */
+/** A website asset owned by the workspace, built from one file of `content`. */
 async function buildOwned(workspaceId: string, content: string) {
   const slug = `limits-size-${uuidv7().slice(-12)}`;
-  const { libraryId } = await createPlatformLibrary({
+  const { assetId } = await createPlatformAsset({
     actor: { administratorId: null as unknown as string, email: 'ops@example.test' },
     title: slug,
     publicId: `/websites/${slug}`,
@@ -118,12 +118,12 @@ async function buildOwned(workspaceId: string, content: string) {
     reason: 'plan limits test',
   });
   await db()
-    .update(schema.library)
-    .set({ isPlatformLibrary: false, ownerWorkspaceId: workspaceId })
-    .where(eq(schema.library.id, libraryId));
-  await unshare(libraryId);
+    .update(schema.asset)
+    .set({ isPlatformAsset: false, ownerWorkspaceId: workspaceId })
+    .where(eq(schema.asset.id, assetId));
+  await unshare(assetId);
   return buildVersion({
-    libraryId,
+    assetId,
     operationId: uuidv7(),
     dependencies: {
       async fetchSnapshot() {
@@ -181,21 +181,21 @@ describeWithDb('pricing page boundaries', () => {
 
   it('one site key across the workspace', async () => {
     const workspaceId = await workspaceOn('base');
-    const [a, b] = await fillLibraries(workspaceId, 2);
-    await createSiteKey({ workspaceId, role: 'owner', libraryId: a!, name: 'One', origins: SITE });
+    const [a, b] = await fillAssets(workspaceId, 2);
+    await createSiteKey({ workspaceId, role: 'owner', assetId: a!, name: 'One', origins: SITE });
     await expect(
-      createSiteKey({ workspaceId, role: 'owner', libraryId: b!, name: 'Two', origins: SITE }),
+      createSiteKey({ workspaceId, role: 'owner', assetId: b!, name: 'Two', origins: SITE }),
     ).rejects.toMatchObject({ code: 'api_key_limit_exceeded', ceiling: 'plan' });
   });
 
   it('builds content up to the workspace’s total capacity and refuses a byte over', async () => {
     /*
-     * The ceiling is the workspace's, not the library's: a filler library
+     * The ceiling is the workspace's, not the asset's: a filler asset
      * already holding all but 1 KB of the base tier leaves this build 1 KB.
      */
     const room = 1024;
     const workspaceId = await workspaceOn('base');
-    await fillLibraries(workspaceId, 1, storageCapacityBytes('base') - room);
+    await fillAssets(workspaceId, 1, storageCapacityBytes('base') - room);
     expect((await workspaceStorage(workspaceId)).remainingBytes).toBe(room);
 
     const header = '# Manual\n\n';
@@ -206,19 +206,19 @@ describeWithDb('pricing page boundaries', () => {
     await expect(buildOwned(workspaceId, at)).resolves.toMatchObject({ changed: true });
     expect((await workspaceStorage(workspaceId)).remainingBytes).toBe(0);
     await expect(buildOwned(workspaceId, over)).rejects.toMatchObject({
-      code: 'library_too_large',
+      code: 'asset_too_large',
       stage: 'fetch-snapshot',
     });
 
     /* Multi-byte text counts as UTF-8 bytes, not characters. */
     const han = header + '知'.repeat(Math.ceil((room - header.length) / 3) + 1);
     expect(han.length).toBeLessThan(room);
-    await expect(buildOwned(workspaceId, han)).rejects.toMatchObject({ code: 'library_too_large' });
+    await expect(buildOwned(workspaceId, han)).rejects.toMatchObject({ code: 'asset_too_large' });
   });
 
   it('gives an owner who has bought a pack the extended capacity', async () => {
     const workspaceId = await workspaceOn('extended');
-    await fillLibraries(workspaceId, 1, storageCapacityBytes('base'));
+    await fillAssets(workspaceId, 1, storageCapacityBytes('base'));
     const storage = await workspaceStorage(workspaceId);
     expect(storage.tier).toBe('extended');
     expect(storage.remainingBytes).toBe(storageCapacityBytes('extended') - storageCapacityBytes('base'));

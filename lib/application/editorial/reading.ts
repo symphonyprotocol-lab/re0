@@ -12,7 +12,7 @@
 import { and, eq, isNull } from 'drizzle-orm';
 import { assetSight, type AssetSight } from '@/lib/domain/channel';
 import { isEditorialKind, type EditorialKind } from '@/lib/domain/editorial';
-import type { AssetAccess } from '@/lib/domain/asset';
+import type { AssetAccess } from '@/lib/domain/asset-kind';
 import { db, schema } from '@/lib/infrastructure/postgres/client';
 import { subscribesTo } from '@/lib/application/channels/subscriptions';
 import { qaAsker } from '@/lib/application/questions';
@@ -41,18 +41,18 @@ export interface EditorialReading {
 export async function editorialReading(publicId: string, viewer: { workspaceId: string | null }): Promise<EditorialReading | null> {
   const [row] = await db()
     .select({
-      id: schema.library.id,
-      publicId: schema.library.publicId,
-      kind: schema.library.kind,
-      title: schema.library.title,
-      description: schema.library.description,
-      access: schema.library.access,
-      ownerWorkspaceId: schema.library.ownerWorkspaceId,
-      lifecycleStatus: schema.library.lifecycleStatus,
-      indexStatus: schema.library.indexStatus,
-      currentVersionId: schema.library.currentVersionId,
-      versionLabel: schema.libraryVersion.label,
-      versionPublishedAt: schema.libraryVersion.publishedAt,
+      id: schema.asset.id,
+      publicId: schema.asset.publicId,
+      kind: schema.asset.kind,
+      title: schema.asset.title,
+      description: schema.asset.description,
+      access: schema.asset.access,
+      ownerWorkspaceId: schema.asset.ownerWorkspaceId,
+      lifecycleStatus: schema.asset.lifecycleStatus,
+      indexStatus: schema.asset.indexStatus,
+      currentVersionId: schema.asset.currentVersionId,
+      versionLabel: schema.assetVersion.label,
+      versionPublishedAt: schema.assetVersion.publishedAt,
       config: schema.source.config,
       channelId: schema.channel.id,
       channelSlug: schema.channel.slug,
@@ -63,13 +63,13 @@ export async function editorialReading(publicId: string, viewer: { workspaceId: 
       channelPublishedAt: schema.channelAsset.publishedAt,
       handle: schema.workspace.handle,
     })
-    .from(schema.library)
-    .innerJoin(schema.source, eq(schema.source.libraryId, schema.library.id))
-    .leftJoin(schema.libraryVersion, eq(schema.libraryVersion.id, schema.library.currentVersionId))
-    .leftJoin(schema.channelAsset, eq(schema.channelAsset.assetId, schema.library.id))
+    .from(schema.asset)
+    .innerJoin(schema.source, eq(schema.source.assetId, schema.asset.id))
+    .leftJoin(schema.assetVersion, eq(schema.assetVersion.id, schema.asset.currentVersionId))
+    .leftJoin(schema.channelAsset, eq(schema.channelAsset.assetId, schema.asset.id))
     .leftJoin(schema.channel, eq(schema.channel.id, schema.channelAsset.channelId))
-    .leftJoin(schema.workspace, eq(schema.workspace.id, schema.library.ownerWorkspaceId))
-    .where(and(eq(schema.library.publicId, publicId), isNull(schema.library.deletedAt)))
+    .leftJoin(schema.workspace, eq(schema.workspace.id, schema.asset.ownerWorkspaceId))
+    .where(and(eq(schema.asset.publicId, publicId), isNull(schema.asset.deletedAt)))
     .limit(1);
   if (!row || !isEditorialKind(row.kind)) return null;
 

@@ -2,7 +2,7 @@
 
 import { useActionState, useId, useState, type ReactNode } from 'react';
 import { ConsoleDialog } from '@/components/admin/console-dialog';
-import { submitOn } from '@/components/admin/platform-library-shared';
+import { submitOn } from '@/components/admin/platform-asset-shared';
 import { ConsoleButton } from '@/components/admin/ui';
 import { CopyButton } from '@/components/dashboard/copy-button';
 import { CircleCheckIcon, CircleXIcon, PlusIcon, SpinnerIcon } from '@/components/ui/icons';

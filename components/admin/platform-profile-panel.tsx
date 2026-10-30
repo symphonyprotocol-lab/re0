@@ -1,18 +1,18 @@
 import {
   PlatformProfileRebuildControl,
-  type PlatformLibraryTarget,
-} from '@/components/admin/platform-library-controls';
+  type PlatformAssetTarget,
+} from '@/components/admin/platform-asset-controls';
 import { Fact, Panel, PanelHead, Pill } from '@/components/admin/ui';
 import type { PlatformProfileView } from '@/lib/application/administration';
 import type { Dictionary } from '@/lib/i18n/dictionary';
 import { fill } from '@/lib/i18n/format';
-import type { PlatformAction } from './platform-library-shared';
+import type { PlatformAction } from './platform-asset-shared';
 
 /**
- * The routing profile of the current version, on the platform-library detail
+ * The routing profile of the current version, on the platform-asset detail
  * page.
  *
- * Everything `resolve-library-id` knows about a library is on this row
+ * Everything `resolve-asset-id` knows about an asset is on this row
  * (architecture.md 9.6), and until now none of it was on any screen. The two
  * faults an operator can act on both show at the head of the term list: a
  * crawl that escaped its section brings the site's other sections' vocabulary
@@ -28,11 +28,11 @@ export function PlatformProfilePanel({
   t,
 }: {
   profile: PlatformProfileView | null;
-  target: PlatformLibraryTarget;
+  target: PlatformAssetTarget;
   action: PlatformAction;
   /** The page's own timestamp formatter, so this panel matches its neighbours. */
   stamp: (value: Date) => string;
-  t: Dictionary['admin']['platformLibraryDetail'];
+  t: Dictionary['admin']['platformAssetDetail'];
 }) {
   const p = t.profile;
   const number = (value: number) => value.toLocaleString('en-US');

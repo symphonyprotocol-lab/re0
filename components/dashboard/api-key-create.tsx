@@ -1,7 +1,7 @@
 'use client';
 
 import { useActionState } from 'react';
-import { submitOn } from '@/components/admin/platform-library-shared';
+import { submitOn } from '@/components/admin/platform-asset-shared';
 import { CopyButton } from '@/components/dashboard/copy-button';
 import { PANEL } from '@/components/dashboard/ui';
 import type { CreateKeyResult } from '@/app/dashboard/api-keys/actions';

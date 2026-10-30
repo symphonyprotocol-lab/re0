@@ -4,7 +4,7 @@
  *
  * A Policy Version is immutable, like a Plan Version: PATCH semantics are
  * incremental on the wire, but the server materialises a complete snapshot
- * as a new `policy_version` row plus its `policy_library_entry` rows, in one
+ * as a new `policy_version` row plus its `policy_asset_entry` rows, in one
  * transaction. Queries pin the newest version at the start of a request
  * (9.2) and read nothing that can change under them.
  */
@@ -63,11 +63,11 @@ export async function pinPolicy(
 
   const entries = await database
     .select({
-      kind: schema.policyLibraryEntry.kind,
-      targetValue: schema.policyLibraryEntry.targetValue,
+      kind: schema.policyAssetEntry.kind,
+      targetValue: schema.policyAssetEntry.targetValue,
     })
-    .from(schema.policyLibraryEntry)
-    .where(eq(schema.policyLibraryEntry.policyVersionId, version.id));
+    .from(schema.policyAssetEntry)
+    .where(eq(schema.policyAssetEntry.policyVersionId, version.id));
 
   const list = (kind: string) =>
     entries.filter((entry) => entry.kind === kind).map((entry) => entry.targetValue);
@@ -79,9 +79,9 @@ export async function pinPolicy(
       mode: version.mode,
       sourceTypes: version.sourceTypes,
       quality: readQuality(version.qualityFilters as Partial<PolicyQuality>),
-      blockedLibraries: list('block'),
-      exceptedLibraries: list('except'),
-      allowedLibraries: list('allow'),
+      blockedAssets: list('block'),
+      exceptedAssets: list('except'),
+      allowedAssets: list('allow'),
     }),
   };
 }
@@ -113,7 +113,7 @@ export async function readPolicy(workspaceId: string, requestId: string): Promis
   return {
     policyVersionId: pinned.versionId,
     policy: toView(pinned.policy),
-    accessibleLibraryCount: await countReachableLibraries(workspaceId, pinned.policy),
+    accessibleAssetCount: await countReachableAssets(workspaceId, pinned.policy),
     requestId,
   };
 }
@@ -140,9 +140,9 @@ export async function patchPolicy(
       mode: patch.mode === 'clear' ? null : (patch.mode ?? current.mode),
       sourceTypes: { ...current.sourceTypes },
       quality: patchQuality(current.quality, patch.quality),
-      blockedLibraries: patchList(current.blockedLibraries, patch.blocked),
-      exceptedLibraries: patchList(current.exceptedLibraries, patch.excepted),
-      allowedLibraries: patchList(current.allowedLibraries, patch.allowed),
+      blockedAssets: patchList(current.blockedAssets, patch.blocked),
+      exceptedAssets: patchList(current.exceptedAssets, patch.excepted),
+      allowedAssets: patchList(current.allowedAssets, patch.allowed),
     };
     for (const type of patch.sourceTypes?.enable ?? []) delete patched.sourceTypes[type];
     for (const type of patch.sourceTypes?.disable ?? []) patched.sourceTypes[type] = false;
@@ -155,9 +155,9 @@ export async function patchPolicy(
 
     const overLimit = (
       [
-        ['blocked', next.blockedLibraries],
-        ['excepted', next.exceptedLibraries],
-        ['allowed', next.allowedLibraries],
+        ['blocked', next.blockedAssets],
+        ['excepted', next.exceptedAssets],
+        ['allowed', next.allowedAssets],
       ] as const
     ).find(([, list]) => list.length > MAX_LIST_ENTRIES);
     if (overLimit) {
@@ -176,17 +176,17 @@ export async function patchPolicy(
       appliedAt: new Date(),
     });
     const rows = [
-      ...next.blockedLibraries.map((value) => ({ kind: 'block', value })),
-      ...next.exceptedLibraries.map((value) => ({ kind: 'except', value })),
-      ...next.allowedLibraries.map((value) => ({ kind: 'allow', value })),
+      ...next.blockedAssets.map((value) => ({ kind: 'block', value })),
+      ...next.exceptedAssets.map((value) => ({ kind: 'except', value })),
+      ...next.allowedAssets.map((value) => ({ kind: 'allow', value })),
     ];
     if (rows.length > 0) {
-      await tx.insert(schema.policyLibraryEntry).values(
+      await tx.insert(schema.policyAssetEntry).values(
         rows.map((row) => ({
           id: uuidv7(),
           policyVersionId: versionId,
           kind: row.kind,
-          targetType: isDomainEntry(row.value) ? 'domain' : isChannelEntry(row.value) ? 'channel' : 'library',
+          targetType: isDomainEntry(row.value) ? 'domain' : isChannelEntry(row.value) ? 'channel' : 'asset',
           targetValue: row.value,
         })),
       );
@@ -197,7 +197,7 @@ export async function patchPolicy(
   return {
     policyVersionId: versionId,
     policy: toView(next),
-    accessibleLibraryCount: await countReachableLibraries(workspaceId, next),
+    accessibleAssetCount: await countReachableAssets(workspaceId, next),
     requestId,
   };
 }
@@ -218,7 +218,7 @@ function toView(policy: WorkspacePolicy): WorkspacePolicyView {
 }
 
 /**
- * How many libraries this policy admits for the workspace -- the number the
+ * How many assets this policy admits for the workspace -- the number the
  * console shows next to a rule change (requirement.md 5.2): everything shared
  * with everyone plus the workspace's own assets (agent-first-proposal.md 6.2).
  *
@@ -228,7 +228,7 @@ function toView(policy: WorkspacePolicy): WorkspacePolicyView {
  * metrics are not collected yet, so the evaluator passes them as unknown and
  * this count agrees with it.
  */
-export async function countReachableLibraries(
+export async function countReachableAssets(
   workspaceId: string,
   policy: WorkspacePolicy,
 ): Promise<number> {
@@ -238,56 +238,56 @@ export async function countReachableLibraries(
   );
 
   const clauses = [
-    sql`${schema.library.deletedAt} is null`,
-    sql`${schema.library.lifecycleStatus} = 'published'`,
-    sql`${schema.library.indexStatus} = 'ready'`,
-    sql`${schema.library.currentVersionId} is not null`,
+    sql`${schema.asset.deletedAt} is null`,
+    sql`${schema.asset.lifecycleStatus} = 'published'`,
+    sql`${schema.asset.indexStatus} = 'ready'`,
+    sql`${schema.asset.currentVersionId} is not null`,
     /* The `private` switch covers the owner's assets that are not in a
        public channel; with it off, only what is shared with everyone. */
     privateDisabled
       ? sharedWithEveryone()
-      : sql`(${sharedWithEveryone()} or ${schema.library.ownerWorkspaceId} = ${workspaceId})`,
+      : sql`(${sharedWithEveryone()} or ${schema.asset.ownerWorkspaceId} = ${workspaceId})`,
   ];
   if (disabledTypes.length > 0) {
     clauses.push(sql`not exists (
       select 1 from ${schema.source} s
-      where s.asset_id = ${ref(schema.library.id)}
+      where s.asset_id = ${ref(schema.asset.id)}
         and s.type in (${sql.join(
           disabledTypes.map((type) => sql`${type}`),
           sql`, `,
         )})
     )`);
   }
-  if (policy.blockedLibraries.length > 0) {
-    clauses.push(sql`not ${listedInSql(policy.blockedLibraries)}`);
+  if (policy.blockedAssets.length > 0) {
+    clauses.push(sql`not ${listedInSql(policy.blockedAssets)}`);
   }
 
   if (policy.mode === 'select') {
-    if (policy.allowedLibraries.length === 0) return 0;
-    clauses.push(listedInSql(policy.allowedLibraries));
+    if (policy.allowedAssets.length === 0) return 0;
+    clauses.push(listedInSql(policy.allowedAssets));
   } else if (policy.mode === 'quality') {
     const thresholds = [];
     if (policy.quality.requireVerified) {
       thresholds.push(
-        sql`(${schema.library.isPlatformLibrary} or ${schema.library.ownerWorkspaceId} is not null)`,
+        sql`(${schema.asset.isPlatformAsset} or ${schema.asset.ownerWorkspaceId} is not null)`,
       );
     }
     if (policy.quality.minTrustScore !== null) {
       thresholds.push(sql`coalesce((
-        select s.trust_score from ${schema.libraryScore} s
-        where s.asset_id = ${ref(schema.library.id)}
+        select s.trust_score from ${schema.assetScore} s
+        where s.asset_id = ${ref(schema.asset.id)}
         order by s.computed_at desc limit 1
       ), 0) >= ${policy.quality.minTrustScore}`);
     }
     if (policy.quality.maxAgeDays !== null) {
-      thresholds.push(sql`(${schema.library.lastSuccessfulRefreshAt} is null
-        or ${schema.library.lastSuccessfulRefreshAt} >= now() - make_interval(days => ${policy.quality.maxAgeDays}))`);
+      thresholds.push(sql`(${schema.asset.lastSuccessfulRefreshAt} is null
+        or ${schema.asset.lastSuccessfulRefreshAt} >= now() - make_interval(days => ${policy.quality.maxAgeDays}))`);
     }
     if (thresholds.length > 0) {
       const all = sql`(${sql.join(thresholds, sql` and `)})`;
       clauses.push(
-        policy.exceptedLibraries.length > 0
-          ? sql`(${listedInSql(policy.exceptedLibraries)} or ${all})`
+        policy.exceptedAssets.length > 0
+          ? sql`(${listedInSql(policy.exceptedAssets)} or ${all})`
           : all,
       );
     }
@@ -295,20 +295,20 @@ export async function countReachableLibraries(
 
   const [row] = await db()
     .select({ n: sql<number>`count(*)::int` })
-    .from(schema.library)
+    .from(schema.asset)
     .where(sql.join(clauses, sql` and `));
   return row?.n ?? 0;
 }
 
 /**
- * `listedIn` (lib/domain/policy.ts) as a predicate over a library row, for
+ * `listedIn` (lib/domain/policy.ts) as a predicate over an asset row, for
  * the preview count: exact entries by `public_id` equality, `/prefix/*`
  * entries as the prefix itself or anything nested under it, and domain
- * entries against the host of any of the library's source locations.
+ * entries against the host of any of the asset's source locations.
  * `like` is given an escaped prefix, so a `_` in a slug matches itself.
  *
  * Ids are folded to lower case on both sides, exactly as
- * `libraryEntryMatches` folds them: a repository Library ID keeps GitHub's
+ * `assetEntryMatches` folds them: a repository Asset ID keeps GitHub's
  * casing, so `vercel` must reach `/Vercel/next.js` here too or the count
  * would disagree with the evaluator it previews.
  */
@@ -331,14 +331,14 @@ function listedInSql(entries: readonly string[]) {
       return sql`exists (
         select 1 from ${schema.channelAsset} ca
         join ${schema.channel} c on c.id = ca.channel_id
-        where ca.asset_id = ${ref(schema.library.id)}
+        where ca.asset_id = ${ref(schema.asset.id)}
           ${named ? sql`and '/channels/' || c.slug = ${named}` : sql``}
       )`;
     }),
     ...domains.map(
       (domain) => sql`exists (
         select 1 from ${schema.source} s
-        where s.asset_id = ${ref(schema.library.id)}
+        where s.asset_id = ${ref(schema.asset.id)}
           and (${SOURCE_HOST} = ${domain} or ${SOURCE_HOST} like ${`%.${escapeLike(domain)}`})
       )`,
     ),
@@ -346,8 +346,8 @@ function listedInSql(entries: readonly string[]) {
   return sql`(${sql.join(clauses, sql` or `)})`;
 }
 
-/** The library's public id, folded for a case-insensitive entry match. */
-const PUBLIC_ID = sql`lower(${schema.library.publicId})`;
+/** The asset's public id, folded for a case-insensitive entry match. */
+const PUBLIC_ID = sql`lower(${schema.asset.publicId})`;
 
 /** The lower-cased host of a source location URL, or null for a non-URL. */
 const SOURCE_HOST = sql`lower(substring(s.location from '^[a-zA-Z][a-zA-Z0-9+.-]*://([^/:?#]+)'))`;

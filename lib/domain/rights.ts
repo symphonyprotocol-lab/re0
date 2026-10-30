@@ -2,14 +2,14 @@
  * The owner's rights declaration, as pure rules. requirement.md 7.4 item 1
  * and review-visibility-proposal.md 5.1.
  *
- * A public library used to be submitted on a checkbox. The declaration is
+ * A public asset used to be submitted on a checkbox. The declaration is
  * three answers the reviewer's first check needs -- whose content this is,
  * under what licence, and whether a person wrote it -- recorded with who
  * said so and when. It is the owner's statement, not the platform's
  * finding: the reviewer still checks it, and a false one is the owner's
  * responsibility. One answer closes the door by itself: content whose body
  * a model generated without a person's review is not accepted as a public
- * library (7.4), so that declaration cannot submit.
+ * asset (7.4), so that declaration cannot submit.
  */
 
 export const RIGHTS_ORIGINS = ['own', 'licensed', 'other'] as const;
@@ -95,7 +95,7 @@ export function readRightsDeclaration(stored: unknown): RightsDeclaration | null
 }
 
 /**
- * Whether a declaration may back a public library. requirement.md 7.4:
+ * Whether a declaration may back a public asset. requirement.md 7.4:
  * content whose body a model generated without a person's review is not
  * accepted; model-assisted writing a publisher stands behind is.
  */

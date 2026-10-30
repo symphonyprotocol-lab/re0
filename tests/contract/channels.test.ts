@@ -20,8 +20,8 @@ import {
   quality,
   ChannelRefused,
 } from '@/lib/domain/channel';
-import { assetKindOf, needsClaimForPublic } from '@/lib/domain/asset';
-import { normalizePublicId } from '@/lib/domain/library';
+import { assetKindOf, needsClaimForPublic } from '@/lib/domain/asset-kind';
+import { normalizePublicId } from '@/lib/domain/asset';
 import { evaluatePolicy, listedIn, OPEN_POLICY, parsePolicyEntry } from '@/lib/domain/policy';
 import { parseTenantKey, splitTenantPath, PLATFORM_TENANT, type A2ATenant } from '@/lib/application/a2a/tenant';
 import { agentCardJson, buildAgentCard, cardUrl } from '@/lib/application/a2a/card';
@@ -196,7 +196,7 @@ describe('access rules that name a channel', () => {
     expect(listedIn(['/channels/rust-notes'], { publicId: '/websites/a', channel: null })).toBe(false);
     expect(listedIn(['/channels/*'], { publicId: '/websites/a', channel: '/channels/x' })).toBe(true);
     const blocked = evaluatePolicy(
-      { ...OPEN_POLICY, blockedLibraries: ['/channels/rust-notes'] },
+      { ...OPEN_POLICY, blockedAssets: ['/channels/rust-notes'] },
       { publicId: '/websites/a', channel: '/channels/rust-notes', sourceTypes: ['website'], trustScore: 0, verified: true, ageDays: null },
     );
     expect(blocked.allowed).toBe(false);

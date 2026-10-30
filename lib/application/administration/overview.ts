@@ -4,7 +4,7 @@
  * 和服务状态).
  *
  * Every figure is read from the table that owns it: accounts from `user`,
- * libraries and the review queue from `library`, money from the billing
+ * assets and the review queue from `asset`, money from the billing
  * mirror, activity from `audit_log`, service health from `request_log` and
  * `workflow_operation`. A platform with nothing in a table reads zero there
  * rather than a placeholder, for the same reason the billing screen does: an
@@ -45,7 +45,7 @@ export interface WindowedCount {
 export interface OverviewHealth {
   /** API requests in the last 24 hours; a failure is a 5xx. */
   api: { requests: number; failures: number };
-  /** Live libraries by where their index stands. */
+  /** Live assets by where their index stands. */
   index: { ready: number; failed: number; building: number; total: number };
   /** Build and refresh operations: waiting or running now, finished in 24 hours. */
   builds: { open: number; succeeded: number; failed: number };
@@ -91,8 +91,8 @@ export interface ConsoleOverview {
   conversionBps: number | null;
   /** Workspaces on a paid plan right now. Present with the `billing` capability. */
   paidWorkspaces: number | null;
-  /** Present with the `libraries` capability. */
-  libraries: WindowedCount | null;
+  /** Present with the `assets` capability. */
+  assets: WindowedCount | null;
   /** Present with the `billing` capability. */
   revenue: BillingSummary | null;
   /** Present with the `audit` capability. */
@@ -125,7 +125,7 @@ export async function consoleOverview(input: OverviewInput): Promise<ConsoleOver
   const dayAgo = new Date(now.getTime() - DAY_MS);
   const can = (capability: AdminCapability) => input.capabilities.includes(capability);
 
-  const liveLibrary = isNull(schema.library.deletedAt);
+  const liveAsset = isNull(schema.asset.deletedAt);
 
   /*
    * Like against like: the current window runs from its first midnight to
@@ -148,7 +148,7 @@ export async function consoleOverview(input: OverviewInput): Promise<ConsoleOver
     userDays,
     paidDays,
     paidWorkspaces,
-    libraryRow,
+    assetRow,
     revenue,
     activity,
     [apiRow],
@@ -206,11 +206,11 @@ export async function consoleOverview(input: OverviewInput): Promise<ConsoleOver
           )
           .then((rows) => rows[0]?.n ?? 0)
       : null,
-    can('libraries')
+    can('assets')
       ? database
-          .select(windowed(schema.library.createdAt))
-          .from(schema.library)
-          .where(liveLibrary)
+          .select(windowed(schema.asset.createdAt))
+          .from(schema.asset)
+          .where(liveAsset)
           .then((rows) => rows[0])
       : null,
     can('billing') ? billingSummary(now) : null,
@@ -226,14 +226,14 @@ export async function consoleOverview(input: OverviewInput): Promise<ConsoleOver
     database
       .select({
         total: count(),
-        ready: sql<number>`(count(*) filter (where ${schema.library.indexStatus} = 'ready'))::int`,
-        failed: sql<number>`(count(*) filter (where ${schema.library.indexStatus} = 'failed'))::int`,
+        ready: sql<number>`(count(*) filter (where ${schema.asset.indexStatus} = 'ready'))::int`,
+        failed: sql<number>`(count(*) filter (where ${schema.asset.indexStatus} = 'failed'))::int`,
         building: sql<number>`(count(*) filter (
-          where ${schema.library.indexStatus} in ('pending', 'processing', 'stale')
+          where ${schema.asset.indexStatus} in ('pending', 'processing', 'stale')
         ))::int`,
       })
-      .from(schema.library)
-      .where(liveLibrary),
+      .from(schema.asset)
+      .where(liveAsset),
     /*
      * Bounded to what the panel reads -- open now, or finished in the last
      * day -- so the operation log's whole history is not scanned for three
@@ -288,7 +288,7 @@ export async function consoleOverview(input: OverviewInput): Promise<ConsoleOver
     conversionBps:
       userRow && paidWorkspaces !== null ? shareBps(paidWorkspaces, userRow.total) : null,
     paidWorkspaces,
-    libraries: libraryRow ?? null,
+    assets: assetRow ?? null,
     revenue,
     activity,
     health: {

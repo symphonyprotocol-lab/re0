@@ -13,7 +13,7 @@ import {
   parseScopeIsEmpty,
   parseScopeOf,
   type BuildableSourceType,
-} from '@/lib/domain/library';
+} from '@/lib/domain/asset';
 import { objectStore } from '@/lib/infrastructure/objects/store';
 import { fetchEditorialSnapshot } from './editor';
 import { fetchGithubSnapshot } from './github';
@@ -112,7 +112,7 @@ async function fetchUnscoped(input: FetchSnapshotInput): Promise<SourceSnapshot>
  * Whether a source type can be fetched with the current configuration.
  *
  * Answered before a refresh is queued so the console can refuse at the point
- * the operator is looking at the library, rather than leaving a row in the
+ * the operator is looking at the asset, rather than leaving a row in the
  * queue that fails minutes later for a reason that was knowable up front.
  */
 export function connectorConfigured(type: BuildableSourceType): boolean {

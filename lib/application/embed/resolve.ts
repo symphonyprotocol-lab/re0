@@ -29,10 +29,10 @@ import { db, schema } from '@/lib/infrastructure/postgres/client';
 export interface SiteKeyPrincipal {
   siteKeyId: string;
   workspaceId: string;
-  libraryId: string;
-  /** The library's public id, the form retrieval takes (`/owner/name`). */
-  libraryPublicId: string;
-  libraryTitle: string;
+  assetId: string;
+  /** The asset's public id, the form retrieval takes (`/owner/name`). */
+  assetPublicId: string;
+  assetTitle: string;
   /** Published with a current version: the widget can answer right now. */
   ready: boolean;
   allowedOrigins: string[];
@@ -60,21 +60,21 @@ export async function resolveSiteKey(key: unknown): Promise<SiteKeyPrincipal> {
     .select({
       id: schema.siteKey.id,
       workspaceId: schema.siteKey.workspaceId,
-      libraryId: schema.siteKey.libraryId,
+      assetId: schema.siteKey.assetId,
       allowedOrigins: schema.siteKey.allowedOrigins,
       dailyLimit: schema.siteKey.dailyLimit,
       welcome: schema.siteKey.welcome,
       accent: schema.siteKey.accent,
       revokedAt: schema.siteKey.revokedAt,
-      libraryPublicId: schema.library.publicId,
-      libraryTitle: schema.library.title,
-      lifecycleStatus: schema.library.lifecycleStatus,
-      currentVersionId: schema.library.currentVersionId,
-      deletedAt: schema.library.deletedAt,
+      assetPublicId: schema.asset.publicId,
+      assetTitle: schema.asset.title,
+      lifecycleStatus: schema.asset.lifecycleStatus,
+      currentVersionId: schema.asset.currentVersionId,
+      deletedAt: schema.asset.deletedAt,
       ownerStatus: schema.user.status,
     })
     .from(schema.siteKey)
-    .innerJoin(schema.library, eq(schema.library.id, schema.siteKey.libraryId))
+    .innerJoin(schema.asset, eq(schema.asset.id, schema.siteKey.assetId))
     /* The founding owner's account, as `resolveApiKey` reads it: a suspended
        account's widgets stop with its keys (requirement.md 3.2). */
     .leftJoin(
@@ -99,9 +99,9 @@ export async function resolveSiteKey(key: unknown): Promise<SiteKeyPrincipal> {
   return {
     siteKeyId: row.id,
     workspaceId: row.workspaceId,
-    libraryId: row.libraryId,
-    libraryPublicId: row.libraryPublicId,
-    libraryTitle: row.libraryTitle,
+    assetId: row.assetId,
+    assetPublicId: row.assetPublicId,
+    assetTitle: row.assetTitle,
     ready: widgetReady({
       lifecycleStatus: row.lifecycleStatus,
       hasCurrentVersion: row.currentVersionId !== null,
@@ -133,7 +133,7 @@ export interface WidgetAllowance {
  *
  * The visitor window is per site key: a browser that has used up one site's
  * share is not thereby shut out of every other site's widget. Called only
- * once the route knows the library can answer, so attempts on a library that
+ * once the route knows the asset can answer, so attempts on an asset that
  * is still building do not spend the owner's day.
  */
 export async function admitWidgetQuestion(

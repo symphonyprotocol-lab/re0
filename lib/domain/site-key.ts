@@ -116,13 +116,13 @@ export function frameAncestors(allowed: readonly string[]): string {
 }
 
 /**
- * Whether the widget can answer from a library right now: published, with a
+ * Whether the widget can answer from an asset right now: published, with a
  * current version. One rule for the dashboard panel and the embed page, so
- * the two never disagree -- a paused (suspended) library is not ready even
+ * the two never disagree -- a paused (suspended) asset is not ready even
  * when its last version is still indexed.
  */
-export function widgetReady(library: { lifecycleStatus: string; hasCurrentVersion: boolean }): boolean {
-  return library.lifecycleStatus === 'published' && library.hasCurrentVersion;
+export function widgetReady(asset: { lifecycleStatus: string; hasCurrentVersion: boolean }): boolean {
+  return asset.lifecycleStatus === 'published' && asset.hasCurrentVersion;
 }
 
 /** The snippet an owner pastes into their site. */

@@ -8,7 +8,7 @@ import { useI18n } from '@/lib/i18n/client';
 /**
  * REST quickstart with request/response samples -- design source frame
  * `lRoBh`. The tabs are built on the server from the deployment's base URL
- * and one of the workspace's own libraries (`quickstartTabs` in
+ * and one of the workspace's own assets (`quickstartTabs` in
  * lib/dashboard/demo-data); this component only switches between them.
  */
 export function ApiQuickstart({ tabs }: { tabs: [QuickstartTab, ...QuickstartTab[]] }) {

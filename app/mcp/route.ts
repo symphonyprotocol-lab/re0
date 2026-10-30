@@ -2,7 +2,7 @@
  * Remote MCP endpoint, stateless Streamable HTTP. architecture.md 13.1.
  *
  * Registers exactly two read-only tools, named identically everywhere:
- *   resolve-library-id
+ *   resolve-asset-id
  *   query-docs
  *
  * Both delegate to lib/application/retrieval -- the same functions REST uses;
@@ -15,9 +15,9 @@
  */
 import { NextResponse, type NextRequest } from 'next/server';
 import { AppError } from '@/contracts/errors';
-import { queryDocsInputSchema, resolveLibraryInputSchema } from '@/contracts/schemas';
+import { queryDocsInputSchema, resolveAssetInputSchema } from '@/contracts/schemas';
 import { requireScope } from '@/lib/application/auth';
-import { queryDocs, resolveLibraryId } from '@/lib/application/retrieval';
+import { queryDocs, resolveAssetId } from '@/lib/application/retrieval';
 import { surfaceEnabled } from '@/lib/domain/surfaces';
 import { retrievalCaller } from '@/lib/http/retrieval-caller';
 import { newRequestId } from '@/lib/http/respond';
@@ -28,21 +28,21 @@ const PROTOCOL_VERSION = '2025-03-26';
 
 const TOOLS = [
   {
-    name: 'resolve-library-id',
+    name: 'resolve-asset-id',
     description:
-      'Find candidate libraries for a question. Pass the question itself as `query` -- ' +
-      'libraries are matched by their content, and names on this platform often say ' +
-      'nothing about it. `libraryName` is an optional hint when a name is known. ' +
+      'Find candidate assets for a question. Pass the question itself as `query` -- ' +
+      'assets are matched by their content, and names on this platform often say ' +
+      'nothing about it. `assetName` is an optional hint when a name is known. ' +
       'Each candidate carries evidence (matched titles and terms) plus trust and ' +
       'benchmark scores; pick from the evidence, then call query-docs with the chosen ' +
-      'libraryId. `versions` lists the labels that can be pinned, newest first: when ' +
-      'the question is about a specific version, append its label to the libraryId. ' +
+      'assetId. `versions` lists the labels that can be pinned, newest first: when ' +
+      'the question is about a specific version, append its label to the assetId. ' +
       'Read-only and idempotent.',
     inputSchema: {
       type: 'object',
       properties: {
         query: { type: 'string', minLength: 1, maxLength: 2000, description: 'The user question or search intent.' },
-        libraryName: { type: 'string', minLength: 1, maxLength: 200, description: 'Optional library-name hint.' },
+        assetName: { type: 'string', minLength: 1, maxLength: 200, description: 'Optional asset-name hint.' },
       },
       required: ['query'],
       additionalProperties: false,
@@ -52,17 +52,17 @@ const TOOLS = [
   {
     name: 'query-docs',
     description:
-      'Retrieve cited documentation chunks from one library. `libraryId` comes from ' +
-      'resolve-library-id (form /owner/name, optionally /owner/name/version to pin a ' +
+      'Retrieve cited documentation chunks from one asset. `assetId` comes from ' +
+      'resolve-asset-id (form /owner/name, optionally /owner/name/version to pin a ' +
       'version). Returns chunks with citations, trimmed to maxTokens. Read-only.',
     inputSchema: {
       type: 'object',
       properties: {
-        libraryId: { type: 'string', description: 'From resolve-library-id, e.g. /vercel/next.js.' },
+        assetId: { type: 'string', description: 'From resolve-asset-id, e.g. /vercel/next.js.' },
         query: { type: 'string', minLength: 1, maxLength: 2000 },
         maxTokens: { type: 'integer', minimum: 256, maximum: 64000, default: 4000 },
       },
-      required: ['libraryId', 'query'],
+      required: ['assetId', 'query'],
       additionalProperties: false,
     },
     annotations: { readOnlyHint: true, idempotentHint: true, openWorldHint: false },
@@ -137,13 +137,13 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
         /* `mcp`, so the usage event and request log name this door. */
         const caller = await retrievalCaller(request, requestId, 'mcp');
 
-        if (name === 'resolve-library-id') {
+        if (name === 'resolve-asset-id') {
           requireScope(caller, 'knowledge:search');
-          const parsed = resolveLibraryInputSchema.safeParse(args);
+          const parsed = resolveAssetInputSchema.safeParse(args);
           if (!parsed.success) {
             throw new AppError('invalid_request', 'query is required (1-2000 characters)');
           }
-          const output = await resolveLibraryId(caller, parsed.data);
+          const output = await resolveAssetId(caller, parsed.data);
           return rpcResult(id, {
             content: [{ type: 'text', text: JSON.stringify(output, null, 2) }],
           });
@@ -153,7 +153,7 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
           requireScope(caller, 'knowledge:read');
           const parsed = queryDocsInputSchema.safeParse({ format: 'json', ...args });
           if (!parsed.success) {
-            throw new AppError('invalid_request', 'libraryId and query are required');
+            throw new AppError('invalid_request', 'assetId and query are required');
           }
           const output = await queryDocs(caller, parsed.data);
           return rpcResult(id, {

@@ -1,16 +1,16 @@
 /**
  * An uploaded file, for the workspace that uploaded it.
  *
- * Citations of a PDF library point here (`lib/infrastructure/connectors/pdf.ts`)
+ * Citations of a PDF asset point here (`lib/infrastructure/connectors/pdf.ts`)
  * because the object key is not a URL anyone can open. The handler finds the
- * `pdf` source whose config lists the file, checks the library belongs to
+ * `pdf` source whose config lists the file, checks the asset belongs to
  * the signed-in workspace, and redirects to a short-lived presigned GET so
  * the bytes never proxy through the app (architecture.md 7). A file that is
  * not this workspace's is a 404, not a 403: the id is not to be confirmed.
  */
 import { and, eq, inArray, isNull, sql } from 'drizzle-orm';
 import { NextResponse } from 'next/server';
-import { UPLOAD_SOURCE_TYPES, uploadedFilesOf } from '@/lib/domain/library';
+import { UPLOAD_SOURCE_TYPES, uploadedFilesOf } from '@/lib/domain/asset';
 import { currentSession } from '@/lib/http/session';
 import { isObjectStoreConfigured, objectStore } from '@/lib/infrastructure/objects/store';
 import { db, schema } from '@/lib/infrastructure/postgres/client';
@@ -30,12 +30,12 @@ export async function GET(
   const [row] = await db()
     .select({ config: schema.source.config })
     .from(schema.source)
-    .innerJoin(schema.library, eq(schema.library.id, schema.source.libraryId))
+    .innerJoin(schema.asset, eq(schema.asset.id, schema.source.assetId))
     .where(
       and(
         inArray(schema.source.type, [...UPLOAD_SOURCE_TYPES]),
-        eq(schema.library.ownerWorkspaceId, session.workspace.id),
-        isNull(schema.library.deletedAt),
+        eq(schema.asset.ownerWorkspaceId, session.workspace.id),
+        isNull(schema.asset.deletedAt),
         sql`${schema.source.config} @> ${JSON.stringify({ files: [{ id: fileId }] })}::jsonb`,
       ),
     )

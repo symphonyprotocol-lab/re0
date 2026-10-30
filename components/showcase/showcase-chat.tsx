@@ -59,7 +59,7 @@ export function ShowcaseChat({
   /** The owner looking at an unpublished page: the composer is shown, the ask route would refuse. */
   preview: boolean;
   starterQuestions: string[];
-  /** Where to send a visitor the library could not answer. */
+  /** Where to send a visitor the asset could not answer. */
   fallbackCta: { label: string; url: string } | null;
   /** Who a lead's contact goes to, for the privacy line. */
   ownerName: string;
@@ -201,7 +201,7 @@ export function ShowcaseChat({
     }
   }
 
-  /* Asking is off while the page is unpublished or its library is not indexed yet. */
+  /* Asking is off while the page is unpublished or its asset is not indexed yet. */
   const canAsk = !preview && ready;
 
   function submit(event: FormEvent) {

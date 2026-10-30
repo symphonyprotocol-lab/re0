@@ -1,18 +1,18 @@
 /**
- * The owner's side of a showcase page: enable one for a library, edit what
+ * The owner's side of a showcase page: enable one for an asset, edit what
  * it says, publish, disable and restore it. lib/domain/showcase.ts holds
  * the rules; this layer holds the rows.
  *
  * A page answers through an internal site key (`site_key.kind =
  * 'showcase'`): minted here with an empty allowlist, so no site can embed
  * it, and the page's own route is the only door that resolves it. Every
- * use case re-checks the role and that the library is the workspace's own,
+ * use case re-checks the role and that the asset is the workspace's own,
  * since a server action is a public endpoint whatever the page renders.
  */
 import { and, eq, isNull, ne } from 'drizzle-orm';
 import { AppError } from '@/contracts/errors';
-import { canManageLibraries, type WorkspaceRole } from '@/lib/application/libraries/delete';
-import { requireOwnedLibrary } from '@/lib/application/embed/site-keys';
+import { canManageAssets, type WorkspaceRole } from '@/lib/application/assets/delete';
+import { requireOwnedAsset } from '@/lib/application/embed/site-keys';
 import { uuidv7 } from '@/lib/domain/id';
 import { isLocale, type Locale } from '@/lib/i18n/locale';
 import {
@@ -54,7 +54,7 @@ import { randomHex } from '@/lib/infrastructure/crypto/tokens';
 import { isObjectStoreConfigured, objectStore } from '@/lib/infrastructure/objects/store';
 import { db, schema } from '@/lib/infrastructure/postgres/client';
 import { countWorkspaceShowcases, showcaseEntitlement, type WorkspaceShowcaseEntitlement } from './entitlement';
-import { retireShowcaseForLibrary } from './retire';
+import { retireShowcaseForAsset } from './retire';
 import { readShowcaseRow } from './row';
 
 export type ShowcaseRefusal =
@@ -85,7 +85,7 @@ export class ShowcaseInvalid extends AppError {
 
 export interface ShowcaseView {
   id: string;
-  libraryId: string;
+  assetId: string;
   kind: ShowcaseKind;
   slug: string;
   /** The slug without the unlisted suffix: what the owner edits. */
@@ -110,12 +110,12 @@ export interface ShowcaseView {
   entitlement: WorkspaceShowcaseEntitlement;
 }
 
-type Row = typeof schema.libraryShowcase.$inferSelect;
+type Row = typeof schema.assetShowcase.$inferSelect;
 
 function view(row: Row, dailyLimit: number, entitlement: WorkspaceShowcaseEntitlement): ShowcaseView {
   return {
     id: row.id,
-    libraryId: row.libraryId,
+    assetId: row.assetId,
     kind: row.kind,
     slug: row.slug,
     slugBase: row.access === 'unlisted' ? withoutUnlistedSuffix(row.slug) : row.slug,
@@ -136,11 +136,11 @@ function view(row: Row, dailyLimit: number, entitlement: WorkspaceShowcaseEntitl
   };
 }
 
-const liveRow = (workspaceId: string, libraryId: string) =>
+const liveRow = (workspaceId: string, assetId: string) =>
   and(
-    eq(schema.libraryShowcase.workspaceId, workspaceId),
-    eq(schema.libraryShowcase.libraryId, libraryId),
-    isNull(schema.libraryShowcase.deletedAt),
+    eq(schema.assetShowcase.workspaceId, workspaceId),
+    eq(schema.assetShowcase.assetId, assetId),
+    isNull(schema.assetShowcase.deletedAt),
   );
 
 type Database = ReturnType<typeof db>;
@@ -148,35 +148,35 @@ type Tx = Parameters<Parameters<Database['transaction']>[0]>[0];
 
 async function loadRow(
   workspaceId: string,
-  libraryId: string,
+  assetId: string,
   on: Database | Tx = db(),
 ): Promise<(Row & { dailyLimit: number }) | null> {
   const [row] = await on
-    .select({ showcase: schema.libraryShowcase, dailyLimit: schema.siteKey.dailyLimit })
-    .from(schema.libraryShowcase)
-    .innerJoin(schema.siteKey, eq(schema.siteKey.id, schema.libraryShowcase.siteKeyId))
-    .where(liveRow(workspaceId, libraryId))
+    .select({ showcase: schema.assetShowcase, dailyLimit: schema.siteKey.dailyLimit })
+    .from(schema.assetShowcase)
+    .innerJoin(schema.siteKey, eq(schema.siteKey.id, schema.assetShowcase.siteKeyId))
+    .where(liveRow(workspaceId, assetId))
     .limit(1);
   return row ? { ...row.showcase, dailyLimit: row.dailyLimit } : null;
 }
 
-async function reload(workspaceId: string, libraryId: string, entitlement: WorkspaceShowcaseEntitlement): Promise<ShowcaseView> {
-  const row = await loadRow(workspaceId, libraryId);
+async function reload(workspaceId: string, assetId: string, entitlement: WorkspaceShowcaseEntitlement): Promise<ShowcaseView> {
+  const row = await loadRow(workspaceId, assetId);
   if (!row) throw new AppError('internal_error', 'showcase not written');
   return view(row, row.dailyLimit, entitlement);
 }
 
 /**
- * The library's page, for its owner; null when none has been enabled. The
+ * The asset's page, for its owner; null when none has been enabled. The
  * caller may hand over the entitlement it already read for the workspace,
  * so a page that reads it for the cap does not read it twice.
  */
-export async function libraryShowcase(
-  input: { workspaceId: string; libraryId: string },
+export async function assetShowcase(
+  input: { workspaceId: string; assetId: string },
   entitlement?: WorkspaceShowcaseEntitlement,
 ): Promise<ShowcaseView | null> {
   const [row, allowed] = await Promise.all([
-    loadRow(input.workspaceId, input.libraryId),
+    loadRow(input.workspaceId, input.assetId),
     entitlement ?? showcaseEntitlement(input.workspaceId),
   ]);
   if (!row) return null;
@@ -185,13 +185,13 @@ export async function libraryShowcase(
 
 async function slugTaken(slug: string, exceptId?: string, on: Database | Tx = db()): Promise<boolean> {
   const [row] = await on
-    .select({ id: schema.libraryShowcase.id })
-    .from(schema.libraryShowcase)
+    .select({ id: schema.assetShowcase.id })
+    .from(schema.assetShowcase)
     .where(
       and(
-        eq(schema.libraryShowcase.slug, slug),
-        isNull(schema.libraryShowcase.deletedAt),
-        exceptId ? ne(schema.libraryShowcase.id, exceptId) : undefined,
+        eq(schema.assetShowcase.slug, slug),
+        isNull(schema.assetShowcase.deletedAt),
+        exceptId ? ne(schema.assetShowcase.id, exceptId) : undefined,
       ),
     )
     .limit(1);
@@ -212,58 +212,58 @@ async function freeSlug(title: string, on: Database | Tx): Promise<string> {
 export interface EnableShowcaseInput {
   workspaceId: string;
   role: WorkspaceRole;
-  libraryId: string;
+  assetId: string;
   kind: unknown;
   locale: Locale;
 }
 
 export interface EnableShowcaseResult {
   showcase: ShowcaseView;
-  /** False when the library already had a page, which is then returned as it is. */
+  /** False when the asset already had a page, which is then returned as it is. */
   created: boolean;
 }
 
 /**
- * Enable a page for a library: one internal site key, one row in draft, the
- * top of the page prefilled from the library's own title and description.
- * Drafting from the library's content is a separate step (draft.ts), since
+ * Enable a page for an asset: one internal site key, one row in draft, the
+ * top of the page prefilled from the asset's own title and description.
+ * Drafting from the asset's content is a separate step (draft.ts), since
  * it costs Calls and the owner may not want it.
  *
- * The existence check, the plan cap and the insert run under the library's
+ * The existence check, the plan cap and the insert run under the asset's
  * row lock, so two enables at once (a double click, two tabs) agree on one
  * page rather than the second one failing on the unique index.
  */
 export async function enableShowcase(input: EnableShowcaseInput): Promise<EnableShowcaseResult> {
-  if (!canManageLibraries(input.role)) throw new AppError('access_denied', 'only a library manager can share a library');
+  if (!canManageAssets(input.role)) throw new AppError('access_denied', 'only an asset manager can share an asset');
   if (!isShowcaseKind(input.kind)) throw new ShowcaseInvalid('kind');
   const kind: ShowcaseKind = input.kind;
-  await requireOwnedLibrary(input.workspaceId, input.libraryId);
+  await requireOwnedAsset(input.workspaceId, input.assetId);
   const entitlement = await showcaseEntitlement(input.workspaceId);
 
   const created = await db().transaction(async (tx) => {
-    const [library] = await tx
-      .select({ title: schema.library.title, description: schema.library.description })
-      .from(schema.library)
-      .where(and(eq(schema.library.id, input.libraryId), isNull(schema.library.deletedAt)))
+    const [asset] = await tx
+      .select({ title: schema.asset.title, description: schema.asset.description })
+      .from(schema.asset)
+      .where(and(eq(schema.asset.id, input.assetId), isNull(schema.asset.deletedAt)))
       .for('update');
-    if (!library) throw new AppError('library_not_found', 'no such library');
+    if (!asset) throw new AppError('library_not_found', 'no such asset');
 
-    if (await loadRow(input.workspaceId, input.libraryId, tx)) return false;
+    if (await loadRow(input.workspaceId, input.assetId, tx)) return false;
     const live = await countWorkspaceShowcases(input.workspaceId, tx);
     if (!showcasePagesAllowed(entitlement, live)) throw new ShowcaseInvalid('plan_limit');
 
     const now = new Date();
     const siteKeyId = uuidv7();
-    const slug = await freeSlug(library.title, tx);
+    const slug = await freeSlug(asset.title, tx);
     const content = {
       ...emptyShowcaseContent(),
-      name: library.title.trim().slice(0, SHOWCASE_LIMITS.name),
-      summary: (library.description ?? '').trim().slice(0, SHOWCASE_LIMITS.summary),
+      name: asset.title.trim().slice(0, SHOWCASE_LIMITS.name),
+      summary: (asset.description ?? '').trim().slice(0, SHOWCASE_LIMITS.summary),
     };
     await tx.insert(schema.siteKey).values({
       id: siteKeyId,
       workspaceId: input.workspaceId,
-      libraryId: input.libraryId,
+      assetId: input.assetId,
       kind: 'showcase',
       name: 'Showcase page',
       key: `${SITE_KEY_PREFIX}${randomHex(16)}`,
@@ -273,9 +273,9 @@ export async function enableShowcase(input: EnableShowcaseInput): Promise<Enable
       accent: SITE_KEY_ACCENT_DEFAULT,
       createdAt: now,
     });
-    await tx.insert(schema.libraryShowcase).values({
+    await tx.insert(schema.assetShowcase).values({
       id: uuidv7(),
-      libraryId: input.libraryId,
+      assetId: input.assetId,
       workspaceId: input.workspaceId,
       siteKeyId,
       kind,
@@ -293,13 +293,13 @@ export async function enableShowcase(input: EnableShowcaseInput): Promise<Enable
     return true;
   });
 
-  return { showcase: await reload(input.workspaceId, input.libraryId, entitlement), created };
+  return { showcase: await reload(input.workspaceId, input.assetId, entitlement), created };
 }
 
 export interface UpdateShowcaseInput {
   workspaceId: string;
   role: WorkspaceRole;
-  libraryId: string;
+  assetId: string;
   kind?: unknown;
   /** The content as the form posts it (lib/domain/showcase.ts `validateShowcaseContent`). */
   content?: unknown;
@@ -319,10 +319,10 @@ export interface UpdateShowcaseInput {
   expiresAt?: unknown;
 }
 
-async function requireManaged(input: { workspaceId: string; role: WorkspaceRole; libraryId: string }) {
-  if (!canManageLibraries(input.role)) throw new AppError('access_denied', 'only a library manager can edit a showcase page');
-  const row = await loadRow(input.workspaceId, input.libraryId);
-  if (!row) throw new AppError('library_not_found', 'this library has no showcase page');
+async function requireManaged(input: { workspaceId: string; role: WorkspaceRole; assetId: string }) {
+  if (!canManageAssets(input.role)) throw new AppError('access_denied', 'only an asset manager can edit a showcase page');
+  const row = await loadRow(input.workspaceId, input.assetId);
+  if (!row) throw new AppError('library_not_found', 'this asset has no showcase page');
   if (row.status === 'taken_down') throw new ShowcaseInvalid('status');
   return row;
 }
@@ -336,7 +336,7 @@ export async function updateShowcase(input: UpdateShowcaseInput): Promise<Showca
   const row = await requireManaged(input);
   const entitlement = await showcaseEntitlement(input.workspaceId);
   const current = readShowcaseDocument(row.content);
-  const patch: Partial<typeof schema.libraryShowcase.$inferInsert> = {};
+  const patch: Partial<typeof schema.assetShowcase.$inferInsert> = {};
   let dailyLimit = row.dailyLimit;
 
   if (input.kind !== undefined) {
@@ -441,19 +441,19 @@ export async function updateShowcase(input: UpdateShowcaseInput): Promise<Showca
 
   patch.updatedAt = new Date();
   await db().transaction(async (tx) => {
-    await tx.update(schema.libraryShowcase).set(patch).where(eq(schema.libraryShowcase.id, row.id));
+    await tx.update(schema.assetShowcase).set(patch).where(eq(schema.assetShowcase.id, row.id));
     if (dailyLimit !== row.dailyLimit) {
       await tx.update(schema.siteKey).set({ dailyLimit }).where(eq(schema.siteKey.id, row.siteKeyId));
     }
   });
-  return reload(input.workspaceId, input.libraryId, entitlement);
+  return reload(input.workspaceId, input.assetId, entitlement);
 }
 
 /** Publish, disable or restore: the owner's three moves (lib/domain/showcase.ts `showcaseTransition`). */
 export async function applyShowcaseVerb(input: {
   workspaceId: string;
   role: WorkspaceRole;
-  libraryId: string;
+  assetId: string;
   verb: unknown;
 }): Promise<ShowcaseView> {
   const row = await requireManaged(input);
@@ -463,32 +463,32 @@ export async function applyShowcaseVerb(input: {
   if (!next) throw new ShowcaseInvalid('status');
   const now = new Date();
   await db()
-    .update(schema.libraryShowcase)
+    .update(schema.assetShowcase)
     .set({
       status: next,
       updatedAt: now,
       ...(next === 'published' ? { publishedAt: row.publishedAt ?? now, disabledAt: null } : {}),
       ...(next === 'disabled' ? { disabledAt: now } : {}),
     })
-    .where(eq(schema.libraryShowcase.id, row.id));
-  return reload(input.workspaceId, input.libraryId, await showcaseEntitlement(input.workspaceId));
+    .where(eq(schema.assetShowcase.id, row.id));
+  return reload(input.workspaceId, input.assetId, await showcaseEntitlement(input.workspaceId));
 }
 
 /**
- * Delete the page so the library can start over with a fresh one. The row
- * is tombstoned exactly as a deleted library's page is
- * (`retireShowcaseForLibrary`): the slug is freed, the leads and the custom
+ * Delete the page so the asset can start over with a fresh one. The row
+ * is tombstoned exactly as a deleted asset's page is
+ * (`retireShowcaseForAsset`): the slug is freed, the leads and the custom
  * host go with the page, the internal site key is revoked. The logo and
  * screenshot leave the object store afterwards, best-effort. A page the
  * platform took down cannot be deleted by its owner -- deleting and
  * enabling again would be a way around the take-down -- which
  * `requireManaged` already refuses.
  */
-export async function deleteShowcase(input: { workspaceId: string; role: WorkspaceRole; libraryId: string }): Promise<void> {
+export async function deleteShowcase(input: { workspaceId: string; role: WorkspaceRole; assetId: string }): Promise<void> {
   const row = await requireManaged(input);
   const now = new Date();
   await db().transaction(async (tx) => {
-    await retireShowcaseForLibrary(tx, input.libraryId, now);
+    await retireShowcaseForAsset(tx, input.assetId, now);
   });
   if (isObjectStoreConfigured()) {
     for (const key of [row.logoKey, row.screenshotKey]) {
@@ -514,7 +514,7 @@ export function showcaseAssetKey(showcaseId: string, kind: ShowcaseAssetKind): s
 export async function uploadShowcaseAsset(input: {
   workspaceId: string;
   role: WorkspaceRole;
-  libraryId: string;
+  assetId: string;
   kind: ShowcaseAssetKind;
   bytes: Uint8Array;
 }): Promise<ShowcaseView> {
@@ -530,24 +530,24 @@ export async function uploadShowcaseAsset(input: {
   const key = showcaseAssetKey(row.id, input.kind);
   await objectStore().put(key, input.bytes, contentType);
   await db()
-    .update(schema.libraryShowcase)
+    .update(schema.assetShowcase)
     .set({ ...(input.kind === 'logo' ? { logoKey: key } : { screenshotKey: key }), updatedAt: new Date() })
-    .where(eq(schema.libraryShowcase.id, row.id));
-  return reload(input.workspaceId, input.libraryId, await showcaseEntitlement(input.workspaceId));
+    .where(eq(schema.assetShowcase.id, row.id));
+  return reload(input.workspaceId, input.assetId, await showcaseEntitlement(input.workspaceId));
 }
 
 export async function removeShowcaseAsset(input: {
   workspaceId: string;
   role: WorkspaceRole;
-  libraryId: string;
+  assetId: string;
   kind: ShowcaseAssetKind;
 }): Promise<ShowcaseView> {
   const row = await requireManaged(input);
   const key = input.kind === 'logo' ? row.logoKey : row.screenshotKey;
   if (key && isObjectStoreConfigured()) await objectStore().delete(key).catch(() => {});
   await db()
-    .update(schema.libraryShowcase)
+    .update(schema.assetShowcase)
     .set({ ...(input.kind === 'logo' ? { logoKey: null } : { screenshotKey: null }), updatedAt: new Date() })
-    .where(eq(schema.libraryShowcase.id, row.id));
-  return reload(input.workspaceId, input.libraryId, await showcaseEntitlement(input.workspaceId));
+    .where(eq(schema.assetShowcase.id, row.id));
+  return reload(input.workspaceId, input.assetId, await showcaseEntitlement(input.workspaceId));
 }

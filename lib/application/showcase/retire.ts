@@ -1,6 +1,6 @@
 /**
- * A library's page goes with the library. Called from inside the delete
- * transaction (lib/application/libraries/delete.ts): the row is tombstoned
+ * An asset's page goes with the asset. Called from inside the delete
+ * transaction (lib/application/assets/delete.ts): the row is tombstoned
  * so it stops counting against the plan and answering, and its internal
  * site key is revoked so nothing can resolve it afterwards. Imports only
  * the driver, so the delete path does not pull the rest of this module in.
@@ -11,12 +11,12 @@ import { removeProjectDomain } from '@/lib/infrastructure/vercel/domains';
 
 type Tx = Parameters<Parameters<ReturnType<typeof db>['transaction']>[0]>[0];
 
-export async function retireShowcaseForLibrary(tx: Tx, libraryId: string, now: Date): Promise<void> {
+export async function retireShowcaseForAsset(tx: Tx, assetId: string, now: Date): Promise<void> {
   const rows = await tx
-    .update(schema.libraryShowcase)
+    .update(schema.assetShowcase)
     .set({ deletedAt: now, updatedAt: now })
-    .where(and(eq(schema.libraryShowcase.libraryId, libraryId), isNull(schema.libraryShowcase.deletedAt)))
-    .returning({ id: schema.libraryShowcase.id, siteKeyId: schema.libraryShowcase.siteKeyId });
+    .where(and(eq(schema.assetShowcase.assetId, assetId), isNull(schema.assetShowcase.deletedAt)))
+    .returning({ id: schema.assetShowcase.id, siteKeyId: schema.assetShowcase.siteKeyId });
   /* The visitors' contacts were given to this page: they go with it. */
   if (rows.length > 0) {
     const ids = rows.map((row) => row.id);

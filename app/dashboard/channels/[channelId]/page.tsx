@@ -8,7 +8,7 @@ import { ChannelCommercePanel } from '@/components/creator/channel-commerce-pane
 import { activeCommerceSettings } from '@/lib/application/administration/manage-commerce-config';
 import { channelStream, ownedChannelView } from '@/lib/application/channels';
 import { channelCommerce } from '@/lib/application/channels/subscriptions';
-import { canManageLibraries, listWorkspaceLibraries } from '@/lib/application/libraries';
+import { canManageAssets, listWorkspaceAssets } from '@/lib/application/assets';
 import { CHANNEL_DESCRIPTION_MAX_LENGTH, CHANNEL_TITLE_MAX_LENGTH } from '@/lib/domain/channel';
 import { requireSession } from '@/lib/http/session';
 import { fill } from '@/lib/i18n/format';
@@ -48,10 +48,10 @@ export default async function ChannelDetailPage({
   if (!channel) notFound();
   const c = t.dashboard.channels;
   const kinds = t.channels.kinds as Record<string, string>;
-  const canEdit = canManageLibraries(session.workspace.role);
+  const canEdit = canManageAssets(session.workspace.role);
   const [stream, assets, commerce, commerceSettings] = await Promise.all([
     channelStream(channel),
-    listWorkspaceLibraries(session.workspace.id),
+    listWorkspaceAssets(session.workspace.id),
     channelCommerce(channel.id),
     activeCommerceSettings(),
   ]);

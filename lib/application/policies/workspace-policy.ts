@@ -17,8 +17,8 @@ import {
   type WorkspacePolicy,
 } from '@/lib/domain/policy';
 import { uuidv7 } from '@/lib/domain/id';
-import type { WorkspaceRole } from '@/lib/application/libraries';
-import { countReachableLibraries, patchPolicy, pinPolicy } from './policy-store';
+import type { WorkspaceRole } from '@/lib/application/assets';
+import { countReachableAssets, patchPolicy, pinPolicy } from './policy-store';
 
 /** requirement.md 5.2: Owner/Admin may change the rules; Developer reads. */
 export function canManagePolicy(role: WorkspaceRole): boolean {
@@ -36,7 +36,7 @@ export async function readWorkspacePolicy(workspaceId: string): Promise<Workspac
   return {
     versionId: pinned.versionId,
     policy: pinned.policy,
-    reachable: await countReachableLibraries(workspaceId, pinned.policy),
+    reachable: await countReachableAssets(workspaceId, pinned.policy),
   };
 }
 
@@ -57,7 +57,7 @@ export async function previewWorkspacePolicy(input: {
   workspaceId: string;
   draft: unknown;
 }): Promise<number> {
-  return countReachableLibraries(input.workspaceId, parseDraft(input.draft));
+  return countReachableAssets(input.workspaceId, parseDraft(input.draft));
 }
 
 export interface ApplyWorkspacePolicyInput {
@@ -90,6 +90,6 @@ export async function applyWorkspacePolicy(
   return {
     versionId: response.policyVersionId,
     policy: response.policy,
-    reachable: response.accessibleLibraryCount,
+    reachable: response.accessibleAssetCount,
   };
 }

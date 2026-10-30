@@ -22,7 +22,7 @@ import {
 } from '@/components/ui/icons';
 import type {
   CheckDomainVerificationResult,
-  CreateLibraryResult,
+  CreateAssetResult,
   StartDomainVerificationResult,
 } from '@/app/dashboard/assets/new/actions';
 import {
@@ -45,7 +45,7 @@ import {
   type IndexDepth,
   type ReviewPipelineEntry,
   type UploadSourceType,
-} from '@/lib/domain/library';
+} from '@/lib/domain/asset';
 import { EMPTY_RIGHTS, RightsFields, RightsHiddenFields, rightsComplete, type RightsAnswer } from '@/components/dashboard/rights-fields';
 import { RIGHTS_GENERATIONS, RIGHTS_LICENSES, RIGHTS_ORIGINS } from '@/lib/domain/rights';
 import { useI18n } from '@/lib/i18n/client';
@@ -59,7 +59,7 @@ import { fill } from '@/lib/i18n/format';
  * separate step afterwards. A website source gets a fifth step between
  * details and rights: prove control of the source's host by a DNS TXT record or a
  * well-known file (requirement.md 7.3.2), because the server refuses to
- * create such a library without a verified challenge. Submission
+ * create such an asset without a verified challenge. Submission
  * writes the rows and queues the build (create.ts); the request never waits
  * for ingestion (architecture.md 3.1), so success shows the queued state
  * rather than pretending the index exists.
@@ -120,7 +120,7 @@ const FIELD =
  * The wizard's answers, kept in the browser so a half-filled form survives a
  * reload, a provider's consent redirect, or a closed tab. Keyed by workspace:
  * two workspaces on one machine are two drafts, and switching workspace does
- * not hand someone another team's half-written library.
+ * not hand someone another team's half-written asset.
  *
  * Files are deliberately not in it. An upload is bytes in object storage
  * against a ticket that expires (`UPLOAD_LIMITS.uploadUrlTtlSeconds`), and a
@@ -157,7 +157,7 @@ function readRightsAnswer(value: unknown): RightsAnswer {
 }
 
 function draftKey(workspaceId: string): string {
-  return `re0.library-draft.${workspaceId}`;
+  return `re0.asset-draft.${workspaceId}`;
 }
 
 function readDraft(workspaceId: string): WizardDraft | null {
@@ -260,7 +260,7 @@ export function ImportWizard({
   startVerification,
   checkVerification,
 }: {
-  action: (previous: CreateLibraryResult | null, form: FormData) => Promise<CreateLibraryResult>;
+  action: (previous: CreateAssetResult | null, form: FormData) => Promise<CreateAssetResult>;
   prepare: PrepareUploads;
   /** Which workspace's draft this is; the browser keeps one per workspace. */
   workspaceId: string;
@@ -274,10 +274,10 @@ export function ImportWizard({
   checkVerification: CheckVerification;
 }) {
   const { locale, t } = useI18n();
-  const n = t.dashboard.newLibrary;
+  const n = t.dashboard.newAsset;
   const w = n.wizard;
   const md = n.markdown;
-  const pl = t.dashboard.libraries.manage.pipeline;
+  const pl = t.dashboard.assets.manage.pipeline;
 
   /* Coming back from a provider's consent lands on the step that sent the
      person there, with that source already picked; the rest starts over,
@@ -302,11 +302,11 @@ export function ImportWizard({
      one host, and the server would refuse it for any other. */
   const [challenge, setChallenge] = useState<Challenge | null>(null);
   /* The last step is a real confirmation: nothing submits until this is
-     ticked, so a stray Enter cannot create a library. */
+     ticked, so a stray Enter cannot create an asset. */
   const [confirmed, setConfirmed] = useState(false);
   /* What the file picker is for. It follows the chosen source, and changing
      the source drops whatever was picked for the old one -- a `.md` manifest
-     posted to a PDF library is refused by the server anyway. */
+     posted to a PDF asset is refused by the server anyway. */
   const uploadKind: UploadSourceType = source === 'markdown' ? 'markdown' : 'pdf';
   const files = usePdfUploads(prepare, UPLOAD_LIMITS.maxFiles, uploadKind);
   const [state, formAction, pending] = useActionState(action, null);
@@ -333,7 +333,7 @@ export function ImportWizard({
   const current: StepId = stepIds[Math.min(step, stepIds.length - 1)]!;
   const steps = stepIds.map((id) => stepLabels[id]);
 
-  /* Files are optional for a PDF library -- they can be added from its files
+  /* Files are optional for a PDF asset -- they can be added from its files
      page once it exists -- but nothing may still be in flight at submit. */
   const sourceComplete = isUpload ? files.settled : location.trim().length > 0;
   const detailsComplete =
@@ -430,7 +430,7 @@ export function ImportWizard({
     rights,
   ]);
 
-  /* The library exists; the draft has nothing left to restore. */
+  /* The asset exists; the draft has nothing left to restore. */
   useEffect(() => {
     if (!state?.ok) return;
     try {
@@ -480,9 +480,9 @@ export function ImportWizard({
 
   /* ------------------------------------------------------------ pipeline */
 
-  /* An empty upload library has nothing queued; what it needs next is files. */
-  const awaitingFiles = isUpload && files.uploaded.length === 0 && Boolean(state?.libraryId);
-  /* requirement.md 5.2: the steps a library goes through, showing where this
+  /* An empty upload asset has nothing queued; what it needs next is files. */
+  const awaitingFiles = isUpload && files.uploaded.length === 0 && Boolean(state?.assetId);
+  /* requirement.md 5.2: the steps an asset goes through, showing where this
      one actually is -- nothing yet before submission, and after it whatever
      the create left behind (a draft with a build queued, or none at all). */
   const pipeline: ReviewPipelineEntry[] = state?.ok
@@ -575,7 +575,7 @@ export function ImportWizard({
           </p>
           <Link
             href={
-              awaitingFiles ? `/dashboard/assets/${state.libraryId}/files` : '/dashboard/assets'
+              awaitingFiles ? `/dashboard/assets/${state.assetId}/files` : '/dashboard/assets'
             }
             className="mt-2 inline-flex h-[35px] items-center gap-1.5 rounded-md bg-brand px-3.5 text-[12px] font-medium text-white hover:bg-brand/90"
           >
@@ -854,9 +854,9 @@ export function ImportWizard({
                         [
                           w.rightsTitle,
                           [
-                            t.dashboard.libraries.rights.origins[rights.origin as 'own'],
-                            t.dashboard.libraries.rights.licenses[rights.license as 'open_source'],
-                            t.dashboard.libraries.rights.generations[rights.generation as 'human'],
+                            t.dashboard.assets.rights.origins[rights.origin as 'own'],
+                            t.dashboard.assets.rights.licenses[rights.license as 'open_source'],
+                            t.dashboard.assets.rights.generations[rights.generation as 'human'],
                           ].join(' · '),
                         ],
                       ]
@@ -967,7 +967,7 @@ function GithubRepositoryPicker({
   onSelect: (fullName: string) => void;
 }) {
   const { t } = useI18n();
-  const w = t.dashboard.newLibrary.wizard;
+  const w = t.dashboard.newAsset.wizard;
   const [filter, setFilter] = useState('');
 
   const notice =
@@ -1090,7 +1090,7 @@ function NotionPagePicker({
   onSelect: (url: string) => void;
 }) {
   const { t, locale } = useI18n();
-  const w = t.dashboard.newLibrary.wizard;
+  const w = t.dashboard.newAsset.wizard;
   const [filter, setFilter] = useState('');
 
   const notice =
@@ -1216,7 +1216,7 @@ function VerifyStep({
   check: CheckVerification;
 }) {
   const { t, locale } = useI18n();
-  const v = t.dashboard.newLibrary.wizard.verify;
+  const v = t.dashboard.newAsset.wizard.verify;
   const [method, setMethod] = useState<DomainVerificationMethod>(challenge?.method ?? 'dns_txt');
   const [starting, startTransition] = useTransition();
   const [checking, checkTransition] = useTransition();

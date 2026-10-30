@@ -43,7 +43,7 @@ describe('notionPageId', () => {
 });
 
 describe('source config', () => {
-  it('names the account a source is read with, and nobody for a platform library', () => {
+  it('names the account a source is read with, and nobody for a platform asset', () => {
     expect(notionSourceUserId({ pageId: DASHED, [NOTION_SOURCE_USER_KEY]: 'user-1' })).toBe('user-1');
     expect(notionSourceUserId({ pageId: DASHED })).toBeNull();
     expect(notionSourceUserId(null)).toBeNull();
@@ -75,13 +75,13 @@ describe('connect handshake and outcome', () => {
 
 describe('wizard copy', () => {
   it('has every Notion string in both languages', () => {
-    const keys = Object.keys(en.dashboard.newLibrary.wizard).filter((k) => k.startsWith('notion'));
+    const keys = Object.keys(en.dashboard.newAsset.wizard).filter((k) => k.startsWith('notion'));
     expect(keys.length).toBeGreaterThan(5);
     for (const key of keys) {
-      expect(zh.dashboard.newLibrary.wizard).toHaveProperty(key);
+      expect(zh.dashboard.newAsset.wizard).toHaveProperty(key);
     }
-    expect(Object.keys(zh.dashboard.newLibrary.wizard.errorNotion)).toEqual(
-      Object.keys(en.dashboard.newLibrary.wizard.errorNotion),
+    expect(Object.keys(zh.dashboard.newAsset.wizard.errorNotion)).toEqual(
+      Object.keys(en.dashboard.newAsset.wizard.errorNotion),
     );
   });
 });

@@ -45,15 +45,15 @@ describe('admin capabilities', () => {
 
   /*
    * requirement.md 3.1 splits these between two people: a Reviewer decides
-   * whether a *user's* public library ships, an Operator maintains the
+   * whether a *user's* public asset ships, an Operator maintains the
    * platform's own. One shared capability would have let a reviewer publish
-   * and suspend libraries under re0's name.
+   * and suspend assets under re0's name.
    */
-  it('keeps platform libraries out of the reviewer role', () => {
-    expect(roleAllows('reviewer', 'libraries')).toBe(true);
-    expect(roleAllows('reviewer', 'platformLibraries')).toBe(false);
-    expect(roleAllows('operator', 'platformLibraries')).toBe(true);
-    expect(roleAllows('support', 'platformLibraries')).toBe(false);
+  it('keeps platform assets out of the reviewer role', () => {
+    expect(roleAllows('reviewer', 'assets')).toBe(true);
+    expect(roleAllows('reviewer', 'platformAssets')).toBe(false);
+    expect(roleAllows('operator', 'platformAssets')).toBe(true);
+    expect(roleAllows('support', 'platformAssets')).toBe(false);
   });
 
   /*
@@ -74,7 +74,7 @@ describe('admin capabilities', () => {
 
   it('unions roles without inventing a capability', () => {
     const granted = capabilitiesForRoles(['reviewer', 'support']);
-    expect(granted).toEqual(['users', 'libraries']);
+    expect(granted).toEqual(['users', 'assets']);
   });
 
   it('rejects a role id that is not one of the presets', () => {

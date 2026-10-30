@@ -40,7 +40,7 @@ export type PayoutError =
   | 'no_account'
   /** Not something PayPal could send to. */
   | 'invalid_email'
-  /** What is past its hold on a library that still earns is under the threshold. */
+  /** What is past its hold on an asset that still earns is under the threshold. */
   | 'below_threshold'
   /** A request is already waiting for an operator. */
   | 'payout_pending'

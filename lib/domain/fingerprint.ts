@@ -2,14 +2,14 @@
  * A content sketch for duplicate detection, as pure functions.
  * review-visibility-proposal.md 6.1 ("重复").
  *
- * A mirror or a wholesale re-upload of a published library should not
+ * A mirror or a wholesale re-upload of a published asset should not
  * reach a reviewer as a fresh submission. Comparing every chunk of every
- * library is not affordable; comparing a bottom-k sketch is. Each chunk
+ * asset is not affordable; comparing a bottom-k sketch is. Each chunk
  * body is normalised and hashed, and the k smallest hashes are the
  * version's sketch. Two sketches estimate their Jaccard similarity from
  * the k smallest hashes of their union -- the share of those that both
  * sets contain -- which is the standard bottom-k estimator. It catches
- * copies and near-copies; a library that quotes another in passing scores
+ * copies and near-copies; an asset that quotes another in passing scores
  * low, as it should.
  */
 

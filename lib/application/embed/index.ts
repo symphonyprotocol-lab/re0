@@ -4,7 +4,7 @@ export {
   createSiteKey,
   listSiteKeys,
   revokeSiteKey,
-  SITE_KEYS_PER_LIBRARY,
+  SITE_KEYS_PER_ASSET,
   siteKeyEntitlement,
   SiteKeyInvalid,
   SiteKeyLimit,

@@ -29,7 +29,7 @@ const {
   notionTokenFor,
 } = await import('@/lib/application/auth');
 const { NotionGrantRevoked } = await import('@/lib/infrastructure/identity/notion');
-const { createWorkspaceLibrary } = await import('@/lib/application/libraries');
+const { createWorkspaceAsset } = await import('@/lib/application/assets');
 const { NOTION_SOURCE_USER_KEY } = await import('@/lib/domain/notion');
 const { seal, unseal } = await import('@/lib/infrastructure/crypto/sealed');
 const { db, schema } = await import('@/lib/infrastructure/postgres/client');
@@ -66,7 +66,7 @@ function reader(options: { revoked?: boolean } = {}) {
 
 const users: string[] = [];
 const workspaces: string[] = [];
-const libraries: string[] = [];
+const assets: string[] = [];
 const planVersions: string[] = [];
 
 async function account(): Promise<string> {
@@ -141,10 +141,10 @@ async function connect(userId: string, grant = GRANT) {
 describeWithDb('notion page import', () => {
   afterAll(async () => {
     const database = db();
-    if (libraries.length > 0) {
-      await database.delete(schema.workflowOperation).where(inArray(schema.workflowOperation.libraryId, libraries));
-      await database.delete(schema.source).where(inArray(schema.source.libraryId, libraries));
-      await database.delete(schema.library).where(inArray(schema.library.id, libraries));
+    if (assets.length > 0) {
+      await database.delete(schema.workflowOperation).where(inArray(schema.workflowOperation.assetId, assets));
+      await database.delete(schema.source).where(inArray(schema.source.assetId, assets));
+      await database.delete(schema.asset).where(inArray(schema.asset.id, assets));
     }
     if (workspaces.length > 0) {
       await database.delete(schema.subscription).where(inArray(schema.subscription.workspaceId, workspaces));
@@ -209,7 +209,7 @@ describeWithDb('notion page import', () => {
     if (listed.connected) expect(listed.pages.map((page) => page.title)).toEqual(['Handbook']);
 
     const attempt = (location: string) =>
-      createWorkspaceLibrary({
+      createWorkspaceAsset({
         role: 'owner',
         workspaceId,
         userId,
@@ -226,15 +226,15 @@ describeWithDb('notion page import', () => {
     await expect(attempt('https://www.notion.so/acme/no-id-here')).rejects.toMatchObject({ refusal: 'not_found' });
     /* No account at all on the call: refused before anything is read. */
     await expect(
-      createWorkspaceLibrary({ role: 'owner', workspaceId, title: 'x', rights: { origin: 'own', license: 'open_source', generation: 'human' }, sourceType: 'notion', location: PAGE_URL, slug: 'x' }),
+      createWorkspaceAsset({ role: 'owner', workspaceId, title: 'x', rights: { origin: 'own', license: 'open_source', generation: 'human' }, sourceType: 'notion', location: PAGE_URL, slug: 'x' }),
     ).rejects.toMatchObject({ code: 'access_denied' });
 
     /* The one that passes: location from Notion's spelling, the account on the source. */
     const created = await attempt(`https://acme.notion.site/${PAGE_ID.replace(/-/g, '')}`);
-    libraries.push(created.libraryId);
+    assets.push(created.assetId);
     expect(created.publicId).toBe('/notion/handbook');
     expect(created.operationId).not.toBeNull();
-    const [source] = await db().select().from(schema.source).where(eq(schema.source.libraryId, created.libraryId));
+    const [source] = await db().select().from(schema.source).where(eq(schema.source.assetId, created.assetId));
     expect(source?.location).toBe(PAGE_URL);
     expect(source?.config).toEqual({ pageId: PAGE_ID, [NOTION_SOURCE_USER_KEY]: userId });
   });

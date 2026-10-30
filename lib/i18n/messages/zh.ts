@@ -166,9 +166,9 @@ export const zh = {
       calls: '包含 API Calls',
       callsMonthly: '{calls} / 月',
       callsPack: '+{calls}',
-      publicLibraries: '公开资产',
+      publicAssets: '公开资产',
       allIncluded: '全部可用',
-      ownLibraries: '自建资产',
+      ownAssets: '自建资产',
       unlimited: '不限数量',
       storage: '工作空间总容量',
       storageAfterPack: '购买后 {storage}',
@@ -726,7 +726,7 @@ export const zh = {
     },
   },
 
-  library: {
+  asset: {
     fallbackTitle: '资产',
     breadcrumb: '频道',
     public: '公开',
@@ -818,8 +818,8 @@ export const zh = {
     routedSkipped: '{list} 也被检索，但片段与问题相关度不足，未采用。',
     rewriteNote: '原问题未检索到足够相关的片段，已改按「{query}」再次检索。',
     resolvedNote: '结合前文，按「{question}」理解这个问题。',
-    noLibraryTitle: '没有匹配的资产',
-    noLibraryBody: '没有已发布的资产与该问题匹配，因此未进行检索，也没有生成回答。',
+    noAssetTitle: '没有匹配的资产',
+    noAssetBody: '没有已发布的资产与该问题匹配，因此未进行检索，也没有生成回答。',
     degradedTitle: '仅展示检索片段，未生成回答',
     degradedBody: '答案生成暂不可用（或生成内容无法绑定到来源），因此按原样展示检索到的片段。',
     sourcesMore: '其余 {count} 个检索片段（未被引用）',
@@ -843,7 +843,7 @@ export const zh = {
     footnoteLine1: '每次问答计 1 API Call，按工作空间额度计量；答案生成成本由平台承担。',
     footnoteLine2: '回答中的每条事实都必须绑定到本次检索返回的 Chunk，无法绑定的内容不会作为事实展示。',
     allowance: {
-      pinnedTo: '固定查询 {library}',
+      pinnedTo: '固定查询 {asset}',
       unpin: '改为自动路由',
       codeLabel: '代码示例',
     },
@@ -928,7 +928,7 @@ export const zh = {
   dashboard: {
     nav: {
       overview: '概览',
-      libraries: '资产',
+      assets: '资产',
       channels: '频道',
       apiKeys: 'API 密钥',
       widget: '网站插件',
@@ -1250,13 +1250,13 @@ export const zh = {
     overview: {
       title: '概览',
       description: '查看检索调用、密钥和开发接入状态。',
-      addLibrary: '添加资产',
+      addAsset: '添加资产',
       stats: {
         calls: '本期调用',
         tokens: '返回 Token',
         tokensCaption: '本期所有检索调用合计',
-        libraries: '你的资产',
-        librariesCaption: '归属本工作空间',
+        assets: '你的资产',
+        assetsCaption: '归属本工作空间',
         addon: '调用包余额',
         addonCaption: '永不过期；套餐额度用尽后消耗',
         buildCalls: '构建消耗',
@@ -1304,8 +1304,8 @@ export const zh = {
         costLink: '查看账单',
         mcpEndpointLabel: 'MCP 地址',
         keyPlaceholderNote: '把 {placeholder} 换成你在「API 密钥」创建的密钥。',
-        exampleLibraryOwn: '示例查询你的资产 {libraryId}。',
-        exampleLibraryCatalog: '你还没有资产，示例查询公开目录中的 {libraryId}。',
+        exampleAssetOwn: '示例查询你的资产 {assetId}。',
+        exampleAssetCatalog: '你还没有资产，示例查询公开目录中的 {assetId}。',
         tabSearch: '搜索',
         tabContext: '上下文',
       },
@@ -1316,8 +1316,8 @@ export const zh = {
       title: '网站插件',
       description:
         '把资产嵌入你自己的网站：一行代码，右下角出现聊天窗口，访客提问只从该资产作答并标注引用页面。',
-      pickLibrary: '选择资产创建密钥',
-      createLibrary: '先创建一项资产',
+      pickAsset: '选择资产创建密钥',
+      createAsset: '先创建一项资产',
       stats: {
         keys: '站点密钥',
         reached: '已接入网站',
@@ -1343,7 +1343,7 @@ export const zh = {
         ],
         snippetLabel: '嵌入代码',
         snippetPlaceholderNote: '把 {placeholder} 换成你的站点密钥。创建密钥后，这里会直接显示可复制的完整代码。',
-        snippetKeyNote: '这是密钥「{name}」（{library}）的嵌入代码，其他密钥的代码见下方列表。',
+        snippetKeyNote: '这是密钥「{name}」（{asset}）的嵌入代码，其他密钥的代码见下方列表。',
         attributesTitle: '可选属性',
         attributes: [
           'data-position="left"：按钮放到左下角（默认右下角）。',
@@ -1376,7 +1376,7 @@ export const zh = {
         firstSeen: '首次 {time}',
       },
     },
-    libraries: {
+    assets: {
       pager: {
         page: '第 {page} / {pages} 页',
         showing: '本页 {shown} 个，共 {total} 个',
@@ -1385,7 +1385,7 @@ export const zh = {
       },
       title: '资产',
       description: '管理你的数据资产。资产默认只有你自己能用；放进公开频道后，其他人和其他 Agent 才能检索。',
-      addLibrary: '添加资产',
+      addAsset: '添加资产',
       reviewNotice: '资产构建通过安全扫描后即可检索；放进公开频道的资产违反规则时，平台可随时下架。',
       searchPlaceholder: '搜索资产…',
       columns: ['资产', '所在频道', '文档片段', '调用次数', '审核状态', '最近更新'],
@@ -1422,7 +1422,7 @@ export const zh = {
         benchmark_low: 'Benchmark Score 低于自动发布线，交由模型审核。',
         hit_rate_unknown: '自检问题还没有在当前版本上评测过，交由模型审核。',
         hit_rate_low: '自检问题命中率低于自动发布线，交由模型审核。',
-        first_public_library: '这是工作空间的第一项公开资产，交由模型审核。',
+        first_public_asset: '这是工作空间的第一项公开资产，交由模型审核。',
         auto_approved: '规则层核对通过，自动发布。',
         model_unavailable: '审核模型暂不可用，已排队等待重试。',
         model_no_answer: '模型多次未能给出可用的清单，请重新提交；如不认同可申诉。',
@@ -1511,8 +1511,8 @@ export const zh = {
       metaTitle: '分享网页',
       title: '把资产分享成网页',
       description: '每项资产都可以变成一个独立的公司或产品介绍页，访客在页面上直接提问。这里看所有页面的状态、链接和近期数据；创建和编辑在各项资产的页面上。',
-      createLibrary: '先添加一项资产',
-      pickLibrary: '去资产创建页面',
+      createAsset: '先添加一项资产',
+      pickAsset: '去资产创建页面',
       stats: {
         published: '已发布页面',
         views: '近 {days} 天访问',
@@ -1623,7 +1623,7 @@ export const zh = {
         unavailable: '没有完成，请稍后重试。',
       },
     },
-    libraryDetail: {
+    assetDetail: {
       metaTitle: '资产详情',
       tabs: {
         label: '资产分区',
@@ -2191,7 +2191,7 @@ export const zh = {
         page: '第 {page} / {pages} 页，共 {total} 次调用',
       },
     },
-    libraryFiles: {
+    assetFiles: {
       metaTitle: 'PDF 文件',
       back: '返回资产列表',
       title: 'PDF 文件',
@@ -2223,7 +2223,7 @@ export const zh = {
         addHint: '每项资产最多 {max} 个 .md / .mdx 文件，每个不超过 {size}。选中后立即开始上传。',
         },
     },
-    newLibrary: {
+    newAsset: {
       metaTitle: '添加资产',
       back: '返回资产',
       title: '添加资产',
@@ -2513,9 +2513,9 @@ export const zh = {
         from: '开始日期',
         to: '结束日期',
         entrypoint: '入口',
-        library: '资产',
+        asset: '资产',
         allEntrypoints: '全部入口',
-        allLibraries: '全部资产',
+        allAssets: '全部资产',
         entrypoints: { rest: 'REST API', mcp: 'MCP', web: 'Web' },
         statuses: ['全部状态', '成功', '错误'],
         apply: '筛选',
@@ -2723,7 +2723,7 @@ export const zh = {
       planCancels: '已取消续费，{date} 到期后回到免费版',
       planPerks: {
         calls: '每月 {count} 次 API 调用',
-        libraries: '自建资产数量不限',
+        assets: '自建资产数量不限',
         storage: '工作空间总容量 {capacity}',
         apiKeys: '最多 {count} 个 API 密钥',
       },
@@ -2842,8 +2842,8 @@ export const zh = {
     },
     capabilities: {
       users: '用户',
-      libraries: '用户资产',
-      platformLibraries: '平台资产',
+      assets: '用户资产',
+      platformAssets: '平台资产',
       plans: '订阅',
       models: '模型与召回',
       billing: '账单',
@@ -2883,7 +2883,7 @@ export const zh = {
       source_unreachable: '来源没有响应，稍后会重试。',
       source_forbidden: '来源拒绝了请求，或该地址不允许抓取。',
       source_too_large: '来源内容超过单次构建的上限。',
-      library_too_large: '加上这些内容后工作空间会超过容量上限，已在解析前停止，未扣费；删除不再需要的资产、缩小来源范围，或购买调用包提升容量后重试。',
+      asset_too_large: '加上这些内容后工作空间会超过容量上限，已在解析前停止，未扣费；删除不再需要的资产、缩小来源范围，或购买调用包提升容量后重试。',
       source_empty: '来源没有返回可索引的内容。',
       source_unrendered: '该站点返回的是需要浏览器渲染的 JS 空壳，且未配置渲染服务或渲染失败。',
       unsafe_content: '抓取到的文档全部被安全扫描隔离。',
@@ -2897,9 +2897,9 @@ export const zh = {
     },
     /** 某一块「还没建好」时，列表为什么是空的。 */
     notReady: {
-      libraries: '用户还不能提交资产，因此没有待审阅的记录。',
+      assets: '用户还不能提交资产，因此没有待审阅的记录。',
       claims: '认领流程随内容接入一同上线，目前没有申请记录。',
-      platformLibraries: '这里还没有内容。新建的资产先是草稿，首次刷新索引出版本后即可发布。',
+      platformAssets: '这里还没有内容。新建的资产先是草稿，首次刷新索引出版本后即可发布。',
       ingestion: '当前环境没有配置内容接入：需要同时配置 Embedding 服务与对象存储，刷新才能构建版本。',
       billing: '支付服务尚未接入，因此没有账单记录。',
       settlements: '收益核算随支付服务一同上线，本账期没有结算单。',
@@ -2918,8 +2918,8 @@ export const zh = {
       system: '系统管理',
       overview: '运营概览',
       users: '注册用户',
-      libraries: '用户资产',
-      platformLibraries: '平台资产',
+      assets: '用户资产',
+      platformAssets: '平台资产',
       refreshQueue: '刷新队列',
       plans: '订阅配置',
       billing: '订阅账单',
@@ -3184,7 +3184,7 @@ export const zh = {
         cache: '缓存',
         playground: '在线试用预算',
         agent: '在线试用 Agent',
-        routing: '资产路由(resolve-library-id)',
+        routing: '资产路由(resolve-asset-id)',
         directory: '频道目录「热门」排序',
         a2a: 'A2A ask 计量',
       },
@@ -3312,7 +3312,7 @@ export const zh = {
       range: '最近 {days} 天',
       stats: {
         users: '注册用户',
-        libraries: '资产总数',
+        assets: '资产总数',
         revenue: '本月订阅收入',
       },
       /* Under a tile: the move against the previous window, or the count when there is nothing to compare. */
@@ -3396,7 +3396,7 @@ export const zh = {
       enableDescription: '启用后该账户可以重新登录，资产恢复对外访问。',
       consequenceSessions: '结束 {count} 个登录会话，浏览器立即被登出',
       consequenceCovered:
-        '{keys} 个 API 密钥与 {libraries} 项已发布资产同在停用范围内：两者在调用时按账户状态放行，该检查随 API Key 认证与检索一起上线。',
+        '{keys} 个 API 密钥与 {assets} 项已发布资产同在停用范围内：两者在调用时按账户状态放行，该检查随 API Key 认证与检索一起上线。',
       reason: '原因',
       reasonSuspend: '停用原因（必填）',
       reasonEnable: '启用原因（必填）',
@@ -3427,8 +3427,8 @@ export const zh = {
         planRenews: '{date} 自动续费',
         planCancels: '已取消续费，{date} 到期',
         planNoteNone: '无订阅账期',
-        libraries: '资产',
-        librariesNote: '公开 {public} · 私有 {private}',
+        assets: '资产',
+        assetsNote: '公开 {public} · 私有 {private}',
         calls: '本月调用',
         callsNote: '配额 {quota}',
         callsNoteNone: '调用计量尚未上线',
@@ -3450,10 +3450,10 @@ export const zh = {
       identityNone: '尚未绑定',
       workspaceNone: '尚无工作空间',
       workspaceRole: '{name}（{role}）',
-      librariesTitle: '资产',
-      librariesSubtitle: '该账户拥有的资产与当前审核状态',
-      librariesColumns: ['资产', '可见性', '审核状态', '容量', '创建时间'],
-      librariesEmpty: '该账户还没有资产。',
+      assetsTitle: '资产',
+      assetsSubtitle: '该账户拥有的资产与当前审核状态',
+      assetsColumns: ['资产', '可见性', '审核状态', '容量', '创建时间'],
+      assetsEmpty: '该账户还没有资产。',
       keysTitle: 'API 密钥',
       keysSubtitle: '停用账户后密钥立即失效',
       keysColumns: ['名称', '环境', '最近使用', '创建时间', '状态'],
@@ -3506,7 +3506,7 @@ export const zh = {
         },
       },
     },
-    libraries: {
+    assets: {
       title: '用户资产',
       description: '用户资产与平台处置：已上线的可下架，已下架的可恢复；每次处置都写入审计日志。',
       tabs: {
@@ -3725,7 +3725,7 @@ export const zh = {
       showing: '显示 {from}–{to}，共 {total} 条申请',
       empty: '没有符合条件的认领申请。',
     },
-    platformLibraries: {
+    platformAssets: {
       title: '平台资产',
       description: '创建并维护由 re0 官方发布的公开资产。',
       create: '创建平台资产',
@@ -3776,8 +3776,8 @@ export const zh = {
       queueLink: '查看刷新队列',
       errors: {
         not_found: '找不到这项资产。',
-        not_platform_library: '这不是平台资产，请到「用户资产」处理。',
-        not_user_library: '这是平台资产，请到「平台资产」处理。',
+        not_platform_asset: '这不是平台资产，请到「用户资产」处理。',
+        not_user_asset: '这是平台资产，请到「平台资产」处理。',
         invalid_title: '请填写资产名称，最多 120 字。',
         invalid_public_id: '资产 ID 不属于该来源类型的命名空间。',
         public_id_taken: '这个 资产 ID 已被占用。',
@@ -3910,7 +3910,7 @@ export const zh = {
       },
       types: { refresh: '刷新', ingest: '首次构建', delete: '删除' },
     },
-    platformLibraryDetail: {
+    platformAssetDetail: {
       eyebrow: '平台资产 / 资产详情',
       title: '平台资产',
       metaTitle: '{title} · 平台资产',
@@ -4038,7 +4038,7 @@ export const zh = {
       },
       profile: {
         title: '路由画像',
-        description: 'resolve-library-id 检索的是这份从内容派生的画像，不是资产名称',
+        description: 'resolve-asset-id 检索的是这份从内容派生的画像，不是资产名称',
         empty: '还没有构建过版本，所以也没有画像。',
         extractor: '抽取器版本',
         extractorCurrent: '最新',
@@ -4703,7 +4703,7 @@ export const zh = {
     /** 认领详情与裁定对话框。requirement.md 5.3、7.3.5。 */
     claimDetail: {
       title: '认领详情',
-      metaTitle: '认领 · {library}',
+      metaTitle: '认领 · {asset}',
       eyebrow: '所有权与认领',
       back: '返回认领列表',
       view: '查看详情',
@@ -4725,7 +4725,7 @@ export const zh = {
       factsSubtitle: '申请人、目标资产与当前状态。',
       fields: {
         id: '认领 ID',
-        library: '资产',
+        asset: '资产',
         claimant: '申请人工作空间',
         currentOwner: '当前所有者',
         method: '验证方式',
@@ -4740,7 +4740,7 @@ export const zh = {
       },
       remaining: '剩余 {days} 天',
       unclaimed: '无主',
-      libraryDeleted: '资产已删除',
+      assetDeleted: '资产已删除',
       rulingBy: '{admin}：{reason}',
       evidenceTitle: '验证证据',
       evidenceSubtitle: '按验证方式逐项检查的结果。',
@@ -4838,7 +4838,7 @@ export const zh = {
     yourClaimsEmpty: '你还没有发起过认领。',
     columns: ['资产', '验证方式', '状态', '到期', ''],
     open: '查看',
-    library: '资产',
+    asset: '资产',
     source: '来源',
     owner: '当前所有者',
     ownedBySelf: '本工作空间已经是这项资产的所有者。',
@@ -4890,7 +4890,7 @@ export const zh = {
     expiresAt: '到期：{when}',
     attempts: '已校验 {count} 次',
     disputedNotice: '该资产另有所有者，这条认领是争议：控制权证明通过后由管理员裁定，不会自动转移。',
-    verifiedNotice: '认领已通过。本工作空间现在是 {library} 的所有者，可在 Dashboard 管理它。',
+    verifiedNotice: '认领已通过。本工作空间现在是 {asset} 的所有者，可在 Dashboard 管理它。',
     disputedProven: '控制权已证明。管理员会按证据裁定这条争议，结果会通知你。',
     checksTitle: '检查项',
     checks: {
@@ -4945,7 +4945,7 @@ export const zh = {
       failed: 'GitHub 授权未完成，请重试。',
     },
     newClaim: '重新发起认领',
-    backToLibrary: '返回资产页',
+    backToAsset: '返回资产页',
     errors: {
       not_found: '找不到这项资产，或它不可认领。',
       method_unavailable: '该来源类型不支持所选验证方式。',

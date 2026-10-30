@@ -1,9 +1,9 @@
 /**
- * When a library may answer a question at all. architecture.md 9.6.
+ * When an asset may answer a question at all. architecture.md 9.6.
  *
  * Recall is generous by design: every routing path returns its nearest
  * neighbours whatever the distance, and reciprocal-rank fusion only keeps
- * their order. Left alone, that means a platform with one library routes
+ * their order. Left alone, that means a platform with one asset routes
  * every question to it -- "what is the weather today" included -- and the
  * playground then asks a model to answer from thirty unrelated passages.
  *
@@ -17,7 +17,7 @@
  */
 
 /**
- * Cosine distance to a library's nearest centroid at or under which the
+ * Cosine distance to an asset's nearest centroid at or under which the
  * semantic path alone admits it.
  *
  * Measured: same-language questions about the corpus sat at 0.33-0.45,
@@ -32,7 +32,7 @@ export const CENTROID_ADMIT_DISTANCE = 0.5;
 /**
  * How many chunks, platform-wide, a query term may appear in and still count
  * as a *rare* term -- one that lives in a paragraph or two and therefore
- * says which library the question is about. Above this the term is
+ * says which asset the question is about. Above this the term is
  * vocabulary ("transaction", "next", "app") and is evidence of nothing.
  */
 export const RARE_TERM_MAX_DOCUMENTS = 8;
@@ -43,15 +43,15 @@ export interface CandidateSignals {
   profileRank: number;
   /** Cosine distance to the nearest centroid; null when the path did not run. */
   centroidDistance: number | null;
-  /** Rare query terms (see above) found in this library's own chunks. */
+  /** Rare query terms (see above) found in this asset's own chunks. */
   rareTerms: number;
-  /** The caller named this library. */
+  /** The caller named this asset. */
   nameHint: boolean;
 }
 
 /**
  * A candidate is admitted when at least one path found *evidence*: a term of
- * the library's own vocabulary in the question, a rare term in its chunks,
+ * the asset's own vocabulary in the question, a rare term in its chunks,
  * a caller's name hint, or a same-language semantic match close enough to
  * stand alone. Ranking among the admitted is fusion's job, not this one's.
  */

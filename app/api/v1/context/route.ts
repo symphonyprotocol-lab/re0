@@ -1,5 +1,5 @@
 /**
- * GET /api/v1/context -- retrieval within one library. architecture.md 12.1.
+ * GET /api/v1/context -- retrieval within one asset. architecture.md 12.1.
  *
  * The route is a thin shell: authentication and the anonymous rate limit in
  * `retrievalCaller`, parameter validation against the shared contract, then
@@ -27,7 +27,7 @@ export async function GET(request: NextRequest): Promise<NextResponse> {
     const params = request.nextUrl.searchParams;
     const maxTokens = params.get('maxTokens');
     const parsed = queryDocsInputSchema.safeParse({
-      libraryId: params.get('libraryId') ?? undefined,
+      assetId: params.get('assetId') ?? undefined,
       query: params.get('query') ?? undefined,
       ...(maxTokens === null ? {} : { maxTokens: Number(maxTokens) }),
       format: params.get('type') ?? undefined,
@@ -35,7 +35,7 @@ export async function GET(request: NextRequest): Promise<NextResponse> {
     if (!parsed.success) {
       throw new AppError(
         'invalid_request',
-        'libraryId and query are required; maxTokens 256-64000; type json or txt',
+        'assetId and query are required; maxTokens 256-64000; type json or txt',
       );
     }
 

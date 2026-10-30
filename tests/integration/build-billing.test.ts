@@ -1,6 +1,6 @@
 /**
- * Library builds in the call ledger, against a real database.
- * library-build-billing.md 4 and 10:
+ * Asset builds in the call ledger, against a real database.
+ * asset-build-billing.md 4 and 10:
  *
  * - a successful build writes one weighted usage event under
  *   `build:<operationId>`, in the publication transaction, and the dashboard
@@ -9,7 +9,7 @@
  * - a build the balance cannot cover fails before embedding with
  *   `quota_exceeded`, leaves no version, no event and no held seat;
  * - shadow mode records the price at weight zero;
- * - a platform library is nobody's bill.
+ * - a platform asset is nobody's bill.
  *
  * Runs only when TEST_DATABASE_URL points at a disposable database.
  */
@@ -25,7 +25,7 @@ process.env.SESSION_SIGNING_SECRET ??= 'test-secret-that-is-long-enough-000000';
 const { memoryObjectStore, runOperation, drainOperations } = await import('@/lib/application/ingestion');
 const { BUILD_RESERVATION_TTL_MS } = await import('@/lib/application/plans/quota');
 const { usageOverview } = await import('@/lib/application/plans');
-const { workspaceLibraryDetail } = await import('@/lib/application/libraries/detail');
+const { workspaceAssetDetail } = await import('@/lib/application/assets/detail');
 const { buildRequestId } = await import('@/lib/domain/build-billing');
 const { EMBEDDING_COLUMN_DIMENSIONS } = await import('@/lib/infrastructure/ai/providers');
 const { db, schema } = await import('@/lib/infrastructure/postgres/client');
@@ -123,16 +123,16 @@ async function subscribed(workspaceId: string, monthlyCalls: number): Promise<st
   return planVersionId;
 }
 
-async function library(slug: string, ownerWorkspaceId: string | null): Promise<string> {
+async function asset(slug: string, ownerWorkspaceId: string | null): Promise<string> {
   const database = db();
-  const libraryId = crypto.randomUUID();
-  created.push(libraryId);
-  await database.insert(schema.library).values({
-    id: libraryId,
+  const assetId = crypto.randomUUID();
+  created.push(assetId);
+  await database.insert(schema.asset).values({
+    id: assetId,
     publicId: `/websites/${slug}`,
     title: `Build billing fixture ${slug}`,
     ownerWorkspaceId,
-    isPlatformLibrary: ownerWorkspaceId === null,
+    isPlatformAsset: ownerWorkspaceId === null,
     kind: 'website',
     lifecycleStatus: 'draft',
     indexStatus: 'pending',
@@ -140,18 +140,18 @@ async function library(slug: string, ownerWorkspaceId: string | null): Promise<s
   });
   await database.insert(schema.source).values({
     id: uuidv7(),
-    libraryId,
+    assetId,
     type: 'website',
     location: `https://example.test/${slug}`,
   });
-  return libraryId;
+  return assetId;
 }
 
-async function queue(libraryId: string, trigger = 'manual'): Promise<string> {
+async function queue(assetId: string, trigger = 'manual'): Promise<string> {
   const operationId = uuidv7();
   await db().insert(schema.workflowOperation).values({
     id: operationId,
-    libraryId,
+    assetId,
     operationType: 'ingest',
     sourceDigest: null,
     status: 'pending',
@@ -189,7 +189,7 @@ async function pendingSeats(workspaceId: string): Promise<number> {
   return rows.length;
 }
 
-describeWithDb('library build billing', () => {
+describeWithDb('asset build billing', () => {
   const previousMode = process.env.BUILD_BILLING_MODE;
   beforeEach(() => {
     process.env.BUILD_BILLING_MODE = 'enforce';
@@ -204,33 +204,33 @@ describeWithDb('library build billing', () => {
     const database = db();
     if (created.length > 0) {
       await database
-        .update(schema.library)
+        .update(schema.asset)
         .set({ currentVersionId: null })
-        .where(inArray(schema.library.id, created));
-      await database.delete(schema.usageEvent).where(inArray(schema.usageEvent.libraryId, created));
+        .where(inArray(schema.asset.id, created));
+      await database.delete(schema.usageEvent).where(inArray(schema.usageEvent.assetId, created));
       await database
         .update(schema.workflowOperation)
         .set({ reservationId: null })
-        .where(inArray(schema.workflowOperation.libraryId, created));
+        .where(inArray(schema.workflowOperation.assetId, created));
       await database
-        .delete(schema.libraryProfileVector)
-        .where(inArray(schema.libraryProfileVector.libraryId, created));
+        .delete(schema.assetProfileVector)
+        .where(inArray(schema.assetProfileVector.assetId, created));
       await database
-        .delete(schema.libraryProfile)
-        .where(inArray(schema.libraryProfile.libraryId, created));
-      await database.delete(schema.chunk).where(inArray(schema.chunk.libraryId, created));
-      await database.delete(schema.document).where(inArray(schema.document.libraryId, created));
+        .delete(schema.assetProfile)
+        .where(inArray(schema.assetProfile.assetId, created));
+      await database.delete(schema.chunk).where(inArray(schema.chunk.assetId, created));
+      await database.delete(schema.document).where(inArray(schema.document.assetId, created));
       await database
-        .delete(schema.libraryVersion)
-        .where(inArray(schema.libraryVersion.libraryId, created));
+        .delete(schema.assetVersion)
+        .where(inArray(schema.assetVersion.assetId, created));
       await database
-        .delete(schema.libraryScore)
-        .where(inArray(schema.libraryScore.libraryId, created));
+        .delete(schema.assetScore)
+        .where(inArray(schema.assetScore.assetId, created));
       await database
         .delete(schema.workflowOperation)
-        .where(inArray(schema.workflowOperation.libraryId, created));
-      await database.delete(schema.source).where(inArray(schema.source.libraryId, created));
-      await database.delete(schema.library).where(inArray(schema.library.id, created));
+        .where(inArray(schema.workflowOperation.assetId, created));
+      await database.delete(schema.source).where(inArray(schema.source.assetId, created));
+      await database.delete(schema.asset).where(inArray(schema.asset.id, created));
     }
     if (workspaces.length > 0) {
       await database
@@ -253,17 +253,17 @@ describeWithDb('library build billing', () => {
   it('bills a published build once, weighted by what it added, and reports it apart', async () => {
     const owner = await workspace('build-billing owner');
     await subscribed(owner, 1_000);
-    const libraryId = await library('billed', owner);
-    const operationId = await queue(libraryId);
+    const assetId = await asset('billed', owner);
+    const operationId = await queue(assetId);
 
     const outcome = await runOperation({ operationId, dependencies: dependencies() });
     expect(outcome.status).toBe('succeeded');
     if (outcome.status !== 'succeeded') return;
 
     const [version] = await db()
-      .select({ totalTokens: schema.libraryVersion.totalTokens })
-      .from(schema.libraryVersion)
-      .where(eq(schema.libraryVersion.id, outcome.versionId));
+      .select({ totalTokens: schema.assetVersion.totalTokens })
+      .from(schema.assetVersion)
+      .where(eq(schema.assetVersion.id, outcome.versionId));
     const expected = 1 + Math.ceil(version!.totalTokens / TOKENS_PER_CALL);
     expect(expected).toBeGreaterThan(1);
 
@@ -281,8 +281,8 @@ describeWithDb('library build billing', () => {
     expect(row.quotedCalls).toBeGreaterThanOrEqual(expected);
     expect(await pendingSeats(owner)).toBe(0);
 
-    /* The library page reads the same figure back by version. */
-    const detail = await workspaceLibraryDetail({ workspaceId: owner, libraryId });
+    /* The asset page reads the same figure back by version. */
+    const detail = await workspaceAssetDetail({ workspaceId: owner, assetId });
     expect(detail?.versions.find((version) => version.id === outcome.versionId)?.buildCalls).toBe(expected);
 
     const overview = await usageOverview(owner);
@@ -291,7 +291,7 @@ describeWithDb('library build billing', () => {
     expect(overview.callsThisPeriod).toBe(expected);
 
     /* A rerun of an unchanged source: no version, no event, no seat. */
-    const again = await queue(libraryId);
+    const again = await queue(assetId);
     const rerun = await runOperation({ operationId: again, dependencies: dependencies() });
     expect(rerun.status).toBe('skipped');
     expect(await buildEvent(again)).toBeNull();
@@ -304,8 +304,8 @@ describeWithDb('library build billing', () => {
     await subscribed(owner, 2);
     const grantId = uuidv7();
     await db().insert(schema.addonGrant).values({ id: grantId, workspaceId: owner, callsGranted: 1_000, callsConsumed: 0, priceMinor: 500 });
-    const libraryId = await library('split', owner);
-    const operationId = await queue(libraryId);
+    const assetId = await asset('split', owner);
+    const operationId = await queue(assetId);
 
     const outcome = await runOperation({ operationId, dependencies: dependencies() });
     expect(outcome.status).toBe('succeeded');
@@ -335,8 +335,8 @@ describeWithDb('library build billing', () => {
     const owner = await workspace('build-billing poor');
     /* Enough for the base fee, so the build is admitted, but not for the tokens. */
     await subscribed(owner, 1);
-    const libraryId = await library('refused', owner);
-    const operationId = await queue(libraryId);
+    const assetId = await asset('refused', owner);
+    const operationId = await queue(assetId);
 
     const outcome = await runOperation({ operationId, dependencies: dependencies() });
     expect(outcome).toEqual({ status: 'failed', error: 'quota_exceeded' });
@@ -348,14 +348,14 @@ describeWithDb('library build billing', () => {
     expect(await buildEvent(operationId)).toBeNull();
     expect(await pendingSeats(owner)).toBe(0);
     const versions = await db()
-      .select({ id: schema.libraryVersion.id })
-      .from(schema.libraryVersion)
-      .where(eq(schema.libraryVersion.libraryId, libraryId));
+      .select({ id: schema.assetVersion.id })
+      .from(schema.assetVersion)
+      .where(eq(schema.assetVersion.assetId, assetId));
     expect(versions).toHaveLength(0);
     const [lib] = await db()
-      .select({ indexStatus: schema.library.indexStatus })
-      .from(schema.library)
-      .where(eq(schema.library.id, libraryId));
+      .select({ indexStatus: schema.asset.indexStatus })
+      .from(schema.asset)
+      .where(eq(schema.asset.id, assetId));
     expect(lib!.indexStatus).toBe('failed');
   });
 
@@ -363,12 +363,12 @@ describeWithDb('library build billing', () => {
     const owner = await workspace('build-billing empty');
     await subscribed(owner, 1);
     /* Spend the one call on an earlier build's event. */
-    const spent = await library('spent', owner);
+    const spent = await asset('spent', owner);
     await db().insert(schema.usageEvent).values({
       id: uuidv7(),
       workspaceId: owner,
       requestId: `req_${crypto.randomUUID()}`,
-      libraryId: spent,
+      assetId: spent,
       operation: 'query-docs',
       entrypoint: 'rest',
       debitSource: 'plan',
@@ -384,8 +384,8 @@ describeWithDb('library build billing', () => {
     process.env.BUILD_BILLING_MODE = 'shadow';
     const owner = await workspace('build-billing shadow');
     await subscribed(owner, 1);
-    const libraryId = await library('shadow', owner);
-    const operationId = await queue(libraryId);
+    const assetId = await asset('shadow', owner);
+    const operationId = await queue(assetId);
 
     const outcome = await runOperation({ operationId, dependencies: dependencies() });
     expect(outcome.status).toBe('succeeded');
@@ -402,8 +402,8 @@ describeWithDb('library build billing', () => {
   it('takes its seat back on a retry after a released attempt', async () => {
     const owner = await workspace('build-billing retry');
     await subscribed(owner, 1_000);
-    const libraryId = await library('retry', owner);
-    const operationId = await queue(libraryId);
+    const assetId = await asset('retry', owner);
+    const operationId = await queue(assetId);
 
     let failures = 0;
     const deps = dependencies({ failFetch: () => failures++ === 0 });
@@ -429,8 +429,8 @@ describeWithDb('library build billing', () => {
   it('reaps a build whose worker died, and frees the seat it held', async () => {
     const owner = await workspace('build-billing dead worker');
     await subscribed(owner, 1_000);
-    const libraryId = await library('dead-worker', owner);
-    const operationId = await queue(libraryId);
+    const assetId = await asset('dead-worker', owner);
+    const operationId = await queue(assetId);
     const stale = new Date(Date.now() - BUILD_RESERVATION_TTL_MS - 60_000);
 
     /* A claimed operation and its seat, both older than a build can be. */
@@ -462,8 +462,8 @@ describeWithDb('library build billing', () => {
   it('does not bill the first refresh of a version built before per-source digests', async () => {
     const owner = await workspace('build-billing legacy');
     await subscribed(owner, 1_000);
-    const libraryId = await library('legacy', owner);
-    const initial = await queue(libraryId);
+    const assetId = await asset('legacy', owner);
+    const initial = await queue(assetId);
     const first = await runOperation({ operationId: initial, dependencies: dependencies() });
     expect(first.status).toBe('succeeded');
     if (first.status !== 'succeeded') return;
@@ -472,11 +472,11 @@ describeWithDb('library build billing', () => {
 
     /* A pre-0026 version: no digests to carry forward from. */
     await db()
-      .update(schema.libraryVersion)
+      .update(schema.assetVersion)
       .set({ sourceDigests: null })
-      .where(eq(schema.libraryVersion.id, first.versionId));
+      .where(eq(schema.assetVersion.id, first.versionId));
 
-    const refresh = await queue(libraryId);
+    const refresh = await queue(assetId);
     const outcome = await runOperation({ operationId: refresh, dependencies: dependencies() });
     expect(outcome.status).toBe('succeeded');
     const event = await buildEvent(refresh);
@@ -486,15 +486,15 @@ describeWithDb('library build billing', () => {
     expect((await usageOverview(owner)).buildCallsThisPeriod).toBe(charged);
   });
 
-  it('bills nobody for a platform library or a platform-triggered build', async () => {
-    const platform = await library('platform', null);
+  it('bills nobody for a platform asset or a platform-triggered build', async () => {
+    const platform = await asset('platform', null);
     const operationId = await queue(platform);
     expect((await runOperation({ operationId, dependencies: dependencies() })).status).toBe('succeeded');
     expect(await buildEvent(operationId)).toBeNull();
 
     const owner = await workspace('build-billing platform-trigger');
     await subscribed(owner, 1);
-    const owned = await library('platform-trigger', owner);
+    const owned = await asset('platform-trigger', owner);
     const forced = await queue(owned, 'platform');
     expect((await runOperation({ operationId: forced, dependencies: dependencies() })).status).toBe('succeeded');
     expect(await buildEvent(forced)).toBeNull();

@@ -2,17 +2,17 @@
  * Workspace storage: how much a workspace may hold, and how much it does.
  *
  * agent-first-proposal.md 8.1 bounds a workspace's content as a whole rather
- * than library by library: 500 MB on the `base` tier, 2 GB on `extended`.
+ * than asset by asset: 500 MB on the `base` tier, 2 GB on `extended`.
  * The tier lives on the user (`user.storage_tier`) because what raises it --
  * buying Additional Calls, or subscribing to any channel -- is something a
  * user does, and it applies to that user's personal workspace. A workspace
  * reads the tier through its owners; today a workspace has exactly one.
  *
- * Usage is the sum of `library.storage_bytes` over the workspace's live
- * libraries, measured the way a build measures itself (requirement.md 4.1:
+ * Usage is the sum of `asset.storage_bytes` over the workspace's live
+ * assets, measured the way a build measures itself (requirement.md 4.1:
  * decompressed, pre-normalisation content bytes), plus the size of every
  * audio file and article image they carry (`asset_media`). A deleted
- * library is a tombstone and holds nothing.
+ * asset is a tombstone and holds nothing.
  */
 import { and, eq, isNull, ne, sql } from 'drizzle-orm';
 import { isStorageTier, storageCapacityBytes, type StorageTier } from '@/lib/domain/plans';
@@ -22,7 +22,7 @@ import type { Tx } from './quota';
 export interface WorkspaceStorage {
   tier: StorageTier;
   capacityBytes: number;
-  /** Bytes held by live libraries, less the one excluded. */
+  /** Bytes held by live assets, less the one excluded. */
   usedBytes: number;
   /** `capacityBytes - usedBytes`, floored at zero. */
   remainingBytes: number;
@@ -44,40 +44,40 @@ export async function workspaceStorageTier(workspaceId: string, executor: Execut
 }
 
 /**
- * Capacity against usage. `excludeLibraryId` leaves one library out of the
- * sum: a rebuild replaces that library's content rather than adding to it,
+ * Capacity against usage. `excludeAssetId` leaves one asset out of the
+ * sum: a rebuild replaces that asset's content rather than adding to it,
  * so what it may grow into is the capacity less everything *else*.
  */
 export async function workspaceStorage(
   workspaceId: string,
-  options: { excludeLibraryId?: string; executor?: Executor } = {},
+  options: { excludeAssetId?: string; executor?: Executor } = {},
 ): Promise<WorkspaceStorage> {
   const executor = options.executor ?? db();
   const tier = await workspaceStorageTier(workspaceId, executor);
   const [used] = await executor
-    .select({ bytes: sql<string>`coalesce(sum(${schema.library.storageBytes}), 0)::bigint` })
-    .from(schema.library)
+    .select({ bytes: sql<string>`coalesce(sum(${schema.asset.storageBytes}), 0)::bigint` })
+    .from(schema.asset)
     .where(
       and(
-        eq(schema.library.ownerWorkspaceId, workspaceId),
-        isNull(schema.library.deletedAt),
-        ...(options.excludeLibraryId ? [ne(schema.library.id, options.excludeLibraryId)] : []),
+        eq(schema.asset.ownerWorkspaceId, workspaceId),
+        isNull(schema.asset.deletedAt),
+        ...(options.excludeAssetId ? [ne(schema.asset.id, options.excludeAssetId)] : []),
       ),
     );
   /*
    * Plus the files assets carry beside their text -- episodes and article
    * images (proposal 8.1) -- counted whole and as uploaded, including the
-   * excluded library's: a rebuild replaces its text, not its files.
+   * excluded asset's: a rebuild replaces its text, not its files.
    */
   const [media] = await executor
     .select({ bytes: sql<string>`coalesce(sum(${schema.assetMedia.bytes}), 0)::bigint` })
     .from(schema.assetMedia)
-    .innerJoin(schema.library, eq(schema.library.id, schema.assetMedia.assetId))
+    .innerJoin(schema.asset, eq(schema.asset.id, schema.assetMedia.assetId))
     .where(
       and(
         eq(schema.assetMedia.workspaceId, workspaceId),
         eq(schema.assetMedia.state, 'ready'),
-        isNull(schema.library.deletedAt),
+        isNull(schema.asset.deletedAt),
       ),
     );
   const capacityBytes = storageCapacityBytes(tier);

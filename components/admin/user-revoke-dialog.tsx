@@ -2,7 +2,7 @@
 
 import { useActionState, useEffect, useId, useState } from 'react';
 import { ConsoleDialog } from '@/components/admin/console-dialog';
-import { submitOn } from '@/components/admin/platform-library-shared';
+import { submitOn } from '@/components/admin/platform-asset-shared';
 import { ConsoleButton, IconButton } from '@/components/admin/ui';
 import { CircleXIcon, LogOutIcon, SpinnerIcon, TrashIcon } from '@/components/ui/icons';
 import { useI18n } from '@/lib/i18n/client';

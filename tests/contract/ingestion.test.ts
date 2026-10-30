@@ -32,7 +32,7 @@ import {
   pathIncluded,
   safetyStatusOf,
   scanContent,
-  scoreLibrary,
+  scoreAsset,
   sha256Hex,
   snapshotDigest,
   structuredToText,
@@ -244,7 +244,7 @@ describe('parsing', () => {
     /*
      * A fetched page is attacker-controlled. Looking entity names up on an
      * object literal made `&constructor;` resolve to the source text of
-     * `Object`, which was then chunked, embedded and cited as library content.
+     * `Object`, which was then chunked, embedded and cited as asset content.
      */
     for (const name of ['constructor', 'toString', 'valueOf', 'hasOwnProperty']) {
       const text = htmlToText(`<p>a &${name}; b</p>`);
@@ -446,7 +446,7 @@ describe('digests', () => {
 describe('scoring', () => {
   const base: ScoreInputs = {
     verified: false,
-    isPlatformLibrary: true,
+    isPlatformAsset: true,
     documents: 40,
     chunks: 800,
     duplicateRatio: 0,
@@ -457,9 +457,9 @@ describe('scoring', () => {
   };
 
   it('keeps both scores inside 0-100', () => {
-    const worst = scoreLibrary({
+    const worst = scoreAsset({
       ...base,
-      isPlatformLibrary: false,
+      isPlatformAsset: false,
       documents: 0,
       chunks: 0,
       duplicateRatio: 1,
@@ -470,22 +470,22 @@ describe('scoring', () => {
     });
     expect(worst.trust).toBeGreaterThanOrEqual(0);
     expect(worst.benchmark).toBeGreaterThanOrEqual(0);
-    expect(scoreLibrary(base).trust).toBeLessThanOrEqual(100);
-    expect(scoreLibrary(base).benchmark).toBeLessThanOrEqual(100);
+    expect(scoreAsset(base).trust).toBeLessThanOrEqual(100);
+    expect(scoreAsset(base).benchmark).toBeLessThanOrEqual(100);
   });
 
   it('separates the source from the build', () => {
     // An abandoned source can still produce an excellent index, and the two
     // numbers have to be able to disagree for either to mean anything.
-    const stale = scoreLibrary({ ...base, ageDays: 1_000 });
-    expect(stale.trust).toBeLessThan(scoreLibrary(base).trust);
-    expect(stale.benchmark).toBe(scoreLibrary(base).benchmark);
+    const stale = scoreAsset({ ...base, ageDays: 1_000 });
+    expect(stale.trust).toBeLessThan(scoreAsset(base).trust);
+    expect(stale.benchmark).toBe(scoreAsset(base).benchmark);
   });
 
   it('penalises duplication and missing citations in the build only', () => {
-    const duplicated = scoreLibrary({ ...base, duplicateRatio: 0.5, citedRatio: 0 });
-    expect(duplicated.benchmark).toBeLessThan(scoreLibrary(base).benchmark);
-    expect(duplicated.trust).toBe(scoreLibrary(base).trust);
+    const duplicated = scoreAsset({ ...base, duplicateRatio: 0.5, citedRatio: 0 });
+    expect(duplicated.benchmark).toBeLessThan(scoreAsset(base).benchmark);
+    expect(duplicated.trust).toBe(scoreAsset(base).trust);
   });
 });
 
@@ -508,9 +508,9 @@ describe('every ingestion failure has words for it', () => {
 });
 
 /**
- * Which stemmer a library's chunks are indexed with.
+ * Which stemmer an asset's chunks are indexed with.
  *
- * `library.language` is free text an operator typed into a form, not a code
+ * `asset.language` is free text an operator typed into a form, not a code
  * from a list, so this has to cope with what people actually write -- and to
  * fall back rather than guess, because a wrong stemmer returns wrong results
  * while no stemmer only returns fewer.

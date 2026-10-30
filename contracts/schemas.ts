@@ -5,7 +5,7 @@ import { z } from 'zod';
  * Domain invariants live in lib/domain; this file is the wire contract only.
  */
 
-// --- Library state. requirement.md 6.2: three independent axes, never merged. ---
+// --- Asset state. requirement.md 6.2: three independent axes, never merged. ---
 
 export const lifecycleStatusSchema = z.enum([
   'draft',
@@ -50,54 +50,54 @@ export const claimMethodSchema = z.enum([
 /** requirement.md 6.4 */
 export const anchorStatusSchema = z.enum(['pending', 'anchored', 'unavailable']);
 
-// --- Library ID. requirement.md 6.1 ---
+// --- Asset ID. requirement.md 6.1 ---
 
 /**
  * `/owner/repo`, `/websites/slug`, `/docs/slug`, `/notion/slug`, optional
  * `/version`. The slug namespaces nest up to four levels
  * (`/websites/ethereum/whitepaper`), so two to six segments in all; which
- * trailing segments are a library and which are a version is decided by
- * what exists (lib/domain/library.ts `libraryIdCandidates`).
+ * trailing segments are an asset and which are a version is decided by
+ * what exists (lib/domain/asset.ts `assetIdCandidates`).
  */
-export const libraryIdSchema = z
+export const assetIdSchema = z
   .string()
   .max(256)
   .regex(/^\/[a-z0-9][a-z0-9._-]*(\/[a-z0-9][a-z0-9._-]*){1,5}$/i, {
-    message: 'library id must look like /owner/name, /websites/slug/sub-slug or /owner/name/version',
+    message: 'asset id must look like /owner/name, /websites/slug/sub-slug or /owner/name/version',
   });
 
 /**
- * A policy list entry (lib/domain/policy.ts `parsePolicyEntry`): a library
+ * A policy list entry (lib/domain/policy.ts `parsePolicyEntry`): an asset
  * id, optionally `/…/*` to cover what nests under it; an organisation as
  * `/owner/*`; or a domain such as `docs.example.com`.
  */
-export const libraryIdPatternSchema = z
+export const assetIdPatternSchema = z
   .string()
   .max(258)
   .regex(
     /^(\/[a-z0-9][a-z0-9._-]*((\/[a-z0-9][a-z0-9._-]*){1,5}(\/\*)?|\/\*)|([a-z0-9]([a-z0-9-]{0,61}[a-z0-9])?\.)+[a-z][a-z0-9-]{1,62})$/i,
     {
       message:
-        'policy entry must be a library id (optionally ending in /*), an organisation as /owner/*, or a domain',
+        'policy entry must be an asset id (optionally ending in /*), an organisation as /owner/*, or a domain',
     },
   );
 
-// --- Retrieval. Two-stage: resolve-library-id then query-docs. ---
+// --- Retrieval. Two-stage: resolve-asset-id then query-docs. ---
 
 /**
  * Query-first, name-optional. architecture.md 9.6 and 12.1: on a platform of
- * user-uploaded libraries the display name carries no routing signal, so the
+ * user-uploaded assets the display name carries no routing signal, so the
  * caller passes the question and the server searches the content-derived
- * profile. `libraryName` survives as an optional hint for Context7-style
+ * profile. `assetName` survives as an optional hint for Context7-style
  * callers that do know a name.
  */
-export const resolveLibraryInputSchema = z.object({
+export const resolveAssetInputSchema = z.object({
   query: z.string().min(1).max(2000),
-  libraryName: z.string().min(1).max(200).optional(),
+  assetName: z.string().min(1).max(200).optional(),
 });
 
 /**
- * Why this candidate matched. The library's name cannot be trusted to say so
+ * Why this candidate matched. The asset's name cannot be trusted to say so
  * (architecture.md 9.6), and without evidence the calling agent guesses --
  * a wrong pick plus a retry costs more than the bytes here ever will.
  */
@@ -106,8 +106,8 @@ export const candidateEvidenceSchema = z.object({
   matchedTerms: z.array(z.string()),
 });
 
-export const libraryCandidateSchema = z.object({
-  libraryId: libraryIdSchema,
+export const assetCandidateSchema = z.object({
+  assetId: assetIdSchema,
   title: z.string(),
   description: z.string().nullable(),
   version: z.string(),
@@ -125,13 +125,13 @@ export const libraryCandidateSchema = z.object({
   evidence: candidateEvidenceSchema,
 });
 
-export const resolveLibraryOutputSchema = z.object({
-  results: z.array(libraryCandidateSchema),
+export const resolveAssetOutputSchema = z.object({
+  results: z.array(assetCandidateSchema),
   requestId: z.string(),
 });
 
 export const queryDocsInputSchema = z.object({
-  libraryId: libraryIdSchema,
+  assetId: assetIdSchema,
   query: z.string().min(1).max(2000),
   maxTokens: z.number().int().min(256).max(64_000).default(4000),
   format: z.enum(['json', 'txt']).default('json'),
@@ -161,7 +161,7 @@ export const usageSchema = z.object({
 });
 
 export const queryDocsOutputSchema = z.object({
-  libraryId: libraryIdSchema,
+  assetId: assetIdSchema,
   version: z.string(),
   chunks: z.array(chunkResultSchema),
   usage: usageSchema,
@@ -173,7 +173,7 @@ export const queryDocsOutputSchema = z.object({
 export const usageBucketSchema = z.object({
   date: z.string().regex(/^\d{4}-\d{2}-\d{2}$/),
   calls: z.number().int().nonnegative(),
-  /** library-build-billing.md 8: build calls, apart from retrieval. */
+  /** asset-build-billing.md 8: build calls, apart from retrieval. */
   buildCalls: z.number().int().nonnegative(),
 });
 
@@ -194,7 +194,7 @@ export const usageOverviewSchema = z.object({
 export const requestLogRowSchema = z.object({
   requestId: z.string(),
   operation: z.string(),
-  libraryPublicId: z.string().nullable(),
+  assetPublicId: z.string().nullable(),
   entrypoint: z.string().nullable(),
   statusCode: z.number().int(),
   latencyMs: z.number().int().nullable(),
@@ -236,13 +236,13 @@ export const publisherEarningsSchema = z.object({
 export const policyReasonSchema = z.enum([
   'allowed',
   'source_type_disabled',
-  'library_blocked',
+  'asset_blocked',
   'not_in_allowlist',
-  'unverified_library',
+  'unverified_asset',
   'below_trust_threshold',
-  'stale_library',
+  'stale_asset',
   'below_star_threshold',
-  'unlicensed_library',
+  'unlicensed_asset',
   'below_backlink_threshold',
   'below_referring_domain_threshold',
   'below_traffic_threshold',
@@ -261,14 +261,14 @@ export const workspacePolicySchema = z.object({
     minReferringDomains: z.number().int().nonnegative().nullable(),
     minOrganicTraffic: z.number().int().nonnegative().nullable(),
   }),
-  blockedLibraries: z.array(libraryIdPatternSchema),
-  exceptedLibraries: z.array(libraryIdPatternSchema),
-  allowedLibraries: z.array(libraryIdPatternSchema),
+  blockedAssets: z.array(assetIdPatternSchema),
+  exceptedAssets: z.array(assetIdPatternSchema),
+  allowedAssets: z.array(assetIdPatternSchema),
 });
 
-const libraryIdListPatchSchema = z.object({
-  add: z.array(libraryIdPatternSchema).max(200).optional(),
-  remove: z.array(libraryIdPatternSchema).max(200).optional(),
+const assetIdListPatchSchema = z.object({
+  add: z.array(assetIdPatternSchema).max(200).optional(),
+  remove: z.array(assetIdPatternSchema).max(200).optional(),
   clear: z.boolean().optional(),
 });
 
@@ -297,22 +297,22 @@ export const policyPatchSchema = z.object({
       minOrganicTraffic: z.number().int().nonnegative().nullable().optional(),
     })
     .optional(),
-  blocked: libraryIdListPatchSchema.optional(),
-  excepted: libraryIdListPatchSchema.optional(),
-  allowed: libraryIdListPatchSchema.optional(),
+  blocked: assetIdListPatchSchema.optional(),
+  excepted: assetIdListPatchSchema.optional(),
+  allowed: assetIdListPatchSchema.optional(),
 });
 
 export const policyResponseSchema = z.object({
   policyVersionId: z.string().nullable(),
   policy: workspacePolicySchema,
-  accessibleLibraryCount: z.number().int().nonnegative(),
+  accessibleAssetCount: z.number().int().nonnegative(),
   requestId: z.string(),
 });
 
 // --- Claim. requirement.md 7.3 ---
 
 export const startClaimInputSchema = z.object({
-  libraryId: libraryIdSchema,
+  assetId: assetIdSchema,
   method: claimMethodSchema,
 });
 
@@ -346,18 +346,18 @@ export const verifyClaimOutputSchema = z.object({
 /**
  * Everything a stranger needs to rebuild a public version's leaf.
  *
- * aptos-anchoring-proposal.md 5 requires a public library to return its
+ * aptos-anchoring-proposal.md 5 requires a public asset to return its
  * preimage; without it a proof is unusable, because there is nothing to hash.
  * The fields are listed in the order 4.2.1 frames them, and `publishedAt` is
  * the exact string that was hashed rather than a re-rendering of the timestamp.
  *
- * Public libraries only. A private version's preimage is salted and belongs to
+ * Public assets only. A private version's preimage is salted and belongs to
  * whoever owns it (6.4); nothing serves one, so nothing needs a shape for it.
  */
 export const anchorPreimageSchema = z.object({
   domainSeparator: z.string(),
   leafSchemaVersion: z.number().int(),
-  libraryId: z.string(),
+  assetId: z.string(),
   versionId: z.string(),
   sourceDigest: z.string(),
   contentMerkleRoot: z.string(),
@@ -379,11 +379,11 @@ export const anchorSchema = z.object({
   leafSchemaVersion: z.number().int().nullable(),
 });
 
-export type ResolveLibraryInput = z.infer<typeof resolveLibraryInputSchema>;
-export type ResolveLibraryOutput = z.infer<typeof resolveLibraryOutputSchema>;
+export type ResolveAssetInput = z.infer<typeof resolveAssetInputSchema>;
+export type ResolveAssetOutput = z.infer<typeof resolveAssetOutputSchema>;
 export type QueryDocsInput = z.infer<typeof queryDocsInputSchema>;
 export type QueryDocsOutput = z.infer<typeof queryDocsOutputSchema>;
-export type LibraryCandidate = z.infer<typeof libraryCandidateSchema>;
+export type AssetCandidate = z.infer<typeof assetCandidateSchema>;
 export type WorkspacePolicyView = z.infer<typeof workspacePolicySchema>;
 export type PolicyPatch = z.infer<typeof policyPatchSchema>;
 export type PolicyResponse = z.infer<typeof policyResponseSchema>;

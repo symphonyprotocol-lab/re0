@@ -21,8 +21,8 @@ const { buildVersion, memoryObjectStore, publishVersion } = await import(
   '@/lib/application/ingestion'
 );
 const { hashApiKey } = await import('@/lib/application/auth/api-key');
-const { createPlatformLibrary } = await import(
-  '@/lib/application/administration/manage-platform-libraries'
+const { createPlatformAsset } = await import(
+  '@/lib/application/administration/manage-platform-assets'
 );
 const { EMBEDDING_COLUMN_DIMENSIONS } = await import('@/lib/infrastructure/ai/providers');
 const { db, schema } = await import('@/lib/infrastructure/postgres/client');
@@ -79,8 +79,8 @@ function dependencies() {
   };
 }
 
-async function publishedLibrary(slug: string): Promise<string> {
-  const { libraryId } = await createPlatformLibrary({
+async function publishedAsset(slug: string): Promise<string> {
+  const { assetId } = await createPlatformAsset({
     actor,
     title: `Entry fixture ${slug}`,
     publicId: `/websites/${slug}`,
@@ -90,15 +90,15 @@ async function publishedLibrary(slug: string): Promise<string> {
     language: 'en',
     reason: 'integration test fixture',
   });
-  created.push(libraryId);
-  const built = await buildVersion({ libraryId, operationId: uuidv7(), dependencies: dependencies() });
+  created.push(assetId);
+  const built = await buildVersion({ assetId, operationId: uuidv7(), dependencies: dependencies() });
   if (!built.changed) throw new Error('fixture build produced no version');
-  await publishVersion({ libraryId, versionId: built.versionId });
+  await publishVersion({ assetId, versionId: built.versionId });
   await db()
-    .update(schema.library)
+    .update(schema.asset)
     .set({ lifecycleStatus: 'published' })
-    .where(eq(schema.library.id, libraryId));
-  return libraryId;
+    .where(eq(schema.asset.id, assetId));
+  return assetId;
 }
 
 async function workspaceWithKey(): Promise<{ workspaceId: string; key: string }> {
@@ -177,30 +177,30 @@ describeWithDb('rest and mcp entry', () => {
     const database = db();
     if (created.length > 0) {
       await database
-        .update(schema.library)
+        .update(schema.asset)
         .set({ currentVersionId: null })
-        .where(inArray(schema.library.id, created));
-      await database.delete(schema.usageEvent).where(inArray(schema.usageEvent.libraryId, created));
+        .where(inArray(schema.asset.id, created));
+      await database.delete(schema.usageEvent).where(inArray(schema.usageEvent.assetId, created));
       await database
-        .delete(schema.libraryProfileVector)
-        .where(inArray(schema.libraryProfileVector.libraryId, created));
+        .delete(schema.assetProfileVector)
+        .where(inArray(schema.assetProfileVector.assetId, created));
       await database
-        .delete(schema.libraryProfile)
-        .where(inArray(schema.libraryProfile.libraryId, created));
-      await database.delete(schema.chunk).where(inArray(schema.chunk.libraryId, created));
-      await database.delete(schema.document).where(inArray(schema.document.libraryId, created));
+        .delete(schema.assetProfile)
+        .where(inArray(schema.assetProfile.assetId, created));
+      await database.delete(schema.chunk).where(inArray(schema.chunk.assetId, created));
+      await database.delete(schema.document).where(inArray(schema.document.assetId, created));
       await database
-        .delete(schema.libraryVersion)
-        .where(inArray(schema.libraryVersion.libraryId, created));
+        .delete(schema.assetVersion)
+        .where(inArray(schema.assetVersion.assetId, created));
       await database
-        .delete(schema.libraryScore)
-        .where(inArray(schema.libraryScore.libraryId, created));
-      await database.delete(schema.source).where(inArray(schema.source.libraryId, created));
+        .delete(schema.assetScore)
+        .where(inArray(schema.assetScore.assetId, created));
+      await database.delete(schema.source).where(inArray(schema.source.assetId, created));
       await database
-        .delete(schema.libraryAlias)
-        .where(inArray(schema.libraryAlias.libraryId, created));
+        .delete(schema.assetAlias)
+        .where(inArray(schema.assetAlias.assetId, created));
       await database.delete(schema.auditLog).where(inArray(schema.auditLog.targetId, created));
-      await database.delete(schema.library).where(inArray(schema.library.id, created));
+      await database.delete(schema.asset).where(inArray(schema.asset.id, created));
     }
     if (workspaces.length > 0) {
       await database
@@ -227,7 +227,7 @@ describeWithDb('rest and mcp entry', () => {
 
   it('searches and retrieves through REST with an API key', async () => {
     const stamp = Date.now();
-    await publishedLibrary(`entry-rest-${stamp}`);
+    await publishedAsset(`entry-rest-${stamp}`);
     const { key } = await workspaceWithKey();
     const bearer = { authorization: `Bearer ${key}` };
 
@@ -236,15 +236,15 @@ describeWithDb('rest and mcp entry', () => {
     );
     expect(search.status).toBe(200);
     const found = (await search.json()) as {
-      results: { libraryId: string; evidence: { matchedTerms: string[] } }[];
+      results: { assetId: string; evidence: { matchedTerms: string[] } }[];
     };
-    const hit = found.results.find((r) => r.libraryId === `/websites/entry-rest-${stamp}`);
+    const hit = found.results.find((r) => r.assetId === `/websites/entry-rest-${stamp}`);
     expect(hit).toBeDefined();
     expect(hit!.evidence.matchedTerms.length).toBeGreaterThan(0);
 
     const context = await contextRoute(
       get(
-        `/api/v1/context?libraryId=/websites/entry-rest-${stamp}&query=authorization+header&maxTokens=4000`,
+        `/api/v1/context?assetId=/websites/entry-rest-${stamp}&query=authorization+header&maxTokens=4000`,
         bearer,
       ),
     );
@@ -260,10 +260,10 @@ describeWithDb('rest and mcp entry', () => {
 
   it('renders txt from the canonical object', async () => {
     const stamp = Date.now();
-    await publishedLibrary(`entry-txt-${stamp}`);
+    await publishedAsset(`entry-txt-${stamp}`);
 
     const response = await contextRoute(
-      get(`/api/v1/context?libraryId=/websites/entry-txt-${stamp}&query=bearer+tokens&type=txt`),
+      get(`/api/v1/context?assetId=/websites/entry-txt-${stamp}&query=bearer+tokens&type=txt`),
     );
     expect(response.status).toBe(200);
     expect(response.headers.get('content-type')).toContain('text/plain');
@@ -273,7 +273,7 @@ describeWithDb('rest and mcp entry', () => {
   });
 
   it('maps refusals to the contract error envelope', async () => {
-    const missing = await contextRoute(get('/api/v1/context?libraryId=/none/here&query=x'));
+    const missing = await contextRoute(get('/api/v1/context?assetId=/none/here&query=x'));
     expect(missing.status).toBe(404);
     const body = (await missing.json()) as { error: { code: string; requestId: string } };
     expect(body.error.code).toBe('library_not_found');
@@ -290,7 +290,7 @@ describeWithDb('rest and mcp entry', () => {
 
   whileOn('speaks MCP: initialize, list tools, call both', async () => {
     const stamp = Date.now();
-    await publishedLibrary(`entry-mcp-${stamp}`);
+    await publishedAsset(`entry-mcp-${stamp}`);
     const { key } = await workspaceWithKey();
     const bearer = { authorization: `Bearer ${key}` };
 
@@ -305,7 +305,7 @@ describeWithDb('rest and mcp entry', () => {
     const list = await mcpRoute(mcpPost({ jsonrpc: '2.0', id: 2, method: 'tools/list' }));
     const tools = (await list.json()) as { result: { tools: { name: string }[] } };
     expect(tools.result.tools.map((tool) => tool.name)).toEqual([
-      'resolve-library-id',
+      'resolve-asset-id',
       'query-docs',
     ]);
 
@@ -315,7 +315,7 @@ describeWithDb('rest and mcp entry', () => {
           jsonrpc: '2.0',
           id: 3,
           method: 'tools/call',
-          params: { name: 'resolve-library-id', arguments: { query: 'bearer token authentication' } },
+          params: { name: 'resolve-asset-id', arguments: { query: 'bearer token authentication' } },
         },
         bearer,
       ),
@@ -334,7 +334,7 @@ describeWithDb('rest and mcp entry', () => {
           method: 'tools/call',
           params: {
             name: 'query-docs',
-            arguments: { libraryId: `/websites/entry-mcp-${stamp}`, query: 'authorization header' },
+            arguments: { assetId: `/websites/entry-mcp-${stamp}`, query: 'authorization header' },
           },
         },
         bearer,
@@ -350,7 +350,7 @@ describeWithDb('rest and mcp entry', () => {
           jsonrpc: '2.0',
           id: 5,
           method: 'tools/call',
-          params: { name: 'query-docs', arguments: { libraryId: '/none/here', query: 'x' } },
+          params: { name: 'query-docs', arguments: { assetId: '/none/here', query: 'x' } },
         },
         bearer,
       ),

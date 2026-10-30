@@ -6,8 +6,8 @@
 import { and, eq, sql } from 'drizzle-orm';
 import { db, schema } from '@/lib/infrastructure/postgres/client';
 
-/** As a column of a query over `library_showcase`: the live host, or null. */
-export const liveHostSql = sql<string | null>`(select ${schema.showcaseDomain.host} from ${schema.showcaseDomain} where ${schema.showcaseDomain.showcaseId} = ${schema.libraryShowcase.id} and ${schema.showcaseDomain.status} = 'ready' limit 1)`;
+/** As a column of a query over `asset_showcase`: the live host, or null. */
+export const liveHostSql = sql<string | null>`(select ${schema.showcaseDomain.host} from ${schema.showcaseDomain} where ${schema.showcaseDomain.showcaseId} = ${schema.assetShowcase.id} and ${schema.showcaseDomain.status} = 'ready' limit 1)`;
 
 /** The live host of one page, with the workspace that owns it; null when none. */
 export async function liveHostOf(showcaseId: string): Promise<{ host: string; workspaceId: string } | null> {

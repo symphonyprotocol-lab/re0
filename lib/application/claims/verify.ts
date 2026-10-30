@@ -25,7 +25,7 @@ import {
   type ClaimCheckView,
 } from '@/lib/domain/claim';
 import { AuthFailure } from '@/lib/domain/auth';
-import { canManageLibraries, type WorkspaceRole } from '@/lib/application/libraries/delete';
+import { canManageAssets, type WorkspaceRole } from '@/lib/application/assets/delete';
 import { publicRepositoryHomepage, repositoryGrant } from '@/lib/infrastructure/identity/github';
 import { db, schema } from '@/lib/infrastructure/postgres/client';
 import {
@@ -39,7 +39,7 @@ import {
   failure,
   loadClaim,
   notFound,
-  visibleLibraryById,
+  visibleAssetById,
   type ClaimRow,
 } from './shared';
 
@@ -74,12 +74,12 @@ export interface VerifyClaimResult {
   claimId: string;
   status: ClaimStatus;
   checks: ClaimCheckView[];
-  /** Control was proven but the library has an owner; an administrator decides. */
+  /** Control was proven but the asset has an owner; an administrator decides. */
   disputed: boolean;
 }
 
 export async function verifyClaim(input: VerifyClaimInput): Promise<VerifyClaimResult> {
-  if (input.role !== undefined && !canManageLibraries(input.role)) {
+  if (input.role !== undefined && !canManageAssets(input.role)) {
     throw new AppError('access_denied', 'only an owner or admin may verify a claim');
   }
   const now = input.now ?? new Date();
@@ -90,10 +90,10 @@ export async function verifyClaim(input: VerifyClaimInput): Promise<VerifyClaimR
 
   /*
    * The same predicate the claim was opened under, not just "not deleted": a
-   * library turned private or archived since then is no longer claimable, and
+   * asset turned private or archived since then is no longer claimable, and
    * an old challenge must not be a way to rewrite its owner anyway.
    */
-  const library = await visibleLibraryById(claim.libraryId);
+  const asset = await visibleAssetById(claim.assetId);
 
   const view = (status: ClaimStatus, reason: ClaimFailureReason | null, attempted: boolean) =>
     checkStates({ method: claim.method, status, failureReason: reason, attempted });
@@ -109,9 +109,9 @@ export async function verifyClaim(input: VerifyClaimInput): Promise<VerifyClaimR
 
   if (isClaimExpired(claim.expiresAt, now)) {
     await db()
-      .update(schema.libraryClaim)
+      .update(schema.assetClaim)
       .set({ status: 'expired', failureReason: 'challenge_expired' })
-      .where(and(eq(schema.libraryClaim.id, claim.id), eq(schema.libraryClaim.status, 'pending')));
+      .where(and(eq(schema.assetClaim.id, claim.id), eq(schema.assetClaim.status, 'pending')));
     await auditClaim({
       action: 'claim.expire',
       claimId: claim.id,
@@ -122,9 +122,9 @@ export async function verifyClaim(input: VerifyClaimInput): Promise<VerifyClaimR
     throw failure('challenge_expired', publicFailureMessage('challenge_expired'));
   }
 
-  await assertWithinClaimLimits('verify', claim.claimantWorkspaceId, claim.libraryId);
+  await assertWithinClaimLimits('verify', claim.claimantWorkspaceId, claim.assetId);
 
-  const reason = await runCheck(claim, library, input.grant);
+  const reason = await runCheck(claim, asset, input.grant);
   if (reason) {
     /*
      * The count is a security control, not a statistic: 7.3.7 locks the entry
@@ -138,16 +138,16 @@ export async function verifyClaim(input: VerifyClaimInput): Promise<VerifyClaimR
      */
     const { attempts, status } = await db().transaction(async (tx) => {
       const [locked] = await tx
-        .select({ attempts: schema.libraryClaim.attempts })
-        .from(schema.libraryClaim)
-        .where(eq(schema.libraryClaim.id, claim.id))
+        .select({ attempts: schema.assetClaim.attempts })
+        .from(schema.assetClaim)
+        .where(eq(schema.assetClaim.id, claim.id))
         .for('update');
       const spent = (locked?.attempts ?? claim.attempts) + 1;
       const next = nextClaimStatus('pending', 'verify_failed', { attempts: spent }) ?? 'failed';
       await tx
-        .update(schema.libraryClaim)
+        .update(schema.assetClaim)
         .set({ attempts: spent, failureReason: reason, status: next })
-        .where(eq(schema.libraryClaim.id, claim.id));
+        .where(eq(schema.assetClaim.id, claim.id));
       return { attempts: spent, status: next };
     });
     await auditClaim({
@@ -165,14 +165,14 @@ export async function verifyClaim(input: VerifyClaimInput): Promise<VerifyClaimR
 
   /*
    * Control is proven. Whether that makes an owner depends on the conflict
-   * check, which reads the library again inside the transaction: the owner
+   * check, which reads the asset again inside the transaction: the owner
    * may have changed since the claim opened.
    */
   const outcome = await db().transaction(async (tx) => {
     const [current] = await tx
-      .select({ ownerWorkspaceId: schema.library.ownerWorkspaceId })
-      .from(schema.library)
-      .where(eq(schema.library.id, claim.libraryId))
+      .select({ ownerWorkspaceId: schema.asset.ownerWorkspaceId })
+      .from(schema.asset)
+      .where(eq(schema.asset.id, claim.assetId))
       .for('update');
     const owner = current?.ownerWorkspaceId ?? null;
 
@@ -181,37 +181,37 @@ export async function verifyClaim(input: VerifyClaimInput): Promise<VerifyClaimR
        * A dispute: the evidence is recorded on the claim; the owner is not
        * touched. `verified_at` says the checks passed and `already_claimed`
        * says which one did not -- the shared conflict check, because the
-       * library has another owner. The status stays `pending` (7.3.3 fixes
+       * asset has another owner. The status stays `pending` (7.3.3 fixes
        * the five values) and an administrator rules on it; leaving the reason
        * null instead would make `checkStates` render a claim that passed
        * every check as though it had never run one.
        */
       await tx
-        .update(schema.libraryClaim)
+        .update(schema.assetClaim)
         .set({
           /* Relative, for the same reason the failure branch is: the lock
-             above is on the library row, not on this claim's. */
-          attempts: sql`${schema.libraryClaim.attempts} + 1`,
+             above is on the asset row, not on this claim's. */
+          attempts: sql`${schema.assetClaim.attempts} + 1`,
           failureReason: 'already_claimed',
           verifiedAt: now,
         })
-        .where(eq(schema.libraryClaim.id, claim.id));
+        .where(eq(schema.assetClaim.id, claim.id));
       return { disputed: true as const, previousOwner: owner };
     }
 
     await tx
-      .update(schema.library)
+      .update(schema.asset)
       .set({ ownerWorkspaceId: claim.claimantWorkspaceId })
-      .where(eq(schema.library.id, claim.libraryId));
+      .where(eq(schema.asset.id, claim.assetId));
     await tx
-      .update(schema.libraryClaim)
+      .update(schema.assetClaim)
       .set({
-        attempts: sql`${schema.libraryClaim.attempts} + 1`,
+        attempts: sql`${schema.assetClaim.attempts} + 1`,
         failureReason: null,
         status: 'verified',
         verifiedAt: now,
       })
-      .where(eq(schema.libraryClaim.id, claim.id));
+      .where(eq(schema.assetClaim.id, claim.id));
     return { disputed: false as const, previousOwner: owner };
   });
 
@@ -223,8 +223,8 @@ export async function verifyClaim(input: VerifyClaimInput): Promise<VerifyClaimR
       status: outcome.disputed ? 'pending' : 'verified',
       failureReason: outcome.disputed ? 'already_claimed' : null,
       ownerWorkspaceId: outcome.disputed ? outcome.previousOwner : claim.claimantWorkspaceId,
-      libraryId: claim.libraryId,
-      libraryPublicId: library.publicId,
+      assetId: claim.assetId,
+      assetPublicId: asset.publicId,
       method: claim.method,
     },
     result: 'success',
@@ -245,7 +245,7 @@ export async function verifyClaim(input: VerifyClaimInput): Promise<VerifyClaimR
 /** The method's check, answering a failure code or null for "control proven". */
 async function runCheck(
   claim: ClaimRow,
-  library: { sourceType: SourceType; location: string },
+  asset: { sourceType: SourceType; location: string },
   grant: GithubGrant | undefined,
 ): Promise<ClaimFailureReason | null> {
   if (claim.method === 'github_permission') {
@@ -260,21 +260,21 @@ async function runCheck(
       .limit(1);
     if (!linked || linked.subject !== grant.subject) return 'account_not_linked';
 
-    const repository = await unlessUnavailable(() => repositoryGrant(grant.token, library.location));
+    const repository = await unlessUnavailable(() => repositoryGrant(grant.token, asset.location));
     if (!repository) return 'insufficient_permission';
-    if (repositoryKey(repository.fullName) !== repositoryKey(library.location)) {
+    if (repositoryKey(repository.fullName) !== repositoryKey(asset.location)) {
       return 'source_mismatch';
     }
     return hasRepositoryControl(repository.permissions) ? null : 'insufficient_permission';
   }
 
   const homepage =
-    library.sourceType === 'github'
-      ? await unlessUnavailable(() => publicRepositoryHomepage(library.location))
+    asset.sourceType === 'github'
+      ? await unlessUnavailable(() => publicRepositoryHomepage(asset.location))
       : null;
   const domain = verificationDomain({
-    sourceType: library.sourceType,
-    location: library.location,
+    sourceType: asset.sourceType,
+    location: asset.location,
     homepage,
   });
   if (!domain) return 'source_mismatch';

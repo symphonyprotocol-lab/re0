@@ -10,7 +10,7 @@ import { clientAddress } from '@/lib/http/client-address';
 
 /**
  * The console's two moves over a showcase page: take it down, reinstate
- * it. Each re-resolves the session and re-checks the `libraries`
+ * it. Each re-resolves the session and re-checks the `assets`
  * capability (content review, lib/domain/admin.ts), takes a reason, and
  * the use case writes the audit row.
  */
@@ -23,7 +23,7 @@ export async function moderateShowcaseAction(
   _previous: ShowcaseAdminActionResult | null,
   form: FormData,
 ): Promise<ShowcaseAdminActionResult> {
-  const session = await requireAdminCapability('libraries');
+  const session = await requireAdminCapability('assets');
   const verb = String(form.get('verb') ?? '');
   if (verb !== 'take_down' && verb !== 'reinstate') return { ok: false, error: 'not_applicable' };
   const showcaseId = String(form.get('showcaseId') ?? '');

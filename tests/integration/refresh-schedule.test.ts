@@ -17,8 +17,8 @@ const describeWithDb = TEST_DATABASE_URL ? describe : describe.skip;
 process.env.DATABASE_URL = TEST_DATABASE_URL ?? 'postgres://unused';
 process.env.SESSION_SIGNING_SECRET ??= 'test-secret-that-is-long-enough-000000';
 
-const { createPlatformLibrary } =
-  await import('@/lib/application/administration/manage-platform-libraries');
+const { createPlatformAsset } =
+  await import('@/lib/application/administration/manage-platform-assets');
 const { refreshSchedule, scheduleDueRefreshes } =
   await import('@/lib/application/ingestion/schedule-refreshes');
 const { db, schema } = await import('@/lib/infrastructure/postgres/client');
@@ -34,9 +34,9 @@ describeWithDb('refresh scheduler', () => {
     if (created.length === 0) return;
     await database
       .delete(schema.workflowOperation)
-      .where(inArray(schema.workflowOperation.libraryId, created));
-    await database.delete(schema.source).where(inArray(schema.source.libraryId, created));
-    await database.delete(schema.library).where(inArray(schema.library.id, created));
+      .where(inArray(schema.workflowOperation.assetId, created));
+    await database.delete(schema.source).where(inArray(schema.source.assetId, created));
+    await database.delete(schema.asset).where(inArray(schema.asset.id, created));
     await database
       .delete(schema.auditLog)
       .where(
@@ -48,7 +48,7 @@ describeWithDb('refresh scheduler', () => {
   });
 
   it('queues a never-checked daily source once, and leaves a manual one alone', async () => {
-    const daily = await createPlatformLibrary({
+    const daily = await createPlatformAsset({
       actor,
       title: 'Scheduled Fixture',
       publicId: `/websites/${slug}-daily`,
@@ -57,8 +57,8 @@ describeWithDb('refresh scheduler', () => {
       refreshPolicy: 'daily',
       reason: 'integration test fixture',
     });
-    created.push(daily.libraryId);
-    const manual = await createPlatformLibrary({
+    created.push(daily.assetId);
+    const manual = await createPlatformAsset({
       actor,
       title: 'Manual Fixture',
       publicId: `/websites/${slug}-manual`,
@@ -67,13 +67,13 @@ describeWithDb('refresh scheduler', () => {
       refreshPolicy: 'manual',
       reason: 'integration test fixture',
     });
-    created.push(manual.libraryId);
+    created.push(manual.assetId);
 
     const first = await scheduleDueRefreshes();
-    const ours = first.filter((row) => created.includes(row.libraryId));
+    const ours = first.filter((row) => created.includes(row.assetId));
     expect(ours).toHaveLength(1);
-    expect(ours[0]!.libraryId).toBe(daily.libraryId);
-    /* Every source of the library was due, so the whole library is queued. */
+    expect(ours[0]!.assetId).toBe(daily.assetId);
+    /* Every source of the asset was due, so the whole asset is queued. */
     expect(ours[0]!.sourceId).toBeNull();
 
     const [row] = await db()
@@ -87,18 +87,18 @@ describeWithDb('refresh scheduler', () => {
 
     /* The open row covers the source: a second pass queues nothing more. */
     const second = await scheduleDueRefreshes();
-    expect(second.filter((r) => created.includes(r.libraryId))).toHaveLength(0);
+    expect(second.filter((r) => created.includes(r.assetId))).toHaveLength(0);
 
     const schedule = await refreshSchedule();
-    const dailyView = schedule.find((s) => s.libraryId === daily.libraryId);
-    const manualView = schedule.find((s) => s.libraryId === manual.libraryId);
+    const dailyView = schedule.find((s) => s.assetId === daily.assetId);
+    const manualView = schedule.find((s) => s.assetId === manual.assetId);
     expect(dailyView?.open).toBe(true);
     expect(manualView?.dueAt).toBeNull();
     expect(manualView?.open).toBe(false);
   });
 
-  it('queues only the due source of a library whose other source is manual', async () => {
-    const mixed = await createPlatformLibrary({
+  it('queues only the due source of an asset whose other source is manual', async () => {
+    const mixed = await createPlatformAsset({
       actor,
       title: 'Mixed Fixture',
       publicId: `/websites/${slug}-mixed`,
@@ -107,32 +107,32 @@ describeWithDb('refresh scheduler', () => {
       refreshPolicy: 'manual',
       reason: 'integration test fixture',
     });
-    created.push(mixed.libraryId);
+    created.push(mixed.assetId);
     /* A second source, written directly: the console refuses one since P1
        (agent-first-proposal.md 3.1), but the scheduler still decides per
-       source, the shape libraries had before migration 0062 split them. */
+       source, the shape assets had before migration 0062 split them. */
     const added = { sourceId: uuidv7() };
     await db().insert(schema.source).values({
       id: added.sourceId,
-      libraryId: mixed.libraryId,
+      assetId: mixed.assetId,
       type: 'website',
       location: 'https://example.test/mixed-weekly',
       config: { indexDepth: 0 },
       refreshPolicy: { cadence: 'weekly' },
     });
 
-    /* The library was just checked: nothing is due yet. */
+    /* The asset was just checked: nothing is due yet. */
     await db()
-      .update(schema.library)
+      .update(schema.asset)
       .set({ lastCheckedAt: new Date() })
-      .where(eq(schema.library.id, mixed.libraryId));
+      .where(eq(schema.asset.id, mixed.assetId));
     const none = await scheduleDueRefreshes();
-    expect(none.filter((r) => r.libraryId === mixed.libraryId)).toHaveLength(0);
+    expect(none.filter((r) => r.assetId === mixed.assetId)).toHaveLength(0);
 
     /* Eight days on, the weekly source is due and the manual one still is not. */
     const later = new Date(Date.now() + 8 * 24 * 60 * 60 * 1000);
     const queued = await scheduleDueRefreshes(later);
-    const ours = queued.filter((r) => r.libraryId === mixed.libraryId);
+    const ours = queued.filter((r) => r.assetId === mixed.assetId);
     expect(ours).toHaveLength(1);
     expect(ours[0]!.sourceId).toBe(added.sourceId);
   });

@@ -27,7 +27,7 @@ const {
   listImportableRepositories,
 } = await import('@/lib/application/auth');
 const { GithubGrantRevoked } = await import('@/lib/infrastructure/identity/github');
-const { createWorkspaceLibrary } = await import('@/lib/application/libraries');
+const { createWorkspaceAsset } = await import('@/lib/application/assets');
 const { seal, unseal } = await import('@/lib/infrastructure/crypto/sealed');
 const { db, schema } = await import('@/lib/infrastructure/postgres/client');
 const { uuidv7 } = await import('@/lib/domain/id');
@@ -66,7 +66,7 @@ function reader(options: { revoked?: boolean } = {}) {
 
 const users: string[] = [];
 const workspaces: string[] = [];
-const libraries: string[] = [];
+const assets: string[] = [];
 const planVersions: string[] = [];
 
 async function account(): Promise<string> {
@@ -130,10 +130,10 @@ async function connect(userId: string, grant = { accessToken: TOKEN, scope: 'rea
 describeWithDb('github repository import', () => {
   afterAll(async () => {
     const database = db();
-    if (libraries.length > 0) {
-      await database.delete(schema.workflowOperation).where(inArray(schema.workflowOperation.libraryId, libraries));
-      await database.delete(schema.source).where(inArray(schema.source.libraryId, libraries));
-      await database.delete(schema.library).where(inArray(schema.library.id, libraries));
+    if (assets.length > 0) {
+      await database.delete(schema.workflowOperation).where(inArray(schema.workflowOperation.assetId, assets));
+      await database.delete(schema.source).where(inArray(schema.source.assetId, assets));
+      await database.delete(schema.asset).where(inArray(schema.asset.id, assets));
     }
     if (workspaces.length > 0) {
       await database.delete(schema.subscription).where(inArray(schema.subscription.workspaceId, workspaces));
@@ -197,7 +197,7 @@ describeWithDb('github repository import', () => {
     if (listed.connected) expect(listed.repositories.map((r) => r.fullName)).toEqual(['Octocat/Docs', 'acme/handbook']);
 
     const attempt = (location: string) =>
-      createWorkspaceLibrary({
+      createWorkspaceAsset({
         role: 'owner',
         workspaceId,
         userId,
@@ -215,16 +215,16 @@ describeWithDb('github repository import', () => {
     await expect(attempt('octocat/missing')).rejects.toMatchObject({ refusal: 'not_found', reason: 'source_mismatch' });
     /* No account at all on the call: refused before anything is read. */
     await expect(
-      createWorkspaceLibrary({ role: 'owner', workspaceId, title: 'x', rights: { origin: 'own', license: 'open_source', generation: 'human' }, sourceType: 'github', location: 'octocat/docs', slug: '' }),
+      createWorkspaceAsset({ role: 'owner', workspaceId, title: 'x', rights: { origin: 'own', license: 'open_source', generation: 'human' }, sourceType: 'github', location: 'octocat/docs', slug: '' }),
     ).rejects.toMatchObject({ code: 'access_denied' });
 
     /* The one that passes: id from GitHub's spelling, repository id on the source. */
     const created = await attempt('octocat/docs');
-    libraries.push(created.libraryId);
+    assets.push(created.assetId);
     /* The id follows GitHub's spelling of the name, not the form post's. */
     expect(created.publicId).toBe('/Octocat/Docs');
     expect(created.operationId).not.toBeNull();
-    const [source] = await db().select().from(schema.source).where(eq(schema.source.libraryId, created.libraryId));
+    const [source] = await db().select().from(schema.source).where(eq(schema.source.assetId, created.assetId));
     expect(source?.location).toBe('Octocat/Docs');
     expect(source?.config).toEqual({ repositoryId: 1 });
   });

@@ -14,7 +14,7 @@
 import type { NextRequest } from 'next/server';
 import { AppError } from '@/contracts/errors';
 import { resolveApiKey } from '@/lib/application/auth';
-import type { WorkspaceRole } from '@/lib/application/libraries';
+import type { WorkspaceRole } from '@/lib/application/assets';
 import { currentSession, isSameOrigin } from '@/lib/http/session';
 
 export interface ClaimPrincipal {
@@ -22,7 +22,7 @@ export interface ClaimPrincipal {
   userId: string | null;
   /**
    * The role the claim use cases check. Opening or verifying a claim binds a
-   * library's management and its share of the revenue pool to the workspace
+   * asset's management and its share of the revenue pool to the workspace
    * (requirement.md 7.3.4), so REST asks for the same authority the dashboard
    * does rather than accepting any member.
    */

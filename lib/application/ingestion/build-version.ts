@@ -2,18 +2,18 @@
  * One build: a set of sources in, one indexed but unpublished Version out.
  *
  * Sources are compared one by one against the current version
- * (`library_version.source_digests`). A source whose fresh snapshot digests
+ * (`asset_version.source_digests`). A source whose fresh snapshot digests
  * the same as last time is *carried forward*: its documents and chunks --
  * vectors included -- are copied into the new version under new ids, and
  * nothing of it is parsed or embedded again. Only sources that changed go
  * through the pipeline. A refresh that names one source (`workflow_operation
  * .source_id`) does not even fetch the others. The version stays what it
- * always was, one immutable snapshot of the whole library; what changes is
+ * always was, one immutable snapshot of the whole asset; what changes is
  * how much of it was recomputed.
  *
  * This is architecture.md 8.2 steps 2 through 9 -- fetch, scan, discover,
  * normalize, cite, chunk, embed-index, profile, evaluate. Step 10 (review) does
- * not apply to a platform library (architecture.md 8.1 routes it straight to
+ * not apply to a platform asset (architecture.md 8.1 routes it straight to
  * publishing) and step 11 is `publish-version.ts`, deliberately separate: a version that is
  * built but not pointed at is a safe state, and one this module can leave
  * behind if publishing has to wait.
@@ -39,7 +39,7 @@ import {
   safetyStatusOf,
   scanContent,
   SCORE_ALGORITHM_VERSION,
-  scoreLibrary,
+  scoreAsset,
   sha256Hex,
   snapshotDigest,
   summarizeFetch,
@@ -63,7 +63,7 @@ import {
   isBuildableSourceType,
   withDeclaredParseScope,
   type BuildableSourceType,
-} from '@/lib/domain/library';
+} from '@/lib/domain/asset';
 import { notionSourceUserId } from '@/lib/domain/notion';
 import { notionTokenFor } from '@/lib/application/auth/notion-connection';
 import { db, schema } from '@/lib/infrastructure/postgres/client';
@@ -78,13 +78,13 @@ import type { BuildFacts } from '@/lib/domain/build-billing';
 import { workspaceStorage } from '@/lib/application/plans/storage';
 
 export interface BuildInput {
-  libraryId: string;
+  assetId: string;
   operationId: string;
   dependencies?: IngestionDependencies;
   /**
    * Runs once chunking has measured the build and before anything is
    * embedded -- the last point at which stopping costs the platform nothing.
-   * library-build-billing.md 4.3: the worker prices the build here and
+   * asset-build-billing.md 4.3: the worker prices the build here and
    * throws `quota_exceeded` when the workspace cannot cover it.
    */
   beforeIndex?: (facts: BuildFacts) => Promise<void>;
@@ -138,7 +138,7 @@ async function reportProgress(
 
 /**
  * Independent object-store writes run this many at a time. Serial PUTs make a
- * large library's build latency-bound (thousands of round trips, one by one);
+ * large asset's build latency-bound (thousands of round trips, one by one);
  * unbounded fan-out makes it a burst the store throttles. Eight is neither.
  */
 const PUT_CONCURRENCY = 8;
@@ -148,7 +148,7 @@ const PUT_CONCURRENCY = 8;
  *
  * Large enough that the provider still sees full batches (the adapter splits
  * this into its own requests), small enough that peak memory is a few megabytes
- * whatever the size of the library.
+ * whatever the size of the asset.
  */
 const EMBED_WINDOW = 500;
 
@@ -174,31 +174,31 @@ export async function buildVersion(input: BuildInput): Promise<BuildOutcome> {
     );
   }
 
-  const [library] = await database
+  const [asset] = await database
     .select({
-      id: schema.library.id,
-      publicId: schema.library.publicId,
-      title: schema.library.title,
-      isPlatformLibrary: schema.library.isPlatformLibrary,
-      ownerWorkspaceId: schema.library.ownerWorkspaceId,
-      lifecycleStatus: schema.library.lifecycleStatus,
-      currentVersionId: schema.library.currentVersionId,
-      language: schema.library.language,
-      deletedAt: schema.library.deletedAt,
+      id: schema.asset.id,
+      publicId: schema.asset.publicId,
+      title: schema.asset.title,
+      isPlatformAsset: schema.asset.isPlatformAsset,
+      ownerWorkspaceId: schema.asset.ownerWorkspaceId,
+      lifecycleStatus: schema.asset.lifecycleStatus,
+      currentVersionId: schema.asset.currentVersionId,
+      language: schema.asset.language,
+      deletedAt: schema.asset.deletedAt,
     })
-    .from(schema.library)
-    .where(eq(schema.library.id, input.libraryId))
+    .from(schema.asset)
+    .where(eq(schema.asset.id, input.assetId))
     .limit(1);
 
-  if (!library) {
-    throw new IngestionFailure('source_unsupported', 'validate-source', 'no such library');
+  if (!asset) {
+    throw new IngestionFailure('source_unsupported', 'validate-source', 'no such asset');
   }
   /* A tombstone is archived too; named first so the failure says why. */
-  if (library.deletedAt) {
-    throw new IngestionFailure('source_unsupported', 'validate-source', 'the library is deleted');
+  if (asset.deletedAt) {
+    throw new IngestionFailure('source_unsupported', 'validate-source', 'the asset is deleted');
   }
-  if (library.lifecycleStatus === 'archived') {
-    throw new IngestionFailure('source_unsupported', 'validate-source', 'the library is archived');
+  if (asset.lifecycleStatus === 'archived') {
+    throw new IngestionFailure('source_unsupported', 'validate-source', 'the asset is archived');
   }
 
   const sources = await database
@@ -209,11 +209,11 @@ export async function buildVersion(input: BuildInput): Promise<BuildOutcome> {
       config: schema.source.config,
     })
     .from(schema.source)
-    .where(eq(schema.source.libraryId, library.id))
+    .where(eq(schema.source.assetId, asset.id))
     .orderBy(schema.source.id);
 
   if (sources.length === 0) {
-    throw new IngestionFailure('source_unsupported', 'validate-source', 'the library has no source');
+    throw new IngestionFailure('source_unsupported', 'validate-source', 'the asset has no source');
   }
   for (const source of sources) {
     if (!isBuildableSourceType(source.type)) {
@@ -225,8 +225,8 @@ export async function buildVersion(input: BuildInput): Promise<BuildOutcome> {
     }
   }
 
-  /* A refresh that names one source; a name that is not this library's is
-     ignored rather than refused, and the whole library is refreshed. */
+  /* A refresh that names one source; a name that is not this asset's is
+     ignored rather than refused, and the whole asset is refreshed. */
   const [operation] = await database
     .select({ sourceId: schema.workflowOperation.sourceId })
     .from(schema.workflowOperation)
@@ -239,27 +239,27 @@ export async function buildVersion(input: BuildInput): Promise<BuildOutcome> {
 
   /*
    * Which stemmer the keyword index uses, decided once and stamped on every
-   * chunk. `library.language` is free text an operator typed, so the mapping
+   * chunk. `asset.language` is free text an operator typed, so the mapping
    * is deliberately forgiving and falls back to `simple` rather than guessing.
    */
-  const searchConfig = textSearchConfig(library.language);
+  const searchConfig = textSearchConfig(asset.language);
   const adapter = await dependencies.embeddings();
 
-  const current = library.currentVersionId
+  const current = asset.currentVersionId
     ? await database
         .select({
-          id: schema.libraryVersion.id,
-          digest: schema.libraryVersion.sourceDigest,
-          sourceDigests: schema.libraryVersion.sourceDigests,
-          parserVersion: schema.libraryVersion.parserVersion,
-          chunkerVersion: schema.libraryVersion.chunkerVersion,
-          embeddingModel: schema.libraryVersion.embeddingModel,
-          embeddingDimensions: schema.libraryVersion.embeddingDimensions,
-          searchConfig: schema.libraryVersion.searchConfig,
-          faqDigest: schema.libraryVersion.faqDigest,
+          id: schema.assetVersion.id,
+          digest: schema.assetVersion.sourceDigest,
+          sourceDigests: schema.assetVersion.sourceDigests,
+          parserVersion: schema.assetVersion.parserVersion,
+          chunkerVersion: schema.assetVersion.chunkerVersion,
+          embeddingModel: schema.assetVersion.embeddingModel,
+          embeddingDimensions: schema.assetVersion.embeddingDimensions,
+          searchConfig: schema.assetVersion.searchConfig,
+          faqDigest: schema.assetVersion.faqDigest,
         })
-        .from(schema.libraryVersion)
-        .where(eq(schema.libraryVersion.id, library.currentVersionId))
+        .from(schema.assetVersion)
+        .where(eq(schema.assetVersion.id, asset.currentVersionId))
         .limit(1)
     : [];
 
@@ -272,7 +272,7 @@ export async function buildVersion(input: BuildInput): Promise<BuildOutcome> {
    * model asked for a different number of dimensions produces vectors in a
    * different space. So an unchanged source is a reason to carry it
    * forward only when today's build would produce the same thing: correcting
-   * a library's language or shipping a new chunker must rebuild everything,
+   * an asset's language or shipping a new chunker must rebuild everything,
    * and without this check both would be reported as "unchanged" and quietly
    * do nothing.
    */
@@ -287,7 +287,7 @@ export async function buildVersion(input: BuildInput): Promise<BuildOutcome> {
   const cached = (sameConfiguration && built?.sourceDigests) || {};
   /*
    * A rebuild forced by our own parser, chunker or model moving is the
-   * platform's decision, not the owner's (library-build-billing.md 1.1): the
+   * platform's decision, not the owner's (asset-build-billing.md 1.1): the
    * price formula reads this flag and charges nothing. A changed search
    * configuration is the owner's own edit and is not covered.
    */
@@ -299,7 +299,7 @@ export async function buildVersion(input: BuildInput): Promise<BuildOutcome> {
       built.embeddingDimensions !== adapter.dimensions ||
       /* A version from before per-source digests carries nothing forward
          (`cached` is empty), so its first refresh re-embeds the whole
-         library. That is our migration, not the owner's change. */
+         asset. That is our migration, not the owner's change. */
       built.sourceDigests === null);
 
   /* ------------------------------------------------------- fetch-snapshot */
@@ -339,7 +339,7 @@ export async function buildVersion(input: BuildInput): Promise<BuildOutcome> {
     });
     /*
      * What `re0.json` scoped this fetch to is stamped onto the source row, in
-     * the file's own field names, so the library page can show the scope the
+     * the file's own field names, so the asset page can show the scope the
      * index obeyed (requirement.md 5.1) without re-reading the repository.
      *
      * `withDeclaredParseScope` decides whether that stamp may land: the
@@ -407,7 +407,7 @@ export async function buildVersion(input: BuildInput): Promise<BuildOutcome> {
 
   /*
    * architecture.md 8.4: an unchanged digest updates `last_checked_at` and
-   * stops. Not creating an empty version is the point -- a library that is
+   * stops. Not creating an empty version is the point -- an asset that is
    * checked hourly and changes yearly would otherwise accumulate thousands of
    * identical versions, each one anchored and each one a superseded row.
    */
@@ -419,36 +419,36 @@ export async function buildVersion(input: BuildInput): Promise<BuildOutcome> {
    * version remembers which FAQ it was built with, so an edit to an entry
    * alone is a change worth a build.
    */
-  const faqEntries = await faqEntriesForBuild(library.id);
+  const faqEntries = await faqEntriesForBuild(asset.id);
   const faqDigest = faqEntries.length > 0 ? await sha256Hex(faqCanonical(faqEntries)) : null;
   const faqUnchanged = (current[0]?.faqDigest ?? null) === faqDigest;
 
   if (sameConfiguration && plans.every((plan) => plan.carried) && faqUnchanged) {
     await database
-      .update(schema.library)
+      .update(schema.asset)
       .set({ lastCheckedAt: new Date() })
-      .where(eq(schema.library.id, library.id));
+      .where(eq(schema.asset.id, asset.id));
     return { changed: false, digest };
   }
 
   /*
    * agent-first-proposal.md 8.1: a workspace holds no more content, across
-   * all its live libraries, than the owner's storage tier allows. This build
+   * all its live assets, than the owner's storage tier allows. This build
    * is measured the way `storage_bytes` is -- the encoded bytes of every
    * source, carried ones included -- added to what the workspace's *other*
-   * libraries hold (a rebuild replaces this library's bytes), and refused
+   * assets hold (a rebuild replaces this asset's bytes), and refused
    * here, after the fetch and before anything is parsed, embedded or priced,
    * so an oversized build costs neither side anything. Only a build that
    * would write a version is held to it: an unchanged refresh above returned
    * first, and a workspace already over capacity keeps serving what it has.
-   * Platform libraries are the operator's and have no tier.
+   * Platform assets are the operator's and have no tier.
    */
-  if (!library.isPlatformLibrary && library.ownerWorkspaceId) {
-    const storage = await workspaceStorage(library.ownerWorkspaceId, { excludeLibraryId: library.id });
+  if (!asset.isPlatformAsset && asset.ownerWorkspaceId) {
+    const storage = await workspaceStorage(asset.ownerWorkspaceId, { excludeAssetId: asset.id });
     const total = plans.reduce((sum, plan) => sum + plan.record.bytes, 0);
     if (storage.usedBytes + total > storage.capacityBytes) {
       throw new IngestionFailure(
-        'library_too_large',
+        'asset_too_large',
         'fetch-snapshot',
         `the content is ${total} bytes, and the workspace has ${storage.remainingBytes} of ${storage.capacityBytes} left`,
       );
@@ -468,7 +468,7 @@ export async function buildVersion(input: BuildInput): Promise<BuildOutcome> {
 
   const store = dependencies.store();
   await store.put(
-    objectKeys.snapshot(library.id, input.operationId, 'json'),
+    objectKeys.snapshot(asset.id, input.operationId, 'json'),
     encode({
       digest,
       files: files.map((file) => ({ path: file.path, url: file.url })),
@@ -539,11 +539,11 @@ export async function buildVersion(input: BuildInput): Promise<BuildOutcome> {
       /* What the page says it is called, when the connector learned it
          apart from the body (a rendered page), shorn of the site's name. */
       pageTitle: file.title ?? null,
-      siteTitle: library.title,
+      siteTitle: asset.title,
       /* A file the connector already extracted (an uploaded PDF) is a
          document in its own right and falls back to its own name; a fetched
-         page with no heading is the library's and falls back to its title. */
-      fallbackTitle: file.format ? undefined : library.title,
+         page with no heading is the asset's and falls back to its title. */
+      fallbackTitle: file.format ? undefined : asset.title,
     });
     if (document.body.trim().length === 0) continue;
     parsed.push({ file, document });
@@ -590,7 +590,7 @@ export async function buildVersion(input: BuildInput): Promise<BuildOutcome> {
    * Carried-forward sources first, in source order: their documents and
    * chunks are read from the current version and re-keyed for this one. The
    * normalized object in storage is shared -- it is immutable, and the purge
-   * that removes a library removes every key its documents name. The bodies
+   * that removes an asset removes every key its documents name. The bodies
    * are read because the profile, the Merkle root and the scoring counts need
    * them; the vectors are not, they are copied row by row below.
    */
@@ -665,7 +665,7 @@ export async function buildVersion(input: BuildInput): Promise<BuildOutcome> {
             id: documentId,
             title: document.title,
             sourceUrl: document.sourceUrl,
-            objectKey: document.objectKey ?? objectKeys.normalized(library.id, versionId, documentId),
+            objectKey: document.objectKey ?? objectKeys.normalized(asset.id, versionId, documentId),
             sourceId: plan.source.id,
             safetyFindings: document.safetyFindings,
           },
@@ -709,7 +709,7 @@ export async function buildVersion(input: BuildInput): Promise<BuildOutcome> {
         id: documentId,
         title: document.title,
         sourceUrl: file.url,
-        objectKey: objectKeys.normalized(library.id, versionId, documentId),
+        objectKey: objectKeys.normalized(asset.id, versionId, documentId),
         sourceId: file.sourceId,
         safetyFindings: findingsByPath.get(file.path) ?? [],
       },
@@ -746,7 +746,7 @@ export async function buildVersion(input: BuildInput): Promise<BuildOutcome> {
   const pending = rows.flatMap((row) =>
     row.chunks.map((chunk) => ({
       id: chunk.id,
-      libraryId: library.id,
+      assetId: asset.id,
       versionId,
       documentId: row.document.id,
       ordinal: chunk.ordinal,
@@ -782,7 +782,7 @@ export async function buildVersion(input: BuildInput): Promise<BuildOutcome> {
    * that crosses systems is that an object referenced by a committed row must
    * already exist. An object with no row is collected by the store's lifecycle
    * rules; a row pointing at an object that was never written is a broken
-   * library.
+   * asset.
    */
   const fresh = rows.filter((row) => row.chunks[0]?.copiedFrom === undefined);
   for (let at = 0; at < fresh.length; at += PUT_CONCURRENCY) {
@@ -806,12 +806,12 @@ export async function buildVersion(input: BuildInput): Promise<BuildOutcome> {
     );
   }
   await store.put(
-    objectKeys.documentManifest(library.id, versionId),
+    objectKeys.documentManifest(asset.id, versionId),
     encode(rows.map((row) => ({ id: row.document.id, title: row.document.title, url: row.document.sourceUrl }))),
     'application/json',
   );
   await store.put(
-    objectKeys.vectorManifest(library.id, versionId),
+    objectKeys.vectorManifest(asset.id, versionId),
     encode({
       model: adapter.model,
       dimensions: adapter.dimensions,
@@ -822,10 +822,10 @@ export async function buildVersion(input: BuildInput): Promise<BuildOutcome> {
   );
 
   /*
-   * requirement.md 4.1 measures a library's capacity in bytes of content, and a
+   * requirement.md 4.1 measures an asset's capacity in bytes of content, and a
    * JavaScript string length is UTF-16 code units -- one per Han character
    * where UTF-8 spends three. Counting the encoded form is the difference
-   * between a Chinese library reporting its real size and reporting a third of
+   * between a Chinese asset reporting its real size and reporting a third of
    * it. The connectors already count this way.
    */
   const bytes = plans.reduce((total, plan) => total + plan.record.bytes, 0);
@@ -833,13 +833,13 @@ export async function buildVersion(input: BuildInput): Promise<BuildOutcome> {
   /*
    * The same source can now be built more than once -- a configuration change
    * rebuilds unchanged bytes -- so the label is numbered against what this
-   * library already has.
+   * asset already has.
    *
    * One clock read for both the base and the stored label: two would let a
    * build that crosses midnight count against yesterday's base and write
    * today's, producing a `.2` with no `.1`. The count runs inside the
    * transaction that inserts the row, so two builds racing here cannot both
-   * read the same number; `library_version_label_uq` is the backstop.
+   * read the same number; `asset_version_label_uq` is the backstop.
    */
   const builtAt = new Date();
   const base = versionLabel(digest, builtAt);
@@ -847,17 +847,17 @@ export async function buildVersion(input: BuildInput): Promise<BuildOutcome> {
   await database.transaction(async (tx) => {
     const [priorBuilds] = await tx
       .select({ n: count() })
-      .from(schema.libraryVersion)
+      .from(schema.assetVersion)
       .where(
         and(
-          eq(schema.libraryVersion.libraryId, library.id),
-          or(eq(schema.libraryVersion.label, base), like(schema.libraryVersion.label, `${base}.%`)),
+          eq(schema.assetVersion.assetId, asset.id),
+          or(eq(schema.assetVersion.label, base), like(schema.assetVersion.label, `${base}.%`)),
         ),
       );
 
-    await tx.insert(schema.libraryVersion).values({
+    await tx.insert(schema.assetVersion).values({
       id: versionId,
-      libraryId: library.id,
+      assetId: asset.id,
       label: versionLabel(digest, builtAt, (priorBuilds?.n ?? 0) + 1),
       sourceDigest: digest,
       sourceDigests: Object.fromEntries(plans.map((plan) => [plan.source.id, plan.record])),
@@ -879,7 +879,7 @@ export async function buildVersion(input: BuildInput): Promise<BuildOutcome> {
     await tx.insert(schema.document).values(
       rows.map((row) => ({
         id: row.document.id,
-        libraryId: library.id,
+        assetId: asset.id,
         versionId,
         title: row.document.title,
         sourceUrl: row.document.sourceUrl,
@@ -894,7 +894,7 @@ export async function buildVersion(input: BuildInput): Promise<BuildOutcome> {
    * Embedded and inserted a window at a time, and the vectors are dropped as
    * soon as they are written.
    *
-   * Holding every vector for a build is what makes a large library impossible
+   * Holding every vector for a build is what makes a large asset impossible
    * rather than slow: the caps above permit roughly forty thousand chunks, and
    * forty thousand 1536-dimension vectors is about half a gigabyte of live
    * JavaScript numbers before a single row is sent. A window keeps that flat --
@@ -945,7 +945,7 @@ export async function buildVersion(input: BuildInput): Promise<BuildOutcome> {
     const terms = extractTerms(
       pending.map((chunk) => chunk.body),
       PROFILE_LIMITS.maxTerms,
-      await platformTermWeight(library.id),
+      await platformTermWeight(asset.id),
     );
 
     await database.transaction(async (tx) => {
@@ -969,12 +969,12 @@ export async function buildVersion(input: BuildInput): Promise<BuildOutcome> {
 
       /*
        * The profile rides in the `ready` transaction, so `ready` implies "this
-       * version can be routed to" -- library discovery never meets a version
+       * version can be routed to" -- asset discovery never meets a version
        * whose chunks exist but whose profile does not.
        */
-      await tx.insert(schema.libraryProfile).values({
+      await tx.insert(schema.assetProfile).values({
         id: uuidv7(),
-        libraryId: library.id,
+        assetId: asset.id,
         versionId,
         profileVersion: PROFILE_VERSION,
         documentTitles: titles,
@@ -984,10 +984,10 @@ export async function buildVersion(input: BuildInput): Promise<BuildOutcome> {
 
       const vectors = centroids.centroids();
       if (vectors.length > 0) {
-        await tx.insert(schema.libraryProfileVector).values(
+        await tx.insert(schema.assetProfileVector).values(
           vectors.map((embedding, ordinal) => ({
             id: uuidv7(),
-            libraryId: library.id,
+            assetId: asset.id,
             versionId,
             ordinal,
             embedding,
@@ -997,18 +997,18 @@ export async function buildVersion(input: BuildInput): Promise<BuildOutcome> {
 
       /* Last, so `ready` is never true of a version that is missing chunks. */
       await tx
-        .update(schema.libraryVersion)
+        .update(schema.assetVersion)
         .set({ indexStatus: 'ready' })
-        .where(eq(schema.libraryVersion.id, versionId));
+        .where(eq(schema.assetVersion.id, versionId));
 
       await tx
-        .update(schema.library)
+        .update(schema.asset)
         .set({
           lastCheckedAt: new Date(),
           lastSuccessfulRefreshAt: new Date(),
           storageBytes: bytes,
         })
-        .where(eq(schema.library.id, library.id));
+        .where(eq(schema.asset.id, asset.id));
     });
   } catch (error) {
     await discardVersion(database, versionId);
@@ -1024,9 +1024,9 @@ export async function buildVersion(input: BuildInput): Promise<BuildOutcome> {
     .filter((value): value is Date => value !== null && !Number.isNaN(value.getTime()))
     .sort((a, b) => b.getTime() - a.getTime())[0];
 
-  const scores = scoreLibrary({
+  const scores = scoreAsset({
     verified: false,
-    isPlatformLibrary: library.isPlatformLibrary,
+    isPlatformAsset: asset.isPlatformAsset,
     documents: rows.length,
     chunks: totalChunks,
     duplicateRatio: totalChunks === 0 ? 0 : duplicates / totalChunks,
@@ -1036,9 +1036,9 @@ export async function buildVersion(input: BuildInput): Promise<BuildOutcome> {
     hasLicense: plans.some((plan) => plan.record.hasLicense),
   });
 
-  await database.insert(schema.libraryScore).values({
+  await database.insert(schema.assetScore).values({
     id: uuidv7(),
-    libraryId: library.id,
+    assetId: asset.id,
     algorithmVersion: SCORE_ALGORITHM_VERSION,
     trustScore: scores.trust,
     benchmarkScore: scores.benchmark,
@@ -1065,14 +1065,14 @@ export async function buildVersion(input: BuildInput): Promise<BuildOutcome> {
 async function discardVersion(database: ReturnType<typeof db>, versionId: string): Promise<void> {
   try {
     await database
-      .delete(schema.libraryProfileVector)
-      .where(eq(schema.libraryProfileVector.versionId, versionId));
+      .delete(schema.assetProfileVector)
+      .where(eq(schema.assetProfileVector.versionId, versionId));
     await database
-      .delete(schema.libraryProfile)
-      .where(eq(schema.libraryProfile.versionId, versionId));
+      .delete(schema.assetProfile)
+      .where(eq(schema.assetProfile.versionId, versionId));
     await database.delete(schema.chunk).where(eq(schema.chunk.versionId, versionId));
     await database.delete(schema.document).where(eq(schema.document.versionId, versionId));
-    await database.delete(schema.libraryVersion).where(eq(schema.libraryVersion.id, versionId));
+    await database.delete(schema.assetVersion).where(eq(schema.assetVersion.id, versionId));
   } catch (error) {
     console.error(
       `could not discard incomplete version ${versionId}: ${
@@ -1082,7 +1082,7 @@ async function discardVersion(database: ReturnType<typeof db>, versionId: string
   }
 }
 
-/** What a version remembers about one source; `library_version.source_digests`. */
+/** What a version remembers about one source; `asset_version.source_digests`. */
 type SourceRecord = {
   digest: string;
   bytes: number;
@@ -1166,7 +1166,7 @@ function short(id: string): string {
  * can read the page, so a grant that is gone -- disconnected, revoked and
  * forgotten -- fails the build as `source_forbidden` rather than falling
  * back to the platform's own token and reading with someone else's
- * credential. A platform library names nobody and keeps using the
+ * credential. A platform asset names nobody and keeps using the
  * environment's token.
  */
 async function sourceCredential(
@@ -1181,7 +1181,7 @@ async function sourceCredential(
     throw new IngestionFailure(
       'source_forbidden',
       'validate-source',
-      'the Notion connection this library was imported with is gone',
+      'the Notion connection this asset was imported with is gone',
     );
   }
   return token;

@@ -5,7 +5,7 @@
  * A key placed in re0.json grants nothing: a config file can be written by
  * forks, pull requests and mirrors, so write access is not control.
  *
- * library.ownerWorkspaceId has exactly two write paths: a verified claim, or an
+ * asset.ownerWorkspaceId has exactly two write paths: a verified claim, or an
  * admin ruling on a dispute. Ingestion, review and refresh never touch it.
  * Route Handlers, pages and server actions may only enter through this layer.
  */
@@ -37,7 +37,7 @@ export {
   claimForClaimant,
   claimTarget,
   listWorkspaceClaims,
-  ownershipForLibraries,
+  ownershipForAssets,
   publicClaimStatus,
   type ClaimantClaimView,
   type ClaimTarget,

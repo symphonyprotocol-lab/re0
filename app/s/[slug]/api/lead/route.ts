@@ -50,7 +50,7 @@ export async function POST(request: NextRequest, context: { params: Promise<{ sl
 
     await recordShowcaseLead({
       showcaseId: page.showcaseId,
-      libraryId: page.principal.libraryId,
+      assetId: page.principal.assetId,
       workspaceId: page.principal.workspaceId,
       siteKeyId: page.principal.siteKeyId,
       exchangeId: body.exchangeId,

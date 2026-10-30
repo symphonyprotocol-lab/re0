@@ -119,43 +119,43 @@ describe('install and quickstart snippets', () => {
   it('calls the authoritative REST routes with the authoritative field names', () => {
     const [search, context] = quickstartTabs({
       baseUrl,
-      libraryId: '/acme/handbook',
+      assetId: '/acme/handbook',
       title: 'Handbook',
       labels: { search: 'Search', context: 'Context' },
     });
     expect(search.request).toContain('https://staging.example.com/api/v1/libraries/search?');
-    expect(search.request).toContain('libraryName=handbook');
+    expect(search.request).toContain('assetName=handbook');
     expect(search.request).toContain('query=getting+started');
     expect(search.request).toContain(`Bearer ${API_KEY_PLACEHOLDER}`);
-    expect(search.request).not.toContain('library_name');
+    expect(search.request).not.toContain('asset_name');
 
     expect(context!.request).toContain('https://staging.example.com/api/v1/context?');
-    expect(context!.request).toContain('libraryId=%2Facme%2Fhandbook');
-    expect(context!.request).not.toContain('library_id');
+    expect(context!.request).toContain('assetId=%2Facme%2Fhandbook');
+    expect(context!.request).not.toContain('asset_id');
   });
 
-  it('prints responses in the contract shapes, naming the chosen library', () => {
+  it('prints responses in the contract shapes, naming the chosen asset', () => {
     const [search, context] = quickstartTabs({
       baseUrl,
-      libraryId: '/acme/handbook',
+      assetId: '/acme/handbook',
       title: 'Handbook',
       labels: { search: 'Search', context: 'Context' },
     });
     const searchBody = JSON.parse(search.response) as {
-      results: { libraryId: string; title: string; evidence: unknown }[];
+      results: { assetId: string; title: string; evidence: unknown }[];
       requestId: string;
     };
-    expect(searchBody.results[0]?.libraryId).toBe('/acme/handbook');
+    expect(searchBody.results[0]?.assetId).toBe('/acme/handbook');
     expect(searchBody.results[0]?.title).toBe('Handbook');
     expect(searchBody.results[0]?.evidence).toBeDefined();
     expect(typeof searchBody.requestId).toBe('string');
 
     const contextBody = JSON.parse(context!.response) as {
-      libraryId: string;
+      assetId: string;
       chunks: { citation: { sourceUrl: string } }[];
       usage: { callsUsed: number };
     };
-    expect(contextBody.libraryId).toBe('/acme/handbook');
+    expect(contextBody.assetId).toBe('/acme/handbook');
     expect(contextBody.chunks[0]?.citation.sourceUrl).toMatch(/^https:/);
     expect(contextBody.usage.callsUsed).toBe(1);
   });

@@ -1,7 +1,7 @@
 'use client';
 
 import { useActionState, useState, type ReactNode } from 'react';
-import { submitOn } from '@/components/admin/platform-library-shared';
+import { submitOn } from '@/components/admin/platform-asset-shared';
 import {
   ConsoleButton,
   IconButton,

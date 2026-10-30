@@ -12,7 +12,7 @@ import {
   ClockIcon,
   DatabaseIcon,
 } from '@/components/ui/icons';
-import { listWorkspaceLibraries } from '@/lib/application/libraries';
+import { listWorkspaceAssets } from '@/lib/application/assets';
 import { queryRequests, requestStats } from '@/lib/application/plans';
 import {
   parseRequestFilter,
@@ -34,7 +34,7 @@ const TREND_DAYS = 12;
 /**
  * The requests screen, on the ledger. architecture.md 6.3 and 11.1: the
  * trend is the rebuilt usage summary for the current period, and the log
- * lists real requests -- outcome, library, latency, returned tokens, the
+ * lists real requests -- outcome, asset, latency, returned tokens, the
  * key's mask, never the query text. Filters
  * arrive as GET parameters (requirement.md 5.2) and are applied by the
  * database, so the footer's count is the truth about the whole filtered set.
@@ -60,11 +60,11 @@ export default async function DashboardRequestsPage({
   const r = t.dashboard.requests;
   const filter = parseRequestFilter(params);
 
-  const [overview, log, matched, libraries] = await Promise.all([
+  const [overview, log, matched, assets] = await Promise.all([
     workspaceUsage(session.workspace.id),
     queryRequests(session.workspace.id, filter, REQUEST_PAGE_SIZE),
     requestStats(session.workspace.id, filter),
-    listWorkspaceLibraries(session.workspace.id),
+    listWorkspaceAssets(session.workspace.id),
   ]);
   const requests = log.rows;
 
@@ -118,7 +118,7 @@ export default async function DashboardRequestsPage({
       row.entrypoint && row.entrypoint in surfaces
         ? surfaces[row.entrypoint as RequestEntrypoint]
         : '—',
-    library: row.libraryPublicId ?? '—',
+    asset: row.assetPublicId ?? '—',
     key: row.apiKeyMasked ?? '—',
     status: row.statusCode,
     latency: row.latencyMs === null ? '—' : `${row.latencyMs} ms`,
@@ -133,7 +133,7 @@ export default async function DashboardRequestsPage({
     to: query.get('to') ?? '',
     status: query.get('status') ?? '',
     entrypoint: query.get('entrypoint') ?? '',
-    library: query.get('library') ?? '',
+    asset: query.get('asset') ?? '',
   };
   const pageHref = (page: number) => {
     const params = requestFilterParams(filter, page);
@@ -175,9 +175,9 @@ export default async function DashboardRequestsPage({
       <RequestLog
         entries={entries}
         filter={filterView}
-        libraries={libraries.map((library) => ({
-          publicId: library.publicId,
-          title: library.title,
+        assets={assets.map((asset) => ({
+          publicId: asset.publicId,
+          title: asset.title,
         }))}
         total={log.total}
         page={log.page}

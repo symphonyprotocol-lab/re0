@@ -19,8 +19,8 @@ import { isBillingDocumentKind, isBillingStatusFilter } from '@/lib/domain/billi
 import { dayParam, listBillingDocuments } from '@/lib/application/billing';
 import { toCsv } from './csv';
 import { listAuditEntries, type AuditResultFilter } from './list-audit';
-import { listClaims, listUserLibraries, type ClaimFilter, type LibraryReviewFilter } from './list-libraries';
-import { isPlatformStatusFilter, listPlatformLibraries } from './manage-platform-libraries';
+import { listClaims, listUserAssets, type ClaimFilter, type AssetReviewFilter } from './list-assets';
+import { isPlatformStatusFilter, listPlatformAssets } from './manage-platform-assets';
 import { listConsoleUsers, type UserStatusFilter } from './list-users';
 import { listAdministrators } from './manage-administrators';
 import { isSettlementStatusFilter, listSettlements, periodParam } from './settlements';
@@ -58,31 +58,31 @@ export const CONSOLE_EXPORTS: Record<string, ConsoleExport> = {
         limit: EXPORT_LIMIT,
       });
       return toCsv(
-        ['name', 'email', 'plan', 'libraries', 'calls_this_month', 'signed_up', 'status'],
-        rows.map((r) => [r.displayName, r.email, r.planName, r.libraries, r.callsThisMonth, r.joinedAt, r.status]),
+        ['name', 'email', 'plan', 'assets', 'calls_this_month', 'signed_up', 'status'],
+        rows.map((r) => [r.displayName, r.email, r.planName, r.assets, r.callsThisMonth, r.joinedAt, r.status]),
       );
     },
   },
-  libraries: {
-    capability: 'libraries',
-    filename: 'user-libraries',
+  assets: {
+    capability: 'assets',
+    filename: 'user-assets',
     async build(input) {
-      const { rows } = await listUserLibraries({
+      const { rows } = await listUserAssets({
         query: input.query,
-        review: (input.status as LibraryReviewFilter) ?? 'all',
+        review: (input.status as AssetReviewFilter) ?? 'all',
         limit: EXPORT_LIMIT,
       });
       return toCsv(
-        ['library_id', 'title', 'owner', 'source', 'storage_bytes', 'visibility', 'lifecycle_status', 'created'],
+        ['asset_id', 'title', 'owner', 'source', 'storage_bytes', 'visibility', 'lifecycle_status', 'created'],
         rows.map((r) => [r.publicId, r.title, r.ownerName, r.sourceType, r.storageBytes, r.visibility, r.lifecycleStatus, r.createdAt]),
       );
     },
   },
-  'platform-libraries': {
-    capability: 'platformLibraries',
-    filename: 'platform-libraries',
+  'platform-assets': {
+    capability: 'platformAssets',
+    filename: 'platform-assets',
     async build(input) {
-      const { rows } = await listPlatformLibraries({
+      const { rows } = await listPlatformAssets({
         query: input.query,
         /*
          * Narrowed rather than cast, for the same reason as `billing` below:
@@ -94,7 +94,7 @@ export const CONSOLE_EXPORTS: Record<string, ConsoleExport> = {
         limit: EXPORT_LIMIT,
       });
       return toCsv(
-        ['library_id', 'title', 'source', 'sources', 'documents', 'storage_bytes', 'lifecycle_status', 'index_status', 'last_synced', 'created'],
+        ['asset_id', 'title', 'source', 'sources', 'documents', 'storage_bytes', 'lifecycle_status', 'index_status', 'last_synced', 'created'],
         rows.map((r) => [r.publicId, r.title, r.sourceType, r.sourceCount, r.documents, r.storageBytes, r.lifecycleStatus, r.indexStatus, r.lastSyncedAt, r.createdAt]),
       );
     },
@@ -109,8 +109,8 @@ export const CONSOLE_EXPORTS: Record<string, ConsoleExport> = {
         limit: EXPORT_LIMIT,
       });
       return toCsv(
-        ['library_id', 'library', 'claimant', 'method', 'opened', 'current_owner', 'status'],
-        rows.map((r) => [r.libraryPublicId, r.libraryTitle, r.claimantName, r.method, r.openedAt, r.currentOwner, r.status]),
+        ['asset_id', 'asset', 'claimant', 'method', 'opened', 'current_owner', 'status'],
+        rows.map((r) => [r.assetPublicId, r.assetTitle, r.claimantName, r.method, r.openedAt, r.currentOwner, r.status]),
       );
     },
   },
@@ -125,7 +125,7 @@ export const CONSOLE_EXPORTS: Record<string, ConsoleExport> = {
          * enum, so a hand-typed `?status=bogus` is not an empty extract -- it
          * is `invalid input value for enum` and a 500. The other exports here
          * are safe by accident of their columns: `users` normalises to one of
-         * two literals, the library and claim filters run through a `switch`
+         * two literals, the asset and claim filters run through a `switch`
          * with a default, and `audit_log.result` is plain text.
          */
         status: isBillingStatusFilter(input.status) ? input.status : 'all',

@@ -16,7 +16,7 @@
  */
 import { and, asc, desc, eq, gte, inArray, isNotNull, isNull, sql, type SQL } from 'drizzle-orm';
 import { assetSight, ACTIVITY_WINDOW_DAYS, hotScores, type AssetSight, type ChannelStatus, type ChannelVisibility, type DirectorySort } from '@/lib/domain/channel';
-import type { AssetAccess, AssetKind } from '@/lib/domain/asset';
+import type { AssetAccess, AssetKind } from '@/lib/domain/asset-kind';
 import { db, schema } from '@/lib/infrastructure/postgres/client';
 import { activeRetrievalSettings } from '@/lib/application/administration/manage-retrieval-config';
 import { subscribesTo } from './subscriptions';
@@ -29,10 +29,10 @@ export const DIRECTORY_PAGE_SIZE = 24;
 
 /** Live: published, with a ready current version, not a tombstone. */
 const LIVE: SQL = and(
-  eq(schema.library.lifecycleStatus, 'published'),
-  eq(schema.library.indexStatus, 'ready'),
-  isNotNull(schema.library.currentVersionId),
-  isNull(schema.library.deletedAt),
+  eq(schema.asset.lifecycleStatus, 'published'),
+  eq(schema.asset.indexStatus, 'ready'),
+  isNotNull(schema.asset.currentVersionId),
+  isNull(schema.asset.deletedAt),
 )!;
 
 const PUBLIC_CHANNEL: SQL = and(eq(schema.channel.visibility, 'public'), eq(schema.channel.status, 'active'))!;
@@ -71,13 +71,13 @@ async function directoryFacts(filter?: SQL): Promise<DirectoryFacts[]> {
       workspaceId: schema.channel.workspaceId,
       handle: schema.workspace.handle,
       workspaceName: schema.workspace.name,
-      assetCount: sql<number>`count(${schema.library.id})::int`,
-      kinds: sql<string[]>`array_agg(distinct ${schema.library.kind})`,
-      lastUpdated: sql<Date | null>`max(greatest(${schema.channelAsset.publishedAt}, coalesce(${schema.library.lastSuccessfulRefreshAt}, ${schema.channelAsset.publishedAt})))`,
+      assetCount: sql<number>`count(${schema.asset.id})::int`,
+      kinds: sql<string[]>`array_agg(distinct ${schema.asset.kind})`,
+      lastUpdated: sql<Date | null>`max(greatest(${schema.channelAsset.publishedAt}, coalesce(${schema.asset.lastSuccessfulRefreshAt}, ${schema.channelAsset.publishedAt})))`,
     })
     .from(schema.channel)
     .innerJoin(schema.channelAsset, eq(schema.channelAsset.channelId, schema.channel.id))
-    .innerJoin(schema.library, and(eq(schema.library.id, schema.channelAsset.assetId), LIVE))
+    .innerJoin(schema.asset, and(eq(schema.asset.id, schema.channelAsset.assetId), LIVE))
     .leftJoin(schema.workspace, eq(schema.workspace.id, schema.channel.workspaceId))
     .where(and(PUBLIC_CHANNEL, filter))
     .groupBy(schema.channel.id, schema.workspace.id)
@@ -190,11 +190,11 @@ async function qualityOf(channelIds: string[]) {
   const rows = await db()
     .select({
       channelId: schema.channelAsset.channelId,
-      trust: sql<number>`coalesce((select s.trust_score from ${schema.libraryScore} s where s.asset_id = ${schema.library.id} order by s.computed_at desc limit 1), 0)`,
-      benchmark: sql<number>`coalesce((select s.benchmark_score from ${schema.libraryScore} s where s.asset_id = ${schema.library.id} order by s.computed_at desc limit 1), 0)`,
+      trust: sql<number>`coalesce((select s.trust_score from ${schema.assetScore} s where s.asset_id = ${schema.asset.id} order by s.computed_at desc limit 1), 0)`,
+      benchmark: sql<number>`coalesce((select s.benchmark_score from ${schema.assetScore} s where s.asset_id = ${schema.asset.id} order by s.computed_at desc limit 1), 0)`,
     })
     .from(schema.channelAsset)
-    .innerJoin(schema.library, and(eq(schema.library.id, schema.channelAsset.assetId), LIVE))
+    .innerJoin(schema.asset, and(eq(schema.asset.id, schema.channelAsset.assetId), LIVE))
     .where(inArray(schema.channelAsset.channelId, channelIds));
   for (const row of rows) {
     const list = result.get(row.channelId) ?? [];
@@ -299,35 +299,35 @@ export async function channelStream(
   const isSubscriber = !channel.viewerIsOwner && (await subscribesTo(viewer.workspaceId, channel.id));
   const rows = await db()
     .select({
-      assetId: schema.library.id,
-      publicId: schema.library.publicId,
-      title: schema.library.title,
-      description: schema.library.description,
-      kind: schema.library.kind,
-      access: schema.library.access,
-      lifecycleStatus: schema.library.lifecycleStatus,
-      indexStatus: schema.library.indexStatus,
-      currentVersionId: schema.library.currentVersionId,
-      lastSuccessfulRefreshAt: schema.library.lastSuccessfulRefreshAt,
+      assetId: schema.asset.id,
+      publicId: schema.asset.publicId,
+      title: schema.asset.title,
+      description: schema.asset.description,
+      kind: schema.asset.kind,
+      access: schema.asset.access,
+      lifecycleStatus: schema.asset.lifecycleStatus,
+      indexStatus: schema.asset.indexStatus,
+      currentVersionId: schema.asset.currentVersionId,
+      lastSuccessfulRefreshAt: schema.asset.lastSuccessfulRefreshAt,
       pinnedAt: schema.channelAsset.pinnedAt,
       publishedAt: schema.channelAsset.publishedAt,
-      versionLabel: schema.libraryVersion.label,
-      sourceLocation: sql<string | null>`(select s.location from ${schema.source} s where s.asset_id = ${schema.library.id} order by s.id limit 1)`,
+      versionLabel: schema.assetVersion.label,
+      sourceLocation: sql<string | null>`(select s.location from ${schema.source} s where s.asset_id = ${schema.asset.id} order by s.id limit 1)`,
     })
     .from(schema.channelAsset)
-    .innerJoin(schema.library, eq(schema.library.id, schema.channelAsset.assetId))
-    .leftJoin(schema.libraryVersion, eq(schema.libraryVersion.id, schema.library.currentVersionId))
+    .innerJoin(schema.asset, eq(schema.asset.id, schema.channelAsset.assetId))
+    .leftJoin(schema.assetVersion, eq(schema.assetVersion.id, schema.asset.currentVersionId))
     .where(
       and(
         eq(schema.channelAsset.channelId, channel.id),
-        isNull(schema.library.deletedAt),
+        isNull(schema.asset.deletedAt),
         channel.viewerIsOwner ? undefined : LIVE,
       ),
     )
     .orderBy(
       sql`${schema.channelAsset.pinnedAt} desc nulls last`,
       desc(schema.channelAsset.publishedAt),
-      asc(schema.library.publicId),
+      asc(schema.asset.publicId),
     )
     .limit(limit);
 

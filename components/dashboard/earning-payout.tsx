@@ -3,8 +3,8 @@
 import { useRouter } from 'next/navigation';
 import { useActionState, useEffect } from 'react';
 import type { RequestPayoutActionResult } from '@/app/dashboard/revenue/actions';
-import { submitOn } from '@/components/admin/platform-library-shared';
-import { FIELD } from '@/components/dashboard/library-manage';
+import { submitOn } from '@/components/admin/platform-asset-shared';
+import { FIELD } from '@/components/dashboard/asset-manage';
 import { CircleCheckIcon, CircleXIcon, MailIcon, SpinnerIcon } from '@/components/ui/icons';
 import { useI18n } from '@/lib/i18n/client';
 import { fill } from '@/lib/i18n/format';

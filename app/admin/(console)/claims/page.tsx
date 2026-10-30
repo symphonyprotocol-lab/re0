@@ -44,7 +44,7 @@ const CLAIM_TONE: Record<string, 'warn' | 'ok' | 'danger' | 'neutral'> = {
  * Ownership claims and disputes -- design source frame `z9DJOF`.
  *
  * `claim_status` has no `disputed` value, and should not: requirement.md 7.3
- * defines a dispute as a claim opened on a library that already has an owner,
+ * defines a dispute as a claim opened on an asset that already has an owner,
  * which is a fact about the pair rather than a state of the claim. The tab
  * derives it.
  */
@@ -157,7 +157,7 @@ export default async function AdminClaimsPage({
               {rows.map((claim) => (
                 <tr key={claim.id} className="border-t-2 border-line">
                   <td className={TD}>
-                    <TitleCell title={claim.libraryTitle} meta={claim.libraryPublicId} />
+                    <TitleCell title={claim.assetTitle} meta={claim.assetPublicId} />
                   </td>
                   <td className={TD}>{claim.claimantName || '—'}</td>
                   <td className={`${TD} whitespace-nowrap`}>{label(d.methods, claim.method)}</td>
@@ -182,10 +182,10 @@ export default async function AdminClaimsPage({
                       <ClaimControls
                         target={{
                           id: claim.id,
-                          libraryTitle: claim.libraryTitle,
-                          libraryPublicId: claim.libraryPublicId,
+                          assetTitle: claim.assetTitle,
+                          assetPublicId: claim.assetPublicId,
                           claimantName: claim.claimantName || '—',
-                          initial: initialsOf(claim.libraryTitle),
+                          initial: initialsOf(claim.assetTitle),
                         }}
                         status={claim.status}
                         disputed={claim.disputed}

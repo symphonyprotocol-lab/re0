@@ -21,7 +21,7 @@ export async function generateMetadata(): Promise<Metadata> {
 }
 
 type Search = {
-  searchParams: Promise<{ library?: string; claim?: string; grant?: string }>;
+  searchParams: Promise<{ asset?: string; claim?: string; grant?: string }>;
 };
 
 const one = (value: string | undefined): string => (typeof value === 'string' ? value.trim() : '');
@@ -32,12 +32,12 @@ const one = (value: string | undefined): string => (typeof value === 'string' ? 
  * Three shapes, one route, because they are three moments of one errand:
  *
  * - `?claim=<id>`  an open claim -- its instructions, its check, its outcome.
- * - `?library=<id>` a library to claim -- the methods its source admits.
- * - neither         where to find a library, plus the claims already opened.
+ * - `?asset=<id>` an asset to claim -- the methods its source admits.
+ * - neither         where to find an asset, plus the claims already opened.
  *
  * A claim belongs to a workspace, so the page is behind the session: an
  * anonymous visitor is sent to sign in and comes back here rather than to the
- * dashboard. The library id travels in the return path, so the errand
+ * dashboard. The asset id travels in the return path, so the errand
  * survives the round trip.
  *
  * Nothing on this page decides anything. `startClaim` and `verifyClaim` do,
@@ -47,20 +47,20 @@ const one = (value: string | undefined): string => (typeof value === 'string' ? 
  */
 export default async function ClaimPage({ searchParams }: Search) {
   const params = await searchParams;
-  const libraryId = one(params.library);
+  const assetId = one(params.asset);
   const claimId = one(params.claim);
 
   const returnTo = claimId
     ? `/assets/claim?claim=${encodeURIComponent(claimId)}`
-    : libraryId
-      ? `/assets/claim?library=${encodeURIComponent(libraryId)}`
+    : assetId
+      ? `/assets/claim?asset=${encodeURIComponent(assetId)}`
       : '/assets/claim';
 
   const [session, { locale, t }] = await Promise.all([requireSession(returnTo), translations()]);
   const c = t.claim;
 
   /*
-   * A library the caller cannot see and one that does not exist answer the
+   * An asset the caller cannot see and one that does not exist answer the
    * same way (7.3.7), so both land on one sentence rather than a 404 that
    * would confirm the id.
    */
@@ -69,7 +69,7 @@ export default async function ClaimPage({ searchParams }: Search) {
   let missing = false;
   try {
     if (claimId) claim = await claimForClaimant(session.workspace.id, claimId);
-    else if (libraryId) target = await claimTarget(session.workspace.id, libraryId);
+    else if (assetId) target = await claimTarget(session.workspace.id, assetId);
   } catch (error) {
     if (!(error instanceof AppError)) throw error;
     missing = true;
@@ -95,8 +95,8 @@ export default async function ClaimPage({ searchParams }: Search) {
   const claimView: ClaimView | null = claim
     ? {
         id: claim.id,
-        libraryPublicId: claim.libraryPublicId,
-        libraryTitle: claim.libraryTitle,
+        assetPublicId: claim.assetPublicId,
+        assetTitle: claim.assetTitle,
         location: claim.location,
         method: claim.method,
         status: claim.status,
@@ -182,10 +182,10 @@ export default async function ClaimPage({ searchParams }: Search) {
                           <td className="px-4 py-3">
                             <span className="flex min-w-0 flex-col gap-0.5">
                               <span className="truncate text-[12.5px] font-medium text-ink">
-                                {row.libraryTitle}
+                                {row.assetTitle}
                               </span>
                               <span className="truncate font-mono text-[10.5px] text-muted">
-                                {row.libraryPublicId}
+                                {row.assetPublicId}
                               </span>
                             </span>
                           </td>

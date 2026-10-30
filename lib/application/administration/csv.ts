@@ -3,11 +3,11 @@
  *
  * Two things this has to get right beyond joining commas:
  *
- * - quoting, so a library title containing a comma, a quote or a newline does
+ * - quoting, so an asset title containing a comma, a quote or a newline does
  *   not shift every column after it;
  * - formula injection. These files are opened in Excel and Sheets, which
  *   execute a cell beginning `=`, `+`, `-` or `@` as a formula, and much of
- *   what lands here -- names, emails, library titles, audit reasons -- is
+ *   what lands here -- names, emails, asset titles, audit reasons -- is
  *   written by someone outside the company. A leading apostrophe makes the
  *   cell text, which is what it always was. OWASP calls this out by name.
  */

@@ -6,7 +6,7 @@ import { Suspense, useEffect, useRef, useState } from 'react';
 /**
  * A thin bar across the top of the viewport while a dashboard navigation is
  * on its way, so every click that leaves the page answers at once -- not
- * only the rail's, whose items carry their own spinner, but a library row,
+ * only the rail's, whose items carry their own spinner, but an asset row,
  * a back link, a tab of pages, a pager.
  *
  * It starts on the click itself: a capturing listener on the document sees

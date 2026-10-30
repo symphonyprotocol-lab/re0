@@ -19,7 +19,7 @@ const ROW_BUTTON = 'inline-flex h-8 items-center rounded-[7px] px-3 text-[12px] 
  * capability, like the asset catalogue.
  */
 export default async function AdminCommentsPage({ searchParams }: { searchParams: Promise<Record<string, string | string[] | undefined>> }) {
-  await requireAdminCapability('libraries');
+  await requireAdminCapability('assets');
   const [{ locale, t }, rows, query] = await Promise.all([translations(), openCommentReports(), searchParams]);
   const p = t.creator.admin.comments;
   const date = new Intl.DateTimeFormat(locale, { dateStyle: 'medium', timeStyle: 'short' });

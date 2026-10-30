@@ -4,7 +4,7 @@
  *
  * Every screen around them reads the ledger, so nothing here is sample data --
  * the builders take the deployment's own base URL and one of the workspace's
- * own library ids, and the only literal is the key prefix placeholder, which
+ * own asset ids, and the only literal is the key prefix placeholder, which
  * stands in for a secret this page must never print.
  */
 
@@ -23,8 +23,8 @@ export const API_KEY_PLACEHOLDER = 'mm_live_YOUR_KEY';
 /** The published CLI, packages/cli. Its README documents `setup --url --key`. */
 const CLI_PACKAGE = '@symphonyprotocollab/re0';
 
-/** A public catalogue id to fall back on when the workspace has no library. */
-export const EXAMPLE_LIBRARY_ID = '/vercel/next.js';
+/** A public catalogue id to fall back on when the workspace has no asset. */
+export const EXAMPLE_ASSET_ID = '/vercel/next.js';
 
 export function mcpEndpoint(baseUrl: string): string {
   return `${baseUrl.replace(/\/+$/, '')}/mcp`;
@@ -48,8 +48,8 @@ export interface QuickstartTab {
 
 export interface QuickstartInput {
   baseUrl: string;
-  /** The library the examples query: one of the workspace's, or a catalogue one. */
-  libraryId: string;
+  /** The asset the examples query: one of the workspace's, or a catalogue one. */
+  assetId: string;
   title: string;
   labels: { search: string; context: string };
 }
@@ -60,11 +60,11 @@ const EXAMPLE_QUERY = 'getting started';
 export function quickstartTabs(input: QuickstartInput): [QuickstartTab, ...QuickstartTab[]] {
   const base = input.baseUrl.replace(/\/+$/, '');
   const auth = `-H "Authorization: Bearer ${API_KEY_PLACEHOLDER}"`;
-  const libraryName = input.libraryId.split('/').filter(Boolean).slice(-1)[0] ?? input.libraryId;
+  const assetName = input.assetId.split('/').filter(Boolean).slice(-1)[0] ?? input.assetId;
 
-  const search = new URLSearchParams({ query: EXAMPLE_QUERY, libraryName });
+  const search = new URLSearchParams({ query: EXAMPLE_QUERY, assetName });
   const context = new URLSearchParams({
-    libraryId: input.libraryId,
+    assetId: input.assetId,
     query: EXAMPLE_QUERY,
     maxTokens: '4000',
   });
@@ -78,7 +78,7 @@ export function quickstartTabs(input: QuickstartInput): [QuickstartTab, ...Quick
         {
           results: [
             {
-              libraryId: input.libraryId,
+              assetId: input.assetId,
               title: input.title,
               description: null,
               version: 'latest',
@@ -101,7 +101,7 @@ export function quickstartTabs(input: QuickstartInput): [QuickstartTab, ...Quick
       request: `curl "${base}/api/v1/context?${context}" \\\n  ${auth}`,
       response: JSON.stringify(
         {
-          libraryId: input.libraryId,
+          assetId: input.assetId,
           version: 'latest',
           chunks: [
             {

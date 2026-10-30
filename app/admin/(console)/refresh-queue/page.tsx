@@ -28,12 +28,12 @@ export async function generateMetadata(): Promise<Metadata> {
   return { title: (await getMessages()).admin.refreshQueue.title };
 }
 
-/** Finished operations kept on screen; older ones are on each library's page. */
+/** Finished operations kept on screen; older ones are on each asset's page. */
 const RECENT_LIMIT = 50;
 const DAY_MS = 24 * 60 * 60 * 1000;
 
 /**
- * The refresh queue across every platform library.
+ * The refresh queue across every platform asset.
  *
  * Three readings of the same table, in the order an operator asks for them:
  * what is happening now (running, then waiting), what just happened (the
@@ -43,7 +43,7 @@ const DAY_MS = 24 * 60 * 60 * 1000;
  * the drain's pickup of a due source both show without a reload.
  */
 export default async function AdminRefreshQueuePage() {
-  const [, t] = await Promise.all([requireAdminCapability('platformLibraries'), getMessages()]);
+  const [, t] = await Promise.all([requireAdminCapability('platformAssets'), getMessages()]);
   const q = t.admin.refreshQueue;
   const now = new Date();
 
@@ -86,7 +86,7 @@ export default async function AdminRefreshQueuePage() {
         title={q.title}
         description={q.description}
         action={
-          <ConsoleButton href="/admin/platform-libraries">
+          <ConsoleButton href="/admin/platform-assets">
             <ChevronLeftIcon size={14} />
             {q.back}
           </ConsoleButton>
@@ -142,7 +142,7 @@ export default async function AdminRefreshQueuePage() {
               {queue.open.map((operation) => (
                 <tr key={operation.id} className="border-t-2 border-line">
                   <td className={TD}>
-                    <LibraryCell row={operation} />
+                    <AssetCell row={operation} />
                   </td>
                   <td className={TD}>{scopeLabel(t, operation)}</td>
                   <td className={TD}>{label(q.triggers, operation.trigger)}</td>
@@ -182,7 +182,7 @@ export default async function AdminRefreshQueuePage() {
               {queue.recent.map((operation) => (
                 <tr key={operation.id} className="border-t-2 border-line">
                   <td className={TD}>
-                    <LibraryCell row={operation} />
+                    <AssetCell row={operation} />
                   </td>
                   <td className={TD}>{scopeLabel(t, operation)}</td>
                   <td className={TD}>{label(q.triggers, operation.trigger)}</td>
@@ -221,7 +221,7 @@ export default async function AdminRefreshQueuePage() {
                 <tr key={source.sourceId} className="border-t-2 border-line">
                   <td className={TD}>
                     <Link
-                      href={`/admin/platform-libraries/${source.libraryId}`}
+                      href={`/admin/platform-assets/${source.assetId}`}
                       className="flex flex-col gap-0.5 hover:underline"
                     >
                       <span className="text-[12px] font-semibold text-ink">{source.title}</span>
@@ -230,11 +230,11 @@ export default async function AdminRefreshQueuePage() {
                   </td>
                   <td className={`${TD} max-w-[300px]`}>
                     <span className="flex flex-col gap-0.5">
-                      <span>{label(t.admin.platformLibraries.sourceTypes, source.sourceType)}</span>
+                      <span>{label(t.admin.platformAssets.sourceTypes, source.sourceType)}</span>
                       <span className="truncate font-mono text-[11px] text-muted">{source.location}</span>
                     </span>
                   </td>
-                  <td className={TD}>{label(t.admin.platformLibraries.refreshPolicies, source.policy)}</td>
+                  <td className={TD}>{label(t.admin.platformAssets.refreshPolicies, source.policy)}</td>
                   <td className={`${TD} whitespace-nowrap`}>
                     {source.lastCheckedAt ? utcStamp(source.lastCheckedAt) : q.schedule.never}
                   </td>
@@ -251,9 +251,9 @@ export default async function AdminRefreshQueuePage() {
   );
 }
 
-function LibraryCell({ row }: { row: RefreshQueueRow }) {
+function AssetCell({ row }: { row: RefreshQueueRow }) {
   return (
-    <Link href={`/admin/platform-libraries/${row.libraryId}`} className="hover:underline">
+    <Link href={`/admin/platform-assets/${row.assetId}`} className="hover:underline">
       <TitleCell title={row.title} meta={row.publicId} />
     </Link>
   );
@@ -264,7 +264,7 @@ function scopeLabel(t: Dictionary, row: RefreshQueueRow): string {
   const type = label(t.admin.refreshQueue.types, row.operationType);
   if (!row.sourceId) return `${type} · ${t.admin.refreshQueue.scope.all}`;
   const source = row.sourceType
-    ? label(t.admin.platformLibraries.sourceTypes, row.sourceType)
+    ? label(t.admin.platformAssets.sourceTypes, row.sourceType)
     : row.sourceId.slice(0, 8);
   return `${type} · ${source}${row.location ? ` · ${row.location}` : ''}`;
 }
@@ -306,7 +306,7 @@ function DueCell({ t, source, now }: { t: Dictionary; source: ScheduledSource; n
 }
 
 function fetchMethodLabel(t: Dictionary, summary: FetchSummary | null): string {
-  const f = t.admin.platformLibraryDetail.queue.fetch;
+  const f = t.admin.platformAssetDetail.queue.fetch;
   if (!summary) return f.none;
   const provider = summary.renderer ? f.providers[summary.renderer] : '';
   if (summary.rendered === 0) return f.direct;

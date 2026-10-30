@@ -2,15 +2,15 @@
  * Site key management: the owner's side of the website widget.
  * requirement.md 9.4, lib/domain/site-key.ts.
  *
- * A key belongs to one library of the workspace. Minting, editing and
- * revoking are a library manager's rights (the same role that edits the
- * library), and every use case re-checks both the role and that the library
+ * A key belongs to one asset of the workspace. Minting, editing and
+ * revoking are an asset manager's rights (the same role that edits the
+ * asset), and every use case re-checks both the role and that the asset
  * is the workspace's own: a server action is a public endpoint whatever the
  * page renders.
  */
 import { and, count, desc, eq, isNull } from 'drizzle-orm';
 import { AppError } from '@/contracts/errors';
-import { canManageLibraries, type WorkspaceRole } from '@/lib/application/libraries';
+import { canManageAssets, type WorkspaceRole } from '@/lib/application/assets';
 import { PLAN_VERSION_NEWEST_FIRST } from '@/lib/application/plans/configuration';
 import { IN_FORCE_FIRST, subscriptionInForce } from '@/lib/application/plans/in-force';
 import { uuidv7 } from '@/lib/domain/id';
@@ -40,20 +40,20 @@ export interface SiteKeyView {
   lastUsedAt: string | null;
 }
 
-/** How many live keys one library may have. Enough for staging and production. */
-export const SITE_KEYS_PER_LIBRARY = 5;
+/** How many live keys one asset may have. Enough for staging and production. */
+export const SITE_KEYS_PER_ASSET = 5;
 
 /**
  * Which ceiling refused a key: the plan's (lib/domain/plans.ts `siteKeys`,
- * Free one key across the workspace) or the per-library one above. The form
+ * Free one key across the workspace) or the per-asset one above. The form
  * answers each differently -- upgrade, or revoke one -- so the refusal says
  * which, under the one error code the API has for a key ceiling.
  */
 export class SiteKeyLimit extends AppError {
-  constructor(readonly ceiling: 'plan' | 'library') {
+  constructor(readonly ceiling: 'plan' | 'asset') {
     super(
       'api_key_limit_exceeded',
-      ceiling === 'plan' ? 'the plan’s site key limit is reached' : 'this library already has its site keys',
+      ceiling === 'plan' ? 'the plan’s site key limit is reached' : 'this asset already has its site keys',
     );
   }
 }
@@ -86,7 +86,7 @@ export async function siteKeyEntitlement(workspaceId: string): Promise<number> {
   return readCapabilities(version?.capabilities).siteKeys;
 }
 
-/** Live embed keys across the workspace's libraries; what the plan's cap counts. */
+/** Live embed keys across the workspace's assets; what the plan's cap counts. */
 export async function countWorkspaceSiteKeys(workspaceId: string): Promise<number> {
   const [row] = await db()
     .select({ n: count() })
@@ -115,26 +115,26 @@ function view(row: typeof schema.siteKey.$inferSelect): SiteKeyView {
   };
 }
 
-/** The library must be this workspace's own and alive; else `library_not_found`. Shared with the FAQ use cases. */
-export async function requireOwnedLibrary(workspaceId: string, libraryId: string): Promise<void> {
+/** The asset must be this workspace's own and alive; else `library_not_found`. Shared with the FAQ use cases. */
+export async function requireOwnedAsset(workspaceId: string, assetId: string): Promise<void> {
   const [row] = await db()
-    .select({ id: schema.library.id })
-    .from(schema.library)
+    .select({ id: schema.asset.id })
+    .from(schema.asset)
     .where(
       and(
-        eq(schema.library.id, libraryId),
-        eq(schema.library.ownerWorkspaceId, workspaceId),
-        eq(schema.library.isPlatformLibrary, false),
-        isNull(schema.library.deletedAt),
+        eq(schema.asset.id, assetId),
+        eq(schema.asset.ownerWorkspaceId, workspaceId),
+        eq(schema.asset.isPlatformAsset, false),
+        isNull(schema.asset.deletedAt),
       ),
     )
     .limit(1);
-  if (!row) throw new AppError('library_not_found', 'no such library in this workspace');
+  if (!row) throw new AppError('library_not_found', 'no such asset in this workspace');
 }
 
 export async function listSiteKeys(input: {
   workspaceId: string;
-  libraryId: string;
+  assetId: string;
 }): Promise<SiteKeyView[]> {
   const rows = await db()
     .select()
@@ -142,7 +142,7 @@ export async function listSiteKeys(input: {
     .where(
       and(
         eq(schema.siteKey.workspaceId, input.workspaceId),
-        eq(schema.siteKey.libraryId, input.libraryId),
+        eq(schema.siteKey.assetId, input.assetId),
         eq(schema.siteKey.kind, 'embed'),
         isNull(schema.siteKey.revokedAt),
       ),
@@ -226,17 +226,17 @@ function mintKey(): string {
 export interface CreateSiteKeyInput extends SiteKeySettingsInput {
   workspaceId: string;
   role: WorkspaceRole;
-  libraryId: string;
+  assetId: string;
 }
 
 export async function createSiteKey(input: CreateSiteKeyInput): Promise<SiteKeyView> {
-  if (!canManageLibraries(input.role)) {
-    throw new AppError('access_denied', 'only a library manager can create a site key');
+  if (!canManageAssets(input.role)) {
+    throw new AppError('access_denied', 'only an asset manager can create a site key');
   }
-  await requireOwnedLibrary(input.workspaceId, input.libraryId);
+  await requireOwnedAsset(input.workspaceId, input.assetId);
   const settings = settingsOf(input);
 
-  /* The plan's cap first: on Free the per-library ceiling never comes into it. */
+  /* The plan's cap first: on Free the per-asset ceiling never comes into it. */
   const [limit, held] = await Promise.all([
     siteKeyEntitlement(input.workspaceId),
     countWorkspaceSiteKeys(input.workspaceId),
@@ -248,12 +248,12 @@ export async function createSiteKey(input: CreateSiteKeyInput): Promise<SiteKeyV
     .from(schema.siteKey)
     .where(
       and(
-        eq(schema.siteKey.libraryId, input.libraryId),
+        eq(schema.siteKey.assetId, input.assetId),
         eq(schema.siteKey.kind, 'embed'),
         isNull(schema.siteKey.revokedAt),
       ),
     );
-  if ((live?.n ?? 0) >= SITE_KEYS_PER_LIBRARY) throw new SiteKeyLimit('library');
+  if ((live?.n ?? 0) >= SITE_KEYS_PER_ASSET) throw new SiteKeyLimit('asset');
 
   const id = uuidv7();
   const createdAt = new Date();
@@ -261,7 +261,7 @@ export async function createSiteKey(input: CreateSiteKeyInput): Promise<SiteKeyV
   await db().insert(schema.siteKey).values({
     id,
     workspaceId: input.workspaceId,
-    libraryId: input.libraryId,
+    assetId: input.assetId,
     key,
     ...settings,
     createdAt,
@@ -283,8 +283,8 @@ export interface UpdateSiteKeyInput extends SiteKeySettingsInput {
 
 /** Edit the allowlist, limit and look; the key itself never changes. */
 export async function updateSiteKey(input: UpdateSiteKeyInput): Promise<SiteKeyView> {
-  if (!canManageLibraries(input.role)) {
-    throw new AppError('access_denied', 'only a library manager can edit a site key');
+  if (!canManageAssets(input.role)) {
+    throw new AppError('access_denied', 'only an asset manager can edit a site key');
   }
   const scope = and(
     eq(schema.siteKey.id, input.siteKeyId),
@@ -310,8 +310,8 @@ export async function revokeSiteKey(input: {
   role: WorkspaceRole;
   siteKeyId: string;
 }): Promise<void> {
-  if (!canManageLibraries(input.role)) {
-    throw new AppError('access_denied', 'only a library manager can revoke a site key');
+  if (!canManageAssets(input.role)) {
+    throw new AppError('access_denied', 'only an asset manager can revoke a site key');
   }
   const revoked = await db()
     .update(schema.siteKey)

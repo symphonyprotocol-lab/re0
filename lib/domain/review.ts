@@ -1,6 +1,6 @@
 /**
  * What is left of the public-review checklist (requirement.md 7.4) now that
- * no library is reviewed before it publishes (2026-10-23): the length of a
+ * no asset is reviewed before it publishes (2026-10-23): the length of a
  * console probe, and the reading of notes the rules layer wrote into review
  * rows before then.
  */
@@ -8,7 +8,7 @@
 /** A reviewer's probe is one question, trimmed, this long at most; the same bound a caller has. */
 export const REVIEW_PROBE_MAX_LENGTH = 500;
 
-/** The prefix the rules layer put before a reason code in `library_review.feedback`, until 2026-10-23. */
+/** The prefix the rules layer put before a reason code in `asset_review.feedback`, until 2026-10-23. */
 const RULES_NOTE_PREFIX = 'rules:';
 
 /**

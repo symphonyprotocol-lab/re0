@@ -1,5 +1,5 @@
-import type { QueryDocsInput, QueryDocsOutput, ResolveLibraryInput, ResolveLibraryOutput } from '@/contracts/schemas';
-import { resolveLibrary } from './resolve-library';
+import type { QueryDocsInput, QueryDocsOutput, ResolveAssetInput, ResolveAssetOutput } from '@/contracts/schemas';
+import { resolveAsset } from './resolve-asset';
 import { queryDocs as queryDocsUseCase } from './query-docs';
 
 /**
@@ -8,7 +8,7 @@ import { queryDocs as queryDocsUseCase } from './query-docs';
  * architecture.md 1.1, 9.2 and 9.5.
  *
  * Order is fixed (architecture.md 9.2):
- *   authenticate -> resolve plan and quota -> load library and pin version
+ *   authenticate -> resolve plan and quota -> load asset and pin version
  *   -> enforce visibility -> apply workspace policy -> reserve one call
  *   -> FTS + vector recall within the pinned version -> fuse -> rerank
  *   -> dedupe and safety filter -> trim to maxTokens -> append usage event
@@ -31,11 +31,11 @@ export interface CallerContext {
   entrypoint?: 'rest' | 'mcp' | 'web' | 'a2a';
 }
 
-export async function resolveLibraryId(
+export async function resolveAssetId(
   caller: CallerContext,
-  input: ResolveLibraryInput,
-): Promise<ResolveLibraryOutput> {
-  return resolveLibrary(caller, input);
+  input: ResolveAssetInput,
+): Promise<ResolveAssetOutput> {
+  return resolveAsset(caller, input);
 }
 
 export async function queryDocs(

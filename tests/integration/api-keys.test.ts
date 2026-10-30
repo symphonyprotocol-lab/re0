@@ -335,16 +335,16 @@ describeWithDb('api key management', () => {
     await expectDenied(searchRoute(get('/api/v1/libraries/search?query=ledger', usage.key)));
 
     /* /v1/context needs knowledge:read. The holder reaches the use case --
-       the library is not there, which is a 404 and not a refusal. */
+       the asset is not there, which is a 404 and not a refusal. */
     const reached = await contextRoute(
-      get('/api/v1/context?libraryId=/websites/nothing-here&query=ledger', read.key),
+      get('/api/v1/context?assetId=/websites/nothing-here&query=ledger', read.key),
     );
     expect(reached.status).toBe(404);
     await expectDenied(
-      contextRoute(get('/api/v1/context?libraryId=/websites/nothing-here&query=ledger', search.key)),
+      contextRoute(get('/api/v1/context?assetId=/websites/nothing-here&query=ledger', search.key)),
     );
     await expectDenied(
-      contextRoute(get('/api/v1/context?libraryId=/websites/nothing-here&query=ledger', usage.key)),
+      contextRoute(get('/api/v1/context?assetId=/websites/nothing-here&query=ledger', usage.key)),
     );
 
     /* /v1/usage and /v1/requests need usage:read. */
@@ -369,16 +369,16 @@ describeWithDb('api key management', () => {
       scopes: ['usage:read'],
     });
 
-    const denied = await mcpTool(usage.key, 'resolve-library-id', { query: 'ledger' });
+    const denied = await mcpTool(usage.key, 'resolve-asset-id', { query: 'ledger' });
     expect(denied.isError).toBe(true);
     expect(denied.text).toContain('access_denied');
 
-    const allowed = await mcpTool(search.key, 'resolve-library-id', { query: 'ledger' });
+    const allowed = await mcpTool(search.key, 'resolve-asset-id', { query: 'ledger' });
     expect(allowed.isError ?? false).toBe(false);
 
     /* query-docs is knowledge:read, which neither key holds. */
     const readDenied = await mcpTool(search.key, 'query-docs', {
-      libraryId: '/websites/nothing-here',
+      assetId: '/websites/nothing-here',
       query: 'ledger',
     });
     expect(readDenied.isError).toBe(true);
@@ -410,7 +410,7 @@ describeWithDb('api key management', () => {
     expect((await searchRoute(get('/api/v1/libraries/search?query=ledger', key))).status).toBe(200);
     expect((await usageRoute(get('/api/v1/usage', key))).status).toBe(200);
     expect(
-      (await contextRoute(get('/api/v1/context?libraryId=/websites/nothing-here&query=x', key)))
+      (await contextRoute(get('/api/v1/context?assetId=/websites/nothing-here&query=x', key)))
         .status,
     ).toBe(404);
 

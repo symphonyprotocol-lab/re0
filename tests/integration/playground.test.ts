@@ -33,8 +33,8 @@ const {
   openLlmCredential,
   selectableLlmModels,
 } = await import('@/lib/application/administration');
-const { createPlatformLibrary } = await import(
-  '@/lib/application/administration/manage-platform-libraries'
+const { createPlatformAsset } = await import(
+  '@/lib/application/administration/manage-platform-assets'
 );
 const { EMBEDDING_COLUMN_DIMENSIONS } = await import('@/lib/infrastructure/ai/providers');
 const { db, schema } = await import('@/lib/infrastructure/postgres/client');
@@ -179,8 +179,8 @@ function dependencies(content: string = BEETLES) {
   };
 }
 
-async function publishedLibrary(slug: string, content?: string): Promise<string> {
-  const { libraryId } = await createPlatformLibrary({
+async function publishedAsset(slug: string, content?: string): Promise<string> {
+  const { assetId } = await createPlatformAsset({
     actor,
     title: `Playground fixture ${slug}`,
     publicId: `/websites/${slug}`,
@@ -190,19 +190,19 @@ async function publishedLibrary(slug: string, content?: string): Promise<string>
     language: 'en',
     reason: 'integration test fixture',
   });
-  created.push(libraryId);
+  created.push(assetId);
   const built = await buildVersion({
-    libraryId,
+    assetId,
     operationId: uuidv7(),
     dependencies: dependencies(content),
   });
   if (!built.changed) throw new Error('fixture build produced no version');
-  await publishVersion({ libraryId, versionId: built.versionId });
+  await publishVersion({ assetId, versionId: built.versionId });
   await db()
-    .update(schema.library)
+    .update(schema.asset)
     .set({ lifecycleStatus: 'published' })
-    .where(eq(schema.library.id, libraryId));
-  return libraryId;
+    .where(eq(schema.asset.id, assetId));
+  return assetId;
 }
 
 describeWithDb('playground', () => {
@@ -218,35 +218,35 @@ describeWithDb('playground', () => {
     }
     if (created.length > 0) {
       await database
-        .update(schema.library)
+        .update(schema.asset)
         .set({ currentVersionId: null })
-        .where(inArray(schema.library.id, created));
+        .where(inArray(schema.asset.id, created));
       await database
-        .delete(schema.libraryProfileVector)
-        .where(inArray(schema.libraryProfileVector.libraryId, created));
+        .delete(schema.assetProfileVector)
+        .where(inArray(schema.assetProfileVector.assetId, created));
       await database
-        .delete(schema.libraryProfile)
-        .where(inArray(schema.libraryProfile.libraryId, created));
-      await database.delete(schema.chunk).where(inArray(schema.chunk.libraryId, created));
-      await database.delete(schema.document).where(inArray(schema.document.libraryId, created));
+        .delete(schema.assetProfile)
+        .where(inArray(schema.assetProfile.assetId, created));
+      await database.delete(schema.chunk).where(inArray(schema.chunk.assetId, created));
+      await database.delete(schema.document).where(inArray(schema.document.assetId, created));
       await database
-        .delete(schema.libraryVersion)
-        .where(inArray(schema.libraryVersion.libraryId, created));
+        .delete(schema.assetVersion)
+        .where(inArray(schema.assetVersion.assetId, created));
       await database
-        .delete(schema.libraryScore)
-        .where(inArray(schema.libraryScore.libraryId, created));
-      await database.delete(schema.source).where(inArray(schema.source.libraryId, created));
+        .delete(schema.assetScore)
+        .where(inArray(schema.assetScore.assetId, created));
+      await database.delete(schema.source).where(inArray(schema.source.assetId, created));
       await database
-        .delete(schema.libraryAlias)
-        .where(inArray(schema.libraryAlias.libraryId, created));
+        .delete(schema.assetAlias)
+        .where(inArray(schema.assetAlias.assetId, created));
       await database.delete(schema.auditLog).where(inArray(schema.auditLog.targetId, created));
-      await database.delete(schema.library).where(inArray(schema.library.id, created));
+      await database.delete(schema.asset).where(inArray(schema.asset.id, created));
     }
   });
 
   it('answers with bound citations, drops the unbindable, records the cost', async () => {
     const stamp = Date.now();
-    await publishedLibrary(`pg-answer-${stamp}`);
+    await publishedAsset(`pg-answer-${stamp}`);
 
     const [config] = await db()
       .insert(schema.llmConfig)
@@ -256,7 +256,7 @@ describeWithDb('playground', () => {
 
     const output = await askPlayground(
       asAnonymous(),
-      { libraries: [{ libraryId: `/websites/pg-answer-${stamp}`, title: 'fixture' }], question: 'how to treat rove beetle exposure' },
+      { assets: [{ assetId: `/websites/pg-answer-${stamp}`, title: 'fixture' }], question: 'how to treat rove beetle exposure' },
       playgroundDeps({
         config: { ...CONFIG, id: config!.id },
         completion:
@@ -278,17 +278,17 @@ describeWithDb('playground', () => {
     expect(events[0]!.completionTokens).toBe(500);
     // $3/M x 1000 + $15/M x 500 = $0.0105 = 10,500 micro-USD
     expect(events[0]!.costMicroUsd).toBe(10_500);
-    expect(events[0]!.libraryPublicId).toBe(`/websites/pg-answer-${stamp}`);
+    expect(events[0]!.assetPublicId).toBe(`/websites/pg-answer-${stamp}`);
   });
 
-  it('gathers from every confirmed candidate, names the library on each passage, and skips the rest', async () => {
+  it('gathers from every confirmed candidate, names the asset on each passage, and skips the rest', async () => {
     const stamp = Date.now();
-    await publishedLibrary(`pg-gather-a-${stamp}`);
-    await publishedLibrary(
+    await publishedAsset(`pg-gather-a-${stamp}`);
+    await publishedAsset(
       `pg-gather-b-${stamp}`,
       '# Field notes\n\nRove beetle exposure: wash with soap, the paederin toxin blisters skin.',
     );
-    await publishedLibrary(
+    await publishedAsset(
       `pg-gather-c-${stamp}`,
       '# Orchard notes\n\nThe quorl-apple harvest is pressed every equinox.',
     );
@@ -297,12 +297,12 @@ describeWithDb('playground', () => {
     const output = await askPlayground(
       asAnonymous(),
       {
-        libraries: [
-          { libraryId: `/websites/pg-gather-a-${stamp}`, title: 'A' },
-          { libraryId: `/websites/pg-gather-b-${stamp}`, title: 'B' },
-          { libraryId: `/websites/pg-gather-c-${stamp}`, title: 'C' },
-          /* Not a library at all: one bad candidate must not sink the exchange. */
-          { libraryId: `/websites/pg-gather-missing-${stamp}`, title: 'missing' },
+        assets: [
+          { assetId: `/websites/pg-gather-a-${stamp}`, title: 'A' },
+          { assetId: `/websites/pg-gather-b-${stamp}`, title: 'B' },
+          { assetId: `/websites/pg-gather-c-${stamp}`, title: 'C' },
+          /* Not an asset at all: one bad candidate must not sink the exchange. */
+          { assetId: `/websites/pg-gather-missing-${stamp}`, title: 'missing' },
         ],
         question: 'rove beetle exposure',
       },
@@ -310,19 +310,19 @@ describeWithDb('playground', () => {
     );
 
     expect(output.kind).toBe('answer');
-    const from = new Set(output.chunks.map((chunk) => chunk.libraryId));
+    const from = new Set(output.chunks.map((chunk) => chunk.assetId));
     expect(from).toEqual(
       new Set([`/websites/pg-gather-a-${stamp}`, `/websites/pg-gather-b-${stamp}`]),
     );
     for (const chunk of output.chunks) {
-      expect(chunk.libraryTitle).toBe(chunk.libraryId.includes('-a-') ? 'A' : 'B');
+      expect(chunk.assetTitle).toBe(chunk.assetId.includes('-a-') ? 'A' : 'B');
       expect(chunk.version).toMatch(/\S/);
     }
-    /* The model saw both libraries' passages in one context block. */
+    /* The model saw both assets' passages in one context block. */
     expect(calls[0]!.userMessage).toContain('Rinse exposed skin');
     expect(calls[0]!.userMessage).toContain('paederin');
 
-    const byId = new Map(output.libraries.map((library) => [library.libraryId, library]));
+    const byId = new Map(output.assets.map((asset) => [asset.assetId, asset]));
     expect(byId.get(`/websites/pg-gather-a-${stamp}`)).toMatchObject({ confirmed: true, failed: false });
     expect(byId.get(`/websites/pg-gather-b-${stamp}`)).toMatchObject({ confirmed: true, failed: false });
     /* Read, but nothing in it matched: not context. */
@@ -330,13 +330,13 @@ describeWithDb('playground', () => {
     expect(byId.get(`/websites/pg-gather-missing-${stamp}`)).toMatchObject({ failed: true, confirmed: false });
   });
 
-  it('charges a signed-in exchange to the library that answered, and nothing for no context', async () => {
+  it('charges a signed-in exchange to the asset that answered, and nothing for no context', async () => {
     const stamp = Date.now();
-    await publishedLibrary(
+    await publishedAsset(
       `pg-meter-c-${stamp}`,
       '# Orchard notes\n\nThe quorl-apple harvest is pressed every equinox.',
     );
-    const answering = await publishedLibrary(`pg-meter-a-${stamp}`);
+    const answering = await publishedAsset(`pg-meter-a-${stamp}`);
     const workspaceId = crypto.randomUUID();
     await db().insert(schema.workspace).values({ id: workspaceId, name: 'playground-meter' });
     const signedIn = () => ({
@@ -348,7 +348,7 @@ describeWithDb('playground', () => {
     });
     const eventsOf = (requestId: string) =>
       db()
-        .select({ libraryId: schema.usageEvent.libraryId })
+        .select({ assetId: schema.usageEvent.assetId })
         .from(schema.usageEvent)
         .where(eq(schema.usageEvent.requestId, requestId));
     const seatOf = async (requestId: string) => {
@@ -360,21 +360,21 @@ describeWithDb('playground', () => {
     };
 
     try {
-      /* Routed first but unconfirmed: the Call goes to the library whose passages answered. */
+      /* Routed first but unconfirmed: the Call goes to the asset whose passages answered. */
       const answered = signedIn();
       const output = await askPlayground(
         answered,
         {
-          libraries: [
-            { libraryId: `/websites/pg-meter-c-${stamp}`, title: 'C' },
-            { libraryId: `/websites/pg-meter-a-${stamp}`, title: 'A' },
+          assets: [
+            { assetId: `/websites/pg-meter-c-${stamp}`, title: 'C' },
+            { assetId: `/websites/pg-meter-a-${stamp}`, title: 'A' },
           ],
           question: 'rove beetle exposure',
         },
         playgroundDeps({ completion: 'Rinse with water. [ref:1]' }),
       );
       expect(output.kind).toBe('answer');
-      expect(await eventsOf(answered.requestId)).toEqual([{ libraryId: answering }]);
+      expect(await eventsOf(answered.requestId)).toEqual([{ assetId: answering }]);
       expect(await seatOf(answered.requestId)).toBe('committed');
 
       /* Nothing confirmed: the reader sees no context and is charged nothing. */
@@ -382,7 +382,7 @@ describeWithDb('playground', () => {
       const none = await askPlayground(
         missed,
         {
-          libraries: [{ libraryId: `/websites/pg-meter-c-${stamp}`, title: 'C' }],
+          assets: [{ assetId: `/websites/pg-meter-c-${stamp}`, title: 'C' }],
           question: 'rove beetle exposure',
         },
         playgroundDeps({ config: null }),
@@ -403,12 +403,12 @@ describeWithDb('playground', () => {
 
   it('never calls the model without context, and degrades on provider failure', async () => {
     const stamp = Date.now();
-    await publishedLibrary(`pg-degrade-${stamp}`);
+    await publishedAsset(`pg-degrade-${stamp}`);
 
     const calls: { userMessage?: string }[] = [];
     const noContext = await askPlayground(
       asAnonymous(),
-      { libraries: [{ libraryId: `/websites/pg-degrade-${stamp}`, title: 'fixture' }], question: 'zzz-nothing-matches-zzz' },
+      { assets: [{ assetId: `/websites/pg-degrade-${stamp}`, title: 'fixture' }], question: 'zzz-nothing-matches-zzz' },
       playgroundDeps({ calls }),
     );
     expect(noContext.kind).toBe('no_context');
@@ -422,7 +422,7 @@ describeWithDb('playground', () => {
 
     const failed = await askPlayground(
       asAnonymous(),
-      { libraries: [{ libraryId: `/websites/pg-degrade-${stamp}`, title: 'fixture' }], question: 'rove beetle exposure' },
+      { assets: [{ assetId: `/websites/pg-degrade-${stamp}`, title: 'fixture' }], question: 'rove beetle exposure' },
       playgroundDeps({ fail: true }),
     );
     expect(failed.kind).toBe('degraded');
@@ -430,7 +430,7 @@ describeWithDb('playground', () => {
 
     const unconfigured = await askPlayground(
       asAnonymous(),
-      { libraries: [{ libraryId: `/websites/pg-degrade-${stamp}`, title: 'fixture' }], question: 'rove beetle exposure' },
+      { assets: [{ assetId: `/websites/pg-degrade-${stamp}`, title: 'fixture' }], question: 'rove beetle exposure' },
       playgroundDeps({ config: null }),
     );
     expect(unconfigured.kind).toBe('degraded');
@@ -438,7 +438,7 @@ describeWithDb('playground', () => {
     /* A completion whose every citation points nowhere binds no fact at all. */
     const unbound = await askPlayground(
       asAnonymous(),
-      { libraries: [{ libraryId: `/websites/pg-degrade-${stamp}`, title: 'fixture' }], question: 'rove beetle exposure' },
+      { assets: [{ assetId: `/websites/pg-degrade-${stamp}`, title: 'fixture' }], question: 'rove beetle exposure' },
       playgroundDeps({
         config: { ...CONFIG, id: (await ensureConfig()).id },
         completion: 'Confident nonsense. [ref:42] More of it. [ref:77]',
@@ -450,12 +450,12 @@ describeWithDb('playground', () => {
 
   it('passes chunks as untrusted data in the user message, never the system prompt', async () => {
     const stamp = Date.now();
-    await publishedLibrary(`pg-prompt-${stamp}`);
+    await publishedAsset(`pg-prompt-${stamp}`);
 
     const calls: { userMessage?: string }[] = [];
     await askPlayground(
       asAnonymous(),
-      { libraries: [{ libraryId: `/websites/pg-prompt-${stamp}`, title: 'fixture' }], question: 'rove beetle exposure' },
+      { assets: [{ assetId: `/websites/pg-prompt-${stamp}`, title: 'fixture' }], question: 'rove beetle exposure' },
       playgroundDeps({ completion: 'Rinse with water. [ref:1]', calls, config: { ...CONFIG, id: (await ensureConfig()).id } }),
     );
     expect(calls).toHaveLength(1);
@@ -465,8 +465,8 @@ describeWithDb('playground', () => {
 
   it('sends reasoning effort only for a reasoning model, and bills the cache once', async () => {
     const stamp = Date.now();
-    await publishedLibrary(`pg-reason-${stamp}`);
-    const libraryId = `/websites/pg-reason-${stamp}`;
+    await publishedAsset(`pg-reason-${stamp}`);
+    const assetId = `/websites/pg-reason-${stamp}`;
 
     const [row] = await db()
       .insert(schema.llmConfig)
@@ -480,7 +480,7 @@ describeWithDb('playground', () => {
     const plain: { userMessage?: string; reasoningEffort?: string | null }[] = [];
     await askPlayground(
       asAnonymous(),
-      { libraries: [{ libraryId, title: 'fixture' }], question: 'rove beetle exposure' },
+      { assets: [{ assetId, title: 'fixture' }], question: 'rove beetle exposure' },
       playgroundDeps({ config: base, completion: 'Rinse. [ref:1]', calls: plain }),
     );
     expect(plain[0]!.reasoningEffort).toBeNull();
@@ -488,7 +488,7 @@ describeWithDb('playground', () => {
     const thinking: { userMessage?: string; reasoningEffort?: string | null }[] = [];
     const output = await askPlayground(
       asAnonymous(),
-      { libraries: [{ libraryId, title: 'fixture' }], question: 'rove beetle exposure' },
+      { assets: [{ assetId, title: 'fixture' }], question: 'rove beetle exposure' },
       playgroundDeps({
         config: { ...base, supportsReasoning: true, reasoningEffort: 'high' },
         completion: 'Rinse the skin. [ref:1]',
@@ -825,12 +825,12 @@ describeWithDb('playground', () => {
 
       /* The transcript is told which model answered, and what a plan buys. */
       const events: { type: string; label?: string; audience?: string; upgrade?: string | null }[] = [];
-      const libraryStamp = Date.now();
-      await publishedLibrary(`pg-audience-${libraryStamp}`);
+      const assetStamp = Date.now();
+      await publishedAsset(`pg-audience-${assetStamp}`);
       const { streamPlayground } = await import('@/lib/application/playground');
       for await (const event of streamPlayground(
         asAnonymous(),
-        { libraries: [{ libraryId: `/websites/pg-audience-${libraryStamp}`, title: 'fixture' }], question: 'how to treat rove beetle exposure' },
+        { assets: [{ assetId: `/websites/pg-audience-${assetStamp}`, title: 'fixture' }], question: 'how to treat rove beetle exposure' },
         {
           ...playgroundDeps({ completion: 'Rinse with water. [ref:1]', config: null }),
           config: activeLlmConfig,
@@ -961,7 +961,7 @@ describeWithDb('playground', () => {
 
       await recordLlmCost({
         configId: second.configId,
-        libraryPublicId: '/websites/spend-fixture',
+        assetPublicId: '/websites/spend-fixture',
         workspaceId: null,
         model: 'fixture-llm-2',
         promptTokens: 2_000,

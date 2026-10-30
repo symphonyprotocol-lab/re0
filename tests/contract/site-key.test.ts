@@ -112,10 +112,10 @@ describe('the wire', () => {
 });
 
 describe('widgetReady', () => {
-  it('needs a published library with a current version, and nothing less', () => {
+  it('needs a published asset with a current version, and nothing less', () => {
     expect(widgetReady({ lifecycleStatus: 'published', hasCurrentVersion: true })).toBe(true);
     expect(widgetReady({ lifecycleStatus: 'published', hasCurrentVersion: false })).toBe(false);
-    /* A paused library keeps its indexed version; the widget still stops. */
+    /* A paused asset keeps its indexed version; the widget still stops. */
     expect(widgetReady({ lifecycleStatus: 'suspended', hasCurrentVersion: true })).toBe(false);
     expect(widgetReady({ lifecycleStatus: 'draft', hasCurrentVersion: true })).toBe(false);
     expect(widgetReady({ lifecycleStatus: 'archived', hasCurrentVersion: true })).toBe(false);
@@ -127,7 +127,7 @@ describe('copy', () => {
     const fields = ['name', 'origins_empty', 'origins_invalid', 'origins_too_many', 'daily_limit', 'welcome', 'accent', 'limit', 'denied', 'not_found', 'unavailable'];
     for (const dictionary of [en, zh]) {
       for (const field of fields) {
-        expect(dictionary.dashboard.libraryDetail.widget.errors[field as keyof typeof dictionary.dashboard.libraryDetail.widget.errors]).toBeTruthy();
+        expect(dictionary.dashboard.assetDetail.widget.errors[field as keyof typeof dictionary.dashboard.assetDetail.widget.errors]).toBeTruthy();
       }
       expect(dictionary.embed.welcomeDefault.length).toBeGreaterThan(0);
     }

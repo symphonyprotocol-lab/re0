@@ -20,11 +20,11 @@ import { EMBEDDING_COLUMN_DIMENSIONS, padToColumn } from '@/lib/domain/model-con
 export interface EmbeddingAdapter {
   /** Vectors padded to the stored column width; see `padToColumn`. */
   embed(texts: string[]): Promise<number[][]>;
-  /** Recorded on `library_version.embedding_model`, which freezes it. */
+  /** Recorded on `asset_version.embedding_model`, which freezes it. */
   readonly model: string;
   /**
    * The width the *model* is asked for, recorded on
-   * `library_version.embedding_dimensions`. Not the width of what `embed`
+   * `asset_version.embedding_dimensions`. Not the width of what `embed`
    * returns, which is always the column's: a version built at 1024 and one
    * built at 1536 live in different spaces even though their rows are the
    * same size, and this is the number that tells them apart.
@@ -37,7 +37,7 @@ export interface RerankAdapter {
 }
 
 /**
- * The stored width of `chunk.embedding` and `library_profile_vector.embedding`.
+ * The stored width of `chunk.embedding` and `asset_profile_vector.embedding`.
  *
  * Re-exported from the domain so the ingestion and retrieval paths can keep
  * importing it from the adapter they already depend on.

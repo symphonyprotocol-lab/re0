@@ -1,7 +1,7 @@
 import type { Metadata } from 'next';
 import Link from 'next/link';
 import { PANEL, PageHeader } from '@/components/dashboard/ui';
-import { canManageLibraries } from '@/lib/application/libraries';
+import { canManageAssets } from '@/lib/application/assets';
 import { listQuestions, recentTwinAnswers } from '@/lib/application/questions';
 import { MediaUpload } from '@/components/creator/media-upload';
 import { AUDIO_TYPES, EDITORIAL_LIMITS } from '@/lib/domain/editorial';
@@ -28,7 +28,7 @@ export default async function QuestionsPage({ searchParams }: { searchParams: Pr
   const [session, { locale, t }, query] = await Promise.all([requireSession('/dashboard/questions'), translations(), searchParams]);
   const c = t.creator.dashboard.questions;
   const errors = t.creator.errors as Record<string, string>;
-  const canEdit = canManageLibraries(session.workspace.role);
+  const canEdit = canManageAssets(session.workspace.role);
   const [open, answered, twin] = await Promise.all([
     listQuestions(session.workspace.id, { state: 'open' }),
     listQuestions(session.workspace.id, { state: 'answered' }),

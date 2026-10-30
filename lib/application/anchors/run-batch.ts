@@ -152,32 +152,32 @@ export async function anchorPublishedVersions(
    */
   const candidates = await database
     .select({
-      versionId: schema.libraryVersion.id,
-      libraryId: schema.libraryVersion.libraryId,
-      sourceDigest: schema.libraryVersion.sourceDigest,
-      contentMerkleRoot: schema.libraryVersion.contentMerkleRoot,
-      publishedAt: schema.libraryVersion.publishedAt,
+      versionId: schema.assetVersion.id,
+      assetId: schema.assetVersion.assetId,
+      sourceDigest: schema.assetVersion.sourceDigest,
+      contentMerkleRoot: schema.assetVersion.contentMerkleRoot,
+      publishedAt: schema.assetVersion.publishedAt,
       visibility: exposure(),
-      ownerWorkspaceId: schema.library.ownerWorkspaceId,
+      ownerWorkspaceId: schema.asset.ownerWorkspaceId,
     })
-    .from(schema.libraryVersion)
-    .innerJoin(schema.library, eq(schema.library.id, schema.libraryVersion.libraryId))
+    .from(schema.assetVersion)
+    .innerJoin(schema.asset, eq(schema.asset.id, schema.assetVersion.assetId))
     .where(
       and(
-        isNotNull(schema.libraryVersion.publishedAt),
-        isNotNull(schema.libraryVersion.contentMerkleRoot),
-        isNull(schema.library.deletedAt),
+        isNotNull(schema.assetVersion.publishedAt),
+        isNotNull(schema.assetVersion.contentMerkleRoot),
+        isNull(schema.asset.deletedAt),
         /* `subject_id` is text so one column can hold a uuid, a date and a
            period id; the cast is what lets it be compared to a uuid column. */
         sql`not exists (
           select 1 from ${schema.anchorLeaf}
           where ${schema.anchorLeaf.subjectType} = 'version'
-            and ${schema.anchorLeaf.subjectId} = ${schema.libraryVersion.id}::text
+            and ${schema.anchorLeaf.subjectId} = ${schema.assetVersion.id}::text
             and ${schema.anchorLeaf.leafSchemaVersion} = ${ANCHOR_LEAF_SCHEMA_VERSION}
         )`,
       ),
     )
-    .orderBy(asc(schema.libraryVersion.publishedAt))
+    .orderBy(asc(schema.assetVersion.publishedAt))
     .limit(VERSION_BATCH_LIMIT);
 
   if (candidates.length === 0) return { ...NOTHING, skipped: 'nothing_due' };
@@ -186,7 +186,7 @@ export async function anchorPublishedVersions(
     candidates.map(async (row) => ({
       subjectId: row.versionId,
       hash: await versionLeaf({
-        libraryId: row.libraryId,
+        assetId: row.assetId,
         versionId: row.versionId,
         sourceDigest: row.sourceDigest,
         contentMerkleRoot: row.contentMerkleRoot as string,
@@ -196,13 +196,13 @@ export async function anchorPublishedVersions(
          * recompute the leaf; one that is its owner's alone is salted per
          * workspace, so the chain cannot be
          * used to test candidate content against it (proposal 3.2, 4.2). The
-         * library id is the fallback scope for the case the schema allows but
+         * asset id is the fallback scope for the case the schema allows but
          * ownership has not filled in -- still unguessable, still per subject.
          */
         salt:
           row.visibility === 'public'
             ? ''
-            : await deriveAnchorSalt(secret, row.ownerWorkspaceId ?? row.libraryId),
+            : await deriveAnchorSalt(secret, row.ownerWorkspaceId ?? row.assetId),
       }),
     })),
   );

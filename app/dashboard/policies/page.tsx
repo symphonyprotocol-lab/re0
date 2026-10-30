@@ -6,7 +6,7 @@ import { canManagePolicy, readWorkspacePolicy } from '@/lib/application/policies
 import { requireSession } from '@/lib/http/session';
 import { getMessages } from '@/lib/i18n/server';
 import { fill } from '@/lib/i18n/format';
-import { applyPolicyAction, countReachableLibraries } from './actions';
+import { applyPolicyAction, countReachableAssets } from './actions';
 
 export async function generateMetadata(): Promise<Metadata> {
   return { title: (await getMessages()).dashboard.policies.metaTitle };
@@ -50,7 +50,7 @@ export default async function DashboardPoliciesPage() {
         versionId={state.versionId}
         reachable={state.reachable}
         canEdit={canEdit}
-        countAction={countReachableLibraries}
+        countAction={countReachableAssets}
         applyAction={canEdit ? applyPolicyAction : undefined}
       />
     </div>

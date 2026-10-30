@@ -3,17 +3,17 @@
  *
  * Three moves, all high risk, all with a required reason and an audit row:
  *
- * - `ruleDispute`: a claim opened on an owned library is decided here, never
+ * - `ruleDispute`: a claim opened on an owned asset is decided here, never
  *   by the self-service check. Granting transfers the owner to the claimant;
  *   dismissing closes the claim and leaves the owner alone.
- * - `revokeClaim`: closes a claim. On a verified one the library loses its
+ * - `revokeClaim`: closes a claim. On a verified one the asset loses its
  *   owner as well (7.3.5: source gone, rights report upheld, security event).
  * - `claimDetail`: the record with its evidence -- method, checks, attempts,
  *   timestamps, ruling. Never the challenge, never what DNS or the fetch
  *   answered; the check modules do not keep that, so there is nothing to show.
  *
  * Ruling is the only way to ownership that skips verification, and it is
- * allowed only where a dispute exists: a claim on an *unowned* library is the
+ * allowed only where a dispute exists: a claim on an *unowned* asset is the
  * claimant's to prove, and an administrator cannot prove it for them.
  */
 import { and, desc, eq } from 'drizzle-orm';
@@ -62,12 +62,12 @@ export async function ruleDispute(input: RuleDisputeInput): Promise<RuleDisputeR
   }
 
   const outcome = await db().transaction(async (tx) => {
-    const [library] = await tx
-      .select({ id: schema.library.id, ownerWorkspaceId: schema.library.ownerWorkspaceId })
-      .from(schema.library)
-      .where(eq(schema.library.id, claim.libraryId))
+    const [asset] = await tx
+      .select({ id: schema.asset.id, ownerWorkspaceId: schema.asset.ownerWorkspaceId })
+      .from(schema.asset)
+      .where(eq(schema.asset.id, claim.assetId))
       .for('update');
-    if (!library) throw new AdminChangeRefused('not_found', 'no such library');
+    if (!asset) throw new AdminChangeRefused('not_found', 'no such asset');
 
     /*
      * No owner means no dispute -- and no ruling. requirement.md 5.3: the
@@ -76,41 +76,41 @@ export async function ruleDispute(input: RuleDisputeInput): Promise<RuleDisputeR
     if (
       !isDisputedClaim({
         status: claim.status,
-        ownerWorkspaceId: library.ownerWorkspaceId,
+        ownerWorkspaceId: asset.ownerWorkspaceId,
         claimantWorkspaceId: claim.claimantWorkspaceId,
       })
     ) {
       throw new AdminChangeRefused('invalid_input', 'this claim is not a dispute');
     }
     /* Named, because `isDisputedClaim` is what established it is not null. */
-    const previousOwner = library.ownerWorkspaceId as string;
+    const previousOwner = asset.ownerWorkspaceId as string;
 
     const status = nextClaimStatus('pending', input.decision, { attempts: claim.attempts });
     if (!status) throw new AdminChangeRefused('invalid_input', 'ruling not allowed');
 
     if (input.decision === 'grant') {
       await tx
-        .update(schema.library)
+        .update(schema.asset)
         .set({ ownerWorkspaceId: claim.claimantWorkspaceId })
-        .where(eq(schema.library.id, library.id));
+        .where(eq(schema.asset.id, asset.id));
       /*
        * The previous owner's verified claim is closed too, so the record does
-       * not hold two live claims for one library.
+       * not hold two live claims for one asset.
        */
       await tx
-        .update(schema.libraryClaim)
+        .update(schema.assetClaim)
         .set({ status: 'revoked', rulingAdminId: input.actor.administratorId, rulingReason: reason })
         .where(
           and(
-            eq(schema.libraryClaim.libraryId, library.id),
-            eq(schema.libraryClaim.claimantWorkspaceId, previousOwner),
-            eq(schema.libraryClaim.status, 'verified'),
+            eq(schema.assetClaim.assetId, asset.id),
+            eq(schema.assetClaim.claimantWorkspaceId, previousOwner),
+            eq(schema.assetClaim.status, 'verified'),
           ),
         );
     }
 
     await tx
-      .update(schema.libraryClaim)
+      .update(schema.assetClaim)
       .set({
         status,
         verifiedAt: input.decision === 'grant' ? now : claim.verifiedAt,
@@ -118,12 +118,12 @@ export async function ruleDispute(input: RuleDisputeInput): Promise<RuleDisputeR
         rulingAdminId: input.actor.administratorId,
         rulingReason: reason,
       })
-      .where(eq(schema.libraryClaim.id, claim.id));
+      .where(eq(schema.assetClaim.id, claim.id));
 
     return {
       status,
-      previousOwner: library.ownerWorkspaceId,
-      ownerWorkspaceId: input.decision === 'grant' ? claim.claimantWorkspaceId : library.ownerWorkspaceId,
+      previousOwner: asset.ownerWorkspaceId,
+      ownerWorkspaceId: input.decision === 'grant' ? claim.claimantWorkspaceId : asset.ownerWorkspaceId,
     };
   });
 
@@ -136,7 +136,7 @@ export async function ruleDispute(input: RuleDisputeInput): Promise<RuleDisputeR
     after: {
       status: outcome.status,
       ownerWorkspaceId: outcome.ownerWorkspaceId,
-      libraryId: claim.libraryId,
+      assetId: claim.assetId,
       claimantWorkspaceId: claim.claimantWorkspaceId,
       administrator: input.actor.email,
     },
@@ -156,7 +156,7 @@ export interface RevokeClaimInput {
 
 export interface RevokeClaimResult {
   status: ClaimStatus;
-  /** True when the library lost its owner with this revocation. */
+  /** True when the asset lost its owner with this revocation. */
   ownerCleared: boolean;
 }
 
@@ -174,37 +174,37 @@ export async function revokeClaim(input: RevokeClaimInput): Promise<RevokeClaimR
     /*
      * The owner as it actually stands, read under the row lock. Revoking is
      * not always a transfer: a pending dispute, a failed claim, or a verified
-     * one whose library has since moved on all leave the owner exactly where
+     * one whose asset has since moved on all leave the owner exactly where
      * it was, and the audit entry has to say so. Deriving the two values from
      * `ownerCleared` instead reported `null` on both sides of every one of
-     * those -- an entry claiming a library lost an owner it still has, on the
+     * those -- an entry claiming an asset lost an owner it still has, on the
      * record requirement.md 5.3 keeps precisely to answer "what changed".
      */
     const [current] = await tx
-      .select({ ownerWorkspaceId: schema.library.ownerWorkspaceId })
-      .from(schema.library)
-      .where(eq(schema.library.id, claim.libraryId))
+      .select({ ownerWorkspaceId: schema.asset.ownerWorkspaceId })
+      .from(schema.asset)
+      .where(eq(schema.asset.id, claim.assetId))
       .for('update');
     const previousOwner = current?.ownerWorkspaceId ?? null;
 
     let ownerCleared = false;
     if (claim.status === 'verified') {
       const cleared = await tx
-        .update(schema.library)
+        .update(schema.asset)
         .set({ ownerWorkspaceId: null })
         .where(
           and(
-            eq(schema.library.id, claim.libraryId),
-            eq(schema.library.ownerWorkspaceId, claim.claimantWorkspaceId),
+            eq(schema.asset.id, claim.assetId),
+            eq(schema.asset.ownerWorkspaceId, claim.claimantWorkspaceId),
           ),
         )
-        .returning({ id: schema.library.id });
+        .returning({ id: schema.asset.id });
       ownerCleared = cleared.length > 0;
     }
     await tx
-      .update(schema.libraryClaim)
+      .update(schema.assetClaim)
       .set({ status, rulingAdminId: input.actor.administratorId, rulingReason: reason })
-      .where(eq(schema.libraryClaim.id, claim.id));
+      .where(eq(schema.assetClaim.id, claim.id));
     return { ownerCleared, previousOwner };
   });
 
@@ -220,7 +220,7 @@ export async function revokeClaim(input: RevokeClaimInput): Promise<RevokeClaimR
     after: {
       status,
       ownerWorkspaceId: outcome.ownerCleared ? null : outcome.previousOwner,
-      libraryId: claim.libraryId,
+      assetId: claim.assetId,
       claimantWorkspaceId: claim.claimantWorkspaceId,
       administrator: input.actor.email,
     },
@@ -253,11 +253,11 @@ export interface ConsoleClaimDetail {
   verifiedAt: Date | null;
   remainingDays: number;
   expired: boolean;
-  /** Pending on a library another workspace owns. */
+  /** Pending on an asset another workspace owns. */
   disputed: boolean;
   rulingAdminName: string | null;
   rulingReason: string | null;
-  library: {
+  asset: {
     id: string;
     publicId: string;
     title: string;
@@ -281,20 +281,20 @@ export async function claimDetail(
   if (!claim) return null;
 
   const database = db();
-  const [[library], [claimant], audit] = await Promise.all([
+  const [[asset], [claimant], audit] = await Promise.all([
     database
       .select({
-        id: schema.library.id,
-        publicId: schema.library.publicId,
-        title: schema.library.title,
-        deletedAt: schema.library.deletedAt,
-        ownerWorkspaceId: schema.library.ownerWorkspaceId,
+        id: schema.asset.id,
+        publicId: schema.asset.publicId,
+        title: schema.asset.title,
+        deletedAt: schema.asset.deletedAt,
+        ownerWorkspaceId: schema.asset.ownerWorkspaceId,
         sourceType: schema.source.type,
         location: schema.source.location,
       })
-      .from(schema.library)
-      .leftJoin(schema.source, eq(schema.source.libraryId, schema.library.id))
-      .where(eq(schema.library.id, claim.libraryId))
+      .from(schema.asset)
+      .leftJoin(schema.source, eq(schema.source.assetId, schema.asset.id))
+      .where(eq(schema.asset.id, claim.assetId))
       .orderBy(schema.source.id)
       .limit(1),
     database
@@ -319,14 +319,14 @@ export async function claimDetail(
       .orderBy(desc(schema.auditLog.seq))
       .limit(50),
   ]);
-  if (!library) return null;
+  if (!asset) return null;
 
   const [owner, ruler] = await Promise.all([
-    library.ownerWorkspaceId
+    asset.ownerWorkspaceId
       ? database
           .select({ id: schema.workspace.id, name: schema.workspace.name })
           .from(schema.workspace)
-          .where(eq(schema.workspace.id, library.ownerWorkspaceId))
+          .where(eq(schema.workspace.id, asset.ownerWorkspaceId))
           .limit(1)
           .then((rows) => rows[0] ?? null)
       : Promise.resolve(null),
@@ -353,18 +353,18 @@ export async function claimDetail(
     expired: claim.status === 'pending' && isClaimExpired(claim.expiresAt, now),
     disputed: isDisputedClaim({
       status: claim.status,
-      ownerWorkspaceId: library.ownerWorkspaceId,
+      ownerWorkspaceId: asset.ownerWorkspaceId,
       claimantWorkspaceId: claim.claimantWorkspaceId,
     }),
     rulingAdminName: ruler,
     rulingReason: claim.rulingReason,
-    library: {
-      id: library.id,
-      publicId: library.publicId,
-      title: library.title,
-      deletedAt: library.deletedAt,
-      sourceType: (library.sourceType as SourceType | null) ?? null,
-      location: library.location ?? null,
+    asset: {
+      id: asset.id,
+      publicId: asset.publicId,
+      title: asset.title,
+      deletedAt: asset.deletedAt,
+      sourceType: (asset.sourceType as SourceType | null) ?? null,
+      location: asset.location ?? null,
     },
     claimant: { id: claim.claimantWorkspaceId, name: claimant?.name ?? '' },
     currentOwner: owner,

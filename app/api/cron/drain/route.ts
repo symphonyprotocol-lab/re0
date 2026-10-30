@@ -31,7 +31,7 @@ export async function GET(request: Request): Promise<Response> {
    * Policies first, then the queue: a source that fell due since the last
    * drain is queued here and built in the same call. Not when the deployment
    * cannot build -- queuing work that fails on the spot would only mark
-   * libraries failed for a missing provider key.
+   * assets failed for a missing provider key.
    */
   const scheduled = (await isIngestionConfigured()) ? await scheduleDueRefreshes() : [];
   /* Scheduled posts and episodes whose time has come queue their builds here too (proposal 6.5). */

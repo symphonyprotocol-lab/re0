@@ -10,13 +10,13 @@ import {
   UPLOAD_EXTENSIONS,
   UPLOAD_LIMITS,
   type UploadSourceType,
-} from '@/lib/domain/library';
+} from '@/lib/domain/asset';
 import { useI18n } from '@/lib/i18n/client';
 import { fill } from '@/lib/i18n/format';
 
 /**
  * Picking PDFs -- or Markdown/MDX files, when `kind` says so -- and getting
- * them into the store, shared by the import wizard and the library files
+ * them into the store, shared by the import wizard and the asset files
  * page.
  *
  * The browser redeems the ticket the prepare action hands back -- a presigned
@@ -84,7 +84,7 @@ export function uploadAccept(kind: UploadSourceType): string {
 
 /**
  * The upload state behind one batch. `room` is how many more files may be
- * added -- the wizard's whole allowance, or what a library has left; `kind`
+ * added -- the wizard's whole allowance, or what an asset has left; `kind`
  * is what is being uploaded, PDFs unless said otherwise.
  */
 export function usePdfUploads(
@@ -182,8 +182,8 @@ export function PdfUploadField({
   room?: number;
 }) {
   const { t } = useI18n();
-  const w = t.dashboard.newLibrary.wizard;
-  const md = t.dashboard.newLibrary.markdown;
+  const w = t.dashboard.newAsset.wizard;
+  const md = t.dashboard.newAsset.markdown;
   const picker = useRef<HTMLInputElement>(null);
   const isMarkdown = state.kind === 'markdown';
 

@@ -7,13 +7,13 @@
  *
  * - the challenge is stored as a hash and returned in plaintext exactly once,
  *   and the partial unique index -- not a read that could be stale -- is what
- *   makes "one pending claim per library" true;
- * - a passing check writes `library.owner_workspace_id` and `status='verified'`
+ *   makes "one pending claim per asset" true;
+ * - a passing check writes `asset.owner_workspace_id` and `status='verified'`
  *   in one transaction, and a failing one writes neither;
- * - a claim on an owned library records its evidence and stays `pending`
+ * - a claim on an owned asset records its evidence and stays `pending`
  *   (the dispute of 7.3.5), so the row and the returned view agree;
- * - releasing gives up a *claimed* library and refuses a created one, which
- *   would otherwise leave a public library nobody can manage;
+ * - releasing gives up a *claimed* asset and refuses a created one, which
+ *   would otherwise leave a public asset nobody can manage;
  * - the console's two rulings rewrite the owner and leave an audit row naming
  *   the actor, the target and the values on both sides;
  * - the two read models answer for one workspace and never another's.
@@ -98,9 +98,9 @@ const { startClaim } = await import('@/lib/application/claims/start');
 const { verifyClaim } = await import('@/lib/application/claims/verify');
 const { releaseOwnership } = await import('@/lib/application/claims/release');
 const { claimDetail, revokeClaim, ruleDispute } = await import('@/lib/application/claims/admin');
-const { claimForClaimant, listWorkspaceClaims, ownershipForLibraries, publicClaimStatus } =
+const { claimForClaimant, listWorkspaceClaims, ownershipForAssets, publicClaimStatus } =
   await import('@/lib/application/claims/views');
-const { listClaims } = await import('@/lib/application/administration/list-libraries');
+const { listClaims } = await import('@/lib/application/administration/list-assets');
 const { AppError } = await import('@/contracts/errors');
 const { AdminChangeRefused } = await import('@/lib/domain/admin');
 const { capabilitiesForRoles, roleAllows } = await import('@/lib/domain/admin');
@@ -113,7 +113,7 @@ const { db, schema } = await import('@/lib/infrastructure/postgres/client');
 const { uuidv7 } = await import('@/lib/domain/id');
 
 const workspaces: string[] = [];
-const libraries: string[] = [];
+const assets: string[] = [];
 const users: string[] = [];
 const administrators: string[] = [];
 
@@ -140,38 +140,38 @@ async function administrator(): Promise<{ administratorId: string; email: string
   return { administratorId: id, email };
 }
 
-interface LibraryOptions {
+interface AssetOptions {
   ownerWorkspaceId?: string | null;
   sourceType?: 'github' | 'website' | 'notion' | 'markdown';
   location?: string;
   visibility?: 'public' | 'private';
   lifecycleStatus?: 'published' | 'archived';
-  isPlatformLibrary?: boolean;
+  isPlatformAsset?: boolean;
 }
 
-async function library(options: LibraryOptions = {}): Promise<{ id: string; publicId: string }> {
+async function asset(options: AssetOptions = {}): Promise<{ id: string; publicId: string }> {
   const id = crypto.randomUUID();
-  libraries.push(id);
+  assets.push(id);
   const publicId = `/claim-test/${unique('lib')}`;
   await db()
-    .insert(schema.library)
+    .insert(schema.asset)
     .values({
       id,
       publicId,
-      title: 'Claim Test Library',
+      title: 'Claim Test Asset',
       ownerWorkspaceId: options.ownerWorkspaceId ?? null,
-      isPlatformLibrary: options.isPlatformLibrary ?? false,
+      isPlatformAsset: options.isPlatformAsset ?? false,
       kind: options.sourceType === 'github' ? 'github' : 'website',
       lifecycleStatus: options.lifecycleStatus ?? 'published',
       indexStatus: 'ready',
     });
   /* Claimable means listed in a public channel now (agent-first-proposal.md 6.2). */
-  if ((options.visibility ?? 'public') === 'public' && !options.isPlatformLibrary) await shareInPublicChannel(id);
+  if ((options.visibility ?? 'public') === 'public' && !options.isPlatformAsset) await shareInPublicChannel(id);
   await db()
     .insert(schema.source)
     .values({
       id: crypto.randomUUID(),
-      libraryId: id,
+      assetId: id,
       type: options.sourceType ?? 'website',
       location: options.location ?? 'https://docs.example.test/guide',
     });
@@ -181,16 +181,16 @@ async function library(options: LibraryOptions = {}): Promise<{ id: string; publ
 async function claimRow(claimId: string) {
   const [row] = await db()
     .select()
-    .from(schema.libraryClaim)
-    .where(eq(schema.libraryClaim.id, claimId));
+    .from(schema.assetClaim)
+    .where(eq(schema.assetClaim.id, claimId));
   return row;
 }
 
-async function ownerOf(libraryId: string): Promise<string | null> {
+async function ownerOf(assetId: string): Promise<string | null> {
   const [row] = await db()
-    .select({ ownerWorkspaceId: schema.library.ownerWorkspaceId })
-    .from(schema.library)
-    .where(eq(schema.library.id, libraryId));
+    .select({ ownerWorkspaceId: schema.asset.ownerWorkspaceId })
+    .from(schema.asset)
+    .where(eq(schema.asset.id, assetId));
   return row?.ownerWorkspaceId ?? null;
 }
 
@@ -225,24 +225,24 @@ async function refusalOf(promise: Promise<unknown>): Promise<string> {
   }
 }
 
-/** A verified claim for `workspaceId` on a fresh library, the honest way. */
-async function claimed(options: LibraryOptions = {}): Promise<{
+/** A verified claim for `workspaceId` on a fresh asset, the honest way. */
+async function claimed(options: AssetOptions = {}): Promise<{
   workspaceId: string;
-  libraryId: string;
+  assetId: string;
   publicId: string;
   claimId: string;
 }> {
   const workspaceId = await workspace('owner-ws');
-  const target = await library(options);
+  const target = await asset(options);
   const started = await startClaim({
     workspaceId,
     role: 'owner',
-    libraryPublicId: target.publicId,
+    assetPublicId: target.publicId,
     method: 'dns_txt',
   });
   outbound.outcome = 'matched';
   await verifyClaim({ claimId: started.claimId, workspaceId, role: 'owner' });
-  return { workspaceId, libraryId: target.id, publicId: target.publicId, claimId: started.claimId };
+  return { workspaceId, assetId: target.id, publicId: target.publicId, claimId: started.claimId };
 }
 
 describeWithDb('ownership claims', () => {
@@ -259,12 +259,12 @@ describeWithDb('ownership claims', () => {
 
   afterAll(async () => {
     const database = db();
-    if (libraries.length > 0) {
+    if (assets.length > 0) {
       const claimIds = (
         await database
-          .select({ id: schema.libraryClaim.id })
-          .from(schema.libraryClaim)
-          .where(inArray(schema.libraryClaim.libraryId, libraries))
+          .select({ id: schema.assetClaim.id })
+          .from(schema.assetClaim)
+          .where(inArray(schema.assetClaim.assetId, assets))
       ).map((row) => row.id);
       if (claimIds.length > 0) {
         await database
@@ -276,10 +276,10 @@ describeWithDb('ownership claims', () => {
             ),
           );
       }
-      await database.delete(schema.libraryClaim).where(inArray(schema.libraryClaim.libraryId, libraries));
-      await database.delete(schema.source).where(inArray(schema.source.libraryId, libraries));
-      await database.update(schema.library).set({ ownerWorkspaceId: null }).where(inArray(schema.library.id, libraries));
-      await database.delete(schema.library).where(inArray(schema.library.id, libraries));
+      await database.delete(schema.assetClaim).where(inArray(schema.assetClaim.assetId, assets));
+      await database.delete(schema.source).where(inArray(schema.source.assetId, assets));
+      await database.update(schema.asset).set({ ownerWorkspaceId: null }).where(inArray(schema.asset.id, assets));
+      await database.delete(schema.asset).where(inArray(schema.asset.id, assets));
     }
     if (users.length > 0) {
       await database.delete(schema.oauthAccount).where(inArray(schema.oauthAccount.userId, users));
@@ -302,13 +302,13 @@ describeWithDb('ownership claims', () => {
   describe('startClaim', () => {
     it('mints one challenge, stores only its hash and sets the seven-day expiry', async () => {
       const workspaceId = await workspace();
-      const target = await library();
+      const target = await asset();
       const now = new Date('2026-03-01T00:00:00.000Z');
 
       const started = await startClaim({
         workspaceId,
         role: 'owner',
-        libraryPublicId: target.publicId,
+        assetPublicId: target.publicId,
         method: 'dns_txt',
         now,
       });
@@ -319,7 +319,7 @@ describeWithDb('ownership claims', () => {
       expect(started.dnsRecordName).toBe('_re0-challenge.docs.example.test');
 
       const row = await claimRow(started.claimId);
-      expect(row?.libraryId).toBe(target.id);
+      expect(row?.assetId).toBe(target.id);
       expect(row?.claimantWorkspaceId).toBe(workspaceId);
       expect(row?.method).toBe('dns_txt');
       expect(row?.status).toBe('pending');
@@ -334,15 +334,15 @@ describeWithDb('ownership claims', () => {
       expect(Object.values(reread)).not.toContain(started.challengeToken);
     });
 
-    it('lets exactly one pending claim exist per library, and the index is what says so', async () => {
+    it('lets exactly one pending claim exist per asset, and the index is what says so', async () => {
       const first = await workspace('first');
       const second = await workspace('second');
-      const target = await library();
+      const target = await asset();
 
       const opened = await startClaim({
         workspaceId: first,
         role: 'owner',
-        libraryPublicId: target.publicId,
+        assetPublicId: target.publicId,
         method: 'dns_txt',
       });
 
@@ -351,7 +351,7 @@ describeWithDb('ownership claims', () => {
           startClaim({
             workspaceId: second,
             role: 'owner',
-            libraryPublicId: target.publicId,
+            assetPublicId: target.publicId,
             method: 'dns_txt',
           }),
         ),
@@ -363,17 +363,17 @@ describeWithDb('ownership claims', () => {
           startClaim({
             workspaceId: first,
             role: 'owner',
-            libraryPublicId: target.publicId,
+            assetPublicId: target.publicId,
             method: 'well_known',
           }),
         ),
       ).toBe('claim_verification_failed:claim_in_progress');
 
       const pending = await db()
-        .select({ id: schema.libraryClaim.id })
-        .from(schema.libraryClaim)
+        .select({ id: schema.assetClaim.id })
+        .from(schema.assetClaim)
         .where(
-          and(eq(schema.libraryClaim.libraryId, target.id), eq(schema.libraryClaim.status, 'pending')),
+          and(eq(schema.assetClaim.assetId, target.id), eq(schema.assetClaim.status, 'pending')),
         );
       expect(pending.map((row) => row.id)).toEqual([opened.claimId]);
     });
@@ -381,7 +381,7 @@ describeWithDb('ownership claims', () => {
     it('settles a genuine race in Postgres, not in the read that precedes it', async () => {
       const first = await workspace('first');
       const second = await workspace('second');
-      const target = await library();
+      const target = await asset();
 
       /*
        * `first` passes the "nothing pending" read, and `second`'s claim lands
@@ -392,9 +392,9 @@ describeWithDb('ownership claims', () => {
       let raced: string | null = null;
       limiter.before = async () => {
         raced = uuidv7();
-        await db().insert(schema.libraryClaim).values({
+        await db().insert(schema.assetClaim).values({
           id: raced,
-          libraryId: target.id,
+          assetId: target.id,
           claimantWorkspaceId: second,
           method: 'well_known',
           challengeTokenHash: 'x'.repeat(64),
@@ -409,7 +409,7 @@ describeWithDb('ownership claims', () => {
           startClaim({
             workspaceId: first,
             role: 'owner',
-            libraryPublicId: target.publicId,
+            assetPublicId: target.publicId,
             method: 'dns_txt',
           }),
         ),
@@ -417,26 +417,26 @@ describeWithDb('ownership claims', () => {
 
       /* The loser wrote nothing: one pending claim, and it is the winner's. */
       const survivors = await db()
-        .select({ id: schema.libraryClaim.id })
-        .from(schema.libraryClaim)
-        .where(eq(schema.libraryClaim.libraryId, target.id));
+        .select({ id: schema.assetClaim.id })
+        .from(schema.assetClaim)
+        .where(eq(schema.assetClaim.assetId, target.id));
       expect(survivors.map((row) => row.id)).toEqual([raced]);
     });
 
-    it('answers for an invisible library exactly as for one that does not exist', async () => {
+    it('answers for an invisible asset exactly as for one that does not exist', async () => {
       const workspaceId = await workspace();
-      const absent = '/claim-test/no-such-library';
+      const absent = '/claim-test/no-such-asset';
       const hidden = await Promise.all([
-        library({ visibility: 'private' }),
-        library({ lifecycleStatus: 'archived' }),
-        library({ isPlatformLibrary: true }),
-        /* A source with no claim flow is not a claimable library either. */
-        library({ sourceType: 'notion', location: 'https://www.notion.so/page' }),
+        asset({ visibility: 'private' }),
+        asset({ lifecycleStatus: 'archived' }),
+        asset({ isPlatformAsset: true }),
+        /* A source with no claim flow is not a claimable asset either. */
+        asset({ sourceType: 'notion', location: 'https://www.notion.so/page' }),
       ]);
 
       const answers = await Promise.all(
         [absent, ...hidden.map((row) => row.publicId)].map((publicId) =>
-          refusalOf(startClaim({ workspaceId, role: 'owner', libraryPublicId: publicId, method: 'dns_txt' })),
+          refusalOf(startClaim({ workspaceId, role: 'owner', assetPublicId: publicId, method: 'dns_txt' })),
         ),
       );
       expect(answers).toEqual(Array(answers.length).fill('library_not_found'));
@@ -444,13 +444,13 @@ describeWithDb('ownership claims', () => {
 
     it('refuses a method the source type does not offer', async () => {
       const workspaceId = await workspace();
-      const target = await library({ sourceType: 'website' });
+      const target = await asset({ sourceType: 'website' });
       expect(
         await refusalOf(
           startClaim({
             workspaceId,
             role: 'owner',
-            libraryPublicId: target.publicId,
+            assetPublicId: target.publicId,
             method: 'github_permission',
           }),
         ),
@@ -460,25 +460,25 @@ describeWithDb('ownership claims', () => {
 
     it('refuses a non-manager role before any row is written', async () => {
       const workspaceId = await workspace();
-      const target = await library();
+      const target = await asset();
       for (const role of ['viewer', 'developer'] as const) {
         expect(
           await refusalOf(
-            startClaim({ workspaceId, role, libraryPublicId: target.publicId, method: 'dns_txt' }),
+            startClaim({ workspaceId, role, assetPublicId: target.publicId, method: 'dns_txt' }),
           ),
         ).toBe('access_denied');
       }
       expect(await claimsOn(target.id)).toHaveLength(0);
     });
 
-    it('refuses a library this workspace already owns', async () => {
+    it('refuses an asset this workspace already owns', async () => {
       const owned = await claimed();
       expect(
         await refusalOf(
           startClaim({
             workspaceId: owned.workspaceId,
             role: 'owner',
-            libraryPublicId: owned.publicId,
+            assetPublicId: owned.publicId,
             method: 'dns_txt',
           }),
         ),
@@ -491,11 +491,11 @@ describeWithDb('ownership claims', () => {
   describe('verifyClaim', () => {
     it('writes the owner and the verified status together', async () => {
       const workspaceId = await workspace();
-      const target = await library();
+      const target = await asset();
       const started = await startClaim({
         workspaceId,
         role: 'owner',
-        libraryPublicId: target.publicId,
+        assetPublicId: target.publicId,
         method: 'well_known',
       });
 
@@ -515,11 +515,11 @@ describeWithDb('ownership claims', () => {
 
     it('leaves both the owner and the status alone when the check fails', async () => {
       const workspaceId = await workspace();
-      const target = await library();
+      const target = await asset();
       const started = await startClaim({
         workspaceId,
         role: 'owner',
-        libraryPublicId: target.publicId,
+        assetPublicId: target.publicId,
         method: 'dns_txt',
       });
 
@@ -538,11 +538,11 @@ describeWithDb('ownership claims', () => {
 
     it('locks the entry once the attempt limit is spent, and keeps it locked', async () => {
       const workspaceId = await workspace();
-      const target = await library();
+      const target = await asset();
       const started = await startClaim({
         workspaceId,
         role: 'owner',
-        libraryPublicId: target.publicId,
+        assetPublicId: target.publicId,
         method: 'dns_txt',
       });
 
@@ -571,7 +571,7 @@ describeWithDb('ownership claims', () => {
           startClaim({
             workspaceId,
             role: 'owner',
-            libraryPublicId: target.publicId,
+            assetPublicId: target.publicId,
             method: 'dns_txt',
           }),
         ),
@@ -580,11 +580,11 @@ describeWithDb('ownership claims', () => {
 
     it('counts every failed check, even two that arrive together', async () => {
       const workspaceId = await workspace();
-      const target = await library();
+      const target = await asset();
       const started = await startClaim({
         workspaceId,
         role: 'owner',
-        libraryPublicId: target.publicId,
+        assetPublicId: target.publicId,
         method: 'dns_txt',
       });
 
@@ -608,17 +608,17 @@ describeWithDb('ownership claims', () => {
 
     it('marks an expired claim expired and never re-runs its check', async () => {
       const workspaceId = await workspace();
-      const target = await library();
+      const target = await asset();
       const started = await startClaim({
         workspaceId,
         role: 'owner',
-        libraryPublicId: target.publicId,
+        assetPublicId: target.publicId,
         method: 'dns_txt',
       });
       await db()
-        .update(schema.libraryClaim)
+        .update(schema.assetClaim)
         .set({ expiresAt: new Date(Date.now() - 1000) })
-        .where(eq(schema.libraryClaim.id, started.claimId));
+        .where(eq(schema.assetClaim.id, started.claimId));
 
       outbound.outcome = 'matched';
       const spent = outbound.calls;
@@ -639,16 +639,16 @@ describeWithDb('ownership claims', () => {
       expect((await auditFor(started.claimId)).filter((entry) => entry.action === 'claim.expire')).toHaveLength(1);
     });
 
-    it('refuses a claim whose library stopped being claimable after it opened', async () => {
+    it('refuses a claim whose asset stopped being claimable after it opened', async () => {
       const workspaceId = await workspace();
-      const privately = await library();
-      const archived = await library();
+      const privately = await asset();
+      const archived = await asset();
       const opened = await Promise.all([
-        startClaim({ workspaceId, role: 'owner', libraryPublicId: privately.publicId, method: 'dns_txt' }),
-        startClaim({ workspaceId, role: 'owner', libraryPublicId: archived.publicId, method: 'dns_txt' }),
+        startClaim({ workspaceId, role: 'owner', assetPublicId: privately.publicId, method: 'dns_txt' }),
+        startClaim({ workspaceId, role: 'owner', assetPublicId: archived.publicId, method: 'dns_txt' }),
       ]);
       await unshare(privately.id);
-      await db().update(schema.library).set({ lifecycleStatus: 'archived' }).where(eq(schema.library.id, archived.id));
+      await db().update(schema.asset).set({ lifecycleStatus: 'archived' }).where(eq(schema.asset.id, archived.id));
 
       outbound.outcome = 'matched';
       for (const claim of opened) {
@@ -660,13 +660,13 @@ describeWithDb('ownership claims', () => {
       expect(await ownerOf(archived.id)).toBeNull();
     });
 
-    it('records a dispute rather than an owner when the library already has one', async () => {
+    it('records a dispute rather than an owner when the asset already has one', async () => {
       const incumbent = await claimed();
       const challenger = await workspace('challenger');
       const started = await startClaim({
         workspaceId: challenger,
         role: 'owner',
-        libraryPublicId: incumbent.publicId,
+        assetPublicId: incumbent.publicId,
         method: 'dns_txt',
       });
       expect(started.disputed).toBe(true);
@@ -681,17 +681,17 @@ describeWithDb('ownership claims', () => {
       expect(row?.failureReason).toBe('already_claimed');
       expect(row?.verifiedAt).toBeInstanceOf(Date);
       /* The incumbent is untouched: only a ruling moves ownership from here. */
-      expect(await ownerOf(incumbent.libraryId)).toBe(incumbent.workspaceId);
+      expect(await ownerOf(incumbent.assetId)).toBe(incumbent.workspaceId);
     });
 
     it('answers not found for another workspace and refuses a non-manager role', async () => {
       const workspaceId = await workspace();
       const stranger = await workspace('stranger');
-      const target = await library();
+      const target = await asset();
       const started = await startClaim({
         workspaceId,
         role: 'owner',
-        libraryPublicId: target.publicId,
+        assetPublicId: target.publicId,
         method: 'dns_txt',
       });
 
@@ -706,7 +706,7 @@ describeWithDb('ownership claims', () => {
 
     it('runs the GitHub permission check against the linked account', async () => {
       const workspaceId = await workspace();
-      const target = await library({ sourceType: 'github', location: 'acme/docs' });
+      const target = await asset({ sourceType: 'github', location: 'acme/docs' });
       const userId = crypto.randomUUID();
       users.push(userId);
       await db().insert(schema.user).values({ id: userId, email: `${unique('dev')}@example.test` });
@@ -717,7 +717,7 @@ describeWithDb('ownership claims', () => {
       const started = await startClaim({
         workspaceId,
         role: 'owner',
-        libraryPublicId: target.publicId,
+        assetPublicId: target.publicId,
         method: 'github_permission',
       });
       expect(started.challengeToken).toBeUndefined();
@@ -762,44 +762,44 @@ describeWithDb('ownership claims', () => {
   /* ------------------------------------------------------- releaseOwnership */
 
   describe('releaseOwnership', () => {
-    it('gives up a claimed library and closes the claim that granted it', async () => {
+    it('gives up a claimed asset and closes the claim that granted it', async () => {
       const owned = await claimed();
 
       const released = await releaseOwnership({
         workspaceId: owned.workspaceId,
         role: 'owner',
-        libraryId: owned.libraryId,
+        assetId: owned.assetId,
       });
       expect(released.publicId).toBe(owned.publicId);
-      expect(await ownerOf(owned.libraryId)).toBeNull();
+      expect(await ownerOf(owned.assetId)).toBeNull();
 
       const row = await claimRow(owned.claimId);
       expect(row?.status).toBe('revoked');
       expect(row?.rulingReason).toBe('released_by_owner');
     });
 
-    it('refuses a library the workspace merely created, so it cannot be stranded', async () => {
+    it('refuses an asset the workspace merely created, so it cannot be stranded', async () => {
       const creator = await workspace('creator');
-      const target = await library({ ownerWorkspaceId: creator, sourceType: 'notion' });
+      const target = await asset({ ownerWorkspaceId: creator, sourceType: 'notion' });
 
       expect(
-        await refusalOf(releaseOwnership({ workspaceId: creator, role: 'owner', libraryId: target.id })),
+        await refusalOf(releaseOwnership({ workspaceId: creator, role: 'owner', assetId: target.id })),
       ).toBe('library_not_found');
-      /* The point of the refusal: the library still has somebody who can manage it. */
+      /* The point of the refusal: the asset still has somebody who can manage it. */
       expect(await ownerOf(target.id)).toBe(creator);
     });
 
-    it('refuses a non-manager role and a library the workspace does not own', async () => {
+    it('refuses a non-manager role and an asset the workspace does not own', async () => {
       const owned = await claimed();
       const stranger = await workspace('stranger');
 
       expect(
-        await refusalOf(releaseOwnership({ workspaceId: owned.workspaceId, role: 'viewer', libraryId: owned.libraryId })),
+        await refusalOf(releaseOwnership({ workspaceId: owned.workspaceId, role: 'viewer', assetId: owned.assetId })),
       ).toBe('access_denied');
       expect(
-        await refusalOf(releaseOwnership({ workspaceId: stranger, role: 'owner', libraryId: owned.libraryId })),
+        await refusalOf(releaseOwnership({ workspaceId: stranger, role: 'owner', assetId: owned.assetId })),
       ).toBe('library_not_found');
-      expect(await ownerOf(owned.libraryId)).toBe(owned.workspaceId);
+      expect(await ownerOf(owned.assetId)).toBe(owned.workspaceId);
     });
   });
 
@@ -807,7 +807,7 @@ describeWithDb('ownership claims', () => {
 
   describe('ruleDispute and revokeClaim', () => {
     /**
-     * A dispute: `incumbent` owns the library through a verified claim, and
+     * A dispute: `incumbent` owns the asset through a verified claim, and
      * `challenger` has proven control of the same source.
      */
     async function dispute() {
@@ -816,7 +816,7 @@ describeWithDb('ownership claims', () => {
       const started = await startClaim({
         workspaceId: challenger,
         role: 'owner',
-        libraryPublicId: incumbent.publicId,
+        assetPublicId: incumbent.publicId,
         method: 'dns_txt',
       });
       outbound.outcome = 'matched';
@@ -824,16 +824,16 @@ describeWithDb('ownership claims', () => {
       return { incumbent, challenger, claimId: started.claimId };
     }
 
-    it('grants the library to the challenger and closes the incumbent claim', async () => {
+    it('grants the asset to the challenger and closes the incumbent claim', async () => {
       const actor = await administrator();
       const { incumbent, challenger, claimId } = await dispute();
 
       const ruled = await ruleDispute({ actor, claimId, decision: 'grant', reason: 'rights document filed' });
       expect(ruled.status).toBe('verified');
       expect(ruled.ownerWorkspaceId).toBe(challenger);
-      expect(await ownerOf(incumbent.libraryId)).toBe(challenger);
+      expect(await ownerOf(incumbent.assetId)).toBe(challenger);
       expect((await claimRow(claimId))?.status).toBe('verified');
-      /* Two live claims on one library would be a record nobody can read. */
+      /* Two live claims on one asset would be a record nobody can read. */
       expect((await claimRow(incumbent.claimId))?.status).toBe('revoked');
 
       const audit = (await auditFor(claimId)).filter((entry) => entry.action === 'claim.transfer');
@@ -859,7 +859,7 @@ describeWithDb('ownership claims', () => {
       const ruled = await ruleDispute({ actor, claimId, decision: 'dismiss', reason: 'evidence insufficient' });
       expect(ruled.status).toBe('failed');
       expect(ruled.ownerWorkspaceId).toBe(incumbent.workspaceId);
-      expect(await ownerOf(incumbent.libraryId)).toBe(incumbent.workspaceId);
+      expect(await ownerOf(incumbent.assetId)).toBe(incumbent.workspaceId);
 
       const row = await claimRow(claimId);
       expect(row?.status).toBe('failed');
@@ -885,13 +885,13 @@ describeWithDb('ownership claims', () => {
       ).toBe('not_found');
       expect(await refusalOf(ruleDispute({ actor, claimId: 'junk', decision: 'grant', reason: 'x' }))).toBe('not_found');
 
-      /* A pending claim on an unowned library is the claimant's to prove. */
+      /* A pending claim on an unowned asset is the claimant's to prove. */
       const workspaceId = await workspace();
-      const target = await library();
+      const target = await asset();
       const plain = await startClaim({
         workspaceId,
         role: 'owner',
-        libraryPublicId: target.publicId,
+        assetPublicId: target.publicId,
         method: 'dns_txt',
       });
       expect(await refusalOf(ruleDispute({ actor, claimId: plain.claimId, decision: 'grant', reason: 'x' }))).toBe(
@@ -911,7 +911,7 @@ describeWithDb('ownership claims', () => {
       const revoked = await revokeClaim({ actor, claimId: owned.claimId, reason: 'source removed upstream' });
       expect(revoked.status).toBe('revoked');
       expect(revoked.ownerCleared).toBe(true);
-      expect(await ownerOf(owned.libraryId)).toBeNull();
+      expect(await ownerOf(owned.assetId)).toBeNull();
 
       const row = await claimRow(owned.claimId);
       expect(row?.status).toBe('revoked');
@@ -926,14 +926,14 @@ describeWithDb('ownership claims', () => {
       expect(audit[0]?.afterValue).toMatchObject({ status: 'revoked', ownerWorkspaceId: null });
     });
 
-    it('revokes a pending claim, reopening the library for a new one', async () => {
+    it('revokes a pending claim, reopening the asset for a new one', async () => {
       const actor = await administrator();
       const workspaceId = await workspace();
-      const target = await library();
+      const target = await asset();
       const started = await startClaim({
         workspaceId,
         role: 'owner',
-        libraryPublicId: target.publicId,
+        assetPublicId: target.publicId,
         method: 'dns_txt',
       });
 
@@ -944,20 +944,20 @@ describeWithDb('ownership claims', () => {
       const next = await startClaim({
         workspaceId,
         role: 'owner',
-        libraryPublicId: target.publicId,
+        assetPublicId: target.publicId,
         method: 'dns_txt',
       });
       expect(next.claimId).not.toBe(started.claimId);
     });
 
-    it('records the library owner as it truly stood when a dispute is revoked', async () => {
+    it('records the asset owner as it truly stood when a dispute is revoked', async () => {
       const actor = await administrator();
       const { incumbent, claimId } = await dispute();
 
       const revoked = await revokeClaim({ actor, claimId, reason: 'claimant withdrew' });
       expect(revoked.ownerCleared).toBe(false);
       /* Revoking the challenger's claim settles nothing about the owner. */
-      expect(await ownerOf(incumbent.libraryId)).toBe(incumbent.workspaceId);
+      expect(await ownerOf(incumbent.assetId)).toBe(incumbent.workspaceId);
 
       const audit = (await auditFor(claimId)).filter((entry) => entry.action === 'claim.revoke');
       expect(audit).toHaveLength(1);
@@ -1006,21 +1006,21 @@ describeWithDb('ownership claims', () => {
     it('answers for one workspace and never leaks another', async () => {
       const mine = await workspace('mine');
       const theirs = await workspace('theirs');
-      const a = await library();
-      const b = await library();
+      const a = await asset();
+      const b = await asset();
 
-      const own = await startClaim({ workspaceId: mine, role: 'owner', libraryPublicId: a.publicId, method: 'dns_txt' });
+      const own = await startClaim({ workspaceId: mine, role: 'owner', assetPublicId: a.publicId, method: 'dns_txt' });
       const other = await startClaim({
         workspaceId: theirs,
         role: 'owner',
-        libraryPublicId: b.publicId,
+        assetPublicId: b.publicId,
         method: 'well_known',
       });
 
       const rows = await listWorkspaceClaims(mine);
       expect(rows.map((row) => row.id)).toContain(own.claimId);
       expect(rows.map((row) => row.id)).not.toContain(other.claimId);
-      expect(rows.every((row) => row.libraryPublicId !== b.publicId)).toBe(true);
+      expect(rows.every((row) => row.assetPublicId !== b.publicId)).toBe(true);
 
       /* A claim id is not a capability: the other workspace's is not readable. */
       expect(await refusalOf(claimForClaimant(mine, other.claimId))).toBe('library_not_found');
@@ -1033,14 +1033,14 @@ describeWithDb('ownership claims', () => {
       const disputed = await startClaim({
         workspaceId: challenger,
         role: 'owner',
-        libraryPublicId: incumbent.publicId,
+        assetPublicId: incumbent.publicId,
         method: 'dns_txt',
       });
-      const plainLibrary = await library();
+      const plainAsset = await asset();
       const plain = await startClaim({
         workspaceId: challenger,
         role: 'owner',
-        libraryPublicId: plainLibrary.publicId,
+        assetPublicId: plainAsset.publicId,
         method: 'dns_txt',
       });
 
@@ -1078,7 +1078,7 @@ describeWithDb('ownership claims', () => {
       expect(detail?.status).toBe('verified');
       expect(detail?.claimant.id).toBe(owned.workspaceId);
       expect(detail?.currentOwner?.id).toBe(owned.workspaceId);
-      expect(detail?.library.publicId).toBe(owned.publicId);
+      expect(detail?.asset.publicId).toBe(owned.publicId);
       expect(detail?.checks.every((check) => check.state === 'ok')).toBe(true);
       expect(detail?.audit.map((entry) => entry.action)).toContain('claim.start');
 
@@ -1101,30 +1101,30 @@ describeWithDb('ownership claims', () => {
 
   describe('ownership as the dashboard reads it', () => {
     /**
-     * The Release control is drawn from `ownershipForLibraries` and gated by
+     * The Release control is drawn from `ownershipForAssets` and gated by
      * `isReleasableOwnership`. If the two disagreed with `releaseOwnership`,
      * the screen would either hide a control that works or offer one that
-     * strands a library -- so they are asserted against each other, on the
+     * strands an asset -- so they are asserted against each other, on the
      * same rows, rather than each on its own.
      */
     it('offers release exactly where releaseOwnership accepts it', async () => {
       const owned = await claimed();
-      const created = await library({ ownerWorkspaceId: owned.workspaceId, sourceType: 'notion' });
-      const unclaimed = await library();
+      const created = await asset({ ownerWorkspaceId: owned.workspaceId, sourceType: 'notion' });
+      const unclaimed = await asset();
 
-      const views = await ownershipForLibraries(owned.workspaceId, [
-        owned.libraryId,
+      const views = await ownershipForAssets(owned.workspaceId, [
+        owned.assetId,
         created.id,
         unclaimed.id,
       ]);
-      expect(views.get(owned.libraryId)?.kind).toBe('claimed');
+      expect(views.get(owned.assetId)?.kind).toBe('claimed');
       expect(views.get(created.id)?.kind).toBe('owned');
       expect(views.get(unclaimed.id)?.kind).toBe('unclaimed');
 
-      for (const [libraryId, view] of views) {
+      for (const [assetId, view] of views) {
         const accepted =
           (await refusalOf(
-            releaseOwnership({ workspaceId: owned.workspaceId, role: 'owner', libraryId }),
+            releaseOwnership({ workspaceId: owned.workspaceId, role: 'owner', assetId }),
           )) === 'accepted';
         expect(accepted).toBe(isReleasableOwnership(view.kind));
       }
@@ -1132,29 +1132,29 @@ describeWithDb('ownership claims', () => {
 
     it('shows a pending claim to its claimant and a failed one after the limit', async () => {
       const workspaceId = await workspace();
-      const target = await library();
+      const target = await asset();
       const started = await startClaim({
         workspaceId,
         role: 'owner',
-        libraryPublicId: target.publicId,
+        assetPublicId: target.publicId,
         method: 'dns_txt',
       });
 
-      const pending = (await ownershipForLibraries(workspaceId, [target.id])).get(target.id);
+      const pending = (await ownershipForAssets(workspaceId, [target.id])).get(target.id);
       expect(pending).toMatchObject({ kind: 'pending', claimId: started.claimId, attempts: 0 });
 
       outbound.outcome = 'not_found';
       for (let attempt = 0; attempt < CLAIM_ATTEMPT_LIMIT; attempt += 1) {
         await refusalOf(verifyClaim({ claimId: started.claimId, workspaceId, role: 'owner' }));
       }
-      const failed = (await ownershipForLibraries(workspaceId, [target.id])).get(target.id);
+      const failed = (await ownershipForAssets(workspaceId, [target.id])).get(target.id);
       expect(failed).toMatchObject({ kind: 'failed', claimId: started.claimId });
     });
 
-    it('tells the public page who owns a library and when the claim went through', async () => {
+    it('tells the public page who owns an asset and when the claim went through', async () => {
       const owned = await claimed();
-      const created = await library({ ownerWorkspaceId: await workspace('creator') });
-      const unclaimed = await library();
+      const created = await asset({ ownerWorkspaceId: await workspace('creator') });
+      const unclaimed = await asset();
 
       const claimedStatus = await publicClaimStatus(owned.publicId);
       expect(claimedStatus.claimed).toBe(true);
@@ -1172,15 +1172,15 @@ describeWithDb('ownership claims', () => {
       });
     });
 
-    it('returns a released library to the pool for the next claimant', async () => {
+    it('returns a released asset to the pool for the next claimant', async () => {
       const owned = await claimed();
-      await releaseOwnership({ workspaceId: owned.workspaceId, role: 'owner', libraryId: owned.libraryId });
+      await releaseOwnership({ workspaceId: owned.workspaceId, role: 'owner', assetId: owned.assetId });
 
       const next = await workspace('next');
       const started = await startClaim({
         workspaceId: next,
         role: 'owner',
-        libraryPublicId: owned.publicId,
+        assetPublicId: owned.publicId,
         method: 'dns_txt',
       });
       expect(started.disputed).toBe(false);
@@ -1188,16 +1188,16 @@ describeWithDb('ownership claims', () => {
       outbound.outcome = 'matched';
       const verified = await verifyClaim({ claimId: started.claimId, workspaceId: next, role: 'owner' });
       expect(verified.status).toBe('verified');
-      expect(await ownerOf(owned.libraryId)).toBe(next);
+      expect(await ownerOf(owned.assetId)).toBe(next);
       /* The old owner's claim stays closed; it is history, not a live record. */
       expect((await claimRow(owned.claimId))?.status).toBe('revoked');
     });
   });
 });
 
-async function claimsOn(libraryId: string) {
+async function claimsOn(assetId: string) {
   return db()
-    .select({ id: schema.libraryClaim.id })
-    .from(schema.libraryClaim)
-    .where(eq(schema.libraryClaim.libraryId, libraryId));
+    .select({ id: schema.assetClaim.id })
+    .from(schema.assetClaim)
+    .where(eq(schema.assetClaim.assetId, assetId));
 }

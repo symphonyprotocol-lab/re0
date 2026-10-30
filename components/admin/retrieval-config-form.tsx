@@ -4,7 +4,7 @@ import { useActionState, useState } from 'react';
 
 import { Bounded, FIELD, Field, range } from '@/components/admin/form-fields';
 import { RETRIEVAL_SETTING_GROUPS } from '@/components/admin/retrieval-config-groups';
-import { submitOn } from '@/components/admin/platform-library-shared';
+import { submitOn } from '@/components/admin/platform-asset-shared';
 import { ConsoleButton } from '@/components/admin/ui';
 import type { RetrievalConfigActionResult } from '@/app/admin/(console)/retrieval/actions';
 import { fill } from '@/lib/i18n/format';

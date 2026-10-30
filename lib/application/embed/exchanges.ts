@@ -4,8 +4,8 @@
  *
  * Recorded by the ask route once an exchange has ended, off the request
  * path: a lost row costs the owner one line of history, failing the
- * visitor over it would cost them an answer. Read on the library's page,
- * newest first, with a figure for how many questions the library could not
+ * visitor over it would cost them an answer. Read on the asset's page,
+ * newest first, with a figure for how many questions the asset could not
  * answer -- those are the ones worth writing a page for.
  */
 import { and, count, desc, eq, gte, sql } from 'drizzle-orm';
@@ -21,7 +21,7 @@ export const EXCHANGE_LIMITS = { questionChars: 2_000, answerChars: 4_000, sourc
 export interface RecordExchangeInput {
   /** Set by a caller that must know the row's id before it is written (the showcase page's feedback). */
   id?: string;
-  libraryId: string;
+  assetId: string;
   workspaceId: string;
   siteKeyId: string;
   origin: string | null | undefined;
@@ -39,7 +39,7 @@ export async function recordWidgetExchange(input: RecordExchangeInput): Promise<
     .insert(schema.widgetExchange)
     .values({
       id: input.id ?? uuidv7(),
-      libraryId: input.libraryId,
+      assetId: input.assetId,
       workspaceId: input.workspaceId,
       siteKeyId: input.siteKeyId,
       origin: (input.origin ? normaliseOrigin(input.origin) : null) ?? '',
@@ -64,7 +64,7 @@ export interface WidgetExchangeView {
   id: string;
   origin: string;
   preview: boolean;
-  /** Asked on the library's showcase page rather than through a site's widget. */
+  /** Asked on the asset's showcase page rather than through a site's widget. */
   showcase: boolean;
   /** The visitor's thumbs on a showcase page, when given. */
   feedback: 'helpful' | 'unhelpful' | null;
@@ -79,16 +79,16 @@ export interface WidgetExchangeView {
 
 export const EXCHANGE_PAGE_SIZE = 20;
 
-/** The library's exchanges, newest first. The library must be the workspace's own. */
+/** The asset's exchanges, newest first. The asset must be the workspace's own. */
 export async function listWidgetExchanges(input: {
   workspaceId: string;
-  libraryId: string;
+  assetId: string;
   limit?: number;
   offset?: number;
 }): Promise<{ exchanges: WidgetExchangeView[]; total: number }> {
   const scope = and(
     eq(schema.widgetExchange.workspaceId, input.workspaceId),
-    eq(schema.widgetExchange.libraryId, input.libraryId),
+    eq(schema.widgetExchange.assetId, input.assetId),
   );
   const [rows, [counted]] = await Promise.all([
     db()
@@ -125,13 +125,13 @@ export interface WidgetExchangeStats {
   /** Visitors' questions in the window; previews excluded. */
   questions: number;
   answered: number;
-  /** Nothing relevant found, or the library was not ready: the gaps. */
+  /** Nothing relevant found, or the asset was not ready: the gaps. */
   missed: number;
 }
 
 export async function widgetExchangeStats(input: {
   workspaceId: string;
-  libraryId: string;
+  assetId: string;
   days?: number;
 }): Promise<WidgetExchangeStats> {
   const days = input.days ?? 30;
@@ -146,7 +146,7 @@ export async function widgetExchangeStats(input: {
     .where(
       and(
         eq(schema.widgetExchange.workspaceId, input.workspaceId),
-        eq(schema.widgetExchange.libraryId, input.libraryId),
+        eq(schema.widgetExchange.assetId, input.assetId),
         eq(schema.widgetExchange.preview, false),
         gte(schema.widgetExchange.createdAt, since),
       ),

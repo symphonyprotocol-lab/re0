@@ -26,8 +26,8 @@ const RAW = 'https://raw.githubusercontent.com';
 /**
  * Below this many prose documents a public repository is allowed to fall back
  * to its source files. requirement.md 8.1: "仓库文档不足时，公开库可从源代码
- * 生成说明". Platform libraries are public by definition, so the fallback is
- * available to every library this connector builds.
+ * 生成说明". Platform assets are public by definition, so the fallback is
+ * available to every asset this connector builds.
  */
 const PROSE_FLOOR = 3;
 

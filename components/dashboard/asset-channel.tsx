@@ -12,14 +12,14 @@ import { fill } from '@/lib/i18n/format';
  * outcome comes back on the URL (`notice`) and works without script.
  */
 export async function AssetChannelPanel({
-  libraryId,
+  assetId,
   current,
   channels,
   canEdit,
   notice,
   action,
 }: {
-  libraryId: string;
+  assetId: string;
   current: ChannelRef | null;
   channels: WorkspaceChannel[];
   canEdit: boolean;
@@ -27,7 +27,7 @@ export async function AssetChannelPanel({
   notice: string | null;
   action: (form: FormData) => Promise<void>;
 }) {
-  const c = (await getMessages()).dashboard.libraryDetail.channel;
+  const c = (await getMessages()).dashboard.assetDetail.channel;
   const isPublic = current?.visibility === 'public' && current.status === 'active';
   const message =
     notice === null ? null : notice === 'moved' ? c.moved : ((c.errors as Record<string, string>)[notice] ?? c.errors.unavailable);
@@ -73,7 +73,7 @@ export async function AssetChannelPanel({
           </p>
         ) : (
           <form action={action} className="flex flex-wrap items-end gap-3">
-            <input type="hidden" name="libraryId" value={libraryId} />
+            <input type="hidden" name="assetId" value={assetId} />
             <label className="flex min-w-[240px] flex-1 flex-col gap-1.5">
               <span className="text-[11px] font-medium text-steel">{c.moveLabel}</span>
               <select

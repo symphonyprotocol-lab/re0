@@ -13,11 +13,11 @@ import {
 import { GlobeIcon, PlusIcon, TerminalIcon } from '@/components/ui/icons';
 import { listApiKeys } from '@/lib/application/auth';
 import { listWorkspaceWidgetSites } from '@/lib/application/embed';
-import { listPublicLibraries, listWorkspaceLibraries } from '@/lib/application/libraries';
+import { listPublicAssets, listWorkspaceAssets } from '@/lib/application/assets';
 import { periodLastDay, workspaceBilling } from '@/lib/application/plans';
 import {
   API_KEY_PLACEHOLDER,
-  EXAMPLE_LIBRARY_ID,
+  EXAMPLE_ASSET_ID,
   installCommand,
   mcpEndpoint,
   quickstartTabs,
@@ -37,11 +37,11 @@ const CHART_DAYS = 10;
 
 /**
  * The overview, on the ledger: quota and volume from the rebuilt usage
- * summary (architecture.md 11.1), library and key counts from the rows
+ * summary (architecture.md 11.1), asset and key counts from the rows
  * themselves, the plan and this period's cost from the workspace's Plan
  * Version (requirement.md 4.1, 4.3). The install and quickstart panels are
  * built for this deployment and this workspace: the real base URL, the real
- * MCP endpoint and one of the workspace's own libraries.
+ * MCP endpoint and one of the workspace's own assets.
  */
 export default async function DashboardUsagePage() {
   const [session, { locale, t }] = await Promise.all([
@@ -51,10 +51,10 @@ export default async function DashboardUsagePage() {
   const o = t.dashboard.overview;
   const workspaceId = session.workspace.id;
 
-  const [overview, keys, libraries, billing, siteKeys] = await Promise.all([
+  const [overview, keys, assets, billing, siteKeys] = await Promise.all([
     workspaceUsage(workspaceId),
     listApiKeys(workspaceId),
-    listWorkspaceLibraries(workspaceId),
+    listWorkspaceAssets(workspaceId),
     workspaceBilling(workspaceId),
     /* agent-first-proposal.md 3.6: the widget is offline, so there is nothing to list. */
     surfaceEnabled('widget') ? listWorkspaceWidgetSites(workspaceId) : [],
@@ -62,30 +62,30 @@ export default async function DashboardUsagePage() {
 
   /* requirement.md 9.4: the sites the widget may run on, and which have it live. */
   const sites = siteKeys.flatMap((key) =>
-    key.origins.map((origin) => ({ ...origin, library: key.library.title, accent: key.accent })),
+    key.origins.map((origin) => ({ ...origin, asset: key.asset.title, accent: key.accent })),
   );
   const sitesReached = sites.filter((site) => site.lastSeenAt !== null).length;
 
   /*
    * The examples query something the reader can actually call: their own
-   * first library, or the most popular public one when they have none yet.
+   * first asset, or the most popular public one when they have none yet.
    * The catalogue is read only in that case, and a catalogue with nothing
    * published falls back to a well-known id rather than an empty string.
    */
-  const own = libraries[0] ?? null;
-  const catalogue = own ? null : ((await listPublicLibraries({ sort: 'popular', limit: 1 }))[0] ?? null);
+  const own = assets[0] ?? null;
+  const catalogue = own ? null : ((await listPublicAssets({ sort: 'popular', limit: 1 }))[0] ?? null);
   const example = own
-    ? { libraryId: own.publicId, title: own.title }
+    ? { assetId: own.publicId, title: own.title }
     : catalogue
-      ? { libraryId: catalogue.publicId, title: catalogue.title }
-      : { libraryId: EXAMPLE_LIBRARY_ID, title: 'Next.js' };
+      ? { assetId: catalogue.publicId, title: catalogue.title }
+      : { assetId: EXAMPLE_ASSET_ID, title: 'Next.js' };
 
   const baseUrl = appBaseUrl();
   const install = installCommand(baseUrl);
   const endpoint = mcpEndpoint(baseUrl);
   const tabs = quickstartTabs({
     baseUrl,
-    libraryId: example.libraryId,
+    assetId: example.assetId,
     title: example.title,
     labels: { search: o.live.tabSearch, context: o.live.tabContext },
   });
@@ -108,9 +108,9 @@ export default async function DashboardUsagePage() {
       caption: o.stats.tokensCaption,
     },
     {
-      label: o.stats.libraries,
-      value: number.format(libraries.length),
-      caption: o.stats.librariesCaption,
+      label: o.stats.assets,
+      value: number.format(assets.length),
+      caption: o.stats.assetsCaption,
     },
     {
       label: o.stats.addon,
@@ -174,7 +174,7 @@ export default async function DashboardUsagePage() {
         action={
           <ActionButton href="/dashboard/assets/new">
             <PlusIcon size={15} />
-            {o.addLibrary}
+            {o.addAsset}
           </ActionButton>
         }
       />
@@ -353,7 +353,7 @@ export default async function DashboardUsagePage() {
               <ul className="flex flex-col">
                 {sites.slice(0, 5).map((site) => (
                   <li
-                    key={`${site.library}\n${site.origin}`}
+                    key={`${site.asset}\n${site.origin}`}
                     className="flex items-center gap-4 border-t border-line py-2.5"
                   >
                     <span
@@ -363,7 +363,7 @@ export default async function DashboardUsagePage() {
                     />
                     <span className="flex min-w-0 flex-1 flex-col gap-[3px]">
                       <code className="truncate font-mono text-[12px] text-ink">{site.origin}</code>
-                      <span className="truncate text-[10px] text-muted">{site.library}</span>
+                      <span className="truncate text-[10px] text-muted">{site.asset}</span>
                     </span>
                     <StatusLabel tone={site.lastSeenAt ? 'live' : 'pending'}>
                       {site.lastSeenAt ? o.widgetReached : o.widgetWaiting}
@@ -418,8 +418,8 @@ export default async function DashboardUsagePage() {
         <PanelHeading
           title={o.quickstartTitle}
           description={`${o.quickstartDescription} ${fill(
-            own ? o.live.exampleLibraryOwn : o.live.exampleLibraryCatalog,
-            { libraryId: example.libraryId },
+            own ? o.live.exampleAssetOwn : o.live.exampleAssetCatalog,
+            { assetId: example.assetId },
           )}`}
         />
         <ApiQuickstart tabs={tabs} />

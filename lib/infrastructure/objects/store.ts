@@ -16,7 +16,7 @@
  * implementation accepts.
  */
 
-import { uploadKey } from '@/lib/domain/library';
+import { uploadKey } from '@/lib/domain/asset';
 import { isVercelBlobConfigured, VercelBlobStore } from './vercel-blob';
 
 export interface ObjectStore {
@@ -379,16 +379,16 @@ async function sign(
  * is built from ids rather than from titles, slugs or URLs.
  */
 export const objectKeys = {
-  snapshot: (libraryId: string, operationId: string, extension: string): string =>
-    `sources/platform/${libraryId}/${operationId}/snapshot.${extension}`,
-  normalized: (libraryId: string, versionId: string, documentId: string): string =>
-    `normalized/${libraryId}/${versionId}/${documentId}.json`,
-  documentManifest: (libraryId: string, versionId: string): string =>
-    `manifests/${libraryId}/${versionId}/documents.json`,
-  vectorManifest: (libraryId: string, versionId: string): string =>
-    `manifests/${libraryId}/${versionId}/vectors.json`,
+  snapshot: (assetId: string, operationId: string, extension: string): string =>
+    `sources/platform/${assetId}/${operationId}/snapshot.${extension}`,
+  normalized: (assetId: string, versionId: string, documentId: string): string =>
+    `normalized/${assetId}/${versionId}/${documentId}.json`,
+  documentManifest: (assetId: string, versionId: string): string =>
+    `manifests/${assetId}/${versionId}/documents.json`,
+  vectorManifest: (assetId: string, versionId: string): string =>
+    `manifests/${assetId}/${versionId}/vectors.json`,
   quarantine: (operationId: string, objectId: string): string =>
     `quarantine/${operationId}/${objectId}`,
-  /** Uploaded files; the layout is fixed in `lib/domain/library.ts`. */
+  /** Uploaded files; the layout is fixed in `lib/domain/asset.ts`. */
   upload: uploadKey,
 };

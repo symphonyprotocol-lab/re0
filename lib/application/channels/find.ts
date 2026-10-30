@@ -4,7 +4,7 @@
  *
  * Two paths, fused by reciprocal rank, over public channels only:
  *
- *   1. content -- the asset router (resolve-library.ts: profile FTS, profile
+ *   1. content -- the asset router (resolve-asset.ts: profile FTS, profile
  *      ANN, rare terms, with its evidence admission) run with anonymous
  *      visibility, so only assets shared with everyone can route; each
  *      admitted asset votes for the channel it is in;
@@ -16,7 +16,7 @@
  */
 import { and, eq, inArray, or, sql } from 'drizzle-orm';
 import type { CallerContext } from '@/lib/application/retrieval';
-import { resolveLibrary } from '@/lib/application/retrieval/resolve-library';
+import { resolveAsset } from '@/lib/application/retrieval/resolve-asset';
 import { routingTokens } from '@/lib/domain/profile';
 import { db, schema } from '@/lib/infrastructure/postgres/client';
 import { readChannelProfile } from './profile';
@@ -52,23 +52,23 @@ export async function findChannels(
 
   /* -------------------------------------------- path 1: content, by asset */
 
-  const routed = await resolveLibrary(
+  const routed = await resolveAsset(
     { workspaceId: null, apiKeyId: null, requestId: caller.requestId, anonymous: true },
     { query: input.query },
   );
-  const assetRank = new Map(routed.results.map((result, at) => [result.libraryId, at]));
-  const assetTitle = new Map(routed.results.map((result) => [result.libraryId, result.title]));
+  const assetRank = new Map(routed.results.map((result, at) => [result.assetId, at]));
+  const assetTitle = new Map(routed.results.map((result) => [result.assetId, result.title]));
   const memberships =
     assetRank.size === 0
       ? []
       : await database
-          .select({ publicId: schema.library.publicId, channelId: schema.channelAsset.channelId })
-          .from(schema.library)
-          .innerJoin(schema.channelAsset, eq(schema.channelAsset.assetId, schema.library.id))
+          .select({ publicId: schema.asset.publicId, channelId: schema.channelAsset.channelId })
+          .from(schema.asset)
+          .innerJoin(schema.channelAsset, eq(schema.channelAsset.assetId, schema.asset.id))
           .innerJoin(schema.channel, eq(schema.channel.id, schema.channelAsset.channelId))
           .where(
             and(
-              inArray(schema.library.publicId, [...assetRank.keys()]),
+              inArray(schema.asset.publicId, [...assetRank.keys()]),
               eq(schema.channel.visibility, 'public'),
               eq(schema.channel.status, 'active'),
             ),
@@ -128,7 +128,7 @@ export async function findChannels(
       handle: schema.workspace.handle,
       /* A channel with nothing live is not an answer (the directory's rule, directory.ts). */
       live: sql<number>`(select count(*)::int from ${schema.channelAsset} ca
-        join ${schema.library} l on l.id = ca.asset_id
+        join ${schema.asset} l on l.id = ca.asset_id
         where ca.channel_id = ${schema.channel.id} and l.lifecycle_status = 'published'
           and l.index_status = 'ready' and l.deleted_at is null)`,
     })

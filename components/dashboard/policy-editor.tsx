@@ -156,7 +156,7 @@ function ListChip({
 /**
  * One policy list: typed entries added one at a time, a pasted list, or a CSV
  * file read in the browser. Every entry goes through `parsePolicyEntry`, so
- * what reaches the policy is a Library ID, an organisation or a domain in its
+ * what reaches the policy is an Asset ID, an organisation or a domain in its
  * stored form, and what does not parse is shown rather than dropped.
  */
 function ListEditor({
@@ -527,7 +527,7 @@ export function PolicyEditor({
         </div>
       </section>
 
-      {/* Library filter -- design source `yOmm8`. */}
+      {/* Asset filter -- design source `yOmm8`. */}
       <section className={`${PANEL} overflow-hidden p-0.5`}>
         <div className="flex flex-col gap-[5px] px-6 py-5">
           <h2 className="text-[15px] leading-[1.5] text-ink">
@@ -634,7 +634,7 @@ export function PolicyEditor({
         <div className="flex flex-col gap-[22px] pt-[22px] pb-6">
           {mode === 'select' ? (
             <>
-              {draft.allowedLibraries.length === 0 ? (
+              {draft.allowedAssets.length === 0 ? (
                 <p className="mx-6 rounded-lg border border-dashed border-line px-4 py-6 text-center text-[12px] text-muted">
                   {e.selectEmpty}
                 </p>
@@ -643,9 +643,9 @@ export function PolicyEditor({
                 icon={<ListChecksIcon size={14} />}
                 title={e.selectTitle}
                 description={e.selectDescription}
-                values={draft.allowedLibraries}
+                values={draft.allowedAssets}
                 disabled={disabled}
-                onChange={(allowedLibraries) => edit((current) => ({ ...current, allowedLibraries }))}
+                onChange={(allowedAssets) => edit((current) => ({ ...current, allowedAssets }))}
               />
             </>
           ) : null}
@@ -653,19 +653,19 @@ export function PolicyEditor({
             icon={<BanIcon size={14} />}
             title={p.blockedTitle}
             description={p.blockedDescription}
-            values={draft.blockedLibraries}
+            values={draft.blockedAssets}
             disabled={disabled}
-            onChange={(blockedLibraries) => edit((current) => ({ ...current, blockedLibraries }))}
+            onChange={(blockedAssets) => edit((current) => ({ ...current, blockedAssets }))}
           />
           {mode === 'quality' ? (
             <ListEditor
               icon={<BadgeCheckIcon size={14} />}
               title={p.allowedTitle}
               description={p.allowedDescription}
-              values={draft.exceptedLibraries}
+              values={draft.exceptedAssets}
               disabled={disabled}
-              onChange={(exceptedLibraries) =>
-                editQuality((current) => ({ ...current, exceptedLibraries }))
+              onChange={(exceptedAssets) =>
+                editQuality((current) => ({ ...current, exceptedAssets }))
               }
             />
           ) : null}

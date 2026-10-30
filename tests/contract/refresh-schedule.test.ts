@@ -2,7 +2,7 @@ import { describe, expect, it } from 'vitest';
 import { en } from '@/lib/i18n/messages/en';
 import { zh } from '@/lib/i18n/messages/zh';
 import { isOperationTrigger, OPERATION_TRIGGERS } from '@/lib/domain/ingestion';
-import { REFRESH_INTERVALS_MS, refreshDueAt } from '@/lib/domain/library';
+import { REFRESH_INTERVALS_MS, refreshDueAt } from '@/lib/domain/asset';
 
 const checked = new Date('2026-09-06T10:00:00Z');
 

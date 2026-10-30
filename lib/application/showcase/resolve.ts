@@ -37,9 +37,9 @@ export interface PublicShowcase {
   hasScreenshot: boolean;
   /** For search engines: public and published. */
   indexable: boolean;
-  /** The library can answer right now (published with a current version). */
+  /** The asset can answer right now (published with a current version). */
   ready: boolean;
-  libraryTitle: string;
+  assetTitle: string;
   /** Cache-busting for the asset routes. */
   updatedAt: string;
   /** The gate (lib/domain/showcase.ts `showcaseGate`): checked by the page and every route of it. */
@@ -58,7 +58,7 @@ export interface ShowcaseGateInput {
   expiresAt: string | null;
 }
 
-function gateOf(s: Pick<typeof schema.libraryShowcase.$inferSelect, 'id' | 'passwordHash' | 'passwordVersion' | 'expiresAt'>): ShowcaseGateInput {
+function gateOf(s: Pick<typeof schema.assetShowcase.$inferSelect, 'id' | 'passwordHash' | 'passwordVersion' | 'expiresAt'>): ShowcaseGateInput {
   return {
     showcaseId: s.id,
     hasPassword: s.passwordHash !== null,
@@ -76,15 +76,15 @@ export type ShowcaseLookup =
 const liveHost = liveHostSql;
 
 const columns = {
-  showcase: schema.libraryShowcase,
+  showcase: schema.assetShowcase,
   customHost: liveHost,
-  libraryTitle: schema.library.title,
-  lifecycleStatus: schema.library.lifecycleStatus,
-  currentVersionId: schema.library.currentVersionId,
-  libraryDeletedAt: schema.library.deletedAt,
+  assetTitle: schema.asset.title,
+  lifecycleStatus: schema.asset.lifecycleStatus,
+  currentVersionId: schema.asset.currentVersionId,
+  assetDeletedAt: schema.asset.deletedAt,
 };
 
-function toPublic(row: { showcase: typeof schema.libraryShowcase.$inferSelect; customHost: string | null; libraryTitle: string; lifecycleStatus: string; currentVersionId: string | null }): PublicShowcase {
+function toPublic(row: { showcase: typeof schema.assetShowcase.$inferSelect; customHost: string | null; assetTitle: string; lifecycleStatus: string; currentVersionId: string | null }): PublicShowcase {
   const s = row.showcase;
   return {
     id: s.id,
@@ -98,7 +98,7 @@ function toPublic(row: { showcase: typeof schema.libraryShowcase.$inferSelect; c
     hasScreenshot: s.screenshotKey !== null,
     indexable: showcaseIndexable({ status: s.status, access: s.access }),
     ready: widgetReady({ lifecycleStatus: row.lifecycleStatus, hasCurrentVersion: row.currentVersionId !== null }),
-    libraryTitle: row.libraryTitle,
+    assetTitle: row.assetTitle,
     updatedAt: s.updatedAt.toISOString(),
     gate: gateOf(s),
     customHost: row.customHost ?? null,
@@ -119,21 +119,21 @@ export async function lookupShowcase(
   const database = db();
   const [row] = await database
     .select(columns)
-    .from(schema.libraryShowcase)
-    .innerJoin(schema.library, eq(schema.library.id, schema.libraryShowcase.libraryId))
-    .where(and(eq(schema.libraryShowcase.slug, slug), isNull(schema.libraryShowcase.deletedAt)))
+    .from(schema.assetShowcase)
+    .innerJoin(schema.asset, eq(schema.asset.id, schema.assetShowcase.assetId))
+    .where(and(eq(schema.assetShowcase.slug, slug), isNull(schema.assetShowcase.deletedAt)))
     .limit(1);
   if (row) {
-    if (row.libraryDeletedAt) return { kind: 'none' };
+    if (row.assetDeletedAt) return { kind: 'none' };
     if (showcaseVisible(row.showcase.status)) return { kind: 'page', page: toPublic(row) };
     const owner = options.ownerWorkspaceId && row.showcase.workspaceId === options.ownerWorkspaceId;
     if (owner && row.showcase.status !== 'taken_down') return { kind: 'page', page: { ...toPublic(row), preview: true } };
     return { kind: 'none' };
   }
   const [moved] = await database
-    .select({ slug: schema.libraryShowcase.slug, status: schema.libraryShowcase.status, access: schema.libraryShowcase.access })
-    .from(schema.libraryShowcase)
-    .where(and(eq(schema.libraryShowcase.previousSlug, slug), isNull(schema.libraryShowcase.deletedAt)))
+    .select({ slug: schema.assetShowcase.slug, status: schema.assetShowcase.status, access: schema.assetShowcase.access })
+    .from(schema.assetShowcase)
+    .where(and(eq(schema.assetShowcase.previousSlug, slug), isNull(schema.assetShowcase.deletedAt)))
     .limit(1);
   if (moved && showcaseRedirectable(moved)) return { kind: 'redirect', slug: moved.slug };
   return { kind: 'none' };
@@ -151,17 +151,17 @@ export async function showcaseAssetKeyFor(
 ): Promise<{ key: string; gate: ShowcaseGateInput; owner: boolean } | null> {
   const [row] = await db()
     .select({
-      id: schema.libraryShowcase.id,
-      logoKey: schema.libraryShowcase.logoKey,
-      screenshotKey: schema.libraryShowcase.screenshotKey,
-      status: schema.libraryShowcase.status,
-      workspaceId: schema.libraryShowcase.workspaceId,
-      passwordHash: schema.libraryShowcase.passwordHash,
-      passwordVersion: schema.libraryShowcase.passwordVersion,
-      expiresAt: schema.libraryShowcase.expiresAt,
+      id: schema.assetShowcase.id,
+      logoKey: schema.assetShowcase.logoKey,
+      screenshotKey: schema.assetShowcase.screenshotKey,
+      status: schema.assetShowcase.status,
+      workspaceId: schema.assetShowcase.workspaceId,
+      passwordHash: schema.assetShowcase.passwordHash,
+      passwordVersion: schema.assetShowcase.passwordVersion,
+      expiresAt: schema.assetShowcase.expiresAt,
     })
-    .from(schema.libraryShowcase)
-    .where(and(eq(schema.libraryShowcase.slug, slug), isNull(schema.libraryShowcase.deletedAt)))
+    .from(schema.assetShowcase)
+    .where(and(eq(schema.assetShowcase.slug, slug), isNull(schema.assetShowcase.deletedAt)))
     .limit(1);
   if (!row) return null;
   const owner = Boolean(options.ownerWorkspaceId && row.workspaceId === options.ownerWorkspaceId);
@@ -180,7 +180,7 @@ export interface ShowcasePrincipal {
 
 /**
  * Who a published page's question runs as: its internal site key, resolved
- * the way the widget's is (owner account usable, key not revoked, library
+ * the way the widget's is (owner account usable, key not revoked, asset
  * alive). A page that is not visible resolves to nothing.
  */
 export async function resolveShowcasePrincipal(slug: string): Promise<ShowcasePrincipal | null> {
@@ -188,19 +188,19 @@ export async function resolveShowcasePrincipal(slug: string): Promise<ShowcasePr
   const [row] = await db()
     .select({
       showcase: {
-        id: schema.libraryShowcase.id,
-        slug: schema.libraryShowcase.slug,
-        status: schema.libraryShowcase.status,
-        passwordHash: schema.libraryShowcase.passwordHash,
-        passwordVersion: schema.libraryShowcase.passwordVersion,
-        expiresAt: schema.libraryShowcase.expiresAt,
+        id: schema.assetShowcase.id,
+        slug: schema.assetShowcase.slug,
+        status: schema.assetShowcase.status,
+        passwordHash: schema.assetShowcase.passwordHash,
+        passwordVersion: schema.assetShowcase.passwordVersion,
+        expiresAt: schema.assetShowcase.expiresAt,
       },
       customHost: liveHost,
       key: schema.siteKey.key,
     })
-    .from(schema.libraryShowcase)
-    .innerJoin(schema.siteKey, eq(schema.siteKey.id, schema.libraryShowcase.siteKeyId))
-    .where(and(eq(schema.libraryShowcase.slug, slug), isNull(schema.libraryShowcase.deletedAt)))
+    .from(schema.assetShowcase)
+    .innerJoin(schema.siteKey, eq(schema.siteKey.id, schema.assetShowcase.siteKeyId))
+    .where(and(eq(schema.assetShowcase.slug, slug), isNull(schema.assetShowcase.deletedAt)))
     .limit(1);
   if (!row || !showcaseVisible(row.showcase.status)) return null;
   try {
@@ -216,15 +216,15 @@ export async function showcasePasswordFor(slug: string): Promise<{ showcaseId: s
   if (!/^[a-z0-9-]{3,48}$/.test(slug)) return null;
   const [row] = await db()
     .select({
-      id: schema.libraryShowcase.id,
-      status: schema.libraryShowcase.status,
-      passwordHash: schema.libraryShowcase.passwordHash,
-      passwordVersion: schema.libraryShowcase.passwordVersion,
-      expiresAt: schema.libraryShowcase.expiresAt,
+      id: schema.assetShowcase.id,
+      status: schema.assetShowcase.status,
+      passwordHash: schema.assetShowcase.passwordHash,
+      passwordVersion: schema.assetShowcase.passwordVersion,
+      expiresAt: schema.assetShowcase.expiresAt,
       customHost: liveHost,
     })
-    .from(schema.libraryShowcase)
-    .where(and(eq(schema.libraryShowcase.slug, slug), isNull(schema.libraryShowcase.deletedAt)))
+    .from(schema.assetShowcase)
+    .where(and(eq(schema.assetShowcase.slug, slug), isNull(schema.assetShowcase.deletedAt)))
     .limit(1);
   if (!row || !showcaseVisible(row.status) || row.passwordHash === null) return null;
   return { showcaseId: row.id, hash: row.passwordHash, gate: gateOf(row), customHost: row.customHost ?? null };

@@ -2,8 +2,9 @@
 -- 2026-10-30).
 --
 -- The internal rename: every table, column, constraint and index whose name
--- says library now says asset. Renames only -- no row is copied or rewritten
--- and nothing is dropped, so asset ids, version ids and every anchored leaf
+-- says library now says asset, and the two stored codes that carried the
+-- word (end of file). Otherwise renames only -- no row is copied and nothing
+-- is dropped, so asset ids, version ids and every anchored leaf
 -- stay exactly as they were (lib/domain/anchor-leaf.ts hashes values, never
 -- column names). Postgres keeps foreign keys, grants and row types attached
 -- through a rename. Migrations before this one keep the old names by design.
@@ -250,3 +251,13 @@ BEGIN
     EXECUTE format('ALTER TABLE %s RENAME CONSTRAINT %I TO %I', r.tbl, r.conname, replace(r.conname, 'library', 'asset'));
   END LOOP;
 END $$;
+--> statement-breakpoint
+
+-- ------------------------------------------------------------------- values
+-- Two stored codes the code compares against carried the word: the build
+-- failure for a workspace over capacity, and the policy entry kind. The
+-- append-only audit log keeps its action and target names as written -- its
+-- rows are hash-chained and anchored, and the code still writes those names.
+UPDATE "workflow_operation" SET "error" = 'asset_too_large' WHERE "error" = 'library_too_large';
+--> statement-breakpoint
+UPDATE "policy_asset_entry" SET "target_type" = 'asset' WHERE "target_type" = 'library';

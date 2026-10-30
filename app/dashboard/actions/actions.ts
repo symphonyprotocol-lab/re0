@@ -5,7 +5,7 @@ import { revalidatePath } from 'next/cache';
 import { confirmAction, rejectAction } from '@/lib/application/agent';
 import { syncBuildTasks } from '@/lib/application/a2a/task-events';
 import { delegationsByActionIds, type DelegationView } from '@/lib/application/external-agents';
-import { canManageLibraries } from '@/lib/application/libraries';
+import { canManageAssets } from '@/lib/application/assets';
 import { runOperation } from '@/lib/application/ingestion';
 import { ActionRefused, type ActionState, type ConfirmActor } from '@/lib/domain/agent-action';
 import { requireSession } from '@/lib/http/session';
@@ -35,7 +35,7 @@ async function ownerActor(): Promise<Extract<ConfirmActor, { kind: 'owner' }>> {
     kind: 'owner',
     userId: session.user.id,
     workspaceId: session.workspace.id,
-    canManage: canManageLibraries(session.workspace.role),
+    canManage: canManageAssets(session.workspace.role),
   };
 }
 

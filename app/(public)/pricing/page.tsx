@@ -136,8 +136,8 @@ export default async function PricingPage() {
   const compare: [string, string, string][] = [
     [r.price, free.price, fill(r.pricePack, { price: addon.price })],
     [r.calls, fill(r.callsMonthly, free), fill(r.callsPack, addon)],
-    [r.publicLibraries, r.allIncluded, r.sameAsFree],
-    [r.ownLibraries, r.unlimited, r.sameAsFree],
+    [r.publicAssets, r.allIncluded, r.sameAsFree],
+    [r.ownAssets, r.unlimited, r.sameAsFree],
     [r.storage, figures.storage.base, fill(r.storageAfterPack, { storage: figures.storage.extended })],
     [r.keys, fill(r.keysCount, { n: free.keys }), r.sameAsFree],
     [r.builds, fill(r.buildRate, free), r.sameAsFree],

@@ -6,13 +6,13 @@ import {
 } from '@/components/dashboard/import-wizard';
 import {
   checkDomainVerificationAction,
-  createWorkspaceLibraryAction,
+  createWorkspaceAssetAction,
   prepareUploadAction,
   startDomainVerificationAction,
 } from './actions';
 import { BackLink, PANEL } from '@/components/dashboard/ui';
 import { listImportablePages, listImportableRepositories } from '@/lib/application/auth';
-import { canManageLibraries } from '@/lib/application/libraries';
+import { canManageAssets } from '@/lib/application/assets';
 import { quoteBuild } from '@/lib/application/plans';
 import { fill } from '@/lib/i18n/format';
 import { isGithubConnectOutcome } from '@/lib/domain/github';
@@ -22,7 +22,7 @@ import { getMessages } from '@/lib/i18n/server';
 import { requireSession } from '@/lib/http/session';
 
 export async function generateMetadata(): Promise<Metadata> {
-  return { title: (await getMessages()).dashboard.newLibrary.metaTitle };
+  return { title: (await getMessages()).dashboard.newAsset.metaTitle };
 }
 
 /**
@@ -79,22 +79,22 @@ async function notionImportState(userId: string): Promise<NotionImportState> {
   }
 }
 
-export default async function DashboardAddLibraryPage({
+export default async function DashboardAddAssetPage({
   searchParams,
 }: {
   searchParams: Promise<{ github?: string; notion?: string }>;
 }) {
   const session = await requireSession('/dashboard/assets/new');
   const t = await getMessages();
-  const n = t.dashboard.newLibrary;
+  const n = t.dashboard.newAsset;
 
   /*
-   * requirement.md 3.3 gives library management to owners and admins, and
-   * `createWorkspaceLibrary` refuses anyone else. Said here rather than four
+   * requirement.md 3.3 gives asset management to owners and admins, and
+   * `createWorkspaceAsset` refuses anyone else. Said here rather than four
    * steps later: a viewer who filled the whole wizard in learned only at the
    * submit button that none of it could be saved.
    */
-  if (!canManageLibraries(session.workspace.role)) {
+  if (!canManageAssets(session.workspace.role)) {
     return (
       <div className="flex flex-col gap-4">
         <header className="flex flex-col gap-[5px]">
@@ -113,7 +113,7 @@ export default async function DashboardAddLibraryPage({
   const [github, notion, quote] = await Promise.all([
     githubImportState(session.user.id),
     notionImportState(session.user.id),
-    /* library-build-billing.md 4.1: the worst case, over the page-fetching
+    /* asset-build-billing.md 4.1: the worst case, over the page-fetching
        sources, shown before anything is queued. */
     quoteBuild({ workspaceId: session.workspace.id, fetchesPages: true }),
   ]);
@@ -141,7 +141,7 @@ export default async function DashboardAddLibraryPage({
       {/* The wizard carries its own draft badge and review pipeline: both
           say what is actually true of this attempt, which only it knows. */}
       <ImportWizard
-        action={createWorkspaceLibraryAction}
+        action={createWorkspaceAssetAction}
         prepare={prepareUploadAction}
         workspaceId={session.workspace.id}
         github={github}
@@ -152,7 +152,7 @@ export default async function DashboardAddLibraryPage({
         checkVerification={checkDomainVerificationAction}
       />
 
-      {/* Build cost -- library-build-billing.md 8. */}
+      {/* Build cost -- asset-build-billing.md 8. */}
       <aside className={`${PANEL} flex flex-col gap-3 p-6`}>
         <div className="flex flex-col gap-[3px]">
           <p className="text-[15px] leading-[1.4] text-ink">{cost.title}</p>

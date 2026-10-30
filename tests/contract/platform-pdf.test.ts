@@ -2,18 +2,18 @@ import { describe, expect, it } from 'vitest';
 import { en } from '@/lib/i18n/messages/en';
 import { zh } from '@/lib/i18n/messages/zh';
 import {
-  draftPlatformLibrary,
-  isPlatformLibraryType,
+  draftPlatformAsset,
+  isPlatformAssetType,
   isPlatformSourceType,
   normalizeLocation,
   parseUploadManifest,
-  PLATFORM_LIBRARY_TYPES,
+  PLATFORM_ASSET_TYPES,
   PLATFORM_SOURCE_TYPES,
   PLATFORM_UPLOAD_OWNER,
-  PlatformLibraryRefused,
+  PlatformAssetRefused,
   uploadKey,
   uploadPrefix,
-} from '@/lib/domain/library';
+} from '@/lib/domain/asset';
 
 const BATCH = '01a07497-0000-7000-8000-000000000001';
 const FILE = '01a07497-0000-7000-8000-000000000002';
@@ -27,21 +27,21 @@ const PDF = {
   uploads: { batchId: BATCH, files: [{ id: FILE, name: 'handbook.pdf', size: 1234 }] },
 };
 
-function refusal(input: Parameters<typeof draftPlatformLibrary>[0]): string {
+function refusal(input: Parameters<typeof draftPlatformAsset>[0]): string {
   try {
-    draftPlatformLibrary(input);
+    draftPlatformAsset(input);
     return 'accepted';
   } catch (error) {
-    return error instanceof PlatformLibraryRefused ? error.code : 'unexpected';
+    return error instanceof PlatformAssetRefused ? error.code : 'unexpected';
   }
 }
 
-describe('a platform pdf library', () => {
-  it('is a library type but not a typed-location source type', () => {
-    expect([...PLATFORM_LIBRARY_TYPES]).toEqual([...PLATFORM_SOURCE_TYPES, 'pdf']);
-    expect(isPlatformLibraryType('pdf')).toBe(true);
+describe('a platform pdf asset', () => {
+  it('is an asset type but not a typed-location source type', () => {
+    expect([...PLATFORM_ASSET_TYPES]).toEqual([...PLATFORM_SOURCE_TYPES, 'pdf']);
+    expect(isPlatformAssetType('pdf')).toBe(true);
     expect(isPlatformSourceType('pdf')).toBe(false);
-    expect(isPlatformLibraryType('markdown')).toBe(false);
+    expect(isPlatformAssetType('markdown')).toBe(false);
   });
 
   it('keys its uploads under the platform owner, which no workspace id can be', () => {
@@ -53,7 +53,7 @@ describe('a platform pdf library', () => {
   });
 
   it('derives location and cadence from the manifest rather than the form', () => {
-    const draft = draftPlatformLibrary(PDF);
+    const draft = draftPlatformAsset(PDF);
     expect(draft.sourceType).toBe('pdf');
     expect(draft.publicId).toBe('/docs/handbook');
     expect(draft.location).toBe(`uploads/platform/${BATCH}`);
@@ -64,7 +64,7 @@ describe('a platform pdf library', () => {
   });
 
   it('may be created empty, with a fresh batch of its own', () => {
-    const draft = draftPlatformLibrary({ ...PDF, uploads: undefined });
+    const draft = draftPlatformAsset({ ...PDF, uploads: undefined });
     expect(draft.files).toEqual([]);
     expect(draft.location).toMatch(/^uploads\/platform\/[0-9a-f-]{36}$/);
   });
@@ -79,27 +79,27 @@ describe('a platform pdf library', () => {
 
   it('has words for the new refusals and the files panel in both languages', () => {
     for (const code of ['invalid_uploads', 'nothing_to_change'] as const) {
-      expect(en.admin.platformLibraries.errors[code]).toBeTruthy();
-      expect(zh.admin.platformLibraries.errors[code]).toBeTruthy();
+      expect(en.admin.platformAssets.errors[code]).toBeTruthy();
+      expect(zh.admin.platformAssets.errors[code]).toBeTruthy();
     }
     expect(en.admin.audit.actions['platform_library.files']).toBeTruthy();
     expect(zh.admin.audit.actions['platform_library.files']).toBeTruthy();
-    expect(en.admin.platformLibraryDetail.files.save).toBeTruthy();
-    expect(zh.admin.platformLibraryDetail.files.save).toBeTruthy();
+    expect(en.admin.platformAssetDetail.files.save).toBeTruthy();
+    expect(zh.admin.platformAssetDetail.files.save).toBeTruthy();
   });
 });
 
-describe('a pdf source added to an existing library', () => {
+describe('a pdf source added to an existing asset', () => {
   it('is drafted from its manifest, manual, with the platform prefix as its location', async () => {
-    const { draftPlatformSource } = await import('@/lib/domain/library');
+    const { draftPlatformSource } = await import('@/lib/domain/asset');
     const draft = draftPlatformSource({ type: 'pdf', location: '', refreshPolicy: 'daily', uploads: PDF.uploads });
     expect(draft.type).toBe('pdf');
     expect(draft.refreshPolicy).toBe('manual');
     expect(draft.location).toBe(`uploads/platform/${BATCH}`);
     expect(draft.files.map((file) => file.id)).toEqual([FILE]);
     expect(draftPlatformSource({ type: 'website', location: 'https://x.test/docs', refreshPolicy: 'daily' }).files).toEqual([]);
-    expect(() => draftPlatformSource({ type: 'pdf', location: '', refreshPolicy: 'manual', uploads: { batchId: 'x' } })).toThrow(PlatformLibraryRefused);
-    expect(en.admin.platformLibraries.errors.pdf_source_exists).toBeTruthy();
-    expect(zh.admin.platformLibraries.errors.pdf_source_exists).toBeTruthy();
+    expect(() => draftPlatformSource({ type: 'pdf', location: '', refreshPolicy: 'manual', uploads: { batchId: 'x' } })).toThrow(PlatformAssetRefused);
+    expect(en.admin.platformAssets.errors.pdf_source_exists).toBeTruthy();
+    expect(zh.admin.platformAssets.errors.pdf_source_exists).toBeTruthy();
   });
 });

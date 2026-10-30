@@ -11,7 +11,7 @@ describe('safeReturnTo', () => {
     expect(safeReturnTo('/dashboard')).toBe('/dashboard');
     expect(safeReturnTo('/dashboard/api-keys')).toBe('/dashboard/api-keys');
     expect(safeReturnTo('/channels?sort=recent')).toBe('/channels?sort=recent');
-    expect(safeReturnTo('/assets/claim?library=%2Fwebsites%2Fx')).toBe('/assets/claim?library=%2Fwebsites%2Fx');
+    expect(safeReturnTo('/assets/claim?asset=%2Fwebsites%2Fx')).toBe('/assets/claim?asset=%2Fwebsites%2Fx');
     expect(safeReturnTo('/u/alice')).toBe('/u/alice');
     /* Retired in P1, with no redirects (agent-first-proposal.md 3.5). */
     expect(safeReturnTo('/libraries?q=next')).toBe('/dashboard');

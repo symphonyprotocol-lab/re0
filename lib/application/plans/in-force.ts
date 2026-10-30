@@ -1,7 +1,7 @@
 /**
  * Which subscription row sets a workspace's plan right now. One definition,
  * read by every place that asks: the quota transaction, billing, the session,
- * and the library and key ceilings.
+ * and the asset and key ceilings.
  *
  * Two rules on top of "active, and its period contains now":
  *

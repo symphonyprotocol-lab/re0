@@ -23,10 +23,10 @@ export function isModelKind(value: unknown): value is ModelKind {
 
 /**
  * The width of the stored vector columns (`chunk.embedding`,
- * `library_profile_vector.embedding`).
+ * `asset_profile_vector.embedding`).
  *
  * A pgvector column's dimension is part of its type, and
- * `library_profile_vector` carries an HNSW index, which an unconstrained
+ * `asset_profile_vector` carries an HNSW index, which an unconstrained
  * `vector` column cannot have. So the column stays fixed and the *model's*
  * dimension is the configurable thing: a narrower model's vectors are
  * zero-padded to this width on the way in (`padToColumn`).

@@ -19,7 +19,7 @@ import {
   ShieldCheckIcon,
 } from '@/components/ui/icons';
 import { listApiKeys } from '@/lib/application/auth';
-import { canManageApiKeys } from '@/lib/application/libraries';
+import { canManageApiKeys } from '@/lib/application/assets';
 import { listRequests } from '@/lib/application/plans';
 import { isApiKeyIdle } from '@/lib/domain/api-key';
 import { workspaceUsage } from '@/lib/http/dashboard';
@@ -262,7 +262,7 @@ export default async function DashboardApiKeysPage() {
                 />
                 <span className="flex min-w-0 flex-1 flex-col gap-[3px]">
                   <span className="truncate text-[12px] font-medium text-ink">
-                    {entry.libraryPublicId ?? entry.operation}
+                    {entry.assetPublicId ?? entry.operation}
                   </span>
                   <span className="truncate text-[10px] text-muted">
                     {entry.operation} · {entry.statusCode}

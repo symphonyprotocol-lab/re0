@@ -4,7 +4,7 @@
  *
  * requirement.md 5.3 asks the console to search, filter, export, inspect and
  * enable or suspend a registered account; 3.2 says suspension takes effect at
- * once -- web sessions and API keys stop working and the account's libraries
+ * once -- web sessions and API keys stop working and the account's assets
  * stop answering. What that means concretely per subsystem is spelled out on
  * `setUserAccountStatus` below.
  *
@@ -43,7 +43,7 @@ export interface UserWorkspaceView {
   renewal: WorkspacePlanVersion['renewal'];
 }
 
-export interface UserLibraryView {
+export interface UserAssetView {
   id: string;
   publicId: string;
   title: string;
@@ -90,7 +90,7 @@ export interface ConsoleUserDetail {
   updatedAt: Date;
   identities: UserIdentity[];
   workspaces: UserWorkspaceView[];
-  libraries: UserLibraryView[];
+  assets: UserAssetView[];
   apiKeys: UserApiKeyView[];
   sessions: UserSessionView[];
   audit: UserAuditView[];
@@ -109,10 +109,10 @@ export interface ConsoleUserDetail {
   /** API keys that have not been revoked -- what suspending would cover. */
   liveApiKeys: number;
   apiKeyTotal: number;
-  /** Published libraries -- what suspending would take out of circulation. */
-  publishedLibraries: number;
-  publicLibraries: number;
-  libraryTotal: number;
+  /** Published assets -- what suspending would take out of circulation. */
+  publishedAssets: number;
+  publicAssets: number;
+  assetTotal: number;
   auditTotal: number;
 }
 
@@ -166,13 +166,13 @@ export async function getConsoleUser(
    */
   const [
     subscriptions,
-    libraries,
+    assets,
     apiKeys,
     sessions,
     usage,
     identities,
     audit,
-    libraryCounts,
+    assetCounts,
     apiKeyCounts,
     sessionCounts,
     auditCount,
@@ -207,22 +207,22 @@ export async function getConsoleUser(
       ? []
       : database
           .select({
-            id: schema.library.id,
-            publicId: schema.library.publicId,
-            title: schema.library.title,
+            id: schema.asset.id,
+            publicId: schema.asset.publicId,
+            title: schema.asset.title,
             visibility: exposure(),
-            lifecycleStatus: schema.library.lifecycleStatus,
-            storageBytes: schema.library.storageBytes,
-            createdAt: schema.library.createdAt,
+            lifecycleStatus: schema.asset.lifecycleStatus,
+            storageBytes: schema.asset.storageBytes,
+            createdAt: schema.asset.createdAt,
           })
-          .from(schema.library)
+          .from(schema.asset)
           .where(
             and(
-              inArray(schema.library.ownerWorkspaceId, workspaceIds),
-              isNull(schema.library.deletedAt),
+              inArray(schema.asset.ownerWorkspaceId, workspaceIds),
+              isNull(schema.asset.deletedAt),
             ),
           )
-          .orderBy(desc(schema.library.createdAt))
+          .orderBy(desc(schema.asset.createdAt))
           .limit(DETAIL_LIMIT),
     workspaceIds.length === 0
       ? []
@@ -301,14 +301,14 @@ export async function getConsoleUser(
       : database
           .select({
             total: sql<number>`count(*)::int`,
-            published: sql<number>`(count(*) filter (where ${schema.library.lifecycleStatus} = 'published'))::int`,
+            published: sql<number>`(count(*) filter (where ${schema.asset.lifecycleStatus} = 'published'))::int`,
             visible: sql<number>`(count(*) filter (where ${listedInPublicChannel()}))::int`,
           })
-          .from(schema.library)
+          .from(schema.asset)
           .where(
             and(
-              inArray(schema.library.ownerWorkspaceId, workspaceIds),
-              isNull(schema.library.deletedAt),
+              inArray(schema.asset.ownerWorkspaceId, workspaceIds),
+              isNull(schema.asset.deletedAt),
             ),
           ),
     workspaceIds.length === 0
@@ -362,7 +362,7 @@ export async function getConsoleUser(
         renewal: plan ? subscriptionRenewal(plan) : null,
       };
     }),
-    libraries,
+    assets,
     apiKeys,
     sessions,
     audit,
@@ -371,9 +371,9 @@ export async function getConsoleUser(
     sessionTotal: sessionCounts[0]?.total ?? 0,
     liveApiKeys: apiKeyCounts[0]?.live ?? 0,
     apiKeyTotal: apiKeyCounts[0]?.total ?? 0,
-    publishedLibraries: libraryCounts[0]?.published ?? 0,
-    publicLibraries: libraryCounts[0]?.visible ?? 0,
-    libraryTotal: libraryCounts[0]?.total ?? 0,
+    publishedAssets: assetCounts[0]?.published ?? 0,
+    publicAssets: assetCounts[0]?.visible ?? 0,
+    assetTotal: assetCounts[0]?.total ?? 0,
     auditTotal: auditCount[0]?.total ?? 0,
   };
 }
@@ -411,11 +411,11 @@ export interface UserStatusChangeResult {
  *   what may turn out to be a mistaken suspension. The account check belongs at
  *   the point of use, where it is reversible; API-key authentication is not
  *   built yet (architecture.md 21, step 2 onwards).
- * - Libraries: same reasoning. Access pauses while the owner is suspended;
+ * - Assets: same reasoning. Access pauses while the owner is suspended;
  *   `lifecycle_status` is a review state and requirement.md 6.2 forbids folding
  *   another meaning into it, so suspension must not rewrite it.
  *
- * The counts the console shows for keys and libraries therefore describe what
+ * The counts the console shows for keys and assets therefore describe what
  * the suspension covers, not rows this function edits.
  */
 export async function setUserAccountStatus(

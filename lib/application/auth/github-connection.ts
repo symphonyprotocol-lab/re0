@@ -270,7 +270,7 @@ export class GithubImportRefused extends AppError {
 }
 
 export interface GithubImportCheck {
-  /** `owner/name` as GitHub spells it, which the library id is taken from. */
+  /** `owner/name` as GitHub spells it, which the asset id is taken from. */
   location: string;
   repositoryId: number;
 }

@@ -1,8 +1,8 @@
 /**
  * A verified domain challenge, written straight to the table, for tests that
- * create a website library and are about something else. The creation use
+ * create a website asset and are about something else. The creation use
  * case refuses that source without one
- * (lib/application/libraries/create.ts), so every such test needs one; the
+ * (lib/application/assets/create.ts), so every such test needs one; the
  * challenge flow itself is covered by tests/integration/domain-verification.
  */
 import { verificationHost } from '@/lib/domain/domain-verification';

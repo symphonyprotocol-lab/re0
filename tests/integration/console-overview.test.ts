@@ -1,7 +1,7 @@
 /**
  * The operations overview against a real database: every tile reads the table
  * that owns it, the review queue measures its wait from the build that
- * submitted the library, and a session without a capability gets no figure
+ * submitted the asset, and a session without a capability gets no figure
  * for it -- not a zero, nothing (requirement.md 5.3).
  *
  * Runs only when TEST_DATABASE_URL points at a disposable database. The
@@ -34,7 +34,7 @@ const stamp = Date.now();
 const now = new Date(stamp);
 const userIds: string[] = [];
 const workspaceId = crypto.randomUUID();
-const libraryIds: string[] = [];
+const assetIds: string[] = [];
 const versionIds: string[] = [];
 const operationIds: string[] = [];
 const requestIds: string[] = [];
@@ -55,14 +55,14 @@ async function user(createdAt: Date): Promise<string> {
   return id;
 }
 
-async function version(libraryId: string, createdAt: Date, label: string): Promise<void> {
+async function version(assetId: string, createdAt: Date, label: string): Promise<void> {
   const versionId = uuidv7();
   versionIds.push(versionId);
   await db()
-    .insert(schema.libraryVersion)
+    .insert(schema.assetVersion)
     .values({
       id: versionId,
-      libraryId,
+      assetId,
       label,
       sourceDigest: `digest-${label}`,
       parserVersion: 'test',
@@ -73,20 +73,20 @@ async function version(libraryId: string, createdAt: Date, label: string): Promi
     });
 }
 
-async function library(input: {
+async function asset(input: {
   lifecycleStatus: 'submitted' | 'published';
   indexStatus: 'ready' | 'failed';
   createdAt: Date;
   versionAt?: Date;
 }): Promise<string> {
   const id = crypto.randomUUID();
-  libraryIds.push(id);
+  assetIds.push(id);
   await db()
-    .insert(schema.library)
+    .insert(schema.asset)
     .values({
       id,
-      publicId: `/overview-${stamp}/${libraryIds.length}`,
-      title: `Overview fixture ${libraryIds.length}`,
+      publicId: `/overview-${stamp}/${assetIds.length}`,
+      title: `Overview fixture ${assetIds.length}`,
       ownerWorkspaceId: workspaceId,
       kind: 'website',
       lifecycleStatus: input.lifecycleStatus,
@@ -111,25 +111,25 @@ describeWithDb('the operations overview', () => {
     await user(new Date(stamp - 400 * DAY_MS));
 
     /*
-     * A library created a year ago, submitted by a build three hours ago and
+     * An asset created a year ago, submitted by a build three hours ago and
      * rebuilt by its owner since: the queue must say it has waited three
      * hours -- not a year, and not "just now" because of the rebuild. A
      * second one has waited two days, which is overdue. A third is indexed
      * and published.
      */
-    const resubmitted = await library({
+    const resubmitted = await asset({
       lifecycleStatus: 'submitted',
       indexStatus: 'ready',
       createdAt: new Date(stamp - 365 * DAY_MS),
       versionAt: new Date(stamp - 3 * HOUR_MS),
     });
     await version(resubmitted, new Date(stamp - 5 * 60 * 1000), 'v2');
-    await library({
+    await asset({
       lifecycleStatus: 'submitted',
       indexStatus: 'ready',
       createdAt: new Date(stamp - 2 * DAY_MS),
     });
-    await library({
+    await asset({
       lifecycleStatus: 'published',
       indexStatus: 'failed',
       createdAt: new Date(stamp - 1 * DAY_MS),
@@ -144,7 +144,7 @@ describeWithDb('the operations overview', () => {
       operationIds.push(id);
       await database.insert(schema.workflowOperation).values({
         id,
-        libraryId: libraryIds[2]!,
+        assetId: assetIds[2]!,
         operationType: 'refresh',
         sourceDigest: `overview-${stamp}-${status}`,
         status,
@@ -190,10 +190,10 @@ describeWithDb('the operations overview', () => {
         .where(inArray(schema.workflowOperation.id, operationIds));
     }
     if (versionIds.length > 0) {
-      await database.delete(schema.libraryVersion).where(inArray(schema.libraryVersion.id, versionIds));
+      await database.delete(schema.assetVersion).where(inArray(schema.assetVersion.id, versionIds));
     }
-    if (libraryIds.length > 0) {
-      await database.delete(schema.library).where(inArray(schema.library.id, libraryIds));
+    if (assetIds.length > 0) {
+      await database.delete(schema.asset).where(inArray(schema.asset.id, assetIds));
     }
     await database.delete(schema.workspace).where(eq(schema.workspace.id, workspaceId));
     if (userIds.length > 0) await database.delete(schema.user).where(inArray(schema.user.id, userIds));
@@ -218,9 +218,9 @@ describeWithDb('the operations overview', () => {
     expect(dayKey(after.growth![29]!.day)).toBe(dayKey(now));
   });
 
-  it('counts libraries in this window and the one before it', () => {
-    expect(after.libraries!.total - before.libraries!.total).toBe(3);
-    expect(after.libraries!.inWindow - before.libraries!.inWindow).toBe(2);
+  it('counts assets in this window and the one before it', () => {
+    expect(after.assets!.total - before.assets!.total).toBe(3);
+    expect(after.assets!.inWindow - before.assets!.inWindow).toBe(2);
   });
 
   it('reads service health from the request log and the operation queue', () => {
@@ -246,7 +246,7 @@ describeWithDb('the operations overview', () => {
     expect(support.growthIncludesPaid).toBe(false);
     expect(support.conversionBps).toBeNull();
     expect(support.growth!.every((point) => point.paid === 0)).toBe(true);
-    expect(support.libraries).toBeNull();
+    expect(support.assets).toBeNull();
     expect(support.revenue).toBeNull();
     expect(support.activity).toBeNull();
   });

@@ -2,7 +2,7 @@
  * Uploaded PDFs, read back from object storage and turned into text.
  *
  * The other connectors fetch from somewhere; this one has nothing to fetch.
- * The wizard put the files in the bucket before the library existed
+ * The wizard put the files in the bucket before the asset existed
  * (architecture.md 7), and the source row's config says where. So the
  * "snapshot" is: read each key, extract its text, and hand the pipeline a
  * file per PDF -- named as the operator named it, so that a citation reads
@@ -22,7 +22,7 @@
  */
 import { extractText, getDocumentProxy } from 'unpdf';
 import { EMPTY_SOURCE_CONFIG, IngestionFailure } from '@/lib/domain/ingestion';
-import { uploadedFilesOf, type UploadedFile, PLATFORM_UPLOAD_OWNER } from '@/lib/domain/library';
+import { uploadedFilesOf, type UploadedFile, PLATFORM_UPLOAD_OWNER } from '@/lib/domain/asset';
 import type { ObjectStore } from '@/lib/infrastructure/objects/store';
 import { pdfOcr, type PdfOcr } from './ocr';
 import type { FetchedFile, SourceSnapshot } from './types';
@@ -86,7 +86,7 @@ async function readOne(
   return {
     path: upload.name,
     /* Served by the dashboard for the owning workspace, or by the public
-       files route for a platform library's upload; the library id is not
+       files route for a platform asset's upload; the asset id is not
        known here, and either route resolves the file by its own id. */
     url: upload.key.startsWith(`uploads/${PLATFORM_UPLOAD_OWNER}/`)
       ? `/files/${upload.id}`

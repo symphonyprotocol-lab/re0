@@ -1,8 +1,8 @@
 /**
- * An uploaded file of a published platform library, for anyone.
+ * An uploaded file of a published platform asset, for anyone.
  *
- * Citations of a platform PDF library point here (`lib/infrastructure/
- * connectors/pdf.ts`). Only published libraries answer: a draft's files are
+ * Citations of a platform PDF asset point here (`lib/infrastructure/
+ * connectors/pdf.ts`). Only published assets answer: a draft's files are
  * the operator's to preview, through `/admin/files/[fileId]`, whose session
  * cookie never reaches this path. The dashboard's `/dashboard/files/[fileId]`
  * is the workspace counterpart; the three stay separate because their

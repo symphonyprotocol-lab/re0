@@ -72,31 +72,31 @@ export function AdminSidebar({
       label: nav.business,
       items: [
         { href: '/admin/users', label: nav.users, Icon: UsersIcon, needs: 'users' },
-        { href: '/admin/libraries', label: nav.libraries, Icon: DatabaseIcon, needs: 'libraries' },
+        { href: '/admin/assets', label: nav.assets, Icon: DatabaseIcon, needs: 'assets' },
         {
-          href: '/admin/platform-libraries',
-          label: nav.platformLibraries,
+          href: '/admin/platform-assets',
+          label: nav.platformAssets,
           Icon: GlobeIcon,
-          needs: 'platformLibraries',
+          needs: 'platformAssets',
         },
         {
           href: '/admin/refresh-queue',
           label: nav.refreshQueue,
           Icon: RefreshIcon,
           badge: openRefreshes,
-          needs: 'platformLibraries',
+          needs: 'platformAssets',
         },
         /*
-         * Ownership sits with the libraries it decides, not under system:
+         * Ownership sits with the assets it decides, not under system:
          * requirement.md 5.3 gives a dispute to whoever runs the catalogue,
          * and its own capability keeps a reviewer out (lib/domain/admin.ts).
          */
         { href: '/admin/claims', label: nav.claims, Icon: ScaleIcon, needs: 'claims' },
-        /* Readers' reports on comments (agent-first-proposal.md 6.8): content review's, like the libraries. */
-        { href: '/admin/comments', label: nav.commentReports, Icon: ScrollTextIcon, needs: 'libraries' },
+        /* Readers' reports on comments (agent-first-proposal.md 6.8): content review's, like the assets. */
+        { href: '/admin/comments', label: nav.commentReports, Icon: ScrollTextIcon, needs: 'assets' },
         /* Showcase pages are user content on an address of ours (lib/domain/showcase.ts): content review's to take down. Offline since the agent-first turn. */
         ...(surfaceEnabled('showcase')
-          ? [{ href: '/admin/showcases', label: nav.showcases, Icon: GlobeIcon, needs: 'libraries' as const }]
+          ? [{ href: '/admin/showcases', label: nav.showcases, Icon: GlobeIcon, needs: 'assets' as const }]
           : []),
       ],
     },

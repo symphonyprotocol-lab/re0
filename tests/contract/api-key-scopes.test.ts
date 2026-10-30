@@ -14,7 +14,7 @@ import {
   parseScopes,
 } from '@/lib/domain/api-key';
 import { API_KEY_PREFIXES, requireScope } from '@/lib/application/auth/api-key';
-import { canManageApiKeys } from '@/lib/application/libraries';
+import { canManageApiKeys } from '@/lib/application/assets';
 import { en } from '@/lib/i18n/messages/en';
 import { zh } from '@/lib/i18n/messages/zh';
 

@@ -23,7 +23,7 @@ import { clientAddress } from '@/lib/http/client-address';
 export interface ClaimAdminActionResult {
   ok: boolean;
   error?: 'not_found' | 'invalid_input' | 'reason_required' | 'unavailable';
-  /** Set on a revoke: whether the library also lost its owner. */
+  /** Set on a revoke: whether the asset also lost its owner. */
   ownerCleared?: boolean;
 }
 
@@ -86,7 +86,7 @@ export async function ruleDisputeAction(
 }
 
 /**
- * Close a claim. On a verified one the library loses its owner too, which the
+ * Close a claim. On a verified one the asset loses its owner too, which the
  * result reports so the dialog can say which of the two things happened.
  */
 export async function revokeClaimAction(

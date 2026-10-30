@@ -1,6 +1,6 @@
 /**
  * The Policy Engine against a real database. architecture.md 10: PATCH mints
- * immutable versions, Library Search filters candidates at the metadata
+ * immutable versions, Asset Search filters candidates at the metadata
  * stage, Context Retrieval refuses with the stable reason code before
  * reserving anything, and an anonymous caller -- who has no workspace --
  * has no policy.
@@ -23,10 +23,10 @@ const { buildVersion, memoryObjectStore, publishVersion } = await import(
   '@/lib/application/ingestion'
 );
 const { queryDocs } = await import('@/lib/application/retrieval/query-docs');
-const { resolveLibrary } = await import('@/lib/application/retrieval/resolve-library');
+const { resolveAsset } = await import('@/lib/application/retrieval/resolve-asset');
 const { hashApiKey } = await import('@/lib/application/auth/api-key');
-const { createPlatformLibrary } = await import(
-  '@/lib/application/administration/manage-platform-libraries'
+const { createPlatformAsset } = await import(
+  '@/lib/application/administration/manage-platform-assets'
 );
 const { EMBEDDING_COLUMN_DIMENSIONS } = await import('@/lib/infrastructure/ai/providers');
 const { db, schema } = await import('@/lib/infrastructure/postgres/client');
@@ -109,8 +109,8 @@ function dependencies() {
   };
 }
 
-async function publishedLibrary(slug: string): Promise<string> {
-  const { libraryId } = await createPlatformLibrary({
+async function publishedAsset(slug: string): Promise<string> {
+  const { assetId } = await createPlatformAsset({
     actor,
     title: `Policy fixture ${slug}`,
     publicId: `/websites/${slug}`,
@@ -120,15 +120,15 @@ async function publishedLibrary(slug: string): Promise<string> {
     language: 'en',
     reason: 'integration test fixture',
   });
-  created.push(libraryId);
-  const built = await buildVersion({ libraryId, operationId: uuidv7(), dependencies: dependencies() });
+  created.push(assetId);
+  const built = await buildVersion({ assetId, operationId: uuidv7(), dependencies: dependencies() });
   if (!built.changed) throw new Error('fixture build produced no version');
-  await publishVersion({ libraryId, versionId: built.versionId });
+  await publishVersion({ assetId, versionId: built.versionId });
   await db()
-    .update(schema.library)
+    .update(schema.asset)
     .set({ lifecycleStatus: 'published' })
-    .where(eq(schema.library.id, libraryId));
-  return libraryId;
+    .where(eq(schema.asset.id, assetId));
+  return assetId;
 }
 
 async function workspaceWithKey(): Promise<{ workspaceId: string; key: string }> {
@@ -193,14 +193,14 @@ async function storedVersion(versionId: string) {
 }
 
 /**
- * A routable library, inserted directly: the preview count is a statement
+ * A routable asset, inserted directly: the preview count is a statement
  * about stored facts, so the fixture states them rather than building them.
  */
-async function plainLibrary(input: {
+async function plainAsset(input: {
   publicId: string;
   visibility: 'public' | 'private';
   ownerWorkspaceId?: string | null;
-  isPlatformLibrary?: boolean;
+  isPlatformAsset?: boolean;
   sourceType?: string;
   location?: string;
   trustScore?: number;
@@ -209,26 +209,26 @@ async function plainLibrary(input: {
   currentVersion?: boolean;
 }): Promise<string> {
   const database = db();
-  const libraryId = crypto.randomUUID();
-  created.push(libraryId);
-  await database.insert(schema.library).values({
-    id: libraryId,
+  const assetId = crypto.randomUUID();
+  created.push(assetId);
+  await database.insert(schema.asset).values({
+    id: assetId,
     publicId: input.publicId,
     title: `Preview fixture ${input.publicId}`,
     ownerWorkspaceId: input.ownerWorkspaceId ?? null,
-    isPlatformLibrary: input.isPlatformLibrary ?? false,
+    isPlatformAsset: input.isPlatformAsset ?? false,
     kind: 'website',
     lifecycleStatus: 'published',
     indexStatus: input.indexStatus ?? 'ready',
     lastSuccessfulRefreshAt: input.lastSuccessfulRefreshAt ?? null,
   });
   /* Public means free in a public channel now (agent-first-proposal.md 6.2). */
-  if (input.visibility === 'public') await shareInPublicChannel(libraryId);
+  if (input.visibility === 'public') await shareInPublicChannel(assetId);
   if (input.currentVersion !== false) {
     const versionId = uuidv7();
-    await database.insert(schema.libraryVersion).values({
+    await database.insert(schema.assetVersion).values({
       id: versionId,
-      libraryId,
+      assetId,
       label: '20200101-aaaaaaaa',
       sourceDigest: 'digest',
       parserVersion: 'test',
@@ -237,32 +237,32 @@ async function plainLibrary(input: {
       indexStatus: 'ready',
     });
     await database
-      .update(schema.library)
+      .update(schema.asset)
       .set({ currentVersionId: versionId })
-      .where(eq(schema.library.id, libraryId));
+      .where(eq(schema.asset.id, assetId));
   }
   if (input.sourceType) {
     await database.insert(schema.source).values({
       id: uuidv7(),
-      libraryId,
+      assetId,
       type: input.sourceType as 'website',
       location: input.location ?? 'https://example.test/fixture',
     });
   }
   if (input.trustScore !== undefined) {
-    await database.insert(schema.libraryScore).values({
+    await database.insert(schema.assetScore).values({
       id: uuidv7(),
-      libraryId,
+      assetId,
       algorithmVersion: 'test',
       trustScore: input.trustScore,
       benchmarkScore: 0,
     });
   }
-  return libraryId;
+  return assetId;
 }
 
 /**
- * The same question `countReachableLibraries` answers, asked of the evaluator
+ * The same question `countReachableAssets` answers, asked of the evaluator
  * itself: every routable candidate the workspace could reach, run through
  * `evaluatePolicy`. The SQL preview and this must agree exactly -- a
  * disagreement is the console showing a number retrieval will not honour.
@@ -272,17 +272,17 @@ async function reachableByEvaluator(
   policy: Parameters<typeof policyVerdicts>[0],
 ): Promise<number> {
   const rows = await db()
-    .select({ id: schema.library.id })
-    .from(schema.library)
+    .select({ id: schema.asset.id })
+    .from(schema.asset)
     .where(
-      sql`${schema.library.deletedAt} is null
-        and ${schema.library.lifecycleStatus} = 'published'
-        and ${schema.library.indexStatus} = 'ready'
-        and ${schema.library.currentVersionId} is not null
-        and ((${schema.library.access} = 'free' and exists (
+      sql`${schema.asset.deletedAt} is null
+        and ${schema.asset.lifecycleStatus} = 'published'
+        and ${schema.asset.indexStatus} = 'ready'
+        and ${schema.asset.currentVersionId} is not null
+        and ((${schema.asset.access} = 'free' and exists (
               select 1 from channel_asset ca join channel c on c.id = ca.channel_id
               where ca.asset_id = "asset"."id" and c.visibility = 'public' and c.status = 'active'))
-          or ${schema.library.ownerWorkspaceId} = ${workspaceId})`,
+          or ${schema.asset.ownerWorkspaceId} = ${workspaceId})`,
     );
   const verdicts = await policyVerdicts(
     policy,
@@ -304,30 +304,30 @@ describeWithDb('policy engine', () => {
     const database = db();
     if (created.length > 0) {
       await database
-        .update(schema.library)
+        .update(schema.asset)
         .set({ currentVersionId: null })
-        .where(inArray(schema.library.id, created));
-      await database.delete(schema.usageEvent).where(inArray(schema.usageEvent.libraryId, created));
+        .where(inArray(schema.asset.id, created));
+      await database.delete(schema.usageEvent).where(inArray(schema.usageEvent.assetId, created));
       await database
-        .delete(schema.libraryProfileVector)
-        .where(inArray(schema.libraryProfileVector.libraryId, created));
+        .delete(schema.assetProfileVector)
+        .where(inArray(schema.assetProfileVector.assetId, created));
       await database
-        .delete(schema.libraryProfile)
-        .where(inArray(schema.libraryProfile.libraryId, created));
-      await database.delete(schema.chunk).where(inArray(schema.chunk.libraryId, created));
-      await database.delete(schema.document).where(inArray(schema.document.libraryId, created));
+        .delete(schema.assetProfile)
+        .where(inArray(schema.assetProfile.assetId, created));
+      await database.delete(schema.chunk).where(inArray(schema.chunk.assetId, created));
+      await database.delete(schema.document).where(inArray(schema.document.assetId, created));
       await database
-        .delete(schema.libraryVersion)
-        .where(inArray(schema.libraryVersion.libraryId, created));
+        .delete(schema.assetVersion)
+        .where(inArray(schema.assetVersion.assetId, created));
       await database
-        .delete(schema.libraryScore)
-        .where(inArray(schema.libraryScore.libraryId, created));
-      await database.delete(schema.source).where(inArray(schema.source.libraryId, created));
+        .delete(schema.assetScore)
+        .where(inArray(schema.assetScore.assetId, created));
+      await database.delete(schema.source).where(inArray(schema.source.assetId, created));
       await database
-        .delete(schema.libraryAlias)
-        .where(inArray(schema.libraryAlias.libraryId, created));
+        .delete(schema.assetAlias)
+        .where(inArray(schema.assetAlias.assetId, created));
       await database.delete(schema.auditLog).where(inArray(schema.auditLog.targetId, created));
-      await database.delete(schema.library).where(inArray(schema.library.id, created));
+      await database.delete(schema.asset).where(inArray(schema.asset.id, created));
     }
     if (workspaces.length > 0) {
       const versions = await database
@@ -337,8 +337,8 @@ describeWithDb('policy engine', () => {
       const versionIds = versions.map((row) => row.id);
       if (versionIds.length > 0) {
         await database
-          .delete(schema.policyLibraryEntry)
-          .where(inArray(schema.policyLibraryEntry.policyVersionId, versionIds));
+          .delete(schema.policyAssetEntry)
+          .where(inArray(schema.policyAssetEntry.policyVersionId, versionIds));
         await database
           .delete(schema.policyVersion)
           .where(inArray(schema.policyVersion.id, versionIds));
@@ -384,13 +384,13 @@ describeWithDb('policy engine', () => {
     const pinned = await pinPolicy(workspaceId);
     expect(pinned.policy.mode).toBe('quality');
     const stamp = Date.now();
-    const low = await plainLibrary({
+    const low = await plainAsset({
       publicId: `/normalize-${stamp}/low`,
       visibility: 'public',
       sourceType: 'website',
       trustScore: 10,
     });
-    const high = await plainLibrary({
+    const high = await plainAsset({
       publicId: `/normalize-${stamp}/high`,
       visibility: 'public',
       sourceType: 'website',
@@ -463,7 +463,7 @@ describeWithDb('policy engine', () => {
     expect((await storedVersion(legacyId))?.mode).toBeNull();
 
     const stamp = Date.now();
-    const low = await plainLibrary({
+    const low = await plainAsset({
       publicId: `/legacy-${stamp}/low`,
       visibility: 'public',
       sourceType: 'website',
@@ -485,7 +485,7 @@ describeWithDb('policy engine', () => {
   it('leaves the previous version byte for byte, and a pinned request with it', async () => {
     const workspaceId = await bareWorkspace();
     const stamp = Date.now();
-    const library = await plainLibrary({
+    const asset = await plainAsset({
       publicId: `/immutable-${stamp}/lib`,
       visibility: 'public',
       sourceType: 'website',
@@ -505,40 +505,40 @@ describeWithDb('policy engine', () => {
     expect(v1Row?.qualityFilters).toMatchObject({ minTrustScore: 10 });
 
     /* The in-flight request still resolves against what it pinned. */
-    await expect(policyVerdictFor(pinnedByRequest.policy, library)).resolves.toMatchObject({
+    await expect(policyVerdictFor(pinnedByRequest.policy, asset)).resolves.toMatchObject({
       allowed: true,
     });
     /* A request starting now pins the newer one and refuses. */
     const nowPinned = await pinPolicy(workspaceId);
     expect(nowPinned.versionId).toBe(second.policyVersionId);
-    await expect(policyVerdictFor(nowPinned.policy, library)).resolves.toMatchObject({
+    await expect(policyVerdictFor(nowPinned.policy, asset)).resolves.toMatchObject({
       allowed: false,
       reason: 'below_trust_threshold',
     });
   });
 
-  it('previews exactly the libraries the evaluator admits', async () => {
+  it('previews exactly the assets the evaluator admits', async () => {
     const stamp = Date.now();
     const workspaceId = await bareWorkspace();
     const org = `Vercel${stamp}`;
 
     /* A mixed set: public and private, above and below the threshold,
        list-covered and not, and four different source types. */
-    await plainLibrary({
+    await plainAsset({
       publicId: `/${org}/next.js`,
       visibility: 'public',
       sourceType: 'github',
       location: 'https://github.com/vercel/next.js',
       trustScore: 80,
     });
-    await plainLibrary({
+    await plainAsset({
       publicId: `/preview-${stamp}/docs`,
       visibility: 'public',
       sourceType: 'website',
       location: 'https://docs.example-preview.test/guide',
       trustScore: 20,
     });
-    await plainLibrary({
+    await plainAsset({
       publicId: `/preview-${stamp}/mine`,
       visibility: 'private',
       ownerWorkspaceId: workspaceId,
@@ -546,14 +546,14 @@ describeWithDb('policy engine', () => {
       location: 'upload://fixture.pdf',
       trustScore: 95,
     });
-    await plainLibrary({
+    await plainAsset({
       publicId: `/preview-${stamp}/notion`,
       visibility: 'public',
       sourceType: 'notion',
       location: 'https://notion.so/fixture',
       trustScore: 55,
     });
-    await plainLibrary({
+    await plainAsset({
       publicId: `/preview-${stamp}/blocked`,
       visibility: 'public',
       sourceType: 'website',
@@ -561,16 +561,16 @@ describeWithDb('policy engine', () => {
       trustScore: 70,
     });
     /* Not routable: neither the count nor the evaluator's candidate set. */
-    await plainLibrary({
+    await plainAsset({
       publicId: `/preview-${stamp}/unready`,
       visibility: 'public',
       sourceType: 'website',
       trustScore: 99,
       indexStatus: 'failed',
     });
-    /* Someone else's private library: invisible to this workspace either way. */
+    /* Someone else's private asset: invisible to this workspace either way. */
     const otherWorkspace = await bareWorkspace();
-    await plainLibrary({
+    await plainAsset({
       publicId: `/preview-${stamp}/theirs`,
       visibility: 'private',
       ownerWorkspaceId: otherWorkspace,
@@ -585,21 +585,21 @@ describeWithDb('policy engine', () => {
         ...OPEN_POLICY,
         mode: 'quality',
         quality: { ...OPEN_POLICY.quality, minTrustScore: 50 },
-        exceptedLibraries: [`/preview-${stamp}/docs`],
+        exceptedAssets: [`/preview-${stamp}/docs`],
       },
       /* Case folding: a typed `vercel` entry must reach `/Vercel/next.js`. */
       selectOrganisation: {
         ...OPEN_POLICY,
         mode: 'select',
-        allowedLibraries: [`/${org.toLowerCase()}/*`],
+        allowedAssets: [`/${org.toLowerCase()}/*`],
       },
       blockedByName: {
         ...OPEN_POLICY,
-        blockedLibraries: [`/preview-${stamp}/blocked`],
+        blockedAssets: [`/preview-${stamp}/blocked`],
       },
       blockedByDomain: {
         ...OPEN_POLICY,
-        blockedLibraries: ['example-preview.test'],
+        blockedAssets: ['example-preview.test'],
       },
       noNotionNoPrivate: {
         ...OPEN_POLICY,
@@ -622,17 +622,17 @@ describeWithDb('policy engine', () => {
     expect(selected).toBe(1);
   });
 
-  it('previews a freshness threshold the way the evaluator ages a library', async () => {
+  it('previews a freshness threshold the way the evaluator ages an asset', async () => {
     const stamp = Date.now();
     const workspaceId = await bareWorkspace();
-    await plainLibrary({
+    await plainAsset({
       publicId: `/fresh-${stamp}/yesterday`,
       visibility: 'public',
       sourceType: 'website',
       trustScore: 50,
       lastSuccessfulRefreshAt: new Date(Date.now() - 1 * 86_400_000),
     });
-    await plainLibrary({
+    await plainAsset({
       publicId: `/fresh-${stamp}/last-month`,
       visibility: 'public',
       sourceType: 'website',
@@ -640,7 +640,7 @@ describeWithDb('policy engine', () => {
       lastSuccessfulRefreshAt: new Date(Date.now() - 30 * 86_400_000),
     });
     /* Never refreshed: an unknown age passes, in SQL and in the evaluator. */
-    await plainLibrary({
+    await plainAsset({
       publicId: `/fresh-${stamp}/never`,
       visibility: 'public',
       sourceType: 'website',
@@ -702,19 +702,19 @@ describeWithDb('policy engine', () => {
       patchRequest(key, { blocked: { add: ['/websites/somewhere'] } }),
     );
     expect(first.status).toBe(200);
-    const v1 = (await first.json()) as { policyVersionId: string; policy: { blockedLibraries: string[] } };
-    expect(v1.policy.blockedLibraries).toEqual(['/websites/somewhere']);
+    const v1 = (await first.json()) as { policyVersionId: string; policy: { blockedAssets: string[] } };
+    expect(v1.policy.blockedAssets).toEqual(['/websites/somewhere']);
 
     const second = await policiesPatch(
       patchRequest(key, { mode: 'quality', quality: { minTrustScore: 50 } }),
     );
     const v2 = (await second.json()) as {
       policyVersionId: string;
-      policy: { mode: string; blockedLibraries: string[] };
+      policy: { mode: string; blockedAssets: string[] };
     };
     expect(v2.policyVersionId).not.toBe(v1.policyVersionId);
     /* Incremental: the block list survives a patch that never mentioned it. */
-    expect(v2.policy.blockedLibraries).toEqual(['/websites/somewhere']);
+    expect(v2.policy.blockedAssets).toEqual(['/websites/somewhere']);
 
     const rows = await db()
       .select({ id: schema.policyVersion.id })
@@ -733,19 +733,19 @@ describeWithDb('policy engine', () => {
 
   it('blocks context retrieval with the stable reason, and only for that workspace', async () => {
     const stamp = Date.now();
-    await publishedLibrary(`policy-block-${stamp}`);
+    await publishedAsset(`policy-block-${stamp}`);
     const { workspaceId, key } = await workspaceWithKey();
     await policiesPatch(patchRequest(key, { blocked: { add: [`/websites/policy-block-${stamp}`] } }));
 
     const input = {
-      libraryId: `/websites/policy-block-${stamp}`,
+      assetId: `/websites/policy-block-${stamp}`,
       query: 'kelpwatch report',
       maxTokens: 4000,
       format: 'json' as const,
     };
     await expect(queryDocs(caller(workspaceId), input, noEmbeddings)).rejects.toMatchObject({
       code: 'access_rule_blocked',
-      message: 'library_blocked',
+      message: 'asset_blocked',
     });
 
     /* No seat was reserved for a policy refusal. */
@@ -762,33 +762,33 @@ describeWithDb('policy engine', () => {
 
   it('filters search candidates at the metadata stage', async () => {
     const stamp = Date.now();
-    await publishedLibrary(`policy-search-${stamp}`);
+    await publishedAsset(`policy-search-${stamp}`);
     const { workspaceId, key } = await workspaceWithKey();
 
-    const before = await resolveLibrary(
+    const before = await resolveAsset(
       caller(workspaceId),
       { query: 'kelpwatch seaweed growth' },
       noResolveEmbeddings,
     );
-    expect(before.results.map((r) => r.libraryId)).toContain(`/websites/policy-search-${stamp}`);
+    expect(before.results.map((r) => r.assetId)).toContain(`/websites/policy-search-${stamp}`);
 
     await policiesPatch(
       patchRequest(key, { blocked: { add: [`/websites/policy-search-${stamp}`] } }),
     );
-    const after = await resolveLibrary(
+    const after = await resolveAsset(
       caller(workspaceId),
       { query: 'kelpwatch seaweed growth' },
       noResolveEmbeddings,
     );
-    expect(after.results.map((r) => r.libraryId)).not.toContain(
+    expect(after.results.map((r) => r.assetId)).not.toContain(
       `/websites/policy-search-${stamp}`,
     );
   });
 
   it('select mode admits only the allowlist, and excepted bypasses quality only', async () => {
     const stamp = Date.now();
-    await publishedLibrary(`policy-sel-a-${stamp}`);
-    await publishedLibrary(`policy-sel-b-${stamp}`);
+    await publishedAsset(`policy-sel-a-${stamp}`);
+    await publishedAsset(`policy-sel-b-${stamp}`);
     const { workspaceId, key } = await workspaceWithKey();
     await policiesPatch(
       patchRequest(key, {
@@ -800,7 +800,7 @@ describeWithDb('policy engine', () => {
     const query = (slug: string) =>
       queryDocs(
         caller(workspaceId),
-        { libraryId: `/websites/${slug}`, query: 'kelpwatch', maxTokens: 4000, format: 'json' as const },
+        { assetId: `/websites/${slug}`, query: 'kelpwatch', maxTokens: 4000, format: 'json' as const },
         noEmbeddings,
       );
     await expect(query(`policy-sel-b-${stamp}`)).rejects.toMatchObject({

@@ -1,7 +1,7 @@
 /**
  * The domain challenge rules (requirement.md 7.3.2): which sources need one,
  * which host it binds to, what counts as the record or file being in place,
- * and when a verified challenge may be spent on a library.
+ * and when a verified challenge may be spent on an asset.
  */
 import { describe, expect, it } from 'vitest';
 import {
@@ -95,7 +95,7 @@ describe('verificationSpendable', () => {
     status: 'verified',
     host: 'docs.example.com',
     verifiedAt: new Date(now.getTime() - 60_000),
-    consumedLibraryId: null,
+    consumedAssetId: null,
   };
 
   it('spends a fresh, unspent, matching challenge', () => {
@@ -107,7 +107,7 @@ describe('verificationSpendable', () => {
       'challenge_not_found',
     );
     expect(
-      verificationSpendable({ ...verified, consumedLibraryId: 'lib' }, 'https://docs.example.com/', now),
+      verificationSpendable({ ...verified, consumedAssetId: 'lib' }, 'https://docs.example.com/', now),
     ).toBe('challenge_not_found');
     expect(
       verificationSpendable(

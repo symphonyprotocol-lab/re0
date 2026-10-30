@@ -43,7 +43,7 @@ const STATUSES: UserStatusFilter[] = ['all', 'active', 'suspended'];
 /**
  * Registered users -- design source frame `SRtSN`.
  *
- * Reads the real `user` table. Library and call counts come from the tables
+ * Reads the real `user` table. Asset and call counts come from the tables
  * that own them, so an account with no activity reads zero; call metering is
  * not live yet (architecture.md 21), which is why that column is all zeroes
  * rather than invented traffic.
@@ -151,7 +151,7 @@ export default async function AdminUsersPage({
                   <td className={TD}>
                     <Pill tone={user.planName === 'Free' ? 'neutral' : 'ok'}>{user.planName}</Pill>
                   </td>
-                  <td className={TD}>{user.libraries.toLocaleString('en-US')}</td>
+                  <td className={TD}>{user.assets.toLocaleString('en-US')}</td>
                   <td className={TD}>{user.callsThisMonth.toLocaleString('en-US')}</td>
                   <td className={`${TD} whitespace-nowrap`}>{utcDate(user.joinedAt)}</td>
                   <td className={TD}>
@@ -176,7 +176,7 @@ export default async function AdminUsersPage({
                           status: user.status,
                           liveSessions: user.liveSessions ?? 0,
                           liveApiKeys: user.liveApiKeys ?? 0,
-                          publishedLibraries: user.publishedLibraries ?? 0,
+                          publishedAssets: user.publishedAssets ?? 0,
                         }}
                       />
                     </span>

@@ -1,11 +1,11 @@
 import type { MetadataRoute } from 'next';
-import { listPublicLibraryLocations } from '@/lib/application/libraries';
+import { listPublicAssetLocations } from '@/lib/application/assets';
 import { publicCardSubjects } from '@/lib/application/channels';
 import { isPromoted, scenarioPath, SCENARIOS } from '@/lib/domain/scenarios';
 import { publicUrl } from '@/lib/site/origin';
 
 /**
- * Rebuilt at most hourly: the directory changes when a library publishes or
+ * Rebuilt at most hourly: the directory changes when an asset publishes or
  * refreshes, which is far slower than a crawler's visits, and a file served
  * straight from the database on every fetch would be a free read of the
  * whole catalogue for anyone.
@@ -17,7 +17,7 @@ export const revalidate = 3600;
  * and user page with their Agent Cards (agent-first-proposal.md 7.1), then
  * every asset shared with everyone. The static pages carry no `lastModified`: a date we cannot vouch
  * for is worse than none, and a crawler that reads one as "changed today"
- * on every fetch learns to ignore it. A library's date is its last
+ * on every fetch learns to ignore it. An asset's date is its last
  * successful refresh, which is when its content actually moved.
  *
  * Absent on purpose: the sign-in, the checkout, the claim flow and
@@ -59,12 +59,12 @@ export default async function sitemap(): Promise<MetadataRoute.Sitemap> {
     { url: publicUrl(`/a2a/users/${handle}/agent-card.json`), changeFrequency: 'weekly' as const, priority: 0.4 },
   ]);
 
-  const libraries = (await listPublicLibraryLocations()).map((library) => ({
-    url: publicUrl(`/assets${library.publicId}`),
-    lastModified: library.updatedAt ? new Date(library.updatedAt) : undefined,
+  const assets = (await listPublicAssetLocations()).map((asset) => ({
+    url: publicUrl(`/assets${asset.publicId}`),
+    lastModified: asset.updatedAt ? new Date(asset.updatedAt) : undefined,
     changeFrequency: 'weekly' as const,
     priority: 0.7,
   }));
 
-  return [...pages, ...channels, ...users, ...libraries];
+  return [...pages, ...channels, ...users, ...assets];
 }

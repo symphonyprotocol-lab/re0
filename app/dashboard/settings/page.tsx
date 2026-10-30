@@ -44,7 +44,7 @@ import {
   listBillingDocuments,
   workspaceProviderCustomer,
 } from '@/lib/application/billing';
-import { countWorkspaceLibraries } from '@/lib/application/libraries';
+import { countWorkspaceAssets } from '@/lib/application/assets';
 import { isPaymentConnected, periodLastDay, workspacePlanVersion, workspaceStorage } from '@/lib/application/plans';
 import type { BillingDocumentStatus } from '@/lib/domain/billing';
 import { BYTES_PER_MB, storageCapacityBytes, usdHeadline } from '@/lib/domain/plans';
@@ -219,7 +219,7 @@ export default async function DashboardSettingsPage({
     profile,
     planVersion,
     overview,
-    libraryCount,
+    assetCount,
     storage,
     billing,
     providerCustomer,
@@ -233,7 +233,7 @@ export default async function DashboardSettingsPage({
     accountProfile(session.user.id),
     workspacePlanVersion(workspaceId),
     workspaceUsage(workspaceId),
-    countWorkspaceLibraries(workspaceId),
+    countWorkspaceAssets(workspaceId),
     workspaceStorage(workspaceId),
     listBillingDocuments({ workspaceId, limit: BILLING_ROWS }),
     workspaceProviderCustomer(workspaceId),
@@ -278,7 +278,7 @@ export default async function DashboardSettingsPage({
         : fill(g.storageTier.base, { extended: formatCapacity(storageCapacityBytes('extended'), number) }),
     perks: [
       fill(g.planPerks.calls, { count: number.format(planVersion.monthlyCalls) }),
-      g.planPerks.libraries,
+      g.planPerks.assets,
       fill(g.planPerks.storage, { capacity }),
       fill(g.planPerks.apiKeys, { count: number.format(planVersion.apiKeyLimit) }),
     ],
@@ -301,7 +301,7 @@ export default async function DashboardSettingsPage({
     limit > 0 ? Math.min(100, Math.round((used / limit) * 100)) : 0;
   const usedMb = storage.usedBytes / BYTES_PER_MB;
   const usageMeters = [
-    /* The whole workspace against its tier's capacity; the library count is a footnote, not a ceiling. */
+    /* The whole workspace against its tier's capacity; the asset count is a footnote, not a ceiling. */
     {
       ...g.meters.storage,
       value: fill(g.meters.storage.value, {
@@ -309,7 +309,7 @@ export default async function DashboardSettingsPage({
         limit: capacity,
       }),
       percent: percent(storage.usedBytes, storage.capacityBytes),
-      note: fill(g.meters.storage.note, { count: number.format(libraryCount) }),
+      note: fill(g.meters.storage.note, { count: number.format(assetCount) }),
     },
     {
       ...g.meters.calls,

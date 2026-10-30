@@ -1,12 +1,12 @@
 /**
- * Proving control of a domain before a library is fetched from it: the
+ * Proving control of a domain before an asset is fetched from it: the
  * rules, as pure functions. No fetch, no DNS, no Next.js, no driver.
  *
- * A website library is built from whatever a host serves, so whoever
+ * A website asset is built from whatever a host serves, so whoever
  * controls that host is the only person who may create
- * the library (requirement.md 7.3: the question is "do you control this
+ * the asset (requirement.md 7.3: the question is "do you control this
  * source", never "who are you"). The wizard therefore cannot submit such a
- * library until one challenge for the source's host has been met, by one of
+ * asset until one challenge for the source's host has been met, by one of
  * the two methods requirement.md 7.3.2 gives a domain:
  *
  * - a TXT record at `_re0-challenge.<host>` whose value is the challenge;
@@ -15,7 +15,7 @@
  *
  * The verification is spent at creation. It is not a standing credential
  * (requirement.md 7.3.2: "验证结果只在校验当次有效"): a verified challenge is
- * good for one library, on the host it named, within a short window.
+ * good for one asset, on the host it named, within a short window.
  */
 
 import type { ClaimFailureReason } from '@/contracts/errors';
@@ -42,7 +42,7 @@ export function isDomainVerificationMethod(value: unknown): value is DomainVerif
 export const CHALLENGE_TTL_MS = 7 * 24 * 60 * 60 * 1000;
 
 /**
- * How long a *verified* challenge may wait before the library is created.
+ * How long a *verified* challenge may wait before the asset is created.
  * Long enough to finish the wizard, short enough that a verification is
  * never a credential someone comes back to a month later.
  */
@@ -83,7 +83,7 @@ export function verificationHost(location: string): string | null {
 }
 
 /**
- * Whether a challenge verified for `verifiedHost` covers a library fetched
+ * Whether a challenge verified for `verifiedHost` covers an asset fetched
  * from `location`. Exact host only: requirement.md 7.3.2 says a subdomain
  * never inherits its parent's verification, and `docs.example.com` and
  * `example.com` are different hosts under different control often enough
@@ -144,7 +144,7 @@ export type DomainVerificationFailure = Extract<
 >;
 
 /**
- * What one verified challenge has to satisfy to be spent on a library, and
+ * What one verified challenge has to satisfy to be spent on an asset, and
  * why it cannot be if it cannot. Pure so the creation use case, the wizard's
  * submit guard and the tests all read the same rule.
  */
@@ -153,13 +153,13 @@ export function verificationSpendable(
     status: string;
     host: string;
     verifiedAt: Date | null;
-    consumedLibraryId: string | null;
+    consumedAssetId: string | null;
   },
   location: string,
   now: Date,
 ): DomainVerificationFailure | null {
   if (verification.status !== 'verified' || !verification.verifiedAt) return 'challenge_not_found';
-  if (verification.consumedLibraryId) return 'challenge_not_found';
+  if (verification.consumedAssetId) return 'challenge_not_found';
   if (now.getTime() - verification.verifiedAt.getTime() > VERIFIED_VALID_MS) return 'challenge_expired';
   if (!verificationCovers(verification.host, location)) return 'source_mismatch';
   return null;

@@ -4,11 +4,11 @@ import { revalidatePath } from 'next/cache';
 import { after } from 'next/server';
 import { AppError } from '@/contracts/errors';
 import { runOperation } from '@/lib/application/ingestion';
-import { deleteWorkspaceLibrary } from '@/lib/application/libraries';
+import { deleteWorkspaceAsset } from '@/lib/application/assets';
 import { requireSession } from '@/lib/http/session';
 
 /**
- * The library list's one mutation: delete. requirement.md 5.2 -- an owner-side
+ * The asset list's one mutation: delete. requirement.md 5.2 -- an owner-side
  * operation with a definite outcome.
  *
  * Re-resolves the session like every action (a server action is a public
@@ -17,25 +17,25 @@ import { requireSession } from '@/lib/http/session';
  * post to it. Returns a coarse code the dialog translates; detail stays server
  * side.
  */
-export interface DeleteLibraryActionResult {
+export interface DeleteAssetActionResult {
   ok: boolean;
   publicId?: string;
   error?: 'not_found' | 'access_denied' | 'unavailable';
 }
 
-export async function deleteWorkspaceLibraryAction(
-  _previous: DeleteLibraryActionResult | null,
+export async function deleteWorkspaceAssetAction(
+  _previous: DeleteAssetActionResult | null,
   form: FormData,
-): Promise<DeleteLibraryActionResult> {
+): Promise<DeleteAssetActionResult> {
   const session = await requireSession('/dashboard/assets');
   try {
-    const { publicId, operationId } = await deleteWorkspaceLibrary({
+    const { publicId, operationId } = await deleteWorkspaceAsset({
       workspaceId: session.workspace.id,
       role: session.workspace.role,
-      libraryId: String(form.get('libraryId') ?? ''),
+      assetId: String(form.get('assetId') ?? ''),
     });
 
-    /* The list, and the overview's library count and quota. */
+    /* The list, and the overview's asset count and quota. */
     revalidatePath('/dashboard/assets');
     revalidatePath('/dashboard');
 
@@ -52,7 +52,7 @@ export async function deleteWorkspaceLibraryAction(
           await runOperation({ operationId });
         } catch (error) {
           console.error(
-            `library purge run failed: ${error instanceof Error ? error.message : 'unknown'}`,
+            `asset purge run failed: ${error instanceof Error ? error.message : 'unknown'}`,
           );
         }
       });
@@ -66,7 +66,7 @@ export async function deleteWorkspaceLibraryAction(
     if (error instanceof AppError && error.code === 'access_denied') {
       return { ok: false, error: 'access_denied' };
     }
-    console.error(`delete library failed: ${error instanceof Error ? error.message : 'unknown'}`);
+    console.error(`delete asset failed: ${error instanceof Error ? error.message : 'unknown'}`);
     return { ok: false, error: 'unavailable' };
   }
 }

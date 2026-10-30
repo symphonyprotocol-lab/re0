@@ -21,15 +21,15 @@ export async function recordShowcaseEvent(showcaseId: string, event: ShowcaseEve
   const cta = event === 'cta_click' ? 1 : 0;
   const lead = event === 'lead' ? 1 : 0;
   await db()
-    .insert(schema.libraryShowcaseDaily)
+    .insert(schema.assetShowcaseDaily)
     .values({ showcaseId, day: utcDay(now), views: view, questions: question, ctaClicks: cta, leads: lead })
     .onConflictDoUpdate({
-      target: [schema.libraryShowcaseDaily.showcaseId, schema.libraryShowcaseDaily.day],
+      target: [schema.assetShowcaseDaily.showcaseId, schema.assetShowcaseDaily.day],
       set: {
-        views: sql`${schema.libraryShowcaseDaily.views} + ${view}`,
-        questions: sql`${schema.libraryShowcaseDaily.questions} + ${question}`,
-        ctaClicks: sql`${schema.libraryShowcaseDaily.ctaClicks} + ${cta}`,
-        leads: sql`${schema.libraryShowcaseDaily.leads} + ${lead}`,
+        views: sql`${schema.assetShowcaseDaily.views} + ${view}`,
+        questions: sql`${schema.assetShowcaseDaily.questions} + ${question}`,
+        ctaClicks: sql`${schema.assetShowcaseDaily.ctaClicks} + ${cta}`,
+        leads: sql`${schema.assetShowcaseDaily.leads} + ${lead}`,
       },
     });
 }
@@ -47,16 +47,16 @@ export interface ShowcaseStats {
   leads: number;
 }
 
-export async function showcaseStats(input: { workspaceId: string; libraryId: string; days?: number }): Promise<ShowcaseStats | null> {
+export async function showcaseStats(input: { workspaceId: string; assetId: string; days?: number }): Promise<ShowcaseStats | null> {
   const days = input.days ?? 30;
   const [page] = await db()
-    .select({ id: schema.libraryShowcase.id })
-    .from(schema.libraryShowcase)
+    .select({ id: schema.assetShowcase.id })
+    .from(schema.assetShowcase)
     .where(
       and(
-        eq(schema.libraryShowcase.workspaceId, input.workspaceId),
-        eq(schema.libraryShowcase.libraryId, input.libraryId),
-        isNull(schema.libraryShowcase.deletedAt),
+        eq(schema.assetShowcase.workspaceId, input.workspaceId),
+        eq(schema.assetShowcase.assetId, input.assetId),
+        isNull(schema.assetShowcase.deletedAt),
       ),
     )
     .limit(1);
@@ -64,8 +64,8 @@ export async function showcaseStats(input: { workspaceId: string; libraryId: str
   const since = utcDay(new Date(Date.now() - days * 86_400_000));
   const rows = await db()
     .select()
-    .from(schema.libraryShowcaseDaily)
-    .where(and(eq(schema.libraryShowcaseDaily.showcaseId, page.id), gte(schema.libraryShowcaseDaily.day, since)));
+    .from(schema.assetShowcaseDaily)
+    .where(and(eq(schema.assetShowcaseDaily.showcaseId, page.id), gte(schema.assetShowcaseDaily.day, since)));
   return {
     days,
     views: rows.reduce((sum, row) => sum + row.views, 0),
@@ -77,7 +77,7 @@ export async function showcaseStats(input: { workspaceId: string; libraryId: str
 
 /**
  * A visitor's verdict on one answer. The exchange must belong to the page's
- * own site key, so a guessed id from another library changes nothing.
+ * own site key, so a guessed id from another asset changes nothing.
  */
 export async function recordShowcaseFeedback(input: {
   siteKeyId: string;

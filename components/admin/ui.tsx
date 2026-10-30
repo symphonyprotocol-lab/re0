@@ -265,7 +265,7 @@ export function Pill({ tone = 'neutral', children }: { tone?: PillTone; children
   );
 }
 
-/** Monogram tile beside a person or library name in the console tables. */
+/** Monogram tile beside a person or asset name in the console tables. */
 export function Monogram({
   initial,
   tone = 'mint',

@@ -11,7 +11,7 @@
 import type { NextRequest } from 'next/server';
 import { AppError } from '@/contracts/errors';
 import { requireScope, resolveApiKey, resolveSession } from '@/lib/application/auth';
-import type { WorkspaceRole } from '@/lib/application/libraries';
+import type { WorkspaceRole } from '@/lib/application/assets';
 import { API_KEY_MANAGEMENT_SCOPE } from '@/lib/domain/api-key';
 import { isSameOriginHeaders, SESSION_COOKIE } from '@/lib/http/session';
 

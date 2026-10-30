@@ -1,5 +1,5 @@
 /**
- * Retrieval within one library, against a real database. architecture.md 9.2
+ * Retrieval within one asset, against a real database. architecture.md 9.2
  * and 11.1 together, because the order is the point: visibility before
  * reservation, reservation before recall, and exactly one usage event per
  * admitted call however the request is retried.
@@ -21,8 +21,8 @@ const { buildVersion, memoryObjectStore, publishVersion } = await import(
 );
 const { queryDocs } = await import('@/lib/application/retrieval/query-docs');
 const { usageOverview } = await import('@/lib/application/plans/usage');
-const { createPlatformLibrary } = await import(
-  '@/lib/application/administration/manage-platform-libraries'
+const { createPlatformAsset } = await import(
+  '@/lib/application/administration/manage-platform-assets'
 );
 const { EMBEDDING_COLUMN_DIMENSIONS } = await import('@/lib/infrastructure/ai/providers');
 const { db, schema } = await import('@/lib/infrastructure/postgres/client');
@@ -100,8 +100,8 @@ function dependenciesFor(files: typeof FILES) {
   };
 }
 
-async function publishedLibrary(slug: string, files = FILES): Promise<string> {
-  const { libraryId } = await createPlatformLibrary({
+async function publishedAsset(slug: string, files = FILES): Promise<string> {
+  const { assetId } = await createPlatformAsset({
     actor,
     title: `Query fixture ${slug}`,
     publicId: `/websites/${slug}`,
@@ -111,19 +111,19 @@ async function publishedLibrary(slug: string, files = FILES): Promise<string> {
     language: 'en',
     reason: 'integration test fixture',
   });
-  created.push(libraryId);
+  created.push(assetId);
   const built = await buildVersion({
-    libraryId,
+    assetId,
     operationId: uuidv7(),
     dependencies: dependenciesFor(files),
   });
   if (!built.changed) throw new Error('fixture build produced no version');
-  await publishVersion({ libraryId, versionId: built.versionId });
+  await publishVersion({ assetId, versionId: built.versionId });
   await db()
-    .update(schema.library)
+    .update(schema.asset)
     .set({ lifecycleStatus: 'published' })
-    .where(eq(schema.library.id, libraryId));
-  return libraryId;
+    .where(eq(schema.asset.id, assetId));
+  return assetId;
 }
 
 /** A workspace subscribed to a plan version with the given allowance. */
@@ -168,32 +168,32 @@ describeWithDb('query-docs', () => {
     const database = db();
     if (created.length > 0) {
       await database
-        .update(schema.library)
+        .update(schema.asset)
         .set({ currentVersionId: null })
-        .where(inArray(schema.library.id, created));
+        .where(inArray(schema.asset.id, created));
       await database
         .delete(schema.usageEvent)
-        .where(inArray(schema.usageEvent.libraryId, created));
+        .where(inArray(schema.usageEvent.assetId, created));
       await database
-        .delete(schema.libraryProfileVector)
-        .where(inArray(schema.libraryProfileVector.libraryId, created));
+        .delete(schema.assetProfileVector)
+        .where(inArray(schema.assetProfileVector.assetId, created));
       await database
-        .delete(schema.libraryProfile)
-        .where(inArray(schema.libraryProfile.libraryId, created));
-      await database.delete(schema.chunk).where(inArray(schema.chunk.libraryId, created));
-      await database.delete(schema.document).where(inArray(schema.document.libraryId, created));
+        .delete(schema.assetProfile)
+        .where(inArray(schema.assetProfile.assetId, created));
+      await database.delete(schema.chunk).where(inArray(schema.chunk.assetId, created));
+      await database.delete(schema.document).where(inArray(schema.document.assetId, created));
       await database
-        .delete(schema.libraryVersion)
-        .where(inArray(schema.libraryVersion.libraryId, created));
+        .delete(schema.assetVersion)
+        .where(inArray(schema.assetVersion.assetId, created));
       await database
-        .delete(schema.libraryScore)
-        .where(inArray(schema.libraryScore.libraryId, created));
-      await database.delete(schema.source).where(inArray(schema.source.libraryId, created));
+        .delete(schema.assetScore)
+        .where(inArray(schema.assetScore.assetId, created));
+      await database.delete(schema.source).where(inArray(schema.source.assetId, created));
       await database
-        .delete(schema.libraryAlias)
-        .where(inArray(schema.libraryAlias.libraryId, created));
+        .delete(schema.assetAlias)
+        .where(inArray(schema.assetAlias.assetId, created));
       await database.delete(schema.auditLog).where(inArray(schema.auditLog.targetId, created));
-      await database.delete(schema.library).where(inArray(schema.library.id, created));
+      await database.delete(schema.asset).where(inArray(schema.asset.id, created));
     }
     if (workspaces.length > 0) {
       await database
@@ -232,7 +232,7 @@ describeWithDb('query-docs', () => {
        call. With no embeddings only the keyword leg runs, so its width is
        the whole recall. */
     const stamp = Date.now();
-    await publishedLibrary(`qd-width-${stamp}`);
+    await publishedAsset(`qd-width-${stamp}`);
     const workspaceId = await workspaceOnPlan(100);
     const narrow = {
       ...noEmbeddings,
@@ -246,7 +246,7 @@ describeWithDb('query-docs', () => {
 
     const output = await queryDocs(
       caller(workspaceId),
-      { libraryId: `/websites/qd-width-${stamp}`, query: 'rove beetle treatment', maxTokens: 4000, format: 'json' },
+      { assetId: `/websites/qd-width-${stamp}`, query: 'rove beetle treatment', maxTokens: 4000, format: 'json' },
       narrow,
     );
     expect(output.chunks.length).toBeGreaterThan(0);
@@ -255,13 +255,13 @@ describeWithDb('query-docs', () => {
 
   it('returns cited chunks and meters exactly one call', async () => {
     const stamp = Date.now();
-    const libraryId = await publishedLibrary(`qd-basic-${stamp}`);
+    const assetId = await publishedAsset(`qd-basic-${stamp}`);
     const workspaceId = await workspaceOnPlan(100);
     const who = caller(workspaceId);
 
     const output = await queryDocs(
       who,
-      { libraryId: `/websites/qd-basic-${stamp}`, query: 'rove beetle treatment', maxTokens: 4000, format: 'json' },
+      { assetId: `/websites/qd-basic-${stamp}`, query: 'rove beetle treatment', maxTokens: 4000, format: 'json' },
       noEmbeddings,
     );
 
@@ -280,13 +280,13 @@ describeWithDb('query-docs', () => {
       .where(eq(schema.usageEvent.requestId, who.requestId));
     expect(events).toHaveLength(1);
     expect(events[0]?.debitSource).toBe('plan');
-    expect(events[0]?.libraryId).toBe(libraryId);
+    expect(events[0]?.assetId).toBe(assetId);
     expect(events[0]?.returnedTokens).toBeGreaterThan(0);
   });
 
   it('does not charge a call that returns nothing', async () => {
     const stamp = Date.now();
-    await publishedLibrary(`qd-empty-${stamp}`);
+    await publishedAsset(`qd-empty-${stamp}`);
     const workspaceId = await workspaceOnPlan(100);
     const who = caller(workspaceId);
 
@@ -294,7 +294,7 @@ describeWithDb('query-docs', () => {
     // when recall finds nothing -- no usage event, allowance untouched.
     const output = await queryDocs(
       who,
-      { libraryId: `/websites/qd-empty-${stamp}`, query: 'xylophone quasar', maxTokens: 4000, format: 'json' },
+      { assetId: `/websites/qd-empty-${stamp}`, query: 'xylophone quasar', maxTokens: 4000, format: 'json' },
       noEmbeddings,
     );
 
@@ -316,11 +316,11 @@ describeWithDb('query-docs', () => {
 
   it('meters a retried request once', async () => {
     const stamp = Date.now();
-    await publishedLibrary(`qd-retry-${stamp}`);
+    await publishedAsset(`qd-retry-${stamp}`);
     const workspaceId = await workspaceOnPlan(100);
     const who = caller(workspaceId, `req_retry_${stamp}`);
     const input = {
-      libraryId: `/websites/qd-retry-${stamp}`,
+      assetId: `/websites/qd-retry-${stamp}`,
       query: 'moths at night',
       maxTokens: 4000,
       format: 'json' as const,
@@ -338,10 +338,10 @@ describeWithDb('query-docs', () => {
 
   it('refuses the call after the allowance, then spends the pack', async () => {
     const stamp = Date.now();
-    await publishedLibrary(`qd-quota-${stamp}`);
+    await publishedAsset(`qd-quota-${stamp}`);
     const workspaceId = await workspaceOnPlan(1);
     const input = {
-      libraryId: `/websites/qd-quota-${stamp}`,
+      assetId: `/websites/qd-quota-${stamp}`,
       query: 'moths at night',
       maxTokens: 4000,
       format: 'json' as const,
@@ -394,13 +394,13 @@ describeWithDb('query-docs', () => {
     expect(overview.addonBalanceRemaining).toBe(0);
   });
 
-  it('serves anonymous callers on public libraries without metering', async () => {
+  it('serves anonymous callers on public assets without metering', async () => {
     const stamp = Date.now();
-    await publishedLibrary(`qd-anon-${stamp}`);
+    await publishedAsset(`qd-anon-${stamp}`);
 
     const output = await queryDocs(
       caller(null),
-      { libraryId: `/websites/qd-anon-${stamp}`, query: 'moonlight', maxTokens: 4000, format: 'json' },
+      { assetId: `/websites/qd-anon-${stamp}`, query: 'moonlight', maxTokens: 4000, format: 'json' },
       noEmbeddings,
     );
 
@@ -408,20 +408,20 @@ describeWithDb('query-docs', () => {
     expect(output.usage.planAllowanceRemaining).toBe(0);
   });
 
-  it('keeps a private library indistinguishable from a missing one', async () => {
+  it('keeps a private asset indistinguishable from a missing one', async () => {
     const stamp = Date.now();
-    const libraryId = await publishedLibrary(`qd-private-${stamp}`);
+    const assetId = await publishedAsset(`qd-private-${stamp}`);
     const owner = await workspaceOnPlan(100);
     await db()
-      .update(schema.library)
+      .update(schema.asset)
       .set({ ownerWorkspaceId: owner })
-      .where(eq(schema.library.id, libraryId));
+      .where(eq(schema.asset.id, assetId));
     /* Out of every channel: the owner's alone (agent-first-proposal.md 6.2). */
-    await unshare(libraryId);
+    await unshare(assetId);
 
     try {
       const input = {
-        libraryId: `/websites/qd-private-${stamp}`,
+        assetId: `/websites/qd-private-${stamp}`,
         query: 'moths',
         maxTokens: 4000,
         format: 'json' as const,
@@ -437,9 +437,9 @@ describeWithDb('query-docs', () => {
       expect(output.chunks.length).toBeGreaterThan(0);
     } finally {
       await db()
-        .update(schema.library)
+        .update(schema.asset)
         .set({ ownerWorkspaceId: null })
-        .where(eq(schema.library.id, libraryId));
+        .where(eq(schema.asset.id, assetId));
     }
   });
 
@@ -451,7 +451,7 @@ describeWithDb('query-docs', () => {
    */
   it('recalls Chinese content by keywords alone', async () => {
     const stamp = Date.now();
-    await publishedLibrary(`qd-cjk-${stamp}`, [
+    await publishedAsset(`qd-cjk-${stamp}`, [
       {
         path: 'docs/beetles.md',
         url: 'https://example.test/beetles-zh',
@@ -467,7 +467,7 @@ describeWithDb('query-docs', () => {
 
     const output = await queryDocs(
       caller(null),
-      { libraryId: `/websites/qd-cjk-${stamp}`, query: '隐翅虫的防治', maxTokens: 4000, format: 'json' },
+      { assetId: `/websites/qd-cjk-${stamp}`, query: '隐翅虫的防治', maxTokens: 4000, format: 'json' },
       noEmbeddings,
     );
 
@@ -483,9 +483,9 @@ describeWithDb('query-docs', () => {
    */
   it('applies the reranker over the fused head, and degrades without it', async () => {
     const stamp = Date.now();
-    await publishedLibrary(`qd-rerank-${stamp}`);
+    await publishedAsset(`qd-rerank-${stamp}`);
     const input = {
-      libraryId: `/websites/qd-rerank-${stamp}`,
+      assetId: `/websites/qd-rerank-${stamp}`,
       query: 'rove beetle moths moonlight',
       maxTokens: 4000,
       format: 'json' as const,
@@ -530,7 +530,7 @@ describeWithDb('query-docs', () => {
    */
   it('caches public results and still meters the hit', async () => {
     const stamp = Date.now();
-    const libraryId = await publishedLibrary(`qd-cache-${stamp}`);
+    const assetId = await publishedAsset(`qd-cache-${stamp}`);
     const workspaceId = await workspaceOnPlan(100);
 
     const store = new Map<string, string>();
@@ -545,7 +545,7 @@ describeWithDb('query-docs', () => {
       }),
     };
     const input = {
-      libraryId: `/websites/qd-cache-${stamp}`,
+      assetId: `/websites/qd-cache-${stamp}`,
       query: 'moths at night',
       maxTokens: 4000,
       format: 'json' as const,
@@ -584,7 +584,7 @@ describeWithDb('query-docs', () => {
       .from(schema.usageEvent)
       .where(eq(schema.usageEvent.requestId, hitCaller.requestId));
     expect(events).toHaveLength(1);
-    expect(events[0]?.libraryId).toBe(libraryId);
+    expect(events[0]?.assetId).toBe(assetId);
 
     /* A corrupt entry is a miss, never an error. */
     store.set(key!, '{not json');
@@ -594,11 +594,11 @@ describeWithDb('query-docs', () => {
 
   it('trims strictly to maxTokens without cutting a chunk', async () => {
     const stamp = Date.now();
-    await publishedLibrary(`qd-trim-${stamp}`);
+    await publishedAsset(`qd-trim-${stamp}`);
 
     const output = await queryDocs(
       caller(null),
-      { libraryId: `/websites/qd-trim-${stamp}`, query: 'rove beetle treatment', maxTokens: 256, format: 'json' },
+      { assetId: `/websites/qd-trim-${stamp}`, query: 'rove beetle treatment', maxTokens: 256, format: 'json' },
       noEmbeddings,
     );
 

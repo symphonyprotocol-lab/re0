@@ -3,7 +3,7 @@
  *
  * PATCH is incremental on the wire (enable/disable, add/remove/clear); the
  * server materialises a complete immutable Policy Version and answers with
- * the resulting policy and `accessibleLibraryCount`. Policies belong to a
+ * the resulting policy and `accessibleAssetCount`. Policies belong to a
  * workspace, so both verbs require an API key -- there is no anonymous form.
  */
 import { NextResponse, type NextRequest } from 'next/server';

@@ -192,7 +192,7 @@ export async function reserveCall(input: {
  */
 export async function commitCall(input: {
   reservation: ReservedCall;
-  libraryId: string;
+  assetId: string;
   versionId: string;
   operation: string;
   entrypoint: string;
@@ -235,7 +235,7 @@ export async function commitCall(input: {
         id: uuidv7(),
         workspaceId: reservation.workspaceId,
         requestId: reservation.requestId,
-        libraryId: input.libraryId,
+        assetId: input.assetId,
         versionId: input.versionId,
         operation: input.operation,
         entrypoint: input.entrypoint,
@@ -354,7 +354,7 @@ export interface ConsumptionCount {
 /**
  * What a workspace has used and is holding. Summed by weight, never counted
  * by row: a build's event and reservation carry the calls it was priced at
- * (library-build-billing.md 5.3), and a retrieval's carry 1.
+ * (asset-build-billing.md 5.3), and a retrieval's carry 1.
  */
 export async function countConsumption(
   tx: Tx,
@@ -417,7 +417,7 @@ export interface PlanWindow {
   periodEnd: Date;
   /** The version a build charge is frozen against (build-quota.ts); null when no version exists. */
   planVersionId: string | null;
-  /** library-build-billing.md 3.3: what a build costs on this version. */
+  /** asset-build-billing.md 3.3: what a build costs on this version. */
   buildRates: BuildRates;
 }
 
