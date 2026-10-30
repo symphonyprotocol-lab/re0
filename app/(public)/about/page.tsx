@@ -29,7 +29,7 @@ export default async function AboutPage() {
             {a.lede}
           </p>
           <div className="mt-7 flex flex-wrap items-center gap-2.5">
-            <Button href="/libraries" size="md">
+            <Button href="/channels" size="md">
               {a.browse}
             </Button>
           </div>

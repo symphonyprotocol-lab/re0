@@ -9,7 +9,9 @@
  * one that does not exist (architecture.md 5.2).
  */
 import { and, desc, eq, inArray, isNull, sql } from 'drizzle-orm';
-import { isQueryable, type IndexStatus, type LifecycleStatus, type Visibility } from '@/lib/domain';
+import { isQueryable, type IndexStatus, type LifecycleStatus } from '@/lib/domain';
+import type { AssetAccess, AssetKind } from '@/lib/domain/asset';
+import { channelsOfAssets, type ChannelRef } from '@/lib/application/channels/membership';
 import { ref } from '@/lib/application/administration/column-ref';
 import {
   isOwnerPause,
@@ -33,7 +35,10 @@ export interface WorkspaceLibraryDetail {
   title: string;
   description: string | null;
   language: string | null;
-  visibility: Visibility;
+  kind: AssetKind;
+  access: AssetAccess;
+  /** The channel the asset is in; null when it is in none and so only the owner's. */
+  channel: ChannelRef | null;
   lifecycleStatus: LifecycleStatus;
   indexStatus: IndexStatus;
   storageBytes: number;
@@ -108,7 +113,8 @@ export async function workspaceLibraryDetail(input: {
       title: schema.library.title,
       description: schema.library.description,
       language: schema.library.language,
-      visibility: schema.library.visibility,
+      kind: schema.library.kind,
+      access: schema.library.access,
       lifecycleStatus: schema.library.lifecycleStatus,
       indexStatus: schema.library.indexStatus,
       storageBytes: schema.library.storageBytes,
@@ -227,7 +233,9 @@ export async function workspaceLibraryDetail(input: {
     title: record.title,
     description: record.description,
     language: record.language,
-    visibility: record.visibility,
+    kind: record.kind,
+    access: record.access,
+    channel: (await channelsOfAssets([record.id], database)).get(record.id) ?? null,
     lifecycleStatus: record.lifecycleStatus,
     indexStatus: record.indexStatus,
     storageBytes: record.storageBytes,

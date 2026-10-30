@@ -4,7 +4,7 @@ import { useActionState, useEffect, useId, useState } from 'react';
 import { ConsoleDialog } from '@/components/admin/console-dialog';
 import { ConsoleButton, IconButton } from '@/components/admin/ui';
 import { BanIcon, CircleCheckIcon, CircleXIcon, SpinnerIcon } from '@/components/ui/icons';
-import type { LifecycleStatus, Visibility } from '@/lib/domain';
+import type { LifecycleStatus } from '@/lib/domain';
 import { reviewActionAvailable, type UserReviewAction } from '@/lib/domain/library';
 import { useI18n } from '@/lib/i18n/client';
 import {
@@ -31,14 +31,15 @@ export function UserReviewControls({
   action,
   target,
   current,
-  visibility,
+  visibility = 'private',
   canApprove,
   variant = 'icon',
 }: {
   action: Action;
   target: PlatformLibraryTarget;
   current: LifecycleStatus;
-  visibility: Visibility;
+  /** Listed in a public channel or not; shown by the caller, not decisive here. */
+  visibility?: 'public' | 'private';
   /** Whether an indexed version exists. A restoration without one is refused. */
   canApprove: boolean;
   variant?: 'icon' | 'button';
@@ -50,10 +51,10 @@ export function UserReviewControls({
 
   const verbs: { intent: UserReviewAction; label: string; icon: React.ReactNode; danger: boolean }[] =
     [];
-  if (reviewActionAvailable(current, visibility, 'approve')) {
+  if (reviewActionAvailable(current, 'approve')) {
     verbs.push({ intent: 'approve', label: a.restore, icon: <CircleCheckIcon size={14} />, danger: false });
   }
-  if (reviewActionAvailable(current, visibility, 'reject')) {
+  if (reviewActionAvailable(current, 'reject')) {
     verbs.push({ intent: 'reject', label: a.suspend, icon: <BanIcon size={14} />, danger: true });
   }
   if (verbs.length === 0) return null;
@@ -102,7 +103,6 @@ function ReviewDialog({
   target,
   intent,
   current,
-  visibility,
   canApprove,
   onClose,
 }: {
@@ -110,7 +110,8 @@ function ReviewDialog({
   target: PlatformLibraryTarget;
   intent: UserReviewAction;
   current: LifecycleStatus;
-  visibility: Visibility;
+  /** Listed in a public channel or not; shown by the caller, not decisive here. */
+  visibility?: 'public' | 'private';
   canApprove: boolean;
   onClose: () => void;
 }) {

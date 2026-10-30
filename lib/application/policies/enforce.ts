@@ -14,6 +14,7 @@ import {
   type WorkspacePolicy,
 } from '@/lib/domain/policy';
 import { db, schema } from '@/lib/infrastructure/postgres/client';
+import { channelsOfAssets, isPublicChannel } from '@/lib/application/channels/membership';
 
 /**
  * True when the policy cannot refuse anything: skip the fact-gathering.
@@ -42,11 +43,12 @@ export async function policyVerdicts(
       publicId: schema.library.publicId,
       ownerWorkspaceId: schema.library.ownerWorkspaceId,
       isPlatformLibrary: schema.library.isPlatformLibrary,
-      visibility: schema.library.visibility,
       lastSuccessfulRefreshAt: schema.library.lastSuccessfulRefreshAt,
     })
     .from(schema.library)
     .where(inArray(schema.library.id, libraryIds));
+
+  const channels = await channelsOfAssets(libraryIds, database);
 
   const sources = await database
     .select({
@@ -84,12 +86,15 @@ export async function policyVerdicts(
   }
 
   for (const library of libraries) {
+    const channel = channels.get(library.id) ?? null;
     const subject: PolicySubject = {
       publicId: library.publicId,
-      /* A private library answers to the `private` switch as well (10.2). */
+      channel: channel ? `/channels/${channel.slug}` : null,
+      /* An asset that is its owner's alone -- in no channel or a private
+         one -- answers to the `private` switch as well (10.2). */
       sourceTypes: [
         ...(sourceTypes.get(library.id) ?? []),
-        ...(library.visibility === 'private' ? [PRIVATE_SOURCE_TYPE] : []),
+        ...(isPublicChannel(channel) ? [] : [PRIVATE_SOURCE_TYPE]),
       ],
       domains: sourceHosts.get(library.id) ?? [],
       trustScore: newestScore.get(library.id) ?? 0,

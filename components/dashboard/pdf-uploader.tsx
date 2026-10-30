@@ -3,7 +3,7 @@
 import { put as putBlob } from '@vercel/blob/client';
 import { useCallback, useRef, useState } from 'react';
 import { FileTextIcon, SpinnerIcon, UploadIcon, XIcon } from '@/components/ui/icons';
-import type { PrepareUploadResult } from '@/app/dashboard/libraries/new/actions';
+import type { PrepareUploadResult } from '@/app/dashboard/assets/new/actions';
 import type { UploadTicket } from '@/lib/infrastructure/objects/store';
 import {
   UPLOAD_CONTENT_TYPES,

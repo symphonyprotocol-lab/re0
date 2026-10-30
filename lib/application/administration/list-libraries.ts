@@ -7,6 +7,7 @@
  */
 import { and, count, desc, eq, ilike, inArray, isNull, or, sql } from 'drizzle-orm';
 import { db, schema } from '@/lib/infrastructure/postgres/client';
+import { exposure } from '@/lib/application/channels/visibility';
 import { ref } from './column-ref';
 import { likePattern } from './like-pattern';
 
@@ -68,7 +69,7 @@ const LIBRARY_ROW = {
   publicId: schema.library.publicId,
   title: schema.library.title,
   storageBytes: schema.library.storageBytes,
-  visibility: schema.library.visibility,
+  visibility: exposure(),
   lifecycleStatus: schema.library.lifecycleStatus,
   createdAt: schema.library.createdAt,
   ownerName,

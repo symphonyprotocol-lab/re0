@@ -6,7 +6,7 @@ import { submitOn } from '@/components/admin/platform-library-shared';
 import { AREA, FIELD, Field, PRIMARY, ResultLine, SECONDARY } from '@/components/dashboard/library-manage';
 import { Badge, PANEL } from '@/components/dashboard/ui';
 import { PencilIcon, PlusIcon, TrashIcon } from '@/components/ui/icons';
-import type { FaqActionResult } from '@/app/dashboard/libraries/[libraryId]/actions';
+import type { FaqActionResult } from '@/app/dashboard/assets/[libraryId]/actions';
 import type { FaqEntryView, FaqGroupView } from '@/lib/application/embed';
 import { FAQ_LIMITS } from '@/lib/domain/faq';
 import { useI18n } from '@/lib/i18n/client';

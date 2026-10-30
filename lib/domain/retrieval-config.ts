@@ -30,6 +30,10 @@ export const RETRIEVAL_SETTING_KEYS = [
   'playgroundAgentSteps',
   'playgroundAgentQueries',
   'playgroundAgentResolves',
+  'channelActivityBps',
+  'channelFreshnessBps',
+  'channelQualityBps',
+  'channelHalfLifeDays',
 ] as const;
 
 export type RetrievalSettingKey = (typeof RETRIEVAL_SETTING_KEYS)[number];
@@ -103,6 +107,17 @@ export const RETRIEVAL_SETTING_BOUNDS: Record<RetrievalSettingKey, RetrievalSett
   playgroundAgentQueries: { min: 1, max: 6, default: 3 },
   /** `resolve_library_id` calls one exchange may make; 0 leaves the planner to the libraries the turns name. */
   playgroundAgentResolves: { min: 0, max: 4, default: 2 },
+  /**
+   * The channel directory's 热门 score (agent-first-proposal.md 6.4):
+   * `activity * wa + freshness * wf + quality * wq`, weights in basis points.
+   * Defaults are the proposal's 0.5 / 0.25 / 0.25; they need not sum to
+   * 10,000 -- only their ratio orders the directory.
+   */
+  channelActivityBps: { min: 0, max: 10_000, default: 5_000 },
+  channelFreshnessBps: { min: 0, max: 10_000, default: 2_500 },
+  channelQualityBps: { min: 0, max: 10_000, default: 2_500 },
+  /** Days for the freshness term to halve; the proposal's 14. */
+  channelHalfLifeDays: { min: 1, max: 365, default: 14 },
 };
 
 export const DEFAULT_RETRIEVAL_SETTINGS: RetrievalSettings = Object.fromEntries(
@@ -160,6 +175,10 @@ export function validateRetrievalSettings(
      were never fetched. */
   if (settings.routingResultLimit > settings.routingRecallLimit) {
     throw new RetrievalConfigRefused('routingResultLimit', 'inconsistent');
+  }
+  /* All three weights at zero would order the directory by nothing. */
+  if (settings.channelActivityBps + settings.channelFreshnessBps + settings.channelQualityBps === 0) {
+    throw new RetrievalConfigRefused('channelActivityBps', 'inconsistent');
   }
   return settings;
 }

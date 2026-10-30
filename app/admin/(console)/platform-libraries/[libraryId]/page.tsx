@@ -287,7 +287,9 @@ export default async function AdminPlatformLibraryPage({
           title={d.sources.title}
           description={d.sources.namespaceNote}
           action={
-            record.lifecycleStatus === 'archived' ? undefined : (
+            /* One asset, one source (agent-first-proposal.md 3.1): the control
+               only gives a source back to an asset that has lost its last one. */
+            record.lifecycleStatus === 'archived' || record.sources.length > 0 ? undefined : (
               <AddPlatformSourceControl
                 action={addPlatformSourceAction}
                 target={target}

@@ -19,6 +19,8 @@ import {
   type UserAccountStatus,
 } from '@/lib/domain/admin';
 import { db, schema } from '@/lib/infrastructure/postgres/client';
+import { listedInPublicChannel } from '@/lib/application/channels/visibility';
+import { exposure } from '@/lib/application/channels/visibility';
 import { subscriptionRenewal, type WorkspacePlanVersion } from '@/lib/application/plans/billing';
 import { IN_FORCE_FIRST, subscriptionInForce } from '@/lib/application/plans/in-force';
 import { recordAudit } from './audit';
@@ -208,7 +210,7 @@ export async function getConsoleUser(
             id: schema.library.id,
             publicId: schema.library.publicId,
             title: schema.library.title,
-            visibility: schema.library.visibility,
+            visibility: exposure(),
             lifecycleStatus: schema.library.lifecycleStatus,
             storageBytes: schema.library.storageBytes,
             createdAt: schema.library.createdAt,
@@ -300,7 +302,7 @@ export async function getConsoleUser(
           .select({
             total: sql<number>`count(*)::int`,
             published: sql<number>`(count(*) filter (where ${schema.library.lifecycleStatus} = 'published'))::int`,
-            visible: sql<number>`(count(*) filter (where ${schema.library.visibility} = 'public'))::int`,
+            visible: sql<number>`(count(*) filter (where ${listedInPublicChannel()}))::int`,
           })
           .from(schema.library)
           .where(

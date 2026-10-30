@@ -104,7 +104,7 @@ export function grantScopeCovers(scope: string): boolean {
 }
 
 /** Where the connect flow lands when nothing better is known: the wizard. */
-export const GITHUB_CONNECT_RETURN_TO = '/dashboard/libraries/new';
+export const GITHUB_CONNECT_RETURN_TO = '/dashboard/assets/new';
 
 /** The in-flight connect handshake, sealed in its own short-lived cookie. */
 export interface GithubConnectHandshake {

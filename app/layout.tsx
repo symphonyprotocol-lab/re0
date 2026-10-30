@@ -25,7 +25,7 @@ const jetbrains = JetBrains_Mono({
  * this deployment's: a preview or a laptop must not hand a crawler its own
  * address as the canonical one (lib/site/origin.ts). `./` makes each page's
  * canonical and `og:url` its own path with the query string dropped, so
- * `/libraries?q=…` points at the directory rather than at one search; a page
+ * `/channels?sort=…` points at the directory rather than at one ordering; a page
  * that needs a different canonical (a shared page on its own host) sets it.
  * The Open Graph title and description fill in from the page's own, so a page
  * only states them when the card should read differently from the tab.

@@ -6,16 +6,16 @@ import { PRIMARY, ResultLine, SECONDARY } from '@/components/dashboard/library-m
 import { EMPTY_RIGHTS, RightsFields, RightsHiddenFields, rightsComplete, type RightsAnswer } from '@/components/dashboard/rights-fields';
 import { PANEL } from '@/components/dashboard/ui';
 import { SpinnerIcon } from '@/components/ui/icons';
-import type { MaterialsActionResult } from '@/app/dashboard/libraries/[libraryId]/actions';
+import type { MaterialsActionResult } from '@/app/dashboard/assets/[libraryId]/actions';
 import type { LibraryMaterials } from '@/lib/application/libraries';
-import type { Visibility } from '@/lib/domain';
 import { useI18n } from '@/lib/i18n/client';
 
 /**
- * The owner's rights declaration (review-visibility-proposal.md 5.1): what a
- * public library carries about where its content came from. It does not hold
- * a library back from publishing -- public review before publication ended
- * on 2026-10-23.
+ * The owner's rights declaration (review-visibility-proposal.md 5.1): what an
+ * asset in a public channel carries about where its content came from, and
+ * what moving one into a public channel checks (agent-first-proposal.md
+ * 6.11). It does not hold a build back -- public review before publication
+ * ended on 2026-10-23.
  */
 
 type MaterialsAction = (previous: MaterialsActionResult | null, form: FormData) => Promise<MaterialsActionResult>;
@@ -26,13 +26,14 @@ export interface MaterialsPanelActions {
 
 export function LibraryMaterialsPanel({
   libraryId,
-  visibility,
+  shared,
   canEdit,
   materials,
   actions,
 }: {
   libraryId: string;
-  visibility: Visibility;
+  /** In a public channel: the declaration must keep permitting that. */
+  shared: boolean;
   canEdit: boolean;
   materials: LibraryMaterials;
   actions: MaterialsPanelActions;
@@ -57,7 +58,7 @@ export function LibraryMaterialsPanel({
     <section id="materials" className={`${PANEL} flex scroll-mt-4 flex-col gap-5 p-6`}>
       <div className="flex flex-col gap-1">
         <h2 className="text-[15px] font-medium text-ink">{m.title}</h2>
-        <p className="text-[11px] leading-[1.6] text-muted">{visibility === 'public' ? m.descriptionPublic : m.descriptionPrivate}</p>
+        <p className="text-[11px] leading-[1.6] text-muted">{shared ? m.descriptionPublic : m.descriptionPrivate}</p>
       </div>
 
       {/* The rights declaration. */}
@@ -104,7 +105,7 @@ export function LibraryMaterialsPanel({
             <div className="flex flex-wrap items-center gap-3">
               <button
                 type="submit"
-                disabled={declaring || !rightsComplete(rights) || (visibility === 'public' && rights.generation === 'generated')}
+                disabled={declaring || !rightsComplete(rights) || (shared && rights.generation === 'generated')}
                 className={PRIMARY}
               >
                 {declaring ? <SpinnerIcon size={14} className="motion-safe:animate-spin" /> : null}

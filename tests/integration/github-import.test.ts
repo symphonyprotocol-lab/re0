@@ -113,7 +113,7 @@ async function workspaceOnPlan(): Promise<string> {
 /** The consent round trip with a fake exchange: begin, then complete with the state the cookie carries. */
 async function connect(userId: string, grant = { accessToken: TOKEN, scope: 'read:user read:org', githubUserId: ACCOUNT, login: 'octocat' }) {
   const started = await beginGithubConnect({
-    returnTo: '/dashboard/libraries/new',
+    returnTo: '/dashboard/assets/new',
     redirectUri: 'http://localhost:3000/api/auth/github/callback/connect',
   });
   const handshake = await unseal<{ state: string }>(started.handshake);
@@ -176,7 +176,7 @@ describeWithDb('github repository import', () => {
     ).rejects.toMatchObject({ loginError: 'oauth_failed' });
 
     const connected = await connect(userId);
-    expect(connected).toEqual({ login: 'octocat', returnTo: '/dashboard/libraries/new' });
+    expect(connected).toEqual({ login: 'octocat', returnTo: '/dashboard/assets/new' });
 
     /* Sealed at rest: the token is not in the row, and reading it back needs the key. */
     const [row] = await db().select().from(schema.githubConnection).where(eq(schema.githubConnection.userId, userId));

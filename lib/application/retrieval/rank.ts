@@ -1,7 +1,16 @@
 /**
- * Recall, fusion, rerank and trim within one pinned version -- the part of
+ * Recall, fusion, rerank and trim within pinned versions -- the part of
  * `queryDocs` that reads chunks, with none of the part that decides who may
  * (architecture.md 9.2).
+ *
+ * One version for a read of one asset; a set of them for a read of a
+ * channel (agent-first-proposal.md 3.7): the exact scan was always filtered
+ * by asset, and a channel only widens the filter from one to a group, so a
+ * channel is still one keyword query and one vector query, never a query per
+ * asset merged afterwards. Versions frozen with a different text-search
+ * configuration each get their own keyword predicate inside the same
+ * statement; the vector leg reads only versions built with the model in
+ * force, exactly as for one asset.
  *
  * Separate so a second caller can rank against a version without being a
  * served call: a reviewer's probe (administration/review-content.ts) asks a
@@ -10,7 +19,7 @@
  * Authorization, the policy, the reservation and the cache all stay in
  * `queryDocs`; nothing here may be reached from /v1 or MCP except through it.
  */
-import { and, desc, eq, sql } from 'drizzle-orm';
+import { and, desc, eq, inArray, sql } from 'drizzle-orm';
 import type { ChunkResult } from '@/contracts/schemas';
 import { cjkSearchTokens, containsCjk } from '@/lib/domain/cjk';
 import { keywordEvidenceOf } from '@/lib/domain/keyword-evidence';
@@ -31,13 +40,46 @@ export interface RankTarget {
   maxTokens: number;
 }
 
+/** One pinned version of one asset, as a member of a ranked set. */
+export interface RankScopeMember {
+  libraryId: string;
+  version: Pick<PinnedVersion, 'id' | 'searchConfig' | 'embeddingModel' | 'embeddingDimensions'>;
+}
+
+/** A ranked chunk plus which asset and version it came from. */
+export type ScopedChunk = ChunkResult & { libraryId: string; versionId: string };
+
 export async function rankChunks(
   database: ReturnType<typeof db>,
   target: RankTarget,
   dependencies: Pick<RetrievalDependencies, 'embeddings' | 'rerank' | 'configured'>,
   settings: RetrievalSettings,
 ): Promise<{ chunks: ChunkResult[]; confidence: RetrievalConfidence }> {
-  const { version } = target;
+  const ranked = await rankAcross(
+    database,
+    { members: [{ libraryId: target.libraryId, version: target.version }], query: target.query, maxTokens: target.maxTokens },
+    dependencies,
+    settings,
+  );
+  return {
+    chunks: ranked.chunks.map(({ libraryId: _libraryId, versionId: _versionId, ...chunk }) => chunk),
+    confidence: ranked.confidence,
+  };
+}
+
+export async function rankAcross(
+  database: ReturnType<typeof db>,
+  target: { members: readonly RankScopeMember[]; query: string; maxTokens: number },
+  dependencies: Pick<RetrievalDependencies, 'embeddings' | 'rerank' | 'configured'>,
+  settings: RetrievalSettings,
+): Promise<{ chunks: ScopedChunk[]; confidence: RetrievalConfidence }> {
+  const { members } = target;
+  if (members.length === 0) {
+    return {
+      chunks: [],
+      confidence: { bestDistance: null, faqNearest: null, keywordHits: 0, keywordEvidence: null },
+    };
+  }
 
   /* ---------------------------------------------------------- recall */
 
@@ -59,17 +101,41 @@ export async function rankChunks(
   const tsquery = toTsquery(searchTokens(target.query));
   const cjkQuery = containsCjk(target.query) ? toTsquery(cjkSearchTokens(target.query)) : null;
 
+  /* Grouped by the configuration each version froze; usually one group. */
+  const byConfig = new Map<string, string[]>();
+  for (const member of members) {
+    const ids = byConfig.get(member.version.searchConfig) ?? [];
+    ids.push(member.version.id);
+    byConfig.set(member.version.searchConfig, ids);
+  }
+  const groups = [...byConfig.entries()];
+  const versionIn = (ids: string[]) => sql`${schema.chunk.versionId} in (${sql.join(ids.map((id) => sql`${id}::uuid`), sql`, `)})`;
+  const mainMatch = (config: string) =>
+    sql`${schema.chunk.searchVector} @@ to_tsquery(${config}::regconfig, ${tsquery})`;
+  const mainRank = (config: string) =>
+    sql`ts_rank(${schema.chunk.searchVector}, to_tsquery(${config}::regconfig, ${tsquery}))`;
+
   const matches = tsquery
-    ? cjkQuery
-      ? sql`(${schema.chunk.searchVector} @@ to_tsquery(${version.searchConfig}::regconfig, ${tsquery})
-            or ${schema.chunk.searchVectorCjk} @@ to_tsquery('simple', ${cjkQuery}))`
-      : sql`${schema.chunk.searchVector} @@ to_tsquery(${version.searchConfig}::regconfig, ${tsquery})`
+    ? sql`(${sql.join(
+        groups.map(([config, ids]) =>
+          cjkQuery
+            ? sql`(${versionIn(ids)} and (${mainMatch(config)} or ${schema.chunk.searchVectorCjk} @@ to_tsquery('simple', ${cjkQuery})))`
+            : sql`(${versionIn(ids)} and ${mainMatch(config)})`,
+        ),
+        sql` or `,
+      )})`
     : null;
+  const mainRankOf =
+    groups.length === 1
+      ? mainRank(groups[0]![0])
+      : sql`(case ${sql.join(
+          groups.map(([config, ids]) => sql`when ${versionIn(ids)} then ${mainRank(config)}`),
+          sql` `,
+        )} else 0 end)`;
   const rank = tsquery
     ? cjkQuery
-      ? sql`ts_rank(${schema.chunk.searchVector}, to_tsquery(${version.searchConfig}::regconfig, ${tsquery}))
-            + ts_rank(${schema.chunk.searchVectorCjk}, to_tsquery('simple', ${cjkQuery}))`
-      : sql`ts_rank(${schema.chunk.searchVector}, to_tsquery(${version.searchConfig}::regconfig, ${tsquery}))`
+      ? sql`${mainRankOf} + ts_rank(${schema.chunk.searchVectorCjk}, to_tsquery('simple', ${cjkQuery}))`
+      : mainRankOf
     : null;
 
   const keyword =
@@ -80,9 +146,11 @@ export async function rankChunks(
             body: schema.chunk.body,
             tokens: schema.chunk.tokens,
             citation: schema.chunk.citation,
+            libraryId: schema.chunk.libraryId,
+            versionId: schema.chunk.versionId,
           })
           .from(schema.chunk)
-          .where(and(scopedTo(target.libraryId, version.id), matches))
+          .where(and(scopedTo(members), matches))
           .orderBy(desc(rank))
           .limit(settings.recallLimit)
       : [];
@@ -100,11 +168,14 @@ export async function rankChunks(
    */
   let semantic: ((typeof keyword)[number] & { distance: number })[] = [];
   const embeddings = configured.embeddings ? await dependencies.embeddings() : null;
-  if (
-    embeddings &&
-    embeddings.model === version.embeddingModel &&
-    embeddings.dimensions === version.embeddingDimensions
-  ) {
+  const sameSpace = embeddings
+    ? members.filter(
+        (member) =>
+          member.version.embeddingModel === embeddings.model &&
+          member.version.embeddingDimensions === embeddings.dimensions,
+      )
+    : [];
+  if (embeddings && sameSpace.length > 0) {
     const [queryVector] = await embeddings.embed([target.query]);
     if (queryVector) {
       const literal = `[${queryVector.join(',')}]`;
@@ -114,10 +185,12 @@ export async function rankChunks(
           body: schema.chunk.body,
           tokens: schema.chunk.tokens,
           citation: schema.chunk.citation,
+          libraryId: schema.chunk.libraryId,
+          versionId: schema.chunk.versionId,
           distance: sql<number>`${schema.chunk.embedding} <=> ${literal}::vector`,
         })
         .from(schema.chunk)
-        .where(scopedTo(target.libraryId, version.id))
+        .where(scopedTo(sameSpace))
         .orderBy(sql`${schema.chunk.embedding} <=> ${literal}::vector`)
         .limit(settings.recallLimit);
     }
@@ -183,7 +256,7 @@ export async function rankChunks(
   }
 
   const seenBodies = new Set<string>();
-  const chunks: ChunkResult[] = [];
+  const chunks: ScopedChunk[] = [];
   let budget = target.maxTokens;
 
   for (const { score, row } of ordered) {
@@ -201,18 +274,32 @@ export async function rankChunks(
       score: Number(score.toFixed(6)),
       tokens: row.tokens,
       citation,
+      libraryId: row.libraryId,
+      versionId: row.versionId,
     });
   }
 
   return { chunks, confidence };
 }
 
-/** §9.1: every chunk read is scoped, and unsafe rows are excluded in the same predicate. */
-function scopedTo(libraryId: string, versionId: string) {
+/**
+ * §9.1: every chunk read is scoped to pinned (asset, version) pairs, and
+ * unsafe rows are excluded in the same predicate. One pair keeps the plain
+ * equality the single-asset read always planned with.
+ */
+function scopedTo(members: readonly RankScopeMember[]) {
+  const safe = sql`${schema.chunk.safetyStatus} not in ('quarantined', 'unsafe')`;
+  if (members.length === 1) {
+    return and(
+      eq(schema.chunk.libraryId, members[0]!.libraryId),
+      eq(schema.chunk.versionId, members[0]!.version.id),
+      safe,
+    );
+  }
   return and(
-    eq(schema.chunk.libraryId, libraryId),
-    eq(schema.chunk.versionId, versionId),
-    sql`${schema.chunk.safetyStatus} not in ('quarantined', 'unsafe')`,
+    inArray(schema.chunk.libraryId, members.map((member) => member.libraryId)),
+    inArray(schema.chunk.versionId, members.map((member) => member.version.id)),
+    safe,
   );
 }
 

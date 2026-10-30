@@ -7,7 +7,7 @@ import { CopyButton } from '@/components/dashboard/copy-button';
 import { AREA, FIELD, Field, PRIMARY, ResultLine, SECONDARY } from '@/components/dashboard/library-manage';
 import { ArrowLink, Badge, PANEL } from '@/components/dashboard/ui';
 import { ArrowUpRightIcon, CheckIcon, DownloadIcon, EyeIcon, GlobeIcon, MailIcon, RefreshIcon, SparklesIcon, TrashIcon, UploadIcon } from '@/components/ui/icons';
-import type { ShowcaseActionResult } from '@/app/dashboard/libraries/[libraryId]/actions';
+import type { ShowcaseActionResult } from '@/app/dashboard/assets/[libraryId]/actions';
 import type { ShowcaseDomainView, ShowcaseLeadsView, ShowcaseStats, ShowcaseView } from '@/lib/application/showcase';
 import { SITE_KEY_DAILY_LIMIT_MAX, SITE_KEY_DAILY_LIMIT_MIN } from '@/lib/domain/site-key';
 import {

@@ -10,7 +10,7 @@ import type { RetrievalSettingKey } from '@/lib/domain/retrieval-config';
  * reaches a server component as a client reference, not as an array.
  */
 export const RETRIEVAL_SETTING_GROUPS: {
-  id: 'chunk' | 'rerank' | 'cache' | 'playground' | 'agent' | 'routing';
+  id: 'chunk' | 'rerank' | 'cache' | 'playground' | 'agent' | 'routing' | 'directory';
   keys: RetrievalSettingKey[];
 }[] = [
   { id: 'chunk', keys: ['recallLimit', 'rrfK'] },
@@ -22,4 +22,8 @@ export const RETRIEVAL_SETTING_GROUPS: {
     keys: ['playgroundAgent', 'playgroundAgentSteps', 'playgroundAgentQueries', 'playgroundAgentResolves'],
   },
   { id: 'routing', keys: ['routingRecallLimit', 'routingRareSampleCap', 'routingResultLimit'] },
+  {
+    id: 'directory',
+    keys: ['channelActivityBps', 'channelFreshnessBps', 'channelQualityBps', 'channelHalfLifeDays'],
+  },
 ];

@@ -27,11 +27,6 @@ function siteStructuredData(t: Awaited<ReturnType<typeof translations>>['t']) {
     description: t.meta.description,
     url: PUBLIC_ORIGIN,
     publisher: { '@id': organization['@id'] },
-    potentialAction: {
-      '@type': 'SearchAction',
-      target: { '@type': 'EntryPoint', urlTemplate: publicUrl('/libraries?q={search_term_string}') },
-      'query-input': 'required name=search_term_string',
-    },
   };
   return { '@context': 'https://schema.org', '@graph': [organization, website] };
 }

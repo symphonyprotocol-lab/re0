@@ -16,7 +16,7 @@
 import { and, desc, eq, sql } from 'drizzle-orm';
 import { normalizeReason } from '@/lib/domain/admin';
 import { uuidv7 } from '@/lib/domain/id';
-import type { IndexStatus, LifecycleStatus, Visibility } from '@/lib/domain';
+import type { IndexStatus, LifecycleStatus } from '@/lib/domain';
 import {
   PlatformLibraryRefused,
   reviewActionAvailable,
@@ -24,6 +24,7 @@ import {
   type UserReviewAction,
 } from '@/lib/domain/library';
 import { db, schema } from '@/lib/infrastructure/postgres/client';
+import { exposure } from '@/lib/application/channels/visibility';
 import { libraryMaterials, type LibraryMaterials } from '@/lib/application/libraries/materials';
 import { recordAudit } from './audit';
 import { ref } from './column-ref';
@@ -52,7 +53,8 @@ export interface UserLibraryDetail {
   title: string;
   description: string | null;
   language: string | null;
-  visibility: Visibility;
+  /** Listed in a public channel or not (channels/visibility.ts `exposure`). */
+  visibility: 'public' | 'private';
   lifecycleStatus: LifecycleStatus;
   indexStatus: IndexStatus;
   storageBytes: number;
@@ -99,7 +101,7 @@ export async function getUserLibrary(libraryId: string): Promise<UserLibraryDeta
       title: schema.library.title,
       description: schema.library.description,
       language: schema.library.language,
-      visibility: schema.library.visibility,
+      visibility: exposure(),
       lifecycleStatus: schema.library.lifecycleStatus,
       indexStatus: schema.library.indexStatus,
       storageBytes: schema.library.storageBytes,
@@ -263,7 +265,7 @@ export async function reviewUserLibrary(input: {
     .select({
       id: schema.library.id,
       publicId: schema.library.publicId,
-      visibility: schema.library.visibility,
+      visibility: exposure(),
       lifecycleStatus: schema.library.lifecycleStatus,
       currentVersionId: schema.library.currentVersionId,
       isPlatformLibrary: schema.library.isPlatformLibrary,
@@ -277,7 +279,7 @@ export async function reviewUserLibrary(input: {
     throw new PlatformLibraryRefused('not_user_library', 'a platform library is not reviewed');
   }
 
-  if (!reviewActionAvailable(target.lifecycleStatus, target.visibility, input.action)) {
+  if (!reviewActionAvailable(target.lifecycleStatus, input.action)) {
     throw new PlatformLibraryRefused(
       target.lifecycleStatus === 'archived' ? 'archived' : 'invalid_transition',
       `cannot ${input.action} a ${target.visibility} ${target.lifecycleStatus} library`,

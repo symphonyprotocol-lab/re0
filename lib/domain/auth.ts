@@ -41,7 +41,7 @@ export const DEFAULT_RETURN_TO = '/dashboard';
  * return URL: an allow list of in-app paths is the only form that cannot be
  * talked into pointing somewhere else.
  */
-const RETURN_TO_PREFIXES = ['/dashboard', '/libraries', '/playground', '/pricing'];
+const RETURN_TO_PREFIXES = ['/dashboard', '/assets', '/channels', '/u', '/playground', '/pricing'];
 
 function hasControlCharacter(value: string): boolean {
   for (const ch of value) {

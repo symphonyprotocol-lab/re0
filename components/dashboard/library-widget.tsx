@@ -15,7 +15,7 @@ import {
 } from '@/components/dashboard/library-manage';
 import { ArrowLink, PANEL } from '@/components/dashboard/ui';
 import { GlobeIcon, PencilIcon, TrashIcon } from '@/components/ui/icons';
-import type { SiteKeyActionResult } from '@/app/dashboard/libraries/[libraryId]/actions';
+import type { SiteKeyActionResult } from '@/app/dashboard/assets/[libraryId]/actions';
 import type { SiteKeyView } from '@/lib/application/embed';
 import {
   embedSnippet,

@@ -4,7 +4,7 @@ import { useActionState, useId, useState } from 'react';
 import { ConsoleDialog } from '@/components/admin/console-dialog';
 import { submitOn } from '@/components/admin/platform-library-shared';
 import { CircleCheckIcon, CircleXIcon, SpinnerIcon, TrashIcon } from '@/components/ui/icons';
-import type { DeleteLibraryActionResult } from '@/app/dashboard/libraries/actions';
+import type { DeleteLibraryActionResult } from '@/app/dashboard/assets/actions';
 import { useI18n } from '@/lib/i18n/client';
 import { fill } from '@/lib/i18n/format';
 

@@ -60,9 +60,9 @@ export default async function DashboardShowcasesPage() {
 
   const action =
     libraryCount === 0 ? (
-      <ActionButton href="/dashboard/libraries/new">{w.createLibrary}</ActionButton>
+      <ActionButton href="/dashboard/assets/new">{w.createLibrary}</ActionButton>
     ) : (
-      <ActionButton href="/dashboard/libraries" variant={overview.published > 0 ? 'outline' : 'primary'}>
+      <ActionButton href="/dashboard/assets" variant={overview.published > 0 ? 'outline' : 'primary'}>
         {w.pickLibrary}
       </ActionButton>
     );
@@ -93,7 +93,7 @@ export default async function DashboardShowcasesPage() {
                 ))}
               </div>
               {overview.rows.map((row) => {
-                const manageHref = `/dashboard/libraries/${row.libraryId}#showcase`;
+                const manageHref = `/dashboard/assets/${row.libraryId}#showcase`;
                 const page = row.page;
                 const address = addressOf(page);
                 return (

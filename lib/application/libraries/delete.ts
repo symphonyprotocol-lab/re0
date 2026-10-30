@@ -101,6 +101,11 @@ export async function markLibraryDeleted(
       };
     }
 
+    /* Out of its channel at once: a tombstone is shown nowhere
+       (agent-first-proposal.md 6.1), and the row stays for billing history,
+       so the cascade on purge would come too late. */
+    await tx.delete(schema.channelAsset).where(eq(schema.channelAsset.assetId, row.id));
+
     await tx
       .update(schema.library)
       .set({

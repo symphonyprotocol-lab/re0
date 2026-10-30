@@ -5,6 +5,8 @@ import { redirect } from 'next/navigation';
 import { disconnectGithub, disconnectNotion } from '@/lib/application/auth';
 import { billingPortalUrl, CheckoutRefused, startCheckout } from '@/lib/application/billing';
 import { requireSession } from '@/lib/http/session';
+import { AppError } from '@/contracts/errors';
+import { changeWorkspaceHandle, HandleRefused } from '@/lib/application/workspaces/handle';
 
 /**
  * The settings page's mutations: forget a provider grant, and hand the buyer
@@ -20,14 +22,14 @@ export async function disconnectGithubAction(): Promise<void> {
   const session = await requireSession('/dashboard/settings');
   await disconnectGithub(session.user.id);
   revalidatePath('/dashboard/settings');
-  revalidatePath('/dashboard/libraries/new');
+  revalidatePath('/dashboard/assets/new');
 }
 
 export async function disconnectNotionAction(): Promise<void> {
   const session = await requireSession('/dashboard/settings');
   await disconnectNotion(session.user.id);
   revalidatePath('/dashboard/settings');
-  revalidatePath('/dashboard/libraries/new');
+  revalidatePath('/dashboard/assets/new');
 }
 
 /**
@@ -73,4 +75,31 @@ export async function openBillingPortalAction(): Promise<void> {
     backToPlan('failed');
   }
   redirect(url);
+}
+
+/**
+ * Changes the workspace's public handle (agent-first-proposal.md 12): the
+ * `/u/{handle}` page and the user card's tenant. The outcome comes back on
+ * `?handle=` for the page to word: `saved`, `invalid`, `reserved`, `taken`
+ * or `denied`.
+ */
+export async function changeHandleAction(form: FormData): Promise<void> {
+  const session = await requireSession('/dashboard/settings');
+  let outcome = 'saved';
+  try {
+    await changeWorkspaceHandle({
+      workspaceId: session.workspace.id,
+      role: session.workspace.role,
+      handle: String(form.get('handle') ?? ''),
+    });
+    revalidatePath('/dashboard/settings');
+  } catch (error) {
+    if (error instanceof HandleRefused) outcome = error.code;
+    else if (error instanceof AppError && error.code === 'access_denied') outcome = 'denied';
+    else {
+      console.error(`change handle failed: ${error instanceof Error ? error.message : 'unknown'}`);
+      outcome = 'unavailable';
+    }
+  }
+  redirect(`/dashboard/settings?handle=${outcome}#handle`);
 }

@@ -47,7 +47,8 @@ export function DashboardSidebar({
 
   const nav = [
     { href: '/dashboard', label: t.dashboard.nav.overview, Icon: LayoutDashboardIcon },
-    { href: '/dashboard/libraries', label: t.dashboard.nav.libraries, Icon: DatabaseIcon },
+    { href: '/dashboard/assets', label: t.dashboard.nav.libraries, Icon: DatabaseIcon },
+    { href: '/dashboard/channels', label: t.dashboard.nav.channels, Icon: GlobeIcon },
     { href: '/dashboard/api-keys', label: t.dashboard.nav.apiKeys, Icon: KeyIcon },
     /* Offline surfaces (lib/domain/surfaces.ts) keep no entry in the rail. */
     ...(surfaceEnabled('widget') ? [{ href: '/dashboard/widget', label: t.dashboard.nav.widget, Icon: GlobeIcon }] : []),

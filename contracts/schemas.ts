@@ -7,7 +7,6 @@ import { z } from 'zod';
 
 // --- Library state. requirement.md 6.2: three independent axes, never merged. ---
 
-export const visibilitySchema = z.enum(['public', 'private']);
 export const lifecycleStatusSchema = z.enum([
   'draft',
   'submitted',

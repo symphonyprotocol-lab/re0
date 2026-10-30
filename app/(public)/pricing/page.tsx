@@ -344,7 +344,7 @@ export default async function PricingPage() {
         eyebrow={p.freeBanner.eyebrow}
         title={p.freeBanner.title}
         cta={p.freeBanner.cta}
-        href="/libraries"
+        href="/channels"
       />
 
       <div aria-hidden className="h-[62px]" />

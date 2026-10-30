@@ -50,7 +50,7 @@ export async function POST(
       detail: `claim grant: ${error instanceof Error ? error.message : 'unknown'}`,
     });
     return appRedirect(
-      error instanceof AppError && error.code === 'library_not_found' ? '/libraries/claim' : back,
+      error instanceof AppError && error.code === 'library_not_found' ? '/assets/claim' : back,
     );
   }
 }

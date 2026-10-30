@@ -24,7 +24,7 @@ export default function robots(): MetadataRoute.Robots {
         '/mcp',
         '/login',
         '/checkout',
-        '/libraries/claim',
+        '/assets/claim',
       ],
     },
     sitemap: publicUrl('/sitemap.xml'),

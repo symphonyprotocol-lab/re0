@@ -19,8 +19,9 @@
  * console, the tests and any future admin API answer the same way.
  */
 
-import type { IndexStatus, LifecycleStatus, Visibility } from '@/lib/domain';
+import type { IndexStatus, LifecycleStatus } from '@/lib/domain';
 import { requiresDomainVerification } from './domain-verification';
+import { isReservedName } from './reserved-names';
 import { uuidv7 } from './id';
 
 /* ------------------------------------------------------------------ sources */
@@ -419,17 +420,6 @@ export function isVersionLabelShaped(segment: string): boolean {
 /** A GitHub owner or repository name, as GitHub itself allows them. */
 const REPO_SEGMENT = /^[A-Za-z0-9][A-Za-z0-9._-]{0,99}$/;
 
-/**
- * Owner names a repository library may not take, because they are already
- * namespaces.
- *
- * requirement.md 6.1 gives each source type its own prefix, which only works if
- * the prefixes are disjoint. `/owner/repository` has no prefix of its own, so
- * without this a repository owned by an org called `websites` would publish at
- * `/websites/thing` -- the same id a crawled site gets, and the first of the
- * two to be created would silently own it.
- */
-const RESERVED_OWNERS = new Set(['websites', 'docs', 'notion']);
 
 /**
  * Normalizes a typed Library ID, or returns null if it does not belong to this
@@ -453,7 +443,9 @@ export function normalizePublicId(type: ConnectedSourceType, input: string): str
     const [owner, repository] = segments;
     if (!owner || !repository) return null;
     if (!REPO_SEGMENT.test(owner) || !REPO_SEGMENT.test(repository)) return null;
-    if (RESERVED_OWNERS.has(owner.toLowerCase())) return null;
+    /* A repository id shares the root with every namespace and page route
+       (lib/domain/reserved-names.ts); an owner spelled like one is refused. */
+    if (isReservedName(owner)) return null;
     return `/${owner}/${repository}`;
   }
 
@@ -650,7 +642,7 @@ export function lifecycleActionAvailable(
  * published. requirement.md 6.2 and architecture.md 8.1:
  *
  * - a user library goes live as soon as the security scan and the index
- *   have passed, so `published` -- whatever its visibility. Public review
+ *   have passed, so `published` -- in a channel or not. Public review
  *   before publication ended on 2026-10-23; the platform's hand on a public
  *   library is a suspension afterwards (`reviewActionAvailable`);
  * - a platform library is published by an operator, never by a build;
@@ -661,7 +653,6 @@ export function lifecycleActionAvailable(
  */
 export function lifecycleAfterBuild(input: {
   lifecycleStatus: LifecycleStatus;
-  visibility: Visibility;
   isPlatformLibrary: boolean;
 }): LifecycleStatus | null {
   if (input.isPlatformLibrary) return null;
@@ -676,7 +667,7 @@ export function lifecycleAfterBuild(input: {
  * The platform's two verbs over a user library: a suspension and its
  * lifting. Since 2026-10-23 no library is reviewed before it publishes;
  * what remains is the compliance hand requirement.md 7.4 asks for over
- * content that is already live, the same on a public and a private library.
+ * content that is already live, in a channel or not.
  * The names keep the enum's history: `reject` suspends, `approve` restores.
  */
 export const USER_REVIEW_ACTIONS = ['approve', 'reject'] as const;
@@ -704,13 +695,9 @@ export function reviewTarget(action: UserReviewAction): LifecycleStatus {
 /**
  * Whether a verb applies to a user library in a given state. Only a live
  * library can be suspended, only a suspended one restored; `draft` has no
- * content to act on, `archived` is terminal. Visibility makes no difference.
+ * content to act on, `archived` is terminal.
  */
-export function reviewActionAvailable(
-  state: LifecycleStatus,
-  _visibility: Visibility,
-  action: UserReviewAction,
-): boolean {
+export function reviewActionAvailable(state: LifecycleStatus, action: UserReviewAction): boolean {
   if (state === 'draft' || state === 'archived') return false;
   return action === 'approve' ? state === 'suspended' : state === 'published';
 }
@@ -737,6 +724,8 @@ export const PLATFORM_LIBRARY_ERRORS = [
   'invalid_uploads',
   'nothing_to_change',
   'pdf_source_exists',
+  /** The asset already has its source: one asset, one source (agent-first-proposal.md 3.1). */
+  'source_exists',
   'invalid_metadata',
   'invalid_transition',
   'no_ready_version',
@@ -1138,7 +1127,6 @@ export function isOwnerPause(
 
 export interface OwnerActionContext {
   lifecycleStatus: LifecycleStatus;
-  visibility: Visibility;
   /** True when the newest review row is an owner pause (`isOwnerPause`). */
   pausedByOwner: boolean;
 }
@@ -1179,81 +1167,38 @@ export function ownerActionTarget(action: OwnerLifecycleAction): LifecycleStatus
 
 /* --------------------------------------------------------- metadata edits */
 
-/**
- * What a visibility change does to the lifecycle. requirement.md 6.2 keeps
- * visibility and the index apart, and since 2026-10-23 neither visibility
- * is reviewed before it publishes, so the move is about the index alone:
- *
- * - a library with an indexed version is live under either visibility; one
- *   that was waiting in a review-era state with an index goes live, one
- *   without goes back to `draft` for its first build to publish;
- * - a suspension stays: a safety pause applies to both visibilities, and
- *   changing visibility is not a way around it; a draft stays a draft.
- *
- * Null means the status is left alone. Archived is refused, not moved.
- */
-export function visibilityTransition(input: {
-  from: Visibility;
-  to: Visibility;
-  lifecycleStatus: LifecycleStatus;
-  hasReadyVersion: boolean;
-}): LifecycleStatus | null {
-  if (input.lifecycleStatus === 'archived') {
-    throw new PlatformLibraryRefused('archived', 'an archived library is not edited');
-  }
-  if (input.from === input.to) return null;
-  const state = input.lifecycleStatus;
-  if (state === 'suspended' || state === 'draft' || state === 'published') return null;
-  return input.hasReadyVersion ? 'published' : 'draft';
-}
-
 /** A validated metadata edit of a workspace's own library. */
 export interface WorkspaceLibraryEdit {
   title: string;
   description: string | null;
   language: string | null;
-  visibility: Visibility;
-  /** The lifecycle the visibility change implies; null keeps the current one. */
-  lifecycleStatus: LifecycleStatus | null;
 }
 
 /**
  * Validates the fields an owner may change from the dashboard: title,
- * description, language and visibility. The Library ID is not among them --
- * for a repository it is the repository, and for the rest a rename is a
- * redirect the catalogue has to keep (requirement.md 6.1), which is more
- * than "edit metadata" should do quietly.
+ * description and language. The Library ID is not among them -- for a
+ * repository it is the repository, and for the rest a rename is a redirect
+ * the catalogue has to keep (requirement.md 6.1), which is more than "edit
+ * metadata" should do quietly. Who may see the asset is not among them
+ * either: that is the channel it sits in (agent-first-proposal.md 6.2).
  */
 export function editWorkspaceLibrary(input: {
   title: string;
   description?: string;
   language?: string;
-  visibility: string;
-  current: {
-    visibility: Visibility;
-    lifecycleStatus: LifecycleStatus;
-    hasReadyVersion: boolean;
-  };
+  current: { lifecycleStatus: LifecycleStatus };
 }): WorkspaceLibraryEdit {
+  if (input.current.lifecycleStatus === 'archived') {
+    throw new PlatformLibraryRefused('archived', 'an archived library is not edited');
+  }
   const title = input.title.trim();
   if (title.length === 0 || title.length > TITLE_MAX_LENGTH) {
     throw new PlatformLibraryRefused('invalid_title', 'a title is required');
   }
-  if (input.visibility !== 'public' && input.visibility !== 'private') {
-    throw new PlatformLibraryRefused('invalid_metadata', 'unknown visibility');
-  }
-  const visibility: Visibility = input.visibility;
   return {
     title,
     description: optional(input.description, DESCRIPTION_MAX_LENGTH),
     language: optional(input.language, LANGUAGE_MAX_LENGTH),
-    visibility,
-    lifecycleStatus: visibilityTransition({
-      from: input.current.visibility,
-      to: visibility,
-      lifecycleStatus: input.current.lifecycleStatus,
-      hasReadyVersion: input.current.hasReadyVersion,
-    }),
   };
 }
 
@@ -1514,7 +1459,7 @@ export function rebuildBlocked(input: {
  * The publishing pipeline requirement.md 5.2 names: rights and source,
  * content parsing, quality and safety, publication. The owner's materials
  * step and the platform's review step were removed on 2026-10-23: a build
- * that passes the scan publishes, under either visibility.
+ * that passes the scan publishes, in a channel or not.
  */
 export const REVIEW_PIPELINE_STEPS = ['rights', 'parse', 'safety', 'publish'] as const;
 
@@ -1537,7 +1482,6 @@ export interface ReviewPipelineEntry {
  * (`isQueryable`).
  */
 export function reviewPipeline(input: {
-  visibility: Visibility;
   lifecycleStatus: LifecycleStatus;
   indexStatus: IndexStatus;
   /** A build is queued or running. */

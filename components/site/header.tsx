@@ -25,6 +25,7 @@ export async function SiteHeader() {
   const [session, t] = await Promise.all([optionalSession(), getMessages()]);
 
   const nav = [
+    { href: '/channels', label: t.nav.channels },
     { href: '/pricing', label: t.nav.pricing },
     { href: '/playground', label: t.nav.playground },
   ];

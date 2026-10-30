@@ -5,8 +5,8 @@
  * use.
  *
  * Ownership vs rights, deliberately split: `owner_workspace_id` is set to the
- * creator so the dashboard and private visibility work, but that is *access*,
- * not *rights*. Sources that requirement.md 7.3 gates behind a claim (github,
+ * creator so the dashboard and the owner's own reads work, but that is
+ * *access*, not *rights*. Sources that requirement.md 7.3 gates behind a claim (github,
  * website) hold their rights only once a claim verifies -- checked where
  * rights are read, not here.
  *
@@ -38,8 +38,10 @@ import {
 import { checkGithubImport, type CheckGithubImport } from '@/lib/application/auth/github-connection';
 import { checkNotionImport, type CheckNotionImport } from '@/lib/application/auth/notion-connection';
 import { NOTION_SOURCE_USER_KEY } from '@/lib/domain/notion';
-import { parseRightsDeclaration, rightsAllowPublic, rightsPosted, type RightsDeclaration } from '@/lib/domain/rights';
+import { parseRightsDeclaration, rightsPosted, type RightsDeclaration } from '@/lib/domain/rights';
 import { requiresDomainVerification } from '@/lib/domain/domain-verification';
+import { assetKindOf } from '@/lib/domain/asset';
+import { hasReservedOwner } from '@/lib/domain/reserved-names';
 import { consumeDomainVerification } from './domain-verification';
 import { isObjectStoreConfigured, objectStore, type ObjectStore } from '@/lib/infrastructure/objects/store';
 import { db, schema } from '@/lib/infrastructure/postgres/client';
@@ -58,7 +60,6 @@ export interface CreateWorkspaceLibraryInput {
    */
   userId?: string;
   title: string;
-  visibility: 'public' | 'private';
   sourceType: ConnectedSourceType;
   /** Ignored for pdf and markdown, whose location is where their uploads sit. */
   location: string;
@@ -85,8 +86,9 @@ export interface CreateWorkspaceLibraryInput {
   language?: string | null;
   /**
    * The owner's rights declaration (lib/domain/rights.ts), as the wizard
-   * posts it. Required for a public library, which cannot be submitted
-   * without one; optional for a private one.
+   * posts it. Optional here: a new asset is in no channel and so its
+   * owner's alone; the declaration is checked when it moves into a public
+   * channel (channels/move.ts, agent-first-proposal.md 6.11).
    */
   rights?: { origin?: unknown; license?: unknown; generation?: unknown; note?: unknown };
   /** The store the uploads are confirmed in; the configured one by default. */
@@ -139,21 +141,15 @@ export async function createWorkspaceLibrary(
   }
 
   /*
-   * The rights declaration (review-visibility-proposal.md 5.1). A public
-   * library is created with one or not at all; content whose body a model
-   * generated without review is not accepted as public (7.4), and the
-   * wizard offers private instead. A private library may declare too.
+   * The rights declaration (review-visibility-proposal.md 5.1), when the
+   * wizard posted one. Every new asset starts in no channel -- its owner's
+   * alone (agent-first-proposal.md 3.3, 6.2) -- so nothing requires it yet;
+   * moving into a public channel does.
    */
   let rightsDeclaration: RightsDeclaration | null = null;
   if (input.rights && rightsPosted(input.rights)) {
     rightsDeclaration = parseRightsDeclaration(input.rights, { userId: input.userId ?? null, now: new Date() });
     if (!rightsDeclaration) throw new PlatformLibraryRefused('rights_invalid', 'the rights declaration is incomplete');
-  }
-  if (input.visibility === 'public') {
-    if (!rightsDeclaration) throw new PlatformLibraryRefused('rights_required', 'a public library declares its rights');
-    if (!rightsAllowPublic(rightsDeclaration)) {
-      throw new PlatformLibraryRefused('rights_generated', 'model-generated content is not accepted as public');
-    }
   }
   if (!isConnectedSourceType(input.sourceType)) {
     throw new AppError('invalid_request', 'unsupported source type');
@@ -198,6 +194,18 @@ export async function createWorkspaceLibrary(
    * against (architecture.md 5.4).
    */
   if (input.sourceType === 'github') {
+    /*
+     * A repository id is `/{owner}/{repo}` at the root, beside every other
+     * namespace and page route; an owner spelled like one of those is
+     * refused before GitHub is asked anything (lib/domain/reserved-names.ts,
+     * agent-first-proposal.md 3.2). Rare enough to be a support case.
+     */
+    if (hasReservedOwner(location)) {
+      throw new AppError(
+        'invalid_request',
+        'this GitHub owner name is reserved on re0; contact support to add this repository',
+      );
+    }
     if (!input.userId) {
       throw new AppError('access_denied', 'a signed-in account is needed to import a repository');
     }
@@ -299,7 +307,7 @@ export async function createWorkspaceLibrary(
         language,
         ownerWorkspaceId: input.workspaceId,
         isPlatformLibrary: false,
-        visibility: input.visibility,
+        kind: assetKindOf(input.sourceType),
         lifecycleStatus: 'draft',
         indexStatus: 'pending',
         rightsDeclaration,

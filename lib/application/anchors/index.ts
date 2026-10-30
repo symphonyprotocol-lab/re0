@@ -19,6 +19,7 @@ import {
 } from '@/lib/domain/anchor-leaf';
 import { isVersionLabelShaped } from '@/lib/domain/library';
 import { db, schema } from '@/lib/infrastructure/postgres/client';
+import { sharedWithEveryone } from '@/lib/application/channels/visibility';
 
 
 export { anchorHealth, type AnchorHealth } from './health';
@@ -196,7 +197,7 @@ export async function publicVersionAnchor(pinnedId: string): Promise<VersionAnch
     .where(
       and(
         eq(schema.library.publicId, split.publicId),
-        eq(schema.library.visibility, 'public'),
+        sharedWithEveryone(),
         eq(schema.library.lifecycleStatus, 'published'),
         eq(schema.library.indexStatus, 'ready'),
         isNotNull(schema.library.currentVersionId),

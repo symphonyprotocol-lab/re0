@@ -16,7 +16,8 @@
  */
 import { and, asc, desc, eq, inArray, isNull, sql } from 'drizzle-orm';
 import { AppError } from '@/contracts/errors';
-import type { LifecycleStatus, Visibility } from '@/lib/domain';
+import type { LifecycleStatus } from '@/lib/domain';
+import { listedInPublicChannel } from '@/lib/application/channels/visibility';
 import { uuidv7 } from '@/lib/domain/id';
 import {
   draftParseScope,
@@ -54,7 +55,6 @@ const FETCHING_OPERATIONS = ['ingest', 'refresh'] as const;
 interface OwnedLibrary {
   id: string;
   publicId: string;
-  visibility: Visibility;
   lifecycleStatus: LifecycleStatus;
   currentVersionId: string | null;
 }
@@ -73,7 +73,6 @@ async function ownedLibrary(
     .select({
       id: schema.library.id,
       publicId: schema.library.publicId,
-      visibility: schema.library.visibility,
       lifecycleStatus: schema.library.lifecycleStatus,
       currentVersionId: schema.library.currentVersionId,
     })
@@ -89,22 +88,6 @@ async function ownedLibrary(
   const [row] = lock ? await query.for('update') : await query.limit(1);
   if (!row) throw new AppError('library_not_found', 'no such library');
   return row;
-}
-
-/** Whether the library's current version is indexed. */
-async function hasReadyVersion(reader: Reader, currentVersionId: string | null): Promise<boolean> {
-  if (!currentVersionId) return false;
-  const [ready] = await reader
-    .select({ id: schema.libraryVersion.id })
-    .from(schema.libraryVersion)
-    .where(
-      and(
-        eq(schema.libraryVersion.id, currentVersionId),
-        eq(schema.libraryVersion.indexStatus, 'ready'),
-      ),
-    )
-    .limit(1);
-  return ready !== undefined;
 }
 
 /**
@@ -186,7 +169,6 @@ export async function applyOwnerLifecycleAction(
     const available = ownerActionAvailable(
       {
         lifecycleStatus: target.lifecycleStatus,
-        visibility: target.visibility,
         pausedByOwner: isOwnerPause(review),
       },
       input.action,
@@ -194,7 +176,7 @@ export async function applyOwnerLifecycleAction(
     if (!available) {
       throw new AppError(
         'invalid_request',
-        `cannot ${input.action} a ${target.visibility} ${target.lifecycleStatus} library`,
+        `cannot ${input.action} a ${target.lifecycleStatus} library`,
       );
     }
 
@@ -256,27 +238,24 @@ export interface EditLibraryMetadataInput {
   title: string;
   description?: string;
   language?: string;
-  visibility: string;
   /** The signed-in user, recorded as who declared when a declaration is posted. */
   userId?: string | null;
-  /** A rights declaration posted with the edit; needed when going public without one on the row. */
+  /** A rights declaration posted with the edit; replaces the one on the row. */
   rights?: { origin?: unknown; license?: unknown; generation?: unknown; note?: unknown };
 }
 
 export interface EditLibraryMetadataResult {
   publicId: string;
-  visibility: Visibility;
-  /** Where the library is after the edit; a visibility change may move it. */
   lifecycleStatus: LifecycleStatus;
-  /** True when the visibility change put the library into the review queue. */
 }
 
 /**
- * Edits title, description, language and visibility. What a visibility
- * change does to the lifecycle is `visibilityTransition`'s decision; going
- * public needs a rights declaration that permits it, and nothing waits on
- * a reviewer afterwards (2026-10-23). A field that is too long is refused,
- * never truncated.
+ * Edits title, description and language, and the rights declaration when
+ * one is posted. Who may see the asset is not edited here: that is the
+ * channel it sits in (agent-first-proposal.md 6.2, channels/move.ts). An
+ * asset already in a public channel keeps a declaration that permits it --
+ * the move checked one, and an edit is not a way around that. A field that
+ * is too long is refused, never truncated.
  */
 export async function editLibraryMetadata(
   input: EditLibraryMetadataInput,
@@ -286,25 +265,24 @@ export async function editLibraryMetadata(
 
   return database.transaction(async (tx) => {
     const target = await ownedLibrary(tx, input.workspaceId, input.libraryId, true);
-    const [ready, materials] = await Promise.all([
-      hasReadyVersion(tx, target.currentVersionId),
+    const [materials, [listed]] = await Promise.all([
       libraryMaterials(tx, target.id),
+      tx
+        .select({ id: schema.library.id })
+        .from(schema.library)
+        .where(and(eq(schema.library.id, target.id), listedInPublicChannel()))
+        .limit(1),
     ]);
 
     /*
      * The rights declaration rides with the edit (review-visibility-
-     * proposal.md 5.1): a posted one replaces what the row has, and going
-     * public needs one that permits a public library. The materials are
-     * judged with the declaration as it will be after this edit.
+     * proposal.md 5.1): a posted one replaces what the row has.
      */
     let rights: RightsDeclaration | null = materials.rights;
     if (input.rights && rightsPosted(input.rights)) {
       rights = parseRightsDeclaration(input.rights, { userId: input.userId ?? null, now: new Date() });
       if (!rights) throw new PlatformLibraryRefused('rights_invalid', 'the rights declaration is incomplete');
-    }
-    if (input.visibility === 'public') {
-      if (!rights) throw new PlatformLibraryRefused('rights_required', 'a public library declares its rights');
-      if (!rightsAllowPublic(rights)) {
+      if (listed && !rightsAllowPublic(rights)) {
         throw new PlatformLibraryRefused('rights_generated', 'model-generated content is not accepted as public');
       }
     }
@@ -314,28 +292,20 @@ export async function editLibraryMetadata(
       title: input.title,
       description: input.description,
       language: input.language,
-      visibility: input.visibility,
-      current: {
-        visibility: target.visibility,
-        lifecycleStatus: target.lifecycleStatus,
-        hasReadyVersion: ready,
-      },
+      current: { lifecycleStatus: target.lifecycleStatus },
     });
 
-    const next = edit.lifecycleStatus ?? target.lifecycleStatus;
     await tx
       .update(schema.library)
       .set({
         title: edit.title,
         description: edit.description,
         language: edit.language,
-        visibility: edit.visibility,
-        lifecycleStatus: next,
         ...(rights !== materials.rights ? { rightsDeclaration: rights } : {}),
       })
       .where(eq(schema.library.id, target.id));
 
-    return { publicId: target.publicId, visibility: edit.visibility, lifecycleStatus: next };
+    return { publicId: target.publicId, lifecycleStatus: target.lifecycleStatus };
   });
 }
 

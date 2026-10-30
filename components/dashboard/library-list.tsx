@@ -38,7 +38,10 @@ export interface LibraryListRow {
   slug: string;
   title: string;
   version: string | null;
+  /** In a public channel, or its owner's alone (agent-first-proposal.md 6.2). */
   scope: 'public' | 'private';
+  /** The channel the asset is in, linking to its dashboard page; null when in none. */
+  channel: { title: string; href: string } | null;
   chunks: number;
   /** Calls served from the library, all time and this UTC month (builds excluded). */
   calls: { total: number; thisMonth: number };
@@ -218,10 +221,13 @@ export function LibraryList({
                   </span>
                 </span>
 
-                <span className="flex flex-wrap gap-1.5 pr-3">
+                <span className="flex min-w-0 flex-col items-start gap-1 pr-3">
                   <Badge tone={library.scope === 'public' ? 'public' : 'private'}>
                     {library.scope === 'public' ? l.scopePublic : l.scopePrivate}
                   </Badge>
+                  {library.channel ? (
+                    <span className="max-w-full truncate text-[10px] text-muted">{library.channel.title}</span>
+                  ) : null}
                 </span>
 
                 <span className="text-[12px] text-steel">
@@ -258,7 +264,7 @@ export function LibraryList({
             return (
               <div key={library.id} className="relative">
                 <Link
-                  href={`/dashboard/libraries/${library.id}`}
+                  href={`/dashboard/assets/${library.id}`}
                   className={`${rowClass} transition-colors hover:bg-subtle`}
                 >
                   {cells}

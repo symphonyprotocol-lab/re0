@@ -10,9 +10,7 @@ import type {
   EditLibraryMetadataActionResult,
   OwnerLifecycleActionResult,
   UpdateParseScopeActionResult,
-} from '@/app/dashboard/libraries/[libraryId]/actions';
-import type { Visibility } from '@/lib/domain';
-import { EMPTY_RIGHTS, RightsFields, RightsHiddenFields, rightsComplete, type RightsAnswer } from '@/components/dashboard/rights-fields';
+} from '@/app/dashboard/assets/[libraryId]/actions';
 import {
   INDEX_DEPTHS,
   parseScopeApplies,
@@ -228,7 +226,7 @@ export function DetailDeleteControl({
       variant="button"
       onDeleted={() => {
         startNavigationProgress();
-        router.push('/dashboard/libraries');
+        router.push('/dashboard/assets');
       }}
     />
   );
@@ -248,17 +246,14 @@ export function LibraryMetadataForm({
   action,
 }: {
   libraryId: string;
-  initial: { title: string; description: string | null; language: string | null; visibility: Visibility };
-  /** A declaration permitting a public library is on the row; going public without one asks for it here. */
+  initial: { title: string; description: string | null; language: string | null };
+  /** Kept for the page's call; who sees the asset is its channel now, not this form. */
   rightsDeclared: boolean;
   action: EditMetadataFormAction;
 }) {
   const { t } = useI18n();
   const m = t.dashboard.libraryDetail.manage.metadata;
   const [state, formAction, pending] = useActionState(action, null);
-  const [visibility, setVisibility] = useState<Visibility>(initial.visibility);
-  const [rights, setRights] = useState<RightsAnswer>(EMPTY_RIGHTS);
-  const needsRights = visibility === 'public' && !rightsDeclared;
   const router = useRouter();
   const formId = useId();
 
@@ -285,33 +280,6 @@ export function LibraryMetadataForm({
             <input name="description" defaultValue={initial.description ?? ''} maxLength={400} className={FIELD} />
           </Field>
         </div>
-        <div className="flex flex-col gap-1.5 sm:col-span-2">
-          <span className="text-[11px] font-medium text-steel">{m.visibilityLabel}</span>
-          <input type="hidden" name="visibility" value={visibility} />
-          <div className="grid gap-2.5 sm:grid-cols-2">
-            {(['public', 'private'] as const).map((option) => (
-              <button
-                key={option}
-                type="button"
-                onClick={() => setVisibility(option)}
-                aria-pressed={visibility === option}
-                className={`rounded-md border px-3 py-2.5 text-left text-[12px] transition-colors ${
-                  visibility === option ? 'border-brand bg-brandsoft text-ink' : 'border-line bg-card text-steel hover:bg-subtle'
-                }`}
-              >
-                {option === 'public' ? m.visibilityPublic : m.visibilityPrivate}
-              </button>
-            ))}
-          </div>
-          <span className="text-[10px] leading-[1.5] text-muted">{m.visibilityNote}</span>
-        </div>
-        {needsRights ? (
-          <div className="flex flex-col gap-3 rounded-md border border-line bg-subtle p-4 sm:col-span-2">
-            <p className="text-[11.5px] leading-[1.5] text-steel">{m.rightsNeeded}</p>
-            <RightsHiddenFields value={rights} />
-            <RightsFields value={rights} onChange={setRights} compact />
-          </div>
-        ) : null}
       </div>
       <footer className="flex flex-wrap items-center justify-between gap-3 border-t border-line pt-4">
         <span className="min-w-0 flex-1">
@@ -323,7 +291,7 @@ export function LibraryMetadataForm({
         </span>
         <button
           type="submit"
-          disabled={pending || (needsRights && (!rightsComplete(rights) || rights.generation === 'generated'))}
+          disabled={pending}
           className={PRIMARY}
         >
           {pending ? <SpinnerIcon size={14} className="motion-safe:animate-spin" /> : null}
