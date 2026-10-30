@@ -101,27 +101,26 @@ Dot 主收到的查询费是「收入 credits」：不过期，可用于自己�
 
 ### 2.5 每个 Dot 一段视频介绍
 
-Dot 主可以为自己的 Dot 生成一段**固定 30 秒**的动画介绍，用 **Remotion**（React 写动画、按帧渲染成视频）做。分两层，先轻后重：
+Dot 主可以为自己的 Dot 生成一段**固定 15 秒**的动画介绍，用 **Remotion**（React 写动画、按帧渲染成视频）做。分两层，先轻后重：
 
 | 层 | 做法 | 成本 |
 | --- | --- | --- |
 | 在线播放 | 介绍是一个 Remotion composition，用 `@remotion/player` 直接在 Dot 公开页和 `/explore` 卡片里播放，**不渲染文件**。数据实时取自 Dot：名字、简介、知识来源、示例问题、价格、统计，知识变了视频自动跟着变 | 零渲染成本，只有前端包体 |
-| 导出 MP4 | Dot 主点「导出视频」，**在 Dot 主自己的浏览器里渲染**：Remotion 官方的 `@remotion/web-renderer`，`renderMediaOnWeb()` 用 WebCodecs 把同一个 composition 编码成 H.264 MP4，拿到 Blob 后直传 Vercel Blob，再给出下载和分享链接。导出前先调 `canRenderMediaOnWeb()` 探测，不支持的浏览器（主要是旧版或手机浏览器）显示「请用桌面 Chrome 或 Edge 导出」。**不用 Remotion Lambda，不用任何 Remotion 托管服务，也不在服务端跑 Chromium** | 零服务器成本；一段 30 秒 720p 视频在桌面 Chrome 里约 20 到 60 秒；导出期间标签页需保持打开 |
+| 导出 MP4 | Dot 主点「导出视频」，**在 Dot 主自己的浏览器里渲染**：Remotion 官方的 `@remotion/web-renderer`，`renderMediaOnWeb()` 用 WebCodecs 把同一个 composition 编码成 H.264 MP4，拿到 Blob 后直传 Vercel Blob，再给出下载和分享链接。导出前先调 `canRenderMediaOnWeb()` 探测，不支持的浏览器（主要是旧版或手机浏览器）显示「请用桌面 Chrome 或 Edge 导出」。**不用 Remotion Lambda，不用任何 Remotion 托管服务，也不在服务端跑 Chromium** | 零服务器成本；一段 15 秒 720p 视频在桌面 Chrome 里约 10 到 30 秒；导出期间标签页需保持打开 |
 | 分享链接 | 不导出也能分享：公开页链接本身就是视频页，Open Graph 预览图由 `next/og` 按 Dot 实时生成 | 零 |
 
-**规格与缓存**：720p、24 fps、**固定 30 秒（720 帧）**，第一版不让用户改时长；只渲染用户点选的那个比例（竖版 9:16 或横版 16:9），不是两份都出；渲染结果按「Dot 内容版本 + 模板 + 比例」缓存在 Blob，知识和脚本没变就直接给已有文件，不重渲。
+**规格与缓存**：720p、24 fps、**固定 15 秒（360 帧）**，第一版不让用户改时长；只渲染用户点选的那个比例（竖版 9:16 或横版 16:9），不是两份都出；渲染结果按「Dot 内容版本 + 模板 + 比例」缓存在 Blob，知识和脚本没变就直接给已有文件，不重渲。
 
-**内容怎么来**：模型根据 Dot 的知识画像、示例问题和简介生成一份脚本，固定 5 个镜头、每个镜头定长，合计 30 秒：
+**内容怎么来**：模型根据 Dot 的知识画像、示例问题和简介生成一份脚本，固定 4 个镜头、每个镜头定长，合计 15 秒。看的人只需要知道三件事：它是谁、它懂什么、它真的能答。
 
 | 镜头 | 时长 | 内容 | 文字上限（脚本生成器与编辑器都强制） |
 | --- | --- | --- | --- |
-| 1 开场 | 4 秒 | 名字与一句话定位 | 名字 ≤ 20 字，定位 ≤ 30 字 |
-| 2 它知道什么 | 7 秒 | 知识来源逐条飞入，最多 5 条，多于 5 条显示「等 N 项」 | 每条标题 ≤ 24 字 |
-| 3 你可以问它什么 | 8 秒 | 3 个示例问题打字机效果 | 每个问题 ≤ 40 字 |
-| 4 一个真实问答 | 7 秒 | 从该 Dot 历史里挑一条点赞过的，没有则用示例问题现问一次；答案取前两句 | 问题 ≤ 40 字，答案 ≤ 80 字 |
-| 5 结尾 | 4 秒 | 价格与「问它」二维码 / 链接 | 一句号召 ≤ 20 字 |
+| 1 开场 | 3 秒 | 名字与一句话定位 | 名字 ≤ 20 字，定位 ≤ 24 字 |
+| 2 它知道什么 | 4 秒 | 知识来源逐条飞入，最多 4 条，多于 4 条显示「等 N 项」 | 每条标题 ≤ 20 字 |
+| 3 一个真实问答 | 5 秒 | 从该 Dot 历史里挑一条点赞过的，没有则用示例问题现问一次；答案取第一句 | 问题 ≤ 30 字，答案 ≤ 50 字 |
+| 4 结尾 | 3 秒 | 价格与「问它」二维码 / 链接 | 一句号召 ≤ 16 字 |
 
-镜头之间转场各 0.5 秒，已含在时长里。中英文按字符数计，超出的由生成器重写而不是截断。Dot 主在生成后可以逐镜头改文字、换主题色、选 3 套模板之一，然后保存。第一版**没有配音**，只有字幕与一段内置的免版税背景音乐；配音（TTS）留到以后。
+镜头之间转场各 0.4 秒，已含在时长里。中英文按字符数计，超出的由生成器重写而不是截断。示例问题仍在公开页展示，只是不进视频。Dot 主在生成后可以逐镜头改文字、换主题色、选 3 套模板之一，然后保存。第一版**没有配音**，只有字幕与一段内置的免版税背景音乐；配音（TTS）留到以后。
 
 **收费**：生成或重新生成脚本按一次提问收 20 credits；导出 MP4 **每个 Dot 第一次免费**，之后每次 50 credits（平台只付 Blob 存储与流量，象征性收费，默认值可改）；命中缓存直接取已有文件的不算一次、不收费；在线播放与分享链接不收费。
 
@@ -195,7 +194,7 @@ subscription  id, user_id, paddle_subscription_id, status, current_period_start,
 payout        id, user_id, credits, amount_minor, fee_minor, paypal_email, status(pending|approved|paid|failed|rejected), paypal_batch_id, reviewed_by, created_at, paid_at
 dot_feedback  message_id, user_id, vote(up|down), created_at
 dot_profile_vector  id, dot_id, kind(profile|sample_question|centroid), embedding vector(1536), updated_at（只含公开 Dot，转私有时删除）
-dot_video     dot_id, template, accent_color, scenes jsonb(5 个镜头的文字), music, updated_at
+dot_video     dot_id, template, accent_color, scenes jsonb(4 个镜头的文字), music, updated_at
 video_export  id, dot_id, content_version, template, aspect(9:16|16:9), status(started|done|abandoned), blob_url, cost_credits, created_at, finished_at
 ```
 
