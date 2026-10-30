@@ -37,6 +37,7 @@ import { and, desc, eq, isNull } from 'drizzle-orm';
 import { AppError } from '@/contracts/errors';
 import { uuidv7 } from '@/lib/domain/id';
 import { db, schema } from '@/lib/infrastructure/postgres/client';
+import { refreshChannelProfile } from '@/lib/application/channels/profile';
 import { retireShowcaseForLibrary } from '@/lib/application/showcase/retire';
 
 /** `workflow_operation.operation_type` of the cleanup the workflow runs. */
@@ -67,8 +68,9 @@ export async function markLibraryDeleted(
   now: Date = new Date(),
 ): Promise<DeleteLibraryResult> {
   const database = db();
+  let formerChannel: string | null = null;
 
-  return database.transaction(async (tx) => {
+  const result = await database.transaction(async (tx) => {
     const [row] = await tx
       .select({
         id: schema.library.id,
@@ -104,7 +106,11 @@ export async function markLibraryDeleted(
     /* Out of its channel at once: a tombstone is shown nowhere
        (agent-first-proposal.md 6.1), and the row stays for billing history,
        so the cascade on purge would come too late. */
-    await tx.delete(schema.channelAsset).where(eq(schema.channelAsset.assetId, row.id));
+    const [left] = await tx
+      .delete(schema.channelAsset)
+      .where(eq(schema.channelAsset.assetId, row.id))
+      .returning({ channelId: schema.channelAsset.channelId });
+    formerChannel = left?.channelId ?? null;
 
     await tx
       .update(schema.library)
@@ -153,6 +159,10 @@ export async function markLibraryDeleted(
 
     return { libraryId: row.id, publicId: row.publicId, operationId, alreadyDeleted: false };
   });
+
+  /* The channel's profile drops what the deleted asset contributed (agent-first-proposal.md 3.7). */
+  if (formerChannel) await refreshChannelProfile(formerChannel).catch(() => {});
+  return result;
 }
 
 export type WorkspaceRole = 'owner' | 'admin' | 'developer' | 'viewer';

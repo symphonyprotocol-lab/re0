@@ -169,7 +169,7 @@ export class Re0AgentExecutor implements AgentExecutor {
     } else {
       const [best] = await findChannels(caller, { query: request.query, limit: 1 });
       if (!best) return searchOutcome(this.origin, request, tenant, null, emptyResult(caller.requestId));
-      channel = { id: best.id, slug: best.slug, title: best.title, workspaceId: null };
+      channel = { id: best.id, slug: best.slug, title: best.title, workspaceId: best.workspaceId };
       scope = { kind: 'channel', channelId: best.id };
     }
 

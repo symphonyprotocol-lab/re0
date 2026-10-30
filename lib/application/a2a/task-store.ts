@@ -14,7 +14,7 @@
  * nothing. Bodies (`history`, `artifacts`) are kept until `body_purge_at`
  * (proposal 10), then cleared by `purgeA2aTaskBodies`.
  */
-import { and, desc, eq, isNull, lt, lte, sql } from 'drizzle-orm';
+import { and, desc, eq, isNull, lt, lte, or, sql } from 'drizzle-orm';
 import { Task, TaskState, type ListTasksRequest, type ListTasksResponse } from '@a2a-js/sdk';
 import type { ServerCallContext, TaskStore } from '@a2a-js/sdk/server';
 import { db, schema } from '@/lib/infrastructure/postgres/client';
@@ -100,19 +100,29 @@ export class PostgresTaskStore implements TaskStore {
     if (params.status) {
       filters.push(eq(schema.a2aTask.state, TaskState[params.status] ?? ''));
     }
+    const counted = db()
+      .select({ n: sql<number>`count(*)::int` })
+      .from(schema.a2aTask)
+      .where(and(...filters));
+    /* (updated_at, id) so tasks saved in the same instant never fall between pages. */
     const cursor = decodeCursor(params.pageToken);
-    if (cursor) filters.push(lt(schema.a2aTask.updatedAt, cursor));
+    const paged = cursor
+      ? [
+          ...filters,
+          or(
+            lt(schema.a2aTask.updatedAt, cursor.at),
+            and(eq(schema.a2aTask.updatedAt, cursor.at), lt(schema.a2aTask.id, cursor.id)),
+          )!,
+        ]
+      : filters;
     const rows = await db()
       .select()
       .from(schema.a2aTask)
-      .where(and(...filters))
+      .where(and(...paged))
       .orderBy(desc(schema.a2aTask.updatedAt), desc(schema.a2aTask.id))
       .limit(pageSize + 1);
     const page = rows.slice(0, pageSize);
-    const [counted] = await db()
-      .select({ n: sql<number>`count(*)::int` })
-      .from(schema.a2aTask)
-      .where(and(eq(schema.a2aTask.workspaceId, caller.workspaceId), eq(schema.a2aTask.tenant, tenantOf(context))));
+    const [total] = await counted;
     return {
       tasks: page.map((row) => {
         const task = toTask(row);
@@ -122,9 +132,9 @@ export class PostgresTaskStore implements TaskStore {
         if (!params.includeArtifacts) task.artifacts = [];
         return task;
       }),
-      nextPageToken: rows.length > pageSize ? encodeCursor(page[page.length - 1]!.updatedAt) : '',
+      nextPageToken: rows.length > pageSize ? encodeCursor(page[page.length - 1]!) : '',
       pageSize,
-      totalSize: Number(counted?.n ?? 0),
+      totalSize: Number(total?.n ?? 0),
     };
   }
 }
@@ -144,14 +154,19 @@ function toTask(row: typeof schema.a2aTask.$inferSelect): Task {
   });
 }
 
-function encodeCursor(at: Date): string {
-  return Buffer.from(at.toISOString()).toString('base64url');
+function encodeCursor(row: { updatedAt: Date; id: string }): string {
+  return Buffer.from(JSON.stringify([row.updatedAt.toISOString(), row.id])).toString('base64url');
 }
 
-function decodeCursor(token: string | undefined): Date | null {
+function decodeCursor(token: string | undefined): { at: Date; id: string } | null {
   if (!token) return null;
-  const parsed = new Date(Buffer.from(token, 'base64url').toString('utf8'));
-  return Number.isNaN(parsed.getTime()) ? null : parsed;
+  try {
+    const [at, id] = JSON.parse(Buffer.from(token, 'base64url').toString('utf8')) as [string, string];
+    const parsed = new Date(at);
+    return Number.isNaN(parsed.getTime()) || typeof id !== 'string' ? null : { at: parsed, id };
+  } catch {
+    return null;
+  }
 }
 
 /**

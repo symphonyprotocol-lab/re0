@@ -41,7 +41,15 @@ const CORS_HEADERS = {
   'access-control-expose-headers': 'a2a-extensions',
 };
 
-const SKILL_METHODS = new Set(['SendMessage', 'SendStreamingMessage', 'message/send', 'message/stream']);
+/* The calls that run a skill or hold a function open polling the store. */
+const LIMITED_METHODS = new Set([
+  'SendMessage',
+  'SendStreamingMessage',
+  'SubscribeToTask',
+  'message/send',
+  'message/stream',
+  'tasks/resubscribe',
+]);
 
 /** The deployment's origin, which the cards' interface URLs point at. */
 export function a2aOrigin(): string {
@@ -126,11 +134,13 @@ export async function serveA2A(request: NextRequest, segments: readonly string[]
     return appError(new AppError('access_denied', 'this API key lacks the knowledge:search or knowledge:read scope'), requestId);
   }
 
-  /* The anonymous limit, on the calls that run a skill. */
-  const runsSkill = isJsonRpc
-    ? SKILL_METHODS.has(String((body as { method?: unknown } | undefined)?.method ?? ''))
-    : split.rest.some((segment) => segment === 'message:send' || segment === 'message:stream');
-  if (!principal && runsSkill) {
+  /* The anonymous limit, on the calls that run a skill or open a subscription. */
+  const limited = isJsonRpc
+    ? LIMITED_METHODS.has(String((body as { method?: unknown } | undefined)?.method ?? ''))
+    : split.rest.some(
+        (segment) => segment === 'message:send' || segment === 'message:stream' || segment.endsWith(':subscribe'),
+      );
+  if (!principal && limited) {
     try {
       const verdict = await strictRateLimit(await rateLimitKey(request, 'a2a'), ANONYMOUS_RATE_RULE);
       if (!verdict.allowed) throw new AppError('rate_limited', 'anonymous limit reached; retry later or use an API key');

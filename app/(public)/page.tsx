@@ -13,7 +13,7 @@ import {
   PlusIcon,
   SparklesIcon,
 } from '@/components/ui/icons';
-import { listChannelDirectory } from '@/lib/application/channels';
+import { cachedChannelDirectory } from '@/lib/http/channel-directory';
 import { isDirectorySort, type DirectorySort } from '@/lib/domain/channel';
 import { translations } from '@/lib/i18n/server';
 import { publicUrl } from '@/lib/site/origin';
@@ -34,7 +34,7 @@ export default async function HomePage({
 }) {
   const [{ t, locale }, query] = await Promise.all([translations(), searchParams]);
   const sort: DirectorySort = isDirectorySort(query.sort) ? query.sort : 'hot';
-  const { entries } = await listChannelDirectory({ sort, limit: FEATURED });
+  const { entries } = await cachedChannelDirectory(sort, FEATURED, 0);
   const platformCard = publicUrl('/.well-known/agent-card.json');
 
   return (

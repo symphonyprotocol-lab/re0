@@ -3,7 +3,8 @@ import Link from 'next/link';
 import { SectionHeading } from '@/components/ui/primitives';
 import { ChannelGrid } from '@/components/site/channel-grid';
 import { ClockIcon, SparklesIcon } from '@/components/ui/icons';
-import { DIRECTORY_PAGE_SIZE, listChannelDirectory } from '@/lib/application/channels';
+import { DIRECTORY_PAGE_SIZE } from '@/lib/application/channels';
+import { cachedChannelDirectory } from '@/lib/http/channel-directory';
 import { isDirectorySort, type DirectorySort } from '@/lib/domain/channel';
 import { fill } from '@/lib/i18n/format';
 import { getMessages, translations } from '@/lib/i18n/server';
@@ -37,11 +38,7 @@ export default async function ChannelDirectoryPage({ searchParams }: Search) {
   const c = t.channels;
   const sort: DirectorySort = isDirectorySort(sortParam) ? sortParam : 'hot';
   const page = Math.max(1, Number.parseInt(pageParam ?? '1', 10) || 1);
-  const { entries, total } = await listChannelDirectory({
-    sort,
-    limit: DIRECTORY_PAGE_SIZE,
-    offset: (page - 1) * DIRECTORY_PAGE_SIZE,
-  });
+  const { entries, total } = await cachedChannelDirectory(sort, DIRECTORY_PAGE_SIZE, (page - 1) * DIRECTORY_PAGE_SIZE);
   const pages = Math.max(1, Math.ceil(total / DIRECTORY_PAGE_SIZE));
   const tab = (value: DirectorySort, label: string, Icon: typeof SparklesIcon) => (
     <Link

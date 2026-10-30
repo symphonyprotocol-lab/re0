@@ -32,6 +32,8 @@ export interface FoundChannel {
   title: string;
   description: string | null;
   ownerHandle: string | null;
+  /** The owning workspace; null for the platform's channel. */
+  workspaceId: string | null;
   isPlatform: boolean;
   /** Assets in the channel that matched, best first, by public id and title. */
   matchedAssets: { publicId: string; title: string }[];
@@ -143,6 +145,7 @@ export async function findChannels(
       title: row.title,
       description: row.description,
       ownerHandle: row.handle ?? null,
+      workspaceId: row.workspaceId,
       isPlatform: row.workspaceId === null,
       matchedAssets: (matched.get(row.id) ?? [])
         .sort((a, b) => (assetRank.get(a) ?? 0) - (assetRank.get(b) ?? 0))

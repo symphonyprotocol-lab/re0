@@ -255,6 +255,10 @@ describeWithDb('P1: channels, visibility and A2A', () => {
     /* In a private channel: still the owner's alone. */
     const hidden = await channels.createChannel({ workspaceId: owner, role: 'owner', slug: `p1-private-${stamp}`, title: 'Private shelf', visibility: 'private' });
     await channels.moveAsset({ workspaceId: owner, role: 'owner', assetId: asset.id, channelId: hidden.id });
+    /* An edit that leaves visibility out keeps it: never a silent move to public. */
+    await channels.editChannel({ workspaceId: owner, role: 'owner', channelId: hidden.id, title: 'Private shelf, renamed' });
+    const [stillPrivate] = await db().select({ visibility: schema.channel.visibility }).from(schema.channel).where(eq(schema.channel.id, hidden.id));
+    expect(stillPrivate?.visibility).toBe('private');
     expect(await refusal(queryDocs(caller(stranger), input, noModels))).toBe('library_not_found');
     expect(await refusal(queryDocs(caller(null), input, noModels))).toBe('library_not_found');
     expect((await queryDocs(caller(owner), input, noModels)).chunks.length).toBeGreaterThan(0);
@@ -436,6 +440,18 @@ describeWithDb('P1: channels, visibility and A2A', () => {
 
     const listed = await rpc(tenant, caller2, 'ListTasks', {});
     expect((listed.body.result as { tasks: { id: string }[] }).tasks.map((task) => task.id)).toContain(taskId);
+
+    /* Paging by (updated_at, id): two tasks one per page, nothing lost; totals follow the filter. */
+    const second = await rpc(tenant, caller2, 'SendMessage', sendParams('quillwort gravel'));
+    const secondId = (second.body.result!.task as { id: string }).id;
+    await db().update(schema.a2aTask).set({ updatedAt: new Date('2026-01-01T00:00:00Z') }).where(inArray(schema.a2aTask.id, [taskId, secondId]));
+    const first = (await rpc(tenant, caller2, 'ListTasks', { pageSize: 1 })).body.result as { tasks: { id: string }[]; nextPageToken: string; totalSize: number };
+    const next = (await rpc(tenant, caller2, 'ListTasks', { pageSize: 1, pageToken: first.nextPageToken })).body.result as { tasks: { id: string }[] };
+    expect(first.totalSize).toBe(2);
+    expect([...first.tasks, ...next.tasks].map((task) => task.id).sort()).toEqual([taskId, secondId].sort());
+    const [one] = await db().select({ contextId: schema.a2aTask.contextId }).from(schema.a2aTask).where(eq(schema.a2aTask.id, taskId));
+    const byContext = (await rpc(tenant, caller2, 'ListTasks', { contextId: one!.contextId })).body.result as { totalSize: number };
+    expect(byContext.totalSize).toBe(1);
     expect((await rpc(tenant, null, 'ListTasks', {})).body.result).toMatchObject({ tasks: [] });
 
     /* HTTP+JSON: the same task by path, and a subscription that replays it and ends. */

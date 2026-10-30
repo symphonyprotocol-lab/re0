@@ -66,9 +66,13 @@ export function resolvedTenantOf(context: ServerCallContext): A2ATenant | undefi
   return context.state.get(TENANT_KEY) as A2ATenant | undefined;
 }
 
-/** The tenant key the store scopes by: what the request named, else the path's, else the platform's ''. */
+/**
+ * The tenant key the store scopes by: the resolved one, normalised, so
+ * `Channels/Rust-Notes` and `channels/rust-notes` are one tenant; the raw
+ * request value only for a context this module did not build.
+ */
 export function tenantOf(context: ServerCallContext): string {
-  return context.tenant ?? resolvedTenantOf(context)?.key ?? '';
+  return resolvedTenantOf(context)?.key ?? context.tenant ?? '';
 }
 
 export function anonymousVisitorOf(context: ServerCallContext): string | null {

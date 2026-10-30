@@ -138,7 +138,8 @@ export async function editChannel(input: EditChannelInput): Promise<void> {
   assertManager(input.role);
   await db().transaction(async (tx) => {
     const channel = await ownedChannel(tx, input.workspaceId, input.channelId, true);
-    const draft = draftChannel({ ...input, slug: channel.slug });
+    /* A field left out keeps its value: an edit is never a silent move to public. */
+    const draft = draftChannel({ ...input, slug: channel.slug, visibility: input.visibility ?? channel.visibility });
     if (draft.visibility === 'public' && channel.visibility !== 'public') {
       const assets = await tx
         .select({ id: schema.channelAsset.assetId })

@@ -102,9 +102,11 @@ SELECT ss.new_library_id,
   CASE ss.type
     WHEN 'github' THEN '/' || ss.location
     ELSE '/' || (CASE ss.type WHEN 'website' THEN 'websites' WHEN 'notion' THEN 'notion' ELSE 'docs' END)
-      || '/' || left(trim(both '-' from regexp_replace(
+      /* The original's slug folded to the slug alphabet, cut to 48 and
+         trimmed so it starts and ends on a letter or digit, as slugs do. */
+      || '/' || coalesce(nullif(regexp_replace(left(regexp_replace(
           lower(regexp_replace(l.public_id, '^/(websites|docs|notion)/', '')),
-          '[^a-z0-9._-]+', '-', 'g')), 48)
+          '[^a-z0-9._-]+', '-', 'g'), 48), '(^[^a-z0-9]+|[^a-z0-9]+$)', '', 'g'), ''), 'asset')
       || '-' || ss.rn
   END,
   left(CASE WHEN ss.type IN ('website', 'github')
@@ -164,7 +166,8 @@ ALTER TABLE "workspace" ADD COLUMN "handle" text;
 --> statement-breakpoint
 CREATE TEMP TABLE handle_base AS
   SELECT w.id, w.created_at,
-    left(trim(both '-' from regexp_replace(lower(split_part(u.email, '@', 1)), '[^a-z0-9]+', '-', 'g')), 24) AS base
+    /* Cut first, then trimmed, so a cut never leaves a trailing dash. */
+    trim(both '-' from left(regexp_replace(lower(split_part(u.email, '@', 1)), '[^a-z0-9]+', '-', 'g'), 24)) AS base
   FROM "workspace" w
   JOIN "workspace_member" m ON m.workspace_id = w.id AND m.role = 'owner'
   JOIN "user" u ON u.id = m.user_id;
@@ -182,7 +185,8 @@ UPDATE "workspace" w SET "handle" = ranked.handle
 FROM (
   SELECT id,
     CASE WHEN row_number() OVER (PARTITION BY base ORDER BY created_at, id) = 1 THEN base
-      ELSE base || '-' || substr(md5(id::text), 1, 8) END AS handle
+      /* 23 + '-' + 8 stays within the 32 characters a handle may have. */
+      ELSE trim(both '-' from left(base, 23)) || '-' || substr(md5(id::text), 1, 8) END AS handle
   FROM handle_base
 ) ranked
 WHERE ranked.id = w.id;
