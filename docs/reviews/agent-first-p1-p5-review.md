@@ -19,40 +19,40 @@ The first `tsc`/integration run with the stale `node_modules` reported 8 failing
 
 ## 2. Summary
 
-Counts: **0 blocker, 5 high, 24 medium, 43 low.**
+Counts: **0 blocker, 5 high, 24 medium, 43 low.** Outcome (2026-10-30, see §8): all 5 high and 24 medium **fixed**, 0 no change needed, 0 deferred; the 43 low were out of scope.
 
-| # | Sev | Area | Where | Claim |
-| --- | --- | --- | --- | --- |
-| H1 | high | Authorization / editorial | `lib/application/editorial/assets.ts:369-391` | A post the author marked `paid` can go live **free**: the body is committed and the channel move done before `setAssetAccess` fails. The scheduled path fails silently. |
-| H2 | high | Evidence rules | `lib/application/retrieval/search-scope.ts:180`, `agent/ask.ts:110` | A2A `ask` and the channel twin drop the retrieval confidence gate the playground uses. Unrelated questions reach the model, bill 10 Calls (or 1), and never enter the creator's pending list. |
-| H3 | high | Money | `lib/application/channels/manage.ts:169-189` | Deleting a channel cascades away its subscriptions without cancelling them at Paddle. Subscribers keep being charged and the renewals are dropped as `unresolved`. |
-| H4 | high | Money | `lib/application/revenue/payout.ts:152-188`, `redeem-credit.ts:225-257` | Payout and redeem only check `balance < 0` and never cap the amount at the balance. A chargeback booked in an unclosed period does not stop the charged-back income from being paid out. |
-| H5 | high (plausible) | Money / access | `lib/application/channels/subscriptions.ts:582-639` | A first collection without a Paddle subscription id creates a `txn:` row, and the later `sub_` notice creates a second row. A refund then revokes only one of them, so access survives the refund. |
-| M1 | medium | Gate / A2A | `lib/application/a2a/server.ts:178-185`, `agent/actions.ts:630` | CancelTask on an `INPUT_REQUIRED` task withdraws the action but returns `TaskNotCancelableError`, and the task ends `FAILED`, not `CANCELED`. |
-| M2 | medium (plausible) | Gate / A2A | `a2a/server.ts:165-185` | A confirm that races a CancelTask runs the action (publish or a billed build) while the caller sees `CANCELED`. |
-| M3 | medium | Gate | `agent/actions.ts:292-321, 536` | A `move_asset` card's from/to visibility and "makes public" are frozen when it is proposed. Confirming a stale card can publish content the card says stays private. |
-| M4 | medium | Gate / visibility | `agent/actions.ts:308`, `channels/manage.ts:254` | Moving a `paid` asset to another public channel resets it to `free`, but the card does not flag it. An A2A `publish` with an `assets:write` key can set this up. |
-| M5 | medium (plausible) | Gate / A2A | `agent/actions.ts:431-476, 643-664`, `a2a/server.ts:241` | Nothing reconciles an A2A task whose action has left `pending`. Tasks can stay `INPUT_REQUIRED` forever, and a confirm can leave no audit row. |
-| M6 | medium | A2A | `lib/http/a2a.ts:217`, `app/a2a/[[...tenant]]/route.ts:15` | A client disconnect on a streaming call, or the 60 s `maxDuration`, leaves tasks `WORKING` forever (after metering). There is no sweeper. |
-| M7 | medium | A2A | `a2a/server.ts:136-140` | With `returnImmediately`, `after()` keeps only the executor alive, not the SDK's event drain, so the final artifact and `COMPLETED` can be lost on Vercel. |
-| M8 | medium | Evidence / comments | `comments/index.ts:382`, `questions/index.ts:300` | A comment moved to the pending list is indexed verbatim in the Q&A asset. Its text becomes retrievable, twin evidence and anchored, and it goes public if the Q&A is free. |
-| M9 | medium | Evidence rules | `app/(public)/channels/[slug]/page.tsx:294-313` | The twin answer page shows claims without per-sentence citations, and a degraded (billed) answer shows no passages. |
-| M10 | medium | Authorization | `retrieval/search-scope.ts:160` | The creator's per-subscriber daily cap is enforced only on channel-scoped search. REST, the playground, the workbench and the user card bypass it. |
-| M11 | medium | Rate limits | `app/media/[mediaId]/route.ts`, `app/(public)/assets/...`, `middleware.ts` | Anonymous reading and listening has no anonymous rate limit (architecture 11.2). `/media` mints a signed URL per request. |
-| M12 | medium | Privacy / A2A | `a2a/tenant.ts:56-66`, `a2a/card.ts` | A user Agent Card answers 200 for every handle, enumerating accounts and showing the OAuth display name even when the user's web profile 404s. |
-| M13 | medium | Untrusted input | `connectors/callback-url.ts:21`, `a2a/push.ts:47-57`, `a2a/task-events.ts:104-146` | Push delivery is awaited serially inside global loops, with no DNS timeout and an unbounded body read. One tenant's tarpit callbacks stall syncing for every tenant. |
-| M14 | medium | Money | `payment/paddle.ts:668-677`, `billing/backfill.ts:114` | The console backfill files a channel transaction as the subscriber's `subscription` billing document and never books the creator's income. |
-| M15 | medium (plausible) | Money | `payment/paddle.ts:405-408`, `subscriptions.ts:576-668` | The webhook trusts the `custom_data` channel tag: product, currency and amount are never checked against the plan version. |
-| M16 | medium (plausible) | Money | `subscriptions.ts:697-704` | A refund revokes access but does not cancel the Paddle subscription. The next renewal charges again and restores access; a re-subscribe in between double-bills. |
-| M17 | medium | Money | `subscriptions.ts:659`, `administration/settlements.ts:354+` | A late event dated into a locked period stays out of statements until someone re-runs `generateSettlements` for that period, and nothing flags it. |
-| M18 | medium (plausible) | Migrations | `db/migrations/meta/_journal.json` (idx 62–66) | The journal `when` values run to 2026-11-04. A next migration stamped earlier is skipped silently by `drizzle-kit migrate` in production while CI applies it. |
-| M19 | medium | Retention | `lib/application/privacy/index.ts:100-146` | Private-asset retention deletes unpublished and scheduled post/audio drafts, aged from `created_at`. |
-| M20 | medium | Workbench | `lib/application/agent/conversations.ts:90-99` | Reopening a conversation of more than 40 exchanges shows its **oldest** 80 turns, not the newest. |
-| M21 | medium | Tests | `lib/http/a2a.ts:95-185` | The A2A route glue (`serveA2A`: key resolution, scope refusal, tenant mismatch, anonymous limit) is never exercised. Every test builds the caller facts by hand. |
-| M22 | medium | Tests | `tests/integration/agent-p4.test.ts:602,617` | The 30-day purge window is never asserted: the test writes `bodyPurgeAt` itself. |
-| M23 | medium | Docs | `architecture.md:937`, `requirement.md:733`, `agent-first-proposal.md:137/140` | The docs say `/v1/revenue*` was deleted, but the code keeps it and the proposal contradicts itself. |
-| M24 | medium | Docs | `requirement.md:857-868` | The error table lists codes that do not exist and gives 403 for a non-subscriber reading a paid body; the code returns 404. |
-| L1–L43 | low | various | see §4 | SSRF hardening, A2A conformance details, ledger edge cases, data lifecycle, test gaps, code health, docs. |
+| # | Sev | Area | Where | Claim | Outcome |
+| --- | --- | --- | --- | --- | --- |
+| H1 | high | Authorization / editorial | `lib/application/editorial/assets.ts:369-391` | A post the author marked `paid` can go live **free**: the body is committed and the channel move done before `setAssetAccess` fails. The scheduled path fails silently. | fixed (46c8f1e, 3dde4c1) |
+| H2 | high | Evidence rules | `lib/application/retrieval/search-scope.ts:180`, `agent/ask.ts:110` | A2A `ask` and the channel twin drop the retrieval confidence gate the playground uses. Unrelated questions reach the model, bill 10 Calls (or 1), and never enter the creator's pending list. | fixed (acee8b4) |
+| H3 | high | Money | `lib/application/channels/manage.ts:169-189` | Deleting a channel cascades away its subscriptions without cancelling them at Paddle. Subscribers keep being charged and the renewals are dropped as `unresolved`. | fixed (d083c88) |
+| H4 | high | Money | `lib/application/revenue/payout.ts:152-188`, `redeem-credit.ts:225-257` | Payout and redeem only check `balance < 0` and never cap the amount at the balance. A chargeback booked in an unclosed period does not stop the charged-back income from being paid out. | fixed (fbeb373) |
+| H5 | high (plausible) | Money / access | `lib/application/channels/subscriptions.ts:582-639` | A first collection without a Paddle subscription id creates a `txn:` row, and the later `sub_` notice creates a second row. A refund then revokes only one of them, so access survives the refund. | fixed (d083c88) |
+| M1 | medium | Gate / A2A | `lib/application/a2a/server.ts:178-185`, `agent/actions.ts:630` | CancelTask on an `INPUT_REQUIRED` task withdraws the action but returns `TaskNotCancelableError`, and the task ends `FAILED`, not `CANCELED`. | fixed (8d3b6b5) |
+| M2 | medium (plausible) | Gate / A2A | `a2a/server.ts:165-185` | A confirm that races a CancelTask runs the action (publish or a billed build) while the caller sees `CANCELED`. | fixed (8d3b6b5) |
+| M3 | medium | Gate | `agent/actions.ts:292-321, 536` | A `move_asset` card's from/to visibility and "makes public" are frozen when it is proposed. Confirming a stale card can publish content the card says stays private. | fixed (f3437d8) |
+| M4 | medium | Gate / visibility | `agent/actions.ts:308`, `channels/manage.ts:254` | Moving a `paid` asset to another public channel resets it to `free`, but the card does not flag it. An A2A `publish` with an `assets:write` key can set this up. | fixed (f3437d8) |
+| M5 | medium (plausible) | Gate / A2A | `agent/actions.ts:431-476, 643-664`, `a2a/server.ts:241` | Nothing reconciles an A2A task whose action has left `pending`. Tasks can stay `INPUT_REQUIRED` forever, and a confirm can leave no audit row. | fixed (8d3b6b5, 3dde4c1) |
+| M6 | medium | A2A | `lib/http/a2a.ts:217`, `app/a2a/[[...tenant]]/route.ts:15` | A client disconnect on a streaming call, or the 60 s `maxDuration`, leaves tasks `WORKING` forever (after metering). There is no sweeper. | fixed (8d3b6b5) |
+| M7 | medium | A2A | `a2a/server.ts:136-140` | With `returnImmediately`, `after()` keeps only the executor alive, not the SDK's event drain, so the final artifact and `COMPLETED` can be lost on Vercel. | fixed (8d3b6b5) |
+| M8 | medium | Evidence / comments | `comments/index.ts:382`, `questions/index.ts:300` | A comment moved to the pending list is indexed verbatim in the Q&A asset. Its text becomes retrievable, twin evidence and anchored, and it goes public if the Q&A is free. | fixed (4f8acc7) |
+| M9 | medium | Evidence rules | `app/(public)/channels/[slug]/page.tsx:294-313` | The twin answer page shows claims without per-sentence citations, and a degraded (billed) answer shows no passages. | fixed (4f8acc7) |
+| M10 | medium | Authorization | `retrieval/search-scope.ts:160` | The creator's per-subscriber daily cap is enforced only on channel-scoped search. REST, the playground, the workbench and the user card bypass it. | fixed (acee8b4) |
+| M11 | medium | Rate limits | `app/media/[mediaId]/route.ts`, `app/(public)/assets/...`, `middleware.ts` | Anonymous reading and listening has no anonymous rate limit (architecture 11.2). `/media` mints a signed URL per request. | fixed (d18d58e, 3dde4c1) |
+| M12 | medium | Privacy / A2A | `a2a/tenant.ts:56-66`, `a2a/card.ts` | A user Agent Card answers 200 for every handle, enumerating accounts and showing the OAuth display name even when the user's web profile 404s. | fixed (8d3b6b5) |
+| M13 | medium | Untrusted input | `connectors/callback-url.ts:21`, `a2a/push.ts:47-57`, `a2a/task-events.ts:104-146` | Push delivery is awaited serially inside global loops, with no DNS timeout and an unbounded body read. One tenant's tarpit callbacks stall syncing for every tenant. | fixed (71a7d36) |
+| M14 | medium | Money | `payment/paddle.ts:668-677`, `billing/backfill.ts:114` | The console backfill files a channel transaction as the subscriber's `subscription` billing document and never books the creator's income. | fixed (d083c88) |
+| M15 | medium (plausible) | Money | `payment/paddle.ts:405-408`, `subscriptions.ts:576-668` | The webhook trusts the `custom_data` channel tag: product, currency and amount are never checked against the plan version. | fixed (d083c88, 3dde4c1) |
+| M16 | medium (plausible) | Money | `subscriptions.ts:697-704` | A refund revokes access but does not cancel the Paddle subscription. The next renewal charges again and restores access; a re-subscribe in between double-bills. | fixed (d083c88, 3dde4c1) |
+| M17 | medium | Money | `subscriptions.ts:659`, `administration/settlements.ts:354+` | A late event dated into a locked period stays out of statements until someone re-runs `generateSettlements` for that period, and nothing flags it. | fixed (fbeb373) |
+| M18 | medium (plausible) | Migrations | `db/migrations/meta/_journal.json` (idx 62–66) | The journal `when` values run to 2026-11-04. A next migration stamped earlier is skipped silently by `drizzle-kit migrate` in production while CI applies it. | fixed (efad944) |
+| M19 | medium | Retention | `lib/application/privacy/index.ts:100-146` | Private-asset retention deletes unpublished and scheduled post/audio drafts, aged from `created_at`. | fixed (efad944) |
+| M20 | medium | Workbench | `lib/application/agent/conversations.ts:90-99` | Reopening a conversation of more than 40 exchanges shows its **oldest** 80 turns, not the newest. | fixed (efad944) |
+| M21 | medium | Tests | `lib/http/a2a.ts:95-185` | The A2A route glue (`serveA2A`: key resolution, scope refusal, tenant mismatch, anonymous limit) is never exercised. Every test builds the caller facts by hand. | fixed (8d3b6b5) |
+| M22 | medium | Tests | `tests/integration/agent-p4.test.ts:602,617` | The 30-day purge window is never asserted: the test writes `bodyPurgeAt` itself. | fixed (efad944) |
+| M23 | medium | Docs | `architecture.md:937`, `requirement.md:733`, `agent-first-proposal.md:137/140` | The docs say `/v1/revenue*` was deleted, but the code keeps it and the proposal contradicts itself. | fixed (efad944) |
+| M24 | medium | Docs | `requirement.md:857-868` | The error table lists codes that do not exist and gives 403 for a non-subscriber reading a paid body; the code returns 404. | fixed (efad944) |
+| L1–L43 | low | various | see §4 | SSRF hardening, A2A conformance details, ledger edge cases, data lifecycle, test gaps, code health, docs. | out of scope (not changed) |
 
 ## 3. High and medium findings
 
@@ -524,3 +524,57 @@ Also noted: `PAID_RIGHTS_STATEMENT` is unused, because the rights confirmation i
   - No other new variables.
 - **Crons in `vercel.json`:** drain `*/10`, anchor `*/15`, retention `17 * * * *`.
 - **Local verification:** `scripts/test-integration.sh` uses Docker, not Neon. A worktree needs a `node_modules` that contains `@a2a-js/sdk`; the main checkout's copy is stale.
+
+## 8. Fix outcomes (2026-10-30)
+
+The user asked for every high and medium finding to be fixed and the low ones left alone. All 29 are **fixed** on this branch: none turned out wrong on closer inspection, and none was deferred. Each fix has a test that fails on the old code and passes on the new one. The one exception is M21, which only adds coverage for behaviour that was already correct.
+
+**Migration.** One new migration, `0067_review_fixes.sql` (journal `when` 1793900000000), adds `twin_answer.passages jsonb NOT NULL DEFAULT '[]'` for M9. It is safe under psql autocommit and inside a single transaction. It has not been applied to the Neon dev branch.
+
+**Results.** `npx tsc --noEmit` is clean. `./scripts/test-integration.sh`: 140 files, 1470 tests passed, 11 skipped (the same 11 tests behind the retired-surface switches as at baseline).
+
+| Finding | Commit | What changed |
+| --- | --- | --- |
+| H1 | 46c8f1e, 3dde4c1 | Publishing writes the body, moves the post and sets its access in one transaction (`moveAsset` and `setAssetAccess` accept the caller's `tx`). A `paid` post is checked before anything is written, and again when a draft is saved. The editor offers `paid` only for a channel that sells. A scheduled publish clears `publish_at` only on success. A rule refusal sends the post back to drafts with a `publish_failed` notification; a failure on our side (an `AppError` with a transient code) leaves it scheduled. |
+| H2 | acee8b4 | `searchScope` returns its confidence. `askScope` (A2A `ask` and the twin) applies the playground's own `readConfirms`. An unconfirmed read is `no_context`: no model call, 0 Calls, and a twin question goes to the pending list. `faqNearest` is passed through. |
+| H3 | d083c88 | `deleteChannel` is refused (`has_subscribers`) while any subscription still grants access or may still be billed. A late refund on a deleted channel still reaches the ledger through the original earning event. |
+| H4 | fbeb373 | Payout and redeem take only the oldest whole released statements that fit within the balance (`statementsWithinBalance`). |
+| H5 | d083c88 | A row first keyed `txn:` is re-keyed to the `sub_` id instead of a second row being inserted. A per-transaction advisory lock serialises racing notices. |
+| M1, M2 | 8d3b6b5 | CancelTask on a task waiting for confirmation returns it CANCELED. A cancel after the owner confirmed is refused as not cancelable. |
+| M3, M4 | f3437d8 | The card carries a `makesFree` flag with zh/en wording. `moveAsset` takes an `expect` callback that runs under the move's locks, and a card whose facts no longer hold fails as `stale`. |
+| M5 | 8d3b6b5, 3dde4c1 | `reconcileActionTasks` runs from `catchUp` and from the drain. A confirm whose function died after the claim gets exactly one audit row, and never a contrary second one. `expireActions` survives a failure on one row. |
+| M6, M7 | 8d3b6b5 | A streamed execution keeps running after the client disconnects. `maxDuration` is 300 s. `failStaleTasks` fails WORKING tasks that follow no build after 360 s. `returnImmediately` keeps the function alive until the last status is stored and its pushes are sent. |
+| M8, M9 | 4f8acc7 | A Q&A answered from a comment publishes the creator's restatement of the question, never the comment. Twin answers store their cited passages and show `[n]` markers; a degraded answer shows the passages it was billed for. |
+| M10 | acee8b4 | The per-subscriber cap applies in `query-docs` and in workspace- and asset-scoped search. |
+| M11 | d18d58e, 3dde4c1 | `lib/http/reading-limit.ts` limits anonymous readers to 60 reads per 10 minutes and fails closed. It covers `/media` (429) and the reading page's full text. The key is derived with the shared `addressRateLimitKey`. |
+| M12 | 8d3b6b5 | A user with no public channel has no card and no A2A endpoint for anyone but their own key, and is named by handle until they publish. Authentication now runs before tenant lookup. |
+| M13 | 71a7d36 | DNS lookups go through a c-ares resolver with a 2 s deadline. Each push send has one deadline. Response bodies are never read. Pushes are queued, and `settlePushes` waits for them under one budget. |
+| M14 | d083c88 | The backfill refuses channel transactions (`channel_transaction`); Paddle's replay recovers them through the webhook. |
+| M15 | d083c88, 3dde4c1 | A first channel sale must be on the channel product, in the plan's currency, at no less than the plan price, with no discount; anything else is `refused`. A renewal of a subscription that a checked sale opened is held only to the product and currency. |
+| M16 | d083c88, 3dde4c1 | A refund that revokes the running period cancels the Paddle subscription immediately, inside the webhook transaction. An outage rolls the refund back so Paddle's retry tries again. A 4xx from Paddle marks the row as ending. Checkout is refused while a subscription may still renew. |
+| M17 | fbeb373 | A late event is booked into the open month and keeps its real date. A shared/exclusive advisory lock per month keeps a close from missing a booking that is in flight. |
+| M18, M19, M20, M22, M23, M24 | efad944 | Journal contract test plus the +1e8 rule; retention spares drafts that are scheduled, bound for a public channel or recently edited; conversations show their newest turns; one 30-day constant checked at both insert paths; docs fixed for `/v1/revenue*` and the error table, with a contract test that keeps the table in step with `contracts/errors.ts`. |
+
+**`/code-review` round.** The review ran at high effort on `origin/develop...HEAD` and reported 8 findings. Six are fixed in 3dde4c1:
+
+- a transient error no longer unschedules a scheduled post;
+- a Paddle 4xx no longer leaves a refunded row live;
+- a discounted renewal is no longer refused;
+- reconciliation no longer writes a contrary audit row;
+- `catchUp` no longer runs repair writes on every poll;
+- the rate-limit key derivation is no longer duplicated.
+
+Two were skipped:
+
+- **Crawler throttling.** The anonymous reading limit also throttles search-engine crawlers and readers behind a shared NAT. Exempting crawlers safely needs verified-bot detection, which is a product and infrastructure decision.
+- **Resolver mismatch.** The SSRF check resolves with c-ares while `fetch` uses `getaddrinfo`. Going back to `getaddrinfo` would undo the threadpool fix in M13. The proper fix is pinning the connection to the checked address, which is low finding L1 and out of scope.
+
+**Residual items, for decision:**
+
+- **H3: a channel can't be wound down.** A creator whose subscribers never cancel cannot delete the channel. A "wind down" flow that cancels everyone's subscriptions at Paddle is a product decision.
+- **H3: checkouts across a deletion.** A checkout opened before the channel was deleted and paid after it is recorded `unresolved`.
+- **H4: earnings screen overstates.** The earnings screen still shows the uncapped redeemable amount.
+- **M4: Dashboard add-asset action.** The Dashboard's own add-asset action, which has no confirmation card, still resets a paid asset to free without a warning.
+- **M6: long `ask` chains.** An `ask` chain that runs longer than 300 s is failed by the sweeper, and its reserved Calls are never committed.
+- **M8: Q&As already published.** Q&As published from comments before this fix keep their indexed text.
+- **Crawlers.** The anonymous reading limit also applies to search-engine crawlers (see above).
