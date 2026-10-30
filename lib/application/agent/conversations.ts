@@ -38,7 +38,11 @@ export async function startConversation(input: { workspaceId: string; userId: st
   return id;
 }
 
-/** The conversation, if it is this workspace's; null otherwise, as if it did not exist. */
+/** Whether the conversation is this workspace's; another's reads as if it did not exist. */
+export async function ownsConversation(workspaceId: string, conversationId: string): Promise<boolean> {
+  return owned(workspaceId, conversationId);
+}
+
 async function owned(workspaceId: string, conversationId: string): Promise<boolean> {
   const [row] = await db()
     .select({ id: schema.agentConversation.id })

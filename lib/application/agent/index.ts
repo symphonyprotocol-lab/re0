@@ -6,6 +6,7 @@
  */
 export {
   actionById,
+  actionsByIds,
   confirmAction,
   expireActions,
   listActions,
@@ -27,6 +28,7 @@ export {
   conversationTurns,
   latestConversation,
   listConversations,
+  ownsConversation,
   startConversation,
   type ConversationSummary,
   type StoredTurn,

@@ -76,9 +76,11 @@ CREATE INDEX "agent_action_expiry_idx" ON "agent_action" ("expires_at") WHERE "s
 --> statement-breakpoint
 
 -- ------------------------------------------------- A2A push notifications
+-- No foreign key on task_id: the SDK saves a config sent inline with
+-- SendMessage before the task row exists.
 CREATE TABLE "a2a_push_config" (
   "id" text NOT NULL,
-  "task_id" text NOT NULL REFERENCES "a2a_task"("id") ON DELETE CASCADE,
+  "task_id" text NOT NULL,
   "workspace_id" uuid REFERENCES "workspace"("id") ON DELETE CASCADE,
   "tenant" text NOT NULL DEFAULT '',
   "url" text NOT NULL,

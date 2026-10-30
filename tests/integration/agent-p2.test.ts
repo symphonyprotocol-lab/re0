@@ -661,7 +661,7 @@ describeWithDb('P2: the workbench, the confirmation gate and A2A writes', () => 
     expect(got.status.state).toBe('TASK_STATE_COMPLETED');
     expect(got.artifacts!.at(-1)!.parts.find((part) => part.data)!.data).toMatchObject({ tool: 'move_asset', madePublic: true });
     expect(sent.some((push) => push.url === 'https://hooks.example.test/a2a' && JSON.stringify(push.body).includes('TASK_STATE_COMPLETED'))).toBe(true);
-    expect(sent.every((push) => push.headers['x-a2a-notification-token'] === 'caller-token')).toBe(true);
+    expect(sent.filter((push) => push.url === 'https://hooks.example.test/a2a').every((push) => push.headers['x-a2a-notification-token'] === 'caller-token')).toBe(true);
 
     /* A declined publish fails its task with the reason. */
     const another = await rpc(PLATFORM_TENANT, ws.id, 'SendMessage', send({ skill: 'publish', assetId: asset.publicId, channel: null }), { scopes: ['assets:write'] });
@@ -670,6 +670,29 @@ describeWithDb('P2: the workbench, the confirmation gate and A2A writes', () => 
     const declined = taskOf((await rpc(PLATFORM_TENANT, ws.id, 'GetTask', { id: anotherTask.id }, { scopes: ['assets:write'] })).body);
     expect(declined.status.state).toBe('TASK_STATE_FAILED');
     expect(declined.status.message!.parts[0]!.text).toMatch(/declined/);
+
+    /* A publish that names no channel is refused, not read as "take it out". */
+    const unnamed = await rpc(PLATFORM_TENANT, ws.id, 'SendMessage', send({ skill: 'publish', assetId: asset.publicId }), { scopes: ['assets:write'] });
+    expect(taskOf(unnamed.body).status.state).toBe('TASK_STATE_REJECTED');
+    expect(taskOf(unnamed.body).status.message!.parts[0]!.text).toMatch(/needs "channel"/);
+
+    /* A push config sent inline with SendMessage is kept, though the task did not exist yet. */
+    const inline = await rpc(
+      PLATFORM_TENANT,
+      ws.id,
+      'SendMessage',
+      {
+        ...send({ skill: 'publish', assetId: asset.publicId, channel: null }),
+        configuration: { taskPushNotificationConfig: { url: 'https://hooks.example.test/inline', token: 'inline-token' } },
+      },
+      { scopes: ['assets:write'] },
+    );
+    expect(inline.body.error).toBeUndefined();
+    const inlineTask = taskOf(inline.body);
+    expect(inlineTask.status.state).toBe('TASK_STATE_INPUT_REQUIRED');
+    expect(await db().select().from(schema.a2aPushConfig).where(eq(schema.a2aPushConfig.taskId, inlineTask.id))).toHaveLength(1);
+    expect(sent.some((push) => push.url === 'https://hooks.example.test/inline')).toBe(true);
+    await agent.rejectAction(owner(ws), { actionId: pendingActionOf(inlineTask).id });
 
     /* An expired one fails too, the first time anyone looks. */
     const third = await rpc(PLATFORM_TENANT, ws.id, 'SendMessage', send({ skill: 'publish', assetId: asset.publicId, channel: null }), { scopes: ['assets:write'] });

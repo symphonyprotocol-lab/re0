@@ -2317,9 +2317,12 @@ export const a2aPushConfig = pgTable(
   'a2a_push_config',
   {
     id: text('id').notNull(),
-    taskId: text('task_id')
-      .notNull()
-      .references(() => a2aTask.id, { onDelete: 'cascade' }),
+    /*
+     * No foreign key: a config sent inline with SendMessage is saved by the
+     * SDK before the task row exists. Configs are scoped by workspace and
+     * tenant, and sent only for tasks that exist.
+     */
+    taskId: text('task_id').notNull(),
     workspaceId: uuid('workspace_id').references(() => workspace.id, { onDelete: 'cascade' }),
     tenant: text('tenant').notNull().default(''),
     url: text('url').notNull(),

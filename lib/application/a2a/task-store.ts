@@ -14,7 +14,7 @@
  * nothing. Bodies (`history`, `artifacts`) are kept until `body_purge_at`
  * (proposal 10), then cleared by `purgeA2aTaskBodies`.
  */
-import { and, desc, eq, isNull, lt, lte, or, sql } from 'drizzle-orm';
+import { and, desc, eq, isNull, lt, lte, notInArray, or, sql } from 'drizzle-orm';
 import { Task, TaskState, type ListTasksRequest, type ListTasksResponse } from '@a2a-js/sdk';
 import type { ServerCallContext, TaskStore } from '@a2a-js/sdk/server';
 import { db, schema } from '@/lib/infrastructure/postgres/client';
@@ -24,6 +24,7 @@ import { callerOf, tenantOf } from './context';
 export const TASK_BODY_RETENTION_DAYS = 30;
 const DAY_MS = 86_400_000;
 const LIST_PAGE_MAX = 100;
+const TERMINAL_STATE_NAMES = ['TASK_STATE_COMPLETED', 'TASK_STATE_FAILED', 'TASK_STATE_CANCELED', 'TASK_STATE_REJECTED'];
 
 export class PostgresTaskStore implements TaskStore {
   async save(task: Task, context: ServerCallContext): Promise<void> {
@@ -66,8 +67,17 @@ export class PostgresTaskStore implements TaskStore {
           metadata: wire.metadata ?? null,
           updatedAt: now,
         },
-        /* A task id is the creator's: a save under another owner or tenant is not an update of it. */
-        setWhere: and(ownedBy(caller.workspaceId), eq(schema.a2aTask.tenant, tenantOf(context))),
+        /*
+         * A task id is the creator's: a save under another owner or tenant is
+         * not an update of it. And a terminal state is final: a snapshot the
+         * SDK loaded before an out-of-band change (task-events.ts) -- a
+         * confirmation, a cancel -- does not overwrite what that change wrote.
+         */
+        setWhere: and(
+          ownedBy(caller.workspaceId),
+          eq(schema.a2aTask.tenant, tenantOf(context)),
+          notInArray(schema.a2aTask.state, TERMINAL_STATE_NAMES),
+        ),
       });
   }
 

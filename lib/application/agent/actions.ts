@@ -52,7 +52,7 @@ import {
   type ActionTool,
   type ConfirmActor,
 } from '@/lib/domain/agent-action';
-import { normalizeChannelSlug } from '@/lib/domain/channel';
+import { channelSlugFromTitle, normalizeChannelSlug } from '@/lib/domain/channel';
 import { requiresDomainVerification } from '@/lib/domain/domain-verification';
 import { uuidv7 } from '@/lib/domain/id';
 import { normalizeLocation } from '@/lib/domain/library';
@@ -252,7 +252,7 @@ async function prepare(
   }
 
   if (tool === 'create_channel') {
-    const slug = normalizeChannelSlug(text(args.slug, 60).toLowerCase() || slugFromTitle(text(args.title, 80)));
+    const slug = normalizeChannelSlug(text(args.slug, 60).toLowerCase() || channelSlugFromTitle(text(args.title, 80)));
     const title = text(args.title, 80);
     if (!slug || !title) throw new ActionRefused('invalid_params', 'a channel needs a title and an address (slug)');
     const visibility = args.visibility === 'private' ? 'private' : 'public';
@@ -666,9 +666,19 @@ export async function actionById(workspaceId: string, actionId: string): Promise
   return row ? view(row) : null;
 }
 
+/** Several actions of this workspace by id, in one read; unknown and foreign ids are left out. */
+export async function actionsByIds(workspaceId: string, actionIds: readonly string[]): Promise<Map<string, PendingActionView>> {
+  const ids = actionIds.filter((id) => UUID.test(id));
+  if (ids.length === 0) return new Map();
+  const rows = await db()
+    .select()
+    .from(schema.agentAction)
+    .where(and(eq(schema.agentAction.workspaceId, workspaceId), inArray(schema.agentAction.id, ids)));
+  return new Map(rows.map((row) => [row.id, view(row)]));
+}
+
 /** Pending actions per asset or channel id, for the workbench's cards. */
-export async function pendingTargets(workspaceId: string): Promise<Map<string, number>> {
-  const pending = await listActions(workspaceId, { pendingOnly: true, limit: 200 });
+export function pendingTargets(pending: readonly PendingActionView[]): Map<string, number> {
   const counts = new Map<string, number>();
   for (const action of pending) {
     for (const id of [action.summary.asset?.id, action.summary.to?.id, action.summary.from?.id]) {

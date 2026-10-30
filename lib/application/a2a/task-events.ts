@@ -30,7 +30,13 @@ export function dataPart(value: Record<string, unknown>): Part {
   return { content: { $case: 'data', value }, metadata: undefined, filename: '', mediaType: 'application/json' };
 }
 
-export function agentStatus(state: TaskState, text: string | null, taskId: string, contextId: string): Task['status'] {
+export function agentStatus(
+  state: TaskState,
+  text: string | null,
+  taskId: string,
+  contextId: string,
+  extra: Part[] = [],
+): Task['status'] {
   return {
     state,
     timestamp: new Date().toISOString(),
@@ -40,7 +46,7 @@ export function agentStatus(state: TaskState, text: string | null, taskId: strin
           contextId,
           taskId,
           role: Role.ROLE_AGENT,
-          parts: [textPart(text)],
+          parts: [textPart(text), ...extra],
           metadata: undefined,
           extensions: [],
           referenceTaskIds: [],

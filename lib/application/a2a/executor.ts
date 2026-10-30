@@ -28,7 +28,7 @@
  * the owner is answered with the same wait, whatever it contains.
  */
 import { randomUUID } from 'node:crypto';
-import { Role, TaskState, type Artifact, type Message, type Part, type Task } from '@a2a-js/sdk';
+import { TaskState, type Artifact, type Message, type Part, type Task } from '@a2a-js/sdk';
 import { AgentEvent, type AgentExecutor, type ExecutionEventBus, type RequestContext } from '@a2a-js/sdk/server';
 import { AppError } from '@/contracts/errors';
 import { askScope, proposeAction, type AskResult } from '@/lib/application/agent';
@@ -54,7 +54,7 @@ import {
   type A2AWriteSkill,
 } from './card';
 import { PostgresTaskStore } from './task-store';
-import { dataPart, textPart } from './task-events';
+import { agentStatus, dataPart, textPart } from './task-events';
 import type { A2ATenant } from './tenant';
 
 export const QUERY_MAX_CHARS = 2_000;
@@ -183,7 +183,8 @@ export class Re0AgentExecutor implements AgentExecutor {
      * caller is told again who it is waiting for.
      */
     if (requestContext.task) {
-      const existing = requestContext.task;
+      /* Read again: the owner may have decided since the SDK loaded it, and a stale snapshot must not undo that. */
+      const existing = (await new PostgresTaskStore().load(taskId, requestContext.context)) ?? requestContext.task;
       const waiting = existing.status?.state === TaskState.TASK_STATE_INPUT_REQUIRED;
       const text = waiting
         ? 'This task is waiting for the asset owner to confirm in the re0 Dashboard. Only the owner can confirm it; nothing sent to this task does.'
@@ -287,6 +288,10 @@ export class Re0AgentExecutor implements AgentExecutor {
     /* The action row names this task, so the task is stored first, whatever the bus has written yet. */
     await new PostgresTaskStore().save(working, requestContext.context);
     const args = request.args;
+    /* Taking an asset out of its channel is asked for by naming no channel, never by forgetting to name one. */
+    if (request.skill === SKILL_PUBLISH && !('channel' in args) && !('channelId' in args)) {
+      throw new ActionRefused('invalid_params', 'publish needs "channel": a channel slug, or null to take the asset out of its channel');
+    }
     const tool =
       request.skill === SKILL_INGEST ? 'create_asset' : request.skill === SKILL_REFRESH ? 'refresh_asset' : 'move_asset';
     const action = await proposeAction({
@@ -298,7 +303,7 @@ export class Re0AgentExecutor implements AgentExecutor {
       tool,
       args:
         request.skill === SKILL_PUBLISH
-          ? { assetId: args.assetId ?? args.asset, channel: args.channel === undefined ? args.channelId ?? null : args.channel }
+          ? { assetId: args.assetId ?? args.asset, channel: 'channel' in args ? args.channel : args.channelId }
           : args,
     });
     const confirmUrl = `${this.origin}/dashboard/actions/${action.id}`;
@@ -380,22 +385,8 @@ function emptyResult(requestId: string): ScopeSearchResult {
   return { chunks: [], searchedAssets: 0, callsUsed: 0, requestId };
 }
 
-function status(state: TaskState, text: string, taskId: string, contextId: string, extra: Part[] = []) {
-  return {
-    state,
-    timestamp: new Date().toISOString(),
-    message: {
-      messageId: randomUUID(),
-      contextId,
-      taskId,
-      role: Role.ROLE_AGENT,
-      parts: [textPart(text), ...extra],
-      metadata: undefined,
-      extensions: [],
-      referenceTaskIds: [],
-    } satisfies Message,
-  };
-}
+const status = (state: TaskState, text: string, taskId: string, contextId: string, extra: Part[] = []) =>
+  agentStatus(state, text, taskId, contextId, extra);
 
 /* ------------------------------------------------------------ the outcomes */
 

@@ -4,7 +4,7 @@ import { PANEL, PageHeader } from '@/components/dashboard/ui';
 import { Playground } from '@/components/site/playground';
 import { ArrowUpRightIcon, PlusIcon } from '@/components/ui/icons';
 import {
-  actionById,
+  actionsByIds,
   conversationTurns,
   latestConversation,
   listActions,
@@ -49,13 +49,13 @@ export default async function WorkbenchPage({ searchParams }: Search) {
       : query.c && UUID.test(query.c)
         ? query.c
         : ((await latestConversation(workspaceId))?.id ?? null);
-  const [assets, channels, pending, targets, turns] = await Promise.all([
+  const [assets, channels, pending, turns] = await Promise.all([
     listWorkspaceLibraries(workspaceId),
     listWorkspaceChannels(workspaceId),
     listActions(workspaceId, { pendingOnly: true, limit: 200 }),
-    pendingTargets(workspaceId),
     conversationId && !query.q ? conversationTurns(workspaceId, conversationId) : Promise.resolve([]),
   ]);
+  const targets = pendingTargets(pending);
   const initialMessages = await rebuildMessages(workspaceId, turns);
   const initialQuestion = typeof query.q === 'string' && query.q.trim() ? query.q.trim().slice(0, 2_000) : null;
 
@@ -178,6 +178,10 @@ async function rebuildMessages(
   turns: Awaited<ReturnType<typeof conversationTurns>>,
 ): Promise<PlaygroundUIMessage[]> {
   const messages: PlaygroundUIMessage[] = [];
+  const actions = await actionsByIds(
+    workspaceId,
+    turns.flatMap((turn) => ((turn.content as { actions?: string[] }).actions ?? [])),
+  );
   for (const turn of turns) {
     const content = turn.content as Record<string, unknown>;
     if (turn.role === 'user') {
@@ -189,7 +193,7 @@ async function rebuildMessages(
       parts.push({ type: 'data-listing', data: listing as never });
     }
     for (const actionId of (content.actions as string[] | undefined) ?? []) {
-      const action = await actionById(workspaceId, actionId);
+      const action = actions.get(actionId);
       if (!action) continue;
       parts.push({ type: 'data-action', id: action.id, data: cardOf(action) });
     }

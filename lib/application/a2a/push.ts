@@ -10,7 +10,9 @@
  * `deliverTaskPush`.
  *
  * Only an authenticated caller registers, and only on its own task: the
- * store is scoped like the task store, by tenant and calling workspace. The
+ * store is scoped like the task store, by tenant and calling workspace. A
+ * config sent inline with SendMessage arrives before the task row exists,
+ * which is why the table has no foreign key to it. The
  * URL passes the source-fetch SSRF checks when it is registered and again,
  * resolved, before every send; a refused send is dropped and logged by host,
  * never retried against a private address. The token and credentials are
@@ -25,7 +27,6 @@ import { openCredential, sealCredential } from '@/lib/infrastructure/crypto/cred
 import {
   assertCallbackReachable,
   CallbackRefused,
-  parseCallbackUrl,
   type ResolveHost,
 } from '@/lib/infrastructure/connectors/callback-url';
 import { db, schema } from '@/lib/infrastructure/postgres/client';
@@ -71,7 +72,6 @@ export class PostgresPushNotificationStore implements PushNotificationStore {
       throw new UnsupportedOperationError('push notifications need an authenticated caller (a re0 API key)');
     }
     try {
-      parseCallbackUrl(config.url);
       await assertCallbackReachable(config.url, resolveHost);
     } catch (error) {
       if (error instanceof CallbackRefused) throw new RequestMalformedError(`push notification URL refused: ${error.message}`);
@@ -170,27 +170,32 @@ function taskIdOf(event: StreamResponse): string | null {
  */
 export async function deliverTaskPush(taskId: string, event: StreamResponse): Promise<number> {
   const rows = await db().select().from(schema.a2aPushConfig).where(eq(schema.a2aPushConfig.taskId, taskId));
-  let sent = 0;
-  for (const row of rows) {
-    let url: URL;
-    try {
-      url = await assertCallbackReachable(row.url, resolveHost);
-    } catch (error) {
-      console.warn(`a2a push dropped for task ${taskId}: ${error instanceof Error ? error.message : 'refused'}`);
-      continue;
-    }
-    const headers: Record<string, string> = { 'content-type': 'application/a2a+json' };
-    const secret = row.secret ? await openSecret(row.secret) : null;
-    if (secret?.authentication) headers.authorization = `${secret.authentication.scheme} ${secret.authentication.credentials}`;
-    else if (secret?.token) headers['x-a2a-notification-token'] = secret.token;
-    try {
-      await transport(url, { headers, body: JSON.stringify(StreamResponse.toJSON(event)) });
-      sent += 1;
-    } catch (error) {
-      console.warn(`a2a push to ${url.host} failed: ${error instanceof Error ? error.message : 'unknown'}`);
-    }
-  }
-  return sent;
+  if (rows.length === 0) return 0;
+  const body = JSON.stringify(StreamResponse.toJSON(event));
+  /* In parallel: one slow receiver must not hold up the others, or the request. */
+  const outcomes = await Promise.all(
+    rows.map(async (row) => {
+      let url: URL;
+      try {
+        url = await assertCallbackReachable(row.url, resolveHost);
+      } catch (error) {
+        console.warn(`a2a push dropped for task ${taskId}: ${error instanceof Error ? error.message : 'refused'}`);
+        return false;
+      }
+      const headers: Record<string, string> = { 'content-type': 'application/a2a+json' };
+      const secret = row.secret ? await openSecret(row.secret) : null;
+      if (secret?.authentication) headers.authorization = `${secret.authentication.scheme} ${secret.authentication.credentials}`;
+      else if (secret?.token) headers['x-a2a-notification-token'] = secret.token;
+      try {
+        await transport(url, { headers, body });
+        return true;
+      } catch (error) {
+        console.warn(`a2a push to ${url.host} failed: ${error instanceof Error ? error.message : 'unknown'}`);
+        return false;
+      }
+    }),
+  );
+  return outcomes.filter(Boolean).length;
 }
 
 async function openSecret(sealed: string): Promise<Secret | null> {

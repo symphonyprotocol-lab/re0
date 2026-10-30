@@ -789,6 +789,8 @@ export function Playground({
   useEffect(() => {
     if (!isWorkbench || !initialQuestion || sentInitial.current) return;
     sentInitial.current = true;
+    /* Out of the address bar once sent: a reload must not ask it again (and spend another Call). */
+    window.history.replaceState(null, '', '/dashboard');
     void sendMessage({ text: initialQuestion });
   }, [isWorkbench, initialQuestion, sendMessage]);
 

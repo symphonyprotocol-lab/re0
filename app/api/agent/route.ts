@@ -17,7 +17,7 @@
 import { createUIMessageStream, createUIMessageStreamResponse } from 'ai';
 import type { NextRequest } from 'next/server';
 import { AppError } from '@/contracts/errors';
-import { appendTurn, startConversation } from '@/lib/application/agent';
+import { appendTurn, ownsConversation, startConversation } from '@/lib/application/agent';
 import { resolveSession } from '@/lib/application/auth';
 import { streamAgentPlayground } from '@/lib/application/playground/agent';
 import { normaliseHistory } from '@/lib/domain/generation';
@@ -51,10 +51,12 @@ export async function POST(request: NextRequest): Promise<Response> {
     }
     const history = normaliseHistory(body.history);
     const workspaceId = session.workspace.id;
-    const conversationId =
-      typeof body.conversationId === 'string' && UUID.test(body.conversationId)
+    /* A conversation that is not this workspace's -- stale, or someone else's -- is a new one. */
+    const named =
+      typeof body.conversationId === 'string' && UUID.test(body.conversationId) && (await ownsConversation(workspaceId, body.conversationId))
         ? body.conversationId
-        : await startConversation({ workspaceId, userId: session.user.id, title: question });
+        : null;
+    const conversationId = named ?? (await startConversation({ workspaceId, userId: session.user.id, title: question }));
     await appendTurn({ workspaceId, conversationId, role: 'user', content: { question } });
 
     const caller = { workspaceId, apiKeyId: null, requestId, anonymous: false, entrypoint: 'web' as const };
