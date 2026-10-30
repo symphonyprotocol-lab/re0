@@ -217,6 +217,19 @@ export interface MoveAssetInput {
   assetId: string;
   /** The channel to move into, or null to take the asset out of any channel. */
   channelId: string | null;
+  /**
+   * Called inside the transaction, with the asset and both channels locked,
+   * before anything is written: where the asset is, where it would go and
+   * who can see each, and its access. A confirmation card checks here that
+   * what it showed still holds (agent/actions.ts); throwing refuses the move.
+   */
+  expect?: (facts: MoveFacts) => void;
+}
+
+export interface MoveFacts {
+  from: { id: string; visibility: 'public' | 'private' } | null;
+  to: { id: string; visibility: 'public' | 'private' } | null;
+  access: 'free' | 'paid';
 }
 
 export interface MoveAssetResult {
@@ -248,8 +261,16 @@ export async function moveAsset(input: MoveAssetInput, within?: Tx): Promise<Mov
       .where(eq(schema.channelAsset.assetId, asset.id))
       .for('update');
     const from = current?.channelId ?? null;
+    const facts = async (to: MoveFacts['to']): Promise<MoveFacts> => {
+      const [state] = await tx.select({ access: schema.asset.access }).from(schema.asset).where(eq(schema.asset.id, asset.id));
+      const [was] = from
+        ? await tx.select({ id: schema.channel.id, visibility: schema.channel.visibility }).from(schema.channel).where(eq(schema.channel.id, from)).for('share')
+        : [];
+      return { from: was ?? null, to, access: state?.access === 'paid' ? 'paid' : 'free' };
+    };
 
     if (input.channelId === null) {
+      if (input.expect) input.expect(await facts(null));
       if (from) {
         await tx.delete(schema.channelAsset).where(eq(schema.channelAsset.assetId, asset.id));
         await tx.update(schema.asset).set({ access: 'free' }).where(eq(schema.asset.id, asset.id));
@@ -263,6 +284,7 @@ export async function moveAsset(input: MoveAssetInput, within?: Tx): Promise<Mov
     if (target.status === 'suspended') {
       throw new ChannelRefused('suspended', 'this channel is suspended');
     }
+    if (input.expect) input.expect(await facts({ id: target.id, visibility: target.visibility }));
     if (from === target.id) return { from, to: target.id, madePublic: false };
     if (target.visibility === 'public') await assertMayBePublic(tx, asset.id);
 

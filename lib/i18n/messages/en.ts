@@ -1069,6 +1069,7 @@ export const en: Dictionary = {
       capacityLeft: '{left} left in the workspace',
       assetSize: 'this asset holds {size} now',
       makesPublic: 'This makes the content public',
+      makesFree: 'This paid asset becomes free: in the public channel, everyone can read all of it',
       staysPrivate: 'Nothing becomes public',
       expires: 'Valid until {time}',
       confirm: 'Confirm',

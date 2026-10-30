@@ -1029,6 +1029,7 @@ export const zh = {
       capacityLeft: '工作空间剩余 {left}',
       assetSize: '这项资产现在占 {size}',
       makesPublic: '执行后内容会公开',
+      makesFree: '这是付费资产：移入公开频道后，全文对所有人免费可见',
       staysPrivate: '不会让内容公开',
       expires: '{time} 前有效',
       confirm: '确认执行',

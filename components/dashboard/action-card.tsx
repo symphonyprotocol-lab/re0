@@ -94,7 +94,7 @@ function costLine(summary: ActionSummary, a: Words): string {
 /**
  * The confirmation card (agent-first-proposal.md 5.2): what, on which asset
  * or channel, the estimated Calls and capacity, whether it makes content
- * public -- and the owner's two buttons. Confirming posts the id and the
+ * public or a paid asset free -- and the owner's two buttons. Confirming posts the id and the
  * digest of exactly these parameters; the server runs it once.
  */
 export function ActionCard({
@@ -161,9 +161,13 @@ export function ActionCard({
           </>
         ) : null}
       </dl>
-      <p className={`mt-1.5 text-[11.5px] font-medium ${summary.makesPublic ? 'text-warn' : 'text-muted'}`}>
-        {summary.makesPublic ? a.makesPublic : a.staysPrivate}
-      </p>
+      {summary.makesPublic || !summary.makesFree ? (
+        <p className={`mt-1.5 text-[11.5px] font-medium ${summary.makesPublic ? 'text-warn' : 'text-muted'}`}>
+          {summary.makesPublic ? a.makesPublic : a.staysPrivate}
+        </p>
+      ) : null}
+      {/* A paid asset moved to another public channel arrives free: as much an exposure as going public. */}
+      {summary.makesFree ? <p className="mt-1.5 text-[11.5px] font-medium text-warn">{a.makesFree}</p> : null}
       {origin ? <p className="mt-1 text-[11px] text-faint">{a.origins[origin]}</p> : null}
       {taskId ? (
         <p className="mt-1 text-[11px] text-faint">
