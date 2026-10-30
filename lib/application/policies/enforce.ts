@@ -43,6 +43,7 @@ export async function policyVerdicts(
       publicId: schema.library.publicId,
       ownerWorkspaceId: schema.library.ownerWorkspaceId,
       isPlatformLibrary: schema.library.isPlatformLibrary,
+      access: schema.library.access,
       lastSuccessfulRefreshAt: schema.library.lastSuccessfulRefreshAt,
     })
     .from(schema.library)
@@ -90,11 +91,12 @@ export async function policyVerdicts(
     const subject: PolicySubject = {
       publicId: library.publicId,
       channel: channel ? `/channels/${channel.slug}` : null,
-      /* An asset that is its owner's alone -- in no channel or a private
-         one -- answers to the `private` switch as well (10.2). */
+      /* An asset not shared with everyone -- in no channel, a private one,
+         or paid -- answers to the `private` switch as well (10.2), the same
+         line the preview count draws (policy-store.ts). */
       sourceTypes: [
         ...(sourceTypes.get(library.id) ?? []),
-        ...(isPublicChannel(channel) ? [] : [PRIVATE_SOURCE_TYPE]),
+        ...(isPublicChannel(channel) && library.access === 'free' ? [] : [PRIVATE_SOURCE_TYPE]),
       ],
       domains: sourceHosts.get(library.id) ?? [],
       trustScore: newestScore.get(library.id) ?? 0,

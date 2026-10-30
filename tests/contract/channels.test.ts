@@ -4,7 +4,7 @@
  * channel, A2A tenants, the three Agent Card levels and how a message picks
  * its skill. agent-first-proposal.md 3.2, 6.1-6.4, 7.1-7.5.
  */
-import { readdirSync, statSync } from 'node:fs';
+import { readdirSync, readFileSync, statSync } from 'node:fs';
 import { join } from 'node:path';
 import { describe, expect, it } from 'vitest';
 import { Role, type Message } from '@a2a-js/sdk';
@@ -44,6 +44,16 @@ describe('reserved names', () => {
     collect(root);
     expect(segments.size).toBeGreaterThan(5);
     for (const segment of segments) expect([segment, isReservedName(segment)]).toEqual([segment, true]);
+  });
+
+  it('are the ones migration 0062 kept out of backfilled handles', () => {
+    const sql = readFileSync(join(process.cwd(), 'db/migrations/0062_agent_first_p1.sql'), 'utf8');
+    const block = /OR base IN \(([^)]*)\)/.exec(sql)![1]!;
+    const listed = new Set([...block.matchAll(/'([^']+)'/g)].map((match) => match[1]));
+    /* Only names a handle could take: the handle alphabet has no dot. */
+    for (const name of RESERVED_NAMES) {
+      if (/^[a-z0-9-]+$/.test(name) && name.length >= 3) expect([name, listed.has(name)]).toEqual([name, true]);
+    }
   });
 
   it('include the namespaces proposal 3.2 names', () => {

@@ -16,6 +16,7 @@ import {
   ANCHOR_LEAF_SCHEMA_VERSION,
   anchorDomainSeparator,
   anchorInstant,
+  versionLeaf,
 } from '@/lib/domain/anchor-leaf';
 import { isVersionLabelShaped } from '@/lib/domain/library';
 import { db, schema } from '@/lib/infrastructure/postgres/client';
@@ -221,6 +222,25 @@ export async function publicVersionAnchor(pinnedId: string): Promise<VersionAnch
    * rather than like data we never had.
    */
   if (!row.contentMerkleRoot || !row.publishedAt) return anchor;
+  /*
+   * A version anchored while its asset was its owner's alone carries a
+   * salted leaf (run-batch.ts), and an asset is usually moved into a public
+   * channel after its first build anchored (agent-first-proposal.md 6.1). The
+   * open preimage is handed out only when it actually hashes to the leaf on
+   * record; otherwise the anchor is reported without one, rather than with a
+   * preimage that would read as a failed verification.
+   */
+  if (anchor.leafHash && anchor.leafSchemaVersion === ANCHOR_LEAF_SCHEMA_VERSION) {
+    const open = await versionLeaf({
+      libraryId: row.libraryId,
+      versionId: row.versionId,
+      sourceDigest: row.sourceDigest,
+      contentMerkleRoot: row.contentMerkleRoot,
+      publishedAt: row.publishedAt,
+      salt: '',
+    });
+    if (open !== anchor.leafHash) return anchor;
+  }
   return {
     ...anchor,
     preimage: {

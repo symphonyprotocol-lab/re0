@@ -91,7 +91,15 @@ class StoreBackedRequestHandler implements A2ARequestHandler {
   getAgentCard = () => this.inner.getAgentCard();
   getAuthenticatedExtendedAgentCard: A2ARequestHandler['getAuthenticatedExtendedAgentCard'] = (p, c) =>
     this.inner.getAuthenticatedExtendedAgentCard(p, c);
-  sendMessage: A2ARequestHandler['sendMessage'] = (p, c) => this.inner.sendMessage(p, c);
+  /*
+   * Always blocking. P1's skills finish in one retrieval, and with
+   * `returnImmediately` the SDK answers after the first event while the
+   * executor runs on with nothing keeping the function alive: on Vercel the
+   * instance may freeze and leave the task WORKING for good. Long tasks (P2's
+   * ingest) will need `waitUntil` or a workflow before honouring it.
+   */
+  sendMessage: A2ARequestHandler['sendMessage'] = (p, c) =>
+    this.inner.sendMessage(p.configuration ? { ...p, configuration: { ...p.configuration, returnImmediately: false } } : p, c);
   sendMessageStream: A2ARequestHandler['sendMessageStream'] = (p, c) => this.inner.sendMessageStream(p, c);
   getTask: A2ARequestHandler['getTask'] = (p, c) => this.inner.getTask(p, c);
   cancelTask: A2ARequestHandler['cancelTask'] = (p, c) => this.inner.cancelTask(p, c);

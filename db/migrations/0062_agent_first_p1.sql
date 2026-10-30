@@ -115,6 +115,13 @@ SELECT ss.new_library_id,
   CASE ss.type WHEN 'github' THEN 'github' WHEN 'website' THEN 'website' WHEN 'notion' THEN 'notion' ELSE 'upload' END,
   l.lifecycle_status, 'pending', l.rights_declaration
 FROM split_source ss JOIN "library" l ON l.id = ss.library_id
+-- A repository under a reserved owner (lib/domain/reserved-names.ts) would
+-- shadow a namespace; like a taken id, it is not created.
+WHERE NOT (ss.type = 'github' AND lower(split_part(ss.location, '/', 1)) IN (
+  'a2a', 'about', 'admin', 'api', 'assets', 'audio', 'channels', 'checkout', 'contact',
+  'dashboard', 'docs', 'embed', 'files', 'help', 'legal', 'libraries', 'login', 'mcp',
+  'notion', 'official', 'playground', 'posts', 'pricing', 'publishers', 'qa', 're0', 'root',
+  's', 'status', 'support', 'system', 'u', 'v1', 'websites', 'widget'))
 ON CONFLICT DO NOTHING;
 --> statement-breakpoint
 UPDATE "source" s SET library_id = ss.new_library_id
@@ -165,16 +172,17 @@ CREATE TEMP TABLE handle_base AS
 UPDATE handle_base SET base = 'user-' || substr(md5(id::text), 1, 6)
   WHERE length(base) < 3 OR base IN (
     'a2a', 'about', 'admin', 'api', 'assets', 'audio', 'channels', 'checkout', 'contact',
-    'dashboard', 'docs', 'embed', 'files', 'legal', 'libraries', 'login', 'mcp', 'notion',
-    'playground', 'posts', 'pricing', 'publishers', 'qa', 're0', 's', 'sitemap', 'status',
-    'u', 'v1', 'websites', 'well-known', 'widget'
+    'dashboard', 'docs', 'embed', 'files', 'help', 'legal', 'libraries', 'login', 'mcp',
+    'notion', 'official', 'opengraph-image', 'playground', 'posts', 'pricing', 'publishers',
+    'qa', 're0', 'root', 's', 'status', 'support', 'system', 'u', 'v1', 'websites',
+    'well-known', 'widget'
   );
 --> statement-breakpoint
 UPDATE "workspace" w SET "handle" = ranked.handle
 FROM (
   SELECT id,
     CASE WHEN row_number() OVER (PARTITION BY base ORDER BY created_at, id) = 1 THEN base
-      ELSE base || '-' || substr(md5(id::text), 1, 4) END AS handle
+      ELSE base || '-' || substr(md5(id::text), 1, 8) END AS handle
   FROM handle_base
 ) ranked
 WHERE ranked.id = w.id;

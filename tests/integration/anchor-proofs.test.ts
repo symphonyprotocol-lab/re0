@@ -20,7 +20,7 @@ process.env.SESSION_SIGNING_SECRET ??= 'test-secret-that-is-long-enough-000000';
 const { publicVersionAnchor, splitPinnedId, versionAnchor } = await import(
   '@/lib/application/anchors'
 );
-const { versionLeaf, anchorDomainSeparator } = await import('@/lib/domain/anchor-leaf');
+const { versionLeaf, anchorDomainSeparator, ANCHOR_LEAF_SCHEMA_VERSION } = await import('@/lib/domain/anchor-leaf');
 const { db, schema } = await import('@/lib/infrastructure/postgres/client');
 const { uuidv7 } = await import('@/lib/domain/id');
 
@@ -95,6 +95,8 @@ async function anchor(input: {
   status: 'confirmed' | 'pending' | 'failed';
   leafSchemaVersion?: number;
   txHash?: string;
+  /** The leaf on record; a placeholder unless the test needs a real one. */
+  leafHash?: string;
 }): Promise<string> {
   const database = db();
   const batchId = crypto.randomUUID();
@@ -118,7 +120,7 @@ async function anchor(input: {
   await database.insert(schema.anchorLeaf).values({
     id: leafId,
     batchId,
-    leafHash: `leaf-${leafId}`,
+    leafHash: input.leafHash ?? `leaf-${leafId}`,
     leafSchemaVersion: input.leafSchemaVersion ?? 1,
     subjectType: 'version',
     subjectId: input.versionId,
@@ -263,9 +265,25 @@ describeWithDb('anchor proofs', () => {
    * everything they hash has to come back over the wire.
    */
   describe('public preimage', () => {
+    /* The open leaf of a fixture version, as run-batch.ts anchors a shared asset's. */
+    const openLeaf = (fixture: Fixture, slug: string, salt = '') =>
+      versionLeaf({
+        libraryId: fixture.libraryId,
+        versionId: fixture.versionId,
+        sourceDigest: `anchor-${stamp}-${slug}`,
+        contentMerkleRoot: `content-root-${slug}`,
+        publishedAt: PUBLISHED_AT,
+        salt,
+      });
+
     it('recomputes to the leaf that was anchored', async () => {
       const fixture = await library({ slug: 'preimage' });
-      await anchor({ versionId: fixture.versionId, status: 'confirmed' });
+      await anchor({
+        versionId: fixture.versionId,
+        status: 'confirmed',
+        leafSchemaVersion: ANCHOR_LEAF_SCHEMA_VERSION,
+        leafHash: await openLeaf(fixture, 'preimage'),
+      });
 
       const anchorView = await publicVersionAnchor(`${fixture.publicId}/${LABEL}`);
       const preimage = anchorView?.preimage;
@@ -297,6 +315,21 @@ describeWithDb('anchor proofs', () => {
           salt: preimage!.salt,
         }),
       );
+    });
+
+    /* Anchored salted while the asset was its owner's alone, then shared: the
+       open preimage would not hash to that leaf, so none is handed out. */
+    it('is withheld when the leaf on record was salted', async () => {
+      const fixture = await library({ slug: 'salted-preimage' });
+      await anchor({
+        versionId: fixture.versionId,
+        status: 'confirmed',
+        leafSchemaVersion: ANCHOR_LEAF_SCHEMA_VERSION,
+        leafHash: await openLeaf(fixture, 'salted-preimage', 'workspace-salt'),
+      });
+      const anchorView = await publicVersionAnchor(`${fixture.publicId}/${LABEL}`);
+      expect(anchorView?.status).toBe('anchored');
+      expect(anchorView?.preimage).toBeNull();
     });
 
     /* Half a preimage reads as a leaf that fails to verify rather than as

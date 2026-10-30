@@ -233,7 +233,9 @@ export async function moveAsset(input: MoveAssetInput): Promise<MoveAssetResult>
       return { from, to: null, madePublic: false };
     }
 
-    const target = await ownedChannel(tx, input.workspaceId, input.channelId, false);
+    /* Locked, as `editChannel` locks it: a channel turned public while this
+       move runs would otherwise admit an asset that skipped the public gates. */
+    const target = await ownedChannel(tx, input.workspaceId, input.channelId, true);
     if (target.status === 'suspended') {
       throw new ChannelRefused('suspended', 'this channel is suspended');
     }
