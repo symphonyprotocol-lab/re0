@@ -1,5 +1,6 @@
 import type { Metadata } from 'next';
 import { cache } from 'react';
+import { headers } from 'next/headers';
 import Link from 'next/link';
 import { notFound } from 'next/navigation';
 import { Button, Card, Chip } from '@/components/ui/primitives';
@@ -16,6 +17,7 @@ import { CommentSection } from '@/components/creator/comment-section';
 import { EditorialPage } from '@/components/creator/editorial-page';
 import { listComments } from '@/lib/application/comments';
 import { editorialReading } from '@/lib/application/editorial';
+import { anonymousRead } from '@/lib/http/reading-limit';
 import { optionalSession } from '@/lib/http/session';
 
 type Params = {
@@ -40,11 +42,18 @@ const assetDetail = cache(publicAssetDetail);
 /**
  * An article, episode or Q&A, cut to this viewer's sight (proposal 6.2): the
  * owner and entitled readers get the body, anyone else a paid one's summary.
- * Shared by the metadata and the page within one request, like the above.
+ * Shared by the metadata and the page within one request, like the above --
+ * which also keeps it to one count against the anonymous reading limit
+ * (architecture.md 11.2): a session-less reader's full text goes through it,
+ * and past it the page is the summary, saying why.
  */
 const editorialFor = cache(async (publicId: string) => {
   const session = await optionalSession();
-  return { session, reading: await editorialReading(publicId, { workspaceId: session?.workspace.id ?? null }) };
+  const reading = await editorialReading(publicId, { workspaceId: session?.workspace.id ?? null });
+  if (!session && reading?.sight === 'full' && !(await anonymousRead(await headers())).allowed) {
+    return { session, reading: { ...reading, sight: 'summary' as const, body: null, audioMediaId: null, versionLabel: null }, limited: true };
+  }
+  return { session, reading, limited: false };
 });
 
 export async function generateMetadata({ params }: Params): Promise<Metadata> {
@@ -137,10 +146,10 @@ export default async function AssetDetailPage({ params, searchParams }: Params) 
     searchParams ?? Promise.resolve({} as Record<string, string | string[] | undefined>),
   ]);
   const commentOutcome = typeof query.comment === 'string' ? query.comment : null;
-  const { session, reading } = await editorialFor(`/${assetId.join('/')}`);
+  const { session, reading, limited } = await editorialFor(`/${assetId.join('/')}`);
   if (reading) {
     const thread = await listComments(reading.id, { userId: session?.user.id ?? null, workspaceId: session?.workspace.id ?? null });
-    return <EditorialPage reading={reading} thread={thread} signedIn={session !== null} commentOutcome={commentOutcome} t={t} locale={locale} />;
+    return <EditorialPage reading={reading} limited={limited} thread={thread} signedIn={session !== null} commentOutcome={commentOutcome} t={t} locale={locale} />;
   }
   const entry = await assetDetail(`/${assetId.join('/')}`);
   if (!entry) notFound();

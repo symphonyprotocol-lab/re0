@@ -1,5 +1,6 @@
 import { NextResponse, type NextRequest } from 'next/server';
 import { markdownSourcePath, pageHtmlToMarkdown } from '@/lib/http/page-markdown';
+import { readerHeader } from '@/lib/http/reading-limit';
 
 export const runtime = 'nodejs';
 
@@ -35,6 +36,9 @@ async function render(request: NextRequest, head: boolean): Promise<Response> {
     const value = request.headers.get(name);
     if (value) headers.set(name, value);
   }
+  /* The page counts a session-less reader against the anonymous reading limit by address; this fetch is ours, so it names whose (lib/http/reading-limit.ts). */
+  const reader = await readerHeader(request.headers);
+  if (reader) headers.set(...reader);
   const fetchPage = (url: URL) =>
     fetch(url, { method: head ? 'HEAD' : 'GET', headers, cache: 'no-store', redirect: 'manual' });
 
