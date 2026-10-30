@@ -18,6 +18,69 @@ export interface CheckoutInput {
   customerId: string | null;
 }
 
+/**
+ * A checkout for one channel subscription (agent-first-proposal.md 6.9): a
+ * recurring non-catalogue price cut from an immutable channel plan version,
+ * against the one Paddle product that stands for channel subscriptions.
+ * The subscriber's user and personal workspace are tagged so the webhook
+ * knows whose access the payment buys.
+ */
+export interface ChannelCheckoutInput {
+  channelPlanVersionId: string;
+  channelId: string;
+  userId: string;
+  workspaceId: string;
+  interval: 'month' | 'year';
+  priceMinor: number;
+  currency: string;
+  /** What the checkout prints as the line item: the channel's title. */
+  name: string;
+  customerId: string | null;
+}
+
+/** One approved or pending money movement back to the buyer on a channel transaction. */
+export interface ChannelAdjustmentNotice {
+  id: string;
+  action: 'refund' | 'chargeback' | 'chargeback_reverse' | 'other';
+  status: string;
+  /** Ex-tax amount, minor units, always positive. */
+  exTaxMinor: number;
+  observedAt: Date;
+}
+
+/** A channel subscription's transaction, as it stands at the provider. */
+export interface ChannelTransactionNotice {
+  transactionId: string;
+  subscriptionExternalId: string | null;
+  customerId: string | null;
+  /** Collected (`paid`/`completed`), still `open`, or `other`. */
+  state: 'collected' | 'open' | 'other';
+  channelPlanVersionId: string | null;
+  userId: string | null;
+  workspaceId: string | null;
+  /** The subtotal net of discounts and before tax: what the creator's share is a share of. */
+  exTaxMinor: number;
+  currency: string;
+  collectedAt: Date | null;
+  periodEnd: Date | null;
+  adjustments: ChannelAdjustmentNotice[];
+  observedAt: Date;
+}
+
+/** A channel subscription's own state change (`subscription.*`). */
+export interface ChannelSubscriptionNotice {
+  subscriptionExternalId: string;
+  customerId: string | null;
+  status: 'active' | 'past_due' | 'canceled' | 'paused' | 'other';
+  /** A cancellation the subscriber has scheduled for the end of the period. */
+  cancelAtPeriodEnd: boolean;
+  currentPeriodEnd: Date | null;
+  channelPlanVersionId: string | null;
+  userId: string | null;
+  workspaceId: string | null;
+  observedAt: Date;
+}
+
 /** A provider billing document, as it currently stands at the provider. */
 export interface ProviderDocumentNotice {
   document: ProviderDocumentInput;
@@ -51,10 +114,13 @@ export type PaymentNotification = NotificationEnvelope &
      * and the mirror has no business listing.
      */
     | { subject: 'document'; document: ProviderDocumentNotice | null }
+    /* A channel subscription's money or state (agent-first-proposal.md 6.9). */
+    | { subject: 'channel_transaction'; channel: ChannelTransactionNotice }
+    | { subject: 'channel_subscription'; channel: ChannelSubscriptionNotice }
     /*
-     * Not an event re0 acts on. Subscription events are among them: nothing
-     * sells a subscription since Pro was removed, and a channel subscription
-     * (agent-first-proposal.md 6.9) will be its own model when it arrives.
+     * Not an event re0 acts on. A subscription event that is not a channel
+     * subscription's is among them: nothing else sells a subscription since
+     * Pro was removed.
      */
     | { subject: 'ignored' }
   );
@@ -87,6 +153,13 @@ export interface PaymentAdapter {
    * name the checkout domain of that day.
    */
   checkoutUrl(externalId: string): string;
+  /**
+   * Opens a checkout for one channel subscription. Throws
+   * `PaymentNotConfigured` when the deployment has no channel product.
+   */
+  createChannelCheckout(input: ChannelCheckoutInput): Promise<{ externalId: string; url: string }>;
+  /** Schedules the subscription to end with its current period; access runs to then. */
+  cancelSubscription(externalId: string): Promise<void>;
   /** A signed, short-lived link into the provider's customer portal. */
   portalUrl(input: { customerId: string }): Promise<string>;
   /**

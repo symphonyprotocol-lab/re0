@@ -75,6 +75,46 @@ export function isConnectedSourceType(value: unknown): value is ConnectedSourceT
 }
 
 /**
+ * Every source type a build can read: the connected ones, plus the two whose
+ * text the platform holds itself -- `editor` (articles and Q&A, written in
+ * re0) and `audio` (an episode's title and show notes). Those two are never
+ * created through the import wizard, which is why they are not in
+ * `CONNECTED_SOURCE_TYPES` (agent-first-proposal.md 3.2, 6.5-6.7).
+ */
+export const EDITORIAL_SOURCE_TYPES = ['editor', 'audio'] as const;
+
+export type EditorialSourceType = (typeof EDITORIAL_SOURCE_TYPES)[number];
+
+export const BUILDABLE_SOURCE_TYPES = [...CONNECTED_SOURCE_TYPES, ...EDITORIAL_SOURCE_TYPES] as const;
+
+export type BuildableSourceType = (typeof BUILDABLE_SOURCE_TYPES)[number];
+
+export function isBuildableSourceType(value: unknown): value is BuildableSourceType {
+  return typeof value === 'string' && (BUILDABLE_SOURCE_TYPES as readonly string[]).includes(value);
+}
+
+/**
+ * What an `editor` or `audio` source row's config holds: the one document
+ * the build indexes, already composed by the application (title, summary or
+ * notes, captions in place of images), the path it is cited under -- which
+ * carries the digest of any attached file, so replacing an episode's file is
+ * a new version even when its notes are unchanged -- and the page a reader
+ * opens from a citation.
+ */
+export interface EditorialSourceConfig {
+  path: string;
+  url: string;
+  markdown: string;
+}
+
+export function editorialSourceConfigOf(config: Record<string, unknown>): EditorialSourceConfig | null {
+  const { path, url, markdown } = config as Partial<Record<keyof EditorialSourceConfig, unknown>>;
+  if (typeof path !== 'string' || typeof url !== 'string' || typeof markdown !== 'string') return null;
+  if (path.length === 0 || markdown.trim().length === 0) return null;
+  return { path, url, markdown };
+}
+
+/**
  * The source types a workspace fills by uploading files rather than by naming
  * a location: PDFs, and Markdown/MDX documents (requirement.md 5.2 lists both
  * as first-release sources). Both keep their files on `source.config.files`

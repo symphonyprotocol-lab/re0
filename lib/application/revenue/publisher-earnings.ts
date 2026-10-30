@@ -14,11 +14,12 @@
  * between collection and payout, and no card or bank details).
  */
 import { and, desc, eq, gte, inArray, isNotNull, sql } from 'drizzle-orm';
-import { PAYOUT_HOLD_DAYS, PAYOUT_THRESHOLD_MINOR } from '@/lib/domain';
+import { activeCommerceSettings } from '@/lib/application/administration/manage-commerce-config';
 import { uuidv7 } from '@/lib/domain/id';
 import { db, schema } from '@/lib/infrastructure/postgres/client';
 import { earningPayouts, type EarningPayouts } from './payout';
 import { earningCredit, type EarningCredit } from './redeem-credit';
+import { creatorBalance } from './balance';
 
 export interface PublisherPeriodEarning {
   periodId: string;
@@ -32,6 +33,12 @@ export interface PublisherEarnings {
     taxStatus: string;
     agreementVersion: string | null;
     providerAccountLinked: boolean;
+    /** The payout profile (proposal 6.9): where cash goes, and the tax document's record. */
+    payeeEmail: string | null;
+    taxFormKind: string | null;
+    taxFormStatus: 'missing' | 'submitted' | 'verified';
+    taxFormSubmittedAt: Date | null;
+    taxFormVerifiedAt: Date | null;
   } | null;
   /** Newest first, the last `PERIODS_SHOWN`. */
   periods: PublisherPeriodEarning[];
@@ -50,6 +57,8 @@ export interface PublisherEarnings {
   payouts: EarningPayouts;
   payoutThresholdMinor: number;
   holdDays: number;
+  /** Earned less discharged; below zero blocks payouts and new paid plans (proposal 6.9). */
+  balanceMinor: number;
 }
 
 const PERIODS_SHOWN = 12;
@@ -99,9 +108,11 @@ export async function publisherEarnings(workspaceId: string): Promise<PublisherE
           ).map((period) => period.id),
         );
 
-  const [credit, payouts] = await Promise.all([
+  const [credit, payouts, settings, balance] = await Promise.all([
     earningCredit(account?.id ?? null),
     earningPayouts(account?.id ?? null),
+    activeCommerceSettings(),
+    creatorBalance(workspaceId),
   ]);
 
   const periods = byPeriod.map((row) => ({
@@ -119,14 +130,20 @@ export async function publisherEarnings(workspaceId: string): Promise<PublisherE
           taxStatus: account.taxStatus,
           agreementVersion: account.agreementVersion,
           providerAccountLinked: account.providerAccountId !== null,
+          payeeEmail: account.payeeEmail,
+          taxFormKind: account.taxFormKind,
+          taxFormStatus: account.taxFormStatus,
+          taxFormSubmittedAt: account.taxFormSubmittedAt,
+          taxFormVerifiedAt: account.taxFormVerifiedAt,
         }
       : null,
     periods,
     accruedMinor,
     credit,
     payouts,
-    payoutThresholdMinor: PAYOUT_THRESHOLD_MINOR,
-    holdDays: PAYOUT_HOLD_DAYS,
+    payoutThresholdMinor: settings.payoutThresholdMinor,
+    holdDays: settings.payoutHoldDays,
+    balanceMinor: balance.balanceMinor,
   };
 }
 

@@ -41,13 +41,34 @@ export function sharedWithEveryone(): SQL {
 }
 
 /**
- * Readable in full by this caller: the owner sees every asset of their own,
- * everyone else sees what is shared with everyone. Subscriptions add `paid`
- * assets in P3a; until then a paid asset is its owner's alone to read.
+ * A `paid` asset in a public, active channel that this workspace subscribes
+ * to right now (proposal 6.9): a subscription in an access status whose
+ * period has not ended. The period end is compared with the database's
+ * clock on every read, so an expired subscription stops reading on the very
+ * next call, whether or not any webhook has said so. `ACCESS_STATUSES` in
+ * lib/domain/channel-commerce.ts is the same list.
+ */
+export function subscribedPaid(workspaceId: string): SQL {
+  return sql`(${schema.library.access} = 'paid' and exists (
+    select 1 from ${schema.channelAsset} ca
+    join ${schema.channel} c on c.id = ca.channel_id
+    join ${schema.channelSubscription} cs on cs.channel_id = ca.channel_id
+    where ca.asset_id = ${ref(schema.library.id)}
+      and c.visibility = 'public' and c.status = 'active'
+      and cs.workspace_id = ${workspaceId}
+      and cs.status in ('active', 'past_due', 'canceled')
+      and cs.current_period_end > now()
+  ))`;
+}
+
+/**
+ * Readable in full by this caller: the owner sees every asset of their own;
+ * a subscriber's workspace also sees the `paid` assets of the channels it
+ * subscribes to; everyone else sees what is shared with everyone.
  */
 export function readableBy(workspaceId: string | null): SQL {
   if (!workspaceId) return sharedWithEveryone();
-  return or(eq(schema.library.ownerWorkspaceId, workspaceId), sharedWithEveryone())!;
+  return or(eq(schema.library.ownerWorkspaceId, workspaceId), sharedWithEveryone(), subscribedPaid(workspaceId))!;
 }
 
 /**

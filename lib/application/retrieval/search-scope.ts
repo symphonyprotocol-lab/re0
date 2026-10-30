@@ -34,6 +34,7 @@ import type { CallerContext } from './index';
 import { defaultRetrievalDependencies, type RetrievalDependencies } from './query-docs';
 import { rankAcross, type RankScopeMember } from './rank';
 import { visibleTo } from './resolve-library';
+import { assertUnderSubscriberCap } from '@/lib/application/channels/subscriptions';
 
 export type SearchScope =
   | { kind: 'channel'; channelId: string }
@@ -153,6 +154,11 @@ async function searchScopeInner(
   }
   if (assets.length === 0) {
     return { chunks: [], searchedAssets: 0, callsUsed: 0, requestId: caller.requestId };
+  }
+
+  /* Proposal 6.10: no default caps; a creator may cap each subscriber's reads of a channel per day. */
+  if (input.scope.kind === 'channel' && caller.workspaceId) {
+    await assertUnderSubscriberCap(caller.workspaceId, input.scope.channelId);
   }
 
   /* ----------------------------------------------------------- reserve */

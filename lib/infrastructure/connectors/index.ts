@@ -12,9 +12,10 @@ import {
   parseScopeApplies,
   parseScopeIsEmpty,
   parseScopeOf,
-  type ConnectedSourceType,
+  type BuildableSourceType,
 } from '@/lib/domain/library';
 import { objectStore } from '@/lib/infrastructure/objects/store';
+import { fetchEditorialSnapshot } from './editor';
 import { fetchGithubSnapshot } from './github';
 import { fetchMarkdownSnapshot } from './markdown';
 import { fetchNotionSnapshot } from './notion';
@@ -27,7 +28,7 @@ export type { FetchedFile, SourceSnapshot } from './types';
 export type { PageRenderer } from './render';
 
 export interface FetchSnapshotInput {
-  type: ConnectedSourceType;
+  type: BuildableSourceType;
   location: string;
   /** `source.config`: what the source row carries beyond a location. */
   config?: Record<string, unknown>;
@@ -95,6 +96,9 @@ async function fetchUnscoped(input: FetchSnapshotInput): Promise<SourceSnapshot>
       return fetchPdfSnapshot({ config: input.config ?? {}, store: objectStore() });
     case 'markdown':
       return fetchMarkdownSnapshot({ config: input.config ?? {}, store: objectStore() });
+    case 'editor':
+    case 'audio':
+      return fetchEditorialSnapshot({ config: input.config ?? {} });
     default:
       throw new IngestionFailure(
         'source_unsupported',
@@ -111,6 +115,6 @@ async function fetchUnscoped(input: FetchSnapshotInput): Promise<SourceSnapshot>
  * the operator is looking at the library, rather than leaving a row in the
  * queue that fails minutes later for a reason that was knowable up front.
  */
-export function connectorConfigured(type: ConnectedSourceType): boolean {
+export function connectorConfigured(type: BuildableSourceType): boolean {
   return type === 'notion' ? Boolean(process.env.NOTION_INGESTION_TOKEN) : true;
 }

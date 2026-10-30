@@ -19,6 +19,7 @@ import { assetSight, ACTIVITY_WINDOW_DAYS, hotScores, type AssetSight, type Chan
 import type { AssetAccess, AssetKind } from '@/lib/domain/asset';
 import { db, schema } from '@/lib/infrastructure/postgres/client';
 import { activeRetrievalSettings } from '@/lib/application/administration/manage-retrieval-config';
+import { subscribesTo } from './subscriptions';
 import { readChannelProfile, type ChannelProfile } from './profile';
 
 const DAY_MS = 86_400_000;
@@ -287,10 +288,15 @@ export async function channelBySlug(slug: string, viewerWorkspaceId: string | nu
 
 /**
  * The channel's asset stream: pinned first, then newest publication first
- * (proposal 6.3). A stranger sees live assets only, a paid one by summary;
- * the owner sees every asset with its state.
+ * (proposal 6.3). A stranger sees live assets only, a paid one by summary
+ * unless they subscribe; the owner sees every asset with its state.
  */
-export async function channelStream(channel: ChannelView, limit = 100): Promise<ChannelStreamItem[]> {
+export async function channelStream(
+  channel: ChannelView,
+  limit = 100,
+  viewer: { workspaceId: string | null } = { workspaceId: null },
+): Promise<ChannelStreamItem[]> {
+  const isSubscriber = !channel.viewerIsOwner && (await subscribesTo(viewer.workspaceId, channel.id));
   const rows = await db()
     .select({
       assetId: schema.library.id,
@@ -328,6 +334,7 @@ export async function channelStream(channel: ChannelView, limit = 100): Promise<
   return rows.map((row) => {
     const sight = assetSight({
       isOwner: channel.viewerIsOwner,
+      isSubscriber,
       channel: { visibility: channel.visibility, status: channel.status },
       access: row.access,
     });

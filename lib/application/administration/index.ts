@@ -170,6 +170,12 @@ export {
   type UpdateRenderKeysInput,
 } from './manage-render-config';
 export {
+  activeCommerceSettings,
+  readCommerceConfiguration,
+  updateCommerceConfig,
+  type ActiveCommerceSettings,
+} from './manage-commerce-config';
+export {
   activeRetrievalSettings,
   readRetrievalConfiguration,
   retrievalProviderStatus,

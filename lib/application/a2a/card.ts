@@ -11,8 +11,10 @@
  * skills where they apply (proposal 7.2): on the platform card `ingest`,
  * `refresh` and `publish` over the caller's own workspace; on a user card,
  * for that user's own key only, the same three plus retrieval over all of
- * their assets. A channel's extended card adds nothing until subscriptions
- * (P3a). The extended card also states the caller workspace's quota,
+ * their assets. A channel's extended card, for a workspace that subscribes
+ * to the channel, widens its skills to the channel's `paid` assets -- the
+ * calls themselves are what enforce it, through the same visibility rule
+ * the web uses. The extended card also states the caller workspace's quota,
  * capacity and daily answer limit -- as facts in the description and as the
  * params of a re0 extension -- and never an internal address or credential
  * (A2A specification 13.3). The public cards never list a write skill.
@@ -72,7 +74,17 @@ export interface CardFacts {
    * Set for the authenticated extended card: who is calling and their
    * standing. Absent, the card is the public one.
    */
-  extended?: { workspaceId: string; quota: CallerQuota };
+  extended?: {
+    workspaceId: string;
+    quota: CallerQuota;
+    /**
+     * For a channel card: whether the caller's workspace subscribes to the
+     * channel right now, which widens its skills to the channel's `paid`
+     * assets (proposal 7.1). Read when the card is built, so the next card
+     * after an expiry says free only -- and every call checks again anyway.
+     */
+    subscribes?: boolean;
+  };
 }
 
 const VERIFIABLE =
@@ -101,18 +113,20 @@ const CONFIRMATION =
   'confirmation the task returns to WORKING; if the owner declines or 24 hours pass it ends FAILED with the reason. ' +
   'Poll GetTask, subscribe, or register a push notification; set returnImmediately for long tasks.';
 
-function scopeOf(tenant: A2ATenant, own: boolean): string {
+function scopeOf(tenant: A2ATenant, own: boolean, subscribes = false): string {
   return tenant.level === 'platform'
     ? 'the free assets of the best-matching public channel (the question is routed to a channel first)'
     : tenant.level === 'user'
       ? own
         ? `all of the assets of re0 user ${tenant.handle}, including those in no channel or a private one (you are calling as that user)`
         : `the free assets in the public channels of re0 user ${tenant.handle}`
-      : `the free assets in the re0 channel "${tenant.title}"`;
+      : subscribes
+        ? `the free and the subscriber-only (paid) assets in the re0 channel "${tenant.title}" (your workspace subscribes; paid assets stop answering the moment the subscription ends)`
+        : `the free assets in the re0 channel "${tenant.title}"`;
 }
 
-function skillSearch(tenant: A2ATenant, own = false) {
-  const scope = `Searches ${scopeOf(tenant, own)} in one query.`;
+function skillSearch(tenant: A2ATenant, own = false, subscribes = false) {
+  const scope = `Searches ${scopeOf(tenant, own, subscribes)} in one query.`;
   return {
     id: SKILL_SEARCH_CONTEXT,
     name: 'Search context',
@@ -136,12 +150,12 @@ const SKILL_FIND = {
   outputModes: ['text/plain', 'application/json'],
 };
 
-function skillAsk(tenant: A2ATenant, own = false) {
+function skillAsk(tenant: A2ATenant, own = false, subscribes = false) {
   return {
     id: SKILL_ASK,
     name: 'Ask',
     description:
-      `Answers a question from ${scopeOf(tenant, own)}. Every sentence of the answer cites a retrieved passage; the ` +
+      `Answers a question from ${scopeOf(tenant, own, subscribes)}. Every sentence of the answer cites a retrieved passage; the ` +
       `data part lists each citation's chunk_id, asset ID, source URL, section, version and on-chain anchor. ` +
       `Needs an API key; 10 Calls per answer, 500 answers per workspace per day. ${VERIFIABLE}`,
     tags: ['answer', 'citations', 'verifiable'],
@@ -235,12 +249,13 @@ export function buildAgentCard(facts: CardFacts): AgentCard {
 
   const own = facts.extended ? extendedIsOwn(tenant, facts.extended.workspaceId) : false;
   const ownUser = own && tenant.level === 'user';
+  const subscribes = tenant.level === 'channel' && facts.extended?.subscribes === true;
   const publicSkills =
     tenant.level === 'platform'
       ? [SKILL_FIND, skillSearch(tenant), skillAsk(tenant)]
       : tenant.level === 'user' && !facts.hasPublicChannel && !ownUser
         ? []
-        : [skillSearch(tenant, ownUser), skillAsk(tenant, ownUser)];
+        : [skillSearch(tenant, ownUser, subscribes), skillAsk(tenant, ownUser, subscribes)];
   /* The public card never lists a write skill (proposal 7.2). */
   const skills = own ? [...publicSkills, ...writeSkills(tenant)] : publicSkills;
   const extensions = facts.extended

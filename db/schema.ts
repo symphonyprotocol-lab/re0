@@ -69,6 +69,10 @@ export const sourceTypeEnum = pgEnum('source_type', [
   'markdown',
   'pdf',
   'notion',
+  /** Written in the platform's own editor: articles and Q&A (agent-first-proposal.md 3.2, 6.5, 6.7). */
+  'editor',
+  /** An uploaded episode, indexed by its title and show notes only, never transcribed (6.6). */
+  'audio',
 ]);
 export const workspaceRoleEnum = pgEnum('workspace_role', [
   'owner',
@@ -673,6 +677,16 @@ export const channel = pgTable(
     status: text('status').$type<'active' | 'suspended'>().notNull().default('active'),
     /** A subscriber's daily retrieval cap the creator may set; null is no cap (proposal 6.10). */
     subscriberDailyLimit: integer('subscriber_daily_limit'),
+    /**
+     * When the owner switched subscriptions on, having confirmed the paid
+     * distribution rights (proposal 6.11) -- who and when are the two
+     * columns after it. Null is a free channel: no plan is sold and no
+     * asset in it may be `paid`.
+     */
+    subscriptionsEnabledAt: timestamp('subscriptions_enabled_at', { withTimezone: true }),
+    paidRightsConfirmedAt: timestamp('paid_rights_confirmed_at', { withTimezone: true }),
+    /** FK to `user` in the migration only: `user` is declared, but keep the channel row free of the cycle. */
+    paidRightsConfirmedBy: uuid('paid_rights_confirmed_by'),
     profile: jsonb('profile').$type<Record<string, unknown>>().notNull().default({}),
     createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
     updatedAt: timestamp('updated_at', { withTimezone: true }).notNull().defaultNow(),
@@ -700,6 +714,8 @@ export const channelAsset = pgTable(
     pinnedAt: timestamp('pinned_at', { withTimezone: true }),
     publishedAt: timestamp('published_at', { withTimezone: true }).notNull().defaultNow(),
     scheduledAt: timestamp('scheduled_at', { withTimezone: true }),
+    /** The creator closed comments on this asset (proposal 6.8); existing ones stay as they are. */
+    commentsClosed: boolean('comments_closed').notNull().default(false),
   },
   (t) => [index('channel_asset_channel_idx').on(t.channelId, t.publishedAt.desc())],
 );
@@ -1742,6 +1758,22 @@ export const publisherAccount = pgTable(
     providerAccountId: text('provider_account_id'),
     taxStatus: text('tax_status').notNull().default('pending'),
     agreementVersion: text('agreement_version'),
+    /**
+     * The creator's payout profile (agent-first-proposal.md 6.9): the PayPal
+     * address payouts go to, and the record of the tax document the creator
+     * sent to operations -- which kind, where it stands (`missing`,
+     * `submitted`, `verified`), and when each step happened. The document
+     * itself never lands here; which kinds suffice is still open (13.2).
+     * Income accrues regardless; a payout needs both an address and a
+     * `verified` document.
+     */
+    payeeEmail: text('payee_email'),
+    taxFormKind: text('tax_form_kind'),
+    taxFormStatus: text('tax_form_status').$type<'missing' | 'submitted' | 'verified'>().notNull().default('missing'),
+    taxFormSubmittedAt: timestamp('tax_form_submitted_at', { withTimezone: true }),
+    taxFormVerifiedAt: timestamp('tax_form_verified_at', { withTimezone: true }),
+    /** The administrator who verified it; FK in the migration only, like `payout.resolved_by`. */
+    taxFormVerifiedBy: uuid('tax_form_verified_by'),
     createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
   },
   /** One account per workspace: the application check-then-inserts on it. */
@@ -1769,13 +1801,34 @@ export const earningEvent = pgTable(
     amountMinor: bigint('amount_minor', { mode: 'number' }).notNull(),
     /** What produced the row, e.g. `channel_subscription`, `refund`, `chargeback`, `written_off`. */
     source: text('source').notNull(),
-    /** The provider's transaction id, when the row mirrors one; the refund of a payment names the same id. */
+    /**
+     * What the row mirrors at the provider: the transaction for a collection,
+     * the adjustment for a refund or chargeback. With `source` it is the
+     * row's identity, so a redelivered webhook writes nothing twice.
+     */
     reference: text('reference'),
     periodId: text('period_id').notNull(),
     flagged: boolean('flagged').notNull().default(false),
+    /**
+     * Where a channel collection came from (proposal 12): the channel, the
+     * subscription, the transaction, its ex-tax subtotal and the share of it
+     * the creator was due under the plan version. Null on a write-off.
+     */
+    channelId: uuid('channel_id'),
+    channelSubscriptionId: uuid('channel_subscription_id'),
+    providerTransactionId: text('provider_transaction_id'),
+    grossMinor: bigint('gross_minor', { mode: 'number' }),
+    shareBps: integer('share_bps'),
     createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
   },
-  (t) => [index('earning_event_period_owner_idx').on(t.periodId, t.ownerWorkspaceId)],
+  (t) => [
+    index('earning_event_period_owner_idx').on(t.periodId, t.ownerWorkspaceId),
+    /** The owner's running balance, which every payout and new paid plan checks. */
+    index('earning_event_owner_idx').on(t.ownerWorkspaceId),
+    uniqueIndex('earning_event_reference_uq')
+      .on(t.source, t.reference)
+      .where(sql`${t.reference} is not null`),
+  ],
 );
 
 /**
@@ -2332,4 +2385,330 @@ export const a2aPushConfig = pgTable(
     createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
   },
   (t) => [primaryKey({ columns: [t.taskId, t.id] })],
+);
+
+// ---------------------------------------------------------------- creators (P3)
+
+/**
+ * An article's working copy (agent-first-proposal.md 6.5, 12). A draft is
+ * not part of the version line: only publishing copies it into the
+ * asset's `editor` source and builds a version. `publish_at` set is a
+ * scheduled publication the queue drain carries out.
+ */
+export const postDraft = pgTable(
+  'post_draft',
+  {
+    assetId: uuid('asset_id')
+      .primaryKey()
+      .references(() => library.id, { onDelete: 'cascade' }),
+    title: text('title').notNull(),
+    summary: text('summary'),
+    body: text('body').notNull().default(''),
+    publishAt: timestamp('publish_at', { withTimezone: true }),
+    /** Where publishing puts the post, and whether it is `paid` there; null keeps it where it is. */
+    channelId: uuid('channel_id').references(() => channel.id, { onDelete: 'set null' }),
+    access: text('access').$type<'free' | 'paid'>().notNull().default('free'),
+    updatedBy: uuid('updated_by').references(() => user.id, { onDelete: 'set null' }),
+    updatedAt: timestamp('updated_at', { withTimezone: true }).notNull().defaultNow(),
+  },
+  /** The drain's "which scheduled posts are due". */
+  (t) => [index('post_draft_due_idx').on(t.publishAt).where(sql`${t.publishAt} is not null`)],
+);
+
+/**
+ * An uploaded file an asset carries beside its text (proposal 6.5, 6.6, 12;
+ * the proposal's `audio_media`, widened to article images): the object in
+ * the private bucket, what it is, and its SHA-256, which a version's digest
+ * covers. `ready` rows count toward the workspace's capacity; a replaced
+ * episode file is `replaced` and no longer counts. Bytes are served only
+ * through short-lived signed URLs issued per request to entitled readers
+ * (`app/media/[mediaId]`), never as a download.
+ */
+export const assetMedia = pgTable(
+  'asset_media',
+  {
+    id: uuid('id').primaryKey(),
+    assetId: uuid('asset_id')
+      .notNull()
+      .references(() => library.id, { onDelete: 'cascade' }),
+    workspaceId: uuid('workspace_id')
+      .notNull()
+      .references(() => workspace.id, { onDelete: 'cascade' }),
+    kind: text('kind').$type<'image' | 'audio'>().notNull(),
+    objectKey: text('object_key').notNull(),
+    mime: text('mime').notNull(),
+    bytes: bigint('bytes', { mode: 'number' }).notNull(),
+    sha256: text('sha256'),
+    durationMs: integer('duration_ms'),
+    /** An image's caption: indexed in place of the image (proposal 6.5). */
+    caption: text('caption'),
+    state: text('state').$type<'pending' | 'ready' | 'replaced'>().notNull().default('pending'),
+    createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
+  },
+  (t) => [
+    index('asset_media_asset_idx').on(t.assetId, t.kind, t.createdAt.desc()),
+    index('asset_media_workspace_idx').on(t.workspaceId).where(sql`${t.state} = 'ready'`),
+    check('asset_media_kind_ck', sql`${t.kind} in ('image', 'audio')`),
+    check('asset_media_state_ck', sql`${t.state} in ('pending', 'ready', 'replaced')`),
+  ],
+);
+
+/**
+ * A reader's comment on an asset in a channel (proposal 6.8). Not an asset:
+ * no version, no chunk, never retrieved, never evidence, never anchored.
+ * One level of replies (`parent_id` names a top-level comment). `state`:
+ * `visible`; `hidden` by the creator or by the content check (`hidden_reason`
+ * says which); `deleted` by its author or blanked when the author's account
+ * goes; `removed` by the platform.
+ */
+export const comment = pgTable(
+  'comment',
+  {
+    id: uuid('id').primaryKey(),
+    assetId: uuid('asset_id')
+      .notNull()
+      .references(() => library.id, { onDelete: 'cascade' }),
+    authorUserId: uuid('author_user_id').references(() => user.id, { onDelete: 'set null' }),
+    /** A self-reference, so its foreign key (cascading) lives in the migration only. */
+    parentId: uuid('parent_id'),
+    body: text('body').notNull(),
+    state: text('state').$type<'visible' | 'hidden' | 'deleted' | 'removed'>().notNull().default('visible'),
+    hiddenReason: text('hidden_reason').$type<'creator' | 'scan'>(),
+    findings: jsonb('findings').$type<string[]>().notNull().default([]),
+    pinnedAt: timestamp('pinned_at', { withTimezone: true }),
+    createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
+    updatedAt: timestamp('updated_at', { withTimezone: true }).notNull().defaultNow(),
+  },
+  (t) => [
+    index('comment_asset_idx').on(t.assetId, t.createdAt),
+    /** The rate limit counts an author's recent comments. */
+    index('comment_author_idx').on(t.authorUserId, t.createdAt.desc()),
+    index('comment_parent_idx').on(t.parentId),
+    check('comment_state_ck', sql`${t.state} in ('visible', 'hidden', 'deleted', 'removed')`),
+  ],
+);
+
+/** A reader's report of a comment; the console resolves it (proposal 6.8). */
+export const commentReport = pgTable(
+  'comment_report',
+  {
+    id: uuid('id').primaryKey(),
+    commentId: uuid('comment_id')
+      .notNull()
+      .references(() => comment.id, { onDelete: 'cascade' }),
+    reporterUserId: uuid('reporter_user_id').references(() => user.id, { onDelete: 'set null' }),
+    reason: text('reason').notNull(),
+    resolution: text('resolution'),
+    resolvedAt: timestamp('resolved_at', { withTimezone: true }),
+    createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
+  },
+  (t) => [
+    uniqueIndex('comment_report_once_uq').on(t.commentId, t.reporterUserId),
+    index('comment_report_open_idx').on(t.createdAt).where(sql`${t.resolvedAt} is null`),
+  ],
+);
+
+/**
+ * One answer of a channel's AI twin to a signed-in reader (proposal 6.3,
+ * 6.7): the question, the bound claims and the asset versions they cite.
+ * Kept so the creator can mark one 作者确认 and so an unanswered one can
+ * land in the pending-questions list. The asker is never shown.
+ */
+export const twinAnswer = pgTable(
+  'twin_answer',
+  {
+    id: uuid('id').primaryKey(),
+    channelId: uuid('channel_id')
+      .notNull()
+      .references(() => channel.id, { onDelete: 'cascade' }),
+    askerUserId: uuid('asker_user_id').references(() => user.id, { onDelete: 'set null' }),
+    question: text('question').notNull(),
+    outcome: text('outcome').$type<'answer' | 'degraded' | 'no_context'>().notNull(),
+    claims: jsonb('claims').$type<{ claim: string; chunkIds: string[] }[]>().notNull().default([]),
+    /** The asset versions the answer stood on, first the one most cited. */
+    versions: jsonb('versions')
+      .$type<{ assetId: string; publicId: string; title: string; versionId: string; label: string }[]>()
+      .notNull()
+      .default([]),
+    createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
+  },
+  (t) => [index('twin_answer_channel_idx').on(t.channelId, t.createdAt.desc())],
+);
+
+/**
+ * 作者确认 (proposal 6.7): the creator vouches for one twin answer. Bound to
+ * the version the answer used, so after the asset updates the mark still
+ * shows, naming that version.
+ */
+export const answerEndorsement = pgTable(
+  'answer_endorsement',
+  {
+    id: uuid('id').primaryKey(),
+    channelId: uuid('channel_id')
+      .notNull()
+      .references(() => channel.id, { onDelete: 'cascade' }),
+    /** The twin answer endorsed. */
+    answerRef: uuid('answer_ref')
+      .notNull()
+      .references(() => twinAnswer.id, { onDelete: 'cascade' }),
+    versionId: uuid('version_id').references(() => libraryVersion.id, { onDelete: 'set null' }),
+    versionLabel: text('version_label'),
+    endorsedBy: uuid('endorsed_by').references(() => user.id, { onDelete: 'set null' }),
+    createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
+  },
+  (t) => [uniqueIndex('answer_endorsement_answer_uq').on(t.answerRef)],
+);
+
+/**
+ * The pending-questions list (待答列表, proposal 6.7): a twin question it
+ * could not answer, a reader's direct "ask the author", or a comment the
+ * creator moved here. Answering publishes a `qa` asset in the channel;
+ * the asker's name appears on it only with `asker_name_consent`.
+ */
+export const channelQuestion = pgTable(
+  'channel_question',
+  {
+    id: uuid('id').primaryKey(),
+    channelId: uuid('channel_id')
+      .notNull()
+      .references(() => channel.id, { onDelete: 'cascade' }),
+    askerUserId: uuid('asker_user_id').references(() => user.id, { onDelete: 'set null' }),
+    question: text('question').notNull(),
+    source: text('source').$type<'twin_unanswered' | 'direct' | 'comment'>().notNull(),
+    state: text('state').$type<'open' | 'answered' | 'dismissed'>().notNull().default('open'),
+    commentId: uuid('comment_id').references(() => comment.id, { onDelete: 'set null' }),
+    twinAnswerId: uuid('twin_answer_id').references(() => twinAnswer.id, { onDelete: 'set null' }),
+    answerAssetId: uuid('answer_asset_id').references(() => library.id, { onDelete: 'set null' }),
+    askerNameConsent: boolean('asker_name_consent').notNull().default(false),
+    createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
+    answeredAt: timestamp('answered_at', { withTimezone: true }),
+  },
+  (t) => [
+    index('channel_question_channel_idx').on(t.channelId, t.state, t.createdAt.desc()),
+    check('channel_question_source_ck', sql`${t.source} in ('twin_unanswered', 'direct', 'comment')`),
+    check('channel_question_state_ck', sql`${t.state} in ('open', 'answered', 'dismissed')`),
+  ],
+);
+
+/**
+ * An immutable channel plan (proposal 6.9, 12): one billing interval at
+ * one price and one platform fee rate. A price change is a new row; a
+ * subscription stays on the row it was sold at, so it affects new
+ * subscriptions only. `retired_at` stops a row being sold.
+ */
+export const channelPlanVersion = pgTable(
+  'channel_plan_version',
+  {
+    id: uuid('id').primaryKey(),
+    channelId: uuid('channel_id')
+      .notNull()
+      .references(() => channel.id, { onDelete: 'cascade' }),
+    interval: text('interval').$type<'month' | 'year'>().notNull(),
+    priceMinor: integer('price_minor').notNull(),
+    currency: text('currency').notNull().default('USD'),
+    /** The platform's fee on this version, in basis points (2000 = 20%). */
+    feeRateBps: integer('fee_rate_bps').notNull(),
+    /** Unused while prices are non-catalogue; kept for a catalogue price later. */
+    providerPriceId: text('provider_price_id'),
+    effectiveFrom: timestamp('effective_from', { withTimezone: true }).notNull().defaultNow(),
+    retiredAt: timestamp('retired_at', { withTimezone: true }),
+    createdBy: uuid('created_by').references(() => user.id, { onDelete: 'set null' }),
+  },
+  (t) => [
+    index('channel_plan_version_channel_idx').on(t.channelId, t.interval, t.effectiveFrom.desc()),
+    check('channel_plan_version_interval_ck', sql`${t.interval} in ('month', 'year')`),
+    check('channel_plan_version_price_ck', sql`${t.priceMinor} > 0`),
+    check('channel_plan_version_fee_ck', sql`${t.feeRateBps} between 0 and 10000`),
+  ],
+);
+
+/**
+ * A reader's subscription to a channel (proposal 6.9, 12). Bound to the
+ * user; their personal workspace (`workspace_id`) is what reads `paid`
+ * assets. Access is `status` in (active, past_due, canceled) with
+ * `current_period_end` still ahead -- so a cancellation keeps access to
+ * the period's end and an expiry needs no event to take effect; `refunded`
+ * and `paused` grant nothing.
+ */
+export const channelSubscription = pgTable(
+  'channel_subscription',
+  {
+    id: uuid('id').primaryKey(),
+    channelId: uuid('channel_id')
+      .notNull()
+      .references(() => channel.id, { onDelete: 'cascade' }),
+    userId: uuid('user_id')
+      .notNull()
+      .references(() => user.id, { onDelete: 'cascade' }),
+    workspaceId: uuid('workspace_id')
+      .notNull()
+      .references(() => workspace.id, { onDelete: 'cascade' }),
+    planVersionId: uuid('plan_version_id')
+      .notNull()
+      .references(() => channelPlanVersion.id),
+    status: text('status')
+      .$type<'active' | 'past_due' | 'canceled' | 'refunded' | 'paused'>()
+      .notNull(),
+    currentPeriodEnd: timestamp('current_period_end', { withTimezone: true }).notNull(),
+    cancelAtPeriodEnd: boolean('cancel_at_period_end').notNull().default(false),
+    provider: text('provider').notNull().default('paddle'),
+    providerSubscriptionId: text('provider_subscription_id'),
+    providerCustomerId: text('provider_customer_id'),
+    /** When the provider says this state was true; an older event never overwrites a newer one. */
+    observedAt: timestamp('observed_at', { withTimezone: true }),
+    createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
+    updatedAt: timestamp('updated_at', { withTimezone: true }).notNull().defaultNow(),
+  },
+  (t) => [
+    uniqueIndex('channel_subscription_provider_uq').on(t.provider, t.providerSubscriptionId),
+    /** The access predicate's lookup, run inside every non-owner read of a paid asset. */
+    index('channel_subscription_access_idx').on(t.workspaceId, t.channelId, t.currentPeriodEnd),
+    index('channel_subscription_user_idx').on(t.userId, t.createdAt.desc()),
+    index('channel_subscription_channel_idx').on(t.channelId, t.status),
+    check(
+      'channel_subscription_status_ck',
+      sql`${t.status} in ('active', 'past_due', 'canceled', 'refunded', 'paused')`,
+    ),
+  ],
+);
+
+/**
+ * The channel-commerce settings the console owns (proposal 6.9, 13.2):
+ * the minimum price of any one transaction, the platform fee on new plan
+ * versions, the payout hold and the payout threshold. Immutable rows like
+ * `retrieval_config`; the newest is in force, none means the defaults
+ * (`lib/domain/commerce-config.ts`). Settings rather than constants so the
+ * open fee-basis answer can be applied without a deploy.
+ */
+export const commerceConfig = pgTable(
+  'commerce_config',
+  {
+    id: uuid('id').primaryKey(),
+    minPriceMinor: integer('min_price_minor').notNull(),
+    feeRateBps: integer('fee_rate_bps').notNull(),
+    payoutHoldDays: integer('payout_hold_days').notNull(),
+    payoutThresholdMinor: integer('payout_threshold_minor').notNull(),
+    createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
+  },
+  (t) => [index('commerce_config_time_idx').on(t.createdAt.desc())],
+);
+
+/**
+ * In-app notifications (proposal 6.5, 6.8): a new post for a subscriber, a
+ * comment for the creator, a reply for the replied-to reader, a question.
+ * `payload` carries ids and short titles, never a comment body.
+ */
+export const notification = pgTable(
+  'notification',
+  {
+    id: uuid('id').primaryKey(),
+    userId: uuid('user_id')
+      .notNull()
+      .references(() => user.id, { onDelete: 'cascade' }),
+    kind: text('kind').notNull(),
+    payload: jsonb('payload').$type<Record<string, unknown>>().notNull().default({}),
+    readAt: timestamp('read_at', { withTimezone: true }),
+    createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
+  },
+  (t) => [index('notification_user_idx').on(t.userId, t.createdAt.desc())],
 );

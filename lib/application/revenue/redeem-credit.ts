@@ -8,7 +8,8 @@
  * which takes the same statements and so excludes them from this path.
  *
  * What is redeemable is decided by the hold the payout rail uses too --
- * accrued statements whose period locked at least PAYOUT_HOLD_DAYS ago. The
+ * accrued statements whose period locked at least the hold ago (the
+ * console's `payoutHoldDays`, 120 by default). The
  * whole redeemable amount converts at once, negatives netted against
  * positives: a refund period's statement is below zero, and it reduces what
  * the surrounding periods buy rather than being skipped. A statement is
@@ -26,7 +27,6 @@ import { and, desc, eq, inArray, isNotNull, sql } from 'drizzle-orm';
 import {
   creditCallsFor,
   EarningCreditRefused,
-  PAYOUT_HOLD_DAYS,
   type PackRate,
 } from '@/lib/domain';
 import { holdEndsAt } from '@/lib/domain/admin';
@@ -35,6 +35,8 @@ import { uuidv7 } from '@/lib/domain/id';
 import type { WorkspaceRole } from '@/lib/application/libraries/delete';
 import type { Tx } from '@/lib/application/plans/quota';
 import { db, schema } from '@/lib/infrastructure/postgres/client';
+import { activeCommerceSettings } from '@/lib/application/administration/manage-commerce-config';
+import { hasNegativeBalance } from './balance';
 
 /** Turning earnings into calls spends them; only those who run the workspace may. */
 export function canRedeemEarnings(role: WorkspaceRole): boolean {
@@ -87,11 +89,12 @@ export interface EarningCredit {
 const REDEMPTIONS_SHOWN = 12;
 
 /**
- * `locked_at + hold <= now`: the statement has left the refund window.
- * Shared with the cash payout request, which releases on the same hold.
+ * `locked_at + hold <= now`: the statement has left the chargeback window.
+ * Shared with the cash payout request, which releases on the same hold. The
+ * hold is the console's commerce setting (120 days by default).
  */
-export function pastHold(now: Date) {
-  return sql`${schema.revenuePeriod.lockedAt} + make_interval(days => ${PAYOUT_HOLD_DAYS}) <= ${now}`;
+export function pastHold(now: Date, holdDays: number) {
+  return sql`${schema.revenuePeriod.lockedAt} + make_interval(days => ${holdDays}) <= ${now}`;
 }
 
 /**
@@ -102,8 +105,8 @@ export function pastHold(now: Date) {
  * while the refund that should have reduced it waits (agent-first-proposal.md
  * 6.9: a chargeback is clawed back from the next income, not skipped).
  */
-export function releasable(now: Date) {
-  return sql`(${pastHold(now)} or ${schema.settlement.amountMinor} < 0)`;
+export function releasable(now: Date, holdDays: number) {
+  return sql`(${pastHold(now, holdDays)} or ${schema.settlement.amountMinor} < 0)`;
 }
 
 async function packRate(database: ReturnType<typeof db> | Tx): Promise<PackRate | null> {
@@ -128,16 +131,17 @@ export async function earningCredit(
   now: Date = new Date(),
 ): Promise<EarningCredit> {
   const database = db();
+  const { payoutHoldDays: holdDays } = await activeCommerceSettings();
 
   const [pack, accrued, grants] = await Promise.all([
     packRate(database),
     accountId
       ? database
           .select({
-            redeemableMinor: sql<number>`coalesce(sum(${schema.settlement.amountMinor}) filter (where ${releasable(now)}), 0)::bigint`,
-            redeemableStatements: sql<number>`(count(*) filter (where ${releasable(now)}))::int`,
-            heldMinor: sql<number>`coalesce(sum(${schema.settlement.amountMinor}) filter (where not (${releasable(now)})), 0)::bigint`,
-            earliestHeldLock: sql<Date | null>`min(${schema.revenuePeriod.lockedAt}) filter (where not (${releasable(now)}))`,
+            redeemableMinor: sql<number>`coalesce(sum(${schema.settlement.amountMinor}) filter (where ${releasable(now, holdDays)}), 0)::bigint`,
+            redeemableStatements: sql<number>`(count(*) filter (where ${releasable(now, holdDays)}))::int`,
+            heldMinor: sql<number>`coalesce(sum(${schema.settlement.amountMinor}) filter (where not (${releasable(now, holdDays)})), 0)::bigint`,
+            earliestHeldLock: sql<Date | null>`min(${schema.revenuePeriod.lockedAt}) filter (where not (${releasable(now, holdDays)}))`,
           })
           .from(schema.settlement)
           .innerJoin(schema.revenuePeriod, eq(schema.revenuePeriod.id, schema.settlement.periodId))
@@ -177,7 +181,7 @@ export async function earningCredit(
     redeemableStatements: position?.redeemableStatements ?? 0,
     redeemableCalls: pack ? creditCallsFor(redeemableMinor, pack) : 0,
     heldMinor: Number(position?.heldMinor ?? 0),
-    nextReleaseAt: earliestHeldLock ? holdEndsAt(earliestHeldLock, PAYOUT_HOLD_DAYS) : null,
+    nextReleaseAt: earliestHeldLock ? holdEndsAt(earliestHeldLock, holdDays) : null,
     redeemedMinor: grants.reduce((sum, grant) => sum + grant.amountMinor, 0),
     redeemedCalls: grants.reduce((sum, grant) => sum + grant.callsGranted, 0),
     redemptions: grants.slice(0, REDEMPTIONS_SHOWN),
@@ -206,6 +210,7 @@ export async function redeemEarningsAsCalls(input: {
 }): Promise<RedeemedEarnings> {
   const now = input.now ?? new Date();
   const database = db();
+  const { payoutHoldDays: holdDays } = await activeCommerceSettings();
 
   return database.transaction(async (tx) => {
     const [account] = await tx
@@ -215,6 +220,10 @@ export async function redeemEarningsAsCalls(input: {
       .for('update');
     if (!account) {
       throw new EarningCreditRefused('no_account', 'the workspace has no publisher account');
+    }
+    /* Calls are value leaving the books like cash: a negative balance stops both (proposal 6.9). */
+    if (await hasNegativeBalance(input.workspaceId, tx)) {
+      throw new EarningCreditRefused('negative_balance', 'the balance is negative; it clears from future income');
     }
 
     const pack = await packRate(tx);
@@ -235,7 +244,7 @@ export async function redeemEarningsAsCalls(input: {
           eq(schema.settlement.publisherAccountId, account.id),
           eq(schema.settlement.status, 'accrued'),
           isNotNull(schema.revenuePeriod.lockedAt),
-          releasable(now),
+          releasable(now, holdDays),
         ),
       )
       .for('update', { of: schema.settlement });

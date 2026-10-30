@@ -29,7 +29,7 @@ import {
 import { httpStatusFor } from '@/contracts/errors';
 import { pinPolicy, policyIsOpen, policyVerdictFor } from '@/lib/application/policies';
 import { db, schema } from '@/lib/infrastructure/postgres/client';
-import { sharedWithEveryone } from '@/lib/application/channels/visibility';
+import { readableBy, sharedWithEveryone } from '@/lib/application/channels/visibility';
 import type { EmbeddingAdapter, RerankAdapter } from '@/lib/infrastructure/ai/providers';
 import type { CallerContext } from './index';
 import { rankChunks } from './rank';
@@ -256,8 +256,9 @@ async function queryDocsInner(
   const candidates = libraryIdCandidates(input.libraryId);
   const candidateIds = candidates.map((candidate) => candidate.publicId);
 
+  const selection = librarySelection(caller.workspaceId);
   const found = await database
-    .select(librarySelection)
+    .select(selection)
     .from(schema.library)
     .where(and(inArray(schema.library.publicId, candidateIds), isNull(schema.library.deletedAt)));
 
@@ -281,7 +282,7 @@ async function queryDocsInner(
     const alias = match ? aliases.find((row) => row.fromPublicId === match!.publicId) : undefined;
     if (alias) {
       [library] = await database
-        .select(librarySelection)
+        .select(selection)
         .from(schema.library)
         .where(and(eq(schema.library.id, alias.libraryId), isNull(schema.library.deletedAt)));
     }
@@ -291,13 +292,11 @@ async function queryDocsInner(
   /*
    * architecture.md 5.2: an invisible asset and a nonexistent one answer
    * identically, before anything else about them is examined. Visible means
-   * shared with everyone -- free in a public channel -- or the caller's own
-   * (agent-first-proposal.md 6.2, channels/visibility.ts).
+   * shared with everyone -- free in a public channel -- the caller's own, or
+   * a `paid` one in a channel the caller subscribes to right now
+   * (agent-first-proposal.md 6.2, 6.9; channels/visibility.ts).
    */
-  const visible =
-    library &&
-    (library.shared ||
-      (caller.workspaceId !== null && library.ownerWorkspaceId === caller.workspaceId));
+  const visible = library && library.readable;
   if (!library || !visible) {
     throw new AppError('library_not_found', 'no such library');
   }
@@ -461,17 +460,19 @@ async function queryDocsInner(
   }
 }
 
-const librarySelection = {
+const librarySelection = (workspaceId: string | null) => ({
   id: schema.library.id,
   publicId: schema.library.publicId,
-  /** Free in a public, active channel: readable by everyone. */
+  /** Free in a public, active channel: readable by everyone, and so cacheable. */
   shared: sql<boolean>`${sharedWithEveryone()}`,
+  /** Readable by this caller: the one rule of channels/visibility.ts. */
+  readable: sql<boolean>`${readableBy(workspaceId)}`,
   lifecycleStatus: schema.library.lifecycleStatus,
   indexStatus: schema.library.indexStatus,
   ownerWorkspaceId: schema.library.ownerWorkspaceId,
   isPlatformLibrary: schema.library.isPlatformLibrary,
   currentVersionId: schema.library.currentVersionId,
-};
+});
 
 export interface PinnedVersion {
   id: string;

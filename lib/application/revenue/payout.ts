@@ -20,10 +20,11 @@ import { and, desc, eq, inArray, isNotNull, sql } from 'drizzle-orm';
 import {
   normalizePayeeEmail,
   PAYOUT_METHOD,
-  PAYOUT_THRESHOLD_MINOR,
   PayoutRefused,
   type PayoutStatus,
 } from '@/lib/domain';
+import { activeCommerceSettings } from '@/lib/application/administration/manage-commerce-config';
+import { hasNegativeBalance } from './balance';
 import { uuidv7 } from '@/lib/domain/id';
 import { PLAN_CURRENCY } from '@/lib/domain/plans';
 import { db, schema } from '@/lib/infrastructure/postgres/client';
@@ -113,29 +114,43 @@ export interface RequestedPayout {
 }
 
 /**
- * Put every statement past its hold into one payout request to `payeeEmail`.
- * Refuses rather than writing a request that cannot be paid: no publisher
- * account, an address PayPal cannot send to, a request already open, or less
- * than the threshold to send.
+ * Put every statement past its hold into one payout request to the
+ * creator's PayPal address -- `payeeEmail` when given, else the payout
+ * profile's. Refuses rather than writing a request that cannot be paid: no
+ * publisher account, an address PayPal cannot send to, a tax document not
+ * yet verified, a negative balance, a request already open, or less than
+ * the threshold to send.
  */
 export async function requestPayout(input: {
   workspaceId: string;
   actor: RedeemActor;
-  payeeEmail: string;
+  payeeEmail?: string;
   now?: Date;
 }): Promise<RequestedPayout> {
-  const payeeEmail = normalizePayeeEmail(input.payeeEmail);
-  if (!payeeEmail) throw new PayoutRefused('invalid_email', 'a PayPal email address is required');
   const now = input.now ?? new Date();
+  const settings = await activeCommerceSettings();
 
   return db().transaction(async (tx) => {
     const [account] = await tx
-      .select({ id: schema.publisherAccount.id })
+      .select({
+        id: schema.publisherAccount.id,
+        payeeEmail: schema.publisherAccount.payeeEmail,
+        taxFormStatus: schema.publisherAccount.taxFormStatus,
+      })
       .from(schema.publisherAccount)
       .where(eq(schema.publisherAccount.workspaceId, input.workspaceId))
       .for('update');
     if (!account) {
       throw new PayoutRefused('no_account', 'the workspace has no publisher account');
+    }
+    const payeeEmail = normalizePayeeEmail(input.payeeEmail ?? account.payeeEmail ?? '');
+    if (!payeeEmail) throw new PayoutRefused('invalid_email', 'a PayPal email address is required');
+    /* Proposal 6.9: income accrues without them, but nothing is paid out until the profile is complete. */
+    if (account.taxFormStatus !== 'verified') {
+      throw new PayoutRefused('profile_incomplete', 'the tax document has not been verified yet');
+    }
+    if (await hasNegativeBalance(input.workspaceId, tx)) {
+      throw new PayoutRefused('negative_balance', 'the balance is negative; it clears from future income');
     }
 
     const [open] = await tx
@@ -159,16 +174,16 @@ export async function requestPayout(input: {
           eq(schema.settlement.currency, PLAN_CURRENCY),
           isNotNull(schema.revenuePeriod.lockedAt),
           /* Past the hold, or negative: a refund nets against the payout at once (redeem-credit.ts `releasable`). */
-          releasable(now),
+          releasable(now, settings.payoutHoldDays),
         ),
       )
       .for('update', { of: schema.settlement });
 
     const amountMinor = rows.reduce((sum, row) => sum + Number(row.amountMinor), 0);
-    if (amountMinor < PAYOUT_THRESHOLD_MINOR) {
+    if (amountMinor < settings.payoutThresholdMinor) {
       throw new PayoutRefused(
         'below_threshold',
-        `${amountMinor} is past its hold; a payout needs at least ${PAYOUT_THRESHOLD_MINOR}`,
+        `${amountMinor} is past its hold; a payout needs at least ${settings.payoutThresholdMinor}`,
       );
     }
 

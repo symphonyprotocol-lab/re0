@@ -32,6 +32,7 @@ export {
 } from './weighted-call';
 export {
   extendStorageTier,
+  extendUserStorageTier,
   workspaceStorage,
   workspaceStorageTier,
   type WorkspaceStorage,

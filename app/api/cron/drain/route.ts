@@ -8,7 +8,8 @@
  * drain. It is also the schedule: each call first queues a refresh for every
  * platform source whose policy says it is due (`scheduleDueRefreshes`), and
  * it clears the message bodies of A2A tasks past their 30 days
- * (agent-first-proposal.md 10).
+ * (agent-first-proposal.md 10), and it publishes the posts and episodes
+ * scheduled for now (6.5).
  * Vercel Cron calls it with `Authorization: Bearer $CRON_SECRET`;
  * anything else is a 401, so the route cannot be used to make the platform
  * do work on demand.
@@ -18,6 +19,7 @@ import { drainOperations, isIngestionConfigured, scheduleDueRefreshes } from '@/
 import { purgeA2aTaskBodies } from '@/lib/application/a2a/task-store';
 import { syncBuildTasks } from '@/lib/application/a2a/task-events';
 import { expireActions } from '@/lib/application/agent';
+import { publishDueDrafts } from '@/lib/application/editorial';
 
 export const maxDuration = 300;
 
@@ -33,6 +35,11 @@ export async function GET(request: Request): Promise<Response> {
    * libraries failed for a missing provider key.
    */
   const scheduled = (await isIngestionConfigured()) ? await scheduleDueRefreshes() : [];
+  /* Scheduled posts and episodes whose time has come queue their builds here too (proposal 6.5). */
+  const due = await publishDueDrafts().catch((error: unknown) => {
+    console.error(`scheduled publication failed: ${error instanceof Error ? error.message : 'unknown'}`);
+    return { published: [], operations: [] };
+  });
   const outcomes = await drainOperations({ limit: 10 });
   /*
    * Pending actions undecided for 24 hours expire, failing the A2A tasks
@@ -56,6 +63,7 @@ export async function GET(request: Request): Promise<Response> {
   return NextResponse.json(
     {
       scheduled: scheduled.length,
+      publishedDrafts: due.published.length,
       drained: outcomes.length,
       outcomes: outcomes.map((outcome) => outcome.status),
       purgedTasks,
