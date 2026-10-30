@@ -16,7 +16,7 @@
 | 知识 | 挂在某个 Dot 下的一条来源，六种：文档（PDF / Word / Markdown / TXT）、音频（MP3 / M4A / WAV，自动转写成文字）、GitHub 仓库、单个网页、整站、粘贴文本 | 添加、重新抓取、删除；看到处理状态 |
 | 对话 | 用户和一个或多个 Dot 的一次问答，答案带引用（来自哪个 Dot 的哪条知识、哪一段） | 提问、追问、新开对话、把 Dot 拉进或移出对话、@ 某个 Dot 单独问、看历史 |
 
-不做：频道、链上、A2A、Agent Card、分享页插件、评论、通知、CLI / SDK / MCP、Notion 连接器（第二阶段再考虑）、视频类知识。管理后台保留但只有第 2.5 节的六页。认领只保留第 2.2 节的两种：网站域名确权、私有仓库授权；不再有频道级认领、认领审核和公开目录。计费只有第 2.3 节的 credit 一种：没有 Call、没有工作空间套餐、没有发布者现金分成与结算单。
+不做：频道、链上、A2A、Agent Card、分享页插件、评论、通知、CLI / SDK / MCP、Notion 连接器（第二阶段再考虑）、视频类知识。管理后台保留但只有第 2.5 节的九页。认领只保留第 2.2 节的两种：网站域名确权、私有仓库授权；不再有频道级认领、认领审核和公开目录。计费只有第 2.3 节的 credit 一种：没有 Call、没有工作空间套餐、没有发布者现金分成与结算单。
 
 ### 2.1 六种知识怎么变成可检索的文字
 
@@ -67,7 +67,7 @@ Dot 主收到的查询费是「收入 credits」：不过期，可用于自己�
 | --- | --- |
 | 可提现范围 | 只有收入 credits；Plan、Pack、赠送的 credits 不能提 |
 | 门槛 | 累计收入 credits 折合 **≥ 50 美元**（500,000 credits）才能发起，按 1 credit = 0.0001 美元折算 |
-| 前置：KYC | **首次提现前必须通过 KYC**。走第三方托管验证（Stripe Identity 或 Persona 一类，证件 + 人脸，平台不保存证件原件），结果经 webhook 写入 `user.kyc_status`；同一步填写税务信息（W-9 / W-8BEN 类型与已提交声明）。未通过 KYC 的用户在 `/billing` 看得到收入余额，但提现按钮替换成「完成身份验证」 |
+| 前置：KYC | **首次提现前必须通过 KYC**。走第三方托管验证（Stripe Identity 或 Persona 一类，证件 + 人脸，平台不保存证件原件），结果经 webhook 写入 `kyc_record`；同一步填写税务信息（W-9 / W-8BEN 类型与已提交声明）。未通过 KYC 的用户在 `/billing` 看得到收入余额，但提现按钮替换成「完成身份验证」 |
 | 渠道 | **PayPal**：用户在 `/billing` 绑定 PayPal 收款邮箱，平台用 PayPal Payouts API 打款，美元结算；PayPal 邮箱须在 KYC 通过后绑定或更换，更换后 7 天内不能提现（防盗号） |
 | 流程 | KYC 通过 → 用户发起 → 对应 credits 立即冻结 → 平台审核（管理后台的提现审核页，显示 KYC 结果与税务信息状态，人工点批准或驳回）→ 批准后调 Payouts API → PayPal webhook 回报成功记为已付，失败则解冻退回 |
 | 手续费 | PayPal 手续费由提现人承担，从打款金额中扣除（默认值，可改） |
@@ -101,15 +101,18 @@ Dot 主收到的查询费是「收入 credits」：不过期，可用于自己�
 
 ### 2.5 管理后台
 
-独立入口 `/admin`，和用户登录完全分开：管理员用密码加 TOTP 登录（旧后台的这套直接搬），空安装时第一个访问 `/admin/login` 的人注册为管理员，之后只能由已有管理员添加。六个页面：
+独立入口 `/admin`，和用户登录完全分开：管理员用密码加 TOTP 登录（旧后台的这套直接搬），空安装时第一个访问 `/admin/login` 的人注册为管理员，之后只能由已有管理员添加。九个页面：
 
 | 页面 | 内容 |
 | --- | --- |
 | 概览 | 用户数、Dot 数、知识条数、近 30 天提问数与收入 credits、各模型本月调用次数与估算成本 |
 | **模型** | 三类模型各一张卡：**生成**、**向量化**、**转写**。每类可以配多条（接入方式：AI Gateway 或 OpenAI 兼容端点；base URL；模型名；API key 加密存储、只显示尾号；超时），每类**有且只有一条启用**，有「测试连通」按钮真发一次请求。生成模型与转写模型随时可切，下一次请求即生效。**向量化模型切换要走重算**：切换时后台创建一个「全量重向量化」任务，按知识逐条重算并显示进度，完成前新旧两套向量并存、检索仍用旧的，完成后一次切换；任务跑着时不能再切 |
-| 用户 | 列表与搜索；停用 / 恢复；查看余额与流水；**手动调整 credits**（赠送或扣回，必填原因） |
+| 用户 | 列表与搜索；停用 / 恢复；用户详情页汇总该用户的一切：余额（Plan / Pack / 收入三栏）、credit 流水、**KYC 记录**、充值记录、订阅状态、提现记录、名下 Dot；**手动调整 credits**（赠送或扣回，必填原因） |
+| **KYC 记录** | 全部用户的 KYC 列表：状态（未开始 / 进行中 / 通过 / 拒绝）、服务商会话号、提交与结果时间、拒绝原因、税务表单类型与提交声明；可按状态筛选；可对异常记录「要求重新验证」（置回未开始并通知用户）。证件原件不在平台，页面只给服务商后台的跳转链接 |
+| **充值记录** | Plan 与 Pack 的所有交易：用户、类型、金额、credits、Paddle 交易号、状态（已付 / 退款 / 拒付）、时间；订阅视图列出每个 Plan 的当前周期、续费与取消；可导出 CSV；退款在 Paddle 后台操作，这里只读并显示 webhook 冲回结果 |
+| **提现记录** | 所有提现的完整列表（不只待审核）：用户、金额、手续费、PayPal 邮箱、状态、审核人、PayPal 批次号、时间；按状态与时间筛选；可导出 CSV |
 | Dots | 列表与搜索；把公开 Dot 下架（转私有并通知 Dot 主）或恢复 |
-| 提现审核 | 第 2.3 节的审核页 |
+| 提现审核 | 第 2.3 节的审核页：只看待审核的，批准或驳回；审完进入「提现记录」 |
 | 审计 | 管理员所有操作的只读流水：谁、何时、改了什么 |
 
 没有后台配置的套餐价格、credit 单价、Plan / Pack 规则：这些是代码常量，改了走发布。模型没在后台配置时回退到环境变量，保证第一次部署能跑。
@@ -158,7 +161,7 @@ Dot 主可以为自己的 Dot 生成一段**固定 15 秒**的动画介绍，用
 | `/chats/[id]` | 多 Dot 对话：右侧参与者栏列出已拉进的 Dot（自己的和别人公开的都能拉），可增删；输入框支持 `@Dot名` 只问某一个；发送前显示本次要花的 credits |
 | `/settings` | 连接 GitHub 账号；我的域名列表与确权向导 |
 | `/billing` | 余额（分 Plan / Pack / 收入三栏）、订阅 Plan、购买 Pack、消费与收入明细；绑定 PayPal 邮箱、发起提现、提现记录 |
-| `/admin/*` | 管理后台六页（第 2.5 节）：概览、模型、用户、Dots、提现审核、审计；独立的管理员登录 |
+| `/admin/*` | 管理后台九页（第 2.5 节）：概览、模型、用户、KYC 记录、充值记录、提现审核、提现记录、Dots、审计；独立的管理员登录 |
 | `/d/[slug]` | 公开问答页：Dot 开启公开后任何人可见，显示每次提问的价格；提问需登录并用自己的 credits 付费 |
 
 接口（只给自己的前端用，不对外宣传）：
@@ -182,6 +185,9 @@ Dot 主可以为自己的 Dot 生成一段**固定 15 秒**的动画介绍，用
 | `POST /api/admin/models/reembed` | 切换向量化模型：创建全量重算任务；`GET` 看进度 |
 | `POST /api/admin/users/[id]/credits` | 手动调整 credits，带原因 |
 | `POST /api/admin/dots/[id]/takedown` / `restore` | 下架 / 恢复公开 Dot |
+| `GET /api/admin/kyc` / `POST /api/admin/kyc/[userId]/reset` | KYC 记录列表；要求重新验证 |
+| `GET /api/admin/purchases` / `GET /api/admin/subscriptions` | 充值与订阅记录，支持 `?format=csv` |
+| `GET /api/admin/payouts` | 全部提现记录，支持筛选与 `?format=csv` |
 | `POST /api/billing/paypal-webhook` | PayPal webhook：打款成功记已付，失败解冻 |
 | `DELETE /api/dots/[id]/knowledge/[kid]` | 删除知识及其切块 |
 | `GET /api/explore?q=` | 两级检索：先在 Dot 画像里取前 20 个 Dot，再在它们的切块里取前 50 段，聚合排序后返回 Dot 卡片数据；不收费，限频 |
@@ -194,10 +200,10 @@ Dot 主可以为自己的 Dot 生成一段**固定 15 秒**的动画介绍，用
 | `POST` / `DELETE /api/chats/[id]/dots/[dotId]` | 拉进、移出一个 Dot；只能拉自己的或公开的 |
 | `POST /api/chats/[id]/messages` | 发一个问题，流式返回：每个作答 Dot 一段独立的回答流，事件带 `dot_id`；`/dots/[id]` 里的单 Dot 对话也是走这个接口，只是对话里只有一个 Dot |
 
-## 4. 数据模型（24 张表，取代 86 张）
+## 4. 数据模型（25 张表，取代 86 张）
 
 ```
-user          id, email, name, avatar, disabled_at, kyc_status(none|pending|verified|rejected), kyc_provider_ref, kyc_verified_at, paypal_email, paypal_email_changed_at, tax_info jsonb, created_at
+user          id, email, name, avatar, disabled_at, paypal_email, paypal_email_changed_at, created_at
 session       id, user_id, expires_at
 dot           id, owner_id, name, slug, description, system_prompt, model, is_public, query_fee, tags text[], sample_questions jsonb, created_at
 knowledge     id, dot_id, kind(document|audio|github|page|site|text), title, source(url、仓库或 blob 路径), status(pending|processing|ready|failed), error, created_at
@@ -216,6 +222,7 @@ dot_feedback  message_id, user_id, vote(up|down), created_at
 dot_profile_vector  id, dot_id, kind(profile|sample_question|centroid), embedding vector(1536), updated_at（只含公开 Dot，转私有时删除）
 dot_video     dot_id, template, accent_color, scenes jsonb(4 个镜头的文字), music, updated_at
 video_export  id, dot_id, content_version, template, aspect(9:16|16:9), status(started|done|abandoned), blob_url, cost_credits, created_at, finished_at
+kyc_record    id, user_id, provider, provider_session_id, status(pending|verified|rejected|reset), rejected_reason, tax_form_kind, tax_form_declared_at, submitted_at, decided_at（一个用户可有多条，最新一条为当前状态；重新验证即新增一条）
 administrator  id, email, password_hash, totp_secret_cipher, created_by, created_at
 admin_session  id, administrator_id, expires_at
 model_config  id, kind(generation|embedding|transcription), transport(gateway|openai_compatible), base_url, model, api_key_cipher, timeout_ms, enabled, updated_by, updated_at
@@ -289,8 +296,8 @@ Dot 的答复率、点赞率、近 30 天被问次数不单独建表，从 messa
 1. **骨架与核心闭环**：登录 → 新建 Dot → 上传 PDF / Word / Markdown 或粘贴文本 → 提问得到带引用的回答。用户侧只有 `/dots` 和 `/dots/[id]` 两个页面，加上管理后台的登录与「模型」页（不含重算任务）；对话表从一开始就是多参与者结构，但界面只做单 Dot；credit 账本从这一步就有，用注册赠送的额度扣费，但还没有充值。
 2. **其余知识类型**：GitHub 公开仓库、GitHub 绑定与私有仓库、单个网页、域名确权与整站抓取、音频转写（含时间戳引用）、删除与重新处理。
 3. **充值**：credit 账本与扣费、Paddle 结账与 webhook（Plan 订阅、Pack 一次性、退款冲回）、`/billing` 页；在此之前只有注册赠送的 credits。
-4. **公开页、发现、多 Dot 对话与后台**：后台的概览、用户、Dots、审计四页与向量化模型重算任务；`/d/[slug]` 公开问答与示例问题、`/explore` 拿问题找 Dot、回答反馈与质量分、查询费与收入 credits、`/chats` 多 Dot 对话与 @ 点名、空状态与错误态、集成测试。
-5. **提现**：KYC 接入与门禁、PayPal 绑定、提现申请与冻结、`/admin/payouts` 审核、Payouts API 与 webhook、税务信息。上线前要先落实上面列的业务前提。
+4. **公开页、发现、多 Dot 对话与后台**：后台的概览、用户、充值记录、Dots、审计五页与向量化模型重算任务；`/d/[slug]` 公开问答与示例问题、`/explore` 拿问题找 Dot、回答反馈与质量分、查询费与收入 credits、`/chats` 多 Dot 对话与 @ 点名、空状态与错误态、集成测试。
+5. **提现**：KYC 接入与门禁、PayPal 绑定、提现申请与冻结、后台的 KYC 记录、提现审核与提现记录三页、Payouts API 与 webhook、税务信息。上线前要先落实上面列的业务前提。
 6. **视频介绍**：Remotion composition 与 3 套模板、脚本生成与编辑、公开页与 explore 卡片在线播放、浏览器内导出 MP4 与缓存、OG 预览图、计费。
 
 每一步一个 PR 进 `rebuild` 分支。
