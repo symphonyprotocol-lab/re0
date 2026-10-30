@@ -354,17 +354,20 @@ export function isUserAccountStatus(value: unknown): value is UserAccountStatus 
  * without a database (agent-first-proposal.md 6.9).
  *
  * The inputs are what the ledger holds: the period, the unflagged earning
- * events summed per owner, the publisher accounts that exist, and the
- * accounts that already have a statement for the period. The output is only
- * what is missing. Running it twice over the same ledger therefore plans
+ * events summed per owner, the publisher accounts that exist, and what each
+ * account's statements for the period already assert. The output is only
+ * the difference. Running it twice over the same ledger therefore plans
  * nothing the second time, which is the idempotency the console action
  * depends on -- the button can be pressed again after a creator finally
  * accepts the agreement, and only that creator's row appears.
  *
- * One statement per account per period, carrying the sum as it is: a period
- * in which refunds outweighed income yields a negative statement, which the
- * credit and payout rails net against later positives rather than skipping.
- * A sum of zero yields no row -- nothing to hold or pay.
+ * A statement carries the sum as it is: a period in which refunds outweighed
+ * income yields a negative statement, which the credit and payout rails net
+ * against later positives rather than skipping. A sum of zero yields no row
+ * -- nothing to hold or pay. An event that lands in a period *after* its
+ * statements were written (a chargeback booked to the month it refunds) is
+ * not stranded: the next run plans one more row for that account carrying
+ * the difference, so the account's statements always add up to its events.
  */
 export interface SettlementPlanInput {
   period: { id: string; currency: string };
@@ -372,8 +375,8 @@ export interface SettlementPlanInput {
   owners: { ownerWorkspaceId: string; amountMinor: number }[];
   /** Workspace id -> publisher account id, for every owner with an account. */
   accounts: ReadonlyMap<string, string>;
-  /** Publisher account ids that already carry a statement for this period. */
-  existing: ReadonlySet<string>;
+  /** Publisher account id -> what its statements for this period already add up to (voided ones excluded). */
+  existing: ReadonlyMap<string, number>;
 }
 
 export interface PlannedStatement {
@@ -387,7 +390,7 @@ export interface SettlementPlan {
   rows: PlannedStatement[];
   /** Owners without a publisher account yet; their events wait. */
   withoutAccount: number;
-  /** Accounts that already had a statement and were left alone. */
+  /** Accounts whose statements already match their events and were left alone. */
   alreadyPresent: number;
 }
 
@@ -397,20 +400,21 @@ export function planSettlementStatements(input: SettlementPlanInput): Settlement
   let alreadyPresent = 0;
 
   for (const owner of input.owners) {
-    if (owner.amountMinor === 0) continue;
     const publisherAccountId = input.accounts.get(owner.ownerWorkspaceId);
     if (!publisherAccountId) {
-      withoutAccount += 1;
+      if (owner.amountMinor !== 0) withoutAccount += 1;
       continue;
     }
-    if (input.existing.has(publisherAccountId)) {
-      alreadyPresent += 1;
+    const stated = input.existing.get(publisherAccountId) ?? 0;
+    const difference = owner.amountMinor - stated;
+    if (difference === 0) {
+      if (input.existing.has(publisherAccountId)) alreadyPresent += 1;
       continue;
     }
     rows.push({
       periodId: input.period.id,
       publisherAccountId,
-      amountMinor: owner.amountMinor,
+      amountMinor: difference,
       currency: input.period.currency,
     });
   }

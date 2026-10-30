@@ -27,7 +27,7 @@ import {
 import { uuidv7 } from '@/lib/domain/id';
 import { PLAN_CURRENCY } from '@/lib/domain/plans';
 import { db, schema } from '@/lib/infrastructure/postgres/client';
-import { pastHold, redeemedByTag, type RedeemActor } from './redeem-credit';
+import { redeemedByTag, releasable, type RedeemActor } from './redeem-credit';
 
 export interface PublisherPayout {
   id: string;
@@ -158,7 +158,8 @@ export async function requestPayout(input: {
           /* The PayPal transfer is sent in dollars, like the credit is priced. */
           eq(schema.settlement.currency, PLAN_CURRENCY),
           isNotNull(schema.revenuePeriod.lockedAt),
-          pastHold(now),
+          /* Past the hold, or negative: a refund nets against the payout at once (redeem-credit.ts `releasable`). */
+          releasable(now),
         ),
       )
       .for('update', { of: schema.settlement });

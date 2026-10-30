@@ -192,14 +192,15 @@ async function projectDocument(
         priceMinor: draft.amountMinor,
         currency: draft.currency,
       });
-      /*
-       * agent-first-proposal.md 8.1: the first pack a user buys raises their
-       * workspace to the extended storage tier, for good. Done on every
-       * collected pack event rather than only on a fresh grant, so a redelivery
-       * that finds the grant already there still leaves the tier raised.
-       */
-      await extendStorageTier(tx, workspaceId);
     }
+    /*
+     * agent-first-proposal.md 8.1: the first pack a user buys raises their
+     * workspace to the extended storage tier, for good. Done on every
+     * collected pack event -- a redelivery, and a pack no version could place
+     * (the money arrived; the grant is the operator's to backfill) -- so the
+     * promise on the pricing page holds whenever a pack was paid for.
+     */
+    if (isCollected(draft.status)) await extendStorageTier(tx, workspaceId);
   }
 
   /*

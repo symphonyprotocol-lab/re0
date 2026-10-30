@@ -11,6 +11,12 @@
  * one collection, or the negative of a refund), so a close is a sum per owner
  * and nothing else, recomputable from the events alone.
  *
+ * The total is frozen at the lock; the per-owner sums are not, and a locked
+ * period returns them as they stand now. An event booked into a locked month
+ * afterwards therefore shows up here, and the console's `generateSettlements`
+ * turns the difference into a correction statement -- the frozen total is
+ * what the period came to at the lock, not a cap on what its ledger may say.
+ *
  * Accounting only. No statement or payout row is written here; the console's
  * `generateSettlements` turns the sums into statements.
  */

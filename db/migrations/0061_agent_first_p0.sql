@@ -11,6 +11,74 @@
 -- The website widget, the shared pages and MCP are switched off in code
 -- (lib/domain/surfaces.ts); their tables stay for the day they come back.
 
+-- Order matters: `library_eval_question`, `expert_application`, `earning_event`
+-- and `settlement` all hold NOT NULL foreign keys to `library`, so they are
+-- dropped or emptied before the libraries built from the removed source types
+-- are deleted below.
+
+-- --------------------------------------------------- expert libraries, eval
+-- The programme, its applications, its thresholds and the owner's self-check
+-- questions are deleted (proposal 3.6, 13.3 item 12). Benchmark keeps only
+-- the structural score; the keys the question set wrote into stored
+-- breakdowns are cleared so a historical row reads like a current one.
+DROP TABLE IF EXISTS "library_eval_question";
+--> statement-breakpoint
+DROP TABLE IF EXISTS "expert_application";
+--> statement-breakpoint
+DROP TYPE IF EXISTS "expert_application_status";
+--> statement-breakpoint
+DROP TABLE IF EXISTS "review_config";
+--> statement-breakpoint
+UPDATE "library_score"
+  SET "breakdown" = "breakdown" - 'structural' - 'evalQuestions' - 'evalHits' - 'evalHitRate' - 'evalMrr';
+--> statement-breakpoint
+ALTER TABLE "library" DROP COLUMN IF EXISTS "expert_tagged_at";
+--> statement-breakpoint
+
+-- ----------------------------------------------------------- revenue ledger
+-- The per-retrieval share is gone (proposal 3.6, 8.3, 13.3 item 7): no
+-- attributable calls, no pool, no allocation. What stays -- monthly close,
+-- statements, hold, redeem-as-calls, manual PayPal payout, statement anchoring
+-- -- now runs on a plain signed amount ledger per owner workspace that channel
+-- subscriptions will feed (proposal 6.9, 12). Everything the old rules
+-- computed is development data and is cleared.
+DELETE FROM "settlement";
+--> statement-breakpoint
+DELETE FROM "payout";
+--> statement-breakpoint
+DELETE FROM "earning_event";
+--> statement-breakpoint
+DELETE FROM "revenue_period";
+--> statement-breakpoint
+DROP INDEX IF EXISTS "earning_event_request_uq";
+--> statement-breakpoint
+DROP INDEX IF EXISTS "earning_event_period_library_idx";
+--> statement-breakpoint
+ALTER TABLE "earning_event"
+  DROP COLUMN "request_id",
+  DROP COLUMN "library_id",
+  DROP COLUMN "version_id",
+  DROP COLUMN "plan_version_id",
+  DROP COLUMN "share_rate_bps",
+  ADD COLUMN "amount_minor" bigint NOT NULL,
+  ADD COLUMN "source" text NOT NULL,
+  ADD COLUMN "reference" text;
+--> statement-breakpoint
+CREATE INDEX "earning_event_period_owner_idx" ON "earning_event" ("period_id", "owner_workspace_id");
+--> statement-breakpoint
+ALTER TABLE "revenue_period"
+  DROP COLUMN "net_revenue_minor",
+  DROP COLUMN "total_billed_calls",
+  DROP COLUMN "total_attributable_calls",
+  DROP COLUMN "share_rate_bps",
+  DROP COLUMN "pool_minor",
+  ADD COLUMN "total_amount_minor" bigint NOT NULL DEFAULT 0;
+--> statement-breakpoint
+ALTER TABLE "settlement"
+  DROP COLUMN "library_id",
+  DROP COLUMN "attributable_calls";
+--> statement-breakpoint
+
 -- ---------------------------------------------------------------- sources
 -- `llms_txt` and `openapi` are gone (proposal 3.2, 13.3 item 2). Postgres
 -- cannot drop a value from an enum, so the type is rebuilt -- after the
@@ -88,69 +156,6 @@ DROP TYPE "source_type_old";
 -- Proposal 3.6 and 10: the leads visitors left on shared pages are personal
 -- data collected for a surface that is now closed; they go with it.
 DELETE FROM "showcase_lead";
---> statement-breakpoint
-
--- --------------------------------------------------- expert libraries, eval
--- The programme, its applications, its thresholds and the owner's self-check
--- questions are deleted (proposal 3.6, 13.3 item 12). Benchmark keeps only
--- the structural score; the keys the question set wrote into stored
--- breakdowns are cleared so a historical row reads like a current one.
-DROP TABLE IF EXISTS "library_eval_question";
---> statement-breakpoint
-DROP TABLE IF EXISTS "expert_application";
---> statement-breakpoint
-DROP TYPE IF EXISTS "expert_application_status";
---> statement-breakpoint
-DROP TABLE IF EXISTS "review_config";
---> statement-breakpoint
-UPDATE "library_score"
-  SET "breakdown" = "breakdown" - 'structural' - 'evalQuestions' - 'evalHits' - 'evalHitRate' - 'evalMrr';
---> statement-breakpoint
-ALTER TABLE "library" DROP COLUMN IF EXISTS "expert_tagged_at";
---> statement-breakpoint
-
--- ----------------------------------------------------------- revenue ledger
--- The per-retrieval share is gone (proposal 3.6, 8.3, 13.3 item 7): no
--- attributable calls, no pool, no allocation. What stays -- monthly close,
--- statements, hold, redeem-as-calls, manual PayPal payout, statement anchoring
--- -- now runs on a plain signed amount ledger per owner workspace that channel
--- subscriptions will feed (proposal 6.9, 12). Everything the old rules
--- computed is development data and is cleared.
-DELETE FROM "settlement";
---> statement-breakpoint
-DELETE FROM "payout";
---> statement-breakpoint
-DELETE FROM "earning_event";
---> statement-breakpoint
-DELETE FROM "revenue_period";
---> statement-breakpoint
-DROP INDEX IF EXISTS "earning_event_request_uq";
---> statement-breakpoint
-DROP INDEX IF EXISTS "earning_event_period_library_idx";
---> statement-breakpoint
-ALTER TABLE "earning_event"
-  DROP COLUMN "request_id",
-  DROP COLUMN "library_id",
-  DROP COLUMN "version_id",
-  DROP COLUMN "plan_version_id",
-  DROP COLUMN "share_rate_bps",
-  ADD COLUMN "amount_minor" bigint NOT NULL,
-  ADD COLUMN "source" text NOT NULL,
-  ADD COLUMN "reference" text;
---> statement-breakpoint
-CREATE INDEX "earning_event_period_owner_idx" ON "earning_event" ("period_id", "owner_workspace_id");
---> statement-breakpoint
-ALTER TABLE "revenue_period"
-  DROP COLUMN "net_revenue_minor",
-  DROP COLUMN "total_billed_calls",
-  DROP COLUMN "total_attributable_calls",
-  DROP COLUMN "share_rate_bps",
-  DROP COLUMN "pool_minor",
-  ADD COLUMN "total_amount_minor" bigint NOT NULL DEFAULT 0;
---> statement-breakpoint
-ALTER TABLE "settlement"
-  DROP COLUMN "library_id",
-  DROP COLUMN "attributable_calls";
 --> statement-breakpoint
 
 -- ------------------------------------------------------------------- plans

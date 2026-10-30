@@ -31,7 +31,7 @@ function plan(overrides: Partial<SettlementPlanInput> = {}) {
       ['ws-b', 'acct-b'],
       ['ws-c', 'acct-c'],
     ]),
-    existing: new Set(),
+    existing: new Map(),
     ...overrides,
   });
 }
@@ -51,11 +51,23 @@ describe('planSettlementStatements', () => {
     expect(result.alreadyPresent).toBe(0);
   });
 
-  it('is idempotent: publishers that already carry a statement are left alone', () => {
+  it('is idempotent: publishers whose statements already match their events are left alone', () => {
     const first = plan();
-    const second = plan({ existing: new Set(first.rows.map((row) => row.publisherAccountId)) });
+    const second = plan({ existing: new Map(first.rows.map((row) => [row.publisherAccountId, row.amountMinor])) });
     expect(second.rows).toEqual([]);
     expect(second.alreadyPresent).toBe(3);
+  });
+
+  it('corrects a locked period an event landed in late, by the difference', () => {
+    /* ws-a was stated at 8,500; a 300 chargeback has since been booked into the period. */
+    const result = plan({
+      owners: [{ ownerWorkspaceId: 'ws-a', amountMinor: 8_200 }],
+      existing: new Map([['acct-a', 8_500]]),
+    });
+    expect(result.rows).toEqual([
+      { periodId: '2026-08', publisherAccountId: 'acct-a', amountMinor: -300, currency: 'USD' },
+    ]);
+    expect(result.alreadyPresent).toBe(0);
   });
 
   it('waits for owners without a publisher account instead of dropping their events', () => {
@@ -69,7 +81,7 @@ describe('planSettlementStatements', () => {
         ['ws-a', 'acct-a'],
         ['ws-b', 'acct-b'],
       ]),
-      existing: new Set(['acct-a']),
+      existing: new Map([['acct-a', 8_500]]),
     });
     expect(later.rows.map((row) => row.publisherAccountId)).toEqual(['acct-b']);
     expect(later.alreadyPresent).toBe(1);

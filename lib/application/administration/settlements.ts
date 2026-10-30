@@ -18,7 +18,7 @@
  * 5.3): generating statements is the one console action that puts a number
  * against a creator's name.
  */
-import { and, count, desc, eq, ilike, inArray, or, sql } from 'drizzle-orm';
+import { and, count, desc, eq, ilike, inArray, ne, or, sql } from 'drizzle-orm';
 import { closePeriod } from '@/lib/application/revenue';
 import { PAYOUT_HOLD_DAYS, PAYOUT_THRESHOLD_MINOR } from '@/lib/domain';
 import {
@@ -342,12 +342,14 @@ async function statementDigest(row: {
 /**
  * Lock a finished period and write the statements its ledger earned.
  *
- * Idempotent in both halves: `closePeriod` returns the frozen figures of a
- * period that is already locked rather than recomputing them, and the plan
- * skips any account that already has a statement for the period. So a second
- * press writes nothing -- unless a creator accepted the agreement in between,
- * in which case only their row appears. Owners without a publisher account
- * are counted and left for next time; their events are not lost.
+ * Idempotent in both halves: `closePeriod` returns the frozen total of a
+ * period that is already locked rather than recomputing it, and the plan
+ * writes only the difference between an account's events and what its
+ * statements already assert. So a second press writes nothing -- unless a
+ * creator accepted the agreement in between (their row appears), or an event
+ * landed in the locked period since (one correction row for the difference).
+ * Owners without a publisher account are counted and left for next time;
+ * their events are not lost.
  */
 export async function generateSettlements(input: {
   actor: { administratorId: string; email: string; clientAddress?: string | null };
@@ -403,10 +405,20 @@ export async function generateSettlements(input: {
             .select({ id: schema.publisherAccount.id, workspaceId: schema.publisherAccount.workspaceId })
             .from(schema.publisherAccount)
             .where(inArray(schema.publisherAccount.workspaceId, workspaceIds));
+    /*
+     * What each account's statements for the period already assert, so a
+     * late event (a chargeback booked back into a locked month) becomes one
+     * more row for the difference rather than nothing. A voided statement
+     * asserted nothing and is left out of the sum.
+     */
     const existingRows = await tx
-      .select({ publisherAccountId: schema.settlement.publisherAccountId })
+      .select({
+        publisherAccountId: schema.settlement.publisherAccountId,
+        amountMinor: sql<number>`coalesce(sum(${schema.settlement.amountMinor}), 0)::bigint`,
+      })
       .from(schema.settlement)
-      .where(eq(schema.settlement.periodId, input.periodId));
+      .where(and(eq(schema.settlement.periodId, input.periodId), ne(schema.settlement.status, 'voided')))
+      .groupBy(schema.settlement.publisherAccountId);
 
     const plan = planSettlementStatements({
       period: { id: input.periodId, currency: period.currency },
@@ -415,7 +427,7 @@ export async function generateSettlements(input: {
         amountMinor: Number(owner.amountMinor),
       })),
       accounts: new Map(accountRows.map((row) => [row.workspaceId, row.id])),
-      existing: new Set(existingRows.map((row) => row.publisherAccountId)),
+      existing: new Map(existingRows.map((row) => [row.publisherAccountId, Number(row.amountMinor)])),
     });
 
     if (plan.rows.length > 0) {

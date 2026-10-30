@@ -436,8 +436,7 @@ export const en: Dictionary = {
           hint: 'Scope, windows and how to claim',
           clauses: [
             'This refund policy forms part of these terms and covers Additional Calls packs bought directly from Re0. Purchases made through an app store, cloud marketplace or reseller follow that channel’s published refund rules. Payments, invoices and refunds are executed by an external payment provider; we hold no user funds.',
-            'A call pack is a one-off purchase. Within 7 calendar days of purchase you may claim a full refund provided no call from the pack has been used; once any call from it has been spent, the pack is no longer refundable, but the balance does not expire and stays usable.',
-            'Channel subscriptions, once offered, are refunded according to the plan shown at the time of purchase.',
+            'Call packs are one-off purchases. Within 30 calendar days of purchase you may claim a refund for the calls still unused, in proportion; calls already consumed are not refunded. After 30 days packs are no longer refundable, but the balance does not expire and stays usable.',
             'If the service is continuously unavailable for more than 24 hours in a billing period through our fault, you may claim compensation: call quota equivalent to the downtime, issued as credit rather than cash. The status page record determines the incident.',
             'No refund is given for: accounts suspended or terminated for breaching these terms or the acceptable use policy; calls consumed by builds that completed successfully; and repeated refund claims from the same party that amount to abuse.',
             'To claim, write to support@re0.io with your account email, the transaction reference and the reason. We reply within 5 business days; approved refunds are returned by the external payment provider to the original payment method, and arrival depends on your bank, typically 5 to 10 business days.',

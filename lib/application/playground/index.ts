@@ -16,7 +16,7 @@ import {
   recordLlmCost,
   type LlmConfigRow,
 } from '@/lib/application/administration';
-import { hasPaidSubscription } from '@/lib/application/plans';
+import { workspaceStorageTier } from '@/lib/application/plans';
 import type { LlmAudience } from '@/lib/domain/generation';
 import {
   buildAnswerMessage,
@@ -150,13 +150,15 @@ export interface PlaygroundDependencies {
 }
 
 /**
- * A workspace on a paid plan is a subscriber; a free one, or no workspace at
- * all, is a trial caller. Read per request so an upgrade applies to the
- * next question, and a lapse does too.
+ * Who counts as a subscriber now that nothing sells a subscription: a
+ * workspace whose owner has bought an Additional Calls pack -- the one paid
+ * standing left (agent-first-proposal.md 8.1), recorded as the extended
+ * storage tier. Anyone else, and anonymous callers, are trial callers. Read
+ * per request so the first pack applies to the next question.
  */
 async function audienceOf(caller: CallerContext): Promise<LlmAudience> {
   if (!caller.workspaceId) return 'trial';
-  return (await hasPaidSubscription(caller.workspaceId)) ? 'subscriber' : 'trial';
+  return (await workspaceStorageTier(caller.workspaceId)) === 'extended' ? 'subscriber' : 'trial';
 }
 
 export const defaultPlaygroundDependencies: PlaygroundDependencies = {

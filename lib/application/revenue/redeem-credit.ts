@@ -94,6 +94,18 @@ export function pastHold(now: Date) {
   return sql`${schema.revenuePeriod.lockedAt} + make_interval(days => ${PAYOUT_HOLD_DAYS}) <= ${now}`;
 }
 
+/**
+ * What a redeem or a payout may take: statements past their hold, plus every
+ * negative one whatever its age. The hold protects the platform from paying
+ * out money a card can still take back; a negative statement is the creator's
+ * liability, and holding it back would let an older positive leave the books
+ * while the refund that should have reduced it waits (agent-first-proposal.md
+ * 6.9: a chargeback is clawed back from the next income, not skipped).
+ */
+export function releasable(now: Date) {
+  return sql`(${pastHold(now)} or ${schema.settlement.amountMinor} < 0)`;
+}
+
 async function packRate(database: ReturnType<typeof db> | Tx): Promise<PackRate | null> {
   const [row] = await database
     .select({ priceMinor: schema.planVersion.priceMinor, calls: schema.planVersion.monthlyCalls })
@@ -122,10 +134,10 @@ export async function earningCredit(
     accountId
       ? database
           .select({
-            redeemableMinor: sql<number>`coalesce(sum(${schema.settlement.amountMinor}) filter (where ${pastHold(now)}), 0)::bigint`,
-            redeemableStatements: sql<number>`(count(*) filter (where ${pastHold(now)}))::int`,
-            heldMinor: sql<number>`coalesce(sum(${schema.settlement.amountMinor}) filter (where not (${pastHold(now)})), 0)::bigint`,
-            earliestHeldLock: sql<Date | null>`min(${schema.revenuePeriod.lockedAt}) filter (where not (${pastHold(now)}))`,
+            redeemableMinor: sql<number>`coalesce(sum(${schema.settlement.amountMinor}) filter (where ${releasable(now)}), 0)::bigint`,
+            redeemableStatements: sql<number>`(count(*) filter (where ${releasable(now)}))::int`,
+            heldMinor: sql<number>`coalesce(sum(${schema.settlement.amountMinor}) filter (where not (${releasable(now)})), 0)::bigint`,
+            earliestHeldLock: sql<Date | null>`min(${schema.revenuePeriod.lockedAt}) filter (where not (${releasable(now)}))`,
           })
           .from(schema.settlement)
           .innerJoin(schema.revenuePeriod, eq(schema.revenuePeriod.id, schema.settlement.periodId))
@@ -223,7 +235,7 @@ export async function redeemEarningsAsCalls(input: {
           eq(schema.settlement.publisherAccountId, account.id),
           eq(schema.settlement.status, 'accrued'),
           isNotNull(schema.revenuePeriod.lockedAt),
-          pastHold(now),
+          releasable(now),
         ),
       )
       .for('update', { of: schema.settlement });

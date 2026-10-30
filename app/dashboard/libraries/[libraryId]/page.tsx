@@ -55,6 +55,7 @@ import {
   listShowcaseLeads,
   showcaseDomainFor,
   showcaseEntitlement,
+  type WorkspaceShowcaseEntitlement,
   showcaseStats,
 } from '@/lib/application/showcase';
 import { siteKeysAllowed } from '@/lib/domain/plans';
@@ -124,6 +125,15 @@ function label(dictionary: Record<string, string>, value: string | null): string
  * The readiness banner is the whole point of the page -- the list can only
  * say "in progress", and this says why and what to do next.
  */
+/** What the shared-page panel would be told while the surface is off: nothing allowed, nothing read. */
+const OFFLINE_ENTITLEMENT: WorkspaceShowcaseEntitlement = {
+  pages: 0,
+  brandingOptional: false,
+  paid: false,
+  leadsRetained: 0,
+  customDomain: false,
+};
+
 export default async function DashboardLibraryPage({
   params,
   searchParams,
@@ -151,7 +161,11 @@ export default async function DashboardLibraryPage({
   /* requirement.md 9.4: the website widget's keys ride along with the documents page. */
   /* The widget's history, a page at a time (`?qa=`), newest first. */
   const qaPage = Math.max(1, Math.floor(Number(query.qa) || 1));
-  const entitlement = await showcaseEntitlement(session.workspace.id, { fresh: true });
+  const widgetOn = surfaceEnabled('widget');
+  const showcaseOn = surfaceEnabled('showcase');
+  const entitlement: WorkspaceShowcaseEntitlement = showcaseOn
+    ? await showcaseEntitlement(session.workspace.id, { fresh: true })
+    : OFFLINE_ENTITLEMENT;
   /* Calls served from the library, a page at a time (`?usage=`), newest first. */
   const usagePage = Math.max(1, Math.floor(Number(query.usage) || 1));
   const [documents, siteKeys, exchanges, exchangeStats, faqGroups, faqEntries, showcase, showcaseFigures, showcaseCount, showcaseLeads, siteKeyCap, siteKeyCount, usage] = await Promise.all([
@@ -163,23 +177,30 @@ export default async function DashboardLibraryPage({
           offset: (docsPage - 1) * docsSize,
         })
       : { documents: [], total: 0 },
-    listSiteKeys({ workspaceId: session.workspace.id, libraryId: library.id }),
-    listWidgetExchanges({
-      workspaceId: session.workspace.id,
-      libraryId: library.id,
-      limit: EXCHANGE_PAGE_SIZE,
-      offset: (qaPage - 1) * EXCHANGE_PAGE_SIZE,
-    }),
-    widgetExchangeStats({ workspaceId: session.workspace.id, libraryId: library.id }),
+    /* The widget and shared-page reads are skipped while those surfaces are off (lib/domain/surfaces.ts); the tabs are filtered below. */
+    widgetOn ? listSiteKeys({ workspaceId: session.workspace.id, libraryId: library.id }) : [],
+    widgetOn
+      ? listWidgetExchanges({
+          workspaceId: session.workspace.id,
+          libraryId: library.id,
+          limit: EXCHANGE_PAGE_SIZE,
+          offset: (qaPage - 1) * EXCHANGE_PAGE_SIZE,
+        })
+      : { exchanges: [], total: 0 },
+    widgetOn
+      ? widgetExchangeStats({ workspaceId: session.workspace.id, libraryId: library.id })
+      : { days: 30, questions: 0, answered: 0, missed: 0 },
     listFaqGroups({ workspaceId: session.workspace.id, libraryId: library.id }).catch((): never[] => []),
     listFaqEntries({ workspaceId: session.workspace.id, libraryId: library.id }),
     /* The library shared as a page (lib/domain/showcase.ts). */
-    libraryShowcase({ workspaceId: session.workspace.id, libraryId: library.id }, entitlement),
-    showcaseStats({ workspaceId: session.workspace.id, libraryId: library.id }),
-    countWorkspaceShowcases(session.workspace.id),
-    listShowcaseLeads({ workspaceId: session.workspace.id, libraryId: library.id, retained: entitlement.leadsRetained, limit: LEADS_SHOWN }),
-    siteKeyEntitlement(session.workspace.id),
-    countWorkspaceSiteKeys(session.workspace.id),
+    showcaseOn ? libraryShowcase({ workspaceId: session.workspace.id, libraryId: library.id }, entitlement) : null,
+    showcaseOn ? showcaseStats({ workspaceId: session.workspace.id, libraryId: library.id }) : null,
+    showcaseOn ? countWorkspaceShowcases(session.workspace.id) : 0,
+    showcaseOn
+      ? listShowcaseLeads({ workspaceId: session.workspace.id, libraryId: library.id, retained: entitlement.leadsRetained, limit: LEADS_SHOWN })
+      : null,
+    widgetOn ? siteKeyEntitlement(session.workspace.id) : 0,
+    widgetOn ? countWorkspaceSiteKeys(session.workspace.id) : 0,
     libraryUsageLog({ workspaceId: session.workspace.id, libraryId: library.id, page: usagePage }),
   ]);
   const usagePages = Math.max(1, Math.ceil(usage.total / LIBRARY_USAGE_PAGE_SIZE));
@@ -850,7 +871,7 @@ export default async function DashboardLibraryPage({
                 </>
               ) : null,
           },
-        ].filter((tab) => (tab.id === 'widget' ? surfaceEnabled('widget') : tab.id === 'showcase' ? surfaceEnabled('showcase') : true))}
+        ].filter((tab) => (tab.id === 'widget' ? widgetOn : tab.id === 'showcase' ? showcaseOn : true))}
       />
     </div>
   );
