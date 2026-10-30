@@ -1,7 +1,7 @@
 /**
  * POST /api/playground -- the web playground's one exchange. architecture.md
  * 9.5 and 9.6: this is the server-side auto-routed entry -- the question goes
- * through the same resolve-library-id the MCP agent would call, the server
+ * through the same resolve-asset-id the MCP agent would call, the server
  * reads the top candidates and lets the confirmed ones answer together
  * (scatter-gather, retrieval/gather.ts), and the generation path does the
  * rest through the shared retrieval function. A BFF for the site, not part of
@@ -22,10 +22,10 @@
  *
  * Two paths (playground-agent-proposal.md). With the console's agent switch
  * on and a model that declares tool calling, the model plans its own
- * resolve-library-id and query-docs calls and the transcript shows each one
+ * resolve-asset-id and query-docs calls and the transcript shows each one
  * as it runs (`data-step`). Otherwise the fixed path below routes the
  * question once and reads the top candidates; a follow-up that routes
- * nowhere reads the libraries the last turn answered from.
+ * nowhere reads the assets the last turn answered from.
  *
  * Which model runs is the console's decision, never the caller's: the body has
  * no model field, so a visitor cannot spend the platform's budget on the most
@@ -39,7 +39,7 @@
  * may do neither must not do both here. Anyone else is refused before
  * anything is read or generated.
  *
- * An optional `libraryId` pins the exchange to one public library -- the
+ * An optional `assetId` pins the exchange to one public asset -- the
  * detail page's fixed entry (requirement.md 5.1: 针对该库的固定查询入口，复用
  * 在线试用的同一实现). Routing is skipped, nothing else changes.
  */
@@ -47,9 +47,9 @@ import { createUIMessageStream, createUIMessageStreamResponse } from 'ai';
 import type { NextRequest } from 'next/server';
 import { NextResponse } from 'next/server';
 import { AppError } from '@/contracts/errors';
-import { libraryIdSchema } from '@/contracts/schemas';
+import { assetIdSchema } from '@/contracts/schemas';
 import { requireScope } from '@/lib/application/auth';
-import { publicLibraryHeading } from '@/lib/application/libraries';
+import { publicAssetHeading } from '@/lib/application/assets';
 import { routeQuestion, streamPlayground } from '@/lib/application/playground';
 import {
   playgroundAgentOn,
@@ -75,9 +75,9 @@ export async function POST(request: NextRequest): Promise<Response> {
     requireScope(caller, 'knowledge:search');
     requireScope(caller, 'knowledge:read');
 
-    let body: { question?: unknown; libraryId?: unknown; history?: unknown };
+    let body: { question?: unknown; assetId?: unknown; history?: unknown };
     try {
-      body = (await request.json()) as { question?: unknown; libraryId?: unknown; history?: unknown };
+      body = (await request.json()) as { question?: unknown; assetId?: unknown; history?: unknown };
     } catch {
       throw new AppError('invalid_request', 'the body must be JSON');
     }
@@ -86,22 +86,22 @@ export async function POST(request: NextRequest): Promise<Response> {
       throw new AppError('invalid_request', 'question is required (1-2000 characters)');
     }
     const pinnedId =
-      body.libraryId === undefined || body.libraryId === null || body.libraryId === ''
+      body.assetId === undefined || body.assetId === null || body.assetId === ''
         ? null
-        : libraryIdSchema.safeParse(body.libraryId);
+        : assetIdSchema.safeParse(body.assetId);
     if (pinnedId && !pinnedId.success) {
-      throw new AppError('invalid_request', 'libraryId must look like /owner/name');
+      throw new AppError('invalid_request', 'assetId must look like /owner/name');
     }
 
     const history = normaliseHistory(body.history);
 
-    /* A pinned id that is not a routable public library is a 404 here, before
+    /* A pinned id that is not a routable public asset is a 404 here, before
        any stream opens, exactly as it would be on the detail page. */
-    let pinned: { libraryId: string; title: string; version: string | null } | null = null;
+    let pinned: { assetId: string; title: string; version: string | null } | null = null;
     if (pinnedId) {
-      const heading = await publicLibraryHeading(pinnedId.data);
-      if (!heading) throw new AppError('library_not_found', 'no public library with that id');
-      pinned = { libraryId: heading.publicId, title: heading.title, version: heading.version };
+      const heading = await publicAssetHeading(pinnedId.data);
+      if (!heading) throw new AppError('asset_not_found', 'no public asset with that id');
+      pinned = { assetId: heading.publicId, title: heading.title, version: heading.version };
     }
 
     let events: AsyncIterable<AgentEvent>;
@@ -112,22 +112,22 @@ export async function POST(request: NextRequest): Promise<Response> {
        * Routing runs before the stream opens. It is one round trip and it
        * decides whether there is anything to stream at all, so a failure here
        * can still be an honest error response rather than a stream that opens
-       * only to say nothing happened. A pinned library skips it: the caller
+       * only to say nothing happened. A pinned asset skips it: the caller
        * already chose.
        */
       const routed = pinned
         ? {
-            candidates: [{ libraryId: pinned.libraryId, title: pinned.title }],
+            candidates: [{ assetId: pinned.assetId, title: pinned.title }],
             top: pinned,
           }
         : await routeQuestion(caller, question, history);
       events = (async function* fixed(): AsyncGenerator<AgentEvent> {
         yield { type: 'routing', candidates: routed.candidates, top: routed.top, pinned: pinned !== null };
         if (!routed.top) {
-          yield { type: 'no_library' };
+          yield { type: 'no_asset' };
           return;
         }
-        yield* streamPlayground(caller, { libraries: routed.candidates, question, history });
+        yield* streamPlayground(caller, { assets: routed.candidates, question, history });
       })();
     }
 

@@ -15,7 +15,7 @@ export const CLAIM_TTL_MS = 7 * 24 * 60 * 60 * 1000;
 
 /**
  * Consecutive failed verifications before the claim locks. 7.3.7: past the
- * threshold the entry is closed for that account and library until a person
+ * threshold the entry is closed for that account and asset until a person
  * looks at it -- a revoked or expired claim is the way out, not another retry.
  */
 export const CLAIM_ATTEMPT_LIMIT = 5;
@@ -42,7 +42,7 @@ export function remainingDays(expiresAt: Date, now: Date): number {
 }
 
 /**
- * Whether a claim still holds the entry shut for its claimant and library.
+ * Whether a claim still holds the entry shut for its claimant and asset.
  *
  * A claim that failed by exhausting its attempts locks until the challenge it
  * carried would have expired; an administrator revoking it opens the entry
@@ -204,13 +204,13 @@ export function isTerminalClaimStatus(status: ClaimStatus): boolean {
 }
 
 /**
- * Whether a claim is a dispute. requirement.md 7.3.5: a claim on a library
+ * Whether a claim is a dispute. requirement.md 7.3.5: a claim on an asset
  * that *someone else* already owns leaves the self-service flow and waits for
  * an administrator.
  *
  * One definition, because three screens and one use case ask the question and
  * a Grant control the ruling then refuses is worse than no control at all.
- * The claimant's own library is not a dispute with itself, and neither is an
+ * The claimant's own asset is not a dispute with itself, and neither is an
  * unowned one; and a claim that is no longer `pending` has already been
  * settled, so it is not waiting on anybody.
  */
@@ -228,14 +228,14 @@ export function isDisputedClaim(input: {
 
 /**
  * Whether ownership can be given up. requirement.md 7.3.5 gives the owner the
- * right to abandon a *claimed* library: it goes back to the unowned pool and
+ * right to abandon a *claimed* asset: it goes back to the unowned pool and
  * somebody else may prove control of the same source.
  *
- * A library whose creator is its owner by construction -- an upload, a
+ * An asset whose creator is its owner by construction -- an upload, a
  * Notion connection -- has no claim to release. Releasing one
  * would strand it: `owner_workspace_id` is the tenancy key for manage,
  * rebuild, delete and detail, and `claimMethodsFor` offers those source types
- * no way back in, so the library would stay public, live and unmanageable by
+ * no way back in, so the asset would stay public, live and unmanageable by
  * anyone.
  */
 export function isReleasableOwnership(kind: OwnershipView['kind']): boolean {
@@ -256,7 +256,7 @@ export type ClaimCheckKey =
 /**
  * The checks each method runs, in the order they run. The last one is the
  * conflict check every method shares: control of the source is necessary,
- * an unowned library is what makes it sufficient.
+ * an unowned asset is what makes it sufficient.
  */
 export function checksForMethod(method: ClaimMethod): readonly ClaimCheckKey[] {
   switch (method) {
@@ -330,9 +330,9 @@ export function checkStates(input: {
 /* --------------------------------------------------------- user-facing view */
 
 /**
- * What a library's ownership looks like to one workspace. requirement.md 5.2
+ * What an asset's ownership looks like to one workspace. requirement.md 5.2
  * asks the dashboard to show exactly these four, and a fifth for the case the
- * schema makes common: a library the workspace owns because it created it.
+ * schema makes common: an asset the workspace owns because it created it.
  */
 export type OwnershipView =
   | { kind: 'claimed'; claimedAt: Date | null; ownerName: string | null }
@@ -344,7 +344,7 @@ export type OwnershipView =
 export interface OwnershipFacts {
   ownerWorkspaceId: string | null;
   ownerName: string | null;
-  /** The newest claim by *this* workspace on the library, if any. */
+  /** The newest claim by *this* workspace on the asset, if any. */
   claim: {
     id: string;
     status: ClaimStatus;

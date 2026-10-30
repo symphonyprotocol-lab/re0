@@ -49,9 +49,9 @@ const encoder = new TextEncoder();
 /**
  * Fields, framed by byte length, before hashing.
  *
- * Plain concatenation is a collision waiting to happen: `libraryId` "ab" with
+ * Plain concatenation is a collision waiting to happen: `assetId` "ab" with
  * `versionId` "c" and "a" with "bc" hash to the same thing, and both are values
- * an attacker who can name a library gets to choose. Length-prefixing removes
+ * an attacker who can name an asset gets to choose. Length-prefixing removes
  * the ambiguity without needing a separator no field may contain -- and the
  * length is in UTF-8 bytes, not code units, so a re-implementation in another
  * language agrees about what a Chinese title costs.
@@ -73,13 +73,13 @@ export function anchorInstant(value: Date): string {
 }
 
 export interface VersionLeafInput {
-  libraryId: string;
+  assetId: string;
   versionId: string;
   sourceDigest: string;
-  /** `library_version.content_merkle_root` -- the proposal's `manifest_digest`. */
+  /** `asset_version.content_merkle_root` -- the proposal's `manifest_digest`. */
   contentMerkleRoot: string;
   publishedAt: Date;
-  /** Empty for a public library, whose preimage is publishable in full. */
+  /** Empty for a public asset, whose preimage is publishable in full. */
   salt: string;
 }
 
@@ -88,7 +88,7 @@ export function versionLeaf(input: VersionLeafInput): Promise<string> {
     frame([
       DOMAIN_SEPARATOR.version,
       String(ANCHOR_LEAF_SCHEMA_VERSION),
-      input.libraryId,
+      input.assetId,
       input.versionId,
       input.sourceDigest,
       input.contentMerkleRoot,
@@ -158,7 +158,7 @@ export function earningStatementLeaf(input: EarningLeafInput): Promise<string> {
  *
  * The secret stays a parameter: this module is domain code and must not read
  * the environment. `scope` is what the salt is per -- a workspace id for a
- * private library, a publisher account id for a statement -- so one leaked
+ * private asset, a publisher account id for a statement -- so one leaked
  * salt cannot be used to test candidate content against another workspace's
  * leaves.
  *

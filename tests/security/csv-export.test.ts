@@ -3,7 +3,7 @@ import { csvCell, toCsv } from '@/lib/application/administration/csv';
 
 /**
  * These files are opened in Excel and Sheets, and much of what lands in them --
- * names, emails, library titles, audit reasons -- is written by someone outside
+ * names, emails, asset titles, audit reasons -- is written by someone outside
  * the company. Both hazards below are theirs to trigger and ours to defuse.
  */
 describe('csvCell', () => {

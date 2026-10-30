@@ -16,7 +16,7 @@
  * Two disciplines, both from architecture.md 17.2:
  *
  * - the payload carries ids, counts and stable codes only. No leaf preimage, no
- *   key material, no library title -- an alert travels further than a console
+ *   key material, no asset title -- an alert travels further than a console
  *   session and lands in more inboxes than a database does;
  * - severity is about what the condition means, not how loud it feels. An empty
  *   account is critical because anchoring has stopped; a low one is a warning

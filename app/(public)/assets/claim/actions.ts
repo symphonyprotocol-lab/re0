@@ -13,7 +13,7 @@ import { requireSession } from '@/lib/http/session';
  * Both re-resolve the session (a server action is a public endpoint with a
  * generated name) and hand the use case the workspace *and role* it resolved,
  * never one from the form; the use case checks the role itself, because
- * binding a library's management and its share of the pool to a workspace is
+ * binding an asset's management and its share of the pool to a workspace is
  * the same authority as releasing it.
  *
  * What comes back is a coarse code or the 7.3.8 reason; the use case already
@@ -48,7 +48,7 @@ export interface ClaimActionResult {
 
 function refused(error: unknown): ClaimActionResult {
   if (error instanceof AppError) {
-    if (error.code === 'library_not_found') return { ok: false, error: 'not_found' };
+    if (error.code === 'asset_not_found') return { ok: false, error: 'not_found' };
     if (error.code === 'access_denied') return { ok: false, error: 'access_denied' };
     /*
      * The check did not run, so there is no reason code to show and no
@@ -66,16 +66,16 @@ export async function startClaimAction(
   _previous: ClaimActionResult | null,
   form: FormData,
 ): Promise<ClaimActionResult> {
-  const libraryId = String(form.get('libraryId') ?? '');
+  const assetId = String(form.get('assetId') ?? '');
   const method = String(form.get('method') ?? '');
-  const session = await requireSession(`/assets/claim?library=${encodeURIComponent(libraryId)}`);
+  const session = await requireSession(`/assets/claim?asset=${encodeURIComponent(assetId)}`);
   if (!isClaimMethod(method)) return { ok: false, error: 'method_unavailable' };
 
   try {
     const started = await startClaim({
       workspaceId: session.workspace.id,
       role: session.workspace.role,
-      libraryPublicId: libraryId,
+      assetPublicId: assetId,
       method,
     });
     revalidatePath('/assets/claim');

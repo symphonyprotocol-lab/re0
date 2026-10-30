@@ -129,7 +129,7 @@ export async function syncBuildTasks(taskIds?: readonly string[]): Promise<numbe
       operationId: schema.a2aTask.workflowRunId,
       status: schema.workflowOperation.status,
       error: schema.workflowOperation.error,
-      libraryId: schema.workflowOperation.libraryId,
+      assetId: schema.workflowOperation.assetId,
     })
     .from(schema.a2aTask)
     /* `workflow_run_id` is text (a run id need not be ours); the operation id is a uuid. */
@@ -145,11 +145,11 @@ export async function syncBuildTasks(taskIds?: readonly string[]): Promise<numbe
   let moved = 0;
   for (const row of rows) {
     const done = row.status === 'succeeded' || row.status === 'skipped';
-    const [asset] = row.libraryId
+    const [asset] = row.assetId
       ? await db()
-          .select({ publicId: schema.library.publicId, title: schema.library.title })
-          .from(schema.library)
-          .where(eq(schema.library.id, row.libraryId))
+          .select({ publicId: schema.asset.publicId, title: schema.asset.title })
+          .from(schema.asset)
+          .where(eq(schema.asset.id, row.assetId))
           .limit(1)
       : [];
     const outcome = done

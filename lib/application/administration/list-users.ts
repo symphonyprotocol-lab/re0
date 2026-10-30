@@ -2,7 +2,7 @@
  * Use case: the registered users the console lists.
  *
  * Reads the real `user` table. The counts beside each account come from the
- * tables that own them -- libraries from `library`, calls from `usage_summary`
+ * tables that own them -- assets from `asset`, calls from `usage_summary`
  * -- so an account with no activity reads zero rather than an invented number.
  */
 import { and, count, desc, eq, ilike, or, sql } from 'drizzle-orm';
@@ -18,7 +18,7 @@ export interface ConsoleUserRow {
   displayName: string;
   email: string;
   planName: string;
-  libraries: number;
+  assets: number;
   callsThisMonth: number;
   joinedAt: Date;
   status: string;
@@ -35,7 +35,7 @@ export interface ConsoleUserRow {
    */
   liveSessions?: number;
   liveApiKeys?: number;
-  publishedLibraries?: number;
+  publishedAssets?: number;
 }
 
 export interface UserListInput {
@@ -90,7 +90,7 @@ export async function listConsoleUsers(input: UserListInput = {}): Promise<{
    * directly, so each subquery keeps referring to the outer account row.
    */
   const userId = ref(schema.user.id);
-  const libraryWorkspace = ref(schema.library.ownerWorkspaceId);
+  const assetWorkspace = ref(schema.asset.ownerWorkspaceId);
 
   const planName = sql<string | null>`(
     select p.name from ${schema.subscription}
@@ -101,10 +101,10 @@ export async function listConsoleUsers(input: UserListInput = {}): Promise<{
     order by ${sql.join([...IN_FORCE_FIRST], sql`, `)}
     limit 1
   )`;
-  const libraryCount = sql<number>`(
-    select count(*)::int from ${schema.library}
-    join ${schema.workspaceMember} wm on wm.workspace_id = ${libraryWorkspace}
-    where wm.user_id = ${userId} and ${ref(schema.library.deletedAt)} is null
+  const assetCount = sql<number>`(
+    select count(*)::int from ${schema.asset}
+    join ${schema.workspaceMember} wm on wm.workspace_id = ${assetWorkspace}
+    where wm.user_id = ${userId} and ${ref(schema.asset.deletedAt)} is null
   )`;
   const callsThisMonth = sql<number>`(
     select coalesce(sum(${ref(schema.usageSummary.calls)}), 0)::int from ${schema.usageSummary}
@@ -123,11 +123,11 @@ export async function listConsoleUsers(input: UserListInput = {}): Promise<{
     join ${schema.workspaceMember} wm on wm.workspace_id = ${ref(schema.apiKey.workspaceId)}
     where wm.user_id = ${userId} and ${ref(schema.apiKey.revokedAt)} is null
   )`;
-  const publishedLibraries = !input.suspensionScope ? zero : sql<number>`(
-    select count(*)::int from ${schema.library}
-    join ${schema.workspaceMember} wm on wm.workspace_id = ${libraryWorkspace}
-    where wm.user_id = ${userId} and ${ref(schema.library.lifecycleStatus)} = 'published'
-      and ${ref(schema.library.deletedAt)} is null
+  const publishedAssets = !input.suspensionScope ? zero : sql<number>`(
+    select count(*)::int from ${schema.asset}
+    join ${schema.workspaceMember} wm on wm.workspace_id = ${assetWorkspace}
+    where wm.user_id = ${userId} and ${ref(schema.asset.lifecycleStatus)} = 'published'
+      and ${ref(schema.asset.deletedAt)} is null
   )`;
 
   const rows = await database
@@ -138,11 +138,11 @@ export async function listConsoleUsers(input: UserListInput = {}): Promise<{
       status: schema.user.status,
       joinedAt: schema.user.createdAt,
       planName,
-      libraries: libraryCount,
+      assets: assetCount,
       callsThisMonth,
       liveSessions,
       liveApiKeys,
-      publishedLibraries,
+      publishedAssets,
     })
     .from(schema.user)
     .where(where)
@@ -164,7 +164,7 @@ export async function listConsoleUsers(input: UserListInput = {}): Promise<{
       email: row.email,
       // No active subscription is Free by definition. requirement.md 4.1
       planName: row.planName ?? 'Free',
-      libraries: row.libraries ?? 0,
+      assets: row.assets ?? 0,
       callsThisMonth: row.callsThisMonth ?? 0,
       joinedAt: row.joinedAt,
       status: row.status,
@@ -172,7 +172,7 @@ export async function listConsoleUsers(input: UserListInput = {}): Promise<{
         ? {
             liveSessions: row.liveSessions ?? 0,
             liveApiKeys: row.liveApiKeys ?? 0,
-            publishedLibraries: row.publishedLibraries ?? 0,
+            publishedAssets: row.publishedAssets ?? 0,
           }
         : {}),
     })),

@@ -22,7 +22,7 @@
  *    finds nothing to update.
  *
  * Then the server runs it once, as that person, through the same use case
- * a Dashboard click runs (createWorkspaceLibrary, requestLibraryRebuild,
+ * a Dashboard click runs (createWorkspaceAsset, requestAssetRebuild,
  * createChannel, moveAsset -- every rule stays there; for `delegate_task`,
  * the one SendMessage of external-agents/delegation.ts), records the outcome
  * on the row, and writes an audit entry. A use case that refuses -- a move
@@ -61,13 +61,13 @@ import {
 import { channelSlugFromTitle, normalizeChannelSlug } from '@/lib/domain/channel';
 import { requiresDomainVerification } from '@/lib/domain/domain-verification';
 import { uuidv7 } from '@/lib/domain/id';
-import { normalizeLocation } from '@/lib/domain/library';
+import { normalizeLocation } from '@/lib/domain/asset';
 import { recordAudit } from '@/lib/application/administration/audit';
 import { changeTask, dataPart, textPart } from '@/lib/application/a2a/task-events';
 import { createChannel, moveAsset } from '@/lib/application/channels';
-import { createWorkspaceLibrary } from '@/lib/application/libraries/create';
-import { canManageLibraries, type WorkspaceRole } from '@/lib/application/libraries/delete';
-import { requestLibraryRebuild } from '@/lib/application/libraries/rebuild';
+import { createWorkspaceAsset } from '@/lib/application/assets/create';
+import { canManageAssets, type WorkspaceRole } from '@/lib/application/assets/delete';
+import { requestAssetRebuild } from '@/lib/application/assets/rebuild';
 import { prepareDelegation, sendDelegation } from '@/lib/application/external-agents/delegation';
 import { quoteBuild, workspaceStorage } from '@/lib/application/plans';
 import { sha256 } from '@/lib/infrastructure/crypto/tokens';
@@ -150,7 +150,7 @@ export async function proposeAction(input: ProposeInput): Promise<PendingActionV
   if (WORKBENCH_ONLY_TOOLS.has(input.tool) && input.origin !== 'workbench') {
     throw new ActionRefused('workbench_only', `"${input.tool}" is proposed only from the owner's workbench`);
   }
-  if (input.role !== null && !canManageLibraries(input.role)) {
+  if (input.role !== null && !canManageAssets(input.role)) {
     throw new AppError('access_denied', 'only a workspace owner or admin can ask for this');
   }
   const { params, summary, estimatedCalls, estimatedBytes } = await prepare(input.workspaceId, input.tool, input.args);
@@ -239,14 +239,14 @@ async function prepare(
     const [source] = await db()
       .select({ type: schema.source.type })
       .from(schema.source)
-      .where(eq(schema.source.libraryId, asset.id))
+      .where(eq(schema.source.assetId, asset.id))
       .limit(1);
     const quote = await quoteBuild({
       workspaceId,
       fetchesPages: source ? requiresDomainVerification(source.type) : false,
-      libraryId: asset.id,
+      assetId: asset.id,
     });
-    const storage = await workspaceStorage(workspaceId, { excludeLibraryId: asset.id });
+    const storage = await workspaceStorage(workspaceId, { excludeAssetId: asset.id });
     return {
       params: { tool, assetId: asset.id },
       summary: {
@@ -330,19 +330,19 @@ export async function ownedAsset(
   if (!value) throw new ActionRefused('asset_not_found', 'name the asset by its id');
   const [row] = await db()
     .select({
-      id: schema.library.id,
-      publicId: schema.library.publicId,
-      title: schema.library.title,
-      storageBytes: schema.library.storageBytes,
+      id: schema.asset.id,
+      publicId: schema.asset.publicId,
+      title: schema.asset.title,
+      storageBytes: schema.asset.storageBytes,
     })
-    .from(schema.library)
+    .from(schema.asset)
     .where(
       and(
-        UUID.test(value) ? eq(schema.library.id, value) : eq(schema.library.publicId, value.toLowerCase()),
-        eq(schema.library.ownerWorkspaceId, workspaceId),
-        eq(schema.library.isPlatformLibrary, false),
-        ne(schema.library.lifecycleStatus, 'archived'),
-        isNull(schema.library.deletedAt),
+        UUID.test(value) ? eq(schema.asset.id, value) : eq(schema.asset.publicId, value.toLowerCase()),
+        eq(schema.asset.ownerWorkspaceId, workspaceId),
+        eq(schema.asset.isPlatformAsset, false),
+        ne(schema.asset.lifecycleStatus, 'archived'),
+        isNull(schema.asset.deletedAt),
       ),
     )
     .limit(1);
@@ -392,7 +392,7 @@ async function spendableChallenge(workspaceId: string, location: string): Promis
         eq(schema.domainVerification.workspaceId, workspaceId),
         eq(schema.domainVerification.host, host),
         eq(schema.domainVerification.status, 'verified'),
-        isNull(schema.domainVerification.consumedLibraryId),
+        isNull(schema.domainVerification.consumedAssetId),
       ),
     )
     .orderBy(desc(schema.domainVerification.createdAt))
@@ -505,7 +505,7 @@ async function execute(
       const challenge = requiresDomainVerification(params.sourceType)
         ? await spendableChallenge(workspaceId, params.location)
         : null;
-      const created = await createWorkspaceLibrary({
+      const created = await createWorkspaceAsset({
         workspaceId,
         role,
         userId,
@@ -515,10 +515,10 @@ async function execute(
         slug: params.slug,
         ...(challenge ? { domainVerificationId: challenge } : {}),
       });
-      return { assetId: created.libraryId, publicId: created.publicId, operationId: created.operationId };
+      return { assetId: created.assetId, publicId: created.publicId, operationId: created.operationId };
     }
     case 'refresh_asset': {
-      const rebuilt = await requestLibraryRebuild({ workspaceId, role, libraryId: params.assetId });
+      const rebuilt = await requestAssetRebuild({ workspaceId, role, assetId: params.assetId });
       return { assetId: params.assetId, operationId: rebuilt.operationId, queued: rebuilt.created };
     }
     case 'create_channel': {

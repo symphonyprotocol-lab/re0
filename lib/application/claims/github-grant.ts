@@ -17,7 +17,7 @@ import { seal, unseal } from '@/lib/infrastructure/crypto/sealed';
 import { randomToken, timingSafeEqual } from '@/lib/infrastructure/crypto/tokens';
 import { authorizeUrl, exchangeForGrant } from '@/lib/infrastructure/identity/github';
 import { handshakeExpiry, type Handshake } from '@/lib/application/auth/handshake';
-import { canManageLibraries, type WorkspaceRole } from '@/lib/application/libraries/delete';
+import { canManageAssets, type WorkspaceRole } from '@/lib/application/assets/delete';
 import { loadClaim, notFound, workspaceRoleOf } from './shared';
 import { verifyClaim, type VerifyClaimResult } from './verify';
 
@@ -61,7 +61,7 @@ export interface BeginGithubGrantResult {
 }
 
 export async function beginGithubGrant(input: BeginGithubGrantInput): Promise<BeginGithubGrantResult> {
-  if (!canManageLibraries(input.role)) {
+  if (!canManageAssets(input.role)) {
     throw new AppError('access_denied', 'only an owner or admin may verify a claim');
   }
   const claim = await loadClaim(input.claimId);
@@ -135,7 +135,7 @@ export async function completeGithubGrant(
    * this is the check that decides.
    */
   const role = await workspaceRoleOf(input.workspaceId, input.userId);
-  if (!role || !canManageLibraries(role)) {
+  if (!role || !canManageAssets(role)) {
     throw new AppError('access_denied', 'only an owner or admin may verify a claim');
   }
 

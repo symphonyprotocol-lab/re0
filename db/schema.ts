@@ -170,7 +170,7 @@ export const user = pgTable('user', {
   status: text('status').notNull().default('active'),
   /**
    * How much the user's personal workspace may hold across all its live
-   * libraries: `base` (500 MB) or `extended` (2 GB). agent-first-proposal.md
+   * assets: `base` (500 MB) or `extended` (2 GB). agent-first-proposal.md
    * 8.1 -- raised for good by the first Additional Calls purchase, later also
    * by the first channel subscription, and never lowered. On the user rather
    * than the workspace because purchases and subscriptions are the user's.
@@ -252,7 +252,7 @@ export const githubConnection = pgTable(
  *
  * The counterpart of `githubConnection` for the one source that cannot be
  * read anonymously: the sealed token is the only way to fetch the pages the
- * person shared with the integration, so it is kept for the library's
+ * person shared with the integration, so it is kept for the asset's
  * refreshes as well as for the wizard's listing (lib/domain/notion.ts). One
  * per user; reconnecting replaces the token.
  */
@@ -368,13 +368,13 @@ export const planVersion = pgTable(
     monthlyCalls: integer('monthly_calls').notNull(),
     /**
      * Keys valid at once. The only per-workspace ceiling a version still
-     * carries: the library count is uncapped and content is bounded by the
+     * carries: the asset count is uncapped and content is bounded by the
      * owner's `user.storage_tier` (agent-first-proposal.md 8.1).
      */
     apiKeyLimit: integer('api_key_limit').notNull(),
     /**
-     * What a library build costs, frozen per version like every price here.
-     * library-build-billing.md 3.3; `lib/domain/build-billing.ts` `BuildRates`.
+     * What an asset build costs, frozen per version like every price here.
+     * asset-build-billing.md 3.3; `lib/domain/build-billing.ts` `BuildRates`.
      * The pack stores the 0 sentinel in all three, never a rate.
      */
     buildBaseCalls: integer('build_base_calls').notNull().default(1),
@@ -584,8 +584,8 @@ export const paymentCheckout = pgTable(
 
 // ---------------------------------------------------------------- knowledge
 
-export const library = pgTable(
-  'library',
+export const asset = pgTable(
+  'asset',
   {
     id: uuid('id').primaryKey(),
     /** Public, stable id such as /vercel/next.js. requirement.md 6.1 */
@@ -599,7 +599,7 @@ export const library = pgTable(
      * architecture.md 5.4 -- ingestion, review and refresh must never touch it.
      */
     ownerWorkspaceId: uuid('owner_workspace_id').references(() => workspace.id),
-    isPlatformLibrary: boolean('is_platform_library').notNull().default(false),
+    isPlatformAsset: boolean('is_platform_asset').notNull().default(false),
     /**
      * Which of the seven asset types this is (agent-first-proposal.md 3.2,
      * `lib/domain/asset.ts` `ASSET_KINDS`); follows from the one source.
@@ -620,21 +620,21 @@ export const library = pgTable(
     lastSuccessfulRefreshAt: timestamp('last_successful_refresh_at', { withTimezone: true }),
     createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
     /**
-     * The tombstone. architecture.md 8.4: a delete first makes the library
+     * The tombstone. architecture.md 8.4: a delete first makes the asset
      * unreachable in Postgres -- this column, `archived`, `deleting`, and the
      * publication pointer withdrawn -- and the Delete Workflow then removes
      * the content. The row itself stays: `usage_event` is an append-only fact
-     * that references it, and a deleted library's billing history is still
-     * history. Every list and lookup of live libraries filters on this being
+     * that references it, and a deleted asset's billing history is still
+     * history. Every list and lookup of live assets filters on this being
      * null.
      */
     deletedAt: timestamp('deleted_at', { withTimezone: true }),
     /**
      * The owner's rights declaration (lib/domain/rights.ts): origin,
      * licence, how the content was written, their note, who declared and
-     * when. Required before a public library may be submitted
-     * (review-visibility-proposal.md 5.1); null on a private library that
-     * never declared, and on libraries created before it existed.
+     * when. Required before a public asset may be submitted
+     * (review-visibility-proposal.md 5.1); null on a private asset that
+     * never declared, and on assets created before it existed.
      */
     rightsDeclaration: jsonb('rights_declaration').$type<{
       origin: string;
@@ -647,25 +647,25 @@ export const library = pgTable(
   },
   (t) => [
     /**
-     * Partial: a deleted library releases its Library ID. A workspace that
+     * Partial: a deleted asset releases its Asset ID. A workspace that
      * deletes `/owner/repo` and adds it again must not be told the id is
      * taken by a tombstone, and every lookup by `public_id` already excludes
      * deleted rows -- so the constraint only has to hold among live ones.
      */
-    uniqueIndex('library_public_id_uq')
+    uniqueIndex('asset_public_id_uq')
       .on(t.publicId)
       .where(sql`${t.deletedAt} is null`),
-    index('library_owner_idx').on(t.ownerWorkspaceId),
-    index('library_lifecycle_idx').on(t.lifecycleStatus, t.indexStatus),
+    index('asset_owner_idx').on(t.ownerWorkspaceId),
+    index('asset_lifecycle_idx').on(t.lifecycleStatus, t.indexStatus),
     /**
-     * The console's platform-library list reads `library` the other way round
-     * from the catalogue: it starts from `is_platform_library`, and the false
+     * The console's platform-asset list reads `asset` the other way round
+     * from the catalogue: it starts from `is_platform_asset`, and the false
      * rows outnumber the true ones by orders of magnitude. Partial, so this
-     * costs one entry per platform library rather than one per library.
+     * costs one entry per platform asset rather than one per asset.
      */
-    index('library_platform_idx')
+    index('asset_platform_idx')
       .on(t.lifecycleStatus, t.createdAt.desc())
-      .where(sql`${t.isPlatformLibrary}`),
+      .where(sql`${t.isPlatformAsset}`),
   ],
 );
 
@@ -719,7 +719,7 @@ export const channelAsset = pgTable(
   {
     assetId: uuid('asset_id')
       .primaryKey()
-      .references(() => library.id, { onDelete: 'cascade' }),
+      .references(() => asset.id, { onDelete: 'cascade' }),
     channelId: uuid('channel_id')
       .notNull()
       .references(() => channel.id, { onDelete: 'cascade' }),
@@ -761,20 +761,20 @@ export const channelVisit = pgTable(
  * page, where every visitor can read it, so a hash would protect nothing.
  * What the row protects is spelled out in its columns -- the origins that may
  * embed the widget and how many Calls a day the key may spend. One key serves
- * one library; the widget answers from that library and nothing else.
+ * one asset; the widget answers from that asset and nothing else.
  */
 export const siteKey = pgTable(
   'site_key',
   {
     id: uuid('id').primaryKey(),
     workspaceId: uuid('workspace_id').notNull().references(() => workspace.id),
-    libraryId: uuid('library_id').notNull().references(() => library.id),
+    assetId: uuid('asset_id').notNull().references(() => asset.id),
     name: text('name').notNull(),
     key: text('key').notNull(),
     /**
      * `embed` is the owner's key for their own site. `showcase` is the key a
      * showcase page of ours answers through: never listed to the owner,
-     * never counted against the per-library key limit, revoked with its page.
+     * never counted against the per-asset key limit, revoked with its page.
      */
     kind: siteKeyKindEnum('kind').notNull().default('embed'),
     /** Normalised origins (scheme://host[:port]) that may embed the widget. */
@@ -791,8 +791,8 @@ export const siteKey = pgTable(
   },
   (t) => [
     uniqueIndex('site_key_key_uq').on(t.key),
-    /** The library page lists its keys; authentication never does. */
-    index('site_key_library_idx').on(t.libraryId),
+    /** The asset page lists its keys; authentication never does. */
+    index('site_key_asset_idx').on(t.assetId),
   ],
 );
 
@@ -824,20 +824,20 @@ export const siteKeyOrigin = pgTable(
 );
 
 /**
- * What the website widget was asked, per library. requirement.md 9.4,
+ * What the website widget was asked, per asset. requirement.md 9.4,
  * lib/application/embed/exchanges.ts.
  *
  * The request log keeps no query text (architecture.md 17.1); this table
  * does, on purpose: a visitor asked the owner's site, and the owner reads
- * what their visitors ask and what they were told to grow the library from
- * it. Scoped to the library, nothing of the visitor beyond the site they
+ * what their visitors ask and what they were told to grow the asset from
+ * it. Scoped to the asset, nothing of the visitor beyond the site they
  * asked from; the owner's own try-outs from the dashboard are previews.
  */
 export const widgetExchange = pgTable(
   'widget_exchange',
   {
     id: uuid('id').primaryKey(),
-    libraryId: uuid('library_id').notNull().references(() => library.id),
+    assetId: uuid('asset_id').notNull().references(() => asset.id),
     workspaceId: uuid('workspace_id').notNull().references(() => workspace.id),
     /** Kept after the key is revoked; null once the key row is gone. */
     siteKeyId: uuid('site_key_id').references(() => siteKey.id, { onDelete: 'set null' }),
@@ -856,22 +856,22 @@ export const widgetExchange = pgTable(
     feedback: text('feedback'),
     createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
   },
-  (t) => [index('widget_exchange_library_time_idx').on(t.libraryId, t.createdAt)],
+  (t) => [index('widget_exchange_asset_time_idx').on(t.assetId, t.createdAt)],
 );
 
 /**
- * The owner's FAQ for a library. requirement.md 9.4, lib/domain/faq.ts.
+ * The owner's FAQ for an asset. requirement.md 9.4, lib/domain/faq.ts.
  *
  * Each entry becomes a document of the next build -- question as title,
  * answer as body, cited to `pageUrl` -- so a recurring widget question finds
- * a chunk written for it. `libraryVersion.faqDigest` remembers the FAQ a
+ * a chunk written for it. `assetVersion.faqDigest` remembers the FAQ a
  * version was built with.
  */
-export const libraryFaq = pgTable(
-  'library_faq',
+export const assetFaq = pgTable(
+  'asset_faq',
   {
     id: uuid('id').primaryKey(),
-    libraryId: uuid('library_id').notNull().references(() => library.id),
+    assetId: uuid('asset_id').notNull().references(() => asset.id),
     workspaceId: uuid('workspace_id').notNull().references(() => workspace.id),
     question: text('question').notNull(),
     answer: text('answer').notNull(),
@@ -880,24 +880,24 @@ export const libraryFaq = pgTable(
     createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
     updatedAt: timestamp('updated_at', { withTimezone: true }).notNull().defaultNow(),
   },
-  (t) => [index('library_faq_library_idx').on(t.libraryId, t.createdAt)],
+  (t) => [index('asset_faq_asset_idx').on(t.assetId, t.createdAt)],
 );
 
 /**
- * A library shared as a standalone page. lib/domain/showcase.ts.
+ * An asset shared as a standalone page. lib/domain/showcase.ts.
  *
- * One live row per library. The page answers through its own `siteKey`
+ * One live row per asset. The page answers through its own `siteKey`
  * (kind `showcase`), so the widget's exchange log, FAQ and quota brakes
  * apply unchanged. `content` is the owner's copy for the top of the page,
  * validated by the domain before it is stored; `starterQuestions` the chips
  * under it. `slug` is the public address; `previousSlug` keeps the last one
  * so a link already shared keeps working after a rename.
  */
-export const libraryShowcase = pgTable(
-  'library_showcase',
+export const assetShowcase = pgTable(
+  'asset_showcase',
   {
     id: uuid('id').primaryKey(),
-    libraryId: uuid('library_id').notNull().references(() => library.id),
+    assetId: uuid('asset_id').notNull().references(() => asset.id),
     workspaceId: uuid('workspace_id').notNull().references(() => workspace.id),
     siteKeyId: uuid('site_key_id').notNull().references(() => siteKey.id),
     kind: showcaseKindEnum('kind').notNull(),
@@ -926,26 +926,26 @@ export const libraryShowcase = pgTable(
     deletedAt: timestamp('deleted_at', { withTimezone: true }),
   },
   (t) => [
-    uniqueIndex('library_showcase_library_uq')
-      .on(t.libraryId)
+    uniqueIndex('asset_showcase_asset_uq')
+      .on(t.assetId)
       .where(sql`${t.deletedAt} is null`),
-    uniqueIndex('library_showcase_slug_uq')
+    uniqueIndex('asset_showcase_slug_uq')
       .on(t.slug)
       .where(sql`${t.deletedAt} is null`),
-    index('library_showcase_previous_slug_idx')
+    index('asset_showcase_previous_slug_idx')
       .on(t.previousSlug)
       .where(sql`${t.previousSlug} is not null`),
-    index('library_showcase_workspace_idx').on(t.workspaceId),
+    index('asset_showcase_workspace_idx').on(t.workspaceId),
   ],
 );
 
 /** Views, questions and CTA clicks per showcase page and UTC day. Counters, written off the request path. */
-export const libraryShowcaseDaily = pgTable(
-  'library_showcase_daily',
+export const assetShowcaseDaily = pgTable(
+  'asset_showcase_daily',
   {
     showcaseId: uuid('showcase_id')
       .notNull()
-      .references(() => libraryShowcase.id, { onDelete: 'cascade' }),
+      .references(() => assetShowcase.id, { onDelete: 'cascade' }),
     day: date('day', { mode: 'string' }).notNull(),
     views: integer('views').notNull().default(0),
     questions: integer('questions').notNull().default(0),
@@ -957,7 +957,7 @@ export const libraryShowcaseDaily = pgTable(
 
 /**
  * A lead left on a showcase page (lib/domain/showcase.ts `validateLead`):
- * a visitor the library could not answer, their contact, and the exchange
+ * a visitor the asset could not answer, their contact, and the exchange
  * they were in. The one table that holds a visitor's personal data; the
  * exchange log never does, and nothing here is embedded or grouped.
  */
@@ -967,8 +967,8 @@ export const showcaseLead = pgTable(
     id: uuid('id').primaryKey(),
     showcaseId: uuid('showcase_id')
       .notNull()
-      .references(() => libraryShowcase.id, { onDelete: 'cascade' }),
-    libraryId: uuid('library_id').notNull().references(() => library.id),
+      .references(() => assetShowcase.id, { onDelete: 'cascade' }),
+    assetId: uuid('asset_id').notNull().references(() => asset.id),
     workspaceId: uuid('workspace_id').notNull().references(() => workspace.id),
     exchangeId: uuid('exchange_id').references(() => widgetExchange.id, { onDelete: 'set null' }),
     email: text('email').notNull(),
@@ -1000,7 +1000,7 @@ export const showcaseDomain = pgTable(
     id: uuid('id').primaryKey(),
     showcaseId: uuid('showcase_id')
       .notNull()
-      .references(() => libraryShowcase.id, { onDelete: 'cascade' }),
+      .references(() => assetShowcase.id, { onDelete: 'cascade' }),
     workspaceId: uuid('workspace_id').notNull().references(() => workspace.id),
     host: text('host').notNull(),
     status: showcaseDomainStatusEnum('status').notNull().default('pending_ownership'),
@@ -1017,21 +1017,21 @@ export const showcaseDomain = pgTable(
   (t) => [uniqueIndex('showcase_domain_showcase_uq').on(t.showcaseId), uniqueIndex('showcase_domain_host_uq').on(t.host)],
 );
 
-export const libraryAlias = pgTable(
-  'library_alias',
+export const assetAlias = pgTable(
+  'asset_alias',
   {
     id: uuid('id').primaryKey(),
     fromPublicId: text('from_public_id').notNull(),
-    libraryId: uuid('library_id').notNull().references(() => library.id),
+    assetId: uuid('asset_id').notNull().references(() => asset.id),
   },
-  (t) => [uniqueIndex('library_alias_uq').on(t.fromPublicId)],
+  (t) => [uniqueIndex('asset_alias_uq').on(t.fromPublicId)],
 );
 
 export const source = pgTable(
   'source',
   {
     id: uuid('id').primaryKey(),
-    libraryId: uuid('library_id').notNull().references(() => library.id),
+    assetId: uuid('asset_id').notNull().references(() => asset.id),
     type: sourceTypeEnum('type').notNull(),
     location: text('location').notNull(),
     config: jsonb('config').$type<Record<string, unknown>>().notNull().default({}),
@@ -1039,14 +1039,14 @@ export const source = pgTable(
     credentialRef: text('credential_ref'),
     refreshPolicy: jsonb('refresh_policy').$type<Record<string, unknown>>().notNull().default({}),
   },
-  (t) => [index('source_library_idx').on(t.libraryId)],
+  (t) => [index('source_asset_idx').on(t.assetId)],
 );
 
-export const libraryVersion = pgTable(
-  'library_version',
+export const assetVersion = pgTable(
+  'asset_version',
   {
     id: uuid('id').primaryKey(),
-    libraryId: uuid('library_id').notNull().references(() => library.id),
+    assetId: uuid('asset_id').notNull().references(() => asset.id),
     label: text('label').notNull(),
     sourceDigest: text('source_digest').notNull(),
     /**
@@ -1078,7 +1078,7 @@ export const libraryVersion = pgTable(
     embeddingDimensions: integer('embedding_dimensions').notNull().default(1536),
     /**
      * The text-search configuration its chunks were indexed with, resolved from
-     * the library's language at build time.
+     * the asset's language at build time.
      *
      * Frozen here alongside the parser, chunker and embedding model
      * (requirement.md 8.1) because it is the fourth thing that decides what a
@@ -1087,7 +1087,7 @@ export const libraryVersion = pgTable(
      */
     /**
      * The FAQ this version was built with (lib/domain/faq.ts `faqCanonical`,
-     * hashed); null when the library had none. A build compares it to know
+     * hashed); null when the asset had none. A build compares it to know
      * whether an edit to the FAQ alone is a change.
      */
     faqDigest: text('faq_digest'),
@@ -1096,7 +1096,7 @@ export const libraryVersion = pgTable(
     contentMerkleRoot: text('content_merkle_root'),
     /**
      * The bottom-k sketch of this version's chunks (lib/domain/fingerprint.ts),
-     * for the review rules' duplicate check against published libraries.
+     * for the review rules' duplicate check against published assets.
      * Null on versions built before it existed, which simply never match.
      */
     contentSketch: jsonb('content_sketch').$type<string[]>(),
@@ -1107,27 +1107,27 @@ export const libraryVersion = pgTable(
     createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
   },
   (t) => [
-    index('library_version_library_idx').on(t.libraryId, t.createdAt.desc()),
+    index('asset_version_asset_idx').on(t.assetId, t.createdAt.desc()),
     /** One build per label: the console's version list is chosen from by label. */
-    uniqueIndex('library_version_label_uq').on(t.libraryId, t.label),
+    uniqueIndex('asset_version_label_uq').on(t.assetId, t.label),
   ],
 );
 
-export const libraryReview = pgTable('library_review', {
+export const assetReview = pgTable('asset_review', {
   id: uuid('id').primaryKey(),
-  libraryId: uuid('library_id').notNull().references(() => library.id),
-  versionId: uuid('version_id').references(() => libraryVersion.id),
+  assetId: uuid('asset_id').notNull().references(() => asset.id),
+  versionId: uuid('version_id').references(() => assetVersion.id),
   stage: text('stage').notNull(),
   outcome: text('outcome'),
   feedback: jsonb('feedback').$type<string[]>().notNull().default([]),
   /**
    * requirement.md 7.4's five checks, each with a verdict and a note
-   * (lib/domain/review.ts `ReviewChecklist`). Null on a private library's
+   * (lib/domain/review.ts `ReviewChecklist`). Null on a private asset's
    * safety pause, and on rows written before the checklist existed.
    */
   checklist: jsonb('checklist').$type<Record<string, { verdict: string; note: string }>>(),
   /**
-   * The machine decision this row appeals (lib/domain/library.ts
+   * The machine decision this row appeals (lib/domain/asset.ts
    * `appealableDecision`): set on the owner's `appeal` row, null otherwise.
    * No foreign key, like `reviewer_id`: the rows are append-only anyway.
    */
@@ -1139,13 +1139,13 @@ export const libraryReview = pgTable('library_review', {
 
 /**
  * Ownership claim. requirement.md 7.3, architecture.md 5.4.
- * A partial unique index keeps at most one pending claim per library.
+ * A partial unique index keeps at most one pending claim per asset.
  */
-export const libraryClaim = pgTable(
-  'library_claim',
+export const assetClaim = pgTable(
+  'asset_claim',
   {
     id: uuid('id').primaryKey(),
-    libraryId: uuid('library_id').notNull().references(() => library.id),
+    assetId: uuid('asset_id').notNull().references(() => asset.id),
     claimantWorkspaceId: uuid('claimant_workspace_id').notNull().references(() => workspace.id),
     method: claimMethodEnum('method').notNull(),
     /** Hash only. The plaintext challenge is returned once, at creation. */
@@ -1160,21 +1160,21 @@ export const libraryClaim = pgTable(
     createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
   },
   (t) => [
-    uniqueIndex('library_claim_pending_uq')
-      .on(t.libraryId)
+    uniqueIndex('asset_claim_pending_uq')
+      .on(t.assetId)
       .where(sql`${t.status} = 'pending'`),
-    index('library_claim_claimant_idx').on(t.claimantWorkspaceId),
+    index('asset_claim_claimant_idx').on(t.claimantWorkspaceId),
   ],
 );
 
 /**
  * A challenge proving a workspace controls a host, met before a website
- * library may be created from it (requirement.md 7.3.2,
+ * asset may be created from it (requirement.md 7.3.2,
  * architecture.md 5.4, lib/domain/domain-verification.ts). Reuses the claim
- * enums: a domain challenge is a claim made before the library exists, and
- * a verified one is copied onto `library_claim` when the library is created.
+ * enums: a domain challenge is a claim made before the asset exists, and
+ * a verified one is copied onto `asset_claim` when the asset is created.
  * Hash only; the plaintext token is returned once. Spent on exactly one
- * library through `consumed_library_id`.
+ * asset through `consumed_asset_id`.
  */
 export const domainVerification = pgTable(
   'domain_verification',
@@ -1189,33 +1189,33 @@ export const domainVerification = pgTable(
     attempts: integer('attempts').notNull().default(0),
     expiresAt: timestamp('expires_at', { withTimezone: true }).notNull(),
     verifiedAt: timestamp('verified_at', { withTimezone: true }),
-    consumedLibraryId: uuid('consumed_library_id').references(() => library.id, { onDelete: 'set null' }),
+    consumedAssetId: uuid('consumed_asset_id').references(() => asset.id, { onDelete: 'set null' }),
     createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
   },
   (t) => [index('domain_verification_workspace_idx').on(t.workspaceId, t.createdAt)],
 );
 
-export const libraryScore = pgTable(
-  'library_score',
+export const assetScore = pgTable(
+  'asset_score',
   {
     id: uuid('id').primaryKey(),
-    libraryId: uuid('library_id').notNull().references(() => library.id),
+    assetId: uuid('asset_id').notNull().references(() => asset.id),
     algorithmVersion: text('algorithm_version').notNull(),
     trustScore: integer('trust_score').notNull(),
     benchmarkScore: integer('benchmark_score').notNull(),
     breakdown: jsonb('breakdown').$type<Record<string, number>>().notNull().default({}),
     computedAt: timestamp('computed_at', { withTimezone: true }).notNull().defaultNow(),
   },
-  /** "This library's newest score", which the catalogue reads per row. */
-  (t) => [index('library_score_current_idx').on(t.libraryId, t.computedAt.desc())],
+  /** "This asset's newest score", which the catalogue reads per row. */
+  (t) => [index('asset_score_current_idx').on(t.assetId, t.computedAt.desc())],
 );
 
 export const document = pgTable(
   'document',
   {
     id: uuid('id').primaryKey(),
-    libraryId: uuid('library_id').notNull().references(() => library.id),
-    versionId: uuid('version_id').notNull().references(() => libraryVersion.id),
+    assetId: uuid('asset_id').notNull().references(() => asset.id),
+    versionId: uuid('version_id').notNull().references(() => assetVersion.id),
     title: text('title').notNull(),
     sourceUrl: text('source_url').notNull(),
     objectKey: text('object_key'),
@@ -1233,7 +1233,7 @@ export const document = pgTable(
     safetyFindings: jsonb('safety_findings').$type<string[]>().notNull().default([]),
   },
   /** Documents are counted per version -- versions are immutable, so a count by
-      library would include every superseded build. */
+      asset would include every superseded build. */
   (t) => [index('document_version_idx').on(t.versionId)],
 );
 
@@ -1245,8 +1245,8 @@ export const chunk = pgTable(
   'chunk',
   {
     id: uuid('id').primaryKey(),
-    libraryId: uuid('library_id').notNull().references(() => library.id),
-    versionId: uuid('version_id').notNull().references(() => libraryVersion.id),
+    assetId: uuid('asset_id').notNull().references(() => asset.id),
+    versionId: uuid('version_id').notNull().references(() => assetVersion.id),
     documentId: uuid('document_id').notNull().references(() => document.id),
     ordinal: integer('ordinal').notNull(),
     body: text('body').notNull(),
@@ -1255,10 +1255,10 @@ export const chunk = pgTable(
     safetyStatus: text('safety_status').notNull().default('clean'),
     /**
      * The Postgres text-search configuration this chunk was indexed with,
-     * resolved from `library.language` at build time.
+     * resolved from `asset.language` at build time.
      *
      * Denormalized because a generated column may only read its own row -- and
-     * because editing the library's language afterwards must not restate what
+     * because editing the asset's language afterwards must not restate what
      * an already published Version means. See `lib/domain/ingestion.ts`.
      */
     searchConfig: text('search_config').notNull().default('simple'),
@@ -1328,7 +1328,7 @@ export const chunk = pgTable(
     embedding: vector('embedding', { dimensions: 1536 }),
   },
   (t) => [
-    index('chunk_library_version_idx').on(t.libraryId, t.versionId),
+    index('chunk_asset_version_idx').on(t.assetId, t.versionId),
     index('chunk_search_vector_cjk_idx').using('gin', t.searchVectorCjk),
     /*
      * No ANN index on `embedding` -- deliberately. architecture.md 9.1:
@@ -1336,7 +1336,7 @@ export const chunk = pgTable(
      * scan of that version's few thousand rows via the index above. A global
      * HNSW here would be maintained on every ingestion insert and searched
      * with a filter it cannot honour. The picture-layer HNSW lives on
-     * `library_profile_vector`, which is small enough to be one.
+     * `asset_profile_vector`, which is small enough to be one.
      */
     index('chunk_search_vector_idx').using('gin', t.searchVector),
     /** One chunk per position, so a retried build cannot duplicate one. */
@@ -1351,11 +1351,11 @@ export const chunk = pgTable(
 );
 
 /**
- * The library profile: content-derived routing data. architecture.md 9.6.
+ * The asset profile: content-derived routing data. architecture.md 9.6.
  *
  * One row per built Version, written in the `profile` step of a build and
- * immutable after it, like everything else the version carries. Library-level
- * discovery searches this row -- never `library.title`, which on a UGC
+ * immutable after it, like everything else the version carries. Asset-level
+ * discovery searches this row -- never `asset.title`, which on a UGC
  * platform carries no signal about the content.
  *
  * `search_text` is pre-segmented (space-joined titles and extracted terms, CJK
@@ -1363,12 +1363,12 @@ export const chunk = pgTable(
  * is the right configuration here even though it is the wrong one for CJK
  * chunk bodies: segmentation happened before Postgres ever saw the text.
  */
-export const libraryProfile = pgTable(
-  'library_profile',
+export const assetProfile = pgTable(
+  'asset_profile',
   {
     id: uuid('id').primaryKey(),
-    libraryId: uuid('library_id').notNull().references(() => library.id),
-    versionId: uuid('version_id').notNull().references(() => libraryVersion.id),
+    assetId: uuid('asset_id').notNull().references(() => asset.id),
+    versionId: uuid('version_id').notNull().references(() => assetVersion.id),
     /** Which extractor built this row; a new extractor rebuilds, never mixes. */
     profileVersion: text('profile_version').notNull(),
     documentTitles: jsonb('document_titles').$type<string[]>().notNull(),
@@ -1380,31 +1380,31 @@ export const libraryProfile = pgTable(
     createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
   },
   (t) => [
-    uniqueIndex('library_profile_version_uq').on(t.versionId),
-    index('library_profile_library_idx').on(t.libraryId),
-    index('library_profile_search_idx').using('gin', t.searchVector),
+    uniqueIndex('asset_profile_version_uq').on(t.versionId),
+    index('asset_profile_asset_idx').on(t.assetId),
+    index('asset_profile_search_idx').using('gin', t.searchVector),
   ],
 );
 
 /**
  * The picture-layer vectors: centroid embeddings of a version's chunks, a
- * handful per library. architecture.md 9.1 and 9.6 -- this table is the one
+ * handful per asset. architecture.md 9.1 and 9.6 -- this table is the one
  * place a global HNSW is affordable and correct, because its row count is
- * libraries x centroids (tens per library), not chunks.
+ * assets x centroids (tens per asset), not chunks.
  */
-export const libraryProfileVector = pgTable(
-  'library_profile_vector',
+export const assetProfileVector = pgTable(
+  'asset_profile_vector',
   {
     id: uuid('id').primaryKey(),
-    libraryId: uuid('library_id').notNull().references(() => library.id),
-    versionId: uuid('version_id').notNull().references(() => libraryVersion.id),
+    assetId: uuid('asset_id').notNull().references(() => asset.id),
+    versionId: uuid('version_id').notNull().references(() => assetVersion.id),
     ordinal: integer('ordinal').notNull(),
     embedding: vector('embedding', { dimensions: 1536 }).notNull(),
   },
   (t) => [
-    uniqueIndex('library_profile_vector_uq').on(t.versionId, t.ordinal),
-    index('library_profile_vector_library_idx').on(t.libraryId),
-    index('library_profile_vector_hnsw_idx').using(
+    uniqueIndex('asset_profile_vector_uq').on(t.versionId, t.ordinal),
+    index('asset_profile_vector_asset_idx').on(t.assetId),
+    index('asset_profile_vector_hnsw_idx').using(
       'hnsw',
       t.embedding.op('vector_cosine_ops'),
     ),
@@ -1520,7 +1520,7 @@ export const llmConfig = pgTable(
  * retrieval *is*, and the history of when it changed is the table itself.
  *
  * `dimensions` belongs only to an embedding entry and is what
- * `library_version.embedding_dimensions` freezes; the stored vector columns
+ * `asset_version.embedding_dimensions` freezes; the stored vector columns
  * are wider and narrower vectors are padded into them (lib/domain/model-config.ts).
  * A rerank row leaves it null.
  */
@@ -1638,15 +1638,15 @@ export const llmAudienceAssignment = pgTable(
  * One row per model call the playground made: the cost metric of 9.5 ("模型
  * Token 只进成本指标"). Token counts and the cost computed with the config's
  * frozen prices -- never the query, never the answer (same secrecy as the
- * query itself). The library is referenced by public id, deliberately without
- * a foreign key: spend history must survive the library it was spent on.
+ * query itself). The asset is referenced by public id, deliberately without
+ * a foreign key: spend history must survive the asset it was spent on.
  */
 export const llmCostEvent = pgTable(
   'llm_cost_event',
   {
     id: uuid('id').primaryKey(),
     configId: uuid('config_id').notNull().references(() => llmConfig.id),
-    libraryPublicId: text('library_public_id').notNull(),
+    assetPublicId: text('asset_public_id').notNull(),
     workspaceId: uuid('workspace_id'),
     model: text('model').notNull(),
     promptTokens: integer('prompt_tokens').notNull(),
@@ -1676,7 +1676,7 @@ export const policyVersion = pgTable('policy_version', {
   createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
 });
 
-export const policyLibraryEntry = pgTable('policy_library_entry', {
+export const policyAssetEntry = pgTable('policy_asset_entry', {
   id: uuid('id').primaryKey(),
   policyVersionId: uuid('policy_version_id').notNull().references(() => policyVersion.id),
   kind: text('kind').notNull(),
@@ -1714,8 +1714,8 @@ export const usageEvent = pgTable(
     id: uuid('id').primaryKey(),
     workspaceId: uuid('workspace_id').notNull().references(() => workspace.id),
     requestId: text('request_id').notNull(),
-    libraryId: uuid('library_id').references(() => library.id),
-    versionId: uuid('version_id').references(() => libraryVersion.id),
+    assetId: uuid('asset_id').references(() => asset.id),
+    versionId: uuid('version_id').references(() => assetVersion.id),
     operation: text('operation').notNull(),
     entrypoint: text('entrypoint').notNull(),
     /** 'plan' or 'addon'. Recorded so billing disputes need no reconstruction. */
@@ -1738,9 +1738,9 @@ export const usageEvent = pgTable(
   (t) => [
     uniqueIndex('usage_event_request_uq').on(t.requestId),
     index('usage_event_workspace_time_idx').on(t.workspaceId, t.createdAt),
-    /** Retrieval calls per library, for the console's per-library figures. */
-    index('usage_event_library_time_idx').on(t.libraryId, t.createdAt),
-    /** "What did this version's build cost", read by the library page. */
+    /** Retrieval calls per asset, for the console's per-asset figures. */
+    index('usage_event_asset_time_idx').on(t.assetId, t.createdAt),
+    /** "What did this version's build cost", read by the asset page. */
     index('usage_event_version_idx')
       .on(t.versionId)
       .where(sql`${t.entrypoint} = 'build'`),
@@ -1986,7 +1986,7 @@ export const workflowOperation = pgTable(
   'workflow_operation',
   {
     id: uuid('id').primaryKey(),
-    libraryId: uuid('library_id').references(() => library.id),
+    assetId: uuid('asset_id').references(() => asset.id),
     operationType: text('operation_type').notNull(),
     sourceDigest: text('source_digest'),
     /**
@@ -2029,7 +2029,7 @@ export const workflowOperation = pgTable(
       chunksDone?: number;
     }>(),
     /**
-     * The build's seat in the call ledger. library-build-billing.md 4:
+     * The build's seat in the call ledger. asset-build-billing.md 4:
      * `quoted_calls` is the cap reserved before fetching, `charged_calls` the
      * priced figure once chunking measured the build; the reservation is
      * committed with the version's publication and released on every other
@@ -2042,9 +2042,9 @@ export const workflowOperation = pgTable(
     updatedAt: timestamp('updated_at', { withTimezone: true }).notNull().defaultNow(),
   },
   (t) => [
-    uniqueIndex('workflow_operation_uq').on(t.libraryId, t.sourceDigest, t.operationType),
-    /** "Is anything open for this library", and the queue depth above the list. */
-    index('workflow_operation_library_idx').on(t.libraryId, t.operationType, t.status),
+    uniqueIndex('workflow_operation_uq').on(t.assetId, t.sourceDigest, t.operationType),
+    /** "Is anything open for this asset", and the queue depth above the list. */
+    index('workflow_operation_asset_idx').on(t.assetId, t.operationType, t.status),
     /** The queue drain: oldest pending first, which every worker asks for. */
     index('workflow_operation_pending_idx')
       .on(t.createdAt)
@@ -2063,10 +2063,10 @@ export const requestLog = pgTable(
     operation: text('operation').notNull(),
     /**
      * By public id and without a foreign key, like the cost events: the
-     * request history a user reads must survive the library it touched.
+     * request history a user reads must survive the asset it touched.
      * The query text is deliberately absent (architecture.md 17.1).
      */
-    libraryPublicId: text('library_public_id'),
+    assetPublicId: text('asset_public_id'),
     /** 'rest' | 'mcp' | 'web' -- which door the request came through. */
     entrypoint: text('entrypoint'),
     statusCode: integer('status_code').notNull(),
@@ -2075,7 +2075,7 @@ export const requestLog = pgTable(
     returnedTokens: integer('returned_tokens'),
     /**
      * The key that authenticated the request, so the screen can show its
-     * masked prefix. No foreign key, like the library above: the log must
+     * masked prefix. No foreign key, like the asset above: the log must
      * outlive whatever it names, and a key row is only ever revoked anyway.
      */
     apiKeyId: uuid('api_key_id'),
@@ -2094,7 +2094,7 @@ export const requestLog = pgTable(
 
 export const report = pgTable('report', {
   id: uuid('id').primaryKey(),
-  libraryId: uuid('library_id').notNull().references(() => library.id),
+  assetId: uuid('asset_id').notNull().references(() => asset.id),
   reporterUserId: uuid('reporter_user_id').references(() => user.id),
   category: text('category').notNull(),
   detail: text('detail'),
@@ -2521,7 +2521,7 @@ export const postDraft = pgTable(
   {
     assetId: uuid('asset_id')
       .primaryKey()
-      .references(() => library.id, { onDelete: 'cascade' }),
+      .references(() => asset.id, { onDelete: 'cascade' }),
     title: text('title').notNull(),
     summary: text('summary'),
     body: text('body').notNull().default(''),
@@ -2551,7 +2551,7 @@ export const assetMedia = pgTable(
     id: uuid('id').primaryKey(),
     assetId: uuid('asset_id')
       .notNull()
-      .references(() => library.id, { onDelete: 'cascade' }),
+      .references(() => asset.id, { onDelete: 'cascade' }),
     workspaceId: uuid('workspace_id')
       .notNull()
       .references(() => workspace.id, { onDelete: 'cascade' }),
@@ -2588,7 +2588,7 @@ export const comment = pgTable(
     id: uuid('id').primaryKey(),
     assetId: uuid('asset_id')
       .notNull()
-      .references(() => library.id, { onDelete: 'cascade' }),
+      .references(() => asset.id, { onDelete: 'cascade' }),
     authorUserId: uuid('author_user_id').references(() => user.id, { onDelete: 'set null' }),
     /** A self-reference, so its foreign key (cascading) lives in the migration only. */
     parentId: uuid('parent_id'),
@@ -2672,7 +2672,7 @@ export const answerEndorsement = pgTable(
     answerRef: uuid('answer_ref')
       .notNull()
       .references(() => twinAnswer.id, { onDelete: 'cascade' }),
-    versionId: uuid('version_id').references(() => libraryVersion.id, { onDelete: 'set null' }),
+    versionId: uuid('version_id').references(() => assetVersion.id, { onDelete: 'set null' }),
     versionLabel: text('version_label'),
     endorsedBy: uuid('endorsed_by').references(() => user.id, { onDelete: 'set null' }),
     createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
@@ -2699,7 +2699,7 @@ export const channelQuestion = pgTable(
     state: text('state').$type<'open' | 'answered' | 'dismissed'>().notNull().default('open'),
     commentId: uuid('comment_id').references(() => comment.id, { onDelete: 'set null' }),
     twinAnswerId: uuid('twin_answer_id').references(() => twinAnswer.id, { onDelete: 'set null' }),
-    answerAssetId: uuid('answer_asset_id').references(() => library.id, { onDelete: 'set null' }),
+    answerAssetId: uuid('answer_asset_id').references(() => asset.id, { onDelete: 'set null' }),
     askerNameConsent: boolean('asker_name_consent').notNull().default(false),
     createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
     answeredAt: timestamp('answered_at', { withTimezone: true }),

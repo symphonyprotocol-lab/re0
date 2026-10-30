@@ -10,7 +10,7 @@ import { clientAddress } from '@/lib/http/client-address';
 
 /**
  * The console's two moves over a showcase page: take it down, reinstate
- * it. Each re-resolves the session and re-checks the `libraries`
+ * it. Each re-resolves the session and re-checks the `assets`
  * capability (content review, lib/domain/admin.ts), takes a reason, and
  * the use case writes the audit row.
  */
@@ -23,7 +23,7 @@ export async function moderateShowcaseAction(
   _previous: ShowcaseAdminActionResult | null,
   form: FormData,
 ): Promise<ShowcaseAdminActionResult> {
-  const session = await requireAdminCapability('libraries');
+  const session = await requireAdminCapability('assets');
   const verb = String(form.get('verb') ?? '');
   if (verb !== 'take_down' && verb !== 'reinstate') return { ok: false, error: 'not_applicable' };
   const showcaseId = String(form.get('showcaseId') ?? '');
@@ -45,7 +45,7 @@ export async function moderateShowcaseAction(
   } catch (error) {
     if (error instanceof AdminChangeRefused && error.code === 'reason_required') return { ok: false, error: 'reason_required' };
     if (error instanceof AppError) {
-      if (error.code === 'library_not_found') return { ok: false, error: 'not_found' };
+      if (error.code === 'asset_not_found') return { ok: false, error: 'not_found' };
       if (error.code === 'invalid_request') return { ok: false, error: 'not_applicable' };
     }
     console.error(`showcase ${verb} failed: ${error instanceof Error ? error.message : 'unknown'}`);

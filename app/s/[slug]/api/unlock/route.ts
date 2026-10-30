@@ -42,7 +42,7 @@ export async function POST(request: NextRequest, context: { params: Promise<{ sl
     if (!visitor.allowed) throw new AppError('rate_limited', 'too many tries; wait a while');
 
     const page = await showcasePasswordFor(slug);
-    if (!page || isShowcaseExpired(page.gate.expiresAt)) throw new AppError('library_not_found', 'no such page');
+    if (!page || isShowcaseExpired(page.gate.expiresAt)) throw new AppError('asset_not_found', 'no such page');
     if (!isShowcaseOrigin(request.headers.get('origin'), request, configuredBaseUrl(), page.customHost)) {
       throw new AppError('access_denied', 'a showcase page unlocks only on its own site');
     }

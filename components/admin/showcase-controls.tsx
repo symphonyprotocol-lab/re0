@@ -3,7 +3,7 @@
 import { useRouter } from 'next/navigation';
 import { useActionState, useEffect, useState } from 'react';
 import { ConsoleButton, IconButton } from '@/components/admin/ui';
-import { FIELD, submitOn } from '@/components/admin/platform-library-shared';
+import { FIELD, submitOn } from '@/components/admin/platform-asset-shared';
 import { BanIcon, RefreshIcon } from '@/components/ui/icons';
 import type { ShowcaseAdminActionResult } from '@/app/admin/(console)/showcases/actions';
 import { useI18n } from '@/lib/i18n/client';

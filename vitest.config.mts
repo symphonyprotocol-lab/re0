@@ -14,7 +14,7 @@ import { fileURLToPath } from 'node:url';
  *
  * Integration files run one at a time, because they share one database and
  * several of them assert on figures the whole database contributes to -- the
- * console overview counts every library and request there is, and reads the
+ * console overview counts every asset and request there is, and reads the
  * count twice to assert the difference. A file inserting rows in between makes
  * that difference wrong, which is a failure about scheduling rather than about
  * the code under test. Without a database they are skipped, so the fast suite

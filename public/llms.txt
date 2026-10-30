@@ -15,7 +15,7 @@ Core product principles:
 ## Public pages
 
 - [Home](https://re0.io/): Product overview and featured data assets.
-- [Asset directory](https://re0.io/libraries): Browse and search public data assets.
+- [Asset directory](https://re0.io/assets): Browse and search public data assets.
 - [Online playground](https://re0.io/playground): Try retrieval against public assets (sending a question requires sign-in).
 - [Pricing](https://re0.io/pricing): The free allowance and Additional Calls packs.
 - [About](https://re0.io/about): Re0's purpose, principles and product scope.
@@ -30,13 +30,13 @@ Core product principles:
 - [REST API](https://re0.io/api/v1): Versioned API namespace. Authentication is required for non-public or account-scoped operations.
 - [Agent Skills index](https://re0.io/.well-known/agent-skills/index.json): Machine-readable discovery for retrieval, publishing and ownership workflows.
 
-Every content page also has a compact Markdown representation: append `.md` to its path before the query string, for example `https://re0.io/libraries.md?q=next.js` or `https://re0.io/about.md`.
+Every content page also has a compact Markdown representation: append `.md` to its path before the query string, for example `https://re0.io/assets.md?q=next.js` or `https://re0.io/about.md`.
 
 The retrieval flow has two stages: resolve an asset ID, then query that asset. Returned context includes citations and version information. Private assets and dashboard data require authorization and must not be crawled or inferred from public content.
 
 ## Notes for automated systems
 
 - Prefer canonical URLs on `https://re0.io`.
-- Treat public asset detail pages under `/libraries/` as the authoritative human-readable descriptions of those assets.
+- Treat public asset detail pages under `/assets/` as the authoritative human-readable descriptions of those assets.
 - Do not crawl `/dashboard`, `/admin`, `/api`, `/files`, `/login` or ownership-claim workflows.
 - See [robots.txt](https://re0.io/robots.txt) for crawler rules and [sitemap.xml](https://re0.io/sitemap.xml) for indexable top-level pages.

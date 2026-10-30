@@ -18,7 +18,7 @@ export interface RequestLogView {
   time: string;
   operation: string;
   surface: string;
-  library: string;
+  asset: string;
   key: string;
   status: number;
   latency: string;
@@ -32,7 +32,7 @@ export interface RequestLogFilterView {
   to: string;
   status: string;
   entrypoint: string;
-  library: string;
+  asset: string;
 }
 
 const FIELD =
@@ -77,7 +77,7 @@ function applyOnChange(event: React.ChangeEvent<HTMLSelectElement | HTMLInputEle
 export function RequestLog({
   entries,
   filter,
-  libraries,
+  assets,
   total,
   page,
   pageCount,
@@ -87,7 +87,7 @@ export function RequestLog({
 }: {
   entries: RequestLogView[];
   filter: RequestLogFilterView;
-  libraries: { publicId: string; title: string }[];
+  assets: { publicId: string; title: string }[];
   total: number;
   page: number;
   pageCount: number;
@@ -165,17 +165,17 @@ export function RequestLog({
               ))}
             </select>
           </Field>
-          <Field label={f.library}>
+          <Field label={f.asset}>
             <select
-              name="library"
-              defaultValue={filter.library}
+              name="asset"
+              defaultValue={filter.asset}
               onChange={applyOnChange}
               className={`${FIELD} max-w-[180px]`}
             >
-              <option value="">{f.allLibraries}</option>
-              {libraries.map((library) => (
-                <option key={library.publicId} value={library.publicId}>
-                  {library.title}
+              <option value="">{f.allAssets}</option>
+              {assets.map((asset) => (
+                <option key={asset.publicId} value={asset.publicId}>
+                  {asset.title}
                 </option>
               ))}
             </select>
@@ -231,7 +231,7 @@ export function RequestLog({
                 <span className="text-[10px] text-muted">{entry.surface}</span>
               </span>
               <span className="truncate text-[12px] text-steel">
-                {entry.library}
+                {entry.asset}
               </span>
               <code className="truncate font-mono text-[10.5px] text-steel">
                 {entry.key}

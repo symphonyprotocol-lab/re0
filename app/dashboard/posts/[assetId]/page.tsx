@@ -7,7 +7,7 @@ import { BackLink, PANEL } from '@/components/dashboard/ui';
 import { ArrowUpRightIcon } from '@/components/ui/icons';
 import { listWorkspaceChannels } from '@/lib/application/channels';
 import { readEditorialDraft } from '@/lib/application/editorial';
-import { canManageLibraries } from '@/lib/application/libraries';
+import { canManageAssets } from '@/lib/application/assets';
 import { AUDIO_TYPES, EDITORIAL_LIMITS, EditorialRefused, IMAGE_TYPES } from '@/lib/domain/editorial';
 import { db, schema } from '@/lib/infrastructure/postgres/client';
 import { requireSession } from '@/lib/http/session';
@@ -52,11 +52,11 @@ export default async function EditorPage({
   const c = t.creator.dashboard.editor;
   const errors = t.creator.errors as Record<string, string>;
   const channels = await listWorkspaceChannels(session.workspace.id);
-  const canEdit = canManageLibraries(session.workspace.role);
+  const canEdit = canManageAssets(session.workspace.role);
   const isAudio = draft.asset.kind === 'audio';
   const date = new Intl.DateTimeFormat(locale, { dateStyle: 'medium', timeStyle: 'short', timeZone: 'UTC' });
   const [version] = draft.asset.currentVersionId
-    ? await db().select({ label: schema.libraryVersion.label }).from(schema.libraryVersion).where(eq(schema.libraryVersion.id, draft.asset.currentVersionId))
+    ? await db().select({ label: schema.assetVersion.label }).from(schema.assetVersion).where(eq(schema.assetVersion.id, draft.asset.currentVersionId))
     : [];
   const notice = typeof query.notice === 'string' ? query.notice : null;
   const good = notice !== null && notice in c.notices;

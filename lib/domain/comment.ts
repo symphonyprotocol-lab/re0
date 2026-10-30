@@ -16,7 +16,7 @@
  *
  * Pure TypeScript -- domain layer rules apply.
  */
-import type { AssetAccess } from './asset';
+import type { AssetAccess } from './asset-kind';
 import type { ChannelStatus, ChannelVisibility } from './channel';
 
 export const COMMENT_STATES = ['visible', 'hidden', 'deleted', 'removed'] as const;

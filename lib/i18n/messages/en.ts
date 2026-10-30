@@ -5,7 +5,7 @@ import type { Dictionary } from '@/lib/i18n/dictionary';
  *
  * Typed as `Dictionary`, so the compiler holds it to the shape of
  * `messages/zh.ts`. Product nouns the design source prints in English --
- * API Call, Chunk, Library ID, Trust Score -- are left as they are in both
+ * API Call, Chunk, Asset ID, Trust Score -- are left as they are in both
  * languages.
  */
 export const en: Dictionary = {
@@ -174,9 +174,9 @@ export const en: Dictionary = {
       calls: 'Included API calls',
       callsMonthly: '{calls} / month',
       callsPack: '+{calls}',
-      publicLibraries: 'Public assets',
+      publicAssets: 'Public assets',
       allIncluded: 'All included',
-      ownLibraries: 'Your own assets',
+      ownAssets: 'Your own assets',
       unlimited: 'Unlimited',
       storage: 'Workspace storage',
       storageAfterPack: '{storage} after a purchase',
@@ -758,7 +758,7 @@ export const en: Dictionary = {
     },
   },
 
-  library: {
+  asset: {
     fallbackTitle: 'Asset',
     breadcrumb: 'Channels',
     public: 'Public',
@@ -852,8 +852,8 @@ export const en: Dictionary = {
     routedSkipped: '{list} was also read, but its passages did not fit the question and were not used.',
     rewriteNote: 'The question as asked found nothing relevant, so it was searched again as “{query}”.',
     resolvedNote: 'Read in light of the earlier turns as “{question}”.',
-    noLibraryTitle: 'No asset matched',
-    noLibraryBody:
+    noAssetTitle: 'No asset matched',
+    noAssetBody:
       'No published asset matched this question, so nothing was retrieved and no answer was generated.',
     degradedTitle: 'Retrieved passages, without a generated answer',
     degradedBody:
@@ -881,7 +881,7 @@ export const en: Dictionary = {
     footnoteLine2:
       'Every factual statement in an answer must bind to a chunk returned by this retrieval; anything that cannot be bound is not presented as fact.',
     allowance: {
-      pinnedTo: 'Querying {library} only',
+      pinnedTo: 'Querying {asset} only',
       unpin: 'Route automatically instead',
       codeLabel: 'Code',
     },
@@ -966,7 +966,7 @@ export const en: Dictionary = {
   dashboard: {
     nav: {
       overview: 'Overview',
-      libraries: 'Assets',
+      assets: 'Assets',
       channels: 'Channels',
       apiKeys: 'API keys',
       widget: 'Website widget',
@@ -1293,13 +1293,13 @@ export const en: Dictionary = {
     overview: {
       title: 'Overview',
       description: 'Retrieval calls, keys and integration status at a glance.',
-      addLibrary: 'Add an asset',
+      addAsset: 'Add an asset',
       stats: {
         calls: 'Calls this period',
         tokens: 'Tokens returned',
         tokensCaption: 'Across all retrieval calls this period',
-        libraries: 'Your assets',
-        librariesCaption: 'Owned by this workspace',
+        assets: 'Your assets',
+        assetsCaption: 'Owned by this workspace',
         addon: 'Call pack balance',
         addonCaption: 'Never expires; spent after the plan allowance',
         buildCalls: 'Build calls',
@@ -1346,8 +1346,8 @@ export const en: Dictionary = {
         costLink: 'View billing',
         mcpEndpointLabel: 'MCP endpoint',
         keyPlaceholderNote: 'Replace {placeholder} with a key created under API keys.',
-        exampleLibraryOwn: 'The examples query your asset {libraryId}.',
-        exampleLibraryCatalog: 'You have no asset yet, so the examples query {libraryId} from the public catalogue.',
+        exampleAssetOwn: 'The examples query your asset {assetId}.',
+        exampleAssetCatalog: 'You have no asset yet, so the examples query {assetId} from the public catalogue.',
         tabSearch: 'Search',
         tabContext: 'Context',
       },
@@ -1357,8 +1357,8 @@ export const en: Dictionary = {
       title: 'Website widget',
       description:
         'Put an asset on your own website: one line of code, a chat bubble in the corner, and visitors get answers from that asset only, with the pages cited.',
-      pickLibrary: 'Pick an asset to create a key',
-      createLibrary: 'Create an asset first',
+      pickAsset: 'Pick an asset to create a key',
+      createAsset: 'Create an asset first',
       stats: {
         keys: 'Site keys',
         reached: 'Sites reached',
@@ -1384,7 +1384,7 @@ export const en: Dictionary = {
         ],
         snippetLabel: 'embed snippet',
         snippetPlaceholderNote: 'Replace {placeholder} with your site key. Once a key exists, the full snippet shows here ready to copy.',
-        snippetKeyNote: 'This is the snippet for key “{name}” ({library}); the other keys’ snippets are in the list below.',
+        snippetKeyNote: 'This is the snippet for key “{name}” ({asset}); the other keys’ snippets are in the list below.',
         attributesTitle: 'Optional attributes',
         attributes: [
           'data-position="left": put the button bottom-left (default bottom-right).',
@@ -1417,7 +1417,7 @@ export const en: Dictionary = {
         firstSeen: 'first {time}',
       },
     },
-    libraries: {
+    assets: {
       pager: {
         page: 'Page {page} of {pages}',
         showing: '{shown} on this page, {total} in all',
@@ -1426,7 +1426,7 @@ export const en: Dictionary = {
       },
       title: 'Assets',
       description: 'Manage your data assets. An asset is yours alone until you put it in a public channel; then other people and their agents can retrieve it.',
-      addLibrary: 'Add an asset',
+      addAsset: 'Add an asset',
       reviewNotice: 'An asset is searchable as soon as its build passes the scan; the platform may suspend one in a public channel that breaks the rules.',
       searchPlaceholder: 'Search assets…',
       columns: ['Asset', 'Channel', 'Chunks', 'Calls', 'Review', 'Updated'],
@@ -1462,7 +1462,7 @@ export const en: Dictionary = {
         benchmark_low: 'The Benchmark Score is below the auto-publish floor; passed to the model.',
         hit_rate_unknown: 'The self-check questions have not been evaluated on the current version yet; passed to the model.',
         hit_rate_low: 'The self-check hit rate is below the auto-publish floor; passed to the model.',
-        first_public_library: 'This is the workspace’s first public asset; passed to the model.',
+        first_public_asset: 'This is the workspace’s first public asset; passed to the model.',
         auto_approved: 'The rules layer found everything in order and published it.',
         model_unavailable: 'The review model is not available right now; queued for a retry.',
         model_no_answer: 'The model gave no usable checklist after several tries; resubmit, or appeal if you disagree.',
@@ -1553,8 +1553,8 @@ export const en: Dictionary = {
       metaTitle: 'Shared pages',
       title: 'Share an asset as a page',
       description: "Every asset can become a standalone company or product page where visitors ask their questions. This screen shows every page's status, address and recent numbers; pages are created and edited on each asset's page.",
-      createLibrary: 'Add an asset first',
-      pickLibrary: 'Pick an asset to share',
+      createAsset: 'Add an asset first',
+      pickAsset: 'Pick an asset to share',
       stats: {
         published: 'Published pages',
         views: 'Views, last {days} days',
@@ -1665,7 +1665,7 @@ export const en: Dictionary = {
         unavailable: 'That did not go through. Try again shortly.',
       },
     },
-    libraryDetail: {
+    assetDetail: {
       metaTitle: 'Asset details',
       tabs: {
         label: 'Asset sections',
@@ -2237,7 +2237,7 @@ export const en: Dictionary = {
         page: 'Page {page} of {pages}, {total} calls',
       },
     },
-    libraryFiles: {
+    assetFiles: {
       metaTitle: 'PDF files',
       back: 'Back to assets',
       title: 'PDF files',
@@ -2271,7 +2271,7 @@ export const en: Dictionary = {
         addHint: 'Up to {max} .md / .mdx files per asset, each up to {size}. Uploads start as soon as they are picked.',
         },
     },
-    newLibrary: {
+    newAsset: {
       metaTitle: 'Add an asset',
       back: 'Back to assets',
       title: 'Add an asset',
@@ -2568,9 +2568,9 @@ export const en: Dictionary = {
         from: 'From',
         to: 'To',
         entrypoint: 'Entrypoint',
-        library: 'Asset',
+        asset: 'Asset',
         allEntrypoints: 'All entrypoints',
-        allLibraries: 'All assets',
+        allAssets: 'All assets',
         entrypoints: { rest: 'REST API', mcp: 'MCP', web: 'Web' },
         statuses: ['All statuses', 'OK', 'Error'],
         apply: 'Filter',
@@ -2790,7 +2790,7 @@ export const en: Dictionary = {
       planCancels: 'Cancelled: ends on {date}, then back to Free',
       planPerks: {
         calls: '{count} API calls a month',
-        libraries: 'As many assets as you like',
+        assets: 'As many assets as you like',
         storage: '{capacity} of workspace storage',
         apiKeys: 'Up to {count} API keys',
       },
@@ -2908,8 +2908,8 @@ export const en: Dictionary = {
     },
     capabilities: {
       users: 'Users',
-      libraries: 'User assets',
-      platformLibraries: 'Platform assets',
+      assets: 'User assets',
+      platformAssets: 'Platform assets',
       plans: 'Plans',
       models: 'Models & retrieval',
       billing: 'Billing',
@@ -2949,7 +2949,7 @@ export const en: Dictionary = {
       source_unreachable: 'The source did not answer. It will be retried.',
       source_forbidden: 'The source refused the request, or the location is not one we may fetch.',
       source_too_large: 'The source served more than one build may take.',
-      library_too_large:
+      asset_too_large:
         'With this content the workspace would be over its storage capacity; it stopped before parsing and nothing was charged. Delete an asset you no longer need, narrow the source, or buy a call pack to raise the capacity, then retry.',
       source_empty: 'The source served nothing that can be indexed.',
       source_unrendered:
@@ -2965,9 +2965,9 @@ export const en: Dictionary = {
     },
     /** Why a list is empty, when the answer is "that part isn't built yet". */
     notReady: {
-      libraries: 'Users cannot submit assets yet, so there are none to review.',
+      assets: 'Users cannot submit assets yet, so there are none to review.',
       claims: 'Claims ship with ingestion; there are no applications yet.',
-      platformLibraries:
+      platformAssets:
         'Nothing here yet. A new platform asset stays a draft until its first refresh has indexed a version.',
       ingestion:
         'Ingestion is not configured in this environment: an embedding provider and object storage are both required before a refresh can build a version.',
@@ -2988,8 +2988,8 @@ export const en: Dictionary = {
       system: 'SYSTEM',
       overview: 'Overview',
       users: 'Users',
-      libraries: 'User assets',
-      platformLibraries: 'Platform assets',
+      assets: 'User assets',
+      platformAssets: 'Platform assets',
       refreshQueue: 'Refresh queue',
       plans: 'Plans',
       billing: 'Billing',
@@ -3266,7 +3266,7 @@ export const en: Dictionary = {
         cache: 'Cache',
         playground: 'Playground budget',
         agent: 'Playground agent',
-        routing: 'Asset routing (resolve-library-id)',
+        routing: 'Asset routing (resolve-asset-id)',
         directory: 'Channel directory, Popular order',
         a2a: 'A2A ask metering',
       },
@@ -3404,7 +3404,7 @@ export const en: Dictionary = {
       range: 'Last {days} days',
       stats: {
         users: 'Registered users',
-        libraries: 'Assets',
+        assets: 'Assets',
         revenue: 'Revenue this month',
       },
       newInWindow: '{count} new this period',
@@ -3488,7 +3488,7 @@ export const en: Dictionary = {
         'They can sign in again and their assets go back into circulation.',
       consequenceSessions: 'Ends {count} sign-in sessions; browsers are logged out at once',
       consequenceCovered:
-        '{keys} API keys and {libraries} published assets are covered too: both are gated on account status at the point of use, and that check ships with API-key authentication and retrieval.',
+        '{keys} API keys and {assets} published assets are covered too: both are gated on account status at the point of use, and that check ships with API-key authentication and retrieval.',
       reason: 'Reason',
       reasonSuspend: 'Why this account is being suspended (required)',
       reasonEnable: 'Why this account is being re-enabled (required)',
@@ -3521,8 +3521,8 @@ export const en: Dictionary = {
         planRenews: 'Renews {date}',
         planCancels: 'Cancelled, ends {date}',
         planNoteNone: 'No billing period',
-        libraries: 'Assets',
-        librariesNote: '{public} public · {private} private',
+        assets: 'Assets',
+        assetsNote: '{public} public · {private} private',
         calls: 'Calls this month',
         callsNote: 'Quota {quota}',
         callsNoteNone: 'Call metering is not live yet',
@@ -3544,10 +3544,10 @@ export const en: Dictionary = {
       identityNone: 'None linked',
       workspaceNone: 'No workspace',
       workspaceRole: '{name} ({role})',
-      librariesTitle: 'Assets',
-      librariesSubtitle: 'What this account owns, and where each one stands',
-      librariesColumns: ['Asset', 'Visibility', 'Review', 'Size', 'Created'],
-      librariesEmpty: 'This account has no assets.',
+      assetsTitle: 'Assets',
+      assetsSubtitle: 'What this account owns, and where each one stands',
+      assetsColumns: ['Asset', 'Visibility', 'Review', 'Size', 'Created'],
+      assetsEmpty: 'This account has no assets.',
       keysTitle: 'API keys',
       keysSubtitle: 'Suspending the account stops these at once',
       keysColumns: ['Name', 'Environment', 'Last used', 'Created', 'Status'],
@@ -3601,7 +3601,7 @@ export const en: Dictionary = {
         },
       },
     },
-    libraries: {
+    assets: {
       title: 'User assets',
       description: 'User assets and the platform’s hand over them: a live asset can be suspended, a suspended one restored; every decision is written to the audit log.',
       tabs: {
@@ -3827,7 +3827,7 @@ export const en: Dictionary = {
       showing: 'Showing {from}–{to} of {total} claims',
       empty: 'No claims match those filters.',
     },
-    platformLibraries: {
+    platformAssets: {
       title: 'Platform assets',
       description: 'Create and maintain the public assets re0 publishes itself.',
       create: 'Create platform asset',
@@ -3883,8 +3883,8 @@ export const en: Dictionary = {
       queueLink: 'Open refresh queue',
       errors: {
         not_found: 'No such asset.',
-        not_platform_library: 'That is a user asset — handle it under User assets.',
-        not_user_library: 'That is a platform asset; it is handled under Platform assets.',
+        not_platform_asset: 'That is a user asset — handle it under User assets.',
+        not_user_asset: 'That is a platform asset; it is handled under Platform assets.',
         invalid_title: 'A title is required, up to 120 characters.',
         invalid_public_id: 'That Asset ID is not in this source type\u2019s namespace.',
         public_id_taken: 'That Asset ID is already in use.',
@@ -4020,7 +4020,7 @@ export const en: Dictionary = {
       },
       types: { refresh: 'Refresh', ingest: 'First build', delete: 'Delete' },
     },
-    platformLibraryDetail: {
+    platformAssetDetail: {
       eyebrow: 'PLATFORM ASSETS / DETAIL',
       title: 'Platform asset',
       metaTitle: '{title} · Platform asset',
@@ -4148,7 +4148,7 @@ export const en: Dictionary = {
       },
       profile: {
         title: 'Routing profile',
-        description: 'What resolve-library-id searches: a profile derived from the content, not the title',
+        description: 'What resolve-asset-id searches: a profile derived from the content, not the title',
         empty: 'No version has been built, so there is no profile yet.',
         extractor: 'Extractor version',
         extractorCurrent: 'Current',
@@ -4831,7 +4831,7 @@ export const en: Dictionary = {
     /** Claim detail and the ruling dialogs. requirement.md 5.3, 7.3.5. */
     claimDetail: {
       title: 'Claim detail',
-      metaTitle: 'Claim · {library}',
+      metaTitle: 'Claim · {asset}',
       eyebrow: 'Ownership & claims',
       back: 'Back to claims',
       view: 'View detail',
@@ -4853,7 +4853,7 @@ export const en: Dictionary = {
       factsSubtitle: 'Claimant, target asset and current state.',
       fields: {
         id: 'Claim ID',
-        library: 'Asset',
+        asset: 'Asset',
         claimant: 'Claimant workspace',
         currentOwner: 'Current owner',
         method: 'Method',
@@ -4868,7 +4868,7 @@ export const en: Dictionary = {
       },
       remaining: '{days} days left',
       unclaimed: 'No owner',
-      libraryDeleted: 'Asset deleted',
+      assetDeleted: 'Asset deleted',
       rulingBy: '{admin}: {reason}',
       evidenceTitle: 'Verification evidence',
       evidenceSubtitle: 'Each check the chosen method runs, and how it ended.',
@@ -4969,7 +4969,7 @@ export const en: Dictionary = {
     yourClaimsEmpty: 'You have not opened a claim yet.',
     columns: ['Asset', 'Method', 'Status', 'Expires', ''],
     open: 'Open',
-    library: 'Asset',
+    asset: 'Asset',
     source: 'Source',
     owner: 'Current owner',
     ownedBySelf: 'This workspace already owns the asset.',
@@ -5026,7 +5026,7 @@ export const en: Dictionary = {
     attempts: '{count} verification attempts',
     disputedNotice:
       'This asset has another owner, so this claim is a dispute: once control is proven an administrator rules on it; ownership does not move by itself.',
-    verifiedNotice: 'Verified. This workspace now owns {library} and can manage it from the dashboard.',
+    verifiedNotice: 'Verified. This workspace now owns {asset} and can manage it from the dashboard.',
     disputedProven: 'Control proven. An administrator will rule on the dispute from the evidence and you will be notified.',
     checksTitle: 'Checks',
     checks: {
@@ -5081,7 +5081,7 @@ export const en: Dictionary = {
       failed: 'The GitHub authorisation did not complete. Try again.',
     },
     newClaim: 'Start a new claim',
-    backToLibrary: 'Back to the asset',
+    backToAsset: 'Back to the asset',
     errors: {
       not_found: 'That asset was not found or cannot be claimed.',
       method_unavailable: 'This source type does not support the chosen method.',

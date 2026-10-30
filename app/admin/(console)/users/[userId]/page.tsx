@@ -117,7 +117,7 @@ export default async function AdminUserDetailPage({
                 status: account.status,
                 liveSessions: account.liveSessions,
                 liveApiKeys: account.liveApiKeys,
-                publishedLibraries: account.publishedLibraries,
+                publishedAssets: account.publishedAssets,
               }}
             />
           </div>
@@ -140,11 +140,11 @@ export default async function AdminUserDetailPage({
           }
         />
         <Metric
-          label={d.metrics.libraries}
-          value={account.libraryTotal.toLocaleString('en-US')}
-          note={fill(d.metrics.librariesNote, {
-            public: account.publicLibraries,
-            private: account.libraryTotal - account.publicLibraries,
+          label={d.metrics.assets}
+          value={account.assetTotal.toLocaleString('en-US')}
+          note={fill(d.metrics.assetsNote, {
+            public: account.publicAssets,
+            private: account.assetTotal - account.publicAssets,
           })}
         />
         <Metric
@@ -204,33 +204,33 @@ export default async function AdminUserDetailPage({
 
       <Panel>
         <PanelHead
-          title={d.librariesTitle}
-          description={d.librariesSubtitle}
-          action={truncation(account.libraries.length, account.libraryTotal)}
+          title={d.assetsTitle}
+          description={d.assetsSubtitle}
+          action={truncation(account.assets.length, account.assetTotal)}
         />
-        <DetailTable columns={d.librariesColumns} empty={d.librariesEmpty} rows={account.libraries.length}>
-          {account.libraries.map((library) => (
-            <tr key={library.id} className="border-t-2 border-line">
+        <DetailTable columns={d.assetsColumns} empty={d.assetsEmpty} rows={account.assets.length}>
+          {account.assets.map((asset) => (
+            <tr key={asset.id} className="border-t-2 border-line">
               <td className={TD}>
                 <span className="flex min-w-0 flex-col gap-[3px]">
-                  <span className="truncate text-[12px] font-medium text-ink">{library.title}</span>
+                  <span className="truncate text-[12px] font-medium text-ink">{asset.title}</span>
                   <span className="truncate font-mono text-[11px] text-muted">
-                    {library.publicId}
+                    {asset.publicId}
                   </span>
                 </span>
               </td>
               <td className={TD}>
-                <Pill tone={library.visibility === 'public' ? 'info' : 'neutral'}>
-                  {visibilityLabel(d, library.visibility)}
+                <Pill tone={asset.visibility === 'public' ? 'info' : 'neutral'}>
+                  {visibilityLabel(d, asset.visibility)}
                 </Pill>
               </td>
               <td className={TD}>
-                <Pill tone={library.lifecycleStatus === 'published' ? 'ok' : 'warn'}>
-                  {lifecycleLabel(d, library.lifecycleStatus)}
+                <Pill tone={asset.lifecycleStatus === 'published' ? 'ok' : 'warn'}>
+                  {lifecycleLabel(d, asset.lifecycleStatus)}
                 </Pill>
               </td>
-              <td className={TD}>{bytes(library.storageBytes)}</td>
-              <td className={`${TD} whitespace-nowrap`}>{utcDate(library.createdAt)}</td>
+              <td className={TD}>{bytes(asset.storageBytes)}</td>
+              <td className={`${TD} whitespace-nowrap`}>{utcDate(asset.createdAt)}</td>
             </tr>
           ))}
         </DetailTable>

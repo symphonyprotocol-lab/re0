@@ -1,6 +1,6 @@
 /**
  * The playground BFF, against a real database. architecture.md 9.6's web
- * entry: the server routes the question to the top candidate library and
+ * entry: the server routes the question to the top candidate asset and
  * answers from it -- and with no LLM configured (as here), the transcript
  * degrades to retrieved passages with sources, never an error.
  *
@@ -30,8 +30,8 @@ process.env.SESSION_SIGNING_SECRET ??= 'test-secret-that-is-long-enough-000000';
 const { buildVersion, memoryObjectStore, publishVersion } = await import(
   '@/lib/application/ingestion'
 );
-const { createPlatformLibrary } = await import(
-  '@/lib/application/administration/manage-platform-libraries'
+const { createPlatformAsset } = await import(
+  '@/lib/application/administration/manage-platform-assets'
 );
 const { EMBEDDING_COLUMN_DIMENSIONS } = await import('@/lib/infrastructure/ai/providers');
 const { db, schema } = await import('@/lib/infrastructure/postgres/client');
@@ -88,8 +88,8 @@ function dependencies() {
   };
 }
 
-async function publishedLibrary(slug: string): Promise<string> {
-  const { libraryId } = await createPlatformLibrary({
+async function publishedAsset(slug: string): Promise<string> {
+  const { assetId } = await createPlatformAsset({
     actor,
     title: `Playground route fixture ${slug}`,
     publicId: `/websites/${slug}`,
@@ -99,15 +99,15 @@ async function publishedLibrary(slug: string): Promise<string> {
     language: 'en',
     reason: 'integration test fixture',
   });
-  created.push(libraryId);
-  const built = await buildVersion({ libraryId, operationId: uuidv7(), dependencies: dependencies() });
+  created.push(assetId);
+  const built = await buildVersion({ assetId, operationId: uuidv7(), dependencies: dependencies() });
   if (!built.changed) throw new Error('fixture build produced no version');
-  await publishVersion({ libraryId, versionId: built.versionId });
+  await publishVersion({ assetId, versionId: built.versionId });
   await db()
-    .update(schema.library)
+    .update(schema.asset)
     .set({ lifecycleStatus: 'published' })
-    .where(eq(schema.library.id, libraryId));
-  return libraryId;
+    .where(eq(schema.asset.id, assetId));
+  return assetId;
 }
 
 /** The signed-in visitor every request runs as; set by `signIn`. */
@@ -191,29 +191,29 @@ describeWithDb('playground route', () => {
     }
     if (created.length === 0) return;
     await database
-      .update(schema.library)
+      .update(schema.asset)
       .set({ currentVersionId: null })
-      .where(inArray(schema.library.id, created));
+      .where(inArray(schema.asset.id, created));
     await database
-      .delete(schema.libraryProfileVector)
-      .where(inArray(schema.libraryProfileVector.libraryId, created));
+      .delete(schema.assetProfileVector)
+      .where(inArray(schema.assetProfileVector.assetId, created));
     await database
-      .delete(schema.libraryProfile)
-      .where(inArray(schema.libraryProfile.libraryId, created));
-    await database.delete(schema.chunk).where(inArray(schema.chunk.libraryId, created));
-    await database.delete(schema.document).where(inArray(schema.document.libraryId, created));
+      .delete(schema.assetProfile)
+      .where(inArray(schema.assetProfile.assetId, created));
+    await database.delete(schema.chunk).where(inArray(schema.chunk.assetId, created));
+    await database.delete(schema.document).where(inArray(schema.document.assetId, created));
     await database
-      .delete(schema.libraryVersion)
-      .where(inArray(schema.libraryVersion.libraryId, created));
+      .delete(schema.assetVersion)
+      .where(inArray(schema.assetVersion.assetId, created));
     await database
-      .delete(schema.libraryScore)
-      .where(inArray(schema.libraryScore.libraryId, created));
-    await database.delete(schema.source).where(inArray(schema.source.libraryId, created));
+      .delete(schema.assetScore)
+      .where(inArray(schema.assetScore.assetId, created));
+    await database.delete(schema.source).where(inArray(schema.source.assetId, created));
     await database
-      .delete(schema.libraryAlias)
-      .where(inArray(schema.libraryAlias.libraryId, created));
+      .delete(schema.assetAlias)
+      .where(inArray(schema.assetAlias.assetId, created));
     await database.delete(schema.auditLog).where(inArray(schema.auditLog.targetId, created));
-    await database.delete(schema.library).where(inArray(schema.library.id, created));
+    await database.delete(schema.asset).where(inArray(schema.asset.id, created));
   });
 
   it('refuses a caller without a session before anything is read', async () => {
@@ -230,20 +230,20 @@ describeWithDb('playground route', () => {
     expect((await playgroundRoute(forged)).status).toBe(403);
   });
 
-  it('routes to the top library and degrades to sourced passages without an LLM', async () => {
+  it('routes to the top asset and degrades to sourced passages without an LLM', async () => {
     const stamp = Date.now();
-    await publishedLibrary(`pgr-route-${stamp}`);
+    await publishedAsset(`pgr-route-${stamp}`);
 
     const response = await playgroundRoute(ask('when are zug-tide tables recalibrated'));
     expect(response.status).toBe(200);
     const parts = await readStream(response);
 
-    const routing = partData<{ libraryId: string | null; candidates: { libraryId: string }[] }>(
+    const routing = partData<{ assetId: string | null; candidates: { assetId: string }[] }>(
       parts,
       'data-routing',
     );
-    expect(routing?.libraryId).toBe(`/websites/pgr-route-${stamp}`);
-    expect(routing?.candidates.map((c) => c.libraryId)).toContain(`/websites/pgr-route-${stamp}`);
+    expect(routing?.assetId).toBe(`/websites/pgr-route-${stamp}`);
+    expect(routing?.candidates.map((c) => c.assetId)).toContain(`/websites/pgr-route-${stamp}`);
 
     const sources = partData<{ sources: { sourceUrl: string }[] }>(parts, 'data-sources');
     expect(sources?.sources[0]?.sourceUrl).toBe('https://example.test/tides');
@@ -254,11 +254,11 @@ describeWithDb('playground route', () => {
     expect(parts.some((part) => part.type.startsWith('text'))).toBe(false);
   });
 
-  it('says so when no library matches, and refuses bad input', async () => {
+  it('says so when no asset matches, and refuses bad input', async () => {
     const missing = await playgroundRoute(ask('zzz-quantum-flux-nothing-zzz'));
     expect(missing.status).toBe(200);
     const parts = await readStream(missing);
-    expect(partData<{ kind: string }>(parts, 'data-outcome')?.kind).toBe('no_library');
+    expect(partData<{ kind: string }>(parts, 'data-outcome')?.kind).toBe('no_asset');
     expect(parts.filter((part) => part.type === 'data-sources')).toHaveLength(0);
 
     /* Bad input is refused before the stream opens, so it is still a status. */

@@ -5,7 +5,7 @@
  */
 import { describe, expect, it } from 'vitest';
 import { memoryObjectStore } from '@/lib/application/ingestion';
-import { prepareUploads } from '@/lib/application/libraries';
+import { prepareUploads } from '@/lib/application/assets';
 import {
   normalizeLocation,
   normalizePublicId,
@@ -13,7 +13,7 @@ import {
   uploadFileName,
   uploadKey,
   UPLOAD_LIMITS,
-} from '@/lib/domain/library';
+} from '@/lib/domain/asset';
 
 const WS = '018f0000-0000-7000-8000-000000000001';
 const BATCH = '018f0000-0000-7000-8000-000000000002';
@@ -37,7 +37,7 @@ describe('upload manifest', () => {
     expect(parseUploadManifest({ batchId: BATCH, files: [{ id: 'x/y', name: 'a', size: 1 }] }, WS)).toBeNull();
   });
 
-  it('accepts an empty manifest: a PDF library may be created before its files', () => {
+  it('accepts an empty manifest: a PDF asset may be created before its files', () => {
     expect(parseUploadManifest({ batchId: BATCH, files: [] }, WS)).toEqual({ batchId: BATCH, files: [] });
   });
 
@@ -113,7 +113,7 @@ describe('prepareUploads', () => {
         files: [{ name: 'a.pdf', size: UPLOAD_LIMITS.maxFileBytes + 1 }],
         store,
       }),
-    ).rejects.toMatchObject({ code: 'library_size_exceeded' });
+    ).rejects.toMatchObject({ code: 'asset_size_exceeded' });
     await expect(prepareUploads({ workspaceId: WS, role: 'owner', files: [], store })).rejects.toMatchObject({
       code: 'invalid_request',
     });

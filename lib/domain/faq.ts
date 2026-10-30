@@ -14,7 +14,7 @@
 export const FAQ_LIMITS = {
   questionChars: 300,
   answerChars: 2_000,
-  /** Entries per library: a FAQ, not a second corpus. */
+  /** Entries per asset: a FAQ, not a second corpus. */
   maxEntries: 200,
   /**
    * Cosine distance under which two questions are the same intent, for

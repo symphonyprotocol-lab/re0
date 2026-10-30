@@ -14,7 +14,7 @@
  */
 import { and, asc, count, desc, eq, inArray, isNull, ne, sql } from 'drizzle-orm';
 import { AppError } from '@/contracts/errors';
-import { needsClaimForPublic, type AssetKind } from '@/lib/domain/asset';
+import { needsClaimForPublic, type AssetKind } from '@/lib/domain/asset-kind';
 import {
   ChannelRefused,
   draftChannel,
@@ -24,7 +24,7 @@ import {
 import { uuidv7 } from '@/lib/domain/id';
 import { readRightsDeclaration, rightsAllowPublic } from '@/lib/domain/rights';
 import { db, schema, type Database } from '@/lib/infrastructure/postgres/client';
-import { canManageLibraries, type WorkspaceRole } from '@/lib/application/libraries/delete';
+import { canManageAssets, type WorkspaceRole } from '@/lib/application/assets/delete';
 import { refreshChannelProfile } from './profile';
 
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
@@ -32,7 +32,7 @@ const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 type Tx = Parameters<Parameters<Database['transaction']>[0]>[0];
 
 function assertManager(role: WorkspaceRole): void {
-  if (!canManageLibraries(role)) {
+  if (!canManageAssets(role)) {
     throw new AppError('access_denied', 'only a workspace owner or admin can manage channels');
   }
 }
@@ -55,8 +55,8 @@ export async function listWorkspaceChannels(workspaceId: string): Promise<Worksp
   const counts = database
     .select({ channelId: schema.channelAsset.channelId, n: count().as('n') })
     .from(schema.channelAsset)
-    .innerJoin(schema.library, eq(schema.library.id, schema.channelAsset.assetId))
-    .where(isNull(schema.library.deletedAt))
+    .innerJoin(schema.asset, eq(schema.asset.id, schema.channelAsset.assetId))
+    .where(isNull(schema.asset.deletedAt))
     .groupBy(schema.channelAsset.channelId)
     .as('counts');
   const rows = await database
@@ -180,9 +180,9 @@ export async function deleteChannel(input: {
       .returning({ assetId: schema.channelAsset.assetId });
     if (members.length > 0) {
       await tx
-        .update(schema.library)
+        .update(schema.asset)
         .set({ access: 'free' })
-        .where(inArray(schema.library.id, members.map((member) => member.assetId)));
+        .where(inArray(schema.asset.id, members.map((member) => member.assetId)));
     }
     await tx.delete(schema.channel).where(eq(schema.channel.id, channel.id));
     return { releasedAssets: members.length };
@@ -229,7 +229,7 @@ export async function moveAsset(input: MoveAssetInput): Promise<MoveAssetResult>
     if (input.channelId === null) {
       if (from) {
         await tx.delete(schema.channelAsset).where(eq(schema.channelAsset.assetId, asset.id));
-        await tx.update(schema.library).set({ access: 'free' }).where(eq(schema.library.id, asset.id));
+        await tx.update(schema.asset).set({ access: 'free' }).where(eq(schema.asset.id, asset.id));
       }
       return { from, to: null, madePublic: false };
     }
@@ -251,7 +251,7 @@ export async function moveAsset(input: MoveAssetInput): Promise<MoveAssetResult>
         target: schema.channelAsset.assetId,
         set: { channelId: target.id, publishedAt: now, pinnedAt: null, scheduledAt: null },
       });
-    await tx.update(schema.library).set({ access: 'free' }).where(eq(schema.library.id, asset.id));
+    await tx.update(schema.asset).set({ access: 'free' }).where(eq(schema.asset.id, asset.id));
     await tx.update(schema.channel).set({ updatedAt: now }).where(eq(schema.channel.id, target.id));
     return { from, to: target.id, madePublic: target.visibility === 'public' };
   });
@@ -297,13 +297,13 @@ export async function pinAsset(input: {
 async function assertMayBePublic(tx: Tx, assetId: string): Promise<void> {
   const [asset] = await tx
     .select({
-      id: schema.library.id,
-      kind: schema.library.kind,
-      ownerWorkspaceId: schema.library.ownerWorkspaceId,
-      rights: schema.library.rightsDeclaration,
+      id: schema.asset.id,
+      kind: schema.asset.kind,
+      ownerWorkspaceId: schema.asset.ownerWorkspaceId,
+      rights: schema.asset.rightsDeclaration,
     })
-    .from(schema.library)
-    .where(eq(schema.library.id, assetId))
+    .from(schema.asset)
+    .where(eq(schema.asset.id, assetId))
     .limit(1);
   if (!asset) throw new ChannelRefused('asset_not_found', 'no such asset');
 
@@ -322,13 +322,13 @@ async function controlProven(
 ): Promise<boolean> {
   if (!asset.ownerWorkspaceId) return false;
   const [claim] = await tx
-    .select({ id: schema.libraryClaim.id })
-    .from(schema.libraryClaim)
+    .select({ id: schema.assetClaim.id })
+    .from(schema.assetClaim)
     .where(
       and(
-        eq(schema.libraryClaim.libraryId, asset.id),
-        eq(schema.libraryClaim.claimantWorkspaceId, asset.ownerWorkspaceId),
-        eq(schema.libraryClaim.status, 'verified'),
+        eq(schema.assetClaim.assetId, asset.id),
+        eq(schema.assetClaim.claimantWorkspaceId, asset.ownerWorkspaceId),
+        eq(schema.assetClaim.status, 'verified'),
       ),
     )
     .limit(1);
@@ -337,7 +337,7 @@ async function controlProven(
   const [source] = await tx
     .select({ config: schema.source.config })
     .from(schema.source)
-    .where(and(eq(schema.source.libraryId, asset.id), eq(schema.source.type, 'github')))
+    .where(and(eq(schema.source.assetId, asset.id), eq(schema.source.type, 'github')))
     .orderBy(asc(schema.source.id))
     .limit(1);
   return typeof source?.config?.repositoryId === 'string' || typeof source?.config?.repositoryId === 'number';
@@ -369,15 +369,15 @@ async function ownedChannel(
 async function ownedAsset(tx: Tx, workspaceId: string, assetId: string): Promise<{ id: string }> {
   if (!UUID.test(assetId)) throw new ChannelRefused('asset_not_found', 'no such asset');
   const [row] = await tx
-    .select({ id: schema.library.id })
-    .from(schema.library)
+    .select({ id: schema.asset.id })
+    .from(schema.asset)
     .where(
       and(
-        eq(schema.library.id, assetId),
-        eq(schema.library.ownerWorkspaceId, workspaceId),
-        eq(schema.library.isPlatformLibrary, false),
-        ne(schema.library.lifecycleStatus, 'archived'),
-        isNull(schema.library.deletedAt),
+        eq(schema.asset.id, assetId),
+        eq(schema.asset.ownerWorkspaceId, workspaceId),
+        eq(schema.asset.isPlatformAsset, false),
+        ne(schema.asset.lifecycleStatus, 'archived'),
+        isNull(schema.asset.deletedAt),
       ),
     )
     .for('update');

@@ -1,10 +1,10 @@
 /**
- * A platform PDF library against a real database and an in-memory store.
+ * A platform PDF asset against a real database and an in-memory store.
  *
  * What the domain test cannot show: that a create refuses a manifest whose
  * files are not in the store, writes the files onto the source and queues
  * the first build when it has them; and that the files panel's save merges
- * the list, queues a rebuild, and queues nothing once the library is empty.
+ * the list, queues a rebuild, and queues nothing once the asset is empty.
  * Runs only when TEST_DATABASE_URL points at a disposable database.
  */
 import { afterAll, describe, expect, it } from 'vitest';
@@ -16,10 +16,10 @@ const describeWithDb = TEST_DATABASE_URL ? describe : describe.skip;
 process.env.DATABASE_URL = TEST_DATABASE_URL ?? 'postgres://unused';
 process.env.SESSION_SIGNING_SECRET ??= 'test-secret-that-is-long-enough-000000';
 
-const { addPlatformLibrarySource, createPlatformLibrary, getPlatformLibrary, updatePlatformLibraryFiles } =
-  await import('@/lib/application/administration/manage-platform-libraries');
+const { addPlatformAssetSource, createPlatformAsset, getPlatformAsset, updatePlatformAssetFiles } =
+  await import('@/lib/application/administration/manage-platform-assets');
 const { memoryObjectStore } = await import('@/lib/application/ingestion/dependencies');
-const { PlatformLibraryRefused, uploadKey, PLATFORM_UPLOAD_OWNER } = await import('@/lib/domain/library');
+const { PlatformAssetRefused, uploadKey, PLATFORM_UPLOAD_OWNER } = await import('@/lib/domain/asset');
 const { uuidv7 } = await import('@/lib/domain/id');
 const { db, schema } = await import('@/lib/infrastructure/postgres/client');
 
@@ -39,19 +39,19 @@ async function refusalOf(promise: Promise<unknown>): Promise<string> {
     await promise;
     return 'accepted';
   } catch (error) {
-    return error instanceof PlatformLibraryRefused ? error.code : `unexpected:${String(error)}`;
+    return error instanceof PlatformAssetRefused ? error.code : `unexpected:${String(error)}`;
   }
 }
 
-describeWithDb('platform pdf libraries', () => {
+describeWithDb('platform pdf assets', () => {
   afterAll(async () => {
     const database = db();
     if (created.length === 0) return;
     await database
       .delete(schema.workflowOperation)
-      .where(inArray(schema.workflowOperation.libraryId, created));
-    await database.delete(schema.source).where(inArray(schema.source.libraryId, created));
-    await database.delete(schema.library).where(inArray(schema.library.id, created));
+      .where(inArray(schema.workflowOperation.assetId, created));
+    await database.delete(schema.source).where(inArray(schema.source.assetId, created));
+    await database.delete(schema.asset).where(inArray(schema.asset.id, created));
     await database
       .delete(schema.auditLog)
       .where(
@@ -65,7 +65,7 @@ describeWithDb('platform pdf libraries', () => {
   it('refuses a manifest whose file is not in the store', async () => {
     const batchId = uuidv7();
     const code = await refusalOf(
-      createPlatformLibrary({
+      createPlatformAsset({
         actor,
         title: 'Ghost Handbook',
         publicId: `/docs/${slug}-ghost`,
@@ -80,10 +80,10 @@ describeWithDb('platform pdf libraries', () => {
     expect(code).toBe('invalid_uploads');
   });
 
-  it('creates the library with its files and queues the first build', async () => {
+  it('creates the asset with its files and queues the first build', async () => {
     const batchId = uuidv7();
     const file = await upload(batchId, 64);
-    const result = await createPlatformLibrary({
+    const result = await createPlatformAsset({
       actor,
       title: 'Platform Handbook',
       publicId: `/docs/${slug}`,
@@ -94,10 +94,10 @@ describeWithDb('platform pdf libraries', () => {
       reason: 'integration test fixture',
       store,
     });
-    created.push(result.libraryId);
+    created.push(result.assetId);
     expect(result.operationId).not.toBeNull();
 
-    const record = await getPlatformLibrary(result.libraryId);
+    const record = await getPlatformAsset(result.assetId);
     expect(record?.files?.map((f) => f.id)).toEqual([file.id]);
     expect(record?.sources[0]?.type).toBe('pdf');
     expect(record?.sources[0]?.refreshPolicy).toBe('manual');
@@ -105,15 +105,15 @@ describeWithDb('platform pdf libraries', () => {
   });
 
   it('merges a files edit, queues a rebuild, and queues nothing once empty', async () => {
-    const libraryId = created[0]!;
-    const before = (await getPlatformLibrary(libraryId))!.files!;
+    const assetId = created[0]!;
+    const before = (await getPlatformAsset(assetId))!.files!;
     /* The first build is still pending in this test (nothing drains it), so
        the edit reuses it rather than queueing a second row. */
     const batchId = uuidv7();
     const added = await upload(batchId, 32);
-    const edit = await updatePlatformLibraryFiles({
+    const edit = await updatePlatformAssetFiles({
       actor,
-      libraryId,
+      assetId,
       add: { batchId, files: [added] },
       remove: [before[0]!.id],
       reason: 'swap the file',
@@ -123,13 +123,13 @@ describeWithDb('platform pdf libraries', () => {
     expect(edit.operationId).not.toBeNull();
     expect(edit.created).toBe(false);
 
-    expect(await refusalOf(updatePlatformLibraryFiles({ actor, libraryId, reason: 'noop', store }))).toBe(
+    expect(await refusalOf(updatePlatformAssetFiles({ actor, assetId, reason: 'noop', store }))).toBe(
       'nothing_to_change',
     );
 
-    const emptied = await updatePlatformLibraryFiles({
+    const emptied = await updatePlatformAssetFiles({
       actor,
-      libraryId,
+      assetId,
       remove: [added.id],
       reason: 'remove everything',
       store,
@@ -139,7 +139,7 @@ describeWithDb('platform pdf libraries', () => {
   });
 
   it('refuses a pdf source on a website asset: one asset, one source', async () => {
-    const library = await createPlatformLibrary({
+    const asset = await createPlatformAsset({
       actor,
       title: 'Site With Manual',
       publicId: `/websites/${slug}-site`,
@@ -148,15 +148,15 @@ describeWithDb('platform pdf libraries', () => {
       refreshPolicy: 'daily',
       reason: 'integration test fixture',
     });
-    created.push(library.libraryId);
+    created.push(asset.assetId);
 
     /* agent-first-proposal.md 3.1: the manual is an asset of its own now. */
     const batchId = uuidv7();
     const file = await upload(batchId, 16);
     const refused = await refusalOf(
-      addPlatformLibrarySource({
+      addPlatformAssetSource({
         actor,
-        libraryId: library.libraryId,
+        assetId: asset.assetId,
         type: 'pdf',
         location: '',
         refreshPolicy: 'daily',
@@ -166,7 +166,7 @@ describeWithDb('platform pdf libraries', () => {
       }),
     );
     expect(refused).toBe('source_exists');
-    const record = await getPlatformLibrary(library.libraryId);
+    const record = await getPlatformAsset(asset.assetId);
     expect(record?.sources.map((s) => s.type)).toEqual(['website']);
   });
 });

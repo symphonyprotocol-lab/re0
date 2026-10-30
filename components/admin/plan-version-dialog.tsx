@@ -2,7 +2,7 @@
 
 import { useActionState, useId, useState, type ReactNode } from 'react';
 import { ConsoleDialog } from '@/components/admin/console-dialog';
-import { submitOn } from '@/components/admin/platform-library-shared';
+import { submitOn } from '@/components/admin/platform-asset-shared';
 import { ConsoleButton, Pill } from '@/components/admin/ui';
 import { CircleCheckIcon, CircleXIcon, PencilIcon, SpinnerIcon } from '@/components/ui/icons';
 import { shortPlanVersionId, type PlanTierId } from '@/lib/domain/plans';

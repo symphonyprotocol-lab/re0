@@ -4,7 +4,7 @@ import { Badge, PANEL, PageHeader, StatusLabel } from '@/components/dashboard/ui
 import { ArrowUpRightIcon } from '@/components/ui/icons';
 import { listWorkspaceChannels } from '@/lib/application/channels';
 import { CHANNEL_DESCRIPTION_MAX_LENGTH, CHANNEL_TITLE_MAX_LENGTH } from '@/lib/domain/channel';
-import { canManageLibraries } from '@/lib/application/libraries';
+import { canManageAssets } from '@/lib/application/assets';
 import { requireSession } from '@/lib/http/session';
 import { fill } from '@/lib/i18n/format';
 import { getMessages, translations } from '@/lib/i18n/server';
@@ -33,7 +33,7 @@ export default async function ChannelsPage({
   ]);
   const c = t.dashboard.channels;
   const channels = await listWorkspaceChannels(session.workspace.id);
-  const canEdit = canManageLibraries(session.workspace.role);
+  const canEdit = canManageAssets(session.workspace.role);
   const date = new Intl.DateTimeFormat(locale, { dateStyle: 'medium' });
   const error = typeof query.error === 'string' ? query.error : null;
   const notice = typeof query.notice === 'string' ? query.notice : null;

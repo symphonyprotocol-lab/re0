@@ -14,7 +14,7 @@
  *
  * Separate so a second caller can rank against a version without being a
  * served call: a reviewer's probe (administration/review-content.ts) asks a
- * library a question, and it must go through exactly the retrieval a user's
+ * asset a question, and it must go through exactly the retrieval a user's
  * question would, or the reviewer sees ranks a caller never gets.
  * Authorization, the policy, the reservation and the cache all stay in
  * `queryDocs`; nothing here may be reached from /v1 or MCP except through it.
@@ -28,13 +28,13 @@ import type { RetrievalSettings } from '@/lib/domain/retrieval-config';
 import type { RetrievalConfidence } from '@/lib/domain/routing';
 import { schema, type db } from '@/lib/infrastructure/postgres/client';
 import type { PinnedVersion, RetrievalDependencies } from './query-docs';
-import { toTsquery } from './resolve-library';
+import { toTsquery } from './resolve-asset';
 
 /** How many of the keyword leg's top-ranked chunks are read for evidence. */
 const KEYWORD_EVIDENCE_CHUNKS = 10;
 
 export interface RankTarget {
-  libraryId: string;
+  assetId: string;
   version: Pick<PinnedVersion, 'id' | 'searchConfig' | 'embeddingModel' | 'embeddingDimensions'>;
   query: string;
   maxTokens: number;
@@ -42,12 +42,12 @@ export interface RankTarget {
 
 /** One pinned version of one asset, as a member of a ranked set. */
 export interface RankScopeMember {
-  libraryId: string;
+  assetId: string;
   version: Pick<PinnedVersion, 'id' | 'searchConfig' | 'embeddingModel' | 'embeddingDimensions'>;
 }
 
 /** A ranked chunk plus which asset and version it came from. */
-export type ScopedChunk = ChunkResult & { libraryId: string; versionId: string };
+export type ScopedChunk = ChunkResult & { assetId: string; versionId: string };
 
 export async function rankChunks(
   database: ReturnType<typeof db>,
@@ -57,12 +57,12 @@ export async function rankChunks(
 ): Promise<{ chunks: ChunkResult[]; confidence: RetrievalConfidence }> {
   const ranked = await rankAcross(
     database,
-    { members: [{ libraryId: target.libraryId, version: target.version }], query: target.query, maxTokens: target.maxTokens },
+    { members: [{ assetId: target.assetId, version: target.version }], query: target.query, maxTokens: target.maxTokens },
     dependencies,
     settings,
   );
   return {
-    chunks: ranked.chunks.map(({ libraryId: _libraryId, versionId: _versionId, ...chunk }) => chunk),
+    chunks: ranked.chunks.map(({ assetId: _assetId, versionId: _versionId, ...chunk }) => chunk),
     confidence: ranked.confidence,
   };
 }
@@ -146,7 +146,7 @@ export async function rankAcross(
             body: schema.chunk.body,
             tokens: schema.chunk.tokens,
             citation: schema.chunk.citation,
-            libraryId: schema.chunk.libraryId,
+            assetId: schema.chunk.assetId,
             versionId: schema.chunk.versionId,
           })
           .from(schema.chunk)
@@ -185,7 +185,7 @@ export async function rankAcross(
           body: schema.chunk.body,
           tokens: schema.chunk.tokens,
           citation: schema.chunk.citation,
-          libraryId: schema.chunk.libraryId,
+          assetId: schema.chunk.assetId,
           versionId: schema.chunk.versionId,
           distance: sql<number>`${schema.chunk.embedding} <=> ${literal}::vector`,
         })
@@ -274,7 +274,7 @@ export async function rankAcross(
       score: Number(score.toFixed(6)),
       tokens: row.tokens,
       citation,
-      libraryId: row.libraryId,
+      assetId: row.assetId,
       versionId: row.versionId,
     });
   }
@@ -291,13 +291,13 @@ function scopedTo(members: readonly RankScopeMember[]) {
   const safe = sql`${schema.chunk.safetyStatus} not in ('quarantined', 'unsafe')`;
   if (members.length === 1) {
     return and(
-      eq(schema.chunk.libraryId, members[0]!.libraryId),
+      eq(schema.chunk.assetId, members[0]!.assetId),
       eq(schema.chunk.versionId, members[0]!.version.id),
       safe,
     );
   }
   return and(
-    inArray(schema.chunk.libraryId, members.map((member) => member.libraryId)),
+    inArray(schema.chunk.assetId, members.map((member) => member.assetId)),
     inArray(schema.chunk.versionId, members.map((member) => member.version.id)),
     safe,
   );

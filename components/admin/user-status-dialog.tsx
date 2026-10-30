@@ -2,7 +2,7 @@
 
 import { useActionState, useEffect, useId, useState } from 'react';
 import { ConsoleDialog } from '@/components/admin/console-dialog';
-import { submitOn } from '@/components/admin/platform-library-shared';
+import { submitOn } from '@/components/admin/platform-asset-shared';
 import { ConsoleButton, IconButton, Monogram } from '@/components/admin/ui';
 import { BanIcon, CircleCheckIcon, CircleXIcon, SpinnerIcon } from '@/components/ui/icons';
 import { useI18n } from '@/lib/i18n/client';
@@ -18,7 +18,7 @@ export interface UserStatusTarget {
   /** What the change covers, so the operator confirms against real numbers. */
   liveSessions: number;
   liveApiKeys: number;
-  publishedLibraries: number;
+  publishedAssets: number;
 }
 
 type Action = (previous: UserActionResult | null, form: FormData) => Promise<UserActionResult>;
@@ -124,7 +124,7 @@ function StatusDialog({
         fill(u.consequenceSessions, { count: target.liveSessions }),
         fill(u.consequenceCovered, {
           keys: target.liveApiKeys,
-          libraries: target.publishedLibraries,
+          assets: target.publishedAssets,
         }),
       ]
     : [];

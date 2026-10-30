@@ -3,7 +3,7 @@
 import Link from 'next/link';
 import { useActionState, useEffect, useId, useState } from 'react';
 import type { ClaimFailureReason } from '@/contracts/errors';
-import { submitOn } from '@/components/admin/platform-library-shared';
+import { submitOn } from '@/components/admin/platform-asset-shared';
 import { Card, Chip } from '@/components/ui/primitives';
 import { CircleCheckIcon, CircleXIcon, CopyIcon, SpinnerIcon } from '@/components/ui/icons';
 import type { ClaimMethod, ClaimStatus, SourceType } from '@/lib/domain';
@@ -14,7 +14,7 @@ import type { ClaimActionResult } from '@/app/(public)/assets/claim/actions';
 
 type Action = (previous: ClaimActionResult | null, form: FormData) => Promise<ClaimActionResult>;
 
-/** The library before a claim exists, as the page serialises it. */
+/** The asset before a claim exists, as the page serialises it. */
 export interface ClaimTargetView {
   publicId: string;
   title: string;
@@ -29,8 +29,8 @@ export interface ClaimTargetView {
 /** One claim as its claimant sees it, dates as ISO strings for the wire. */
 export interface ClaimView {
   id: string;
-  libraryPublicId: string;
-  libraryTitle: string;
+  assetPublicId: string;
+  assetTitle: string;
   location: string | null;
   method: ClaimMethod;
   status: ClaimStatus;
@@ -82,8 +82,8 @@ export function ClaimFlow({
   if (target && started) {
     const view: ClaimView = {
       id: started.claimId,
-      libraryPublicId: target.publicId,
-      libraryTitle: target.title,
+      assetPublicId: target.publicId,
+      assetTitle: target.title,
       location: target.location,
       method: started.method,
       status: 'pending',
@@ -145,7 +145,7 @@ function StartPanel({
   return (
     <div className="flex flex-col gap-4">
       <Card className="flex flex-col gap-2.5 p-4">
-        <Fact label={c.library} value={`${target.title} · ${target.publicId}`} />
+        <Fact label={c.asset} value={`${target.title} · ${target.publicId}`} />
         <Fact label={c.source} value={`${target.sourceType} · ${target.location}`} mono />
         <Fact
           label={c.owner}
@@ -166,7 +166,7 @@ function StartPanel({
           </div>
 
           <form id={formId} onSubmit={submitOn(submit)} className="flex flex-col gap-2.5">
-            <input type="hidden" name="libraryId" value={target.publicId} />
+            <input type="hidden" name="assetId" value={target.publicId} />
             {target.methods.map((option, index) => (
               <label
                 key={option}
@@ -207,7 +207,7 @@ function StartPanel({
                 )}
               </button>
               <Link href={`/assets/${target.publicId.replace(/^\//, '')}`} className={OUTLINE}>
-                {c.backToLibrary}
+                {c.backToAsset}
               </Link>
             </div>
           </form>
@@ -259,7 +259,7 @@ function ClaimPanel({
           <Chip tone={statusTone}>{c.statuses[status]}</Chip>
           {disputed && status === 'pending' ? <Chip tone="warn">{t.admin.claimDetail.disputedBadge}</Chip> : null}
         </div>
-        <Fact label={c.library} value={`${claim.libraryTitle} · ${claim.libraryPublicId}`} />
+        <Fact label={c.asset} value={`${claim.assetTitle} · ${claim.assetPublicId}`} />
         <Fact label={t.admin.claimDetail.fields.method} value={c.methods[claim.method].name} />
         {status === 'pending' ? (
           <p className="text-[12px] text-muted">
@@ -269,7 +269,7 @@ function ClaimPanel({
           </p>
         ) : null}
         {status === 'verified' ? (
-          <Notice tone="good">{fill(c.verifiedNotice, { library: claim.libraryTitle })}</Notice>
+          <Notice tone="good">{fill(c.verifiedNotice, { asset: claim.assetTitle })}</Notice>
         ) : null}
         {status === 'pending' && state?.ok && disputed ? (
           <Notice tone="good">{c.disputedProven}</Notice>
@@ -372,7 +372,7 @@ function ClaimPanel({
           <p className="text-[12.5px] leading-[1.7] text-muted">{c.reasons[shownReason].next}</p>
           {shownReason === 'challenge_expired' || status !== 'pending' ? (
             <Link
-              href={`/assets/claim?library=${encodeURIComponent(claim.libraryPublicId)}`}
+              href={`/assets/claim?asset=${encodeURIComponent(claim.assetPublicId)}`}
               className={`${OUTLINE} mt-1 self-start`}
             >
               {c.newClaim}

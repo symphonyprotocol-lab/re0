@@ -23,7 +23,7 @@
  */
 import { and, desc, eq, inArray, isNull, sql } from 'drizzle-orm';
 import { AppError } from '@/contracts/errors';
-import { isAssetAccess } from '@/lib/domain/asset';
+import { isAssetAccess } from '@/lib/domain/asset-kind';
 import {
   assertSellablePrice,
   CHANNEL_CURRENCY,
@@ -46,7 +46,7 @@ import {
 } from '@/lib/infrastructure/payment/provider';
 import { db, schema, type Database } from '@/lib/infrastructure/postgres/client';
 import { activeCommerceSettings } from '@/lib/application/administration/manage-commerce-config';
-import { canManageLibraries, type WorkspaceRole } from '@/lib/application/libraries/delete';
+import { canManageAssets, type WorkspaceRole } from '@/lib/application/assets/delete';
 import type { Tx } from '@/lib/application/plans/quota';
 import { extendUserStorageTier } from '@/lib/application/plans/storage';
 import { hasNegativeBalance, periodIdOf } from '@/lib/application/revenue/balance';
@@ -99,7 +99,7 @@ export async function assertUnderSubscriberCap(workspaceId: string, channelId: s
         eq(schema.usageEvent.workspaceId, workspaceId),
         sql`${schema.usageEvent.createdAt} >= ${dayStart}`,
         inArray(
-          schema.usageEvent.libraryId,
+          schema.usageEvent.assetId,
           database.select({ id: schema.channelAsset.assetId }).from(schema.channelAsset).where(eq(schema.channelAsset.channelId, channelId)),
         ),
       ),
@@ -186,7 +186,7 @@ interface OwnerInput {
 }
 
 async function lockOwnedChannel(tx: Tx, input: OwnerInput) {
-  if (!canManageLibraries(input.role)) throw new ChannelCommerceRefused('not_owner', 'only a workspace owner or admin can sell a channel');
+  if (!canManageAssets(input.role)) throw new ChannelCommerceRefused('not_owner', 'only a workspace owner or admin can sell a channel');
   if (!UUID.test(input.channelId)) throw new ChannelCommerceRefused('not_found', 'no such channel');
   const [channel] = await tx
     .select({
@@ -333,7 +333,7 @@ export async function setAssetAccess(input: {
   assetId: string;
   access: unknown;
 }): Promise<void> {
-  if (!canManageLibraries(input.role)) throw new ChannelCommerceRefused('not_owner', 'only a workspace owner or admin can change access');
+  if (!canManageAssets(input.role)) throw new ChannelCommerceRefused('not_owner', 'only a workspace owner or admin can change access');
   if (!isAssetAccess(input.access)) throw new AppError('invalid_request', 'access is free or paid');
   const access = input.access;
   if (!UUID.test(input.assetId)) throw new ChannelCommerceRefused('not_found', 'no such asset');
@@ -341,13 +341,13 @@ export async function setAssetAccess(input: {
     const [row] = await tx
       .select({ channelId: schema.channelAsset.channelId, enabledAt: schema.channel.subscriptionsEnabledAt })
       .from(schema.channelAsset)
-      .innerJoin(schema.library, eq(schema.library.id, schema.channelAsset.assetId))
+      .innerJoin(schema.asset, eq(schema.asset.id, schema.channelAsset.assetId))
       .innerJoin(schema.channel, eq(schema.channel.id, schema.channelAsset.channelId))
       .where(
         and(
           eq(schema.channelAsset.assetId, input.assetId),
-          eq(schema.library.ownerWorkspaceId, input.workspaceId),
-          isNull(schema.library.deletedAt),
+          eq(schema.asset.ownerWorkspaceId, input.workspaceId),
+          isNull(schema.asset.deletedAt),
         ),
       )
       .for('update', { of: schema.channelAsset });
@@ -355,7 +355,7 @@ export async function setAssetAccess(input: {
     if (access === 'paid' && !row.enabledAt) {
       throw new ChannelCommerceRefused('subscriptions_disabled', 'switch subscriptions on for this channel first');
     }
-    await tx.update(schema.library).set({ access }).where(eq(schema.library.id, input.assetId));
+    await tx.update(schema.asset).set({ access }).where(eq(schema.asset.id, input.assetId));
   });
 }
 

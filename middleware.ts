@@ -127,7 +127,7 @@ export function middleware(request: NextRequest): NextResponse {
    *
    * Not for the renderer's own fetches (`x-re0-markdown-source`): when the
    * path without the suffix is no page, it asks for the literal one -- a
-   * library mirroring a repository named `notes.md` -- and that request must
+   * asset mirroring a repository named `notes.md` -- and that request must
    * reach the page rather than come back here.
    */
   if (

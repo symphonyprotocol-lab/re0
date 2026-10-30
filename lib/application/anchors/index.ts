@@ -3,7 +3,7 @@
  * -- the signer that fills these tables is its own track
  * (aptos-anchoring-proposal.md 4.3, 4.6); nothing here writes.
  *
- * A Version Leaf's `subject_id` is the `library_version.id` (the `version_id`
+ * A Version Leaf's `subject_id` is the `asset_version.id` (the `version_id`
  * of the leaf preimage, proposal 4.2). A version may have been anchored more
  * than once under different leaf schemas (4.5.1); the newest confirmed leaf is
  * the one reported, and the status is honest about the rest: `anchored` only
@@ -18,7 +18,7 @@ import {
   anchorInstant,
   versionLeaf,
 } from '@/lib/domain/anchor-leaf';
-import { isVersionLabelShaped } from '@/lib/domain/library';
+import { isVersionLabelShaped } from '@/lib/domain/asset';
 import { db, schema } from '@/lib/infrastructure/postgres/client';
 import { sharedWithEveryone } from '@/lib/application/channels/visibility';
 
@@ -51,7 +51,7 @@ export interface VersionAnchorProof extends Anchor {
   contentMerkleRoot: string | null;
   batchStatus: string | null;
   /**
-   * What a stranger needs to rebuild the leaf, for public libraries only.
+   * What a stranger needs to rebuild the leaf, for public assets only.
    *
    * Null everywhere else, and not because the data is missing: a private
    * version's preimage is salted and belongs to its workspace (requirement.md
@@ -155,7 +155,7 @@ export async function versionAnchor(input: {
 }
 
 /**
- * `/owner/repo/20260101-abcdef12` -> the library's public id and the label.
+ * `/owner/repo/20260101-abcdef12` -> the asset's public id and the label.
  * Slugs may never look like a label (requirement.md 6.1), so the last segment
  * decides; null when it is not a label.
  */
@@ -168,7 +168,7 @@ export function splitPinnedId(pinnedId: string): { publicId: string; label: stri
 
 /**
  * The proof for a pinned public version, or null when there is no such
- * routable library or version. Public libraries only: a private version's
+ * routable asset or version. Public assets only: a private version's
  * anchor is reached through the workspace's own screens, never by id
  * (requirement.md 6.4, 私有库…第三方无法判定存在性).
  */
@@ -178,17 +178,17 @@ export async function publicVersionAnchor(pinnedId: string): Promise<VersionAnch
 
   const [row] = await db()
     .select({
-      versionId: schema.libraryVersion.id,
-      libraryId: schema.libraryVersion.libraryId,
-      sourceDigest: schema.libraryVersion.sourceDigest,
-      contentMerkleRoot: schema.libraryVersion.contentMerkleRoot,
-      publishedAt: schema.libraryVersion.publishedAt,
+      versionId: schema.assetVersion.id,
+      assetId: schema.assetVersion.assetId,
+      sourceDigest: schema.assetVersion.sourceDigest,
+      contentMerkleRoot: schema.assetVersion.contentMerkleRoot,
+      publishedAt: schema.assetVersion.publishedAt,
     })
-    .from(schema.libraryVersion)
-    .innerJoin(schema.library, eq(schema.library.id, schema.libraryVersion.libraryId))
+    .from(schema.assetVersion)
+    .innerJoin(schema.asset, eq(schema.asset.id, schema.assetVersion.assetId))
     /*
      * The routable predicate, in full -- the same one the catalogue and
-     * retrieval apply. Two of its clauses were missing here, so a library
+     * retrieval apply. Two of its clauses were missing here, so an asset
      * that is public and published but whose index is not ready (or which has
      * no current version at all) answered about its versions on an endpoint
      * that needs no credential, while every other public surface treats it as
@@ -197,13 +197,13 @@ export async function publicVersionAnchor(pinnedId: string): Promise<VersionAnch
      */
     .where(
       and(
-        eq(schema.library.publicId, split.publicId),
+        eq(schema.asset.publicId, split.publicId),
         sharedWithEveryone(),
-        eq(schema.library.lifecycleStatus, 'published'),
-        eq(schema.library.indexStatus, 'ready'),
-        isNotNull(schema.library.currentVersionId),
-        isNull(schema.library.deletedAt),
-        eq(schema.libraryVersion.label, split.label),
+        eq(schema.asset.lifecycleStatus, 'published'),
+        eq(schema.asset.indexStatus, 'ready'),
+        isNotNull(schema.asset.currentVersionId),
+        isNull(schema.asset.deletedAt),
+        eq(schema.assetVersion.label, split.label),
       ),
     )
     .limit(1);
@@ -232,7 +232,7 @@ export async function publicVersionAnchor(pinnedId: string): Promise<VersionAnch
    */
   if (anchor.leafHash && anchor.leafSchemaVersion === ANCHOR_LEAF_SCHEMA_VERSION) {
     const open = await versionLeaf({
-      libraryId: row.libraryId,
+      assetId: row.assetId,
       versionId: row.versionId,
       sourceDigest: row.sourceDigest,
       contentMerkleRoot: row.contentMerkleRoot,
@@ -246,7 +246,7 @@ export async function publicVersionAnchor(pinnedId: string): Promise<VersionAnch
     preimage: {
       domainSeparator: anchorDomainSeparator('version'),
       leafSchemaVersion: anchor.leafSchemaVersion ?? ANCHOR_LEAF_SCHEMA_VERSION,
-      libraryId: row.libraryId,
+      assetId: row.assetId,
       versionId: row.versionId,
       sourceDigest: row.sourceDigest,
       contentMerkleRoot: row.contentMerkleRoot,

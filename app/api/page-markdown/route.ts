@@ -41,7 +41,7 @@ async function render(request: NextRequest, head: boolean): Promise<Response> {
   const page = await fetchPage(sourceUrl);
 
   /*
-   * Library ids may contain dots, so a library can be named like the
+   * Asset ids may contain dots, so an asset can be named like the
    * representation suffix (a repository `notes.md`). When the path without
    * the suffix is no page, the request was for that literal page: serve it
    * as HTML. The header above keeps the middleware from rewriting it again.

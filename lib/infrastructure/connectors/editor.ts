@@ -10,7 +10,7 @@
  * and an article's images are represented by their captions only.
  */
 import { EMPTY_SOURCE_CONFIG, IngestionFailure } from '@/lib/domain/ingestion';
-import { editorialSourceConfigOf } from '@/lib/domain/library';
+import { editorialSourceConfigOf } from '@/lib/domain/asset';
 import type { SourceSnapshot } from './types';
 
 export function fetchEditorialSnapshot(input: { config: Record<string, unknown> }): SourceSnapshot {

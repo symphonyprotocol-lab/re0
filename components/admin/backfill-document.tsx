@@ -3,7 +3,7 @@
 import { useActionState, useId, useState } from 'react';
 import { ConsoleDialog } from '@/components/admin/console-dialog';
 import { FIELD, Field } from '@/components/admin/form-fields';
-import { submitOn } from '@/components/admin/platform-library-shared';
+import { submitOn } from '@/components/admin/platform-asset-shared';
 import { ConsoleButton } from '@/components/admin/ui';
 import { CircleCheckIcon, CircleXIcon, RefreshIcon, SpinnerIcon } from '@/components/ui/icons';
 import { useI18n } from '@/lib/i18n/client';

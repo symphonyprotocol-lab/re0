@@ -2,21 +2,21 @@
  * What the claim use cases share: the visibility rule, the row loaders, the
  * audit shape and the rate-limit rules.
  *
- * requirement.md 7.3.7: for a library the caller cannot see, every claim
- * answer must be indistinguishable from "not found". `visibleLibrary` is the
+ * requirement.md 7.3.7: for an asset the caller cannot see, every claim
+ * answer must be indistinguishable from "not found". `visibleAsset` is the
  * one place that decides visibility, and every other file asks it.
  */
 import { and, desc, eq, inArray, isNull, ne, type SQL } from 'drizzle-orm';
 import { AppError, type ClaimFailureReason } from '@/contracts/errors';
 import { CLAIMABLE_SOURCE_TYPES, type ClaimMethod, type ClaimStatus, type SourceType } from '@/lib/domain';
 import { recordAudit } from '@/lib/application/administration/audit';
-import type { WorkspaceRole } from '@/lib/application/libraries/delete';
+import type { WorkspaceRole } from '@/lib/application/assets/delete';
 import type { RateLimitRule } from '@/lib/infrastructure/cache/redis';
 import { strictRateLimit } from '@/lib/infrastructure/cache/strict-rate-limit';
 import { db, schema } from '@/lib/infrastructure/postgres/client';
 import { listedInPublicChannel } from '@/lib/application/channels/visibility';
 
-export interface ClaimableLibrary {
+export interface ClaimableAsset {
   id: string;
   publicId: string;
   title: string;
@@ -26,47 +26,47 @@ export interface ClaimableLibrary {
 }
 
 /**
- * A library a claim may name: public, live, built from one claimable source,
+ * An asset a claim may name: public, live, built from one claimable source,
  * and not the platform's own. Anything else -- private, deleted, archived,
- * platform-curated, or simply absent -- is the same `library_not_found`.
+ * platform-curated, or simply absent -- is the same `asset_not_found`.
  */
-export async function visibleLibrary(publicId: string): Promise<ClaimableLibrary> {
-  return claimable(eq(schema.library.publicId, publicId));
+export async function visibleAsset(publicId: string): Promise<ClaimableAsset> {
+  return claimable(eq(schema.asset.publicId, publicId));
 }
 
 /**
  * The same rule, addressed by primary key.
  *
- * Verification reaches the library through the claim rather than through a
- * public id, and it has to apply the same predicate: a library made private,
+ * Verification reaches the asset through the claim rather than through a
+ * public id, and it has to apply the same predicate: an asset made private,
  * archived or platform-curated after its claim opened is no longer claimable,
  * and rewriting its owner from a challenge minted while it was public would
  * be a way around the visibility rule.
  */
-export async function visibleLibraryById(libraryId: string): Promise<ClaimableLibrary> {
-  return claimable(eq(schema.library.id, libraryId));
+export async function visibleAssetById(assetId: string): Promise<ClaimableAsset> {
+  return claimable(eq(schema.asset.id, assetId));
 }
 
-async function claimable(identity: SQL): Promise<ClaimableLibrary> {
+async function claimable(identity: SQL): Promise<ClaimableAsset> {
   const [row] = await db()
     .select({
-      id: schema.library.id,
-      publicId: schema.library.publicId,
-      title: schema.library.title,
-      ownerWorkspaceId: schema.library.ownerWorkspaceId,
+      id: schema.asset.id,
+      publicId: schema.asset.publicId,
+      title: schema.asset.title,
+      ownerWorkspaceId: schema.asset.ownerWorkspaceId,
       sourceType: schema.source.type,
       location: schema.source.location,
     })
-    .from(schema.library)
-    .innerJoin(schema.source, eq(schema.source.libraryId, schema.library.id))
+    .from(schema.asset)
+    .innerJoin(schema.source, eq(schema.source.assetId, schema.asset.id))
     .where(
       and(
         identity,
         /* Only what others can see is claimable by others (agent-first-proposal.md 6.2). */
         listedInPublicChannel(),
-        eq(schema.library.isPlatformLibrary, false),
-        ne(schema.library.lifecycleStatus, 'archived'),
-        isNull(schema.library.deletedAt),
+        eq(schema.asset.isPlatformAsset, false),
+        ne(schema.asset.lifecycleStatus, 'archived'),
+        isNull(schema.asset.deletedAt),
         /*
          * "Built from one claimable source" is part of the rule, not just the
          * sentence above it. An upload or a Notion page has no claim flow at
@@ -84,7 +84,7 @@ async function claimable(identity: SQL): Promise<ClaimableLibrary> {
 }
 
 export function notFound(): AppError {
-  return new AppError('library_not_found', 'no such library');
+  return new AppError('asset_not_found', 'no such asset');
 }
 
 export function failure(reason: ClaimFailureReason, message: string): AppError {
@@ -93,7 +93,7 @@ export function failure(reason: ClaimFailureReason, message: string): AppError {
 
 export interface ClaimRow {
   id: string;
-  libraryId: string;
+  assetId: string;
   claimantWorkspaceId: string;
   method: ClaimMethod;
   challengeTokenHash: string;
@@ -110,27 +110,27 @@ export interface ClaimRow {
 export async function loadClaim(claimId: string): Promise<ClaimRow | null> {
   const [row] = await db()
     .select()
-    .from(schema.libraryClaim)
-    .where(eq(schema.libraryClaim.id, claimId))
+    .from(schema.assetClaim)
+    .where(eq(schema.assetClaim.id, claimId))
     .limit(1);
   return row ? (row as ClaimRow) : null;
 }
 
-/** The newest claim one workspace holds on one library, whatever its state. */
+/** The newest claim one workspace holds on one asset, whatever its state. */
 export async function newestClaimBy(
   workspaceId: string,
-  libraryId: string,
+  assetId: string,
 ): Promise<ClaimRow | null> {
   const [row] = await db()
     .select()
-    .from(schema.libraryClaim)
+    .from(schema.assetClaim)
     .where(
       and(
-        eq(schema.libraryClaim.claimantWorkspaceId, workspaceId),
-        eq(schema.libraryClaim.libraryId, libraryId),
+        eq(schema.assetClaim.claimantWorkspaceId, workspaceId),
+        eq(schema.assetClaim.assetId, assetId),
       ),
     )
-    .orderBy(desc(schema.libraryClaim.createdAt))
+    .orderBy(desc(schema.assetClaim.createdAt))
     .limit(1);
   return row ? (row as ClaimRow) : null;
 }
@@ -195,21 +195,21 @@ export async function auditClaim(input: {
 
 /*
  * requirement.md 7.3.7: starting and retrying are limited per account and per
- * library separately, and past the limit the caller cools down. Strict, not
+ * asset separately, and past the limit the caller cools down. Strict, not
  * fail-open: a claim endpoint that lost its limiter would be a free probe.
  */
 const START_PER_ACCOUNT: RateLimitRule = { limit: 10, windowSeconds: 3600 };
-const START_PER_LIBRARY: RateLimitRule = { limit: 5, windowSeconds: 3600 };
+const START_PER_ASSET: RateLimitRule = { limit: 5, windowSeconds: 3600 };
 const VERIFY_PER_ACCOUNT: RateLimitRule = { limit: 30, windowSeconds: 3600 };
-const VERIFY_PER_LIBRARY: RateLimitRule = { limit: 20, windowSeconds: 3600 };
+const VERIFY_PER_ASSET: RateLimitRule = { limit: 20, windowSeconds: 3600 };
 
 export async function assertWithinClaimLimits(
   phase: 'start' | 'verify',
   workspaceId: string,
-  libraryId: string,
+  assetId: string,
 ): Promise<void> {
   /*
-   * Sequential, not concurrent: the per-library budget is shared with every
+   * Sequential, not concurrent: the per-asset budget is shared with every
    * other claimant, and a caller already past its own account limit must not
    * be able to spend it. Its own limit is checked first and stops there.
    */
@@ -219,11 +219,11 @@ export async function assertWithinClaimLimits(
   );
   if (!account.allowed) throw cooldown();
 
-  const library = await strictRateLimit(
-    `ratelimit:claim-${phase}-library:${libraryId}`,
-    phase === 'start' ? START_PER_LIBRARY : VERIFY_PER_LIBRARY,
+  const asset = await strictRateLimit(
+    `ratelimit:claim-${phase}-asset:${assetId}`,
+    phase === 'start' ? START_PER_ASSET : VERIFY_PER_ASSET,
   );
-  if (!library.allowed) throw cooldown();
+  if (!asset.allowed) throw cooldown();
 }
 
 function cooldown(): AppError {

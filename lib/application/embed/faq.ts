@@ -6,14 +6,14 @@
  * embedding adapter when one is configured -- the same model the chunks
  * are embedded with -- and falls back to exact text otherwise. Saving or
  * removing an entry queues a rebuild the way the files page does
- * (lib/application/libraries/files.ts): a pending build will read the
+ * (lib/application/assets/files.ts): a pending build will read the
  * entries anyway, a running one needs a new row behind it.
  */
 import { and, asc, count, desc, eq, gte } from 'drizzle-orm';
 import { AppError } from '@/contracts/errors';
-/* From the module, not the libraries index: the index reaches into ingestion, which builds FAQ entries. */
-import { canManageLibraries, type WorkspaceRole } from '@/lib/application/libraries/delete';
-import { queueBuildUnlessPending } from '@/lib/application/libraries/queue-build';
+/* From the module, not the assets index: the index reaches into ingestion, which builds FAQ entries. */
+import { canManageAssets, type WorkspaceRole } from '@/lib/application/assets/delete';
+import { queueBuildUnlessPending } from '@/lib/application/assets/queue-build';
 import { assertBuildAffordable } from '@/lib/application/plans/build-quota';
 import { defaultRetrievalDependencies } from '@/lib/application/retrieval/query-docs';
 import {
@@ -28,7 +28,7 @@ import {
 } from '@/lib/domain/faq';
 import { uuidv7 } from '@/lib/domain/id';
 import { db, schema } from '@/lib/infrastructure/postgres/client';
-import { requireOwnedLibrary } from './site-keys';
+import { requireOwnedAsset } from './site-keys';
 
 /** Thrown for a bad field; the server action turns it into a form message. */
 export class FaqInvalid extends AppError {
@@ -45,8 +45,8 @@ export interface FaqGroupView extends QuestionGroup {
 /** How many recent questions grouping reads, and how far back. */
 export const FAQ_GROUPING = { days: 30, maxQuestions: 300 } as const;
 
-/** How long a library's grouping is kept once made, and how many libraries' at once. */
-export const FAQ_GROUP_CACHE = { ttlMs: 10 * 60 * 1000, maxLibraries: 200 } as const;
+/** How long an asset's grouping is kept once made, and how many assets' at once. */
+export const FAQ_GROUP_CACHE = { ttlMs: 10 * 60 * 1000, maxAssets: 200 } as const;
 
 const groupCache = new Map<string, { key: string; at: number; groups: FaqGroupView[] }>();
 
@@ -58,10 +58,10 @@ const groupCache = new Map<string, { key: string; at: number; groups: FaqGroupVi
  */
 export async function listFaqGroups(input: {
   workspaceId: string;
-  libraryId: string;
+  assetId: string;
   dependencies?: Pick<ReturnType<typeof defaultRetrievalDependencies>, 'embeddings' | 'configured'>;
 }): Promise<FaqGroupView[]> {
-  await requireOwnedLibrary(input.workspaceId, input.libraryId);
+  await requireOwnedAsset(input.workspaceId, input.assetId);
   const since = new Date(Date.now() - FAQ_GROUPING.days * 86_400_000);
   const [rows, entries] = await Promise.all([
     db()
@@ -75,7 +75,7 @@ export async function listFaqGroups(input: {
       .from(schema.widgetExchange)
       .where(
         and(
-          eq(schema.widgetExchange.libraryId, input.libraryId),
+          eq(schema.widgetExchange.assetId, input.assetId),
           eq(schema.widgetExchange.preview, false),
           gte(schema.widgetExchange.createdAt, since),
         ),
@@ -83,22 +83,22 @@ export async function listFaqGroups(input: {
       .orderBy(desc(schema.widgetExchange.createdAt))
       .limit(FAQ_GROUPING.maxQuestions),
     db()
-      .select({ question: schema.libraryFaq.question })
-      .from(schema.libraryFaq)
-      .where(eq(schema.libraryFaq.libraryId, input.libraryId)),
+      .select({ question: schema.assetFaq.question })
+      .from(schema.assetFaq)
+      .where(eq(schema.assetFaq.assetId, input.assetId)),
   ]);
   if (rows.length === 0) return [];
 
   /*
-   * The grouping is read on every render of the library's page, which polls
+   * The grouping is read on every render of the asset's page, which polls
    * while a build runs; the embedding call behind it must not be. The result
-   * is kept per library for as long as nothing it was made from has changed
+   * is kept per asset for as long as nothing it was made from has changed
    * -- the newest exchange, how many there are, the entries -- and for at
    * most `FAQ_GROUP_CACHE.ttlMs` either way. Per process: a serverless
    * instance that is reused keeps it, a fresh one pays once.
    */
   const cacheKey = `${rows[0]!.id}:${rows.length}:${entries.map((entry) => entry.question).join('\u0000')}`;
-  const cached = groupCache.get(input.libraryId);
+  const cached = groupCache.get(input.assetId);
   if (cached && cached.key === cacheKey && Date.now() - cached.at < FAQ_GROUP_CACHE.ttlMs) {
     return cached.groups;
   }
@@ -130,12 +130,12 @@ export async function listFaqGroups(input: {
     ...group,
     covered: group.questions.some((question) => covered.has(normaliseQuestion(question))),
   }));
-  if (groupCache.size >= FAQ_GROUP_CACHE.maxLibraries) {
+  if (groupCache.size >= FAQ_GROUP_CACHE.maxAssets) {
     const oldest = groupCache.keys().next().value;
     if (oldest !== undefined) groupCache.delete(oldest);
   }
-  groupCache.delete(input.libraryId);
-  groupCache.set(input.libraryId, { key: cacheKey, at: Date.now(), groups });
+  groupCache.delete(input.assetId);
+  groupCache.set(input.assetId, { key: cacheKey, at: Date.now(), groups });
   return groups;
 }
 
@@ -149,14 +149,14 @@ export interface FaqEntryView extends FaqEntryContent {
   updatedAt: string;
 }
 
-export async function listFaqEntries(input: { workspaceId: string; libraryId: string }): Promise<FaqEntryView[]> {
+export async function listFaqEntries(input: { workspaceId: string; assetId: string }): Promise<FaqEntryView[]> {
   const rows = await db()
     .select()
-    .from(schema.libraryFaq)
+    .from(schema.assetFaq)
     .where(
-      and(eq(schema.libraryFaq.workspaceId, input.workspaceId), eq(schema.libraryFaq.libraryId, input.libraryId)),
+      and(eq(schema.assetFaq.workspaceId, input.workspaceId), eq(schema.assetFaq.assetId, input.assetId)),
     )
-    .orderBy(asc(schema.libraryFaq.createdAt));
+    .orderBy(asc(schema.assetFaq.createdAt));
   return rows.map((row) => ({
     id: row.id,
     question: row.question,
@@ -170,7 +170,7 @@ export async function listFaqEntries(input: { workspaceId: string; libraryId: st
 export interface SaveFaqEntryInput {
   workspaceId: string;
   role: WorkspaceRole;
-  libraryId: string;
+  assetId: string;
   /** Absent to create; present to edit. */
   entryId?: string | null;
   question: string;
@@ -185,10 +185,10 @@ export interface FaqChangeResult {
 }
 
 export async function saveFaqEntry(input: SaveFaqEntryInput): Promise<FaqChangeResult> {
-  if (!canManageLibraries(input.role)) {
-    throw new AppError('access_denied', 'only a library manager can edit the FAQ');
+  if (!canManageAssets(input.role)) {
+    throw new AppError('access_denied', 'only an asset manager can edit the FAQ');
   }
-  await requireOwnedLibrary(input.workspaceId, input.libraryId);
+  await requireOwnedAsset(input.workspaceId, input.assetId);
   const refusal = validateFaqEntry(input);
   if (refusal) throw new FaqInvalid(refusal);
   const question = input.question.trim();
@@ -201,31 +201,31 @@ export async function saveFaqEntry(input: SaveFaqEntryInput): Promise<FaqChangeR
 
   const database = db();
   const now = new Date();
-  let row: typeof schema.libraryFaq.$inferSelect | undefined;
+  let row: typeof schema.assetFaq.$inferSelect | undefined;
   if (input.entryId) {
     [row] = await database
-      .update(schema.libraryFaq)
+      .update(schema.assetFaq)
       .set({ question, answer, pageUrl, updatedAt: now })
       .where(
         and(
-          eq(schema.libraryFaq.id, input.entryId),
-          eq(schema.libraryFaq.workspaceId, input.workspaceId),
-          eq(schema.libraryFaq.libraryId, input.libraryId),
+          eq(schema.assetFaq.id, input.entryId),
+          eq(schema.assetFaq.workspaceId, input.workspaceId),
+          eq(schema.assetFaq.assetId, input.assetId),
         ),
       )
       .returning();
-    if (!row) throw new AppError('library_not_found', 'no such FAQ entry');
+    if (!row) throw new AppError('asset_not_found', 'no such FAQ entry');
   } else {
     const [existing] = await database
       .select({ n: count() })
-      .from(schema.libraryFaq)
-      .where(eq(schema.libraryFaq.libraryId, input.libraryId));
+      .from(schema.assetFaq)
+      .where(eq(schema.assetFaq.assetId, input.assetId));
     if ((existing?.n ?? 0) >= FAQ_LIMITS.maxEntries) throw new FaqInvalid('limit');
     [row] = await database
-      .insert(schema.libraryFaq)
+      .insert(schema.assetFaq)
       .values({
         id: uuidv7(),
-        libraryId: input.libraryId,
+        assetId: input.assetId,
         workspaceId: input.workspaceId,
         question,
         answer,
@@ -235,7 +235,7 @@ export async function saveFaqEntry(input: SaveFaqEntryInput): Promise<FaqChangeR
       })
       .returning();
   }
-  const operationId = await queueBuildUnlessPending(database, input.libraryId);
+  const operationId = await queueBuildUnlessPending(database, input.assetId);
   return {
     entry: row
       ? {
@@ -254,23 +254,23 @@ export async function saveFaqEntry(input: SaveFaqEntryInput): Promise<FaqChangeR
 export async function deleteFaqEntry(input: {
   workspaceId: string;
   role: WorkspaceRole;
-  libraryId: string;
+  assetId: string;
   entryId: string;
 }): Promise<FaqChangeResult> {
-  if (!canManageLibraries(input.role)) {
-    throw new AppError('access_denied', 'only a library manager can edit the FAQ');
+  if (!canManageAssets(input.role)) {
+    throw new AppError('access_denied', 'only an asset manager can edit the FAQ');
   }
-  await requireOwnedLibrary(input.workspaceId, input.libraryId);
+  await requireOwnedAsset(input.workspaceId, input.assetId);
   const removed = await db()
-    .delete(schema.libraryFaq)
+    .delete(schema.assetFaq)
     .where(
       and(
-        eq(schema.libraryFaq.id, input.entryId),
-        eq(schema.libraryFaq.workspaceId, input.workspaceId),
-        eq(schema.libraryFaq.libraryId, input.libraryId),
+        eq(schema.assetFaq.id, input.entryId),
+        eq(schema.assetFaq.workspaceId, input.workspaceId),
+        eq(schema.assetFaq.assetId, input.assetId),
       ),
     )
-    .returning({ id: schema.libraryFaq.id });
-  if (removed.length === 0) throw new AppError('library_not_found', 'no such FAQ entry');
-  return { entry: null, operationId: await queueBuildUnlessPending(db(), input.libraryId) };
+    .returning({ id: schema.assetFaq.id });
+  if (removed.length === 0) throw new AppError('asset_not_found', 'no such FAQ entry');
+  return { entry: null, operationId: await queueBuildUnlessPending(db(), input.assetId) };
 }

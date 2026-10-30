@@ -33,7 +33,7 @@ import { db, schema } from '@/lib/infrastructure/postgres/client';
 import type { CallerContext } from './index';
 import { defaultRetrievalDependencies, type RetrievalDependencies } from './query-docs';
 import { rankAcross, type RankScopeMember } from './rank';
-import { visibleTo } from './resolve-library';
+import { visibleTo } from './resolve-asset';
 import { assertUnderSubscriberCap } from '@/lib/application/channels/subscriptions';
 
 export type SearchScope =
@@ -81,7 +81,7 @@ export async function searchScope(
       workspaceId: caller.workspaceId,
       requestId: caller.requestId,
       operation: input.operation ?? SCOPE_OPERATION,
-      libraryPublicId: null,
+      assetPublicId: null,
       entrypoint: caller.entrypoint ?? 'a2a',
       statusCode,
       latencyMs: Date.now() - startedAt,
@@ -113,33 +113,33 @@ async function searchScopeInner(
   const inScope: SQL =
     input.scope.kind === 'channel'
       ? inArray(
-          schema.library.id,
+          schema.asset.id,
           database
             .select({ id: schema.channelAsset.assetId })
             .from(schema.channelAsset)
             .where(eq(schema.channelAsset.channelId, input.scope.channelId)),
         )
       : input.scope.kind === 'workspace'
-        ? eq(schema.library.ownerWorkspaceId, input.scope.workspaceId)
-        : inArray(schema.library.id, input.scope.assetIds.length > 0 ? input.scope.assetIds : ['00000000-0000-0000-0000-000000000000']);
+        ? eq(schema.asset.ownerWorkspaceId, input.scope.workspaceId)
+        : inArray(schema.asset.id, input.scope.assetIds.length > 0 ? input.scope.assetIds : ['00000000-0000-0000-0000-000000000000']);
 
   let assets = await database
     .select({
-      id: schema.library.id,
-      publicId: schema.library.publicId,
-      title: schema.library.title,
-      versionId: schema.libraryVersion.id,
-      label: schema.libraryVersion.label,
-      searchConfig: schema.libraryVersion.searchConfig,
-      embeddingModel: schema.libraryVersion.embeddingModel,
-      embeddingDimensions: schema.libraryVersion.embeddingDimensions,
+      id: schema.asset.id,
+      publicId: schema.asset.publicId,
+      title: schema.asset.title,
+      versionId: schema.assetVersion.id,
+      label: schema.assetVersion.label,
+      searchConfig: schema.assetVersion.searchConfig,
+      embeddingModel: schema.assetVersion.embeddingModel,
+      embeddingDimensions: schema.assetVersion.embeddingDimensions,
     })
-    .from(schema.library)
+    .from(schema.asset)
     .innerJoin(
-      schema.libraryVersion,
+      schema.assetVersion,
       and(
-        eq(schema.libraryVersion.id, schema.library.currentVersionId),
-        eq(schema.libraryVersion.indexStatus, 'ready'),
+        eq(schema.assetVersion.id, schema.asset.currentVersionId),
+        eq(schema.assetVersion.indexStatus, 'ready'),
       ),
     )
     .where(and(inScope, visibleTo(caller)));
@@ -169,7 +169,7 @@ async function searchScopeInner(
 
   try {
     const members: RankScopeMember[] = assets.map((asset) => ({
-      libraryId: asset.id,
+      assetId: asset.id,
       version: {
         id: asset.versionId,
         searchConfig: asset.searchConfig,
@@ -191,7 +191,7 @@ async function searchScopeInner(
       const top = chunks[0]!;
       await commitCall({
         reservation,
-        libraryId: top.libraryId,
+        assetId: top.assetId,
         versionId: top.versionId,
         operation: SCOPE_OPERATION,
         entrypoint: caller.entrypoint ?? 'a2a',
@@ -204,8 +204,8 @@ async function searchScopeInner(
 
     const byId = new Map(assets.map((asset) => [asset.id, asset]));
     return {
-      chunks: chunks.map(({ libraryId, versionId: _versionId, ...chunk }) => {
-        const asset = byId.get(libraryId)!;
+      chunks: chunks.map(({ assetId, versionId: _versionId, ...chunk }) => {
+        const asset = byId.get(assetId)!;
         return {
           ...chunk,
           asset: {

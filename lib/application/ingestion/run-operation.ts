@@ -1,7 +1,7 @@
 /**
  * The worker side of the refresh queue.
  *
- * `manage-platform-libraries.ts` writes a `pending` row and returns; this is
+ * `manage-platform-assets.ts` writes a `pending` row and returns; this is
  * what turns that row into a published version. The two halves are deliberately
  * unaware of each other: architecture.md 8.4 says a caller does not wait for a
  * refresh to execute, so the console must stay correct whether this runs a
@@ -10,7 +10,7 @@
  * Claiming is a conditional update, not a read followed by a write. Several
  * workers may drain the same queue -- the cron entry and the background run
  * that follows an operator pressing the button, at minimum -- and a claim that
- * two of them can win is a library built twice.
+ * two of them can win is an asset built twice.
  */
 import { and, asc, eq, inArray, isNull, lt, sql } from 'drizzle-orm';
 import {
@@ -30,7 +30,7 @@ import { BUILD_RESERVATION_TTL_MS } from '@/lib/application/plans/quota';
 import { advanceLifecycleAfterBuild } from './advance-lifecycle';
 import { buildVersion } from './build-version';
 import { publishVersion } from './publish-version';
-import { purgeLibrary } from './purge-library';
+import { purgeAsset } from './purge-asset';
 import { purgeAbandonedUploads } from './purge-uploads';
 import type { IngestionDependencies } from './dependencies';
 
@@ -41,7 +41,7 @@ export type OperationOutcome =
   | { status: 'failed'; error: IngestionErrorCode }
   | { status: 'lost' };
 
-/** The operation type `markLibraryDeleted` queues; everything else is a build. */
+/** The operation type `markAssetDeleted` queues; everything else is a build. */
 const DELETE_OPERATION = 'delete';
 
 /** Queued by the public-review model layer until 2026-10-23; a row still waiting is cancelled, never built. */
@@ -82,7 +82,7 @@ export async function runOperation(input: {
     )
     .returning({
       id: schema.workflowOperation.id,
-      libraryId: schema.workflowOperation.libraryId,
+      assetId: schema.workflowOperation.assetId,
       operationType: schema.workflowOperation.operationType,
       attempts: schema.workflowOperation.attempts,
       trigger: schema.workflowOperation.trigger,
@@ -91,13 +91,13 @@ export async function runOperation(input: {
   const operation = claimed[0];
   if (!operation) return { status: 'lost' };
 
-  if (!operation.libraryId) {
+  if (!operation.assetId) {
     await finish(operation.id, 'failed', 'internal_error');
     return { status: 'failed', error: 'internal_error' };
   }
 
   if (operation.operationType === DELETE_OPERATION) {
-    return purge(operation.id, operation.libraryId, input.dependencies);
+    return purge(operation.id, operation.assetId, input.dependencies);
   }
 
   /* Public review is over; a model review that was still queued has nothing to do. */
@@ -110,27 +110,27 @@ export async function runOperation(input: {
   }
 
   /*
-   * The library says it is building while it is. A first build used to leave
+   * The asset says it is building while it is. A first build used to leave
    * `index_status` at `pending` until the version published, so the detail
    * page's banner (which reads the running operation) said "in progress"
    * while the status readout beside it said "waiting to build". Only a
-   * library with nothing published moves: one already serving a version
+   * asset with nothing published moves: one already serving a version
    * keeps `ready` or `stale` throughout, as requirement.md 8.2 asks -- a
    * refresh in flight is not a reason to look unavailable.
    */
   await database
-    .update(schema.library)
+    .update(schema.asset)
     .set({ indexStatus: 'processing' })
     .where(
       and(
-        eq(schema.library.id, operation.libraryId),
-        sql`${schema.library.currentVersionId} is null`,
-        isNull(schema.library.deletedAt),
+        eq(schema.asset.id, operation.assetId),
+        sql`${schema.asset.currentVersionId} is null`,
+        isNull(schema.asset.deletedAt),
       ),
     );
 
   /*
-   * The build's seat in the call ledger. library-build-billing.md 4: held at
+   * The build's seat in the call ledger. asset-build-billing.md 4: held at
    * the quoted cap before the fetch, resized to the measured price before
    * embedding, committed inside the publication transaction, released on
    * every other exit. `charge` is null for a build that is nobody's bill.
@@ -140,13 +140,13 @@ export async function runOperation(input: {
   try {
     charge = await openBuildCharge({
       operationId: operation.id,
-      libraryId: operation.libraryId,
+      assetId: operation.assetId,
       trigger: operation.trigger,
     });
     const openCharge = charge;
 
     const built = await buildVersion({
-      libraryId: operation.libraryId,
+      assetId: operation.assetId,
       operationId: operation.id,
       dependencies: input.dependencies,
       beforeIndex: openCharge
@@ -163,10 +163,10 @@ export async function runOperation(input: {
     }
 
     /*
-     * architecture.md 8.1 sends a platform library from `Evaluating` straight
-     * to `Publishing` -- there is no human review of our own libraries. What is
+     * architecture.md 8.1 sends a platform asset from `Evaluating` straight
+     * to `Publishing` -- there is no human review of our own assets. What is
      * published here is the *version*: the pointer moves and the index goes
-     * live. Whether the library appears in the catalogue is a separate decision
+     * live. Whether the asset appears in the catalogue is a separate decision
      * on `lifecycle_status`, which only an operator makes (requirement.md 5.3),
      * and requirement.md 6.2 forbids collapsing the two into one field.
      */
@@ -176,7 +176,7 @@ export async function runOperation(input: {
       .where(eq(schema.workflowOperation.id, operation.id))
       .catch(() => {});
     await publishVersion({
-      libraryId: operation.libraryId,
+      assetId: operation.assetId,
       versionId: built.versionId,
       charge:
         charge && billing.settled
@@ -188,10 +188,10 @@ export async function runOperation(input: {
           : null,
     });
 
-    /* A user library, by contrast, does move: it goes live under either
+    /* A user asset, by contrast, does move: it goes live under either
        visibility (`lifecycleAfterBuild`). Platform rows are left alone, as
        the comment above says. */
-    await advanceLifecycleAfterBuild(operation.libraryId);
+    await advanceLifecycleAfterBuild(operation.assetId);
 
     await finish(operation.id, 'succeeded', null);
     return {
@@ -206,33 +206,33 @@ export async function runOperation(input: {
 
     /*
      * A failed refresh keeps the current version. requirement.md 8.2 is
-     * explicit about it: the library goes on answering from what it already
+     * explicit about it: the asset goes on answering from what it already
      * has, and only `index_status` records that the newest attempt did not
-     * land. Marking the library failed would take a working library offline
+     * land. Marking the asset failed would take a working asset offline
      * because a network fetch timed out.
      */
     await database
-      .update(schema.library)
+      .update(schema.asset)
       .set({ lastCheckedAt: new Date() })
-      .where(eq(schema.library.id, operation.libraryId));
+      .where(eq(schema.asset.id, operation.assetId));
 
     const retriable = operation.attempts < MAX_ATTEMPTS && isRetriable(code);
     await finish(operation.id, retriable ? 'pending' : 'failed', code);
 
     /* A queued retry leaves `processing` in place: the operation is still
        open, the banner still says so, and the queue row carries the retry
-       count. Only a final failure changes the library's status, below. */
+       count. Only a final failure changes the asset's status, below. */
     if (!retriable) {
       await database
-        .update(schema.library)
+        .update(schema.asset)
         .set({ indexStatus: 'failed' })
         .where(
           and(
-            eq(schema.library.id, operation.libraryId),
-            // A library that is already serving a version is not "failed".
-            sql`${schema.library.currentVersionId} is null`,
+            eq(schema.asset.id, operation.assetId),
+            // An asset that is already serving a version is not "failed".
+            sql`${schema.asset.currentVersionId} is null`,
             // A tombstone's pointer is null too, and it stays `deleting`.
-            isNull(schema.library.deletedAt),
+            isNull(schema.asset.deletedAt),
           ),
         );
     }
@@ -263,17 +263,17 @@ export async function runOperation(input: {
  * failures keep retrying and alert, and never restore access. A build that
  * fails three times has told the operator something about the source; a purge
  * that fails is an outage on our side, and giving up on it would leave a
- * deleted library's content in the store indefinitely. The row goes back to
+ * deleted asset's content in the store indefinitely. The row goes back to
  * `pending` with the code on it, the next drain picks it up, and the error
  * line below is the alert.
  */
 async function purge(
   operationId: string,
-  libraryId: string,
+  assetId: string,
   dependencies: IngestionDependencies | undefined,
 ): Promise<OperationOutcome> {
   try {
-    const purged = await purgeLibrary({ libraryId, dependencies });
+    const purged = await purgeAsset({ assetId, dependencies });
     await finish(operationId, 'succeeded', null);
     return { status: 'purged', ...purged };
   } catch (error) {
@@ -329,7 +329,7 @@ async function finish(
  * to a worker that died before `finish` -- a function timeout, an eviction.
  * Nothing else would ever close it: the drain claims `pending` rows only, and
  * a rebuild request sees the open row and queues behind it for ever. It is
- * failed here, and the seat it held in the call ledger (library-build-billing.md
+ * failed here, and the seat it held in the call ledger (asset-build-billing.md
  * 4.2) goes back, on the same clock `sweepAbandonedSeats` uses for build seats.
  */
 async function reapStaleRunning(): Promise<void> {
@@ -364,7 +364,7 @@ async function reapStaleRunning(): Promise<void> {
  *
  * Serial rather than concurrent. A build holds an embedding provider's rate
  * limit and a Postgres transaction for as long as it runs, and the queue is
- * platform libraries -- tens of them, refreshed daily. Parallelism here would
+ * platform assets -- tens of them, refreshed daily. Parallelism here would
  * buy nothing and would make provider throttling everyone's problem at once.
  */
 export async function drainOperations(input: {

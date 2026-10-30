@@ -72,8 +72,8 @@ async function consumed(id: string): Promise<number> {
 function commit(reservation: Awaited<ReturnType<typeof reserveCall>>) {
   return commitCall({
     reservation,
-    /* No library: the event's library columns are nullable, and nothing here earns. */
-    libraryId: null as unknown as string,
+    /* No asset: the event's asset columns are nullable, and nothing here earns. */
+    assetId: null as unknown as string,
     versionId: null as unknown as string,
     operation: 'context',
     entrypoint: 'rest',

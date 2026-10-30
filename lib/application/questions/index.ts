@@ -23,15 +23,15 @@
  */
 import { and, desc, eq, inArray, sql } from 'drizzle-orm';
 import { AppError } from '@/contracts/errors';
-import { isAssetAccess, type AssetAccess } from '@/lib/domain/asset';
+import { isAssetAccess, type AssetAccess } from '@/lib/domain/asset-kind';
 import { EDITORIAL_LIMITS, editorialPublicId, EditorialRefused, qaDocument } from '@/lib/domain/editorial';
 import { uuidv7 } from '@/lib/domain/id';
 import { db, schema } from '@/lib/infrastructure/postgres/client';
 import { askScope, type AskResult } from '@/lib/application/agent/ask';
 import { moveAsset } from '@/lib/application/channels/manage';
 import { setAssetAccess } from '@/lib/application/channels/subscriptions';
-import { canManageLibraries, type WorkspaceRole } from '@/lib/application/libraries/delete';
-import { queueBuildUnlessPending } from '@/lib/application/libraries/queue-build';
+import { canManageAssets, type WorkspaceRole } from '@/lib/application/assets/delete';
+import { queueBuildUnlessPending } from '@/lib/application/assets/queue-build';
 import { assertBuildAffordable } from '@/lib/application/plans/build-quota';
 import type { PlaygroundDependencies } from '@/lib/application/playground';
 import { notify, workspaceManagers } from '@/lib/application/notifications';
@@ -220,7 +220,7 @@ export async function countOpenQuestions(workspaceId: string): Promise<number> {
 }
 
 async function ownedQuestion(workspaceId: string, role: WorkspaceRole, questionId: string) {
-  if (!canManageLibraries(role)) throw new QuestionRefused('not_owner', 'only the creator answers questions');
+  if (!canManageAssets(role)) throw new QuestionRefused('not_owner', 'only the creator answers questions');
   if (!UUID.test(questionId)) throw new QuestionRefused('not_found', 'no such question');
   const [row] = await db()
     .select({
@@ -273,12 +273,12 @@ export async function answerQuestion(input: {
   const publicId = editorialPublicId('qa', row.handle, `q-${assetId.replace(/-/g, '').slice(-10)}`);
   const title = row.question.length > EDITORIAL_LIMITS.titleMax ? `${row.question.slice(0, EDITORIAL_LIMITS.titleMax - 1)}…` : row.question;
   await db().transaction(async (tx) => {
-    await tx.insert(schema.library).values({
+    await tx.insert(schema.asset).values({
       id: assetId,
       publicId,
       title,
       ownerWorkspaceId: input.workspaceId,
-      isPlatformLibrary: false,
+      isPlatformAsset: false,
       kind: 'qa',
       lifecycleStatus: 'draft',
       indexStatus: 'pending',
@@ -294,7 +294,7 @@ export async function answerQuestion(input: {
     });
     await tx.insert(schema.source).values({
       id: uuidv7(),
-      libraryId: assetId,
+      assetId: assetId,
       type: 'editor',
       location: publicId,
       config: { path: 'qa.md', url: `/assets${publicId}`, markdown: qaDocument({ question: row.question, answer }), question: row.question, answer },
@@ -311,8 +311,8 @@ export async function answerQuestion(input: {
   } catch (error) {
     await db().transaction(async (tx) => {
       await tx.delete(schema.channelAsset).where(eq(schema.channelAsset.assetId, assetId));
-      await tx.delete(schema.source).where(eq(schema.source.libraryId, assetId));
-      await tx.delete(schema.library).where(eq(schema.library.id, assetId));
+      await tx.delete(schema.source).where(eq(schema.source.assetId, assetId));
+      await tx.delete(schema.asset).where(eq(schema.asset.id, assetId));
     });
     throw error;
   }
@@ -333,14 +333,14 @@ export async function answerQuestion(input: {
  * unchanged -- the audio is not transcribed.
  */
 export async function refreshQaDocument(input: { workspaceId: string; role: WorkspaceRole; assetId: string }): Promise<string | null> {
-  if (!canManageLibraries(input.role)) throw new QuestionRefused('not_owner', 'only the creator edits a Q&A');
+  if (!canManageAssets(input.role)) throw new QuestionRefused('not_owner', 'only the creator edits a Q&A');
   if (!UUID.test(input.assetId)) throw new QuestionRefused('not_found', 'no such Q&A');
   return db().transaction(async (tx) => {
     const [source] = await tx
       .select({ id: schema.source.id, config: schema.source.config })
       .from(schema.source)
-      .innerJoin(schema.library, eq(schema.library.id, schema.source.libraryId))
-      .where(and(eq(schema.library.id, input.assetId), eq(schema.library.ownerWorkspaceId, input.workspaceId), eq(schema.library.kind, 'qa')));
+      .innerJoin(schema.asset, eq(schema.asset.id, schema.source.assetId))
+      .where(and(eq(schema.asset.id, input.assetId), eq(schema.asset.ownerWorkspaceId, input.workspaceId), eq(schema.asset.kind, 'qa')));
     if (!source) throw new QuestionRefused('not_found', 'no such Q&A');
     const [audio] = await tx
       .select({ id: schema.assetMedia.id, sha256: schema.assetMedia.sha256 })
@@ -396,11 +396,11 @@ export async function endorsementsFor(twinAnswerIds: readonly string[]): Promise
       versionId: schema.answerEndorsement.versionId,
       versionLabel: schema.answerEndorsement.versionLabel,
       createdAt: schema.answerEndorsement.createdAt,
-      currentVersionId: schema.library.currentVersionId,
+      currentVersionId: schema.asset.currentVersionId,
     })
     .from(schema.answerEndorsement)
-    .leftJoin(schema.libraryVersion, eq(schema.libraryVersion.id, schema.answerEndorsement.versionId))
-    .leftJoin(schema.library, eq(schema.library.id, schema.libraryVersion.libraryId))
+    .leftJoin(schema.assetVersion, eq(schema.assetVersion.id, schema.answerEndorsement.versionId))
+    .leftJoin(schema.asset, eq(schema.asset.id, schema.assetVersion.assetId))
     .where(inArray(schema.answerEndorsement.answerRef, [...twinAnswerIds]));
   for (const row of rows) {
     found.set(row.answerRef, {
@@ -443,7 +443,7 @@ export async function endorseTwinAnswer(input: {
   twinAnswerId: string;
   endorse: boolean;
 }): Promise<void> {
-  if (!canManageLibraries(input.role)) throw new QuestionRefused('not_owner', 'only the creator endorses an answer');
+  if (!canManageAssets(input.role)) throw new QuestionRefused('not_owner', 'only the creator endorses an answer');
   if (!UUID.test(input.twinAnswerId)) throw new QuestionRefused('not_found', 'no such answer');
   const [row] = await db()
     .select({ id: schema.twinAnswer.id, channelId: schema.twinAnswer.channelId, outcome: schema.twinAnswer.outcome, versions: schema.twinAnswer.versions })

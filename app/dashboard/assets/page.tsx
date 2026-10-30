@@ -1,5 +1,5 @@
 import type { Metadata } from 'next';
-import { LibraryList, type LibraryBucket, type LibraryListRow } from '@/components/dashboard/library-list';
+import { AssetList, type AssetBucket, type AssetListRow } from '@/components/dashboard/asset-list';
 import { LiveRefresh } from '@/components/dashboard/live-refresh';
 import { describeBuild } from '@/lib/dashboard/build-progress';
 import {
@@ -17,22 +17,22 @@ import {
   ShieldCheckIcon,
 } from '@/components/ui/icons';
 import {
-  canDeleteLibraries,
-  canManageLibraries,
-  libraryUsageCounts,
-  listWorkspaceLibraries,
-  type WorkspaceLibraryRow,
-} from '@/lib/application/libraries';
+  canDeleteAssets,
+  canManageAssets,
+  assetUsageCounts,
+  listWorkspaceAssets,
+  type WorkspaceAssetRow,
+} from '@/lib/application/assets';
 import { isPublicChannel } from '@/lib/application/channels';
 import { quoteBuild } from '@/lib/application/plans';
-import { rebuildBlocked, reviewPipeline } from '@/lib/domain/library';
+import { rebuildBlocked, reviewPipeline } from '@/lib/domain/asset';
 import { requireSession } from '@/lib/http/session';
 import { getMessages, translations } from '@/lib/i18n/server';
-import { deleteWorkspaceLibraryAction } from './actions';
-import { rebuildLibraryAction } from './[libraryId]/actions';
+import { deleteWorkspaceAssetAction } from './actions';
+import { rebuildAssetAction } from './[assetId]/actions';
 
 export async function generateMetadata(): Promise<Metadata> {
-  return { title: (await getMessages()).dashboard.libraries.title };
+  return { title: (await getMessages()).dashboard.assets.title };
 }
 
 const STAT_ICONS = [DatabaseIcon, BadgeCheckIcon, FileTextIcon];
@@ -43,14 +43,14 @@ const STAT_ICONS = [DatabaseIcon, BadgeCheckIcon, FileTextIcon];
  * or failed), exempt (a draft with nothing queued). Nothing waits for
  * review since 2026-10-23.
  */
-function bucketOf(row: WorkspaceLibraryRow): LibraryBucket {
+function bucketOf(row: WorkspaceAssetRow): AssetBucket {
   if (row.lifecycleStatus === 'suspended' || row.indexStatus === 'failed') return 'blocked';
   if (row.lifecycleStatus === 'published' && row.indexStatus === 'ready') return 'live';
   if (row.indexStatus === 'processing' || row.indexStatus === 'pending') return 'pending';
   return 'exempt';
 }
 
-function toneOf(bucket: LibraryBucket): StatusTone {
+function toneOf(bucket: AssetBucket): StatusTone {
   return bucket;
 }
 
@@ -58,7 +58,7 @@ function toneOf(bucket: LibraryBucket): StatusTone {
  * `?filter=unfiled` keeps the assets in no channel, `?kind=` one asset kind
  * (agent-first-proposal.md 4.4: 全部资产（按类型筛选）、未归入频道的资产).
  */
-export default async function DashboardLibrariesPage({
+export default async function DashboardAssetsPage({
   searchParams,
 }: {
   searchParams: Promise<{ filter?: string; kind?: string }>;
@@ -68,38 +68,38 @@ export default async function DashboardLibrariesPage({
     translations(),
     searchParams,
   ]);
-  const l = t.dashboard.libraries;
+  const l = t.dashboard.assets;
   const m = l.manage;
-  const manager = canManageLibraries(session.workspace.role);
+  const manager = canManageAssets(session.workspace.role);
 
-  const [allLibraries, quote] = await Promise.all([
-    listWorkspaceLibraries(session.workspace.id),
-    /* library-build-billing.md 4.1: the worst case over page-fetching
+  const [allAssets, quote] = await Promise.all([
+    listWorkspaceAssets(session.workspace.id),
+    /* asset-build-billing.md 4.1: the worst case over page-fetching
        sources decides whether the per-row refresh is offered at all. */
     manager ? quoteBuild({ workspaceId: session.workspace.id, fetchesPages: true }) : null,
   ]);
-  const libraries = allLibraries.filter(
+  const assets = allAssets.filter(
     (row) =>
       (query.filter !== 'unfiled' || row.channel === null) && (!query.kind || row.kind === query.kind),
   );
-  const usage = await libraryUsageCounts(libraries.map((row) => row.id));
+  const usage = await assetUsageCounts(assets.map((row) => row.id));
   const number = new Intl.NumberFormat(locale);
   const date = new Intl.DateTimeFormat(locale, { dateStyle: 'medium' });
 
-  const published = libraries.filter(
+  const published = assets.filter(
     (row) => row.lifecycleStatus === 'published' && row.indexStatus === 'ready',
   ).length;
-  const totalChunks = libraries.reduce((sum, row) => sum + row.totalChunks, 0);
+  const totalChunks = assets.reduce((sum, row) => sum + row.totalChunks, 0);
 
   const stats = [
-    { key: 'total', value: number.format(libraries.length), label: l.stats.total },
+    { key: 'total', value: number.format(assets.length), label: l.stats.total },
     { key: 'published', value: number.format(published), label: l.stats.published },
     { key: 'chunks', value: number.format(totalChunks), label: l.stats.chunks },
   ];
 
   /* The label says the specific thing where the tone cannot: paused by the
      owner, suspended by the platform, or a failed build. */
-  const statusLabel = (row: WorkspaceLibraryRow, bucket: LibraryBucket): string => {
+  const statusLabel = (row: WorkspaceAssetRow, bucket: AssetBucket): string => {
     if (bucket === 'blocked') {
       if (row.lifecycleStatus === 'suspended') return row.pausedByOwner ? m.statuses.paused : m.statuses.suspended;
       return m.statuses.failed;
@@ -107,7 +107,7 @@ export default async function DashboardLibrariesPage({
     return l.statuses[bucket];
   };
 
-  const rows: LibraryListRow[] = libraries.map((row) => {
+  const rows: AssetListRow[] = assets.map((row) => {
     const bucket = bucketOf(row);
     /* requirement.md 5.2: an asset in a public channel that is not yet live
        shows where its build stands in the publishing pipeline. */
@@ -146,7 +146,7 @@ export default async function DashboardLibrariesPage({
   return (
     <div className="flex flex-col gap-[18px]">
       {/* A building row's readout changes by the window; poll while one is open. */}
-      <LiveRefresh active={libraries.some((row) => row.building)} />
+      <LiveRefresh active={assets.some((row) => row.building)} />
       <PageHeader
         eyebrow={session.workspace.name}
         title={l.title}
@@ -155,7 +155,7 @@ export default async function DashboardLibrariesPage({
           manager ? (
             <ActionButton href="/dashboard/assets/new">
               <PlusIcon size={15} />
-              {l.addLibrary}
+              {l.addAsset}
             </ActionButton>
           ) : undefined
         }
@@ -177,12 +177,12 @@ export default async function DashboardLibrariesPage({
         title={l.reviewNotice}
       />
 
-      {/* requirement.md 5.2: refresh and deletion are for the library's
+      {/* requirement.md 5.2: refresh and deletion are for the asset's
           owner side only; everyone else reads. */}
-      <LibraryList
+      <AssetList
         rows={rows}
-        deleteAction={canDeleteLibraries(session.workspace.role) ? deleteWorkspaceLibraryAction : undefined}
-        rebuildAction={manager ? rebuildLibraryAction : undefined}
+        deleteAction={canDeleteAssets(session.workspace.role) ? deleteWorkspaceAssetAction : undefined}
+        rebuildAction={manager ? rebuildAssetAction : undefined}
         rebuildQuote={quote ?? undefined}
       />
 

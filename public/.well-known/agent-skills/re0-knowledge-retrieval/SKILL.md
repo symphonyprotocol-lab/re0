@@ -9,7 +9,7 @@ Use Re0's read-only REST interface to find the right data asset and retrieve sou
 
 ## Before you call
 
-- To read a human-facing Re0 page with less noise, append `.md` before its query string. For example, read `/libraries.md?q=next.js` instead of scraping `/libraries?q=next.js`.
+- To read a human-facing Re0 page with less noise, append `.md` before its query string. For example, read `/assets.md?q=next.js` instead of scraping `/assets?q=next.js`.
 - Anonymous access covers public assets and is rate limited. Send `Authorization: Bearer <api-key>` to access assets visible to a workspace or receive its larger allowance. A key needs `knowledge:search` for discovery and `knowledge:read` for retrieval.
 
 ## Search for an asset
@@ -17,27 +17,27 @@ Use Re0's read-only REST interface to find the right data asset and retrieve sou
 Call:
 
 ```http
-GET /api/v1/libraries/search?query={query}&libraryName={optionalHint}
+GET /api/v1/assets/search?query={query}&assetName={optionalHint}
 ```
 
 Parameters:
 
 - `query` (required string, 1–2000 characters): the user's actual question or search intent.
-- `libraryName` (optional string, 1–200 characters): a name hint only; never substitute it for `query`.
+- `assetName` (optional string, 1–200 characters): a name hint only; never substitute it for `query`.
 
-Choose a result using `evidence.matchedTitles`, `evidence.matchedTerms`, relevance to the request, and then trust/benchmark scores. Preserve the returned `libraryId` exactly: it is the asset's ID. The directory webpage uses `q`, but this API uses `query`.
+Choose a result using `evidence.matchedTitles`, `evidence.matchedTerms`, relevance to the request, and then trust/benchmark scores. Preserve the returned `assetId` exactly: it is the asset's ID. The directory webpage uses `q`, but this API uses `query`.
 
 ## Retrieve context
 
 Call:
 
 ```http
-GET /api/v1/context?libraryId={libraryId}&query={query}&maxTokens={maxTokens}&type={type}
+GET /api/v1/context?assetId={assetId}&query={query}&maxTokens={maxTokens}&type={type}
 ```
 
 Parameters:
 
-- `libraryId` (required): an asset ID returned by search, such as `/owner/project`; a version suffix may pin a version.
+- `assetId` (required): an asset ID returned by search, such as `/owner/project`; a version suffix may pin a version.
 - `query` (required string, 1–2000 characters): the focused information need.
 - `maxTokens` (optional integer, 256–64000; default 4000): the maximum returned context size.
 - `type` (optional `json` or `txt`; default `json`): use `txt` when compact model-ready context is sufficient; use `json` when structured citations, scores, token counts, or usage are needed.

@@ -11,8 +11,8 @@ import { useI18n } from '@/lib/i18n/client';
  *
  * Two shapes. `overview` is a workspace screen -- a header, a row of
  * figures, two cards -- and is what every top-level page swaps through.
- * `detail` is a page under a library -- a back chip, a title with badges, a
- * status banner, a tab row, a panel -- for the library, its files, a
+ * `detail` is a page under an asset -- a back chip, a title with badges, a
+ * status banner, a tab row, a panel -- for the asset, its files, a
  * document and the import wizard. Each is drawn with the same panel as the
  * page it stands in for, so the swap reads as the page arriving rather than a
  * spinner over it. Under reduced motion the blocks hold still; the status

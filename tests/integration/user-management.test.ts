@@ -141,7 +141,7 @@ describeWithDb('suspending a registered account', () => {
       actor,
       userId,
       status: 'suspended',
-      reason: 'bulk scraping of public libraries',
+      reason: 'bulk scraping of public assets',
     });
 
     expect(outcome.sessionsRevoked).toBeGreaterThanOrEqual(2);
@@ -182,7 +182,7 @@ describeWithDb('suspending a registered account', () => {
       actor,
       userId,
       status: 'suspended',
-      reason: 'bulk scraping of public libraries',
+      reason: 'bulk scraping of public assets',
     });
     await expect(resolveApiKey(`Bearer ${key}`)).rejects.toMatchObject({
       code: 'invalid_api_key',
@@ -204,7 +204,7 @@ describeWithDb('suspending a registered account', () => {
 
     expect(entry!.action).toBe('user.suspend');
     expect(entry!.result).toBe('success');
-    expect(entry!.reason).toBe('bulk scraping of public libraries');
+    expect(entry!.reason).toBe('bulk scraping of public assets');
     expect(entry!.beforeValue).toMatchObject({ status: 'active' });
     expect(entry!.afterValue).toMatchObject({ status: 'suspended' });
   });

@@ -25,8 +25,8 @@ export function assertMethodSupported(sourceType: SourceType, method: ClaimMetho
 
 /**
  * Failure output must stay minimal: no source permission detail, no DNS payload,
- * no fetched content. For a library the caller cannot see, the response must be
- * indistinguishable from "not found" so claims cannot probe private libraries.
+ * no fetched content. For an asset the caller cannot see, the response must be
+ * indistinguishable from "not found" so claims cannot probe private assets.
  * requirement.md 7.3.7.
  */
 export function publicFailureMessage(reason: ClaimFailureReason): string {
@@ -36,15 +36,15 @@ export function publicFailureMessage(reason: ClaimFailureReason): string {
     case 'account_not_linked':
       return 'Link a GitHub account that can access this repository, then retry.';
     case 'source_mismatch':
-      return 'The verified source does not match this library. Check the target and retry.';
+      return 'The verified source does not match this asset. Check the target and retry.';
     case 'challenge_not_found':
       return 'The challenge was not found at the expected location.';
     case 'challenge_expired':
       return 'The challenge expired. Start a new claim to get a fresh one.';
     case 'already_claimed':
-      return 'This library already has an owner. Open a dispute for admin review.';
+      return 'This asset already has an owner. Open a dispute for admin review.';
     case 'claim_in_progress':
-      return 'Another claim is in progress for this library. Try again after it ends.';
+      return 'Another claim is in progress for this asset. Try again after it ends.';
     case 'retry_limit_exceeded':
       return 'Too many attempts. Wait for the cooldown to end.';
   }

@@ -1,6 +1,6 @@
 /**
  * One line about where a running build is, for the screens that watch one:
- * the console's refresh queue and the workspace dashboard's library list
+ * the console's refresh queue and the workspace dashboard's asset list
  * and detail page. The stage and the counts come from the operation row
  * (lib/domain/ingestion.ts `BuildProgress`); the words from the console's
  * dictionary, which the dashboard already borrows for ingestion errors.

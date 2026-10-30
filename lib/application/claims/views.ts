@@ -20,13 +20,13 @@ import {
 } from '@/lib/domain/claim';
 import { db, schema } from '@/lib/infrastructure/postgres/client';
 import { ref } from '@/lib/application/administration/column-ref';
-import { isUuid, loadClaim, notFound, visibleLibrary } from './shared';
+import { isUuid, loadClaim, notFound, visibleAsset } from './shared';
 
 export interface WorkspaceClaimRow {
   id: string;
-  libraryId: string;
-  libraryPublicId: string;
-  libraryTitle: string;
+  assetId: string;
+  assetPublicId: string;
+  assetTitle: string;
   method: ClaimMethod;
   status: ClaimStatus;
   failureReason: ClaimFailureReason | null;
@@ -34,46 +34,46 @@ export interface WorkspaceClaimRow {
   expiresAt: Date;
   verifiedAt: Date | null;
   createdAt: Date;
-  /** The library has another owner, so this claim waits on an administrator. */
+  /** The asset has another owner, so this claim waits on an administrator. */
   disputed: boolean;
   ownerName: string | null;
 }
 
 const ownerName = sql<string | null>`(
   select ${ref(schema.workspace.name)} from ${schema.workspace}
-  where ${ref(schema.workspace.id)} = ${ref(schema.library.ownerWorkspaceId)}
+  where ${ref(schema.workspace.id)} = ${ref(schema.asset.ownerWorkspaceId)}
 )`;
 
 /** Every claim this workspace has opened, newest first. */
 export async function listWorkspaceClaims(workspaceId: string): Promise<WorkspaceClaimRow[]> {
   const rows = await db()
     .select({
-      id: schema.libraryClaim.id,
-      libraryId: schema.libraryClaim.libraryId,
-      libraryPublicId: schema.library.publicId,
-      libraryTitle: schema.library.title,
-      method: schema.libraryClaim.method,
-      status: schema.libraryClaim.status,
-      failureReason: schema.libraryClaim.failureReason,
-      attempts: schema.libraryClaim.attempts,
-      expiresAt: schema.libraryClaim.expiresAt,
-      verifiedAt: schema.libraryClaim.verifiedAt,
-      createdAt: schema.libraryClaim.createdAt,
-      ownerWorkspaceId: schema.library.ownerWorkspaceId,
+      id: schema.assetClaim.id,
+      assetId: schema.assetClaim.assetId,
+      assetPublicId: schema.asset.publicId,
+      assetTitle: schema.asset.title,
+      method: schema.assetClaim.method,
+      status: schema.assetClaim.status,
+      failureReason: schema.assetClaim.failureReason,
+      attempts: schema.assetClaim.attempts,
+      expiresAt: schema.assetClaim.expiresAt,
+      verifiedAt: schema.assetClaim.verifiedAt,
+      createdAt: schema.assetClaim.createdAt,
+      ownerWorkspaceId: schema.asset.ownerWorkspaceId,
       ownerName,
     })
-    .from(schema.libraryClaim)
-    .innerJoin(schema.library, eq(schema.library.id, schema.libraryClaim.libraryId))
+    .from(schema.assetClaim)
+    .innerJoin(schema.asset, eq(schema.asset.id, schema.assetClaim.assetId))
     .where(
-      and(eq(schema.libraryClaim.claimantWorkspaceId, workspaceId), isNull(schema.library.deletedAt)),
+      and(eq(schema.assetClaim.claimantWorkspaceId, workspaceId), isNull(schema.asset.deletedAt)),
     )
-    .orderBy(desc(schema.libraryClaim.createdAt));
+    .orderBy(desc(schema.assetClaim.createdAt));
 
   return rows.map((row) => ({
     id: row.id,
-    libraryId: row.libraryId,
-    libraryPublicId: row.libraryPublicId,
-    libraryTitle: row.libraryTitle,
+    assetId: row.assetId,
+    assetPublicId: row.assetPublicId,
+    assetTitle: row.assetTitle,
     method: row.method,
     status: row.status,
     failureReason: row.failureReason as ClaimFailureReason | null,
@@ -91,59 +91,59 @@ export async function listWorkspaceClaims(workspaceId: string): Promise<Workspac
 }
 
 /**
- * How each of the given libraries stands with this workspace: claimed, owned
+ * How each of the given assets stands with this workspace: claimed, owned
  * by creation, pending, failed or unclaimed. One query for the whole list.
  */
-export async function ownershipForLibraries(
+export async function ownershipForAssets(
   workspaceId: string,
-  libraryIds: string[],
+  assetIds: string[],
 ): Promise<Map<string, OwnershipView>> {
   const result = new Map<string, OwnershipView>();
-  if (libraryIds.length === 0) return result;
+  if (assetIds.length === 0) return result;
 
   const database = db();
-  const [libraries, claims] = await Promise.all([
+  const [assets, claims] = await Promise.all([
     database
       .select({
-        id: schema.library.id,
-        ownerWorkspaceId: schema.library.ownerWorkspaceId,
+        id: schema.asset.id,
+        ownerWorkspaceId: schema.asset.ownerWorkspaceId,
         ownerName,
       })
-      .from(schema.library)
-      .where(inArray(schema.library.id, libraryIds)),
+      .from(schema.asset)
+      .where(inArray(schema.asset.id, assetIds)),
     database
       .select({
-        id: schema.libraryClaim.id,
-        libraryId: schema.libraryClaim.libraryId,
-        status: schema.libraryClaim.status,
-        failureReason: schema.libraryClaim.failureReason,
-        attempts: schema.libraryClaim.attempts,
-        expiresAt: schema.libraryClaim.expiresAt,
-        verifiedAt: schema.libraryClaim.verifiedAt,
+        id: schema.assetClaim.id,
+        assetId: schema.assetClaim.assetId,
+        status: schema.assetClaim.status,
+        failureReason: schema.assetClaim.failureReason,
+        attempts: schema.assetClaim.attempts,
+        expiresAt: schema.assetClaim.expiresAt,
+        verifiedAt: schema.assetClaim.verifiedAt,
       })
-      .from(schema.libraryClaim)
+      .from(schema.assetClaim)
       .where(
         and(
-          eq(schema.libraryClaim.claimantWorkspaceId, workspaceId),
-          inArray(schema.libraryClaim.libraryId, libraryIds),
+          eq(schema.assetClaim.claimantWorkspaceId, workspaceId),
+          inArray(schema.assetClaim.assetId, assetIds),
         ),
       )
-      .orderBy(desc(schema.libraryClaim.createdAt)),
+      .orderBy(desc(schema.assetClaim.createdAt)),
   ]);
 
   const newest = new Map<string, (typeof claims)[number]>();
   for (const claim of claims) {
-    if (!newest.has(claim.libraryId)) newest.set(claim.libraryId, claim);
+    if (!newest.has(claim.assetId)) newest.set(claim.assetId, claim);
   }
 
-  for (const library of libraries) {
-    const claim = newest.get(library.id);
+  for (const asset of assets) {
+    const claim = newest.get(asset.id);
     result.set(
-      library.id,
+      asset.id,
       ownershipView(
         {
-          ownerWorkspaceId: library.ownerWorkspaceId,
-          ownerName: library.ownerName,
+          ownerWorkspaceId: asset.ownerWorkspaceId,
+          ownerName: asset.ownerName,
           claim: claim
             ? {
                 id: claim.id,
@@ -170,35 +170,35 @@ export interface PublicClaimStatus {
 }
 
 /** What the public detail page says about ownership. requirement.md 5.1, 7.3.4. */
-export async function publicClaimStatus(libraryPublicId: string): Promise<PublicClaimStatus> {
+export async function publicClaimStatus(assetPublicId: string): Promise<PublicClaimStatus> {
   const [row] = await db()
     .select({
-      id: schema.library.id,
-      ownerWorkspaceId: schema.library.ownerWorkspaceId,
+      id: schema.asset.id,
+      ownerWorkspaceId: schema.asset.ownerWorkspaceId,
       ownerName,
     })
-    .from(schema.library)
-    .where(and(eq(schema.library.publicId, libraryPublicId), isNull(schema.library.deletedAt)))
+    .from(schema.asset)
+    .where(and(eq(schema.asset.publicId, assetPublicId), isNull(schema.asset.deletedAt)))
     .limit(1);
   if (!row || !row.ownerWorkspaceId) return { claimed: false, ownerName: null, claimedAt: null };
 
   const [claim] = await db()
-    .select({ verifiedAt: schema.libraryClaim.verifiedAt })
-    .from(schema.libraryClaim)
+    .select({ verifiedAt: schema.assetClaim.verifiedAt })
+    .from(schema.assetClaim)
     .where(
       and(
-        eq(schema.libraryClaim.libraryId, row.id),
-        eq(schema.libraryClaim.claimantWorkspaceId, row.ownerWorkspaceId),
-        eq(schema.libraryClaim.status, 'verified'),
+        eq(schema.assetClaim.assetId, row.id),
+        eq(schema.assetClaim.claimantWorkspaceId, row.ownerWorkspaceId),
+        eq(schema.assetClaim.status, 'verified'),
       ),
     )
-    .orderBy(desc(schema.libraryClaim.verifiedAt))
+    .orderBy(desc(schema.assetClaim.verifiedAt))
     .limit(1);
 
   return { claimed: true, ownerName: row.ownerName, claimedAt: claim?.verifiedAt ?? null };
 }
 
-/** What the claim page needs about the library before a claim exists. */
+/** What the claim page needs about the asset before a claim exists. */
 export interface ClaimTarget {
   publicId: string;
   title: string;
@@ -213,26 +213,26 @@ export interface ClaimTarget {
 
 export async function claimTarget(
   workspaceId: string,
-  libraryPublicId: string,
+  assetPublicId: string,
 ): Promise<ClaimTarget> {
-  const library = await visibleLibrary(libraryPublicId);
+  const asset = await visibleAsset(assetPublicId);
   let owner: string | null = null;
-  if (library.ownerWorkspaceId) {
+  if (asset.ownerWorkspaceId) {
     const [row] = await db()
       .select({ name: schema.workspace.name })
       .from(schema.workspace)
-      .where(eq(schema.workspace.id, library.ownerWorkspaceId));
+      .where(eq(schema.workspace.id, asset.ownerWorkspaceId));
     owner = row?.name ?? null;
   }
   return {
-    publicId: library.publicId,
-    title: library.title,
-    sourceType: library.sourceType,
-    location: library.location,
-    methods: claimMethodsFor(library.sourceType),
+    publicId: asset.publicId,
+    title: asset.title,
+    sourceType: asset.sourceType,
+    location: asset.location,
+    methods: claimMethodsFor(asset.sourceType),
     ownedByOther:
-      library.ownerWorkspaceId !== null && library.ownerWorkspaceId !== workspaceId,
-    ownedBySelf: library.ownerWorkspaceId === workspaceId,
+      asset.ownerWorkspaceId !== null && asset.ownerWorkspaceId !== workspaceId,
+    ownedBySelf: asset.ownerWorkspaceId === workspaceId,
     ownerName: owner,
   };
 }
@@ -255,22 +255,22 @@ export async function claimForClaimant(
   const claim = await loadClaim(claimId);
   if (!claim || claim.claimantWorkspaceId !== workspaceId) throw notFound();
 
-  const [library] = await db()
+  const [asset] = await db()
     .select({
-      publicId: schema.library.publicId,
-      title: schema.library.title,
-      ownerWorkspaceId: schema.library.ownerWorkspaceId,
+      publicId: schema.asset.publicId,
+      title: schema.asset.title,
+      ownerWorkspaceId: schema.asset.ownerWorkspaceId,
       ownerName,
-      deletedAt: schema.library.deletedAt,
+      deletedAt: schema.asset.deletedAt,
       sourceType: schema.source.type,
       location: schema.source.location,
     })
-    .from(schema.library)
-    .innerJoin(schema.source, eq(schema.source.libraryId, schema.library.id))
-    .where(eq(schema.library.id, claim.libraryId))
+    .from(schema.asset)
+    .innerJoin(schema.source, eq(schema.source.assetId, schema.asset.id))
+    .where(eq(schema.asset.id, claim.assetId))
     .orderBy(schema.source.id)
     .limit(1);
-  if (!library || library.deletedAt) throw notFound();
+  if (!asset || asset.deletedAt) throw notFound();
 
   /*
    * A GitHub source's home domain is not stored, and the page is not the
@@ -280,13 +280,13 @@ export async function claimForClaimant(
   const domain =
     claim.method === 'github_permission'
       ? null
-      : verificationDomain({ sourceType: library.sourceType, location: library.location });
+      : verificationDomain({ sourceType: asset.sourceType, location: asset.location });
 
   return {
     id: claim.id,
-    libraryId: claim.libraryId,
-    libraryPublicId: library.publicId,
-    libraryTitle: library.title,
+    assetId: claim.assetId,
+    assetPublicId: asset.publicId,
+    assetTitle: asset.title,
     method: claim.method,
     status: claim.status,
     failureReason: claim.failureReason,
@@ -296,11 +296,11 @@ export async function claimForClaimant(
     createdAt: claim.createdAt,
     disputed: isDisputedClaim({
       status: claim.status,
-      ownerWorkspaceId: library.ownerWorkspaceId,
+      ownerWorkspaceId: asset.ownerWorkspaceId,
       claimantWorkspaceId: claim.claimantWorkspaceId,
     }),
-    ownerName: library.ownerName,
-    location: library.location,
+    ownerName: asset.ownerName,
+    location: asset.location,
     checks: checkStates({
       method: claim.method,
       status: claim.status,

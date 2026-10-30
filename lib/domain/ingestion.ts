@@ -20,7 +20,7 @@
  * -2: a document's title now prefers the title the page declares (its
  * `<title>`, or a renderer's metadata) over a heading below level 1, and
  * sheds the site's name from it. Bodies and chunks are unchanged; the bump
- * exists so every library picks the new titles up on its next refresh, which
+ * exists so every asset picks the new titles up on its next refresh, which
  * the unchanged-source shortcut would otherwise skip for good.
  */
 export const PARSER_VERSION = 're0-parser-2';
@@ -40,12 +40,12 @@ export const CHUNKER_VERSION = 're0-chunker-2';
  *
  * Stored on `workflow_operation.status`, which is free-form text, so this is
  * the whole vocabulary the column is allowed to hold. `pending` and `running`
- * are what `manage-platform-libraries` already treats as an open operation, so
+ * are what `manage-platform-assets` already treats as an open operation, so
  * every stage between the two ends maps onto `running` on the row and is
  * reported separately.
  *
  * `cancelled` is the one state a row reaches without running: deleting a
- * library withdraws every operation still queued for it (architecture.md
+ * asset withdraws every operation still queued for it (architecture.md
  * 8.4), and a queued build that is silently dropped would leave the console
  * showing work that will never happen.
  */
@@ -67,8 +67,8 @@ export type OperationState = (typeof OPERATION_STATES)[number];
  * behind a refresh nobody requested.
  *
  * `platform` is the platform's own decision -- a rebuild forced by a parser,
- * chunker or model upgrade, or the first refresh of a library that predates
- * per-source digests. library-build-billing.md 5.4: such a build is never the
+ * chunker or model upgrade, or the first refresh of an asset that predates
+ * per-source digests. asset-build-billing.md 5.4: such a build is never the
  * owner's bill, whatever it measures.
  */
 export const OPERATION_TRIGGERS = ['manual', 'scheduled', 'platform'] as const;
@@ -179,7 +179,7 @@ export const INGESTION_ERRORS = [
    * more than its storage tier allows. Not retried -- the source will be as
    * large next time.
    */
-  'library_too_large',
+  'asset_too_large',
   'source_empty',
   'source_unrendered',
   'unsafe_content',
@@ -189,7 +189,7 @@ export const INGESTION_ERRORS = [
   'storage_unavailable',
   'publish_failed',
   /**
-   * library-build-billing.md 4.3: chunking measured a price the workspace's
+   * asset-build-billing.md 4.3: chunking measured a price the workspace's
    * allowance and pack balance cannot cover, so the build stopped before
    * embedding. Not retried -- the balance does not change on its own.
    */
@@ -225,7 +225,7 @@ export class IngestionFailure extends Error {
 /**
  * Caps on one build.
  *
- * A platform library is fetched from the open internet, so every one of these
+ * A platform asset is fetched from the open internet, so every one of these
  * is a bound on what a hostile or merely enormous source can cost us. The byte
  * cap matches requirement.md 4.1's accounting: decompressed, pre-normalization
  * content bytes.
@@ -235,7 +235,7 @@ export const INGESTION_LIMITS = {
   maxDocumentBytes: 1_000_000,
   /** Per build, summed over every file kept. */
   maxSnapshotBytes: 64 * 1024 * 1024,
-  /** Per build. Stops a monorepo from becoming one library. */
+  /** Per build. Stops a monorepo from becoming one asset. */
   maxDocuments: 3_000,
   /** Per build. */
   maxChunks: 60_000,
@@ -255,7 +255,7 @@ export const INGESTION_LIMITS = {
  * a language an operator typed. A plain `map[key]` also answers for
  * `Object.prototype` members, so `&constructor;` in someone's HTML resolves to
  * the source text of `Object` and gets spliced into the indexed document, and a
- * library whose language reads `constructor` produces a `search_config` the
+ * asset whose language reads `constructor` produces a `search_config` the
  * CHECK constraint rejects. Both were real; this is why nothing here indexes a
  * map directly.
  */
@@ -272,7 +272,7 @@ export type DocumentFormat = 'markdown' | 'text' | 'html' | 'structured';
  *
  * requirement.md 8.1 says documents and examples come first, so this is
  * documentation and interface description -- not source code. Source code is
- * allowed as a fallback for a public library whose repository has too little
+ * allowed as a fallback for a public asset whose repository has too little
  * prose, which `isFallbackDocument` answers separately so the caller has to opt
  * into it rather than getting it by accident.
  */
@@ -470,7 +470,7 @@ function globMatches(pattern: string, path: string): boolean {
  * `folders` is set, everything outside those folders is excluded too -- except
  * root-level documents, which 7.2 requires the schema to be explicit about, and
  * this is that decision: a repository's root README is always a candidate,
- * because a `folders: ["docs"]` that hid the README would produce a library
+ * because a `folders: ["docs"]` that hid the README would produce an asset
  * whose front page is missing.
  */
 export function pathIncluded(path: string, config: SourceConfig): boolean {
@@ -705,7 +705,7 @@ export function normalizeText(value: string): string {
  *
  * Script, style, nav and footer content is removed rather than flattened: a
  * site's navigation appears on every page, and chunking it once per page would
- * fill a library with hundreds of near-identical chunks that match every query
+ * fill an asset with hundreds of near-identical chunks that match every query
  * about the site and answer none of them.
  */
 /**
@@ -1178,7 +1178,7 @@ export async function snapshotDigest(
 }
 
 /**
- * A Merkle root over ordered chunk digests. `library_version.content_merkle_root`.
+ * A Merkle root over ordered chunk digests. `asset_version.content_merkle_root`.
  *
  * Leaves and interior nodes are domain-separated with a `L:` / `N:` prefix, the
  * standard defence against presenting an interior node as a leaf. An odd node
@@ -1207,7 +1207,7 @@ export async function merkleRoot(leaves: readonly string[]): Promise<string | nu
  *
  * `sequence` disambiguates rebuilds of an unchanged source. Those became
  * possible once a build compares the parser, chunker, embedding model and
- * search configuration as well as the digest: correcting a library's language
+ * search configuration as well as the digest: correcting an asset's language
  * rebuilds the same bytes under a different configuration, and two rows reading
  * `20260831-8e0734c3` in the console's version list would be indistinguishable
  * to the operator choosing between them.
@@ -1238,7 +1238,7 @@ export function versionLabel(digest: string, at: Date, sequence = 1): string {
  * that a managed Postgres will not install. CJK text therefore falls back to
  * `simple`, which does not segment: an entire run of Han characters becomes one
  * token, so only an exact match on the whole run hits it. Keyword retrieval is
- * effectively unavailable for those libraries and the vector half carries them.
+ * effectively unavailable for those assets and the vector half carries them.
  * Pretending otherwise by picking a European stemmer would be worse.
  */
 export const TEXT_SEARCH_CONFIGS = [
@@ -1280,7 +1280,7 @@ export function isTextSearchConfig(value: unknown): value is TextSearchConfig {
 }
 
 /**
- * What an operator might have typed into `library.language`, and what it means.
+ * What an operator might have typed into `asset.language`, and what it means.
  *
  * The column is free text (requirement.md 6.1 lists a language, not a code), so
  * this accepts the three things people actually write: an ISO 639-1 code, the
@@ -1363,11 +1363,11 @@ const LANGUAGE_ALIASES: Record<string, TextSearchConfig> = {
 };
 
 /**
- * The configuration one library's chunks are indexed with.
+ * The configuration one asset's chunks are indexed with.
  *
  * Resolved once per build and stored on every chunk it writes, rather than
  * looked up at query time. Two reasons: a generated column cannot read another
- * table, and -- more importantly -- editing `library.language` afterwards must
+ * table, and -- more importantly -- editing `asset.language` afterwards must
  * not silently change what an already published Version means. Chunks are
  * immutable (requirement.md 8.1); the new language takes effect on the next
  * build, and until then `chunk.search_config` is an accurate record of how the
@@ -1400,15 +1400,15 @@ function fold(value: string): string {
  * Bumped whenever a score's inputs or weights change. requirement.md 6.3.
  *
  * -3: the Benchmark is structural again -- what a build can count. -2 had
- * blended in the hit rate of a library's test set; the self-check questions
- * went with the expert-library programme (agent-first-proposal.md 3.6).
+ * blended in the hit rate of an asset's test set; the self-check questions
+ * went with the expert-asset programme (agent-first-proposal.md 3.6).
  */
 export const SCORE_ALGORITHM_VERSION = 're0-score-3';
 
 export interface ScoreInputs {
   /** True for a source whose control has been verified. */
   verified: boolean;
-  isPlatformLibrary: boolean;
+  isPlatformAsset: boolean;
   documents: number;
   chunks: number;
   /** Chunks whose body repeats another chunk's, over total chunks. */
@@ -1435,13 +1435,13 @@ export interface ScoreInputs {
  * (`SCORE_ALGORITHM_VERSION`) precisely because they will be replaced by better
  * ones. requirement.md 6.3 forbids presenting either as a guarantee.
  */
-export function scoreLibrary(input: ScoreInputs): { trust: number; benchmark: number } {
+export function scoreAsset(input: ScoreInputs): { trust: number; benchmark: number } {
   let trust = 40;
   /*
-   * The platform is the identified publisher of its own libraries, which is
+   * The platform is the identified publisher of its own assets, which is
    * the question Trust asks -- not a claim about the content.
    */
-  if (input.isPlatformLibrary) trust += 25;
+  if (input.isPlatformAsset) trust += 25;
   if (input.verified) trust += 15;
   if (input.hasLicense) trust += 10;
   if (input.ageDays <= 30) trust += 10;

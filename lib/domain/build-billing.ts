@@ -1,5 +1,5 @@
 /**
- * Library build billing, as pure functions. library-build-billing.md.
+ * Asset build billing, as pure functions. asset-build-billing.md.
  *
  * A build is priced in the same unit as everything else the platform sells --
  * whole API Calls -- and never in tokens or provider dollars. The price is a
@@ -9,7 +9,7 @@
  * button. Nothing here reads a database.
  */
 
-/** The three rates a Plan Version freezes. library-build-billing.md 3.3. */
+/** The three rates a Plan Version freezes. asset-build-billing.md 3.3. */
 export interface BuildRates {
   /** The fixed part of every priced build. */
   baseCalls: number;
@@ -46,14 +46,14 @@ export interface BuildFacts {
   pagesFetched: number;
   /**
    * The build re-parsed unchanged sources because the platform changed the
-   * parser, the chunker or the embedding model. library-build-billing.md 1.1:
+   * parser, the chunker or the embedding model. asset-build-billing.md 1.1:
    * that is the platform's decision, so it is not the owner's bill.
    */
   platformRebuild: boolean;
 }
 
 /**
- * library-build-billing.md 3.2:
+ * asset-build-billing.md 3.2:
  *
  *   build_calls = base + ceil(fresh_tokens / tokens_per_call)
  *                      + ceil(pages_fetched / pages_per_call)
@@ -99,7 +99,7 @@ export function quoteBuildCap(input: {
   );
 }
 
-/** library-build-billing.md 4.1: tokens ≈ bytes / 4. */
+/** asset-build-billing.md 4.1: tokens ≈ bytes / 4. */
 export function estimateTokens(bytes: number): number {
   return Math.ceil(Math.max(0, bytes) / 4);
 }
@@ -122,7 +122,7 @@ export interface BuildDetail extends BuildFacts {
 }
 
 /**
- * library-build-billing.md 11: phase 1 records what a build *would* cost
+ * asset-build-billing.md 11: phase 1 records what a build *would* cost
  * without debiting it, so the rates can be checked against real builds
  * before anyone is charged. `enforce` is phase 2.
  */

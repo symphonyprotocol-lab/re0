@@ -10,7 +10,7 @@ import { clientAddress } from '@/lib/http/client-address';
 
 /** The platform's ruling on a reported comment (agent-first-proposal.md 6.8): take it down, or dismiss the reports. */
 export async function resolveCommentReportAction(form: FormData): Promise<void> {
-  const session = await requireAdminCapability('libraries');
+  const session = await requireAdminCapability('assets');
   let outcome = 'done';
   try {
     await resolveCommentReport({

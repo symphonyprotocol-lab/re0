@@ -30,8 +30,8 @@ export interface ConsoleShowcaseRow {
   status: ShowcaseStatus;
   access: ShowcaseAccess;
   name: string;
-  libraryTitle: string;
-  libraryPublicId: string;
+  assetTitle: string;
+  assetPublicId: string;
   workspaceName: string;
   publishedAt: Date | null;
   createdAt: Date;
@@ -53,47 +53,47 @@ export async function listConsoleShowcases(input: {
   const pattern = term ? `%${term.replace(/[\\%_]/g, (match) => `\\${match}`)}%` : null;
   const search = pattern
     ? or(
-        ilike(schema.libraryShowcase.slug, pattern),
-        ilike(schema.library.title, pattern),
-        ilike(schema.library.publicId, pattern),
+        ilike(schema.assetShowcase.slug, pattern),
+        ilike(schema.asset.title, pattern),
+        ilike(schema.asset.publicId, pattern),
         ilike(schema.workspace.name, pattern),
       )
     : undefined;
   const scope = and(
-    isNull(schema.libraryShowcase.deletedAt),
-    input.status === 'all' ? undefined : eq(schema.libraryShowcase.status, input.status),
+    isNull(schema.assetShowcase.deletedAt),
+    input.status === 'all' ? undefined : eq(schema.assetShowcase.status, input.status),
     search,
   );
   const base = () =>
     database
       .select({
-        showcase: schema.libraryShowcase,
-        libraryTitle: schema.library.title,
-        libraryPublicId: schema.library.publicId,
+        showcase: schema.assetShowcase,
+        assetTitle: schema.asset.title,
+        assetPublicId: schema.asset.publicId,
         workspaceName: schema.workspace.name,
-        leads: sql<number>`(select count(*) from ${schema.showcaseLead} where ${schema.showcaseLead.showcaseId} = ${schema.libraryShowcase.id})::int`,
+        leads: sql<number>`(select count(*) from ${schema.showcaseLead} where ${schema.showcaseLead.showcaseId} = ${schema.assetShowcase.id})::int`,
         host: liveHostSql,
       })
-      .from(schema.libraryShowcase)
-      .innerJoin(schema.library, eq(schema.library.id, schema.libraryShowcase.libraryId))
-      .innerJoin(schema.workspace, eq(schema.workspace.id, schema.libraryShowcase.workspaceId));
+      .from(schema.assetShowcase)
+      .innerJoin(schema.asset, eq(schema.asset.id, schema.assetShowcase.assetId))
+      .innerJoin(schema.workspace, eq(schema.workspace.id, schema.assetShowcase.workspaceId));
 
   const [rows, [total], [tally]] = await Promise.all([
-    base().where(scope).orderBy(desc(schema.libraryShowcase.createdAt)).limit(input.limit).offset(input.offset),
+    base().where(scope).orderBy(desc(schema.assetShowcase.createdAt)).limit(input.limit).offset(input.offset),
     database
       .select({ n: count() })
-      .from(schema.libraryShowcase)
-      .innerJoin(schema.library, eq(schema.library.id, schema.libraryShowcase.libraryId))
-      .innerJoin(schema.workspace, eq(schema.workspace.id, schema.libraryShowcase.workspaceId))
+      .from(schema.assetShowcase)
+      .innerJoin(schema.asset, eq(schema.asset.id, schema.assetShowcase.assetId))
+      .innerJoin(schema.workspace, eq(schema.workspace.id, schema.assetShowcase.workspaceId))
       .where(scope),
     database
       .select({
         all: sql<number>`count(*)::int`,
-        published: sql<number>`(count(*) filter (where ${schema.libraryShowcase.status} = 'published'))::int`,
-        takenDown: sql<number>`(count(*) filter (where ${schema.libraryShowcase.status} = 'taken_down'))::int`,
+        published: sql<number>`(count(*) filter (where ${schema.assetShowcase.status} = 'published'))::int`,
+        takenDown: sql<number>`(count(*) filter (where ${schema.assetShowcase.status} = 'taken_down'))::int`,
       })
-      .from(schema.libraryShowcase)
-      .where(isNull(schema.libraryShowcase.deletedAt)),
+      .from(schema.assetShowcase)
+      .where(isNull(schema.assetShowcase.deletedAt)),
   ]);
 
   return {
@@ -104,8 +104,8 @@ export async function listConsoleShowcases(input: {
       status: row.showcase.status,
       access: row.showcase.access,
       name: readShowcaseDocument(row.showcase.content).content.name,
-      libraryTitle: row.libraryTitle,
-      libraryPublicId: row.libraryPublicId,
+      assetTitle: row.assetTitle,
+      assetPublicId: row.assetPublicId,
       workspaceName: row.workspaceName,
       publishedAt: row.showcase.publishedAt,
       createdAt: row.showcase.createdAt,
@@ -132,18 +132,18 @@ export async function moderateShowcase(input: {
 }): Promise<{ status: ShowcaseStatus }> {
   const reason = normalizeReason(input.reason);
   const [row] = await db()
-    .select({ id: schema.libraryShowcase.id, status: schema.libraryShowcase.status, slug: schema.libraryShowcase.slug })
-    .from(schema.libraryShowcase)
-    .where(and(eq(schema.libraryShowcase.id, input.showcaseId), isNull(schema.libraryShowcase.deletedAt)))
+    .select({ id: schema.assetShowcase.id, status: schema.assetShowcase.status, slug: schema.assetShowcase.slug })
+    .from(schema.assetShowcase)
+    .where(and(eq(schema.assetShowcase.id, input.showcaseId), isNull(schema.assetShowcase.deletedAt)))
     .limit(1);
-  if (!row) throw new AppError('library_not_found', 'no such showcase page');
+  if (!row) throw new AppError('asset_not_found', 'no such showcase page');
   const next = showcaseTransition(row.status, input.verb);
   if (!next) throw new AppError('invalid_request', `cannot ${input.verb} a page that is ${row.status}`);
   const now = new Date();
   await db()
-    .update(schema.libraryShowcase)
+    .update(schema.assetShowcase)
     .set({ status: next, updatedAt: now, ...(next === 'disabled' ? { disabledAt: now } : {}) })
-    .where(eq(schema.libraryShowcase.id, row.id));
+    .where(eq(schema.assetShowcase.id, row.id));
   /* A page taken down loses its domain; the owner sets one again once reinstated and published. */
   if (next === 'taken_down') await dropShowcaseDomainOf(row.id).catch(() => {});
   await recordAudit({

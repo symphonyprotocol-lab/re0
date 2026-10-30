@@ -308,7 +308,7 @@ describe('rewrite on miss', () => {
     expect(prompt.endsWith('Question: 会员怎么开通?')).toBe(true);
   });
 
-  it('names the language from the passages when the library declares none', () => {
+  it('names the language from the passages when the asset declares none', () => {
     const hint = { title: 'Apage', description: null, language: null, documentTitles: [], terms: [] };
     const english = buildRewritePrompt('会员怎么开通?', [
       { ...hint, excerpts: ['Choose the plan that fits your sharing volume.'] },

@@ -1,8 +1,8 @@
 /**
- * Proving control of a host before a website library is created
+ * Proving control of a host before a website asset is created
  * (requirement.md 7.3.2, architecture.md 5.4): a challenge is
  * started, checked against DNS or the well-known file through a fake reader,
- * spent on exactly one library, and refused for anything else.
+ * spent on exactly one asset, and refused for anything else.
  *
  * Runs only when TEST_DATABASE_URL points at a disposable database.
  */
@@ -16,8 +16,8 @@ process.env.DATABASE_URL = TEST_DATABASE_URL ?? 'postgres://unused';
 process.env.SESSION_SIGNING_SECRET ??= 'test-secret-that-is-long-enough-000000';
 
 const { AppError } = await import('@/contracts/errors');
-const { checkDomainVerification, createWorkspaceLibrary, startDomainVerification } = await import(
-  '@/lib/application/libraries'
+const { checkDomainVerification, createWorkspaceAsset, startDomainVerification } = await import(
+  '@/lib/application/assets'
 );
 const { dnsChallengeValue, MAX_CHECK_ATTEMPTS, VERIFIED_VALID_MS } = await import(
   '@/lib/domain/domain-verification'
@@ -25,7 +25,7 @@ const { dnsChallengeValue, MAX_CHECK_ATTEMPTS, VERIFIED_VALID_MS } = await impor
 const { db, schema } = await import('@/lib/infrastructure/postgres/client');
 
 const workspaces: string[] = [];
-const libraries: string[] = [];
+const assets: string[] = [];
 
 /** A DNS and a web that serve what the test put there, and nothing else. */
 function fakeReader() {
@@ -49,32 +49,32 @@ async function workspace(): Promise<string> {
 describeWithDb('domain verification', () => {
   afterAll(async () => {
     const database = db();
-    if (libraries.length > 0) {
+    if (assets.length > 0) {
       await database
         .delete(schema.workflowOperation)
-        .where(inArray(schema.workflowOperation.libraryId, libraries));
+        .where(inArray(schema.workflowOperation.assetId, assets));
       await database
-        .delete(schema.libraryClaim)
-        .where(inArray(schema.libraryClaim.libraryId, libraries));
-      await database.delete(schema.source).where(inArray(schema.source.libraryId, libraries));
+        .delete(schema.assetClaim)
+        .where(inArray(schema.assetClaim.assetId, assets));
+      await database.delete(schema.source).where(inArray(schema.source.assetId, assets));
     }
     if (workspaces.length > 0) {
       await database
         .delete(schema.domainVerification)
         .where(inArray(schema.domainVerification.workspaceId, workspaces));
     }
-    if (libraries.length > 0) {
-      await database.delete(schema.library).where(inArray(schema.library.id, libraries));
+    if (assets.length > 0) {
+      await database.delete(schema.asset).where(inArray(schema.asset.id, assets));
     }
     if (workspaces.length > 0) {
       await database.delete(schema.workspace).where(inArray(schema.workspace.id, workspaces));
     }
   });
 
-  it('refuses to create a website library without a verified challenge', async () => {
+  it('refuses to create a website asset without a verified challenge', async () => {
     const workspaceId = await workspace();
     await expect(
-      createWorkspaceLibrary({
+      createWorkspaceAsset({
         workspaceId,
         role: 'owner',
         title: 'Unverified',
@@ -85,7 +85,7 @@ describeWithDb('domain verification', () => {
     ).rejects.toMatchObject({ code: 'claim_verification_failed', reason: 'challenge_not_found' });
   });
 
-  it('verifies by DNS TXT, spends the challenge on one library, and records the claim', async () => {
+  it('verifies by DNS TXT, spends the challenge on one asset, and records the claim', async () => {
     const workspaceId = await workspace();
     const reader = fakeReader();
 
@@ -122,9 +122,9 @@ describeWithDb('domain verification', () => {
     const verified = await checkDomainVerification(check);
     expect(verified.ok).toBe(true);
 
-    /* Creation refuses a library on a host the challenge did not name... */
+    /* Creation refuses an asset on a host the challenge did not name... */
     await expect(
-      createWorkspaceLibrary({
+      createWorkspaceAsset({
         workspaceId,
         role: 'owner',
         title: 'Other host',
@@ -136,7 +136,7 @@ describeWithDb('domain verification', () => {
     ).rejects.toMatchObject({ code: 'claim_verification_failed', reason: 'source_mismatch' });
 
     /* ...and takes the one it did, at another path even: the host is what was proven. */
-    const created = await createWorkspaceLibrary({
+    const created = await createWorkspaceAsset({
       workspaceId,
       role: 'owner',
       title: 'Guide',
@@ -145,18 +145,18 @@ describeWithDb('domain verification', () => {
       slug: `guide-${Date.now()}`,
       domainVerificationId: challenge.verificationId,
     });
-    libraries.push(created.libraryId);
+    assets.push(created.assetId);
 
     const [spent] = await db()
       .select()
       .from(schema.domainVerification)
       .where(eq(schema.domainVerification.id, challenge.verificationId));
-    expect(spent?.consumedLibraryId).toBe(created.libraryId);
+    expect(spent?.consumedAssetId).toBe(created.assetId);
 
     const claims = await db()
       .select()
-      .from(schema.libraryClaim)
-      .where(eq(schema.libraryClaim.libraryId, created.libraryId));
+      .from(schema.assetClaim)
+      .where(eq(schema.assetClaim.assetId, created.assetId));
     expect(claims).toHaveLength(1);
     expect(claims[0]).toMatchObject({
       claimantWorkspaceId: workspaceId,
@@ -167,7 +167,7 @@ describeWithDb('domain verification', () => {
 
     /* Spent means spent. */
     await expect(
-      createWorkspaceLibrary({
+      createWorkspaceAsset({
         workspaceId,
         role: 'owner',
         title: 'Again',
@@ -201,7 +201,7 @@ describeWithDb('domain verification', () => {
     reader.files.set(challenge.wellKnownUrl, `${challenge.token}\n`);
     expect((await checkDomainVerification(check)).ok).toBe(true);
 
-    const created = await createWorkspaceLibrary({
+    const created = await createWorkspaceAsset({
       workspaceId,
       role: 'admin',
       title: 'API',
@@ -211,7 +211,7 @@ describeWithDb('domain verification', () => {
       slug: `api-${Date.now()}`,
       domainVerificationId: challenge.verificationId,
     });
-    libraries.push(created.libraryId);
+    assets.push(created.assetId);
   });
 
   it('is not another workspace’s to check or spend', async () => {
@@ -250,7 +250,7 @@ describeWithDb('domain verification', () => {
     ).toBe(true);
 
     await expect(
-      createWorkspaceLibrary({
+      createWorkspaceAsset({
         workspaceId: stranger,
         role: 'owner',
         title: 'Stolen',
@@ -304,7 +304,7 @@ describeWithDb('domain verification', () => {
       ).ok,
     ).toBe(true);
     await expect(
-      createWorkspaceLibrary({
+      createWorkspaceAsset({
         workspaceId,
         role: 'owner',
         title: 'Stale',

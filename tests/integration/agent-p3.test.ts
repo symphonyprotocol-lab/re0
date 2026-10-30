@@ -246,7 +246,7 @@ async function a2aSearch(tenant: A2ATenant, workspaceId: string | null, query: s
 async function rest(key: string, publicId: string, query: string): Promise<Response> {
   return contextRoute(
     new NextRequest(
-      `https://api.example.test/api/v1/context?libraryId=${encodeURIComponent(publicId)}&query=${encodeURIComponent(query)}&maxTokens=4000`,
+      `https://api.example.test/api/v1/context?assetId=${encodeURIComponent(publicId)}&query=${encodeURIComponent(query)}&maxTokens=4000`,
       { headers: { authorization: `Bearer ${key}` } },
     ),
   );
@@ -274,21 +274,21 @@ describeWithDb('P3: articles, comments, subscriptions, payouts and audio', () =>
 
   afterAll(async () => {
     const database = db();
-    const assets = (await database.select({ id: schema.library.id }).from(schema.library).where(inArray(schema.library.ownerWorkspaceId, workspaces))).map((row) => row.id);
+    const assets = (await database.select({ id: schema.asset.id }).from(schema.asset).where(inArray(schema.asset.ownerWorkspaceId, workspaces))).map((row) => row.id);
     if (assets.length > 0) {
-      await database.update(schema.library).set({ currentVersionId: null }).where(inArray(schema.library.id, assets));
-      await database.delete(schema.usageEvent).where(inArray(schema.usageEvent.libraryId, assets));
-      await database.delete(schema.libraryProfileVector).where(inArray(schema.libraryProfileVector.libraryId, assets));
-      await database.delete(schema.libraryProfile).where(inArray(schema.libraryProfile.libraryId, assets));
-      await database.delete(schema.chunk).where(inArray(schema.chunk.libraryId, assets));
-      await database.delete(schema.document).where(inArray(schema.document.libraryId, assets));
-      await database.delete(schema.libraryScore).where(inArray(schema.libraryScore.libraryId, assets));
-      await database.delete(schema.libraryVersion).where(inArray(schema.libraryVersion.libraryId, assets));
-      await database.delete(schema.workflowOperation).where(inArray(schema.workflowOperation.libraryId, assets));
-      await database.delete(schema.source).where(inArray(schema.source.libraryId, assets));
+      await database.update(schema.asset).set({ currentVersionId: null }).where(inArray(schema.asset.id, assets));
+      await database.delete(schema.usageEvent).where(inArray(schema.usageEvent.assetId, assets));
+      await database.delete(schema.assetProfileVector).where(inArray(schema.assetProfileVector.assetId, assets));
+      await database.delete(schema.assetProfile).where(inArray(schema.assetProfile.assetId, assets));
+      await database.delete(schema.chunk).where(inArray(schema.chunk.assetId, assets));
+      await database.delete(schema.document).where(inArray(schema.document.assetId, assets));
+      await database.delete(schema.assetScore).where(inArray(schema.assetScore.assetId, assets));
+      await database.delete(schema.assetVersion).where(inArray(schema.assetVersion.assetId, assets));
+      await database.delete(schema.workflowOperation).where(inArray(schema.workflowOperation.assetId, assets));
+      await database.delete(schema.source).where(inArray(schema.source.assetId, assets));
       await database.delete(schema.auditLog).where(inArray(schema.auditLog.targetId, assets));
       /* Comments, drafts, media and channel membership cascade with the asset. */
-      await database.delete(schema.library).where(inArray(schema.library.id, assets));
+      await database.delete(schema.asset).where(inArray(schema.asset.id, assets));
     }
     if (workspaces.length > 0) {
       const accounts = (await database.select({ id: schema.publisherAccount.id }).from(schema.publisherAccount).where(inArray(schema.publisherAccount.workspaceId, workspaces))).map((row) => row.id);
@@ -334,7 +334,7 @@ describeWithDb('P3: articles, comments, subscriptions, payouts and audio', () =>
       channelId: channel.id,
       access: 'paid',
     });
-    const [row] = await db().select({ access: schema.library.access, lifecycle: schema.library.lifecycleStatus }).from(schema.library).where(eq(schema.library.id, post.assetId));
+    const [row] = await db().select({ access: schema.asset.access, lifecycle: schema.asset.lifecycleStatus }).from(schema.asset).where(eq(schema.asset.id, post.assetId));
     expect(row).toEqual({ access: 'paid', lifecycle: 'published' });
 
     const tenant = (await resolveTenant(`channels/${channel.slug}`))!;
@@ -346,7 +346,7 @@ describeWithDb('P3: articles, comments, subscriptions, payouts and audio', () =>
       expect((await a2aSearch(tenant, who?.workspaceId ?? null, query)).filter((hit) => hit.assetId === post.publicId)).toHaveLength(0);
       if (who) {
         expect((await rest(who.key, post.publicId, query)).status).toBe(404);
-        expect(await refusal(queryDocs(caller(who.workspaceId, 'rest'), { libraryId: post.publicId, query, maxTokens: 4000, format: 'json' }, noModels))).toBe('library_not_found');
+        expect(await refusal(queryDocs(caller(who.workspaceId, 'rest'), { assetId: post.publicId, query, maxTokens: 4000, format: 'json' }, noModels))).toBe('asset_not_found');
       }
     };
 
@@ -384,10 +384,10 @@ describeWithDb('P3: articles, comments, subscriptions, payouts and audio', () =>
     expect(await refusal(editorial.publishEditorial({ ...owner(creator), assetId: post.assetId, publishAt: '', schedule: true }))).toBe('invalid_schedule');
     await build((await editorial.publishEditorial({ ...owner(creator), assetId: post.assetId })).operationId);
     const [row] = await db()
-      .select({ access: schema.library.access, channelId: schema.channelAsset.channelId })
-      .from(schema.library)
-      .innerJoin(schema.channelAsset, eq(schema.channelAsset.assetId, schema.library.id))
-      .where(eq(schema.library.id, post.assetId));
+      .select({ access: schema.asset.access, channelId: schema.channelAsset.channelId })
+      .from(schema.asset)
+      .innerJoin(schema.channelAsset, eq(schema.channelAsset.assetId, schema.asset.id))
+      .where(eq(schema.asset.id, post.assetId));
     expect(row).toEqual({ access: 'paid', channelId: second.id });
   });
 
@@ -412,13 +412,13 @@ describeWithDb('P3: articles, comments, subscriptions, payouts and audio', () =>
     await editorial.saveEditorialDraft({ ...owner(creator), assetId: post.assetId, title: 'Heron watching', body: 'Grey herons stand still in the shallows at dawn and dusk.', channelId: channel.id, access: 'free' });
     await build((await editorial.publishEditorial({ ...owner(creator), assetId: post.assetId })).operationId);
 
-    const chunks = await db().select({ body: schema.chunk.body }).from(schema.chunk).where(eq(schema.chunk.libraryId, post.assetId));
+    const chunks = await db().select({ body: schema.chunk.body }).from(schema.chunk).where(eq(schema.chunk.assetId, post.assetId));
     expect(chunks.length).toBeGreaterThan(0);
     expect(chunks.some((chunk) => chunk.body.includes(word))).toBe(false);
     for (const who of [reader.workspaceId, null]) {
       const scoped = await searchScope(caller(who), { scope: { kind: 'channel', channelId: channel.id }, query: word, maxTokens: 4000 }, noModels);
       expect(scoped.chunks.some((chunk) => chunk.text.includes(word))).toBe(false);
-      const one = await queryDocs(caller(who), { libraryId: post.publicId, query: word, maxTokens: 4000, format: 'json' }, noModels).catch(() => null);
+      const one = await queryDocs(caller(who), { assetId: post.publicId, query: word, maxTokens: 4000, format: 'json' }, noModels).catch(() => null);
       expect(JSON.stringify(one ?? {})).not.toContain(word);
     }
   });
@@ -516,14 +516,14 @@ describeWithDb('P3: articles, comments, subscriptions, payouts and audio', () =>
 
     /* An upload the remaining capacity cannot hold is refused before a ticket is issued. */
     const after = await workspaceStorage(creator.workspaceId);
-    await db().update(schema.library).set({ storageBytes: after.remainingBytes - 1_000 }).where(eq(schema.library.id, episode.assetId));
+    await db().update(schema.asset).set({ storageBytes: after.remainingBytes - 1_000 }).where(eq(schema.asset.id, episode.assetId));
     expect(await refusal(editorial.prepareMediaUpload({ ...owner(creator), assetId: episode.assetId, kind: 'audio', name: 'more.wav', size: 2_000, contentType: 'audio/wav', store }))).toBe('storage_exceeded');
-    await db().update(schema.library).set({ storageBytes: 0 }).where(eq(schema.library.id, episode.assetId));
+    await db().update(schema.asset).set({ storageBytes: 0 }).where(eq(schema.asset.id, episode.assetId));
 
     await editorial.saveEditorialDraft({ ...owner(creator), assetId: episode.assetId, title: 'Episode one', body: 'Show notes: we talk about pressed flowers.', channelId: channel.id, access: 'paid' });
     await build((await editorial.publishEditorial({ ...owner(creator), assetId: episode.assetId })).operationId);
     /* Only the notes are indexed; the document's path carries the file's hash. */
-    const documents = await db().select({ title: schema.document.title, sourceUrl: schema.document.sourceUrl }).from(schema.document).where(eq(schema.document.libraryId, episode.assetId));
+    const documents = await db().select({ title: schema.document.title, sourceUrl: schema.document.sourceUrl }).from(schema.document).where(eq(schema.document.assetId, episode.assetId));
     expect(documents.length).toBeGreaterThan(0);
 
     expect(await editorial.mediaUrlFor(stranger.workspaceId, prepared.mediaId, store)).toBeNull();

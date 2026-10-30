@@ -1,6 +1,6 @@
 /**
  * Rewrite on miss, as a decision. architecture.md 9.5 and 9.6: when no
- * library confirms the question as asked, and only then, and only with a
+ * asset confirms the question as asked, and only then, and only with a
  * usable model, the playground asks for one reformulation and reads again.
  * The miss released its seat, so the retry is metered: the exchange's one
  * Call is kept only if the retry finds context. A retry that confirms
@@ -39,7 +39,7 @@ const CONFIG = {
   assignedTo: ['trial' as const],
 };
 
-const LIBRARY = { libraryId: '/websites/apage', title: 'Apage' };
+const ASSET = { assetId: '/websites/apage', title: 'Apage' };
 const caller = { workspaceId: null, apiKeyId: null, requestId: 'req_1', anonymous: true };
 
 function chunk(id: string, text: string): GatheredChunk {
@@ -49,8 +49,8 @@ function chunk(id: string, text: string): GatheredChunk {
     score: 0.5,
     tokens: 12,
     citation: { sourceUrl: 'https://apage.host/pricing', documentTitle: 'Pricing', section: null, lines: null },
-    libraryId: LIBRARY.libraryId,
-    libraryTitle: LIBRARY.title,
+    assetId: ASSET.assetId,
+    assetTitle: ASSET.title,
     version: 'v1',
   };
 }
@@ -58,9 +58,9 @@ function chunk(id: string, text: string): GatheredChunk {
 function gathered(confirmed: boolean): GatherResult {
   return {
     chunks: confirmed ? [chunk('c1', 'Subscribe to a plan on the pricing page.')] : [chunk('c0', 'Unrelated.')],
-    libraries: [
+    assets: [
       {
-        ...LIBRARY,
+        ...ASSET,
         version: 'v1',
         confirmed,
         faqNearest: null,
@@ -116,7 +116,7 @@ function fixture(options: Fixture) {
     },
     hints: async () => [
       {
-        libraryId: LIBRARY.libraryId,
+        assetId: ASSET.assetId,
         title: 'Apage',
         description: 'Static site hosting',
         language: 'en',
@@ -161,7 +161,7 @@ async function run(options: Fixture) {
   const events: PlaygroundEvent[] = [];
   for await (const event of streamPlayground(
     caller,
-    { libraries: [LIBRARY], question: '会员怎么开通?', history: options.history },
+    { assets: [ASSET], question: '会员怎么开通?', history: options.history },
     f.dependencies,
   )) {
     events.push(event);
@@ -255,11 +255,11 @@ describe('direct FAQ answer', () => {
     };
     dependencies.gather = async () => ({
       chunks: [faq, chunk('c1', 'Subscribe to a plan on the pricing page.')],
-      libraries: [
+      assets: [
         {
-          ...LIBRARY,
-          /* Named by an alias the caller used: the match is by chunk id, not library id. */
-          libraryId: '/websites/apage-old',
+          ...ASSET,
+          /* Named by an alias the caller used: the match is by chunk id, not asset id. */
+          assetId: '/websites/apage-old',
           version: 'v1',
           confirmed: true,
           faqNearest: { chunkId: 'faq1', distance: 0.12 },
@@ -271,7 +271,7 @@ describe('direct FAQ answer', () => {
       requestId: caller.requestId,
     });
     const events = [];
-    for await (const event of streamPlayground(caller, { libraries: [LIBRARY], question: 'how much is solo' }, dependencies)) {
+    for await (const event of streamPlayground(caller, { assets: [ASSET], question: 'how much is solo' }, dependencies)) {
       events.push(event);
     }
     expect(events.filter((event) => event.type === 'claim')).toEqual([
@@ -290,11 +290,11 @@ describe('direct FAQ answer', () => {
     };
     dependencies.gather = async () => ({
       chunks: [faq],
-      libraries: [{ ...LIBRARY, version: 'v1', confirmed: true, faqNearest: { chunkId: 'faq1', distance: 0.45 }, chunks: 1, failed: false, excerpts: [] }],
+      assets: [{ ...ASSET, version: 'v1', confirmed: true, faqNearest: { chunkId: 'faq1', distance: 0.45 }, chunks: 1, failed: false, excerpts: [] }],
       requestId: caller.requestId,
     });
     const events = [];
-    for await (const event of streamPlayground(caller, { libraries: [LIBRARY], question: 'can I pay yearly for solo' }, dependencies)) {
+    for await (const event of streamPlayground(caller, { assets: [ASSET], question: 'can I pay yearly for solo' }, dependencies)) {
       events.push(event);
     }
     expect(llmCalls).toHaveLength(1);

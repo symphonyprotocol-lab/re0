@@ -24,7 +24,7 @@ export async function generateMetadata(): Promise<Metadata> {
 /**
  * Retrieval's tunables. architecture.md 9.2, 9.3, 9.6: recall widths, the
  * fusion constant, the rerank window, the public cache TTL, the playground's
- * excerpt budgets and the library-routing limits. A save is in force on the
+ * excerpt budgets and the asset-routing limits. A save is in force on the
  * next request -- the settings are read per call -- and the public result
  * cache keys on the configuration row, so it retires itself.
  *

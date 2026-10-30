@@ -2,7 +2,7 @@
  * POST /api/auth/{github|notion}/connect -- ask for import access.
  *
  * The second consent a signed-in person gives, separate from login: the
- * token it yields is kept (sealed) so the library wizard can list what the
+ * token it yields is kept (sealed) so the asset wizard can list what the
  * account may import -- their own public repositories on GitHub, the pages
  * they shared with the integration on Notion -- and prove the one they pick
  * is theirs. Only these two providers have a connect step; any other is a

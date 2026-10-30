@@ -1,6 +1,6 @@
 /**
  * The redirect behind both platform-file routes: the public one, which only
- * serves published libraries, and the console's, which serves drafts too.
+ * serves published assets, and the console's, which serves drafts too.
  * `lib/infrastructure/connectors/pdf.ts` cites the public route; the object
  * key is not a URL anyone can open, so the file is found by its own id in
  * the `pdf` source that lists it and handed out as a short-lived signed URL
@@ -8,7 +8,7 @@
  */
 import { and, eq, isNull, sql } from 'drizzle-orm';
 import { NextResponse } from 'next/server';
-import { uploadedFilesOf } from '@/lib/domain/library';
+import { uploadedFilesOf } from '@/lib/domain/asset';
 import { isObjectStoreConfigured, objectStore } from '@/lib/infrastructure/objects/store';
 import { db, schema } from '@/lib/infrastructure/postgres/client';
 
@@ -23,13 +23,13 @@ export async function platformFileRedirect(
   const [row] = await db()
     .select({ config: schema.source.config })
     .from(schema.source)
-    .innerJoin(schema.library, eq(schema.library.id, schema.source.libraryId))
+    .innerJoin(schema.asset, eq(schema.asset.id, schema.source.assetId))
     .where(
       and(
         eq(schema.source.type, 'pdf'),
-        eq(schema.library.isPlatformLibrary, true),
-        isNull(schema.library.deletedAt),
-        options.includeUnpublished ? undefined : eq(schema.library.lifecycleStatus, 'published'),
+        eq(schema.asset.isPlatformAsset, true),
+        isNull(schema.asset.deletedAt),
+        options.includeUnpublished ? undefined : eq(schema.asset.lifecycleStatus, 'published'),
         sql`${schema.source.config} @> ${JSON.stringify({ files: [{ id: fileId }] })}::jsonb`,
       ),
     )

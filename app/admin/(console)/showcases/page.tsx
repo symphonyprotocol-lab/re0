@@ -51,9 +51,9 @@ export default async function AdminShowcasesPage({
 }) {
   /* agent-first-proposal.md 3.6: shared pages are offline; nothing to moderate. */
   if (!surfaceEnabled('showcase')) notFound();
-  const [, params, t] = await Promise.all([requireAdminCapability('libraries'), searchParams, getMessages()]);
+  const [, params, t] = await Promise.all([requireAdminCapability('assets'), searchParams, getMessages()]);
   const x = t.admin.showcases;
-  const s = t.dashboard.libraryDetail.showcase;
+  const s = t.dashboard.assetDetail.showcase;
   const query = searchTerm(params.q);
   const status = oneOf(params.status, SHOWCASE_CONSOLE_FILTERS, 'published');
   const page = pageNumber(params.page);
@@ -112,10 +112,10 @@ export default async function AdminShowcasesPage({
               {rows.map((row) => (
                 <tr key={row.id} className="border-t-2 border-line">
                   <td className={TD}>
-                    <TitleCell title={row.name || row.libraryTitle} meta={showcasePath(row.slug)} />
+                    <TitleCell title={row.name || row.assetTitle} meta={showcasePath(row.slug)} />
                   </td>
                   <td className={TD}>
-                    <TitleCell title={row.libraryTitle} meta={row.libraryPublicId} />
+                    <TitleCell title={row.assetTitle} meta={row.assetPublicId} />
                   </td>
                   <td className={TD}>{row.workspaceName || '—'}</td>
                   <td className={TD}>

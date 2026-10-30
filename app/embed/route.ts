@@ -136,7 +136,7 @@ export async function GET(request: NextRequest): Promise<Response> {
     parent: preview ? normaliseOrigin(parent ?? '') : parent,
     preview,
     accent: principal.accent,
-    title: principal.libraryTitle,
+    title: principal.assetTitle,
     welcome: principal.welcome ?? t.welcomeDefault,
     ready: principal.ready,
     strings: {
@@ -160,7 +160,7 @@ export async function GET(request: NextRequest): Promise<Response> {
   const body = `<div id="re0-widget" class="re0-widget" style="--re0-accent:${escapeHtml(principal.accent)}">
   <header class="re0-header">
     <div class="re0-header-text">
-      <p class="re0-title">${escapeHtml(principal.libraryTitle)}</p>
+      <p class="re0-title">${escapeHtml(principal.assetTitle)}</p>
       <p class="re0-subtitle">${escapeHtml(t.subtitle)}</p>
     </div>
     <button type="button" class="re0-close" id="re0-close" aria-label="${escapeHtml(t.close)}">&#x2715;</button>
@@ -178,7 +178,7 @@ export async function GET(request: NextRequest): Promise<Response> {
   return new Response(
     document({
       lang,
-      title: principal.libraryTitle,
+      title: principal.assetTitle,
       head: '<link rel="stylesheet" href="/embed-app.css">',
       body,
     }),

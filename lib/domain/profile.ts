@@ -1,12 +1,12 @@
 /**
- * The library profile: what a library is *about*, derived from its content.
+ * The asset profile: what an asset is *about*, derived from its content.
  *
- * architecture.md 9.6 -- on a platform where anyone can upload a library, the
+ * architecture.md 9.6 -- on a platform where anyone can upload an asset, the
  * name the owner typed carries no routing signal (the rove-beetle article
- * lives in a library called "昆虫大全"). Library-level discovery therefore
+ * lives in an asset called "昆虫大全"). Asset-level discovery therefore
  * searches a content-derived profile, never the display name: the document
  * titles, a term table extracted from the chunk bodies, and a handful of
- * centroid vectors that stand in for the library's topic clusters.
+ * centroid vectors that stand in for the asset's topic clusters.
  *
  * Everything here is derived data (architecture.md 6.4): rebuildable from the
  * published version's content, written in the `profile` step of a build
@@ -18,7 +18,7 @@
  * PROFILE_VERSION so a smarter extractor rebuilds rather than mixes.
  */
 
-/** Frozen into `library_profile.profile_version`; bump on any change here. */
+/** Frozen into `asset_profile.profile_version`; bump on any change here. */
 export const PROFILE_VERSION = 're0-profile-4';
 
 export const PROFILE_LIMITS = {
@@ -27,10 +27,10 @@ export const PROFILE_LIMITS = {
   /** Terms kept from the extraction below. */
   maxTerms: 256,
   /**
-   * Centroids per library. Enough that an encyclopedic library's topic
+   * Centroids per asset. Enough that an encyclopedic asset's topic
    * clusters each get a representative (architecture.md 9.6: one summary
    * vector dilutes them), few enough that the platform-wide vector table
-   * stays libraries x centroids, not chunks.
+   * stays assets x centroids, not chunks.
    */
   maxCentroids: 32,
 } as const;
@@ -38,16 +38,16 @@ export const PROFILE_LIMITS = {
 /* -------------------------------------------------------------- stopwords */
 
 /**
- * Words that say nothing about what a library is about.
+ * Words that say nothing about what an asset is about.
  *
- * Without this list the profile of a large English library is half function
+ * Without this list the profile of a large English asset is half function
  * words -- "the", "and", "for", "that" outnumber every real term, and the
  * 256 slots fill before "eth" or "staking" get one -- and a question that
  * contains "the" matches every profile on the platform. The list is
  * deliberately short: function words, pronouns, auxiliaries, and the handful
  * of verbs and nouns every question is made of ("how do I use", "show me an
  * example"). Product words are never here, however common: "next", "page",
- * "router" and "install" are what some library is about.
+ * "router" and "install" are what some asset is about.
  *
  * The Han entries are the question-shaped grams ("什么", "怎么", "如何")
  * that the 2-4 gram segmentation would otherwise turn into terms.
@@ -89,9 +89,9 @@ export function isStopword(token: string): boolean {
  * `new`, `opens`, `tab` at the head of the profile ahead of every real term;
  * "skip to main content" and "edit page" once per page. They are removed
  * before tokenizing rather than stopworded word by word, because "open" and
- * "tab" are ordinary words a library can genuinely be about.
+ * "tab" are ordinary words an asset can genuinely be about.
  *
- * Phrases only, and only ones that are furniture on any site. A library's
+ * Phrases only, and only ones that are furniture on any site. An asset's
  * own recurring heading is content, and stays.
  */
 const BOILERPLATE: readonly RegExp[] = [
@@ -191,7 +191,7 @@ export function extractTerms(
   /*
    * Frequency times specificity. Frequency alone ranks whatever a site says
    * most, and every documentation site says "information", "users" and
-   * "account" a lot; the weight is where the platform's other libraries get
+   * "account" a lot; the weight is where the platform's other assets get
    * a say in what is distinctive about this one (`platformSpecificity`).
    */
   const ranked = [...counts.entries()]
@@ -228,24 +228,24 @@ export function extractTerms(
 export type TermWeight = (term: string) => number;
 
 /**
- * Inverse document frequency across the platform's libraries: a term that
- * sits in the profile of most other libraries says little about this one.
+ * Inverse document frequency across the platform's assets: a term that
+ * sits in the profile of most other assets says little about this one.
  *
- * `libraries` is how many other libraries have a profile, `frequency` how
+ * `assets` is how many other assets have a profile, `frequency` how
  * many of them carry the term. The smoothed log keeps a term nobody else has
  * at its full count and takes a term everybody has down towards a third of
- * it -- a dampener, not a veto, because a library about the very thing every
- * other library mentions in passing still needs the word in its profile.
- * With few libraries on the platform the weights stay close to one, which
+ * it -- a dampener, not a veto, because an asset about the very thing every
+ * other asset mentions in passing still needs the word in its profile.
+ * With few assets on the platform the weights stay close to one, which
  * is the honest answer: there is not yet evidence that a term is generic.
  */
 export function platformSpecificity(
   frequency: ReadonlyMap<string, number>,
-  libraries: number,
+  assets: number,
 ): TermWeight {
-  if (libraries <= 0) return () => 1;
-  const ceiling = Math.log(libraries + 1) + 1;
-  return (term) => (Math.log((libraries + 1) / ((frequency.get(term) ?? 0) + 1)) + 1) / ceiling;
+  if (assets <= 0) return () => 1;
+  const ceiling = Math.log(assets + 1) + 1;
+  return (term) => (Math.log((assets + 1) / ((frequency.get(term) ?? 0) + 1)) + 1) / ceiling;
 }
 
 /**
@@ -277,10 +277,10 @@ export function searchTokens(text: string): string[] {
 }
 
 /**
- * The tokens of a question that can say which library it is about: the
+ * The tokens of a question that can say which asset it is about: the
  * same segmentation, minus the stopwords above. Routing recalls and gathers
  * evidence with these, so "how do I write the" matches nothing, while the
- * chunk-level retrieval inside a library keeps every token -- there, the
+ * chunk-level retrieval inside an asset keeps every token -- there, the
  * version's own text-search configuration decides what a stopword is.
  */
 export function routingTokens(text: string): string[] {
@@ -312,7 +312,7 @@ function collectTokens(text: string, into: Set<string>): void {
  *
  * The build embeds in windows and drops each window's vectors as soon as the
  * rows are written (build-version.ts keeps peak memory flat whatever the size
- * of the library), so the centroids must be computed the same way: feed each
+ * of the asset), so the centroids must be computed the same way: feed each
  * window in, keep only k running means. One pass, no stored vectors.
  *
  * Seeding is the first k vectors -- deterministic, and biased toward the first

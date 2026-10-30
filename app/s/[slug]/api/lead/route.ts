@@ -37,7 +37,7 @@ export async function POST(request: NextRequest, context: { params: Promise<{ sl
     }
 
     const page = await resolveShowcasePrincipal(slug);
-    if (!page) throw new AppError('library_not_found', 'no such page');
+    if (!page) throw new AppError('asset_not_found', 'no such page');
     if (!isShowcaseOrigin(request.headers.get('origin'), request, configuredBaseUrl(), page.customHost)) {
       throw new AppError('access_denied', 'a showcase page takes leads only on its own site');
     }
@@ -50,7 +50,7 @@ export async function POST(request: NextRequest, context: { params: Promise<{ sl
 
     await recordShowcaseLead({
       showcaseId: page.showcaseId,
-      libraryId: page.principal.libraryId,
+      assetId: page.principal.assetId,
       workspaceId: page.principal.workspaceId,
       siteKeyId: page.principal.siteKeyId,
       exchangeId: body.exchangeId,

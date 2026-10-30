@@ -21,7 +21,7 @@ vi.mock('@/lib/i18n/server', () => ({
   currentLocale: async () => locale.current,
 }));
 vi.mock('@/lib/application/channels', () => ({ publicCardSubjects: async () => ({ channels: [], handles: [] }) }));
-vi.mock('@/lib/application/libraries', () => ({ listPublicLibraryLocations: async () => [] }));
+vi.mock('@/lib/application/assets', () => ({ listPublicAssetLocations: async () => [] }));
 
 const { default: ScenarioPage } = await import('@/app/(public)/for/[scenario]/page');
 const { default: sitemap } = await import('@/app/sitemap');

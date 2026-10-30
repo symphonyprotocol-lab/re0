@@ -82,7 +82,7 @@ export interface WidgetSiteKey {
   dailyLimit: number;
   createdAt: string;
   lastUsedAt: string | null;
-  library: {
+  asset: {
     id: string;
     publicId: string;
     title: string;
@@ -94,7 +94,7 @@ export interface WidgetSiteKey {
 }
 
 /**
- * Every live site key of the workspace with its library and, per allowed
+ * Every live site key of the workspace with its asset and, per allowed
  * origin, whether the widget has been seen there. An origin the owner removed
  * from the allowlist keeps its row but is no longer listed: the browser
  * refuses it now, so it is not an integrated site.
@@ -110,20 +110,20 @@ export async function listWorkspaceWidgetSites(workspaceId: string): Promise<Wid
       allowedOrigins: schema.siteKey.allowedOrigins,
       createdAt: schema.siteKey.createdAt,
       lastUsedAt: schema.siteKey.lastUsedAt,
-      libraryId: schema.library.id,
-      libraryPublicId: schema.library.publicId,
-      libraryTitle: schema.library.title,
-      lifecycleStatus: schema.library.lifecycleStatus,
-      currentVersionId: schema.library.currentVersionId,
+      assetId: schema.asset.id,
+      assetPublicId: schema.asset.publicId,
+      assetTitle: schema.asset.title,
+      lifecycleStatus: schema.asset.lifecycleStatus,
+      currentVersionId: schema.asset.currentVersionId,
     })
     .from(schema.siteKey)
-    .innerJoin(schema.library, eq(schema.library.id, schema.siteKey.libraryId))
+    .innerJoin(schema.asset, eq(schema.asset.id, schema.siteKey.assetId))
     .where(
       and(
         eq(schema.siteKey.workspaceId, workspaceId),
         eq(schema.siteKey.kind, 'embed'),
         isNull(schema.siteKey.revokedAt),
-        isNull(schema.library.deletedAt),
+        isNull(schema.asset.deletedAt),
       ),
     )
     .orderBy(desc(schema.siteKey.createdAt));
@@ -149,10 +149,10 @@ export async function listWorkspaceWidgetSites(workspaceId: string): Promise<Wid
     dailyLimit: row.dailyLimit,
     createdAt: row.createdAt.toISOString(),
     lastUsedAt: row.lastUsedAt?.toISOString() ?? null,
-    library: {
-      id: row.libraryId,
-      publicId: row.libraryPublicId,
-      title: row.libraryTitle,
+    asset: {
+      id: row.assetId,
+      publicId: row.assetPublicId,
+      title: row.assetTitle,
       ready: widgetReady({
         lifecycleStatus: row.lifecycleStatus,
         hasCurrentVersion: row.currentVersionId !== null,

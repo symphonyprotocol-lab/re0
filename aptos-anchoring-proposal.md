@@ -70,7 +70,7 @@ Earning Anchor 触发第 4.6 节的密钥托管硬性升级条款，该条款在
 
 - Version 声明不可变，但不可变性由 re0 自己的数据库保证，平台自身可以改写；
 - [architecture.md](./architecture.md) 第 14 节的 Audit Log 已做哈希链，每日链头写入 R2，但 R2 同样在平台控制之下；
-- Agent 拿到带 Citation 的上下文后，无法独立验证「该 Library 在某时刻确实是这份内容」；
+- Agent 拿到带 Citation 的上下文后，无法独立验证「该 Asset 在某时刻确实是这份内容」；
 - [publisher-revenue-share.md](./publisher-revenue-share.md) 第 3 节的分成结算同样只能由平台自证：发布者收到的是一个我们单方面算出、并且事后仍可改写的数字，他无法证明这张结算单在出账后没有被动过。
 
 存证把这三条从「平台自证」变为「第三方可验证」，且不需要用户信任 re0。
@@ -103,7 +103,7 @@ Earning Anchor 触发第 4.6 节的密钥托管硬性升级条款，该条款在
 
 ### 3.1 用户可见行为
 
-- **存证在产品界面上不出现**（1.2 版）：不做展示位、不做入口，Library 详情页、Dashboard 知识库详情、发布者收益页与管理后台都不展示存证状态。理由见第 4.1 节——它是可随时整体移除的旁路能力，而每一个展示位都是一处要随之拆除的耦合，也是一处会与真实能力脱节的文案；
+- **存证在产品界面上不出现**（1.2 版）：不做展示位、不做入口，Asset 详情页、Dashboard 知识库详情、发布者收益页与管理后台都不展示存证状态。理由见第 4.1 节——它是可随时整体移除的旁路能力，而每一个展示位都是一处要随之拆除的耦合，也是一处会与真实能力脱节的文案；
 - 唯一的对外形态是 **REST 的 Anchor 查询接口**：返回公开库的 Proof 与可重算的原像（第 5 节），供第三方自行校验。Context 与 Search 响应**默认不返回** Anchor 字段，避免影响 `maxTokens` 裁剪和响应体积；
 - 私有库与结算单的原像**不经由任何界面呈现**。它们存在于数据库中，1.1 版曾设计过工作空间可见的展示位，1.2 版一并撤除；
 - 存证不产生 Call 计量，不占用套餐额度，Free 与 Pro 均可用；
@@ -147,7 +147,7 @@ Version Leaf 的原像：
 ```text
 leaf = H(
   domain_separator ||
-  library_id || version_id ||
+  asset_id || version_id ||
   source_digest || manifest_digest ||
   published_at ||
   salt
@@ -172,7 +172,7 @@ leaf = H(
 )
 ```
 
-- `statement_digest` 覆盖该账期结算单的完整逐项明细（每个 Library 的可计 Call 数与分配额），因此改动任何一行都会改变 leaf；
+- `statement_digest` 覆盖该账期结算单的完整逐项明细（每个 Asset 的可计 Call 数与分配额），因此改动任何一行都会改变 leaf；
 - `share_rate` 与 `plan_version_id` 取自 [publisher-revenue-share.md](./publisher-revenue-share.md) 第 3 节的不可变 Plan Version，锚定后费率无法被追溯修改；
 - `salt` 取自发布者账户级密钥派生，**无公开原像的情形**；
 - 结算单在账期关账、金额定稿之后锚定，`pending` 状态的账期不进入。
@@ -188,17 +188,17 @@ frame(fields) = fields.map(f => `${utf8ByteLength(f)}:${f}`).join('|')
 leaf = SHA-256(frame([...]))   // 输出小写十六进制
 ```
 
-长度前缀不是形式主义：直接拼接时 `library_id="ab", version_id="c"` 与 `"a", "bc"` 是同一段原像，而这两半都由能创建知识库的人自己决定。长度按字节而非码元计，否则另一种语言的实现会对中文标题给出不同的数。
+长度前缀不是形式主义：直接拼接时 `asset_id="ab", version_id="c"` 与 `"a", "bc"` 是同一段原像，而这两半都由能创建知识库的人自己决定。长度按字节而非码元计，否则另一种语言的实现会对中文标题给出不同的数。
 
 **字段顺序**，第一项恒为 domain separator，第二项恒为 `leaf_schema_version` 的十进制字符串：
 
 | Subject | domain separator | 其后字段 |
 | --- | --- | --- |
-| Version | `re0/anchor/version` | `library_id`、`version_id`、`source_digest`、`content_merkle_root`、`published_at`、`salt` |
+| Version | `re0/anchor/version` | `asset_id`、`version_id`、`source_digest`、`content_merkle_root`、`published_at`、`salt` |
 | Audit | `re0/anchor/audit-head` | `date`（`YYYY-MM-DD` UTC）、`chain_head` |
 | Earning | `re0/anchor/earning-statement` | `publisher_account_id`、`period_id`、`attributable_calls`、`share_rate`、`plan_version_id`、`amount_minor`、`currency`、`statement_digest`、`salt` |
 
-- `content_merkle_root` 即第 4.2 节的 `manifest_digest`，落库列名为 `library_version.content_merkle_root`；
+- `content_merkle_root` 即第 4.2 节的 `manifest_digest`，落库列名为 `asset_version.content_merkle_root`；
 - `published_at` 为 ISO 8601 UTC **毫秒**精度（`2026-01-01T00:00:00.000Z`）。Postgres 存微秒而 JavaScript 不存，因此截断是格式的一部分，Proof API 也发布这个字符串；
 - `share_rate` 是**文本**，取自不可变 Plan Version 的原样记录。浮点数在不同语言里序列化不同，`0.2` 与 `0.20` 必须是两张不同的结算单；
 - 数值字段（`attributable_calls`、`amount_minor`）取十进制字符串，无前导零、无千分位；
@@ -212,7 +212,7 @@ salt = HMAC-SHA256(ANCHOR_LEAF_SALT_SECRET, frame(['re0/anchor/salt', scope]))
 
 公开库 `salt` 为空字符串——空字符串仍然参与 framing（`0:`），不是省略该字段。
 
-**批次 Merkle 树。** 与 `library_version.content_merkle_root` 用同一套规则：
+**批次 Merkle 树。** 与 `asset_version.content_merkle_root` 用同一套规则：
 
 ```text
 level0[i] = SHA-256('L:' + leaf[i])
@@ -404,7 +404,7 @@ ANCHOR_LEAF_SALT_SECRET
 ## 5. REST 契约草案
 
 ```text
-GET /v1/libraries/{libraryId}/versions/{versionId}/anchor
+GET /v1/assets/{assetId}/versions/{versionId}/anchor
 GET /v1/publisher/periods/{periodId}/anchor
 ```
 
@@ -416,7 +416,7 @@ GET /v1/publisher/periods/{periodId}/anchor
 {
   "domainSeparator": "re0/anchor/version",
   "leafSchemaVersion": 1,
-  "libraryId": "…", "versionId": "…",
+  "assetId": "…", "versionId": "…",
   "sourceDigest": "…", "contentMerkleRoot": "…",
   "publishedAt": "2026-01-01T09:30:00.000Z",
   "salt": ""

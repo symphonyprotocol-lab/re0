@@ -2,7 +2,7 @@
  * Uploaded Markdown and MDX files, read back from object storage.
  *
  * The PDF connector's shape (`pdf.ts`) with the extraction taken out: the
- * wizard put the files in the bucket before the library existed, the source
+ * wizard put the files in the bucket before the asset existed, the source
  * row's config says where, and each is handed to the pipeline as the text it
  * already is, named as the operator named it -- the `.md` / `.mdx` extension
  * is what tells the parse step the format (`documentFormat`), so the name
@@ -13,7 +13,7 @@
  * one mis-encoded README should not fail the build of the other forty.
  */
 import { EMPTY_SOURCE_CONFIG, IngestionFailure } from '@/lib/domain/ingestion';
-import { uploadedFilesOf, type UploadedFile } from '@/lib/domain/library';
+import { uploadedFilesOf, type UploadedFile } from '@/lib/domain/asset';
 import type { ObjectStore } from '@/lib/infrastructure/objects/store';
 import type { FetchedFile, SourceSnapshot } from './types';
 

@@ -30,17 +30,17 @@ export async function refreshChannelProfile(channelId: string): Promise<ChannelP
   const database = db();
   const rows = await database
     .select({
-      kind: schema.library.kind,
-      terms: schema.libraryProfile.terms,
-      documentTitles: schema.libraryProfile.documentTitles,
+      kind: schema.asset.kind,
+      terms: schema.assetProfile.terms,
+      documentTitles: schema.assetProfile.documentTitles,
     })
     .from(schema.channelAsset)
-    .innerJoin(schema.library, eq(schema.library.id, schema.channelAsset.assetId))
-    .leftJoin(schema.libraryProfile, eq(schema.libraryProfile.versionId, schema.library.currentVersionId))
+    .innerJoin(schema.asset, eq(schema.asset.id, schema.channelAsset.assetId))
+    .leftJoin(schema.assetProfile, eq(schema.assetProfile.versionId, schema.asset.currentVersionId))
     .where(
       and(
         eq(schema.channelAsset.channelId, channelId),
-        eq(schema.library.lifecycleStatus, 'published'),
+        eq(schema.asset.lifecycleStatus, 'published'),
         sharedWithEveryone(),
       ),
     );

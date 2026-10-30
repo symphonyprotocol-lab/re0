@@ -1,7 +1,7 @@
 /**
  * Routing admission and retrieval confirmation, as decisions. architecture.md
  * 9.6: recall returns its nearest neighbours whatever the distance, so the
- * judgement of whether a library is about the question at all lives here.
+ * judgement of whether an asset is about the question at all lives here.
  */
 import { describe, expect, it } from 'vitest';
 import {
@@ -18,7 +18,7 @@ const nothing = { profileRank: 0, centroidDistance: null, rareTerms: 0, nameHint
 describe('candidate admission', () => {
   it('refuses a candidate no path found evidence for', () => {
     expect(admitsCandidate(nothing)).toBe(false);
-    /* The nearest centroid of a one-library platform is not evidence. */
+    /* The nearest centroid of a one-asset platform is not evidence. */
     expect(admitsCandidate({ ...nothing, centroidDistance: 0.9 })).toBe(false);
     expect(admitsCandidate({ ...nothing, centroidDistance: CENTROID_ADMIT_DISTANCE + 0.01 })).toBe(
       false,

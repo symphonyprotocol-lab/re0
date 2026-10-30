@@ -1,5 +1,5 @@
 /**
- * Drafting the top of a showcase page from the library itself.
+ * Drafting the top of a showcase page from the asset itself.
  *
  * Five retrievals -- one per probe question of the page's kind
  * (lib/domain/showcase.ts `SHOWCASE_DRAFT_PROBES`), each a Call as any
@@ -21,8 +21,8 @@ import {
   openLlmCredential,
   recordLlmCost,
 } from '@/lib/application/administration';
-import { canManageLibraries, type WorkspaceRole } from '@/lib/application/libraries/delete';
-import { gatherAcrossLibraries, type GatheredChunk, type GatherResult } from '@/lib/application/retrieval/gather';
+import { canManageAssets, type WorkspaceRole } from '@/lib/application/assets/delete';
+import { gatherAcrossAssets, type GatheredChunk, type GatherResult } from '@/lib/application/retrieval/gather';
 import { defaultRetrievalDependencies } from '@/lib/application/retrieval/query-docs';
 import type { CallerContext } from '@/lib/application/retrieval';
 import { llmCostMicroUsd, type LlmAudience } from '@/lib/domain/generation';
@@ -46,7 +46,7 @@ import { strictRateLimit } from '@/lib/infrastructure/cache/strict-rate-limit';
 import { db, schema } from '@/lib/infrastructure/postgres/client';
 import { and, asc, eq, isNull } from 'drizzle-orm';
 import { isLocale } from '@/lib/i18n/locale';
-import { libraryShowcase, ShowcaseInvalid, type ShowcaseView } from './manage';
+import { assetShowcase, ShowcaseInvalid, type ShowcaseView } from './manage';
 
 /** How many passages the model is shown, and how much of each. */
 export const DRAFT_EXCERPTS = { max: 24, chars: 1_200 } as const;
@@ -62,7 +62,7 @@ export type ShowcaseDraftOutcome = 'drafted' | 'no_context' | 'no_model' | 'mode
 export interface GenerateShowcaseDraftInput {
   workspaceId: string;
   role: WorkspaceRole;
-  libraryId: string;
+  assetId: string;
   /** Rewrite hand-edited fields and the starter questions too; by default only generated fields are refreshed. */
   overwrite?: boolean;
   requestId: string;
@@ -74,28 +74,28 @@ export interface GenerateShowcaseDraftResult {
 }
 
 export async function generateShowcaseDraft(input: GenerateShowcaseDraftInput): Promise<GenerateShowcaseDraftResult> {
-  if (!canManageLibraries(input.role)) throw new AppError('access_denied', 'only a library manager can draft a showcase page');
-  const current = await libraryShowcase({ workspaceId: input.workspaceId, libraryId: input.libraryId });
-  if (!current) throw new AppError('library_not_found', 'this library has no showcase page');
+  if (!canManageAssets(input.role)) throw new AppError('access_denied', 'only an asset manager can draft a showcase page');
+  const current = await assetShowcase({ workspaceId: input.workspaceId, assetId: input.assetId });
+  if (!current) throw new AppError('asset_not_found', 'this asset has no showcase page');
   if (current.status === 'taken_down') throw new ShowcaseInvalid('status');
 
-  const [library] = await db()
+  const [asset] = await db()
     .select({
-      publicId: schema.library.publicId,
-      title: schema.library.title,
-      description: schema.library.description,
-      currentVersionId: schema.library.currentVersionId,
-      lifecycleStatus: schema.library.lifecycleStatus,
+      publicId: schema.asset.publicId,
+      title: schema.asset.title,
+      description: schema.asset.description,
+      currentVersionId: schema.asset.currentVersionId,
+      lifecycleStatus: schema.asset.lifecycleStatus,
     })
-    .from(schema.library)
-    .where(and(eq(schema.library.id, input.libraryId), isNull(schema.library.deletedAt)))
+    .from(schema.asset)
+    .where(and(eq(schema.asset.id, input.assetId), isNull(schema.asset.deletedAt)))
     .limit(1);
-  if (!library) throw new AppError('library_not_found', 'no such library');
-  if (!library.currentVersionId) throw new AppError('library_not_ready', 'the library has no indexed version yet');
+  if (!asset) throw new AppError('asset_not_found', 'no such asset');
+  if (!asset.currentVersionId) throw new AppError('asset_not_ready', 'the asset has no indexed version yet');
 
   const paid = current.entitlement.paid;
   if (!paid) {
-    const verdict = await strictRateLimit(`showcase:draft:${input.libraryId}`, {
+    const verdict = await strictRateLimit(`showcase:draft:${input.assetId}`, {
       limit: DRAFT_FREE_DAILY_LIMIT,
       windowSeconds: 86_400,
     });
@@ -129,9 +129,9 @@ export async function generateShowcaseDraft(input: GenerateShowcaseDraftInput): 
    */
   const settled = await Promise.allSettled(
     probes.map((probe) =>
-      gatherAcrossLibraries(
+      gatherAcrossAssets(
         caller,
-        { libraries: [{ libraryId: library.publicId, title: library.title }], query: probe, maxTokens },
+        { assets: [{ assetId: asset.publicId, title: asset.title }], query: probe, maxTokens },
         retrievalDependencies,
       ),
     ),
@@ -172,8 +172,8 @@ export async function generateShowcaseDraft(input: GenerateShowcaseDraftInput): 
       userMessage: buildShowcaseDraftPrompt({
         kind: current.kind,
         locale,
-        libraryTitle: library.title,
-        libraryDescription: library.description,
+        assetTitle: asset.title,
+        assetDescription: asset.description,
         excerpts,
       }),
       maxOutputTokens: Math.min(usable.maxOutputTokens, 4_000),
@@ -191,7 +191,7 @@ export async function generateShowcaseDraft(input: GenerateShowcaseDraftInput): 
     const counts = await usage;
     await recordLlmCost({
       configId: usable.id,
-      libraryPublicId: library.publicId,
+      assetPublicId: asset.publicId,
       workspaceId: input.workspaceId,
       model: usable.model,
       promptTokens: counts.promptTokens,
@@ -225,10 +225,10 @@ export async function generateShowcaseDraft(input: GenerateShowcaseDraftInput): 
 
   /* Starter questions: the owner's FAQ first, the draft's to fill up to the limit. */
   const faq = await db()
-    .select({ question: schema.libraryFaq.question })
-    .from(schema.libraryFaq)
-    .where(eq(schema.libraryFaq.libraryId, input.libraryId))
-    .orderBy(asc(schema.libraryFaq.createdAt), asc(schema.libraryFaq.id))
+    .select({ question: schema.assetFaq.question })
+    .from(schema.assetFaq)
+    .where(eq(schema.assetFaq.assetId, input.assetId))
+    .orderBy(asc(schema.assetFaq.createdAt), asc(schema.assetFaq.id))
     .limit(SHOWCASE_LIMITS.starterQuestions.count);
   const starter = parseStarterQuestions([
     ...faq.map((entry) => entry.question.slice(0, SHOWCASE_LIMITS.starterQuestions.chars)),
@@ -238,15 +238,15 @@ export async function generateShowcaseDraft(input: GenerateShowcaseDraftInput): 
 
   const now = new Date();
   await db()
-    .update(schema.libraryShowcase)
+    .update(schema.assetShowcase)
     .set({
       content: { content: next.content, origin: next.origin, evidence: next.evidence },
       starterQuestions: current.starterQuestions.length > 0 && !input.overwrite ? current.starterQuestions : starterQuestions,
       generatedAt: now,
       updatedAt: now,
     })
-    .where(eq(schema.libraryShowcase.id, current.id));
+    .where(eq(schema.assetShowcase.id, current.id));
 
-  const showcase = await libraryShowcase({ workspaceId: input.workspaceId, libraryId: input.libraryId });
+  const showcase = await assetShowcase({ workspaceId: input.workspaceId, assetId: input.assetId });
   return { outcome: 'drafted', showcase: showcase ?? current };
 }

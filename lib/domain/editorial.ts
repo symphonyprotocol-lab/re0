@@ -12,7 +12,7 @@
  *
  * Pure TypeScript -- domain layer rules apply.
  */
-import { isVersionLabelShaped } from './library';
+import { isVersionLabelShaped } from './asset';
 
 export const EDITORIAL_KINDS = ['post', 'audio', 'qa'] as const;
 export type EditorialKind = (typeof EDITORIAL_KINDS)[number];

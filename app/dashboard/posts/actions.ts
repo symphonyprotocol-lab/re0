@@ -152,9 +152,9 @@ export async function confirmMediaAction(input: {
     const confirmed = await confirmMediaUpload({ ...actorOf(session), mediaId: input.mediaId, caption: input.caption, durationMs: input.durationMs });
     /* A Q&A's audio note changes its document's path: a new version covers the file (proposal 6.7). */
     const [media] = await db()
-      .select({ assetId: schema.assetMedia.assetId, kind: schema.library.kind })
+      .select({ assetId: schema.assetMedia.assetId, kind: schema.asset.kind })
       .from(schema.assetMedia)
-      .innerJoin(schema.library, eq(schema.library.id, schema.assetMedia.assetId))
+      .innerJoin(schema.asset, eq(schema.asset.id, schema.assetMedia.assetId))
       .where(eq(schema.assetMedia.id, confirmed.mediaId));
     if (media?.kind === 'qa') runAfter(await refreshQaDocument({ ...actorOf(session), assetId: media.assetId }));
     revalidatePath('/dashboard/posts');

@@ -32,7 +32,7 @@ import {
 import { holdEndsAt } from '@/lib/domain/admin';
 import { PLAN_CURRENCY } from '@/lib/domain/plans';
 import { uuidv7 } from '@/lib/domain/id';
-import type { WorkspaceRole } from '@/lib/application/libraries/delete';
+import type { WorkspaceRole } from '@/lib/application/assets/delete';
 import type { Tx } from '@/lib/application/plans/quota';
 import { db, schema } from '@/lib/infrastructure/postgres/client';
 import { activeCommerceSettings } from '@/lib/application/administration/manage-commerce-config';

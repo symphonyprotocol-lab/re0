@@ -39,7 +39,7 @@ export async function POST(request: NextRequest, context: { params: Promise<{ sl
     }
     const question = readQuestion(body.question);
     const page = await resolveShowcasePrincipal(slug);
-    if (!page) throw new AppError('library_not_found', 'no such page');
+    if (!page) throw new AppError('asset_not_found', 'no such page');
     if (!isShowcaseOrigin(request.headers.get('origin'), request, configuredBaseUrl(), page.customHost)) {
       throw new AppError('access_denied', 'a showcase page answers only on its own site');
     }

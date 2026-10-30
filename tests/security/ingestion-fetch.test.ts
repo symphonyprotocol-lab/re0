@@ -1,7 +1,7 @@
 /**
  * What ingestion is allowed to fetch. architecture.md 15.1.
  *
- * A platform library's location is typed by an operator and then followed --
+ * A platform asset's location is typed by an operator and then followed --
  * through redirects, through a sitemap, through a crawl. Every one
  * of those is a URL our server requests on someone else's say-so, which makes
  * this the classic server-side request forgery surface: the interesting target
@@ -34,7 +34,7 @@ describe('what ingestion may fetch', () => {
   });
 
   it('refuses plaintext http, whatever the host', () => {
-    // A platform library is republished under re0's own name; following http
+    // A platform asset is republished under re0's own name; following http
     // makes the content whatever the nearest network can rewrite it to.
     expect(refusalOf('http://nextjs.org/docs')).toBe('source_forbidden');
   });

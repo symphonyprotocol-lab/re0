@@ -4,7 +4,7 @@
  * deployment's Vercel project, and reading whether it has gone live.
  *
  * Two things are kept apart. Ownership is proved through the TXT challenge
- * a website library's source goes through (lib/application/libraries/
+ * a website asset's source goes through (lib/application/assets/
  * domain-verification.ts), so nobody can point someone else's host at
  * their page. Reachability is Vercel's: the host is added to the project
  * only once owned, and the page is served on it only once Vercel reports
@@ -14,14 +14,14 @@
  *
  * A check is the owner's move, never a page render's: every ownership
  * check spends one of the challenge's ten attempts, so nothing here runs
- * on a GET. The console's take-down and the library's deletion remove the
+ * on a GET. The console's take-down and the asset's deletion remove the
  * host; a plan that stops allowing one makes the host answer 404 at once
  * and leaves the row for the owner to remove.
  */
 import { and, eq, isNull } from 'drizzle-orm';
 import { AppError } from '@/contracts/errors';
-import { canManageLibraries, type WorkspaceRole } from '@/lib/application/libraries/delete';
-import { checkDomainVerification, startDomainVerification } from '@/lib/application/libraries/domain-verification';
+import { canManageAssets, type WorkspaceRole } from '@/lib/application/assets/delete';
+import { checkDomainVerification, startDomainVerification } from '@/lib/application/assets/domain-verification';
 import { uuidv7 } from '@/lib/domain/id';
 import {
   afterDnsCheck,
@@ -103,15 +103,15 @@ function view(row: Row): ShowcaseDomainView {
   };
 }
 
-async function pageOf(workspaceId: string, libraryId: string): Promise<{ id: string; slug: string; status: string } | null> {
+async function pageOf(workspaceId: string, assetId: string): Promise<{ id: string; slug: string; status: string } | null> {
   const [row] = await db()
-    .select({ id: schema.libraryShowcase.id, slug: schema.libraryShowcase.slug, status: schema.libraryShowcase.status })
-    .from(schema.libraryShowcase)
+    .select({ id: schema.assetShowcase.id, slug: schema.assetShowcase.slug, status: schema.assetShowcase.status })
+    .from(schema.assetShowcase)
     .where(
       and(
-        eq(schema.libraryShowcase.workspaceId, workspaceId),
-        eq(schema.libraryShowcase.libraryId, libraryId),
-        isNull(schema.libraryShowcase.deletedAt),
+        eq(schema.assetShowcase.workspaceId, workspaceId),
+        eq(schema.assetShowcase.assetId, assetId),
+        isNull(schema.assetShowcase.deletedAt),
       ),
     )
     .limit(1);
@@ -130,10 +130,10 @@ export function customDomainsAvailable(): boolean {
 
 /** The page's domain, for its owner; a plain read. The caller passes the entitlement it already holds. */
 export async function showcaseDomainFor(
-  input: { workspaceId: string; libraryId: string },
+  input: { workspaceId: string; assetId: string },
   _entitlement?: WorkspaceShowcaseEntitlement,
 ): Promise<ShowcaseDomainView | null> {
-  const page = await pageOf(input.workspaceId, input.libraryId);
+  const page = await pageOf(input.workspaceId, input.assetId);
   if (!page) return null;
   const row = await rowOf(page.id);
   return row ? view(row) : null;
@@ -142,7 +142,7 @@ export async function showcaseDomainFor(
 export interface StartShowcaseDomainInput {
   workspaceId: string;
   role: WorkspaceRole;
-  libraryId: string;
+  assetId: string;
   host: unknown;
 }
 
@@ -153,12 +153,12 @@ export interface StartShowcaseDomainInput {
  * and nothing reaches Vercel yet.
  */
 export async function startShowcaseDomain(input: StartShowcaseDomainInput): Promise<ShowcaseDomainView> {
-  if (!canManageLibraries(input.role)) throw new AppError('access_denied', 'only a library manager can set a domain');
+  if (!canManageAssets(input.role)) throw new AppError('access_denied', 'only an asset manager can set a domain');
   if (!customDomainsAvailable()) throw new ShowcaseDomainInvalid('not_configured');
   const entitlement = await showcaseEntitlement(input.workspaceId, { fresh: true });
   if (!entitlement.customDomain) throw new ShowcaseDomainInvalid('plan');
-  const page = await pageOf(input.workspaceId, input.libraryId);
-  if (!page) throw new AppError('library_not_found', 'this library has no showcase page');
+  const page = await pageOf(input.workspaceId, input.assetId);
+  if (!page) throw new AppError('asset_not_found', 'this asset has no showcase page');
   if (page.status === 'taken_down') throw new ShowcaseDomainInvalid('status');
   const host = parseCustomHost(input.host, ownHosts());
   if (!host) throw new ShowcaseDomainInvalid('host');
@@ -212,9 +212,9 @@ export async function startShowcaseDomain(input: StartShowcaseDomainInput): Prom
  * configured takes it live. Says where it stands either way; a step that
  * cannot be taken yet is not an error, only a reason.
  */
-export async function checkShowcaseDomain(input: { workspaceId: string; role: WorkspaceRole; libraryId: string }): Promise<ShowcaseDomainView | null> {
-  if (!canManageLibraries(input.role)) throw new AppError('access_denied', 'only a library manager can check a domain');
-  const page = await pageOf(input.workspaceId, input.libraryId);
+export async function checkShowcaseDomain(input: { workspaceId: string; role: WorkspaceRole; assetId: string }): Promise<ShowcaseDomainView | null> {
+  if (!canManageAssets(input.role)) throw new AppError('access_denied', 'only an asset manager can check a domain');
+  const page = await pageOf(input.workspaceId, input.assetId);
   if (!page) return null;
   const row = await rowOf(page.id);
   if (!row) return null;
@@ -279,10 +279,10 @@ async function dropDomain(row: Row): Promise<void> {
   await db().delete(schema.showcaseDomain).where(eq(schema.showcaseDomain.id, row.id));
 }
 
-export async function removeShowcaseDomain(input: { workspaceId: string; role: WorkspaceRole; libraryId: string }): Promise<void> {
-  if (!canManageLibraries(input.role)) throw new AppError('access_denied', 'only a library manager can remove a domain');
-  const page = await pageOf(input.workspaceId, input.libraryId);
-  if (!page) throw new AppError('library_not_found', 'this library has no showcase page');
+export async function removeShowcaseDomain(input: { workspaceId: string; role: WorkspaceRole; assetId: string }): Promise<void> {
+  if (!canManageAssets(input.role)) throw new AppError('access_denied', 'only an asset manager can remove a domain');
+  const page = await pageOf(input.workspaceId, input.assetId);
+  if (!page) throw new AppError('asset_not_found', 'this asset has no showcase page');
   const row = await rowOf(page.id);
   if (!row) return;
   await dropDomain(row);
@@ -295,24 +295,24 @@ export async function dropShowcaseDomainOf(showcaseId: string): Promise<void> {
 }
 
 /**
- * The page a custom host serves: live on Vercel, published, on a library
+ * The page a custom host serves: live on Vercel, published, on an asset
  * that is alive and a plan that still allows a domain. Null is a 404.
  */
 export async function showcaseByHost(host: string): Promise<{ slug: string } | null> {
   const lowered = host.toLowerCase().replace(/:\d+$/, '');
   const [row] = await db()
     .select({
-      slug: schema.libraryShowcase.slug,
-      status: schema.libraryShowcase.status,
-      workspaceId: schema.libraryShowcase.workspaceId,
-      libraryDeletedAt: schema.library.deletedAt,
+      slug: schema.assetShowcase.slug,
+      status: schema.assetShowcase.status,
+      workspaceId: schema.assetShowcase.workspaceId,
+      assetDeletedAt: schema.asset.deletedAt,
     })
     .from(schema.showcaseDomain)
-    .innerJoin(schema.libraryShowcase, eq(schema.libraryShowcase.id, schema.showcaseDomain.showcaseId))
-    .innerJoin(schema.library, eq(schema.library.id, schema.libraryShowcase.libraryId))
-    .where(and(eq(schema.showcaseDomain.host, lowered), eq(schema.showcaseDomain.status, 'ready'), isNull(schema.libraryShowcase.deletedAt)))
+    .innerJoin(schema.assetShowcase, eq(schema.assetShowcase.id, schema.showcaseDomain.showcaseId))
+    .innerJoin(schema.asset, eq(schema.asset.id, schema.assetShowcase.assetId))
+    .where(and(eq(schema.showcaseDomain.host, lowered), eq(schema.showcaseDomain.status, 'ready'), isNull(schema.assetShowcase.deletedAt)))
     .limit(1);
-  if (!row || row.libraryDeletedAt || !showcaseVisible(row.status)) return null;
+  if (!row || row.assetDeletedAt || !showcaseVisible(row.status)) return null;
   if (!(await showcaseEntitlement(row.workspaceId)).customDomain) return null;
   return { slug: row.slug };
 }

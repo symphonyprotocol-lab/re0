@@ -34,7 +34,7 @@ import {
 import { capabilitiesFor, readCapabilities } from '@/lib/domain/plans';
 
 /**
- * A library shared as a page: the rules the dashboard form, the draft
+ * An asset shared as a page: the rules the dashboard form, the draft
  * generator and the public page share (lib/domain/showcase.ts).
  */
 describe('validateShowcaseContent', () => {
@@ -203,7 +203,7 @@ describe('draft', () => {
   ];
 
   it('asks for every text field in the page language and marks the excerpts as data', () => {
-    const prompt = buildShowcaseDraftPrompt({ kind: 'product', locale: 'zh', libraryTitle: 'Acme', libraryDescription: null, excerpts });
+    const prompt = buildShowcaseDraftPrompt({ kind: 'product', locale: 'zh', assetTitle: 'Acme', assetDescription: null, excerpts });
     expect(prompt).toContain('Simplified Chinese');
     expect(prompt).toContain('product introduction');
     expect(prompt).toContain('<excerpt id="2" title="Pricing"');

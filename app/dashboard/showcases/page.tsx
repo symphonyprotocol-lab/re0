@@ -13,7 +13,7 @@ import {
 } from '@/components/dashboard/ui';
 import { ArrowUpRightIcon, EyeIcon, GlobeIcon, MailIcon, MessagesSquareIcon, SparklesIcon } from '@/components/ui/icons';
 import { listWorkspaceShowcases } from '@/lib/application/showcase';
-import { countWorkspaceLibraries } from '@/lib/application/libraries';
+import { countWorkspaceAssets } from '@/lib/application/assets';
 import { showcasePath } from '@/lib/domain/showcase';
 import { configuredBaseUrl } from '@/lib/http/base-url';
 import { surfaceEnabled } from '@/lib/domain/surfaces';
@@ -30,10 +30,10 @@ const GRID = 'grid grid-cols-[minmax(0,1.4fr)_110px_minmax(0,1.6fr)_150px_90px_9
 
 /**
  * The workspace's shared pages in one place (lib/domain/showcase.ts): one
- * row per page -- a library without one is not listed -- with where it
+ * row per page -- an asset without one is not listed -- with where it
  * stands, its address and the last thirty days of visitors, questions and
  * leads. Pages are made
- * and edited on each library's page; this screen is the view across all
+ * and edited on each asset's page; this screen is the view across all
  * of them and the way to the one that needs attention.
  */
 export default async function DashboardShowcasesPage() {
@@ -41,10 +41,10 @@ export default async function DashboardShowcasesPage() {
   if (!surfaceEnabled('showcase')) notFound();
   const [session, { locale, t }] = await Promise.all([requireSession('/dashboard/showcases'), translations()]);
   const w = t.dashboard.showcases;
-  const s = t.dashboard.libraryDetail.showcase;
-  const [overview, libraryCount] = await Promise.all([
+  const s = t.dashboard.assetDetail.showcase;
+  const [overview, assetCount] = await Promise.all([
     listWorkspaceShowcases(session.workspace.id),
-    countWorkspaceLibraries(session.workspace.id),
+    countWorkspaceAssets(session.workspace.id),
   ]);
   const number = new Intl.NumberFormat(locale);
   const origin = configuredBaseUrl() ?? PUBLIC_ORIGIN;
@@ -59,11 +59,11 @@ export default async function DashboardShowcasesPage() {
   ];
 
   const action =
-    libraryCount === 0 ? (
-      <ActionButton href="/dashboard/assets/new">{w.createLibrary}</ActionButton>
+    assetCount === 0 ? (
+      <ActionButton href="/dashboard/assets/new">{w.createAsset}</ActionButton>
     ) : (
       <ActionButton href="/dashboard/assets" variant={overview.published > 0 ? 'outline' : 'primary'}>
-        {w.pickLibrary}
+        {w.pickAsset}
       </ActionButton>
     );
 
@@ -93,17 +93,17 @@ export default async function DashboardShowcasesPage() {
                 ))}
               </div>
               {overview.rows.map((row) => {
-                const manageHref = `/dashboard/assets/${row.libraryId}#showcase`;
+                const manageHref = `/dashboard/assets/${row.assetId}#showcase`;
                 const page = row.page;
                 const address = addressOf(page);
                 return (
-                  <div key={row.libraryId} className={`${GRID} border-t border-line px-5 py-3 text-[12px]`}>
+                  <div key={row.assetId} className={`${GRID} border-t border-line px-5 py-3 text-[12px]`}>
                     <span className="flex min-w-0 flex-col gap-0.5">
                       <Link href={manageHref} className="truncate font-medium text-ink hover:text-brandink">
                         {page.name}
                       </Link>
                       <span className="truncate text-[11px] text-muted">
-                        {row.libraryTitle} · {row.libraryPublicId}
+                        {row.assetTitle} · {row.assetPublicId}
                       </span>
                     </span>
                     <span className="flex flex-wrap items-center gap-1">

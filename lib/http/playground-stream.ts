@@ -21,17 +21,17 @@ export interface PlaygroundSource {
   sourceUrl: string;
   documentTitle: string;
   section: string | null;
-  /** Which library the passage came from: the answer may draw on several. */
-  libraryId: string;
-  libraryTitle: string;
+  /** Which asset the passage came from: the answer may draw on several. */
+  assetId: string;
+  assetTitle: string;
   /** The passage's fenced code, as data (requirement.md 5.1: 代码示例). */
   codeBlocks: CodeBlock[];
 }
 
 /** What the scatter-gather read, per routed candidate (retrieval/gather.ts). */
 export interface PlaygroundGather {
-  libraries: {
-    libraryId: string;
+  assets: {
+    assetId: string;
     title: string;
     version: string | null;
     /** Its passages fit the question; it contributes to the answer. */
@@ -43,16 +43,16 @@ export interface PlaygroundGather {
 
 export interface PlaygroundRouting {
   question: string;
-  /** What resolve-library-id returned; every one of them is read. */
-  candidates: { libraryId: string; title: string }[];
+  /** What resolve-asset-id returned; every one of them is read. */
+  candidates: { assetId: string; title: string }[];
   /** The top candidate: the one the exchange is metered on. */
-  libraryId: string | null;
-  libraryTitle: string | null;
+  assetId: string | null;
+  assetTitle: string | null;
   version: string | null;
   requestId: string;
   /**
-   * The caller named the library (the detail page's fixed entry), so no
-   * resolve-library-id ran: the transcript shows one query-docs only.
+   * The caller named the asset (the detail page's fixed entry), so no
+   * resolve-asset-id ran: the transcript shows one query-docs only.
    */
   pinned: boolean;
 }
@@ -66,7 +66,7 @@ export interface PlaygroundModel {
 }
 
 /** `acted`: a workbench exchange that listed or proposed, with nothing to answer from. */
-export type PlaygroundOutcome = 'answer' | 'degraded' | 'no_context' | 'no_library' | 'acted';
+export type PlaygroundOutcome = 'answer' | 'degraded' | 'no_context' | 'no_asset' | 'acted';
 
 /**
  * A pending action as its confirmation card needs it (workbench only,
@@ -111,9 +111,9 @@ export type WorkbenchListingPart =
  */
 export interface PlaygroundStep {
   id: string;
-  tool: 'resolve-library-id' | 'query-docs';
+  tool: 'resolve-asset-id' | 'query-docs';
   query: string;
-  libraryId: string | null;
+  assetId: string | null;
   status: 'running' | 'done';
   results: string[] | null;
   confirmed: boolean | null;

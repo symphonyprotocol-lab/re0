@@ -1,5 +1,5 @@
 /**
- * Feeding the policy evaluator. architecture.md 10.2: Library Search, Context
+ * Feeding the policy evaluator. architecture.md 10.2: Asset Search, Context
  * Retrieval and the web all consult the same evaluator -- this module only
  * assembles its input facts, in one batch, for however many candidates a
  * request holds.
@@ -24,89 +24,89 @@ import { channelsOfAssets, isPublicChannel } from '@/lib/application/channels/me
 export function policyIsOpen(policy: WorkspacePolicy): boolean {
   return (
     normalizePolicyMode(policy).mode === null &&
-    policy.blockedLibraries.length === 0 &&
+    policy.blockedAssets.length === 0 &&
     Object.values(policy.sourceTypes).every((enabled) => enabled !== false)
   );
 }
 
 export async function policyVerdicts(
   policy: WorkspacePolicy,
-  libraryIds: string[],
+  assetIds: string[],
 ): Promise<Map<string, PolicyVerdict>> {
   const verdicts = new Map<string, PolicyVerdict>();
-  if (libraryIds.length === 0) return verdicts;
+  if (assetIds.length === 0) return verdicts;
 
   const database = db();
-  const libraries = await database
+  const assets = await database
     .select({
-      id: schema.library.id,
-      publicId: schema.library.publicId,
-      ownerWorkspaceId: schema.library.ownerWorkspaceId,
-      isPlatformLibrary: schema.library.isPlatformLibrary,
-      access: schema.library.access,
-      lastSuccessfulRefreshAt: schema.library.lastSuccessfulRefreshAt,
+      id: schema.asset.id,
+      publicId: schema.asset.publicId,
+      ownerWorkspaceId: schema.asset.ownerWorkspaceId,
+      isPlatformAsset: schema.asset.isPlatformAsset,
+      access: schema.asset.access,
+      lastSuccessfulRefreshAt: schema.asset.lastSuccessfulRefreshAt,
     })
-    .from(schema.library)
-    .where(inArray(schema.library.id, libraryIds));
+    .from(schema.asset)
+    .where(inArray(schema.asset.id, assetIds));
 
-  const channels = await channelsOfAssets(libraryIds, database);
+  const channels = await channelsOfAssets(assetIds, database);
 
   const sources = await database
     .select({
-      libraryId: schema.source.libraryId,
+      assetId: schema.source.assetId,
       type: schema.source.type,
       location: schema.source.location,
     })
     .from(schema.source)
-    .where(inArray(schema.source.libraryId, libraryIds));
+    .where(inArray(schema.source.assetId, assetIds));
   const sourceTypes = new Map<string, string[]>();
   const sourceHosts = new Map<string, string[]>();
   for (const row of sources) {
-    const list = sourceTypes.get(row.libraryId) ?? [];
+    const list = sourceTypes.get(row.assetId) ?? [];
     list.push(row.type);
-    sourceTypes.set(row.libraryId, list);
+    sourceTypes.set(row.assetId, list);
     const host = hostOf(row.location);
     if (host) {
-      const hosts = sourceHosts.get(row.libraryId) ?? [];
+      const hosts = sourceHosts.get(row.assetId) ?? [];
       hosts.push(host);
-      sourceHosts.set(row.libraryId, hosts);
+      sourceHosts.set(row.assetId, hosts);
     }
   }
 
   const scores = await database
     .select({
-      libraryId: schema.libraryScore.libraryId,
-      trustScore: schema.libraryScore.trustScore,
+      assetId: schema.assetScore.assetId,
+      trustScore: schema.assetScore.trustScore,
     })
-    .from(schema.libraryScore)
-    .where(inArray(schema.libraryScore.libraryId, libraryIds))
-    .orderBy(sql`${schema.libraryScore.computedAt} desc`);
+    .from(schema.assetScore)
+    .where(inArray(schema.assetScore.assetId, assetIds))
+    .orderBy(sql`${schema.assetScore.computedAt} desc`);
   const newestScore = new Map<string, number>();
   for (const row of scores) {
-    if (!newestScore.has(row.libraryId)) newestScore.set(row.libraryId, row.trustScore);
+    if (!newestScore.has(row.assetId)) newestScore.set(row.assetId, row.trustScore);
   }
 
-  for (const library of libraries) {
-    const channel = channels.get(library.id) ?? null;
+  for (const asset of assets) {
+    const channel = channels.get(asset.id) ?? null;
     const subject: PolicySubject = {
-      publicId: library.publicId,
+      publicId: asset.publicId,
       channel: channel ? `/channels/${channel.slug}` : null,
       /* An asset not shared with everyone -- in no channel, a private one,
          or paid -- answers to the `private` switch as well (10.2), the same
          line the preview count draws (policy-store.ts). */
       sourceTypes: [
-        ...(sourceTypes.get(library.id) ?? []),
-        ...(isPublicChannel(channel) && library.access === 'free' ? [] : [PRIVATE_SOURCE_TYPE]),
+        ...(sourceTypes.get(asset.id) ?? []),
+        ...(isPublicChannel(channel) && asset.access === 'free' ? [] : [PRIVATE_SOURCE_TYPE]),
       ],
-      domains: sourceHosts.get(library.id) ?? [],
-      trustScore: newestScore.get(library.id) ?? 0,
-      /* Platform libraries are curated; user libraries are verified by claim. */
-      verified: library.isPlatformLibrary || library.ownerWorkspaceId !== null,
-      ageDays: library.lastSuccessfulRefreshAt
-        ? Math.max(0, (Date.now() - library.lastSuccessfulRefreshAt.getTime()) / 86_400_000)
+      domains: sourceHosts.get(asset.id) ?? [],
+      trustScore: newestScore.get(asset.id) ?? 0,
+      /* Platform assets are curated; user assets are verified by claim. */
+      verified: asset.isPlatformAsset || asset.ownerWorkspaceId !== null,
+      ageDays: asset.lastSuccessfulRefreshAt
+        ? Math.max(0, (Date.now() - asset.lastSuccessfulRefreshAt.getTime()) / 86_400_000)
         : null,
     };
-    verdicts.set(library.id, evaluatePolicy(policy, subject));
+    verdicts.set(asset.id, evaluatePolicy(policy, subject));
   }
   return verdicts;
 }
@@ -120,11 +120,11 @@ function hostOf(location: string): string | null {
   }
 }
 
-/** The single-library form Context Retrieval uses. */
+/** The single-asset form Context Retrieval uses. */
 export async function policyVerdictFor(
   policy: WorkspacePolicy,
-  libraryId: string,
+  assetId: string,
 ): Promise<PolicyVerdict> {
-  const verdicts = await policyVerdicts(policy, [libraryId]);
-  return verdicts.get(libraryId) ?? { allowed: true, reason: 'allowed' };
+  const verdicts = await policyVerdicts(policy, [assetId]);
+  return verdicts.get(assetId) ?? { allowed: true, reason: 'allowed' };
 }

@@ -10,7 +10,7 @@ import { calendarMonth, periodLastDay } from '@/lib/application/plans/billing';
 
 /**
  * The request-log screen's state lives in the URL (requirement.md 5.2:
- * time, status, entrypoint and library filters, CSV export), so every field
+ * time, status, entrypoint and asset filters, CSV export), so every field
  * arrives as an unvalidated string and must fall back rather than throw.
  */
 describe('parseRequestFilter', () => {
@@ -20,7 +20,7 @@ describe('parseRequestFilter', () => {
       to: undefined,
       status: undefined,
       entrypoint: undefined,
-      library: undefined,
+      asset: undefined,
       query: undefined,
       page: 1,
     });
@@ -32,7 +32,7 @@ describe('parseRequestFilter', () => {
       to: '2026-09-07',
       status: 'error',
       entrypoint: 'mcp',
-      library: '/vercel/next.js',
+      asset: '/vercel/next.js',
       q: '  abc  ',
       page: '3',
     });
@@ -41,7 +41,7 @@ describe('parseRequestFilter', () => {
     expect(filter.to?.toISOString()).toBe('2026-09-08T00:00:00.000Z');
     expect(filter.status).toBe('error');
     expect(filter.entrypoint).toBe('mcp');
-    expect(filter.library).toBe('/vercel/next.js');
+    expect(filter.asset).toBe('/vercel/next.js');
     expect(filter.query).toBe('abc');
     expect(filter.page).toBe(3);
   });
@@ -52,7 +52,7 @@ describe('parseRequestFilter', () => {
       to: 'yesterday',
       status: '4xx',
       entrypoint: 'sdk',
-      library: '   ',
+      asset: '   ',
       q: '',
       page: 'abc',
     });
@@ -61,7 +61,7 @@ describe('parseRequestFilter', () => {
       to: undefined,
       status: undefined,
       entrypoint: undefined,
-      library: undefined,
+      asset: undefined,
       query: undefined,
       page: 1,
     });
@@ -74,9 +74,9 @@ describe('parseRequestFilter', () => {
     expect(parseRequestFilter({ status: ['ok', 'error'] }).status).toBeUndefined();
   });
 
-  it('caps free text and the library id at what the query will take', () => {
+  it('caps free text and the asset id at what the query will take', () => {
     expect(parseRequestFilter({ q: 'x'.repeat(500) }).query).toHaveLength(200);
-    expect(parseRequestFilter({ library: 'y'.repeat(500) }).library).toHaveLength(200);
+    expect(parseRequestFilter({ asset: 'y'.repeat(500) }).asset).toHaveLength(200);
   });
 });
 
@@ -138,7 +138,7 @@ describe('requestFilterParams', () => {
       to: '2026-09-07',
       status: 'ok',
       entrypoint: 'rest',
-      library: '/a/b',
+      asset: '/a/b',
       q: 'req',
       page: '2',
     };

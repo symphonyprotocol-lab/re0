@@ -6,14 +6,14 @@
       "type": "skill-md",
       "description": "Search Re0 data assets and retrieve concise, cited context when a user needs source-grounded information.",
       "url": "/.well-known/agent-skills/re0-knowledge-retrieval/SKILL.md",
-      "digest": "sha256:8db421cf20e5bd2a9daca3e1e2c70d56371079db3280fd992b3ec796974f6cf6"
+      "digest": "sha256:e578d2886d3aec7332e02e82a7cc3312f91d6135946b30eb5b4c9c0fbad44d99"
     },
     {
-      "name": "re0-library-publishing",
+      "name": "re0-asset-publishing",
       "type": "skill-md",
       "description": "Add a source to Re0 as a data asset or claim an existing public asset when a user wants to publish, manage, or prove ownership of documentation.",
-      "url": "/.well-known/agent-skills/re0-library-publishing/SKILL.md",
-      "digest": "sha256:a00a049559fbe088e1a5af3d590f40d7cf3209d149a1f4f3ff36841c15a8d6e6"
+      "url": "/.well-known/agent-skills/re0-asset-publishing/SKILL.md",
+      "digest": "sha256:8f9d5519013ca1ddbd4fa0f0de5e63f89cfd4b94210cc724b86b4e609ccf1b4d"
     }
   ]
 }

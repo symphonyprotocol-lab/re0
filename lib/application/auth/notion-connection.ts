@@ -1,7 +1,7 @@
 /**
  * Use cases: connect a Notion account for page imports, list what it may
  * import, prove a chosen page is readable at submit time, and hand the
- * grant to ingestion for the library's builds.
+ * grant to ingestion for the asset's builds.
  *
  * The GitHub connection (github-connection.ts) keeps its token only to prove
  * whose repositories are on offer. Notion's is kept for more: a Notion page
@@ -9,7 +9,7 @@
  * source row remembers which account it was imported under
  * (lib/domain/notion.ts, `NOTION_SOURCE_USER_KEY`) and the build resolves the
  * grant from there. Sealed at rest in its own table, gone the moment the
- * person disconnects or Notion reports the token revoked -- and a library
+ * person disconnects or Notion reports the token revoked -- and an asset
  * whose grant is gone fails its next build with `source_forbidden` instead
  * of quietly reading with someone else's credential.
  */

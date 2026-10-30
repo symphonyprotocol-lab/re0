@@ -2,12 +2,12 @@
 
 - 版本：4.0
 - 更新日期：2026-10-29（按 [agent-first-proposal.md](./agent-first-proposal.md) 第 3.4 节与第 11 节改写：数据资产与频道取代知识库，产品定义改为数据资产 Agent，入口改为 Web / A2A / REST，套餐只剩一档，发布者分成改为频道收入结算；本文各节编号保持不变）
-- 状态：产品基线；P0–P4 已实施（P1–P4：2026-10-30；迁移 0064、0065 待应用到 Neon dev 分支），P5 的目标设计在文中以「阶段」标注区分，分阶段见提案第 13.1 节。P3a 按 Paddle **sandbox** 实现并上线代码，提案第 13.2 节的四项业务前提（创作者税务信息、记录商户转售与代付的合规意见、Paddle 可售范围的书面确认、Paddle 手续费口径）仍待落实，落实前不在生产环境开放频道收款
+- 状态：产品基线；P0–P5 已实施（P1–P5：2026-10-30；迁移 0063–0066 待应用到 Neon dev 分支），分阶段见提案第 13.1 节。P3a 按 Paddle **sandbox** 实现并上线代码，提案第 13.2 节的四项业务前提（创作者税务信息、记录商户转售与代付的合规意见、Paddle 可售范围的书面确认、Paddle 手续费口径）仍待落实，落实前不在生产环境开放频道收款
 - 设计依据：[knowleg-market.pen](./knowleg-market.pen)
 - 技术实现：[architecture.md](./architecture.md)
 - 转向依据：[agent-first-proposal.md](./agent-first-proposal.md)
 
-> 术语说明：本文描述产品时一律用「数据资产」（简称「资产」），按类型时直接称网站、GitHub 库、上传文件、Notion 文章、文章、音频、问答；「公开知识库」对应「公开频道里的资产」，「私有知识库」对应「不属于频道的资产或私有频道里的资产」，「知识库目录」对应「频道目录」，「平台自建库」对应「平台资产」。引用现有代码、表名、REST 路径与字段（`library`、`libraryId`、`/v1/libraries`、`library_version` 等）时保留它们现在的名字，改名在提案第 3.5 节的 P5 完成。
+> 术语说明：本文描述产品时一律用「数据资产」（简称「资产」），按类型时直接称网站、GitHub 库、上传文件、Notion 文章、文章、音频、问答；「公开知识库」对应「公开频道里的资产」，「私有知识库」对应「不属于频道的资产或私有频道里的资产」，「知识库目录」对应「频道目录」，「平台自建库」对应「平台资产」。代码、表名、REST 路径与字段已在 P5（提案第 3.5 节）由 `library`、`libraryId`、`/v1/libraries`、`library_version` 改为 `asset`、`assetId`、`/v1/assets`、`asset_version` 等，本文写现在的名字。
 
 ## 1. 文档目的与决策顺序
 
@@ -83,10 +83,10 @@ Slogan：**Your data asset agent for life, work & business** / 为生活、工�
 **对 MVP 基线不变的承诺。**
 
 - 第 4.1 节的免费额度、Additional Calls 价格、容量和 Key 上限不变；公共页面、Dashboard 和管理后台仍不得出现 Enterprise 档位；
-- `/v1/context`、`/v1/libraries/search`、A2A 技能、SDK 与 CLI 的契约不变；专家数据不通过它们导出；
+- `/v1/context`、`/v1/assets/search`、A2A 技能、SDK 与 CLI 的契约不变；专家数据不通过它们导出；
 - 公开频道里的资产仍不按资产收费；资产的公开可见性、RAG 检索许可和所有权认领都不自动授予模型训练权；
 - 专家数据订单不进入 Plan Version、Usage Call、`usage_event`、`earning_event` 和 `revenue_period`；专家结算与第 4.4 节的频道收入结算不共享收入池、计价规则和结算批次；
-- 专家的领域知识和训练样本不写入 `library` 和 `chunk`，不进入搜索索引和在线试用；
+- 专家的领域知识和训练样本不写入 `asset` 和 `chunk`，不进入搜索索引和在线试用；
 - 平台不持有专家资金、银行卡与证件；出账全程由外部支付服务完成；
 - 链上存证对该赛道仍是旁路能力，不阻塞任何交付；
 - 删除该模块后，第 2.2 节全部成功标准和第 14 节全部验收标准保持通过。
@@ -699,7 +699,7 @@ submit one source
 
 REST 的固定流程：
 
-1. Library Search（`/v1/libraries/search`）根据查询意图返回候选资产，候选附带命中证据；
+1. Asset Search（`/v1/assets/search`）根据查询意图返回候选资产，候选附带命中证据；
 2. Context（`/v1/context`）使用明确资产 ID 查询一项资产。
 
 调用者已提供资产 ID 或版本 ID 时可以跳过第一步。
@@ -710,19 +710,19 @@ REST 的固定流程：
 
 ### 9.2 REST API
 
-REST 保留，供网站内部、测试与脚本化管理使用，不对外宣传；路径、字段与错误码在 P5 改名为 `/v1/assets`、`assetId`、`asset_*`，本节写现在的名字。
+REST 保留，供网站内部、测试与脚本化管理使用，不对外宣传；路径、字段与错误码在 P5 由 `/v1/libraries`、`libraryId`、`library_*` 改为 `/v1/assets`、`assetId`、`asset_*`，不设别名与重定向。
 
 查询主契约：
 
-- `GET /v1/libraries/search?query=&libraryName=`
-- `GET /v1/context?libraryId=&query=&type=json|txt&maxTokens=`
+- `GET /v1/assets/search?query=&assetName=`
+- `GET /v1/context?assetId=&query=&type=json|txt&maxTokens=`
 
 管理契约：
 
-- `POST /v1/libraries`
-- `GET /v1/libraries/{libraryId}`
-- `POST /v1/libraries/{libraryId}/refresh`
-- `DELETE /v1/libraries/{libraryId}`
+- `POST /v1/assets`
+- `GET /v1/assets/{assetId}`
+- `POST /v1/assets/{assetId}/refresh`
+- `DELETE /v1/assets/{assetId}`
 - `GET /v1/policies`
 - `PATCH /v1/policies`
 - `GET /v1/usage`
@@ -732,7 +732,7 @@ REST 保留，供网站内部、测试与脚本化管理使用，不对外宣传
 
 `/v1/revenue*` 随发布者分成删除。正式实现和页面示例必须使用上述权威字段名；不再接受 `library` 别名。
 
-Library Search 响应至少包含：
+Asset Search 响应至少包含：
 
 - `id`、`title`、`description`；
 - `lastUpdateDate`、`state`、`totalTokens`、`totalSnippets`；
@@ -741,23 +741,23 @@ Library Search 响应至少包含：
 
 Context JSON 响应至少包含：
 
-- `libraryId` 和 `resolvedVersion`；
+- `assetId` 和 `resolvedVersion`；
 - `codeSnippets` 和 `infoSnippets`；
 - 每项的标题、内容、Token 数、Source URL、文档标题和章节；
-- `rules.global`、`rules.libraryOwn` 和 `rules.workspace`；
+- `rules.global`、`rules.assetOwn` 和 `rules.workspace`；
 - Usage、Request ID 和是否命中缓存。
 
 `type=txt` 只负责把同一 JSON 结果渲染成 Agent 友好的 Markdown，不得重新检索。REST 不调用模型。
 
 ### 9.3 MCP
 
-远程 MCP（`/mcp`、`/mcp/oauth`、`resolve-library-id` / `query-docs` 两项工具、stdio 包装器）已下线，代码保留在开关之后；Agent 的接入方式改为第 9.5 节的 Agent Card 与 A2A。
+远程 MCP（`/mcp`、`/mcp/oauth`、`resolve-asset-id` / `query-docs` 两项工具、stdio 包装器）已下线，代码保留在开关之后；Agent 的接入方式改为第 9.5 节的 Agent Card 与 A2A。
 
 ### 9.4 SDK 与 CLI
 
 - TypeScript SDK 只封装 REST，负责认证、超时、有限重试、错误映射和 JSON/TXT 类型；随 P5 的接口改名发新版本；
 - 默认禁止 HTTP 缓存，由调用者按业务新鲜度显式缓存；
-- CLI 提供 `re0 auth`、`library`、`docs`；`setup` / `remove` / `skill` 中写入 MCP 配置的部分随 MCP 下线；
+- CLI 提供 `re0 auth`、`asset`、`docs`；`setup` / `remove` / `skill` 中写入 MCP 配置的部分随 MCP 下线；
 - 所有生成配置在覆盖前展示目标，`remove` 只删除 re0 自己创建的部分；
 - 网站插件（Website Widget，站点密钥、`/widget.js`、`/embed`）与分享页已下线，代码保留在开关之后；自定义域名不再提供。
 
@@ -850,18 +850,18 @@ Policy 更新必须生成新版本并记录变更前后值。调用记录保存�
 
 ## 11. 错误、限流与兼容性
 
-使用标准 HTTP 状态，并返回稳定 `error`、可读 `message`、`requestId`（错误码在 P5 随接口改名为 `asset_*`）：
+使用标准 HTTP 状态，并返回稳定 `error`、可读 `message`、`requestId`（错误码在 P5 随接口由 `library_*` 改为 `asset_*`）：
 
 | HTTP | 错误示例 | 行为 |
 | --- | --- | --- |
-| 202 | `library_processing` | 已受理但当前版本未就绪 |
-| 301 | `library_redirected` | 返回新的 `redirectUrl` |
+| 202 | `asset_processing` | 已受理但当前版本未就绪 |
+| 301 | `asset_redirected` | 返回新的 `redirectUrl` |
 | 400 | `invalid_request` | 参数或 Schema 错误 |
 | 401 | `invalid_api_key` | 未认证或 Key 无效 |
 | 403 | `access_denied` | 工作空间、Scope、访问规则或可见性拒绝（含非订阅者访问 `paid` 正文） |
-| 404 | `library_not_found` | 不区分不存在与不可见 |
-| 409 | `library_exists` | 重复提交或幂等冲突 |
-| 413 | `library_too_large` | 超过工作空间总容量 |
+| 404 | `asset_not_found` | 不区分不存在与不可见 |
+| 409 | `asset_exists` | 重复提交或幂等冲突 |
+| 413 | `asset_too_large` | 超过工作空间总容量 |
 | 422 | `source_unprocessable` | 来源无有效内容或无法解析 |
 | 429 | `quota_exceeded` | 返回 `Retry-After` 和额度 Header |
 | 500/503/504 | `provider_unavailable` | 可按退避策略重试 |
@@ -901,7 +901,7 @@ Policy 更新必须生成新版本并记录变更前后值。调用记录保存�
 
 在不包含第三方冷启动异常的正常负载下：
 
-- Library Search / `find_channels`：p95 小于 800 ms；
+- Asset Search / `find_channels`：p95 小于 800 ms；
 - Context Retrieval / `search_context`：p95 小于 3 s，p99 小于 8 s；
 - Dashboard 普通读取：p95 小于 1 s；
 - Policy 更新后，新请求 5 秒内使用新版本；
@@ -986,7 +986,7 @@ MVP 的 14 步（公共站点、身份与套餐、Ingestion、混合检索、在
 4. **P3a 文章、评论、问答与订阅**（已实施，2026-10-30）：按 Paddle sandbox 实现；Paddle 书面确认、手续费口径、税务与合规意见仍待落实，落实前不在生产环境开放频道收款；
 5. **P3b 音频**（已实施，2026-10-30）；
 6. **P4 A2A 客户端**（已实施，2026-10-30）：re0 委托外部 Agent（外部 Agent 登记、凭证加密保存、逐次授权的 `delegate_task`）；对话与 A2A 任务的导出、删除与 30 天正文清除，私有资产保留期；四个场景落地页；
-7. **P5 内部改名**：代码模块与标识符、REST 路径与字段、错误码、数据库表与列全部改为 asset。
+7. **P5 内部改名**（已完成，迁移 0066）：代码模块与标识符、REST 路径与字段、错误码、数据库表与列全部改为 asset。
 
 Enterprise、团队席位必须通过新的需求评审后进入计划。专家数据与评测赛道已登记为 MVP 后扩展轨（第 2.4 节），以方案第 17 节阶段 0 门禁为前提。
 
@@ -998,7 +998,7 @@ Enterprise、团队席位必须通过新的需求评审后进入计划。专家�
 
 Context7 已从第 1 节的决策顺序中移除，不再约束本文的规则。以下是早期借鉴过的做法，留作历史记录（核对的源码提交为 `f3a818d69db694e24d58e3bf803454fb20fc66ea`，2026-08-17）：
 
-- REST：Library Search、Context、Policies、Refresh 和 Add Source 的接口形状；
+- REST：Asset Search、Context、Policies、Refresh 和 Add Source 的接口形状；
 - SDK：Bearer Key、超时、有限重试、JSON/TXT 类型；
 - Sources：来源侧 JSON 配置、私有来源和后台刷新；
 - Policies：来源类型、质量模式、手动选择、阻止/例外名单；

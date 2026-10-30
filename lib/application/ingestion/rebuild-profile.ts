@@ -26,9 +26,9 @@ const READ_BATCH = 500;
 export async function rebuildProfile(versionId: string): Promise<{ titles: number; terms: number }> {
   const database = db();
   const [version] = await database
-    .select({ id: schema.libraryVersion.id, libraryId: schema.libraryVersion.libraryId })
-    .from(schema.libraryVersion)
-    .where(eq(schema.libraryVersion.id, versionId));
+    .select({ id: schema.assetVersion.id, assetId: schema.assetVersion.assetId })
+    .from(schema.assetVersion)
+    .where(eq(schema.assetVersion.id, versionId));
   if (!version) throw new Error(`no such version: ${versionId}`);
 
   const documents = await database
@@ -50,13 +50,13 @@ export async function rebuildProfile(versionId: string): Promise<{ titles: numbe
     for (const row of rows) bodies.push(row.body);
     if (rows.length < READ_BATCH) break;
   }
-  const terms = extractTerms(bodies, PROFILE_LIMITS.maxTerms, await platformTermWeight(version.libraryId));
+  const terms = extractTerms(bodies, PROFILE_LIMITS.maxTerms, await platformTermWeight(version.assetId));
 
   await database.transaction(async (tx) => {
-    await tx.delete(schema.libraryProfile).where(eq(schema.libraryProfile.versionId, versionId));
-    await tx.insert(schema.libraryProfile).values({
+    await tx.delete(schema.assetProfile).where(eq(schema.assetProfile.versionId, versionId));
+    await tx.insert(schema.assetProfile).values({
       id: uuidv7(),
-      libraryId: version.libraryId,
+      assetId: version.assetId,
       versionId,
       profileVersion: PROFILE_VERSION,
       documentTitles: titles,
@@ -78,21 +78,21 @@ export async function rebuildStaleProfiles(
 ): Promise<{ publicId: string; versionId: string; titles: number; terms: number }[]> {
   const database = db();
   const stale = await database
-    .select({ publicId: schema.library.publicId, versionId: schema.library.currentVersionId })
-    .from(schema.library)
+    .select({ publicId: schema.asset.publicId, versionId: schema.asset.currentVersionId })
+    .from(schema.asset)
     .leftJoin(
-      schema.libraryProfile,
-      eq(schema.libraryProfile.versionId, schema.library.currentVersionId),
+      schema.assetProfile,
+      eq(schema.assetProfile.versionId, schema.asset.currentVersionId),
     )
     .where(
       and(
-        /* A deleted library's profile is gone for good, not stale. */
-        isNull(schema.library.deletedAt),
+        /* A deleted asset's profile is gone for good, not stale. */
+        isNull(schema.asset.deletedAt),
         options.all
           ? undefined
           : or(
-              isNull(schema.libraryProfile.id),
-              ne(schema.libraryProfile.profileVersion, PROFILE_VERSION),
+              isNull(schema.assetProfile.id),
+              ne(schema.assetProfile.profileVersion, PROFILE_VERSION),
             ),
       ),
     );

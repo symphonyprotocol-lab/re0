@@ -42,7 +42,7 @@ describe('rights declaration', () => {
     expect(rightsPosted({ origin: 'own' })).toBe(true);
   });
 
-  it('does not let model-generated content back a public library (7.4)', () => {
+  it('does not let model-generated content back a public asset (7.4)', () => {
     const generated = parseRightsDeclaration({ ...answer, generation: 'generated' }, { userId: null, now })!;
     const assisted = parseRightsDeclaration({ ...answer, generation: 'assisted' }, { userId: null, now })!;
     expect(rightsAllowPublic(generated)).toBe(false);

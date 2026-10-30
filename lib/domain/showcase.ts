@@ -1,9 +1,9 @@
 /**
  * Showcase page rules, as pure functions. No Next.js, no driver, no fetch.
  *
- * A showcase page is a library shared as a standalone web page: a company
- * or product introduction on top, the library's own Q&A under it. The copy
- * on top is the owner's -- drafted by a model from the library's own pages,
+ * A showcase page is an asset shared as a standalone web page: a company
+ * or product introduction on top, the asset's own Q&A under it. The copy
+ * on top is the owner's -- drafted by a model from the asset's own pages,
  * then edited by hand -- and the rules here are what the dashboard form,
  * the draft generator and the public page all agree on: which fields a
  * kind of page shows, how long each may be, what a slug may look like, and
@@ -290,7 +290,7 @@ export const SHOWCASE_RESERVED_SLUGS: readonly string[] = [
   'embed',
   'files',
   'legal',
-  'libraries',
+  'assets',
   'login',
   'logout',
   'mcp',
@@ -333,7 +333,7 @@ export function parseSlug(value: unknown): string | null {
 }
 
 /**
- * The slug a library title suggests. A title with no Latin letters or
+ * The slug an asset title suggests. A title with no Latin letters or
  * digits -- one written in Chinese, say -- gives null, and the caller falls
  * back to something generated.
  */
@@ -652,7 +652,7 @@ export function isOwnHostOf(host: string, ownHosts: readonly string[]): boolean 
 
 /* -------------------------------------------------------------- plan rules */
 
-/** What a plan allows: how many libraries may have a page (-1 = no cap), and whether the footer brand may be hidden. */
+/** What a plan allows: how many assets may have a page (-1 = no cap), and whether the footer brand may be hidden. */
 export interface ShowcaseEntitlement {
   pages: number;
   brandingOptional: boolean;
@@ -665,7 +665,7 @@ export function showcasePagesAllowed(entitlement: ShowcaseEntitlement, livePages
 /* --------------------------------------------------------------- drafting */
 
 /**
- * The questions the draft generator asks the library, per kind: one
+ * The questions the draft generator asks the asset, per kind: one
  * retrieval each, in the page's language. Each is a Call, as any retrieval is.
  */
 export const SHOWCASE_DRAFT_PROBES: Record<ShowcaseKind, Record<'zh' | 'en', readonly string[]>> = {
@@ -719,16 +719,16 @@ function draftShape(kind: ShowcaseKind): string {
 export function buildShowcaseDraftPrompt(input: {
   kind: ShowcaseKind;
   locale: 'zh' | 'en';
-  libraryTitle: string;
-  libraryDescription: string | null;
+  assetTitle: string;
+  assetDescription: string | null;
   excerpts: readonly ShowcaseDraftExcerpt[];
 }): string {
   const language = input.locale === 'zh' ? 'Simplified Chinese' : 'English';
   const header = [
     `Page kind: ${input.kind === 'company' ? 'company introduction' : 'product introduction'}.`,
     `Write every text field in ${language}.`,
-    `Library title: ${input.libraryTitle}`,
-    input.libraryDescription ? `Library description: ${input.libraryDescription}` : null,
+    `Asset title: ${input.assetTitle}`,
+    input.assetDescription ? `Asset description: ${input.assetDescription}` : null,
     `JSON shape: ${draftShape(input.kind)}`,
   ]
     .filter((line): line is string => line !== null)

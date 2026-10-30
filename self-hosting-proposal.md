@@ -34,7 +34,7 @@ Re0 目前只有一种部署形态：Vercel Functions + Neon Postgres + Vercel B
 - Vercel 的构建命令、`vercel.json` 的 Cron 与 `buildCommand` 不变；
 - 托管版仍使用 `drizzle-orm/neon-serverless` 与 Vercel Blob，运行路径一行不改；
 - `db/migrations` 的内容与顺序不变，向量维度调整不写进迁移文件；
-- `chunk.embedding` 与 `library_profile_vector.embedding` 在托管版仍是 `vector(1536)`；
+- `chunk.embedding` 与 `asset_profile_vector.embedding` 在托管版仍是 `vector(1536)`；
 - REST、MCP、SDK、CLI 的契约不变；
 - 站点在 `hosted` 形态下的页面与文案除新增一个导航项与一个页面外不变。
 
@@ -144,12 +144,12 @@ compose 里 `migrate` 是一次性服务，`app` 的 `depends_on` 用 `service_c
 
 这是唯一一处**装完就不可逆**的选择，必须在首次建库前定下来。
 
-现状：`chunk.embedding vector(1536)`（无向量索引，0013 之后检索先锁版本再精确扫描）、`library_profile_vector.embedding vector(1536) NOT NULL` 带 HNSW 索引 `library_profile_vector_hnsw_idx`；适配器按常量 `EMBEDDING_DIMENSIONS = 1536` 校验提供方返回的宽度（[lib/infrastructure/ai/providers.ts](lib/infrastructure/ai/providers.ts)）。
+现状：`chunk.embedding vector(1536)`（无向量索引，0013 之后检索先锁版本再精确扫描）、`asset_profile_vector.embedding vector(1536) NOT NULL` 带 HNSW 索引 `asset_profile_vector_hnsw_idx`；适配器按常量 `EMBEDDING_DIMENSIONS = 1536` 校验提供方返回的宽度（[lib/infrastructure/ai/providers.ts](lib/infrastructure/ai/providers.ts)）。
 
 改法：
 
 1. 常量改为读 `EMBEDDING_DIMENSIONS`（默认 1536，取值范围 1–2000）。上限 2000 来自 pgvector：`vector` 类型的 HNSW 索引拒绝超过 2000 维的列。
-2. `scripts/migrate.mts` 在跑完 journal 之后做一次**维度后处理**：读取 `chunk.embedding` 的实际列宽（`information_schema` / `atttypmod`），与目标维度一致则跳过；不一致且两张表都为空，则 `DROP INDEX library_profile_vector_hnsw_idx` → `ALTER TABLE ... ALTER COLUMN embedding TYPE vector(N)`（两张表）→ 重建 HNSW；不一致但表非空，则**直接失败**并给出可执行的提示（清空重建或换回原模型）。
+2. `scripts/migrate.mts` 在跑完 journal 之后做一次**维度后处理**：读取 `chunk.embedding` 的实际列宽（`information_schema` / `atttypmod`），与目标维度一致则跳过；不一致且两张表都为空，则 `DROP INDEX asset_profile_vector_hnsw_idx` → `ALTER TABLE ... ALTER COLUMN embedding TYPE vector(N)`（两张表）→ 重建 HNSW；不一致但表非空，则**直接失败**并给出可执行的提示（清空重建或换回原模型）。
 3. 数据库列宽本身就是唯一事实来源，不引入新表、不改 `db/schema.ts`、不写新迁移文件，托管版因此完全不受影响。
 4. 约定写进脚本注释与 `docker/self-host/README.md`：**今后任何新增 `vector` 列的迁移，都要把该列登记进 `migrate.mts` 的后处理清单**，否则自托管实例会出现宽度不一致的列。
 5. `/api/health`（R10）把“环境变量声明的维度 vs 实际列宽”作为一项检查，不一致报红。

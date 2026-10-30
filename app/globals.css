@@ -47,7 +47,7 @@
   --color-reply: #f2f4f3;
   --color-field: #fdfefe;
   --color-cite: #087c6a;
-  /* Library scope + review-status palette, from the dashboard design frames. */
+  /* Asset scope + review-status palette, from the dashboard design frames. */
   --color-pubsoft: #e9f8f4;
   --color-pubink: #087c6a;
   --color-publine: #9dd8d3;
@@ -429,7 +429,7 @@ html[data-theme='dark']:has(.site-surface) {
   to { width: 92%; }
 }
 
-/* A floating card opening under its trigger (components/dashboard/library-rebuild.tsx). */
+/* A floating card opening under its trigger (components/dashboard/asset-rebuild.tsx). */
 @keyframes popover-in {
   from { opacity: 0; transform: translateY(-4px); }
   to { opacity: 1; transform: translateY(0); }

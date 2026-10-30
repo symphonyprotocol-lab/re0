@@ -11,7 +11,7 @@
  * Cells go through the console's `csvCell`, the one implementation of the
  * quoting and formula-injection rules. A second copy had drifted here and
  * guarded a leading `=` but not a leading tab or carriage return, which Excel
- * treats the same way -- and an operation name or library id is user-chosen.
+ * treats the same way -- and an operation name or asset id is user-chosen.
  */
 import { NextResponse, type NextRequest } from 'next/server';
 import { csvCell } from '@/lib/application/administration/csv';
@@ -26,7 +26,7 @@ const HEADER = [
   'time',
   'entrypoint',
   'operation',
-  'library',
+  'asset',
   'status',
   'latency_ms',
   'returned_tokens',
@@ -43,7 +43,7 @@ export async function GET(request: NextRequest): Promise<NextResponse> {
 
   const body = new ReadableStream<Uint8Array>({
     async start(controller) {
-      /* A byte-order mark, so a spreadsheet opens UTF-8 library titles intact. */
+      /* A byte-order mark, so a spreadsheet opens UTF-8 asset titles intact. */
       controller.enqueue(encoder.encode(`﻿${HEADER.join(',')}\r\n`));
       try {
         for await (const batch of iterateRequests(workspaceId, filter)) {
@@ -53,7 +53,7 @@ export async function GET(request: NextRequest): Promise<NextResponse> {
               row.createdAt,
               row.entrypoint,
               row.operation,
-              row.libraryPublicId,
+              row.assetPublicId,
               row.statusCode,
               row.latencyMs,
               row.returnedTokens,

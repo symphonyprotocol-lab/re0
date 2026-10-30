@@ -36,15 +36,15 @@ import {
   referencedMedia,
   type EditorialKind,
 } from '@/lib/domain/editorial';
-import { isAssetAccess, type AssetAccess } from '@/lib/domain/asset';
+import { isAssetAccess, type AssetAccess } from '@/lib/domain/asset-kind';
 import { sha256Hex } from '@/lib/domain/ingestion';
 import { uuidv7 } from '@/lib/domain/id';
 import { parseRightsDeclaration, rightsPosted, type RightsDeclaration } from '@/lib/domain/rights';
 import { db, schema, type Database } from '@/lib/infrastructure/postgres/client';
 import { moveAsset } from '@/lib/application/channels/manage';
 import { setAssetAccess } from '@/lib/application/channels/subscriptions';
-import { canManageLibraries, type WorkspaceRole } from '@/lib/application/libraries/delete';
-import { queueBuildUnlessPending } from '@/lib/application/libraries/queue-build';
+import { canManageAssets, type WorkspaceRole } from '@/lib/application/assets/delete';
+import { queueBuildUnlessPending } from '@/lib/application/assets/queue-build';
 import { assertBuildAffordable } from '@/lib/application/plans/build-quota';
 import type { Tx } from '@/lib/application/plans/quota';
 
@@ -59,7 +59,7 @@ export interface EditorActor {
 }
 
 function assertEditor(role: WorkspaceRole): void {
-  if (!canManageLibraries(role)) throw new EditorialRefused('not_owner', 'only a workspace owner or admin can publish');
+  if (!canManageAssets(role)) throw new EditorialRefused('not_owner', 'only a workspace owner or admin can publish');
 }
 
 /* ------------------------------------------------------------------ create */
@@ -104,12 +104,12 @@ export async function createEditorialAsset(input: CreateEditorialInput): Promise
   const assetId = uuidv7();
   try {
     await database.transaction(async (tx) => {
-      await tx.insert(schema.library).values({
+      await tx.insert(schema.asset).values({
         id: assetId,
         publicId,
         title,
         ownerWorkspaceId: input.workspaceId,
-        isPlatformLibrary: false,
+        isPlatformAsset: false,
         kind: input.kind,
         lifecycleStatus: 'draft',
         indexStatus: 'pending',
@@ -117,7 +117,7 @@ export async function createEditorialAsset(input: CreateEditorialInput): Promise
       });
       await tx.insert(schema.source).values({
         id: uuidv7(),
-        libraryId: assetId,
+        assetId: assetId,
         type: input.kind === 'post' ? 'editor' : 'audio',
         location: publicId,
         config: {},
@@ -126,7 +126,7 @@ export async function createEditorialAsset(input: CreateEditorialInput): Promise
     });
   } catch (error) {
     const messages = [error instanceof Error ? error.message : '', error instanceof Error && error.cause instanceof Error ? error.cause.message : ''].join(' ');
-    if (messages.includes('library_public_id_uq')) throw new EditorialRefused('slug_taken', 'that address is already taken');
+    if (messages.includes('asset_public_id_uq')) throw new EditorialRefused('slug_taken', 'that address is already taken');
     throw error;
   }
   return { assetId, publicId };
@@ -157,20 +157,20 @@ export async function ownedEditorialAsset(
   if (!UUID.test(assetId)) throw new EditorialRefused('not_found', 'no such asset');
   const [row] = await executor
     .select({
-      id: schema.library.id,
-      publicId: schema.library.publicId,
-      kind: schema.library.kind,
-      title: schema.library.title,
-      description: schema.library.description,
-      access: schema.library.access,
-      lifecycleStatus: schema.library.lifecycleStatus,
-      indexStatus: schema.library.indexStatus,
-      currentVersionId: schema.library.currentVersionId,
+      id: schema.asset.id,
+      publicId: schema.asset.publicId,
+      kind: schema.asset.kind,
+      title: schema.asset.title,
+      description: schema.asset.description,
+      access: schema.asset.access,
+      lifecycleStatus: schema.asset.lifecycleStatus,
+      indexStatus: schema.asset.indexStatus,
+      currentVersionId: schema.asset.currentVersionId,
       channelId: schema.channelAsset.channelId,
     })
-    .from(schema.library)
-    .leftJoin(schema.channelAsset, eq(schema.channelAsset.assetId, schema.library.id))
-    .where(and(eq(schema.library.id, assetId), eq(schema.library.ownerWorkspaceId, workspaceId), isNull(schema.library.deletedAt)));
+    .from(schema.asset)
+    .leftJoin(schema.channelAsset, eq(schema.channelAsset.assetId, schema.asset.id))
+    .where(and(eq(schema.asset.id, assetId), eq(schema.asset.ownerWorkspaceId, workspaceId), isNull(schema.asset.deletedAt)));
   if (!row || !(kinds as readonly string[]).includes(row.kind)) throw new EditorialRefused('not_found', 'no such asset');
   return { ...row, kind: row.kind as EditorialKind };
 }
@@ -363,19 +363,19 @@ async function publishNow(asset: EditorialAsset, actor: EditorActor): Promise<st
     path = images.length ? `post-${(await sha256Hex(images.map((image) => image.sha256 ?? image.id).sort().join(','))).slice(0, 16)}.md` : 'post.md';
   }
 
-  /* library-build-billing.md 4.1: refused before anything is written, like a new asset's first build. */
+  /* asset-build-billing.md 4.1: refused before anything is written, like a new asset's first build. */
   await assertBuildAffordable({ workspaceId: actor.workspaceId, fetchesPages: false });
 
   const operationId = await database.transaction(async (tx) => {
     await tx
-      .update(schema.library)
+      .update(schema.asset)
       .set({ title, description: draft.summary })
-      .where(eq(schema.library.id, asset.id));
+      .where(eq(schema.asset.id, asset.id));
     await tx
       .update(schema.source)
       /* The indexed document, and beside it the published text as written -- what the reading page shows. */
       .set({ config: { path, url: `/assets${asset.publicId}`, markdown, summary: draft.summary, body: draft.body, audioMediaId } })
-      .where(eq(schema.source.libraryId, asset.id));
+      .where(eq(schema.source.assetId, asset.id));
     await tx.update(schema.postDraft).set({ publishAt: null }).where(eq(schema.postDraft.assetId, asset.id));
     return queueBuildUnlessPending(tx, asset.id);
   });
@@ -399,10 +399,10 @@ async function publishNow(asset: EditorialAsset, actor: EditorActor): Promise<st
  */
 export async function publishDueDrafts(now: Date = new Date(), limit = 20): Promise<{ published: string[]; operations: string[] }> {
   const due = await db()
-    .select({ assetId: schema.postDraft.assetId, workspaceId: schema.library.ownerWorkspaceId, userId: schema.postDraft.updatedBy })
+    .select({ assetId: schema.postDraft.assetId, workspaceId: schema.asset.ownerWorkspaceId, userId: schema.postDraft.updatedBy })
     .from(schema.postDraft)
-    .innerJoin(schema.library, eq(schema.library.id, schema.postDraft.assetId))
-    .where(and(isNotNull(schema.postDraft.publishAt), lte(schema.postDraft.publishAt, now), isNull(schema.library.deletedAt)))
+    .innerJoin(schema.asset, eq(schema.asset.id, schema.postDraft.assetId))
+    .where(and(isNotNull(schema.postDraft.publishAt), lte(schema.postDraft.publishAt, now), isNull(schema.asset.deletedAt)))
     .limit(limit);
   const published: string[] = [];
   const operations: string[] = [];
@@ -436,31 +436,31 @@ export interface EditorialListItem {
 export async function listEditorialAssets(workspaceId: string): Promise<EditorialListItem[]> {
   const rows = await db()
     .select({
-      id: schema.library.id,
-      publicId: schema.library.publicId,
-      kind: schema.library.kind,
-      title: schema.library.title,
-      access: schema.library.access,
-      lifecycleStatus: schema.library.lifecycleStatus,
-      currentVersionId: schema.library.currentVersionId,
+      id: schema.asset.id,
+      publicId: schema.asset.publicId,
+      kind: schema.asset.kind,
+      title: schema.asset.title,
+      access: schema.asset.access,
+      lifecycleStatus: schema.asset.lifecycleStatus,
+      currentVersionId: schema.asset.currentVersionId,
       publishAt: schema.postDraft.publishAt,
       draftUpdatedAt: schema.postDraft.updatedAt,
       channelId: schema.channel.id,
       channelTitle: schema.channel.title,
-      createdAt: schema.library.createdAt,
+      createdAt: schema.asset.createdAt,
     })
-    .from(schema.library)
-    .leftJoin(schema.postDraft, eq(schema.postDraft.assetId, schema.library.id))
-    .leftJoin(schema.channelAsset, eq(schema.channelAsset.assetId, schema.library.id))
+    .from(schema.asset)
+    .leftJoin(schema.postDraft, eq(schema.postDraft.assetId, schema.asset.id))
+    .leftJoin(schema.channelAsset, eq(schema.channelAsset.assetId, schema.asset.id))
     .leftJoin(schema.channel, eq(schema.channel.id, schema.channelAsset.channelId))
     .where(
       and(
-        eq(schema.library.ownerWorkspaceId, workspaceId),
-        isNull(schema.library.deletedAt),
-        inArray(schema.library.kind, ['post', 'audio', 'qa']),
+        eq(schema.asset.ownerWorkspaceId, workspaceId),
+        isNull(schema.asset.deletedAt),
+        inArray(schema.asset.kind, ['post', 'audio', 'qa']),
       ),
     )
-    .orderBy(desc(schema.library.createdAt))
+    .orderBy(desc(schema.asset.createdAt))
     .limit(200);
   return rows.map((row) => ({
     id: row.id,

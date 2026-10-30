@@ -3,7 +3,7 @@
 import { useActionState } from 'react';
 
 import { FIELD, Field } from '@/components/admin/form-fields';
-import { submitOn } from '@/components/admin/platform-library-shared';
+import { submitOn } from '@/components/admin/platform-asset-shared';
 import { ConsoleButton } from '@/components/admin/ui';
 import type { LlmConfigActionResult } from '@/app/admin/(console)/models/actions';
 import { useI18n } from '@/lib/i18n/client';

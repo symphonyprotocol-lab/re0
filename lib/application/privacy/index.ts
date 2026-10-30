@@ -7,7 +7,7 @@
  *   `runRetention`, from the hourly cron route.
  * - Private assets -- in no public channel -- are deleted once older than
  *   the workspace's retention setting, through the ordinary deletion
- *   (`markLibraryDeleted`, whose queued cleanup the drain runs).
+ *   (`markAssetDeleted`, whose queued cleanup the drain runs).
  * - The owner exports conversations and A2A tasks as JSON and deletes them
  *   in one click. Deleting never touches metering: usage events reference
  *   request ids, not tasks or conversations.
@@ -21,7 +21,7 @@ import {
   purgeDelegationBodies,
   type DelegationView,
 } from '@/lib/application/external-agents/delegation';
-import { canManageLibraries, markLibraryDeleted, type WorkspaceRole } from '@/lib/application/libraries/delete';
+import { canManageAssets, markAssetDeleted, type WorkspaceRole } from '@/lib/application/assets/delete';
 import { db, schema } from '@/lib/infrastructure/postgres/client';
 
 /** Proposal 7.9: the retention choices for private assets, in days; null keeps them. */
@@ -62,7 +62,7 @@ export async function setPrivateAssetRetention(input: {
 }
 
 function assertManager(role: WorkspaceRole): void {
-  if (!canManageLibraries(role)) throw new AppError('access_denied', 'only a workspace owner or admin can do this');
+  if (!canManageAssets(role)) throw new AppError('access_denied', 'only a workspace owner or admin can do this');
 }
 
 /* ---------------------------------------------------------------- the cron */
@@ -107,21 +107,21 @@ export async function expirePrivateAssets(now: Date = new Date()): Promise<numbe
     if (!isRetentionChoice(workspace.days) || workspace.days === null) continue;
     const cutoff = new Date(now.getTime() - workspace.days * DAY_MS);
     const due = await db()
-      .select({ id: schema.library.id })
-      .from(schema.library)
+      .select({ id: schema.asset.id })
+      .from(schema.asset)
       .where(
         and(
-          eq(schema.library.ownerWorkspaceId, workspace.id),
-          eq(schema.library.isPlatformLibrary, false),
-          isNull(schema.library.deletedAt),
-          lte(sql`coalesce(${schema.library.lastSuccessfulRefreshAt}, ${schema.library.createdAt})`, cutoff),
+          eq(schema.asset.ownerWorkspaceId, workspace.id),
+          eq(schema.asset.isPlatformAsset, false),
+          isNull(schema.asset.deletedAt),
+          lte(sql`coalesce(${schema.asset.lastSuccessfulRefreshAt}, ${schema.asset.createdAt})`, cutoff),
           notExists(
             db()
               .select({ one: sql`1` })
               .from(schema.workflowOperation)
               .where(
                 and(
-                  eq(schema.workflowOperation.libraryId, schema.library.id),
+                  eq(schema.workflowOperation.assetId, schema.asset.id),
                   inArray(schema.workflowOperation.status, ['pending', 'running']),
                 ),
               ),
@@ -131,14 +131,14 @@ export async function expirePrivateAssets(now: Date = new Date()): Promise<numbe
               .select({ one: sql`1` })
               .from(schema.channelAsset)
               .innerJoin(schema.channel, eq(schema.channel.id, schema.channelAsset.channelId))
-              .where(and(eq(schema.channelAsset.assetId, schema.library.id), eq(schema.channel.visibility, 'public'))),
+              .where(and(eq(schema.channelAsset.assetId, schema.asset.id), eq(schema.channel.visibility, 'public'))),
           ),
         ),
       )
-      .orderBy(asc(schema.library.createdAt))
+      .orderBy(asc(schema.asset.createdAt))
       .limit(RETENTION_BATCH);
     for (const asset of due) {
-      const result = await markLibraryDeleted(asset.id, now);
+      const result = await markAssetDeleted(asset.id, now);
       if (!result.alreadyDeleted) deleted += 1;
     }
   }

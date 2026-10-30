@@ -3,9 +3,9 @@
  *
  * Notion is the one source that cannot be read anonymously: the page has to
  * be shared with an integration, and the integration's token is the
- * credential. A workspace library is read with the token of the person who
+ * credential. A workspace asset is read with the token of the person who
  * imported it (their own connection, resolved by the caller and passed in);
- * a platform library with the platform's own internal-integration token from
+ * a platform asset with the platform's own internal-integration token from
  * the environment. There is no useful fallback to the public page HTML -- it
  * is rendered by script and carries none of the block structure -- so a
  * missing token is refused as `source_unsupported` rather than half indexed.

@@ -6,7 +6,7 @@
 import type { QueryDocsOutput } from '@/contracts/schemas';
 
 export function renderContextText(output: QueryDocsOutput): string {
-  const header = `Library: ${output.libraryId} (${output.version})`;
+  const header = `Asset: ${output.assetId} (${output.version})`;
   if (output.chunks.length === 0) return `${header}\n\nNo relevant context found.\n`;
 
   const sections = output.chunks.map((chunk) => {

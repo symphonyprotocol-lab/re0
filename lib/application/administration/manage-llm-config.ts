@@ -576,7 +576,7 @@ export async function updateLlmAssignment(
 /** The playground's spend recorder -- append-only, never the text. */
 export async function recordLlmCost(input: {
   configId: string;
-  libraryPublicId: string;
+  assetPublicId: string;
   workspaceId: string | null;
   model: string;
   promptTokens: number;

@@ -3,12 +3,12 @@
 - 版本：0.10
 - 更新日期：2026-10-29（0.10，按评审意见修订：最低价 $5 扩展到任一笔交易，年付同样适用；免费资产的匿名访问改由平台承担并走匿名限流，已认证调用一律计入调用方，频道所有者不再为访客付 Call；频道页分身需登录、计 1 Call；持有期按拒付窗口拉长到 120 天，补负余额处理；2.3 的改法改为完整引用并把记录商户转售写成合规级决定，Paddle 可售范围的确认要附依据；GitHub 资产的保留 owner 名单；A2A 确认门改用 `INPUT_REQUIRED`，待确认操作过期时任务转 `FAILED`；handle 挂在工作空间；`access` 随移出频道重置；页面路径改名从 P0 挪到 P1；热门排序匿名读者的去重；评论对创作者可见；现有锚点随数据重建作废；更正统计数字。0.9：平台管理费上调到 20%，创作者拿 80%；确认 re0 可以用自己的 Paddle 账户销售创作者内容。0.8：频道订阅走 re0 自己的 Paddle 账户，re0 按月结算、经 PayPal 付给创作者，结算与出账流程保留改记频道收入。0.7：频道订阅用 Paddle、平台承担手续费、月付最低 $5；API Key 统一 20 个；A2A `ask` 10 Calls 一答、每天 500 答；频道目录排序。0.6：GitHub 之外不再有文档仓库类型，删除 `llms.txt` 与 OpenAPI 来源；不做兼容；容量按工作空间分 500 MB 与 2 GB 两档；取消发布者分成，平台收取频道订阅 15% 管理费；只面向海外；音频不转写；去掉自检问题；不提供自定义域名；数据库表改名）
 - 历史：0.5 出口收窄为频道、Agent Card 与 A2A，取消 Pro 与专家库；0.4 资产分类型、频道由多项资产组成、评论；0.3「数据资产」取代「知识库」；0.2 知识创作者频道与付费订阅；0.1 Agent 优先定位、工作台与确认门、A2A（均为 2026-10-29）
-- 状态：实施中（P0、P1 完成；P2 完成于 2026-10-30，迁移 0063 待应用到 Neon dev 分支；P3a、P3b 完成于 2026-10-30，迁移 0064 待应用到 Neon dev 分支；P4 完成于 2026-10-30，第 7.9 节的决定见该节，迁移 0065 待应用到 Neon dev 分支。P3a 在第 13.2 节四项业务前提齐备前先行实施：按 Paddle sandbox 开发，最低单笔价格、平台管理费、持有期与提现门槛做成控制台配置，四项仍待落实，落实前不在生产环境开放频道收款），已决定事项见第 13.3 节
+- 状态：实施中（P0、P1 完成；P2 完成于 2026-10-30，迁移 0063 待应用到 Neon dev 分支；P3a、P3b 完成于 2026-10-30，迁移 0064 待应用到 Neon dev 分支；P4 完成于 2026-10-30，第 7.9 节的决定见该节，迁移 0065 待应用到 Neon dev 分支；P5 完成于 2026-10-30，实施记录见第 3.5 节，迁移 0066 待应用到 Neon dev 分支。P3a 在第 13.2 节四项业务前提齐备前先行实施：按 Paddle sandbox 开发，最低单笔价格、平台管理费、持有期与提现门槛做成控制台配置，四项仍待落实，落实前不在生产环境开放频道收款），已决定事项见第 13.3 节
 - 依据：[requirement.md](./requirement.md) 第 2 节（产品定义）、第 2.3 节（MVP 不包含）、第 4 节（套餐、计量、分成）、第 5.1 节「在线试用」八条硬性规则、第 6 节（领域模型）、第 7 节（来源、认领）、第 9 节（查询接口）、第 10 节（访问规则）；[architecture.md](./architecture.md) 第 9.5、9.6 节、第 11 节、第 13 节
 - 关联文档：[playground-agent-proposal.md](./playground-agent-proposal.md)；本提案取消 [publisher-revenue-share.md](./publisher-revenue-share.md) 的发布者分成与 [expert-library-prd.md](./expert-library-prd.md) 的专家库
 - 外部规范：A2A Protocol v1.0（<https://a2a-protocol.org/latest/specification/>）；`@a2a-js/sdk` v1.x
 
-> 术语说明：本文描述目标产品时一律用「数据资产」（简称「资产」）。引用现有代码、表名、接口时保留它们现在的名字（如 `library`、`libraryId`、`createWorkspaceLibrary`），改名在 P5 完成（第 3.5 节）。
+> 术语说明：本文描述目标产品时一律用「数据资产」（简称「资产」）。文中引用的代码、表名、接口（如 `library`、`libraryId`、`createWorkspaceLibrary`）是写作时的名字；P5 已把它们全部改为 asset（第 3.5 节），对照见该节的实施记录。
 
 ## 1. 问题与做法
 
@@ -112,10 +112,17 @@ slogan 不加第四个词，Creators 作为首页的第四个场景出现。Life
 | 界面文案 | `lib/i18n/messages/zh.ts` 476 处「知识库」，`en.ts` 713 处 librar-（含 library 与 libraries）；营销页、邮件、法律页、OG 图 | 全部替换 | P0 |
 | 产品文档 | requirement.md、architecture.md 及各提案 | 正文改为资产与频道；已取消的提案标为废止 | P0 |
 | 页面路径 | `/libraries/*`、`/dashboard/libraries/*` | 直接改为 `/assets/*`、`/dashboard/assets/*`、`/channels/*`，旧路径删除。随频道一起落地，P0 不做（P0 的 `/channels/*` 会是空路由） | P1 |
-| REST | `/v1/libraries`、`/v1/libraries/search`，字段 `libraryId`，错误码 `library_*` | 直接改为 `/v1/assets`、`assetId`、`asset_*`，测试同步修改 | P5 |
-| 代码标识符 | 321 个文件提到 library（`lib`、`app`、`packages`、`tests`、`scripts` 下的 `.ts`/`.tsx`，不区分大小写）；`lib/application/libraries` 等模块 | 机械重命名；**新代码从现在起一律用 asset** | P5 |
-| 数据库 | 13 张表名含 library（`library`、`library_version`、`library_profile` 等）、22 个 `library_id` 列（按 `db/schema.ts` 中的列定义计，不含索引） | **改名**：一次迁移完成 `ALTER TABLE … RENAME` 与列改名，Drizzle schema 同步改名 | P5 |
+| REST | `/v1/libraries`、`/v1/libraries/search`，字段 `libraryId`，错误码 `library_*` | 直接改为 `/v1/assets`、`assetId`、`asset_*`，测试同步修改 | P5（已完成，2026-10-30） |
+| 代码标识符 | 321 个文件提到 library（`lib`、`app`、`packages`、`tests`、`scripts` 下的 `.ts`/`.tsx`，不区分大小写）；`lib/application/libraries` 等模块 | 机械重命名；**新代码从现在起一律用 asset** | P5（已完成，2026-10-30） |
+| 数据库 | 13 张表名含 library（`library`、`library_version`、`library_profile` 等）、22 个 `library_id` 列（按 `db/schema.ts` 中的列定义计，不含索引） | **改名**：一次迁移完成 `ALTER TABLE … RENAME` 与列改名，Drizzle schema 同步改名 | P5（已完成，2026-10-30） |
 | 资产 ID 的值 | requirement.md 6.1 的各种形式 | 形式不变。链上锚点的叶子哈希的是 ID 的值，不是字段名（`lib/domain/anchor-leaf.ts`） | — |
+
+**P5 实施记录（2026-10-30）**：
+
+- 数据库：迁移 0066 把 12 张名字含 library 的表（第 13 张 `library_eval_question` 已在 P0 删除）、22 个列、46 个约束、27 个索引改为 asset，Postgres 18 记作约束的 NOT NULL 一并改名；只改名，不改写行，资产 ID 的值与锚点叶子不变（`tests/contract/anchor-leaf.test.ts` 固定了一个叶子哈希）。两个代码会比较的存储值随之改名：`workflow_operation.error` 的 `library_too_large`、`policy_asset_entry.target_type` 的 `library`；重新打开的工作台对话与 GetTask 还会读回的 JSON 键（`agent_message.content`、`a2a_task.artifacts` 里的 `libraryId`、`libraryTitle` 与结果 `no_library`）也一并改名；
+- 保留不改：`audit_log` 已写入的动作名与目标类型（`platform_library.*`、`user_library.*`、`library_claim`、`library_showcase`）——审计行只追加、入哈希链并锚定，改写不可行，新旧两套名字又会把同一对象的历史拆开，所以代码继续写这些名字；`libraries` 作为保留名（已下线的路径）及对应的安全测试；迁移 0066 之前的迁移文件；
+- 管理后台路径随之改为 `/admin/assets`、`/admin/platform-assets`；MCP 工具名（随 MCP 下线、留在开关之后）改为 `resolve-asset-id`；公开的 Agent Skill `re0-library-publishing` 改为 `re0-asset-publishing`；
+- 没有别名、重定向与弃用头；部署时旧部署在迁移完成到新部署上线之间会查不到旧表名，与以往的改表迁移一样。
 
 ### 3.6 下线与删除
 
@@ -616,7 +623,7 @@ re0 Agent 把子任务委托给用户已连接的外部 Agent，例如日历、C
 | P3a 文章、评论、问答与订阅 | 文章的撰写、导入、版本与发布；评论；待答列表与问答资产；作者确认；Paddle 频道订阅商品、订阅方案与任一笔 $5 最低价、20% 管理费与订阅；频道收入记账、结算、120 天持有期、负余额与 PayPal 出账；`paid` 访问控制 | 开工前提：第 13.2 节的 Paddle 书面确认、手续费口径、税务与合规意见三项齐全。非订阅者经 Web、A2A、REST 都取不到 `paid` 正文；订阅到期后下一次调用即被拒；评论不出现在任何检索结果里；首次订阅后容量升到 2 GB；集成测试覆盖「拒付冲回已出账收入后余额为负、创作者不能提现也不能开新付费方案」 |
 | P3b 音频 | 上传、签名播放地址、节目说明进检索 | 非订阅者拿不到付费音频的签名地址；音频大小计入容量 |
 | P4 A2A 客户端 | re0 委托外部 Agent（第 7.9 节）；对话与 A2A 任务的导出、删除与 30 天正文清除，私有资产保留期（第 10 节）；四个场景落地页 | （本提案原未写，P4 自定）登记私网或回环地址的 Agent Card 被拒；已存凭证不出现在任何 API 响应或日志里；`delegate_task` 未确认时不发送任何请求，模型、Chunk 文字或 A2A 调用方的确认被拒且操作保持待确认；确认后恰好发送一次带已存 Bearer 的 `SendMessage` 并记录远端任务；外部 Agent 回复里的指令式文字不改变下一次工具调用的权限；超过 30 天的任务正文被 Cron 清除而 ID 与计量保留；导出包含对话与 A2A 任务，删除后不再存在；四个场景页中英文都能渲染并在 sitemap 里 |
-| P5 内部改名 | 代码模块与标识符、REST 路径与字段、错误码、数据库表与列全部改为 asset，测试同步修改 | 除迁移历史外不再出现 library 标识符；全部测试通过 |
+| P5 内部改名（已完成，2026-10-30） | 代码模块与标识符、REST 路径与字段、错误码、数据库表与列全部改为 asset，测试同步修改 | 除迁移历史外不再出现 library 标识符；全部测试通过 |
 
 ### 13.2 待决定与待核实事项
 

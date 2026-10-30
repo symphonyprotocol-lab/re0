@@ -1,5 +1,5 @@
 /**
- * Rebuilds the routing profile of every current library version that an
+ * Rebuilds the routing profile of every current asset version that an
  * older extractor wrote. Run after a PROFILE_VERSION bump:
  *
  *   npm run profiles:rebuild          # only profiles an older extractor wrote

@@ -1,6 +1,6 @@
 /**
  * Reading the request-log screen's query string. requirement.md 5.2 (调用记录):
- * time, status, entrypoint and library filters, plus free-text search, all as
+ * time, status, entrypoint and asset filters, plus free-text search, all as
  * GET parameters so a filtered page is a URL the user can keep -- and all
  * narrowed here before anything reaches a query.
  */
@@ -26,9 +26,9 @@ export interface RequestFilter {
   to?: Date;
   status?: RequestStatusFilter;
   entrypoint?: RequestEntrypoint;
-  /** A library public id, exactly as the log stores it. */
-  library?: string;
-  /** Free text over request id, operation and library id. */
+  /** An asset public id, exactly as the log stores it. */
+  asset?: string;
+  /** Free text over request id, operation and asset id. */
   query?: string;
   page: number;
 }
@@ -74,7 +74,7 @@ export function isRequestEntrypoint(value: unknown): value is RequestEntrypoint 
 export function parseRequestFilter(params: Params): RequestFilter {
   const status = single(params.status);
   const entrypoint = single(params.entrypoint);
-  const library = single(params.library)?.trim().slice(0, 200);
+  const asset = single(params.asset)?.trim().slice(0, 200);
   const query = single(params.q)?.trim().slice(0, 200);
   const rawPage = Number.parseInt(single(params.page) ?? '', 10);
   const page = Number.isFinite(rawPage) && rawPage >= 1 ? Math.min(rawPage, REQUEST_MAX_PAGE) : 1;
@@ -87,7 +87,7 @@ export function parseRequestFilter(params: Params): RequestFilter {
         ? (status as RequestStatusFilter)
         : undefined,
     entrypoint: isRequestEntrypoint(entrypoint) ? entrypoint : undefined,
-    library: library ? library : undefined,
+    asset: asset ? asset : undefined,
     query: query ? query : undefined,
     page,
   };
@@ -104,7 +104,7 @@ export function requestFilterParams(filter: RequestFilter, page?: number): URLSe
   }
   if (filter.status) params.set('status', filter.status);
   if (filter.entrypoint) params.set('entrypoint', filter.entrypoint);
-  if (filter.library) params.set('library', filter.library);
+  if (filter.asset) params.set('asset', filter.asset);
   const target = page ?? filter.page;
   if (target > 1) params.set('page', String(target));
   return params;

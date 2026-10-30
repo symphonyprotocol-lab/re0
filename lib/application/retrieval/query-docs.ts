@@ -1,10 +1,10 @@
 /**
- * Retrieval within one library. architecture.md 9.2, and the order is the
+ * Retrieval within one asset. architecture.md 9.2, and the order is the
  * contract: authorize and pin the version, reserve one call, then recall --
  * never the other way around.
  *
- *   resolve library (alias-aware) -> enforce visibility -> pin ready version
- *   -> reserve one call -> FTS + vector recall within library + version
+ *   resolve asset (alias-aware) -> enforce visibility -> pin ready version
+ *   -> reserve one call -> FTS + vector recall within asset + version
  *   -> reciprocal-rank fusion -> dedupe and safety filter -> trim to maxTokens
  *   -> commit the usage event
  *
@@ -18,7 +18,7 @@ import { and, eq, inArray, isNull, sql } from 'drizzle-orm';
 import { AppError } from '@/contracts/errors';
 import type { ChunkResult, QueryDocsInput, QueryDocsOutput } from '@/contracts/schemas';
 import { isQueryable } from '@/lib/domain';
-import { libraryIdCandidates } from '@/lib/domain/library';
+import { assetIdCandidates } from '@/lib/domain/asset';
 import {
   commitCall,
   recordRequestLog,
@@ -103,7 +103,7 @@ export type QueryDocsResult = QueryDocsOutput & {
   served: ServedCall;
   /**
    * The seat a `meter: 'deferred'` read holds, still pending: the caller
-   * commits it against whichever library it decides was served, or releases
+   * commits it against whichever asset it decides was served, or releases
    * it. Null for every other mode.
    */
   reservation: ReservedCall | null;
@@ -111,7 +111,7 @@ export type QueryDocsResult = QueryDocsOutput & {
 
 /** One read's facts for the usage event, kept so a deferred seat can be committed against it. */
 export interface ServedCall {
-  libraryId: string;
+  assetId: string;
   versionId: string;
   returnedTokens: number;
   latencyMs: number;
@@ -148,7 +148,7 @@ export async function queryDocs(
  * `meter: 'deferred'`: the seat is reserved before retrieval exactly as a
  * metered read's is, so quota still refuses up front, but it is handed back
  * pending in `reservation` rather than committed or released, even when this
- * read found nothing: one exchange is one Call, and which library served it
+ * read found nothing: one exchange is one Call, and which asset served it
  * is only known once every candidate's retrieval has been judged.
  */
 export interface QueryDocsOptions {
@@ -163,7 +163,7 @@ export async function commitServedCall(
 ): Promise<void> {
   await commitCall({
     reservation,
-    libraryId: served.libraryId,
+    assetId: served.assetId,
     versionId: served.versionId,
     operation: 'context',
     entrypoint: entrypointOf(caller),
@@ -184,14 +184,14 @@ export async function queryDocsDetailed(
   const database = db();
   const meter = options.meter ?? true;
   /*
-   * The request log (architecture.md 6.3): outcome, library, latency --
+   * The request log (architecture.md 6.3): outcome, asset, latency --
    * never the query text (17.1). Awaited but best-effort: the catch keeps a
    * diary failure from failing the request it describes, and awaiting keeps
    * the write from being dropped -- a serverless function may freeze the
    * moment the response returns, so fire-and-forget writes simply vanish.
    */
   const logExit = (
-    libraryPublicId: string | null,
+    assetPublicId: string | null,
     statusCode: number,
     returnedTokens: number | null,
   ) =>
@@ -199,7 +199,7 @@ export async function queryDocsDetailed(
       workspaceId: caller.workspaceId,
       requestId: caller.requestId,
       operation: 'query-docs',
-      libraryPublicId,
+      assetPublicId,
       entrypoint: entrypointOf(caller),
       statusCode,
       latencyMs: Date.now() - startedAt,
@@ -211,7 +211,7 @@ export async function queryDocsDetailed(
     const output = await queryDocsInner(caller, input, dependencies, startedAt, database, meter);
     if (meter) {
       await logExit(
-        output.libraryId,
+        output.assetId,
         200,
         output.chunks.reduce((total, chunk) => total + chunk.tokens, 0),
       );
@@ -243,51 +243,51 @@ async function queryDocsInner(
   /* -------------------------------------------- resolve, authorize, pin */
 
   /*
-   * Which library the id names, and whether it pins a version. Nested ids and
+   * Which asset the id names, and whether it pins a version. Nested ids and
    * pinned versions share one grammar (requirement.md 6.1:
-   * `/websites/ethereum/whitepaper` is a library if one exists at that id,
+   * `/websites/ethereum/whitepaper` is an asset if one exists at that id,
    * otherwise the `whitepaper` version of `/websites/ethereum`), so every
-   * reading is looked up at once and the longest library wins.
+   * reading is looked up at once and the longest asset wins.
    *
-   * Live rows only. A deleted library is a tombstone that keeps its public id
+   * Live rows only. A deleted asset is a tombstone that keeps its public id
    * (architecture.md 8.4), and the id may since have been taken by a new
-   * library; the tombstone must neither answer nor shadow it.
+   * asset; the tombstone must neither answer nor shadow it.
    */
-  const candidates = libraryIdCandidates(input.libraryId);
+  const candidates = assetIdCandidates(input.assetId);
   const candidateIds = candidates.map((candidate) => candidate.publicId);
 
-  const selection = librarySelection(caller.workspaceId);
+  const selection = assetSelection(caller.workspaceId);
   const found = await database
     .select(selection)
-    .from(schema.library)
-    .where(and(inArray(schema.library.publicId, candidateIds), isNull(schema.library.deletedAt)));
+    .from(schema.asset)
+    .where(and(inArray(schema.asset.publicId, candidateIds), isNull(schema.asset.deletedAt)));
 
   let match = candidates.find((candidate) =>
     found.some((row) => row.publicId === candidate.publicId),
   );
-  let library = match ? found.find((row) => row.publicId === match!.publicId) : undefined;
+  let asset = match ? found.find((row) => row.publicId === match!.publicId) : undefined;
 
-  if (!library) {
+  if (!asset) {
     /* Redirects, read the same way: the longest old id that redirects wins. */
     const aliases = await database
       .select({
-        fromPublicId: schema.libraryAlias.fromPublicId,
-        libraryId: schema.libraryAlias.libraryId,
+        fromPublicId: schema.assetAlias.fromPublicId,
+        assetId: schema.assetAlias.assetId,
       })
-      .from(schema.libraryAlias)
-      .where(inArray(schema.libraryAlias.fromPublicId, candidateIds));
+      .from(schema.assetAlias)
+      .where(inArray(schema.assetAlias.fromPublicId, candidateIds));
     match = candidates.find((candidate) =>
       aliases.some((alias) => alias.fromPublicId === candidate.publicId),
     );
     const alias = match ? aliases.find((row) => row.fromPublicId === match!.publicId) : undefined;
     if (alias) {
-      [library] = await database
+      [asset] = await database
         .select(selection)
-        .from(schema.library)
-        .where(and(eq(schema.library.id, alias.libraryId), isNull(schema.library.deletedAt)));
+        .from(schema.asset)
+        .where(and(eq(schema.asset.id, alias.assetId), isNull(schema.asset.deletedAt)));
     }
   }
-  const versionLabel = library ? (match?.versionLabel ?? null) : null;
+  const versionLabel = asset ? (match?.versionLabel ?? null) : null;
 
   /*
    * architecture.md 5.2: an invisible asset and a nonexistent one answer
@@ -296,21 +296,21 @@ async function queryDocsInner(
    * a `paid` one in a channel the caller subscribes to right now
    * (agent-first-proposal.md 6.2, 6.9; channels/visibility.ts).
    */
-  const visible = library && library.readable;
-  if (!library || !visible) {
-    throw new AppError('library_not_found', 'no such library');
+  const visible = asset && asset.readable;
+  if (!asset || !visible) {
+    throw new AppError('asset_not_found', 'no such asset');
   }
-  if (library.lifecycleStatus === 'suspended') {
-    throw new AppError('library_suspended', 'the library is suspended');
+  if (asset.lifecycleStatus === 'suspended') {
+    throw new AppError('asset_suspended', 'the asset is suspended');
   }
   if (
     !isQueryable({
-      lifecycleStatus: library.lifecycleStatus,
-      indexStatus: library.indexStatus,
+      lifecycleStatus: asset.lifecycleStatus,
+      indexStatus: asset.indexStatus,
     }) ||
-    !library.currentVersionId
+    !asset.currentVersionId
   ) {
-    throw new AppError('library_not_ready', 'the library has no queryable version');
+    throw new AppError('asset_not_ready', 'the asset has no queryable version');
   }
 
   /*
@@ -323,15 +323,15 @@ async function queryDocsInner(
     ? await pinPolicy(caller.workspaceId)
     : { versionId: null, policy: null };
   if (pinnedPolicy.policy && !policyIsOpen(pinnedPolicy.policy)) {
-    const verdict = await policyVerdictFor(pinnedPolicy.policy, library.id);
+    const verdict = await policyVerdictFor(pinnedPolicy.policy, asset.id);
     if (!verdict.allowed) {
       throw new AppError('access_rule_blocked', verdict.reason);
     }
   }
 
   const version = versionLabel
-    ? await pinLabeledVersion(database, library.id, versionLabel)
-    : await pinVersion(database, library.currentVersionId);
+    ? await pinLabeledVersion(database, asset.id, versionLabel)
+    : await pinVersion(database, asset.currentVersionId);
 
   /* ---------------------------------------------------------- reserve */
 
@@ -352,7 +352,7 @@ async function queryDocsInner(
 
   /*
    * requirement.md §4.2: a call that returns nothing is not charged. The
-   * seat goes back and no usage event is written -- the library answered no
+   * seat goes back and no usage event is written -- the asset answered no
    * question. Decided 2026-10-05: an empty result is
    * the catalogue's failure, not the caller's purchase. Anything else is
    * committed here, unless the caller deferred that decision.
@@ -362,13 +362,13 @@ async function queryDocsInner(
     confidence: RetrievalConfidence | null,
   ): Promise<QueryDocsResult> => {
     const served: ServedCall = {
-      libraryId: library.id,
+      assetId: asset.id,
       versionId: version.id,
       returnedTokens: chunks.reduce((total, chunk) => total + chunk.tokens, 0),
       latencyMs: Date.now() - startedAt,
     };
     const answer = {
-      libraryId: library.publicId,
+      assetId: asset.publicId,
       version: version.label,
       chunks,
       requestId: caller.requestId,
@@ -401,7 +401,7 @@ async function queryDocsInner(
      * on hits exactly as on misses: a cached answer is still a served call.
      * A TTL of zero is the console switching the cache off.
      */
-    const cacheable = Boolean(library.shared) && settings.cacheTtlSeconds > 0;
+    const cacheable = Boolean(asset.shared) && settings.cacheTtlSeconds > 0;
     const cacheKey = cacheable
       ? `ctx:pub:${version.id}:${pinnedPolicy.versionId ?? NO_POLICY}:${await sha256Hex(input.query)}:${input.maxTokens}:${RETRIEVAL_CONFIG_VERSION}:${settings.configId ?? NO_CONFIG}`
       : null;
@@ -431,19 +431,19 @@ async function queryDocsInner(
 
     const { chunks, confidence } = await rankChunks(
       database,
-      { libraryId: library.id, version, query: input.query, maxTokens: input.maxTokens },
+      { assetId: asset.id, version, query: input.query, maxTokens: input.maxTokens },
       dependencies,
       settings,
     );
 
-    /* Stored under the library's tag so a safety suspension can revoke every
+    /* Stored under the asset's tag so a safety suspension can revoke every
        entry at once (9.4); best-effort, and never on the request's account. */
     if (cacheKey) {
       cacheSetTagged(dependencies.cache(), {
         key: cacheKey,
         value: JSON.stringify({ chunks, confidence }),
         ttlSeconds: settings.cacheTtlSeconds,
-        tag: `ctxtag:${library.id}`,
+        tag: `ctxtag:${asset.id}`,
       }).catch(() => {});
     }
 
@@ -460,18 +460,18 @@ async function queryDocsInner(
   }
 }
 
-const librarySelection = (workspaceId: string | null) => ({
-  id: schema.library.id,
-  publicId: schema.library.publicId,
+const assetSelection = (workspaceId: string | null) => ({
+  id: schema.asset.id,
+  publicId: schema.asset.publicId,
   /** Free in a public, active channel: readable by everyone, and so cacheable. */
   shared: sql<boolean>`${sharedWithEveryone()}`,
   /** Readable by this caller: the one rule of channels/visibility.ts. */
   readable: sql<boolean>`${readableBy(workspaceId)}`,
-  lifecycleStatus: schema.library.lifecycleStatus,
-  indexStatus: schema.library.indexStatus,
-  ownerWorkspaceId: schema.library.ownerWorkspaceId,
-  isPlatformLibrary: schema.library.isPlatformLibrary,
-  currentVersionId: schema.library.currentVersionId,
+  lifecycleStatus: schema.asset.lifecycleStatus,
+  indexStatus: schema.asset.indexStatus,
+  ownerWorkspaceId: schema.asset.ownerWorkspaceId,
+  isPlatformAsset: schema.asset.isPlatformAsset,
+  currentVersionId: schema.asset.currentVersionId,
 });
 
 export interface PinnedVersion {
@@ -489,17 +489,17 @@ async function pinVersion(
 ): Promise<PinnedVersion> {
   const [version] = await database
     .select({
-      id: schema.libraryVersion.id,
-      label: schema.libraryVersion.label,
-      searchConfig: schema.libraryVersion.searchConfig,
-      embeddingModel: schema.libraryVersion.embeddingModel,
-      embeddingDimensions: schema.libraryVersion.embeddingDimensions,
-      indexStatus: schema.libraryVersion.indexStatus,
+      id: schema.assetVersion.id,
+      label: schema.assetVersion.label,
+      searchConfig: schema.assetVersion.searchConfig,
+      embeddingModel: schema.assetVersion.embeddingModel,
+      embeddingDimensions: schema.assetVersion.embeddingDimensions,
+      indexStatus: schema.assetVersion.indexStatus,
     })
-    .from(schema.libraryVersion)
-    .where(eq(schema.libraryVersion.id, versionId));
+    .from(schema.assetVersion)
+    .where(eq(schema.assetVersion.id, versionId));
   if (!version || version.indexStatus !== 'ready') {
-    throw new AppError('library_not_ready', 'the library has no queryable version');
+    throw new AppError('asset_not_ready', 'the asset has no queryable version');
   }
   return version;
 }
@@ -507,28 +507,28 @@ async function pinVersion(
 /** A /owner/name/version id pins that label instead of the current pointer. */
 async function pinLabeledVersion(
   database: ReturnType<typeof db>,
-  libraryId: string,
+  assetId: string,
   label: string,
 ): Promise<PinnedVersion> {
   const [version] = await database
     .select({
-      id: schema.libraryVersion.id,
-      label: schema.libraryVersion.label,
-      searchConfig: schema.libraryVersion.searchConfig,
-      embeddingModel: schema.libraryVersion.embeddingModel,
-      embeddingDimensions: schema.libraryVersion.embeddingDimensions,
-      indexStatus: schema.libraryVersion.indexStatus,
+      id: schema.assetVersion.id,
+      label: schema.assetVersion.label,
+      searchConfig: schema.assetVersion.searchConfig,
+      embeddingModel: schema.assetVersion.embeddingModel,
+      embeddingDimensions: schema.assetVersion.embeddingDimensions,
+      indexStatus: schema.assetVersion.indexStatus,
     })
-    .from(schema.libraryVersion)
+    .from(schema.assetVersion)
     .where(
       and(
-        eq(schema.libraryVersion.libraryId, libraryId),
-        eq(schema.libraryVersion.label, label),
-        inArray(schema.libraryVersion.indexStatus, ['ready', 'stale']),
+        eq(schema.assetVersion.assetId, assetId),
+        eq(schema.assetVersion.label, label),
+        inArray(schema.assetVersion.indexStatus, ['ready', 'stale']),
       ),
     );
   if (!version) {
-    throw new AppError('library_not_found', 'no such version for this library');
+    throw new AppError('asset_not_found', 'no such version for this asset');
   }
   return version;
 }

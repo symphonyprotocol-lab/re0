@@ -1,10 +1,10 @@
 /**
- * The library profile, as decisions rather than as code paths.
+ * The asset profile, as decisions rather than as code paths.
  *
  * What is under test is what architecture.md 9.6 promises routing can rely on:
  * a term that only ever appears inside chapter paragraphs still reaches the
  * profile (the rove-beetle case -- the clue is in the content, never in the
- * library's name), CJK terms arrive pre-segmented so `simple` can index them,
+ * asset's name), CJK terms arrive pre-segmented so `simple` can index them,
  * and the centroids are deterministic unit vectors a rebuilt version
  * reproduces exactly.
  */
@@ -58,7 +58,7 @@ describe('term extraction', () => {
     expect(terms).not.toContain('cd'); // shorter than three characters
   });
 
-  it('leaves function words out, so the slots go to what the library is about', () => {
+  it('leaves function words out, so the slots go to what the asset is about', () => {
     const terms = extractTerms([
       'The validator and the staking guide: how you use eth for the deposit, and what the slashing is.',
       '什么是隐翅虫?怎么防治隐翅虫?',
@@ -100,7 +100,7 @@ describe('term extraction', () => {
     }
   });
 
-  it('ranks by frequency times platform specificity, so a term every library has drops', () => {
+  it('ranks by frequency times platform specificity, so a term every asset has drops', () => {
     const texts = [
       'information information information information ethereum ethereum ethereum validators validators',
     ];
@@ -151,7 +151,7 @@ describe('profile search text', () => {
 
   it('routes with the question\'s content words only', () => {
     expect(routingTokens('How do I use the eth staking guide?')).toEqual(['eth', 'staking', 'guide']);
-    /* The full tokenizer keeps them: inside a library the version's own
+    /* The full tokenizer keeps them: inside an asset the version's own
        text-search configuration decides what a stopword is. */
     expect(searchTokens('How do I use the eth staking guide?')).toContain('how');
     expect(routingTokens('Next.js App Router 怎么做服务端鉴权？')).not.toContain('怎么');

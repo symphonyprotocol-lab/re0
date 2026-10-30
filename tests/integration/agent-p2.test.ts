@@ -28,8 +28,8 @@ process.env.CREDENTIAL_ENCRYPTION_KEY ??= 'test-credential-key-that-is-long-enou
 process.env.APP_BASE_URL ??= 'https://app.example.test';
 
 const { buildVersion, memoryObjectStore, publishVersion } = await import('@/lib/application/ingestion');
-const { createPlatformLibrary } = await import('@/lib/application/administration/manage-platform-libraries');
-const { declareLibraryRights } = await import('@/lib/application/libraries');
+const { createPlatformAsset } = await import('@/lib/application/administration/manage-platform-assets');
+const { declareAssetRights } = await import('@/lib/application/assets');
 const channels = await import('@/lib/application/channels');
 const agent = await import('@/lib/application/agent');
 const { ActionRefused } = await import('@/lib/domain/agent-action');
@@ -131,7 +131,7 @@ async function workspace(label: string, monthlyCalls = 1_000): Promise<{ id: str
 /** A built, published website asset owned by `owner`, in no channel. */
 async function ownedAsset(owner: string, slug: string): Promise<{ id: string; publicId: string }> {
   const publicId = `/websites/${slug}`;
-  const { libraryId } = await createPlatformLibrary({
+  const { assetId } = await createPlatformAsset({
     actor,
     title: `Quillwort notes ${slug}`,
     publicId,
@@ -141,24 +141,24 @@ async function ownedAsset(owner: string, slug: string): Promise<{ id: string; pu
     language: 'en',
     reason: 'P2 integration fixture',
   });
-  assets.push(libraryId);
-  const built = await buildVersion({ libraryId, operationId: uuidv7(), dependencies: ingestion() });
+  assets.push(assetId);
+  const built = await buildVersion({ assetId, operationId: uuidv7(), dependencies: ingestion() });
   if (!built.changed) throw new Error('fixture build produced no version');
-  await publishVersion({ libraryId, versionId: built.versionId });
+  await publishVersion({ assetId, versionId: built.versionId });
   await db()
-    .update(schema.library)
-    .set({ lifecycleStatus: 'published', isPlatformLibrary: false, ownerWorkspaceId: owner })
-    .where(eq(schema.library.id, libraryId));
-  await db().delete(schema.channelAsset).where(eq(schema.channelAsset.assetId, libraryId));
-  return { id: libraryId, publicId };
+    .update(schema.asset)
+    .set({ lifecycleStatus: 'published', isPlatformAsset: false, ownerWorkspaceId: owner })
+    .where(eq(schema.asset.id, assetId));
+  await db().delete(schema.channelAsset).where(eq(schema.channelAsset.assetId, assetId));
+  return { id: assetId, publicId };
 }
 
 /** An asset in a public channel of its owner's, rights declared and claim verified. */
 async function publicChannelWith(owner: string, slug: string) {
   const asset = await ownedAsset(owner, slug);
-  await declareLibraryRights({ workspaceId: owner, role: 'owner', libraryId: asset.id, userId: null, rights: { origin: 'own', license: 'open_source', generation: 'human' } });
-  await db().insert(schema.libraryClaim).values({
-    id: uuidv7(), libraryId: asset.id, claimantWorkspaceId: owner, method: 'dns_txt', challengeTokenHash: 'fixture',
+  await declareAssetRights({ workspaceId: owner, role: 'owner', assetId: asset.id, userId: null, rights: { origin: 'own', license: 'open_source', generation: 'human' } });
+  await db().insert(schema.assetClaim).values({
+    id: uuidv7(), assetId: asset.id, claimantWorkspaceId: owner, method: 'dns_txt', challengeTokenHash: 'fixture',
     status: 'verified', expiresAt: new Date(Date.now() + 86_400_000), verifiedAt: new Date(),
   });
   const channel = await channels.createChannel({ workspaceId: owner, role: 'owner', slug, title: `Quillwort ${slug}` });
@@ -330,7 +330,7 @@ function workbenchDependencies(script: { tool: string; input: (state: { lastActi
     },
     read: async (_caller, input) =>
       ({
-        libraryId: input.libraryId,
+        assetId: input.assetId,
         version: 'v1',
         chunks: [
           {
@@ -382,20 +382,20 @@ describeWithDb('P2: the workbench, the confirmation gate and A2A writes', () => 
       await database.delete(schema.a2aTask).where(inArray(schema.a2aTask.workspaceId, workspaces));
     }
     if (assets.length > 0) {
-      await database.update(schema.library).set({ currentVersionId: null }).where(inArray(schema.library.id, assets));
+      await database.update(schema.asset).set({ currentVersionId: null }).where(inArray(schema.asset.id, assets));
       await database.delete(schema.channelAsset).where(inArray(schema.channelAsset.assetId, assets));
-      await database.delete(schema.usageEvent).where(inArray(schema.usageEvent.libraryId, assets));
-      await database.delete(schema.libraryClaim).where(inArray(schema.libraryClaim.libraryId, assets));
-      await database.delete(schema.libraryProfileVector).where(inArray(schema.libraryProfileVector.libraryId, assets));
-      await database.delete(schema.libraryProfile).where(inArray(schema.libraryProfile.libraryId, assets));
-      await database.delete(schema.chunk).where(inArray(schema.chunk.libraryId, assets));
-      await database.delete(schema.document).where(inArray(schema.document.libraryId, assets));
-      await database.delete(schema.libraryVersion).where(inArray(schema.libraryVersion.libraryId, assets));
-      await database.delete(schema.libraryScore).where(inArray(schema.libraryScore.libraryId, assets));
-      await database.delete(schema.workflowOperation).where(inArray(schema.workflowOperation.libraryId, assets));
-      await database.delete(schema.source).where(inArray(schema.source.libraryId, assets));
+      await database.delete(schema.usageEvent).where(inArray(schema.usageEvent.assetId, assets));
+      await database.delete(schema.assetClaim).where(inArray(schema.assetClaim.assetId, assets));
+      await database.delete(schema.assetProfileVector).where(inArray(schema.assetProfileVector.assetId, assets));
+      await database.delete(schema.assetProfile).where(inArray(schema.assetProfile.assetId, assets));
+      await database.delete(schema.chunk).where(inArray(schema.chunk.assetId, assets));
+      await database.delete(schema.document).where(inArray(schema.document.assetId, assets));
+      await database.delete(schema.assetVersion).where(inArray(schema.assetVersion.assetId, assets));
+      await database.delete(schema.assetScore).where(inArray(schema.assetScore.assetId, assets));
+      await database.delete(schema.workflowOperation).where(inArray(schema.workflowOperation.assetId, assets));
+      await database.delete(schema.source).where(inArray(schema.source.assetId, assets));
       await database.delete(schema.auditLog).where(inArray(schema.auditLog.targetId, assets));
-      await database.delete(schema.library).where(inArray(schema.library.id, assets));
+      await database.delete(schema.asset).where(inArray(schema.asset.id, assets));
     }
     if (workspaces.length > 0) {
       await database.delete(schema.channel).where(inArray(schema.channel.workspaceId, workspaces));
@@ -420,7 +420,7 @@ describeWithDb('P2: the workbench, the confirmation gate and A2A writes', () => 
     const { dependencies, state } = workbenchDependencies(
       [
         { tool: 'move_asset', input: () => ({ assetId: asset.publicId, channel: `p2-gate-${stamp}` }) },
-        { tool: 'query_docs', input: () => ({ libraryId: asset.publicId, query: 'quillwort water' }) },
+        { tool: 'query_docs', input: () => ({ assetId: asset.publicId, query: 'quillwort water' }) },
         { tool: 'confirm_action', input: (s) => ({ actionId: s.lastAction }) },
         { tool: 'answer', input: () => ({ question: 'move it' }) },
       ],
@@ -602,9 +602,9 @@ describeWithDb('P2: the workbench, the confirmation gate and A2A writes', () => 
   it('rejects ingest without assets:write; publish waits for the owner and completes after confirmation, with a push', async () => {
     const ws = await workspace('pub');
     const asset = await ownedAsset(ws.id, `p2-pub-${stamp}`);
-    await declareLibraryRights({ workspaceId: ws.id, role: 'owner', libraryId: asset.id, userId: null, rights: { origin: 'own', license: 'open_source', generation: 'human' } });
-    await db().insert(schema.libraryClaim).values({
-      id: uuidv7(), libraryId: asset.id, claimantWorkspaceId: ws.id, method: 'dns_txt', challengeTokenHash: 'fixture',
+    await declareAssetRights({ workspaceId: ws.id, role: 'owner', assetId: asset.id, userId: null, rights: { origin: 'own', license: 'open_source', generation: 'human' } });
+    await db().insert(schema.assetClaim).values({
+      id: uuidv7(), assetId: asset.id, claimantWorkspaceId: ws.id, method: 'dns_txt', challengeTokenHash: 'fixture',
       status: 'verified', expiresAt: new Date(Date.now() + 86_400_000), verifiedAt: new Date(),
     });
     const channel = await channels.createChannel({ workspaceId: ws.id, role: 'owner', slug: `p2-pub-${stamp}`, title: 'Publish here' });

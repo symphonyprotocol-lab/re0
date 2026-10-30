@@ -1,11 +1,11 @@
 /**
  * GET /api/v1/requests -- the workspace's request log. architecture.md 6.3:
- * per-request summaries for the user's own screen -- outcome, library,
+ * per-request summaries for the user's own screen -- outcome, asset,
  * latency, returned tokens -- and never the query text (17.1). API key with
  * `usage:read` required; a workspace reads only its own log.
  *
  * Takes the same filters as the dashboard screen (`from`, `to`, `status`,
- * `entrypoint`, `library`, `q`, `page`) and answers with the page and the
+ * `entrypoint`, `asset`, `q`, `page`) and answers with the page and the
  * count behind it.
  */
 import { NextResponse, type NextRequest } from 'next/server';

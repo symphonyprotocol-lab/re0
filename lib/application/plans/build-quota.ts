@@ -1,5 +1,5 @@
 /**
- * Build quota: a library build's seat in the call ledger. library-build-billing.md 4.
+ * Build quota: an asset build's seat in the call ledger. asset-build-billing.md 4.
  *
  * The same ledger, the same lock and the same deduction order as `quota.ts`,
  * with two differences a build forces. Its price is not known until chunking
@@ -12,7 +12,7 @@
  * which is what costs the platform money), `commitBuildCharge` inside
  * `publishVersion`, and `releaseBuildCharge` on every other outcome.
  *
- * Shadow mode (library-build-billing.md 11, phase 1) runs the same path with
+ * Shadow mode (asset-build-billing.md 11, phase 1) runs the same path with
  * no reservation and a zero-weight event, so the `build_detail` column fills
  * with what each build *would* have cost.
  */
@@ -53,7 +53,7 @@ export interface BuildQuote {
 }
 
 /**
- * library-build-billing.md 4.1: what the wizard and the rebuild button show
+ * asset-build-billing.md 4.1: what the wizard and the rebuild button show
  * before anything is queued. Read-only; the reservation happens when the
  * operation starts.
  */
@@ -63,14 +63,14 @@ export async function quoteBuild(input: {
   fetchesPages: boolean;
   /** Upload bytes, repository size -- when the wizard knows one. */
   estimatedBytes?: number;
-  /** The library being rebuilt, whose own bytes the build replaces rather than adds to. */
-  libraryId?: string;
+  /** The asset being rebuilt, whose own bytes the build replaces rather than adds to. */
+  assetId?: string;
 }): Promise<BuildQuote> {
   return db().transaction(async (tx) => {
     const window = await planWindow(tx, input.workspaceId);
     const counted = await countConsumption(tx, input.workspaceId, window.periodStart, window.periodEnd);
     const remaining = remainingOf(window.allowance, counted);
-    const storage = await workspaceStorage(input.workspaceId, { excludeLibraryId: input.libraryId, executor: tx });
+    const storage = await workspaceStorage(input.workspaceId, { excludeAssetId: input.assetId, executor: tx });
     const maxCalls = quoteBuildCap({
       rates: window.buildRates,
       capacityBytes: storage.remainingBytes,
@@ -122,11 +122,11 @@ export interface BuildCharge {
 }
 
 /**
- * library-build-billing.md 4.2: called by the worker once it has claimed the
+ * asset-build-billing.md 4.2: called by the worker once it has claimed the
  * operation and before the first byte is fetched.
  *
- * Returns null when the build is not the owner's bill: a platform library, a
- * library with no owner, or an operation the platform triggered (5.4). In
+ * Returns null when the build is not the owner's bill: a platform asset, a
+ * asset with no owner, or an operation the platform triggered (5.4). In
  * enforce mode the quoted cap -- or what is left, when that is less -- is
  * held under the workspace lock; a workspace that cannot cover the base fee
  * is refused here, which the worker records as a `quota_exceeded` failure.
@@ -134,27 +134,27 @@ export interface BuildCharge {
  */
 export async function openBuildCharge(input: {
   operationId: string;
-  libraryId: string;
+  assetId: string;
   trigger: OperationTrigger | string;
 }): Promise<BuildCharge | null> {
   if (input.trigger === 'platform') return null;
   const database = db();
 
-  const [library] = await database
+  const [asset] = await database
     .select({
-      ownerWorkspaceId: schema.library.ownerWorkspaceId,
-      isPlatformLibrary: schema.library.isPlatformLibrary,
+      ownerWorkspaceId: schema.asset.ownerWorkspaceId,
+      isPlatformAsset: schema.asset.isPlatformAsset,
     })
-    .from(schema.library)
-    .where(eq(schema.library.id, input.libraryId))
+    .from(schema.asset)
+    .where(eq(schema.asset.id, input.assetId))
     .limit(1);
-  if (!library || library.isPlatformLibrary || !library.ownerWorkspaceId) return null;
-  const workspaceId = library.ownerWorkspaceId;
+  if (!asset || asset.isPlatformAsset || !asset.ownerWorkspaceId) return null;
+  const workspaceId = asset.ownerWorkspaceId;
 
   const sources = await database
     .select({ type: schema.source.type })
     .from(schema.source)
-    .where(eq(schema.source.libraryId, input.libraryId));
+    .where(eq(schema.source.assetId, input.assetId));
   const fetchesPages = sources.some((source) => requiresDomainVerification(source.type));
 
   const mode = currentBuildBillingMode();
@@ -169,7 +169,7 @@ export async function openBuildCharge(input: {
     if (!locked) return null;
 
     const window = await planWindow(tx, workspaceId);
-    const storage = await workspaceStorage(workspaceId, { excludeLibraryId: input.libraryId, executor: tx });
+    const storage = await workspaceStorage(workspaceId, { excludeAssetId: input.assetId, executor: tx });
     const cap = quoteBuildCap({
       rates: window.buildRates,
       capacityBytes: storage.remainingBytes,
@@ -253,7 +253,7 @@ export interface SettledBuildCharge {
 }
 
 /**
- * library-build-billing.md 4.3: chunking has measured the build. The seat is
+ * asset-build-billing.md 4.3: chunking has measured the build. The seat is
  * resized to the real price, and a price the workspace cannot cover --
  * counted under the lock, its own seat excluded -- throws `quota_exceeded`
  * before a single vector is requested.
@@ -322,7 +322,7 @@ export async function settleBuildCharge(
 }
 
 /**
- * library-build-billing.md 4.4: the ledger entry, written inside the
+ * asset-build-billing.md 4.4: the ledger entry, written inside the
  * publication transaction. Plan allowance first, then the pack balance, the
  * pack consumed oldest grant first for as many calls as spill past the
  * allowance. Replay-safe on the unique request id: a publication retried
@@ -332,7 +332,7 @@ export async function commitBuildCharge(
   tx: Tx,
   charge: BuildCharge,
   input: {
-    libraryId: string;
+    assetId: string;
     versionId: string;
     /** 'index' for a first build, 'refresh' for a later one. */
     operation: string;
@@ -371,7 +371,7 @@ export async function commitBuildCharge(
       id: uuidv7(),
       workspaceId: charge.workspaceId,
       requestId: buildRequestId(charge.operationId),
-      libraryId: input.libraryId,
+      assetId: input.assetId,
       versionId: input.versionId,
       operation: input.operation,
       entrypoint: BUILD_ENTRYPOINT,
@@ -430,7 +430,7 @@ export async function consumeGrants(tx: Tx, workspaceId: string, calls: number):
    * here means the pack was spent between settle and publish by a retrieval
    * that reserved before the seat was resized. The version is published and
    * the event written; the platform absorbs the difference rather than
-   * unpublishing a library over it, and the line below is the alert.
+   * unpublishing an asset over it, and the line below is the alert.
    */
   if (remaining > 0) {
     console.error(`build charge for workspace ${workspaceId} short by ${remaining} pack calls`);

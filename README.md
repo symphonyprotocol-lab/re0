@@ -13,7 +13,7 @@ re0 是一个**数据资产 Agent**：替用户收集、整理、使用、分发
 - 已实现并在线：公共站点、用户 Dashboard、管理后台、REST API（`/v1`）、认领、链上存证；CLI、SDK 和独立 Verifier 在 `packages/` 下；
 - **下线并放在开关之后**：网站插件（`/widget.js`、`/embed`）、分享页（`/s`）、远程 MCP（`/mcp`）；代码保留，入口与路由撤掉；
 - **已删除**：Pro 套餐、专家库、自检问题（检索测试集）、按检索次数计算的发布者分成、`llms.txt` 与 OpenAPI 来源；
-- **P1 起落地**：资产类型与数据重建、频道、频道目录、用户主页、三层 Agent Card 与 A2A（`find_channels`、`search_context`）；P2 Agent 工作台与 A2A 写操作；P3a 文章、评论、问答与频道订阅；P3b 音频；P5 内部改名（代码、REST、数据库里的 `library` 一律改为 `asset`）。
+- **P1 起落地**：资产类型与数据重建、频道、频道目录、用户主页、三层 Agent Card 与 A2A（`find_channels`、`search_context`）；P2 Agent 工作台与 A2A 写操作；P3a 文章、评论、问答与频道订阅；P3b 音频；P5 内部改名（代码、REST、数据库里的 `library` 一律改为 `asset`，已完成）。
 
 产品规则以 [requirement.md](./requirement.md) 为准，技术约束以 [architecture.md](./architecture.md) 为准；本地运行见下文「本地开发与登录」。尚未实现的还有专家数据与评测赛道（[expert-data-track-proposal.md](./expert-data-track-proposal.md)，只有设计）和端到端测试（`tests/e2e/` 为空，现有覆盖是 `tests/contract` 与 `tests/integration`）。
 
@@ -31,7 +31,7 @@ re0 是一个**数据资产 Agent**：替用户收集、整理、使用、分发
 
 核心价值：**最新**（按来源变化创建不可变版本）、**可信**（公开频道里的来源型资产经过认领）、**可追溯**（每段上下文保留来源、文档、章节和版本）、**可独立验证**（版本摘要上链，第三方不调用本平台接口即可校验）、**可治理**（工作空间可限制可访问内容，名单可写频道 ID）、**可委托**（Agent 替用户操作资产与频道，有副作用的操作必须经人确认）、**可预测计费**（按 Call，谁发起谁付）。
 
-术语：产品里只有「数据资产」（简称资产）这一个顶层概念，「知识库」不再出现；代码、表名、REST 路径里的 `library` / `libraryId` 在 P5 统一改名。
+术语：产品里只有「数据资产」（简称资产）这一个顶层概念，「知识库」不再出现；代码、表名、REST 路径里原来的 `library` / `libraryId` 已在 P5 统一改为 `asset` / `assetId`（迁移 0066 之前的迁移文件保留旧名）。
 
 ## 文档地图
 
@@ -252,7 +252,7 @@ MVP 的 14 步已经实现（见 [architecture.md](./architecture.md) 第 21 节
 2. **P1** 资产类型与数据重建、频道、频道目录、用户主页、三层 Agent Card、A2A `find_channels` / `search_context`、Postgres 任务存储、首页改版
 3. **P2** Agent 工作台、工具与确认门、A2A `ask` / `ingest` / `refresh` / `publish`、扩展卡、推送通知
 4. **P3a** 文章、评论、问答、频道订阅与收入结算（开工前提：Paddle 书面确认、手续费口径、税务与合规意见）；**P3b** 音频
-5. **P4** re0 作为 A2A 客户端；**P5** 内部改名（`library` → `asset`）
+5. **P4** re0 作为 A2A 客户端；**P5** 内部改名（`library` → `asset`，已完成）
 
 ## 开发约定
 
@@ -264,7 +264,7 @@ MVP 的 14 步已经实现（见 [architecture.md](./architecture.md) 第 21 节
 - **额度计数不得迁移到 Redis 或任何缓存层**——Reservation 与 Usage Event 是计费事实，必须与业务库同事务；谁发起谁付 Call，匿名不产生 Usage Event；
 - **查询必须先按可见性授权并固定资产 Version 和 Policy Version**，再做任何召回；
 - **Version 不可变**，刷新通过原子切换 `current_version_id` 发布；
-- **`library.owner_workspace_id` 只能由已验证的认领或管理员裁定写入**，Ingestion 和刷新一律不得触碰；来源型资产未认领不能放进公开频道；
+- **`asset.owner_workspace_id` 只能由已验证的认领或管理员裁定写入**，Ingestion 和刷新一律不得触碰；来源型资产未认领不能放进公开频道；
 - **REST 与 A2A `search_context` 不引入 LLM 依赖**——移除生成层后，两者行为必须完全不变；
 - **四个生成入口零结果时不调用模型**，且答案中每条事实必须绑定到本次返回的 Chunk；
 - **有副作用的 Agent 操作必须经人确认**，模型、Chunk 和其他 Agent 都不能代为确认；

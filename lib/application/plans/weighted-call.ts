@@ -112,7 +112,7 @@ export async function commitCalls(
   seat: WeightedSeat,
   input: {
     calls: number;
-    libraryId: string;
+    assetId: string;
     versionId: string;
     operation: string;
     entrypoint: string;
@@ -146,7 +146,7 @@ export async function commitCalls(
         id: uuidv7(),
         workspaceId: seat.workspaceId,
         requestId: seat.requestId,
-        libraryId: input.libraryId,
+        assetId: input.assetId,
         versionId: input.versionId,
         operation: input.operation,
         entrypoint: input.entrypoint,

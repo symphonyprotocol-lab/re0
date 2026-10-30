@@ -6,8 +6,8 @@ import { middleware } from '@/middleware';
 
 describe('Markdown page representations', () => {
   it('accepts local page paths and keeps their query string', () => {
-    expect(markdownSourcePath('/libraries?q=next.js&sort=recent')).toBe(
-      '/libraries?q=next.js&sort=recent',
+    expect(markdownSourcePath('/assets?q=next.js&sort=recent')).toBe(
+      '/assets?q=next.js&sort=recent',
     );
     expect(markdownSourcePath('/')).toBe('/');
   });
@@ -91,7 +91,7 @@ describe('Markdown page representations', () => {
 
   it('lets the renderer\'s own fetch of a literal `.md` page through', () => {
     const response = middleware(
-      new NextRequest('https://re0.test/libraries/owner/notes.md', {
+      new NextRequest('https://re0.test/assets/owner/notes.md', {
         headers: { 'x-re0-markdown-source': '1' },
       }),
     );
@@ -100,10 +100,10 @@ describe('Markdown page representations', () => {
   });
 
   it('serves the literal page when the path without `.md` is no page', async () => {
-    /* A library mirroring a repository named `notes.md`: /owner/notes does not exist. */
+    /* An asset mirroring a repository named `notes.md`: /owner/notes does not exist. */
     const fetchPage = vi.spyOn(globalThis, 'fetch').mockImplementation(async (input) => {
       const url = input instanceof URL ? input : new URL(String(input));
-      return url.pathname === '/libraries/owner/notes.md'
+      return url.pathname === '/assets/owner/notes.md'
         ? new Response('<html><body><main><h1>notes.md</h1></main></body></html>', {
             status: 200,
             headers: { 'content-type': 'text/html; charset=utf-8' },
@@ -112,8 +112,8 @@ describe('Markdown page representations', () => {
     });
     try {
       const response = await renderMarkdownPage(
-        new NextRequest('https://re0.test/libraries/owner/notes.md', {
-          headers: { 'x-re0-markdown-page': '/libraries/owner/notes' },
+        new NextRequest('https://re0.test/assets/owner/notes.md', {
+          headers: { 'x-re0-markdown-page': '/assets/owner/notes' },
         }),
       );
 
@@ -121,7 +121,7 @@ describe('Markdown page representations', () => {
       expect(response.headers.get('content-type')).toContain('text/html');
       expect(await response.text()).toContain('<h1>notes.md</h1>');
       const literal = fetchPage.mock.calls[1]?.[0] as URL;
-      expect(literal.pathname).toBe('/libraries/owner/notes.md');
+      expect(literal.pathname).toBe('/assets/owner/notes.md');
       expect(new Headers(fetchPage.mock.calls[1]?.[1]?.headers).get('x-re0-markdown-source')).toBe('1');
     } finally {
       fetchPage.mockRestore();
@@ -137,8 +137,8 @@ describe('Markdown page representations', () => {
     );
     try {
       const response = await renderMarkdownPage(
-        new NextRequest('https://re0.test/libraries/owner/missing.md', {
-          headers: { 'x-re0-markdown-page': '/libraries/owner/missing' },
+        new NextRequest('https://re0.test/assets/owner/missing.md', {
+          headers: { 'x-re0-markdown-page': '/assets/owner/missing' },
         }),
       );
 

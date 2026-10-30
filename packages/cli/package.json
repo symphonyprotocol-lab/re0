@@ -1,7 +1,7 @@
 {
   "name": "@symphonyprotocollab/re0",
   "version": "0.1.0",
-  "description": "Connect Claude, Codex and Cursor to Re0 knowledge libraries over MCP.",
+  "description": "Connect Claude, Codex and Cursor to Re0 data assets over MCP.",
   "license": "MIT",
   "publishConfig": {
     "access": "public"

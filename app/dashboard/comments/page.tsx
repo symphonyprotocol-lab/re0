@@ -3,7 +3,7 @@ import Link from 'next/link';
 import { CommentText } from '@/components/creator/comment-text';
 import { PANEL, PageHeader, StatusLabel } from '@/components/dashboard/ui';
 import { workspaceComments } from '@/lib/application/comments';
-import { canManageLibraries } from '@/lib/application/libraries';
+import { canManageAssets } from '@/lib/application/assets';
 import { requireSession } from '@/lib/http/session';
 import { fill } from '@/lib/i18n/format';
 import { getMessages, translations } from '@/lib/i18n/server';
@@ -27,7 +27,7 @@ export default async function CommentsPage({ searchParams }: { searchParams: Pro
   const k = t.creator.comments;
   const errors = t.creator.errors as Record<string, string>;
   const rows = await workspaceComments(session.workspace.id);
-  const canEdit = canManageLibraries(session.workspace.role);
+  const canEdit = canManageAssets(session.workspace.role);
   const date = new Intl.DateTimeFormat(locale, { dateStyle: 'medium', timeStyle: 'short' });
   const outcome = typeof query.comment === 'string' ? query.comment : null;
   const message = outcome === null ? null : ((k.notices as Record<string, string>)[outcome] ?? errors[outcome] ?? errors.unavailable);

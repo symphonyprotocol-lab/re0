@@ -12,7 +12,7 @@ import {
 } from '@/lib/application/agent';
 import { listWorkspaceChannels } from '@/lib/application/channels';
 import { delegationsByActionIds, delegationsByIds } from '@/lib/application/external-agents';
-import { listWorkspaceLibraries } from '@/lib/application/libraries';
+import { listWorkspaceAssets } from '@/lib/application/assets';
 import { cardOf } from '@/lib/dashboard/action-card';
 import type { PlaygroundUIMessage } from '@/lib/http/playground-stream';
 import { requireSession } from '@/lib/http/session';
@@ -51,7 +51,7 @@ export default async function WorkbenchPage({ searchParams }: Search) {
         ? query.c
         : ((await latestConversation(workspaceId))?.id ?? null);
   const [assets, channels, pending, turns] = await Promise.all([
-    listWorkspaceLibraries(workspaceId),
+    listWorkspaceAssets(workspaceId),
     listWorkspaceChannels(workspaceId),
     listActions(workspaceId, { pendingOnly: true, limit: 200 }),
     conversationId && !query.q ? conversationTurns(workspaceId, conversationId) : Promise.resolve([]),

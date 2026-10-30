@@ -42,7 +42,7 @@ import {
 import { AuthFailure } from '@/lib/domain/auth';
 import { publicRepositoryHomepage, repositoryGrant } from '@/lib/infrastructure/identity/github';
 import { assertWithinClaimLimits } from '@/lib/application/claims/shared';
-import { canManageLibraries, type WorkspaceRole } from '@/lib/application/libraries/delete';
+import { canManageAssets, type WorkspaceRole } from '@/lib/application/assets/delete';
 import { startClaim } from '@/lib/application/claims/start';
 import { verifyClaim } from '@/lib/application/claims/verify';
 
@@ -432,7 +432,7 @@ describe('ownership as one workspace sees it', () => {
     ).toEqual({ kind: 'claimed', claimedAt: null, ownerName: 'Other' });
   });
 
-  it('keeps our pending claim visible even where another workspace owns the library', () => {
+  it('keeps our pending claim visible even where another workspace owns the asset', () => {
     expect(
       ownershipView({ ownerWorkspaceId: 'w-2', ownerName: 'Other', claim }, workspace).kind,
     ).toBe('pending');
@@ -443,9 +443,9 @@ describe('ownership as one workspace sees it', () => {
 
 describe('which sources a claim may name', () => {
   /*
-   * `visibleLibrary` filters the claim page's target by this list, so it has
+   * `visibleAsset` filters the claim page's target by this list, so it has
    * to agree with `claimMethodsFor` exactly. When it does not, a pdf or a
-   * Notion library reaches a claim form with no method to pick and a Start
+   * Notion asset reaches a claim form with no method to pick and a Start
    * button that can only fail.
    */
   it('is exactly the set of source types that have a method', () => {
@@ -471,25 +471,25 @@ describe('what counts as a dispute', () => {
    * dashboard and `ruleDispute` all ask. The console once omitted the
    * "another owner" half and offered a Grant control that the ruling refused.
    */
-  it('is a pending claim on a library another workspace owns', () => {
+  it('is a pending claim on an asset another workspace owns', () => {
     expect(
       isDisputedClaim({ status: 'pending', ownerWorkspaceId: 'w-2', claimantWorkspaceId: 'w-1' }),
     ).toBe(true);
   });
 
-  it('is not a claim by the workspace that already owns the library', () => {
+  it('is not a claim by the workspace that already owns the asset', () => {
     expect(
       isDisputedClaim({ status: 'pending', ownerWorkspaceId: 'w-1', claimantWorkspaceId: 'w-1' }),
     ).toBe(false);
   });
 
-  it('is not a claim on an unowned library', () => {
+  it('is not a claim on an unowned asset', () => {
     expect(
       isDisputedClaim({ status: 'pending', ownerWorkspaceId: null, claimantWorkspaceId: 'w-1' }),
     ).toBe(false);
   });
 
-  it('is over once the claim leaves pending, whoever owns the library', () => {
+  it('is over once the claim leaves pending, whoever owns the asset', () => {
     for (const status of STATUSES.filter((value) => value !== 'pending')) {
       expect(
         isDisputedClaim({ status, ownerWorkspaceId: 'w-2', claimantWorkspaceId: 'w-1' }),
@@ -510,8 +510,8 @@ describe('what counts as a dispute', () => {
 
 describe('which ownership can be given up', () => {
   /*
-   * 7.3.5 is about a *claimed* library going back to the unowned pool.
-   * Releasing a library whose creator is its owner would strand it: the owner
+   * 7.3.5 is about a *claimed* asset going back to the unowned pool.
+   * Releasing an asset whose creator is its owner would strand it: the owner
    * column is the tenancy key for manage, rebuild, delete and detail, and an
    * upload or a Notion source has no claim method to get back in with.
    */
@@ -532,7 +532,7 @@ describe('which ownership can be given up', () => {
     }
   });
 
-  it('does release a library the workspace owns through a verified claim', () => {
+  it('does release an asset the workspace owns through a verified claim', () => {
     const verifiedAt = new Date('2026-09-01T00:00:00.000Z');
     const view = ownershipView(
       {
@@ -553,7 +553,7 @@ describe('which ownership can be given up', () => {
     expect(nextClaimStatus('verified', 'release', { attempts: 1 })).toBe('revoked');
   });
 
-  it('does not release a library the workspace owns because it created it', () => {
+  it('does not release an asset the workspace owns because it created it', () => {
     const view = ownershipView(
       { ownerWorkspaceId: 'w-1', ownerName: 'Acme', claim: null },
       'w-1',
@@ -565,7 +565,7 @@ describe('which ownership can be given up', () => {
 
 /* ------------------------------------------------- a dispute that passed its checks */
 
-describe('checks on a claim that proved control of a contested library', () => {
+describe('checks on a claim that proved control of a contested asset', () => {
   /*
    * Verification of a disputed claim leaves `status = 'pending'` -- 7.3.3
    * fixes the five values and none of them says "waiting on a ruling" -- and
@@ -696,21 +696,21 @@ describe('the two claim limiters', () => {
     denied.clear();
   });
 
-  it('counts the account and the library separately', async () => {
+  it('counts the account and the asset separately', async () => {
     await assertWithinClaimLimits('start', 'w-1', 'lib-1');
     expect(spent).toEqual([
       'ratelimit:claim-start-account:w-1',
-      'ratelimit:claim-start-library:lib-1',
+      'ratelimit:claim-start-asset:lib-1',
     ]);
   });
 
   /*
-   * The per-library budget is shared with every other claimant. Spending it on
+   * The per-asset budget is shared with every other claimant. Spending it on
    * behalf of a caller who is already over its own limit lets one account
-   * cool down a library for everybody, which is the opposite of what a
-   * per-library limit is for.
+   * cool down an asset for everybody, which is the opposite of what a
+   * per-asset limit is for.
    */
-  it('never spends the shared library budget for a caller already over its own', async () => {
+  it('never spends the shared asset budget for a caller already over its own', async () => {
     denied.add('ratelimit:claim-verify-account:w-1');
     await expect(assertWithinClaimLimits('verify', 'w-1', 'lib-1')).rejects.toMatchObject({
       reason: 'retry_limit_exceeded',
@@ -718,8 +718,8 @@ describe('the two claim limiters', () => {
     expect(spent).toEqual(['ratelimit:claim-verify-account:w-1']);
   });
 
-  it('still refuses when only the library is over', async () => {
-    denied.add('ratelimit:claim-verify-library:lib-1');
+  it('still refuses when only the asset is over', async () => {
+    denied.add('ratelimit:claim-verify-asset:lib-1');
     await expect(assertWithinClaimLimits('verify', 'w-1', 'lib-1')).rejects.toMatchObject({
       code: 'rate_limited',
       reason: 'retry_limit_exceeded',
@@ -732,7 +732,7 @@ describe('the two claim limiters', () => {
 
 describe('the authority a claim needs', () => {
   /*
-   * A claim binds the library's management and its place in the revenue pool
+   * A claim binds the asset's management and its place in the revenue pool
    * to the workspace (7.3.4). That is the same authority releasing it asks
    * for, so the same roles hold it -- and the use case checks, because a
    * server action and a REST route are both public endpoints and the screen
@@ -740,8 +740,8 @@ describe('the authority a claim needs', () => {
    */
   const ROLES: readonly WorkspaceRole[] = ['owner', 'admin', 'developer', 'viewer'];
 
-  it('is manage-libraries, which a developer and a viewer do not hold', () => {
-    expect(ROLES.filter(canManageLibraries)).toEqual(['owner', 'admin']);
+  it('is manage-assets, which a developer and a viewer do not hold', () => {
+    expect(ROLES.filter(canManageAssets)).toEqual(['owner', 'admin']);
   });
 
   it('refuses a viewer opening a claim, before it looks at anything else', async () => {
@@ -751,7 +751,7 @@ describe('the authority a claim needs', () => {
         startClaim({
           workspaceId: 'w-1',
           role,
-          libraryPublicId: '/acme/widgets',
+          assetPublicId: '/acme/widgets',
           method: 'dns_txt',
         }),
       ).rejects.toMatchObject({ code: 'access_denied' });

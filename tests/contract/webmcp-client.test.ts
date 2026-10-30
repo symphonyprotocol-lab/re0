@@ -17,8 +17,8 @@ describe('browser WebMCP adapter', () => {
         result: {
           tools: [
             {
-              name: 'resolve-library-id',
-              description: 'Find a library',
+              name: 'resolve-asset-id',
+              description: 'Find an asset',
               inputSchema: { type: 'object', properties: { query: { type: 'string' } } },
             },
           ],
@@ -28,8 +28,8 @@ describe('browser WebMCP adapter', () => {
 
     await expect(listWebMcpTools(fetcher)).resolves.toEqual([
       {
-        name: 'resolve-library-id',
-        description: 'Find a library',
+        name: 'resolve-asset-id',
+        description: 'Find an asset',
         inputSchema: { type: 'object', properties: { query: { type: 'string' } } },
       },
     ]);
@@ -46,7 +46,7 @@ describe('browser WebMCP adapter', () => {
 
   it('forwards calls and preserves readable tool failures', async () => {
     const result = {
-      content: [{ type: 'text', text: 'library_not_found: no such library' }],
+      content: [{ type: 'text', text: 'asset_not_found: no such asset' }],
       isError: true,
     };
     const fetcher = vi.fn(async (_input: RequestInfo | URL, _init?: RequestInit) =>
@@ -54,7 +54,7 @@ describe('browser WebMCP adapter', () => {
     );
 
     await expect(
-      callWebMcpTool('query-docs', { libraryId: '/none/here', query: 'x' }, fetcher),
+      callWebMcpTool('query-docs', { assetId: '/none/here', query: 'x' }, fetcher),
     ).resolves.toEqual(result);
     expect(JSON.parse(fetcher.mock.calls[0]![1]!.body as string)).toEqual({
       jsonrpc: '2.0',
@@ -62,7 +62,7 @@ describe('browser WebMCP adapter', () => {
       method: 'tools/call',
       params: {
         name: 'query-docs',
-        arguments: { libraryId: '/none/here', query: 'x' },
+        arguments: { assetId: '/none/here', query: 'x' },
       },
     });
   });

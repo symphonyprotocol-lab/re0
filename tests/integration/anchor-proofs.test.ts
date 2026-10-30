@@ -2,7 +2,7 @@
  * Reading anchor proofs against a real database. requirement.md 6.4 and
  * aptos-anchoring-proposal.md 4.2/4.5.1: the Anchor column has one meaning
  * wherever it appears, only a confirmed batch is "anchored", and the
- * credential-free path may not tell a stranger apart a library that is not
+ * credential-free path may not tell a stranger apart an asset that is not
  * routable from one that does not exist.
  *
  * Runs only when TEST_DATABASE_URL points at a disposable database.
@@ -26,7 +26,7 @@ const { uuidv7 } = await import('@/lib/domain/id');
 
 const stamp = Date.now();
 const workspaceId = crypto.randomUUID();
-const libraryIds: string[] = [];
+const assetIds: string[] = [];
 const versionIds: string[] = [];
 const batchIds: string[] = [];
 const leafIds: string[] = [];
@@ -36,12 +36,12 @@ const LABEL = '20260101-abcdef12';
 const PUBLISHED_AT = new Date('2026-01-01T09:30:00.000Z');
 
 interface Fixture {
-  libraryId: string;
+  assetId: string;
   versionId: string;
   publicId: string;
 }
 
-async function library(input: {
+async function asset(input: {
   slug: string;
   visibility?: 'public' | 'private';
   lifecycleStatus?: 'published' | 'submitted';
@@ -51,11 +51,11 @@ async function library(input: {
   publishedAt?: Date | null;
 }): Promise<Fixture> {
   const database = db();
-  const libraryId = crypto.randomUUID();
+  const assetId = crypto.randomUUID();
   const publicId = `/anchors-${stamp}/${input.slug}`;
-  libraryIds.push(libraryId);
-  await database.insert(schema.library).values({
-    id: libraryId,
+  assetIds.push(assetId);
+  await database.insert(schema.asset).values({
+    id: assetId,
     publicId,
     title: `Anchor fixture ${input.slug}`,
     ownerWorkspaceId: workspaceId,
@@ -64,13 +64,13 @@ async function library(input: {
     indexStatus: input.indexStatus ?? 'ready',
   });
   /* Public means free in a public channel now (agent-first-proposal.md 6.2). */
-  if ((input.visibility ?? 'public') === 'public') await shareInPublicChannel(libraryId);
+  if ((input.visibility ?? 'public') === 'public') await shareInPublicChannel(assetId);
 
   const versionId = uuidv7();
   versionIds.push(versionId);
-  await database.insert(schema.libraryVersion).values({
+  await database.insert(schema.assetVersion).values({
     id: versionId,
-    libraryId,
+    assetId,
     label: LABEL,
     sourceDigest: `anchor-${stamp}-${input.slug}`,
     parserVersion: 'test',
@@ -82,11 +82,11 @@ async function library(input: {
   });
   if (input.currentVersion !== false) {
     await database
-      .update(schema.library)
+      .update(schema.asset)
       .set({ currentVersionId: versionId })
-      .where(eq(schema.library.id, libraryId));
+      .where(eq(schema.asset.id, assetId));
   }
-  return { libraryId, versionId, publicId };
+  return { assetId, versionId, publicId };
 }
 
 /** One leaf for a version, in a batch of the given status. */
@@ -135,7 +135,7 @@ let unanchored: Fixture;
 let openBatch: Fixture;
 let unready: Fixture;
 let noCurrentVersion: Fixture;
-let privateLibrary: Fixture;
+let privateAsset: Fixture;
 let reanchored: Fixture;
 let supersededSchema: Fixture;
 
@@ -143,33 +143,33 @@ describeWithDb('anchor proofs', () => {
   beforeAll(async () => {
     await db().insert(schema.workspace).values({ id: workspaceId, name: 'anchor-test' });
 
-    confirmed = await library({ slug: 'confirmed' });
+    confirmed = await asset({ slug: 'confirmed' });
     await anchor({ versionId: confirmed.versionId, status: 'confirmed' });
 
-    unanchored = await library({ slug: 'unanchored' });
+    unanchored = await asset({ slug: 'unanchored' });
 
     /* A leaf in a batch nobody has confirmed is not an anchor yet. */
-    openBatch = await library({ slug: 'open-batch' });
+    openBatch = await asset({ slug: 'open-batch' });
     await anchor({ versionId: openBatch.versionId, status: 'pending' });
 
     /* Anchored, and still not routable: index never became ready. */
-    unready = await library({ slug: 'unready', indexStatus: 'failed' });
+    unready = await asset({ slug: 'unready', indexStatus: 'failed' });
     await anchor({ versionId: unready.versionId, status: 'confirmed' });
 
     /* Anchored, and no publication pointer at all. */
-    noCurrentVersion = await library({ slug: 'no-current', currentVersion: false });
+    noCurrentVersion = await asset({ slug: 'no-current', currentVersion: false });
     await anchor({ versionId: noCurrentVersion.versionId, status: 'confirmed' });
 
-    privateLibrary = await library({ slug: 'private', visibility: 'private' });
-    await anchor({ versionId: privateLibrary.versionId, status: 'confirmed' });
+    privateAsset = await asset({ slug: 'private', visibility: 'private' });
+    await anchor({ versionId: privateAsset.versionId, status: 'confirmed' });
 
     /* Anchored twice under two leaf schemas: the newest confirmed one wins. */
-    reanchored = await library({ slug: 'reanchored' });
+    reanchored = await asset({ slug: 'reanchored' });
     await anchor({ versionId: reanchored.versionId, status: 'confirmed', leafSchemaVersion: 1 });
     await anchor({ versionId: reanchored.versionId, status: 'confirmed', leafSchemaVersion: 2 });
 
     /* A newer schema still in flight does not unsay the confirmed older one. */
-    supersededSchema = await library({ slug: 'reanchor-open' });
+    supersededSchema = await asset({ slug: 'reanchor-open' });
     await anchor({ versionId: supersededSchema.versionId, status: 'confirmed', leafSchemaVersion: 1 });
     await anchor({ versionId: supersededSchema.versionId, status: 'pending', leafSchemaVersion: 2 });
   });
@@ -182,19 +182,19 @@ describeWithDb('anchor proofs', () => {
     if (batchIds.length > 0) {
       await database.delete(schema.anchorBatch).where(inArray(schema.anchorBatch.id, batchIds));
     }
-    if (libraryIds.length > 0) {
+    if (assetIds.length > 0) {
       await database
-        .update(schema.library)
+        .update(schema.asset)
         .set({ currentVersionId: null })
-        .where(inArray(schema.library.id, libraryIds));
+        .where(inArray(schema.asset.id, assetIds));
     }
     if (versionIds.length > 0) {
       await database
-        .delete(schema.libraryVersion)
-        .where(inArray(schema.libraryVersion.id, versionIds));
+        .delete(schema.assetVersion)
+        .where(inArray(schema.assetVersion.id, versionIds));
     }
-    if (libraryIds.length > 0) {
-      await database.delete(schema.library).where(inArray(schema.library.id, libraryIds));
+    if (assetIds.length > 0) {
+      await database.delete(schema.asset).where(inArray(schema.asset.id, assetIds));
     }
     await database.delete(schema.workspace).where(eq(schema.workspace.id, workspaceId));
   });
@@ -226,7 +226,7 @@ describeWithDb('anchor proofs', () => {
     expect(open?.txHash).not.toBeNull();
   });
 
-  it('answers a library that is not routable exactly as it answers a missing one', async () => {
+  it('answers an asset that is not routable exactly as it answers a missing one', async () => {
     const missing = await publicVersionAnchor(`/anchors-${stamp}/never-existed/${LABEL}`);
     expect(missing).toBeNull();
 
@@ -234,9 +234,9 @@ describeWithDb('anchor proofs', () => {
     expect(await publicVersionAnchor(`${unready.publicId}/${LABEL}`)).toBe(missing);
     /* Public, published, anchored -- and no current version to route to. */
     expect(await publicVersionAnchor(`${noCurrentVersion.publicId}/${LABEL}`)).toBe(missing);
-    /* A private library's existence is not decidable from outside either. */
-    expect(await publicVersionAnchor(`${privateLibrary.publicId}/${LABEL}`)).toBe(missing);
-    /* And a version that library never built. */
+    /* A private asset's existence is not decidable from outside either. */
+    expect(await publicVersionAnchor(`${privateAsset.publicId}/${LABEL}`)).toBe(missing);
+    /* And a version that asset never built. */
     expect(await publicVersionAnchor(`${confirmed.publicId}/20260101-11111111`)).toBe(missing);
   });
 
@@ -259,7 +259,7 @@ describeWithDb('anchor proofs', () => {
   });
 
   /*
-   * aptos-anchoring-proposal.md 5: a public library returns its preimage. This
+   * aptos-anchoring-proposal.md 5: a public asset returns its preimage. This
    * is the difference between a proof and a usable proof -- gate 2's second
    * implementation is written by someone with no access to this database, so
    * everything they hash has to come back over the wire.
@@ -268,7 +268,7 @@ describeWithDb('anchor proofs', () => {
     /* The open leaf of a fixture version, as run-batch.ts anchors a shared asset's. */
     const openLeaf = (fixture: Fixture, slug: string, salt = '') =>
       versionLeaf({
-        libraryId: fixture.libraryId,
+        assetId: fixture.assetId,
         versionId: fixture.versionId,
         sourceDigest: `anchor-${stamp}-${slug}`,
         contentMerkleRoot: `content-root-${slug}`,
@@ -277,7 +277,7 @@ describeWithDb('anchor proofs', () => {
       });
 
     it('recomputes to the leaf that was anchored', async () => {
-      const fixture = await library({ slug: 'preimage' });
+      const fixture = await asset({ slug: 'preimage' });
       await anchor({
         versionId: fixture.versionId,
         status: 'confirmed',
@@ -295,7 +295,7 @@ describeWithDb('anchor proofs', () => {
 
       /* Exactly what a stranger would do with the response and 4.2.1. */
       const recomputed = await versionLeaf({
-        libraryId: preimage!.libraryId,
+        assetId: preimage!.assetId,
         versionId: preimage!.versionId,
         sourceDigest: preimage!.sourceDigest,
         contentMerkleRoot: preimage!.contentMerkleRoot,
@@ -307,7 +307,7 @@ describeWithDb('anchor proofs', () => {
          here is determinism: the same response hashes the same way twice. */
       expect(recomputed).toBe(
         await versionLeaf({
-          libraryId: preimage!.libraryId,
+          assetId: preimage!.assetId,
           versionId: preimage!.versionId,
           sourceDigest: preimage!.sourceDigest,
           contentMerkleRoot: preimage!.contentMerkleRoot,
@@ -320,7 +320,7 @@ describeWithDb('anchor proofs', () => {
     /* Anchored salted while the asset was its owner's alone, then shared: the
        open preimage would not hash to that leaf, so none is handed out. */
     it('is withheld when the leaf on record was salted', async () => {
-      const fixture = await library({ slug: 'salted-preimage' });
+      const fixture = await asset({ slug: 'salted-preimage' });
       await anchor({
         versionId: fixture.versionId,
         status: 'confirmed',
@@ -335,7 +335,7 @@ describeWithDb('anchor proofs', () => {
     /* Half a preimage reads as a leaf that fails to verify rather than as
        data we never had, so it is withheld entirely. */
     it('is withheld when the version was never published', async () => {
-      const fixture = await library({ slug: 'unpublished-preimage', publishedAt: null });
+      const fixture = await asset({ slug: 'unpublished-preimage', publishedAt: null });
       await anchor({ versionId: fixture.versionId, status: 'confirmed' });
 
       const anchorView = await publicVersionAnchor(`${fixture.publicId}/${LABEL}`);
@@ -349,7 +349,7 @@ describeWithDb('anchor proofs', () => {
      * does the generic lookup the workspace screens build on.
      */
     it('never rides on the lookup that private screens use', async () => {
-      const fixture = await library({ slug: 'private-preimage', visibility: 'private' });
+      const fixture = await asset({ slug: 'private-preimage', visibility: 'private' });
       await anchor({ versionId: fixture.versionId, status: 'confirmed' });
 
       expect((await versionAnchor({ versionId: fixture.versionId })).preimage).toBeNull();

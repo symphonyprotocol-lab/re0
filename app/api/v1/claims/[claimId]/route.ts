@@ -4,7 +4,7 @@
  * The record and the instructions to complete it (where the TXT record or
  * the well-known file goes), but never the challenge token: only its hash
  * exists after creation (architecture.md 5.4). Another workspace's claim id
- * answers `library_not_found`, the same as a bad id.
+ * answers `asset_not_found`, the same as a bad id.
  */
 import { NextResponse, type NextRequest } from 'next/server';
 import { claimForClaimant } from '@/lib/application/claims';
@@ -27,7 +27,7 @@ export async function GET(
     return NextResponse.json(
       {
         claimId: claim.id,
-        libraryId: claim.libraryPublicId,
+        assetId: claim.assetPublicId,
         method: claim.method,
         status: claim.status,
         reason: claim.failureReason ?? undefined,

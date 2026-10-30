@@ -73,7 +73,7 @@ export function requiresClaim(type: SourceType): boolean {
 }
 
 /**
- * requirement.md 6.2: a library is queryable only when published, its current
+ * requirement.md 6.2: an asset is queryable only when published, its current
  * version is ready, and the caller passed workspace plus policy checks.
  * Visibility, lifecycle and index status are independent and never merged.
  */

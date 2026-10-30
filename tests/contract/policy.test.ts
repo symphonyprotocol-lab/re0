@@ -5,7 +5,7 @@
  * allow" bypasses exactly the quality thresholds -- no more.
  */
 import { describe, expect, it } from 'vitest';
-import { libraryIdPatternSchema, workspacePolicySchema } from '@/contracts/schemas';
+import { assetIdPatternSchema, workspacePolicySchema } from '@/contracts/schemas';
 import {
   diffPolicy,
   evaluatePolicy,
@@ -48,7 +48,7 @@ describe('precedence', () => {
     const p = policy({
       mode: 'quality',
       sourceTypes: { website: false },
-      exceptedLibraries: ['/websites/target'],
+      exceptedAssets: ['/websites/target'],
     });
     expect(evaluatePolicy(p, subject())).toEqual({
       allowed: false,
@@ -56,7 +56,7 @@ describe('precedence', () => {
     });
   });
 
-  it('one disabled source among several still refuses the library', () => {
+  it('one disabled source among several still refuses the asset', () => {
     const p = policy({ sourceTypes: { notion: false } });
     expect(evaluatePolicy(p, subject({ sourceTypes: ['github', 'notion'] })).allowed).toBe(false);
   });
@@ -64,21 +64,21 @@ describe('precedence', () => {
   it('the blocklist wins over excepted and over the select allowlist', () => {
     const both = policy({
       mode: 'quality',
-      blockedLibraries: ['/websites/target'],
-      exceptedLibraries: ['/websites/target'],
+      blockedAssets: ['/websites/target'],
+      exceptedAssets: ['/websites/target'],
     });
-    expect(evaluatePolicy(both, subject())).toEqual({ allowed: false, reason: 'library_blocked' });
+    expect(evaluatePolicy(both, subject())).toEqual({ allowed: false, reason: 'asset_blocked' });
 
     const selected = policy({
       mode: 'select',
-      blockedLibraries: ['/websites/target'],
-      allowedLibraries: ['/websites/target'],
+      blockedAssets: ['/websites/target'],
+      allowedAssets: ['/websites/target'],
     });
     expect(evaluatePolicy(selected, subject()).allowed).toBe(false);
   });
 
   it('select mode admits only the allowlist', () => {
-    const p = policy({ mode: 'select', allowedLibraries: ['/websites/other'] });
+    const p = policy({ mode: 'select', allowedAssets: ['/websites/other'] });
     expect(evaluatePolicy(p, subject())).toEqual({
       allowed: false,
       reason: 'not_in_allowlist',
@@ -92,7 +92,7 @@ describe('quality thresholds', () => {
     const p = policy({
       mode: 'quality',
       quality: { ...OPEN_QUALITY, minTrustScore: 90 },
-      exceptedLibraries: ['/websites/excepted'],
+      exceptedAssets: ['/websites/excepted'],
     });
     expect(evaluatePolicy(p, subject({ trustScore: 80 }))).toEqual({
       allowed: false,
@@ -110,7 +110,7 @@ describe('quality thresholds', () => {
     });
     expect(evaluatePolicy(p, subject({ verified: false }))).toEqual({
       allowed: false,
-      reason: 'unverified_library',
+      reason: 'unverified_asset',
     });
   });
 
@@ -121,7 +121,7 @@ describe('quality thresholds', () => {
     });
     expect(evaluatePolicy(p, subject({ ageDays: 45 }))).toEqual({
       allowed: false,
-      reason: 'stale_library',
+      reason: 'stale_asset',
     });
     expect(evaluatePolicy(p, subject({ ageDays: null })).allowed).toBe(true);
   });
@@ -148,12 +148,12 @@ describe('the stored mode is what the screen showed', () => {
   });
 
   it('an "always allow" entry makes it a quality policy too', () => {
-    expect(normalizePolicyMode(policy({ exceptedLibraries: ['/vercel/*'] })).mode).toBe('quality');
+    expect(normalizePolicyMode(policy({ exceptedAssets: ['/vercel/*'] })).mode).toBe('quality');
   });
 
   it('a policy that constrains nothing keeps its null mode', () => {
     expect(normalizePolicyMode(OPEN_POLICY).mode).toBeNull();
-    expect(normalizePolicyMode(policy({ blockedLibraries: ['/a/b'] })).mode).toBeNull();
+    expect(normalizePolicyMode(policy({ blockedAssets: ['/a/b'] })).mode).toBeNull();
     expect(normalizePolicyMode(policy({ sourceTypes: { pdf: false } })).mode).toBeNull();
   });
 
@@ -194,7 +194,7 @@ describe('repository and website metrics', () => {
     const p = policy({ mode: 'quality', quality: { ...OPEN_QUALITY, requireLicense: true } });
     expect(evaluatePolicy(p, subject({ hasLicense: false }))).toEqual({
       allowed: false,
-      reason: 'unlicensed_library',
+      reason: 'unlicensed_asset',
     });
     expect(evaluatePolicy(p, subject({ hasLicense: true })).allowed).toBe(true);
     expect(evaluatePolicy(p, subject({ hasLicense: null })).allowed).toBe(true);
@@ -220,14 +220,14 @@ describe('repository and website metrics', () => {
     const p = policy({
       mode: 'quality',
       quality: { ...OPEN_QUALITY, minStars: 1000, requireLicense: true },
-      exceptedLibraries: ['/websites/target'],
+      exceptedAssets: ['/websites/target'],
     });
     expect(evaluatePolicy(p, subject({ stars: 0, hasLicense: false })).allowed).toBe(true);
   });
 });
 
 describe('the private switch', () => {
-  it('refuses a private library like a disabled source type', () => {
+  it('refuses a private asset like a disabled source type', () => {
     const p = policy({ sourceTypes: { [PRIVATE_SOURCE_TYPE]: false } });
     expect(evaluatePolicy(p, subject({ sourceTypes: ['pdf', PRIVATE_SOURCE_TYPE] }))).toEqual({
       allowed: false,
@@ -249,26 +249,26 @@ describe('the private switch', () => {
 });
 
 describe('list entries', () => {
-  it('matches a Library ID whatever case either side was typed in', () => {
+  it('matches an Asset ID whatever case either side was typed in', () => {
     /* GitHub keeps an owner's capitals, so `/Vercel/next.js` is a real id. */
     expect(listedIn(['/vercel/*'], '/Vercel/next.js')).toBe(true);
     expect(listedIn(['/Vercel/Next.js'], '/vercel/next.js')).toBe(true);
     expect(listedIn(['/vercel/next.js'], '/Vercel/Next.js')).toBe(true);
     expect(listedIn(['/vercel/*'], '/VercelLabs/ai')).toBe(false);
     expect(
-      evaluatePolicy(policy({ blockedLibraries: ['/vercel/*'] }), subject({ publicId: '/Vercel/next.js' }))
+      evaluatePolicy(policy({ blockedAssets: ['/vercel/*'] }), subject({ publicId: '/Vercel/next.js' }))
         .reason,
-    ).toBe('library_blocked');
+    ).toBe('asset_blocked');
   });
 
-  it('an organisation entry covers every library the owner publishes', () => {
+  it('an organisation entry covers every asset the owner publishes', () => {
     expect(listedIn(['/vercel/*'], '/vercel/next.js')).toBe(true);
     expect(listedIn(['/vercel/*'], '/vercel/swr/docs')).toBe(true);
     expect(listedIn(['/vercel/*'], '/vercel-labs/ai')).toBe(false);
     expect(listedIn(['/vercel/*'], '/vercel')).toBe(true);
   });
 
-  it('a domain entry covers a library whose sources live on that host or under it', () => {
+  it('a domain entry covers an asset whose sources live on that host or under it', () => {
     const s = subject({ domains: ['docs.example.com'] });
     expect(listedIn(['docs.example.com'], s)).toBe(true);
     expect(listedIn(['example.com'], s)).toBe(true);
@@ -279,29 +279,29 @@ describe('list entries', () => {
 
   it('a domain in the blocklist refuses, and in the allowlist admits', () => {
     const s = subject({ domains: ['docs.example.com'] });
-    expect(evaluatePolicy(policy({ blockedLibraries: ['example.com'] }), s).reason).toBe(
-      'library_blocked',
+    expect(evaluatePolicy(policy({ blockedAssets: ['example.com'] }), s).reason).toBe(
+      'asset_blocked',
     );
     expect(
-      evaluatePolicy(policy({ mode: 'select', allowedLibraries: ['example.com'] }), s).allowed,
+      evaluatePolicy(policy({ mode: 'select', allowedAssets: ['example.com'] }), s).allowed,
     ).toBe(true);
     expect(
-      evaluatePolicy(policy({ mode: 'select', allowedLibraries: ['example.com'] }), subject())
+      evaluatePolicy(policy({ mode: 'select', allowedAssets: ['example.com'] }), subject())
         .reason,
     ).toBe('not_in_allowlist');
   });
 });
 
 describe('parsePolicyEntry', () => {
-  it('keeps a Library ID and its nested wildcard', () => {
-    expect(parsePolicyEntry('/vercel/next.js')).toEqual({ entry: '/vercel/next.js', kind: 'library' });
+  it('keeps an Asset ID and its nested wildcard', () => {
+    expect(parsePolicyEntry('/vercel/next.js')).toEqual({ entry: '/vercel/next.js', kind: 'asset' });
     expect(parsePolicyEntry(' /websites/ethereum/* ')).toEqual({
       entry: '/websites/ethereum/*',
-      kind: 'library',
+      kind: 'asset',
     });
     expect(parsePolicyEntry('/websites/ethereum/')).toEqual({
       entry: '/websites/ethereum',
-      kind: 'library',
+      kind: 'asset',
     });
   });
 
@@ -342,7 +342,7 @@ describe('parsePolicyEntry', () => {
 
 describe('parsePolicyList', () => {
   it('reads lines and CSV cells, drops headers and quotes, folds duplicates, reports the rest', () => {
-    const text = 'library\n"/vercel/next.js", @vercel\r\n/vercel/*;docs.example.com\n\nnope!\n/vercel/next.js\nnope!';
+    const text = 'asset\n"/vercel/next.js", @vercel\r\n/vercel/*;docs.example.com\n\nnope!\n/vercel/next.js\nnope!';
     expect(parsePolicyList(text)).toEqual({
       entries: ['/vercel/next.js', '/vercel/*', 'docs.example.com'],
       invalid: ['nope!'],
@@ -356,7 +356,7 @@ describe('parsePolicyList', () => {
 
 describe('diffPolicy', () => {
   it('an unchanged draft is an empty patch', () => {
-    const p = policy({ mode: 'quality', sourceTypes: { pdf: false }, blockedLibraries: ['/a/b'] });
+    const p = policy({ mode: 'quality', sourceTypes: { pdf: false }, blockedAssets: ['/a/b'] });
     expect(policyDiffIsEmpty(diffPolicy(p, { ...p }))).toBe(true);
     expect(policyDiffIsEmpty(diffPolicy(OPEN_POLICY, OPEN_POLICY))).toBe(true);
   });
@@ -366,16 +366,16 @@ describe('diffPolicy', () => {
       mode: 'quality',
       sourceTypes: { pdf: false, notion: false },
       quality: { ...OPEN_QUALITY, minTrustScore: 60 },
-      blockedLibraries: ['/a/b', '/c/d'],
-      exceptedLibraries: ['/e/f'],
+      blockedAssets: ['/a/b', '/c/d'],
+      exceptedAssets: ['/e/f'],
     });
     const next = policy({
       mode: 'select',
       sourceTypes: { notion: false, github: false },
       quality: { ...OPEN_QUALITY, minTrustScore: 80, minStars: 500 },
-      blockedLibraries: ['/c/d', 'example.com'],
-      exceptedLibraries: ['/e/f'],
-      allowedLibraries: ['/vercel/*'],
+      blockedAssets: ['/c/d', 'example.com'],
+      exceptedAssets: ['/e/f'],
+      allowedAssets: ['/vercel/*'],
     });
     expect(diffPolicy(base, next)).toEqual({
       mode: 'select',
@@ -396,10 +396,10 @@ describe('diffPolicy', () => {
 describe('contract schema', () => {
   it('accepts the three entry shapes in their stored form and nothing looser', () => {
     for (const entry of ['/vercel/next.js', '/websites/ethereum/*', '/vercel/*', 'docs.example.com']) {
-      expect(libraryIdPatternSchema.safeParse(entry).success, entry).toBe(true);
+      expect(assetIdPatternSchema.safeParse(entry).success, entry).toBe(true);
     }
     for (const entry of ['vercel', '@vercel', '/websites/eth*', 'https://docs.example.com', '/*', 'localhost']) {
-      expect(libraryIdPatternSchema.safeParse(entry).success, entry).toBe(false);
+      expect(assetIdPatternSchema.safeParse(entry).success, entry).toBe(false);
     }
   });
 

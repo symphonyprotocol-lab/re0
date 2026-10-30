@@ -40,13 +40,13 @@ export async function GET(request: NextRequest): Promise<NextResponse> {
     if (!version || !splitPinnedId(version)) {
       throw new AppError(
         'invalid_request',
-        'version is required as a pinned Library ID, e.g. /owner/repo/20260101-abcdef12',
+        'version is required as a pinned Asset ID, e.g. /owner/repo/20260101-abcdef12',
       );
     }
 
     const anchor = await publicVersionAnchor(version);
     if (!anchor) {
-      throw new AppError('library_not_found', 'no public version with that id');
+      throw new AppError('asset_not_found', 'no public version with that id');
     }
 
     return NextResponse.json(

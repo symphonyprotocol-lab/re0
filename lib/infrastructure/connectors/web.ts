@@ -224,12 +224,12 @@ function inScope(link: URL, entry: URL): boolean {
  * The section the entry point names, as a path with a trailing slash.
  *
  * A crawl starting at `https://example.com/docs/` stays under `/docs/`. Without
- * this, one documentation section's Library ID would quietly acquire the whole
+ * this, one documentation section's Asset ID would quietly acquire the whole
  * marketing site.
  *
  * The entry is a section whether or not it was typed with a trailing slash.
  * `/docs` and `/docs/` are one page on any site built this decade, and
- * reading `/whitepaper` as a *file* in `/` scoped one whitepaper's Library ID
+ * reading `/whitepaper` as a *file* in `/` scoped one whitepaper's Asset ID
  * to the whole of ethereum.org -- two hundred pages, one of them the
  * whitepaper. Only a last segment with an extension (`/docs/index.html`,
  * `/robots.txt`) is a file, and scopes to its directory; a segment such as
@@ -424,7 +424,7 @@ function withFormat(path: string, contentType: string): string {
   return suffix ? `${path}.${suffix}` : path;
 }
 
-/** A crawl reaches the same page by two paths often; a library should not. */
+/** A crawl reaches the same page by two paths often; an asset should not. */
 function dedupe(files: FetchedFile[]): FetchedFile[] {
   const byPath = new Map<string, FetchedFile>();
   for (const file of files) {

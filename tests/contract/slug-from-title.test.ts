@@ -1,9 +1,9 @@
 /**
- * The import wizard fills the Library ID in from the title
+ * The import wizard fills the Asset ID in from the title
  * (requirement.md 6.1 fixes the shape of a slug; the wizard only proposes one).
  */
 import { describe, expect, it } from 'vitest';
-import { normalizePublicId, slugFromTitle } from '@/lib/domain/library';
+import { normalizePublicId, slugFromTitle } from '@/lib/domain/asset';
 
 describe('slugFromTitle', () => {
   it('folds a title to one slug segment', () => {

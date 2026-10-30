@@ -3,7 +3,7 @@ export {
   applyShowcaseVerb,
   deleteShowcase,
   enableShowcase,
-  libraryShowcase,
+  assetShowcase,
   removeShowcaseAsset,
   showcaseAssetKey,
   ShowcaseInvalid,

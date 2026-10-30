@@ -10,8 +10,8 @@
  * sentence to a retrieved passage, and the same degradation to the passage
  * list when no model is configured.
  *
- * Order matters for what gets charged: a library that cannot answer yet is
- * told so before the limiters run, so retries against a building library do
+ * Order matters for what gets charged: an asset that cannot answer yet is
+ * told so before the limiters run, so retries against a building asset do
  * not spend the owner's day; the limiters run before retrieval, which is the
  * only place they can stand in front of it.
  */
@@ -35,9 +35,9 @@ import { pagesOf, type WidgetSource } from '@/lib/domain/widget';
  * showcase page's chat read these.
  *
  * `outcome.kind` is what the visitor is told at the end: the playground's
- * three, plus `not_ready` (the library has no published version) and
+ * three, plus `not_ready` (the asset has no published version) and
  * `unavailable` (the exchange was refused after the stream opened -- the
- * workspace's quota is spent, or the library was suspended meanwhile).
+ * workspace's quota is spent, or the asset was suspended meanwhile).
  * `exchange` names the log row, so a page that lets the visitor rate the
  * answer can say which one.
  */
@@ -61,9 +61,9 @@ export type WidgetStreamLine =
 const UNAVAILABLE_CODES = new Set<string>([
   'quota_exceeded',
   'subscription_required',
-  'library_not_ready',
-  'library_suspended',
-  'library_not_found',
+  'asset_not_ready',
+  'asset_suspended',
+  'asset_not_found',
   'access_rule_blocked',
   'access_denied',
 ]);
@@ -144,7 +144,7 @@ export async function streamWidgetAnswer(input: WidgetAskInput): Promise<Respons
   ): Promise<void> => {
     const entry = {
       id: input.exchangeId,
-      libraryId: principal.libraryId,
+      assetId: principal.assetId,
       workspaceId: principal.workspaceId,
       siteKeyId: principal.siteKeyId,
       origin: parent,
@@ -191,7 +191,7 @@ export async function streamWidgetAnswer(input: WidgetAskInput): Promise<Respons
     const claims: string[] = [];
     try {
       for await (const event of streamPlayground(caller, {
-        libraries: [{ libraryId: principal.libraryPublicId, title: principal.libraryTitle }],
+        assets: [{ assetId: principal.assetPublicId, title: principal.assetTitle }],
         question,
         history: input.history,
       })) {
@@ -213,7 +213,7 @@ export async function streamWidgetAnswer(input: WidgetAskInput): Promise<Respons
       /*
        * The stream is open, so this is the only place left to say so. A
        * refusal retrieval itself raised -- the workspace out of Calls, the
-       * library suspended since the key was resolved -- is told as
+       * asset suspended since the key was resolved -- is told as
        * `unavailable`, which the widget words honestly; anything else is a
        * fault, logged, and degrades to whatever passages arrived.
        */

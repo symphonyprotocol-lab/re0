@@ -4,7 +4,7 @@
  * pasted full id folds back instead of doubling (requirement.md 6.1).
  */
 import { describe, expect, it } from 'vitest';
-import { slugWithoutPrefix } from '@/lib/domain/library';
+import { slugWithoutPrefix } from '@/lib/domain/asset';
 
 describe('slugWithoutPrefix', () => {
   it('strips the namespace a pasted id repeats', () => {

@@ -3,7 +3,7 @@
 import { useActionState, useEffect, useId, useState } from 'react';
 import { ConsoleDialog } from '@/components/admin/console-dialog';
 import { ConsoleButton, IconButton, Monogram } from '@/components/admin/ui';
-import { ReasonField, submitOn } from '@/components/admin/platform-library-shared';
+import { ReasonField, submitOn } from '@/components/admin/platform-asset-shared';
 import { BanIcon, CircleXIcon, ScaleIcon, SpinnerIcon } from '@/components/ui/icons';
 import { useI18n } from '@/lib/i18n/client';
 import type { ClaimAdminActionResult } from '@/app/admin/(console)/claims/actions';
@@ -16,8 +16,8 @@ export type ClaimAdminAction = (
 /** Which claim a dialog is about, so the confirmation is checkable. */
 export interface ClaimTarget {
   id: string;
-  libraryTitle: string;
-  libraryPublicId: string;
+  assetTitle: string;
+  assetPublicId: string;
   claimantName: string;
   initial: string;
 }
@@ -30,7 +30,7 @@ export type ClaimMove = 'grant' | 'dismiss' | 'revoke';
  *
  * All three are confirmations with a required reason, like every other console
  * mutation. Two of them are also the only writes in the product that move
- * `library.owner_workspace_id` without a source check, so the dialog spells
+ * `asset.owner_workspace_id` without a source check, so the dialog spells
  * out the consequence in the claimant's and the owner's terms before the
  * operator commits to it.
  *
@@ -61,7 +61,7 @@ export function ClaimControls({
   /*
    * `nextClaimStatus` is the authority; this mirrors the two rules it encodes
    * that decide whether a control is worth drawing. A pending claim on an
-   * unowned library is the claimant's to prove and cannot be ruled on
+   * unowned asset is the claimant's to prove and cannot be ruled on
    * (`ruleDispute` refuses it as "not a dispute"), and only pending, verified
    * and failed claims can be revoked.
    */
@@ -205,7 +205,7 @@ function ClaimDialog({
           >
             <CircleXIcon size={15} className="mt-px shrink-0" />
             {state.error === 'unavailable'
-              ? t.admin.platformLibraries.errors.unavailable
+              ? t.admin.platformAssets.errors.unavailable
               : r.errors[state.error]}
           </p>
         ) : null}
@@ -214,10 +214,10 @@ function ClaimDialog({
           <Monogram initial={target.initial} />
           <span className="flex min-w-0 flex-col gap-[3px]">
             <span className="truncate text-[12px] font-medium tracking-[-0.023em] text-ink">
-              {target.libraryTitle}
+              {target.assetTitle}
             </span>
             <span className="truncate text-[11px] tracking-[-0.023em] text-muted">
-              {target.libraryPublicId} · {target.claimantName}
+              {target.assetPublicId} · {target.claimantName}
             </span>
           </span>
         </div>

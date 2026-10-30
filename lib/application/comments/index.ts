@@ -32,7 +32,7 @@ import { uuidv7 } from '@/lib/domain/id';
 import { safetyFindingsOf, scanContent } from '@/lib/domain/ingestion';
 import { db, schema } from '@/lib/infrastructure/postgres/client';
 import { recordAudit } from '@/lib/application/administration/audit';
-import { canManageLibraries, type WorkspaceRole } from '@/lib/application/libraries/delete';
+import { canManageAssets, type WorkspaceRole } from '@/lib/application/assets/delete';
 import { subscribesTo } from '@/lib/application/channels/subscriptions';
 import { notify, workspaceManagers } from '@/lib/application/notifications';
 
@@ -58,20 +58,20 @@ async function assetFacts(assetId: string): Promise<AssetFacts | null> {
   if (!UUID.test(assetId)) return null;
   const [row] = await db()
     .select({
-      assetId: schema.library.id,
-      publicId: schema.library.publicId,
-      title: schema.library.title,
-      ownerWorkspaceId: schema.library.ownerWorkspaceId,
-      access: schema.library.access,
+      assetId: schema.asset.id,
+      publicId: schema.asset.publicId,
+      title: schema.asset.title,
+      ownerWorkspaceId: schema.asset.ownerWorkspaceId,
+      access: schema.asset.access,
       channelId: schema.channel.id,
       visibility: schema.channel.visibility,
       status: schema.channel.status,
       commentsClosed: schema.channelAsset.commentsClosed,
     })
-    .from(schema.library)
-    .leftJoin(schema.channelAsset, eq(schema.channelAsset.assetId, schema.library.id))
+    .from(schema.asset)
+    .leftJoin(schema.channelAsset, eq(schema.channelAsset.assetId, schema.asset.id))
     .leftJoin(schema.channel, eq(schema.channel.id, schema.channelAsset.channelId))
-    .where(and(eq(schema.library.id, assetId), isNull(schema.library.deletedAt)));
+    .where(and(eq(schema.asset.id, assetId), isNull(schema.asset.deletedAt)));
   if (!row) return null;
   return {
     assetId: row.assetId,
@@ -304,7 +304,7 @@ interface CreatorInput {
 }
 
 async function creatorComment(input: CreatorInput) {
-  if (!canManageLibraries(input.role)) throw new CommentRefused('not_owner', 'only the creator moderates comments');
+  if (!canManageAssets(input.role)) throw new CommentRefused('not_owner', 'only the creator moderates comments');
   if (!UUID.test(input.commentId)) throw new CommentRefused('not_found', 'no such comment');
   const [row] = await db()
     .select({
@@ -317,9 +317,9 @@ async function creatorComment(input: CreatorInput) {
       channelId: schema.channelAsset.channelId,
     })
     .from(schema.comment)
-    .innerJoin(schema.library, eq(schema.library.id, schema.comment.assetId))
-    .leftJoin(schema.channelAsset, eq(schema.channelAsset.assetId, schema.library.id))
-    .where(and(eq(schema.comment.id, input.commentId), eq(schema.library.ownerWorkspaceId, input.workspaceId)));
+    .innerJoin(schema.asset, eq(schema.asset.id, schema.comment.assetId))
+    .leftJoin(schema.channelAsset, eq(schema.channelAsset.assetId, schema.asset.id))
+    .where(and(eq(schema.comment.id, input.commentId), eq(schema.asset.ownerWorkspaceId, input.workspaceId)));
   if (!row) throw new CommentRefused('not_found', 'no such comment');
   return row;
 }
@@ -351,7 +351,7 @@ export async function moderateComment(input: CreatorInput & { action: CreatorMod
 
 /** The creator closes or reopens comments on one asset; what is there stays. */
 export async function setCommentsClosed(input: { workspaceId: string; role: WorkspaceRole; assetId: string; closed: boolean }): Promise<void> {
-  if (!canManageLibraries(input.role)) throw new CommentRefused('not_owner', 'only the creator closes comments');
+  if (!canManageAssets(input.role)) throw new CommentRefused('not_owner', 'only the creator closes comments');
   if (!UUID.test(input.assetId)) throw new CommentRefused('not_found', 'no such asset');
   const updated = await db()
     .update(schema.channelAsset)
@@ -359,7 +359,7 @@ export async function setCommentsClosed(input: { workspaceId: string; role: Work
     .where(
       and(
         eq(schema.channelAsset.assetId, input.assetId),
-        sql`exists (select 1 from ${schema.library} l where l.id = ${schema.channelAsset.assetId} and l.owner_workspace_id = ${input.workspaceId})`,
+        sql`exists (select 1 from ${schema.asset} l where l.id = ${schema.channelAsset.assetId} and l.owner_workspace_id = ${input.workspaceId})`,
       ),
     )
     .returning({ assetId: schema.channelAsset.assetId });
@@ -392,8 +392,8 @@ export async function workspaceComments(workspaceId: string, limit = 100) {
     .select({
       id: schema.comment.id,
       assetId: schema.comment.assetId,
-      assetTitle: schema.library.title,
-      publicId: schema.library.publicId,
+      assetTitle: schema.asset.title,
+      publicId: schema.asset.publicId,
       parentId: schema.comment.parentId,
       authorName: schema.user.displayName,
       body: schema.comment.body,
@@ -406,10 +406,10 @@ export async function workspaceComments(workspaceId: string, limit = 100) {
       commentsClosed: schema.channelAsset.commentsClosed,
     })
     .from(schema.comment)
-    .innerJoin(schema.library, eq(schema.library.id, schema.comment.assetId))
-    .leftJoin(schema.channelAsset, eq(schema.channelAsset.assetId, schema.library.id))
+    .innerJoin(schema.asset, eq(schema.asset.id, schema.comment.assetId))
+    .leftJoin(schema.channelAsset, eq(schema.channelAsset.assetId, schema.asset.id))
     .leftJoin(schema.user, eq(schema.user.id, schema.comment.authorUserId))
-    .where(and(eq(schema.library.ownerWorkspaceId, workspaceId), inArray(schema.comment.state, ['visible', 'hidden'])))
+    .where(and(eq(schema.asset.ownerWorkspaceId, workspaceId), inArray(schema.comment.state, ['visible', 'hidden'])))
     .orderBy(sql`${schema.comment.createdAt} desc`)
     .limit(limit);
 }
@@ -425,12 +425,12 @@ export async function openCommentReports(limit = 100) {
       commentId: schema.comment.id,
       body: schema.comment.body,
       state: schema.comment.state,
-      assetTitle: schema.library.title,
-      publicId: schema.library.publicId,
+      assetTitle: schema.asset.title,
+      publicId: schema.asset.publicId,
     })
     .from(schema.commentReport)
     .innerJoin(schema.comment, eq(schema.comment.id, schema.commentReport.commentId))
-    .innerJoin(schema.library, eq(schema.library.id, schema.comment.assetId))
+    .innerJoin(schema.asset, eq(schema.asset.id, schema.comment.assetId))
     .where(isNull(schema.commentReport.resolvedAt))
     .orderBy(asc(schema.commentReport.createdAt))
     .limit(limit);

@@ -4,23 +4,23 @@ import { useActionState } from 'react';
 import { FIELD } from '@/components/admin/form-fields';
 import { ConsoleButton, Panel, PanelHead, Pill } from '@/components/admin/ui';
 import { SearchIcon, SpinnerIcon } from '@/components/ui/icons';
-import type { ProbeActionResult } from '@/app/admin/(console)/libraries/actions';
+import type { ProbeActionResult } from '@/app/admin/(console)/assets/actions';
 import { REVIEW_PROBE_MAX_LENGTH } from '@/lib/domain/review';
 import { useI18n } from '@/lib/i18n/client';
 import { fill } from '@/lib/i18n/format';
-import { Refusal, submitOn } from './platform-library-shared';
+import { Refusal, submitOn } from './platform-asset-shared';
 
 type ProbeAction = (previous: ProbeActionResult | null, form: FormData) => Promise<ProbeActionResult>;
 
 /**
- * The reviewer's probe: one question, the passages the library would
+ * The reviewer's probe: one question, the passages the asset would
  * answer it with, in the order a caller gets them. review-visibility-
  * proposal.md 4.2. The excerpts are what 7.4's "sampling" reads; a
  * question that returns nothing is itself a finding.
  */
-export function ReviewProbe({ libraryId, ready, action }: { libraryId: string; ready: boolean; action: ProbeAction }) {
+export function ReviewProbe({ assetId, ready, action }: { assetId: string; ready: boolean; action: ProbeAction }) {
   const { t } = useI18n();
-  const p = t.admin.libraries.detail.probe;
+  const p = t.admin.assets.detail.probe;
   const [state, submit, pending] = useActionState(action, null);
   const probe = state?.ok ? state.probe : undefined;
 
@@ -28,7 +28,7 @@ export function ReviewProbe({ libraryId, ready, action }: { libraryId: string; r
     <Panel>
       <PanelHead title={p.title} description={p.description} />
       <form onSubmit={submitOn(submit)} className="flex flex-col gap-3 px-[19px] py-4">
-        <input type="hidden" name="libraryId" value={libraryId} />
+        <input type="hidden" name="assetId" value={assetId} />
         <div className="flex flex-col gap-2 sm:flex-row">
           <input
             name="query"

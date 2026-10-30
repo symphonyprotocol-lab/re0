@@ -6,8 +6,8 @@
  * the caller's own claims, never anyone else's.
  *
  * Route Handlers may only call lib/application use cases (architecture.md 4).
- * Failure bodies carry the stable reason code only; an invisible library is
- * `library_not_found` exactly like a missing one (7.3.7).
+ * Failure bodies carry the stable reason code only; an invisible asset is
+ * `asset_not_found` exactly like a missing one (7.3.7).
  */
 import { NextResponse, type NextRequest } from 'next/server';
 import { AppError } from '@/contracts/errors';
@@ -29,7 +29,7 @@ export async function GET(request: NextRequest): Promise<NextResponse> {
       {
         claims: claims.map((claim) => ({
           claimId: claim.id,
-          libraryId: claim.libraryPublicId,
+          assetId: claim.assetPublicId,
           method: claim.method,
           status: claim.status,
           reason: claim.failureReason ?? undefined,
@@ -61,13 +61,13 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
     }
     const parsed = startClaimInputSchema.safeParse(body);
     if (!parsed.success) {
-      throw new AppError('invalid_request', 'expected { libraryId, method }');
+      throw new AppError('invalid_request', 'expected { assetId, method }');
     }
 
     const started = await startClaim({
       workspaceId: principal.workspaceId,
       role: principal.role,
-      libraryPublicId: parsed.data.libraryId,
+      assetPublicId: parsed.data.assetId,
       method: parsed.data.method,
     });
     return NextResponse.json({ ...started, requestId }, { status: 201, headers: NO_STORE });

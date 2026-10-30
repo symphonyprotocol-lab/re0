@@ -40,7 +40,7 @@ const now = new Date(
 const daysAgo = (days: number) => new Date(now.getTime() - days * DAY_MS);
 
 const workspaceId = crypto.randomUUID();
-const libraryIds: string[] = [];
+const assetIds: string[] = [];
 const versionIds: string[] = [];
 const requestLogIds: string[] = [];
 const operationIds: string[] = [];
@@ -50,20 +50,20 @@ let before: Status;
 let withPlatformOnly: Status;
 let after: Status;
 
-async function library(input: {
+async function asset(input: {
   lifecycleStatus: 'submitted' | 'published';
-  isPlatformLibrary: boolean;
+  isPlatformAsset: boolean;
   versionAt?: Date;
 }): Promise<string> {
   const database = db();
   const id = crypto.randomUUID();
-  libraryIds.push(id);
-  await database.insert(schema.library).values({
+  assetIds.push(id);
+  await database.insert(schema.asset).values({
     id,
-    publicId: `/status-${stamp}/${libraryIds.length}`,
-    title: `Status fixture ${libraryIds.length}`,
-    ownerWorkspaceId: input.isPlatformLibrary ? null : workspaceId,
-    isPlatformLibrary: input.isPlatformLibrary,
+    publicId: `/status-${stamp}/${assetIds.length}`,
+    title: `Status fixture ${assetIds.length}`,
+    ownerWorkspaceId: input.isPlatformAsset ? null : workspaceId,
+    isPlatformAsset: input.isPlatformAsset,
     kind: 'website',
     lifecycleStatus: input.lifecycleStatus,
     indexStatus: 'ready',
@@ -72,11 +72,11 @@ async function library(input: {
   if (input.versionAt) {
     const versionId = uuidv7();
     versionIds.push(versionId);
-    await database.insert(schema.libraryVersion).values({
+    await database.insert(schema.assetVersion).values({
       id: versionId,
-      libraryId: id,
+      assetId: id,
       label: '20200101-aaaaaaaa',
-      sourceDigest: `status-${stamp}-${libraryIds.length}`,
+      sourceDigest: `status-${stamp}-${assetIds.length}`,
       parserVersion: 'test',
       chunkerVersion: 'test',
       embeddingModel: 'test',
@@ -106,13 +106,13 @@ async function apiDay(at: Date, requests: number, failures: number, latencyMs = 
 }
 
 /** `finished` fetch operations that day, `failed` of them failed. */
-async function operationDay(libraryId: string, at: Date, finished: number, failed: number) {
+async function operationDay(assetId: string, at: Date, finished: number, failed: number) {
   const rows = Array.from({ length: finished }, (_, index) => {
     const id = crypto.randomUUID();
     operationIds.push(id);
     return {
       id,
-      libraryId,
+      assetId,
       operationType: 'refresh',
       sourceDigest: `status-op-${stamp}-${id}`,
       status: index < failed ? 'failed' : 'succeeded',
@@ -140,28 +140,28 @@ describeWithDb('the public status page', () => {
     await database.insert(schema.workspace).values({ id: workspaceId, name: 'status-test' });
 
     /*
-     * A platform library stuck in review. It is not work a reviewer can pick
+     * A platform asset stuck in review. It is not work a reviewer can pick
      * up, so the public page must not report a queue the console says is
      * empty -- that divergence is the point of this fixture.
      */
-    await library({
+    await asset({
       lifecycleStatus: 'submitted',
-      isPlatformLibrary: true,
+      isPlatformAsset: true,
       versionAt: daysAgo(9),
     });
     withPlatformOnly = await platformStatus(now);
 
     /* One user submission waiting nine days (overdue) and one an hour. */
-    await library({ lifecycleStatus: 'submitted', isPlatformLibrary: false, versionAt: daysAgo(9) });
-    await library({
+    await asset({ lifecycleStatus: 'submitted', isPlatformAsset: false, versionAt: daysAgo(9) });
+    await asset({
       lifecycleStatus: 'submitted',
-      isPlatformLibrary: false,
+      isPlatformAsset: false,
       versionAt: new Date(now.getTime() - 60 * 60 * 1000),
     });
 
-    const host = await library({
+    const host = await asset({
       lifecycleStatus: 'published',
-      isPlatformLibrary: false,
+      isPlatformAsset: false,
       versionAt: daysAgo(30),
     });
 
@@ -192,11 +192,11 @@ describeWithDb('the public status page', () => {
     }
     if (versionIds.length > 0) {
       await database
-        .delete(schema.libraryVersion)
-        .where(inArray(schema.libraryVersion.id, versionIds));
+        .delete(schema.assetVersion)
+        .where(inArray(schema.assetVersion.id, versionIds));
     }
-    if (libraryIds.length > 0) {
-      await database.delete(schema.library).where(inArray(schema.library.id, libraryIds));
+    if (assetIds.length > 0) {
+      await database.delete(schema.asset).where(inArray(schema.asset.id, assetIds));
     }
     await database.delete(schema.workspace).where(eq(schema.workspace.id, workspaceId));
   });
@@ -262,7 +262,7 @@ describeWithDb('the public status page', () => {
   });
 
   it('leaves the refresh schedule alone when nothing is scheduled', async () => {
-    /* The fixture libraries carry no sources, so nothing became due. */
+    /* The fixture assets carry no sources, so nothing became due. */
     expect(after.refresh).toEqual(before.refresh);
   });
 });

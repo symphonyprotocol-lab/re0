@@ -22,8 +22,8 @@ export interface ReachableCountResult {
   reachable?: number;
 }
 
-/** The number of libraries a draft would admit, before it is applied. */
-export async function countReachableLibraries(draft: WorkspacePolicy): Promise<ReachableCountResult> {
+/** The number of assets a draft would admit, before it is applied. */
+export async function countReachableAssets(draft: WorkspacePolicy): Promise<ReachableCountResult> {
   const session = await requireSession('/dashboard/policies');
   try {
     return { ok: true, reachable: await previewWorkspacePolicy({ workspaceId: session.workspace.id, draft }) };

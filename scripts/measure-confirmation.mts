@@ -1,16 +1,16 @@
 /**
  * Measures retrieval confirmation (lib/domain/routing.ts) against a real
- * library: for every question, the best chunk distance, the keyword evidence
+ * asset: for every question, the best chunk distance, the keyword evidence
  * and the verdict, then how many of the related and unrelated questions were
  * confirmed. The numbers next to CHUNK_CONFIRM_DISTANCE and
  * CHUNK_LOOSE_DISTANCE came from runs like this; re-measure before moving a
  * gate.
  *
- *   npx tsx scripts/measure-confirmation.mts --library /vercel/next.js \
+ *   npx tsx scripts/measure-confirmation.mts --asset /vercel/next.js \
  *     --related related.txt --unrelated unrelated.txt [--workspace <uuid>]
  *
  * Question files hold one question per line; blank lines and lines starting
- * with # are skipped. `--workspace` is needed for a private library of that
+ * with # are skipped. `--workspace` is needed for a private asset of that
  * workspace; a public one can be read anonymously. Reads are unmetered, so
  * nothing is charged, and the questions are printed only here -- never
  * logged by the retrieval (architecture.md 17.1).
@@ -43,9 +43,9 @@ function questions(path: string | null): string[] {
     .filter((line) => line.length > 0 && !line.startsWith('#'));
 }
 
-const libraryId = option('library');
-if (!libraryId) {
-  console.error('usage: --library /owner/name --related file [--unrelated file] [--workspace uuid]');
+const assetId = option('asset');
+if (!assetId) {
+  console.error('usage: --asset /owner/name --related file [--unrelated file] [--workspace uuid]');
   process.exit(2);
 }
 const workspaceId = option('workspace');
@@ -72,7 +72,7 @@ for (const [label, list] of sets) {
     try {
       const result = await queryDocsDetailed(
         caller,
-        { libraryId, query, maxTokens: 6_000, format: 'json' },
+        { assetId, query, maxTokens: 6_000, format: 'json' },
         dependencies,
         { meter: false },
       );

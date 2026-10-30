@@ -54,7 +54,7 @@ export function RightsFields({
   compact?: boolean;
 }) {
   const { t } = useI18n();
-  const r = t.dashboard.libraries.rights;
+  const r = t.dashboard.assets.rights;
   const groups: { key: 'origin' | 'license' | 'generation'; options: readonly string[]; labels: Record<string, string> }[] = [
     { key: 'origin', options: RIGHTS_ORIGINS, labels: r.origins },
     { key: 'license', options: RIGHTS_LICENSES, labels: r.licenses },

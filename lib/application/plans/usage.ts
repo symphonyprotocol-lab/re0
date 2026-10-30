@@ -27,7 +27,7 @@ export interface UsageBucket {
   date: string; // YYYY-MM-DD, UTC
   /** Retrieval calls. */
   calls: number;
-  /** Build calls (library-build-billing.md 8), shown apart. */
+  /** Build calls (asset-build-billing.md 8), shown apart. */
   buildCalls: number;
 }
 
@@ -197,7 +197,7 @@ export async function recordRequestLog(entry: {
   workspaceId: string | null;
   requestId: string;
   operation: string;
-  libraryPublicId: string | null;
+  assetPublicId: string | null;
   entrypoint: string | null;
   statusCode: number;
   latencyMs: number | null;
@@ -218,7 +218,7 @@ export interface RequestLogRow {
   id: string;
   requestId: string;
   operation: string;
-  libraryPublicId: string | null;
+  assetPublicId: string | null;
   entrypoint: string | null;
   statusCode: number;
   latencyMs: number | null;
@@ -244,7 +244,7 @@ function requestConditions(workspaceId: string, filter: Partial<RequestFilter>):
   if (filter.status === 'ok') conditions.push(lt(schema.requestLog.statusCode, 400));
   if (filter.status === 'error') conditions.push(gte(schema.requestLog.statusCode, 400));
   if (filter.entrypoint) conditions.push(eq(schema.requestLog.entrypoint, filter.entrypoint));
-  if (filter.library) conditions.push(eq(schema.requestLog.libraryPublicId, filter.library));
+  if (filter.asset) conditions.push(eq(schema.requestLog.assetPublicId, filter.asset));
   if (filter.query) {
     /* Escaped so a typed `%` matches a percent sign and not everything. */
     const pattern = `%${filter.query.replace(/[\\%_]/g, (ch) => `\\${ch}`)}%`;
@@ -252,7 +252,7 @@ function requestConditions(workspaceId: string, filter: Partial<RequestFilter>):
       or(
         ilike(schema.requestLog.requestId, pattern),
         ilike(schema.requestLog.operation, pattern),
-        ilike(schema.requestLog.libraryPublicId, pattern),
+        ilike(schema.requestLog.assetPublicId, pattern),
       )!,
     );
   }
@@ -263,7 +263,7 @@ const REQUEST_SELECTION = {
   id: schema.requestLog.id,
   requestId: schema.requestLog.requestId,
   operation: schema.requestLog.operation,
-  libraryPublicId: schema.requestLog.libraryPublicId,
+  assetPublicId: schema.requestLog.assetPublicId,
   entrypoint: schema.requestLog.entrypoint,
   statusCode: schema.requestLog.statusCode,
   latencyMs: schema.requestLog.latencyMs,
@@ -277,7 +277,7 @@ interface RequestSelection {
   id: string;
   requestId: string;
   operation: string;
-  libraryPublicId: string | null;
+  assetPublicId: string | null;
   entrypoint: string | null;
   statusCode: number;
   latencyMs: number | null;
@@ -292,7 +292,7 @@ function toRow(row: RequestSelection): RequestLogRow {
     id: row.id,
     requestId: row.requestId,
     operation: row.operation,
-    libraryPublicId: row.libraryPublicId,
+    assetPublicId: row.assetPublicId,
     entrypoint: row.entrypoint,
     statusCode: row.statusCode,
     latencyMs: row.latencyMs,

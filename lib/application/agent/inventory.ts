@@ -7,9 +7,9 @@
  * listing card -- the model gets the same facts to plan with and never
  * writes the listing itself (proposal 5.3).
  */
-import type { AssetKind } from '@/lib/domain/asset';
+import type { AssetKind } from '@/lib/domain/asset-kind';
 import { listWorkspaceChannels } from '@/lib/application/channels';
-import { listWorkspaceLibraries } from '@/lib/application/libraries';
+import { listWorkspaceAssets } from '@/lib/application/assets';
 import { workspaceStorage } from '@/lib/application/plans';
 
 export interface AssetListing {
@@ -34,7 +34,7 @@ export async function listAssets(
   workspaceId: string,
   filter: { kind?: unknown; unfiled?: unknown; query?: unknown } = {},
 ): Promise<AssetListing> {
-  const rows = await listWorkspaceLibraries(workspaceId);
+  const rows = await listWorkspaceAssets(workspaceId);
   const query = typeof filter.query === 'string' ? filter.query.trim().toLowerCase() : '';
   const matched = rows.filter(
     (row) =>

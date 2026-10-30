@@ -6,7 +6,7 @@
  *
  * Two parts with two lifetimes. The provider in force is append-only like
  * `provider_model_config` -- what renders an installation's pages is part of
- * what its libraries contain, and the table is the record of when it changed.
+ * what its assets contain, and the table is the record of when it changed.
  * The keys are a mutable pool per provider: a build writes to it when a vendor
  * says a key is spent, and the console reorders, switches off and removes
  * keys; each console change is audited, never with the key itself.

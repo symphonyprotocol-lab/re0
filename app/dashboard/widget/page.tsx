@@ -23,8 +23,8 @@ import {
   MessagesSquareIcon,
   TerminalIcon,
 } from '@/components/ui/icons';
-import { listWorkspaceWidgetSites, SITE_KEYS_PER_LIBRARY } from '@/lib/application/embed';
-import { countWorkspaceLibraries } from '@/lib/application/libraries';
+import { listWorkspaceWidgetSites, SITE_KEYS_PER_ASSET } from '@/lib/application/embed';
+import { countWorkspaceAssets } from '@/lib/application/assets';
 import { embedSnippet } from '@/lib/domain/site-key';
 import { surfaceEnabled } from '@/lib/domain/surfaces';
 import { requireSession } from '@/lib/http/session';
@@ -43,9 +43,9 @@ const GRID = 'grid grid-cols-[minmax(0,1fr)_120px_84px_84px_150px] items-center 
 
 /**
  * The workspace's website widget in one place (requirement.md 9.4): how to
- * install it, and where it is. Keys are minted on each library's page, since
- * a key answers from one library; this screen is the view across all of
- * them, so an owner with three sites does not open three library pages to
+ * install it, and where it is. Keys are minted on each asset's page, since
+ * a key answers from one asset; this screen is the view across all of
+ * them, so an owner with three sites does not open three asset pages to
  * learn which of them has pasted the snippet.
  *
  * "Integrated" is a fact observed, not a setting: an origin counts as reached
@@ -63,9 +63,9 @@ export default async function DashboardWidgetPage() {
   const w = t.dashboard.widget;
   const workspaceId = session.workspace.id;
 
-  const [keys, libraryCount] = await Promise.all([
+  const [keys, assetCount] = await Promise.all([
     listWorkspaceWidgetSites(workspaceId),
-    countWorkspaceLibraries(workspaceId),
+    countWorkspaceAssets(workspaceId),
   ]);
 
   const number = new Intl.NumberFormat(locale);
@@ -92,16 +92,16 @@ export default async function DashboardWidgetPage() {
   const loader = publicUrl('/widget.js');
   const snippet = embedSnippet(loader, first ? first.key : SITE_KEY_PLACEHOLDER);
   const snippetNote = first
-    ? fill(w.how.snippetKeyNote, { name: first.name, library: first.library.title })
+    ? fill(w.how.snippetKeyNote, { name: first.name, asset: first.asset.title })
     : fill(w.how.snippetPlaceholderNote, { placeholder: SITE_KEY_PLACEHOLDER });
 
-  /* A key is minted on its library's page; send the owner to the right one. */
+  /* A key is minted on its asset's page; send the owner to the right one. */
   const action =
-    libraryCount === 0 ? (
-      <ActionButton href="/dashboard/assets/new">{w.createLibrary}</ActionButton>
+    assetCount === 0 ? (
+      <ActionButton href="/dashboard/assets/new">{w.createAsset}</ActionButton>
     ) : (
       <ActionButton href="/dashboard/assets" variant={first ? 'outline' : 'primary'}>
-        {w.pickLibrary}
+        {w.pickAsset}
       </ActionButton>
     );
 
@@ -119,7 +119,7 @@ export default async function DashboardWidgetPage() {
       <section className={`${PANEL} flex flex-col gap-5 p-[30px]`}>
         <PanelHeading
           title={w.how.title}
-          description={fill(w.how.description, { max: SITE_KEYS_PER_LIBRARY })}
+          description={fill(w.how.description, { max: SITE_KEYS_PER_ASSET })}
         />
         <ol className="grid gap-4 md:grid-cols-3">
           {w.how.steps.map((step, index) => (
@@ -176,7 +176,7 @@ export default async function DashboardWidgetPage() {
 
               {keys.map((key) => {
                 const keySnippet = embedSnippet(loader, key.key);
-                const manageHref = `/dashboard/assets/${key.library.id}#widget`;
+                const manageHref = `/dashboard/assets/${key.asset.id}#widget`;
                 return (
                   <div key={key.id} className="border-t border-line">
                     <div className="flex flex-wrap items-center justify-between gap-3 bg-subtle/50 px-5 py-3">
@@ -187,13 +187,13 @@ export default async function DashboardWidgetPage() {
                           style={{ background: key.accent }}
                         />
                         <Link href={manageHref} className="font-medium text-ink hover:text-brandink">
-                          {key.library.title}
+                          {key.asset.title}
                         </Link>
                         <span className="text-muted">·</span>
                         <span className="text-steel">{key.name}</span>
                         <span className="text-muted">·</span>
                         <span className="text-muted">{fill(w.sites.perDay, { n: number.format(key.dailyLimit) })}</span>
-                        {!key.library.ready ? (
+                        {!key.asset.ready ? (
                           <span title={w.sites.notReadyHint}>
                             <Badge tone="neutral">{w.sites.notReady}</Badge>
                           </span>

@@ -8,7 +8,7 @@
  *
  * Takes the values as typed rather than a saved entry, so a configuration can
  * be checked before it is minted. Nothing is recorded: no cost event (there
- * is no library to bill it to) and no audit (nothing changed). The tokens
+ * is no asset to bill it to) and no audit (nothing changed). The tokens
  * spent are returned so the operator sees what the check cost.
  */
 import type { ReasoningEffort } from '@/lib/domain/generation';

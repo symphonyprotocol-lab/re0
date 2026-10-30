@@ -6,7 +6,7 @@
  * frame-ancestors header naming exactly the owner's origins and refuses any
  * other parent, and the ask route stops spending the workspace's quota once
  * the key's daily limit is reached. In between, a question from an allowed
- * site reaches the owner's *private* library and comes back as passages with
+ * site reaches the owner's *private* asset and comes back as passages with
  * the pages to open -- without an LLM configured, which is the search-only
  * shape of the widget.
  *
@@ -26,8 +26,8 @@ process.env.APP_BASE_URL ??= 'https://app.example.test';
 const { buildVersion, memoryObjectStore, publishVersion } = await import(
   '@/lib/application/ingestion'
 );
-const { createPlatformLibrary } = await import(
-  '@/lib/application/administration/manage-platform-libraries'
+const { createPlatformAsset } = await import(
+  '@/lib/application/administration/manage-platform-assets'
 );
 const {
   createSiteKey,
@@ -53,7 +53,7 @@ const { POST: askRoute } = await import('@/app/api/embed/ask/route');
 const { surfaceEnabled } = await import('@/lib/domain/surfaces');
 
 const actor = { administratorId: null as unknown as string, email: 'ops@example.test' };
-const libraries: string[] = [];
+const assets: string[] = [];
 const workspaces: string[] = [];
 const users: string[] = [];
 const planVersions: string[] = [];
@@ -156,9 +156,9 @@ async function signedInOwner(workspaceId: string): Promise<string> {
   return `r0_session=${token}`;
 }
 
-/** A built, published, *private* library owned by the workspace. */
-async function ownedLibrary(workspaceId: string, slug: string): Promise<string> {
-  const { libraryId } = await createPlatformLibrary({
+/** A built, published, *private* asset owned by the workspace. */
+async function ownedAsset(workspaceId: string, slug: string): Promise<string> {
+  const { assetId } = await createPlatformAsset({
     actor,
     title: `Shop help ${slug}`,
     publicId: `/websites/${slug}`,
@@ -168,19 +168,19 @@ async function ownedLibrary(workspaceId: string, slug: string): Promise<string> 
     language: 'en',
     reason: 'integration test fixture',
   });
-  libraries.push(libraryId);
-  const built = await buildVersion({ libraryId, operationId: uuidv7(), dependencies: dependencies() });
+  assets.push(assetId);
+  const built = await buildVersion({ assetId, operationId: uuidv7(), dependencies: dependencies() });
   if (!built.changed) throw new Error('fixture build produced no version');
-  await publishVersion({ libraryId, versionId: built.versionId });
+  await publishVersion({ assetId, versionId: built.versionId });
   await db()
-    .update(schema.library)
+    .update(schema.asset)
     .set({
       lifecycleStatus: 'published',
-      isPlatformLibrary: false,
+      isPlatformAsset: false,
       ownerWorkspaceId: workspaceId,
     })
-    .where(eq(schema.library.id, libraryId));
-  return libraryId;
+    .where(eq(schema.asset.id, assetId));
+  return assetId;
 }
 
 function page(key: string | null, parent: string | null, cookie?: string): NextRequest {
@@ -235,34 +235,34 @@ describeWithDb('website widget', () => {
 
   afterAll(async () => {
     const database = db();
-    if (libraries.length > 0) {
-      await database.delete(schema.widgetExchange).where(inArray(schema.widgetExchange.libraryId, libraries));
-      await database.delete(schema.libraryFaq).where(inArray(schema.libraryFaq.libraryId, libraries));
-      await database.delete(schema.workflowOperation).where(inArray(schema.workflowOperation.libraryId, libraries));
-      await database.delete(schema.siteKey).where(inArray(schema.siteKey.libraryId, libraries));
+    if (assets.length > 0) {
+      await database.delete(schema.widgetExchange).where(inArray(schema.widgetExchange.assetId, assets));
+      await database.delete(schema.assetFaq).where(inArray(schema.assetFaq.assetId, assets));
+      await database.delete(schema.workflowOperation).where(inArray(schema.workflowOperation.assetId, assets));
+      await database.delete(schema.siteKey).where(inArray(schema.siteKey.assetId, assets));
       await database
-        .update(schema.library)
+        .update(schema.asset)
         .set({ currentVersionId: null })
-        .where(inArray(schema.library.id, libraries));
-      await database.delete(schema.usageEvent).where(inArray(schema.usageEvent.libraryId, libraries));
+        .where(inArray(schema.asset.id, assets));
+      await database.delete(schema.usageEvent).where(inArray(schema.usageEvent.assetId, assets));
       await database
-        .delete(schema.libraryProfileVector)
-        .where(inArray(schema.libraryProfileVector.libraryId, libraries));
+        .delete(schema.assetProfileVector)
+        .where(inArray(schema.assetProfileVector.assetId, assets));
       await database
-        .delete(schema.libraryProfile)
-        .where(inArray(schema.libraryProfile.libraryId, libraries));
-      await database.delete(schema.chunk).where(inArray(schema.chunk.libraryId, libraries));
-      await database.delete(schema.document).where(inArray(schema.document.libraryId, libraries));
+        .delete(schema.assetProfile)
+        .where(inArray(schema.assetProfile.assetId, assets));
+      await database.delete(schema.chunk).where(inArray(schema.chunk.assetId, assets));
+      await database.delete(schema.document).where(inArray(schema.document.assetId, assets));
       await database
-        .delete(schema.libraryVersion)
-        .where(inArray(schema.libraryVersion.libraryId, libraries));
-      await database.delete(schema.libraryScore).where(inArray(schema.libraryScore.libraryId, libraries));
-      await database.delete(schema.source).where(inArray(schema.source.libraryId, libraries));
-      await database.delete(schema.libraryAlias).where(inArray(schema.libraryAlias.libraryId, libraries));
-      await database.delete(schema.auditLog).where(inArray(schema.auditLog.targetId, libraries));
+        .delete(schema.assetVersion)
+        .where(inArray(schema.assetVersion.assetId, assets));
+      await database.delete(schema.assetScore).where(inArray(schema.assetScore.assetId, assets));
+      await database.delete(schema.source).where(inArray(schema.source.assetId, assets));
+      await database.delete(schema.assetAlias).where(inArray(schema.assetAlias.assetId, assets));
+      await database.delete(schema.auditLog).where(inArray(schema.auditLog.targetId, assets));
       /* Again, last: an exchange is recorded off the request path and may land after the first sweep. */
-      await database.delete(schema.widgetExchange).where(inArray(schema.widgetExchange.libraryId, libraries));
-      await database.delete(schema.library).where(inArray(schema.library.id, libraries));
+      await database.delete(schema.widgetExchange).where(inArray(schema.widgetExchange.assetId, assets));
+      await database.delete(schema.asset).where(inArray(schema.asset.id, assets));
     }
     if (users.length > 0) {
       await database.delete(schema.userSession).where(inArray(schema.userSession.userId, users));
@@ -283,39 +283,39 @@ describeWithDb('website widget', () => {
     }
   });
 
-  it('holds a workspace to its plan’s site keys across libraries, and frees the slot on revoke', async () => {
+  it('holds a workspace to its plan’s site keys across assets, and frees the slot on revoke', async () => {
     /* A Free-shaped cap on the version: one key for the whole workspace. */
     const workspaceId = await workspaceOnPlan(1_000, { siteKeys: 1 });
-    const first = await ownedLibrary(workspaceId, `widget-cap-a-${Date.now()}`);
-    const second = await ownedLibrary(workspaceId, `widget-cap-b-${Date.now()}`);
+    const first = await ownedAsset(workspaceId, `widget-cap-a-${Date.now()}`);
+    const second = await ownedAsset(workspaceId, `widget-cap-b-${Date.now()}`);
 
-    const held = await createSiteKey({ workspaceId, role: 'owner', libraryId: first, name: 'One', origins: SITE });
+    const held = await createSiteKey({ workspaceId, role: 'owner', assetId: first, name: 'One', origins: SITE });
     await expect(
-      createSiteKey({ workspaceId, role: 'owner', libraryId: second, name: 'Two', origins: SITE }),
+      createSiteKey({ workspaceId, role: 'owner', assetId: second, name: 'Two', origins: SITE }),
     ).rejects.toMatchObject({ code: 'api_key_limit_exceeded', ceiling: 'plan' });
 
     await revokeSiteKey({ workspaceId, role: 'owner', siteKeyId: held.id });
     await expect(
-      createSiteKey({ workspaceId, role: 'owner', libraryId: second, name: 'Two', origins: SITE }),
+      createSiteKey({ workspaceId, role: 'owner', assetId: second, name: 'Two', origins: SITE }),
     ).resolves.toMatchObject({ name: 'Two' });
 
-    /* A version with the cap lifted: the per-library ceiling is the only one left. */
+    /* A version with the cap lifted: the per-asset ceiling is the only one left. */
     const uncapped = await workspaceOnPlan(1_000, { siteKeys: -1 });
-    const library = await ownedLibrary(uncapped, `widget-cap-uncapped-${Date.now()}`);
+    const asset = await ownedAsset(uncapped, `widget-cap-uncapped-${Date.now()}`);
     for (const name of ['a', 'b']) {
-      await createSiteKey({ workspaceId: uncapped, role: 'owner', libraryId: library, name, origins: SITE });
+      await createSiteKey({ workspaceId: uncapped, role: 'owner', assetId: asset, name, origins: SITE });
     }
-    expect((await listSiteKeys({ workspaceId: uncapped, libraryId: library })).length).toBe(2);
+    expect((await listSiteKeys({ workspaceId: uncapped, assetId: asset })).length).toBe(2);
   });
 
   it('mints a key the owner can read back, and refuses bad settings by field', async () => {
     const workspaceId = await workspaceOnPlan();
-    const libraryId = await ownedLibrary(workspaceId, `widget-mint-${Date.now()}`);
+    const assetId = await ownedAsset(workspaceId, `widget-mint-${Date.now()}`);
 
     const created = await createSiteKey({
       workspaceId,
       role: 'owner',
-      libraryId,
+      assetId,
       name: 'Production',
       origins: `${SITE}\n${LOCAL}`,
       dailyLimit: '50',
@@ -327,24 +327,24 @@ describeWithDb('website widget', () => {
     expect(created.dailyLimit).toBe(50);
     expect(created.welcome).toBe('Hi there');
 
-    const listed = await listSiteKeys({ workspaceId, libraryId });
+    const listed = await listSiteKeys({ workspaceId, assetId });
     expect(listed.map((key) => key.key)).toEqual([created.key]);
 
     await expect(
-      createSiteKey({ workspaceId, role: 'owner', libraryId, name: 'x', origins: 'shop.example.test' }),
+      createSiteKey({ workspaceId, role: 'owner', assetId, name: 'x', origins: 'shop.example.test' }),
     ).rejects.toMatchObject({ field: 'origins_invalid' });
     await expect(
-      createSiteKey({ workspaceId, role: 'owner', libraryId, name: 'x', origins: SITE, dailyLimit: '0' }),
+      createSiteKey({ workspaceId, role: 'owner', assetId, name: 'x', origins: SITE, dailyLimit: '0' }),
     ).rejects.toBeInstanceOf(SiteKeyInvalid);
     /* A developer may use the widget, not mint its key. */
     await expect(
-      createSiteKey({ workspaceId, role: 'developer', libraryId, name: 'x', origins: SITE }),
+      createSiteKey({ workspaceId, role: 'developer', assetId, name: 'x', origins: SITE }),
     ).rejects.toMatchObject({ code: 'access_denied' });
-    /* Nor may another workspace mint one for this library. */
+    /* Nor may another workspace mint one for this asset. */
     const other = await workspaceOnPlan();
     await expect(
-      createSiteKey({ workspaceId: other, role: 'owner', libraryId, name: 'x', origins: SITE }),
-    ).rejects.toMatchObject({ code: 'library_not_found' });
+      createSiteKey({ workspaceId: other, role: 'owner', assetId, name: 'x', origins: SITE }),
+    ).rejects.toMatchObject({ code: 'asset_not_found' });
 
     const updated = await updateSiteKey({
       workspaceId,
@@ -374,11 +374,11 @@ describeWithDb('website widget', () => {
 
   whileOn('serves the widget page only to listed parents, with the header that enforces it', async () => {
     const workspaceId = await workspaceOnPlan();
-    const libraryId = await ownedLibrary(workspaceId, `widget-page-${Date.now()}`);
+    const assetId = await ownedAsset(workspaceId, `widget-page-${Date.now()}`);
     const key = await createSiteKey({
       workspaceId,
       role: 'owner',
-      libraryId,
+      assetId,
       name: 'Site',
       origins: `${SITE}\n${LOCAL}`,
       welcome: 'Welcome to the shop',
@@ -403,16 +403,16 @@ describeWithDb('website widget', () => {
 
     await revokeSiteKey({ workspaceId, role: 'owner', siteKeyId: key.id });
     expect((await embedPage(page(key.key, SITE))).status).toBe(404);
-    expect(await listSiteKeys({ workspaceId, libraryId })).toEqual([]);
+    expect(await listSiteKeys({ workspaceId, assetId })).toEqual([]);
   });
 
-  whileOn('answers from the private library with pages to open, as the workspace', async () => {
+  whileOn('answers from the private asset with pages to open, as the workspace', async () => {
     const workspaceId = await workspaceOnPlan();
-    const libraryId = await ownedLibrary(workspaceId, `widget-ask-${Date.now()}`);
+    const assetId = await ownedAsset(workspaceId, `widget-ask-${Date.now()}`);
     const key = await createSiteKey({
       workspaceId,
       role: 'owner',
-      libraryId,
+      assetId,
       name: 'Site',
       origins: SITE,
     });
@@ -439,7 +439,7 @@ describeWithDb('website widget', () => {
     const [event] = await db()
       .select({ workspaceId: schema.usageEvent.workspaceId })
       .from(schema.usageEvent)
-      .where(eq(schema.usageEvent.libraryId, libraryId))
+      .where(eq(schema.usageEvent.assetId, assetId))
       .limit(1);
     expect(event?.workspaceId).toBe(workspaceId);
 
@@ -461,11 +461,11 @@ describeWithDb('website widget', () => {
 
   whileOn('tells the owner which allowed sites have actually loaded the widget', async () => {
     const workspaceId = await workspaceOnPlan();
-    const libraryId = await ownedLibrary(workspaceId, `widget-sites-${Date.now()}`);
+    const assetId = await ownedAsset(workspaceId, `widget-sites-${Date.now()}`);
     const key = await createSiteKey({
       workspaceId,
       role: 'owner',
-      libraryId,
+      assetId,
       name: 'Shop',
       origins: `${SITE}\n${LOCAL}`,
     });
@@ -473,8 +473,8 @@ describeWithDb('website widget', () => {
     /* Allowed, nothing seen yet: both origins are listed as waiting. */
     const before = await listWorkspaceWidgetSites(workspaceId);
     expect(before).toHaveLength(1);
-    expect(before[0]?.library.title).toContain('Shop help');
-    expect(before[0]?.library.ready).toBe(true);
+    expect(before[0]?.asset.title).toContain('Shop help');
+    expect(before[0]?.asset.ready).toBe(true);
     expect(before[0]?.origins.map((origin) => [origin.origin, origin.lastSeenAt])).toEqual([
       [SITE, null],
       [LOCAL, null],
@@ -512,8 +512,8 @@ describeWithDb('website widget', () => {
 
   whileOn('lets the owner try the widget from the dashboard, and nobody else', async () => {
     const workspaceId = await workspaceOnPlan();
-    const libraryId = await ownedLibrary(workspaceId, `widget-preview-${Date.now()}`);
-    const key = await createSiteKey({ workspaceId, role: 'owner', libraryId, name: 'Site', origins: SITE });
+    const assetId = await ownedAsset(workspaceId, `widget-preview-${Date.now()}`);
+    const key = await createSiteKey({ workspaceId, role: 'owner', assetId, name: 'Site', origins: SITE });
     const APP = 'https://app.example.test';
 
     /* The app's own origin is not on the list: anonymous, it is refused like any other. */
@@ -547,8 +547,8 @@ describeWithDb('website widget', () => {
     expect(sites[0]?.origins.map((origin) => origin.origin)).toEqual([SITE]);
     expect(sites[0]?.origins[0]?.lastSeenAt).toBeNull();
 
-    /* But it is in the library's history, marked as the owner's preview. */
-    const history = await listWidgetExchanges({ workspaceId, libraryId });
+    /* But it is in the asset's history, marked as the owner's preview. */
+    const history = await listWidgetExchanges({ workspaceId, assetId });
     expect(history.total).toBe(1);
     expect(history.exchanges[0]).toMatchObject({
       origin: APP,
@@ -558,44 +558,44 @@ describeWithDb('website widget', () => {
     });
     expect(history.exchanges[0]?.sources[0]?.url).toBe('https://shop.example.test/help/returns');
     /* Previews do not count as visitors' questions. */
-    expect(await widgetExchangeStats({ workspaceId, libraryId })).toMatchObject({ questions: 0, missed: 0 });
+    expect(await widgetExchangeStats({ workspaceId, assetId })).toMatchObject({ questions: 0, missed: 0 });
     /* Another workspace reads nothing of it. */
-    expect((await listWidgetExchanges({ workspaceId: await workspaceOnPlan(), libraryId })).total).toBe(0);
+    expect((await listWidgetExchanges({ workspaceId: await workspaceOnPlan(), assetId })).total).toBe(0);
   });
 
-  whileOn("keeps what visitors asked, and counts the questions the library could not answer", async () => {
+  whileOn("keeps what visitors asked, and counts the questions the asset could not answer", async () => {
     const workspaceId = await workspaceOnPlan();
-    const libraryId = await ownedLibrary(workspaceId, `widget-history-${Date.now()}`);
-    const key = await createSiteKey({ workspaceId, role: 'owner', libraryId, name: 'Site', origins: SITE });
+    const assetId = await ownedAsset(workspaceId, `widget-history-${Date.now()}`);
+    const key = await createSiteKey({ workspaceId, role: 'owner', assetId, name: 'Site', origins: SITE });
 
     const answered = await askRoute(ask({ key: key.key, parent: SITE, question: 'how do I return a zugwidget' }, SITE));
     expect(answered.status).toBe(200);
     /* Read to the end: the exchange is recorded once its stream has ended. No
        model in the test database, so passages come back -- degraded, not a miss. */
     await lines(answered);
-    await db().update(schema.library).set({ lifecycleStatus: 'suspended' }).where(eq(schema.library.id, libraryId));
+    await db().update(schema.asset).set({ lifecycleStatus: 'suspended' }).where(eq(schema.asset.id, assetId));
     const paused = await askRoute(ask({ key: key.key, parent: SITE, question: 'opening hours' }, SITE));
     expect(paused.status).toBe(200);
     await lines(paused);
     await new Promise((resolve) => setTimeout(resolve, 200));
 
-    const history = await listWidgetExchanges({ workspaceId, libraryId });
+    const history = await listWidgetExchanges({ workspaceId, assetId });
     expect(history.exchanges.map((exchange) => [exchange.question, exchange.outcome])).toEqual([
       ['opening hours', 'not_ready'],
       ['how do I return a zugwidget', 'degraded'],
     ]);
     expect(history.exchanges[1]?.latencyMs).toBeGreaterThanOrEqual(0);
-    expect(await widgetExchangeStats({ workspaceId, libraryId })).toMatchObject({
+    expect(await widgetExchangeStats({ workspaceId, assetId })).toMatchObject({
       questions: 2,
       answered: 1,
       missed: 1,
     });
   });
 
-  whileOn("builds the owner's FAQ into the library and groups what visitors asked", async () => {
+  whileOn("builds the owner's FAQ into the asset and groups what visitors asked", async () => {
     const workspaceId = await workspaceOnPlan();
-    const libraryId = await ownedLibrary(workspaceId, `widget-faq-${Date.now()}`);
-    const key = await createSiteKey({ workspaceId, role: 'owner', libraryId, name: 'Site', origins: SITE });
+    const assetId = await ownedAsset(workspaceId, `widget-faq-${Date.now()}`);
+    const key = await createSiteKey({ workspaceId, role: 'owner', assetId, name: 'Site', origins: SITE });
     for (const question of ['Can I return a zugwidget?', 'can i return a zugwidget', 'opening hours']) {
       await lines(await askRoute(ask({ key: key.key, parent: SITE, question }, SITE)));
     }
@@ -608,7 +608,7 @@ describeWithDb('website widget', () => {
         throw new Error('not configured');
       },
     };
-    const groups = await listFaqGroups({ workspaceId, libraryId, dependencies: textOnly });
+    const groups = await listFaqGroups({ workspaceId, assetId, dependencies: textOnly });
     expect(groups.map((group) => [group.question, group.count, group.covered])).toEqual([
       ['Can I return a zugwidget?', 2, false],
       ['opening hours', 1, false],
@@ -619,7 +619,7 @@ describeWithDb('website widget', () => {
     const saved = await saveFaqEntry({
       workspaceId,
       role: 'owner',
-      libraryId,
+      assetId,
       question: 'Can I return a zugwidget?',
       answer: 'Yes, within thirty days of delivery with the receipt.',
       pageUrl: 'https://shop.example.test/help/returns',
@@ -631,7 +631,7 @@ describeWithDb('website widget', () => {
       .where(eq(schema.workflowOperation.id, saved.operationId));
     expect(queued?.status).toBe('pending');
 
-    const built = await buildVersion({ libraryId, operationId: saved.operationId, dependencies: dependencies() });
+    const built = await buildVersion({ assetId, operationId: saved.operationId, dependencies: dependencies() });
     if (!built.changed) throw new Error('the FAQ did not change the build');
     const docs = await db()
       .select({ title: schema.document.title, sourceUrl: schema.document.sourceUrl })
@@ -647,39 +647,39 @@ describeWithDb('website widget', () => {
       .from(schema.chunk)
       .where(and(eq(schema.chunk.versionId, built.versionId), sql`${schema.chunk.citation}->>'title' = 'Can I return a zugwidget?'`));
     expect(faqChunk?.kind).toBe('faq');
-    await publishVersion({ libraryId, versionId: built.versionId });
+    await publishVersion({ assetId, versionId: built.versionId });
 
     /* Nothing changed -- source or FAQ -- so nothing is built. */
-    expect((await buildVersion({ libraryId, operationId: uuidv7(), dependencies: dependencies() })).changed).toBe(false);
+    expect((await buildVersion({ assetId, operationId: uuidv7(), dependencies: dependencies() })).changed).toBe(false);
     /* The FAQ alone changing is a change. */
     await saveFaqEntry({
       workspaceId,
       role: 'owner',
-      libraryId,
+      assetId,
       entryId: saved.entry!.id,
       question: 'Can I return a zugwidget?',
       answer: 'Yes, within sixty days.',
       pageUrl: 'https://shop.example.test/help/returns',
     });
-    const rebuilt = await buildVersion({ libraryId, operationId: uuidv7(), dependencies: dependencies() });
+    const rebuilt = await buildVersion({ assetId, operationId: uuidv7(), dependencies: dependencies() });
     expect(rebuilt.changed).toBe(true);
 
     /* The group now reads as covered; removing the entry uncovers it. */
-    expect((await listFaqGroups({ workspaceId, libraryId, dependencies: textOnly }))[0]?.covered).toBe(true);
+    expect((await listFaqGroups({ workspaceId, assetId, dependencies: textOnly }))[0]?.covered).toBe(true);
     await expect(
-      saveFaqEntry({ workspaceId, role: 'developer', libraryId, question: 'x', answer: 'y', pageUrl: SITE }),
+      saveFaqEntry({ workspaceId, role: 'developer', assetId, question: 'x', answer: 'y', pageUrl: SITE }),
     ).rejects.toMatchObject({ code: 'access_denied' });
-    await deleteFaqEntry({ workspaceId, role: 'owner', libraryId, entryId: saved.entry!.id });
-    expect(await listFaqEntries({ workspaceId, libraryId })).toEqual([]);
+    await deleteFaqEntry({ workspaceId, role: 'owner', assetId, entryId: saved.entry!.id });
+    expect(await listFaqEntries({ workspaceId, assetId })).toEqual([]);
   });
 
   whileOn("stops at the key's daily limit", async () => {
     const workspaceId = await workspaceOnPlan();
-    const libraryId = await ownedLibrary(workspaceId, `widget-limit-${Date.now()}`);
+    const assetId = await ownedAsset(workspaceId, `widget-limit-${Date.now()}`);
     const key = await createSiteKey({
       workspaceId,
       role: 'owner',
-      libraryId,
+      assetId,
       name: 'Tiny',
       origins: SITE,
       dailyLimit: '1',
@@ -695,22 +695,22 @@ describeWithDb('website widget', () => {
     expect(body.error.code).toBe('quota_exceeded');
   });
 
-  whileOn('does not spend the day on a library that cannot answer yet', async () => {
+  whileOn('does not spend the day on an asset that cannot answer yet', async () => {
     const workspaceId = await workspaceOnPlan();
-    const libraryId = await ownedLibrary(workspaceId, `widget-paused-${Date.now()}`);
+    const assetId = await ownedAsset(workspaceId, `widget-paused-${Date.now()}`);
     const key = await createSiteKey({
       workspaceId,
       role: 'owner',
-      libraryId,
+      assetId,
       name: 'Paused',
       origins: SITE,
       dailyLimit: '1',
     });
-    /* The owner pauses the library: its version stays indexed, the widget stops. */
+    /* The owner pauses the asset: its version stays indexed, the widget stops. */
     await db()
-      .update(schema.library)
+      .update(schema.asset)
       .set({ lifecycleStatus: 'suspended' })
-      .where(eq(schema.library.id, libraryId));
+      .where(eq(schema.asset.id, assetId));
 
     expect((await embedPage(page(key.key, SITE))).status).toBe(200);
     for (let attempt = 0; attempt < 3; attempt += 1) {
@@ -721,9 +721,9 @@ describeWithDb('website widget', () => {
 
     /* Resumed: the single question of the day is still there to spend. */
     await db()
-      .update(schema.library)
+      .update(schema.asset)
       .set({ lifecycleStatus: 'published' })
-      .where(eq(schema.library.id, libraryId));
+      .where(eq(schema.asset.id, assetId));
     const answered = await askRoute(ask({ key: key.key, parent: SITE, question: 'returns' }));
     expect(answered.status).toBe(200);
     expect((await lines(answered))[0]).toMatchObject({ type: 'allowance', remaining: 0 });
@@ -731,8 +731,8 @@ describeWithDb('website widget', () => {
 
   whileOn("tells the visitor the assistant is unavailable when the workspace's quota is spent", async () => {
     const workspaceId = await workspaceOnPlan();
-    const libraryId = await ownedLibrary(workspaceId, `widget-quota-${Date.now()}`);
-    const key = await createSiteKey({ workspaceId, role: 'owner', libraryId, name: 'Broke', origins: SITE });
+    const assetId = await ownedAsset(workspaceId, `widget-quota-${Date.now()}`);
+    const key = await createSiteKey({ workspaceId, role: 'owner', assetId, name: 'Broke', origins: SITE });
 
     const response = await askRoute(ask({ key: key.key, parent: SITE, question: 'returns' }));
     expect(response.status).toBe(200);

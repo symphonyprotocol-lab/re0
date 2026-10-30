@@ -42,7 +42,7 @@ export type EarningCreditError =
   | 'no_account'
   /** No Additional Calls version to price the conversion with. */
   | 'no_pack_rate'
-  /** Nothing accrued is past its hold on a library that still earns. */
+  /** Nothing accrued is past its hold on an asset that still earns. */
   | 'nothing_redeemable'
   /** A chargeback took back income already paid out; nothing leaves until it clears (6.9). */
   | 'negative_balance';

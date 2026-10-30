@@ -26,7 +26,7 @@ import { AppError } from '@/contracts/errors';
 import { activeRetrievalSettings } from '@/lib/application/administration';
 import { commitCalls, releaseCalls, reserveCalls } from '@/lib/application/plans';
 import type { CallerContext } from '@/lib/application/retrieval';
-import type { GatheredChunk, GatheredLibrary } from '@/lib/application/retrieval/gather';
+import type { GatheredChunk, GatheredAsset } from '@/lib/application/retrieval/gather';
 import { defaultRetrievalDependencies } from '@/lib/application/retrieval/query-docs';
 import { searchScope, type ScopeSearchResult, type SearchScope } from '@/lib/application/retrieval/search-scope';
 import {
@@ -115,20 +115,20 @@ export async function askScope(
 
     const chunks: GatheredChunk[] = found.chunks.map(({ asset, ...chunk }) => ({
       ...chunk,
-      libraryId: asset.publicId,
-      libraryTitle: asset.title,
+      assetId: asset.publicId,
+      assetTitle: asset.title,
       version: asset.version,
     }));
-    const libraries = librariesOf(found);
+    const assets = assetsOf(found);
     const claims: AskResult['claims'] = [];
     let outcome: AskResult['outcome'] = 'degraded';
     for await (const event of answerFromContext(
       asking,
       {
-        libraries,
+        assets,
         question: input.question,
         resolved: null,
-        retrieved: { chunks, libraries, requestId },
+        retrieved: { chunks, assets, requestId },
         usable,
         credential: lazyCredential(usable, dependencies),
         startedAt,
@@ -144,7 +144,7 @@ export async function askScope(
     const calls = answered ? callsPerAnswer : 1;
     await commitCalls(seat, {
       calls,
-      libraryId: top.asset.assetId,
+      assetId: top.asset.assetId,
       versionId: top.asset.versionId,
       /* A chunk list is a retrieval, billed and counted as one. */
       operation: answered ? operation : 'search_context',
@@ -166,14 +166,14 @@ export async function askScope(
   }
 }
 
-function librariesOf(found: ScopeSearchResult): GatheredLibrary[] {
-  const byAsset = new Map<string, GatheredLibrary>();
+function assetsOf(found: ScopeSearchResult): GatheredAsset[] {
+  const byAsset = new Map<string, GatheredAsset>();
   for (const chunk of found.chunks) {
     const known = byAsset.get(chunk.asset.publicId);
     if (known) known.chunks += 1;
     else {
       byAsset.set(chunk.asset.publicId, {
-        libraryId: chunk.asset.publicId,
+        assetId: chunk.asset.publicId,
         title: chunk.asset.title,
         version: chunk.asset.version,
         confirmed: true,

@@ -80,7 +80,7 @@ function ago(ms: number, o: Overview): string {
   return fill(o.ago.days, { n: Math.floor(ms / DAY_MS) });
 }
 
-/** `40 分钟`, `1.5 小时`, `3 天` -- how long a library has waited. */
+/** `40 分钟`, `1.5 小时`, `3 天` -- how long an asset has waited. */
 function duration(ms: number, o: Overview): string {
   if (ms < HOUR_MS) return fill(o.duration.minutes, { n: Math.max(1, Math.round(ms / MINUTE_MS)) });
   if (ms < DAY_MS) return fill(o.duration.hours, { n: (ms / HOUR_MS).toFixed(1).replace(/\.0$/, '') });
@@ -95,7 +95,7 @@ function signedPercent(bps: number): string {
 /**
  * A failed action is always red. Beyond that, the tone follows what was
  * touched: an account is amber because suspending one is the console's
- * heaviest lever, a platform library is brand, and the rest is neutral.
+ * heaviest lever, a platform asset is brand, and the rest is neutral.
  */
 function activityTone(entry: ConsoleAuditRow): ActivityTone {
   if (entry.result !== 'success') return 'rose';
@@ -147,7 +147,7 @@ export default async function AdminOverviewPage({
   const tiles: StatTile[] = (
     [
       { need: 'users', label: o.stats.users, Icon: UsersIcon, ...windowed(view.users) },
-      { need: 'libraries', label: o.stats.libraries, Icon: DatabaseIcon, ...windowed(view.libraries) },
+      { need: 'assets', label: o.stats.assets, Icon: DatabaseIcon, ...windowed(view.assets) },
       /*
        * Money is compared month to month whatever the range control says --
        * that is how the billing screen and the provider's statements cut it
@@ -189,8 +189,8 @@ export default async function AdminOverviewPage({
   const finished = builds.succeeded + builds.failed;
 
   /*
-   * Each meter is a share of "fine": successful requests, indexed libraries,
-   * builds that finished well, libraries that have not waited a day. An empty
+   * Each meter is a share of "fine": successful requests, indexed assets,
+   * builds that finished well, assets that have not waited a day. An empty
    * denominator is a full bar -- nothing has gone wrong when nothing happened.
    */
   const health = [

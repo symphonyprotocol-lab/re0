@@ -31,8 +31,8 @@ process.env.SESSION_SIGNING_SECRET ??= 'test-secret-that-is-long-enough-000000';
 const { buildVersion, memoryObjectStore, runOperation, drainOperations } = await import(
   '@/lib/application/ingestion'
 );
-const { createPlatformLibrary, requestPlatformLibraryRefresh } = await import(
-  '@/lib/application/administration/manage-platform-libraries'
+const { createPlatformAsset, requestPlatformAssetRefresh } = await import(
+  '@/lib/application/administration/manage-platform-assets'
 );
 const { EMBEDDING_COLUMN_DIMENSIONS } = await import('@/lib/infrastructure/ai/providers');
 const { IngestionFailure, snapshotDigest } = await import('@/lib/domain/ingestion');
@@ -106,8 +106,8 @@ function dependencies(options: { files?: typeof FILES; fail?: boolean } = {}) {
   };
 }
 
-async function fixtureLibrary(slug: string, language?: string): Promise<string> {
-  const { libraryId } = await createPlatformLibrary({
+async function fixtureAsset(slug: string, language?: string): Promise<string> {
+  const { assetId } = await createPlatformAsset({
     actor,
     title: `Ingestion fixture ${slug}`,
     publicId: `/websites/${slug}`,
@@ -117,15 +117,15 @@ async function fixtureLibrary(slug: string, language?: string): Promise<string> 
     language,
     reason: 'integration test fixture',
   });
-  created.push(libraryId);
-  return libraryId;
+  created.push(assetId);
+  return assetId;
 }
 
-async function queueRefresh(libraryId: string, sourceId: string | null = null): Promise<string> {
+async function queueRefresh(assetId: string, sourceId: string | null = null): Promise<string> {
   const operationId = uuidv7();
   await db().insert(schema.workflowOperation).values({
     id: operationId,
-    libraryId,
+    assetId,
     operationType: 'refresh',
     sourceDigest: null,
     sourceId,
@@ -186,29 +186,29 @@ describeWithDb('ingestion', () => {
     const database = db();
     if (created.length === 0) return;
     await database
-      .update(schema.library)
+      .update(schema.asset)
       .set({ currentVersionId: null })
-      .where(inArray(schema.library.id, created));
+      .where(inArray(schema.asset.id, created));
     await database
-      .delete(schema.libraryProfileVector)
-      .where(inArray(schema.libraryProfileVector.libraryId, created));
+      .delete(schema.assetProfileVector)
+      .where(inArray(schema.assetProfileVector.assetId, created));
     await database
-      .delete(schema.libraryProfile)
-      .where(inArray(schema.libraryProfile.libraryId, created));
-    await database.delete(schema.chunk).where(inArray(schema.chunk.libraryId, created));
-    await database.delete(schema.document).where(inArray(schema.document.libraryId, created));
+      .delete(schema.assetProfile)
+      .where(inArray(schema.assetProfile.assetId, created));
+    await database.delete(schema.chunk).where(inArray(schema.chunk.assetId, created));
+    await database.delete(schema.document).where(inArray(schema.document.assetId, created));
     await database
-      .delete(schema.libraryVersion)
-      .where(inArray(schema.libraryVersion.libraryId, created));
+      .delete(schema.assetVersion)
+      .where(inArray(schema.assetVersion.assetId, created));
     await database
-      .delete(schema.libraryScore)
-      .where(inArray(schema.libraryScore.libraryId, created));
+      .delete(schema.assetScore)
+      .where(inArray(schema.assetScore.assetId, created));
     await database
       .delete(schema.workflowOperation)
-      .where(inArray(schema.workflowOperation.libraryId, created));
-    await database.delete(schema.source).where(inArray(schema.source.libraryId, created));
-    await database.delete(schema.libraryAlias).where(inArray(schema.libraryAlias.libraryId, created));
-    await database.delete(schema.library).where(inArray(schema.library.id, created));
+      .where(inArray(schema.workflowOperation.assetId, created));
+    await database.delete(schema.source).where(inArray(schema.source.assetId, created));
+    await database.delete(schema.assetAlias).where(inArray(schema.assetAlias.assetId, created));
+    await database.delete(schema.asset).where(inArray(schema.asset.id, created));
     await database
       .delete(schema.auditLog)
       .where(inArray(schema.auditLog.targetId, created));
@@ -216,16 +216,16 @@ describeWithDb('ingestion', () => {
 
   it('carries an unchanged source forward and refreshes one source alone', async () => {
     const slug = `ingest-carry-${Date.now()}`;
-    const libraryId = await fixtureLibrary(slug);
+    const assetId = await fixtureAsset(slug);
     const siteA = 'https://example.test/docs';
     const siteB = 'https://example.test/api';
     /* One asset has one source since P1 (agent-first-proposal.md 3.1) and the
        console refuses a second, but the builder still keys digests per source
-       -- the shape libraries had before migration 0062 split them -- so a
+       -- the shape assets had before migration 0062 split them -- so a
        second source is written directly to keep that path covered. */
     await db().insert(schema.source).values({
       id: uuidv7(),
-      libraryId,
+      assetId,
       type: 'website',
       location: siteB,
       config: { indexDepth: 0 },
@@ -234,7 +234,7 @@ describeWithDb('ingestion', () => {
     const sources = await db()
       .select({ id: schema.source.id, location: schema.source.location })
       .from(schema.source)
-      .where(eq(schema.source.libraryId, libraryId));
+      .where(eq(schema.source.assetId, assetId));
     const sourceB = sources.find((source) => source.location === siteB)!;
 
     const docsA = [{ path: 'a.md', url: 'https://example.test/a', content: '# Alpha\n\nAlpha body one.' }];
@@ -242,7 +242,7 @@ describeWithDb('ingestion', () => {
 
     /* First build: everything is fetched and embedded. */
     const first = twoSourceDependencies({ [siteA]: docsA, [siteB]: docsB });
-    const firstOperationId = await queueRefresh(libraryId);
+    const firstOperationId = await queueRefresh(assetId);
     const built = await runOperation({ operationId: firstOperationId, dependencies: first.dependencies });
     expect(built.status).toBe('succeeded');
     /* The queue row keeps where the build got to and what it counted. */
@@ -259,22 +259,22 @@ describeWithDb('ingestion', () => {
     expect(first.embedded.some((text) => text.includes('Alpha'))).toBe(true);
     expect(first.embedded.some((text) => text.includes('Beta'))).toBe(true);
     const [v1] = await db()
-      .select({ id: schema.libraryVersion.id, sourceDigests: schema.libraryVersion.sourceDigests })
-      .from(schema.libraryVersion)
-      .where(eq(schema.libraryVersion.libraryId, libraryId));
+      .select({ id: schema.assetVersion.id, sourceDigests: schema.assetVersion.sourceDigests })
+      .from(schema.assetVersion)
+      .where(eq(schema.assetVersion.assetId, assetId));
     expect(Object.keys(v1!.sourceDigests ?? {}).sort()).toEqual(sources.map((s) => s.id).sort());
     const docsV1 = await db().select({ id: schema.document.id, sourceId: schema.document.sourceId, objectKey: schema.document.objectKey }).from(schema.document).where(eq(schema.document.versionId, v1!.id));
     expect(docsV1.map((d) => d.sourceId).sort()).toEqual(sources.map((s) => s.id).sort());
 
     /* Nothing changed: no version, both sources checked. */
     const same = twoSourceDependencies({ [siteA]: docsA, [siteB]: docsB });
-    expect((await runOperation({ operationId: await queueRefresh(libraryId), dependencies: same.dependencies })).status).toBe('skipped');
+    expect((await runOperation({ operationId: await queueRefresh(assetId), dependencies: same.dependencies })).status).toBe('skipped');
     expect(same.embedded).toHaveLength(0);
 
     /* B changed: A is fetched (to know it did not change) but not embedded. */
     const docsB2 = [{ path: 'b.md', url: 'https://example.test/b', content: '# Beta\n\nBeta body two, revised.' }];
     const second = twoSourceDependencies({ [siteA]: docsA, [siteB]: docsB2 });
-    const rebuilt = await runOperation({ operationId: await queueRefresh(libraryId), dependencies: second.dependencies });
+    const rebuilt = await runOperation({ operationId: await queueRefresh(assetId), dependencies: second.dependencies });
     expect(rebuilt.status).toBe('succeeded');
     expect(second.fetched.sort()).toEqual([siteB, siteA].sort());
     expect(second.embedded.some((text) => text.includes('Alpha'))).toBe(false);
@@ -292,7 +292,7 @@ describeWithDb('ingestion', () => {
     /* A refresh naming B fetches B only; A rides along unfetched. */
     const docsB3 = [{ path: 'b.md', url: 'https://example.test/b', content: '# Beta\n\nBeta body three.' }];
     const third = twoSourceDependencies({ [siteA]: docsA, [siteB]: docsB3 });
-    const request = await requestPlatformLibraryRefresh({ actor, libraryId, sourceId: sourceB.id, reason: 'B moved' });
+    const request = await requestPlatformAssetRefresh({ actor, assetId, sourceId: sourceB.id, reason: 'B moved' });
     expect(request.created).toBe(true);
     const only = await runOperation({ operationId: request.operationId, dependencies: third.dependencies });
     expect(only.status).toBe('succeeded');
@@ -300,19 +300,19 @@ describeWithDb('ingestion', () => {
     expect(third.embedded.some((text) => text.includes('Alpha'))).toBe(false);
     if (only.status === 'succeeded') expect(only.documents).toBe(2);
 
-    /* An open whole-library refresh covers a per-source request; one for
+    /* An open whole-asset refresh covers a per-source request; one for
        another source does not. */
-    const whole = await requestPlatformLibraryRefresh({ actor, libraryId, reason: 'all' });
+    const whole = await requestPlatformAssetRefresh({ actor, assetId, reason: 'all' });
     expect(whole.created).toBe(true);
-    const covered = await requestPlatformLibraryRefresh({ actor, libraryId, sourceId: sourceB.id, reason: 'B again' });
+    const covered = await requestPlatformAssetRefresh({ actor, assetId, sourceId: sourceB.id, reason: 'B again' });
     expect(covered).toEqual({ operationId: whole.operationId, created: false });
     await db().update(schema.workflowOperation).set({ status: 'cancelled' }).where(eq(schema.workflowOperation.id, whole.operationId));
   });
 
   it('builds a version with documents, chunks, citations and vectors', async () => {
-    const libraryId = await fixtureLibrary(`ingest-build-${Date.now()}`);
+    const assetId = await fixtureAsset(`ingest-build-${Date.now()}`);
     const built = await buildVersion({
-      libraryId,
+      assetId,
       operationId: uuidv7(),
       dependencies: dependencies(),
     });
@@ -325,8 +325,8 @@ describeWithDb('ingestion', () => {
     const database = db();
     const [version] = await database
       .select()
-      .from(schema.libraryVersion)
-      .where(eq(schema.libraryVersion.id, built.versionId));
+      .from(schema.assetVersion)
+      .where(eq(schema.assetVersion.id, built.versionId));
 
     // Ready is written last, so a version that says ready has all its chunks.
     expect(version?.indexStatus).toBe('ready');
@@ -359,16 +359,16 @@ describeWithDb('ingestion', () => {
     // a version that says ready can be routed to.
     const [profile] = await database
       .select()
-      .from(schema.libraryProfile)
-      .where(eq(schema.libraryProfile.versionId, built.versionId));
+      .from(schema.assetProfile)
+      .where(eq(schema.assetProfile.versionId, built.versionId));
     expect(profile?.profileVersion).toBe(PROFILE_VERSION);
     expect(profile?.documentTitles).toContain('Guide');
     expect(profile?.terms).toContain('installer');
 
     const centroids = await database
       .select()
-      .from(schema.libraryProfileVector)
-      .where(eq(schema.libraryProfileVector.versionId, built.versionId));
+      .from(schema.assetProfileVector)
+      .where(eq(schema.assetProfileVector.versionId, built.versionId));
     expect(centroids.length).toBeGreaterThan(0);
     for (const centroid of centroids) {
       expect(centroid.embedding).toHaveLength(EMBEDDING_COLUMN_DIMENSIONS);
@@ -376,13 +376,13 @@ describeWithDb('ingestion', () => {
   });
 
   /**
-   * The rove-beetle case, end to end. architecture.md 9.6: the library's name
+   * The rove-beetle case, end to end. architecture.md 9.6: the asset's name
    * says nothing about beetles, the term lives in one paragraph, and routing
-   * must still be able to find the library by it -- via the profile's
+   * must still be able to find the asset by it -- via the profile's
    * pre-segmented keyword index, which works for CJK where `chunk`'s cannot.
    */
-  it('profiles content the library name never mentions', async () => {
-    const libraryId = await fixtureLibrary(`ingest-profile-${Date.now()}`);
+  it('profiles content the asset name never mentions', async () => {
+    const assetId = await fixtureAsset(`ingest-profile-${Date.now()}`);
     const files = [
       {
         path: 'docs/beetles.md',
@@ -392,7 +392,7 @@ describeWithDb('ingestion', () => {
       },
     ];
     const built = await buildVersion({
-      libraryId,
+      assetId,
       operationId: uuidv7(),
       dependencies: dependencies({ files }),
     });
@@ -402,119 +402,119 @@ describeWithDb('ingestion', () => {
     const database = db();
     const [profile] = await database
       .select()
-      .from(schema.libraryProfile)
-      .where(eq(schema.libraryProfile.versionId, built.versionId));
+      .from(schema.assetProfile)
+      .where(eq(schema.assetProfile.versionId, built.versionId));
     expect(profile?.terms).toContain('隐翅虫');
 
     // What the routing layer will actually run: simple-config FTS over the
     // profile finds the term, even though the chunk index never could.
     const [routed] = await database
       .select({ n: sql<number>`count(*)::int` })
-      .from(schema.libraryProfile)
+      .from(schema.assetProfile)
       .where(
-        sql`${schema.libraryProfile.versionId} = ${built.versionId}
-            and ${schema.libraryProfile.searchVector} @@ plainto_tsquery('simple', '隐翅虫')`,
+        sql`${schema.assetProfile.versionId} = ${built.versionId}
+            and ${schema.assetProfile.searchVector} @@ plainto_tsquery('simple', '隐翅虫')`,
       );
     expect(routed?.n).toBe(1);
   });
 
   it('publishes through the queue and moves the pointer atomically', async () => {
-    const libraryId = await fixtureLibrary(`ingest-publish-${Date.now()}`);
+    const assetId = await fixtureAsset(`ingest-publish-${Date.now()}`);
     const outcome = await runOperation({
-      operationId: await queueRefresh(libraryId),
+      operationId: await queueRefresh(assetId),
       dependencies: dependencies(),
     });
 
     expect(outcome.status).toBe('succeeded');
 
     const database = db();
-    const [library] = await database
+    const [asset] = await database
       .select()
-      .from(schema.library)
-      .where(eq(schema.library.id, libraryId));
+      .from(schema.asset)
+      .where(eq(schema.asset.id, assetId));
 
-    expect(library?.currentVersionId).not.toBeNull();
-    expect(library?.indexStatus).toBe('ready');
-    // Publishing a *version* does not publish the *library*: requirement.md 6.2
+    expect(asset?.currentVersionId).not.toBeNull();
+    expect(asset?.indexStatus).toBe('ready');
+    // Publishing a *version* does not publish the *asset*: requirement.md 6.2
     // keeps index state and lifecycle apart, and 5.3 leaves the catalogue
     // decision to an operator.
-    expect(library?.lifecycleStatus).toBe('draft');
+    expect(asset?.lifecycleStatus).toBe('draft');
 
     const [version] = await database
       .select()
-      .from(schema.libraryVersion)
-      .where(eq(schema.libraryVersion.id, library?.currentVersionId ?? ''));
+      .from(schema.assetVersion)
+      .where(eq(schema.assetVersion.id, asset?.currentVersionId ?? ''));
     expect(version?.publishedAt).not.toBeNull();
   });
 
   it('supersedes the previous version when the source changes', async () => {
-    const libraryId = await fixtureLibrary(`ingest-super-${Date.now()}`);
-    await runOperation({ operationId: await queueRefresh(libraryId), dependencies: dependencies() });
+    const assetId = await fixtureAsset(`ingest-super-${Date.now()}`);
+    await runOperation({ operationId: await queueRefresh(assetId), dependencies: dependencies() });
 
     const database = db();
     const [before] = await database
-      .select({ current: schema.library.currentVersionId })
-      .from(schema.library)
-      .where(eq(schema.library.id, libraryId));
+      .select({ current: schema.asset.currentVersionId })
+      .from(schema.asset)
+      .where(eq(schema.asset.id, assetId));
 
     const changed = [FILES[0]!, { ...FILES[1]!, content: '# Guide\n\nRewritten entirely.' }];
     await runOperation({
-      operationId: await queueRefresh(libraryId),
+      operationId: await queueRefresh(assetId),
       dependencies: dependencies({ files: changed }),
     });
 
     const [after] = await database
-      .select({ current: schema.library.currentVersionId })
-      .from(schema.library)
-      .where(eq(schema.library.id, libraryId));
+      .select({ current: schema.asset.currentVersionId })
+      .from(schema.asset)
+      .where(eq(schema.asset.id, assetId));
 
     expect(after?.current).not.toBe(before?.current);
 
     const [old] = await database
-      .select({ indexStatus: schema.libraryVersion.indexStatus })
-      .from(schema.libraryVersion)
-      .where(eq(schema.libraryVersion.id, before?.current ?? ''));
+      .select({ indexStatus: schema.assetVersion.indexStatus })
+      .from(schema.assetVersion)
+      .where(eq(schema.assetVersion.id, before?.current ?? ''));
     expect(old?.indexStatus).toBe('stale');
   });
 
   it('creates no version when the source digest has not changed', async () => {
-    const libraryId = await fixtureLibrary(`ingest-same-${Date.now()}`);
-    await runOperation({ operationId: await queueRefresh(libraryId), dependencies: dependencies() });
+    const assetId = await fixtureAsset(`ingest-same-${Date.now()}`);
+    await runOperation({ operationId: await queueRefresh(assetId), dependencies: dependencies() });
 
     const database = db();
     const versionsBefore = await database
-      .select({ id: schema.libraryVersion.id })
-      .from(schema.libraryVersion)
-      .where(eq(schema.libraryVersion.libraryId, libraryId));
+      .select({ id: schema.assetVersion.id })
+      .from(schema.assetVersion)
+      .where(eq(schema.assetVersion.assetId, assetId));
 
-    const operationId = await queueRefresh(libraryId);
+    const operationId = await queueRefresh(assetId);
     const outcome = await runOperation({ operationId, dependencies: dependencies() });
     expect(outcome.status).toBe('skipped');
 
     const versionsAfter = await database
-      .select({ id: schema.libraryVersion.id })
-      .from(schema.libraryVersion)
-      .where(eq(schema.libraryVersion.libraryId, libraryId));
+      .select({ id: schema.assetVersion.id })
+      .from(schema.assetVersion)
+      .where(eq(schema.assetVersion.assetId, assetId));
     expect(versionsAfter).toHaveLength(versionsBefore.length);
 
     const [checked] = await database
-      .select({ lastCheckedAt: schema.library.lastCheckedAt })
-      .from(schema.library)
-      .where(eq(schema.library.id, libraryId));
+      .select({ lastCheckedAt: schema.asset.lastCheckedAt })
+      .from(schema.asset)
+      .where(eq(schema.asset.id, assetId));
     expect(checked?.lastCheckedAt).not.toBeNull();
   });
 
   it('keeps the current version serving when a refresh fails', async () => {
-    const libraryId = await fixtureLibrary(`ingest-fail-${Date.now()}`);
-    await runOperation({ operationId: await queueRefresh(libraryId), dependencies: dependencies() });
+    const assetId = await fixtureAsset(`ingest-fail-${Date.now()}`);
+    await runOperation({ operationId: await queueRefresh(assetId), dependencies: dependencies() });
 
     const database = db();
     const [before] = await database
-      .select({ current: schema.library.currentVersionId })
-      .from(schema.library)
-      .where(eq(schema.library.id, libraryId));
+      .select({ current: schema.asset.currentVersionId })
+      .from(schema.asset)
+      .where(eq(schema.asset.id, assetId));
 
-    const operationId = await queueRefresh(libraryId);
+    const operationId = await queueRefresh(assetId);
     const outcome = await runOperation({
       operationId,
       dependencies: dependencies({ fail: true }),
@@ -522,12 +522,12 @@ describeWithDb('ingestion', () => {
     expect(outcome.status).toBe('failed');
 
     const [after] = await database
-      .select({ current: schema.library.currentVersionId, indexStatus: schema.library.indexStatus })
-      .from(schema.library)
-      .where(eq(schema.library.id, libraryId));
+      .select({ current: schema.asset.currentVersionId, indexStatus: schema.asset.indexStatus })
+      .from(schema.asset)
+      .where(eq(schema.asset.id, assetId));
 
     expect(after?.current).toBe(before?.current);
-    // A library that is still serving is not "failed" -- only the attempt was.
+    // An asset that is still serving is not "failed" -- only the attempt was.
     expect(after?.indexStatus).toBe('ready');
 
     const [operation] = await database
@@ -540,8 +540,8 @@ describeWithDb('ingestion', () => {
   });
 
   it('lets only one worker claim an operation', async () => {
-    const libraryId = await fixtureLibrary(`ingest-claim-${Date.now()}`);
-    const operationId = await queueRefresh(libraryId);
+    const assetId = await fixtureAsset(`ingest-claim-${Date.now()}`);
+    const operationId = await queueRefresh(assetId);
 
     const [first, second] = await Promise.all([
       runOperation({ operationId, dependencies: dependencies() }),
@@ -553,8 +553,8 @@ describeWithDb('ingestion', () => {
   });
 
   it('drains the queue oldest first', async () => {
-    const libraryId = await fixtureLibrary(`ingest-drain-${Date.now()}`);
-    await queueRefresh(libraryId);
+    const assetId = await fixtureAsset(`ingest-drain-${Date.now()}`);
+    await queueRefresh(assetId);
 
     const outcomes = await drainOperations({ limit: 5, dependencies: dependencies() });
     expect(outcomes.length).toBeGreaterThan(0);
@@ -562,22 +562,22 @@ describeWithDb('ingestion', () => {
   });
 
   /**
-   * The keyword half, in the library's own language.
+   * The keyword half, in the asset's own language.
    *
    * `search_vector` is generated from `body` and `search_config`, so this is
    * the only place the whole arrangement can be checked: that the build stamped
    * the right configuration, that Postgres stemmed with it, and that a chunk
    * never ends up with a NULL vector it could not be found by.
    */
-  it('indexes with the stemmer the library\u2019s language names', async () => {
-    const libraryId = await fixtureLibrary(`ingest-lang-${Date.now()}`, 'en-US');
-    await runOperation({ operationId: await queueRefresh(libraryId), dependencies: dependencies() });
+  it('indexes with the stemmer the asset\u2019s language names', async () => {
+    const assetId = await fixtureAsset(`ingest-lang-${Date.now()}`, 'en-US');
+    await runOperation({ operationId: await queueRefresh(assetId), dependencies: dependencies() });
 
     const database = db();
     const chunks = await database
       .select({ config: schema.chunk.searchConfig })
       .from(schema.chunk)
-      .where(eq(schema.chunk.libraryId, libraryId));
+      .where(eq(schema.chunk.assetId, assetId));
 
     expect(chunks.length).toBeGreaterThan(0);
     expect(new Set(chunks.map((chunk) => chunk.config))).toEqual(new Set(['english']));
@@ -588,7 +588,7 @@ describeWithDb('ingestion', () => {
       .select({ n: sql`count(*)::int` })
       .from(schema.chunk)
       .where(
-        sql`${schema.chunk.libraryId} = ${libraryId}
+        sql`${schema.chunk.assetId} = ${assetId}
             and ${schema.chunk.searchVector} @@ plainto_tsquery('english', 'installers')`,
       );
     expect(Number(stemmed?.n ?? 0)).toBeGreaterThan(0);
@@ -598,58 +598,58 @@ describeWithDb('ingestion', () => {
     const [empty] = await database
       .select({ n: sql`count(*)::int` })
       .from(schema.chunk)
-      .where(sql`${schema.chunk.libraryId} = ${libraryId} and ${schema.chunk.searchVector} is null`);
+      .where(sql`${schema.chunk.assetId} = ${assetId} and ${schema.chunk.searchVector} is null`);
     expect(Number(empty?.n ?? 0)).toBe(0);
   });
 
   it('rebuilds an unchanged source when the build configuration moved', async () => {
-    const libraryId = await fixtureLibrary(`ingest-recfg-${Date.now()}`);
-    await runOperation({ operationId: await queueRefresh(libraryId), dependencies: dependencies() });
+    const assetId = await fixtureAsset(`ingest-recfg-${Date.now()}`);
+    await runOperation({ operationId: await queueRefresh(assetId), dependencies: dependencies() });
 
     const database = db();
     const [before] = await database
-      .select({ id: schema.library.currentVersionId })
-      .from(schema.library)
-      .where(eq(schema.library.id, libraryId));
+      .select({ id: schema.asset.currentVersionId })
+      .from(schema.asset)
+      .where(eq(schema.asset.id, assetId));
 
     // Same source, different embedding model: requirement.md 8.1 freezes the
     // model on a version, so the current one no longer describes what today's
     // build would produce and "unchanged" would be the wrong answer.
     const outcome = await runOperation({
-      operationId: await queueRefresh(libraryId),
+      operationId: await queueRefresh(assetId),
       dependencies: { ...dependencies(), embeddings: fakeEmbeddings('fixture-embed-2') },
     });
     expect(outcome.status).toBe('succeeded');
 
     const [after] = await database
-      .select({ id: schema.library.currentVersionId })
-      .from(schema.library)
-      .where(eq(schema.library.id, libraryId));
+      .select({ id: schema.asset.currentVersionId })
+      .from(schema.asset)
+      .where(eq(schema.asset.id, assetId));
     expect(after?.id).not.toBe(before?.id);
 
     const [version] = await database
-      .select({ model: schema.libraryVersion.embeddingModel, label: schema.libraryVersion.label })
-      .from(schema.libraryVersion)
-      .where(eq(schema.libraryVersion.id, after?.id ?? ''));
+      .select({ model: schema.assetVersion.embeddingModel, label: schema.assetVersion.label })
+      .from(schema.assetVersion)
+      .where(eq(schema.assetVersion.id, after?.id ?? ''));
     expect(version?.model).toBe('fixture-embed-2');
 
     // Same digest, same day, so the label has to say which build this is.
     expect(version?.label).toMatch(/\.2$/);
     const labels = await database
-      .select({ label: schema.libraryVersion.label })
-      .from(schema.libraryVersion)
-      .where(eq(schema.libraryVersion.libraryId, libraryId));
+      .select({ label: schema.assetVersion.label })
+      .from(schema.assetVersion)
+      .where(eq(schema.assetVersion.assetId, assetId));
     expect(new Set(labels.map((row) => row.label)).size).toBe(labels.length);
   });
 
   it('falls back to simple for a language with no stemmer', async () => {
-    const libraryId = await fixtureLibrary(`ingest-cjk-${Date.now()}`, '中文');
-    await runOperation({ operationId: await queueRefresh(libraryId), dependencies: dependencies() });
+    const assetId = await fixtureAsset(`ingest-cjk-${Date.now()}`, '中文');
+    await runOperation({ operationId: await queueRefresh(assetId), dependencies: dependencies() });
 
     const [chunk] = await db()
       .select({ config: schema.chunk.searchConfig })
       .from(schema.chunk)
-      .where(eq(schema.chunk.libraryId, libraryId))
+      .where(eq(schema.chunk.assetId, assetId))
       .limit(1);
     expect(chunk?.config).toBe('simple');
   });
@@ -662,16 +662,16 @@ describeWithDb('ingestion', () => {
         content: '# 知识库\n\n这是一段中文说明，用来验证容量按字节计算。',
       },
     ];
-    const libraryId = await fixtureLibrary(`ingest-bytes-${Date.now()}`);
+    const assetId = await fixtureAsset(`ingest-bytes-${Date.now()}`);
     await runOperation({
-      operationId: await queueRefresh(libraryId),
+      operationId: await queueRefresh(assetId),
       dependencies: dependencies({ files: chinese }),
     });
 
     const [record] = await db()
-      .select({ storageBytes: schema.library.storageBytes })
-      .from(schema.library)
-      .where(eq(schema.library.id, libraryId));
+      .select({ storageBytes: schema.asset.storageBytes })
+      .from(schema.asset)
+      .where(eq(schema.asset.id, assetId));
 
     // requirement.md 4.1 counts content bytes; each Han character is one
     // UTF-16 unit and three UTF-8 bytes, so a string length would report a
@@ -682,10 +682,10 @@ describeWithDb('ingestion', () => {
   });
 
   it('leaves nothing behind when a build fails after the version row', async () => {
-    const libraryId = await fixtureLibrary(`ingest-discard-${Date.now()}`);
+    const assetId = await fixtureAsset(`ingest-discard-${Date.now()}`);
 
     const outcome = await runOperation({
-      operationId: await queueRefresh(libraryId),
+      operationId: await queueRefresh(assetId),
       dependencies: {
         ...dependencies(),
         // Fails after the version and documents are written, which is what the
@@ -703,26 +703,26 @@ describeWithDb('ingestion', () => {
 
     const database = db();
     const versions = await database
-      .select({ id: schema.libraryVersion.id })
-      .from(schema.libraryVersion)
-      .where(eq(schema.libraryVersion.libraryId, libraryId));
+      .select({ id: schema.assetVersion.id })
+      .from(schema.assetVersion)
+      .where(eq(schema.assetVersion.assetId, assetId));
     const documents = await database
       .select({ id: schema.document.id })
       .from(schema.document)
-      .where(eq(schema.document.libraryId, libraryId));
+      .where(eq(schema.document.assetId, assetId));
 
     expect(versions).toHaveLength(0);
     expect(documents).toHaveLength(0);
   });
 
   it('records a trust and benchmark score for the build', async () => {
-    const libraryId = await fixtureLibrary(`ingest-score-${Date.now()}`);
-    await runOperation({ operationId: await queueRefresh(libraryId), dependencies: dependencies() });
+    const assetId = await fixtureAsset(`ingest-score-${Date.now()}`);
+    await runOperation({ operationId: await queueRefresh(assetId), dependencies: dependencies() });
 
     const [score] = await db()
       .select()
-      .from(schema.libraryScore)
-      .where(eq(schema.libraryScore.libraryId, libraryId));
+      .from(schema.assetScore)
+      .where(eq(schema.assetScore.assetId, assetId));
 
     expect(score?.algorithmVersion).toMatch(/^re0-score-/);
     expect(score?.trustScore).toBeGreaterThan(0);

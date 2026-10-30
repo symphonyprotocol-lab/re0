@@ -20,7 +20,7 @@ import {
 } from '@/lib/domain/anchor-leaf';
 
 const VERSION: VersionLeafInput = {
-  libraryId: '0193d1f0-0000-7000-8000-000000000001',
+  assetId: '0193d1f0-0000-7000-8000-000000000001',
   versionId: '0193d1f0-0000-7000-8000-000000000002',
   sourceDigest: 'a'.repeat(64),
   contentMerkleRoot: 'b'.repeat(64),
@@ -37,11 +37,20 @@ describe('version leaf', () => {
     expect(await versionLeaf({ ...VERSION })).toBe(first);
   });
 
+  /*
+   * Pinned before agent-first P5 renamed library to asset in the code and the
+   * database (agent-first-proposal.md 3.5): the leaf hashes the id's value,
+   * never a field or column name, so no rename may move an anchored leaf.
+   */
+  it('is the leaf this fixture has always had', async () => {
+    expect(await versionLeaf(VERSION)).toBe('dd200720686c7e8f84eacac4e9bb686aaf76e50ad526d328f5ad4f1711b32709');
+  });
+
   /* requirement.md 6.4: change any anchored field and the proof must fail. */
   it('changes when any field changes', async () => {
     const base = await versionLeaf(VERSION);
     const variants: VersionLeafInput[] = [
-      { ...VERSION, libraryId: `${VERSION.libraryId}x` },
+      { ...VERSION, assetId: `${VERSION.assetId}x` },
       { ...VERSION, versionId: `${VERSION.versionId}x` },
       { ...VERSION, sourceDigest: 'c'.repeat(64) },
       { ...VERSION, contentMerkleRoot: 'd'.repeat(64) },
@@ -57,8 +66,8 @@ describe('version leaf', () => {
    * ("a", "bc") the same preimage, and both halves are attacker-chosen.
    */
   it('does not let a field boundary shift produce the same leaf', async () => {
-    const left = await versionLeaf({ ...VERSION, libraryId: 'ab', versionId: 'c' });
-    const right = await versionLeaf({ ...VERSION, libraryId: 'a', versionId: 'bc' });
+    const left = await versionLeaf({ ...VERSION, assetId: 'ab', versionId: 'c' });
+    const right = await versionLeaf({ ...VERSION, assetId: 'a', versionId: 'bc' });
     expect(left).not.toBe(right);
   });
 
@@ -74,7 +83,7 @@ describe('domain separation', () => {
     const audit = await auditHeadLeaf({ date: '2026-01-01', chainHead: 'f'.repeat(64) });
     const version = await versionLeaf({
       ...VERSION,
-      libraryId: '2026-01-01',
+      assetId: '2026-01-01',
       versionId: 'f'.repeat(64),
     });
     expect(audit).not.toBe(version);

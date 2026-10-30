@@ -11,14 +11,14 @@ import {
 } from '@/lib/application/auth';
 import {
   checkDomainVerification,
-  createWorkspaceLibrary,
+  createWorkspaceAsset,
   prepareUploads,
   startDomainVerification,
   type DomainChallenge,
   type PreparedUpload,
-} from '@/lib/application/libraries';
+} from '@/lib/application/assets';
 import type { DomainVerificationFailure } from '@/lib/domain/domain-verification';
-import { isConnectedSourceType, isUploadSourceType, PlatformLibraryRefused, UPLOAD_LIMITS } from '@/lib/domain/library';
+import { isConnectedSourceType, isUploadSourceType, PlatformAssetRefused, UPLOAD_LIMITS } from '@/lib/domain/asset';
 import { requireSession } from '@/lib/http/session';
 
 /**
@@ -26,11 +26,11 @@ import { requireSession } from '@/lib/http/session';
  * server action is a public endpoint with a generated name -- and returns a
  * coarse error code the wizard translates; detail stays server side.
  */
-export interface CreateLibraryResult {
+export interface CreateAssetResult {
   ok: boolean;
   publicId?: string;
-  /** Where the files page of a PDF library created without files is. */
-  libraryId?: string;
+  /** Where the files page of a PDF asset created without files is. */
+  assetId?: string;
   error?:
     | 'invalid'
     | 'taken'
@@ -40,7 +40,7 @@ export interface CreateLibraryResult {
     | 'github'
     | 'notion'
     | 'unverified'
-    /** A public library without a usable rights declaration, or one declaring model-generated content. */
+    /** A public asset without a usable rights declaration, or one declaring model-generated content. */
     | 'rights';
   /** With `error: 'github'`: which import rule the repository failed. */
   refusal?: GithubImportRefusalCode;
@@ -50,17 +50,17 @@ export interface CreateLibraryResult {
   reason?: DomainVerificationFailure;
 }
 
-export async function createWorkspaceLibraryAction(
-  _previous: CreateLibraryResult | null,
+export async function createWorkspaceAssetAction(
+  _previous: CreateAssetResult | null,
   form: FormData,
-): Promise<CreateLibraryResult> {
+): Promise<CreateAssetResult> {
   const session = await requireSession('/dashboard/assets/new');
   try {
     const sourceType = String(form.get('sourceType') ?? '');
     if (!isConnectedSourceType(sourceType)) return { ok: false, error: 'invalid' };
 
     /* The wizard posts an empty manifest field when no file was uploaded;
-       that is an empty upload library, filled in from its files page. */
+       that is an empty upload asset, filled in from its files page. */
     let uploads: unknown;
     const posted = String(form.get('uploads') ?? '');
     if (isUploadSourceType(sourceType) && posted !== '') {
@@ -71,7 +71,7 @@ export async function createWorkspaceLibraryAction(
       }
     }
 
-    const { publicId, libraryId, operationId } = await createWorkspaceLibrary({
+    const { publicId, assetId, operationId } = await createWorkspaceAsset({
       workspaceId: session.workspace.id,
       role: session.workspace.role,
       userId: session.user.id,
@@ -92,7 +92,7 @@ export async function createWorkspaceLibraryAction(
       },
     });
     /* Queued, and then run after the response: the wizard says "queued" at
-       once, and by the time the owner opens the library page the first build
+       once, and by the time the owner opens the asset page the first build
        has usually finished. A drain that overlaps loses the claim and does
        nothing; a failure lands on the operation row, not here. */
     if (operationId) {
@@ -100,13 +100,13 @@ export async function createWorkspaceLibraryAction(
         try {
           await runOperation({ operationId });
         } catch (error) {
-          console.error(`library build run failed: ${error instanceof Error ? error.message : 'unknown'}`);
+          console.error(`asset build run failed: ${error instanceof Error ? error.message : 'unknown'}`);
         }
       });
     }
-    return { ok: true, publicId, libraryId };
+    return { ok: true, publicId, assetId };
   } catch (error) {
-    if (error instanceof PlatformLibraryRefused && error.code.startsWith('rights_')) {
+    if (error instanceof PlatformAssetRefused && error.code.startsWith('rights_')) {
       return { ok: false, error: 'rights' };
     }
     if (error instanceof GithubImportRefused) {
@@ -118,7 +118,7 @@ export async function createWorkspaceLibraryAction(
     if (error instanceof AppError && error.code === 'claim_verification_failed') {
       return { ok: false, error: 'unverified', reason: verificationReason(error.reason) };
     }
-    /* requirement.md 3.3: only an owner or admin creates a library. The page
+    /* requirement.md 3.3: only an owner or admin creates an asset. The page
        says so before the wizard starts, but the action is a public endpoint
        and a refusal here is a refusal, not an outage. */
     if (error instanceof AppError && error.code === 'access_denied') {
@@ -133,7 +133,7 @@ export async function createWorkspaceLibraryAction(
     if (error instanceof AppError && error.code === 'provider_unavailable') {
       return { ok: false, error: 'unavailable' };
     }
-    console.error(`create library failed: ${error instanceof Error ? error.message : 'unknown'}`);
+    console.error(`create asset failed: ${error instanceof Error ? error.message : 'unknown'}`);
     return { ok: false, error: 'unavailable' };
   }
 }
@@ -158,7 +158,7 @@ export async function prepareUploadAction(
   batchId?: string,
   kind?: string,
 ): Promise<PrepareUploadResult> {
-  /* Shared with the library files page, which hands the same action to the
+  /* Shared with the asset files page, which hands the same action to the
      same uploader; the session is what matters, not the page. */
   const session = await requireSession('/dashboard/assets');
   const maxFileBytes = UPLOAD_LIMITS.maxFileBytes;
@@ -177,7 +177,7 @@ export async function prepareUploadAction(
     return { ok: true, maxFileBytes, ...prepared };
   } catch (error) {
     if (error instanceof AppError) {
-      if (error.code === 'library_size_exceeded') return { ok: false, maxFileBytes, error: 'too_large' };
+      if (error.code === 'asset_size_exceeded') return { ok: false, maxFileBytes, error: 'too_large' };
       if (error.code === 'access_denied') return { ok: false, maxFileBytes, error: 'access_denied' };
       if (error.code === 'invalid_request') return { ok: false, maxFileBytes, error: 'invalid' };
     }
@@ -190,7 +190,7 @@ export async function prepareUploadAction(
 
 /**
  * The domain challenge (requirement.md 7.3.2) the wizard walks a website
- * library through before it may be created. Two calls:
+ * asset through before it may be created. Two calls:
  * start hands back the one plaintext copy of the token with where to put it;
  * check asks DNS or the host and says whether it was found. Both answer with
  * stable codes only -- no DNS payload, no fetched body (requirement.md 7.3.7).
