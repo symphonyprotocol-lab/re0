@@ -2,6 +2,7 @@ import type { Metadata } from 'next';
 import { ActionCard } from '@/components/dashboard/action-card';
 import { PageHeader } from '@/components/dashboard/ui';
 import { listActions } from '@/lib/application/agent';
+import { delegationsByActionIds } from '@/lib/application/external-agents';
 import { cardOf } from '@/lib/dashboard/action-card';
 import { requireSession } from '@/lib/http/session';
 import { getMessages, translations } from '@/lib/i18n/server';
@@ -21,6 +22,7 @@ export default async function PendingActionsPage() {
   const actions = await listActions(session.workspace.id, { limit: 60 });
   const pending = actions.filter((action) => action.state === 'pending');
   const decided = actions.filter((action) => action.state !== 'pending').slice(0, 20);
+  const delegations = await delegationsByActionIds(session.workspace.id, decided.map((action) => action.id));
 
   return (
     <div className="flex flex-col gap-[18px]">
@@ -36,7 +38,12 @@ export default async function PendingActionsPage() {
           <h2 className="text-[13px] font-medium text-ink">{a.history}</h2>
           <div className="grid gap-3 md:grid-cols-2">
             {decided.map((action) => (
-              <ActionCard key={action.id} action={cardOf(action)} origin={action.origin} taskId={action.a2aTaskId} />
+              <ActionCard
+                key={action.id}
+                action={cardOf(action, delegations.get(action.id) ?? null)}
+                origin={action.origin}
+                taskId={action.a2aTaskId}
+              />
             ))}
           </div>
         </section>

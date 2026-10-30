@@ -3,6 +3,7 @@ import { notFound } from 'next/navigation';
 import { ActionCard } from '@/components/dashboard/action-card';
 import { BackLink, PageHeader } from '@/components/dashboard/ui';
 import { actionById } from '@/lib/application/agent';
+import { delegationsByActionIds } from '@/lib/application/external-agents';
 import { requireSession } from '@/lib/http/session';
 import { getMessages, translations } from '@/lib/i18n/server';
 import { cardOf } from '@/lib/dashboard/action-card';
@@ -22,12 +23,13 @@ export default async function PendingActionPage({ params }: { params: Promise<{ 
   const a = t.dashboard.agentActions;
   const action = await actionById(session.workspace.id, actionId);
   if (!action) notFound();
+  const delegation = (await delegationsByActionIds(session.workspace.id, [action.id])).get(action.id) ?? null;
   return (
     <div className="flex flex-col gap-[18px]">
       <BackLink href="/dashboard/actions">{a.title}</BackLink>
       <PageHeader eyebrow={session.workspace.name} title={a.tools[action.tool]} description={a.description} />
       <div className="max-w-[560px]">
-        <ActionCard action={cardOf(action)} origin={action.origin} taskId={action.a2aTaskId} />
+        <ActionCard action={cardOf(action, delegation)} origin={action.origin} taskId={action.a2aTaskId} />
       </div>
     </div>
   );

@@ -288,9 +288,21 @@ export const workspace = pgTable(
      * no public page; `lib/domain/handle.ts` says what a handle may be.
      */
     handle: text('handle'),
+    /**
+     * Days a private asset -- one in no public channel -- is kept after its
+     * last successful build (agent-first-proposal.md 7.9, 10). Null keeps it
+     * until the owner deletes it; the retention cron deletes the rest.
+     */
+    privateAssetRetentionDays: integer('private_asset_retention_days'),
     createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
   },
-  (t) => [uniqueIndex('workspace_handle_uq').on(t.handle)],
+  (t) => [
+    uniqueIndex('workspace_handle_uq').on(t.handle),
+    check(
+      'workspace_private_asset_retention_ck',
+      sql`${t.privateAssetRetentionDays} is null or ${t.privateAssetRetentionDays} in (30, 90, 180, 365)`,
+    ),
+  ],
 );
 
 export const workspaceMember = pgTable(
@@ -2385,6 +2397,115 @@ export const a2aPushConfig = pgTable(
     createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
   },
   (t) => [primaryKey({ columns: [t.taskId, t.id] })],
+);
+
+// ------------------------------------------------------- A2A client (P4)
+
+/**
+ * External A2A Agents a workspace registered (agent-first-proposal.md 7.9).
+ * The card was fetched through the push-callback SSRF checks and is kept as
+ * a snapshot: the interfaces re0 can use (JSON-RPC and HTTP+JSON, A2A 1.0 or
+ * 0.3), the skills, the security schemes reduced to what re0 can send. A
+ * re-fetch replaces the snapshot; a delegation proposed against the old one
+ * fails as stale if its endpoint is gone.
+ */
+export const externalAgent = pgTable(
+  'external_agent',
+  {
+    id: uuid('id').primaryKey(),
+    workspaceId: uuid('workspace_id')
+      .notNull()
+      .references(() => workspace.id, { onDelete: 'cascade' }),
+    createdBy: uuid('created_by').references(() => user.id, { onDelete: 'set null' }),
+    cardUrl: text('card_url').notNull(),
+    name: text('name').notNull(),
+    description: text('description').notNull().default(''),
+    providerName: text('provider_name'),
+    version: text('version'),
+    /** `AgentEndpoint[]`, in the order re0 prefers them. */
+    endpoints: jsonb('endpoints').$type<Record<string, unknown>[]>().notNull(),
+    skills: jsonb('skills').$type<Record<string, unknown>[]>().notNull().default([]),
+    /** Scheme name -> `SchemeSnapshot`. */
+    securitySchemes: jsonb('security_schemes').$type<Record<string, unknown>>().notNull().default({}),
+    securityRequirements: jsonb('security_requirements').$type<unknown[]>().notNull().default([]),
+    /** The whole card as fetched, in A2A 1.0 JSON. */
+    card: jsonb('card').$type<Record<string, unknown>>().notNull(),
+    cardDigest: text('card_digest').notNull(),
+    status: text('status').$type<'active' | 'disabled'>().notNull().default('active'),
+    fetchedAt: timestamp('fetched_at', { withTimezone: true }).notNull(),
+    createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
+    updatedAt: timestamp('updated_at', { withTimezone: true }).notNull().defaultNow(),
+  },
+  (t) => [
+    uniqueIndex('external_agent_card_uq').on(t.workspaceId, t.cardUrl),
+    check('external_agent_status_ck', sql`${t.status} in ('active', 'disabled')`),
+  ],
+);
+
+/**
+ * The credential sent to one external Agent: sealed with `sealCredential`
+ * under the `agent` purpose, opened only at send time. `suffix` is the one
+ * part ever shown again. `version` goes up on every rotation, and a pending
+ * delegation names the version it was shown, so a rotated credential is not
+ * sent on a card that showed the old one.
+ */
+export const externalAgentCredential = pgTable(
+  'external_agent_credential',
+  {
+    agentId: uuid('agent_id')
+      .primaryKey()
+      .references(() => externalAgent.id, { onDelete: 'cascade' }),
+    id: uuid('id').notNull(),
+    kind: text('kind').$type<'bearer' | 'api_key'>().notNull(),
+    sealed: text('sealed').notNull(),
+    suffix: text('suffix'),
+    version: integer('version').notNull().default(1),
+    updatedBy: uuid('updated_by').references(() => user.id, { onDelete: 'set null' }),
+    createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
+    updatedAt: timestamp('updated_at', { withTimezone: true }).notNull().defaultNow(),
+  },
+  (t) => [check('external_agent_credential_kind_ck', sql`${t.kind} in ('bearer', 'api_key')`)],
+);
+
+/**
+ * One confirmed delegation (proposal 7.9): the SendMessage re0 sent as an
+ * A2A client and the remote task it started. `state` is the remote task's
+ * state name, `MESSAGE` when the Agent answered with a message, or
+ * `SEND_FAILED`. `status_message` and `output` are the external Agent's
+ * words -- untrusted, shown as data -- and are cleared at `body_purge_at`
+ * with the sent text in the action's params (proposal 10).
+ */
+export const agentDelegation = pgTable(
+  'agent_delegation',
+  {
+    id: uuid('id').primaryKey(),
+    workspaceId: uuid('workspace_id')
+      .notNull()
+      .references(() => workspace.id, { onDelete: 'cascade' }),
+    actionId: uuid('action_id').references(() => agentAction.id, { onDelete: 'set null' }),
+    agentId: uuid('agent_id').references(() => externalAgent.id, { onDelete: 'set null' }),
+    /** The agent's name when this was sent: the record outlives the registration. */
+    agentName: text('agent_name').notNull(),
+    conversationId: uuid('conversation_id').references(() => agentConversation.id, { onDelete: 'set null' }),
+    skill: text('skill'),
+    endpointUrl: text('endpoint_url').notNull(),
+    remoteTaskId: text('remote_task_id'),
+    remoteContextId: text('remote_context_id'),
+    state: text('state').notNull(),
+    statusMessage: text('status_message'),
+    /** `{ text, data }` parts of the artifacts or the reply, clipped (OUTPUT_MAX_CHARS). */
+    output: jsonb('output').$type<Record<string, unknown>[]>().notNull().default([]),
+    error: text('error'),
+    bodyPurgeAt: timestamp('body_purge_at', { withTimezone: true }).notNull(),
+    lastPolledAt: timestamp('last_polled_at', { withTimezone: true }),
+    createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
+    updatedAt: timestamp('updated_at', { withTimezone: true }).notNull().defaultNow(),
+  },
+  (t) => [
+    index('agent_delegation_workspace_idx').on(t.workspaceId, t.createdAt.desc()),
+    uniqueIndex('agent_delegation_action_uq').on(t.actionId),
+    index('agent_delegation_purge_idx').on(t.bodyPurgeAt),
+  ],
 );
 
 // ---------------------------------------------------------------- creators (P3)

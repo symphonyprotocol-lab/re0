@@ -1,6 +1,7 @@
 import type { MetadataRoute } from 'next';
 import { listPublicLibraryLocations } from '@/lib/application/libraries';
 import { publicCardSubjects } from '@/lib/application/channels';
+import { isPromoted, scenarioPath, SCENARIOS } from '@/lib/domain/scenarios';
 import { publicUrl } from '@/lib/site/origin';
 
 /**
@@ -37,6 +38,12 @@ export default async function sitemap(): Promise<MetadataRoute.Sitemap> {
     { url: publicUrl('/legal'), changeFrequency: 'yearly', priority: 0.3 },
     { url: publicUrl('/legal/terms'), changeFrequency: 'yearly', priority: 0.3 },
     { url: publicUrl('/legal/privacy'), changeFrequency: 'yearly', priority: 0.3 },
+    /* The scenario pages (proposal 2.2): Life is listed, at the bottom, until it is promoted. */
+    ...SCENARIOS.map((scenario) => ({
+      url: publicUrl(scenarioPath(scenario)),
+      changeFrequency: 'monthly' as const,
+      priority: isPromoted(scenario) ? 0.7 : 0.1,
+    })),
   ];
 
   const subjects = await publicCardSubjects();

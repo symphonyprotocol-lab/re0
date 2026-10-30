@@ -7,16 +7,15 @@
  * retries of failed ones, and the upload sweep that runs at the end of each
  * drain. It is also the schedule: each call first queues a refresh for every
  * platform source whose policy says it is due (`scheduleDueRefreshes`), and
- * it clears the message bodies of A2A tasks past their 30 days
- * (agent-first-proposal.md 10), and it publishes the posts and episodes
- * scheduled for now (6.5).
+ * it publishes the posts and episodes scheduled for now (6.5). Clearing A2A
+ * task bodies past their 30 days moved to the daily /api/cron/retention
+ * (agent-first-proposal.md 7.9, 10).
  * Vercel Cron calls it with `Authorization: Bearer $CRON_SECRET`;
  * anything else is a 401, so the route cannot be used to make the platform
  * do work on demand.
  */
 import { NextResponse } from 'next/server';
 import { drainOperations, isIngestionConfigured, scheduleDueRefreshes } from '@/lib/application/ingestion';
-import { purgeA2aTaskBodies } from '@/lib/application/a2a/task-store';
 import { syncBuildTasks } from '@/lib/application/a2a/task-events';
 import { expireActions } from '@/lib/application/agent';
 import { publishDueDrafts } from '@/lib/application/editorial';
@@ -54,11 +53,6 @@ export async function GET(request: Request): Promise<Response> {
     console.error(`a2a build sync failed: ${error instanceof Error ? error.message : 'unknown'}`);
     return 0;
   });
-  /* Best-effort housekeeping: a missed purge is caught by the next drain. */
-  const purgedTasks = await purgeA2aTaskBodies().catch((error: unknown) => {
-    console.error(`a2a purge failed: ${error instanceof Error ? error.message : 'unknown'}`);
-    return 0;
-  });
 
   return NextResponse.json(
     {
@@ -66,7 +60,6 @@ export async function GET(request: Request): Promise<Response> {
       publishedDrafts: due.published.length,
       drained: outcomes.length,
       outcomes: outcomes.map((outcome) => outcome.status),
-      purgedTasks,
       expiredActions,
       syncedTasks,
     },

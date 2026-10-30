@@ -114,6 +114,7 @@ export function DashboardSidebar({
       items: [
         { href: '/dashboard/agent-cards', label: n.agentCards, Icon: BotIcon },
         { href: '/dashboard/api-keys', label: n.apiKeys, Icon: KeyIcon },
+        { href: '/dashboard/external-agents', label: n.externalAgents, Icon: BotIcon },
       ],
     },
     {
@@ -128,6 +129,7 @@ export function DashboardSidebar({
       items: [
         { href: '/dashboard/policies', label: n.policies, Icon: ShieldCheckIcon },
         { href: '/dashboard/requests', label: n.requests, Icon: FileTextIcon },
+        { href: '/dashboard/privacy', label: n.privacyData, Icon: ShieldCheckIcon },
         { href: '/dashboard/usage', label: n.capacity, Icon: LayoutDashboardIcon },
         /* Offline surfaces (lib/domain/surfaces.ts) keep no entry in the rail. */
         ...(surfaceEnabled('widget') ? [{ href: '/dashboard/widget', label: n.widget, Icon: GlobeIcon }] : []),

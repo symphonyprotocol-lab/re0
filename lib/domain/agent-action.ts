@@ -2,10 +2,14 @@
  * The re0 Agent's side effects, as rules (agent-first-proposal.md 5.1, 5.2,
  * 7.6). Pure: no I/O.
  *
- * The Agent's tool set is closed. Six tools on top of retrieval and
- * `answer`: two read (`list_assets`, `subscription_summary`), four would
- * change something and so are never run when called -- each writes a pending
- * action that only the signed-in owner can confirm in the Dashboard. The
+ * The Agent's tool set is closed. Eight tools on top of retrieval and
+ * `answer`: three read (`list_assets`, `subscription_summary`, and
+ * `check_delegation`, which reads what an external Agent sent back), five
+ * would change something and so are never run when called -- each writes a
+ * pending action that only the signed-in owner can confirm in the Dashboard.
+ * The fifth, `delegate_task` (proposal 7.9), sends a sub-task to an external
+ * A2A Agent the workspace registered; it is the workbench's alone, never an
+ * A2A caller's. The
  * operations the proposal keeps out of the tool set (deleting an asset or a
  * channel, revoking or rotating a key, changing access rules, buying Calls,
  * pricing a channel, publishing posts or audio, moderating comments) have no
@@ -18,8 +22,11 @@
  * explicit and testable rather than the absence of a code path.
  */
 
-export const READ_TOOLS = ['list_assets', 'subscription_summary'] as const;
-export const ACTION_TOOLS = ['create_asset', 'refresh_asset', 'create_channel', 'move_asset'] as const;
+export const READ_TOOLS = ['list_assets', 'subscription_summary', 'check_delegation'] as const;
+export const ACTION_TOOLS = ['create_asset', 'refresh_asset', 'create_channel', 'move_asset', 'delegate_task'] as const;
+
+/** Actions only the workbench may propose: an A2A caller cannot send the owner's words or credential anywhere. */
+export const WORKBENCH_ONLY_TOOLS: ReadonlySet<ActionTool> = new Set(['delegate_task']);
 
 export type ReadTool = (typeof READ_TOOLS)[number];
 export type ActionTool = (typeof ACTION_TOOLS)[number];
@@ -92,7 +99,18 @@ export type ActionParams =
     }
   | { tool: 'refresh_asset'; assetId: string }
   | { tool: 'create_channel'; slug: string; title: string; description: string | null; visibility: 'public' | 'private' }
-  | { tool: 'move_asset'; assetId: string; channelId: string | null };
+  | { tool: 'move_asset'; assetId: string; channelId: string | null }
+  | {
+      tool: 'delegate_task';
+      agentId: string;
+      /** The interface the card listed when this was proposed; it must still be listed when it runs. */
+      endpoint: { url: string; binding: 'JSONRPC' | 'HTTP+JSON'; protocolVersion: string; tenant: string };
+      skill: string | null;
+      /** Exactly what is sent; null once the body was purged (proposal 10). */
+      message: string | null;
+      /** The credential row and version the card showed; a rotation makes this stale. */
+      credential: { id: string; version: number; kind: 'bearer' | 'api_key'; header: string } | null;
+    };
 
 /**
  * What the confirmation card states (proposal 5.2): what will be done, to
@@ -108,12 +126,26 @@ export interface ActionSummary {
   to: { id: string; slug: string; title: string; visibility: 'public' | 'private' } | null;
   source: { type: AgentSourceType; location: string } | null;
   channel: { slug: string; title: string; visibility: 'public' | 'private' } | null;
+  /** For a delegation: the target, what is sent and with which credential (shown masked). */
+  delegation: DelegationSummary | null;
   calls: { min: number; max: number };
   /** Bytes the asset holds now (refresh), or null when unknown until built. */
   assetBytes: number | null;
   /** What the workspace has left, for the card's capacity line. */
   capacityRemainingBytes: number | null;
   makesPublic: boolean;
+}
+
+export interface DelegationSummary {
+  agentId: string;
+  agentName: string;
+  cardUrl: string;
+  endpoint: { url: string; binding: 'JSONRPC' | 'HTTP+JSON' };
+  skill: { id: string; name: string } | null;
+  /** The text that will be sent, verbatim; null once purged. */
+  message: string | null;
+  /** `kind` and the last four characters, never the credential; null when none is sent. */
+  credential: { kind: 'bearer' | 'api_key'; suffix: string | null } | null;
 }
 
 /**
@@ -143,6 +175,13 @@ export function describeAction(summary: ActionSummary): string {
     case 'move_asset':
       what = `move the asset ${summary.asset?.publicId ?? ''} from ${where(summary.from)} to ${where(summary.to)}`;
       break;
+    case 'delegate_task': {
+      const target = summary.delegation;
+      what = `send a sub-task to the external agent "${target?.agentName ?? ''}"${target?.skill ? ` (skill ${target.skill.id})` : ''}${
+        target?.credential ? ' with its stored credential' : ' without a credential'
+      }`;
+      break;
+    }
   }
   return `Pending owner confirmation: ${what}; estimated cost ${calls}${summary.makesPublic ? '; this makes the content public' : ''}.`;
 }
@@ -181,7 +220,12 @@ export class ActionRefused extends Error {
       | 'asset_not_found'
       | 'channel_not_found'
       | 'domain_unverified'
-      | 'upload_needs_dashboard',
+      | 'upload_needs_dashboard'
+      | 'workbench_only'
+      | 'agent_not_found'
+      | 'agent_disabled'
+      | 'skill_not_found'
+      | 'credential_missing',
     message: string,
   ) {
     super(message);
