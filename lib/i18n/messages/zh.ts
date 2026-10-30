@@ -4871,7 +4871,7 @@ export const zh = {
         notesLabel: '节目说明（Markdown）',
         notesHint: '音频不转写：进入检索、能被 AI 分身引用的只有标题与节目说明。',
         channelLabel: '发布到频道',
-        noChannel: '不放进频道（只有你能看到）',
+        noChannel: '保持当前位置（未放进频道时只有你能看到）',
         accessLabel: '访问',
         free: '免费',
         paid: '付费（仅订阅者）',

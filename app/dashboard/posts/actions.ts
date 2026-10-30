@@ -112,6 +112,7 @@ export async function saveEditorialAction(form: FormData): Promise<void> {
           ...actor,
           assetId,
           publishAt: intent === 'schedule' ? String(form.get('publishAt') ?? '') : null,
+          schedule: intent === 'schedule',
         });
         runAfter(result.operationId);
         notice = result.scheduledFor ? 'scheduled' : 'published';

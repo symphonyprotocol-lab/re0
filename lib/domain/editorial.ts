@@ -205,7 +205,9 @@ export function qaDocument(input: { question: string; answer: string }): string 
  */
 export function publishInstant(value: string | null | undefined, now: Date): Date | null {
   if (!value || value.trim() === '') return null;
-  const at = new Date(value);
+  /* A `datetime-local` value carries no zone; the editor says UTC, so it is read as UTC. */
+  const trimmed = value.trim();
+  const at = new Date(/(Z|[+-]\d{2}:?\d{2})$/i.test(trimmed) ? trimmed : `${trimmed}Z`);
   if (Number.isNaN(at.getTime())) throw new EditorialRefused('invalid_schedule', 'the publication time is not a date');
   if (at.getTime() - now.getTime() > 366 * 86_400_000) {
     throw new EditorialRefused('invalid_schedule', 'a post can be scheduled at most a year ahead');

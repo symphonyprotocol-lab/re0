@@ -37,6 +37,7 @@ import {
   type EditorialKind,
 } from '@/lib/domain/editorial';
 import { isAssetAccess, type AssetAccess } from '@/lib/domain/asset';
+import { sha256Hex } from '@/lib/domain/ingestion';
 import { uuidv7 } from '@/lib/domain/id';
 import { parseRightsDeclaration, rightsPosted, type RightsDeclaration } from '@/lib/domain/rights';
 import { db, schema, type Database } from '@/lib/infrastructure/postgres/client';
@@ -59,11 +60,6 @@ export interface EditorActor {
 
 function assertEditor(role: WorkspaceRole): void {
   if (!canManageLibraries(role)) throw new EditorialRefused('not_owner', 'only a workspace owner or admin can publish');
-}
-
-async function sha256Hex(value: string): Promise<string> {
-  const digest = await crypto.subtle.digest('SHA-256', new TextEncoder().encode(value));
-  return Array.from(new Uint8Array(digest), (byte) => byte.toString(16).padStart(2, '0')).join('');
 }
 
 /* ------------------------------------------------------------------ create */
@@ -290,10 +286,14 @@ export interface PublishResult {
  * Publishes the draft now, or schedules it. `publishAt` empty, in the past or
  * within a minute is "now".
  */
-export async function publishEditorial(input: EditorActor & { assetId: string; publishAt?: string | null }): Promise<PublishResult> {
+export async function publishEditorial(
+  input: EditorActor & { assetId: string; publishAt?: string | null; schedule?: boolean },
+): Promise<PublishResult> {
   assertEditor(input.role);
   const now = new Date();
   const at = publishInstant(input.publishAt, now);
+  /* "Schedule" without a future time is a mistake, not a request to publish now. */
+  if (input.schedule && !at) throw new EditorialRefused('invalid_schedule', 'choose a time in the future to schedule');
   const database = db();
   const asset = await ownedEditorialAsset(database, input.workspaceId, input.assetId);
   if (at) {
@@ -380,10 +380,13 @@ async function publishNow(asset: EditorialAsset, actor: EditorActor): Promise<st
     return queueBuildUnlessPending(tx, asset.id);
   });
 
-  if (draft.channelId && draft.channelId !== asset.channelId) {
+  const moved = draft.channelId !== null && draft.channelId !== asset.channelId;
+  if (moved) {
     await moveAsset({ workspaceId: actor.workspaceId, role: actor.role, assetId: asset.id, channelId: draft.channelId });
   }
-  if ((draft.channelId ?? asset.channelId) && draft.access !== asset.access) {
+  /* A move resets access to free (proposal 6.1), so compare against what the asset holds now. */
+  const accessNow = moved ? 'free' : asset.access;
+  if ((draft.channelId ?? asset.channelId) && draft.access !== accessNow) {
     await setAssetAccess({ workspaceId: actor.workspaceId, role: actor.role, assetId: asset.id, access: draft.access });
   }
   return operationId;

@@ -375,6 +375,22 @@ describeWithDb('P3: articles, comments, subscriptions, payouts and audio', () =>
     await blocked(reader);
   });
 
+  it('keeps a paid post paid when publishing moves it, and refuses a schedule with no time', async () => {
+    const creator = await person('mv');
+    const first = await sellingChannel(creator, 'p3-mv-a');
+    const second = await sellingChannel(creator, 'p3-mv-b');
+    const post = await publishedPost(creator, { slug: 'moved', title: 'Moved post', body: 'Moss grows on the north side.', channelId: first.id, access: 'paid' });
+    await editorial.saveEditorialDraft({ ...owner(creator), assetId: post.assetId, title: 'Moved post', body: 'Moss grows on the north side, mostly.', channelId: second.id, access: 'paid' });
+    expect(await refusal(editorial.publishEditorial({ ...owner(creator), assetId: post.assetId, publishAt: '', schedule: true }))).toBe('invalid_schedule');
+    await build((await editorial.publishEditorial({ ...owner(creator), assetId: post.assetId })).operationId);
+    const [row] = await db()
+      .select({ access: schema.library.access, channelId: schema.channelAsset.channelId })
+      .from(schema.library)
+      .innerJoin(schema.channelAsset, eq(schema.channelAsset.assetId, schema.library.id))
+      .where(eq(schema.library.id, post.assetId));
+    expect(row).toEqual({ access: 'paid', channelId: second.id });
+  });
+
   it('never lets a comment into retrieval', async () => {
     const creator = await person('cmt');
     const reader = await person('cmtr');

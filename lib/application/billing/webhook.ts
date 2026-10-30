@@ -117,6 +117,8 @@ export async function applyPaymentNotification(
  * so the event rolls back unrecorded and the provider's retry finds it
  * again, by which time the transaction has landed.
  */
+const SUBSCRIPTION_WAIT_MS = 24 * 60 * 60 * 1000;
+
 export class ChannelSubscriptionNotYetKnown extends Error {
   constructor(externalId: string) {
     super(`channel subscription ${externalId} is not known yet`);
@@ -140,7 +142,14 @@ async function applyChannelNotification(
       return applyChannelTransaction(tx, notification.channel);
     }
     const outcome = await applyChannelSubscription(tx, notification.channel);
-    if (outcome === 'unresolved') throw new ChannelSubscriptionNotYetKnown(notification.channel.subscriptionExternalId);
+    /*
+     * Retried while the first transaction may still be on its way; a day on,
+     * none is coming (a checkout whose payment failed), so the event is
+     * recorded as unresolved instead of failing every redelivery.
+     */
+    if (outcome === 'unresolved' && Date.now() - notification.channel.observedAt.getTime() < SUBSCRIPTION_WAIT_MS) {
+      throw new ChannelSubscriptionNotYetKnown(notification.channel.subscriptionExternalId);
+    }
     return outcome;
   });
 }

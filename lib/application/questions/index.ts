@@ -21,7 +21,7 @@
  *   version the answer stood on and keeps showing after the asset updates,
  *   naming that version.
  */
-import { and, desc, eq, inArray } from 'drizzle-orm';
+import { and, desc, eq, inArray, sql } from 'drizzle-orm';
 import { AppError } from '@/contracts/errors';
 import { isAssetAccess, type AssetAccess } from '@/lib/domain/asset';
 import { EDITORIAL_LIMITS, editorialPublicId, EditorialRefused, qaDocument } from '@/lib/domain/editorial';
@@ -209,6 +209,16 @@ export async function listQuestions(workspaceId: string, options: { state?: Pend
   return rows.map(({ consent, displayName, ...row }) => ({ ...row, askerName: consent ? displayName?.trim() || null : null }));
 }
 
+/** Open questions across the workspace's channels: the sidebar's badge. */
+export async function countOpenQuestions(workspaceId: string): Promise<number> {
+  const [row] = await db()
+    .select({ n: sql<number>`count(*)::int` })
+    .from(schema.channelQuestion)
+    .innerJoin(schema.channel, eq(schema.channel.id, schema.channelQuestion.channelId))
+    .where(and(eq(schema.channel.workspaceId, workspaceId), eq(schema.channelQuestion.state, 'open')));
+  return row?.n ?? 0;
+}
+
 async function ownedQuestion(workspaceId: string, role: WorkspaceRole, questionId: string) {
   if (!canManageLibraries(role)) throw new QuestionRefused('not_owner', 'only the creator answers questions');
   if (!UUID.test(questionId)) throw new QuestionRefused('not_found', 'no such question');
@@ -262,7 +272,7 @@ export async function answerQuestion(input: {
   const assetId = uuidv7();
   const publicId = editorialPublicId('qa', row.handle, `q-${assetId.replace(/-/g, '').slice(-10)}`);
   const title = row.question.length > EDITORIAL_LIMITS.titleMax ? `${row.question.slice(0, EDITORIAL_LIMITS.titleMax - 1)}…` : row.question;
-  const operationId = await db().transaction(async (tx) => {
+  await db().transaction(async (tx) => {
     await tx.insert(schema.library).values({
       id: assetId,
       publicId,
@@ -289,6 +299,24 @@ export async function answerQuestion(input: {
       location: publicId,
       config: { path: 'qa.md', url: `/assets${publicId}`, markdown: qaDocument({ question: row.question, answer }), question: row.question, answer },
     });
+  });
+  /*
+   * Into the channel before the question counts as answered: a move the
+   * channel refuses (suspended, say) must leave the question open and no
+   * stray Q&A behind, so the new rows are removed and the refusal stands.
+   */
+  try {
+    await moveAsset({ workspaceId: input.workspaceId, role: input.role, assetId, channelId: row.channelId });
+    if (access === 'paid') await setAssetAccess({ workspaceId: input.workspaceId, role: input.role, assetId, access });
+  } catch (error) {
+    await db().transaction(async (tx) => {
+      await tx.delete(schema.channelAsset).where(eq(schema.channelAsset.assetId, assetId));
+      await tx.delete(schema.source).where(eq(schema.source.libraryId, assetId));
+      await tx.delete(schema.library).where(eq(schema.library.id, assetId));
+    });
+    throw error;
+  }
+  const operationId = await db().transaction(async (tx) => {
     await tx
       .update(schema.channelQuestion)
       .set({ state: 'answered', answerAssetId: assetId, answeredAt: new Date() })
@@ -296,8 +324,6 @@ export async function answerQuestion(input: {
     if (row.askerUserId) await notify([row.askerUserId], 'question_answered', { assetId, publicId, title }, tx);
     return queueBuildUnlessPending(tx, assetId);
   });
-  await moveAsset({ workspaceId: input.workspaceId, role: input.role, assetId, channelId: row.channelId });
-  if (access === 'paid') await setAssetAccess({ workspaceId: input.workspaceId, role: input.role, assetId, access });
   return { assetId, publicId, operationId };
 }
 

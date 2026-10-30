@@ -33,6 +33,20 @@ declare global {
 
 type Phase = 'opening' | 'closed' | 'completed' | 'missing' | 'failed';
 
+/**
+ * Where the buyer goes afterwards. A pack returns to the plan card; a
+ * channel subscription's checkout carries `return` (set by the server that
+ * opened it) back to the reader's subscriptions. Only a path on this site is
+ * taken -- never another origin.
+ */
+const DEFAULT_PATHS = { success: '/dashboard/settings?checkout=success#plan', back: '/dashboard/settings#plan' };
+
+function returnPath(): { success: string; back: string } {
+  const raw = new URLSearchParams(window.location.search).get('return');
+  if (raw && /^\/[A-Za-z0-9/_\-?=&.#]*$/.test(raw) && !raw.startsWith('//')) return { success: raw, back: raw };
+  return DEFAULT_PATHS;
+}
+
 export function PaddleCheckout({
   token,
   environment,
@@ -49,8 +63,11 @@ export function PaddleCheckout({
   /* Reopening reloads the page; the button spins until the unload lands. */
   const [reopening, setReopening] = useState(false);
 
+  /* Read after mount, so the server render and the first client render agree. */
+  const [paths, setPaths] = useState(DEFAULT_PATHS);
   useEffect(() => {
     if (!new URLSearchParams(window.location.search).has('_ptxn')) setPhase('missing');
+    setPaths(returnPath());
   }, []);
 
   const initialize = () => {
@@ -63,7 +80,7 @@ export function PaddleCheckout({
         settings: {
           displayMode: 'overlay',
           locale,
-          successUrl: `${window.location.origin}/dashboard/settings?checkout=success#plan`,
+          successUrl: `${window.location.origin}${returnPath().success}`,
         },
       },
       eventCallback: (event) => {
@@ -108,7 +125,7 @@ export function PaddleCheckout({
         ) : null}
         <Link
           /* After a paid checkout the settings page waits for the webhook (CheckoutSync); before it, it is just the plan card. */
-          href={phase === 'completed' ? '/dashboard/settings?checkout=success#plan' : '/dashboard/settings#plan'}
+          href={phase === 'completed' ? paths.success : paths.back}
           className="flex h-10 items-center rounded-full border border-line px-5 text-[13px] text-ink transition-colors hover:bg-subtle"
         >
           {labels.back}

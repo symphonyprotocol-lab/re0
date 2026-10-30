@@ -557,8 +557,7 @@ async function planFacts(tx: Tx, planVersionId: string): Promise<PlanFacts | nul
   return { ...row, ownerWorkspaceId: row.ownerWorkspaceId };
 }
 
-async function subscriptionByProvider(tx: Tx, externalId: string | null) {
-  if (!externalId) return null;
+async function subscriptionByProvider(tx: Tx, externalId: string) {
   const [row] = await tx
     .select()
     .from(schema.channelSubscription)
@@ -575,7 +574,13 @@ async function subscriptionByProvider(tx: Tx, externalId: string | null) {
  * redelivered or out-of-order notification adds nothing twice.
  */
 export async function applyChannelTransaction(tx: Tx, notice: ChannelTransactionNotice): Promise<ChannelWebhookOutcome> {
-  let subscription = await subscriptionByProvider(tx, notice.subscriptionExternalId);
+  /*
+   * The row's provider key: the subscription's id, or -- for a collection
+   * that does not name one yet -- the transaction's, so a second notice for
+   * the same payment finds the row instead of minting another.
+   */
+  const providerKey = notice.subscriptionExternalId ?? `txn:${notice.transactionId}`;
+  let subscription = await subscriptionByProvider(tx, providerKey);
   const planVersionId = notice.channelPlanVersionId ?? subscription?.planVersionId ?? null;
   const plan = planVersionId ? await planFacts(tx, planVersionId) : null;
   const userId = notice.userId ?? subscription?.userId ?? null;
@@ -626,12 +631,12 @@ export async function applyChannelTransaction(tx: Tx, notice: ChannelTransaction
           planVersionId: plan.id,
           status: 'active',
           currentPeriodEnd: periodEnd,
-          providerSubscriptionId: notice.subscriptionExternalId,
+          providerSubscriptionId: providerKey,
           providerCustomerId: notice.customerId,
           observedAt: notice.observedAt,
         })
         .onConflictDoNothing();
-      subscription = (await subscriptionByProvider(tx, notice.subscriptionExternalId)) ?? null;
+      subscription = (await subscriptionByProvider(tx, providerKey)) ?? null;
     } else if (!reversed && periodEnd > subscription.currentPeriodEnd) {
       /* A renewal moves the period forward and restores access; an older transaction never moves it back. */
       await tx

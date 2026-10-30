@@ -23,12 +23,16 @@ export async function subscribeAction(form: FormData): Promise<void> {
   const session = await requireSession(page);
   let target: string;
   try {
-    target = await startChannelCheckout({
+    const checkout = await startChannelCheckout({
       userId: session.user.id,
       workspaceId: session.workspace.id,
       channelId: String(form.get('channelId') ?? ''),
       interval: String(form.get('interval') ?? ''),
     });
+    /* After paying, back to the reader's subscriptions rather than the call-pack card (requirement.md 5.1). */
+    const url = new URL(checkout);
+    url.searchParams.set('return', '/dashboard/subscriptions?notice=checkout');
+    target = url.toString();
   } catch (error) {
     target = `${page}?subscribe=${refusalCode(error, 'channel checkout')}#subscribe`;
   }

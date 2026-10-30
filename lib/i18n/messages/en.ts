@@ -5007,7 +5007,7 @@ export const en: Dictionary = {
         notesLabel: 'Show notes (Markdown)',
         notesHint: 'Audio is not transcribed: only the title and show notes are indexed and can be cited by the AI twin.',
         channelLabel: 'Publish into channel',
-        noChannel: 'No channel (only you can see it)',
+        noChannel: 'Keep where it is (only you can see it if in no channel)',
         accessLabel: 'Access',
         free: 'Free',
         paid: 'Paid (subscribers only)',

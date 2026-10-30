@@ -5,7 +5,7 @@ import { NavigationProgress } from '@/components/dashboard/navigation-progress';
 import { DashboardSidebar } from '@/components/dashboard/sidebar';
 import { listActions } from '@/lib/application/agent';
 import { unreadNotifications } from '@/lib/application/notifications';
-import { listQuestions } from '@/lib/application/questions';
+import { countOpenQuestions } from '@/lib/application/questions';
 import { countNewLeads } from '@/lib/application/showcase';
 import { surfaceEnabled } from '@/lib/domain/surfaces';
 import { workspaceUsage } from '@/lib/http/dashboard';
@@ -45,7 +45,7 @@ export default async function DashboardLayout({ children }: { children: ReactNod
     /* Pending actions waiting for the owner (agent-first-proposal.md 5.2); same rule for a failed count. */
     listActions(workspace.id, { pendingOnly: true, limit: 200 }).then((rows) => rows.length).catch(() => 0),
     /* The creator's pending questions and the user's unread notifications (proposal 6.5-6.8); same rule. */
-    listQuestions(workspace.id, { state: 'open' }).then((rows) => rows.length).catch(() => 0),
+    countOpenQuestions(workspace.id).catch(() => 0),
     unreadNotifications(user.id).catch(() => 0),
   ]);
 
