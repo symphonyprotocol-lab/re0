@@ -6,13 +6,15 @@
  * what it is fed into, and that is these functions.
  */
 import { createHmac } from 'node:crypto';
-import { describe, expect, it } from 'vitest';
+import { afterEach, describe, expect, it, vi } from 'vitest';
 import { en } from '@/lib/i18n/messages/en';
 import { zh } from '@/lib/i18n/messages/zh';
+import { BACKFILL_REFUSALS } from '@/lib/application/billing/backfill';
 import { CHECKOUT_REFUSALS } from '@/lib/application/billing/checkout';
 import { parseProviderDocument } from '@/lib/domain/billing';
 import {
   checkoutTransactionBody,
+  paddleAdapter,
   paddleCheckoutState,
   paddleConfig,
   paddleDocumentStatus,
@@ -331,6 +333,67 @@ describe('transactionNotice', () => {
     expect(notice.document.status).toBe('failed');
     expect(notice.document).not.toHaveProperty('refundedMinor');
     expect(() => parseProviderDocument(notice.document)).not.toThrow();
+  });
+});
+
+/*
+ * The adapter's network half, against a stubbed `fetch`: only what the review
+ * found it getting wrong (docs/reviews/agent-first-p1-p5-review.md M14, M16).
+ */
+describe('the adapter against a stubbed Paddle API', () => {
+  const requests: { url: string; method: string; body: unknown }[] = [];
+  const CHANNEL_PRODUCT = 'pro_channel';
+  const config: PaddleConfig = { ...CONFIG, channelProductId: CHANNEL_PRODUCT };
+
+  function stub(transactionData: PaddleTransaction) {
+    requests.length = 0;
+    vi.stubGlobal('fetch', async (url: string, init: { method: string; body?: string }) => {
+      requests.push({ url, method: init.method, body: init.body ? JSON.parse(init.body) : undefined });
+      const data = url.includes('/adjustments') ? [] : url.includes('/transactions/') ? transactionData : {};
+      return new Response(JSON.stringify({ data }), { status: 200, headers: { 'content-type': 'application/json' } });
+    });
+  }
+
+  afterEach(() => {
+    vi.unstubAllGlobals();
+  });
+
+  it('never hands a channel transaction to the backfill as the subscriber\'s billing document', async () => {
+    stub(
+      transaction({
+        subscription_id: 'sub_01',
+        custom_data: { re0_kind: 'channel', re0_workspace_id: WORKSPACE, re0_channel_plan_version_id: VERSION },
+        items: [{ quantity: 1, price: { product_id: CHANNEL_PRODUCT } }],
+        details: { totals: { grand_total: '600' } },
+      }),
+    );
+    const snapshot = await paddleAdapter(config).fetchDocument('txn_01');
+    expect(snapshot.document).toBeNull();
+    expect(snapshot.channelTransaction).toBe(true);
+
+    /* A pack is still a document. */
+    stub(transaction());
+    const pack = await paddleAdapter(config).fetchDocument('txn_01');
+    expect(pack.document?.document.kind).toBe('pack');
+    expect(pack.channelTransaction).toBeFalsy();
+  });
+
+  it('cancels at the end of the period by default, and now when a refund revoked it', async () => {
+    stub(transaction());
+    await paddleAdapter(config).cancelSubscription('sub_01');
+    await paddleAdapter(config).cancelSubscription('sub_01', { immediately: true });
+    expect(requests.map((request) => [request.method, request.url.replace(/^https:\/\/[^/]+/, ''), request.body])).toEqual([
+      ['POST', '/subscriptions/sub_01/cancel', { effective_from: 'next_billing_period' }],
+      ['POST', '/subscriptions/sub_01/cancel', { effective_from: 'immediately' }],
+    ]);
+  });
+});
+
+describe('backfill copy', () => {
+  it('has a message for every refusal the console can show', () => {
+    for (const messages of [zh, en]) {
+      for (const code of BACKFILL_REFUSALS) expect(messages.admin.billing.backfill.errors[code]).toBeTruthy();
+    }
   });
 });
 

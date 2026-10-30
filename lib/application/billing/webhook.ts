@@ -40,6 +40,7 @@ import {
 import { uuidv7 } from '@/lib/domain/id';
 import {
   paymentAdapter,
+  type PaymentAdapter,
   type PaymentNotification,
   type ProviderDocumentNotice,
 } from '@/lib/infrastructure/payment/provider';
@@ -69,12 +70,18 @@ export async function receivePaymentWebhook(
   rawBody: string,
   signature: string | null,
 ): Promise<PaymentWebhookOutcome> {
-  const notification = await paymentAdapter().verifyWebhook(rawBody, signature);
-  return applyPaymentNotification(notification);
+  const adapter = paymentAdapter();
+  const notification = await adapter.verifyWebhook(rawBody, signature);
+  return applyPaymentNotification(notification, adapter);
 }
 
+/**
+ * `adapter` is the provider a channel refund cancels its subscription at
+ * (subscriptions.ts `stopAtProvider`); the deployment's when not given.
+ */
 export async function applyPaymentNotification(
   notification: PaymentNotification,
+  adapter?: PaymentAdapter,
 ): Promise<PaymentWebhookOutcome> {
   /*
    * Ignored events are not recorded. Paddle sends whatever the endpoint is
@@ -84,7 +91,7 @@ export async function applyPaymentNotification(
    */
   if (notification.subject === 'ignored') return 'ignored';
   if (notification.subject === 'channel_transaction' || notification.subject === 'channel_subscription') {
-    return applyChannelNotification(notification);
+    return applyChannelNotification(notification, adapter);
   }
   if (!notification.document) return 'ignored';
   const notice = notification.document;
@@ -134,12 +141,13 @@ export class ChannelSubscriptionNotYetKnown extends Error {
  */
 async function applyChannelNotification(
   notification: Extract<PaymentNotification, { subject: 'channel_transaction' | 'channel_subscription' }>,
+  adapter: PaymentAdapter | undefined,
 ): Promise<PaymentWebhookOutcome> {
   return db().transaction(async (tx) => {
     const eventId = await recordPaymentEvent(tx, notification.provider, notification);
     if (!eventId) return 'redelivered';
     if (notification.subject === 'channel_transaction') {
-      return applyChannelTransaction(tx, notification.channel);
+      return applyChannelTransaction(tx, notification.channel, adapter);
     }
     const outcome = await applyChannelSubscription(tx, notification.channel);
     /*

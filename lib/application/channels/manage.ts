@@ -26,6 +26,7 @@ import { readRightsDeclaration, rightsAllowPublic } from '@/lib/domain/rights';
 import { db, schema, type Database } from '@/lib/infrastructure/postgres/client';
 import { canManageAssets, type WorkspaceRole } from '@/lib/application/assets/delete';
 import { refreshChannelProfile } from './profile';
+import { liveSubscription } from './subscriptions';
 
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
@@ -165,6 +166,16 @@ export async function editChannel(input: EditChannelInput): Promise<void> {
 /**
  * Deletes a channel. Its assets are not deleted: they leave it, back to their
  * owner alone, with `access` reset to free like any other move out.
+ *
+ * Refused while any subscription to it is live (`liveSubscription`): one
+ * that still reads, or one the provider may still bill. Deleting would
+ * cascade its plan versions and subscription rows away while Paddle kept
+ * renewing -- subscribers charged for nothing, the creator credited
+ * nothing, and no row left for the subscriber to cancel from. The creator
+ * retires the plans and the subscriptions run out; nothing here cancels
+ * them on the subscribers' behalf. A refund of a payment made before the
+ * deletion still reaches the ledger through the collection it booked
+ * (subscriptions.ts `bookedSaleFacts`).
  */
 export async function deleteChannel(input: {
   workspaceId: string;
@@ -174,6 +185,15 @@ export async function deleteChannel(input: {
   assertManager(input.role);
   return db().transaction(async (tx) => {
     const channel = await ownedChannel(tx, input.workspaceId, input.channelId, true);
+    /* The channel row is locked: a webhook inserting a subscription for it waits on this transaction. */
+    const [live] = await tx
+      .select({ id: schema.channelSubscription.id })
+      .from(schema.channelSubscription)
+      .where(and(eq(schema.channelSubscription.channelId, channel.id), liveSubscription(new Date())))
+      .limit(1);
+    if (live) {
+      throw new ChannelRefused('has_subscribers', 'a subscriber still reads this channel or may still be billed for it');
+    }
     const members = await tx
       .delete(schema.channelAsset)
       .where(eq(schema.channelAsset.channelId, channel.id))

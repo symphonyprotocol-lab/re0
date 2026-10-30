@@ -203,6 +203,10 @@ function channelTransaction(input: {
       workspaceId: input.subscriber.workspaceId,
       exTaxMinor: input.exTaxMinor,
       currency: 'USD',
+      /* Sold as the plan version was priced: the channel product, no discount. */
+      onChannelProduct: true,
+      listPriceMinor: input.exTaxMinor,
+      discountMinor: 0,
       collectedAt,
       periodEnd: input.periodEnd ?? new Date(collectedAt.getTime() + 30 * 86_400_000),
       adjustments: (input.adjustments ?? []).map((adjustment) => ({
@@ -443,7 +447,10 @@ describeWithDb('P3: articles, comments, subscriptions, payouts and audio', () =>
     const collectedAt = new Date(Date.UTC(2019, 2, 10));
     const sale = (adjustments: { id: string; action: 'chargeback'; exTaxMinor: number }[] = []) =>
       channelTransaction({ planVersionId: channel.yearly.id, subscriber: reader, subscriptionId: `sub_p3_${stamp}_cb`, transactionId, exTaxMinor: 6_000, collectedAt, periodEnd: new Date(Date.now() + 300 * 86_400_000), adjustments });
-    await applyPaymentNotification(sale());
+    /* The chargeback cancels the Paddle subscription it revokes; this records that it was asked to. */
+    const cancels: string[] = [];
+    const paddle = { cancelSubscription: async (id: string) => void cancels.push(id) } as never;
+    await applyPaymentNotification(sale(), paddle);
 
     /* The month closes, the statement is past its 120-day hold, the profile is complete, and the payout is sent. */
     await generateSettlements({ actor: OPERATOR, periodId: '2019-03', reason: 'P3 fixture close' });
@@ -456,13 +463,14 @@ describeWithDb('P3: articles, comments, subscriptions, payouts and audio', () =>
     expect((await creatorBalance(creator.workspaceId)).balanceMinor).toBe(0);
 
     /* The card company takes the payment back: the same transaction re-read with a chargeback. */
-    await applyPaymentNotification(sale([{ id: `adj_p3_${stamp}_cb`, action: 'chargeback', exTaxMinor: 6_000 }]));
+    await applyPaymentNotification(sale([{ id: `adj_p3_${stamp}_cb`, action: 'chargeback', exTaxMinor: 6_000 }]), paddle);
     expect((await creatorBalance(creator.workspaceId)).balanceMinor).toBe(-4_800);
     /* A redelivery writes nothing twice. */
-    await applyPaymentNotification(sale([{ id: `adj_p3_${stamp}_cb`, action: 'chargeback', exTaxMinor: 6_000 }]));
+    await applyPaymentNotification(sale([{ id: `adj_p3_${stamp}_cb`, action: 'chargeback', exTaxMinor: 6_000 }]), paddle);
     expect((await creatorBalance(creator.workspaceId)).balanceMinor).toBe(-4_800);
-    /* The chargeback revoked the subscription it reversed. */
+    /* The chargeback revoked the subscription it reversed, and stopped it at Paddle once. */
     expect(await subscriptions.subscribesTo(reader.workspaceId, channel.id)).toBe(false);
+    expect(cancels).toEqual([`sub_p3_${stamp}_cb`]);
 
     expect(await refusal(requestPayout({ workspaceId: creator.workspaceId, actor: { kind: 'user', id: creator.userId } }))).toBe('negative_balance');
     expect(await refusal(redeemEarningsAsCalls({ workspaceId: creator.workspaceId, actor: { kind: 'user', id: creator.userId } }))).toBe('negative_balance');

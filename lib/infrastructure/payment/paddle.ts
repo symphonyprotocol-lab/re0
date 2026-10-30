@@ -20,7 +20,9 @@
  * **Custom data names the buyer.** Every checkout is a transaction this server
  * creates, tagged with the workspace and the Plan Version. It is trustworthy
  * because the tag is written server side and only ever read back from a signed
- * notification or an authenticated API call.
+ * notification or an authenticated API call. A buyer can still copy a tag onto
+ * a checkout of their own through Paddle.js, so a channel sale also carries
+ * what it sold, and the ledger holds that against the plan version.
  */
 import { createHmac, timingSafeEqual } from 'node:crypto';
 import {
@@ -168,7 +170,10 @@ export interface PaddleTransaction {
   billed_at: string | null;
   created_at: string;
   updated_at: string;
-  items: { quantity: number; price: { product_id: string | null } | null }[];
+  items: {
+    quantity: number;
+    price: { product_id: string | null; unit_price?: { amount: string; currency_code: string } | null } | null;
+  }[];
   details: {
     totals: { grand_total: string; subtotal?: string; discount?: string; tax?: string; total?: string } | null;
   } | null;
@@ -428,8 +433,26 @@ function exTaxOf(totals: { total?: string; tax?: string; subtotal?: string } | n
 export function channelTransactionNotice(
   transaction: PaddleTransaction,
   adjustments: PaddleAdjustment[],
+  channelProductId: string | null,
 ): ChannelTransactionNotice {
   const custom = channelCustom(transaction.custom_data);
+  /*
+   * What was sold, for the ledger to hold against the plan version: the tag
+   * alone qualifies a transaction as a channel sale (`isChannelTransaction`),
+   * so the product, the quoted price and any discount travel with it. The
+   * unit price is read rather than the totals because it is the amount the
+   * checkout set (`channelCheckoutBody`), whatever the account's tax mode
+   * does to the totals.
+   */
+  const items = transaction.items;
+  const onChannelProduct =
+    channelProductId !== null && items.length > 0 && items.every((item) => item.price?.product_id === channelProductId);
+  const listPriceMinor = items.reduce(
+    (sum, item) =>
+      sum + (item.price?.unit_price?.currency_code === transaction.currency_code ? minor(item.price.unit_price.amount) : Number.NaN) * item.quantity,
+    0,
+  );
+  const discount = transaction.details?.totals?.discount;
   const captured = transaction.payments.find((payment) => payment.status === 'captured');
   const own = adjustments.filter((a) => a.transaction_id === transaction.id);
   const state =
@@ -452,6 +475,9 @@ export function channelTransactionNotice(
     workspaceId: custom.workspaceId,
     exTaxMinor: exTaxOf(transaction.details?.totals),
     currency: transaction.currency_code,
+    onChannelProduct,
+    listPriceMinor: items.length > 0 ? listPriceMinor : Number.NaN,
+    discountMinor: discount === undefined ? 0 : minor(discount),
     collectedAt: date(captured?.captured_at) ?? date(transaction.billed_at),
     periodEnd: date(transaction.billing_period?.ends_at),
     adjustments: own.map((adjustment) => ({
@@ -628,10 +654,13 @@ export function paddleAdapter(config: PaddleConfig): PaymentAdapter {
       return { externalId: transaction.id, url };
     },
 
-    /* Paddle keeps the subscription active to the end of the period, then cancels it. */
-    async cancelSubscription(externalId) {
+    /*
+     * By default Paddle keeps the subscription active to the end of the
+     * period, then cancels it; `immediately` cancels it now.
+     */
+    async cancelSubscription(externalId, options) {
       await call<unknown>(config, 'POST', `/subscriptions/${encodeURIComponent(externalId)}/cancel`, {
-        effective_from: 'next_billing_period',
+        effective_from: options?.immediately ? 'immediately' : 'next_billing_period',
       });
     },
 
@@ -664,12 +693,15 @@ export function paddleAdapter(config: PaddleConfig): PaymentAdapter {
       return invoice.url;
     },
 
-    /* The same reads a transaction event triggers. */
+    /* The same reads a transaction event triggers, sorted the same way. */
     async fetchDocument(externalId) {
       const [transaction, adjustments] = await Promise.all([
         getTransaction(config, externalId),
         listAdjustments(config, externalId),
       ]);
+      if (isChannelTransaction(transaction, config.channelProductId)) {
+        return { document: null, channelTransaction: true, payload: { transaction, adjustments } };
+      }
       return {
         document: transactionNotice(transaction, adjustments, config.addonProductId),
         payload: { transaction, adjustments },
@@ -716,7 +748,7 @@ export function paddleAdapter(config: PaddleConfig): PaymentAdapter {
         ]);
         /* A channel subscription's money goes to the channel ledger, not the workspace's bill. */
         if (isChannelTransaction(transaction, config.channelProductId)) {
-          return { ...envelope, subject: 'channel_transaction', channel: channelTransactionNotice(transaction, adjustments) };
+          return { ...envelope, subject: 'channel_transaction', channel: channelTransactionNotice(transaction, adjustments, config.channelProductId) };
         }
         return {
           ...envelope,
