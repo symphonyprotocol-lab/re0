@@ -5318,6 +5318,8 @@ export const en: Dictionary = {
         anonymous: 'Anonymous reader',
         askedBy: 'Asked by {name}',
         answerLabel: 'Your answer',
+        questionLabel: 'Question as published',
+        questionHint: 'This is a comment and is never published. Write the question in your own words; it goes out with your answer.',
         accessLabel: 'Access',
         answer: 'Publish answer',
         dismiss: 'Dismiss',

@@ -297,11 +297,36 @@ export default async function ChannelPage({ params, searchParams }: Props) {
                         <p className="text-[12px] text-muted">{k.twin.degraded}</p>
                       ) : (
                         <ul className="flex flex-col gap-1 text-[12.5px] leading-[1.6] text-steel">
+                          {/* Rule 5: every sentence carries the markers of the passages it cites. */}
                           {answer.claims.map((claim, at) => (
-                            <li key={at}>{claim.claim}</li>
+                            <li key={at}>
+                              {claim.claim}
+                              {claim.refs.map((ref) => (
+                                <a key={ref} href={`#twin-${answer.id}-${ref}`} className="ml-0.5 align-super text-[10px] text-brandink hover:underline">
+                                  [{ref}]
+                                </a>
+                              ))}
+                            </li>
                           ))}
                         </ul>
                       )}
+                      {answer.passages.length > 0 ? (
+                        /* The passages behind the markers -- or, for a degraded answer, the passages themselves (rule 6). */
+                        <ol className="flex flex-col gap-1.5 text-[11px] leading-[1.5] text-muted">
+                          {answer.passages.map((passage) => (
+                            <li key={passage.ref} id={`twin-${answer.id}-${passage.ref}`} className="flex flex-col gap-0.5">
+                              <span>
+                                [{passage.ref}]{' '}
+                                <a href={passage.sourceUrl} rel="nofollow noopener" className="text-brandink hover:underline">
+                                  {passage.documentTitle}
+                                </a>
+                                {passage.section ? ` · ${passage.section}` : ''} · {passage.versionLabel}
+                              </span>
+                              {passage.text ? <span className="whitespace-pre-wrap text-[12px] text-steel">{passage.text}</span> : null}
+                            </li>
+                          ))}
+                        </ol>
+                      ) : null}
                       {answer.versions.length > 0 ? (
                         <p className="flex flex-wrap gap-2 text-[11px] text-muted">
                           <span>{k.twin.sources}:</span>

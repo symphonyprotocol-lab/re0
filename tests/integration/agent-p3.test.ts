@@ -53,9 +53,13 @@ const { EMBEDDING_COLUMN_DIMENSIONS } = await import('@/lib/infrastructure/ai/pr
 const { db, schema } = await import('@/lib/infrastructure/postgres/client');
 const { uuidv7 } = await import('@/lib/domain/id');
 const { GET: contextRoute } = await import('@/app/api/v1/context/route');
+const questions = await import('@/lib/application/questions');
+const { askScope } = await import('@/lib/application/agent/ask');
+const { httpStatusFor } = await import('@/contracts/errors');
 
 type A2ATenant = import('@/lib/application/a2a/tenant').A2ATenant;
 type CallerContext = import('@/lib/application/retrieval').CallerContext;
+type PlaygroundDependencies = import('@/lib/application/playground').PlaygroundDependencies;
 
 const stamp = Date.now().toString(36);
 const store = memoryObjectStore();
@@ -170,6 +174,85 @@ async function publishedPost(creator: Person, input: { slug: string; title: stri
   const published = await editorial.publishEditorial({ ...owner(creator), assetId: created.assetId });
   await build(published.operationId);
   return created;
+}
+
+/** Whatever builds are queued for the asset, run: what the drain would do next. */
+async function drainBuilds(assetId: string): Promise<void> {
+  const queued = await db()
+    .select({ id: schema.workflowOperation.id })
+    .from(schema.workflowOperation)
+    .where(and(eq(schema.workflowOperation.assetId, assetId), eq(schema.workflowOperation.status, 'pending')));
+  for (const operation of queued) await build(operation.id);
+}
+
+/**
+ * An embedding with meaning, for the confirmation gate: a text about one of
+ * the topics is that topic's unit vector, anything else a third one. Two
+ * topics are orthogonal (cosine distance 1), a text and a question on the
+ * same topic coincide (distance 0).
+ */
+const TOPICS = ['quillwort', 'kubernetes'];
+const topicalEmbeddings = {
+  model: 'fixture-embed-topical',
+  dimensions: EMBEDDING_COLUMN_DIMENSIONS,
+  async embed(texts: string[]) {
+    return texts.map((text) => {
+      const at = TOPICS.findIndex((topic) => text.toLowerCase().includes(topic));
+      return Array.from({ length: EMBEDDING_COLUMN_DIMENSIONS }, (_, i) => (i === (at === -1 ? TOPICS.length : at) ? 1 : 0));
+    });
+  },
+};
+const topicalIngestion = { ...ingestion, embeddings: () => topicalEmbeddings };
+const topicalRetrieval = {
+  embeddings: () => topicalEmbeddings,
+  rerank: () => {
+    throw new Error('not configured');
+  },
+  cache: () => ({ get: async () => null, set: async () => {}, invalidateTag: async () => {} }),
+  configured: () => ({ embeddings: true, rerank: false }),
+};
+
+/** The answering model: one sentence citing the first passage, or a provider that is down. */
+function generation(mode: 'answer' | 'down', calls: { llm: number }): PlaygroundDependencies {
+  return {
+    config: async () => ({
+      id: 'cfg_p3',
+      slug: 'fixture',
+      label: 'Fixture model',
+      baseUrl: 'https://llm.example.test/v1',
+      model: 'fixture-llm-1',
+      hasCredential: true,
+      maxInputTokens: 8_000,
+      maxOutputTokens: 800,
+      timeoutMs: 15_000,
+      promptPriceMicro: 3_000_000,
+      completionPriceMicro: 15_000_000,
+      cachePriceMicro: 300_000,
+      supportsTools: true,
+      supportsReasoning: false,
+      supportsVision: false,
+      reasoningEffort: null,
+      enabled: true,
+      createdAt: new Date(),
+      assignedTo: ['trial' as const],
+    }),
+    audience: async () => 'trial',
+    credential: async () => 'sk-fixture',
+    recordCost: async () => {},
+    retrieval: topicalRetrieval,
+    llm: () => ({
+      stream() {
+        calls.llm += 1;
+        return {
+          textStream: (async function* deltas() {
+            if (mode === 'down') throw new Error('provider down');
+            yield 'Quillwort wants soft water. [ref:1]';
+          })(),
+          usage: Promise.resolve({ promptTokens: 100, completionTokens: 20, cachedTokens: 0, reasoningTokens: 0 }),
+        };
+      },
+    }),
+  };
 }
 
 let transactionSeq = 0;
@@ -542,5 +625,166 @@ describeWithDb('P3: articles, comments, subscriptions, payouts and audio', () =>
     expect((await editorial.mediaUrlFor(reader.workspaceId, prepared.mediaId, store))?.url).toContain(objectKey);
     expect(await editorial.mediaUrlFor(stranger.workspaceId, prepared.mediaId, store)).toBeNull();
     expect((await editorial.editorialReading(episode.publicId, { workspaceId: stranger.workspaceId }))?.audioMediaId).toBeNull();
+  });
+
+  it('never lets a post marked paid go live free, published now or on schedule', async () => {
+    const creator = await person('h1');
+    const plain = await channels.createChannel({ ...owner(creator), slug: `p3-h1-plain-${stamp}`, title: 'P3 sells nothing' });
+    const selling = await sellingChannel(creator, 'p3-h1-sell');
+    const word = `glimmerwort${stamp}`;
+    const kept = async (post: { assetId: string; publicId: string }) => {
+      await drainBuilds(post.assetId);
+      const reading = await editorial.editorialReading(post.publicId, { workspaceId: null });
+      expect(reading?.body ?? null).toBeNull();
+      const scoped = await searchScope(caller(null), { scope: { kind: 'channel', channelId: plain.id }, query: word, maxTokens: 4000 }, noModels);
+      expect(scoped.chunks.some((chunk) => chunk.text.includes(word))).toBe(false);
+    };
+
+    /* The editor refuses `paid` for a channel that sells nothing. */
+    const now = await editorial.createEditorialAsset({ ...owner(creator), kind: 'post', title: 'Paid now', slug: `h1-now-${stamp}`, rights: RIGHTS });
+    const draft = { ...owner(creator), assetId: now.assetId, title: 'Paid now', body: `The ${word} recipe wants rendered tallow.`, channelId: plain.id };
+    expect(await refusal(editorial.saveEditorialDraft({ ...draft, access: 'paid' }))).toBe('subscriptions_disabled');
+
+    /* A draft that says `paid` there anyway -- saved while the channel still sold, say: publishing refuses and writes nothing. */
+    await editorial.saveEditorialDraft({ ...draft, access: 'free' });
+    await db().update(schema.postDraft).set({ access: 'paid' }).where(eq(schema.postDraft.assetId, now.assetId));
+    expect(await refusal(editorial.publishEditorial({ ...owner(creator), assetId: now.assetId }))).toBe('subscriptions_disabled');
+    await kept(now);
+    const [untouched] = await db().select({ config: schema.source.config }).from(schema.source).where(eq(schema.source.assetId, now.assetId));
+    expect(JSON.stringify(untouched!.config)).not.toContain(word);
+
+    /* A live paid post whose next version moves to that channel: the live body and its access stay as they were. */
+    const live = await publishedPost(creator, { slug: 'h1-live', title: 'Paid live', body: 'The first edition, for subscribers.', channelId: selling.id, access: 'paid' });
+    await editorial.saveEditorialDraft({ ...owner(creator), assetId: live.assetId, title: 'Paid live', body: `The ${word} edition.`, channelId: plain.id, access: 'free' });
+    await db().update(schema.postDraft).set({ access: 'paid' }).where(eq(schema.postDraft.assetId, live.assetId));
+    expect(await refusal(editorial.publishEditorial({ ...owner(creator), assetId: live.assetId }))).toBe('subscriptions_disabled');
+    await kept(live);
+    expect((await editorial.editorialReading(live.publicId, { workspaceId: creator.workspaceId }))?.body).toBe('The first edition, for subscribers.');
+    const [stays] = await db()
+      .select({ access: schema.asset.access, channelId: schema.channelAsset.channelId })
+      .from(schema.asset)
+      .innerJoin(schema.channelAsset, eq(schema.channelAsset.assetId, schema.asset.id))
+      .where(eq(schema.asset.id, live.assetId));
+    expect(stays).toEqual({ access: 'paid', channelId: selling.id });
+
+    /* Scheduled: the drain refuses it the same way, takes it back to a draft and tells the creator. */
+    const later = await editorial.createEditorialAsset({ ...owner(creator), kind: 'post', title: 'Paid later', slug: `h1-later-${stamp}`, rights: RIGHTS });
+    await editorial.saveEditorialDraft({ ...owner(creator), assetId: later.assetId, title: 'Paid later', body: `The ${word} almanac.`, channelId: plain.id, access: 'free' });
+    await db().update(schema.postDraft).set({ access: 'paid', publishAt: new Date(Date.now() - 60_000) }).where(eq(schema.postDraft.assetId, later.assetId));
+    const due = await editorial.publishDueDrafts(new Date(), 200);
+    expect(due.published).not.toContain(later.assetId);
+    await kept(later);
+    const [unscheduled] = await db().select({ publishAt: schema.postDraft.publishAt }).from(schema.postDraft).where(eq(schema.postDraft.assetId, later.assetId));
+    expect(unscheduled!.publishAt).toBeNull();
+    const told = await db().select({ kind: schema.notification.kind, payload: schema.notification.payload }).from(schema.notification).where(eq(schema.notification.userId, creator.userId));
+    expect(told).toContainEqual({ kind: 'publish_failed', payload: expect.objectContaining({ assetId: later.assetId, reason: 'subscriptions_disabled' }) });
+
+    /* Put right -- a channel that sells -- the same draft publishes paid, and only subscribers read it. */
+    await editorial.saveEditorialDraft({ ...owner(creator), assetId: now.assetId, title: 'Paid now', body: `The ${word} recipe wants rendered tallow.`, channelId: selling.id, access: 'paid' });
+    await build((await editorial.publishEditorial({ ...owner(creator), assetId: now.assetId })).operationId);
+    const [paid] = await db().select({ access: schema.asset.access, lifecycle: schema.asset.lifecycleStatus }).from(schema.asset).where(eq(schema.asset.id, now.assetId));
+    expect(paid).toEqual({ access: 'paid', lifecycle: 'published' });
+    expect((await editorial.editorialReading(now.publicId, { workspaceId: null }))?.body).toBeNull();
+    expect((await editorial.editorialReading(now.publicId, { workspaceId: creator.workspaceId }))?.body).toContain(word);
+  });
+
+  it('answers the twin and ask only from confirmed passages, and shows what each sentence cites', async () => {
+    const creator = await person('h2');
+    const reader = await person('h2r');
+    const channel = await channels.createChannel({ ...owner(creator), slug: `p3-h2-${stamp}`, title: 'P3 twin' });
+    const post = await editorial.createEditorialAsset({ ...owner(creator), kind: 'post', title: 'Quillwort husbandry', slug: `h2-${stamp}`, rights: RIGHTS });
+    await editorial.saveEditorialDraft({ ...owner(creator), assetId: post.assetId, title: 'Quillwort husbandry', body: 'Quillwort wants soft water and a gravel bed.', channelId: channel.id, access: 'free' });
+    const operationId = (await editorial.publishEditorial({ ...owner(creator), assetId: post.assetId })).operationId!;
+    expect((await runOperation({ operationId, dependencies: topicalIngestion })).status).toBe('succeeded');
+
+    const usage = async (workspaceId: string) =>
+      db().select({ calls: schema.usageEvent.calls, operation: schema.usageEvent.operation }).from(schema.usageEvent).where(eq(schema.usageEvent.workspaceId, workspaceId));
+    const offTopic = 'How do I rotate a Kubernetes secret?';
+
+    /* Twin, off topic: the nearest passages are not confirmed -- no model, no Call, and the question goes to the creator. */
+    const calls = { llm: 0 };
+    const twin = { userId: reader.userId, workspaceId: reader.workspaceId, channelId: channel.id };
+    const missed = await questions.askTwin({ ...twin, question: offTopic }, generation('answer', calls));
+    expect(missed).toMatchObject({ outcome: 'no_context', queued: true, callsUsed: 0 });
+    expect(calls.llm).toBe(0);
+    expect(await usage(reader.workspaceId)).toEqual([]);
+    expect((await questions.listQuestions(creator.workspaceId, { state: 'open' })).map((row) => [row.question, row.source])).toContainEqual([offTopic, 'twin_unanswered']);
+
+    /* On topic: answered from the post, 1 Call, each sentence numbered to the passage it cites. */
+    const answered = await questions.askTwin({ ...twin, question: 'How soft should quillwort water be?' }, generation('answer', calls));
+    expect(answered).toMatchObject({ outcome: 'answer', queued: false, callsUsed: 1 });
+    expect(calls.llm).toBe(1);
+    const [shown] = await questions.readerTwinAnswers(reader.userId, channel.id, 1);
+    expect(shown!.claims).toEqual([{ claim: 'Quillwort wants soft water.', chunkIds: [answered.chunks[0]!.chunkId], refs: [1] }]);
+    expect(shown!.passages).toEqual([
+      expect.objectContaining({ ref: 1, publicId: post.publicId, documentTitle: 'Quillwort husbandry', sourceUrl: `/assets${post.publicId}`, versionLabel: expect.any(String), text: null }),
+    ]);
+
+    /* The model is down: 1 Call for the passages, and the passages are what the reader sees. */
+    const degraded = await questions.askTwin({ ...twin, question: 'quillwort gravel' }, generation('down', calls));
+    expect(degraded).toMatchObject({ outcome: 'degraded', callsUsed: 1 });
+    const [list] = await questions.readerTwinAnswers(reader.userId, channel.id, 1);
+    expect(list!.passages.length).toBeGreaterThan(0);
+    expect(list!.passages[0]).toMatchObject({ ref: 1, documentTitle: 'Quillwort husbandry', text: expect.stringContaining('soft water') });
+
+    /* A2A ask goes through the same gate: off topic is no_context and free, on topic bills 10. */
+    const asker = { workspaceId: reader.workspaceId, apiKeyId: null, anonymous: false, entrypoint: 'a2a' as const };
+    const before = await usage(reader.workspaceId);
+    const askCalls = { llm: 0 };
+    const offAsk = await askScope({ ...asker, requestId: `req_${crypto.randomUUID()}` }, { scope: { kind: 'channel', channelId: channel.id }, question: offTopic }, generation('answer', askCalls));
+    expect(offAsk).toMatchObject({ outcome: 'no_context', callsUsed: 0, chunks: [] });
+    expect(askCalls.llm).toBe(0);
+    expect(await usage(reader.workspaceId)).toEqual(before);
+    const onAsk = await askScope({ ...asker, requestId: `req_${crypto.randomUUID()}` }, { scope: { kind: 'channel', channelId: channel.id }, question: 'quillwort water' }, generation('answer', askCalls));
+    expect(onAsk).toMatchObject({ outcome: 'answer', callsUsed: 10 });
+    expect(askCalls.llm).toBe(1);
+  });
+
+  it('indexes only the creator\'s words when a comment becomes a Q&A', async () => {
+    const creator = await person('m8');
+    const reader = await person('m8r');
+    const channel = await channels.createChannel({ ...owner(creator), slug: `p3-m8-${stamp}`, title: 'P3 Q&A' });
+    const post = await publishedPost(creator, { slug: 'm8', title: 'Webhook notes', body: 'Notes on delivery.', channelId: channel.id, access: 'free' });
+    const word = `zephyrmail${stamp}`;
+    const { commentId } = await comments.postComment({ userId: reader.userId, workspaceId: reader.workspaceId, assetId: post.assetId, body: `My address is ${word}@example.test -- does the API send webhooks?` });
+    const { questionId } = await comments.moveCommentToQuestions({ ...owner(creator), commentId });
+
+    /* Answering a comment needs the question in the creator's own words: the comment is never published. */
+    expect(await refusal(questions.answerQuestion({ ...owner(creator), questionId, answer: 'Yes, signed and retried.', access: 'free' }))).toBe('invalid_question');
+    const qa = await questions.answerQuestion({ ...owner(creator), questionId, question: 'Does the API send webhooks?', answer: 'Yes, signed and retried.', access: 'free' });
+    await build(qa.operationId);
+
+    const [asset] = await db().select({ title: schema.asset.title }).from(schema.asset).where(eq(schema.asset.id, qa.assetId));
+    expect(asset!.title).toBe('Does the API send webhooks?');
+    const chunks = await db().select({ body: schema.chunk.body }).from(schema.chunk).where(eq(schema.chunk.assetId, qa.assetId));
+    expect(chunks.length).toBeGreaterThan(0);
+    expect(chunks.some((chunk) => chunk.body.includes(word))).toBe(false);
+    expect(chunks.some((chunk) => chunk.body.includes('signed and retried'))).toBe(true);
+    const scoped = await searchScope(caller(null), { scope: { kind: 'channel', channelId: channel.id }, query: word, maxTokens: 4000 }, noModels);
+    expect(scoped.chunks.some((chunk) => chunk.text.includes(word))).toBe(false);
+    expect(JSON.stringify(await editorial.editorialReading(qa.publicId, { workspaceId: null }))).not.toContain(word);
+  });
+
+  it('holds a subscriber to the creator\'s daily cap on every billed read of the channel\'s paid assets', async () => {
+    const creator = await person('m10');
+    const reader = await person('m10r');
+    const channel = await sellingChannel(creator, 'p3-m10');
+    const post = await publishedPost(creator, { slug: 'm10', title: 'Capped post', body: 'The saffron crocus flowers in autumn.', channelId: channel.id, access: 'paid' });
+    await publishedPost(creator, { slug: 'm10-free', title: 'Open post', body: 'The saffron harvest is done by hand.', channelId: channel.id, access: 'free' });
+    await applyPaymentNotification(channelTransaction({ planVersionId: channel.monthly.id, subscriber: reader, subscriptionId: `sub_p3_${stamp}_m10`, exTaxMinor: 600 }));
+    await subscriptions.setSubscriberDailyLimit({ ...owner(creator), channelId: channel.id, limit: 1 });
+    const query = 'saffron crocus autumn';
+
+    /* The one read the cap allows, through REST. */
+    expect((await rest(reader.key, post.publicId, query)).status).toBe(200);
+    /* Then every door that bills a read of the paid asset refuses. */
+    expect((await rest(reader.key, post.publicId, query)).status).toBe(httpStatusFor('quota_exceeded'));
+    expect(await refusal(queryDocs(caller(reader.workspaceId, 'rest'), { assetId: post.publicId, query, maxTokens: 4000, format: 'json' }, noModels))).toBe('quota_exceeded');
+    /* The creator's user card: the capped channel's paid asset drops out, the free one is still served. */
+    const user = await searchScope(caller(reader.workspaceId), { scope: { kind: 'workspace', workspaceId: creator.workspaceId }, query: 'saffron', maxTokens: 4000 }, noModels);
+    expect(user.chunks.some((chunk) => chunk.asset.publicId === post.publicId)).toBe(false);
+    expect(user.chunks.length).toBeGreaterThan(0);
+    /* The owner is never capped. */
+    expect((await queryDocs(caller(creator.workspaceId, 'rest'), { assetId: post.publicId, query, maxTokens: 4000, format: 'json' }, noModels)).chunks.length).toBeGreaterThan(0);
   });
 });

@@ -5181,6 +5181,8 @@ export const zh = {
         anonymous: '匿名读者',
         askedBy: '提问者：{name}',
         answerLabel: '你的回答',
+        questionLabel: '公开的问题',
+        questionHint: '这是评论，不会公开。用你自己的话写下要回答的问题，和回答一起发布。',
         accessLabel: '访问',
         answer: '发布回答',
         dismiss: '忽略',

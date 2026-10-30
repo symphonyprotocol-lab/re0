@@ -2629,6 +2629,18 @@ export const commentReport = pgTable(
   ],
 );
 
+/** One passage behind a twin answer: its marker number and citation, and its text when the answer degraded. */
+export interface TwinPassage {
+  ref: number;
+  chunkId: string;
+  publicId: string;
+  versionLabel: string;
+  sourceUrl: string;
+  documentTitle: string;
+  section: string | null;
+  text: string | null;
+}
+
 /**
  * One answer of a channel's AI twin to a signed-in reader (proposal 6.3,
  * 6.7): the question, the bound claims and the asset versions they cite.
@@ -2651,6 +2663,12 @@ export const twinAnswer = pgTable(
       .$type<{ assetId: string; publicId: string; title: string; versionId: string; label: string }[]>()
       .notNull()
       .default([]),
+    /**
+     * Evidence rules 5 and 6 (requirement.md 5.1): the passages the claims
+     * cite, numbered as the page marks them, or -- for a degraded answer --
+     * every passage the reader was billed for, with its text.
+     */
+    passages: jsonb('passages').$type<TwinPassage[]>().notNull().default([]),
     createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
   },
   (t) => [index('twin_answer_channel_idx').on(t.channelId, t.createdAt.desc())],

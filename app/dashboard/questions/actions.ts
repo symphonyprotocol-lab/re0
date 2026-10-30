@@ -24,6 +24,7 @@ export async function answerQuestionAction(form: FormData): Promise<void> {
       userId: session.user.id,
       questionId: String(form.get('questionId') ?? ''),
       answer: String(form.get('answer') ?? ''),
+      question: String(form.get('question') ?? ''),
       access: String(form.get('access') ?? 'free'),
     });
     after(async () => {

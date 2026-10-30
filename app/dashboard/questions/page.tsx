@@ -65,6 +65,18 @@ export default async function QuestionsPage({ searchParams }: { searchParams: Pr
                 <div className="flex flex-col gap-2">
                   <form action={answerQuestionAction} className="flex flex-col gap-2">
                     <input type="hidden" name="questionId" value={question.id} />
+                    {/* A comment is never published (proposal 6.8): the creator restates it; any other question starts as asked. */}
+                    <label className="flex flex-col gap-1">
+                      <span className="text-[11px] font-medium text-steel">{c.questionLabel}</span>
+                      <input
+                        name="question"
+                        required
+                        maxLength={EDITORIAL_LIMITS.questionMax}
+                        defaultValue={question.source === 'comment' ? '' : question.question}
+                        className={`${FIELD} h-9`}
+                      />
+                      {question.source === 'comment' ? <span className="text-[11px] text-muted">{c.questionHint}</span> : null}
+                    </label>
                     <label className="flex flex-col gap-1">
                       <span className="text-[11px] font-medium text-steel">{c.answerLabel}</span>
                       <textarea name="answer" required rows={4} maxLength={EDITORIAL_LIMITS.answerMax} className={`${FIELD} py-2`} />

@@ -8,15 +8,20 @@
  *   every requirement.md 5.1 rule holds, the reader's workspace pays 1
  *   Call, the generation is the platform's. The page always says it is the
  *   AI twin answering from the channel, never the creator.
- * - What the twin cannot answer -- retrieval found nothing, so no model was
- *   called (rule 2) -- lands in the creator's pending-questions list, as
- *   does a reader's direct "ask the author" and a comment the creator moved
- *   there.
+ * - What the twin cannot answer -- retrieval found nothing it could confirm
+ *   fits the question, so no model was called (rule 2) -- lands in the
+ *   creator's pending-questions list, as does a reader's direct "ask the
+ *   author" and a comment the creator moved there.
+ * - Each twin answer keeps its passages: the ones its sentences cite,
+ *   numbered as the page marks them, or every passage a degraded answer was
+ *   billed for, with its text (rules 5 and 6).
  * - The creator answers in writing. Publishing the answer creates a `qa`
  *   asset in that channel, free or paid, built and versioned like any other;
- *   its indexed text is the question and the creator's answer only. The
- *   asker is anonymous unless they agreed to be named. The twin cites the
- *   Q&A from then on, because it is an asset of the channel.
+ *   its indexed text is the question and the creator's answer only -- and
+ *   for a question moved from the comments, the question as the creator
+ *   restated it, never the comment (proposal 6.8). The asker is anonymous
+ *   unless they agreed to be named. The twin cites the Q&A from then on,
+ *   because it is an asset of the channel.
  * - The creator may mark one twin answer 作者确认. The mark is bound to the
  *   version the answer stood on and keeps showing after the asset updates,
  *   naming that version.
@@ -37,6 +42,8 @@ import type { PlaygroundDependencies } from '@/lib/application/playground';
 import { notify, workspaceManagers } from '@/lib/application/notifications';
 
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+
+type TwinPassage = (typeof schema.twinAnswer.$inferSelect)['passages'][number];
 
 export class QuestionRefused extends Error {
   constructor(
@@ -122,6 +129,7 @@ export async function askTwin(
       outcome: result.outcome,
       claims: result.claims,
       versions,
+      passages: twinPassages(result),
     });
     if (queued) {
       await tx.insert(schema.channelQuestion).values({
@@ -138,6 +146,32 @@ export async function askTwin(
     }
   });
   return { ...result, twinAnswerId, queued };
+}
+
+/**
+ * What the page shows under a twin answer (requirement.md 5.1 rules 5, 6):
+ * for an answer, the passages its sentences cite, numbered in the order the
+ * answer first cites them, each with its source URL, document title, section
+ * and version; for a degraded answer, every passage the reader paid its Call
+ * for, with the text -- the passages are the answer then.
+ */
+function twinPassages(result: AskResult): TwinPassage[] {
+  const chunks =
+    result.outcome === 'answer'
+      ? [...new Set(result.claims.flatMap((claim) => claim.chunkIds))].flatMap((id) => result.chunks.filter((chunk) => chunk.chunkId === id))
+      : result.outcome === 'degraded'
+        ? result.chunks
+        : [];
+  return chunks.map((chunk, at) => ({
+    ref: at + 1,
+    chunkId: chunk.chunkId,
+    publicId: chunk.asset.publicId,
+    versionLabel: chunk.asset.version,
+    sourceUrl: chunk.citation.sourceUrl,
+    documentTitle: chunk.citation.documentTitle,
+    section: chunk.citation.section,
+    text: result.outcome === 'degraded' ? chunk.text : null,
+  }));
 }
 
 /** A reader asks the author directly (proposal 6.7); anonymous unless they agree to be named. */
@@ -227,6 +261,7 @@ async function ownedQuestion(workspaceId: string, role: WorkspaceRole, questionI
       id: schema.channelQuestion.id,
       channelId: schema.channelQuestion.channelId,
       question: schema.channelQuestion.question,
+      source: schema.channelQuestion.source,
       state: schema.channelQuestion.state,
       askerUserId: schema.channelQuestion.askerUserId,
       handle: schema.workspace.handle,
@@ -250,6 +285,13 @@ export async function dismissQuestion(input: { workspaceId: string; role: Worksp
  * channel, free or paid. Returns the build to run after the response. An
  * audio note can be attached to the Q&A afterwards (`refreshQaDocument`);
  * it is not transcribed.
+ *
+ * `question` is the question as published: the asset's title and the first
+ * line of its indexed document. A reader's direct or twin question may go
+ * out as asked; one moved from the comments must be restated by the creator,
+ * because a comment never enters retrieval, twin evidence or anchoring, and
+ * a Q&A cites only the creator's own words (proposal 6.8) -- the comment may
+ * carry the reader's address, or come from behind the paywall.
  */
 export async function answerQuestion(input: {
   workspaceId: string;
@@ -257,6 +299,7 @@ export async function answerQuestion(input: {
   userId: string | null;
   questionId: string;
   answer: unknown;
+  question?: unknown;
   access?: unknown;
 }): Promise<{ assetId: string; publicId: string; operationId: string }> {
   const row = await ownedQuestion(input.workspaceId, input.role, input.questionId);
@@ -265,13 +308,18 @@ export async function answerQuestion(input: {
   if (answer.length === 0 || answer.length > EDITORIAL_LIMITS.answerMax) {
     throw new QuestionRefused('invalid_answer', `an answer is 1 to ${EDITORIAL_LIMITS.answerMax} characters`);
   }
+  const restated = typeof input.question === 'string' && input.question.trim().length > 0;
+  if (row.source === 'comment' && !restated) {
+    throw new QuestionRefused('invalid_question', 'restate the question in your own words; the comment itself is never published');
+  }
+  const question = restated ? questionText(input.question) : row.question;
   if (!row.handle) throw new EditorialRefused('no_handle', 'set a public handle for this workspace first');
   const access: AssetAccess = isAssetAccess(input.access) ? input.access : 'free';
   await assertBuildAffordable({ workspaceId: input.workspaceId, fetchesPages: false });
 
   const assetId = uuidv7();
   const publicId = editorialPublicId('qa', row.handle, `q-${assetId.replace(/-/g, '').slice(-10)}`);
-  const title = row.question.length > EDITORIAL_LIMITS.titleMax ? `${row.question.slice(0, EDITORIAL_LIMITS.titleMax - 1)}…` : row.question;
+  const title = question.length > EDITORIAL_LIMITS.titleMax ? `${question.slice(0, EDITORIAL_LIMITS.titleMax - 1)}…` : question;
   await db().transaction(async (tx) => {
     await tx.insert(schema.asset).values({
       id: assetId,
@@ -297,7 +345,7 @@ export async function answerQuestion(input: {
       assetId: assetId,
       type: 'editor',
       location: publicId,
-      config: { path: 'qa.md', url: `/assets${publicId}`, markdown: qaDocument({ question: row.question, answer }), question: row.question, answer },
+      config: { path: 'qa.md', url: `/assets${publicId}`, markdown: qaDocument({ question, answer }), question, answer },
     });
   });
   /*
@@ -357,15 +405,19 @@ export async function refreshQaDocument(input: { workspaceId: string; role: Work
   });
 }
 
-/** Who asked a Q&A's question, for its page: a name only with the asker's consent. */
-export async function qaAsker(assetId: string): Promise<{ question: string; askerName: string | null } | null> {
+/**
+ * Who asked a Q&A's question, for its page: a name only with the asker's
+ * consent. Not the question as asked -- the page shows the one published
+ * with the answer, which for a moved comment is the creator's restatement.
+ */
+export async function qaAsker(assetId: string): Promise<{ askerName: string | null } | null> {
   if (!UUID.test(assetId)) return null;
   const [row] = await db()
-    .select({ question: schema.channelQuestion.question, consent: schema.channelQuestion.askerNameConsent, name: schema.user.displayName })
+    .select({ consent: schema.channelQuestion.askerNameConsent, name: schema.user.displayName })
     .from(schema.channelQuestion)
     .leftJoin(schema.user, eq(schema.user.id, schema.channelQuestion.askerUserId))
     .where(eq(schema.channelQuestion.answerAssetId, assetId));
-  return row ? { question: row.question, askerName: row.consent ? row.name?.trim() || null : null } : null;
+  return row ? { askerName: row.consent ? row.name?.trim() || null : null } : null;
 }
 
 /* ------------------------------------------------------------ 作者确认 */
@@ -374,10 +426,25 @@ export interface TwinAnswerView {
   id: string;
   question: string;
   outcome: 'answer' | 'degraded' | 'no_context';
-  claims: { claim: string; chunkIds: string[] }[];
+  /** Each sentence with the numbers of the passages it cites (`passages[].ref`). */
+  claims: { claim: string; chunkIds: string[]; refs: number[] }[];
   versions: { assetId: string; publicId: string; title: string; versionId: string; label: string }[];
+  passages: TwinPassage[];
   createdAt: Date;
   endorsement: Endorsement | null;
+}
+
+/** A stored answer as the pages show it: each claim's markers resolved against its passages. */
+function twinView(
+  row: Omit<TwinAnswerView, 'claims' | 'endorsement'> & { claims: { claim: string; chunkIds: string[] }[] },
+  endorsements: Map<string, Endorsement>,
+): TwinAnswerView {
+  const refOf = new Map(row.passages.map((passage) => [passage.chunkId, passage.ref]));
+  return {
+    ...row,
+    claims: row.claims.map((claim) => ({ ...claim, refs: claim.chunkIds.flatMap((id) => (refOf.has(id) ? [refOf.get(id)!] : [])) })),
+    endorsement: endorsements.get(row.id) ?? null,
+  };
 }
 
 export interface Endorsement {
@@ -421,6 +488,7 @@ export async function recentTwinAnswers(workspaceId: string, limit = 50): Promis
       outcome: schema.twinAnswer.outcome,
       claims: schema.twinAnswer.claims,
       versions: schema.twinAnswer.versions,
+      passages: schema.twinAnswer.passages,
       createdAt: schema.twinAnswer.createdAt,
     })
     .from(schema.twinAnswer)
@@ -429,7 +497,7 @@ export async function recentTwinAnswers(workspaceId: string, limit = 50): Promis
     .orderBy(desc(schema.twinAnswer.createdAt))
     .limit(limit);
   const endorsements = await endorsementsFor(rows.map((row) => row.id));
-  return rows.map((row) => ({ ...row, endorsement: endorsements.get(row.id) ?? null }));
+  return rows.map((row) => twinView(row, endorsements));
 }
 
 /**
@@ -473,6 +541,7 @@ export async function readerTwinAnswers(userId: string | null, channelId: string
       outcome: schema.twinAnswer.outcome,
       claims: schema.twinAnswer.claims,
       versions: schema.twinAnswer.versions,
+      passages: schema.twinAnswer.passages,
       createdAt: schema.twinAnswer.createdAt,
     })
     .from(schema.twinAnswer)
@@ -480,6 +549,6 @@ export async function readerTwinAnswers(userId: string | null, channelId: string
     .orderBy(desc(schema.twinAnswer.createdAt))
     .limit(limit);
   const endorsements = await endorsementsFor(rows.map((row) => row.id));
-  return rows.map((row) => ({ ...row, endorsement: endorsements.get(row.id) ?? null }));
+  return rows.map((row) => twinView(row, endorsements));
 }
 
