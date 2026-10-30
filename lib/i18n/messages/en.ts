@@ -1249,7 +1249,7 @@ export const en: Dictionary = {
       deleted: 'Deleted {n}.',
       retentionTitle: 'Private asset retention',
       retentionBody:
-        'A private asset is one in no public channel. Once set, private assets whose last successful build (or creation, if never built) is older than this are deleted by a daily job through the normal deletion flow.',
+        'A private asset is one in no public channel. Once set, private assets whose last successful build (or creation, if never built) is older than this are deleted by a scheduled job through the normal deletion flow.',
       retentionKeep: 'Keep until I delete them',
       retentionDays: '{n} days',
       retentionSave: 'Save',

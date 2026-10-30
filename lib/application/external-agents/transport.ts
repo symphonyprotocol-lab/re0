@@ -50,13 +50,16 @@ export async function assertAgentAddress(raw: string): Promise<URL> {
  */
 export function guardedFetch(options: { timeoutMs: number; maxBytes: number; headers?: Record<string, string> }): FetchLike {
   return async (input, init) => {
-    const url = typeof input === 'string' ? input : input instanceof URL ? input.toString() : input.url;
+    const request = input instanceof Request ? input : null;
+    const url = request ? request.url : input.toString();
     await assertAgentAddress(url);
-    const headers = new Headers(init?.headers ?? (input instanceof Request ? input.headers : undefined));
+    const headers = new Headers(init?.headers ?? request?.headers);
     for (const [name, value] of Object.entries(options.headers ?? {})) headers.set(name, value);
     let response: Response;
     try {
       response = await transport.fetch(url, {
+        /* A Request carries its own method and body; init, when given, wins as it does for fetch. */
+        ...(request ? { method: request.method, body: request.body ? await request.arrayBuffer() : undefined } : {}),
         ...init,
         headers,
         redirect: 'manual',
@@ -64,7 +67,11 @@ export function guardedFetch(options: { timeoutMs: number; maxBytes: number; hea
       });
     } catch (error) {
       if (error instanceof ExternalAgentRefused) throw error;
-      throw new ExternalAgentRefused('unreachable', 'the agent did not answer');
+      /*
+       * A timeout or a dropped connection after the request left says
+       * nothing about whether the agent acted on it.
+       */
+      throw new ExternalAgentRefused('unreachable', 'the agent did not answer in time; it may still have received the request');
     }
     if (response.status >= 300 && response.status < 400) {
       throw new ExternalAgentRefused('redirected', 'the agent answered with a redirect, which re0 does not follow');

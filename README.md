@@ -124,7 +124,7 @@ re0 是一个**数据资产 Agent**：替用户收集、整理、使用、分发
 
 对象存储用 Vercel Blob：每个环境一个私有 Store，各自连到对应环境，`BLOB_READ_WRITE_TOKEN` 会自动注入；本地用 `vercel env pull` 拉取。分开是必须的而不是讲究——预览分支是主分支的写时复制，行里的 Key 指向生产对象，共用一个 Store 时在预览里删掉一项资产就会删掉生产的文件。代价是预览里那些从生产复制来的行读不到对象（Store 里没有），这在预览分支换成 schema-only 之后自然消失。Dashboard 的 PDF 导入向导由浏览器直接上传到 Blob（服务端只签发限定路径、类型和大小的 Client Token），不经过应用，也就不受请求体大小限制，不需要额外的 CORS 配置。Blob 没有生命周期规则，向导中途放弃的上传会留在 `uploads/` 前缀下，由 drain 每次收尾时清理超过 24 小时且未被引用的对象，也可以用 `npm run uploads:purge` 手动跑。未设置 `BLOB_READ_WRITE_TOKEN` 时，代码退回 `OBJECT_STORE_*` 描述的 S3 兼容 Bucket，那时 Bucket 要允许来自应用 Origin 的跨域 `PUT`。
 
-构建任务在创建资产、改文件、后台刷新等动作的响应返回后立即执行（`after(runOperation)`），所以本地开发不需要额外进程；`vercel.json` 里的 Cron 每 10 分钟调用一次 `/api/cron/drain`（需要 `CRON_SECRET`）作为兜底，负责重试失败任务和清扫废弃上传；每天 03:17 UTC 调用一次 `/api/cron/retention`，清除超过 30 天的 A2A 任务正文（入站任务与出站委托，只留 ID、状态与计量），并按各工作空间设置的保留期删除过期的私有资产。这个 Cron 同时也是平台资产的自动刷新调度：每次先按各来源的刷新策略（每日 / 每周）把到期的来源排入队列，再执行队列。队列的实时状态、最近完成的记录和各来源的下次刷新时间在管理后台的「刷新队列」页（`/admin/refresh-queue`）查看。本地没有 Cron，可以用 `npx tsx` 调 `scheduleDueRefreshes()` 和 `drainOperations()`，或直接在后台按「排队刷新」。
+构建任务在创建资产、改文件、后台刷新等动作的响应返回后立即执行（`after(runOperation)`），所以本地开发不需要额外进程；`vercel.json` 里的 Cron 每 10 分钟调用一次 `/api/cron/drain`（需要 `CRON_SECRET`）作为兜底，负责重试失败任务和清扫废弃上传；每小时第 17 分钟调用一次 `/api/cron/retention`，清除超过 30 天的 A2A 任务正文（入站任务与出站委托，只留 ID、状态与计量），并按各工作空间设置的保留期删除过期的私有资产。这个 Cron 同时也是平台资产的自动刷新调度：每次先按各来源的刷新策略（每日 / 每周）把到期的来源排入队列，再执行队列。队列的实时状态、最近完成的记录和各来源的下次刷新时间在管理后台的「刷新队列」页（`/admin/refresh-queue`）查看。本地没有 Cron，可以用 `npx tsx` 调 `scheduleDueRefreshes()` 和 `drainOperations()`，或直接在后台按「排队刷新」。
 
 上传文件资产可以在创建时就上传 PDF，也可以先建空资产、之后在列表页该资产的「管理 PDF 文件」页随时增删文件；保存后会排队重新构建，新版本发布前旧版本继续提供检索。没有文件的资产不排队构建。PDF 单文件上限 30 MB，每项资产最多 20 个文件。构建时用 pdf.js 抽取文本层；扫描件没有文本层，需要配置 OCR 服务才能索引：设置 `OCR_PROVIDER=ocrspace` 和 `OCR_PROVIDER_API_KEY`（[ocr.space](https://ocr.space/ocrapi)，免费 Key 限 1 MB、3 页，PDF 套餐才放开到 100 MB、999 页，付费套餐的区域端点填 `OCR_PROVIDER_BASE_URL`；中文扫描件设 `OCR_PROVIDER_LANGUAGE=chs`）。OCR 只在至多一半页面有文本层时触发，文件不经过应用之外的任何临时 URL，直接以 multipart 送给厂商。未配置时扫描件构建会以 `parse_failed` 结束。OCR 是 `lib/infrastructure/connectors/ocr.ts` 里的一个 Provider 接口，换厂商只改这一处。
 
@@ -151,7 +151,7 @@ npm run dev
 | `GITHUB_OAUTH_CLIENT_ID` / `_SECRET` | GitHub OAuth App |
 | `GOOGLE_OAUTH_CLIENT_ID` / `_SECRET` | Google OAuth Client |
 | `CREDENTIAL_ENCRYPTION_KEY` | 至少 32 字符。加密落库的凭证：控制台保存的模型 Key、A2A 推送配置的 Token，以及用户在「外部 Agent」里为外部 A2A Agent 保存的 Bearer 令牌或 API Key（P4，用途标签与模型 Key 分开，两类密文互相打不开）。不设置时这些都无法保存；三套环境必须同值，轮换后已存凭证需重新录入 |
-| `CRON_SECRET` | Vercel Cron 调用 `/api/cron/drain`、`/api/cron/anchor` 与每日的 `/api/cron/retention`（A2A 任务正文 30 天清除、私有资产保留期）时携带的 Bearer；本地不跑 Cron 时可留空 |
+| `CRON_SECRET` | Vercel Cron 调用 `/api/cron/drain`、`/api/cron/anchor` 与每小时的 `/api/cron/retention`（A2A 任务正文 30 天清除、私有资产保留期）时携带的 Bearer；本地不跑 Cron 时可留空 |
 
 两个 Provider 需要登记的回调地址：
 

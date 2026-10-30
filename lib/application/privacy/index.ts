@@ -4,7 +4,7 @@
  *
  * - Bodies of A2A tasks, inbound (P1, P2) and outbound (P4 delegations),
  *   are kept 30 days, then cleared to ids, states and metering:
- *   `runRetention`, from the daily cron route.
+ *   `runRetention`, from the hourly cron route.
  * - Private assets -- in no public channel -- are deleted once older than
  *   the workspace's retention setting, through the ordinary deletion
  *   (`markLibraryDeleted`, whose queued cleanup the drain runs).
@@ -15,7 +15,12 @@
 import { and, asc, desc, eq, inArray, isNotNull, isNull, lte, ne, notExists, sql } from 'drizzle-orm';
 import { AppError } from '@/contracts/errors';
 import { purgeA2aTaskBodies } from '@/lib/application/a2a/task-store';
-import { listDelegations, purgeDelegationBodies, type DelegationView } from '@/lib/application/external-agents/delegation';
+import {
+  clearDelegationText,
+  listDelegations,
+  purgeDelegationBodies,
+  type DelegationView,
+} from '@/lib/application/external-agents/delegation';
 import { canManageLibraries, markLibraryDeleted, type WorkspaceRole } from '@/lib/application/libraries/delete';
 import { db, schema } from '@/lib/infrastructure/postgres/client';
 
@@ -68,7 +73,7 @@ export interface RetentionOutcome {
   privateAssets: number;
 }
 
-/** The daily retention run. Each part is independent; one failing does not stop the others. */
+/** The hourly retention run. Each part is independent; one failing does not stop the others. */
 export async function runRetention(now: Date = new Date()): Promise<RetentionOutcome> {
   const settle = async (label: string, work: () => Promise<number>) => {
     try {
@@ -88,7 +93,9 @@ export async function runRetention(now: Date = new Date()): Promise<RetentionOut
 /**
  * Deletes the private assets past their workspace's retention. "Private"
  * is in no public channel; age is from the last successful build, or from
- * creation for one never built.
+ * creation for one never built. An asset with a build queued or running is
+ * skipped this time: the owner is working on it, and a success resets its
+ * age.
  */
 export async function expirePrivateAssets(now: Date = new Date()): Promise<number> {
   const workspaces = await db()
@@ -108,6 +115,17 @@ export async function expirePrivateAssets(now: Date = new Date()): Promise<numbe
           eq(schema.library.isPlatformLibrary, false),
           isNull(schema.library.deletedAt),
           lte(sql`coalesce(${schema.library.lastSuccessfulRefreshAt}, ${schema.library.createdAt})`, cutoff),
+          notExists(
+            db()
+              .select({ one: sql`1` })
+              .from(schema.workflowOperation)
+              .where(
+                and(
+                  eq(schema.workflowOperation.libraryId, schema.library.id),
+                  inArray(schema.workflowOperation.status, ['pending', 'running']),
+                ),
+              ),
+          ),
           notExists(
             db()
               .select({ one: sql`1` })
@@ -188,7 +206,7 @@ export async function exportA2aTasks(workspaceId: string): Promise<TaskExport> {
     .from(schema.a2aTask)
     .where(eq(schema.a2aTask.workspaceId, workspaceId))
     .orderBy(desc(schema.a2aTask.createdAt));
-  const delegations = await listDelegations(workspaceId, 200);
+  const delegations = await listDelegations(workspaceId, null);
   const actionIds = delegations.flatMap((delegation) => (delegation.actionId ? [delegation.actionId] : []));
   const sent =
     actionIds.length === 0
@@ -249,18 +267,6 @@ export async function deleteA2aTasks(input: { workspaceId: string; role: Workspa
     .delete(schema.agentDelegation)
     .where(eq(schema.agentDelegation.workspaceId, input.workspaceId))
     .returning({ id: schema.agentDelegation.id });
-  await database
-    .update(schema.agentAction)
-    .set({
-      params: sql`jsonb_set(${schema.agentAction.params}, '{message}', 'null'::jsonb)`,
-      summary: sql`jsonb_set(${schema.agentAction.summary}, '{delegation,message}', 'null'::jsonb)`,
-    })
-    .where(
-      and(
-        eq(schema.agentAction.workspaceId, input.workspaceId),
-        eq(schema.agentAction.tool, 'delegate_task'),
-        ne(schema.agentAction.state, 'pending'),
-      ),
-    );
+  await clearDelegationText(and(eq(schema.agentAction.workspaceId, input.workspaceId), ne(schema.agentAction.state, 'pending')));
   return inbound.length + outbound.length;
 }

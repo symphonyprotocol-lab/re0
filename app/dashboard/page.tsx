@@ -180,7 +180,18 @@ async function rebuildMessages(
 ): Promise<PlaygroundUIMessage[]> {
   const messages: PlaygroundUIMessage[] = [];
   const actionIds = turns.flatMap((turn) => ((turn.content as { actions?: string[] }).actions ?? []));
-  const [actions, delegations] = await Promise.all([actionsByIds(workspaceId, actionIds), delegationsByActionIds(workspaceId, actionIds)]);
+  /* Delegations a check_delegation listing showed: ids only in the record, read back in one go. */
+  const listedIds = turns.flatMap((turn) =>
+    ((turn.content as { listings?: Record<string, unknown>[] }).listings ?? []).flatMap((listing) =>
+      listing.kind === 'delegations' && Array.isArray(listing.delegationIds) ? (listing.delegationIds as string[]) : [],
+    ),
+  );
+  const [actions, delegations, listed] = await Promise.all([
+    actionsByIds(workspaceId, actionIds),
+    delegationsByActionIds(workspaceId, actionIds),
+    delegationsByIds(workspaceId, listedIds),
+  ]);
+  const listedById = new Map(listed.map((delegation) => [delegation.id, delegation]));
   for (const turn of turns) {
     const content = turn.content as Record<string, unknown>;
     if (turn.role === 'user') {
@@ -192,7 +203,10 @@ async function rebuildMessages(
       /* A delegations listing keeps ids only; the output is read back from its rows, purged or not. */
       if (listing.kind === 'delegations') {
         const ids = Array.isArray(listing.delegationIds) ? (listing.delegationIds as string[]) : [];
-        parts.push({ type: 'data-listing', data: { kind: 'delegations', delegations: await delegationsByIds(workspaceId, ids) } });
+        parts.push({
+          type: 'data-listing',
+          data: { kind: 'delegations', delegations: ids.flatMap((id) => listedById.get(id) ?? []) },
+        });
         continue;
       }
       parts.push({ type: 'data-listing', data: listing as never });

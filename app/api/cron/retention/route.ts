@@ -1,5 +1,5 @@
 /**
- * The daily retention run (agent-first-proposal.md 7.9 part 4, 10).
+ * The hourly retention run (agent-first-proposal.md 7.9 part 4, 10).
  *
  * Clears the bodies of A2A tasks past their 30 days -- inbound tasks and
  * outbound delegations, with the text the delegation actions sent -- down

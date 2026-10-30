@@ -547,6 +547,30 @@ describeWithDb('P4: re0 as an A2A client, retention, export and deletion', () =>
     expect(state.outputs.some((entry) => entry.tool === '(answering model)')).toBe(false);
   });
 
+  it('tells the owner a send that timed out may still have arrived', async () => {
+    const { state } = await exchange(ws, 'Book a slow slot', [
+      { tool: 'delegate_task', input: () => ({ agent: CARD.name, message: 'Book Tuesday 8:00.' }) },
+      { tool: 'answer', input: () => ({ question: 'book' }) },
+    ]);
+    const row = await actionRow(state.lastAction!);
+    externalAgents.setExternalAgentTransport({
+      fetch: async () => {
+        throw new TypeError('fetch failed');
+      },
+      resolve: async () => ['93.184.216.34'],
+    });
+    try {
+      const outcome = await agent.confirmAction(owner(ws), { actionId: row.id, digest: row.paramsDigest });
+      expect(outcome.action.state).toBe('failed');
+      expect(outcome.action.error).toMatch(/may still have received the request.*Check with the agent before asking again/);
+      const delegation = (await externalAgents.delegationsByActionIds(ws.id, [row.id])).get(row.id)!;
+      expect(delegation.state).toBe('SEND_FAILED');
+      expect(delegation.error).toMatch(/Check with the agent/);
+    } finally {
+      externalAgents.setExternalAgentTransport({ fetch: remoteAgent, resolve: async () => ['93.184.216.34'] });
+    }
+  });
+
   it('cancels a remote task on the owner’s CancelTask', async () => {
     const { state } = await exchange(ws, 'Book a call', [
       { tool: 'delegate_task', input: () => ({ agent: CARD.name, message: 'Book a 15 minute call tomorrow.' }) },
@@ -677,6 +701,9 @@ describeWithDb('P4: re0 as an A2A client, retention, export and deletion', () =>
     };
     const privateAsset = await make('private');
     const publicAsset = await make('public');
+    /* Just as old, but a build is queued: the owner is working on it. */
+    const buildingAsset = await make('building');
+    await database.insert(schema.workflowOperation).values({ id: uuidv7(), libraryId: buildingAsset, operationType: 'refresh', status: 'pending' } as typeof schema.workflowOperation.$inferInsert);
     const channelId = uuidv7();
     await database.insert(schema.channel).values({ id: channelId, slug: `p4-public-${stamp}`, workspaceId: ws.id, title: 'Public', visibility: 'public' } as typeof schema.channel.$inferInsert);
     await database.insert(schema.channelAsset).values({ channelId, assetId: publicAsset } as typeof schema.channelAsset.$inferInsert);
@@ -685,10 +712,14 @@ describeWithDb('P4: re0 as an A2A client, retention, export and deletion', () =>
     await privacy.setPrivateAssetRetention({ workspaceId: ws.id, role: 'owner', days: 90 });
     expect(await privacy.privateAssetRetention(ws.id)).toBe(90);
     await privacy.expirePrivateAssets();
-    const rows = await database.select({ id: schema.library.id, deletedAt: schema.library.deletedAt }).from(schema.library).where(inArray(schema.library.id, [privateAsset, publicAsset]));
+    const rows = await database
+      .select({ id: schema.library.id, deletedAt: schema.library.deletedAt })
+      .from(schema.library)
+      .where(inArray(schema.library.id, [privateAsset, publicAsset, buildingAsset]));
     const byId = new Map(rows.map((row) => [row.id, row.deletedAt]));
     expect(byId.get(privateAsset)).not.toBeNull();
     expect(byId.get(publicAsset)).toBeNull();
+    expect(byId.get(buildingAsset)).toBeNull();
   });
 
   it('never wrote the credential to a log line', () => {

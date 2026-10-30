@@ -27,7 +27,7 @@
  * reaches a log line through an exception message.
  */
 import { randomUUID } from 'node:crypto';
-import { and, desc, eq, inArray, lte, or, sql } from 'drizzle-orm';
+import { and, desc, eq, inArray, lte, or, sql, type SQL } from 'drizzle-orm';
 import { Role, TaskState, type Message, type Part, type Task } from '@a2a-js/sdk';
 import {
   ClientFactory,
@@ -231,10 +231,13 @@ export async function sendDelegation(
     });
   } catch (error) {
     const failure = wireFailure(error);
+    const note = mayHaveArrived(failure)
+      ? `${failure.message}. Check with the agent before asking again.`
+      : failure.message;
     await db()
       .insert(schema.agentDelegation)
-      .values({ ...base, state: 'SEND_FAILED', error: failure.message });
-    throw failure;
+      .values({ ...base, state: 'SEND_FAILED', error: note });
+    throw mayHaveArrived(failure) ? new ExternalAgentRefused('unreachable', note) : failure;
   }
 
   const recorded = 'messageId' in result ? fromMessage(result) : fromTask(result);
@@ -295,7 +298,16 @@ async function clientFor(card: Parameters<ClientFactory['createFromAgentCard']>[
 /** Any failure on the wire, as our own error: no remote text, no header, no URL query. */
 function wireFailure(error: unknown): ExternalAgentRefused | ActionRefused {
   if (error instanceof ExternalAgentRefused || error instanceof ActionRefused) return error;
-  return new ExternalAgentRefused('unreachable', 'the external agent did not accept the request');
+  return new ExternalAgentRefused('unreachable', 'the external agent answered with an error');
+}
+
+/**
+ * Whether a failed send may still have reached the agent: a timeout or a
+ * dropped connection after the request left. The owner is told to check
+ * with the agent before asking again, so a booking is not made twice.
+ */
+function mayHaveArrived(error: ExternalAgentRefused | ActionRefused): boolean {
+  return error instanceof ExternalAgentRefused && error.code === 'unreachable' && /may still have received/.test(error.message);
 }
 
 /* ------------------------------------------------------------ the response */
@@ -433,14 +445,15 @@ async function currentHeaders(agentId: string, schemes: Record<string, SchemeSna
 
 /* -------------------------------------------------------------------- reads */
 
-export async function listDelegations(workspaceId: string, limit = 50): Promise<DelegationView[]> {
+/** The workspace's delegations, newest first; `limit: null` reads them all (the export). */
+export async function listDelegations(workspaceId: string, limit: number | null = 50): Promise<DelegationView[]> {
   const now = new Date();
-  const rows = await db()
+  const query = db()
     .select()
     .from(schema.agentDelegation)
     .where(eq(schema.agentDelegation.workspaceId, workspaceId))
-    .orderBy(desc(schema.agentDelegation.createdAt))
-    .limit(Math.min(Math.max(limit, 1), 200));
+    .orderBy(desc(schema.agentDelegation.createdAt));
+  const rows = limit === null ? await query : await query.limit(Math.min(Math.max(limit, 1), 200));
   return rows.map((row) => view(row, now));
 }
 
@@ -519,19 +532,22 @@ export async function purgeDelegationBodies(now: Date = new Date()): Promise<num
     )
     .returning({ id: schema.agentDelegation.id });
   const cutoff = new Date(now.getTime() - BODY_RETENTION_DAYS * DAY_MS);
-  const actions = await db()
+  return purged.length + (await clearDelegationText(lte(schema.agentAction.createdAt, cutoff)));
+}
+
+/**
+ * Clears the text a delegation action sent -- from its params and its
+ * card's summary -- on the delegation actions `where` selects. The digest
+ * stays. Shared by the 30-day purge and the owner's deletion.
+ */
+export async function clearDelegationText(where: SQL | undefined): Promise<number> {
+  const cleared = await db()
     .update(schema.agentAction)
     .set({
       params: sql`jsonb_set(${schema.agentAction.params}, '{message}', 'null'::jsonb)`,
       summary: sql`jsonb_set(${schema.agentAction.summary}, '{delegation,message}', 'null'::jsonb)`,
     })
-    .where(
-      and(
-        eq(schema.agentAction.tool, 'delegate_task'),
-        lte(schema.agentAction.createdAt, cutoff),
-        sql`${schema.agentAction.params}->>'message' is not null`,
-      ),
-    )
+    .where(and(eq(schema.agentAction.tool, 'delegate_task'), sql`${schema.agentAction.params}->>'message' is not null`, where))
     .returning({ id: schema.agentAction.id });
-  return purged.length + actions.length;
+  return cleared.length;
 }

@@ -8,6 +8,7 @@
  */
 import { afterEach, describe, expect, it } from 'vitest';
 import {
+  cardRequiresCredential,
   credentialHeader,
   credentialValue,
   ExternalAgentRefused,
@@ -104,6 +105,19 @@ describe('the outbound fetch', () => {
     expect(await refusal(fetcher('https://agent.example.test/big'))).toBe('too_large');
   });
 
+  it('keeps the method and body of a Request it is handed', async () => {
+    const seen: { method?: string; body?: string }[] = [];
+    setExternalAgentTransport({
+      fetch: async (_input, init) => {
+        seen.push({ method: init?.method, body: init?.body ? new TextDecoder().decode(init.body as ArrayBuffer) : undefined });
+        return new Response('{}');
+      },
+      resolve: async () => ['93.184.216.34'],
+    });
+    await guardedFetch({ timeoutMs: 1_000, maxBytes: 1_000 })(new Request('https://agent.example.test/a2a', { method: 'POST', body: '{"a":1}' }));
+    expect(seen[0]).toEqual({ method: 'POST', body: '{"a":1}' });
+  });
+
   it('puts the credential header on the request, over anything the SDK set', async () => {
     const seen: Headers[] = [];
     setExternalAgentTransport({
@@ -189,6 +203,15 @@ describe('credentials', () => {
       else process.env.CREDENTIAL_ENCRYPTION_KEY = saved;
       forgetCredentialKey();
     }
+  });
+});
+
+describe('whether a card requires a credential', () => {
+  it('follows its security requirements: none, or one naming no scheme, means anonymous is allowed', () => {
+    expect(cardRequiresCredential([['bearer']])).toBe(true);
+    expect(cardRequiresCredential([['bearer'], ['key']])).toBe(true);
+    expect(cardRequiresCredential([])).toBe(false);
+    expect(cardRequiresCredential([['bearer'], []])).toBe(false);
   });
 });
 

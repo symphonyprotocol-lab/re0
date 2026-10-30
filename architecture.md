@@ -1047,7 +1047,7 @@ re0 Agent 把子任务委托给工作空间登记的外部 A2A Agent。代码在
 
 **保留与清除（P4，提案第 10 节）**
 
-- 每日 Cron `/api/cron/retention`（`vercel.json`，03:17 UTC，`CRON_SECRET`）调用 `lib/application/privacy` 的 `runRetention`：清空到期的入站 `a2a_task` 正文（`purgeA2aTaskBodies`，P2 放在 drain 里，P4 移到这里）、出站 `agent_delegation` 的状态消息与输出，以及创建超过 30 天的 `delegate_task` 操作在 `params` 与 `summary` 里的原文；ID、状态、技能、时间、`params_digest` 与 `usage_event` 都保留。三部分各自独立，一部分失败不影响其余；
+- 每小时的 Cron `/api/cron/retention`（`vercel.json`，每小时第 17 分钟，`CRON_SECRET`；正文最多比 30 天晚一小时清除）调用 `lib/application/privacy` 的 `runRetention`：清空到期的入站 `a2a_task` 正文（`purgeA2aTaskBodies`，P2 放在 drain 里，P4 移到这里）、出站 `agent_delegation` 的状态消息与输出，以及创建超过 30 天的 `delegate_task` 操作在 `params` 与 `summary` 里的原文；ID、状态、技能、时间、`params_digest` 与 `usage_event` 都保留。三部分各自独立，一部分失败不影响其余；
 - 同一个 Cron 按 `workspace.private_asset_retention_days`（30 / 90 / 180 / 365 或空）删除过期的私有资产：不在任何公开频道里、最近一次成功构建（没有则为创建时间）早于期限，走 `markLibraryDeleted`，清理由 drain 的 Delete Operation 完成；每个工作空间每次最多 50 项；
 - `/dashboard/privacy`：`/dashboard/export/conversations` 与 `/dashboard/export/a2a-tasks` 以 JSON 导出（会话鉴权、`no-store`）；一键删除对话（`agent_conversation` 级联 `agent_message`）与 A2A 任务记录（入站任务与推送配置、出站委托，以及已决委托操作里的原文；待确认的委托留给所有者处理）；删除不影响计量。
 

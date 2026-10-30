@@ -172,9 +172,14 @@ const DEFAULT_API_KEY_HEADER = 'X-API-Key';
 /** Headers a credential may never be put in: they are the transport's or the protocol's. */
 const RESERVED_HEADERS = new Set(['host', 'content-type', 'content-length', 'a2a-version', 'a2a-extensions', 'cookie', 'connection']);
 
-/** Whether the card asks for credentials at all: any security requirement, or any declared scheme. */
-export function cardRequiresCredential(requirements: readonly unknown[], schemes: Record<string, SchemeSnapshot>): boolean {
-  return requirements.length > 0 || Object.keys(schemes).length > 0;
+/**
+ * Whether the card requires a credential. A2A's `securityRequirements` are
+ * alternatives: none listed, or one that names no scheme, means a caller
+ * may come without credentials, whatever schemes the card also declares.
+ * Each requirement is kept as the list of scheme names it names.
+ */
+export function cardRequiresCredential(requirements: readonly (readonly string[])[]): boolean {
+  return requirements.length > 0 && requirements.every((requirement) => requirement.length > 0);
 }
 
 /**

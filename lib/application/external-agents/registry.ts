@@ -70,6 +70,29 @@ export interface ExternalAgentView {
 }
 
 type AgentRow = typeof schema.externalAgent.$inferSelect;
+/** A registration without its card snapshot, which only building a client needs. */
+type AgentListRow = Omit<AgentRow, 'card'>;
+
+/** Every column but `card` (up to 256 KB): what views and lookups read. */
+const AGENT_COLUMNS = {
+  id: schema.externalAgent.id,
+  workspaceId: schema.externalAgent.workspaceId,
+  createdBy: schema.externalAgent.createdBy,
+  cardUrl: schema.externalAgent.cardUrl,
+  name: schema.externalAgent.name,
+  description: schema.externalAgent.description,
+  providerName: schema.externalAgent.providerName,
+  version: schema.externalAgent.version,
+  endpoints: schema.externalAgent.endpoints,
+  skills: schema.externalAgent.skills,
+  securitySchemes: schema.externalAgent.securitySchemes,
+  securityRequirements: schema.externalAgent.securityRequirements,
+  cardDigest: schema.externalAgent.cardDigest,
+  status: schema.externalAgent.status,
+  fetchedAt: schema.externalAgent.fetchedAt,
+  createdAt: schema.externalAgent.createdAt,
+  updatedAt: schema.externalAgent.updatedAt,
+};
 type CredentialRow = Pick<typeof schema.externalAgentCredential.$inferSelect, 'id' | 'kind' | 'suffix' | 'version' | 'updatedAt'>;
 
 /** The credential columns a view may read: everything but `sealed`. */
@@ -82,7 +105,7 @@ const CREDENTIAL_COLUMNS = {
   updatedAt: schema.externalAgentCredential.updatedAt,
 };
 
-function view(row: AgentRow, credential: CredentialRow | null): ExternalAgentView {
+function view(row: AgentListRow, credential: CredentialRow | null): ExternalAgentView {
   const schemes = row.securitySchemes as Record<string, SchemeSnapshot>;
   return {
     id: row.id,
@@ -94,7 +117,7 @@ function view(row: AgentRow, credential: CredentialRow | null): ExternalAgentVie
     endpoints: row.endpoints as unknown as AgentEndpoint[],
     skills: row.skills as unknown as AgentSkillSnapshot[],
     schemes,
-    requiresCredential: cardRequiresCredential(row.securityRequirements, schemes),
+    requiresCredential: cardRequiresCredential(row.securityRequirements as string[][]),
     status: row.status,
     credential: credential
       ? {
@@ -128,7 +151,7 @@ export interface FetchedCard {
   endpoints: AgentEndpoint[];
   skills: AgentSkillSnapshot[];
   schemes: Record<string, SchemeSnapshot>;
-  requirements: unknown[];
+  requirements: string[][];
   json: Record<string, unknown>;
   digest: string;
 }
@@ -346,7 +369,7 @@ export async function deleteAgentCredential(input: { workspaceId: string; role: 
 
 export async function listExternalAgents(workspaceId: string): Promise<ExternalAgentView[]> {
   const rows = await db()
-    .select({ agent: schema.externalAgent, credential: CREDENTIAL_COLUMNS })
+    .select({ agent: AGENT_COLUMNS, credential: CREDENTIAL_COLUMNS })
     .from(schema.externalAgent)
     .leftJoin(schema.externalAgentCredential, eq(schema.externalAgentCredential.agentId, schema.externalAgent.id))
     .where(eq(schema.externalAgent.workspaceId, workspaceId))
@@ -357,21 +380,25 @@ export async function listExternalAgents(workspaceId: string): Promise<ExternalA
 export async function externalAgentById(workspaceId: string, agentId: string): Promise<ExternalAgentView | null> {
   if (!UUID.test(agentId)) return null;
   const [row] = await db()
-    .select()
+    .select(AGENT_COLUMNS)
     .from(schema.externalAgent)
     .where(and(eq(schema.externalAgent.id, agentId), eq(schema.externalAgent.workspaceId, workspaceId)))
     .limit(1);
   return row ? view(row, await credentialRow(row.id)) : null;
 }
 
-/** An agent of this workspace by id or by name (case-insensitive), as the planner names it. */
+/**
+ * An agent of this workspace by id or by name (case-insensitive), as the
+ * planner names it. Names need not be unique: an active one wins over a
+ * disabled one of the same name.
+ */
 export async function findExternalAgent(workspaceId: string, ref: string): Promise<ExternalAgentView | null> {
   const value = ref.trim();
   if (!value) return null;
   if (UUID.test(value)) return externalAgentById(workspaceId, value);
-  const agents = await listExternalAgents(workspaceId);
   const lower = value.toLowerCase();
-  return agents.find((agent) => agent.name.toLowerCase() === lower) ?? null;
+  const named = (await listExternalAgents(workspaceId)).filter((agent) => agent.name.toLowerCase() === lower);
+  return named.find((agent) => agent.status === 'active') ?? named[0] ?? null;
 }
 
 /**
@@ -402,10 +429,10 @@ export async function storedCard(workspaceId: string, agentId: string): Promise<
   return { row, card: resolver.normalizeAgentCard(row.card) };
 }
 
-async function ownedRow(workspaceId: string, agentId: string): Promise<AgentRow> {
+async function ownedRow(workspaceId: string, agentId: string): Promise<AgentListRow> {
   if (!UUID.test(agentId)) throw new ExternalAgentRefused('not_found', 'no such external agent');
   const [row] = await db()
-    .select()
+    .select(AGENT_COLUMNS)
     .from(schema.externalAgent)
     .where(and(eq(schema.externalAgent.id, agentId), eq(schema.externalAgent.workspaceId, workspaceId)))
     .limit(1);
