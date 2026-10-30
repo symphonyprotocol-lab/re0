@@ -2,10 +2,11 @@
 -- 2026-10-30).
 --
 -- The internal rename: every table, column, constraint and index whose name
--- says library now says asset, and the two stored codes that carried the
--- word (end of file). Otherwise renames only -- no row is copied and nothing
--- is dropped, so asset ids, version ids and every anchored leaf
--- stay exactly as they were (lib/domain/anchor-leaf.ts hashes values, never
+-- says library now says asset. At the end, the stored values the code still
+-- compares or serves are renamed too: two codes, and the JSON keys of
+-- workbench turns and A2A task artifacts. Otherwise renames only -- no row is
+-- copied and nothing is dropped, so asset ids, version ids and every anchored
+-- leaf stay exactly as they were (lib/domain/anchor-leaf.ts hashes values, never
 -- column names). Postgres keeps foreign keys, grants and row types attached
 -- through a rename. Migrations before this one keep the old names by design.
 --
@@ -261,3 +262,22 @@ END $$;
 UPDATE "workflow_operation" SET "error" = 'asset_too_large' WHERE "error" = 'library_too_large';
 --> statement-breakpoint
 UPDATE "policy_asset_entry" SET "target_type" = 'asset' WHERE "target_type" = 'library';
+--> statement-breakpoint
+
+-- Stored JSON the server wrote and reads back or serves again: workbench
+-- turns (sources and the no-asset outcome, replayed when a conversation is
+-- reopened) and A2A task artifacts (served again by GetTask). Matched as
+-- JSON keys -- `"libraryId": ` -- so text inside a string value, whose quotes
+-- are escaped, is never touched.
+UPDATE "agent_message"
+   SET "content" = replace(replace(replace("content"::text,
+         '"libraryId": ', '"assetId": '),
+         '"libraryTitle": ', '"assetTitle": '),
+         '"outcome": "no_library"', '"outcome": "no_asset"')::jsonb
+ WHERE "content"::text LIKE '%"library%' OR "content"::text LIKE '%"no_library"%';
+--> statement-breakpoint
+UPDATE "a2a_task"
+   SET "artifacts" = replace(replace("artifacts"::text,
+         '"libraryId": ', '"assetId": '),
+         '"libraryTitle": ', '"assetTitle": ')::jsonb
+ WHERE "artifacts"::text LIKE '%"library%';

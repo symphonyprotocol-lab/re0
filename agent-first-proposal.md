@@ -119,7 +119,7 @@ slogan 不加第四个词，Creators 作为首页的第四个场景出现。Life
 
 **P5 实施记录（2026-10-30）**：
 
-- 数据库：迁移 0066 把 12 张名字含 library 的表（第 13 张 `library_eval_question` 已在 P0 删除）、22 个列、46 个约束、27 个索引改为 asset，Postgres 18 记作约束的 NOT NULL 一并改名；只改名，不改写行，资产 ID 的值与锚点叶子不变（`tests/contract/anchor-leaf.test.ts` 固定了一个叶子哈希）。两个代码会比较的存储值随之改名：`workflow_operation.error` 的 `library_too_large`、`policy_asset_entry.target_type` 的 `library`；
+- 数据库：迁移 0066 把 12 张名字含 library 的表（第 13 张 `library_eval_question` 已在 P0 删除）、22 个列、46 个约束、27 个索引改为 asset，Postgres 18 记作约束的 NOT NULL 一并改名；只改名，不改写行，资产 ID 的值与锚点叶子不变（`tests/contract/anchor-leaf.test.ts` 固定了一个叶子哈希）。两个代码会比较的存储值随之改名：`workflow_operation.error` 的 `library_too_large`、`policy_asset_entry.target_type` 的 `library`；重新打开的工作台对话与 GetTask 还会读回的 JSON 键（`agent_message.content`、`a2a_task.artifacts` 里的 `libraryId`、`libraryTitle` 与结果 `no_library`）也一并改名；
 - 保留不改：`audit_log` 已写入的动作名与目标类型（`platform_library.*`、`user_library.*`、`library_claim`、`library_showcase`）——审计行只追加、入哈希链并锚定，改写不可行，新旧两套名字又会把同一对象的历史拆开，所以代码继续写这些名字；`libraries` 作为保留名（已下线的路径）及对应的安全测试；迁移 0066 之前的迁移文件；
 - 管理后台路径随之改为 `/admin/assets`、`/admin/platform-assets`；MCP 工具名（随 MCP 下线、留在开关之后）改为 `resolve-asset-id`；公开的 Agent Skill `re0-library-publishing` 改为 `re0-asset-publishing`；
 - 没有别名、重定向与弃用头；部署时旧部署在迁移完成到新部署上线之间会查不到旧表名，与以往的改表迁移一样。
