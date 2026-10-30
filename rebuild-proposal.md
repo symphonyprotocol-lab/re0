@@ -219,7 +219,7 @@ Dot 的答复率、点赞率、近 30 天被问次数不单独建表，从 messa
 - 模型接入：`lib/infrastructure/ai/llm.ts`、`providers.ts`（新增一个转写 adapter）
 - 支付：`lib/infrastructure/payment/paddle.ts` 的签名校验、下单与 webhook 解析（约 1k 行）；原来按 Call 和工作空间走的额度、结算、分成代码不搬，credit 账本重写
 - 收款资料：`lib/application/revenue/payout-profile.ts` 里 PayPal 邮箱与税务表单类型的校验可搬；KYC 接入与 PayPal Payouts API 调用新写（旧代码里没有）
-- 视频：全部新写。新增依赖 `remotion`、`@remotion/player`、`@remotion/lambda`；composition 放在 `video/` 目录，Lambda 用独立的 AWS 账号与 `REMOTION_AWS_*` 环境变量
+- 视频：全部新写。新增依赖 `remotion`、`@remotion/player`、`@remotion/lambda`；composition 放在 `video/` 目录，Lambda 用独立的 AWS 账号与 `REMOTION_AWS_*` 环境变量。实现时**按 Remotion 官方 Agent Skills 做**（仓库 `remotion-dev/skills`，与 Neon 的 skill 一样用 `npx skills add remotion-dev/skills` 装进 `.agents/skills/`，记入 `skills-lock.json`）：`remotion-saas` 定产品集成与 Lambda 渲染的架构，`remotion-markup` 写 composition 与动画，`remotion-render` 定导出流程，`remotion-best-practices` 作为总路由。做第 6 步的 session 先装 skill 再动手
 - 基础设施：Neon + drizzle、Vercel Blob、Tailwind、现有 UI 基础组件（按钮、输入框、布局）
 - 文案：保留中英双语，但 i18n 词条只保留新页面用到的
 
