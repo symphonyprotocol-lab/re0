@@ -2,7 +2,7 @@
 
 - 版本：4.0
 - 更新日期：2026-10-29（按 [agent-first-proposal.md](./agent-first-proposal.md) 第 3.4 节与第 11 节改写：资产与频道术语；删除 MCP Server 一节，新增 A2A Server；分成记账改为频道收入记账；各节编号保持不变）
-- 状态：架构基线；P0–P3 已实施（P1、P2、P3：2026-10-30；迁移 0064 待应用到 Neon dev 分支；P3a 按 Paddle sandbox 实现，提案第 13.2 节四项业务前提待落实），P4 及之后的目标设计在文中以「阶段」标注区分；§4.1 登记专家模块的技术边界
+- 状态：架构基线；P0–P4 已实施（P1–P4：2026-10-30；迁移 0064、0065 待应用到 Neon dev 分支；P3a 按 Paddle sandbox 实现，提案第 13.2 节四项业务前提待落实），P5 的目标设计在文中以「阶段」标注区分；§4.1 登记专家模块的技术边界
 - 产品需求：[requirement.md](./requirement.md)
 - 设计依据：[knowleg-market.pen](./knowleg-market.pen)
 - 转向依据：[agent-first-proposal.md](./agent-first-proposal.md)
@@ -494,9 +494,12 @@ API Key 格式使用 `mm_live_` / `mm_test_` 前缀。服务端只保存：
 | `earning_event` | 只追加的频道收入事实：`channel_id`、`channel_subscription_id`、`provider_transaction_id`、`gross_minor`、`share_bps`（8000）、账期、状态；退款与拒付记为负数，注销核销记为 `written_off`（P3a）。按检索计收益的字段（`share_rate`、可计分成 Call）已删除 |
 | `revenue_period` | 账期、结算状态；可分配池与可计分成 Call 总数已删除 |
 | `payout` | 出账金额、方式（paypal）、收款 PayPal 邮箱、交易号、状态（requested / paid / failed）、失败原因、申请人与处理人 |
-| `agent_conversation` / `agent_action` | 工作台对话与待确认操作（工作台与 A2A 共用）：`tool`、`params`、`estimated_calls`、`estimated_bytes`、`makes_public`、`state`（pending / confirmed / rejected / expired）、`a2a_task_id`、`expires_at`（P2） |
+| `agent_conversation` / `agent_action` | 工作台对话与待确认操作（工作台与 A2A 共用；`delegate_task` 只来自工作台，P4）：`tool`、`params`、`estimated_calls`、`estimated_bytes`、`makes_public`、`state`（pending / confirmed / rejected / expired）、`a2a_task_id`、`expires_at`（P2） |
 | `a2a_task` | A2A 任务：`id`、`context_id`、`workspace_id`、`api_key_id`、`tenant`、`skill`、`state`、`history`、`artifacts`、`workflow_run_id`、`body_purge_at`（P1） |
 | `a2a_push_config` | 推送通知配置：`task_id`、`url`、`token`（加密保存）（P2） |
+| `external_agent` | 工作空间登记的外部 A2A Agent：卡片地址、名称、可用接口、技能、归约后的 `security_schemes`、整张卡与摘要、`status`（active / disabled）、抓取时间；`(workspace_id, card_url)` 唯一（P4） |
+| `external_agent_credential` | 每个外部 Agent 至多一份凭证：`kind`（bearer / api_key）、`sealed`（`sealCredential` 的 `agent` 用途）、`suffix`（末 4 位）、`version`（轮换加一）（P4） |
+| `agent_delegation` | 确认后的委托：`action_id`、`agent_id`、名称快照、技能、接口 URL、远端任务与上下文 ID、`state`（A2A 状态名、`MESSAGE`、`SEND_FAILED`）、`status_message`、`output`、`body_purge_at`（30 天）、`last_polled_at`（P4） |
 | `anchor_batch` | 批次类型、Leaf Schema 版本、Merkle Root、Leaf 数、窗口区间、网络、交易哈希、状态、重试次数、确认时间 |
 | `anchor_leaf` | 批次 ID、Leaf 哈希、Leaf Schema 版本、Subject 类型与 ID、Leaf 序号、Merkle Proof |
 | `workflow_operation` | Ingest/Refresh/Delete 状态、Digest、Attempt、错误 |
@@ -526,7 +529,7 @@ API Key 格式使用 `mm_live_` / `mm_test_` 前缀。服务端只保存：
 
 新表从一开始就用 asset、channel 命名；对现有 `library` 表的改动先写在现有表上，P5 随表一起改名。完整清单见提案第 12 节：
 
-- **新增**：`library.kind`、`library.access`、`workspace.handle`、`user.storage_tier`、`channel`、`channel_asset`、保留 owner 名单（`lib/domain`）、`post_draft`、`asset_media`（提案的 `audio_media`，并入文章图片）、`comment`、`comment_report`、`twin_answer`、`channel_question`、`answer_endorsement`、`channel_plan_version`、`channel_subscription`、`commerce_config`、`notification`、`channel.subscriptions_enabled_at` 与付费分发确认、`channel_asset.comments_closed`、`publisher_account` 的收款资料（PayPal 邮箱与税务资料记录）、`earning_event` 的频道收入字段与 `(source, reference)` 唯一索引、`source_type` 的 `editor` 与 `audio`、`agent_conversation`、`agent_action`、`a2a_task`、`a2a_push_config`、`api_key.scopes` 的 `assets:write`（P3 的部分在迁移 0064）；
+- **新增**：`library.kind`、`library.access`、`workspace.handle`、`user.storage_tier`、`channel`、`channel_asset`、保留 owner 名单（`lib/domain`）、`post_draft`、`asset_media`（提案的 `audio_media`，并入文章图片）、`comment`、`comment_report`、`twin_answer`、`channel_question`、`answer_endorsement`、`channel_plan_version`、`channel_subscription`、`commerce_config`、`notification`、`channel.subscriptions_enabled_at` 与付费分发确认、`channel_asset.comments_closed`、`publisher_account` 的收款资料（PayPal 邮箱与税务资料记录）、`earning_event` 的频道收入字段与 `(source, reference)` 唯一索引、`source_type` 的 `editor` 与 `audio`、`agent_conversation`、`agent_action`、`a2a_task`、`a2a_push_config`、`api_key.scopes` 的 `assets:write`（P3 的部分在迁移 0064）；P4（迁移 0065）：`external_agent`、`external_agent_credential`、`agent_delegation`、`workspace.private_asset_retention_days`，保留名增加 `for`；
 - **删除**：`library_eval_question`；`library.expert_tagged_at` 与专家申请相关表；分成池与按检索计收益所用的字段；`library.visibility`（P1）；`source_type` 的 `llms_txt`、`openapi`；分享页线索相关表；
 - **停用（保留在开关之后）**：`site_key`、`library_showcase`、`library_showcase_daily` 及分享页域名相关表；
 - **P5 改名**：13 张表名含 library（`library`、`library_version`、`library_profile` 等）与 22 个 `library_id` 列一次迁移完成 `ALTER TABLE … RENAME` 与列改名，Drizzle schema 同步改名，不在 Drizzle 层映射旧表名；
@@ -1029,6 +1032,25 @@ Artifact 固定带两个 Part：`text`（`ask` 的答案正文，或 `search_con
 
 `search_context` 每次成功检索计 1 Call、零结果不计；`ask` 每个答案计 10 Calls、每个工作空间每天最多 500 个答案，两个值在控制台配置；`find_channels` 与协议操作（`GetTask`、`ListTasks`、`CancelTask`、取卡、推送配置）不计；全部计入**调用方**工作空间，匿名由平台承担（§11.1、§11.2）。
 
+**A2A 客户端（P4，提案第 7.9 节）**
+
+re0 Agent 把子任务委托给工作空间登记的外部 A2A Agent。代码在 `lib/application/external-agents/`（`registry.ts`、`delegation.ts`、`transport.ts`），规则在 `lib/domain/external-agent.ts`，迁移 `0065_agent_first_p4.sql`。
+
+- **出站请求只有一条路**（`transport.ts` 的 `guardedFetch`）：取卡、`SendMessage`、`GetTask`、`CancelTask` 每一次都先过推送回调同一套校验（`lib/infrastructure/connectors/callback-url.ts`：https、URL 里不带凭证、字面地址不能是私网 / 回环 / 链路本地 / Metadata，再解析主机、逐个检查解析出的地址），不跟随重定向（3xx 即拒绝，避免把凭证带到没检查过的主机），取卡 10 秒 / 256 KB，其余 20 秒 / 1 MB，整段读入后再交给 SDK；不记录 URL 查询串、请求头或正文。解析与实际连接之间的 DNS 变化与推送一样靠部署侧出口限制兜底；
+- **登记**（`external_agent`）：按工作空间，只有 Owner / Admin，最多 20 个；卡片用 SDK 的 `DefaultAgentCardResolver`（打开 v0.3 兼容）规范化，只保留 A2A 1.0 / 0.3 的 `JSONRPC` 与 `HTTP+JSON` 接口（按 1.0 优先、JSON-RPC 优先排序），每个接口 URL 登记时也过上面的校验；保存快照（接口、技能、`securitySchemes` 归约为 bearer / header 里的 apiKey / 不支持、`security` 要求、整张卡的 A2A 1.0 JSON 及其摘要）。重新抓取替换快照；停用后不能提出也不能执行委托；删除连同凭证，已有委托记录保留名称快照；
+- **凭证**（`external_agent_credential`，每个外部 Agent 至多一行）：`sealCredential(secret, 'agent')`——与模型凭证同一个 `CREDENTIAL_ENCRYPTION_KEY`，但 HKDF 的用途标签不同（`re0/agent-credential/v1`），两类密文互相打不开；明文只在发送时由 `openCredentialFor(agentId, {id, version})` 解开，凭证行的 ID 或版本与确认卡片上的不一致就返回空，按 `stale` 失败。保存后只回显种类与末 4 位（短于 12 个字符不回显），视图查询从不选 `sealed` 列；轮换覆盖密文并让 `version` 加一；Server Action 的错误只回错误码，日志只记错误类型名；
+- **委托**（`delegate_task`，只在工作台）：`prepareDelegation` 把目标 Agent、接口（URL、绑定、协议版本、tenant）、技能、原文（≤ 4,000 字符）、凭证（ID、版本、种类、请求头名）冻结进 `agent_action.params`，摘要卡片写同样的内容（凭证只写种类与末 4 位），`params_digest` 绑定全部；`proposeAction` 对 `origin = a2a` 的委托直接拒绝（`workbench_only`）。确认后 `sendDelegation` 再核对一次（Agent 仍启用、接口仍在卡上、凭证 ID 与版本未变、请求头名未变），用 SDK 的 `ClientFactory` 只针对确认过的那个接口建客户端（`JsonRpcTransportFactory` / `RestTransportFactory`，`legacyCompat` 打开），发送**一次** `SendMessage`（`returnImmediately: true`，技能写在 `message.metadata.skill`），把远端任务写进 `agent_delegation`（远端任务 ID、上下文 ID、状态名、最近一条状态消息、Artifact 归约后的 `{text | data | file}` 列表，总长 32 KB 截断）；对方直接回 Message 记为 `MESSAGE`，发送失败记为 `SEND_FAILED` 且操作转 `failed`。SDK 的异常一律换成本模块的错误码再抛出，远端返回的错误正文与请求头不会经由异常消息进入日志；
+- **跟进**：所有者在委托卡片上点「刷新状态」走 `pollDelegation`（`GetTask`），「取消任务」走 `cancelDelegation`（`CancelTask`），用当前凭证；服务端不在无人操作时轮询外部 Agent，drain 也不碰委托；
+- **不可信输出**：外部 Agent 返回的内容只以数据形式保存与展示（`components/dashboard/delegation-panel.tsx`：纯文本、JSON 原样、文件只显示名称与 URL 文本，不生成链接），标明「未经 re0 核实，不是 re0 的引证」；规划器只能通过只读工具 `check_delegation` 读到，结果带 `untrusted: true` 与说明；工具集合在读到任何内容之前就已固定，回答模型从不收到它，它不会成为 `claim`；工作台对话记录里只存委托 ID，正文按委托行的保留期展示；
+- **审计**：委托的审计条目保存原文的 SHA-256（`messageDigest`），不存原文与凭证；
+- **计量**：委托、`GetTask`、`CancelTask` 不计 Call；触发委托的那一问按工作台对话计（检索有结果时 1 Call）。
+
+**保留与清除（P4，提案第 10 节）**
+
+- 每日 Cron `/api/cron/retention`（`vercel.json`，03:17 UTC，`CRON_SECRET`）调用 `lib/application/privacy` 的 `runRetention`：清空到期的入站 `a2a_task` 正文（`purgeA2aTaskBodies`，P2 放在 drain 里，P4 移到这里）、出站 `agent_delegation` 的状态消息与输出，以及创建超过 30 天的 `delegate_task` 操作在 `params` 与 `summary` 里的原文；ID、状态、技能、时间、`params_digest` 与 `usage_event` 都保留。三部分各自独立，一部分失败不影响其余；
+- 同一个 Cron 按 `workspace.private_asset_retention_days`（30 / 90 / 180 / 365 或空）删除过期的私有资产：不在任何公开频道里、最近一次成功构建（没有则为创建时间）早于期限，走 `markLibraryDeleted`，清理由 drain 的 Delete Operation 完成；每个工作空间每次最多 50 项；
+- `/dashboard/privacy`：`/dashboard/export/conversations` 与 `/dashboard/export/a2a-tasks` 以 JSON 导出（会话鉴权、`no-store`）；一键删除对话（`agent_conversation` 级联 `agent_message`）与 A2A 任务记录（入站任务与推送配置、出站委托，以及已决委托操作里的原文；待确认的委托留给所有者处理）；删除不影响计量。
+
 ### 13.2 SDK
 
 TypeScript SDK：
@@ -1238,7 +1260,7 @@ NOTION_OAUTH_CLIENT_SECRET
 NOTION_INGESTION_TOKEN         # 可选，internal integration：仅平台 Notion 资产使用；工作空间的 Notion 资产用用户自己的授权
 SESSION_SIGNING_SECRET
 API_KEY_HASH_SECRET
-CREDENTIAL_ENCRYPTION_KEY      # 密封后台保存的模型凭据，见 §9.7；轮换后所有已存密钥读不出来，需重新录入
+CREDENTIAL_ENCRYPTION_KEY      # 密封后台保存的模型凭据（§9.7）、A2A 推送配置与用户为外部 Agent 保存的凭证（§13.1，用途标签不同）；轮换后所有已存密钥读不出来，需重新录入
 EMBEDDING_PROVIDER_API_KEY     # 可选，升级兼容：后台从未保存过向量模型时的兜底（连同 EMBEDDING_PROVIDER_BASE_URL、EMBEDDING_MODEL），首次保存后不再读取
 RERANK_PROVIDER_API_KEY        # 可选，同上，重排模型的兜底；需与 RERANK_PROVIDER_BASE_URL 同时设置（RERANK_MODEL 可选）
 RENDER_PROVIDER                # 可选，升级兼容：firecrawl | anysearch | jina，网站来源被拒或返回 JS 空壳时的渲染兜底（§8.2）；后台首次保存渲染配置后不再读取
@@ -1253,7 +1275,7 @@ PAYMENT_WEBHOOK_SECRET
 PADDLE_*                       # Paddle Billing，见 .env.example；只剩 Additional Calls 商品（PADDLE_ADDON_PRODUCT_ID），PADDLE_PRO_PRODUCT_ID 随 Pro 删除；频道订阅商品在 P3a 加入
 APP_BASE_URL
 API_BASE_URL
-CRON_SECRET                    # Vercel Cron 调用 /api/cron/drain 时携带的 Bearer；队列兜底与上传清扫
+CRON_SECRET                    # Vercel Cron 调用 /api/cron/drain、/api/cron/anchor 与 /api/cron/retention 时携带的 Bearer；队列兜底、上传清扫与 30 天正文清除
 
 APTOS_NETWORK                  # 生产固定 mainnet；开发与 CI 用 testnet 或 localnet，见提案 §4.7
 APTOS_NODE_URL
