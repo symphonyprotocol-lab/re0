@@ -23,10 +23,12 @@
  * acknowledged. Retrying them would fail the same way forever, and the payload
  * in `payment_event` is what an operator reconciles from.
  *
- * Only the Additional Calls pack is sold (agent-first-proposal.md 8.1), so the
- * only state a notification can change is a workspace's pack balance and, with
- * it, its owners' storage tier. Subscription events never reach here: the
- * adapter reports them as ignored.
+ * Two things are sold: the Additional Calls pack (agent-first-proposal.md
+ * 8.1), whose notifications change a workspace's pack balance and its
+ * owners' storage tier, and channel subscriptions (6.9), whose
+ * notifications change the subscriber's access and tier and write the
+ * creator's share to the channel income ledger. Any other subscription
+ * event is reported as ignored by the adapter.
  */
 import { and, desc, eq, isNotNull, isNull } from 'drizzle-orm';
 import {
@@ -45,6 +47,7 @@ import { db, schema } from '@/lib/infrastructure/postgres/client';
 import { PLAN_VERSION_NEWEST_FIRST } from '@/lib/application/plans/configuration';
 import type { Tx } from '@/lib/application/plans/quota';
 import { extendStorageTier } from '@/lib/application/plans/storage';
+import { applyChannelSubscription, applyChannelTransaction } from '@/lib/application/channels/subscriptions';
 import { recordPaymentEvent, writeProviderDocument } from './mirror';
 
 export type PaymentWebhookOutcome =
@@ -80,6 +83,9 @@ export async function applyPaymentNotification(
    * purpose.
    */
   if (notification.subject === 'ignored') return 'ignored';
+  if (notification.subject === 'channel_transaction' || notification.subject === 'channel_subscription') {
+    return applyChannelNotification(notification);
+  }
   if (!notification.document) return 'ignored';
   const notice = notification.document;
 
@@ -101,6 +107,50 @@ export async function applyPaymentNotification(
     if (!eventId) return 'redelivered';
     if (!draft) return 'refused';
     return projectDocument(tx, notice, draft, eventId);
+  });
+}
+
+/* ---------------------------------------------------------------- channel */
+
+/**
+ * A subscription event that outran the transaction creating its row: thrown
+ * so the event rolls back unrecorded and the provider's retry finds it
+ * again, by which time the transaction has landed.
+ */
+const SUBSCRIPTION_WAIT_MS = 24 * 60 * 60 * 1000;
+
+export class ChannelSubscriptionNotYetKnown extends Error {
+  constructor(externalId: string) {
+    super(`channel subscription ${externalId} is not known yet`);
+    this.name = 'ChannelSubscriptionNotYetKnown';
+  }
+}
+
+/**
+ * A channel subscription's money or state (agent-first-proposal.md 6.9):
+ * recorded and applied in one transaction like a document, so a retry is
+ * either a full redo or a no-op. Nothing is mirrored as the subscriber's
+ * billing document -- it is the creator's sale, sold through re0's account.
+ */
+async function applyChannelNotification(
+  notification: Extract<PaymentNotification, { subject: 'channel_transaction' | 'channel_subscription' }>,
+): Promise<PaymentWebhookOutcome> {
+  return db().transaction(async (tx) => {
+    const eventId = await recordPaymentEvent(tx, notification.provider, notification);
+    if (!eventId) return 'redelivered';
+    if (notification.subject === 'channel_transaction') {
+      return applyChannelTransaction(tx, notification.channel);
+    }
+    const outcome = await applyChannelSubscription(tx, notification.channel);
+    /*
+     * Retried while the first transaction may still be on its way; a day on,
+     * none is coming (a checkout whose payment failed), so the event is
+     * recorded as unresolved instead of failing every redelivery.
+     */
+    if (outcome === 'unresolved' && Date.now() - notification.channel.observedAt.getTime() < SUBSCRIPTION_WAIT_MS) {
+      throw new ChannelSubscriptionNotYetKnown(notification.channel.subscriptionExternalId);
+    }
+    return outcome;
   });
 }
 

@@ -45,6 +45,7 @@ const CONFIG: PaddleConfig = {
   clientToken: 'test_x',
   environment: 'sandbox',
   addonProductId: ADDON_PRODUCT,
+  channelProductId: null,
   checkoutPageUrl: 'https://re0.test/checkout',
 };
 

@@ -31,13 +31,19 @@ export type SourceType =
   | 'website'
   | 'markdown'
   | 'pdf'
-  | 'notion';
+  | 'notion'
+  /** Written in re0's own editor: an article or a Q&A (agent-first-proposal.md 3.2). */
+  | 'editor'
+  /** An uploaded episode, indexed by its title and show notes (6.6). */
+  | 'audio';
 
 /** requirement.md 7.3.2: these source types have no claim flow; the creator owns them. */
 export const SELF_OWNED_SOURCE_TYPES: readonly SourceType[] = [
   'markdown',
   'pdf',
   'notion',
+  'editor',
+  'audio',
 ];
 
 /**
@@ -86,15 +92,18 @@ export function isQueryable(input: {
  * Cash is paid by hand over PayPal and the default exit is credit, which has
  * no threshold at all -- so the long tail redeems as calls, and the cash rail
  * pays out in amounts its per-transfer fee does not swallow.
+ *
+ * The default only: the console's commerce settings own the value
+ * (`commerce-config.ts`).
  */
 export const PAYOUT_THRESHOLD_MINOR = 2_000;
 /**
- * The refund/chargeback window before a statement can be redeemed or paid.
- * agent-first-proposal.md 6.9 moves it to 120 days with channel
- * subscriptions, whose card chargebacks reach back that far; until then the
- * ledger holds nothing a card can charge back, so 45 stands.
+ * The refund/chargeback window before a statement can be redeemed or paid:
+ * 120 days since channel subscriptions (agent-first-proposal.md 6.9), the
+ * reach of a card chargeback; 45 covered the refund window only. The
+ * default, like the threshold; the console's commerce settings own it.
  */
-export const PAYOUT_HOLD_DAYS = 45;
+export const PAYOUT_HOLD_DAYS = 120;
 
 export {
   creditCallsFor,

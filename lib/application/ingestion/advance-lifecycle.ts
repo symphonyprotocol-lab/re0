@@ -14,6 +14,7 @@ import { and, eq } from 'drizzle-orm';
 import { lifecycleAfterBuild } from '@/lib/domain/library';
 import { db, schema } from '@/lib/infrastructure/postgres/client';
 import { refreshChannelProfileOfAsset } from '@/lib/application/channels/profile';
+import { notifyFirstPublication } from '@/lib/application/editorial/notify';
 
 export async function advanceLifecycleAfterBuild(libraryId: string): Promise<void> {
   const database = db();
@@ -29,12 +30,15 @@ export async function advanceLifecycleAfterBuild(libraryId: string): Promise<voi
 
   const next = lifecycleAfterBuild(row);
   if (next) {
-    await database
+    const moved = await database
       .update(schema.library)
       .set({ lifecycleStatus: next })
       .where(
         and(eq(schema.library.id, libraryId), eq(schema.library.lifecycleStatus, row.lifecycleStatus)),
-      );
+      )
+      .returning({ id: schema.library.id });
+    /* A post's or episode's first version going live is news for the channel's subscribers (proposal 6.5). */
+    if (moved.length > 0 && next === 'published') await notifyFirstPublication(libraryId).catch(() => 0);
   }
 
   /* The channel profile aggregates the member assets' profiles, which this

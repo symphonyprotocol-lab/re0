@@ -62,6 +62,7 @@ import { buildAgentCard } from './card';
 import { buildCallContext, callerOf, type A2ACallFacts } from './context';
 import { Re0AgentExecutor, type ExecutorDependencies } from './executor';
 import { callerQuota } from './extended';
+import { subscribesTo } from '@/lib/application/channels/subscriptions';
 import { PostgresPushNotificationStore, Re0PushNotificationSender } from './push';
 import { syncBuildTasks } from './task-events';
 import { PostgresTaskStore } from './task-store';
@@ -253,7 +254,14 @@ function requestHandlerFor(input: A2ARequest): StoreBackedRequestHandler {
       origin: input.origin,
       tenant: input.facts.tenant,
       hasPublicChannel: input.hasPublicChannel,
-      extended: { workspaceId: caller.workspaceId, quota: await callerQuota(caller.workspaceId) },
+      extended: {
+        workspaceId: caller.workspaceId,
+        quota: await callerQuota(caller.workspaceId),
+        subscribes:
+          input.facts.tenant.level === 'channel'
+            ? await subscribesTo(caller.workspaceId, input.facts.tenant.channelId)
+            : false,
+      },
     });
   };
   const inner = new DefaultRequestHandler(

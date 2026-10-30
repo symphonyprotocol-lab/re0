@@ -43,7 +43,11 @@ export type PayoutError =
   /** What is past its hold on a library that still earns is under the threshold. */
   | 'below_threshold'
   /** A request is already waiting for an operator. */
-  | 'payout_pending';
+  | 'payout_pending'
+  /** A chargeback took back income already paid out; nothing leaves until it clears (6.9). */
+  | 'negative_balance'
+  /** No PayPal address, or the tax document is not verified yet: income accrues, nothing is paid (6.9). */
+  | 'profile_incomplete';
 
 export class PayoutRefused extends Error {
   constructor(

@@ -2,7 +2,7 @@
 
 - 版本：4.0
 - 更新日期：2026-10-29（按 [agent-first-proposal.md](./agent-first-proposal.md) 第 3.4 节与第 11 节改写：资产与频道术语；删除 MCP Server 一节，新增 A2A Server；分成记账改为频道收入记账；各节编号保持不变）
-- 状态：架构基线；P0、P1 已实施（P1：2026-10-30），P2 及之后的目标设计在文中以「阶段」标注区分；§4.1 登记专家模块的技术边界
+- 状态：架构基线；P0–P3 已实施（P1、P2、P3：2026-10-30；迁移 0064 待应用到 Neon dev 分支；P3a 按 Paddle sandbox 实现，提案第 13.2 节四项业务前提待落实），P4 及之后的目标设计在文中以「阶段」标注区分；§4.1 登记专家模块的技术边界
 - 产品需求：[requirement.md](./requirement.md)
 - 设计依据：[knowleg-market.pen](./knowleg-market.pen)
 - 转向依据：[agent-first-proposal.md](./agent-first-proposal.md)
@@ -185,7 +185,10 @@ app/
   dashboard/
     page.tsx                # Agent 工作台（P2）
     libraries/              # P1 改为 assets/
-    channels/               # 我的频道、待答列表、评论管理、订阅收入（P1 / P3a）
+    channels/               # 我的频道，含「订阅」面板（P1 / P3a）
+    posts/                  # 文章与音频的编辑器、导入（P3）
+    questions/ comments/    # 待答列表、评论管理（P3a）
+    subscriptions/ notifications/   # 订阅者视角、站内通知（P3a）
     api-keys/
     requests/
     policies/
@@ -201,6 +204,8 @@ app/
     plans/
     billing/
     settlements/            # 频道收入结算与出账
+    commerce/               # 频道收款设置与税务资料核验（P3a）
+    comments/               # 评论举报（P3a）
     administrators/
     audit/
   api/v1/
@@ -240,7 +245,10 @@ lib/
     playground/             # 共用的 Agent 循环与生成链路
     agent/                  # 工作台工具、待确认操作（P2）
     a2a/                    # AgentExecutor、Agent Card 生成、TaskStore（P1 / P2）
-    posts/ audio/ comments/ qa/   # 文章、音频、评论、问答（P3a / P3b）
+    editorial/              # 文章与音频：草稿、发布、定时、媒体文件、导入、阅读视图（P3）
+    comments/               # 评论：权限、频率限制、内容检查、管理与举报（P3a）
+    questions/              # AI 分身、待答列表、问答资产、作者确认（P3a）
+    notifications/          # 站内通知（P3a）
     policies/
     plans/
     revenue/                # 频道收入记账、结算、出账
@@ -461,10 +469,13 @@ API Key 格式使用 `mm_live_` / `mm_test_` 前缀。服务端只保存：
 | `chunk` | 正文、Token、Citation、质量和安全状态、`search_vector` 与 `embedding` 列 |
 | `library_rule` | 来源维护者规则，按 Version 冻结 |
 | `library_review` | 历史上的公开审核记录；发布前审核取消后只记频道层面的下架与恢复（requirement.md 7.4） |
-| `post_draft` | 文章草稿，发布前不进版本线（P3a） |
-| `audio_media` | 音频文件：`asset_id`、`object_key`、`mime`、`bytes`、`duration_ms`、`sha256`（P3b） |
-| `comment` / `comment_report` | 评论与举报；评论不是资产，不进检索、不上链（P3a） |
-| `channel_question` / `answer_endorsement` | 待答列表与作者确认（P3a） |
+| `post_draft` | 文章与音频的草稿（标题、摘要、正文或节目说明、定时发布时间、目标频道与 `access`），发布前不进版本线（P3） |
+| `asset_media` | 资产携带的文件：文章图片与音频（`kind`）、`object_key`、`mime`、`bytes`、`sha256`、`duration_ms`、图片说明、`state`（pending / ready / replaced，`ready` 计入容量）（P3） |
+| `comment` / `comment_report` | 评论与举报；评论不是资产，不进检索、不上链；`state` 为 visible / hidden / deleted / removed（P3a） |
+| `twin_answer` / `channel_question` / `answer_endorsement` | 分身的回答、待答列表与作者确认（P3a） |
+| `channel_plan_version` / `channel_subscription` | 不可变频道方案（周期、价格、费率）与订阅（绑定用户与其个人工作空间、`current_period_end`、Paddle 订阅 ID）（P3a） |
+| `commerce_config` | 控制台的频道收款设置：最低单笔价格、平台管理费、持有期、提现门槛（P3a） |
+| `notification` | 站内通知，载荷只有 ID 与标题（P3a） |
 | `library_claim` | 认领申请：申请人、验证方式、挑战 Token 摘要、状态、失败原因码、过期时间、裁定记录 |
 | `domain_verification` | 创建前的域名挑战：工作空间、host、验证方式、Token 摘要、状态、尝试次数、过期与验证时间、消费它的 Library（§5.4） |
 | `library_score` | Trust/Benchmark（只有结构分）算法版本和分项；`library_eval_question` 已删除 |
@@ -515,7 +526,7 @@ API Key 格式使用 `mm_live_` / `mm_test_` 前缀。服务端只保存：
 
 新表从一开始就用 asset、channel 命名；对现有 `library` 表的改动先写在现有表上，P5 随表一起改名。完整清单见提案第 12 节：
 
-- **新增**：`library.kind`、`library.access`、`workspace.handle`、`user.storage_tier`、`channel`、`channel_asset`、保留 owner 名单（`lib/domain`）、`post_draft`、`audio_media`、`comment`、`comment_report`、`channel_plan_version`、`channel_subscription`、`publisher_account` 的税务字段、`earning_event` 的频道收入字段、`channel_question`、`answer_endorsement`、`agent_conversation`、`agent_action`、`a2a_task`、`a2a_push_config`、`api_key.scopes` 的 `assets:write`；
+- **新增**：`library.kind`、`library.access`、`workspace.handle`、`user.storage_tier`、`channel`、`channel_asset`、保留 owner 名单（`lib/domain`）、`post_draft`、`asset_media`（提案的 `audio_media`，并入文章图片）、`comment`、`comment_report`、`twin_answer`、`channel_question`、`answer_endorsement`、`channel_plan_version`、`channel_subscription`、`commerce_config`、`notification`、`channel.subscriptions_enabled_at` 与付费分发确认、`channel_asset.comments_closed`、`publisher_account` 的收款资料（PayPal 邮箱与税务资料记录）、`earning_event` 的频道收入字段与 `(source, reference)` 唯一索引、`source_type` 的 `editor` 与 `audio`、`agent_conversation`、`agent_action`、`a2a_task`、`a2a_push_config`、`api_key.scopes` 的 `assets:write`（P3 的部分在迁移 0064）；
 - **删除**：`library_eval_question`；`library.expert_tagged_at` 与专家申请相关表；分成池与按检索计收益所用的字段；`library.visibility`（P1）；`source_type` 的 `llms_txt`、`openapi`；分享页线索相关表；
 - **停用（保留在开关之后）**：`site_key`、`library_showcase`、`library_showcase_daily` 及分享页域名相关表；
 - **P5 改名**：13 张表名含 library（`library`、`library_version`、`library_profile` 等）与 22 个 `library_id` 列一次迁移完成 `ALTER TABLE … RENAME` 与列改名，Drizzle schema 同步改名，不在 Drizzle 层映射旧表名；
@@ -534,11 +545,11 @@ exports/{workspaceHash}/{exportId}.csv
 quarantine/{operationId}/{objectId}
 uploads/{workspaceId}/{batchId}/{fileId}.pdf
 uploads/platform/{batchId}/{fileId}.pdf
-images/{libraryId}/{imageId}.*          # 文章图片（P3a）
-audio/{libraryId}/{mediaId}.*           # 音频文件（P3b）
+workspaces/{workspaceId}/media/{assetId}/image-{mediaId}.{ext}   # 文章图片
+workspaces/{workspaceId}/media/{assetId}/audio-{mediaId}.{ext}   # 音频文件、问答附带语音
 ```
 
-文章图片与音频文件是资产的一部分，大小计入工作空间容量；两者都只存私有 Bucket，付费资产的图片与音频只对订阅者按次签发短时效地址，不提供下载；图片不进检索，音频不转写，不送往任何第三方服务（requirement.md 8.1、12）。
+文章图片与音频文件是资产的一部分（`asset_media`），浏览器凭票据直传私有 Bucket，确认时服务端核对大小、读回计算 SHA-256，并在工作空间锁下按剩余容量准入；`ready` 状态的文件大小计入工作空间容量，替换的音频文件转为 `replaced`、不再计入并从 Bucket 删除。读者经 `/media/{id}` 取用：服务端按 `readableBy` 判断此刻能否完整阅读该资产（所有者、免费资产的任何人、付费资产的当前订阅者），再按次签发短时效签名地址（图片 5 分钟、音频 15 分钟）并 302 跳转，否则与不存在同为 404；不提供下载。图片不进检索，音频不转写，不送往任何第三方服务（requirement.md 8.1、12）。
 
 `uploads/` 是 Dashboard 直传的 PDF：向导在创建资产前上传，或创建后在该资产的文件页上传，`source.config.files` 记录其 Key，构建时由 PDF 连接器读回；Key 以工作空间 id 开头，创建和改文件的请求都只能引用自己前缀下的对象。文件页的每次保存（`updateLibraryFiles`）改写 `source.config.files` 并排队一次 `refresh`：已有 pending 的构建则复用它（它尚未读取来源），正在 running 的则在其后再排一次。被移除文件的对象不立即删除——已发布版本的引用仍指向它——由上传清扫在无来源引用且超过 24 小时后回收。没有文件的上传文件资产不排队构建，`index_status` 停在 `pending`。平台的上传文件资产走同一套机制，只是由管理后台上传：Key 以固定的 `platform` 段代替工作空间 id（工作空间 id 是 UUID，永远不会与它重合），创建对话框直传后把清单交给 `createPlatformLibrary`，之后在详情页的「PDF 文件」面板增删（`updatePlatformLibraryFiles`，写审计 `platform_library.files`）；「添加来源」给已有平台库加 PDF 来源的做法随「一项资产一个来源」停用（现有多来源平台库在 P1 按来源拆开）。平台上传文件资产的刷新策略固定为手动；引用指向公开的 `/files/{fileId}`，该路由只放行已发布平台资产的文件；后台文件面板走 `/admin/files/{fileId}` 预览草稿（管理员 Cookie 只作用于 `/admin` 路径）。
 
@@ -585,6 +596,8 @@ stateDiagram-v2
     Evaluating --> Failed
     Publishing --> Failed
 ```
+
+**平台自有来源**（P3）：`editor`（文章、问答）与 `audio`（音频）没有抓取。发布时应用层（`lib/application/editorial`、`lib/application/questions`）把要索引的文档写进 `source.config`——`{ path, url, markdown }`，外加阅读页用的原文——并排队一次构建；`fetch-snapshot` 由 `connectors/editor.ts` 直接交出这一份文件，其余步骤与其他来源完全相同，所以每次发布或修改发布后的内容都经同一个发布事务（§8.3）产生新版本、计构建 Call、上链。文章的 `markdown` 是标题、摘要与正文，图片以说明文字代替；音频的是标题与节目说明，`path` 为 `episode-{sha256}.md`，问答带语音时为 `qa-{sha256}.md`——文件哈希进入快照摘要，所以只换文件也是新版本。草稿（`post_draft`）不进版本线；定时发布由 `/api/cron/drain` 在排队前调用 `publishDueDrafts`。
 
 ### 8.2 幂等步骤
 
@@ -727,7 +740,7 @@ libraryVersion + policyVersion + queryHash + maxTokens + responseType + retrieva
 
 ### 9.5 生成链路
 
-调用 LLM 生成答案的入口限于四个：在线试用、Agent 工作台、频道 AI 分身和 A2A `ask`，**共用同一条生成链路**（同一个检索函数、逐句闸门、引用绑定校验、降级为 Chunk 列表），产品规则见 [requirement.md](./requirement.md) 第 5.1 节；REST 与 A2A `find_channels` / `search_context` 不调用模型。在线试用（`/playground`）与工作台共用同一个 Agent 循环，区别只在工具集合（公开演示只读、只查公开频道里的免费资产；工作台另有资产与频道操作工具与确认门，§13.1）。**阶段**：工作台与 A2A `ask` 已在 P2 实施（`lib/application/playground/agent.ts` 的 `workbench` 输入、`lib/application/agent/ask.ts`），分身在 P1。工作台只要模型声明了工具调用就启用规划，不受在线试用的 Agent 开关影响；一轮最多 3 项待确认操作、2 次列表；只列表或只提议、没有确认过的证据时以 `acted` 结束，不调用作答模型。A2A `ask` 不走规划：直接用 `search_context` 的同一个范围检索（`searchScope`，`meter: false`），再交给 `answerFromContext`。架构约束：
+调用 LLM 生成答案的入口限于四个：在线试用、Agent 工作台、频道 AI 分身和 A2A `ask`，**共用同一条生成链路**（同一个检索函数、逐句闸门、引用绑定校验、降级为 Chunk 列表），产品规则见 [requirement.md](./requirement.md) 第 5.1 节；REST 与 A2A `find_channels` / `search_context` 不调用模型。在线试用（`/playground`）与工作台共用同一个 Agent 循环，区别只在工具集合（公开演示只读、只查公开频道里的免费资产；工作台另有资产与频道操作工具与确认门，§13.1）。**阶段**：工作台与 A2A `ask` 已在 P2 实施（`lib/application/playground/agent.ts` 的 `workbench` 输入、`lib/application/agent/ask.ts`），频道 AI 分身在 P3a（`lib/application/questions` 的 `askTwin`：`askScope` 的 `twin` 模式，1 Call、请求 ID 前缀 `twin:`、用量 `operation = 'twin'`、不受 `ask` 的每日答案上限约束）。分身的每个回答记入 `twin_answer`（问题、绑定的陈述与所依据的版本）：零结果的问题同时进入待答列表（`channel_question`），创作者可以对回答打「作者确认」（`answer_endorsement`，绑定第一个依据版本）。工作台只要模型声明了工具调用就启用规划，不受在线试用的 Agent 开关影响；一轮最多 3 项待确认操作、2 次列表；只列表或只提议、没有确认过的证据时以 `acted` 结束，不调用作答模型。A2A `ask` 不走规划：直接用 `search_context` 的同一个范围检索（`searchScope`，`meter: false`），再交给 `answerFromContext`。架构约束：
 
 ```text
 （Agent 模式）规划：模型只能调用工具——检索工具（搜频道 / 查资产，同一检索函数）、answer，以及工作台里的资产与频道操作工具（有副作用的生成待确认操作，不直接执行）
@@ -833,7 +846,7 @@ type WorkspacePolicy = {
 
 - Library Search 在 Postgres 元数据查询阶段应用 Policy；
 - Context Retrieval 在生成 Embedding 前完成 Policy 和可见性检查；可见性按 requirement.md 6.2：资产所在频道的可见性、`access`、调用者是否为所有者或订阅者，在固定可访问资产与版本时判定，先于召回；
-- A2A、REST 和 Web 都调用相同 Policy Evaluator；
+- A2A、REST 和 Web 都调用相同 Policy Evaluator；可见性只有一处实现：`lib/application/channels/visibility.ts` 的 `readableBy`——所有者、公开频道里的免费资产，加上 `subscribedPaid`：资产为 `paid`、所在公开频道有该工作空间的订阅、状态在 `active / past_due / canceled` 且 `current_period_end > now()`。比较在每次读取的 SQL 里用数据库时钟做，到期后的下一次调用即被拒，不等 Webhook。单资产读取（`queryDocs`）、范围检索（`searchScope`，A2A 与分身）、`/media/{id}` 的签名与阅读页都走它；频道卡的扩展卡只是把订阅者的范围写出来，不另做判断；
 - Policy Evaluator 返回稳定 Reason Code，调用记录只保存 Reason Code；
 - “始终允许”只绕过质量阈值；阻止名单和来源类型开关优先，且不能覆盖可见性（不属于频道、私有频道、`paid` 资产的订阅要求）、频道下架、安全暂停、账户停用或来源凭证撤销。
 
@@ -879,26 +892,27 @@ Webhook 处理顺序：
 Payment Provider 为 **Paddle Billing**（`lib/infrastructure/payment/paddle.ts`，`PADDLE_*` 环境变量，见 `.env.example`）。三条实现约束：
 
 - **价格来自不可变版本。** 结账由服务端创建交易，使用挂在 Additional Calls 这个 Paddle 商品下的非目录价格，金额取当时最新的 Plan Version；Paddle 目录里不保存我方价格。Pro 商品随 Pro 套餐删除（`PADDLE_PRO_PRODUCT_ID` 不再需要）。频道订阅（P3a）是另一个 Paddle 商品，价格取自频道方案版本 `channel_plan_version`，re0 用自己的 Paddle 账户作为记录商户销售创作者的内容；订阅续费沿用开通时的价格，与「方案修改只影响新订阅」一致；
-- **频道订阅的事件**（P3a）：`transaction.completed` 为频道所有者记一条 `earning_event`（小计的 80%）并开通订阅者的 `channel_subscription`；续费延长 `current_period_end`；退款与拒付的 adjustment 冲回对应收入并按规则收回访问权（退款立即，退订到期末）；订阅到期后下一次调用即被拒；首次订阅把 `user.storage_tier` 升到 `extended`；
+- **频道订阅的事件**（P3a，`lib/application/channels/subscriptions.ts`）：结账交易打 `re0_kind = channel` 与 `re0_channel_plan_version_id`、`re0_user_id`、`re0_workspace_id`，价格是挂在 `PADDLE_CHANNEL_PRODUCT_ID` 商品下、带 `billing_cycle` 的非目录价格（未配置该商品时频道结账返回「未接通」，调用包照常销售）。Adapter 把频道交易（打标，或续费交易按商品识别）报为 `channel_transaction`、把频道订阅事件报为 `channel_subscription`，不写 `billing_document`——这是创作者的销售，不是订阅者工作空间的账单。`transaction.completed`（回读交易与全部 adjustment）开通或续期订阅（只由已收款交易延长 `current_period_end`），记 `earning_event`（不含税金额 = 总额减税额，乘以方案版本的创作者份额），并把订阅者 `user.storage_tier` 升到 `extended`；已批准的退款与拒付按调整单的不含税金额记负数、拒付撤销记正数，每条以 `(source, reference)` 唯一；针对当期的退款或拒付把订阅转为 `refunded` 并立即收回访问，同一交易之后的重读不再恢复；订阅事件只更新状态与「到期取消」，不移动周期；先于首笔交易到达的订阅事件回滚并返回 5xx，由 Paddle 重投；
 - **Webhook 只是通知。** 交易与 adjustment（退款、拒付）事件到达后，回读该交易及其全部 adjustment 的当前状态，整体写入 `billing_document`，不累加单个事件的增量；订阅事件自带完整实体，直接使用。三者都受 `observed_at` 守卫；
 - **归属来自自定义数据。** 每笔结账交易带 `re0_workspace_id`、`re0_plan_version_id`、`re0_kind`，由服务端写入，只从验签后的通知或已认证的 API 读回。未打标的续费交易经其 `subscription_id` 归属；
 - **生效套餐只有一个定义**（`lib/application/plans/in-force.ts`）：Pro 取消后每个工作空间只有注册时写入的免费行；Provider 计费行的宽限逻辑保留给频道订阅（账期结束后 1 天宽限等待续费 Webhook，`past_due` 不享受宽限）；
-- **结账防重**：`payment_checkout` 记录本服务开出的结账。同一用户对同一频道的订阅结账在 advisory lock 下决定：仍可支付的旧结账直接复用；已付款但 Webhook 未到的返回 `pending`；`active`、`trialing`、`past_due`、`paused` 的订阅都拒绝再开一单。
+- **结账防重**：`payment_checkout` 记录本服务开出的调用包结账。频道订阅结账在设价与结账时都按控制台最低价检查，已持有有效订阅的用户与频道所有者被拒；「仍可支付的旧结账复用、已付款未到账返回 `pending`」尚未对频道结账实现（P3 遗留：两次快速点击可能开出两笔交易，需要时由 Paddle 端退款）。退订调用 Paddle `POST /subscriptions/{id}/cancel`（`next_billing_period`），本侧标记 `cancel_at_period_end`，访问用到期末。
 
 这份「只保存」的投影落在 `billing_document`，按 `(provider, external_id)` 一行一单，随状态原地改写，供管理后台的订阅账单页查询（§5.3 的只读同步）。它与 `payment_event` 是两把不同的幂等钥匙，不能合并：`(provider, external_event_id)` 让重投的 Webhook 变成空操作，`(provider, external_id)` 让同一张单据保持一行而不是一次通知一行。两者必须同事务写入——事件写了而投影没写，重试会因为事件已处理而直接跳过，这次状态就永久丢失。Webhook 不保证顺序，因此投影另存 Provider 侧的状态时间，只有更新的事件才允许覆盖已有行：一条迟到的 `paid` 覆盖掉已退款的单据，会让后台报出平台并没有的收入。支付方式只记录类别（`card`、`alipay`），不记录任何卡片实例，卡号与后四位都不进入本侧存储。
 
 ### 11.4 频道收入记账
 
-发布者分成已取消（[publisher-revenue-share.md](./publisher-revenue-share.md) 废止）；`lib/application/revenue`、`/v1/revenue*` 之外的结算与出账流程保留，改为结算创作者的频道订阅收入（requirement.md 4.4，提案第 6.9 节；P3a 落地）。架构约束：
+发布者分成已取消（[publisher-revenue-share.md](./publisher-revenue-share.md) 废止）；`lib/application/revenue`、`/v1/revenue*` 之外的结算与出账流程保留，改为结算创作者的频道订阅收入（requirement.md 4.4，提案第 6.9 节；P3a 已实施）。架构约束：
 
-- `earning_event` 与频道订阅的支付事件**同事务写入**：`transaction.completed` 入库时记收入（小计的 80%，`share_bps` = 8000），退款与拒付的 adjustment 入库时记负数冲回；理由与 §11.1 一致——收入是计费事实，不能靠异步补写，否则重放与漏写会直接变成付错钱；
-- `earning_event` 只追加，携带当时的 `channel_plan_version_id` 与 `fee_rate_bps`（2000），历史账期按当时值结算，改费率只影响新订阅；
+- `earning_event` 与频道订阅的支付事件**同事务写入**：`transaction.completed` 入库时记收入（不含税金额的创作者份额，默认 `share_bps` = 8000），退款与拒付的 adjustment 入库时记负数冲回；理由与 §11.1 一致——收入是计费事实，不能靠异步补写，否则重放与漏写会直接变成付错钱；
+- `earning_event` 只追加，携带 `channel_id`、`channel_subscription_id`、`provider_transaction_id`、`gross_minor`（不含税金额）与 `share_bps`；份额来自方案版本冻结的 `fee_rate_bps`，历史账期按当时值结算，改费率只影响新的方案版本；
 - 收入归属频道所有者的工作空间；按检索次数计算收益的部分（可计分成 Call、分成池、`share_rate`、日上限、专家与订阅资格判断）删除，不再有 `usage_event → earning_event` 的写入；
-- 账期结算是批处理，跑在请求路径之外；结算只读 `earning_event` 与 `revenue_period`，可重复执行且幂等；持有期 `PAYOUT_HOLD_DAYS` = 120 天，提现门槛 `PAYOUT_THRESHOLD_MINOR` = $20，转为 Additional Calls 不设门槛但同样过持有期；
-- 回冲产生新的 `earning_event` 记录，不修改历史行；已出账的收入被冲回时余额为负，负余额清零前拒绝提现与开新付费方案；注销时核销记 `written_off`；
+- 账期结算是批处理，跑在请求路径之外；结算只读 `earning_event` 与 `revenue_period`，可重复执行且幂等；持有期默认 120 天、提现门槛默认 $20，两者与最低单笔价格、平台管理费一起是控制台的 `commerce_config`（不可变行，最新一行生效，`lib/domain/commerce-config.ts` 给出默认值与取值范围），在兑现与提现路径上逐次读取；转为 Additional Calls 不设门槛但同样过持有期；
+- 回冲产生新的 `earning_event` 记录，不修改历史行；已出账的收入被冲回时余额为负。余额（`lib/application/revenue/balance.ts`）每次重算：全部未标记收入事件 − 状态为 `held / paid / redeemed` 的结算单金额；为负时拒绝提现、转为 Calls 与新建付费方案；注销时 `writeOffNegativeBalance` 记一条 `written_off` 把余额归零（注销流程本身尚未上线）；
+- 提现另需收款资料齐全：`publisher_account.payee_email` 与 `tax_form_status = verified`（运营在控制台核验，系统只记表格类型、状态、日期与核验人，不保存表格原件）；开通频道订阅时自动建立 `publisher_account`；
 - **检索链路与频道目录排序不得读取任何收益字段。** §9 的召回、融合与 Rerank 输入，以及 §9.6 的路由排序和频道目录的「热门」排序中不存在 `earning_event`、`channel_subscription`、`publisher_account` 或 `payout`。这条与 §10 的 Policy 先于检索同属硬约束；
 - 除待结算给创作者的频道收入外，平台不持有用户资金；分账账本只记录应付与已付，不做双重记账与清结算。`payout` 只保存收款 PayPal 邮箱、交易号与状态，不保存银行账号、卡号或税务证件原件；人工打款在系统外完成，系统只登记结果；
-- 结算单照常上链（`earning_statement`，§8.5）；P3a 开工前提是 Paddle 可售范围的书面确认、手续费口径与税务合规意见（提案第 13.2 节）。
+- 结算单照常上链（`earning_statement`，§8.5）；Paddle 可售范围的书面确认、手续费口径、税务信息与合规意见原是 P3a 的开工前提（提案第 13.2 节），用户决定先按 sandbox 实施，四项仍待落实，落实前不在生产环境开放频道收款。
 
 ## 12. REST API
 
@@ -1297,8 +1311,8 @@ MVP 的 14 步（App Shell 与身份、Plan Version 与 Usage、Ingestion、混�
 1. **P0 文案与清理**：slogan、`metadata`、OG 图；界面文案改为资产（页面路径不动）；删除 Pro、专家库、自检问题、按检索计的发布者分成、`llms.txt` 与 OpenAPI 来源；关闭网站插件、分享页、MCP 的开关；Additional Calls 对所有人开放；两级容量。退出条件：用户可见的界面里不再出现「知识库」、Pro、专家库、分成；任何用户都能购买 Additional Calls，购买后容量升到 2 GB；
 2. **P1 资产、频道与 A2A**：`library.kind` 与数据重建（§6.5）；保留 owner 名单；页面路径改为 `/assets/*`、`/channels/*`；`channel`、`channel_asset`、频道主页、频道目录、用户主页；频道画像（§9.6）；三层 Agent Card；A2A `find_channels`、`search_context`，JSON-RPC 与 HTTP+JSON；Postgres `TaskStore`；首页改版；计量按「调用方付、匿名由平台承担」改。退出条件：先核对 `@a2a-js/sdk` v1.x 的能力；用官方 A2A Inspector 跑通三层取卡、`SendMessage`、`GetTask`；§18.2 标 P1 的集成测试通过；
 3. **P2 工作台与写操作**：Agent 工作台、工具与确认门（`agent_conversation`、`agent_action`）；A2A `ask`、`ingest`、`refresh`、`publish`、扩展卡、推送通知；`assets:write`。退出条件：「模型或调用方 Agent 试图自行确认」被拒；`ask` 的 Call 数上线；
-4. **P3a 文章、评论、问答与订阅**：开工前提是 Paddle 书面确认、手续费口径、税务与合规意见三项齐全（提案第 13.2 节）；频道订阅的 Paddle 商品与 Webhook 事件（§11.3）、频道收入记账与结算（§11.4）、`paid` 访问控制；
-5. **P3b 音频**：上传、签名播放地址、节目说明进检索；
+4. **P3a 文章、评论、问答与订阅**（已实施，2026-10-30，迁移 0064）：频道订阅的 Paddle 商品与 Webhook 事件（§11.3）、频道收入记账与结算（§11.4）、`paid` 访问控制（§10.2）、平台自有来源（§8）、AI 分身（§9.5）。原定开工前提（Paddle 书面确认、手续费口径、税务与合规意见，提案第 13.2 节）仍待落实，按 sandbox 实现；
+5. **P3b 音频**（已实施，2026-10-30）：上传、签名播放地址、节目说明进检索；
 6. **P4 A2A 客户端**：re0 委托外部 Agent；四个场景落地页；
 7. **P5 内部改名**：代码模块与标识符、REST 路径与字段、错误码、数据库表与列全部改为 asset，测试同步修改；除迁移历史外不再出现 library 标识符。
 

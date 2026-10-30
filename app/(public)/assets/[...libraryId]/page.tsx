@@ -12,8 +12,16 @@ import type { Dictionary } from '@/lib/i18n/dictionary';
 import { publicUrl } from '@/lib/site/origin';
 import { fill } from '@/lib/i18n/format';
 import { getMessages, translations } from '@/lib/i18n/server';
+import { CommentSection } from '@/components/creator/comment-section';
+import { EditorialPage } from '@/components/creator/editorial-page';
+import { listComments } from '@/lib/application/comments';
+import { editorialReading } from '@/lib/application/editorial';
+import { optionalSession } from '@/lib/http/session';
 
-type Params = { params: Promise<{ libraryId: string[] }> };
+type Params = {
+  params: Promise<{ libraryId: string[] }>;
+  searchParams?: Promise<Record<string, string | string[] | undefined>>;
+};
 
 /**
  * One read per request, not two.
@@ -29,8 +37,28 @@ type Params = { params: Promise<{ libraryId: string[] }> };
  */
 const libraryDetail = cache(publicLibraryDetail);
 
+/**
+ * An article, episode or Q&A, cut to this viewer's sight (proposal 6.2): the
+ * owner and entitled readers get the body, anyone else a paid one's summary.
+ * Shared by the metadata and the page within one request, like the above.
+ */
+const editorialFor = cache(async (publicId: string) => {
+  const session = await optionalSession();
+  return { session, reading: await editorialReading(publicId, { workspaceId: session?.workspace.id ?? null }) };
+});
+
 export async function generateMetadata({ params }: Params): Promise<Metadata> {
   const [{ libraryId }, t] = await Promise.all([params, getMessages()]);
+  const { reading } = await editorialFor(`/${libraryId.join('/')}`);
+  if (reading) {
+    return {
+      title: reading.title,
+      description: reading.summary ?? undefined,
+      alternates: { canonical: `/assets${reading.publicId}` },
+      /* A draft preview is its owner's; a public channel's post, free or paid, may be indexed by its summary. */
+      ...(reading.live && reading.channel ? {} : { robots: { index: false, follow: false } }),
+    };
+  }
   const entry = await libraryDetail(`/${libraryId.join('/')}`);
   if (!entry) return { title: t.library.fallbackTitle, robots: { index: false } };
   return {
@@ -102,10 +130,22 @@ function short(hash: string): string {
  * where the refresh timer stands. Nothing is
  * shown that a row did not say (requirement.md 5.1, 6.4).
  */
-export default async function LibraryDetailPage({ params }: Params) {
-  const [{ libraryId }, { locale, t }] = await Promise.all([params, translations()]);
+export default async function LibraryDetailPage({ params, searchParams }: Params) {
+  const [{ libraryId }, { locale, t }, query] = await Promise.all([
+    params,
+    translations(),
+    searchParams ?? Promise.resolve({} as Record<string, string | string[] | undefined>),
+  ]);
+  const commentOutcome = typeof query.comment === 'string' ? query.comment : null;
+  const { session, reading } = await editorialFor(`/${libraryId.join('/')}`);
+  if (reading) {
+    const thread = await listComments(reading.id, { userId: session?.user.id ?? null, workspaceId: session?.workspace.id ?? null });
+    return <EditorialPage reading={reading} thread={thread} signedIn={session !== null} commentOutcome={commentOutcome} t={t} locale={locale} />;
+  }
   const entry = await libraryDetail(`/${libraryId.join('/')}`);
   if (!entry) notFound();
+  /* A source-type asset in a public channel has a comment section too (proposal 6.8). */
+  const thread = await listComments(entry.id, { userId: session?.user.id ?? null, workspaceId: session?.workspace.id ?? null });
 
   const l = t.library;
   const d = l.detail;
@@ -436,6 +476,11 @@ export default async function LibraryDetailPage({ params }: Params) {
           </Panel>
         </div>
       </div>
+      {thread.visible ? (
+        <div className="mx-auto w-full max-w-[760px] px-5 pb-16">
+          <CommentSection assetId={entry.id} publicId={entry.publicId} thread={thread} signedIn={session !== null} outcome={commentOutcome} t={t} locale={locale} />
+        </div>
+      ) : null}
     </section>
   );
 }

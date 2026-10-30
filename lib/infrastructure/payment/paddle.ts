@@ -31,8 +31,12 @@ import {
 } from '@/lib/domain/billing';
 import { configuredBaseUrl } from '@/lib/http/base-url';
 import {
+  PaymentNotConfigured,
   PaymentProviderError,
   WebhookRejected,
+  type ChannelCheckoutInput,
+  type ChannelSubscriptionNotice,
+  type ChannelTransactionNotice,
   type CheckoutInput,
   type CheckoutState,
   type PaymentAdapter,
@@ -54,6 +58,13 @@ export interface PaddleConfig {
   environment: PaddleEnvironment;
   /** The Paddle product the pack's non-catalogue price is attached to. */
   addonProductId: string;
+  /**
+   * The Paddle product channel subscriptions are sold as (agent-first-
+   * proposal.md 6.9, architecture.md 11.3): every channel plan version is a
+   * recurring non-catalogue price against it. Null leaves channel checkout
+   * off while packs still sell.
+   */
+  channelProductId: string | null;
   /**
    * Where the checkout page lives; Paddle's payment link must point here, on a
    * domain approved in the Paddle dashboard.
@@ -95,6 +106,7 @@ export function paddleConfig(env: NodeJS.ProcessEnv = process.env): PaddleConfig
     clientToken,
     environment: env.PADDLE_ENVIRONMENT?.trim() === 'sandbox' ? 'sandbox' : 'production',
     addonProductId,
+    channelProductId: env.PADDLE_CHANNEL_PRODUCT_ID?.trim() || null,
     checkoutPageUrl: `${checkoutBaseUrl}/checkout`,
   };
 }
@@ -157,7 +169,9 @@ export interface PaddleTransaction {
   created_at: string;
   updated_at: string;
   items: { quantity: number; price: { product_id: string | null } | null }[];
-  details: { totals: { grand_total: string } | null } | null;
+  details: {
+    totals: { grand_total: string; subtotal?: string; discount?: string; tax?: string; total?: string } | null;
+  } | null;
   payments: {
     status: string;
     captured_at: string | null;
@@ -170,7 +184,19 @@ export interface PaddleAdjustment {
   transaction_id: string;
   action: string;
   status: string;
-  totals: { total: string } | null;
+  totals: { total: string; subtotal?: string; tax?: string } | null;
+  updated_at: string;
+}
+
+/** As much of a Paddle subscription as a channel subscription reads. */
+export interface PaddleSubscription {
+  id: string;
+  status: string;
+  customer_id: string | null;
+  custom_data: Record<string, unknown> | null;
+  current_billing_period: { starts_at: string; ends_at: string } | null;
+  scheduled_change: { action: string; effective_at: string } | null;
+  items: { price: { product_id: string | null } | null }[] | null;
   updated_at: string;
 }
 
@@ -181,7 +207,14 @@ const CUSTOM = {
   workspaceId: 're0_workspace_id',
   planVersionId: 're0_plan_version_id',
   kind: 're0_kind',
+  /* A channel subscription's: which plan version, and whose. */
+  channelPlanVersionId: 're0_channel_plan_version_id',
+  channelId: 're0_channel_id',
+  userId: 're0_user_id',
 } as const;
+
+/** The `re0_kind` a channel subscription checkout is tagged with. */
+export const CHANNEL_KIND = 'channel';
 
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
@@ -352,6 +385,142 @@ export function transactionNotice(
   };
 }
 
+/* ---------------------------------------------------------------- channel */
+
+function channelCustom(custom: Record<string, unknown> | null | undefined) {
+  const uuid = (value: unknown) => (typeof value === 'string' && UUID.test(value) ? value : null);
+  return {
+    isChannel: custom?.[CUSTOM.kind] === CHANNEL_KIND,
+    channelPlanVersionId: uuid(custom?.[CUSTOM.channelPlanVersionId]),
+    userId: uuid(custom?.[CUSTOM.userId]),
+    workspaceId: uuid(custom?.[CUSTOM.workspaceId]),
+  };
+}
+
+/**
+ * Whether a transaction is a channel subscription's: tagged so at checkout,
+ * or -- a renewal Paddle created, which carries the subscription's custom
+ * data but may not -- billed against the channel product.
+ */
+export function isChannelTransaction(transaction: PaddleTransaction, channelProductId: string | null): boolean {
+  if (channelCustom(transaction.custom_data).isChannel) return true;
+  return channelProductId !== null && transaction.items.some((item) => item.price?.product_id === channelProductId);
+}
+
+export function isChannelSubscription(subscription: PaddleSubscription, channelProductId: string | null): boolean {
+  if (channelCustom(subscription.custom_data).isChannel) return true;
+  return channelProductId !== null && (subscription.items ?? []).some((item) => item.price?.product_id === channelProductId);
+}
+
+/** Ex-tax: the total less its tax, i.e. the subtotal net of any discount. NaN when Paddle sent no totals. */
+function exTaxOf(totals: { total?: string; tax?: string; subtotal?: string } | null | undefined): number {
+  if (!totals) return Number.NaN;
+  if (totals.total !== undefined && totals.tax !== undefined) return minor(totals.total) - minor(totals.tax);
+  return minor(totals.subtotal);
+}
+
+/**
+ * A channel transaction and its adjustments as the channel ledger reads
+ * them. The creator's share is computed on the ex-tax amount (proposal 6.9:
+ * Paddle's subtotal, which excludes the sales tax Paddle remits), and a
+ * refund or chargeback on its own ex-tax amount.
+ */
+export function channelTransactionNotice(
+  transaction: PaddleTransaction,
+  adjustments: PaddleAdjustment[],
+): ChannelTransactionNotice {
+  const custom = channelCustom(transaction.custom_data);
+  const captured = transaction.payments.find((payment) => payment.status === 'captured');
+  const own = adjustments.filter((a) => a.transaction_id === transaction.id);
+  const state =
+    transaction.status === 'paid' || transaction.status === 'completed'
+      ? 'collected'
+      : transaction.status === 'billed' || transaction.status === 'past_due'
+        ? 'open'
+        : 'other';
+  const observedAt = [transaction.updated_at, ...own.map((a) => a.updated_at)]
+    .map(date)
+    .filter((value): value is Date => value !== null)
+    .reduce<Date | null>((latest, value) => (latest && latest > value ? latest : value), null);
+  return {
+    transactionId: transaction.id,
+    subscriptionExternalId: transaction.subscription_id,
+    customerId: transaction.customer_id,
+    state,
+    channelPlanVersionId: custom.channelPlanVersionId,
+    userId: custom.userId,
+    workspaceId: custom.workspaceId,
+    exTaxMinor: exTaxOf(transaction.details?.totals),
+    currency: transaction.currency_code,
+    collectedAt: date(captured?.captured_at) ?? date(transaction.billed_at),
+    periodEnd: date(transaction.billing_period?.ends_at),
+    adjustments: own.map((adjustment) => ({
+      id: adjustment.id,
+      action:
+        adjustment.action === 'refund' || adjustment.action === 'chargeback' || adjustment.action === 'chargeback_reverse'
+          ? adjustment.action
+          : 'other',
+      status: adjustment.status,
+      exTaxMinor: exTaxOf(adjustment.totals),
+      observedAt: date(adjustment.updated_at) ?? new Date(),
+    })),
+    observedAt: observedAt ?? new Date(),
+  };
+}
+
+export function channelSubscriptionNotice(subscription: PaddleSubscription): ChannelSubscriptionNotice {
+  const custom = channelCustom(subscription.custom_data);
+  const status =
+    subscription.status === 'active' || subscription.status === 'trialing'
+      ? 'active'
+      : subscription.status === 'past_due' || subscription.status === 'canceled' || subscription.status === 'paused'
+        ? subscription.status
+        : 'other';
+  return {
+    subscriptionExternalId: subscription.id,
+    customerId: subscription.customer_id,
+    status,
+    cancelAtPeriodEnd: subscription.scheduled_change?.action === 'cancel',
+    currentPeriodEnd: date(subscription.current_billing_period?.ends_at),
+    channelPlanVersionId: custom.channelPlanVersionId,
+    userId: custom.userId,
+    workspaceId: custom.workspaceId,
+    observedAt: date(subscription.updated_at) ?? new Date(),
+  };
+}
+
+/**
+ * The body of `POST /transactions` for one channel subscription: a
+ * recurring non-catalogue price at the plan version's amount, billed every
+ * month or every year, tagged with the version and the subscriber.
+ */
+export function channelCheckoutBody(config: PaddleConfig & { channelProductId: string }, input: ChannelCheckoutInput) {
+  return {
+    items: [
+      {
+        quantity: 1,
+        price: {
+          product_id: config.channelProductId,
+          name: input.name,
+          description: `${input.name} · channel plan version ${input.channelPlanVersionId}`,
+          unit_price: { amount: String(input.priceMinor), currency_code: input.currency },
+          billing_cycle: { interval: input.interval, frequency: 1 },
+        },
+      },
+    ],
+    currency_code: input.currency,
+    ...(input.customerId ? { customer_id: input.customerId } : {}),
+    custom_data: {
+      [CUSTOM.kind]: CHANNEL_KIND,
+      [CUSTOM.channelPlanVersionId]: input.channelPlanVersionId,
+      [CUSTOM.channelId]: input.channelId,
+      [CUSTOM.userId]: input.userId,
+      [CUSTOM.workspaceId]: input.workspaceId,
+    },
+    checkout: { url: config.checkoutPageUrl },
+  };
+}
+
 /* ------------------------------------------------------------------- api */
 
 async function call<T>(
@@ -445,6 +614,27 @@ export function paddleAdapter(config: PaddleConfig): PaymentAdapter {
       return { externalId: transaction.id, url };
     },
 
+    async createChannelCheckout(input) {
+      const channelProductId = config.channelProductId;
+      if (!channelProductId) throw new PaymentNotConfigured();
+      const transaction = await call<{ id: string; checkout: { url: string | null } | null }>(
+        config,
+        'POST',
+        '/transactions',
+        channelCheckoutBody({ ...config, channelProductId }, input),
+      );
+      const url = transaction.checkout?.url;
+      if (!url) throw new PaymentProviderError('paddle returned a transaction without a checkout link');
+      return { externalId: transaction.id, url };
+    },
+
+    /* Paddle keeps the subscription active to the end of the period, then cancels it. */
+    async cancelSubscription(externalId) {
+      await call<unknown>(config, 'POST', `/subscriptions/${encodeURIComponent(externalId)}/cancel`, {
+        effective_from: 'next_billing_period',
+      });
+    },
+
     async checkoutState(externalId) {
       return paddleCheckoutState((await getTransaction(config, externalId)).status);
     },
@@ -524,11 +714,26 @@ export function paddleAdapter(config: PaddleConfig): PaymentAdapter {
           getTransaction(config, transactionId),
           listAdjustments(config, transactionId),
         ]);
+        /* A channel subscription's money goes to the channel ledger, not the workspace's bill. */
+        if (isChannelTransaction(transaction, config.channelProductId)) {
+          return { ...envelope, subject: 'channel_transaction', channel: channelTransactionNotice(transaction, adjustments) };
+        }
         return {
           ...envelope,
           subject: 'document',
           document: transactionNotice(transaction, adjustments, config.addonProductId),
         };
+      }
+
+      /*
+       * A subscription event describes the subscription in full, signed, so
+       * it is read as sent. Only a channel subscription's is acted on.
+       */
+      if (entity === 'subscription') {
+        const subscription = event.data as unknown as PaddleSubscription;
+        if (typeof subscription.id === 'string' && isChannelSubscription(subscription, config.channelProductId)) {
+          return { ...envelope, subject: 'channel_subscription', channel: channelSubscriptionNotice(subscription) };
+        }
       }
 
       return { ...envelope, subject: 'ignored' };

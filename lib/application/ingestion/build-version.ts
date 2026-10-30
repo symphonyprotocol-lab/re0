@@ -60,9 +60,9 @@ import {
   profileSearchText,
 } from '@/lib/domain/profile';
 import {
-  isConnectedSourceType,
+  isBuildableSourceType,
   withDeclaredParseScope,
-  type ConnectedSourceType,
+  type BuildableSourceType,
 } from '@/lib/domain/library';
 import { notionSourceUserId } from '@/lib/domain/notion';
 import { notionTokenFor } from '@/lib/application/auth/notion-connection';
@@ -216,7 +216,7 @@ export async function buildVersion(input: BuildInput): Promise<BuildOutcome> {
     throw new IngestionFailure('source_unsupported', 'validate-source', 'the library has no source');
   }
   for (const source of sources) {
-    if (!isConnectedSourceType(source.type)) {
+    if (!isBuildableSourceType(source.type)) {
       throw new IngestionFailure(
         'source_unsupported',
         'validate-source',
@@ -332,7 +332,7 @@ export async function buildVersion(input: BuildInput): Promise<BuildOutcome> {
     }
     const snapshot = await dependencies.fetchSnapshot({
       /* Every type was checked against the connectors above. */
-      type: source.type as ConnectedSourceType,
+      type: source.type as BuildableSourceType,
       location: source.location,
       config: source.config,
       credential: await sourceCredential(source.type, source.config),

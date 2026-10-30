@@ -3,7 +3,7 @@
  * (agent-first-proposal.md 6). Route Handlers, pages and the A2A server enter
  * through this module.
  */
-export { exposure, listedInPublicChannel, readableBy, sharedWithEveryone } from './visibility';
+export { exposure, listedInPublicChannel, readableBy, sharedWithEveryone, subscribedPaid } from './visibility';
 export { channelsOfAssets, isPublicChannel, type ChannelRef } from './membership';
 export {
   createChannel,

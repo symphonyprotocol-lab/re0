@@ -47,7 +47,8 @@ async function publisherAccount(workspaceId: string): Promise<string> {
   publisherAccounts.push(id);
   await db()
     .insert(schema.publisherAccount)
-    .values({ id, workspaceId, taxStatus: 'complete', agreementVersion: 'v1' });
+    /* A complete payout profile (agent-first-proposal.md 6.9): cash needs a verified tax record. */
+    .values({ id, workspaceId, taxStatus: 'complete', agreementVersion: 'v1', taxFormKind: 'W-9', taxFormStatus: 'verified' });
   return id;
 }
 
@@ -82,6 +83,23 @@ async function statement(input: {
   currency?: string;
 }): Promise<string> {
   const id = uuidv7();
+  /*
+   * The ledger behind the statement: since 6.9's balance rule, a statement
+   * the events do not back would read as a negative balance once paid.
+   */
+  const [account] = await db()
+    .select({ workspaceId: schema.publisherAccount.workspaceId })
+    .from(schema.publisherAccount)
+    .where(eq(schema.publisherAccount.id, input.publisherAccountId));
+  if (account && (input as { status?: string }).status !== 'voided') {
+    await db().insert(schema.earningEvent).values({
+      id: uuidv7(),
+      ownerWorkspaceId: account.workspaceId,
+      amountMinor: input.amountMinor,
+      source: 'fixture',
+      periodId: input.periodId,
+    });
+  }
   await db().insert(schema.settlement).values({
     id,
     periodId: input.periodId,
@@ -128,6 +146,7 @@ describeWithDb('earning credit', () => {
         .where(inArray(schema.settlement.publisherAccountId, publisherAccounts));
     }
     if (workspaces.length > 0) {
+      await database.delete(schema.earningEvent).where(inArray(schema.earningEvent.ownerWorkspaceId, workspaces));
       await database.delete(schema.addonGrant).where(inArray(schema.addonGrant.workspaceId, workspaces));
       await database.delete(schema.apiKey).where(inArray(schema.apiKey.workspaceId, workspaces));
     }

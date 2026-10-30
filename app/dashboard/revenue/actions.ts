@@ -1,7 +1,15 @@
 'use server';
 
 import { revalidatePath } from 'next/cache';
-import { canRedeemEarnings, redeemEarningsAsCalls, requestPayout } from '@/lib/application/revenue';
+import { redirect } from 'next/navigation';
+import {
+  canRedeemEarnings,
+  redeemEarningsAsCalls,
+  requestPayout,
+  savePayoutProfile,
+  submitTaxDocument,
+} from '@/lib/application/revenue';
+import { refusalCode } from '@/lib/http/refusal-code';
 import {
   EarningCreditRefused,
   PayoutRefused,
@@ -91,4 +99,26 @@ export async function requestPayoutAction(
     console.error(`payout request failed: ${error instanceof Error ? error.message : 'unknown'}`);
     return { ok: false, error: 'failed' };
   }
+}
+
+/**
+ * The payout profile (agent-first-proposal.md 6.9): the PayPal address, and
+ * the record that a tax document was sent to operations. Plain form posts.
+ */
+export async function savePayoutProfileAction(form: FormData): Promise<void> {
+  const session = await requireSession('/dashboard/revenue');
+  let notice = 'saved';
+  try {
+    if (!canRedeemEarnings(session.workspace.role)) throw new PayoutRefused('no_account', 'forbidden');
+    if (form.get('intent') === 'tax') {
+      await submitTaxDocument({ workspaceId: session.workspace.id, kind: String(form.get('taxFormKind') ?? '') });
+      notice = 'submitted';
+    } else {
+      await savePayoutProfile({ workspaceId: session.workspace.id, payeeEmail: String(form.get('payeeEmail') ?? '') });
+    }
+    revalidatePath('/dashboard/revenue');
+  } catch (error) {
+    notice = refusalCode(error, 'payout profile');
+  }
+  redirect(`/dashboard/revenue?profile=${notice}#profile`);
 }

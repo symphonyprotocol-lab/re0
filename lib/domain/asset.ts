@@ -2,9 +2,8 @@
  * Data asset types and the access flag. agent-first-proposal.md 3.2, 6.2.
  *
  * An asset is one source's data with immutable versions. Its kind follows
- * from that source; `post`, `audio` and `qa` are the editor and audio kinds
- * that arrive in P3a and P3b, listed now so the column's check and the code
- * agree on one vocabulary from the start.
+ * from that source; `post` and `qa` come from the platform's own editor
+ * (an `editor` source) and `audio` from an uploaded episode (P3a, P3b).
  *
  * Pure TypeScript -- domain layer rules apply.
  */
@@ -14,7 +13,11 @@ export const ASSET_KINDS = ['website', 'upload', 'github', 'notion', 'post', 'au
 
 export type AssetKind = (typeof ASSET_KINDS)[number];
 
-/** The kinds a workspace can create today; the rest wait for their phase. */
+/**
+ * The kinds the import wizard creates. `post` and `audio` have editors of
+ * their own (lib/application/editorial), and a `qa` is made by answering a
+ * question, never directly.
+ */
 export const CREATABLE_ASSET_KINDS = ['website', 'upload', 'github', 'notion'] as const satisfies readonly AssetKind[];
 
 export function isAssetKind(value: unknown): value is AssetKind {
@@ -33,6 +36,11 @@ export function assetKindOf(sourceType: SourceType): AssetKind {
     case 'pdf':
     case 'markdown':
       return 'upload';
+    /* An editor source is an article or a Q&A; its creator says which. */
+    case 'editor':
+      return 'post';
+    case 'audio':
+      return 'audio';
   }
 }
 

@@ -4,14 +4,15 @@
  * agent-first-proposal.md 8.1 bounds a workspace's content as a whole rather
  * than library by library: 500 MB on the `base` tier, 2 GB on `extended`.
  * The tier lives on the user (`user.storage_tier`) because what raises it --
- * buying Additional Calls, later subscribing to a channel -- is something a
+ * buying Additional Calls, or subscribing to any channel -- is something a
  * user does, and it applies to that user's personal workspace. A workspace
  * reads the tier through its owners; today a workspace has exactly one.
  *
  * Usage is the sum of `library.storage_bytes` over the workspace's live
  * libraries, measured the way a build measures itself (requirement.md 4.1:
- * decompressed, pre-normalisation content bytes). A deleted library is a
- * tombstone and holds nothing.
+ * decompressed, pre-normalisation content bytes), plus the size of every
+ * audio file and article image they carry (`asset_media`). A deleted
+ * library is a tombstone and holds nothing.
  */
 import { and, eq, isNull, ne, sql } from 'drizzle-orm';
 import { isStorageTier, storageCapacityBytes, type StorageTier } from '@/lib/domain/plans';
@@ -63,8 +64,24 @@ export async function workspaceStorage(
         ...(options.excludeLibraryId ? [ne(schema.library.id, options.excludeLibraryId)] : []),
       ),
     );
+  /*
+   * Plus the files assets carry beside their text -- episodes and article
+   * images (proposal 8.1) -- counted whole and as uploaded, including the
+   * excluded library's: a rebuild replaces its text, not its files.
+   */
+  const [media] = await executor
+    .select({ bytes: sql<string>`coalesce(sum(${schema.assetMedia.bytes}), 0)::bigint` })
+    .from(schema.assetMedia)
+    .innerJoin(schema.library, eq(schema.library.id, schema.assetMedia.assetId))
+    .where(
+      and(
+        eq(schema.assetMedia.workspaceId, workspaceId),
+        eq(schema.assetMedia.state, 'ready'),
+        isNull(schema.library.deletedAt),
+      ),
+    );
   const capacityBytes = storageCapacityBytes(tier);
-  const usedBytes = Number(used?.bytes ?? 0);
+  const usedBytes = Number(used?.bytes ?? 0) + Number(media?.bytes ?? 0);
   return { tier, capacityBytes, usedBytes, remainingBytes: Math.max(0, capacityBytes - usedBytes) };
 }
 
@@ -82,4 +99,16 @@ export async function extendStorageTier(tx: Tx, workspaceId: string): Promise<vo
     .update(schema.user)
     .set({ storageTier: 'extended', updatedAt: new Date() })
     .where(and(sql`${schema.user.id} in ${owners}`, ne(schema.user.storageTier, 'extended')));
+}
+
+/**
+ * Moves one user to `extended`, for good: the first channel subscription
+ * does this (agent-first-proposal.md 8.1), inside the transaction that
+ * records it. Idempotent.
+ */
+export async function extendUserStorageTier(tx: Tx, userId: string): Promise<void> {
+  await tx
+    .update(schema.user)
+    .set({ storageTier: 'extended', updatedAt: new Date() })
+    .where(and(eq(schema.user.id, userId), ne(schema.user.storageTier, 'extended')));
 }

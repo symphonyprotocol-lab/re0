@@ -46,10 +46,12 @@ describe('reserved names', () => {
     for (const segment of segments) expect([segment, isReservedName(segment)]).toEqual([segment, true]);
   });
 
-  it('are the ones migration 0062 kept out of backfilled handles', () => {
+  it('are the ones migrations kept out of handles: 0062 at the backfill, 0064 for `media`', () => {
     const sql = readFileSync(join(process.cwd(), 'db/migrations/0062_agent_first_p1.sql'), 'utf8');
     const block = /OR base IN \(([^)]*)\)/.exec(sql)![1]!;
-    const listed = new Set([...block.matchAll(/'([^']+)'/g)].map((match) => match[1]));
+    const later = readFileSync(join(process.cwd(), 'db/migrations/0064_agent_first_p3.sql'), 'utf8');
+    const added = /WHERE "handle" IN \(([^)]*)\)/.exec(later)![1]!;
+    const listed = new Set([...`${block},${added}`.matchAll(/'([^']+)'/g)].map((match) => match[1]));
     /* Only names a handle could take: the handle alphabet has no dot. */
     for (const name of RESERVED_NAMES) {
       if (/^[a-z0-9-]+$/.test(name) && name.length >= 3) expect([name, listed.has(name)]).toEqual([name, true]);

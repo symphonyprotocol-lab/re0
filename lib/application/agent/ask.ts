@@ -39,6 +39,9 @@ import {
 import { retrievalBudgetFor } from '@/lib/domain/retrieval-config';
 
 export const ASK_OPERATION = 'ask';
+/** The channel twin's operation and request prefix: billed like a workbench question, never against `ask`'s cap. */
+export const TWIN_OPERATION = 'twin';
+export const TWIN_REQUEST_PREFIX = 'twin:';
 /** Every `ask` seat's request id starts so; the daily cap counts pending seats by it. */
 export const ASK_REQUEST_PREFIX = 'ask:';
 
@@ -50,9 +53,21 @@ export interface AskResult {
   requestId: string;
 }
 
+export interface AskScopeInput {
+  scope: SearchScope;
+  question: string;
+  /**
+   * The channel's AI twin (proposal 6.3, 8.2): a signed-in reader's
+   * question costs their workspace 1 Call like the workbench, with the
+   * generation on the platform, and is not an A2A answer -- no daily cap,
+   * and it is logged as `twin`.
+   */
+  twin?: boolean;
+}
+
 export async function askScope(
   caller: CallerContext,
-  input: { scope: SearchScope; question: string },
+  input: AskScopeInput,
   dependencies: PlaygroundDependencies = defaultPlaygroundDependencies,
 ): Promise<AskResult> {
   if (!caller.workspaceId) {
@@ -61,19 +76,26 @@ export async function askScope(
   const startedAt = Date.now();
   const retrieval = dependencies.retrieval ?? defaultRetrievalDependencies();
   const settings = await (retrieval.settings ?? activeRetrievalSettings)();
-  const requestId = caller.requestId.startsWith(ASK_REQUEST_PREFIX) ? caller.requestId : `${ASK_REQUEST_PREFIX}${caller.requestId}`;
+  const prefix = input.twin ? TWIN_REQUEST_PREFIX : ASK_REQUEST_PREFIX;
+  const requestId = caller.requestId.startsWith(prefix) ? caller.requestId : `${prefix}${caller.requestId}`;
   const asking: CallerContext = { ...caller, requestId };
+  const callsPerAnswer = input.twin ? 1 : settings.askCallsPerAnswer;
+  const operation = input.twin ? TWIN_OPERATION : ASK_OPERATION;
 
   const seat = await reserveCalls({
     workspaceId: caller.workspaceId,
     requestId,
-    calls: settings.askCallsPerAnswer,
-    daily: {
-      operation: ASK_OPERATION,
-      requestPrefix: ASK_REQUEST_PREFIX,
-      limit: settings.askDailyAnswers,
-      message: `this workspace has had its ${settings.askDailyAnswers} answers for today (UTC); retry tomorrow or use search_context`,
-    },
+    calls: callsPerAnswer,
+    ...(input.twin
+      ? {}
+      : {
+          daily: {
+            operation: ASK_OPERATION,
+            requestPrefix: ASK_REQUEST_PREFIX,
+            limit: settings.askDailyAnswers,
+            message: `this workspace has had its ${settings.askDailyAnswers} answers for today (UTC); retry tomorrow or use search_context`,
+          },
+        }),
   });
 
   try {
@@ -81,7 +103,7 @@ export async function askScope(
     const maxTokens = retrievalBudgetFor(usable?.maxInputTokens, settings);
     const found = await searchScope(
       asking,
-      { scope: input.scope, query: input.question, maxTokens, meter: false, operation: ASK_OPERATION },
+      { scope: input.scope, query: input.question, maxTokens, meter: false, operation },
       { ...retrieval, settings: async () => settings },
     );
 
@@ -119,13 +141,13 @@ export async function askScope(
 
     const top = found.chunks[0]!;
     const answered = outcome === 'answer' && claims.length > 0;
-    const calls = answered ? settings.askCallsPerAnswer : 1;
+    const calls = answered ? callsPerAnswer : 1;
     await commitCalls(seat, {
       calls,
       libraryId: top.asset.assetId,
       versionId: top.asset.versionId,
       /* A chunk list is a retrieval, billed and counted as one. */
-      operation: answered ? ASK_OPERATION : 'search_context',
+      operation: answered ? operation : 'search_context',
       entrypoint: caller.entrypoint ?? 'a2a',
       latencyMs: Date.now() - startedAt,
       returnedTokens: found.chunks.reduce((total, chunk) => total + chunk.tokens, 0),
