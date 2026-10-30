@@ -1,7 +1,8 @@
 import type { Metadata } from 'next';
 import Link from 'next/link';
 import { notFound } from 'next/navigation';
-import { MediaUpload } from '@/components/creator/media-upload';
+import { MarkdownEditor } from '@/components/creator/markdown-editor';
+import { AudioUpload } from '@/components/creator/media-upload';
 import { formatBytes } from '@/components/creator/format';
 import { BackLink, PANEL } from '@/components/dashboard/ui';
 import { ArrowUpRightIcon } from '@/components/ui/icons';
@@ -21,8 +22,9 @@ export async function generateMetadata(): Promise<Metadata> {
 }
 
 const FIELD = 'w-full rounded-md border border-line bg-field px-3 text-[13px] text-ink';
-const PRIMARY = 'inline-flex h-10 items-center rounded-md bg-brand px-4 text-[12px] font-medium text-onbrand hover:bg-brand/90';
-const SECONDARY = 'inline-flex h-10 items-center rounded-md border border-line bg-card px-4 text-[12px] font-medium text-steel hover:bg-subtle';
+const PRIMARY = 'inline-flex h-9 items-center rounded-md bg-brand px-4 text-[12px] font-medium text-onbrand hover:bg-brand/90';
+const SECONDARY = 'inline-flex h-9 items-center rounded-md border border-line bg-card px-3.5 text-[12px] font-medium text-steel hover:bg-subtle';
+const LABEL = 'text-[11px] font-medium text-steel';
 
 /** The `datetime-local` value of an instant, in UTC (the page says so). */
 function localValue(date: Date | null): string {
@@ -30,9 +32,12 @@ function localValue(date: Date | null): string {
 }
 
 /**
- * One article or episode in the editor (agent-first-proposal.md 6.5, 6.6):
- * the draft, where it publishes and at what access, the images or the
- * episode file, and the three ways to leave -- save, publish now, schedule.
+ * One article or episode in the editor (agent-first-proposal.md 6.5, 6.6),
+ * a focused page without the workspace rail (components/dashboard/columns.tsx):
+ * a header with the way back, where it lives and the two main buttons; a
+ * strip with where it publishes, at what access and when; then the title
+ * and the Markdown editor with its preview (components/creator/markdown-editor.tsx).
+ * The whole page is one form, so every button posts the same fields.
  * Publishing is this click; the Agent cannot do it (proposal 5.1). Reached
  * from the asset list, from the wizard that created the draft, and from the
  * asset detail page, which sends these two kinds here.
@@ -73,19 +78,32 @@ export default async function EditorPage({
   const message = notice === null ? null : ((c.notices as Record<string, string>)[notice] ?? errors[notice] ?? errors.unavailable);
 
   return (
-    <div className="flex flex-col gap-4">
-      <header className="flex flex-col gap-[5px]">
-        <BackLink href="/dashboard/assets">{c.back}</BackLink>
-        <h1 className="mt-1.5 truncate text-[25px] leading-[1.5] font-medium text-ink">{draft.title}</h1>
-        <p className="flex flex-wrap items-center gap-3 text-[12.5px] text-muted">
-          <span className="font-mono">{draft.asset.publicId}</span>
-          <span>{version ? fill(c.live, { label: version.label }) : c.notLive}</span>
-          {draft.publishAt ? <span className="text-brandink">{fill(c.scheduledFor, { date: `${date.format(draft.publishAt)} UTC` })}</span> : null}
-          <Link href={`/assets${draft.asset.publicId}`} className="inline-flex items-center gap-1 text-brandink hover:underline">
-            {c.view}
-            <ArrowUpRightIcon size={12} />
-          </Link>
-        </p>
+    <form action={saveEditorialAction} className="flex flex-col gap-4">
+      <input type="hidden" name="assetId" value={draft.asset.id} />
+      <header className="flex flex-col gap-3 sm:flex-row sm:items-end sm:justify-between">
+        <div className="flex min-w-0 flex-col gap-[5px]">
+          <BackLink href="/dashboard/assets">{c.back}</BackLink>
+          <h1 className="mt-1.5 truncate text-[22px] leading-[1.5] font-medium text-ink">{draft.title}</h1>
+          <p className="flex flex-wrap items-center gap-x-3 gap-y-1 text-[12px] text-muted">
+            <span className="font-mono">{draft.asset.publicId}</span>
+            <span>{version ? fill(c.live, { label: version.label }) : c.notLive}</span>
+            {draft.publishAt ? <span className="text-brandink">{fill(c.scheduledFor, { date: `${date.format(draft.publishAt)} UTC` })}</span> : null}
+            <Link href={`/assets${draft.asset.publicId}`} className="inline-flex items-center gap-1 text-brandink hover:underline">
+              {c.view}
+              <ArrowUpRightIcon size={12} />
+            </Link>
+          </p>
+        </div>
+        {canEdit ? (
+          <div className="flex shrink-0 items-center gap-2">
+            <button type="submit" name="intent" value="save" className={SECONDARY}>
+              {c.save}
+            </button>
+            <button type="submit" name="intent" value="publish" className={PRIMARY}>
+              {c.publish}
+            </button>
+          </div>
+        ) : null}
       </header>
       {message ? (
         <p role="status" className={`text-[12.5px] ${good ? 'text-brandink' : 'text-rose'}`}>
@@ -93,110 +111,107 @@ export default async function EditorPage({
         </p>
       ) : null}
 
-      <div className="grid grid-cols-1 gap-4 lg:grid-cols-[minmax(0,1fr)_320px]">
-        <form action={saveEditorialAction} className={`${PANEL} flex flex-col gap-4 p-6`}>
-          <input type="hidden" name="assetId" value={draft.asset.id} />
-          <label className="flex flex-col gap-1.5">
-            <span className="text-[11px] font-medium text-steel">{c.titleLabel}</span>
-            <input name="title" required maxLength={EDITORIAL_LIMITS.titleMax} defaultValue={draft.title} className={`${FIELD} h-10`} />
+      <section className={`${PANEL} grid gap-4 p-4 md:grid-cols-[minmax(0,1fr)_minmax(0,1fr)_minmax(0,1.3fr)]`}>
+        <label className="flex flex-col gap-1.5">
+          <span className={LABEL}>{c.channelLabel}</span>
+          <select name="channelId" defaultValue={draft.channelId ?? ''} className={`${FIELD} h-9`}>
+            <option value="">{c.noChannel}</option>
+            {channels.map((channel) => (
+              <option key={channel.id} value={channel.id}>
+                {selling.has(channel.id) ? `${channel.title} · ${c.sells}` : channel.title}
+              </option>
+            ))}
+          </select>
+        </label>
+        <label className="flex flex-col gap-1.5">
+          <span className={LABEL}>{c.accessLabel}</span>
+          <select name="access" defaultValue={draft.access} className={`${FIELD} h-9`}>
+            <option value="free">{c.free}</option>
+            {selling.size > 0 || draft.access === 'paid' ? <option value="paid">{c.paid}</option> : null}
+          </select>
+          <span className="text-[11px] text-muted">{c.paidHint}</span>
+        </label>
+        <div className="flex flex-col gap-1.5">
+          <label htmlFor="editor-publish-at" className={LABEL}>
+            {c.scheduleLabel} (UTC)
           </label>
-          {!isAudio ? (
-            <label className="flex flex-col gap-1.5">
-              <span className="text-[11px] font-medium text-steel">{c.summaryLabel}</span>
-              <input name="summary" maxLength={EDITORIAL_LIMITS.summaryMax} defaultValue={draft.summary ?? ''} className={`${FIELD} h-10`} />
-            </label>
-          ) : (
-            <input type="hidden" name="summary" value={draft.summary ?? ''} />
-          )}
-          <label className="flex flex-col gap-1.5">
-            <span className="text-[11px] font-medium text-steel">{isAudio ? c.notesLabel : c.bodyLabel}</span>
-            <textarea
-              id="editor-body"
-              name="body"
-              rows={isAudio ? 10 : 22}
-              maxLength={isAudio ? EDITORIAL_LIMITS.notesMax : EDITORIAL_LIMITS.bodyMax}
-              defaultValue={draft.body}
-              className={`${FIELD} py-2.5 font-mono leading-[1.6]`}
+          <div className="flex flex-wrap gap-2">
+            <input
+              id="editor-publish-at"
+              type="datetime-local"
+              name="publishAt"
+              defaultValue={localValue(draft.publishAt)}
+              className="h-9 min-w-[180px] flex-1 rounded-md border border-line bg-field px-3 text-[13px] text-ink"
             />
-            <span className="text-[11px] text-muted">{isAudio ? c.notesHint : c.bodyHint}</span>
-          </label>
-          <div className="grid gap-4 sm:grid-cols-2">
-            <label className="flex flex-col gap-1.5">
-              <span className="text-[11px] font-medium text-steel">{c.channelLabel}</span>
-              <select name="channelId" defaultValue={draft.channelId ?? ''} className={`${FIELD} h-10`}>
-                <option value="">{c.noChannel}</option>
-                {channels.map((channel) => (
-                  <option key={channel.id} value={channel.id}>
-                    {selling.has(channel.id) ? `${channel.title} · ${c.sells}` : channel.title}
-                  </option>
-                ))}
-              </select>
-            </label>
-            <label className="flex flex-col gap-1.5">
-              <span className="text-[11px] font-medium text-steel">{c.accessLabel}</span>
-              <select name="access" defaultValue={draft.access} className={`${FIELD} h-10`}>
-                <option value="free">{c.free}</option>
-                {selling.size > 0 || draft.access === 'paid' ? <option value="paid">{c.paid}</option> : null}
-              </select>
-              <span className="text-[11px] text-muted">{c.paidHint}</span>
-            </label>
-          </div>
-          {canEdit ? (
-            <footer className="flex flex-wrap items-end gap-3 border-t border-line pt-4">
-              <button type="submit" name="intent" value="save" className={SECONDARY}>
-                {c.save}
-              </button>
-              <button type="submit" name="intent" value="publish" className={PRIMARY}>
-                {c.publish}
-              </button>
-              <label className="flex flex-col gap-1">
-                <span className="text-[11px] font-medium text-steel">{c.scheduleLabel} (UTC)</span>
-                <input type="datetime-local" name="publishAt" defaultValue={localValue(draft.publishAt)} className={`${FIELD} h-10`} />
-              </label>
+            {canEdit ? (
               <button type="submit" name="intent" value="schedule" className={SECONDARY}>
                 {c.schedule}
               </button>
-              {draft.publishAt ? (
-                <button type="submit" name="intent" value="unschedule" className={SECONDARY}>
-                  {c.unschedule}
-                </button>
-              ) : null}
-            </footer>
-          ) : null}
-        </form>
+            ) : null}
+            {canEdit && draft.publishAt ? (
+              <button type="submit" name="intent" value="unschedule" className={SECONDARY}>
+                {c.unschedule}
+              </button>
+            ) : null}
+          </div>
+        </div>
+      </section>
 
-        <aside className="flex flex-col gap-4">
-          {canEdit ? (
-            <section className={`${PANEL} flex flex-col gap-3 p-5`}>
-              <h2 className="text-[14px] font-medium text-ink">{isAudio ? c.audio.title : c.images.title}</h2>
-              <p className="text-[12px] leading-[1.5] text-muted">{isAudio ? c.audio.body : c.images.body}</p>
-              {isAudio ? (
-                <p className="text-[12px] text-steel">{draft.audio ? fill(c.audio.current, { size: formatBytes(draft.audio.bytes) }) : c.audio.none}</p>
-              ) : null}
-              <MediaUpload
-                assetId={draft.asset.id}
-                kind={isAudio ? 'audio' : 'image'}
-                accept={Object.keys(isAudio ? AUDIO_TYPES : IMAGE_TYPES).join(',')}
-                targetId="editor-body"
-                prepare={prepareMediaAction}
-                confirm={confirmMediaAction}
-                labels={isAudio ? c.audio : c.images}
-                errors={errors}
-              />
-              {!isAudio && draft.images.length > 0 ? (
-                <ul className="flex flex-col gap-1.5 border-t border-line pt-3 text-[11.5px] text-steel">
-                  {draft.images.map((image) => (
-                    <li key={image.id} className="flex flex-col">
-                      <code className="font-mono text-[10.5px] break-all text-muted">![{image.caption ?? ''}](media:{image.id})</code>
-                      <span>{formatBytes(image.bytes)}</span>
-                    </li>
-                  ))}
-                </ul>
-              ) : null}
-            </section>
-          ) : null}
-        </aside>
-      </div>
-    </div>
+      {isAudio && canEdit ? (
+        <section className={`${PANEL} flex flex-col gap-2 p-4`}>
+          <div className="flex flex-wrap items-baseline justify-between gap-2">
+            <h2 className="text-[13px] font-medium text-ink">{c.audio.title}</h2>
+            <span className="text-[12px] text-steel">{draft.audio ? fill(c.audio.current, { size: formatBytes(draft.audio.bytes) }) : c.audio.none}</span>
+          </div>
+          <p className="text-[12px] leading-[1.5] text-muted">{c.audio.body}</p>
+          <AudioUpload
+            assetId={draft.asset.id}
+            accept={Object.keys(AUDIO_TYPES).join(',')}
+            prepare={prepareMediaAction}
+            confirm={confirmMediaAction}
+            labels={c.audio}
+            errors={errors}
+          />
+        </section>
+      ) : null}
+
+      <section className={`${PANEL} overflow-hidden`}>
+        <div className="flex flex-col gap-1 px-6 pt-5 pb-4">
+          <input
+            name="title"
+            required
+            maxLength={EDITORIAL_LIMITS.titleMax}
+            defaultValue={draft.title}
+            aria-label={c.titleLabel}
+            placeholder={c.titleLabel}
+            className="w-full bg-transparent text-[22px] leading-[1.4] font-medium text-ink outline-none placeholder:text-muted"
+          />
+          {!isAudio ? (
+            <input
+              name="summary"
+              maxLength={EDITORIAL_LIMITS.summaryMax}
+              defaultValue={draft.summary ?? ''}
+              aria-label={c.summaryLabel}
+              placeholder={c.summaryLabel}
+              className="w-full bg-transparent text-[13.5px] leading-[1.6] text-steel outline-none placeholder:text-muted"
+            />
+          ) : (
+            <input type="hidden" name="summary" value={draft.summary ?? ''} />
+          )}
+        </div>
+        <MarkdownEditor
+          name="body"
+          label={isAudio ? c.notesLabel : c.bodyLabel}
+          defaultValue={draft.body}
+          maxLength={isAudio ? EDITORIAL_LIMITS.notesMax : EDITORIAL_LIMITS.bodyMax}
+          tall={!isAudio}
+          assetId={draft.asset.id}
+          images={canEdit && !isAudio ? { accept: Object.keys(IMAGE_TYPES).join(','), prepare: prepareMediaAction, confirm: confirmMediaAction } : null}
+          labels={c.markdown}
+          errors={errors}
+          hint={isAudio ? c.notesHint : fill(c.bodyHint, { size: formatBytes(EDITORIAL_LIMITS.imageMaxBytes) })}
+        />
+      </section>
+    </form>
   );
 }

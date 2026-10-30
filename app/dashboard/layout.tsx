@@ -1,5 +1,6 @@
 import type { Metadata } from 'next';
 import type { ReactNode } from 'react';
+import { DashboardColumns } from '@/components/dashboard/columns';
 import { DashboardHeader } from '@/components/dashboard/header';
 import { NavigationProgress } from '@/components/dashboard/navigation-progress';
 import { DashboardSidebar } from '@/components/dashboard/sidebar';
@@ -21,9 +22,11 @@ export const metadata: Metadata = { robots: { index: false, follow: false } };
  * Dashboard shell -- design source frame `E4GWD`.
  *
  * Header and workspace rail are chrome shared by every dashboard screen, so
- * they live here; each page renders only the content column. The column is the
- * marketing page's 1200px one, so the capsule and the body line up with the
- * site the visitor just came from.
+ * they live here; each page renders only the content column. A focused page
+ * -- the article and episode editor -- keeps the header and drops the rail
+ * (components/dashboard/columns.tsx). The column is the marketing page's
+ * 1200px one, so the capsule and the body line up with the site the visitor
+ * just came from.
  *
  * This is also the real authorization boundary. `middleware.ts` only glances at
  * the cookie; here the session is resolved against the primary database, so a
@@ -55,24 +58,27 @@ export default async function DashboardLayout({ children }: { children: ReactNod
         <NavigationProgress />
         <DashboardHeader workspaceName={workspace.name} workspaceInitial={workspace.initial} />
         <div className="flex-1">
-          <div className="mx-auto flex w-full max-w-[1200px] flex-col items-start gap-7 px-5 pt-[34px] pb-16 lg:flex-row">
-            <DashboardSidebar
-              workspaceName={workspace.name}
-              workspaceInitial={workspace.initial}
-              planName={fill(t.dashboard.shell.planLine, { plan: workspace.planName })}
-              usage={{
-                used: overview.planCallsThisPeriod,
-                limit: overview.planAllowance,
-                packRemaining: overview.addonBalanceRemaining,
-                packGranted: overview.addonGranted,
-              }}
-              leadsNew={leadsNew}
-              pendingActions={pendingActions}
-              openQuestions={openQuestions}
-              unreadNotifications={unreadNotices}
-            />
-            <main className="w-full min-w-0 flex-1">{children}</main>
-          </div>
+          <DashboardColumns
+            sidebar={
+              <DashboardSidebar
+                workspaceName={workspace.name}
+                workspaceInitial={workspace.initial}
+                planName={fill(t.dashboard.shell.planLine, { plan: workspace.planName })}
+                usage={{
+                  used: overview.planCallsThisPeriod,
+                  limit: overview.planAllowance,
+                  packRemaining: overview.addonBalanceRemaining,
+                  packGranted: overview.addonGranted,
+                }}
+                leadsNew={leadsNew}
+                pendingActions={pendingActions}
+                openQuestions={openQuestions}
+                unreadNotifications={unreadNotices}
+              />
+            }
+          >
+            {children}
+          </DashboardColumns>
         </div>
       </div>
     </LocaleProvider>
