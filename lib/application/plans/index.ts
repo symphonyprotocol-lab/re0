@@ -24,6 +24,13 @@ export {
   type BuildQuote,
 } from './build-quota';
 export {
+  commitCalls,
+  releaseCalls,
+  reserveCalls,
+  utcDayStart,
+  type WeightedSeat,
+} from './weighted-call';
+export {
   extendStorageTier,
   workspaceStorage,
   workspaceStorageTier,

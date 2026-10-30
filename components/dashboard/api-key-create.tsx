@@ -8,6 +8,7 @@ import type { CreateKeyResult } from '@/app/dashboard/api-keys/actions';
 import {
   API_KEY_ENVIRONMENTS,
   API_KEY_MANAGEMENT_SCOPE,
+  API_KEY_WRITE_SCOPE,
   API_KEY_SCOPES,
 } from '@/lib/domain/api-key';
 import { useI18n } from '@/lib/i18n/client';
@@ -80,7 +81,8 @@ export function ApiKeyCreate({
                 type="checkbox"
                 name="scopes"
                 value={scope}
-                defaultChecked
+                /* Writes are asked for, never granted by default (lib/domain/api-key.ts). */
+                defaultChecked={scope !== API_KEY_WRITE_SCOPE}
                 className="size-3.5 accent-brand"
               />
               {s.scopeLabels[scope]}

@@ -3,6 +3,7 @@ import type { ReactNode } from 'react';
 import { DashboardHeader } from '@/components/dashboard/header';
 import { NavigationProgress } from '@/components/dashboard/navigation-progress';
 import { DashboardSidebar } from '@/components/dashboard/sidebar';
+import { listActions } from '@/lib/application/agent';
 import { countNewLeads } from '@/lib/application/showcase';
 import { surfaceEnabled } from '@/lib/domain/surfaces';
 import { workspaceUsage } from '@/lib/http/dashboard';
@@ -35,10 +36,12 @@ export default async function DashboardLayout({ children }: { children: ReactNod
     translations(),
   ]);
   // The rail's quota is the same ledger figure the overview prints (usage.ts).
-  const [overview, leadsNew] = await Promise.all([
+  const [overview, leadsNew, pendingActions] = await Promise.all([
     workspaceUsage(workspace.id),
     /* Unhandled showcase leads, for the rail's badge; a failed count is no badge, not a failed page. */
     surfaceEnabled('showcase') ? countNewLeads(workspace.id).catch(() => 0) : 0,
+    /* Pending actions waiting for the owner (agent-first-proposal.md 5.2); same rule for a failed count. */
+    listActions(workspace.id, { pendingOnly: true, limit: 200 }).then((rows) => rows.length).catch(() => 0),
   ]);
 
   return (
@@ -59,6 +62,7 @@ export default async function DashboardLayout({ children }: { children: ReactNod
                 packGranted: overview.addonGranted,
               }}
               leadsNew={leadsNew}
+              pendingActions={pendingActions}
             />
             <main className="w-full min-w-0 flex-1">{children}</main>
           </div>

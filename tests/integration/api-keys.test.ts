@@ -20,7 +20,7 @@ const { createApiKey, listApiKeys, revokeApiKey, resolveApiKey, rotateApiKey } =
   '@/lib/application/auth'
 );
 const { hashApiKey, requireScope } = await import('@/lib/application/auth/api-key');
-const { API_KEY_SCOPES, normaliseScopes } = await import('@/lib/domain/api-key');
+const { API_KEY_READ_SCOPES: API_KEY_SCOPES, normaliseScopes } = await import('@/lib/domain/api-key');
 const { db, schema } = await import('@/lib/infrastructure/postgres/client');
 const { uuidv7 } = await import('@/lib/domain/id');
 const { GET: usageRoute } = await import('@/app/api/v1/usage/route');

@@ -16,6 +16,8 @@
 import { NextResponse } from 'next/server';
 import { drainOperations, isIngestionConfigured, scheduleDueRefreshes } from '@/lib/application/ingestion';
 import { purgeA2aTaskBodies } from '@/lib/application/a2a/task-store';
+import { syncBuildTasks } from '@/lib/application/a2a/task-events';
+import { expireActions } from '@/lib/application/agent';
 
 export const maxDuration = 300;
 
@@ -32,6 +34,19 @@ export async function GET(request: Request): Promise<Response> {
    */
   const scheduled = (await isIngestionConfigured()) ? await scheduleDueRefreshes() : [];
   const outcomes = await drainOperations({ limit: 10 });
+  /*
+   * Pending actions undecided for 24 hours expire, failing the A2A tasks
+   * that waited on them; tasks following a build catch up with it and send
+   * their push notifications (agent-first-proposal.md 5.2, 7.6).
+   */
+  const expiredActions = await expireActions().catch((error: unknown) => {
+    console.error(`agent action expiry failed: ${error instanceof Error ? error.message : 'unknown'}`);
+    return 0;
+  });
+  const syncedTasks = await syncBuildTasks().catch((error: unknown) => {
+    console.error(`a2a build sync failed: ${error instanceof Error ? error.message : 'unknown'}`);
+    return 0;
+  });
   /* Best-effort housekeeping: a missed purge is caught by the next drain. */
   const purgedTasks = await purgeA2aTaskBodies().catch((error: unknown) => {
     console.error(`a2a purge failed: ${error instanceof Error ? error.message : 'unknown'}`);
@@ -44,6 +59,8 @@ export async function GET(request: Request): Promise<Response> {
       drained: outcomes.length,
       outcomes: outcomes.map((outcome) => outcome.status),
       purgedTasks,
+      expiredActions,
+      syncedTasks,
     },
     { headers: { 'cache-control': 'no-store' } },
   );

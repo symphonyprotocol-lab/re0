@@ -18,6 +18,10 @@
  *
  * No model is called here, ever (proposal 7.7): the result is chunks with
  * their citations, assets, versions and anchors.
+ *
+ * `meter: false` leaves the seat to the caller: A2A `ask` holds its own,
+ * weighted one (plans/weighted-call.ts) around retrieval and generation and
+ * decides afterwards what the answer cost (proposal 8.2).
  */
 import { and, eq, inArray, type SQL } from 'drizzle-orm';
 import { AppError, httpStatusFor } from '@/contracts/errors';
@@ -55,9 +59,19 @@ export interface ScopeSearchResult {
 
 export const SCOPE_OPERATION = 'search_context';
 
+export interface SearchScopeInput {
+  scope: SearchScope;
+  query: string;
+  maxTokens: number;
+  /** False when the caller holds the seat itself; true by default. */
+  meter?: boolean;
+  /** What the request log calls this read; `search_context` by default. */
+  operation?: string;
+}
+
 export async function searchScope(
   caller: CallerContext,
-  input: { scope: SearchScope; query: string; maxTokens: number },
+  input: SearchScopeInput,
   dependencies: RetrievalDependencies = defaultRetrievalDependencies(),
 ): Promise<ScopeSearchResult> {
   const startedAt = Date.now();
@@ -65,7 +79,7 @@ export async function searchScope(
     recordRequestLog({
       workspaceId: caller.workspaceId,
       requestId: caller.requestId,
-      operation: SCOPE_OPERATION,
+      operation: input.operation ?? SCOPE_OPERATION,
       libraryPublicId: null,
       entrypoint: caller.entrypoint ?? 'a2a',
       statusCode,
@@ -86,7 +100,7 @@ export async function searchScope(
 
 async function searchScopeInner(
   caller: CallerContext,
-  input: { scope: SearchScope; query: string; maxTokens: number },
+  input: SearchScopeInput,
   dependencies: RetrievalDependencies,
   startedAt: number,
 ): Promise<ScopeSearchResult> {
@@ -143,7 +157,7 @@ async function searchScopeInner(
 
   /* ----------------------------------------------------------- reserve */
 
-  const reservation: ReservedCall | null = caller.workspaceId
+  const reservation: ReservedCall | null = caller.workspaceId && input.meter !== false
     ? await reserveCall({ workspaceId: caller.workspaceId, requestId: caller.requestId })
     : null;
 

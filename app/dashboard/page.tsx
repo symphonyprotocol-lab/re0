@@ -1,429 +1,211 @@
 import type { Metadata } from 'next';
-import { ApiQuickstart } from '@/components/dashboard/api-quickstart';
-import { CopyButton } from '@/components/dashboard/copy-button';
-import { UsageChart, type UsageChartDay } from '@/components/dashboard/usage-chart';
+import Link from 'next/link';
+import { PANEL, PageHeader } from '@/components/dashboard/ui';
+import { Playground } from '@/components/site/playground';
+import { ArrowUpRightIcon, PlusIcon } from '@/components/ui/icons';
 import {
-  ActionButton,
-  ArrowLink,
-  PANEL,
-  PageHeader,
-  PanelHeading,
-  StatusLabel,
-} from '@/components/dashboard/ui';
-import { GlobeIcon, PlusIcon, TerminalIcon } from '@/components/ui/icons';
-import { listApiKeys } from '@/lib/application/auth';
-import { listWorkspaceWidgetSites } from '@/lib/application/embed';
-import { listPublicLibraries, listWorkspaceLibraries } from '@/lib/application/libraries';
-import { periodLastDay, workspaceBilling } from '@/lib/application/plans';
-import {
-  API_KEY_PLACEHOLDER,
-  EXAMPLE_LIBRARY_ID,
-  installCommand,
-  mcpEndpoint,
-  quickstartTabs,
-} from '@/lib/dashboard/snippets';
-import { usdHeadline } from '@/lib/domain/plans';
-import { surfaceEnabled } from '@/lib/domain/surfaces';
-import { workspaceUsage } from '@/lib/http/dashboard';
-import { appBaseUrl, requireSession } from '@/lib/http/session';
+  actionById,
+  conversationTurns,
+  latestConversation,
+  listActions,
+  pendingTargets,
+} from '@/lib/application/agent';
+import { listWorkspaceChannels } from '@/lib/application/channels';
+import { listWorkspaceLibraries } from '@/lib/application/libraries';
+import { cardOf } from '@/lib/dashboard/action-card';
+import type { PlaygroundUIMessage } from '@/lib/http/playground-stream';
+import { requireSession } from '@/lib/http/session';
 import { fill } from '@/lib/i18n/format';
 import { getMessages, translations } from '@/lib/i18n/server';
 
 export async function generateMetadata(): Promise<Metadata> {
-  return { title: (await getMessages()).dashboard.overview.title };
+  return { title: (await getMessages()).dashboard.workbench.metaTitle };
 }
 
-const CHART_DAYS = 10;
+const CARDS_SHOWN = 8;
+const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+
+type Search = { searchParams: Promise<{ q?: string; c?: string; new?: string }> };
 
 /**
- * The overview, on the ledger: quota and volume from the rebuilt usage
- * summary (architecture.md 11.1), library and key counts from the rows
- * themselves, the plan and this period's cost from the workspace's Plan
- * Version (requirement.md 4.1, 4.3). The install and quickstart panels are
- * built for this deployment and this workspace: the real base URL, the real
- * MCP endpoint and one of the workspace's own libraries.
+ * The Agent workbench (agent-first-proposal.md 4.4): the conversation on the
+ * left, the workspace's asset and channel cards on the right.
+ *
+ * The two halves read the same rows. A pending action the conversation
+ * proposes shows on the card of the asset or channel it names; confirming
+ * it on its card in the conversation refreshes the page, so the cards show
+ * the build, the move, the new channel. `?q=` carries a question in from
+ * /playground or the home page and sends it once; `?c=` reopens one
+ * conversation, `?new=1` starts one, and by default the latest continues.
  */
-export default async function DashboardOverviewPage() {
-  const [session, { locale, t }] = await Promise.all([
-    requireSession('/dashboard'),
-    translations(),
-  ]);
-  const o = t.dashboard.overview;
+export default async function WorkbenchPage({ searchParams }: Search) {
+  const [session, { t }, query] = await Promise.all([requireSession('/dashboard'), translations(), searchParams]);
+  const w = t.dashboard.workbench;
   const workspaceId = session.workspace.id;
 
-  const [overview, keys, libraries, billing, siteKeys] = await Promise.all([
-    workspaceUsage(workspaceId),
-    listApiKeys(workspaceId),
+  const conversationId =
+    query.new === '1'
+      ? null
+      : query.c && UUID.test(query.c)
+        ? query.c
+        : ((await latestConversation(workspaceId))?.id ?? null);
+  const [assets, channels, pending, targets, turns] = await Promise.all([
     listWorkspaceLibraries(workspaceId),
-    workspaceBilling(workspaceId),
-    /* agent-first-proposal.md 3.6: the widget is offline, so there is nothing to list. */
-    surfaceEnabled('widget') ? listWorkspaceWidgetSites(workspaceId) : [],
+    listWorkspaceChannels(workspaceId),
+    listActions(workspaceId, { pendingOnly: true, limit: 200 }),
+    pendingTargets(workspaceId),
+    conversationId && !query.q ? conversationTurns(workspaceId, conversationId) : Promise.resolve([]),
   ]);
-
-  /* requirement.md 9.4: the sites the widget may run on, and which have it live. */
-  const sites = siteKeys.flatMap((key) =>
-    key.origins.map((origin) => ({ ...origin, library: key.library.title, accent: key.accent })),
-  );
-  const sitesReached = sites.filter((site) => site.lastSeenAt !== null).length;
-
-  /*
-   * The examples query something the reader can actually call: their own
-   * first library, or the most popular public one when they have none yet.
-   * The catalogue is read only in that case, and a catalogue with nothing
-   * published falls back to a well-known id rather than an empty string.
-   */
-  const own = libraries[0] ?? null;
-  const catalogue = own ? null : ((await listPublicLibraries({ sort: 'popular', limit: 1 }))[0] ?? null);
-  const example = own
-    ? { libraryId: own.publicId, title: own.title }
-    : catalogue
-      ? { libraryId: catalogue.publicId, title: catalogue.title }
-      : { libraryId: EXAMPLE_LIBRARY_ID, title: 'Next.js' };
-
-  const baseUrl = appBaseUrl();
-  const install = installCommand(baseUrl);
-  const endpoint = mcpEndpoint(baseUrl);
-  const tabs = quickstartTabs({
-    baseUrl,
-    libraryId: example.libraryId,
-    title: example.title,
-    labels: { search: o.live.tabSearch, context: o.live.tabContext },
-  });
-
-  const number = new Intl.NumberFormat(locale);
-  const stats: {
-    label: string;
-    value: string;
-    caption?: string;
-    quota?: { used: number; limit: number };
-  }[] = [
-    {
-      label: o.stats.calls,
-      value: `${number.format(overview.planCallsThisPeriod)} / ${number.format(overview.planAllowance)}`,
-      quota: { used: overview.planCallsThisPeriod, limit: Math.max(1, overview.planAllowance) },
-    },
-    {
-      label: o.stats.tokens,
-      value: number.format(overview.returnedTokensThisPeriod),
-      caption: o.stats.tokensCaption,
-    },
-    {
-      label: o.stats.libraries,
-      value: number.format(libraries.length),
-      caption: o.stats.librariesCaption,
-    },
-    {
-      label: o.stats.addon,
-      value: number.format(overview.addonBalanceRemaining),
-      caption: o.stats.addonCaption,
-    },
-    {
-      label: o.stats.buildCalls,
-      value: number.format(overview.buildCallsThisPeriod),
-      caption: o.stats.buildCallsCaption,
-    },
-  ];
-
-  const byDate = new Map(overview.buckets.map((bucket) => [bucket.date, bucket.calls]));
-  const dayFormat = new Intl.DateTimeFormat(locale, {
-    month: 'short',
-    day: 'numeric',
-    timeZone: 'UTC',
-  });
-  const days: UsageChartDay[] = Array.from({ length: CHART_DAYS }, (_, index) => {
-    const at = new Date(Date.now() - (CHART_DAYS - 1 - index) * 86_400_000);
-    return {
-      label: dayFormat.format(at),
-      calls: byDate.get(at.toISOString().slice(0, 10)) ?? 0,
-    };
-  });
-
-  const date = new Intl.DateTimeFormat(locale, { dateStyle: 'medium' });
-  const dateTime = new Intl.DateTimeFormat(locale, { dateStyle: 'medium', timeStyle: 'short' });
-  /* The ledger's periods are UTC days; formatted in the server's timezone
-     they slide by one. The settings screen prints the same period. */
-  const utcDate = new Intl.DateTimeFormat(locale, { dateStyle: 'medium', timeZone: 'UTC' });
-
-  /*
-   * The plan and the cost, side by side. `periodEnd` is exclusive on the
-   * ledger, so the printed range ends on the day before it -- "1 – 30 Sep",
-   * not "1 Sep – 1 Oct".
-   */
-  const { plan, cost } = billing;
-  const planPrice = plan.priceMinor === 0 ? o.live.planFree : fill(o.live.planPrice, { price: usdHeadline(plan.priceMinor) });
-  const costBreakdown =
-    cost.packsBought > 0
-      ? fill(o.live.costBreakdown, {
-          plan: usdHeadline(cost.planMinor),
-          packs: cost.packsBought,
-          packsPrice: usdHeadline(cost.packsMinor),
-        })
-      : fill(o.live.costBreakdownNoPacks, { plan: usdHeadline(cost.planMinor) });
-  const costPeriod = fill(o.live.costPeriod, {
-    start: utcDate.format(plan.periodStart),
-    end: utcDate.format(periodLastDay(plan.periodEnd)),
-  });
+  const initialMessages = await rebuildMessages(workspaceId, turns);
+  const initialQuestion = typeof query.q === 'string' && query.q.trim() ? query.q.trim().slice(0, 2_000) : null;
 
   return (
     <div className="flex flex-col gap-[18px]">
-      {/* Page header -- design source `MWSfb`. */}
-      <PageHeader
-        eyebrow={session.workspace.name}
-        title={o.title}
-        description={o.description}
-        action={
-          <ActionButton href="/dashboard/assets/new">
-            <PlusIcon size={15} />
-            {o.addLibrary}
-          </ActionButton>
-        }
-      />
-
-      {/*
-        * Metric strip -- design source `J5PPjZ`. One column per tile: the
-        * grid was four wide while `stats` built five, so the fifth dropped to
-        * a row of its own and took the "every cell but the first" divider
-        * with it, drawing a rule against nothing. The column count and the
-        * length of `stats` are the same number and have to stay so.
-        */}
-      <section className={`${PANEL} grid grid-cols-2 gap-y-5 p-5 md:grid-cols-5 md:gap-y-0`}>
-        {stats.map((stat, index) => (
-          <article
-            key={stat.label}
-            /* One divider between columns: every odd cell when wrapped to two, every cell but the first on wide. */
-            className={`flex flex-col pr-[18px] ${
-              index % 2 === 1 ? 'border-l border-line pl-5' : 'pl-1'
-            } ${index === 0 ? 'md:border-l-0 md:pl-1' : 'md:border-l md:border-line md:pl-5'}`}
-          >
-            <p className="text-[11px] tracking-[0.03em] text-muted">{stat.label}</p>
-            <p className="mt-1.5 text-[20px] leading-[1.5] font-medium text-ink">
-              {stat.value}
-            </p>
-            {stat.quota ? (
-              <div className="mt-2.5 h-1 overflow-hidden rounded-full bg-mutedbg">
-                <div
-                  className="h-full bg-brand"
-                  style={{ width: `${Math.min(100, (stat.quota.used / stat.quota.limit) * 100)}%` }}
-                />
-              </div>
-            ) : (
-              <p className="mt-1 text-[12px] text-muted">{stat.caption}</p>
-            )}
-          </article>
-        ))}
-      </section>
-
-      {/* Plan and cost -- requirement.md 5.2 概览: 当前套餐, 当前费用. */}
-      <section className="grid gap-[18px] lg:grid-cols-2">
-        <article className={`${PANEL} flex flex-col gap-2 p-[30px]`}>
-          <p className="text-[11px] tracking-[0.03em] text-muted">{o.live.planTitle}</p>
-          <p className="flex items-baseline gap-2">
-            <span className="text-[22px] leading-[1.4] font-medium text-ink">
-              {plan.planName}
-            </span>
-            <span className="text-[13px] text-muted">{planPrice}</span>
-          </p>
-          <p className="text-[12px] text-steel">
-            {fill(o.live.planAllowance, { calls: number.format(plan.monthlyCalls) })}
-          </p>
-          <div className="mt-auto pt-2">
-            <ArrowLink href="/pricing">{o.live.planManage}</ArrowLink>
+      <PageHeader eyebrow={session.workspace.name} title={w.title} description={w.description} />
+      <div className="grid gap-5 xl:grid-cols-[minmax(0,1fr)_300px]">
+        <div className="min-w-0">
+          <div className="mb-2 flex justify-end">
+            <Link href="/dashboard?new=1" className="flex items-center gap-1 text-[11.5px] text-brandink hover:underline">
+              <PlusIcon size={12} />
+              {w.newConversation}
+            </Link>
           </div>
-        </article>
-
-        <article className={`${PANEL} flex flex-col gap-2 p-[30px]`}>
-          <p className="text-[11px] tracking-[0.03em] text-muted">{o.live.costTitle}</p>
-          <p className="flex items-baseline gap-2">
-            <span className="text-[22px] leading-[1.4] font-medium text-ink">
-              {usdHeadline(cost.totalMinor)}
-            </span>
-            <span className="text-[13px] text-muted">{costPeriod}</span>
-          </p>
-          <p className="text-[12px] text-steel">{costBreakdown}</p>
-          {/* Said plainly: without a provider this is arithmetic, not an invoice. */}
-          {billing.paymentConnected ? null : (
-            <p className="text-[12px] text-amber">{o.live.costUnbilled}</p>
-          )}
-          <div className="mt-auto pt-2">
-            <ArrowLink href="/dashboard/settings#billing">{o.live.costLink}</ArrowLink>
-          </div>
-        </article>
-      </section>
-
-      {/* Call volume -- design source `C06o6`. */}
-      <section className={`${PANEL} flex flex-col gap-3.5 p-[30px]`}>
-        <div className="flex flex-wrap items-start justify-between gap-5">
-          <div className="flex flex-col gap-[5px]">
-            <h2 className="text-[16px] leading-[1.5] text-ink">
-              {o.usageTitle}
-            </h2>
-            <p className="text-[13px] leading-[1.5] text-muted">
-              {o.usageSubtitle}
-            </p>
-          </div>
-        </div>
-        <UsageChart days={days} />
-      </section>
-
-      {/* API keys -- design source `DQVXY`. */}
-      <section className={`${PANEL} flex flex-col gap-[22px] p-[30px]`}>
-        <PanelHeading
-          title={o.keysTitle}
-          description={o.keysDescription}
-          action={
-            <ActionButton href="/dashboard/api-keys">
-              <PlusIcon size={14} />
-              {o.createKey}
-            </ActionButton>
-          }
-        />
-
-        <div className="overflow-x-auto">
-          <table className="w-full min-w-[520px] border-collapse text-left">
-            <thead>
-              <tr className="border-b border-line">
-                {o.keyColumns.map((head, index) => (
-                  <th
-                    key={head}
-                    scope="col"
-                    className={`pb-[9px] text-[11px] font-normal text-muted ${
-                      index === 0 ? 'w-[29%]' : index === 3 ? 'w-[19%]' : 'w-[26%]'
-                    }`}
-                  >
-                    {head}
-                  </th>
-                ))}
-              </tr>
-            </thead>
-            <tbody>
-              {keys.map((key) => (
-                <tr key={key.id} className="border-b border-line">
-                  <td className="py-3.5 text-[12px] font-medium text-steel">
-                    {key.name}
-                  </td>
-                  <td className="py-3.5">
-                    <code className="inline-flex items-center rounded-md bg-mutedbg px-1.5 py-1 font-mono text-[11px] text-steel">
-                      {key.masked}
-                    </code>
-                  </td>
-                  <td className="py-3.5 text-[12px] text-steel">
-                    {date.format(new Date(key.createdAt))}
-                  </td>
-                  <td className="py-3.5 text-[12px] text-steel">
-                    {key.lastUsedAt ? dateTime.format(new Date(key.lastUsedAt)) : '—'}
-                  </td>
-                </tr>
-              ))}
-              {keys.length === 0 ? (
-                <tr>
-                  <td
-                    colSpan={o.keyColumns.length}
-                    className="py-6 text-center text-[12px] text-muted"
-                  >
-                    {o.keysEmpty}
-                  </td>
-                </tr>
-              ) : null}
-            </tbody>
-          </table>
-        </div>
-      </section>
-
-      {/* Website widget -- requirement.md 9.4; offline since the agent-first turn (agent-first-proposal.md 3.6). */}
-      {surfaceEnabled('widget') ? (
-        <section className={`${PANEL} flex flex-col gap-[18px] p-[30px]`}>
-          <PanelHeading
-            title={o.widgetTitle}
-            description={o.widgetDescription}
-            action={
-              <ActionButton href="/dashboard/widget" variant="outline">
-                <GlobeIcon size={14} />
-                {o.widgetLink}
-              </ActionButton>
-            }
+          <Playground
+            key={initialQuestion ? `q:${initialQuestion}` : (conversationId ?? 'new')}
+            mode="workbench"
+            signedIn
+            initialQuestion={initialQuestion}
+            conversationId={initialQuestion ? null : conversationId}
+            initialMessages={initialMessages}
           />
-          {sites.length === 0 ? (
-            <p className="text-[12px] text-muted">{o.widgetNone}</p>
-          ) : (
-            <div className="flex flex-col gap-3">
-              <p className="text-[13px] text-steel">
-                {fill(o.widgetSites, { reached: number.format(sitesReached), total: number.format(sites.length) })}
-                <span className="text-muted"> · {fill(o.widgetKeys, { keys: number.format(siteKeys.length) })}</span>
+        </div>
+
+        <aside className="flex flex-col gap-4">
+          {pending.length > 0 ? (
+            <Link
+              href="/dashboard/actions"
+              className="flex items-center justify-between rounded-md border border-warnsoft bg-warnsoft/50 px-3.5 py-2.5 text-[12px] font-medium text-warn"
+            >
+              {fill(w.pending, { n: String(pending.length) })}
+              <ArrowUpRightIcon size={13} />
+            </Link>
+          ) : null}
+
+          <section className={`${PANEL} p-4`}>
+            <div className="flex items-center justify-between">
+              <h2 className="text-[13px] font-medium text-ink">{w.assetsHeading}</h2>
+              <Link href="/dashboard/assets" className="text-[11px] text-brandink hover:underline">
+                {w.viewAll}
+              </Link>
+            </div>
+            {assets.length === 0 ? (
+              <p className="mt-2 text-[12px] text-muted">
+                {w.noAssets}{' '}
+                <Link href="/dashboard/assets/new" className="text-brandink hover:underline">
+                  {w.addAsset}
+                </Link>
               </p>
-              <ul className="flex flex-col">
-                {sites.slice(0, 5).map((site) => (
-                  <li
-                    key={`${site.library}\n${site.origin}`}
-                    className="flex items-center gap-4 border-t border-line py-2.5"
-                  >
-                    <span
-                      aria-hidden
-                      className="size-[7px] shrink-0 rounded-full border border-line"
-                      style={{ background: site.accent }}
-                    />
-                    <span className="flex min-w-0 flex-1 flex-col gap-[3px]">
-                      <code className="truncate font-mono text-[12px] text-ink">{site.origin}</code>
-                      <span className="truncate text-[10px] text-muted">{site.library}</span>
-                    </span>
-                    <StatusLabel tone={site.lastSeenAt ? 'live' : 'pending'}>
-                      {site.lastSeenAt ? o.widgetReached : o.widgetWaiting}
-                    </StatusLabel>
+            ) : (
+              <ul className="mt-2.5 flex flex-col gap-2">
+                {assets.slice(0, CARDS_SHOWN).map((asset) => (
+                  <li key={asset.id}>
+                    <Link
+                      href={`/dashboard/assets/${asset.id}`}
+                      className="flex flex-col gap-0.5 rounded-md border border-line px-3 py-2 transition-colors hover:bg-subtle"
+                    >
+                      <span className="truncate text-[12.5px] text-ink">{asset.title}</span>
+                      <span className="truncate font-mono text-[10.5px] text-faint">{asset.publicId}</span>
+                      <span className="flex flex-wrap gap-x-2 text-[10.5px] text-muted">
+                        <span>{asset.kind}</span>
+                        <span>{asset.channel ? `/channels/${asset.channel.slug}` : w.unfiled}</span>
+                        {asset.building ? <span className="text-brandink">{w.building}</span> : null}
+                        {targets.get(asset.id) ? (
+                          <span className="text-warn">{fill(w.pending, { n: String(targets.get(asset.id)) })}</span>
+                        ) : null}
+                      </span>
+                    </Link>
                   </li>
                 ))}
               </ul>
+            )}
+          </section>
+
+          <section className={`${PANEL} p-4`}>
+            <div className="flex items-center justify-between">
+              <h2 className="text-[13px] font-medium text-ink">{w.channelsHeading}</h2>
+              <Link href="/dashboard/channels" className="text-[11px] text-brandink hover:underline">
+                {channels.length === 0 ? w.openChannels : w.viewAll}
+              </Link>
             </div>
-          )}
-        </section>
-      ) : null}
-
-      {/* Install -- design source `QabFh`: the CLI command and the MCP endpoint it writes. Offline with MCP (agent-first-proposal.md 3.6). */}
-      {surfaceEnabled('mcp') ? (
-        <section className={`${PANEL} flex flex-col gap-[13px] p-[30px]`}>
-          <PanelHeading
-            title={o.installTitle}
-            description={o.installDescription}
-          />
-          <div className="flex h-[52px] items-center gap-2.5 rounded-lg bg-terminal px-3.5">
-            <TerminalIcon size={16} className="text-brandink" />
-            <code className="flex-1 truncate font-mono text-[13px] text-white">
-              {install}
-            </code>
-            <CopyButton
-              value={install}
-              label={o.installCommandLabel}
-              className="text-faint hover:bg-white/10"
-            />
-          </div>
-          <div className="flex h-[44px] items-center gap-2.5 rounded-lg bg-subtle px-3.5">
-            <span className="shrink-0 text-[11px] text-muted">
-              {o.live.mcpEndpointLabel}
-            </span>
-            <code className="flex-1 truncate font-mono text-[12px] text-steel">
-              {endpoint}
-            </code>
-            <CopyButton
-              value={endpoint}
-              label={o.live.mcpEndpointLabel}
-              className="text-muted hover:bg-mutedbg"
-            />
-          </div>
-          <p className="text-[12px] text-muted">
-            {fill(o.live.keyPlaceholderNote, { placeholder: API_KEY_PLACEHOLDER })}
-          </p>
-        </section>
-      ) : null}
-
-      {/* REST quickstart -- design source `lRoBh`. */}
-      <section className={`${PANEL} flex flex-col p-[30px]`}>
-        <PanelHeading
-          title={o.quickstartTitle}
-          description={`${o.quickstartDescription} ${fill(
-            own ? o.live.exampleLibraryOwn : o.live.exampleLibraryCatalog,
-            { libraryId: example.libraryId },
-          )}`}
-        />
-        <ApiQuickstart tabs={tabs} />
-      </section>
+            {channels.length === 0 ? (
+              <p className="mt-2 text-[12px] text-muted">{w.noChannels}</p>
+            ) : (
+              <ul className="mt-2.5 flex flex-col gap-2">
+                {channels.slice(0, CARDS_SHOWN).map((channel) => (
+                  <li key={channel.id}>
+                    <Link
+                      href={`/dashboard/channels/${channel.id}`}
+                      className="flex flex-col gap-0.5 rounded-md border border-line px-3 py-2 transition-colors hover:bg-subtle"
+                    >
+                      <span className="truncate text-[12.5px] text-ink">{channel.title}</span>
+                      <span className="flex flex-wrap gap-x-2 text-[10.5px] text-muted">
+                        <span className="font-mono">/channels/{channel.slug}</span>
+                        <span>{channel.visibility}</span>
+                        <span>{fill(w.assetsCount, { n: String(channel.assetCount) })}</span>
+                        {targets.get(channel.id) ? (
+                          <span className="text-warn">{fill(w.pending, { n: String(targets.get(channel.id)) })}</span>
+                        ) : null}
+                      </span>
+                    </Link>
+                  </li>
+                ))}
+              </ul>
+            )}
+          </section>
+        </aside>
+      </div>
     </div>
   );
+}
+
+/**
+ * The conversation so far as the transcript's own messages, from what the
+ * server recorded. A proposal is shown in its state now -- confirmed,
+ * declined or expired since -- not as it was when proposed.
+ */
+async function rebuildMessages(
+  workspaceId: string,
+  turns: Awaited<ReturnType<typeof conversationTurns>>,
+): Promise<PlaygroundUIMessage[]> {
+  const messages: PlaygroundUIMessage[] = [];
+  for (const turn of turns) {
+    const content = turn.content as Record<string, unknown>;
+    if (turn.role === 'user') {
+      messages.push({ id: turn.id, role: 'user', parts: [{ type: 'text', text: String(content.question ?? '') }] });
+      continue;
+    }
+    const parts: PlaygroundUIMessage['parts'] = [];
+    for (const listing of (content.listings as PlaygroundUIMessage['parts'][number][] | undefined) ?? []) {
+      parts.push({ type: 'data-listing', data: listing as never });
+    }
+    for (const actionId of (content.actions as string[] | undefined) ?? []) {
+      const action = await actionById(workspaceId, actionId);
+      if (!action) continue;
+      parts.push({ type: 'data-action', id: action.id, data: cardOf(action) });
+    }
+    for (const refusal of (content.refused as { tool: string; code: string; message: string }[] | undefined) ?? []) {
+      parts.push({ type: 'data-refused', data: refusal as never });
+    }
+    const sources = (content.sources as Record<string, unknown>[] | undefined) ?? [];
+    if (sources.length > 0) {
+      parts.push({ type: 'data-sources', data: { sources: sources.map((source) => ({ ...source, codeBlocks: [] })) as never } });
+    }
+    for (const claim of (content.claims as { claim: string; chunkIds: string[] }[] | undefined) ?? []) {
+      parts.push({ type: 'data-claim', data: claim });
+    }
+    const outcome = typeof content.outcome === 'string' ? content.outcome : 'acted';
+    parts.push({ type: 'data-outcome', data: { kind: outcome as never } });
+    messages.push({ id: turn.id, role: 'assistant', parts });
+  }
+  return messages;
 }

@@ -2,7 +2,9 @@ import { describe, expect, it } from 'vitest';
 import {
   API_KEY_ENVIRONMENTS,
   API_KEY_MANAGEMENT_SCOPE,
+  API_KEY_READ_SCOPES,
   API_KEY_SCOPES,
+  API_KEY_WRITE_SCOPE,
   apiKeyPrefix,
   hasScope,
   isApiKeyEnvironment,
@@ -22,8 +24,14 @@ import { zh } from '@/lib/i18n/messages/zh';
  * do; they must keep working exactly as before.
  */
 describe('normaliseScopes', () => {
-  it('reads the legacy word as the full grantable set', () => {
-    expect(normaliseScopes(['retrieval'])).toEqual([...API_KEY_SCOPES]);
+  it('reads the legacy word as the read scopes, never as assets:write', () => {
+    expect(normaliseScopes(['retrieval'])).toEqual([...API_KEY_READ_SCOPES]);
+    expect(normaliseScopes(['retrieval'])).not.toContain(API_KEY_WRITE_SCOPE);
+  });
+
+  it('keeps assets:write when it was granted', () => {
+    expect(normaliseScopes(['knowledge:read', 'assets:write'])).toEqual(['knowledge:read', 'assets:write']);
+    expect(parseScopes(['assets:write'])).toEqual(['assets:write']);
   });
 
   it('keeps known scopes, the management scope, and nothing else', () => {

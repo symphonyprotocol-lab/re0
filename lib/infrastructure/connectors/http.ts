@@ -31,7 +31,7 @@ const STAGE: IngestionStage = 'fetch-snapshot';
  */
 const BLOCKED_HOSTS = new Set(['localhost', 'metadata.google.internal', 'metadata.goog']);
 
-const PRIVATE_V4 =
+export const PRIVATE_V4 =
   /^(?:10\.|127\.|0\.|169\.254\.|192\.168\.|172\.(?:1[6-9]|2[0-9]|3[01])\.|100\.(?:6[4-9]|[7-9][0-9]|1[01][0-9]|12[0-7])\.)/;
 
 export function assertFetchable(url: URL): void {
@@ -63,7 +63,7 @@ export function assertFetchable(url: URL): void {
  * the textual forms a prefix test looks for. So expand to the sixteen bytes and
  * decide on those -- one shape, whatever the literal was written as.
  */
-function isPrivateV6(host: string): boolean {
+export function isPrivateV6(host: string): boolean {
   const bytes = parseV6(host);
   if (!bytes) return false;
 

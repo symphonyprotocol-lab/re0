@@ -187,3 +187,35 @@ export async function purgeA2aTaskBodies(now: Date = new Date()): Promise<number
     .returning({ id: schema.a2aTask.id });
   return purged.length;
 }
+
+export interface WorkspaceTaskRow {
+  id: string;
+  skill: string | null;
+  state: string;
+  tenant: string;
+  updatedAt: string;
+  /** The pending action the task waits on, when it waits for the owner. */
+  pendingActionId: string | null;
+}
+
+/** The workspace's A2A tasks, newest first, for the Dashboard's A2A 任务 page (proposal 4.4). */
+export async function listWorkspaceTasks(workspaceId: string, limit = 50): Promise<WorkspaceTaskRow[]> {
+  const rows = await db()
+    .select({
+      id: schema.a2aTask.id,
+      skill: schema.a2aTask.skill,
+      state: schema.a2aTask.state,
+      tenant: schema.a2aTask.tenant,
+      updatedAt: schema.a2aTask.updatedAt,
+      pendingActionId: schema.agentAction.id,
+    })
+    .from(schema.a2aTask)
+    .leftJoin(
+      schema.agentAction,
+      and(eq(schema.agentAction.a2aTaskId, schema.a2aTask.id), eq(schema.agentAction.state, 'pending')),
+    )
+    .where(eq(schema.a2aTask.workspaceId, workspaceId))
+    .orderBy(desc(schema.a2aTask.updatedAt))
+    .limit(Math.min(Math.max(limit, 1), LIST_PAGE_MAX));
+  return rows.map((row) => ({ ...row, updatedAt: row.updatedAt.toISOString(), pendingActionId: row.pendingActionId ?? null }));
+}

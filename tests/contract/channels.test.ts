@@ -25,7 +25,7 @@ import { normalizePublicId } from '@/lib/domain/library';
 import { evaluatePolicy, listedIn, OPEN_POLICY, parsePolicyEntry } from '@/lib/domain/policy';
 import { parseTenantKey, splitTenantPath, PLATFORM_TENANT, type A2ATenant } from '@/lib/application/a2a/tenant';
 import { agentCardJson, buildAgentCard, cardUrl } from '@/lib/application/a2a/card';
-import { readSkillRequest, SkillRejected } from '@/lib/application/a2a/executor';
+import { readSkillRequest, SkillRejected, skillRefusal } from '@/lib/application/a2a/executor';
 
 /* ------------------------------------------------------------ reserved names */
 
@@ -254,19 +254,59 @@ describe('Agent Cards (proposal 7.1-7.3)', () => {
       { url: 'https://re0.io/a2a', protocolBinding: 'HTTP+JSON', tenant: 'channels/rust-notes', protocolVersion: '1.0' },
       { url: 'https://re0.io/a2a/channels/rust-notes', protocolBinding: 'JSONRPC', protocolVersion: '0.3' },
     ]);
-    expect(card.skills.map((skill) => skill.id)).toEqual(['search_context']);
-    expect(card.capabilities.pushNotifications).toBe(false);
+    expect(card.skills.map((skill) => skill.id)).toEqual(['search_context', 'ask']);
+    /* P2: push notifications and the authenticated extended card (proposal 7.2, 7.6). */
+    expect(card.capabilities.pushNotifications).toBe(true);
     expect(Object.keys(card.securitySchemes)).toEqual(['bearer']);
     /* What makes the results different is stated where agents read it (proposal 7.5). */
     expect(card.description).toMatch(/Verifier/);
   });
 
-  it('give the platform both skills and a user without public channels none', () => {
+  it('give the platform its three public skills and a user without public channels none', () => {
     const platform = buildAgentCard({ origin, tenant: PLATFORM_TENANT });
-    expect(platform.skills.map((skill) => skill.id)).toEqual(['find_channels', 'search_context']);
+    expect(platform.skills.map((skill) => skill.id)).toEqual(['find_channels', 'search_context', 'ask']);
     expect(platform.supportedInterfaces[0]!.tenant).toBe('');
     expect(buildAgentCard({ origin, tenant: USER, hasPublicChannel: false }).skills).toEqual([]);
-    expect(buildAgentCard({ origin, tenant: USER, hasPublicChannel: true }).skills.map((skill) => skill.id)).toEqual(['search_context']);
+    expect(buildAgentCard({ origin, tenant: USER, hasPublicChannel: true }).skills.map((skill) => skill.id)).toEqual(['search_context', 'ask']);
+  });
+
+  const quota = {
+    planAllowanceRemaining: 900,
+    addonBalanceRemaining: 0,
+    capacityBytes: 500 * 1_048_576,
+    usedBytes: 1_048_576,
+    askCallsPerAnswer: 10,
+    askDailyAnswers: 500,
+    answersToday: 3,
+  };
+
+  it('never list a write skill on a public card; the extended card adds them for the caller’s own assets', () => {
+    for (const tenant of [PLATFORM_TENANT, USER, CHANNEL]) {
+      const ids = buildAgentCard({ origin, tenant, hasPublicChannel: true }).skills.map((skill) => skill.id);
+      expect(ids).not.toContain('ingest');
+      expect(ids).not.toContain('refresh');
+      expect(ids).not.toContain('publish');
+    }
+    const platform = buildAgentCard({ origin, tenant: PLATFORM_TENANT, extended: { workspaceId: 'w-any', quota } });
+    expect(platform.skills.map((skill) => skill.id)).toEqual(['find_channels', 'search_context', 'ask', 'ingest', 'refresh', 'publish']);
+    /* A user card's extended form is the owner's own: anyone else gets the public skills. */
+    const own = buildAgentCard({ origin, tenant: USER, hasPublicChannel: false, extended: { workspaceId: USER.level === 'user' ? USER.workspaceId : '', quota } });
+    expect(own.skills.map((skill) => skill.id)).toEqual(['search_context', 'ask', 'ingest', 'refresh', 'publish']);
+    const stranger = buildAgentCard({ origin, tenant: USER, hasPublicChannel: true, extended: { workspaceId: 'w-other', quota } });
+    expect(stranger.skills.map((skill) => skill.id)).toEqual(['search_context', 'ask']);
+    expect(buildAgentCard({ origin, tenant: CHANNEL, extended: { workspaceId: 'w-other', quota } }).skills.map((skill) => skill.id)).toEqual([
+      'search_context',
+      'ask',
+    ]);
+  });
+
+  it('state the caller’s quota on the extended card, and nothing internal', () => {
+    const card = buildAgentCard({ origin, tenant: PLATFORM_TENANT, extended: { workspaceId: 'w-any', quota } });
+    expect(card.description).toMatch(/900 Calls left/);
+    expect(card.description).toMatch(/3 of 500 ask answers/);
+    expect(card.capabilities?.extensions[0]?.params).toMatchObject({ askDailyAnswers: 500, answersToday: 3 });
+    const wire = JSON.stringify(agentCardJson(card));
+    expect(wire).not.toMatch(/w-any|DATABASE|postgres|localhost|internal/i);
   });
 
   it('are served where proposal 7.1 says', () => {
@@ -310,8 +350,36 @@ describe('how a message picks its skill', () => {
 
   it('refuses what the card does not offer, and an empty or oversized query', () => {
     expect(() => readSkillRequest(message([data({ skill: 'find_channels', query: 'x' })]), CHANNEL)).toThrow(SkillRejected);
-    expect(() => readSkillRequest(message([data({ skill: 'ask', query: 'x' })]), PLATFORM_TENANT)).toThrow(SkillRejected);
+    expect(() => readSkillRequest(message([data({ skill: 'summarise', query: 'x' })]), PLATFORM_TENANT)).toThrow(SkillRejected);
     expect(() => readSkillRequest(message([text('   ')]), CHANNEL)).toThrow(SkillRejected);
     expect(() => readSkillRequest(message([text('x'.repeat(2001))]), CHANNEL)).toThrow(SkillRejected);
+  });
+});
+
+describe('who may use which skill (proposal 7.4)', () => {
+  const caller = (scopes: string[] | undefined, workspaceId: string | null = 'w-1') => ({
+    workspaceId,
+    apiKeyId: workspaceId ? 'k-1' : null,
+    requestId: 'r',
+    anonymous: workspaceId === null,
+    scopes,
+  });
+
+  it('needs assets:write for ingest, refresh and publish, and the caller’s own workspace', () => {
+    for (const skill of ['ingest', 'refresh', 'publish'] as const) {
+      expect(skillRefusal(skill, PLATFORM_TENANT, caller(['knowledge:search', 'knowledge:read']))).toMatch(/assets:write/);
+      expect(skillRefusal(skill, PLATFORM_TENANT, caller(undefined, null))).toMatch(/API key/);
+      expect(skillRefusal(skill, PLATFORM_TENANT, caller(['assets:write']))).toBeNull();
+      expect(skillRefusal(skill, CHANNEL, caller(['assets:write']))).toMatch(/channel/);
+      expect(skillRefusal(skill, USER, caller(['assets:write'], 'w-somebody-else'))).toMatch(/own workspace/);
+    }
+  });
+
+  it('needs a key with a read scope for ask; search stays open to anonymous callers', () => {
+    expect(skillRefusal('ask', CHANNEL, caller(undefined, null))).toMatch(/API key/);
+    expect(skillRefusal('ask', CHANNEL, caller(['assets:write']))).toMatch(/knowledge:search/);
+    expect(skillRefusal('ask', CHANNEL, caller(['knowledge:read']))).toBeNull();
+    expect(skillRefusal('search_context', CHANNEL, caller(undefined, null))).toBeNull();
+    expect(skillRefusal('search_context', CHANNEL, caller(['assets:write']))).toMatch(/knowledge:search/);
   });
 });

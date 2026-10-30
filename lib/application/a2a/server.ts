@@ -16,15 +16,32 @@
  * at short intervals for as long as the function may run, pushes what
  * changed, and ends the stream at a terminal state or at the deadline, after
  * which the client reconnects.
+ *
+ * P2 (proposal 7.6, 7.8): `returnImmediately` is honoured -- the response
+ * goes out after the first event and the executor runs on, kept alive by the
+ * route (`keepAlive`, Next's `after`). Push-notification configs live in
+ * Postgres (push.ts). A task that follows something outside the request --
+ * a pending action, a build -- catches up whenever it is read. `CancelTask`
+ * on a build task cancels the build only while it is queued; on a task
+ * waiting for confirmation it withdraws the pending action. The extended
+ * card is built per caller, with its quota.
  */
 import { AgentCard, Message, StreamResponse, Task, TaskState, type ListTasksRequest as ListTasksRequestType } from '@a2a-js/sdk';
 import {
   CancelTaskRequest,
+  DeleteTaskPushNotificationConfigRequest,
+  GetTaskPushNotificationConfigRequest,
   GetTaskRequest,
+  ListTaskPushNotificationConfigsRequest,
+  ListTaskPushNotificationConfigsResponse,
   ListTasksRequest,
   ListTasksResponse,
   SendMessageRequest,
+  TaskPushNotificationConfig,
 } from '@a2a-js/sdk';
+import { and, eq, inArray } from 'drizzle-orm';
+import { expireActions, withdrawAction } from '@/lib/application/agent';
+import { db, schema } from '@/lib/infrastructure/postgres/client';
 import {
   DefaultRequestHandler,
   JsonRpcTransportHandler,
@@ -35,14 +52,18 @@ import {
 import { isLegacyJsonRpcMethod } from '@a2a-js/sdk/compat/v0_3';
 import { LegacyJsonRpcTransportHandler } from '@a2a-js/sdk/compat/v0_3/server';
 import {
-  PushNotificationNotSupportedError,
   RequestMalformedError,
+  TaskNotCancelableError,
   TaskNotFoundError,
   restStatusFor,
   toRestErrorBody,
 } from '@a2a-js/sdk/errors';
-import { buildCallContext, type A2ACallFacts } from './context';
-import { Re0AgentExecutor } from './executor';
+import { buildAgentCard } from './card';
+import { buildCallContext, callerOf, type A2ACallFacts } from './context';
+import { Re0AgentExecutor, type ExecutorDependencies } from './executor';
+import { callerQuota } from './extended';
+import { PostgresPushNotificationStore, Re0PushNotificationSender } from './push';
+import { syncBuildTasks } from './task-events';
 import { PostgresTaskStore } from './task-store';
 
 export type A2AResponse =
@@ -66,9 +87,19 @@ export interface A2ARequest {
   pathTenant: boolean;
   /** How long a `SubscribeToTask` stream may stay open. */
   streamWindowMs?: number;
+  /** For a user card: whether the user has a public channel (the public card's skills). */
+  hasPublicChannel?: boolean;
+  /**
+   * Keeps the function alive for work that outlives the response: an
+   * execution under `returnImmediately`. The route passes Next's `after`;
+   * without one (a test, a script) the process simply runs it on.
+   */
+  keepAlive?: (work: Promise<unknown>) => void;
+  /** Seams for the executor; the configured models by default. */
+  dependencies?: ExecutorDependencies;
 }
 
-const TERMINAL: ReadonlySet<TaskState> = new Set([
+export const TERMINAL: ReadonlySet<TaskState> = new Set([
   TaskState.TASK_STATE_COMPLETED,
   TaskState.TASK_STATE_FAILED,
   TaskState.TASK_STATE_CANCELED,
@@ -78,31 +109,39 @@ const POLL_INTERVAL_MS = 1_000;
 const DEFAULT_STREAM_WINDOW_MS = 50_000;
 
 /**
- * The SDK's request handler with `resubscribe` reading the shared store
- * instead of a process-local bus. Everything else is delegated untouched.
+ * The SDK's request handler with the parts a serverless deployment needs
+ * replaced: `resubscribe` reads the shared store instead of a process-local
+ * bus, reads catch a task up with what happened outside the request, and
+ * cancellation knows about builds and pending actions. Everything else is
+ * delegated untouched.
  */
 class StoreBackedRequestHandler implements A2ARequestHandler {
   constructor(
     private readonly inner: DefaultRequestHandler,
     private readonly store: PostgresTaskStore,
+    private readonly executor: Re0AgentExecutor,
     private readonly windowMs: number,
+    private readonly keepAlive?: (work: Promise<unknown>) => void,
   ) {}
 
   getAgentCard = () => this.inner.getAgentCard();
   getAuthenticatedExtendedAgentCard: A2ARequestHandler['getAuthenticatedExtendedAgentCard'] = (p, c) =>
     this.inner.getAuthenticatedExtendedAgentCard(p, c);
   /*
-   * Always blocking. P1's skills finish in one retrieval, and with
-   * `returnImmediately` the SDK answers after the first event while the
-   * executor runs on with nothing keeping the function alive: on Vercel the
-   * instance may freeze and leave the task WORKING for good. Long tasks (P2's
-   * ingest) will need `waitUntil` or a workflow before honouring it.
+   * `returnImmediately` answers after the first event while the executor
+   * runs on; the route's `keepAlive` holds the function open until it has
+   * finished, so an instance never freezes with a task left WORKING.
    */
-  sendMessage: A2ARequestHandler['sendMessage'] = (p, c) =>
-    this.inner.sendMessage(p.configuration ? { ...p, configuration: { ...p.configuration, returnImmediately: false } } : p, c);
+  sendMessage: A2ARequestHandler['sendMessage'] = async (p, c) => {
+    const result = await this.inner.sendMessage(p, c);
+    if (p.configuration?.returnImmediately) this.keepAlive?.(this.executor.settled());
+    return result;
+  };
   sendMessageStream: A2ARequestHandler['sendMessageStream'] = (p, c) => this.inner.sendMessageStream(p, c);
-  getTask: A2ARequestHandler['getTask'] = (p, c) => this.inner.getTask(p, c);
-  cancelTask: A2ARequestHandler['cancelTask'] = (p, c) => this.inner.cancelTask(p, c);
+  getTask: A2ARequestHandler['getTask'] = async (p, c) => {
+    await catchUp([p.id]);
+    return this.inner.getTask(p, c);
+  };
   listTasks: A2ARequestHandler['listTasks'] = (p, c) => this.inner.listTasks(p, c);
   createTaskPushNotificationConfig: A2ARequestHandler['createTaskPushNotificationConfig'] = (p, c) =>
     this.inner.createTaskPushNotificationConfig(p, c);
@@ -113,12 +152,45 @@ class StoreBackedRequestHandler implements A2ARequestHandler {
   deleteTaskPushNotificationConfig: A2ARequestHandler['deleteTaskPushNotificationConfig'] = (p, c) =>
     this.inner.deleteTaskPushNotificationConfig(p, c);
 
+  /**
+   * Proposal 7.6: on a build task, cancelling means cancelling the queue. A
+   * build already running finishes (architecture.md 8.3 publishes whole
+   * versions or nothing), so its task is not cancelable. A task waiting for
+   * the owner withdraws its pending action -- which can only close it.
+   */
+  cancelTask: A2ARequestHandler['cancelTask'] = async (p, c) => {
+    const task = await this.store.load(p.id, c);
+    if (!task) throw new TaskNotFoundError(`task ${p.id} not found`);
+    if (!TERMINAL.has(task.status?.state ?? TaskState.TASK_STATE_UNSPECIFIED)) {
+      const [row] = await db()
+        .select({ workflowRunId: schema.a2aTask.workflowRunId })
+        .from(schema.a2aTask)
+        .where(eq(schema.a2aTask.id, task.id))
+        .limit(1);
+      if (row?.workflowRunId) {
+        const cancelled = await db()
+          .update(schema.workflowOperation)
+          .set({ status: 'cancelled', updatedAt: new Date() })
+          .where(and(eq(schema.workflowOperation.id, row.workflowRunId), eq(schema.workflowOperation.status, 'pending')))
+          .returning({ id: schema.workflowOperation.id });
+        if (cancelled.length === 0) throw new TaskNotCancelableError(`the build of task ${p.id} has already started`);
+      }
+      const pending = await db()
+        .select({ id: schema.agentAction.id })
+        .from(schema.agentAction)
+        .where(and(eq(schema.agentAction.a2aTaskId, task.id), eq(schema.agentAction.state, 'pending')));
+      for (const action of pending) await withdrawAction(action.id);
+    }
+    return this.inner.cancelTask(p, c);
+  };
+
   async *resubscribe(
     params: { id: string; tenant?: string },
     context: ServerCallContext,
   ): AsyncGenerator<StreamResponse, void, undefined> {
     if (!params.id?.trim()) throw new RequestMalformedError('task id is required');
     const deadline = Date.now() + this.windowMs;
+    await catchUp([params.id]);
     let task = await this.store.load(params.id, context);
     if (!task) throw new TaskNotFoundError(`task ${params.id} not found`);
     yield { payload: { $case: 'task', value: task } };
@@ -127,6 +199,7 @@ class StoreBackedRequestHandler implements A2ARequestHandler {
     const seenArtifacts = new Set(task.artifacts.map((artifact) => artifact.artifactId));
     while (!TERMINAL.has(task.status?.state ?? TaskState.TASK_STATE_UNSPECIFIED) && Date.now() < deadline) {
       await new Promise((resolve) => setTimeout(resolve, POLL_INTERVAL_MS));
+      await catchUp([params.id]);
       const next = await this.store.load(params.id, context);
       if (!next) return;
       task = next;
@@ -154,10 +227,48 @@ class StoreBackedRequestHandler implements A2ARequestHandler {
   }
 }
 
+/**
+ * What happened to these tasks outside any request: a pending action that
+ * expired, a build that finished. Cheap when nothing did.
+ */
+async function catchUp(taskIds: string[]): Promise<void> {
+  const ids = taskIds.filter((id) => id && id.length <= 200);
+  if (ids.length === 0) return;
+  const overdue = await db()
+    .select({ id: schema.agentAction.id })
+    .from(schema.agentAction)
+    .where(and(inArray(schema.agentAction.a2aTaskId, ids), eq(schema.agentAction.state, 'pending')));
+  if (overdue.length > 0) await expireActions(new Date(), overdue.map((row) => row.id));
+  await syncBuildTasks(ids);
+}
+
 function requestHandlerFor(input: A2ARequest): StoreBackedRequestHandler {
   const store = new PostgresTaskStore();
-  const inner = new DefaultRequestHandler(input.card, store, new Re0AgentExecutor(input.origin));
-  return new StoreBackedRequestHandler(inner, store, input.streamWindowMs ?? DEFAULT_STREAM_WINDOW_MS);
+  const executor = new Re0AgentExecutor(input.origin, input.dependencies);
+  /* Built per caller: the extended card speaks for whoever is authenticated (proposal 7.2). */
+  const extendedCard = async (context: ServerCallContext) => {
+    const caller = callerOf(context);
+    if (!caller.workspaceId) return input.card;
+    return buildAgentCard({
+      origin: input.origin,
+      tenant: input.facts.tenant,
+      hasPublicChannel: input.hasPublicChannel,
+      extended: { workspaceId: caller.workspaceId, quota: await callerQuota(caller.workspaceId) },
+    });
+  };
+  const inner = new DefaultRequestHandler(
+    input.card,
+    store,
+    executor,
+    undefined,
+    new PostgresPushNotificationStore(),
+    new Re0PushNotificationSender(),
+    extendedCard,
+    undefined,
+    /* No bus outlives the request on a serverless instance; a waiting task is resumed from the store. */
+    { keepBusAliveStates: [] },
+  );
+  return new StoreBackedRequestHandler(inner, store, executor, input.streamWindowMs ?? DEFAULT_STREAM_WINDOW_MS, input.keepAlive);
 }
 
 /* ---------------------------------------------------------------- dispatch */
@@ -258,9 +369,30 @@ async function handleRest(input: A2ARequest): Promise<A2AResponse> {
         return { kind: 'json', status: 200, body: Task.toJSON(await handler.getTask(params, context)) };
       }
     }
-    if (head === 'tasks' && path[2] === 'pushNotificationConfigs') {
-      /* Push notifications are P2 (proposal 13.1); the card says so, and this is the standard refusal. */
-      throw new PushNotificationNotSupportedError('push notifications are not supported');
+    if (head === 'tasks' && path[2] === 'pushNotificationConfigs' && second && path.length <= 4) {
+      const taskId = second;
+      const configId = path[3];
+      if (input.method === 'POST' && !configId) {
+        const params = TaskPushNotificationConfig.fromJSON({ ...((input.body as object | undefined) ?? {}), taskId, tenant });
+        return { kind: 'json', status: 200, body: TaskPushNotificationConfig.toJSON(await handler.createTaskPushNotificationConfig(params, context)) };
+      }
+      if (input.method === 'GET' && !configId) {
+        const params = ListTaskPushNotificationConfigsRequest.fromJSON({ ...Object.fromEntries(input.search.entries()), taskId, tenant });
+        return {
+          kind: 'json',
+          status: 200,
+          body: ListTaskPushNotificationConfigsResponse.toJSON(await handler.listTaskPushNotificationConfigs(params, context)),
+        };
+      }
+      if (input.method === 'GET' && configId) {
+        const params = GetTaskPushNotificationConfigRequest.fromJSON({ taskId, id: configId, tenant });
+        return { kind: 'json', status: 200, body: TaskPushNotificationConfig.toJSON(await handler.getTaskPushNotificationConfig(params, context)) };
+      }
+      if (input.method === 'DELETE' && configId) {
+        const params = DeleteTaskPushNotificationConfigRequest.fromJSON({ taskId, id: configId, tenant });
+        await handler.deleteTaskPushNotificationConfig(params, context);
+        return { kind: 'empty', status: 204 };
+      }
     }
     return { kind: 'json', status: 404, body: toRestErrorBody(new RequestMalformedError('no such A2A operation'), 404) };
   } catch (error) {

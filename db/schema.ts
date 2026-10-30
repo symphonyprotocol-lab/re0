@@ -1416,6 +1416,9 @@ export const retrievalConfig = pgTable(
     channelQualityBps: integer('channel_quality_bps').notNull().default(2500),
     /** Half-life of the directory's freshness term, in days. */
     channelHalfLifeDays: integer('channel_half_life_days').notNull().default(14),
+    /** A2A `ask`: Calls per answer and answers per workspace per day (agent-first-proposal.md 8.2). */
+    askCallsPerAnswer: integer('ask_calls_per_answer').notNull().default(10),
+    askDailyAnswers: integer('ask_daily_answers').notNull().default(500),
     createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
   },
   (t) => [index('retrieval_config_time_idx').on(t.createdAt.desc())],
@@ -2201,4 +2204,129 @@ export const a2aTask = pgTable(
     index('a2a_task_owner_idx').on(t.workspaceId, t.tenant, t.updatedAt.desc()),
     index('a2a_task_purge_idx').on(t.bodyPurgeAt),
   ],
+);
+
+/**
+ * Workbench conversations (agent-first-proposal.md 4.4, 12): one thread of
+ * the signed-in owner's exchanges with the re0 Agent. The turns live in
+ * `agent_message`; a conversation is a title and its workspace.
+ */
+export const agentConversation = pgTable(
+  'agent_conversation',
+  {
+    id: uuid('id').primaryKey(),
+    workspaceId: uuid('workspace_id')
+      .notNull()
+      .references(() => workspace.id, { onDelete: 'cascade' }),
+    createdBy: uuid('created_by').references(() => user.id, { onDelete: 'set null' }),
+    title: text('title').notNull(),
+    createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
+    updatedAt: timestamp('updated_at', { withTimezone: true }).notNull().defaultNow(),
+  },
+  (t) => [index('agent_conversation_workspace_idx').on(t.workspaceId, t.updatedAt.desc())],
+);
+
+/**
+ * One turn of a workbench conversation: the owner's question, or what the
+ * server showed in reply -- bound claims, their sources, the pending actions
+ * it proposed, a listing. Never the planner's own text, which is not shown
+ * to anyone (playground/agent.ts).
+ */
+export const agentMessage = pgTable(
+  'agent_message',
+  {
+    id: uuid('id').primaryKey(),
+    conversationId: uuid('conversation_id')
+      .notNull()
+      .references(() => agentConversation.id, { onDelete: 'cascade' }),
+    role: text('role').$type<'user' | 'assistant'>().notNull(),
+    content: jsonb('content').$type<Record<string, unknown>>().notNull(),
+    createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
+  },
+  (t) => [index('agent_message_conversation_idx').on(t.conversationId, t.createdAt)],
+);
+
+/**
+ * A pending action (agent-first-proposal.md 5.2, 7.6, 12): what the Agent
+ * or an A2A caller asked to do with side effects, written down instead of
+ * done. Only the signed-in owner can confirm it, from the Dashboard; the
+ * server then runs it once, as that person, and audits it.
+ *
+ * `params` is frozen at creation and `params_digest` is its hash: a
+ * confirmation names the digest it was shown, so a card that went stale
+ * confirms nothing, and changed parameters are a new row. `state` moves
+ * once out of `pending` -- to `confirmed` (executed), `failed` (confirmed
+ * but refused when it ran), `rejected` or `expired` -- by a conditional
+ * update, which is what makes confirmation one-shot. A linked A2A task
+ * follows: `INPUT_REQUIRED` while pending, `FAILED` on rejection or expiry.
+ */
+export const agentAction = pgTable(
+  'agent_action',
+  {
+    id: uuid('id').primaryKey(),
+    workspaceId: uuid('workspace_id')
+      .notNull()
+      .references(() => workspace.id, { onDelete: 'cascade' }),
+    /** `create_asset`, `refresh_asset`, `create_channel`, `move_asset` (proposal 5.1). */
+    tool: text('tool').notNull(),
+    params: jsonb('params').$type<Record<string, unknown>>().notNull(),
+    paramsDigest: text('params_digest').notNull(),
+    /** What the confirmation card says, written by the server from the params: never model text. */
+    summary: jsonb('summary').$type<Record<string, unknown>>().notNull(),
+    estimatedCalls: integer('estimated_calls').notNull().default(0),
+    estimatedBytes: bigint('estimated_bytes', { mode: 'number' }),
+    makesPublic: boolean('makes_public').notNull().default(false),
+    state: text('state')
+      .$type<'pending' | 'confirmed' | 'failed' | 'rejected' | 'expired'>()
+      .notNull()
+      .default('pending'),
+    /** Who asked: the workbench (a signed-in user) or an A2A caller. */
+    origin: text('origin').$type<'workbench' | 'a2a'>().notNull(),
+    requestedBy: uuid('requested_by').references(() => user.id, { onDelete: 'set null' }),
+    apiKeyId: uuid('api_key_id'),
+    conversationId: uuid('conversation_id').references(() => agentConversation.id, { onDelete: 'set null' }),
+    a2aTaskId: text('a2a_task_id').references(() => a2aTask.id, { onDelete: 'set null' }),
+    confirmedBy: uuid('confirmed_by').references(() => user.id, { onDelete: 'set null' }),
+    decidedAt: timestamp('decided_at', { withTimezone: true }),
+    /** What running it produced (ids, the build operation), server-written. */
+    result: jsonb('result').$type<Record<string, unknown>>(),
+    error: text('error'),
+    expiresAt: timestamp('expires_at', { withTimezone: true }).notNull(),
+    createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
+  },
+  (t) => [
+    index('agent_action_workspace_idx').on(t.workspaceId, t.state, t.createdAt.desc()),
+    index('agent_action_task_idx').on(t.a2aTaskId),
+    index('agent_action_expiry_idx')
+      .on(t.expiresAt)
+      .where(sql`${t.state} = 'pending'`),
+    check(
+      'agent_action_state_check',
+      sql`${t.state} in ('pending', 'confirmed', 'failed', 'rejected', 'expired')`,
+    ),
+  ],
+);
+
+/**
+ * A2A push-notification configs (agent-first-proposal.md 7.6, 7.8). The
+ * callback URL passed the source-fetch SSRF checks when it was registered
+ * and is checked again before every send; the token and any credentials are
+ * sealed (`sealCredential`), never stored in the clear.
+ */
+export const a2aPushConfig = pgTable(
+  'a2a_push_config',
+  {
+    id: text('id').notNull(),
+    taskId: text('task_id')
+      .notNull()
+      .references(() => a2aTask.id, { onDelete: 'cascade' }),
+    workspaceId: uuid('workspace_id').references(() => workspace.id, { onDelete: 'cascade' }),
+    tenant: text('tenant').notNull().default(''),
+    url: text('url').notNull(),
+    /** `{token, authentication}` sealed; null when the caller sent neither. */
+    secret: text('secret'),
+    wireVersion: text('wire_version').notNull().default('1.0'),
+    createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
+  },
+  (t) => [primaryKey({ columns: [t.taskId, t.id] })],
 );

@@ -19,6 +19,16 @@ import {
   type RetrievalDependencies,
 } from '@/lib/application/retrieval/query-docs';
 import { containsCjk } from '@/lib/domain/cjk';
+import { ActionRefused, ACTION_TOOLS, type ActionTool } from '@/lib/domain/agent-action';
+import {
+  listAssets,
+  proposeAction,
+  subscriptionSummary,
+  type AssetListing,
+  type PendingActionView,
+  type SubscriptionSummary,
+} from '@/lib/application/agent';
+import type { WorkspaceRole } from '@/lib/application/libraries/delete';
 import {
   buildPlannerPrompt,
   dominantLanguageOfPassages,
@@ -26,6 +36,7 @@ import {
   PLANNER_LIMITS,
   PLANNER_SYSTEM_PROMPT,
   plannerPassages,
+  WORKBENCH_PLANNER_PROMPT,
   type HistoryTurn,
 } from '@/lib/domain/generation';
 import { retrievalBudgetFor } from '@/lib/domain/retrieval-config';
@@ -83,13 +94,46 @@ import {
  * tool calling, the adapter cannot plan -- or the planner ends without one
  * confirmed read, the exchange runs the fixed path instead, with the turns,
  * so a follow-up still has the rewrite to restate it.
+ *
+ * The workbench (agent-first-proposal.md 4.5, 5.1) is this same loop and
+ * this same answering half with a larger tool set: the signed-in owner's
+ * `list_assets` and `subscription_summary`, and the four tools that would
+ * change something -- `create_asset`, `refresh_asset`, `create_channel`,
+ * `move_asset` -- each a thin wrapper over agent/actions.ts that writes a
+ * pending action and returns it (proposal 5.2). Nothing here confirms one:
+ * there is no such tool, and a tool result says so to the model. What the
+ * tools found reaches the reader as `listing` and `action` events the
+ * server writes from the rows, never as planner prose (proposal 5.3). The
+ * workbench plans whenever the model declares tool calling, whatever the
+ * public playground's switch says: without a planner it has no tools. An
+ * exchange that only listed or proposed ends with `acted` and calls no
+ * answering model; one that also read confirmed passages answers as usual.
  */
+
+/** Who the workbench acts for: the signed-in owner, in their workspace. */
+export interface WorkbenchContext {
+  workspaceId: string;
+  userId: string;
+  role: WorkspaceRole;
+  conversationId: string | null;
+}
+
+/** What a read tool found, as the server shows it. */
+export type WorkbenchListing =
+  | { kind: 'assets'; listing: AssetListing }
+  | { kind: 'subscriptions'; summary: SubscriptionSummary };
+
+/** Workbench tool calls per exchange: each proposal is a card the owner must read. */
+export const WORKBENCH_LIMITS = { actions: 3, listings: 2 } as const;
+
 
 export interface AgentInput {
   question: string;
   history: readonly HistoryTurn[];
   /** The detail page's fixed library: no resolve tool, and query_docs reads only this one. */
   pinned: { libraryId: string; title: string; version: string | null } | null;
+  /** Set for the workbench: the owner's tools join the retrieval ones. */
+  workbench?: WorkbenchContext | null;
 }
 
 /** One tool call, as the transcript shows it: first running, then with what it found. */
@@ -121,7 +165,15 @@ export type AgentEvent =
       pinned: boolean;
     }
   /** The fixed path routed nowhere: no library to read. */
-  | { type: 'no_library' };
+  | { type: 'no_library' }
+  /** Workbench: a pending action the planner proposed, for the confirmation card. */
+  | { type: 'action'; action: PendingActionView }
+  /** Workbench: a tool proposal the gate refused, with its reason. */
+  | { type: 'refused'; tool: ActionTool; code: string; message: string }
+  /** Workbench: what a read tool found. */
+  | { type: 'listing'; listing: WorkbenchListing }
+  /** Workbench: the exchange listed or proposed and had nothing to answer from; no model answers. */
+  | { type: 'acted' };
 
 export interface AgentDependencies extends PlaygroundDependencies {
   resolve?: (caller: CallerContext, input: ResolveLibraryInput) => Promise<ResolveLibraryOutput>;
@@ -172,8 +224,9 @@ export async function* streamAgentPlayground(
   const { usable, event: modelEvent } = await resolveModel(caller, null, dependencies);
   const credential = lazyCredential(usable, dependencies);
 
+  const workbench = input.workbench ?? null;
   let adapter: LlmAdapter | null = null;
-  if (usable?.supportsTools && settings.playgroundAgent === 1) {
+  if (usable?.supportsTools && (settings.playgroundAgent === 1 || workbench)) {
     try {
       adapter = dependencies.llm({
         baseUrl: usable.baseUrl,
@@ -212,6 +265,9 @@ export async function* streamAgentPlayground(
   let declined = false;
   /* The exchange's one seat (module comment). An object, because the tools set it from inside their closures. */
   const metered: { seat: ReservedCall | null; settled: boolean } = { seat: null, settled: false };
+  /* Workbench events the tools produced, flushed after each tool result; and how many there were. */
+  const queued: AgentEvent[] = [];
+  const done = { actions: 0, listings: 0 };
 
   const query = z.string().trim().min(1).max(PLANNER_LIMITS.queryChars);
   const tools: PlannerTool[] = [];
@@ -304,6 +360,7 @@ export async function* streamAgentPlayground(
       return output;
     },
   });
+  if (workbench) tools.push(...workbenchTools(workbench, caller, queued, done));
   tools.push({
     name: 'answer',
     description:
@@ -319,7 +376,9 @@ export async function* streamAgentPlayground(
       if (
         !declined &&
         queries < settings.playgroundAgentQueries &&
-        !reads.some((entry) => entry.confirmed)
+        !reads.some((entry) => entry.confirmed) &&
+        /* A workbench exchange that listed or proposed was not a search that gave up. */
+        done.actions + done.listings === 0
       ) {
         declined = true;
         return {
@@ -335,7 +394,7 @@ export async function* streamAgentPlayground(
 
   try {
     const plan = adapter.plan({
-      systemPrompt: PLANNER_SYSTEM_PROMPT,
+      systemPrompt: workbench ? WORKBENCH_PLANNER_PROMPT : PLANNER_SYSTEM_PROMPT,
       userMessage: buildPlannerPrompt(input.question, input.history, input.pinned),
       tools,
       finishTool: 'answer',
@@ -352,6 +411,11 @@ export async function* streamAgentPlayground(
     try {
       for await (const event of plan.events) {
         if (event.tool === 'answer') continue;
+        if (WORKBENCH_TOOLS.has(event.tool)) {
+          /* Shown as the server's own cards, not as raw tool calls. */
+          if (event.type === 'result') yield* queued.splice(0);
+          continue;
+        }
         if (event.type === 'call') {
           const args = (event.input ?? {}) as { query?: unknown; libraryId?: unknown };
           const step: AgentStep = {
@@ -403,6 +467,17 @@ export async function* streamAgentPlayground(
     const costLibrary = reads[0]?.library ?? input.pinned ?? titlesHead(titles);
     if (costLibrary && usage.promptTokens + usage.completionTokens > 0) {
       await recordUsage(dependencies, caller, { libraries: [costLibrary] }, usable, usage, startedAt);
+    }
+
+    /* Anything a workbench tool produced that its result event did not flush. */
+    yield* queued.splice(0);
+
+    if (!reads.some((entry) => entry.confirmed) && done.actions + done.listings > 0) {
+      /* The owner asked for something done or listed, and it was: no answer to write. */
+      if (metered.seat) await release(metered.seat.reservationId);
+      metered.settled = true;
+      yield { type: 'acted' };
+      return;
     }
 
     if (!reads.some((entry) => entry.confirmed)) {
@@ -533,4 +608,123 @@ function librariesOf(
     }
   });
   return [...byLibrary.values()];
+}
+
+const WORKBENCH_TOOLS: ReadonlySet<string> = new Set(['list_assets', 'subscription_summary', ...ACTION_TOOLS]);
+
+/**
+ * The workbench's tools: thin wrappers, every rule in agent/. A refusal is
+ * returned to the planner as a code and shown to the owner as such; an
+ * error of ours ends the exchange like any other tool error.
+ */
+function workbenchTools(
+  workbench: WorkbenchContext,
+  caller: CallerContext,
+  queued: AgentEvent[],
+  done: { actions: number; listings: number },
+): PlannerTool[] {
+  void caller;
+  const ref = z.string().trim().min(1).max(256);
+  const tools: PlannerTool[] = [
+    {
+      name: 'list_assets',
+      description:
+        "List the owner's data assets: id, title, kind, channel, status. Optional filters: kind (website, upload, github, notion), unfiled (true: in no channel), query (a word of the title).",
+      input: z.object({
+        kind: z.string().max(20).optional(),
+        unfiled: z.boolean().optional(),
+        query: z.string().max(100).optional(),
+      }),
+      execute: async (raw) => {
+        if (done.listings >= WORKBENCH_LIMITS.listings) return { error: 'limit_reached' };
+        done.listings += 1;
+        const listing = await listAssets(workbench.workspaceId, raw as Record<string, unknown>);
+        queued.push({ type: 'listing', listing: { kind: 'assets', listing } });
+        return {
+          total: listing.total,
+          assets: listing.assets.map((asset) => ({
+            id: asset.publicId,
+            title: asset.title,
+            kind: asset.kind,
+            channel: asset.channel?.slug ?? null,
+            status: asset.status,
+          })),
+        };
+      },
+    },
+    {
+      name: 'subscription_summary',
+      description: "Summarise the owner's channels (address, visibility, how many assets) and storage. Channel subscriptions are not offered yet.",
+      input: z.object({}),
+      execute: async () => {
+        if (done.listings >= WORKBENCH_LIMITS.listings) return { error: 'limit_reached' };
+        done.listings += 1;
+        const summary = await subscriptionSummary(workbench.workspaceId);
+        queued.push({ type: 'listing', listing: { kind: 'subscriptions', summary } });
+        return { channels: summary.channels, subscriptionsOffered: false };
+      },
+    },
+  ];
+  const propose = (tool: ActionTool, description: string, input: z.ZodType): PlannerTool => ({
+    name: tool,
+    description: `${description} Does not act: records a pending action the owner confirms or declines on a card. You cannot confirm it.`,
+    input,
+    execute: async (raw) => {
+      if (done.actions >= WORKBENCH_LIMITS.actions) return { error: 'limit_reached' };
+      done.actions += 1;
+      try {
+        const action = await proposeAction({
+          workspaceId: workbench.workspaceId,
+          role: workbench.role,
+          origin: 'workbench',
+          requestedBy: workbench.userId,
+          conversationId: workbench.conversationId,
+          tool,
+          args: raw as Record<string, unknown>,
+        });
+        queued.push({ type: 'action', action });
+        return {
+          pendingActionId: action.id,
+          state: 'pending',
+          waitingFor: 'the owner, on the confirmation card',
+          summary: action.description,
+        };
+      } catch (error) {
+        if (error instanceof ActionRefused || (error instanceof AppError && error.code === 'access_denied')) {
+          queued.push({ type: 'refused', tool, code: error.code, message: error.message });
+          return { error: error.code, message: error.message };
+        }
+        throw error;
+      }
+    },
+  });
+  tools.push(
+    propose(
+      'create_asset',
+      'Turn one source into a new data asset and build it (costs build Calls and capacity). sourceType: website, github or notion; location: its URL; title.',
+      z.object({
+        sourceType: z.string().max(20),
+        location: z.string().max(2_000),
+        title: z.string().max(120).optional(),
+        slug: z.string().max(60).optional(),
+      }),
+    ),
+    propose('refresh_asset', 'Rebuild one asset from its source (may cost build Calls).', z.object({ assetId: ref })),
+    propose(
+      'create_channel',
+      'Create a channel (public unless visibility is private). slug: its address; title; description.',
+      z.object({
+        slug: z.string().max(60).optional(),
+        title: z.string().max(80),
+        description: z.string().max(500).optional(),
+        visibility: z.enum(['public', 'private']).optional(),
+      }),
+    ),
+    propose(
+      'move_asset',
+      'Put an asset into one of the owner\'s channels, move it to another, or take it out (channel: null). A public channel makes it public; leaving a channel resets it to free.',
+      z.object({ assetId: ref, channel: ref.nullable() }),
+    ),
+  );
+  return tools;
 }
