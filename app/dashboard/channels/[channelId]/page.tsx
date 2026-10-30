@@ -4,7 +4,10 @@ import { notFound } from 'next/navigation';
 import { CopyButton } from '@/components/dashboard/copy-button';
 import { BackLink, Badge, PANEL, StatusLabel } from '@/components/dashboard/ui';
 import { ArrowUpRightIcon, BotIcon } from '@/components/ui/icons';
+import { ChannelCommercePanel } from '@/components/creator/channel-commerce-panel';
+import { activeCommerceSettings } from '@/lib/application/administration/manage-commerce-config';
 import { channelStream, ownedChannelView } from '@/lib/application/channels';
+import { channelCommerce } from '@/lib/application/channels/subscriptions';
 import { canManageLibraries, listWorkspaceLibraries } from '@/lib/application/libraries';
 import { CHANNEL_DESCRIPTION_MAX_LENGTH, CHANNEL_TITLE_MAX_LENGTH } from '@/lib/domain/channel';
 import { requireSession } from '@/lib/http/session';
@@ -26,7 +29,8 @@ const SMALL_BUTTON =
  * it, delete it (agent-first-proposal.md 6.1). Moving an asset in checks the
  * same things a move from the asset's own page does -- a public channel
  * needs a rights declaration that allows it and, for a website or
- * repository, proof of control.
+ * repository, proof of control. Selling it -- subscriptions, plans, paid
+ * assets -- is the commerce panel (agent-first-proposal.md 6.9).
  */
 export default async function ChannelDetailPage({
   params,
@@ -45,7 +49,12 @@ export default async function ChannelDetailPage({
   const c = t.dashboard.channels;
   const kinds = t.channels.kinds as Record<string, string>;
   const canEdit = canManageLibraries(session.workspace.role);
-  const [stream, assets] = await Promise.all([channelStream(channel), listWorkspaceLibraries(session.workspace.id)]);
+  const [stream, assets, commerce, commerceSettings] = await Promise.all([
+    channelStream(channel),
+    listWorkspaceLibraries(session.workspace.id),
+    channelCommerce(channel.id),
+    activeCommerceSettings(),
+  ]);
   const candidates = assets.filter((asset) => asset.channel?.id !== channel.id && asset.lifecycleStatus !== 'archived');
   const notice = typeof query.notice === 'string' ? query.notice : null;
   const good = notice !== null && ['created', 'saved', 'added', 'removed', 'pinned', 'unpinned'].includes(notice);
@@ -164,6 +173,18 @@ export default async function ChannelDetailPage({
               )
             ) : null}
           </section>
+
+          {canEdit && channel.workspaceId ? (
+            <ChannelCommercePanel
+              channelId={channel.id}
+              commerce={commerce}
+              stream={stream}
+              settings={commerceSettings}
+              notice={typeof query.commerce === 'string' ? query.commerce : null}
+              t={t}
+              locale={locale}
+            />
+          ) : null}
 
           {canEdit ? (
             <form action={editChannelAction} className={`${PANEL} flex flex-col gap-4 p-6`}>

@@ -92,6 +92,8 @@ export function AdminSidebar({
          * and its own capability keeps a reviewer out (lib/domain/admin.ts).
          */
         { href: '/admin/claims', label: nav.claims, Icon: ScaleIcon, needs: 'claims' },
+        /* Readers' reports on comments (agent-first-proposal.md 6.8): content review's, like the libraries. */
+        { href: '/admin/comments', label: nav.commentReports, Icon: ScrollTextIcon, needs: 'libraries' },
         /* Showcase pages are user content on an address of ours (lib/domain/showcase.ts): content review's to take down. Offline since the agent-first turn. */
         ...(surfaceEnabled('showcase')
           ? [{ href: '/admin/showcases', label: nav.showcases, Icon: GlobeIcon, needs: 'libraries' as const }]
@@ -109,6 +111,8 @@ export function AdminSidebar({
           Icon: CircleDollarSignIcon,
           needs: 'billing',
         },
+        /* The minimum price, fee, hold and threshold of channel sales, and creators' tax records (proposal 6.9). */
+        { href: '/admin/commerce', label: nav.channelCommerce, Icon: CircleDollarSignIcon, needs: 'billing' },
         /* Model and retrieval configuration have their own capability; a plan is a price. */
         { href: '/admin/models', label: nav.models, Icon: SparklesIcon, needs: 'models' },
         { href: '/admin/retrieval', label: nav.retrieval, Icon: FilterIcon, needs: 'models' },

@@ -4,6 +4,7 @@ import { PayoutRequestForm } from '@/components/dashboard/earning-payout';
 import { dayTick, minorOnNarrow } from '@/components/dashboard/mini-trend';
 import { RevenueTrend } from '@/components/dashboard/revenue-trend';
 import { PANEL, PageHeader, StatTile, StatusLabel, type StatusTone } from '@/components/dashboard/ui';
+import { PayoutProfilePanel } from '@/components/creator/payout-profile-panel';
 import {
   CircleDollarSignIcon,
   ClockIcon,
@@ -53,10 +54,15 @@ function usd(minor: number): string {
  * threshold -- paid by hand by an operator, so the request waits here until
  * it is marked paid or failed.
  */
-export default async function DashboardRevenuePage() {
-  const [session, { locale, t }] = await Promise.all([
+export default async function DashboardRevenuePage({
+  searchParams,
+}: {
+  searchParams: Promise<Record<string, string | string[] | undefined>>;
+}) {
+  const [session, { locale, t }, query] = await Promise.all([
     requireSession('/dashboard/revenue'),
     translations(),
+    searchParams,
   ]);
   const r = t.dashboard.revenue;
 
@@ -83,6 +89,8 @@ export default async function DashboardRevenuePage() {
     earnings.account !== null &&
     canRedeemEarnings(session.workspace.role) &&
     payouts.open === null &&
+    earnings.balanceMinor >= 0 &&
+    earnings.account.taxFormStatus === 'verified' &&
     payableMinor >= earnings.payoutThresholdMinor;
 
   const current = earnings.periods.find((period) => period.periodId === currentPeriod);
@@ -128,6 +136,15 @@ export default async function DashboardRevenuePage() {
   return (
     <div className="flex flex-col gap-4">
       <PageHeader eyebrow={r.eyebrow} title={r.title} description={r.description} />
+
+      <PayoutProfilePanel
+        account={earnings.account}
+        balanceMinor={earnings.balanceMinor}
+        canEdit={canRedeemEarnings(session.workspace.role)}
+        notice={typeof query.profile === 'string' ? query.profile : null}
+        t={t}
+        locale={locale}
+      />
 
       <section className="grid grid-cols-2 gap-[9px] sm:grid-cols-4">
         {stats.map(({ key, value, label, Icon }) => (

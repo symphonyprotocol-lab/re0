@@ -154,6 +154,8 @@ export interface PublicLibrarySource {
 }
 
 export interface PublicLibraryDetail {
+  /** The row id, for what hangs off the asset on its page (its comments, proposal 6.8). */
+  id: string;
   publicId: string;
   title: string;
   /** The public channel the asset is shown in (agent-first-proposal.md 6.1). */
@@ -338,6 +340,7 @@ export async function publicLibraryDetail(publicId: string): Promise<PublicLibra
   const channel = (await channelsOfAssets([row.id], database)).get(row.id) ?? null;
 
   return {
+    id: row.id,
     publicId: row.publicId,
     title: row.title,
     channel: channel ? { slug: channel.slug, title: channel.title } : null,

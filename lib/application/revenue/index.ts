@@ -44,4 +44,4 @@ export {
   writeOffNegativeBalance,
   type CreatorBalance,
 } from './balance';
-export { savePayoutProfile, submitTaxDocument, verifyTaxDocument, type TaxFormKind } from './payout-profile';
+export { pendingTaxDocuments, savePayoutProfile, submitTaxDocument, verifyTaxDocument, type TaxFormKind } from './payout-profile';

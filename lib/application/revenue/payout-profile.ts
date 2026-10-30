@@ -89,3 +89,21 @@ export async function verifyTaxDocument(input: {
     result: 'success',
   });
 }
+
+/** The console's queue: tax documents creators say they sent, oldest first. */
+export async function pendingTaxDocuments(limit = 100) {
+  return db()
+    .select({
+      publisherAccountId: schema.publisherAccount.id,
+      workspaceId: schema.publisherAccount.workspaceId,
+      workspaceName: schema.workspace.name,
+      kind: schema.publisherAccount.taxFormKind,
+      submittedAt: schema.publisherAccount.taxFormSubmittedAt,
+      payeeEmail: schema.publisherAccount.payeeEmail,
+    })
+    .from(schema.publisherAccount)
+    .innerJoin(schema.workspace, eq(schema.workspace.id, schema.publisherAccount.workspaceId))
+    .where(eq(schema.publisherAccount.taxFormStatus, 'submitted'))
+    .orderBy(schema.publisherAccount.taxFormSubmittedAt)
+    .limit(limit);
+}

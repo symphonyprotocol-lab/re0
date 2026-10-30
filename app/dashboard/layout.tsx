@@ -4,6 +4,8 @@ import { DashboardHeader } from '@/components/dashboard/header';
 import { NavigationProgress } from '@/components/dashboard/navigation-progress';
 import { DashboardSidebar } from '@/components/dashboard/sidebar';
 import { listActions } from '@/lib/application/agent';
+import { unreadNotifications } from '@/lib/application/notifications';
+import { listQuestions } from '@/lib/application/questions';
 import { countNewLeads } from '@/lib/application/showcase';
 import { surfaceEnabled } from '@/lib/domain/surfaces';
 import { workspaceUsage } from '@/lib/http/dashboard';
@@ -31,17 +33,20 @@ export const metadata: Metadata = { robots: { index: false, follow: false } };
  * Light-committed product surface. See app/layout.tsx for why this lives here.
  */
 export default async function DashboardLayout({ children }: { children: ReactNode }) {
-  const [{ workspace }, { locale, t }] = await Promise.all([
+  const [{ workspace, user }, { locale, t }] = await Promise.all([
     requireSession('/dashboard'),
     translations(),
   ]);
   // The rail's quota is the same ledger figure the overview prints (usage.ts).
-  const [overview, leadsNew, pendingActions] = await Promise.all([
+  const [overview, leadsNew, pendingActions, openQuestions, unreadNotices] = await Promise.all([
     workspaceUsage(workspace.id),
     /* Unhandled showcase leads, for the rail's badge; a failed count is no badge, not a failed page. */
     surfaceEnabled('showcase') ? countNewLeads(workspace.id).catch(() => 0) : 0,
     /* Pending actions waiting for the owner (agent-first-proposal.md 5.2); same rule for a failed count. */
     listActions(workspace.id, { pendingOnly: true, limit: 200 }).then((rows) => rows.length).catch(() => 0),
+    /* The creator's pending questions and the user's unread notifications (proposal 6.5-6.8); same rule. */
+    listQuestions(workspace.id, { state: 'open' }).then((rows) => rows.length).catch(() => 0),
+    unreadNotifications(user.id).catch(() => 0),
   ]);
 
   return (
@@ -63,6 +68,8 @@ export default async function DashboardLayout({ children }: { children: ReactNod
               }}
               leadsNew={leadsNew}
               pendingActions={pendingActions}
+              openQuestions={openQuestions}
+              unreadNotifications={unreadNotices}
             />
             <main className="w-full min-w-0 flex-1">{children}</main>
           </div>

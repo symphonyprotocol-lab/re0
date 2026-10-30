@@ -22,7 +22,7 @@
  * `access` (`setAssetAccess`, which needs subscriptions on for `paid`). A
  * scheduled publication waits on `publish_at` for the queue drain.
  */
-import { and, eq, inArray, isNotNull, isNull, lte } from 'drizzle-orm';
+import { and, desc, eq, inArray, isNotNull, isNull, lte } from 'drizzle-orm';
 import { AppError } from '@/contracts/errors';
 import {
   EDITORIAL_LIMITS,
@@ -415,4 +415,59 @@ export async function publishDueDrafts(now: Date = new Date(), limit = 20): Prom
     }
   }
   return { published, operations };
+}
+
+export interface EditorialListItem {
+  id: string;
+  publicId: string;
+  kind: EditorialKind;
+  title: string;
+  access: AssetAccess;
+  live: boolean;
+  publishAt: Date | null;
+  draftUpdatedAt: Date | null;
+  channel: { id: string; title: string } | null;
+}
+
+/** The workspace's articles, episodes and Q&As, newest first, for the editor's list. */
+export async function listEditorialAssets(workspaceId: string): Promise<EditorialListItem[]> {
+  const rows = await db()
+    .select({
+      id: schema.library.id,
+      publicId: schema.library.publicId,
+      kind: schema.library.kind,
+      title: schema.library.title,
+      access: schema.library.access,
+      lifecycleStatus: schema.library.lifecycleStatus,
+      currentVersionId: schema.library.currentVersionId,
+      publishAt: schema.postDraft.publishAt,
+      draftUpdatedAt: schema.postDraft.updatedAt,
+      channelId: schema.channel.id,
+      channelTitle: schema.channel.title,
+      createdAt: schema.library.createdAt,
+    })
+    .from(schema.library)
+    .leftJoin(schema.postDraft, eq(schema.postDraft.assetId, schema.library.id))
+    .leftJoin(schema.channelAsset, eq(schema.channelAsset.assetId, schema.library.id))
+    .leftJoin(schema.channel, eq(schema.channel.id, schema.channelAsset.channelId))
+    .where(
+      and(
+        eq(schema.library.ownerWorkspaceId, workspaceId),
+        isNull(schema.library.deletedAt),
+        inArray(schema.library.kind, ['post', 'audio', 'qa']),
+      ),
+    )
+    .orderBy(desc(schema.library.createdAt))
+    .limit(200);
+  return rows.map((row) => ({
+    id: row.id,
+    publicId: row.publicId,
+    kind: row.kind as EditorialKind,
+    title: row.title,
+    access: row.access,
+    live: row.lifecycleStatus === 'published' && row.currentVersionId !== null,
+    publishAt: row.publishAt,
+    draftUpdatedAt: row.draftUpdatedAt,
+    channel: row.channelId ? { id: row.channelId, title: row.channelTitle! } : null,
+  }));
 }

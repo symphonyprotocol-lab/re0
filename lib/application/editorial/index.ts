@@ -6,6 +6,7 @@
  */
 export {
   createEditorialAsset,
+  listEditorialAssets,
   ownedEditorialAsset,
   publishDueDrafts,
   publishEditorial,
@@ -16,6 +17,7 @@ export {
   type EditorActor,
   type EditorialAsset,
   type EditorialDraft,
+  type EditorialListItem,
   type PublishResult,
 } from './assets';
 export { confirmMediaUpload, mediaUrlFor, prepareMediaUpload, setImageCaption, type PreparedMedia } from './media';

@@ -5,6 +5,7 @@ import { usePathname, useSearchParams } from 'next/navigation';
 import { WorkspaceAvatar } from '@/components/dashboard/workspace-avatar';
 import {
   ArrowUpRightIcon,
+  BellIcon,
   BotIcon,
   CircleDollarSignIcon,
   DatabaseIcon,
@@ -14,6 +15,8 @@ import {
   LayoutDashboardIcon,
   ListChecksIcon,
   MessagesSquareIcon,
+  PencilIcon,
+  ReceiptIcon,
   SettingsIcon,
   SparklesIcon,
   ShieldCheckIcon,
@@ -37,14 +40,14 @@ type NavItem = {
  * for the Agent workbench (agent-first-proposal.md 4.4):
  *
  *   Agent        对话、待确认的操作、A2A 任务
- *   资产          全部资产、未归入频道的资产
- *   频道          我的频道、订阅收入与出账
+ *   资产          全部资产、未归入频道的资产、文章与音频
+ *   频道          我的频道、待答列表、评论管理、订阅收入与出账
  *   Agent Card   我的用户卡与频道卡、API Key
+ *   订阅          我订阅的频道、通知
  *   设置          访问规则、调用记录、容量与购买、设置
  *
- * Entries wait for their pages: 待答列表 and 评论管理 (频道), the whole 订阅
- * group and 导出 arrive with P3a, and offline surfaces (lib/domain/surfaces.ts)
- * keep no entry.
+ * 导出 still waits for its page, and offline surfaces
+ * (lib/domain/surfaces.ts) keep no entry.
  */
 export function DashboardSidebar({
   workspaceName,
@@ -53,6 +56,8 @@ export function DashboardSidebar({
   usage,
   leadsNew = 0,
   pendingActions = 0,
+  openQuestions = 0,
+  unreadNotifications = 0,
 }: {
   workspaceName: string;
   workspaceInitial?: string;
@@ -67,6 +72,10 @@ export function DashboardSidebar({
   leadsNew?: number;
   /** Pending actions waiting for the owner (agent-first-proposal.md 5.2). */
   pendingActions?: number;
+  /** Open questions in the pending-questions list (proposal 6.7). */
+  openQuestions?: number;
+  /** Unread in-app notifications (proposal 6.5, 6.8). */
+  unreadNotifications?: number;
 }) {
   const { locale, t } = useI18n();
   const pathname = usePathname();
@@ -88,12 +97,15 @@ export function DashboardSidebar({
       items: [
         { href: '/dashboard/assets', label: n.allAssets, Icon: DatabaseIcon },
         { href: '/dashboard/assets?filter=unfiled', label: n.unfiledAssets, Icon: DatabaseIcon },
+        { href: '/dashboard/posts', label: n.posts, Icon: PencilIcon },
       ],
     },
     {
       label: n.groups.channels,
       items: [
         { href: '/dashboard/channels', label: n.myChannels, Icon: GlobeIcon },
+        { href: '/dashboard/questions', label: n.questions, Icon: MessagesSquareIcon, badge: openQuestions },
+        { href: '/dashboard/comments', label: n.comments, Icon: MessagesSquareIcon },
         { href: '/dashboard/revenue', label: n.channelRevenue, Icon: CircleDollarSignIcon },
       ],
     },
@@ -102,6 +114,13 @@ export function DashboardSidebar({
       items: [
         { href: '/dashboard/agent-cards', label: n.agentCards, Icon: BotIcon },
         { href: '/dashboard/api-keys', label: n.apiKeys, Icon: KeyIcon },
+      ],
+    },
+    {
+      label: n.groups.subscriptions,
+      items: [
+        { href: '/dashboard/subscriptions', label: n.mySubscriptions, Icon: ReceiptIcon },
+        { href: '/dashboard/notifications', label: n.notifications, Icon: BellIcon, badge: unreadNotifications },
       ],
     },
     {

@@ -5,16 +5,23 @@ import { notFound } from 'next/navigation';
 import { cache } from 'react';
 import { CopyButton } from '@/components/dashboard/copy-button';
 import { ArrowUpRightIcon, BotIcon, LockIcon, SparklesIcon } from '@/components/ui/icons';
+import { formatUsd } from '@/components/creator/format';
 import { channelBySlug, channelStream, recordChannelVisit, type ChannelView } from '@/lib/application/channels';
+import { channelCommerce, mySubscriptions } from '@/lib/application/channels/subscriptions';
+import { readerTwinAnswers } from '@/lib/application/questions';
+import { askAuthorAction, askTwinAction, subscribeAction } from './actions';
 import { optionalSession } from '@/lib/http/session';
 import { anonymousVisitorKey } from '@/lib/http/visitor';
 import { fill } from '@/lib/i18n/format';
 import { getMessages, translations } from '@/lib/i18n/server';
 import { publicUrl } from '@/lib/site/origin';
 
-type Props = { params: Promise<{ slug: string }> };
+type Props = { params: Promise<{ slug: string }>; searchParams?: Promise<Record<string, string | string[] | undefined>> };
 
 /* One read per request for the metadata and the page. */
+/** Articles, episodes and Q&As have their own reading page, which shows a paid one's summary to anyone. */
+const EDITORIAL = new Set<string>(['post', 'audio', 'qa']);
+
 const channelFor = cache(async (slug: string): Promise<ChannelView | null> => {
   const session = await optionalSession();
   return channelBySlug(slug, session?.workspace.id ?? null);
@@ -39,20 +46,36 @@ export async function generateMetadata({ params }: Props): Promise<Metadata> {
  * A channel's page (agent-first-proposal.md 6.3): its introduction, the
  * asset stream (pinned first, newest first), and the channel Agent Card's
  * address. A free asset shows its source, version and last update; a paid
- * one its title, summary and date only. The AI twin's question box is P2.
+ * one its title, summary and date only -- unless the viewer subscribes.
+ * Beside the stream: the subscription plans, the AI twin (signed-in readers,
+ * 1 Call each, always labelled as the twin), and "ask the author"
+ * (agent-first-proposal.md 6.3, 6.7, 6.9).
  *
  * Private and suspended channels answer like missing ones to everyone but
  * their owner, who sees them with a notice -- and they have no card.
  * A reader's visit counts toward the directory's activity term, once a day;
  * the owner's never does.
  */
-export default async function ChannelPage({ params }: Props) {
-  const { slug } = await params;
+export default async function ChannelPage({ params, searchParams }: Props) {
+  const [{ slug }, query] = await Promise.all([params, searchParams ?? Promise.resolve({} as Record<string, string | string[] | undefined>)]);
   const [channel, { locale, t }, session] = await Promise.all([channelFor(slug), translations(), optionalSession()]);
   if (!channel) notFound();
   const c = t.channels;
   const p = c.page;
-  const stream = await channelStream(channel);
+  const k = t.creator;
+  const errors = k.errors as Record<string, string>;
+  const viewerWorkspaceId = session?.workspace.id ?? null;
+  const [stream, commerce, mine, twinAnswers] = await Promise.all([
+    channelStream(channel, 100, { workspaceId: viewerWorkspaceId }),
+    channelCommerce(channel.id),
+    session ? mySubscriptions(session.user.id).then((rows) => rows.find((row) => row.channel.id === channel.id && row.grantsAccess) ?? null) : null,
+    readerTwinAnswers(session?.user.id ?? null, channel.id),
+  ]);
+  const flag = (key: string) => (typeof query[key] === 'string' ? (query[key] as string) : null);
+  const subscribeError = flag('subscribe');
+  const twinError = flag('twinError');
+  const asked = flag('asked');
+  const shownTwin = flag('twin');
   const date = new Intl.DateTimeFormat(locale, { dateStyle: 'medium', timeZone: 'UTC' });
   const cardUrl = publicUrl(`/a2a/channels/${channel.slug}/agent-card.json`);
 
@@ -118,7 +141,7 @@ export default async function ChannelPage({ params }: Props) {
               {stream.map((item) => (
                 <li key={item.assetId} className="flex flex-col gap-1.5 px-5 py-4">
                   <div className="flex flex-wrap items-center gap-2">
-                    {item.sight === 'full' && item.live ? (
+                    {(item.sight === 'full' || EDITORIAL.has(item.kind)) && item.live ? (
                       <Link href={`/assets${item.publicId}`} className="text-[15px] font-medium text-ink hover:text-brandink">
                         {item.title}
                       </Link>
@@ -192,10 +215,144 @@ export default async function ChannelPage({ params }: Props) {
               </Link>
             </section>
           ) : null}
-          <p className="flex items-start gap-2 rounded-lg border border-dashed border-line px-4 py-3 text-[12px] leading-[1.6] text-muted">
-            <SparklesIcon size={14} className="mt-[3px] shrink-0 text-brandink" />
-            {p.askSoon}
-          </p>
+          {channel.isPublic && channel.workspaceId && (commerce.subscriptionsEnabled || channel.viewerIsOwner) ? (
+            <section id="subscribe" className="flex flex-col gap-3 rounded-lg border border-line bg-card p-5">
+              <h2 className="text-[15px] font-medium text-ink">{k.subscribe.title}</h2>
+              <p className="text-[12.5px] leading-[1.6] text-muted">{k.subscribe.body}</p>
+              {subscribeError ? <p role="alert" className="text-[12px] text-rose">{errors[subscribeError] ?? errors.unavailable}</p> : null}
+              {channel.viewerIsOwner ? (
+                <p className="text-[12px] text-steel">{k.subscribe.own}</p>
+              ) : mine ? (
+                <p className="text-[12.5px] text-brandink">
+                  {fill(mine.cancelAtPeriodEnd ? k.subscribe.canceling : k.subscribe.subscribed, { date: date.format(mine.currentPeriodEnd) })}{' '}
+                  <Link href="/dashboard/subscriptions" className="underline">
+                    {k.subscribe.manage}
+                  </Link>
+                </p>
+              ) : commerce.plans.length === 0 ? (
+                <p className="text-[12px] text-muted">{k.subscribe.none}</p>
+              ) : (
+                <ul className="flex flex-col gap-2">
+                  {commerce.plans.map((plan) => (
+                    <li key={plan.id}>
+                      {session ? (
+                        <form action={subscribeAction} className="flex items-center justify-between gap-3 rounded-md border border-line px-3 py-2">
+                          <input type="hidden" name="slug" value={channel.slug} />
+                          <input type="hidden" name="channelId" value={channel.id} />
+                          <input type="hidden" name="interval" value={plan.interval} />
+                          <span className="text-[13px] text-ink">
+                            {fill(plan.interval === 'month' ? k.subscribe.month : k.subscribe.year, { price: formatUsd(plan.priceMinor, locale) })}
+                          </span>
+                          <button type="submit" className="inline-flex h-8 items-center rounded-md bg-brand px-3 text-[12px] font-medium text-onbrand hover:bg-brand/90">
+                            {k.subscribe.button}
+                          </button>
+                        </form>
+                      ) : (
+                        <Link href={`/login?returnTo=${encodeURIComponent(`/channels/${channel.slug}`)}`} className="flex items-center justify-between rounded-md border border-line px-3 py-2 text-[13px] text-ink hover:bg-subtle">
+                          {fill(plan.interval === 'month' ? k.subscribe.month : k.subscribe.year, { price: formatUsd(plan.priceMinor, locale) })}
+                          <span className="text-[12px] text-brandink">{k.subscribe.signIn}</span>
+                        </Link>
+                      )}
+                    </li>
+                  ))}
+                </ul>
+              )}
+              <p className="text-[11px] leading-[1.5] text-muted">{k.subscribe.seller}</p>
+            </section>
+          ) : null}
+
+          {channel.isPublic ? (
+            <section id="twin" className="flex flex-col gap-3 rounded-lg border border-line bg-card p-5">
+              <h2 className="flex items-center gap-2 text-[15px] font-medium text-ink">
+                <SparklesIcon size={15} className="text-brandink" />
+                {k.twin.title}
+              </h2>
+              <p className="text-[12px] leading-[1.6] text-muted">{k.twin.label}</p>
+              {session ? (
+                <form action={askTwinAction} className="flex flex-col gap-2">
+                  <input type="hidden" name="slug" value={channel.slug} />
+                  <input type="hidden" name="channelId" value={channel.id} />
+                  <textarea name="question" required maxLength={2000} rows={3} placeholder={k.twin.placeholder} className="w-full rounded-md border border-line bg-field px-3 py-2 text-[13px] text-ink" />
+                  <span className="flex items-center justify-between gap-2">
+                    <span className="text-[11px] text-muted">{k.twin.cost}</span>
+                    <button type="submit" className="inline-flex h-8 items-center rounded-md bg-brand px-3 text-[12px] font-medium text-onbrand hover:bg-brand/90">
+                      {k.twin.button}
+                    </button>
+                  </span>
+                </form>
+              ) : (
+                <Link href={`/login?returnTo=${encodeURIComponent(`/channels/${channel.slug}`)}`} className="text-[12.5px] text-brandink hover:underline">
+                  {k.twin.signIn}
+                </Link>
+              )}
+              {twinError ? <p role="alert" className="text-[12px] text-rose">{errors[twinError] ?? errors.unavailable}</p> : null}
+              {twinAnswers.length > 0 ? (
+                <ul className="flex flex-col gap-3 border-t border-line pt-3">
+                  {twinAnswers.map((answer) => (
+                    <li key={answer.id} className={`flex flex-col gap-1.5 ${answer.id === shownTwin ? '' : 'opacity-80'}`}>
+                      <p className="text-[12.5px] font-medium text-ink">{answer.question}</p>
+                      {answer.outcome === 'no_context' ? (
+                        <p className="text-[12px] text-muted">{k.twin.noContext}</p>
+                      ) : answer.outcome === 'degraded' ? (
+                        <p className="text-[12px] text-muted">{k.twin.degraded}</p>
+                      ) : (
+                        <ul className="flex flex-col gap-1 text-[12.5px] leading-[1.6] text-steel">
+                          {answer.claims.map((claim, at) => (
+                            <li key={at}>{claim.claim}</li>
+                          ))}
+                        </ul>
+                      )}
+                      {answer.versions.length > 0 ? (
+                        <p className="flex flex-wrap gap-2 text-[11px] text-muted">
+                          <span>{k.twin.sources}:</span>
+                          {answer.versions.slice(0, 3).map((version) => (
+                            <Link key={version.versionId} href={`/assets${version.publicId}`} className="text-brandink hover:underline">
+                              {version.title} · {version.label}
+                            </Link>
+                          ))}
+                        </p>
+                      ) : null}
+                      {answer.endorsement ? (
+                        <p className="text-[11px] font-medium text-brandink">
+                          {fill(answer.endorsement.superseded ? k.twin.endorsedOld : k.twin.endorsed, { label: answer.endorsement.versionLabel ?? '' })}
+                        </p>
+                      ) : null}
+                    </li>
+                  ))}
+                </ul>
+              ) : null}
+            </section>
+          ) : null}
+
+          {channel.isPublic && channel.workspaceId && !channel.viewerIsOwner ? (
+            <section id="ask-author" className="flex flex-col gap-3 rounded-lg border border-line bg-card p-5">
+              <h2 className="text-[15px] font-medium text-ink">{k.askAuthor.title}</h2>
+              <p className="text-[12px] leading-[1.6] text-muted">{k.askAuthor.body}</p>
+              {asked ? (
+                <p role="status" className={`text-[12px] ${asked === 'done' ? 'text-brandink' : 'text-rose'}`}>
+                  {asked === 'done' ? k.askAuthor.done : (errors[asked] ?? errors.unavailable)}
+                </p>
+              ) : null}
+              {session ? (
+                <form action={askAuthorAction} className="flex flex-col gap-2">
+                  <input type="hidden" name="slug" value={channel.slug} />
+                  <input type="hidden" name="channelId" value={channel.id} />
+                  <textarea name="question" required maxLength={2000} rows={3} placeholder={k.askAuthor.placeholder} className="w-full rounded-md border border-line bg-field px-3 py-2 text-[13px] text-ink" />
+                  <label className="flex items-center gap-2 text-[11.5px] text-steel">
+                    <input type="checkbox" name="nameConsent" value="yes" />
+                    {k.askAuthor.consent}
+                  </label>
+                  <button type="submit" className="inline-flex h-8 w-fit items-center rounded-md border border-line bg-card px-3 text-[12px] font-medium text-steel hover:bg-subtle">
+                    {k.askAuthor.button}
+                  </button>
+                </form>
+              ) : (
+                <Link href={`/login?returnTo=${encodeURIComponent(`/channels/${channel.slug}`)}`} className="text-[12.5px] text-brandink hover:underline">
+                  {k.askAuthor.signIn}
+                </Link>
+              )}
+            </section>
+          ) : null}
           <p className="text-[11px] text-muted">{fill(c.assetCount, { count: String(stream.filter((item) => item.live).length) })}</p>
         </aside>
       </div>
