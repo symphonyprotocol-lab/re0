@@ -37,8 +37,8 @@ import {
   type Client,
 } from '@a2a-js/sdk/client';
 import { ActionRefused, type ActionParams, type DelegationSummary } from '@/lib/domain/agent-action';
+import { A2A_BODY_RETENTION_DAYS } from '@/lib/domain/a2a-retention';
 import {
-  BODY_RETENTION_DAYS,
   clip,
   credentialHeader,
   credentialValue,
@@ -202,7 +202,7 @@ export async function sendDelegation(
     conversationId: context.conversationId,
     skill: params.skill,
     endpointUrl: endpoint.url,
-    bodyPurgeAt: new Date(now.getTime() + BODY_RETENTION_DAYS * DAY_MS),
+    bodyPurgeAt: new Date(now.getTime() + A2A_BODY_RETENTION_DAYS * DAY_MS),
     createdAt: now,
     updatedAt: now,
   };
@@ -531,7 +531,7 @@ export async function purgeDelegationBodies(now: Date = new Date()): Promise<num
       ),
     )
     .returning({ id: schema.agentDelegation.id });
-  const cutoff = new Date(now.getTime() - BODY_RETENTION_DAYS * DAY_MS);
+  const cutoff = new Date(now.getTime() - A2A_BODY_RETENTION_DAYS * DAY_MS);
   return purged.length + (await clearDelegationText(lte(schema.agentAction.createdAt, cutoff)));
 }
 

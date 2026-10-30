@@ -96,6 +96,12 @@ export async function runRetention(now: Date = new Date()): Promise<RetentionOut
  * creation for one never built. An asset with a build queued or running is
  * skipped this time: the owner is working on it, and a success resets its
  * age.
+ *
+ * An editorial post or episode is an asset from its first draft, never
+ * built and in no channel until it is published (editorial/assets.ts), so
+ * by those rules alone a draft the author is still writing would go. Its
+ * age is therefore also from the draft's last edit, and a draft scheduled
+ * to publish, or aimed at a public channel, is kept whatever its age.
  */
 export async function expirePrivateAssets(now: Date = new Date()): Promise<number> {
   const workspaces = await db()
@@ -109,12 +115,24 @@ export async function expirePrivateAssets(now: Date = new Date()): Promise<numbe
     const due = await db()
       .select({ id: schema.asset.id })
       .from(schema.asset)
+      .leftJoin(schema.postDraft, eq(schema.postDraft.assetId, schema.asset.id))
       .where(
         and(
           eq(schema.asset.ownerWorkspaceId, workspace.id),
           eq(schema.asset.isPlatformAsset, false),
           isNull(schema.asset.deletedAt),
-          lte(sql`coalesce(${schema.asset.lastSuccessfulRefreshAt}, ${schema.asset.createdAt})`, cutoff),
+          /* greatest() skips the null of an asset with no draft. */
+          lte(
+            sql`greatest(coalesce(${schema.asset.lastSuccessfulRefreshAt}, ${schema.asset.createdAt}), ${schema.postDraft.updatedAt})`,
+            cutoff,
+          ),
+          isNull(schema.postDraft.publishAt),
+          notExists(
+            db()
+              .select({ one: sql`1` })
+              .from(schema.channel)
+              .where(and(eq(schema.channel.id, schema.postDraft.channelId), eq(schema.channel.visibility, 'public'))),
+          ),
           notExists(
             db()
               .select({ one: sql`1` })

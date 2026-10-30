@@ -176,6 +176,8 @@ DATABASE_URL_UNPOOLED='<主分支直连串>' npm run db:migrate
 
 顺序按 [architecture.md](./architecture.md) 第 19.2 节排：主分支先迁移，再发布依赖新 Schema 的代码。
 
+新增迁移时，`db/migrations/meta/_journal.json` 里新条目的 `when` 取上一条加 `100000000`，不用 `Date.now()`：0058 起的值是手工递增的，已经排到未来，而 `drizzle-kit migrate` 只执行 `when` 严格大于库里最后一条记录的迁移，戳小了会被静默跳过（CI 用 psql 逐个执行文件，测不出来）。两个分支各加一条迁移时，合并后重新编号。`tests/contract/migration-journal.test.ts` 校验这条规则以及条目与 SQL 文件一一对应。
+
 `0002_seed_plans.sql` 会写入免费档的 Plan Version（Pro 档已在 P0 的迁移中删除）——首次登录要在同一个事务里创建免费订阅行，因此迁移必须先于任何流量执行。
 
 ### 后台的首位管理员

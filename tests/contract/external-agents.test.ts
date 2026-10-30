@@ -19,6 +19,7 @@ import {
   schemeSnapshots,
   usableEndpoints,
 } from '@/lib/domain/external-agent';
+import { A2A_BODY_RETENTION_DAYS } from '@/lib/domain/a2a-retention';
 import { fetchAgentCard } from '@/lib/application/external-agents/registry';
 import { guardedFetch, setExternalAgentTransport } from '@/lib/application/external-agents/transport';
 import { forgetCredentialKey, openCredential, sealCredential } from '@/lib/infrastructure/crypto/credentials';
@@ -222,5 +223,11 @@ describe('remote states', () => {
     expect(isTerminalRemoteState('TASK_STATE_COMPLETED')).toBe(true);
     expect(isTerminalRemoteState('TASK_STATE_WORKING')).toBe(false);
     expect(isTerminalRemoteState('TASK_STATE_INPUT_REQUIRED')).toBe(false);
+  });
+});
+
+describe('A2A body retention', () => {
+  it('is proposal 10’s 30 days, the one constant inbound tasks and delegations are purged by', () => {
+    expect(A2A_BODY_RETENTION_DAYS).toBe(30);
   });
 });

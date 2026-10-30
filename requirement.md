@@ -395,7 +395,7 @@ Agent Card   我的用户卡与频道卡、API Key、外部 Agent（P4）
 - 展示个人资料、`handle`、登录方式、加入时间和邮箱验证状态；
 - 展示本账期 Calls、Additional Calls 余额、资产与频道数量、容量用量与档位；
 - 提供购买 Additional Calls、账单、调用记录、导出（含对话与 A2A 任务）和联系支持入口；
-- 私有资产的保留期设置、一键导出与删除（提案第 10 节）：P4 在 `/dashboard/privacy`「导出与删除」实现——以 JSON 导出工作台对话、入站 A2A 任务与出站委托；一键删除全部对话、一键删除全部 A2A 任务记录（入站与出站，待确认的委托留给所有者处理）；私有资产保留期可选「不自动删除」（默认）/ 30 / 90 / 180 / 365 天，私有资产指不在任何公开频道里的资产，以最近一次成功构建（没有则为创建时间）计，到期由每小时的定时任务按正常流程删除；删除记录不影响计量；只有所有者或管理员能删除和改保留期。
+- 私有资产的保留期设置、一键导出与删除（提案第 10 节）：P4 在 `/dashboard/privacy`「导出与删除」实现——以 JSON 导出工作台对话、入站 A2A 任务与出站委托；一键删除全部对话、一键删除全部 A2A 任务记录（入站与出站，待确认的委托留给所有者处理）；私有资产保留期可选「不自动删除」（默认）/ 30 / 90 / 180 / 365 天，私有资产指不在任何公开频道里的资产，以最近一次成功构建（没有则为创建时间）计，文章与音频草稿另以最近一次编辑计，已排期发布或目标为公开频道的草稿不删，到期由每小时的定时任务按正常流程删除；删除记录不影响计量；只有所有者或管理员能删除和改保留期。
 
 ### 5.3 管理后台
 
@@ -730,7 +730,7 @@ REST 保留，供网站内部、测试与脚本化管理使用，不对外宣传
 - `POST /v1/api-keys`
 - `DELETE /v1/api-keys/{keyId}`
 
-`/v1/revenue*` 随发布者分成删除。正式实现和页面示例必须使用上述权威字段名；不再接受 `library` 别名。
+`/v1/revenue*` 保留，改为结算创作者的频道订阅收入（第 4.4 节）：`GET /v1/revenue` 查看收入、结算单与出账（`POST` 接受发布者协议并开户），`POST /v1/revenue/credit` 转为 Additional Calls，`POST /v1/revenue/payout` 申请 PayPal 提现；随发布者分成删除的只是按检索计收益的部分。正式实现和页面示例必须使用上述权威字段名；不再接受 `library` 别名。
 
 Asset Search 响应至少包含：
 
@@ -850,21 +850,26 @@ Policy 更新必须生成新版本并记录变更前后值。调用记录保存�
 
 ## 11. 错误、限流与兼容性
 
-使用标准 HTTP 状态，并返回稳定 `error`、可读 `message`、`requestId`（错误码在 P5 随接口由 `library_*` 改为 `asset_*`）：
+使用标准 HTTP 状态，并返回稳定 `error`、可读 `message`、`requestId`（错误码在 P5 随接口由 `library_*` 改为 `asset_*`）。下表与 `contracts/errors.ts` 的 `ERROR_CODES`、`httpStatusFor` 一一对应，列全每个错误码，`tests/contract/error-table.test.ts` 校验两者一致：
 
-| HTTP | 错误示例 | 行为 |
+| HTTP | 错误码 | 行为 |
 | --- | --- | --- |
-| 202 | `asset_processing` | 已受理但当前版本未就绪 |
-| 301 | `asset_redirected` | 返回新的 `redirectUrl` |
+| 202 | `anchor_pending` | 已受理，锚定尚未完成 |
 | 400 | `invalid_request` | 参数或 Schema 错误 |
 | 401 | `invalid_api_key` | 未认证或 Key 无效 |
-| 403 | `access_denied` | 工作空间、Scope、访问规则或可见性拒绝（含非订阅者访问 `paid` 正文） |
-| 404 | `asset_not_found` | 不区分不存在与不可见 |
-| 409 | `asset_exists` | 重复提交或幂等冲突 |
-| 413 | `asset_too_large` | 超过工作空间总容量 |
-| 422 | `source_unprocessable` | 来源无有效内容或无法解析 |
-| 429 | `quota_exceeded` | 返回 `Retry-After` 和额度 Header |
-| 500/503/504 | `provider_unavailable` | 可按退避策略重试 |
+| 402 | `subscription_required` | 需要先订阅 |
+| 403 | `access_denied`、`access_rule_blocked`、`api_key_limit_exceeded` | 工作空间角色或 Scope 不足；被访问规则拒绝；API Key 数量已达套餐上限 |
+| 404 | `asset_not_found`、`no_relevant_context` | 不区分不存在与不可见：私有资产、无权看到的频道里的资产、非订阅者读取 `paid` 正文都返回 `asset_not_found`；没有可用上下文 |
+| 409 | `asset_not_ready`、`asset_suspended`、`review_required` | 资产还没有可查询的版本；资产被暂停；需要先通过审核 |
+| 413 | `asset_size_exceeded`、`query_too_large` | 上传文件为空或超过单文件大小上限；查询过长 |
+| 422 | `parse_failed`、`claim_verification_failed` | 来源无有效内容或无法解析；认领校验失败，`reason` 给出第 7.3.8 节的原因码 |
+| 429 | `quota_exceeded`、`rate_limited` | 额度用尽；匿名调用或频率超限；都返回 `Retry-After` |
+| 500 | `internal_error`、`index_failed` | 内部错误，不回显细节；索引失败 |
+| 501 | `not_implemented` | 尚未实现 |
+| 502 | `source_fetch_failed` | 抓取来源失败 |
+| 503 | `provider_unavailable` | 外部依赖不可用，可按退避策略重试 |
+
+构建失败时写在构建操作上的 `asset_too_large`（超过工作空间总容量）是存储值，不是 API 错误码。
 
 限流响应提供 `RateLimit-Limit`、`RateLimit-Remaining`、`RateLimit-Reset`。A2A 的错误按 A2A 规范的错误对象返回，内部错误码放在 `data` 里。网站尚未运营，本次转向**不做兼容**：不保留旧路径、旧接口名与旧数据形态，不设下线通知期；运营之后破坏性 API 变更须发布新主版本，字段只能先新增、标记废弃，再移除。
 
