@@ -344,7 +344,7 @@ export async function createWorkspaceLibrary(
       error instanceof Error ? error.message : '',
       error instanceof Error && error.cause instanceof Error ? error.cause.message : '',
     ].join(' ');
-    if (messages.includes('library_public_id_uq')) {
+    if (messages.includes('asset_public_id_uq')) {
       throw new AppError('invalid_request', 'that library id is already taken');
     }
     throw error;

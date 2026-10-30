@@ -190,8 +190,8 @@ async function qualityOf(channelIds: string[]) {
   const rows = await db()
     .select({
       channelId: schema.channelAsset.channelId,
-      trust: sql<number>`coalesce((select s.trust_score from ${schema.libraryScore} s where s.library_id = ${schema.library.id} order by s.computed_at desc limit 1), 0)`,
-      benchmark: sql<number>`coalesce((select s.benchmark_score from ${schema.libraryScore} s where s.library_id = ${schema.library.id} order by s.computed_at desc limit 1), 0)`,
+      trust: sql<number>`coalesce((select s.trust_score from ${schema.libraryScore} s where s.asset_id = ${schema.library.id} order by s.computed_at desc limit 1), 0)`,
+      benchmark: sql<number>`coalesce((select s.benchmark_score from ${schema.libraryScore} s where s.asset_id = ${schema.library.id} order by s.computed_at desc limit 1), 0)`,
     })
     .from(schema.channelAsset)
     .innerJoin(schema.library, and(eq(schema.library.id, schema.channelAsset.assetId), LIVE))
@@ -312,7 +312,7 @@ export async function channelStream(
       pinnedAt: schema.channelAsset.pinnedAt,
       publishedAt: schema.channelAsset.publishedAt,
       versionLabel: schema.libraryVersion.label,
-      sourceLocation: sql<string | null>`(select s.location from ${schema.source} s where s.library_id = ${schema.library.id} order by s.id limit 1)`,
+      sourceLocation: sql<string | null>`(select s.location from ${schema.source} s where s.asset_id = ${schema.library.id} order by s.id limit 1)`,
     })
     .from(schema.channelAsset)
     .innerJoin(schema.library, eq(schema.library.id, schema.channelAsset.assetId))

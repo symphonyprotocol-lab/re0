@@ -37,6 +37,15 @@ describe('version leaf', () => {
     expect(await versionLeaf({ ...VERSION })).toBe(first);
   });
 
+  /*
+   * Pinned before agent-first P5 renamed library to asset in the code and the
+   * database (agent-first-proposal.md 3.5): the leaf hashes the id's value,
+   * never a field or column name, so no rename may move an anchored leaf.
+   */
+  it('is the leaf this fixture has always had', async () => {
+    expect(await versionLeaf(VERSION)).toBe('dd200720686c7e8f84eacac4e9bb686aaf76e50ad526d328f5ad4f1711b32709');
+  });
+
   /* requirement.md 6.4: change any anchored field and the proof must fail. */
   it('changes when any field changes', async () => {
     const base = await versionLeaf(VERSION);

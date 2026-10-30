@@ -585,7 +585,7 @@ export const paymentCheckout = pgTable(
 // ---------------------------------------------------------------- knowledge
 
 export const library = pgTable(
-  'library',
+  'asset',
   {
     id: uuid('id').primaryKey(),
     /** Public, stable id such as /vercel/next.js. requirement.md 6.1 */
@@ -599,7 +599,7 @@ export const library = pgTable(
      * architecture.md 5.4 -- ingestion, review and refresh must never touch it.
      */
     ownerWorkspaceId: uuid('owner_workspace_id').references(() => workspace.id),
-    isPlatformLibrary: boolean('is_platform_library').notNull().default(false),
+    isPlatformLibrary: boolean('is_platform_asset').notNull().default(false),
     /**
      * Which of the seven asset types this is (agent-first-proposal.md 3.2,
      * `lib/domain/asset.ts` `ASSET_KINDS`); follows from the one source.
@@ -652,18 +652,18 @@ export const library = pgTable(
      * taken by a tombstone, and every lookup by `public_id` already excludes
      * deleted rows -- so the constraint only has to hold among live ones.
      */
-    uniqueIndex('library_public_id_uq')
+    uniqueIndex('asset_public_id_uq')
       .on(t.publicId)
       .where(sql`${t.deletedAt} is null`),
-    index('library_owner_idx').on(t.ownerWorkspaceId),
-    index('library_lifecycle_idx').on(t.lifecycleStatus, t.indexStatus),
+    index('asset_owner_idx').on(t.ownerWorkspaceId),
+    index('asset_lifecycle_idx').on(t.lifecycleStatus, t.indexStatus),
     /**
      * The console's platform-library list reads `library` the other way round
      * from the catalogue: it starts from `is_platform_library`, and the false
      * rows outnumber the true ones by orders of magnitude. Partial, so this
      * costs one entry per platform library rather than one per library.
      */
-    index('library_platform_idx')
+    index('asset_platform_idx')
       .on(t.lifecycleStatus, t.createdAt.desc())
       .where(sql`${t.isPlatformLibrary}`),
   ],
@@ -768,7 +768,7 @@ export const siteKey = pgTable(
   {
     id: uuid('id').primaryKey(),
     workspaceId: uuid('workspace_id').notNull().references(() => workspace.id),
-    libraryId: uuid('library_id').notNull().references(() => library.id),
+    libraryId: uuid('asset_id').notNull().references(() => library.id),
     name: text('name').notNull(),
     key: text('key').notNull(),
     /**
@@ -792,7 +792,7 @@ export const siteKey = pgTable(
   (t) => [
     uniqueIndex('site_key_key_uq').on(t.key),
     /** The library page lists its keys; authentication never does. */
-    index('site_key_library_idx').on(t.libraryId),
+    index('site_key_asset_idx').on(t.libraryId),
   ],
 );
 
@@ -837,7 +837,7 @@ export const widgetExchange = pgTable(
   'widget_exchange',
   {
     id: uuid('id').primaryKey(),
-    libraryId: uuid('library_id').notNull().references(() => library.id),
+    libraryId: uuid('asset_id').notNull().references(() => library.id),
     workspaceId: uuid('workspace_id').notNull().references(() => workspace.id),
     /** Kept after the key is revoked; null once the key row is gone. */
     siteKeyId: uuid('site_key_id').references(() => siteKey.id, { onDelete: 'set null' }),
@@ -856,7 +856,7 @@ export const widgetExchange = pgTable(
     feedback: text('feedback'),
     createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
   },
-  (t) => [index('widget_exchange_library_time_idx').on(t.libraryId, t.createdAt)],
+  (t) => [index('widget_exchange_asset_time_idx').on(t.libraryId, t.createdAt)],
 );
 
 /**
@@ -868,10 +868,10 @@ export const widgetExchange = pgTable(
  * version was built with.
  */
 export const libraryFaq = pgTable(
-  'library_faq',
+  'asset_faq',
   {
     id: uuid('id').primaryKey(),
-    libraryId: uuid('library_id').notNull().references(() => library.id),
+    libraryId: uuid('asset_id').notNull().references(() => library.id),
     workspaceId: uuid('workspace_id').notNull().references(() => workspace.id),
     question: text('question').notNull(),
     answer: text('answer').notNull(),
@@ -880,7 +880,7 @@ export const libraryFaq = pgTable(
     createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
     updatedAt: timestamp('updated_at', { withTimezone: true }).notNull().defaultNow(),
   },
-  (t) => [index('library_faq_library_idx').on(t.libraryId, t.createdAt)],
+  (t) => [index('asset_faq_asset_idx').on(t.libraryId, t.createdAt)],
 );
 
 /**
@@ -894,10 +894,10 @@ export const libraryFaq = pgTable(
  * so a link already shared keeps working after a rename.
  */
 export const libraryShowcase = pgTable(
-  'library_showcase',
+  'asset_showcase',
   {
     id: uuid('id').primaryKey(),
-    libraryId: uuid('library_id').notNull().references(() => library.id),
+    libraryId: uuid('asset_id').notNull().references(() => library.id),
     workspaceId: uuid('workspace_id').notNull().references(() => workspace.id),
     siteKeyId: uuid('site_key_id').notNull().references(() => siteKey.id),
     kind: showcaseKindEnum('kind').notNull(),
@@ -926,22 +926,22 @@ export const libraryShowcase = pgTable(
     deletedAt: timestamp('deleted_at', { withTimezone: true }),
   },
   (t) => [
-    uniqueIndex('library_showcase_library_uq')
+    uniqueIndex('asset_showcase_asset_uq')
       .on(t.libraryId)
       .where(sql`${t.deletedAt} is null`),
-    uniqueIndex('library_showcase_slug_uq')
+    uniqueIndex('asset_showcase_slug_uq')
       .on(t.slug)
       .where(sql`${t.deletedAt} is null`),
-    index('library_showcase_previous_slug_idx')
+    index('asset_showcase_previous_slug_idx')
       .on(t.previousSlug)
       .where(sql`${t.previousSlug} is not null`),
-    index('library_showcase_workspace_idx').on(t.workspaceId),
+    index('asset_showcase_workspace_idx').on(t.workspaceId),
   ],
 );
 
 /** Views, questions and CTA clicks per showcase page and UTC day. Counters, written off the request path. */
 export const libraryShowcaseDaily = pgTable(
-  'library_showcase_daily',
+  'asset_showcase_daily',
   {
     showcaseId: uuid('showcase_id')
       .notNull()
@@ -968,7 +968,7 @@ export const showcaseLead = pgTable(
     showcaseId: uuid('showcase_id')
       .notNull()
       .references(() => libraryShowcase.id, { onDelete: 'cascade' }),
-    libraryId: uuid('library_id').notNull().references(() => library.id),
+    libraryId: uuid('asset_id').notNull().references(() => library.id),
     workspaceId: uuid('workspace_id').notNull().references(() => workspace.id),
     exchangeId: uuid('exchange_id').references(() => widgetExchange.id, { onDelete: 'set null' }),
     email: text('email').notNull(),
@@ -1018,20 +1018,20 @@ export const showcaseDomain = pgTable(
 );
 
 export const libraryAlias = pgTable(
-  'library_alias',
+  'asset_alias',
   {
     id: uuid('id').primaryKey(),
     fromPublicId: text('from_public_id').notNull(),
-    libraryId: uuid('library_id').notNull().references(() => library.id),
+    libraryId: uuid('asset_id').notNull().references(() => library.id),
   },
-  (t) => [uniqueIndex('library_alias_uq').on(t.fromPublicId)],
+  (t) => [uniqueIndex('asset_alias_uq').on(t.fromPublicId)],
 );
 
 export const source = pgTable(
   'source',
   {
     id: uuid('id').primaryKey(),
-    libraryId: uuid('library_id').notNull().references(() => library.id),
+    libraryId: uuid('asset_id').notNull().references(() => library.id),
     type: sourceTypeEnum('type').notNull(),
     location: text('location').notNull(),
     config: jsonb('config').$type<Record<string, unknown>>().notNull().default({}),
@@ -1039,14 +1039,14 @@ export const source = pgTable(
     credentialRef: text('credential_ref'),
     refreshPolicy: jsonb('refresh_policy').$type<Record<string, unknown>>().notNull().default({}),
   },
-  (t) => [index('source_library_idx').on(t.libraryId)],
+  (t) => [index('source_asset_idx').on(t.libraryId)],
 );
 
 export const libraryVersion = pgTable(
-  'library_version',
+  'asset_version',
   {
     id: uuid('id').primaryKey(),
-    libraryId: uuid('library_id').notNull().references(() => library.id),
+    libraryId: uuid('asset_id').notNull().references(() => library.id),
     label: text('label').notNull(),
     sourceDigest: text('source_digest').notNull(),
     /**
@@ -1107,15 +1107,15 @@ export const libraryVersion = pgTable(
     createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
   },
   (t) => [
-    index('library_version_library_idx').on(t.libraryId, t.createdAt.desc()),
+    index('asset_version_asset_idx').on(t.libraryId, t.createdAt.desc()),
     /** One build per label: the console's version list is chosen from by label. */
-    uniqueIndex('library_version_label_uq').on(t.libraryId, t.label),
+    uniqueIndex('asset_version_label_uq').on(t.libraryId, t.label),
   ],
 );
 
-export const libraryReview = pgTable('library_review', {
+export const libraryReview = pgTable('asset_review', {
   id: uuid('id').primaryKey(),
-  libraryId: uuid('library_id').notNull().references(() => library.id),
+  libraryId: uuid('asset_id').notNull().references(() => library.id),
   versionId: uuid('version_id').references(() => libraryVersion.id),
   stage: text('stage').notNull(),
   outcome: text('outcome'),
@@ -1142,10 +1142,10 @@ export const libraryReview = pgTable('library_review', {
  * A partial unique index keeps at most one pending claim per library.
  */
 export const libraryClaim = pgTable(
-  'library_claim',
+  'asset_claim',
   {
     id: uuid('id').primaryKey(),
-    libraryId: uuid('library_id').notNull().references(() => library.id),
+    libraryId: uuid('asset_id').notNull().references(() => library.id),
     claimantWorkspaceId: uuid('claimant_workspace_id').notNull().references(() => workspace.id),
     method: claimMethodEnum('method').notNull(),
     /** Hash only. The plaintext challenge is returned once, at creation. */
@@ -1160,10 +1160,10 @@ export const libraryClaim = pgTable(
     createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
   },
   (t) => [
-    uniqueIndex('library_claim_pending_uq')
+    uniqueIndex('asset_claim_pending_uq')
       .on(t.libraryId)
       .where(sql`${t.status} = 'pending'`),
-    index('library_claim_claimant_idx').on(t.claimantWorkspaceId),
+    index('asset_claim_claimant_idx').on(t.claimantWorkspaceId),
   ],
 );
 
@@ -1189,17 +1189,17 @@ export const domainVerification = pgTable(
     attempts: integer('attempts').notNull().default(0),
     expiresAt: timestamp('expires_at', { withTimezone: true }).notNull(),
     verifiedAt: timestamp('verified_at', { withTimezone: true }),
-    consumedLibraryId: uuid('consumed_library_id').references(() => library.id, { onDelete: 'set null' }),
+    consumedLibraryId: uuid('consumed_asset_id').references(() => library.id, { onDelete: 'set null' }),
     createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
   },
   (t) => [index('domain_verification_workspace_idx').on(t.workspaceId, t.createdAt)],
 );
 
 export const libraryScore = pgTable(
-  'library_score',
+  'asset_score',
   {
     id: uuid('id').primaryKey(),
-    libraryId: uuid('library_id').notNull().references(() => library.id),
+    libraryId: uuid('asset_id').notNull().references(() => library.id),
     algorithmVersion: text('algorithm_version').notNull(),
     trustScore: integer('trust_score').notNull(),
     benchmarkScore: integer('benchmark_score').notNull(),
@@ -1207,14 +1207,14 @@ export const libraryScore = pgTable(
     computedAt: timestamp('computed_at', { withTimezone: true }).notNull().defaultNow(),
   },
   /** "This library's newest score", which the catalogue reads per row. */
-  (t) => [index('library_score_current_idx').on(t.libraryId, t.computedAt.desc())],
+  (t) => [index('asset_score_current_idx').on(t.libraryId, t.computedAt.desc())],
 );
 
 export const document = pgTable(
   'document',
   {
     id: uuid('id').primaryKey(),
-    libraryId: uuid('library_id').notNull().references(() => library.id),
+    libraryId: uuid('asset_id').notNull().references(() => library.id),
     versionId: uuid('version_id').notNull().references(() => libraryVersion.id),
     title: text('title').notNull(),
     sourceUrl: text('source_url').notNull(),
@@ -1245,7 +1245,7 @@ export const chunk = pgTable(
   'chunk',
   {
     id: uuid('id').primaryKey(),
-    libraryId: uuid('library_id').notNull().references(() => library.id),
+    libraryId: uuid('asset_id').notNull().references(() => library.id),
     versionId: uuid('version_id').notNull().references(() => libraryVersion.id),
     documentId: uuid('document_id').notNull().references(() => document.id),
     ordinal: integer('ordinal').notNull(),
@@ -1328,7 +1328,7 @@ export const chunk = pgTable(
     embedding: vector('embedding', { dimensions: 1536 }),
   },
   (t) => [
-    index('chunk_library_version_idx').on(t.libraryId, t.versionId),
+    index('chunk_asset_version_idx').on(t.libraryId, t.versionId),
     index('chunk_search_vector_cjk_idx').using('gin', t.searchVectorCjk),
     /*
      * No ANN index on `embedding` -- deliberately. architecture.md 9.1:
@@ -1364,10 +1364,10 @@ export const chunk = pgTable(
  * chunk bodies: segmentation happened before Postgres ever saw the text.
  */
 export const libraryProfile = pgTable(
-  'library_profile',
+  'asset_profile',
   {
     id: uuid('id').primaryKey(),
-    libraryId: uuid('library_id').notNull().references(() => library.id),
+    libraryId: uuid('asset_id').notNull().references(() => library.id),
     versionId: uuid('version_id').notNull().references(() => libraryVersion.id),
     /** Which extractor built this row; a new extractor rebuilds, never mixes. */
     profileVersion: text('profile_version').notNull(),
@@ -1380,9 +1380,9 @@ export const libraryProfile = pgTable(
     createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
   },
   (t) => [
-    uniqueIndex('library_profile_version_uq').on(t.versionId),
-    index('library_profile_library_idx').on(t.libraryId),
-    index('library_profile_search_idx').using('gin', t.searchVector),
+    uniqueIndex('asset_profile_version_uq').on(t.versionId),
+    index('asset_profile_asset_idx').on(t.libraryId),
+    index('asset_profile_search_idx').using('gin', t.searchVector),
   ],
 );
 
@@ -1393,18 +1393,18 @@ export const libraryProfile = pgTable(
  * libraries x centroids (tens per library), not chunks.
  */
 export const libraryProfileVector = pgTable(
-  'library_profile_vector',
+  'asset_profile_vector',
   {
     id: uuid('id').primaryKey(),
-    libraryId: uuid('library_id').notNull().references(() => library.id),
+    libraryId: uuid('asset_id').notNull().references(() => library.id),
     versionId: uuid('version_id').notNull().references(() => libraryVersion.id),
     ordinal: integer('ordinal').notNull(),
     embedding: vector('embedding', { dimensions: 1536 }).notNull(),
   },
   (t) => [
-    uniqueIndex('library_profile_vector_uq').on(t.versionId, t.ordinal),
-    index('library_profile_vector_library_idx').on(t.libraryId),
-    index('library_profile_vector_hnsw_idx').using(
+    uniqueIndex('asset_profile_vector_uq').on(t.versionId, t.ordinal),
+    index('asset_profile_vector_asset_idx').on(t.libraryId),
+    index('asset_profile_vector_hnsw_idx').using(
       'hnsw',
       t.embedding.op('vector_cosine_ops'),
     ),
@@ -1646,7 +1646,7 @@ export const llmCostEvent = pgTable(
   {
     id: uuid('id').primaryKey(),
     configId: uuid('config_id').notNull().references(() => llmConfig.id),
-    libraryPublicId: text('library_public_id').notNull(),
+    libraryPublicId: text('asset_public_id').notNull(),
     workspaceId: uuid('workspace_id'),
     model: text('model').notNull(),
     promptTokens: integer('prompt_tokens').notNull(),
@@ -1676,7 +1676,7 @@ export const policyVersion = pgTable('policy_version', {
   createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
 });
 
-export const policyLibraryEntry = pgTable('policy_library_entry', {
+export const policyLibraryEntry = pgTable('policy_asset_entry', {
   id: uuid('id').primaryKey(),
   policyVersionId: uuid('policy_version_id').notNull().references(() => policyVersion.id),
   kind: text('kind').notNull(),
@@ -1714,7 +1714,7 @@ export const usageEvent = pgTable(
     id: uuid('id').primaryKey(),
     workspaceId: uuid('workspace_id').notNull().references(() => workspace.id),
     requestId: text('request_id').notNull(),
-    libraryId: uuid('library_id').references(() => library.id),
+    libraryId: uuid('asset_id').references(() => library.id),
     versionId: uuid('version_id').references(() => libraryVersion.id),
     operation: text('operation').notNull(),
     entrypoint: text('entrypoint').notNull(),
@@ -1739,7 +1739,7 @@ export const usageEvent = pgTable(
     uniqueIndex('usage_event_request_uq').on(t.requestId),
     index('usage_event_workspace_time_idx').on(t.workspaceId, t.createdAt),
     /** Retrieval calls per library, for the console's per-library figures. */
-    index('usage_event_library_time_idx').on(t.libraryId, t.createdAt),
+    index('usage_event_asset_time_idx').on(t.libraryId, t.createdAt),
     /** "What did this version's build cost", read by the library page. */
     index('usage_event_version_idx')
       .on(t.versionId)
@@ -1986,7 +1986,7 @@ export const workflowOperation = pgTable(
   'workflow_operation',
   {
     id: uuid('id').primaryKey(),
-    libraryId: uuid('library_id').references(() => library.id),
+    libraryId: uuid('asset_id').references(() => library.id),
     operationType: text('operation_type').notNull(),
     sourceDigest: text('source_digest'),
     /**
@@ -2044,7 +2044,7 @@ export const workflowOperation = pgTable(
   (t) => [
     uniqueIndex('workflow_operation_uq').on(t.libraryId, t.sourceDigest, t.operationType),
     /** "Is anything open for this library", and the queue depth above the list. */
-    index('workflow_operation_library_idx').on(t.libraryId, t.operationType, t.status),
+    index('workflow_operation_asset_idx').on(t.libraryId, t.operationType, t.status),
     /** The queue drain: oldest pending first, which every worker asks for. */
     index('workflow_operation_pending_idx')
       .on(t.createdAt)
@@ -2066,7 +2066,7 @@ export const requestLog = pgTable(
      * request history a user reads must survive the library it touched.
      * The query text is deliberately absent (architecture.md 17.1).
      */
-    libraryPublicId: text('library_public_id'),
+    libraryPublicId: text('asset_public_id'),
     /** 'rest' | 'mcp' | 'web' -- which door the request came through. */
     entrypoint: text('entrypoint'),
     statusCode: integer('status_code').notNull(),
@@ -2094,7 +2094,7 @@ export const requestLog = pgTable(
 
 export const report = pgTable('report', {
   id: uuid('id').primaryKey(),
-  libraryId: uuid('library_id').notNull().references(() => library.id),
+  libraryId: uuid('asset_id').notNull().references(() => library.id),
   reporterUserId: uuid('reporter_user_id').references(() => user.id),
   category: text('category').notNull(),
   detail: text('detail'),

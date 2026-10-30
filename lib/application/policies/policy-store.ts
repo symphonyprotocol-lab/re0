@@ -251,7 +251,7 @@ export async function countReachableLibraries(
   if (disabledTypes.length > 0) {
     clauses.push(sql`not exists (
       select 1 from ${schema.source} s
-      where s.library_id = ${ref(schema.library.id)}
+      where s.asset_id = ${ref(schema.library.id)}
         and s.type in (${sql.join(
           disabledTypes.map((type) => sql`${type}`),
           sql`, `,
@@ -275,7 +275,7 @@ export async function countReachableLibraries(
     if (policy.quality.minTrustScore !== null) {
       thresholds.push(sql`coalesce((
         select s.trust_score from ${schema.libraryScore} s
-        where s.library_id = ${ref(schema.library.id)}
+        where s.asset_id = ${ref(schema.library.id)}
         order by s.computed_at desc limit 1
       ), 0) >= ${policy.quality.minTrustScore}`);
     }
@@ -338,7 +338,7 @@ function listedInSql(entries: readonly string[]) {
     ...domains.map(
       (domain) => sql`exists (
         select 1 from ${schema.source} s
-        where s.library_id = ${ref(schema.library.id)}
+        where s.asset_id = ${ref(schema.library.id)}
           and (${SOURCE_HOST} = ${domain} or ${SOURCE_HOST} like ${`%.${escapeLike(domain)}`})
       )`,
     ),

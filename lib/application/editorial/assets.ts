@@ -126,7 +126,7 @@ export async function createEditorialAsset(input: CreateEditorialInput): Promise
     });
   } catch (error) {
     const messages = [error instanceof Error ? error.message : '', error instanceof Error && error.cause instanceof Error ? error.cause.message : ''].join(' ');
-    if (messages.includes('library_public_id_uq')) throw new EditorialRefused('slug_taken', 'that address is already taken');
+    if (messages.includes('asset_public_id_uq')) throw new EditorialRefused('slug_taken', 'that address is already taken');
     throw error;
   }
   return { assetId, publicId };

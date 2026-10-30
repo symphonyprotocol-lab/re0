@@ -151,7 +151,7 @@ export async function startClaim(input: StartClaimInput): Promise<StartedClaim> 
       error instanceof Error ? error.message : '',
       error instanceof Error && error.cause instanceof Error ? error.cause.message : '',
     ].join(' ');
-    if (detail.includes('library_claim_pending_uq')) {
+    if (detail.includes('asset_claim_pending_uq')) {
       throw failure('claim_in_progress', 'another claim is in progress for this library');
     }
     throw error;

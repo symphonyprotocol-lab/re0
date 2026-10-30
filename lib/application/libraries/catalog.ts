@@ -45,7 +45,7 @@ const ROUTABLE: SQL = and(
 /** The newest trust score, or 0 for a library nobody has scored. */
 const trustScore = sql<number>`coalesce((
   select s.trust_score from ${schema.libraryScore} s
-  where s.library_id = ${ref(schema.library.id)}
+  where s.asset_id = ${ref(schema.library.id)}
   order by s.computed_at desc limit 1
 ), 0)`;
 

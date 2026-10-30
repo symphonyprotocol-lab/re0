@@ -281,7 +281,7 @@ async function reachableByEvaluator(
         and ${schema.library.currentVersionId} is not null
         and ((${schema.library.access} = 'free' and exists (
               select 1 from channel_asset ca join channel c on c.id = ca.channel_id
-              where ca.asset_id = "library"."id" and c.visibility = 'public' and c.status = 'active'))
+              where ca.asset_id = "asset"."id" and c.visibility = 'public' and c.status = 'active'))
           or ${schema.library.ownerWorkspaceId} = ${workspaceId})`,
     );
   const verdicts = await policyVerdicts(
