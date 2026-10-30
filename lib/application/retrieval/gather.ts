@@ -40,7 +40,7 @@ import type { ChunkResult } from '@/contracts/schemas';
 import { containsCjk } from '@/lib/domain/cjk';
 import { excerptsOf } from '@/lib/domain/generation';
 import type { EmbeddingAdapter } from '@/lib/infrastructure/ai/providers';
-import { confirmsRetrieval } from '@/lib/domain/routing';
+import { confirmsRetrieval, type RetrievalConfidence } from '@/lib/domain/routing';
 import type { CallerContext } from './index';
 import { releaseCall } from '@/lib/application/plans';
 import {
@@ -215,14 +215,20 @@ async function judge(
 }
 
 /**
- * Whether one asset's read fits its query well enough to be context.
+ * Whether one read fits its query well enough to be context.
  *
  * Shared with the playground's agent (playground/agent.ts), whose reads are
- * one asset and one query each, so the two paths cannot disagree about
- * what "confirmed" means.
+ * one asset and one query each, and with A2A `ask` and the channel twin
+ * (agent/ask.ts), whose read is one ranked recall across a scope -- so no
+ * generation entry can disagree about what "confirmed" means.
  */
-export function readConfirms(result: QueryDocsResult, queryHasHan: boolean): boolean {
+export function readConfirms(
+  result: { confidence?: RetrievalConfidence | null; chunks: readonly { text: string }[] },
+  queryHasHan: boolean,
+): boolean {
+  /* Null: a cache entry from before the confidence existed, trusted as it was. Absent: nothing to judge by. */
   if (result.confidence === null) return true;
+  if (result.confidence === undefined) return false;
   const corpusHasHan = result.chunks.some((chunk) => containsCjk(chunk.text));
   return confirmsRetrieval(result.confidence, { crossScript: queryHasHan !== corpusHasHan });
 }

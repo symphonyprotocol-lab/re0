@@ -22,10 +22,16 @@
  * `meter: false` leaves the seat to the caller: A2A `ask` holds its own,
  * weighted one (plans/weighted-call.ts) around retrieval and generation and
  * decides afterwards what the answer cost (proposal 8.2).
+ *
+ * The result carries what the ranking can say about its own fit
+ * (`confidence`), because recall always returns the nearest passages however
+ * far they are: `ask` and the twin answer only from a read the playground's
+ * gate confirms (agent/ask.ts, retrieval/gather.ts `readConfirms`).
  */
 import { and, eq, inArray, type SQL } from 'drizzle-orm';
 import { AppError, httpStatusFor } from '@/contracts/errors';
 import type { ChunkResult } from '@/contracts/schemas';
+import type { RetrievalConfidence } from '@/lib/domain/routing';
 import { commitCall, recordRequestLog, releaseCall, reserveCall, type ReservedCall } from '@/lib/application/plans';
 import { pinPolicy, policyIsOpen, policyVerdicts } from '@/lib/application/policies';
 import { activeRetrievalSettings } from '@/lib/application/administration/manage-retrieval-config';
@@ -56,6 +62,8 @@ export interface ScopeSearchResult {
   /** One Call when the caller is a workspace and something came back; else zero. */
   callsUsed: number;
   requestId: string;
+  /** How well the passages fit the query (rank.ts); absent when nothing was searched. */
+  confidence?: RetrievalConfidence;
 }
 
 export const SCOPE_OPERATION = 'search_context';
@@ -133,8 +141,12 @@ async function searchScopeInner(
       searchConfig: schema.assetVersion.searchConfig,
       embeddingModel: schema.assetVersion.embeddingModel,
       embeddingDimensions: schema.assetVersion.embeddingDimensions,
+      access: schema.asset.access,
+      ownerWorkspaceId: schema.asset.ownerWorkspaceId,
+      channelId: schema.channelAsset.channelId,
     })
     .from(schema.asset)
+    .leftJoin(schema.channelAsset, eq(schema.channelAsset.assetId, schema.asset.id))
     .innerJoin(
       schema.assetVersion,
       and(
@@ -151,6 +163,10 @@ async function searchScopeInner(
       const verdicts = await policyVerdicts(pinned.policy, assets.map((asset) => asset.id));
       assets = assets.filter((asset) => verdicts.get(asset.id)?.allowed !== false);
     }
+  }
+  /* Proposal 6.10, for a read wider than one channel: see `withinSubscriberCaps`. */
+  if (input.scope.kind !== 'channel' && caller.workspaceId && assets.length > 0) {
+    assets = await withinSubscriberCaps(caller.workspaceId, assets);
   }
   if (assets.length === 0) {
     return { chunks: [], searchedAssets: 0, callsUsed: 0, requestId: caller.requestId };
@@ -177,7 +193,7 @@ async function searchScopeInner(
         embeddingDimensions: asset.embeddingDimensions,
       },
     }));
-    const { chunks } = await rankAcross(
+    const { chunks, confidence } = await rankAcross(
       database,
       { members, query: input.query, maxTokens: input.maxTokens },
       dependencies,
@@ -220,10 +236,40 @@ async function searchScopeInner(
       searchedAssets: assets.length,
       callsUsed: reservation && chunks.length > 0 ? 1 : 0,
       requestId: caller.requestId,
+      confidence,
     };
   } catch (error) {
     /* §11.1: a platform failure releases the seat and writes no event. */
     if (reservation) await releaseCall(reservation.reservationId).catch(() => {});
     throw error;
   }
+}
+
+/**
+ * Proposal 6.10 on a workspace or an asset list -- a user's Agent Card
+ * reads every asset its owner shows the caller, across channels. A channel
+ * whose cap this subscriber has reached today drops its paid assets from
+ * the read; the free ones, and every other channel's, are still served. A
+ * read the caps leave empty is the cap's refusal, as on the channel itself.
+ */
+async function withinSubscriberCaps<T extends { access: string; ownerWorkspaceId: string | null; channelId: string | null }>(
+  workspaceId: string,
+  assets: T[],
+): Promise<T[]> {
+  const capped = new Map<string, AppError>();
+  const channels = new Set(
+    assets.filter((asset) => asset.access === 'paid' && asset.channelId && asset.ownerWorkspaceId !== workspaceId).map((asset) => asset.channelId!),
+  );
+  for (const channelId of channels) {
+    try {
+      await assertUnderSubscriberCap(workspaceId, channelId);
+    } catch (error) {
+      if (error instanceof AppError && error.code === 'quota_exceeded') capped.set(channelId, error);
+      else throw error;
+    }
+  }
+  if (capped.size === 0) return assets;
+  const kept = assets.filter((asset) => !(asset.access === 'paid' && asset.channelId && capped.has(asset.channelId)));
+  if (kept.length === 0) throw capped.values().next().value!;
+  return kept;
 }
