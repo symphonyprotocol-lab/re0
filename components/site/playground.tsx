@@ -13,6 +13,7 @@ import {
 
 import { useRouter } from 'next/navigation';
 import { ActionCard } from '@/components/dashboard/action-card';
+import { DelegationPanel } from '@/components/dashboard/delegation-panel';
 import { formatBytes } from '@/components/dashboard/pdf-uploader';
 import { ClaimText } from '@/components/site/claim-text';
 import { SignInDialog } from '@/components/site/sign-in-dialog';
@@ -441,6 +442,18 @@ function stepParams(step: PlaygroundStep): (readonly [string, string])[] {
 
 /** A read tool's result, as the server wrote it (agent-first-proposal.md 5.3). */
 function ListingCard({ listing, w }: { listing: WorkbenchListingPart; w: Dictionary['dashboard']['workbench'] }) {
+  if (listing.kind === 'delegations') {
+    /* External Agents' output, framed as theirs by the panel (proposal 7.9). */
+    return (
+      <article className="rounded-md bg-reply p-3.5">
+        <p className="text-[12.5px] font-medium text-ink">{w.listingDelegations}</p>
+        {listing.delegations.length === 0 ? <p className="mt-1.5 text-[12px] text-muted">{w.listingNone}</p> : null}
+        {listing.delegations.map((delegation) => (
+          <DelegationPanel key={delegation.id} delegation={delegation} />
+        ))}
+      </article>
+    );
+  }
   if (listing.kind === 'subscriptions') {
     return (
       <article className="rounded-md bg-reply p-3.5">

@@ -16,13 +16,26 @@
  * Its own secret, separate from `SESSION_SIGNING_SECRET`: rotating the session
  * secret signs everyone out, and nobody should have to weigh that against
  * leaving provider credentials under a key they want to retire.
+ *
+ * The same secret also seals the bearer tokens and API keys users give re0
+ * for their external A2A Agents (agent-first-proposal.md 7.9). Those are
+ * sealed under a key derived with their own label (`purpose`), so a row of
+ * one kind never opens as the other.
  */
 import { base64UrlDecode, base64UrlEncode } from '@/lib/infrastructure/crypto/tokens';
 
 const encoder = new TextEncoder();
 const decoder = new TextDecoder();
 
-let cachedKey: Promise<CryptoKey> | undefined;
+/** What a sealed value is for; each derives its own key from the one secret. */
+export type CredentialPurpose = 'provider' | 'agent';
+
+const SALTS: Record<CredentialPurpose, string> = {
+  provider: 're0/provider-credential/v1',
+  agent: 're0/agent-credential/v1',
+};
+
+const cachedKeys = new Map<CredentialPurpose, Promise<CryptoKey>>();
 
 function encryptionSecret(): string {
   const secret = process.env.CREDENTIAL_ENCRYPTION_KEY;
@@ -37,8 +50,9 @@ export function isCredentialKeyConfigured(): boolean {
   return Boolean(secret && secret.length >= 32);
 }
 
-function credentialKey(): Promise<CryptoKey> {
-  cachedKey ??= (async () => {
+function credentialKey(purpose: CredentialPurpose): Promise<CryptoKey> {
+  let key = cachedKeys.get(purpose);
+  key ??= (async () => {
     const material = await crypto.subtle.importKey(
       'raw',
       encoder.encode(encryptionSecret()),
@@ -50,7 +64,7 @@ function credentialKey(): Promise<CryptoKey> {
       {
         name: 'HKDF',
         hash: 'SHA-256',
-        salt: encoder.encode('re0/provider-credential/v1'),
+        salt: encoder.encode(SALTS[purpose]),
         info: encoder.encode('aes-gcm'),
       },
       material,
@@ -59,16 +73,17 @@ function credentialKey(): Promise<CryptoKey> {
       ['encrypt', 'decrypt'],
     );
   })();
-  return cachedKey;
+  cachedKeys.set(purpose, key);
+  return key;
 }
 
 /** The stored form: a fresh nonce and the sealed key, both base64url. */
-export async function sealCredential(plaintext: string): Promise<string> {
+export async function sealCredential(plaintext: string, purpose: CredentialPurpose = 'provider'): Promise<string> {
   const iv = new Uint8Array(12);
   crypto.getRandomValues(iv);
   const ciphertext = await crypto.subtle.encrypt(
     { name: 'AES-GCM', iv },
-    await credentialKey(),
+    await credentialKey(purpose),
     encoder.encode(plaintext),
   );
   return `${base64UrlEncode(iv)}.${base64UrlEncode(new Uint8Array(ciphertext))}`;
@@ -79,14 +94,17 @@ export async function sealCredential(plaintext: string): Promise<string> {
  * under a retired secret is a configuration problem the caller reports as an
  * unavailable provider, not a crash on the retrieval path.
  */
-export async function openCredential(sealed: string | null | undefined): Promise<string | null> {
+export async function openCredential(
+  sealed: string | null | undefined,
+  purpose: CredentialPurpose = 'provider',
+): Promise<string | null> {
   if (!sealed) return null;
   const [nonce, body] = sealed.split('.');
   if (!nonce || !body) return null;
   try {
     const plaintext = await crypto.subtle.decrypt(
       { name: 'AES-GCM', iv: base64UrlDecode(nonce) },
-      await credentialKey(),
+      await credentialKey(purpose),
       base64UrlDecode(body),
     );
     return decoder.decode(plaintext);
@@ -97,5 +115,5 @@ export async function openCredential(sealed: string | null | undefined): Promise
 
 /** Test seam: the derived key is cached, and a test changes the secret. */
 export function forgetCredentialKey(): void {
-  cachedKey = undefined;
+  cachedKeys.clear();
 }

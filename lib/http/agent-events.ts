@@ -122,19 +122,28 @@ export function writeAgentEvent(
                 building: asset.building,
               })),
             }
-          : {
-              kind: 'subscriptions' as const,
-              channels: event.listing.summary.channels.map((channel) => ({
-                slug: channel.slug,
-                title: channel.title,
-                visibility: channel.visibility,
-                assets: channel.assets,
-              })),
-              usedBytes: event.listing.summary.storage.usedBytes,
-              capacityBytes: event.listing.summary.storage.capacityBytes,
-            };
+          : event.listing.kind === 'delegations'
+            ? { kind: 'delegations' as const, delegations: event.listing.delegations }
+            : {
+                kind: 'subscriptions' as const,
+                channels: event.listing.summary.channels.map((channel) => ({
+                  slug: channel.slug,
+                  title: channel.title,
+                  visibility: channel.visibility,
+                  assets: channel.assets,
+                })),
+                usedBytes: event.listing.summary.storage.usedBytes,
+                capacityBytes: event.listing.summary.storage.capacityBytes,
+              };
       writer.write({ type: 'data-listing', data });
-      record?.listings.push(data);
+      /*
+       * An external Agent's output is an A2A body, purged after 30 days
+       * (proposal 10): the conversation keeps which delegations were shown,
+       * and the workbench reads them back from their rows.
+       */
+      record?.listings.push(
+        data.kind === 'delegations' ? { kind: 'delegations', delegationIds: data.delegations.map((delegation) => delegation.id) } : data,
+      );
       return;
     }
     case 'acted':

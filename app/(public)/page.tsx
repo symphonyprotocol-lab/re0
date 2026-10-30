@@ -1,7 +1,8 @@
 import Link from 'next/link';
-import { Button, SectionHeading, ShowcaseCard } from '@/components/ui/primitives';
+import { Button, Chip, SectionHeading, ShowcaseCard } from '@/components/ui/primitives';
 import { HeroFigure } from '@/components/site/hero-figure';
 import { ChannelGrid } from '@/components/site/channel-grid';
+import { ScenarioDemo } from '@/components/site/scenario-demo';
 import { CopyButton } from '@/components/dashboard/copy-button';
 import {
   ArrowRightIcon,
@@ -15,6 +16,7 @@ import {
 } from '@/components/ui/icons';
 import { cachedChannelDirectory } from '@/lib/http/channel-directory';
 import { isDirectorySort, type DirectorySort } from '@/lib/domain/channel';
+import { isPromoted, scenarioPath, SCENARIOS } from '@/lib/domain/scenarios';
 import { translations } from '@/lib/i18n/server';
 import { publicUrl } from '@/lib/site/origin';
 
@@ -22,10 +24,11 @@ import { publicUrl } from '@/lib/site/origin';
 const FEATURED = 6;
 
 /**
- * The P1 home page (agent-first-proposal.md 4.2, 13.1): the slogan, the
- * channel directory, and the address agent developers start from. The chat
- * input and the four scene demos need the P2 agent and arrive with it; the
- * page claims only what the product does today.
+ * The home page (agent-first-proposal.md 4.2, 13.1): the slogan, the four
+ * scenarios with a static demo exchange each (P4; no model is called) and a
+ * link to each scenario's page, the channel directory, and the address
+ * agent developers start from. Creators' button is 开通频道; Life is shown
+ * but marked as not promoted yet (2.2).
  */
 export default async function HomePage({
   searchParams,
@@ -78,6 +81,38 @@ export default async function HomePage({
           </div>
 
           <HeroFigure className="mx-auto hidden w-full max-w-[400px] lg:block" />
+        </div>
+      </section>
+
+      {/* The four scenarios (proposal 2.2, 4.2): one short static exchange each, and the way to its page. */}
+      <section id="scenarios" className="mx-auto w-full max-w-[1200px] scroll-mt-24 px-5 pb-20">
+        <SectionHeading eyebrow={t.home.scenariosEyebrow} title={t.home.scenariosTitle} />
+        <div className="mt-10 grid grid-cols-1 gap-5 md:grid-cols-2">
+          {SCENARIOS.map((scenario) => {
+            const page = t.scenarios[scenario];
+            return (
+              <ShowcaseCard key={scenario} className="flex flex-col gap-4">
+                <div className="flex flex-wrap items-center gap-2">
+                  <span className="eyebrow">{t.scenarios.names[scenario]}</span>
+                  {isPromoted(scenario) ? null : <Chip>{t.scenarios.notPromoted}</Chip>}
+                </div>
+                <h3 className="text-[17px] leading-[1.45] font-semibold text-ink">{page.title}</h3>
+                <ScenarioDemo turns={page.demo.slice(0, 2)} labels={t.scenarios} />
+                <div className="mt-auto flex flex-wrap items-center gap-3">
+                  {scenario === 'creators' ? (
+                    <Button href="/dashboard/channels">
+                      <PlusIcon size={15} />
+                      {t.home.openChannel}
+                    </Button>
+                  ) : null}
+                  <Link href={scenarioPath(scenario)} className="flex items-center gap-1.5 text-caption text-brandink hover:underline">
+                    {t.home.scenarioMore}
+                    <ArrowRightIcon size={14} />
+                  </Link>
+                </div>
+              </ShowcaseCard>
+            );
+          })}
         </div>
       </section>
 

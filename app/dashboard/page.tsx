@@ -11,6 +11,7 @@ import {
   pendingTargets,
 } from '@/lib/application/agent';
 import { listWorkspaceChannels } from '@/lib/application/channels';
+import { delegationsByActionIds, delegationsByIds } from '@/lib/application/external-agents';
 import { listWorkspaceLibraries } from '@/lib/application/libraries';
 import { cardOf } from '@/lib/dashboard/action-card';
 import type { PlaygroundUIMessage } from '@/lib/http/playground-stream';
@@ -178,10 +179,8 @@ async function rebuildMessages(
   turns: Awaited<ReturnType<typeof conversationTurns>>,
 ): Promise<PlaygroundUIMessage[]> {
   const messages: PlaygroundUIMessage[] = [];
-  const actions = await actionsByIds(
-    workspaceId,
-    turns.flatMap((turn) => ((turn.content as { actions?: string[] }).actions ?? [])),
-  );
+  const actionIds = turns.flatMap((turn) => ((turn.content as { actions?: string[] }).actions ?? []));
+  const [actions, delegations] = await Promise.all([actionsByIds(workspaceId, actionIds), delegationsByActionIds(workspaceId, actionIds)]);
   for (const turn of turns) {
     const content = turn.content as Record<string, unknown>;
     if (turn.role === 'user') {
@@ -189,13 +188,19 @@ async function rebuildMessages(
       continue;
     }
     const parts: PlaygroundUIMessage['parts'] = [];
-    for (const listing of (content.listings as PlaygroundUIMessage['parts'][number][] | undefined) ?? []) {
+    for (const listing of (content.listings as Record<string, unknown>[] | undefined) ?? []) {
+      /* A delegations listing keeps ids only; the output is read back from its rows, purged or not. */
+      if (listing.kind === 'delegations') {
+        const ids = Array.isArray(listing.delegationIds) ? (listing.delegationIds as string[]) : [];
+        parts.push({ type: 'data-listing', data: { kind: 'delegations', delegations: await delegationsByIds(workspaceId, ids) } });
+        continue;
+      }
       parts.push({ type: 'data-listing', data: listing as never });
     }
     for (const actionId of (content.actions as string[] | undefined) ?? []) {
       const action = actions.get(actionId);
       if (!action) continue;
-      parts.push({ type: 'data-action', id: action.id, data: cardOf(action) });
+      parts.push({ type: 'data-action', id: action.id, data: cardOf(action, delegations.get(action.id) ?? null) });
     }
     for (const refusal of (content.refused as { tool: string; code: string; message: string }[] | undefined) ?? []) {
       parts.push({ type: 'data-refused', data: refusal as never });

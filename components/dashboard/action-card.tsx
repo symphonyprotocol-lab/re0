@@ -8,6 +8,7 @@ import {
   rejectPendingAction,
   type DecideResult,
 } from '@/app/dashboard/actions/actions';
+import { DelegationPanel } from '@/components/dashboard/delegation-panel';
 import { formatBytes } from '@/components/dashboard/pdf-uploader';
 import type { ActionState, ActionSummary } from '@/lib/domain/agent-action';
 import type { WorkbenchAction } from '@/lib/http/playground-stream';
@@ -34,7 +35,53 @@ export function actionSentence(summary: ActionSummary, a: Words): string {
       });
     case 'move_asset':
       return fill(a.what.move_asset, { asset: summary.asset?.publicId ?? '', from: channel(summary.from), to: channel(summary.to) });
+    case 'delegate_task':
+      return fill(a.what.delegate_task, { agent: summary.delegation?.agentName ?? '' });
   }
+}
+
+/**
+ * What a delegation card states (proposal 7.9): the target and its card,
+ * the endpoint, the skill, the exact text, and the credential by kind and
+ * last four characters -- the parameters the confirmation is bound to.
+ */
+function DelegationTerms({ delegation, a }: { delegation: NonNullable<ActionSummary['delegation']>; a: Words }) {
+  const d = a.delegate;
+  const credential = delegation.credential;
+  const credentialText = !credential
+    ? d.none
+    : credential.suffix
+      ? fill(credential.kind === 'bearer' ? d.bearer : d.apiKey, { suffix: credential.suffix })
+      : credential.kind === 'bearer'
+        ? d.bearerMasked
+        : d.apiKeyMasked;
+  return (
+    <>
+      <dl className="mt-2 grid gap-x-4 gap-y-1 text-[11.5px] text-muted sm:grid-cols-[auto_1fr]">
+        <dt className="text-faint">{d.target}</dt>
+        <dd>
+          <span className="text-ink">{delegation.agentName}</span> <span className="font-mono text-[10.5px] break-all">{delegation.cardUrl}</span>
+        </dd>
+        <dt className="text-faint">{d.endpoint}</dt>
+        <dd className="font-mono text-[10.5px] break-all">
+          {delegation.endpoint.url} · {delegation.endpoint.binding}
+        </dd>
+        <dt className="text-faint">{d.skill}</dt>
+        <dd className="font-mono text-[10.5px]">{delegation.skill ? `${delegation.skill.id} (${delegation.skill.name})` : d.noSkill}</dd>
+        <dt className="text-faint">{d.credential}</dt>
+        <dd>{credentialText}</dd>
+      </dl>
+      <p className="mt-2 text-[11px] text-faint">{d.message}</p>
+      {delegation.message === null ? (
+        <p className="mt-1 text-[11.5px] text-faint">{d.purgedMessage}</p>
+      ) : (
+        <pre className="mt-1 max-h-48 overflow-auto rounded border border-line/70 bg-subtle p-2 font-sans text-[12px] leading-[1.6] whitespace-pre-wrap text-ink">
+          {delegation.message}
+        </pre>
+      )}
+      <p className="mt-1.5 text-[11px] text-muted">{d.note}</p>
+    </>
+  );
 }
 
 function costLine(summary: ActionSummary, a: Words): string {
@@ -94,6 +141,7 @@ export function ActionCard({
         </span>
       </div>
       <p className="mt-1.5 text-[12.5px] leading-[1.6] text-ink">{actionSentence(summary, a)}</p>
+      {summary.delegation ? <DelegationTerms delegation={summary.delegation} a={a} /> : null}
       <dl className="mt-2 grid gap-x-4 gap-y-1 text-[11.5px] text-muted sm:grid-cols-[auto_1fr]">
         <dt className="text-faint">{a.cost}</dt>
         <dd>{costLine(summary, a)}</dd>
@@ -151,6 +199,7 @@ export function ActionCard({
       ) : null}
 
       {state === 'confirmed' ? <p className="mt-2 text-[11.5px] text-brandink">{a.confirmedNote}</p> : null}
+      {(decided?.delegation ?? action.delegation) ? <DelegationPanel delegation={(decided?.delegation ?? action.delegation)!} /> : null}
       {state === 'failed' ? <p className="mt-2 text-[11.5px] text-warn">{fill(a.failedNote, { reason: reason ?? '' })}</p> : null}
       {state === 'rejected' ? <p className="mt-2 text-[11.5px] text-muted">{a.rejectedNote}</p> : null}
       {state === 'expired' ? <p className="mt-2 text-[11.5px] text-muted">{a.expiredNote}</p> : null}

@@ -23,7 +23,8 @@
  *
  * Then the server runs it once, as that person, through the same use case
  * a Dashboard click runs (createWorkspaceLibrary, requestLibraryRebuild,
- * createChannel, moveAsset -- every rule stays there), records the outcome
+ * createChannel, moveAsset -- every rule stays there; for `delegate_task`,
+ * the one SendMessage of external-agents/delegation.ts), records the outcome
  * on the row, and writes an audit entry. A use case that refuses -- a move
  * into a public channel without a rights declaration, a build the balance
  * cannot cover -- leaves the action `failed` with the reason, never
@@ -31,6 +32,10 @@
  *
  * Results are written from the row and the use case's return value by the
  * server; nothing here passes through a model (proposal 5.3).
+ *
+ * A delegation's text is an A2A message body (proposal 10): the audit log
+ * keeps its digest, not the text, and the 30-day purge clears it from the
+ * row (external-agents/delegation.ts `purgeDelegationBodies`).
  */
 import { randomUUID } from 'node:crypto';
 import { and, desc, eq, gt, inArray, isNull, lte, ne } from 'drizzle-orm';
@@ -51,6 +56,7 @@ import {
   type ActionSummary,
   type ActionTool,
   type ConfirmActor,
+  WORKBENCH_ONLY_TOOLS,
 } from '@/lib/domain/agent-action';
 import { channelSlugFromTitle, normalizeChannelSlug } from '@/lib/domain/channel';
 import { requiresDomainVerification } from '@/lib/domain/domain-verification';
@@ -62,6 +68,7 @@ import { createChannel, moveAsset } from '@/lib/application/channels';
 import { createWorkspaceLibrary } from '@/lib/application/libraries/create';
 import { canManageLibraries, type WorkspaceRole } from '@/lib/application/libraries/delete';
 import { requestLibraryRebuild } from '@/lib/application/libraries/rebuild';
+import { prepareDelegation, sendDelegation } from '@/lib/application/external-agents/delegation';
 import { quoteBuild, workspaceStorage } from '@/lib/application/plans';
 import { sha256 } from '@/lib/infrastructure/crypto/tokens';
 import { db, schema } from '@/lib/infrastructure/postgres/client';
@@ -140,6 +147,9 @@ export interface ProposeInput {
  */
 export async function proposeAction(input: ProposeInput): Promise<PendingActionView> {
   if (!isActionTool(input.tool)) throw new ActionRefused('unknown_tool', `"${input.tool}" is not an action`);
+  if (WORKBENCH_ONLY_TOOLS.has(input.tool) && input.origin !== 'workbench') {
+    throw new ActionRefused('workbench_only', `"${input.tool}" is proposed only from the owner's workbench`);
+  }
   if (input.role !== null && !canManageLibraries(input.role)) {
     throw new AppError('access_denied', 'only a workspace owner or admin can ask for this');
   }
@@ -182,6 +192,7 @@ async function prepare(
     to: null,
     source: null,
     channel: null,
+    delegation: null,
     calls: { min: 0, max: 0 },
     assetBytes: null,
     capacityRemainingBytes: null,
@@ -261,6 +272,18 @@ async function prepare(
       params: { tool, slug, title, description, visibility },
       /* An empty channel shows nothing yet; what goes into it is a move of its own. */
       summary: { ...blank, tool, channel: { slug, title, visibility } },
+      estimatedCalls: 0,
+      estimatedBytes: 0,
+    };
+  }
+
+  if (tool === 'delegate_task') {
+    /* Sends nothing: the agent, endpoint, skill, text and credential are frozen for the card. */
+    const { params, delegation } = await prepareDelegation(workspaceId, args);
+    return {
+      params,
+      summary: { ...blank, tool, delegation },
+      /* Delegation bills no Calls (proposal 7.9, 8.2). */
       estimatedCalls: 0,
       estimatedBytes: 0,
     };
@@ -425,7 +448,7 @@ export async function confirmAction(
   let operationId: string | null = null;
   try {
     const role = await memberRole(owner.userId, action.workspaceId);
-    result = await execute(action.workspaceId, role, owner.userId, params);
+    result = await execute(action.workspaceId, role, owner.userId, params, action);
     operationId = typeof result.operationId === 'string' ? result.operationId : null;
   } catch (error) {
     const message = refusalMessage(error);
@@ -475,6 +498,7 @@ async function execute(
   role: WorkspaceRole,
   userId: string,
   params: ActionParams,
+  action: ActionRow,
 ): Promise<Record<string, unknown>> {
   switch (params.tool) {
     case 'create_asset': {
@@ -511,6 +535,10 @@ async function execute(
     case 'move_asset': {
       const moved = await moveAsset({ workspaceId, role, assetId: params.assetId, channelId: params.channelId });
       return { assetId: params.assetId, from: moved.from, to: moved.to, madePublic: moved.madePublic };
+    }
+    case 'delegate_task': {
+      const sent = await sendDelegation(workspaceId, params, { actionId: action.id, conversationId: action.conversationId ?? null });
+      return { delegationId: sent.delegationId, remoteState: sent.state, remoteTaskId: sent.remoteTaskId };
     }
   }
 }
@@ -595,7 +623,7 @@ async function closeAction(
     targetType: 'agent_action',
     targetId: closed.id,
     reason,
-    beforeValue: { params: closed.params, origin: closed.origin },
+    beforeValue: { params: await auditedParams(closed.params), origin: closed.origin },
     afterValue: { workspaceId: closed.workspaceId, decidedBy: userId },
     result: 'success',
   });
@@ -715,6 +743,17 @@ function refusalMessage(error: unknown): string {
   return 'the action could not be completed';
 }
 
+/** A delegation's text is a message body: the audit log keeps its digest (proposal 10). */
+async function auditedParams(params: Record<string, unknown>): Promise<Record<string, unknown>> {
+  if (params.tool !== 'delegate_task' || typeof params.message !== 'string') return params;
+  return { ...params, message: null, messageDigest: await sha256(params.message) };
+}
+
+function auditedSummary(summary: Record<string, unknown>): Record<string, unknown> {
+  const delegation = summary.delegation as Record<string, unknown> | null | undefined;
+  return delegation ? { ...summary, delegation: { ...delegation, message: null } } : summary;
+}
+
 async function audit(row: ActionRow, userId: string, result: 'success' | 'failure'): Promise<void> {
   await recordAudit({
     administratorId: null,
@@ -722,7 +761,7 @@ async function audit(row: ActionRow, userId: string, result: 'success' | 'failur
     targetType: 'agent_action',
     targetId: row.id,
     reason: row.origin === 'a2a' ? 'confirmed an A2A request' : 'confirmed a workbench request',
-    beforeValue: { params: row.params, summary: row.summary, origin: row.origin },
+    beforeValue: { params: await auditedParams(row.params), summary: auditedSummary(row.summary), origin: row.origin },
     afterValue: { workspaceId: row.workspaceId, confirmedBy: userId, result: row.result, error: row.error },
     result,
   });

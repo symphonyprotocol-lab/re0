@@ -39,6 +39,8 @@ const ROUTES = [
   'dashboard',
   'embed',
   'files',
+  /* The scenario pages (proposal 2.2, 4.2). */
+  'for',
   'legal',
   'libraries',
   'login',

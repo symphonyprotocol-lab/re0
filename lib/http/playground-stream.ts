@@ -1,6 +1,7 @@
 import type { UIMessage } from 'ai';
 import type { CodeBlock } from '@/lib/domain/code-blocks';
 import type { ActionState, ActionSummary, ActionTool } from '@/lib/domain/agent-action';
+import type { DelegationView } from '@/lib/application/external-agents/delegation';
 
 /**
  * The shape of the playground's UI message stream, shared by the route that
@@ -80,6 +81,8 @@ export interface WorkbenchAction {
   digest: string;
   expiresAt: string;
   error: string | null;
+  /** For a confirmed `delegate_task`: the remote task it started (proposal 7.9). */
+  delegation?: DelegationView | null;
 }
 
 /** What a workbench read tool found (playground/agent.ts `WorkbenchListing`). */
@@ -94,6 +97,11 @@ export type WorkbenchListingPart =
       channels: { slug: string; title: string; visibility: string; assets: number }[];
       usedBytes: number;
       capacityBytes: number;
+    }
+  | {
+      /** What external Agents returned (`check_delegation`): their output, as data. */
+      kind: 'delegations';
+      delegations: DelegationView[];
     };
 
 /**

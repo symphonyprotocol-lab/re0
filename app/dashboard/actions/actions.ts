@@ -4,6 +4,7 @@ import { after } from 'next/server';
 import { revalidatePath } from 'next/cache';
 import { confirmAction, rejectAction } from '@/lib/application/agent';
 import { syncBuildTasks } from '@/lib/application/a2a/task-events';
+import { delegationsByActionIds, type DelegationView } from '@/lib/application/external-agents';
 import { canManageLibraries } from '@/lib/application/libraries';
 import { runOperation } from '@/lib/application/ingestion';
 import { ActionRefused, type ActionState, type ConfirmActor } from '@/lib/domain/agent-action';
@@ -24,9 +25,11 @@ export interface DecideResult {
   /** A refusal code the card words (`dashboard.agentActions.errors`). */
   error: string | null;
   reason: string | null;
+  /** A confirmed delegation: the remote task it started (proposal 7.9). */
+  delegation?: DelegationView | null;
 }
 
-async function ownerActor(): Promise<ConfirmActor> {
+async function ownerActor(): Promise<Extract<ConfirmActor, { kind: 'owner' }>> {
   const session = await requireSession('/dashboard/actions');
   return {
     kind: 'owner',
@@ -42,6 +45,7 @@ function refresh(): void {
   revalidatePath('/dashboard/assets');
   revalidatePath('/dashboard/channels');
   revalidatePath('/dashboard/a2a');
+  revalidatePath('/dashboard/external-agents');
 }
 
 function refused(error: unknown): DecideResult {
@@ -72,7 +76,9 @@ export async function confirmPendingAction(_previous: DecideResult | null, form:
         }
       });
     }
-    return { ok: action.state === 'confirmed', state: action.state, error: null, reason: action.error };
+    const delegation =
+      action.tool === 'delegate_task' ? ((await delegationsByActionIds(actor.workspaceId, [action.id])).get(action.id) ?? null) : null;
+    return { ok: action.state === 'confirmed', state: action.state, error: null, reason: action.error, delegation };
   } catch (error) {
     return refused(error);
   }
