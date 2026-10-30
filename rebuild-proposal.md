@@ -113,7 +113,7 @@ Dot 主可以为自己的 Dot 生成一段 30 秒左右的动画介绍，用 **R
 
 **内容怎么来**：模型根据 Dot 的知识画像、示例问题和简介生成一份脚本，固定 5 个镜头：开场（名字与一句话定位）→ 它知道什么（知识来源逐条飞入）→ 你可以问它什么（3 个示例问题打字机效果）→ 一个真实问答片段（从该 Dot 历史里挑一条点赞过的，没有则用示例问题现问一次）→ 结尾（价格与「问它」二维码 / 链接）。Dot 主在生成后可以逐镜头改文字、换主题色、选 3 套模板之一，然后保存。第一版**没有配音**，只有字幕与一段内置的免版税背景音乐；配音（TTS）留到以后。
 
-**收费**：生成或重新生成脚本按一次提问收 20 credits；导出 MP4 每次 50 credits（平台只付 Blob 存储与流量，象征性收费，默认值可改）；在线播放与分享链接不收费。
+**收费**：生成或重新生成脚本按一次提问收 20 credits；导出 MP4 **每个 Dot 第一次免费**，之后每次 50 credits（平台只付 Blob 存储与流量，象征性收费，默认值可改）；命中缓存直接取已有文件的不算一次、不收费；在线播放与分享链接不收费。
 
 **许可**：Remotion 对个人和 3 人以下公司免费，超过要买公司许可，上线前确认；浏览器端渲染要在 `renderMediaOnWeb()` 里传 `licenseKey`（符合免费条件传 `'free-license'`，否则传 remotion.pro 的公钥）。
 
@@ -159,7 +159,7 @@ Dot 主可以为自己的 Dot 生成一段 30 秒左右的动画介绍，用 **R
 | `POST /api/messages/[id]/feedback` | 对一条 Dot 回答点「有用 / 没用」 |
 | `POST /api/dots/[id]/video/script` | 用模型生成或重新生成 5 镜头脚本，写入 `dot_video` |
 | `PATCH /api/dots/[id]/video` | 保存镜头文字、模板、主题色 |
-| `POST /api/dots/[id]/video/exports` | 导出开始：校验并冻结 credits，返回 Blob 直传令牌与一条 `video_export` 记录；若同版本同比例已有文件则直接返回其地址、不扣费 |
+| `POST /api/dots/[id]/video/exports` | 导出开始：该 Dot 若还没有一条 `done` 的导出记录则免费，否则校验并冻结 50 credits；返回 Blob 直传令牌与一条 `video_export` 记录；若同版本同比例已有文件则直接返回其地址、不扣费也不占用首次免费 |
 | `POST /api/dots/[id]/video/exports/[exportId]/complete` | 浏览器渲染并上传完成后回报 Blob 地址，结算 credits；浏览器中途关闭的记录由定时任务清理并解冻 |
 | `POST /api/chats` / `DELETE /api/chats/[id]` | 新建、删除对话；新建时可带初始 Dot 列表 |
 | `POST` / `DELETE /api/chats/[id]/dots/[dotId]` | 拉进、移出一个 Dot；只能拉自己的或公开的 |
