@@ -65,7 +65,7 @@ import { Re0AgentExecutor, statusKey, type ExecutorDependencies } from './execut
 import { callerQuota } from './extended';
 import { subscribesTo } from '@/lib/application/channels/subscriptions';
 import { PostgresPushNotificationStore, Re0PushNotificationSender, settlePushes } from './push';
-import { failStaleTasks, syncBuildTasks } from './task-events';
+import { failStaleTasks, STALE_TASK_AFTER_MS, syncBuildTasks } from './task-events';
 import { PostgresTaskStore } from './task-store';
 
 export type A2AResponse =
@@ -311,14 +311,32 @@ class StoreBackedRequestHandler implements A2ARequestHandler {
 async function catchUp(taskIds: string[]): Promise<void> {
   const ids = taskIds.filter((id) => id && id.length <= 200);
   if (ids.length === 0) return;
-  const overdue = await db()
-    .select({ id: schema.agentAction.id })
-    .from(schema.agentAction)
-    .where(and(inArray(schema.agentAction.a2aTaskId, ids), eq(schema.agentAction.state, 'pending')));
-  if (overdue.length > 0) await expireActions(new Date(), overdue.map((row) => row.id));
-  await reconcileActionTasks(ids);
-  await syncBuildTasks(ids);
-  await failStaleTasks(new Date(), ids);
+  /*
+   * One read of where the tasks stand decides which repairs can apply, so a
+   * SubscribeToTask poll (every second) of a task that is simply working or
+   * done costs this one query, not a round of updates.
+   */
+  const now = new Date();
+  const tasks = await db()
+    .select({ id: schema.a2aTask.id, state: schema.a2aTask.state, workflowRunId: schema.a2aTask.workflowRunId, updatedAt: schema.a2aTask.updatedAt })
+    .from(schema.a2aTask)
+    .where(inArray(schema.a2aTask.id, ids));
+  const waiting = tasks.filter((task) => task.state === 'TASK_STATE_INPUT_REQUIRED').map((task) => task.id);
+  const working = tasks.filter((task) => task.state === 'TASK_STATE_WORKING');
+  const building = working.filter((task) => task.workflowRunId !== null).map((task) => task.id);
+  const stale = working
+    .filter((task) => task.workflowRunId === null && task.updatedAt.getTime() < now.getTime() - STALE_TASK_AFTER_MS)
+    .map((task) => task.id);
+  if (waiting.length > 0) {
+    const overdue = await db()
+      .select({ id: schema.agentAction.id })
+      .from(schema.agentAction)
+      .where(and(inArray(schema.agentAction.a2aTaskId, waiting), eq(schema.agentAction.state, 'pending')));
+    if (overdue.length > 0) await expireActions(now, overdue.map((row) => row.id));
+    await reconcileActionTasks(waiting, now);
+  }
+  if (building.length > 0) await syncBuildTasks(building);
+  if (stale.length > 0) await failStaleTasks(now, stale);
 }
 
 function requestHandlerFor(input: A2ARequest): StoreBackedRequestHandler {

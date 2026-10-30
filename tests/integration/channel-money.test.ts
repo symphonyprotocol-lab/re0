@@ -450,6 +450,65 @@ describeWithDb('channel money: deletion, balance caps, one row per subscription,
     expect((await creatorBalance(creator.workspaceId)).balanceMinor).toBe(0);
   });
 
+  it('review: a provider that refuses the cancel (already canceled) leaves the row ending, so checkout and deletion are not held', async () => {
+    const creator = await person('rfx');
+    const reader = await person('rfxr');
+    const channel = await sellingChannel(creator, 'money-rfx');
+    const subscriptionId = `sub_money_${stamp}_rfx`;
+    const transactionId = `txn_money_${stamp}_rfx`;
+    const notice = (adjustments: Parameters<typeof sale>[0]['adjustments'] = []) =>
+      sale({ planVersionId: channel.monthly.id, subscriber: reader, subscriptionId, transactionId, exTaxMinor: 600, adjustments });
+    await applyPaymentNotification(notice(), recordingAdapter().adapter);
+    /* Paddle answers 4xx: the subscription is canceled there already. The refund stands. */
+    const { adapter } = recordingAdapter({ cancelFails: 422 });
+    expect(await applyPaymentNotification(notice([{ id: `adj_money_${stamp}_rfx`, action: 'refund', exTaxMinor: 600 }]), adapter)).toBe('applied');
+    const [row] = await rowsOf(reader, channel.id);
+    expect(row).toMatchObject({ status: 'refunded', cancelAtPeriodEnd: true });
+    expect(
+      await subscriptions.startChannelCheckout(
+        { userId: reader.userId, workspaceId: reader.workspaceId, channelId: channel.id, interval: 'month' },
+        recordingAdapter().adapter,
+      ),
+    ).toBe('https://pay.example.test');
+  });
+
+  it('review: a discounted renewal of a subscription a checked sale opened still extends it; a discounted first sale does not', async () => {
+    const creator = await person('dsc');
+    const reader = await person('dscr');
+    const channel = await sellingChannel(creator, 'money-dsc');
+    const { adapter } = recordingAdapter();
+    const subscriptionId = `sub_money_${stamp}_dsc`;
+    const start = new Date(Date.now() - 20 * DAY);
+    expect(
+      await applyPaymentNotification(
+        sale({ planVersionId: channel.monthly.id, subscriber: reader, subscriptionId, transactionId: `txn_money_${stamp}_dsc0`, exTaxMinor: 300, discountMinor: 300 }),
+        adapter,
+      ),
+    ).toBe('refused');
+    expect(
+      await applyPaymentNotification(
+        sale({ planVersionId: channel.monthly.id, subscriber: reader, subscriptionId, transactionId: `txn_money_${stamp}_dsc1`, exTaxMinor: 600, collectedAt: start }),
+        adapter,
+      ),
+    ).toBe('applied');
+    /* An operator's 50% retention discount on the next cycle: charged, so it must extend access and credit the creator. */
+    const renewal = sale({
+      planVersionId: channel.monthly.id,
+      subscriber: reader,
+      subscriptionId,
+      transactionId: `txn_money_${stamp}_dsc2`,
+      exTaxMinor: 300,
+      discountMinor: 300,
+      collectedAt: new Date(start.getTime() + 30 * DAY),
+      periodEnd: new Date(start.getTime() + 60 * DAY),
+    });
+    expect(await applyPaymentNotification(renewal, adapter)).toBe('applied');
+    const [row] = await rowsOf(reader, channel.id);
+    expect(row?.currentPeriodEnd.getTime()).toBe(start.getTime() + 60 * DAY);
+    const credited = await db().select().from(schema.earningEvent).where(eq(schema.earningEvent.reference, `txn_money_${stamp}_dsc2`));
+    expect(credited.map((event) => Number(event.amountMinor))).toEqual([240]);
+  });
+
   it('M17: an event dated into a locked period is booked into the open one', async () => {
     const creator = await person('late');
     const reader = await person('later');

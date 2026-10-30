@@ -180,16 +180,24 @@ export interface ChannelSaleTerms {
  * plan and the buyer, but a buyer can put it on a checkout of their own
  * (Paddle.js runs with a public token), so what was sold is checked too:
  * the channel product, the version's currency, at least the version's price,
- * and no discount -- re0 issues none on channel plans. A renewal bills the
- * same non-catalogue price, so it passes; a raised minimum is not applied
- * here, because a subscription keeps the version it bought.
+ * and no discount -- re0 issues none on channel plans. A raised minimum is
+ * not applied here, because a subscription keeps the version it bought.
+ *
+ * The amount is held only against a first sale (`renewal: false`). A renewal
+ * belongs to a subscription a checked first sale already opened, and Paddle
+ * bills it on its own terms -- a discount an operator or a retention offer
+ * put on the subscription included. Refusing it would leave a buyer charged
+ * with no access and the creator with no credit; the product and currency
+ * are still checked, since those a forged tag cannot borrow from a renewal.
  */
 export function channelSaleMismatch(
   sale: ChannelSaleTerms,
   plan: { priceMinor: number; currency: string },
+  options: { renewal?: boolean } = {},
 ): 'product' | 'currency' | 'amount' | null {
   if (!sale.onChannelProduct) return 'product';
   if (sale.currency !== plan.currency) return 'currency';
+  if (options.renewal) return null;
   if (!Number.isFinite(sale.listPriceMinor) || sale.listPriceMinor < plan.priceMinor) return 'amount';
   if (!Number.isFinite(sale.discountMinor) || sale.discountMinor !== 0) return 'amount';
   return null;

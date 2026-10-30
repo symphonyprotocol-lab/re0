@@ -14,6 +14,7 @@
  * the page counts that address instead; an unsigned or forged one is
  * ignored.
  */
+import { addressRateLimitKey, signingSecret } from '@/lib/http/auth-endpoints';
 import { clientAddress, type HeaderBag } from '@/lib/http/client-address';
 import type { RateLimitRule, RateLimitVerdict } from '@/lib/infrastructure/cache/redis';
 import { strictRateLimit } from '@/lib/infrastructure/cache/strict-rate-limit';
@@ -28,12 +29,6 @@ export const ANONYMOUS_READING_RULE: RateLimitRule = { limit: 60, windowSeconds:
 
 /** The reader's address, as the Markdown renderer forwards it: `<hmac>:<address>`. */
 export const READER_HEADER = 'x-re0-reader';
-
-function secret(): string {
-  const value = process.env.SESSION_SIGNING_SECRET;
-  if (!value || value.length < 32) throw new Error('SESSION_SIGNING_SECRET is not set (needs at least 32 characters)');
-  return value;
-}
 
 /**
  * The header the renderer adds to its fetch of the page, naming the reader it
@@ -53,13 +48,12 @@ async function readerAddress(headers: HeaderBag): Promise<string> {
   const cut = forwarded?.indexOf(':') ?? -1;
   if (forwarded && cut > 0) {
     const address = forwarded.slice(cut + 1);
-    if (timingSafeEqual(await hmacSha256(secret(), `reader|${address}`), forwarded.slice(0, cut))) return address;
+    if (timingSafeEqual(await hmacSha256(signingSecret(), `reader|${address}`), forwarded.slice(0, cut))) return address;
   }
   return clientAddress(headers) ?? 'unknown';
 }
 
 /** One more full text or signed file for a session-less reader, or a refusal with how long to wait. */
 export async function anonymousRead(headers: HeaderBag): Promise<RateLimitVerdict> {
-  const key = `ratelimit:reading:${await hmacSha256(secret(), await readerAddress(headers))}`;
-  return strictRateLimit(key, ANONYMOUS_READING_RULE);
+  return strictRateLimit(await addressRateLimitKey('reading', await readerAddress(headers)), ANONYMOUS_READING_RULE);
 }

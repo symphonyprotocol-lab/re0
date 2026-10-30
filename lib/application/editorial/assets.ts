@@ -26,7 +26,7 @@
  * on `publish_at` for the queue drain.
  */
 import { and, desc, eq, inArray, isNotNull, isNull, lte } from 'drizzle-orm';
-import { AppError } from '@/contracts/errors';
+import { AppError, type ErrorCode } from '@/contracts/errors';
 import { ChannelRefused } from '@/lib/domain/channel';
 import { ChannelCommerceRefused } from '@/lib/domain/channel-commerce';
 import {
@@ -429,11 +429,13 @@ async function publishNow(asset: EditorialAsset, actor: EditorActor): Promise<st
   return operationId;
 }
 
+/** Failures of ours, not a rule's: the draft stays scheduled and the next drain tries again. */
+const TRANSIENT_CODES: ReadonlySet<ErrorCode> = new Set(['internal_error', 'provider_unavailable', 'rate_limited', 'source_fetch_failed', 'index_failed']);
+
 /** The stable code of a rule that refused a publication, or null for a failure of ours. */
-function refusedBy(error: unknown): string | null {
-  if (error instanceof EditorialRefused || error instanceof ChannelRefused || error instanceof ChannelCommerceRefused || error instanceof AppError) {
-    return error.code;
-  }
+export function publicationRefusal(error: unknown): string | null {
+  if (error instanceof EditorialRefused || error instanceof ChannelRefused || error instanceof ChannelCommerceRefused) return error.code;
+  if (error instanceof AppError) return TRANSIENT_CODES.has(error.code) ? null : error.code;
   return null;
 }
 
@@ -469,7 +471,7 @@ export async function publishDueDrafts(now: Date = new Date(), limit = 20): Prom
       operations.push(await publishNow(asset, actor));
       published.push(row.assetId);
     } catch (error) {
-      const reason = refusedBy(error);
+      const reason = publicationRefusal(error);
       console.error(`scheduled publication of ${row.assetId} ${reason ? `refused: ${reason}` : `failed: ${error instanceof Error ? error.message : 'unknown'}`}`);
       if (!reason) continue;
       await db()

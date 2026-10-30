@@ -716,9 +716,10 @@ export async function applyChannelTransaction(
   /*
    * The tag names the plan; what was paid must pay for it. A transaction
    * that does not is recorded with its payload (`payment_event`) for an
-   * operator and grants nothing.
+   * operator and grants nothing. A renewal of a row a checked sale opened is
+   * held to the product and currency only (`channelSaleMismatch`).
    */
-  const mismatch = channelSaleMismatch(notice, plan);
+  const mismatch = channelSaleMismatch(notice, plan, { renewal: subscription !== null });
   if (mismatch) {
     console.error(`channel webhook: transaction ${notice.transactionId} does not pay for plan version ${plan.id} (${mismatch})`);
     return 'refused';
@@ -866,9 +867,12 @@ async function bookAdjustments(
  *
  * Called inside the webhook's transaction, so an outage throws, the event
  * rolls back with the refund it carried, and the provider's retry does both
- * again -- the retry is the queue. A refusal (already canceled, unknown id)
- * is the same on every retry, so it is logged and the refund stands; the row
- * then still reads as one that may renew, and checkout stays closed to it.
+ * again -- the retry is the queue. A refusal (already canceled -- by an
+ * earlier attempt whose transaction rolled back, or at the provider --, an
+ * unknown id) is the same on every retry, and says the provider will not
+ * renew it either: it is logged, the refund stands, and the row is marked as
+ * ending like a canceled one, so it no longer holds the channel's deletion
+ * or the buyer's next checkout.
  */
 async function stopAtProvider(tx: Tx, subscription: SubscriptionRow, adapter: PaymentAdapter | undefined): Promise<void> {
   const externalId = subscription.providerSubscriptionId;
@@ -884,7 +888,6 @@ async function stopAtProvider(tx: Tx, subscription: SubscriptionRow, adapter: Pa
     const refused = error instanceof PaymentProviderError && error.status !== null && error.status >= 400 && error.status < 500 && error.status !== 429;
     if (!refused) throw error;
     console.error(`channel webhook: the provider would not cancel ${externalId}: ${(error as Error).message}`);
-    return;
   }
   await tx
     .update(schema.channelSubscription)

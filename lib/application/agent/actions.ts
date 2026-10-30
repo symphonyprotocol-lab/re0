@@ -44,7 +44,7 @@
  * from the drain and whenever the task is read.
  */
 import { randomUUID } from 'node:crypto';
-import { and, desc, eq, gt, inArray, isNull, lt, lte, ne } from 'drizzle-orm';
+import { and, desc, eq, gt, inArray, isNull, lt, lte, ne, notExists, sql } from 'drizzle-orm';
 import { TaskState } from '@a2a-js/sdk';
 import { AppError } from '@/contracts/errors';
 import {
@@ -778,6 +778,13 @@ export async function reconcileActionTasks(taskIds?: readonly string[], now: Dat
         isNull(schema.agentAction.result),
         isNull(schema.agentAction.error),
         lt(schema.agentAction.decidedAt, new Date(now.getTime() - CONFIRM_SETTLE_MS)),
+        /* A run that audited its outcome and only lost the result write is recorded already: never a second, contrary entry. */
+        notExists(
+          db()
+            .select({ one: sql`1` })
+            .from(schema.auditLog)
+            .where(and(eq(schema.auditLog.targetType, 'agent_action'), eq(schema.auditLog.targetId, sql`${schema.agentAction.id}::text`))),
+        ),
         ...scope,
       ),
     )
