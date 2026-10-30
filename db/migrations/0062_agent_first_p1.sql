@@ -193,7 +193,7 @@ CREATE UNIQUE INDEX "workspace_handle_uq" ON "workspace" ("handle");
 CREATE TABLE "channel" (
   "id" uuid PRIMARY KEY,
   "slug" text NOT NULL,
-  "workspace_id" uuid REFERENCES "workspace"("id"),
+  "workspace_id" uuid REFERENCES "workspace"("id") ON DELETE CASCADE,
   "title" text NOT NULL,
   "description" text,
   "visibility" text NOT NULL DEFAULT 'public',
@@ -279,7 +279,7 @@ ALTER TABLE "retrieval_config"
 CREATE TABLE "a2a_task" (
   "id" text PRIMARY KEY,
   "context_id" text NOT NULL,
-  "workspace_id" uuid REFERENCES "workspace"("id"),
+  "workspace_id" uuid REFERENCES "workspace"("id") ON DELETE CASCADE,
   "api_key_id" uuid,
   "tenant" text NOT NULL DEFAULT '',
   "skill" text,

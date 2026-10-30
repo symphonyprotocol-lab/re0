@@ -666,7 +666,7 @@ export const channel = pgTable(
   {
     id: uuid('id').primaryKey(),
     slug: text('slug').notNull(),
-    workspaceId: uuid('workspace_id').references(() => workspace.id),
+    workspaceId: uuid('workspace_id').references(() => workspace.id, { onDelete: 'cascade' }),
     title: text('title').notNull(),
     description: text('description'),
     visibility: text('visibility').$type<'public' | 'private'>().notNull().default('public'),
@@ -2183,7 +2183,7 @@ export const a2aTask = pgTable(
   {
     id: text('id').primaryKey(),
     contextId: text('context_id').notNull(),
-    workspaceId: uuid('workspace_id').references(() => workspace.id),
+    workspaceId: uuid('workspace_id').references(() => workspace.id, { onDelete: 'cascade' }),
     apiKeyId: uuid('api_key_id'),
     tenant: text('tenant').notNull().default(''),
     skill: text('skill'),

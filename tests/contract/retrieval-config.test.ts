@@ -34,6 +34,11 @@ describe('defaults', () => {
       playgroundAgentSteps: 4,
       playgroundAgentQueries: 3,
       playgroundAgentResolves: 2,
+      /* The channel directory's 热门 weights and half-life (agent-first-proposal.md 6.4). */
+      channelActivityBps: 5_000,
+      channelFreshnessBps: 2_500,
+      channelQualityBps: 2_500,
+      channelHalfLifeDays: 14,
     });
   });
 

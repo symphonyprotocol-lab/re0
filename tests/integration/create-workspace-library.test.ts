@@ -8,6 +8,7 @@
  */
 import { afterAll, describe, expect, it } from 'vitest';
 import { eq, inArray } from 'drizzle-orm';
+import { inNoChannel } from '../fixtures/channels';
 
 const TEST_DATABASE_URL = process.env.TEST_DATABASE_URL;
 const describeWithDb = TEST_DATABASE_URL ? describe : describe.skip;
@@ -196,7 +197,6 @@ describeWithDb('workspace library creation', () => {
       role: 'owner',
       workspaceId,
       title: 'Team handbook',
-      visibility: 'private',
       sourceType: 'website',
       location: 'https://docs.example.test/handbook',
       indexDepth: 3,
@@ -213,7 +213,10 @@ describeWithDb('workspace library creation', () => {
       .from(schema.library)
       .where(eq(schema.library.id, created.libraryId));
     expect(row?.ownerWorkspaceId).toBe(workspaceId);
-    expect(row?.visibility).toBe('private');
+    /* A new asset is in no channel and its owner's alone (agent-first-proposal.md 3.3, 6.2). */
+    expect(row?.kind).toBe('website');
+    expect(row?.access).toBe('free');
+    expect(await inNoChannel(created.libraryId)).toBe(true);
     expect(row?.lifecycleStatus).toBe('draft');
 
     const [source] = await db()
@@ -316,7 +319,6 @@ describeWithDb('workspace library creation', () => {
         role: 'owner',
         workspaceId,
         title: 'Handbook PDF',
-        visibility: 'private',
         sourceType: 'pdf',
         location: '',
         slug: `handbook-pdf-${stamp}`,
@@ -329,7 +331,6 @@ describeWithDb('workspace library creation', () => {
       role: 'owner',
       workspaceId,
       title: 'Handbook PDF',
-      visibility: 'private',
       sourceType: 'pdf',
       location: '',
       slug: `handbook-pdf-${stamp}`,
@@ -385,7 +386,6 @@ describeWithDb('workspace library creation', () => {
       role: 'owner',
       workspaceId,
       title: 'Later PDFs',
-      visibility: 'private',
       sourceType: 'pdf',
       location: '',
       slug: `later-pdfs-${stamp}`,
@@ -486,7 +486,6 @@ describeWithDb('workspace library creation', () => {
       role: 'owner',
       workspaceId,
       title: 'Only one',
-      visibility: 'private',
       sourceType: 'website',
       location: 'https://api.example.test/reference/',
       domainVerificationId: await verifiedDomain(workspaceId, 'https://api.example.test/reference/'),
@@ -500,7 +499,6 @@ describeWithDb('workspace library creation', () => {
         role: 'owner',
         workspaceId: other,
         title: 'Duplicate id',
-        visibility: 'private',
         sourceType: 'website',
         location: 'https://api.example.test/reference/',
         domainVerificationId: await verifiedDomain(other, 'https://api.example.test/reference/'),
@@ -513,7 +511,6 @@ describeWithDb('workspace library creation', () => {
         role: 'owner',
         workspaceId: other,
         title: 'Bad location',
-        visibility: 'private',
         sourceType: 'github',
         location: 'not a repository',
         slug: '',

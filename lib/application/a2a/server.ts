@@ -151,13 +151,6 @@ function requestHandlerFor(input: A2ARequest): StoreBackedRequestHandler {
   return new StoreBackedRequestHandler(inner, store, input.streamWindowMs ?? DEFAULT_STREAM_WINDOW_MS);
 }
 
-/** The v0.3 shape of a card, with the v1.0 interfaces embedded, as the SDK's own legacy card route serves it. */
-export async function legacyCardJson(card: AgentCard): Promise<unknown> {
-  const legacy = await new LegacyRestTransportHandler({ getAgentCard: async () => card } as unknown as A2ARequestHandler).getAgentCard();
-  const wire = AgentCard.toJSON(card) as { supportedInterfaces?: unknown[] };
-  return { ...legacy, supportedInterfaces: wire.supportedInterfaces ?? [] };
-}
-
 /* ---------------------------------------------------------------- dispatch */
 
 export async function handleA2A(input: A2ARequest): Promise<A2AResponse> {

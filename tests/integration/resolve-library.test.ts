@@ -10,6 +10,7 @@
  */
 import { afterAll, describe, expect, it } from 'vitest';
 import { eq, inArray } from 'drizzle-orm';
+import { unshare } from '../fixtures/channels';
 
 const TEST_DATABASE_URL = process.env.TEST_DATABASE_URL;
 const describeWithDb = TEST_DATABASE_URL ? describe : describe.skip;
@@ -257,8 +258,10 @@ describeWithDb('library-level discovery', () => {
     await database.insert(schema.workspace).values({ id: workspaceId, name: 'resolve-test' });
     await database
       .update(schema.library)
-      .set({ visibility: 'private', ownerWorkspaceId: workspaceId })
+      .set({ ownerWorkspaceId: workspaceId })
       .where(eq(schema.library.id, libraryId));
+    /* Out of every channel: the owner's alone (agent-first-proposal.md 6.2). */
+    await unshare(libraryId);
 
     try {
       const anonymousView = await resolveLibrary(anonymous, { query: '量子退火器的校准' }, noEmbeddings);

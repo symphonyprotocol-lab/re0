@@ -88,7 +88,7 @@ async function library(input: {
       publicId: `/overview-${stamp}/${libraryIds.length}`,
       title: `Overview fixture ${libraryIds.length}`,
       ownerWorkspaceId: workspaceId,
-      visibility: 'public',
+      kind: 'website',
       lifecycleStatus: input.lifecycleStatus,
       indexStatus: input.indexStatus,
       createdAt: input.createdAt,

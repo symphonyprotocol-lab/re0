@@ -151,3 +151,64 @@ export function buildAgentCard(facts: CardFacts): AgentCard {
 export function agentCardJson(card: AgentCard): unknown {
   return AgentCard.toJSON(card);
 }
+
+/**
+ * The v0.3 shape of a card, for a caller that sends no `A2A-Version` (which
+ * the specification reads as 0.3), with the v1.0 interfaces embedded as
+ * `supportedInterfaces` so a v1.0 client reading the same document still
+ * finds them.
+ *
+ * The SDK has this translation (`toCompatAgentCard`) but exports it only
+ * inside its Express card router, so this follows it field by field: the
+ * first 0.3 interface is the card's `url` and `preferredTransport`, the
+ * others are `additionalInterfaces`, the Bearer scheme becomes the OpenAPI
+ * `http` form, `protocolVersion` moves to the card.
+ */
+export function legacyAgentCardJson(card: AgentCard): Record<string, unknown> {
+  const legacy = card.supportedInterfaces.filter((intf) => !intf.protocolVersion || intf.protocolVersion.startsWith('0.'));
+  const primary = legacy[0];
+  if (!primary) throw new Error('the card declares no v0.3 interface');
+  const optional = <T>(value: T | undefined | '') => (value === undefined || value === '' ? undefined : value);
+  const securitySchemes = Object.fromEntries(
+    Object.entries(card.securitySchemes).flatMap(([name, scheme]) =>
+      scheme.scheme?.$case === 'httpAuthSecurityScheme'
+        ? [[name, { type: 'http', scheme: scheme.scheme.value.scheme, bearerFormat: optional(scheme.scheme.value.bearerFormat), description: optional(scheme.scheme.value.description) }]]
+        : [],
+    ),
+  );
+  const wire = AgentCard.toJSON(card) as { supportedInterfaces?: unknown[] };
+  return {
+    name: card.name,
+    description: card.description,
+    version: card.version,
+    url: primary.url,
+    preferredTransport: primary.protocolBinding,
+    protocolVersion: primary.protocolVersion || A2A_LEGACY_VERSION,
+    capabilities: {
+      ...(card.capabilities?.streaming !== undefined ? { streaming: card.capabilities.streaming } : {}),
+      ...(card.capabilities?.pushNotifications !== undefined ? { pushNotifications: card.capabilities.pushNotifications } : {}),
+    },
+    defaultInputModes: [...card.defaultInputModes],
+    defaultOutputModes: [...card.defaultOutputModes],
+    skills: card.skills.map((skill) => ({
+      id: skill.id,
+      name: skill.name,
+      description: skill.description,
+      tags: [...skill.tags],
+      ...(skill.examples.length > 0 ? { examples: [...skill.examples] } : {}),
+      ...(skill.inputModes.length > 0 ? { inputModes: [...skill.inputModes] } : {}),
+      ...(skill.outputModes.length > 0 ? { outputModes: [...skill.outputModes] } : {}),
+    })),
+    ...(legacy.length > 1
+      ? { additionalInterfaces: legacy.slice(1).map((intf) => ({ url: intf.url, transport: intf.protocolBinding })) }
+      : {}),
+    ...(card.provider ? { provider: { url: card.provider.url, organization: card.provider.organization } } : {}),
+    ...(optional(card.documentationUrl) ? { documentationUrl: card.documentationUrl } : {}),
+    ...(optional(card.iconUrl) ? { iconUrl: card.iconUrl } : {}),
+    ...(card.capabilities?.extendedAgentCard !== undefined
+      ? { supportsAuthenticatedExtendedCard: card.capabilities.extendedAgentCard }
+      : {}),
+    ...(Object.keys(securitySchemes).length > 0 ? { securitySchemes } : {}),
+    supportedInterfaces: wire.supportedInterfaces ?? [],
+  };
+}

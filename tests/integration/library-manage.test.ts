@@ -30,6 +30,7 @@
  */
 import { afterAll, describe, expect, it } from 'vitest';
 import { asc, eq, inArray } from 'drizzle-orm';
+import { inNoChannel, shareInPublicChannel } from '../fixtures/channels';
 
 const TEST_DATABASE_URL = process.env.TEST_DATABASE_URL;
 const describeWithDb = TEST_DATABASE_URL ? describe : describe.skip;
@@ -158,7 +159,6 @@ async function library(
     title: 'Team handbook',
     description: options.description,
     language: options.language,
-    visibility: options.visibility ?? 'private',
     sourceType: 'website',
     location,
     domainVerificationId: await verifiedDomain(workspaceId, location),
@@ -167,6 +167,8 @@ async function library(
     rights: { origin: 'own', license: 'open_source', generation: 'human' },
   });
   libraries.push(created.libraryId);
+  /* Public means listed in a public channel now (agent-first-proposal.md 6.2). */
+  if (options.visibility === 'public') await shareInPublicChannel(created.libraryId);
   return { libraryId: created.libraryId, publicId: created.publicId, operationId: created.operationId };
 }
 
@@ -492,9 +494,8 @@ describeWithDb('owner library management', () => {
       title: '  Quartzloft handbook  ',
       description: '  The onboarding checklist.  ',
       language: 'en',
-      visibility: 'private',
     });
-    expect(edited.visibility).toBe('private');
+    expect(edited.lifecycleStatus).toBe('draft');
 
     const row = await libraryRow(created.libraryId);
     expect(row?.title).toBe('Quartzloft handbook');
@@ -509,7 +510,6 @@ describeWithDb('owner library management', () => {
       title: 'Quartzloft handbook',
       description: '   ',
       language: '',
-      visibility: 'private',
     });
     const cleared = await libraryRow(created.libraryId);
     expect(cleared?.description).toBeNull();
@@ -524,7 +524,6 @@ describeWithDb('owner library management', () => {
           libraryId: created.libraryId,
           title: 'Quartzloft handbook',
           description: 'x'.repeat(DESCRIPTION_MAX_LENGTH + 1),
-          visibility: 'private',
         }),
       ),
     ).toBe('invalid_metadata');
@@ -536,7 +535,6 @@ describeWithDb('owner library management', () => {
           libraryId: created.libraryId,
           title: 'Quartzloft handbook',
           language: 'x'.repeat(LANGUAGE_MAX_LENGTH + 1),
-          visibility: 'private',
         }),
       ),
     ).toBe('invalid_metadata');
@@ -547,21 +545,9 @@ describeWithDb('owner library management', () => {
           role: 'owner',
           libraryId: created.libraryId,
           title: '   ',
-          visibility: 'private',
         }),
       ),
     ).toBe('invalid_title');
-    expect(
-      await refusalOf(
-        editLibraryMetadata({
-          workspaceId,
-          role: 'owner',
-          libraryId: created.libraryId,
-          title: 'Quartzloft handbook',
-          visibility: 'unlisted',
-        }),
-      ),
-    ).toBe('invalid_metadata');
 
     /* Creation refuses exactly the same lengths, so a value the form cannot
        save can never be stored in the first place. */
@@ -573,7 +559,6 @@ describeWithDb('owner library management', () => {
           workspaceId,
           title: 'Too long',
           description: 'x'.repeat(DESCRIPTION_MAX_LENGTH + 1),
-          visibility: 'private',
           sourceType: 'website',
           location,
           domainVerificationId: await verifiedDomain(workspaceId, location),
@@ -588,60 +573,39 @@ describeWithDb('owner library management', () => {
     expect(after?.description).toBeNull();
   });
 
-  it('applies the visibility transition rules in both directions', async () => {
+  it('never moves the lifecycle or the channel, and refuses an archived library', async () => {
     const workspaceId = await workspaceOnPlan();
 
-    /* private -> public, published: stays live. Going public needs the
-       declaration (made at creation here); nothing waits for review since 2026-10-23. */
-    const live = await library(workspaceId, { visibility: 'private' });
+    /* A live asset in a public channel stays live and stays listed: who sees an
+       asset is its channel (agent-first-proposal.md 6.2), not a field of this edit. */
+    const live = await library(workspaceId, { visibility: 'public' });
     await build(live.libraryId);
     await setLifecycle(live.libraryId, 'published');
-    const toPublic = await editLibraryMetadata({
+    const edited = await editLibraryMetadata({
       workspaceId,
       role: 'owner',
       libraryId: live.libraryId,
-      title: 'Team handbook',
-      visibility: 'public',
+      title: 'Team handbook, revised',
     });
-    expect(toPublic.visibility).toBe('public');
-    expect(toPublic.lifecycleStatus).toBe('published');
+    expect(edited.lifecycleStatus).toBe('published');
     expect(await lifecycleOf(live.libraryId)).toBe('published');
+    expect(await inNoChannel(live.libraryId)).toBe(false);
 
-    /* public -> private: live stays live. */
-    const back = await editLibraryMetadata({
-      workspaceId,
-      role: 'owner',
-      libraryId: live.libraryId,
-      title: 'Team handbook',
-      visibility: 'private',
-    });
-    expect(back.lifecycleStatus).toBe('published');
-    expect((await libraryRow(live.libraryId))?.visibility).toBe('private');
+    /* A rights declaration that would not allow public use is refused while the asset is public. */
+    expect(
+      await refusalOf(
+        editLibraryMetadata({
+          workspaceId,
+          role: 'owner',
+          libraryId: live.libraryId,
+          title: 'Team handbook',
+          rights: { origin: 'own', license: 'open_source', generation: 'generated' },
+        }),
+      ),
+    ).toBe('rights_generated');
 
-    /* private -> public on a draft: the build publishes it, not this edit. */
-    const draft = await library(workspaceId, { visibility: 'private' });
-    const draftPublic = await editLibraryMetadata({
-      workspaceId,
-      role: 'owner',
-      libraryId: draft.libraryId,
-      title: 'Team handbook',
-      visibility: 'public',
-    });
-    expect(draftPublic.lifecycleStatus).toBe('draft');
-
-    /* A review-era state with no indexed version goes back to draft. */
-    await setLifecycle(draft.libraryId, 'submitted');
-    const draftPrivate = await editLibraryMetadata({
-      workspaceId,
-      role: 'owner',
-      libraryId: draft.libraryId,
-      title: 'Team handbook',
-      visibility: 'private',
-    });
-    expect(draftPrivate.lifecycleStatus).toBe('draft');
-
-    /* A suspension is not lifted by going private. */
-    const stopped = await library(workspaceId, { visibility: 'public' });
+    /* A suspension is not lifted by an edit. */
+    const stopped = await library(workspaceId);
     await build(stopped.libraryId);
     await setLifecycle(stopped.libraryId, 'suspended');
     const stillStopped = await editLibraryMetadata({
@@ -649,25 +613,16 @@ describeWithDb('owner library management', () => {
       role: 'owner',
       libraryId: stopped.libraryId,
       title: 'Team handbook',
-      visibility: 'private',
     });
     expect(stillStopped.lifecycleStatus).toBe('suspended');
-    expect(await lifecycleOf(stopped.libraryId)).toBe('suspended');
 
     /* An archived library is refused, not moved. */
     await setLifecycle(stopped.libraryId, 'archived');
     expect(
       await refusalOf(
-        editLibraryMetadata({
-          workspaceId,
-          role: 'owner',
-          libraryId: stopped.libraryId,
-          title: 'Team handbook',
-          visibility: 'public',
-        }),
+        editLibraryMetadata({ workspaceId, role: 'owner', libraryId: stopped.libraryId, title: 'Team handbook' }),
       ),
     ).toBe('archived');
-    expect((await libraryRow(stopped.libraryId))?.visibility).toBe('private');
   });
 
   /* ----------------------------------------------------------- parse scope */
@@ -848,7 +803,6 @@ describeWithDb('owner library management', () => {
             role,
             libraryId: created.libraryId,
             title: 'Renamed by a developer',
-            visibility: 'public',
           }),
         ),
       ).toBe('access_denied');
@@ -884,7 +838,6 @@ describeWithDb('owner library management', () => {
             role: 'owner',
             libraryId,
             title: 'Mine now',
-            visibility: 'public',
           }),
         ),
       ).toBe('library_not_found');
@@ -903,7 +856,7 @@ describeWithDb('owner library management', () => {
     /* The refused calls wrote nothing. */
     const row = await libraryRow(created.libraryId);
     expect(row?.title).toBe('Team handbook');
-    expect(row?.visibility).toBe('private');
+    expect(await inNoChannel(created.libraryId)).toBe(true);
     expect(row?.lifecycleStatus).toBe('published');
     expect(await reviews(created.libraryId)).toHaveLength(0);
 
@@ -916,7 +869,7 @@ describeWithDb('owner library management', () => {
       title: 'Platform library',
       ownerWorkspaceId: workspaceId,
       isPlatformLibrary: true,
-      visibility: 'public',
+      kind: 'website',
       lifecycleStatus: 'published',
       indexStatus: 'ready',
     });

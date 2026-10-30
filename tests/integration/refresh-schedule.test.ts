@@ -17,11 +17,12 @@ const describeWithDb = TEST_DATABASE_URL ? describe : describe.skip;
 process.env.DATABASE_URL = TEST_DATABASE_URL ?? 'postgres://unused';
 process.env.SESSION_SIGNING_SECRET ??= 'test-secret-that-is-long-enough-000000';
 
-const { createPlatformLibrary, addPlatformLibrarySource } =
+const { createPlatformLibrary } =
   await import('@/lib/application/administration/manage-platform-libraries');
 const { refreshSchedule, scheduleDueRefreshes } =
   await import('@/lib/application/ingestion/schedule-refreshes');
 const { db, schema } = await import('@/lib/infrastructure/postgres/client');
+const { uuidv7 } = await import('@/lib/domain/id');
 
 const actor = { administratorId: null as unknown as string, email: 'ops@example.test' };
 const slug = `schedule-fixture-${Date.now()}`;
@@ -107,13 +108,17 @@ describeWithDb('refresh scheduler', () => {
       reason: 'integration test fixture',
     });
     created.push(mixed.libraryId);
-    const added = await addPlatformLibrarySource({
-      actor,
+    /* A second source, written directly: the console refuses one since P1
+       (agent-first-proposal.md 3.1), but the scheduler still decides per
+       source, the shape libraries had before migration 0062 split them. */
+    const added = { sourceId: uuidv7() };
+    await db().insert(schema.source).values({
+      id: added.sourceId,
       libraryId: mixed.libraryId,
       type: 'website',
       location: 'https://example.test/mixed-weekly',
-      refreshPolicy: 'weekly',
-      reason: 'integration test fixture',
+      config: { indexDepth: 0 },
+      refreshPolicy: { cadence: 'weekly' },
     });
 
     /* The library was just checked: nothing is due yet. */

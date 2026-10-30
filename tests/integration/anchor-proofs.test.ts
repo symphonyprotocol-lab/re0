@@ -9,6 +9,7 @@
  */
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { eq, inArray } from 'drizzle-orm';
+import { shareInPublicChannel } from '../fixtures/channels';
 
 const TEST_DATABASE_URL = process.env.TEST_DATABASE_URL;
 const describeWithDb = TEST_DATABASE_URL ? describe : describe.skip;
@@ -58,10 +59,12 @@ async function library(input: {
     publicId,
     title: `Anchor fixture ${input.slug}`,
     ownerWorkspaceId: workspaceId,
-    visibility: input.visibility ?? 'public',
+    kind: 'website',
     lifecycleStatus: input.lifecycleStatus ?? 'published',
     indexStatus: input.indexStatus ?? 'ready',
   });
+  /* Public means free in a public channel now (agent-first-proposal.md 6.2). */
+  if ((input.visibility ?? 'public') === 'public') await shareInPublicChannel(libraryId);
 
   const versionId = uuidv7();
   versionIds.push(versionId);

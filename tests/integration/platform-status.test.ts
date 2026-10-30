@@ -64,7 +64,7 @@ async function library(input: {
     title: `Status fixture ${libraryIds.length}`,
     ownerWorkspaceId: input.isPlatformLibrary ? null : workspaceId,
     isPlatformLibrary: input.isPlatformLibrary,
-    visibility: 'public',
+    kind: 'website',
     lifecycleStatus: input.lifecycleStatus,
     indexStatus: 'ready',
     createdAt: daysAgo(30),

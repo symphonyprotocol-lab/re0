@@ -8,6 +8,7 @@
  */
 import { afterAll, describe, expect, it } from 'vitest';
 import { eq, inArray } from 'drizzle-orm';
+import { unshare } from '../fixtures/channels';
 
 const TEST_DATABASE_URL = process.env.TEST_DATABASE_URL;
 const describeWithDb = TEST_DATABASE_URL ? describe : describe.skip;
@@ -413,8 +414,10 @@ describeWithDb('query-docs', () => {
     const owner = await workspaceOnPlan(100);
     await db()
       .update(schema.library)
-      .set({ visibility: 'private', ownerWorkspaceId: owner })
+      .set({ ownerWorkspaceId: owner })
       .where(eq(schema.library.id, libraryId));
+    /* Out of every channel: the owner's alone (agent-first-proposal.md 6.2). */
+    await unshare(libraryId);
 
     try {
       const input = {

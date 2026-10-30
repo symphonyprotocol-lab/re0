@@ -176,7 +176,6 @@ async function ownedLibrary(workspaceId: string, slug: string): Promise<string> 
     .update(schema.library)
     .set({
       lifecycleStatus: 'published',
-      visibility: 'private',
       isPlatformLibrary: false,
       ownerWorkspaceId: workspaceId,
     })

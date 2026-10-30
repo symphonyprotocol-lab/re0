@@ -202,7 +202,6 @@ describeWithDb('github repository import', () => {
         workspaceId,
         userId,
         title: 'Repo docs',
-        visibility: 'public',
         rights: { origin: 'own', license: 'open_source', generation: 'human' },
         sourceType: 'github',
         location,
@@ -216,7 +215,7 @@ describeWithDb('github repository import', () => {
     await expect(attempt('octocat/missing')).rejects.toMatchObject({ refusal: 'not_found', reason: 'source_mismatch' });
     /* No account at all on the call: refused before anything is read. */
     await expect(
-      createWorkspaceLibrary({ role: 'owner', workspaceId, title: 'x', visibility: 'public', rights: { origin: 'own', license: 'open_source', generation: 'human' }, sourceType: 'github', location: 'octocat/docs', slug: '' }),
+      createWorkspaceLibrary({ role: 'owner', workspaceId, title: 'x', rights: { origin: 'own', license: 'open_source', generation: 'human' }, sourceType: 'github', location: 'octocat/docs', slug: '' }),
     ).rejects.toMatchObject({ code: 'access_denied' });
 
     /* The one that passes: id from GitHub's spelling, repository id on the source. */

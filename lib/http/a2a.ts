@@ -15,8 +15,8 @@ import { NextResponse, type NextRequest } from 'next/server';
 import { AppError, httpStatusFor } from '@/contracts/errors';
 import { resolveApiKey } from '@/lib/application/auth/api-key';
 import { userByHandle } from '@/lib/application/channels';
-import { agentCardJson, buildAgentCard } from '@/lib/application/a2a/card';
-import { handleA2A, legacyCardJson, type A2AResponse } from '@/lib/application/a2a/server';
+import { agentCardJson, buildAgentCard, legacyAgentCardJson } from '@/lib/application/a2a/card';
+import { handleA2A, type A2AResponse } from '@/lib/application/a2a/server';
 import { resolveTenant, splitTenantPath, type A2ATenant } from '@/lib/application/a2a/tenant';
 import { hasScope } from '@/lib/domain/api-key';
 import { rateLimitKey } from '@/lib/http/auth-endpoints';
@@ -70,7 +70,7 @@ export async function serveCard(request: NextRequest, tenantKey: string): Promis
   if (!tenant) return NextResponse.json({ error: 'no such agent' }, { status: 404, headers: CORS_HEADERS });
   const card = await cardFor(tenant);
   const version = request.headers.get('a2a-version');
-  const body = version && !version.startsWith('0.') ? agentCardJson(card) : await legacyCardJson(card);
+  const body = version && !version.startsWith('0.') ? agentCardJson(card) : legacyAgentCardJson(card);
   return NextResponse.json(body, {
     headers: {
       ...CORS_HEADERS,
