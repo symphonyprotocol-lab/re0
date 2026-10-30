@@ -23,6 +23,12 @@ import { fileURLToPath } from 'node:url';
 const sharesADatabase = Boolean(process.env.TEST_DATABASE_URL);
 
 export default defineConfig({
+  /*
+   * tsconfig keeps JSX for Next to compile (`preserve`); a test that renders
+   * a page -- the scenario pages, tests/contract/scenarios.test.ts -- needs
+   * it compiled here.
+   */
+  oxc: { jsx: { runtime: 'automatic' } },
   resolve: {
     alias: { '@': fileURLToPath(new URL('.', import.meta.url)) },
   },
