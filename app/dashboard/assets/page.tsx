@@ -54,21 +54,34 @@ function toneOf(bucket: LibraryBucket): StatusTone {
   return bucket;
 }
 
-export default async function DashboardLibrariesPage() {
-  const [session, { locale, t }] = await Promise.all([
+/**
+ * `?filter=unfiled` keeps the assets in no channel, `?kind=` one asset kind
+ * (agent-first-proposal.md 4.4: 全部资产（按类型筛选）、未归入频道的资产).
+ */
+export default async function DashboardLibrariesPage({
+  searchParams,
+}: {
+  searchParams: Promise<{ filter?: string; kind?: string }>;
+}) {
+  const [session, { locale, t }, query] = await Promise.all([
     requireSession('/dashboard/assets'),
     translations(),
+    searchParams,
   ]);
   const l = t.dashboard.libraries;
   const m = l.manage;
   const manager = canManageLibraries(session.workspace.role);
 
-  const [libraries, quote] = await Promise.all([
+  const [allLibraries, quote] = await Promise.all([
     listWorkspaceLibraries(session.workspace.id),
     /* library-build-billing.md 4.1: the worst case over page-fetching
        sources decides whether the per-row refresh is offered at all. */
     manager ? quoteBuild({ workspaceId: session.workspace.id, fetchesPages: true }) : null,
   ]);
+  const libraries = allLibraries.filter(
+    (row) =>
+      (query.filter !== 'unfiled' || row.channel === null) && (!query.kind || row.kind === query.kind),
+  );
   const usage = await libraryUsageCounts(libraries.map((row) => row.id));
   const number = new Intl.NumberFormat(locale);
   const date = new Intl.DateTimeFormat(locale, { dateStyle: 'medium' });

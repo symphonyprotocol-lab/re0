@@ -400,7 +400,7 @@ export async function commitBuildCharge(
 }
 
 /** Oldest grant first, each drained before the next is touched. */
-async function consumeGrants(tx: Tx, workspaceId: string, calls: number): Promise<void> {
+export async function consumeGrants(tx: Tx, workspaceId: string, calls: number): Promise<void> {
   let remaining = calls;
   const grants = await tx
     .select({
@@ -459,7 +459,7 @@ async function pendingSeat(tx: Tx, reservationId: string): Promise<number> {
   return own?.status === 'pending' ? own.calls : 0;
 }
 
-function remainingOf(
+export function remainingOf(
   allowance: number,
   counted: { events: number; held: number; addon: number },
 ): { planAllowanceRemaining: number; addonBalanceRemaining: number } {
@@ -472,7 +472,7 @@ function remainingOf(
   };
 }
 
-function availableOf(
+export function availableOf(
   allowance: number,
   counted: { events: number; held: number; addon: number },
 ): number {

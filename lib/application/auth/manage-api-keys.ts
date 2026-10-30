@@ -58,7 +58,7 @@ export interface CreateApiKeyInput {
   name: string;
   /** Defaults to `live`. */
   environment?: unknown;
-  /** Defaults to every grantable scope, the way pre-scope keys behaved. */
+  /** Defaults to the three read scopes, the way pre-scope keys behaved; `assets:write` is only ever asked for. */
   scopes?: unknown;
 }
 

@@ -39,6 +39,9 @@ describe('defaults', () => {
       channelFreshnessBps: 2_500,
       channelQualityBps: 2_500,
       channelHalfLifeDays: 14,
+      /* A2A `ask` (agent-first-proposal.md 8.2). */
+      askCallsPerAnswer: 10,
+      askDailyAnswers: 500,
     });
   });
 

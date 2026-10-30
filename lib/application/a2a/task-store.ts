@@ -14,7 +14,7 @@
  * nothing. Bodies (`history`, `artifacts`) are kept until `body_purge_at`
  * (proposal 10), then cleared by `purgeA2aTaskBodies`.
  */
-import { and, desc, eq, isNull, lt, lte, or, sql } from 'drizzle-orm';
+import { and, desc, eq, isNull, lt, lte, notInArray, or, sql } from 'drizzle-orm';
 import { Task, TaskState, type ListTasksRequest, type ListTasksResponse } from '@a2a-js/sdk';
 import type { ServerCallContext, TaskStore } from '@a2a-js/sdk/server';
 import { db, schema } from '@/lib/infrastructure/postgres/client';
@@ -24,6 +24,7 @@ import { callerOf, tenantOf } from './context';
 export const TASK_BODY_RETENTION_DAYS = 30;
 const DAY_MS = 86_400_000;
 const LIST_PAGE_MAX = 100;
+const TERMINAL_STATE_NAMES = ['TASK_STATE_COMPLETED', 'TASK_STATE_FAILED', 'TASK_STATE_CANCELED', 'TASK_STATE_REJECTED'];
 
 export class PostgresTaskStore implements TaskStore {
   async save(task: Task, context: ServerCallContext): Promise<void> {
@@ -66,8 +67,17 @@ export class PostgresTaskStore implements TaskStore {
           metadata: wire.metadata ?? null,
           updatedAt: now,
         },
-        /* A task id is the creator's: a save under another owner or tenant is not an update of it. */
-        setWhere: and(ownedBy(caller.workspaceId), eq(schema.a2aTask.tenant, tenantOf(context))),
+        /*
+         * A task id is the creator's: a save under another owner or tenant is
+         * not an update of it. And a terminal state is final: a snapshot the
+         * SDK loaded before an out-of-band change (task-events.ts) -- a
+         * confirmation, a cancel -- does not overwrite what that change wrote.
+         */
+        setWhere: and(
+          ownedBy(caller.workspaceId),
+          eq(schema.a2aTask.tenant, tenantOf(context)),
+          notInArray(schema.a2aTask.state, TERMINAL_STATE_NAMES),
+        ),
       });
   }
 
@@ -186,4 +196,36 @@ export async function purgeA2aTaskBodies(now: Date = new Date()): Promise<number
     )
     .returning({ id: schema.a2aTask.id });
   return purged.length;
+}
+
+export interface WorkspaceTaskRow {
+  id: string;
+  skill: string | null;
+  state: string;
+  tenant: string;
+  updatedAt: string;
+  /** The pending action the task waits on, when it waits for the owner. */
+  pendingActionId: string | null;
+}
+
+/** The workspace's A2A tasks, newest first, for the Dashboard's A2A 任务 page (proposal 4.4). */
+export async function listWorkspaceTasks(workspaceId: string, limit = 50): Promise<WorkspaceTaskRow[]> {
+  const rows = await db()
+    .select({
+      id: schema.a2aTask.id,
+      skill: schema.a2aTask.skill,
+      state: schema.a2aTask.state,
+      tenant: schema.a2aTask.tenant,
+      updatedAt: schema.a2aTask.updatedAt,
+      pendingActionId: schema.agentAction.id,
+    })
+    .from(schema.a2aTask)
+    .leftJoin(
+      schema.agentAction,
+      and(eq(schema.agentAction.a2aTaskId, schema.a2aTask.id), eq(schema.agentAction.state, 'pending')),
+    )
+    .where(eq(schema.a2aTask.workspaceId, workspaceId))
+    .orderBy(desc(schema.a2aTask.updatedAt))
+    .limit(Math.min(Math.max(limit, 1), LIST_PAGE_MAX));
+  return rows.map((row) => ({ ...row, updatedAt: row.updatedAt.toISOString(), pendingActionId: row.pendingActionId ?? null }));
 }

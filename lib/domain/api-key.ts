@@ -3,12 +3,21 @@
  *
  * A key names an environment and a set of scopes at creation and never
  * changes them: rotation mints a replacement with the same ones. The scopes a
- * user may grant are the three retrieval-side ones; the management scope is
- * reserved -- recognised when enforcing, refused when granting -- so a key
- * that can mint keys cannot come out of a form or the public API today.
+ * user may grant are the three retrieval-side ones and `assets:write`, which
+ * lets an A2A caller ask for `ingest`, `refresh` and `publish`
+ * (agent-first-proposal.md 7.4) -- every one of which still waits for the
+ * owner's confirmation in the Dashboard (proposal 5.2, 7.6). The management
+ * scope is reserved -- recognised when enforcing, refused when granting -- so
+ * a key that can mint keys cannot come out of a form or the public API today.
  */
 
-export const API_KEY_SCOPES = ['knowledge:search', 'knowledge:read', 'usage:read'] as const;
+/** What a key reads with: everything a key could do before writes existed. */
+export const API_KEY_READ_SCOPES = ['knowledge:search', 'knowledge:read', 'usage:read'] as const;
+
+/** A2A write skills: `ingest`, `refresh`, `publish`. Never granted by default. */
+export const API_KEY_WRITE_SCOPE = 'assets:write' as const;
+
+export const API_KEY_SCOPES = [...API_KEY_READ_SCOPES, API_KEY_WRITE_SCOPE] as const;
 
 export type ApiKeyScope = (typeof API_KEY_SCOPES)[number];
 
@@ -27,7 +36,8 @@ export type ApiKeyEnvironment = (typeof API_KEY_ENVIRONMENTS)[number];
 
 /**
  * Rows minted before scopes existed carry the single word `retrieval`. It
- * meant "everything a key could do", which is the three grantable scopes.
+ * meant "everything a key could do", which is the three read scopes -- not
+ * `assets:write`, which did not exist and is never granted by implication.
  */
 const LEGACY_SCOPE = 'retrieval';
 
@@ -53,7 +63,7 @@ export function normaliseScopes(stored: readonly unknown[] | null | undefined): 
   const out = new Set<string>();
   for (const value of stored ?? []) {
     if (value === LEGACY_SCOPE) {
-      for (const scope of API_KEY_SCOPES) out.add(scope);
+      for (const scope of API_KEY_READ_SCOPES) out.add(scope);
     } else if (isApiKeyScope(value) || value === API_KEY_MANAGEMENT_SCOPE) {
       out.add(value);
     }

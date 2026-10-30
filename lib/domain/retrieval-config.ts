@@ -34,6 +34,8 @@ export const RETRIEVAL_SETTING_KEYS = [
   'channelFreshnessBps',
   'channelQualityBps',
   'channelHalfLifeDays',
+  'askCallsPerAnswer',
+  'askDailyAnswers',
 ] as const;
 
 export type RetrievalSettingKey = (typeof RETRIEVAL_SETTING_KEYS)[number];
@@ -118,6 +120,15 @@ export const RETRIEVAL_SETTING_BOUNDS: Record<RetrievalSettingKey, RetrievalSett
   channelQualityBps: { min: 0, max: 10_000, default: 2_500 },
   /** Days for the freshness term to halve; the proposal's 14. */
   channelHalfLifeDays: { min: 1, max: 365, default: 14 },
+  /**
+   * What one A2A `ask` answer costs the caller (agent-first-proposal.md 8.2):
+   * 10 Calls, which covers a typical agent-loop answer with margin and breaks
+   * even at the default step cap. A degraded answer (chunk list) costs 1 like
+   * `search_context`, and a zero-result one nothing, whatever this says.
+   */
+  askCallsPerAnswer: { min: 1, max: 100, default: 10 },
+  /** A2A `ask` answers one workspace may receive per UTC day: a runaway loop's ceiling, not a rationing. */
+  askDailyAnswers: { min: 1, max: 100_000, default: 500 },
 };
 
 export const DEFAULT_RETRIEVAL_SETTINGS: RetrievalSettings = Object.fromEntries(

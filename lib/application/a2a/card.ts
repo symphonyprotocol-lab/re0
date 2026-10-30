@@ -2,26 +2,34 @@
  * Agent Cards, one generator for three levels (agent-first-proposal.md 7.1,
  * 7.2, 7.3, 7.5):
  *
- * | level    | served at                                   | tenant            | P1 skills                       |
- * | platform | /.well-known/agent-card.json                | ''                | find_channels, search_context   |
- * | user     | /a2a/users/{handle}/agent-card.json         | users/{handle}    | search_context (if any public channel) |
- * | channel  | /a2a/channels/{slug}/agent-card.json        | channels/{slug}   | search_context                  |
+ * | level    | served at                                   | tenant            | public skills                         |
+ * | platform | /.well-known/agent-card.json                | ''                | find_channels, search_context, ask    |
+ * | user     | /a2a/users/{handle}/agent-card.json         | users/{handle}    | search_context, ask (if any public channel) |
+ * | channel  | /a2a/channels/{slug}/agent-card.json        | channels/{slug}   | search_context, ask                   |
+ *
+ * The authenticated extended card (`GetExtendedAgentCard`) adds the write
+ * skills where they apply (proposal 7.2): on the platform card `ingest`,
+ * `refresh` and `publish` over the caller's own workspace; on a user card,
+ * for that user's own key only, the same three plus retrieval over all of
+ * their assets. A channel's extended card adds nothing until subscriptions
+ * (P3a). The extended card also states the caller workspace's quota,
+ * capacity and daily answer limit -- as facts in the description and as the
+ * params of a re0 extension -- and never an internal address or credential
+ * (A2A specification 13.3). The public cards never list a write skill.
  *
  * Every card declares the one A2A server twice, JSON-RPC and HTTP+JSON, at
  * protocol 1.0 with the level's tenant; and once more as JSON-RPC at 0.3,
  * the SDK's compatibility mode, where the tenant rides in the URL path
  * because v0.3 clients have no tenant field. v0.3 over HTTP+JSON is not
  * offered: its wire codecs are internal to the SDK's Express router, and
- * v0.3 clients connect over JSON-RPC. Auth is an optional Bearer: the
- * API key's workspace is the caller, and without one the public skills run
- * under the anonymous rate limit (proposal 7.4). The extended card and the
- * write skills are P2.
+ * v0.3 clients connect over JSON-RPC. Auth is a Bearer API key: optional for
+ * the retrieval skills, required for `ask` and the write skills.
  *
- * Nothing internal appears here -- no service address, no credential
- * (A2A specification 13.3) -- and the description says what makes re0's
- * results different: every passage carries its asset, version and that
- * version's on-chain anchor, checkable with the public Verifier without
- * calling re0 again.
+ * The description says what makes re0's results different: every passage
+ * carries its asset, version and that version's on-chain anchor, checkable
+ * with the public Verifier without calling re0 again; and it states the
+ * confirmation convention -- a write waits in `INPUT_REQUIRED` for a person,
+ * the asset's owner, never for the caller (proposal 7.6).
  */
 import { AgentCard } from '@a2a-js/sdk';
 import type { A2ATenant } from './tenant';
@@ -32,14 +40,39 @@ export const AGENT_CARD_VERSION = '1.0.0';
 
 export const SKILL_FIND_CHANNELS = 'find_channels';
 export const SKILL_SEARCH_CONTEXT = 'search_context';
-export type A2ASkill = typeof SKILL_FIND_CHANNELS | typeof SKILL_SEARCH_CONTEXT;
+export const SKILL_ASK = 'ask';
+export const SKILL_INGEST = 'ingest';
+export const SKILL_REFRESH = 'refresh';
+export const SKILL_PUBLISH = 'publish';
+export const WRITE_SKILLS = [SKILL_INGEST, SKILL_REFRESH, SKILL_PUBLISH] as const;
+export type A2AWriteSkill = (typeof WRITE_SKILLS)[number];
+export type A2ASkill = typeof SKILL_FIND_CHANNELS | typeof SKILL_SEARCH_CONTEXT | typeof SKILL_ASK | A2AWriteSkill;
+
+/** The re0 extension the extended card carries its quota facts in. */
+export const QUOTA_EXTENSION_URI = 'https://re0.io/a2a/extensions/workspace-quota/v1';
+
+/** The caller workspace's standing, for the extended card (proposal 7.2). */
+export interface CallerQuota {
+  planAllowanceRemaining: number;
+  addonBalanceRemaining: number;
+  capacityBytes: number;
+  usedBytes: number;
+  askCallsPerAnswer: number;
+  askDailyAnswers: number;
+  answersToday: number;
+}
 
 export interface CardFacts {
   /** The deployment's origin, `https://re0.io` in production. */
   origin: string;
   tenant: A2ATenant;
-  /** For a user card: whether the user has any public channel, without which it has no search skill. */
+  /** For a user card: whether the user has any public channel, without which it has no public skills. */
   hasPublicChannel?: boolean;
+  /**
+   * Set for the authenticated extended card: who is calling and their
+   * standing. Absent, the card is the public one.
+   */
+  extended?: { workspaceId: string; quota: CallerQuota };
 }
 
 const VERIFIABLE =
@@ -50,21 +83,36 @@ const VERIFIABLE =
 const HOW_TO_CALL =
   'Send a text message with the question. To pick a skill explicitly, set message metadata `skill`, or include a ' +
   'data part such as {"skill":"search_context","query":"...","maxTokens":4000}. Results are returned as a ' +
-  'completed task whose artifact has a text part (readable summary) and a data part (structured evidence). ' +
-  'No model is called: results are retrieved passages, not generated answers.';
+  'completed task whose artifact has a text part (the answer, or a readable summary) and a data part (structured ' +
+  'evidence). find_channels and search_context call no model: they return retrieved passages. ask returns an ' +
+  'answer in which every sentence cites a passage of this request; when the model is unavailable it returns the ' +
+  'passages instead.';
 
 const AUTH =
-  'Authentication is optional: send a re0 API key as a Bearer token to call as your workspace (each non-empty ' +
-  'search costs your workspace one Call); without one, public skills run under a low anonymous rate limit and ' +
-  'cost nothing.';
+  'Send a re0 API key as a Bearer token to call as your workspace. find_channels and search_context also work ' +
+  'without one, under a low anonymous rate limit and at no cost; with one, each non-empty search costs your ' +
+  'workspace one Call. ask needs a key with knowledge:search or knowledge:read and costs 10 Calls per answer ' +
+  '(1 if it degrades to passages, nothing if nothing matched), up to 500 answers per workspace per day.';
 
-function skillSearch(tenant: A2ATenant) {
-  const scope =
-    tenant.level === 'platform'
-      ? 'Routes the question to the best-matching public channel, then searches the free assets in it.'
-      : tenant.level === 'user'
-        ? `Searches the free assets in the public channels of re0 user ${tenant.handle}; called with that user's own API key, all of their assets.`
-        : `Searches the free assets in the re0 channel "${tenant.title}" in one query.`;
+const CONFIRMATION =
+  'Write skills (ingest, refresh, publish; extended card, assets:write scope) never act on their own: the task ' +
+  'goes to INPUT_REQUIRED while it waits for the asset owner to confirm in the re0 Dashboard -- a person, not you; ' +
+  'there is nothing you can send to confirm it -- and the status message links the pending action. After the ' +
+  'confirmation the task returns to WORKING; if the owner declines or 24 hours pass it ends FAILED with the reason. ' +
+  'Poll GetTask, subscribe, or register a push notification; set returnImmediately for long tasks.';
+
+function scopeOf(tenant: A2ATenant, own: boolean): string {
+  return tenant.level === 'platform'
+    ? 'the free assets of the best-matching public channel (the question is routed to a channel first)'
+    : tenant.level === 'user'
+      ? own
+        ? `all of the assets of re0 user ${tenant.handle}, including those in no channel or a private one (you are calling as that user)`
+        : `the free assets in the public channels of re0 user ${tenant.handle}`
+      : `the free assets in the re0 channel "${tenant.title}"`;
+}
+
+function skillSearch(tenant: A2ATenant, own = false) {
+  const scope = `Searches ${scopeOf(tenant, own)} in one query.`;
   return {
     id: SKILL_SEARCH_CONTEXT,
     name: 'Search context',
@@ -87,6 +135,78 @@ const SKILL_FIND = {
   inputModes: ['text/plain', 'application/json'],
   outputModes: ['text/plain', 'application/json'],
 };
+
+function skillAsk(tenant: A2ATenant, own = false) {
+  return {
+    id: SKILL_ASK,
+    name: 'Ask',
+    description:
+      `Answers a question from ${scopeOf(tenant, own)}. Every sentence of the answer cites a retrieved passage; the ` +
+      `data part lists each citation's chunk_id, asset ID, source URL, section, version and on-chain anchor. ` +
+      `Needs an API key; 10 Calls per answer, 500 answers per workspace per day. ${VERIFIABLE}`,
+    tags: ['answer', 'citations', 'verifiable'],
+    examples: ['How do I rotate an API key?', '{"skill":"ask","query":"What are the rate limits?"}'],
+    inputModes: ['text/plain', 'application/json'],
+    outputModes: ['text/plain', 'application/json'],
+  };
+}
+
+function writeSkills(tenant: A2ATenant) {
+  const whose = tenant.level === 'user' ? `${tenant.handle}'s workspace` : 'your workspace';
+  const pending = 'Waits in INPUT_REQUIRED for the owner to confirm in the Dashboard; needs the assets:write scope.';
+  return [
+    {
+      id: SKILL_INGEST,
+      name: 'Ingest',
+      description:
+        `Turns one source into a new data asset of ${whose} and builds it: a data part ` +
+        `{"skill":"ingest","sourceType":"website|github|notion","location":"...","title":"..."}. ` +
+        `Costs build Calls and capacity. ${pending} Then SUBMITTED -> WORKING -> COMPLETED or FAILED with the build.`,
+      tags: ['write', 'ingest', 'build'],
+      examples: ['{"skill":"ingest","sourceType":"github","location":"https://github.com/acme/docs","title":"Acme docs"}'],
+      inputModes: ['application/json'],
+      outputModes: ['text/plain', 'application/json'],
+    },
+    {
+      id: SKILL_REFRESH,
+      name: 'Refresh',
+      description:
+        `Rebuilds one asset of ${whose} from its source: {"skill":"refresh","assetId":"/websites/acme"}. ` +
+        `May cost build Calls. ${pending} CancelTask cancels a build that is still queued.`,
+      tags: ['write', 'refresh', 'build'],
+      examples: ['{"skill":"refresh","assetId":"/acme/docs"}'],
+      inputModes: ['application/json'],
+      outputModes: ['text/plain', 'application/json'],
+    },
+    {
+      id: SKILL_PUBLISH,
+      name: 'Publish',
+      description:
+        `Puts one asset of ${whose} into one of its channels, or takes it out (channel null): ` +
+        `{"skill":"publish","assetId":"/acme/docs","channel":"acme"}. A public channel makes the asset public. ` +
+        `Always needs the owner's confirmation. ${pending}`,
+      tags: ['write', 'publish', 'channels'],
+      examples: ['{"skill":"publish","assetId":"/acme/docs","channel":"acme"}'],
+      inputModes: ['application/json'],
+      outputModes: ['text/plain', 'application/json'],
+    },
+  ];
+}
+
+/** Whether the extended card speaks for the caller's own assets on this tenant. */
+export function extendedIsOwn(tenant: A2ATenant, workspaceId: string | null): boolean {
+  if (!workspaceId) return false;
+  return tenant.level === 'platform' || (tenant.level === 'user' && tenant.workspaceId === workspaceId);
+}
+
+function quotaLine(quota: CallerQuota): string {
+  const mb = (bytes: number) => `${Math.round(bytes / 1_048_576)} MB`;
+  return (
+    `Your workspace: ${quota.planAllowanceRemaining} Calls left in this period's allowance and ` +
+    `${quota.addonBalanceRemaining} in call packs; ${mb(quota.usedBytes)} of ${mb(quota.capacityBytes)} capacity used; ` +
+    `${quota.answersToday} of ${quota.askDailyAnswers} ask answers used today (UTC), ${quota.askCallsPerAnswer} Calls each.`
+  );
+}
 
 /** Where the level's own card is served. */
 export function cardUrl(origin: string, tenant: Pick<A2ATenant, 'key'>): string {
@@ -113,16 +233,30 @@ export function buildAgentCard(facts: CardFacts): AgentCard {
         ? `The data asset agent of re0 user ${tenant.handle}.`
         : `${tenant.description ?? `A channel of data assets on re0.`}`;
 
-  const skills =
+  const own = facts.extended ? extendedIsOwn(tenant, facts.extended.workspaceId) : false;
+  const ownUser = own && tenant.level === 'user';
+  const publicSkills =
     tenant.level === 'platform'
-      ? [SKILL_FIND, skillSearch(tenant)]
-      : tenant.level === 'user' && !facts.hasPublicChannel
+      ? [SKILL_FIND, skillSearch(tenant), skillAsk(tenant)]
+      : tenant.level === 'user' && !facts.hasPublicChannel && !ownUser
         ? []
-        : [skillSearch(tenant)];
+        : [skillSearch(tenant, ownUser), skillAsk(tenant, ownUser)];
+  /* The public card never lists a write skill (proposal 7.2). */
+  const skills = own ? [...publicSkills, ...writeSkills(tenant)] : publicSkills;
+  const extensions = facts.extended
+    ? [
+        {
+          uri: QUOTA_EXTENSION_URI,
+          description: "The calling workspace's remaining Calls, capacity and daily ask answers, as of this card.",
+          required: false,
+          params: { ...facts.extended.quota },
+        },
+      ]
+    : [];
 
   return AgentCard.fromJSON({
     name,
-    description: `${lead} ${VERIFIABLE} ${HOW_TO_CALL} ${AUTH}`,
+    description: [lead, VERIFIABLE, HOW_TO_CALL, AUTH, CONFIRMATION, ...(facts.extended ? [quotaLine(facts.extended.quota)] : [])].join(' '),
     supportedInterfaces: [
       { url: endpoint, protocolBinding: 'JSONRPC', tenant: tenant.key, protocolVersion: A2A_PROTOCOL_VERSION },
       { url: endpoint, protocolBinding: 'HTTP+JSON', tenant: tenant.key, protocolVersion: A2A_PROTOCOL_VERSION },
@@ -132,13 +266,15 @@ export function buildAgentCard(facts: CardFacts): AgentCard {
     version: AGENT_CARD_VERSION,
     documentationUrl: `${origin}/#agents`,
     iconUrl: `${origin}/icon.svg`,
-    capabilities: { streaming: true, pushNotifications: false, extendedAgentCard: false },
+    capabilities: { streaming: true, pushNotifications: true, extendedAgentCard: true, extensions },
     securitySchemes: {
       bearer: {
         httpAuthSecurityScheme: {
           scheme: 'Bearer',
           bearerFormat: 're0 API key',
-          description: 'A re0 API key with the knowledge:search or knowledge:read scope. Optional for public skills.',
+          description:
+            'A re0 API key. knowledge:search or knowledge:read for the retrieval skills and ask (optional for ' +
+            'find_channels and search_context); assets:write for ingest, refresh and publish.',
         },
       },
     },

@@ -337,7 +337,8 @@ describeWithDb('P1: channels, visibility and A2A', () => {
     expect(publicCard.status).toBe(200);
     const card = (await publicCard.json()) as { supportedInterfaces: { tenant?: string }[]; skills: { id: string }[] };
     expect(card.supportedInterfaces[0]?.tenant).toBe(`channels/${publicSlug}`);
-    expect(card.skills.map((skill) => skill.id)).toEqual(['search_context']);
+    /* P2 adds ask to every public card; the write skills stay on the extended card. */
+    expect(card.skills.map((skill) => skill.id)).toEqual(['search_context', 'ask']);
     /* Without A2A-Version the caller speaks 0.3: the legacy shape, with the 1.0 interfaces embedded. */
     const legacy = (await (await serveCard(new NextRequest('https://app.example.test/x'), `channels/${publicSlug}`)).json()) as {
       url: string;

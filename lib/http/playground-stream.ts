@@ -1,5 +1,6 @@
 import type { UIMessage } from 'ai';
 import type { CodeBlock } from '@/lib/domain/code-blocks';
+import type { ActionState, ActionSummary, ActionTool } from '@/lib/domain/agent-action';
 
 /**
  * The shape of the playground's UI message stream, shared by the route that
@@ -63,7 +64,37 @@ export interface PlaygroundModel {
   upgrade: string | null;
 }
 
-export type PlaygroundOutcome = 'answer' | 'degraded' | 'no_context' | 'no_library';
+/** `acted`: a workbench exchange that listed or proposed, with nothing to answer from. */
+export type PlaygroundOutcome = 'answer' | 'degraded' | 'no_context' | 'no_library' | 'acted';
+
+/**
+ * A pending action as its confirmation card needs it (workbench only,
+ * agent-first-proposal.md 5.2): the server's summary, and the digest a
+ * confirmation must name.
+ */
+export interface WorkbenchAction {
+  id: string;
+  tool: ActionTool;
+  state: ActionState;
+  summary: ActionSummary;
+  digest: string;
+  expiresAt: string;
+  error: string | null;
+}
+
+/** What a workbench read tool found (playground/agent.ts `WorkbenchListing`). */
+export type WorkbenchListingPart =
+  | {
+      kind: 'assets';
+      total: number;
+      assets: { id: string; publicId: string; title: string; kind: string; channel: string | null; status: string; building: boolean }[];
+    }
+  | {
+      kind: 'subscriptions';
+      channels: { slug: string; title: string; visibility: string; assets: number }[];
+      usedBytes: number;
+      capacityBytes: number;
+    };
 
 /**
  * One tool call the planner made (agent mode, playground/agent.ts), written
@@ -100,5 +131,13 @@ export type PlaygroundUIMessage = UIMessage<
     /** One bound sentence. `chunkIds` are its footnotes, in citation order. */
     claim: { claim: string; chunkIds: string[] };
     outcome: { kind: PlaygroundOutcome };
+    /** Workbench: a proposal waiting for the owner's confirmation card. */
+    action: WorkbenchAction;
+    /** Workbench: a proposal the gate refused before any row was written. */
+    refused: { tool: ActionTool; code: string; message: string };
+    /** Workbench: a listing the server wrote. */
+    listing: WorkbenchListingPart;
+    /** Workbench: the conversation this exchange was recorded in. */
+    conversation: { id: string };
   }
 >;

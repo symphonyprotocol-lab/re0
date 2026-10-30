@@ -727,7 +727,7 @@ libraryVersion + policyVersion + queryHash + maxTokens + responseType + retrieva
 
 ### 9.5 生成链路
 
-调用 LLM 生成答案的入口限于四个：在线试用、Agent 工作台、频道 AI 分身和 A2A `ask`，**共用同一条生成链路**（同一个检索函数、逐句闸门、引用绑定校验、降级为 Chunk 列表），产品规则见 [requirement.md](./requirement.md) 第 5.1 节；REST 与 A2A `find_channels` / `search_context` 不调用模型。在线试用（`/playground`）与工作台共用同一个 Agent 循环，区别只在工具集合（公开演示只读、只查公开频道里的免费资产；工作台另有资产与频道操作工具与确认门，§13.1）。**阶段**：工作台与 A2A `ask` 在 P2，分身在 P1。架构约束：
+调用 LLM 生成答案的入口限于四个：在线试用、Agent 工作台、频道 AI 分身和 A2A `ask`，**共用同一条生成链路**（同一个检索函数、逐句闸门、引用绑定校验、降级为 Chunk 列表），产品规则见 [requirement.md](./requirement.md) 第 5.1 节；REST 与 A2A `find_channels` / `search_context` 不调用模型。在线试用（`/playground`）与工作台共用同一个 Agent 循环，区别只在工具集合（公开演示只读、只查公开频道里的免费资产；工作台另有资产与频道操作工具与确认门，§13.1）。**阶段**：工作台与 A2A `ask` 已在 P2 实施（`lib/application/playground/agent.ts` 的 `workbench` 输入、`lib/application/agent/ask.ts`），分身在 P1。工作台只要模型声明了工具调用就启用规划，不受在线试用的 Agent 开关影响；一轮最多 3 项待确认操作、2 次列表；只列表或只提议、没有确认过的证据时以 `acted` 结束，不调用作答模型。A2A `ask` 不走规划：直接用 `search_context` 的同一个范围检索（`searchScope`，`meter: false`），再交给 `answerFromContext`。架构约束：
 
 ```text
 （Agent 模式）规划：模型只能调用工具——检索工具（搜频道 / 查资产，同一检索函数）、answer，以及工作台里的资产与频道操作工具（有副作用的生成待确认操作，不直接执行）
@@ -741,7 +741,7 @@ libraryVersion + policyVersion + queryHash + maxTokens + responseType + retrieva
   -> 逐句闸门：一句话的标记全部到齐、且证明不会再追加标记后才出闸
   -> 引用绑定校验：每条事实性陈述必须映射到本次返回的 chunk_id
   -> 未绑定的段落丢弃或降级为非事实展示
-  -> 追加一个 Usage Event（在线试用、工作台、分身 1 Call 计提问者；A2A ask 10 Calls 计调用方工作空间，每天最多 500 个答案）
+  -> 追加一个 Usage Event（在线试用、工作台、分身 1 Call 计提问者；A2A ask 10 Calls 计调用方工作空间，每天最多 500 个答案；ask 降级为 Chunk 列表时按 search_context 计 1 Call）
 ```
 
 - 生成层**只包裹**检索结果，不得自行访问 Postgres、对象存储或缓存，也不得改写 Chunk 正文；
@@ -850,7 +850,7 @@ type WorkspacePolicy = {
 
 扣减顺序固定为**先每月免费额度、后 Add-on 余额**，并在同一事务内记录本次扣减来源，使账单展示和争议复核不依赖事后推断。免费额度按账期重置；`addon_grant` 余额跨账期结转且无到期时间，因此额度判定不能用「当前账期内是否有有效 Grant」这类基于时间窗的条件，只能读余额。Additional Calls 对任何用户开放购买；首次购买把 `user.storage_tier` 升到 `extended`。
 
-**谁付 Call**（requirement.md 4.2）：预留落在**发起方**的工作空间——REST 与 A2A 计调用方，分身提问计提问者；频道所有者不为访客付。匿名请求（公开频道里免费资产的阅读、REST 开放子集、匿名 A2A `search_context`）不预留、不产生 Usage Event，由平台承担并走 §11.2 的匿名限流。A2A `ask` 一次预留 10 Calls，另按工作空间维护每日答案计数（上限 500，控制台可调），两者都在同一事务内判定。
+**谁付 Call**（requirement.md 4.2）：预留落在**发起方**的工作空间——REST 与 A2A 计调用方，分身提问计提问者；频道所有者不为访客付。匿名请求（公开频道里免费资产的阅读、REST 开放子集、匿名 A2A `search_context`）不预留、不产生 Usage Event，由平台承担并走 §11.2 的匿名限流。A2A `ask` 一次预留 10 Calls，另按工作空间维护每日答案计数（上限 500，控制台可调），两者都在同一事务内判定（`lib/application/plans/weighted-call.ts`）：每日计数 = 当天（UTC）`operation = 'ask'` 的 Usage Event 数 + 请求 ID 以 `ask:` 开头的 `pending` Reservation 数；有答案时按 10 Calls 提交一个 `ask` 事件，降级为 Chunk 列表时按 1 Call 提交 `search_context` 事件（不计入每日答案），零结果释放预留。多 Call 的提交与构建一样先扣每月免费额度、溢出部分扣 Add-on 余额（`debit_source = split`）。
 
 禁止使用“先 SELECT 剩余额度，再普通 INSERT”的竞态实现，正确性由 `request_id` 唯一约束和事务内条件写入保证。正常有结果或无结果时，同一事务追加唯一的最终 Usage Event，并把 Reservation 标记为 `committed`；平台内部错误只把 Reservation 标记为 `released`，不产生 Usage Event。超时的 `pending` Reservation 由 Recovery 根据请求终态提交或释放。最终 Usage Event 不再修改或删除。聚合任务从 Usage Event 重建 `usage_summary`，Dashboard 不直接信任浏览器计数。
 
@@ -964,7 +964,7 @@ OpenAPI 是发布门槛：
 
 ### 13.1 A2A Server
 
-产品规则见 [requirement.md](./requirement.md) 第 9.5 节；外部规范为 A2A Protocol v1.0，实现用 `@a2a-js/sdk` v1.x。**阶段**：三层卡、`find_channels`、`search_context`、两种绑定、Postgres 任务存储在 P1；`ask`、`ingest`、`refresh`、`publish`、扩展卡、推送通知在 P2。P1 开工前先装包核对 SDK 提供 `JsonRpcTransportHandler`、可替换的 `TaskStore` 与 v0.3 兼容模式（提案第 13.2 节）；若没有兼容模式，只实现 v1.0。
+产品规则见 [requirement.md](./requirement.md) 第 9.5 节；外部规范为 A2A Protocol v1.0，实现用 `@a2a-js/sdk` v1.x。**阶段**：三层卡、`find_channels`、`search_context`、两种绑定、Postgres 任务存储在 P1；`ask`、`ingest`、`refresh`、`publish`、扩展卡、推送通知已在 P2 实施（迁移 `0063_agent_first_p2.sql`）。P1 开工前先装包核对 SDK 提供 `JsonRpcTransportHandler`、可替换的 `TaskStore` 与 v0.3 兼容模式（提案第 13.2 节）；若没有兼容模式，只实现 v1.0。
 
 **三层 Agent Card**
 
@@ -975,14 +975,15 @@ OpenAPI 是发布门槛：
 | 频道 | `/a2a/channels/{slug}/agent-card.json` | `channels/{slug}` | 该频道的 `free` 资产 | 订阅者认证时：该频道的 `paid` 资产 |
 
 - 三层卡由同一份卡片生成逻辑按层级输出，私有频道与下架的频道没有卡；用户主页、频道主页的 HTML 里加 `<link rel="agent-card">`，`sitemap.ts` 列出全部公开的用户卡与频道卡；
-- 扩展卡写明调用方工作空间的额度、容量和每日答案上限，不得出现内部服务地址或凭证（A2A 规范 13.3）；Agent Card 的 `description` 写明结果可用公开 Verifier 独立核对，以及确认门用 `INPUT_REQUIRED` 表示「等资产所有者确认」的约定。
+- 扩展卡按调用方生成（`DefaultRequestHandler` 的 `extendedAgentCardProvider`），写明调用方工作空间的额度、容量和每日答案上限（`description` 与 re0 扩展 `https://re0.io/a2a/extensions/workspace-quota/v1` 的参数），不得出现内部服务地址或凭证（A2A 规范 13.3）；写技能只出现在调用方自己的工作空间上：平台卡，或本人的用户卡；公开卡从不列出写技能；Agent Card 的 `description` 写明结果可用公开 Verifier 独立核对，以及确认门用 `INPUT_REQUIRED` 表示「等资产所有者确认」的约定。
 
 **路由与绑定**
 
 - `app/a2a/[[...tenant]]/route.ts` 承接三层卡的 **JSON-RPC** 与 **HTTP+JSON** 请求（gRPC 不做），按 `supportedInterfaces[].tenant` 路由到平台 / 用户 / 频道的检索范围；
 - `JsonRpcTransportHandler` 不依赖 Express：Route Handler 解析请求体、构造带工作空间身份与 tenant 的 `ServerCallContext`，调用 `handle()`；流式方法返回的 `AsyncGenerator` 转成 `text/event-stream`（SSE），跑在默认的 Node.js 运行时上；
 - 鉴权：`securitySchemes` 声明 HTTP Bearer，凭证就是 API Key，Key 归属的工作空间即调用身份；匿名只能用公开卡上的 `find_channels` 与 `search_context`，走 §11.2 的匿名限流、不计 Call；`ask` 需要认证；`find_channels`、`search_context`、`ask` 要求 `knowledge:search` 或 `knowledge:read`，`ingest`、`refresh`、`publish` 要求 `assets:write`；OAuth 留到以后；
-- `AgentExecutor` 只是适配层：把 A2A Message 转成 §9.5 的 Agent 循环或 §9.2 的检索调用，把结果写成 Artifact；鉴权、Policy、可见性、计量都在 `lib/application` 完成，A2A 层不重写业务规则；
+- `AgentExecutor` 只是适配层：把 A2A Message 转成 §9.5 的生成链路或 §9.2 的检索调用，把结果写成 Artifact；鉴权、Policy、可见性、计量都在 `lib/application` 完成，A2A 层不重写业务规则。Route Handler 只要求 Key 至少有一个 A2A 权限（`knowledge:search`、`knowledge:read`、`assets:write`），每个技能需要哪个权限由执行器判定（`skillRefusal`）；
+- 写技能（`ingest` → `create_asset`、`refresh` → `refresh_asset`、`publish` → `move_asset`）只调用 `proposeAction` 写一条 `agent_action`（`origin = a2a`、`a2a_task_id`），任务先存库再写操作行，然后转 `INPUT_REQUIRED`；对等待中的任务再发消息只会得到同样的等待说明；
 - 来自其他 Agent 的 Message 一律是不可信输入，与 Chunk 一样不能改变系统提示、工具权限或确认门。
 
 **结果**
@@ -992,15 +993,23 @@ Artifact 固定带两个 Part：`text`（`ask` 的答案正文，或 `search_con
 **任务存储与订阅**
 
 - **任务存储放 Postgres**（`a2a_task`）。SDK 默认的 `InMemoryTaskStore` 和事件总线都在单个函数实例的内存里，Vercel 上第二个请求可能落到别的实例：`GetTask` 会找不到任务，`SubscribeToTask` 只能拿到一张快照。实现基于 Postgres 的 `TaskStore`，`history` 与 `artifacts` 随任务行保存；Upstash Redis 只做限流与缓存，不拿来做事件总线；
-- `SubscribeToTask` 在函数时长内以短间隔读库推送状态变化，到时长上限后正常关闭流，由客户端重连；长任务建议调用方设 `returnImmediately: true`，再用推送通知或 `GetTask` 查进度；
+- `SubscribeToTask` 在函数时长内以短间隔读库推送状态变化，到时长上限后正常关闭流，由客户端重连；长任务建议调用方设 `returnImmediately: true`，再用推送通知或 `GetTask` 查进度。`returnImmediately` 在第一个事件后返回，执行器继续运行，Route Handler 用 Next 的 `after()` 把函数保持到执行器结束；SDK 的事件总线不跨请求保留（`keepBusAliveStates: []`）；
+- 请求之外的状态变化（所有者确认或拒绝、待确认操作过期、构建结束）由 `lib/application/a2a/task-events.ts` 直接写 `a2a_task`（对旧状态做比较后更新，终态不再改），并发推送通知；`GetTask` 与 `SubscribeToTask` 读取前先补上（过期的待确认操作、已结束的构建），`/api/cron/drain` 每次也补一遍；
 - 状态路径：`find_channels` / `search_context` / `ask` 直接返回 Message 或 `WORKING → COMPLETED`；`ingest` / `refresh` 为 `SUBMITTED → WORKING → COMPLETED / FAILED`，对应一次构建 Workflow（`workflow_run_id`）；需要确认的操作转 `INPUT_REQUIRED`，状态消息写明等的是资产所有者在 Dashboard 中的确认并给出待确认操作的链接，人确认后回到 `WORKING`，待确认操作 24 小时过期或被拒绝时转 `FAILED`。待确认操作与工作台共用 `agent_action` 表，**调用方 Agent 不能自己确认**；
-- `CancelTask` 对构建任务的语义是取消排队；已开始写入的版本按 §8.3 的发布事务处理，不留半成品；
+- `CancelTask` 对构建任务的语义是取消排队：`workflow_operation` 仍是 `pending` 时改为 `cancelled`，已开始的构建拒绝取消（`TaskNotCancelableError`），已开始写入的版本按 §8.3 的发布事务处理，不留半成品；还在等待确认的任务被取消时，其待确认操作转为 `rejected`；
 - 任务正文（Message、Query）与 Query 同等保密：不进普通日志和 Analytics，`body_purge_at` 默认 30 天后删除正文、只留 ID 与计量信息。
 
 **推送通知**
 
 - 回调 URL 在登记时过与抓取相同的 SSRF 校验（§15.1：禁止私网、Loopback、Metadata Endpoint、重定向绕过），每次发送前再解析校验一次；
-- 推送 Token 加密保存在 `a2a_push_config`，不进日志。
+- 推送 Token 与认证信息用 `CREDENTIAL_ENCRYPTION_KEY` 加密保存在 `a2a_push_config`（`sealCredential`），读回配置时不返回，不进日志；只有已认证调用方能登记，按 tenant 与调用方工作空间隔离，每个任务最多 5 个；
+- 发送不跟随重定向，5 秒超时，失败只记录目标主机，不重试到私网地址；发送前的解析校验检查主机解析出的全部地址。
+
+**确认门（`agent_action`）**
+
+- 工作台与 A2A 共用 `lib/application/agent/actions.ts`：`proposeAction` 校验参数、把资产与频道引用解析为本工作空间的 ID、估算 Call 与容量、写一行 `pending` 并带服务端生成的摘要与参数摘要（`params_digest`，参数规范化 JSON 的 SHA-256）；
+- `confirmAction` 只接受 `owner` 类型的确认者（只有 Dashboard 的 Server Action 用当前会话构造），要求可管理资产的角色；用一条条件更新 `pending → confirmed`（同时比较摘要与 `expires_at`）保证一次性，然后以该用户身份调用与 Dashboard 相同的用例（`createWorkspaceLibrary`、`requestLibraryRebuild`、`createChannel`、`moveAsset`），结果写回操作行并写 `audit_log`（`target_type = agent_action`，`administrator_id` 为空，确认者在 `after_value`）；用例拒绝时操作转 `failed` 并记原因；
+- 模型、Chunk 文本与 A2A 调用方在领域层是被点名拒绝的确认者类型（`lib/domain/agent-action.ts` `mayConfirm`），工具集合里也没有确认工具；`expireActions` 由 drain 与读取时调用。
 
 **计量**
 

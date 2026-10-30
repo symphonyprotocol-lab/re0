@@ -11,6 +11,9 @@ import {
   type KeyboardEvent,
 } from 'react';
 
+import { useRouter } from 'next/navigation';
+import { ActionCard } from '@/components/dashboard/action-card';
+import { formatBytes } from '@/components/dashboard/pdf-uploader';
 import { ClaimText } from '@/components/site/claim-text';
 import { SignInDialog } from '@/components/site/sign-in-dialog';
 import { Re0Mark, RotateCwIcon } from '@/components/ui/icons';
@@ -24,6 +27,8 @@ import type {
   PlaygroundSource,
   PlaygroundStep,
   PlaygroundUIMessage,
+  WorkbenchAction,
+  WorkbenchListingPart,
 } from '@/lib/http/playground-stream';
 import { fill } from '@/lib/i18n/format';
 
@@ -62,17 +67,23 @@ import { fill } from '@/lib/i18n/format';
  * so unpinning mid-session takes effect on the next question without a new
  * transport.
  */
-function playgroundTransport(pinned: { current: string | null }) {
+function playgroundTransport(
+  pinned: { current: string | null },
+  workbench: { current: string | null } | null,
+) {
   return new DefaultChatTransport<PlaygroundUIMessage>({
-    api: '/api/playground',
+    /* The workbench is the same loop with the owner's tools (agent-first-proposal.md 4.5). */
+    api: workbench ? '/api/agent' : '/api/playground',
     prepareSendMessagesRequest: ({ messages }) => {
       const last = messages[messages.length - 1];
       return {
-        body: {
-          question: textOf(last),
-          libraryId: pinned.current,
-          history: historyOf(messages.slice(0, -1)),
-        },
+        body: workbench
+          ? { question: textOf(last), history: historyOf(messages.slice(0, -1)), conversationId: workbench.current }
+          : {
+              question: textOf(last),
+              libraryId: pinned.current,
+              history: historyOf(messages.slice(0, -1)),
+            },
       };
     },
   });
@@ -214,6 +225,11 @@ interface Turn {
   sources: PlaygroundSource[];
   claims: { claim: string; chunkIds: string[] }[];
   outcome: PlaygroundOutcome | null;
+  /** Workbench: proposals waiting for the owner, refusals, listings -- all server-written. */
+  actions: WorkbenchAction[];
+  refused: { tool: string; code: string; message: string }[];
+  listings: WorkbenchListingPart[];
+  conversationId: string | null;
 }
 
 function readTurn(message: PlaygroundUIMessage): Turn {
@@ -227,6 +243,10 @@ function readTurn(message: PlaygroundUIMessage): Turn {
     sources: [],
     claims: [],
     outcome: null,
+    actions: [],
+    refused: [],
+    listings: [],
+    conversationId: null,
   };
   for (const part of message.parts) {
     if (part.type === 'data-routing') turn.routing = part.data;
@@ -238,6 +258,10 @@ function readTurn(message: PlaygroundUIMessage): Turn {
     else if (part.type === 'data-sources') turn.sources = part.data.sources;
     else if (part.type === 'data-claim') turn.claims.push(part.data);
     else if (part.type === 'data-outcome') turn.outcome = part.data.kind;
+    else if (part.type === 'data-action') turn.actions.push(part.data);
+    else if (part.type === 'data-refused') turn.refused.push(part.data);
+    else if (part.type === 'data-listing') turn.listings.push(part.data);
+    else if (part.type === 'data-conversation') turn.conversationId = part.data.id;
   }
   return turn;
 }
@@ -415,6 +439,47 @@ function stepParams(step: PlaygroundStep): (readonly [string, string])[] {
   return params;
 }
 
+/** A read tool's result, as the server wrote it (agent-first-proposal.md 5.3). */
+function ListingCard({ listing, w }: { listing: WorkbenchListingPart; w: Dictionary['dashboard']['workbench'] }) {
+  if (listing.kind === 'subscriptions') {
+    return (
+      <article className="rounded-md bg-reply p-3.5">
+        <p className="text-[12.5px] font-medium text-ink">{w.listingChannels}</p>
+        <ul className="mt-1.5 flex flex-col gap-1 text-[12px] text-muted">
+          {listing.channels.map((channel) => (
+            <li key={channel.slug}>
+              <span className="font-mono text-[11px] text-ink">/channels/{channel.slug}</span> · {channel.title} ·{' '}
+              {channel.visibility} · {fill(w.assetsCount, { n: String(channel.assets) })}
+            </li>
+          ))}
+        </ul>
+        <p className="mt-2 text-[11.5px] text-faint">
+          {fill(w.listingStorage, { used: formatBytes(listing.usedBytes), capacity: formatBytes(listing.capacityBytes) })}
+        </p>
+        <p className="mt-1 text-[11.5px] text-faint">{w.listingSubscriptions}</p>
+      </article>
+    );
+  }
+  return (
+    <article className="rounded-md bg-reply p-3.5">
+      <p className="text-[12.5px] font-medium text-ink">{fill(w.listingAssets, { n: String(listing.total) })}</p>
+      {listing.assets.length === 0 ? <p className="mt-1.5 text-[12px] text-muted">{w.listingNone}</p> : null}
+      <ul className="mt-1.5 flex flex-col gap-1 text-[12px] text-muted">
+        {listing.assets.map((asset) => (
+          <li key={asset.id}>
+            <a href={`/dashboard/assets/${asset.id}`} className="text-ink underline-offset-2 hover:underline">
+              {asset.title}
+            </a>{' '}
+            <span className="font-mono text-[10.5px] text-faint">{asset.publicId}</span> · {asset.kind} ·{' '}
+            {asset.channel ? `/channels/${asset.channel}` : w.unfiled}
+            {asset.building ? ` · ${w.building}` : ''}
+          </li>
+        ))}
+      </ul>
+    </article>
+  );
+}
+
 function AssistantTurn({
   message,
   streaming,
@@ -424,10 +489,12 @@ function AssistantTurn({
   streaming: boolean;
   t: Dictionary['playground'];
 }) {
+  const { t: all } = useI18n();
   const turn = readTurn(message);
   const numbers = sourceNumbers(turn);
+  const workbenchShown = turn.actions.length + turn.refused.length + turn.listings.length > 0;
 
-  if (turn.routing === null && turn.steps.length === 0 && turn.outcome === null) {
+  if (turn.routing === null && turn.steps.length === 0 && turn.outcome === null && !workbenchShown) {
     return (
       <AssistantRow>
         <Pending label={t.resolving} />
@@ -524,6 +591,16 @@ function AssistantTurn({
         </p>
       ) : null}
 
+      {turn.listings.map((listing, index) => (
+        <ListingCard key={`listing-${index}`} listing={listing} w={all.dashboard.workbench} />
+      ))}
+      {turn.actions.map((action) => (
+        <ActionCard key={action.id} action={action} />
+      ))}
+      {turn.refused.map((refusal, index) => (
+        <WarnCard key={`refused-${index}`} title={all.dashboard.workbench.refusedTitle} body={refusal.message} />
+      ))}
+
       {turn.outcome === 'no_library' ? (
         <WarnCard title={t.noLibraryTitle} body={t.noLibraryBody} />
       ) : null}
@@ -573,7 +650,7 @@ function AssistantTurn({
         </article>
       ) : null}
 
-      {turn.outcome === null && turn.claims.length === 0 ? (
+      {turn.outcome === null && turn.claims.length === 0 && !workbenchShown ? (
         <Pending label={t.thinkingLive} />
       ) : null}
     </AssistantRow>
@@ -638,19 +715,40 @@ export function Playground({
    * sign in at the moment they send, and their question waits for them.
    */
   signedIn,
+  /**
+   * `workbench`: the Dashboard conversation (agent-first-proposal.md 4.4,
+   * 4.5) -- the same transcript posting to /api/agent, which adds the
+   * owner's tools and their confirmation cards. `playground` (default): the
+   * public demo; a signed-in visitor's question is taken to the workbench.
+   */
+  mode = 'playground',
+  /** A question to send once on arrival: the one a visitor typed on /playground or the home page. */
+  initialQuestion = null,
+  /** The conversation to continue; a new one is started by the first question otherwise. */
+  conversationId = null,
+  /** The conversation so far, rebuilt by the server from what it recorded. */
+  initialMessages,
 }: {
   initialLibrary?: string | null;
   signedIn: boolean;
+  mode?: 'playground' | 'workbench';
+  initialQuestion?: string | null;
+  conversationId?: string | null;
+  initialMessages?: PlaygroundUIMessage[];
 }) {
   const { t: messages } = useI18n();
   const t = messages.playground;
+  const workbenchWords = messages.dashboard.workbench;
+  const isWorkbench = mode === 'workbench';
+  const router = useRouter();
+  const conversation = useRef<string | null>(conversationId);
   const [question, setQuestion] = useState('');
   const [pinnedLibrary, setPinnedLibrary] = useState<string | null>(initialLibrary);
   const pinned = useRef<string | null>(initialLibrary);
   useEffect(() => {
     pinned.current = pinnedLibrary;
   }, [pinnedLibrary]);
-  const transport = useMemo(() => playgroundTransport(pinned), []);
+  const transport = useMemo(() => playgroundTransport(pinned, isWorkbench ? conversation : null), [isWorkbench]);
   const scroller = useRef<HTMLDivElement>(null);
   const composer = useRef<HTMLTextAreaElement>(null);
   const [signingIn, setSigningIn] = useState(false);
@@ -672,9 +770,29 @@ export function Playground({
     error,
   } = useChat<PlaygroundUIMessage>({
     transport,
+    ...(initialMessages && initialMessages.length > 0 ? { messages: initialMessages } : {}),
   });
 
   const busy = status === 'submitted' || status === 'streaming';
+
+  /* The conversation the server recorded this exchange in; the next question continues it. */
+  useEffect(() => {
+    if (!isWorkbench) return;
+    for (const message of turns) {
+      const id = readTurn(message).conversationId;
+      if (id) conversation.current = id;
+    }
+  }, [turns, isWorkbench]);
+
+  /* A question carried in from elsewhere is sent once, on arrival. */
+  const sentInitial = useRef(false);
+  useEffect(() => {
+    if (!isWorkbench || !initialQuestion || sentInitial.current) return;
+    sentInitial.current = true;
+    /* Out of the address bar once sent: a reload must not ask it again (and spend another Call). */
+    window.history.replaceState(null, '', '/dashboard');
+    void sendMessage({ text: initialQuestion });
+  }, [isWorkbench, initialQuestion, sendMessage]);
 
   /*
    * Follow the stream, but only for a reader who is already at the bottom --
@@ -703,6 +821,15 @@ export function Playground({
     if (!signedIn) {
       keepDraft(asked);
       setSigningIn(true);
+      return;
+    }
+    /*
+     * agent-first-proposal.md 4.5: the public playground is a demo; a
+     * signed-in visitor's question goes to their workbench conversation. A
+     * question pinned to one public asset (the detail page's entry) stays.
+     */
+    if (!isWorkbench && !pinned.current) {
+      router.push(`/dashboard?q=${encodeURIComponent(asked.slice(0, 2_000))}`);
       return;
     }
     lastAsked.current = asked;
@@ -739,9 +866,9 @@ export function Playground({
                   aria-hidden
                   className="mb-3 text-center text-[26px] leading-[1.35] font-medium text-ink sm:text-[30px]"
                 >
-                  {t.title}
+                  {isWorkbench ? workbenchWords.title : t.title}
                 </p>
-                {t.suggestions.map((suggestion) => (
+                {(isWorkbench ? workbenchWords.suggestions : t.suggestions).map((suggestion) => (
                   <button
                     key={suggestion}
                     type="button"
@@ -808,8 +935,8 @@ export function Playground({
               value={question}
               onChange={(event) => setQuestion(event.target.value)}
               onKeyDown={onKeyDown}
-              placeholder={t.inputPlaceholder}
-              aria-label={t.inputPlaceholder}
+              placeholder={isWorkbench ? workbenchWords.inputPlaceholder : t.inputPlaceholder}
+              aria-label={isWorkbench ? workbenchWords.inputPlaceholder : t.inputPlaceholder}
               className="block max-h-[160px] min-h-[46px] w-full resize-none bg-transparent px-3.5 py-3 pr-[52px] text-[13px] leading-[1.5] text-ink outline-none placeholder:text-muted/70"
             />
             {busy ? (

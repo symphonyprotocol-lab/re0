@@ -4,14 +4,16 @@
  * server's answers into responses -- JSON, or `text/event-stream` written as
  * the generator yields, on the default Node.js runtime.
  *
- * Authentication is the API key as a Bearer token, its workspace the caller,
- * its scopes the existing ones: the P1 skills need `knowledge:search` or
- * `knowledge:read`. A header that is present but wrong is refused, never
+ * Authentication is the API key as a Bearer token, its workspace the caller.
+ * A key must hold at least one A2A scope -- `knowledge:search`,
+ * `knowledge:read` or `assets:write` -- to get in; which skill it may run is
+ * the executor's check (`skillRefusal`), so a write-only key can `ingest`
+ * but not search. A header that is present but wrong is refused, never
  * quietly downgraded to anonymous. Without one the caller is anonymous:
  * public skills only, under the same fail-closed anonymous rate limit as
  * REST (architecture.md 11.2), counted on the calls that run a skill.
  */
-import { NextResponse, type NextRequest } from 'next/server';
+import { after, NextResponse, type NextRequest } from 'next/server';
 import { AppError, httpStatusFor } from '@/contracts/errors';
 import { resolveApiKey } from '@/lib/application/auth/api-key';
 import { userByHandle } from '@/lib/application/channels';
@@ -64,7 +66,7 @@ export function preflight(): NextResponse {
 
 async function cardFor(tenant: A2ATenant) {
   const hasPublicChannel = tenant.level === 'user' ? (await userByHandle(tenant.handle)) !== null : undefined;
-  return buildAgentCard({ origin: a2aOrigin(), tenant, hasPublicChannel });
+  return { card: buildAgentCard({ origin: a2aOrigin(), tenant, hasPublicChannel }), hasPublicChannel };
 }
 
 /**
@@ -76,7 +78,7 @@ async function cardFor(tenant: A2ATenant) {
 export async function serveCard(request: NextRequest, tenantKey: string): Promise<NextResponse> {
   const tenant = await resolveTenant(tenantKey);
   if (!tenant) return NextResponse.json({ error: 'no such agent' }, { status: 404, headers: CORS_HEADERS });
-  const card = await cardFor(tenant);
+  const { card } = await cardFor(tenant);
   const version = request.headers.get('a2a-version');
   const body = version && !version.startsWith('0.') ? agentCardJson(card) : legacyAgentCardJson(card);
   return NextResponse.json(body, {
@@ -130,8 +132,13 @@ export async function serveA2A(request: NextRequest, segments: readonly string[]
   } catch (error) {
     return appError(error, requestId);
   }
-  if (principal && !hasScope(principal.scopes, 'knowledge:search') && !hasScope(principal.scopes, 'knowledge:read')) {
-    return appError(new AppError('access_denied', 'this API key lacks the knowledge:search or knowledge:read scope'), requestId);
+  if (
+    principal &&
+    !hasScope(principal.scopes, 'knowledge:search') &&
+    !hasScope(principal.scopes, 'knowledge:read') &&
+    !hasScope(principal.scopes, 'assets:write')
+  ) {
+    return appError(new AppError('access_denied', 'this API key holds no A2A scope (knowledge:search, knowledge:read or assets:write)'), requestId);
   }
 
   /* The anonymous limit, on the calls that run a skill or open a subscription. */
@@ -149,7 +156,7 @@ export async function serveA2A(request: NextRequest, segments: readonly string[]
     }
   }
 
-  const card = await cardFor(tenant);
+  const { card, hasPublicChannel } = await cardFor(tenant);
   const result = await handleA2A({
     method,
     rest: split.rest,
@@ -157,8 +164,11 @@ export async function serveA2A(request: NextRequest, segments: readonly string[]
     body,
     version: request.headers.get('a2a-version'),
     card,
+    hasPublicChannel,
     origin: a2aOrigin(),
     pathTenant: !bodyTenant,
+    /* `returnImmediately`: the executor finishes after the response, inside this function's lifetime. */
+    keepAlive: (work) => after(() => work),
     facts: {
       caller: {
         workspaceId: principal?.workspaceId ?? null,

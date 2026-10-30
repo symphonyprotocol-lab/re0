@@ -56,8 +56,8 @@ import {
   streamAgentPlayground,
   type AgentEvent,
 } from '@/lib/application/playground/agent';
-import { fencedCodeBlocks } from '@/lib/domain/code-blocks';
 import { normaliseHistory } from '@/lib/domain/generation';
+import { writeAgentEvent } from '@/lib/http/agent-events';
 import { playgroundCaller } from '@/lib/http/retrieval-caller';
 import { errorResponse, newRequestId } from '@/lib/http/respond';
 import type { PlaygroundUIMessage } from '@/lib/http/playground-stream';
@@ -135,70 +135,7 @@ export async function POST(request: NextRequest): Promise<Response> {
       execute: async ({ writer }) => {
         writer.write({ type: 'start' });
         try {
-          for await (const event of events) {
-            if (event.type === 'routing') {
-              writer.write({
-                type: 'data-routing',
-                data: {
-                  question,
-                  candidates: event.candidates,
-                  libraryId: event.top?.libraryId ?? null,
-                  libraryTitle: event.top?.title ?? null,
-                  version: event.top?.version ?? null,
-                  requestId,
-                  pinned: event.pinned,
-                },
-              });
-            } else if (event.type === 'no_library') {
-              writer.write({ type: 'data-outcome', data: { kind: 'no_library' } });
-            } else if (event.type === 'step') {
-              /* Same id twice: the running card is replaced by the finished one. */
-              writer.write({ type: 'data-step', id: event.step.id, data: event.step });
-            } else if (event.type === 'resolved') {
-              writer.write({ type: 'data-resolved', data: { question: event.question } });
-            } else if (event.type === 'gather') {
-              writer.write({
-                type: 'data-gather',
-                data: { libraries: event.libraries },
-              });
-            } else if (event.type === 'model') {
-              writer.write({
-                type: 'data-model',
-                data: {
-                  label: event.label,
-                  audience: event.audience,
-                  upgrade: event.upgrade,
-                },
-              });
-            } else if (event.type === 'context') {
-              writer.write({
-                type: 'data-sources',
-                data: {
-                  sources: event.chunks.map((chunk) => ({
-                    chunkId: chunk.chunkId,
-                    sourceUrl: chunk.citation.sourceUrl,
-                    documentTitle: chunk.citation.documentTitle,
-                    section: chunk.citation.section,
-                    libraryId: chunk.libraryId,
-                    libraryTitle: chunk.libraryTitle,
-                    codeBlocks: fencedCodeBlocks(chunk.text),
-                  })),
-                },
-              });
-            } else if (event.type === 'claim') {
-              writer.write({
-                type: 'data-claim',
-                data: { claim: event.claim, chunkIds: event.chunkIds },
-              });
-            } else if (event.type === 'rewrite') {
-              writer.write({ type: 'data-rewrite', data: { query: event.query } });
-            } else {
-              writer.write({
-                type: 'data-outcome',
-                data: { kind: event.kind },
-              });
-            }
-          }
+          for await (const event of events) writeAgentEvent(writer, event, { question, requestId });
         } catch (error) {
           /*
            * Rule 6: the reader gets the chunks and a degraded notice, never an
