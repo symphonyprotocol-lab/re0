@@ -2,7 +2,7 @@
 
 - 版本：4.0
 - 更新日期：2026-10-29（按 [agent-first-proposal.md](./agent-first-proposal.md) 第 3.4 节与第 11 节改写：数据资产与频道取代知识库，产品定义改为数据资产 Agent，入口改为 Web / A2A / REST，套餐只剩一档，发布者分成改为频道收入结算；本文各节编号保持不变）
-- 状态：产品基线；P0、P1 已实施（P1：2026-10-30），P2 及之后的目标设计在文中以「阶段」标注区分，分阶段见提案第 13.1 节
+- 状态：产品基线；P0、P1、P2 已实施（P1、P2：2026-10-30），P3 及之后的目标设计在文中以「阶段」标注区分，分阶段见提案第 13.1 节
 - 设计依据：[knowleg-market.pen](./knowleg-market.pen)
 - 技术实现：[architecture.md](./architecture.md)
 - 转向依据：[agent-first-proposal.md](./agent-first-proposal.md)
@@ -171,7 +171,7 @@ MVP 中个人工作空间创建者为 `owner`。工作空间有一个公开名 `
 | --- | --- |
 | `find_channels` | 不计 |
 | `search_context` | 每次成功检索计 1 Call，零结果不计 |
-| `ask` | 每个**答案**计 **10 Calls**；每个工作空间每天最多 **500 个答案**。检索零结果时不调用模型、不计费；模型失败降级为片段列表时按 `search_context` 计 1 Call |
+| `ask` | 每个**答案**计 **10 Calls**；每个工作空间每天（UTC 自然日）最多 **500 个答案**。检索零结果时不调用模型、不计费；模型失败降级为片段列表时按 `search_context` 计 1 Call，且不计入每日答案数。发起时先按 10 Calls 预占额度，余额不足 10 Calls 即拒绝 |
 | `ingest`、`refresh` | 沿用构建计量（4.2.1） |
 | `GetTask`、`ListTasks`、`CancelTask`、取卡、推送配置 | 不计 |
 
@@ -287,7 +287,7 @@ MVP 中个人工作空间创建者为 `owner`。工作空间有一个公开名 `
 
 ### 5.2 用户 Dashboard
 
-**阶段**：Dashboard 首页改为 Agent 工作台、侧栏重新分组在 P2；文章编辑器、待答列表、评论管理、订阅收入在 P3a，音频上传在 P3b。P0 期间 Dashboard 仍是资产列表式界面，但删除网站插件、分享页页面，收益与出账页面不再展示按检索计算的收益。
+**阶段**：Dashboard 首页改为 Agent 工作台、侧栏重新分组已在 P2 实施；文章编辑器、待答列表、评论管理、订阅收入在 P3a，音频上传在 P3b。P2 的侧栏只放已有页面的入口：「待答列表」「评论管理」「导出」与整个「订阅」分组随 P3a 的页面一起出现；原概览页（调用趋势、密钥、接入）移到「设置 → 容量与购买」（`/dashboard/usage`）。
 
 #### 概览（Agent 工作台）
 
@@ -306,6 +306,11 @@ Agent Card   我的用户卡与频道卡、API Key
 
 - 对话中的工具（提案第 5.1 节）：`list_assets`、`create_asset`、`refresh_asset`、`create_channel`、`move_asset`、`subscription_summary`，每个工具只是应用层函数的薄包装，鉴权、Policy、计量都在应用层完成；
 - **确认门**：`create_asset`、`refresh_asset`、`create_channel`、`move_asset` 不直接执行，而是生成一条**待确认操作**，写明要做什么、作用于哪项资产或频道、预计消耗多少 Call 与容量、是否会让内容公开；用户在确认卡片上点击后服务端才以用户身份执行一次并写审计日志。确认一次性、绑定具体参数，参数变了要重新确认；模型不能代用户确认，资产内容里的文字也不能；24 小时未处理即作废；
+  - 能确认的只有登录的、可管理该工作空间资产的成员（所有者或管理员），且只能在 Dashboard 的确认卡片或「待确认的操作」页上点；确认提交的是卡片上所示参数的摘要（digest），与待确认操作不一致即拒绝；
+  - 待确认操作的状态：`pending`（待确认）→ `confirmed`（已执行）、`failed`（已确认但应用层拒绝执行，例如放进公开频道缺少权利声明或认领、构建额度不足，原因写在操作上）、`rejected`（所有者拒绝，或 A2A 调用方取消任务撤回）、`expired`（24 小时未处理）；每次执行与拒绝都写一条审计日志；
+  - 结果卡片（执行结果、资产列表、频道摘要）都由服务端按数据模板生成，不经过模型；
+  - `create_asset` 支持网站、GitHub 库、Notion 文章三种来源；网站必须先在「添加资产」里完成域名验证（工作台会提示），上传文件只能在 Dashboard 里上传；
+  - 工作台对话与在线试用共用同一个 Agent 循环；只要配置的模型声明了工具调用，工作台就启用规划（不受在线试用 Agent 开关影响），否则工作台只能问答；一轮对话最多提出 3 项待确认操作、2 次列表；
 - 不进入工具集合、只能由人在 Dashboard 点击完成的操作：删除资产或频道、撤销或轮换 API Key、改访问规则、购买额度、设置频道价格、发布文章与音频、处理评论。
 
 #### 资产
@@ -350,7 +355,7 @@ Agent Card   我的用户卡与频道卡、API Key
 
 - Key 创建时选择名称、环境和 Scope；
 - 完整 Key 只显示一次，之后只展示前缀和末四位；
-- 支持 `knowledge:search`、`knowledge:read`、`usage:read`、`admin:keys`，以及 A2A 写操作所需的 `assets:write`（P2）；
+- 支持 `knowledge:search`、`knowledge:read`、`usage:read`、`admin:keys`，以及 A2A 写操作所需的 `assets:write`（P2）；`assets:write` 只在创建时勾选才授予，默认不勾；早期 Key 的 `retrieval` 只相当于三个读权限，不含 `assets:write`；
 - 用户可以撤销、轮换和查看最后使用时间；
 - UI 提醒用户不要把 Key 放进公开仓库、查询文本或客户端代码；
 - API Key 是 A2A 扩展卡识别调用者的凭证（第 9.5 节），也是 REST 的凭证。
@@ -764,7 +769,9 @@ Context JSON 响应至少包含：
 
 - `securitySchemes` 声明 HTTP Bearer，凭证就是 API Key，Key 归属的工作空间即调用身份；OAuth 留到以后；
 - 匿名请求只能用公开卡上的 `find_channels` 与 `search_context`，走匿名低额度与限流，不计 Call、不记到任何工作空间；`ask` 需要认证；
-- `find_channels`、`search_context`、`ask` 要求 `knowledge:search` 或 `knowledge:read`；`ingest`、`refresh`、`publish` 要求 `assets:write`。
+- `find_channels`、`search_context`、`ask` 要求 `knowledge:search` 或 `knowledge:read`；`ingest`、`refresh`、`publish` 要求 `assets:write`；
+- 写技能只作用于调用方自己的工作空间：在平台卡上调用，或在本人的用户卡上调用；频道卡不提供写技能，在他人的用户卡上调用一律拒绝；
+- 扩展卡（`GetExtendedAgentCard`）按调用方生成：平台卡多出三个写技能；用户卡只有本人的 Key 才多出全部资产的检索、`ask` 与三个写技能，他人看到的与公开卡相同；频道卡在 P3a 订阅上线前不多出技能。额度、容量与今日已用答案数写在卡片 `description` 里，并作为 re0 扩展（`capabilities.extensions`）的参数给出。
 
 #### 可验证的结果
 
@@ -778,9 +785,11 @@ A2A 的 Artifact 固定带两个 Part：`text`（答案正文，或上下文的�
 | `ingest`、`refresh` | `SUBMITTED → WORKING → COMPLETED / FAILED`，对应一次构建 Workflow |
 | 需要确认的操作（`ingest`、`refresh` 的扣费，`publish`） | `WORKING → INPUT_REQUIRED`，状态消息写明等的是资产所有者在 Dashboard 中的确认并给出链接；人确认后回到 `WORKING`；待确认操作 24 小时过期或被拒绝时转 `FAILED` |
 
-- **调用方 Agent 不能自己确认**，与第 5.2 节是同一张待确认操作表；
+- **调用方 Agent 不能自己确认**，与第 5.2 节是同一张待确认操作表；`INPUT_REQUIRED` 的状态消息除文字外带一个 `data` Part（`pendingAction`：ID、Dashboard 链接、预计 Call 与容量、是否公开、过期时间、等待对象为资产所有者）；调用方向该任务再发任何消息（包括「已确认」或带操作 ID 的数据）都只得到同样的等待说明，任务和待确认操作都不变；
+- 所有者确认后：`publish` 执行完即 `COMPLETED`，Artifact 写明结果；`ingest`、`refresh` 回到 `WORKING` 并跟随那次构建，构建发布新版本或无变化时 `COMPLETED`，失败时 `FAILED`；这些状态变化发生在请求之外，任务在被读取（`GetTask`、`SubscribeToTask`）时与定时任务里补上，并发出推送通知；
 - 长任务建议调用方设 `returnImmediately: true`，再用推送通知或 `GetTask` 查进度；
-- `CancelTask` 对构建任务的语义是取消排队；已开始写入的版本按发布事务处理，不留半成品。
+- `CancelTask` 对构建任务的语义是取消排队；已开始写入的版本按发布事务处理，不留半成品：构建已经开始的任务不可取消；还在等待确认的任务被取消时，其待确认操作转为 `rejected`（撤回只能关闭，不能执行）；
+- 推送通知只对已认证调用方开放，每个任务最多 5 个配置；Token 与认证信息加密保存，读回时不返回；登记与读取推送配置不计 Call。
 
 ## 10. 访问规则的执行语义
 

@@ -10,7 +10,7 @@
  * A task already in a terminal state is never moved again.
  */
 import { randomUUID } from 'node:crypto';
-import { and, eq, inArray, isNotNull } from 'drizzle-orm';
+import { and, eq, inArray, isNotNull, sql } from 'drizzle-orm';
 import { Role, Task, TaskState, type Artifact, type Message, type Part } from '@a2a-js/sdk';
 import { db, schema } from '@/lib/infrastructure/postgres/client';
 import { deliverTaskPush } from './push';
@@ -126,7 +126,8 @@ export async function syncBuildTasks(taskIds?: readonly string[]): Promise<numbe
       libraryId: schema.workflowOperation.libraryId,
     })
     .from(schema.a2aTask)
-    .innerJoin(schema.workflowOperation, eq(schema.workflowOperation.id, schema.a2aTask.workflowRunId))
+    /* `workflow_run_id` is text (a run id need not be ours); the operation id is a uuid. */
+    .innerJoin(schema.workflowOperation, sql`${schema.workflowOperation.id}::text = ${schema.a2aTask.workflowRunId}`)
     .where(
       and(
         eq(schema.a2aTask.state, 'TASK_STATE_WORKING'),
