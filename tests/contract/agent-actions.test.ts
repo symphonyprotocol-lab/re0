@@ -11,6 +11,7 @@ import {
   describeAction,
   isActionTool,
   mayConfirm,
+  moveExposure,
   NOT_AGENT_OPERATIONS,
   READ_TOOLS,
   slugFromTitle,
@@ -95,6 +96,38 @@ describe('parameters', () => {
     };
     expect(describeAction(summary)).toBe(
       'Pending owner confirmation: move the asset /acme/docs from no channel to the public channel /channels/acme; estimated cost no Calls; this makes the content public.',
+    );
+  });
+
+  it('say when a move makes a paid asset free, and only a move that does', () => {
+    const pub = (id: string) => ({ id, visibility: 'public' as const });
+    const priv = (id: string) => ({ id, visibility: 'private' as const });
+    /* Public to public: nothing new is public, but a paid asset arrives free. */
+    expect(moveExposure(pub('a'), pub('b'), 'paid')).toEqual({ makesPublic: false, makesFree: true });
+    expect(moveExposure(pub('a'), pub('b'), 'free')).toEqual({ makesPublic: false, makesFree: false });
+    expect(moveExposure(priv('a'), pub('b'), 'paid')).toEqual({ makesPublic: true, makesFree: true });
+    /* Into a private channel or out of every channel, nobody else reads it. */
+    expect(moveExposure(pub('a'), priv('b'), 'paid')).toEqual({ makesPublic: false, makesFree: false });
+    expect(moveExposure(pub('a'), null, 'paid')).toEqual({ makesPublic: false, makesFree: false });
+    /* Where it already is: no move. */
+    expect(moveExposure(pub('a'), pub('a'), 'paid')).toEqual({ makesPublic: false, makesFree: false });
+
+    const summary: ActionSummary = {
+      tool: 'move_asset',
+      asset: { id: 'a', publicId: '/acme/docs', title: 'Acme docs' },
+      from: { id: 'c1', slug: 'acme', title: 'Acme', visibility: 'public' },
+      to: { id: 'c2', slug: 'acme-open', title: 'Acme open', visibility: 'public' },
+      source: null,
+      channel: null,
+      delegation: null,
+      calls: { min: 0, max: 0 },
+      assetBytes: null,
+      capacityRemainingBytes: null,
+      makesPublic: false,
+      makesFree: true,
+    };
+    expect(describeAction(summary)).toBe(
+      'Pending owner confirmation: move the asset /acme/docs from the public channel /channels/acme to the public channel /channels/acme-open; estimated cost no Calls; this paid asset becomes free to everyone.',
     );
   });
 

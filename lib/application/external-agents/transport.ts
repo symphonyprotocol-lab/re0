@@ -31,7 +31,12 @@ export function setExternalAgentTransport(override?: Partial<Transport>): void {
   transport = override ? { ...DEFAULT, ...override } : DEFAULT;
 }
 
-/** Throws `ExternalAgentRefused('forbidden_address')` for a URL re0 must not call. */
+/**
+ * Throws `ExternalAgentRefused('forbidden_address')` for a URL re0 must not
+ * call. The name resolves within callback-url.ts's own deadline: the
+ * request's timeout only starts after this check, and an agent's name
+ * server is a stranger's.
+ */
 export async function assertAgentAddress(raw: string): Promise<URL> {
   try {
     return await assertCallbackReachable(raw, transport.resolve);

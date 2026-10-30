@@ -5,7 +5,7 @@
  * claims, their sources, the actions proposed, a listing -- never the
  * planner's text, which nobody is shown.
  */
-import { and, asc, desc, eq } from 'drizzle-orm';
+import { and, desc, eq } from 'drizzle-orm';
 import { uuidv7 } from '@/lib/domain/id';
 import { db, schema } from '@/lib/infrastructure/postgres/client';
 
@@ -87,13 +87,21 @@ export async function latestConversation(workspaceId: string): Promise<Conversat
   return (await listConversations(workspaceId, 1))[0] ?? null;
 }
 
+/**
+ * The last `TURNS_SHOWN` exchanges, oldest first: the newest turns -- a
+ * pending action card among them -- are what the owner comes back to, and
+ * the client builds the planner's history from what is shown. Read newest
+ * first and reversed; `agent_message_conversation_idx` serves either order.
+ */
 export async function conversationTurns(workspaceId: string, conversationId: string): Promise<StoredTurn[]> {
   if (!(await owned(workspaceId, conversationId))) return [];
   const rows = await db()
     .select()
     .from(schema.agentMessage)
     .where(eq(schema.agentMessage.conversationId, conversationId))
-    .orderBy(asc(schema.agentMessage.createdAt))
+    .orderBy(desc(schema.agentMessage.createdAt), desc(schema.agentMessage.id))
     .limit(TURNS_SHOWN * 2);
-  return rows.map((row) => ({ id: row.id, role: row.role, content: row.content, createdAt: row.createdAt.toISOString() }));
+  return rows
+    .reverse()
+    .map((row) => ({ id: row.id, role: row.role, content: row.content, createdAt: row.createdAt.toISOString() }));
 }

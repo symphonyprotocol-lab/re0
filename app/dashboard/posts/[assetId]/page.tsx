@@ -13,7 +13,7 @@ import { db, schema } from '@/lib/infrastructure/postgres/client';
 import { requireSession } from '@/lib/http/session';
 import { fill } from '@/lib/i18n/format';
 import { getMessages, translations } from '@/lib/i18n/server';
-import { eq } from 'drizzle-orm';
+import { and, eq, isNotNull } from 'drizzle-orm';
 import { confirmMediaAction, prepareMediaAction, saveEditorialAction } from '../actions';
 
 export async function generateMetadata(): Promise<Metadata> {
@@ -51,7 +51,15 @@ export default async function EditorPage({
   if (!draft) notFound();
   const c = t.creator.dashboard.editor;
   const errors = t.creator.errors as Record<string, string>;
-  const channels = await listWorkspaceChannels(session.workspace.id);
+  const [channels, sellingRows] = await Promise.all([
+    listWorkspaceChannels(session.workspace.id),
+    db()
+      .select({ id: schema.channel.id })
+      .from(schema.channel)
+      .where(and(eq(schema.channel.workspaceId, session.workspace.id), isNotNull(schema.channel.subscriptionsEnabledAt))),
+  ]);
+  /* `paid` is offered only where it can hold: a channel that sells (proposal 6.2); saving and publishing refuse it elsewhere. */
+  const selling = new Set(sellingRows.map((row) => row.id));
   const canEdit = canManageAssets(session.workspace.role);
   const isAudio = draft.asset.kind === 'audio';
   const date = new Intl.DateTimeFormat(locale, { dateStyle: 'medium', timeStyle: 'short', timeZone: 'UTC' });
@@ -117,7 +125,7 @@ export default async function EditorPage({
                 <option value="">{c.noChannel}</option>
                 {channels.map((channel) => (
                   <option key={channel.id} value={channel.id}>
-                    {channel.title}
+                    {selling.has(channel.id) ? `${channel.title} · ${c.sells}` : channel.title}
                   </option>
                 ))}
               </select>
@@ -126,7 +134,7 @@ export default async function EditorPage({
               <span className="text-[11px] font-medium text-steel">{c.accessLabel}</span>
               <select name="access" defaultValue={draft.access} className={`${FIELD} h-10`}>
                 <option value="free">{c.free}</option>
-                <option value="paid">{c.paid}</option>
+                {selling.size > 0 || draft.access === 'paid' ? <option value="paid">{c.paid}</option> : null}
               </select>
               <span className="text-[11px] text-muted">{c.paidHint}</span>
             </label>

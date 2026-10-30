@@ -26,6 +26,7 @@ import { readRightsDeclaration, rightsAllowPublic } from '@/lib/domain/rights';
 import { db, schema, type Database } from '@/lib/infrastructure/postgres/client';
 import { canManageAssets, type WorkspaceRole } from '@/lib/application/assets/delete';
 import { refreshChannelProfile } from './profile';
+import { liveSubscription } from './subscriptions';
 
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
@@ -165,6 +166,16 @@ export async function editChannel(input: EditChannelInput): Promise<void> {
 /**
  * Deletes a channel. Its assets are not deleted: they leave it, back to their
  * owner alone, with `access` reset to free like any other move out.
+ *
+ * Refused while any subscription to it is live (`liveSubscription`): one
+ * that still reads, or one the provider may still bill. Deleting would
+ * cascade its plan versions and subscription rows away while Paddle kept
+ * renewing -- subscribers charged for nothing, the creator credited
+ * nothing, and no row left for the subscriber to cancel from. The creator
+ * retires the plans and the subscriptions run out; nothing here cancels
+ * them on the subscribers' behalf. A refund of a payment made before the
+ * deletion still reaches the ledger through the collection it booked
+ * (subscriptions.ts `bookedSaleFacts`).
  */
 export async function deleteChannel(input: {
   workspaceId: string;
@@ -174,6 +185,15 @@ export async function deleteChannel(input: {
   assertManager(input.role);
   return db().transaction(async (tx) => {
     const channel = await ownedChannel(tx, input.workspaceId, input.channelId, true);
+    /* The channel row is locked: a webhook inserting a subscription for it waits on this transaction. */
+    const [live] = await tx
+      .select({ id: schema.channelSubscription.id })
+      .from(schema.channelSubscription)
+      .where(and(eq(schema.channelSubscription.channelId, channel.id), liveSubscription(new Date())))
+      .limit(1);
+    if (live) {
+      throw new ChannelRefused('has_subscribers', 'a subscriber still reads this channel or may still be billed for it');
+    }
     const members = await tx
       .delete(schema.channelAsset)
       .where(eq(schema.channelAsset.channelId, channel.id))
@@ -197,6 +217,19 @@ export interface MoveAssetInput {
   assetId: string;
   /** The channel to move into, or null to take the asset out of any channel. */
   channelId: string | null;
+  /**
+   * Called inside the transaction, with the asset and both channels locked,
+   * before anything is written: where the asset is, where it would go and
+   * who can see each, and its access. A confirmation card checks here that
+   * what it showed still holds (agent/actions.ts); throwing refuses the move.
+   */
+  expect?: (facts: MoveFacts) => void;
+}
+
+export interface MoveFacts {
+  from: { id: string; visibility: 'public' | 'private' } | null;
+  to: { id: string; visibility: 'public' | 'private' } | null;
+  access: 'free' | 'paid';
 }
 
 export interface MoveAssetResult {
@@ -215,9 +248,12 @@ export interface MoveAssetResult {
  * not carried to the next. A move into a public channel is refused unless the
  * asset may be public (`assertMayBePublic`).
  */
-export async function moveAsset(input: MoveAssetInput): Promise<MoveAssetResult> {
+export async function moveAsset(input: MoveAssetInput, within?: Tx): Promise<MoveAssetResult> {
   assertManager(input.role);
-  const result = await db().transaction(async (tx) => {
+  /* `within`: the caller's transaction, so the move commits or rolls back with
+     its other writes -- publishing a post (editorial/assets.ts). */
+  const run = <T>(work: (tx: Tx) => Promise<T>) => (within ? work(within) : db().transaction(work));
+  const result = await run(async (tx) => {
     const asset = await ownedAsset(tx, input.workspaceId, input.assetId);
     const [current] = await tx
       .select({ channelId: schema.channelAsset.channelId })
@@ -225,8 +261,16 @@ export async function moveAsset(input: MoveAssetInput): Promise<MoveAssetResult>
       .where(eq(schema.channelAsset.assetId, asset.id))
       .for('update');
     const from = current?.channelId ?? null;
+    const facts = async (to: MoveFacts['to']): Promise<MoveFacts> => {
+      const [state] = await tx.select({ access: schema.asset.access }).from(schema.asset).where(eq(schema.asset.id, asset.id));
+      const [was] = from
+        ? await tx.select({ id: schema.channel.id, visibility: schema.channel.visibility }).from(schema.channel).where(eq(schema.channel.id, from)).for('share')
+        : [];
+      return { from: was ?? null, to, access: state?.access === 'paid' ? 'paid' : 'free' };
+    };
 
     if (input.channelId === null) {
+      if (input.expect) input.expect(await facts(null));
       if (from) {
         await tx.delete(schema.channelAsset).where(eq(schema.channelAsset.assetId, asset.id));
         await tx.update(schema.asset).set({ access: 'free' }).where(eq(schema.asset.id, asset.id));
@@ -240,6 +284,7 @@ export async function moveAsset(input: MoveAssetInput): Promise<MoveAssetResult>
     if (target.status === 'suspended') {
       throw new ChannelRefused('suspended', 'this channel is suspended');
     }
+    if (input.expect) input.expect(await facts({ id: target.id, visibility: target.visibility }));
     if (from === target.id) return { from, to: target.id, madePublic: false };
     if (target.visibility === 'public') await assertMayBePublic(tx, asset.id);
 
@@ -256,6 +301,8 @@ export async function moveAsset(input: MoveAssetInput): Promise<MoveAssetResult>
     return { from, to: target.id, madePublic: target.visibility === 'public' };
   });
 
+  /* Inside a caller's transaction nothing is committed yet: the caller refreshes after its commit. */
+  if (within) return result;
   /* The aggregate profiles follow membership; best-effort, never the move's failure. */
   for (const channelId of new Set([result.from, result.to])) {
     if (channelId) await refreshChannelProfile(channelId).catch(() => {});

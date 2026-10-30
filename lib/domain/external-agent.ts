@@ -23,8 +23,6 @@ export const RESPONSE_MAX_BYTES = 1024 * 1024;
 export const OUTPUT_MAX_CHARS = 32_000;
 /** The sub-task text the owner confirms and re0 sends. */
 export const MESSAGE_MAX_CHARS = 4_000;
-/** Proposal 10: bodies of A2A tasks, inbound and outbound, are kept 30 days. */
-export const BODY_RETENTION_DAYS = 30;
 
 export const CARD_PATH = '/.well-known/agent-card.json';
 

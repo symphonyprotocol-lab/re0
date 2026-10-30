@@ -2,7 +2,8 @@
  * In-app notifications. agent-first-proposal.md 6.5, 6.7, 6.8.
  *
  * A new post or episode for each current subscriber of its channel, a new
- * comment or question for the creator, a reply for the reader replied to.
+ * comment or question for the creator, a reply for the reader replied to,
+ * and a scheduled publication the drain could not make, for the creator.
  * The payload carries ids and titles only -- never a comment's body, which
  * is the commenter's to delete. Email is not sent: it is optional and off
  * by default, and there is no mail transport yet.
@@ -12,7 +13,7 @@ import { uuidv7 } from '@/lib/domain/id';
 import { db, schema, type Database } from '@/lib/infrastructure/postgres/client';
 import type { Tx } from '@/lib/application/plans/quota';
 
-export const NOTIFICATION_KINDS = ['new_post', 'new_comment', 'comment_reply', 'new_question', 'question_answered'] as const;
+export const NOTIFICATION_KINDS = ['new_post', 'new_comment', 'comment_reply', 'new_question', 'question_answered', 'publish_failed'] as const;
 export type NotificationKind = (typeof NOTIFICATION_KINDS)[number];
 
 type Executor = Tx | Database;

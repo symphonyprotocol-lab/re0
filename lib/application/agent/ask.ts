@@ -3,12 +3,14 @@
  * citation on every sentence, for another agent.
  *
  * It is the shared generation chain and nothing else: the scope's retrieval
- * (`searchScope`, the function `search_context` runs) and then
+ * (`searchScope`, the function `search_context` runs), the playground's
+ * confirmation of that read (retrieval/gather.ts `readConfirms`), and then
  * `answerFromContext` -- the playground's own answering half, with its
  * sentence gate, citation binding, FAQ shortcut and degradation to the chunk
- * list. requirement.md 5.1 holds as it does in the playground: no model on
- * zero results, only this request's chunks, every sentence bound or dropped,
- * a model failure is a chunk list and not an error.
+ * list. requirement.md 5.1 holds as it does in the playground: no model
+ * unless the passages are confirmed to fit the question, only this request's
+ * chunks, every sentence bound or dropped, a model failure is a chunk list
+ * and not an error.
  *
  * Metering is the caller's (proposal 8.2), and it is decided by what came
  * back, so the seat is held before retrieval and settled after generation:
@@ -18,7 +20,8 @@
  * - an answer bills that many, as one `ask` usage event;
  * - an answer that degraded to the chunk list bills 1, as `search_context`
  *   would, and does not count towards the daily cap;
- * - zero results call no model and bill nothing.
+ * - nothing confirmed -- zero results, or only the nearest passages of a
+ *   corpus about something else -- calls no model and bills nothing.
  *
  * Both values are console settings (retrieval_config).
  */
@@ -26,7 +29,7 @@ import { AppError } from '@/contracts/errors';
 import { activeRetrievalSettings } from '@/lib/application/administration';
 import { commitCalls, releaseCalls, reserveCalls } from '@/lib/application/plans';
 import type { CallerContext } from '@/lib/application/retrieval';
-import type { GatheredChunk, GatheredAsset } from '@/lib/application/retrieval/gather';
+import { readConfirms, type GatheredChunk, type GatheredAsset } from '@/lib/application/retrieval/gather';
 import { defaultRetrievalDependencies } from '@/lib/application/retrieval/query-docs';
 import { searchScope, type ScopeSearchResult, type SearchScope } from '@/lib/application/retrieval/search-scope';
 import {
@@ -36,6 +39,7 @@ import {
   resolveModel,
   type PlaygroundDependencies,
 } from '@/lib/application/playground';
+import { containsCjk } from '@/lib/domain/cjk';
 import { retrievalBudgetFor } from '@/lib/domain/retrieval-config';
 
 export const ASK_OPERATION = 'ask';
@@ -107,8 +111,14 @@ export async function askScope(
       { ...retrieval, settings: async () => settings },
     );
 
-    /* Rule 2: nothing found, no model, nothing billed. */
-    if (found.chunks.length === 0) {
+    /*
+     * Rule 2: no confirmed context, no model, nothing billed. Recall always
+     * returns the scope's nearest passages, however far they are; the
+     * playground's gate decides whether they are about the question, so an
+     * off-topic question is `no_context` here as it is there -- and on the
+     * twin it goes to the creator's pending list (proposal 6.7).
+     */
+    if (found.chunks.length === 0 || !readConfirms(found, containsCjk(input.question))) {
       await releaseCalls(seat);
       return { outcome: 'no_context', claims: [], chunks: [], callsUsed: 0, requestId };
     }
@@ -166,7 +176,15 @@ export async function askScope(
   }
 }
 
+/**
+ * The assets behind the passages, as the answering half expects them. The
+ * nearest FAQ chunk the vector leg saw rides on the asset it belongs to, so
+ * the FAQ's own answer (playground `directFaqAnswer`) is given here as in the
+ * playground.
+ */
 function assetsOf(found: ScopeSearchResult): GatheredAsset[] {
+  const nearest = found.confidence?.faqNearest ?? null;
+  const faqAsset = nearest ? found.chunks.find((chunk) => chunk.chunkId === nearest.chunkId)?.asset.publicId : undefined;
   const byAsset = new Map<string, GatheredAsset>();
   for (const chunk of found.chunks) {
     const known = byAsset.get(chunk.asset.publicId);
@@ -177,7 +195,7 @@ function assetsOf(found: ScopeSearchResult): GatheredAsset[] {
         title: chunk.asset.title,
         version: chunk.asset.version,
         confirmed: true,
-        faqNearest: null,
+        faqNearest: chunk.asset.publicId === faqAsset ? nearest : null,
         chunks: 1,
         failed: false,
         excerpts: [],

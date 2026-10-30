@@ -21,13 +21,15 @@
  *   period, revokes access at once. The first subscription raises the
  *   subscriber to the extended storage tier (8.1).
  */
-import { and, desc, eq, inArray, isNull, sql } from 'drizzle-orm';
+import { and, desc, eq, gt, inArray, isNull, ne, or, sql } from 'drizzle-orm';
 import { AppError } from '@/contracts/errors';
 import { isAssetAccess } from '@/lib/domain/asset-kind';
 import {
+  ACCESS_STATUSES,
   assertSellablePrice,
   CHANNEL_CURRENCY,
   ChannelCommerceRefused,
+  channelSaleMismatch,
   creatorShareBps,
   creatorShareMinor,
   grantsAccess,
@@ -40,6 +42,7 @@ import { uuidv7 } from '@/lib/domain/id';
 import {
   paymentAdapter,
   PaymentNotConfigured,
+  PaymentProviderError,
   type ChannelSubscriptionNotice,
   type ChannelTransactionNotice,
   type PaymentAdapter,
@@ -49,7 +52,7 @@ import { activeCommerceSettings } from '@/lib/application/administration/manage-
 import { canManageAssets, type WorkspaceRole } from '@/lib/application/assets/delete';
 import type { Tx } from '@/lib/application/plans/quota';
 import { extendUserStorageTier } from '@/lib/application/plans/storage';
-import { hasNegativeBalance, periodIdOf } from '@/lib/application/revenue/balance';
+import { hasNegativeBalance, openPeriodId } from '@/lib/application/revenue/balance';
 
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
@@ -70,6 +73,24 @@ export async function subscribesTo(
     .where(and(eq(schema.channelSubscription.workspaceId, workspaceId), eq(schema.channelSubscription.channelId, channelId)));
   const now = new Date();
   return rows.some((row) => grantsAccess(row, now));
+}
+
+/**
+ * A subscription that is not over: it still reads (`grantsAccess`), or the
+ * provider may still bill it -- not canceled there and not set to end with
+ * its period. A past-due one whose period has run out reads nothing but may
+ * still be collected; a refunded one may still renew until its provider
+ * subscription is canceled. A new checkout for the same channel would bill
+ * twice, and deleting the channel would leave it billing for nothing.
+ */
+export function liveSubscription(now: Date) {
+  return or(
+    and(
+      inArray(schema.channelSubscription.status, [...ACCESS_STATUSES]),
+      gt(schema.channelSubscription.currentPeriodEnd, now),
+    ),
+    and(ne(schema.channelSubscription.status, 'canceled'), eq(schema.channelSubscription.cancelAtPeriodEnd, false)),
+  )!;
 }
 
 /**
@@ -332,12 +353,14 @@ export async function setAssetAccess(input: {
   role: WorkspaceRole;
   assetId: string;
   access: unknown;
-}): Promise<void> {
+}, within?: Tx): Promise<void> {
   if (!canManageAssets(input.role)) throw new ChannelCommerceRefused('not_owner', 'only a workspace owner or admin can change access');
   if (!isAssetAccess(input.access)) throw new AppError('invalid_request', 'access is free or paid');
   const access = input.access;
   if (!UUID.test(input.assetId)) throw new ChannelCommerceRefused('not_found', 'no such asset');
-  await db().transaction(async (tx) => {
+  /* `within`: the caller's transaction -- publishing a post sets access with its move and its body (editorial/assets.ts). */
+  const run = (work: (tx: Tx) => Promise<void>) => (within ? work(within) : db().transaction(work));
+  await run(async (tx) => {
     const [row] = await tx
       .select({ channelId: schema.channelAsset.channelId, enabledAt: schema.channel.subscriptionsEnabledAt })
       .from(schema.channelAsset)
@@ -370,7 +393,8 @@ export interface SubscriberInput {
 /**
  * Opens a checkout for one plan of a channel. Refuses the owner's own
  * channel, a channel that does not sell (any more), a plan below today's
- * minimum, and a reader who already holds a live subscription.
+ * minimum, and a reader who already holds a live subscription -- one that
+ * reads, or one the provider may still renew (`liveSubscription`).
  */
 export async function startChannelCheckout(
   input: SubscriberInput & { channelId: string; interval: unknown },
@@ -400,8 +424,19 @@ export async function startChannelCheckout(
   /* The floor holds at the moment of sale too: a minimum raised since the plan was set stops it selling. */
   const settings = await activeCommerceSettings();
   assertSellablePrice(plan.priceMinor, settings.minPriceMinor);
-  if (await subscribesTo(input.workspaceId, channel.id)) {
-    throw new ChannelCommerceRefused('already_subscribed', 'you already subscribe to this channel');
+  const [live] = await database
+    .select({ id: schema.channelSubscription.id })
+    .from(schema.channelSubscription)
+    .where(
+      and(
+        eq(schema.channelSubscription.userId, input.userId),
+        eq(schema.channelSubscription.channelId, channel.id),
+        liveSubscription(new Date()),
+      ),
+    )
+    .limit(1);
+  if (live) {
+    throw new ChannelCommerceRefused('already_subscribed', 'you already subscribe to this channel, or a subscription of yours may still renew');
   }
 
   let provider: PaymentAdapter;
@@ -533,12 +568,21 @@ export async function activeSubscriberUsers(channelId: string, executor: Executo
 
 /* ----------------------------------------------------------------- webhook */
 
-export type ChannelWebhookOutcome = 'applied' | 'stale' | 'unresolved';
+export type ChannelWebhookOutcome = 'applied' | 'stale' | 'unresolved' | 'refused';
+
+/** What booking a channel sale or its reversal needs: whose income, from which channel, at what share. */
+interface LedgerFacts {
+  ownerWorkspaceId: string;
+  channelId: string;
+  shareBps: number;
+}
 
 interface PlanFacts {
   id: string;
   channelId: string;
   feeRateBps: number;
+  priceMinor: number;
+  currency: string;
   ownerWorkspaceId: string;
 }
 
@@ -548,6 +592,8 @@ async function planFacts(tx: Tx, planVersionId: string): Promise<PlanFacts | nul
       id: schema.channelPlanVersion.id,
       channelId: schema.channelPlanVersion.channelId,
       feeRateBps: schema.channelPlanVersion.feeRateBps,
+      priceMinor: schema.channelPlanVersion.priceMinor,
+      currency: schema.channelPlanVersion.currency,
       ownerWorkspaceId: schema.channel.workspaceId,
     })
     .from(schema.channelPlanVersion)
@@ -557,7 +603,30 @@ async function planFacts(tx: Tx, planVersionId: string): Promise<PlanFacts | nul
   return { ...row, ownerWorkspaceId: row.ownerWorkspaceId };
 }
 
-async function subscriptionByProvider(tx: Tx, externalId: string) {
+/**
+ * The ledger facts of a transaction whose plan version is gone with its
+ * channel, read from the collection it booked. `deleteChannel` lets a
+ * channel go only once no subscription can be billed again, but a refund
+ * or chargeback of a payment already made can still arrive, and it must
+ * still take the creator's share back. `earning_event` has no foreign key
+ * to the channel, so the collection outlives it.
+ */
+async function bookedSaleFacts(tx: Tx, transactionId: string): Promise<LedgerFacts | null> {
+  const [row] = await tx
+    .select({
+      ownerWorkspaceId: schema.earningEvent.ownerWorkspaceId,
+      channelId: schema.earningEvent.channelId,
+      shareBps: schema.earningEvent.shareBps,
+    })
+    .from(schema.earningEvent)
+    .where(and(eq(schema.earningEvent.source, 'channel_subscription'), eq(schema.earningEvent.reference, transactionId)));
+  if (!row || row.channelId === null || row.shareBps === null) return null;
+  return { ownerWorkspaceId: row.ownerWorkspaceId, channelId: row.channelId, shareBps: row.shareBps };
+}
+
+type SubscriptionRow = typeof schema.channelSubscription.$inferSelect;
+
+async function subscriptionByProvider(tx: Tx, externalId: string): Promise<SubscriptionRow | null> {
   const [row] = await tx
     .select()
     .from(schema.channelSubscription)
@@ -569,27 +638,93 @@ async function subscriptionByProvider(tx: Tx, externalId: string) {
 }
 
 /**
+ * The row a transaction's notice belongs to. One provider subscription is
+ * one row, whichever of its transaction's notices names the subscription
+ * first: Paddle creates the subscription only once the first payment
+ * clears, so the first notice may carry no subscription id -- the row is
+ * then keyed `txn:<transaction>` -- and a later one does.
+ *
+ * - The subscription the notice names, when a row has it.
+ * - Otherwise the row this transaction already made: keyed by it, or the
+ *   one its collection was booked against. A `txn:` key is re-keyed to the
+ *   subscription the notice now names, so a refund, a subscription event
+ *   and a cancellation all find this one row. A second row would keep
+ *   granting access after a refund revoked the first.
+ */
+async function subscriptionForNotice(tx: Tx, notice: ChannelTransactionNotice): Promise<SubscriptionRow | null> {
+  if (notice.subscriptionExternalId) {
+    const named = await subscriptionByProvider(tx, notice.subscriptionExternalId);
+    if (named) return named;
+  }
+  let row = await subscriptionByProvider(tx, `txn:${notice.transactionId}`);
+  if (!row) {
+    const [booked] = await tx
+      .select({ id: schema.earningEvent.channelSubscriptionId })
+      .from(schema.earningEvent)
+      .where(and(eq(schema.earningEvent.source, 'channel_subscription'), eq(schema.earningEvent.reference, notice.transactionId)));
+    if (booked?.id) {
+      const [first] = await tx.select().from(schema.channelSubscription).where(eq(schema.channelSubscription.id, booked.id)).for('update');
+      row = first ?? null;
+    }
+  }
+  if (!row) return null;
+  if (notice.subscriptionExternalId && row.providerSubscriptionId?.startsWith('txn:')) {
+    await tx
+      .update(schema.channelSubscription)
+      .set({ providerSubscriptionId: notice.subscriptionExternalId, updatedAt: new Date() })
+      .where(eq(schema.channelSubscription.id, row.id));
+    return { ...row, providerSubscriptionId: notice.subscriptionExternalId };
+  }
+  return row;
+}
+
+/**
  * One channel transaction, re-read in full at the provider: its collection
  * and its adjustments. Every write is keyed on a provider id, so a
- * redelivered or out-of-order notification adds nothing twice.
+ * redelivered or out-of-order notification adds nothing twice. `adapter`
+ * is the provider a revoking refund cancels the subscription at; the
+ * deployment's when not given.
  */
-export async function applyChannelTransaction(tx: Tx, notice: ChannelTransactionNotice): Promise<ChannelWebhookOutcome> {
+export async function applyChannelTransaction(
+  tx: Tx,
+  notice: ChannelTransactionNotice,
+  adapter?: PaymentAdapter,
+): Promise<ChannelWebhookOutcome> {
   /*
-   * The row's provider key: the subscription's id, or -- for a collection
-   * that does not name one yet -- the transaction's, so a second notice for
-   * the same payment finds the row instead of minting another.
+   * One transaction's notices are applied one at a time: `paid` and
+   * `completed` arrive together, and two that both found no row would both
+   * insert one.
    */
-  const providerKey = notice.subscriptionExternalId ?? `txn:${notice.transactionId}`;
-  let subscription = await subscriptionByProvider(tx, providerKey);
+  await tx.execute(sql`select pg_advisory_xact_lock(hashtext(${`channel_transaction:${notice.transactionId}`}))`);
+  let subscription = await subscriptionForNotice(tx, notice);
   const planVersionId = notice.channelPlanVersionId ?? subscription?.planVersionId ?? null;
   const plan = planVersionId ? await planFacts(tx, planVersionId) : null;
   const userId = notice.userId ?? subscription?.userId ?? null;
   const workspaceId = notice.workspaceId ?? subscription?.workspaceId ?? null;
+  if (!plan) {
+    /* The channel is gone: what its sales booked can still be taken back, nothing else moves. */
+    const booked = await bookedSaleFacts(tx, notice.transactionId);
+    if (booked) {
+      await bookAdjustments(tx, notice, booked, null, adapter);
+      return 'applied';
+    }
+  }
   if (!plan || !userId || !workspaceId) {
     console.error(`channel webhook: transaction ${notice.transactionId} names no known plan or subscriber`);
     return 'unresolved';
   }
-  const shareBps = creatorShareBps(plan.feeRateBps);
+  /*
+   * The tag names the plan; what was paid must pay for it. A transaction
+   * that does not is recorded with its payload (`payment_event`) for an
+   * operator and grants nothing. A renewal of a row a checked sale opened is
+   * held to the product and currency only (`channelSaleMismatch`).
+   */
+  const mismatch = channelSaleMismatch(notice, plan, { renewal: subscription !== null });
+  if (mismatch) {
+    console.error(`channel webhook: transaction ${notice.transactionId} does not pay for plan version ${plan.id} (${mismatch})`);
+    return 'refused';
+  }
+  const facts: LedgerFacts = { ownerWorkspaceId: plan.ownerWorkspaceId, channelId: plan.channelId, shareBps: creatorShareBps(plan.feeRateBps) };
 
   /*
    * A transaction already refunded or charged back -- in this notice, or by
@@ -620,11 +755,12 @@ export async function applyChannelTransaction(tx: Tx, notice: ChannelTransaction
     }
     const periodEnd = notice.periodEnd ?? new Date((notice.collectedAt ?? notice.observedAt).getTime() + 31 * 86_400_000);
     if (!subscription) {
-      const id = uuidv7();
+      /* Keyed by the subscription, or -- for a first payment that does not name one yet -- by the transaction. */
+      const providerKey = notice.subscriptionExternalId ?? `txn:${notice.transactionId}`;
       await tx
         .insert(schema.channelSubscription)
         .values({
-          id,
+          id: uuidv7(),
           channelId: plan.channelId,
           userId,
           workspaceId,
@@ -652,21 +788,40 @@ export async function applyChannelTransaction(tx: Tx, notice: ChannelTransaction
       .insert(schema.earningEvent)
       .values({
         id: uuidv7(),
-        ownerWorkspaceId: plan.ownerWorkspaceId,
-        amountMinor: creatorShareMinor(notice.exTaxMinor, shareBps),
+        ownerWorkspaceId: facts.ownerWorkspaceId,
+        amountMinor: creatorShareMinor(notice.exTaxMinor, facts.shareBps),
         source: 'channel_subscription',
         reference: notice.transactionId,
-        periodId: periodIdOf(collectedAt),
-        channelId: plan.channelId,
+        periodId: await openPeriodId(tx, collectedAt),
+        channelId: facts.channelId,
         channelSubscriptionId: subscription?.id ?? null,
         providerTransactionId: notice.transactionId,
         grossMinor: notice.exTaxMinor,
-        shareBps,
+        shareBps: facts.shareBps,
         createdAt: collectedAt,
       })
       .onConflictDoNothing();
   }
 
+  await bookAdjustments(tx, notice, facts, subscription, adapter);
+  return 'applied';
+}
+
+/**
+ * A transaction's refunds, chargebacks and reversals, each booked once on
+ * its adjustment id. A refund or chargeback of the period now running
+ * revokes access at once (proposal 6.9) and stops the provider
+ * subscription; one of an earlier period leaves the current one alone:
+ * that period was paid for separately.
+ */
+async function bookAdjustments(
+  tx: Tx,
+  notice: ChannelTransactionNotice,
+  facts: LedgerFacts,
+  subscription: SubscriptionRow | null,
+  adapter: PaymentAdapter | undefined,
+): Promise<void> {
+  let revoked = false;
   for (const adjustment of notice.adjustments) {
     if (adjustment.status !== 'approved' || adjustment.action === 'other') continue;
     if (!Number.isFinite(adjustment.exTaxMinor) || adjustment.exTaxMinor <= 0) continue;
@@ -675,25 +830,20 @@ export async function applyChannelTransaction(tx: Tx, notice: ChannelTransaction
       .insert(schema.earningEvent)
       .values({
         id: uuidv7(),
-        ownerWorkspaceId: plan.ownerWorkspaceId,
-        amountMinor: creatorShareMinor(sign * adjustment.exTaxMinor, shareBps),
+        ownerWorkspaceId: facts.ownerWorkspaceId,
+        amountMinor: creatorShareMinor(sign * adjustment.exTaxMinor, facts.shareBps),
         source: adjustment.action,
         reference: adjustment.id,
-        periodId: periodIdOf(adjustment.observedAt),
-        channelId: plan.channelId,
+        periodId: await openPeriodId(tx, adjustment.observedAt),
+        channelId: facts.channelId,
         channelSubscriptionId: subscription?.id ?? null,
         providerTransactionId: notice.transactionId,
         grossMinor: sign * adjustment.exTaxMinor,
-        shareBps,
+        shareBps: facts.shareBps,
         createdAt: adjustment.observedAt,
       })
       .onConflictDoNothing()
       .returning({ id: schema.earningEvent.id });
-    /*
-     * A refund or chargeback of the period now running revokes access at
-     * once (proposal 6.9). One of an earlier period leaves the current one
-     * alone: that period was paid for separately.
-     */
     if (inserted.length > 0 && sign < 0 && subscription) {
       const covers = !notice.periodEnd || notice.periodEnd.getTime() >= subscription.currentPeriodEnd.getTime();
       if (covers) {
@@ -701,10 +851,48 @@ export async function applyChannelTransaction(tx: Tx, notice: ChannelTransaction
           .update(schema.channelSubscription)
           .set({ status: 'refunded', currentPeriodEnd: adjustment.observedAt, updatedAt: new Date() })
           .where(eq(schema.channelSubscription.id, subscription.id));
+        revoked = true;
       }
     }
   }
-  return 'applied';
+  if (revoked && subscription) await stopAtProvider(tx, subscription, adapter);
+}
+
+/**
+ * Cancels the provider subscription now, once a refund or chargeback has
+ * revoked its running period. A refund does not cancel a Paddle
+ * subscription: left alone it renews next cycle, charges the buyer again and
+ * restores access, and a buyer who re-subscribed in between is billed twice
+ * from then on.
+ *
+ * Called inside the webhook's transaction, so an outage throws, the event
+ * rolls back with the refund it carried, and the provider's retry does both
+ * again -- the retry is the queue. A refusal (already canceled -- by an
+ * earlier attempt whose transaction rolled back, or at the provider --, an
+ * unknown id) is the same on every retry, and says the provider will not
+ * renew it either: it is logged, the refund stands, and the row is marked as
+ * ending like a canceled one, so it no longer holds the channel's deletion
+ * or the buyer's next checkout.
+ */
+async function stopAtProvider(tx: Tx, subscription: SubscriptionRow, adapter: PaymentAdapter | undefined): Promise<void> {
+  const externalId = subscription.providerSubscriptionId;
+  /* Already ending at the provider: nothing will renew. */
+  if (subscription.status === 'canceled' || subscription.cancelAtPeriodEnd) return;
+  if (!externalId || externalId.startsWith('txn:')) {
+    console.error(`channel webhook: subscription row ${subscription.id} was refunded before its provider subscription was known; cancel it at the provider`);
+    return;
+  }
+  try {
+    await (adapter ?? paymentAdapter()).cancelSubscription(externalId, { immediately: true });
+  } catch (error) {
+    const refused = error instanceof PaymentProviderError && error.status !== null && error.status >= 400 && error.status < 500 && error.status !== 429;
+    if (!refused) throw error;
+    console.error(`channel webhook: the provider would not cancel ${externalId}: ${(error as Error).message}`);
+  }
+  await tx
+    .update(schema.channelSubscription)
+    .set({ cancelAtPeriodEnd: true, updatedAt: new Date() })
+    .where(eq(schema.channelSubscription.id, subscription.id));
 }
 
 /** A subscription's own state: cancellation scheduled or done, past due, paused. */
@@ -713,11 +901,21 @@ export async function applyChannelSubscription(tx: Tx, notice: ChannelSubscripti
   /* The first collected transaction creates the row; a subscription event that outruns it waits for it. */
   if (!subscription) return 'unresolved';
   if (subscription.observedAt && subscription.observedAt > notice.observedAt) return 'stale';
-  /* A refund's revocation is final for the period; nothing but a new payment restores it. */
+  /*
+   * A refund's revocation is final for the period; nothing but a new payment
+   * restores it. Once the provider subscription is known to end -- canceled
+   * by the refund (`stopAtProvider`) or here -- that stays known: a canceled
+   * provider subscription never resumes, and an older event delivered late
+   * must not make it look live again (`startChannelCheckout` reads it).
+   */
   if (subscription.status === 'refunded') {
     await tx
       .update(schema.channelSubscription)
-      .set({ cancelAtPeriodEnd: notice.cancelAtPeriodEnd, observedAt: notice.observedAt, updatedAt: new Date() })
+      .set({
+        cancelAtPeriodEnd: subscription.cancelAtPeriodEnd || notice.cancelAtPeriodEnd || notice.status === 'canceled',
+        observedAt: notice.observedAt,
+        updatedAt: new Date(),
+      })
       .where(eq(schema.channelSubscription.id, subscription.id));
     return 'applied';
   }

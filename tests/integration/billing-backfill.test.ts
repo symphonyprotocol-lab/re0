@@ -137,6 +137,12 @@ describeWithDb('backfilling a billing document from the provider', () => {
     });
   });
 
+  it('refuses a channel subscription transaction rather than filing it as the subscriber\'s document (review M14)', async () => {
+    await expect(
+      applyProviderSnapshot(provider, { document: null, channelTransaction: true, payload: { test: true } }, meta),
+    ).rejects.toMatchObject({ code: 'channel_transaction' });
+  });
+
   it('refuses, and can be retried, when there is no workspace to place it on', async () => {
     const orphan = documentNotice(`txn_${tag}_orphan`, {}, { workspaceId: null });
     await expect(applyProviderSnapshot(provider, snapshot(orphan), meta)).rejects.toBeInstanceOf(

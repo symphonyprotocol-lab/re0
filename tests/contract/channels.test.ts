@@ -26,6 +26,7 @@ import { evaluatePolicy, listedIn, OPEN_POLICY, parsePolicyEntry } from '@/lib/d
 import { parseTenantKey, splitTenantPath, PLATFORM_TENANT, type A2ATenant } from '@/lib/application/a2a/tenant';
 import { agentCardJson, buildAgentCard, cardUrl } from '@/lib/application/a2a/card';
 import { readSkillRequest, SkillRejected, skillRefusal } from '@/lib/application/a2a/executor';
+import { assertCallbackReachable, CallbackRefused } from '@/lib/infrastructure/connectors/callback-url';
 
 /* ------------------------------------------------------------ reserved names */
 
@@ -238,6 +239,20 @@ describe('A2A tenants', () => {
     expect(splitTenantPath(['channels', 'rust-notes', 'agent-card.json'])).toEqual({ tenant: 'channels/rust-notes', rest: ['agent-card.json'] });
     expect(splitTenantPath(['message:send'])).toEqual({ tenant: '', rest: ['message:send'] });
     expect(splitTenantPath([])).toEqual({ tenant: '', rest: [] });
+  });
+});
+
+describe('push callbacks (proposal 7.8)', () => {
+  it('give a name that never resolves a deadline, and the caller’s signal a say', async () => {
+    const never = () => new Promise<string[]>(() => {});
+    const started = Date.now();
+    await expect(assertCallbackReachable('https://tarpit.example.test/hook', never, { timeoutMs: 50 })).rejects.toBeInstanceOf(CallbackRefused);
+    const signal = AbortSignal.timeout(30);
+    await expect(assertCallbackReachable('https://tarpit.example.test/hook', never, { timeoutMs: 10_000, signal })).rejects.toThrow(/did not resolve in time/);
+    expect(Date.now() - started).toBeLessThan(1_000);
+    /* A name that resolves in time is still judged by every address. */
+    await expect(assertCallbackReachable('https://hooks.example.test/a2a', async () => ['10.1.2.3'])).rejects.toThrow(/private address/);
+    expect((await assertCallbackReachable('https://hooks.example.test/a2a', async () => ['93.184.216.34'])).host).toBe('hooks.example.test');
   });
 });
 

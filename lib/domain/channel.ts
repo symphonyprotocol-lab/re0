@@ -69,7 +69,9 @@ export class ChannelRefused extends Error {
       | 'asset_not_ready'
       | 'claim_required'
       | 'rights_required'
-      | 'suspended',
+      | 'suspended'
+      /** A subscriber still reads the channel, or may still be billed for it. */
+      | 'has_subscribers',
     message: string,
   ) {
     super(message);

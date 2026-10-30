@@ -8,8 +8,15 @@
  * private or suspended channel -- resolves to null and is answered exactly
  * like a missing one: a private channel has no card and no endpoint
  * (proposal 7.1), and its existence is its owner's business.
+ *
+ * So is a user who has published nothing. Proposal 4.3: "没有公开频道的用户
+ * 没有公开主页" -- and a card or an endpoint that answered for every handle
+ * would confirm that an account exists for a guessed e-mail local part, and
+ * print its OAuth display name. Such a user's tenant resolves only for that
+ * user's own workspace, whose extended card lists what is theirs (7.1), and
+ * names them by handle until they publish.
  */
-import { channelBySlug, workspaceByHandle } from '@/lib/application/channels';
+import { channelBySlug, userByHandle, workspaceByHandle } from '@/lib/application/channels';
 import { normalizeChannelSlug, PLATFORM_CHANNEL_SLUG } from '@/lib/domain/channel';
 import { normalizeHandle } from '@/lib/domain/handle';
 
@@ -48,19 +55,25 @@ export function parseTenantKey(raw: string): { level: 'platform' } | { level: 'u
   return null;
 }
 
-export async function resolveTenant(raw: string): Promise<A2ATenant | null> {
+/**
+ * The tenant a key names, as `viewerWorkspaceId` -- the calling workspace,
+ * or null for an anonymous caller or a public card -- may see it.
+ */
+export async function resolveTenant(raw: string, viewerWorkspaceId: string | null = null): Promise<A2ATenant | null> {
   const parsed = parseTenantKey(raw);
   if (!parsed) return null;
   if (parsed.level === 'platform') return PLATFORM_TENANT;
   if (parsed.level === 'user') {
     const workspace = await workspaceByHandle(parsed.name);
     if (!workspace) return null;
+    const published = (await userByHandle(workspace.handle)) !== null;
+    if (!published && viewerWorkspaceId !== workspace.id) return null;
     return {
       level: 'user',
       key: `users/${workspace.handle}`,
       handle: workspace.handle,
       workspaceId: workspace.id,
-      name: workspace.name,
+      name: published ? workspace.name : workspace.handle,
     };
   }
   /* Public view only: a private channel has no card, even for its owner. */

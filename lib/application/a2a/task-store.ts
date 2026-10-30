@@ -17,11 +17,10 @@
 import { and, desc, eq, isNull, lt, lte, notInArray, or, sql } from 'drizzle-orm';
 import { Task, TaskState, type ListTasksRequest, type ListTasksResponse } from '@a2a-js/sdk';
 import type { ServerCallContext, TaskStore } from '@a2a-js/sdk/server';
+import { A2A_BODY_RETENTION_DAYS } from '@/lib/domain/a2a-retention';
 import { db, schema } from '@/lib/infrastructure/postgres/client';
 import { callerOf, tenantOf } from './context';
 
-/** Proposal 10: message bodies are kept 30 days, ids and metering for good. */
-export const TASK_BODY_RETENTION_DAYS = 30;
 const DAY_MS = 86_400_000;
 const LIST_PAGE_MAX = 100;
 const TERMINAL_STATE_NAMES = ['TASK_STATE_COMPLETED', 'TASK_STATE_FAILED', 'TASK_STATE_CANCELED', 'TASK_STATE_REJECTED'];
@@ -52,7 +51,7 @@ export class PostgresTaskStore implements TaskStore {
         history: wire.history ?? [],
         artifacts: wire.artifacts ?? [],
         metadata: wire.metadata ?? null,
-        bodyPurgeAt: new Date(now.getTime() + TASK_BODY_RETENTION_DAYS * DAY_MS),
+        bodyPurgeAt: new Date(now.getTime() + A2A_BODY_RETENTION_DAYS * DAY_MS),
         createdAt: now,
         updatedAt: now,
       })

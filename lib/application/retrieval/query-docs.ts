@@ -30,6 +30,7 @@ import { httpStatusFor } from '@/contracts/errors';
 import { pinPolicy, policyIsOpen, policyVerdictFor } from '@/lib/application/policies';
 import { db, schema } from '@/lib/infrastructure/postgres/client';
 import { readableBy, sharedWithEveryone } from '@/lib/application/channels/visibility';
+import { assertUnderSubscriberCap } from '@/lib/application/channels/subscriptions';
 import type { EmbeddingAdapter, RerankAdapter } from '@/lib/infrastructure/ai/providers';
 import type { CallerContext } from './index';
 import { rankChunks } from './rank';
@@ -329,6 +330,21 @@ async function queryDocsInner(
     }
   }
 
+  /*
+   * Proposal 6.10: a creator may cap each subscriber's reads of a channel
+   * per day, and the cap binds every read of the channel's paid assets --
+   * REST, MCP, the playground and the workbench all read one asset through
+   * here, not only a channel-scoped search. The owner is never capped, and a
+   * non-subscriber cannot see a paid asset to begin with.
+   */
+  if (caller.workspaceId && asset.access === 'paid' && asset.ownerWorkspaceId !== caller.workspaceId) {
+    const [member] = await database
+      .select({ channelId: schema.channelAsset.channelId })
+      .from(schema.channelAsset)
+      .where(eq(schema.channelAsset.assetId, asset.id));
+    if (member) await assertUnderSubscriberCap(caller.workspaceId, member.channelId);
+  }
+
   const version = versionLabel
     ? await pinLabeledVersion(database, asset.id, versionLabel)
     : await pinVersion(database, asset.currentVersionId);
@@ -467,6 +483,7 @@ const assetSelection = (workspaceId: string | null) => ({
   shared: sql<boolean>`${sharedWithEveryone()}`,
   /** Readable by this caller: the one rule of channels/visibility.ts. */
   readable: sql<boolean>`${readableBy(workspaceId)}`,
+  access: schema.asset.access,
   lifecycleStatus: schema.asset.lifecycleStatus,
   indexStatus: schema.asset.indexStatus,
   ownerWorkspaceId: schema.asset.ownerWorkspaceId,

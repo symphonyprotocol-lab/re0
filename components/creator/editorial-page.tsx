@@ -13,10 +13,13 @@ import { Markdown } from './markdown';
  * to the viewer's sight: a summary sight carries no body and no audio, so a
  * paid asset's content is not merely hidden from a non-subscriber -- it was
  * never read for them. Audio plays through `/media/{id}`, a per-request
- * signed URL, with the player's download control off.
+ * signed URL, with the player's download control off. `limited`: a
+ * session-less reader past the anonymous reading limit got the summary of a
+ * free asset, and is told to wait or sign in rather than to subscribe.
  */
 export function EditorialPage({
   reading,
+  limited = false,
   thread,
   signedIn,
   commentOutcome,
@@ -24,6 +27,7 @@ export function EditorialPage({
   locale,
 }: {
   reading: EditorialReading;
+  limited?: boolean;
   thread: CommentThread;
   signedIn: boolean;
   commentOutcome: string | null;
@@ -90,6 +94,14 @@ export function EditorialPage({
           {reading.kind === 'qa' ? <p className="text-[12px] font-medium text-steel">{r.answer}</p> : null}
           {reading.body ? <Markdown source={reading.body} /> : null}
         </article>
+      ) : limited ? (
+        <section className="flex flex-col gap-3 rounded-lg border border-line bg-subtle p-6">
+          <p className="text-[15px] font-medium text-ink">{r.limitedTitle}</p>
+          <p className="text-[13px] leading-[1.6] text-steel">{r.limitedBody}</p>
+          <Link href={`/login?returnTo=${encodeURIComponent(`/assets${reading.publicId}`)}`} className="text-[13px] text-brandink hover:underline">
+            {r.signIn}
+          </Link>
+        </section>
       ) : (
         <section className="flex flex-col gap-3 rounded-lg border border-line bg-subtle p-6">
           <p className="flex items-center gap-2 text-[15px] font-medium text-ink">

@@ -10,6 +10,7 @@ import type { LoginError } from '@/lib/domain/auth';
 import { hmacSha256 } from '@/lib/infrastructure/crypto/tokens';
 import { rateLimiter, type RateLimitRule } from '@/lib/infrastructure/cache/redis';
 import { appBaseUrl } from '@/lib/http/session';
+import { clientAddress } from '@/lib/http/client-address';
 
 export function loginRedirect(error?: LoginError, returnTo?: string): NextResponse {
   const url = new URL('/login', appBaseUrl());
@@ -22,23 +23,28 @@ export function appRedirect(path: string, status: 303 | 302 = 303): NextResponse
   return NextResponse.redirect(new URL(path, appBaseUrl()), status);
 }
 
-/**
- * Rate limit bucket for one caller.
- *
- * The address is keyed through an HMAC and never stored or logged in the
- * clear -- architecture.md 11.2 requires hashed IP signals.
- */
-export async function rateLimitKey(request: NextRequest, scope: string): Promise<string> {
-  /* Rightmost entry only: each proxy appends the address it saw, so the last
-     one was written by our own edge while everything to its left is whatever
-     the client chose to send. */
-  const forwarded = request.headers.get('x-forwarded-for')?.split(',').at(-1)?.trim();
-  const address = forwarded || request.headers.get('x-real-ip') || 'unknown';
+/** The secret the rate-limit keys and signed reader addresses are keyed with. */
+export function signingSecret(): string {
   const secret = process.env.SESSION_SIGNING_SECRET;
   if (!secret || secret.length < 32) {
     throw new Error('SESSION_SIGNING_SECRET is not set (needs at least 32 characters)');
   }
-  return `ratelimit:${scope}:${await hmacSha256(secret, address)}`;
+  return secret;
+}
+
+/**
+ * Rate limit bucket for one address.
+ *
+ * The address is keyed through an HMAC and never stored or logged in the
+ * clear -- architecture.md 11.2 requires hashed IP signals.
+ */
+export async function addressRateLimitKey(scope: string, address: string): Promise<string> {
+  return `ratelimit:${scope}:${await hmacSha256(signingSecret(), address)}`;
+}
+
+/** Rate limit bucket for one caller, by the address our own edge saw (`clientAddress`). */
+export async function rateLimitKey(request: NextRequest, scope: string): Promise<string> {
+  return addressRateLimitKey(scope, clientAddress(request.headers) ?? 'unknown');
 }
 
 /** Login endpoints are bursty by nature; the window blunts scripted retries. */

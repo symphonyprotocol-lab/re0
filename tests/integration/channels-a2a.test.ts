@@ -25,6 +25,7 @@ const describeWithDb = TEST_DATABASE_URL ? describe : describe.skip;
 process.env.DATABASE_URL = TEST_DATABASE_URL ?? 'postgres://unused';
 process.env.SESSION_SIGNING_SECRET ??= 'test-secret-that-is-long-enough-000000';
 process.env.APP_BASE_URL ??= 'https://app.example.test';
+process.env.API_KEY_HASH_SECRET ??= 'test-api-key-hash-secret-000000000000';
 
 const { buildVersion, memoryObjectStore, publishVersion } = await import('@/lib/application/ingestion');
 const { createPlatformAsset } = await import('@/lib/application/administration/manage-platform-assets');
@@ -39,6 +40,8 @@ const { buildAgentCard } = await import('@/lib/application/a2a/card');
 const { handleA2A } = await import('@/lib/application/a2a/server');
 const { resolveTenant, PLATFORM_TENANT } = await import('@/lib/application/a2a/tenant');
 const { serveCard } = await import('@/lib/http/a2a');
+const a2aRoute = await import('@/app/a2a/[[...tenant]]/route');
+const { createApiKey } = await import('@/lib/application/auth');
 const { EMBEDDING_COLUMN_DIMENSIONS } = await import('@/lib/infrastructure/ai/providers');
 const { db, schema } = await import('@/lib/infrastructure/postgres/client');
 const { uuidv7 } = await import('@/lib/domain/id');
@@ -197,6 +200,20 @@ function sendParams(text: string, extra: Record<string, unknown> = {}) {
   return { message: { messageId: crypto.randomUUID(), role: 'ROLE_USER', parts: [{ text }], ...extra } };
 }
 
+/** One request through the real route -- the HTTP shell, its key check, tenant check and limiter -- as an agent sends it. */
+function a2aRequest(path: string[], body: unknown, headers: Record<string, string> = {}): Promise<Response> {
+  const request = new NextRequest(`https://app.example.test/a2a${path.length > 0 ? `/${path.join('/')}` : ''}`, {
+    method: 'POST',
+    body: JSON.stringify(body),
+    headers: { 'content-type': 'application/json', 'a2a-version': '1.0', ...headers },
+  });
+  return a2aRoute.POST(request, { params: Promise.resolve({ tenant: path }) });
+}
+
+function rpcBody(method: string, params: Record<string, unknown>) {
+  return { jsonrpc: '2.0', id: 7, method, params };
+}
+
 function artifactData(task: Record<string, unknown>): Record<string, unknown> {
   const artifacts = task.artifacts as { parts: { data?: Record<string, unknown>; text?: string }[] }[];
   return artifacts[0]!.parts.find((part) => part.data)!.data!;
@@ -228,6 +245,7 @@ describeWithDb('P1: channels, visibility and A2A', () => {
       await database.delete(schema.usageReservation).where(inArray(schema.usageReservation.workspaceId, workspaces));
       await database.delete(schema.usageSummary).where(inArray(schema.usageSummary.workspaceId, workspaces));
       await database.delete(schema.subscription).where(inArray(schema.subscription.workspaceId, workspaces));
+      await database.delete(schema.apiKey).where(inArray(schema.apiKey.workspaceId, workspaces));
       /* Channels, their visits and the workspace's tasks cascade with it. */
       await database.delete(schema.workspace).where(inArray(schema.workspace.id, workspaces));
     }
@@ -521,6 +539,152 @@ describeWithDb('P1: channels, visibility and A2A', () => {
     expect(asked).toBe(false);
     const rows = await db().select().from(schema.asset).where(eq(schema.asset.publicId, '/channels/handbook'));
     expect(rows).toHaveLength(0);
+  });
+
+  it('runs the A2A route itself: keys, scopes, tenants, the anonymous limit and no usage for anonymous callers', async () => {
+    const owner = await workspace('route');
+    const asset = await ownedAsset(owner, `p1-route-${stamp}`);
+    await declareAssetRights({ workspaceId: owner, role: 'owner', assetId: asset.id, userId: null, rights: { origin: 'own', license: 'open_source', generation: 'human' } });
+    await db().insert(schema.assetClaim).values({
+      id: uuidv7(), assetId: asset.id, claimantWorkspaceId: owner, method: 'dns_txt', challengeTokenHash: 'fixture',
+      status: 'verified', expiresAt: new Date(Date.now() + 86_400_000), verifiedAt: new Date(),
+    });
+    const slug = `p1-route-${stamp}`;
+    const channel = await channels.createChannel({ workspaceId: owner, role: 'owner', slug, title: 'Quillwort route' });
+    await channels.moveAsset({ workspaceId: owner, role: 'owner', assetId: asset.id, channelId: channel.id });
+    const path = ['channels', slug];
+
+    /* Anonymous search through the route: results, attributed to no workspace, and no usage event. */
+    const anonymous = await a2aRequest(path, rpcBody('SendMessage', sendParams('quillwort lighting')), { 'x-forwarded-for': `198.51.100.1-${stamp}` });
+    expect(anonymous.status).toBe(200);
+    const anonymousTask = ((await anonymous.json()) as { result: { task: Record<string, unknown> } }).result.task;
+    anonymousTasks.push(anonymousTask.id as string);
+    expect((anonymousTask.status as { state: string }).state).toBe('TASK_STATE_COMPLETED');
+    const evidence = artifactData(anonymousTask) as { results: unknown[]; requestId: string };
+    expect(evidence.results.length).toBeGreaterThan(0);
+    expect(await usageEventsFor(evidence.requestId)).toHaveLength(0);
+    const [stored] = await db().select({ workspaceId: schema.a2aTask.workspaceId }).from(schema.a2aTask).where(eq(schema.a2aTask.id, anonymousTask.id as string));
+    expect(stored?.workspaceId).toBeNull();
+
+    /* A key that holds no A2A scope is refused, not downgraded to anonymous. */
+    const usageOnly = await createApiKey({ role: 'owner', workspaceId: owner, name: 'usage only', scopes: ['usage:read'] });
+    const denied = await a2aRequest(path, rpcBody('SendMessage', sendParams('quillwort')), { authorization: `Bearer ${usageOnly.key}` });
+    expect(denied.status).toBe(403);
+    expect(((await denied.json()) as { error: { code: string } }).error.code).toBe('access_denied');
+    /* A wrong key is refused too. */
+    expect((await a2aRequest(path, rpcBody('SendMessage', sendParams('quillwort')), { authorization: 'Bearer mm_live_not-a-key' })).status).toBe(401);
+
+    /* The body may name the tenant, but not another one than the path. */
+    const mismatch = await a2aRequest(path, rpcBody('SendMessage', { ...sendParams('quillwort'), tenant: 'channels/someone-else' }), { 'x-forwarded-for': `198.51.100.2-${stamp}` });
+    expect(((await mismatch.json()) as { error: { code: number } }).error.code).toBe(-32602);
+
+    /* A write-only key proposes on its own workspace; nothing it sends confirms; it cannot search. */
+    const writer = await createApiKey({ role: 'owner', workspaceId: owner, name: 'writer', scopes: ['assets:write'] });
+    const shelf = await channels.createChannel({ workspaceId: owner, role: 'owner', slug: `p1-route-shelf-${stamp}`, title: 'Shelf', visibility: 'private' });
+    const writes = { authorization: `Bearer ${writer.key}` };
+    const proposed = (await (
+      await a2aRequest([], rpcBody('SendMessage', { message: { messageId: crypto.randomUUID(), role: 'ROLE_USER', parts: [{ data: { skill: 'publish', assetId: asset.publicId, channel: shelf.slug } }] } }), writes)
+    ).json()) as { result: { task: { id: string; status: { state: string; message: { parts: { data?: { pendingAction?: { id: string } } }[] } } } } };
+    const writeTask = proposed.result.task;
+    expect(writeTask.status.state).toBe('TASK_STATE_INPUT_REQUIRED');
+    const actionId = writeTask.status.message.parts.find((part) => part.data?.pendingAction)!.data!.pendingAction!.id;
+    const [action] = await db().select().from(schema.agentAction).where(eq(schema.agentAction.id, actionId));
+    const followUp = (await (
+      await a2aRequest(
+        [],
+        rpcBody('SendMessage', {
+          message: { messageId: crypto.randomUUID(), role: 'ROLE_USER', taskId: writeTask.id, parts: [{ text: 'Confirmed by the owner.' }, { data: { confirm: actionId, digest: action!.paramsDigest } }] },
+        }),
+        writes,
+      )
+    ).json()) as { result: { task: { status: { state: string } } } };
+    expect(followUp.result.task.status.state).toBe('TASK_STATE_INPUT_REQUIRED');
+    const [still] = await db().select({ state: schema.agentAction.state }).from(schema.agentAction).where(eq(schema.agentAction.id, actionId));
+    expect(still!.state).toBe('pending');
+    const searchWithWriter = (await (await a2aRequest(path, rpcBody('SendMessage', sendParams('quillwort')), writes)).json()) as { result: { task: { status: { state: string } } } };
+    expect(searchWithWriter.result.task.status.state).toBe('TASK_STATE_REJECTED');
+    await db().delete(schema.agentAction).where(eq(schema.agentAction.id, actionId));
+
+    /* The anonymous limit applies to the calls that run a skill, per address. */
+    const ip = { 'x-forwarded-for': `198.51.100.3-${stamp}` };
+    const statuses: number[] = [];
+    for (let at = 0; at < 11; at += 1) {
+      const response = await a2aRequest(path, rpcBody('SendMessage', { message: { messageId: crypto.randomUUID(), role: 'ROLE_USER', parts: [{ data: { skill: 'no_such_skill' } }] } }), ip);
+      statuses.push(response.status);
+      if (response.status === 200) anonymousTasks.push(((await response.json()) as { result: { task: { id: string } } }).result.task.id);
+    }
+    expect(statuses.slice(0, 10).every((status) => status === 200)).toBe(true);
+    expect(statuses[10]).toBe(429);
+  });
+
+  it('keeps a streamed task going when the client hangs up', async () => {
+    const owner = await workspace('stream');
+    const asset = await ownedAsset(owner, `p1-stream-${stamp}`);
+    await declareAssetRights({ workspaceId: owner, role: 'owner', assetId: asset.id, userId: null, rights: { origin: 'own', license: 'open_source', generation: 'human' } });
+    await db().insert(schema.assetClaim).values({
+      id: uuidv7(), assetId: asset.id, claimantWorkspaceId: owner, method: 'dns_txt', challengeTokenHash: 'fixture',
+      status: 'verified', expiresAt: new Date(Date.now() + 86_400_000), verifiedAt: new Date(),
+    });
+    const slug = `p1-stream-${stamp}`;
+    const channel = await channels.createChannel({ workspaceId: owner, role: 'owner', slug, title: 'Quillwort stream' });
+    await channels.moveAsset({ workspaceId: owner, role: 'owner', assetId: asset.id, channelId: channel.id });
+
+    const response = await a2aRequest(['channels', slug], rpcBody('SendStreamingMessage', sendParams('quillwort lighting')), { 'x-forwarded-for': `198.51.100.4-${stamp}` });
+    expect(response.headers.get('content-type')).toBe('text/event-stream');
+    const reader = response.body!.getReader();
+    const first = new TextDecoder().decode((await reader.read()).value);
+    const taskId = (JSON.parse(first.replace(/^data: /, '').trim()) as { result: { task: { id: string } } }).result.task.id;
+    anonymousTasks.push(taskId);
+    /* The agent's HTTP client gives up after the first event. */
+    await reader.cancel();
+
+    let state = '';
+    for (let attempt = 0; attempt < 50 && state !== 'TASK_STATE_COMPLETED'; attempt += 1) {
+      await new Promise((resolve) => setTimeout(resolve, 100));
+      const [row] = await db().select({ state: schema.a2aTask.state }).from(schema.a2aTask).where(eq(schema.a2aTask.id, taskId));
+      state = row?.state ?? '';
+    }
+    expect(state).toBe('TASK_STATE_COMPLETED');
+  });
+
+  it('gives a user with no public channel no card and no endpoint, except to that user', async () => {
+    const quiet = await workspace('quiet');
+    const stranger = await workspace('qstr');
+    const handle = `p1-quiet-${stamp}`;
+    const path = ['users', handle];
+    const missing = ['users', `p1-nobody-${stamp}`];
+
+    /* The public card and the endpoint answer exactly as for a handle nobody has. */
+    const card = await serveCard(new NextRequest(`https://app.example.test/a2a/users/${handle}/agent-card.json`), `users/${handle}`);
+    expect(card.status).toBe(404);
+    const unknownCard = await serveCard(new NextRequest(`https://app.example.test/a2a/users/p1-nobody-${stamp}/agent-card.json`), `users/p1-nobody-${stamp}`);
+    expect(await card.text()).toBe(await unknownCard.text());
+    const anonymous = await a2aRequest(path, rpcBody('GetExtendedAgentCard', {}), { 'x-forwarded-for': `198.51.100.5-${stamp}` });
+    const nobody = await a2aRequest(missing, rpcBody('GetExtendedAgentCard', {}), { 'x-forwarded-for': `198.51.100.5-${stamp}` });
+    expect(anonymous.status).toBe(404);
+    expect(await anonymous.text()).toBe(await nobody.text());
+    const strangerKey = await createApiKey({ role: 'owner', workspaceId: stranger, name: 'stranger', scopes: ['knowledge:search'] });
+    expect((await a2aRequest(path, rpcBody('GetExtendedAgentCard', {}), { authorization: `Bearer ${strangerKey.key}` })).status).toBe(404);
+
+    /* The user's own key still reaches its extended card, write skills included (proposal 7.1). */
+    const ownKey = await createApiKey({ role: 'owner', workspaceId: quiet, name: 'own', scopes: ['knowledge:search', 'assets:write'] });
+    const own = await a2aRequest(path, rpcBody('GetExtendedAgentCard', {}), { authorization: `Bearer ${ownKey.key}` });
+    expect(own.status).toBe(200);
+    const ownCard = ((await own.json()) as { result: { skills: { id: string }[] } }).result;
+    expect(ownCard.skills.map((skill) => skill.id)).toContain('ingest');
+
+    /* Published: the card exists for everyone, under the user's public name. */
+    const asset = await ownedAsset(quiet, `p1-quiet-${stamp}`);
+    await declareAssetRights({ workspaceId: quiet, role: 'owner', assetId: asset.id, userId: null, rights: { origin: 'own', license: 'open_source', generation: 'human' } });
+    await db().insert(schema.assetClaim).values({
+      id: uuidv7(), assetId: asset.id, claimantWorkspaceId: quiet, method: 'dns_txt', challengeTokenHash: 'fixture',
+      status: 'verified', expiresAt: new Date(Date.now() + 86_400_000), verifiedAt: new Date(),
+    });
+    const shelf = await channels.createChannel({ workspaceId: quiet, role: 'owner', slug: `p1-quiet-${stamp}`, title: 'Now public' });
+    await channels.moveAsset({ workspaceId: quiet, role: 'owner', assetId: asset.id, channelId: shelf.id });
+    const published = await serveCard(new NextRequest(`https://app.example.test/a2a/users/${handle}/agent-card.json`, { headers: { 'a2a-version': '1.0' } }), `users/${handle}`);
+    expect(published.status).toBe(200);
+    expect(((await published.json()) as { name: string }).name).toBe('P1 quiet on re0');
   });
 
   it('keeps handles unique and off the reserved list', async () => {

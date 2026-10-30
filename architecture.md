@@ -534,6 +534,7 @@ API Key 格式使用 `mm_live_` / `mm_test_` 前缀。服务端只保存：
 - **停用（保留在开关之后）**：`site_key`、`asset_showcase`、`asset_showcase_daily` 及分享页域名相关表；
 - **P5 改名**（迁移 0066，已完成）：12 张名字含 library 的表（`library` → `asset`、`library_version` → `asset_version`、`library_profile` → `asset_profile` 等；第 13 张 `library_eval_question` 已在 P0 删除）、22 个含 library 的列（`library_id` → `asset_id` 等）及其约束与索引一次迁移改名，只改名、不改写行，资产 ID 的值与链上锚点不变；Drizzle schema 同步改名，不在 Drizzle 层映射旧表名。`workflow_operation.error` 的 `library_too_large` 与 `policy_asset_entry.target_type` 的 `library` 两个存储值随之改为 `asset_too_large`、`asset`，工作台对话记录（`agent_message.content`）与 A2A 任务产物（`a2a_task.artifacts`）里的 `libraryId`、`libraryTitle`、`no_library` 也改为 `assetId`、`assetTitle`、`no_asset`；只追加且入哈希链的 `audit_log` 保留已写入的动作名与目标类型（`platform_library.*`、`user_library.*`、`library_claim`、`library_showcase`），代码继续写这些名字；
 - **迁移历史**：`db/migrations/` 里 0066 之前的文件保留旧名，是已在各环境执行过的历史，不改写；读迁移历史时按上一条的对照表换算。
+- **迁移日志的时间戳**：`meta/_journal.json` 新条目的 `when` 取上一条加 `100000000`（0058 起如此，值已在未来），不用 `Date.now()`；`drizzle-kit migrate` 只执行 `when` 严格大于库中最后一条记录的迁移，戳不递增的会在生产被静默跳过。`tests/contract/migration-journal.test.ts` 校验递增与文件对应。
 - 现有数据按新模型直接重建（提案第 3.3 节）：每个来源重建为一项资产，不保留原有版本历史，已有锚点随之作废；迁移后所有资产都不属于任何频道。
 
 ## 7. 对象存储布局
@@ -906,7 +907,7 @@ Payment Provider 为 **Paddle Billing**（`lib/infrastructure/payment/paddle.ts`
 
 ### 11.4 频道收入记账
 
-发布者分成已取消（[publisher-revenue-share.md](./publisher-revenue-share.md) 废止）；`lib/application/revenue`、`/v1/revenue*` 之外的结算与出账流程保留，改为结算创作者的频道订阅收入（requirement.md 4.4，提案第 6.9 节；P3a 已实施）。架构约束：
+发布者分成已取消（[publisher-revenue-share.md](./publisher-revenue-share.md) 废止），删除的只是按检索计收益的部分；账期结算与出账流程（`lib/application/revenue`、`/v1/revenue*`）保留，改为结算创作者的频道订阅收入（requirement.md 4.4，提案第 6.9 节；P3a 已实施）。架构约束：
 
 - `earning_event` 与频道订阅的支付事件**同事务写入**：`transaction.completed` 入库时记收入（不含税金额的创作者份额，默认 `share_bps` = 8000），退款与拒付的 adjustment 入库时记负数冲回；理由与 §11.1 一致——收入是计费事实，不能靠异步补写，否则重放与漏写会直接变成付错钱；
 - `earning_event` 只追加，携带 `channel_id`、`channel_subscription_id`、`provider_transaction_id`、`gross_minor`（不含税金额）与 `share_bps`；份额来自方案版本冻结的 `fee_rate_bps`，历史账期按当时值结算，改费率只影响新的方案版本；
@@ -934,7 +935,7 @@ GET /v1/context
   &maxTokens=5000
 ```
 
-REST 保留，供网站内部、测试与脚本化管理使用，不对外宣传（提案第 13.3 节）；路径、字段与错误码在 P5 由 `/v1/libraries`、`libraryId`、`library_*` 改为 `/v1/assets`、`assetId`、`asset_*`，不设别名与重定向。`/v1/revenue*` 随发布者分成删除。
+REST 保留，供网站内部、测试与脚本化管理使用，不对外宣传（提案第 13.3 节）；路径、字段与错误码在 P5 由 `/v1/libraries`、`libraryId`、`library_*` 改为 `/v1/assets`、`assetId`、`asset_*`，不设别名与重定向。`/v1/revenue*`（`GET /v1/revenue`、`POST /v1/revenue/credit`、`POST /v1/revenue/payout`）保留，改为查询与兑现频道订阅收入（§11.4，提案第 6.9 节）。
 
 Search 以 `query` 为主输入走 §9.6 的画像路由，`assetName` 降级为可选提示。每个候选除 Trust/Benchmark 分数外必须携带**命中证据**——匹配到的文档标题、实体词和少量段落摘录——供调用方在不信任名字的前提下定案。
 
@@ -1049,7 +1050,7 @@ re0 Agent 把子任务委托给工作空间登记的外部 A2A Agent。代码在
 **保留与清除（P4，提案第 10 节）**
 
 - 每小时的 Cron `/api/cron/retention`（`vercel.json`，每小时第 17 分钟，`CRON_SECRET`；正文最多比 30 天晚一小时清除）调用 `lib/application/privacy` 的 `runRetention`：清空到期的入站 `a2a_task` 正文（`purgeA2aTaskBodies`，P2 放在 drain 里，P4 移到这里）、出站 `agent_delegation` 的状态消息与输出，以及创建超过 30 天的 `delegate_task` 操作在 `params` 与 `summary` 里的原文；ID、状态、技能、时间、`params_digest` 与 `usage_event` 都保留。三部分各自独立，一部分失败不影响其余；
-- 同一个 Cron 按 `workspace.private_asset_retention_days`（30 / 90 / 180 / 365 或空）删除过期的私有资产：不在任何公开频道里、最近一次成功构建（没有则为创建时间）早于期限，走 `markAssetDeleted`，清理由 drain 的 Delete Operation 完成；每个工作空间每次最多 50 项；
+- 同一个 Cron 按 `workspace.private_asset_retention_days`（30 / 90 / 180 / 365 或空）删除过期的私有资产：不在任何公开频道里、最近一次成功构建（没有则为创建时间）与草稿最近一次编辑（`post_draft.updated_at`）都早于期限，且没有排期（`post_draft.publish_at`）、草稿目标不是公开频道，走 `markAssetDeleted`，清理由 drain 的 Delete Operation 完成；每个工作空间每次最多 50 项；
 - `/dashboard/privacy`：`/dashboard/export/conversations` 与 `/dashboard/export/a2a-tasks` 以 JSON 导出（会话鉴权、`no-store`）；一键删除对话（`agent_conversation` 级联 `agent_message`）与 A2A 任务记录（入站任务与推送配置、出站委托，以及已决委托操作里的原文；待确认的委托留给所有者处理）；删除不影响计量。
 
 ### 13.2 SDK

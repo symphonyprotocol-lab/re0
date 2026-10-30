@@ -134,6 +134,30 @@ export interface ActionSummary {
   /** What the workspace has left, for the card's capacity line. */
   capacityRemainingBytes: number | null;
   makesPublic: boolean;
+  /**
+   * For a move: a `paid` asset going into a public channel, where -- access
+   * not being carried from one channel to the next -- its full text becomes
+   * free to everyone. Absent on cards written before it existed.
+   */
+  makesFree?: boolean;
+}
+
+/**
+ * What a move exposes (proposal 5.2, 10 "公开是一个明确动作"): content that was
+ * not public becomes so, or a paid asset becomes free to everyone. Moving
+ * where the asset already is changes nothing. The card is written from this
+ * and, at confirmation, checked against it again.
+ */
+export function moveExposure(
+  from: { id: string; visibility: 'public' | 'private' } | null,
+  to: { id: string; visibility: 'public' | 'private' } | null,
+  access: 'free' | 'paid',
+): { makesPublic: boolean; makesFree: boolean } {
+  const moves = (from?.id ?? null) !== (to?.id ?? null);
+  return {
+    makesPublic: moves && to?.visibility === 'public' && from?.visibility !== 'public',
+    makesFree: moves && to?.visibility === 'public' && access === 'paid',
+  };
 }
 
 export interface DelegationSummary {
@@ -183,7 +207,9 @@ export function describeAction(summary: ActionSummary): string {
       break;
     }
   }
-  return `Pending owner confirmation: ${what}; estimated cost ${calls}${summary.makesPublic ? '; this makes the content public' : ''}.`;
+  return `Pending owner confirmation: ${what}; estimated cost ${calls}${summary.makesPublic ? '; this makes the content public' : ''}${
+    summary.makesFree ? '; this paid asset becomes free to everyone' : ''
+  }.`;
 }
 
 /** Canonical JSON: keys sorted at every level, so one set of parameters has one digest. */

@@ -36,9 +36,15 @@
  * A delegation's text is an A2A message body (proposal 10): the audit log
  * keeps its digest, not the text, and the 30-day purge clears it from the
  * row (external-agents/delegation.ts `purgeDelegationBodies`).
+ *
+ * An action and the A2A task waiting on it are two rows, moved by separate
+ * writes. Wherever those can part -- a drain that died part-way through an
+ * expiry, a confirmation whose function ended after the claim, a write that
+ * failed -- `reconcileActionTasks` brings the task to where the action is,
+ * from the drain and whenever the task is read.
  */
 import { randomUUID } from 'node:crypto';
-import { and, desc, eq, gt, inArray, isNull, lte, ne } from 'drizzle-orm';
+import { and, desc, eq, gt, inArray, isNull, lt, lte, ne, notExists, sql } from 'drizzle-orm';
 import { TaskState } from '@a2a-js/sdk';
 import { AppError } from '@/contracts/errors';
 import {
@@ -49,6 +55,7 @@ import {
   isActionTool,
   isAgentSourceType,
   mayConfirm,
+  moveExposure,
   slugFromTitle,
   type ActionOrigin,
   type ActionParams,
@@ -63,8 +70,9 @@ import { requiresDomainVerification } from '@/lib/domain/domain-verification';
 import { uuidv7 } from '@/lib/domain/id';
 import { normalizeLocation } from '@/lib/domain/asset';
 import { recordAudit } from '@/lib/application/administration/audit';
-import { changeTask, dataPart, textPart } from '@/lib/application/a2a/task-events';
+import { changeTask, dataPart, textPart, type TaskChange } from '@/lib/application/a2a/task-events';
 import { createChannel, moveAsset } from '@/lib/application/channels';
+import type { MoveFacts } from '@/lib/application/channels/manage';
 import { createWorkspaceAsset } from '@/lib/application/assets/create';
 import { canManageAssets, type WorkspaceRole } from '@/lib/application/assets/delete';
 import { requestAssetRebuild } from '@/lib/application/assets/rebuild';
@@ -74,6 +82,15 @@ import { sha256 } from '@/lib/infrastructure/crypto/tokens';
 import { db, schema } from '@/lib/infrastructure/postgres/client';
 
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+
+/**
+ * How long a confirmation may take to record its outcome. Past it, a row
+ * still `confirmed` with no result belongs to a function that ended between
+ * the claim and the write: well over any server action's run.
+ */
+const CONFIRM_SETTLE_MS = 15 * 60_000;
+/** What such a row is marked with, once, when the drain finds it. */
+const OUTCOME_UNRECORDED = 'confirmed, but the outcome was not recorded; see the asset and its channel for what was done';
 
 export interface PendingActionView {
   id: string;
@@ -197,6 +214,7 @@ async function prepare(
     assetBytes: null,
     capacityRemainingBytes: null,
     makesPublic: false,
+    makesFree: false,
   };
   const text = (value: unknown, max: number) => (typeof value === 'string' ? value.trim().slice(0, max) : '');
 
@@ -305,7 +323,8 @@ async function prepare(
     .where(eq(schema.channelAsset.assetId, asset.id))
     .limit(1);
   const from = current ?? null;
-  const makesPublic = target?.visibility === 'public' && from?.visibility !== 'public';
+  /* A paid asset leaving for a public channel arrives free (channels/manage.ts `moveAsset`): the card says so. */
+  const { makesPublic, makesFree } = moveExposure(from, target, asset.access);
   return {
     params: { tool, assetId: asset.id, channelId: target?.id ?? null },
     summary: {
@@ -315,6 +334,7 @@ async function prepare(
       from,
       to: target,
       makesPublic,
+      makesFree,
     },
     estimatedCalls: 0,
     estimatedBytes: 0,
@@ -325,7 +345,7 @@ async function prepare(
 export async function ownedAsset(
   workspaceId: string,
   ref: unknown,
-): Promise<{ id: string; publicId: string; title: string; storageBytes: number }> {
+): Promise<{ id: string; publicId: string; title: string; storageBytes: number; access: 'free' | 'paid' }> {
   const value = typeof ref === 'string' ? ref.trim() : '';
   if (!value) throw new ActionRefused('asset_not_found', 'name the asset by its id');
   const [row] = await db()
@@ -334,6 +354,7 @@ export async function ownedAsset(
       publicId: schema.asset.publicId,
       title: schema.asset.title,
       storageBytes: schema.asset.storageBytes,
+      access: schema.asset.access,
     })
     .from(schema.asset)
     .where(
@@ -347,7 +368,7 @@ export async function ownedAsset(
     )
     .limit(1);
   if (!row) throw new ActionRefused('asset_not_found', `no asset ${value} in this workspace`);
-  return { ...row, storageBytes: Number(row.storageBytes ?? 0) };
+  return { ...row, storageBytes: Number(row.storageBytes ?? 0), access: row.access === 'paid' ? 'paid' : 'free' };
 }
 
 /** A channel of this workspace, by id, slug or `/channels/{slug}`. */
@@ -458,23 +479,37 @@ export async function confirmAction(
       .where(eq(schema.agentAction.id, action.id))
       .returning();
     await audit(failed!, owner.userId, 'failure');
-    if (failed!.a2aTaskId) {
-      await changeTask(failed!.a2aTaskId, {
-        state: TaskState.TASK_STATE_FAILED,
-        message: `The owner confirmed, but it could not be done: ${message}`,
-      });
-    }
+    await moveTaskAfter(failed!);
     return { action: view(failed!), operationId: null };
   }
 
-  const [done] = await db()
-    .update(schema.agentAction)
-    .set({ result })
-    .where(eq(schema.agentAction.id, action.id))
-    .returning();
-  await audit(done!, owner.userId, 'success');
-  if (done!.a2aTaskId) await followConfirmation(done!, result);
-  return { action: view(done!), operationId };
+  /*
+   * It ran. The row's result, the audit entry and the task are three
+   * writes, and none may undo another: a failed result write still leaves
+   * the audit entry of what was done, and a task left behind is caught up
+   * by `reconcileActionTasks`. The task's push notifications go out after
+   * the click (push.ts), not inside it.
+   */
+  const done =
+    (await db()
+      .update(schema.agentAction)
+      .set({ result })
+      .where(eq(schema.agentAction.id, action.id))
+      .returning()
+      .then(
+        ([row]) => row,
+        (error: unknown) => {
+          console.error(`agent action ${action.id} ran but its result was not stored: ${error instanceof Error ? error.message : 'unknown'}`);
+          return undefined;
+        },
+      )) ?? { ...action, result };
+  await audit(done, owner.userId, 'success');
+  if (done.a2aTaskId) {
+    await followConfirmation(done, result).catch((error: unknown) => {
+      console.error(`a2a task ${done.a2aTaskId} not moved after confirmation: ${error instanceof Error ? error.message : 'unknown'}`);
+    });
+  }
+  return { action: view(done), operationId };
 }
 
 /** Why the conditional update matched nothing, worded for the one who clicked. */
@@ -533,13 +568,44 @@ async function execute(
       return { channelId: created.id, slug: created.slug };
     }
     case 'move_asset': {
-      const moved = await moveAsset({ workspaceId, role, assetId: params.assetId, channelId: params.channelId });
+      /* What the card said must still hold, checked under the move's own locks (proposal 5.2). */
+      const card = action.summary as unknown as ActionSummary;
+      const moved = await moveAsset({
+        workspaceId,
+        role,
+        assetId: params.assetId,
+        channelId: params.channelId,
+        expect: (facts) => assertMoveAsShown(card, facts),
+      });
       return { assetId: params.assetId, from: moved.from, to: moved.to, madePublic: moved.madePublic };
     }
     case 'delegate_task': {
       const sent = await sendDelegation(workspaceId, params, { actionId: action.id, conversationId: action.conversationId ?? null });
       return { delegationId: sent.delegationId, remoteState: sent.state, remoteTaskId: sent.remoteTaskId };
     }
+  }
+}
+
+/**
+ * A move card states where the asset is, where it goes, who can see each,
+ * and whether that makes content public or a paid asset free. Any of those
+ * that changed since -- the target turned public, the asset left its
+ * channel, its access changed -- makes the card stale: refused, like a
+ * delegation whose agent changed (external-agents/delegation.ts).
+ */
+function assertMoveAsShown(card: ActionSummary, facts: MoveFacts): void {
+  const now = moveExposure(facts.from, facts.to, facts.access);
+  const unchanged =
+    (card.from?.id ?? null) === (facts.from?.id ?? null) &&
+    (card.from?.visibility ?? null) === (facts.from?.visibility ?? null) &&
+    (card.to?.visibility ?? null) === (facts.to?.visibility ?? null) &&
+    card.makesPublic === now.makesPublic &&
+    (card.makesFree ?? false) === now.makesFree;
+  if (!unchanged) {
+    throw new ActionRefused(
+      'stale',
+      'the asset or a channel changed since this card was made (where the asset is, who can see a channel, or its access); ask again',
+    );
   }
 }
 
@@ -593,7 +659,8 @@ export async function rejectAction(actor: ConfirmActor, input: { actionId: strin
 /**
  * The A2A caller withdraws its own request (`CancelTask` on a task that is
  * waiting for confirmation). Withdrawing is not confirming: it can only
- * close the action, never run it.
+ * close the action, never run it. The task ends CANCELED -- the caller's
+ * cancel is what happened -- where an owner's refusal fails it.
  */
 export async function withdrawAction(actionId: string): Promise<PendingActionView | null> {
   try {
@@ -627,10 +694,39 @@ async function closeAction(
     afterValue: { workspaceId: closed.workspaceId, decidedBy: userId },
     result: 'success',
   });
-  if (closed.a2aTaskId) {
-    await changeTask(closed.a2aTaskId, { state: TaskState.TASK_STATE_FAILED, message: `Not done: ${reason}.` });
-  }
+  await moveTaskAfter(closed);
   return view(closed);
+}
+
+/**
+ * Where an A2A task goes once its action is decided (proposal 7.6): an
+ * expiry or an owner's refusal fails it with the reason, the caller's own
+ * withdrawal cancels it, a confirmed action that could not be done fails it.
+ * Null for a confirmed action, which `followConfirmation` follows, and for
+ * one still pending.
+ */
+function taskChangeFor(row: ActionRow): TaskChange | null {
+  switch (row.state) {
+    case 'expired':
+      return { state: TaskState.TASK_STATE_FAILED, message: 'Not done: the owner did not confirm within 24 hours, so the pending action expired.' };
+    case 'rejected':
+      return row.confirmedBy
+        ? { state: TaskState.TASK_STATE_FAILED, message: `Not done: ${row.error ?? 'the owner declined'}.` }
+        : { state: TaskState.TASK_STATE_CANCELED, message: 'Canceled: the request was withdrawn before the owner decided; nothing was done.' };
+    case 'failed':
+      return { state: TaskState.TASK_STATE_FAILED, message: `The owner confirmed, but it could not be done: ${row.error ?? 'the action could not be completed'}` };
+    default:
+      return null;
+  }
+}
+
+/** Moves the action's task, if it has one; a move that fails is left to `reconcileActionTasks`. */
+async function moveTaskAfter(row: ActionRow): Promise<void> {
+  const change = taskChangeFor(row);
+  if (!row.a2aTaskId || !change) return;
+  await changeTask(row.a2aTaskId, change).catch((error: unknown) => {
+    console.error(`a2a task ${row.a2aTaskId} not moved after its action: ${error instanceof Error ? error.message : 'unknown'}`);
+  });
 }
 
 /* ------------------------------------------------------------------- expiry */
@@ -651,16 +747,77 @@ export async function expireActions(now: Date = new Date(), ids?: readonly strin
         ...(ids ? [inArray(schema.agentAction.id, ids.length > 0 ? [...ids] : [''])] : []),
       ),
     )
-    .returning({ id: schema.agentAction.id, a2aTaskId: schema.agentAction.a2aTaskId });
-  for (const row of expired) {
-    if (row.a2aTaskId) {
-      await changeTask(row.a2aTaskId, {
-        state: TaskState.TASK_STATE_FAILED,
-        message: 'Not done: the owner did not confirm within 24 hours, so the pending action expired.',
-      });
+    .returning();
+  /* One task that cannot be moved does not keep the rest waiting; what is left behind is reconciled. */
+  for (const row of expired) await moveTaskAfter(row);
+  return expired.length;
+}
+
+/* ---------------------------------------------------------- reconciliation */
+
+/**
+ * Brings A2A tasks to where their actions are, for every way the two can
+ * part: an action expired, declined, withdrawn or failed whose task still
+ * waits; a confirmed action whose task never heard (the function ended
+ * after the claim, or the move failed). And a confirmation that never
+ * recorded its outcome -- `confirmed`, no result, long past -- is marked so,
+ * once, with the audit entry it never wrote, and its task fails.
+ * Run by the drain over everything, and on read for the tasks read
+ * (a2a/server.ts `catchUp`).
+ */
+export async function reconcileActionTasks(taskIds?: readonly string[], now: Date = new Date()): Promise<number> {
+  const scope = taskIds ? [inArray(schema.agentAction.a2aTaskId, taskIds.length > 0 ? [...taskIds] : [''])] : [];
+  let repaired = 0;
+
+  const lost = await db()
+    .update(schema.agentAction)
+    .set({ error: OUTCOME_UNRECORDED })
+    .where(
+      and(
+        eq(schema.agentAction.state, 'confirmed'),
+        isNull(schema.agentAction.result),
+        isNull(schema.agentAction.error),
+        lt(schema.agentAction.decidedAt, new Date(now.getTime() - CONFIRM_SETTLE_MS)),
+        /* A run that audited its outcome and only lost the result write is recorded already: never a second, contrary entry. */
+        notExists(
+          db()
+            .select({ one: sql`1` })
+            .from(schema.auditLog)
+            .where(and(eq(schema.auditLog.targetType, 'agent_action'), eq(schema.auditLog.targetId, sql`${schema.agentAction.id}::text`))),
+        ),
+        ...scope,
+      ),
+    )
+    .returning();
+  for (const row of lost) {
+    await audit(row, row.confirmedBy ?? null, 'failure');
+    repaired += 1;
+  }
+
+  const behind = await db()
+    .select({ action: schema.agentAction })
+    .from(schema.agentAction)
+    .innerJoin(schema.a2aTask, eq(schema.a2aTask.id, schema.agentAction.a2aTaskId))
+    .where(and(eq(schema.a2aTask.state, 'TASK_STATE_INPUT_REQUIRED'), ne(schema.agentAction.state, 'pending'), ...scope))
+    .limit(500);
+  for (const { action } of behind) {
+    try {
+      if (action.state === 'confirmed') {
+        if (action.result) await followConfirmation(action, action.result);
+        else if (action.error === OUTCOME_UNRECORDED) {
+          await changeTask(action.a2aTaskId!, { state: TaskState.TASK_STATE_FAILED, message: `The owner ${OUTCOME_UNRECORDED}.` });
+        } else continue;
+      } else {
+        const change = taskChangeFor(action);
+        if (!change) continue;
+        await changeTask(action.a2aTaskId!, change);
+      }
+      repaired += 1;
+    } catch (error) {
+      console.error(`a2a task ${action.a2aTaskId} not reconciled: ${error instanceof Error ? error.message : 'unknown'}`);
     }
   }
-  return expired.length;
+  return repaired;
 }
 
 /* -------------------------------------------------------------------- reads */
@@ -754,7 +911,7 @@ function auditedSummary(summary: Record<string, unknown>): Record<string, unknow
   return delegation ? { ...summary, delegation: { ...delegation, message: null } } : summary;
 }
 
-async function audit(row: ActionRow, userId: string, result: 'success' | 'failure'): Promise<void> {
+async function audit(row: ActionRow, userId: string | null, result: 'success' | 'failure'): Promise<void> {
   await recordAudit({
     administratorId: null,
     action: `agent_action.${row.tool}`,

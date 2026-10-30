@@ -9,10 +9,12 @@ import { describe, expect, it } from 'vitest';
 import {
   assertSellablePrice,
   ChannelCommerceRefused,
+  channelSaleMismatch,
   creatorShareBps,
   creatorShareMinor,
   grantsAccess,
   planPriceMinor,
+  statementsWithinBalance,
 } from '@/lib/domain/channel-commerce';
 import { CommerceConfigRefused, DEFAULT_COMMERCE_SETTINGS, validateCommerceSettings } from '@/lib/domain/commerce-config';
 import { commentPieces, mayReadComments, mayWriteComment, normalizeCommentBody } from '@/lib/domain/comment';
@@ -66,6 +68,30 @@ describe('channel plans and the creator share', () => {
     expect(grantsAccess({ status: 'active', currentPeriodEnd: earlier }, now)).toBe(false);
     expect(grantsAccess({ status: 'refunded', currentPeriodEnd: later }, now)).toBe(false);
     expect(grantsAccess({ status: 'paused', currentPeriodEnd: later }, now)).toBe(false);
+  });
+
+  it('takes whole statements, oldest first, only as far as the balance reaches (review H4)', () => {
+    const jan = { periodId: '2026-01', amountMinor: 4_800 };
+    const feb = { periodId: '2026-02', amountMinor: 4_800 };
+    const mar = { periodId: '2026-03', amountMinor: -480 };
+    /* A chargeback of January booked in an open month: the balance is 4,800, not 9,600. */
+    expect(statementsWithinBalance([feb, jan], 4_800)).toEqual([jan]);
+    expect(statementsWithinBalance([feb, jan], 9_600)).toEqual([jan, feb]);
+    expect(statementsWithinBalance([jan, feb], 0)).toEqual([]);
+    /* A negative statement always goes: it nets against what is paid, and lets more fit. */
+    expect(statementsWithinBalance([jan, feb, mar], 4_320)).toEqual([mar, jan]);
+    expect(statementsWithinBalance([jan, mar], 0)).toEqual([mar]);
+  });
+
+  it('accepts a channel sale only on the channel product, in the plan currency, at the plan price, undiscounted (review M15)', () => {
+    const plan = { priceMinor: 600, currency: 'USD' };
+    const sale = { onChannelProduct: true, currency: 'USD', listPriceMinor: 600, discountMinor: 0 };
+    expect(channelSaleMismatch(sale, plan)).toBeNull();
+    expect(channelSaleMismatch({ ...sale, onChannelProduct: false }, plan)).toBe('product');
+    expect(channelSaleMismatch({ ...sale, currency: 'JPY' }, plan)).toBe('currency');
+    expect(channelSaleMismatch({ ...sale, listPriceMinor: 599 }, plan)).toBe('amount');
+    expect(channelSaleMismatch({ ...sale, listPriceMinor: Number.NaN }, plan)).toBe('amount');
+    expect(channelSaleMismatch({ ...sale, discountMinor: 100 }, plan)).toBe('amount');
   });
 
   it('holds the console settings to their spans', () => {
@@ -165,7 +191,7 @@ describe('Paddle channel notices', () => {
     billed_at: '2026-10-01T00:00:00Z',
     created_at: '2026-10-01T00:00:00Z',
     updated_at: '2026-10-01T00:01:00Z',
-    items: [{ quantity: 1, price: { product_id: 'pro_channel' } }],
+    items: [{ quantity: 1, price: { product_id: 'pro_channel', unit_price: { amount: '600', currency_code: 'USD' } } }],
     details: { totals: { grand_total: '720', subtotal: '600', discount: '0', tax: '120', total: '720' } },
     payments: [{ status: 'captured', captured_at: '2026-10-01T00:00:30Z', method_details: { type: 'card' } }],
   };
@@ -177,10 +203,31 @@ describe('Paddle channel notices', () => {
     const notice = channelTransactionNotice(transaction, [
       { id: 'adj_1', transaction_id: 'txn_1', action: 'chargeback', status: 'approved', totals: { total: '720', subtotal: '600', tax: '120' }, updated_at: '2026-12-01T00:00:00Z' },
       { id: 'adj_x', transaction_id: 'txn_other', action: 'refund', status: 'approved', totals: { total: '1' }, updated_at: '2026-12-01T00:00:00Z' },
-    ]);
+    ], 'pro_channel');
     expect(notice).toMatchObject({ state: 'collected', exTaxMinor: 600, channelPlanVersionId: plan, userId: user, workspaceId: workspace });
+    /* What was sold, for the ledger to hold against the plan version (review M15). */
+    expect(notice).toMatchObject({ onChannelProduct: true, currency: 'USD', listPriceMinor: 600, discountMinor: 0 });
     expect(notice.periodEnd?.toISOString()).toBe('2026-11-01T00:00:00.000Z');
     expect(notice.adjustments).toEqual([expect.objectContaining({ id: 'adj_1', action: 'chargeback', exTaxMinor: 600 })]);
+  });
+
+  it('reports a tagged transaction for another product, or a cheaper or discounted one, as such (review M15)', () => {
+    const other = channelTransactionNotice(
+      { ...transaction, currency_code: 'JPY', items: [{ quantity: 1, price: { product_id: 'pro_some_catalogue', unit_price: { amount: '1', currency_code: 'JPY' } } }] },
+      [],
+      'pro_channel',
+    );
+    expect(other).toMatchObject({ onChannelProduct: false, currency: 'JPY', listPriceMinor: 1 });
+    /* No channel product configured: nothing is on it. */
+    expect(channelTransactionNotice(transaction, [], null).onChannelProduct).toBe(false);
+    const discounted = channelTransactionNotice(
+      { ...transaction, details: { totals: { grand_total: '360', subtotal: '600', discount: '300', tax: '60', total: '360' } } },
+      [],
+      'pro_channel',
+    );
+    expect(discounted).toMatchObject({ listPriceMinor: 600, discountMinor: 300, exTaxMinor: 300 });
+    /* A price without an amount, or in another currency than the transaction, is not a price at all. */
+    expect(channelTransactionNotice({ ...transaction, items: [{ quantity: 1, price: { product_id: 'pro_channel' } }] }, [], 'pro_channel').listPriceMinor).toBeNaN();
   });
 
   it('reads a scheduled cancellation from a subscription event', () => {

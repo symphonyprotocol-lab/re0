@@ -109,6 +109,7 @@ export async function editorialReading(publicId: string, viewer: { workspaceId: 
     live,
     body,
     audioMediaId: full ? text(config.audioMediaId) : null,
-    qa: asker ? { question: asker.question, askerName: asker.askerName } : row.kind === 'qa' ? { question: row.title, askerName: null } : null,
+    /* The question as published with the answer -- for a moved comment the creator's restatement, never the comment (proposal 6.8). */
+    qa: row.kind === 'qa' ? { question: text(config.question) ?? row.title, askerName: asker?.askerName ?? null } : null,
   };
 }

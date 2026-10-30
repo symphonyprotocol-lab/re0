@@ -12,7 +12,10 @@
  * console's `payoutHoldDays`, 120 by default). The
  * whole redeemable amount converts at once, negatives netted against
  * positives: a refund period's statement is below zero, and it reduces what
- * the surrounding periods buy rather than being skipped. A statement is
+ * the surrounding periods buy rather than being skipped. Never more than the
+ * balance, though (`statementsWithinBalance`): a refund or chargeback booked
+ * in a period not settled yet is in the balance but in no statement, and the
+ * statements it reverses stay accrued until it is. A statement is
  * either accrued or redeemed; there is no partial state, which is what keeps
  * every row recomputable from events plus the grant it became.
  *
@@ -36,7 +39,8 @@ import type { WorkspaceRole } from '@/lib/application/assets/delete';
 import type { Tx } from '@/lib/application/plans/quota';
 import { db, schema } from '@/lib/infrastructure/postgres/client';
 import { activeCommerceSettings } from '@/lib/application/administration/manage-commerce-config';
-import { hasNegativeBalance } from './balance';
+import { statementsWithinBalance } from '@/lib/domain/channel-commerce';
+import { creatorBalance } from './balance';
 
 /** Turning earnings into calls spends them; only those who run the workspace may. */
 export function canRedeemEarnings(role: WorkspaceRole): boolean {
@@ -222,7 +226,8 @@ export async function redeemEarningsAsCalls(input: {
       throw new EarningCreditRefused('no_account', 'the workspace has no publisher account');
     }
     /* Calls are value leaving the books like cash: a negative balance stops both (proposal 6.9). */
-    if (await hasNegativeBalance(input.workspaceId, tx)) {
+    const { balanceMinor } = await creatorBalance(input.workspaceId, tx);
+    if (balanceMinor < 0) {
       throw new EarningCreditRefused('negative_balance', 'the balance is negative; it clears from future income');
     }
 
@@ -236,6 +241,7 @@ export async function redeemEarningsAsCalls(input: {
         id: schema.settlement.id,
         amountMinor: schema.settlement.amountMinor,
         currency: schema.settlement.currency,
+        periodId: schema.settlement.periodId,
       })
       .from(schema.settlement)
       .innerJoin(schema.revenuePeriod, eq(schema.revenuePeriod.id, schema.settlement.periodId))
@@ -252,8 +258,11 @@ export async function redeemEarningsAsCalls(input: {
     /* One currency per redemption: the pack is priced in USD and so is every
        statement today, but a row in another currency must not be converted
        at the USD rate. It stays accrued for a rail that can price it. */
-    const convertible = rows.filter((row) => row.currency === PLAN_CURRENCY);
-    const amountMinor = convertible.reduce((sum, row) => sum + Number(row.amountMinor), 0);
+    const convertible = statementsWithinBalance(
+      rows.filter((row) => row.currency === PLAN_CURRENCY).map((row) => ({ ...row, amountMinor: Number(row.amountMinor) })),
+      balanceMinor,
+    );
+    const amountMinor = convertible.reduce((sum, row) => sum + row.amountMinor, 0);
     const calls = creditCallsFor(amountMinor, pack);
     if (convertible.length === 0 || calls < 1) {
       throw new EarningCreditRefused(

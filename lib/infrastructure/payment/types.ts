@@ -61,6 +61,14 @@ export interface ChannelTransactionNotice {
   /** The subtotal net of discounts and before tax: what the creator's share is a share of. */
   exTaxMinor: number;
   currency: string;
+  /**
+   * What was sold, checked against the plan version before anything is
+   * granted (`channelSaleMismatch`): every item the channel product, the
+   * quoted unit prices times quantities, and any discount.
+   */
+  onChannelProduct: boolean;
+  listPriceMinor: number;
+  discountMinor: number;
   collectedAt: Date | null;
   periodEnd: Date | null;
   adjustments: ChannelAdjustmentNotice[];
@@ -132,6 +140,12 @@ export type PaymentNotification = NotificationEnvelope &
  */
 export interface ProviderDocumentSnapshot {
   document: ProviderDocumentNotice | null;
+  /**
+   * The id is a channel subscription's transaction: the creator's sale,
+   * which belongs to the channel ledger and is never the subscriber's
+   * billing document (architecture.md 11.3). `document` is null then.
+   */
+  channelTransaction?: boolean;
   /** The provider's own entities, kept with the backfill's event record. */
   payload: unknown;
 }
@@ -158,8 +172,12 @@ export interface PaymentAdapter {
    * `PaymentNotConfigured` when the deployment has no channel product.
    */
   createChannelCheckout(input: ChannelCheckoutInput): Promise<{ externalId: string; url: string }>;
-  /** Schedules the subscription to end with its current period; access runs to then. */
-  cancelSubscription(externalId: string): Promise<void>;
+  /**
+   * Schedules the subscription to end with its current period; access runs
+   * to then. `immediately` ends it now instead: what a refund or chargeback
+   * of the running period does, having revoked its access already.
+   */
+  cancelSubscription(externalId: string, options?: { immediately?: boolean }): Promise<void>;
   /** A signed, short-lived link into the provider's customer portal. */
   portalUrl(input: { customerId: string }): Promise<string>;
   /**

@@ -13,9 +13,13 @@
  * - the external Agent's reply, instruction-like text and all, does not
  *   change the next exchange's tools or open the gate;
  * - task bodies older than 30 days are purged by the cron route while ids
- *   and metering remain;
+ *   and metering remain, and the store and the delegation insert both set
+ *   the purge 30 days after creation;
+ * - a reopened conversation shows its newest turns;
  * - export includes conversations and A2A tasks, and deletion removes them;
- * - a private asset past the workspace's retention is deleted.
+ * - a private asset past the workspace's retention is deleted; an editorial
+ *   draft that is scheduled, aimed at a public channel or recently edited
+ *   is not.
  *
  * The external Agent is a fetch seam (setExternalAgentTransport) answering
  * A2A 1.0 JSON-RPC; its host "resolves" to a public address.
@@ -23,7 +27,8 @@
  * Runs only when TEST_DATABASE_URL points at a disposable database.
  */
 import { afterAll, beforeAll, describe, expect, it, vi } from 'vitest';
-import { eq, inArray } from 'drizzle-orm';
+import { eq, inArray, sql } from 'drizzle-orm';
+import { Task } from '@a2a-js/sdk';
 
 const TEST_DATABASE_URL = process.env.TEST_DATABASE_URL;
 const describeWithDb = TEST_DATABASE_URL ? describe : describe.skip;
@@ -44,6 +49,9 @@ const { DEFAULT_RETRIEVAL_SETTINGS } = await import('@/lib/domain/retrieval-conf
 const { db, schema } = await import('@/lib/infrastructure/postgres/client');
 const { uuidv7 } = await import('@/lib/domain/id');
 const retentionRoute = await import('@/app/api/cron/retention/route');
+const { PostgresTaskStore } = await import('@/lib/application/a2a/task-store');
+const { buildCallContext } = await import('@/lib/application/a2a/context');
+const { PLATFORM_TENANT } = await import('@/lib/application/a2a/tenant');
 
 type AgentDependencies = import('@/lib/application/playground/agent').AgentDependencies;
 type AgentEvent = import('@/lib/application/playground/agent').AgentEvent;
@@ -587,22 +595,50 @@ describeWithDb('P4: re0 as an A2A client, retention, export and deletion', () =>
   it('purges task bodies older than 30 days from the cron route, keeping ids and metering', async () => {
     const old = new Date(Date.now() - 31 * 86_400_000);
     const inboundId = `p4-inbound-${stamp}`;
-    await db()
-      .insert(schema.a2aTask)
-      .values({
+    /* The inbound task as the SDK hands it to the store, so the purge date is the store's own. */
+    const context = buildCallContext({
+      caller: { workspaceId: ws.id, apiKeyId: null, requestId: `a2a:${inboundId}`, anonymous: false, entrypoint: 'a2a' },
+      tenant: PLATFORM_TENANT,
+      anonymousVisitor: null,
+      pathTenant: false,
+    });
+    await new PostgresTaskStore().save(
+      Task.fromJSON({
         id: inboundId,
         contextId: 'ctx',
-        workspaceId: ws.id,
-        tenant: '',
-        skill: 'search_context',
-        state: 'TASK_STATE_COMPLETED',
-        status: { state: 'TASK_STATE_COMPLETED', message: { parts: [{ text: 'secret question answered' }] } },
-        history: [{ parts: [{ text: 'what is in my lease?' }] }],
-        artifacts: [{ parts: [{ text: 'the lease says...' }] }],
-        bodyPurgeAt: new Date(old.getTime() + 30 * 86_400_000),
-        createdAt: old,
-        updatedAt: old,
-      });
+        status: {
+          state: 'TASK_STATE_COMPLETED',
+          message: { messageId: `${inboundId}-answer`, role: 'ROLE_AGENT', parts: [{ text: 'secret question answered' }] },
+        },
+        history: [{ messageId: `${inboundId}-question`, role: 'ROLE_USER', parts: [{ text: 'what is in my lease?' }] }],
+        artifacts: [{ artifactId: `${inboundId}-artifact`, parts: [{ text: 'the lease says...' }] }],
+        metadata: { skill: 'search_context' },
+      }),
+      context,
+    );
+
+    /* Proposal 10's 30 days, as both insert paths wrote them: the store's save and the delegation's send. */
+    const [saved] = await db().select().from(schema.a2aTask).where(eq(schema.a2aTask.id, inboundId));
+    expect(saved!.bodyPurgeAt.getTime() - saved!.createdAt.getTime()).toBe(30 * 86_400_000);
+    const [sent] = await db().select().from(schema.agentDelegation).where(eq(schema.agentDelegation.id, delegationId));
+    expect(sent!.bodyPurgeAt.getTime() - sent!.createdAt.getTime()).toBe(30 * 86_400_000);
+
+    /* Both 31 days old: moved back together, so the window stays the one the insert wrote. */
+    await db()
+      .update(schema.a2aTask)
+      .set({
+        createdAt: sql`${schema.a2aTask.createdAt} - interval '31 days'`,
+        updatedAt: sql`${schema.a2aTask.updatedAt} - interval '31 days'`,
+        bodyPurgeAt: sql`${schema.a2aTask.bodyPurgeAt} - interval '31 days'`,
+      })
+      .where(eq(schema.a2aTask.id, inboundId));
+    await db()
+      .update(schema.agentDelegation)
+      .set({
+        createdAt: sql`${schema.agentDelegation.createdAt} - interval '31 days'`,
+        bodyPurgeAt: sql`${schema.agentDelegation.bodyPurgeAt} - interval '31 days'`,
+      })
+      .where(eq(schema.agentDelegation.id, delegationId));
     const requestId = `a2a:${inboundId}`;
     await db().insert(schema.usageEvent).values({
       id: uuidv7(),
@@ -614,7 +650,6 @@ describeWithDb('P4: re0 as an A2A client, retention, export and deletion', () =>
       statusCode: 200,
       calls: 1,
     });
-    await db().update(schema.agentDelegation).set({ bodyPurgeAt: new Date(Date.now() - 1_000) }).where(eq(schema.agentDelegation.id, delegationId));
     const [delegationRow] = await db().select().from(schema.agentDelegation).where(eq(schema.agentDelegation.id, delegationId));
     await db().update(schema.agentAction).set({ createdAt: old }).where(eq(schema.agentAction.id, delegationRow!.actionId!));
 
@@ -638,6 +673,28 @@ describeWithDb('P4: re0 as an A2A client, retention, export and deletion', () =>
     expect((action.params as { message: unknown }).message).toBeNull();
     expect((action.summary as { delegation: { message: unknown } }).delegation.message).toBeNull();
     expect(action.paramsDigest).toBeTruthy();
+  });
+
+  it('reopens a conversation of more than 40 exchanges at its newest turns, oldest first', async () => {
+    const conversationId = await agent.startConversation({ workspaceId: ws.id, userId: ws.userId, title: 'A long one' });
+    const start = Date.now() - 3_600_000;
+    await db()
+      .insert(schema.agentMessage)
+      .values(
+        Array.from({ length: 45 }, (_, exchange) => [
+          { role: 'user' as const, content: { question: `question ${exchange + 1}` } },
+          { role: 'assistant' as const, content: { answer: `answer ${exchange + 1}` } },
+        ])
+          .flat()
+          .map((turn, index) => ({ id: uuidv7(), conversationId, ...turn, createdAt: new Date(start + index * 1_000) })),
+      );
+    const turns = await agent.conversationTurns(ws.id, conversationId);
+    /* The 40 exchanges shown are the last 40 (6 to 45), in the order they happened. */
+    expect(turns).toHaveLength(80);
+    expect(turns[0]!.content).toEqual({ question: 'question 6' });
+    expect(turns.at(-1)!.content).toEqual({ answer: 'answer 45' });
+    const times = turns.map((turn) => turn.createdAt);
+    expect(times).toEqual([...times].sort());
   });
 
   it('exports conversations and A2A tasks, and deletes them in one click', async () => {
@@ -682,9 +739,10 @@ describeWithDb('P4: re0 as an A2A client, retention, export and deletion', () =>
     }
   });
 
-  it('deletes a private asset past the workspace’s retention, and keeps one in a public channel', async () => {
+  it('deletes a private asset past the workspace’s retention, and keeps one in a public channel or a draft still in use', async () => {
     const database = db();
-    const make = async (slug: string) => {
+    const longAgo = new Date(Date.now() - 100 * 86_400_000);
+    const make = async (slug: string, kind: 'upload' | 'post' = 'upload') => {
       const id = uuidv7();
       assets.push(id);
       await database.insert(schema.asset).values({
@@ -692,11 +750,17 @@ describeWithDb('P4: re0 as an A2A client, retention, export and deletion', () =>
         publicId: `/docs/p4-${slug}-${stamp}`,
         title: `P4 ${slug}`,
         ownerWorkspaceId: ws.id,
-        kind: 'upload',
-        lifecycleStatus: 'published',
-        indexStatus: 'ready',
-        createdAt: new Date(Date.now() - 100 * 86_400_000),
+        kind,
+        lifecycleStatus: kind === 'post' ? 'draft' : 'published',
+        indexStatus: kind === 'post' ? 'pending' : 'ready',
+        createdAt: longAgo,
       } as typeof schema.asset.$inferInsert);
+      return id;
+    };
+    /* An editorial draft: never built, in no channel until it is published (editorial/assets.ts). */
+    const draft = async (slug: string, values: Partial<typeof schema.postDraft.$inferInsert>) => {
+      const id = await make(slug, 'post');
+      await database.insert(schema.postDraft).values({ assetId: id, title: `P4 ${slug}`, updatedAt: longAgo, ...values });
       return id;
     };
     const privateAsset = await make('private');
@@ -707,6 +771,11 @@ describeWithDb('P4: re0 as an A2A client, retention, export and deletion', () =>
     const channelId = uuidv7();
     await database.insert(schema.channel).values({ id: channelId, slug: `p4-public-${stamp}`, workspaceId: ws.id, title: 'Public', visibility: 'public' } as typeof schema.channel.$inferInsert);
     await database.insert(schema.channelAsset).values({ channelId, assetId: publicAsset } as typeof schema.channelAsset.$inferInsert);
+    /* Drafts created 100 days ago: scheduled for next week; aimed at the public channel; edited yesterday; abandoned. */
+    const scheduledDraft = await draft('scheduled', { publishAt: new Date(Date.now() + 7 * 86_400_000) });
+    const publicTargetDraft = await draft('aimed', { channelId });
+    const editedDraft = await draft('edited', { updatedAt: new Date(Date.now() - 86_400_000) });
+    const abandonedDraft = await draft('abandoned', {});
 
     expect(await refusal(privacy.setPrivateAssetRetention({ workspaceId: ws.id, role: 'owner', days: 45 as never }))).toBe('invalid_request');
     await privacy.setPrivateAssetRetention({ workspaceId: ws.id, role: 'owner', days: 90 });
@@ -715,11 +784,15 @@ describeWithDb('P4: re0 as an A2A client, retention, export and deletion', () =>
     const rows = await database
       .select({ id: schema.asset.id, deletedAt: schema.asset.deletedAt })
       .from(schema.asset)
-      .where(inArray(schema.asset.id, [privateAsset, publicAsset, buildingAsset]));
+      .where(inArray(schema.asset.id, [privateAsset, publicAsset, buildingAsset, scheduledDraft, publicTargetDraft, editedDraft, abandonedDraft]));
     const byId = new Map(rows.map((row) => [row.id, row.deletedAt]));
     expect(byId.get(privateAsset)).not.toBeNull();
     expect(byId.get(publicAsset)).toBeNull();
     expect(byId.get(buildingAsset)).toBeNull();
+    expect(byId.get(scheduledDraft)).toBeNull();
+    expect(byId.get(publicTargetDraft)).toBeNull();
+    expect(byId.get(editedDraft)).toBeNull();
+    expect(byId.get(abandonedDraft)).not.toBeNull();
   });
 
   it('never wrote the credential to a log line', () => {

@@ -43,6 +43,13 @@ export const BACKFILL_REFUSALS = [
   'not_found',
   /** It exists, but is a checkout nobody paid, or not something re0 sells. */
   'not_billable',
+  /**
+   * A channel subscription's transaction: the creator's sale, kept in the
+   * channel ledger, never a billing document of the subscriber's
+   * (architecture.md 11.3). Its lost notification is replayed from Paddle,
+   * which re-reads it through the webhook's channel path.
+   */
+  'channel_transaction',
   /** Read, but no workspace -- or no pack version -- to place it on. */
   'unresolved',
   /** Read, but the mirror refused what the provider reported. */
@@ -157,6 +164,7 @@ export async function applyProviderSnapshot(
   snapshot: ProviderDocumentSnapshot,
   meta: { administratorId: string },
 ): Promise<BackfillResult> {
+  if (snapshot.channelTransaction) throw new BackfillRefused('channel_transaction');
   const notice = snapshot.document;
   if (!notice) throw new BackfillRefused('not_billable');
   const payload = { source: 'console_backfill', administratorId: meta.administratorId, ...asObject(snapshot.payload) };

@@ -8,8 +8,9 @@
  * `failed` -- is lib/application/administration/payouts.
  *
  * What a request covers is exactly what the credit button would convert: the
- * same hold, USD only, negatives netted. The one rule of its own is the
- * threshold -- cash pays a per-transfer fee, credit does not.
+ * same hold, USD only, negatives netted, and never more than the balance
+ * (`statementsWithinBalance`). The one rule of its own is the threshold --
+ * cash pays a per-transfer fee, credit does not.
  *
  * Concurrency follows the redeem: the publisher account row is locked first
  * and the statements `FOR UPDATE`, so a request racing a redeem (or a second
@@ -23,8 +24,9 @@ import {
   PayoutRefused,
   type PayoutStatus,
 } from '@/lib/domain';
+import { statementsWithinBalance } from '@/lib/domain/channel-commerce';
 import { activeCommerceSettings } from '@/lib/application/administration/manage-commerce-config';
-import { hasNegativeBalance } from './balance';
+import { creatorBalance } from './balance';
 import { uuidv7 } from '@/lib/domain/id';
 import { PLAN_CURRENCY } from '@/lib/domain/plans';
 import { db, schema } from '@/lib/infrastructure/postgres/client';
@@ -149,7 +151,8 @@ export async function requestPayout(input: {
     if (account.taxFormStatus !== 'verified') {
       throw new PayoutRefused('profile_incomplete', 'the tax document has not been verified yet');
     }
-    if (await hasNegativeBalance(input.workspaceId, tx)) {
+    const { balanceMinor } = await creatorBalance(input.workspaceId, tx);
+    if (balanceMinor < 0) {
       throw new PayoutRefused('negative_balance', 'the balance is negative; it clears from future income');
     }
 
@@ -162,8 +165,8 @@ export async function requestPayout(input: {
       .limit(1);
     if (open) throw new PayoutRefused('payout_pending', 'a payout request is already open');
 
-    const rows = await tx
-      .select({ id: schema.settlement.id, amountMinor: schema.settlement.amountMinor })
+    const released = await tx
+      .select({ id: schema.settlement.id, amountMinor: schema.settlement.amountMinor, periodId: schema.settlement.periodId })
       .from(schema.settlement)
       .innerJoin(schema.revenuePeriod, eq(schema.revenuePeriod.id, schema.settlement.periodId))
       .where(
@@ -179,11 +182,21 @@ export async function requestPayout(input: {
       )
       .for('update', { of: schema.settlement });
 
-    const amountMinor = rows.reduce((sum, row) => sum + Number(row.amountMinor), 0);
-    if (amountMinor < settings.payoutThresholdMinor) {
+    /*
+     * Capped at the balance, which holds every refund and chargeback booked
+     * -- including one in a period not settled yet, which no statement nets
+     * so far. What does not fit stays accrued for the next request.
+     */
+    const rows = statementsWithinBalance(
+      released.map((row) => ({ ...row, amountMinor: Number(row.amountMinor) })),
+      balanceMinor,
+    );
+    const amountMinor = rows.reduce((sum, row) => sum + row.amountMinor, 0);
+    if (rows.length === 0 || amountMinor < settings.payoutThresholdMinor) {
+      const heldBack = released.reduce((sum, row) => sum + Number(row.amountMinor), 0) - amountMinor;
       throw new PayoutRefused(
         'below_threshold',
-        `${amountMinor} is past its hold; a payout needs at least ${settings.payoutThresholdMinor}`,
+        `${amountMinor} is past its hold${heldBack > 0 ? ` (${heldBack} more is held back by refunds or chargebacks not yet settled)` : ''}; a payout needs at least ${settings.payoutThresholdMinor}`,
       );
     }
 
