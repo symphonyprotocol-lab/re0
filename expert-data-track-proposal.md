@@ -21,7 +21,7 @@ Re0 在现有版本化知识库之外增加一条独立的 **Expert Data & Evals
 5. 数据来源、权利声明、审核过程和版本摘要；
 6. 模型基线报告与持续回归评测。
 
-实施上采用“旁路模块”原则：复用 Re0 的身份、工作空间、对象存储、Workflow、审计、版本化、外部支付和可选存证能力，但不复用 `library`/`chunk` 作为训练样本容器，不把专家收入写入现有 `earning_event`，不让训练数据业务进入知识检索和 Call 计费链路。
+实施上采用“旁路模块”原则：复用 Re0 的身份、工作空间、对象存储、Workflow、审计、版本化、外部支付和可选存证能力，但不复用 `asset`/`chunk` 作为训练样本容器，不把专家收入写入现有 `earning_event`，不让训练数据业务进入知识检索和 Call 计费链路。
 
 运营模式是**订单驱动**：先承接模型公司的数据或评测订单，再根据订单的领域、语言和任务类型从专家池中委派专家定制生产。平台不预先生产资产等买方来买。
 
@@ -48,8 +48,8 @@ Re0 在现有版本化知识库之外增加一条独立的 **Expert Data & Evals
 - 专家只通过浏览器提交；Expert API 与对应 API Key Scope 推迟到阶段 4，首期不增加这部分攻击面。
 - **Task Schema 和 Rubric 的设计是专家任务。** 每个项目启动时先委派 `design` 任务给一到两名资深专家，产出该项目的任务模板、Rubric 草案和 3–5 个示例任务；运营和买方确认后冻结进 Brief。平台不自行编写领域 Rubric。
 - **审阅其他专家提交的任务是专家的正式任务类型之一。** 复核任务与制作任务一样通过委派进入专家的任务队列，有截止时间、计价和验收，复核结论进入被审阅任务的审核事件；同一个专家在同一项目里可以既做制作又做复核，但不能复核自己的任务或与自己有利益冲突声明的专家的任务。
-- **专家是独立模块，不是普通用户的附加档案。** 专家注册、专家领域知识的沉淀和训练集生产都在专家模块内完成，与知识库用户的 Workspace、Dashboard、Library、API Key 和套餐彼此不可见。登录复用同一套 OAuth 身份（一个 `user` 可以同时是知识库用户和专家），但专家身份是单独的 `expert_account`，有自己的注册流程、入口 `/expert`、会话上下文、导航和权限边界；普通 Dashboard 不出现专家入口，专家区也不出现知识库功能。
-- 专家产出的领域知识存放在专家模块自己的容器（Expert Knowledge Base，见 §3.5），不是 `library`；它不进入公开检索、Context API、MCP 和 Call 计费，只作为训练集和评测集的生产来源。该容器推迟到阶段 4：前三个阶段专家在被委派的任务内直接创作 Data Item，不维护独立知识库。
+- **专家是独立模块，不是普通用户的附加档案。** 专家注册、专家领域知识的沉淀和训练集生产都在专家模块内完成，与知识库用户的 Workspace、Dashboard、Asset、API Key 和套餐彼此不可见。登录复用同一套 OAuth 身份（一个 `user` 可以同时是知识库用户和专家），但专家身份是单独的 `expert_account`，有自己的注册流程、入口 `/expert`、会话上下文、导航和权限边界；普通 Dashboard 不出现专家入口，专家区也不出现知识库功能。
+- 专家产出的领域知识存放在专家模块自己的容器（Expert Knowledge Base，见 §3.5），不是 `asset`；它不进入公开检索、Context API、MCP 和 Call 计费，只作为训练集和评测集的生产来源。该容器推迟到阶段 4：前三个阶段专家在被委派的任务内直接创作 Data Item，不维护独立知识库。
 - **专家贡献的知识是多模态的。** 除文本外，专家可以贡献图片、PDF 与办公文档、音频、视频，作为多模态模型的训练和评测素材。每个素材带明确的模态标签、来源模式和权利声明。视频的主要形式是屏幕录屏和操作演示；任务发布时明确要求**视频中不得出现人脸**，出现即拒收而不是打码；屏幕上的文字是知识本身，不做打码，只做内容扫描（§9.5）。多模态素材的存储、扫描和导出成本按模态单独计价（§12.1）。
 
 ### 1.2 对现有基线的影响
@@ -57,7 +57,7 @@ Re0 在现有版本化知识库之外增加一条独立的 **Expert Data & Evals
 [requirement.md](./requirement.md) §2.3 当前明确排除了“模型训练、原始文件交易、Enterprise 套餐与复杂合同计费”。因此本方案不能被解释为现有 MVP 的一部分。requirement.md 3.1 版已在 §2.4 把它登记为 **MVP 后扩展轨**，边界如下：
 
 - Free、Pro、Additional Calls 的价格、额度和能力不变；
-- `/v1/context`、`/v1/libraries/search`、MCP、SDK 与 CLI 的现有契约不变；
+- `/v1/context`、`/v1/assets/search`、MCP、SDK 与 CLI 的现有契约不变；
 - 公开知识库仍然不按库收费；
 - 专家数据订单不进入 `Plan Version` 和 Usage Call；
 - 现有发布者分成不因专家项目收入扩大或缩小；
@@ -154,7 +154,7 @@ Project Brief 一经进入 `active` 不原地修改；范围变化创建新的 B
 
 ### 3.2 Data Asset
 
-稳定业务对象，类似 `library`，但服务于训练和评测。完整类型集合如下，其中首期只实现前两类（见 §1.1）：
+稳定业务对象，类似 `asset`，但服务于训练和评测。完整类型集合如下，其中首期只实现前两类（见 §1.1）：
 
 - `instruction_dataset`：任务、上下文和参考成果（首期）；
 - `evaluation_suite`：任务、评分规则、专家基线（首期）；
@@ -170,7 +170,7 @@ Project Brief 一经进入 `active` 不原地修改；范围变化创建新的 B
 不可变的交付版本，固定：
 
 - Project Brief Version；
-- 使用的 `library_version_id`（如果由 Re0 知识库提供背景资料）；
+- 使用的 `asset_version_id`（如果由 Re0 知识库提供背景资料）；
 - Dataset Schema Version；
 - 数据项和附件摘要；
 - Train、Dev、Public Eval、Hidden Eval 的划分；
@@ -216,7 +216,7 @@ Project Brief 一经进入 `active` 不原地修改；范围变化创建新的 B
   },
   "provenance": {
     "creationMode": "expert_created",
-    "sourceLibraryVersionId": null,
+    "sourceAssetVersionId": null,
     "publicSources": []
   },
   "rightsDeclarationId": "rights_...",
@@ -266,23 +266,23 @@ Project Brief 一经进入 `active` 不原地修改；范围变化创建新的 B
 | `workspace` / Member | 只作为买方和资产所有权边界 | 专家不使用 Workspace；首期买方 Workspace 由管理员建立；团队邀请另行上线 |
 | Dashboard / 导航 | 不复用 | 专家区是独立前缀 `/expert`，有自己的布局、导航和 i18n 命名空间；普通 Dashboard 不展示专家入口 |
 | `api_key` | 新增买方数据 Scope（`assets:*`、`evals:run`） | 现有 Key 默认没有数据导出与评测权限；专家 Scope 推迟到阶段 4 |
-| `library_version` | 可作为数据项背景知识的固定来源 | 不把 Data Item 写进 `chunk`，不通过 Context API 导出训练集 |
+| `asset_version` | 可作为数据项背景知识的固定来源 | 不把 Data Item 写进 `chunk`，不通过 Context API 导出训练集 |
 | 对象存储 | 复用 `ObjectStore` Adapter（当前实现是 Vercel Blob 私有 Store） | 专家附件、隐藏评测与普通上传使用不同前缀；访问隔离在应用层用例中实现，不依赖存储侧角色 |
-| Workflow | 复用持久化 Step、幂等和恢复模式 | 使用独立 Operation Type，不进入 Library Refresh 队列状态机 |
+| Workflow | 复用持久化 Step、幂等和恢复模式 | 使用独立 Operation Type，不进入 Asset Refresh 队列状态机 |
 | `audit_log` | 记录高风险管理动作 | 正文、PII、证件和商业秘密不得进入日志 |
 | Payment Provider | 复用外部收付款原则 | 不复用 Call 计费和发布者收入池，不保存收款账户明细 |
 | Anchor | 后续增加新的 Subject 类型 | 不阻塞发布、授权、导出、评测或付款 |
-| Policy Engine | 复用“先授权再读数据”的模式 | 不直接复用 Library SourceType/质量筛选语义 |
+| Policy Engine | 复用“先授权再读数据”的模式 | 不直接复用 Asset SourceType/质量筛选语义 |
 
-知识库的读取权限、公开可见性或来源认领，均不自动授予模型训练权。任何从 `library_version` 派生的 Data Asset 都必须重新完成训练用途的 Rights Declaration 和 License Review；“网上公开”“允许 RAG 检索”和“允许商业模型训练”是三种不同的权利状态。
+知识库的读取权限、公开可见性或来源认领，均不自动授予模型训练权。任何从 `asset_version` 派生的 Data Asset 都必须重新完成训练用途的 Rights Declaration 和 License Review；“网上公开”“允许 RAG 检索”和“允许商业模型训练”是三种不同的权利状态。
 
 ### 4.1 模块下线不变量
 
 删除 `app/expert`、`app/admin/(console)/expert*`、`lib/application/expert-data`、对应 Workflow 和调度入口后：
 
-- Library Search 与 Context 行为不变；
+- Asset Search 与 Context 行为不变；
 - MCP 两个工具及其计费不变；
-- Library Version 发布事务不变；
+- Asset Version 发布事务不变；
 - `usage_event`、`earning_event` 和 `revenue_period` 不变；
 - 发布者分成与专家结算互不成为对方的输入；
 - 不需要修改或回填任何 `chunk`。
@@ -315,7 +315,7 @@ Project Brief 一经进入 `active` 不原地修改；范围变化创建新的 B
 | 表 | 关键字段 | 约束 |
 | --- | --- | --- |
 | `data_asset` | `public_id`、Project、Owner Workspace、类型、可见性、状态、当前 Version | 存活 `public_id` 唯一；删除使用墓碑 |
-| `data_asset_version` | Asset、Label、Brief Version、Corpus Library Version、Schema Version、Manifest Key/Digest、状态、统计 | `(asset_id, label)` 唯一；Ready 后不可变 |
+| `data_asset_version` | Asset、Label、Brief Version、Corpus Asset Version、Schema Version、Manifest Key/Digest、状态、统计 | `(asset_id, label)` 唯一；Ready 后不可变 |
 | `data_item` | Asset Version、稳定 Item Key、Split、输入/输出模态、Payload Key/Digest、Creator、Rights Declaration、状态、难度、标签 | `(asset_version_id, item_key)` 唯一 |
 | `media_asset` | Owner（Knowledge Entry 或 Data Item）、模态、Media Type、字节数、时长/页数/分辨率、Key/Digest、扫描结果（人脸、人声、屏幕内容分类） | 检出人脸的视频与图片直接拒收，不进入任何资产；被拒对象移入隔离前缀保留到申诉期结束（§6）后删除；通过扫描的对象即权威对象，不区分原件与脱敏件 |
 | `media_derivative` | Media Asset、类型（转写、关键帧、章节、缩略图）、生成器版本、Key/Digest、状态 | 可重建；导出时按 License 决定是否包含 |
@@ -968,7 +968,7 @@ workflows/
 
 Knowledge Base、Knowledge Entry 与 Entry Usage 三张表不在这四个迁移里，阶段 4 单独迁移。
 
-这些迁移不修改 `library`、`chunk`、`usage_event`、`earning_event` 的既有列。只有确有需要时为 `api_key` Scope Schema 和 Anchor Subject Enum 做单独 Expand Migration。
+这些迁移不修改 `asset`、`chunk`、`usage_event`、`earning_event` 的既有列。只有确有需要时为 `api_key` Scope Schema 和 Anchor Subject Enum 做单独 Expand Migration。
 
 ### 15.3 Feature Gate
 

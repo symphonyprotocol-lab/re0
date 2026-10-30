@@ -2,7 +2,7 @@
 
 Independent anchor verifier.
 
-Given a citation's library id, version and chunk digests, it reads the batch
+Given a citation's asset id, version and chunk digests, it reads the batch
 Merkle root from Aptos mainnet and recomputes the proof locally.
 
 **It must not import anything from `lib/`.** The whole point is that verification

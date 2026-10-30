@@ -138,17 +138,17 @@
 
 **第三批 20 个**：其余欧盟法规、UK、CCPA、COPPA、ATT&CK、KEV、Cloudflare、GitLab、US Core，以及第二批上线后查询日志里反复出现但目录没有的库。
 
-## 5. Library ID 与版本命名
+## 5. Asset ID 与版本命名
 
-- Library ID 用 `/<发布方>/<库>`，发布方用官方域名或组织名的小写形式，例如 `/stripe/api`、`/nist/sp-800-53`、`/eur-lex/ai-act`。认领时发布方名下的所有平台库整体转移。
+- Asset ID 用 `/<发布方>/<库>`，发布方用官方域名或组织名的小写形式，例如 `/stripe/api`、`/nist/sp-800-53`、`/eur-lex/ai-act`。认领时发布方名下的所有平台库整体转移。
 - re0 Version 的 `label` 直接采用来源自己的版本标识：Stripe 用 `2025-03-31.basil`，Kubernetes 用 `v1.32`，eCFR 用时点日期，EUR-Lex 用 consolidated 日期，无版本概念的（KEV、Cloudflare）用快照日期。不自造版本号。
-- `resolve-library-id` 的候选证据里必须带每个版本的 label 列表，让 Agent 一轮就能决定「用哪个版本」，否则版本轴就白做了。
+- `resolve-asset-id` 的候选证据里必须带每个版本的 label 列表，让 Agent 一轮就能决定「用哪个版本」，否则版本轴就白做了。
 
 ## 6. 每个库上线前的检查
 
 1. 许可确认：开源许可文件存在，或政府再利用政策条款可引用，或 W3C / IETF 条款可引用。「待核」项没有结论不上。
 2. 至少两个版本成功入库，且至少写出三个「两版答案不同」的问题，答案能在两版的引用里分别找到。写不出三个，说明版本轴不成立，降级到第三批或移除。
-3. `resolve-library-id` 用自然语言问题（不含库名）能把这个库排进前三。排不进说明内容路由对它失效，先修路由再上。
+3. `resolve-asset-id` 用自然语言问题（不含库名）能把这个库排进前三。排不进说明内容路由对它失效，先修路由再上。
 4. 刷新策略已配置：GitHub 来源按 release 或 tag 触发，eCFR / EUR-Lex 按官方时点日期轮询，KEV 按日。
 
 ## 7. 待核事项

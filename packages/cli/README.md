@@ -1,6 +1,6 @@
 # @symphonyprotocollab/re0
 
-Connect Claude Code, Claude Desktop, Cursor and Codex to [Re0](https://re0.io) knowledge libraries over MCP.
+Connect Claude Code, Claude Desktop, Cursor and Codex to [Re0](https://re0.io) data assets over MCP.
 
 ```bash
 npx @symphonyprotocollab/re0 setup

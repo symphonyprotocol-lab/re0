@@ -128,7 +128,7 @@ publishVersion()  ── 4. commitBuild() 同一事务：写 usage_event，释�
 
 ### 4.1 报价
 
-调用点：`app/dashboard/libraries/new/actions.ts` 的创建动作，以及库详情页的手动刷新动作。
+调用点：`app/dashboard/assets/new/actions.ts` 的创建动作，以及库详情页的手动刷新动作。
 
 | 来源 | 估算依据 | 上限计算 |
 | --- | --- | --- |
@@ -181,7 +181,7 @@ publishVersion()  ── 4. commitBuild() 同一事务：写 usage_event，释�
 | workflow_operation | charged_calls | integer | 实际结算 |
 | usage_summary | build_calls | integer not null default 0 | Dashboard 拆分展示 |
 
-新迁移编号 `0031_library_build_billing.sql`。
+新迁移编号 `0031_asset_build_billing.sql`。
 
 ### 5.2 build_detail
 
@@ -242,7 +242,7 @@ export async function reserveBuild(input: {
 export async function commitBuild(tx, input: {
   reservationId: string;
   operationId: string;
-  libraryId: string;
+  assetId: string;
   versionId: string;
   operation: 'index' | 'refresh';
   calls: number;
@@ -256,7 +256,7 @@ export async function releaseBuild(reservationId: string): Promise<void>;
 
 ## 7. 定时刷新闸门
 
-> 当前状态：`refreshSchedule` 只调度平台库（`is_platform_library = true`），平台库的构建不计入任何工作空间，因此本节的闸门尚未实现，代码里也没有对应分支。把定时刷新扩展到用户库时，须连同本节一起实现，并注意两点：同一轮内多个库要累减同一工作空间的余额；来源未变化的刷新不会写 `charged_calls`，估算不能只取最近一次成功构建。
+> 当前状态：`refreshSchedule` 只调度平台库（`is_platform_asset = true`），平台库的构建不计入任何工作空间，因此本节的闸门尚未实现，代码里也没有对应分支。把定时刷新扩展到用户库时，须连同本节一起实现，并注意两点：同一轮内多个库要累减同一工作空间的余额；来源未变化的刷新不会写 `charged_calls`，估算不能只取最近一次成功构建。
 
 `schedule-refreshes.ts` 的 `scheduleDueRefreshes` 在插入 `workflow_operation` 前：
 

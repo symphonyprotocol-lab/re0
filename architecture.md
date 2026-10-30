@@ -2,12 +2,12 @@
 
 - 版本：4.0
 - 更新日期：2026-10-29（按 [agent-first-proposal.md](./agent-first-proposal.md) 第 3.4 节与第 11 节改写：资产与频道术语；删除 MCP Server 一节，新增 A2A Server；分成记账改为频道收入记账；各节编号保持不变）
-- 状态：架构基线；P0–P4 已实施（P1–P4：2026-10-30；迁移 0064、0065 待应用到 Neon dev 分支；P3a 按 Paddle sandbox 实现，提案第 13.2 节四项业务前提待落实），P5 的目标设计在文中以「阶段」标注区分；§4.1 登记专家模块的技术边界
+- 状态：架构基线；P0–P5 已实施（P1–P5：2026-10-30；迁移 0063–0066 待应用到 Neon dev 分支；P3a 按 Paddle sandbox 实现，提案第 13.2 节四项业务前提待落实）；§4.1 登记专家模块的技术边界
 - 产品需求：[requirement.md](./requirement.md)
 - 设计依据：[knowleg-market.pen](./knowleg-market.pen)
 - 转向依据：[agent-first-proposal.md](./agent-first-proposal.md)
 
-> 术语说明：本文描述目标系统时一律用「数据资产」（简称「资产」）与「频道」。引用现有代码、表名、接口时保留它们现在的名字（`library`、`library_version`、`libraryId`、`/v1/libraries`、`createWorkspaceLibrary` 等），改名在提案第 3.5 节的 P5 完成；新模块与新表从现在起一律用 asset、channel 命名。
+> 术语说明：本文描述目标系统时一律用「数据资产」（简称「资产」）与「频道」。代码、表名、接口在 P5（提案第 3.5 节）已全部改为 asset：表 `asset`、`asset_version`，字段 `assetId`，接口 `/v1/assets`，用例 `createWorkspaceAsset` 等；新模块与新表一律用 asset、channel 命名。迁移 0066 之前的迁移文件保留旧名 `library`，这是历史记录，不改写（§6.5）。
 
 ## 1. 架构结论
 
@@ -80,7 +80,7 @@ Context7 已从 requirement.md 第 1 节的决策顺序中移除，不再约束�
 
 ### 2.1 直接借鉴（历史）
 
-- REST 的 Library Search、Context、Policies、Refresh、Add Source 资源形状；
+- REST 的 Asset Search、Context、Policies、Refresh、Add Source 资源形状；
 - `/owner/repo`、`/source/slug` 和版本化资产 ID；
 - JSON/TXT 双格式，TXT 由结构化结果渲染；
 - SDK 的 Bearer Key、超时、有限重试和错误映射；
@@ -133,7 +133,7 @@ Edge App 只执行：
 - 页面渲染和短 BFF 请求；
 - Session/API Key 认证（A2A 的 Bearer 就是 API Key）；
 - 工作空间授权、可见性（requirement.md 6.2）、Policy 和额度检查；
-- Library Search、频道路由、全文与向量召回、融合、短 Rerank 和格式化；
+- Asset Search、频道路由、全文与向量召回、融合、短 Rerank 和格式化；
 - 四个生成入口的生成链路（§9.5）；
 - A2A 请求处理、任务状态读写与 SSE 推送（§13.1）；
 - Agent 工作台的工具调用与确认门（待确认操作的生成与执行）；
@@ -165,7 +165,7 @@ Workflow 执行：
 
 ## 4. 代码组织
 
-目标布局（旧模块名在 P5 统一改为 asset；页面路径随 P1 改为 `/assets/*`、`/channels/*`；标注「开关」的模块已下线但代码保留；标注阶段的目录在该阶段出现）：
+目标布局（模块名在 P5 已统一改为 asset；页面路径随 P1 改为 `/assets/*`、`/channels/*`；标注「开关」的模块已下线但代码保留；标注阶段的目录在该阶段出现）：
 
 ```text
 app/
@@ -173,7 +173,7 @@ app/
     page.tsx                # 首页：对话入口、四个场景、频道目录、给 Agent 开发者（P1 改版）
     pricing/
     playground/             # 公开演示：只读、只查公开频道里的免费资产
-    libraries/              # P1 改为 assets/：资产详情、认领向导
+    assets/                 # 资产详情、认领向导（P1）
     channels/               # 频道目录与频道主页（P1）
     u/[handle]/             # 用户主页（P1）
     login/
@@ -184,7 +184,7 @@ app/
     [[...slug]]/page.tsx
   dashboard/
     page.tsx                # Agent 工作台（P2）
-    libraries/              # P1 改为 assets/
+    assets/                 # 我的资产（P1）
     channels/               # 我的频道，含「订阅」面板（P1 / P3a）
     posts/                  # 文章与音频的编辑器、导入（P3）
     questions/ comments/    # 待答列表、评论管理（P3a）
@@ -198,9 +198,9 @@ app/
     login/
     overview/
     users/
-    libraries/              # 资产与频道：下架与恢复
+    assets/                 # 资产与频道：下架与恢复
     claims/                 # 认领与争议裁定
-    platform-libraries/
+    platform-assets/
     plans/
     billing/
     settlements/            # 频道收入结算与出账
@@ -209,7 +209,7 @@ app/
     administrators/
     audit/
   api/v1/
-    libraries/              # P5 改为 assets/
+    assets/
     context/
     claims/
     policies/
@@ -237,7 +237,7 @@ lib/
   source.ts                 # Fumadocs loader
   application/
     auth/
-    libraries/              # P5 改为 assets/
+    assets/
     channels/               # 频道、归属、可见性、目录排序（P1）
     claims/
     ingestion/
@@ -266,9 +266,9 @@ lib/
     chain/
     connectors/
 workflows/
-  index-library.ts
-  refresh-library.ts
-  delete-library.ts
+  index-asset.ts
+  refresh-asset.ts
+  delete-asset.ts
   anchor-versions.ts
   anchor-audit.ts
   settle-revenue.ts         # 频道收入结算
@@ -341,7 +341,7 @@ workflows/settle-expert-compensation.ts
 | `administrator` / Permission / Audit Decorator（§5.3、§14） | 直接复用 | 新增 `expert_*`、`data_asset.*`、`data_license.*` 权限；不新增宽泛的 `expert.manage` |
 | `api_key` | 新增买方 Scope `assets:read`、`assets:export`、`evals:run` | 现有 Key 默认不获得这些 Scope；专家 Scope 推迟到阶段 4 |
 | `ObjectStore`（§7） | 复用 Adapter 与私有 Store | 独立前缀（§7 末尾）；Adapter 之上加按前缀校验调用方的 Guard，Blob 没有前缀级 IAM，隔离全部在应用层 |
-| `workflow_operation` / `runOperation`（§8） | 复用持久化 Step、幂等键与 Recovery | 独立 Operation Type 族 `expert.*`，不进入 Library Refresh 队列状态机，不出现在 `/admin/refresh-queue` |
+| `workflow_operation` / `runOperation`（§8） | 复用持久化 Step、幂等键与 Recovery | 独立 Operation Type 族 `expert.*`，不进入 Asset Refresh 队列状态机，不出现在 `/admin/refresh-queue` |
 | `audit_log` | 记录高风险管理动作 | 任务正文、Gold、证件、合同正文不进日志 |
 | Payment Adapter（§11.3） | 复用外部收付款原则与 Webhook 幂等 | 不复用 `billing_document`、`revenue_period`、`settlement`、`payout`；专家侧有自己的 `expert_settlement` / `expert_payout` |
 | `llm_config`（§9.5） | 不复用 | 买方模型凭证用独立的 `evaluation_model_config`，Secret 按 Workspace 隔离加密入库 |
@@ -349,8 +349,8 @@ workflows/settle-expert-compensation.ts
 
 **不进入什么。** 以下是不变量，任何一条被违反视为缺陷：
 
-- 专家知识与训练样本不写入 `library`、`library_version`、`document`、`chunk`、`library_profile`、`channel`，不建 `search_vector` 与 `embedding`，不进入 §9 的任何检索路径与缓存；
-- `/v1/context`、`/v1/libraries/search`、A2A 技能、在线试用不读专家模块的表和前缀；
+- 专家知识与训练样本不写入 `asset`、`asset_version`、`document`、`chunk`、`asset_profile`、`channel`，不建 `search_vector` 与 `embedding`，不进入 §9 的任何检索路径与缓存；
+- `/v1/context`、`/v1/assets/search`、A2A 技能、在线试用不读专家模块的表和前缀；
 - 专家数据订单不产生 `usage_reservation`、`usage_event`、`earning_event`，不进入 `revenue_period` 与频道收入结算；
 - Hidden Eval 的 Payload、Gold 与 Rubric 私有部分不进入普通导出、日志、Trace、Analytics 与前端缓存，只有 Eval Runner 的 Use Case 可读；
 - 专家区与资产 Dashboard（Agent 工作台）不共享 Layout、导航、i18n 命名空间（专家区用 `expert.*`）和列表查询；
@@ -385,7 +385,7 @@ API Key 格式使用 `mm_live_` / `mm_test_` 前缀。服务端只保存：
 
 完整 Key 只在创建响应中出现一次。
 
-**GitHub 仓库导入授权。** 登录只回答「你是谁」，登录换到的 Provider Token 用完即弃（requirement.md 12）。工作空间导入 GitHub 库时，规则是「只能导入自己控制的、公开且非 Fork 的仓库」——自己名下，或在组织中拥有 admin / maintain 权限（与 §5.4 认领的门槛相同）（`lib/domain/github.ts`），因此向导先要求一次独立的 GitHub 授权（`POST /api/auth/github/connect`，回调 `/api/auth/github/callback/connect`，须与登录回调一起登记在 GitHub App 的 Callback URL 列表里，GitHub App 要求精确匹配），只申请 `read:user read:org`（后者让应用看得见组织成员身份，否则组织仓库列不出来），不申请任何 `repo` 写权限——公开仓库的内容本就无需授权即可读取，这次授权买到的不是内容访问权，而是「列出的是谁的仓库」的证明。换到的 Token 用 Cookie 密封密钥加密后单独存入 `github_connection`（每用户一行，重连即替换），向导用它列出 `affiliation=owner,organization_member&visibility=public` 的仓库并在应用层剔除 Fork 与权限不足的组织仓库（限制第三方应用的组织需先批准本应用，其仓库才会出现）；提交时 `createWorkspaceLibrary` 不信任向导列表，用同一 Token 重读所选仓库，比对 GitHub 返回的 owner id 与授权账号 id、或 `permissions` 中的 admin / maintain，并把仓库 id 写入 `source.config.repositoryId` 供 §5.4 的认领比对。GitHub 回应 401 即视为用户已在 GitHub 侧撤销，连接记录随即删除。
+**GitHub 仓库导入授权。** 登录只回答「你是谁」，登录换到的 Provider Token 用完即弃（requirement.md 12）。工作空间导入 GitHub 库时，规则是「只能导入自己控制的、公开且非 Fork 的仓库」——自己名下，或在组织中拥有 admin / maintain 权限（与 §5.4 认领的门槛相同）（`lib/domain/github.ts`），因此向导先要求一次独立的 GitHub 授权（`POST /api/auth/github/connect`，回调 `/api/auth/github/callback/connect`，须与登录回调一起登记在 GitHub App 的 Callback URL 列表里，GitHub App 要求精确匹配），只申请 `read:user read:org`（后者让应用看得见组织成员身份，否则组织仓库列不出来），不申请任何 `repo` 写权限——公开仓库的内容本就无需授权即可读取，这次授权买到的不是内容访问权，而是「列出的是谁的仓库」的证明。换到的 Token 用 Cookie 密封密钥加密后单独存入 `github_connection`（每用户一行，重连即替换），向导用它列出 `affiliation=owner,organization_member&visibility=public` 的仓库并在应用层剔除 Fork 与权限不足的组织仓库（限制第三方应用的组织需先批准本应用，其仓库才会出现）；提交时 `createWorkspaceAsset` 不信任向导列表，用同一 Token 重读所选仓库，比对 GitHub 返回的 owner id 与授权账号 id、或 `permissions` 中的 admin / maintain，并把仓库 id 写入 `source.config.repositoryId` 供 §5.4 的认领比对。GitHub 回应 401 即视为用户已在 GitHub 侧撤销，连接记录随即删除。
 
 ### 5.2 工作空间授权
 
@@ -419,15 +419,15 @@ API Key 格式使用 `mm_live_` / `mm_test_` 前缀。服务端只保存：
 
 ### 5.4 来源所有权验证（Claim）
 
-产品规则见 [requirement.md](./requirement.md) 第 7.3 节。这里是授权链路的一部分：`library.owner_workspace_id` 决定谁能改这项资产，也决定它能否放进公开频道（来源型资产入公开频道前必须已认领，requirement.md 7.3），因此它的写入路径必须比普通业务写入更严。
+产品规则见 [requirement.md](./requirement.md) 第 7.3 节。这里是授权链路的一部分：`asset.owner_workspace_id` 决定谁能改这项资产，也决定它能否放进公开频道（来源型资产入公开频道前必须已认领，requirement.md 7.3），因此它的写入路径必须比普通业务写入更严。
 
 - **唯一写入口**：`owner_workspace_id` 只能由「`verified` 的认领」或「管理员争议裁定」写入，不存在第三条路径；Ingestion、审核和刷新都不得触碰该字段；
 - **登录身份不是证据**：OAuth Subject 只回答「你是谁」。GitHub 权限校验必须用用户自己的 Token 向 GitHub 查询其对目标仓库的权限级别，并核对返回的仓库 ID 与 `source` 记录一致，不能只比对仓库名字符串；
-- **挑战 Token**：高熵随机值，只保存 Hash；与 `(申请人, library_id, 验证方式)` 绑定并带 7 天过期；校验时按 Hash 比对，明文只在生成时返回一次；
-- **域名验证**：网站资产的域名挑战记录在 `domain_verification`（`lib/domain/domain-verification.ts`、`lib/application/libraries/domain-verification.ts`），与 `(workspace, host, 验证方式)` 绑定；明文 Token 只返回给发起方，之后每次校验都由客户端带回并按 Hash 比对，错误 Token 与不存在的挑战返回相同结果。消费挑战时要求状态为 `verified`、域名与来源 host 完全一致（子域不继承）、验证时间在 1 小时以内，并同事务写入一条 `verified` 的 `library_claim`，任一条件不满足则整体回滚。**阶段**：`createWorkspaceLibrary` 仍在创建网站资产时消费挑战（`consumed_library_id`）；P1 起「放进公开频道」的用例（`lib/application/channels/manage.ts` `moveAsset`）检查网站有本工作空间已验证的认领、GitHub 库有导入时记下的仓库归属，缺了即拒。把消费点挪到移入公开频道时、创建不属于频道的资产不再要求验证（requirement.md 7.3.1），尚未实施。`llms.txt` 与 OpenAPI 来源已删除；
+- **挑战 Token**：高熵随机值，只保存 Hash；与 `(申请人, asset_id, 验证方式)` 绑定并带 7 天过期；校验时按 Hash 比对，明文只在生成时返回一次；
+- **域名验证**：网站资产的域名挑战记录在 `domain_verification`（`lib/domain/domain-verification.ts`、`lib/application/assets/domain-verification.ts`），与 `(workspace, host, 验证方式)` 绑定；明文 Token 只返回给发起方，之后每次校验都由客户端带回并按 Hash 比对，错误 Token 与不存在的挑战返回相同结果。消费挑战时要求状态为 `verified`、域名与来源 host 完全一致（子域不继承）、验证时间在 1 小时以内，并同事务写入一条 `verified` 的 `asset_claim`，任一条件不满足则整体回滚。**阶段**：`createWorkspaceAsset` 仍在创建网站资产时消费挑战（`consumed_asset_id`）；P1 起「放进公开频道」的用例（`lib/application/channels/manage.ts` `moveAsset`）检查网站有本工作空间已验证的认领、GitHub 库有导入时记下的仓库归属，缺了即拒。把消费点挪到移入公开频道时、创建不属于频道的资产不再要求验证（requirement.md 7.3.1），尚未实施。`llms.txt` 与 OpenAPI 来源已删除；
 - **DNS 与 well-known 校验走同一条出网安全通道**：复用 §15.1 的解析与抓取约束（禁止私网、Metadata Endpoint、Loopback、重定向绕过），验证请求不因用途特殊而放宽；DNS 查询使用受控解析器，不接受用户指定的 nameserver；
-- **并发**：同一 `library_id` 的 `pending` 认领由部分唯一索引保证只有一个；校验通过时在单事务内完成「认领置 verified + 写 owner + 追加审计事件」，失败则整体回滚，避免出现有 owner 却无认领记录的状态；
-- **限流与冷却**：发起与重试按 `账户` 和 `library_id` 双维度限流，承载在 §11.2 的同一限流设施；连续失败到阈值后锁定入口，需人工解锁；
+- **并发**：同一 `asset_id` 的 `pending` 认领由部分唯一索引保证只有一个；校验通过时在单事务内完成「认领置 verified + 写 owner + 追加审计事件」，失败则整体回滚，避免出现有 owner 却无认领记录的状态；
+- **限流与冷却**：发起与重试按 `账户` 和 `asset_id` 双维度限流，承载在 §11.2 的同一限流设施；连续失败到阈值后锁定入口，需人工解锁；
 - **响应最小化**：失败只返回稳定原因码，不回显 GitHub 权限详情、DNS 响应原文或抓取正文；对调用者不可见的资产，认领接口的响应必须与「不存在」不可区分，避免成为私有资产探测面；
 - **审计**：发起、通过、失败、争议、转移、撤销全部写入 `audit_log`，其中转移与撤销属于高风险动作，要求 `reason`。
 
@@ -458,17 +458,17 @@ API Key 格式使用 `mm_live_` / `mm_test_` 前缀。服务端只保存：
 
 | 表 | 核心职责 |
 | --- | --- |
-| `library` | 一项资产：稳定 ID、Workspace、`kind`（七种资产类型）、`access`（`free` / `paid`，移出频道时重置为 `free`）、生命周期、当前版本、删除墓碑（`deleted_at`，见 §8.4）；`visibility` 列随频道落地删除（P1），可见性由所在频道与 `access` 决定；P5 改名 `asset` |
-| `library_alias` | 旧 ID 到新 ID 的 Redirect |
+| `asset` | 一项资产：稳定 ID、Workspace、`kind`（七种资产类型）、`access`（`free` / `paid`，移出频道时重置为 `free`）、生命周期、当前版本、删除墓碑（`deleted_at`，见 §8.4）；`visibility` 列随频道落地删除（P1），可见性由所在频道与 `access` 决定；P5 改名 `asset` |
+| `asset_alias` | 旧 ID 到新 ID 的 Redirect |
 | `channel` | 频道：`slug`、`workspace_id`、`title`、`description`、`visibility`（public / private，默认 public）、`status`、`subscriber_daily_limit`（可空）、`profile`（频道画像，§9.6）（P1） |
 | `channel_asset` | 资产归属：`channel_id`、`asset_id`（**唯一**，一项资产最多属于一个频道）、`pinned_at`、`published_at`、`scheduled_at`（P1）。平台资产放在 `workspace_id` 为空的平台频道 `re0` 里 |
 | `channel_visit` | 频道目录「热门」的活跃度输入：`channel_id`、`visitor_kind`（user / workspace / anonymous）、`visitor_key`（用户、调用方工作空间或匿名限流用的哈希键）、`visited_on`，每位访问者每天一行，所有者不记（P1）；权重与半衰期在 `retrieval_config` 的 `channel_*` 列 |
 | `source` | 类型（`website`、`github`、`pdf`、`markdown`、`notion`，新增 `editor`、`audio`；`llms_txt`、`openapi` 已删除）、位置、配置、Credential Reference、刷新策略；每项资产只有一个 Source |
-| `library_version` | Source Digest、解析版本、质量、不可变状态 |
+| `asset_version` | Source Digest、解析版本、质量、不可变状态 |
 | `document` | 规范化文档元数据和对象存储 Key |
 | `chunk` | 正文、Token、Citation、质量和安全状态、`search_vector` 与 `embedding` 列 |
-| `library_rule` | 来源维护者规则，按 Version 冻结 |
-| `library_review` | 历史上的公开审核记录；发布前审核取消后只记频道层面的下架与恢复（requirement.md 7.4） |
+| `asset_rule` | 来源维护者规则，按 Version 冻结 |
+| `asset_review` | 历史上的公开审核记录；发布前审核取消后只记频道层面的下架与恢复（requirement.md 7.4） |
 | `post_draft` | 文章与音频的草稿（标题、摘要、正文或节目说明、定时发布时间、目标频道与 `access`），发布前不进版本线（P3） |
 | `asset_media` | 资产携带的文件：文章图片与音频（`kind`）、`object_key`、`mime`、`bytes`、`sha256`、`duration_ms`、图片说明、`state`（pending / ready / replaced，`ready` 计入容量）（P3） |
 | `comment` / `comment_report` | 评论与举报；评论不是资产，不进检索、不上链；`state` 为 visible / hidden / deleted / removed（P3a） |
@@ -476,17 +476,17 @@ API Key 格式使用 `mm_live_` / `mm_test_` 前缀。服务端只保存：
 | `channel_plan_version` / `channel_subscription` | 不可变频道方案（周期、价格、费率）与订阅（绑定用户与其个人工作空间、`current_period_end`、Paddle 订阅 ID）（P3a） |
 | `commerce_config` | 控制台的频道收款设置：最低单笔价格、平台管理费、持有期、提现门槛（P3a） |
 | `notification` | 站内通知，载荷只有 ID 与标题（P3a） |
-| `library_claim` | 认领申请：申请人、验证方式、挑战 Token 摘要、状态、失败原因码、过期时间、裁定记录 |
-| `domain_verification` | 创建前的域名挑战：工作空间、host、验证方式、Token 摘要、状态、尝试次数、过期与验证时间、消费它的 Library（§5.4） |
-| `library_score` | Trust/Benchmark（只有结构分）算法版本和分项；`library_eval_question` 已删除 |
-| `library_profile` | 资产级内容画像：文档标题与目录集、关键实体与同义词表、chunk 向量聚类质心、自动生成的描述与主题标签；随 Version 发布派生，可重建。跨频道发现用的画像上移到 `channel.profile`，由频道内公开资产的画像聚合而来，见 §9.6 |
+| `asset_claim` | 认领申请：申请人、验证方式、挑战 Token 摘要、状态、失败原因码、过期时间、裁定记录 |
+| `domain_verification` | 创建前的域名挑战：工作空间、host、验证方式、Token 摘要、状态、尝试次数、过期与验证时间、消费它的 Asset（§5.4） |
+| `asset_score` | Trust/Benchmark（只有结构分）算法版本和分项；`library_eval_question` 已删除 |
+| `asset_profile` | 资产级内容画像：文档标题与目录集、关键实体与同义词表、chunk 向量聚类质心、自动生成的描述与主题标签；随 Version 发布派生，可重建。跨频道发现用的画像上移到 `channel.profile`，由频道内公开资产的画像聚合而来，见 §9.6 |
 
 ### 6.3 Policy、Usage 与运营
 
 | 表 | 核心职责 |
 | --- | --- |
 | `policy_version` | 工作空间不可变 Policy 快照 |
-| `policy_library_entry` | Allow/Block/Except 的 Library/Org/Domain 条目 |
+| `policy_asset_entry` | Allow/Block/Except 的 Asset/Org/Domain 条目 |
 | `usage_reservation` | 并发额度预留、提交和释放的操作状态 |
 | `usage_event` | 只追加的最终计费事实与诊断字段 |
 | `usage_summary` | 周期与日期聚合，可重建 |
@@ -513,26 +513,27 @@ API Key 格式使用 `mm_live_` / `mm_test_` 前缀。服务端只保存：
 
 - 内部 ID 使用应用生成的 UUIDv7；
 - 所有时间保存 UTC ISO 8601 或整数 Epoch，界面按用户时区渲染；
-- `library.public_id`、`api_key.key_hash`、`usage_reservation.request_id`、`usage_event.request_id`、`payment_event.external_event_id` 必须唯一；
-- `library.current_version_id` 只能指向同一资产的 Ready Version；
+- `asset.public_id`、`api_key.key_hash`、`usage_reservation.request_id`、`usage_event.request_id`、`payment_event.external_event_id` 必须唯一；
+- `asset.current_version_id` 只能指向同一资产的 Ready Version；
 - `channel_asset.asset_id` 唯一；`channel.slug` 在平台内唯一；`workspace.handle` 唯一；
 - `chunk` 必须同时包含资产、Version、Document 和 Citation；
-- `workflow_operation` 对 `(library_id, source_digest, operation_type)` 唯一；
+- `workflow_operation` 对 `(asset_id, source_digest, operation_type)` 唯一；
 - `anchor_leaf` 对 `(subject_type, subject_id, leaf_schema_version)` 唯一，`anchor_batch.tx_hash` 唯一；Subject 类型为 `version | audit_head | earning_statement`，三者共用同一套批次、Leaf 与 Proof 结构；
-- `library_claim` 对 `library_id` 的 `pending` 记录有**部分唯一索引**，保证同一资产同时只有一个进行中的认领；挑战 Token 只存 Hash，不存明文；`library.owner_workspace_id` 只能由 `verified` 的认领或管理员裁定写入；
+- `asset_claim` 对 `asset_id` 的 `pending` 记录有**部分唯一索引**，保证同一资产同时只有一个进行中的认领；挑战 Token 只存 Hash，不存明文；`asset.owner_workspace_id` 只能由 `verified` 的认领或管理员裁定写入；
 - `addon_grant` 没有到期字段；余额只在消费时递减，账期滚动不得清零或重估；
 - 金额保存整数最小货币单位和 ISO 4217 币种，不使用浮点数。
 
-`search_vector` 与 `embedding` 是 `chunk` 上的派生列，随 Chunk 同事务写入，因此不存在独立的向量清单或跨系统清理批次。数据库导出不依赖全文与向量索引；恢复时从 `chunk` 正文重建 `search_vector`，`embedding` 可从正文重新调用 Embedding Provider 生成，也可随备份一并导出以省去重算成本。`library_profile` 同属派生数据，可从已发布 Version 的内容重建。可重建性也是成本手段：长期无查询的冷资产允许把 `embedding` 置空释放存储，按需重算，见 §9.1。
+`search_vector` 与 `embedding` 是 `chunk` 上的派生列，随 Chunk 同事务写入，因此不存在独立的向量清单或跨系统清理批次。数据库导出不依赖全文与向量索引；恢复时从 `chunk` 正文重建 `search_vector`，`embedding` 可从正文重新调用 Embedding Provider 生成，也可随备份一并导出以省去重算成本。`asset_profile` 同属派生数据，可从已发布 Version 的内容重建。可重建性也是成本手段：长期无查询的冷资产允许把 `embedding` 置空释放存储，按需重算，见 §9.1。
 
 ### 6.5 转向后的新增、删除与改名
 
-新表从一开始就用 asset、channel 命名；对现有 `library` 表的改动先写在现有表上，P5 随表一起改名。完整清单见提案第 12 节：
+新表从一开始就用 asset、channel 命名；对原 `library` 表的改动先写在原表上，P5 随表一起改名。完整清单见提案第 12 节：
 
-- **新增**：`library.kind`、`library.access`、`workspace.handle`、`user.storage_tier`、`channel`、`channel_asset`、保留 owner 名单（`lib/domain`）、`post_draft`、`asset_media`（提案的 `audio_media`，并入文章图片）、`comment`、`comment_report`、`twin_answer`、`channel_question`、`answer_endorsement`、`channel_plan_version`、`channel_subscription`、`commerce_config`、`notification`、`channel.subscriptions_enabled_at` 与付费分发确认、`channel_asset.comments_closed`、`publisher_account` 的收款资料（PayPal 邮箱与税务资料记录）、`earning_event` 的频道收入字段与 `(source, reference)` 唯一索引、`source_type` 的 `editor` 与 `audio`、`agent_conversation`、`agent_action`、`a2a_task`、`a2a_push_config`、`api_key.scopes` 的 `assets:write`（P3 的部分在迁移 0064）；P4（迁移 0065）：`external_agent`、`external_agent_credential`、`agent_delegation`、`workspace.private_asset_retention_days`，保留名增加 `for`；
+- **新增**：`asset.kind`、`asset.access`、`workspace.handle`、`user.storage_tier`、`channel`、`channel_asset`、保留 owner 名单（`lib/domain`）、`post_draft`、`asset_media`（提案的 `audio_media`，并入文章图片）、`comment`、`comment_report`、`twin_answer`、`channel_question`、`answer_endorsement`、`channel_plan_version`、`channel_subscription`、`commerce_config`、`notification`、`channel.subscriptions_enabled_at` 与付费分发确认、`channel_asset.comments_closed`、`publisher_account` 的收款资料（PayPal 邮箱与税务资料记录）、`earning_event` 的频道收入字段与 `(source, reference)` 唯一索引、`source_type` 的 `editor` 与 `audio`、`agent_conversation`、`agent_action`、`a2a_task`、`a2a_push_config`、`api_key.scopes` 的 `assets:write`（P3 的部分在迁移 0064）；P4（迁移 0065）：`external_agent`、`external_agent_credential`、`agent_delegation`、`workspace.private_asset_retention_days`，保留名增加 `for`；
 - **删除**：`library_eval_question`；`library.expert_tagged_at` 与专家申请相关表；分成池与按检索计收益所用的字段；`library.visibility`（P1）；`source_type` 的 `llms_txt`、`openapi`；分享页线索相关表；
-- **停用（保留在开关之后）**：`site_key`、`library_showcase`、`library_showcase_daily` 及分享页域名相关表；
-- **P5 改名**：13 张表名含 library（`library`、`library_version`、`library_profile` 等）与 22 个 `library_id` 列一次迁移完成 `ALTER TABLE … RENAME` 与列改名，Drizzle schema 同步改名，不在 Drizzle 层映射旧表名；
+- **停用（保留在开关之后）**：`site_key`、`asset_showcase`、`asset_showcase_daily` 及分享页域名相关表；
+- **P5 改名**（迁移 0066，已完成）：12 张名字含 library 的表（`library` → `asset`、`library_version` → `asset_version`、`library_profile` → `asset_profile` 等；第 13 张 `library_eval_question` 已在 P0 删除）、22 个含 library 的列（`library_id` → `asset_id` 等）及其约束与索引一次迁移改名，只改名、不改写行，资产 ID 的值与链上锚点不变；Drizzle schema 同步改名，不在 Drizzle 层映射旧表名。`workflow_operation.error` 的 `library_too_large` 与 `policy_asset_entry.target_type` 的 `library` 两个存储值随之改为 `asset_too_large`、`asset`；只追加且入哈希链的 `audit_log` 保留已写入的动作名与目标类型（`platform_library.*`、`user_library.*`、`library_claim`、`library_showcase`），代码继续写这些名字；
+- **迁移历史**：`db/migrations/` 里 0066 之前的文件保留旧名，是已在各环境执行过的历史，不改写；读迁移历史时按上一条的对照表换算。
 - 现有数据按新模型直接重建（提案第 3.3 节）：每个来源重建为一项资产，不保留原有版本历史，已有锚点随之作废；迁移后所有资产都不属于任何频道。
 
 ## 7. 对象存储布局
@@ -540,10 +541,10 @@ API Key 格式使用 `mm_live_` / `mm_test_` 前缀。服务端只保存：
 存储默认私有（Vercel Blob 全部以 `access: 'private'` 写入；S3 实现则要求 Bucket 私有），Object Key 不使用用户输入原文：
 
 ```text
-sources/{workspaceHash}/{libraryId}/{operationId}/snapshot.*
-normalized/{libraryId}/{versionId}/{documentId}.json
-manifests/{libraryId}/{versionId}/documents.json
-manifests/{libraryId}/{versionId}/vectors.json
+sources/{workspaceHash}/{assetId}/{operationId}/snapshot.*
+normalized/{assetId}/{versionId}/{documentId}.json
+manifests/{assetId}/{versionId}/documents.json
+manifests/{assetId}/{versionId}/vectors.json
 exports/{workspaceHash}/{exportId}.csv
 quarantine/{operationId}/{objectId}
 uploads/{workspaceId}/{batchId}/{fileId}.pdf
@@ -554,7 +555,7 @@ workspaces/{workspaceId}/media/{assetId}/audio-{mediaId}.{ext}   # 音频文件�
 
 文章图片与音频文件是资产的一部分（`asset_media`），浏览器凭票据直传私有 Bucket，确认时服务端核对大小、读回计算 SHA-256，并在工作空间锁下按剩余容量准入；`ready` 状态的文件大小计入工作空间容量，替换的音频文件转为 `replaced`、不再计入并从 Bucket 删除。读者经 `/media/{id}` 取用：服务端按 `readableBy` 判断此刻能否完整阅读该资产（所有者、免费资产的任何人、付费资产的当前订阅者），再按次签发短时效签名地址（图片 5 分钟、音频 15 分钟）并 302 跳转，否则与不存在同为 404；不提供下载。图片不进检索，音频不转写，不送往任何第三方服务（requirement.md 8.1、12）。
 
-`uploads/` 是 Dashboard 直传的 PDF：向导在创建资产前上传，或创建后在该资产的文件页上传，`source.config.files` 记录其 Key，构建时由 PDF 连接器读回；Key 以工作空间 id 开头，创建和改文件的请求都只能引用自己前缀下的对象。文件页的每次保存（`updateLibraryFiles`）改写 `source.config.files` 并排队一次 `refresh`：已有 pending 的构建则复用它（它尚未读取来源），正在 running 的则在其后再排一次。被移除文件的对象不立即删除——已发布版本的引用仍指向它——由上传清扫在无来源引用且超过 24 小时后回收。没有文件的上传文件资产不排队构建，`index_status` 停在 `pending`。平台的上传文件资产走同一套机制，只是由管理后台上传：Key 以固定的 `platform` 段代替工作空间 id（工作空间 id 是 UUID，永远不会与它重合），创建对话框直传后把清单交给 `createPlatformLibrary`，之后在详情页的「PDF 文件」面板增删（`updatePlatformLibraryFiles`，写审计 `platform_library.files`）；「添加来源」给已有平台库加 PDF 来源的做法随「一项资产一个来源」停用（现有多来源平台库在 P1 按来源拆开）。平台上传文件资产的刷新策略固定为手动；引用指向公开的 `/files/{fileId}`，该路由只放行已发布平台资产的文件；后台文件面板走 `/admin/files/{fileId}` 预览草稿（管理员 Cookie 只作用于 `/admin` 路径）。
+`uploads/` 是 Dashboard 直传的 PDF：向导在创建资产前上传，或创建后在该资产的文件页上传，`source.config.files` 记录其 Key，构建时由 PDF 连接器读回；Key 以工作空间 id 开头，创建和改文件的请求都只能引用自己前缀下的对象。文件页的每次保存（`updateAssetFiles`）改写 `source.config.files` 并排队一次 `refresh`：已有 pending 的构建则复用它（它尚未读取来源），正在 running 的则在其后再排一次。被移除文件的对象不立即删除——已发布版本的引用仍指向它——由上传清扫在无来源引用且超过 24 小时后回收。没有文件的上传文件资产不排队构建，`index_status` 停在 `pending`。平台的上传文件资产走同一套机制，只是由管理后台上传：Key 以固定的 `platform` 段代替工作空间 id（工作空间 id 是 UUID，永远不会与它重合），创建对话框直传后把清单交给 `createPlatformAsset`，之后在详情页的「PDF 文件」面板增删（`updatePlatformAssetFiles`，写审计 `platform_library.files`）；「添加来源」给已有平台库加 PDF 来源的做法随「一项资产一个来源」停用（现有多来源平台库在 P1 按来源拆开）。平台上传文件资产的刷新策略固定为手动；引用指向公开的 `/files/{fileId}`，该路由只放行已发布平台资产的文件；后台文件面板走 `/admin/files/{fileId}` 预览草稿（管理员 Cookie 只作用于 `/admin` 路径）。
 
 - 下载通过短时签名 URL 或服务端流式代理；
 - Object Metadata 不保存 Token、邮箱、Query 或私有标题；
@@ -611,15 +612,15 @@ stateDiagram-v2
 Website 来源通过 `source.config.indexDepth` 选择嵌套深度（0–3 层，默认 0），每层跟进同域、仍在入口路径范围内的子页面，sitemap 发现页算第 1 层。
 
 1. `validate-source`：套餐、容量、URL、授权和配置 Schema；
-2. `fetch-snapshot`：抓取后计算 Source Digest 并写对象存储。网站来源先直接抓取（浏览器样 UA、`Accept: text/markdown` 协商、sitemap 发现），只有被拒（403）或页面是 JS 空壳时才调用远程渲染服务（Firecrawl、AnySearch 或 Jina Reader，在后台「模型配置」页选择，可替换）取 Markdown。渲染配置只追加（`render_config`，最新一条生效；从未保存时沿用 `RENDER_PROVIDER*` 环境变量），每家服务各有一个有序的 API Key 池（`render_provider_key`，加密存储）：构建按顺序使用，厂商返回 402（额度用完）或 401（Key 无效，AnySearch 另含 403）时换下一个 Key 并标记，被标记的 Key 6 小时内排到最后但放弃前仍会再试，首次成功即清除标记；429 只在本次构建内跳过。Firecrawl 的 403 是不支持该网站，不算 Key 失效。已存的 Key 只发往厂商官方地址，配置了自托管地址时不带 Key 调用；渲染目标同样经过 §15.1 的地址校验，渲染结果同样受单文档大小上限约束。未配置渲染服务时入口页为空壳以 `source_unrendered` 失败，这个独立错误码让后台能统计需要渲染的来源比例。摘要未变的来源不再解析和向量化，其文档与 Chunk（含向量）从当前版本复制到新版本；解析器、分块器、Embedding 模型或分词配置任一变化时不复用，整项资产重建。**一项资产只有一个来源**（requirement.md 6.1），用户资产与平台资产都是；`library_version.source_digests` 的多来源记法与「按来源部分刷新」只在现有多来源平台库上还有意义，这些库在 P1 按来源拆成多项资产后不再需要。`llms.txt` 与 OpenAPI 来源已删除。编辑器来源（`editor`，P3a）的正文由平台内编辑器或网址 / RSS 导入产生，不抓取、不渲染，直接进入 `scan`；音频来源（`audio`，P3b）只校验文件类型、大小与哈希，进入检索的是创作者写的标题与节目说明，不做语音识别。PDF 来源从对象存储读回向导上传的文件（单文件 30 MB 以内），用 pdf.js（unpdf）就地抽取文本层；只有当至多一半页面有文本层时（扫描件）才把整个文件交给 OCR 服务（`OCR_PROVIDER`，目前为 ocr.space，可替换）识别，未配置 OCR 时扫描件解析为空文档，由 `discover-parse` 报 `parse_failed`。文件以 multipart 直接上传给 OCR 厂商，不签发对象存储的临时 URL；页数与大小上限由厂商套餐决定，超出时厂商的拒绝原样以 `parse_failed` 上报；
+2. `fetch-snapshot`：抓取后计算 Source Digest 并写对象存储。网站来源先直接抓取（浏览器样 UA、`Accept: text/markdown` 协商、sitemap 发现），只有被拒（403）或页面是 JS 空壳时才调用远程渲染服务（Firecrawl、AnySearch 或 Jina Reader，在后台「模型配置」页选择，可替换）取 Markdown。渲染配置只追加（`render_config`，最新一条生效；从未保存时沿用 `RENDER_PROVIDER*` 环境变量），每家服务各有一个有序的 API Key 池（`render_provider_key`，加密存储）：构建按顺序使用，厂商返回 402（额度用完）或 401（Key 无效，AnySearch 另含 403）时换下一个 Key 并标记，被标记的 Key 6 小时内排到最后但放弃前仍会再试，首次成功即清除标记；429 只在本次构建内跳过。Firecrawl 的 403 是不支持该网站，不算 Key 失效。已存的 Key 只发往厂商官方地址，配置了自托管地址时不带 Key 调用；渲染目标同样经过 §15.1 的地址校验，渲染结果同样受单文档大小上限约束。未配置渲染服务时入口页为空壳以 `source_unrendered` 失败，这个独立错误码让后台能统计需要渲染的来源比例。摘要未变的来源不再解析和向量化，其文档与 Chunk（含向量）从当前版本复制到新版本；解析器、分块器、Embedding 模型或分词配置任一变化时不复用，整项资产重建。**一项资产只有一个来源**（requirement.md 6.1），用户资产与平台资产都是；`asset_version.source_digests` 的多来源记法与「按来源部分刷新」只在现有多来源平台库上还有意义，这些库在 P1 按来源拆成多项资产后不再需要。`llms.txt` 与 OpenAPI 来源已删除。编辑器来源（`editor`，P3a）的正文由平台内编辑器或网址 / RSS 导入产生，不抓取、不渲染，直接进入 `scan`；音频来源（`audio`，P3b）只校验文件类型、大小与哈希，进入检索的是创作者写的标题与节目说明，不做语音识别。PDF 来源从对象存储读回向导上传的文件（单文件 30 MB 以内），用 pdf.js（unpdf）就地抽取文本层；只有当至多一半页面有文本层时（扫描件）才把整个文件交给 OCR 服务（`OCR_PROVIDER`，目前为 ocr.space，可替换）识别，未配置 OCR 时扫描件解析为空文档，由 `discover-parse` 报 `parse_failed`。文件以 multipart 直接上传给 OCR 厂商，不签发对象存储的临时 URL；页数与大小上限由厂商套餐决定，超出时厂商的拒绝原样以 `parse_failed` 上报；
 3. `scan`：恶意文件、Secrets、PII、Prompt Injection 和链接安全；
 4. `discover-parse`：只解析允许的文件和页面；
 5. `normalize-cite`：产生统一文档格式和 Citation；
 6. `chunk`：稳定 Chunk ID、Token 计数和去重；
 7. `embed-index`：全文索引与 pgvector，与 Chunk 同事务写入；
-8. `profile`：从 Version 内容生成资产画像——文档标题与目录集、关键实体与同义词表、chunk 向量聚类质心、自动描述与主题标签，写入 `library_profile`；资产所在频道的画像（`channel.profile`）由频道内公开资产的画像聚合后更新（§9.6，P1）。画像是「平台从内容起的真名」，频道级发现只信画像，不依赖用户命名与填表自觉；
+8. `profile`：从 Version 内容生成资产画像——文档标题与目录集、关键实体与同义词表、chunk 向量聚类质心、自动描述与主题标签，写入 `asset_profile`；资产所在频道的画像（`channel.profile`）由频道内公开资产的画像聚合后更新（§9.6，P1）。画像是「平台从内容起的真名」，频道级发现只信画像，不依赖用户命名与填表自觉；
 9. `evaluate`：Trust 与 Benchmark 结构分（文档数、Chunk 数、引用完整性、重复率）；检索 Golden Set 随自检问题删除；
-10. `review`：已取消。版本发布事务只移动版本指针；资产的 `lifecycle_status` 由 `advanceLifecycleAfterBuild` 推进为 `published`，`suspended` 不动。**阶段**：现有实现中公开用户资产的 `submit` / `resubmit` / `reviewUserLibrary` 路径随 P1 删除；
+10. `review`：已取消。版本发布事务只移动版本指针；资产的 `lifecycle_status` 由 `advanceLifecycleAfterBuild` 推进为 `published`，`suspended` 不动。**阶段**：现有实现中公开用户资产的 `submit` / `resubmit` / `reviewUserAsset` 路径随 P1 删除；
 11. `publish`：原子切换发布指针。
 
 Step 输出只保存可序列化摘要；大对象保存在对象存储。外部 Provider 调用保存 Input Digest 和 Provider Request ID，重试时优先查询已有结果。
@@ -628,9 +629,9 @@ Step 输出只保存可序列化摘要；大对象保存在对象存储。外部
 
 发布前，Version 的文档、Chunk、全文索引和向量必须完整。单个 Postgres 事务执行：
 
-1. 验证 Version 属于 Library 且状态可发布；
+1. 验证 Version 属于 Asset 且状态可发布；
 2. 把 Version 标记为 Ready/Published；
-3. 更新 `library.current_version_id`；
+3. 更新 `asset.current_version_id`；
 4. 标记上一个 Version 为 Superseded；
 5. 追加 Publication Event。
 
@@ -646,9 +647,9 @@ Step 输出只保存可序列化摘要；大对象保存在对象存储。外部
 - `workflow_operation.trigger` 记录 Operation 由谁发起（`manual`：管理员或工作空间操作；`scheduled`：定时任务），定时排队不写审计日志；
 - 管理后台 `/admin/refresh-queue` 展示跨资产的队列：执行中与等待中的 Operation、最近完成的 Operation 及其结果与抓取方式、每个平台 Source 的策略/最近检查/下次刷新；有未完成 Operation 时页面每几秒自动重新渲染；
 - 不属于频道的资产默认手动刷新，Webhook 必须验签和去重；Agent 工作台的 `refresh_asset` 与 A2A `refresh` 经确认门后走同一条路径；
-- 删除首先在 Postgres 把资产设为不可访问并撤销发布指针：一个事务写入 `deleted_at` 墓碑、`lifecycle_status = archived`、`index_status = deleting`、`current_version_id = null`，删除 Alias 与 Source，把排队中的 Operation 置为 `cancelled`，并排队一条 Delete Operation（`lib/application/libraries/delete.ts`）；
-- `library` 行本身不删：`usage_event`、`channel_asset`、`comment` 引用它，计费事实是只追加的。删除时同时从所属频道移出。所有面向用户、后台、目录与路由的读取都过滤 `deleted_at is null`；`library_public_id_uq` 是仅覆盖存活行的部分唯一索引，因此资产 ID 在删除时即释放；
-- Delete Workflow 再删除 Chunk 行（连带全文与向量列）、Document、Profile、对象存储对象和缓存（`lib/application/ingestion/purge-library.ts`，与构建共用 `runOperation` 队列）；Version 行作为元数据保留；
+- 删除首先在 Postgres 把资产设为不可访问并撤销发布指针：一个事务写入 `deleted_at` 墓碑、`lifecycle_status = archived`、`index_status = deleting`、`current_version_id = null`，删除 Alias 与 Source，把排队中的 Operation 置为 `cancelled`，并排队一条 Delete Operation（`lib/application/assets/delete.ts`）；
+- `asset` 行本身不删：`usage_event`、`channel_asset`、`comment` 引用它，计费事实是只追加的。删除时同时从所属频道移出。所有面向用户、后台、目录与路由的读取都过滤 `deleted_at is null`；`asset_public_id_uq` 是仅覆盖存活行的部分唯一索引，因此资产 ID 在删除时即释放；
+- Delete Workflow 再删除 Chunk 行（连带全文与向量列）、Document、Profile、对象存储对象和缓存（`lib/application/ingestion/purge-asset.ts`，与构建共用 `runOperation` 队列）；Version 行作为元数据保留；
 - 清理失败持续重试并报警，不得恢复查询权限：Delete Operation 失败时回到 `pending` 且不受构建的重试上限约束；`buildVersion` 与 `publishVersion` 都拒绝墓碑，删除时仍在运行的构建无法把指针放回去；
 - 平台资产由管理后台删除并记入审计（`platform_library.delete`），用户资产由工作空间 Owner/Admin 在 Dashboard 删除（删除不进入 Agent 的工具集合）；两者走同一机制。
 
@@ -673,16 +674,16 @@ Step 输出只保存可序列化摘要；大对象保存在对象存储。外部
 
 ### 9.1 向量布局
 
-向量是 `chunk` 表上的 `embedding` 列，不存在独立的向量存储和 Vector ID 映射。租户与版本隔离由同表的 `library_id`、`version_id`、`workspace_id` 列承担，通过 SQL 谓词过滤，不需要额外的 Metadata Index 概念；可见性（资产所在频道、`access`、订阅）在固定资产集合时由 Policy Engine 判定，不作为 chunk 列。
+向量是 `chunk` 表上的 `embedding` 列，不存在独立的向量存储和 Vector ID 映射。租户与版本隔离由同表的 `asset_id`、`version_id`、`workspace_id` 列承担，通过 SQL 谓词过滤，不需要额外的 Metadata Index 概念；可见性（资产所在频道、`access`、订阅）在固定资产集合时由 Policy Engine 判定，不作为 chunk 列。
 
 **索引按查询形状分层，「一张表」不等于「一个全局向量索引」：**
 
-- **资产内向量召回默认精确扫描，不依赖 ANN 索引**：查询已固定 Version，候选行数以单版本为界（通常数百到数千），按 `(library_id, version_id)` 索引捞行后精确计算余弦距离——零召回损失，且不受平台总资产数影响；问频道时过滤条件从一项资产放宽为一组 `(library_id, version_id)`，一次查询覆盖频道内调用者有权看到的全部资产，而不是逐项查询再合并（提案第 3.7 节）；
+- **资产内向量召回默认精确扫描，不依赖 ANN 索引**：查询已固定 Version，候选行数以单版本为界（通常数百到数千），按 `(asset_id, version_id)` 索引捞行后精确计算余弦距离——零召回损失，且不受平台总资产数影响；问频道时过滤条件从一项资产放宽为一组 `(asset_id, version_id)`，一次查询覆盖频道内调用者有权看到的全部资产，而不是逐项查询再合并（提案第 3.7 节）；
 - **不建全局 chunk 级 HNSW**。十万资产、上亿 chunk 量级下它三重失效：图上近邻大概率不属于目标资产，过滤后召回崩坏；索引体积远超可用内存，遍历退化为随机 IO；每次 ingestion 批量写入都在维护全局图，放大发布事务成本。当前 Schema 中的全局 HNSW 属于该结论前的遗留，应移除；
 - **全局关键词能力由 `chunk` 上的 GIN 倒排承担**：倒排查询成本与词频成正比，不与表大小成正比；罕见词（恰恰是需要段落级定位的词）在亿级行上依旧廉价。该索引服务 §9.6 的路由层，不服务资产内召回；
 - **全局语义能力由画像向量层的小型 HNSW 承担**（行数 = 频道数 × 质心数），见 §9.6；
 - 超大单项资产（单版本行数超出精确扫描的延迟预算）按资产单独评估局部索引或表分区，不以此为由回退到全局索引；
-- 查询必须至少过滤 `library_id + version_id`（问频道时为一组）；不属于频道的资产额外过滤 `workspace_id`；
+- 查询必须至少过滤 `asset_id + version_id`（问频道时为一组）；不属于频道的资产额外过滤 `workspace_id`；
 - 过滤条件由 Repository 层强制拼装，不允许调用方传入裸 SQL 或跳过隔离列；
 - 正文、Citation 与相似度在同一次查询中取得，不需要「先拿 ID 再回查」的二次往返；
 - `quarantined`、`unsafe`、版本不匹配的行在同一 WHERE 子句中排除。
@@ -715,7 +716,7 @@ authenticate caller
 ### 9.3 召回与融合
 
 - 全文与向量召回各自限制候选数，不能全库扫描；
-- 全文查询条件必须包含 `library_id` 和 `version_id`（问频道时为固定下来的一组）；
+- 全文查询条件必须包含 `asset_id` 和 `version_id`（问频道时为固定下来的一组）；
 - 向量召回的 SQL 过滤必须包含同一标识；
 - 两路召回可以合并为单条 SQL，但融合参数与候选上限仍按下列规则版本化；
 - Reciprocal Rank Fusion 参数版本化；
@@ -730,7 +731,7 @@ authenticate caller
 只缓存不可变版本的检索结果。Cache Key 包含：
 
 ```text
-libraryVersion + policyVersion + queryHash + maxTokens + responseType + retrievalConfigVersion + retrievalConfigRowId
+assetVersion + policyVersion + queryHash + maxTokens + responseType + retrievalConfigVersion + retrievalConfigRowId
 ```
 
 `retrievalConfigVersion` 是代码行为的版本，`retrievalConfigRowId` 是后台「召回管理」生效行的 id：改参数不需要清缓存，旧 Key 自然不再被命中。TTL 也来自同一配置，填 0 即关闭公共缓存。
@@ -777,7 +778,7 @@ libraryVersion + policyVersion + queryHash + maxTokens + responseType + retrieva
 
 用户从自然语言问题出发时（「影翅虫的防治与危害」），目标可能在一个叫「昆虫大全」或「医药宝典」的频道里——**线索在内容里，不在名字里**。UGC 平台上名字与内容不相关是常态而非例外，因此名字驱动的 resolve 只能作为辅助路径，发现必须基于内容。线索还可能只存在于某个章节段落（既不在文档标题也不在任何摘要里），所以设计必须覆盖到段落粒度。
 
-**画像上移到频道**（提案第 3.7 节，P1）：资产打散后单项资产太小，跨频道发现在频道层做。`library_profile` 继续按资产生成（§8.2 `profile` 步），频道画像 `channel.profile` 由频道内公开资产的标题、实体与质心聚合而来；平台级提问先路由到频道，再在频道内检索；不属于频道或私有频道里的资产不进任何画像索引。
+**画像上移到频道**（提案第 3.7 节，P1）：资产打散后单项资产太小，跨频道发现在频道层做。`asset_profile` 继续按资产生成（§8.2 `profile` 步），频道画像 `channel.profile` 由频道内公开资产的标题、实体与质心聚合而来；平台级提问先路由到频道，再在频道内检索；不属于频道或私有频道里的资产不进任何画像索引。
 
 三层结构，画像负责把几万个频道缩到十几个候选，真实命中负责正确性：
 
@@ -795,10 +796,10 @@ libraryVersion + policyVersion + queryHash + maxTokens + responseType + retrieva
 
 硬约束：
 
-- **Policy 与可见性先于路由**：§10.2「Library Search 在元数据阶段应用 Policy」同样适用于画像检索；不属于频道、私有频道里的资产的画像与 chunk 不得出现在任何全局召回结果中，`paid` 资产对非订阅者只露标题与摘要，§5.2「不可见资产与不存在资产同 404 外观」延伸到路由层；
+- **Policy 与可见性先于路由**：§10.2「Asset Search 在元数据阶段应用 Policy」同样适用于画像检索；不属于频道、私有频道里的资产的画像与 chunk 不得出现在任何全局召回结果中，`paid` 资产对非订阅者只露标题与摘要，§5.2「不可见资产与不存在资产同 404 外观」延伸到路由层；
 - **排序防对抗**：路由一旦基于内容，往频道里堆砌热门实体就是对路由做 SEO。候选排序必须融合 Trust/Benchmark 分数与安全状态，且 §11.4「检索链路不得读取收益字段」同样覆盖路由排序与频道目录排序；
 - **候选必须附带命中证据**（命中的文档标题/实体、少量段落摘录）：名字不可信之后，证据是调用方一轮定案的依据，证据薄导致的错选与重试比省下的往返更贵，见 §12.1；
-- **多入口共用同一实现**：REST 走调用方显式两轮（Library Search → 定案 → Context）；A2A `search_context` 与 `find_channels` 在服务端完成路由与检索，调用方不需要两轮；Web 问答与 A2A `ask` 走服务端自动 scatter-gather。几者只在「谁做最终裁决」上不同——交给调用方模型，或交给服务端命中分数。Web 的 Agent 模式（§9.5）让模型决定查什么、查哪个范围，但哪些结果算证据仍由服务端确认门裁决；
+- **多入口共用同一实现**：REST 走调用方显式两轮（Asset Search → 定案 → Context）；A2A `search_context` 与 `find_channels` 在服务端完成路由与检索，调用方不需要两轮；Web 问答与 A2A `ask` 走服务端自动 scatter-gather。几者只在「谁做最终裁决」上不同——交给调用方模型，或交给服务端命中分数。Web 的 Agent 模式（§9.5）让模型决定查什么、查哪个范围，但哪些结果算证据仍由服务端确认门裁决；
 - **中文分词是前置依赖**：`search_config` 目前没有中文路径，中文内容落到 `simple` 不分词，画像 FTS、全局倒排乃至资产内 FTS 对中文整体失效。该缺口（§22 待验证事项）已解决，见 §22。
 
 ### 9.7 模型配置
@@ -809,7 +810,7 @@ libraryVersion + policyVersion + queryHash + maxTokens + responseType + retrieva
 - **生成模型是注册表加指派**（`llm_config` + `llm_audience_assignment`，见 §9.5）。"试用模型"等是指派出来的角色，不是条目自身的属性；
 - **凭据随条目保存并密封**（§15.3）。后台只显示"是否已配置"，不回显密钥；编辑时留空即沿用已存的那一把，所以改一个超时不需要重新粘贴供应商密钥；
 - **向量维度是配置项，不是常量**。列宽固定为 1536，更窄的模型零填充进去——零维对点积和模长都无贡献，余弦距离因此完全不变，这是列宽可以固定而模型维度可以配置的全部理由。想用超过 1536 维的模型需要一次迁移改列宽，不是一次保存；
-- **维度与模型名一起冻结在 `library_version` 上**。同一个模型在不同维度下产出的向量属于不同空间，检索时两者都要对得上才走向量一路，否则该版本退回关键词一路，直到它各自重建一次。
+- **维度与模型名一起冻结在 `asset_version` 上**。同一个模型在不同维度下产出的向量属于不同空间，检索时两者都要对得上才走向量一路，否则该版本退回关键词一路，直到它各自重建一次。
 
 ## 10. Policy Engine
 
@@ -818,14 +819,14 @@ libraryVersion + policyVersion + queryHash + maxTokens + responseType + retrieva
 ```ts
 type WorkspacePolicy = {
   sourceTypes: Record<SourceType, { enabled: boolean }>;
-  libraryFilters: {
+  assetFilters: {
     mode: "quality" | "select" | null;
     quality: {
       requireVerified: boolean;
       minTrustScore: number | null;
       maxAgeDays: number | null;
-      blockedLibraries: string[];
-      exceptedLibraries: string[];
+      blockedAssets: string[];
+      exceptedAssets: string[];
       repoFilters: {
         minStars: number | null;
         allowedLicenses: string[];
@@ -836,18 +837,18 @@ type WorkspacePolicy = {
         minOrganicTraffic: number | null;
       };
     };
-    select: { allowedLibraries: string[] };
+    select: { allowedAssets: string[] };
   };
 };
 ```
 
-`blockedLibraries`、`exceptedLibraries`、`allowedLibraries` 的条目可以是资产 ID、组织、域名，也可以是频道 ID `/channels/{slug}`，频道 ID 覆盖频道里的全部资产（requirement.md 第 10 节，P1）；`sourceTypes` 的键随来源类型调整（删除 `llms_txt`、`openapi`，新增 `editor`、`audio`）。字段名在 P5 随接口改名。
+`blockedAssets`、`exceptedAssets`、`allowedAssets` 的条目可以是资产 ID、组织、域名，也可以是频道 ID `/channels/{slug}`，频道 ID 覆盖频道里的全部资产（requirement.md 第 10 节，P1）；`sourceTypes` 的键随来源类型调整（删除 `llms_txt`、`openapi`，新增 `editor`、`audio`）。字段名在 P5 随接口改名。
 
-`PATCH /v1/policies` 使用增量语义：来源类型用 `enable/disable`，名单用 `add/remove/clear`。服务端生成完整、不可变的新 Policy Version，并返回 `accessibleLibraryCount`。
+`PATCH /v1/policies` 使用增量语义：来源类型用 `enable/disable`，名单用 `add/remove/clear`。服务端生成完整、不可变的新 Policy Version，并返回 `accessibleAssetCount`。
 
 ### 10.2 执行位置
 
-- Library Search 在 Postgres 元数据查询阶段应用 Policy；
+- Asset Search 在 Postgres 元数据查询阶段应用 Policy；
 - Context Retrieval 在生成 Embedding 前完成 Policy 和可见性检查；可见性按 requirement.md 6.2：资产所在频道的可见性、`access`、调用者是否为所有者或订阅者，在固定可访问资产与版本时判定，先于召回；
 - A2A、REST 和 Web 都调用相同 Policy Evaluator；可见性只有一处实现：`lib/application/channels/visibility.ts` 的 `readableBy`——所有者、公开频道里的免费资产，加上 `subscribedPaid`：资产为 `paid`、所在公开频道有该工作空间的订阅、状态在 `active / past_due / canceled` 且 `current_period_end > now()`。比较在每次读取的 SQL 里用数据库时钟做，到期后的下一次调用即被拒，不等 Webhook。单资产读取（`queryDocs`）、范围检索（`searchScope`，A2A 与分身）、`/media/{id}` 的签名与阅读页都走它；频道卡的扩展卡只是把订阅者的范围写出来，不另做判断；
 - Policy Evaluator 返回稳定 Reason Code，调用记录只保存 Reason Code；
@@ -922,20 +923,20 @@ Payment Provider 为 **Paddle Billing**（`lib/infrastructure/payment/paddle.ts`
 ### 12.1 查询契约
 
 ```text
-GET /v1/libraries/search
+GET /v1/assets/search
   ?query=server+authentication      # 必填：用户问题或检索意图
-  &libraryName=Next.js              # 可选：名字辅助提示
+  &assetName=Next.js              # 可选：名字辅助提示
 
 GET /v1/context
-  ?libraryId=/vercel/next.js
+  ?assetId=/vercel/next.js
   &query=server+authentication
   &type=json
   &maxTokens=5000
 ```
 
-REST 保留，供网站内部、测试与脚本化管理使用，不对外宣传（提案第 13.3 节）；路径、字段与错误码在 P5 改为 `/v1/assets`、`assetId`、`asset_*`，本节写现在的名字。`/v1/revenue*` 随发布者分成删除。
+REST 保留，供网站内部、测试与脚本化管理使用，不对外宣传（提案第 13.3 节）；路径、字段与错误码在 P5 由 `/v1/libraries`、`libraryId`、`library_*` 改为 `/v1/assets`、`assetId`、`asset_*`，不设别名与重定向。`/v1/revenue*` 随发布者分成删除。
 
-Search 以 `query` 为主输入走 §9.6 的画像路由，`libraryName` 降级为可选提示。每个候选除 Trust/Benchmark 分数外必须携带**命中证据**——匹配到的文档标题、实体词和少量段落摘录——供调用方在不信任名字的前提下定案。
+Search 以 `query` 为主输入走 §9.6 的画像路由，`assetName` 降级为可选提示。每个候选除 Trust/Benchmark 分数外必须携带**命中证据**——匹配到的文档标题、实体词和少量段落摘录——供调用方在不信任名字的前提下定案。
 
 认证使用 `Authorization: Bearer mm_live_...`。匿名只允许明确开放的 Search/Context 子集，走 §11.2 的匿名限流，不计 Call。
 
@@ -944,13 +945,13 @@ Search 以 `query` 为主输入走 §9.6 的画像路由，`libraryName` 降级�
 ```json
 {
   "requestId": "req_...",
-  "libraryId": "/vercel/next.js",
+  "assetId": "/vercel/next.js",
   "resolvedVersion": "v16.1.0",
   "codeSnippets": [],
   "infoSnippets": [],
   "rules": {
     "global": [],
-    "libraryOwn": [],
+    "assetOwn": [],
     "workspace": []
   },
   "usage": {
@@ -973,11 +974,11 @@ OpenAPI 是发布门槛：
 - SDK 从 OpenAPI/共享 Contract 生成或验证；
 - 错误对象统一为 `error`、`message`、`requestId` 和可选 `details`；
 - 429 返回 `Retry-After` 与标准额度 Header；
-- Library Alias 返回 301 和 `redirectUrl`。
+- Asset Alias 返回 301 和 `redirectUrl`。
 
 ## 13. A2A、SDK、CLI 与插件
 
-远程 MCP Server（`/mcp`、`/mcp/oauth`、`resolve-library-id` / `query-docs`、stdio 包装器、`lib/webmcp`、`packages/mcp`、`packages/tools-ai-sdk`）已下线，代码保留在开关之后；Agent 的接入方式改为 Agent Card 与 A2A。
+远程 MCP Server（`/mcp`、`/mcp/oauth`、`resolve-asset-id` / `query-docs`、stdio 包装器、`lib/webmcp`、`packages/mcp`、`packages/tools-ai-sdk`）已下线，代码保留在开关之后；Agent 的接入方式改为 Agent Card 与 A2A。
 
 ### 13.1 A2A Server
 
@@ -1025,7 +1026,7 @@ Artifact 固定带两个 Part：`text`（`ask` 的答案正文，或 `search_con
 **确认门（`agent_action`）**
 
 - 工作台与 A2A 共用 `lib/application/agent/actions.ts`：`proposeAction` 校验参数、把资产与频道引用解析为本工作空间的 ID、估算 Call 与容量、写一行 `pending` 并带服务端生成的摘要与参数摘要（`params_digest`，参数规范化 JSON 的 SHA-256）；
-- `confirmAction` 只接受 `owner` 类型的确认者（只有 Dashboard 的 Server Action 用当前会话构造），要求可管理资产的角色；用一条条件更新 `pending → confirmed`（同时比较摘要与 `expires_at`）保证一次性，然后以该用户身份调用与 Dashboard 相同的用例（`createWorkspaceLibrary`、`requestLibraryRebuild`、`createChannel`、`moveAsset`），结果写回操作行并写 `audit_log`（`target_type = agent_action`，`administrator_id` 为空，确认者在 `after_value`）；用例拒绝时操作转 `failed` 并记原因；
+- `confirmAction` 只接受 `owner` 类型的确认者（只有 Dashboard 的 Server Action 用当前会话构造），要求可管理资产的角色；用一条条件更新 `pending → confirmed`（同时比较摘要与 `expires_at`）保证一次性，然后以该用户身份调用与 Dashboard 相同的用例（`createWorkspaceAsset`、`requestAssetRebuild`、`createChannel`、`moveAsset`），结果写回操作行并写 `audit_log`（`target_type = agent_action`，`administrator_id` 为空，确认者在 `after_value`）；用例拒绝时操作转 `failed` 并记原因；
 - 模型、Chunk 文本与 A2A 调用方在领域层是被点名拒绝的确认者类型（`lib/domain/agent-action.ts` `mayConfirm`），工具集合里也没有确认工具；`expireActions` 由 drain 与读取时调用。
 
 **计量**
@@ -1048,7 +1049,7 @@ re0 Agent 把子任务委托给工作空间登记的外部 A2A Agent。代码在
 **保留与清除（P4，提案第 10 节）**
 
 - 每小时的 Cron `/api/cron/retention`（`vercel.json`，每小时第 17 分钟，`CRON_SECRET`；正文最多比 30 天晚一小时清除）调用 `lib/application/privacy` 的 `runRetention`：清空到期的入站 `a2a_task` 正文（`purgeA2aTaskBodies`，P2 放在 drain 里，P4 移到这里）、出站 `agent_delegation` 的状态消息与输出，以及创建超过 30 天的 `delegate_task` 操作在 `params` 与 `summary` 里的原文；ID、状态、技能、时间、`params_digest` 与 `usage_event` 都保留。三部分各自独立，一部分失败不影响其余；
-- 同一个 Cron 按 `workspace.private_asset_retention_days`（30 / 90 / 180 / 365 或空）删除过期的私有资产：不在任何公开频道里、最近一次成功构建（没有则为创建时间）早于期限，走 `markLibraryDeleted`，清理由 drain 的 Delete Operation 完成；每个工作空间每次最多 50 项；
+- 同一个 Cron 按 `workspace.private_asset_retention_days`（30 / 90 / 180 / 365 或空）删除过期的私有资产：不在任何公开频道里、最近一次成功构建（没有则为创建时间）早于期限，走 `markAssetDeleted`，清理由 drain 的 Delete Operation 完成；每个工作空间每次最多 50 项；
 - `/dashboard/privacy`：`/dashboard/export/conversations` 与 `/dashboard/export/a2a-tasks` 以 JSON 导出（会话鉴权、`no-store`）；一键删除对话（`agent_conversation` 级联 `agent_message`）与 A2A 任务记录（入站任务与推送配置、出站委托，以及已决委托操作里的原文；待确认的委托留给所有者处理）；删除不影响计量。
 
 ### 13.2 SDK
@@ -1058,7 +1059,7 @@ TypeScript SDK：
 ```ts
 const client = new Re0({ apiKey: process.env.RE0_API_KEY });
 
-const libraries = await client.searchLibrary(
+const assets = await client.searchAsset(
   "server authentication",
   "Next.js"
 );
@@ -1078,8 +1079,8 @@ CLI 命令：
 
 ```text
 re0 auth login|logout|status
-re0 library <name> <query>        # P5 改为 asset
-re0 docs <library-id> <query>
+re0 asset <name> <query>
+re0 docs <asset-id> <query>
 ```
 
 `setup` / `remove` / `skill` 中写入 MCP 配置的部分随 MCP 下线（代码保留在开关之后）。配置写入必须可预览、可重复执行、保留用户其他配置。Skills 与插件只组合 SDK，不直接访问数据库、对象存储或缓存；AI SDK Tools（`packages/tools-ai-sdk`）随 MCP 下线。
@@ -1118,7 +1119,7 @@ Audit Log 采用只追加表，并保存前一条记录 Hash 形成链式校验�
 
 存证**也没有暂停开关**。要让它停下来，把该环境的 `APTOS_*` 移除即可——Workflow 随即视自己为未配置，与前后台文案消失是同一个开关（§19.1）。
 
-有一条边界即使没有界面也仍然成立，并且写在查询里而不是留给记忆：**任何读取锚定的代码一律停在 `anchor_leaf.leaf_hash`，不 join `library_version`、`revenue_period` 或任何 Subject 表**。批次行本身不泄露什么——链上公开的就只有 Root 和批次元数据——危险的是顺着 `subject_id` 一 join，私有资产的内容与创作者的结算金额就绕过了 requirement.md §6.4 的可见性规则。
+有一条边界即使没有界面也仍然成立，并且写在查询里而不是留给记忆：**任何读取锚定的代码一律停在 `anchor_leaf.leaf_hash`，不 join `asset_version`、`revenue_period` 或任何 Subject 表**。批次行本身不泄露什么——链上公开的就只有 Root 和批次元数据——危险的是顺着 `subject_id` 一 join，私有资产的内容与创作者的结算金额就绕过了 requirement.md §6.4 的可见性规则。
 
 ## 15. 安全设计
 
@@ -1136,7 +1137,7 @@ Audit Log 采用只追加表，并保存前一条记录 Hash 形成链式校验�
 
 - Query 最大长度和字符策略统一；
 - Query/私有 Chunk 不进入普通日志、Analytics、错误追踪 Breadcrumb；
-- Library Rules 与来自其他 Agent 的 A2A Message 都是数据，不具备指令优先级，不能改变系统提示、工具权限或确认门；
+- Asset Rules 与来自其他 Agent 的 A2A Message 都是数据，不具备指令优先级，不能改变系统提示、工具权限或确认门；
 - 所有召回先绑定资产 + Version（问频道时为一组），不属于频道的资产再绑定 Workspace；`paid` 正文只对订阅者返回；
 - API Key 只在服务端使用，浏览器公开页面不得包含 Secret；
 - A2A 端点 CORS 只开放需要的 Method/Header；A2A 任务正文与 Query 同等保密，30 天后删除正文；
@@ -1160,9 +1161,9 @@ Audit Log 采用只追加表，并保存前一条记录 Hash 形成链式校验�
 - Postgres 事务用于发布、Plan Version 激活和需要多表一致的写入；
 - 全文索引与向量同属 `chunk` 表，与发布指针同事务，不需要跨系统保序；只有对象存储写入必须先于事务提交，未被引用的对象由生命周期规则和 Recovery 清理；
 - 数据库使用 Neon 的时间点恢复与分支能力，并定期导出业务表到私有备份位置；
-- `search_vector`、`embedding`、`library_profile` 和 `usage_summary` 可从 Chunk 正文与 Usage Event 重建；
+- `search_vector`、`embedding`、`asset_profile` 和 `usage_summary` 可从 Chunk 正文与 Usage Event 重建；
 - 连接通过 Neon 连接池端点或 Serverless Driver 建立，禁止在函数内建立无池化的长连接；
-- 每季度执行恢复演练，验证 Library、Policy、Usage 和 Audit 的恢复点。
+- 每季度执行恢复演练，验证 Asset、Policy、Usage 和 Audit 的恢复点。
 
 ## 17. 可观测性与错误处理
 
@@ -1174,7 +1175,7 @@ trace_id
 actor_type
 actor_hash
 workspace_id
-library_id
+asset_id
 version_id
 policy_version_id
 workflow_operation_id
@@ -1315,7 +1316,7 @@ Upstash Redis 不在此列：它替代的是上一版运行平台自带的限流
 出现以下证据时再评估演进：
 
 - Postgres 主写延迟或写入容量连续越过 SLO；
-- 全文检索在目标 Library 规模下无法达到 Search/Context p95；
+- 全文检索在目标 Asset 规模下无法达到 Search/Context p95；
 - ANN 索引的构建时长、内存占用或召回率成为真实瓶颈，且调参无法解决；
 - 数据库计算规格已达上限，或冷启动导致 p95 持续不达标；
 - 频道级路由的候选命中率低于目标且画像层调参无法解决；
@@ -1328,15 +1329,15 @@ Upstash Redis 不在此列：它替代的是上一版运行平台自带的限流
 
 ## 21. 实现顺序
 
-MVP 的 14 步（App Shell 与身份、Plan Version 与 Usage、Ingestion、混合检索与发布、Library Search 与在线试用、匿名限流、Dashboard、Payment 与 Add-on、平台资产与管理后台、认领、结算、Version/Audit Anchor 与 Verifier、Earning Anchor、SDK/CLI）已经实现。之后按 [agent-first-proposal.md](./agent-first-proposal.md) 第 13.1 节分阶段：
+MVP 的 14 步（App Shell 与身份、Plan Version 与 Usage、Ingestion、混合检索与发布、Asset Search 与在线试用、匿名限流、Dashboard、Payment 与 Add-on、平台资产与管理后台、认领、结算、Version/Audit Anchor 与 Verifier、Earning Anchor、SDK/CLI）已经实现。之后按 [agent-first-proposal.md](./agent-first-proposal.md) 第 13.1 节分阶段：
 
 1. **P0 文案与清理**：slogan、`metadata`、OG 图；界面文案改为资产（页面路径不动）；删除 Pro、专家库、自检问题、按检索计的发布者分成、`llms.txt` 与 OpenAPI 来源；关闭网站插件、分享页、MCP 的开关；Additional Calls 对所有人开放；两级容量。退出条件：用户可见的界面里不再出现「知识库」、Pro、专家库、分成；任何用户都能购买 Additional Calls，购买后容量升到 2 GB；
-2. **P1 资产、频道与 A2A**：`library.kind` 与数据重建（§6.5）；保留 owner 名单；页面路径改为 `/assets/*`、`/channels/*`；`channel`、`channel_asset`、频道主页、频道目录、用户主页；频道画像（§9.6）；三层 Agent Card；A2A `find_channels`、`search_context`，JSON-RPC 与 HTTP+JSON；Postgres `TaskStore`；首页改版；计量按「调用方付、匿名由平台承担」改。退出条件：先核对 `@a2a-js/sdk` v1.x 的能力；用官方 A2A Inspector 跑通三层取卡、`SendMessage`、`GetTask`；§18.2 标 P1 的集成测试通过；
+2. **P1 资产、频道与 A2A**：`asset.kind` 与数据重建（§6.5）；保留 owner 名单；页面路径改为 `/assets/*`、`/channels/*`；`channel`、`channel_asset`、频道主页、频道目录、用户主页；频道画像（§9.6）；三层 Agent Card；A2A `find_channels`、`search_context`，JSON-RPC 与 HTTP+JSON；Postgres `TaskStore`；首页改版；计量按「调用方付、匿名由平台承担」改。退出条件：先核对 `@a2a-js/sdk` v1.x 的能力；用官方 A2A Inspector 跑通三层取卡、`SendMessage`、`GetTask`；§18.2 标 P1 的集成测试通过；
 3. **P2 工作台与写操作**：Agent 工作台、工具与确认门（`agent_conversation`、`agent_action`）；A2A `ask`、`ingest`、`refresh`、`publish`、扩展卡、推送通知；`assets:write`。退出条件：「模型或调用方 Agent 试图自行确认」被拒；`ask` 的 Call 数上线；
 4. **P3a 文章、评论、问答与订阅**（已实施，2026-10-30，迁移 0064）：频道订阅的 Paddle 商品与 Webhook 事件（§11.3）、频道收入记账与结算（§11.4）、`paid` 访问控制（§10.2）、平台自有来源（§8）、AI 分身（§9.5）。原定开工前提（Paddle 书面确认、手续费口径、税务与合规意见，提案第 13.2 节）仍待落实，按 sandbox 实现；
 5. **P3b 音频**（已实施，2026-10-30）：上传、签名播放地址、节目说明进检索；
 6. **P4 A2A 客户端**：re0 委托外部 Agent；四个场景落地页；
-7. **P5 内部改名**：代码模块与标识符、REST 路径与字段、错误码、数据库表与列全部改为 asset，测试同步修改；除迁移历史外不再出现 library 标识符。
+7. **P5 内部改名**（已完成，迁移 0066）：代码模块与标识符、REST 路径与字段、错误码、数据库表与列全部改为 asset，测试同步修改；除迁移历史、`audit_log` 已写入的动作名与目标类型外不再出现 library 标识符（§6.5）。
 
 链上存证仍是 §8.5 的旁路能力：任何阶段的延后或失败都不影响其余交付。Anchor Signer 私钥由环境变量持有，不引入 KMS——提案 1.1 版撤销了 1.0 版的 KMS 决定，风险条目见其第 0.1 节；`earning_statement` 改为锚定创作者的频道收入结算单，在 P3a 之前没有新的结算单可锚。密钥轮换要发布一个新的 Code Object，见 [aptos-anchoring-proposal.md](./aptos-anchoring-proposal.md) §4.11.1。
 

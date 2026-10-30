@@ -1,6 +1,6 @@
 # 公开审核与专家审批方案：内容可见、提交材料与三层审核
 
-> **2026-10-23 修订：公开库的发布前审核已整体移除。** 用户库（公开或私有）构建通过安全扫描后直接 `published`，不再有「提交材料」步骤与 submit / resubmit / appeal 动作；规则层（6.1）、模型层（6.2）、人工审核队列、审核规则配置页与发布后抽查全部删除，`library_review` 的 `rules` / `model` / `sample` 记录只作历史保留并可读。平台对已上线库保留下架（`reject`）与恢复（`approve`）两个动作，写审核记录与审计日志。专家库申请（5.3、6.5）及其门槛（题数下限、命中率下限，现在 `/admin/expert-libraries/thresholds` 配置）保持不变。下文第 5.2、6、7 节描述的是移除前的设计，仅供查考。迁移 0056 把停在 `submitted` / `reviewing` / `changes_requested` 的库按索引状态归为 `published` 或 `draft`，取消排队中的模型审核。
+> **2026-10-23 修订：公开库的发布前审核已整体移除。** 用户库（公开或私有）构建通过安全扫描后直接 `published`，不再有「提交材料」步骤与 submit / resubmit / appeal 动作；规则层（6.1）、模型层（6.2）、人工审核队列、审核规则配置页与发布后抽查全部删除，`asset_review` 的 `rules` / `model` / `sample` 记录只作历史保留并可读。平台对已上线库保留下架（`reject`）与恢复（`approve`）两个动作，写审核记录与审计日志。专家库申请（5.3、6.5）及其门槛（题数下限、命中率下限，现在 `/admin/expert-libraries/thresholds` 配置）保持不变。下文第 5.2、6、7 节描述的是移除前的设计，仅供查考。迁移 0056 把停在 `submitted` / `reviewing` / `changes_requested` 的库按索引状态归为 `published` 或 `draft`，取消排队中的模型审核。
 
 
 - 版本：0.1
@@ -12,7 +12,7 @@
 
 公开库审核和专家库审批现在都是盲批。
 
-- 公开库审核页 `app/admin/(console)/libraries/[libraryId]/page.tsx` 只显示来源类型和地址、文档与 Chunk 计数、版本、历史审核和队列。代码注释写明「只给来源和计数，不给 Chunk」，依据是 architecture.md 第 17 章。但第 17 章约束的是**日志**不得记录 Chunk 文本，没有约束后台页面。
+- 公开库审核页 `app/admin/(console)/assets/[assetId]/page.tsx` 只显示来源类型和地址、文档与 Chunk 计数、版本、历史审核和队列。代码注释写明「只给来源和计数，不给 Chunk」，依据是 architecture.md 第 17 章。但第 17 章约束的是**日志**不得记录 Chunk 文本，没有约束后台页面。
 - 专家库审批页 `app/admin/(console)/expert-libraries/[applicationId]/page.tsx` 只有五项机械检查（公开、已发布、所有者未变、付费订阅、版本就绪）、Trust Score 和申请人的 500 字说明。审批员判断「值不值得付钱」时没有任何关于内容质量的材料。
 - requirement.md 7.4 要求审核员检查五条：来源是否一手、文件和结构、完整性与过期、恶意内容与隐私、分数门槛。前四条都要看内容，第一条还明确写了「审核抽样」。现在的后台一条都做不到。
 - 用户侧提交的材料几乎为空。导入向导的最后一步只有一个「我已核对以上信息」复选框；`reviewPipeline` 里的「权利与来源」步骤被硬编码为永远通过；专家申请只有一段可选说明。
@@ -23,14 +23,14 @@
 
 | 能力 | 位置 | 现状 |
 | --- | --- | --- |
-| 文档规范化正文 | 对象存储 `normalized/{libraryId}/{versionId}/{documentId}.json`，`document.object_key` | 只被构建写入，没有读取方 |
+| 文档规范化正文 | 对象存储 `normalized/{assetId}/{versionId}/{documentId}.json`，`document.object_key` | 只被构建写入，没有读取方 |
 | Chunk 安全状态 | `chunk.safety_status`：`clean / flagged / quarantined` | 扫描写入，后台不展示 |
 | 内容扫描 | `lib/domain/ingestion.ts` `scanContent` | 6 条凭证正则、4 条注入正则、2 条个人信息正则 |
 | 检索测试集 | `library_eval_question`，后台维护 | 平台库详情页有面板，用户库页面没有 |
 | 不计费的检索路径 | `lib/application/ingestion/evaluate.ts` 直接调 `rankChunks` | 不计 Call、不分成、不读写缓存 |
 | 模型配置与成本记录 | `llm_config`、`llm_cost_event` | Playground 在用 |
 | 域名验证与仓库归属 | `domain_verification`、`github_connection` | 建库前已验证 |
-| 审核记录 | `library_review.stage` 为文本，现只写 `manual` | 已为其它阶段留了位 |
+| 审核记录 | `asset_review.stage` 为文本，现只写 `manual` | 已为其它阶段留了位 |
 
 ## 2. 目标与非目标
 
@@ -62,14 +62,14 @@
 
 ### 4.1 公开库审核页新增面板
 
-在现有的基础信息、来源、审核记录、版本、队列之外，`/admin/libraries/[libraryId]` 增加：
+在现有的基础信息、来源、审核记录、版本、队列之外，`/admin/assets/[assetId]` 增加：
 
 | 面板 | 内容 | 数据来源 |
 | --- | --- | --- |
 | 文档清单 | 标题、来源 URL、Chunk 数、安全状态、最后修改时间；可按安全状态筛选 | `document` + `chunk` 按版本聚合；查询可从平台库详情页的文档面板复用 |
-| 文档正文 | 子页 `/admin/libraries/[libraryId]/documents/[documentId]`，读规范化 JSON，按章节分页，高亮被标记的 Chunk | 对象存储 `objectKeys.normalized` |
+| 文档正文 | 子页 `/admin/assets/[assetId]/documents/[documentId]`，读规范化 JSON，按章节分页，高亮被标记的 Chunk | 对象存储 `objectKeys.normalized` |
 | 安全发现 | `flagged` 与 `quarantined` 的 Chunk 列表，每条带命中类型（凭证、注入、个人信息）和片段 | `chunk.safety_status` + 扫描结果；扫描结果现在不落库，需要在 `chunk.citation` 或新列里记下命中类型 |
-| 检索表现 | Trust、Benchmark、结构分明细、测试集最近一次评测的逐题命中 | `library_score.breakdown`、`library_eval_question.last_*` |
+| 检索表现 | Trust、Benchmark、结构分明细、测试集最近一次评测的逐题命中 | `asset_score.breakdown`、`library_eval_question.last_*` |
 | 检索测试集 | 与平台库详情页同一组件：增删题、立即评测 | `manage-eval-questions.ts` 已支持用户库 |
 | 审核试检索 | 审核员输入问题，返回片段和引用，可连续追问 | 见 4.2 |
 
@@ -77,7 +77,7 @@
 
 ### 4.2 审核试检索
 
-待审库（`submitted / reviewing / changes_requested`）在检索层被 `resolve-library.ts` 的 `lifecycle_status = published` 条件挡住，Playground 查不到它。试检索不改这条谓词，而是走 `evaluate.ts` 的路径：对指定 `libraryId` 和当前版本直接调 `rankChunks`。
+待审库（`submitted / reviewing / changes_requested`）在检索层被 `resolve-asset.ts` 的 `lifecycle_status = published` 条件挡住，Playground 查不到它。试检索不改这条谓词，而是走 `evaluate.ts` 的路径：对指定 `assetId` 和当前版本直接调 `rankChunks`。
 
 规则与评测相同：不计 Call、不写 `usage_event`、不产生分成、不读写公共结果缓存、不写 `request_log`。请求体里的问题不进日志（architecture.md 17.1）。
 
@@ -85,7 +85,7 @@
 
 ### 4.3 审核清单取代自由文本
 
-`library_review` 增加 `checklist jsonb`，按 7.4 的五条记录：
+`asset_review` 增加 `checklist jsonb`，按 7.4 的五条记录：
 
 ```json
 {
@@ -117,7 +117,7 @@
 | 许可 | 开源许可（自动从来源读取时预填）/ 明确授权 / 公有领域 / 不确定 | 第 1 条 |
 | 生成方式 | 人工撰写 / 模型辅助撰写且人工审校 / 主体由模型生成 | 第 1 条「主体由模型生成且无人工审校的内容不予通过」 |
 
-存在 `library.rights_declaration jsonb`，带声明时间和声明人（用户 ID）。`reviewPipeline` 的 `rights` 步骤不再硬编码为 `done`：有声明即 `done`，无声明即 `blocked`；公开库流水线另有一步 `materials`（提交材料），构建完成即 `active`，所有者提交后 `done`。「主体由模型生成」直接在用户侧阻止公开提交，提示可改为私有库。
+存在 `asset.rights_declaration jsonb`，带声明时间和声明人（用户 ID）。`reviewPipeline` 的 `rights` 步骤不再硬编码为 `done`：有声明即 `done`，无声明即 `blocked`；公开库流水线另有一步 `materials`（提交材料），构建完成即 `active`，所有者提交后 `done`。「主体由模型生成」直接在用户侧阻止公开提交，提示可改为私有库。
 
 改可见性从私有到公开时同样要求补声明（`visibilityTransition` 的入口）。
 
@@ -153,7 +153,7 @@
 
 ## 6. 三层审核
 
-公开库构建完成后停在 `draft`，流水线上多出一步「提交材料」：所有者在概览页补齐权利声明与自检题集，点「提交审核」（或退回后的「重新提交」）才进入 `submitted`。构建本身从不自动入队，无论后面是自动审核还是人工审核，前面都有这一步确认（2026-10-22 起）。进入 `submitted` 后依次经过三层。每层写一条 `library_review`，`stage` 分别为 `rules`、`model`、`manual`。
+公开库构建完成后停在 `draft`，流水线上多出一步「提交材料」：所有者在概览页补齐权利声明与自检题集，点「提交审核」（或退回后的「重新提交」）才进入 `submitted`。构建本身从不自动入队，无论后面是自动审核还是人工审核，前面都有这一步确认（2026-10-22 起）。进入 `submitted` 后依次经过三层。每层写一条 `asset_review`，`stage` 分别为 `rules`、`model`、`manual`。
 
 ```text
 build ready ──► draft（提交材料）──所有者确认──► submitted
@@ -181,7 +181,7 @@ build ready ──► draft（提交材料）──所有者确认──► subm
 | --- | --- |
 | 凭证 | 存在 `quarantined` Chunk |
 | 索引 | 当前版本 `index_status ≠ ready`，或 Chunk 数为零 |
-| 重复 | 与已发布库的文档指纹重合率超过阈值（SimHash 或规范化正文哈希，按版本计算一次存在 `library_version` 上） |
+| 重复 | 与已发布库的文档指纹重合率超过阈值（SimHash 或规范化正文哈希，按版本计算一次存在 `asset_version` 上） |
 | 许可 | GitHub 来源无许可证文件，且声明里未选「明确授权」 |
 | 来源验证 | 网站、llms.txt、OpenAPI 来源的域名验证已失效 |
 | 声明 | 无权利声明，或生成方式为「主体由模型生成」 |
@@ -226,7 +226,7 @@ build ready ──► draft（提交材料）──所有者确认──► subm
 
 人工队列只剩三类（2026-10-22 起，模型拿不准的不再进人工，而是退回所有者）：
 
-1. owner 申诉的：对规则层或模型层的 `changes_requested` 不服（包括模型拿不准、模型多次无答案的退回），一次申诉进人工，不再交给同一个模型复审。`library_review` 的 `appeal_of uuid` 指向被申诉的记录，每条机器决定只能申诉一次。这是公开库进入人工的唯一入口；
+1. owner 申诉的：对规则层或模型层的 `changes_requested` 不服（包括模型拿不准、模型多次无答案的退回），一次申诉进人工，不再交给同一个模型复审。`asset_review` 的 `appeal_of uuid` 指向被申诉的记录，每条机器决定只能申诉一次。这是公开库进入人工的唯一入口；
 2. 发布后随机抽查的：对 `stage = rules | model` 自动发布的库按比例抽样进复核队列，比例可配置；
 3. 被举报的：沿用 `report` 表，复核不过走现有 `reject` 转 `suspended`。
 
@@ -248,10 +248,10 @@ build ready ──► draft（提交材料）──所有者确认──► subm
 
 | 表 | 变更 |
 | --- | --- |
-| `library` | `rights_declaration jsonb`：来源归属、许可、生成方式、声明人、声明时间 |
-| `library_review` | `checklist jsonb`；`appeal_of uuid`；`stage` 新增取值 `rules`、`model`、`sample` |
+| `asset` | `rights_declaration jsonb`：来源归属、许可、生成方式、声明人、声明时间 |
+| `asset_review` | `checklist jsonb`；`appeal_of uuid`；`stage` 新增取值 `rules`、`model`、`sample` |
 | `library_eval_question` | `author text not null default 'admin'`：`owner / admin` |
-| `library_version` | `content_digest text`：重复检测用的文档指纹 |
+| `asset_version` | `content_digest text`：重复检测用的文档指纹 |
 | `chunk` | 扫描命中类型落库：`safety_findings jsonb` 或并入 `citation` |
 | `expert_application` | `materials jsonb`；`checklist jsonb`；`note` 保留 |
 | `retrieval_config` 或新表 `review_config` | 分数门槛、命中率门槛、重复阈值、抽样篇数、抽查比例、自动发布开关 |
@@ -262,23 +262,23 @@ build ready ──► draft（提交材料）──所有者确认──► subm
 
 | 位置 | 改动 |
 | --- | --- |
-| `lib/domain/library.ts` | `ReviewChecklist` 类型与校验；`reviewPipeline` 的 `rights` 步骤读声明；`rightsDeclaration` 的归一化；自动发布与硬门槛的纯规则 `autoReviewVerdict` |
+| `lib/domain/asset.ts` | `ReviewChecklist` 类型与校验；`reviewPipeline` 的 `rights` 步骤读声明；`rightsDeclaration` 的归一化；自动发布与硬门槛的纯规则 `autoReviewVerdict` |
 | `lib/domain/expert-library.ts` | `materials` 归一化；`APPROVAL_CHECKS` 加 `eval_ready`；错误码 `eval_too_few`、`eval_below_threshold`、`eval_stale`、`invalid_materials` |
 | `lib/domain/benchmark.ts` | 评测时按 `author` 过滤：Benchmark 只算 `admin` 题 |
 | `lib/domain/review-model.ts`（新） | 审核模型的提示词、输出 schema、解析与置信度判定；纯函数 |
-| `lib/application/administration/review-libraries.ts` | `getUserLibrary` 补文档清单、安全统计、评测摘要；`reviewUserLibrary` 接收清单、支持申诉 |
+| `lib/application/administration/review-assets.ts` | `getUserAsset` 补文档清单、安全统计、评测摘要；`reviewUserAsset` 接收清单、支持申诉 |
 | `lib/application/administration/review-content.ts`（新） | 读规范化正文、采样 Chunk、试检索（基于 `rankChunks`） |
 | `lib/application/administration/auto-review.ts`（新） | 规则层与模型层，由 `advance-lifecycle.ts` 在转 `submitted` 后调用；模型层作为 `workflow_operation` 排队执行 |
 | `lib/application/ingestion/build-version.ts` | 写 `content_digest`；扫描命中类型落库 |
-| `lib/application/libraries/create.ts`、`manage.ts` | 权利声明的写入与可见性变更时的要求 |
+| `lib/application/assets/create.ts`、`manage.ts` | 权利声明的写入与可见性变更时的要求 |
 | `lib/application/expert-libraries/owner.ts`、`admin.ts` | 材料与题集门槛 |
-| `app/admin/(console)/libraries/[libraryId]/` | 新面板、`documents/[documentId]` 子页、试检索客户端组件、清单表单 |
+| `app/admin/(console)/assets/[assetId]/` | 新面板、`documents/[documentId]` 子页、试检索客户端组件、清单表单 |
 | `app/admin/(console)/expert-libraries/[applicationId]/` | 复用面板、抽题打分、专家清单 |
 | `app/admin/(console)/retrieval/` | 审核门槛配置 |
 | `components/dashboard/import-wizard.tsx` | 权利声明步骤 |
-| `components/dashboard/library-manage.tsx` | 清单按条展示、申诉入口 |
-| `components/dashboard/library-expert.tsx` | 材料表单、门槛提示 |
-| 新 `components/dashboard/library-eval.tsx` | owner 自检题集 |
+| `components/dashboard/asset-manage.tsx` | 清单按条展示、申诉入口 |
+| `components/dashboard/asset-expert.tsx` | 材料表单、门槛提示 |
+| 新 `components/dashboard/asset-eval.tsx` | owner 自检题集 |
 | `lib/i18n/messages/en.ts`、`zh.ts` | 全部文案 |
 | `tests/contract/`、`tests/integration/` | 清单校验、自动发布条件、模型层隔离（注入文档不改变结果）、申诉只允许一次、Benchmark 不算 owner 题 |
 
@@ -295,9 +295,9 @@ build ready ──► draft（提交材料）──所有者确认──► subm
 
 | 阶段 | 内容 | 产出 |
 | --- | --- | --- |
-| 一 | 审核员看得见：文档清单、正文子页、安全发现、检索表现、试检索、清单、审计 | 人工审核可以按 7.4 执行。**已实现（2026-10-21）**：迁移 0051、`lib/domain/review.ts`、`lib/application/administration/review-content.ts`，后台 `/admin/libraries/[id]` 与其文档子页，清单只记录结论与备注，证据引用留到后续 |
-| 二 | 用户材料：权利声明、owner 自检题集、`author` 与不计分规则、dashboard 按条反馈 | 审核员拿到可核对的材料。**已实现（2026-10-21）**：迁移 0052、`lib/domain/rights.ts`、`lib/application/libraries/materials.ts`；公开库构建完成后一律停在 `draft`，材料齐后由所有者在概览页点「提交审核」入队（2026-10-22 起，材料齐也不自动入队）；私有改公开同样落 `draft`，由所有者提交；owner 题不计 Benchmark，审核员在后台「采纳」后计分 |
-| 三 | 规则层：硬门槛、自动发布、门槛配置、重复检测、发布后抽查 | 大部分可验证来源的库不再进人工队列。**已实现（2026-10-21）**：迁移 0053、`lib/domain/auto-review.ts`、`lib/domain/fingerprint.ts`、`lib/application/review/`；规则层在库进入 `submitted` 的三个入口之后运行，发布、退回或留给人工各写一条 `stage = rules` 的审核记录与审计；门槛在 `/admin/libraries/rules` 配置，有历史；重复检测用版本的 bottom-k 内容草图；抽中的库在后台「抽查」页签里，审核员关闭或按常规动词处理 |
+| 一 | 审核员看得见：文档清单、正文子页、安全发现、检索表现、试检索、清单、审计 | 人工审核可以按 7.4 执行。**已实现（2026-10-21）**：迁移 0051、`lib/domain/review.ts`、`lib/application/administration/review-content.ts`，后台 `/admin/assets/[id]` 与其文档子页，清单只记录结论与备注，证据引用留到后续 |
+| 二 | 用户材料：权利声明、owner 自检题集、`author` 与不计分规则、dashboard 按条反馈 | 审核员拿到可核对的材料。**已实现（2026-10-21）**：迁移 0052、`lib/domain/rights.ts`、`lib/application/assets/materials.ts`；公开库构建完成后一律停在 `draft`，材料齐后由所有者在概览页点「提交审核」入队（2026-10-22 起，材料齐也不自动入队）；私有改公开同样落 `draft`，由所有者提交；owner 题不计 Benchmark，审核员在后台「采纳」后计分 |
+| 三 | 规则层：硬门槛、自动发布、门槛配置、重复检测、发布后抽查 | 大部分可验证来源的库不再进人工队列。**已实现（2026-10-21）**：迁移 0053、`lib/domain/auto-review.ts`、`lib/domain/fingerprint.ts`、`lib/application/review/`；规则层在库进入 `submitted` 的三个入口之后运行，发布、退回或留给人工各写一条 `stage = rules` 的审核记录与审计；门槛在 `/admin/assets/rules` 配置，有历史；重复检测用版本的 bottom-k 内容草图；抽中的库在后台「抽查」页签里，审核员关闭或按常规动词处理 |
 | 四 | 模型层：清单填写、隔离、成本记录、申诉 | 人工队列只剩四类。**已实现（2026-10-21）**：迁移 0054、`lib/domain/model-review.ts`、`lib/application/review/model.ts`；规则层留给人工的提交排成 `model_review` 操作，由 `after` 或 drain 执行；模型只填清单（结论、置信度、备注、证据），置信度线以下按「无法判断」处理，由规则定去向；材料作为不可信数据块传入，模型无工具，答案不符合 schema 即视为无答案；每次调用记一条 `purpose = review` 的成本；所有者对机器退回可申诉一次，直接进人工，跳过两层。**2026-10-22 修订**：模型拿不准改为退回所有者并列出拿不准的项；模型不可用改为操作留在队列重试，不计次数；无答案重试 3 次后退回；置信度线 0.6。公开库由此没有人工队列，申诉是唯一人工入口 |
 | 五 | 专家申请：材料、题集门槛、抽题打分、专家清单 | 专家审批有判断依据。**已实现（2026-10-21）**：迁移 0055；申请表改为三项必填陈述加可选说明，存 `expert_application.materials`；申请与通过都加「题集达标」检查，门槛（题数下限、命中率下限）在审核规则页配置，0 为不要求；后台详情页新增申请材料、题集表现和「抽题复核」面板，按申请固定抽题重问；通过与拒绝必须填五条专家清单，存 `expert_application.checklist`；标签授予后的分成不受题集影响 |
 

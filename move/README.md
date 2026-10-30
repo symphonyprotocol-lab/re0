@@ -159,6 +159,6 @@ aptos-anchoring-proposal.md
 - `.github/workflows/test.yml`：删掉 `move` job；
 - 九项 `APTOS_*` / `ANCHOR_LEAF_SALT_SECRET` 环境变量。
 
-`library_version.content_merkle_root` **留下**：它是版本自身的内容根，随发布计算，与锚定无关。
+`asset_version.content_merkle_root` **留下**：它是版本自身的内容根，随发布计算，与锚定无关。
 
 以上之外，共享代码里对存证的引用为零——没有页面 import 它、没有 i18n、没有权限、没有别的路由调它。
