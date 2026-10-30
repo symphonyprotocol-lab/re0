@@ -19,7 +19,7 @@
  * Pure TypeScript, no imports -- domain layer rules apply.
  */
 
-/** The id namespaces, current and reserved for P3 (proposal 3.2). */
+/** The asset id namespaces (proposal 3.2). */
 const NAMESPACES = ['websites', 'docs', 'notion', 'posts', 'audio', 'qa'] as const;
 
 /**
@@ -43,6 +43,8 @@ const ROUTES = [
   'libraries',
   'login',
   'mcp',
+  /* Signed redirects to article images and episode files (proposal 6.5, 6.6). */
+  'media',
   'playground',
   'pricing',
   'publishers',

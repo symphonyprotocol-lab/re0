@@ -20,6 +20,15 @@ ALTER TYPE "source_type" ADD VALUE IF NOT EXISTS 'editor';
 ALTER TYPE "source_type" ADD VALUE IF NOT EXISTS 'audio';
 --> statement-breakpoint
 
+-- --------------------------------------------------------- reserved names
+-- `/media/{id}` serves signed redirects to article images and episode files,
+-- so `media` joins the reserved names (lib/domain/reserved-names.ts). A
+-- workspace that already took it as its handle gets `user-` plus a digest,
+-- the same fallback 0062 used; a handle never names a path of the site's.
+UPDATE "workspace" SET "handle" = 'user-' || substr(md5("id"::text), 1, 6)
+  WHERE "handle" IN ('media');
+--> statement-breakpoint
+
 -- ----------------------------------------------------------------- channel
 ALTER TABLE "channel" ADD COLUMN "subscriptions_enabled_at" timestamp with time zone;
 --> statement-breakpoint
