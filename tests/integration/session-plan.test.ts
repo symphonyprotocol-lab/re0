@@ -4,10 +4,11 @@
  * Plan identity has one definition (lib/application/plans/billing.ts
  * `workspacePlanVersion`): an active subscription decides the plan only while
  * its own period contains now. `status = 'active'` alone is not that rule -- a
- * lapsed row whose status nobody has moved yet used to keep printing "Pro" in
- * the sidebar while billing and the quota transaction had already fallen back
- * to Free, so the badge sat beside Free's price and Free's allowance. This
- * asserts the session and the biller agree in all three cases.
+ * lapsed row whose status nobody has moved yet used to keep printing its
+ * allowance in the sidebar while billing and the quota transaction had already
+ * fallen back to the newest Free version. This asserts the session and the
+ * biller agree in all three cases, using a Free version of the test's own with
+ * an allowance the seeded one does not have.
  *
  * Runs only when TEST_DATABASE_URL points at a disposable database.
  */
@@ -34,7 +35,7 @@ const DAY_MS = 86_400_000;
 
 /**
  * A signed-in owner of a fresh workspace, optionally with a subscription on a
- * Pro version whose period is given by the caller.
+ * Free version of its own whose period is given by the caller.
  */
 async function signedIn(subscription?: {
   status: 'active';
@@ -65,14 +66,11 @@ async function signedIn(subscription?: {
     planVersions.push(planVersionId);
     await database.insert(schema.planVersion).values({
       id: planVersionId,
-      planId: 'pro',
-      priceMinor: 2000,
+      planId: 'free',
+      priceMinor: 0,
       currency: 'USD',
       monthlyCalls: 5_000,
-      libraryLimit: 10,
-      librarySizeBytesLimit: 1_000_000,
       apiKeyLimit: 5,
-      shareRateBps: 2000,
       capabilities: {},
       createdAt: new Date('2000-01-01T00:00:00Z'),
     });
@@ -117,7 +115,7 @@ describeWithDb('the plan a session reports', () => {
     }
   });
 
-  it('reports Pro while the subscription period contains now', async () => {
+  it('reports the subscribed version while its period contains now', async () => {
     const { token, workspaceId } = await signedIn({
       status: 'active',
       periodStart: new Date(Date.now() - DAY_MS),
@@ -127,7 +125,7 @@ describeWithDb('the plan a session reports', () => {
     const session = await resolveSession(token);
     const billed = await workspacePlanVersion(workspaceId);
 
-    expect(session?.workspace.planId).toBe('pro');
+    expect(session?.workspace.planId).toBe('free');
     expect(session?.workspace.monthlyCalls).toBe(5_000);
     expect(session?.workspace.planId).toBe(billed.planId);
     expect(session?.workspace.planName).toBe(billed.planName);

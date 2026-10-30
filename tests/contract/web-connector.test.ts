@@ -97,7 +97,6 @@ async function failureOf(promise: Promise<unknown>): Promise<string> {
 async function crawlPaths(pages: Record<string, Page>, indexDepth = 2) {
   const requests = serve(pages);
   const snapshot = await fetchWebSnapshot({
-    type: 'website',
     location: `${HOST}/docs/`,
     indexDepth,
   });
@@ -216,7 +215,6 @@ describe('discovery', () => {
       '/pricing': { body: html([]) },
     });
     const snapshot = await fetchWebSnapshot({
-      type: 'website',
       location: `${HOST}/docs`,
       indexDepth: 2,
     });
@@ -238,7 +236,6 @@ describe('discovery', () => {
       '/blog/post': { body: html([]) },
     });
     const snapshot = await fetchWebSnapshot({
-      type: 'website',
       location: `${HOST}/docs/index.html`,
       indexDepth: 2,
     });
@@ -284,7 +281,7 @@ describe('pages that need a browser', () => {
     renderer(null);
     serve({ '/docs/': { body: SHELL } });
     await expect(
-      failureOf(fetchWebSnapshot({ type: 'website', location: `${HOST}/docs/` })),
+      failureOf(fetchWebSnapshot({ location: `${HOST}/docs/` })),
     ).resolves.toBe('source_unrendered');
   });
 
@@ -305,7 +302,6 @@ describe('pages that need a browser', () => {
       { [`${HOST}/docs/`]: '# Docs\n\nRendered. See [routing](/docs/routing).' },
     );
     const snapshot = await fetchWebSnapshot({
-      type: 'website',
       location: `${HOST}/docs/`,
       indexDepth: 1,
     });
@@ -323,7 +319,7 @@ describe('pages that need a browser', () => {
       { '/docs/': { body: 'forbidden', status: 403 } },
       { [`${HOST}/docs/`]: '# Docs\n\nSeen by a browser.' },
     );
-    const snapshot = await fetchWebSnapshot({ type: 'website', location: `${HOST}/docs/` });
+    const snapshot = await fetchWebSnapshot({ location: `${HOST}/docs/` });
     expect(snapshot.files.map((f) => f.path)).toEqual(['docs.md']);
     const call = requests.find((r) => r.url.startsWith('https://r.jina.ai/'));
     expect(call?.url).toBe(`https://r.jina.ai/${HOST}/docs/`);
@@ -341,7 +337,7 @@ describe('pages that need a browser', () => {
     renderer('firecrawl');
     serve({ '/docs/': { body: 'forbidden', status: 403 } });
     await expect(
-      failureOf(fetchWebSnapshot({ type: 'website', location: `${HOST}/docs/` })),
+      failureOf(fetchWebSnapshot({ location: `${HOST}/docs/` })),
     ).resolves.toBe('source_forbidden');
   });
 
@@ -349,7 +345,7 @@ describe('pages that need a browser', () => {
     renderer('firecrawl');
     const requests = serve({}, { 'https://10.0.0.5/docs/': '# Internal' });
     await expect(
-      failureOf(fetchWebSnapshot({ type: 'website', location: 'https://10.0.0.5/docs/' })),
+      failureOf(fetchWebSnapshot({ location: 'https://10.0.0.5/docs/' })),
     ).resolves.toBe('source_forbidden');
     expect(requests).toHaveLength(0);
   });
@@ -358,7 +354,7 @@ describe('pages that need a browser', () => {
     renderer('firecrawl', '');
     serve({ '/docs/': { body: SHELL } }, { [`${HOST}/docs/`]: '# Docs' });
     await expect(
-      failureOf(fetchWebSnapshot({ type: 'website', location: `${HOST}/docs/` })),
+      failureOf(fetchWebSnapshot({ location: `${HOST}/docs/` })),
     ).resolves.toBe('source_unrendered');
   });
 
@@ -366,7 +362,7 @@ describe('pages that need a browser', () => {
     renderer('firecrawl', '');
     process.env.RENDER_PROVIDER_BASE_URL = 'http://firecrawl.internal:3002/';
     const requests = serve({ '/docs/': { body: SHELL } }, { [`${HOST}/docs/`]: '# Docs\n\nSelf-hosted.' });
-    const snapshot = await fetchWebSnapshot({ type: 'website', location: `${HOST}/docs/` });
+    const snapshot = await fetchWebSnapshot({ location: `${HOST}/docs/` });
     expect(snapshot.files[0]?.content).toContain('Self-hosted.');
     const call = requests.find((r) => r.url.startsWith('http://firecrawl.internal:3002/'));
     expect(call?.url).toBe('http://firecrawl.internal:3002/v2/scrape');
@@ -377,7 +373,7 @@ describe('pages that need a browser', () => {
     renderer('firecrawl', 'self-hosted-key');
     process.env.RENDER_PROVIDER_BASE_URL = 'http://firecrawl.internal:3002';
     const requests = serve({ '/docs/': { body: SHELL } }, { [`${HOST}/docs/`]: '# Docs\n\nGuarded.' });
-    const snapshot = await fetchWebSnapshot({ type: 'website', location: `${HOST}/docs/` });
+    const snapshot = await fetchWebSnapshot({ location: `${HOST}/docs/` });
     expect(snapshot.files[0]?.content).toContain('Guarded.');
     const call = requests.find((r) => r.url.startsWith('http://firecrawl.internal:3002/'));
     expect(call?.headers.get('authorization')).toBe('Bearer self-hosted-key');
@@ -390,7 +386,7 @@ describe('pages that need a browser', () => {
       { '/docs/': { body: SHELL }, __no_v2__: { body: '' } },
       { [`${HOST}/docs/`]: '# Docs\n\nOlder instance.' },
     );
-    const snapshot = await fetchWebSnapshot({ type: 'website', location: `${HOST}/docs/` });
+    const snapshot = await fetchWebSnapshot({ location: `${HOST}/docs/` });
     expect(snapshot.files[0]?.content).toContain('Older instance.');
     const versions = requests
       .filter((r) => r.url.startsWith('http://firecrawl.internal:3002/'))
@@ -403,67 +399,8 @@ describe('pages that need a browser', () => {
     process.env.RENDER_PROVIDER_BASE_URL = 'http://firecrawl.internal:3002';
     const requests = serve({}, { 'https://192.168.1.1/docs/': '# Router admin' });
     await expect(
-      failureOf(fetchWebSnapshot({ type: 'website', location: 'https://192.168.1.1/docs/' })),
+      failureOf(fetchWebSnapshot({ location: 'https://192.168.1.1/docs/' })),
     ).resolves.toBe('source_forbidden');
     expect(requests).toHaveLength(0);
-  });
-});
-
-describe('an llms.txt index', () => {
-  const md = (lines: string[]) => ({ body: lines.join('\n'), type: 'text/markdown' });
-
-  it('fetches only what the index lists unless told to follow nested indexes', async () => {
-    const requests = serve({
-      '/llms.txt': md(['See https://docs.example.test/dev/llms.txt', '- [Intro](https://docs.example.test/intro/)']),
-      '/dev/llms.txt': md(['- [API](https://docs.example.test/dev/api/)']),
-      '/intro/': { body: '<html><body><h1>Intro</h1></body></html>' },
-      '/dev/api/': { body: '<html><body><h1>API</h1></body></html>' },
-    });
-    const snapshot = await fetchWebSnapshot({ type: 'llms_txt', location: `${HOST}/llms.txt` });
-    expect(requests.map((request) => request.url.replace(HOST, '')).sort()).toEqual(['/intro/', '/llms.txt']);
-    expect(snapshot.files).toHaveLength(2);
-  });
-
-  it('fetches the listed documents and the ones a nested index lists, same host only', async () => {
-    const requests = serve({
-      '/llms.txt': md([
-        '# Site',
-        '',
-        '> For developers, see https://docs.example.test/dev/llms.txt and https://other.example.test/llms.txt.',
-        '',
-        '- [Intro](https://docs.example.test/intro/): start here',
-        '- [Elsewhere](https://other.example.test/page/): not ours',
-      ]),
-      '/dev/llms.txt': md([
-        '- [API](https://docs.example.test/dev/api/): the API',
-        '- [Deeper](https://docs.example.test/dev/deep/llms.txt): not followed twice',
-      ]),
-      '/intro/': { body: '<html><body><h1>Intro</h1><a href="/not-listed/">x</a></body></html>' },
-      '/dev/api/': { body: '<html><body><h1>API</h1></body></html>' },
-      '/dev/deep/llms.txt': md(['- [Too deep](https://docs.example.test/dev/deep/page/)']),
-      '/dev/deep/page/': { body: '<html><body><h1>Too deep</h1></body></html>' },
-      '/not-listed/': { body: '<html><body><h1>Unlisted</h1></body></html>' },
-    });
-    const snapshot = await fetchWebSnapshot({ type: 'llms_txt', location: `${HOST}/llms.txt`, indexDepth: 1 });
-    const fetched = requests.map((request) => request.url.replace(HOST, '')).sort();
-    expect(fetched).toEqual(['/dev/api/', '/dev/llms.txt', '/intro/', '/llms.txt']);
-    expect(fetched).not.toContain('/not-listed/');
-    expect(requests.some((request) => request.url.startsWith('https://other.example.test'))).toBe(false);
-    expect(snapshot.files.map((file) => file.path).sort()).toEqual(
-      ['dev/api.html', 'dev/llms.txt', 'intro.html', 'llms.txt'].sort(),
-    );
-  });
-
-  it('survives a dead link and a dead nested index', async () => {
-    serve({
-      '/llms.txt': md([
-        '- [Gone](https://docs.example.test/gone/)',
-        '- [Index gone](https://docs.example.test/gone/llms.txt)',
-        '- [Here](https://docs.example.test/here/)',
-      ]),
-      '/here/': { body: '<html><body><h1>Here</h1></body></html>' },
-    });
-    const snapshot = await fetchWebSnapshot({ type: 'llms_txt', location: `${HOST}/llms.txt`, indexDepth: 2 });
-    expect(snapshot.files.map((file) => file.path).sort()).toEqual(['here.html', 'llms.txt']);
   });
 });

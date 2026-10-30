@@ -4,6 +4,7 @@
  */
 import type { NextRequest } from 'next/server';
 import { NextResponse } from 'next/server';
+import { surfaceEnabled } from '@/lib/domain/surfaces';
 import { recordShowcaseFeedback, resolveShowcasePrincipal } from '@/lib/application/showcase';
 import { configuredBaseUrl } from '@/lib/http/base-url';
 import { rateLimitKey } from '@/lib/http/auth-endpoints';
@@ -17,6 +18,8 @@ export const runtime = 'nodejs';
 const RULE = { limit: 60, windowSeconds: 3_600 };
 
 export async function POST(request: NextRequest, context: { params: Promise<{ slug: string }> }): Promise<Response> {
+  /* agent-first-proposal.md 3.6: shared pages are offline. */
+  if (!surfaceEnabled('showcase')) return new NextResponse(null, { status: 404 });
   const { slug } = await context.params;
   const window = await strictRateLimit(await rateLimitKey(request, `showcase:feedback:${slug}`), RULE);
   if (!window.allowed) return new NextResponse(null, { status: 429, headers: { 'retry-after': String(window.retryAfterSeconds) } });

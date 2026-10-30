@@ -1,24 +1,24 @@
 /**
  * Use cases behind the settlements screen: the statements a period produced,
  * the periods that exist, and the step that turns a locked period's earning
- * events into statement rows.
+ * ledger into statement rows.
  *
- * publisher-revenue-share.md stage 1 keeps the books and stage 2 shows them;
- * neither moves money. `generateSettlements` is the console end of stage 1:
- * it locks a finished period (`closePeriod`, which is what freezes the pool)
- * and writes one `settlement` row per publisher library from the unflagged
- * events. Nothing here writes a `payout`. Statements leave the books two
- * ways: the publisher redeems them as Additional Calls from their dashboard
- * (lib/application/revenue/redeem-credit), which is why `redeemed` is a status
- * the console filters and totals but never sets; or the publisher requests a
- * PayPal payout, which an operator pays by hand and closes in ./payouts --
- * the only place a statement becomes `paid`.
+ * agent-first-proposal.md 6.9: the ledger keeps the books and the console
+ * shows them; neither moves money. `generateSettlements` is the console end of
+ * the close: it locks a finished period (`closePeriod`, which freezes the
+ * per-owner sums) and writes one `settlement` row per publisher account from
+ * the unflagged events. Nothing here writes a `payout`. Statements leave the
+ * books two ways: the creator redeems them as Additional Calls from their
+ * dashboard (lib/application/revenue/redeem-credit), which is why `redeemed`
+ * is a status the console filters and totals but never sets; or the creator
+ * requests a PayPal payout, which an operator pays by hand and closes in
+ * ./payouts -- the only place a statement becomes `paid`.
  *
  * Every write takes a reason and lands in the audit chain (requirement.md
  * 5.3): generating statements is the one console action that puts a number
- * against a publisher's name.
+ * against a creator's name.
  */
-import { and, count, desc, eq, ilike, inArray, or, sql } from 'drizzle-orm';
+import { and, count, desc, eq, ilike, inArray, ne, or, sql } from 'drizzle-orm';
 import { closePeriod } from '@/lib/application/revenue';
 import { PAYOUT_HOLD_DAYS, PAYOUT_THRESHOLD_MINOR } from '@/lib/domain';
 import {
@@ -57,12 +57,9 @@ export type SettlementStatus = Exclude<SettlementStatusFilter, 'all'>;
 export interface ConsoleSettlementRow {
   id: string;
   periodId: string;
-  /** The owning workspace's name -- the publisher as the console knows them. */
+  /** The owning workspace's name -- the creator as the console knows them. */
   publisherName: string;
   publisherWorkspaceId: string;
-  libraryPublicId: string;
-  libraryTitle: string;
-  attributableCalls: number;
   amountMinor: number;
   currency: string;
   status: SettlementStatus;
@@ -100,8 +97,6 @@ export async function listSettlements(input: SettlementListInput = {}): Promise<
     term
       ? or(
           ilike(schema.workspace.name, likePattern(term)),
-          ilike(schema.library.publicId, likePattern(term)),
-          ilike(schema.library.title, likePattern(term)),
           sql`${schema.settlement.id}::text ilike ${likePattern(term)}`,
         )
       : undefined,
@@ -117,9 +112,6 @@ export async function listSettlements(input: SettlementListInput = {}): Promise<
         periodId: schema.settlement.periodId,
         publisherName: schema.workspace.name,
         publisherWorkspaceId: schema.workspace.id,
-        libraryPublicId: schema.library.publicId,
-        libraryTitle: schema.library.title,
-        attributableCalls: schema.settlement.attributableCalls,
         amountMinor: schema.settlement.amountMinor,
         currency: schema.settlement.currency,
         status: schema.settlement.status,
@@ -133,7 +125,6 @@ export async function listSettlements(input: SettlementListInput = {}): Promise<
         eq(schema.publisherAccount.id, schema.settlement.publisherAccountId),
       )
       .innerJoin(schema.workspace, eq(schema.workspace.id, schema.publisherAccount.workspaceId))
-      .innerJoin(schema.library, eq(schema.library.id, schema.settlement.libraryId))
       .innerJoin(schema.revenuePeriod, eq(schema.revenuePeriod.id, schema.settlement.periodId))
       .where(where);
 
@@ -150,7 +141,6 @@ export async function listSettlements(input: SettlementListInput = {}): Promise<
         eq(schema.publisherAccount.id, schema.settlement.publisherAccountId),
       )
       .innerJoin(schema.workspace, eq(schema.workspace.id, schema.publisherAccount.workspaceId))
-      .innerJoin(schema.library, eq(schema.library.id, schema.settlement.libraryId))
       .where(where),
   ]);
 
@@ -158,7 +148,6 @@ export async function listSettlements(input: SettlementListInput = {}): Promise<
     total: totalRow?.n ?? 0,
     rows: rows.map((row) => ({
       ...row,
-      attributableCalls: Number(row.attributableCalls),
       amountMinor: Number(row.amountMinor),
       status: row.status as SettlementStatus,
       holdEndsAt: row.lockedAt ? holdEndsAt(row.lockedAt, PAYOUT_HOLD_DAYS) : null,
@@ -191,14 +180,13 @@ export interface SettlementPeriodView {
   id: string;
   locked: boolean;
   lockedAt: Date | null;
-  netRevenueMinor: number;
-  poolMinor: number;
-  totalBilledCalls: number;
-  totalAttributableCalls: number;
-  shareRateBps: number;
+  /** Frozen by the close; zero while the period is open. */
+  totalAmountMinor: number;
   currency: string;
   /** Unflagged earning events recorded against the period so far. */
   events: number;
+  /** Their amounts summed, as they stand -- the close freezes this into `totalAmountMinor`. */
+  eventsMinor: number;
   /** Statement rows written, and the amount they carry. */
   statements: number;
   settledMinor: number;
@@ -219,7 +207,11 @@ export async function settlementPeriods(now: Date = new Date()): Promise<Settlem
   const [periodRows, eventRows, statementRows] = await Promise.all([
     database.select().from(schema.revenuePeriod).orderBy(desc(schema.revenuePeriod.id)),
     database
-      .select({ periodId: schema.earningEvent.periodId, n: count() })
+      .select({
+        periodId: schema.earningEvent.periodId,
+        n: count(),
+        minor: sql<number>`coalesce(sum(${schema.earningEvent.amountMinor}), 0)::bigint`,
+      })
       .from(schema.earningEvent)
       .where(eq(schema.earningEvent.flagged, false))
       .groupBy(schema.earningEvent.periodId),
@@ -233,7 +225,7 @@ export async function settlementPeriods(now: Date = new Date()): Promise<Settlem
       .groupBy(schema.settlement.periodId),
   ]);
 
-  const eventsById = new Map(eventRows.map((row) => [row.periodId, row.n]));
+  const eventsById = new Map(eventRows.map((row) => [row.periodId, row]));
   const statementsById = new Map(statementRows.map((row) => [row.periodId, row]));
   const periodById = new Map(periodRows.map((row) => [row.id, row]));
 
@@ -244,18 +236,16 @@ export async function settlementPeriods(now: Date = new Date()): Promise<Settlem
     .slice(0, PERIODS_SHOWN)
     .map((id) => {
       const period = periodById.get(id);
+      const events = eventsById.get(id);
       const statements = statementsById.get(id);
       return {
         id,
         locked: Boolean(period?.lockedAt),
         lockedAt: period?.lockedAt ?? null,
-        netRevenueMinor: Number(period?.netRevenueMinor ?? 0),
-        poolMinor: Number(period?.poolMinor ?? 0),
-        totalBilledCalls: Number(period?.totalBilledCalls ?? 0),
-        totalAttributableCalls: Number(period?.totalAttributableCalls ?? 0),
-        shareRateBps: period?.shareRateBps ?? 0,
+        totalAmountMinor: Number(period?.totalAmountMinor ?? 0),
         currency: period?.currency ?? 'USD',
-        events: eventsById.get(id) ?? 0,
+        events: events?.n ?? 0,
+        eventsMinor: Number(events?.minor ?? 0),
         statements: statements?.n ?? 0,
         settledMinor: Number(statements?.minor ?? 0),
         settleable: isSettleablePeriod(id, now),
@@ -272,13 +262,13 @@ export interface SettlementSummary {
    */
   accruedMinor: number;
   accruedCount: number;
-  /** Publishers with something owed. */
+  /** Creators with something owed. */
   publishers: number;
   /** The `held` part of `accruedMinor`: waiting in the payout queue. */
   inPayoutMinor: number;
   /** Money that left the books, and money that came back or was voided. */
   paidMinor: number;
-  /** Statements discharged as Additional Calls instead (share doc 3.4). */
+  /** Statements discharged as Additional Calls instead. */
   redeemedMinor: number;
   reversedMinor: number;
   currency: string;
@@ -325,8 +315,8 @@ export interface GenerateSettlementsResult {
   periodId: string;
   /** Whether the period was already locked before this run. */
   alreadyLocked: boolean;
-  poolMinor: number;
-  totalAttributableCalls: number;
+  /** The period's frozen total, all owners together. */
+  totalAmountMinor: number;
   created: number;
   createdMinor: number;
   withoutAccount: number;
@@ -334,39 +324,32 @@ export interface GenerateSettlementsResult {
 }
 
 /**
- * The statement digest: a stable hash of what the row asserts, so a later
- * Earning Anchor (publisher-revenue-share.md 6.4) has something to commit to
- * and a publisher can check their statement was not rewritten afterwards.
+ * The statement digest: a stable hash of what the row asserts, so the
+ * earning anchor (`earningStatementLeaf`) has something to commit to and a
+ * creator can check their statement was not rewritten afterwards.
  * Length-prefixed like the audit hash, for the same reason.
  */
 async function statementDigest(row: {
   periodId: string;
   publisherAccountId: string;
-  libraryId: string;
-  attributableCalls: number;
   amountMinor: number;
   currency: string;
 }): Promise<string> {
-  const parts = [
-    row.periodId,
-    row.publisherAccountId,
-    row.libraryId,
-    String(row.attributableCalls),
-    String(row.amountMinor),
-    row.currency,
-  ];
+  const parts = [row.periodId, row.publisherAccountId, String(row.amountMinor), row.currency];
   return sha256(parts.map((part) => `${part.length}:${part}`).join('|'));
 }
 
 /**
- * Lock a finished period and write the statements its events earned.
+ * Lock a finished period and write the statements its ledger earned.
  *
- * Idempotent in both halves: `closePeriod` returns the frozen figures of a
- * period that is already locked rather than recomputing them, and the plan
- * skips any library that already has a statement for the period. So a second
- * press writes nothing -- unless a publisher accepted the agreement in between,
- * in which case only their rows appear. Owners without a publisher account are
- * counted and left for next time; their events are not lost.
+ * Idempotent in both halves: `closePeriod` returns the frozen total of a
+ * period that is already locked rather than recomputing it, and the plan
+ * writes only the difference between an account's events and what its
+ * statements already assert. So a second press writes nothing -- unless a
+ * creator accepted the agreement in between (their row appears), or an event
+ * landed in the locked period since (one correction row for the difference).
+ * Owners without a publisher account are counted and left for next time;
+ * their events are not lost.
  */
 export async function generateSettlements(input: {
   actor: { administratorId: string; email: string; clientAddress?: string | null };
@@ -393,11 +376,16 @@ export async function generateSettlements(input: {
       throw new AdminChangeRefused('period_invalid', 'the period did not lock');
     }
 
-    const groups = await tx
+    /*
+     * Summed again under the lock rather than trusted from `closed`: the
+     * events are frozen in practice once the period locks, but the statement
+     * is what the creator is owed and must be derived from the rows this
+     * transaction can see.
+     */
+    const owners = await tx
       .select({
         ownerWorkspaceId: schema.earningEvent.ownerWorkspaceId,
-        libraryId: schema.earningEvent.libraryId,
-        calls: sql<number>`count(*)::int`,
+        amountMinor: sql<number>`coalesce(sum(${schema.earningEvent.amountMinor}), 0)::bigint`,
       })
       .from(schema.earningEvent)
       .where(
@@ -406,32 +394,40 @@ export async function generateSettlements(input: {
           eq(schema.earningEvent.flagged, false),
         ),
       )
-      .groupBy(schema.earningEvent.ownerWorkspaceId, schema.earningEvent.libraryId)
-      .orderBy(schema.earningEvent.ownerWorkspaceId, schema.earningEvent.libraryId);
+      .groupBy(schema.earningEvent.ownerWorkspaceId)
+      .orderBy(schema.earningEvent.ownerWorkspaceId);
 
-    const owners = [...new Set(groups.map((group) => group.ownerWorkspaceId))];
+    const workspaceIds = owners.map((owner) => owner.ownerWorkspaceId);
     const accountRows =
-      owners.length === 0
+      workspaceIds.length === 0
         ? []
         : await tx
             .select({ id: schema.publisherAccount.id, workspaceId: schema.publisherAccount.workspaceId })
             .from(schema.publisherAccount)
-            .where(inArray(schema.publisherAccount.workspaceId, owners));
+            .where(inArray(schema.publisherAccount.workspaceId, workspaceIds));
+    /*
+     * What each account's statements for the period already assert, so a
+     * late event (a chargeback booked back into a locked month) becomes one
+     * more row for the difference rather than nothing. A voided statement
+     * asserted nothing and is left out of the sum.
+     */
     const existingRows = await tx
-      .select({ libraryId: schema.settlement.libraryId })
+      .select({
+        publisherAccountId: schema.settlement.publisherAccountId,
+        amountMinor: sql<number>`coalesce(sum(${schema.settlement.amountMinor}), 0)::bigint`,
+      })
       .from(schema.settlement)
-      .where(eq(schema.settlement.periodId, input.periodId));
+      .where(and(eq(schema.settlement.periodId, input.periodId), ne(schema.settlement.status, 'voided')))
+      .groupBy(schema.settlement.publisherAccountId);
 
     const plan = planSettlementStatements({
-      period: {
-        id: input.periodId,
-        poolMinor: Number(period.poolMinor),
-        totalAttributableCalls: Number(period.totalAttributableCalls),
-        currency: period.currency,
-      },
-      groups,
+      period: { id: input.periodId, currency: period.currency },
+      owners: owners.map((owner) => ({
+        ownerWorkspaceId: owner.ownerWorkspaceId,
+        amountMinor: Number(owner.amountMinor),
+      })),
       accounts: new Map(accountRows.map((row) => [row.workspaceId, row.id])),
-      existing: new Set(existingRows.map((row) => row.libraryId)),
+      existing: new Map(existingRows.map((row) => [row.publisherAccountId, Number(row.amountMinor)])),
     });
 
     if (plan.rows.length > 0) {
@@ -447,12 +443,7 @@ export async function generateSettlements(input: {
       );
     }
 
-    return {
-      plan,
-      existing: existingRows.length,
-      poolMinor: Number(period.poolMinor),
-      totalAttributableCalls: Number(period.totalAttributableCalls),
-    };
+    return { plan, existing: existingRows.length, totalAmountMinor: Number(period.totalAmountMinor) };
   });
 
   const createdMinor = outcome.plan.rows.reduce((sum, row) => sum + row.amountMinor, 0);
@@ -469,8 +460,7 @@ export async function generateSettlements(input: {
     },
     afterValue: {
       locked: true,
-      poolMinor: outcome.poolMinor,
-      totalAttributableCalls: outcome.totalAttributableCalls,
+      totalAmountMinor: outcome.totalAmountMinor,
       statements: outcome.existing + outcome.plan.rows.length,
       created: outcome.plan.rows.length,
       createdMinor,
@@ -483,8 +473,7 @@ export async function generateSettlements(input: {
   return {
     periodId: input.periodId,
     alreadyLocked: closed.alreadyLocked,
-    poolMinor: outcome.poolMinor,
-    totalAttributableCalls: outcome.totalAttributableCalls,
+    totalAmountMinor: outcome.totalAmountMinor,
     created: outcome.plan.rows.length,
     createdMinor,
     withoutAccount: outcome.plan.withoutAccount,

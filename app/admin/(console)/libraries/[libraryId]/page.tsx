@@ -15,14 +15,12 @@ import {
   TD,
   TH,
 } from '@/components/admin/ui';
-import { PlatformBenchmarkPanel } from '@/components/admin/platform-benchmark-panel';
 import { ReviewProbe } from '@/components/admin/review-probe';
 import { describeReviewNote } from '@/lib/domain/review';
 import { UserReviewControls } from '@/components/admin/user-library-controls';
 import Link from 'next/link';
 import { ChevronLeftIcon, LockIcon } from '@/components/ui/icons';
 import {
-  getLibraryBenchmark,
   getUserLibrary,
   listFlaggedDocuments,
   listReviewDocuments,
@@ -34,12 +32,8 @@ import { fill } from '@/lib/i18n/format';
 import { getMessages } from '@/lib/i18n/server';
 import { bytes, initialsOf, utcStamp } from '../../list-params';
 import {
-  addReviewEvalQuestionAction,
-  adoptReviewEvalQuestionAction,
   probeUserLibraryAction,
-  removeReviewEvalQuestionAction,
   reviewUserLibraryAction,
-  runReviewEvaluationAction,
 } from '../actions';
 
 const loadLibrary = cache(getUserLibrary);
@@ -96,16 +90,15 @@ export default async function AdminUserLibraryPage({
   const docsPage = documentsPage(query.docs);
   const docsSize = documentsPageSize(query.size);
   const versionId = record.versions.find((version) => version.isCurrent)?.id ?? null;
-  const [score, benchmark, documents, flagged] = reviewing
+  const [score, documents, flagged] = reviewing
     ? await Promise.all([
         reviewScore(record.id),
-        getLibraryBenchmark(record.id),
         versionId
           ? listReviewDocuments({ libraryId: record.id, versionId, limit: docsSize, offset: (docsPage - 1) * docsSize })
           : Promise.resolve({ documents: [], total: 0 }),
         versionId ? listFlaggedDocuments({ libraryId: record.id, versionId }) : Promise.resolve([]),
       ])
-    : [null, null, { documents: [], total: 0 }, []];
+    : [null, { documents: [], total: 0 }, []];
   const docsPages = Math.max(1, Math.ceil(documents.total / docsSize));
   const docsHref = (page: number, size: number = docsSize) =>
     `/admin/libraries/${record.id}?docs=${page}&size=${size}#documents`;
@@ -231,7 +224,7 @@ export default async function AdminUserLibraryPage({
 
       {reviewing ? (
         <>
-          {/* What the owner declared, and the question set the expert gate judges (review-visibility-proposal.md 5). */}
+          {/* What the owner declared (review-visibility-proposal.md 5.1). */}
           <Panel>
             <PanelHead title={d.materials.title} description={d.materials.description} />
             <dl className="grid grid-cols-1 gap-x-6 px-[19px] py-1 sm:grid-cols-2">
@@ -256,10 +249,6 @@ export default async function AdminUserLibraryPage({
                   <Fact label={d.materials.rights} value={<Pill tone="danger">{d.materials.undeclared}</Pill>} />
                 </div>
               )}
-              <Fact
-                label={d.materials.questions}
-                value={fill(d.materials.questionsValue, { total: record.materials.questions, owner: record.materials.ownerQuestions })}
-              />
             </dl>
           </Panel>
 
@@ -282,18 +271,6 @@ export default async function AdminUserLibraryPage({
               {d.scores.note}
             </p>
           </Panel>
-
-          {benchmark ? (
-            <PlatformBenchmarkPanel
-              libraryId={record.id}
-              view={benchmark}
-              canEvaluate={versionId !== null}
-              addAction={addReviewEvalQuestionAction}
-              removeAction={removeReviewEvalQuestionAction}
-              runAction={runReviewEvaluationAction}
-              adoptAction={adoptReviewEvalQuestionAction}
-            />
-          ) : null}
 
           <ReviewProbe libraryId={record.id} ready={record.hasReadyVersion} action={probeUserLibraryAction} />
 

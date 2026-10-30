@@ -2,10 +2,10 @@
  * Applying Payment Provider notifications against a real database.
  *
  * Everything that matters here is a conditional write -- the event key, the
- * subscription's ordering guard, the pack grant's order key -- so it is tested
- * against Postgres rather than a mock of it. The notifications are built in
- * the adapter's output shape, which is what the use case accepts; the Paddle
- * mapping that produces them is covered in tests/contract/paddle.test.ts.
+ * pack grant's order key, the storage tier that only ever goes up -- so it is
+ * tested against Postgres rather than a mock of it. The notifications are
+ * built in the adapter's output shape, which is what the use case accepts; the
+ * Paddle mapping that produces them is covered in tests/contract/paddle.test.ts.
  *
  * Runs only when TEST_DATABASE_URL points at a disposable database.
  */
@@ -18,51 +18,26 @@ const describeWithDb = TEST_DATABASE_URL ? describe : describe.skip;
 process.env.DATABASE_URL = TEST_DATABASE_URL ?? 'postgres://unused';
 process.env.SESSION_SIGNING_SECRET ??= 'test-secret-that-is-long-enough-000000';
 
-const { applyPaymentNotification } = await import('@/lib/application/billing/webhook');
-const { hasPaidSubscription, planWindow } = await import('@/lib/application/plans/quota');
-const { workspacePlanVersion } = await import('@/lib/application/plans/billing');
+const { applyPaymentNotification, workspaceProviderCustomer } = await import('@/lib/application/billing/webhook');
+const { workspaceStorage } = await import('@/lib/application/plans/storage');
 const { PLAN_VERSION_NEWEST_FIRST } = await import('@/lib/application/plans/configuration');
 const { db, schema } = await import('@/lib/infrastructure/postgres/client');
 const { uuidv7 } = await import('@/lib/domain/id');
 type Notification = import('@/lib/infrastructure/payment/provider').PaymentNotification;
 type DocumentNotice = import('@/lib/infrastructure/payment/provider').ProviderDocumentNotice;
-type SubscriptionNotice = import('@/lib/infrastructure/payment/provider').ProviderSubscriptionNotice;
 
 const workspaceId = uuidv7();
+const ownerId = uuidv7();
 const tag = workspaceId.slice(0, 8);
 /* A provider name of its own, so cleanup cannot touch another file's rows. */
 const provider = `test-${tag}`;
-const subscriptionId = `sub_${tag}`;
 
 const DAY = 86_400_000;
 const T0 = new Date(Date.now() - DAY);
 
-let proVersion = '';
 let addonVersion = '';
 let addonCalls = 0;
 let eventCounter = 0;
-
-function subscriptionEvent(notice: Partial<SubscriptionNotice>, eventId?: string): Notification {
-  return {
-    provider,
-    externalEventId: eventId ?? `evt_${tag}_${++eventCounter}`,
-    eventType: 'subscription.updated',
-    payload: { test: true },
-    subject: 'subscription',
-    subscription: {
-      externalId: subscriptionId,
-      customerId: `ctm_${tag}`,
-      status: 'active',
-      periodStart: T0,
-      periodEnd: new Date(T0.getTime() + 30 * DAY),
-      cancelAt: null,
-      workspaceId,
-      planVersionId: proVersion,
-      observedAt: T0,
-      ...notice,
-    },
-  };
-}
 
 function documentEvent(notice: Partial<DocumentNotice> & { document: DocumentNotice['document'] }): Notification {
   return {
@@ -83,16 +58,12 @@ function documentEvent(notice: Partial<DocumentNotice> & { document: DocumentNot
   };
 }
 
-async function workspaceSubscriptions() {
-  return db()
-    .select({
-      status: schema.subscription.status,
-      planVersionId: schema.subscription.planVersionId,
-      providerSubscriptionId: schema.subscription.providerSubscriptionId,
-      periodEnd: schema.subscription.periodEnd,
-    })
-    .from(schema.subscription)
-    .where(eq(schema.subscription.workspaceId, workspaceId));
+async function ownerTier(): Promise<string> {
+  const [row] = await db()
+    .select({ tier: schema.user.storageTier })
+    .from(schema.user)
+    .where(eq(schema.user.id, ownerId));
+  return row!.tier;
 }
 
 describeWithDb('applying payment notifications', () => {
@@ -107,16 +78,19 @@ describeWithDb('applying payment notifications', () => {
           .orderBy(...PLAN_VERSION_NEWEST_FIRST)
           .limit(1)
       )[0]!;
-    const [free, pro, addon] = await Promise.all([newest('free'), newest('pro'), newest('addon')]);
-    proVersion = pro.id;
+    const [free, addon] = await Promise.all([newest('free'), newest('addon')]);
     addonVersion = addon.id;
     addonCalls = addon.monthlyCalls;
 
+    await database.insert(schema.user).values({
+      id: ownerId,
+      email: `webhook-${tag}@example.test`,
+      displayName: 'Webhook Owner',
+      status: 'active',
+    });
     await database.insert(schema.workspace).values({ id: workspaceId, name: 'Webhook Fixture' });
-    /*
-     * The Free row signup writes, ending later than the paid one will -- the
-     * case "furthest end wins" used to get wrong.
-     */
+    await database.insert(schema.workspaceMember).values({ workspaceId, userId: ownerId, role: 'owner' });
+    /* The Free row signup writes: the one row every workspace has. */
     await database.insert(schema.subscription).values({
       id: uuidv7(),
       workspaceId,
@@ -133,123 +107,20 @@ describeWithDb('applying payment notifications', () => {
     await database.delete(schema.addonGrant).where(eq(schema.addonGrant.workspaceId, workspaceId));
     await database.delete(schema.subscription).where(eq(schema.subscription.workspaceId, workspaceId));
     await database.delete(schema.paymentEvent).where(eq(schema.paymentEvent.provider, provider));
+    await database.delete(schema.workspaceMember).where(eq(schema.workspaceMember.workspaceId, workspaceId));
     await database.delete(schema.workspace).where(eq(schema.workspace.id, workspaceId));
+    await database.delete(schema.user).where(eq(schema.user.id, ownerId));
   });
 
-  it('puts a new paid subscription in force over a Free row that ends later', async () => {
-    expect(await hasPaidSubscription(workspaceId)).toBe(false);
-
-    const first = subscriptionEvent({}, `evt_${tag}_created`);
-    expect(await applyPaymentNotification(first)).toBe('applied');
-
-    const rows = await workspaceSubscriptions();
-    const paid = rows.find((row) => row.providerSubscriptionId === subscriptionId);
-    expect(paid).toMatchObject({ status: 'active', planVersionId: proVersion });
-    /* Untouched: which row is in force is decided by reading, not by writing. */
-    expect(rows.find((row) => row.providerSubscriptionId === null)?.status).toBe('active');
-    expect(await hasPaidSubscription(workspaceId)).toBe(true);
-    expect((await workspacePlanVersion(workspaceId)).planId).toBe('pro');
+  it('starts every workspace on the base storage tier', async () => {
+    expect(await ownerTier()).toBe('base');
+    const storage = await workspaceStorage(workspaceId);
+    expect(storage.tier).toBe('base');
+    expect(storage.capacityBytes).toBe(500 * 1_048_576);
+    expect(await workspaceProviderCustomer(workspaceId)).toBeNull();
   });
 
-  it('does nothing with a redelivered event', async () => {
-    const again = subscriptionEvent({ status: 'canceled' }, `evt_${tag}_created`);
-    expect(await applyPaymentNotification(again)).toBe('redelivered');
-    expect(await hasPaidSubscription(workspaceId)).toBe(true);
-  });
-
-  it('refuses an event older than the state the row holds', async () => {
-    const late = subscriptionEvent({ status: 'past_due', observedAt: new Date(T0.getTime() - DAY) });
-    expect(await applyPaymentNotification(late)).toBe('stale');
-    const [paid] = (await workspaceSubscriptions()).filter((row) => row.providerSubscriptionId);
-    expect(paid?.status).toBe('active');
-  });
-
-  it('moves the period on renewal but never the Plan Version', async () => {
-    const renewedEnd = new Date(T0.getTime() + 60 * DAY);
-    const renewal = subscriptionEvent({
-      periodStart: new Date(T0.getTime() + 30 * DAY),
-      periodEnd: renewedEnd,
-      /* A tag naming another version must not migrate the subscriber. */
-      planVersionId: addonVersion,
-      observedAt: new Date(T0.getTime() + 1000),
-    });
-    expect(await applyPaymentNotification(renewal)).toBe('applied');
-    const [paid] = (await workspaceSubscriptions()).filter((row) => row.providerSubscriptionId);
-    expect(paid?.periodEnd).toEqual(renewedEnd);
-    expect(paid?.planVersionId).toBe(proVersion);
-  });
-
-  it('records a scheduled cancellation, keeps Pro until it lands, and clears it when withdrawn', async () => {
-    /* A period that contains now, so the row is in force while the cancellation waits. */
-    const cancelAt = new Date(T0.getTime() + 30 * DAY);
-    const cancelling = subscriptionEvent({
-      periodStart: T0,
-      periodEnd: cancelAt,
-      cancelAt,
-      observedAt: new Date(T0.getTime() + 1500),
-    });
-    expect(await applyPaymentNotification(cancelling)).toBe('applied');
-    expect(await hasPaidSubscription(workspaceId)).toBe(true);
-    expect((await workspacePlanVersion(workspaceId)).renewal).toEqual({ kind: 'cancels', at: cancelAt });
-
-    const withdrawn = subscriptionEvent({
-      periodStart: T0,
-      periodEnd: cancelAt,
-      observedAt: new Date(T0.getTime() + 1600),
-    });
-    expect(await applyPaymentNotification(withdrawn)).toBe('applied');
-    expect((await workspacePlanVersion(workspaceId)).renewal).toEqual({ kind: 'renews', at: cancelAt });
-  });
-
-  it('keeps Pro in force between the period end and the renewal webhook', async () => {
-    /* A period that ended a minute ago, with the renewal not yet reported. */
-    const ended = new Date(Date.now() - 60_000);
-    const lapsing = subscriptionEvent({
-      periodStart: new Date(ended.getTime() - 30 * DAY),
-      periodEnd: ended,
-      observedAt: new Date(T0.getTime() + 2000),
-    });
-    expect(await applyPaymentNotification(lapsing)).toBe('applied');
-
-    expect(await hasPaidSubscription(workspaceId)).toBe(true);
-    const window = await db().transaction((tx) => planWindow(tx, workspaceId));
-    expect(window.planVersionId).toBe(proVersion);
-    /* Counting starts afresh at the old end, not over last month's usage. */
-    expect(window.periodStart).toEqual(ended);
-  });
-
-  it('places an untagged renewal document through the subscription it bills', async () => {
-    const outcome = await applyPaymentNotification(
-      documentEvent({
-        subscriptionExternalId: subscriptionId,
-        document: {
-          provider,
-          externalId: `txn_${tag}_renewal`,
-          kind: 'subscription',
-          status: 'paid',
-          amountMinor: 500,
-          refundedMinor: 0,
-          currency: 'USD',
-          method: 'card',
-        },
-      }),
-    );
-    expect(outcome).toBe('applied');
-
-    const [document] = await db()
-      .select({
-        workspaceId: schema.billingDocument.workspaceId,
-        planVersionId: schema.billingDocument.planVersionId,
-        subscriptionId: schema.billingDocument.subscriptionId,
-      })
-      .from(schema.billingDocument)
-      .where(eq(schema.billingDocument.externalId, `txn_${tag}_renewal`));
-    expect(document?.workspaceId).toBe(workspaceId);
-    expect(document?.planVersionId).toBe(proVersion);
-    expect(document?.subscriptionId).not.toBeNull();
-  });
-
-  it('grants a paid pack once, however many collected events report it', async () => {
+  it('grants a paid pack once, however many collected events report it, and raises the storage tier for good', async () => {
     const pack = (status: 'paid' | 'refunded', observedAt: Date) =>
       documentEvent({
         workspaceId,
@@ -267,9 +138,16 @@ describeWithDb('applying payment notifications', () => {
       });
 
     expect(await applyPaymentNotification(pack('paid', T0))).toBe('applied');
+    /* agent-first-proposal.md 8.1: the first pack moves the buyer to 2 GB. */
+    expect(await ownerTier()).toBe('extended');
+    expect((await workspaceStorage(workspaceId)).capacityBytes).toBe(2_048 * 1_048_576);
+    /* The portal has a customer to open as soon as there is a receipt. */
+    expect(await workspaceProviderCustomer(workspaceId)).toBe(`ctm_${tag}`);
+
     expect(await applyPaymentNotification(pack('paid', new Date(T0.getTime() + 1000)))).toBe('applied');
-    /* A refund later on does not take the delivered calls back. */
+    /* A refund later on does not take the delivered calls back, nor the tier. */
     expect(await applyPaymentNotification(pack('refunded', new Date(T0.getTime() + 2000)))).toBe('applied');
+    expect(await ownerTier()).toBe('extended');
 
     const grants = await db()
       .select({ id: schema.addonGrant.id, calls: schema.addonGrant.callsGranted })
@@ -279,10 +157,110 @@ describeWithDb('applying payment notifications', () => {
     expect(grants[0]?.calls).toBe(addonCalls);
 
     const [document] = await db()
-      .select({ status: schema.billingDocument.status, addonGrantId: schema.billingDocument.addonGrantId })
+      .select({
+        status: schema.billingDocument.status,
+        addonGrantId: schema.billingDocument.addonGrantId,
+        planVersionId: schema.billingDocument.planVersionId,
+      })
       .from(schema.billingDocument)
       .where(eq(schema.billingDocument.externalId, `txn_${tag}_pack`));
-    expect(document).toEqual({ status: 'refunded', addonGrantId: grants[0]?.id });
+    expect(document).toEqual({ status: 'refunded', addonGrantId: grants[0]?.id, planVersionId: addonVersion });
+  });
+
+  it('does nothing with a redelivered event', async () => {
+    const first = documentEvent({
+      workspaceId,
+      planVersionId: addonVersion,
+      document: {
+        provider,
+        externalId: `txn_${tag}_pack_two`,
+        kind: 'pack',
+        status: 'paid',
+        amountMinor: 500,
+        currency: 'USD',
+      },
+    });
+    expect(await applyPaymentNotification(first)).toBe('applied');
+    expect(await applyPaymentNotification(first)).toBe('redelivered');
+    const grants = await db()
+      .select({ id: schema.addonGrant.id })
+      .from(schema.addonGrant)
+      .where(eq(schema.addonGrant.providerOrderId, `txn_${tag}_pack_two`));
+    expect(grants).toHaveLength(1);
+  });
+
+  it('refuses an event older than the state the document holds', async () => {
+    const late = documentEvent({
+      workspaceId,
+      planVersionId: addonVersion,
+      observedAt: new Date(T0.getTime() - DAY),
+      document: {
+        provider,
+        externalId: `txn_${tag}_pack`,
+        kind: 'pack',
+        status: 'paid',
+        amountMinor: 500,
+        refundedMinor: 0,
+        currency: 'USD',
+      },
+    });
+    expect(await applyPaymentNotification(late)).toBe('stale');
+    const [document] = await db()
+      .select({ status: schema.billingDocument.status })
+      .from(schema.billingDocument)
+      .where(eq(schema.billingDocument.externalId, `txn_${tag}_pack`));
+    expect(document?.status).toBe('refunded');
+  });
+
+  it('mirrors a charge from a subscription sold before Pro was removed, bound to nothing', async () => {
+    const outcome = await applyPaymentNotification(
+      documentEvent({
+        workspaceId,
+        subscriptionExternalId: `sub_${tag}_legacy`,
+        document: {
+          provider,
+          externalId: `txn_${tag}_legacy`,
+          kind: 'subscription',
+          status: 'paid',
+          amountMinor: 500,
+          refundedMinor: 0,
+          currency: 'USD',
+          method: 'card',
+          periodStart: T0,
+          periodEnd: new Date(T0.getTime() + 30 * DAY),
+        },
+      }),
+    );
+    expect(outcome).toBe('applied');
+
+    const [document] = await db()
+      .select({
+        workspaceId: schema.billingDocument.workspaceId,
+        planVersionId: schema.billingDocument.planVersionId,
+        subscriptionId: schema.billingDocument.subscriptionId,
+        addonGrantId: schema.billingDocument.addonGrantId,
+      })
+      .from(schema.billingDocument)
+      .where(eq(schema.billingDocument.externalId, `txn_${tag}_legacy`));
+    expect(document).toEqual({ workspaceId, planVersionId: null, subscriptionId: null, addonGrantId: null });
+  });
+
+  it('ignores a subscription event outright, recording nothing', async () => {
+    const notification: Notification = {
+      provider,
+      externalEventId: `evt_${tag}_subscription`,
+      eventType: 'subscription.updated',
+      payload: { test: true },
+      subject: 'ignored',
+    };
+    expect(await applyPaymentNotification(notification)).toBe('ignored');
+    const recorded = await db()
+      .select({ id: schema.paymentEvent.id })
+      .from(schema.paymentEvent)
+      .where(
+        and(eq(schema.paymentEvent.provider, provider), eq(schema.paymentEvent.externalEventId, `evt_${tag}_subscription`)),
+      );
+    expect(recorded).toHaveLength(0);
   });
 
   it('records what it cannot place, so a retry is not attempted forever', async () => {
@@ -304,7 +282,7 @@ describeWithDb('applying payment notifications', () => {
       document: {
         provider,
         externalId: `txn_${tag}_garbled`,
-        kind: 'subscription',
+        kind: 'pack',
         status: 'paid',
         amountMinor: 500,
         currency: 'DOLLARS',
@@ -323,16 +301,5 @@ describeWithDb('applying payment notifications', () => {
       );
     expect(recorded).toHaveLength(1);
     expect(await applyPaymentNotification(garbled)).toBe('redelivered');
-  });
-
-  it('takes the plan away when the subscription is cancelled', async () => {
-    const cancelled = subscriptionEvent({
-      status: 'canceled',
-      periodStart: null,
-      periodEnd: null,
-      observedAt: new Date(T0.getTime() + 5000),
-    });
-    expect(await applyPaymentNotification(cancelled)).toBe('applied');
-    expect(await hasPaidSubscription(workspaceId)).toBe(false);
   });
 });

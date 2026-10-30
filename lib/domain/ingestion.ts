@@ -13,7 +13,6 @@
  * change to how documents are parsed or split must bump the matching constant.
  * Otherwise two versions built by different code claim to be the same build.
  */
-import { blendBenchmark, type EvaluationSummary } from './benchmark';
 
 /**
  * Bumped whenever `parseDocument` changes what it produces.
@@ -176,8 +175,9 @@ export const INGESTION_ERRORS = [
   'source_forbidden',
   'source_too_large',
   /**
-   * requirement.md 4.1: the library's content is over its plan's per-library
-   * ceiling. Not retried -- the source will be as large next time.
+   * agent-first-proposal.md 8.1: with this content the workspace would hold
+   * more than its storage tier allows. Not retried -- the source will be as
+   * large next time.
    */
   'library_too_large',
   'source_empty',
@@ -243,14 +243,6 @@ export const INGESTION_LIMITS = {
   maxCrawlDepth: 3,
   /** How many pages a crawl may pull. */
   maxCrawlPages: 200,
-  /**
-   * How many documents an llms.txt may list, nested indexes included. Higher
-   * than the crawl cap because an index is a curated list of documentation,
-   * not a walk that can wander into a marketing site.
-   */
-  maxIndexPages: 500,
-  /** How many nested llms.txt indexes one index may point at. */
-  maxNestedIndexes: 10,
 } as const;
 
 /* ------------------------------------------------------------------ lookup */
@@ -793,11 +785,12 @@ function codePointText(point: number): string {
 /**
  * A JSON document rendered as readable text.
  *
- * An OpenAPI document is the case that matters, and what a reader wants from
- * one is the paths, the operations and their descriptions -- not the JSON. A
- * spec is therefore flattened into `path: value` lines under headings, which
- * chunk and cite sensibly. Anything that is not recognisable JSON is left as it
- * arrived, because YAML with its own indentation already reads as text.
+ * An API description committed to a repository is the case that matters, and
+ * what a reader wants from one is the paths, the operations and their
+ * descriptions -- not the JSON. A spec is therefore flattened into
+ * `path: value` lines under headings, which chunk and cite sensibly. Anything
+ * that is not recognisable JSON is left as it arrived, because YAML with its
+ * own indentation already reads as text.
  */
 export function structuredToText(content: string): string {
   let parsed: unknown;
@@ -1406,10 +1399,11 @@ function fold(value: string): string {
 /**
  * Bumped whenever a score's inputs or weights change. requirement.md 6.3.
  *
- * -2: a library with a test set has its hit rate blended into the Benchmark
- * (lib/domain/benchmark.ts). A library without one scores as it did under -1.
+ * -3: the Benchmark is structural again -- what a build can count. -2 had
+ * blended in the hit rate of a library's test set; the self-check questions
+ * went with the expert-library programme (agent-first-proposal.md 3.6).
  */
-export const SCORE_ALGORITHM_VERSION = 're0-score-2';
+export const SCORE_ALGORITHM_VERSION = 're0-score-3';
 
 export interface ScoreInputs {
   /** True for a source whose control has been verified. */
@@ -1425,11 +1419,6 @@ export interface ScoreInputs {
   /** Days since the source last changed. */
   ageDays: number;
   hasLicense: boolean;
-  /**
-   * The library's test set put to this build (lib/domain/benchmark.ts). Null
-   * or absent when it has none, or when the questions could not be run.
-   */
-  evaluation?: EvaluationSummary | null;
 }
 
 /**
@@ -1437,23 +1426,16 @@ export interface ScoreInputs {
  *
  * Trust is about the *source*: who it is, whether we can tell, whether it is
  * still maintained, and whether it is licensed to be republished. Benchmark is
- * about the *build*: coverage, citation completeness and duplication, and --
- * when the library has a test set -- whether its questions find their answers
- * (`blendBenchmark`). `structural` is the Benchmark before the test set, kept
- * so a later evaluation can re-blend without rebuilding. They are
- * separate numbers because a well-maintained repository can produce a poor
- * index and an abandoned one can produce an excellent index, and collapsing
- * them would hide both cases.
+ * about the *build*: coverage, citation completeness and duplication -- what
+ * a build can count. They are separate numbers because a well-maintained
+ * repository can produce a poor index and an abandoned one can produce an
+ * excellent index, and collapsing them would hide both cases.
  *
  * These are heuristics over what a build actually knows, and they are versioned
  * (`SCORE_ALGORITHM_VERSION`) precisely because they will be replaced by better
  * ones. requirement.md 6.3 forbids presenting either as a guarantee.
  */
-export function scoreLibrary(input: ScoreInputs): {
-  trust: number;
-  benchmark: number;
-  structural: number;
-} {
+export function scoreLibrary(input: ScoreInputs): { trust: number; benchmark: number } {
   let trust = 40;
   /*
    * The platform is the identified publisher of its own libraries, which is
@@ -1473,12 +1455,7 @@ export function scoreLibrary(input: ScoreInputs): {
   benchmark += Math.round(input.citedRatio * 30);
   benchmark -= Math.round(input.duplicateRatio * 40);
 
-  const structural = clamp(benchmark);
-  return {
-    trust: clamp(trust),
-    benchmark: blendBenchmark(structural, input.evaluation),
-    structural,
-  };
+  return { trust: clamp(trust), benchmark: clamp(benchmark) };
 }
 
 function clamp(value: number): number {

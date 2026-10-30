@@ -1,43 +1,42 @@
 # Re0
 
-> Re0 turns public documentation and authorized private material into versioned knowledge libraries that AI agents can search, retrieve, and cite.
+> Re0 is your data asset agent for life, work and business: every answer cites its source, and every version is verifiable.
 
-Re0 provides a public knowledge-library directory, an online retrieval playground, a REST API, and an MCP endpoint for AI clients such as Claude, Codex, and Cursor. Public libraries can be explored without an account. Authenticated users can create and manage libraries, API keys, access policies, usage, and publisher revenue from the private dashboard.
+A data asset is one source -- a website, a GitHub repository, an uploaded file or a Notion page -- turned into immutable, citable versions. Re0 provides a public asset directory, an online retrieval playground and a REST API. Public assets can be explored without an account. Authenticated users create and manage assets, API keys, access rules and usage from the private dashboard.
 
 Core product principles:
 
-- Fresh: source changes create new immutable library versions.
-- Trustworthy: public libraries pass source and security review.
-- Traceable: retrieved context retains its source, document, section, and version.
+- Fresh: source changes create new immutable asset versions.
+- Trustworthy: public assets pass a security scan before they publish.
+- Traceable: retrieved context retains its source, document, section and version.
 - Verifiable: version digests are anchored on Aptos so third parties can verify them independently.
-- Predictable: API and MCP usage is billed per accepted call, not per token.
+- Predictable: API usage is billed per accepted call, not per token.
 
 ## Public pages
 
-- [Home](https://re0.io/): Product overview, MCP connection details, and featured knowledge libraries.
-- [Knowledge directory](https://re0.io/libraries): Browse and search public knowledge libraries.
-- [Online playground](https://re0.io/playground): Try retrieval against public libraries (sending a question requires sign-in).
-- [Pricing](https://re0.io/pricing): Free, Pro, and additional-call pricing and limits.
-- [About](https://re0.io/about): Re0's purpose, principles, and product scope.
-- [Service status](https://re0.io/status): Current retrieval, indexing, refresh, and review status.
-- [Contact](https://re0.io/contact): Support, claims, partnerships, and security contacts.
+- [Home](https://re0.io/): Product overview and featured data assets.
+- [Asset directory](https://re0.io/libraries): Browse and search public data assets.
+- [Online playground](https://re0.io/playground): Try retrieval against public assets (sending a question requires sign-in).
+- [Pricing](https://re0.io/pricing): The free allowance and Additional Calls packs.
+- [About](https://re0.io/about): Re0's purpose, principles and product scope.
+- [Service status](https://re0.io/status): Current retrieval, indexing and refresh status.
+- [Contact](https://re0.io/contact): Support, claims, partnerships and security contacts.
 - [Legal](https://re0.io/legal): Index of the two legal documents.
-- [Terms of service](https://re0.io/legal/terms): Accounts, acceptable use, content and copyright, billing, revenue share, refund policy, and liability.
-- [Privacy notice](https://re0.io/legal/privacy): What Re0 collects, how it is used and shared, retention, cookies, and your rights.
+- [Terms of service](https://re0.io/legal/terms): Accounts, acceptable use, content and copyright, billing, call packs, refund policy and liability.
+- [Privacy notice](https://re0.io/legal/privacy): What Re0 collects, how it is used and shared, retention, cookies and your rights.
 
 ## Agent and developer access
 
-- [MCP endpoint](https://re0.io/mcp): Remote MCP endpoint for resolving libraries and querying documents. MCP clients should connect to this URL; it is not a human-readable documentation page.
 - [REST API](https://re0.io/api/v1): Versioned API namespace. Authentication is required for non-public or account-scoped operations.
-- [Agent Skills index](https://re0.io/.well-known/agent-skills/index.json): Machine-readable discovery for retrieval, submission, and ownership workflows.
+- [Agent Skills index](https://re0.io/.well-known/agent-skills/index.json): Machine-readable discovery for retrieval, publishing and ownership workflows.
 
 Every content page also has a compact Markdown representation: append `.md` to its path before the query string, for example `https://re0.io/libraries.md?q=next.js` or `https://re0.io/about.md`.
 
-The retrieval flow has two stages: resolve a library ID, then query documents in that library. Returned context includes citations and version information. Private libraries and dashboard data require authorization and must not be crawled or inferred from public content.
+The retrieval flow has two stages: resolve an asset ID, then query that asset. Returned context includes citations and version information. Private assets and dashboard data require authorization and must not be crawled or inferred from public content.
 
 ## Notes for automated systems
 
 - Prefer canonical URLs on `https://re0.io`.
-- Treat public library detail pages under `/libraries/` as the authoritative human-readable descriptions of those libraries.
-- Do not crawl `/dashboard`, `/admin`, `/api`, `/mcp`, `/files`, `/login`, or ownership-claim workflows.
+- Treat public asset detail pages under `/libraries/` as the authoritative human-readable descriptions of those assets.
+- Do not crawl `/dashboard`, `/admin`, `/api`, `/files`, `/login` or ownership-claim workflows.
 - See [robots.txt](https://re0.io/robots.txt) for crawler rules and [sitemap.xml](https://re0.io/sitemap.xml) for indexable top-level pages.

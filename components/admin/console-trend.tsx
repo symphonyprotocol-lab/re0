@@ -18,7 +18,7 @@ export interface ConsoleTrendCopy {
 
 /**
  * A money trend with a day / month switch, for console screens: the
- * settlements screen plots the revenue-share pool, the billing screen the
+ * settlements screen plots the creators' earnings, the billing screen the
  * collected revenue. Both series come with the page and the switch is local
  * state. Values are dollars.
  */

@@ -5,11 +5,14 @@
  */
 import { NextResponse, type NextRequest } from 'next/server';
 import { showcaseLeadsCsv } from '@/lib/application/showcase';
+import { surfaceEnabled } from '@/lib/domain/surfaces';
 import { currentSession } from '@/lib/http/session';
 
 export const runtime = 'nodejs';
 
 export async function GET(request: NextRequest): Promise<NextResponse> {
+  /* agent-first-proposal.md 3.6: shared pages are offline and their leads are deleted. */
+  if (!surfaceEnabled('showcase')) return new NextResponse(null, { status: 404 });
   const session = await currentSession();
   if (!session) return new NextResponse('sign in to export leads', { status: 401 });
   const libraryId = request.nextUrl.searchParams.get('library') ?? '';

@@ -3,36 +3,35 @@ import { en } from '@/lib/i18n/messages/en';
 import { zh } from '@/lib/i18n/messages/zh';
 import {
   BYTES_PER_MB,
-  PACK_INHERITS_PRO,
+  DEFAULT_CAPABILITIES,
+  PACK_NO_ENTITLEMENT,
   PLAN_CHANGE_ERRORS,
   PLAN_TIER_IDS,
   PlanChangeRefused,
+  STORAGE_TIERS,
   bytesToMb,
   capabilitiesFor,
   isPlanTierId,
   isSamePlanVersion,
+  isStorageTier,
   parsePlanVersionDraft,
-  parseSharePercent,
   parseUsdMinor,
   readCapabilities,
-  sharePercentFromBps,
   shortPlanVersionId,
   siteKeysAllowed,
+  storageCapacityBytes,
   usdFromMinor,
   usdHeadline,
   type PlanChangeError,
   type PlanVersionInput,
 } from '@/lib/domain/plans';
 
-const PRO: PlanVersionInput = {
-  planId: 'pro',
+const FREE: PlanVersionInput = {
+  planId: 'free',
   currency: 'USD',
-  price: '5.00',
-  calls: '5000',
-  libraryLimit: '25',
-  librarySizeMb: '100',
+  price: '0',
+  calls: '1000',
   apiKeyLimit: '20',
-  shareRate: '20',
 };
 
 function refusal(input: PlanVersionInput): PlanChangeError | 'accepted' {
@@ -47,31 +46,32 @@ function refusal(input: PlanVersionInput): PlanChangeError | 'accepted' {
 
 /**
  * The catalogue is closed by product rule, not by what a form happens to offer
- * (requirement.md 4.3). The screen renders three cards; nothing stops a caller
- * posting a fourth tier to the same server action, so the refusal has to live
- * here rather than in the markup.
+ * (agent-first-proposal.md 8.1). The screen renders two cards; nothing stops a
+ * caller posting a third tier to the same server action, so the refusal has to
+ * live here rather than in the markup.
  */
 describe('the plan catalogue', () => {
-  it('is Free, Pro and the call pack, and nothing else', () => {
-    expect([...PLAN_TIER_IDS]).toEqual(['free', 'pro', 'addon']);
-    for (const tier of ['enterprise', 'team', 'business', '', 'Pro']) {
+  it('is Free and the call pack, and nothing else', () => {
+    expect([...PLAN_TIER_IDS]).toEqual(['free', 'addon']);
+    for (const tier of ['pro', 'enterprise', 'team', 'business', '', 'Free']) {
       expect(isPlanTierId(tier)).toBe(false);
     }
   });
 
   it('refuses a tier that is not in the catalogue', () => {
-    expect(refusal({ ...PRO, planId: 'enterprise' })).toBe('unknown_plan');
+    expect(refusal({ ...FREE, planId: 'pro' })).toBe('unknown_plan');
+    expect(refusal({ ...FREE, planId: 'enterprise' })).toBe('unknown_plan');
   });
 
   it('refuses any currency but USD', () => {
-    expect(refusal({ ...PRO, currency: 'EUR' })).toBe('unsupported_currency');
-    expect(refusal({ ...PRO, currency: 'CNY' })).toBe('unsupported_currency');
+    expect(refusal({ ...FREE, currency: 'EUR' })).toBe('unsupported_currency');
+    expect(refusal({ ...FREE, currency: 'CNY' })).toBe('unsupported_currency');
     // Case and padding are the operator's, not a different currency.
-    expect(refusal({ ...PRO, currency: ' usd ' })).toBe('accepted');
+    expect(refusal({ ...FREE, currency: ' usd ' })).toBe('accepted');
   });
 
   it('stores USD even when the caller says nothing about currency', () => {
-    const { currency } = parsePlanVersionDraft({ ...PRO, currency: undefined });
+    const { currency } = parsePlanVersionDraft({ ...FREE, currency: undefined });
     expect(currency).toBe('USD');
   });
 });
@@ -105,82 +105,49 @@ describe('parseUsdMinor', () => {
   });
 });
 
-describe('parseSharePercent', () => {
-  it('reads a percentage as basis points', () => {
-    expect(parseSharePercent('20')).toBe(2000);
-    expect(parseSharePercent('17.5')).toBe(1750);
-    expect(parseSharePercent('0')).toBe(0);
-    expect(parseSharePercent('100')).toBe(10_000);
-  });
-
-  it('refuses a share that is not a percentage', () => {
-    for (const raw of ['', '-1', '20%', '1e2', 'twenty']) {
-      expect(parseSharePercent(raw)).toBeNull();
-    }
-  });
-
-  it('round-trips through the editable form', () => {
-    for (const bps of [0, 1750, 2000, 1705, 10_000]) {
-      expect(parseSharePercent(sharePercentFromBps(bps))).toBe(bps);
-    }
-  });
-});
-
-describe('a proposed version', () => {
-  it('accepts the seeded Pro values', () => {
-    expect(parsePlanVersionDraft(PRO)).toEqual({
-      planId: 'pro',
-      priceMinor: 500,
+describe('a proposed Free version', () => {
+  it('accepts the seeded values', () => {
+    expect(parsePlanVersionDraft(FREE)).toEqual({
+      planId: 'free',
+      priceMinor: 0,
       currency: 'USD',
-      monthlyCalls: 5000,
-      libraryLimit: 25,
-      librarySizeBytesLimit: 100 * BYTES_PER_MB,
+      monthlyCalls: 1000,
       apiKeyLimit: 20,
-      shareRateBps: 2000,
       buildBaseCalls: 1,
       buildTokensPerCall: 20_000,
       buildPagesPerCall: 5,
-      capabilities: capabilitiesFor('pro'),
+      capabilities: capabilitiesFor(),
     });
   });
 
   it('names the field that is wrong rather than a generic refusal', () => {
-    expect(refusal({ ...PRO, price: 'free' })).toBe('invalid_price');
-    expect(refusal({ ...PRO, calls: '0' })).toBe('invalid_calls');
-    expect(refusal({ ...PRO, libraryLimit: '' })).toBe('invalid_library_limit');
-    expect(refusal({ ...PRO, librarySizeMb: '0.5' })).toBe('invalid_library_size');
-    expect(refusal({ ...PRO, apiKeyLimit: 'many' })).toBe('invalid_api_key_limit');
-    expect(refusal({ ...PRO, shareRate: '120' })).toBe('invalid_share_rate');
+    expect(refusal({ ...FREE, price: 'free' })).toBe('invalid_price');
+    expect(refusal({ ...FREE, calls: '0' })).toBe('invalid_calls');
+    expect(refusal({ ...FREE, apiKeyLimit: 'many' })).toBe('invalid_api_key_limit');
+    expect(refusal({ ...FREE, apiKeyLimit: '' })).toBe('invalid_api_key_limit');
   });
 
   /*
    * The ceilings are the boundary between a typo and an instruction: a price
-   * with an extra zero is a refund queue, and a byte ceiling with one is an
-   * ingestion bill.
+   * with an extra zero is a refund queue.
    */
   it('refuses a value past the ceiling a form can mean', () => {
-    expect(refusal({ ...PRO, price: '10000.01' })).toBe('invalid_price');
-    expect(refusal({ ...PRO, price: '10000' })).toBe('accepted');
-    expect(refusal({ ...PRO, calls: '100000001' })).toBe('invalid_calls');
-    expect(refusal({ ...PRO, librarySizeMb: '102401' })).toBe('invalid_library_size');
+    expect(refusal({ ...FREE, planId: 'addon', price: '10000.01' })).toBe('invalid_price');
+    expect(refusal({ ...FREE, planId: 'addon', price: '10000' })).toBe('accepted');
+    expect(refusal({ ...FREE, calls: '100000001' })).toBe('invalid_calls');
+    expect(refusal({ ...FREE, apiKeyLimit: '10001' })).toBe('invalid_api_key_limit');
   });
 
   it('keeps Free free', () => {
-    const free = { ...PRO, planId: 'free', price: '0', libraryLimit: '5' };
-    expect(refusal(free)).toBe('accepted');
-    expect(refusal({ ...free, price: '1' })).toBe('free_must_be_free');
-  });
-
-  it('does not let a Free version claim the pack-purchase capability', () => {
-    const { capabilities } = parsePlanVersionDraft({ ...PRO, planId: 'free', price: '0' });
-    expect(capabilities.addonPurchase).toBe(false);
+    expect(refusal(FREE)).toBe('accepted');
+    expect(refusal({ ...FREE, price: '1' })).toBe('free_must_be_free');
   });
 });
 
 /**
- * requirement.md 4.1: a pack buys calls. Its buyer keeps the Pro entitlements
- * they already had, so a pack version must not carry a ceiling of its own --
- * not even one posted alongside the price.
+ * agent-first-proposal.md 8.1: a pack buys calls, anyone may buy one, and the
+ * buyer keeps Free's key ceiling and build rates -- so a pack version must not
+ * carry a ceiling of its own, not even one posted alongside the price.
  */
 describe('the Additional Calls pack', () => {
   const PACK: PlanVersionInput = { planId: 'addon', currency: 'USD', price: '5', calls: '5000' };
@@ -191,29 +158,18 @@ describe('the Additional Calls pack', () => {
       priceMinor: 500,
       currency: 'USD',
       monthlyCalls: 5000,
-      libraryLimit: PACK_INHERITS_PRO,
-      librarySizeBytesLimit: PACK_INHERITS_PRO,
-      apiKeyLimit: PACK_INHERITS_PRO,
-      shareRateBps: PACK_INHERITS_PRO,
-      buildBaseCalls: PACK_INHERITS_PRO,
-      buildTokensPerCall: PACK_INHERITS_PRO,
-      buildPagesPerCall: PACK_INHERITS_PRO,
-      capabilities: capabilitiesFor('addon'),
+      apiKeyLimit: PACK_NO_ENTITLEMENT,
+      buildBaseCalls: PACK_NO_ENTITLEMENT,
+      buildTokensPerCall: PACK_NO_ENTITLEMENT,
+      buildPagesPerCall: PACK_NO_ENTITLEMENT,
+      capabilities: capabilitiesFor(),
     });
   });
 
   it('drops entitlements a caller posts anyway', () => {
-    const draft = parsePlanVersionDraft({
-      ...PACK,
-      libraryLimit: '999',
-      librarySizeMb: '999',
-      apiKeyLimit: '999',
-      shareRate: '90',
-    });
-    expect(draft.libraryLimit).toBe(PACK_INHERITS_PRO);
-    expect(draft.librarySizeBytesLimit).toBe(PACK_INHERITS_PRO);
-    expect(draft.apiKeyLimit).toBe(PACK_INHERITS_PRO);
-    expect(draft.shareRateBps).toBe(PACK_INHERITS_PRO);
+    const draft = parsePlanVersionDraft({ ...PACK, apiKeyLimit: '999', buildBaseCalls: '9' });
+    expect(draft.apiKeyLimit).toBe(PACK_NO_ENTITLEMENT);
+    expect(draft.buildBaseCalls).toBe(PACK_NO_ENTITLEMENT);
   });
 
   it('is still priced in USD only', () => {
@@ -221,26 +177,25 @@ describe('the Additional Calls pack', () => {
   });
 });
 
+/**
+ * The capability blob outlived the tiers that varied it: only the switched-off
+ * widget and showcase modules read it, and every version now shares one default.
+ */
 describe('capabilities', () => {
-  it('ignores the public-review flag older versions still carry (2026-10-23)', () => {
-    expect(readCapabilities('pro', { publicReviewRequired: false })).not.toHaveProperty('publicReviewRequired');
-    expect(readCapabilities('pro', { publicReviewRequired: true })).toEqual(readCapabilities('pro', {}));
+  it('ignores the flags older versions still carry', () => {
+    expect(readCapabilities({ publicReviewRequired: false })).not.toHaveProperty('publicReviewRequired');
+    expect(readCapabilities({ addonPurchase: true })).not.toHaveProperty('addonPurchase');
+    expect(readCapabilities({ publicReviewRequired: true, addonPurchase: true })).toEqual(DEFAULT_CAPABILITIES);
   });
 
-  it('derives pack purchase from the tier rather than from the form', () => {
-    expect(capabilitiesFor('pro').addonPurchase).toBe(true);
-    expect(capabilitiesFor('free').addonPurchase).toBe(false);
-    expect(capabilitiesFor('addon').addonPurchase).toBe(false);
-  });
-
-  /* The website widget: Free holds one site key, Pro any number; a stored cap wins over the tier. */
-  it('caps site keys on Free and lifts the cap on Pro', () => {
-    expect(capabilitiesFor('free').siteKeys).toBe(1);
-    expect(capabilitiesFor('pro').siteKeys).toBe(-1);
-    expect(readCapabilities('free', {}).siteKeys).toBe(1);
-    expect(readCapabilities('free', { siteKeys: 3 }).siteKeys).toBe(3);
-    expect(readCapabilities('free', { siteKeys: 'many' }).siteKeys).toBe(1);
-    expect(readCapabilities('pro', { siteKeys: -2 }).siteKeys).toBe(-1);
+  /* The website widget: one site key by default; a stored cap wins over the default. */
+  it('caps site keys at the default unless the version stores a cap', () => {
+    expect(capabilitiesFor().siteKeys).toBe(1);
+    expect(readCapabilities({}).siteKeys).toBe(1);
+    expect(readCapabilities({ siteKeys: 3 }).siteKeys).toBe(3);
+    expect(readCapabilities({ siteKeys: -1 }).siteKeys).toBe(-1);
+    expect(readCapabilities({ siteKeys: 'many' }).siteKeys).toBe(1);
+    expect(readCapabilities({ siteKeys: -2 }).siteKeys).toBe(1);
   });
 
   it('counts live site keys against the cap', () => {
@@ -256,19 +211,16 @@ describe('capabilities', () => {
  * that mattered.
  */
 describe('isSamePlanVersion', () => {
-  const draft = parsePlanVersionDraft(PRO);
+  const draft = parsePlanVersionDraft(FREE);
   const live = {
-    priceMinor: 500,
+    priceMinor: 0,
     currency: 'USD',
-    monthlyCalls: 5000,
-    libraryLimit: 25,
-    librarySizeBytesLimit: 100 * BYTES_PER_MB,
+    monthlyCalls: 1000,
     apiKeyLimit: 20,
-    shareRateBps: 2000,
     buildBaseCalls: 1,
     buildTokensPerCall: 20_000,
     buildPagesPerCall: 5,
-    capabilities: capabilitiesFor('pro'),
+    capabilities: capabilitiesFor(),
   };
 
   it('recognises a no-op', () => {
@@ -282,29 +234,39 @@ describe('isSamePlanVersion', () => {
   it('notices a change in any billed field', () => {
     expect(isSamePlanVersion(draft, { ...live, priceMinor: 600 })).toBe(false);
     expect(isSamePlanVersion(draft, { ...live, monthlyCalls: 6000 })).toBe(false);
-    expect(isSamePlanVersion(draft, { ...live, libraryLimit: 26 })).toBe(false);
-    expect(isSamePlanVersion(draft, { ...live, librarySizeBytesLimit: 1 })).toBe(false);
     expect(isSamePlanVersion(draft, { ...live, apiKeyLimit: 21 })).toBe(false);
-    expect(isSamePlanVersion(draft, { ...live, shareRateBps: 2500 })).toBe(false);
+    expect(isSamePlanVersion(draft, { ...live, buildTokensPerCall: 10_000 })).toBe(false);
     expect(
       isSamePlanVersion(draft, {
         ...live,
-        capabilities: { ...capabilitiesFor('pro'), siteKeys: 3 },
+        capabilities: { ...capabilitiesFor(), siteKeys: 3 },
       }),
     ).toBe(false);
   });
 });
 
-describe('capacity', () => {
-  it('round-trips whole megabytes, which is all the console mints', () => {
-    for (const mb of [1, 20, 100, 102_400]) {
-      expect(bytesToMb(mb * BYTES_PER_MB)).toBe(mb);
-    }
+/**
+ * agent-first-proposal.md 8.1: storage is bounded per workspace, by the
+ * owner's tier -- 500 MB until the first purchase, 2 GB from then on.
+ */
+describe('storage tiers', () => {
+  it('are base and extended, and nothing else', () => {
+    expect([...STORAGE_TIERS]).toEqual(['base', 'extended']);
+    expect(isStorageTier('base')).toBe(true);
+    expect(isStorageTier('extended')).toBe(true);
+    for (const value of ['pro', 'Base', '', null, 2]) expect(isStorageTier(value)).toBe(false);
   });
 
-  it('matches the values the seed migration wrote', () => {
-    expect(bytesToMb(20_971_520)).toBe(20);
-    expect(bytesToMb(104_857_600)).toBe(100);
+  it('hold 500 MB and 2 GB', () => {
+    expect(bytesToMb(storageCapacityBytes('base'))).toBe(500);
+    expect(bytesToMb(storageCapacityBytes('extended'))).toBe(2_048);
+    expect(storageCapacityBytes('extended')).toBeGreaterThan(storageCapacityBytes('base'));
+  });
+
+  it('round-trips whole megabytes', () => {
+    for (const mb of [1, 20, 100, 500, 2_048]) {
+      expect(bytesToMb(mb * BYTES_PER_MB)).toBe(mb);
+    }
   });
 });
 
@@ -320,14 +282,6 @@ describe('usdHeadline', () => {
     expect(usdHeadline(500)).toBe('$5');
     expect(usdHeadline(550)).toBe('$5.50');
     expect(usdHeadline(599)).toBe('$5.99');
-  });
-});
-
-describe('a pack version', () => {
-  it('carries no entitlement of its own', () => {
-    const draft = parsePlanVersionDraft({ planId: 'addon', price: '5', calls: '5000' });
-    expect(draft.capabilities).toEqual(capabilitiesFor('addon'));
-    expect(draft.capabilities).not.toHaveProperty('publicReviewRequired');
   });
 });
 

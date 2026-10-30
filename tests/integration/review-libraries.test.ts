@@ -78,14 +78,11 @@ async function workspace(): Promise<string> {
   planVersions.push(planVersionId);
   await database.insert(schema.planVersion).values({
     id: planVersionId,
-    planId: 'pro',
-    priceMinor: 2000,
+    planId: 'free',
+    priceMinor: 0,
     currency: 'USD',
     monthlyCalls: 1_000,
-    libraryLimit: 10,
-    librarySizeBytesLimit: 1_000_000,
     apiKeyLimit: 5,
-    shareRateBps: 2000,
     capabilities: {},
     createdAt: new Date('2000-01-01T00:00:00Z'),
   });
@@ -140,7 +137,6 @@ describeWithDb('user library review', () => {
       /* A user library's build writes a usage event that points at its version. */
       await database.delete(schema.usageEvent).where(inArray(schema.usageEvent.libraryId, libraries));
       await database.delete(schema.libraryReview).where(inArray(schema.libraryReview.libraryId, libraries));
-      await database.delete(schema.libraryEvalQuestion).where(inArray(schema.libraryEvalQuestion.libraryId, libraries));
       await database.update(schema.library).set({ currentVersionId: null }).where(inArray(schema.library.id, libraries));
       await database.delete(schema.libraryProfileVector).where(inArray(schema.libraryProfileVector.libraryId, libraries));
       await database.delete(schema.libraryProfile).where(inArray(schema.libraryProfile.libraryId, libraries));

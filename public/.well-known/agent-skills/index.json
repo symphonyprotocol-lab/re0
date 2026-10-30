@@ -4,16 +4,16 @@
     {
       "name": "re0-knowledge-retrieval",
       "type": "skill-md",
-      "description": "Search Re0 knowledge libraries and retrieve concise, cited documentation context when a user needs source-grounded technical information.",
+      "description": "Search Re0 data assets and retrieve concise, cited context when a user needs source-grounded information.",
       "url": "/.well-known/agent-skills/re0-knowledge-retrieval/SKILL.md",
-      "digest": "sha256:1812a3f04903c5b19b78773bc4cf24a3c769e110725c71498cf1e0dc1efc070b"
+      "digest": "sha256:8db421cf20e5bd2a9daca3e1e2c70d56371079db3280fd992b3ec796974f6cf6"
     },
     {
       "name": "re0-library-publishing",
       "type": "skill-md",
-      "description": "Submit a knowledge source to Re0 or claim an existing public library when a user wants to publish, manage, or prove ownership of documentation.",
+      "description": "Add a source to Re0 as a data asset or claim an existing public asset when a user wants to publish, manage, or prove ownership of documentation.",
       "url": "/.well-known/agent-skills/re0-library-publishing/SKILL.md",
-      "digest": "sha256:21ef6d767e38b8b9ae4dc21d520c37966ff24c3133adb5483415f54fce9c7671"
+      "digest": "sha256:a00a049559fbe088e1a5af3d590f40d7cf3209d149a1f4f3ff36841c15a8d6e6"
     }
   ]
 }

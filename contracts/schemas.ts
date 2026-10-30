@@ -36,10 +36,8 @@ export const claimStatusSchema = z.enum([
 export const sourceTypeSchema = z.enum([
   'github',
   'website',
-  'llms_txt',
   'markdown',
   'pdf',
-  'openapi',
   'notion',
 ]);
 

@@ -2,8 +2,8 @@
  * Use cases: start a challenge that proves a workspace controls a host, check
  * it, and spend it on a library. requirement.md 7.3.2, architecture.md 5.4.
  *
- * The wizard cannot create a website, llms.txt or OpenAPI library without a
- * verified challenge for the source's host (lib/domain/domain-verification.ts
+ * The wizard cannot create a website library without a verified challenge
+ * for the source's host (lib/domain/domain-verification.ts
  * says which, and why). The shape follows the claim rules that already bind
  * ownership: the token is high entropy and only its hash is stored; the
  * plaintext goes back once, to whoever started the challenge, and must be

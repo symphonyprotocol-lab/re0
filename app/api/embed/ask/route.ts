@@ -19,6 +19,7 @@ import { requireParentOrigin, resolveSiteKey } from '@/lib/application/embed';
 import { configuredBaseUrl } from '@/lib/http/base-url';
 import { isPreviewOwner, isPreviewParent } from '@/lib/http/embed-preview';
 import { normaliseHistory } from '@/lib/domain/generation';
+import { surfaceEnabled } from '@/lib/domain/surfaces';
 import { errorResponse, newRequestId } from '@/lib/http/respond';
 import { readQuestion, streamWidgetAnswer } from '@/lib/http/widget-ask';
 
@@ -27,6 +28,8 @@ export type { WidgetStreamLine } from '@/lib/http/widget-ask';
 export const runtime = 'nodejs';
 
 export async function POST(request: NextRequest): Promise<Response> {
+  /* agent-first-proposal.md 3.6: the widget is offline. */
+  if (!surfaceEnabled('widget')) return new NextResponse(null, { status: 404 });
   const requestId = newRequestId();
   const startedAt = Date.now();
   try {

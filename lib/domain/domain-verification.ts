@@ -2,8 +2,8 @@
  * Proving control of a domain before a library is fetched from it: the
  * rules, as pure functions. No fetch, no DNS, no Next.js, no driver.
  *
- * A website, llms.txt or OpenAPI library is built from whatever a host
- * serves, so whoever controls that host is the only person who may create
+ * A website library is built from whatever a host serves, so whoever
+ * controls that host is the only person who may create
  * the library (requirement.md 7.3: the question is "do you control this
  * source", never "who are you"). The wizard therefore cannot submit such a
  * library until one challenge for the source's host has been met, by one of
@@ -22,7 +22,7 @@ import type { ClaimFailureReason } from '@/contracts/errors';
 import type { SourceType } from './index';
 
 /** The source types whose creation is gated on a verified domain. */
-export const DOMAIN_VERIFIED_SOURCE_TYPES = ['website', 'llms_txt', 'openapi'] as const;
+export const DOMAIN_VERIFIED_SOURCE_TYPES = ['website'] as const;
 
 export type DomainVerifiedSourceType = (typeof DOMAIN_VERIFIED_SOURCE_TYPES)[number];
 

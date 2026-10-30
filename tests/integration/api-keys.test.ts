@@ -28,6 +28,7 @@ const { GET: requestsRoute } = await import('@/app/api/v1/requests/route');
 const { GET: searchRoute } = await import('@/app/api/v1/libraries/search/route');
 const { GET: contextRoute } = await import('@/app/api/v1/context/route');
 const { POST: mcpRoute } = await import('@/app/mcp/route');
+const { surfaceEnabled } = await import('@/lib/domain/surfaces');
 
 const workspaces: string[] = [];
 const planVersions: string[] = [];
@@ -42,14 +43,11 @@ async function workspaceOnPlan(apiKeyLimit: number): Promise<string> {
   planVersions.push(planVersionId);
   await database.insert(schema.planVersion).values({
     id: planVersionId,
-    planId: 'pro',
-    priceMinor: 2000,
+    planId: 'free',
+    priceMinor: 0,
     currency: 'USD',
     monthlyCalls: 100,
-    libraryLimit: 10,
-    librarySizeBytesLimit: 1_000_000,
     apiKeyLimit,
-    shareRateBps: 2000,
     capabilities: {},
     createdAt: new Date('2000-01-01T00:00:00Z'),
   });
@@ -105,6 +103,9 @@ async function mcpTool(
     text: body.result?.content?.map((part) => part.text ?? '').join('\n') ?? '',
   };
 }
+
+/* MCP is offline (lib/domain/surfaces.ts); the scope check on its tools waits behind the switch. */
+const whileOn = surfaceEnabled('mcp') ? it : it.skip;
 
 describeWithDb('api key management', () => {
   afterAll(async () => {
@@ -353,7 +354,7 @@ describeWithDb('api key management', () => {
     await expectDenied(requestsRoute(get('/api/v1/requests', read.key)));
   });
 
-  it('applies the same scopes to the MCP tools', async () => {
+  whileOn('applies the same scopes to the MCP tools', async () => {
     const workspaceId = await workspaceOnPlan(5);
     const search = await createApiKey({
       role: 'owner',

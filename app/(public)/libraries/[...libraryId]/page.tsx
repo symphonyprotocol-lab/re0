@@ -7,6 +7,7 @@ import { JsonLd } from '@/components/seo/json-ld';
 import { publicClaimStatus } from '@/lib/application/claims';
 import { POPULARITY_WINDOW_DAYS, publicLibraryDetail } from '@/lib/application/libraries';
 import { API_KEY_PLACEHOLDER } from '@/lib/dashboard/snippets';
+import { surfaceEnabled } from '@/lib/domain/surfaces';
 import type { Dictionary } from '@/lib/i18n/dictionary';
 import { publicUrl } from '@/lib/site/origin';
 import { fill } from '@/lib/i18n/format';
@@ -176,8 +177,6 @@ export default async function LibraryDetailPage({ params }: Params) {
             ) : (
               <Chip tone="warn">{l.unclaimed}</Chip>
             )}
-            {/* expert-library-prd.md 5: the console's judgment, shown and not ranked on. */}
-            {entry.isExpert ? <Chip tone="good">{l.expert}</Chip> : null}
           </div>
 
           <div className="mt-2.5 flex flex-wrap items-center gap-2">
@@ -327,12 +326,17 @@ export default async function LibraryDetailPage({ params }: Params) {
                 {restSample}
               </pre>
             </div>
-            <p className="text-[10.5px] font-medium tracking-[0.04em] text-muted">{d.mcpPanel}</p>
-            <div className="rounded-lg border border-line bg-subtle p-3.5">
-              <pre className="overflow-x-auto font-mono text-[11px] leading-[1.75] text-good">
-                {mcpSample}
-              </pre>
-            </div>
+            {/* MCP is offline (agent-first-proposal.md 3.6); the sample waits behind the switch. */}
+            {surfaceEnabled('mcp') ? (
+              <>
+                <p className="text-[10.5px] font-medium tracking-[0.04em] text-muted">{d.mcpPanel}</p>
+                <div className="rounded-lg border border-line bg-subtle p-3.5">
+                  <pre className="overflow-x-auto font-mono text-[11px] leading-[1.75] text-good">
+                    {mcpSample}
+                  </pre>
+                </div>
+              </>
+            ) : null}
             <p className="text-[11.5px] leading-[1.7] text-faint">
               {fill(d.codeNote, { pinned: pinnedId })} {l.examplesNote}
             </p>

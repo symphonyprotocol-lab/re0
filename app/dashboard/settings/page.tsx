@@ -43,10 +43,11 @@ import {
   listBillingDocuments,
   workspaceProviderCustomer,
 } from '@/lib/application/billing';
-import { countWorkspaceLibraries, largestWorkspaceLibraryBytes } from '@/lib/application/libraries';
-import { isPaymentConnected, periodLastDay, workspacePlanVersion } from '@/lib/application/plans';
+import { countWorkspaceLibraries } from '@/lib/application/libraries';
+import { isPaymentConnected, periodLastDay, workspacePlanVersion, workspaceStorage } from '@/lib/application/plans';
 import type { BillingDocumentStatus } from '@/lib/domain/billing';
-import { BYTES_PER_MB, bytesToMb, usdHeadline } from '@/lib/domain/plans';
+import { BYTES_PER_MB, storageCapacityBytes, usdHeadline } from '@/lib/domain/plans';
+import { formatCapacity } from '@/lib/domain/pricing-page';
 import { workspaceInitial } from '@/lib/domain/auth';
 import { workspaceUsage } from '@/lib/http/dashboard';
 import { isGithubConnectOutcome } from '@/lib/domain/github';
@@ -217,7 +218,7 @@ export default async function DashboardSettingsPage({
     planVersion,
     overview,
     libraryCount,
-    largestBytes,
+    storage,
     billing,
     providerCustomer,
   ] = await Promise.all([
@@ -230,7 +231,7 @@ export default async function DashboardSettingsPage({
     workspacePlanVersion(workspaceId),
     workspaceUsage(workspaceId),
     countWorkspaceLibraries(workspaceId),
-    largestWorkspaceLibraryBytes(workspaceId),
+    workspaceStorage(workspaceId),
     listBillingDocuments({ workspaceId, limit: BILLING_ROWS }),
     workspaceProviderCustomer(workspaceId),
   ]);
@@ -252,19 +253,28 @@ export default async function DashboardSettingsPage({
   };
 
   const planNotes: Record<string, string> = g.planNotes;
+  const capacity = formatCapacity(storage.capacityBytes, number);
   const plan = {
     /* The name comes from the same read as the price, the allowance and the
-       limits below it. Printing the session's copy beside this one's figures
-       is what let a lapsed subscription show "Pro" over Free's numbers; now
-       there is nothing left to disagree with. */
+       limits below it, so the card cannot print one tier's name over
+       another's figures. */
     name: planVersion.planName,
     price: usdHeadline(planVersion.priceMinor),
     period: g.planPeriodMonth,
     note: planNotes[planVersion.planId] ?? '',
+    /*
+     * agent-first-proposal.md 8.1: storage is the owner's tier, not the plan
+     * version's. The base tier says what raises it; the extended one, that it
+     * has been raised and stays so.
+     */
+    storageNote:
+      storage.tier === 'extended'
+        ? fill(g.storageTier.extended, { capacity })
+        : fill(g.storageTier.base, { extended: formatCapacity(storageCapacityBytes('extended'), number) }),
     perks: [
-      fill(g.planPerks.libraries, { count: number.format(planVersion.libraryLimit) }),
-      fill(g.planPerks.librarySize, { mb: number.format(bytesToMb(planVersion.librarySizeBytesLimit)) }),
       fill(g.planPerks.calls, { count: number.format(planVersion.monthlyCalls) }),
+      g.planPerks.libraries,
+      fill(g.planPerks.storage, { capacity }),
       fill(g.planPerks.apiKeys, { count: number.format(planVersion.apiKeyLimit) }),
     ],
   };
@@ -284,23 +294,17 @@ export default async function DashboardSettingsPage({
 
   const percent = (used: number, limit: number) =>
     limit > 0 ? Math.min(100, Math.round((used / limit) * 100)) : 0;
-  const largestMb = largestBytes / BYTES_PER_MB;
+  const usedMb = storage.usedBytes / BYTES_PER_MB;
   const usageMeters = [
+    /* The whole workspace against its tier's capacity; the library count is a footnote, not a ceiling. */
     {
-      ...g.meters.libraries,
-      value: fill(g.meters.libraries.value, {
-        used: number.format(libraryCount),
-        limit: number.format(planVersion.libraryLimit),
+      ...g.meters.storage,
+      value: fill(g.meters.storage.value, {
+        used: `${usedMb < 10 ? usedMb.toFixed(1) : number.format(Math.round(usedMb))} MB`,
+        limit: capacity,
       }),
-      percent: percent(libraryCount, planVersion.libraryLimit),
-    },
-    {
-      ...g.meters.largest,
-      value: fill(g.meters.largest.value, {
-        used: largestMb < 10 ? largestMb.toFixed(1) : number.format(Math.round(largestMb)),
-        limit: number.format(bytesToMb(planVersion.librarySizeBytesLimit)),
-      }),
-      percent: percent(largestBytes, planVersion.librarySizeBytesLimit),
+      percent: percent(storage.usedBytes, storage.capacityBytes),
+      note: fill(g.meters.storage.note, { count: number.format(libraryCount) }),
     },
     {
       ...g.meters.calls,
@@ -378,8 +382,6 @@ export default async function DashboardSettingsPage({
     params.invoice === 'failed' || isInvoiceRefusal(params.invoice) ? params.invoice : null;
   /* The invoice carries the billing address, so it follows the billing roles. */
   const canDownloadInvoices = paymentConnected && BILLING_ROLES.has(session.workspace.role);
-  /* Packs are sold to Pro only (requirement.md 4.1), so Pro is what unlocks them. */
-  const onPaidPlan = planVersion.planId !== 'free';
 
   const profileRows = [
     { label: g.email, value: account.email, Icon: MailIcon },
@@ -462,6 +464,7 @@ export default async function DashboardSettingsPage({
               <span className="text-[13px] text-muted">{plan.period}</span>
             </p>
             <p className="text-[11px] text-muted">{plan.note}</p>
+            <p className="text-[11px] text-steel">{plan.storageNote}</p>
             {/* A cancellation leaves the plan active to the period's end; this is the only place it shows. */}
             {planVersion.renewal ? (
               <p
@@ -514,32 +517,16 @@ export default async function DashboardSettingsPage({
             ) : null}
             {!paymentConnected ? (
               <Link href="/pricing" className={PLAN_PRIMARY}>
-                {g.upgradeCta}
+                {g.pricingCta}
                 <ArrowRightIcon size={14} />
               </Link>
-            ) : onPaidPlan ? (
-              <>
-                <form action={openBillingPortalAction}>
-                  <PendingSubmitButton className={PLAN_PRIMARY}>{g.checkout.manage}</PendingSubmitButton>
-                </form>
-                <form action={startCheckoutAction}>
-                  <input type="hidden" name="kind" value="pack" />
-                  <PendingSubmitButton className={PLAN_SECONDARY} arrow={false}>
-                    {g.checkout.buyPack}
-                  </PendingSubmitButton>
-                </form>
-              </>
             ) : (
               <>
+                {/* Anyone may buy a pack (agent-first-proposal.md 8.1); it is the one thing to buy. */}
                 <form action={startCheckoutAction}>
-                  <input type="hidden" name="kind" value="subscription" />
-                  <PendingSubmitButton className={PLAN_PRIMARY}>{g.checkout.upgrade}</PendingSubmitButton>
+                  <PendingSubmitButton className={PLAN_PRIMARY}>{g.checkout.buyPack}</PendingSubmitButton>
                 </form>
-                {/*
-                  A workspace that has paid before but is not on Pro now --
-                  a lapsed card, a cancellation -- still has a portal: its
-                  invoices, and the card that needs fixing, are there.
-                */}
+                {/* A workspace that has paid before has a portal: its invoices and its card are there. */}
                 {providerCustomer ? (
                   <form action={openBillingPortalAction}>
                     <PendingSubmitButton className={PLAN_SECONDARY} arrow={false}>

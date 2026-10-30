@@ -75,7 +75,7 @@ function result(libraryId: string, confirmed: boolean, chunkIds: string[], reser
     usage: { callsUsed: 1, planAllowanceRemaining: 10, addonBalanceRemaining: 0 },
     requestId: caller.requestId,
     confidence: confirmed ? { bestDistance: 0.2, keywordHits: 3 } : { bestDistance: 0.9, keywordHits: 0 },
-    served: { libraryId, versionId: `ver_${libraryId}`, returnedTokens: 12, latencyMs: 5, libraryFacts: {} },
+    served: { libraryId, versionId: `ver_${libraryId}`, returnedTokens: 12, latencyMs: 5 },
     reservation,
   } as unknown as QueryDocsResult;
 }

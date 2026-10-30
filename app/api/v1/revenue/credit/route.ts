@@ -1,6 +1,6 @@
 /**
  * POST /api/v1/revenue/credit -- redeem every redeemable statement as
- * Additional Calls. publisher-revenue-share.md 3.4: the same step as the
+ * Additional Calls. agent-first-proposal.md 6.9: the same step as the
  * dashboard button, for publishers who entered the programme through the API
  * and run their account from it.
  *

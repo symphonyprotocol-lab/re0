@@ -7,6 +7,7 @@ import {
   SESSION_COOKIE_NAMES,
 } from '@/lib/http/cookie-names';
 import { isOwnHostOf } from '@/lib/domain/showcase';
+import { surfaceEnabled } from '@/lib/domain/surfaces';
 import { PUBLIC_ORIGIN } from '@/lib/site/origin';
 
 /**
@@ -101,6 +102,13 @@ export function middleware(request: NextRequest): NextResponse {
   const host = (request.headers.get('host') ?? '').toLowerCase();
   /* A host with no dot is a machine on a desk, never a customer's domain. */
   if (host && host.includes('.') && !isOwnHostOf(host, ownHostsOfDeployment()) && !stayOnCustomHost(path)) {
+    /*
+     * Shared pages are offline (agent-first-proposal.md 3.6). A customer's
+     * domain still pointed here must not serve the whole site under their
+     * name -- sign-in, cookies and all -- so it gets the 404 their page would
+     * have been, not a pass-through.
+     */
+    if (!surfaceEnabled('showcase')) return new NextResponse(null, { status: 404 });
     const bare = host.replace(/:\d+$/, '');
     const target = request.nextUrl.clone();
     target.pathname = `/s/by-host/${bare}${path === '/' ? '' : path}`;

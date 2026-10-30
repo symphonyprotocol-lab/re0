@@ -1,6 +1,6 @@
 /**
- * Proving control of a host before a website, llms.txt or OpenAPI library is
- * created (requirement.md 7.3.2, architecture.md 5.4): a challenge is
+ * Proving control of a host before a website library is created
+ * (requirement.md 7.3.2, architecture.md 5.4): a challenge is
  * started, checked against DNS or the well-known file through a fake reader,
  * spent on exactly one library, and refused for anything else.
  *
@@ -137,14 +137,14 @@ describeWithDb('domain verification', () => {
       }),
     ).rejects.toMatchObject({ code: 'claim_verification_failed', reason: 'source_mismatch' });
 
-    /* ...and takes the one it did, as an llms.txt library even: the host is what was proven. */
+    /* ...and takes the one it did, at another path even: the host is what was proven. */
     const created = await createWorkspaceLibrary({
       workspaceId,
       role: 'owner',
       title: 'Guide',
       visibility: 'private',
-      sourceType: 'llms_txt',
-      location: 'https://docs.example.test/llms.txt',
+      sourceType: 'website',
+      location: 'https://docs.example.test/guide/',
       slug: `guide-${Date.now()}`,
       domainVerificationId: challenge.verificationId,
     });
@@ -183,15 +183,15 @@ describeWithDb('domain verification', () => {
     ).rejects.toMatchObject({ code: 'claim_verification_failed', reason: 'challenge_not_found' });
   });
 
-  it('verifies by well-known file, for an OpenAPI source', async () => {
+  it('verifies by well-known file', async () => {
     const workspaceId = await workspace();
     const reader = fakeReader();
 
     const challenge = await startDomainVerification({
       workspaceId,
       role: 'admin',
-      sourceType: 'openapi',
-      location: 'https://api.example.test/openapi.json',
+      sourceType: 'website',
+      location: 'https://api.example.test/reference/',
       method: 'well_known',
     });
     expect(challenge.wellKnownUrl).toBe(
@@ -211,8 +211,8 @@ describeWithDb('domain verification', () => {
       title: 'API',
       visibility: 'public',
       rights: { origin: 'own', license: 'open_source', generation: 'human' },
-      sourceType: 'openapi',
-      location: 'https://api.example.test/openapi.json',
+      sourceType: 'website',
+      location: 'https://api.example.test/reference/',
       slug: `api-${Date.now()}`,
       domainVerificationId: challenge.verificationId,
     });

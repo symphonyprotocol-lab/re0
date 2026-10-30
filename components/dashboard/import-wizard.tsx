@@ -11,12 +11,10 @@ import {
 import { Badge, IconTile, PANEL } from '@/components/dashboard/ui';
 import {
   ArrowRightIcon,
-  BracesIcon,
   FileCodeIcon,
   GitBranchIcon,
   GitHubIcon,
   GlobeIcon,
-  HashIcon,
   LockIcon,
   NotionIcon,
   ShieldCheckIcon,
@@ -56,23 +54,21 @@ import { fill } from '@/lib/i18n/format';
 /**
  * Import wizard -- design source frame `ISF8H`, live end to end. Four steps:
  * pick the connector-backed source, describe the library, choose visibility,
- * confirm. A website, llms.txt or OpenAPI source gets a fifth step between
- * details and visibility: prove control of the source's host by a DNS TXT
- * record or a well-known file (requirement.md 7.3.2), because the server
- * refuses to create such a library without a verified challenge. Submission
+ * confirm. A website source gets a fifth step between details and
+ * visibility: prove control of the source's host by a DNS TXT record or a
+ * well-known file (requirement.md 7.3.2), because the server refuses to
+ * create such a library without a verified challenge. Submission
  * writes the rows and queues the build (create.ts); the request never waits
  * for ingestion (architecture.md 3.1), so success shows the queued state
  * rather than pretending the index exists.
  */
 
-const SOURCES = ['github', 'website', 'llms_txt', 'openapi', 'notion', 'pdf', 'markdown'] as const;
+const SOURCES = ['github', 'website', 'notion', 'pdf', 'markdown'] as const;
 type SourceId = (typeof SOURCES)[number];
 
 const SOURCE_ICONS: Record<SourceId, (props: { size?: number }) => React.ReactElement> = {
   github: GitBranchIcon,
   website: GlobeIcon,
-  llms_txt: HashIcon,
-  openapi: BracesIcon,
   notion: NotionIcon,
   pdf: UploadIcon,
   markdown: FileCodeIcon,
@@ -82,8 +78,6 @@ const SOURCE_ICONS: Record<SourceId, (props: { size?: number }) => React.ReactEl
 const NEEDS_SLUG: Record<SourceId, string | null> = {
   github: null,
   website: 'websites',
-  llms_txt: 'websites',
-  openapi: 'docs',
   notion: 'notion',
   pdf: 'docs',
   markdown: 'docs',
@@ -771,7 +765,7 @@ export function ImportWizard({
                     />
                   </Field>
                 )}
-                {source === 'website' || source === 'llms_txt' ? (
+                {source === 'website' ? (
                   <Field label={w.indexDepthLabel} hint={w.indexDepthHint}>
                     <select
                       value={indexDepth}
@@ -939,8 +933,6 @@ export function ImportWizard({
                   ? w.errorGithub[state.refusal ?? 'not_found']
                   : state.error === 'notion'
                     ? w.errorNotion[state.notionRefusal ?? 'not_found']
-                    : state.error === 'limit'
-                    ? w.errorLimit
                     : state.error === 'quota'
                     ? w.errorQuota
                     : state.error === 'denied'

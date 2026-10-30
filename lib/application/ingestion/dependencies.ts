@@ -10,13 +10,10 @@
 import { modelAdapters } from '@/lib/application/administration/manage-model-config';
 import { resolvePageRenderer } from '@/lib/application/administration/manage-render-config';
 import type { EmbeddingAdapter } from '@/lib/infrastructure/ai/providers';
-import type { EvaluationDependencies } from './evaluate';
 import { fetchSnapshot } from '@/lib/infrastructure/connectors';
 import type { FetchSnapshotInput, SourceSnapshot } from '@/lib/infrastructure/connectors';
 import type { ObjectStore } from '@/lib/infrastructure/objects/store';
 import { isObjectStoreConfigured, objectStore } from '@/lib/infrastructure/objects/store';
-
-const WEB_SOURCES = new Set<FetchSnapshotInput['type']>(['website', 'llms_txt', 'openapi']);
 
 export interface IngestionDependencies {
   fetchSnapshot(input: FetchSnapshotInput): Promise<SourceSnapshot>;
@@ -32,21 +29,15 @@ export interface IngestionDependencies {
   configured():
     | { embeddings: boolean; storage: boolean }
     | Promise<{ embeddings: boolean; storage: boolean }>;
-  /**
-   * The retrieval a build's benchmark evaluation asks its test questions
-   * through (ingestion/evaluate.ts). Absent means the installation's own --
-   * what a caller's question would get, which is the point of the measurement.
-   */
-  retrieval?(): EvaluationDependencies;
 }
 
 export const defaultDependencies: IngestionDependencies = {
   /* The rendering fallback is console configuration, resolved once per
      source: the keys a source's first pages find spent stay set aside for
-     the rest of its pages. Only web sources ever reach it. */
+     the rest of its pages. Only a website source ever reaches it. */
   fetchSnapshot: async (input) =>
     fetchSnapshot(
-      input.renderer === undefined && WEB_SOURCES.has(input.type)
+      input.renderer === undefined && input.type === 'website'
         ? { ...input, renderer: await resolvePageRenderer() }
         : input,
     ),

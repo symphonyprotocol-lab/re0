@@ -67,8 +67,8 @@ async function claimable(identity: SQL): Promise<ClaimableLibrary> {
         isNull(schema.library.deletedAt),
         /*
          * "Built from one claimable source" is part of the rule, not just the
-         * sentence above it. An upload, an OpenAPI file or a Notion page has
-         * no claim flow at all (requirement.md 7.3.2), and letting one through
+         * sentence above it. An upload or a Notion page has no claim flow at
+         * all (requirement.md 7.3.2), and letting one through
          * renders a claim page with no method to pick and a Start button that
          * can only fail.
          */

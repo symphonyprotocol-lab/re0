@@ -855,19 +855,16 @@ describeWithDb('playground', () => {
     const workspaceId = crypto.randomUUID();
     await database.insert(schema.workspace).values({ id: workspaceId, name: 'audience-test' });
     const versions: string[] = [];
-    const plan = async (planId: 'free' | 'pro') => {
+    const plan = async (planId: 'free') => {
       const id = uuidv7();
       versions.push(id);
       await database.insert(schema.planVersion).values({
         id,
         planId,
-        priceMinor: planId === 'free' ? 0 : 2000,
+        priceMinor: 0,
         currency: 'USD',
         monthlyCalls: 100,
-        libraryLimit: 10,
-        librarySizeBytesLimit: 1_000_000,
         apiKeyLimit: 5,
-        shareRateBps: 2000,
         capabilities: {},
         createdAt: new Date('2000-01-01T00:00:00Z'),
       });
@@ -886,18 +883,14 @@ describeWithDb('playground', () => {
     try {
       expect(await hasPaidSubscription(workspaceId)).toBe(false);
 
+      /* Free is the only tier (agent-first-proposal.md 8.1), so no row makes a workspace paid. */
       const free = await plan('free');
       await subscribe(free, 'active');
       expect(await hasPaidSubscription(workspaceId)).toBe(false);
-
-      const pro = await plan('pro');
-      await subscribe(pro, 'canceled');
+      await subscribe(free, 'canceled');
       expect(await hasPaidSubscription(workspaceId)).toBe(false);
-      await subscribe(pro, 'active', true);
+      await subscribe(free, 'active', true);
       expect(await hasPaidSubscription(workspaceId)).toBe(false);
-
-      await subscribe(pro, 'active');
-      expect(await hasPaidSubscription(workspaceId)).toBe(true);
     } finally {
       await database.delete(schema.subscription).where(eq(schema.subscription.workspaceId, workspaceId));
       await database.delete(schema.workspace).where(eq(schema.workspace.id, workspaceId));

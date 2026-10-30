@@ -16,28 +16,18 @@
  * same request a no-op rather than a second charge. Per-workspace
  * serialisation is the cost; it lasts three reads and one insert.
  *
- * The commit takes the same lock because it counts too: the daily
- * attributable cap is read and then inserted against, and under READ
- * COMMITTED concurrent commits would each read the same count and every one
- * of them would pass a cap they jointly exceed.
+ * The commit takes the same lock because it decides too: which grant a pack
+ * call is paid from is settled at commit, and under READ COMMITTED two
+ * commits of one workspace could both pick a grant's last call.
  */
-import { and, asc, eq, gte, lt, or, sql } from 'drizzle-orm';
+import { and, asc, eq, lt, or, sql } from 'drizzle-orm';
 import { AppError } from '@/contracts/errors';
 import { uuidv7 } from '@/lib/domain/id';
-import {
-  DAILY_ATTRIBUTABLE_CALL_CAP,
-  isRevenueEligible,
-  nextDebitSource,
-  revenuePeriodId,
-  type DebitSource,
-  type LifecycleStatus,
-  type Visibility,
-} from '@/lib/domain';
+import { nextDebitSource, type DebitSource } from '@/lib/domain';
 import { DEFAULT_BUILD_RATES, type BuildRates } from '@/lib/domain/build-billing';
 import { db, schema } from '@/lib/infrastructure/postgres/client';
 import { IN_FORCE_FIRST, subscriptionInForce, windowInForce } from '@/lib/application/plans/in-force';
 import { PLAN_VERSION_NEWEST_FIRST } from './configuration';
-import { workspacesRelated } from './related-workspaces';
 
 /**
  * How long a pending reservation can hold a seat.
@@ -82,14 +72,6 @@ export interface ReservedCall {
   debitSource: DebitSource;
   /** The oldest grant with balance now; `commitCall` pays from it if it still has some, else the next. */
   addonGrantId: string | null;
-  /**
-   * The plan version the call bills against, pinned at reservation. The
-   * earning event freezes this id and its share rate (11.4: historical
-   * periods settle at the values of their time). Null only when no plan
-   * version exists at all, in which case nothing can earn either.
-   */
-  planVersionId: string | null;
-  shareRateBps: number;
   /** Remaining after this reservation -- what the response reports. */
   planAllowanceRemaining: number;
   addonBalanceRemaining: number;
@@ -123,10 +105,7 @@ export async function reserveCall(input: {
      */
     await sweepAbandonedSeats(tx, input.workspaceId);
 
-    const { allowance, periodStart, periodEnd, planVersionId, shareRateBps } = await planWindow(
-      tx,
-      input.workspaceId,
-    );
+    const { allowance, periodStart, periodEnd } = await planWindow(tx, input.workspaceId);
 
     const counted = await countConsumption(tx, input.workspaceId, periodStart, periodEnd);
 
@@ -197,8 +176,6 @@ export async function reserveCall(input: {
       requestId: input.requestId,
       debitSource,
       addonGrantId,
-      planVersionId,
-      shareRateBps,
       planAllowanceRemaining:
         debitSource === 'plan' ? effectivePlanRemaining - 1 : effectivePlanRemaining,
       addonBalanceRemaining:
@@ -208,32 +185,10 @@ export async function reserveCall(input: {
 }
 
 /**
- * What the earning decision needs to know about the target library -- loaded
- * by the caller before the call was admitted, so the judgment inside the
- * transaction uses fields already determined and never a post-hoc query
- * (architecture.md 11.4).
- */
-export interface EarningLibraryFacts {
-  visibility: Visibility;
-  lifecycleStatus: LifecycleStatus;
-  ownerWorkspaceId: string | null;
-  isPlatformLibrary: boolean;
-  /**
-   * expert-library-prd.md 4.4: the console's expert tag, and whether the
-   * owner workspace is on a paid plan at the moment of the call. Both are
-   * read with the library, before the reservation, so the judgment inside
-   * the transaction uses facts already determined.
-   */
-  expertTaggedAt: Date | null;
-  ownerSubscribed: boolean;
-}
-
-/**
- * Finalise a served call: one usage event, the reservation committed, an
- * addon deduction when that is the source, and -- when the target library is
- * eligible -- one earning event, all in one transaction and replay-safe via
- * unique `request_id`s. architecture.md 11.1 and 11.4: the earning event is a
- * billing fact and must never be an asynchronous afterthought.
+ * Finalise a served call: one usage event, the reservation committed, and an
+ * addon deduction when that is the source, all in one transaction and
+ * replay-safe via the unique `request_id`. architecture.md 11.1: the usage
+ * event is a billing fact and must never be an asynchronous afterthought.
  */
 export async function commitCall(input: {
   reservation: ReservedCall;
@@ -245,21 +200,16 @@ export async function commitCall(input: {
   latencyMs: number | null;
   inputTokens: number | null;
   returnedTokens: number | null;
-  /** Omitted by operations that never earn (nothing but query-docs earns). */
-  libraryFacts?: EarningLibraryFacts;
 }): Promise<void> {
   const database = db();
   const { reservation } = input;
 
   await database.transaction(async (tx) => {
     /*
-     * Same lock as the reservation, for the same reason: the daily
-     * attributable cap below is a count followed by an insert, and without it
-     * concurrent commits of one workspace all read the count before any of
-     * them inserts -- so a burst lands more earning events than the cap
-     * allows, which is the anti-self-dealing rule the cap exists to enforce.
-     * Taken first, in the same order as `reserveCall`, so the two cannot
-     * deadlock against each other.
+     * Same lock as the reservation: the grant chosen below is a read followed
+     * by a guarded decrement, and without it concurrent commits of one
+     * workspace could all read the same grant. Taken first, in the same order
+     * as `reserveCall`, so the two cannot deadlock against each other.
      */
     await tx
       .select({ id: schema.workspace.id })
@@ -323,60 +273,6 @@ export async function commitCall(input: {
         `quota: call ${reservation.requestId} debited the pack, but workspace ${reservation.workspaceId} has no balance left`,
       );
     }
-
-    /*
-     * The earning event, gated exactly as publisher-revenue-share.md 3.1
-     * lists: eligible library (public, published, claimed, not the
-     * platform's), not the owner calling their own library, an existing plan
-     * version to freeze the rate from -- and under the caller's daily
-     * attributable cap for this library, counted here in the same
-     * transaction. Over the cap the call bills normally and earns nothing.
-     * `written.length > 0` plus the unique request id keep replays at one.
-     *
-     * Section 5 widens "the owner" to every workspace related to it -- one
-     * payer or one controller (related-workspaces.ts). Read last, after the
-     * cheap gates, so only calls that would otherwise earn pay for it.
-     */
-    const facts = input.libraryFacts;
-    if (
-      written.length > 0 &&
-      facts &&
-      reservation.planVersionId &&
-      facts.ownerWorkspaceId !== reservation.workspaceId &&
-      isRevenueEligible(facts) &&
-      !(await callerRelatedToOwner(tx, reservation.workspaceId, facts.ownerWorkspaceId!))
-    ) {
-      const dayStart = new Date();
-      dayStart.setUTCHours(0, 0, 0, 0);
-      const [today] = await tx
-        .select({ n: sql<number>`count(*)::int` })
-        .from(schema.earningEvent)
-        .innerJoin(schema.usageEvent, eq(schema.usageEvent.requestId, schema.earningEvent.requestId))
-        .where(
-          and(
-            eq(schema.earningEvent.libraryId, input.libraryId),
-            eq(schema.usageEvent.workspaceId, reservation.workspaceId),
-            gte(schema.earningEvent.createdAt, dayStart),
-          ),
-        );
-
-      if ((today?.n ?? 0) < DAILY_ATTRIBUTABLE_CALL_CAP) {
-        await tx
-          .insert(schema.earningEvent)
-          .values({
-            id: uuidv7(),
-            requestId: reservation.requestId,
-            libraryId: input.libraryId,
-            versionId: input.versionId,
-            /* isRevenueEligible refused null owners above. */
-            ownerWorkspaceId: facts.ownerWorkspaceId!,
-            planVersionId: reservation.planVersionId,
-            shareRateBps: reservation.shareRateBps,
-            periodId: revenuePeriodId(new Date()),
-          })
-          .onConflictDoNothing({ target: schema.earningEvent.requestId });
-      }
-    }
   });
 }
 
@@ -395,27 +291,6 @@ async function grantForCommit(tx: Tx, reservation: ReservedCall): Promise<string
     if (reserved) return reserved.id;
   }
   return oldestGrantWithBalance(tx, reservation.workspaceId);
-}
-
-/** publisher-revenue-share.md 5: a related caller earns its owner nothing. */
-async function callerRelatedToOwner(
-  tx: Tx,
-  callerWorkspaceId: string,
-  ownerWorkspaceId: string,
-): Promise<boolean> {
-  const [row] = await tx
-    .select({
-      related: workspacesRelated(
-        sql`${callerWorkspaceId}::uuid`,
-        sql`${ownerWorkspaceId}::uuid`,
-      ).mapWith(
-        /* The driver may hand a raw-SQL boolean back as 't'/'f' text. */
-        (value): boolean => value === true || value === 't',
-      ),
-    })
-    .from(schema.workspace)
-    .where(eq(schema.workspace.id, callerWorkspaceId));
-  return row?.related ?? false;
 }
 
 /** A platform-internal failure: the seat is released, no event is written. */
@@ -540,12 +415,10 @@ export interface PlanWindow {
   allowance: number;
   periodStart: Date;
   periodEnd: Date;
+  /** The version a build charge is frozen against (build-quota.ts); null when no version exists. */
   planVersionId: string | null;
-  shareRateBps: number;
   /** library-build-billing.md 3.3: what a build costs on this version. */
   buildRates: BuildRates;
-  /** requirement.md 4.1: the per-library content ceiling, which bounds a build's quote. */
-  librarySizeBytesLimit: number;
 }
 
 export async function planWindow(tx: Tx, workspaceId: string): Promise<PlanWindow> {
@@ -571,9 +444,7 @@ export async function planWindow(tx: Tx, workspaceId: string): Promise<PlanWindo
       allowance: version?.monthlyCalls ?? 0,
       ...windowInForce(active),
       planVersionId: active.planVersionId,
-      shareRateBps: version?.shareRateBps ?? 0,
       buildRates: buildRatesOf(version),
-      librarySizeBytesLimit: version?.librarySizeBytesLimit ?? 0,
     };
   }
 
@@ -592,20 +463,16 @@ export async function planWindow(tx: Tx, workspaceId: string): Promise<PlanWindo
     periodStart,
     periodEnd,
     planVersionId: free?.id ?? null,
-    shareRateBps: free?.shareRateBps ?? 0,
     buildRates: buildRatesOf(free),
-    librarySizeBytesLimit: free?.librarySizeBytesLimit ?? 0,
   };
 }
 
 const PLAN_WINDOW_COLUMNS = {
   id: schema.planVersion.id,
   monthlyCalls: schema.planVersion.monthlyCalls,
-  shareRateBps: schema.planVersion.shareRateBps,
   buildBaseCalls: schema.planVersion.buildBaseCalls,
   buildTokensPerCall: schema.planVersion.buildTokensPerCall,
   buildPagesPerCall: schema.planVersion.buildPagesPerCall,
-  librarySizeBytesLimit: schema.planVersion.librarySizeBytesLimit,
 };
 
 /** No version at all (a deployment that skipped the seed) builds at the defaults. */

@@ -67,10 +67,8 @@ export const claimMethodEnum = pgEnum('claim_method', [
 export const sourceTypeEnum = pgEnum('source_type', [
   'github',
   'website',
-  'llms_txt',
   'markdown',
   'pdf',
-  'openapi',
   'notion',
 ]);
 export const workspaceRoleEnum = pgEnum('workspace_role', [
@@ -110,7 +108,7 @@ export const settlementStatusEnum = pgEnum('settlement_status', [
   'paid',
   /**
    * Discharged as Additional Calls rather than money: the publisher turned the
-   * statement into an `addon_grant` (publisher-revenue-share.md 3.4). Distinct
+   * statement into an `addon_grant` (agent-first-proposal.md 6.9). Distinct
    * from `paid` so the books still say what left as cash and what never did.
    */
   'redeemed',
@@ -136,19 +134,6 @@ export const billingDocumentStatusEnum = pgEnum('billing_document_status', [
   'uncollectible',
 ]);
 export const policyModeEnum = pgEnum('policy_mode', ['quality', 'select']);
-/**
- * An owner's application to have a public library tagged as an expert
- * library (expert-library-prd.md 4.5). `approved` and `library.expert_tagged_at`
- * move together; `revoked` is an approval an administrator later withdrew.
- */
-export const expertApplicationStatusEnum = pgEnum('expert_application_status', [
-  'pending',
-  'approved',
-  'rejected',
-  'withdrawn',
-  'revoked',
-]);
-
 /** Which door a site key opens: the widget on the owner's site, or a showcase page of ours. */
 export const siteKeyKindEnum = pgEnum('site_key_kind', ['embed', 'showcase']);
 export const showcaseKindEnum = pgEnum('showcase_kind', ['company', 'product']);
@@ -180,6 +165,15 @@ export const user = pgTable('user', {
   displayName: text('display_name'),
   avatarUrl: text('avatar_url'),
   status: text('status').notNull().default('active'),
+  /**
+   * How much the user's personal workspace may hold across all its live
+   * libraries: `base` (500 MB) or `extended` (2 GB). agent-first-proposal.md
+   * 8.1 -- raised for good by the first Additional Calls purchase, later also
+   * by the first channel subscription, and never lowered. On the user rather
+   * than the workspace because purchases and subscriptions are the user's.
+   * `lib/domain/plans.ts` `STORAGE_TIERS`.
+   */
+  storageTier: text('storage_tier').notNull().default('base'),
   createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
   updatedAt: timestamp('updated_at', { withTimezone: true }).notNull().defaultNow(),
 });
@@ -346,11 +340,12 @@ export const planVersion = pgTable(
     priceMinor: integer('price_minor').notNull(),
     currency: text('currency').notNull().default('USD'),
     monthlyCalls: integer('monthly_calls').notNull(),
-    libraryLimit: integer('library_limit').notNull(),
-    librarySizeBytesLimit: bigint('library_size_bytes_limit', { mode: 'number' }).notNull(),
+    /**
+     * Keys valid at once. The only per-workspace ceiling a version still
+     * carries: the library count is uncapped and content is bounded by the
+     * owner's `user.storage_tier` (agent-first-proposal.md 8.1).
+     */
     apiKeyLimit: integer('api_key_limit').notNull(),
-    /** Publisher share rate, frozen per version. requirement.md 4.4 */
-    shareRateBps: integer('share_rate_bps').notNull().default(2000),
     /**
      * What a library build costs, frozen per version like every price here.
      * library-build-billing.md 3.3; `lib/domain/build-billing.ts` `BuildRates`.
@@ -418,8 +413,8 @@ export const addonGrant = pgTable(
     currency: text('currency').notNull().default('USD'),
     providerOrderId: text('provider_order_id'),
     /**
-     * Set when the grant was not bought but redeemed: a publisher turned
-     * settled earnings into calls (publisher-revenue-share.md 3.4). Then
+     * Set when the grant was not bought but redeemed: a creator turned
+     * settled earnings into calls (agent-first-proposal.md 6.9). Then
      * `price_minor` is the earnings consumed, not a pack price, and the grant
      * is not a purchase -- `workspaceBilling` must not count it as one.
      *
@@ -591,20 +586,12 @@ export const library = pgTable(
      * The tombstone. architecture.md 8.4: a delete first makes the library
      * unreachable in Postgres -- this column, `archived`, `deleting`, and the
      * publication pointer withdrawn -- and the Delete Workflow then removes
-     * the content. The row itself stays: `usage_event`, `earning_event` and
-     * `settlement` are append-only facts that reference it, and a deleted
-     * library's billing history is still history. Every list and lookup of
-     * live libraries filters on this being null.
+     * the content. The row itself stays: `usage_event` is an append-only fact
+     * that references it, and a deleted library's billing history is still
+     * history. Every list and lookup of live libraries filters on this being
+     * null.
      */
     deletedAt: timestamp('deleted_at', { withTimezone: true }),
-    /**
-     * The expert-library tag (expert-library-prd.md 4.3). Null means the
-     * library is not one. Written only by the console's approval and cleared
-     * only by its revocation; nothing in ingestion, review or ownership
-     * touches it. Read by exactly one decision -- whether a served call earns
-     * (`commitCall`) -- and never by retrieval or ranking.
-     */
-    expertTaggedAt: timestamp('expert_tagged_at', { withTimezone: true }),
     /**
      * The owner's rights declaration (lib/domain/rights.ts): origin,
      * licence, how the content was written, their note, who declared and
@@ -1060,50 +1047,8 @@ export const libraryClaim = pgTable(
 );
 
 /**
- * An expert-library application. expert-library-prd.md 4.5, 7.
- *
- * Append-only history: a rejection and a later revocation are two rows that
- * stay, and the detail screens list them all. The partial unique index keeps
- * one pending application per library. `workspace_id` is the owner at the
- * time of applying, kept so a later ownership transfer does not rewrite who
- * asked. `decided_by_admin_id` is not a foreign key, like
- * `library_claim.ruling_admin_id`: the decision outlives the account.
- */
-export const expertApplication = pgTable(
-  'expert_application',
-  {
-    id: uuid('id').primaryKey(),
-    libraryId: uuid('library_id').notNull().references(() => library.id),
-    workspaceId: uuid('workspace_id').notNull().references(() => workspace.id),
-    status: expertApplicationStatusEnum('status').notNull(),
-    /** The applicant's statement for the reviewer; optional, capped at 500. */
-    note: text('note'),
-    /**
-     * The applicant's structured statement (lib/domain/expert-library.ts
-     * `ExpertMaterials`): scope, maintenance, credentials and the note.
-     * Null on applications made before it existed.
-     */
-    materials: jsonb('materials').$type<{ scope: string; maintenance: string; credentials: string; note: string }>(),
-    /** The reviewer's checklist behind the decision (`ExpertChecklist`); null on a revocation and older rows. */
-    checklist: jsonb('checklist').$type<Record<string, { verdict: string; note: string }>>(),
-    /** Why it was approved, rejected or revoked; the owner reads this. */
-    decisionReason: text('decision_reason'),
-    decidedByAdminId: uuid('decided_by_admin_id'),
-    decidedAt: timestamp('decided_at', { withTimezone: true }),
-    createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
-  },
-  (t) => [
-    uniqueIndex('expert_application_pending_uq')
-      .on(t.libraryId)
-      .where(sql`${t.status} = 'pending'`),
-    index('expert_application_library_idx').on(t.libraryId, t.createdAt.desc()),
-    index('expert_application_status_idx').on(t.status, t.createdAt.desc()),
-  ],
-);
-
-/**
- * A challenge proving a workspace controls a host, met before a website,
- * llms.txt or OpenAPI library may be created from it (requirement.md 7.3.2,
+ * A challenge proving a workspace controls a host, met before a website
+ * library may be created from it (requirement.md 7.3.2,
  * architecture.md 5.4, lib/domain/domain-verification.ts). Reuses the claim
  * enums: a domain challenge is a claim made before the library exists, and
  * a verified one is copied onto `library_claim` when the library is created.
@@ -1142,50 +1087,6 @@ export const libraryScore = pgTable(
   },
   /** "This library's newest score", which the catalogue reads per row. */
   (t) => [index('library_score_current_idx').on(t.libraryId, t.computedAt.desc())],
-);
-
-/**
- * A library's test set: questions with a known answer location, put to every
- * build through the real retrieval (lib/domain/benchmark.ts,
- * ingestion/evaluate.ts). requirement.md 6.3.
- *
- * Rows belong to the library, not to a version -- the same question is asked
- * of each build, which is what makes two builds' hit rates comparable. The
- * `last_*` columns are the most recent run only; the aggregate a score was
- * computed from is frozen on that `library_score.breakdown`.
- */
-export const libraryEvalQuestion = pgTable(
-  'library_eval_question',
-  {
-    id: uuid('id').primaryKey(),
-    libraryId: uuid('library_id').notNull().references(() => library.id),
-    question: text('question').notNull(),
-    /**
-     * Who wrote it: `admin` for the platform's own measuring instrument,
-     * `owner` for the library owner's self-check (review-visibility-
-     * proposal.md 5.2). Only `admin` questions move the Benchmark; a
-     * reviewer adopts an owner's question by setting this to `admin`.
-     */
-    author: text('author').notNull().default('admin'),
-    /** Matched against a passage's source URL and document title. */
-    expectedSource: text('expected_source'),
-    /** Matched against a passage's body. */
-    expectedText: text('expected_text'),
-    /** No foreign key: a version may be purged while its questions stay. */
-    lastVersionId: uuid('last_version_id'),
-    /** 1-based rank of the first satisfying passage; null is a miss. */
-    lastRank: integer('last_rank'),
-    lastEvaluatedAt: timestamp('last_evaluated_at', { withTimezone: true }),
-    createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
-  },
-  (t) => [
-    index('library_eval_question_library_idx').on(t.libraryId, t.createdAt),
-    check(
-      'library_eval_question_expectation',
-      sql`${t.expectedSource} is not null or ${t.expectedText} is not null`,
-    ),
-    check('library_eval_question_author', sql`${t.author} in ('owner', 'admin')`),
-  ],
 );
 
 export const document = pgTable(
@@ -1398,24 +1299,6 @@ export const libraryProfileVector = pgTable(
  * code used before this table existed. The newest row's id joins every
  * public cache key, so a change retires cached results without a flush.
  */
-/**
- * The public-review rules in force as the newest row (lib/domain/auto-review.ts
- * `ReviewRules`). Append-only like `retrieval_config`: a save mints a row,
- * and the history is the record of what the rules layer was deciding by
- * when. An empty table means the domain defaults.
- */
-export const reviewConfig = pgTable(
-  'review_config',
-  {
-    id: uuid('id').primaryKey(),
-    /* The public-review thresholds this table was made for were dropped on 2026-10-23 (migration 0056); the expert gate's remain. */
-    expertMinQuestions: integer('expert_min_questions').notNull().default(10),
-    expertHitRateMin: integer('expert_hit_rate_min').notNull().default(70),
-    createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
-  },
-  (t) => [index('review_config_time_idx').on(t.createdAt.desc())],
-);
-
 export const retrievalConfig = pgTable(
   'retrieval_config',
   {
@@ -1764,51 +1647,62 @@ export const publisherAccount = pgTable(
 );
 
 /**
- * Written in the same transaction as the usage event. architecture.md 11.4.
- * Requires the target library to have an owner, so unclaimed libraries earn nothing.
+ * One amount credited to a creator's workspace, or taken back from it: the
+ * ledger the monthly close sums. agent-first-proposal.md 6.9: a channel
+ * subscription collection writes the creator's share as a positive row, a
+ * refund or chargeback writes the negative, and a written-off balance writes
+ * what the platform absorbed. Nothing writes it yet -- the collection side
+ * arrives with channel subscriptions -- but the close, the statements, the
+ * hold and the payout rails read it as it stands.
+ *
+ * `flagged` excludes a row from every sum without deleting it, so a ledger
+ * correction stays visible. Nothing sets it today.
  */
 export const earningEvent = pgTable(
   'earning_event',
   {
     id: uuid('id').primaryKey(),
-    requestId: text('request_id').notNull(),
-    libraryId: uuid('library_id').notNull().references(() => library.id),
-    versionId: uuid('version_id').references(() => libraryVersion.id),
     ownerWorkspaceId: uuid('owner_workspace_id').notNull().references(() => workspace.id),
-    planVersionId: uuid('plan_version_id').notNull().references(() => planVersion.id),
-    shareRateBps: integer('share_rate_bps').notNull(),
+    /** The creator's share in minor units; negative for a refund or chargeback. */
+    amountMinor: bigint('amount_minor', { mode: 'number' }).notNull(),
+    /** What produced the row, e.g. `channel_subscription`, `refund`, `chargeback`, `written_off`. */
+    source: text('source').notNull(),
+    /** The provider's transaction id, when the row mirrors one; the refund of a payment names the same id. */
+    reference: text('reference'),
     periodId: text('period_id').notNull(),
     flagged: boolean('flagged').notNull().default(false),
     createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
   },
-  (t) => [
-    uniqueIndex('earning_event_request_uq').on(t.requestId),
-    index('earning_event_period_library_idx').on(t.periodId, t.libraryId),
-  ],
+  (t) => [index('earning_event_period_owner_idx').on(t.periodId, t.ownerWorkspaceId)],
 );
 
+/**
+ * A UTC calendar month of the ledger. Inserted by the close, which takes it
+ * `FOR UPDATE`; `locked_at` set means the sums are frozen and a re-run returns
+ * them instead of recomputing.
+ */
 export const revenuePeriod = pgTable(
   'revenue_period',
   {
     id: text('id').primaryKey(),
-    netRevenueMinor: bigint('net_revenue_minor', { mode: 'number' }).notNull(),
     currency: text('currency').notNull().default('USD'),
-    totalBilledCalls: bigint('total_billed_calls', { mode: 'number' }).notNull(),
-    totalAttributableCalls: bigint('total_attributable_calls', { mode: 'number' }).notNull(),
-    shareRateBps: integer('share_rate_bps').notNull(),
-    poolMinor: bigint('pool_minor', { mode: 'number' }).notNull(),
+    /** What the close summed over the period's unflagged events, all owners together. */
+    totalAmountMinor: bigint('total_amount_minor', { mode: 'number' }).notNull().default(0),
     lockedAt: timestamp('locked_at', { withTimezone: true }),
   },
 );
 
+/**
+ * One statement per publisher account per period: the owner's unflagged
+ * events in the period, summed. The row is what the hold, the credit path and
+ * the payout rail act on, and what the earning anchor commits to.
+ */
 export const settlement = pgTable(
   'settlement',
   {
     id: uuid('id').primaryKey(),
     periodId: text('period_id').notNull().references(() => revenuePeriod.id),
     publisherAccountId: uuid('publisher_account_id').notNull().references(() => publisherAccount.id),
-    libraryId: uuid('library_id').notNull().references(() => library.id),
-    attributableCalls: bigint('attributable_calls', { mode: 'number' }).notNull(),
     amountMinor: bigint('amount_minor', { mode: 'number' }).notNull(),
     currency: text('currency').notNull().default('USD'),
     status: settlementStatusEnum('status').notNull(),
@@ -1833,7 +1727,7 @@ export const settlement = pgTable(
 );
 
 /**
- * A cash payout, paid by hand (publisher-revenue-share.md 3.4): the publisher
+ * A cash payout, paid by hand (agent-first-proposal.md 6.9): the creator
  * requests it with a PayPal address, an operator sends the money from the
  * platform's PayPal account and records the transaction id here. `status` is
  * `requested`, `paid` or `failed`; at most one request per publisher is open.

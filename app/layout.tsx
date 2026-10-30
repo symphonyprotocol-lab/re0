@@ -6,6 +6,7 @@ import { HTML_LANG, OG_LOCALE } from '@/lib/i18n/locale';
 import { currentLocale } from '@/lib/i18n/server';
 import { PUBLIC_ORIGIN } from '@/lib/site/origin';
 import { WebMcpProvider } from '@/components/site/webmcp-provider';
+import { surfaceEnabled } from '@/lib/domain/surfaces';
 import './globals.css';
 
 const inter = Inter({ subsets: ['latin'], variable: '--font-inter', display: 'swap' });
@@ -84,8 +85,13 @@ export default async function RootLayout({ children }: { children: ReactNode }) 
       </head>
       <body className="font-sans antialiased">
         {children}
-        <script src="/vendor/webmcp/webmcp.js" async data-re0-webmcp="true" />
-        <WebMcpProvider locale={locale} />
+        {/* The in-page MCP surface is offline with the remote one (agent-first-proposal.md 3.6). */}
+        {surfaceEnabled('mcp') ? (
+          <>
+            <script src="/vendor/webmcp/webmcp.js" async data-re0-webmcp="true" />
+            <WebMcpProvider locale={locale} />
+          </>
+        ) : null}
       </body>
     </html>
   );

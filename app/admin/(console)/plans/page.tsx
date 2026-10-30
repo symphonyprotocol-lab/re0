@@ -18,15 +18,15 @@ import {
 import { CheckIcon } from '@/components/ui/icons';
 import { listPlanConfiguration, type PlanVersionRow } from '@/lib/application/plans';
 import {
-  bytesToMb,
-  sharePercentFromBps,
   shortPlanVersionId,
+  storageCapacityBytes,
   tierHasEntitlements,
   tierIsFree,
   usdFromMinor,
   usdHeadline,
   type PlanTierId,
 } from '@/lib/domain/plans';
+import { formatCapacity } from '@/lib/domain/pricing-page';
 import { requireAdminCapability } from '@/lib/http/admin';
 import type { Dictionary } from '@/lib/i18n/dictionary';
 import { fill } from '@/lib/i18n/format';
@@ -41,11 +41,14 @@ export async function generateMetadata(): Promise<Metadata> {
 /**
  * Plan configuration -- design source frames `WHlyq` and `新建套餐版本`.
  *
- * Three tiers and no more: Free, Pro and the Additional Calls pack, all priced
- * in USD (requirement.md 4.1, 5.3). There is deliberately no Enterprise card
- * to add, and no control that edits a version in place -- every row in
- * `plan_version` is immutable, so the card's control mints a successor and the
- * history panel below shows what each superseded row is still billing.
+ * Two tiers and no more: Free and the Additional Calls pack, both priced in
+ * USD (agent-first-proposal.md 8.1, requirement.md 5.3). There is deliberately
+ * no Pro or Enterprise card to add, and no control that edits a version in
+ * place -- every row in `plan_version` is immutable, so the card's control
+ * mints a successor and the history panel below shows what each superseded
+ * row is still billing. Storage is not on a version: the two capacities are
+ * product constants (`lib/domain/plans.ts`), shown here so the operator sees
+ * the whole offer in one place.
  */
 export default async function AdminPlansPage() {
   await requireAdminCapability('plans');
@@ -69,11 +72,15 @@ export default async function AdminPlansPage() {
     fill(p.versionName, { name: p.names[row.planId], index: ordinals.get(row.id) ?? 1 });
 
   const number = numberFormatter(locale);
+  const intl = new Intl.NumberFormat(locale === 'zh' ? 'zh-CN' : 'en-US');
+  const storage = {
+    base: formatCapacity(storageCapacityBytes('base'), intl),
+    extended: formatCapacity(storageCapacityBytes('extended'), intl),
+  };
   const price = (row: PlanVersionRow): string =>
     row.priceMinor === 0
       ? p.free
       : `${usdHeadline(row.priceMinor)} ${row.planId === 'addon' ? p.perPack : p.perMonth}`;
-  const size = (row: PlanVersionRow): string => `${number(bytesToMb(row.librarySizeBytesLimit))} MB`;
   const calls = (row: PlanVersionRow): string =>
     row.planId === 'addon' ? `+${number(row.monthlyCalls)}` : number(row.monthlyCalls);
 
@@ -81,33 +88,25 @@ export default async function AdminPlansPage() {
     <div className="flex flex-col gap-[18px]">
       <ConsolePageHeader eyebrow={t.admin.eyebrow} title={p.title} description={p.description} />
 
-      <section className="grid grid-cols-1 gap-3 md:grid-cols-3">
+      <section className="grid grid-cols-1 gap-3 md:grid-cols-2">
         {tiers.map((tier) => {
           const live = tier.live;
           const dark = tier.id === 'addon';
-          const featured = tier.id === 'pro';
           return (
             <article
               key={tier.id}
               className={`flex flex-col gap-[17px] rounded-[10px] border-2 p-[19px] ${
-                dark
-                  ? 'border-consoledeep bg-consoledeep'
-                  : featured
-                    ? 'border-publine bg-card'
-                    : 'border-line bg-card'
+                dark ? 'border-consoledeep bg-consoledeep' : 'border-line bg-card'
               }`}
             >
               <header className="flex items-start justify-between gap-3">
                 <span className="flex flex-col gap-1">
-                  <span className="flex items-center gap-2">
-                    <span
-                      className={`text-[14px] leading-[1.3] font-semibold tracking-[-0.025em] ${
-                        dark ? 'text-white' : 'text-ink'
-                      }`}
-                    >
-                      {p.names[tier.id]}
-                    </span>
-                    {featured ? <Pill tone="brand">{p.recommended}</Pill> : null}
+                  <span
+                    className={`text-[14px] leading-[1.3] font-semibold tracking-[-0.025em] ${
+                      dark ? 'text-white' : 'text-ink'
+                    }`}
+                  >
+                    {p.names[tier.id]}
                   </span>
                   <span
                     className={`text-[11px] tracking-[-0.023em] ${
@@ -136,7 +135,7 @@ export default async function AdminPlansPage() {
               </header>
 
               <ul className="flex flex-1 flex-col gap-2.5">
-                {(live ? perksFor(live, p, number) : []).map((perk) => (
+                {(live ? perksFor(live, p, number, storage) : []).map((perk) => (
                   <li
                     key={perk}
                     className={`flex items-center gap-2 text-[12px] tracking-[-0.023em] ${
@@ -154,7 +153,7 @@ export default async function AdminPlansPage() {
                 target={targetFor(tier.id, live, {
                   name: p.names[tier.id],
                   label: live ? versionName(live) : '',
-                  summary: live ? summaryFor(live, p, number, size, calls, price) : '',
+                  summary: live ? summaryFor(live, p, number, calls, price) : '',
                 })}
               />
             </article>
@@ -185,7 +184,6 @@ export default async function AdminPlansPage() {
                 tiers.map((tier) => tier.live),
                 p,
                 number,
-                size,
                 calls,
                 price,
               ).map((row) => (
@@ -205,7 +203,7 @@ export default async function AdminPlansPage() {
         </TableScroller>
 
         <p className="border-t-2 border-line px-[15px] py-3 text-[11px] leading-[1.6] tracking-[-0.023em] text-muted">
-          {p.immutableNote}
+          {fill(p.immutableNote, storage)}
         </p>
       </Panel>
 
@@ -244,17 +242,8 @@ export default async function AdminPlansPage() {
                     <td className={TD}>{calls(row)}</td>
                     <td className={TD}>
                       {tierHasEntitlements(row.planId)
-                        ? fill(p.limitsSummary, {
-                            libraries: number(row.libraryLimit),
-                            size: size(row),
-                            keys: number(row.apiKeyLimit),
-                          })
+                        ? fill(p.limitsSummary, { keys: number(row.apiKeyLimit) })
                         : p.inherit}
-                    </td>
-                    <td className={TD}>
-                      {tierHasEntitlements(row.planId)
-                        ? `${sharePercentFromBps(row.shareRateBps)}%`
-                        : p.none}
                     </td>
                     <td className={`${TD} whitespace-nowrap`}>{timestamp(row.createdAt)}</td>
                     <td className={TD}>{row.subscriptions > 0 ? number(row.subscriptions) : p.none}</td>
@@ -300,7 +289,12 @@ function timestamp(value: Date): string {
  * A card that lists what a fixture says is a card that will eventually
  * disagree with what a subscriber is actually sold.
  */
-function perksFor(live: PlanVersionRow, p: PlanCopy, number: NumberFormat): string[] {
+function perksFor(
+  live: PlanVersionRow,
+  p: PlanCopy,
+  number: NumberFormat,
+  storage: { base: string; extended: string },
+): string[] {
   if (!tierHasEntitlements(live.planId)) {
     return [
       fill(p.perkPackCalls, { calls: number(live.monthlyCalls) }),
@@ -309,9 +303,8 @@ function perksFor(live: PlanVersionRow, p: PlanCopy, number: NumberFormat): stri
   }
   return [
     fill(p.perkCalls, { calls: number(live.monthlyCalls) }),
-    fill(p.perkLibraries, { count: number(live.libraryLimit) }),
-    fill(p.perkSize, { size: `${number(bytesToMb(live.librarySizeBytesLimit))} MB` }),
     fill(p.perkKeys, { count: number(live.apiKeyLimit) }),
+    fill(p.perkStorage, storage),
   ];
 }
 
@@ -320,20 +313,12 @@ function summaryFor(
   live: PlanVersionRow,
   p: PlanCopy,
   number: NumberFormat,
-  size: (row: PlanVersionRow) => string,
   calls: (row: PlanVersionRow) => string,
   price: (row: PlanVersionRow) => string,
 ): string {
   const parts = [price(live), `${calls(live)} Calls`];
   if (tierHasEntitlements(live.planId)) {
-    parts.push(
-      fill(p.limitsSummary, {
-        libraries: number(live.libraryLimit),
-        size: size(live),
-        keys: number(live.apiKeyLimit),
-      }),
-      `${sharePercentFromBps(live.shareRateBps)}%`,
-    );
+    parts.push(fill(p.limitsSummary, { keys: number(live.apiKeyLimit) }));
   } else {
     parts.push(p.inherit);
   }
@@ -345,7 +330,7 @@ function summaryFor(
  *
  * The defaults are today's live values, so the form is a diff rather than a
  * blank slate: an operator raising one ceiling should not have to retype the
- * five they are keeping, and a retyped value is a value that can be mistyped.
+ * others they are keeping, and a retyped value is a value that can be mistyped.
  */
 function targetFor(
   planId: PlanTierId,
@@ -375,10 +360,7 @@ function targetFor(
     defaults: {
       price: live ? usdFromMinor(live.priceMinor) : tierIsFree(planId) ? '0.00' : '',
       calls: String(live?.monthlyCalls ?? ''),
-      libraryLimit: String(live?.libraryLimit ?? ''),
-      librarySizeMb: live ? String(bytesToMb(live.librarySizeBytesLimit)) : '',
       apiKeyLimit: String(live?.apiKeyLimit ?? ''),
-      shareRate: live ? sharePercentFromBps(live.shareRateBps) : '',
       buildBaseCalls: String(live?.buildBaseCalls ?? DEFAULT_BUILD_RATES.baseCalls),
       buildTokensPerCall: String(live?.buildTokensPerCall ?? DEFAULT_BUILD_RATES.tokensPerCall),
       buildPagesPerCall: String(live?.buildPagesPerCall ?? DEFAULT_BUILD_RATES.pagesPerCall),
@@ -391,13 +373,12 @@ function quotaRows(
   lives: (PlanVersionRow | null)[],
   p: PlanCopy,
   number: NumberFormat,
-  size: (row: PlanVersionRow) => string,
   calls: (row: PlanVersionRow) => string,
   price: (row: PlanVersionRow) => string,
 ): { label: string; cells: string[] }[] {
   const cell = (
     read: (live: PlanVersionRow) => string,
-    /* The pack has no ceiling of its own: it inherits whatever Pro grants. */
+    /* The pack has no ceiling of its own: its buyer keeps Free's. */
     packReads = false,
   ): string[] =>
     lives.map((live) => {
@@ -409,13 +390,7 @@ function quotaRows(
   return [
     { label: p.quotaLabels.price, cells: cell(price, true) },
     { label: p.quotaLabels.calls, cells: cell(calls, true) },
-    { label: p.quotaLabels.libraries, cells: cell((live) => number(live.libraryLimit)) },
-    { label: p.quotaLabels.size, cells: cell(size) },
     { label: p.quotaLabels.keys, cells: cell((live) => number(live.apiKeyLimit)) },
-    {
-      label: p.quotaLabels.share,
-      cells: cell((live) => `${sharePercentFromBps(live.shareRateBps)}%`),
-    },
     {
       label: p.quotaLabels.build,
       cells: cell((live) =>

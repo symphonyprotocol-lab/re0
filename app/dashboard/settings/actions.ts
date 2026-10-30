@@ -39,20 +39,19 @@ function backToPlan(outcome: string): never {
 }
 
 /**
- * Sends the browser to the provider's checkout for a subscription or a pack.
+ * Sends the browser to the provider's checkout for one Additional Calls pack,
+ * the only thing re0 sells (agent-first-proposal.md 8.1).
  *
  * The redirect sits outside the `try`: `redirect` works by throwing, and a
  * catch around it would swallow the navigation it exists to perform.
  */
-export async function startCheckoutAction(formData: FormData): Promise<void> {
+export async function startCheckoutAction(): Promise<void> {
   const session = await requireSession('/dashboard/settings');
-  const kind = formData.get('kind') === 'pack' ? 'pack' : 'subscription';
   let url: string;
   try {
     url = await startCheckout({
       workspaceId: session.workspace.id,
       role: session.workspace.role,
-      kind,
     });
   } catch (error) {
     if (error instanceof CheckoutRefused) backToPlan(error.code);

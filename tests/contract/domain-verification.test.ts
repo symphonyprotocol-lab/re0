@@ -19,27 +19,25 @@ import {
 import { claimMethodsFor, requiresClaim, SELF_OWNED_SOURCE_TYPES } from '@/lib/domain';
 
 describe('which sources verify a domain', () => {
-  it('gates the three host-fetched sources and nothing else', () => {
+  it('gates the one host-fetched source and nothing else', () => {
     expect(requiresDomainVerification('website')).toBe(true);
-    expect(requiresDomainVerification('llms_txt')).toBe(true);
-    expect(requiresDomainVerification('openapi')).toBe(true);
     for (const type of ['github', 'pdf', 'markdown', 'notion'] as const) {
       expect(requiresDomainVerification(type)).toBe(false);
     }
   });
 
-  it('keeps the claim rules in step: openapi is claimed by a domain, not self-owned', () => {
-    expect(claimMethodsFor('openapi')).toEqual(['dns_txt', 'well_known']);
-    expect(requiresClaim('openapi')).toBe(true);
-    expect(SELF_OWNED_SOURCE_TYPES).not.toContain('openapi');
+  it('keeps the claim rules in step: a website is claimed by a domain, not self-owned', () => {
+    expect(claimMethodsFor('website')).toEqual(['dns_txt', 'well_known']);
+    expect(requiresClaim('website')).toBe(true);
+    expect(SELF_OWNED_SOURCE_TYPES).not.toContain('website');
   });
 });
 
 describe('verificationHost', () => {
   it('is the lowercase host of an https location, without port or trailing dot', () => {
     expect(verificationHost('https://Docs.Example.com/guide')).toBe('docs.example.com');
-    expect(verificationHost('https://example.com.:8443/llms.txt')).toBe('example.com');
-    expect(verificationHost('  https://api.example.com/openapi.json ')).toBe('api.example.com');
+    expect(verificationHost('https://example.com.:8443/docs')).toBe('example.com');
+    expect(verificationHost('  https://api.example.com/reference ')).toBe('api.example.com');
   });
 
   it('has nothing for what cannot be a source', () => {

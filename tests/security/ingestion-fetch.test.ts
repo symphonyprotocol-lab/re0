@@ -2,7 +2,7 @@
  * What ingestion is allowed to fetch. architecture.md 15.1.
  *
  * A platform library's location is typed by an operator and then followed --
- * through redirects, through links in an `llms.txt`, through a crawl. Every one
+ * through redirects, through a sitemap, through a crawl. Every one
  * of those is a URL our server requests on someone else's say-so, which makes
  * this the classic server-side request forgery surface: the interesting target
  * is not the open internet but the metadata endpoint and the private network

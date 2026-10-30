@@ -24,11 +24,12 @@ type Action = (
 ) => Promise<SettlementActionResult>;
 
 /**
- * "Generate statements" -- the console end of publisher-revenue-share.md
- * stage 1. requirement.md 5.3 puts a second confirmation and a recorded
- * reason in front of every high-risk action; locking a period and writing
- * numbers against publishers' names is one, so this is a modal with a
- * required reason rather than a button that acts on the first click.
+ * "Generate statements" -- the console end of the monthly close
+ * (agent-first-proposal.md 6.9). requirement.md 5.3 puts a second
+ * confirmation and a recorded reason in front of every high-risk action;
+ * locking a period and writing numbers against creators' names is one, so
+ * this is a modal with a required reason rather than a button that acts on
+ * the first click.
  */
 export function GenerateSettlements({
   action,
@@ -130,11 +131,7 @@ function GenerateDialog({
         <div className="flex flex-col gap-2 text-[12px] leading-[1.6] tracking-[-0.023em] text-steel">
           <p className="flex items-start gap-2 text-pubink">
             <CircleCheckIcon size={15} className="mt-px shrink-0" />
-            {fill(l.done, {
-              period: done.periodId,
-              pool: cash(done.poolMinor),
-              calls: done.totalAttributableCalls.toLocaleString('en-US'),
-            })}
+            {fill(l.done, { period: done.periodId, total: cash(done.totalAmountMinor) })}
           </p>
           <p>
             {done.created > 0

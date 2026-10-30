@@ -16,11 +16,9 @@ import {
   paddleCheckoutState,
   paddleConfig,
   paddleDocumentStatus,
-  paddleSubscriptionStatus,
   readCustomData,
   refundedMinor,
   SIGNATURE_TOLERANCE_SECONDS,
-  subscriptionNotice,
   transactionNotice,
   verifyPaddleSignature,
   type PaddleAdjustment,
@@ -38,15 +36,15 @@ function sign(body: string, ts: number, secret = SECRET): string {
 
 const WORKSPACE = '01922f3a-0000-7000-8000-000000000001';
 const VERSION = '01922f3a-0000-7000-8000-000000000002';
-const PRODUCTS = { pro: 'pro_re0', addon: 'pro_pack' };
+/* The one product re0 sells; `pro_` is Paddle's id prefix for every product. */
+const ADDON_PRODUCT = 'pro_pack';
 
 const CONFIG: PaddleConfig = {
   apiKey: 'pdl_sdbx_apikey_x',
   webhookSecret: SECRET,
   clientToken: 'test_x',
   environment: 'sandbox',
-  proProductId: PRODUCTS.pro,
-  addonProductId: PRODUCTS.addon,
+  addonProductId: ADDON_PRODUCT,
   checkoutPageUrl: 'https://re0.test/checkout',
 };
 
@@ -55,15 +53,15 @@ function transaction(overrides: Partial<PaddleTransaction> = {}): PaddleTransact
     id: 'txn_01',
     status: 'completed',
     customer_id: 'ctm_01',
-    subscription_id: 'sub_01',
+    subscription_id: null,
     invoice_number: '325-10566',
     currency_code: 'USD',
-    custom_data: { re0_workspace_id: WORKSPACE, re0_plan_version_id: VERSION, re0_kind: 'subscription' },
-    billing_period: { starts_at: '2026-10-02T10:00:00Z', ends_at: '2026-11-02T10:00:00Z' },
+    custom_data: { re0_workspace_id: WORKSPACE, re0_plan_version_id: VERSION, re0_kind: 'pack' },
+    billing_period: null,
     billed_at: '2026-10-02T10:00:01Z',
     created_at: '2026-10-02T09:59:00Z',
     updated_at: '2026-10-02T10:00:05Z',
-    items: [{ quantity: 1, price: { product_id: PRODUCTS.pro } }],
+    items: [{ quantity: 1, price: { product_id: ADDON_PRODUCT } }],
     details: { totals: { grand_total: '500' } },
     payments: [
       { status: 'captured', captured_at: '2026-10-02T10:00:03Z', method_details: { type: 'card' } },
@@ -124,7 +122,6 @@ describe('paddleConfig', () => {
     PADDLE_API_KEY: 'k',
     PADDLE_WEBHOOK_SECRET: 's',
     PADDLE_CLIENT_TOKEN: 't',
-    PADDLE_PRO_PRODUCT_ID: 'pro_a',
     PADDLE_ADDON_PRODUCT_ID: 'pro_b',
     APP_BASE_URL: 'https://re0.test/',
   } as unknown as NodeJS.ProcessEnv;
@@ -157,34 +154,34 @@ describe('paddleConfig', () => {
 
 describe('checkoutTransactionBody', () => {
   const input = {
+    kind: 'pack' as const,
     workspaceId: WORKSPACE,
     planVersionId: VERSION,
     priceMinor: 500,
     currency: 'USD',
-    name: 'Re0 Pro',
+    name: 'Re0 Additional Calls',
     customerId: null,
   };
 
-  it('prices a subscription from the Plan Version, monthly, and tags it', () => {
-    const body = checkoutTransactionBody(CONFIG, { ...input, kind: 'subscription' });
+  it('prices a pack from the Plan Version, once, and tags it', () => {
+    const body = checkoutTransactionBody(CONFIG, input);
     expect(body.items[0]!.price).toMatchObject({
-      product_id: PRODUCTS.pro,
+      product_id: ADDON_PRODUCT,
       unit_price: { amount: '500', currency_code: 'USD' },
-      billing_cycle: { interval: 'month', frequency: 1 },
     });
+    /* One payment: a pack never renews (agent-first-proposal.md 8.1). */
+    expect(body.items[0]!.price).not.toHaveProperty('billing_cycle');
     expect(readCustomData(body.custom_data)).toEqual({
       workspaceId: WORKSPACE,
       planVersionId: VERSION,
-      kind: 'subscription',
+      kind: 'pack',
     });
     expect(body.checkout.url).toBe(CONFIG.checkoutPageUrl);
     expect(body).not.toHaveProperty('customer_id');
   });
 
-  it('sells a pack once, with no billing cycle, to the known customer', () => {
-    const body = checkoutTransactionBody(CONFIG, { ...input, kind: 'pack', customerId: 'ctm_01' });
-    expect(body.items[0]!.price.product_id).toBe(PRODUCTS.addon);
-    expect(body.items[0]!.price).not.toHaveProperty('billing_cycle');
+  it('attaches the purchase to the customer the workspace already is', () => {
+    const body = checkoutTransactionBody(CONFIG, { ...input, customerId: 'ctm_01' });
     expect(body.customer_id).toBe('ctm_01');
   });
 });
@@ -195,58 +192,6 @@ describe('readCustomData', () => {
     expect(
       readCustomData({ re0_workspace_id: "1' or '1'='1", re0_plan_version_id: 7, re0_kind: 'enterprise' }),
     ).toEqual({ workspaceId: null, planVersionId: null, kind: null });
-  });
-});
-
-describe('subscription mapping', () => {
-  it('keeps every state Paddle has, and reads an unknown one as granting nothing', () => {
-    for (const status of ['active', 'trialing', 'past_due', 'paused', 'canceled'] as const) {
-      expect(paddleSubscriptionStatus(status)).toBe(status);
-    }
-    expect(paddleSubscriptionStatus('something_new')).toBe('canceled');
-  });
-
-  it('reads the period and the tag, and dates the state by the entity', () => {
-    const notice = subscriptionNotice({
-      id: 'sub_01',
-      status: 'active',
-      customer_id: 'ctm_01',
-      custom_data: { re0_workspace_id: WORKSPACE, re0_plan_version_id: VERSION },
-      current_billing_period: { starts_at: '2026-10-02T10:00:00Z', ends_at: '2026-11-02T10:00:00Z' },
-      updated_at: '2026-10-02T10:00:06Z',
-    });
-    expect(notice).toMatchObject({
-      externalId: 'sub_01',
-      status: 'active',
-      workspaceId: WORKSPACE,
-      planVersionId: VERSION,
-      periodEnd: new Date('2026-11-02T10:00:00Z'),
-      cancelAt: null,
-      observedAt: new Date('2026-10-02T10:00:06Z'),
-    });
-  });
-
-  it('reads a scheduled cancellation, and only a cancellation, as the end', () => {
-    const base = {
-      id: 'sub_01',
-      status: 'active',
-      customer_id: 'ctm_01',
-      custom_data: null,
-      current_billing_period: { starts_at: '2026-10-02T10:00:00Z', ends_at: '2026-11-02T10:00:00Z' },
-      updated_at: '2026-10-05T08:00:00Z',
-    };
-    const cancelling = subscriptionNotice({
-      ...base,
-      scheduled_change: { action: 'cancel', effective_at: '2026-11-02T10:00:00Z' },
-    });
-    /* Still active until then: the cancellation is a date, not a status. */
-    expect(cancelling).toMatchObject({ status: 'active', cancelAt: new Date('2026-11-02T10:00:00Z') });
-
-    const pausing = subscriptionNotice({
-      ...base,
-      scheduled_change: { action: 'pause', effective_at: '2026-11-02T10:00:00Z' },
-    });
-    expect(pausing.cancelAt).toBeNull();
   });
 });
 
@@ -302,79 +247,86 @@ describe('paddleDocumentStatus', () => {
 
 describe('transactionNotice', () => {
   it('produces a document the mirror accepts', () => {
-    const notice = transactionNotice(transaction(), [], PRODUCTS)!;
+    const notice = transactionNotice(transaction(), [], ADDON_PRODUCT)!;
     const draft = parseProviderDocument(notice.document);
     expect(draft).toMatchObject({
       provider: 'paddle',
       externalId: 'txn_01',
       number: '325-10566',
-      kind: 'subscription',
+      kind: 'pack',
       status: 'paid',
       amountMinor: 500,
       refundedMinor: 0,
       currency: 'USD',
       method: 'card',
       paidAt: new Date('2026-10-02T10:00:03Z'),
-      periodStart: new Date('2026-10-02T10:00:00Z'),
+      periodStart: null,
     });
     expect(notice).toMatchObject({
       workspaceId: WORKSPACE,
       planVersionId: VERSION,
-      subscriptionExternalId: 'sub_01',
+      subscriptionExternalId: null,
       customerId: 'ctm_01',
+      quantity: 1,
     });
   });
 
   it('turns a refunded transaction into a refunded document dated by the refund', () => {
-    const notice = transactionNotice(transaction(), [adjustment()], PRODUCTS)!;
+    const notice = transactionNotice(transaction(), [adjustment()], ADDON_PRODUCT)!;
     expect(notice.document).toMatchObject({ status: 'refunded', refundedMinor: 200 });
     expect(notice.observedAt).toEqual(new Date('2026-10-09T08:00:00Z'));
     expect(() => parseProviderDocument(notice.document)).not.toThrow();
   });
 
   it('ignores adjustments that belong to another transaction', () => {
-    const notice = transactionNotice(transaction(), [adjustment({ transaction_id: 'txn_other' })], PRODUCTS)!;
+    const notice = transactionNotice(transaction(), [adjustment({ transaction_id: 'txn_other' })], ADDON_PRODUCT)!;
     expect(notice.document.status).toBe('paid');
   });
 
-  it('recognises a renewal nobody tagged by its subscription, and a pack by its product', () => {
-    const renewal = transactionNotice(transaction({ custom_data: null }), [], PRODUCTS)!;
-    expect(renewal.document.kind).toBe('subscription');
-    expect(renewal.workspaceId).toBeNull();
-
+  it('recognises an untagged pack by its product, and still mirrors a legacy subscription charge', () => {
     const pack = transactionNotice(
-      transaction({
-        custom_data: null,
-        subscription_id: null,
-        items: [{ quantity: 2, price: { product_id: PRODUCTS.addon } }],
-      }),
+      transaction({ custom_data: null, items: [{ quantity: 2, price: { product_id: ADDON_PRODUCT } }] }),
       [],
-      PRODUCTS,
+      ADDON_PRODUCT,
     )!;
     expect(pack.document.kind).toBe('pack');
+    expect(pack.workspaceId).toBeNull();
     expect(pack.quantity).toBe(2);
-    expect(parseProviderDocument(pack.document).periodStart).toBeNull();
+
+    /* A charge from a subscription sold before Pro was removed: money on the account, kept on record. */
+    const renewal = transactionNotice(
+      transaction({
+        custom_data: null,
+        subscription_id: 'sub_legacy',
+        items: [{ quantity: 1, price: { product_id: 'pro_retired' } }],
+        billing_period: { starts_at: '2026-10-02T10:00:00Z', ends_at: '2026-11-02T10:00:00Z' },
+      }),
+      [],
+      ADDON_PRODUCT,
+    )!;
+    expect(renewal.document.kind).toBe('subscription');
+    expect(renewal.subscriptionExternalId).toBe('sub_legacy');
+    expect(parseProviderDocument(renewal.document).periodStart).toEqual(new Date('2026-10-02T10:00:00Z'));
   });
 
   it('leaves out products re0 does not sell', () => {
     const other = transaction({
       custom_data: null,
-      subscription_id: null,
       items: [{ quantity: 1, price: { product_id: 'pro_someone_else' } }],
     });
-    expect(transactionNotice(other, [], PRODUCTS)).toBeNull();
+    expect(transactionNotice(other, [], ADDON_PRODUCT)).toBeNull();
   });
 
   it('has the mirror refuse a malformed amount instead of recording zero', () => {
-    const noTotal = transactionNotice(transaction({ details: { totals: null } }), [], PRODUCTS)!;
+    const noTotal = transactionNotice(transaction({ details: { totals: null } }), [], ADDON_PRODUCT)!;
     expect(() => parseProviderDocument(noTotal.document)).toThrow(/minor units/);
 
-    const badRefund = transactionNotice(transaction(), [adjustment({ totals: { total: '1.5' } })], PRODUCTS)!;
+    const badRefund = transactionNotice(transaction(), [adjustment({ totals: { total: '1.5' } })], ADDON_PRODUCT)!;
     expect(() => parseProviderDocument(badRefund.document)).toThrow(/refunded amount/);
   });
 
   it('states no refund for a document that was never collected', () => {
-    const notice = transactionNotice(transaction({ status: 'past_due', payments: [] }), [], PRODUCTS)!;
+    const notice = transactionNotice(transaction({ status: 'past_due', payments: [] }), [], ADDON_PRODUCT)!;
     expect(notice.document.status).toBe('failed');
     expect(notice.document).not.toHaveProperty('refundedMinor');
     expect(() => parseProviderDocument(notice.document)).not.toThrow();

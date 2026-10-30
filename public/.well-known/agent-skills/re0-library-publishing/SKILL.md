@@ -1,30 +1,30 @@
 ---
 name: re0-library-publishing
-description: Submit a knowledge source to Re0 or claim an existing public library when a user wants to publish, manage, or prove ownership of documentation.
+description: Add a source to Re0 as a data asset or claim an existing public asset when a user wants to publish, manage, or prove ownership of documentation.
 ---
 
-# Re0 library publishing and ownership
+# Re0 asset publishing and ownership
 
-Use the browser workflow for new library submission and the claims API for automatable ownership proofs. These are mutations: confirm the target source, visibility, and intended workspace with the user before submitting.
+Use the browser workflow to add a new asset and the claims API for automatable ownership proofs. These are mutations: confirm the target source, visibility, and intended workspace with the user before submitting.
 
-## Submit a new library
+## Add a new asset
 
-Open `/dashboard/libraries/new`. Sign-in and an `owner` or `admin` workspace role are required. There is currently no stable public REST endpoint for creating a library: do not call `GET /api/v1/libraries` or reverse-engineer Next.js server-action requests.
+Open `/dashboard/libraries/new`. Sign-in and an `owner` or `admin` workspace role are required. There is currently no stable public REST endpoint for creating an asset: do not call `GET /api/v1/libraries` or reverse-engineer Next.js server-action requests.
 
 Collect and enter:
 
 - `title`: 1–120 characters.
-- `visibility`: `public` or `private`. Public sources enter the review lifecycle; private sources remain workspace-only.
-- `sourceType`: `github`, `website`, `llms_txt`, `openapi`, `notion`, `pdf`, or `markdown`.
+- `visibility`: `public` or `private`. Public assets publish once their build passes the security scan; private assets remain workspace-only.
+- `sourceType`: `github`, `website`, `notion`, `pdf`, or `markdown`.
 - `location`: the repository, URL, or connected Notion page. It is not entered for uploaded PDF/Markdown sources.
 - `slug`: the stable ID segment for non-GitHub sources.
 - `description` and `language`: optional metadata.
-- `indexDepth`: for `website` and `llms_txt` sources when nested pages should be followed.
+- `indexDepth`: for `website` sources when nested pages should be followed.
 - Files: `.pdf` for PDF sources, or `.md`/`.mdx` for Markdown sources; at most 20 files and 30 MiB per file.
 
-GitHub and Notion imports require the user's corresponding connected account. `website`, `llms_txt`, and `openapi` sources require completing the domain-control challenge shown by the wizard before creation. Report the queued/build/review state returned by the UI; do not promise immediate public availability.
+An asset has exactly one source. GitHub and Notion imports require the user's corresponding connected account. `website` sources require completing the domain-control challenge shown by the wizard before creation. Report the queued/build state returned by the UI; do not promise immediate public availability.
 
-## Claim an existing library
+## Claim an existing asset
 
 Use `/libraries/claim?library={libraryId}` for the guided browser flow, or the following API with `Authorization: Bearer <api-key>`.
 
@@ -39,7 +39,7 @@ Content-Type: application/json
 
 Parameters:
 
-- `libraryId` (required): the exact public library ID.
+- `libraryId` (required): the exact ID of the public asset.
 - `method` (required): `dns_txt`, `well_known`, or `github_permission`. Available methods depend on the source.
 
 The creation response contains the one available plaintext challenge and its placement instructions. Store it only as long as needed to complete this claim. Place the exact DNS TXT value or well-known file as instructed, wait for it to become reachable, then verify:
@@ -51,4 +51,3 @@ POST /api/v1/claims/{claimId}/verify
 The verify request has no body. Use `GET /api/v1/claims/{claimId}` for one claim or `GET /api/v1/claims` for the workspace's claims. API keys cannot complete `github_permission`, because that method requires the signed-in user's GitHub grant; use the browser flow for it.
 
 Stop and report the returned `reason` on failed verification. In particular, do not create repeated claims to work around `already_claimed`, `claim_in_progress`, `challenge_expired`, `retry_limit_exceeded`, or `source_mismatch`.
-

@@ -1,18 +1,16 @@
 /**
  * Use case: apply a verified Payment Provider notification. architecture.md 11.3.
  *
- * The five steps, and where each happens:
+ * The steps, and where each happens:
  *
  * 1. Raw body and signature -- the adapter (`verifyWebhook`), before anything
  *    here runs.
  * 2. Idempotent record keyed on `(provider, external_event_id)` --
  *    `recordPaymentEvent`, first thing in the transaction.
- * 3. Provider state onto the internal subscription -- `projectSubscription`.
- *    Which row is then in force is lib/application/plans/in-force's call;
- *    nothing here touches the Free row signup wrote.
- * 4. The immutable Plan Version -- frozen on the subscription row when it is
- *    first written, and on every billing document and pack grant.
- * 5. The outcome is the mirror row; historical usage is never touched.
+ * 3. The immutable Plan Version -- frozen on every billing document and pack
+ *    grant.
+ * 4. The outcome is the mirror row, the pack grant and the buyer's storage
+ *    tier; historical usage is never touched.
  *
  * Everything an event changes is written in one transaction with its
  * `payment_event` row. That is what makes a retry safe in both directions: a
@@ -24,8 +22,13 @@
  * document the mirror refuses -- are still recorded, with their payload, and
  * acknowledged. Retrying them would fail the same way forever, and the payload
  * in `payment_event` is what an operator reconciles from.
+ *
+ * Only the Additional Calls pack is sold (agent-first-proposal.md 8.1), so the
+ * only state a notification can change is a workspace's pack balance and, with
+ * it, its owners' storage tier. Subscription events never reach here: the
+ * adapter reports them as ignored.
  */
-import { and, desc, eq, inArray, isNotNull, isNull, lte, ne, or } from 'drizzle-orm';
+import { and, desc, eq, isNotNull, isNull } from 'drizzle-orm';
 import {
   BillingMirrorRefused,
   isCollected,
@@ -33,23 +36,15 @@ import {
   type BillingDocumentDraft,
 } from '@/lib/domain/billing';
 import { uuidv7 } from '@/lib/domain/id';
-import type { PlanTierId } from '@/lib/domain/plans';
 import {
   paymentAdapter,
   type PaymentNotification,
   type ProviderDocumentNotice,
-  type ProviderSubscriptionNotice,
 } from '@/lib/infrastructure/payment/provider';
 import { db, schema } from '@/lib/infrastructure/postgres/client';
 import { PLAN_VERSION_NEWEST_FIRST } from '@/lib/application/plans/configuration';
 import type { Tx } from '@/lib/application/plans/quota';
-
-/**
- * Provider subscription states that are still a billing relationship: the
- * card is charged, or will be again. `past_due` and `paused` grant nothing,
- * but buying a second subscription beside one of them is still paying twice.
- */
-export const LIVE_PROVIDER_STATUSES = ['active', 'trialing', 'past_due', 'paused'] as const;
+import { extendStorageTier } from '@/lib/application/plans/storage';
 import { recordPaymentEvent, writeProviderDocument } from './mirror';
 
 export type PaymentWebhookOutcome =
@@ -85,7 +80,8 @@ export async function applyPaymentNotification(
    * purpose.
    */
   if (notification.subject === 'ignored') return 'ignored';
-  if (notification.subject === 'document' && !notification.document) return 'ignored';
+  if (!notification.document) return 'ignored';
+  const notice = notification.document;
 
   /*
    * Parsed before the transaction, so a refusal can still record the event
@@ -93,30 +89,22 @@ export async function applyPaymentNotification(
    * record back with it.
    */
   let draft: BillingDocumentDraft | null = null;
-  let refused = false;
-  if (notification.subject === 'document' && notification.document) {
-    try {
-      draft = parseProviderDocument(notification.document.document);
-    } catch (error) {
-      if (!(error instanceof BillingMirrorRefused)) throw error;
-      console.error(`payment webhook: ${notification.externalEventId} refused: ${error.code}`);
-      refused = true;
-    }
+  try {
+    draft = parseProviderDocument(notice.document);
+  } catch (error) {
+    if (!(error instanceof BillingMirrorRefused)) throw error;
+    console.error(`payment webhook: ${notification.externalEventId} refused: ${error.code}`);
   }
 
   return db().transaction(async (tx) => {
     const eventId = await recordPaymentEvent(tx, notification.provider, notification);
     if (!eventId) return 'redelivered';
-    if (refused) return 'refused';
-
-    if (notification.subject === 'subscription') {
-      return projectSubscription(tx, notification.subscription);
-    }
-    return projectDocument(tx, notification.document!, draft!, eventId);
+    if (!draft) return 'refused';
+    return projectDocument(tx, notice, draft, eventId);
   });
 }
 
-/* ----------------------------------------------------------- subscription */
+/* --------------------------------------------------------------- document */
 
 async function workspaceExists(tx: Tx, id: string | null): Promise<string | null> {
   if (!id) return null;
@@ -128,156 +116,32 @@ async function workspaceExists(tx: Tx, id: string | null): Promise<string | null
 }
 
 /**
- * The Plan Version a purchase binds to: the one tagged at checkout when it is
- * a version of the tier being bought, otherwise the tier's newest.
+ * The pack version a purchase binds to: the one tagged at checkout when it is
+ * a pack version, otherwise the newest.
  *
- * The fallback exists for a subscription created outside our checkout -- by
- * support, in Paddle's dashboard -- which has no tag. Binding it to the live
- * version is what a fresh checkout would have done at that moment.
+ * The fallback exists for a pack sold outside our checkout -- by support, in
+ * Paddle's dashboard -- which has no tag. Binding it to the live version is
+ * what a fresh checkout would have done at that moment.
  */
-async function planVersionFor(
+async function packVersionFor(
   tx: Tx,
-  tier: PlanTierId,
   tagged: string | null,
 ): Promise<{ id: string; monthlyCalls: number } | null> {
   if (tagged) {
     const [version] = await tx
       .select({ id: schema.planVersion.id, monthlyCalls: schema.planVersion.monthlyCalls })
       .from(schema.planVersion)
-      .where(and(eq(schema.planVersion.id, tagged), eq(schema.planVersion.planId, tier)));
+      .where(and(eq(schema.planVersion.id, tagged), eq(schema.planVersion.planId, 'addon')));
     if (version) return version;
   }
   const [newest] = await tx
     .select({ id: schema.planVersion.id, monthlyCalls: schema.planVersion.monthlyCalls })
     .from(schema.planVersion)
-    .where(eq(schema.planVersion.planId, tier))
+    .where(eq(schema.planVersion.planId, 'addon'))
     .orderBy(...PLAN_VERSION_NEWEST_FIRST)
     .limit(1);
   return newest ?? null;
 }
-
-/**
- * Upserts the subscription row a provider subscription maps to.
- *
- * The Plan Version is written on insert and never again. A renewal or a
- * payment-method change arrives as `subscription.updated`, and re-resolving
- * the version on it would migrate the subscriber to whatever the console
- * minted since -- requirement.md 4.3 says a plan change only reaches new
- * subscriptions.
- */
-async function projectSubscription(
-  tx: Tx,
-  notice: ProviderSubscriptionNotice,
-): Promise<PaymentWebhookOutcome> {
-  const [existing] = await tx
-    .select({
-      id: schema.subscription.id,
-      workspaceId: schema.subscription.workspaceId,
-      periodStart: schema.subscription.periodStart,
-      periodEnd: schema.subscription.periodEnd,
-    })
-    .from(schema.subscription)
-    .where(eq(schema.subscription.providerSubscriptionId, notice.externalId));
-
-  const workspaceId = existing?.workspaceId ?? (await workspaceExists(tx, notice.workspaceId));
-  if (!workspaceId) {
-    console.error(`payment webhook: subscription ${notice.externalId} names no known workspace`);
-    return 'unresolved';
-  }
-
-  const version = existing ? null : await planVersionFor(tx, 'pro', notice.planVersionId);
-  if (!existing && !version) {
-    console.error('payment webhook: no Pro plan version to bind a subscription to');
-    return 'unresolved';
-  }
-
-  /*
-   * A cancelled subscription reports no current period. The row keeps the one
-   * it had; a subscription first seen already cancelled gets a zero-length
-   * window at the moment it was observed, which no quota check will ever land
-   * inside.
-   */
-  const periodStart = notice.periodStart ?? existing?.periodStart ?? notice.observedAt;
-  const periodEnd = notice.periodEnd ?? existing?.periodEnd ?? notice.observedAt;
-
-  /* Same guard as the document mirror: equal times pass, older ones do not. */
-  const newer = or(
-    isNull(schema.subscription.observedAt),
-    lte(schema.subscription.observedAt, notice.observedAt),
-  );
-  /*
-   * `cancelAt` is written as stated, null included: a subscription event
-   * carries the whole entity, so a missing scheduled change means the
-   * subscriber took the cancellation back.
-   */
-  const state = {
-    status: notice.status,
-    periodStart,
-    periodEnd,
-    cancelAt: notice.cancelAt,
-    observedAt: notice.observedAt,
-  };
-
-  const [written] = existing
-    ? await tx
-        .update(schema.subscription)
-        .set({ ...state, ...(notice.customerId ? { providerCustomerId: notice.customerId } : {}) })
-        .where(and(eq(schema.subscription.id, existing.id), newer))
-        .returning({ id: schema.subscription.id })
-    : await tx
-        .insert(schema.subscription)
-        .values({
-          id: uuidv7(),
-          workspaceId,
-          planVersionId: version!.id,
-          providerCustomerId: notice.customerId,
-          providerSubscriptionId: notice.externalId,
-          ...state,
-        })
-        /*
-         * Two first events for one subscription racing each other: the loser
-         * becomes an update of the winner's row, under the same guard, rather
-         * than a unique violation the provider would retry.
-         */
-        .onConflictDoUpdate({
-          target: schema.subscription.providerSubscriptionId,
-          setWhere: newer,
-          set: state,
-        })
-        .returning({ id: schema.subscription.id });
-
-  if (!written) return 'stale';
-
-  /*
-   * A second live provider subscription for one workspace is two charges on
-   * one card. Checkout refuses to start one (./checkout), but a subscription
-   * created in the provider's dashboard, or a checkout that slipped past, can
-   * still arrive. re0 does not cancel or refund on the provider's behalf
-   * (requirement.md 4.3), so it is said loudly for support to resolve there.
-   */
-  if (!existing && (notice.status === 'active' || notice.status === 'trialing')) {
-    const [other] = await tx
-      .select({ id: schema.subscription.providerSubscriptionId })
-      .from(schema.subscription)
-      .where(
-        and(
-          eq(schema.subscription.workspaceId, workspaceId),
-          isNotNull(schema.subscription.providerSubscriptionId),
-          ne(schema.subscription.providerSubscriptionId, notice.externalId),
-          inArray(schema.subscription.status, LIVE_PROVIDER_STATUSES),
-        ),
-      )
-      .limit(1);
-    if (other) {
-      console.error(
-        `payment webhook: workspace ${workspaceId} now has two live subscriptions (${other.id}, ${notice.externalId})`,
-      );
-    }
-  }
-  return 'applied';
-}
-
-/* --------------------------------------------------------------- document */
 
 async function projectDocument(
   tx: Tx,
@@ -285,22 +149,9 @@ async function projectDocument(
   draft: BillingDocumentDraft,
   eventId: string,
 ): Promise<PaymentWebhookOutcome> {
-  const [subscription] = notice.subscriptionExternalId
-    ? await tx
-        .select({
-          id: schema.subscription.id,
-          workspaceId: schema.subscription.workspaceId,
-          planVersionId: schema.subscription.planVersionId,
-          providerCustomerId: schema.subscription.providerCustomerId,
-        })
-        .from(schema.subscription)
-        .where(eq(schema.subscription.providerSubscriptionId, notice.subscriptionExternalId))
-    : [];
-
   /*
    * A document already mirrored keeps its workspace (the mirror never moves
-   * one), so that is asked first; then the checkout's tag; then the
-   * subscription it bills, which is how a renewal nobody tagged is placed.
+   * one), so that is asked first; then the checkout's tag.
    */
   const [mirrored] = await tx
     .select({ workspaceId: schema.billingDocument.workspaceId })
@@ -311,22 +162,18 @@ async function projectDocument(
         eq(schema.billingDocument.externalId, draft.externalId),
       ),
     );
-  const workspaceId =
-    mirrored?.workspaceId ??
-    (await workspaceExists(tx, notice.workspaceId)) ??
-    subscription?.workspaceId ??
-    null;
+  const workspaceId = mirrored?.workspaceId ?? (await workspaceExists(tx, notice.workspaceId));
   if (!workspaceId) {
     console.error(`payment webhook: document ${draft.externalId} names no known workspace`);
     return 'unresolved';
   }
 
-  let planVersionId = subscription?.planVersionId ?? null;
+  let planVersionId: string | null = null;
   let addonGrantId: string | null = null;
-
   let unplaced = false;
+
   if (draft.kind === 'pack') {
-    const version = await planVersionFor(tx, 'addon', notice.planVersionId);
+    const version = await packVersionFor(tx, notice.planVersionId);
     planVersionId = version?.id ?? null;
     /*
      * Paid for, with no pack version to say how many calls that buys. The
@@ -346,20 +193,29 @@ async function projectDocument(
         currency: draft.currency,
       });
     }
-  } else if (!planVersionId && notice.planVersionId) {
-    planVersionId = (await planVersionFor(tx, 'pro', notice.planVersionId))?.id ?? null;
+    /*
+     * agent-first-proposal.md 8.1: the first pack a user buys raises their
+     * workspace to the extended storage tier, for good. Done on every
+     * collected pack event -- a redelivery, and a pack no version could place
+     * (the money arrived; the grant is the operator's to backfill) -- so the
+     * promise on the pricing page holds whenever a pack was paid for.
+     */
+    if (isCollected(draft.status)) await extendStorageTier(tx, workspaceId);
   }
 
   /*
-   * The customer is learnt here as well as from the subscription, because a
-   * `transaction.completed` can arrive before `subscription.created`, and the
-   * billing portal needs it as soon as there is anything to manage.
+   * The provider customer is learnt from the first collected document, so the
+   * billing portal has something to open as soon as there is a receipt to
+   * read there. It sits on the workspace's Free subscription row -- the one
+   * row every workspace has (signup writes it) and no purchase replaces.
    */
-  if (subscription && !subscription.providerCustomerId && notice.customerId) {
+  if (notice.customerId) {
     await tx
       .update(schema.subscription)
       .set({ providerCustomerId: notice.customerId })
-      .where(eq(schema.subscription.id, subscription.id));
+      .where(
+        and(eq(schema.subscription.workspaceId, workspaceId), isNull(schema.subscription.providerCustomerId)),
+      );
   }
 
   const result = await writeProviderDocument(
@@ -367,7 +223,7 @@ async function projectDocument(
     draft,
     {
       workspaceId,
-      subscriptionId: subscription?.id ?? null,
+      subscriptionId: null,
       addonGrantId,
       planVersionId,
       observedAt: notice.observedAt,
@@ -417,8 +273,8 @@ async function grantPack(
 
 /**
  * The provider customer a workspace already is, if it has bought anything.
- * Newest first, so a workspace that re-subscribed under a new customer
- * reaches the one its current subscription belongs to.
+ * Newest first, so a workspace with more than one subscription row reaches
+ * the one most recently in force.
  */
 export async function workspaceProviderCustomer(workspaceId: string): Promise<string | null> {
   const [row] = await db()

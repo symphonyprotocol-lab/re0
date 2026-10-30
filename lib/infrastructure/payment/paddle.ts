@@ -4,25 +4,22 @@
  * Three decisions shape this file.
  *
  * **The Plan Version is the price.** Checkout sends a non-catalogue price built
- * from the version being bought, against one of two Paddle products (Pro, and
- * the Additional Calls pack). Paddle's catalogue therefore holds no amounts of
- * ours: a version minted in the console is what the next checkout charges,
- * and a subscription keeps the price it started on through every renewal --
- * which is requirement.md 4.3's "a plan change only affects new
- * subscriptions" carried out by the provider rather than re-implemented here.
+ * from the version being bought, against the one Paddle product re0 sells, the
+ * Additional Calls pack (agent-first-proposal.md 8.1). Paddle's catalogue
+ * therefore holds no amounts of ours: a version minted in the console is what
+ * the next checkout charges.
  *
  * **A webhook is a prompt, not the record.** A transaction or adjustment event
  * is answered by fetching the transaction and its adjustments as they stand
  * now, and mirroring that. Paddle does not order its notifications, and a
  * refund arrives as an adjustment that says nothing about the transaction's
  * total; re-reading the source after every event gives the mirror one complete
- * picture instead of a sum of partial ones. Subscription events carry their
- * whole entity already and are used as sent.
+ * picture instead of a sum of partial ones. Subscription events are ignored:
+ * nothing sells a subscription, so there is nothing for one to describe.
  *
  * **Custom data names the buyer.** Every checkout is a transaction this server
- * creates, tagged with the workspace and the Plan Version, and Paddle carries
- * that tag onto the subscription and its renewals. It is trustworthy because
- * the tag is written server side and only ever read back from a signed
+ * creates, tagged with the workspace and the Plan Version. It is trustworthy
+ * because the tag is written server side and only ever read back from a signed
  * notification or an authenticated API call.
  */
 import { createHmac, timingSafeEqual } from 'node:crypto';
@@ -41,8 +38,6 @@ import {
   type PaymentAdapter,
   type PaymentNotification,
   type ProviderDocumentNotice,
-  type ProviderSubscriptionNotice,
-  type ProviderSubscriptionStatus,
 } from './types';
 
 export const PADDLE_PROVIDER = 'paddle';
@@ -57,7 +52,7 @@ export interface PaddleConfig {
   /** Public by design: Paddle.js runs in the browser with it. */
   clientToken: string;
   environment: PaddleEnvironment;
-  proProductId: string;
+  /** The Paddle product the pack's non-catalogue price is attached to. */
   addonProductId: string;
   /**
    * Where the checkout page lives; Paddle's payment link must point here, on a
@@ -82,7 +77,6 @@ export function paddleConfig(env: NodeJS.ProcessEnv = process.env): PaddleConfig
   const apiKey = env.PADDLE_API_KEY?.trim();
   const webhookSecret = env.PADDLE_WEBHOOK_SECRET?.trim();
   const clientToken = env.PADDLE_CLIENT_TOKEN?.trim();
-  const proProductId = env.PADDLE_PRO_PRODUCT_ID?.trim();
   const addonProductId = env.PADDLE_ADDON_PRODUCT_ID?.trim();
   const baseUrl = configuredBaseUrl(env);
   /*
@@ -92,7 +86,7 @@ export function paddleConfig(env: NodeJS.ProcessEnv = process.env): PaddleConfig
    * same-origin check and the session cookie's name.
    */
   const checkoutBaseUrl = env.PADDLE_CHECKOUT_BASE_URL?.trim().replace(/\/+$/, '') || baseUrl;
-  if (!apiKey || !webhookSecret || !clientToken || !proProductId || !addonProductId || !baseUrl) {
+  if (!apiKey || !webhookSecret || !clientToken || !addonProductId || !baseUrl) {
     return null;
   }
   return {
@@ -100,7 +94,6 @@ export function paddleConfig(env: NodeJS.ProcessEnv = process.env): PaddleConfig
     webhookSecret,
     clientToken,
     environment: env.PADDLE_ENVIRONMENT?.trim() === 'sandbox' ? 'sandbox' : 'production',
-    proProductId,
     addonProductId,
     checkoutPageUrl: `${checkoutBaseUrl}/checkout`,
   };
@@ -181,19 +174,6 @@ export interface PaddleAdjustment {
   updated_at: string;
 }
 
-export interface PaddleSubscription {
-  id: string;
-  status: string;
-  customer_id: string | null;
-  custom_data: Record<string, unknown> | null;
-  current_billing_period: { starts_at: string; ends_at: string } | null;
-  /** A change that takes effect later: `cancel`, `pause` or `resume`. */
-  scheduled_change?: { action: string; effective_at: string } | null;
-  updated_at: string;
-  /** Only on `subscription.created`: the checkout that started it. */
-  transaction_id?: string | null;
-}
-
 /* ----------------------------------------------------------- custom data */
 
 /** Keys we write into a transaction's custom data, prefixed so they cannot collide. */
@@ -240,47 +220,6 @@ function date(value: string | null | undefined): Date | null {
   if (!value) return null;
   const parsed = new Date(value);
   return Number.isNaN(parsed.getTime()) ? null : parsed;
-}
-
-/**
- * Paddle's subscription states onto ours, one for one.
- *
- * `paused` keeps its own state rather than folding into `canceled`: both grant
- * nothing, but a paused subscription resumes and charges again, and checkout
- * must not sell a second one beside it. Anything Paddle adds later reads as
- * `canceled` -- granting nothing is the safe reading of a state we do not know.
- */
-export function paddleSubscriptionStatus(status: string): ProviderSubscriptionStatus {
-  switch (status) {
-    case 'active':
-    case 'trialing':
-    case 'past_due':
-    case 'paused':
-      return status;
-    default:
-      return 'canceled';
-  }
-}
-
-/**
- * Cancelling in Paddle's portal leaves the subscription `active` to the end of
- * the period and records the intent as a scheduled change; only that says it
- * will not renew. A scheduled pause is not read as one: it resumes.
- */
-export function subscriptionNotice(subscription: PaddleSubscription): ProviderSubscriptionNotice {
-  const custom = readCustomData(subscription.custom_data);
-  const scheduled = subscription.scheduled_change;
-  return {
-    externalId: subscription.id,
-    customerId: subscription.customer_id,
-    status: paddleSubscriptionStatus(subscription.status),
-    periodStart: date(subscription.current_billing_period?.starts_at),
-    periodEnd: date(subscription.current_billing_period?.ends_at),
-    cancelAt: scheduled?.action === 'cancel' ? date(scheduled.effective_at) : null,
-    workspaceId: custom.workspaceId,
-    planVersionId: custom.planVersionId,
-    observedAt: date(subscription.updated_at) ?? new Date(),
-  };
 }
 
 /**
@@ -354,24 +293,21 @@ export function paddleCheckoutState(status: string): CheckoutState {
 /**
  * A transaction, with its adjustments, as the document the mirror holds.
  *
- * Null when it is not ours to mirror: not yet a document (above), or not one
- * of the two things re0 sells -- a Paddle account can sell other products,
- * and their transactions are not this workspace's bill.
+ * Null when it is not ours to mirror: not yet a document (above), or not
+ * something re0 sells -- a Paddle account can sell other products, and their
+ * transactions are not this workspace's bill. A transaction that bills a
+ * subscription is still mirrored, as a `subscription` document: it is money
+ * that moved on a workspace's account, from before subscriptions were sold.
  */
 export function transactionNotice(
   transaction: PaddleTransaction,
   adjustments: PaddleAdjustment[],
-  products: { pro: string; addon: string },
+  addonProductId: string,
 ): ProviderDocumentNotice | null {
   const custom = readCustomData(transaction.custom_data);
   const productIds = transaction.items.map((item) => item.price?.product_id);
   const kind: BillingDocumentKind | null =
-    custom.kind ??
-    (productIds.includes(products.addon)
-      ? 'pack'
-      : transaction.subscription_id || productIds.includes(products.pro)
-        ? 'subscription'
-        : null);
+    custom.kind ?? (productIds.includes(addonProductId) ? 'pack' : transaction.subscription_id ? 'subscription' : null);
   if (!kind) return null;
 
   const amountMinor = minor(transaction.details?.totals?.grand_total);
@@ -462,24 +398,21 @@ function listAdjustments(config: PaddleConfig, transactionId: string): Promise<P
   return call<PaddleAdjustment[]>(config, 'GET', `/adjustments?${query}`);
 }
 
-function getSubscription(config: PaddleConfig, id: string): Promise<PaddleSubscription> {
-  return call<PaddleSubscription>(config, 'GET', `/subscriptions/${encodeURIComponent(id)}`);
-}
-
-/** The body of `POST /transactions` for one checkout. Exported for its test. */
+/**
+ * The body of `POST /transactions` for one checkout: a single pack, charged
+ * once, with no billing cycle. Exported for its test.
+ */
 export function checkoutTransactionBody(config: PaddleConfig, input: CheckoutInput) {
-  const subscription = input.kind === 'subscription';
   return {
     items: [
       {
         quantity: 1,
         price: {
-          product_id: subscription ? config.proProductId : config.addonProductId,
+          product_id: config.addonProductId,
           name: input.name,
           /* Internal to Paddle's dashboard: which version this price was cut from. */
           description: `${input.name} · plan version ${input.planVersionId}`,
           unit_price: { amount: String(input.priceMinor), currency_code: input.currency },
-          ...(subscription ? { billing_cycle: { interval: 'month', frequency: 1 } } : {}),
         },
       },
     ],
@@ -497,8 +430,6 @@ export function checkoutTransactionBody(config: PaddleConfig, input: CheckoutInp
 /* ---------------------------------------------------------------- adapter */
 
 export function paddleAdapter(config: PaddleConfig): PaymentAdapter {
-  const products = { pro: config.proProductId, addon: config.addonProductId };
-
   return {
     provider: PADDLE_PROVIDER,
 
@@ -543,33 +474,15 @@ export function paddleAdapter(config: PaddleConfig): PaymentAdapter {
       return invoice.url;
     },
 
-    /*
-     * The same reads a transaction event triggers, plus the subscription, which
-     * a webhook would have delivered as an event of its own. A subscription
-     * missing our tag takes it from this transaction, as `verifyWebhook` takes
-     * it from the one that started the subscription.
-     */
+    /* The same reads a transaction event triggers. */
     async fetchDocument(externalId) {
       const [transaction, adjustments] = await Promise.all([
         getTransaction(config, externalId),
         listAdjustments(config, externalId),
       ]);
-      const entity = transaction.subscription_id
-        ? await getSubscription(config, transaction.subscription_id)
-        : null;
-      let subscription: ProviderSubscriptionNotice | null = null;
-      if (entity) {
-        subscription = subscriptionNotice(entity);
-        if (!subscription.workspaceId) {
-          const origin = readCustomData(transaction.custom_data);
-          subscription.workspaceId = origin.workspaceId;
-          subscription.planVersionId ??= origin.planVersionId;
-        }
-      }
       return {
-        document: transactionNotice(transaction, adjustments, products),
-        subscription,
-        payload: { transaction, adjustments, subscription: entity },
+        document: transactionNotice(transaction, adjustments, config.addonProductId),
+        payload: { transaction, adjustments },
       };
     },
 
@@ -595,22 +508,6 @@ export function paddleAdapter(config: PaddleConfig): PaymentAdapter {
       };
       const entity = event.event_type.split('.')[0];
 
-      if (entity === 'subscription') {
-        const data = event.data as unknown as PaddleSubscription;
-        const notice = subscriptionNotice(data);
-        /*
-         * The checkout's tag normally rides onto the subscription. When it has
-         * not, the creating event names the transaction that started it, and
-         * that transaction carries the tag for certain -- we wrote it.
-         */
-        if (!notice.workspaceId && data.transaction_id) {
-          const origin = readCustomData((await getTransaction(config, data.transaction_id)).custom_data);
-          notice.workspaceId = origin.workspaceId;
-          notice.planVersionId ??= origin.planVersionId;
-        }
-        return { ...envelope, subject: 'subscription', subscription: notice };
-      }
-
       if (entity === 'transaction' || entity === 'adjustment') {
         const transactionId = entity === 'transaction' ? event.data.id : event.data.transaction_id;
         if (typeof transactionId !== 'string') return { ...envelope, subject: 'ignored' };
@@ -630,7 +527,7 @@ export function paddleAdapter(config: PaddleConfig): PaymentAdapter {
         return {
           ...envelope,
           subject: 'document',
-          document: transactionNotice(transaction, adjustments, products),
+          document: transactionNotice(transaction, adjustments, config.addonProductId),
         };
       }
 

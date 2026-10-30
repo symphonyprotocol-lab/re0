@@ -50,6 +50,7 @@ const { uuidv7 } = await import('@/lib/domain/id');
 const { sessionTokenHash } = await import('@/lib/application/auth/session-token');
 const { GET: embedPage } = await import('@/app/embed/route');
 const { POST: askRoute } = await import('@/app/api/embed/ask/route');
+const { surfaceEnabled } = await import('@/lib/domain/surfaces');
 
 const actor = { administratorId: null as unknown as string, email: 'ops@example.test' };
 const libraries: string[] = [];
@@ -114,14 +115,11 @@ async function workspaceOnPlan(
   planVersions.push(planVersionId);
   await database.insert(schema.planVersion).values({
     id: planVersionId,
-    planId: 'pro',
-    priceMinor: 2000,
+    planId: 'free',
+    priceMinor: 0,
     currency: 'USD',
     monthlyCalls,
-    libraryLimit: 10,
-    librarySizeBytesLimit: 1_000_000,
     apiKeyLimit: 5,
-    shareRateBps: 2000,
     capabilities,
     createdAt: new Date('2000-01-01T00:00:00Z'),
   });
@@ -214,7 +212,28 @@ async function lines(response: Response): Promise<{ type: string; [key: string]:
     .map((line) => JSON.parse(line) as { type: string });
 }
 
+/*
+ * The widget is offline (agent-first-proposal.md 3.6, lib/domain/surfaces.ts):
+ * its routes answer 404 and the tests that drive them wait behind the switch.
+ * Key management itself still works, so those cases run regardless.
+ */
+const whileOn = surfaceEnabled('widget') ? it : it.skip;
+
 describeWithDb('website widget', () => {
+  it('answers 404 from every widget route while the surface is off', async () => {
+    if (surfaceEnabled('widget')) return;
+    const page = await embedPage(new NextRequest('https://api.example.test/embed?key=mm_site_x&parent=https%3A%2F%2Fexample.test'));
+    expect(page.status).toBe(404);
+    const ask = await askRoute(
+      new NextRequest('https://api.example.test/api/embed/ask', {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({ key: 'mm_site_x', question: 'hello' }),
+      }),
+    );
+    expect(ask.status).toBe(404);
+  });
+
   afterAll(async () => {
     const database = db();
     if (libraries.length > 0) {
@@ -281,13 +300,13 @@ describeWithDb('website widget', () => {
       createSiteKey({ workspaceId, role: 'owner', libraryId: second, name: 'Two', origins: SITE }),
     ).resolves.toMatchObject({ name: 'Two' });
 
-    /* The stock Pro version above carries no cap: the per-library ceiling is the only one. */
-    const pro = await workspaceOnPlan();
-    const library = await ownedLibrary(pro, `widget-cap-pro-${Date.now()}`);
+    /* A version with the cap lifted: the per-library ceiling is the only one left. */
+    const uncapped = await workspaceOnPlan(1_000, { siteKeys: -1 });
+    const library = await ownedLibrary(uncapped, `widget-cap-uncapped-${Date.now()}`);
     for (const name of ['a', 'b']) {
-      await createSiteKey({ workspaceId: pro, role: 'owner', libraryId: library, name, origins: SITE });
+      await createSiteKey({ workspaceId: uncapped, role: 'owner', libraryId: library, name, origins: SITE });
     }
-    expect((await listSiteKeys({ workspaceId: pro, libraryId: library })).length).toBe(2);
+    expect((await listSiteKeys({ workspaceId: uncapped, libraryId: library })).length).toBe(2);
   });
 
   it('mints a key the owner can read back, and refuses bad settings by field', async () => {
@@ -354,7 +373,7 @@ describeWithDb('website widget', () => {
     expect(kept.accent).toBe('#112233');
   });
 
-  it('serves the widget page only to listed parents, with the header that enforces it', async () => {
+  whileOn('serves the widget page only to listed parents, with the header that enforces it', async () => {
     const workspaceId = await workspaceOnPlan();
     const libraryId = await ownedLibrary(workspaceId, `widget-page-${Date.now()}`);
     const key = await createSiteKey({
@@ -388,7 +407,7 @@ describeWithDb('website widget', () => {
     expect(await listSiteKeys({ workspaceId, libraryId })).toEqual([]);
   });
 
-  it('answers from the private library with pages to open, as the workspace', async () => {
+  whileOn('answers from the private library with pages to open, as the workspace', async () => {
     const workspaceId = await workspaceOnPlan();
     const libraryId = await ownedLibrary(workspaceId, `widget-ask-${Date.now()}`);
     const key = await createSiteKey({
@@ -441,7 +460,7 @@ describeWithDb('website widget', () => {
     expect(empty.status).toBe(400);
   });
 
-  it('tells the owner which allowed sites have actually loaded the widget', async () => {
+  whileOn('tells the owner which allowed sites have actually loaded the widget', async () => {
     const workspaceId = await workspaceOnPlan();
     const libraryId = await ownedLibrary(workspaceId, `widget-sites-${Date.now()}`);
     const key = await createSiteKey({
@@ -492,7 +511,7 @@ describeWithDb('website widget', () => {
     expect(await listWorkspaceWidgetSites(workspaceId)).toEqual([]);
   });
 
-  it('lets the owner try the widget from the dashboard, and nobody else', async () => {
+  whileOn('lets the owner try the widget from the dashboard, and nobody else', async () => {
     const workspaceId = await workspaceOnPlan();
     const libraryId = await ownedLibrary(workspaceId, `widget-preview-${Date.now()}`);
     const key = await createSiteKey({ workspaceId, role: 'owner', libraryId, name: 'Site', origins: SITE });
@@ -545,7 +564,7 @@ describeWithDb('website widget', () => {
     expect((await listWidgetExchanges({ workspaceId: await workspaceOnPlan(), libraryId })).total).toBe(0);
   });
 
-  it("keeps what visitors asked, and counts the questions the library could not answer", async () => {
+  whileOn("keeps what visitors asked, and counts the questions the library could not answer", async () => {
     const workspaceId = await workspaceOnPlan();
     const libraryId = await ownedLibrary(workspaceId, `widget-history-${Date.now()}`);
     const key = await createSiteKey({ workspaceId, role: 'owner', libraryId, name: 'Site', origins: SITE });
@@ -574,7 +593,7 @@ describeWithDb('website widget', () => {
     });
   });
 
-  it("builds the owner's FAQ into the library and groups what visitors asked", async () => {
+  whileOn("builds the owner's FAQ into the library and groups what visitors asked", async () => {
     const workspaceId = await workspaceOnPlan();
     const libraryId = await ownedLibrary(workspaceId, `widget-faq-${Date.now()}`);
     const key = await createSiteKey({ workspaceId, role: 'owner', libraryId, name: 'Site', origins: SITE });
@@ -655,7 +674,7 @@ describeWithDb('website widget', () => {
     expect(await listFaqEntries({ workspaceId, libraryId })).toEqual([]);
   });
 
-  it("stops at the key's daily limit", async () => {
+  whileOn("stops at the key's daily limit", async () => {
     const workspaceId = await workspaceOnPlan();
     const libraryId = await ownedLibrary(workspaceId, `widget-limit-${Date.now()}`);
     const key = await createSiteKey({
@@ -677,7 +696,7 @@ describeWithDb('website widget', () => {
     expect(body.error.code).toBe('quota_exceeded');
   });
 
-  it('does not spend the day on a library that cannot answer yet', async () => {
+  whileOn('does not spend the day on a library that cannot answer yet', async () => {
     const workspaceId = await workspaceOnPlan();
     const libraryId = await ownedLibrary(workspaceId, `widget-paused-${Date.now()}`);
     const key = await createSiteKey({
@@ -711,8 +730,8 @@ describeWithDb('website widget', () => {
     expect((await lines(answered))[0]).toMatchObject({ type: 'allowance', remaining: 0 });
   });
 
-  it("tells the visitor the assistant is unavailable when the workspace's quota is spent", async () => {
-    const workspaceId = await workspaceOnPlan(0);
+  whileOn("tells the visitor the assistant is unavailable when the workspace's quota is spent", async () => {
+    const workspaceId = await workspaceOnPlan();
     const libraryId = await ownedLibrary(workspaceId, `widget-quota-${Date.now()}`);
     const key = await createSiteKey({ workspaceId, role: 'owner', libraryId, name: 'Broke', origins: SITE });
 

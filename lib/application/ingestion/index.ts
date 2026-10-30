@@ -8,7 +8,6 @@ export function notImplemented(name: string): never {
 export { buildVersion, type BuildOutcome } from './build-version';
 export { publishVersion, type PublishResult } from './publish-version';
 export { rebuildProfile, rebuildStaleProfiles } from './rebuild-profile';
-export { evaluateLibrary, evaluateVersion, type LibraryEvaluation } from './evaluate';
 export { purgeLibrary, type PurgeOutcome } from './purge-library';
 export { purgeAbandonedUploads, type PurgeUploadsOutcome } from './purge-uploads';
 export {

@@ -23,6 +23,7 @@ import {
   quickstartTabs,
 } from '@/lib/dashboard/snippets';
 import { usdHeadline } from '@/lib/domain/plans';
+import { surfaceEnabled } from '@/lib/domain/surfaces';
 import { workspaceUsage } from '@/lib/http/dashboard';
 import { appBaseUrl, requireSession } from '@/lib/http/session';
 import { fill } from '@/lib/i18n/format';
@@ -55,7 +56,8 @@ export default async function DashboardOverviewPage() {
     listApiKeys(workspaceId),
     listWorkspaceLibraries(workspaceId),
     workspaceBilling(workspaceId),
-    listWorkspaceWidgetSites(workspaceId),
+    /* agent-first-proposal.md 3.6: the widget is offline, so there is nothing to list. */
+    surfaceEnabled('widget') ? listWorkspaceWidgetSites(workspaceId) : [],
   ]);
 
   /* requirement.md 9.4: the sites the widget may run on, and which have it live. */
@@ -259,9 +261,6 @@ export default async function DashboardOverviewPage() {
               {o.usageSubtitle}
             </p>
           </div>
-          <span className="inline-flex h-[29px] items-center rounded-md border border-publine px-[11px]">
-            <ArrowLink href="/pricing">{o.usageUpgrade}</ArrowLink>
-          </span>
         </div>
         <UsageChart days={days} />
       </section>
@@ -330,85 +329,89 @@ export default async function DashboardOverviewPage() {
         </div>
       </section>
 
-      {/* Website widget -- requirement.md 9.4. Where the snippet lives, and where it is live. */}
-      <section className={`${PANEL} flex flex-col gap-[18px] p-[30px]`}>
-        <PanelHeading
-          title={o.widgetTitle}
-          description={o.widgetDescription}
-          action={
-            <ActionButton href="/dashboard/widget" variant="outline">
-              <GlobeIcon size={14} />
-              {o.widgetLink}
-            </ActionButton>
-          }
-        />
-        {sites.length === 0 ? (
-          <p className="text-[12px] text-muted">{o.widgetNone}</p>
-        ) : (
-          <div className="flex flex-col gap-3">
-            <p className="text-[13px] text-steel">
-              {fill(o.widgetSites, { reached: number.format(sitesReached), total: number.format(sites.length) })}
-              <span className="text-muted"> · {fill(o.widgetKeys, { keys: number.format(siteKeys.length) })}</span>
-            </p>
-            <ul className="flex flex-col">
-              {sites.slice(0, 5).map((site) => (
-                <li
-                  key={`${site.library}\n${site.origin}`}
-                  className="flex items-center gap-4 border-t border-line py-2.5"
-                >
-                  <span
-                    aria-hidden
-                    className="size-[7px] shrink-0 rounded-full border border-line"
-                    style={{ background: site.accent }}
-                  />
-                  <span className="flex min-w-0 flex-1 flex-col gap-[3px]">
-                    <code className="truncate font-mono text-[12px] text-ink">{site.origin}</code>
-                    <span className="truncate text-[10px] text-muted">{site.library}</span>
-                  </span>
-                  <StatusLabel tone={site.lastSeenAt ? 'live' : 'pending'}>
-                    {site.lastSeenAt ? o.widgetReached : o.widgetWaiting}
-                  </StatusLabel>
-                </li>
-              ))}
-            </ul>
-          </div>
-        )}
-      </section>
+      {/* Website widget -- requirement.md 9.4; offline since the agent-first turn (agent-first-proposal.md 3.6). */}
+      {surfaceEnabled('widget') ? (
+        <section className={`${PANEL} flex flex-col gap-[18px] p-[30px]`}>
+          <PanelHeading
+            title={o.widgetTitle}
+            description={o.widgetDescription}
+            action={
+              <ActionButton href="/dashboard/widget" variant="outline">
+                <GlobeIcon size={14} />
+                {o.widgetLink}
+              </ActionButton>
+            }
+          />
+          {sites.length === 0 ? (
+            <p className="text-[12px] text-muted">{o.widgetNone}</p>
+          ) : (
+            <div className="flex flex-col gap-3">
+              <p className="text-[13px] text-steel">
+                {fill(o.widgetSites, { reached: number.format(sitesReached), total: number.format(sites.length) })}
+                <span className="text-muted"> · {fill(o.widgetKeys, { keys: number.format(siteKeys.length) })}</span>
+              </p>
+              <ul className="flex flex-col">
+                {sites.slice(0, 5).map((site) => (
+                  <li
+                    key={`${site.library}\n${site.origin}`}
+                    className="flex items-center gap-4 border-t border-line py-2.5"
+                  >
+                    <span
+                      aria-hidden
+                      className="size-[7px] shrink-0 rounded-full border border-line"
+                      style={{ background: site.accent }}
+                    />
+                    <span className="flex min-w-0 flex-1 flex-col gap-[3px]">
+                      <code className="truncate font-mono text-[12px] text-ink">{site.origin}</code>
+                      <span className="truncate text-[10px] text-muted">{site.library}</span>
+                    </span>
+                    <StatusLabel tone={site.lastSeenAt ? 'live' : 'pending'}>
+                      {site.lastSeenAt ? o.widgetReached : o.widgetWaiting}
+                    </StatusLabel>
+                  </li>
+                ))}
+              </ul>
+            </div>
+          )}
+        </section>
+      ) : null}
 
-      {/* Install -- design source `QabFh`. The CLI command, then the endpoint it writes. */}
-      <section className={`${PANEL} flex flex-col gap-[13px] p-[30px]`}>
-        <PanelHeading
-          title={o.installTitle}
-          description={o.installDescription}
-        />
-        <div className="flex h-[52px] items-center gap-2.5 rounded-lg bg-terminal px-3.5">
-          <TerminalIcon size={16} className="text-brandink" />
-          <code className="flex-1 truncate font-mono text-[13px] text-white">
-            {install}
-          </code>
-          <CopyButton
-            value={install}
-            label={o.installCommandLabel}
-            className="text-faint hover:bg-white/10"
+      {/* Install -- design source `QabFh`: the CLI command and the MCP endpoint it writes. Offline with MCP (agent-first-proposal.md 3.6). */}
+      {surfaceEnabled('mcp') ? (
+        <section className={`${PANEL} flex flex-col gap-[13px] p-[30px]`}>
+          <PanelHeading
+            title={o.installTitle}
+            description={o.installDescription}
           />
-        </div>
-        <div className="flex h-[44px] items-center gap-2.5 rounded-lg bg-subtle px-3.5">
-          <span className="shrink-0 text-[11px] text-muted">
-            {o.live.mcpEndpointLabel}
-          </span>
-          <code className="flex-1 truncate font-mono text-[12px] text-steel">
-            {endpoint}
-          </code>
-          <CopyButton
-            value={endpoint}
-            label={o.live.mcpEndpointLabel}
-            className="text-muted hover:bg-mutedbg"
-          />
-        </div>
-        <p className="text-[12px] text-muted">
-          {fill(o.live.keyPlaceholderNote, { placeholder: API_KEY_PLACEHOLDER })}
-        </p>
-      </section>
+          <div className="flex h-[52px] items-center gap-2.5 rounded-lg bg-terminal px-3.5">
+            <TerminalIcon size={16} className="text-brandink" />
+            <code className="flex-1 truncate font-mono text-[13px] text-white">
+              {install}
+            </code>
+            <CopyButton
+              value={install}
+              label={o.installCommandLabel}
+              className="text-faint hover:bg-white/10"
+            />
+          </div>
+          <div className="flex h-[44px] items-center gap-2.5 rounded-lg bg-subtle px-3.5">
+            <span className="shrink-0 text-[11px] text-muted">
+              {o.live.mcpEndpointLabel}
+            </span>
+            <code className="flex-1 truncate font-mono text-[12px] text-steel">
+              {endpoint}
+            </code>
+            <CopyButton
+              value={endpoint}
+              label={o.live.mcpEndpointLabel}
+              className="text-muted hover:bg-mutedbg"
+            />
+          </div>
+          <p className="text-[12px] text-muted">
+            {fill(o.live.keyPlaceholderNote, { placeholder: API_KEY_PLACEHOLDER })}
+          </p>
+        </section>
+      ) : null}
 
       {/* REST quickstart -- design source `lRoBh`. */}
       <section className={`${PANEL} flex flex-col p-[30px]`}>

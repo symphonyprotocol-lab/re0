@@ -1,5 +1,5 @@
 /**
- * Earnings redeemed as Additional Calls. publisher-revenue-share.md 3.4.
+ * Earnings redeemed as Additional Calls. agent-first-proposal.md 6.9.
  *
  * The collection provider cannot pay a third party, so the first way a
  * publisher's settled statements leave the books is as calls on their own

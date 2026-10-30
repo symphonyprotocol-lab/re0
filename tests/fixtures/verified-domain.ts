@@ -1,7 +1,7 @@
 /**
  * A verified domain challenge, written straight to the table, for tests that
- * create a website, llms.txt or OpenAPI library and are about something
- * else. The creation use case refuses those sources without one
+ * create a website library and are about something else. The creation use
+ * case refuses that source without one
  * (lib/application/libraries/create.ts), so every such test needs one; the
  * challenge flow itself is covered by tests/integration/domain-verification.
  */

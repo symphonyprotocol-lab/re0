@@ -108,7 +108,6 @@ function BackfillDialog({ action, onClose }: { action: Action; onClose: () => vo
           {done.grantedCalls !== null ? (
             <p>{fill(f.doneGranted, { calls: done.grantedCalls.toLocaleString('en-US') })}</p>
           ) : null}
-          {done.subscription === 'applied' ? <p>{f.doneSubscription}</p> : null}
         </div>
       ) : (
         <form id={formId} onSubmit={submitOn(submit)} className="flex flex-col gap-3">

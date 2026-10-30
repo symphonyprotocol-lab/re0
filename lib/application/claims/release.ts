@@ -1,15 +1,15 @@
 /**
  * Use case: an owner gives a library up. requirement.md 7.3.5.
  *
- * The library returns to having no owner and stops earning (7.3.6); the
- * verified claim that made this workspace the owner is closed as `revoked`
+ * The library returns to having no owner; the verified claim that made this
+ * workspace the owner is closed as `revoked`
  * with the release named as the reason, so the record shows how ownership
  * ended rather than a claim that still says `verified` on an unowned library.
  *
  * Only a *claimed* library can be released. 7.3.5 describes abandoning
  * ownership as a claimed library returning to the unowned pool; a library
- * whose creator is its owner by construction -- an upload, an OpenAPI file, a
- * Notion connection -- never made that round trip and has no claim to give
+ * whose creator is its owner by construction -- an upload, a Notion
+ * connection -- never made that round trip and has no claim to give
  * up. Releasing one would strand it for good: `owner_workspace_id` is the
  * tenancy key for manage, rebuild, delete, detail and files, and
  * `claimMethodsFor` offers those source types no way back in, so the library

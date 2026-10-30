@@ -1,44 +1,56 @@
 # Re0
 
-把公开文档和用户有权使用的私有资料，转换为 AI Agent 可搜索、可检索、可引用的**版本化知识库**。
+**Your data asset agent for life, work & business** / 为生活、工作与生意打理数据资产的 Agent。
 
-按成功受理的 API/MCP Call 计费，不按 Token 计费。
+**Every answer cites its source. Every version is verifiable.** / 每句话都有出处，每个版本都能验证。
+
+re0 是一个**数据资产 Agent**：替用户收集、整理、使用、分发并变现数据资产。把网站、GitHub 库、上传文件、Notion 文章交给它，每个来源成为一项带不可变版本、可逐句引用的资产；用频道组织和公开资产，其他人和其他 Agent 通过频道、Agent Card 与 A2A 使用它们。按成功受理的 Call 计费，不按 Token 计费。
 
 ## 当前状态
 
-公共站点、用户 Dashboard、管理后台、REST API（`/v1`）和远程 MCP（`/mcp`）都已在本仓库实现，CLI、SDK 和独立 Verifier 在 `packages/` 下。产品规则以 [requirement.md](./requirement.md) 为准，技术约束以 [architecture.md](./architecture.md) 为准；本地运行见下文「本地开发与登录」。
+2026-10-29 起按 [agent-first-proposal.md](./agent-first-proposal.md) 转向 Agent 优先，当前在 **P0（文案与清理）**：
 
-尚未实现的部分：专家数据与评测赛道（[expert-data-track-proposal.md](./expert-data-track-proposal.md)，只有设计）、发布者分成的实际出账（阶段 3），以及端到端测试（`tests/e2e/` 为空，现有覆盖是 `tests/contract` 与 `tests/integration`）。
+- 已实现并在线：公共站点、用户 Dashboard、管理后台、REST API（`/v1`）、认领、链上存证；CLI、SDK 和独立 Verifier 在 `packages/` 下；
+- **下线并放在开关之后**：网站插件（`/widget.js`、`/embed`）、分享页（`/s`）、远程 MCP（`/mcp`）；代码保留，入口与路由撤掉；
+- **已删除**：Pro 套餐、专家库、自检问题（检索测试集）、按检索次数计算的发布者分成、`llms.txt` 与 OpenAPI 来源；
+- **P1 起落地**：资产类型与数据重建、频道、频道目录、用户主页、三层 Agent Card 与 A2A（`find_channels`、`search_context`）；P2 Agent 工作台与 A2A 写操作；P3a 文章、评论、问答与频道订阅；P3b 音频；P5 内部改名（代码、REST、数据库里的 `library` 一律改为 `asset`）。
+
+产品规则以 [requirement.md](./requirement.md) 为准，技术约束以 [architecture.md](./architecture.md) 为准；本地运行见下文「本地开发与登录」。尚未实现的还有专家数据与评测赛道（[expert-data-track-proposal.md](./expert-data-track-proposal.md)，只有设计）和端到端测试（`tests/e2e/` 为空，现有覆盖是 `tests/contract` 与 `tests/integration`）。
 
 ## 产品定义
 
-四个入口共用同一套身份、工作空间、知识版本、访问规则、检索、额度和审计规则：
+三个入口共用同一套身份、工作空间、资产版本、访问规则、检索、额度和审计规则：
 
 | 入口 | 职责 |
 | --- | --- |
-| Web | 发现知识库、在线试用、管理知识库和账户 |
-| REST API | 稳定、结构化的知识检索与管理接口 |
-| MCP | 让 Claude、Codex、Cursor 等 Agent 用两项只读工具取得上下文 |
-| CLI / SDK | 安装、配置与 API 封装，不复制服务端业务逻辑 |
+| Web | Agent 工作台（收集、整理、使用资产，管理频道）；频道与用户主页（浏览、阅读、收听、提问、评论、订阅）；在线试用 |
+| A2A + Agent Card | 其他 Agent 发现（Agent Card）并调用（A2A）平台、用户、频道三个层级的 Agent（P1 / P2） |
+| REST API（`/v1`） | 现有检索与管理接口，供网站内部、测试与脚本化管理使用，不对外宣传；CLI / SDK 只封装它 |
 
-核心价值：**最新**（按来源变化创建不可变版本）、**可信**（公开库经来源与安全审核）、**可追溯**（每段上下文保留来源、文档、章节和版本）、**可独立验证**（版本摘要上链，第三方不调用本平台接口即可校验）、**可治理**（工作空间可限制可访问内容）、**可预测计费**（按 Call）。
+对外只宣传三个出口：**频道**（给人看）、**Agent Card**（给 Agent 发现）、**A2A**（给 Agent 调用）。
 
-查询是两阶段的：`resolve-library-id` → `query-docs`。
+核心价值：**最新**（按来源变化创建不可变版本）、**可信**（公开频道里的来源型资产经过认领）、**可追溯**（每段上下文保留来源、文档、章节和版本）、**可独立验证**（版本摘要上链，第三方不调用本平台接口即可校验）、**可治理**（工作空间可限制可访问内容，名单可写频道 ID）、**可委托**（Agent 替用户操作资产与频道，有副作用的操作必须经人确认）、**可预测计费**（按 Call，谁发起谁付）。
+
+术语：产品里只有「数据资产」（简称资产）这一个顶层概念，「知识库」不再出现；代码、表名、REST 路径里的 `library` / `libraryId` 在 P5 统一改名。
 
 ## 文档地图
 
 | 文档 | 内容 | 状态 |
 | --- | --- | --- |
-| [requirement.md](./requirement.md) | 产品边界、用户行为、套餐、接口契约、验收标准 | MVP 基线 |
-| [architecture.md](./architecture.md) | 运行基座、数据模型、检索、计量、部署与发布 | MVP 基线 |
-| [publisher-revenue-share.md](./publisher-revenue-share.md) | 发布者调用分成的完整设计 | MVP 基线 |
-| [aptos-anchoring-proposal.md](./aptos-anchoring-proposal.md) | 链上版本、审计与结算单存证 | MVP 基线 |
+| [agent-first-proposal.md](./agent-first-proposal.md) | 转向 Agent 优先：按来源分类型的数据资产、频道与 20% 管理费的订阅、三层 Agent Card 与 A2A；下线网站插件、分享页、MCP，取消 Pro、专家库与发布者分成 | 实施中（P0 进行中） |
+| [requirement.md](./requirement.md) | 产品边界、用户行为、套餐、接口契约、验收标准 | 基线（4.0，已按提案改写） |
+| [architecture.md](./architecture.md) | 运行基座、数据模型、检索、计量、A2A Server、部署与发布 | 基线（4.0，已按提案改写） |
+| [aptos-anchoring-proposal.md](./aptos-anchoring-proposal.md) | 链上版本、审计与结算单存证 | 基线 |
+| [playground-agent-proposal.md](./playground-agent-proposal.md) | 在线试用的 Agent 模式：模型自行规划检索 | 基线 |
+| [library-build-billing.md](./library-build-billing.md) | 构建计量 | 基线 |
+| [publisher-revenue-share.md](./publisher-revenue-share.md) | 发布者调用分成的完整设计 | **废止**（2026-10-29，由频道订阅与频道收入结算取代） |
+| [expert-library-prd.md](./expert-library-prd.md) | 专家库审批与分成资格 | **废止**（2026-10-29） |
 | [expert-data-track-proposal.md](./expert-data-track-proposal.md) | 专家训练数据、授权交付与专业评测的集成方案 | MVP 后扩展，待评审 |
 | [self-hosting-proposal.md](./self-hosting-proposal.md) | Docker 私有部署形态：镜像、编排、与托管版的差异 | 待评审 |
-| [review-visibility-proposal.md](./review-visibility-proposal.md) | 公开审核与专家审批：审核员可见内容、提交材料、规则/模型/人工三层审核 | 待评审 |
+| [review-visibility-proposal.md](./review-visibility-proposal.md) | 公开审核的三层审核方案 | 待评审（发布前审核已取消，不再进入基线） |
 | `knowleg-market.pen` | 设计稿，27 个画板（Pencil 格式，需用 Pencil 打开） | — |
 
-冲突时的决策顺序以 [requirement.md](./requirement.md) 第 1 节为准：产品规则 → 设计稿 → 架构约束 → Context7 接入模式 → 旧文档与旧设计稿。本文只是索引，不是权威来源。
+冲突时的决策顺序以 [requirement.md](./requirement.md) 第 1 节为准：产品规则 → 设计稿 → 架构约束 → 旧文档与旧设计稿。本文只是索引，不是权威来源。
 
 ## 技术栈
 
@@ -49,58 +61,50 @@
 | 业务数据库 | Neon Postgres + Drizzle |
 | 关键词检索 | Postgres 全文检索 + BM25 |
 | 向量检索 | 同库 pgvector，**与 Chunk 同事务** |
-| 对象存储 | S3 兼容私有 Bucket，首发 Cloudflare R2 |
+| 对象存储 | Vercel Blob 私有 Store，保留 S3 兼容实现作退路 |
 | 长任务 | Vercel Workflows |
 | 边缘态 | Upstash Redis，**只做**匿名限流与检索缓存 |
-| 答案生成 | 外部 LLM Provider，**只用于 Web 在线试用**，不进入 REST/MCP 链路 |
+| 答案生成 | 外部 LLM Provider，只用于在线试用、Agent 工作台、频道 AI 分身和 A2A `ask`，不进入 REST 与 A2A `search_context` 链路 |
+| Agent 协议 | A2A Protocol v1.0（`@a2a-js/sdk` v1.x），三层 Agent Card，任务存 Postgres（P1） |
 | 链上存证 | Aptos 主网，签名密钥由环境变量持有，账户只留 Gas 余额 |
 
 选型理由和被否决的替代方案记录在 [architecture.md](./architecture.md) 第 1.2 节。其中最关键的一条：Chunk 正文、全文索引和向量在同一个 Postgres 事务内，因此发布是真正的 ACID 事务，不存在跨系统的中间态。
 
 ## 套餐
 
-以 USD 计价，只有以下三档，不设 Enterprise。
+以 USD 计价，只有一档加 Additional Calls，不设 Pro 与 Enterprise。
 
-| | Free | Pro | Additional Calls |
-| --- | --- | --- | --- |
-| 月费 | $0 | $5 / 月 | $5 / 包，一次性 |
-| API/MCP Calls | 1,000 / 月 | 5,000 / 月 | +5,000 Calls |
-| Calls 有效期 | 当账期，期末清零 | 当账期，期末清零 | **不过期**，跨账期结转 |
-| 自建知识库 | 5 个 | 25 个 | 沿用 Pro |
-| 单库容量 | 20 MB | 100 MB | 沿用 Pro |
-| 有效 API Key | 3 个 | 20 个 | 沿用 Pro |
+| 能力 | 规则 |
+| --- | --- |
+| 每月免费额度 | 1,000 Calls，当账期有效，期末清零 |
+| Additional Calls | 任何用户都可以购买，$5 / 5,000 Calls，一次性，**不过期**，跨账期结转 |
+| 工作空间总容量 | 默认 500 MB；订阅过任意频道或买过 Additional Calls 后永久提升到 2 GB |
+| 资产数、频道数 | 不单独设上限，只受总容量约束 |
+| 有效 API Key | 20 个 |
 
-扣减顺序固定为「先套餐额度、后调用包余额」。公开知识库全部可查，无需逐库购买。
+扣减顺序固定为「先免费额度、后 Additional Calls 余额」。公开频道里的免费资产全部可查，无需购买；谁发起谁付 Call，匿名访问由平台承担并走匿名限流，频道所有者不为访客付 Call。
 
-## 发布者分成
+## 频道订阅与结算
 
-通过审核并**完成认领**的用户公开知识库，按被成功检索的次数从平台收入中分成。要点：
-
-- 只有 `query-docs` 计分成，`resolve-library-id` 和匿名试用不计；
-- 未认领的公开库不产生收益，它的调用也不摊薄其他发布者的分配；收益不追溯到认领之前；
-- 按可计分成 Call 数线性分配，**不按 Trust Score 加权**——分数只决定资格，不决定金额；
-- 收益数据不得进入检索、召回或排序的任何环节；
-- 出账由外部支付服务完成，Re0 不保存银行账号、不持有用户资金。
-
-完整设计见 [publisher-revenue-share.md](./publisher-revenue-share.md)。
+发布者按检索次数分成已取消。创作者的回报是**频道订阅**：为频道设月付、年付方案（任一笔交易不低于 $5），re0 用自己的 Paddle 账户收款，创作者拿不含税金额的 80%，平台收 20% 管理费并承担 Paddle 手续费；按月结算、120 天持有期、满 $20 可申请 PayPal 提现或不设门槛转为 Additional Calls；收益数据不进入检索与频道目录排序。P3a 落地，开工前提与完整规则见 [agent-first-proposal.md](./agent-first-proposal.md) 第 6.9 节和 [requirement.md](./requirement.md) 第 4.4 节。
 
 ## 所有权认领
 
-提交一个公开知识库**不等于拥有它**。所有权只能通过认领取得，认领要回答的不是「你是谁」，而是「你是否控制这个来源」——OAuth 只建立身份，不代表发布权。
+把来源型资产（网站、GitHub 库）放进**公开频道**之前必须先认领。认领要回答的不是「你是谁」，而是「你是否控制这个来源」——OAuth 只建立身份，不代表发布权。不属于频道的资产不要求认领。
 
 | 来源类型 | 验证方式 |
 | --- | --- |
-| GitHub 仓库 | 仓库权限校验（要求 `admin` 或 `maintain`），备选 DNS TXT |
-| Website、`llms.txt` | DNS TXT 记录，备选 well-known 文件 |
-| 上传文档、OpenAPI、Notion | 不适用，创建者即所有者 |
+| GitHub 库 | 仓库权限校验（要求 `admin` 或 `maintain`），备选 DNS TXT |
+| 网站 | DNS TXT 记录，备选 well-known 文件 |
+| 上传文件、Notion 文章、文章、音频、问答 | 不适用，创建者即所有者 |
 
 **在 `re0.json` 里放公钥不会授予任何权限**：配置文件的可写范围与来源的控制权不等价，Fork、PR、镜像站都能写那个文件。完整规则见 [requirement.md](./requirement.md) 第 7.3 节，授权链路约束见 [architecture.md](./architecture.md) 第 5.4 节。
 
 ## 链上存证
 
-已发布 Version、每日审计链头和已关账的发布者结算单，摘要写入 Aptos 主网。链上**只有摘要**，没有知识正文、Query、用户标识或任何资产。
+已发布 Version、每日审计链头和已关账的创作者结算单，摘要写入 Aptos 主网。链上**只有摘要**，没有资产正文、Query、用户标识或任何资金。
 
-存证是旁路能力：链或签名账户不可用时，发布、刷新、检索、计量、审核和出账全部不受影响，存证状态停留在待存证。存证不消耗 Call 额度，Free 与 Pro 均包含。
+存证是旁路能力：链或签名账户不可用时，发布、刷新、检索、计量、下架和出账全部不受影响，存证状态停留在待存证。存证不消耗 Call 额度，所有用户包含。A2A 结果的 `data` Part 随每条引用附带版本锚点，调用方 Agent 用公开 Verifier 即可独立核对。
 
 **存证只证明「某时刻的内容就是这一份」，不构成对内容正确性的保证**；对结算单只证明锚定后未被改写，不证明分配算得对。完整设计见 [aptos-anchoring-proposal.md](./aptos-anchoring-proposal.md)。
 
@@ -116,17 +120,17 @@
 
 反过来，凡是加密或哈希落库内容的 Secret，三套环境必须取同一个值：`SESSION_SIGNING_SECRET`（GitHub / Notion 授权令牌的封装、管理员邀请哈希与落库 TOTP 种子的封装）、`API_KEY_HASH_SECRET`、`CREDENTIAL_ENCRYPTION_KEY`。各持一份的话，一个环境写下的行在另一个环境打不开。
 
-**禁止把 Production 数据复制到 Preview**——私有知识库里是用户授权的 Notion 页面与私有仓库内容，测试数据必须脱敏或由 Fixture 生成。
+**禁止把 Production 数据复制到 Preview**——不属于频道的资产里是用户授权的 Notion 页面与私密文件，测试数据必须脱敏或由 Fixture 生成。
 
-对象存储用 Vercel Blob：每个环境一个私有 Store，各自连到对应环境，`BLOB_READ_WRITE_TOKEN` 会自动注入；本地用 `vercel env pull` 拉取。分开是必须的而不是讲究——预览分支是主分支的写时复制，行里的 Key 指向生产对象，共用一个 Store 时在预览里删掉一个知识库就会删掉生产的文件。代价是预览里那些从生产复制来的行读不到对象（Store 里没有），这在预览分支换成 schema-only 之后自然消失。Dashboard 的 PDF 导入向导由浏览器直接上传到 Blob（服务端只签发限定路径、类型和大小的 Client Token），不经过应用，也就不受请求体大小限制，不需要额外的 CORS 配置。Blob 没有生命周期规则，向导中途放弃的上传会留在 `uploads/` 前缀下，由 drain 每次收尾时清理超过 24 小时且未被引用的对象，也可以用 `npm run uploads:purge` 手动跑。未设置 `BLOB_READ_WRITE_TOKEN` 时，代码退回 `OBJECT_STORE_*` 描述的 S3 兼容 Bucket，那时 Bucket 要允许来自应用 Origin 的跨域 `PUT`。
+对象存储用 Vercel Blob：每个环境一个私有 Store，各自连到对应环境，`BLOB_READ_WRITE_TOKEN` 会自动注入；本地用 `vercel env pull` 拉取。分开是必须的而不是讲究——预览分支是主分支的写时复制，行里的 Key 指向生产对象，共用一个 Store 时在预览里删掉一项资产就会删掉生产的文件。代价是预览里那些从生产复制来的行读不到对象（Store 里没有），这在预览分支换成 schema-only 之后自然消失。Dashboard 的 PDF 导入向导由浏览器直接上传到 Blob（服务端只签发限定路径、类型和大小的 Client Token），不经过应用，也就不受请求体大小限制，不需要额外的 CORS 配置。Blob 没有生命周期规则，向导中途放弃的上传会留在 `uploads/` 前缀下，由 drain 每次收尾时清理超过 24 小时且未被引用的对象，也可以用 `npm run uploads:purge` 手动跑。未设置 `BLOB_READ_WRITE_TOKEN` 时，代码退回 `OBJECT_STORE_*` 描述的 S3 兼容 Bucket，那时 Bucket 要允许来自应用 Origin 的跨域 `PUT`。
 
-构建任务在建库、改文件、后台刷新等动作的响应返回后立即执行（`after(runOperation)`），所以本地开发不需要额外进程；`vercel.json` 里的 Cron 每 10 分钟调用一次 `/api/cron/drain`（需要 `CRON_SECRET`）作为兜底，负责重试失败任务和清扫废弃上传。这个 Cron 同时也是平台知识库的自动刷新调度：每次先按各来源的刷新策略（每日 / 每周）把到期的来源排入队列，再执行队列。队列的实时状态、最近完成的记录和各来源的下次刷新时间在管理后台的「刷新队列」页（`/admin/refresh-queue`）查看。本地没有 Cron，可以用 `npx tsx` 调 `scheduleDueRefreshes()` 和 `drainOperations()`，或直接在后台按「排队刷新」。
+构建任务在创建资产、改文件、后台刷新等动作的响应返回后立即执行（`after(runOperation)`），所以本地开发不需要额外进程；`vercel.json` 里的 Cron 每 10 分钟调用一次 `/api/cron/drain`（需要 `CRON_SECRET`）作为兜底，负责重试失败任务和清扫废弃上传。这个 Cron 同时也是平台资产的自动刷新调度：每次先按各来源的刷新策略（每日 / 每周）把到期的来源排入队列，再执行队列。队列的实时状态、最近完成的记录和各来源的下次刷新时间在管理后台的「刷新队列」页（`/admin/refresh-queue`）查看。本地没有 Cron，可以用 `npx tsx` 调 `scheduleDueRefreshes()` 和 `drainOperations()`，或直接在后台按「排队刷新」。
 
-PDF 知识库可以在建库时就上传文件，也可以先建空库、之后在列表页该库的「管理 PDF 文件」页随时增删文件；保存后会排队重新构建，新版本发布前旧版本继续提供检索。空库不排队构建。PDF 单文件上限 30 MB，每个知识库最多 20 个文件。构建时用 pdf.js 抽取文本层；扫描件没有文本层，需要配置 OCR 服务才能索引：设置 `OCR_PROVIDER=ocrspace` 和 `OCR_PROVIDER_API_KEY`（[ocr.space](https://ocr.space/ocrapi)，免费 Key 限 1 MB、3 页，PDF 套餐才放开到 100 MB、999 页，付费套餐的区域端点填 `OCR_PROVIDER_BASE_URL`；中文扫描件设 `OCR_PROVIDER_LANGUAGE=chs`）。OCR 只在至多一半页面有文本层时触发，文件不经过应用之外的任何临时 URL，直接以 multipart 送给厂商。未配置时扫描件构建会以 `parse_failed` 结束。OCR 是 `lib/infrastructure/connectors/ocr.ts` 里的一个 Provider 接口，换厂商只改这一处。
+上传文件资产可以在创建时就上传 PDF，也可以先建空资产、之后在列表页该资产的「管理 PDF 文件」页随时增删文件；保存后会排队重新构建，新版本发布前旧版本继续提供检索。没有文件的资产不排队构建。PDF 单文件上限 30 MB，每项资产最多 20 个文件。构建时用 pdf.js 抽取文本层；扫描件没有文本层，需要配置 OCR 服务才能索引：设置 `OCR_PROVIDER=ocrspace` 和 `OCR_PROVIDER_API_KEY`（[ocr.space](https://ocr.space/ocrapi)，免费 Key 限 1 MB、3 页，PDF 套餐才放开到 100 MB、999 页，付费套餐的区域端点填 `OCR_PROVIDER_BASE_URL`；中文扫描件设 `OCR_PROVIDER_LANGUAGE=chs`）。OCR 只在至多一半页面有文本层时触发，文件不经过应用之外的任何临时 URL，直接以 multipart 送给厂商。未配置时扫描件构建会以 `parse_failed` 结束。OCR 是 `lib/infrastructure/connectors/ocr.ts` 里的一个 Provider 接口，换厂商只改这一处。
 
-平台知识库也可以是 PDF 类型：在管理后台「创建平台知识库」里选 PDF，文件直传对象存储；建库后在详情页的「PDF 文件」面板增删，保存即排队重新构建；已有的网站 / GitHub 等库也可以在「添加来源」里加一个 PDF 来源（每库一个）。平台 PDF 库不按时间刷新，引用链接走公开的 `/files/{fileId}`。
+平台资产也可以是上传文件类型：在管理后台「创建平台资产」里选 PDF，文件直传对象存储；创建后在详情页的「PDF 文件」面板增删，保存即排队重新构建。一项资产只对应一个来源，不再给已有的网站 / GitHub 资产追加 PDF 来源。平台上传文件资产不按时间刷新，引用链接走公开的 `/files/{fileId}`。
 
-完整环境变量清单见 [architecture.md](./architecture.md) 第 19.1 节。Secret 不得进入前端 Bundle，只允许在 Server Component、Route Handler 和 Workflow 中读取。Anchor Signer 私钥不出现在任何环境变量里。
+完整环境变量清单见 [architecture.md](./architecture.md) 第 19.1 节。Paddle 只需要 Additional Calls 一个商品（`PADDLE_ADDON_PRODUCT_ID`）；Pro 套餐已删除，**不再需要 `PADDLE_PRO_PRODUCT_ID`**，频道订阅的商品在 P3a 加入。网站插件、分享页、MCP 由开关控制，默认关闭。Secret 不得进入前端 Bundle，只允许在 Server Component、Route Handler 和 Workflow 中读取。Anchor Signer 私钥不出现在任何环境变量里。
 
 ## 本地开发与登录
 
@@ -160,7 +164,7 @@ http://localhost:3000/api/auth/google/callback
 http://localhost:3000/api/auth/github/callback/connect
 ```
 
-向导导入 Notion 页面时同样先绑定账号：需要一个 Notion **public integration**（`NOTION_OAUTH_CLIENT_ID` / `_SECRET`），登记的 Redirect URI 为 `http://localhost:3000/api/auth/notion/callback/connect`。用户在 Notion 授权页选择共享给 re0 的页面，向导只列这些页面，之后的刷新也用同一份授权读取；令牌加密存于 `notion_connection` 表。管理后台的平台 Notion 知识库仍用 `NOTION_INGESTION_TOKEN`（internal integration）。
+向导导入 Notion 页面时同样先绑定账号：需要一个 Notion **public integration**（`NOTION_OAUTH_CLIENT_ID` / `_SECRET`），登记的 Redirect URI 为 `http://localhost:3000/api/auth/notion/callback/connect`。用户在 Notion 授权页选择共享给 re0 的页面，向导只列这些页面，之后的刷新也用同一份授权读取；令牌加密存于 `notion_connection` 表。管理后台的平台 Notion 资产仍用 `NOTION_INGESTION_TOKEN`（internal integration）。
 
 `npm run db:migrate` 打的是 `.env.local` 里的那条串，也就是 `dev` 分支——本地迁移不再碰生产。主分支（production 与 preview 共用）的迁移要显式指向它：
 
@@ -170,7 +174,7 @@ DATABASE_URL_UNPOOLED='<主分支直连串>' npm run db:migrate
 
 顺序按 [architecture.md](./architecture.md) 第 19.2 节排：主分支先迁移，再发布依赖新 Schema 的代码。
 
-`0002_seed_plans.sql` 会写入 Free 和 Pro 的 Plan Version——首次登录要在同一个事务里创建 Free 订阅，因此迁移必须先于任何流量执行。
+`0002_seed_plans.sql` 会写入免费档的 Plan Version（Pro 档已在 P0 的迁移中删除）——首次登录要在同一个事务里创建免费订阅行，因此迁移必须先于任何流量执行。
 
 ### 后台的首位管理员
 
@@ -240,28 +244,29 @@ RENDER_PROVIDER_BASE_URL=http://localhost:3002
 
 ## 实现顺序
 
-见 [architecture.md](./architecture.md) 第 21 节，共 14 步。前四步是地基：
+MVP 的 14 步已经实现（见 [architecture.md](./architecture.md) 第 21 节）。之后按 [agent-first-proposal.md](./agent-first-proposal.md) 第 13.1 节分阶段：
 
-1. App Shell、Contracts、Postgres Schema、身份与工作空间
-2. Plan Version、API Key、Usage Reservation 和统一错误
-3. 对象存储上传、GitHub/Website/Markdown/PDF/OpenAPI Ingestion
-4. 全文检索、pgvector、混合检索、Citation 和版本发布
-
-后段有两处顺序是有依赖的，不能调换：**认领（第 10 步）必须早于分成（第 11 步）**，否则会产生一批无主的收益记录；**Earning Anchor（第 13 步）**要等分成跑出可独立复算的真实数据。
+1. **P0** 文案与清理：slogan、OG 图、界面文案改为资产；删除 Pro、专家库、自检问题、按检索计的分成、`llms.txt` 与 OpenAPI；关闭网站插件、分享页、MCP；Additional Calls 对所有人开放；两级容量
+2. **P1** 资产类型与数据重建、频道、频道目录、用户主页、三层 Agent Card、A2A `find_channels` / `search_context`、Postgres 任务存储、首页改版
+3. **P2** Agent 工作台、工具与确认门、A2A `ask` / `ingest` / `refresh` / `publish`、扩展卡、推送通知
+4. **P3a** 文章、评论、问答、频道订阅与收入结算（开工前提：Paddle 书面确认、手续费口径、税务与合规意见）；**P3b** 音频
+5. **P4** re0 作为 A2A 客户端；**P5** 内部改名（`library` → `asset`）
 
 ## 开发约定
 
 这些约束在 [architecture.md](./architecture.md) 里是硬性的，实现时不要绕开：
 
-- **Route Handler 和 MCP Tool 只能调用 `lib/application` 的 Use Case**，不直接碰数据库；
-- **`contracts` 是 REST、MCP、SDK、CLI 和前端共同的权威类型来源**；
+- **Route Handler、Agent 工具和 A2A `AgentExecutor` 只能调用 `lib/application` 的 Use Case**，不直接碰数据库；
+- **`contracts` 是 REST、A2A、SDK、CLI 和前端共同的权威类型来源**；
 - **Provider SDK 只允许出现在 `lib/infrastructure` 和 Workflow 里**；Domain 不依赖 Next.js、Vercel、Neon、Payment、AI SDK 或链 SDK；
-- **额度计数不得迁移到 Redis 或任何缓存层**——Reservation 与 Usage Event 是计费事实，必须与业务库同事务；
-- **查询必须先授权并固定 Library Version 和 Policy Version**，再做任何召回；
+- **额度计数不得迁移到 Redis 或任何缓存层**——Reservation 与 Usage Event 是计费事实，必须与业务库同事务；谁发起谁付 Call，匿名不产生 Usage Event；
+- **查询必须先按可见性授权并固定资产 Version 和 Policy Version**，再做任何召回；
 - **Version 不可变**，刷新通过原子切换 `current_version_id` 发布；
-- **`library.owner_workspace_id` 只能由已验证的认领或管理员裁定写入**，Ingestion、审核和刷新一律不得触碰；
-- **REST 与 MCP 不引入 LLM 依赖**——移除在线试用的生成层后，两者行为必须完全不变；
-- **在线试用零结果时不调用模型**，且答案中每条事实必须绑定到本次返回的 Chunk；
+- **`library.owner_workspace_id` 只能由已验证的认领或管理员裁定写入**，Ingestion 和刷新一律不得触碰；来源型资产未认领不能放进公开频道；
+- **REST 与 A2A `search_context` 不引入 LLM 依赖**——移除生成层后，两者行为必须完全不变；
+- **四个生成入口零结果时不调用模型**，且答案中每条事实必须绑定到本次返回的 Chunk；
+- **有副作用的 Agent 操作必须经人确认**，模型、Chunk 和其他 Agent 都不能代为确认；
+- **新代码一律用 asset / channel 命名**，不再新增 `library` 标识符；
 - **管理后台不能直连表**，必须经过 Admin Use Case 和 Audit Decorator。
 
 ## 待验证事项

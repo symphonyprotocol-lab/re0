@@ -13,9 +13,9 @@
  * already gone succeeds (the store treats 404 as done), so a run that failed
  * halfway through its keys picks up where it left off.
  *
- * What stays: `library_version` rows, as metadata. `usage_event` and
- * `earning_event` reference them by id, and a version that was billed against
- * remains a fact about the past. Their chunks and documents are gone, which is
+ * What stays: `library_version` rows, as metadata. `usage_event` references
+ * them by id, and a version that was billed against remains a fact about the
+ * past. Their chunks and documents are gone, which is
  * what `library.index_status = 'deleting'` on the tombstone says.
  *
  * What also goes: any anchoring proof for those versions
@@ -141,10 +141,6 @@ export async function purgeLibrary(input: {
     await tx.delete(schema.libraryProfile).where(eq(schema.libraryProfile.libraryId, library.id));
     /* Derived from content that no longer exists; recomputed if it ever returns. */
     await tx.delete(schema.libraryScore).where(eq(schema.libraryScore.libraryId, library.id));
-    /* Questions about content that no longer exists. */
-    await tx
-      .delete(schema.libraryEvalQuestion)
-      .where(eq(schema.libraryEvalQuestion.libraryId, library.id));
     /* What visitors asked of it, and what the owner answered: both go with the library. */
     await tx.delete(schema.widgetExchange).where(eq(schema.widgetExchange.libraryId, library.id));
     await tx.delete(schema.libraryFaq).where(eq(schema.libraryFaq.libraryId, library.id));

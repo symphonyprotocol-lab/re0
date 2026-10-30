@@ -27,8 +27,6 @@ export interface WorkspacePlanVersion {
   priceMinor: number;
   currency: string;
   monthlyCalls: number;
-  libraryLimit: number;
-  librarySizeBytesLimit: number;
   apiKeyLimit: number;
   /** True when an active subscription sets the window, false on the Free default. */
   subscribed: boolean;
@@ -72,8 +70,6 @@ export async function workspacePlanVersion(workspaceId: string): Promise<Workspa
     priceMinor: schema.planVersion.priceMinor,
     currency: schema.planVersion.currency,
     monthlyCalls: schema.planVersion.monthlyCalls,
-    libraryLimit: schema.planVersion.libraryLimit,
-    librarySizeBytesLimit: schema.planVersion.librarySizeBytesLimit,
     apiKeyLimit: schema.planVersion.apiKeyLimit,
   };
 
@@ -91,8 +87,6 @@ export async function workspacePlanVersion(workspaceId: string): Promise<Workspa
         priceMinor: version.priceMinor,
         currency: version.currency,
         monthlyCalls: version.monthlyCalls,
-        libraryLimit: version.libraryLimit,
-        librarySizeBytesLimit: version.librarySizeBytesLimit,
         apiKeyLimit: version.apiKeyLimit,
         subscribed: true,
         ...windowInForce(active),
@@ -117,8 +111,6 @@ export async function workspacePlanVersion(workspaceId: string): Promise<Workspa
     priceMinor: free?.priceMinor ?? 0,
     currency: free?.currency ?? PLAN_CURRENCY,
     monthlyCalls: free?.monthlyCalls ?? 0,
-    libraryLimit: free?.libraryLimit ?? 0,
-    librarySizeBytesLimit: free?.librarySizeBytesLimit ?? 0,
     apiKeyLimit: free?.apiKeyLimit ?? 0,
     subscribed: false,
     periodStart,

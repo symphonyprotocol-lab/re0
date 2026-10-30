@@ -4,6 +4,7 @@ import { DashboardHeader } from '@/components/dashboard/header';
 import { NavigationProgress } from '@/components/dashboard/navigation-progress';
 import { DashboardSidebar } from '@/components/dashboard/sidebar';
 import { countNewLeads } from '@/lib/application/showcase';
+import { surfaceEnabled } from '@/lib/domain/surfaces';
 import { workspaceUsage } from '@/lib/http/dashboard';
 import { requireSession } from '@/lib/http/session';
 import { LocaleProvider } from '@/lib/i18n/client';
@@ -37,7 +38,7 @@ export default async function DashboardLayout({ children }: { children: ReactNod
   const [overview, leadsNew] = await Promise.all([
     workspaceUsage(workspace.id),
     /* Unhandled showcase leads, for the rail's badge; a failed count is no badge, not a failed page. */
-    countNewLeads(workspace.id).catch(() => 0),
+    surfaceEnabled('showcase') ? countNewLeads(workspace.id).catch(() => 0) : 0,
   ]);
 
   return (

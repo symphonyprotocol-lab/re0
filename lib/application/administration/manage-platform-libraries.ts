@@ -283,7 +283,7 @@ export interface PlatformSourceView {
   type: string;
   location: string;
   refreshPolicy: RefreshPolicy | 'unknown';
-  /** Website/llms.txt only: nested levels followed; 0 for every other type. */
+  /** Website only: nested levels followed; 0 for every other type. */
   indexDepth: IndexDepth;
 }
 
@@ -1706,7 +1706,7 @@ async function sourceTypeOf(
   if (row && isPlatformLibraryType(row.type)) return row.type;
   if (publicId.startsWith('/websites/')) return 'website';
   if (publicId.startsWith('/notion/')) return 'notion';
-  if (publicId.startsWith('/docs/')) return 'openapi';
+  if (publicId.startsWith('/docs/')) return 'pdf';
   return 'github';
 }
 

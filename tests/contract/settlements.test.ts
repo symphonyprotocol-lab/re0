@@ -1,6 +1,6 @@
 /**
- * The rules behind "generate statements" (publisher-revenue-share.md 3.3,
- * 3.4, 8): what a locked period's pool turns into, and why pressing the
+ * The rules behind "generate statements" (agent-first-proposal.md 6.9):
+ * what a locked period's per-owner sums turn into, and why pressing the
  * button twice writes nothing the second time.
  */
 import { describe, expect, it } from 'vitest';
@@ -15,88 +15,83 @@ import {
   type SettlementPlanInput,
 } from '@/lib/domain/admin';
 
-const period = { id: '2026-08', poolMinor: 10_000, totalAttributableCalls: 1_000, currency: 'USD' };
+const period = { id: '2026-08', currency: 'USD' };
 
 function plan(overrides: Partial<SettlementPlanInput> = {}) {
   return planSettlementStatements({
     period,
-    groups: [
-      { ownerWorkspaceId: 'ws-a', libraryId: 'lib-1', calls: 600 },
-      { ownerWorkspaceId: 'ws-a', libraryId: 'lib-2', calls: 250 },
-      { ownerWorkspaceId: 'ws-b', libraryId: 'lib-3', calls: 150 },
+    owners: [
+      { ownerWorkspaceId: 'ws-a', amountMinor: 8_500 },
+      { ownerWorkspaceId: 'ws-b', amountMinor: 1_500 },
+      /* A period of refunds: the statement carries the negative. */
+      { ownerWorkspaceId: 'ws-c', amountMinor: -400 },
     ],
     accounts: new Map([
       ['ws-a', 'acct-a'],
       ['ws-b', 'acct-b'],
+      ['ws-c', 'acct-c'],
     ]),
-    existing: new Set(),
+    existing: new Map(),
     ...overrides,
   });
 }
 
 describe('planSettlementStatements', () => {
-  it('allocates the pool linearly in attributable calls, one row per library', () => {
+  it('writes one row per publisher carrying the owner’s sum as it is', () => {
     const result = plan();
-    expect(result.rows.map((row) => [row.libraryId, row.amountMinor])).toEqual([
-      ['lib-1', 6_000],
-      ['lib-2', 2_500],
-      ['lib-3', 1_500],
+    expect(result.rows.map((row) => [row.publisherAccountId, row.amountMinor])).toEqual([
+      ['acct-a', 8_500],
+      ['acct-b', 1_500],
+      ['acct-c', -400],
     ]);
     expect(result.rows.every((row) => row.currency === 'USD' && row.periodId === '2026-08')).toBe(
       true,
     );
-    expect(result.rows[0]?.publisherAccountId).toBe('acct-a');
     expect(result.withoutAccount).toBe(0);
     expect(result.alreadyPresent).toBe(0);
   });
 
-  /* Acceptance 8: sum(statements) <= pool, the floor taken per library. */
-  it('never allocates more than the pool when the shares do not divide', () => {
-    const result = planSettlementStatements({
-      period: { ...period, poolMinor: 100, totalAttributableCalls: 3 },
-      groups: [
-        { ownerWorkspaceId: 'ws-a', libraryId: 'lib-1', calls: 1 },
-        { ownerWorkspaceId: 'ws-b', libraryId: 'lib-2', calls: 1 },
-        { ownerWorkspaceId: 'ws-c', libraryId: 'lib-3', calls: 1 },
-      ],
-      accounts: new Map([
-        ['ws-a', 'a'],
-        ['ws-b', 'b'],
-        ['ws-c', 'c'],
-      ]),
-      existing: new Set(),
-    });
-    const total = result.rows.reduce((sum, row) => sum + row.amountMinor, 0);
-    expect(result.rows.map((row) => row.amountMinor)).toEqual([33, 33, 33]);
-    expect(total).toBeLessThanOrEqual(100);
-  });
-
-  it('is idempotent: libraries that already carry a statement are left alone', () => {
+  it('is idempotent: publishers whose statements already match their events are left alone', () => {
     const first = plan();
-    const second = plan({ existing: new Set(first.rows.map((row) => row.libraryId)) });
+    const second = plan({ existing: new Map(first.rows.map((row) => [row.publisherAccountId, row.amountMinor])) });
     expect(second.rows).toEqual([]);
     expect(second.alreadyPresent).toBe(3);
   });
 
-  it('waits for owners without a publisher account instead of dropping their events', () => {
-    const result = plan({ accounts: new Map([['ws-a', 'acct-a']]) });
-    expect(result.rows.map((row) => row.libraryId)).toEqual(['lib-1', 'lib-2']);
-    expect(result.withoutAccount).toBe(1);
-
-    /* Once the owner accepts the agreement, only their rows appear. */
-    const later = plan({
-      existing: new Set(['lib-1', 'lib-2']),
+  it('corrects a locked period an event landed in late, by the difference', () => {
+    /* ws-a was stated at 8,500; a 300 chargeback has since been booked into the period. */
+    const result = plan({
+      owners: [{ ownerWorkspaceId: 'ws-a', amountMinor: 8_200 }],
+      existing: new Map([['acct-a', 8_500]]),
     });
-    expect(later.rows.map((row) => row.libraryId)).toEqual(['lib-3']);
-    expect(later.alreadyPresent).toBe(2);
+    expect(result.rows).toEqual([
+      { periodId: '2026-08', publisherAccountId: 'acct-a', amountMinor: -300, currency: 'USD' },
+    ]);
+    expect(result.alreadyPresent).toBe(0);
   });
 
-  it('writes nothing for a period with no attributable calls', () => {
-    const result = plan({
-      period: { ...period, poolMinor: 0, totalAttributableCalls: 0 },
-      groups: [{ ownerWorkspaceId: 'ws-a', libraryId: 'lib-1', calls: 0 }],
+  it('waits for owners without a publisher account instead of dropping their events', () => {
+    const result = plan({ accounts: new Map([['ws-a', 'acct-a']]) });
+    expect(result.rows.map((row) => row.publisherAccountId)).toEqual(['acct-a']);
+    expect(result.withoutAccount).toBe(2);
+
+    /* Once an owner accepts the agreement, only their row appears. */
+    const later = plan({
+      accounts: new Map([
+        ['ws-a', 'acct-a'],
+        ['ws-b', 'acct-b'],
+      ]),
+      existing: new Map([['acct-a', 8_500]]),
     });
+    expect(later.rows.map((row) => row.publisherAccountId)).toEqual(['acct-b']);
+    expect(later.alreadyPresent).toBe(1);
+    expect(later.withoutAccount).toBe(1);
+  });
+
+  it('writes nothing for an owner whose period nets to zero', () => {
+    const result = plan({ owners: [{ ownerWorkspaceId: 'ws-a', amountMinor: 0 }] });
     expect(result.rows).toEqual([]);
+    expect(result.withoutAccount).toBe(0);
   });
 });
 

@@ -14,7 +14,6 @@ export {
   hasPaidSubscription,
   releaseCall,
   reserveCall,
-  type EarningLibraryFacts,
   type QuotaState,
   type ReservedCall,
 } from './quota';
@@ -24,6 +23,12 @@ export {
   quoteBuild,
   type BuildQuote,
 } from './build-quota';
+export {
+  extendStorageTier,
+  workspaceStorage,
+  workspaceStorageTier,
+  type WorkspaceStorage,
+} from './storage';
 export {
   PLAN_VERSION_NEWEST_FIRST,
   createPlanVersion,

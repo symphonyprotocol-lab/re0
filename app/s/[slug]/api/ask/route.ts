@@ -12,6 +12,7 @@
  */
 import type { NextRequest } from 'next/server';
 import { NextResponse } from 'next/server';
+import { surfaceEnabled } from '@/lib/domain/surfaces';
 import { AppError } from '@/contracts/errors';
 import { noteShowcaseEvent, resolveShowcasePrincipal } from '@/lib/application/showcase';
 import { uuidv7 } from '@/lib/domain/id';
@@ -24,6 +25,8 @@ import { isShowcaseOrigin, readQuestion, streamWidgetAnswer } from '@/lib/http/w
 export const runtime = 'nodejs';
 
 export async function POST(request: NextRequest, context: { params: Promise<{ slug: string }> }): Promise<Response> {
+  /* agent-first-proposal.md 3.6: shared pages are offline. */
+  if (!surfaceEnabled('showcase')) return new NextResponse(null, { status: 404 });
   const requestId = newRequestId();
   const startedAt = Date.now();
   try {
