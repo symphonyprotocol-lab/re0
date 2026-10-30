@@ -55,32 +55,60 @@ function audioDuration(file: File): Promise<number | null> {
  * One file into the private bucket for an article or an episode
  * (agent-first-proposal.md 6.5, 6.6): a ticket from the server, the bytes
  * straight to the store, then the server confirms size, hash and capacity.
- * An image's reference is appended to the editor's body field as
- * `![caption](media:<id>)`.
+ * The failure is the message to show, already worded.
  */
-export function MediaUpload({
+export async function uploadMedia({
   assetId,
   kind,
+  file,
+  caption,
+  prepare,
+  confirm,
+  errors,
+  transfer,
+}: {
+  assetId: string;
+  kind: 'image' | 'audio';
+  file: File;
+  caption?: string;
+  prepare: PrepareMedia;
+  confirm: ConfirmMedia;
+  errors: Record<string, string>;
+  /** What to say when the bytes did not reach the store. */
+  transfer: string;
+}): Promise<{ ok: true; mediaId: string } | { ok: false; message: string }> {
+  const prepared = await prepare({ assetId, kind, name: file.name, size: file.size, contentType: file.type });
+  if (!prepared.ok) return { ok: false, message: errors[prepared.error] ?? errors.unavailable ?? prepared.error };
+  if (!(await redeem(prepared.ticket, file, prepared.contentType))) return { ok: false, message: transfer };
+  const durationMs = kind === 'audio' ? await audioDuration(file) : null;
+  const confirmed = await confirm({ mediaId: prepared.mediaId, caption, durationMs });
+  if (!confirmed.ok) return { ok: false, message: errors[confirmed.error] ?? errors.unavailable ?? confirmed.error };
+  return { ok: true, mediaId: confirmed.mediaId };
+}
+
+/**
+ * A file picker and an upload button over `uploadMedia`, for audio: an
+ * episode's file, or the note a Q&A answer takes. An article's images go in
+ * through its editor's toolbar, paste and drop instead
+ * (components/creator/markdown-editor.tsx).
+ */
+export function AudioUpload({
+  assetId,
   accept,
-  targetId,
   prepare,
   confirm,
   labels,
   errors,
 }: {
   assetId: string;
-  kind: 'image' | 'audio';
   accept: string;
-  /** The textarea an uploaded image's reference is appended to. */
-  targetId?: string;
   prepare: PrepareMedia;
   confirm: ConfirmMedia;
-  labels: { choose: string; caption: string; upload: string; uploading: string; done: string; transfer: string };
+  labels: { choose: string; upload: string; uploading: string; done: string; transfer: string };
   errors: Record<string, string>;
 }) {
   const router = useRouter();
   const [file, setFile] = useState<File | null>(null);
-  const [caption, setCaption] = useState('');
   const [busy, setBusy] = useState(false);
   const [message, setMessage] = useState<{ good: boolean; text: string } | null>(null);
 
@@ -89,28 +117,13 @@ export function MediaUpload({
     setBusy(true);
     setMessage(null);
     try {
-      const prepared = await prepare({ assetId, kind, name: file.name, size: file.size, contentType: file.type });
-      if (!prepared.ok) {
-        setMessage({ good: false, text: errors[prepared.error] ?? errors.unavailable ?? prepared.error });
+      const done = await uploadMedia({ assetId, kind: 'audio', file, prepare, confirm, errors, transfer: labels.transfer });
+      if (!done.ok) {
+        setMessage({ good: false, text: done.message });
         return;
-      }
-      if (!(await redeem(prepared.ticket, file, prepared.contentType))) {
-        setMessage({ good: false, text: labels.transfer });
-        return;
-      }
-      const durationMs = kind === 'audio' ? await audioDuration(file) : null;
-      const confirmed = await confirm({ mediaId: prepared.mediaId, caption, durationMs });
-      if (!confirmed.ok) {
-        setMessage({ good: false, text: errors[confirmed.error] ?? errors.unavailable ?? confirmed.error });
-        return;
-      }
-      if (kind === 'image' && targetId) {
-        const target = document.getElementById(targetId) as HTMLTextAreaElement | null;
-        if (target) target.value = `${target.value.replace(/\s*$/, '')}\n\n![${caption.replace(/[\]\n]/g, ' ')}](media:${confirmed.mediaId})\n`;
       }
       setMessage({ good: true, text: labels.done });
       setFile(null);
-      setCaption('');
       router.refresh();
     } finally {
       setBusy(false);
@@ -127,15 +140,6 @@ export function MediaUpload({
           onChange={(event) => setFile(event.target.files?.[0] ?? null)}
           className="text-[12px] text-steel file:mr-3 file:h-8 file:rounded-md file:border file:border-line file:bg-card file:px-3 file:text-[12px] file:text-steel"
         />
-        {kind === 'image' ? (
-          <input
-            value={caption}
-            onChange={(event) => setCaption(event.target.value)}
-            maxLength={300}
-            placeholder={labels.caption}
-            className="h-8 min-w-[200px] flex-1 rounded-md border border-line bg-field px-2.5 text-[12px] text-ink"
-          />
-        ) : null}
         <button
           type="button"
           onClick={upload}

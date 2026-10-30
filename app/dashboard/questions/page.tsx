@@ -3,7 +3,7 @@ import Link from 'next/link';
 import { PANEL, PageHeader } from '@/components/dashboard/ui';
 import { canManageAssets } from '@/lib/application/assets';
 import { listQuestions, recentTwinAnswers } from '@/lib/application/questions';
-import { MediaUpload } from '@/components/creator/media-upload';
+import { AudioUpload } from '@/components/creator/media-upload';
 import { AUDIO_TYPES, EDITORIAL_LIMITS } from '@/lib/domain/editorial';
 import { confirmMediaAction, prepareMediaAction } from '../assets/[assetId]/edit/actions';
 import { requireSession } from '@/lib/http/session';
@@ -122,9 +122,8 @@ export default async function QuestionsPage({ searchParams }: { searchParams: Pr
                   <details className="text-[12px] text-steel">
                     <summary className="cursor-pointer">{c.audioTitle}</summary>
                     <div className="pt-2">
-                      <MediaUpload
+                      <AudioUpload
                         assetId={question.answerAssetId}
-                        kind="audio"
                         accept={Object.keys(AUDIO_TYPES).join(',')}
                         prepare={prepareMediaAction}
                         confirm={confirmMediaAction}
