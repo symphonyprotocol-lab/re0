@@ -16,8 +16,9 @@
  */
 import { NextResponse } from 'next/server';
 import { drainOperations, isIngestionConfigured, scheduleDueRefreshes } from '@/lib/application/ingestion';
-import { syncBuildTasks } from '@/lib/application/a2a/task-events';
-import { expireActions } from '@/lib/application/agent';
+import { settlePushes } from '@/lib/application/a2a/push';
+import { failStaleTasks, syncBuildTasks } from '@/lib/application/a2a/task-events';
+import { expireActions, reconcileActionTasks } from '@/lib/application/agent';
 import { publishDueDrafts } from '@/lib/application/editorial';
 
 export const maxDuration = 300;
@@ -42,17 +43,30 @@ export async function GET(request: Request): Promise<Response> {
   const outcomes = await drainOperations({ limit: 10 });
   /*
    * Pending actions undecided for 24 hours expire, failing the A2A tasks
-   * that waited on them; tasks following a build catch up with it and send
-   * their push notifications (agent-first-proposal.md 5.2, 7.6).
+   * that waited on them; tasks whose action was decided without them moving
+   * catch up; tasks following a build catch up with it; tasks a dead run
+   * left WORKING fail (agent-first-proposal.md 5.2, 7.6). Each step only
+   * writes the database -- push notifications are queued, and sent in
+   * parallel under one budget at the end, so one tenant's slow receivers
+   * cannot hold the walk over everyone's tasks.
    */
   const expiredActions = await expireActions().catch((error: unknown) => {
     console.error(`agent action expiry failed: ${error instanceof Error ? error.message : 'unknown'}`);
+    return 0;
+  });
+  const reconciledTasks = await reconcileActionTasks().catch((error: unknown) => {
+    console.error(`a2a action reconciliation failed: ${error instanceof Error ? error.message : 'unknown'}`);
     return 0;
   });
   const syncedTasks = await syncBuildTasks().catch((error: unknown) => {
     console.error(`a2a build sync failed: ${error instanceof Error ? error.message : 'unknown'}`);
     return 0;
   });
+  const staleTasks = await failStaleTasks().catch((error: unknown) => {
+    console.error(`a2a stale task sweep failed: ${error instanceof Error ? error.message : 'unknown'}`);
+    return 0;
+  });
+  await settlePushes();
 
   return NextResponse.json(
     {
@@ -61,7 +75,9 @@ export async function GET(request: Request): Promise<Response> {
       drained: outcomes.length,
       outcomes: outcomes.map((outcome) => outcome.status),
       expiredActions,
+      reconciledTasks,
       syncedTasks,
+      staleTasks,
     },
     { headers: { 'cache-control': 'no-store' } },
   );

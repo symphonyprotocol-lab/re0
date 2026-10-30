@@ -36,7 +36,8 @@ const { ActionRefused } = await import('@/lib/domain/agent-action');
 const { buildAgentCard } = await import('@/lib/application/a2a/card');
 const { handleA2A } = await import('@/lib/application/a2a/server');
 const { resolveTenant, PLATFORM_TENANT } = await import('@/lib/application/a2a/tenant');
-const { setPushTransport } = await import('@/lib/application/a2a/push');
+const { deliverTaskPush, setPushTransport, settlePushes } = await import('@/lib/application/a2a/push');
+const { failStaleTasks } = await import('@/lib/application/a2a/task-events');
 const { streamAgentPlayground } = await import('@/lib/application/playground/agent');
 const { DEFAULT_RETRIEVAL_SETTINGS } = await import('@/lib/domain/retrieval-config');
 const { PLAYGROUND_SYSTEM_PROMPT } = await import('@/lib/domain/generation');
@@ -242,7 +243,7 @@ async function rpc(
   workspaceId: string | null,
   method: string,
   params: Record<string, unknown>,
-  options: { scopes?: string[]; generation?: PlaygroundDependencies } = {},
+  options: { scopes?: string[]; generation?: PlaygroundDependencies; keepAlive?: (work: Promise<unknown>) => void } = {},
 ) {
   const requestId = `req_${crypto.randomUUID()}`;
   const result = await handleA2A({
@@ -255,6 +256,7 @@ async function rpc(
     origin: ORIGIN,
     pathTenant: true,
     dependencies: options.generation ? { generation: options.generation } : undefined,
+    keepAlive: options.keepAlive,
     facts: {
       caller: {
         workspaceId,
@@ -519,6 +521,60 @@ describeWithDb('P2: the workbench, the confirmation gate and A2A writes', () => 
     expect(await refusal(agent.proposeAction({ workspaceId: ws.id, role: 'owner', origin: 'workbench', tool: 'delete_asset', args: { assetId: asset.id } }))).toBe('unknown_tool');
   });
 
+  it('refuses a move card whose facts changed since it was proposed, and says when a paid asset turns free', async () => {
+    const ws = await workspace('stale');
+    const asset = await ownedAsset(ws.id, `p2-stale-${stamp}`);
+    await declareAssetRights({ workspaceId: ws.id, role: 'owner', assetId: asset.id, userId: null, rights: { origin: 'own', license: 'open_source', generation: 'human' } });
+    await db().insert(schema.assetClaim).values({
+      id: uuidv7(), assetId: asset.id, claimantWorkspaceId: ws.id, method: 'dns_txt', challengeTokenHash: 'fixture',
+      status: 'verified', expiresAt: new Date(Date.now() + 86_400_000), verifiedAt: new Date(),
+    });
+    const quiet = await channels.createChannel({ workspaceId: ws.id, role: 'owner', slug: `p2-stale-${stamp}`, title: 'Quiet', visibility: 'private' });
+    const propose = (channel: string | null) =>
+      agent.proposeAction({ workspaceId: ws.id, role: 'owner', origin: 'workbench', requestedBy: ws.userId, tool: 'move_asset', args: { assetId: asset.id, channel } });
+
+    /* The card said "nothing becomes public"; the channel turned public since. Confirming publishes nothing. */
+    const intoPrivate = await propose(quiet.slug);
+    expect(intoPrivate.makesPublic).toBe(false);
+    await channels.editChannel({ workspaceId: ws.id, role: 'owner', channelId: quiet.id, title: 'Quiet', visibility: 'public' });
+    const turned = await agent.confirmAction(owner(ws), { actionId: intoPrivate.id, digest: intoPrivate.digest });
+    expect(turned.action.state).toBe('failed');
+    expect(turned.action.error).toMatch(/changed since/);
+    expect(await membership(asset.id)).toBeNull();
+
+    /* The card said "from /channels/quiet"; the owner took the asset out since. The old card does not put it back. */
+    await channels.moveAsset({ workspaceId: ws.id, role: 'owner', assetId: asset.id, channelId: quiet.id });
+    const loud = await channels.createChannel({ workspaceId: ws.id, role: 'owner', slug: `p2-loud-${stamp}`, title: 'Loud' });
+    const across = await propose(loud.slug);
+    expect(across.summary.from?.id).toBe(quiet.id);
+    await channels.moveAsset({ workspaceId: ws.id, role: 'owner', assetId: asset.id, channelId: null });
+    const moved = await agent.confirmAction(owner(ws), { actionId: across.id, digest: across.digest });
+    expect(moved.action.state).toBe('failed');
+    expect(await membership(asset.id)).toBeNull();
+
+    /* A paid asset moved to another public channel becomes free to everyone: the card says so. */
+    await channels.moveAsset({ workspaceId: ws.id, role: 'owner', assetId: asset.id, channelId: quiet.id });
+    await db().update(schema.asset).set({ access: 'paid' }).where(eq(schema.asset.id, asset.id));
+    const freeing = await propose(loud.slug);
+    expect(freeing.makesPublic).toBe(false);
+    expect(freeing.summary.makesFree).toBe(true);
+    expect(freeing.description).toMatch(/free/);
+    /* ...and only while that is still true: the asset went free meanwhile, so the card is stale. */
+    await db().update(schema.asset).set({ access: 'free' }).where(eq(schema.asset.id, asset.id));
+    expect((await agent.confirmAction(owner(ws), { actionId: freeing.id, digest: freeing.digest })).action.state).toBe('failed');
+    expect(await membership(asset.id)).toBe(quiet.id);
+
+    /* A card whose facts still hold runs. */
+    await db().update(schema.asset).set({ access: 'paid' }).where(eq(schema.asset.id, asset.id));
+    const current = await propose(loud.slug);
+    expect(current.summary.makesFree).toBe(true);
+    const done = await agent.confirmAction(owner(ws), { actionId: current.id, digest: current.digest });
+    expect(done.action.state).toBe('confirmed');
+    expect(await membership(asset.id)).toBe(loud.id);
+    const [now] = await db().select({ access: schema.asset.access }).from(schema.asset).where(eq(schema.asset.id, asset.id));
+    expect(now!.access).toBe('free');
+  });
+
   it('meters ask: 10 Calls an answer, 1 when degraded, nothing on zero results, 500 answers a day', async () => {
     const owner2 = await workspace('askown');
     const asker = await workspace('asker', 100_000);
@@ -557,9 +613,11 @@ describeWithDb('P2: the workbench, the confirmation gate and A2A writes', () => 
 
     /* Nothing to read: no model, no bill. */
     const empty = await workspace('askempty');
-    const emptyTenant = (await resolveTenant(`users/p2-askempty-${stamp}`))!;
+    /* A user with no public channel has no public card or endpoint (proposal 4.3): only its own key reaches it. */
+    expect(await resolveTenant(`users/p2-askempty-${stamp}`, asker.id)).toBeNull();
+    const emptyTenant = (await resolveTenant(`users/p2-askempty-${stamp}`, empty.id))!;
     const before = calls.llm;
-    const none = await rpc(emptyTenant, asker.id, 'SendMessage', send({ skill: 'ask', query: 'quillwort water' }), {
+    const none = await rpc(emptyTenant, empty.id, 'SendMessage', send({ skill: 'ask', query: 'quillwort water' }), {
       scopes: ['knowledge:search'],
       generation: generation('answer', calls),
     });
@@ -567,7 +625,6 @@ describeWithDb('P2: the workbench, the confirmation gate and A2A writes', () => 
     expect(noneData.outcome).toBe('no_context');
     expect(calls.llm).toBe(before);
     expect(await usageFor(noneData.requestId)).toHaveLength(0);
-    void empty;
 
     /* Anonymous callers cannot ask. */
     const anonymous = await rpc(tenant, null, 'SendMessage', send({ skill: 'ask', query: 'quillwort' }));
@@ -660,6 +717,8 @@ describeWithDb('P2: the workbench, the confirmation gate and A2A writes', () => 
     const got = taskOf((await rpc(PLATFORM_TENANT, ws.id, 'GetTask', { id: task.id }, { scopes: ['assets:write'] })).body);
     expect(got.status.state).toBe('TASK_STATE_COMPLETED');
     expect(got.artifacts!.at(-1)!.parts.find((part) => part.data)!.data).toMatchObject({ tool: 'move_asset', madePublic: true });
+    /* Pushes leave after the click, not inside it (the Dashboard keeps the function alive for them). */
+    await settlePushes();
     expect(sent.some((push) => push.url === 'https://hooks.example.test/a2a' && JSON.stringify(push.body).includes('TASK_STATE_COMPLETED'))).toBe(true);
     expect(sent.filter((push) => push.url === 'https://hooks.example.test/a2a').every((push) => push.headers['x-a2a-notification-token'] === 'caller-token')).toBe(true);
 
@@ -691,6 +750,7 @@ describeWithDb('P2: the workbench, the confirmation gate and A2A writes', () => 
     const inlineTask = taskOf(inline.body);
     expect(inlineTask.status.state).toBe('TASK_STATE_INPUT_REQUIRED');
     expect(await db().select().from(schema.a2aPushConfig).where(eq(schema.a2aPushConfig.taskId, inlineTask.id))).toHaveLength(1);
+    await settlePushes();
     expect(sent.some((push) => push.url === 'https://hooks.example.test/inline')).toBe(true);
     await agent.rejectAction(owner(ws), { actionId: pendingActionOf(inlineTask).id });
 
@@ -739,25 +799,192 @@ describeWithDb('P2: the workbench, the confirmation gate and A2A writes', () => 
     expect(refusedCancel.body.error).toBeDefined();
     await db().update(schema.workflowOperation).set({ status: 'failed', error: 'internal_error' }).where(eq(schema.workflowOperation.id, running.operationId!));
 
-    /* Cancelling a task that waits for confirmation withdraws the action: it can only close it. */
+    /*
+     * Cancelling a task that waits for confirmation withdraws the action -- it
+     * can only close it -- and the cancel succeeds: the task is CANCELED, not
+     * FAILED, and the caller gets it back rather than "not cancelable".
+     */
     const fourth = taskOf((await rpc(PLATFORM_TENANT, ws.id, 'SendMessage', send({ skill: 'refresh', assetId: asset.publicId }), { scopes: ['assets:write'] })).body);
-    await rpc(PLATFORM_TENANT, ws.id, 'CancelTask', { id: fourth.id }, { scopes: ['assets:write'] });
+    const withdrawn = await rpc(PLATFORM_TENANT, ws.id, 'CancelTask', { id: fourth.id }, { scopes: ['assets:write'] });
+    expect(withdrawn.body.error).toBeUndefined();
+    expect(taskOf(withdrawn.body).status.state).toBe('TASK_STATE_CANCELED');
     expect((await actionRow(pendingActionOf(fourth).id)).state).toBe('rejected');
+    const afterCancel = taskOf((await rpc(PLATFORM_TENANT, ws.id, 'GetTask', { id: fourth.id }, { scopes: ['assets:write'] })).body);
+    expect(afterCancel.status.state).toBe('TASK_STATE_CANCELED');
+  });
+
+  it('refuses a cancel once the owner has confirmed, and catches up tasks whose action moved without them', async () => {
+    const ws = await workspace('race');
+    const asset = await ownedAsset(ws.id, `p2-race-${stamp}`);
+    const shelf = await channels.createChannel({ workspaceId: ws.id, role: 'owner', slug: `p2-race-${stamp}`, title: 'Race', visibility: 'private' });
+    const publish = async (channel: string | null) =>
+      taskOf((await rpc(PLATFORM_TENANT, ws.id, 'SendMessage', send({ skill: 'publish', assetId: asset.publicId, channel }), { scopes: ['assets:write'] })).body);
+    const storedState = async (taskId: string) =>
+      (await db().select({ state: schema.a2aTask.state }).from(schema.a2aTask).where(eq(schema.a2aTask.id, taskId)))[0]!.state;
+    const getTask = async (taskId: string) => taskOf((await rpc(PLATFORM_TENANT, ws.id, 'GetTask', { id: taskId }, { scopes: ['assets:write'] })).body);
+
+    /*
+     * The owner's confirmation claimed the action (pending -> confirmed) and
+     * is carrying it out; the task has not moved yet. A cancel arriving now
+     * must not end the task CANCELED while the action runs.
+     */
+    const racing = await publish(shelf.slug);
+    const racingAction = pendingActionOf(racing).id;
+    await db().update(schema.agentAction).set({ state: 'confirmed', confirmedBy: ws.userId, decidedAt: new Date() }).where(eq(schema.agentAction.id, racingAction));
+    const refused = await rpc(PLATFORM_TENANT, ws.id, 'CancelTask', { id: racing.id }, { scopes: ['assets:write'] });
+    expect(refused.body.error?.code).toBe(-32002);
+    expect(await storedState(racing.id)).toBe('TASK_STATE_INPUT_REQUIRED');
+    expect((await actionRow(racingAction)).state).toBe('confirmed');
+
+    /* The confirmation finished but never moved the task: the next read does. */
+    await channels.moveAsset({ workspaceId: ws.id, role: 'owner', assetId: asset.id, channelId: shelf.id });
+    await db()
+      .update(schema.agentAction)
+      .set({ result: { assetId: asset.id, from: null, to: shelf.id, madePublic: false } })
+      .where(eq(schema.agentAction.id, racingAction));
+    const caughtUp = await getTask(racing.id);
+    expect(caughtUp.status.state).toBe('TASK_STATE_COMPLETED');
+    expect(caughtUp.artifacts!.at(-1)!.parts.find((part) => part.data)!.data).toMatchObject({ tool: 'move_asset', madePublic: false });
+
+    /* Expired, or declined, with the task left behind (a drain that died part-way): it fails with the reason. */
+    const expiredTask = await publish(null);
+    await db().update(schema.agentAction).set({ state: 'expired', decidedAt: new Date() }).where(eq(schema.agentAction.id, pendingActionOf(expiredTask).id));
+    const expired = await getTask(expiredTask.id);
+    expect(expired.status.state).toBe('TASK_STATE_FAILED');
+    expect(expired.status.message!.parts[0]!.text).toMatch(/24 hours/);
+    const declinedTask = await publish(null);
+    await db()
+      .update(schema.agentAction)
+      .set({ state: 'rejected', confirmedBy: ws.userId, error: 'the owner declined', decidedAt: new Date() })
+      .where(eq(schema.agentAction.id, pendingActionOf(declinedTask).id));
+    expect((await getTask(declinedTask.id)).status.state).toBe('TASK_STATE_FAILED');
+
+    /*
+     * Confirmed long ago with no outcome on the row (the function died after
+     * the claim): the drain's pass fails the task, notes it on the action and
+     * writes the audit entry the confirmation never wrote.
+     */
+    const lostTask = await publish(null);
+    const lostAction = pendingActionOf(lostTask).id;
+    await db()
+      .update(schema.agentAction)
+      .set({ state: 'confirmed', confirmedBy: ws.userId, decidedAt: new Date(Date.now() - 3_600_000) })
+      .where(eq(schema.agentAction.id, lostAction));
+    expect(await agent.reconcileActionTasks()).toBeGreaterThanOrEqual(1);
+    expect(await storedState(lostTask.id)).toBe('TASK_STATE_FAILED');
+    expect((await actionRow(lostAction)).error).toMatch(/not recorded/);
+    const lostAudit = await db().select().from(schema.auditLog).where(eq(schema.auditLog.targetId, lostAction));
+    expect(lostAudit).toHaveLength(1);
+    expect(lostAudit[0]).toMatchObject({ result: 'failure' });
+    /* Once: a second pass finds nothing left to do for it. */
+    await agent.reconcileActionTasks();
+    expect(await db().select().from(schema.auditLog).where(eq(schema.auditLog.targetId, lostAction))).toHaveLength(1);
+  });
+
+  it('does not hold the owner’s click on the caller’s push endpoints, and bounds every send, DNS included', async () => {
+    const ws = await workspace('slowhook');
+    const asset = await ownedAsset(ws.id, `p2-slowhook-${stamp}`);
+    const shelf = await channels.createChannel({ workspaceId: ws.id, role: 'owner', slug: `p2-slowhook-${stamp}`, title: 'Slow', visibility: 'private' });
+    const task = taskOf(
+      (
+        await rpc(
+          PLATFORM_TENANT,
+          ws.id,
+          'SendMessage',
+          {
+            ...send({ skill: 'publish', assetId: asset.publicId, channel: shelf.slug }),
+            configuration: { taskPushNotificationConfig: { url: 'https://tarpit.example.test/hook' } },
+          },
+          { scopes: ['assets:write'] },
+        )
+      ).body,
+    );
+    /* A receiver that never answers, and (below) a name server that never answers. */
+    setPushTransport({
+      transport: () => new Promise<void>(() => {}),
+      resolve: async () => ['93.184.216.34'],
+      timeoutMs: 300,
+    });
+    const pending = pendingActionOf(task);
+    const clock = Date.now();
+    const confirmed = await Promise.race([
+      agent.confirmAction(owner(ws), { actionId: pending.id, digest: (await actionRow(pending.id)).paramsDigest }),
+      new Promise<'held'>((resolve) => setTimeout(() => resolve('held'), 3_000)),
+    ]);
+    expect(confirmed).not.toBe('held');
+    expect(Date.now() - clock).toBeLessThan(2_500);
+    /* The sends finish (or are given up) after the click, inside one budget. */
+    await settlePushes();
+
+    setPushTransport({ resolve: () => new Promise<string[]>(() => {}), timeoutMs: 300 });
+    const started = Date.now();
+    expect(await deliverTaskPush(task.id, { payload: { $case: 'statusUpdate', value: { taskId: task.id, contextId: '', status: undefined, metadata: undefined } } })).toBe(0);
+    expect(Date.now() - started).toBeLessThan(2_000);
+    setPushTransport();
+  });
+
+  it('fails a task left WORKING by a function that died, and nothing else', async () => {
+    const ws = await workspace('sweep');
+    const old = new Date(Date.now() - 30 * 60_000);
+    const row = (id: string, extra: Partial<typeof schema.a2aTask.$inferInsert> = {}) => ({
+      id,
+      contextId: crypto.randomUUID(),
+      workspaceId: ws.id,
+      tenant: '',
+      skill: 'ask',
+      state: 'TASK_STATE_WORKING',
+      status: { state: 'TASK_STATE_WORKING', timestamp: old.toISOString() },
+      history: [],
+      artifacts: [],
+      bodyPurgeAt: new Date(Date.now() + 86_400_000),
+      createdAt: old,
+      updatedAt: old,
+      ...extra,
+    });
+    const orphan = crypto.randomUUID();
+    const building = crypto.randomUUID();
+    const fresh = crypto.randomUUID();
+    await db().insert(schema.a2aTask).values([
+      row(orphan),
+      row(building, { workflowRunId: uuidv7() }),
+      row(fresh, { createdAt: new Date(), updatedAt: new Date() }),
+    ]);
+    expect(await failStaleTasks()).toBeGreaterThanOrEqual(1);
+    const states = new Map(
+      (await db().select({ id: schema.a2aTask.id, state: schema.a2aTask.state, status: schema.a2aTask.status }).from(schema.a2aTask).where(inArray(schema.a2aTask.id, [orphan, building, fresh]))).map(
+        (entry) => [entry.id, entry],
+      ),
+    );
+    expect(states.get(orphan)!.state).toBe('TASK_STATE_FAILED');
+    expect(JSON.stringify(states.get(orphan)!.status)).toMatch(/did not finish/);
+    expect(states.get(building)!.state).toBe('TASK_STATE_WORKING');
+    expect(states.get(fresh)!.state).toBe('TASK_STATE_WORKING');
   });
 
   it('answers returnImmediately early and lets GetTask poll the rest', async () => {
     const owner3 = await workspace('rimown');
     const asker = await workspace('rimask', 10_000);
     const { tenant } = await publicChannelWith(owner3.id, `p2-rim-${stamp}`);
+    const kept: Promise<unknown>[] = [];
     const sent = await rpc(
       tenant,
       asker.id,
       'SendMessage',
       { ...send({ skill: 'ask', query: 'quillwort water' }), configuration: { returnImmediately: true } },
-      { scopes: ['knowledge:search'], generation: generation('answer', { llm: 0 }) },
+      { scopes: ['knowledge:search'], generation: generation('answer', { llm: 0 }), keepAlive: (work) => kept.push(work) },
     );
     const early = taskOf(sent.body);
     expect(['TASK_STATE_SUBMITTED', 'TASK_STATE_WORKING', 'TASK_STATE_COMPLETED']).toContain(early.status.state);
+    /*
+     * What the route hands to `after` holds the function until the final
+     * state is stored -- not merely until the executor returned, after which
+     * the SDK still has the artifact and COMPLETED to write.
+     */
+    expect(kept).toHaveLength(1);
+    await kept[0];
+    const [stored] = await db().select({ state: schema.a2aTask.state, artifacts: schema.a2aTask.artifacts }).from(schema.a2aTask).where(eq(schema.a2aTask.id, early.id));
+    expect(stored!.state).toBe('TASK_STATE_COMPLETED');
+    expect(stored!.artifacts).toHaveLength(1);
     let state = early.status.state;
     for (let attempt = 0; attempt < 50 && state !== 'TASK_STATE_COMPLETED'; attempt += 1) {
       await new Promise((resolve) => setTimeout(resolve, 100));

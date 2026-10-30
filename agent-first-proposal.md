@@ -353,7 +353,7 @@ Agent 写给用户的事实性内容，仍然受 requirement.md 5.1 八条规则
 | 3 频道 | 一个频道 | `https://re0.io/a2a/channels/{slug}/agent-card.json` | 该频道的 `free` 资产 | 订阅者认证时：该频道的 `paid` 资产 |
 
 - 三层卡共用一个 A2A 服务，按 `supportedInterfaces[].tenant` 路由：平台卡 tenant 为空，用户卡写 `users/{handle}`，频道卡写 `channels/{slug}`；
-- 私有频道没有频道卡；没有公开频道的用户，公开的用户卡上没有检索技能，只在本人认证后的扩展卡里出现；
+- 私有频道没有频道卡；没有公开频道的用户没有公开的用户卡（第 4.3 节）：卡片地址与 A2A 端点对他人按不存在回答，与未知的 handle 一样，只有本人的 Key 能取到扩展卡，卡名在发布前用 handle 而不用显示名；
 - 用户主页、频道主页的 HTML 里加 `<link rel="agent-card">`，`sitemap.ts` 列出全部公开的用户卡与频道卡；平台卡提供 `find_channels` 技能，让其他 Agent 按主题找到频道及其卡。
 
 ### 7.2 技能

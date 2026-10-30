@@ -19,7 +19,8 @@
  *
  * P2 (proposal 7.6, 7.8): `returnImmediately` is honoured -- the response
  * goes out after the first event and the executor runs on, kept alive by the
- * route (`keepAlive`, Next's `after`). Push-notification configs live in
+ * route (`keepAlive`, Next's `after`) until the task's last state is stored,
+ * not merely until the executor returned. Push-notification configs live in
  * Postgres (push.ts). A task that follows something outside the request --
  * a pending action, a build -- catches up whenever it is read. `CancelTask`
  * on a build task cancels the build only while it is queued; on a task
@@ -40,7 +41,7 @@ import {
   TaskPushNotificationConfig,
 } from '@a2a-js/sdk';
 import { and, eq, inArray } from 'drizzle-orm';
-import { expireActions, withdrawAction } from '@/lib/application/agent';
+import { expireActions, reconcileActionTasks, withdrawAction } from '@/lib/application/agent';
 import { db, schema } from '@/lib/infrastructure/postgres/client';
 import {
   DefaultRequestHandler,
@@ -60,17 +61,27 @@ import {
 } from '@a2a-js/sdk/errors';
 import { buildAgentCard } from './card';
 import { buildCallContext, callerOf, type A2ACallFacts } from './context';
-import { Re0AgentExecutor, type ExecutorDependencies } from './executor';
+import { Re0AgentExecutor, statusKey, type ExecutorDependencies } from './executor';
 import { callerQuota } from './extended';
 import { subscribesTo } from '@/lib/application/channels/subscriptions';
-import { PostgresPushNotificationStore, Re0PushNotificationSender } from './push';
-import { syncBuildTasks } from './task-events';
+import { PostgresPushNotificationStore, Re0PushNotificationSender, settlePushes } from './push';
+import { failStaleTasks, syncBuildTasks } from './task-events';
 import { PostgresTaskStore } from './task-store';
 
 export type A2AResponse =
   | { kind: 'json'; status: number; body: unknown }
   | { kind: 'empty'; status: number }
-  | { kind: 'sse'; events: AsyncGenerator<unknown, void, undefined>; errorEvent: (error: unknown) => unknown };
+  | {
+      kind: 'sse';
+      events: AsyncGenerator<unknown, void, undefined>;
+      errorEvent: (error: unknown) => unknown;
+      /**
+       * The stream carries a task's execution (`SendStreamingMessage`): the SDK
+       * stores each event as it is pulled through, so the route keeps pulling
+       * after the client hangs up. A subscription only reads, and stops.
+       */
+      runToEnd: boolean;
+    };
 
 export interface A2ARequest {
   method: string;
@@ -108,6 +119,42 @@ export const TERMINAL: ReadonlySet<TaskState> = new Set([
 ]);
 const POLL_INTERVAL_MS = 1_000;
 const DEFAULT_STREAM_WINDOW_MS = 50_000;
+/** How long a finished execution's last state may take to be stored before the wait gives up. */
+const STORE_SETTLE_MS = 30_000;
+
+/**
+ * The store the SDK writes through, noting the status each task was last
+ * saved with. Under `returnImmediately` the SDK drains the executor's events
+ * into the store detached from the request (`_processEvents`, never
+ * awaited), so the executor returning says nothing about whether its final
+ * state is stored yet; this is how the request finds out.
+ */
+class SettlingTaskStore extends PostgresTaskStore {
+  private readonly saved = new Map<string, string>();
+  private readonly waiters = new Set<() => void>();
+
+  override async save(task: Task, context: ServerCallContext): Promise<void> {
+    await super.save(task, context);
+    this.saved.set(task.id, statusKey(task.status));
+    for (const wake of [...this.waiters]) wake();
+  }
+
+  /** Resolves once the task was saved with this status, or after `ms` regardless. */
+  async savedAs(taskId: string, key: string, ms: number): Promise<void> {
+    const deadline = Date.now() + ms;
+    while (this.saved.get(taskId) !== key && Date.now() < deadline) {
+      await new Promise<void>((resolve) => {
+        const wake = () => {
+          clearTimeout(timer);
+          this.waiters.delete(wake);
+          resolve();
+        };
+        const timer = setTimeout(wake, deadline - Date.now());
+        this.waiters.add(wake);
+      });
+    }
+  }
+}
 
 /**
  * The SDK's request handler with the parts a serverless deployment needs
@@ -119,7 +166,7 @@ const DEFAULT_STREAM_WINDOW_MS = 50_000;
 class StoreBackedRequestHandler implements A2ARequestHandler {
   constructor(
     private readonly inner: DefaultRequestHandler,
-    private readonly store: PostgresTaskStore,
+    private readonly store: SettlingTaskStore,
     private readonly executor: Re0AgentExecutor,
     private readonly windowMs: number,
     private readonly keepAlive?: (work: Promise<unknown>) => void,
@@ -130,14 +177,25 @@ class StoreBackedRequestHandler implements A2ARequestHandler {
     this.inner.getAuthenticatedExtendedAgentCard(p, c);
   /*
    * `returnImmediately` answers after the first event while the executor
-   * runs on; the route's `keepAlive` holds the function open until it has
-   * finished, so an instance never freezes with a task left WORKING.
+   * runs on; the route's `keepAlive` holds the function open until the work
+   * is over -- the executor returned, the last status it published stored,
+   * the push notifications sent -- so an instance never freezes with a task
+   * left WORKING.
    */
   sendMessage: A2ARequestHandler['sendMessage'] = async (p, c) => {
     const result = await this.inner.sendMessage(p, c);
-    if (p.configuration?.returnImmediately) this.keepAlive?.(this.executor.settled());
+    if (p.configuration?.returnImmediately) this.keepAlive?.(this.drained());
     return result;
   };
+
+  private async drained(): Promise<void> {
+    await this.executor.settled();
+    await Promise.all(
+      [...this.executor.lastStatus].map(([taskId, key]) => this.store.savedAs(taskId, key, STORE_SETTLE_MS)),
+    );
+    await settlePushes();
+  }
+
   sendMessageStream: A2ARequestHandler['sendMessageStream'] = (p, c) => this.inner.sendMessageStream(p, c);
   getTask: A2ARequestHandler['getTask'] = async (p, c) => {
     await catchUp([p.id]);
@@ -157,7 +215,15 @@ class StoreBackedRequestHandler implements A2ARequestHandler {
    * Proposal 7.6: on a build task, cancelling means cancelling the queue. A
    * build already running finishes (architecture.md 8.3 publishes whole
    * versions or nothing), so its task is not cancelable. A task waiting for
-   * the owner withdraws its pending action -- which can only close it.
+   * the owner withdraws its pending action -- which can only close it -- and
+   * ends CANCELED, returned to the caller as the SDK returns a cancelled task.
+   *
+   * Withdrawing is the same conditional update (`pending -> ...`) the owner's
+   * confirmation races for, so one of them wins. If the confirmation did --
+   * just now, or before this cancel arrived, its outcome not yet on the task
+   * -- the action is being carried out: the task is not cancelable, and
+   * follows the action (agent/actions.ts `reconcileActionTasks`) instead of
+   * reading CANCELED over something that ran.
    */
   cancelTask: A2ARequestHandler['cancelTask'] = async (p, c) => {
     const task = await this.store.load(p.id, c);
@@ -181,6 +247,14 @@ class StoreBackedRequestHandler implements A2ARequestHandler {
         .from(schema.agentAction)
         .where(and(eq(schema.agentAction.a2aTaskId, task.id), eq(schema.agentAction.state, 'pending')));
       for (const action of pending) await withdrawAction(action.id);
+      if (!row?.workflowRunId) {
+        const [confirmed] = await db()
+          .select({ id: schema.agentAction.id })
+          .from(schema.agentAction)
+          .where(and(eq(schema.agentAction.a2aTaskId, task.id), eq(schema.agentAction.state, 'confirmed')))
+          .limit(1);
+        if (confirmed) throw new TaskNotCancelableError(`the owner confirmed the action of task ${p.id}; it is being carried out`);
+      }
     }
     return this.inner.cancelTask(p, c);
   };
@@ -230,7 +304,9 @@ class StoreBackedRequestHandler implements A2ARequestHandler {
 
 /**
  * What happened to these tasks outside any request: a pending action that
- * expired, a build that finished. Cheap when nothing did.
+ * expired, an action decided while its task did not move, a build that
+ * finished, a run that ended without finishing its task. Cheap when nothing
+ * did.
  */
 async function catchUp(taskIds: string[]): Promise<void> {
   const ids = taskIds.filter((id) => id && id.length <= 200);
@@ -240,11 +316,13 @@ async function catchUp(taskIds: string[]): Promise<void> {
     .from(schema.agentAction)
     .where(and(inArray(schema.agentAction.a2aTaskId, ids), eq(schema.agentAction.state, 'pending')));
   if (overdue.length > 0) await expireActions(new Date(), overdue.map((row) => row.id));
+  await reconcileActionTasks(ids);
   await syncBuildTasks(ids);
+  await failStaleTasks(new Date(), ids);
 }
 
 function requestHandlerFor(input: A2ARequest): StoreBackedRequestHandler {
-  const store = new PostgresTaskStore();
+  const store = new SettlingTaskStore();
   const executor = new Re0AgentExecutor(input.origin, input.dependencies);
   /* Built per caller: the extended card speaks for whoever is authenticated (proposal 7.2). */
   const extendedCard = async (context: ServerCallContext) => {
@@ -304,6 +382,7 @@ async function handleJsonRpc(input: A2ARequest): Promise<A2AResponse> {
         kind: 'sse',
         events: result as AsyncGenerator<unknown, void, undefined>,
         errorEvent: (error) => ({ jsonrpc: '2.0', id, error: mapError(error) }),
+        runToEnd: body?.method === 'SendStreamingMessage' || body?.method === 'message/stream',
       };
     }
     return { kind: 'json', status: 200, body: result };
@@ -326,10 +405,11 @@ async function handleRest(input: A2ARequest): Promise<A2AResponse> {
     const status = restStatusFor(error);
     return { kind: 'json', status, body: toRestErrorBody(error, status) };
   };
-  const stream = (events: AsyncGenerator<unknown, void, undefined>): A2AResponse => ({
+  const stream = (events: AsyncGenerator<unknown, void, undefined>, runToEnd: boolean): A2AResponse => ({
     kind: 'sse',
     events,
     errorEvent: (error) => toRestErrorBody(error, restStatusFor(error)),
+    runToEnd,
   });
 
   try {
@@ -348,7 +428,7 @@ async function handleRest(input: A2ARequest): Promise<A2AResponse> {
       if (!params.message) throw new RequestMalformedError('message is required');
       if (!params.message.messageId) throw new RequestMalformedError('message.messageId is required');
       if (head === 'message:stream') {
-        return stream(mapEvents(handler.sendMessageStream(params, context), (event) => StreamResponse.toJSON(event)));
+        return stream(mapEvents(handler.sendMessageStream(params, context), (event) => StreamResponse.toJSON(event)), true);
       }
       const result = await handler.sendMessage(params, context);
       return {
@@ -369,7 +449,7 @@ async function handleRest(input: A2ARequest): Promise<A2AResponse> {
         return { kind: 'json', status: 200, body: Task.toJSON(await handler.cancelTask(params, context)) };
       }
       if (op === 'subscribe' && (input.method === 'GET' || input.method === 'POST')) {
-        return stream(mapEvents(handler.resubscribe({ id: taskId!, tenant }, context), (event) => StreamResponse.toJSON(event)));
+        return stream(mapEvents(handler.resubscribe({ id: taskId!, tenant }, context), (event) => StreamResponse.toJSON(event)), false);
       }
       if (!op && input.method === 'GET') {
         const historyLength = input.search.get('historyLength');

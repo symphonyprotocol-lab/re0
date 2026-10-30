@@ -3,6 +3,7 @@
 import { after } from 'next/server';
 import { revalidatePath } from 'next/cache';
 import { confirmAction, rejectAction } from '@/lib/application/agent';
+import { settlePushes } from '@/lib/application/a2a/push';
 import { syncBuildTasks } from '@/lib/application/a2a/task-events';
 import { delegationsByActionIds, type DelegationView } from '@/lib/application/external-agents';
 import { canManageAssets } from '@/lib/application/assets';
@@ -65,12 +66,22 @@ export async function confirmPendingAction(_previous: DecideResult | null, form:
       digest: String(form.get('digest') ?? ''),
     });
     refresh();
-    /* The build the confirmation queued starts now; the drain retries it if this run is lost. */
+    /* The A2A caller hears of it after the click, not inside it: its receivers' speed is not the owner's wait. */
+    after(() => settlePushes());
+    /*
+     * The build the confirmation queued starts now; the drain retries it if
+     * this run is lost. Only this action's own task follows it here -- every
+     * other tenant's is the drain's.
+     */
     if (operationId) {
+      const taskId = action.a2aTaskId;
       after(async () => {
         try {
           await runOperation({ operationId });
-          await syncBuildTasks();
+          if (taskId) {
+            await syncBuildTasks([taskId]);
+            await settlePushes();
+          }
         } catch (error) {
           console.error(`confirmed build run failed: ${error instanceof Error ? error.message : 'unknown'}`);
         }
@@ -89,6 +100,7 @@ export async function rejectPendingAction(_previous: DecideResult | null, form: 
   try {
     const action = await rejectAction(actor, { actionId: String(form.get('actionId') ?? '') });
     refresh();
+    after(() => settlePushes());
     return { ok: true, state: action.state, error: null, reason: null };
   } catch (error) {
     return refused(error);

@@ -11,13 +11,20 @@
  * but not search. A header that is present but wrong is refused, never
  * quietly downgraded to anonymous. Without one the caller is anonymous:
  * public skills only, under the same fail-closed anonymous rate limit as
- * REST (architecture.md 11.2), counted on the calls that run a skill.
+ * REST (architecture.md 11.2), counted on the calls that run a skill. The
+ * caller is known before the tenant is resolved: a user who has published
+ * nothing is a tenant only to their own key (tenant.ts).
+ *
+ * Work that outlives the response is held with Next's `after`: the push
+ * notifications a request queued, the rest of a `returnImmediately`
+ * execution, and the rest of a streamed one whose client hung up.
  */
 import { after, NextResponse, type NextRequest } from 'next/server';
 import { AppError, httpStatusFor } from '@/contracts/errors';
 import { resolveApiKey } from '@/lib/application/auth/api-key';
 import { userByHandle } from '@/lib/application/channels';
 import { agentCardJson, buildAgentCard, legacyAgentCardJson } from '@/lib/application/a2a/card';
+import { settlePushes } from '@/lib/application/a2a/push';
 import { handleA2A, type A2AResponse } from '@/lib/application/a2a/server';
 import { resolveTenant, splitTenantPath, type A2ATenant } from '@/lib/application/a2a/tenant';
 import { hasScope } from '@/lib/domain/api-key';
@@ -122,8 +129,6 @@ export async function serveA2A(request: NextRequest, segments: readonly string[]
   if (bodyTenant && split.tenant && bodyTenant !== split.tenant) {
     return json({ jsonrpc: '2.0', id: rpcId(body), error: { code: -32602, message: 'the tenant in the body does not match the path' } }, 200);
   }
-  const tenant = await resolveTenant(bodyTenant ?? split.tenant);
-  if (!tenant) return notFound(isJsonRpc ? rpcId(body) : undefined);
 
   /* Who is calling. */
   let principal: Awaited<ReturnType<typeof resolveApiKey>>;
@@ -140,6 +145,9 @@ export async function serveA2A(request: NextRequest, segments: readonly string[]
   ) {
     return appError(new AppError('access_denied', 'this API key holds no A2A scope (knowledge:search, knowledge:read or assets:write)'), requestId);
   }
+
+  const tenant = await resolveTenant(bodyTenant ?? split.tenant, principal?.workspaceId ?? null);
+  if (!tenant) return notFound(isJsonRpc ? rpcId(body) : undefined);
 
   /* The anonymous limit, on the calls that run a skill or open a subscription. */
   const limited = isJsonRpc
@@ -167,8 +175,8 @@ export async function serveA2A(request: NextRequest, segments: readonly string[]
     hasPublicChannel,
     origin: a2aOrigin(),
     pathTenant: !bodyTenant,
-    /* `returnImmediately`: the executor finishes after the response, inside this function's lifetime. */
-    keepAlive: (work) => after(() => work),
+    /* `returnImmediately`: the execution finishes after the response, inside this function's lifetime. */
+    keepAlive: (work) => afterResponse(() => work),
     facts: {
       caller: {
         workspaceId: principal?.workspaceId ?? null,
@@ -182,7 +190,19 @@ export async function serveA2A(request: NextRequest, segments: readonly string[]
       anonymousVisitor: principal ? null : await anonymousVisitorKey(request.headers),
     },
   });
+  /* What this request moved, its pushes go out after the response (push.ts). */
+  afterResponse(() => settlePushes());
   return toResponse(result);
+}
+
+/** Next's `after`; outside a request (a test, a script) there is nothing to hold open, so the work just runs. */
+function afterResponse(work: () => Promise<unknown>): void {
+  const guarded = () => work().catch((error: unknown) => console.error(`a2a work after the response failed: ${error instanceof Error ? error.message : 'unknown'}`));
+  try {
+    after(guarded);
+  } catch {
+    void guarded();
+  }
 }
 
 function readBodyTenant(body: unknown): string | null {
@@ -198,6 +218,7 @@ function rpcId(body: unknown): string | number | null {
 function toResponse(result: A2AResponse): Response {
   if (result.kind === 'json') return json(result.body, result.status);
   if (result.kind === 'empty') return new NextResponse(null, { status: result.status, headers: CORS_HEADERS });
+  if (result.runToEnd) return new Response(drainedStream(result), { headers: { ...SSE_HEADERS, ...CORS_HEADERS } });
   const encoder = new TextEncoder();
   const { events, errorEvent } = result;
   const stream = new ReadableStream<Uint8Array>({
@@ -219,6 +240,58 @@ function toResponse(result: A2AResponse): Response {
     },
   });
   return new Response(stream, { headers: { ...SSE_HEADERS, ...CORS_HEADERS } });
+}
+
+/**
+ * An execution's stream (`SendStreamingMessage`). The SDK stores each event
+ * as its generator is pulled, so the generator is pulled to the end by a
+ * loop of its own, held open with `after`, whatever the client does: the
+ * response reads what the loop buffered, and a client that hangs up stops
+ * the forwarding, never the execution -- which it would otherwise leave
+ * WORKING for good, having already been metered.
+ */
+function drainedStream(result: Extract<A2AResponse, { kind: 'sse' }>): ReadableStream<Uint8Array> {
+  const encoder = new TextEncoder();
+  const buffered: unknown[] = [];
+  let ended = false;
+  let failure: { error: unknown } | null = null;
+  let detached = false;
+  /* The reader waiting for the next event, if it is. */
+  const reader: { wake: (() => void) | null } = { wake: null };
+  const pump = (async () => {
+    try {
+      for await (const value of result.events) {
+        if (detached) continue;
+        buffered.push(value);
+        reader.wake?.();
+      }
+    } catch (error) {
+      failure = { error };
+    } finally {
+      ended = true;
+      reader.wake?.();
+    }
+  })();
+  afterResponse(async () => {
+    await pump;
+    await settlePushes();
+  });
+  return new ReadableStream<Uint8Array>({
+    async pull(controller) {
+      while (buffered.length === 0 && !ended) await new Promise<void>((resolve) => (reader.wake = resolve));
+      reader.wake = null;
+      if (buffered.length > 0) {
+        controller.enqueue(encoder.encode(`data: ${JSON.stringify(buffered.shift())}\n\n`));
+        return;
+      }
+      if (failure) controller.enqueue(encoder.encode(`event: error\ndata: ${JSON.stringify(result.errorEvent(failure.error))}\n\n`));
+      controller.close();
+    },
+    cancel() {
+      detached = true;
+      buffered.length = 0;
+    },
+  });
 }
 
 function json(body: unknown, status: number): NextResponse {

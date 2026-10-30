@@ -29,7 +29,13 @@
  */
 import { randomUUID } from 'node:crypto';
 import { TaskState, type Artifact, type Message, type Part, type Task } from '@a2a-js/sdk';
-import { AgentEvent, type AgentExecutor, type ExecutionEventBus, type RequestContext } from '@a2a-js/sdk/server';
+import {
+  AgentEvent,
+  type AgentExecutionEvent,
+  type AgentExecutor,
+  type ExecutionEventBus,
+  type RequestContext,
+} from '@a2a-js/sdk/server';
 import { AppError } from '@/contracts/errors';
 import { askScope, proposeAction, type AskResult } from '@/lib/application/agent';
 import { findChannels, FIND_CHANNELS_DEFAULT, FIND_CHANNELS_MAX, recordChannelVisit } from '@/lib/application/channels';
@@ -149,9 +155,20 @@ export interface ExecutorDependencies {
   generation?: PlaygroundDependencies;
 }
 
+/** A status as the store will hold it: the state and the moment it was set. */
+export function statusKey(status: Task['status']): string {
+  return `${status?.state ?? ''}@${status?.timestamp ?? ''}`;
+}
+
 export class Re0AgentExecutor implements AgentExecutor {
   /** Executions still running after the response went out (`returnImmediately`). */
   private readonly running = new Set<Promise<void>>();
+  /**
+   * Per task this instance ran, the last status published on its bus -- by
+   * the execution, or by the SDK for one that threw. The run is over when
+   * the store has saved it (server.ts `drained`).
+   */
+  readonly lastStatus = new Map<string, string>();
 
   constructor(
     private readonly origin: string,
@@ -164,6 +181,12 @@ export class Re0AgentExecutor implements AgentExecutor {
   }
 
   execute(requestContext: RequestContext, eventBus: ExecutionEventBus): Promise<void> {
+    const watch = (event: AgentExecutionEvent) => {
+      const status = event.kind === 'task' || event.kind === 'statusUpdate' ? event.data.status : undefined;
+      if (status) this.lastStatus.set(requestContext.taskId, statusKey(status));
+    };
+    eventBus.on('event', watch);
+    eventBus.once('finished', () => eventBus.off('event', watch));
     const run = this.executeInner(requestContext, eventBus);
     this.running.add(run);
     void run.finally(() => this.running.delete(run)).catch(() => {});

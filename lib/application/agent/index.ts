@@ -15,6 +15,7 @@ export {
   paramsDigest,
   pendingTargets,
   proposeAction,
+  reconcileActionTasks,
   rejectAction,
   withdrawAction,
   type ConfirmOutcome,
