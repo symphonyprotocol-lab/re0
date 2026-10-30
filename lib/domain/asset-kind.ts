@@ -14,11 +14,11 @@ export const ASSET_KINDS = ['website', 'upload', 'github', 'notion', 'post', 'au
 export type AssetKind = (typeof ASSET_KINDS)[number];
 
 /**
- * The kinds the import wizard creates. `post` and `audio` have editors of
- * their own (lib/application/editorial), and a `qa` is made by answering a
- * question, never directly.
+ * The kinds the asset wizard creates. `post` and `audio` start there as
+ * drafts and are written in their editor (lib/application/editorial); a
+ * `qa` is made by answering a question, never directly.
  */
-export const CREATABLE_ASSET_KINDS = ['website', 'upload', 'github', 'notion'] as const satisfies readonly AssetKind[];
+export const CREATABLE_ASSET_KINDS = ['website', 'upload', 'github', 'notion', 'post', 'audio'] as const satisfies readonly AssetKind[];
 
 export function isAssetKind(value: unknown): value is AssetKind {
   return typeof value === 'string' && (ASSET_KINDS as readonly string[]).includes(value);

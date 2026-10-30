@@ -37,11 +37,17 @@ export interface AssetListRow {
   id: string;
   slug: string;
   title: string;
+  /** The asset's kind, worded (`t.channels.kinds`). */
+  kindLabel: string;
+  /** Where the row opens: the detail page, or an article's or episode's editor. */
+  href: string;
   version: string | null;
   /** In a public channel, or its owner's alone (agent-first-proposal.md 6.2). */
   scope: 'public' | 'private';
   /** The channel the asset is in, linking to its dashboard page; null when in none. */
   channel: { title: string; href: string } | null;
+  /** Only the channel's subscribers read it (`access = 'paid'`). */
+  paid: boolean;
   chunks: number;
   /** Calls served from the asset, all time and this UTC month (builds excluded). */
   calls: { total: number; thisMonth: number };
@@ -199,7 +205,8 @@ export function AssetList({
           {visible.map((asset) => {
             /* Every row opens the owner's own detail page -- readiness,
                version, queue -- which is also where the public page is
-               linked from once the asset is routable. */
+               linked from once the asset is routable; an article or an
+               episode opens its editor instead. */
             const cells: ReactNode = (
               <>
                 <span className="flex min-w-0 items-center gap-2.5 pr-3">
@@ -215,7 +222,7 @@ export function AssetList({
                       <span className="truncate">{asset.title}</span>
                     </span>
                     <span className="truncate text-[10px] text-muted">
-                      {asset.slug}
+                      {asset.kindLabel} · {asset.slug}
                       {asset.version ? ` · ${asset.version}` : ''}
                     </span>
                   </span>
@@ -226,7 +233,10 @@ export function AssetList({
                     {asset.scope === 'public' ? l.scopePublic : l.scopePrivate}
                   </Badge>
                   {asset.channel ? (
-                    <span className="max-w-full truncate text-[10px] text-muted">{asset.channel.title}</span>
+                    <span className="max-w-full truncate text-[10px] text-muted">
+                      {asset.channel.title}
+                      {asset.paid ? ` · ${l.paid}` : ''}
+                    </span>
                   ) : null}
                 </span>
 
@@ -264,7 +274,7 @@ export function AssetList({
             return (
               <div key={asset.id} className="relative">
                 <Link
-                  href={`/dashboard/assets/${asset.id}`}
+                  href={asset.href}
                   className={`${rowClass} transition-colors hover:bg-subtle`}
                 >
                   {cells}

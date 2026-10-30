@@ -15,7 +15,6 @@ import {
   LayoutDashboardIcon,
   ListChecksIcon,
   MessagesSquareIcon,
-  PencilIcon,
   ReceiptIcon,
   SettingsIcon,
   SparklesIcon,
@@ -97,7 +96,6 @@ export function DashboardSidebar({
       items: [
         { href: '/dashboard/assets', label: n.allAssets, Icon: DatabaseIcon },
         { href: '/dashboard/assets?filter=unfiled', label: n.unfiledAssets, Icon: DatabaseIcon },
-        { href: '/dashboard/posts', label: n.posts, Icon: PencilIcon },
       ],
     },
     {

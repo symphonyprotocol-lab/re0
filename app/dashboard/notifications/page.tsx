@@ -49,7 +49,7 @@ export default async function NotificationsPage() {
               /* A refused scheduled publication opens its editor, which words the refusal. */
               const failed = row.kind === 'publish_failed' ? text(row.payload.assetId) : '';
               const href = failed
-                ? `/dashboard/posts/${failed}?notice=${encodeURIComponent(text(row.payload.reason))}`
+                ? `/dashboard/assets/${failed}/edit?notice=${encodeURIComponent(text(row.payload.reason))}`
                 : publicId
                   ? `/assets${publicId}`
                   : row.kind === 'new_question'

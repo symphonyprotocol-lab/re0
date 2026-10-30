@@ -184,9 +184,8 @@ app/
     [[...slug]]/page.tsx
   dashboard/
     page.tsx                # Agent 工作台（P2）
-    assets/                 # 我的资产（P1）
+    assets/                 # 我的资产（P1）；向导也创建文章与音频，编辑器在 [assetId]/edit（P3）
     channels/               # 我的频道，含「订阅」面板（P1 / P3a）
-    posts/                  # 文章与音频的编辑器、导入（P3）
     questions/ comments/    # 待答列表、评论管理（P3a）
     subscriptions/ notifications/   # 订阅者视角、站内通知（P3a）
     api-keys/
@@ -245,7 +244,7 @@ lib/
     playground/             # 共用的 Agent 循环与生成链路
     agent/                  # 工作台工具、待确认操作（P2）
     a2a/                    # AgentExecutor、Agent Card 生成、TaskStore（P1 / P2）
-    editorial/              # 文章与音频：草稿、发布、定时、媒体文件、导入、阅读视图（P3）
+    editorial/              # 文章与音频：草稿、发布、定时、媒体文件、阅读视图（P3）
     comments/               # 评论：权限、频率限制、内容检查、管理与举报（P3a）
     questions/              # AI 分身、待答列表、问答资产、作者确认（P3a）
     notifications/          # 站内通知（P3a）
@@ -613,7 +612,7 @@ stateDiagram-v2
 Website 来源通过 `source.config.indexDepth` 选择嵌套深度（0–3 层，默认 0），每层跟进同域、仍在入口路径范围内的子页面，sitemap 发现页算第 1 层。
 
 1. `validate-source`：套餐、容量、URL、授权和配置 Schema；
-2. `fetch-snapshot`：抓取后计算 Source Digest 并写对象存储。网站来源先直接抓取（浏览器样 UA、`Accept: text/markdown` 协商、sitemap 发现），只有被拒（403）或页面是 JS 空壳时才调用远程渲染服务（Firecrawl、AnySearch 或 Jina Reader，在后台「模型配置」页选择，可替换）取 Markdown。渲染配置只追加（`render_config`，最新一条生效；从未保存时沿用 `RENDER_PROVIDER*` 环境变量），每家服务各有一个有序的 API Key 池（`render_provider_key`，加密存储）：构建按顺序使用，厂商返回 402（额度用完）或 401（Key 无效，AnySearch 另含 403）时换下一个 Key 并标记，被标记的 Key 6 小时内排到最后但放弃前仍会再试，首次成功即清除标记；429 只在本次构建内跳过。Firecrawl 的 403 是不支持该网站，不算 Key 失效。已存的 Key 只发往厂商官方地址，配置了自托管地址时不带 Key 调用；渲染目标同样经过 §15.1 的地址校验，渲染结果同样受单文档大小上限约束。未配置渲染服务时入口页为空壳以 `source_unrendered` 失败，这个独立错误码让后台能统计需要渲染的来源比例。摘要未变的来源不再解析和向量化，其文档与 Chunk（含向量）从当前版本复制到新版本；解析器、分块器、Embedding 模型或分词配置任一变化时不复用，整项资产重建。**一项资产只有一个来源**（requirement.md 6.1），用户资产与平台资产都是；`asset_version.source_digests` 的多来源记法与「按来源部分刷新」只在现有多来源平台库上还有意义，这些库在 P1 按来源拆成多项资产后不再需要。`llms.txt` 与 OpenAPI 来源已删除。编辑器来源（`editor`，P3a）的正文由平台内编辑器或网址 / RSS 导入产生，不抓取、不渲染，直接进入 `scan`；音频来源（`audio`，P3b）只校验文件类型、大小与哈希，进入检索的是创作者写的标题与节目说明，不做语音识别。PDF 来源从对象存储读回向导上传的文件（单文件 30 MB 以内），用 pdf.js（unpdf）就地抽取文本层；只有当至多一半页面有文本层时（扫描件）才把整个文件交给 OCR 服务（`OCR_PROVIDER`，目前为 ocr.space，可替换）识别，未配置 OCR 时扫描件解析为空文档，由 `discover-parse` 报 `parse_failed`。文件以 multipart 直接上传给 OCR 厂商，不签发对象存储的临时 URL；页数与大小上限由厂商套餐决定，超出时厂商的拒绝原样以 `parse_failed` 上报；
+2. `fetch-snapshot`：抓取后计算 Source Digest 并写对象存储。网站来源先直接抓取（浏览器样 UA、`Accept: text/markdown` 协商、sitemap 发现），只有被拒（403）或页面是 JS 空壳时才调用远程渲染服务（Firecrawl、AnySearch 或 Jina Reader，在后台「模型配置」页选择，可替换）取 Markdown。渲染配置只追加（`render_config`，最新一条生效；从未保存时沿用 `RENDER_PROVIDER*` 环境变量），每家服务各有一个有序的 API Key 池（`render_provider_key`，加密存储）：构建按顺序使用，厂商返回 402（额度用完）或 401（Key 无效，AnySearch 另含 403）时换下一个 Key 并标记，被标记的 Key 6 小时内排到最后但放弃前仍会再试，首次成功即清除标记；429 只在本次构建内跳过。Firecrawl 的 403 是不支持该网站，不算 Key 失效。已存的 Key 只发往厂商官方地址，配置了自托管地址时不带 Key 调用；渲染目标同样经过 §15.1 的地址校验，渲染结果同样受单文档大小上限约束。未配置渲染服务时入口页为空壳以 `source_unrendered` 失败，这个独立错误码让后台能统计需要渲染的来源比例。摘要未变的来源不再解析和向量化，其文档与 Chunk（含向量）从当前版本复制到新版本；解析器、分块器、Embedding 模型或分词配置任一变化时不复用，整项资产重建。**一项资产只有一个来源**（requirement.md 6.1），用户资产与平台资产都是；`asset_version.source_digests` 的多来源记法与「按来源部分刷新」只在现有多来源平台库上还有意义，这些库在 P1 按来源拆成多项资产后不再需要。`llms.txt` 与 OpenAPI 来源已删除。编辑器来源（`editor`，P3a）的正文由平台内编辑器产生（文章与音频从资产向导创建为草稿，在 `/dashboard/assets/{id}/edit` 撰写与发布），不抓取、不渲染，直接进入 `scan`；音频来源（`audio`，P3b）只校验文件类型、大小与哈希，进入检索的是创作者写的标题与节目说明，不做语音识别。PDF 来源从对象存储读回向导上传的文件（单文件 30 MB 以内），用 pdf.js（unpdf）就地抽取文本层；只有当至多一半页面有文本层时（扫描件）才把整个文件交给 OCR 服务（`OCR_PROVIDER`，目前为 ocr.space，可替换）识别，未配置 OCR 时扫描件解析为空文档，由 `discover-parse` 报 `parse_failed`。文件以 multipart 直接上传给 OCR 厂商，不签发对象存储的临时 URL；页数与大小上限由厂商套餐决定，超出时厂商的拒绝原样以 `parse_failed` 上报；
 3. `scan`：恶意文件、Secrets、PII、Prompt Injection 和链接安全；
 4. `discover-parse`：只解析允许的文件和页面；
 5. `normalize-cite`：产生统一文档格式和 Citation；
@@ -1127,7 +1126,7 @@ Audit Log 采用只追加表，并保存前一条记录 Hash 形成链式校验�
 ### 15.1 来源安全
 
 - 仅允许 HTTPS 和 GitHub（GitLab、Gitee 等不支持）；
-- 每次请求和重定向都解析 DNS，拒绝私网、Loopback、Link-local 和 Metadata 地址；A2A 推送通知的回调 URL、文章导入的网址与 RSS 走同一套校验；
+- 每次请求和重定向都解析 DNS，拒绝私网、Loopback、Link-local 和 Metadata 地址；A2A 推送通知的回调 URL 走同一套校验；
 - 音频文件只校验类型、大小与哈希，不转写、不送往任何第三方；评论正文经过与上传内容相同的 PII 与恶意内容检查，命中时先隐藏；
 - 固定最大重定向、页面、深度、字节、压缩比、文件数和执行时间；
 - Connector Token 使用 Envelope Encryption，只通过 Secret Reference 访问；

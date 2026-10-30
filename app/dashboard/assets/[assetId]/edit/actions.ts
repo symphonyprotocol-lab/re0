@@ -5,8 +5,6 @@ import { redirect } from 'next/navigation';
 import { after } from 'next/server';
 import {
   confirmMediaUpload,
-  createEditorialAsset,
-  importPosts,
   prepareMediaUpload,
   publishEditorial,
   saveEditorialDraft,
@@ -23,9 +21,12 @@ import { eq } from 'drizzle-orm';
 /**
  * The editor's actions (agent-first-proposal.md 6.5, 6.6): form posts that
  * land back on the page with a code in the query string, plus the two
- * upload steps the media picker calls. Publishing is a person's click here
- * and nowhere else -- it is not an Agent tool (proposal 5.1). Each action
- * re-resolves the session: a server action is a public endpoint.
+ * upload steps the media picker calls -- here and on the questions page,
+ * whose answers take an audio note. An article or episode is created by the
+ * asset wizard (app/dashboard/assets/new), not here. Publishing is a
+ * person's click here and nowhere else -- it is not an Agent tool (proposal
+ * 5.1). Each action re-resolves the session: a server action is a public
+ * endpoint.
  */
 
 function actorOf(session: Awaited<ReturnType<typeof requireSession>>) {
@@ -43,52 +44,10 @@ function runAfter(operationId: string | null): void {
   });
 }
 
-export async function createEditorialAction(form: FormData): Promise<void> {
-  const session = await requireSession('/dashboard/posts');
-  const kind = form.get('kind') === 'audio' ? 'audio' : 'post';
-  let target: string;
-  try {
-    const { assetId } = await createEditorialAsset({
-      ...actorOf(session),
-      kind,
-      title: String(form.get('title') ?? ''),
-      slug: String(form.get('slug') ?? ''),
-      rights: {
-        origin: form.get('rightsOrigin') ?? undefined,
-        license: form.get('rightsLicense') ?? undefined,
-        generation: form.get('rightsGeneration') ?? undefined,
-        note: form.get('rightsNote') ?? undefined,
-      },
-    });
-    revalidatePath('/dashboard/posts');
-    target = `/dashboard/posts/${assetId}?notice=created`;
-  } catch (error) {
-    target = `/dashboard/posts?error=${refusalCode(error, 'create post')}`;
-  }
-  redirect(target);
-}
-
-export async function importPostsAction(form: FormData): Promise<void> {
-  const session = await requireSession('/dashboard/posts');
-  let target: string;
-  try {
-    const drafts = await importPosts({
-      ...actorOf(session),
-      url: String(form.get('url') ?? ''),
-      channelId: String(form.get('channelId') ?? '') || null,
-    });
-    revalidatePath('/dashboard/posts');
-    target = `/dashboard/posts?notice=imported&count=${drafts.length}`;
-  } catch (error) {
-    target = `/dashboard/posts?error=${refusalCode(error, 'import posts')}`;
-  }
-  redirect(target);
-}
-
 /** Save, publish now, schedule or unschedule: one form, the button pressed says which. */
 export async function saveEditorialAction(form: FormData): Promise<void> {
   const assetId = String(form.get('assetId') ?? '');
-  const session = await requireSession(`/dashboard/posts/${assetId}`);
+  const session = await requireSession(`/dashboard/assets/${assetId}/edit`);
   const intent = String(form.get('intent') ?? 'save');
   const actor = actorOf(session);
   let notice: string;
@@ -118,12 +77,12 @@ export async function saveEditorialAction(form: FormData): Promise<void> {
         notice = result.scheduledFor ? 'scheduled' : 'published';
       }
     }
-    revalidatePath('/dashboard/posts');
-    revalidatePath(`/dashboard/posts/${assetId}`);
+    revalidatePath('/dashboard/assets');
+    revalidatePath(`/dashboard/assets/${assetId}/edit`);
   } catch (error) {
     notice = refusalCode(error, 'save post');
   }
-  redirect(`/dashboard/posts/${assetId}?notice=${notice}`);
+  redirect(`/dashboard/assets/${assetId}/edit?notice=${notice}`);
 }
 
 export async function prepareMediaAction(input: {
@@ -133,7 +92,8 @@ export async function prepareMediaAction(input: {
   size: number;
   contentType: string;
 }): Promise<{ ok: true; mediaId: string; ticket: UploadTicket; contentType: string } | { ok: false; error: string }> {
-  const session = await requireSession(`/dashboard/posts/${input.assetId}`);
+  /* Shared with the questions page, whose Q&A has no editor to return to. */
+  const session = await requireSession('/dashboard/assets');
   try {
     const prepared = await prepareMediaUpload({ ...actorOf(session), ...input, kind: input.kind === 'audio' ? 'audio' : 'image' });
     return { ok: true, ...prepared };
@@ -147,7 +107,7 @@ export async function confirmMediaAction(input: {
   caption?: string;
   durationMs?: number | null;
 }): Promise<{ ok: true; mediaId: string } | { ok: false; error: string }> {
-  const session = await requireSession('/dashboard/posts');
+  const session = await requireSession('/dashboard/assets');
   try {
     const confirmed = await confirmMediaUpload({ ...actorOf(session), mediaId: input.mediaId, caption: input.caption, durationMs: input.durationMs });
     /* A Q&A's audio note changes its document's path: a new version covers the file (proposal 6.7). */
@@ -157,7 +117,7 @@ export async function confirmMediaAction(input: {
       .innerJoin(schema.asset, eq(schema.asset.id, schema.assetMedia.assetId))
       .where(eq(schema.assetMedia.id, confirmed.mediaId));
     if (media?.kind === 'qa') runAfter(await refreshQaDocument({ ...actorOf(session), assetId: media.assetId }));
-    revalidatePath('/dashboard/posts');
+    if (media) revalidatePath(media.kind === 'qa' ? '/dashboard/questions' : `/dashboard/assets/${media.assetId}/edit`);
     return { ok: true, mediaId: confirmed.mediaId };
   } catch (error) {
     return { ok: false, error: refusalCode(error, 'confirm media') };
