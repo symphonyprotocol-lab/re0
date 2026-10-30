@@ -53,6 +53,7 @@ import {
   EDITORIAL_NAMESPACE,
   editorialSlugFromTitle,
   isWizardEditorialKind,
+  normalizeEditorialSlug,
   type WizardEditorialKind,
 } from '@/lib/domain/editorial';
 import { EMPTY_RIGHTS, RightsFields, RightsHiddenFields, rightsComplete, type RightsAnswer } from '@/components/dashboard/rights-fields';
@@ -384,10 +385,13 @@ export function ImportWizard({
     : isUpload
       ? files.settled
       : location.trim().length > 0;
+  /* The server's rule for an article's or episode's slug, checked here so a
+     slug that cannot be one is said on this step, not after confirming. */
+  const editorialSlugOk = slug.trim() === '' || normalizeEditorialSlug(slug) !== null;
   const detailsComplete =
     title.trim().length > 0 &&
     sourceComplete &&
-    (namespace === null || editorialKind !== null || slug.trim().length > 0);
+    (editorialKind !== null ? editorialSlugOk : namespace === null || slug.trim().length > 0);
   const host = needsVerification ? verificationHost(location) : null;
   const liveChallenge = challenge && host !== null && challenge.host === host ? challenge : null;
   const verificationComplete = !needsVerification || (liveChallenge?.verified ?? false);
@@ -601,7 +605,7 @@ export function ImportWizard({
       </ol>
 
       <p className="text-[11px] leading-[1.5] text-muted">
-        {state?.ok ? n.pipeline.afterSubmit : n.pipeline.beforeSubmit}
+        {state?.ok ? (state.editorial ? n.pipeline.afterDraft : n.pipeline.afterSubmit) : n.pipeline.beforeSubmit}
       </p>
 
       <p className="flex items-center gap-1.5 border-t border-line pt-3.5 text-[11px] text-muted">
@@ -632,7 +636,7 @@ export function ImportWizard({
             {fill(w.draftBody, { id: state.publicId ?? '' })}
           </p>
           <Link
-            href={`/dashboard/assets/${state.assetId}/edit`}
+            href={`/dashboard/assets/${state.assetId}/edit?notice=created`}
             className="mt-2 inline-flex h-[35px] items-center gap-1.5 rounded-md bg-brand px-3.5 text-[12px] font-medium text-white hover:bg-brand/90"
           >
             {w.draftCta}
@@ -839,6 +843,9 @@ export function ImportWizard({
                     setSlugEdited(next.trim().length > 0);
                   }}
                 />
+                {editorialSlugOk ? null : (
+                  <p className="text-[11px] text-rose">{w.editorialSlugInvalid}</p>
+                )}
                 <p className="text-[11px] leading-[1.6] text-muted">{w.editorialNote[source]}</p>
               </div>
             ) : current === 'details' && source !== null && !isWizardEditorialKind(source) ? (

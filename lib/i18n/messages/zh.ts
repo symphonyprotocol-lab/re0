@@ -1393,6 +1393,7 @@ export const zh = {
       callsHint: '被检索调用的次数（含你自己的调用，不含构建），详细记录在资产详情的「使用记录」。',
       scopePublic: '公开频道',
       scopePrivate: '仅自己可见',
+      paid: '付费',
       kindsLabel: '资产类型',
       kindAll: '全部类型',
       editorialStates: { draft: '草稿', scheduled: '定时 {date}' },
@@ -2298,6 +2299,7 @@ export const zh = {
         noHandleCta: '去设置',
         editorialSlugHint: '已根据标题自动生成，可修改：小写字母、数字和 -，最多 64 个字符。前缀 {prefix} 由类型和工作空间公开名决定。',
         editorialSlugPlaceholder: '留空则自动生成',
+        editorialSlugInvalid: '这个 ID 不能用：只能是小写字母、数字和 -，不能以 - 开头或结尾，也不能是版本号的样子。',
         editorialNote: {
           post: '创建后进入编辑器撰写正文、上传图片，再选择频道与访问方式并发布。',
           audio: '创建后进入编辑器上传音频文件、撰写节目简介，再选择频道与访问方式并发布。',
@@ -2432,6 +2434,7 @@ export const zh = {
       pipeline: {
         beforeSubmit: '提交后按以下顺序进行；当前尚未提交。',
         afterSubmit: '已提交。权利与来源在创建时确认；解析与安全检查在构建中进行。',
+        afterDraft: '草稿已创建，还没有构建。发布时才会经过解析与安全检查。',
         privateFlow: '新资产不属于任何频道，只有你能用；恶意内容和安全检查照常执行。',
       },
     },

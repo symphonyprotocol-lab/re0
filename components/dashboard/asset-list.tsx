@@ -46,6 +46,8 @@ export interface AssetListRow {
   scope: 'public' | 'private';
   /** The channel the asset is in, linking to its dashboard page; null when in none. */
   channel: { title: string; href: string } | null;
+  /** Only the channel's subscribers read it (`access = 'paid'`). */
+  paid: boolean;
   chunks: number;
   /** Calls served from the asset, all time and this UTC month (builds excluded). */
   calls: { total: number; thisMonth: number };
@@ -231,7 +233,10 @@ export function AssetList({
                     {asset.scope === 'public' ? l.scopePublic : l.scopePrivate}
                   </Badge>
                   {asset.channel ? (
-                    <span className="max-w-full truncate text-[10px] text-muted">{asset.channel.title}</span>
+                    <span className="max-w-full truncate text-[10px] text-muted">
+                      {asset.channel.title}
+                      {asset.paid ? ` · ${l.paid}` : ''}
+                    </span>
                   ) : null}
                 </span>
 

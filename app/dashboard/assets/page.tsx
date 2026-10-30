@@ -150,6 +150,7 @@ export default async function DashboardAssetsPage({
       version: row.versionLabel,
       scope: shared ? 'public' : 'private',
       channel: row.channel ? { title: row.channel.title, href: `/dashboard/channels/${row.channel.id}` } : null,
+      paid: row.access === 'paid',
       chunks: row.totalChunks,
       calls: usage.get(row.id) ?? { total: 0, thisMonth: 0 },
       status: draft && scheduled ? 'pending' : toneOf(bucket),

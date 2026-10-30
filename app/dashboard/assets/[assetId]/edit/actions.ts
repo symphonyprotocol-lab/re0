@@ -92,7 +92,8 @@ export async function prepareMediaAction(input: {
   size: number;
   contentType: string;
 }): Promise<{ ok: true; mediaId: string; ticket: UploadTicket; contentType: string } | { ok: false; error: string }> {
-  const session = await requireSession(`/dashboard/assets/${input.assetId}/edit`);
+  /* Shared with the questions page, whose Q&A has no editor to return to. */
+  const session = await requireSession('/dashboard/assets');
   try {
     const prepared = await prepareMediaUpload({ ...actorOf(session), ...input, kind: input.kind === 'audio' ? 'audio' : 'image' });
     return { ok: true, ...prepared };

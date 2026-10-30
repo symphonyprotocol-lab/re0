@@ -1434,6 +1434,7 @@ export const en: Dictionary = {
       callsHint: 'Calls served from this asset, your own included and builds excluded. The asset’s Usage tab has the full log.',
       scopePublic: 'Public channel',
       scopePrivate: 'Only you',
+      paid: 'Paid',
       kindsLabel: 'Asset kind',
       kindAll: 'All kinds',
       editorialStates: { draft: 'Draft', scheduled: 'Scheduled {date}' },
@@ -2347,6 +2348,7 @@ export const en: Dictionary = {
         noHandleCta: 'Open settings',
         editorialSlugHint: 'Suggested from the title; edit it if you like: lowercase letters, digits and -, up to 64 characters. The prefix {prefix} comes from the kind and the workspace handle.',
         editorialSlugPlaceholder: 'Leave empty to generate one',
+        editorialSlugInvalid: 'That ID cannot be used: lowercase letters, digits and - only, not starting or ending with -, and not shaped like a version number.',
         editorialNote: {
           post: 'Next, the editor: write the body, add images, choose a channel and access, then publish.',
           audio: 'Next, the editor: upload the audio file, write the show notes, choose a channel and access, then publish.',
@@ -2484,6 +2486,7 @@ export const en: Dictionary = {
       pipeline: {
         beforeSubmit: 'After submission the steps run in this order; nothing is submitted yet.',
         afterSubmit: 'Submitted. Rights and source were settled at creation; parsing and the safety scan run inside the build.',
+        afterDraft: 'The draft exists and nothing is built yet. Parsing and the safety scan run when you publish it.',
         privateFlow: 'A new asset is in no channel and yours alone; the malicious-content and safety checks run as always.',
       },
     },
