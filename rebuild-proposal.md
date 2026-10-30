@@ -106,13 +106,16 @@ Dot 主可以为自己的 Dot 生成一段 30 秒左右的动画介绍，用 **R
 | 层 | 做法 | 成本 |
 | --- | --- | --- |
 | 在线播放 | 介绍是一个 Remotion composition，用 `@remotion/player` 直接在 Dot 公开页和 `/explore` 卡片里播放，**不渲染文件**。数据实时取自 Dot：名字、简介、知识来源、示例问题、价格、统计，知识变了视频自动跟着变 | 零渲染成本，只有前端包体 |
-| 导出 MP4 | Dot 主点「导出视频」，由**我们自己的渲染函数**用 `@remotion/renderer` 渲染成 1080p MP4（竖版 9:16 与横版 16:9 各一份），存到 Vercel Blob，给出下载和分享链接，用来发社交媒体。**不用 Remotion Lambda，也不用任何 Remotion 托管服务**：渲染函数是一个带 Chromium 的容器镜像，作为 Vercel Function 部署（Vercel 现在支持容器镜像与 5 GB 包体），`maxDuration` 设 600 秒，异步执行，页面轮询进度。渲染代码只依赖开源的 `remotion` 与 `@remotion/renderer`，之后要换成自己的 Docker 渲染机也只是换部署位置 | 只有函数运行时费用，一段 30 秒 1080p 视频单机渲染约 2 到 5 分钟；若过慢先降到 720p 或 24 fps |
+| 导出 MP4 | Dot 主点「导出视频」，**在 Dot 主自己的浏览器里渲染**：Remotion 官方的 `@remotion/web-renderer`，`renderMediaOnWeb()` 用 WebCodecs 把同一个 composition 编码成 H.264 MP4，拿到 Blob 后直传 Vercel Blob，再给出下载和分享链接。导出前先调 `canRenderMediaOnWeb()` 探测，不支持的浏览器（主要是旧版或手机浏览器）显示「请用桌面 Chrome 或 Edge 导出」。**不用 Remotion Lambda，不用任何 Remotion 托管服务，也不在服务端跑 Chromium** | 零服务器成本；一段 20 到 30 秒 720p 视频在桌面 Chrome 里约 20 到 60 秒；导出期间标签页需保持打开 |
+| 分享链接 | 不导出也能分享：公开页链接本身就是视频页，Open Graph 预览图由 `next/og` 按 Dot 实时生成 | 零 |
+
+**规格与缓存**：默认 720p、24 fps、20 到 30 秒；只渲染用户点选的那个比例（竖版 9:16 或横版 16:9），不是两份都出；渲染结果按「Dot 内容版本 + 模板 + 比例」缓存在 Blob，知识和脚本没变就直接给已有文件，不重渲。
 
 **内容怎么来**：模型根据 Dot 的知识画像、示例问题和简介生成一份脚本，固定 5 个镜头：开场（名字与一句话定位）→ 它知道什么（知识来源逐条飞入）→ 你可以问它什么（3 个示例问题打字机效果）→ 一个真实问答片段（从该 Dot 历史里挑一条点赞过的，没有则用示例问题现问一次）→ 结尾（价格与「问它」二维码 / 链接）。Dot 主在生成后可以逐镜头改文字、换主题色、选 3 套模板之一，然后保存。第一版**没有配音**，只有字幕与一段内置的免版税背景音乐；配音（TTS）留到以后。
 
-**收费**：生成或重新生成脚本按一次提问收 20 credits；导出 MP4 每次 500 credits（覆盖渲染函数的运行时费用，默认值可改）；在线播放不收费。
+**收费**：生成或重新生成脚本按一次提问收 20 credits；导出 MP4 每次 50 credits（平台只付 Blob 存储与流量，象征性收费，默认值可改）；在线播放与分享链接不收费。
 
-**许可**：Remotion 对个人和 3 人以下公司免费，超过要买公司许可，上线前确认。
+**许可**：Remotion 对个人和 3 人以下公司免费，超过要买公司许可，上线前确认；浏览器端渲染要在 `renderMediaOnWeb()` 里传 `licenseKey`（符合免费条件传 `'free-license'`，否则传 remotion.pro 的公钥）。
 
 处理一律异步：添加后状态为 pending，页面轮询直到 ready 或 failed；失败显示原因并可重试。音频转写和大仓库抓取可能超过几分钟，用一个带 `maxDuration` 的后台函数处理，不引入队列服务。
 
@@ -126,7 +129,7 @@ Dot 主可以为自己的 Dot 生成一段 30 秒左右的动画介绍，用 **R
 | `/explore` | 找 Dot：一个问题输入框，返回最可能知道答案的公开 Dot 及命中摘录；空输入时显示活跃 Dot 与标签 |
 | `/dots` | 我的 Dot 列表 + 新建 |
 | `/dots/[id]` | 左侧知识列表与添加入口，右侧是只有这一个 Dot 的对话；设置抽屉里改名、提示词、公开开关、查询费 |
-| `/dots/[id]/video` | 视频介绍：生成脚本、逐镜头编辑、选模板与主题色、在线预览（Remotion Player）、导出 MP4 与下载 |
+| `/dots/[id]/video` | 视频介绍：生成脚本、逐镜头编辑、选模板与主题色、在线预览（Remotion Player）、浏览器内导出 MP4（进度条）、下载与分享链接 |
 | `/chats` | 我的对话列表 + 新建对话 |
 | `/chats/[id]` | 多 Dot 对话：右侧参与者栏列出已拉进的 Dot（自己的和别人公开的都能拉），可增删；输入框支持 `@Dot名` 只问某一个；发送前显示本次要花的 credits |
 | `/settings` | 连接 GitHub 账号；我的域名列表与确权向导 |
@@ -156,8 +159,8 @@ Dot 主可以为自己的 Dot 生成一段 30 秒左右的动画介绍，用 **R
 | `POST /api/messages/[id]/feedback` | 对一条 Dot 回答点「有用 / 没用」 |
 | `POST /api/dots/[id]/video/script` | 用模型生成或重新生成 5 镜头脚本，写入 `dot_video` |
 | `PATCH /api/dots/[id]/video` | 保存镜头文字、模板、主题色 |
-| `POST /api/dots/[id]/video/render` | 冻结 credits，建 `video_render` 记录并触发自建的容器渲染函数（异步）渲染两种比例，完成后写 Blob 地址 |
-| `GET /api/dots/[id]/video/render/[renderId]` | 轮询渲染进度 |
+| `POST /api/dots/[id]/video/exports` | 导出开始：校验并冻结 credits，返回 Blob 直传令牌与一条 `video_export` 记录；若同版本同比例已有文件则直接返回其地址、不扣费 |
+| `POST /api/dots/[id]/video/exports/[exportId]/complete` | 浏览器渲染并上传完成后回报 Blob 地址，结算 credits；浏览器中途关闭的记录由定时任务清理并解冻 |
 | `POST /api/chats` / `DELETE /api/chats/[id]` | 新建、删除对话；新建时可带初始 Dot 列表 |
 | `POST` / `DELETE /api/chats/[id]/dots/[dotId]` | 拉进、移出一个 Dot；只能拉自己的或公开的 |
 | `POST /api/chats/[id]/messages` | 发一个问题，流式返回：每个作答 Dot 一段独立的回答流，事件带 `dot_id`；`/dots/[id]` 里的单 Dot 对话也是走这个接口，只是对话里只有一个 Dot |
@@ -183,7 +186,7 @@ payout        id, user_id, credits, amount_minor, fee_minor, paypal_email, statu
 dot_feedback  message_id, user_id, vote(up|down), created_at
 dot_profile_vector  id, dot_id, kind(profile|sample_question|centroid), embedding vector(1536), updated_at（只含公开 Dot，转私有时删除）
 dot_video     dot_id, template, accent_color, scenes jsonb(5 个镜头的文字), music, updated_at
-video_render  id, dot_id, aspect(9:16|16:9), status(queued|rendering|done|failed), progress, blob_url, cost_credits, created_at, finished_at
+video_export  id, dot_id, content_version, template, aspect(9:16|16:9), status(started|done|abandoned), blob_url, cost_credits, created_at, finished_at
 ```
 
 chunk 表按 `dot_id` 做 hash 分区（或先只建 `(dot_id, embedding)` 的复合 HNSW 索引，分区留到单表过千万段再做），单 Dot 对话和第二级检索都只碰自己的那一片。
@@ -219,7 +222,7 @@ Dot 的答复率、点赞率、近 30 天被问次数不单独建表，从 messa
 - 模型接入：`lib/infrastructure/ai/llm.ts`、`providers.ts`（新增一个转写 adapter）
 - 支付：`lib/infrastructure/payment/paddle.ts` 的签名校验、下单与 webhook 解析（约 1k 行）；原来按 Call 和工作空间走的额度、结算、分成代码不搬，credit 账本重写
 - 收款资料：`lib/application/revenue/payout-profile.ts` 里 PayPal 邮箱与税务表单类型的校验可搬；KYC 接入与 PayPal Payouts API 调用新写（旧代码里没有）
-- 视频：全部新写。新增依赖 `remotion`、`@remotion/player`、`@remotion/renderer`，**不引入 `@remotion/lambda`，不接任何 Remotion 托管服务**；composition 放在 `video/` 目录，渲染函数放在 `render/` 目录并带自己的 Dockerfile（Node + Chromium）。实现时按 Remotion 官方 Agent Skills 做（仓库 `remotion-dev/skills`，与 Neon 的 skill 一样用 `npx skills add remotion-dev/skills` 装进 `.agents/skills/`，记入 `skills-lock.json`）：`remotion-markup` 写 composition 与动画，`remotion-render` 定本地 / 服务端导出流程，`remotion-best-practices` 作为总路由。做第 6 步的 session 先装 skill 再动手
+- 视频：全部新写。新增依赖 `remotion`、`@remotion/player`、`@remotion/web-renderer`，**不引入 `@remotion/renderer`、`@remotion/lambda` 或 `@remotion/vercel`，服务端没有任何渲染进程**；composition 放在 `video/` 目录，被 Player 与 web-renderer 共用。实现时按 Remotion 官方 Agent Skills 做（仓库 `remotion-dev/skills`，与 Neon 的 skill 一样用 `npx skills add remotion-dev/skills` 装进 `.agents/skills/`，记入 `skills-lock.json`）：`remotion-markup` 写 composition 与动画，`remotion-render` 里关于客户端渲染的部分定导出流程，`remotion-best-practices` 作为总路由。做第 6 步的 session 先装 skill 再动手。若日后要给不支持 WebCodecs 的浏览器兜底，再加一条 satori + resvg + ffmpeg 的幻灯片式服务端导出，不回到 Chromium
 - 基础设施：Neon + drizzle、Vercel Blob、Tailwind、现有 UI 基础组件（按钮、输入框、布局）
 - 文案：保留中英双语，但 i18n 词条只保留新页面用到的
 
@@ -236,6 +239,6 @@ Dot 的答复率、点赞率、近 30 天被问次数不单独建表，从 messa
 3. **充值**：credit 账本与扣费、Paddle 结账与 webhook（Plan 订阅、Pack 一次性、退款冲回）、`/billing` 页；在此之前只有注册赠送的 credits。
 4. **公开页、发现、多 Dot 对话与收尾**：`/d/[slug]` 公开问答与示例问题、`/explore` 拿问题找 Dot、回答反馈与质量分、查询费与收入 credits、`/chats` 多 Dot 对话与 @ 点名、空状态与错误态、集成测试。
 5. **提现**：KYC 接入与门禁、PayPal 绑定、提现申请与冻结、`/admin/payouts` 审核、Payouts API 与 webhook、税务信息。上线前要先落实上面列的业务前提。
-6. **视频介绍**：Remotion composition 与 3 套模板、脚本生成与编辑、公开页与 explore 卡片在线播放、自建容器渲染函数导出 MP4 与计费。
+6. **视频介绍**：Remotion composition 与 3 套模板、脚本生成与编辑、公开页与 explore 卡片在线播放、浏览器内导出 MP4 与缓存、OG 预览图、计费。
 
 每一步一个 PR 进 `rebuild` 分支。
