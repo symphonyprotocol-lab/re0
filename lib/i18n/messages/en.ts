@@ -61,7 +61,7 @@ export const en: Dictionary = {
       'The re0 platform, every user and every public channel has its own Agent Card. Read the platform card to find channels by topic, then search inside one; you get context with sources, versions and on-chain anchors, and no model is called.',
     agentsCardLabel: 'Platform Agent Card',
     agentsPoints: [
-      'A2A v1.0 over JSON-RPC and HTTP+JSON, with v0.3 clients still accepted',
+      'A2A v1.0 over JSON-RPC and HTTP+JSON; v0.3 clients connect over JSON-RPC',
       'find_channels and search_context work without credentials, under an anonymous rate limit',
       'With an API key, each non-empty result costs your workspace one Call',
     ],
@@ -1422,8 +1422,8 @@ export const en: Dictionary = {
       /** The rights-declaration panel. review-visibility-proposal.md 5.1. */
       materials: {
         title: 'Rights declaration',
-        descriptionPublic: 'A public asset carries a rights declaration, which the platform checks against the content if the asset is reported.',
-        descriptionPrivate: 'A private asset needs no declaration; one made now is what lets it go public later.',
+        descriptionPublic: 'An asset in a public channel carries a rights declaration, which the platform checks against the content if the asset is reported.',
+        descriptionPrivate: 'An asset that is yours alone needs no declaration; putting it in a public channel needs one that allows it, so making it now saves a step.',
         rightsTitle: 'Rights declaration',
         rightsHint: 'Source ownership, licence and how it was written; yours to declare, and what the platform holds you to.',
         rightsEdit: 'Edit declaration',

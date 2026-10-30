@@ -8,9 +8,11 @@
  * | channel  | /a2a/channels/{slug}/agent-card.json        | channels/{slug}   | search_context                  |
  *
  * Every card declares the one A2A server twice, JSON-RPC and HTTP+JSON, at
- * protocol 1.0 with the level's tenant; and once more per binding at 0.3,
+ * protocol 1.0 with the level's tenant; and once more as JSON-RPC at 0.3,
  * the SDK's compatibility mode, where the tenant rides in the URL path
- * because v0.3 clients have no tenant field. Auth is an optional Bearer: the
+ * because v0.3 clients have no tenant field. v0.3 over HTTP+JSON is not
+ * offered: its wire codecs are internal to the SDK's Express router, and
+ * v0.3 clients connect over JSON-RPC. Auth is an optional Bearer: the
  * API key's workspace is the caller, and without one the public skills run
  * under the anonymous rate limit (proposal 7.4). The extended card and the
  * write skills are P2.
@@ -125,7 +127,6 @@ export function buildAgentCard(facts: CardFacts): AgentCard {
       { url: endpoint, protocolBinding: 'JSONRPC', tenant: tenant.key, protocolVersion: A2A_PROTOCOL_VERSION },
       { url: endpoint, protocolBinding: 'HTTP+JSON', tenant: tenant.key, protocolVersion: A2A_PROTOCOL_VERSION },
       { url: legacyEndpoint, protocolBinding: 'JSONRPC', tenant: '', protocolVersion: A2A_LEGACY_VERSION },
-      { url: legacyEndpoint, protocolBinding: 'HTTP+JSON', tenant: '', protocolVersion: A2A_LEGACY_VERSION },
     ],
     provider: { organization: 're0', url: origin },
     version: AGENT_CARD_VERSION,

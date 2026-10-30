@@ -231,7 +231,7 @@ describe('A2A tenants', () => {
 describe('Agent Cards (proposal 7.1-7.3)', () => {
   const origin = 'https://re0.io';
 
-  it('come from one generator, with the level’s tenant on both 1.0 bindings and the path on the 0.3 ones', () => {
+  it('come from one generator, with the level’s tenant on both 1.0 bindings and the path on the 0.3 one', () => {
     const card = agentCardJson(buildAgentCard({ origin, tenant: CHANNEL })) as {
       supportedInterfaces: { url: string; protocolBinding: string; tenant?: string; protocolVersion: string }[];
       skills: { id: string }[];
@@ -243,7 +243,6 @@ describe('Agent Cards (proposal 7.1-7.3)', () => {
       { url: 'https://re0.io/a2a', protocolBinding: 'JSONRPC', tenant: 'channels/rust-notes', protocolVersion: '1.0' },
       { url: 'https://re0.io/a2a', protocolBinding: 'HTTP+JSON', tenant: 'channels/rust-notes', protocolVersion: '1.0' },
       { url: 'https://re0.io/a2a/channels/rust-notes', protocolBinding: 'JSONRPC', protocolVersion: '0.3' },
-      { url: 'https://re0.io/a2a/channels/rust-notes', protocolBinding: 'HTTP+JSON', protocolVersion: '0.3' },
     ]);
     expect(card.skills.map((skill) => skill.id)).toEqual(['search_context']);
     expect(card.capabilities.pushNotifications).toBe(false);

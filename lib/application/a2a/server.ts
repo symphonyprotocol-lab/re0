@@ -2,8 +2,9 @@
  * The A2A server, framework-free (agent-first-proposal.md 7.3, 7.8).
  *
  * Bindings: JSON-RPC and HTTP+JSON at protocol 1.0, and the SDK's v0.3
- * compatibility mode for both, so clients that have not moved to 1.0 still
- * connect. JSON-RPC goes through the SDK's `JsonRpcTransportHandler` (or its
+ * compatibility mode on JSON-RPC, so clients that have not moved to 1.0
+ * still connect. (v0.3 over HTTP+JSON needs the v0.3 proto codecs, which
+ * the SDK keeps inside its Express router.) JSON-RPC goes through the SDK's `JsonRpcTransportHandler` (or its
  * legacy twin, chosen by the method name the client used); HTTP+JSON maps the
  * path onto the same request handler with the SDK's own codecs and error
  * bodies, which is what its Express router does -- only without Express.
@@ -32,7 +33,7 @@ import {
   type ServerCallContext,
 } from '@a2a-js/sdk/server';
 import { isLegacyJsonRpcMethod } from '@a2a-js/sdk/compat/v0_3';
-import { LegacyJsonRpcTransportHandler, LegacyRestTransportHandler } from '@a2a-js/sdk/compat/v0_3/server';
+import { LegacyJsonRpcTransportHandler } from '@a2a-js/sdk/compat/v0_3/server';
 import {
   PushNotificationNotSupportedError,
   RequestMalformedError,
@@ -195,17 +196,13 @@ async function handleRest(input: A2ARequest): Promise<A2AResponse> {
   const handler = requestHandlerFor(input);
   const tenant = context.tenant ?? '';
   const restError = (error: unknown): A2AResponse => {
-    if (legacy) {
-      const body = LegacyRestTransportHandler.mapToLegacyHTTPError(error);
-      return { kind: 'json', status: restStatusFor(error), body };
-    }
     const status = restStatusFor(error);
     return { kind: 'json', status, body: toRestErrorBody(error, status) };
   };
   const stream = (events: AsyncGenerator<unknown, void, undefined>): A2AResponse => ({
     kind: 'sse',
     events,
-    errorEvent: (error) => (legacy ? LegacyRestTransportHandler.mapToLegacyHTTPError(error) : toRestErrorBody(error, restStatusFor(error))),
+    errorEvent: (error) => toRestErrorBody(error, restStatusFor(error)),
   });
 
   try {
@@ -213,27 +210,8 @@ async function handleRest(input: A2ARequest): Promise<A2AResponse> {
     const [head, second] = path;
     const taskOp = second ? /^(.+?)(?::(cancel|subscribe))?$/.exec(second) : null;
 
-    if (legacy) {
-      const compat = new LegacyRestTransportHandler(handler);
-      if (input.method === 'GET' && head === 'card' && path.length === 1) {
-        return { kind: 'json', status: 200, body: await compat.getAuthenticatedExtendedAgentCard(context) };
-      }
-      if (input.method === 'POST' && head === 'message:send' && path.length === 1) {
-        return { kind: 'json', status: 200, body: await compat.sendMessage(input.body as never, context) };
-      }
-      if (input.method === 'POST' && head === 'message:stream' && path.length === 1) {
-        return stream((await compat.sendMessageStream(input.body as never, context)) as AsyncGenerator<unknown, void, undefined>);
-      }
-      if (head === 'tasks' && taskOp && path.length === 2) {
-        const [, taskId, op] = taskOp;
-        if (op === 'cancel' && input.method === 'POST') return { kind: 'json', status: 200, body: await compat.cancelTask(taskId!, context) };
-        if (op === 'subscribe') return stream((await compat.resubscribe(taskId!, context)) as AsyncGenerator<unknown, void, undefined>);
-        if (!op && input.method === 'GET') {
-          return { kind: 'json', status: 200, body: await compat.getTask(taskId!, context, input.search.get('historyLength') ?? input.search.get('history_length') ?? undefined) };
-        }
-      }
-      return { kind: 'json', status: 404, body: { code: -32601, message: 'Method not found' } };
-    }
+    /* v0.3 over HTTP+JSON is not offered (card.ts); its paths answer as missing. */
+    if (legacy) return { kind: 'json', status: 404, body: { code: -32601, message: 'v0.3 is offered over JSON-RPC only' } };
 
     if (input.method === 'GET' && head === 'extendedAgentCard' && path.length === 1) {
       return { kind: 'json', status: 200, body: AgentCard.toJSON(await handler.getAuthenticatedExtendedAgentCard({ tenant }, context)) };

@@ -342,7 +342,7 @@ describeWithDb('P1: channels, visibility and A2A', () => {
     };
     expect(legacy.url).toBe(`https://app.example.test/a2a/channels/${publicSlug}`);
     expect(legacy.protocolVersion).toBe('0.3');
-    expect(legacy.supportedInterfaces.length).toBe(4);
+    expect(legacy.supportedInterfaces.length).toBe(3);
 
     const { entries } = await channels.listChannelDirectory({ sort: 'recent', limit: 100 });
     const slugs = entries.map((entry) => entry.slug);

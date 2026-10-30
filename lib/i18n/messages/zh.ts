@@ -59,7 +59,7 @@ export const zh = {
       're0 平台、每位用户、每个公开频道都有自己的 Agent Card。读取平台卡即可按主题找到频道，再在频道里检索；返回的是带出处、版本与链上存证的上下文，不调用模型。',
     agentsCardLabel: '平台 Agent Card',
     agentsPoints: [
-      'A2A v1.0，JSON-RPC 与 HTTP+JSON 两种绑定，兼容 v0.3 客户端',
+      'A2A v1.0，JSON-RPC 与 HTTP+JSON 两种绑定；v0.3 客户端可经 JSON-RPC 接入',
       '不带凭证即可调用 find_channels 与 search_context，受匿名限流',
       '带 API Key 调用时，返回非空结果计你的工作空间 1 Call',
     ],
@@ -1383,8 +1383,8 @@ export const zh = {
       /** 权利声明面板。review-visibility-proposal.md 5.1。 */
       materials: {
         title: '权利声明',
-        descriptionPublic: '公开资产带有权利声明，被举报时平台据此核对内容。',
-        descriptionPrivate: '私有资产不需要声明；现在填好，之后改为公开时即可直接生效。',
+        descriptionPublic: '公开频道里的资产带有权利声明，被举报时平台据此核对内容。',
+        descriptionPrivate: '只有你能用的资产不需要声明；放进公开频道前需要一份允许公开的声明，现在填好即可。',
         rightsTitle: '权利声明',
         rightsHint: '来源归属、许可与撰写方式；由你声明，平台据此追责。',
         rightsEdit: '修改声明',
