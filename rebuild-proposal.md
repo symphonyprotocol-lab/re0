@@ -67,13 +67,14 @@ Dot 主收到的查询费是「收入 credits」：不过期，可用于自己�
 | --- | --- |
 | 可提现范围 | 只有收入 credits；Plan、Pack、赠送的 credits 不能提 |
 | 门槛 | 累计收入 credits 折合 **≥ 50 美元**（500,000 credits）才能发起，按 1 credit = 0.0001 美元折算 |
-| 前置：KYC | **首次提现前必须通过 KYC**。走第三方托管验证（Stripe Identity 或 Persona 一类，证件 + 人脸，平台不保存证件原件），结果经 webhook 写入 `kyc_record`；同一步填写税务信息（W-9 / W-8BEN 类型与已提交声明）。未通过 KYC 的用户在 `/billing` 看得到收入余额，但提现按钮替换成「完成身份验证」 |
-| 渠道 | **PayPal**：用户在 `/billing` 绑定 PayPal 收款邮箱，平台用 PayPal Payouts API 打款，美元结算；PayPal 邮箱须在 KYC 通过后绑定或更换，更换后 7 天内不能提现（防盗号） |
-| 流程 | KYC 通过 → 用户发起 → 对应 credits 立即冻结 → 平台审核（管理后台的提现审核页，显示 KYC 结果与税务信息状态，人工点批准或驳回）→ 批准后调 Payouts API → PayPal webhook 回报成功记为已付，失败则解冻退回 |
-| 手续费 | PayPal 手续费由提现人承担，从打款金额中扣除（默认值，可改） |
+| 前置：KYC | **首次提现前必须通过 KYC，由我们人工审核**（没有第三方验证服务商）。用户在 `/billing` 提交：法定姓名、国家、证件类型、证件照片、手持证件自拍，同一步填写税务信息（W-9 / W-8BEN 类型与已提交声明）。照片直传**私有** Blob，只有管理员能通过短时签名 URL 查看，每次查看记审计。管理员在后台「KYC 记录」页比对姓名与证件，通过或拒绝（必填原因）。通过后 30 天自动删除原图，只留证件类型、号码后四位、有效期、审核人与时间。未通过 KYC 的用户在 `/billing` 看得到收入余额，但提现按钮替换成「完成身份验证」 |
+| 收款方式 | 用户填写 **PayPal 个人账户邮箱**（KYC 通过后才能填或改，改后 7 天内不能提现，防盗号）。**不接任何打款 API**：我们目前没有 PayPal Business account，Payouts API 和 Log in with PayPal 都用不了，打款由管理员在系统外操作 |
+| 流程 | KYC 通过 → 用户发起 → 对应 credits 立即冻结 → 管理员在「提现审核」页批准或驳回 → 批准后管理员用 PayPal 向该邮箱转账 → 回到后台「标记已打款」，填 PayPal 转账 ID 与实付金额，冻结的 credits 记为已付；转账失败或被退回则「标记失败」，解冻退回用户 |
+| 手续费 | PayPal 手续费由提现人承担：实付金额由管理员按实际填写，申请金额与实付的差额记为手续费 |
 | 频率 | 同一用户同时只能有一笔进行中的提现 |
+| 规模 | 人工流程只能支撑小量提现。日后拿到 Business account，把「标记已打款」换成调 Payouts API、由 webhook 写回状态即可，`payout` 表不变；接入第三方 KYC 时 `kyc_record.provider` 多一个取值，历史记录不作废 |
 
-有了向用户付款的环节，原来频道结算要补的业务前提就回来了：KYC 服务商的选型与合同、创作者税务信息（W-8 / W-9）、按年申报义务、对 Dot 主「出售查询服务」的合规口径。这些在第 5 步上线提现前要落实；代码先把 KYC 状态、税务信息字段和「未通过不能提现」的门禁做出来。
+有了向用户付款的环节，原来频道结算要补的业务前提就回来了，而且人工 KYC 把证件数据放到了我们手上：隐私政策里要写明证件的用途、保留期与删除规则，访问要有审计；创作者税务信息（W-8 / W-9）与按年申报义务；用非 Business 账户向用户付款的资金性质与税务定性要和会计确认；对 Dot 主「出售查询服务」的合规口径。申请 PayPal Business account 这件事应尽早启动，它是从人工打款切到自动打款的唯一前提。这些在第 5 步上线提现前要落实；代码先把 KYC 状态、税务信息字段和「未通过不能提现」的门禁做出来。
 
 **公开页提问必须登录**：谁提问谁付费，匿名访客看得到 Dot 和价格，点提问时要求登录。余额不足时拒绝并引导到充值页，不透支。
 
@@ -108,11 +109,11 @@ Dot 主收到的查询费是「收入 credits」：不过期，可用于自己�
 | 概览 | 用户数、Dot 数、知识条数、近 30 天提问数与收入 credits、各模型本月调用次数与估算成本 |
 | **模型** | 三类模型各一张卡：**生成**、**向量化**、**转写**。每类可以配多条（接入方式：AI Gateway 或 OpenAI 兼容端点；base URL；模型名；API key 加密存储、只显示尾号；超时），每类**有且只有一条启用**，有「测试连通」按钮真发一次请求。生成模型与转写模型随时可切，下一次请求即生效。**向量化模型切换要走重算**：切换时后台创建一个「全量重向量化」任务，按知识逐条重算并显示进度，完成前新旧两套向量并存、检索仍用旧的，完成后一次切换；任务跑着时不能再切 |
 | 用户 | 列表与搜索；停用 / 恢复；用户详情页汇总该用户的一切：余额（Plan / Pack / 收入三栏）、credit 流水、**KYC 记录**、充值记录、订阅状态、提现记录、名下 Dot；**手动调整 credits**（赠送或扣回，必填原因） |
-| **KYC 记录** | 全部用户的 KYC 列表：状态（未开始 / 进行中 / 通过 / 拒绝）、服务商会话号、提交与结果时间、拒绝原因、税务表单类型与提交声明；可按状态筛选；可对异常记录「要求重新验证」（置回未开始并通知用户）。证件原件不在平台，页面只给服务商后台的跳转链接 |
+| **KYC 记录** | 全部 KYC 提交的列表：状态（待审核 / 通过 / 拒绝 / 已重置）、法定姓名、国家、证件类型、提交时间、审核人与时间、拒绝原因、税务表单类型与提交声明；可按状态筛选。待审核的进审核视图：通过短时签名 URL 查看证件照与自拍（每次查看写审计），对照用户填写的姓名，通过或拒绝（必填原因）。可对任何记录「要求重新验证」（新增一条待提交记录并通知用户）。通过 30 天后原图自动删除，页面显示「原图已删除」 |
 | **充值记录** | Plan 与 Pack 的所有交易：用户、类型、金额、credits、Paddle 交易号、状态（已付 / 退款 / 拒付）、时间；订阅视图列出每个 Plan 的当前周期、续费与取消；可导出 CSV；退款在 Paddle 后台操作，这里只读并显示 webhook 冲回结果 |
-| **提现记录** | 所有提现的完整列表（不只待审核）：用户、金额、手续费、PayPal 邮箱、状态、审核人、PayPal 批次号、时间；按状态与时间筛选；可导出 CSV |
+| **提现记录** | 所有提现的完整列表（不只待处理）：用户、申请金额、实付金额、手续费、PayPal 邮箱、状态、审核人、打款人、PayPal 转账 ID、时间；按状态与时间筛选；可导出 CSV |
 | Dots | 列表与搜索；把公开 Dot 下架（转私有并通知 Dot 主）或恢复 |
-| 提现审核 | 第 2.3 节的审核页：只看待审核的，批准或驳回；审完进入「提现记录」 |
+| 提现审核 | 第 2.3 节的处理页：只看待审核与待打款的。待审核：显示该用户的 KYC 结果与税务信息状态，批准或驳回；待打款：显示收款邮箱与金额，管理员在 PayPal 转账后点「标记已打款」填转账 ID 与实付金额，或「标记失败」解冻退回。处理完进入「提现记录」 |
 | 审计 | 管理员所有操作的只读流水：谁、何时、改了什么 |
 
 没有后台配置的套餐价格、credit 单价、Plan / Pack 规则：这些是代码常量，改了走发布。模型没在后台配置时回退到环境变量，保证第一次部署能跑。
@@ -160,7 +161,7 @@ Dot 主可以为自己的 Dot 生成一段**固定 15 秒**的动画介绍，用
 | `/chats` | 我的对话列表 + 新建对话 |
 | `/chats/[id]` | 多 Dot 对话：右侧参与者栏列出已拉进的 Dot（自己的和别人公开的都能拉），可增删；输入框支持 `@Dot名` 只问某一个；发送前显示本次要花的 credits |
 | `/settings` | 连接 GitHub 账号；我的域名列表与确权向导 |
-| `/billing` | 余额（分 Plan / Pack / 收入三栏）、订阅 Plan、购买 Pack、消费与收入明细；绑定 PayPal 邮箱、发起提现、提现记录 |
+| `/billing` | 余额（分 Plan / Pack / 收入三栏）、订阅 Plan、购买 Pack、消费与收入明细；提交 KYC 资料、填写 PayPal 收款邮箱、发起提现、提现记录 |
 | `/admin/*` | 管理后台九页（第 2.5 节）：概览、模型、用户、KYC 记录、充值记录、提现审核、提现记录、Dots、审计；独立的管理员登录 |
 | `/d/[slug]` | 公开问答页：Dot 开启公开后任何人可见，显示每次提问的价格；提问需登录并用自己的 credits 付费 |
 
@@ -175,20 +176,21 @@ Dot 主可以为自己的 Dot 生成一段**固定 15 秒**的动画介绍，用
 | `POST /api/domains` / `POST /api/domains/[id]/verify` | 添加域名、发起并校验确权 |
 | `POST /api/billing/checkout` | 创建 Paddle 结账（plan 或 pack），返回结账链接；pack 要求当前有有效 Plan 订阅 |
 | `POST /api/billing/paddle` | Paddle webhook：到账发 credits、续费发当期 credits、退款与拒付冲回 |
-| `POST /api/billing/kyc/start` | 创建 KYC 验证会话，返回服务商托管页链接 |
-| `POST /api/billing/kyc-webhook` | KYC 服务商 webhook：写入通过 / 拒绝 |
-| `PUT /api/billing/paypal` | 绑定或更换 PayPal 收款邮箱（需 KYC 已通过） |
+| `POST /api/billing/kyc` | 提交 KYC 资料：证件照与自拍先直传私有 Blob，再提交姓名、国家、证件类型、文件引用与税务表单声明，建一条待审核记录 |
+| `PUT /api/billing/paypal` | 填写或更换 PayPal 收款邮箱（需 KYC 已通过） |
 | `POST /api/billing/payouts` | 发起提现：校验门槛、冻结 credits、建 pending 记录 |
-| `POST /api/admin/payouts/[id]/approve` / `reject` | 管理员审核；批准即调 PayPal Payouts API |
+| `POST /api/admin/payouts/[id]/approve` / `reject` | 管理员审核：批准进入待打款，驳回解冻 |
+| `POST /api/admin/payouts/[id]/paid` / `failed` | 标记已打款（PayPal 转账 ID、实付金额）或标记失败（解冻退回） |
 | `POST /api/admin/auth/login` | 管理员登录：密码 + TOTP |
 | `GET` / `PUT /api/admin/models` | 读取与修改三类模型配置；`POST /api/admin/models/[id]/probe` 测试连通 |
 | `POST /api/admin/models/reembed` | 切换向量化模型：创建全量重算任务；`GET` 看进度 |
 | `POST /api/admin/users/[id]/credits` | 手动调整 credits，带原因 |
 | `POST /api/admin/dots/[id]/takedown` / `restore` | 下架 / 恢复公开 Dot |
-| `GET /api/admin/kyc` / `POST /api/admin/kyc/[userId]/reset` | KYC 记录列表；要求重新验证 |
+| `GET /api/admin/kyc` | KYC 记录列表，支持按状态筛选 |
+| `GET /api/admin/kyc/[id]/files` | 返回证件照与自拍的短时签名 URL，每次调用写审计 |
+| `POST /api/admin/kyc/[id]/approve` / `reject` / `reset` | 人工审核通过、拒绝（必填原因）、要求重新验证 |
 | `GET /api/admin/purchases` / `GET /api/admin/subscriptions` | 充值与订阅记录，支持 `?format=csv` |
 | `GET /api/admin/payouts` | 全部提现记录，支持筛选与 `?format=csv` |
-| `POST /api/billing/paypal-webhook` | PayPal webhook：打款成功记已付，失败解冻 |
 | `DELETE /api/dots/[id]/knowledge/[kid]` | 删除知识及其切块 |
 | `GET /api/explore?q=` | 两级检索：先在 Dot 画像里取前 20 个 Dot，再在它们的切块里取前 50 段，聚合排序后返回 Dot 卡片数据；不收费，限频 |
 | `POST /api/messages/[id]/feedback` | 对一条 Dot 回答点「有用 / 没用」 |
@@ -217,12 +219,12 @@ credit_grant  id, user_id, source(welcome|plan|pack|earned), amount, remaining, 
 credit_entry  id, user_id, delta, reason(knowledge|query_base|query_fee_paid|query_fee_earned|purchase|refund|expire|payout_hold|payout_release|payout_paid|admin_adjust), ref_id, note, created_at
 purchase      id, user_id, kind(plan|pack), paddle_transaction_id, status, amount_minor, credits, created_at
 subscription  id, user_id, paddle_subscription_id, status, current_period_start, current_period_end
-payout        id, user_id, credits, amount_minor, fee_minor, paypal_email, status(pending|approved|paid|failed|rejected), paypal_batch_id, reviewed_by, created_at, paid_at
+payout        id, user_id, credits, amount_minor, paid_amount_minor, fee_minor, paypal_email, status(pending|approved|paid|failed|rejected), paypal_transaction_id, reviewed_by, reviewed_at, paid_by, paid_at, note, created_at（人工打款：approved 后由管理员标记 paid / failed；日后接 Payouts API 时同一张表由 webhook 写）
 dot_feedback  message_id, user_id, vote(up|down), created_at
 dot_profile_vector  id, dot_id, kind(profile|sample_question|centroid), embedding vector(1536), updated_at（只含公开 Dot，转私有时删除）
 dot_video     dot_id, template, accent_color, scenes jsonb(4 个镜头的文字), music, updated_at
 video_export  id, dot_id, content_version, template, aspect(9:16|16:9), status(started|done|abandoned), blob_url, cost_credits, created_at, finished_at
-kyc_record    id, user_id, provider, provider_session_id, status(pending|verified|rejected|reset), rejected_reason, tax_form_kind, tax_form_declared_at, submitted_at, decided_at（一个用户可有多条，最新一条为当前状态；重新验证即新增一条）
+kyc_record    id, user_id, provider(manual，留枚举给日后的第三方), status(pending|verified|rejected|reset), legal_name, country, document_kind, document_last4, document_expires_on, document_blob, selfie_blob, files_deleted_at, rejected_reason, tax_form_kind, tax_form_declared_at, submitted_at, decided_by, decided_at（一个用户可有多条，最新一条为当前状态；重新验证即新增一条；document_blob / selfie_blob 指向私有 Blob，通过 30 天后删除并记 files_deleted_at）
 administrator  id, email, password_hash, totp_secret_cipher, created_by, created_at
 admin_session  id, administrator_id, expires_at
 model_config  id, kind(generation|embedding|transcription), transport(gateway|openai_compatible), base_url, model, api_key_cipher, timeout_ms, enabled, updated_by, updated_at
@@ -263,7 +265,7 @@ Dot 的答复率、点赞率、近 30 天被问次数不单独建表，从 messa
 - 排序：`lib/application/retrieval/rank.ts`
 - 模型接入：`lib/infrastructure/ai/llm.ts`、`providers.ts`（新增一个转写 adapter）
 - 支付：`lib/infrastructure/payment/paddle.ts` 的签名校验、下单与 webhook 解析（约 1k 行）；原来按 Call 和工作空间走的额度、结算、分成代码不搬，credit 账本重写
-- 收款资料：`lib/application/revenue/payout-profile.ts` 里 PayPal 邮箱与税务表单类型的校验可搬；KYC 接入与 PayPal Payouts API 调用新写（旧代码里没有）
+- 收款资料：`lib/application/revenue/payout-profile.ts` 里 PayPal 邮箱与税务表单类型的校验可搬；人工 KYC 的提交、私有文件签名 URL 与到期删除、提现的人工打款标记新写（旧代码里没有）；**不接 PayPal 的任何 API**
 - 视频：全部新写。新增依赖 `remotion`、`@remotion/player`、`@remotion/web-renderer`，**不引入 `@remotion/renderer`、`@remotion/lambda` 或 `@remotion/vercel`，服务端没有任何渲染进程**；composition 放在 `video/` 目录，被 Player 与 web-renderer 共用。实现时按 Remotion 官方 Agent Skills 做（仓库 `remotion-dev/skills`，与 Neon 的 skill 一样用 `npx skills add remotion-dev/skills` 装进 `.agents/skills/`，记入 `skills-lock.json`）：`remotion-markup` 写 composition 与动画，`remotion-render` 里关于客户端渲染的部分定导出流程，`remotion-best-practices` 作为总路由。做第 6 步的 session 先装 skill 再动手。若日后要给不支持 WebCodecs 的浏览器兜底，再加一条 satori + resvg + ffmpeg 的幻灯片式服务端导出，不回到 Chromium
 - 基础设施：Neon + drizzle、Vercel Blob、Tailwind、现有 UI 基础组件（按钮、输入框、布局）
 - 文案：保留中英双语，但 i18n 词条只保留新页面用到的
@@ -297,7 +299,7 @@ Dot 的答复率、点赞率、近 30 天被问次数不单独建表，从 messa
 2. **其余知识类型**：GitHub 公开仓库、GitHub 绑定与私有仓库、单个网页、域名确权与整站抓取、音频转写（含时间戳引用）、删除与重新处理。
 3. **充值**：credit 账本与扣费、Paddle 结账与 webhook（Plan 订阅、Pack 一次性、退款冲回）、`/billing` 页；在此之前只有注册赠送的 credits。
 4. **公开页、发现、多 Dot 对话与后台**：后台的概览、用户、充值记录、Dots、审计五页与向量化模型重算任务；`/d/[slug]` 公开问答与示例问题、`/explore` 拿问题找 Dot、回答反馈与质量分、查询费与收入 credits、`/chats` 多 Dot 对话与 @ 点名、空状态与错误态、集成测试。
-5. **提现**：KYC 接入与门禁、PayPal 绑定、提现申请与冻结、后台的 KYC 记录、提现审核与提现记录三页、Payouts API 与 webhook、税务信息。上线前要先落实上面列的业务前提。
+5. **提现（人工）**：KYC 资料提交与门禁、证件文件的私有存储、签名 URL 与 30 天删除任务、PayPal 收款邮箱、提现申请与冻结、后台的 KYC 记录、提现审核（含标记已打款 / 失败）与提现记录三页、税务信息。不接 PayPal API；拿到 Business account 后再把「标记已打款」换成 Payouts API 调用。上线前要先落实上面列的业务前提。
 6. **视频介绍**：Remotion composition 与 3 套模板、脚本生成与编辑、公开页与 explore 卡片在线播放、浏览器内导出 MP4 与缓存、OG 预览图、计费。
 
 每一步一个 PR 进 `rebuild` 分支。
