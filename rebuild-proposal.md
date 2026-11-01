@@ -16,7 +16,7 @@
 | 知识 | 挂在某个 Ree 下的一条来源，六种：文档（PDF / Word / Markdown / TXT）、音频（MP3 / M4A / WAV，自动转写成文字）、GitHub 仓库、单个网页、整站、粘贴文本 | 添加、重新抓取、删除；看到处理状态 |
 | 对话 | 用户和一个或多个 Ree 的一次问答，答案带引用（来自哪个 Ree 的哪条知识、哪一段） | 提问、追问、新开对话、把 Ree 拉进或移出对话、@ 某个 Ree 单独问、看历史 |
 
-不做：频道、链上、A2A、Agent Card、分享页插件、评论、通知、CLI / SDK / MCP、Notion 连接器（第二阶段再考虑）、视频类知识。管理后台保留但只有第 2.5 节的九页。认领只保留第 2.2 节的两种：网站域名确权、私有仓库授权；不再有频道级认领、认领审核和公开目录。计费只有第 2.3 节的 credit 一种：没有 Call、没有工作空间套餐、没有发布者现金分成与结算单。
+不做：频道、链上、A2A、Agent Card、分享页插件、评论、通知、CLI / SDK / MCP、Notion 连接器（第二阶段再考虑）、视频类知识。管理后台保留但只有第 2.5 节的十页。认领只保留第 2.2 节的两种：网站域名确权、私有仓库授权；不再有频道级认领、认领审核和公开目录。计费只有第 2.3 节的 credit 一种：没有 Call、没有工作空间套餐、没有发布者现金分成与结算单。
 
 ### 2.1 六种知识怎么变成可检索的文字
 
@@ -85,7 +85,7 @@ Ree 主收到的查询费是「收入 credits」：不过期，可用于自己�
 1. **第一级，先找 Ree**：每个公开 Ree 有一份「知识画像」，是一小组向量（见下），全平台所有公开 Ree 的画像向量放在一张 `ree_profile_vector` 表里，一次 HNSW 检索取相似度最高的前 20 个 Ree。这张表的规模是 Ree 数 × 每个 Ree 十几条，一万个公开 Ree 也只有十几万条向量，毫秒级；
 2. **第二级，只在这 20 个 Ree 里找段落**：按 `ree_id IN (...)` 过滤后在 chunk 表检索前 50 段，chunk 表按 `ree_id` 建分区或复合索引，命中范围只是这 20 个 Ree 的切块，与平台总量无关；
 3. 按 Ree 聚合：每个 Ree 取最高相似度，乘以质量分（近 30 天答复率、点赞率、被拉进对话次数），排出前 10 个 Ree；
-4. 每个结果卡片显示：Ree 名与简介、**命中的那段知识的摘录**（让用户一眼看出它是不是真知道）、知识来源列表（标题和类型，不显示正文）、每次提问价格、近 30 天答复数与点赞率；
+4. 每个结果卡片显示：Ree 名与简介、Ree 主的角色标识（认证 / 官方，见 2.7 节）、**命中的那段知识的摘录**（让用户一眼看出它是不是真知道）、知识来源列表（标题和类型，不显示正文）、每次提问价格、近 30 天答复数与点赞率；相关性相同的结果，官方、认证的 Ree 排在普通的前面，角色不改变相关性本身的排序；
 5. 卡片上两个按钮：「问它」进入该 Ree 的公开页并把问题带过去；「拉进对话」加到当前或新建的多 Ree 对话里，可以一次勾选几个。
 
 **知识画像怎么来**：每个 Ree 处理完一条知识后重算，最多 16 条向量：Ree 简介与标签 1 条、系统生成的示例问题 3 条、其余是该 Ree 所有 chunk 向量做 k-means 后的质心（切块少于 12 条时直接用切块本身）。质心代表「这个 Ree 大概知道哪几块」，一个 Ree 的知识无论 100 段还是 10 万段，画像都只有 16 条。画像在知识处理的最后一步算，不额外收费。
@@ -102,13 +102,14 @@ Ree 主收到的查询费是「收入 credits」：不过期，可用于自己�
 
 ### 2.5 管理后台
 
-独立入口 `/admin`，和用户登录完全分开：管理员用密码加 TOTP 登录（旧后台的这套直接搬），空安装时第一个访问 `/admin/login` 的人注册为管理员，之后只能由已有管理员添加。九个页面：
+独立入口 `/admin`，和用户登录完全分开：管理员用密码加 TOTP 登录（旧后台的这套直接搬），空安装时第一个访问 `/admin/login` 的人注册为管理员，之后只能由已有管理员添加。十个页面：
 
 | 页面 | 内容 |
 | --- | --- |
 | 概览 | 用户数、Ree 数、知识条数、近 30 天提问数与收入 credits、各模型本月调用次数与估算成本 |
 | **模型** | 三类模型各一张卡：**生成**、**向量化**、**转写**。每类可以配多条（接入方式：AI Gateway 或 OpenAI 兼容端点；base URL；模型名；API key 加密存储、只显示尾号；超时），每类**有且只有一条启用**，有「测试连通」按钮真发一次请求。生成模型与转写模型随时可切，下一次请求即生效。**向量化模型切换要走重算**：切换时后台创建一个「全量重向量化」任务，按知识逐条重算并显示进度，完成前新旧两套向量并存、检索仍用旧的，完成后一次切换；任务跑着时不能再切 |
-| 用户 | 列表与搜索；停用 / 恢复；用户详情页汇总该用户的一切：余额（Plan / Pack / 收入三栏）、credit 流水、**KYC 记录**、充值记录、订阅状态、提现记录、名下 Ree；**手动调整 credits**（赠送或扣回，必填原因） |
+| 用户 | 列表与搜索，可按角色筛选；停用 / 恢复；**设为官方 / 取消官方**、**撤销认证**（必填原因，写审计）；用户详情页汇总该用户的一切：角色与角色变更历史、余额（Plan / Pack / 收入三栏）、credit 流水、**KYC 记录**、充值记录、订阅状态、提现记录、认证申请、名下 Ree；**手动调整 credits**（赠送或扣回，必填原因） |
+| **认证申请** | 待审核的认证申请队列：申请人、申请时间、申请陈述与链接、系统自动算出的门槛指标（公开 Ree 数、知识条数、被提问次数、有用率、注册天数，达标项打勾）、名下公开 Ree 列表直达；批准（用户角色变为认证）或拒绝（必填原因，用户可见）。已处理的可按状态筛选查看 |
 | **KYC 记录** | 全部 KYC 提交的列表：状态（待审核 / 通过 / 拒绝 / 已重置）、法定姓名、国家、证件类型、提交时间、审核人与时间、拒绝原因、税务表单类型与提交声明；可按状态筛选。待审核的进审核视图：通过短时签名 URL 查看证件照与自拍（每次查看写审计），对照用户填写的姓名，通过或拒绝（必填原因）。可对任何记录「要求重新验证」（新增一条待提交记录并通知用户）。通过 30 天后原图自动删除，页面显示「原图已删除」 |
 | **充值记录** | Plan 与 Pack 的所有交易：用户、类型、金额、credits、Paddle 交易号、状态（已付 / 退款 / 拒付）、时间；订阅视图列出每个 Plan 的当前周期、续费与取消；可导出 CSV；退款在 Paddle 后台操作，这里只读并显示 webhook 冲回结果 |
 | **提现记录** | 所有提现的完整列表（不只待处理）：用户、申请金额、实付金额、手续费、PayPal 邮箱、状态、审核人、打款人、PayPal 转账 ID、时间；按状态与时间筛选；可导出 CSV |
@@ -147,6 +148,22 @@ Ree 主可以为自己的 Ree 生成一段**固定 15 秒**的动画介绍，用
 
 处理一律异步：添加后状态为 pending，页面轮询直到 ready 或 failed；失败显示原因并可重试。音频转写和大仓库抓取可能超过几分钟，用一个带 `maxDuration` 的后台函数处理，不引入队列服务。
 
+### 2.7 用户角色
+
+每个用户有一个角色，三选一，默认普通：
+
+| 角色 | 是谁 | 怎么获得 | 怎么失去 |
+| --- | --- | --- | --- |
+| 普通 | 所有用户的默认角色 | 注册即是 | 无 |
+| 认证 | 经平台认证的优质用户 | 用户在 `/settings` 自己申请，达到门槛后才能提交，管理员在后台「认证申请」页批准或拒绝 | 管理员在后台撤销（必填原因），回到普通 |
+| 官方 | 平台自己创建的用户，用来挂平台自营的 Ree | 不能申请，只能由管理员在后台「用户」页直接赋予 | 管理员取消 |
+
+**认证门槛**（代码常量，不在后台配）：注册满 14 天；至少 1 个公开 Ree，其知识处理完成的条数合计 ≥ 5；名下公开 Ree 累计被他人提问 ≥ 100 次；有反馈的回答里「有用」占比 ≥ 80%。未达标时 `/settings` 的申请按钮灰掉并逐项显示差多少。申请时填一段陈述（≤ 500 字）和最多 3 个外部链接（个人主页、GitHub、文章等）。同一用户只能有一笔进行中的申请；被拒后 30 天内不能再申请。
+
+**角色带来什么**：公开页 `/r/[slug]`、explore 结果卡片、对话参与者栏、回答的署名处显示「认证」或「官方」标识；explore 相关性同分时优先。角色不改变计费、credits、查询费和提现规则。官方用户不用走 KYC 门槛也不能提现（平台自己的钱不需要提给自己），它的收入 credits 只在后台统计里看。
+
+角色与 Ree 无关：Ree 没有自己的认证状态，它的标识来自 Ree 主当时的角色；Ree 主被撤销认证，名下所有 Ree 的标识即时消失。
+
 ## 3. 页面与接口
 
 页面（全部在一个 Next.js App Router 应用里）：
@@ -160,10 +177,10 @@ Ree 主可以为自己的 Ree 生成一段**固定 15 秒**的动画介绍，用
 | `/rees/[id]/video` | 视频介绍：生成脚本、逐镜头编辑、选模板与主题色、在线预览（Remotion Player）、浏览器内导出 MP4（进度条）、下载与分享链接 |
 | `/chats` | 我的对话列表 + 新建对话 |
 | `/chats/[id]` | 多 Ree 对话：右侧参与者栏列出已拉进的 Ree（自己的和别人公开的都能拉），可增删；输入框支持 `@Ree名` 只问某一个；发送前显示本次要花的 credits |
-| `/settings` | 连接 GitHub 账号；我的域名列表与确权向导 |
+| `/settings` | 连接 GitHub 账号；我的域名列表与确权向导；我的角色与**申请认证**（显示门槛达成情况、申请表单、申请状态与拒绝原因） |
 | `/billing` | 余额（分 Plan / Pack / 收入三栏）、订阅 Plan、购买 Pack、消费与收入明细；提交 KYC 资料、填写 PayPal 收款邮箱、发起提现、提现记录 |
-| `/admin/*` | 管理后台九页（第 2.5 节）：概览、模型、用户、KYC 记录、充值记录、提现审核、提现记录、Rees、审计；独立的管理员登录 |
-| `/r/[slug]` | 公开问答页：Ree 开启公开后任何人可见，显示每次提问的价格；提问需登录并用自己的 credits 付费 |
+| `/admin/*` | 管理后台十页（第 2.5 节）：概览、模型、用户、认证申请、KYC 记录、充值记录、提现审核、提现记录、Rees、审计；独立的管理员登录 |
+| `/r/[slug]` | 公开问答页：Ree 开启公开后任何人可见，显示 Ree 主的角色标识与每次提问的价格；提问需登录并用自己的 credits 付费 |
 
 接口（只给自己的前端用，不对外宣传）：
 
@@ -185,6 +202,10 @@ Ree 主可以为自己的 Ree 生成一段**固定 15 秒**的动画介绍，用
 | `GET` / `PUT /api/admin/models` | 读取与修改三类模型配置；`POST /api/admin/models/[id]/probe` 测试连通 |
 | `POST /api/admin/models/reembed` | 切换向量化模型：创建全量重算任务；`GET` 看进度 |
 | `POST /api/admin/users/[id]/credits` | 手动调整 credits，带原因 |
+| `PUT /api/admin/users/[id]/role` | 设为官方、取消官方、撤销认证，带原因，写审计 |
+| `GET /api/account/verification` / `POST` | 读取自己的门槛达成情况与申请状态；提交认证申请（服务端复核门槛） |
+| `GET /api/admin/verifications` | 认证申请列表，支持按状态筛选 |
+| `POST /api/admin/verifications/[id]/approve` / `reject` | 批准（用户角色变为认证）或拒绝（必填原因） |
 | `POST /api/admin/rees/[id]/takedown` / `restore` | 下架 / 恢复公开 Ree |
 | `GET /api/admin/kyc` | KYC 记录列表，支持按状态筛选 |
 | `GET /api/admin/kyc/[id]/files` | 返回证件照与自拍的短时签名 URL，每次调用写审计 |
@@ -202,10 +223,10 @@ Ree 主可以为自己的 Ree 生成一段**固定 15 秒**的动画介绍，用
 | `POST` / `DELETE /api/chats/[id]/rees/[reeId]` | 拉进、移出一个 Ree；只能拉自己的或公开的 |
 | `POST /api/chats/[id]/messages` | 发一个问题，流式返回：每个作答 Ree 一段独立的回答流，事件带 `ree_id`；`/rees/[id]` 里的单 Ree 对话也是走这个接口，只是对话里只有一个 Ree |
 
-## 4. 数据模型（25 张表，取代 86 张）
+## 4. 数据模型（26 张表，取代 86 张）
 
 ```
-user          id, email, name, avatar, disabled_at, paypal_email, paypal_email_changed_at, created_at
+user          id, email, name, avatar, role(normal|verified|official), role_changed_at, disabled_at, paypal_email, paypal_email_changed_at, created_at
 session       id, user_id, expires_at
 ree           id, owner_id, name, slug, description, system_prompt, model, is_public, query_fee, tags text[], sample_questions jsonb, created_at
 knowledge     id, ree_id, kind(document|audio|github|page|site|text), title, source(url、仓库或 blob 路径), status(pending|processing|ready|failed), error, created_at
@@ -229,6 +250,7 @@ administrator  id, email, password_hash, totp_secret_cipher, created_by, created
 admin_session  id, administrator_id, expires_at
 model_config  id, kind(generation|embedding|transcription), transport(gateway|openai_compatible), base_url, model, api_key_cipher, timeout_ms, enabled, updated_by, updated_at
 reembed_job   id, from_model_config_id, to_model_config_id, status(running|done|failed), total, done, started_at, finished_at
+verification_request  id, user_id, statement, links text[], metrics jsonb(提交时的门槛指标快照), status(pending|approved|rejected), rejected_reason, reviewed_by, created_at, decided_at（同一用户同时只有一条 pending；角色变更历史从这张表和 admin_audit 里查）
 admin_audit   id, administrator_id, action, target, before jsonb, after jsonb, created_at
 ```
 
@@ -298,7 +320,7 @@ Ree 的答复率、点赞率、近 30 天被问次数不单独建表，从 messa
 1. **骨架与核心闭环**：登录 → 新建 Ree → 上传 PDF / Word / Markdown 或粘贴文本 → 提问得到带引用的回答。用户侧只有 `/rees` 和 `/rees/[id]` 两个页面，加上管理后台的登录与「模型」页（不含重算任务）；对话表从一开始就是多参与者结构，但界面只做单 Ree；credit 账本从这一步就有，用注册赠送的额度扣费，但还没有充值。
 2. **其余知识类型**：GitHub 公开仓库、GitHub 绑定与私有仓库、单个网页、域名确权与整站抓取、音频转写（含时间戳引用）、删除与重新处理。
 3. **充值**：credit 账本与扣费、Paddle 结账与 webhook（Plan 订阅、Pack 一次性、退款冲回）、`/billing` 页；在此之前只有注册赠送的 credits。
-4. **公开页、发现、多 Ree 对话与后台**：后台的概览、用户、充值记录、Rees、审计五页与向量化模型重算任务；`/r/[slug]` 公开问答与示例问题、`/explore` 拿问题找 Ree、回答反馈与质量分、查询费与收入 credits、`/chats` 多 Ree 对话与 @ 点名、空状态与错误态、集成测试。
+4. **公开页、发现、多 Ree 对话与后台**：后台的概览、用户、认证申请、充值记录、Rees、审计六页与向量化模型重算任务；用户角色（认证申请与门槛计算、后台审批、官方赋权、各处的角色标识）；`/r/[slug]` 公开问答与示例问题、`/explore` 拿问题找 Ree、回答反馈与质量分、查询费与收入 credits、`/chats` 多 Ree 对话与 @ 点名、空状态与错误态、集成测试。
 5. **提现（人工）**：KYC 资料提交与门禁、证件文件的私有存储、签名 URL 与 30 天删除任务、PayPal 收款邮箱、提现申请与冻结、后台的 KYC 记录、提现审核（含标记已打款 / 失败）与提现记录三页、税务信息。不接 PayPal API；拿到 Business account 后再把「标记已打款」换成 Payouts API 调用。上线前要先落实上面列的业务前提。
 6. **视频介绍**：Remotion composition 与 3 套模板、脚本生成与编辑、公开页与 explore 卡片在线播放、浏览器内导出 MP4 与缓存、OG 预览图、计费。
 
