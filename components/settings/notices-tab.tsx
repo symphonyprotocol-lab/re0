@@ -9,8 +9,9 @@ import type { Messages } from '@/i18n';
 import { useI18n } from '@/i18n/client';
 import { fill, formatDateTime, formatNumber } from '@/i18n/format';
 import type { Locale } from '@/i18n/locale';
-import { Icon, Spinner, type IconName } from '@/components/ui/icons';
-import { EmptyState, LinkPager } from '@/components/statistics/shared';
+import { Spinner, type IconName } from '@/components/ui/icons';
+import { LinkPager } from '@/components/statistics/shared';
+import { I } from '@/components/settings/icon';
 
 export interface NoticeItem {
   id: string;
@@ -132,65 +133,69 @@ export function NoticesTab({ items, total, page, size, unread }: { items: Notice
   }, [items]);
 
   return (
-    <div className="flex flex-col gap-4">
-      <div className="flex flex-wrap items-start justify-between gap-3">
+    <section className="card settings-card notices-card">
+      <div className="between">
         <div className="min-w-0">
-          <h2 className="text-[17px] font-bold">{nt.title}</h2>
-          <p className="mt-1 text-[12px] leading-relaxed text-muted">{nt.lede}</p>
+          <h2>{nt.title}</h2>
+          <p className="muted small notices-lede">{nt.lede}</p>
         </div>
         <button
           type="button"
-          className="btn-secondary btn-sm"
+          className="btn secondary sm"
           disabled={busy || (unread === 0 && fresh.size === 0)}
           onClick={() => {
             setFresh(new Set());
             void markAll();
           }}
         >
-          {busy ? <Spinner className="size-3.5" /> : <Icon name="check" className="size-3.5" />}
+          {busy ? <Spinner /> : <I name="check" />}
           {nt.markAll}
         </button>
       </div>
-      <section className="card min-w-0 overflow-hidden">
-        {items.length === 0 ? (
-          <div className="px-4 py-12">
-            <EmptyState icon="info" title={nt.empty} body={nt.emptyBody} />
-          </div>
-        ) : (
-          <ul className="divide-y divide-line">
-            {items.map((item) => {
-              const notice = describe(t, locale, item);
-              const isNew = fresh.has(item.id);
-              return (
-                <li key={item.id} className={`flex gap-3 px-4 py-4 md:px-5 ${isNew ? 'bg-[#f8fbff]' : ''}`}>
-                  <span className="relative mt-0.5 inline-flex size-8 flex-none items-center justify-center rounded-lg bg-soft text-blue">
-                    <Icon name={notice.icon} className="size-4" />
-                    {isNew && (
-                      <span className="absolute -top-0.5 -right-0.5 size-2.5 rounded-full border-2 border-white bg-red">
-                        <span className="sr-only">{nt.unread}</span>
-                      </span>
+      {items.length === 0 ? (
+        <div className="empty notices-empty">
+          <I name="info" />
+          <h3>{nt.empty}</h3>
+          <p>{nt.emptyBody}</p>
+        </div>
+      ) : (
+        <ul className="notice-list">
+          {items.map((item) => {
+            const notice = describe(t, locale, item);
+            const isNew = fresh.has(item.id);
+            return (
+              <li key={item.id} className={`notice-row ${isNew ? 'is-new' : ''}`}>
+                <span className="connection-icon">
+                  <I name={notice.icon} />
+                  {isNew && (
+                    <span className="notice-dot">
+                      <span className="sr-only">{nt.unread}</span>
+                    </span>
+                  )}
+                </span>
+                <div className="s-grow">
+                  <h3>{notice.line}</h3>
+                  {notice.reason && <p className="role-pre">{notice.reason}</p>}
+                  <small>
+                    <time dateTime={item.createdAt}>{formatDateTime(item.createdAt, locale)}</time>
+                    {notice.href && notice.action && (
+                      <Link href={notice.href} className="text-link">
+                        {notice.action}
+                        <I name="arrow" />
+                      </Link>
                     )}
-                  </span>
-                  <div className="min-w-0 flex-1">
-                    <p className={`text-[13px] leading-relaxed break-words ${isNew ? 'font-semibold' : ''}`}>{notice.line}</p>
-                    {notice.reason && <p className="mt-1 text-[12px] leading-relaxed break-words whitespace-pre-wrap text-muted">{notice.reason}</p>}
-                    <div className="mt-1.5 flex flex-wrap items-center gap-x-3 gap-y-1 text-[11px] text-muted">
-                      <time dateTime={item.createdAt}>{formatDateTime(item.createdAt, locale)}</time>
-                      {notice.href && notice.action && (
-                        <Link href={notice.href} className="text-link text-[11px]">
-                          {notice.action}
-                          <Icon name="arrow" className="size-3" />
-                        </Link>
-                      )}
-                    </div>
-                  </div>
-                </li>
-              );
-            })}
-          </ul>
-        )}
-        {total > size && <LinkPager t={t} locale={locale} page={page} size={size} total={total} href={(next) => `/settings?tab=notices&page=${next}`} />}
-      </section>
-    </div>
+                  </small>
+                </div>
+              </li>
+            );
+          })}
+        </ul>
+      )}
+      {total > size && (
+        <div className="notices-pager">
+          <LinkPager t={t} locale={locale} page={page} size={size} total={total} href={(next) => `/settings?tab=notices&page=${next}`} />
+        </div>
+      )}
+    </section>
   );
 }

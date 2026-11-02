@@ -4,7 +4,8 @@ import { useRouter } from 'next/navigation';
 import { useEffect, useState } from 'react';
 import { useI18n } from '@/i18n/client';
 import { fill, formatNumber } from '@/i18n/format';
-import { Icon, Spinner } from '@/components/ui/icons';
+import { Spinner } from '@/components/ui/icons';
+import { I } from '@/components/settings/icon';
 
 const POLL_MS = 2_000;
 const GIVE_UP_MS = 90_000;
@@ -49,14 +50,9 @@ export function ArrivalNotice({ transactionId }: { transactionId: string }) {
   }, [transactionId, router]);
 
   return (
-    <p
-      role="status"
-      className={`flex items-center gap-2.5 rounded-xl border px-4 py-3 text-[13px] ${
-        state.phase === 'done' ? 'border-[#cfe9df] bg-[#effaf5] text-green' : 'border-[#d8e6fb] bg-soft text-blue'
-      }`}
-    >
-      {state.phase === 'pending' ? <Spinner /> : <Icon name={state.phase === 'done' ? 'check' : 'clock'} className="size-4 flex-none" />}
-      {state.phase === 'done' ? fill(a.done, { n: formatNumber(state.credits, locale) }) : state.phase === 'slow' ? a.slow : a.pending}
-    </p>
+    <div role="status" className={`billing-arrival ${state.phase === 'done' ? 'done' : ''}`}>
+      {state.phase === 'pending' ? <Spinner /> : <I name={state.phase === 'done' ? 'check' : 'clock'} />}
+      <span>{state.phase === 'done' ? fill(a.done, { n: formatNumber(state.credits, locale) }) : state.phase === 'slow' ? a.slow : a.pending}</span>
+    </div>
   );
 }

@@ -6,9 +6,10 @@ import { dnsRecordName, wellKnownUrl } from '@/lib/domain/sources';
 import { api } from '@/lib/client/upload';
 import { useI18n } from '@/i18n/client';
 import { fill, formatDateTime } from '@/i18n/format';
-import { Icon, Spinner } from '@/components/ui/icons';
+import { Spinner } from '@/components/ui/icons';
 import { ConfirmModal, Modal } from '@/components/ui/modal';
 import { useToast } from '@/components/ui/toast';
+import { I } from '@/components/settings/icon';
 
 export interface DomainRow {
   id: string;
@@ -100,90 +101,86 @@ export function Connections({
   };
 
   const row = (label: string, value: string) => (
-    <div className="flex min-w-0 flex-col gap-0.5 sm:flex-row sm:gap-3">
-      <dt className="w-24 flex-none text-muted">{label}</dt>
-      <dd className="min-w-0 font-mono break-all text-ink">{value}</dd>
+    <div>
+      <dt>{label}</dt>
+      <dd>{value}</dd>
     </div>
   );
 
   return (
-    <div className="flex flex-col gap-6">
-      <section className="card p-6">
-        <h1 className="text-[17px] font-bold">{c.accounts}</h1>
-        <p className="mt-1 text-[12px] text-muted">{c.accountsBody}</p>
-        <div className="mt-5 flex flex-wrap items-center justify-between gap-3 rounded-xl border border-line p-4">
-          <div className="flex min-w-0 items-center gap-3">
-            <span className="inline-flex size-10 flex-none items-center justify-center rounded-lg bg-wash">
-              <Icon name="github" className="size-5" />
+    <>
+      <section className="card settings-card">
+        <h2>{c.accounts}</h2>
+        <p className="muted">{c.accountsBody}</p>
+        <div className="settings-row">
+          <div className="s-flex min-w-0">
+            <span className="connection-icon">
+              <I name="github" />
             </span>
             <div className="min-w-0">
-              <h2 className="flex items-center gap-2 text-[14px] font-bold">
-                GitHub
-                {github && <span className="tag border-[#cfe8df] bg-[#e9f6f1] text-green">{c.connected}</span>}
-              </h2>
-              <p className="truncate text-[12px] text-muted">{github ? fill(c.githubConnected, { login: github.login }) : c.githubIdle}</p>
+              <h3>
+                GitHub {github && <span className="tag green">{c.connected}</span>}
+              </h3>
+              <p>{github ? fill(c.githubConnected, { login: github.login }) : c.githubIdle}</p>
             </div>
           </div>
           {github ? (
-            <button type="button" className="btn-secondary" onClick={() => setDisconnecting(true)}>
+            <button type="button" className="btn secondary" onClick={() => setDisconnecting(true)}>
               {c.disconnect}
             </button>
           ) : (
             <form method="post" action="/api/auth/github/connect">
               <input type="hidden" name="returnTo" value="/settings?tab=connections" />
-              <button type="submit" className="btn-secondary">
-                <Icon name="github" />
+              <button type="submit" className="btn secondary">
                 {c.connect}
               </button>
             </form>
           )}
         </div>
-        <p className="mt-4 flex gap-2 rounded-lg bg-soft px-3 py-2.5 text-[12px] text-[#3b4361]">
-          <Icon name="shield" className="mt-0.5 size-4 flex-none text-blue" />
-          {c.githubNote}
-        </p>
+        <div className="info-strip mt24">
+          <I name="shield" />
+          <span>{c.githubNote}</span>
+        </div>
       </section>
 
-      <section className="card p-6">
-        <div className="flex flex-wrap items-start justify-between gap-3">
+      <section className="card settings-card">
+        <div className="between">
           <div>
-            <h2 className="text-[17px] font-bold">{c.domains}</h2>
-            <p className="mt-1 text-[12px] text-muted">{c.domainsBody}</p>
+            <h2>{c.domains}</h2>
+            <p className="muted small domains-lede">{c.domainsBody}</p>
           </div>
           <button
             type="button"
-            className="btn-secondary btn-sm"
+            className="btn secondary sm"
             onClick={() => {
               setError('');
               setAdding(true);
             }}
           >
-            <Icon name="plus" className="size-3.5" />
+            <I name="plus" />
             {c.addDomain}
           </button>
         </div>
-        <div className="mt-5 flex flex-col divide-y divide-line">
-          {domains.length === 0 && <p className="text-[12px] text-muted">{c.noDomains}</p>}
+        <div className="mt24">
+          {domains.length === 0 && <p className="small muted">{c.noDomains}</p>}
           {domains.map((domain) => (
-            <div key={domain.id} className="flex flex-wrap items-center justify-between gap-3 py-3">
+            <div key={domain.id} className="domain-row">
               <div className="min-w-0">
-                <h3 className="truncate font-mono text-[13px] font-semibold">{domain.domain}</h3>
-                <small className="text-[11px] text-muted">
+                <h3>{domain.domain}</h3>
+                <small>
                   {domain.method ? c.method[domain.method] : `${c.method.dns_txt} / ${c.method.well_known}`} · {c.shared}
                   {domain.checkedAt && domain.status !== 'verified' && ` · ${fill(c.lastChecked, { time: formatDateTime(domain.checkedAt, locale) })}`}
                 </small>
               </div>
-              <div className="flex items-center gap-2">
-                <span
-                  className={`tag ${domain.status === 'verified' ? 'border-[#cfe8df] bg-[#e9f6f1] text-green' : 'border-[#f3e0c7] bg-[#fdf6ec] text-orange'}`}
-                >
-                  <Icon name={domain.status === 'verified' ? 'check' : 'clock'} className="size-3" />
+              <div className="s-flex flex-none">
+                <span className={`tag ${domain.status === 'verified' ? 'green' : domain.status === 'failed' ? 'red' : 'orange'}`}>
+                  <I name={domain.status === 'verified' ? 'check' : 'clock'} />
                   {c.status[domain.status]}
                 </span>
                 {domain.status !== 'verified' && (
                   <button
                     type="button"
-                    className="btn-secondary btn-sm"
+                    className="btn secondary sm"
                     onClick={() => {
                       setError('');
                       setWizard({ domain, method: domain.method ?? 'dns_txt' });
@@ -192,8 +189,8 @@ export function Connections({
                     {c.continue}
                   </button>
                 )}
-                <button type="button" className="icon-btn" aria-label={c.remove} onClick={() => setRemoving(domain)}>
-                  <Icon name="trash" />
+                <button type="button" className="icon-btn" aria-label={c.remove} title={c.remove} onClick={() => setRemoving(domain)}>
+                  <I name="trash" />
                 </button>
               </div>
             </div>
@@ -238,7 +235,7 @@ export function Connections({
         subtitle={c.wizardSubtitle}
         footer={
           <>
-            <button type="button" className="btn-secondary" onClick={() => setAdding(false)}>
+            <button type="button" className="btn secondary" onClick={() => setAdding(false)}>
               {t.common.actions.cancel}
             </button>
             <button type="submit" form="domain-form" className="btn" disabled={busy}>
@@ -255,13 +252,13 @@ export function Connections({
             void add();
           }}
         >
-          <label>
-            <span className="field-label">{c.domainLabel}</span>
-            <input className="input" value={name} placeholder="docs.example.com" maxLength={253} required autoFocus onChange={(event) => setName(event.target.value)} />
-            <small className="hint">{c.domainHint}</small>
-          </label>
+          <div className="field">
+            <label htmlFor="domain-name">{c.domainLabel}</label>
+            <input id="domain-name" value={name} placeholder="docs.example.com" maxLength={253} required autoFocus onChange={(event) => setName(event.target.value)} />
+            <small>{c.domainHint}</small>
+          </div>
           {error && (
-            <p role="alert" className="mt-3 rounded-lg border border-[#f1d4d4] bg-[#fff3f3] px-3 py-2 text-[12px] text-red">
+            <p role="alert" className="form-error">
               {error}
             </p>
           )}
@@ -275,7 +272,7 @@ export function Connections({
         subtitle={c.wizardSubtitle}
         footer={
           <>
-            <button type="button" className="btn-secondary" onClick={() => setWizard(null)}>
+            <button type="button" className="btn secondary" onClick={() => setWizard(null)}>
               {t.common.actions.cancel}
             </button>
             <button type="button" className="btn" onClick={verify} disabled={busy}>
@@ -286,24 +283,24 @@ export function Connections({
         }
       >
         {wizard && (
-          <div className="flex flex-col gap-4">
-            <p className="font-mono text-[13px] font-semibold break-all">{wizard.domain.domain}</p>
-            <div className="flex rounded-lg border border-line bg-wash p-0.5" role="tablist">
+          <div>
+            <p className="mono small mb16 break-all">{wizard.domain.domain}</p>
+            <div className="radio-tabs" role="tablist">
               {(['dns_txt', 'well_known'] as const).map((method) => (
                 <button
                   key={method}
                   type="button"
                   role="tab"
                   aria-selected={wizard.method === method}
+                  className={wizard.method === method ? 'active' : ''}
                   onClick={() => setWizard({ ...wizard, method })}
-                  className={`flex-1 rounded-md px-3 py-1.5 text-[12px] font-semibold ${wizard.method === method ? 'bg-white text-blue shadow-sm' : 'text-muted'}`}
                 >
                   {c.method[method]}
                 </button>
               ))}
             </div>
-            <p className="text-[12px] text-muted">{wizard.method === 'dns_txt' ? c.dnsHint : c.fileHint}</p>
-            <dl className="flex flex-col gap-2 rounded-lg border border-line bg-[#fbfcff] p-4 text-[12px]">
+            <p className="form-hint mb16">{wizard.method === 'dns_txt' ? c.dnsHint : c.fileHint}</p>
+            <dl className="code-block domain-record">
               {wizard.method === 'dns_txt' ? (
                 <>
                   {row(c.host, dnsRecordName(wizard.domain.domain))}
@@ -317,22 +314,22 @@ export function Connections({
                 </>
               )}
             </dl>
-            <button type="button" className="btn-secondary w-full" onClick={() => copy(wizard.domain.challenge)}>
-              <Icon name="copy" />
+            <button type="button" className="btn secondary full mt16" onClick={() => copy(wizard.domain.challenge)}>
+              <I name="copy" />
               {c.copy}
             </button>
-            <p className="flex gap-2 rounded-lg bg-soft px-3 py-2.5 text-[11px] text-[#3b4361]">
-              <Icon name="info" className="mt-0.5 size-3.5 flex-none text-blue" />
-              {c.either}
-            </p>
+            <div className="info-strip mt16">
+              <I name="info" />
+              <span>{c.either}</span>
+            </div>
             {error && (
-              <p role="alert" className="rounded-lg border border-[#f1d4d4] bg-[#fff3f3] px-3 py-2 text-[12px] text-red">
+              <p role="alert" className="form-error mt16">
                 {error}
               </p>
             )}
           </div>
         )}
       </Modal>
-    </div>
+    </>
   );
 }
