@@ -17,7 +17,7 @@ export function RoleBadge({ role, className = '' }: { role: string | null | unde
   return (
     <span
       title={fill(t.discover.roles.title, { role: label })}
-      className={`ml-1.5 inline-flex flex-none items-center gap-[3px] rounded-[5px] border px-1.5 py-px align-middle text-[9px] leading-[1.5] font-semibold whitespace-nowrap ${
+      className={`ml-[5px] inline-flex flex-none items-center gap-[3px] rounded-[5px] border px-1.5 py-0.5 align-middle text-[9px] leading-[1.5] font-[550] whitespace-nowrap ${
         role === 'official' ? 'border-[#e7defa] bg-[#f2edff] text-[#7255bd]' : 'border-[#dcecff] bg-[#edf5ff] text-[#1676d5]'
       } ${className}`}
     >
