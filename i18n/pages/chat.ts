@@ -45,6 +45,7 @@ export const zh = {
     note: '这是与当前回答关联的引用片段，不是完整知识正文。',
     source: '来源 {n}',
     copy: '复制引用',
+    open: '打开来源',
   },
   insufficient: {
     title: '给好奇心，补充一点能量。',
@@ -99,6 +100,7 @@ export const en: Shape<typeof zh> = {
     note: 'This is an answer-linked excerpt, not the entire source.',
     source: 'Source {n}',
     copy: 'Copy excerpt',
+    open: 'Open source',
   },
   insufficient: {
     title: 'A few more credits for your curiosity.',

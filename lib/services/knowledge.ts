@@ -797,6 +797,17 @@ export async function knowledgeChild(reeId: string, knowledgeId: string, index: 
   return { child, content: (row.content ?? '').slice(child.offset, child.offset + child.length) };
 }
 
+/** Just enough for a page title: the name and kind, trash included. */
+export async function knowledgeHeader(reeId: string, knowledgeId: string): Promise<{ title: string; kind: KnowledgeKind } | null> {
+  if (!/^[0-9a-f-]{36}$/i.test(knowledgeId)) return null;
+  const [row] = await db()
+    .select({ title: schema.knowledge.title, kind: schema.knowledge.kind })
+    .from(schema.knowledge)
+    .where(and(eq(schema.knowledge.id, knowledgeId), eq(schema.knowledge.reeId, reeId)))
+    .limit(1);
+  return row ?? null;
+}
+
 /** The whole extracted text and a file name for it ("下载解析文本"). */
 export async function knowledgeText(reeId: string, knowledgeId: string): Promise<{ title: string; content: string } | null> {
   if (!/^[0-9a-f-]{36}$/i.test(knowledgeId)) return null;

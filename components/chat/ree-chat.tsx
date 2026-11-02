@@ -7,6 +7,7 @@ import { useChat } from '@ai-sdk/react';
 import { DefaultChatTransport } from 'ai';
 import { QUESTION_MAX_CHARS } from '@/lib/constants';
 import { locatorLabel, type CitationSnapshot } from '@/lib/domain/answer';
+import { KIND_ICONS } from '@/components/knowledge/kind-icons';
 import type { InsufficientCreditsBody, ReeOutcome, ReeUIMessage } from '@/lib/domain/chat-message';
 import { useI18n } from '@/i18n/client';
 import { fill, formatNumber } from '@/i18n/format';
@@ -404,7 +405,7 @@ export function ReeChat({
         {citation && (
           <div className="flex flex-col gap-4">
             <div className="flex flex-wrap items-center gap-1.5 text-[12px] text-muted">
-              <Icon name={citation.kind === 'text' ? 'text' : 'file'} className="size-3.5" />
+              <Icon name={KIND_ICONS[citation.kind]} className="size-3.5" />
               {t.common.kinds[citation.kind]}
               {locatorLabel(citation.locator, locale) && <span>· {locatorLabel(citation.locator, locale)}</span>}
             </div>
@@ -417,17 +418,27 @@ export function ReeChat({
               <ReeAvatar avatar={ree.avatarBlob} color={ree.color} size="sm" />
               {ree.name} · {fill(c.drawer.source, { n: citation.index })}
             </div>
-            <button
-              type="button"
-              className="btn-secondary w-fit"
-              onClick={async () => {
-                await navigator.clipboard.writeText(`${citation.title} · ${locatorLabel(citation.locator, locale)}\n${citation.excerpt}`);
-                toast(t.common.actions.copied);
-              }}
-            >
-              <Icon name="copy" />
-              {c.drawer.copy}
-            </button>
+            <div className="flex flex-wrap gap-2">
+              <button
+                type="button"
+                className="btn-secondary w-fit"
+                onClick={async () => {
+                  await navigator.clipboard.writeText(`${citation.title} · ${locatorLabel(citation.locator, locale)}\n${citation.excerpt}`);
+                  toast(t.common.actions.copied);
+                }}
+              >
+                <Icon name="copy" />
+                {c.drawer.copy}
+              </button>
+              {/* The owner's own source, at the cited second for audio; a paused one still opens, a purged one says it is gone. */}
+              <Link
+                className="btn-secondary w-fit"
+                href={`/rees/${ree.id}/knowledge/${citation.knowledgeId}${citation.locator.time !== undefined ? `?t=${Math.floor(citation.locator.time)}` : ''}`}
+              >
+                <Icon name="external" />
+                {c.drawer.open}
+              </Link>
+            </div>
           </div>
         )}
       </Modal>

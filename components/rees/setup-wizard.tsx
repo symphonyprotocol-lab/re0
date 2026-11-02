@@ -3,9 +3,9 @@
 import Link from 'next/link';
 import { useRouter } from 'next/navigation';
 import { useRef, useState } from 'react';
-import { DOCUMENT_MAX_BYTES, TEXT_SOURCE_LIMITS } from '@/lib/constants';
-import { holdFor, validDocument } from '@/lib/domain/knowledge';
-import { validateDraftSource, validateReeFields, type ReeDraft, type SourceChoice } from '@/lib/domain/ree';
+import { KNOWLEDGE_URL_MAX, TEXT_SOURCE_LIMITS } from '@/lib/constants';
+import { holdFor, validAudio, validDocument } from '@/lib/domain/knowledge';
+import { SOURCE_CHOICES, validateDraftSource, validateReeFields, type ReeDraft, type SourceChoice } from '@/lib/domain/ree';
 import { api, uploadToBlob } from '@/lib/client/upload';
 import { useI18n } from '@/i18n/client';
 import { fill, formatBytes } from '@/i18n/format';
@@ -17,6 +17,21 @@ import { useToast } from '@/components/ui/toast';
 import { Field, IdentityFields, PersonalityFields, PublishingFields, type ReeFormState } from '@/components/rees/ree-fields';
 
 type Message = keyof ReturnType<typeof useI18n>['t']['reeSetup']['messages'];
+
+/** Server refusals of a first source, as the wizard's own messages (prototype dot-setup.js errors). */
+const SOURCE_REFUSALS: Record<string, Message> = {
+  invalid_document: 'file-format',
+  invalid_audio: 'file-format',
+  upload_missing: 'file',
+  consent_required: 'audio-consent',
+  invalid_text: 'source-text',
+  invalid_url: 'url',
+  invalid_github_url: 'github-url',
+  github_not_connected: 'github-auth',
+  github_repo_not_found: 'github-missing',
+  domain_unverified: 'domain',
+  source_unreachable: 'unreachable',
+};
 
 /**
  * `/rees/new`: four steps -- identity, knowledge & personality, first
@@ -32,7 +47,8 @@ export function SetupWizard({ initialDraft }: { initialDraft: ReeDraft }) {
   const [draft, setDraft] = useState<ReeDraft>(initialDraft);
   const [error, setError] = useState('');
   const [busy, setBusy] = useState(false);
-  const [uploading, setUploading] = useState(false);
+  const [uploading, setUploading] = useState<number | null>(null);
+  const [connectLink, setConnectLink] = useState(false);
   const [restart, setRestart] = useState(false);
   const fileRef = useRef<HTMLInputElement>(null);
   const step = draft.step;
@@ -41,15 +57,29 @@ export function SetupWizard({ initialDraft }: { initialDraft: ReeDraft }) {
   const patchSource = (changes: Partial<ReeDraft['source']>) => setDraft((current) => ({ ...current, source: { ...current.source, ...changes } }));
   const form: ReeFormState = draft;
 
-  const save = async (next: ReeDraft) => {
-    const result = await api<{ draft: ReeDraft }>('/api/rees/draft', { method: 'PUT', json: { draft: next } });
-    return result.ok;
+  const save = async (next: ReeDraft, checkSource = false) => {
+    const result = await api<{ draft?: ReeDraft; error?: string }>('/api/rees/draft', { method: 'PUT', json: { draft: next, checkSource } });
+    return result.ok ? null : (result.data.error ?? 'generic');
+  };
+
+  const showError = (code: string) => {
+    const message = SOURCE_REFUSALS[code];
+    setError(message ? t.reeSetup.messages[message] : code in t.reeSetup.messages ? t.reeSetup.messages[code as Message] : t.common.errors.generic);
+    setConnectLink(code === 'github_not_connected' || code === 'domain_unverified');
   };
 
   const goTo = async (target: number, base: ReeDraft = draft) => {
     const next = { ...base, step: target, reached: Math.max(base.reached, target) };
+    /* Leaving step 3 checks the source against GitHub and the domain claims first. */
+    if (base.step === 3 && target === 4) {
+      setBusy(true);
+      const refused = await save(next, true);
+      setBusy(false);
+      if (refused) return showError(refused);
+    }
     setDraft(next);
     setError('');
+    setConnectLink(false);
     await save(next);
     router.replace(`/rees/new?step=${target}`, { scroll: false });
     window.scrollTo({ top: 0 });
@@ -91,10 +121,7 @@ export function SetupWizard({ initialDraft }: { initialDraft: ReeDraft }) {
     setBusy(false);
     const code = result.data.error ?? '';
     if (result.status === 402) setError(t.reeSetup.messages.insufficient);
-    else if (code in t.reeSetup.messages) setError(t.reeSetup.messages[code as Message]);
-    else if (code === 'invalid_document' || code === 'upload_missing') setError(t.reeSetup.messages['file-format']);
-    else if (code === 'invalid_text') setError(t.reeSetup.messages['source-text']);
-    else setError(t.common.errors.generic);
+    else showError(code);
     if (result.data.step && result.data.step < 4) await goTo(result.data.step);
   };
 
@@ -107,13 +134,14 @@ export function SetupWizard({ initialDraft }: { initialDraft: ReeDraft }) {
   const chooseFile = async (file: File | undefined) => {
     if (!file) return;
     setError('');
-    if (!validDocument(file.name, file.size) || file.size > DOCUMENT_MAX_BYTES) {
+    const audio = draft.source.kind === 'audio';
+    if (!(audio ? validAudio : validDocument)(file.name, file.size)) {
       setError(t.reeSetup.messages['file-format']);
       return;
     }
-    setUploading(true);
-    const result = await uploadToBlob(file, { purpose: 'document', fileName: file.name, size: file.size });
-    setUploading(false);
+    setUploading(0);
+    const result = await uploadToBlob(file, { purpose: audio ? 'audio' : 'document', fileName: file.name, size: file.size }, setUploading);
+    setUploading(null);
     if ('error' in result) {
       setError(t.reeSetup.messages.upload);
       return;
@@ -123,13 +151,18 @@ export function SetupWizard({ initialDraft }: { initialDraft: ReeDraft }) {
     await save(nextDraft);
   };
 
-  const estimated = draft.source.kind === 'later' ? 0 : draft.source.kind === 'text' ? holdFor('text', draft.source.text) : holdFor('document');
+  const source = draft.source;
+  const estimated =
+    source.kind === 'later' ? 0 : source.kind === 'text' ? holdFor('text', source.text) : source.kind === 'audio' ? holdFor('audio', source.fileSize) : holdFor(source.kind);
   const sourceLabel =
-    draft.source.kind === 'later'
+    source.kind === 'later'
       ? w.sourceKinds.later
-      : draft.source.kind === 'text'
-        ? draft.source.title || w.sourceKinds.text
-        : draft.source.fileName || w.sourceKinds.document;
+      : source.kind === 'text'
+        ? source.title || w.sourceKinds.text
+        : source.kind === 'document' || source.kind === 'audio'
+          ? source.fileName || w.sourceKinds[source.kind]
+          : source.url || w.sourceKinds[source.kind];
+  const fileKind = source.kind === 'document' || source.kind === 'audio';
 
   const progress = (
     <nav aria-label={w.progress} className="flex items-stretch gap-1">
@@ -193,7 +226,12 @@ export function SetupWizard({ initialDraft }: { initialDraft: ReeDraft }) {
             </div>
             {error && (
               <p role="alert" className="mt-4 rounded-lg border border-[#f1d4d4] bg-[#fff3f3] px-3 py-2 text-[12px] text-red">
-                {error}
+                {error}{' '}
+                {connectLink && (
+                  <Link href="/settings?tab=connections" className="font-semibold underline">
+                    {w.connections}
+                  </Link>
+                )}
               </p>
             )}
             <div className="mt-2">
@@ -206,9 +244,9 @@ export function SetupWizard({ initialDraft }: { initialDraft: ReeDraft }) {
                       id="source-kind"
                       className="input"
                       value={draft.source.kind}
-                      onChange={(event) => patchSource({ kind: event.target.value as SourceChoice })}
+                      onChange={(event) => patchSource({ kind: event.target.value as SourceChoice, fileName: '', fileSize: 0, blobPath: '' })}
                     >
-                      {(['later', 'document', 'text'] as const).map((kind) => (
+                      {SOURCE_CHOICES.map((kind) => (
                         <option key={kind} value={kind}>
                           {w.sourceKinds[kind]}
                         </option>
@@ -250,32 +288,52 @@ export function SetupWizard({ initialDraft }: { initialDraft: ReeDraft }) {
                       </Field>
                     </>
                   )}
-                  {draft.source.kind === 'document' && (
+                  {fileKind && (
                     <div className="mt-5 rounded-xl border border-dashed border-[#c9d6ee] bg-wash p-5">
                       <div className="flex flex-wrap items-center gap-3">
-                        <button type="button" className="btn-secondary btn-sm" onClick={() => fileRef.current?.click()} disabled={uploading}>
-                          {uploading ? <Spinner className="size-3.5" /> : <Icon name="upload" className="size-3.5" />}
-                          {uploading ? w.fileUploading : w.fileChoose}
+                        <button type="button" className="btn-secondary btn-sm" onClick={() => fileRef.current?.click()} disabled={uploading !== null}>
+                          {uploading !== null ? <Spinner className="size-3.5" /> : <Icon name="upload" className="size-3.5" />}
+                          {uploading !== null ? `${w.fileUploading} ${uploading}%` : w.fileChoose}
                         </button>
                         <span className="min-w-0 truncate text-[13px] font-medium">
-                          {draft.source.fileName ? `${draft.source.fileName} · ${formatBytes(draft.source.fileSize)}` : w.fileNone}
+                          {source.fileName ? `${source.fileName} · ${formatBytes(source.fileSize)}` : w.fileNone}
                         </span>
                       </div>
                       <small className="hint">
-                        {w.fileLimits}
-                        {draft.source.blobPath && ` · ${w.fileUploaded}`}
+                        {source.kind === 'audio' ? w.audioLimits : w.fileLimits}
+                        {source.blobPath && ` · ${w.fileUploaded}`}
                       </small>
                       <input
                         ref={fileRef}
                         type="file"
                         hidden
-                        accept=".pdf,.docx,.md,.txt"
+                        accept={source.kind === 'audio' ? '.mp3,.m4a,.wav' : '.pdf,.docx,.md,.txt'}
                         onChange={(event) => {
                           void chooseFile(event.target.files?.[0]);
                           event.target.value = '';
                         }}
                       />
                     </div>
+                  )}
+                  {source.kind === 'audio' && (
+                    <label className="mt-4 flex items-start gap-2 text-[12px]">
+                      <input type="checkbox" className="mt-0.5" checked={source.consent} onChange={(event) => patchSource({ consent: event.target.checked })} />
+                      {w.audioConsent}
+                    </label>
+                  )}
+                  {(source.kind === 'github' || source.kind === 'page' || source.kind === 'site') && (
+                    <Field id="source-url" label={w.sourceUrl} hint={source.kind === 'github' ? w.githubHint : source.kind === 'site' ? w.siteHint : w.pageHint}>
+                      <input
+                        id="source-url"
+                        className="input"
+                        type="url"
+                        inputMode="url"
+                        maxLength={KNOWLEDGE_URL_MAX}
+                        placeholder={source.kind === 'github' ? 'https://github.com/owner/repo' : 'https://'}
+                        value={source.url}
+                        onChange={(event) => patchSource({ url: event.target.value })}
+                      />
+                    </Field>
                   )}
                   <div className="mt-6 flex gap-2 rounded-lg bg-soft px-3 py-2.5 text-[12px] text-[#3b4361]">
                     <Icon name="info" className="mt-0.5 size-4 flex-none text-blue" />
@@ -328,7 +386,7 @@ export function SetupWizard({ initialDraft }: { initialDraft: ReeDraft }) {
                   {w.backToList}
                 </Link>
               )}
-              <button type="submit" className="btn" disabled={busy || uploading}>
+              <button type="submit" className="btn" disabled={busy || uploading !== null}>
                 {busy ? <Spinner /> : null}
                 {step === 4 ? (busy ? w.creating : w.create) : w.next}
                 {!busy && <Icon name={step === 4 ? 'check' : 'arrow'} />}
