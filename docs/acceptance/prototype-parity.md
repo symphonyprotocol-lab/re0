@@ -1,0 +1,116 @@
+# 原型对照验收（§8.5）
+
+2026-11-02，`rebuild` 合并完第 7 步之后。原型 `rebuild-prototype/`（`PROTOTYPE_PORT=4174 node rebuild-prototype/serve.mjs`）与重建后的应用逐路由对照：页面结构、中英文案、上限与数字、空态 / 禁用 / 错误态、校验、跳转与 URL 参数、键盘与手机宽度。
+
+**在哪查的**
+
+- **Preview**：`https://recall0-git-rebuild-virgil-zhaos-projects-cc544793.vercel.app`（`rebuild` 分支，数据库是空的）。只查访客能看到的：首页、价格、结账（未登录）、登录、法律页、`/explore`（空态）、不存在的 `/r/…`（404）、`/admin/login`（空安装的首位管理员注册页，只看不提交）。
+- **本地**：本分支的 `next dev`（`127.0.0.1:3800`），数据库是本地 Docker 里由 0001–0008 迁移新建的 `re0_accept`，假模型 `tests/fixtures/serve-fake-openai.ts`。通过应用自己的接口造了三个用户（两个公开 Ree、一个私有 Ree、一个英文用户的 Ree、两场多 Ree 对话含无答）和首位管理员。登录用 `POST /api/auth/e2e`。
+- **代码对读**：每个区域另由一个只读 agent 把原型源码（`suite.js`、`app.js`、`knowledge.js`、`conversations.js` 等）与应用组件、i18n 逐条对读，再由修复时复核。
+- **手机宽度**：本地对全部用户侧路由（28 个）与后台路由（14 个）在 375px 宽的 iframe 里量 `scrollWidth`，修复前后各量一次（修复后 37 个路由），都没有横向溢出，也都返回 200。
+
+**结果列**：一致 = 没有需要处理的差异；已修 = 本 PR 改了代码；8.2 第 N 行 = 差异是定稿的取舍，写进了 `rebuild-proposal.md` §8.2；延后 = 太大，不在本 PR，见文末。一行里有多项时都列出。
+
+## 官网
+
+| 原型 | 应用路由 | 在哪查 | 结果 | 说明 |
+| --- | --- | --- | --- | --- |
+| 顶栏与页脚（`suite.js` `marketingHeader` / `marketingFooter`） | 全部官网页 | Preview + 本地 | 已修；8.2 第 35 行 | 结账页标「价格与购买」、公开页标「发现 Ree」为当前项；登录带 `returnTo` 回到当前页；创建按钮与第二行导航用同一个断点，手机第二行三等分；英文语言按钮 `EN / 中`；页脚补「我的对话」「管理后台」，「我的工作台」回到「产品」列 |
+| `#/` 首页 | `/` | Preview + 本地 | 已修；8.2 第 36、37、38 行 | 「示例 Ree」与视频占位不再说发现页 / 视频「即将上线」；问答示例为页内脚本、示例 Ree 取最活跃的公开 Ree、来源只说数量是定稿 |
+| `#/pricing` | `/pricing` | Preview + 本地 | 一致；8.2 第 13、41 行 | 三档价格、费用表、估算滑块与禁用的 Pack 按钮一致 |
+| `#/checkout?kind=plan` | `/checkout?kind=plan` | Preview + 本地 | 8.2 第 39 行 | 同意文案与真实 Paddle 状态 |
+| `#/checkout?kind=pack` | `/checkout?kind=pack&quantity=` | Preview + 本地 | 一致；8.2 第 13、39 行 | 1–10 份、无 Plan 时锁定、数量写进 URL |
+| `#/login` | `/login` | Preview + 本地 | 已修；8.2 第 34 行 | 补「返回首页」、条款与隐私链接、「先发现一些 Ree」，文案改回原型；回跳白名单补 `/videos`、`/workspace/*` |
+| `#/legal/terms`、`#/legal/privacy` | `/legal/terms`、`/legal/privacy` | Preview | 8.2 第 38、40 行 | 完整法律文本替代原型的评审占位 |
+
+## 发现与公开页
+
+| 原型 | 应用路由 | 在哪查 | 结果 | 说明 |
+| --- | --- | --- | --- | --- |
+| `#/explore` | `/explore` | Preview（空态）+ 本地 | 已修；8.2 第 7、8、42、43、44 行 | 翻页后回到结果顶部（含从详情返回、直接打开第 N 页）；越界页码改写 URL；「重置筛选」保留每页条数；跳页「跳至 N 页」、必填、顶部分页独立标签 |
+| `#/explore?sample=scale` | 无 | — | 8.2 第 33 行 | 规模演示不带过去，列表本来就是服务端分页 |
+| `#/d/:slug` 公开详情 | `/r/[slug]` | Preview（404）+ 本地 | 已修；8.2 第 1、6、44、45 行 | 不存在 / 私有 / 已下架显示原型的「这个页面，暂时不在知识范围内」卡片而不是裸 404；标签去掉与主分类同名的；访客登录回到本页（顶栏修复） |
+| 公开页视频（`inline-video.js`） | `/r/[slug]?video=1` | 本地 | 已修；8.2 第 43 行 | 进入全屏即播放；页内全屏锁定焦点、Escape 退出并把焦点还给按钮；切到后台标签页暂停 |
+| 相关 Rees / 作者的其他 Rees | `/r/[slug]` 底部 | 本地 | 8.2 第 45 行 | 每组 4 条分页一致；页码进 URL |
+
+## 用户工作台
+
+| 原型 | 应用路由 | 在哪查 | 结果 | 说明 |
+| --- | --- | --- | --- | --- |
+| 侧栏、折叠栏、手机抽屉、顶栏 | 全部工作台页 | 本地 | 已修；8.2 第 76 行 | `/workspace/*` 高亮「工作台」；用量卡标签与账户行副标题；顶栏「返回官网」；手机面包屑只藏第一级（≥ 3 级时），返回上一级不再丢失；手机上 Ree 内页两层顶栏（上层 ← + Ree 名 + 语言，下层 tab，公开页与上一篇 / 下一篇在 tab 行末） |
+| `#/dashboard` | `/dashboard` | 本地 | 已修；8.2 第 65 行 | 成功回答改按账本计（清空测试对话不再减少）；暂停的来源不算就绪；行操作「管理知识 / 视频介绍」；文案、统计范围说明；收入链接直达流水 |
+| `#/talk` | `/talk` | 本地 | 已修；8.2 第 54 行 | 离开再回来保留问题、所选 Ree 与提问对象，「新建对话」清空 |
+| `#/workspace`、`#/welcome` | `/workspace` → `/dashboard` | 本地 | 已修；8.2 第 33 行 | `/workspace` 跳工作台；`/welcome` 不带过去 |
+| `#/workspace/sources` | `/workspace/sources` | 本地 | 8.2 第 33、66 行 | 参数 `ree=`；多「更新时间」列 |
+| `#/workspace/answers` | `/workspace/answers` | 本地 | 已修；8.2 第 33、66 行 | 日历去掉前后箭头（与原型 README 一致） |
+| `#/dots` 我的 Ree | `/rees` | 本地 | 已修 | 列表视图多选与批量公开 / 私有（新接口 `POST /api/rees/batch`）；表头排序；「已下架」状态；顶部紧凑分页、底部页码与跳页；回答数链到统计、「制作 / 编辑视频」；文案 |
+| `#/dots?sample=scale` | 无 | — | 8.2 第 33 行 | 规模演示不带过去 |
+| `#/dots/new` | `/rees/new` | 本地 | 已修；8.2 第 3、56、57 行 | 浏览器后退在步骤间移动；裁剪未确认时拦住切步与保存；分类标签文案与 `n / 3` 计数；面包屑「创建 Ree」 |
+| `#/dots/mine`、`#/dots/mine/settings` | `/rees/[id]`、`/rees/[id]/settings` | 本地 | 已修；8.2 第 2、5 行 | 已下架时公开选项禁用并说明；摘要来源数含全部非回收站来源；公开时「查看公开页」 |
+| `#/dots/mine/knowledge` | `/rees/[id]/knowledge` | 本地 | 已修；8.2 第 9、10、11、55、56、58 行 | 添加整站时先列出已验证域名；越界页码改写 URL |
+| `#/dots/mine/knowledge/:sourceId` | `/rees/[id]/knowledge/[kid]` | 本地 | 已修；8.2 第 55 行 | 面包屑到「Ree › 知识管理」两级可点；标题「知识预览」；「知识管理」tab 显示来源数 |
+| `#/dots/mine/chat` | `/rees/[id]/chat` | 本地 | 已修；8.2 第 16 行 | 示例问题弹层点外面关闭；清空与无知识文案补全 |
+| `#/dots/mine/statistics` | `/rees/[id]/statistics` | 本地 | 已修；8.2 第 30 行 | 去掉日 / 周 / 月的前后箭头 |
+| `#/dots/mine/video` | `/rees/[id]/video` | 本地 | 已修；8.2 第 23、32、46、47、48、50 行 | 英文「scenes」；门禁、导出与 JSON 形状是定稿 |
+| `#/videos` | `/videos` | 本地 | 已修；8.2 第 49 行 | 价格说明条；空态标题 |
+
+## 对话
+
+| 原型 | 应用路由 | 在哪查 | 结果 | 说明 |
+| --- | --- | --- | --- | --- |
+| `#/chats` | `/chats` | 本地 | 已修；8.2 第 18、51 行 | 回收站对话可只读预览并恢复（新接口 `GET /api/chats/[id]/preview`）；只有标题 / Ree 名命中时也给片段；归档与移到回收站的确认列出标题；越界页码改写 URL；翻页回到顶部；手机上保留搜索按钮 |
+| `#/chats?sample=scale` | 无 | — | 8.2 第 33 行 | 测试对话与标记不带过去 |
+| `#/chats/:id` | `/chats/[id]` | 本地 | 已修；8.2 第 14、15、16、17、53 行 | 输入法上屏不再误选 `@` 建议，Escape 关 `@` 菜单；无参与者时「选择知识伙伴」；面包屑「工作台 › 搜索对话 › 标题」且手机上保留「搜索对话」；参与者选择器按空间向上或向下展开、关闭后焦点回到按钮；引用抽屉说明补全；消息区标签 |
+| 侧栏历史 | 侧栏 | 本地 | 已修；8.2 第 52 行 | 行菜单「选择此对话」进 `/chats` 选择模式；归档 / 回收站先确认；「搜索对话」与 ⌘K 回到原搜索并聚焦；置顶提示 |
+
+## 设置
+
+| 原型 | 应用路由 | 在哪查 | 结果 | 说明 |
+| --- | --- | --- | --- | --- |
+| `#/settings`（tab 栏） | `/settings` | 本地 | 已修；8.2 第 19、63 行 | tab 顺序改为账户、角色与认证、连接、余额与计费，通知排最后 |
+| 账户 | `/settings?tab=account` | 本地 | 已修；8.2 第 60 行 | 头像提示与英文标签、保存提示、登录方式摘要行、GitHub `@handle`、无记录时不显示最近登录 |
+| 连接与域名 | `/settings?tab=connections` | 本地 | 已修；8.2 第 56、59 行 | 移除确认按钮「移除」 |
+| 角色与认证 | `/settings?tab=role` | 本地 | 已修；8.2 第 20、64 行 | 停用账号提示；陈述硬上限 500 |
+| 通知 | `/settings?tab=notices` | 本地 | 8.2 第 19、63 行 | 原型没有用户侧通知页 |
+| `#/settings?tab=billing` | `/settings?tab=billing` | 本地 | 已修；8.2 第 12、13、61 行 | 官方账号不显示收入卡、收入 tab 与收入流水（服务端过滤）；「消费」 |
+| 收款卡与提现 | `/settings?tab=billing#payouts` | 本地 | 已修；8.2 第 21、22、62 行 | 官方账号说明复用角色页文案；「居留证」 |
+| `#/settings/identity` | `/settings/identity` | 本地 | 已修；8.2 第 21、70 行 | 面包屑回到「余额与计费」；英文 Identity verification |
+
+## 管理后台
+
+| 原型 | 应用路由 | 在哪查 | 结果 | 说明 |
+| --- | --- | --- | --- | --- |
+| 后台框架（侧栏、顶栏、表格） | `/admin/*` | 本地 | 已修；8.2 第 76 行；延后（面包屑与 tab 进固定顶栏） | 导航分组与顺序；桌面可折叠侧栏；未登录深链登录后回原页；不存在的记录在框架内提示；表头与操作列固定；越界页码改写 URL |
+| `#/admin/login` | `/admin/login` | Preview（空安装）+ 本地 | 已修；8.2 第 25、67 行 | 「返回网站」；密码 ≥ 12、邀请注册是定稿 |
+| 「管理员」弹层 | 顶栏弹层 | 本地 | 8.2 第 67 行 | 邀请链接 |
+| `#/admin/overview` | `/admin/overview` | 本地 | 一致 | 待办顺序不同，不影响 |
+| `#/admin/models` | `/admin/models` | 本地 | 已修；8.2 第 68 行 | 三类卡片说明；显示上次探测结果；名称 ≤ 50、模型 ≤ 120、超时 5–300 |
+| `#/admin/users` | `/admin/users` | 本地 | 已修；8.2 第 69 行 | 第三张卡改为「已通过 KYC」；「周期末取消」 |
+| `#/admin/users/me` | `/admin/users/[id]` | 本地 | 已修；8.2 第 69 行 | tab 名称；摘要补 KYC 状态、税务表单与账户提示；名下 Ree 补查询费、成功回答与下架 / 恢复；从充值、审计、Rees 进来能返回 |
+| 认证申请（`role-pages.js`） | `/admin/verifications`、`[id]` | 本地 | 已修；8.2 第 64 行 | 从申请打开 Ree 详情后能回到申请 |
+| `#/admin/kyc`、`#/admin/kyc/:id` | `/admin/kyc`、`[id]` | 本地 | 已修；8.2 第 21、70 行 | 「待重新验证」；从提现记录进来时面包屑正确 |
+| `#/admin/purchases` | `/admin/purchases`、`[id]` | 本地 | 已修；8.2 第 28、72、73 行 | 标题「充值与订阅」；订阅 tab 补 Plan 剩余额度 |
+| `#/admin/payouts`、`:id`、`:id/payment` | `/admin/payouts`、`[id]`、`[id]/payment` | 本地 | 已修；8.2 第 22、71 行 | 待审列表补 CSV 导出 |
+| `#/admin/payout-history` | `/admin/payout-history` | 本地 | 一致；8.2 第 28 行 | 结果图表随财务图表延后 |
+| `#/admin/dots` | `/admin/rees` | 本地 | 已修；8.2 第 24 行 | 补成功回答列、所有者链接、公开页图标与行内下架 / 恢复 |
+| `#/admin/dots/:id` | `/admin/rees/[id]` | 本地 | 已修；8.2 第 27 行 | 概览补「视频介绍 已制作 / 未制作」；从用户详情进来面包屑为「名下 Ree」 |
+| `#/admin/dots/:id/sources/:sourceId` | `/admin/rees/[id]/sources/[kid]` | 本地 | 已修；8.2 第 27、76 行 | 正文查找与高亮（`contentQ`）；子页面 / 文件目录搜索、30 项分页、单独查看 |
+| `#/admin/audit` | `/admin/audit`、`[id]` | 本地 | 已修；8.2 第 31 行 | 搜索也匹配动作名称；KYC 与提现动作的目标可点 |
+
+## 没能查到的，和原因
+
+- **Paddle 结账**：本地与 Preview 都没走真实支付。Preview 只看了结账页未登录态；沙盒支付与 webhook 回放已由第 3 步做过（见 `docs/handover/step3.md`）。
+- **OAuth 登录**：Preview 的回调地址没在 Google / GitHub 注册，Preview 上没有登录；所有登录后页面都在本地用 `POST /api/auth/e2e` 查。
+- **Preview 上的数据页**：Preview 数据库是空的，`/explore` 只看到空态，`/r/…` 只看到 404；没有在 Preview 写任何数据（包括没有提交首位管理员表单）。
+- **视频导出**：本地没有真正导出 MP4（需要真实 Blob 与桌面 Chrome 的 WebCodecs），Safari 上的拒绝也只按代码核对；第 7 步已做过真实导出与 `ffprobe` 校验。
+- **真实模型、GitHub、网站抓取、音频转写、DNS 验证、KYC 原图**：本地用假模型，没接外部服务；这些流程的界面按代码与已有集成测试核对，真实链路由第 2、6 步验收过。
+- **管理员 TOTP 以外的安全项**（锁定、重放）：只按代码核对。
+
+## 延后的（不在本 PR）
+
+| 项 | 估计 | 放在哪 |
+| --- | --- | --- |
+| 后台面包屑、用户详情与 Ree 详情的 tab、来源预览的上一条 / 下一条移进固定顶栏 | 0.5–1 天 | `components/admin/console-shell.tsx` 加 header 插槽，各详情页的 `PageHead` 改为传入 |
+| 后台财务图表（充值 / 提现 / 提现记录，日 / 周 / 月 / 自定义，金额 / 笔数） | 1.5–2 天 | 已是 8.2 第 28 行允许延后；复用 `lib/domain/statistics.ts` 的日历与 `admin-finance.js` 的口径 |
+| 账户与 Ree 头像的拖动裁剪 | 0.5 天 | `components/rees/avatar-editor.tsx`；现在按 8.2 第 60 行用滑块 |
+| `credit_entry (ree_id, reason)` 索引：成功回答数现在与统计页一样按账本算，「我的 Ree」按回答排序会随账本变大而变慢 | 0.5 小时 + 一次迁移 | 新迁移 0009（`CREATE INDEX IF NOT EXISTS`，`when` 晚于 0008） |
