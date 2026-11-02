@@ -1,5 +1,6 @@
 import type { NextRequest } from 'next/server';
 import { streamBlob, streamBlobRange } from '@/lib/infra/blob';
+import { exportFinished } from '@/lib/services/video';
 
 const ID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/;
 
@@ -19,6 +20,8 @@ export async function GET(request: NextRequest, context: { params: Promise<{ pat
   if (segments[0] === 'videos') {
     const [, reeId, file] = segments;
     if (!ID.test(reeId!) || !file!.endsWith('.mp4') || !ID.test(file!.slice(0, -4))) return new Response(null, { status: 404 });
+    /* Only a finished export: an upload that landed after its export was cancelled or abandoned is never served. */
+    if (!(await exportFinished(reeId!, file!.slice(0, -4)))) return new Response(null, { status: 404 });
     const blob = await streamBlobRange(pathname, request.headers.get('range'));
     if (!blob) return new Response(null, { status: 404 });
     blob.headers.set('content-type', 'video/mp4');

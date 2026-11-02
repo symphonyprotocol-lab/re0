@@ -149,10 +149,11 @@ export function VideoStudio({
     const response = await api<{ video?: SavedVideo; props?: IntroProps | null; error?: string }>(`/api/rees/${ree.id}/video`, {
       method: 'PATCH',
       json: { revision: saved.revision, template: draft.template, accent: draft.accent.toLowerCase(), aspect: draft.aspect, music: draft.music, ...(saved.generated ? { scenes } : {}) },
-    });
+    }).catch(() => ({ ok: false, status: 0, data: { error: 'network' } as { video?: SavedVideo; props?: IntroProps | null; error?: string } }));
     setBusy(null);
     if (!response.ok || !response.data.video) {
-      setNotice(response.data.error === 'stale' ? v.panel.stale : response.data.error === 'scene_limits' ? v.panel.errors.summary : v.panel.stale);
+      const code = response.data.error;
+      setNotice(code === 'stale' ? v.panel.stale : code === 'scene_limits' ? v.panel.errors.summary : fill(v.panel.saveFailed, { reason: code ?? response.status }));
       return;
     }
     setSaved(response.data.video);

@@ -190,7 +190,8 @@ export function ExportPanel({
     link.href = URL.createObjectURL(file);
     link.download = `re0-${ree.slug}-script.json`;
     link.click();
-    URL.revokeObjectURL(link.href);
+    /* Some browsers (Firefox) read the link after `click()` returns; revoking at once can cancel the download. */
+    window.setTimeout(() => URL.revokeObjectURL(link.href), 1_000);
   };
 
   const shown = result ?? (lastExport ? { url: lastExport.url, aspect: lastExport.aspect, cost: lastExport.cost, cached: false } : null);

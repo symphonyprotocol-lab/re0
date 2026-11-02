@@ -210,11 +210,20 @@ export function scriptLang(scenes: VideoScenes): 'zh' | 'en' {
   return /[㐀-鿿豈-﫿]/.test(all) ? 'zh' : 'en';
 }
 
-/** An answer's first sentence (2.6 "答案取第一句"), citation markers and Markdown taken off. */
+/**
+ * An answer's first sentence (2.6 "答案取第一句"), citation markers and
+ * Markdown taken off: headings, quotes and list bullets at a line's start,
+ * bold, emphasis and code around words. A `*` or `_` inside a word or a
+ * sum (snake_case, 2*3) is text and stays.
+ */
 export function firstSentence(answer: string): string {
   const plain = answer
     .replace(/\s*\[\d+\]/g, '')
-    .replace(/[*_`#>]+/g, '')
+    .replace(/^[ \t]*(?:#{1,6}|>+|[-*+]|\d+\.)[ \t]+/gm, '')
+    .replace(/(\*\*|__)(?=\S)(.+?)(?<=\S)\1/g, '$2')
+    .replace(/(?<![\w*])\*(?=\S)([^*]+?)(?<=\S)\*(?![\w*])/g, '$1')
+    .replace(/(?<![\w_])_(?=\S)([^_]+?)(?<=\S)_(?![\w_])/g, '$1')
+    .replace(/`([^`]+)`/g, '$1')
     .replace(/\s+/g, ' ')
     .trim();
   const match = /^.+?(?:[。！？!?]|\.(?=\s|$))/u.exec(plain);

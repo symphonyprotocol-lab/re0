@@ -45,6 +45,7 @@ export const zh = {
     saved: '视频脚本与样式已保存',
     unsaved: '有未保存的修改',
     stale: '这个视频已在其他地方被修改，请刷新后再编辑。',
+    saveFailed: '保存失败：{reason}',
     errors: {
       empty: '{field}不能为空',
       too_long: '{field}最多 {max} 字',
@@ -181,6 +182,7 @@ export const en: Shape<typeof zh> = {
     saved: 'Video script and style saved',
     unsaved: 'Unsaved changes',
     stale: 'This video was changed elsewhere. Reload before editing.',
+    saveFailed: 'Could not save: {reason}',
     errors: {
       empty: '{field} cannot be empty',
       too_long: '{field}: at most {max} characters',

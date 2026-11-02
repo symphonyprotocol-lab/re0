@@ -120,6 +120,8 @@ describe('exports and text', () => {
     expect(firstSentence('**原路退回**，14 天内到账[1]。积分不退。')).toBe('原路退回，14 天内到账。');
     expect(firstSentence('No full stop here')).toBe('No full stop here');
     expect(firstSentence('Version 2.5 ships today. Then more.')).toBe('Version 2.5 ships today.');
+    expect(firstSentence('Use snake_case keys, 2*3 = 6. Then more.')).toBe('Use snake_case keys, 2*3 = 6.');
+    expect(firstSentence('## Refunds\n- Use `refund()` *within* __14 days__. More.')).toBe('Refunds Use refund() within 14 days.');
   });
 
   it('captions the video in the script’s language', () => {

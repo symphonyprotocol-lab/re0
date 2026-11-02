@@ -197,7 +197,9 @@ describeWithDb('video exports', () => {
     expect(first.props.ree.shareUrl).toMatch(new RegExp(`/r/${ree.slug}$`));
     expect(await code(video.completeExport(userId, ree.id, first.exportId))).toBe('upload_missing');
     upload(first.upload.pathname);
+    expect(await video.exportFinished(ree.id, first.exportId)).toBe(false);
     expect(await video.completeExport(userId, ree.id, first.exportId)).toEqual({ url: `/media/${first.upload.pathname}`, cost: 0 });
+    expect(await video.exportFinished(ree.id, first.exportId)).toBe(true);
     expect(await balanceOf(db(), userId)).toBe(start);
     expect((await video.videoOf(db(), ree.id))!.exportsCount).toBe(1);
 
@@ -275,6 +277,9 @@ describeWithDb('video exports', () => {
     expect(await balanceOf(db(), userId)).toBe(before);
     upload(paid.upload.pathname);
     expect(await code(video.completeExport(userId, ree.id, paid.exportId))).toBe('export_closed');
+    /* The late upload is never served, and it is removed. */
+    expect(await video.exportFinished(ree.id, paid.exportId)).toBe(false);
+    expect(blobs.has(paid.upload.pathname)).toBe(false);
     expect((await video.videoOf(db(), ree.id))!.exportsCount).toBe(1);
   });
 
@@ -301,6 +306,10 @@ describeWithDb('video exports', () => {
     expect(await code(video.startExport(userId, ree.id))).toBe('no_script');
     await video.generateScript(userId, ree.id);
     expect(await code(video.startExport(await owner(), ree.id))).toBe('not_found');
+    /* An id that is not a uuid is "not found", never a database error. */
+    expect(await code(video.videoStudio(userId, 'abc'))).toBe('not_found');
+    expect(await code(video.cancelExport(userId, ree.id, 'not-a-uuid'))).toBe('not_found');
+    expect(await code(video.completeExport(userId, ree.id, 'not-a-uuid'))).toBe('not_found');
   });
 });
 

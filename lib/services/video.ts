@@ -22,6 +22,7 @@ import {
   VIDEO_SCRIPT_REWRITES,
 } from '@/lib/constants';
 import { instructionsFor, NO_ANSWER_SENTINEL, questionWithPassages } from '@/lib/domain/answer';
+import { clampPage, isUuid, likePattern } from '@/lib/domain/list';
 import {
   canonicalJson,
   DEFAULT_STYLE,
@@ -81,8 +82,9 @@ export async function videoOf(executor: Executor, reeId: string, lock = false): 
   return row ?? null;
 }
 
-/** The owner's live Ree, locked when asked; deleted Rees are gone. */
+/** The owner's live Ree, locked when asked; deleted Rees and ids that are not uuids are gone. */
 async function ownerRee(executor: Executor, ownerId: string, reeId: string, lock = false) {
+  if (!isUuid(reeId)) throw new VideoError('not_found', 404);
   const query = executor
     .select()
     .from(schema.ree)
@@ -98,6 +100,17 @@ async function readySourceCount(executor: Executor, reeId: string): Promise<numb
     .from(schema.knowledge)
     .where(and(eq(schema.knowledge.reeId, reeId), ...answerable()));
   return row?.count ?? 0;
+}
+
+/** `readySourceCount` for many Rees in one query. */
+async function readySourceCounts(reeIds: readonly string[]): Promise<Map<string, number>> {
+  if (reeIds.length === 0) return new Map();
+  const rows = await db()
+    .select({ reeId: schema.knowledge.reeId, count: sql<number>`count(*)::int` })
+    .from(schema.knowledge)
+    .where(and(inArray(schema.knowledge.reeId, [...reeIds]), ...answerable()))
+    .groupBy(schema.knowledge.reeId);
+  return new Map(rows.map((row) => [row.reeId, row.count]));
 }
 
 /* -------------------------------------------------------------- props */
@@ -137,22 +150,24 @@ export function contentVersion(props: IntroProps): string {
 export async function introsFor(reeIds: readonly string[]): Promise<Map<string, IntroProps>> {
   const out = new Map<string, IntroProps>();
   if (reeIds.length === 0) return out;
-  const rows = await db()
-    .select({
-      video: schema.reeVideo,
-      slug: schema.ree.slug,
-      avatarBlob: schema.ree.avatarBlob,
-      color: schema.ree.color,
-      queryFee: schema.ree.queryFee,
-      isPublic: schema.ree.isPublic,
-      moderatedAt: schema.ree.moderatedAt,
-      sources: sql<number>`(select count(*)::int from ${schema.knowledge} k where k.ree_id = "ree"."id" and k.status = 'ready' and k.enabled and k.deleted_at is null)`,
-    })
-    .from(schema.reeVideo)
-    .innerJoin(schema.ree, eq(schema.ree.id, schema.reeVideo.reeId))
-    .where(and(inArray(schema.reeVideo.reeId, [...reeIds]), eq(schema.reeVideo.generated, true)));
+  const [rows, sources] = await Promise.all([
+    db()
+      .select({
+        video: schema.reeVideo,
+        slug: schema.ree.slug,
+        avatarBlob: schema.ree.avatarBlob,
+        color: schema.ree.color,
+        queryFee: schema.ree.queryFee,
+        isPublic: schema.ree.isPublic,
+        moderatedAt: schema.ree.moderatedAt,
+      })
+      .from(schema.reeVideo)
+      .innerJoin(schema.ree, eq(schema.ree.id, schema.reeVideo.reeId))
+      .where(and(inArray(schema.reeVideo.reeId, [...reeIds]), eq(schema.reeVideo.generated, true))),
+    readySourceCounts(reeIds),
+  ]);
   for (const row of rows) {
-    const props = introProps(row.video, row, row.sources);
+    const props = introProps(row.video, row, sources.get(row.video.reeId) ?? 0);
     if (props) out.set(row.video.reeId, props);
   }
   return out;
@@ -524,10 +539,12 @@ async function removeUploads(pathnames: readonly string[]): Promise<void> {
  * settled. A finished, cancelled or abandoned export cannot complete.
  */
 export async function completeExport(ownerId: string, reeId: string, exportId: string, now = new Date()): Promise<{ url: string; cost: number }> {
+  if (!isUuid(exportId)) throw new VideoError('not_found', 404);
+  await ownerRee(db(), ownerId, reeId);
   const pathname = exportPathname(reeId, exportId);
   const bytes = await blobSize(pathname);
   if (!bytes) throw new VideoError('upload_missing', 409);
-  return db().transaction(async (tx) => {
+  const finished = db().transaction(async (tx) => {
     const ree = await ownerRee(tx, ownerId, reeId);
     const [row] = await tx
       .select()
@@ -550,10 +567,16 @@ export async function completeExport(ownerId: string, reeId: string, exportId: s
     if (hold) await settleHold(tx, hold.id, row.costCredits, { reeId, note: ree.name, ledger: 'video_export' }, now);
     return { url: `/media/${pathname}`, cost: row.costCredits };
   });
+  /* An upload that arrived after a cancel or the cron is never served; it is removed here too. */
+  return finished.catch(async (error) => {
+    if (error instanceof VideoError && error.code === 'export_closed') await removeUploads([pathname]);
+    throw error;
+  });
 }
 
 /** "取消" while rendering or uploading: the export is abandoned and its hold released at once. */
 export async function cancelExport(ownerId: string, reeId: string, exportId: string, now = new Date()): Promise<boolean> {
+  if (!isUuid(exportId)) throw new VideoError('not_found', 404);
   const cancelled = await db().transaction(async (tx) => {
     await ownerRee(tx, ownerId, reeId);
     const [row] = await tx
@@ -567,6 +590,16 @@ export async function cancelExport(ownerId: string, reeId: string, exportId: str
   });
   if (cancelled) await removeUploads([exportPathname(reeId, exportId)]);
   return cancelled;
+}
+
+/** `/media/videos/…` serves only finished exports: a file uploaded after its export was cancelled or abandoned stays private. */
+export async function exportFinished(reeId: string, exportId: string): Promise<boolean> {
+  const [row] = await db()
+    .select({ id: schema.videoExport.id })
+    .from(schema.videoExport)
+    .where(and(eq(schema.videoExport.id, exportId), eq(schema.videoExport.reeId, reeId), eq(schema.videoExport.status, 'done')))
+    .limit(1);
+  return Boolean(row);
 }
 
 /**
@@ -628,11 +661,10 @@ export interface VideoListItem {
 export async function listVideos(ownerId: string, query: { q: string; page: number; size: number }): Promise<{ items: VideoListItem[]; total: number; page: number; size: number }> {
   const database = db();
   const conditions = [eq(schema.ree.ownerId, ownerId), isNull(schema.ree.deletedAt)];
-  if (query.q) conditions.push(sql`${schema.ree.name} ilike ${`%${query.q.replace(/[\\%_]/g, (ch) => `\\${ch}`)}%`}`);
+  if (query.q) conditions.push(sql`${schema.ree.name} ilike ${likePattern(query.q)}`);
   const where = and(...conditions);
   const [{ total }] = (await database.select({ total: sql<number>`count(*)::int` }).from(schema.ree).where(where)) as [{ total: number }];
-  const pages = Math.max(1, Math.ceil(total / query.size));
-  const page = Math.min(Math.max(1, query.page), pages);
+  const page = clampPage(query.page, total, query.size);
   const rows = await database
     .select({ ree: schema.ree, video: schema.reeVideo })
     .from(schema.ree)
@@ -641,7 +673,7 @@ export async function listVideos(ownerId: string, query: { q: string; page: numb
     .orderBy(sql`${schema.reeVideo.generated} is true desc`, desc(sql`coalesce(${schema.reeVideo.updatedAt}, ${schema.ree.createdAt})`), desc(schema.ree.createdAt))
     .limit(query.size)
     .offset((page - 1) * query.size);
-  const intros = await introsFor(rows.map((row) => row.ree.id));
+  const sources = await readySourceCounts(rows.map((row) => row.ree.id));
   return {
     total,
     page,
@@ -661,7 +693,7 @@ export async function listVideos(ownerId: string, query: { q: string; page: numb
         aspect: row.aspect,
         exportsCount: row.exportsCount,
         updatedAt: video?.updatedAt ?? null,
-        props: intros.get(ree.id) ?? null,
+        props: video ? introProps(video, ree, sources.get(ree.id) ?? 0) : null,
       };
     }),
   };
