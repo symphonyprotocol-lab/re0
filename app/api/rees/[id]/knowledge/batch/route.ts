@@ -5,6 +5,7 @@ import { apiUser } from '@/lib/http/session';
 import { db } from '@/lib/infra/db';
 import { inputErrorStatus, KnowledgeInputError, processMany } from '@/lib/services/knowledge';
 import { BATCH_ACTIONS, FolderError, runBatch, validIds, type BatchAction } from '@/lib/services/knowledge-library';
+import { refreshProfile } from '@/lib/services/profile';
 import { ownedRee } from '@/lib/services/rees';
 
 export const maxDuration = 300;
@@ -34,6 +35,8 @@ export async function POST(request: NextRequest, context: { params: Promise<{ id
           })
         : await runBatch(user.id, ree.id, { action, ids });
     if (result.process.length > 0) after(() => processMany(result.process));
+    /* Paused, resumed, trashed or restored sources change what the Ree knows: its explore profile follows (2.4). */
+    if (['pause', 'resume', 'trash', 'restore'].includes(action) && ree.isPublic) after(() => refreshProfile(ree.id).catch(() => undefined));
     return json({ changed: result.changed, folder: result.folder ?? null });
   } catch (error) {
     if (error instanceof KnowledgeInputError) return fail(error.code, inputErrorStatus(error.code));

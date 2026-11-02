@@ -107,6 +107,32 @@ export function ReeSettings({ ree, sources }: { ree: Ree; sources: number }) {
             <section className="card p-5 sm:p-7">
               <h2 className="text-[16px] font-bold">{s.personality}</h2>
               <PersonalityFields value={form} onChange={(patch) => setForm((current) => ({ ...current, ...patch }))} />
+              {/* Step 4: the system's three suggestions, shown publicly only once adopted here and saved (8.2, "示例问题"). */}
+              {!form.sampleQuestions.trim() && ree.suggestedQuestions.length > 0 && (
+                <div className="mt-4 rounded-xl border border-dashed border-[#c9dcf5] bg-soft p-4">
+                  <strong className="flex items-center gap-1.5 text-[12px]">
+                    <Icon name="sparkle" className="size-3.5 text-blue" />
+                    {t.discover.settings.suggestedTitle}
+                  </strong>
+                  <p className="mt-1 text-[11px] text-muted">{t.discover.settings.suggestedBody}</p>
+                  <ol className="mt-2 list-decimal pl-5 text-[12px]">
+                    {ree.suggestedQuestions.map((question) => (
+                      <li key={question}>{question}</li>
+                    ))}
+                  </ol>
+                  <button
+                    type="button"
+                    className="btn-secondary btn-sm mt-3"
+                    onClick={() => {
+                      setForm((current) => ({ ...current, sampleQuestions: ree.suggestedQuestions.join('\n') }));
+                      toast(t.discover.settings.adopted);
+                    }}
+                  >
+                    <Icon name="check" className="size-3.5" />
+                    {t.discover.settings.adopt}
+                  </button>
+                </div>
+              )}
             </section>
             <section className="card p-5 sm:p-7">
               <h2 className="text-[16px] font-bold">{s.publishing}</h2>

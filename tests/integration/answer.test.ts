@@ -74,7 +74,7 @@ describeWithDb('answering', () => {
   it('streams a cited answer and charges the base fee', async () => {
     const { userId, ree, conversation } = await setUp(true);
     const before = await balanceOf(db(), userId);
-    const response = await answer({ userId, lang: 'zh', conversation, ree, question: 'When are refunds issued to the original payment method?' });
+    const response = await answer({ userId, lang: 'zh', conversation, targets: [ree], question: 'When are refunds issued to the original payment method?' });
     expect(response.headers.get('content-type')).toContain('text/event-stream');
     const result = await consume(response);
     expect(result.deltas).toBeGreaterThan(1);
@@ -93,7 +93,7 @@ describeWithDb('answering', () => {
   it('does not answer, or charge, a question outside the knowledge', async () => {
     const { userId, ree, conversation } = await setUp(true);
     const before = await balanceOf(db(), userId);
-    const result = await consume(await answer({ userId, lang: 'zh', conversation, ree, question: '明天火星的天气' }));
+    const result = await consume(await answer({ userId, lang: 'zh', conversation, targets: [ree], question: '明天火星的天气' }));
     expect(result.outcome).toMatchObject({ noAnswer: true, reason: 'out_of_scope', cost: 0 });
     expect(await balanceOf(db(), userId)).toBe(before);
     const entries = await db().select().from(schema.creditEntry).where(eq(schema.creditEntry.userId, userId)).orderBy(asc(schema.creditEntry.createdAt));
@@ -106,7 +106,7 @@ describeWithDb('answering', () => {
   it('releases the hold when the model itself declines', async () => {
     const { userId, ree, conversation } = await setUp(true);
     const before = await balanceOf(db(), userId);
-    const result = await consume(await answer({ userId, lang: 'zh', conversation, ree, question: 'Refunds are issued within days DECLINE' }));
+    const result = await consume(await answer({ userId, lang: 'zh', conversation, targets: [ree], question: 'Refunds are issued within days DECLINE' }));
     expect(result.text).toBe('');
     expect(result.outcome).toMatchObject({ noAnswer: true, reason: 'out_of_scope' });
     expect(await balanceOf(db(), userId)).toBe(before);
@@ -114,7 +114,7 @@ describeWithDb('answering', () => {
 
   it('says knowledge is not ready, for free, without holding anything', async () => {
     const { userId, ree, conversation } = await setUp(false);
-    const result = await consume(await answer({ userId, lang: 'zh', conversation, ree, question: 'Anything?' }));
+    const result = await consume(await answer({ userId, lang: 'zh', conversation, targets: [ree], question: 'Anything?' }));
     expect(result.outcome).toMatchObject({ noAnswer: true, reason: 'no_sources', cost: 0 });
     expect(await db().select().from(schema.creditHold).where(eq(schema.creditHold.userId, userId))).toHaveLength(0);
   });
@@ -122,7 +122,7 @@ describeWithDb('answering', () => {
   it('refuses with 402 before streaming when the balance is short, saving nothing', async () => {
     const { userId, ree, conversation } = await setUp(true);
     await db().update(schema.creditGrant).set({ remaining: 5 }).where(eq(schema.creditGrant.userId, userId));
-    const response = await answer({ userId, lang: 'zh', conversation, ree, question: 'When are refunds issued to the original payment method?' });
+    const response = await answer({ userId, lang: 'zh', conversation, targets: [ree], question: 'When are refunds issued to the original payment method?' });
     expect(response.status).toBe(402);
     expect(await response.json()).toEqual({ error: 'insufficient_credits', balance: 5, needed: 20 });
     expect(await chat.messagesOf(conversation.id)).toHaveLength(0);
@@ -130,7 +130,7 @@ describeWithDb('answering', () => {
 
   it('clears the conversation without touching the ledger', async () => {
     const { userId, ree, conversation } = await setUp(true);
-    await consume(await answer({ userId, lang: 'zh', conversation, ree, question: 'When are refunds issued to the original payment method?' }));
+    await consume(await answer({ userId, lang: 'zh', conversation, targets: [ree], question: 'When are refunds issued to the original payment method?' }));
     const balance = await balanceOf(db(), userId);
     await chat.clearConversation(conversation.id);
     expect(await chat.messagesOf(conversation.id)).toHaveLength(0);
@@ -145,7 +145,7 @@ describeWithDb('answering', () => {
       (await db().insert(schema.administrator).values({ name: 'a', email: `${uniqueName('a')}@x.test`, passwordHash: await admin.hashPassword('x'.repeat(12)), totpSecretCipher: 'x' }).returning())[0]!.id;
     const created = await models.createModelConfig(adminId, { name: 'Second', kind: 'generation', transport: 'openai_compatible', baseUrl: fake.baseUrl, model: 'fake-gen-2', apiKey: 'k' });
     await models.activateModelConfig(adminId, created.id);
-    const result = await consume(await answer({ userId, lang: 'zh', conversation, ree, question: 'When are refunds issued to the original payment method?' }));
+    const result = await consume(await answer({ userId, lang: 'zh', conversation, targets: [ree], question: 'When are refunds issued to the original payment method?' }));
     expect(result.outcome?.model).toBe('fake-gen-2');
     expect(fake.requests.filter((request) => request.path.endsWith('/chat/completions')).at(-1)?.model).toBe('fake-gen-2');
     await db().delete(schema.modelConfig).where(eq(schema.modelConfig.id, created.id));

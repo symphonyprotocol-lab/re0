@@ -27,6 +27,7 @@ export async function SiteShell({ children }: { children: ReactNode }) {
   const s = t.site;
   const links = [
     { href: '/', label: s.nav.home },
+    { href: '/explore', label: t.discover.nav },
     { href: '/pricing', label: s.nav.pricing },
   ];
   const createHref = user ? '/rees/new' : `/login?returnTo=${encodeURIComponent('/rees/new')}`;
@@ -59,7 +60,13 @@ export async function SiteShell({ children }: { children: ReactNode }) {
             <p className="mt-4 text-[13px] text-muted">{s.footer.tagline}</p>
             <p className="mt-1 font-mono text-[10px] tracking-[0.18em] text-muted">A LITTLE KNOWLEDGE. A NEW POSSIBILITY.</p>
           </div>
-          <FooterColumn title={s.footer.product} links={[{ href: '/pricing', label: s.footer.pricing }]} />
+          <FooterColumn
+            title={s.footer.product}
+            links={[
+              { href: '/explore', label: t.discover.nav },
+              { href: '/pricing', label: s.footer.pricing },
+            ]}
+          />
           <FooterColumn
             title={s.footer.space}
             links={[
