@@ -5,9 +5,10 @@
  * at all. Grants are locked `FOR UPDATE` so two holds cannot spend the same
  * credit.
  */
-import { and, eq, inArray, sql } from 'drizzle-orm';
+import { and, asc, eq, gt, inArray, lte, sql } from 'drizzle-orm';
 import type { CreditEntryReason } from '@/db/schema';
-import { WELCOME_CREDITS } from '@/lib/constants';
+import { WELCOME_CREDITS, type GrantSource } from '@/lib/constants';
+import { offsetDebts } from '@/lib/domain/billing';
 import {
   allocate,
   availableOf,
@@ -43,7 +44,125 @@ export async function grantWelcome(tx: Tx, userId: string, now = new Date()): Pr
   });
 }
 
-async function grantsOf(executor: Executor, userId: string, lock: boolean): Promise<SpendableGrant[]> {
+/**
+ * Credits arriving: a grant and its entry, then any open debt (a refund that
+ * found the credits already spent) paid off from it first, oldest debt
+ * first, with a `debt_offset` entry against the new grant (2.3).
+ */
+export async function addGrant(
+  tx: Tx,
+  input: {
+    userId: string;
+    source: GrantSource;
+    amount: number;
+    reason: CreditEntryReason;
+    refId: string;
+    expiresAt?: Date | null;
+    periodStart?: Date | null;
+    purchaseId?: string | null;
+    note?: string | null;
+  },
+  now = new Date(),
+): Promise<{ grantId: string; offset: number }> {
+  const [grant] = await tx
+    .insert(schema.creditGrant)
+    .values({
+      userId: input.userId,
+      source: input.source,
+      amount: input.amount,
+      remaining: input.amount,
+      expiresAt: input.expiresAt ?? null,
+      periodStart: input.periodStart ?? null,
+      purchaseId: input.purchaseId ?? null,
+      createdAt: now,
+    })
+    .returning({ id: schema.creditGrant.id });
+  const grantId = grant!.id;
+  await tx.insert(schema.creditEntry).values({
+    userId: input.userId,
+    delta: input.amount,
+    reason: input.reason,
+    refId: input.refId,
+    note: input.note ?? null,
+    allocations: [{ grantId, source: input.source, amount: input.amount }],
+    createdAt: now,
+  });
+  const debts = await tx
+    .select({ id: schema.creditDebt.id, remaining: schema.creditDebt.remaining })
+    .from(schema.creditDebt)
+    .where(and(eq(schema.creditDebt.userId, input.userId), gt(schema.creditDebt.remaining, 0)))
+    .orderBy(asc(schema.creditDebt.createdAt))
+    .for('update');
+  const offsets = offsetDebts(debts, input.amount);
+  const offset = offsets.reduce((sum, entry) => sum + entry.amount, 0);
+  if (offset === 0) return { grantId, offset };
+  for (const entry of offsets) {
+    await tx
+      .update(schema.creditDebt)
+      .set({
+        remaining: sql`${schema.creditDebt.remaining} - ${entry.amount}`,
+        clearedAt: sql`case when ${schema.creditDebt.remaining} = ${entry.amount} then ${now.toISOString()}::timestamptz else null end`,
+      })
+      .where(eq(schema.creditDebt.id, entry.debtId));
+  }
+  await tx
+    .update(schema.creditGrant)
+    .set({ remaining: sql`${schema.creditGrant.remaining} - ${offset}` })
+    .where(eq(schema.creditGrant.id, grantId));
+  await tx.insert(schema.creditEntry).values({
+    userId: input.userId,
+    delta: -offset,
+    reason: 'debt_offset',
+    refId: offsets[0]!.debtId,
+    note: `debts ${offsets.map((entry) => `${entry.debtId}:${entry.amount}`).join(', ')}`,
+    allocations: [{ grantId, source: input.source, amount: offset }],
+    createdAt: now,
+  });
+  return { grantId, offset };
+}
+
+/**
+ * Plan credits whose period ended by `cutoff` are written off: remaining to
+ * zero, one `expire` entry per grant. Locked rows are skipped, so the cron
+ * and a renewal never fight over one; whatever is skipped goes next run.
+ * Idempotent: an expired grant has nothing left to expire. Credits a later
+ * hold release returns to an expired grant are written off the same way.
+ */
+export async function expirePlanGrants(
+  tx: Tx,
+  options: { userId?: string; cutoff: Date; limit?: number },
+  now = new Date(),
+): Promise<number> {
+  const conditions = [eq(schema.creditGrant.source, 'plan'), gt(schema.creditGrant.remaining, 0), lte(schema.creditGrant.expiresAt, options.cutoff)];
+  if (options.userId) conditions.push(eq(schema.creditGrant.userId, options.userId));
+  const query = tx
+    .select({
+      id: schema.creditGrant.id,
+      userId: schema.creditGrant.userId,
+      remaining: schema.creditGrant.remaining,
+      purchaseId: schema.creditGrant.purchaseId,
+      expiresAt: schema.creditGrant.expiresAt,
+    })
+    .from(schema.creditGrant)
+    .where(and(...conditions))
+    .orderBy(asc(schema.creditGrant.expiresAt));
+  const due = await (options.limit ? query.limit(options.limit) : query).for('update', { skipLocked: true });
+  for (const grant of due) {
+    await tx.update(schema.creditGrant).set({ remaining: 0 }).where(eq(schema.creditGrant.id, grant.id));
+    await tx.insert(schema.creditEntry).values({
+      userId: grant.userId,
+      delta: -grant.remaining,
+      reason: 'expire',
+      refId: grant.purchaseId ?? grant.id,
+      note: `plan period ended ${grant.expiresAt!.toISOString()}`,
+      allocations: [{ grantId: grant.id, source: 'plan', amount: grant.remaining }],
+      createdAt: now,
+    });
+  }
+  return due.length;
+}
+
+export async function grantsOf(executor: Executor, userId: string, lock: boolean): Promise<SpendableGrant[]> {
   const query = executor
     .select({
       id: schema.creditGrant.id,
@@ -61,7 +180,7 @@ export async function balanceOf(executor: Executor, userId: string, now = new Da
   return availableOf(await grantsOf(executor, userId, false), now);
 }
 
-async function moveGrants(tx: Tx, allocations: readonly Allocation[], direction: -1 | 1): Promise<void> {
+export async function moveGrants(tx: Tx, allocations: readonly Allocation[], direction: -1 | 1): Promise<void> {
   for (const entry of allocations) {
     if (entry.amount === 0) continue;
     await tx

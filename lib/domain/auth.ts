@@ -14,7 +14,7 @@ export function isIdentityProvider(value: unknown): value is IdentityProvider {
 export const DEFAULT_RETURN_TO = '/dashboard';
 
 /** In-app destinations a sign-in may return to; an allow list cannot be talked into pointing elsewhere. */
-const RETURN_TO_PREFIXES = ['/dashboard', '/rees', '/settings', '/chats', '/talk', '/explore', '/r'];
+const RETURN_TO_PREFIXES = ['/dashboard', '/rees', '/settings', '/chats', '/talk', '/explore', '/r', '/checkout', '/pricing', '/billing'];
 
 function hasControlCharacter(value: string): boolean {
   for (const ch of value) {

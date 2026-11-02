@@ -13,11 +13,35 @@ export const CREDIT_USD = 0.0001;
 export const WELCOME_CREDITS = 2_000;
 
 /**
- * The order credits are spent in; refunds walk it backwards. Only `welcome`
- * exists in step 1, but holds and the ledger are built for all four.
+ * The order credits are spent in; refunds walk it backwards (8.2, "扣费顺序").
+ * `earned` arrives with step 4's query fees.
  */
 export const GRANT_SPEND_ORDER = ['plan', 'welcome', 'pack', 'earned'] as const;
 export type GrantSource = (typeof GRANT_SPEND_ORDER)[number];
+
+/**
+ * The Plan: a monthly Paddle subscription whose credits are good for the
+ * billing period they arrive in and expire at its end. Cancelling keeps them
+ * to the end of the period.
+ */
+export const PLAN = { priceMinor: 1_000, currency: 'USD', credits: 100_000, interval: 'month' } as const;
+/**
+ * A Pack: one-off, never expires, sold only to a user whose Plan is active,
+ * 1 to 10 in one checkout (8.2, "Pack 数量").
+ */
+export const PACK = { priceMinor: 1_000, currency: 'USD', credits: 100_000, minQuantity: 1, maxQuantity: 10 } as const;
+/** The sidebar's Plan meter turns red from this share of the period's credits used. */
+export const PLAN_USAGE_WARN_PERCENT = 90;
+/** The pricing page's estimator: successful answers on your own Ree (prototype `#/pricing`). */
+export const ESTIMATOR = { min: 10, max: 1_000, step: 10, default: 100 } as const;
+/**
+ * How far a `Paddle-Signature` timestamp may sit from our clock. A replay is
+ * stopped by the event-id check, not by this; it only makes a leaked signed
+ * body go stale.
+ */
+export const PADDLE_SIGNATURE_TOLERANCE_SECONDS = 300;
+/** Plan grants the expiry cron settles per batch. */
+export const PLAN_EXPIRY_BATCH = 200;
 
 /** Platform base fee per answered question, charged on your own Ree too. */
 export const QUERY_BASE_FEE = 20;

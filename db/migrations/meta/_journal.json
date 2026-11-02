@@ -15,6 +15,13 @@
       "when": 1793586032589,
       "tag": "0002_knowledge_library",
       "breakpoints": true
+    },
+    {
+      "idx": 3,
+      "version": "7",
+      "when": 1793599027631,
+      "tag": "0003_billing",
+      "breakpoints": true
     }
   ]
 }
