@@ -6,8 +6,11 @@ import { ADMIN_REASON } from '@/lib/constants';
 import { api } from '@/lib/client/upload';
 import { useI18n } from '@/i18n/client';
 import { fill } from '@/i18n/format';
-import { Icon, Spinner, type IconName } from '@/components/ui/icons';
+import { CI } from '@/components/admin/console-icon';
 import { useToast } from '@/components/ui/toast';
+// console.css first, so these later prototype rules keep their cascade order.
+import '@/components/admin/console.css';
+import '@/components/admin/console-finance.css';
 
 type Slot = 'document' | 'selfie';
 type Files = Record<Slot, { url: string; expiresAt: string } | null>;
@@ -55,66 +58,53 @@ export function KycFiles({ id, available }: { id: string; available: boolean }) 
   const notice = view.phase === 'live' ? fill(d.noticeLive, { s: seconds }) : view.phase === 'expired' ? d.noticeExpired : view.phase === 'deleted' ? d.noticeDeleted : d.notice;
 
   return (
-    <section className="min-w-0">
-      <div className="flex flex-wrap items-end justify-between gap-3">
-        <div className="min-w-0">
-          <h2 className="text-[15px] font-bold">{d.compare}</h2>
-          <p role="status" className="mt-1 text-[12px] text-muted">
+    <section className="kyc-comparison-section">
+      <div className="between kyc-comparison-heading">
+        <div>
+          <h2>{d.compare}</h2>
+          <p id="kyc-preview-notice" role="status">
             {notice}
           </p>
         </div>
         {available && view.phase !== 'deleted' && (
-          <button type="button" className="btn-secondary btn-sm" onClick={() => void load()} disabled={view.phase === 'loading'}>
-            {view.phase === 'loading' ? <Spinner /> : <Icon name="refresh" className="size-3.5" />}
+          <button type="button" className="btn secondary sm" onClick={() => void load()} disabled={view.phase === 'loading'}>
+            <CI name="refresh" />
             {d.renew}
           </button>
         )}
       </div>
-      <div className="mt-3 grid min-w-0 gap-4 md:grid-cols-2">
+      <div className="kyc-comparison-grid">
         {(['document', 'selfie'] as const).map((slot) => {
           const file = view.phase === 'live' ? view.files[slot] : null;
           return (
-            <article key={slot} className="card min-w-0 overflow-hidden">
-              <div className="flex min-w-0 flex-wrap items-baseline justify-between gap-2 border-b border-line px-4 py-3">
-                <span className="flex items-center gap-2 text-[13px] font-bold">
-                  <Icon name={slot === 'document' ? 'file' : 'users'} className="size-4 text-muted" />
+            <article key={slot} className="card kyc-preview-panel">
+              <div className="kyc-preview-title">
+                <span>
+                  <CI name={slot === 'document' ? 'file' : 'users'} />
                   {slot === 'document' ? d.document : d.selfie}
                 </span>
-                <small className="text-[11px] text-muted">{slot === 'document' ? d.documentHint : d.selfieHint}</small>
+                <small>{slot === 'document' ? d.documentHint : d.selfieHint}</small>
               </div>
-              <div className="flex aspect-[4/3] min-w-0 items-center justify-center bg-[#f3f5fa]">
+              <div className="kyc-preview-stage" id={`kyc-preview-${slot}`}>
                 {view.phase === 'loading' ? (
-                  <span className="flex items-center gap-2 text-[12px] text-muted">
-                    <Spinner />
-                    {d.loading}
-                  </span>
+                  <p>{d.loading}</p>
                 ) : file ? (
                   // eslint-disable-next-line @next/next/no-img-element -- a 60-second signed link, never optimised or cached
-                  <img src={file.url} alt={slot === 'document' ? d.document : d.selfie} referrerPolicy="no-referrer" className="size-full object-contain" />
+                  <img className="kyc-local-image" src={file.url} alt={slot === 'document' ? d.documentAlt : d.selfieAlt} referrerPolicy="no-referrer" />
                 ) : (
-                  <Placeholder
-                    icon={view.phase === 'expired' ? 'clock' : 'shield'}
-                    title={view.phase === 'expired' ? d.expiredTitle : view.phase === 'deleted' ? d.deletedTitle : view.phase === 'failed' ? d.loadFailed : d.noneTitle}
-                    body={view.phase === 'expired' ? d.expiredBody : view.phase === 'deleted' ? d.deletedBody : view.phase === 'failed' ? '' : d.noneBody}
-                  />
+                  <div className="kyc-preview-empty">
+                    <CI name={view.phase === 'expired' ? 'clock' : 'shield'} />
+                    <strong>{view.phase === 'expired' ? d.expiredTitle : view.phase === 'deleted' ? d.deletedTitle : view.phase === 'failed' ? d.loadFailed : d.noneTitle}</strong>
+                    {view.phase !== 'failed' && <p>{view.phase === 'expired' ? d.expiredBody : view.phase === 'deleted' ? d.deletedBody : d.noneBody}</p>}
+                  </div>
                 )}
               </div>
-              <p className="px-4 py-2 text-[11px] text-muted">{d.caption}</p>
+              <p className="kyc-preview-caption">{d.caption}</p>
             </article>
           );
         })}
       </div>
     </section>
-  );
-}
-
-function Placeholder({ icon, title, body }: { icon: IconName; title: string; body: string }) {
-  return (
-    <div className="flex max-w-[260px] flex-col items-center gap-1.5 px-4 text-center">
-      <Icon name={icon} className="size-6 text-muted" />
-      <strong className="text-[13px]">{title}</strong>
-      {body && <p className="text-[11px] text-muted">{body}</p>}
-    </div>
   );
 }
 
@@ -153,36 +143,35 @@ export function KycDecision({ id }: { id: string }) {
 
   return (
     <form
+      id="manual-kyc-review"
+      className="kyc-review-decision"
       onSubmit={(event) => {
         event.preventDefault();
         const submitter = (event.nativeEvent as SubmitEvent).submitter as HTMLButtonElement | null;
         void decide(submitter?.value === 'rejected' ? 'rejected' : 'verified');
       }}
     >
-      <label className="flex items-start gap-2.5 text-[13px] leading-relaxed">
-        <input type="checkbox" name="matched" className="mt-1 size-4 flex-none accent-blue" checked={matched} onChange={(event) => setMatched(event.target.checked)} />
+      <label className="check-row small">
+        <input type="checkbox" name="matched" checked={matched} onChange={(event) => setMatched(event.target.checked)} />
         {d.matched}
       </label>
-      <label htmlFor="kyc-note" className="field-label mt-4">
-        {d.note}
-      </label>
-      <textarea id="kyc-note" name="reason" rows={3} maxLength={ADMIN_REASON.max} value={note} onChange={(event) => setNote(event.target.value)} className="input resize-y" />
-      <small className="hint block">{Array.from(note).length} / {ADMIN_REASON.max}</small>
-      {error && (
-        <p role="alert" className="mt-3 text-[12px] text-red">
-          {error}
-        </p>
-      )}
-      <div className="mt-4 flex flex-wrap justify-end gap-2">
-        <button type="submit" name="decision" value="rejected" className="btn-secondary" disabled={busy !== null}>
-          {busy === 'rejected' && <Spinner />}
+      <div className="field mt16">
+        <label htmlFor="kyc-reason">{d.note}</label>
+        <textarea id="kyc-reason" name="reason" rows={2} maxLength={ADMIN_REASON.max} value={note} onChange={(event) => setNote(event.target.value)} />
+      </div>
+      <div className="flex">
+        <button className="btn secondary" type="submit" name="decision" value="rejected" disabled={busy !== null}>
           {d.reject}
         </button>
-        <button type="submit" name="decision" value="verified" className="btn" disabled={busy !== null}>
-          {busy === 'verified' ? <Spinner /> : <Icon name="check" className="size-4" />}
+        <button className="btn" type="submit" name="decision" value="verified" disabled={busy !== null}>
           {d.approve}
         </button>
       </div>
+      {error && (
+        <p className="form-error" role="alert">
+          {error}
+        </p>
+      )}
     </form>
   );
 }

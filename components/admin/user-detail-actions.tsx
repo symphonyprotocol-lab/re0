@@ -6,8 +6,8 @@ import { CREDIT_ADJUSTMENT, ADMIN_REASON } from '@/lib/constants';
 import { api } from '@/lib/client/upload';
 import { useI18n } from '@/i18n/client';
 import { fill, formatNumber } from '@/i18n/format';
-import { Icon, Spinner } from '@/components/ui/icons';
-import { ConfirmModal, Modal } from '@/components/ui/modal';
+import { CI } from '@/components/admin/console-icon';
+import { ConfirmModal, Modal } from '@/components/admin/console-modal';
 import { useToast } from '@/components/ui/toast';
 
 function useErrorText() {
@@ -16,8 +16,8 @@ function useErrorText() {
     (code && (own[code] ?? (t.console.errors as Record<string, string>)[code])) || t.console.errors.generic;
 }
 
-/** 停用 / 恢复 (prototype 'toggle-user'): a confirmation, then the status endpoint. */
-export function UserStatusButton({ id, disabled }: { id: string; disabled: boolean }) {
+/** 停用账号 / 恢复账号 (prototype 'toggle-user'): a confirmation, then the status endpoint. */
+export function UserStatusButton({ id, disabled, className = 'btn secondary full mt16' }: { id: string; disabled: boolean; className?: string }) {
   const { t } = useI18n();
   const d = t.consoleUsers.detail;
   const router = useRouter();
@@ -28,8 +28,7 @@ export function UserStatusButton({ id, disabled }: { id: string; disabled: boole
   const [error, setError] = useState('');
   return (
     <>
-      <button type="button" className={disabled ? 'btn-secondary btn-sm' : 'btn-danger btn-sm'} onClick={() => (setError(''), setOpen(true))}>
-        <Icon name={disabled ? 'refresh' : 'lock'} className="size-3.5" />
+      <button type="button" className={className} onClick={() => (setError(''), setOpen(true))}>
         {disabled ? d.actions.restore : d.actions.disable}
       </button>
       <ConfirmModal
@@ -37,16 +36,15 @@ export function UserStatusButton({ id, disabled }: { id: string; disabled: boole
         title={disabled ? d.toggle.restoreTitle : d.toggle.disableTitle}
         body={
           <>
-            {disabled ? d.toggle.restoreBody : d.toggle.disableBody}
             {error && (
-              <p role="alert" className="mt-3 text-[12px] text-red">
+              <span className="form-error" role="alert">
                 {error}
-              </p>
+              </span>
             )}
+            {disabled ? d.toggle.restoreBody : d.toggle.disableBody}
           </>
         }
         confirmLabel={d.toggle.confirm}
-        danger={!disabled}
         busy={busy}
         onClose={() => setOpen(false)}
         onConfirm={async () => {
@@ -67,13 +65,10 @@ export function UserStatusButton({ id, disabled }: { id: string; disabled: boole
   );
 }
 
-const choice =
-  'flex min-w-0 flex-1 cursor-pointer items-start gap-2 rounded-lg border border-line px-3 py-2.5 text-[13px] has-[:checked]:border-blue has-[:checked]:bg-soft has-[:disabled]:cursor-not-allowed has-[:disabled]:opacity-50';
-
 /**
- * 调整 credits (prototype `adjustModal`): Pack or Plan, grant or deduct,
+ * 调整 Credits (prototype `adjustModal`): grant or deduct, Pack or Plan,
  * 1–10,000,000 whole credits and a 3–300 character reason. A Plan grant
- * needs an active Plan, so the choice is closed without one.
+ * needs an active Plan, so that option is closed without one.
  */
 export function AdjustCreditsButton({ id, name, email, planActive }: { id: string; name: string; email: string; planActive: boolean }) {
   const { t, locale } = useI18n();
@@ -91,7 +86,7 @@ export function AdjustCreditsButton({ id, name, email, planActive }: { id: strin
     <>
       <button
         type="button"
-        className="btn btn-sm"
+        className="btn full mt24"
         onClick={() => {
           setError('');
           setBucket('pack');
@@ -99,7 +94,7 @@ export function AdjustCreditsButton({ id, name, email, planActive }: { id: strin
           setOpen(true);
         }}
       >
-        <Icon name="plus" className="size-3.5" />
+        <CI name="plus" />
         {t.consoleUsers.detail.actions.adjust}
       </button>
       <Modal
@@ -109,18 +104,18 @@ export function AdjustCreditsButton({ id, name, email, planActive }: { id: strin
         subtitle={`${name} · ${email}`}
         footer={
           <>
-            <button type="button" className="btn-secondary" onClick={() => setOpen(false)}>
+            <button type="button" className="btn secondary" onClick={() => setOpen(false)}>
               {t.common.actions.cancel}
             </button>
-            <button type="submit" form="adjust-credits-form" className="btn" disabled={busy}>
-              {busy && <Spinner />}
+            <button type="submit" form="adjust-form" className="btn" disabled={busy}>
+              {busy && <span className="spinner" aria-hidden="true" />}
               {a.confirm}
             </button>
           </>
         }
       >
         <form
-          id="adjust-credits-form"
+          id="adjust-form"
           noValidate
           onSubmit={async (event) => {
             event.preventDefault();
@@ -145,88 +140,67 @@ export function AdjustCreditsButton({ id, name, email, planActive }: { id: strin
             router.refresh();
           }}
         >
-          <fieldset className="mb-4">
-            <legend className="field-label">{a.direction}</legend>
-            <div className="flex flex-wrap gap-2">
-              {(['grant', 'deduct'] as const).map((value) => (
-                <label key={value} className={choice}>
-                  <input
-                    type="radio"
-                    name="direction"
-                    value={value}
-                    checked={direction === value}
-                    onChange={() => {
-                      setDirection(value);
-                      if (value === 'grant' && !planActive) setBucket('pack');
-                    }}
-                    className="mt-0.5"
-                  />
-                  <span className="font-semibold">{value === 'grant' ? a.grant : a.deduct}</span>
-                </label>
-              ))}
+          {error && (
+            <div className="form-error" role="alert">
+              {error}
             </div>
-          </fieldset>
-          <fieldset className="mb-4">
-            <legend className="field-label">{a.bucket}</legend>
-            <div className="flex flex-wrap gap-2">
-              {(['pack', 'plan'] as const).map((value) => (
-                <label key={value} className={choice}>
-                  <input
-                    type="radio"
-                    name="bucket"
-                    value={value}
-                    checked={bucket === value}
-                    disabled={value === 'plan' && planLocked}
-                    onChange={() => setBucket(value)}
-                    className="mt-0.5"
-                  />
-                  <span className="min-w-0">
-                    <span className="block font-semibold">{value === 'pack' ? a.pack : a.plan}</span>
-                    <small className="block text-[11px] text-muted">{value === 'pack' ? a.packHint : a.planHint}</small>
-                  </span>
-                </label>
-              ))}
-            </div>
-            {planLocked && <small className="hint mt-1.5 block">{a.noPlan}</small>}
-          </fieldset>
-          <label htmlFor="adjust-amount" className="field-label">
-            {a.amount}
-          </label>
-          <input
-            id="adjust-amount"
-            name="amount"
-            type="number"
-            inputMode="numeric"
-            min={CREDIT_ADJUSTMENT.min}
-            max={CREDIT_ADJUSTMENT.max}
-            step={1}
-            required
-            className="input"
-          />
-          <small className="hint mb-4 block">{a.amountHint}</small>
-          <label htmlFor="adjust-reason" className="field-label">
-            {a.reason}
-          </label>
-          <textarea
-            id="adjust-reason"
-            name="reason"
-            rows={3}
-            required
-            minLength={ADMIN_REASON.min}
-            maxLength={ADMIN_REASON.max}
-            placeholder={a.placeholder}
-            className="input resize-y"
-          />
-          <small className="hint block">{fill(t.console.reason.hint, { min: ADMIN_REASON.min, max: ADMIN_REASON.max })}</small>
-          <div className="mt-4 flex items-start gap-2 rounded-lg bg-soft px-3 py-2.5 text-[12px] leading-relaxed text-blue">
-            <Icon name="shield" className="mt-0.5 size-4 flex-none" />
+          )}
+          <div className="field">
+            <label htmlFor="credit-direction">{a.direction}</label>
+            <select
+              id="credit-direction"
+              name="direction"
+              value={direction}
+              onChange={(event) => {
+                const value = event.target.value === 'deduct' ? 'deduct' : 'grant';
+                setDirection(value);
+                if (value === 'grant' && !planActive) setBucket('pack');
+              }}
+            >
+              <option value="grant">{a.grant}</option>
+              <option value="deduct">{a.deduct}</option>
+            </select>
+          </div>
+          <div className="field">
+            <label htmlFor="credit-bucket">{a.bucket}</label>
+            <select id="credit-bucket" name="bucket" value={bucket} onChange={(event) => setBucket(event.target.value === 'plan' ? 'plan' : 'pack')}>
+              <option value="pack">{a.pack}</option>
+              <option value="plan" disabled={planLocked}>
+                {a.plan}
+              </option>
+            </select>
+            {planLocked && <small>{a.noPlan}</small>}
+          </div>
+          <div className="field">
+            <label htmlFor="credit-amount">{a.amount}</label>
+            <input
+              id="credit-amount"
+              name="amount"
+              type="number"
+              inputMode="numeric"
+              min={CREDIT_ADJUSTMENT.min}
+              max={CREDIT_ADJUSTMENT.max}
+              step={1}
+              required
+            />
+            <small>{a.amountHint}</small>
+          </div>
+          <div className="field">
+            <label htmlFor="credit-reason">{a.reason}</label>
+            <textarea
+              id="credit-reason"
+              name="reason"
+              rows={3}
+              required
+              minLength={ADMIN_REASON.min}
+              maxLength={ADMIN_REASON.max}
+              placeholder={a.placeholder}
+            />
+          </div>
+          <div className="info-strip">
+            <CI name="shield" />
             <span>{a.info}</span>
           </div>
-          {error && (
-            <p role="alert" className="mt-3 text-[12px] text-red">
-              {error}
-            </p>
-          )}
         </form>
       </Modal>
     </>

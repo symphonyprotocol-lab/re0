@@ -4,8 +4,9 @@ import { useState } from 'react';
 import { api } from '@/lib/client/upload';
 import { useI18n } from '@/i18n/client';
 import { fill, formatDateTime } from '@/i18n/format';
-import { Icon, Spinner } from '@/components/ui/icons';
-import { ConfirmModal, Modal } from '@/components/ui/modal';
+import { CI } from '@/components/admin/console-icon';
+import { ConfirmModal, Modal } from '@/components/admin/console-modal';
+import { Tag } from '@/components/admin/list-kit';
 
 interface AdministratorItem {
   id: string;
@@ -17,11 +18,7 @@ interface AdministratorItem {
   createdBy: string | null;
 }
 
-const STATUS_TONES = {
-  active: 'border-[#cde8df] bg-[#effaf6] text-green',
-  invited: 'border-[#f0dcc2] bg-[#fff7ec] text-orange',
-  disabled: 'border-[#f1d4d4] bg-[#fff3f3] text-red',
-} as const;
+const STATUS_TONES = { active: 'green', invited: 'orange', disabled: 'red' } as const;
 
 async function copyText(text: string): Promise<boolean> {
   try {
@@ -97,9 +94,9 @@ export function AdministratorsButton() {
 
   return (
     <>
-      <button type="button" className="btn-secondary btn-sm" aria-label={t.console.nav.administrators} onClick={show}>
-        <Icon name="user" className="size-3.5" />
-        <span className="hidden sm:inline">{t.console.nav.administrators}</span>
+      <button type="button" className="btn secondary sm" aria-label={t.console.nav.administrators} onClick={show}>
+        <CI name="users" />
+        <span className="admin-manage-label">{t.console.nav.administrators}</span>
       </button>
       <Modal
         open={open}
@@ -113,11 +110,10 @@ export function AdministratorsButton() {
             </button>
           ) : (
             <>
-              <button type="button" className="btn-secondary" onClick={() => setOpen(false)}>
+              <button type="button" className="btn secondary" onClick={() => setOpen(false)}>
                 {t.common.actions.close}
               </button>
               <button type="submit" form="add-admin-form" className="btn" disabled={busy === 'add'}>
-                {busy === 'add' && <Spinner />}
                 {a.submit}
               </button>
             </>
@@ -126,72 +122,65 @@ export function AdministratorsButton() {
       >
         {created ? (
           <div>
-            <h3 className="text-[14px] font-bold">{a.linkTitle}</h3>
-            <p className="mt-1.5 text-[12px] leading-relaxed text-muted">{fill(a.linkNote, { email: created.email })}</p>
-            <code className="mt-3 block max-h-32 overflow-y-auto rounded-lg border border-line bg-wash p-3 font-mono text-[11px] break-all select-all">{created.link}</code>
+            <h3>{a.linkTitle}</h3>
+            <p className="form-hint mt16">{fill(a.linkNote, { email: created.email })}</p>
+            <code className="code-block mt16" style={{ display: 'block', userSelect: 'all' }}>
+              {created.link}
+            </code>
             <button
               type="button"
-              className="btn-secondary btn-sm mt-3"
+              className="btn secondary sm mt16"
               onClick={async () => {
                 if (await copyText(created.link)) setCopied(true);
               }}
             >
-              <Icon name={copied ? 'check' : 'copy'} className="size-3.5" />
+              <CI name={copied ? 'check' : 'copy'} />
               {copied ? a.copied : a.copy}
             </button>
           </div>
         ) : (
           <>
             {items === null && !loadError && (
-              <p className="flex items-center gap-2 text-[12px] text-muted">
-                <Spinner className="size-3.5" />
-                {a.loading}
+              <p className="form-hint">
+                <span className="spinner" aria-hidden="true" /> {a.loading}
               </p>
             )}
             {loadError && (
-              <p role="alert" className="text-[12px] text-red">
+              <div className="form-error" role="alert">
                 {a.loadFailed}
-              </p>
+              </div>
             )}
-            {items && (
-              <ul className="divide-y divide-line">
-                {items.map((item) => (
-                  <li key={item.id} className="flex flex-wrap items-start justify-between gap-2 py-3 first:pt-0">
-                    <div className="min-w-0 flex-1">
-                      <p className="flex flex-wrap items-center gap-1.5 text-[13px] font-semibold">
-                        <span className="min-w-0 break-words">{item.name}</span>
-                        {item.id === self && <span className="text-[11px] font-normal text-muted">({a.you})</span>}
-                      </p>
-                      <p className="text-[12px] break-all text-muted">{item.email}</p>
-                      <p className="mt-0.5 text-[11px] text-muted">{formatDateTime(item.createdAt, locale)}</p>
-                    </div>
-                    <div className="flex flex-wrap items-center justify-end gap-1.5">
-                      <span className={`tag ${item.role === 'owner' ? 'border-[#cfe1fb] bg-soft text-blue' : ''}`}>{a.roles[item.role]}</span>
-                      <span className={`tag ${STATUS_TONES[item.status]}`}>{a.status[item.status]}</span>
-                      {item.status === 'invited' && (
-                        <button type="button" className="btn-ghost btn-sm" onClick={() => copyLink(item)} disabled={busy === item.id}>
-                          {busy === item.id ? <Spinner className="size-3" /> : <Icon name={copiedId === item.id ? 'check' : 'copy'} className="size-3.5" />}
-                          {copiedId === item.id ? a.linkCopied : a.copyLink}
-                        </button>
-                      )}
-                      {item.status !== 'disabled' && item.role !== 'owner' && item.id !== self && (
-                        <button type="button" className="btn-ghost btn-sm text-red" onClick={() => setDisabling(item)} disabled={busy === item.id}>
-                          {a.disable}
-                        </button>
-                      )}
-                    </div>
-                  </li>
-                ))}
-              </ul>
-            )}
-            {error && (
-              <p role="alert" className="mt-3 text-[12px] text-red">
-                {error}
-              </p>
-            )}
+            {items?.map((item) => (
+              <div key={item.id} className="settings-row">
+                <div>
+                  <h3>
+                    {item.name}
+                    {item.id === self && <span className="muted"> ({t.console.administrators.you})</span>}
+                  </h3>
+                  <p>
+                    {item.email} · {formatDateTime(item.createdAt, locale)}
+                  </p>
+                </div>
+                <div className="flex">
+                  <span className="tag">{a.roles[item.role]}</span>
+                  <Tag tone={STATUS_TONES[item.status]}>{a.status[item.status]}</Tag>
+                  {item.status === 'invited' && (
+                    <button type="button" className="btn ghost sm" onClick={() => copyLink(item)} disabled={busy === item.id}>
+                      <CI name={copiedId === item.id ? 'check' : 'copy'} />
+                      {copiedId === item.id ? a.linkCopied : a.copyLink}
+                    </button>
+                  )}
+                  {item.status !== 'disabled' && item.role !== 'owner' && item.id !== self && (
+                    <button type="button" className="btn ghost sm" onClick={() => setDisabling(item)} disabled={busy === item.id}>
+                      {a.disable}
+                    </button>
+                  )}
+                </div>
+              </div>
+            ))}
+            <div className="rule" />
             <form
               id="add-admin-form"
-              className="mt-4 border-t border-line pt-4"
               onSubmit={async (event) => {
                 event.preventDefault();
                 const formElement = event.currentTarget;
@@ -211,15 +200,20 @@ export function AdministratorsButton() {
                 void load();
               }}
             >
-              <h3 className="text-[14px] font-bold">{a.add}</h3>
-              <label htmlFor="new-admin-name" className="field-label mt-3">
-                {a.name}
-              </label>
-              <input id="new-admin-name" name="name" required maxLength={40} className="input" autoComplete="off" />
-              <label htmlFor="new-admin-email" className="field-label mt-3">
-                {a.email}
-              </label>
-              <input id="new-admin-email" name="email" type="email" required maxLength={254} className="input" placeholder="colleague@example.com" autoComplete="off" />
+              {error && (
+                <div className="form-error" role="alert">
+                  {error}
+                </div>
+              )}
+              <div className="field">
+                <label htmlFor="new-admin-name">{a.name}</label>
+                <input id="new-admin-name" name="name" required maxLength={40} autoComplete="off" />
+              </div>
+              <div className="field">
+                <label htmlFor="new-admin-email">{a.email}</label>
+                <input id="new-admin-email" name="email" type="email" required maxLength={254} placeholder="colleague@example.com" autoComplete="off" />
+              </div>
+              <div className="demo-label">{t.console.administrators.inviteNote}</div>
             </form>
           </>
         )}

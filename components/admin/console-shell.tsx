@@ -2,64 +2,95 @@
 
 import Link from 'next/link';
 import { usePathname } from 'next/navigation';
-import { createContext, useContext, useEffect, useState, type ReactNode } from 'react';
+import { Fragment, createContext, useContext, useEffect, useState, type ReactNode } from 'react';
 import { useI18n } from '@/i18n/client';
-import { Icon, type IconName } from '@/components/ui/icons';
+import { formatNumber } from '@/i18n/format';
+import { CI, type ConsoleIconName } from '@/components/admin/console-icon';
+import './console.css';
 
 type NavKey = 'overview' | 'users' | 'verifications' | 'purchases' | 'rees' | 'models' | 'audit' | 'kyc' | 'payouts' | 'payout-history';
+export type ConsoleEnvironment = 'production' | 'preview' | 'development';
 
-const NAV: { key: NavKey; icon: IconName; group: 'platform' | 'trust' | 'governance' }[] = [
-  { key: 'overview', icon: 'dashboard', group: 'platform' },
-  { key: 'models', icon: 'layers', group: 'platform' },
-  { key: 'users', icon: 'user', group: 'platform' },
-  { key: 'verifications', icon: 'shield', group: 'platform' },
-  { key: 'kyc', icon: 'user', group: 'trust' },
-  { key: 'purchases', icon: 'sparkle', group: 'trust' },
-  { key: 'payouts', icon: 'check', group: 'trust' },
-  { key: 'payout-history', icon: 'clock', group: 'trust' },
-  { key: 'rees', icon: 'ree', group: 'governance' },
-  { key: 'audit', icon: 'list', group: 'governance' },
+/* Prototype suite.js `adminNav`: order, icons, and the group labels before the 5th and 9th entries. */
+const NAV: { key: NavKey; icon: ConsoleIconName }[] = [
+  { key: 'overview', icon: 'layers' },
+  { key: 'models', icon: 'code' },
+  { key: 'users', icon: 'users' },
+  { key: 'verifications', icon: 'shield' },
+  { key: 'kyc', icon: 'shield' },
+  { key: 'purchases', icon: 'wallet' },
+  { key: 'payouts', icon: 'check' },
+  { key: 'payout-history', icon: 'clock' },
+  { key: 'rees', icon: 'dot' },
+  { key: 'audit', icon: 'file' },
 ];
 
 interface ConsoleShellState {
   collapsed: boolean;
+  environment: ConsoleEnvironment;
   toggleCollapsed: () => void;
   openDrawer: () => void;
 }
 
-const ConsoleShellContext = createContext<ConsoleShellState>({ collapsed: false, toggleCollapsed: () => {}, openDrawer: () => {} });
+const ConsoleShellContext = createContext<ConsoleShellState>({ collapsed: false, environment: 'production', toggleCollapsed: () => {}, openDrawer: () => {} });
 
 /** The rail's folded state and the drawer, for the top bar each page renders (`ConsoleTopbar`). */
 export function useConsoleShell(): ConsoleShellState {
   return useContext(ConsoleShellContext);
 }
 
+/** The RE0 mark beside the name (prototype `wordmark()`, icon.svg). */
+export function ConsoleWordmark({ label }: { label: string }) {
+  return (
+    <Link className="wordmark" href="/" aria-label={label}>
+      <svg viewBox="0 0 32 32" aria-hidden="true">
+        <rect width="32" height="32" rx="10.6667" fill="#127ee3" />
+        <g fill="#ffffff" stroke="#ffffff" strokeWidth="1" strokeLinejoin="round">
+          <path d="M17.25 8.91 A 7.2 7.2 0 1 0 23.2 16" fill="none" strokeWidth="3" />
+          <circle cx="17.25" cy="8.91" r="1.5" stroke="none" />
+          <path d="M23.2 11.4 L 25.75 16 L 20.65 16 Z" />
+          <circle cx="16" cy="16" r="2.5" stroke="none" />
+        </g>
+      </svg>
+      <span>RE0</span>
+    </Link>
+  );
+}
+
+function initials(name: string): string {
+  const words = name.trim().split(/\s+/).filter(Boolean);
+  const letters = words.length > 1 ? `${words[0]?.[0] ?? ''}${words[1]?.[0] ?? ''}` : (words[0] ?? 'AD').slice(0, 2);
+  return letters.toUpperCase();
+}
+
 /**
- * The console frame (prototype suite.js `adminShell`): a fixed sidebar with
- * the console's pages grouped as in the prototype, and a drawer on phones.
- * The fixed top bar -- breadcrumbs, tabs, language, administrators and
- * sign-out -- is `ConsoleTopbar`, which every page renders first, as the
- * workspace's pages render `Topbar`. On desktop the sidebar folds to a 68px
- * icon rail; the folded state shares the workspace's `re0_sidebar` cookie
- * (the prototype keeps one `sidebarCollapsed` for both).
+ * The console frame (prototype suite.js `adminShell`, suite.css
+ * `.console-*`, navigation.css): the sidebar with the console's pages in the
+ * prototype's groups, the environment, the way back to the site and the
+ * signed-in administrator with sign-out; on phones it opens as a drawer from
+ * the top bar's menu button. On desktop it folds to an icon rail; the folded
+ * state shares the workspace's `re0_sidebar` cookie (the prototype keeps one
+ * `sidebarCollapsed` for both). Each page renders its fixed top bar and its
+ * content through `ConsolePage`, inside `.console-main`.
  */
 export function ConsoleShell({
+  name,
   email,
+  environment,
   pendingVerifications,
-  pendingKyc = 0,
   openPayouts = 0,
   initialCollapsed = false,
   children,
 }: {
+  name: string;
   email: string;
+  environment: ConsoleEnvironment;
   initialCollapsed?: boolean;
   pendingVerifications: number;
-  /** Step 6: KYC submissions to review and payouts in progress, badged like the verification queue. */
-  pendingKyc?: number;
   openPayouts?: number;
   children: ReactNode;
 }) {
-  const { t } = useI18n();
+  const { t, locale } = useI18n();
   const c = t.console;
   const pathname = usePathname();
   const [drawer, setDrawer] = useState(false);
@@ -77,97 +108,71 @@ export function ConsoleShell({
       return !value;
     });
   };
-
-  const sidebar = (mobile: boolean) => {
-    // The phone drawer is never folded.
-    const folded = collapsed && !mobile;
-    return (
-      <aside id={mobile ? undefined : 'console-sidebar'} className={`flex h-full flex-col border-r border-line bg-[#0b1433] text-white ${mobile ? 'w-[264px] max-w-[85vw] shadow-2xl' : 'w-full'}`} aria-label={c.nav.label}>
-        <div className={`flex h-16 flex-none items-center gap-2 ${folded ? 'justify-center px-0' : 'px-5'}`}>
-          <span className="inline-flex size-7 flex-none items-center justify-center rounded-lg bg-blue text-white">
-            <Icon name="shield" className="size-4" />
-          </span>
-          {!folded && <span className="font-extrabold">{t.common.brand}</span>}
-          {!folded && <span className="font-mono text-[10px] tracking-[0.18em] text-white/50">CONSOLE</span>}
-          {mobile && (
-            <button type="button" className="icon-btn ml-auto text-white/70 hover:bg-white/10 hover:text-white" onClick={() => setDrawer(false)} aria-label={c.nav.close}>
-              <Icon name="close" />
-            </button>
-          )}
-        </div>
-        <nav className={`flex-1 overflow-y-auto pb-4 ${folded ? 'px-2' : 'px-3'}`}>
-          {(['platform', 'trust', 'governance'] as const).map((group) => (
-            <div key={group}>
-              {folded ? (
-                <hr className="mx-2 my-3 border-white/10" />
-              ) : (
-                <p className="px-3 pt-4 pb-2 font-mono text-[10px] tracking-[0.18em] text-white/40">{c.nav[group]}</p>
-              )}
-              {NAV.filter((item) => item.group === group).map((item) => {
-                const href = `/admin/${item.key}`;
-                const active = pathname === href || pathname.startsWith(`${href}/`);
-                return (
-                  <Link
-                    key={item.key}
-                    href={href}
-                    aria-current={active ? 'page' : undefined}
-                    title={folded ? c.nav[item.key] : undefined}
-                    className={`relative flex h-10 items-center gap-3 rounded-lg text-[13px] font-medium transition ${folded ? 'justify-center px-0' : 'px-3'} ${active ? 'bg-white/12 text-white' : 'text-white/70 hover:bg-white/8 hover:text-white'}`}
-                  >
-                    <Icon name={item.icon} className="size-[18px] flex-none" />
-                    {folded ? (
-                      <span className="sr-only">{c.nav[item.key]}</span>
-                    ) : (
-                      <span className="min-w-0 flex-1 truncate">{c.nav[item.key]}</span>
-                    )}
-                    {badge(item.key) > 0 &&
-                      (folded ? (
-                        <i className="absolute top-1.5 right-1.5 size-2 rounded-full bg-blue" aria-hidden="true" />
-                      ) : (
-                        <small className="rounded-full bg-blue px-1.5 font-mono text-[10px] text-white">{badge(item.key)}</small>
-                      ))}
-                  </Link>
-                );
-              })}
-            </div>
-          ))}
-        </nav>
-        <div className={`border-t border-white/10 ${folded ? 'px-2 py-3' : 'p-3'}`}>
-          <Link
-            href="/"
-            title={folded ? c.nav.backToSite : undefined}
-            className={`flex h-9 items-center gap-2 rounded-lg text-[12px] text-white/70 hover:bg-white/8 hover:text-white ${folded ? 'justify-center px-0' : 'px-3'}`}
-          >
-            <Icon name="external" className="size-4 flex-none" />
-            {folded ? <span className="sr-only">{c.nav.backToSite}</span> : c.nav.backToSite}
-          </Link>
-          {!folded && (
-            <p className="truncate px-3 pt-2 text-[11px] text-white/50" title={email}>
-              {email}
-            </p>
-          )}
-        </div>
-      </aside>
-    );
-  };
-
-  const badge = (key: NavKey) => (key === 'verifications' ? pendingVerifications : key === 'kyc' ? pendingKyc : key === 'payouts' ? openPayouts : 0);
+  const badge = (key: NavKey) => (key === 'verifications' ? pendingVerifications : key === 'payouts' ? openPayouts : null);
 
   return (
-    <ConsoleShellContext.Provider value={{ collapsed, toggleCollapsed, openDrawer: () => setDrawer(true) }}>
-      <div className="min-h-dvh bg-[#f7f8fc]" style={{ ['--console-sidebar' as string]: collapsed ? '68px' : '232px' }}>
-        <div className="fixed inset-y-0 left-0 z-30 hidden w-[var(--console-sidebar)] transition-[width] lg:block">{sidebar(false)}</div>
-        {drawer && (
-          <div className="fixed inset-0 z-50 lg:hidden">
-            <button type="button" aria-label={c.nav.close} className="absolute inset-0 bg-ink/40" onClick={() => setDrawer(false)} tabIndex={-1} />
-            <div className="relative h-full w-fit">{sidebar(true)}</div>
+    <ConsoleShellContext.Provider value={{ collapsed, environment, toggleCollapsed, openDrawer: () => setDrawer(true) }}>
+      <div className="console-app">
+        <aside className={`console-sidebar ${collapsed ? 'is-collapsed' : ''} ${drawer ? 'mobile-open' : ''}`} id="sidebar">
+          <div className="console-brand">
+            <ConsoleWordmark label={t.common.brand} />
+            <span>CONSOLE</span>
           </div>
-        )}
-        <div className="min-w-0 transition-[padding] lg:pl-[var(--console-sidebar)]">
-          {/* The page's ConsoleTopbar comes first in <main> and brings its own spacer. */}
-          <main className="mx-auto max-w-[1240px] px-4 py-6 md:px-8 md:py-8">{children}</main>
-          <footer className="mx-auto max-w-[1240px] px-4 pb-8 font-mono text-[10px] tracking-[0.12em] text-muted md:px-8">{c.footer}</footer>
-        </div>
+          <button type="button" className="icon-btn sidebar-close" aria-label={c.nav.close} title={c.nav.close} onClick={() => setDrawer(false)}>
+            <CI name="close" />
+          </button>
+          <div className="console-workspace">
+            <span>
+              <CI name="shield" />
+            </span>
+            <div>
+              <strong>{c.nav.workspace}</strong>
+              <small>{c.nav.environment[environment]}</small>
+            </div>
+          </div>
+          <p className="nav-label">{c.nav.platform}</p>
+          <nav aria-label={c.nav.label}>
+            {NAV.map((item, index) => {
+              const href = `/admin/${item.key}`;
+              const active = pathname === href || pathname.startsWith(`${href}/`);
+              const count = badge(item.key);
+              return (
+                <Fragment key={item.key}>
+                  {index === 4 && <p className="nav-label">{c.nav.trust}</p>}
+                  {index === 8 && <p className="nav-label">{c.nav.governance}</p>}
+                  <Link href={href} className={active ? 'active' : ''} aria-current={active ? 'page' : undefined}>
+                    <CI name={item.icon} />
+                    <span>{c.nav[item.key]}</span>
+                    {count !== null && <small>{formatNumber(count, locale)}</small>}
+                  </Link>
+                </Fragment>
+              );
+            })}
+          </nav>
+          <div className="console-sidebar-bottom">
+            <div className="console-status">
+              <i className="dot" />
+              {c.nav.session}
+            </div>
+            <Link href="/" className="console-back">
+              <CI name="external" />
+              {c.nav.backToSite}
+            </Link>
+            <div className="console-user">
+              <span className="avatar">{initials(name)}</span>
+              <div>
+                <strong>{name}</strong>
+                <small>{email}</small>
+              </div>
+              <form action="/api/admin/auth/logout" method="post" style={{ display: 'contents' }}>
+                <button type="submit" className="icon-btn" aria-label={c.nav.signOut} title={c.nav.signOut}>
+                  <CI name="logout" />
+                </button>
+              </form>
+            </div>
+          </div>
+        </aside>
+        <div className={`console-main ${collapsed ? 'sidebar-collapsed' : ''}`}>{children}</div>
       </div>
     </ConsoleShellContext.Provider>
   );

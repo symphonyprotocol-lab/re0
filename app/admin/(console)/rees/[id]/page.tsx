@@ -3,11 +3,10 @@ import Link from 'next/link';
 import { adminRee, adminReeSources, reeAudit, sourceFilter } from '@/lib/services/admin-rees';
 import { answerCounts, reeStatistics, statisticsQuery } from '@/lib/services/statistics';
 import { serverMessages } from '@/i18n/server';
-import { PageHead } from '@/components/admin/list-kit';
-import { ConsoleTopbar } from '@/components/admin/console-topbar';
+import { ConsolePage, ConsoleTopbar } from '@/components/admin/console-topbar';
 import { AuditTable } from '@/components/admin/audit-kit';
-import { ReeHeader, ReeOverviewTab, ReeSourcesTab, reeBackLabel, reeBackPath, reeDetailHref, reeTab, reeTabs, sourceParams } from '@/components/admin/ree-detail';
-import { ReeStatisticsView } from '@/components/statistics/ree-statistics-view';
+import { ReeHeader, ReeOverviewTab, ReeSourcesTab, ReeTabsNav, reeBackLabel, reeBackPath, reeDetailHref, reeTab, sourceParams } from '@/components/admin/ree-detail';
+import { ReeStatisticsPage } from '@/components/admin/ree-statistics';
 
 type Props = { params: Promise<{ id: string }>; searchParams: Promise<Record<string, string | string[] | undefined>> };
 
@@ -23,7 +22,7 @@ export async function generateMetadata({ params }: Props): Promise<Metadata> {
   return { title: detail ? `${detail.ree.name} · ${t.consoleRees.rees.title}` : t.consoleRees.ree.notFound };
 }
 
-/** `/admin/rees/[id]` (prototype admin-ree-detail.js): four tabs as links in the top bar, `from` kept for the way back. */
+/** `/admin/rees/[id]` (prototype admin-ree-detail.js): four tabs as links in the top bar's actions, `from` kept for the way back. */
 export default async function ReeDetailPage({ params, searchParams }: Props) {
   const { t, locale } = await serverMessages();
   const r = t.consoleRees.ree;
@@ -37,13 +36,15 @@ export default async function ReeDetailPage({ params, searchParams }: Props) {
   const detail = await load(id);
   if (!detail) {
     return (
-      <>
+      <ConsolePage>
         <ConsoleTopbar crumbs={[...crumbs, { label: r.notFound }]} />
-        <PageHead title={r.notFound} />
-        <Link href={back.href} className="btn-secondary">
-          {r.back}
-        </Link>
-      </>
+        <section className="card empty">
+          <h1>{r.notFound}</h1>
+          <Link href={back.href} className="btn secondary mt16">
+            {r.back}
+          </Link>
+        </section>
+      </ConsolePage>
     );
   }
   const tab = reeTab(query);
@@ -57,23 +58,23 @@ export default async function ReeDetailPage({ params, searchParams }: Props) {
   } else if (tab === 'statistics') {
     const data = await reeStatistics(id, statisticsQuery(query), { withIncome: true });
     body = (
-      <ReeStatisticsView
+      <ReeStatisticsPage
         t={t}
         locale={locale}
+        name={detail.ree.name}
         data={data}
-        basePath={`/admin/rees/${id}`}
+        base={`/admin/rees/${id}`}
         keep={{ tab: 'statistics', ...(from ? { from } : {}) }}
         sourcesHref={reeDetailHref(id, from, 'sources', sourceParams({ q: '', status: 'ready' }))}
-        showIncome
       />
     );
   } else if (tab === 'audit') {
     const rows = await reeAudit(id);
     body = (
-      <section className="card overflow-hidden">
-        <div className="px-5 pt-5 pb-4">
-          <h2 className="text-[15px] font-bold">{r.audit.title}</h2>
-          <p className="mt-1 text-[12px] text-muted">{r.audit.lede}</p>
+      <section className="card">
+        <div className="admin-ree-section admin-ree-audit-head">
+          <h2>{r.audit.title}</h2>
+          <p className="muted small">{r.audit.lede}</p>
         </div>
         <AuditTable
           t={t}
@@ -86,11 +87,18 @@ export default async function ReeDetailPage({ params, searchParams }: Props) {
   } else {
     body = <ReeOverviewTab t={t} locale={locale} detail={detail} from={from} />;
   }
+  /* Usage statistics is a page of its own (prototype admin-ree-statistics.js), without the detail's head and metrics. */
   return (
-    <>
-      <ConsoleTopbar crumbs={[...crumbs, { label: detail.ree.name }]} tabs={reeTabs(t, id, from, tab)} tabsLabel={r.tabsLabel} />
-      <ReeHeader t={t} locale={locale} detail={detail} answers={answers.get(id) ?? 0} />
-      <div className="mt-6">{body}</div>
-    </>
+    <ConsolePage>
+      <ConsoleTopbar crumbs={[...crumbs, { label: detail.ree.name }]} actions={<ReeTabsNav t={t} id={id} from={from} active={tab} />} />
+      {tab === 'statistics' ? (
+        body
+      ) : (
+        <div className="admin-ree-detail">
+          <ReeHeader t={t} locale={locale} detail={detail} answers={answers.get(id) ?? 0} />
+          {body}
+        </div>
+      )}
+    </ConsolePage>
   );
 }

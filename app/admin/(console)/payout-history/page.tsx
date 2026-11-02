@@ -4,11 +4,11 @@ import { financeFilter } from '@/lib/domain/admin-finance';
 import { AMOUNT_SORTS, csvHref, listHref, PAYOUT_HISTORY_FILTERS, payoutHistoryView } from '@/lib/domain/admin-lists';
 import { listPayouts, payoutTrend } from '@/lib/services/payouts';
 import { serverMessages } from '@/i18n/server';
-import { formatNumber } from '@/i18n/format';
-import { FinanceChart } from '@/components/admin/finance-chart';
+import { fill, formatNumber } from '@/i18n/format';
+import { FinanceChart, RecordPage } from '@/components/admin/finance-chart';
 import { ListFilters } from '@/components/admin/list-client';
-import { LinkPager, PageHead, ResultsLine, SummaryCards } from '@/components/admin/list-kit';
-import { ConsoleTopbar } from '@/components/admin/console-topbar';
+import { LinkPager, PageHead, RecordSection, ResultsLine, SummaryCards } from '@/components/admin/list-kit';
+import { ConsolePage, ConsoleTopbar } from '@/components/admin/console-topbar';
 import { PayoutsTable } from '@/components/admin/payouts-table';
 
 export async function generateMetadata(): Promise<Metadata> {
@@ -25,7 +25,8 @@ type Props = { searchParams: Promise<Record<string, string | string[] | undefine
  */
 export default async function PayoutHistoryPage({ searchParams }: Props) {
   const { t, locale } = await serverMessages();
-  const p = t.consolePayouts.payouts;
+  const c = t.consolePayouts;
+  const p = c.payouts;
   const l = t.console.list;
   const view = payoutHistoryView(await searchParams);
   const [data, trend] = await Promise.all([listPayouts(view, 'history'), payoutTrend(view, 'history')]);
@@ -36,42 +37,50 @@ export default async function PayoutHistoryPage({ searchParams }: Props) {
   const n = (value: number) => formatNumber(value, locale);
   const filtered = Boolean(view.q) || view.status !== 'all' || view.period !== 'all' || view.sort !== 'newest';
   const reset = listHref('/admin/payout-history', { size: view.size, metric: view.metric });
+  const size = [20, 50, 100].map((value) => [String(value), fill(l.rows, { n: value })] as [string, string]);
+  const card = (status: 'paid' | 'failed' | 'rejected') => ({
+    label: p.cards[status],
+    value: n(data.counts[status] ?? 0),
+    href: href({ status }),
+    active: view.status === status,
+    title: fill(l.filterBy, { label: p.cards[status] }),
+  });
   return (
-    <>
+    <ConsolePage>
       <ConsoleTopbar crumbs={[{ label: t.console.nav.home, href: '/admin/overview' }, { label: p.historyTitle }]} />
-      <PageHead title={p.historyTitle} lede={p.historyLede} />
-      <SummaryCards
-        items={[
-          { label: p.cards.all, value: n(data.counts.all ?? 0), href: reset, active: !filtered, title: l.clearFilters },
-          { label: p.cards.paid, value: n(data.counts.paid ?? 0), href: href({ status: 'paid' }), active: view.status === 'paid' },
-          { label: p.cards.failed, value: n(data.counts.failed ?? 0), href: href({ status: 'failed' }), active: view.status === 'failed' },
-          { label: p.cards.rejected, value: n(data.counts.rejected ?? 0), href: href({ status: 'rejected' }), active: view.status === 'rejected' },
-        ]}
-      />
-      <FinanceChart
-        kind="payout-history"
-        trend={trend}
-        metric={view.metric}
-        metricHrefs={{ amount: href({ metric: 'amount' }), count: href({ metric: 'count' }) }}
-        filter={financeFilter(view)}
-      />
-      <section className="card overflow-hidden">
-        <ListFilters
-          q={view.q}
-          placeholder={p.search}
-          defaults={{ status: 'all', sort: 'newest', size: '20' }}
-          resetHref={reset}
-          filtered={filtered}
-          selects={[
-            { name: 'status', label: p.filters.status, value: view.status, options: PAYOUT_HISTORY_FILTERS.map((status) => [status, status === 'all' ? p.allStatuses : t.consolePayouts.payoutStatus[status]] as [string, string]) },
-            { name: 'sort', label: p.filters.sort, value: view.sort, options: AMOUNT_SORTS.map((sort) => [sort, p.sorts[sort]] as [string, string]) },
-            { name: 'size', label: l.perPage, value: String(view.size), options: [20, 50, 100].map((size) => [String(size), String(size)] as [string, string]) },
-          ]}
+      <RecordPage kind="payout-history" finance>
+        <PageHead title={p.historyTitle} lede={p.historyLede} />
+        <SummaryCards
+          label={c.summary}
+          items={[{ label: p.cards.all, value: n(data.counts.all ?? 0), href: reset, active: !filtered, title: c.clear.records }, card('paid'), card('failed'), card('rejected')]}
         />
-        <ResultsLine t={t} total={data.total} page={data.page} size={data.size} exportHref={csvHref('/api/admin/payouts/history', view)} />
-        <PayoutsTable t={t} locale={locale} items={data.items} back={encodeURIComponent(href({}))} />
-        <LinkPager t={t} page={data.page} total={data.total} size={data.size} href={(page) => href({ page })} />
-      </section>
-    </>
+        <FinanceChart
+          kind="payout-history"
+          trend={trend}
+          metric={view.metric}
+          metricHrefs={{ amount: href({ metric: 'amount' }), count: href({ metric: 'count' }) }}
+          filter={financeFilter(view)}
+        />
+        <RecordSection>
+          <ListFilters
+            q={view.q}
+            placeholder={p.search}
+            defaults={{ status: 'all', sort: 'newest', size: '20' }}
+            resetHref={reset}
+            filtered={filtered}
+            selects={[
+              { name: 'status', label: l.status, aria: c.aria.status, value: view.status, options: PAYOUT_HISTORY_FILTERS.map((status) => [status, status === 'all' ? p.allStatuses : c.payoutStatus[status]] as [string, string]) },
+              { name: 'sort', label: l.sort, aria: c.aria.sort, value: view.sort, options: AMOUNT_SORTS.map((sort) => [sort, p.sorts[sort]] as [string, string]) },
+              { name: 'size', label: l.perPage, aria: c.aria.size, value: String(view.size), options: size },
+            ]}
+          >
+            <input type="hidden" name="period" value={view.period} />
+          </ListFilters>
+          <ResultsLine t={t} total={data.total} page={data.page} size={data.size} exportHref={csvHref('/api/admin/payouts/history', view)} />
+          <PayoutsTable t={t} locale={locale} items={data.items} back={encodeURIComponent(href({}))} />
+          <LinkPager t={t} page={data.page} total={data.total} size={data.size} href={(page) => href({ page })} />
+        </RecordSection>
+      </RecordPage>
+    </ConsolePage>
   );
 }

@@ -8,8 +8,10 @@ import { ADMIN_HOME, safeAdminNext } from '@/lib/http/admin-next';
 import { bootstrapChallenge, hasAdministrator } from '@/lib/services/admin';
 import { enrolmentChallenge } from '@/lib/services/admin-administrators';
 import { serverMessages } from '@/i18n/server';
-import { Icon } from '@/components/ui/icons';
-import { LanguageToggle } from '@/components/ui/language-toggle';
+import { fill } from '@/i18n/format';
+import { ADMIN_LOCKOUT_MS, ADMIN_MAX_FAILED_ATTEMPTS } from '@/lib/constants';
+import { CI } from '@/components/admin/console-icon';
+import { ConsoleWordmark } from '@/components/admin/console-shell';
 import { AdminBootstrapForm, AdminEnrolForm, AdminLoginForm } from '@/components/admin/admin-auth-forms';
 
 export const dynamic = 'force-dynamic';
@@ -26,7 +28,8 @@ type Props = { searchParams: Promise<Record<string, string | string[] | undefine
  * owner (password + TOTP); from then on it only signs in (2.5). An invited
  * administrator's link (`?invite=…`) opens their enrolment instead; a link
  * that is invalid or expired says so above the sign-in form. A signed-out
- * deep link arrives with `?next=`, where sign-in then returns.
+ * deep link arrives with `?next=`, where sign-in then returns. Drawn as the
+ * prototype's `adminLogin` (suite.css `.admin-login-*`).
  */
 export default async function AdminLoginPage({ searchParams }: Props) {
   const params = await searchParams;
@@ -49,52 +52,52 @@ export default async function AdminLoginPage({ searchParams }: Props) {
   const title = empty ? t.admin.setup.title : enrolment ? t.consoleRees.enrol.title : t.admin.login.title;
   const lede = empty ? t.admin.setup.lede : enrolment ? t.consoleRees.enrol.lede : t.admin.login.lede;
   return (
-    <main className="flex min-h-dvh flex-col items-center bg-bg px-4 py-8">
-      <div className="flex w-full max-w-[440px] items-center justify-between">
-        <span className="flex items-center gap-2 font-extrabold">
-          <span className="inline-flex size-7 items-center justify-center rounded-lg bg-ink text-white">
-            <Icon name="ree" className="size-4" />
-          </span>
-          {t.common.brand}
-        </span>
-        <span className="flex items-center gap-2">
-          <Link href="/" className="text-link inline-flex items-center gap-1 text-[12px]">
-            {t.admin.backToSite}
-            <Icon name="external" className="size-3.5" />
-          </Link>
-          <LanguageToggle />
-        </span>
+    <main id="main" tabIndex={-1} className="admin-login-page">
+      <div className="admin-login-top">
+        <ConsoleWordmark label={t.common.brand} />
+        <Link href="/" className="text-link">
+          {t.admin.backToSite}
+          <CI name="external" />
+        </Link>
       </div>
-      <section className="card mt-10 w-full max-w-[440px] p-6 shadow-sm sm:p-8">
-        <span className="inline-flex size-11 items-center justify-center rounded-xl bg-soft text-blue">
-          <Icon name="shield" className="size-6" />
-        </span>
-        <p className="eyebrow mt-5">{t.admin.eyebrow}</p>
-        <h1 className="mt-2 text-[24px] font-extrabold">{title}</h1>
-        <p className="mt-2 text-[13px] text-muted">{lede}</p>
-        {invalidInvite && (
-          <p role="alert" className="mt-4 flex gap-2 rounded-lg border border-[#f0dcc2] bg-[#fff7ec] px-3 py-2.5 text-[12px] text-orange">
-            <Icon name="info" className="mt-0.5 size-4 flex-none" />
-            {t.consoleRees.enrol.invalid}
-          </p>
-        )}
+      <section className="admin-login-card">
+        <div className="admin-lock">
+          <CI name="shield" />
+        </div>
+        <p className="eyebrow">{t.admin.eyebrow}</p>
+        <h1>{title}</h1>
+        <p>{lede}</p>
         {challenge && qr ? (
           <AdminBootstrapForm sealedSecret={challenge.sealed} secret={challenge.secret} qr={qr} />
         ) : enrolment && enrolmentQr ? (
           <AdminEnrolForm token={invite} name={enrolment.name} email={enrolment.email} sealedSecret={enrolment.sealedSecret} secret={enrolment.secret} qr={enrolmentQr} />
         ) : (
-          <AdminLoginForm next={next} />
+          <AdminLoginForm next={next} notice={invalidInvite ? t.consoleRees.enrol.invalid : undefined} />
         )}
-        <p className="mt-6 flex items-center gap-2 text-[11px] text-muted">
-          <Icon name="lock" className="size-3.5" />
+        {!challenge && !enrolment && (
+          <div className="admin-demo-credentials">
+            <div>
+              <strong>{t.admin.login.helpTitle}</strong>
+              <p>{t.admin.login.help}</p>
+            </div>
+          </div>
+        )}
+        <p className="admin-auth-separation">
+          <CI name="lock" />
           {t.admin.login.separation}
         </p>
-        <div className="mt-4 text-[12px]">
+        <div className="between admin-login-bottom">
           <Link href="/login" className="text-link">
             {t.admin.login.userLogin}
           </Link>
+          {enrolment && (
+            <Link href="/admin/login" className="text-link">
+              {t.admin.login.existing}
+            </Link>
+          )}
         </div>
       </section>
+      <p className="admin-login-caption">{fill(t.admin.login.caption, { attempts: ADMIN_MAX_FAILED_ATTEMPTS, minutes: ADMIN_LOCKOUT_MS / 60000 })}</p>
     </main>
   );
 }

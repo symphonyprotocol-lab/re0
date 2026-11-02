@@ -1,24 +1,33 @@
 /**
- * The console's role pieces (prototype role-pages.js): a user's role panel with its direct changes, and the history of
- * applications and role events. Server components; the role changes go
- * through `ReasonAction`.
+ * The console's role pieces in the prototype's markup (role-pages.js
+ * `adminUser`, `historyPanel`, `checks`): a user's role panel with its direct
+ * changes, the history of applications and role events, and the five
+ * verification checks. Server components; the role changes go through
+ * `ReasonAction`.
  */
 import Link from 'next/link';
 import type { Messages } from '@/i18n';
 import type { Locale } from '@/i18n/locale';
 import { fill, formatDateTime, formatNumber } from '@/i18n/format';
-import type { UserRole } from '@/lib/domain/roles';
+import { verificationChecks, type RoleMetrics, type UserRole } from '@/lib/domain/roles';
 import { ROLE_REASON_MAX } from '@/lib/constants';
 import type { RoleEvent, VerificationRow } from '@/lib/services/roles';
-import { Icon } from '@/components/ui/icons';
+import { CI } from '@/components/admin/console-icon';
 import { RoleBadge, Tag } from '@/components/admin/list-kit';
 import { ReasonAction } from '@/components/admin/list-client';
+import { imageUrl } from '@/components/ui/ree-avatar';
+import '@/components/admin/console-users.css';
 
 export type VerificationStatus = VerificationRow['status'];
 
+/** A request's state (role-pages.js `status`): a tag without the leading dot. */
 export function VerificationStatusTag({ t, status }: { t: Messages; status: VerificationStatus }) {
   const tone = status === 'approved' ? 'green' : status === 'rejected' ? 'red' : status === 'pending' ? 'orange' : 'grey';
-  return <Tag tone={tone}>{t.consoleUsers.verifications.status[status]}</Tag>;
+  return (
+    <Tag tone={tone} dot={false}>
+      {t.consoleUsers.verifications.status[status]}
+    </Tag>
+  );
 }
 
 /**
@@ -40,73 +49,44 @@ export function RolePanel({
   const r = t.consoleUsers.detail.roles;
   const endpoint = `/api/admin/users/${user.id}/role`;
   const reason = { min: 1, max: ROLE_REASON_MAX, required: true, label: r.reason };
-  const subtitle = `${user.name} · ${user.email}`;
+  const change = (label: string, action: string, impact: string) => (
+    <ReasonAction
+      endpoint={endpoint}
+      method="PUT"
+      label={label}
+      title={label}
+      subtitle={user.name}
+      confirmLabel={r.confirm}
+      reason={reason}
+      payload={{ action }}
+      errors={r.errors}
+    >
+      <p className="role-change-impact">{impact}</p>
+    </ReasonAction>
+  );
   return (
-    <section className="card min-w-0 p-5">
-      <div className="flex flex-wrap items-center justify-between gap-2">
-        <h2 className="flex flex-wrap items-center gap-2 text-[15px] font-bold">
-          {r.title}
-          <RoleBadge t={t} role={user.role} showNormal />
+    <section className="card role-panel">
+      <div className="between">
+        <h2>
+          {r.title} <RoleBadge t={t} role={user.role} showNormal />
         </h2>
-        <small className="text-[11px] text-muted">{user.roleChangedAt ? fill(r.changedAt, { time: formatDateTime(user.roleChangedAt, locale) }) : r.defaultRole}</small>
+        <small>{user.roleChangedAt ? formatDateTime(user.roleChangedAt, locale) : r.defaultRole}</small>
       </div>
-      <p className="mt-2 text-[13px] leading-relaxed text-muted">{r.note}</p>
-      {user.role === 'official' && <p className="mt-3 rounded-lg bg-soft px-3 py-2 text-[12px] leading-relaxed text-blue">{r.official}</p>}
-      <div className="mt-4 flex flex-wrap gap-2">
-        {user.role !== 'official' ? (
-          <ReasonAction
-            endpoint={endpoint}
-            method="PUT"
-            label={r.makeOfficial}
-            icon="globe"
-            title={r.makeOfficial}
-            subtitle={subtitle}
-            body={r.officialImpact}
-            confirmLabel={r.confirm}
-            reason={reason}
-            payload={{ action: 'official' }}
-            errors={r.errors}
-          />
-        ) : (
-          <ReasonAction
-            endpoint={endpoint}
-            method="PUT"
-            label={r.cancelOfficial}
-            title={r.cancelOfficial}
-            subtitle={subtitle}
-            body={r.normalImpact}
-            confirmLabel={r.confirm}
-            reason={reason}
-            payload={{ action: 'cancel_official' }}
-            errors={r.errors}
-            danger
-          />
-        )}
-        {user.role === 'verified' && (
-          <ReasonAction
-            endpoint={endpoint}
-            method="PUT"
-            label={r.revoke}
-            title={r.revoke}
-            subtitle={subtitle}
-            body={r.normalImpact}
-            confirmLabel={r.confirm}
-            reason={reason}
-            payload={{ action: 'revoke' }}
-            errors={r.errors}
-            danger
-          />
-        )}
-        <Link href={`/admin/verifications?status=all&q=${encodeURIComponent(user.email)}`} className="btn-secondary btn-sm">
+      <p>{r.note}</p>
+      {user.role === 'official' && <p className="role-state-note">{r.official}</p>}
+      <div className="role-actions">
+        {user.role !== 'official' ? change(r.makeOfficial, 'official', r.officialImpact) : change(r.cancelOfficial, 'cancel_official', r.normalImpact)}
+        {user.role === 'verified' && change(r.revoke, 'revoke', r.normalImpact)}
+        <Link href={`/admin/verifications?status=all&q=${encodeURIComponent(user.email)}`} className="btn secondary sm">
           {r.viewRequests}
         </Link>
       </div>
-      {footnote && <p className="mt-3 text-[11px] text-muted">{r.footnote}</p>}
+      {footnote && <p className="role-footnote">{r.footnote}</p>}
     </section>
   );
 }
 
-/** 申请与角色记录: applications and role events, newest first. */
+/** 申请与角色记录 (prototype `historyPanel`): applications and role events, newest first. */
 export function RoleHistory({
   t,
   locale,
@@ -128,53 +108,87 @@ export function RoleHistory({
     ...events.map((event) => ({ at: event.at, kind: 'event' as const, event })),
   ].sort((a, b) => b.at.getTime() - a.at.getTime());
   return (
-    <section className="card min-w-0 p-5">
-      <h2 className="text-[15px] font-bold">{r.history}</h2>
-      {items.length === 0 ? (
-        <p className="mt-3 text-[13px] text-muted">{r.noHistory}</p>
-      ) : (
-        <ol className="mt-2 divide-y divide-line">
-          {items.map((item) =>
-            item.kind === 'request' ? (
-              <li key={`request-${item.request.id}`} className="min-w-0 py-3">
-                <div className="flex flex-wrap items-center justify-between gap-2">
-                  <strong className="text-[13px]">{r.request}</strong>
-                  <VerificationStatusTag t={t} status={item.request.status} />
-                </div>
-                <small className="mt-0.5 block text-[11px] text-muted">
-                  {fill(r.submitted, { time: time(item.request.createdAt) })}
-                  {item.request.decidedAt && ` · ${fill(r.reviewed, { time: time(item.request.decidedAt) })}`}
-                </small>
-                <p className="mt-2 line-clamp-3 text-[13px] break-words whitespace-pre-line">{item.request.statement}</p>
-                {item.request.closedByRoleChange && <p className="mt-1.5 text-[12px] text-muted">{t.consoleUsers.verifications.closedByRole}</p>}
-                {item.request.rejectedReason && (
-                  <div className="mt-2 rounded-lg bg-wash px-3 py-2 text-[12px]">
-                    <strong className="block text-[11px] text-muted">{r.reviewNote}</strong>
-                    <p className="break-words whitespace-pre-line">{item.request.rejectedReason}</p>
-                  </div>
-                )}
-                <Link href={`/admin/verifications/${item.request.id}?from=${back}`} className="text-link mt-2 text-[12px]">
-                  {r.viewRequest}
-                </Link>
-              </li>
-            ) : (
-              <li key={`event-${item.event.id}`} className="min-w-0 py-3">
-                <div className="flex flex-wrap items-center justify-between gap-2">
-                  <strong className="text-[13px]">
-                    {fill(r.change, { from: t.console.roles[item.event.from], to: t.console.roles[item.event.to] })}
-                  </strong>
-                  <Tag>{(t.console.actions as Record<string, string>)[item.event.action] ?? item.event.action}</Tag>
-                </div>
-                <small className="mt-0.5 block text-[11px] text-muted">
-                  {time(item.event.at)}
-                  {item.event.administrator && ` · ${fill(r.by, { admin: item.event.administrator })}`}
-                </small>
-                <p className="mt-2 text-[13px] break-words whitespace-pre-line">{item.event.reason || '—'}</p>
-              </li>
-            ),
-          )}
-        </ol>
+    <section className="card role-panel">
+      <h2>{r.history}</h2>
+      {items.length === 0 && <p className="muted">{r.noHistory}</p>}
+      {items.map((item) =>
+        item.kind === 'request' ? (
+          <article key={`request-${item.request.id}`} className="role-history-entry">
+            <div className="between">
+              <strong>{r.request}</strong>
+              <VerificationStatusTag t={t} status={item.request.status} />
+            </div>
+            <small>
+              {time(item.request.createdAt)}
+              {item.request.decidedAt && ` · ${fill(r.reviewed, { time: time(item.request.decidedAt) })}`}
+            </small>
+            <p>{item.request.statement}</p>
+            {item.request.closedByRoleChange && <p>{t.consoleUsers.verifications.closedByRole}</p>}
+            {item.request.rejectedReason && (
+              <div className="role-feedback">
+                <strong>{r.reviewNote}</strong>
+                <p>{item.request.rejectedReason}</p>
+              </div>
+            )}
+            <Link href={`/admin/verifications/${item.request.id}?from=${back}`} className="text-link">
+              {r.viewRequest}
+            </Link>
+          </article>
+        ) : (
+          <article key={`event-${item.event.id}`} className="role-history-entry">
+            <div className="between">
+              <strong>{fill(r.change, { from: t.console.roles[item.event.from], to: t.console.roles[item.event.to] })}</strong>
+              <small>{time(item.event.at)}</small>
+            </div>
+            <p>{item.event.reason || '—'}</p>
+            <small>{item.event.administrator ?? '—'}</small>
+          </article>
+        ),
       )}
     </section>
+  );
+}
+
+/** The five verification checks (prototype `checks`): the figure against its target and what is still missing. */
+export function RoleChecks({ t, locale, metrics }: { t: Messages; locale: Locale; metrics: RoleMetrics }) {
+  const q = t.roles.requirements;
+  const n = (value: number) => formatNumber(value, locale);
+  return (
+    <div className="role-requirements">
+      {verificationChecks(metrics).map((check) => {
+        const value =
+          check.key === 'helpfulRate'
+            ? check.value === null
+              ? q.noFeedback
+              : fill(q.rate, { rate: Math.round(check.value * 1000) / 10, count: n(metrics.feedbackCount) })
+            : fill(q.value, { value: n(check.value ?? 0), target: n(check.target) });
+        const missing = check.passed ? q.met : check.missing === null ? q.needFeedback : fill(q.missing[check.key], { n: n(check.missing) });
+        return (
+          <div key={check.key} className={`role-requirement ${check.passed ? 'met' : ''}`}>
+            <span className="role-check" role="img" aria-label={check.passed ? q.metLabel : q.pendingLabel}>
+              <CI name={check.passed ? 'check' : 'clock'} />
+            </span>
+            <div>
+              <strong>{q.items[check.key]}</strong>
+              <span>{value}</span>
+            </div>
+            <small>{missing}</small>
+          </div>
+        );
+      })}
+    </div>
+  );
+}
+
+const DOT_COLORS = ['lilac', 'sand', 'sage', 'rose', 'slate'];
+
+/** A Ree's small avatar (prototype dot-avatar.js `renderDotAvatar`): its picture, or the Ree mark on its color. */
+export function DotAvatar({ avatar, color }: { avatar: string | null; color: string | null }) {
+  const src = imageUrl(avatar);
+  return (
+    <span className={`dot-avatar ${color && DOT_COLORS.includes(color) ? color : ''} sm`} aria-hidden="true">
+      {/* eslint-disable-next-line @next/next/no-img-element */}
+      {src ? <img src={src} alt="" /> : <CI name="dot" />}
+    </span>
   );
 }

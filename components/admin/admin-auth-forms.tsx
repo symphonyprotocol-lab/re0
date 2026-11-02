@@ -5,29 +5,82 @@ import { useState } from 'react';
 import { ADMIN_PASSWORD_MIN } from '@/lib/constants';
 import { api } from '@/lib/client/upload';
 import { useI18n } from '@/i18n/client';
-import { Icon, Spinner } from '@/components/ui/icons';
+import { CI } from '@/components/admin/console-icon';
 
 function Input({ id, label, hint, ...rest }: { id: string; label: string; hint?: string } & React.InputHTMLAttributes<HTMLInputElement>) {
   return (
-    <div className="mt-4">
-      <label htmlFor={id} className="field-label">
-        {label}
-      </label>
-      <input id={id} className="input" {...rest} />
-      {hint && <small className="hint">{hint}</small>}
+    <div className="field">
+      <label htmlFor={id}>{label}</label>
+      <input id={id} {...rest} />
+      {hint && <small>{hint}</small>}
     </div>
   );
 }
 
+/** The authenticator step of setup and enrolment (prototype `.setup-totp`), with a real, scannable code. */
+function TotpSetup({ qr, secret }: { qr: string; secret: string }) {
+  const { t } = useI18n();
+  const s = t.admin.setup;
+  return (
+    <div className="setup-totp">
+      <div className="fake-qr has-qr">
+        {/* eslint-disable-next-line @next/next/no-img-element */}
+        <img src={qr} alt="" width={104} height={104} />
+      </div>
+      <div>
+        <strong>{s.totpTitle}</strong>
+        <p>{s.totpBody}</p>
+        <code>{secret}</code>
+      </div>
+    </div>
+  );
+}
+
+/** The six-digit code field every form ends with. */
+function Totp() {
+  const { t } = useI18n();
+  return (
+    <Input
+      id="admin-totp"
+      name="code"
+      inputMode="numeric"
+      pattern="[0-9]{6}"
+      maxLength={6}
+      required
+      autoComplete="one-time-code"
+      placeholder={t.admin.login.totpPlaceholder}
+      label={t.admin.login.totp}
+      hint={t.admin.login.totpHint}
+    />
+  );
+}
+
+function FormError({ message }: { message: string }) {
+  return message ? (
+    <div className="form-error" role="alert">
+      {message}
+    </div>
+  ) : null;
+}
+
+function Submit({ busy, label }: { busy: boolean; label: string }) {
+  return (
+    <button type="submit" className="btn full large" disabled={busy}>
+      {busy && <span className="spinner" aria-hidden="true" />}
+      {label} <CI name="arrow" />
+    </button>
+  );
+}
+
 /** `next` is already checked by the page (`safeAdminNext`), falling back to the overview. */
-export function AdminLoginForm({ next = '/admin/overview' }: { next?: string }) {
+export function AdminLoginForm({ next = '/admin/overview', notice }: { next?: string; notice?: string }) {
   const { t } = useI18n();
   const router = useRouter();
   const [error, setError] = useState('');
   const [busy, setBusy] = useState(false);
   return (
     <form
-      className="mt-4"
+      id="admin-login-form"
       onSubmit={async (event) => {
         event.preventDefault();
         const form = new FormData(event.currentTarget);
@@ -43,30 +96,11 @@ export function AdminLoginForm({ next = '/admin/overview' }: { next?: string }) 
         router.refresh();
       }}
     >
-      <Input id="admin-email" name="email" type="email" required autoComplete="username" label={t.admin.login.email} />
-      <Input id="admin-password" name="password" type="password" required autoComplete="current-password" label={t.admin.login.password} />
-      <Input
-        id="admin-totp"
-        name="code"
-        inputMode="numeric"
-        pattern="[0-9]{6}"
-        maxLength={6}
-        required
-        autoComplete="one-time-code"
-        placeholder="000000"
-        label={t.admin.login.totp}
-        hint={t.admin.login.totpHint}
-      />
-      {error && (
-        <p role="alert" className="mt-4 text-[12px] text-red">
-          {error}
-        </p>
-      )}
-      <button type="submit" className="btn mt-6 min-h-12 w-full" disabled={busy}>
-        {busy && <Spinner />}
-        {t.admin.login.submit}
-        <Icon name="arrow" />
-      </button>
+      <FormError message={error || notice || ''} />
+      <Input id="admin-email" name="email" type="email" required autoComplete="username" placeholder={t.admin.login.emailPlaceholder} label={t.admin.login.email} />
+      <Input id="admin-password" name="password" type="password" required autoComplete="current-password" placeholder={t.admin.login.passwordPlaceholder} label={t.admin.login.password} />
+      <Totp />
+      <Submit busy={busy} label={t.admin.login.submit} />
     </form>
   );
 }
@@ -80,7 +114,7 @@ export function AdminBootstrapForm({ sealedSecret, secret, qr }: { sealedSecret:
   const [busy, setBusy] = useState(false);
   return (
     <form
-      className="mt-4"
+      id="admin-setup-form"
       onSubmit={async (event) => {
         event.preventDefault();
         const form = new FormData(event.currentTarget);
@@ -105,29 +139,13 @@ export function AdminBootstrapForm({ sealedSecret, secret, qr }: { sealedSecret:
         setError(code && code in s.errors ? s.errors[code as keyof typeof s.errors] : t.common.errors.generic);
       }}
     >
-      <Input id="setup-name" name="name" required maxLength={40} label={s.name} />
-      <Input id="setup-email" name="email" type="email" required autoComplete="username" label={t.admin.login.email} />
-      <Input id="setup-password" name="password" type="password" required minLength={ADMIN_PASSWORD_MIN} autoComplete="new-password" label={t.admin.login.password} hint={s.passwordHint} />
-      <div className="mt-5 flex flex-col gap-4 rounded-xl border border-line bg-wash p-4 sm:flex-row">
-        {/* eslint-disable-next-line @next/next/no-img-element */}
-        <img src={qr} alt="" width={120} height={120} className="size-[120px] flex-none rounded-lg border border-line bg-white" />
-        <div className="min-w-0">
-          <strong className="text-[13px]">{s.totpTitle}</strong>
-          <p className="mt-1 text-[11px] text-muted">{s.totpBody}</p>
-          <code className="mt-2 block font-mono text-[11px] break-all text-ink">{secret}</code>
-        </div>
-      </div>
-      <Input id="setup-totp" name="code" inputMode="numeric" pattern="[0-9]{6}" maxLength={6} required autoComplete="one-time-code" placeholder="000000" label={t.admin.login.totp} hint={t.admin.login.totpHint} />
-      {error && (
-        <p role="alert" className="mt-4 text-[12px] text-red">
-          {error}
-        </p>
-      )}
-      <button type="submit" className="btn mt-6 min-h-12 w-full" disabled={busy}>
-        {busy && <Spinner />}
-        {s.submit}
-        <Icon name="arrow" />
-      </button>
+      <FormError message={error} />
+      <Input id="admin-name" name="name" required maxLength={40} placeholder="RE0 Admin" label={s.name} />
+      <Input id="admin-email" name="email" type="email" required autoComplete="username" placeholder={t.admin.login.emailPlaceholder} label={t.admin.login.email} />
+      <Input id="admin-password" name="password" type="password" required minLength={ADMIN_PASSWORD_MIN} autoComplete="new-password" placeholder={s.passwordHint} label={t.admin.login.password} />
+      <TotpSetup qr={qr} secret={secret} />
+      <Totp />
+      <Submit busy={busy} label={s.submit} />
     </form>
   );
 }
@@ -146,7 +164,7 @@ export function AdminEnrolForm({ token, name, email, sealedSecret, secret, qr }:
   const [busy, setBusy] = useState(false);
   return (
     <form
-      className="mt-4"
+      id="admin-enrol-form"
       onSubmit={async (event) => {
         event.preventDefault();
         const form = new FormData(event.currentTarget);
@@ -166,29 +184,13 @@ export function AdminEnrolForm({ token, name, email, sealedSecret, secret, qr }:
         setError(code && code in e.errors ? e.errors[code as keyof typeof e.errors] : t.common.errors.generic);
       }}
     >
-      <Input id="enrol-name" value={name} readOnly label={e.name} />
-      <Input id="enrol-email" type="email" value={email} readOnly autoComplete="username" label={e.email} />
-      <Input id="enrol-password" name="password" type="password" required minLength={ADMIN_PASSWORD_MIN} autoComplete="new-password" label={t.admin.login.password} hint={s.passwordHint} />
-      <div className="mt-5 flex flex-col gap-4 rounded-xl border border-line bg-wash p-4 sm:flex-row">
-        {/* eslint-disable-next-line @next/next/no-img-element */}
-        <img src={qr} alt="" width={120} height={120} className="size-[120px] flex-none rounded-lg border border-line bg-white" />
-        <div className="min-w-0">
-          <strong className="text-[13px]">{s.totpTitle}</strong>
-          <p className="mt-1 text-[11px] text-muted">{s.totpBody}</p>
-          <code className="mt-2 block font-mono text-[11px] break-all text-ink">{secret}</code>
-        </div>
-      </div>
-      <Input id="enrol-totp" name="code" inputMode="numeric" pattern="[0-9]{6}" maxLength={6} required autoComplete="one-time-code" placeholder="000000" label={t.admin.login.totp} hint={t.admin.login.totpHint} />
-      {error && (
-        <p role="alert" className="mt-4 text-[12px] text-red">
-          {error}
-        </p>
-      )}
-      <button type="submit" className="btn mt-6 min-h-12 w-full" disabled={busy}>
-        {busy && <Spinner />}
-        {e.submit}
-        <Icon name="arrow" />
-      </button>
+      <FormError message={error} />
+      <Input id="admin-name" value={name} readOnly label={e.name} />
+      <Input id="admin-email" type="email" value={email} readOnly autoComplete="username" label={e.email} />
+      <Input id="admin-password" name="password" type="password" required minLength={ADMIN_PASSWORD_MIN} autoComplete="new-password" placeholder={s.passwordHint} label={t.admin.login.password} />
+      <TotpSetup qr={qr} secret={secret} />
+      <Totp />
+      <Submit busy={busy} label={e.submit} />
     </form>
   );
 }
