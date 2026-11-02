@@ -4,7 +4,7 @@ import { CREDIT_USD, PAYOUT_MIN_CREDITS } from '@/lib/constants';
 import { kycOverview } from '@/lib/services/kyc';
 import { payoutOverview, type PayoutRow } from '@/lib/services/payouts';
 import { serverMessages } from '@/i18n/server';
-import { fill, formatDate, formatDateTime, formatNumber, formatUsd } from '@/i18n/format';
+import { fill, formatDate, formatDateTime, formatNumber } from '@/i18n/format';
 import { Icon } from '@/components/ui/icons';
 import { PaypalButton, RequestPayoutButton } from '@/components/payouts/payout-dialogs';
 
@@ -138,7 +138,7 @@ export async function PayoutCard({ userId }: { userId: string }) {
                   <p className="text-[11px] text-muted">{fill(c.requestedAt, { time: formatDateTime(payout.createdAt, locale) })}</p>
                   {payout.status === 'paid' && payout.paidCents !== null && (
                     <p className="mt-1 text-[11px] break-all text-muted">
-                      {fill(c.net, { paid: formatUsd(payout.paidCents, locale), fee: usd(payout.feeCredits ?? 0) })}
+                      {fill(c.net, { paid: `$${(payout.paidCents / 100).toFixed(2)}`, fee: usd(payout.feeCredits ?? 0) })}
                       <br />
                       {fill(c.transfer, { id: payout.transferId ?? '—' })}
                     </p>

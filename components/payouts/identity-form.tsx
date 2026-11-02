@@ -160,7 +160,7 @@ export function IdentityForm({ state, record, today }: { state: KycState; record
                   const submitted = locked && (slot === 'document' ? record?.hasDocument : record?.hasSelfie);
                   const deleted = locked && record?.filesDeleted;
                   const status = deleted ? f.deleted : submitted ? f.submitted : upload ? (upload.progress !== null ? fill(f.uploading, { n: upload.progress }) : f.uploaded) : f.choose;
-                  const detail = deleted ? f.deletedHint : upload ? upload.name : slot === 'document' ? f.documentHint : f.selfieHint;
+                  const detail = deleted ? f.deletedHint : upload ? upload.name : submitted ? '' : slot === 'document' ? f.documentHint : f.selfieHint;
                   return (
                     <div key={slot} className="min-w-0">
                       <span className="field-label">{slot === 'document' ? f.document : f.selfie}</span>

@@ -95,9 +95,9 @@ export async function kycUploadTicket(userId: string, input: { contentType?: unk
  * a per-user lock, so two tabs cannot both submit.
  */
 export async function submitKyc(userId: string, input: Record<string, unknown>, now = new Date()): Promise<KycRow> {
+  await submitter(db(), userId);
   const parsed = parseKycSubmission(userId, input, reportingDate(now));
   if ('error' in parsed) throw new KycRefused(parsed.error);
-  await submitter(db(), userId);
   for (const slot of KYC_SLOTS) {
     const pathname = slot === 'document' ? parsed.documentBlob : parsed.selfieBlob;
     const info = await blobInfo(pathname);

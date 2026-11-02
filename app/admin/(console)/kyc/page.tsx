@@ -36,7 +36,7 @@ export default async function KycPage({ searchParams }: Props) {
     <>
       <PageHead crumbs={[{ label: t.console.nav.home, href: '/admin/overview' }, { label: k.title }]} title={k.title} lede={k.lede} />
       <SummaryCards
-        items={(['all', 'pending', 'verified', 'rejected', 'reset'] as const).map((status) => ({
+        items={(['all', 'pending', 'verified', 'rejected'] as const).map((status) => ({
           label: k.cards[status],
           value: n(data.counts[status] ?? 0),
           href: status === 'all' ? listHref('/admin/kyc', { size: view.size }, {}, KYC_DEFAULTS) : href({ status }),
