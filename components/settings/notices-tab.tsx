@@ -4,6 +4,7 @@ import Link from 'next/link';
 import { useRouter } from 'next/navigation';
 import { useEffect, useRef, useState } from 'react';
 import { api } from '@/lib/client/upload';
+import { formatCentsUsd, formatCreditsUsd } from '@/lib/domain/payouts';
 import type { Messages } from '@/i18n';
 import { useI18n } from '@/i18n/client';
 import { fill, formatDateTime, formatNumber } from '@/i18n/format';
@@ -73,8 +74,8 @@ function describe(t: Messages, locale: Locale, notice: NoticeItem): { line: stri
     case 'payout': {
       /* Step 6: a payout approved, rejected, paid or failed. */
       const k = t.payouts.notices;
-      const usd = `$${((Number(p.credits) || 0) / 10_000).toFixed(2)}`;
-      const paid = `$${((Number(p.paidCents) || 0) / 100).toFixed(2)}`;
+      const usd = formatCreditsUsd(Number(p.credits) || 0);
+      const paid = formatCentsUsd(Number(p.paidCents) || 0);
       const line =
         p.status === 'approved'
           ? fill(k.approved, { usd })

@@ -6,11 +6,12 @@
  * and the status machine.
  */
 import { describe, expect, it } from 'vitest';
-import { approvalBlocker, canSubmitKyc, documentValid, filesDue, filesDueAt, kycPathname, kycState, parseKycSubmission } from '@/lib/domain/kyc';
+import { approvalBlocker, canSubmitKyc, documentValid, filesDueAt, kycPathname, kycState, parseKycSubmission } from '@/lib/domain/kyc';
 import {
   canMove,
   creditsToCents,
-  isOpenPayout,
+  formatCentsUsd,
+  formatCreditsUsd,
   liveFeeCents,
   normalizePaypalEmail,
   parsePaidAmount,
@@ -111,9 +112,7 @@ describe('identity review', () => {
     const decidedAt = new Date('2026-10-01T12:00:00Z');
     const verified = { status: 'verified' as const, decidedAt, resetAt: null, documentBlob: file(), selfieBlob: file('jpg'), filesDeletedAt: null };
     expect(filesDueAt(verified)).toEqual(new Date('2026-10-31T12:00:00Z'));
-    expect(filesDue(verified, new Date('2026-10-31T11:59:59Z'))).toBe(false);
-    expect(filesDue(verified, new Date('2026-10-31T12:00:00Z'))).toBe(true);
-    expect(filesDue({ ...verified, status: 'rejected' }, new Date('2026-10-31T12:00:00Z'))).toBe(true);
+    expect(filesDueAt({ ...verified, status: 'rejected' })).toEqual(new Date('2026-10-31T12:00:00Z'));
     expect(filesDueAt({ ...verified, status: 'pending', decidedAt: null })).toBeNull();
     expect(filesDueAt({ ...verified, status: 'pending', decidedAt: null, resetAt: decidedAt })).toEqual(new Date('2026-10-31T12:00:00Z'));
     /* Approved earlier, reset later: the earlier start counts. */
@@ -177,6 +176,8 @@ describe('requests and payments', () => {
     expect(parsePaidAmount('50.00', 500_001)).toEqual({ paidCents: 5_000, feeCredits: 1 });
     expect(parsePaidAmount('50.01', 500_001)).toEqual({ error: 'paid_amount' });
     expect(creditsToCents(600_000)).toBe(6_000);
+    expect(formatCreditsUsd(10_000_000)).toBe('$1,000.00');
+    expect(formatCentsUsd(5_500)).toBe('$55.00');
   });
 
   it('a transfer id is printable, without blanks, at most 100 characters', () => {
@@ -196,8 +197,6 @@ describe('requests and payments', () => {
     for (const final of ['paid', 'failed', 'rejected'] as const) {
       for (const to of ['approved', 'rejected', 'paid', 'failed'] as const) expect(canMove(final, to)).toBe(false);
     }
-    expect(isOpenPayout('approved')).toBe(true);
-    expect(isOpenPayout('paid')).toBe(false);
     expect(releasesHold('rejected') && releasesHold('failed')).toBe(true);
     expect(releasesHold('approved') || releasesHold('paid')).toBe(false);
   });

@@ -4,7 +4,7 @@ import { CREDIT_USD } from '@/lib/constants';
 import { currentUser } from '@/lib/http/session';
 import { listRees, reeTotals } from '@/lib/services/rees';
 import { dashboardData } from '@/lib/services/statistics';
-import { payoutOverview } from '@/lib/services/payouts';
+import { payoutStanding } from '@/lib/services/payouts';
 import { serverMessages } from '@/i18n/server';
 import { fill, formatNumber } from '@/i18n/format';
 import { Topbar } from '@/components/shell/topbar';
@@ -46,7 +46,7 @@ export default async function DashboardPage() {
     reeTotals(user.id),
     listRees(user.id, { q: '', visibility: 'all', sort: 'default', size: 12, page: 1 }),
     dashboardData(user.id),
-    payoutOverview(user.id),
+    payoutStanding(user.id),
   ]);
   const n = (value: number) => formatNumber(value, locale);
   const official = user.role === 'official';
@@ -171,7 +171,7 @@ export default async function DashboardPage() {
         <div className="mt-6 grid grid-cols-1 gap-6 lg:grid-cols-3">
           <HealthPanel t={t} locale={locale} sources={board.sources} />
           <RankingPanel t={t} locale={locale} ranking={board.ranking} reeCount={totals.rees} moderated={moderated} />
-          <IncomePanel t={t} locale={locale} earned={earned} official={official} stage={payout.stage} kyc={payout.kyc} held={payout.open?.credits ?? 0} />
+          <IncomePanel t={t} locale={locale} earned={earned} official={official} stage={payout.stage} kyc={payout.kyc} held={payout.held} />
         </div>
       </main>
     </>

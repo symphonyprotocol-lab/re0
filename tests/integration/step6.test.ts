@@ -384,6 +384,9 @@ describeWithDb('payouts', () => {
     await payouts.decidePayout(reviewer, second.id, 'approved', '');
     await expect(payouts.recordPayment(reviewer, second.id, { transferId: 'DUPLICATE-1', paid: '70' })).rejects.toMatchObject({ code: 'transfer_used' });
     await expect(payouts.failPayout(reviewer, second.id, '')).rejects.toMatchObject({ code: 'reason' });
+    /* A malformed id is "not found", not a database error. */
+    await expect(payouts.failPayout(reviewer, 'not-a-uuid', 'Returned: account closed')).rejects.toMatchObject({ code: 'not_found' });
+    await expect(kyc.kycFiles(reviewer, 'not-a-uuid')).rejects.toMatchObject({ code: 'not_found' });
     await payouts.failPayout(reviewer, second.id, 'Returned: account closed');
     await expect(payouts.failPayout(reviewer, second.id, 'Returned: account closed')).rejects.toMatchObject({ code: 'stale' });
     expect((await entries(userId, second.id)).map((entry) => [entry.reason, entry.delta])).toEqual([

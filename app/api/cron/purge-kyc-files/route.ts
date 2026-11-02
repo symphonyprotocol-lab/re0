@@ -15,14 +15,6 @@ export async function GET(request: NextRequest) {
   const secret = process.env.CRON_SECRET;
   const presented = request.headers.get('authorization') ?? '';
   if (!secret || !timingSafeEqual(presented, `Bearer ${secret}`)) return fail('unauthorized', 401);
-  let records = 0;
-  let orphans = 0;
-  const started = Date.now();
-  for (;;) {
-    const batch = await purgeKycFiles();
-    records += batch.records;
-    orphans += batch.orphans;
-    if ((batch.records === 0 && batch.orphans === 0) || Date.now() - started > 240_000) break;
-  }
-  return json({ records, orphans });
+  /* Due records in batches until done or nearly out of time, then one pass over unsubmitted uploads. */
+  return json(await purgeKycFiles());
 }

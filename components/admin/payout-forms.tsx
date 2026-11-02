@@ -3,14 +3,13 @@
 import { useRouter } from 'next/navigation';
 import { useState } from 'react';
 import { ADMIN_REASON, PAYOUT_TRANSFER_ID_MAX } from '@/lib/constants';
-import { creditsToCents, liveFeeCents } from '@/lib/domain/payouts';
+import { creditsToCents, formatCentsUsd as usd, liveFeeCents } from '@/lib/domain/payouts';
 import { api } from '@/lib/client/upload';
 import { useI18n } from '@/i18n/client';
 import { fill } from '@/i18n/format';
 import { Icon, Spinner } from '@/components/ui/icons';
 import { useToast } from '@/components/ui/toast';
 
-const usd = (cents: number) => `$${(cents / 100).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
 
 function useAction() {
   const { t } = useI18n();
@@ -75,7 +74,7 @@ export function PayoutReview({ id, allowed, paymentHref }: { id: string; allowed
           className="btn"
           disabled={busy !== null || !allowed}
           onClick={() => {
-            if (note.trim() && reasonLength(note) > ADMIN_REASON.max) return setError(errors.reason!);
+            if (note.trim() && (reasonLength(note) < ADMIN_REASON.min || reasonLength(note) > ADMIN_REASON.max)) return setError(errors.reason!);
             void run('approved', `/api/admin/payouts/${id}/approve`, { note: note.trim() }, d.approved, paymentHref);
           }}
         >

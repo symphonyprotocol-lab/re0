@@ -32,7 +32,7 @@ export async function adminOverview(now = new Date()) {
   const database = db();
   const since = new Date(now.getTime() - 30 * DAY);
   const month = periodRange({ period: 'month', date: reportingDate(now) })!;
-  const [users, rees, sources, questions, earned, revenue, verifications, job, calls, trend, recent] = await Promise.all([
+  const [users, rees, sources, questions, earned, revenue, verifications, job, calls, trend, recent, kyc, payouts] = await Promise.all([
     database.select({ total: count(), disabled: sql<number>`count(*) filter (where ${schema.user.disabledAt} is not null)::int` }).from(schema.user),
     database
       .select({ total: count(), public: sql<number>`count(*) filter (where ${schema.ree.isPublic})::int`, moderated: sql<number>`count(*) filter (where ${schema.ree.moderatedAt} is not null)::int` })
@@ -73,6 +73,8 @@ export async function adminOverview(now = new Date()) {
       .where(and(eq(schema.creditEntry.reason, 'query_base'), gte(schema.creditEntry.createdAt, new Date(now.getTime() - 30 * DAY))))
       .groupBy(sql`1`),
     listAudit({ q: '', action: 'all', period: 'all', sort: 'newest', size: 5, page: 1 }),
+    pendingKyc(),
+    openPayoutCount(),
   ]);
   const byDay = new Map(trend.map((row) => [row.day, row.n]));
   const days = Array.from({ length: 30 }, (_, index) => reportingDate(now.getTime() - (29 - index) * DAY)).map((day) => ({ day, answers: byDay.get(day) ?? 0 }));
@@ -102,7 +104,7 @@ export async function adminOverview(now = new Date()) {
     questions30: questions[0]?.total ?? 0,
     earned30: Number(earned[0]?.sum ?? 0),
     revenue30: { usd: Number(revenue[0]?.minor ?? 0) / 100, payments: revenue[0]?.n ?? 0 },
-    pending: { verifications, reembed: job ? 1 : 0, kyc: await pendingKyc(), payouts: await openPayoutCount() },
+    pending: { verifications, reembed: job ? 1 : 0, kyc, payouts },
     trend: days,
     month: { start: reportingDate(month.start), end: reportingDate(month.end - 1) },
     models,

@@ -4,6 +4,7 @@
  * `?format=csv`, every row the same filters match (8.2 "后台 CSV").
  */
 import { NextResponse } from 'next/server';
+import { CREDIT_USD } from '@/lib/constants';
 import { toCsv } from '@/lib/domain/csv';
 import type { ListResult } from '@/lib/domain/list';
 import { reportingTime } from '@/lib/domain/statistics';
@@ -139,7 +140,7 @@ export const KYC_CSV = {
   ],
 };
 
-const dollars = (credits: number | null) => (credits === null ? '' : (credits / 10_000).toFixed(4));
+const dollars = (credits: number | null) => (credits === null ? '' : (credits * CREDIT_USD).toFixed(4));
 
 export const PAYOUTS_CSV = {
   name: 'payouts',

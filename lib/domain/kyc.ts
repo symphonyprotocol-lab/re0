@@ -146,8 +146,3 @@ export function filesDueAt(record: RetainedRecord): Date | null {
   if (!starts.length) return null;
   return new Date(Math.min(...starts) + KYC_FILE_RETENTION_DAYS * DAY);
 }
-
-export function filesDue(record: RetainedRecord, now: Date): boolean {
-  const due = filesDueAt(record);
-  return due !== null && due.getTime() <= now.getTime();
-}

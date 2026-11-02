@@ -11,7 +11,7 @@ import { KYC_FILE_RETENTION_DAYS, KYC_FILE_URL_TTL_SECONDS, KYC_IMAGE_MAX_BYTES,
 import { parseAdminReason } from '@/lib/domain/adjustments';
 import { periodStart, type KycView } from '@/lib/domain/admin-lists';
 import { approvalBlocker, canSubmitKyc, filesDueAt, kycState, KYC_SLOTS, parseKycSubmission, type KycSlot, type KycState } from '@/lib/domain/kyc';
-import { clampPage, likePattern, type ListResult } from '@/lib/domain/list';
+import { clampPage, isUuid, likePattern, type ListResult } from '@/lib/domain/list';
 import type { UserRole } from '@/lib/domain/roles';
 import { reportingDate } from '@/lib/domain/statistics';
 import { uploadTicket, type UploadTicket } from '@/lib/infra/blob';
@@ -272,6 +272,7 @@ export async function kycDetail(id: string) {
  * look at an identity document is on record (2.3).
  */
 export async function kycFiles(administratorId: string, id: string, now = new Date()) {
+  if (!isUuid(id)) throw new AdminInputError('not_found');
   const [record] = await db().select().from(schema.kycRecord).where(eq(schema.kycRecord.id, id)).limit(1);
   if (!record) throw new AdminInputError('not_found');
   const files: Record<KycSlot, { url: string; expiresAt: string } | null> = { document: null, selfie: null };
@@ -306,6 +307,7 @@ export async function decideKyc(
   const note = typeof input.reason === 'string' ? input.reason.trim() : '';
   const reason = note ? parseAdminReason(note) : '';
   if (reason === null || (decision === 'rejected' && !reason)) throw new AdminInputError('reason');
+  if (!isUuid(id)) throw new AdminInputError('not_found');
   return db().transaction(async (tx) => {
     const [record] = await tx.select().from(schema.kycRecord).where(eq(schema.kycRecord.id, id)).for('update');
     if (!record) throw new AdminInputError('not_found');
@@ -346,9 +348,12 @@ export async function decideKyc(
 export async function requestReverification(administratorId: string, id: string, rawReason: unknown, now = new Date()): Promise<KycRow> {
   const reason = parseAdminReason(rawReason);
   if (!reason) throw new AdminInputError('reason');
+  if (!isUuid(id)) throw new AdminInputError('not_found');
   return db().transaction(async (tx) => {
     const [record] = await tx.select().from(schema.kycRecord).where(eq(schema.kycRecord.id, id)).limit(1);
     if (!record) throw new AdminInputError('not_found');
+    /* The lock `submitKyc` holds: a reset and a resubmission never interleave, so the newest record read here stays the newest. */
+    await tx.execute(sql`select pg_advisory_xact_lock(hashtext(${`kyc:${record.userId}`}))`);
     const [account] = await tx.select().from(schema.user).where(eq(schema.user.id, record.userId)).for('update');
     if (account?.role === 'official') throw new AdminInputError('official');
     const latest = await latestKyc(tx, record.userId);
@@ -392,7 +397,20 @@ export async function requestReverification(administratorId: string, id: string,
  * `kyc/<user>/` for a user of this database, and named by no record). Blob first, then the row: should the row
  * update fail, the next run deletes again, which is harmless.
  */
-export async function purgeKycFiles(now = new Date()): Promise<{ records: number; orphans: number }> {
+export async function purgeKycFiles(now = new Date(), budgetMs = 240_000): Promise<{ records: number; orphans: number }> {
+  const started = Date.now();
+  let records = 0;
+  for (;;) {
+    const purged = await purgeDueBatch(now);
+    records += purged;
+    if (purged < KYC_PURGE_BATCH || Date.now() - started > budgetMs) break;
+  }
+  /* One pass over the uploads per run, after the records. */
+  return { records, orphans: await purgeOrphans(now) };
+}
+
+/** Up to one batch of due records: their images in one Blob call, the rows in one update. */
+async function purgeDueBatch(now: Date): Promise<number> {
   const database = db();
   const cutoff = new Date(now.getTime() - KYC_FILE_RETENTION_DAYS * DAY);
   const due = await database
@@ -410,14 +428,13 @@ export async function purgeKycFiles(now = new Date()): Promise<{ records: number
     )
     .orderBy(asc(schema.kycRecord.createdAt))
     .limit(KYC_PURGE_BATCH);
-  for (const record of due) {
-    await deleteBlobs([record.documentBlob, record.selfieBlob].filter((pathname): pathname is string => Boolean(pathname)));
-    await database
-      .update(schema.kycRecord)
-      .set({ documentBlob: null, selfieBlob: null, filesDeletedAt: now })
-      .where(and(eq(schema.kycRecord.id, record.id), isNull(schema.kycRecord.filesDeletedAt)));
-  }
-  return { records: due.length, orphans: await purgeOrphans(now) };
+  if (!due.length) return 0;
+  await deleteBlobs(due.flatMap((record) => [record.documentBlob, record.selfieBlob]).filter((pathname): pathname is string => Boolean(pathname)));
+  await database
+    .update(schema.kycRecord)
+    .set({ documentBlob: null, selfieBlob: null, filesDeletedAt: now })
+    .where(and(inArray(schema.kycRecord.id, due.map((record) => record.id)), isNull(schema.kycRecord.filesDeletedAt)));
+  return due.length;
 }
 
 /** The user id in `kyc/<user>/<file>`, or null for anything else under the prefix. */

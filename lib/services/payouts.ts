@@ -13,13 +13,14 @@
  * audit row and the user's notice are written in the same transaction.
  */
 import { and, asc, count, desc, eq, gte, ilike, inArray, ne, or, sql, type SQL } from 'drizzle-orm';
-import { CREDIT_USD } from '@/lib/constants';
 import { parseAdminReason } from '@/lib/domain/adjustments';
 import { periodStart, type PayoutHistoryView, type PayoutQueueView } from '@/lib/domain/admin-lists';
 import { kycState, type KycState } from '@/lib/domain/kyc';
-import { clampPage, likePattern, type ListResult } from '@/lib/domain/list';
+import { clampPage, isUuid, likePattern, type ListResult } from '@/lib/domain/list';
 import {
   canMove,
+  formatCentsUsd,
+  formatCreditsUsd,
   normalizePaypalEmail,
   OPEN_PAYOUT_STATUSES,
   parsePaidAmount,
@@ -27,6 +28,7 @@ import {
   parseTransferId,
   payoutStage,
   paypalHoldUntil,
+  releasesHold,
   STAGE_REFUSALS,
   type PayoutStage,
   type PayoutStatus,
@@ -47,9 +49,6 @@ export class PayoutRefused extends Error {
     this.name = 'PayoutRefused';
   }
 }
-
-const usd = (credits: number) => `$${(credits * CREDIT_USD).toFixed(2)}`;
-const cents = (value: number) => `$${(value / 100).toFixed(2)}`;
 
 /** Earned credits not yet spent or held: the most a payout may ask for. */
 export async function withdrawable(executor: Executor, userId: string, lock = false): Promise<number> {
@@ -87,6 +86,12 @@ async function standing(executor: Executor, userId: string, now: Date, lock = fa
 }
 
 /* ------------------------------------------------------------- the user */
+
+/** Where the user stands, without the history: the dashboard's guide. */
+export async function payoutStanding(userId: string, now = new Date()): Promise<{ stage: PayoutStage; kyc: KycState; held: number }> {
+  const { stage, kyc, open } = await standing(db(), userId, now);
+  return { stage, kyc, held: open?.credits ?? 0 };
+}
 
 export interface PayoutOverview {
   stage: PayoutStage;
@@ -352,6 +357,7 @@ export async function payoutDetail(id: string) {
 }
 
 async function lockPayout(tx: Tx, id: string): Promise<PayoutRow> {
+  if (!isUuid(id)) throw new AdminInputError('not_found');
   const [row] = await tx.select().from(schema.payout).where(eq(schema.payout.id, id)).for('update');
   if (!row) throw new AdminInputError('not_found');
   return row;
@@ -375,7 +381,7 @@ export async function decidePayout(administratorId: string, id: string, decision
     const payout = await lockPayout(tx, id);
     if (!canMove(payout.status, decision)) throw new AdminInputError('stale');
     if (decision === 'approved') await assertPayable(tx, payout.userId);
-    else if (payout.holdId) await releaseHold(tx, payout.holdId, { note: `rejected · ${note}` }, now);
+    if (releasesHold(decision) && payout.holdId) await releaseHold(tx, payout.holdId, { note: `rejected · ${note}` }, now);
     const [updated] = await tx
       .update(schema.payout)
       .set({ status: decision, reviewNote: note || null, reviewedBy: administratorId, reviewedAt: now, ...(decision === 'rejected' ? { resolvedBy: administratorId, resolvedAt: now } : {}) })
@@ -414,7 +420,7 @@ export async function recordPayment(administratorId: string, id: string, input: 
       .limit(1);
     if (reused) throw new AdminInputError('transfer_used');
     if (payout.holdId) {
-      await settleHold(tx, payout.holdId, payout.credits, { note: `PayPal ${transferId} · paid ${cents(amount.paidCents)} · fee ${usd(amount.feeCredits)}` }, now);
+      await settleHold(tx, payout.holdId, payout.credits, { note: `PayPal ${transferId} · paid ${formatCentsUsd(amount.paidCents)} · fee ${formatCreditsUsd(amount.feeCredits)}` }, now);
     }
     const [updated] = await tx
       .update(schema.payout)
@@ -440,7 +446,7 @@ export async function failPayout(administratorId: string, id: string, rawReason:
   return db().transaction(async (tx) => {
     const payout = await lockPayout(tx, id);
     if (!canMove(payout.status, 'failed')) throw new AdminInputError('stale');
-    if (payout.holdId) await releaseHold(tx, payout.holdId, { note: `failed · ${reason}` }, now);
+    if (releasesHold('failed') && payout.holdId) await releaseHold(tx, payout.holdId, { note: `failed · ${reason}` }, now);
     const [updated] = await tx
       .update(schema.payout)
       .set({ status: 'failed', failureReason: reason, resolvedBy: administratorId, resolvedAt: now })

@@ -23,10 +23,6 @@ const DAY = 24 * 60 * 60 * 1000;
 /** Ported from the old `EMAIL_SHAPE`: something, an @, a dotted domain, no blanks. */
 const EMAIL_SHAPE = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
 
-export function isOpenPayout(status: PayoutStatus): boolean {
-  return (OPEN_PAYOUT_STATUSES as readonly string[]).includes(status);
-}
-
 /** The PayPal address as stored (trimmed, lower case), or null when it cannot be one. */
 export function normalizePaypalEmail(raw: unknown): string | null {
   const email = typeof raw === 'string' ? raw.trim().toLowerCase() : '';
@@ -93,6 +89,15 @@ export function parsePayoutCredits(raw: unknown, withdrawable: number): number |
   if (value < PAYOUT_MIN_CREDITS) return { error: 'below_minimum' };
   if (value > withdrawable) return { error: 'over_balance' };
   return value;
+}
+
+/** Credits as US dollars for display, two decimals with grouping: the one formatter every page uses. */
+export function formatCreditsUsd(credits: number): string {
+  return formatCentsUsd(credits * CREDIT_USD * 100);
+}
+
+export function formatCentsUsd(cents: number): string {
+  return `$${(cents / 100).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
 }
 
 /** US cents for a number of credits (1 credit = USD 0.0001); may carry a fraction of a cent. */

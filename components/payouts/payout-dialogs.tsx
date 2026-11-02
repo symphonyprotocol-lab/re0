@@ -2,7 +2,8 @@
 
 import { useRouter } from 'next/navigation';
 import { useState } from 'react';
-import { CREDIT_USD, PAYOUT_MIN_CREDITS, PAYPAL_EMAIL_MAX } from '@/lib/constants';
+import { PAYOUT_MIN_CREDITS, PAYPAL_EMAIL_MAX } from '@/lib/constants';
+import { formatCreditsUsd as usd } from '@/lib/domain/payouts';
 import { api } from '@/lib/client/upload';
 import { useI18n } from '@/i18n/client';
 import { fill, formatDate, formatNumber } from '@/i18n/format';
@@ -10,7 +11,6 @@ import { Icon, Spinner } from '@/components/ui/icons';
 import { Modal } from '@/components/ui/modal';
 import { useToast } from '@/components/ui/toast';
 
-const usd = (credits: number) => `$${(credits * CREDIT_USD).toFixed(2)}`;
 
 /** "绑定 / 更换" the PayPal e-mail (prototype `paypalModal`); a change starts the seven-day hold. */
 export function PaypalButton({ email, disabled }: { email: string | null; disabled: boolean }) {
