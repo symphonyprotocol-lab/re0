@@ -11,6 +11,8 @@ import { fill, formatNumber } from '@/i18n/format';
 import { Icon } from '@/components/ui/icons';
 import { Pager } from '@/components/ui/pager';
 import { ReeAvatar } from '@/components/ui/ree-avatar';
+import { PlayIntroButton, VideoPlaceholder, VideoPoster } from '@/components/video/video-cover';
+import type { IntroProps } from '@/lib/domain/video';
 
 interface Query {
   q: string;
@@ -41,10 +43,13 @@ export function ReeList({
   result,
   totals,
   query,
+  videos = {},
 }: {
   result: ListResult<ReeListItem>;
   totals: { rees: number; public: number; private: number; sources: number; answers: number };
   query: Query;
+  /** Step 7: introductions by Ree id; a Ree with one gets its opening still and a play button. */
+  videos?: Record<string, IntroProps>;
 }) {
   const { t, locale } = useI18n();
   const router = useRouter();
@@ -84,10 +89,17 @@ export function ReeList({
           </h1>
           <p className="mt-2 text-[13px] text-muted">{t.rees.lede}</p>
         </div>
-        <Link href="/rees/new" className="btn">
-          <Icon name="plus" />
-          {t.rees.create}
-        </Link>
+        <div className="flex flex-wrap gap-2">
+          {/* Step 7: the video studio (prototype `#/videos`) is reached from here. */}
+          <Link href="/videos" className="btn-secondary">
+            <Icon name="film" />
+            {t.video.library.entry}
+          </Link>
+          <Link href="/rees/new" className="btn">
+            <Icon name="plus" />
+            {t.rees.create}
+          </Link>
+        </div>
       </div>
 
       <div className="mt-6 grid grid-cols-1 gap-4 sm:grid-cols-3">
@@ -193,17 +205,27 @@ export function ReeList({
           <ul className="grid grid-cols-1 gap-4 sm:grid-cols-2 xl:grid-cols-3">
             {result.items.map((ree) => (
               <li key={ree.id} className="card flex flex-col overflow-hidden">
-                <Link href={`/rees/${ree.id}/settings`} className="relative flex aspect-video flex-col items-center justify-center gap-2 border-b border-line bg-gradient-to-br from-[#f6f7ff] to-[#edf3ff] px-4 text-center">
-                  <span className="absolute top-3 right-3 tag bg-white">
-                    <Icon name={ree.isPublic ? 'globe' : 'lock'} className="size-3" />
-                    {ree.isPublic ? t.common.visibility.public : t.common.visibility.private}
-                  </span>
-                  <ReeAvatar avatar={ree.avatarBlob} color={ree.color} size="lg" />
-                  <strong className="line-clamp-1 max-w-full text-[16px]" title={ree.name}>
-                    {ree.name}
-                  </strong>
-                  <span className="text-[10px] text-muted">{t.rees.noVideo}</span>
-                </Link>
+                {videos[ree.id] ? (
+                  <div className="relative border-b border-line">
+                    <Link href={`/rees/${ree.id}/settings`} className="block" aria-label={ree.name}>
+                      <VideoPoster ree={ree} video={videos[ree.id]!} />
+                    </Link>
+                    <span className="tag absolute top-3 left-3 bg-white">
+                      <Icon name={ree.isPublic ? 'globe' : 'lock'} className="size-3" />
+                      {ree.isPublic ? t.common.visibility.public : t.common.visibility.private}
+                    </span>
+                    <PlayIntroButton video={videos[ree.id]!} name={ree.name} href={`/rees/${ree.id}/video`} linkLabel={t.video.dialog.studio} className="absolute top-3 right-3" />
+                  </div>
+                ) : (
+                  /* The same "暂无视频介绍" placeholder as explore (prototype discovery-video.js). */
+                  <Link href={`/rees/${ree.id}/settings`} className="relative block border-b border-line" aria-label={ree.name}>
+                    <VideoPlaceholder ree={ree} />
+                    <span className="tag absolute top-3 right-3 bg-white">
+                      <Icon name={ree.isPublic ? 'globe' : 'lock'} className="size-3" />
+                      {ree.isPublic ? t.common.visibility.public : t.common.visibility.private}
+                    </span>
+                  </Link>
+                )}
                 <div className="flex flex-1 flex-col gap-3 p-4">
                   <p className="line-clamp-2 min-h-[2.6em] text-[12px] text-muted" title={ree.description}>
                     {ree.description || '—'}
@@ -219,10 +241,16 @@ export function ReeList({
                     </span>
                   </div>
                   <div className="mt-auto flex flex-wrap justify-between gap-2">
-                    <Link href={`/rees/${ree.id}/chat`} className="text-link text-[12px]">
-                      <Icon name="chat" className="size-3.5" />
-                      {t.rees.chat}
-                    </Link>
+                    <span className="flex flex-wrap gap-3">
+                      <Link href={`/rees/${ree.id}/chat`} className="text-link text-[12px]">
+                        <Icon name="chat" className="size-3.5" />
+                        {t.rees.chat}
+                      </Link>
+                      <Link href={`/rees/${ree.id}/video`} className="text-link text-[12px]">
+                        <Icon name="film" className="size-3.5" />
+                        {t.video.tab}
+                      </Link>
+                    </span>
                     <Link href={`/rees/${ree.id}/settings`} className="btn-secondary btn-sm">
                       {t.rees.open}
                       <Icon name="arrow" className="size-3.5" />
@@ -241,7 +269,7 @@ export function ReeList({
                   <th className="w-[110px] px-3 py-3 font-semibold">{t.rees.columns.visibility}</th>
                   <th className="w-[120px] px-3 py-3 font-semibold">{t.rees.columns.sources}</th>
                   <th className="w-[110px] px-3 py-3 font-semibold">{t.rees.columns.answers}</th>
-                  <th className="w-[190px] px-3 py-3 font-semibold">{t.rees.columns.actions}</th>
+                  <th className="w-[250px] px-3 py-3 font-semibold">{t.rees.columns.actions}</th>
                 </tr>
               </thead>
               <tbody className="divide-y divide-line">
@@ -275,6 +303,9 @@ export function ReeList({
                       <div className="flex gap-1">
                         <Link href={`/rees/${ree.id}/knowledge`} className="btn-ghost">
                           {t.rees.manageKnowledge}
+                        </Link>
+                        <Link href={`/rees/${ree.id}/video`} className="btn-ghost">
+                          {t.video.tab}
                         </Link>
                         <Link href={`/rees/${ree.id}/chat`} className="btn-ghost">
                           {t.rees.chat}

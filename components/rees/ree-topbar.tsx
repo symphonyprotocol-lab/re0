@@ -4,8 +4,8 @@ import { Icon } from '@/components/ui/icons';
 import { serverMessages } from '@/i18n/server';
 import { Topbar } from '@/components/shell/topbar';
 
-/** A Ree's pages share one top bar: the way back to My Rees and the Ree's tabs (settings, knowledge, statistics, chat). */
-export async function ReeTopbar({ ree, active, actions }: { ree: { id: string; name: string; slug?: string; isPublic?: boolean }; active: 'settings' | 'knowledge' | 'statistics' | 'chat'; actions?: ReactNode }) {
+/** A Ree's pages share one top bar: the way back to My Rees and the Ree's tabs (settings, knowledge, video, statistics, chat). */
+export async function ReeTopbar({ ree, active, actions }: { ree: { id: string; name: string; slug?: string; isPublic?: boolean }; active: 'settings' | 'knowledge' | 'video' | 'statistics' | 'chat'; actions?: ReactNode }) {
   const { t } = await serverMessages();
   const tab = t.reeSetup.tabs;
   return (
@@ -15,6 +15,8 @@ export async function ReeTopbar({ ree, active, actions }: { ree: { id: string; n
       tabs={[
         { label: tab.settings, href: `/rees/${ree.id}/settings`, active: active === 'settings', icon: 'settings' },
         { label: tab.knowledge, href: `/rees/${ree.id}/knowledge`, active: active === 'knowledge', icon: 'file' },
+        /* Step 7: the prototype's order is settings, knowledge, video, statistics, chat. */
+        { label: t.video.tab, href: `/rees/${ree.id}/video`, active: active === 'video', icon: 'film' },
         { label: t.statistics.tab, href: `/rees/${ree.id}/statistics`, active: active === 'statistics', icon: 'dashboard' },
         { label: tab.chat, href: `/rees/${ree.id}/chat`, active: active === 'chat', icon: 'chat' },
       ]}

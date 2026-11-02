@@ -3,6 +3,8 @@ import Link from 'next/link';
 import { HOME_EXAMPLE_REES } from '@/lib/constants';
 import { currentUser } from '@/lib/http/session';
 import { activeRees } from '@/lib/services/explore';
+import { HomeIntro } from '@/components/video/home-intro';
+import { PlayIntroButton } from '@/components/video/video-cover';
 import { serverMessages } from '@/i18n/server';
 import { Icon, type IconName } from '@/components/ui/icons';
 import { ReeAvatar } from '@/components/ui/ree-avatar';
@@ -22,6 +24,7 @@ export async function generateMetadata(): Promise<Metadata> {
  */
 export default async function HomePage() {
   const [user, { t }, examples] = await Promise.all([currentUser(), serverMessages(), activeRees(HOME_EXAMPLE_REES)]);
+  const featured = examples.find((ree) => ree.video) ?? null;
   const h = t.site.home;
   const createHref = user ? '/rees/new' : `/login?returnTo=${encodeURIComponent('/rees/new')}`;
   const sources: [IconName, keyof typeof h.sources][] = [
@@ -193,19 +196,23 @@ export default async function HomePage() {
             {/* Step 4: the most active public Rees; the illustrative three only while there are none. */}
             {examples.length
               ? examples.map((ree) => (
-                  <Link key={ree.id} href={`/r/${ree.slug}`} className="card flex items-start gap-4 p-5 hover:border-blue">
-                    <ReeAvatar avatar={ree.avatarBlob} color={ree.color} />
-                    <div className="min-w-0 flex-1">
-                      <div className="flex min-w-0 items-center">
-                        <h3 className="truncate text-[15px] font-bold">{ree.name}</h3>
-                        <RoleBadge role={ree.role} />
+                  <div key={ree.id} className="relative">
+                    <Link href={`/r/${ree.slug}`} className={`card flex h-full items-start gap-4 p-5 hover:border-blue ${ree.video ? 'pr-28' : ''}`}>
+                      <ReeAvatar avatar={ree.avatarBlob} color={ree.color} />
+                      <div className="min-w-0 flex-1">
+                        <div className="flex min-w-0 items-center">
+                          <h3 className="truncate text-[15px] font-bold">{ree.name}</h3>
+                          <RoleBadge role={ree.role} />
+                        </div>
+                        <p className="mt-1 line-clamp-2 text-[13px] text-muted">{ree.description}</p>
+                        <p className="mt-2 font-mono text-[13px]">
+                          {ree.price} <small className="text-muted">{h.perAnswer}</small>
+                        </p>
                       </div>
-                      <p className="mt-1 line-clamp-2 text-[13px] text-muted">{ree.description}</p>
-                      <p className="mt-2 font-mono text-[13px]">
-                        {ree.price} <small className="text-muted">{h.perAnswer}</small>
-                      </p>
-                    </div>
-                  </Link>
+                    </Link>
+                    {/* Step 7 (prototype home-dot-card "15s"): a Ree with an introduction plays it here. */}
+                    {ree.video && <PlayIntroButton video={ree.video} name={ree.name} href={`/r/${ree.slug}`} linkLabel={t.video.dialog.details} className="absolute top-4 right-4" />}
+                  </div>
                 ))
               : ([
                   ['design', 'default'],
@@ -227,20 +234,25 @@ export default async function HomePage() {
                   </article>
                 ))}
           </div>
-          <figure className="relative flex aspect-video min-w-0 flex-col justify-end overflow-hidden rounded-2xl bg-gradient-to-br from-[#0b1a4a] via-ink to-[#123a7a] p-6 text-white">
-            <span className="absolute top-1/2 left-1/2 inline-flex size-16 -translate-x-1/2 -translate-y-1/2 items-center justify-center rounded-full border border-white/30 bg-white/10 backdrop-blur-sm" aria-hidden="true">
-              <Icon name="play" className="size-7" />
-            </span>
-            <span className="absolute top-4 right-4 rounded-full bg-white/15 px-2.5 py-1 font-mono text-[11px]">0:15</span>
-            <figcaption>
-              <strong className="block text-[18px]">{h.videoTitle}</strong>
-              <span className="mt-1 block text-[12px] text-white/70">{h.videoBody}</span>
-              <span className="mt-3 inline-flex items-center gap-1.5 rounded-full bg-white/15 px-2.5 py-1 text-[11px]">
-                <Icon name="clock" className="size-3.5" />
-                {h.videoSoon}
+          {/* Step 7: the most active public Ree with an introduction plays here; the illustration stays until one exists. */}
+          {featured?.video ? (
+            <HomeIntro ree={featured} video={featured.video} title={t.video.dialog.title} body={featured.description} />
+          ) : (
+            <figure className="relative flex aspect-video min-w-0 flex-col justify-end overflow-hidden rounded-2xl bg-gradient-to-br from-[#0b1a4a] via-ink to-[#123a7a] p-6 text-white">
+              <span className="absolute top-1/2 left-1/2 inline-flex size-16 -translate-x-1/2 -translate-y-1/2 items-center justify-center rounded-full border border-white/30 bg-white/10 backdrop-blur-sm" aria-hidden="true">
+                <Icon name="play" className="size-7" />
               </span>
-            </figcaption>
-          </figure>
+              <span className="absolute top-4 right-4 rounded-full bg-white/15 px-2.5 py-1 font-mono text-[11px]">0:15</span>
+              <figcaption>
+                <strong className="block text-[18px]">{h.videoTitle}</strong>
+                <span className="mt-1 block text-[12px] text-white/70">{h.videoBody}</span>
+                <span className="mt-3 inline-flex items-center gap-1.5 rounded-full bg-white/15 px-2.5 py-1 text-[11px]">
+                  <Icon name="clock" className="size-3.5" />
+                  {h.videoSoon}
+                </span>
+              </figcaption>
+            </figure>
+          )}
         </div>
       </section>
 

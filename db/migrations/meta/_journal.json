@@ -50,6 +50,13 @@
       "when": 1793620000000,
       "tag": "0007_payout_kyc",
       "breakpoints": true
+    },
+    {
+      "idx": 8,
+      "version": "7",
+      "when": 1793625000000,
+      "tag": "0008_ree_video",
+      "breakpoints": true
     }
   ]
 }

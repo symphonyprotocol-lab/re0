@@ -344,3 +344,44 @@ export const PAYPAL_EMAIL_MAX = 254;
 export const PAYPAL_CHANGE_HOLD_DAYS = 7;
 /** The PayPal transfer id an administrator records. */
 export const PAYOUT_TRANSFER_ID_MAX = 100;
+
+/* ------------------------------------------------------- video, 2.6 (step 7) */
+
+/** A Ree's introduction: fixed 15 seconds at 24 fps, 720p (2.6 "规格与缓存"). Users cannot change the length. */
+export const VIDEO_FPS = 24;
+export const VIDEO_SECONDS = 15;
+export const VIDEO_FRAMES = VIDEO_FPS * VIDEO_SECONDS;
+/** The short side of either aspect: 1280×720 landscape, 720×1280 portrait. */
+export const VIDEO_SHORT_SIDE = 720;
+export const VIDEO_LONG_SIDE = 1280;
+/** The four shots' lengths in seconds (opening, its knowledge, a real answer, the close); they add up to 15. */
+export const VIDEO_SHOT_SECONDS = [3, 4, 5, 3] as const;
+/** Each cut is a 0.4-second crossfade, inside the shots' lengths (10 frames at 24 fps). */
+export const VIDEO_TRANSITION_FRAMES = 10;
+/**
+ * Text limits per shot, counted in characters (code points) for Chinese and
+ * English alike. The generator rewrites anything longer; the editor refuses it.
+ */
+export const VIDEO_LIMITS = { name: 20, position: 24, sources: 4, source: 20, question: 30, answer: 50, cta: 16 } as const;
+export const VIDEO_TEMPLATES = ['editorial', 'blueprint', 'spotlight'] as const;
+export type VideoTemplate = (typeof VIDEO_TEMPLATES)[number];
+export const VIDEO_ASPECTS = ['16:9', '9:16'] as const;
+export type VideoAspect = (typeof VIDEO_ASPECTS)[number];
+export const VIDEO_DEFAULT_ACCENT = '#127ee3';
+/** Generating or regenerating a script costs one question's worth (2.6 "收费"). */
+export const VIDEO_SCRIPT_CREDITS = 20;
+/** An MP4 export: each Ree's first is free, then this much; a cache hit is free and does not use up the free one. */
+export const VIDEO_EXPORT_CREDITS = 50;
+/** Times the generator is asked to rewrite fields over their limits before the script fails and is refunded. */
+export const VIDEO_SCRIPT_REWRITES = 2;
+/** An exported 15-second 720p MP4 is a few MB; the upload token allows up to this. */
+export const VIDEO_EXPORT_MAX_BYTES = 60 * 1024 * 1024;
+/** A started export older than this (the tab was closed) is released by `/api/cron/abandon-exports`. */
+export const VIDEO_EXPORT_ABANDON_MINUTES = 30;
+/** Videos per page on `/videos` (the My Rees sizes). */
+export const VIDEO_PAGE_SIZES = [12, 24, 48] as const;
+/**
+ * Bumped whenever the composition in `video/` draws differently, so an
+ * export cached under the old drawing is not handed out for the new one.
+ */
+export const VIDEO_COMPOSITION_VERSION = 1;
