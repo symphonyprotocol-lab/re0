@@ -119,5 +119,8 @@ if (!preview) {
   /* The build runs `db:migrate` itself right after this. */
   const run = spawnSync('npx', ['drizzle-kit', 'migrate'], { stdio: 'inherit' });
   if (run.status !== 0) refuse('drizzle-kit migrate failed');
+  /* drizzle-kit has been seen to exit 0 without applying anything; trust the schema, not the exit code. */
+  const [applied] = (await sql`select to_regclass('public.ree') is not null as ok`) as { ok: boolean }[];
+  if (!applied?.ok) refuse('schema cleared but migrations did not apply; run `npm run db:migrate`');
 }
 console.log('done');
