@@ -27,8 +27,7 @@ export default async function ReeVideoPage({ params }: { params: Promise<{ id: s
   return (
     <>
       <ReeTopbar ree={ree} active="video" />
-      <main className="mx-auto max-w-[1180px] px-4 py-8 md:px-8">
-        <VideoStudio
+      <VideoStudio
           ree={{ id: ree.id, name: ree.name, slug: ree.slug, avatarBlob: ree.avatarBlob, color: ree.color, isPublic: ree.isPublic && !ree.moderatedAt }}
           readySources={readySources}
           initial={{
@@ -43,8 +42,7 @@ export default async function ReeVideoPage({ params }: { params: Promise<{ id: s
           }}
           initialProps={props}
           lastExport={lastExport ? { url: lastExport.url, aspect: lastExport.aspect, cost: lastExport.cost, finishedAt: lastExport.finishedAt?.toISOString() ?? null, current: lastExport.current } : null}
-        />
-      </main>
+      />
     </>
   );
 }

@@ -8,7 +8,7 @@ import { exportBrowserRefused, exportCost, introSize, scriptDownload, type Intro
 import { api } from '@/lib/client/upload';
 import { useI18n } from '@/i18n/client';
 import { fill, formatDate } from '@/i18n/format';
-import { Icon, Spinner } from '@/components/ui/icons';
+import { PIcon } from '@/components/rees/proto-icon';
 import { Modal } from '@/components/ui/modal';
 import { useToast } from '@/components/ui/toast';
 
@@ -196,82 +196,74 @@ export function ExportPanel({
 
   const shown = result ?? (lastExport ? { url: lastExport.url, aspect: lastExport.aspect, cost: lastExport.cost, cached: false } : null);
   return (
-    <section className="card p-5" aria-labelledby="video-export-title">
-      <div className="flex flex-wrap items-start justify-between gap-3">
-        <div className="min-w-0">
-          <h2 id="video-export-title" className="text-[15px] font-bold">
-            {e.title}
-          </h2>
-          <p className="mt-1 text-[12px] text-muted">{exportsCount === 0 ? e.firstFree : fill(e.later, { n: VIDEO_EXPORT_CREDITS })}</p>
-          {props && <p className="mt-1 font-mono text-[11px] text-muted">{fill(e.spec, { aspect: props.aspect })}</p>}
+    <section className="video-export-panel card" aria-labelledby="video-export-title">
+      <div className="between">
+        <div>
+          <h3 id="video-export-title">{e.title}</h3>
+          <p>{exportsCount === 0 ? e.firstFree : fill(e.later, { n: VIDEO_EXPORT_CREDITS })}</p>
         </div>
-        <span className="tag border-[#cfe0f7] bg-soft text-blue">{cost === 0 ? e.freeTag : fill(e.costTag, { n: cost })}</span>
+        <span className="tag blue">{cost === 0 ? e.freeTag : fill(e.costTag, { n: cost })}</span>
       </div>
-      <div className="mt-4 flex flex-wrap gap-2">
+      <div className="flex mt16">
         <button type="button" className="btn" disabled={!props || dirty || job !== null} onClick={() => void probe()} title={dirty ? e.saveFirst : undefined}>
-          <Icon name="download" />
+          <PIcon name="download" />
           {e.button}
         </button>
-        <button type="button" className="btn-secondary" disabled={!ree.isPublic || !props} onClick={() => void share()}>
-          <Icon name="copy" />
+        <button type="button" className="btn secondary" disabled={!ree.isPublic || !props} onClick={() => void share()}>
+          <PIcon name="link" />
           {e.share}
         </button>
-        <button type="button" className="btn-ghost" disabled={!props} onClick={downloadScript}>
-          <Icon name="code" />
+        <button type="button" className="btn ghost sm" disabled={!props} onClick={downloadScript}>
+          <PIcon name="download" />
           {e.script}
         </button>
       </div>
-      {dirty && props && <p className="hint">{e.saveFirst}</p>}
-      {!ree.isPublic && <p className="hint">{e.sharePrivate}</p>}
-
-      {job && (
-        <div className="mt-4 rounded-lg border border-line bg-wash p-3" role="status">
-          <div className="flex items-center justify-between gap-2 text-[12px] font-semibold">
-            <span className="flex items-center gap-2">
-              <Spinner className="size-3.5" />
-              {job.phase === 'finish' ? e.finishing : fill(job.phase === 'render' ? e.rendering : e.uploading, { n: job.percent })}
+      {dirty && props && <p className="form-hint mt16">{e.saveFirst}</p>}
+      {!ree.isPublic && <p className="form-hint mt16">{e.sharePrivate}</p>}
+      <div id="export-status">
+        {job && (
+          <div className="export-running" role="status">
+            <div className="between">
+              <strong>{job.phase === 'finish' ? e.finishing : fill(job.phase === 'render' ? e.rendering : e.uploading, { n: job.percent })}</strong>
+              {job.phase !== 'finish' && (
+                <button type="button" className="btn ghost sm" onClick={cancel}>
+                  {e.cancel}
+                </button>
+              )}
+            </div>
+            <div className="progress">
+              <span style={{ width: `${job.phase === 'finish' ? 100 : job.percent}%` }} />
+            </div>
+            <small>{e.keepOpen}</small>
+          </div>
+        )}
+        {error && (
+          <p className="form-error mt16" role="alert">
+            {error}
+          </p>
+        )}
+        {!job && shown && (
+          <div className="export-complete">
+            <PIcon name="check" />
+            <span>
+              {result
+                ? result.cached
+                  ? e.cached
+                  : fill(e.done, { aspect: result.aspect, cost: result.cost })
+                : fill(e.lastExport, { aspect: shown.aspect, date: lastExport?.finishedAt ? formatDate(lastExport.finishedAt, locale) : '' })}
+              {' · '}
+              <a href={`${shown.url}?download=1`} className="text-link" download>
+                {e.download}
+              </a>
+              {' · '}
+              <a href={shown.url} target="_blank" rel="noreferrer" className="text-link">
+                {e.open}
+              </a>
+              {!result && lastExport && !lastExport.current && <small className="export-outdated">{e.outdated}</small>}
             </span>
-            {job.phase !== 'finish' && (
-              <button type="button" className="btn-ghost" onClick={cancel}>
-                {e.cancel}
-              </button>
-            )}
           </div>
-          <div className="mt-2 h-1.5 overflow-hidden rounded-full bg-line">
-            <span className="block h-full bg-blue transition-[width]" style={{ width: `${job.phase === 'finish' ? 100 : job.percent}%` }} />
-          </div>
-          <small className="mt-2 block text-[11px] text-muted">{e.keepOpen}</small>
-        </div>
-      )}
-      {error && (
-        <p className="mt-4 rounded-lg border border-[#f1d4d4] bg-[#fff6f6] px-3 py-2 text-[12px] text-red" role="alert">
-          {error}
-        </p>
-      )}
-      {!job && shown && (
-        <div className="mt-4 flex flex-wrap items-center justify-between gap-2 rounded-lg border border-[#cfe9de] bg-[#f1faf6] px-3 py-2.5 text-[12px]">
-          <span className="flex items-center gap-2 text-green">
-            <Icon name="check" />
-            {result
-              ? result.cached
-                ? e.cached
-                : fill(e.done, { aspect: result.aspect, cost: result.cost })
-              : fill(e.lastExport, { aspect: shown.aspect, date: lastExport?.finishedAt ? formatDate(lastExport.finishedAt, locale) : '' })}
-          </span>
-          <span className="flex gap-2">
-            <a href={`${shown.url}?download=1`} className="btn-secondary btn-sm" download>
-              <Icon name="download" />
-              {e.download}
-            </a>
-            <a href={shown.url} target="_blank" rel="noreferrer" className="btn-ghost">
-              <Icon name="external" />
-              {e.open}
-            </a>
-          </span>
-          {!result && lastExport && !lastExport.current && <span className="w-full text-[11px] text-muted">{e.outdated}</span>}
-        </div>
-      )}
-
+        )}
+      </div>
       <Modal
         open={dialog === 'unsupported'}
         onClose={() => setDialog(null)}
