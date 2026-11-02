@@ -3,13 +3,11 @@ import Link from 'next/link';
 import { HOME_EXAMPLE_REES } from '@/lib/constants';
 import { currentUser } from '@/lib/http/session';
 import { activeRees } from '@/lib/services/explore';
-import { HomeIntro } from '@/components/video/home-intro';
 import { PlayIntroButton } from '@/components/video/video-cover';
 import { serverMessages } from '@/i18n/server';
 import { Icon, type IconName } from '@/components/ui/icons';
 import { ReeAvatar } from '@/components/ui/ree-avatar';
 import { DemoTrigger, HomeDemo } from '@/components/site/home-demo';
-import { Faq } from '@/components/site/faq';
 import { RoleBadge } from '@/components/discover/role-badge';
 
 export async function generateMetadata(): Promise<Metadata> {
@@ -17,14 +15,16 @@ export async function generateMetadata(): Promise<Metadata> {
   return { title: { absolute: `${t.site.home.title} · RE0` } };
 }
 
+const FAQ = ['q1', 'q2', 'q3', 'q4'] as const;
+
 /**
- * `/` (prototype `#/`): the interactive answer example, the six kinds of
- * source, how it works, example Rees, the 15-second introduction's slot
- * (the video itself is step 7), the price in brief, and the FAQ.
+ * `/` (prototype `#/`, suite.js `home`): the answer example, the six kinds of
+ * source, how it works, example Rees with their 15-second introductions, the
+ * price in brief, and the FAQ. Markup and class names follow the prototype;
+ * components/site/site.css carries its styles.
  */
 export default async function HomePage() {
   const [user, { t }, examples] = await Promise.all([currentUser(), serverMessages(), activeRees(HOME_EXAMPLE_REES)]);
-  const featured = examples.find((ree) => ree.video) ?? null;
   const h = t.site.home;
   const createHref = user ? '/rees/new' : `/login?returnTo=${encodeURIComponent('/rees/new')}`;
   const sources: [IconName, keyof typeof h.sources][] = [
@@ -36,291 +36,300 @@ export default async function HomePage() {
     ['text', 'notes'],
   ];
   return (
-    <>
-      <section className="mx-auto grid max-w-[1200px] items-center gap-12 px-4 pt-12 pb-16 sm:px-6 lg:grid-cols-[minmax(0,1fr)_minmax(0,1.05fr)] lg:pt-20">
-        <div className="min-w-0">
-          <p className="inline-flex max-w-full items-center gap-2 rounded-full border border-[#dfe6f5] bg-wash px-3 py-1.5 text-[12px] text-muted">
-            <i className="size-1.5 flex-none rounded-full bg-green" aria-hidden="true" />
-            <span className="truncate">{h.pill}</span>
-          </p>
-          <h1 className="mt-6 text-[40px] leading-[1.12] font-extrabold tracking-tight sm:text-[56px]">
+    <div className="site-home">
+      <section className="home-hero marketing-wrap">
+        <div className="home-hero-copy">
+          <div className="launch-pill">
+            <i className="dot" aria-hidden="true" />
+            {h.pill}
+            <Icon name="arrow" />
+          </div>
+          <h1>
             {h.headline1}
             <br />
             {h.headline2}
-            <em className="text-blue not-italic">{h.headlineEm}</em>
+            <em>{h.headlineEm}</em>
           </h1>
-          <p className="mt-6 text-[16px] leading-relaxed text-muted">
+          <p>
             {h.lede1}
             <br />
             {h.lede2}
           </p>
-          <div className="mt-8 flex flex-wrap gap-3">
-            <Link href={createHref} className="btn min-h-12 px-5 text-[14px]">
-              {h.ctaCreate}
-              <Icon name="arrow" />
+          <div className="home-hero-actions">
+            <Link href={createHref} className="btn large">
+              {h.ctaCreate} <Icon name="arrow" />
             </Link>
             <DemoTrigger label={h.ctaDemo} />
           </div>
-          <div className="mt-6 flex flex-wrap gap-x-5 gap-y-2 text-[12px] text-muted">
-            <span className="flex items-center gap-1.5">
-              <Icon name="check" className="size-4 text-green" />
+          <div className="home-trial">
+            <span>
+              <Icon name="check" />
               {h.trialCredits}
             </span>
-            <span className="flex items-center gap-1.5">
-              <Icon name="check" className="size-4 text-green" />
+            <span>
+              <Icon name="check" />
               {h.trialScope}
             </span>
           </div>
         </div>
         <HomeDemo />
+        <span className="hero-index mono">01 — KNOWLEDGE, GIVEN A VOICE</span>
       </section>
 
-      <section className="border-y border-line bg-wash">
-        <div className="mx-auto flex max-w-[1200px] flex-col gap-4 px-4 py-6 sm:px-6 lg:flex-row lg:items-center">
-          <span className="text-[13px] font-semibold text-muted lg:w-60">{h.sourcesLead}</span>
-          <ul className="flex flex-wrap gap-x-6 gap-y-3 text-[13px]">
+      <section className="source-strip">
+        <div className="marketing-wrap">
+          <span>{h.sourcesLead}</span>
+          <div>
             {sources.map(([icon, key]) => (
-              <li key={key} className="flex items-center gap-2">
-                <Icon name={icon} className="size-4 text-blue" />
+              <span key={key}>
+                <Icon name={icon} />
                 {h.sources[key]}
-              </li>
+              </span>
             ))}
-          </ul>
+          </div>
         </div>
       </section>
 
-      <section className="mx-auto max-w-[1200px] px-4 py-20 sm:px-6">
-        <p className="eyebrow">A SMALL IDEA. A COMPLETE EXPERIENCE.</p>
-        <h2 className="mt-3 text-[30px] leading-tight font-extrabold sm:text-[38px]">
-          {h.featureTitle1}
-          <br />
-          {h.featureTitle2}
-        </h2>
-        <p className="mt-4 max-w-[560px] text-[14px] text-muted">{h.featureLede}</p>
-        <div className="mt-10 grid gap-5 md:grid-cols-3">
-          <article className="card flex flex-col p-6">
-            <div className="flex flex-col gap-2 rounded-xl bg-wash p-4">
-              {(['file', 'audio', 'github'] as const).map((icon, index) => (
-                <span key={icon} className="flex items-center gap-2 rounded-lg border border-line bg-white px-3 py-2 font-mono text-[11px]">
-                  <Icon name={icon} className="size-4 text-blue" />
-                  {['product-notes.md', 'team-conversation.m4a', 'your-repository'][index]}
-                  <i className="ml-auto size-1.5 rounded-full bg-green" aria-hidden="true" />
-                </span>
+      <section className="marketing-wrap home-section">
+        <div className="section-intro">
+          <p className="eyebrow">A SMALL IDEA. A COMPLETE EXPERIENCE.</p>
+          <h2>
+            {h.featureTitle1}
+            <br />
+            {h.featureTitle2}
+          </h2>
+          <p>
+            {h.featureLede1}
+            <br />
+            {h.featureLede2}
+          </p>
+        </div>
+        <div className="home-feature-grid">
+          <article className="feature-knowledge">
+            <div className="feature-illustration">
+              {(
+                [
+                  ['file', 'product-notes.md'],
+                  ['audio', 'team-conversation.m4a'],
+                  ['github', 'your-repository'],
+                ] as const
+              ).map(([icon, name]) => (
+                <div key={name} className="feature-file">
+                  <Icon name={icon} />
+                  <span>{name}</span>
+                  <i className="dot" aria-hidden="true" />
+                </div>
               ))}
             </div>
-            <span className="eyebrow mt-6">01 / TEACH</span>
-            <h3 className="mt-2 text-[17px] font-bold">{h.teach.title}</h3>
-            <p className="mt-2 text-[13px] leading-relaxed text-muted">{h.teach.body}</p>
+            <span className="eyebrow">01 / TEACH</span>
+            <h3>{h.teach.title}</h3>
+            <p>{h.teach.body}</p>
           </article>
-          <article className="card flex flex-col p-6">
-            <div className="rounded-xl bg-wash p-4">
-              <p className="text-[15px] leading-relaxed font-semibold">
-                “{h.ask.quote}”<sup className="ml-1 font-mono text-blue">1</sup>
-              </p>
-              <span className="mt-3 flex items-center gap-1.5 text-[11px] text-muted">
-                <Icon name="file" className="size-3.5" />
-                {h.ask.cite}
+          <article className="feature-citation">
+            <div className="feature-quote">
+              “{h.ask.quote1}
+              <br />
+              {h.ask.quote2}”<span className="feature-cite">1</span>
+              <span>
+                <Icon name="file" /> {h.ask.cite}
               </span>
             </div>
-            <span className="eyebrow mt-6">02 / ASK</span>
-            <h3 className="mt-2 text-[17px] font-bold">{h.ask.title}</h3>
-            <p className="mt-2 text-[13px] leading-relaxed text-muted">{h.ask.body}</p>
+            <span className="eyebrow">02 / ASK</span>
+            <h3>{h.ask.title}</h3>
+            <p>{h.ask.body}</p>
           </article>
-          <article className="card flex flex-col p-6">
-            <div className="flex flex-col items-center gap-3 rounded-xl bg-wash p-4">
-              <span className="flex items-center gap-2 text-muted">
-                <ReeAvatar size="sm" />
-                +
-                <ReeAvatar size="sm" color="lilac" />
-                +
-                <ReeAvatar size="sm" color="sage" />
-              </span>
-              <span className="text-[12px] font-semibold">{h.connect.caption}</span>
+          <article className="feature-group">
+            <div className="feature-avatars">
+              <ReeAvatar className="dot-avatar" />
+              <span>+</span>
+              <ReeAvatar color="lilac" className="dot-avatar" />
+              <span>+</span>
+              <ReeAvatar color="sage" className="dot-avatar" />
+              <div>{h.connect.caption}</div>
             </div>
-            <span className="eyebrow mt-6">03 / CONNECT</span>
-            <h3 className="mt-2 text-[17px] font-bold">{h.connect.title}</h3>
-            <p className="mt-2 text-[13px] leading-relaxed text-muted">{h.connect.body}</p>
+            <span className="eyebrow">03 / CONNECT</span>
+            <h3>{h.connect.title}</h3>
+            <p>{h.connect.body}</p>
           </article>
         </div>
       </section>
 
-      <section className="bg-bg">
-        <div className="mx-auto max-w-[1200px] px-4 py-20 sm:px-6">
-          <div className="flex flex-wrap items-end justify-between gap-4">
+      <section className="home-workflow">
+        <div className="marketing-wrap">
+          <div className="between home-section-head">
             <div>
               <p className="eyebrow">LESS SETUP. MORE CONVERSATION.</p>
-              <h2 className="mt-3 text-[30px] leading-tight font-extrabold sm:text-[38px]">
+              <h2>
                 {h.workflowTitle}
-                <em className="text-blue not-italic">{h.workflowEm}</em>
+                <em>{h.workflowEm}</em>
               </h2>
             </div>
-            <Link href={createHref} className="text-link text-[13px]">
+            <Link href={createHref} className="text-link">
               {h.start}
               <Icon name="arrow" />
             </Link>
           </div>
-          <ol className="mt-10 grid gap-5 md:grid-cols-3">
-            {([
-              ['01', 'step1', 'ree'],
-              ['02', 'step2', 'file'],
-              ['03', 'step3', 'chat'],
-            ] as const).map(([number, key, icon]) => (
-              <li key={key} className="card p-6">
-                <div className="flex items-center justify-between">
-                  <span className="font-mono text-[12px] text-muted">{number}</span>
-                  <Icon name={icon} className="size-5 text-blue" />
-                </div>
-                <h3 className="mt-6 text-[17px] font-bold">{h[key].title}</h3>
-                <p className="mt-2 text-[13px] text-muted">{h[key].body}</p>
-              </li>
+          <div className="workflow-steps">
+            {(
+              [
+                ['01', 'step1', 'ree'],
+                ['02', 'step2', 'file'],
+                ['03', 'step3', 'chat'],
+              ] as const
+            ).map(([number, key, icon]) => (
+              <article key={key}>
+                <span className="mono">{number}</span>
+                <Icon name={icon} />
+                <h3>{h[key].title}</h3>
+                <p>{h[key].body}</p>
+              </article>
             ))}
-          </ol>
+          </div>
         </div>
       </section>
 
-      <section className="mx-auto max-w-[1200px] px-4 py-20 sm:px-6">
-        <p className="eyebrow">A COMPANION FOR EVERY CURIOSITY</p>
-        <h2 className="mt-3 text-[30px] leading-tight font-extrabold sm:text-[38px]">
-          {h.examplesTitle}
-          <em className="text-blue not-italic">{h.examplesEm}</em>
-        </h2>
-        <p className="mt-3 flex flex-wrap items-center gap-x-3 text-[12px] text-muted">
-          {examples.length ? t.discover.home.note : h.examplesNote}
-          <Link href="/explore" className="inline-flex items-center gap-1 text-blue hover:underline">
-            {t.discover.home.all}
-            <Icon name="arrow" className="size-3" />
-          </Link>
-        </p>
-        <div className="mt-10 grid gap-5 lg:grid-cols-[minmax(0,1fr)_minmax(0,1.2fr)]">
-          <div className="grid gap-4">
+      <section className="marketing-wrap home-section">
+        <div className="between home-section-head">
+          <div>
+            <p className="eyebrow">A COMPANION FOR EVERY CURIOSITY</p>
+            <h2>
+              {h.examplesTitle}
+              <em>{h.examplesEm}</em>
+            </h2>
+            <span className="tiny muted">{examples.length ? t.discover.home.note : h.examplesNote}</span>
+          </div>
+          <div className="home-dot-row">
             {/* Step 4: the most active public Rees; the illustrative three only while there are none. */}
             {examples.length
               ? examples.map((ree) => (
-                  <div key={ree.id} className="relative">
-                    <Link href={`/r/${ree.slug}`} className={`card flex h-full items-start gap-4 p-5 hover:border-blue ${ree.video ? 'pr-28' : ''}`}>
-                      <ReeAvatar avatar={ree.avatarBlob} color={ree.color} />
-                      <div className="min-w-0 flex-1">
-                        <div className="flex min-w-0 items-center">
-                          <h3 className="truncate text-[15px] font-bold">{ree.name}</h3>
-                          <RoleBadge role={ree.role} />
-                        </div>
-                        <p className="mt-1 line-clamp-2 text-[13px] text-muted">{ree.description}</p>
-                        <p className="mt-2 font-mono text-[13px]">
-                          {ree.price} <small className="text-muted">{h.perAnswer}</small>
-                        </p>
-                      </div>
-                    </Link>
-                    {/* Step 7 (prototype home-dot-card "15s"): a Ree with an introduction plays it here. */}
-                    {ree.video && <PlayIntroButton video={ree.video} name={ree.name} href={`/r/${ree.slug}`} linkLabel={t.video.dialog.details} className="absolute top-4 right-4" />}
-                  </div>
+                  <article key={ree.id} className="card home-dot-card">
+                    <div className="between">
+                      <ReeAvatar avatar={ree.avatarBlob} color={ree.color} className="dot-avatar" />
+                      {/* Step 7 (prototype home-dot-card "15s"): a Ree with an introduction plays it here. */}
+                      {ree.video && (
+                        <PlayIntroButton video={ree.video} name={ree.name} href={`/r/${ree.slug}`} linkLabel={t.video.dialog.details} label="15s" className="btn ghost sm" />
+                      )}
+                    </div>
+                    <h3>
+                      {ree.name}
+                      <RoleBadge role={ree.role} />
+                    </h3>
+                    <p className="line-clamp-3">{ree.description}</p>
+                    <div className="between">
+                      <span className="mono">
+                        {ree.price} <small>{h.perAnswer}</small>
+                      </span>
+                      <Link href={`/r/${ree.slug}`} className="text-link">
+                        {h.details}
+                        <Icon name="arrow" />
+                      </Link>
+                    </div>
+                  </article>
                 ))
-              : ([
-                  ['design', 'default'],
-                  ['code', 'slate'],
-                  ['read', 'sand'],
-                ] as const).map(([key, color]) => (
-                  <article key={key} className="card flex items-start gap-4 p-5">
-                    <ReeAvatar color={color} />
-                    <div className="min-w-0 flex-1">
-                      <div className="flex items-center gap-2">
-                        <h3 className="truncate text-[15px] font-bold">{h.examples[key].name}</h3>
-                        <span className="tag">{h.example}</span>
-                      </div>
-                      <p className="mt-1 text-[13px] text-muted">{h.examples[key].body}</p>
-                      <p className="mt-2 font-mono text-[13px]">
-                        {h.examples[key].fee} <small className="text-muted">{h.perAnswer}</small>
-                      </p>
+              : (
+                  [
+                    ['design', 'default'],
+                    ['code', 'lilac'],
+                    ['read', 'sand'],
+                  ] as const
+                ).map(([key, color]) => (
+                  <article key={key} className="card home-dot-card">
+                    <div className="between">
+                      <ReeAvatar color={color} className="dot-avatar" />
+                      <span className="tag">{h.example}</span>
+                    </div>
+                    <h3>{h.examples[key].name}</h3>
+                    <p>{h.examples[key].body}</p>
+                    <div className="between">
+                      <span className="mono">
+                        {h.examples[key].fee} <small>{h.perAnswer}</small>
+                      </span>
                     </div>
                   </article>
                 ))}
           </div>
-          {/* Step 7: the most active public Ree with an introduction plays here; the illustration stays until one exists. */}
-          {featured?.video ? (
-            <HomeIntro ree={featured} video={featured.video} title={t.video.dialog.title} body={featured.description} />
-          ) : (
-            <figure className="relative flex aspect-video min-w-0 flex-col justify-end overflow-hidden rounded-2xl bg-gradient-to-br from-[#0b1a4a] via-ink to-[#123a7a] p-6 text-white">
-              <span className="absolute top-1/2 left-1/2 inline-flex size-16 -translate-x-1/2 -translate-y-1/2 items-center justify-center rounded-full border border-white/30 bg-white/10 backdrop-blur-sm" aria-hidden="true">
-                <Icon name="play" className="size-7" />
-              </span>
-              <span className="absolute top-4 right-4 rounded-full bg-white/15 px-2.5 py-1 font-mono text-[11px]">0:15</span>
-              <figcaption>
-                <strong className="block text-[18px]">{h.videoTitle}</strong>
-                <span className="mt-1 block text-[12px] text-white/70">{h.videoBody}</span>
-                <span className="mt-3 inline-flex items-center gap-1.5 rounded-full bg-white/15 px-2.5 py-1 text-[11px]">
-                  <Icon name="clock" className="size-3.5" />
-                  {h.videoSoon}
-                </span>
-              </figcaption>
-            </figure>
-          )}
+          <div className="home-center-link">
+            <Link href="/explore" className="text-link">
+              {h.more}
+              <Icon name="arrow" />
+            </Link>
+          </div>
         </div>
       </section>
 
-      <section className="bg-ink text-white">
-        <div className="mx-auto grid max-w-[1200px] items-center gap-10 px-4 py-20 sm:px-6 lg:grid-cols-[minmax(0,1fr)_420px]">
+      <section className="home-price-section">
+        <div className="marketing-wrap">
           <div>
-            <p className="font-mono text-[10px] tracking-[0.18em] text-white/60">SIMPLE CREDITS. CLEAR VALUE.</p>
-            <h2 className="mt-3 text-[30px] leading-tight font-extrabold sm:text-[38px]">
+            <p className="eyebrow">SIMPLE CREDITS. CLEAR VALUE.</p>
+            <h2>
               {h.priceTitle1}
               <br />
               {h.priceTitle2}
             </h2>
-            <p className="mt-4 text-[14px] leading-relaxed text-white/70">
+            <p>
               {h.priceBody1}
               <br />
               {h.priceBody2}
             </p>
-            <Link href="/pricing" className="mt-8 inline-flex min-h-10 items-center gap-2 rounded-lg border border-white/30 px-4 text-[13px] font-semibold hover:bg-white/10">
+            <Link href="/pricing" className="btn secondary">
               {h.priceCta}
               <Icon name="arrow" />
             </Link>
           </div>
-          <div className="rounded-2xl border border-white/15 bg-white/5 p-6">
-            <div className="flex items-center justify-between">
-              <span className="font-mono text-[11px] tracking-[0.18em] text-white/60">PLAN</span>
-              <span className="rounded-full bg-blue/30 px-2.5 py-0.5 text-[11px]">{h.monthly}</span>
+          <div className="home-price-preview">
+            <div className="between">
+              <span>PLAN</span>
+              <span className="tag blue">{h.monthly}</span>
             </div>
-            <p className="mt-5">
-              <strong className="text-[44px] font-extrabold">$10</strong> <span className="text-white/60">/ {h.perMonth}</span>
+            <p>
+              <strong>$10</strong> / {h.perMonth}
             </p>
-            <p className="text-[17px] font-semibold">100,000 credits</p>
-            <hr className="my-5 border-white/15" />
-            <ul className="flex flex-col gap-2.5 text-[13px] text-white/80">
-              {[h.planPerk1, h.planPerk2, h.planPerk3].map((perk) => (
-                <li key={perk} className="flex items-center gap-2">
-                  <Icon name="check" className="size-4 text-[#7fb6ff]" />
-                  {perk}
-                </li>
-              ))}
-            </ul>
+            <h3>100,000 credits</h3>
+            <div className="rule" />
+            {[h.planPerk1, h.planPerk2, h.planPerk3].map((perk) => (
+              <span key={perk}>
+                <Icon name="check" />
+                {perk}
+              </span>
+            ))}
           </div>
         </div>
       </section>
 
-      <section className="mx-auto grid max-w-[1200px] gap-10 px-4 py-20 sm:px-6 lg:grid-cols-[minmax(0,1fr)_minmax(0,1.4fr)]">
+      <section className="marketing-wrap home-section home-faq">
         <div>
           <p className="eyebrow">{t.site.faq.eyebrow}</p>
-          <h2 className="mt-3 text-[30px] leading-tight font-extrabold sm:text-[38px]">
+          <h2>
             {h.faqTitle1}
             <br />
             {h.faqTitle2}
           </h2>
         </div>
-        <Faq t={t} to={4} />
+        <div>
+          {FAQ.map((key) => (
+            <details key={key}>
+              <summary>
+                {t.site.faq[key].q}
+                <Icon name="plus" />
+              </summary>
+              <p>{t.site.faq[key].a}</p>
+            </details>
+          ))}
+        </div>
       </section>
 
-      <section className="mx-auto max-w-[1200px] px-4 pb-24 text-center sm:px-6">
+      <section className="marketing-wrap final-cta">
         <p className="eyebrow">YOUR KNOWLEDGE. A NEW POSSIBILITY.</p>
-        <h2 className="mt-3 text-[32px] leading-tight font-extrabold sm:text-[44px]">
+        <h2>
           {h.finalTitle}
-          <em className="text-blue not-italic">{h.finalEm}</em>
+          <em>{h.finalEm}</em>
         </h2>
-        <Link href={createHref} className="btn mt-8 min-h-12 px-6 text-[14px]">
+        <Link href={createHref} className="btn large">
           {h.ctaCreate}
           <Icon name="arrow" />
         </Link>
-        <p className="mt-4 text-[12px] text-muted">{h.finalNote}</p>
+        <p>{h.finalNote}</p>
       </section>
-    </>
+    </div>
   );
 }

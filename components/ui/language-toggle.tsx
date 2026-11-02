@@ -5,13 +5,13 @@ import { useI18n } from '@/i18n/client';
 import { Icon } from '@/components/ui/icons';
 
 /** The choice goes in a cookie, or onto the account when someone is signed in (it outranks the cookie). */
-export function LanguageToggle({ signedIn = false }: { signedIn?: boolean }) {
+export function LanguageToggle({ signedIn = false, className = 'btn-ghost', icon = true }: { signedIn?: boolean; className?: string; icon?: boolean }) {
   const { t, locale } = useI18n();
   const router = useRouter();
   return (
     <button
       type="button"
-      className="btn-ghost"
+      className={className}
       aria-label={t.common.language.label}
       onClick={async () => {
         await fetch(signedIn ? '/api/account' : '/api/locale', {
@@ -22,7 +22,7 @@ export function LanguageToggle({ signedIn = false }: { signedIn?: boolean }) {
         router.refresh();
       }}
     >
-      <Icon name="globe" />
+      {icon && <Icon name="globe" />}
       {t.common.language.short}
     </button>
   );
