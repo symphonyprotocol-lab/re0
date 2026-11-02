@@ -1,6 +1,6 @@
 import type { Shape } from '@/i18n/format';
 
-/** `/settings`: the account tab, connections and domains, and the billing placeholder step 3 replaces. */
+/** `/settings`: the account tab, connections and domains; the billing tab's words are in `billing.ts`. */
 export const zh = {
   title: '设置',
   tabs: { account: '个人资料', connections: '连接与域名', billing: '余额与计费', label: '设置分类' },
@@ -68,12 +68,6 @@ export const zh = {
     verified: '域名验证成功',
     notFound: '未找到匹配的验证记录。请检查后重试。',
     unreachable: '暂时无法完成检查（DNS 或站点没有响应），请稍后重试。',
-  },
-  billing: {
-    title: '余额与计费',
-    balance: '可用余额',
-    welcome: '注册赠送',
-    soon: '充值、Plan 与 Pack 会在下一版本开放。',
   },
   errors: { name: '请输入 1–40 个字符的显示名称。', invalid_domain: '请输入有效域名，例如 docs.example.com', domain_exists: '这个域名已经验证过了' },
 };
@@ -145,12 +139,6 @@ export const en: Shape<typeof zh> = {
     verified: 'Domain verified',
     notFound: 'No matching verification record found. Check it and retry.',
     unreachable: 'The check could not finish (DNS or the site did not answer). Try again shortly.',
-  },
-  billing: {
-    title: 'Credits & billing',
-    balance: 'Available balance',
-    welcome: 'Welcome credits',
-    soon: 'Top-ups, Plan and Pack open in the next release.',
   },
   errors: { name: 'Enter a display name of 1–40 characters.', invalid_domain: 'Enter a valid domain, like docs.example.com', domain_exists: 'This domain is already verified' },
 };

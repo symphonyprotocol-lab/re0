@@ -1,6 +1,7 @@
 /**
- * The tables of rebuild-proposal.md 4 delivered so far: the 15 of step 1 and
- * the 3 of step 2 (knowledge_folder, github_connection, domain_claim). Enumerations are
+ * The tables of rebuild-proposal.md 4 delivered so far: the 15 of step 1, the
+ * 3 of step 2 (knowledge_folder, github_connection, domain_claim) and step 3's
+ * purchase and subscription, with three of its own (billing_event, credit_debt, paddle_checkout). Enumerations are
  * text columns with check constraints, so a later step widens one with a
  * plain constraint swap instead of `ALTER TYPE`.
  *
@@ -270,13 +271,21 @@ export const creditGrant = pgTable(
     source: text('source').$type<'welcome' | 'plan' | 'pack' | 'earned'>().notNull(),
     amount: bigint('amount', { mode: 'number' }).notNull(),
     remaining: bigint('remaining', { mode: 'number' }).notNull(),
+    /** A Plan grant's period: it is spendable from `period_start` until `expires_at` (the period's end). */
     expiresAt: timestampTz('expires_at'),
+    /** Beyond 4: when a Plan grant's period began. */
+    periodStart: timestampTz('period_start'),
+    /** Beyond 4: the purchase a Plan or Pack grant came from; one grant per purchase. */
+    purchaseId: uuid('purchase_id').references(() => purchase.id),
     createdAt: createdAt(),
   },
   (t) => [
     index('credit_grant_user_idx').on(t.userId),
+    uniqueIndex('credit_grant_purchase_key').on(t.purchaseId).where(sql`purchase_id is not null`),
+    index('credit_grant_expiry_idx').on(t.expiresAt).where(sql`source = 'plan' and remaining > 0`),
     check('credit_grant_source_check', oneOf('source', ['welcome', 'plan', 'pack', 'earned'])),
     check('credit_grant_remaining_check', sql`remaining >= 0 and remaining <= amount`),
+    check('credit_grant_plan_check', sql`(source = 'plan') = (expires_at is not null)`),
   ],
 );
 
@@ -292,6 +301,8 @@ export const CREDIT_ENTRY_REASONS = [
   'query_fee_earned',
   'purchase',
   'refund',
+  'chargeback',
+  'debt_offset',
   'expire',
   'payout_hold',
   'payout_release',
@@ -463,5 +474,141 @@ export const domainClaim = pgTable(
     uniqueIndex('domain_claim_user_domain_key').on(t.userId, t.domain),
     check('domain_claim_method_check', sql`method is null or method in ('dns_txt', 'well_known')`),
     check('domain_claim_status_check', oneOf('status', ['pending', 'verified', 'failed'])),
+  ],
+);
+
+/**
+ * One paid Paddle transaction (2.3): a Plan's first payment or a renewal, or
+ * a checkout of 1 to 10 Packs. Created by the webhook when the money has
+ * arrived, never at checkout, so an abandoned checkout leaves nothing behind.
+ */
+export const purchase = pgTable(
+  'purchase',
+  {
+    id: uuid('id').primaryKey().defaultRandom(),
+    userId: uuid('user_id')
+      .notNull()
+      .references(() => user.id),
+    kind: text('kind').$type<'plan' | 'pack'>().notNull(),
+    quantity: integer('quantity').notNull().default(1),
+    paddleTransactionId: text('paddle_transaction_id').notNull(),
+    /** Beyond 4: the subscription a Plan payment belongs to. */
+    paddleSubscriptionId: text('paddle_subscription_id'),
+    status: text('status').$type<'paid' | 'refunded' | 'chargeback'>().notNull().default('paid'),
+    /** What the buyer paid, tax included, in the currency's minor unit. */
+    amountMinor: bigint('amount_minor', { mode: 'number' }).notNull(),
+    /** Beyond 4. */
+    currency: text('currency').notNull().default('USD'),
+    credits: bigint('credits', { mode: 'number' }).notNull(),
+    /** Beyond 4: credits taken back so far by refunds and chargebacks. */
+    reversedCredits: bigint('reversed_credits', { mode: 'number' }).notNull().default(0),
+    /** Beyond 4: Paddle adjustments already applied, so a re-sent one is not applied twice. */
+    adjustmentIds: text('adjustment_ids').array().notNull().default(sql`'{}'::text[]`),
+    /** Beyond 4: a Plan payment's billing period. */
+    periodStart: timestampTz('period_start'),
+    periodEnd: timestampTz('period_end'),
+    createdAt: createdAt(),
+  },
+  (t) => [
+    uniqueIndex('purchase_paddle_transaction_key').on(t.paddleTransactionId),
+    index('purchase_user_idx').on(t.userId, t.createdAt),
+    check('purchase_kind_check', oneOf('kind', ['plan', 'pack'])),
+    check('purchase_status_check', oneOf('status', ['paid', 'refunded', 'chargeback'])),
+    /* 1–10 is the checkout's rule; a payment is recorded as Paddle took it. */
+    check('purchase_quantity_check', sql`quantity >= 1`),
+    check('purchase_reversed_check', sql`reversed_credits between 0 and credits`),
+  ],
+);
+
+/**
+ * A user's Plan (2.3), mirrored from Paddle's subscription events. Active
+ * means paying: it unlocks Packs until `current_period_end`. Cancelling sets
+ * `cancel_at_period_end`; the period's credits stay spendable to its end.
+ */
+export const subscription = pgTable(
+  'subscription',
+  {
+    id: uuid('id').primaryKey().defaultRandom(),
+    userId: uuid('user_id')
+      .notNull()
+      .references(() => user.id),
+    paddleSubscriptionId: text('paddle_subscription_id').notNull(),
+    /** Beyond 4. */
+    paddleCustomerId: text('paddle_customer_id'),
+    status: text('status').$type<'active' | 'cancelled' | 'expired'>().notNull(),
+    cancelAtPeriodEnd: boolean('cancel_at_period_end').notNull().default(false),
+    currentPeriodStart: timestampTz('current_period_start'),
+    currentPeriodEnd: timestampTz('current_period_end'),
+    /** Beyond 4: Paddle's `updated_at` of the state held here; an older event never overwrites a newer one. */
+    paddleUpdatedAt: timestampTz('paddle_updated_at'),
+    createdAt: createdAt(),
+    updatedAt: timestampTz('updated_at').notNull().defaultNow(),
+  },
+  (t) => [
+    uniqueIndex('subscription_paddle_key').on(t.paddleSubscriptionId),
+    index('subscription_user_idx').on(t.userId, t.status),
+    check('subscription_status_check', oneOf('status', ['active', 'cancelled', 'expired'])),
+  ],
+);
+
+/**
+ * Beyond 4: the Paddle transactions checkout created, so a second Plan
+ * checkout (another tab, a double click) reopens the open one instead of
+ * starting a second subscription.
+ */
+export const paddleCheckout = pgTable(
+  'paddle_checkout',
+  {
+    paddleTransactionId: text('paddle_transaction_id').primaryKey(),
+    userId: uuid('user_id')
+      .notNull()
+      .references(() => user.id),
+    kind: text('kind').$type<'plan' | 'pack'>().notNull(),
+    quantity: integer('quantity').notNull(),
+    createdAt: createdAt(),
+  },
+  (t) => [index('paddle_checkout_user_idx').on(t.userId, t.kind, t.createdAt), check('paddle_checkout_kind_check', oneOf('kind', ['plan', 'pack']))],
+);
+
+/**
+ * Beyond 4: every Paddle notification we accepted, by Paddle's event id. The
+ * row is written in the transaction that applies the event, so a re-delivery
+ * finds it and changes nothing, and a failed one leaves no row to block the retry.
+ */
+export const billingEvent = pgTable(
+  'billing_event',
+  {
+    id: text('id').primaryKey(),
+    eventType: text('event_type').notNull(),
+    occurredAt: timestampTz('occurred_at'),
+    /** What the event did: `credited`, `refunded`, `subscription`, `ignored`, … */
+    outcome: text('outcome').notNull(),
+    payload: jsonb('payload').notNull(),
+    receivedAt: timestampTz('received_at').notNull().defaultNow(),
+  },
+  (t) => [index('billing_event_time_idx').on(t.receivedAt)],
+);
+
+/**
+ * Beyond 4: what a refund or chargeback could not take back because the
+ * credits were already spent (2.3, "不足部分记一条负债行"). The balance never
+ * goes below zero; the next credits to arrive pay this off first.
+ */
+export const creditDebt = pgTable(
+  'credit_debt',
+  {
+    id: uuid('id').primaryKey().defaultRandom(),
+    userId: uuid('user_id')
+      .notNull()
+      .references(() => user.id),
+    amount: bigint('amount', { mode: 'number' }).notNull(),
+    remaining: bigint('remaining', { mode: 'number' }).notNull(),
+    purchaseId: uuid('purchase_id').references(() => purchase.id),
+    createdAt: createdAt(),
+    clearedAt: timestampTz('cleared_at'),
+  },
+  (t) => [
+    index('credit_debt_open_idx').on(t.userId).where(sql`remaining > 0`),
+    check('credit_debt_remaining_check', sql`remaining >= 0 and remaining <= amount and amount > 0`),
   ],
 );

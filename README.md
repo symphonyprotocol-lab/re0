@@ -2,7 +2,7 @@
 
 Create a Ree, give it some knowledge, and it answers only from that knowledge.
 
-This is the rebuild (`rebuild` branch). The plan is [`rebuild-proposal.md`](rebuild-proposal.md); the interaction spec is the browser prototype in [`rebuild-prototype/`](rebuild-prototype/README.md) (`node rebuild-prototype/serve.mjs`). Delivery is in seven steps (proposal 8.4). Step 1 built the skeleton and the core loop: sign in → create a Ree in the four-step wizard → add knowledge → ask it in the Chat tab and get a streamed answer with numbered citations; administrators sign in to `/admin` and configure the three kinds of model. Step 2 opened all six kinds of knowledge -- documents, pasted text, audio (transcribed with timestamps), GitHub repositories (public by URL, private through the owner's GitHub connection), single pages and whole websites (after a DNS TXT or well-known domain check) -- and the full library: folders, the "use in answers" switch, batch actions, a trash purged after 30 days, and a standalone preview page. Hand-over notes per step are in [`docs/handover/`](docs/handover/).
+This is the rebuild (`rebuild` branch). The plan is [`rebuild-proposal.md`](rebuild-proposal.md); the interaction spec is the browser prototype in [`rebuild-prototype/`](rebuild-prototype/README.md) (`node rebuild-prototype/serve.mjs`). Delivery is in seven steps (proposal 8.4). Step 1 built the skeleton and the core loop: sign in → create a Ree in the four-step wizard → add knowledge → ask it in the Chat tab and get a streamed answer with numbered citations; administrators sign in to `/admin` and configure the three kinds of model. Step 2 opened all six kinds of knowledge -- documents, pasted text, audio (transcribed with timestamps), GitHub repositories (public by URL, private through the owner's GitHub connection), single pages and whole websites (after a DNS TXT or well-known domain check) -- and the full library: folders, the "use in answers" switch, batch actions, a trash purged after 30 days, and a standalone preview page. Step 3 brought money in: the public site (`/`, `/pricing`, `/checkout`, `/legal/*`), the Plan (USD 10 a month, 100,000 credits per billing period that expire with it) and Packs (USD 10 each, 1–10 per checkout, never expire, only while a Plan is active) through Paddle, the billing tab with the ledger and renewal on / off, refunds that take credits back without a negative balance, and the sidebar's Plan meter. Hand-over notes per step are in [`docs/handover/`](docs/handover/).
 
 ## Layout (proposal 8.3)
 
@@ -42,7 +42,10 @@ Environment (`.env.local`, or `vercel env pull`):
 | `GITHUB_APP_CLIENT_ID/SECRET` | optional: a GitHub App (Contents: read-only) for "连接 GitHub"; without it the sign-in OAuth app is used with the `repo` scope. Either way the callback is `/api/auth/github/callback/connect` |
 | `GITHUB_INGESTION_TOKEN` | optional: raises the anonymous GitHub rate limit for public repositories (never used for private ones) |
 | `CLAIM_DNS_RESOLVERS` | optional: comma-separated resolvers for the domain check's TXT lookup |
-| `CRON_SECRET` | protects `/api/cron/purge-trash` (Vercel Cron sends it); unset, the route stays shut |
+| `CRON_SECRET` | protects `/api/cron/purge-trash` and `/api/cron/expire-plan` (Vercel Cron sends it); unset, the routes stay shut |
+| `PADDLE_API_KEY`, `PADDLE_CLIENT_TOKEN`, `PADDLE_WEBHOOK_SECRET`, `PADDLE_ENVIRONMENT` (`sandbox` or `production`) | Paddle Billing: server API key, the public token Paddle.js uses, the notification destination's secret. All of these plus the two price ids, or checkout stays off |
+| `PADDLE_PLAN_PRICE_ID`, `PADDLE_PACK_PRICE_ID` | the catalogue prices: Plan USD 10 monthly (quantity 1), Pack USD 10 (quantity 1–10) |
+| `PADDLE_CHECKOUT_BASE_URL` | optional: the origin a transaction's checkout link points at, when it is not `APP_BASE_URL` (Paddle will not take `localhost`) |
 | `E2E_LOGIN_SECRET` | `next dev` only: enables `POST /api/auth/e2e` for test sign-in; ignored in builds |
 | `DATABASE_WS_PROXY` | `next dev` only: run against a local Postgres behind `tests/fixtures/wsproxy.mjs` |
 
@@ -71,6 +74,12 @@ To walk the app through by hand without real models, run the same fake endpoint 
 
 ```bash
 npx tsx tests/fixtures/serve-fake-openai.ts 5443   # then LLM_BASE_URL=http://127.0.0.1:5443/v1
+```
+
+Paddle cannot reach `localhost`. After paying in the sandbox overlay locally, replay what Paddle recorded into the local webhook, signed with `PADDLE_WEBHOOK_SECRET` (sandbox and loopback targets only; idempotent):
+
+```bash
+npm run paddle:replay -- --since=2026-11-02T06:00:00Z --target=http://localhost:3300
 ```
 
 A file name or title containing 「失败」 takes the processing failure path (refunded) under `next dev` and in tests; a production build has no such switch.

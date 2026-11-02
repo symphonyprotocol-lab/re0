@@ -4,8 +4,8 @@ import { useRouter } from 'next/navigation';
 import { useI18n } from '@/i18n/client';
 import { Icon } from '@/components/ui/icons';
 
-/** For pages without a signed-in user: the choice goes in a cookie. */
-export function LanguageToggle() {
+/** The choice goes in a cookie, or onto the account when someone is signed in (it outranks the cookie). */
+export function LanguageToggle({ signedIn = false }: { signedIn?: boolean }) {
   const { t, locale } = useI18n();
   const router = useRouter();
   return (
@@ -14,8 +14,8 @@ export function LanguageToggle() {
       className="btn-ghost"
       aria-label={t.common.language.label}
       onClick={async () => {
-        await fetch('/api/locale', {
-          method: 'POST',
+        await fetch(signedIn ? '/api/account' : '/api/locale', {
+          method: signedIn ? 'PATCH' : 'POST',
           headers: { 'content-type': 'application/json' },
           body: JSON.stringify({ lang: locale === 'zh' ? 'en' : 'zh' }),
         });

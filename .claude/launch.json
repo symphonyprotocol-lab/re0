@@ -43,6 +43,14 @@
       ],
       "port": 3300,
       "autoPort": false
+    },
+    {
+      "name": "re0-prototype-4173",
+      "runtimeExecutable": "node",
+      "runtimeArgs": [
+        "rebuild-prototype/serve.mjs"
+      ],
+      "port": 4173
     }
   ]
 }

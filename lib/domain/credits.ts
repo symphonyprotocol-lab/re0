@@ -97,6 +97,21 @@ export function settlement(held: number, actual: number): { charged: number; rel
   return { charged, released: held - charged };
 }
 
+/**
+ * A settlement entry's note: the caller's label (a knowledge title, a Ree's
+ * name), then `charged X of Y`. The ledger reads the charge back with
+ * `chargedFromNote`, so the two stay in step here.
+ */
+export function settlementNote(label: string | null | undefined, charged: number, held: number): string {
+  const tail = `charged ${charged} of ${held}`;
+  return label ? `${label} · ${tail}` : tail;
+}
+
+export function chargedFromNote(note: string | null | undefined): number | null {
+  const match = /(?:^| · )charged (\d+) of \d+$/.exec(note ?? '');
+  return match ? Number(match[1]) : null;
+}
+
 /** Processing price of extracted text: 1 credit per started 1,000 characters, at least 1. */
 export function processingCost(characters: number): number {
   return Math.max(1, Math.ceil(characters / KNOWLEDGE_CHARS_PER_CREDIT));
