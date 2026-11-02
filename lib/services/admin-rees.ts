@@ -6,17 +6,20 @@
  *
  * A takedown turns the Ree private, marks it moderated (its owner cannot
  * republish it), removes it from other people's conversations (history
- * stays, as when an owner makes a Ree private) and tells the owner why.
- * Restoring makes it public again.
+ * stays, as when an owner makes a Ree private) and out of discovery, and
+ * tells the owner why. Restoring makes it public again and rebuilds its
+ * discovery profile.
  */
 import { and, asc, count, desc, eq, ilike, isNull, or, sql, type SQL } from 'drizzle-orm';
 import { ADMIN_SOURCE_PAGE_SIZE } from '@/lib/constants';
 import { parseAdminReason } from '@/lib/domain/adjustments';
 import type { ReesView } from '@/lib/domain/admin-lists';
 import { clampPage, likePattern, param, type ListResult } from '@/lib/domain/list';
-import { db, schema, type Executor } from '@/lib/infra/db';
+import { db, schema } from '@/lib/infra/db';
 import { AdminInputError, audit } from '@/lib/services/admin';
+import { detachRee } from '@/lib/services/conversations';
 import { notify } from '@/lib/services/notices';
+import { refreshProfile } from '@/lib/services/profile';
 import { sourceState, sourceSummary } from '@/lib/services/statistics';
 
 export type ReeVisibility = 'public' | 'private' | 'moderated';
@@ -216,24 +219,24 @@ export async function reeAudit(reeId: string) {
     .orderBy(desc(schema.adminAudit.createdAt));
 }
 
-/** Other people's conversations lose the Ree; their history stays (4 "conversation_ree"). */
-async function leaveOthersConversations(executor: Executor, reeId: string, ownerId: string): Promise<number> {
-  const removed = await executor
-    .delete(schema.conversationRee)
-    .where(
-      and(
-        eq(schema.conversationRee.reeId, reeId),
-        sql`${schema.conversationRee.conversationId} in (select c.id from ${schema.conversation} c where c.user_id <> ${ownerId})`,
-      ),
-    )
-    .returning({ id: schema.conversationRee.conversationId });
-  return removed.length;
+/**
+ * The Ree's place in discovery after a takedown or restore: step 4's profile
+ * vectors exist only for public Rees, so this removes or rebuilds them. A
+ * model failure here does not undo the decision; the next knowledge run
+ * rebuilds the profile.
+ */
+async function refreshDiscovery(reeId: string): Promise<void> {
+  try {
+    await refreshProfile(reeId);
+  } catch (error) {
+    console.warn(`profile refresh after moderation failed ree=${reeId}`, error instanceof Error ? error.message : error);
+  }
 }
 
 export async function takeDownRee(administratorId: string, reeId: string, rawReason: unknown, now = new Date()) {
   const reason = parseAdminReason(rawReason);
   if (!reason) throw new AdminInputError('reason');
-  return db().transaction(async (tx) => {
+  await db().transaction(async (tx) => {
     const [ree] = await tx.select().from(schema.ree).where(eq(schema.ree.id, reeId)).for('update');
     if (!ree) throw new AdminInputError('not_found');
     if (ree.deletedAt || ree.moderatedAt || !ree.isPublic) throw new AdminInputError('stale');
@@ -241,7 +244,8 @@ export async function takeDownRee(administratorId: string, reeId: string, rawRea
       .update(schema.ree)
       .set({ isPublic: false, moderatedAt: now, moderatedBy: administratorId, moderatedReason: reason, updatedAt: now })
       .where(eq(schema.ree.id, reeId));
-    const conversations = await leaveOthersConversations(tx, reeId, ree.ownerId);
+    /* Out of other people's conversations, history kept, as when an owner makes a Ree private (step 4). */
+    const conversations = await detachRee(tx, reeId, { includeOwner: false });
     await audit(tx, {
       administratorId,
       action: 'ree.takedown',
@@ -251,12 +255,13 @@ export async function takeDownRee(administratorId: string, reeId: string, rawRea
     });
     await notify(tx, { userId: ree.ownerId, kind: 'takedown', text: reason, params: { ree: ree.name, reeId }, refId: reeId });
   });
+  await refreshDiscovery(reeId);
 }
 
 export async function restoreRee(administratorId: string, reeId: string, rawReason: unknown, now = new Date()) {
   const reason = parseAdminReason(rawReason);
   if (!reason) throw new AdminInputError('reason');
-  return db().transaction(async (tx) => {
+  await db().transaction(async (tx) => {
     const [ree] = await tx.select().from(schema.ree).where(eq(schema.ree.id, reeId)).for('update');
     if (!ree) throw new AdminInputError('not_found');
     if (ree.deletedAt || !ree.moderatedAt) throw new AdminInputError('stale');
@@ -273,4 +278,5 @@ export async function restoreRee(administratorId: string, reeId: string, rawReas
     });
     await notify(tx, { userId: ree.ownerId, kind: 'restore', text: reason, params: { ree: ree.name, reeId }, refId: reeId });
   });
+  await refreshDiscovery(reeId);
 }

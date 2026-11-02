@@ -1,6 +1,6 @@
 {
-  "id": "950386fe-fe37-487a-aa42-67348141b100",
-  "prevId": "8d757c2b-de9f-4ba1-a484-2d3ef5483157",
+  "id": "3ed8b140-1d1d-4545-bbea-984105011ee0",
+  "prevId": "42cfee54-079c-4e71-9f0f-90cd88217f0f",
   "version": "7",
   "dialect": "postgresql",
   "tables": {
@@ -496,6 +496,25 @@
           "notNull": true,
           "default": "''"
         },
+        "pinned": {
+          "name": "pinned",
+          "type": "boolean",
+          "primaryKey": false,
+          "notNull": true,
+          "default": false
+        },
+        "archived_at": {
+          "name": "archived_at",
+          "type": "timestamp with time zone",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "deleted_at": {
+          "name": "deleted_at",
+          "type": "timestamp with time zone",
+          "primaryKey": false,
+          "notNull": false
+        },
         "created_at": {
           "name": "created_at",
           "type": "timestamp with time zone",
@@ -529,6 +548,22 @@
             }
           ],
           "isUnique": false,
+          "concurrently": false,
+          "method": "btree",
+          "with": {}
+        },
+        "conversation_trash_idx": {
+          "name": "conversation_trash_idx",
+          "columns": [
+            {
+              "expression": "deleted_at",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            }
+          ],
+          "isUnique": false,
+          "where": "deleted_at is not null",
           "concurrently": false,
           "method": "btree",
           "with": {}
@@ -588,6 +623,10 @@
       "uniqueConstraints": {},
       "policies": {},
       "checkConstraints": {
+        "conversation_title_check": {
+          "name": "conversation_title_check",
+          "value": "char_length(title) <= 120"
+        },
         "conversation_kind_check": {
           "name": "conversation_kind_check",
           "value": "kind in ('normal', 'ree_test')"
@@ -1730,6 +1769,13 @@
           "notNull": true,
           "default": 0
         },
+        "suggested_ree_ids": {
+          "name": "suggested_ree_ids",
+          "type": "jsonb",
+          "primaryKey": false,
+          "notNull": true,
+          "default": "'[]'::jsonb"
+        },
         "created_at": {
           "name": "created_at",
           "type": "timestamp with time zone",
@@ -1756,6 +1802,28 @@
             }
           ],
           "isUnique": false,
+          "concurrently": false,
+          "method": "btree",
+          "with": {}
+        },
+        "message_ree_idx": {
+          "name": "message_ree_idx",
+          "columns": [
+            {
+              "expression": "ree_id",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            },
+            {
+              "expression": "created_at",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            }
+          ],
+          "isUnique": false,
+          "where": "role = 'ree'",
           "concurrently": false,
           "method": "btree",
           "with": {}
@@ -2413,6 +2481,46 @@
       },
       "isRLSEnabled": false
     },
+    "public.rate_bucket": {
+      "name": "rate_bucket",
+      "schema": "",
+      "columns": {
+        "key": {
+          "name": "key",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "window_start": {
+          "name": "window_start",
+          "type": "timestamp with time zone",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "hits": {
+          "name": "hits",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": true,
+          "default": 0
+        }
+      },
+      "indexes": {},
+      "foreignKeys": {},
+      "compositePrimaryKeys": {
+        "rate_bucket_key_window_start_pk": {
+          "name": "rate_bucket_key_window_start_pk",
+          "columns": [
+            "key",
+            "window_start"
+          ]
+        }
+      },
+      "uniqueConstraints": {},
+      "policies": {},
+      "checkConstraints": {},
+      "isRLSEnabled": false
+    },
     "public.ree": {
       "name": "ree",
       "schema": "",
@@ -2522,6 +2630,20 @@
           "primaryKey": false,
           "notNull": false
         },
+        "rank": {
+          "name": "rank",
+          "type": "jsonb",
+          "primaryKey": false,
+          "notNull": true,
+          "default": "'{}'::jsonb"
+        },
+        "suggested_questions": {
+          "name": "suggested_questions",
+          "type": "jsonb",
+          "primaryKey": false,
+          "notNull": true,
+          "default": "'[]'::jsonb"
+        },
         "deleted_at": {
           "name": "deleted_at",
           "type": "timestamp with time zone",
@@ -2555,6 +2677,28 @@
             }
           ],
           "isUnique": true,
+          "concurrently": false,
+          "method": "btree",
+          "with": {}
+        },
+        "ree_public_idx": {
+          "name": "ree_public_idx",
+          "columns": [
+            {
+              "expression": "category",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            },
+            {
+              "expression": "created_at",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            }
+          ],
+          "isUnique": false,
+          "where": "is_public and moderated_at is null and deleted_at is null",
           "concurrently": false,
           "method": "btree",
           "with": {}
@@ -2615,6 +2759,180 @@
         "ree_tags_check": {
           "name": "ree_tags_check",
           "value": "cardinality(tags) <= 3"
+        }
+      },
+      "isRLSEnabled": false
+    },
+    "public.ree_feedback": {
+      "name": "ree_feedback",
+      "schema": "",
+      "columns": {
+        "message_id": {
+          "name": "message_id",
+          "type": "uuid",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "user_id": {
+          "name": "user_id",
+          "type": "uuid",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "vote": {
+          "name": "vote",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "created_at": {
+          "name": "created_at",
+          "type": "timestamp with time zone",
+          "primaryKey": false,
+          "notNull": true,
+          "default": "now()"
+        }
+      },
+      "indexes": {},
+      "foreignKeys": {
+        "ree_feedback_message_id_message_id_fk": {
+          "name": "ree_feedback_message_id_message_id_fk",
+          "tableFrom": "ree_feedback",
+          "tableTo": "message",
+          "columnsFrom": [
+            "message_id"
+          ],
+          "columnsTo": [
+            "id"
+          ],
+          "onDelete": "cascade",
+          "onUpdate": "no action"
+        },
+        "ree_feedback_user_id_user_id_fk": {
+          "name": "ree_feedback_user_id_user_id_fk",
+          "tableFrom": "ree_feedback",
+          "tableTo": "user",
+          "columnsFrom": [
+            "user_id"
+          ],
+          "columnsTo": [
+            "id"
+          ],
+          "onDelete": "cascade",
+          "onUpdate": "no action"
+        }
+      },
+      "compositePrimaryKeys": {
+        "ree_feedback_message_id_user_id_pk": {
+          "name": "ree_feedback_message_id_user_id_pk",
+          "columns": [
+            "message_id",
+            "user_id"
+          ]
+        }
+      },
+      "uniqueConstraints": {},
+      "policies": {},
+      "checkConstraints": {
+        "ree_feedback_vote_check": {
+          "name": "ree_feedback_vote_check",
+          "value": "vote in ('up', 'down')"
+        }
+      },
+      "isRLSEnabled": false
+    },
+    "public.ree_profile_vector": {
+      "name": "ree_profile_vector",
+      "schema": "",
+      "columns": {
+        "id": {
+          "name": "id",
+          "type": "uuid",
+          "primaryKey": true,
+          "notNull": true,
+          "default": "gen_random_uuid()"
+        },
+        "ree_id": {
+          "name": "ree_id",
+          "type": "uuid",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "kind": {
+          "name": "kind",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "embedding": {
+          "name": "embedding",
+          "type": "vector(1536)",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "updated_at": {
+          "name": "updated_at",
+          "type": "timestamp with time zone",
+          "primaryKey": false,
+          "notNull": true,
+          "default": "now()"
+        }
+      },
+      "indexes": {
+        "ree_profile_vector_ree_idx": {
+          "name": "ree_profile_vector_ree_idx",
+          "columns": [
+            {
+              "expression": "ree_id",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            }
+          ],
+          "isUnique": false,
+          "concurrently": false,
+          "method": "btree",
+          "with": {}
+        },
+        "ree_profile_vector_embedding_idx": {
+          "name": "ree_profile_vector_embedding_idx",
+          "columns": [
+            {
+              "expression": "embedding",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last",
+              "opclass": "vector_cosine_ops"
+            }
+          ],
+          "isUnique": false,
+          "concurrently": false,
+          "method": "hnsw",
+          "with": {}
+        }
+      },
+      "foreignKeys": {
+        "ree_profile_vector_ree_id_ree_id_fk": {
+          "name": "ree_profile_vector_ree_id_ree_id_fk",
+          "tableFrom": "ree_profile_vector",
+          "tableTo": "ree",
+          "columnsFrom": [
+            "ree_id"
+          ],
+          "columnsTo": [
+            "id"
+          ],
+          "onDelete": "cascade",
+          "onUpdate": "no action"
+        }
+      },
+      "compositePrimaryKeys": {},
+      "uniqueConstraints": {},
+      "policies": {},
+      "checkConstraints": {
+        "ree_profile_vector_kind_check": {
+          "name": "ree_profile_vector_kind_check",
+          "value": "kind in ('profile', 'sample_question', 'centroid')"
         }
       },
       "isRLSEnabled": false

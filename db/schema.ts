@@ -28,6 +28,7 @@ import type { CitationSnapshot, Locator } from '@/lib/domain/answer';
 import type { Allocation } from '@/lib/domain/credits';
 import type { KnowledgeActivity, KnowledgeChild } from '@/lib/domain/knowledge';
 import type { RoleMetrics } from '@/lib/domain/roles';
+import type { ReeRank } from '@/lib/domain/explore';
 
 const createdAt = () => timestamp('created_at', { withTimezone: true }).notNull().defaultNow();
 const timestampTz = (name: string) => timestamp(name, { withTimezone: true });
@@ -97,16 +98,21 @@ export const ree = pgTable(
     sampleQuestions: jsonb('sample_questions').$type<string[]>().notNull().default([]),
     isPublic: boolean('is_public').notNull().default(false),
     queryFee: integer('query_fee').notNull().default(0),
-    /** Taken down by an administrator (2.5): private until restored, and the owner cannot republish it. */
+    /** Taken down by an administrator (2.5): hidden from discovery and other people's conversations, and not republishable by its owner, until restored. */
     moderatedAt: timestampTz('moderated_at'),
     moderatedBy: uuid('moderated_by'),
     moderatedReason: text('moderated_reason'),
+    /** The explore ranking, materialised hourly by `/api/cron/rank` (4). */
+    rank: jsonb('rank').$type<ReeRank>().notNull().default({}),
+    /** Beyond 4: three example questions the system wrote after the first ready source, shown only once the owner adopts them (8.2). */
+    suggestedQuestions: jsonb('suggested_questions').$type<string[]>().notNull().default([]),
     deletedAt: timestampTz('deleted_at'),
     createdAt: createdAt(),
     updatedAt: timestampTz('updated_at').notNull().defaultNow(),
   },
   (t) => [
     uniqueIndex('ree_slug_key').on(t.slug),
+    index('ree_public_idx').on(t.category, t.createdAt).where(sql`is_public and moderated_at is null and deleted_at is null`),
     index('ree_owner_idx').on(t.ownerId, t.createdAt),
     check(
       'ree_color_check',
@@ -218,11 +224,18 @@ export const conversation = pgTable(
     kind: text('kind').$type<'normal' | 'ree_test'>().notNull().default('normal'),
     reeId: uuid('ree_id').references(() => ree.id),
     title: text('title').notNull().default(''),
+    pinned: boolean('pinned').notNull().default(false),
+    /** Archived since; a new question brings it back to Recent (8.2, "对话列表"). */
+    archivedAt: timestampTz('archived_at'),
+    /** In the trash since; purged with its messages 30 days later. */
+    deletedAt: timestampTz('deleted_at'),
     createdAt: createdAt(),
     updatedAt: timestampTz('updated_at').notNull().defaultNow(),
   },
   (t) => [
     index('conversation_user_idx').on(t.userId, t.updatedAt),
+    index('conversation_trash_idx').on(t.deletedAt).where(sql`deleted_at is not null`),
+    check('conversation_title_check', sql`char_length(title) <= 120`),
     uniqueIndex('conversation_ree_test_key')
       .on(t.userId, t.reeId)
       .where(sql`kind = 'ree_test'`),
@@ -260,10 +273,13 @@ export const message = pgTable(
     noAnswerReason: text('no_answer_reason').$type<'no_sources' | 'out_of_scope'>(),
     requestId: uuid('request_id'),
     costCredits: integer('cost_credits').notNull().default(0),
+    /** Beyond 4, on a question every asked Ree left unanswered: the public Rees suggested under it ("这些公开 Ree 可能知道"). */
+    suggestedReeIds: jsonb('suggested_ree_ids').$type<string[]>().notNull().default([]),
     createdAt: createdAt(),
   },
   (t) => [
     index('message_conversation_idx').on(t.conversationId, t.createdAt),
+    index('message_ree_idx').on(t.reeId, t.createdAt).where(sql`role = 'ree'`),
     check('message_role_check', oneOf('role', ['user', 'ree'])),
     check(
       'message_no_answer_reason_check',
@@ -622,6 +638,58 @@ export const creditDebt = pgTable(
     index('credit_debt_open_idx').on(t.userId).where(sql`remaining > 0`),
     check('credit_debt_remaining_check', sql`remaining >= 0 and remaining <= amount and amount > 0`),
   ],
+);
+
+/* ------------------------------------------------- step 4: conversations, explore */
+
+/** "有用 / 没用" on one Ree answer (2.4), one vote per user; voting the same way again takes it back. */
+export const reeFeedback = pgTable(
+  'ree_feedback',
+  {
+    messageId: uuid('message_id')
+      .notNull()
+      .references(() => message.id, { onDelete: 'cascade' }),
+    userId: uuid('user_id')
+      .notNull()
+      .references(() => user.id, { onDelete: 'cascade' }),
+    vote: text('vote').$type<'up' | 'down'>().notNull(),
+    createdAt: createdAt(),
+  },
+  (t) => [primaryKey({ columns: [t.messageId, t.userId] }), check('ree_feedback_vote_check', oneOf('vote', ['up', 'down']))],
+);
+
+/**
+ * A public Ree's knowledge profile (2.4): at most 16 vectors -- its
+ * introduction and tags, its example questions, and centroids of its
+ * passages. Only public Rees have rows; turning private deletes them.
+ */
+export const reeProfileVector = pgTable(
+  'ree_profile_vector',
+  {
+    id: uuid('id').primaryKey().defaultRandom(),
+    reeId: uuid('ree_id')
+      .notNull()
+      .references(() => ree.id, { onDelete: 'cascade' }),
+    kind: text('kind').$type<'profile' | 'sample_question' | 'centroid'>().notNull(),
+    embedding: vector('embedding', { dimensions: 1536 }).notNull(),
+    updatedAt: timestampTz('updated_at').notNull().defaultNow(),
+  },
+  (t) => [
+    index('ree_profile_vector_ree_idx').on(t.reeId),
+    index('ree_profile_vector_embedding_idx').using('hnsw', t.embedding.op('vector_cosine_ops')),
+    check('ree_profile_vector_kind_check', oneOf('kind', ['profile', 'sample_question', 'centroid'])),
+  ],
+);
+
+/** Beyond 4: fixed-window request counters for the free, unauthenticated explore search (2.4, "按 IP 和账号限频"). */
+export const rateBucket = pgTable(
+  'rate_bucket',
+  {
+    key: text('key').notNull(),
+    windowStart: timestampTz('window_start').notNull(),
+    hits: integer('hits').notNull().default(0),
+  },
+  (t) => [primaryKey({ columns: [t.key, t.windowStart] })],
 );
 
 /* ------------------------------------------------------------- step 5 */

@@ -8,6 +8,8 @@ import { useI18n } from '@/i18n/client';
 import { fill, formatNumber } from '@/i18n/format';
 import { Icon, type IconName } from '@/components/ui/icons';
 import { UserAvatar } from '@/components/ui/ree-avatar';
+import { HistoryProvider, SidebarConversations } from '@/components/conversations/sidebar-history';
+import type { HistoryItem } from '@/lib/services/conversations';
 
 interface ShellState {
   collapsed: boolean;
@@ -27,6 +29,8 @@ export interface ShellUser {
   balance: number;
   plan: PlanUsage;
   reeCount: number;
+  /** Step 4: the sidebar's pinned and recent conversations. */
+  history: HistoryItem[];
   /** Unread in-app notices (step 5): a red dot on the account link, which then opens the notices. */
   unreadNotices: number;
 }
@@ -55,6 +59,7 @@ export function AppShell({ user, initialCollapsed, children }: { user: ShellUser
   };
   return (
     <ShellContext.Provider value={{ collapsed, toggleCollapsed, openDrawer: () => setDrawer(true) }}>
+      <HistoryProvider>
       <div className="min-h-dvh" style={{ ['--sidebar' as string]: collapsed ? '68px' : '224px' }}>
         <Sidebar user={user} collapsed={collapsed} className="fixed inset-y-0 left-0 z-30 hidden w-[var(--sidebar)] md:flex" />
         {drawer && (
@@ -65,6 +70,7 @@ export function AppShell({ user, initialCollapsed, children }: { user: ShellUser
         )}
         <div className="min-w-0 md:pl-[var(--sidebar)]">{children}</div>
       </div>
+      </HistoryProvider>
     </ShellContext.Provider>
   );
 }
@@ -107,9 +113,10 @@ function Sidebar({ user, collapsed, className, onClose }: { user: ShellUser; col
       </div>
       <nav className={`flex flex-col gap-1 px-3 ${collapsed ? 'px-2' : ''}`}>
         <NavItem href="/dashboard" icon="dashboard" label={t.common.nav.dashboard} active={pathname === '/dashboard'} collapsed={collapsed} />
+        <NavItem href="/explore" icon="compass" label={t.discover.nav} active={pathname === '/explore' || pathname.startsWith('/r/')} collapsed={collapsed} />
         <NavItem href="/rees" icon="ree" label={t.common.nav.rees} active={pathname.startsWith('/rees')} collapsed={collapsed} badge={user.reeCount} />
       </nav>
-      <div className="flex-1" />
+      <SidebarConversations history={user.history} collapsed={collapsed} />
       <div className={`flex flex-col gap-2 border-t border-line p-3 ${collapsed ? 'items-center px-2' : ''}`}>
         <PlanMeter user={user} collapsed={collapsed} />
         <div className={`flex items-center gap-2 ${collapsed ? 'flex-col' : ''}`}>

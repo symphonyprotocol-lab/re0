@@ -8,7 +8,7 @@ import { DefaultChatTransport } from 'ai';
 import { QUESTION_MAX_CHARS } from '@/lib/constants';
 import { locatorLabel, type CitationSnapshot } from '@/lib/domain/answer';
 import { KIND_ICONS } from '@/components/knowledge/kind-icons';
-import type { InsufficientCreditsBody, ReeOutcome, ReeUIMessage } from '@/lib/domain/chat-message';
+import { repliesOf, type InsufficientCreditsBody, type ReeOutcome, type ReeUIMessage } from '@/lib/domain/chat-message';
 import { useI18n } from '@/i18n/client';
 import { fill, formatNumber } from '@/i18n/format';
 import { Icon, Spinner } from '@/components/ui/icons';
@@ -25,13 +25,14 @@ interface ChatRee {
   sampleQuestions: string[];
 }
 
+/** The one Ree's reply in an assistant message (the test conversation has a single Ree). */
 function outcomeOf(message: ReeUIMessage): ReeOutcome | null {
-  for (const part of message.parts) if (part.type === 'data-outcome') return part.data;
-  return null;
+  return repliesOf(message)[0]?.outcome ?? null;
 }
 
 function textOf(message: ReeUIMessage): string {
-  return message.parts.map((part) => (part.type === 'text' ? part.text : '')).join('');
+  if (message.role === 'user') return message.parts.map((part) => (part.type === 'text' ? part.text : '')).join('');
+  return repliesOf(message)[0]?.text ?? '';
 }
 
 /**

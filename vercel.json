@@ -15,8 +15,12 @@
       "schedule": "15 0 * * *"
     },
     {
+      "path": "/api/cron/rank",
+      "schedule": "7 * * * *"
+    },
+    {
       "path": "/api/cron/reembed",
-      "schedule": "45 1 * * *"
+      "schedule": "*/10 * * * *"
     }
   ]
 }

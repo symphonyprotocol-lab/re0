@@ -24,11 +24,23 @@ export { InsufficientCredits } from '@/lib/domain/credits';
 
 type HoldKind = 'chat' | 'knowledge' | 'video' | 'payout';
 
-/** The reasons each hold kind writes when it is taken, settled and released. */
-const REASONS: Record<'chat' | 'knowledge', { hold: CreditEntryReason; settle: CreditEntryReason; release: CreditEntryReason }> = {
+/**
+ * The reasons each hold kind writes when it is taken, settled and released.
+ * A question to someone else's Ree holds the owner's query fee apart from
+ * the base fee (`ledger: 'chat_fee'`), so the ledger shows the two as
+ * `query_base` and `query_fee_paid` (2.3).
+ */
+const REASONS: Record<'chat' | 'knowledge' | 'chat_fee', { hold: CreditEntryReason; settle: CreditEntryReason; release: CreditEntryReason }> = {
   chat: { hold: 'query_hold', settle: 'query_base', release: 'query_refund' },
+  chat_fee: { hold: 'query_fee_paid', settle: 'query_fee_paid', release: 'query_refund' },
   knowledge: { hold: 'knowledge_hold', settle: 'knowledge_settle', release: 'knowledge_refund' },
 };
+
+type Ledger = keyof typeof REASONS;
+
+function reasonsFor(kind: string, ledger?: 'chat_fee') {
+  return REASONS[(ledger ?? kind) as Ledger];
+}
 
 export async function grantWelcome(tx: Tx, userId: string, now = new Date()): Promise<void> {
   const [grant] = await tx
@@ -62,7 +74,7 @@ export async function addGrant(
     periodStart?: Date | null;
     purchaseId?: string | null;
     note?: string | null;
-    /** The Ree the credits came from (query fees), so per-Ree statistics can attribute them. */
+    /** The Ree the credits came from (step 4's query fees), so per-Ree statistics can attribute them. */
     reeId?: string | null;
   },
   now = new Date(),
@@ -201,6 +213,8 @@ export interface HoldInput {
   refId: string;
   reeId?: string | null;
   note?: string | null;
+  /** `chat_fee`: the query-fee part of a question, written as `query_fee_paid`. */
+  ledger?: 'chat_fee';
 }
 
 /**
@@ -226,7 +240,7 @@ export async function placeHold(tx: Tx, input: HoldInput, now = new Date()): Pro
   await tx.insert(schema.creditEntry).values({
     userId: input.userId,
     delta: -input.amount,
-    reason: REASONS[input.kind].hold,
+    reason: reasonsFor(input.kind, input.ledger).hold,
     refId: input.refId,
     reeId: input.reeId ?? null,
     note: input.note ?? null,
@@ -254,7 +268,7 @@ export async function settleHold(
   tx: Tx,
   holdId: string,
   actual: number,
-  options: { reeId?: string | null; note?: string | null } = {},
+  options: { reeId?: string | null; note?: string | null; ledger?: 'chat_fee' } = {},
   now = new Date(),
 ): Promise<{ charged: number; released: number } | null> {
   const hold = await openHold(tx, holdId);
@@ -269,7 +283,7 @@ export async function settleHold(
   await tx.insert(schema.creditEntry).values({
     userId: hold.userId,
     delta: released,
-    reason: REASONS[hold.kind as 'chat' | 'knowledge'].settle,
+    reason: reasonsFor(hold.kind, options.ledger).settle,
     refId: hold.refId,
     reeId: options.reeId ?? null,
     note: settlementNote(options.note, charged, hold.amount),
@@ -283,7 +297,7 @@ export async function settleHold(
 export async function releaseHold(
   tx: Tx,
   holdId: string,
-  options: { reeId?: string | null; note?: string | null } = {},
+  options: { reeId?: string | null; note?: string | null; ledger?: 'chat_fee' } = {},
   now = new Date(),
 ): Promise<number | null> {
   const hold = await openHold(tx, holdId);
@@ -296,7 +310,7 @@ export async function releaseHold(
   await tx.insert(schema.creditEntry).values({
     userId: hold.userId,
     delta: hold.amount,
-    reason: REASONS[hold.kind as 'chat' | 'knowledge'].release,
+    reason: reasonsFor(hold.kind, options.ledger).release,
     refId: hold.refId,
     reeId: options.reeId ?? null,
     note: options.note ?? null,

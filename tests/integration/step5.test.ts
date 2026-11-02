@@ -29,6 +29,7 @@ const statistics = await import('@/lib/services/statistics');
 const reembed = await import('@/lib/services/reembed');
 const models = await import('@/lib/services/models');
 const reesService = await import('@/lib/services/rees');
+const profile = await import('@/lib/services/profile');
 const { forgetModelCache, endpointFor } = await import('@/lib/infra/ai/models');
 const { usersView, auditView, reesView, verificationsView } = await import('@/lib/domain/admin-lists');
 const { toCsv } = await import('@/lib/domain/csv');
@@ -99,7 +100,7 @@ async function questions(askerId: string, reeId: string, count: number, votes: {
 
 describeWithDb('roles', () => {
   beforeAll(async () => {
-    /* Step 4 owns `ree_feedback`; until it lands the threshold reads the shape the proposal names. */
+    /* Step 4's table; created only when running without its migration. */
     await db().execute(sql`create table if not exists ree_feedback (message_id uuid not null, user_id uuid not null, vote text not null, created_at timestamptz not null default now())`);
   });
 
@@ -271,6 +272,11 @@ describeWithDb('console users', () => {
   });
 });
 
+async function profileVectors(reeId: string): Promise<number> {
+  const rows = await db().select({ id: schema.reeProfileVector.id }).from(schema.reeProfileVector).where(eq(schema.reeProfileVector.reeId, reeId));
+  return rows.length;
+}
+
 describeWithDb('Ree takedown', () => {
   it('turns the Ree private, keeps the owner from republishing, leaves others’ conversations, notifies, and restores', async () => {
     const reviewer = await newAdministrator();
@@ -278,8 +284,12 @@ describeWithDb('Ree takedown', () => {
     const other = await newUser();
     const ree = await publicRee(owner, { ready: 1 });
     const { conversationId } = await questions(other, ree.id, 1);
+    await profile.refreshProfile(ree.id);
+    expect(await profileVectors(ree.id)).toBeGreaterThan(0);
     await expect(adminRees.takeDownRee(reviewer, ree.id, 'no')).rejects.toMatchObject({ code: 'reason' });
     await adminRees.takeDownRee(reviewer, ree.id, 'Copyrighted material');
+    /* Out of discovery (step 4's profile vectors exist only for public Rees). */
+    expect(await profileVectors(ree.id)).toBe(0);
     const [down] = await db().select().from(schema.ree).where(eq(schema.ree.id, ree.id));
     expect(down).toMatchObject({ isPublic: false, moderatedReason: 'Copyrighted material' });
     expect(await db().select().from(schema.conversationRee).where(eq(schema.conversationRee.conversationId, conversationId))).toHaveLength(0);
@@ -293,6 +303,7 @@ describeWithDb('Ree takedown', () => {
     await adminRees.restoreRee(reviewer, ree.id, 'Rights cleared');
     const [up] = await db().select().from(schema.ree).where(eq(schema.ree.id, ree.id));
     expect(up).toMatchObject({ isPublic: true, moderatedAt: null });
+    expect(await profileVectors(ree.id)).toBeGreaterThan(0);
     expect((await notices.listNotices(owner, 1)).items.map((n) => n.kind)).toEqual(['restore', 'takedown']);
     expect((await adminAudit.listAudit(auditView({ action: 'ree.takedown', q: ree.id }))).total).toBe(1);
     await expect(adminRees.restoreRee(reviewer, ree.id, 'again')).rejects.toMatchObject({ code: 'stale' });

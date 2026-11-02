@@ -19,6 +19,7 @@ import {
   type SourceError,
 } from '@/lib/domain/ree';
 import { db, schema, type Executor, type Tx } from '@/lib/infra/db';
+import { detachRee } from '@/lib/services/conversations';
 import { checkKnowledge, createKnowledgeInTx, type NewKnowledge } from '@/lib/services/knowledge';
 
 export type Ree = typeof schema.ree.$inferSelect;
@@ -279,21 +280,33 @@ export async function updateRee(
   const invalid = validateReeFields(fields, 4);
   if (invalid) throw new ReeInputError(invalid.error, invalid.step);
   const avatarBlob = fields.avatarBlob && fields.avatarBlob.startsWith(`avatars/${ownerId}/`) ? fields.avatarBlob : null;
-  const [row] = await db()
-    .update(schema.ree)
-    /* A Ree an administrator took down stays private until it is restored (2.5). */
-    .set({ ...reeValues(fields), isPublic: sql`(${fields.isPublic} and "ree"."moderated_at" is null)`, avatarBlob, updatedAt: new Date() })
-    .where(and(eq(schema.ree.id, id), ownedLive(ownerId)))
-    .returning();
-  return row ?? null;
+  return db().transaction(async (tx) => {
+    const [row] = await tx
+      .update(schema.ree)
+      /* A Ree an administrator took down stays private until it is restored (2.5). */
+      .set({ ...reeValues(fields), isPublic: sql`(${fields.isPublic} and "ree"."moderated_at" is null)`, avatarBlob, updatedAt: new Date() })
+      .where(and(eq(schema.ree.id, id), ownedLive(ownerId)))
+      .returning();
+    /* Private now: out of other people's conversations and out of discovery (8.2); the history stays. */
+    if (row && !row.isPublic) await hide(tx, row.id, { includeOwner: false });
+    return row ?? null;
+  });
+}
+
+async function hide(tx: Tx, reeId: string, options: { includeOwner: boolean }): Promise<void> {
+  await detachRee(tx, reeId, options);
+  await tx.delete(schema.reeProfileVector).where(eq(schema.reeProfileVector.reeId, reeId));
 }
 
 /** Soft: the row stays so past conversations still show the name (8.2, "Ree 删除"). */
 export async function deleteRee(ownerId: string, id: string): Promise<boolean> {
-  const rows = await db()
-    .update(schema.ree)
-    .set({ deletedAt: new Date(), isPublic: false })
-    .where(and(eq(schema.ree.id, id), ownedLive(ownerId)))
-    .returning({ id: schema.ree.id });
-  return rows.length > 0;
+  return db().transaction(async (tx) => {
+    const rows = await tx
+      .update(schema.ree)
+      .set({ deletedAt: new Date(), isPublic: false })
+      .where(and(eq(schema.ree.id, id), ownedLive(ownerId)))
+      .returning({ id: schema.ree.id });
+    if (rows.length) await hide(tx, id, { includeOwner: true });
+    return rows.length > 0;
+  });
 }
