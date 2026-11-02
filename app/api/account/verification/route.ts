@@ -19,7 +19,9 @@ export async function POST(request: NextRequest) {
     return json({ request: await applyForVerification(user.id, { statement: input.statement, links: input.links }) }, 201);
   } catch (error) {
     if (error instanceof VerificationRefused) return fail(error.code, ['statement', 'links'].includes(error.code) ? 422 : 409);
-    if (error instanceof Error && 'code' in error && (error as { code?: string }).code === '23505') return fail('pending', 409);
+    /* The one-pending-per-user index, should two submissions race past the lock. */
+    const cause = (error as { cause?: { code?: string } } | null)?.cause;
+    if (cause?.code === '23505') return fail('pending', 409);
     throw error;
   }
 }

@@ -89,11 +89,13 @@ describeWithDb('console authority', () => {
 describeWithDb('model configuration', () => {
   /* Later files answer through the environment fallback, not these entries. */
   afterAll(async () => {
+    await db().delete(schema.reembedJob);
     await db().delete(schema.modelConfig);
   });
 
   it('keeps one active entry per kind, freezes it, and switches generation at once', async () => {
     const [owner] = await db().select().from(schema.administrator).limit(1);
+    await db().delete(schema.reembedJob);
     await db().delete(schema.modelConfig);
     forgetModelCache();
     const first = await models.createModelConfig(owner!.id, { name: 'One', kind: 'generation', transport: 'gateway', model: 'openai/gpt-5-mini', apiKey: 'sk-one-1234' });
