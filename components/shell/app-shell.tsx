@@ -112,7 +112,7 @@ function Sidebar({ user, collapsed, className, onClose }: { user: ShellUser; col
         )}
       </div>
       <nav className={`flex flex-col gap-1 px-3 ${collapsed ? 'px-2' : ''}`}>
-        <NavItem href="/dashboard" icon="dashboard" label={t.common.nav.dashboard} active={pathname === '/dashboard'} collapsed={collapsed} />
+        <NavItem href="/dashboard" icon="dashboard" label={t.common.nav.dashboard} active={pathname === '/dashboard' || pathname.startsWith('/workspace/')} collapsed={collapsed} />
         <NavItem href="/explore" icon="compass" label={t.discover.nav} active={pathname === '/explore' || pathname.startsWith('/r/')} collapsed={collapsed} />
         <NavItem href="/rees" icon="ree" label={t.common.nav.rees} active={pathname.startsWith('/rees') || pathname === '/videos'} collapsed={collapsed} badge={user.reeCount} />
       </nav>

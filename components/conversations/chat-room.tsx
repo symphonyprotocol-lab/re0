@@ -173,7 +173,7 @@ export function ChatRoom({
 
   return (
     <main className="mx-auto flex min-h-[calc(100dvh-108px)] w-full max-w-[860px] flex-col px-4 md:px-8">
-      <div className="flex-1 pb-6" role="region" aria-label={r.inputLabel} tabIndex={0}>
+      <div className="flex-1 pb-6" role="region" aria-label={r.messagesLabel} tabIndex={0}>
         <h1 className="sr-only">{conversation.title}</h1>
         {messages.length === 0 ? (
           <div className="flex flex-col items-center py-14 text-center">
@@ -183,6 +183,12 @@ export function ChatRoom({
             <span className="eyebrow mt-6">{r.emptyEyebrow}</span>
             <h2 className="mt-3 text-[26px] font-extrabold tracking-tight">{only ? fill(r.emptyOne, { name: only.name }) : members.length ? r.emptyMany : r.emptyNone}</h2>
             <p className="mt-3 max-w-[460px] text-[13px] text-muted">{only ? only.description : members.length ? r.emptyManyBody : r.emptyNoneBody}</p>
+            {members.length === 0 && (
+              <button type="button" className="btn-secondary mt-8" onClick={() => composer.current?.manage()} disabled={busy}>
+                <Icon name="plus" className="size-4" />
+                {r.chooseCompanions}
+              </button>
+            )}
             {members.length > 0 && (
               <div className="mt-8 grid w-full grid-cols-1 gap-3 sm:grid-cols-2">
                 {(only?.sampleQuestions.length ? only.sampleQuestions : r.starters).slice(0, 3).map((question) => (

@@ -19,12 +19,13 @@ import type { ConversationCounts } from '@/lib/services/conversations';
 import { useI18n } from '@/i18n/client';
 import { fill, formatNumber } from '@/i18n/format';
 import { Icon, Spinner } from '@/components/ui/icons';
-import { ConfirmModal } from '@/components/ui/modal';
 import { Pager } from '@/components/ui/pager';
 import { ReeAvatar } from '@/components/ui/ree-avatar';
 import { RowMenu } from '@/components/ui/row-menu';
 import { useToast } from '@/components/ui/toast';
 import { RenameDialog } from '@/components/conversations/rename-dialog';
+import { OrganizeConfirm, type OrganizeRequest } from '@/components/conversations/organize-confirm';
+import { TrashPreview } from '@/components/conversations/trash-preview';
 
 export interface SearchItem {
   id: string;
@@ -35,6 +36,7 @@ export interface SearchItem {
   updatedAt: string;
   questions: number;
   matched: string | null;
+  latest: string | null;
   participants: { id: string; name: string; avatarBlob: string | null; color: string }[];
 }
 
@@ -75,11 +77,14 @@ export function ConversationSearch({
   result,
   rees,
   focus,
+  select,
 }: {
   query: ConversationQuery;
   result: { items: SearchItem[]; total: number; page: number; size: number; counts: ConversationCounts };
   rees: { id: string; name: string }[];
   focus: boolean;
+  /** "选择此对话" from the sidebar: open in selection mode with this one checked. */
+  select: string | null;
 }) {
   const { t, locale } = useI18n();
   const s = t.conversations.search;
@@ -90,8 +95,9 @@ export function ConversationSearch({
   const [pending, startTransition] = useTransition();
   const [selecting, setSelecting] = useState(false);
   const [selected, setSelected] = useState<Set<string>>(new Set());
-  const [confirm, setConfirm] = useState<{ action: BatchAction; ids: string[] } | null>(null);
+  const [confirm, setConfirm] = useState<OrganizeRequest | null>(null);
   const [renaming, setRenaming] = useState<SearchItem | null>(null);
+  const [previewing, setPreviewing] = useState<SearchItem | null>(null);
   const box = useRef<HTMLInputElement>(null);
   const typed = useRef(false);
 
@@ -107,12 +113,31 @@ export function ConversationSearch({
 
   useEffect(() => setSelected(new Set()), [query.view, query.q, query.ree, query.days, query.sort]);
 
-  const go = (changes: Partial<ConversationQuery>, replace = false) => {
-    const next = { ...query, ...changes };
-    if (!('page' in changes)) next.page = 1;
+  /* The page actually shown: a page past the end is clamped by the server. */
+  const shown = { ...query, page: result.page };
+  const hrefOf = (next: ConversationQuery) => {
     const params = conversationSearchParams(next);
-    const href = params.size ? `${pathname}?${params}` : pathname;
+    return params.size ? `${pathname}?${params}` : pathname;
+  };
+
+  /* "选择此对话" from the sidebar arrives as `?select=<id>`; an out-of-range page as itself: both settle on the canonical URL. */
+  useEffect(() => {
+    if (select) {
+      setSelecting(true);
+      setSelected(new Set([select]));
+    }
+    if (select || result.page !== query.page) router.replace(hrefOf(shown), { scroll: false });
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [select, result.page, query.page]);
+
+  const go = (changes: Partial<ConversationQuery>, replace = false) => {
+    const next = { ...shown, ...changes };
+    if (!('page' in changes)) next.page = 1;
+    const href = hrefOf(next);
+    /* A new page or page size starts at the top (prototype conversations.js `cl-page` / `cl-size`); other changes keep the place. */
+    const toTop = 'page' in changes || 'size' in changes;
     startTransition(() => (replace ? router.replace(href, { scroll: false }) : router.push(href, { scroll: false })));
+    if (toTop) window.scrollTo({ top: 0, behavior: 'instant' });
   };
 
   /* Live search: results follow the box as you type, without piling up history entries. */
@@ -131,7 +156,7 @@ export function ConversationSearch({
   const allOnPage = pageIds.length > 0 && pageIds.every((id) => selected.has(id));
   const chosen = result.items.filter((item) => selected.has(item.id));
   const selfPath = (() => {
-    const params = conversationSearchParams(query);
+    const params = conversationSearchParams(shown);
     return params.size ? `/chats?${params}` : '/chats';
   })();
 
@@ -139,7 +164,17 @@ export function ConversationSearch({
     try {
       const { changed } = await conversationApi.batch(action, ids);
       setSelected(new Set());
-      toast(action === 'trash' ? s.trashed : action === 'restore' ? fill(s.restored, { n: changed }) : fill(s.changed, { n: changed }));
+      toast(
+        action === 'trash'
+          ? s.trashed
+          : action === 'restore'
+            ? fill(s.restored, { n: changed })
+            : action === 'pin'
+              ? s.pinnedToast
+              : action === 'unpin'
+                ? s.unpinnedToast
+                : fill(s.changed, { n: changed }),
+      );
       router.refresh();
     } catch {
       toast(t.common.errors.generic);
@@ -147,8 +182,10 @@ export function ConversationSearch({
   };
 
   const ask = (action: BatchAction, ids: string[]) => {
-    if (action === 'archive' || action === 'unarchive' || action === 'trash') setConfirm({ action, ids });
-    else void run(action, ids);
+    if (action === 'archive' || action === 'unarchive' || action === 'trash') {
+      const titles = result.items.filter((item) => ids.includes(item.id)).map((item) => item.title || t.conversations.sidebar.untitled);
+      setConfirm({ action, ids, titles });
+    } else void run(action, ids);
   };
 
   const now = new Date();
@@ -214,7 +251,7 @@ export function ConversationSearch({
                 <Icon name="close" />
               </button>
             )}
-            <button type="submit" className="btn btn-sm hidden sm:inline-flex">
+            <button type="submit" className="btn btn-sm flex-none max-sm:min-h-7 max-sm:px-2 max-sm:py-1 max-sm:text-[11px]">
               {s.submit}
             </button>
           </div>
@@ -398,10 +435,18 @@ export function ConversationSearch({
                     <span>· {fill(s.questions, { n: item.questions })}</span>
                     <span className="sm:hidden">· {dateLabel(trash ? item.deletedAt ?? item.updatedAt : item.updatedAt)}</span>
                   </span>
-                  {query.q && item.matched && (
+                  {query.q && (
                     <p className="mt-1.5 line-clamp-2 text-[12px] text-[#3b4361]">
-                      <span className="mr-1.5 rounded bg-soft px-1 py-px text-[10px] font-semibold text-blue">{s.matchLabel}</span>
-                      <Marked text={snippet(item.matched, query.q)} q={query.q} />
+                      {item.matched ? (
+                        <>
+                          <span className="mr-1.5 rounded bg-soft px-1 py-px text-[10px] font-semibold text-blue">{s.matchLabel}</span>
+                          <Marked text={snippet(item.matched, query.q)} q={query.q} />
+                        </>
+                      ) : item.latest ? (
+                        <Marked text={snippet(item.latest, query.q)} q={query.q} />
+                      ) : (
+                        <span className="text-muted">{s.noMessages}</span>
+                      )}
                     </p>
                   )}
                 </>
@@ -426,7 +471,9 @@ export function ConversationSearch({
                       />
                     )}
                     {trash ? (
-                      <div className="min-w-0 flex-1">{main}</div>
+                      <button type="button" className="block min-w-0 flex-1 text-left" aria-haspopup="dialog" onClick={() => setPreviewing(item)}>
+                        {main}
+                      </button>
                     ) : (
                       <Link href={`/chats/${item.id}?from=${encodeURIComponent(selfPath)}`} className="min-w-0 flex-1">
                         {main}
@@ -473,17 +520,20 @@ export function ConversationSearch({
         {s.note}
       </p>
 
-      <ConfirmModal
-        open={Boolean(confirm)}
-        danger={confirm?.action === 'trash'}
-        title={confirm?.action === 'trash' ? fill(s.trashTitle, { n: confirm.ids.length }) : confirm?.action === 'unarchive' ? s.unarchiveTitle : s.archiveTitle}
-        body={confirm?.action === 'trash' ? s.trashBody : s.archiveBody}
-        confirmLabel={confirm?.action === 'trash' ? s.trash : confirm?.action === 'unarchive' ? s.unarchive : s.archive}
+      <OrganizeConfirm
+        request={confirm}
         onClose={() => setConfirm(null)}
-        onConfirm={async () => {
-          const current = confirm;
+        onConfirm={async (current) => {
           setConfirm(null);
-          if (current) await run(current.action, current.ids);
+          await run(current.action, current.ids);
+        }}
+      />
+      <TrashPreview
+        conversation={previewing && { id: previewing.id, title: previewing.title || t.conversations.sidebar.untitled }}
+        onClose={() => setPreviewing(null)}
+        onRestore={async (id) => {
+          setPreviewing(null);
+          await run('restore', [id]);
         }}
       />
       <RenameDialog

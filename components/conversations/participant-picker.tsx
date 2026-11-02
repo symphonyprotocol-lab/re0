@@ -1,7 +1,7 @@
 'use client';
 
 import Link from 'next/link';
-import { useEffect, useRef, useState, type ReactNode } from 'react';
+import { useEffect, useLayoutEffect, useRef, useState, type ReactNode } from 'react';
 import { CONVERSATION_MAX_REES } from '@/lib/constants';
 import type { Candidate, ReeBrief } from '@/lib/services/conversations';
 import { useI18n } from '@/i18n/client';
@@ -16,7 +16,9 @@ export type Member = ReeBrief & { price: number };
  * The popover beside the composer (prototype chat-room.js `paintPicker`):
  * "scope" picks who answers this one question -- all Rees, or only one,
  * which never removes the others -- and "manage" changes who is in the
- * conversation, up to five, from the user's own Rees and public ones.
+ * conversation, up to five, from the user's own Rees and public ones. It
+ * opens above or below the selector, wherever there is more room, and sizes
+ * its list to fit (prototype chat-room.js `paintPicker`).
  */
 export function ParticipantPicker({
   view,
@@ -37,7 +39,8 @@ export function ParticipantPicker({
   onScope: (reeId: string | null) => void;
   onManage: () => void;
   onApply: (chosen: Member[]) => Promise<void> | void;
-  onClose: () => void;
+  /** `focusBack`: Escape or 关闭, so focus returns to the selector; false for a click elsewhere. */
+  onClose: (focusBack: boolean) => void;
 }) {
   const { t, locale } = useI18n();
   const r = t.conversations.room;
@@ -49,10 +52,14 @@ export function ParticipantPicker({
   const panel = useRef<HTMLElement>(null);
 
   useEffect(() => {
-    const onKey = (event: KeyboardEvent) => event.key === 'Escape' && onClose();
+    const onKey = (event: KeyboardEvent) => {
+      if (event.key !== 'Escape') return;
+      event.preventDefault();
+      onClose(true);
+    };
     const onDown = (event: PointerEvent) => {
       const target = event.target as HTMLElement;
-      if (!panel.current?.contains(target) && !target.closest('[data-picker-anchor]')) onClose();
+      if (!panel.current?.contains(target) && !target.closest('[data-picker-anchor]')) onClose(false);
     };
     window.addEventListener('keydown', onKey);
     window.addEventListener('pointerdown', onDown);
@@ -80,6 +87,36 @@ export function ParticipantPicker({
     panel.current?.querySelector<HTMLElement>('input[type=search], [role=radio]')?.focus();
   }, [view]);
 
+  /* Above the selector or below it, whichever side has more room under the top bar; the list takes what is left. */
+  useLayoutEffect(() => {
+    const place = () => {
+      const node = panel.current;
+      const wrap = node?.parentElement;
+      const selector = wrap?.querySelector<HTMLElement>('[data-picker-anchor]');
+      const list = node?.querySelector<HTMLElement>('[data-picker-list]');
+      if (!node || !wrap || !selector) return;
+      const box = wrap.getBoundingClientRect();
+      const at = selector.getBoundingClientRect();
+      const barBottom = document.querySelector('[data-topbar]')?.getBoundingClientRect().bottom ?? 0;
+      const above = at.top - barBottom - 14;
+      const below = (window.visualViewport?.height ?? window.innerHeight) - at.bottom - 14;
+      const isBelow = below > above;
+      node.style.top = isBelow ? `${at.bottom - box.top + 10}px` : 'auto';
+      node.style.bottom = isBelow ? 'auto' : `${box.bottom - at.top + 10}px`;
+      if (list) {
+        const fixed = node.getBoundingClientRect().height - list.getBoundingClientRect().height;
+        list.style.maxHeight = `${Math.max(40, Math.min(view === 'manage' ? 250 : 260, Math.max(above, below) - fixed))}px`;
+      }
+    };
+    place();
+    window.addEventListener('resize', place);
+    window.visualViewport?.addEventListener('resize', place);
+    return () => {
+      window.removeEventListener('resize', place);
+      window.visualViewport?.removeEventListener('resize', place);
+    };
+  }, [view]);
+
   const joined = new Set(members.map((member) => member.id));
   const list = [...(candidates ?? [])].sort((a, b) => Number(joined.has(b.id)) - Number(joined.has(a.id)));
   const toggle = (candidate: Member, on: boolean) =>
@@ -91,7 +128,7 @@ export function ParticipantPicker({
       role="dialog"
       aria-modal="false"
       aria-labelledby="room-picker-heading"
-      className="absolute right-0 bottom-full left-0 z-30 mb-2 flex max-h-[min(460px,70dvh)] flex-col rounded-2xl border border-line bg-white shadow-xl sm:right-auto sm:w-[400px]"
+      className="absolute right-0 bottom-full left-0 z-30 flex flex-col rounded-2xl border border-line bg-white shadow-xl sm:right-auto sm:w-[400px]"
     >
       <header className="flex items-start justify-between gap-3 border-b border-line p-4">
         <div>
@@ -100,13 +137,13 @@ export function ParticipantPicker({
           </h2>
           <p className="mt-1 text-[11px] text-muted">{view === 'manage' ? (draft ? r.manageDraft : r.manageBody) : r.scopeBody}</p>
         </div>
-        <button type="button" className="icon-btn" aria-label={r.close} onClick={onClose}>
+        <button type="button" className="icon-btn" aria-label={r.close} onClick={() => onClose(true)}>
           <Icon name="close" />
         </button>
       </header>
       {view === 'scope' ? (
         <>
-          <div className="min-h-0 flex-1 overflow-y-auto p-2" role="radiogroup" aria-label={r.scopeLabel}>
+          <div data-picker-list className="min-h-0 flex-1 overflow-y-auto p-2" role="radiogroup" aria-label={r.scopeLabel}>
             {members.length > 1 && (
               <ScopeRow checked={!scope} onClick={() => onScope(null)} icon={<Icon name="users" className="size-5 text-blue" />} title={r.allAnswer} hint={r.allAnswerHint} />
             )}
@@ -118,7 +155,7 @@ export function ParticipantPicker({
                 icon={<ReeAvatar avatar={member.avatarBlob} color={member.color} size="sm" />}
                 title={member.name}
                 badge={member.role}
-                hint={`${fill(r.perAnswer, { n: n(member.price) })} · ${r.onlyThis}`}
+                hint={fill(r.scopeHint, { n: n(member.price) })}
               />
             ))}
             {members.length === 0 && <p className="p-4 text-center text-[12px] text-muted">{r.noParticipants}</p>}
@@ -148,7 +185,7 @@ export function ParticipantPicker({
               />
             </label>
           </div>
-          <div className="min-h-0 flex-1 overflow-y-auto p-2">
+          <div data-picker-list className="min-h-0 flex-1 overflow-y-auto p-2">
             {candidates === null ? (
               <p className="p-4 text-center text-[12px] text-muted">{t.common.actions.loading}</p>
             ) : list.length === 0 ? (

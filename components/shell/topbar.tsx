@@ -24,7 +24,8 @@ export interface ContextTab {
  * back up, prototype "顶部面包屑"), page actions, and an optional second row
  * -- a Ree's tabs, the settings tabs, or the wizard's steps -- that scrolls
  * sideways on a phone. It also renders its own in-flow spacer, so content
- * always starts below it.
+ * always starts below it. On a phone the crumbs shrink to fit, and with
+ * three or more the first one is left out (prototype navigation.css).
  */
 export function Topbar({ crumbs, tabs, tabsLabel, secondRow, actions }: { crumbs: Crumb[]; tabs?: ContextTab[]; tabsLabel?: string; secondRow?: ReactNode; actions?: ReactNode }) {
   const { t, locale } = useI18n();
@@ -38,7 +39,7 @@ export function Topbar({ crumbs, tabs, tabsLabel, secondRow, actions }: { crumbs
   };
   return (
     <>
-      <header className="fixed inset-x-0 top-0 z-20 border-b border-[#e0e5f0] bg-[#faf9fff5] backdrop-blur-md md:left-[var(--sidebar)]">
+      <header data-topbar className="fixed inset-x-0 top-0 z-20 border-b border-[#e0e5f0] bg-[#faf9fff5] backdrop-blur-md md:left-[var(--sidebar)]">
         <div className="flex h-16 items-center gap-3 px-4 md:px-8">
           <button type="button" className="icon-btn md:hidden" onClick={openDrawer} aria-label={t.common.nav.openMenu}>
             <Icon name="menu" />
@@ -46,10 +47,13 @@ export function Topbar({ crumbs, tabs, tabsLabel, secondRow, actions }: { crumbs
           <button type="button" className="icon-btn hidden md:inline-flex" onClick={toggleCollapsed} aria-label={collapsed ? t.common.nav.expand : t.common.nav.collapse}>
             <Icon name="panel" />
           </button>
-          <nav aria-label="breadcrumb" className="flex min-w-0 flex-1 items-center gap-2 text-[13px]">
+          <nav aria-label="breadcrumb" className="flex min-w-0 flex-1 items-center gap-1.5 text-[12px] sm:gap-2 sm:text-[13px]">
             {crumbs.map((crumb, index) => (
-              <span key={`${crumb.label}-${index}`} className={`flex min-w-0 items-center gap-2 ${index < crumbs.length - 1 ? 'hidden sm:flex' : ''}`}>
-                {index > 0 && <Icon name="chevronRight" className="hidden size-3 flex-none text-[#a3a9bb] sm:block" />}
+              <span
+                key={`${crumb.label}-${index}`}
+                className={`flex min-w-0 items-center gap-2 ${index === 0 && crumbs.length >= 3 ? 'hidden sm:flex' : ''} ${index < crumbs.length - 1 ? 'max-w-[105px] flex-none sm:max-w-none sm:flex-initial' : ''}`}
+              >
+                {index > 0 && <Icon name="chevronRight" className={`size-3 flex-none text-[#a3a9bb] ${index === 1 && crumbs.length >= 3 ? 'hidden sm:block' : ''}`} />}
                 {crumb.href && index < crumbs.length - 1 ? (
                   <Link href={crumb.href} className="truncate text-muted hover:text-blue">
                     {crumb.label}

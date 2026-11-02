@@ -334,6 +334,8 @@ export interface ConversationListItem {
   questions: number;
   /** The first message containing the search, when there is a search. */
   matched: string | null;
+  /** The latest message with text, when there is a search: the snippet of a row matched only by its title or a Ree's name. */
+  latest: string | null;
   participants: { id: string; name: string; avatarBlob: string | null; color: string }[];
 }
 
@@ -380,6 +382,9 @@ export async function listConversations(userId: string, query: ConversationQuery
       matched: pattern
         ? sql<string | null>`(select m.content from ${schema.message} m where m.conversation_id = ${conversationId} and m.content ilike ${pattern} order by m.created_at limit 1)`
         : sql<string | null>`null`,
+      latest: pattern
+        ? sql<string | null>`(select m.content from ${schema.message} m where m.conversation_id = ${conversationId} and m.content <> '' order by m.created_at desc limit 1)`
+        : sql<string | null>`null`,
     })
     .from(schema.conversation)
     .where(where)
@@ -394,6 +399,53 @@ export async function listConversations(userId: string, query: ConversationQuery
     size: query.size,
     counts,
   };
+}
+
+/**
+ * Where "选择此对话" from the sidebar lands (prototype conversations.js
+ * `cl-select-one`): no search or filters, the 已归档 tab for an archived
+ * conversation and 全部 otherwise, on the page of the default order that
+ * holds it. Null for a conversation that is not the user's or is in the trash.
+ */
+export async function conversationPosition(userId: string, id: string, size: number): Promise<{ view: ConversationView; page: number } | null> {
+  const row = await liveConversation(userId, id);
+  if (!row) return null;
+  const view: ConversationView = row.archivedAt ? 'archived' : 'all';
+  const [before] = await db()
+    .select({ n: sql<number>`count(*)::int` })
+    .from(schema.conversation)
+    .where(
+      and(
+        eq(schema.conversation.userId, userId),
+        eq(schema.conversation.kind, 'normal'),
+        viewCondition(view),
+        /* Compared in SQL: the timestamps carry microseconds a JS Date would round away. */
+        sql`(${schema.conversation.updatedAt}, ${schema.conversation.createdAt}) > (select c.updated_at, c.created_at from ${schema.conversation} c where c.id = ${row.id})`,
+      ),
+    );
+  return { view, page: Math.floor((before?.n ?? 0) / size) + 1 };
+}
+
+export interface TrashPreviewMessage {
+  id: string;
+  role: 'user' | 'ree';
+  /** The answering Ree's name; null once the Ree is gone ("已移除的 Ree"). */
+  reeName: string | null;
+  content: string;
+}
+
+/** The read-only preview of a conversation in the trash (prototype conversations.js `cl-preview`): its last 8 messages, oldest first. */
+export async function trashedPreview(userId: string, id: string): Promise<{ id: string; title: string; messages: TrashPreviewMessage[] } | null> {
+  const conversation = await liveConversation(userId, id, { trashed: true });
+  if (!conversation?.deletedAt) return null;
+  const rows = await db()
+    .select({ id: schema.message.id, role: schema.message.role, reeName: schema.ree.name, content: schema.message.content })
+    .from(schema.message)
+    .leftJoin(schema.ree, eq(schema.ree.id, schema.message.reeId))
+    .where(eq(schema.message.conversationId, id))
+    .orderBy(desc(schema.message.createdAt), desc(schema.message.id))
+    .limit(8);
+  return { id: conversation.id, title: conversation.title, messages: rows.reverse() };
 }
 
 /** Every id the search and filters match in a tab, for "选择全部 N 个筛选结果". */

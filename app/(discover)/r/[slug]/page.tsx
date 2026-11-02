@@ -32,7 +32,7 @@ function one(value: string | string[] | undefined): string {
 
 export async function generateMetadata({ params }: Props): Promise<Metadata> {
   const ree = await publicReeBySlug((await params).slug);
-  if (!ree) return { title: 'RE0', robots: { index: false } };
+  if (!ree) return { title: { absolute: 'RE0' }, robots: { index: false } };
   const url = `${appBaseUrl()}/r/${ree.slug}`;
   return {
     title: ree.name,

@@ -13,6 +13,8 @@ import { ParticipantPicker, type Member } from '@/components/conversations/parti
 
 export interface ComposerHandle {
   fill: (text: string) => void;
+  /** Opens 管理参与者 (the empty conversation's "选择知识伙伴"). */
+  manage: () => void;
 }
 
 /**
@@ -32,21 +34,37 @@ export const Composer = forwardRef<
     onScope: (reeId: string | null) => void;
     onParticipants: (chosen: Member[]) => Promise<void> | void;
     onSend: (question: string) => void;
+    /** Every change to the text, as the person types or picks (the `/talk` draft keeps it). */
+    onInput?: (text: string) => void;
     autoFocus?: boolean;
   }
->(function Composer({ members, scope, draft, busy, viewerId, onScope, onParticipants, onSend, autoFocus }, ref) {
+>(function Composer({ members, scope, draft, busy, viewerId, onScope, onParticipants, onSend, onInput, autoFocus }, ref) {
   const { t, locale } = useI18n();
   const r = t.conversations.room;
   const toast = useToast();
   const [input, setInput] = useState('');
   const [picker, setPicker] = useState<'scope' | 'manage' | null>(null);
   const [menuIndex, setMenuIndex] = useState(0);
+  /* Escape closes the `@` menu until the text changes again (prototype app.js). */
+  const [menuClosed, setMenuClosed] = useState(false);
   const box = useRef<HTMLTextAreaElement>(null);
+  const anchor = useRef<HTMLButtonElement>(null);
+
+  const change = (text: string) => {
+    setInput(text);
+    setMenuIndex(0);
+    setMenuClosed(false);
+    onInput?.(text);
+  };
 
   useImperativeHandle(ref, () => ({
     fill: (text: string) => {
-      setInput(text);
+      change(text);
       box.current?.focus();
+    },
+    manage: () => {
+      if (busy) return toast(r.waitBusy);
+      setPicker('manage');
     },
   }));
 
@@ -64,21 +82,26 @@ export const Composer = forwardRef<
   const targets = questionTargets(members, input, scope);
   const cost = targets.reduce((sum, member) => sum + member.price, 0);
   const typing = mentionQuery(input);
-  const mentions = typing !== null && members.length > 1 ? members.filter((member) => member.name.toLocaleLowerCase().includes(typing.toLocaleLowerCase())) : [];
+  const mentions = typing !== null && !menuClosed && members.length > 1 ? members.filter((member) => member.name.toLocaleLowerCase().includes(typing.toLocaleLowerCase())) : [];
   const selected = members.find((member) => member.id === scope) ?? (members.length === 1 ? members[0] : null);
 
   const send = () => {
     const text = input.trim();
     if (!text || busy) return;
     if (targets.length === 0) return toast(members.length ? r.unknownMention : r.noParticipants);
-    setInput('');
+    change('');
     onSend(text);
   };
 
   const pick = (name: string) => {
-    setInput((value) => completeMention(value, name));
-    setMenuIndex(0);
+    change(completeMention(input, name));
     box.current?.focus();
+  };
+
+  /* Escape and 关闭 hand focus back to the selector; a click elsewhere leaves it where it went (prototype chat-room.js `closePicker`). */
+  const closePicker = (focusBack: boolean) => {
+    setPicker(null);
+    if (focusBack) anchor.current?.focus();
   };
 
   return (
@@ -90,7 +113,7 @@ export const Composer = forwardRef<
           scope={scope}
           draft={draft}
           viewerId={viewerId}
-          onClose={() => setPicker(null)}
+          onClose={closePicker}
           onManage={() => setPicker('manage')}
           onScope={(reeId) => {
             onScope(reeId);
@@ -139,22 +162,26 @@ export const Composer = forwardRef<
           maxLength={QUESTION_MAX_CHARS}
           value={input}
           placeholder={members.length ? (draft ? r.placeholderDraft : r.placeholder) : r.placeholderEmpty}
-          onChange={(event) => {
-            setInput(event.target.value);
-            setMenuIndex(0);
-          }}
+          onChange={(event) => change(event.target.value)}
           onKeyDown={(event) => {
-            if (mentions.length && (event.key === 'ArrowDown' || event.key === 'ArrowUp')) {
+            /* An IME composing (pinyin and the like) uses Enter and Tab for itself. */
+            const composing = event.nativeEvent.isComposing || event.keyCode === 229;
+            if (mentions.length && event.key === 'Escape') {
+              event.preventDefault();
+              setMenuClosed(true);
+              return;
+            }
+            if (mentions.length && !composing && (event.key === 'ArrowDown' || event.key === 'ArrowUp')) {
               event.preventDefault();
               setMenuIndex((index) => (index + (event.key === 'ArrowDown' ? 1 : mentions.length - 1)) % mentions.length);
               return;
             }
-            if (mentions.length && (event.key === 'Tab' || (event.key === 'Enter' && !event.shiftKey))) {
+            if (mentions.length && !composing && (event.key === 'Tab' || (event.key === 'Enter' && !event.shiftKey))) {
               event.preventDefault();
               pick(mentions[Math.min(menuIndex, mentions.length - 1)]!.name);
               return;
             }
-            if (event.key === 'Enter' && !event.shiftKey && !event.nativeEvent.isComposing) {
+            if (event.key === 'Enter' && !event.shiftKey && !composing) {
               event.preventDefault();
               send();
             }
@@ -162,6 +189,7 @@ export const Composer = forwardRef<
         />
         <div className="mt-2 flex items-center justify-between gap-2">
           <button
+            ref={anchor}
             type="button"
             data-picker-anchor
             className="flex min-w-0 items-center gap-1.5 rounded-lg bg-wash px-2 py-1.5 text-[11px] text-[#3b4361] hover:bg-soft hover:text-blue disabled:opacity-60"
@@ -171,7 +199,8 @@ export const Composer = forwardRef<
             disabled={busy}
             onClick={() => {
               if (busy) return toast(r.waitBusy);
-              setPicker((open) => (open ? null : members.length ? 'scope' : 'manage'));
+              if (picker) return closePicker(true);
+              setPicker(members.length ? 'scope' : 'manage');
             }}
           >
             {selected ? <ReeAvatar avatar={selected.avatarBlob} color={selected.color} size="sm" className="!size-5 !rounded-md [&_svg]:!size-3" /> : <Icon name="users" className="size-4" />}

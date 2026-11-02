@@ -255,6 +255,70 @@ describeWithDb('multi-Ree conversations', () => {
     await expect(conversations.updateConversation(userId, a.id, { title: 'x'.repeat(121) })).rejects.toMatchObject({ code: 'invalid_title' });
   });
 
+  it('a row matched by its title or a Ree shows its latest message, or none', async () => {
+    const userId = await person();
+    const talked = await conversations.createConversation(userId, { title: 'Budget planning' });
+    const at = Date.now();
+    await db().insert(schema.message).values([
+      { conversationId: talked.id, role: 'user', content: 'First question', createdAt: new Date(at - 2000) },
+      { conversationId: talked.id, role: 'user', content: 'Latest question', createdAt: new Date(at - 1000) },
+    ]);
+    const quiet = await conversations.createConversation(userId, { title: 'Budget, nothing asked' });
+    const found = await conversations.listConversations(userId, parseConversationQuery(new URLSearchParams({ q: 'budget' })));
+    const byId = new Map(found.items.map((item) => [item.id, item]));
+    expect(byId.get(talked.id)).toMatchObject({ matched: null, latest: 'Latest question' });
+    expect(byId.get(quiet.id)).toMatchObject({ matched: null, latest: null });
+    const byText = await conversations.listConversations(userId, parseConversationQuery(new URLSearchParams({ q: 'first' })));
+    expect(byText.items.map((item) => [item.id, item.matched])).toEqual([[talked.id, 'First question']]);
+  });
+
+  it('previews the last eight messages of a trashed conversation, to its owner only', async () => {
+    const userId = await person();
+    const other = await person();
+    const ree = await reeOf(userId, { name: 'Preview Ree', content: null, isPublic: false });
+    const conversation = await conversations.createConversation(userId, { reeIds: [ree.id], title: 'Old talk' });
+    const at = Date.now();
+    await db()
+      .insert(schema.message)
+      .values(
+        Array.from({ length: 10 }, (_, index) => ({
+          conversationId: conversation.id,
+          role: index % 2 ? ('ree' as const) : ('user' as const),
+          reeId: index % 2 ? ree.id : null,
+          content: `message ${index}`,
+          createdAt: new Date(at - (10 - index) * 1000),
+        })),
+      );
+    expect(await conversations.trashedPreview(userId, conversation.id)).toBeNull();
+    await conversations.runBatch(userId, 'trash', [conversation.id]);
+    const preview = (await conversations.trashedPreview(userId, conversation.id))!;
+    expect(preview.title).toBe('Old talk');
+    expect(preview.messages.map((message) => message.content)).toEqual(Array.from({ length: 8 }, (_, index) => `message ${index + 2}`));
+    expect(preview.messages[0]).toMatchObject({ role: 'user', reeName: null });
+    expect(preview.messages[1]).toMatchObject({ role: 'ree', reeName: 'Preview Ree' });
+    expect(await conversations.trashedPreview(other, conversation.id)).toBeNull();
+    expect(await conversations.trashedPreview(userId, 'not-a-uuid')).toBeNull();
+  });
+
+  it('finds the tab and page that hold a conversation for "选择此对话"', async () => {
+    const userId = await person();
+    const oldest = await conversations.createConversation(userId, { title: 'one' });
+    const middle = await conversations.createConversation(userId, { title: 'two' });
+    const newest = await conversations.createConversation(userId, { title: 'three' });
+    const at = Date.now();
+    for (const [index, row] of [oldest, middle, newest].entries()) await db().update(schema.conversation).set({ updatedAt: new Date(at - (3 - index) * 60_000) }).where(eq(schema.conversation.id, row.id));
+    await conversations.createConversation(await person(), { title: 'someone else' });
+    expect(await conversations.conversationPosition(userId, newest.id, 1)).toEqual({ view: 'all', page: 1 });
+    expect(await conversations.conversationPosition(userId, oldest.id, 1)).toEqual({ view: 'all', page: 3 });
+    expect(await conversations.conversationPosition(userId, oldest.id, 20)).toEqual({ view: 'all', page: 1 });
+    await conversations.runBatch(userId, 'archive', [middle.id]);
+    expect(await conversations.conversationPosition(userId, middle.id, 1)).toEqual({ view: 'archived', page: 1 });
+    await conversations.runBatch(userId, 'trash', [newest.id]);
+    expect(await conversations.conversationPosition(userId, newest.id, 1)).toBeNull();
+    /* 全部 still counts the archived one before it; the trashed one no longer. */
+    expect(await conversations.conversationPosition(userId, oldest.id, 1)).toEqual({ view: 'all', page: 2 });
+  });
+
   it('empties the trash after 30 days, messages included', async () => {
     const userId = await person();
     const conversation = await conversations.createConversation(userId, {});

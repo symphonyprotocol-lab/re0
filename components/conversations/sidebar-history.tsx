@@ -2,8 +2,8 @@
 
 import Link from 'next/link';
 import { usePathname, useRouter } from 'next/navigation';
-import { createContext, useContext, useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
-import { dateGroup, type DateGroup } from '@/lib/domain/conversation';
+import { createContext, useContext, useEffect, useMemo, useRef, useState, type MouseEvent, type ReactNode } from 'react';
+import { dateGroup, searchReturnPath, type DateGroup } from '@/lib/domain/conversation';
 import { conversationApi } from '@/lib/client/conversations';
 import type { HistoryItem } from '@/lib/services/conversations';
 import { useI18n } from '@/i18n/client';
@@ -12,6 +12,7 @@ import { Icon } from '@/components/ui/icons';
 import { RowMenu } from '@/components/ui/row-menu';
 import { useToast } from '@/components/ui/toast';
 import { RenameDialog } from '@/components/conversations/rename-dialog';
+import { OrganizeConfirm, type OrganizeRequest } from '@/components/conversations/organize-confirm';
 
 interface HistoryState {
   /** The conversation open right now, so the sidebar can show it even when archived. */
@@ -43,7 +44,8 @@ export function useCurrentConversation(item: HistoryItem | null): void {
  * `sidebar`): 新建对话 and 搜索对话 (⌘K), then pinned and recent
  * conversations, recent ones grouped by day in UTC+8; the open one is
  * highlighted, and shown on its own when it is archived. ⌘K / Ctrl+K opens
- * the search page from anywhere in the workspace.
+ * the search page from anywhere in the workspace -- back to the search a
+ * conversation was opened from, when it was -- with the box focused.
  */
 export function SidebarConversations({ history, collapsed }: { history: HistoryItem[]; collapsed: boolean }) {
   const { t } = useI18n();
@@ -53,19 +55,28 @@ export function SidebarConversations({ history, collapsed }: { history: HistoryI
   const toast = useToast();
   const { current } = useContext(HistoryContext);
   const [renaming, setRenaming] = useState<HistoryItem | null>(null);
+  const [confirm, setConfirm] = useState<(OrganizeRequest & { active: boolean }) | null>(null);
   const scroller = useRef<HTMLDivElement>(null);
   const currentId = /^\/chats\/([0-9a-f-]{36})/.exec(pathname)?.[1] ?? null;
+
+  /* On `/chats` the box takes focus; from a conversation opened from a search, back to that search (prototype conversations.js `openSearchPage`). */
+  const openSearch = () => {
+    const box = document.querySelector<HTMLInputElement>('#conversation-search');
+    if (box) return box.focus();
+    const from = /^\/chats\/[^/]+$/.test(window.location.pathname) ? new URLSearchParams(window.location.search).get('from') : null;
+    const back = from ? searchReturnPath(from) : '/chats';
+    router.push(`${back}${back.includes('?') ? '&' : '?'}focus=1`);
+  };
 
   useEffect(() => {
     const onKey = (event: KeyboardEvent) => {
       if (!(event.metaKey || event.ctrlKey) || event.key.toLowerCase() !== 'k' || document.querySelector('dialog[open]')) return;
       event.preventDefault();
-      const box = document.querySelector<HTMLInputElement>('#conversation-search');
-      if (box) box.focus();
-      else router.push('/chats?focus=1');
+      openSearch();
     };
     window.addEventListener('keydown', onKey);
     return () => window.removeEventListener('keydown', onKey);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [router]);
 
   useEffect(() => {
@@ -101,25 +112,24 @@ export function SidebarConversations({ history, collapsed }: { history: HistoryI
           label={fill(c.more, { title })}
           className="!size-7 opacity-60 group-hover:opacity-100 focus:opacity-100"
           items={[
+            /* `/chats` works out the tab and page that hold it (prototype conversations.js `cl-select-one`). */
+            { label: t.conversations.search.selectOne, icon: 'check', onSelect: () => router.push(`/chats?select=${item.id}`) },
             { label: t.conversations.search.rename, icon: 'settings', onSelect: () => setRenaming(item) },
             ...(!item.archived
-              ? [{ label: item.pinned ? t.conversations.search.unpin : t.conversations.search.pinOne, icon: 'pin' as const, onSelect: () => act(() => conversationApi.update(item.id, { pinned: !item.pinned })) }]
+              ? [
+                  {
+                    label: item.pinned ? t.conversations.search.unpin : t.conversations.search.pinOne,
+                    icon: 'pin' as const,
+                    onSelect: () => act(() => conversationApi.update(item.id, { pinned: !item.pinned }), item.pinned ? t.conversations.search.unpinnedToast : t.conversations.search.pinnedToast),
+                  },
+                ]
               : []),
             {
               label: item.archived ? t.conversations.search.unarchive : t.conversations.search.archiveOne,
               icon: 'archive',
-              onSelect: () => act(() => conversationApi.update(item.id, { archived: !item.archived }), fill(t.conversations.search.changed, { n: 1 })),
+              onSelect: () => setConfirm({ action: item.archived ? 'unarchive' : 'archive', ids: [item.id], titles: [title], active }),
             },
-            {
-              label: t.conversations.search.trash,
-              icon: 'trash',
-              danger: true,
-              onSelect: () =>
-                act(async () => {
-                  await conversationApi.update(item.id, { trashed: true });
-                  if (active) router.push('/chats');
-                }, t.conversations.search.trashed),
-            },
+            { label: t.conversations.search.trash, icon: 'trash', danger: true, onSelect: () => setConfirm({ action: 'trash', ids: [item.id], titles: [title], active }) },
           ]}
         />
       </div>
@@ -130,8 +140,21 @@ export function SidebarConversations({ history, collapsed }: { history: HistoryI
   return (
     <>
       <div className={`mt-3 flex flex-col gap-1 px-3 ${collapsed ? 'px-2' : ''}`} role="group">
-        <Tool href="/talk" icon="plus" label={c.newChat} active={pathname === '/talk'} collapsed={collapsed} />
-        <Tool href="/chats" icon="search" label={c.search} active={pathname === '/chats'} collapsed={collapsed} kbd="⌘ K" />
+        {/* `?new=1` drops the draft kept on /talk and focuses its box. */}
+        <Tool href="/talk?new=1" icon="plus" label={c.newChat} active={pathname === '/talk'} collapsed={collapsed} />
+        <Tool
+          href="/chats?focus=1"
+          icon="search"
+          label={c.search}
+          active={pathname === '/chats'}
+          collapsed={collapsed}
+          kbd="⌘ K"
+          onClick={(event) => {
+            if (event.metaKey || event.ctrlKey || event.shiftKey || event.button !== 0) return;
+            event.preventDefault();
+            openSearch();
+          }}
+        />
       </div>
       {!collapsed && (
         <div ref={scroller} className="mt-3 min-h-0 flex-1 overflow-y-auto px-3 pb-3" role="region" tabIndex={0} aria-label={c.history}>
@@ -171,6 +194,20 @@ export function SidebarConversations({ history, collapsed }: { history: HistoryI
         </div>
       )}
       {collapsed && <div className="flex-1" />}
+      <OrganizeConfirm
+        request={confirm}
+        onClose={() => setConfirm(null)}
+        onConfirm={async (request) => {
+          const active = confirm?.active ?? false;
+          setConfirm(null);
+          const [id] = request.ids;
+          if (!id) return;
+          await act(async () => {
+            await conversationApi.update(id, request.action === 'trash' ? { trashed: true } : { archived: request.action === 'archive' });
+            if (request.action === 'trash' && active) router.push('/chats');
+          }, request.action === 'trash' ? t.conversations.search.trashed : fill(t.conversations.search.changed, { n: 1 }));
+        }}
+      />
       <RenameDialog
         open={Boolean(renaming)}
         initial={renaming?.title ?? ''}
@@ -187,10 +224,27 @@ export function SidebarConversations({ history, collapsed }: { history: HistoryI
   );
 }
 
-function Tool({ href, icon, label, active, collapsed, kbd }: { href: string; icon: 'plus' | 'search'; label: string; active: boolean; collapsed: boolean; kbd?: string }) {
+function Tool({
+  href,
+  icon,
+  label,
+  active,
+  collapsed,
+  kbd,
+  onClick,
+}: {
+  href: string;
+  icon: 'plus' | 'search';
+  label: string;
+  active: boolean;
+  collapsed: boolean;
+  kbd?: string;
+  onClick?: (event: MouseEvent<HTMLAnchorElement>) => void;
+}) {
   return (
     <Link
       href={href}
+      onClick={onClick}
       title={collapsed ? label : undefined}
       aria-current={active ? 'page' : undefined}
       className={`flex h-9 items-center gap-3 rounded-lg px-3 text-[13px] font-medium ${active ? 'bg-soft text-blue' : 'text-[#3b4361] hover:bg-wash hover:text-ink'} ${collapsed ? 'justify-center px-0' : ''}`}
