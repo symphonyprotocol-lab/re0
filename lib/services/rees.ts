@@ -283,7 +283,8 @@ export async function updateRee(
   return db().transaction(async (tx) => {
     const [row] = await tx
       .update(schema.ree)
-      .set({ ...reeValues(fields), avatarBlob, updatedAt: new Date() })
+      /* A Ree an administrator took down stays private until it is restored (2.5). */
+      .set({ ...reeValues(fields), isPublic: sql`(${fields.isPublic} and "ree"."moderated_at" is null)`, avatarBlob, updatedAt: new Date() })
       .where(and(eq(schema.ree.id, id), ownedLive(ownerId)))
       .returning();
     /* Private now: out of other people's conversations and out of discovery (8.2); the history stays. */

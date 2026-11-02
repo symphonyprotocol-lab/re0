@@ -17,6 +17,7 @@ import { TRANSCRIPTION_PIECE_BYTES } from '@/lib/constants';
 import { AUDIO_CONTENT_TYPES, type AudioFormat } from '@/lib/domain/knowledge';
 import { ProcessingFailure } from '@/lib/infra/connectors/failure';
 import { endpointFor, type ModelEndpoint } from '@/lib/infra/ai/models';
+import { recordModelCall } from '@/lib/infra/ai/usage';
 
 export interface TranscriptSegment {
   start: number;
@@ -224,5 +225,6 @@ export async function transcribeAudio(bytes: Uint8Array, format: AudioFormat): P
     }
     offset += piece.seconds ?? result.durationInSeconds ?? result.segments.at(-1)?.endSecond ?? 0;
   });
+  recordModelCall({ kind: 'transcription', model: endpoint.model, configId: endpoint.configId, seconds: offset });
   return { segments, durationSeconds: offset, language };
 }

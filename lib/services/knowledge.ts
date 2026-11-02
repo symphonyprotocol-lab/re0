@@ -33,7 +33,8 @@ import {
 import type { Locator } from '@/lib/domain/answer';
 import { clampPage, likePattern, type ListResult } from '@/lib/domain/list';
 import { parseGithubRepo, parseWebUrl, repositoryUrl, type RepositoryRef } from '@/lib/domain/sources';
-import { embedTexts } from '@/lib/infra/ai/models';
+import { embedTexts, forgetModelCache } from '@/lib/infra/ai/models';
+import { embeddingIsCurrent } from '@/lib/services/reembed';
 import { transcribeAudio } from '@/lib/infra/ai/transcription';
 import { blobSize, readBlob } from '@/lib/infra/blob';
 import { documentSections, ProcessingFailure } from '@/lib/infra/connectors';
@@ -424,9 +425,10 @@ async function extract(row: KnowledgeRow): Promise<Extracted> {
 }
 
 /** One embedMany call: it splits into provider-sized batches and runs them in parallel. */
-async function embedAll(texts: string[]): Promise<number[][]> {
+async function embedAll(texts: string[]): Promise<{ vectors: number[][]; configId: string | null }> {
   try {
-    return (await embedTexts(texts)).vectors;
+    const { vectors, endpoint } = await embedTexts(texts);
+    return { vectors, configId: endpoint.configId };
   } catch (error) {
     throw new ProcessingFailure('embedding_unavailable', error instanceof Error ? error.message : 'embedding failed');
   }
@@ -454,49 +456,63 @@ export async function processKnowledge(knowledgeId: string, options: { profile?:
     const pages = extracted.sections.filter((section) => section.locator.page !== undefined).length;
     const chunks = extracted.chunks ?? chunkSections(extracted.sections);
     if (chunks.length === 0) throw new ProcessingFailure('empty_text', 'nothing to chunk');
-    const vectors = await embedAll(chunks.map((chunk) => chunk.content));
+    let embedded = await embedAll(chunks.map((chunk) => chunk.content));
     const price = processingPrice(content.length, extracted.audioSeconds ?? 0);
 
-    await database.transaction(async (tx) => {
-      /* A run presumed dead was failed and refunded by `recoverStale`; its late result is dropped, not given away. */
-      const [current] = await tx.select({ status: schema.knowledge.status }).from(schema.knowledge).where(eq(schema.knowledge.id, row.id)).for('update');
-      if (current?.status !== 'processing') return;
-      await tx.delete(schema.chunk).where(eq(schema.chunk.knowledgeId, row.id));
-      for (let at = 0; at < chunks.length; at += 200) {
-        await tx.insert(schema.chunk).values(
-          chunks.slice(at, at + 200).map((chunk, offset) => ({
-            knowledgeId: row.id,
-            reeId: row.reeId,
-            ordinal: chunk.ordinal,
-            content: chunk.content,
-            embedding: vectors[at + offset]!,
-            locator: chunk.locator,
-          })),
-        );
-      }
-      const holdId = await heldFor(tx, row.id, 'knowledge');
-      const settled = holdId ? await settleHold(tx, holdId, price, { reeId: row.reeId, note: row.title }) : null;
-      const done = new Date();
-      const log: KnowledgeActivity[] = extracted.log.map((entry) => ({ ...entry, at: done.toISOString() }));
-      log.push(activity('parsed', pages > 0 ? { chars: content.length, pages } : { chars: content.length }, done));
-      log.push(activity('chunked', { chunks: chunks.length }, done));
-      if (settled) log.push(activity('settled', { charged: settled.charged, released: settled.released }, done));
-      log.push(activity('ready', undefined, done));
-      const renamed = row.title !== row.originalTitle;
-      const fetchedTitle = extracted.title?.trim().slice(0, KNOWLEDGE_TITLE_MAX);
-      await tx
-        .update(schema.knowledge)
-        .set({
-          status: 'ready',
-          error: null,
-          content: row.kind === 'text' ? row.content : content,
-          children: children as KnowledgeChild[],
-          ...(fetchedTitle && !renamed ? { title: fetchedTitle, originalTitle: fetchedTitle } : {}),
-          updatedAt: done,
-          activity: appendActivity(log),
-        })
-        .where(eq(schema.knowledge.id, row.id));
-    });
+    /*
+     * A re-embed job may switch the embedding model between embedding and
+     * storing: vectors from the model that is no longer in use are made
+     * again rather than stored (step 5, `lib/services/reembed.ts`).
+     */
+    for (let attempt = 0; ; attempt += 1) {
+      const outcome = await database.transaction(async (tx) => {
+        /* A run presumed dead was failed and refunded by `recoverStale`; its late result is dropped, not given away. */
+        const [current] = await tx.select({ status: schema.knowledge.status }).from(schema.knowledge).where(eq(schema.knowledge.id, row.id)).for('update');
+        if (current?.status !== 'processing') return 'dropped';
+        if (!(await embeddingIsCurrent(tx, embedded.configId))) return 'stale_model';
+        const vectors = embedded.vectors;
+        await tx.delete(schema.chunk).where(eq(schema.chunk.knowledgeId, row.id));
+        for (let at = 0; at < chunks.length; at += 200) {
+          await tx.insert(schema.chunk).values(
+            chunks.slice(at, at + 200).map((chunk, offset) => ({
+              knowledgeId: row.id,
+              reeId: row.reeId,
+              ordinal: chunk.ordinal,
+              content: chunk.content,
+              embedding: vectors[at + offset]!,
+              locator: chunk.locator,
+            })),
+          );
+        }
+        const holdId = await heldFor(tx, row.id, 'knowledge');
+        const settled = holdId ? await settleHold(tx, holdId, price, { reeId: row.reeId, note: row.title }) : null;
+        const done = new Date();
+        const log: KnowledgeActivity[] = extracted.log.map((entry) => ({ ...entry, at: done.toISOString() }));
+        log.push(activity('parsed', pages > 0 ? { chars: content.length, pages } : { chars: content.length }, done));
+        log.push(activity('chunked', { chunks: chunks.length }, done));
+        if (settled) log.push(activity('settled', { charged: settled.charged, released: settled.released }, done));
+        log.push(activity('ready', undefined, done));
+        const renamed = row.title !== row.originalTitle;
+        const fetchedTitle = extracted.title?.trim().slice(0, KNOWLEDGE_TITLE_MAX);
+        await tx
+          .update(schema.knowledge)
+          .set({
+            status: 'ready',
+            error: null,
+            content: row.kind === 'text' ? row.content : content,
+            children: children as KnowledgeChild[],
+            ...(fetchedTitle && !renamed ? { title: fetchedTitle, originalTitle: fetchedTitle } : {}),
+            updatedAt: done,
+            activity: appendActivity(log),
+          })
+          .where(eq(schema.knowledge.id, row.id));
+        return 'stored';
+      });
+      if (outcome !== 'stale_model') break;
+      if (attempt >= 1) throw new ProcessingFailure('embedding_unavailable', 'the embedding model switched twice while storing');
+      forgetModelCache();
+      embedded = await embedAll(chunks.map((chunk) => chunk.content));
+    }
     /* The last step (2.4): suggested example questions and the knowledge profile, free of charge (a batch does it once at its end). */
     if (options.profile !== false) await afterKnowledgeReady(row.reeId);
     return row.reeId;

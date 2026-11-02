@@ -31,6 +31,8 @@ export interface ShellUser {
   reeCount: number;
   /** Step 4: the sidebar's pinned and recent conversations. */
   history: HistoryItem[];
+  /** Unread in-app notices (step 5): a red dot on the account link, which then opens the notices. */
+  unreadNotices: number;
 }
 
 /**
@@ -118,8 +120,19 @@ function Sidebar({ user, collapsed, className, onClose }: { user: ShellUser; col
       <div className={`flex flex-col gap-2 border-t border-line p-3 ${collapsed ? 'items-center px-2' : ''}`}>
         <PlanMeter user={user} collapsed={collapsed} />
         <div className={`flex items-center gap-2 ${collapsed ? 'flex-col' : ''}`}>
-          <Link href="/settings?tab=account" className="flex min-w-0 flex-1 items-center gap-2 rounded-lg p-1 hover:bg-wash" title={t.common.account.settings}>
-            <UserAvatar avatar={user.avatar} name={user.name} />
+          <Link
+            href={user.unreadNotices > 0 ? '/settings?tab=notices' : '/settings?tab=account'}
+            className="flex min-w-0 flex-1 items-center gap-2 rounded-lg p-1 hover:bg-wash"
+            title={user.unreadNotices > 0 ? fill(t.notices.unreadCount, { n: user.unreadNotices }) : t.common.account.settings}
+          >
+            <span className="relative inline-flex flex-none">
+              <UserAvatar avatar={user.avatar} name={user.name} />
+              {user.unreadNotices > 0 && (
+                <span className="absolute -top-0.5 -right-0.5 size-2.5 rounded-full border-2 border-[#fbfaff] bg-red">
+                  <span className="sr-only">{fill(t.notices.unreadCount, { n: user.unreadNotices })}</span>
+                </span>
+              )}
+            </span>
             {!collapsed && <span className="min-w-0 truncate text-[13px] font-semibold">{user.name}</span>}
           </Link>
           <form action="/api/auth/logout" method="post">

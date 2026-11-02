@@ -1,24 +1,30 @@
 import type { Metadata } from 'next';
 import { currentUser } from '@/lib/http/session';
 import { githubConnectionFor, listDomains } from '@/lib/services/connections';
+import { listNotices } from '@/lib/services/notices';
+import { verificationOverview } from '@/lib/services/roles';
 import { serverMessages } from '@/i18n/server';
 import { Topbar } from '@/components/shell/topbar';
 import { AccountForm } from '@/components/settings/account-form';
 import { BillingTab } from '@/components/billing/billing-tab';
 import { Connections } from '@/components/settings/connections';
+import { NoticesTab } from '@/components/settings/notices-tab';
+import { RoleTab } from '@/components/settings/role-tab';
 
 export async function generateMetadata(): Promise<Metadata> {
   const { t } = await serverMessages();
   return { title: t.settings.title };
 }
 
-const TABS = ['account', 'connections', 'billing'] as const;
+const TABS = ['account', 'connections', 'billing', 'role', 'notices'] as const;
 const OUTCOMES = ['connected', 'canceled', 'failed'] as const;
 
 /**
  * `/settings?tab=account|connections|billing`. Connections holds GitHub and
  * the domain claims (step 2); billing holds balances, Plan / Pack and the
  * ledger (step 3; `activity`, `page`, `size`, `checkout` are its parameters).
+ * Role holds the verification threshold and application, notices the
+ * in-app notices (step 5; `page` is the notices' parameter).
  */
 export default async function SettingsPage({ searchParams }: { searchParams: Promise<Record<string, string | undefined>> }) {
   const user = (await currentUser())!;
@@ -35,9 +41,11 @@ export default async function SettingsPage({ searchParams }: { searchParams: Pro
           { label: s.tabs.account, href: '/settings?tab=account', active: tab === 'account', icon: 'user' },
           { label: s.tabs.connections, href: '/settings?tab=connections', active: tab === 'connections', icon: 'globe' },
           { label: s.tabs.billing, href: '/settings?tab=billing', active: tab === 'billing', icon: 'layers' },
+          { label: t.roles.tab, href: '/settings?tab=role', active: tab === 'role', icon: 'shield' },
+          { label: t.notices.tab, href: '/settings?tab=notices', active: tab === 'notices', icon: 'info' },
         ]}
       />
-      <main className={`mx-auto ${tab === 'billing' ? 'max-w-[1040px]' : 'max-w-[820px]'} px-4 py-8 md:px-8`}>
+      <main className={`mx-auto ${tab === 'billing' || tab === 'role' ? 'max-w-[1040px]' : 'max-w-[820px]'} px-4 py-8 md:px-8`}>
         {tab === 'account' ? (
           <AccountForm
             account={{
@@ -55,10 +63,25 @@ export default async function SettingsPage({ searchParams }: { searchParams: Pro
             domains={(await listDomains(user.id)).map((domain) => ({ ...domain, checkedAt: domain.checkedAt?.toISOString() ?? null }))}
             outcome={(OUTCOMES as readonly string[]).includes(query.github ?? '') ? (query.github as (typeof OUTCOMES)[number]) : null}
           />
+        ) : tab === 'role' ? (
+          <RoleTab overview={await verificationOverview(user.id)} />
+        ) : tab === 'notices' ? (
+          <NoticesTab {...(await noticesFor(user.id, Number(query.page) || 1))} />
         ) : (
           <BillingTab userId={user.id} query={query} />
         )}
       </main>
     </>
   );
+}
+
+async function noticesFor(userId: string, page: number) {
+  const list = await listNotices(userId, page);
+  return {
+    items: list.items.map((item) => ({ ...item, readAt: item.readAt?.toISOString() ?? null, createdAt: item.createdAt.toISOString() })),
+    total: list.total,
+    page: list.page,
+    size: list.size,
+    unread: list.unread,
+  };
 }

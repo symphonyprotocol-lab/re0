@@ -74,7 +74,7 @@ export async function addGrant(
     periodStart?: Date | null;
     purchaseId?: string | null;
     note?: string | null;
-    /** The Ree an earned grant came from (step 4's query fees). */
+    /** The Ree the credits came from (step 4's query fees), so per-Ree statistics can attribute them. */
     reeId?: string | null;
   },
   now = new Date(),

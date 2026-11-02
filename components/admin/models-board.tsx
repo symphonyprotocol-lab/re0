@@ -1,13 +1,13 @@
 'use client';
 
 import { useRouter } from 'next/navigation';
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import { MODEL_KINDS, type ModelKind } from '@/lib/constants';
 import type { ModelTransport } from '@/lib/domain/models';
 import type { ModelConfigView } from '@/lib/services/models';
 import { api } from '@/lib/client/upload';
 import { useI18n } from '@/i18n/client';
-import { fill } from '@/i18n/format';
+import { fill, formatDateTime, formatNumber } from '@/i18n/format';
 import { Icon, Spinner } from '@/components/ui/icons';
 import { ConfirmModal, Modal } from '@/components/ui/modal';
 import { useToast } from '@/components/ui/toast';
@@ -15,6 +15,68 @@ import { useToast } from '@/components/ui/toast';
 interface Board {
   configs: ModelConfigView[];
   fallbacks: Record<ModelKind, { model: string; transport: string }>;
+}
+
+/** The latest re-embed job as the page and `GET /api/admin/models/reembed` answer it (dates as strings). */
+export interface ReembedJobView {
+  id: string;
+  status: 'running' | 'done' | 'failed';
+  total: number;
+  done: number;
+  error: string | null;
+  fromName: string | null;
+  fromModelConfigId: string | null;
+  toName: string | null;
+  startedAt: string;
+  finishedAt: string | null;
+}
+
+const JOB_POLL_MS = 2_000;
+
+/** Prototype `jobHTML()`: from → to, status, progress, and what the state means for retrieval. */
+function JobCard({ job }: { job: ReembedJobView }) {
+  const { t, locale } = useI18n();
+  const j = t.admin.models.job;
+  const percent = job.total > 0 ? Math.min(100, Math.floor((job.done / job.total) * 100)) : job.status === 'done' ? 100 : 0;
+  const tone = job.status === 'running' ? 'border-[#cfe1fb] bg-soft text-blue' : job.status === 'failed' ? 'border-[#f1d4d4] bg-[#fff3f3] text-red' : 'border-[#cde8df] bg-[#effaf6] text-green';
+  return (
+    <section className="card mt-5 p-5" aria-live="polite">
+      <div className="flex flex-wrap items-start justify-between gap-3">
+        <div className="flex min-w-0 items-start gap-3">
+          <span className={`inline-flex size-9 flex-none items-center justify-center rounded-lg border ${tone}`}>
+            {job.status === 'running' ? <Spinner /> : <Icon name={job.status === 'failed' ? 'info' : 'check'} />}
+          </span>
+          <div className="min-w-0">
+            <h2 className="text-[15px] font-bold">{j.title}</h2>
+            <p className="mt-0.5 text-[12px] break-words text-muted">
+              {job.fromModelConfigId ? (job.fromName ?? j.unknown) : j.environment} → {job.toName ?? j.unknown}
+            </p>
+          </div>
+        </div>
+        <span className={`tag flex-none ${tone}`}>{j.status[job.status]}</span>
+      </div>
+      <div
+        className="mt-4 h-2 overflow-hidden rounded-full bg-wash"
+        role="progressbar"
+        aria-label={j.title}
+        aria-valuemin={0}
+        aria-valuemax={100}
+        aria-valuenow={percent}
+      >
+        <span className={`block h-full rounded-full transition-[width] ${job.status === 'failed' ? 'bg-red' : job.status === 'done' ? 'bg-green' : 'bg-blue'}`} style={{ width: `${percent}%` }} />
+      </div>
+      <div className="mt-2 flex flex-wrap items-center justify-between gap-2 font-mono text-[11px] text-muted">
+        <span>{fill(j.progress, { done: formatNumber(Math.min(job.done, job.total), locale), total: formatNumber(job.total, locale) })}</span>
+        <span>{percent}%</span>
+      </div>
+      <p className="mt-3 text-[12px] leading-relaxed text-[#3b4361]">{job.status === 'running' ? j.running : job.status === 'failed' ? j.failed : j.done}</p>
+      {job.status === 'failed' && job.error && <p className="mt-1 text-[12px] break-words text-red">{fill(j.error, { error: job.error })}</p>}
+      <p className="mt-2 text-[11px] text-muted">
+        {fill(j.started, { time: formatDateTime(job.startedAt, locale) })}
+        {job.finishedAt && <> · {fill(j.finished, { time: formatDateTime(job.finishedAt, locale) })}</>}
+      </p>
+    </section>
+  );
 }
 
 interface Draft {
@@ -33,10 +95,11 @@ interface Draft {
 /**
  * `/admin/models` (2.5): a card per kind, any number of entries, exactly one
  * active. Active entries cannot change model or endpoint; generation and
- * transcription switch on activation, embedding opens the re-embed job
- * (a placeholder until step 5). Probes send a real request.
+ * transcription switch on activation, embedding starts the full re-embed
+ * job, whose progress is polled every two seconds while it runs; no other
+ * embedding switch until it ends. Probes send a real request.
  */
-export function ModelsBoard({ initial }: { initial: Board }) {
+export function ModelsBoard({ initial, initialJob }: { initial: Board; initialJob: ReembedJobView | null }) {
   const { t } = useI18n();
   const m = t.admin.models;
   const router = useRouter();
@@ -46,8 +109,34 @@ export function ModelsBoard({ initial }: { initial: Board }) {
   const [saving, setSaving] = useState(false);
   const [probes, setProbes] = useState<Record<string, { busy: boolean; ok?: boolean; text?: string }>>({});
   const [activate, setActivate] = useState<ModelConfigView | null>(null);
-  const [reembed, setReembed] = useState<ModelConfigView | null>(null);
+  const [job, setJob] = useState<ReembedJobView | null>(initialJob);
   const board = initial;
+  const running = job?.status === 'running';
+
+  /* A refresh brings the server's view of the job. */
+  useEffect(() => setJob(initialJob), [initialJob]);
+
+  /* While the job runs, poll its progress (the poll also keeps a stalled job moving); refresh once it ends. */
+  const jobId = running ? job.id : null;
+  useEffect(() => {
+    if (!jobId) return;
+    let stopped = false;
+    const timer = window.setInterval(async () => {
+      const result = await api<{ job: ReembedJobView | null }>('/api/admin/models/reembed', { cache: 'no-store' }).catch(() => null);
+      if (stopped || !result?.ok) return;
+      const next = result.data.job;
+      setJob(next);
+      if (!next || next.id !== jobId || next.status !== 'running') {
+        stopped = true;
+        window.clearInterval(timer);
+        router.refresh();
+      }
+    }, JOB_POLL_MS);
+    return () => {
+      stopped = true;
+      window.clearInterval(timer);
+    };
+  }, [jobId, router]);
 
   const open = (kind: ModelKind, config?: ModelConfigView) => {
     setError('');
@@ -111,16 +200,34 @@ export function ModelsBoard({ initial }: { initial: Board }) {
 
   const doActivate = async (config: ModelConfigView) => {
     setActivate(null);
+    if (config.kind === 'embedding') {
+      /* The re-embed endpoint creates the job and starts it after answering; with nothing indexed it simply enables the entry. */
+      const result = await api<{ error?: string; activated?: boolean; reembed?: boolean; job?: ReembedJobView | null }>('/api/admin/models/reembed', {
+        method: 'POST',
+        json: { to: config.id },
+      });
+      if (!result.ok) {
+        const code = result.data.error as keyof typeof m.errors | undefined;
+        toast(code && code in m.errors ? m.errors[code] : t.common.errors.generic);
+        router.refresh();
+        return;
+      }
+      if (result.data.reembed && result.data.job) {
+        setJob(result.data.job);
+        toast(m.job.startedToast);
+      } else if (result.data.activated) toast(m.job.activated);
+      router.refresh();
+      return;
+    }
     const result = await api<{ activated: boolean; reembed: boolean }>(`/api/admin/models/${config.id}/activate`, { method: 'POST' });
     if (!result.ok) return toast(t.common.errors.generic);
-    if (result.data.reembed) setReembed(config);
     router.refresh();
   };
 
   const locked = Boolean(draft?.id && draft.enabled);
 
   return (
-    <main className="mx-auto max-w-[1240px] px-4 py-8 md:px-8">
+    <div>
       <div className="flex flex-wrap items-end justify-between gap-4">
         <div>
           <h1 className="text-[26px] font-extrabold tracking-tight">{m.title}</h1>
@@ -135,6 +242,7 @@ export function ModelsBoard({ initial }: { initial: Board }) {
         <Icon name="info" className="mt-0.5 size-4 flex-none text-blue" />
         {m.info}
       </p>
+      {job && <JobCard job={job} />}
       <div className="mt-6 grid grid-cols-1 gap-5 lg:grid-cols-3">
         {MODEL_KINDS.map((kind) => {
           const configs = board.configs.filter((config) => config.kind === kind);
@@ -182,7 +290,13 @@ export function ModelsBoard({ initial }: { initial: Board }) {
                           {m.inUse}
                         </span>
                       ) : (
-                        <button type="button" className="btn btn-sm" onClick={() => setActivate(config)}>
+                        <button
+                          type="button"
+                          className="btn btn-sm"
+                          onClick={() => setActivate(config)}
+                          disabled={kind === 'embedding' && running}
+                          title={kind === 'embedding' && running ? m.job.blocked : undefined}
+                        >
                           {kind === 'embedding' ? m.reembed : m.activate}
                         </button>
                       )}
@@ -277,15 +391,12 @@ export function ModelsBoard({ initial }: { initial: Board }) {
 
       <ConfirmModal
         open={Boolean(activate)}
-        title={fill(m.activateTitle, { name: activate?.name ?? '' })}
-        body={activate?.kind === 'embedding' ? m.reembedTitle : m.activateBody}
+        title={activate?.kind === 'embedding' ? m.reembedTitle : fill(m.activateTitle, { name: activate?.name ?? '' })}
+        body={activate?.kind === 'embedding' ? fill(m.job.confirmBody, { name: activate.name }) : m.activateBody}
         confirmLabel={activate?.kind === 'embedding' ? m.reembed : m.activate}
         onClose={() => setActivate(null)}
         onConfirm={() => activate && doActivate(activate)}
       />
-      <Modal open={Boolean(reembed)} onClose={() => setReembed(null)} title={m.reembedTitle} footer={<button type="button" className="btn" onClick={() => setReembed(null)}>{t.common.actions.confirm}</button>}>
-        <p className="text-[13px] leading-relaxed text-muted">{fill(m.reembedBody, { name: reembed?.name ?? '' })}</p>
-      </Modal>
-    </main>
+    </div>
   );
 }

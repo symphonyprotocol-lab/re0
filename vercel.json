@@ -17,6 +17,10 @@
     {
       "path": "/api/cron/rank",
       "schedule": "7 * * * *"
+    },
+    {
+      "path": "/api/cron/reembed",
+      "schedule": "*/10 * * * *"
     }
   ]
 }

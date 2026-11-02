@@ -1,11 +1,13 @@
 import type { Metadata } from 'next';
 import Link from 'next/link';
-import { CREDIT_USD } from '@/lib/constants';
+import { CREDIT_USD, PAYOUT_MIN_CREDITS } from '@/lib/constants';
 import { currentUser } from '@/lib/http/session';
 import { listRees, reeTotals } from '@/lib/services/rees';
+import { dashboardData } from '@/lib/services/statistics';
 import { serverMessages } from '@/i18n/server';
 import { fill, formatNumber } from '@/i18n/format';
 import { Topbar } from '@/components/shell/topbar';
+import { AttentionPanel, HealthPanel, IncomePanel, RankingPanel } from '@/components/statistics/dashboard-panels';
 import { Icon, type IconName } from '@/components/ui/icons';
 import { ReeAvatar } from '@/components/ui/ree-avatar';
 
@@ -30,36 +32,24 @@ function MetricCard({ href, icon, label, value, hint }: { href: string; icon: Ic
   );
 }
 
-function Later({ title }: { title: string }) {
-  return (
-    <section className="card p-5">
-      <h2 className="text-[15px] font-bold">{title}</h2>
-      <LaterBody />
-    </section>
-  );
-}
-
-async function LaterBody() {
-  const { t } = await serverMessages();
-  return (
-    <div className="mt-4 flex flex-col items-center gap-2 rounded-lg border border-dashed border-line bg-wash px-4 py-8 text-center">
-      <Icon name="clock" className="size-5 text-[#a3a9bb]" />
-      <strong className="text-[12px]">{t.dashboard.later}</strong>
-      <p className="text-[11px] text-muted">{t.dashboard.laterBody}</p>
-    </div>
-  );
-}
-
-/** `/dashboard`: four metric cards and my first five Rees; the other panels arrive in step 5. */
+/**
+ * `/dashboard` (prototype workspace.js): four metric cards, my first five
+ * Rees, what needs attention, source health, the answer ranking and the
+ * earnings / payout guide. An official account sees no income card and the
+ * official notice instead of the payout guide (2.7).
+ */
 export default async function DashboardPage() {
   const user = (await currentUser())!;
   const { t, locale } = await serverMessages();
-  const [totals, top] = await Promise.all([
+  const [totals, top, board] = await Promise.all([
     reeTotals(user.id),
     listRees(user.id, { q: '', visibility: 'all', sort: 'default', size: 12, page: 1 }),
+    dashboardData(user.id),
   ]);
   const n = (value: number) => formatNumber(value, locale);
-  const earned = 0;
+  const official = user.role === 'official';
+  const earned = board.earned;
+  const moderated = new Set(board.moderated);
   return (
     <>
       <Topbar crumbs={[{ label: t.dashboard.title }]} />
@@ -80,7 +70,7 @@ export default async function DashboardPage() {
           <h2 className="text-[15px] font-bold">{t.dashboard.overview}</h2>
           <span className="hidden text-[11px] text-muted sm:inline">{t.dashboard.overviewHint}</span>
         </div>
-        <div className="mt-3 grid grid-cols-1 gap-4 sm:grid-cols-2 xl:grid-cols-4">
+        <div className={`mt-3 grid grid-cols-1 gap-4 sm:grid-cols-2 ${official ? 'xl:grid-cols-3' : 'xl:grid-cols-4'}`}>
           <MetricCard
             href="/rees?visibility=all"
             icon="ree"
@@ -89,20 +79,22 @@ export default async function DashboardPage() {
             hint={fill(t.dashboard.cards.reesHint, { public: n(totals.public), private: n(totals.private) })}
           />
           <MetricCard
-            href="/rees"
+            href="/workspace/sources"
             icon="file"
             label={t.dashboard.cards.sources}
             value={n(totals.sources)}
-            hint={fill(t.dashboard.cards.sourcesHint, { ready: n(totals.readySources) })}
+            hint={fill(t.statistics.dashboard.sourcesHint, { ready: n(totals.readySources) })}
           />
-          <MetricCard href="/rees?sort=answers&order=desc" icon="chat" label={t.dashboard.cards.answers} value={n(totals.answers)} hint={t.dashboard.cards.answersHint} />
-          <MetricCard
-            href="/settings?tab=billing"
-            icon="layers"
-            label={t.dashboard.cards.earned}
-            value={n(earned)}
-            hint={fill(t.dashboard.cards.earnedHint, { usd: (earned * CREDIT_USD).toFixed(2) })}
-          />
+          <MetricCard href="/workspace/answers" icon="chat" label={t.dashboard.cards.answers} value={n(totals.answers)} hint={t.statistics.dashboard.answersHint} />
+          {!official && (
+            <MetricCard
+              href="/settings?tab=billing&activity=income"
+              icon="layers"
+              label={t.dashboard.cards.earned}
+              value={n(earned)}
+              hint={fill(t.dashboard.cards.earnedHint, { usd: (earned * CREDIT_USD).toFixed(2) })}
+            />
+          )}
         </div>
 
         <div className="mt-6 grid grid-cols-1 gap-6 lg:grid-cols-[minmax(0,1fr)_320px]">
@@ -136,9 +128,9 @@ export default async function DashboardPage() {
                       <Link href={`/rees/${ree.id}/settings`} className="block truncate text-[14px] font-semibold hover:text-blue">
                         {ree.name}
                       </Link>
-                      <span className="mt-0.5 flex items-center gap-1 text-[11px] text-muted">
-                        <Icon name={ree.isPublic ? 'globe' : 'lock'} className="size-3" />
-                        {ree.isPublic ? t.common.visibility.public : t.common.visibility.private}
+                      <span className={`mt-0.5 flex items-center gap-1 text-[11px] ${moderated.has(ree.id) ? 'text-red' : 'text-muted'}`}>
+                        <Icon name={ree.isPublic && !moderated.has(ree.id) ? 'globe' : 'lock'} className="size-3" />
+                        {moderated.has(ree.id) ? t.statistics.workspace.takenDown : ree.isPublic ? t.common.visibility.public : t.common.visibility.private}
                       </span>
                     </div>
                     <div className="flex gap-6 text-right">
@@ -172,12 +164,12 @@ export default async function DashboardPage() {
               </Link>
             )}
           </section>
-          <Later title={t.dashboard.todo} />
+          <AttentionPanel t={t} locale={locale} rows={board.attention} total={board.attentionTotal} />
         </div>
         <div className="mt-6 grid grid-cols-1 gap-6 lg:grid-cols-3">
-          <Later title={t.dashboard.sourceHealth} />
-          <Later title={t.dashboard.ranking} />
-          <Later title={t.dashboard.payouts} />
+          <HealthPanel t={t} locale={locale} sources={board.sources} />
+          <RankingPanel t={t} locale={locale} ranking={board.ranking} reeCount={totals.rees} moderated={moderated} />
+          <IncomePanel t={t} locale={locale} earned={earned} official={official} threshold={PAYOUT_MIN_CREDITS} />
         </div>
       </main>
     </>

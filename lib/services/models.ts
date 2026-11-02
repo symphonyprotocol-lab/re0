@@ -5,8 +5,7 @@
  *
  * Generation and transcription switch on activation; the next request
  * reads the new row (this instance at once, others within the minute
- * `modelFor` caches for). Embedding switches only through a re-embed job,
- * which step 5 builds; until then activation answers with a placeholder.
+ * `modelFor` caches for). Embedding switches only through a re-embed job.
  */
 import { and, asc, eq, ne } from 'drizzle-orm';
 import type { ModelKind } from '@/lib/constants';
@@ -16,6 +15,7 @@ import { probeEndpoint, type ProbeResult } from '@/lib/infra/ai/probe';
 import { sealCredential } from '@/lib/infra/crypto/credentials';
 import { db, schema } from '@/lib/infra/db';
 import { audit, AdminInputError } from '@/lib/services/admin';
+import { runningReembedJob, startReembed } from '@/lib/services/reembed';
 
 export type ModelConfigRow = typeof schema.modelConfig.$inferSelect;
 
@@ -96,6 +96,8 @@ export async function updateModelConfig(administratorId: string, id: string, raw
   if (!current) throw new AdminInputError('not_found');
   const input = parsed({ ...raw, kind: current.kind });
   if (current.enabled && changesWhatAnswers(current, input)) throw new AdminInputError('locked');
+  /* The candidate of a running re-embed job is frozen too: its vectors are being made. */
+  if (changesWhatAnswers(current, input) && (await runningReembedJob())?.toModelConfigId === id) throw new AdminInputError('locked');
   let cipher = current.apiKeyCipher;
   let tail = current.apiKeyTail;
   if (input.apiKey) {
@@ -129,36 +131,20 @@ export async function updateModelConfig(administratorId: string, id: string, raw
 }
 
 /**
- * Makes an entry the one in use for its kind. Embedding answers with
- * `reembed_required` and writes the start of a re-embed job to the audit
- * trail, without switching -- the job itself is step 5.
+ * Makes an entry the one in use for its kind. Embedding starts a re-embed
+ * job instead (`lib/services/reembed.ts`) and switches when the job ends --
+ * unless nothing is indexed yet, when the entry is enabled at once.
  */
-export async function activateModelConfig(administratorId: string, id: string): Promise<{ activated: boolean; reembed: boolean }> {
+export async function activateModelConfig(administratorId: string, id: string): Promise<{ activated: boolean; reembed: boolean; jobId: string | null }> {
   const database = db();
   const [target] = await database.select().from(schema.modelConfig).where(eq(schema.modelConfig.id, id)).limit(1);
   if (!target) throw new AdminInputError('not_found');
-  if (target.enabled) return { activated: true, reembed: false };
+  if (target.enabled) return { activated: true, reembed: false, jobId: null };
   if (!switchesImmediately(target.kind)) {
-    const [active] = await database
-      .select()
-      .from(schema.modelConfig)
-      .where(and(eq(schema.modelConfig.kind, 'embedding'), eq(schema.modelConfig.enabled, true)))
-      .limit(1);
-    if (!active) {
-      /* Nothing indexed under a console entry yet: the first embedding entry may be enabled directly. */
-      const anyChunk = await database.select({ id: schema.chunk.id }).from(schema.chunk).limit(1);
-      if (anyChunk.length === 0) return enable(administratorId, target);
-    }
-    await audit(database, {
-      administratorId,
-      action: 'model.reembed.start',
-      target: id,
-      before: active ? shown(active) : null,
-      after: { ...shown(target), placeholder: true },
-    });
-    return { activated: false, reembed: true };
+    const job = await startReembed(administratorId, id);
+    if (job) return { activated: false, reembed: true, jobId: job.id };
   }
-  return enable(administratorId, target);
+  return { ...(await enable(administratorId, target)), jobId: null };
 }
 
 async function enable(administratorId: string, target: ModelConfigRow): Promise<{ activated: boolean; reembed: boolean }> {

@@ -22,6 +22,7 @@ import {
 import { mayCarryKey, type ModelTransport } from '@/lib/domain/models';
 import { openCredential } from '@/lib/infra/crypto/credentials';
 import { db, schema } from '@/lib/infra/db';
+import { loggedLanguageModel, recordModelCall } from '@/lib/infra/ai/usage';
 
 export interface ModelEndpoint {
   kind: ModelKind;
@@ -144,9 +145,9 @@ function gatewayFor(endpoint: ModelEndpoint) {
 }
 
 export function languageModel(endpoint: ModelEndpoint): LanguageModel {
-  return endpoint.transport === 'gateway'
-    ? gatewayFor(endpoint).languageModel(endpoint.model)
-    : compatible(endpoint).chatModel(endpoint.model);
+  const model =
+    endpoint.transport === 'gateway' ? gatewayFor(endpoint).languageModel(endpoint.model) : compatible(endpoint).chatModel(endpoint.model);
+  return loggedLanguageModel(model, { model: endpoint.model, configId: endpoint.configId });
 }
 
 export function embeddingModel(endpoint: ModelEndpoint): EmbeddingModel {
@@ -177,14 +178,16 @@ export function toColumn(vector: readonly number[]): number[] {
     : [...vector, ...new Array<number>(EMBEDDING_DIMENSIONS - vector.length).fill(0)];
 }
 
-export async function embedTexts(texts: string[]): Promise<{ vectors: number[][]; endpoint: ModelEndpoint }> {
-  const { model, endpoint } = await modelFor('embedding');
-  const { embeddings } = await embedMany({
+export async function embedTexts(texts: string[], explicit?: ModelEndpoint): Promise<{ vectors: number[][]; endpoint: ModelEndpoint }> {
+  const endpoint = explicit ?? (await endpointFor('embedding'));
+  const model = embeddingModel(endpoint);
+  const { embeddings, usage } = await embedMany({
     model,
     values: texts,
     maxParallelCalls: 4,
     maxRetries: 2,
     abortSignal: AbortSignal.timeout(Math.max(endpoint.timeoutMs, 30_000) * Math.max(1, Math.ceil(texts.length / 96))),
   });
+  recordModelCall({ kind: 'embedding', model: endpoint.model, configId: endpoint.configId, inputTokens: usage?.tokens ?? 0 });
   return { vectors: embeddings.map(toColumn), endpoint };
 }

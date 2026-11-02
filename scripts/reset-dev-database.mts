@@ -26,10 +26,16 @@
  * `preview`, the endpoint is not a listed production one, and the schema is the old
  * one (it has the legacy `workspace` table and no `ree` table), the copy is
  * cleared once; later builds of the same branch find `ree` and leave it alone.
+ * It is also cleared when its drizzle journal no longer fits db/migrations --
+ * an applied migration the branch has since rewritten, or a file the
+ * migrator would skip because a newer one ran first -- which would otherwise
+ * fail every later build of the branch.
  */
 import nextEnv from '@next/env';
 import { neon } from '@neondatabase/serverless';
 import { spawnSync } from 'node:child_process';
+import { join } from 'node:path';
+import { journalProblems, localMigrations } from './migration-journal.mjs';
 
 nextEnv.loadEnvConfig(process.cwd());
 
@@ -92,11 +98,25 @@ if (preview) {
     select to_regclass('public.workspace') is not null as legacy,
            to_regclass('public.ree') is not null as rebuilt
   `) as { legacy: boolean; rebuilt: boolean }[];
-  if (!state?.legacy || state.rebuilt) {
-    console.log('preview database already on the rebuild schema (or empty); nothing to clear');
-    process.exit(0);
+  if (state?.legacy && !state.rebuilt) {
+    console.log('preview database holds the legacy schema; clearing it once');
+  } else {
+    /* A copy that ran a migration this branch has since rewritten can never catch up (scripts/migration-journal.mts). */
+    const [journal] = (await sql`select to_regclass('drizzle.__drizzle_migrations') is not null as present`) as { present: boolean }[];
+    const applied = journal?.present
+      ? ((await sql`select hash, created_at from drizzle.__drizzle_migrations`) as { hash: string; created_at: string | number }[]).map((row) => ({
+          hash: row.hash,
+          createdAt: Number(row.created_at),
+        }))
+      : [];
+    const problems = journalProblems(applied, localMigrations(join(process.cwd(), 'db', 'migrations')));
+    if (!problems.length) {
+      console.log('preview database already on the rebuild schema (or empty) and its journal fits db/migrations; nothing to clear');
+      process.exit(0);
+    }
+    for (const problem of problems) console.log(`journal mismatch: ${problem}`);
+    console.log('preview database journal does not fit db/migrations; clearing it');
   }
-  console.log('preview database holds the legacy schema; clearing it once');
 } else {
   for (const name of PRODUCTION_VARIABLES) {
     const other = endpointOf(process.env[name]);
