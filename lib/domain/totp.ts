@@ -1,13 +1,13 @@
 /**
  * TOTP (RFC 6238) on WebCrypto only.
  *
- * The console requires a second factor (requirement.md 3.2), and an
+ * The console requires a second factor (rebuild-proposal.md 2.5), and an
  * authenticator app is the one form that needs no delivery channel and no
  * third-party dependency. HMAC-SHA1 is what RFC 4226 specifies and what every
  * authenticator implements; it is a MAC over a counter here, not a hash over a
  * secret, so SHA-1's collision weakness does not apply.
  */
-import { timingSafeEqual } from '@/lib/infrastructure/crypto/tokens';
+import { timingSafeEqual } from '@/lib/infra/crypto/tokens';
 
 const BASE32 = 'ABCDEFGHIJKLMNOPQRSTUVWXYZ234567';
 

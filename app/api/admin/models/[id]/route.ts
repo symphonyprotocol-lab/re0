@@ -1,0 +1,17 @@
+import type { NextRequest } from 'next/server';
+import { apiAdministrator } from '@/lib/http/admin';
+import { body, fail, json } from '@/lib/http/respond';
+import { AdminInputError } from '@/lib/services/admin';
+import { updateModelConfig } from '@/lib/services/models';
+
+/** Edit an entry; an enabled one keeps its model and endpoint (`locked`). */
+export async function PUT(request: NextRequest, context: { params: Promise<{ id: string }> }) {
+  const administrator = await apiAdministrator(request);
+  if (administrator instanceof Response) return administrator;
+  try {
+    return json({ config: await updateModelConfig(administrator.id, (await context.params).id, await body(request)) });
+  } catch (error) {
+    if (error instanceof AdminInputError) return fail(error.code, error.code === 'not_found' ? 404 : error.code === 'locked' ? 409 : 422);
+    throw error;
+  }
+}

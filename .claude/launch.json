@@ -31,6 +31,18 @@
         "3200"
       ],
       "port": 3200
+    },
+    {
+      "name": "re0-rebuild-3300",
+      "runtimeExecutable": "npx",
+      "runtimeArgs": [
+        "next",
+        "dev",
+        "-p",
+        "3300"
+      ],
+      "port": 3300,
+      "autoPort": false
     }
   ]
 }

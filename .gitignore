@@ -48,15 +48,3 @@ yarn-error.log*
 /.source/
 next-env.d.ts
 *.tsbuildinfo
-
-# CLI package build output
-/packages/cli/dist/
-/packages/cli/node_modules/
-
-# aptos CLI profiles: dev/CI keys for localnet and testnet. Never committed,
-# and mainnet key material never lands here at all -- the Anchor Signer lives in
-# cloud KMS and the Upgrade Authority stays offline (aptos-anchoring-proposal.md 4.6).
-/.aptos/
-
-# Move build output
-/move/*/build/

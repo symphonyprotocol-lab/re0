@@ -1,0 +1,66 @@
+import type { Shape } from '@/i18n/format';
+
+/** `/settings`: the account tab, and the billing placeholder step 3 replaces. */
+export const zh = {
+  title: '设置',
+  tabs: { account: '个人资料', billing: '余额与计费', label: '设置分类' },
+  profile: '个人资料',
+  avatar: '头像',
+  avatarUpload: '上传头像',
+  avatarChange: '更换头像',
+  avatarDefault: '恢复默认',
+  avatarHint: 'JPG、PNG 或 WebP，最大 5 MB。',
+  name: '显示名称',
+  save: '保存资料',
+  saved: '资料已保存',
+  login: {
+    title: '登录账号',
+    provider: '登录方式',
+    handle: '平台账号',
+    email: '邮箱',
+    lastLogin: '最近登录',
+    note: '邮箱与平台账号由登录提供方管理；上方可自定义头像与显示名称。',
+  },
+  language: '语言',
+  languageTitle: '界面语言',
+  languageBody: '随时切换中文与英文',
+  billing: {
+    title: '余额与计费',
+    balance: '可用余额',
+    welcome: '注册赠送',
+    soon: '充值、Plan 与 Pack 会在下一版本开放。',
+  },
+  errors: { name: '请输入 1–40 个字符的显示名称。' },
+};
+
+export const en: Shape<typeof zh> = {
+  title: 'Settings',
+  tabs: { account: 'Profile', billing: 'Credits & billing', label: 'Settings sections' },
+  profile: 'Profile',
+  avatar: 'Avatar',
+  avatarUpload: 'Upload photo',
+  avatarChange: 'Change photo',
+  avatarDefault: 'Use default',
+  avatarHint: 'JPG, PNG or WebP, up to 5 MB.',
+  name: 'Display name',
+  save: 'Save profile',
+  saved: 'Profile saved',
+  login: {
+    title: 'Signed-in account',
+    provider: 'Provider',
+    handle: 'Provider account',
+    email: 'Email',
+    lastLogin: 'Last signed in',
+    note: 'Your provider manages email and account details. Customize your photo and display name above.',
+  },
+  language: 'Language',
+  languageTitle: 'Interface language',
+  languageBody: 'Switch between Chinese and English',
+  billing: {
+    title: 'Credits & billing',
+    balance: 'Available balance',
+    welcome: 'Welcome credits',
+    soon: 'Top-ups, Plan and Pack open in the next release.',
+  },
+  errors: { name: 'Enter a display name of 1–40 characters.' },
+};
