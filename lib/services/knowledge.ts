@@ -43,6 +43,7 @@ import { crawlSite, fetchPage } from '@/lib/infra/connectors/web';
 import { db, schema, type Tx } from '@/lib/infra/db';
 import { githubTokenFor, hasVerifiedDomainFor } from '@/lib/services/connections';
 import { heldFor, placeHold, releaseHold, settleHold } from '@/lib/services/credits';
+import { afterKnowledgeReady } from '@/lib/services/profile';
 
 export type NewKnowledge = (
   | { kind: 'document'; blobPath: string; fileName: string }
@@ -496,6 +497,8 @@ export async function processKnowledge(knowledgeId: string): Promise<void> {
         })
         .where(eq(schema.knowledge.id, row.id));
     });
+    /* The last step (2.4): suggested example questions and the knowledge profile, free of charge. */
+    await afterKnowledgeReady(row.reeId);
   } catch (error) {
     const code = error instanceof ProcessingFailure ? error.code : 'unknown';
     console.warn(`knowledge ${row.id} failed code=${code} detail=${error instanceof Error ? error.message : 'unknown'}`);

@@ -29,6 +29,13 @@
       "when": 1793604135003,
       "tag": "0004_checkout_reuse",
       "breakpoints": true
+    },
+    {
+      "idx": 5,
+      "version": "7",
+      "when": 1793606000000,
+      "tag": "0005_conversations_explore",
+      "breakpoints": true
     }
   ]
 }

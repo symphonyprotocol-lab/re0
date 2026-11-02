@@ -46,7 +46,8 @@ function vectorOf(text: string): number[] {
   return vector.map((value) => value / norm);
 }
 
-export async function startFakeOpenAi(port = 0): Promise<FakeOpenAi> {
+/** `delayMs` spaces the streamed pieces out, so answers streamed side by side visibly interleave. */
+export async function startFakeOpenAi(port = 0, options: { delayMs?: number } = {}): Promise<FakeOpenAi> {
   const requests: FakeOpenAi['requests'] = [];
   const transcripts = new Map<string, string>();
   let transcriptionCalls = 0;
@@ -82,11 +83,22 @@ export async function startFakeOpenAi(port = 0): Promise<FakeOpenAi> {
     if (req.url?.endsWith('/chat/completions')) {
       const last = body.messages?.at(-1);
       const question = typeof last?.content === 'string' ? last.content : JSON.stringify(last?.content ?? '');
-      const text = question.includes('DECLINE') ? '[[NO_ANSWER]]' : 'Refunds are issued to the original payment method within 14 days [1].';
-      const pieces = text.match(/.{1,12}/g) ?? [text];
-      res.writeHead(200, { 'content-type': 'text/event-stream' });
+      const system = JSON.stringify(body.messages?.[0]?.content ?? '');
+      const text = system.includes('Suggest three example questions')
+        ? 'When are refunds issued?\nHow long does a refund take?\nWhere does the refund go?'
+        : question.includes('DECLINE')
+          ? '[[NO_ANSWER]]'
+          : 'Refunds are issued to the original payment method within 14 days [1].';
+      const pieces = text.match(/.{1,12}/gs) ?? [text];
       const id = 'chatcmpl-test';
+      if (body.stream !== true) {
+        res.writeHead(200, { 'content-type': 'application/json' });
+        res.end(JSON.stringify({ id, object: 'chat.completion', created: 0, model: body.model, choices: [{ index: 0, message: { role: 'assistant', content: text }, finish_reason: 'stop' }], usage: { prompt_tokens: 10, completion_tokens: 5, total_tokens: 15 } }));
+        return;
+      }
+      res.writeHead(200, { 'content-type': 'text/event-stream' });
       for (const piece of pieces) {
+        if (options.delayMs) await new Promise((resolve) => setTimeout(resolve, options.delayMs));
         res.write(`data: ${JSON.stringify({ id, object: 'chat.completion.chunk', created: 0, model: body.model, choices: [{ index: 0, delta: { content: piece }, finish_reason: null }] })}\n\n`);
       }
       res.write(`data: ${JSON.stringify({ id, object: 'chat.completion.chunk', created: 0, model: body.model, choices: [{ index: 0, delta: {}, finish_reason: 'stop' }], usage: { prompt_tokens: 10, completion_tokens: 5, total_tokens: 15 } })}\n\n`);

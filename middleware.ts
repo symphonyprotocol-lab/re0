@@ -7,7 +7,7 @@ import { ADMIN_SESSION_COOKIE, PATH_HEADER, SESSION_COOKIE } from '@/lib/http/co
  * layouts against the database; a cookie alone never decides permission.
  * User and console sessions never cross.
  */
-const WORKSPACE = ['/dashboard', '/rees', '/settings'];
+const WORKSPACE = ['/dashboard', '/rees', '/settings', '/talk', '/chats'];
 
 export function middleware(request: NextRequest): NextResponse {
   const path = request.nextUrl.pathname;
@@ -29,5 +29,5 @@ export function middleware(request: NextRequest): NextResponse {
 }
 
 export const config = {
-  matcher: ['/dashboard/:path*', '/rees/:path*', '/settings/:path*', '/admin/:path*'],
+  matcher: ['/dashboard/:path*', '/rees/:path*', '/settings/:path*', '/talk', '/chats/:path*', '/admin/:path*'],
 };

@@ -192,3 +192,67 @@ export const ADMIN_PASSWORD_MIN = 12;
 export const SESSION_LIFETIME_MS = 30 * 24 * 60 * 60 * 1000;
 export const OAUTH_STATE_TTL_MS = 10 * 60 * 1000;
 export const DISPLAY_NAME_MAX = 40;
+
+/* ------------------------------------------- conversations and explore, 2.4, 5 */
+
+/** Rees one conversation may hold (5). */
+export const CONVERSATION_MAX_REES = 5;
+/** A conversation title (8.2, "重命名 ≤ 120"). */
+export const CONVERSATION_TITLE_MAX = 120;
+/** A new conversation is named after its first question, cut to this. */
+export const CONVERSATION_AUTO_TITLE = 80;
+/** Trashed conversations are purged with their messages after this long (8.2). */
+export const CONVERSATION_TRASH_DAYS = 30;
+/** The `/chats` search page's "updated within" choices, in days. */
+export const CONVERSATION_PERIODS = [7, 30, 90] as const;
+/** Conversations one batch request may touch. */
+export const CONVERSATION_BATCH_MAX = 1_000;
+/** The sidebar's history: every pinned conversation, and this many of the most recent others. */
+export const SIDEBAR_HISTORY_MAX = 200;
+/** Days are grouped and "updated within" counted in UTC+8, as the rest of the product (prototype). */
+export const LOCAL_UTC_OFFSET_HOURS = 8;
+/** "这些公开 Ree 可能知道": public Rees suggested when every asked Ree had nothing. */
+export const NO_ANSWER_SUGGESTIONS = 3;
+/** Candidates the participant picker lists per search. */
+export const PICKER_RESULTS = 30;
+
+/** A knowledge profile (2.4): one introduction vector, the example questions, centroids for the rest. */
+export const PROFILE_MAX_VECTORS = 16;
+export const PROFILE_SAMPLE_QUESTIONS = 3;
+/** Below this many passages the passages themselves stand in for centroids. */
+export const PROFILE_CENTROIDS = PROFILE_MAX_VECTORS - 1 - PROFILE_SAMPLE_QUESTIONS;
+/** Lloyd iterations of the in-database k-means, and the passages each one samples. */
+export const PROFILE_KMEANS_ITERATIONS = 6;
+export const PROFILE_KMEANS_SAMPLE = 5_000;
+
+/** Explore's two levels (2.4): Rees from the profiles, then passages inside only those Rees. */
+export const EXPLORE_PROFILE_REES = 20;
+export const EXPLORE_PASSAGES = 50;
+export const EXPLORE_RESULTS = 10;
+/** HNSW candidate list for the profile search; the default 40 would cap the vectors returned. */
+export const EXPLORE_EF_SEARCH = 400;
+/** A Ree whose nearest passage is further than this is not shown for the question (same bar as answering). */
+export const EXPLORE_MIN_SIMILARITY = RETRIEVAL_MIN_SIMILARITY;
+/** Characters of the matched passage on a result card. */
+export const EXPLORE_EXCERPT_CHARS = 160;
+/** Free searches per minute (2.4, "按 IP 和账号限频"). */
+export const EXPLORE_RATE_LIMIT = { windowSeconds: 60, perIp: 30, perUser: 30 } as const;
+/** Quality signals look back this far (2.4). */
+export const QUALITY_WINDOW_DAYS = 30;
+/**
+ * The quality multiplier on relevance: a floor so relevance still decides,
+ * plus answer rate, share of helpful votes and how often other people pull
+ * the Ree into a conversation. Answer and vote rates are smoothed so a new
+ * Ree starts near neutral rather than at the extremes.
+ */
+export const QUALITY_WEIGHTS = { floor: 0.6, answerRate: 0.2, upRate: 0.15, pulls: 0.05 } as const;
+export const QUALITY_PRIORS = { answers: 3, votes: 2 } as const;
+/** Pulls into conversations that saturate the pull signal. */
+export const QUALITY_PULLS_FULL = 100;
+/** A public page's "相关 Rees" keeps this many, and both of its lists page by four. */
+export const PUBLIC_RELATED_MAX = 10;
+export const PUBLIC_LIST_PAGE_SIZE = 4;
+/** Candidates scored for "相关 Rees" (same category or a shared tag). */
+export const PUBLIC_RELATED_CANDIDATES = 300;
+/** Home page: public Rees shown as examples. */
+export const HOME_EXAMPLE_REES = 3;

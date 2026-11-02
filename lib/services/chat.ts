@@ -2,10 +2,10 @@
  * The single-Ree test conversation (`conversation.kind = ree_test`) and the
  * retrieval it answers from (rebuild-proposal.md 5).
  */
-import { and, asc, eq, isNull, sql, type SQL } from 'drizzle-orm';
+import { and, asc, eq, inArray, isNull, sql, type SQL } from 'drizzle-orm';
 import { HISTORY_TURNS, RETRIEVAL_RECALL, RETRIEVAL_TOP_K } from '@/lib/constants';
 import type { Passage } from '@/lib/domain/answer';
-import type { ReeOutcome, ReeUIMessage } from '@/lib/domain/chat-message';
+import { TEXT_META_KEY, textPartId, type ReeOutcome, type ReeUIMessage, type SuggestedRee } from '@/lib/domain/chat-message';
 import { fuse, hasEvidence, keywordCoverage, searchTerms } from '@/lib/domain/retrieval';
 import { likePattern } from '@/lib/domain/list';
 import { embedTexts } from '@/lib/infra/ai/models';
@@ -48,8 +48,9 @@ export async function messagesOf(conversationId: string): Promise<MessageRow[]> 
     .orderBy(asc(schema.message.createdAt));
 }
 
-export function outcomeOf(row: MessageRow): ReeOutcome {
+export function outcomeOf(row: MessageRow, vote: 'up' | 'down' | null = null): ReeOutcome {
   return {
+    reeId: row.reeId!,
     messageId: row.id,
     noAnswer: row.noAnswer,
     reason: row.noAnswerReason ?? null,
@@ -57,23 +58,59 @@ export function outcomeOf(row: MessageRow): ReeOutcome {
     citations: row.citations,
     model: null,
     failed: false,
+    vote,
   };
 }
 
-/** Stored rows as `useChat` messages. */
-export function toUIMessages(rows: readonly MessageRow[]): ReeUIMessage[] {
-  return rows.map((row) =>
-    row.role === 'user'
-      ? { id: row.id, role: 'user', parts: [{ type: 'text', text: row.content }] }
-      : {
-          id: row.id,
-          role: 'assistant',
-          parts: [
-            ...(row.content ? [{ type: 'text' as const, text: row.content }] : []),
-            { type: 'data-outcome' as const, data: outcomeOf(row) },
-          ],
-        },
-  );
+/**
+ * Stored rows as `useChat` messages: each question, then one assistant
+ * message holding the reply of every Ree it went to, in the order they were
+ * written, and the suggestions shown under it when nobody could answer.
+ */
+export function toUIMessages(
+  rows: readonly MessageRow[],
+  extras: { votes?: ReadonlyMap<string, 'up' | 'down'>; suggestions?: ReadonlyMap<string, SuggestedRee[]> } = {},
+): ReeUIMessage[] {
+  const replies = new Map<string, MessageRow[]>();
+  for (const row of rows) {
+    if (row.role !== 'ree' || !row.reeId) continue;
+    const key = row.requestId ?? row.id;
+    replies.set(key, [...(replies.get(key) ?? []), row]);
+  }
+  const out: ReeUIMessage[] = [];
+  const asked = new Set<string>();
+  for (const row of rows) {
+    if (row.role === 'user') {
+      asked.add(row.id);
+      out.push({ id: row.id, role: 'user', parts: [{ type: 'text', text: row.content }] });
+      const answers = replies.get(row.id) ?? [];
+      const suggested = extras.suggestions?.get(row.id) ?? [];
+      if (answers.length === 0 && suggested.length === 0) continue;
+      out.push({ id: `${row.id}-replies`, role: 'assistant', parts: [...answers.flatMap((reply) => replyParts(reply, extras.votes?.get(reply.id) ?? null)), ...(suggested.length ? [{ type: 'data-suggestions' as const, id: 'suggestions', data: { rees: suggested } }] : [])] });
+    }
+  }
+  /* Replies whose question row is missing still show, rather than vanish. */
+  for (const [key, answers] of replies) if (!asked.has(key)) out.push({ id: `${key}-replies`, role: 'assistant', parts: answers.flatMap((reply) => replyParts(reply, extras.votes?.get(reply.id) ?? null)) });
+  return out;
+}
+
+function replyParts(row: MessageRow, vote: 'up' | 'down' | null): ReeUIMessage['parts'] {
+  const reeId = row.reeId!;
+  return [
+    { type: 'data-ree', id: reeId, data: { reeId } },
+    ...(row.content ? [{ type: 'text' as const, text: row.content, state: 'done' as const, providerMetadata: { [TEXT_META_KEY]: { reeId, part: textPartId(reeId) } } }] : []),
+    { type: 'data-outcome', id: `outcome-${reeId}`, data: outcomeOf(row, vote) },
+  ];
+}
+
+/** The asker's own votes on these answers. */
+export async function votesFor(userId: string, messageIds: readonly string[]): Promise<Map<string, 'up' | 'down'>> {
+  if (messageIds.length === 0) return new Map();
+  const rows = await db()
+    .select({ messageId: schema.reeFeedback.messageId, vote: schema.reeFeedback.vote })
+    .from(schema.reeFeedback)
+    .where(and(eq(schema.reeFeedback.userId, userId), inArray(schema.reeFeedback.messageId, [...messageIds])));
+  return new Map(rows.map((row) => [row.messageId, row.vote]));
 }
 
 /** Clearing deletes messages only; the ledger and usage stay (prototype "清空对话"). */
@@ -106,8 +143,8 @@ export interface Retrieval {
   model: string;
 }
 
-/** Passages answers may use: ready, enabled ("参与回答") and not in the trash (8.2). */
-function answerable(): SQL[] {
+/** Passages answers may use: ready, enabled ("参与回答") and not in the trash (8.2). Explore's second level uses the same. */
+export function answerable(): SQL[] {
   return [eq(schema.knowledge.status, 'ready'), eq(schema.knowledge.enabled, true), isNull(schema.knowledge.deletedAt)];
 }
 
@@ -117,10 +154,10 @@ function answerable(): SQL[] {
  * keeps the planner off the global HNSW index, which filters after it
  * searches and can miss a small Ree's rows entirely).
  */
-export async function retrieve(reeId: string, question: string): Promise<Retrieval> {
+export async function retrieve(reeId: string, question: string, embedded?: QuestionVector): Promise<Retrieval> {
   const database = db();
-  const { vectors, endpoint } = await embedTexts([question]);
-  const literal = `[${vectors[0]!.join(',')}]`;
+  const { vector, model } = embedded ?? (await embedQuestion(question));
+  const literal = `[${vector.join(',')}]`;
   const semantic = await database
     .select({
       id: schema.chunk.id,
@@ -186,7 +223,18 @@ export async function retrieve(reeId: string, question: string): Promise<Retriev
     passages,
     bestSimilarity,
     evidence: passages.length > 0 && hasEvidence({ bestSimilarity, bestCoverage: keyword[0]?.coverage ?? 0, terms: terms.length }),
-    model: endpoint.model,
+    model,
   };
+}
+
+export interface QuestionVector {
+  vector: number[];
+  model: string;
+}
+
+/** One embedding per question, shared by every asked Ree and by the suggestions. */
+export async function embedQuestion(question: string): Promise<QuestionVector> {
+  const { vectors, endpoint } = await embedTexts([question]);
+  return { vector: vectors[0]!, model: endpoint.model };
 }
 

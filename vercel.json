@@ -13,6 +13,10 @@
     {
       "path": "/api/cron/expire-plan",
       "schedule": "15 0 * * *"
+    },
+    {
+      "path": "/api/cron/rank",
+      "schedule": "7 * * * *"
     }
   ]
 }

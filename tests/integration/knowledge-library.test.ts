@@ -173,7 +173,7 @@ describeWithDb('answering from the library', () => {
     const { userId, ree } = await userWithRee();
     const id = await readyText(userId, ree, 'Refund policy', 'Refunds are issued to the original payment method within 14 days.');
     const conversation = await chat.testConversation(userId, ree.id);
-    await (await answer({ userId, lang: 'zh', conversation, ree, question: 'When are refunds issued to the original payment method?' })).text();
+    await (await answer({ userId, lang: 'zh', conversation, targets: [ree], question: 'When are refunds issued to the original payment method?' })).text();
     const [cited] = (await chat.messagesOf(conversation.id)).filter((message) => message.role === 'ree');
     expect(cited!.citations[0]).toMatchObject({ knowledgeId: id, title: 'Refund policy' });
 

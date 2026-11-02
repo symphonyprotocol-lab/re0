@@ -1,7 +1,8 @@
-import type { NextRequest } from 'next/server';
+import { after, type NextRequest } from 'next/server';
 import { body, fail, json } from '@/lib/http/respond';
 import { apiUser } from '@/lib/http/session';
 import { db } from '@/lib/infra/db';
+import { refreshProfile } from '@/lib/services/profile';
 import { deleteRee, ownedRee, ReeInputError, updateRee } from '@/lib/services/rees';
 
 type Context = { params: Promise<{ id: string }> };
@@ -31,6 +32,8 @@ export async function PATCH(request: NextRequest, context: Context) {
       color: input.color,
       avatarBlob: typeof input.avatarBlob === 'string' ? input.avatarBlob : null,
     });
+    /* What the profile is made of may have changed: a public Ree's is rebuilt, free (2.4). */
+    if (ree?.isPublic) after(() => refreshProfile(ree.id).catch(() => undefined));
     return ree ? json({ ree }) : fail('not_found', 404);
   } catch (error) {
     if (error instanceof ReeInputError) return fail(error.field, 422);
