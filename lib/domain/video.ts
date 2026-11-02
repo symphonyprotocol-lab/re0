@@ -32,12 +32,12 @@ export interface VideoScenes {
   closing: { cta: string };
 }
 
-export interface VideoStyle {
+export type VideoStyle = {
   template: VideoTemplate;
   accent: string;
   aspect: VideoAspect;
   music: boolean;
-}
+};
 
 /** The Ree's live facts the video shows next to the script: they change the picture without a new script. */
 export interface IntroRee {
@@ -52,11 +52,11 @@ export interface IntroRee {
   sourcesTotal: number;
 }
 
-/** Everything the composition draws: Player and web renderer get exactly this. */
-export interface IntroProps extends VideoStyle {
+/** Everything the composition draws: Player and web renderer get exactly this (a `type`, as Remotion props must be). */
+export type IntroProps = VideoStyle & {
   scenes: VideoScenes;
   ree: IntroRee;
-}
+};
 
 export type SceneField = 'name' | 'position' | 'sources' | 'source' | 'question' | 'answer' | 'cta';
 
@@ -213,7 +213,7 @@ export function scriptLang(scenes: VideoScenes): 'zh' | 'en' {
 /** An answer's first sentence (2.6 "答案取第一句"), citation markers and Markdown taken off. */
 export function firstSentence(answer: string): string {
   const plain = answer
-    .replace(/\[\d+\]/g, '')
+    .replace(/\s*\[\d+\]/g, '')
     .replace(/[*_`#>]+/g, '')
     .replace(/\s+/g, ' ')
     .trim();

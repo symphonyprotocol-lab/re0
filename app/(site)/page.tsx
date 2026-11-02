@@ -3,6 +3,7 @@ import Link from 'next/link';
 import { HOME_EXAMPLE_REES } from '@/lib/constants';
 import { currentUser } from '@/lib/http/session';
 import { activeRees } from '@/lib/services/explore';
+import { HomeIntro } from '@/components/video/home-intro';
 import { serverMessages } from '@/i18n/server';
 import { Icon, type IconName } from '@/components/ui/icons';
 import { ReeAvatar } from '@/components/ui/ree-avatar';
@@ -22,6 +23,7 @@ export async function generateMetadata(): Promise<Metadata> {
  */
 export default async function HomePage() {
   const [user, { t }, examples] = await Promise.all([currentUser(), serverMessages(), activeRees(HOME_EXAMPLE_REES)]);
+  const featured = examples.find((ree) => ree.video) ?? null;
   const h = t.site.home;
   const createHref = user ? '/rees/new' : `/login?returnTo=${encodeURIComponent('/rees/new')}`;
   const sources: [IconName, keyof typeof h.sources][] = [
@@ -227,20 +229,25 @@ export default async function HomePage() {
                   </article>
                 ))}
           </div>
-          <figure className="relative flex aspect-video min-w-0 flex-col justify-end overflow-hidden rounded-2xl bg-gradient-to-br from-[#0b1a4a] via-ink to-[#123a7a] p-6 text-white">
-            <span className="absolute top-1/2 left-1/2 inline-flex size-16 -translate-x-1/2 -translate-y-1/2 items-center justify-center rounded-full border border-white/30 bg-white/10 backdrop-blur-sm" aria-hidden="true">
-              <Icon name="play" className="size-7" />
-            </span>
-            <span className="absolute top-4 right-4 rounded-full bg-white/15 px-2.5 py-1 font-mono text-[11px]">0:15</span>
-            <figcaption>
-              <strong className="block text-[18px]">{h.videoTitle}</strong>
-              <span className="mt-1 block text-[12px] text-white/70">{h.videoBody}</span>
-              <span className="mt-3 inline-flex items-center gap-1.5 rounded-full bg-white/15 px-2.5 py-1 text-[11px]">
-                <Icon name="clock" className="size-3.5" />
-                {h.videoSoon}
+          {/* Step 7: the most active public Ree with an introduction plays here; the illustration stays until one exists. */}
+          {featured?.video ? (
+            <HomeIntro ree={featured} video={featured.video} title={t.video.dialog.title} body={featured.description} />
+          ) : (
+            <figure className="relative flex aspect-video min-w-0 flex-col justify-end overflow-hidden rounded-2xl bg-gradient-to-br from-[#0b1a4a] via-ink to-[#123a7a] p-6 text-white">
+              <span className="absolute top-1/2 left-1/2 inline-flex size-16 -translate-x-1/2 -translate-y-1/2 items-center justify-center rounded-full border border-white/30 bg-white/10 backdrop-blur-sm" aria-hidden="true">
+                <Icon name="play" className="size-7" />
               </span>
-            </figcaption>
-          </figure>
+              <span className="absolute top-4 right-4 rounded-full bg-white/15 px-2.5 py-1 font-mono text-[11px]">0:15</span>
+              <figcaption>
+                <strong className="block text-[18px]">{h.videoTitle}</strong>
+                <span className="mt-1 block text-[12px] text-white/70">{h.videoBody}</span>
+                <span className="mt-3 inline-flex items-center gap-1.5 rounded-full bg-white/15 px-2.5 py-1 text-[11px]">
+                  <Icon name="clock" className="size-3.5" />
+                  {h.videoSoon}
+                </span>
+              </figcaption>
+            </figure>
+          )}
         </div>
       </section>
 

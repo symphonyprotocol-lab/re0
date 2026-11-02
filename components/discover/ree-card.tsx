@@ -6,37 +6,23 @@ import type { ReeCard as Card } from '@/lib/services/explore';
 import { useI18n } from '@/i18n/client';
 import { fill, formatNumber } from '@/i18n/format';
 import { Icon } from '@/components/ui/icons';
-import { ReeAvatar } from '@/components/ui/ree-avatar';
 import { RoleBadge } from '@/components/discover/role-badge';
+import { PlayIntroButton, VideoPlaceholder, VideoPoster } from '@/components/video/video-cover';
+import type { IntroProps } from '@/lib/domain/video';
 
-const COVERS: Record<string, string> = {
-  default: 'from-[#e8f2ff] to-[#f5f3ff]',
-  lilac: 'from-[#f1ecff] to-[#faf7ff]',
-  sand: 'from-[#fbf3e6] to-[#fffaf2]',
-  sage: 'from-[#e9f5ef] to-[#f6fbf8]',
-  rose: 'from-[#fdebef] to-[#fff6f8]',
-  slate: 'from-[#eceff5] to-[#f7f8fb]',
-};
-
-/** The 16:9 cover without a video (step 7 adds the player): the Ree's avatar and name on its colour. */
-export function ReeCover({ ree, className = '' }: { ree: Pick<Card, 'name' | 'avatarBlob' | 'color'>; className?: string }) {
-  const { t } = useI18n();
-  return (
-    <span className={`relative flex aspect-video w-full flex-col items-center justify-center gap-2 overflow-hidden bg-gradient-to-br ${COVERS[ree.color] ?? COVERS.default} ${className}`}>
-      <ReeAvatar avatar={ree.avatarBlob} color={ree.color} size="lg" />
-      <strong className="max-w-[85%] truncate text-[13px] text-ink">{ree.name}</strong>
-      <small className="flex items-center gap-1 text-[10px] text-muted">
-        <Icon name="film" className="size-3" />
-        {t.discover.card.noVideo}
-      </small>
-    </span>
-  );
+/**
+ * The 16:9 cover (step 7): the introduction's opening still when the Ree has
+ * one, the shared "暂无视频介绍" placeholder otherwise.
+ */
+export function ReeCover({ ree, className = '' }: { ree: Pick<Card, 'name' | 'avatarBlob' | 'color'> & { video?: IntroProps | null }; className?: string }) {
+  return ree.video ? <VideoPoster ree={ree} video={ree.video} className={className} /> : <VideoPlaceholder ree={ree} className={className} />;
 }
 
 /**
  * An explore result (prototype app.js `dotCard`, 2.4 step 4): the card is
  * the way in -- cover and name open the public page, the search carried in
- * `from` -- with no input and no button. Introduction, the owner and their
+ * `from` -- with no input; a Ree with an introduction gets a play button on
+ * its cover (step 7). Introduction, the owner and their
  * role, the matched passage when there is a question, source count, price,
  * answers and helpful share.
  */
@@ -47,9 +33,13 @@ export function ReeCardView({ ree, from }: { ree: Card; from: string }) {
   const href = `/r/${ree.slug}${from && from !== '/explore' ? `?from=${encodeURIComponent(from)}` : ''}`;
   return (
     <article className="card flex min-w-0 flex-col overflow-hidden" aria-label={ree.name}>
-      <Link href={href} className="block" tabIndex={-1} aria-hidden="true">
-        <ReeCover ree={ree} />
-      </Link>
+      <div className="relative">
+        <Link href={href} className="block" tabIndex={-1} aria-hidden="true">
+          <ReeCover ree={ree} />
+        </Link>
+        {/* Step 7 (8.4 "explore 卡片 16:9 封面与播放弹窗"): the cover opens the page, this plays the 15 seconds here. */}
+        {ree.video && <PlayIntroButton video={ree.video} name={ree.name} href={href} linkLabel={t.video.dialog.details} className="absolute top-3 right-3" />}
+      </div>
       <div className="flex flex-1 flex-col gap-2 p-4">
         <Link href={href} className="flex min-w-0 items-center text-[15px] font-bold hover:text-blue">
           <span className="truncate">{ree.name}</span>

@@ -17,6 +17,8 @@ import { RoleBadge } from '@/components/discover/role-badge';
 import { JoinButton } from '@/components/discover/join-button';
 import { PublicListSection } from '@/components/discover/public-list';
 import { ReeCover } from '@/components/discover/ree-card';
+import { PublicIntro } from '@/components/video/public-intro';
+import { introsFor } from '@/lib/services/video';
 
 /** Metadata and the page share one lookup per request. */
 const publicReeBySlug = cache(lookup);
@@ -56,7 +58,8 @@ export default async function PublicReePage({ params, searchParams }: Props) {
   const from = exploreReturnPath(one(query.from));
   const relatedPage = Number(one(query.rp)) || 1;
   const authorPage = Number(one(query.ap)) || 1;
-  const [related, author, conversations] = await Promise.all([relatedFor(ree, relatedPage), authorOthers(ree, authorPage), user ? joinableConversations(user.id, ree.id) : Promise.resolve([])]);
+  const [related, author, conversations, intros] = await Promise.all([relatedFor(ree, relatedPage), authorOthers(ree, authorPage), user ? joinableConversations(user.id, ree.id) : Promise.resolve([]), introsFor([ree.id])]);
+  const video = intros.get(ree.id) ?? null;
   const self = (changes: Record<string, string | number | null>) => {
     const next = new URLSearchParams();
     if (from !== '/explore') next.set('from', from);
@@ -122,10 +125,17 @@ export default async function PublicReePage({ params, searchParams }: Props) {
                 <Icon name="film" className="size-4 text-blue" />
                 {p.video}
               </h2>
-              <div className="mt-3 overflow-hidden rounded-xl border border-line">
-                <ReeCover ree={ree} />
-              </div>
-              <p className="mt-2 text-[11px] text-muted">{p.videoSoon}</p>
+              {/* Step 7: the 15-second introduction plays here; a Ree without one keeps the placeholder. `?video=1` starts it. */}
+              {video ? (
+                <div className="mt-3">
+                  <PublicIntro ree={ree} video={video} autoPlay={one(query.video) === '1'} />
+                  <p className="mt-2 text-[11px] text-muted">{t.video.player.note}</p>
+                </div>
+              ) : (
+                <div className="mt-3 overflow-hidden rounded-xl border border-line">
+                  <ReeCover ree={ree} />
+                </div>
+              )}
             </section>
             {ree.sampleQuestions.length > 0 && (
               <section className="mt-7">

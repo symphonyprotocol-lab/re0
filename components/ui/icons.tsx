@@ -54,6 +54,9 @@ const PATHS = {
   thumbDown: 'M7 13V4H4v9zM7 13l4 7a2 2 0 0 0 2-2v-4h5.5a2 2 0 0 0 2-2.3l-1.2-6A2 2 0 0 0 17.3 4H7',
   at: 'M16 12a4 4 0 1 1-8 0 4 4 0 0 1 8 0zM16 12v1.5a2.5 2.5 0 0 0 5 0V12a9 9 0 1 0-3.5 7.1',
   film: 'M4 5h16v14H4zM8 5v14M16 5v14M4 9h4M4 15h4M16 9h4M16 15h4',
+  /* Step 7: the video player's fullscreen toggle. */
+  expand: 'M4 9V4h5M20 9V4h-5M4 15v5h5M20 15v5h-5',
+  shrink: 'M9 4v5H4M15 4v5h5M9 20v-5H4M15 20v-5h5',
 } as const;
 
 export type IconName = keyof typeof PATHS | 'ree';

@@ -30,6 +30,8 @@ import { clampPage, type ListResult } from '@/lib/domain/list';
 import { hasEvidence, keywordCoverage, searchTerms } from '@/lib/domain/retrieval';
 import { db, schema } from '@/lib/infra/db';
 import { answerable, embedQuestion, type QuestionVector } from '@/lib/services/chat';
+import type { IntroProps } from '@/lib/domain/video';
+import { introsFor } from '@/lib/services/video';
 
 const reeId = sql.raw('"ree"."id"');
 const reeOwner = sql.raw('"ree"."owner_id"');
@@ -67,6 +69,8 @@ export interface ReeCard {
   /** The matched passage, when the card answers a question. */
   excerpt: string | null;
   createdAt: Date;
+  /** Step 7: the Ree's introduction for the cover and its play dialog; null without one. */
+  video: IntroProps | null;
 }
 
 const cardColumns = {
@@ -98,7 +102,13 @@ type CardRow = Awaited<ReturnType<typeof cardQuery>>[number];
 
 function toCard(row: CardRow, excerpt: string | null = null): ReeCard {
   const { up, down, ...rest } = row;
-  return { ...rest, price: QUERY_BASE_FEE + row.queryFee, positiveRate: positiveRate(up, down), excerpt };
+  return { ...rest, price: QUERY_BASE_FEE + row.queryFee, positiveRate: positiveRate(up, down), excerpt, video: null };
+}
+
+/** Step 7: each card's introduction, if it has one. */
+async function withIntros(cards: ReeCard[]): Promise<ReeCard[]> {
+  const intros = await introsFor(cards.map((card) => card.id));
+  return cards.map((card) => ({ ...card, video: intros.get(card.id) ?? null }));
 }
 
 /** Cards for these public Rees, in the order given. */
@@ -106,7 +116,7 @@ export async function reeCards(ids: readonly string[], excerpts: ReadonlyMap<str
   if (ids.length === 0) return [];
   const rows = await cardQuery().where(and(inArray(schema.ree.id, [...ids]), publicRee()));
   const byId = new Map(rows.map((row) => [row.id, row]));
-  return ids.map((id) => byId.get(id)).filter((row): row is CardRow => Boolean(row)).map((row) => toCard(row, excerpts.get(row.id) ?? null));
+  return withIntros(ids.map((id) => byId.get(id)).filter((row): row is CardRow => Boolean(row)).map((row) => toCard(row, excerpts.get(row.id) ?? null)));
 }
 
 /* ------------------------------------------------------------- the search */
@@ -262,7 +272,7 @@ export async function explore(query: ExploreQuery): Promise<ExploreResult> {
     .orderBy(...order)
     .limit(query.size)
     .offset((page - 1) * query.size);
-  return { mode: 'browse', items: rows.map((row) => toCard(row)), total, page, size: query.size };
+  return { mode: 'browse', items: await withIntros(rows.map((row) => toCard(row))), total, page, size: query.size };
 }
 
 /** The most active public Rees (home page examples). */
@@ -271,7 +281,7 @@ export async function activeRees(limit: number): Promise<ReeCard[]> {
     .where(publicRee())
     .orderBy(desc(activity), desc(roleOrder), desc(schema.ree.createdAt))
     .limit(limit);
-  return rows.map((row) => toCard(row));
+  return withIntros(rows.map((row) => toCard(row)));
 }
 
 /* ----------------------------------------------------------- rate limits */

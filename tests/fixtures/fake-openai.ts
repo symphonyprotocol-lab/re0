@@ -46,6 +46,22 @@ function vectorOf(text: string): number[] {
   return vector.map((value) => value / norm);
 }
 
+/**
+ * Step 7: the four-shot script. A prompt naming LONGSCRIPT gets a name over
+ * the 20-character limit (the generator must ask for a rewrite), FAILSCRIPT
+ * an over-limit name every time (the script fails and is refunded).
+ */
+export function videoScript(prompt: string, rewrite: boolean) {
+  const failing = prompt.includes('FAILSCRIPT');
+  const long = failing || (prompt.includes('LONGSCRIPT') && !rewrite);
+  return {
+    opening: { name: long ? `${failing ? 'FAILSCRIPT ' : ''}A name far too long for the opening shot` : 'Refund Helper', position: 'Answers from your policy' },
+    sources: { titles: ['Refund policy notes', 'Store credit rules'] },
+    answer: { question: 'When are refunds issued?', answer: 'Refunds go back to the original card in 14 days.' },
+    closing: { cta: 'Ask it now' },
+  };
+}
+
 /** `delayMs` spaces the streamed pieces out, so answers streamed side by side visibly interleave. */
 export async function startFakeOpenAi(port = 0, options: { delayMs?: number } = {}): Promise<FakeOpenAi> {
   const requests: FakeOpenAi['requests'] = [];
@@ -86,7 +102,9 @@ export async function startFakeOpenAi(port = 0, options: { delayMs?: number } = 
       const system = JSON.stringify(body.messages?.[0]?.content ?? '');
       const text = system.includes('Suggest three example questions')
         ? 'When are refunds issued?\nHow long does a refund take?\nWhere does the refund go?'
-        : question.includes('DECLINE')
+        : system.includes('Rewrite this video script') || system.includes('video introduction script')
+          ? JSON.stringify(videoScript(question, system.includes('Rewrite this video script')))
+          : question.includes('DECLINE')
           ? '[[NO_ANSWER]]'
           : 'Refunds are issued to the original payment method within 14 days [1].';
       const pieces = text.match(/.{1,12}/gs) ?? [text];
