@@ -1,5 +1,6 @@
 /**
- * The step-1 tables of rebuild-proposal.md 4 (15 of the 29). Enumerations are
+ * The tables of rebuild-proposal.md 4 delivered so far: the 15 of step 1 and
+ * the 3 of step 2 (knowledge_folder, github_connection, domain_claim). Enumerations are
  * text columns with check constraints, so a later step widens one with a
  * plain constraint swap instead of `ALTER TYPE`.
  *
@@ -24,7 +25,7 @@ import {
 import type { ReeDraft } from '@/lib/domain/ree';
 import type { CitationSnapshot, Locator } from '@/lib/domain/answer';
 import type { Allocation } from '@/lib/domain/credits';
-import type { KnowledgeActivity } from '@/lib/domain/knowledge';
+import type { KnowledgeActivity, KnowledgeChild } from '@/lib/domain/knowledge';
 
 const createdAt = () => timestamp('created_at', { withTimezone: true }).notNull().defaultNow();
 const timestampTz = (name: string) => timestamp(name, { withTimezone: true });
@@ -114,6 +115,23 @@ export const ree = pgTable(
   ],
 );
 
+/** Folders group a Ree's knowledge (8.2); names are unique per Ree, ignoring case. */
+export const knowledgeFolder = pgTable(
+  'knowledge_folder',
+  {
+    id: uuid('id').primaryKey().defaultRandom(),
+    reeId: uuid('ree_id')
+      .notNull()
+      .references(() => ree.id),
+    name: text('name').notNull(),
+    createdAt: createdAt(),
+  },
+  (t) => [
+    uniqueIndex('knowledge_folder_name_key').on(t.reeId, sql`lower(${t.name})`),
+    check('knowledge_folder_name_check', sql`char_length(name) between 1 and 40`),
+  ],
+);
+
 export const knowledge = pgTable(
   'knowledge',
   {
@@ -121,6 +139,8 @@ export const knowledge = pgTable(
     reeId: uuid('ree_id')
       .notNull()
       .references(() => ree.id),
+    /** Null is "未分组"; deleting a folder sends its rows back there, trash included. */
+    folderId: uuid('folder_id').references(() => knowledgeFolder.id, { onDelete: 'set null' }),
     kind: text('kind').$type<'document' | 'audio' | 'github' | 'page' | 'site' | 'text'>().notNull(),
     title: text('title').notNull(),
     originalTitle: text('original_title').notNull(),
@@ -133,13 +153,23 @@ export const knowledge = pgTable(
       .notNull()
       .default('pending'),
     error: text('error'),
+    /** "参与回答": a paused source keeps its passages but is not searched. */
+    enabled: boolean('enabled').notNull().default(true),
     content: text('content'),
+    /** A website's pages, a repository's files, an audio file's transcript segments: slices of `content`. */
+    children: jsonb('children').$type<KnowledgeChild[]>().notNull().default([]),
     activity: jsonb('activity').$type<KnowledgeActivity[]>().notNull().default([]),
+    /** When the owner agreed to send this audio to the transcription service (2.1). */
+    consentAt: timestampTz('consent_at'),
+    /** In the trash since; purged with its passages 30 days later. */
+    deletedAt: timestampTz('deleted_at'),
     createdAt: createdAt(),
     updatedAt: timestampTz('updated_at').notNull().defaultNow(),
   },
   (t) => [
     index('knowledge_ree_idx').on(t.reeId, t.updatedAt),
+    index('knowledge_folder_idx').on(t.folderId),
+    index('knowledge_trash_idx').on(t.deletedAt).where(sql`deleted_at is not null`),
     check('knowledge_kind_check', oneOf('kind', ['document', 'audio', 'github', 'page', 'site', 'text'])),
     check('knowledge_status_check', oneOf('status', ['pending', 'processing', 'ready', 'failed'])),
   ],
@@ -396,4 +426,42 @@ export const adminAudit = pgTable(
     createdAt: createdAt(),
   },
   (t) => [index('admin_audit_time_idx').on(t.createdAt), index('admin_audit_action_idx').on(t.action)],
+);
+
+/** A user's GitHub grant for private repositories (2.2); the token is sealed under ADMIN_SECRET_KEY. */
+export const githubConnection = pgTable('github_connection', {
+  userId: uuid('user_id')
+    .primaryKey()
+    .references(() => user.id, { onDelete: 'cascade' }),
+  githubLogin: text('github_login').notNull(),
+  encryptedToken: text('encrypted_token').notNull(),
+  scope: text('scope').notNull().default(''),
+  connectedAt: timestampTz('connected_at').notNull().defaultNow(),
+});
+
+/**
+ * A domain the user proved is theirs (2.2), once for all their Rees. `method`
+ * is the check that passed; `challenge` is the value either check looks for.
+ */
+export const domainClaim = pgTable(
+  'domain_claim',
+  {
+    id: uuid('id').primaryKey().defaultRandom(),
+    userId: uuid('user_id')
+      .notNull()
+      .references(() => user.id, { onDelete: 'cascade' }),
+    domain: text('domain').notNull(),
+    method: text('method').$type<'dns_txt' | 'well_known'>(),
+    challenge: text('challenge').notNull(),
+    status: text('status').$type<'pending' | 'verified' | 'failed'>().notNull().default('pending'),
+    verifiedAt: timestampTz('verified_at'),
+    /** Beyond 4: when the last check ran, for the page's "最近检查". */
+    checkedAt: timestampTz('checked_at'),
+    createdAt: createdAt(),
+  },
+  (t) => [
+    uniqueIndex('domain_claim_user_domain_key').on(t.userId, t.domain),
+    check('domain_claim_method_check', sql`method is null or method in ('dns_txt', 'well_known')`),
+    check('domain_claim_status_check', oneOf('status', ['pending', 'verified', 'failed'])),
+  ],
 );

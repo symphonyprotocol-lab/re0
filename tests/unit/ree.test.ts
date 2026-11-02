@@ -66,11 +66,25 @@ describe('draft', () => {
     expect(validateDraftSource({ ...source, kind: 'text', title: 't', text: 'body' })).toBeNull();
   });
 
+  it('opens all six kinds in step 3, each with its own check', () => {
+    const source = newReeDraft().source;
+    expect(validateDraftSource({ ...source, kind: 'audio' })).toBe('file');
+    expect(validateDraftSource({ ...source, kind: 'audio', blobPath: 'knowledge/u/1/a.mp3' })).toBe('audio-consent');
+    expect(validateDraftSource({ ...source, kind: 'audio', blobPath: 'knowledge/u/1/a.mp3', consent: true })).toBeNull();
+    expect(validateDraftSource({ ...source, kind: 'github', url: 'https://example.com/acme/x' })).toBe('github-url');
+    expect(validateDraftSource({ ...source, kind: 'github', url: 'https://github.com/acme/x' })).toBeNull();
+    expect(validateDraftSource({ ...source, kind: 'page', url: 'not a url' })).toBe('url');
+    expect(validateDraftSource({ ...source, kind: 'site', url: 'http://localhost/docs' })).toBe('url');
+    expect(validateDraftSource({ ...source, kind: 'site', url: 'https://docs.example.com/' })).toBeNull();
+  });
+
   it('coerces whatever arrives and never lets a step pass the furthest reached', () => {
-    const draft = coerceDraft({ name: 'x', step: 4, reached: 2, color: 'neon', source: { kind: 'github', blobPath: '../etc' } });
+    const draft = coerceDraft({ name: 'x', step: 4, reached: 2, color: 'neon', source: { kind: 'video', blobPath: '../etc', consent: 'yes' } });
     expect(draft.step).toBe(2);
     expect(draft.color).toBe('default');
     expect(draft.source.kind).toBe('later');
     expect(draft.source.blobPath).toBe('');
+    expect(draft.source.consent).toBe(false);
+    expect(coerceDraft({ source: { kind: 'github', url: 'https://github.com/a/b' } }).source).toMatchObject({ kind: 'github', url: 'https://github.com/a/b' });
   });
 });

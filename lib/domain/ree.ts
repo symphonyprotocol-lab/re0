@@ -5,6 +5,7 @@
  * everything the browser already checked.
  */
 import {
+  KNOWLEDGE_URL_MAX,
   QUERY_FEE,
   REE_CATEGORIES,
   REE_COLORS,
@@ -13,6 +14,7 @@ import {
   type ReeCategory,
   type ReeColor,
 } from '@/lib/constants';
+import { parseGithubRepo, parseWebUrl } from '@/lib/domain/sources';
 
 /** Suggested tags per category; anything else may be typed (prototype dot-classification.js). */
 export const CATEGORY_TAGS: Record<ReeCategory, { zh: string[]; en: string[] }> = {
@@ -87,17 +89,22 @@ export function sampleQuestionList(value: string | readonly string[]): string[] 
   return lines.map((line) => line.trim()).filter(Boolean);
 }
 
-export type SourceChoice = 'later' | 'document' | 'text';
+export const SOURCE_CHOICES = ['later', 'document', 'audio', 'github', 'page', 'site', 'text'] as const;
+export type SourceChoice = (typeof SOURCE_CHOICES)[number];
 
-/** The wizard's first-source step; only documents and pasted text open in step 1. */
+/** The wizard's first-source step: any of the six kinds, or "稍后添加". */
 export interface DraftSource {
   kind: SourceChoice;
   title: string;
   text: string;
-  /** Set once the document has been uploaded to Blob, so a reload keeps it. */
+  /** Set once the document or audio has been uploaded to Blob, so a reload keeps it. */
   fileName: string;
   fileSize: number;
   blobPath: string;
+  /** A repository, page or website URL. */
+  url: string;
+  /** Audio: the owner agreed to send it to the transcription service. */
+  consent: boolean;
 }
 
 /** `user.ree_draft`: everything the four steps collect, saved on every step change. */
@@ -133,7 +140,7 @@ export function newReeDraft(): ReeDraft {
     queryFee: QUERY_FEE.default,
     step: 1,
     reached: 1,
-    source: { kind: 'later', title: '', text: '', fileName: '', fileSize: 0, blobPath: '' },
+    source: { kind: 'later', title: '', text: '', fileName: '', fileSize: 0, blobPath: '', url: '', consent: false },
   };
 }
 
@@ -155,7 +162,7 @@ export function coerceDraft(input: unknown): ReeDraft {
   const raw = (typeof input === 'object' && input !== null ? input : {}) as Record<string, unknown>;
   const base = newReeDraft();
   const source = (typeof raw.source === 'object' && raw.source !== null ? raw.source : {}) as Record<string, unknown>;
-  const kind = source.kind === 'document' || source.kind === 'text' ? source.kind : 'later';
+  const kind = (SOURCE_CHOICES as readonly unknown[]).includes(source.kind) ? (source.kind as SourceChoice) : 'later';
   const reached = clampStep(raw.reached);
   return {
     name: str(raw.name, REE_LIMITS.name * 2),
@@ -177,6 +184,8 @@ export function coerceDraft(input: unknown): ReeDraft {
       fileName: str(source.fileName, 300),
       fileSize: Number.isFinite(Number(source.fileSize)) ? Number(source.fileSize) : 0,
       blobPath: typeof source.blobPath === 'string' && source.blobPath.startsWith('knowledge/') ? source.blobPath : '',
+      url: str(source.url, KNOWLEDGE_URL_MAX),
+      consent: source.consent === true,
     },
   };
 }
@@ -222,11 +231,14 @@ export function validateReeFields(fields: ReeFields, step: number): { step: numb
   return null;
 }
 
-export type SourceError = 'file' | 'source-text';
+export type SourceError = 'file' | 'source-text' | 'audio-consent' | 'url' | 'github-url';
 
 /** The first source, checked before the last step and again at creation. */
 export function validateDraftSource(source: DraftSource): SourceError | null {
-  if (source.kind === 'document' && !source.blobPath) return 'file';
+  if ((source.kind === 'document' || source.kind === 'audio') && !source.blobPath) return 'file';
+  if (source.kind === 'audio' && !source.consent) return 'audio-consent';
+  if (source.kind === 'github' && !parseGithubRepo(source.url)) return 'github-url';
+  if ((source.kind === 'page' || source.kind === 'site') && !parseWebUrl(source.url)) return 'url';
   if (source.kind === 'text') {
     const title = source.title.trim();
     const text = source.text.trim();

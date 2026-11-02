@@ -3,7 +3,7 @@ import { InsufficientCredits } from '@/lib/domain/credits';
 import { fail, json } from '@/lib/http/respond';
 import { apiUser } from '@/lib/http/session';
 import { db } from '@/lib/infra/db';
-import { KnowledgeInputError, processKnowledge, refreshKnowledge } from '@/lib/services/knowledge';
+import { inputErrorStatus, KnowledgeInputError, processKnowledge, refreshKnowledge } from '@/lib/services/knowledge';
 import { ownedRee } from '@/lib/services/rees';
 
 export const maxDuration = 300;
@@ -20,7 +20,7 @@ export async function POST(request: NextRequest, context: { params: Promise<{ id
     after(() => processKnowledge(kid));
     return json({ id: kid }, 202);
   } catch (error) {
-    if (error instanceof KnowledgeInputError) return fail(error.code, error.code === 'not_found' ? 404 : 409);
+    if (error instanceof KnowledgeInputError) return fail(error.code, inputErrorStatus(error.code));
     if (error instanceof InsufficientCredits) return fail('insufficient_credits', 402, { needed: error.needed, balance: error.available });
     throw error;
   }

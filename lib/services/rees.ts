@@ -12,6 +12,7 @@ import {
   reeValues,
   validateDraftSource,
   validateReeFields,
+  type DraftSource,
   type ReeDraft,
   type ReeFieldError,
   type ReeFields,
@@ -52,14 +53,14 @@ export interface ReeListItem {
 }
 
 /**
- * Per-Ree counts, as SQL expressions: sources (any status), ready sources,
+ * Per-Ree counts, as SQL expressions: sources (any status, trash excluded), ready sources,
  * successful answers. The outer column is written out qualified: drizzle
  * renders a column inside a select list unqualified, and a bare "id" would
  * bind to the subquery's own table.
  */
 const reeId = sql.raw('"ree"."id"');
-const sourcesCount = sql<number>`(select count(*)::int from ${schema.knowledge} k where k.ree_id = ${reeId})`;
-const readyCount = sql<number>`(select count(*)::int from ${schema.knowledge} k where k.ree_id = ${reeId} and k.status = 'ready')`;
+const sourcesCount = sql<number>`(select count(*)::int from ${schema.knowledge} k where k.ree_id = ${reeId} and k.deleted_at is null)`;
+const readyCount = sql<number>`(select count(*)::int from ${schema.knowledge} k where k.ree_id = ${reeId} and k.deleted_at is null and k.status = 'ready')`;
 const answersCount = sql<number>`(select count(*)::int from ${schema.message} m where m.ree_id = ${reeId} and m.role = 'ree' and not m.no_answer)`;
 
 function ownedLive(ownerId: string): SQL {
@@ -215,6 +216,34 @@ async function insertRee(tx: Tx, ownerId: string, values: ReturnType<typeof reeV
   throw new Error('could not find a free slug');
 }
 
+/** The wizard's first source as a knowledge submission, or null for "稍后添加". */
+export function draftKnowledge(source: DraftSource): NewKnowledge | null {
+  switch (source.kind) {
+    case 'later':
+      return null;
+    case 'document':
+      return { kind: 'document', blobPath: source.blobPath, fileName: source.fileName };
+    case 'audio':
+      return { kind: 'audio', blobPath: source.blobPath, fileName: source.fileName, consent: source.consent };
+    case 'text':
+      return { kind: 'text', title: source.title, content: source.text };
+    case 'github':
+    case 'page':
+    case 'site':
+      return { kind: source.kind, url: source.url };
+  }
+}
+
+/**
+ * The part of a first source's check that needs the network -- a private
+ * repository's GitHub connection, a website's verified domain -- run when
+ * the wizard leaves step 3, so the owner is told there and not at the end.
+ */
+export async function checkDraftSource(ownerId: string, source: DraftSource): Promise<void> {
+  if (source.kind !== 'github' && source.kind !== 'site') return;
+  await checkKnowledge(ownerId, draftKnowledge(source)!);
+}
+
 /**
  * The wizard's final confirmation: the only moment a Ree is created. The
  * first source, when there is one, is created in the same transaction with
@@ -228,12 +257,7 @@ export async function createReeFromDraft(ownerId: string): Promise<{ ree: Ree; k
   const sourceError = validateDraftSource(draft.source);
   if (sourceError) throw new ReeInputError(sourceError, 3);
 
-  const source: NewKnowledge | null =
-    draft.source.kind === 'document'
-      ? { kind: 'document', blobPath: draft.source.blobPath, fileName: draft.source.fileName }
-      : draft.source.kind === 'text'
-        ? { kind: 'text', title: draft.source.title, content: draft.source.text }
-        : null;
+  const source = draftKnowledge(draft.source);
   /* The upload is checked against Blob before the transaction opens. */
   const checked = source ? await checkKnowledge(ownerId, source) : null;
 

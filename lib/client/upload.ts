@@ -9,7 +9,10 @@ import { put } from '@vercel/blob/client';
  */
 export async function uploadToBlob(
   file: Blob,
-  ticketRequest: { purpose: 'document'; fileName: string; size: number } | { purpose: 'avatar'; contentType: string; size: number },
+  ticketRequest:
+    | { purpose: 'document' | 'audio'; fileName: string; size: number }
+    | { purpose: 'avatar'; contentType: string; size: number },
+  onProgress?: (percent: number) => void,
 ): Promise<{ pathname: string } | { error: string }> {
   const response = await fetch('/api/upload-token', {
     method: 'POST',
@@ -19,7 +22,14 @@ export async function uploadToBlob(
   const ticket = (await response.json().catch(() => ({}))) as { pathname?: string; token?: string; contentType?: string; error?: string };
   if (!response.ok || !ticket.pathname || !ticket.token) return { error: ticket.error ?? 'upload' };
   try {
-    await put(ticket.pathname, file, { access: 'private', token: ticket.token, contentType: ticket.contentType });
+    await put(ticket.pathname, file, {
+      access: 'private',
+      token: ticket.token,
+      contentType: ticket.contentType,
+      /* Audio runs to 100 MB: parts upload in parallel and a dropped one is retried alone. */
+      multipart: file.size > 8 * 1024 * 1024,
+      onUploadProgress: onProgress ? (event) => onProgress(Math.round(event.percentage)) : undefined,
+    });
     return { pathname: ticket.pathname };
   } catch {
     return { error: 'upload' };

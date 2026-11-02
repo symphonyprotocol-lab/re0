@@ -1,6 +1,7 @@
 /**
- * Secrets at rest -- model API keys and administrators' TOTP secrets --
- * sealed with AES-256-GCM under a key derived from ADMIN_SECRET_KEY. The
+ * Secrets at rest -- model API keys, administrators' TOTP secrets, users'
+ * GitHub tokens -- sealed with AES-256-GCM under a key derived from
+ * ADMIN_SECRET_KEY (one salt per purpose). The
  * derivation matches the old console's, so a key sealed before the rebuild
  * still opens. Separate from AUTH_SECRET: rotating that signs everyone out,
  * and nobody should weigh that against retiring a credential key.
@@ -11,11 +12,12 @@ import { encryptionSecret } from '@/lib/infra/crypto/secrets';
 const encoder = new TextEncoder();
 const decoder = new TextDecoder();
 
-export type CredentialPurpose = 'provider' | 'totp';
+export type CredentialPurpose = 'provider' | 'totp' | 'github';
 
 const SALTS: Record<CredentialPurpose, string> = {
   provider: 're0/provider-credential/v1',
   totp: 're0/admin-totp/v1',
+  github: 're0/github-connection/v1',
 };
 
 const cachedKeys = new Map<CredentialPurpose, Promise<CryptoKey>>();
