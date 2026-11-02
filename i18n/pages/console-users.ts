@@ -45,8 +45,6 @@ export const zh = {
   },
   detail: {
     title: '用户详情',
-    notFound: '用户不存在或已删除。',
-    backToList: '返回用户列表',
     id: 'ID {id}',
     stats: {
       plan: 'Plan 当期',
@@ -116,11 +114,9 @@ export const zh = {
       renewalOn: '开启',
       renewalOff: '关闭',
       role: '账号角色',
-      figures: '余额合计',
       total: 'Credits 合计',
-      manage: '管理操作',
-      manageBody: '手动调整 credits 时必须填写原因。赠送额度不会变为可提现收入。',
-      disableHint: '停用后无法继续使用用户工作台，账号资料与历史保留。',
+      reesCount: 'Ree 数量',
+      purchasesCount: '充值笔数',
     },
     providers: { google: 'Google', github: 'GitHub' },
     roles: {
@@ -133,6 +129,7 @@ export const zh = {
       cancelOfficial: '取消官方',
       revoke: '撤销认证',
       viewRequests: '查看认证申请',
+      footnote: '认证只能通过申请审核获得；直接调整角色必须填写原因并记入审计。',
       officialImpact: '官方用于平台自营 Ree，无需 KYC 且不可提现。设为官方会关闭该用户待审核的认证申请，不计入 30 天等待期。',
       normalImpact: '账号将回到普通角色，名下全部 Ree 的角色标识立即更新。',
       reason: '变更原因（必填，用户可见）',
@@ -198,7 +195,6 @@ export const zh = {
     view: '查看详情',
     detail: {
       title: '认证申请审核',
-      notFound: '认证申请不存在或已删除。',
       application: '申请内容',
       noLinks: '未提供外部链接',
       submitted: '提交于 {time}',
@@ -260,7 +256,6 @@ export const zh = {
     userDetail: '用户详情',
     detail: {
       title: '交易详情',
-      notFound: '交易记录不存在或已删除。',
       refundNote: '退款与拒付在 Paddle 后台处理；webhook 到达后自动收回 credits，已花掉的部分记为待还。',
       record: '记录信息',
       user: '购买用户',
@@ -339,8 +334,6 @@ export const en: Shape<typeof zh> = {
   },
   detail: {
     title: 'User details',
-    notFound: 'The user does not exist or was deleted.',
-    backToList: 'Back to users',
     id: 'ID {id}',
     stats: {
       plan: 'Plan credits',
@@ -410,11 +403,9 @@ export const en: Shape<typeof zh> = {
       renewalOn: 'On',
       renewalOff: 'Off',
       role: 'Account role',
-      figures: 'Balances',
       total: 'Total credits',
-      manage: 'Account actions',
-      manageBody: 'Credit adjustments require a reason. Granted credits never become withdrawable earnings.',
-      disableHint: 'Disabled users cannot use the workspace. Profile and history are kept.',
+      reesCount: 'Rees',
+      purchasesCount: 'Purchases',
     },
     providers: { google: 'Google', github: 'GitHub' },
     roles: {
@@ -427,6 +418,7 @@ export const en: Shape<typeof zh> = {
       cancelOfficial: 'Remove official role',
       revoke: 'Revoke verification',
       viewRequests: 'View verification requests',
+      footnote: 'Verification is granted through application review. Direct role changes require an audited reason.',
       officialImpact: 'Official is for platform-operated Rees; KYC and payouts are unavailable. Making the user official closes their pending request without starting the 30-day wait.',
       normalImpact: 'The account returns to normal and all its Ree badges update immediately.',
       reason: 'Reason (required, visible to the user)',
@@ -492,7 +484,6 @@ export const en: Shape<typeof zh> = {
     view: 'Details',
     detail: {
       title: 'Review verification request',
-      notFound: 'The request does not exist or was deleted.',
       application: 'Application',
       noLinks: 'No external links',
       submitted: 'Submitted {time}',
@@ -554,7 +545,6 @@ export const en: Shape<typeof zh> = {
     userDetail: 'User details',
     detail: {
       title: 'Transaction details',
-      notFound: 'The transaction does not exist or was deleted.',
       refundNote: 'Refunds and chargebacks are handled in Paddle’s dashboard; when the webhook arrives the credits are taken back, and whatever was already spent is recorded as owed.',
       record: 'Record',
       user: 'User',

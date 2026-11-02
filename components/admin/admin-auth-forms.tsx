@@ -130,3 +130,64 @@ export function AdminBootstrapForm({ sealedSecret, secret, qr }: { sealedSecret:
     </form>
   );
 }
+
+/**
+ * An invited administrator's enrolment (`/admin/login?invite=…`): who is
+ * enrolling is fixed by the link, the TOTP secret is minted by the server and
+ * travels sealed; a password and the first code finish it and sign in.
+ */
+export function AdminEnrolForm({ token, name, email, sealedSecret, secret, qr }: { token: string; name: string; email: string; sealedSecret: string; secret: string; qr: string }) {
+  const { t } = useI18n();
+  const s = t.admin.setup;
+  const e = t.consoleRees.enrol;
+  const router = useRouter();
+  const [error, setError] = useState('');
+  const [busy, setBusy] = useState(false);
+  return (
+    <form
+      className="mt-4"
+      onSubmit={async (event) => {
+        event.preventDefault();
+        const form = new FormData(event.currentTarget);
+        setBusy(true);
+        setError('');
+        const result = await api<{ error?: string }>('/api/admin/auth/enrol', {
+          method: 'POST',
+          json: { token, password: form.get('password'), code: form.get('code'), sealedSecret },
+        });
+        setBusy(false);
+        if (result.ok) {
+          router.push('/admin/overview');
+          router.refresh();
+          return;
+        }
+        const code = result.data.error;
+        setError(code && code in e.errors ? e.errors[code as keyof typeof e.errors] : t.common.errors.generic);
+      }}
+    >
+      <Input id="enrol-name" value={name} readOnly label={e.name} />
+      <Input id="enrol-email" type="email" value={email} readOnly autoComplete="username" label={e.email} />
+      <Input id="enrol-password" name="password" type="password" required minLength={ADMIN_PASSWORD_MIN} autoComplete="new-password" label={t.admin.login.password} hint={s.passwordHint} />
+      <div className="mt-5 flex flex-col gap-4 rounded-xl border border-line bg-wash p-4 sm:flex-row">
+        {/* eslint-disable-next-line @next/next/no-img-element */}
+        <img src={qr} alt="" width={120} height={120} className="size-[120px] flex-none rounded-lg border border-line bg-white" />
+        <div className="min-w-0">
+          <strong className="text-[13px]">{s.totpTitle}</strong>
+          <p className="mt-1 text-[11px] text-muted">{s.totpBody}</p>
+          <code className="mt-2 block font-mono text-[11px] break-all text-ink">{secret}</code>
+        </div>
+      </div>
+      <Input id="enrol-totp" name="code" inputMode="numeric" pattern="[0-9]{6}" maxLength={6} required autoComplete="one-time-code" placeholder="000000" label={t.admin.login.totp} hint={t.admin.login.totpHint} />
+      {error && (
+        <p role="alert" className="mt-4 text-[12px] text-red">
+          {error}
+        </p>
+      )}
+      <button type="submit" className="btn mt-6 min-h-12 w-full" disabled={busy}>
+        {busy && <Spinner />}
+        {e.submit}
+        <Icon name="arrow" />
+      </button>
+    </form>
+  );
+}

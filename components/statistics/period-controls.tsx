@@ -249,7 +249,7 @@ function DateControl({ filter, today, hrefWith }: { filter: PeriodFilter; today:
         onClick={toggle}
         aria-haspopup="dialog"
         aria-expanded={open}
-        aria-label={`${label}：${value}`}
+        aria-label={`${label} · ${value}`}
         className="flex min-h-9 w-full items-center justify-between gap-3 rounded-lg border border-line bg-white px-3 py-1.5 text-[13px] font-semibold hover:border-[#c4cce0] sm:w-auto sm:min-w-[220px]"
       >
         <span className="flex min-w-0 flex-col items-start">
@@ -258,11 +258,6 @@ function DateControl({ filter, today, hrefWith }: { filter: PeriodFilter; today:
         </span>
         <Icon name="clock" className="size-4 flex-none text-muted" />
       </button>
-      {error && (
-        <p role="alert" className="mt-2 text-[12px] text-red">
-          {error}
-        </p>
-      )}
       {open && (
         <div role="dialog" aria-label={label} className="absolute top-full left-0 z-30 mt-2 w-[304px] max-w-[calc(100vw-32px)] rounded-xl border border-line bg-white p-3 shadow-xl">
           {custom && (
