@@ -28,7 +28,21 @@ Step 2 of `rebuild-proposal.md` §8.4, "知识全类型与知识管理". Branch 
 - In the integration fake (`tests/fixtures/fake-openai.ts`), parallel transcription made "call number" keys racy; `fakeMp3()` writes the piece index into each frame and the fake keys transcripts by it.
 - `fetch` to GitHub/sites is stubbed in tests with `tests/fixtures/fake-web.ts` (`vi.stubGlobal`), which passes `127.0.0.1` through to the model fake.
 - A walkthrough without real models: `npx tsx tests/fixtures/serve-fake-openai.ts 5443` and `LLM_BASE_URL=http://127.0.0.1:5443/v1`. The browser walkthrough for this step ran on a local `pgvector/pgvector:pg16` container (`re0-dev-pg`, 5441) behind `tests/fixtures/wsproxy.mjs` (5442) with `DATABASE_WS_PROXY`, real Vercel Blob, real GitHub and real websites.
-- **Neon dev branch**: migration `0002_knowledge_library` was **not** applied to it from this session. Run `npm run db:migrate` against the dev branch (or let the preview build migrate its branch) before pointing a dev server at it.
+- **Neon dev branch**: migration `0002_knowledge_library` has been applied to it (endpoint `ep-icy-unit`, 18 tables, two rows in `drizzle.__drizzle_migrations`). Production migrates itself in the Vercel build.
+- **`CRON_SECRET`** already existed in the Vercel project for Production, Preview and Development; Vercel Cron sends it to `/api/cron/purge-trash`.
+
+## GitHub App for "连接 GitHub"
+
+Without `GITHUB_APP_CLIENT_ID/SECRET` the connect flow falls back to the sign-in OAuth app with the `repo` scope, which is read-write. For the read-only grant §2.2 asks for, register a GitHub App:
+
+- **Public** (any RE0 user installs it on their own account), webhook off.
+- Repository permissions: **Contents: Read-only** (Metadata: Read-only comes with it). Nothing else.
+- Callback URLs: `https://re0.io/api/auth/github/callback/connect`, plus `http://localhost:3000/api/auth/github/callback/connect` for local work. A preview deployment needs its own `APP_BASE_URL` callback listed too.
+- "Request user authorization (OAuth) during installation": **off** -- our callback expects the state cookie that only "连接 GitHub" sets.
+- **Opt out of user-to-server token expiration** (Optional features). The stored grant has no refresh token; an expiring token would stop private repositories processing after 8 hours.
+- Then generate a client secret and set `GITHUB_APP_CLIENT_ID` / `GITHUB_APP_CLIENT_SECRET` for Production and Preview (`vercel env add …`) and in `.env.local`.
+
+A GitHub App's user token only reaches repositories where the App is **installed**: each user installs it (`https://github.com/apps/<slug>/installations/new`) and picks repositories, otherwise adding a private repository answers `github_repo_not_found`. The connections tab does not link to the install page yet; a `GITHUB_APP_SLUG` variable and a "选择可读取的仓库" link there would close that gap.
 
 ## Left for later steps
 
