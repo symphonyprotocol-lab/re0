@@ -34,7 +34,7 @@ export function Entries({ items, total, page, size, activity }: { items: EntryRo
   };
 
   const charged = (entry: EntryRow) => {
-    const amount = entry.reason === 'knowledge_settle' || entry.reason === 'query_base' ? chargedFromNote(entry.note) : null;
+    const amount = entry.reason === 'knowledge_settle' || entry.reason === 'query_base' || entry.reason === 'query_fee_paid' ? chargedFromNote(entry.note) : null;
     return amount === null ? null : fill(b.charged, { n: formatNumber(amount, locale) });
   };
 

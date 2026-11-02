@@ -14,9 +14,11 @@ import * as reeSetup from './pages/ree-setup';
 import * as rees from './pages/rees';
 import * as settings from './pages/settings';
 import * as site from './pages/site';
+import * as conversations from './pages/conversations';
+import * as discover from './pages/discover';
 import type { Locale } from './locale';
 
-const pages = { common, login, dashboard, rees, reeSetup, knowledge, chat, settings, billing, site, legal, admin };
+const pages = { common, login, dashboard, rees, reeSetup, knowledge, chat, settings, billing, site, legal, admin, conversations, discover };
 
 type Pages = typeof pages;
 export type Messages = { [K in keyof Pages]: Pages[K]['en'] };

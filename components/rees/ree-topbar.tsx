@@ -1,9 +1,11 @@
+import Link from 'next/link';
 import type { ReactNode } from 'react';
+import { Icon } from '@/components/ui/icons';
 import { serverMessages } from '@/i18n/server';
 import { Topbar } from '@/components/shell/topbar';
 
 /** A Ree's pages share one top bar: the way back to My Rees and the Ree's tabs (settings, knowledge, chat). */
-export async function ReeTopbar({ ree, active, actions }: { ree: { id: string; name: string }; active: 'settings' | 'knowledge' | 'chat'; actions?: ReactNode }) {
+export async function ReeTopbar({ ree, active, actions }: { ree: { id: string; name: string; slug?: string; isPublic?: boolean }; active: 'settings' | 'knowledge' | 'chat'; actions?: ReactNode }) {
   const { t } = await serverMessages();
   const tab = t.reeSetup.tabs;
   return (
@@ -15,7 +17,18 @@ export async function ReeTopbar({ ree, active, actions }: { ree: { id: string; n
         { label: tab.knowledge, href: `/rees/${ree.id}/knowledge`, active: active === 'knowledge', icon: 'file' },
         { label: tab.chat, href: `/rees/${ree.id}/chat`, active: active === 'chat', icon: 'chat' },
       ]}
-      actions={actions}
+      actions={
+        <>
+          {actions}
+          {/* Step 4: a public Ree's page, apart from its tabs (prototype "公开页入口独立放在右侧"). */}
+          {ree.isPublic && ree.slug && (
+            <Link href={`/r/${ree.slug}`} className="btn-ghost" title={t.discover.public.publicRee}>
+              <Icon name="external" />
+              <span className="hidden lg:inline">{t.discover.public.publicRee}</span>
+            </Link>
+          )}
+        </>
+      }
     />
   );
 }

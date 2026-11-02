@@ -1,11 +1,14 @@
 import type { Metadata } from 'next';
 import Link from 'next/link';
+import { HOME_EXAMPLE_REES } from '@/lib/constants';
 import { currentUser } from '@/lib/http/session';
+import { activeRees } from '@/lib/services/explore';
 import { serverMessages } from '@/i18n/server';
 import { Icon, type IconName } from '@/components/ui/icons';
 import { ReeAvatar } from '@/components/ui/ree-avatar';
 import { DemoTrigger, HomeDemo } from '@/components/site/home-demo';
 import { Faq } from '@/components/site/faq';
+import { RoleBadge } from '@/components/discover/role-badge';
 
 export async function generateMetadata(): Promise<Metadata> {
   const { t } = await serverMessages();
@@ -18,7 +21,7 @@ export async function generateMetadata(): Promise<Metadata> {
  * (the video itself is step 7), the price in brief, and the FAQ.
  */
 export default async function HomePage() {
-  const [user, { t }] = await Promise.all([currentUser(), serverMessages()]);
+  const [user, { t }, examples] = await Promise.all([currentUser(), serverMessages(), activeRees(HOME_EXAMPLE_REES)]);
   const h = t.site.home;
   const createHref = user ? '/rees/new' : `/login?returnTo=${encodeURIComponent('/rees/new')}`;
   const sources: [IconName, keyof typeof h.sources][] = [
@@ -178,28 +181,51 @@ export default async function HomePage() {
           {h.examplesTitle}
           <em className="text-blue not-italic">{h.examplesEm}</em>
         </h2>
-        <p className="mt-3 text-[12px] text-muted">{h.examplesNote}</p>
+        <p className="mt-3 flex flex-wrap items-center gap-x-3 text-[12px] text-muted">
+          {examples.length ? t.discover.home.note : h.examplesNote}
+          <Link href="/explore" className="inline-flex items-center gap-1 text-blue hover:underline">
+            {t.discover.home.all}
+            <Icon name="arrow" className="size-3" />
+          </Link>
+        </p>
         <div className="mt-10 grid gap-5 lg:grid-cols-[minmax(0,1fr)_minmax(0,1.2fr)]">
           <div className="grid gap-4">
-            {([
-              ['design', 'default'],
-              ['code', 'slate'],
-              ['read', 'sand'],
-            ] as const).map(([key, color]) => (
-              <article key={key} className="card flex items-start gap-4 p-5">
-                <ReeAvatar color={color} />
-                <div className="min-w-0 flex-1">
-                  <div className="flex items-center gap-2">
-                    <h3 className="truncate text-[15px] font-bold">{h.examples[key].name}</h3>
-                    <span className="tag">{h.example}</span>
-                  </div>
-                  <p className="mt-1 text-[13px] text-muted">{h.examples[key].body}</p>
-                  <p className="mt-2 font-mono text-[13px]">
-                    {h.examples[key].fee} <small className="text-muted">{h.perAnswer}</small>
-                  </p>
-                </div>
-              </article>
-            ))}
+            {/* Step 4: the most active public Rees; the illustrative three only while there are none. */}
+            {examples.length
+              ? examples.map((ree) => (
+                  <Link key={ree.id} href={`/r/${ree.slug}`} className="card flex items-start gap-4 p-5 hover:border-blue">
+                    <ReeAvatar avatar={ree.avatarBlob} color={ree.color} />
+                    <div className="min-w-0 flex-1">
+                      <div className="flex min-w-0 items-center">
+                        <h3 className="truncate text-[15px] font-bold">{ree.name}</h3>
+                        <RoleBadge role={ree.role} />
+                      </div>
+                      <p className="mt-1 line-clamp-2 text-[13px] text-muted">{ree.description}</p>
+                      <p className="mt-2 font-mono text-[13px]">
+                        {ree.price} <small className="text-muted">{h.perAnswer}</small>
+                      </p>
+                    </div>
+                  </Link>
+                ))
+              : ([
+                  ['design', 'default'],
+                  ['code', 'slate'],
+                  ['read', 'sand'],
+                ] as const).map(([key, color]) => (
+                  <article key={key} className="card flex items-start gap-4 p-5">
+                    <ReeAvatar color={color} />
+                    <div className="min-w-0 flex-1">
+                      <div className="flex items-center gap-2">
+                        <h3 className="truncate text-[15px] font-bold">{h.examples[key].name}</h3>
+                        <span className="tag">{h.example}</span>
+                      </div>
+                      <p className="mt-1 text-[13px] text-muted">{h.examples[key].body}</p>
+                      <p className="mt-2 font-mono text-[13px]">
+                        {h.examples[key].fee} <small className="text-muted">{h.perAnswer}</small>
+                      </p>
+                    </div>
+                  </article>
+                ))}
           </div>
           <figure className="relative flex aspect-video min-w-0 flex-col justify-end overflow-hidden rounded-2xl bg-gradient-to-br from-[#0b1a4a] via-ink to-[#123a7a] p-6 text-white">
             <span className="absolute top-1/2 left-1/2 inline-flex size-16 -translate-x-1/2 -translate-y-1/2 items-center justify-center rounded-full border border-white/30 bg-white/10 backdrop-blur-sm" aria-hidden="true">
