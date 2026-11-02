@@ -2,7 +2,18 @@ import type { NextRequest } from 'next/server';
 import { json } from '@/lib/http/respond';
 import { apiUser } from '@/lib/http/session';
 import { videoFailure } from '@/lib/http/video';
-import { startExport } from '@/lib/services/video';
+import { exportQuote, startExport } from '@/lib/services/video';
+
+/** Beyond 5: what an export would cost now, or the cached file, so the confirmation is exact before anything is held. */
+export async function GET(request: NextRequest, context: { params: Promise<{ id: string }> }) {
+  const user = await apiUser(request);
+  if (user instanceof Response) return user;
+  try {
+    return json(await exportQuote(user.id, (await context.params).id));
+  } catch (error) {
+    return videoFailure(error);
+  }
+}
 
 /**
  * An export starts (rebuild-proposal.md 5): a cache hit answers the existing

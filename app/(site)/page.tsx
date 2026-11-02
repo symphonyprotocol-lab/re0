@@ -4,6 +4,7 @@ import { HOME_EXAMPLE_REES } from '@/lib/constants';
 import { currentUser } from '@/lib/http/session';
 import { activeRees } from '@/lib/services/explore';
 import { HomeIntro } from '@/components/video/home-intro';
+import { PlayIntroButton } from '@/components/video/video-cover';
 import { serverMessages } from '@/i18n/server';
 import { Icon, type IconName } from '@/components/ui/icons';
 import { ReeAvatar } from '@/components/ui/ree-avatar';
@@ -195,19 +196,23 @@ export default async function HomePage() {
             {/* Step 4: the most active public Rees; the illustrative three only while there are none. */}
             {examples.length
               ? examples.map((ree) => (
-                  <Link key={ree.id} href={`/r/${ree.slug}`} className="card flex items-start gap-4 p-5 hover:border-blue">
-                    <ReeAvatar avatar={ree.avatarBlob} color={ree.color} />
-                    <div className="min-w-0 flex-1">
-                      <div className="flex min-w-0 items-center">
-                        <h3 className="truncate text-[15px] font-bold">{ree.name}</h3>
-                        <RoleBadge role={ree.role} />
+                  <div key={ree.id} className="relative">
+                    <Link href={`/r/${ree.slug}`} className={`card flex h-full items-start gap-4 p-5 hover:border-blue ${ree.video ? 'pr-28' : ''}`}>
+                      <ReeAvatar avatar={ree.avatarBlob} color={ree.color} />
+                      <div className="min-w-0 flex-1">
+                        <div className="flex min-w-0 items-center">
+                          <h3 className="truncate text-[15px] font-bold">{ree.name}</h3>
+                          <RoleBadge role={ree.role} />
+                        </div>
+                        <p className="mt-1 line-clamp-2 text-[13px] text-muted">{ree.description}</p>
+                        <p className="mt-2 font-mono text-[13px]">
+                          {ree.price} <small className="text-muted">{h.perAnswer}</small>
+                        </p>
                       </div>
-                      <p className="mt-1 line-clamp-2 text-[13px] text-muted">{ree.description}</p>
-                      <p className="mt-2 font-mono text-[13px]">
-                        {ree.price} <small className="text-muted">{h.perAnswer}</small>
-                      </p>
-                    </div>
-                  </Link>
+                    </Link>
+                    {/* Step 7 (prototype home-dot-card "15s"): a Ree with an introduction plays it here. */}
+                    {ree.video && <PlayIntroButton video={ree.video} name={ree.name} href={`/r/${ree.slug}`} linkLabel={t.video.dialog.details} className="absolute top-4 right-4" />}
+                  </div>
                 ))
               : ([
                   ['design', 'default'],

@@ -434,6 +434,25 @@ export type ExportStart =
   | { cached: true; url: string; aspect: string }
   | { cached: false; exportId: string; cost: number; props: IntroProps; upload: UploadTicket };
 
+/**
+ * What exporting now would do, before anything is held: the cached file when
+ * the saved picture was exported before, else the price (free for the
+ * Ree's first). The confirmation shows this.
+ */
+export async function exportQuote(ownerId: string, reeId: string): Promise<{ cached: string | null; cost: number }> {
+  const database = db();
+  const ree = await ownerRee(database, ownerId, reeId);
+  const video = await videoOf(database, reeId);
+  const props = video ? introProps(video, ree, await readySourceCount(database, reeId)) : null;
+  if (!video || !props) throw new VideoError('no_script', 409);
+  const [done] = await database
+    .select({ blobUrl: schema.videoExport.blobUrl })
+    .from(schema.videoExport)
+    .where(and(eq(schema.videoExport.reeId, reeId), eq(schema.videoExport.contentVersion, contentVersion(props)), eq(schema.videoExport.status, 'done')))
+    .limit(1);
+  return { cached: done ? `/media/${done.blobUrl}` : null, cost: done ? 0 : exportCost(video.exportsCount) };
+}
+
 /** Gives back a started export's hold and marks it abandoned; its upload, if any arrived, is deleted. */
 async function abandon(tx: Tx, row: ExportRow, now: Date): Promise<void> {
   await tx.update(schema.videoExport).set({ status: 'abandoned', finishedAt: now }).where(eq(schema.videoExport.id, row.id));

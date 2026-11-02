@@ -11,28 +11,31 @@ import { Icon } from '@/components/ui/icons';
 
 /**
  * Expands the player node itself, so leaving fullscreen keeps the position
- * (prototype inline-video.js): native fullscreen when the host allows it, a
- * fixed full-page layout otherwise (embedded browsers deny the API).
+ * (prototype inline-video.js): the page-level layout at once, native
+ * fullscreen on top when the host allows it. Embedded browsers may deny the
+ * request or never answer it, so nothing waits for it, and a late grant
+ * after the viewer already collapsed the player is undone.
  */
-async function toggleFullscreen(node: HTMLElement, expanded: boolean): Promise<boolean> {
-  if (expanded) {
-    if (document.fullscreenElement === node) await document.exitFullscreen().catch(() => undefined);
-    return false;
-  }
+function requestNative(node: HTMLElement, stillWanted: () => boolean): void {
   try {
-    await node.requestFullscreen?.();
+    node
+      .requestFullscreen?.()
+      .then(() => {
+        if (!stillWanted() && document.fullscreenElement === node) void document.exitFullscreen().catch(() => undefined);
+      })
+      .catch(() => undefined);
   } catch {
-    /* The page-level layout below still applies. */
+    /* The page-level layout already applies. */
   }
-  return true;
 }
 
 /**
  * The Remotion Player with the prototype's controls (suite.js
  * `playerControls`): play / pause, clock, seek, replay at the end,
  * fullscreen, and -- in the editor -- the shot timeline. Playback is free
- * and nothing is rendered to a file. `autoPlay` starts muted, since a
- * browser only lets a page start sound after a click.
+ * and nothing is rendered to a file. `autoPlay` starts without the music:
+ * a browser starts audio only after a click, and the Player would wait on
+ * the music's clock and never move. The sound button (a click) adds it.
  */
 export function IntroPlayer({
   props,
@@ -40,30 +43,37 @@ export function IntroPlayer({
   autoPlay = false,
   timeline = false,
   fullscreen = true,
-  muted: startMuted = false,
 }: {
   props: IntroProps;
   name: string;
   autoPlay?: boolean;
   timeline?: boolean;
   fullscreen?: boolean;
-  muted?: boolean;
 }) {
   const { t } = useI18n();
   const p = t.video.player;
-  const ref = useRef<PlayerRef>(null);
+  const ref = useRef<PlayerRef | null>(null);
+  /* The Player hands its controls over after it mounts; the listeners wait for them. */
+  const [player, setPlayer] = useState<PlayerRef | null>(null);
+  const attach = useCallback((handle: PlayerRef | null) => {
+    ref.current = handle;
+    setPlayer(handle);
+  }, []);
   const shell = useRef<HTMLDivElement>(null);
   const [frame, setFrame] = useState(0);
   const [playing, setPlaying] = useState(false);
-  const [muted, setMuted] = useState(startMuted || autoPlay);
+  const [soundOn, setSoundOn] = useState(!autoPlay);
+  const shownProps = props.music && !soundOn ? { ...props, music: false } : props;
   const [expanded, setExpanded] = useState(false);
   const composition = introComposition(props.aspect);
   const portrait = props.aspect === '9:16';
   const ended = frame >= VIDEO_FRAMES - 1 && !playing;
 
   useEffect(() => {
-    const player = ref.current;
     if (!player) return;
+    /* An autoplay may have started before the listeners were attached. */
+    setPlaying(player.isPlaying());
+    setFrame(player.getCurrentFrame());
     const onFrame = (event: { detail: { frame: number } }) => setFrame(event.detail.frame);
     const onPlay = () => setPlaying(true);
     const onPause = () => setPlaying(false);
@@ -71,25 +81,23 @@ export function IntroPlayer({
       setPlaying(false);
       setFrame(VIDEO_FRAMES - 1);
     };
-    const onMute = (event: { detail: { isMuted: boolean } }) => setMuted(event.detail.isMuted);
     player.addEventListener('frameupdate', onFrame);
     player.addEventListener('play', onPlay);
     player.addEventListener('pause', onPause);
     player.addEventListener('ended', onEnded);
-    player.addEventListener('mutechange', onMute);
     return () => {
       player.removeEventListener('frameupdate', onFrame);
       player.removeEventListener('play', onPlay);
       player.removeEventListener('pause', onPause);
       player.removeEventListener('ended', onEnded);
-      player.removeEventListener('mutechange', onMute);
     };
-  }, []);
+  }, [player]);
 
   useEffect(() => {
     const onChange = () => {
-      if (!document.fullscreenElement && shell.current && expanded && document.fullscreenElement !== shell.current) {
+      if (!document.fullscreenElement && expanded && wanted.current) {
         /* Native fullscreen was left with Escape: fold the page layout too. */
+        wanted.current = false;
         setExpanded(false);
       }
     };
@@ -100,13 +108,18 @@ export function IntroPlayer({
   useEffect(() => {
     if (!expanded) return;
     const onKey = (event: KeyboardEvent) => {
-      if (event.key === 'Escape') setExpanded(false);
+      if (event.key !== 'Escape') return;
+      /* Inside a dialog, Escape folds the player first and leaves the dialog open. */
+      event.preventDefault();
+      event.stopPropagation();
+      wanted.current = false;
+      setExpanded(false);
     };
     document.body.style.overflow = 'hidden';
-    window.addEventListener('keydown', onKey);
+    window.addEventListener('keydown', onKey, true);
     return () => {
       document.body.style.overflow = '';
-      window.removeEventListener('keydown', onKey);
+      window.removeEventListener('keydown', onKey, true);
     };
   }, [expanded]);
 
@@ -126,9 +139,17 @@ export function IntroPlayer({
     setFrame(to);
   };
 
-  const onFullscreen = async () => {
-    if (!shell.current) return;
-    setExpanded(await toggleFullscreen(shell.current, expanded));
+  const wanted = useRef(false);
+  const onFullscreen = () => {
+    const node = shell.current;
+    if (!node) return;
+    wanted.current = !expanded;
+    setExpanded(!expanded);
+    if (expanded) {
+      if (document.fullscreenElement === node) void document.exitFullscreen().catch(() => undefined);
+      return;
+    }
+    requestNative(node, () => wanted.current);
   };
 
   const current = shotAt(frame);
@@ -141,19 +162,19 @@ export function IntroPlayer({
         aria-label={fill(p.region, { name })}
         className={expanded ? 'fixed inset-0 z-[90] flex flex-col bg-[#050a1f] p-3 sm:p-6' : 'relative'}
       >
-        <div className={`relative ${expanded ? 'flex min-h-0 flex-1 items-center justify-center' : portrait ? 'mx-auto w-full max-w-[min(100%,calc(min(72vh,640px)*9/16))]' : 'w-full'}`}>
+        <div className={`relative ${expanded ? 'flex min-h-0 flex-1 items-center justify-center' : portrait ? 'mx-auto w-full max-w-[min(100%,calc(min(60vh,640px)*9/16))]' : 'w-full'}`}>
           <Player
-            ref={ref}
+            ref={attach}
             component={composition.component}
-            inputProps={props}
+            inputProps={shownProps}
             durationInFrames={composition.durationInFrames}
             fps={composition.fps}
             compositionWidth={composition.width}
             compositionHeight={composition.height}
             acknowledgeRemotionLicense
             autoPlay={autoPlay}
-            initiallyMuted={muted}
             clickToPlay={false}
+            moveToBeginningWhenEnded={false}
             doubleClickToFullscreen={false}
             spaceKeyToPlayOrPause
             style={expanded ? { width: '100%', height: '100%' } : { width: '100%', aspectRatio: portrait ? '9 / 16' : '16 / 9', borderRadius: 10, overflow: 'hidden' }}
@@ -191,12 +212,12 @@ export function IntroPlayer({
             <button
               type="button"
               className={`icon-btn ${expanded ? 'text-white hover:bg-white/10 hover:text-white' : ''}`}
-              onClick={() => (muted ? ref.current?.unmute() : ref.current?.mute())}
+              onClick={() => setSoundOn((on) => !on)}
               aria-label={p.muted}
-              aria-pressed={muted}
+              aria-pressed={!soundOn}
               title={p.muted}
             >
-              <Icon name="audio" className={muted ? 'opacity-40' : ''} />
+              <Icon name="audio" className={soundOn ? '' : 'opacity-40'} />
             </button>
           )}
           <span className="tag hidden sm:inline-flex">720p</span>

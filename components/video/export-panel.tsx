@@ -61,6 +61,7 @@ export function ExportPanel({
   const toast = useToast();
   const router = useRouter();
   const [dialog, setDialog] = useState<'unsupported' | 'confirm' | null>(null);
+  const [quote, setQuote] = useState<number | null>(null);
   const [job, setJob] = useState<Job | null>(null);
   const [result, setResult] = useState<{ url: string; aspect: string; cost: number; cached: boolean } | null>(null);
   const [error, setError] = useState<string | null>(null);
@@ -92,10 +93,27 @@ export function ExportPanel({
     try {
       const { canRenderMediaOnWeb } = await import('@remotion/web-renderer');
       const check = await canRenderMediaOnWeb({ ...introSize(props.aspect), container: 'mp4', videoCodec: 'h264', muted: !props.music });
-      setDialog(check.canRender ? 'confirm' : 'unsupported');
+      if (!check.canRender) {
+        setDialog('unsupported');
+        return;
+      }
     } catch {
       setDialog('unsupported');
+      return;
     }
+    /* The same picture exported before is handed over at once: free, uncounted, nothing to confirm. */
+    const quoted = await api<{ cached?: string | null; cost?: number; error?: string }>(`/api/rees/${ree.id}/video/exports`);
+    if (!quoted.ok) {
+      setError(quoted.data.error === 'no_script' ? e.noScript : fill(e.failed, { reason: quoted.data.error ?? quoted.status }));
+      return;
+    }
+    if (quoted.data.cached) {
+      setResult({ url: quoted.data.cached, aspect: props.aspect, cost: 0, cached: true });
+      toast(e.cached);
+      return;
+    }
+    setQuote(quoted.data.cost ?? cost);
+    setDialog('confirm');
   };
 
   const run = async () => {
@@ -281,7 +299,7 @@ export function ExportPanel({
           </>
         }
       >
-        <p className="text-[13px] leading-relaxed text-[#3b4361]">{cost === 0 ? e.confirmFree : fill(e.confirmPaid, { n: cost })}</p>
+        <p className="text-[13px] leading-relaxed text-[#3b4361]">{(quote ?? cost) === 0 ? e.confirmFree : fill(e.confirmPaid, { n: quote ?? cost })}</p>
         <p className="mt-2 text-[12px] text-muted">{e.confirmKeep}</p>
       </Modal>
     </section>

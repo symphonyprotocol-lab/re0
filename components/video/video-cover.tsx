@@ -35,10 +35,10 @@ export function VideoPlaceholder({ ree, className = '' }: { ree: CoverRee; class
     <span
       role="img"
       aria-label={`${ree.name}: ${t.video.placeholder.none}`}
-      className={`relative flex aspect-video w-full flex-col items-center justify-center gap-2 overflow-hidden bg-gradient-to-br from-[#f3f7ff] to-[#f5f3ff] px-4 text-center ${className}`}
+      className={`@container relative flex aspect-video w-full flex-col items-center justify-center gap-2 overflow-hidden bg-gradient-to-br from-[#f3f7ff] to-[#f5f3ff] px-4 text-center ${className}`}
     >
       <span className="absolute top-3 left-4 flex items-center gap-2 font-mono text-[11px] font-bold text-blue" aria-hidden="true">
-        RE0 <span className="text-[7px] font-normal tracking-[0.12em] text-[#9fb1ca]">YOUR KNOWLEDGE. A NEW VOICE.</span>
+        RE0 <span className="hidden text-[7px] font-normal tracking-[0.12em] text-[#9fb1ca] @[320px]:inline">YOUR KNOWLEDGE. A NEW VOICE.</span>
       </span>
       <ReeAvatar avatar={ree.avatarBlob} color={ree.color} size="lg" />
       <strong className="max-w-[85%] truncate text-[13px] text-ink">{ree.name}</strong>
@@ -46,7 +46,7 @@ export function VideoPlaceholder({ ree, className = '' }: { ree: CoverRee; class
         <Icon name="film" className="size-3" />
         {t.video.placeholder.none}
       </small>
-      <span className="absolute bottom-3 hidden text-[10px] text-[#9fb1ca] sm:block" aria-hidden="true">
+      <span className="absolute bottom-3 hidden text-[10px] text-[#9fb1ca] @[340px]:block" aria-hidden="true">
         {t.video.placeholder.caption}
       </span>
     </span>
@@ -62,7 +62,7 @@ export function VideoPoster({ ree, video, className = '' }: { ree: CoverRee; vid
   const { t } = useI18n();
   const palette = PALETTES[video.template] ?? PALETTES.editorial;
   return (
-    <span className={`relative flex aspect-video w-full flex-col items-center justify-center gap-2 overflow-hidden px-4 text-center ${className}`} style={{ backgroundColor: palette.background }}>
+    <span className={`@container relative flex aspect-video w-full flex-col items-center justify-center gap-1.5 overflow-hidden px-4 pb-5 text-center ${className}`} style={{ backgroundColor: palette.background }}>
       <span
         aria-hidden="true"
         className="absolute -top-1/3 -right-[8%] aspect-square h-[80%] rounded-full border"
@@ -71,26 +71,26 @@ export function VideoPoster({ ree, video, className = '' }: { ree: CoverRee; vid
       <span className="absolute top-3 left-4 font-mono text-[11px] font-bold" style={{ color: palette.watermark(video.accent) }} aria-hidden="true">
         RE0
       </span>
-      <span className="font-mono text-[8px] tracking-[0.16em]" style={{ color: palette.faint }} aria-hidden="true">
+      <span className="hidden font-mono text-[8px] tracking-[0.16em] @[320px]:block" style={{ color: palette.faint }} aria-hidden="true">
         MEET YOUR KNOWLEDGE COMPANION
       </span>
       <ReeAvatar avatar={ree.avatarBlob} color={ree.color} size="md" />
       <strong className="max-w-[88%] truncate text-[15px]" style={{ color: palette.title, fontFamily: palette.titleFont }}>
         {video.scenes.opening.name}
       </strong>
-      <span className="max-w-[88%] truncate text-[11px]" style={{ color: palette.body }}>
+      <span className="hidden max-w-[88%] truncate text-[11px] @[260px]:block" style={{ color: palette.body }}>
         {video.scenes.opening.position}
       </span>
       <span className="absolute bottom-2.5 left-3 inline-flex items-center gap-1 rounded-full bg-ink/70 px-2 py-0.5 text-[10px] font-medium text-white">
         <Icon name="film" className="size-3" />
-        {t.video.card.has}
+        <span className="hidden @[260px]:inline">{t.video.card.has}</span>
       </span>
       <span className="absolute right-3 bottom-2.5 rounded-full bg-ink/70 px-2 py-0.5 font-mono text-[10px] text-white">00:15</span>
     </span>
   );
 }
 
-/** The 15-second dialog (prototype `playVideoModal`): the Player, playing with sound, and the way on. */
+/** The 15-second dialog (prototype `playVideoModal`): the Player, already playing (muted until the viewer turns the sound on), and the way on. */
 export function IntroDialog({ open, onClose, video, name, href, linkLabel }: { open: boolean; onClose: () => void; video: IntroProps; name: string; href: string; linkLabel: string }) {
   const { t } = useI18n();
   return (
@@ -107,7 +107,7 @@ export function IntroDialog({ open, onClose, video, name, href, linkLabel }: { o
         </Link>
       }
     >
-      <IntroPlayer props={video} name={name} autoPlay={false} fullscreen />
+      <IntroPlayer props={video} name={name} autoPlay fullscreen />
       <p className="hint mt-3">{t.video.dialog.note}</p>
     </Modal>
   );

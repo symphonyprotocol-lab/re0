@@ -11,7 +11,7 @@ import { fill, formatNumber } from '@/i18n/format';
 import { Icon } from '@/components/ui/icons';
 import { Pager } from '@/components/ui/pager';
 import { ReeAvatar } from '@/components/ui/ree-avatar';
-import { PlayIntroButton, VideoPoster } from '@/components/video/video-cover';
+import { PlayIntroButton, VideoPlaceholder, VideoPoster } from '@/components/video/video-cover';
 import type { IntroProps } from '@/lib/domain/video';
 
 interface Query {
@@ -217,16 +217,13 @@ export function ReeList({
                     <PlayIntroButton video={videos[ree.id]!} name={ree.name} href={`/rees/${ree.id}/video`} linkLabel={t.video.dialog.studio} className="absolute top-3 right-3" />
                   </div>
                 ) : (
-                  <Link href={`/rees/${ree.id}/settings`} className="relative flex aspect-video flex-col items-center justify-center gap-2 border-b border-line bg-gradient-to-br from-[#f6f7ff] to-[#edf3ff] px-4 text-center">
-                    <span className="absolute top-3 right-3 tag bg-white">
+                  /* The same "暂无视频介绍" placeholder as explore (prototype discovery-video.js). */
+                  <Link href={`/rees/${ree.id}/settings`} className="relative block border-b border-line" aria-label={ree.name}>
+                    <VideoPlaceholder ree={ree} />
+                    <span className="tag absolute top-3 right-3 bg-white">
                       <Icon name={ree.isPublic ? 'globe' : 'lock'} className="size-3" />
                       {ree.isPublic ? t.common.visibility.public : t.common.visibility.private}
                     </span>
-                    <ReeAvatar avatar={ree.avatarBlob} color={ree.color} size="lg" />
-                    <strong className="line-clamp-1 max-w-full text-[16px]" title={ree.name}>
-                      {ree.name}
-                    </strong>
-                    <span className="text-[10px] text-muted">{t.rees.noVideo}</span>
                   </Link>
                 )}
                 <div className="flex flex-1 flex-col gap-3 p-4">

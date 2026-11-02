@@ -188,6 +188,7 @@ describeWithDb('video exports', () => {
     const ree = await reeOf(userId);
     await video.generateScript(userId, ree.id);
     const start = await balanceOf(db(), userId);
+    expect(await video.exportQuote(userId, ree.id)).toEqual({ cached: null, cost: 0 });
 
     const first = await video.startExport(userId, ree.id);
     if (first.cached) throw new Error('unexpected cache hit');
@@ -200,7 +201,8 @@ describeWithDb('video exports', () => {
     expect(await balanceOf(db(), userId)).toBe(start);
     expect((await video.videoOf(db(), ree.id))!.exportsCount).toBe(1);
 
-    /* Same picture: the file, free, no row, no count. */
+    /* Same picture: the file, free, no row, no count -- and the quote says so before anything is asked. */
+    expect(await video.exportQuote(userId, ree.id)).toEqual({ cached: `/media/${first.upload.pathname}`, cost: 0 });
     const hit = await video.startExport(userId, ree.id);
     expect(hit).toEqual({ cached: true, url: `/media/${first.upload.pathname}`, aspect: '16:9' });
     expect((await video.videoOf(db(), ree.id))!.exportsCount).toBe(1);
@@ -208,6 +210,7 @@ describeWithDb('video exports', () => {
     /* A new accent is a new picture: 50 held at the start, settled on completion. */
     const current = (await video.videoOf(db(), ree.id))!;
     await video.saveVideo(userId, ree.id, { accent: '#118866' }, current.revision);
+    expect(await video.exportQuote(userId, ree.id)).toEqual({ cached: null, cost: 50 });
     const second = await video.startExport(userId, ree.id);
     if (second.cached) throw new Error('unexpected cache hit');
     expect(second.cost).toBe(50);

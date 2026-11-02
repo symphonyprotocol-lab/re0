@@ -5,7 +5,10 @@ import { useEffect, useRef } from 'react';
 import type { IntroProps } from '@/lib/domain/video';
 import { VideoPoster, type CoverRee } from '@/components/video/video-cover';
 
-const IntroPlayer = dynamic(() => import('@/components/video/intro-player').then((module) => module.IntroPlayer), { ssr: false });
+const IntroPlayer = dynamic(() => import('@/components/video/intro-player').then((module) => module.IntroPlayer), {
+  ssr: false,
+  loading: () => <div className="aspect-video w-full animate-pulse rounded-[10px] bg-soft" />,
+});
 
 /**
  * The public page's introduction (prototype public-dot.js `inlinePublicVideo`):

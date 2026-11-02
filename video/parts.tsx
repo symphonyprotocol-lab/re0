@@ -41,9 +41,17 @@ export function shotSpan(start: number, end: number, total: number): { from: num
   return { from, durationInFrames: until - from, first, last };
 }
 
-/** A dot grid as one SVG image with a pattern (the web renderer draws images, not radial gradients). */
-function dotGrid(color: string, step: number, width: number, height: number): string {
-  const svg = `<svg xmlns="http://www.w3.org/2000/svg" width="${width}" height="${height}"><defs><pattern id="d" width="${step}" height="${step}" patternUnits="userSpaceOnUse"><circle cx="${step / 2}" cy="${step / 2}" r="${step / 24}" fill="${color}"/></pattern></defs><rect width="100%" height="100%" fill="url(#d)"/></svg>`;
+/**
+ * The template's grid -- dots, or lines for the blueprint -- as one SVG image
+ * with a pattern: the web renderer draws images exactly as the Player does,
+ * while radial gradients and layered `background-size` gradients it does not.
+ */
+function gridImage(kind: Palette['grid'], step: number, width: number, height: number): string {
+  const cell =
+    kind === 'lines'
+      ? `<path d="M ${step} 0 L 0 0 0 ${step}" fill="none" stroke="rgba(70, 110, 160, 0.28)" stroke-width="1"/>`
+      : `<circle cx="${step / 2}" cy="${step / 2}" r="${step / 24}" fill="${kind === 'faint-dots' ? '#e4dccb' : '#b9cbe3'}"/>`;
+  const svg = `<svg xmlns="http://www.w3.org/2000/svg" width="${width}" height="${height}"><defs><pattern id="g" width="${step}" height="${step}" patternUnits="userSpaceOnUse">${cell}</pattern></defs><rect width="100%" height="100%" fill="url(#g)"/></svg>`;
   return `data:image/svg+xml;utf8,${encodeURIComponent(svg)}`;
 }
 
@@ -53,21 +61,12 @@ export function Backdrop({ palette, accent }: { palette: Palette; accent: string
   const { width, height, durationInFrames } = useVideoConfig();
   const u = useUnit();
   const step = Math.round(40 * u);
-  const grid = useMemo(() => dotGrid(palette.grid === 'faint-dots' ? '#e4dccb' : '#b9cbe3', step, width, height), [palette.grid, step, width, height]);
+  const grid = useMemo(() => gridImage(palette.grid, step, width, height), [palette.grid, step, width, height]);
   const ring = mix(accent, palette.background, 0.16);
   const big = Math.max(width, height);
   return (
     <AbsoluteFill style={{ backgroundColor: palette.background, overflow: 'hidden' }}>
-      {palette.grid === 'lines' ? (
-        <AbsoluteFill
-          style={{
-            backgroundImage: 'linear-gradient(rgba(46, 79, 120, 0.22) 1px, transparent 1px), linear-gradient(90deg, rgba(46, 79, 120, 0.22) 1px, transparent 1px)',
-            backgroundSize: `${step}px ${step}px`,
-          }}
-        />
-      ) : (
-        <Img src={grid} style={{ position: 'absolute', inset: 0, width, height, opacity: palette.grid === 'faint-dots' ? 0.5 : 0.75 }} />
-      )}
+      <Img src={grid} style={{ position: 'absolute', inset: 0, width, height, opacity: palette.grid === 'faint-dots' ? 0.5 : palette.grid === 'lines' ? 1 : 0.75 }} />
       <div
         style={{
           position: 'absolute',
