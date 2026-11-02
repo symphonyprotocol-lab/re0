@@ -12,6 +12,10 @@ import { Fields, LinkPager, PageHead, RecordsTable, RoleBadge, Tag } from '@/com
 import { AdjustCreditsButton, UserStatusButton } from '@/components/admin/user-detail-actions';
 import { RoleHistory, RolePanel } from '@/components/admin/user-detail-roles';
 import { RequirementChecks } from '@/components/ui/requirement-checks';
+import { kycHistory } from '@/lib/services/kyc';
+import { payoutsOf } from '@/lib/services/payouts';
+import { KycStatusTag } from '@/components/admin/payout-kit';
+import { PayoutsTable } from '@/components/admin/payouts-table';
 import { Icon, type IconName } from '@/components/ui/icons';
 import { ReeAvatar, UserAvatar } from '@/components/ui/ree-avatar';
 
@@ -34,7 +38,15 @@ export async function generateMetadata({ params }: Props): Promise<Metadata> {
 
 /** Only a console list may be the way back: anything else falls back to the users list. */
 function backTo(raw: string): string {
-  return /^\/admin\/(users|verifications)(?:[/?]|$)/.test(raw) ? raw : '/admin/users';
+  return /^\/admin\/(users|verifications|kyc|payouts|payout-history)(?:[/?]|$)/.test(raw) ? raw : '/admin/users';
+}
+
+/** The crumb for the list that linked here (step 6 adds the KYC and payout lists). */
+function listLabel(t: Messages, from: string): string {
+  if (from.startsWith('/admin/kyc')) return t.console.nav.kyc;
+  if (from.startsWith('/admin/payout-history')) return t.console.nav['payout-history'];
+  if (from.startsWith('/admin/payouts')) return t.console.nav.payouts;
+  return t.console.nav.users;
 }
 
 /**
@@ -121,9 +133,59 @@ export default async function UserDetailPage({ params, searchParams }: Props) {
       </section>
     );
   } else if (tab === 'kyc') {
-    body = <Empty icon="shield" title={d.kyc.title} body={official ? d.kyc.official : d.kyc.body} />;
+    const records = await kycHistory(id);
+    const k = t.consolePayouts.kyc;
+    body =
+      records.length === 0 ? (
+        <Empty icon="shield" title={d.kyc.title} body={official ? d.kyc.official : t.consolePayouts.user.kycEmpty} />
+      ) : (
+        <section className="card min-w-0 overflow-hidden">
+          <div className="flex flex-wrap items-baseline justify-between gap-2 border-b border-line px-4 py-3">
+            <h2 className="text-[15px] font-bold">{d.kyc.title}</h2>
+            {official && <small className="text-[11px] text-muted">{d.kyc.official}</small>}
+          </div>
+          <RecordsTable
+            label={t.console.list.tableRegion}
+            empty={t.consolePayouts.user.kycEmpty}
+            head={[k.columns.status, k.columns.submission, k.columns.submitted, k.columns.reviewer, k.columns.action]}
+            rows={records.map((row) => [
+              <div key="status" className="flex flex-col items-start gap-1">
+                <KycStatusTag t={t} status={row.status} />
+                {row.filesDeleted && <small className="text-muted">{k.filesDeleted}</small>}
+              </div>,
+              <div key="submission" className="max-w-[260px] min-w-[160px]">
+                <span className="block truncate">{row.legalName ?? '—'}</span>
+                <small className="block truncate text-muted">
+                  {row.country ?? '—'} · {row.documentKind ? t.payouts.kyc.kinds[row.documentKind] : '—'} · {row.taxForm ?? '—'}
+                </small>
+                {row.reason && <small className="block truncate text-muted" title={row.reason}>{row.reason}</small>}
+              </div>,
+              <span key="submitted" className="whitespace-nowrap">
+                {formatDateTime(row.createdAt, locale)}
+              </span>,
+              <span key="reviewer" className="block max-w-[200px] truncate">
+                {row.reviewer ?? '—'}
+              </span>,
+              <Link key="action" href={`/admin/kyc/${row.id}?from=${back}`} className="btn-secondary btn-sm whitespace-nowrap">
+                {row.status === 'pending' ? k.review : k.view}
+              </Link>,
+            ])}
+          />
+        </section>
+      );
   } else if (tab === 'payouts') {
-    body = <Empty icon="send" title={d.payouts.title} body={official ? d.payouts.official : d.payouts.body} />;
+    const rows = await payoutsOf(id);
+    body =
+      rows.length === 0 ? (
+        <Empty icon="send" title={d.payouts.title} body={official ? d.payouts.official : t.consolePayouts.user.payoutsEmpty} />
+      ) : (
+        <section className="card min-w-0 overflow-hidden">
+          <div className="border-b border-line px-4 py-3">
+            <h2 className="text-[15px] font-bold">{d.payouts.title}</h2>
+          </div>
+          <PayoutsTable t={t} locale={locale} items={rows} back={back} />
+        </section>
+      );
   } else if (tab === 'purchases') {
     const { purchases, subscriptions } = await userPurchases(id);
     const p = t.consoleUsers.purchases;
@@ -246,7 +308,7 @@ export default async function UserDetailPage({ params, searchParams }: Props) {
       <PageHead
         crumbs={[
           { label: t.console.nav.home, href: '/admin/overview' },
-          { label: fromVerifications ? t.console.nav.verifications : t.console.nav.users, href: from },
+          { label: fromVerifications ? t.console.nav.verifications : listLabel(t, from), href: from },
           { label: user.name },
         ]}
         title={

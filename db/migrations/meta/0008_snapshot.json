@@ -1,6 +1,6 @@
 {
-  "id": "46450d41-02fe-4093-a5ba-accb28babe9e",
-  "prevId": "606732a7-15c1-4918-bb78-391fdacab43e",
+  "id": "0a0ed689-47b9-45b6-8178-1f711c6b6501",
+  "prevId": "b78d1202-9cf8-4033-9962-d9cda2eb487e",
   "version": "7",
   "dialect": "postgresql",
   "tables": {
@@ -1701,6 +1701,241 @@
       },
       "isRLSEnabled": false
     },
+    "public.kyc_record": {
+      "name": "kyc_record",
+      "schema": "",
+      "columns": {
+        "id": {
+          "name": "id",
+          "type": "uuid",
+          "primaryKey": true,
+          "notNull": true,
+          "default": "gen_random_uuid()"
+        },
+        "user_id": {
+          "name": "user_id",
+          "type": "uuid",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "provider": {
+          "name": "provider",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "default": "'manual'"
+        },
+        "status": {
+          "name": "status",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "default": "'pending'"
+        },
+        "legal_name": {
+          "name": "legal_name",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "country": {
+          "name": "country",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "document_kind": {
+          "name": "document_kind",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "document_last4": {
+          "name": "document_last4",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "document_expires": {
+          "name": "document_expires",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "tax_form": {
+          "name": "tax_form",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "tax_declared_at": {
+          "name": "tax_declared_at",
+          "type": "timestamp with time zone",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "consent_at": {
+          "name": "consent_at",
+          "type": "timestamp with time zone",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "document_blob": {
+          "name": "document_blob",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "selfie_blob": {
+          "name": "selfie_blob",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "files_deleted_at": {
+          "name": "files_deleted_at",
+          "type": "timestamp with time zone",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "reason": {
+          "name": "reason",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "reviewed_by": {
+          "name": "reviewed_by",
+          "type": "uuid",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "decided_at": {
+          "name": "decided_at",
+          "type": "timestamp with time zone",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "reset_at": {
+          "name": "reset_at",
+          "type": "timestamp with time zone",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "created_at": {
+          "name": "created_at",
+          "type": "timestamp with time zone",
+          "primaryKey": false,
+          "notNull": true,
+          "default": "now()"
+        }
+      },
+      "indexes": {
+        "kyc_record_user_idx": {
+          "name": "kyc_record_user_idx",
+          "columns": [
+            {
+              "expression": "user_id",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            },
+            {
+              "expression": "created_at",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            }
+          ],
+          "isUnique": false,
+          "concurrently": false,
+          "method": "btree",
+          "with": {}
+        },
+        "kyc_record_status_idx": {
+          "name": "kyc_record_status_idx",
+          "columns": [
+            {
+              "expression": "status",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            },
+            {
+              "expression": "created_at",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            }
+          ],
+          "isUnique": false,
+          "concurrently": false,
+          "method": "btree",
+          "with": {}
+        },
+        "kyc_record_files_idx": {
+          "name": "kyc_record_files_idx",
+          "columns": [
+            {
+              "expression": "created_at",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            }
+          ],
+          "isUnique": false,
+          "where": "files_deleted_at is null and (document_blob is not null or selfie_blob is not null)",
+          "concurrently": false,
+          "method": "btree",
+          "with": {}
+        }
+      },
+      "foreignKeys": {
+        "kyc_record_user_id_user_id_fk": {
+          "name": "kyc_record_user_id_user_id_fk",
+          "tableFrom": "kyc_record",
+          "tableTo": "user",
+          "columnsFrom": [
+            "user_id"
+          ],
+          "columnsTo": [
+            "id"
+          ],
+          "onDelete": "no action",
+          "onUpdate": "no action"
+        }
+      },
+      "compositePrimaryKeys": {},
+      "uniqueConstraints": {},
+      "policies": {},
+      "checkConstraints": {
+        "kyc_record_provider_check": {
+          "name": "kyc_record_provider_check",
+          "value": "provider in ('manual')"
+        },
+        "kyc_record_status_check": {
+          "name": "kyc_record_status_check",
+          "value": "status in ('pending', 'verified', 'rejected', 'reset')"
+        },
+        "kyc_record_document_kind_check": {
+          "name": "kyc_record_document_kind_check",
+          "value": "document_kind is null or document_kind in ('passport', 'id', 'residence')"
+        },
+        "kyc_record_tax_form_check": {
+          "name": "kyc_record_tax_form_check",
+          "value": "tax_form is null or tax_form in ('W-8BEN', 'W-9')"
+        },
+        "kyc_record_expires_check": {
+          "name": "kyc_record_expires_check",
+          "value": "document_expires is null or document_expires ~ '^[0-9]{4}-[0-9]{2}-[0-9]{2}$'"
+        },
+        "kyc_record_submission_check": {
+          "name": "kyc_record_submission_check",
+          "value": "status = 'reset' or (legal_name is not null and country is not null and document_kind is not null and document_last4 is not null and document_expires is not null and tax_form is not null and tax_declared_at is not null and consent_at is not null)"
+        }
+      },
+      "isRLSEnabled": false
+    },
     "public.message": {
       "name": "message",
       "schema": "",
@@ -2299,6 +2534,244 @@
         "paddle_checkout_kind_check": {
           "name": "paddle_checkout_kind_check",
           "value": "kind in ('plan', 'pack')"
+        }
+      },
+      "isRLSEnabled": false
+    },
+    "public.payout": {
+      "name": "payout",
+      "schema": "",
+      "columns": {
+        "id": {
+          "name": "id",
+          "type": "uuid",
+          "primaryKey": true,
+          "notNull": true,
+          "default": "gen_random_uuid()"
+        },
+        "user_id": {
+          "name": "user_id",
+          "type": "uuid",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "credits": {
+          "name": "credits",
+          "type": "bigint",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "paypal_email": {
+          "name": "paypal_email",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "status": {
+          "name": "status",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "default": "'pending'"
+        },
+        "hold_id": {
+          "name": "hold_id",
+          "type": "uuid",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "kyc_record_id": {
+          "name": "kyc_record_id",
+          "type": "uuid",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "review_note": {
+          "name": "review_note",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "reviewed_by": {
+          "name": "reviewed_by",
+          "type": "uuid",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "reviewed_at": {
+          "name": "reviewed_at",
+          "type": "timestamp with time zone",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "transfer_id": {
+          "name": "transfer_id",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "paid_cents": {
+          "name": "paid_cents",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "fee_credits": {
+          "name": "fee_credits",
+          "type": "bigint",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "failure_reason": {
+          "name": "failure_reason",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "resolved_by": {
+          "name": "resolved_by",
+          "type": "uuid",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "resolved_at": {
+          "name": "resolved_at",
+          "type": "timestamp with time zone",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "created_at": {
+          "name": "created_at",
+          "type": "timestamp with time zone",
+          "primaryKey": false,
+          "notNull": true,
+          "default": "now()"
+        }
+      },
+      "indexes": {
+        "payout_open_key": {
+          "name": "payout_open_key",
+          "columns": [
+            {
+              "expression": "user_id",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            }
+          ],
+          "isUnique": true,
+          "where": "status in ('pending', 'approved')",
+          "concurrently": false,
+          "method": "btree",
+          "with": {}
+        },
+        "payout_user_idx": {
+          "name": "payout_user_idx",
+          "columns": [
+            {
+              "expression": "user_id",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            },
+            {
+              "expression": "created_at",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            }
+          ],
+          "isUnique": false,
+          "concurrently": false,
+          "method": "btree",
+          "with": {}
+        },
+        "payout_status_idx": {
+          "name": "payout_status_idx",
+          "columns": [
+            {
+              "expression": "status",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            },
+            {
+              "expression": "created_at",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            }
+          ],
+          "isUnique": false,
+          "concurrently": false,
+          "method": "btree",
+          "with": {}
+        }
+      },
+      "foreignKeys": {
+        "payout_user_id_user_id_fk": {
+          "name": "payout_user_id_user_id_fk",
+          "tableFrom": "payout",
+          "tableTo": "user",
+          "columnsFrom": [
+            "user_id"
+          ],
+          "columnsTo": [
+            "id"
+          ],
+          "onDelete": "no action",
+          "onUpdate": "no action"
+        },
+        "payout_hold_id_credit_hold_id_fk": {
+          "name": "payout_hold_id_credit_hold_id_fk",
+          "tableFrom": "payout",
+          "tableTo": "credit_hold",
+          "columnsFrom": [
+            "hold_id"
+          ],
+          "columnsTo": [
+            "id"
+          ],
+          "onDelete": "no action",
+          "onUpdate": "no action"
+        },
+        "payout_kyc_record_id_kyc_record_id_fk": {
+          "name": "payout_kyc_record_id_kyc_record_id_fk",
+          "tableFrom": "payout",
+          "tableTo": "kyc_record",
+          "columnsFrom": [
+            "kyc_record_id"
+          ],
+          "columnsTo": [
+            "id"
+          ],
+          "onDelete": "no action",
+          "onUpdate": "no action"
+        }
+      },
+      "compositePrimaryKeys": {},
+      "uniqueConstraints": {},
+      "policies": {},
+      "checkConstraints": {
+        "payout_status_check": {
+          "name": "payout_status_check",
+          "value": "status in ('pending', 'approved', 'rejected', 'paid', 'failed')"
+        },
+        "payout_credits_check": {
+          "name": "payout_credits_check",
+          "value": "credits > 0"
+        },
+        "payout_paid_check": {
+          "name": "payout_paid_check",
+          "value": "(status = 'paid') = (paid_cents is not null and transfer_id is not null)"
+        },
+        "payout_paid_cents_check": {
+          "name": "payout_paid_cents_check",
+          "value": "paid_cents is null or (paid_cents > 0 and paid_cents::bigint * 100 <= credits)"
+        },
+        "payout_fee_check": {
+          "name": "payout_fee_check",
+          "value": "fee_credits is null or (fee_credits >= 0 and fee_credits = credits - paid_cents::bigint * 100)"
         }
       },
       "isRLSEnabled": false

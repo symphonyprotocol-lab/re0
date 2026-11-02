@@ -5,6 +5,11 @@
 #
 #   ./scripts/test-integration.sh            # full suite
 #   ./scripts/test-integration.sh tests/integration/ingestion.test.ts
+#   PG_CONTAINER=re0-test-pg-b PG_PORT=5449 WS_PORT=5450 ./scripts/test-integration.sh
+#
+# The container name and both ports come from the environment (defaults
+# below), so two checkouts can run the suite at once without removing each
+# other's database.
 #
 # Needs Docker (for pgvector/pgvector) and node_modules installed. The
 # database container and the WebSocket proxy (tests/fixtures/wsproxy.mjs) are
@@ -13,9 +18,9 @@
 set -euo pipefail
 cd "$(dirname "$0")/.."
 
-PG_CONTAINER=re0-test-pg
-PG_PORT=5439
-WS_PORT=5440
+PG_CONTAINER="${PG_CONTAINER:-re0-test-pg}"
+PG_PORT="${PG_PORT:-5439}"
+WS_PORT="${WS_PORT:-5440}"
 DATABASE_URL="postgres://postgres:pw@127.0.0.1:${PG_PORT}/re0"
 
 cleanup() {

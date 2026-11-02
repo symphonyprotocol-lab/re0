@@ -1,6 +1,8 @@
 import Link from 'next/link';
 import type { ReactNode } from 'react';
 import { CREDIT_USD } from '@/lib/constants';
+import type { KycState } from '@/lib/domain/kyc';
+import type { PayoutStage } from '@/lib/domain/payouts';
 import type { DashboardData, SourceSummary } from '@/lib/services/statistics';
 import type { Messages } from '@/i18n';
 import { fill, formatNumber } from '@/i18n/format';
@@ -167,14 +169,33 @@ export function RankingPanel({
 }
 
 /**
- * The earned balance and where payouts stand. Identity verification and
- * payouts are step 6, so a balance over the minimum points at billing and
- * says they open later; an official account gets its notice instead.
+ * The earned balance and where payouts stand (prototype workspace.js
+ * `income`, step 6): one state from identity, the PayPal address and its
+ * hold, the threshold and a payout in progress, with the way forward --
+ * `/settings/identity` while identity is the gate, billing otherwise. An
+ * official account gets its notice instead.
  */
-export function IncomePanel({ t, locale, earned, official, threshold }: { t: Messages; locale: Locale; earned: number; official: boolean; threshold: number }) {
+export function IncomePanel({
+  t,
+  locale,
+  earned,
+  official,
+  stage,
+  kyc,
+  held,
+}: {
+  t: Messages;
+  locale: Locale;
+  earned: number;
+  official: boolean;
+  stage: PayoutStage;
+  kyc: KycState;
+  held: number;
+}) {
   const p = t.statistics.dashboard.income;
+  const g = t.payouts.guide;
   const n = (value: number) => formatNumber(value, locale);
-  if (official) {
+  if (official || stage === 'official') {
     return (
       <section className="card min-w-0 bg-[#fbfaff] p-5">
         <h2 className="flex items-center gap-2 text-[15px] font-bold">
@@ -185,29 +206,37 @@ export function IncomePanel({ t, locale, earned, official, threshold }: { t: Mes
       </section>
     );
   }
-  const below = earned < threshold;
+  const identity = stage === 'identity_required' || stage === 'identity_pending';
+  const copy = g.stages[stage === 'identity_required' && (kyc === 'rejected' || kyc === 'reset') ? 'identity_resubmit' : stage];
+  const href = identity ? '/settings/identity' : stage === 'threshold' ? '/settings?tab=billing&activity=income' : '/settings?tab=billing#payouts';
   return (
     <section className="card flex min-w-0 flex-col p-5">
-      <PanelHeading title={p.title} aside={<Icon name="sparkle" className="size-4 flex-none text-[#a3a9bb]" />} />
+      <PanelHeading title={g.title} aside={<Icon name="sparkle" className="size-4 flex-none text-[#a3a9bb]" />} />
       <div className="mt-4 rounded-xl bg-ink px-4 py-3.5 text-white">
-        <span className="text-[11px] text-white/70">{p.balance}</span>
+        <span className="text-[11px] text-white/70">{g.balance}</span>
         <strong className="mt-1 block font-mono text-[24px] leading-none">${(earned * CREDIT_USD).toFixed(2)}</strong>
         <small className="mt-1 block font-mono text-[11px] text-white/70">{n(earned)} credits</small>
       </div>
+      {held > 0 && (
+        <p className="mt-3 flex items-center justify-between gap-2 rounded-lg bg-[#fff7ec] px-3 py-2 text-[12px] text-orange">
+          {g.held}
+          <strong className="font-mono">{n(held)} credits</strong>
+        </p>
+      )}
       <div className="mt-4 flex items-start gap-3">
         <span className="inline-flex size-8 flex-none items-center justify-center rounded-lg bg-soft text-blue">
-          <Icon name={below ? 'sparkle' : 'shield'} className="size-4" />
+          <Icon name={identity ? 'shield' : 'sparkle'} className="size-4" />
         </span>
         <div className="min-w-0">
-          <h3 className="text-[13px] font-bold">{below ? p.thresholdTitle : p.identityTitle}</h3>
-          <p className="mt-1 text-[12px] leading-relaxed text-muted">{below ? p.thresholdBody : p.identityBody}</p>
+          <h3 className="text-[13px] font-bold">{copy.title}</h3>
+          <p className="mt-1 text-[12px] leading-relaxed text-muted">{copy.body}</p>
         </div>
       </div>
-      <Link href={below ? '/settings?tab=billing&activity=income' : '/settings?tab=billing'} className="btn-secondary mt-4 w-full">
-        {below ? p.thresholdAction : p.identityAction}
+      <Link href={href} className="btn-secondary mt-4 w-full">
+        {copy.action}
         <Icon name="arrow" />
       </Link>
-      <p className="mt-3 text-[11px] text-muted">{p.foot}</p>
+      <p className="mt-3 text-[11px] text-muted">{g.foot}</p>
     </section>
   );
 }

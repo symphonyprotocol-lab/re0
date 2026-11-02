@@ -9,11 +9,12 @@ import { Icon } from '@/components/ui/icons';
 import { ArrivalNotice } from '@/components/billing/arrival';
 import { Entries } from '@/components/billing/entries';
 import { RenewalControl } from '@/components/billing/renewal';
+import { PayoutCard } from '@/components/payouts/payout-card';
 
 /**
  * `/settings?tab=billing` (prototype app.js `billing`): total balance, the
  * welcome strip, Plan / Pack / earned balances, the Plan and Pack cards with
- * renewal control, and the ledger. Payouts and identity are step 6.
+ * renewal control, the ledger, and (step 6) the payout card.
  */
 export async function BillingTab({ userId, query }: { userId: string; query: Record<string, string | undefined> }) {
   const { t, locale } = await serverMessages();
@@ -112,6 +113,10 @@ export async function BillingTab({ userId, query }: { userId: string; query: Rec
         {b.info}
       </p>
       <Entries items={entries.items} total={entries.total} page={entries.page} size={entries.size} activity={listQuery.activity} />
+      <h2 id="payouts" className="mt-4 scroll-mt-28 text-[17px] font-bold">
+        {t.payouts.card.heading}
+      </h2>
+      <PayoutCard userId={userId} />
     </div>
   );
 }
