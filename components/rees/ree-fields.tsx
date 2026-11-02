@@ -40,7 +40,7 @@ export function Field({ id, label, hint, counter, children }: { id: string; labe
   );
 }
 
-export function IdentityFields({ value, onChange }: { value: ReeFormState; onChange: Change }) {
+export function IdentityFields({ value, onChange, onCropping }: { value: ReeFormState; onChange: Change; onCropping?: (open: boolean) => void }) {
   const { t } = useI18n();
   const f = t.reeSetup.fields;
   return (
@@ -50,6 +50,7 @@ export function IdentityFields({ value, onChange }: { value: ReeFormState; onCha
         color={value.color}
         onChange={(avatarBlob) => onChange({ avatarBlob })}
         labels={{ title: f.avatar, upload: f.avatarUpload, change: f.avatarChange, reset: f.avatarDefault, hint: f.avatarHint, note: f.avatarNote }}
+        onCropping={onCropping}
       />
       <Field id="ree-name" label={f.name} counter={fill(f.counter, { count: charLength(value.name), max: REE_LIMITS.name })}>
         <input
@@ -122,9 +123,14 @@ function TagsEditor({ category, tags, onChange }: { category: ReeCategory | ''; 
     .slice(0, 8);
   return (
     <div className="mt-5">
-      <label htmlFor="ree-tag-input" className="field-label">
-        {f.tags}
-      </label>
+      <div className="flex items-baseline justify-between gap-2">
+        <label htmlFor="ree-tag-input" className="field-label">
+          {f.tags}
+        </label>
+        <span className="font-mono text-[10px] text-muted">
+          {tags.length} / {REE_LIMITS.tags}
+        </span>
+      </div>
       {tags.length > 0 && (
         <div className="mb-2 flex flex-wrap gap-2">
           {tags.map((tag) => (
@@ -147,6 +153,7 @@ function TagsEditor({ category, tags, onChange }: { category: ReeCategory | ''; 
           id="ree-tag-input"
           className="input"
           value={input}
+          aria-label={f.tagSearch}
           placeholder={f.tagInput}
           disabled={tags.length >= REE_LIMITS.tags}
           onChange={(event) => setInput(event.target.value)}
@@ -161,16 +168,20 @@ function TagsEditor({ category, tags, onChange }: { category: ReeCategory | ''; 
           {f.tagAdd}
         </button>
       </div>
-      {suggestions.length > 0 && tags.length < REE_LIMITS.tags && (
-        <div className="mt-2 flex flex-wrap gap-1.5">
-          {suggestions.map((tag) => (
-            <button key={tag} type="button" className="tag hover:border-blue hover:text-blue" onClick={() => add(tag)}>
-              <Icon name="plus" className="size-3" />
-              {tag}
-            </button>
-          ))}
-        </div>
-      )}
+      {tags.length < REE_LIMITS.tags &&
+        (suggestions.length > 0 ? (
+          <div className="mt-2 flex flex-wrap gap-1.5">
+            {suggestions.map((tag) => (
+              <button key={tag} type="button" className="tag hover:border-blue hover:text-blue" onClick={() => add(tag)}>
+                <Icon name="plus" className="size-3" />
+                {tag}
+              </button>
+            ))}
+          </div>
+        ) : (
+          /* No suggestion to show: say why (prototype dot-classification.js `suggestions`). */
+          <p className="mt-2 text-[11px] text-muted">{query ? f.tagNoMatch : f.tagNoCategory}</p>
+        ))}
       {error && (
         <p role="alert" className="mt-1.5 text-[11px] text-red">
           {error}
@@ -186,7 +197,7 @@ export function PersonalityFields({ value, onChange }: { value: ReeFormState; on
   const f = t.reeSetup.fields;
   return (
     <>
-      <Field id="ree-category" label={f.category}>
+      <Field id="ree-category" label={f.category} hint={f.categoryHint}>
         <select
           id="ree-category"
           className="input"
@@ -230,7 +241,8 @@ export function PersonalityFields({ value, onChange }: { value: ReeFormState; on
   );
 }
 
-export function PublishingFields({ value, onChange }: { value: ReeFormState; onChange: Change }) {
+/** `moderated`: a taken-down Ree cannot be made public by its owner (prototype dot-setup.js `publishing`). */
+export function PublishingFields({ value, onChange, moderated = false }: { value: ReeFormState; onChange: Change; moderated?: boolean }) {
   const { t } = useI18n();
   const f = t.reeSetup.fields;
   return (
@@ -239,9 +251,18 @@ export function PublishingFields({ value, onChange }: { value: ReeFormState; onC
         {([false, true] as const).map((isPublic) => (
           <label
             key={String(isPublic)}
-            className={`flex cursor-pointer gap-3 rounded-xl border p-4 transition ${value.isPublic === isPublic ? 'border-blue bg-soft' : 'border-line hover:border-[#c4cce0]'}`}
+            className={`flex gap-3 rounded-xl border p-4 transition ${
+              moderated && isPublic ? 'cursor-not-allowed border-line opacity-50' : value.isPublic === isPublic ? 'cursor-pointer border-blue bg-soft' : 'cursor-pointer border-line hover:border-[#c4cce0]'
+            }`}
           >
-            <input type="radio" name="visibility" className="mt-1" checked={value.isPublic === isPublic} onChange={() => onChange({ isPublic })} />
+            <input
+              type="radio"
+              name="visibility"
+              className="mt-1"
+              checked={value.isPublic === isPublic}
+              disabled={moderated && isPublic}
+              onChange={() => onChange({ isPublic })}
+            />
             <span>
               <strong className="flex items-center gap-1.5 text-[13px]">
                 <Icon name={isPublic ? 'globe' : 'lock'} className="size-4" />
@@ -252,6 +273,7 @@ export function PublishingFields({ value, onChange }: { value: ReeFormState; onC
           </label>
         ))}
       </div>
+      {moderated && <small className="hint">{t.reeSetup.settings.moderatedHint}</small>}
       <Field id="ree-fee" label={f.fee} hint={f.feeHint}>
         <input
           id="ree-fee"

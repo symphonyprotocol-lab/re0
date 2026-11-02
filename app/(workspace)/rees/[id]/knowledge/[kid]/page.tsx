@@ -17,7 +17,7 @@ type Props = { params: Promise<{ id: string; kid: string }>; searchParams: Promi
 
 export async function generateMetadata(): Promise<Metadata> {
   const { t } = await serverMessages();
-  return { title: t.knowledge.previewTabs.content };
+  return { title: t.knowledge.page.title };
 }
 
 /**
@@ -42,11 +42,13 @@ export default async function KnowledgeSourcePage({ params, searchParams }: Prop
   }
   const listHref = `/rees/${ree.id}/knowledge${filters.size ? `?${filters}` : ''}`;
   const sourceHref = (other: string) => `/rees/${ree.id}/knowledge/${other}${filters.size ? `?${filters}` : ''}`;
+  /* 工作台 › 我的 Ree › Ree › 知识管理 › the source (prototype app.js). */
+  const crumbs = [{ label: t.reeSetup.tabs.knowledge, href: listHref }, { label: header?.title || k.page.title }];
 
   if (!header) {
     return (
       <>
-        <ReeTopbar ree={ree} active="knowledge" />
+        <ReeTopbar ree={ree} active="knowledge" crumbs={crumbs} />
         <main className="mx-auto max-w-[760px] px-4 py-16 md:px-8">
           <div className="card flex flex-col items-center gap-3 px-6 py-14 text-center">
             <Icon name="file" className="size-6 text-blue" />
@@ -73,6 +75,7 @@ export default async function KnowledgeSourcePage({ params, searchParams }: Prop
       <ReeTopbar
         ree={ree}
         active="knowledge"
+        crumbs={crumbs}
         actions={
           <div className="flex items-center gap-1">
             <span className="hidden font-mono text-[11px] text-muted sm:inline">{index < 0 ? '—' : index + 1} / {ids.length}</span>

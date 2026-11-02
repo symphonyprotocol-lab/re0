@@ -208,7 +208,7 @@ export function IncomePanel({
   }
   const identity = stage === 'identity_required' || stage === 'identity_pending';
   const copy = g.stages[stage === 'identity_required' && (kyc === 'rejected' || kyc === 'reset') ? 'identity_resubmit' : stage];
-  const href = identity ? '/settings/identity' : stage === 'threshold' ? '/settings?tab=billing&activity=income' : '/settings?tab=billing#payouts';
+  const href = identity ? '/settings/identity' : stage === 'threshold' ? '/settings?tab=billing&activity=income#credit-activity' : '/settings?tab=billing#payouts';
   return (
     <section className="card flex min-w-0 flex-col p-5">
       <PanelHeading title={g.title} aside={<Icon name="sparkle" className="size-4 flex-none text-[#a3a9bb]" />} />

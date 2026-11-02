@@ -1,6 +1,7 @@
 /** The wizard and settings rules, from rebuild-prototype/tests/dot-setup.test.mjs. */
 import { describe, expect, it } from 'vitest';
-import { classification, coerceDraft, newReeDraft, reeValues, validateDraftSource, validateReeFields } from '@/lib/domain/ree';
+import { pageNumbers } from '@/lib/domain/list';
+import { classification, coerceDraft, newReeDraft, reeValues, validateDraftSource, validateReeFields, visibilityPlan } from '@/lib/domain/ree';
 
 const complete = () => ({
   ...newReeDraft(),
@@ -86,5 +87,26 @@ describe('draft', () => {
     expect(draft.source.blobPath).toBe('');
     expect(draft.source.consent).toBe(false);
     expect(coerceDraft({ source: { kind: 'github', url: 'https://github.com/a/b' } }).source).toMatchObject({ kind: 'github', url: 'https://github.com/a/b' });
+  });
+});
+
+describe('visibilityPlan (prototype ownedReeVisibilityPlan)', () => {
+  const rows = [
+    { id: 'pub', isPublic: true, moderated: false },
+    { id: 'priv', isPublic: false, moderated: false },
+    { id: 'down', isPublic: false, moderated: true },
+  ];
+  it('changes only what differs, skips taken-down Rees going public, reports unknown ids', () => {
+    expect(visibilityPlan(rows, ['pub', 'priv', 'down', 'gone', 'priv'], true)).toEqual({ changes: ['priv'], unchanged: ['pub'], blocked: ['down'], missing: ['gone'] });
+    expect(visibilityPlan(rows, ['pub', 'priv', 'down'], false)).toEqual({ changes: ['pub'], unchanged: ['priv', 'down'], blocked: [], missing: [] });
+  });
+});
+
+describe('pageNumbers (prototype discoveryPageNumbers)', () => {
+  it('keeps the first, last and neighbours, with gaps as null', () => {
+    expect(pageNumbers(1, 1)).toEqual([1]);
+    expect(pageNumbers(1, 3)).toEqual([1, 2, 3]);
+    expect(pageNumbers(5, 10)).toEqual([1, null, 4, 5, 6, null, 10]);
+    expect(pageNumbers(10, 10)).toEqual([1, null, 9, 10]);
   });
 });

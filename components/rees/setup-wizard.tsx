@@ -1,8 +1,8 @@
 'use client';
 
 import Link from 'next/link';
-import { useRouter } from 'next/navigation';
-import { useRef, useState } from 'react';
+import { useRouter, useSearchParams } from 'next/navigation';
+import { useEffect, useRef, useState } from 'react';
 import { KNOWLEDGE_URL_MAX, TEXT_SOURCE_LIMITS } from '@/lib/constants';
 import { holdFor, validAudio, validDocument } from '@/lib/domain/knowledge';
 import { SOURCE_CHOICES, validateDraftSource, validateReeFields, type ReeDraft, type SourceChoice } from '@/lib/domain/ree';
@@ -37,7 +37,9 @@ const SOURCE_REFUSALS: Record<string, Message> = {
  * `/rees/new`: four steps -- identity, knowledge & personality, first
  * knowledge, publish & review (prototype dot-setup.js). Every step change
  * saves the draft to `user.ree_draft`, so leaving and coming back (on any
- * device) resumes it; only the final confirmation creates the Ree.
+ * device) resumes it; only the final confirmation creates the Ree. Each step
+ * is its own history entry (`?step=`), so the browser's back and forward walk
+ * the steps, never past the furthest one reached.
  */
 export function SetupWizard({ initialDraft }: { initialDraft: ReeDraft }) {
   const { t, locale } = useI18n();
@@ -50,8 +52,15 @@ export function SetupWizard({ initialDraft }: { initialDraft: ReeDraft }) {
   const [uploading, setUploading] = useState<number | null>(null);
   const [connectLink, setConnectLink] = useState(false);
   const [restart, setRestart] = useState(false);
+  const [cropping, setCropping] = useState(false);
   const fileRef = useRef<HTMLInputElement>(null);
   const step = draft.step;
+  const search = useSearchParams();
+  const urlStep = Number(search.get('step'));
+  const draftRef = useRef(draft);
+  useEffect(() => {
+    draftRef.current = draft;
+  });
 
   const patch = (changes: Partial<ReeDraft>) => setDraft((current) => ({ ...current, ...changes }));
   const patchSource = (changes: Partial<ReeDraft['source']>) => setDraft((current) => ({ ...current, source: { ...current.source, ...changes } }));
@@ -68,7 +77,35 @@ export function SetupWizard({ initialDraft }: { initialDraft: ReeDraft }) {
     setConnectLink(code === 'github_not_connected' || code === 'domain_unverified');
   };
 
+  /* Every history entry names its step: the first one gets it without a new entry. */
+  useEffect(() => {
+    if (!search.get('step')) router.replace(`/rees/new?step=${draftRef.current.step}`, { scroll: false });
+  }, [search, router]);
+
+  /* Back / forward: the address changed under the wizard; show that step (capped at the furthest reached) and save it. */
+  useEffect(() => {
+    const current = draftRef.current;
+    if (!Number.isInteger(urlStep) || urlStep < 1) return;
+    const target = Math.min(urlStep, current.reached, 4);
+    if (target !== urlStep) router.replace(`/rees/new?step=${target}`, { scroll: false });
+    if (target === current.step) return;
+    const moved = { ...current, step: target };
+    setDraft(moved);
+    setError('');
+    setConnectLink(false);
+    void save(moved);
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- only an address change moves the wizard here
+  }, [urlStep]);
+
+  /** An open avatar crop is neither saved nor left behind (prototype dot-avatar.js `beforeSubmit`). */
+  const cropBlocks = () => {
+    if (!cropping) return false;
+    setError(t.reeSetup.messages.crop);
+    return true;
+  };
+
   const goTo = async (target: number, base: ReeDraft = draft) => {
+    if (cropBlocks()) return;
     const next = { ...base, step: target, reached: Math.max(base.reached, target) };
     /* Leaving step 3 checks the source against GitHub and the domain claims first. */
     if (base.step === 3 && target === 4) {
@@ -81,7 +118,7 @@ export function SetupWizard({ initialDraft }: { initialDraft: ReeDraft }) {
     setError('');
     setConnectLink(false);
     await save(next);
-    router.replace(`/rees/new?step=${target}`, { scroll: false });
+    router.push(`/rees/new?step=${target}`, { scroll: false });
     window.scrollTo({ top: 0 });
   };
 
@@ -97,6 +134,7 @@ export function SetupWizard({ initialDraft }: { initialDraft: ReeDraft }) {
   };
 
   const next = async () => {
+    if (cropBlocks()) return;
     const invalid = invalidFor(step);
     if (invalid) {
       setError(t.reeSetup.messages[invalid.message]);
@@ -104,7 +142,7 @@ export function SetupWizard({ initialDraft }: { initialDraft: ReeDraft }) {
         const back = { ...draft, step: invalid.step };
         setDraft(back);
         await save(back);
-        router.replace(`/rees/new?step=${invalid.step}`, { scroll: false });
+        router.push(`/rees/new?step=${invalid.step}`, { scroll: false });
       }
       return;
     }
@@ -127,6 +165,7 @@ export function SetupWizard({ initialDraft }: { initialDraft: ReeDraft }) {
   };
 
   const exit = async () => {
+    if (cropBlocks()) return;
     await save(draft);
     toast(w.draftSaved);
     router.push('/rees');
@@ -198,7 +237,7 @@ export function SetupWizard({ initialDraft }: { initialDraft: ReeDraft }) {
   return (
     <>
       <Topbar
-        crumbs={[{ label: t.dashboard.title, href: '/dashboard' }, { label: t.rees.title, href: '/rees' }, { label: w.title }]}
+        crumbs={[{ label: t.dashboard.title, href: '/dashboard' }, { label: t.rees.title, href: '/rees' }, { label: w.crumb }]}
         secondRow={progress}
       />
       <main className="mx-auto max-w-[1180px] px-4 py-8 md:px-8">
@@ -236,7 +275,7 @@ export function SetupWizard({ initialDraft }: { initialDraft: ReeDraft }) {
               </p>
             )}
             <div className="mt-2">
-              {step === 1 && <IdentityFields value={form} onChange={patch} />}
+              {step === 1 && <IdentityFields value={form} onChange={patch} onCropping={setCropping} />}
               {step === 2 && <PersonalityFields value={form} onChange={patch} />}
               {step === 3 && (
                 <>

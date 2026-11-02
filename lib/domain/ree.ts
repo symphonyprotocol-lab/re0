@@ -272,3 +272,42 @@ export function randomSlug(): string {
   crypto.getRandomValues(bytes);
   return `ree-${Array.from(bytes, (b) => (b % 36).toString(36)).join('')}`;
 }
+
+/* ------------------------------------------------- batch visibility (/rees) */
+
+/** The most Rees one batch visibility change takes, and the most "选中全部结果" selects. */
+export const REE_BATCH_MAX = 5_000;
+
+export interface VisibilityRow {
+  id: string;
+  isPublic: boolean;
+  /** Taken down by an administrator: it cannot be made public until restored (2.5). */
+  moderated: boolean;
+}
+
+export interface VisibilityPlan {
+  changes: string[];
+  unchanged: string[];
+  blocked: string[];
+  missing: string[];
+}
+
+/**
+ * What "设为公开 / 设为私有" would do to a selection (prototype owned-rees.js
+ * `ownedReeVisibilityPlan`): Rees already at the target stay as they are, a
+ * taken-down Ree is skipped when going public, ids no longer the owner's
+ * are reported missing. The browser shows it for review; the server runs it
+ * again on the rows it locked.
+ */
+export function visibilityPlan(rows: readonly VisibilityRow[], ids: Iterable<string>, isPublic: boolean): VisibilityPlan {
+  const byId = new Map(rows.map((row) => [row.id, row]));
+  const plan: VisibilityPlan = { changes: [], unchanged: [], blocked: [], missing: [] };
+  for (const id of new Set(ids)) {
+    const row = byId.get(id);
+    if (!row) plan.missing.push(id);
+    else if (isPublic && row.moderated) plan.blocked.push(id);
+    else if (row.isPublic === isPublic) plan.unchanged.push(id);
+    else plan.changes.push(id);
+  }
+  return plan;
+}

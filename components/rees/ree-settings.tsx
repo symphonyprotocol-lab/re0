@@ -25,7 +25,7 @@ function formOf(ree: Ree): ReeFormState {
     tags: ree.tags,
     systemPrompt: ree.systemPrompt,
     sampleQuestions: ree.sampleQuestions.join('\n'),
-    isPublic: ree.isPublic,
+    isPublic: ree.isPublic && !ree.moderatedAt,
     queryFee: ree.queryFee,
   };
 }
@@ -33,7 +33,8 @@ function formOf(ree: Ree): ReeFormState {
 /**
  * `/rees/[id]/settings`: identity, knowledge & personality, publishing &
  * pricing as three sections of one form; the summary on the right shows what
- * is saved, not what is being typed. Deletion is soft.
+ * is saved, not what is being typed -- `sources` counts every live source,
+ * whatever its status, as the prototype's summary does. Deletion is soft.
  */
 export function ReeSettings({ ree, sources }: { ree: Ree; sources: number }) {
   const { t } = useI18n();
@@ -45,8 +46,15 @@ export function ReeSettings({ ree, sources }: { ree: Ree; sources: number }) {
   const [saving, setSaving] = useState(false);
   const [confirmDelete, setConfirmDelete] = useState(false);
   const [deleting, setDeleting] = useState(false);
+  const [cropping, setCropping] = useState(false);
+  const moderated = Boolean(ree.moderatedAt);
 
   const save = async () => {
+    /* An open avatar crop is applied or cancelled first (prototype dot-avatar.js `beforeSubmit`). */
+    if (cropping) {
+      setError(t.reeSetup.messages.crop);
+      return;
+    }
     const invalid = validateReeFields(form, 4);
     if (invalid) {
       setError(t.reeSetup.messages[invalid.error]);
@@ -101,7 +109,7 @@ export function ReeSettings({ ree, sources }: { ree: Ree; sources: number }) {
             <section className="card p-5 sm:p-7">
               <h2 className="text-[16px] font-bold">{s.identity}</h2>
               <div className="mt-2">
-                <IdentityFields value={form} onChange={(patch) => setForm((current) => ({ ...current, ...patch }))} />
+                <IdentityFields value={form} onChange={(patch) => setForm((current) => ({ ...current, ...patch }))} onCropping={setCropping} />
               </div>
             </section>
             <section className="card p-5 sm:p-7">
@@ -137,7 +145,7 @@ export function ReeSettings({ ree, sources }: { ree: Ree; sources: number }) {
             <section className="card p-5 sm:p-7">
               <h2 className="text-[16px] font-bold">{s.publishing}</h2>
               <div className="mt-5">
-                <PublishingFields value={form} onChange={(patch) => setForm((current) => ({ ...current, ...patch }))} />
+                <PublishingFields value={form} onChange={(patch) => setForm((current) => ({ ...current, ...patch }))} moderated={moderated} />
               </div>
             </section>
             <div className="flex flex-wrap justify-end gap-2">
@@ -167,6 +175,15 @@ export function ReeSettings({ ree, sources }: { ree: Ree; sources: number }) {
                 </span>
                 <Icon name="arrow" className="size-3.5" />
               </Link>
+              {ree.isPublic && !moderated && (
+                <Link href={`/r/${ree.slug}`} className="flex items-center justify-between rounded-lg border border-line px-3 py-2.5 text-[12px] font-semibold hover:border-blue hover:text-blue">
+                  <span className="flex items-center gap-2">
+                    <Icon name="external" />
+                    {s.viewPublic}
+                  </span>
+                  <Icon name="arrow" className="size-3.5" />
+                </Link>
+              )}
               <small className="text-[11px] text-muted">{s.summaryNote}</small>
             </section>
             <section className="card p-5">

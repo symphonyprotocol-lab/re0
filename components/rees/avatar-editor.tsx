@@ -21,6 +21,8 @@ function cropRect(width: number, height: number, zoom: number, x: number, y: num
  * Upload, zoom and position, then "使用此头像": the browser crops to 512×512
  * and uploads the result to Blob; the form saves the pathname with everything
  * else, so cancelling the form keeps the old avatar (prototype dot-avatar.js).
+ * `onCropping` reports an open crop, which the form must not save past
+ * (prototype `beforeSubmit`: "请先选择“使用此头像”或取消裁剪，再保存。").
  */
 export function AvatarEditor({
   value,
@@ -29,6 +31,7 @@ export function AvatarEditor({
   kind = 'ree',
   name = '',
   labels,
+  onCropping,
 }: {
   value: string | null;
   color?: string;
@@ -36,6 +39,7 @@ export function AvatarEditor({
   kind?: 'ree' | 'user';
   name?: string;
   labels: { title: string; upload: string; change: string; reset: string; hint: string; note?: string };
+  onCropping?: (open: boolean) => void;
 }) {
   const { t } = useI18n();
   const f = t.reeSetup.fields;
@@ -47,6 +51,13 @@ export function AvatarEditor({
   const [y, setY] = useState(0);
   const [error, setError] = useState('');
   const [busy, setBusy] = useState(false);
+  const cropping = image !== null;
+  const croppingRef = useRef(onCropping);
+  useEffect(() => {
+    croppingRef.current = onCropping;
+  });
+  useEffect(() => croppingRef.current?.(cropping), [cropping]);
+  useEffect(() => () => croppingRef.current?.(false), []);
 
   useEffect(() => {
     const canvas = canvasRef.current;
