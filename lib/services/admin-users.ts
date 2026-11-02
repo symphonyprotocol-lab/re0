@@ -16,6 +16,8 @@ import { AdminInputError, audit } from '@/lib/services/admin';
 import { addGrant, grantsOf, moveGrants } from '@/lib/services/credits';
 import { notify } from '@/lib/services/notices';
 import { roleHistory, roleMetrics } from '@/lib/services/roles';
+import type { KycState } from '@/lib/domain/kyc';
+import { userKycState } from '@/lib/services/kyc';
 
 /* Written qualified: inside drizzle's sql a column renders bare and would bind to the inner table. */
 const membership = sql<'active' | 'cancelled' | 'expired' | 'none'>`coalesce((select s.status from ${schema.subscription} s where s.user_id = "user"."id" order by s.updated_at desc limit 1), 'none')`;
@@ -33,8 +35,8 @@ export interface AdminUserRow {
   pack: number;
   earned: number;
   welcome: number;
-  /** Until step 6 brings `kyc_record`, every user reads "not submitted". */
-  kyc: 'none';
+  /** The newest `kyc_record`'s status, `none` without one (step 6). */
+  kyc: KycState;
   createdAt: Date;
   lastLoginAt: Date | null;
 }
@@ -45,7 +47,7 @@ function usersWhere(view: UsersView, now: Date): SQL | undefined {
   if (view.status === 'disabled') conditions.push(sql`${schema.user.disabledAt} is not null`);
   if (view.role !== 'all') conditions.push(eq(schema.user.role, view.role));
   if (view.membership !== 'all') conditions.push(sql`${membership} = ${view.membership}`);
-  if (view.kyc !== 'all' && view.kyc !== 'none') conditions.push(sql`false`);
+  if (view.kyc !== 'all') conditions.push(sql`${userKycState} = ${view.kyc}`);
   const since = periodStart(view.period, now);
   if (since) conditions.push(gte(schema.user.createdAt, since));
   if (view.q) {
@@ -73,6 +75,7 @@ export async function listUsers(view: UsersView, options: { all?: boolean } = {}
       pack: bucket('pack'),
       earned: bucket('earned'),
       welcome: bucket('welcome'),
+      kyc: userKycState,
       createdAt: schema.user.createdAt,
       lastLoginAt: schema.user.lastLoginAt,
     })
@@ -90,7 +93,6 @@ export async function listUsers(view: UsersView, options: { all?: boolean } = {}
       pack: Number(pack),
       earned: Number(earned),
       welcome: Number(welcome),
-      kyc: 'none',
     })),
     total,
     page,

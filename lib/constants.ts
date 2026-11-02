@@ -319,3 +319,28 @@ export const MODEL_PRICES: Record<string, { input?: number; output?: number; per
 };
 /** Earned credits needed before a payout can be requested (2.3: USD 50); the dashboard's payout guide reads it. */
 export const PAYOUT_MIN_CREDITS = 500_000;
+
+/* ------------------------------------------------------ payouts, 2.3 (step 6) */
+
+/** Identity fields (8.4 step 6, prototype manual-kyc.js). */
+export const KYC_LIMITS = { legalName: 100, country: 80, last4: 4 } as const;
+export const KYC_DOCUMENT_KINDS = ['passport', 'id', 'residence'] as const;
+/** W-8BEN for non-US persons, W-9 for US taxpayers. */
+export const TAX_FORMS = ['W-8BEN', 'W-9'] as const;
+/** The document photo and the selfie: JPG / PNG / WebP, each up to 10 MB, straight to private Blob. */
+export const KYC_IMAGE_MAX_BYTES = 10 * 1024 * 1024;
+export const KYC_IMAGE_TYPES: Record<string, string> = { 'image/jpeg': 'jpg', 'image/png': 'png', 'image/webp': 'webp' };
+/** An administrator's look at the images: signed links good for this long, each issue audited. */
+export const KYC_FILE_URL_TTL_SECONDS = 60;
+/** Originals are deleted this long after approval, rejection or a re-verification request; metadata stays. */
+export const KYC_FILE_RETENTION_DAYS = 30;
+/** Images uploaded but never submitted are removed after this long. */
+export const KYC_ORPHAN_HOURS = 24;
+/** Records and orphan blobs one purge run handles; the rest go next run. */
+export const KYC_PURGE_BATCH = 200;
+/** The PayPal personal account's e-mail. */
+export const PAYPAL_EMAIL_MAX = 254;
+/** After the e-mail changes, payouts wait this long (account-takeover protection, 2.3). */
+export const PAYPAL_CHANGE_HOLD_DAYS = 7;
+/** The PayPal transfer id an administrator records. */
+export const PAYOUT_TRANSFER_ID_MAX = 100;

@@ -22,11 +22,14 @@ import * as notices from './pages/notices';
 import * as console from './pages/console';
 import * as consoleUsers from './pages/console-users';
 import * as consoleRees from './pages/console-rees';
+import * as payouts from './pages/payouts';
+import * as consolePayouts from './pages/console-payouts';
 import type { Locale } from './locale';
 
 /* Step 5's pages sit in their own spread, so other steps' additions to the first object merge cleanly. */
 const step5 = { roles, statistics, notices, console, consoleUsers, consoleRees };
-const pages = { common, login, dashboard, rees, reeSetup, knowledge, chat, settings, billing, site, legal, admin, conversations, discover, ...step5 };
+const step6 = { payouts, consolePayouts };
+const pages = { common, login, dashboard, rees, reeSetup, knowledge, chat, settings, billing, site, legal, admin, conversations, discover, ...step5, ...step6 };
 
 type Pages = typeof pages;
 export type Messages = { [K in keyof Pages]: Pages[K]['en'] };

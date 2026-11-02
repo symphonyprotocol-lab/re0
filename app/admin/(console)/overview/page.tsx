@@ -49,8 +49,8 @@ export default async function OverviewPage() {
   const attention: { href?: string; count?: number; label: string; icon: IconName }[] = [
     { href: '/admin/verifications', count: data.pending.verifications, label: o.attention.verifications, icon: 'shield' },
     { href: '/admin/models', count: data.pending.reembed, label: o.attention.reembed, icon: 'refresh' },
-    { label: o.attention.kyc, icon: 'user' },
-    { label: o.attention.payouts, icon: 'download' },
+    { href: '/admin/kyc?status=pending', count: data.pending.kyc, label: o.attention.kyc, icon: 'user' },
+    { href: '/admin/payouts', count: data.pending.payouts, label: o.attention.payouts, icon: 'download' },
   ];
   return (
     <>

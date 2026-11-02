@@ -8,7 +8,7 @@ import { Icon, type IconName } from '@/components/ui/icons';
 import { LanguageToggle } from '@/components/ui/language-toggle';
 import { AdministratorsButton } from '@/components/admin/administrators-dialog';
 
-type NavKey = 'overview' | 'users' | 'verifications' | 'purchases' | 'rees' | 'models' | 'audit';
+type NavKey = 'overview' | 'users' | 'verifications' | 'purchases' | 'rees' | 'models' | 'audit' | 'kyc' | 'payouts' | 'payout-history';
 
 const NAV: { key: NavKey; icon: IconName; group: 'platform' | 'trust' | 'governance' }[] = [
   { key: 'overview', icon: 'dashboard', group: 'platform' },
@@ -16,7 +16,10 @@ const NAV: { key: NavKey; icon: IconName; group: 'platform' | 'trust' | 'governa
   { key: 'rees', icon: 'ree', group: 'platform' },
   { key: 'models', icon: 'layers', group: 'platform' },
   { key: 'verifications', icon: 'shield', group: 'trust' },
+  { key: 'kyc', icon: 'user', group: 'trust' },
   { key: 'purchases', icon: 'sparkle', group: 'trust' },
+  { key: 'payouts', icon: 'check', group: 'trust' },
+  { key: 'payout-history', icon: 'clock', group: 'trust' },
   { key: 'audit', icon: 'list', group: 'governance' },
 ];
 
@@ -25,7 +28,20 @@ const NAV: { key: NavKey; icon: IconName; group: 'platform' | 'trust' | 'governa
  * the console's pages grouped as in the prototype, a drawer on phones, and a
  * top bar with language, administrators and sign-out.
  */
-export function ConsoleShell({ email, pendingVerifications, children }: { email: string; pendingVerifications: number; children: ReactNode }) {
+export function ConsoleShell({
+  email,
+  pendingVerifications,
+  pendingKyc = 0,
+  openPayouts = 0,
+  children,
+}: {
+  email: string;
+  pendingVerifications: number;
+  /** Step 6: KYC submissions to review and payouts in progress, badged like the verification queue. */
+  pendingKyc?: number;
+  openPayouts?: number;
+  children: ReactNode;
+}) {
   const { t } = useI18n();
   const c = t.console;
   const pathname = usePathname();
@@ -70,6 +86,9 @@ export function ConsoleShell({ email, pendingVerifications, children }: { email:
                   <span className="min-w-0 flex-1 truncate">{c.nav[item.key]}</span>
                   {item.key === 'verifications' && pendingVerifications > 0 && (
                     <small className="rounded-full bg-blue px-1.5 font-mono text-[10px] text-white">{pendingVerifications}</small>
+                  )}
+                  {((item.key === 'kyc' && pendingKyc > 0) || (item.key === 'payouts' && openPayouts > 0)) && (
+                    <small className="rounded-full bg-blue px-1.5 font-mono text-[10px] text-white">{item.key === 'kyc' ? pendingKyc : openPayouts}</small>
                   )}
                 </Link>
               );

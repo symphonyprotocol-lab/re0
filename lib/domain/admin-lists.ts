@@ -38,7 +38,7 @@ export function periodStart(period: RecentPeriod, now: Date = new Date()): Date 
 export const ACCOUNT_STATUSES = ['active', 'disabled'] as const;
 export const MEMBERSHIP_STATES = ['active', 'cancelled', 'expired', 'none'] as const;
 export type Membership = (typeof MEMBERSHIP_STATES)[number];
-/** KYC states the users list filters on; every user reads `none` until step 6 brings `kyc_record`. */
+/** KYC states the users list filters on: the state of the user's newest `kyc_record`, `none` without one. */
 export const USER_KYC_STATES = ['none', 'pending', 'verified', 'rejected', 'reset'] as const;
 export type UserKyc = (typeof USER_KYC_STATES)[number];
 export const TIME_SORTS = ['newest', 'oldest'] as const;
@@ -152,3 +152,45 @@ export function csvHref(apiBase: string, view: Record<string, string | number>, 
   const href = listHref(apiBase, { ...view, page: 1 }, {}, defaults);
   return `${href}${href.includes('?') ? '&' : '?'}format=csv`;
 }
+
+/* ------------------------------------------------------- step 6: KYC, payouts */
+
+export const KYC_FILTERS = ['all', 'pending', 'verified', 'rejected', 'reset'] as const;
+
+/** KYC records: every submission, oldest first by default (8.4 step 6 "最早优先"). */
+export function kycView(params: Params) {
+  return {
+    ...common(params),
+    status: pick(params, 'status', KYC_FILTERS, 'all'),
+    period: pick(params, 'period', RECENT_PERIODS, 'all'),
+    sort: pick(params, 'sort', TIME_SORTS, 'oldest'),
+  };
+}
+export type KycView = ReturnType<typeof kycView>;
+export const KYC_DEFAULTS: Record<string, string> = { ...LIST_DEFAULTS, sort: 'oldest' };
+
+export const PAYOUT_QUEUE_FILTERS = ['all', 'pending', 'approved'] as const;
+export const PAYOUT_HISTORY_FILTERS = ['all', 'pending', 'approved', 'paid', 'failed', 'rejected'] as const;
+
+/** 提现审核: only requests in progress, oldest first. */
+export function payoutQueueView(params: Params) {
+  return {
+    ...common(params),
+    status: pick(params, 'status', PAYOUT_QUEUE_FILTERS, 'all'),
+    period: 'all' as RecentPeriod,
+    sort: pick(params, 'sort', AMOUNT_SORTS, 'oldest'),
+  };
+}
+export type PayoutQueueView = ReturnType<typeof payoutQueueView>;
+export const PAYOUT_QUEUE_DEFAULTS: Record<string, string> = { ...LIST_DEFAULTS, sort: 'oldest' };
+
+/** 提现记录: every request in any of the five states, newest first. */
+export function payoutHistoryView(params: Params) {
+  return {
+    ...common(params),
+    status: pick(params, 'status', PAYOUT_HISTORY_FILTERS, 'all'),
+    period: pick(params, 'period', RECENT_PERIODS, 'all'),
+    sort: pick(params, 'sort', AMOUNT_SORTS, 'newest'),
+  };
+}
+export type PayoutHistoryView = ReturnType<typeof payoutHistoryView>;

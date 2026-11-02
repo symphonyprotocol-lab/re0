@@ -4,6 +4,7 @@
  * `?format=csv`, every row the same filters match (8.2 "后台 CSV").
  */
 import { NextResponse } from 'next/server';
+import { CREDIT_USD } from '@/lib/constants';
 import { toCsv } from '@/lib/domain/csv';
 import type { ListResult } from '@/lib/domain/list';
 import { reportingTime } from '@/lib/domain/statistics';
@@ -14,6 +15,8 @@ import type { AdminUserRow } from '@/lib/services/admin-users';
 import type { AuditRow } from '@/lib/services/admin-audit';
 import type { PurchaseRow, SubscriptionRow } from '@/lib/services/admin-purchases';
 import type { VerificationListItem } from '@/lib/services/roles';
+import type { KycListItem } from '@/lib/services/kyc';
+import type { PayoutListItem } from '@/lib/services/payouts';
 
 export function csvResponse(name: string, headers: readonly string[], rows: readonly (readonly unknown[])[]): NextResponse {
   return new NextResponse(toCsv(headers, rows), {
@@ -42,7 +45,21 @@ export async function listOrCsv<T>(
   return json(await load(false));
 }
 
-const STATUS: Record<string, number> = { not_found: 404, stale: 409, job_running: 409, payout_pending: 409, email_taken: 409, self: 409, owner: 409 };
+const STATUS: Record<string, number> = {
+  not_found: 404,
+  stale: 409,
+  job_running: 409,
+  payout_pending: 409,
+  email_taken: 409,
+  self: 409,
+  owner: 409,
+  /* Step 6: the user's state forbids it now. */
+  official: 409,
+  disabled: 409,
+  kyc_required: 409,
+  kyc_pending: 409,
+  transfer_used: 409,
+};
 
 /** An `AdminInputError` as the response the console expects; anything else is rethrown. */
 export function adminFailure(error: unknown): NextResponse {
@@ -96,4 +113,56 @@ export const REES_CSV = {
   name: 'rees',
   headers: ['ID', 'Name', 'Slug', 'Visibility', 'Owner', 'Owner email', 'Owner role', 'Query fee', 'Sources', 'Ready sources', 'Moderation reason', 'Created (UTC+8)'],
   row: (r: AdminReeRow) => [r.id, r.name, r.slug, r.visibility, r.ownerName, r.ownerEmail, r.ownerRole, r.queryFee, r.sources, r.readySources, r.moderatedReason ?? '', time(r.createdAt)],
+};
+
+export const KYC_CSV = {
+  name: 'kyc',
+  headers: ['ID', 'User ID', 'Name', 'Email', 'Status', 'Legal name', 'Country', 'Document', 'Document last4', 'Expires', 'Tax form', 'Declared', 'Reviewer', 'Reason', 'Originals deleted', 'Submitted (UTC+8)', 'Decided (UTC+8)', 'Reset (UTC+8)'],
+  row: (k: KycListItem) => [
+    k.id,
+    k.userId,
+    k.name,
+    k.email,
+    k.status,
+    k.legalName ?? '',
+    k.country ?? '',
+    k.documentKind ?? '',
+    k.documentLast4 ?? '',
+    k.documentExpires ?? '',
+    k.taxForm ?? '',
+    k.declared ? 'yes' : 'no',
+    k.reviewer ?? '',
+    k.reason ?? '',
+    k.filesDeleted ? 'yes' : 'no',
+    time(k.createdAt),
+    time(k.decidedAt),
+    time(k.resetAt),
+  ],
+};
+
+const dollars = (credits: number | null) => (credits === null ? '' : (credits * CREDIT_USD).toFixed(4));
+
+export const PAYOUTS_CSV = {
+  name: 'payouts',
+  headers: ['ID', 'User ID', 'Name', 'Email', 'Status', 'Credits', 'Requested USD', 'Net paid USD', 'Fee USD', 'PayPal email', 'Transfer ID', 'Reviewer', 'Review note', 'Paid / failed by', 'Failure reason', 'Requested (UTC+8)', 'Reviewed (UTC+8)', 'Resolved (UTC+8)'],
+  row: (p: PayoutListItem) => [
+    p.id,
+    p.userId,
+    p.name,
+    p.email,
+    p.status,
+    p.credits,
+    dollars(p.credits),
+    p.paidCents === null ? '' : (p.paidCents / 100).toFixed(2),
+    dollars(p.feeCredits),
+    p.paypalEmail,
+    p.transferId ?? '',
+    p.reviewer ?? '',
+    p.reviewNote ?? '',
+    p.resolver ?? '',
+    p.failureReason ?? '',
+    time(p.createdAt),
+    time(p.reviewedAt),
+    time(p.resolvedAt),
+  ],
 };
