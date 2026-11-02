@@ -2,15 +2,15 @@
 
 import Link from 'next/link';
 import { usePathname, useRouter } from 'next/navigation';
-import { createContext, useContext, useEffect, useMemo, useRef, useState, type MouseEvent, type ReactNode } from 'react';
+import { createContext, Fragment, useContext, useEffect, useMemo, useRef, useState, type MouseEvent, type ReactNode } from 'react';
 import { dateGroup, searchReturnPath, type DateGroup } from '@/lib/domain/conversation';
 import { conversationApi } from '@/lib/client/conversations';
 import type { HistoryItem } from '@/lib/services/conversations';
 import { useI18n } from '@/i18n/client';
-import { fill } from '@/i18n/format';
-import { Icon } from '@/components/ui/icons';
-import { RowMenu } from '@/components/ui/row-menu';
+import { fill, formatNumber } from '@/i18n/format';
 import { useToast } from '@/components/ui/toast';
+import { I } from '@/components/chat/message-parts';
+import { ConversationMenu } from '@/components/conversations/conversation-menu';
 import { RenameDialog } from '@/components/conversations/rename-dialog';
 import { OrganizeConfirm, type OrganizeRequest } from '@/components/conversations/organize-confirm';
 
@@ -47,8 +47,8 @@ export function useCurrentConversation(item: HistoryItem | null): void {
  * the search page from anywhere in the workspace -- back to the search a
  * conversation was opened from, when it was -- with the box focused.
  */
-export function SidebarConversations({ history, collapsed }: { history: HistoryItem[]; collapsed: boolean }) {
-  const { t } = useI18n();
+export function SidebarConversations({ history, collapsed, className = 'px-3' }: { history: HistoryItem[]; collapsed: boolean; /** The sidebar's horizontal inset, until the frame pads the whole sidebar (prototype `.sidebar` padding). */ className?: string }) {
+  const { t, locale } = useI18n();
   const c = t.conversations.sidebar;
   const pathname = usePathname();
   const router = useRouter();
@@ -103,14 +103,15 @@ export function SidebarConversations({ history, collapsed }: { history: HistoryI
     const title = item.title || c.untitled;
     const active = item.id === currentId;
     return (
-      <div key={item.id} className={`group flex items-center rounded-lg ${active ? 'bg-soft text-blue' : 'text-[#3b4361] hover:bg-wash'}`}>
-        <Link href={`/chats/${item.id}`} aria-current={active ? 'page' : undefined} title={title} className="flex min-w-0 flex-1 items-center gap-1.5 py-1.5 pl-3 text-[12px]">
-          {item.pinned && <Icon name="pin" className="size-3 flex-none text-muted" />}
-          <span className="truncate">{title}</span>
+      <div key={item.id} className={`chat-history-row${active ? ' active' : ''}`}>
+        <Link href={`/chats/${item.id}`} aria-current={active ? 'page' : undefined} aria-label={title} title={title}>
+          {item.pinned && <I name="pin" />}
+          <span className="chat-history-title">{title}</span>
         </Link>
-        <RowMenu
+        <ConversationMenu
+          beside
+          title={title}
           label={fill(c.more, { title })}
-          className="!size-7 opacity-60 group-hover:opacity-100 focus:opacity-100"
           items={[
             /* `/chats` works out the tab and page that hold it (prototype conversations.js `cl-select-one`). */
             { label: t.conversations.search.selectOne, icon: 'check', onSelect: () => router.push(`/chats?select=${item.id}`) },
@@ -129,7 +130,7 @@ export function SidebarConversations({ history, collapsed }: { history: HistoryI
               icon: 'archive',
               onSelect: () => setConfirm({ action: item.archived ? 'unarchive' : 'archive', ids: [item.id], titles: [title], active }),
             },
-            { label: t.conversations.search.trash, icon: 'trash', danger: true, onSelect: () => setConfirm({ action: 'trash', ids: [item.id], titles: [title], active }) },
+            { label: t.conversations.search.trash, icon: 'trash', onSelect: () => setConfirm({ action: 'trash', ids: [item.id], titles: [title], active }) },
           ]}
         />
       </div>
@@ -139,15 +140,14 @@ export function SidebarConversations({ history, collapsed }: { history: HistoryI
   let last: DateGroup | null = null;
   return (
     <>
-      <div className={`mt-3 flex flex-col gap-1 px-3 ${collapsed ? 'px-2' : ''}`} role="group">
+      <div className={`chat-sidebar-tools${collapsed ? ' is-collapsed' : ''} ${className}`} role="group" aria-label={c.tools}>
         {/* `?new=1` drops the draft kept on /talk and focuses its box. */}
-        <Tool href="/talk?new=1" icon="plus" label={c.newChat} active={pathname === '/talk'} collapsed={collapsed} />
+        <Tool href="/talk?new=1" icon="plus" label={c.newChat} active={pathname === '/talk'} button />
         <Tool
           href="/chats?focus=1"
           icon="search"
           label={c.search}
           active={pathname === '/chats'}
-          collapsed={collapsed}
           kbd="⌘ K"
           onClick={(event) => {
             if (event.metaKey || event.ctrlKey || event.shiftKey || event.button !== 0) return;
@@ -157,40 +157,40 @@ export function SidebarConversations({ history, collapsed }: { history: HistoryI
         />
       </div>
       {!collapsed && (
-        <div ref={scroller} className="mt-3 min-h-0 flex-1 overflow-y-auto px-3 pb-3" role="region" tabIndex={0} aria-label={c.history}>
+        <div ref={scroller} className={`chat-history-scroll ${className}`} role="region" tabIndex={0} aria-label={c.history}>
           {showCurrent && (
             <>
-              <h3 className="px-3 pt-2 pb-1 text-[10px] font-semibold tracking-wide text-muted uppercase">{c.current}</h3>
+              <h3>{c.current}</h3>
               {row(showCurrent)}
             </>
           )}
           {pinned.length > 0 && (
             <>
-              <h3 className="flex items-center justify-between px-3 pt-2 pb-1 text-[10px] font-semibold tracking-wide text-muted uppercase">
+              <h3>
                 {c.pinned}
-                <span className="font-mono">{pinned.length}</span>
+                <span className="chat-history-count">{formatNumber(pinned.length, locale)}</span>
               </h3>
               {pinned.map(row)}
             </>
           )}
           {recent.length > 0 && (
-            <h3 className="flex items-center justify-between px-3 pt-3 pb-1 text-[10px] font-semibold tracking-wide text-muted uppercase">
+            <h3>
               {c.recent}
-              <span className="font-mono">{recent.length}</span>
+              <span className="chat-history-count">{formatNumber(recent.length, locale)}</span>
             </h3>
           )}
           {recent.map((item) => {
             const group = dateGroup(new Date(item.updatedAt), now, false);
-            const heading = group !== last ? <h4 className="px-3 pt-2 pb-0.5 text-[10px] text-[#a3a9bb]">{c.groups[group]}</h4> : null;
+            const heading = group !== last ? <h4 className="chat-history-date">{c.groups[group]}</h4> : null;
             last = group;
             return (
-              <div key={item.id}>
+              <Fragment key={item.id}>
                 {heading}
                 {row(item)}
-              </div>
+              </Fragment>
             );
           })}
-          {history.length === 0 && !showCurrent && <p className="px-3 pt-3 text-[11px] text-muted">{c.empty}</p>}
+          {!pinned.length && !recent.length && !showCurrent && <p className="chat-history-empty">{c.empty}</p>}
         </div>
       )}
       {collapsed && <div className="flex-1" />}
@@ -224,35 +224,12 @@ export function SidebarConversations({ history, collapsed }: { history: HistoryI
   );
 }
 
-function Tool({
-  href,
-  icon,
-  label,
-  active,
-  collapsed,
-  kbd,
-  onClick,
-}: {
-  href: string;
-  icon: 'plus' | 'search';
-  label: string;
-  active: boolean;
-  collapsed: boolean;
-  kbd?: string;
-  onClick?: (event: MouseEvent<HTMLAnchorElement>) => void;
-}) {
+function Tool({ href, icon, label, active, kbd, onClick, button = false }: { href: string; icon: 'plus' | 'search'; label: string; active: boolean; kbd?: string; onClick?: (event: MouseEvent<HTMLAnchorElement>) => void; button?: boolean }) {
   return (
-    <Link
-      href={href}
-      onClick={onClick}
-      title={collapsed ? label : undefined}
-      aria-current={active ? 'page' : undefined}
-      className={`flex h-9 items-center gap-3 rounded-lg px-3 text-[13px] font-medium ${active ? 'bg-soft text-blue' : 'text-[#3b4361] hover:bg-wash hover:text-ink'} ${collapsed ? 'justify-center px-0' : ''}`}
-    >
-      <Icon name={icon} className="size-[18px] flex-none" />
-      {!collapsed && <span className="min-w-0 flex-1 truncate">{label}</span>}
-      {!collapsed && kbd && <kbd className="hidden rounded border border-line bg-white px-1 font-mono text-[9px] text-muted md:inline">{kbd}</kbd>}
-      {collapsed && <span className="sr-only">{label}</span>}
+    <Link href={href} onClick={onClick} title={label} aria-label={label} aria-current={active ? 'page' : undefined} className={`${button ? 'btn ' : ''}chat-sidebar-tool${active ? ' active' : ''}`}>
+      <I name={icon} />
+      <span>{label}</span>
+      {kbd && <kbd>{kbd}</kbd>}
     </Link>
   );
 }

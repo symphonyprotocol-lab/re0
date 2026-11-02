@@ -1,6 +1,5 @@
 import type { Metadata } from 'next';
 import { notFound } from 'next/navigation';
-import { CONVERSATION_MAX_REES } from '@/lib/constants';
 import { searchReturnPath } from '@/lib/domain/conversation';
 import { currentUser } from '@/lib/http/session';
 import { db } from '@/lib/infra/db';
@@ -10,7 +9,6 @@ import { liveConversation, participantsOf, priceFor, reeBriefs } from '@/lib/ser
 import { serverMessages } from '@/i18n/server';
 import { Topbar } from '@/components/shell/topbar';
 import { ChatRoom, type ReeDirectory } from '@/components/conversations/chat-room';
-import { ParticipantStrip } from '@/components/conversations/participant-strip';
 
 type Props = { params: Promise<{ id: string }>; searchParams: Promise<{ from?: string }> };
 
@@ -39,10 +37,7 @@ export default async function ConversationPage({ params, searchParams }: Props) 
   const back = searchReturnPath((await searchParams).from);
   return (
     <>
-      <Topbar
-        crumbs={[{ label: t.dashboard.title, href: '/dashboard' }, { label: t.conversations.sidebar.search, href: back }, { label: title }]}
-        secondRow={<ParticipantStrip members={members} max={CONVERSATION_MAX_REES} />}
-      />
+      <Topbar crumbs={[{ label: t.dashboard.title, href: '/dashboard' }, { label: t.conversations.sidebar.search, href: back }, { label: title }]} />
       <ChatRoom
         conversation={{ id: conversation.id, title, pinned: conversation.pinned, archived: Boolean(conversation.archivedAt), updatedAt: conversation.updatedAt.toISOString() }}
         members={members}

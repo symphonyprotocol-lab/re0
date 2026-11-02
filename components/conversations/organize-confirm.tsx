@@ -2,7 +2,7 @@
 
 import { useI18n } from '@/i18n/client';
 import { fill, formatNumber } from '@/i18n/format';
-import { Icon } from '@/components/ui/icons';
+import { I } from '@/components/chat/message-parts';
 import { ConfirmModal } from '@/components/ui/modal';
 
 export type OrganizeAction = 'archive' | 'unarchive' | 'trash';
@@ -32,20 +32,20 @@ export function OrganizeConfirm({ request, onClose, onConfirm }: { request: Orga
       danger={action === 'trash'}
       title={action === 'trash' ? fill(s.trashTitle, { n: count }) : action === 'unarchive' ? s.unarchiveTitle : s.archiveTitle}
       body={
-        <>
+        <div className="conv-dialog">
           {count > 0 && (
-            <div className="mb-3 flex flex-col gap-1.5 rounded-xl bg-wash p-3 text-ink">
+            <div className="cl-review">
               {titles.map((title, index) => (
-                <p key={index} className="flex min-w-0 items-center gap-2 text-[12px]">
-                  <Icon name="chat" className="size-3.5 flex-none text-muted" />
-                  <span className="truncate">{title || t.conversations.sidebar.untitled}</span>
+                <p key={index}>
+                  <I name="chat" />
+                  <span>{title || t.conversations.sidebar.untitled}</span>
                 </p>
               ))}
-              {count > titles.length && <small className="text-[11px] text-muted">{fill(s.reviewTotal, { n: formatNumber(count, locale) })}</small>}
+              {count > titles.length && <small>{fill(s.reviewTotal, { n: formatNumber(count, locale) })}</small>}
             </div>
           )}
-          {action === 'trash' ? s.trashBody : s.archiveBody}
-        </>
+          <p className="form-hint">{action === 'trash' ? s.trashBody : s.archiveBody}</p>
+        </div>
       }
       confirmLabel={action === 'trash' ? s.trash : action === 'unarchive' ? s.unarchive : s.archiveConfirm}
       onClose={onClose}

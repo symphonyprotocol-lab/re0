@@ -28,7 +28,7 @@ function inline(text: string, citation: (index: number, key: string) => ReactNod
   return nodes;
 }
 
-export function Markdown({ text, citation }: { text: string; citation: (index: number, key: string) => ReactNode }) {
+export function Markdown({ text, citation, className = 'flex flex-col gap-3' }: { text: string; citation: (index: number, key: string) => ReactNode; className?: string }) {
   const blocks: ReactNode[] = [];
   const lines = text.replace(/\r\n?/g, '\n').split('\n');
   let at = 0;
@@ -83,5 +83,5 @@ export function Markdown({ text, citation }: { text: string; citation: (index: n
     );
     key += 1;
   }
-  return <div className="flex flex-col gap-3">{blocks}</div>;
+  return <div className={className}>{blocks}</div>;
 }

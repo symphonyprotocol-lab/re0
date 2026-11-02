@@ -4,6 +4,7 @@ import { useEffect, useState } from 'react';
 import { CONVERSATION_TITLE_MAX } from '@/lib/constants';
 import { useI18n } from '@/i18n/client';
 import { Modal } from '@/components/ui/modal';
+import '@/components/conversations/conversations.css';
 
 /** "重命名对话": 1–120 characters. */
 export function RenameDialog({ open, initial, onClose, onSave }: { open: boolean; initial: string; onClose: () => void; onSave: (title: string) => Promise<void> }) {
@@ -48,24 +49,17 @@ export function RenameDialog({ open, initial, onClose, onSave }: { open: boolean
     >
       <form
         id="conversation-rename-form"
+        className="conv-dialog"
         onSubmit={(event) => {
           event.preventDefault();
           void submit();
         }}
       >
-        <label className="block text-[12px] font-semibold" htmlFor="conversation-rename">
-          {s.renameLabel}
-        </label>
-        <input
-          id="conversation-rename"
-          className="input mt-2 w-full"
-          value={value}
-          maxLength={CONVERSATION_TITLE_MAX}
-          required
-          onChange={(event) => setValue(event.target.value)}
-          autoFocus
-        />
-        {error && <p className="mt-2 text-[12px] text-red">{error}</p>}
+        <div className="field">
+          <label htmlFor="conversation-rename">{s.renameLabel}</label>
+          <input id="conversation-rename" value={value} maxLength={CONVERSATION_TITLE_MAX} required onChange={(event) => setValue(event.target.value)} autoFocus />
+        </div>
+        {error && <p className="form-error">{error}</p>}
       </form>
     </Modal>
   );
