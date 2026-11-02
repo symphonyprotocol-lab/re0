@@ -208,7 +208,7 @@ export async function answer(input: {
 
         const citations = citationSnapshots(streamed, found.passages);
         const reply = await database.transaction(async (tx) => {
-          const settled = await settleHold(tx, held.holdId, QUERY_BASE_FEE, { reeId: ree.id, note: ree.name });
+          const settled = await settleHold(tx, held.holdId, needed, { reeId: ree.id, note: ree.name });
           const [row] = await tx
             .insert(schema.message)
             .values({

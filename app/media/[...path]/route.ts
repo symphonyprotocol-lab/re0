@@ -8,7 +8,8 @@ import { streamBlob } from '@/lib/infra/blob';
  */
 export async function GET(_request: NextRequest, context: { params: Promise<{ path: string[] }> }) {
   const segments = (await context.params).path;
-  const pathname = segments.map(decodeURIComponent).join('/');
+  /* Route params arrive decoded; decoding again would throw on a literal '%'. */
+  const pathname = segments.join('/');
   if (segments[0] !== 'avatars' || segments.length !== 3 || pathname.includes('..')) {
     return new Response(null, { status: 404 });
   }

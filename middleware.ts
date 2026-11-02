@@ -1,5 +1,5 @@
 import { NextResponse, type NextRequest } from 'next/server';
-import { ADMIN_SESSION_COOKIE, SESSION_COOKIE } from '@/lib/http/cookies';
+import { ADMIN_SESSION_COOKIE, PATH_HEADER, SESSION_COOKIE } from '@/lib/http/cookies';
 
 /**
  * A cheap gate that saves anonymous visitors a render: no cookie, no page.
@@ -15,10 +15,15 @@ export function middleware(request: NextRequest): NextResponse {
     if (path === '/admin/login' || request.cookies.has(ADMIN_SESSION_COOKIE)) return NextResponse.next();
     return NextResponse.redirect(new URL('/admin/login', request.url));
   }
-  if (WORKSPACE.some((prefix) => path === prefix || path.startsWith(`${prefix}/`)) && !request.cookies.has(SESSION_COOKIE)) {
-    const login = new URL('/login', request.url);
-    login.searchParams.set('returnTo', path + request.nextUrl.search);
-    return NextResponse.redirect(login);
+  if (WORKSPACE.some((prefix) => path === prefix || path.startsWith(`${prefix}/`))) {
+    if (!request.cookies.has(SESSION_COOKIE)) {
+      const login = new URL('/login', request.url);
+      login.searchParams.set('returnTo', path + request.nextUrl.search);
+      return NextResponse.redirect(login);
+    }
+    const headers = new Headers(request.headers);
+    headers.set(PATH_HEADER, path + request.nextUrl.search);
+    return NextResponse.next({ request: { headers } });
   }
   return NextResponse.next();
 }

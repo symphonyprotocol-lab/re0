@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { citationSnapshots, citedIndexes, locatorLabel, sentinelState, type Passage } from '@/lib/domain/answer';
-import { fuse, hasEvidence, searchTerms } from '@/lib/domain/retrieval';
+import { fuse, hasEvidence, keywordCoverage, searchTerms } from '@/lib/domain/retrieval';
 
 const passage = (n: number): Passage => ({
   chunkId: `c${n}`,
@@ -41,6 +41,13 @@ describe('retrieval', () => {
   it('uses CJK bigrams and Latin words', () => {
     expect(searchTerms('明天火星的天气')).toEqual(expect.arrayContaining(['明天', '火星', '天气']));
     expect(searchTerms('How long do refunds take?')).toEqual(expect.arrayContaining(['refunds', 'take']));
+  });
+
+  it('ignores stopwords and matches Latin terms as whole words', () => {
+    expect(searchTerms('How do I do it?')).toEqual([]);
+    expect(keywordCoverage(['do'], 'when in doubt, ask')).toBe(0);
+    expect(keywordCoverage(['refunds', 'days'], 'Refunds take 14 days.')).toBe(1);
+    expect(keywordCoverage(['退款'], '退款会在14天内到账')).toBe(1);
   });
 
   it('fuses ranked lists', () => {

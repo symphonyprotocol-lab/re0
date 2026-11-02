@@ -12,7 +12,7 @@
  *   - it is not the endpoint any of POSTGRES_* / PGHOST* name -- in
  *     .env.local those point at the production main branch;
  *   - it is not listed in PRODUCTION_DATABASE_ENDPOINTS (comma-separated
- *     endpoint ids; set it where the production id is known);
+ *     endpoint ids; required in preview mode, optional locally);
  *   - DATABASE_URL_UNPOOLED, which drizzle-kit migrates through, names the
  *     same endpoint;
  *   - `--confirm` repeats the endpoint id, so nobody resets a branch they did
@@ -86,6 +86,8 @@ const sql = neon(url);
 
 if (preview) {
   if (process.env.VERCEL_ENV !== 'preview') refuse('--preview runs only in a Vercel preview build');
+  /* Without the deny list a preview that fell back to the production database would look like a legacy preview copy. */
+  if (PRODUCTION_ENDPOINTS.size === 0) refuse('set PRODUCTION_DATABASE_ENDPOINTS in the Preview environment before clearing anything');
   const [state] = (await sql`
     select to_regclass('public.workspace') is not null as legacy,
            to_regclass('public.ree') is not null as rebuilt

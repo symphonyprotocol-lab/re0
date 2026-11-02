@@ -16,6 +16,8 @@ export const HANDSHAKE_COOKIE = isSecureDeployment() ? '__Host-re0_oauth' : 're0
 /** Path `/` so `/api/admin/*` receives it too; a different name and table from the user session. */
 export const ADMIN_SESSION_COOKIE = isSecureDeployment() ? '__Host-re0_admin' : 're0_admin';
 export const LOCALE_COOKIE = 're0_lang';
+/** The requested path, set by the middleware for the workspace layout's sign-in redirect (layouts are not told their path). */
+export const PATH_HEADER = 'x-re0-path';
 export const SIDEBAR_COOKIE = 're0_sidebar';
 
 export function cookieOptions(expires?: Date) {

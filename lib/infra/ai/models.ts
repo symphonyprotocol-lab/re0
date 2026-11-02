@@ -19,7 +19,7 @@ import {
   MODEL_TIMEOUT_MS,
   type ModelKind,
 } from '@/lib/constants';
-import type { ModelTransport } from '@/lib/domain/models';
+import { mayCarryKey, type ModelTransport } from '@/lib/domain/models';
 import { openCredential } from '@/lib/infra/crypto/credentials';
 import { db, schema } from '@/lib/infra/db';
 
@@ -84,14 +84,6 @@ export function environmentEndpoint(kind: ModelKind): ModelEndpoint {
   };
 }
 
-function sameOrigin(a: string | null, b: string | null): boolean {
-  try {
-    return Boolean(a && b) && new URL(a!).origin === new URL(b!).origin;
-  } catch {
-    return false;
-  }
-}
-
 /**
  * A console entry as an endpoint. An entry saved without a key borrows the
  * environment's key for the same kind -- but only for the same transport and,
@@ -102,9 +94,7 @@ export async function consoleEndpoint(row: typeof schema.modelConfig.$inferSelec
   let apiKey = await openCredential(row.apiKeyCipher, 'provider');
   if (!row.apiKeyCipher) {
     const fallback = environmentEndpoint(row.kind);
-    const matches =
-      fallback.transport === row.transport && (row.transport === 'gateway' || sameOrigin(fallback.baseUrl, row.baseUrl));
-    apiKey = matches ? fallback.apiKey : null;
+    apiKey = mayCarryKey(fallback, row) ? fallback.apiKey : null;
   }
   return {
     kind: row.kind,

@@ -18,7 +18,7 @@ import {
   type SourceError,
 } from '@/lib/domain/ree';
 import { db, schema, type Executor, type Tx } from '@/lib/infra/db';
-import { createKnowledgeInTx, type NewKnowledge } from '@/lib/services/knowledge';
+import { checkKnowledge, createKnowledgeInTx, type NewKnowledge } from '@/lib/services/knowledge';
 
 export type Ree = typeof schema.ree.$inferSelect;
 
@@ -141,6 +141,12 @@ export async function reeTotals(ownerId: string) {
   return { ...totals, private: totals.rees - totals.public };
 }
 
+/** Just the number of live Rees, for the sidebar on every page. */
+export async function reeCount(ownerId: string): Promise<number> {
+  const [row] = await db().select({ count: sql<number>`count(*)::int` }).from(schema.ree).where(ownedLive(ownerId));
+  return row?.count ?? 0;
+}
+
 /** The owner's live Ree, or null for anyone else's, a deleted one, or a malformed id. */
 export async function ownedRee(executor: Executor, ownerId: string, id: string): Promise<Ree | null> {
   if (!/^[0-9a-f-]{36}$/i.test(id)) return null;
@@ -222,17 +228,20 @@ export async function createReeFromDraft(ownerId: string): Promise<{ ree: Ree; k
   const sourceError = validateDraftSource(draft.source);
   if (sourceError) throw new ReeInputError(sourceError, 3);
 
+  const source: NewKnowledge | null =
+    draft.source.kind === 'document'
+      ? { kind: 'document', blobPath: draft.source.blobPath, fileName: draft.source.fileName }
+      : draft.source.kind === 'text'
+        ? { kind: 'text', title: draft.source.title, content: draft.source.text }
+        : null;
+  /* The upload is checked against Blob before the transaction opens. */
+  const checked = source ? await checkKnowledge(ownerId, source) : null;
+
   return db().transaction(async (tx) => {
     const avatar = draft.avatarBlob?.startsWith(`avatars/${ownerId}/`) ? draft.avatarBlob : null;
     const ree = await insertRee(tx, ownerId, reeValues(draftFields(draft)), avatar);
     let knowledgeId: string | null = null;
-    const source: NewKnowledge | null =
-      draft.source.kind === 'document'
-        ? { kind: 'document', blobPath: draft.source.blobPath, fileName: draft.source.fileName }
-        : draft.source.kind === 'text'
-          ? { kind: 'text', title: draft.source.title, content: draft.source.text }
-          : null;
-    if (source) knowledgeId = await createKnowledgeInTx(tx, ownerId, ree, source);
+    if (checked) knowledgeId = await createKnowledgeInTx(tx, ownerId, ree, checked);
     await tx.update(schema.user).set({ reeDraft: null }).where(eq(schema.user.id, ownerId));
     return { ree, knowledgeId };
   });

@@ -35,8 +35,8 @@ export type OcrProviderName = 'ocrspace';
 export interface PdfOcr {
   readonly name: OcrProviderName;
   /**
-   * The text of every page the provider could read, one entry per page.
-   * Empty when the provider read nothing; throws
+   * The text of every page, one entry per page; a page the provider could
+   * not read is an empty string. Throws
    * `ProcessingFailure('parse_failed')` when the provider refused or failed.
    */
   recognize(pdf: { bytes: Uint8Array; name: string }): Promise<string[]>;
@@ -161,10 +161,12 @@ function ocrSpace(endpoint: Endpoint): PdfOcr {
         throw unrecognised('ocrspace', name, `exit code ${String(answer.OCRExitCode)}`);
       }
 
-      return (answer.ParsedResults ?? [])
-        .filter((page) => Number(page.FileParseExitCode) === 1 && typeof page.ParsedText === 'string')
-        .map((page) => (page.ParsedText as string).replace(/\r\n?/g, '\n').replace(/[ \t]+\n/g, '\n').trim())
-        .filter((page) => page.length > 0);
+      /* One entry per page, unreadable ones empty, so page numbers stay aligned with the PDF. */
+      return (answer.ParsedResults ?? []).map((page) =>
+        Number(page.FileParseExitCode) === 1 && typeof page.ParsedText === 'string'
+          ? page.ParsedText.replace(/\r\n?/g, '\n').replace(/[ \t]+\n/g, '\n').trim()
+          : '',
+      );
     },
   };
 }

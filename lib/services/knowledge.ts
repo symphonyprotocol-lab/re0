@@ -32,6 +32,9 @@ export type NewKnowledge =
   | { kind: 'document'; blobPath: string; fileName: string }
   | { kind: 'text'; title: string; content: string };
 
+/** A new source whose upload has been checked; a document carries its stored size. */
+export type CheckedKnowledge = Exclude<NewKnowledge, { kind: 'document' }> | (Extract<NewKnowledge, { kind: 'document' }> & { size: number });
+
 export class KnowledgeInputError extends Error {
   constructor(readonly code: 'invalid_document' | 'invalid_text' | 'upload_missing' | 'busy' | 'not_found') {
     super(code);
@@ -43,23 +46,33 @@ function appendActivity(entries: KnowledgeActivity[]) {
   return sql`${schema.knowledge.activity} || ${JSON.stringify(entries)}::jsonb`;
 }
 
-/** Validates, writes the row and reserves its cost. Throws `InsufficientCredits` from the ledger. */
+/**
+ * Checks a document upload against Blob -- before any transaction opens, so
+ * no database connection waits on the network.
+ */
+export async function checkKnowledge(ownerId: string, input: NewKnowledge): Promise<CheckedKnowledge> {
+  if (input.kind !== 'document') return input;
+  if (!input.blobPath.startsWith(`knowledge/${ownerId}/`) || !validDocument(input.fileName, 1)) {
+    throw new KnowledgeInputError('invalid_document');
+  }
+  const size = await blobSize(input.blobPath);
+  if (size === null) throw new KnowledgeInputError('upload_missing');
+  if (!validDocument(input.fileName, size)) throw new KnowledgeInputError('invalid_document');
+  return { ...input, size };
+}
+
+/** Writes the row and reserves its cost. Throws `InsufficientCredits` from the ledger. */
 export async function createKnowledgeInTx(
   tx: Tx,
   ownerId: string,
   ree: { id: string },
-  input: NewKnowledge,
+  input: CheckedKnowledge,
   now = new Date(),
 ): Promise<string> {
   let values: typeof schema.knowledge.$inferInsert;
   let hold: number;
   if (input.kind === 'document') {
-    if (!input.blobPath.startsWith(`knowledge/${ownerId}/`) || !validDocument(input.fileName, 1)) {
-      throw new KnowledgeInputError('invalid_document');
-    }
-    const size = await blobSize(input.blobPath);
-    if (size === null) throw new KnowledgeInputError('upload_missing');
-    if (!validDocument(input.fileName, size)) throw new KnowledgeInputError('invalid_document');
+    const size = input.size;
     const title = input.fileName.slice(0, KNOWLEDGE_TITLE_MAX);
     hold = holdFor('document');
     values = {
@@ -86,7 +99,8 @@ export async function createKnowledgeInTx(
 }
 
 export async function addKnowledge(ownerId: string, ree: { id: string }, input: NewKnowledge): Promise<string> {
-  return db().transaction((tx) => createKnowledgeInTx(tx, ownerId, ree, input));
+  const checked = await checkKnowledge(ownerId, input);
+  return db().transaction((tx) => createKnowledgeInTx(tx, ownerId, ree, checked));
 }
 
 /**
@@ -123,17 +137,13 @@ async function sectionsOf(row: typeof schema.knowledge.$inferSelect): Promise<Se
   return documentSections(bytes, row.fileName);
 }
 
-/** Embeds in batches so a long document never builds one enormous request. */
+/** One embedMany call: it splits into provider-sized batches and runs them in parallel. */
 async function embedAll(texts: string[]): Promise<number[][]> {
-  const vectors: number[][] = [];
-  for (let at = 0; at < texts.length; at += 96) {
-    try {
-      vectors.push(...(await embedTexts(texts.slice(at, at + 96))).vectors);
-    } catch (error) {
-      throw new ProcessingFailure('embedding_unavailable', error instanceof Error ? error.message : 'embedding failed');
-    }
+  try {
+    return (await embedTexts(texts)).vectors;
+  } catch (error) {
+    throw new ProcessingFailure('embedding_unavailable', error instanceof Error ? error.message : 'embedding failed');
   }
-  return vectors;
 }
 
 /**
