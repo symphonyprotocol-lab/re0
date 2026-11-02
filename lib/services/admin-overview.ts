@@ -11,6 +11,8 @@ import { endpointFor } from '@/lib/infra/ai/models';
 import { db, schema } from '@/lib/infra/db';
 import { listAudit } from '@/lib/services/admin-audit';
 import { pendingVerifications } from '@/lib/services/roles';
+import { pendingKyc } from '@/lib/services/kyc';
+import { openPayoutCount } from '@/lib/services/payouts';
 import { runningReembedJob } from '@/lib/services/reembed';
 
 const DAY = 24 * 60 * 60 * 1000;
@@ -100,7 +102,7 @@ export async function adminOverview(now = new Date()) {
     questions30: questions[0]?.total ?? 0,
     earned30: Number(earned[0]?.sum ?? 0),
     revenue30: { usd: Number(revenue[0]?.minor ?? 0) / 100, payments: revenue[0]?.n ?? 0 },
-    pending: { verifications, reembed: job ? 1 : 0 },
+    pending: { verifications, reembed: job ? 1 : 0, kyc: await pendingKyc(), payouts: await openPayoutCount() },
     trend: days,
     month: { start: reportingDate(month.start), end: reportingDate(month.end - 1) },
     models,

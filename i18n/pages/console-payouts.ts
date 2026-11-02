@@ -2,7 +2,6 @@ import type { Shape } from '@/i18n/format';
 
 /** 管理后台：KYC 记录、提现审核、提现记录（step 6，2.5；原型 manual-kyc.js、admin-records.js、suite.js）. */
 export const zh = {
-  nav: { kyc: 'KYC 记录', payouts: '提现审核', history: '提现记录' },
   kycStatus: { pending: '待审核', verified: '已通过', rejected: '已驳回', reset: '已重置' },
   payoutStatus: { pending: '待审核', approved: '待人工打款', paid: '已打款', failed: '打款失败', rejected: '已驳回' },
   errors: {
@@ -193,7 +192,6 @@ export const zh = {
 };
 
 export const en: Shape<typeof zh> = {
-  nav: { kyc: 'KYC records', payouts: 'Payout review', history: 'Payout history' },
   kycStatus: { pending: 'Pending review', verified: 'Verified', rejected: 'Rejected', reset: 'Reset' },
   payoutStatus: { pending: 'Pending review', approved: 'Awaiting payment', paid: 'Paid', failed: 'Payment failed', rejected: 'Rejected' },
   errors: {

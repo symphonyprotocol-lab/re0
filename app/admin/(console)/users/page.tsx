@@ -84,7 +84,13 @@ export default async function UsersPage({ searchParams }: Props) {
             <span key="credits" className="font-mono">
               {n(row.plan + row.pack + row.earned + row.welcome)}
             </span>,
-            row.role === 'official' ? <Tag key="kyc">{u.kycExempt}</Tag> : <Tag key="kyc">{u.kyc[row.kyc]}</Tag>,
+            row.role === 'official' ? (
+              <Tag key="kyc">{u.kycExempt}</Tag>
+            ) : (
+              <Tag key="kyc" tone={row.kyc === 'verified' ? 'green' : row.kyc === 'rejected' ? 'red' : row.kyc === 'none' ? 'grey' : 'orange'}>
+                {u.kyc[row.kyc]}
+              </Tag>
+            ),
             <span key="joined" className="whitespace-nowrap">
               {formatDateTime(row.createdAt, locale)}
             </span>,
