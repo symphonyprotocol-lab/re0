@@ -1,9 +1,10 @@
 import type { Metadata } from 'next';
 import Link from 'next/link';
-import { CREDIT_USD, PAYOUT_MIN_CREDITS } from '@/lib/constants';
+import { CREDIT_USD } from '@/lib/constants';
 import { currentUser } from '@/lib/http/session';
 import { listRees, reeTotals } from '@/lib/services/rees';
 import { dashboardData } from '@/lib/services/statistics';
+import { payoutOverview } from '@/lib/services/payouts';
 import { serverMessages } from '@/i18n/server';
 import { fill, formatNumber } from '@/i18n/format';
 import { Topbar } from '@/components/shell/topbar';
@@ -41,10 +42,11 @@ function MetricCard({ href, icon, label, value, hint }: { href: string; icon: Ic
 export default async function DashboardPage() {
   const user = (await currentUser())!;
   const { t, locale } = await serverMessages();
-  const [totals, top, board] = await Promise.all([
+  const [totals, top, board, payout] = await Promise.all([
     reeTotals(user.id),
     listRees(user.id, { q: '', visibility: 'all', sort: 'default', size: 12, page: 1 }),
     dashboardData(user.id),
+    payoutOverview(user.id),
   ]);
   const n = (value: number) => formatNumber(value, locale);
   const official = user.role === 'official';
@@ -169,7 +171,7 @@ export default async function DashboardPage() {
         <div className="mt-6 grid grid-cols-1 gap-6 lg:grid-cols-3">
           <HealthPanel t={t} locale={locale} sources={board.sources} />
           <RankingPanel t={t} locale={locale} ranking={board.ranking} reeCount={totals.rees} moderated={moderated} />
-          <IncomePanel t={t} locale={locale} earned={earned} official={official} threshold={PAYOUT_MIN_CREDITS} />
+          <IncomePanel t={t} locale={locale} earned={earned} official={official} stage={payout.stage} kyc={payout.kyc} held={payout.open?.credits ?? 0} />
         </div>
       </main>
     </>

@@ -64,10 +64,29 @@ function describe(t: Messages, locale: Locale, notice: NoticeItem): { line: stri
     }
     case 'role':
       return { line: fill(l.role, { from: roleName(t, p.from), to: roleName(t, p.to) }), icon: 'shield', href: '/settings?tab=role', action: o.role, reason };
-    case 'kyc':
-      return { line: l.kyc, icon: 'user', href: null, action: null, reason };
-    case 'payout':
-      return { line: l.payout, icon: 'sparkle', href: '/settings?tab=billing', action: o.billing, reason };
+    case 'kyc': {
+      /* Step 6: an identity decision or a re-verification request. */
+      const k = t.payouts.notices;
+      const line = p.decision === 'verified' ? k.verified : p.decision === 'rejected' ? k.rejected : p.decision === 'reset' ? k.reset : l.kyc;
+      return { line, icon: 'shield', href: p.decision === 'verified' ? '/settings?tab=billing#payouts' : '/settings/identity', action: p.decision === 'verified' ? o.billing : k.identity, reason };
+    }
+    case 'payout': {
+      /* Step 6: a payout approved, rejected, paid or failed. */
+      const k = t.payouts.notices;
+      const usd = `$${((Number(p.credits) || 0) / 10_000).toFixed(2)}`;
+      const paid = `$${((Number(p.paidCents) || 0) / 100).toFixed(2)}`;
+      const line =
+        p.status === 'approved'
+          ? fill(k.approved, { usd })
+          : p.status === 'rejected'
+            ? fill(k.payoutRejected, { usd })
+            : p.status === 'paid'
+              ? fill(k.paid, { paid })
+              : p.status === 'failed'
+                ? fill(k.failed, { usd })
+                : l.payout;
+      return { line, icon: 'sparkle', href: '/settings?tab=billing#payouts', action: o.billing, reason };
+    }
     default:
       return { line: l.other, icon: 'info', href: null, action: null, reason };
   }
