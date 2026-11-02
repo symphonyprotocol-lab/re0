@@ -4,5 +4,11 @@
     "deploymentEnabled": {
       "develop": false
     }
-  }
+  },
+  "crons": [
+    {
+      "path": "/api/cron/purge-trash",
+      "schedule": "30 3 * * *"
+    }
+  ]
 }

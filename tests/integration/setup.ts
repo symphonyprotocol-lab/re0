@@ -16,6 +16,9 @@ export function pointModelsAt(baseUrl: string): void {
   process.env.EMBEDDING_BASE_URL = baseUrl;
   process.env.EMBEDDING_API_KEY = 'test-key';
   process.env.EMBEDDING_MODEL = 'fake-embed';
+  process.env.TRANSCRIPTION_BASE_URL = baseUrl;
+  process.env.TRANSCRIPTION_API_KEY = 'test-key';
+  process.env.TRANSCRIPTION_MODEL = 'fake-whisper';
 }
 
 let counter = 0;

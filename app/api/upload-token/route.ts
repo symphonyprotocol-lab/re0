@@ -1,6 +1,6 @@
 import type { NextRequest } from 'next/server';
-import { DOCUMENT_MAX_BYTES } from '@/lib/constants';
-import { DOCUMENT_CONTENT_TYPES, documentFormat, validDocument } from '@/lib/domain/knowledge';
+import { AUDIO_MAX_BYTES, DOCUMENT_MAX_BYTES } from '@/lib/constants';
+import { AUDIO_CONTENT_TYPES, audioFormat, DOCUMENT_CONTENT_TYPES, documentFormat, validAudio, validDocument } from '@/lib/domain/knowledge';
 import { body, fail, json } from '@/lib/http/respond';
 import { apiUser } from '@/lib/http/session';
 import { uploadTicket } from '@/lib/infra/blob';
@@ -18,7 +18,7 @@ function safeName(fileName: string): string {
 /**
  * A Blob upload token for one file, scoped by purpose to a pathname under
  * the caller, a content type and a size (rebuild-proposal.md 2.1: documents
- * up to 20 MB). The browser uploads straight to Blob and then submits the
+ * up to 20 MB, audio up to 100 MB). The browser uploads straight to Blob and then submits the
  * pathname; the server checks the object again before using it.
  */
 export async function POST(request: NextRequest) {
@@ -36,6 +36,21 @@ export async function POST(request: NextRequest) {
     const ticket = await uploadTicket(`knowledge/${user.id}/${id}/${safeName(fileName)}`, {
       contentTypes: [contentType],
       maxBytes: DOCUMENT_MAX_BYTES,
+    });
+    return json({ ...ticket, contentType });
+  }
+
+  if (input.purpose === 'audio') {
+    const fileName = String(input.fileName ?? '');
+    const size = Number(input.size ?? 0);
+    const format = audioFormat(fileName);
+    if (!format || !validAudio(fileName, size)) return fail('invalid_audio', 422);
+    const contentType = AUDIO_CONTENT_TYPES[format];
+    const ticket = await uploadTicket(`knowledge/${user.id}/${id}/${safeName(fileName)}`, {
+      contentTypes: [contentType],
+      maxBytes: AUDIO_MAX_BYTES,
+      /* A 100 MB upload on a slow line takes a while. */
+      ttlSeconds: 60 * 60,
     });
     return json({ ...ticket, contentType });
   }

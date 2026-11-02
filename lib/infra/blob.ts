@@ -49,6 +49,25 @@ export async function streamBlob(
   return { stream: result.stream, contentType: result.blob.contentType ?? null };
 }
 
+/**
+ * A private blob with a byte range passed through (audio seeking): status
+ * 206 and `content-range` when the store honoured the range, else 200.
+ */
+export async function streamBlobRange(
+  pathname: string,
+  range: string | null,
+): Promise<{ body: ReadableStream<Uint8Array>; status: number; headers: Headers } | null> {
+  const safeRange = range && /^bytes=\d*-\d*$/.test(range) ? range : null;
+  const result = await get(pathname, { access: 'private', token: token(), ...(safeRange ? { headers: { range: safeRange } } : {}) });
+  if (!result || result.statusCode !== 200) return null;
+  const headers = new Headers({ 'accept-ranges': 'bytes', 'content-type': result.blob.contentType ?? 'application/octet-stream' });
+  for (const name of ['content-length', 'content-range']) {
+    const value = result.headers.get(name);
+    if (value) headers.set(name, value);
+  }
+  return { body: result.stream, status: result.headers.get('content-range') ? 206 : 200, headers };
+}
+
 export async function blobSize(pathname: string): Promise<number | null> {
   try {
     return (await head(pathname, { token: token() })).size;

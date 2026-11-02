@@ -28,8 +28,9 @@ export const QUERY_FEE = { min: 0, max: 10_000, default: 0 } as const;
 export const KNOWLEDGE_CHARS_PER_CREDIT = 1_000;
 /**
  * What processing reserves before it knows the real size (8.2, "知识处理费"):
- * documents and single pages hold a flat cap, pasted text holds its own
- * price. Settled to the real figure afterwards; more is released, a shortfall
+ * documents and single pages hold a flat cap, repositories and websites a
+ * larger one, pasted text holds its own price, audio an estimate from its
+ * size. Settled to the real figure afterwards; more is released, a shortfall
  * is not charged.
  */
 export const KNOWLEDGE_HOLD = {
@@ -38,6 +39,12 @@ export const KNOWLEDGE_HOLD = {
   github: 120,
   site: 500,
 } as const;
+/** Transcription, on top of the text price: per started minute of audio. */
+export const AUDIO_CREDITS_PER_MINUTE = 100;
+/** The hold's duration estimate: about a minute of audio per MB (8.2). */
+export const AUDIO_MINUTES_PER_MB = 1;
+/** And about this much transcript per minute, for the text part of the hold. */
+export const AUDIO_CHARS_PER_MINUTE = 1_000;
 
 /* --------------------------------------------------------------- Ree, 8.2 */
 
@@ -74,8 +81,32 @@ export const AVATAR_SOURCE_MAX_BYTES = 5 * 1024 * 1024;
 
 export const DOCUMENT_MAX_BYTES = 20 * 1024 * 1024;
 export const DOCUMENT_EXTENSIONS = ['pdf', 'docx', 'md', 'txt'] as const;
+export const AUDIO_MAX_BYTES = 100 * 1024 * 1024;
+export const AUDIO_EXTENSIONS = ['mp3', 'm4a', 'wav'] as const;
+/**
+ * The largest piece sent to the transcription endpoint in one call (OpenAI's
+ * `audio/transcriptions` takes 25 MB); bigger MP3 and WAV files are cut into
+ * pieces this size and the timestamps stitched back together.
+ */
+export const TRANSCRIPTION_PIECE_BYTES = 24 * 1024 * 1024;
 export const TEXT_SOURCE_LIMITS = { title: 100, content: 30_000 } as const;
 export const KNOWLEDGE_TITLE_MAX = 200;
+export const KNOWLEDGE_URL_MAX = 2_048;
+export const KNOWLEDGE_FOLDER_NAME_MAX = 40;
+/** A website crawl stops at this many pages (2.1). */
+export const SITE_MAX_PAGES = 500;
+/** One fetched page, before conversion. */
+export const PAGE_MAX_BYTES = 5 * 1024 * 1024;
+/** A repository: files read per snapshot, the size of one file, and of all of them. */
+export const GITHUB_LIMITS = { files: 1_000, fileBytes: 512 * 1024, totalBytes: 40 * 1024 * 1024 } as const;
+/** Trashed knowledge is purged, passages and files with it, after this long (8.2). */
+export const TRASH_RETENTION_DAYS = 30;
+/** Rows one batch request may touch ("选择全部 N 个筛选结果" included). */
+export const KNOWLEDGE_BATCH_MAX = 5_000;
+/** The preview's page and file directory (prototype knowledge.js). */
+export const PREVIEW_CHILDREN_PAGE_SIZE = 30;
+/** Passages the preview's "检索片段" tab loads at once. */
+export const PREVIEW_CHUNKS_MAX = 500;
 
 /* ---------------------------------------------------------- retrieval, 5 */
 

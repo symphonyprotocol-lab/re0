@@ -1,29 +1,60 @@
 /**
- * Knowledge as data: what may be added in step 1, what processing reserves,
- * the processing record, and how extracted text becomes retrievable passages.
+ * Knowledge as data: the six kinds and what each may be (2.1), what
+ * processing reserves and charges (2.3, 8.2), the processing record, and how
+ * extracted text becomes retrievable passages.
  *
  * The chunker is the old ingestion one (block-aware, heading-tracking, with a
- * small overlap), now carrying a locator -- page, heading -- per passage so a
- * citation can say where it came from.
+ * small overlap), carrying a locator -- page, heading, time, file and line,
+ * URL -- per passage so a citation can say where it came from.
  */
 import {
+  AUDIO_CHARS_PER_MINUTE,
+  AUDIO_CREDITS_PER_MINUTE,
+  AUDIO_EXTENSIONS,
+  AUDIO_MAX_BYTES,
+  AUDIO_MINUTES_PER_MB,
   DOCUMENT_EXTENSIONS,
   DOCUMENT_MAX_BYTES,
+  KNOWLEDGE_FOLDER_NAME_MAX,
   KNOWLEDGE_HOLD,
+  KNOWLEDGE_TITLE_MAX,
   TEXT_SOURCE_LIMITS,
 } from '@/lib/constants';
 import { processingCost } from '@/lib/domain/credits';
 import type { Locator } from '@/lib/domain/answer';
 
-export type KnowledgeKind = 'document' | 'audio' | 'github' | 'page' | 'site' | 'text';
+export const KNOWLEDGE_KIND_LIST = ['document', 'audio', 'github', 'page', 'site', 'text'] as const;
+export type KnowledgeKind = (typeof KNOWLEDGE_KIND_LIST)[number];
 export type KnowledgeStatus = 'pending' | 'processing' | 'ready' | 'failed';
 export type DocumentFormat = (typeof DOCUMENT_EXTENSIONS)[number];
+export type AudioFormat = (typeof AUDIO_EXTENSIONS)[number];
+
+export function isKnowledgeKind(value: unknown): value is KnowledgeKind {
+  return typeof value === 'string' && (KNOWLEDGE_KIND_LIST as readonly string[]).includes(value);
+}
 
 /** One line of the processing record (knowledge preview, "处理记录"). */
 export interface KnowledgeActivity {
   at: string;
-  code: 'added' | 'processing' | 'parsed' | 'chunked' | 'ready' | 'failed' | 'refresh' | 'settled' | 'refunded';
-  /** Numbers and short strings the label is filled with: pages, chars, chunks, credits, reason. */
+  code:
+    | 'added'
+    | 'processing'
+    | 'fetched'
+    | 'transcribed'
+    | 'parsed'
+    | 'chunked'
+    | 'ready'
+    | 'failed'
+    | 'refresh'
+    | 'settled'
+    | 'refunded'
+    | 'paused'
+    | 'enabled'
+    | 'renamed'
+    | 'moved'
+    | 'trashed'
+    | 'restored';
+  /** Numbers and short strings the label is filled with: pages, chars, chunks, credits, reason, folder. */
   detail?: Record<string, string | number>;
 }
 
@@ -31,9 +62,35 @@ export function activity(code: KnowledgeActivity['code'], detail?: KnowledgeActi
   return detail ? { at: now.toISOString(), code, detail } : { at: now.toISOString(), code };
 }
 
+/**
+ * One part of a multi-part source, as a slice of the row's `content`: a
+ * website's page, a repository's file, an audio transcript's segment. The
+ * preview lists them; the text itself is stored once.
+ */
+export interface KnowledgeChild {
+  /** A page's title or a file's path; empty for a transcript segment. */
+  label: string;
+  url?: string;
+  path?: string;
+  /** Seconds into the audio. */
+  time?: number;
+  end?: number;
+  offset: number;
+  length: number;
+}
+
+function extension(fileName: string): string {
+  return fileName.split('.').pop()?.toLowerCase() ?? '';
+}
+
 export function documentFormat(fileName: string): DocumentFormat | null {
-  const ext = fileName.split('.').pop()?.toLowerCase() ?? '';
+  const ext = extension(fileName);
   return (DOCUMENT_EXTENSIONS as readonly string[]).includes(ext) ? (ext as DocumentFormat) : null;
+}
+
+export function audioFormat(fileName: string): AudioFormat | null {
+  const ext = extension(fileName);
+  return (AUDIO_EXTENSIONS as readonly string[]).includes(ext) ? (ext as AudioFormat) : null;
 }
 
 export const DOCUMENT_CONTENT_TYPES: Record<DocumentFormat, string[]> = {
@@ -43,16 +100,47 @@ export const DOCUMENT_CONTENT_TYPES: Record<DocumentFormat, string[]> = {
   txt: ['text/plain'],
 };
 
+export const AUDIO_CONTENT_TYPES: Record<AudioFormat, string> = {
+  mp3: 'audio/mpeg',
+  m4a: 'audio/mp4',
+  wav: 'audio/wav',
+};
+
 export function validDocument(fileName: string, size: number): boolean {
   return documentFormat(fileName) !== null && size > 0 && size <= DOCUMENT_MAX_BYTES;
 }
 
+export function validAudio(fileName: string, size: number): boolean {
+  return audioFormat(fileName) !== null && size > 0 && size <= AUDIO_MAX_BYTES;
+}
+
+/** Minutes the hold assumes for an audio file of `bytes` (8.2: about a minute per MB). */
+export function estimatedAudioMinutes(bytes: number): number {
+  return Math.max(1, Math.ceil((bytes / (1024 * 1024)) * AUDIO_MINUTES_PER_MB));
+}
+
 /**
- * What processing reserves up front (8.2): a document holds a flat 20, pasted
- * text holds exactly its price since its size is known.
+ * What processing reserves up front (8.2): a flat cap per kind, pasted text
+ * exactly its price since its size is known, audio its estimated minutes of
+ * transcription plus their estimated transcript.
  */
-export function holdFor(kind: 'document' | 'text', text = ''): number {
-  return kind === 'text' ? processingCost(text.trim().length) : KNOWLEDGE_HOLD.document;
+export function holdFor(kind: 'text', text: string): number;
+export function holdFor(kind: 'audio', bytes: number): number;
+export function holdFor(kind: 'document' | 'page' | 'github' | 'site'): number;
+export function holdFor(kind: KnowledgeKind, measure?: string | number): number;
+export function holdFor(kind: KnowledgeKind, measure?: string | number): number {
+  if (kind === 'text') return processingCost(String(measure ?? '').trim().length);
+  if (kind === 'audio') {
+    const minutes = estimatedAudioMinutes(Number(measure ?? 0));
+    return minutes * AUDIO_CREDITS_PER_MINUTE + processingCost(minutes * AUDIO_CHARS_PER_MINUTE);
+  }
+  return KNOWLEDGE_HOLD[kind];
+}
+
+/** The settled price (2.3): 1 credit per started 1,000 characters, plus 100 per started minute of audio. */
+export function processingPrice(characters: number, audioSeconds = 0): number {
+  const minutes = audioSeconds > 0 ? Math.ceil(audioSeconds / 60) : 0;
+  return processingCost(characters) + minutes * AUDIO_CREDITS_PER_MINUTE;
 }
 
 export function validText(title: string, content: string): boolean {
@@ -61,10 +149,29 @@ export function validText(title: string, content: string): boolean {
   return t.length > 0 && Array.from(t).length <= TEXT_SOURCE_LIMITS.title && c.length > 0 && c.length <= TEXT_SOURCE_LIMITS.content;
 }
 
-/** A stretch of extracted text with its place in the source: one PDF page, or a whole Markdown file. */
+/** A display name: 1–200 characters after trimming (prototype "修改名称"). */
+export function cleanTitle(raw: unknown): string | null {
+  const title = typeof raw === 'string' ? raw.trim().replace(/\s+/g, ' ') : '';
+  return title && Array.from(title).length <= KNOWLEDGE_TITLE_MAX ? title : null;
+}
+
+/** A folder name: 1–40 characters, inner whitespace collapsed (prototype `validFolderName`). */
+export function cleanFolderName(raw: unknown): string | null {
+  const name = typeof raw === 'string' ? raw.normalize('NFKC').trim().replace(/\s+/g, ' ') : '';
+  return name && Array.from(name).length <= KNOWLEDGE_FOLDER_NAME_MAX ? name : null;
+}
+
+/**
+ * A stretch of extracted text with its place in the source: one PDF page, a
+ * whole Markdown file, one web page, a repository file, a transcript segment.
+ * `child` makes it a part the preview lists (a page, a file, a segment).
+ */
 export interface Section {
   text: string;
   locator: Locator;
+  /** Repository files are cut by lines so passages can cite a line number. */
+  byLines?: boolean;
+  child?: Omit<KnowledgeChild, 'offset' | 'length'>;
 }
 
 export interface DraftChunk {
@@ -228,16 +335,89 @@ function chunkSection(section: Section, startOrdinal: number): DraftChunk[] {
 export function chunkSections(sections: readonly Section[]): DraftChunk[] {
   const chunks: DraftChunk[] = [];
   for (const section of sections) {
-    chunks.push(...chunkSection(section, chunks.length));
+    chunks.push(
+      ...(section.byLines ? chunkLines(section.locator.path ?? '', section.text, chunks.length) : chunkSection(section, chunks.length)),
+    );
     if (chunks.length >= MAX_CHUNKS) break;
   }
   return chunks.slice(0, MAX_CHUNKS);
 }
 
+/** A section's text as stored: trimmed, except a file cut by lines, whose line numbers must hold. */
+function storedText(section: Section): string {
+  return section.byLines ? section.text.replace(/\s+$/, '') : section.text.trim();
+}
+
 /** The extracted text a knowledge row keeps for preview and for the price: sections joined. */
 export function joinedContent(sections: readonly Section[]): string {
-  return sections
-    .map((section) => section.text.trim())
-    .filter(Boolean)
-    .join('\n\n');
+  return assemble(sections).content;
+}
+
+/** `content` and, for sections that are parts, where each sits in it. */
+export function assemble(sections: readonly Section[]): { content: string; children: KnowledgeChild[] } {
+  let content = '';
+  const children: KnowledgeChild[] = [];
+  for (const section of sections) {
+    const text = storedText(section);
+    if (!text) continue;
+    if (content) content += '\n\n';
+    if (section.child) children.push({ ...section.child, offset: content.length, length: text.length });
+    content += text;
+  }
+  return { content, children };
+}
+
+/**
+ * A repository file as passages of consecutive lines, each citing the file
+ * and the line it starts on (2.1: "引用显示文件路径与行号"). Markdown keeps
+ * its heading path too.
+ */
+export function chunkLines(path: string, text: string, startOrdinal = 0): DraftChunk[] {
+  const lines = text.split('\n');
+  const chunks: DraftChunk[] = [];
+  let buffer: string[] = [];
+  let tokens = 0;
+  let first = 1;
+  const markdown = /\.(md|mdx|markdown|txt|rst)$/i.test(path);
+  const headings: string[] = [];
+  let bufferHeading = '';
+  const flush = (): void => {
+    const content = buffer.join('\n').trim();
+    if (content) {
+      const locator: Locator = { path, line: first };
+      if (bufferHeading) locator.heading = bufferHeading;
+      chunks.push({ ordinal: startOrdinal + chunks.length, content, locator });
+    }
+    buffer = [];
+    tokens = 0;
+  };
+  lines.forEach((line, index) => {
+    const heading = markdown ? HEADING.exec(line) : null;
+    if (heading) {
+      /* A new section starts a new passage, as in the prose chunker, so it cites its own line. */
+      flush();
+      const level = (heading[1] ?? '#').length;
+      headings.length = level - 1;
+      headings[level - 1] = (heading[2] ?? '').trim();
+    }
+    const lineTokens = estimateTokens(line);
+    if (tokens > 0 && tokens + lineTokens > CHUNK_TARGET_TOKENS) flush();
+    if (buffer.length === 0) {
+      first = index + 1;
+      bufferHeading = headings.filter(Boolean).join(' › ');
+    }
+    /* One enormous line (minified code): cut it, it still starts on this line. */
+    if (lineTokens > CHUNK_MAX_TOKENS) {
+      for (const piece of fitBlock(line)) {
+        buffer.push(piece);
+        first = index + 1;
+        flush();
+      }
+      return;
+    }
+    buffer.push(line);
+    tokens += lineTokens;
+  });
+  flush();
+  return chunks;
 }

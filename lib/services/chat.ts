@@ -2,7 +2,7 @@
  * The single-Ree test conversation (`conversation.kind = ree_test`) and the
  * retrieval it answers from (rebuild-proposal.md 5).
  */
-import { and, asc, eq, sql } from 'drizzle-orm';
+import { and, asc, eq, isNull, sql, type SQL } from 'drizzle-orm';
 import { HISTORY_TURNS, RETRIEVAL_RECALL, RETRIEVAL_TOP_K } from '@/lib/constants';
 import type { Passage } from '@/lib/domain/answer';
 import type { ReeOutcome, ReeUIMessage } from '@/lib/domain/chat-message';
@@ -106,6 +106,11 @@ export interface Retrieval {
   model: string;
 }
 
+/** Passages answers may use: ready, enabled ("参与回答") and not in the trash (8.2). */
+function answerable(): SQL[] {
+  return [eq(schema.knowledge.status, 'ready'), eq(schema.knowledge.enabled, true), isNull(schema.knowledge.deletedAt)];
+}
+
 /**
  * Vector and keyword recall over this Ree's ready passages, fused by rank.
  * The vector leg is an exact scan of the Ree's own passages (the `+ 0`
@@ -128,7 +133,7 @@ export async function retrieve(reeId: string, question: string): Promise<Retriev
     })
     .from(schema.chunk)
     .innerJoin(schema.knowledge, eq(schema.knowledge.id, schema.chunk.knowledgeId))
-    .where(and(eq(schema.chunk.reeId, reeId), eq(schema.knowledge.status, 'ready')))
+    .where(and(eq(schema.chunk.reeId, reeId), ...answerable()))
     .orderBy(sql`(${schema.chunk.embedding} <=> ${literal}::vector) + 0`)
     .limit(RETRIEVAL_RECALL);
 
@@ -148,7 +153,7 @@ export async function retrieve(reeId: string, question: string): Promise<Retriev
         .where(
           and(
             eq(schema.chunk.reeId, reeId),
-            eq(schema.knowledge.status, 'ready'),
+            ...answerable(),
             sql`(${sql.join(terms.map((term) => sql`${schema.chunk.content} ilike ${likePattern(term)}`), sql` or `)})`,
           ),
         )
