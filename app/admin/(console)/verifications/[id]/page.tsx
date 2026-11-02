@@ -6,6 +6,7 @@ import { verificationDetail } from '@/lib/services/roles';
 import { serverMessages } from '@/i18n/server';
 import { fill, formatDateTime, formatNumber } from '@/i18n/format';
 import { Fields, PageHead, RoleBadge } from '@/components/admin/list-kit';
+import { ConsoleTopbar } from '@/components/admin/console-topbar';
 import { VerificationStatusTag } from '@/components/admin/user-detail-roles';
 import { RequirementChecks } from '@/components/ui/requirement-checks';
 import { VerificationDecision } from '@/components/admin/verification-decision';
@@ -50,12 +51,14 @@ export default async function VerificationReviewPage({ params, searchParams }: P
   const time = (value: Date | null) => (value ? formatDateTime(value, locale) : '—');
   return (
     <>
-      <PageHead
+      <ConsoleTopbar
         crumbs={[
           { label: t.console.nav.home, href: '/admin/overview' },
           { label: from.startsWith('/admin/users') ? t.console.nav.users : v.title, href: from },
           { label: user.name },
         ]}
+      />
+      <PageHead
         title={d.title}
         lede={
           <span className="flex flex-wrap items-center gap-2">

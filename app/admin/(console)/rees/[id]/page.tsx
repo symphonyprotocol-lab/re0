@@ -4,8 +4,9 @@ import { adminRee, adminReeSources, reeAudit, sourceFilter } from '@/lib/service
 import { answerCounts, reeStatistics, statisticsQuery } from '@/lib/services/statistics';
 import { serverMessages } from '@/i18n/server';
 import { PageHead } from '@/components/admin/list-kit';
+import { ConsoleTopbar } from '@/components/admin/console-topbar';
 import { AuditTable } from '@/components/admin/audit-kit';
-import { Breadcrumbs, ReeHeader, ReeOverviewTab, ReeSourcesTab, ReeTabs, reeBackLabel, reeBackPath, reeDetailHref, reeTab, sourceParams } from '@/components/admin/ree-detail';
+import { ReeHeader, ReeOverviewTab, ReeSourcesTab, reeBackLabel, reeBackPath, reeDetailHref, reeTab, reeTabs, sourceParams } from '@/components/admin/ree-detail';
 import { ReeStatisticsView } from '@/components/statistics/ree-statistics-view';
 
 type Props = { params: Promise<{ id: string }>; searchParams: Promise<Record<string, string | string[] | undefined>> };
@@ -22,7 +23,7 @@ export async function generateMetadata({ params }: Props): Promise<Metadata> {
   return { title: detail ? `${detail.ree.name} · ${t.consoleRees.rees.title}` : t.consoleRees.ree.notFound };
 }
 
-/** `/admin/rees/[id]` (prototype admin-ree-detail.js): four tabs as links, `from` kept for the way back. */
+/** `/admin/rees/[id]` (prototype admin-ree-detail.js): four tabs as links in the top bar, `from` kept for the way back. */
 export default async function ReeDetailPage({ params, searchParams }: Props) {
   const { t, locale } = await serverMessages();
   const r = t.consoleRees.ree;
@@ -37,7 +38,8 @@ export default async function ReeDetailPage({ params, searchParams }: Props) {
   if (!detail) {
     return (
       <>
-        <PageHead crumbs={crumbs} title={r.notFound} />
+        <ConsoleTopbar crumbs={[...crumbs, { label: r.notFound }]} />
+        <PageHead title={r.notFound} />
         <Link href={back.href} className="btn-secondary">
           {r.back}
         </Link>
@@ -86,10 +88,9 @@ export default async function ReeDetailPage({ params, searchParams }: Props) {
   }
   return (
     <>
-      <Breadcrumbs crumbs={[...crumbs, { label: detail.ree.name }]} />
+      <ConsoleTopbar crumbs={[...crumbs, { label: detail.ree.name }]} tabs={reeTabs(t, id, from, tab)} tabsLabel={r.tabsLabel} />
       <ReeHeader t={t} locale={locale} detail={detail} answers={answers.get(id) ?? 0} />
-      <ReeTabs t={t} id={id} from={from} active={tab} />
-      {body}
+      <div className="mt-6">{body}</div>
     </>
   );
 }

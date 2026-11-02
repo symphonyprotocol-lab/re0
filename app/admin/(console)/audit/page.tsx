@@ -7,6 +7,7 @@ import { serverMessages } from '@/i18n/server';
 import { formatNumber } from '@/i18n/format';
 import { ListFilters } from '@/components/admin/list-client';
 import { LinkPager, PageHead, ResultsLine, SummaryCards } from '@/components/admin/list-kit';
+import { ConsoleTopbar } from '@/components/admin/console-topbar';
 import { AuditTable, actionLabel } from '@/components/admin/audit-kit';
 
 export async function generateMetadata(): Promise<Metadata> {
@@ -31,7 +32,8 @@ export default async function AuditPage({ searchParams }: Props) {
   const filtered = Boolean(view.q) || view.action !== 'all' || view.period !== 'all' || view.sort !== 'newest';
   return (
     <>
-      <PageHead crumbs={[{ label: t.console.nav.home, href: '/admin/overview' }, { label: a.title }]} title={a.title} lede={a.lede} />
+      <ConsoleTopbar crumbs={[{ label: t.console.nav.home, href: '/admin/overview' }, { label: a.title }]} />
+      <PageHead title={a.title} lede={a.lede} />
       <SummaryCards
         items={[
           { label: a.cards.total, value: n(counts.total), href: listHref('/admin/audit', { size: view.size }), active: !filtered, title: l.clearFilters },

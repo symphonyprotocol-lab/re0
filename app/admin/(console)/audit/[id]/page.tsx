@@ -5,6 +5,7 @@ import { serverMessages } from '@/i18n/server';
 import { formatDateTime } from '@/i18n/format';
 import { Icon } from '@/components/ui/icons';
 import { Fields, PageHead } from '@/components/admin/list-kit';
+import { ConsoleTopbar } from '@/components/admin/console-topbar';
 import { actionLabel, auditTargetHref } from '@/components/admin/audit-kit';
 
 type Props = { params: Promise<{ id: string }>; searchParams: Promise<Record<string, string | string[] | undefined>> };
@@ -34,14 +35,19 @@ export default async function AuditEntryPage({ params, searchParams }: Props) {
   const id = (await params).id;
   const back = backPath((await searchParams).from);
   const row = UUID.test(id) ? await auditEntry(id) : null;
+  /* The way back is the page the entry was opened from, named as that page. */
   const crumbs = [
     { label: t.console.nav.home, href: '/admin/overview' },
-    { label: a.title, href: back.startsWith('/admin/audit') ? back : '/admin/audit' },
+    {
+      label: back.startsWith('/admin/overview') ? t.console.nav.overview : back.startsWith('/admin/rees/') ? t.consoleRees.ree.tabs.audit : a.title,
+      href: back.startsWith('/admin/overview') || back.startsWith('/admin/rees/') || back.startsWith('/admin/audit') ? back : '/admin/audit',
+    },
   ];
   if (!row) {
     return (
       <>
-        <PageHead crumbs={crumbs} title={d.notFound} />
+        <ConsoleTopbar crumbs={[...crumbs, { label: d.notFound }]} />
+        <PageHead title={d.notFound} />
         <Link href={back} className="btn-secondary">
           {d.back}
         </Link>
@@ -51,17 +57,8 @@ export default async function AuditEntryPage({ params, searchParams }: Props) {
   const target = auditTargetHref(row.action, row.target);
   return (
     <>
-      <PageHead
-        crumbs={[...crumbs, { label: actionLabel(t, row.action) }]}
-        title={d.title}
-        lede={actionLabel(t, row.action)}
-        actions={
-          <Link href={back} className="btn-secondary btn-sm">
-            <Icon name="arrowLeft" className="size-3.5" />
-            {d.back}
-          </Link>
-        }
-      />
+      <ConsoleTopbar crumbs={[...crumbs, { label: actionLabel(t, row.action) }]} />
+      <PageHead title={d.title} lede={actionLabel(t, row.action)} />
       <section className="card p-5">
         <h2 className="mb-4 text-[15px] font-bold">{d.record}</h2>
         <Fields

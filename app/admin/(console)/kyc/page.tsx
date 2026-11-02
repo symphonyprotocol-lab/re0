@@ -7,6 +7,7 @@ import { serverMessages } from '@/i18n/server';
 import { formatDateTime, formatNumber } from '@/i18n/format';
 import { ListFilters } from '@/components/admin/list-client';
 import { LinkPager, PageHead, RecordsTable, ResultsLine, RoleBadge, SummaryCards } from '@/components/admin/list-kit';
+import { ConsoleTopbar } from '@/components/admin/console-topbar';
 import { KycStatusTag } from '@/components/admin/payout-kit';
 
 export async function generateMetadata(): Promise<Metadata> {
@@ -37,7 +38,8 @@ export default async function KycPage({ searchParams }: Props) {
   const periods: Record<string, string> = { all: l.allTime, '7': l.last7, '30': l.last30, '90': l.last90 };
   return (
     <>
-      <PageHead crumbs={[{ label: t.console.nav.home, href: '/admin/overview' }, { label: k.title }]} title={k.title} lede={k.lede} />
+      <ConsoleTopbar crumbs={[{ label: t.console.nav.home, href: '/admin/overview' }, { label: k.title }]} />
+      <PageHead title={k.title} lede={k.lede} />
       <SummaryCards
         items={(['all', 'pending', 'verified', 'rejected'] as const).map((status) => ({
           label: k.cards[status],

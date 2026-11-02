@@ -6,9 +6,11 @@
  * view, so an export is exactly the filtered list.
  */
 import { LIST_PAGE_SIZES } from '@/lib/constants';
+import { financeTime, type FinanceTime } from '@/lib/domain/admin-finance';
 import { AUDIT_ACTIONS, type AuditAction } from '@/lib/domain/audit';
 import { param } from '@/lib/domain/list';
 import { USER_ROLES, type UserRole } from '@/lib/domain/roles';
+import type { Period } from '@/lib/domain/statistics';
 
 type Params = URLSearchParams | Record<string, string | string[] | undefined>;
 
@@ -60,9 +62,16 @@ export type UsersView = ReturnType<typeof usersView>;
 export const PURCHASE_STATUSES = ['paid', 'refunded', 'chargeback'] as const;
 export const SUBSCRIPTION_STATUSES = ['active', 'cancelled', 'expired'] as const;
 
-export function purchasesView(params: Params) {
+/**
+ * 充值交易 filters on the finance calendar (all time / day / week / month /
+ * custom, with the chart's metric); Plan 订阅 keeps its last-N-days select.
+ */
+export function purchasesView(params: Params, now: Date = new Date()) {
   const tab = pick(params, 'tab', ['transactions', 'subscriptions'] as const, 'transactions');
   const subscriptions = tab === 'subscriptions';
+  const time: Omit<FinanceTime, 'period'> & { period: Period | RecentPeriod } = subscriptions
+    ? { period: pick(params, 'period', RECENT_PERIODS, 'all'), date: '', start: '', end: '', metric: 'amount' }
+    : financeTime(params, now);
   return {
     ...common(params),
     tab,
@@ -70,7 +79,7 @@ export function purchasesView(params: Params) {
       ? pick(params, 'status', ['all', ...SUBSCRIPTION_STATUSES] as const, 'all')
       : pick(params, 'status', ['all', ...PURCHASE_STATUSES] as const, 'all'),
     kind: subscriptions ? 'all' : pick(params, 'kind', ['all', 'plan', 'pack'] as const, 'all'),
-    period: pick(params, 'period', RECENT_PERIODS, 'all'),
+    ...time,
     sort: subscriptions ? pick(params, 'sort', TIME_SORTS, 'newest') : pick(params, 'sort', AMOUNT_SORTS, 'newest'),
   };
 }
@@ -119,14 +128,19 @@ export const LIST_DEFAULTS: Record<string, string> = {
   action: 'all',
   tab: 'transactions',
   kind: 'all',
+  date: '',
+  start: '',
+  end: '',
+  metric: 'amount',
 };
 
 /** The order parameters appear in, as in the prototype's `adminRecordPath`. */
-const KEY_ORDER = ['tab', 'q', 'status', 'role', 'membership', 'kyc', 'kind', 'period', 'action', 'sort', 'size', 'page'];
+const KEY_ORDER = ['tab', 'q', 'status', 'role', 'membership', 'kyc', 'kind', 'period', 'date', 'start', 'end', 'metric', 'action', 'sort', 'size', 'page'];
 
 /**
  * The canonical URL of a list with `changes` applied: defaults dropped, and
- * the page reset whenever a filter (anything but the page) changes.
+ * the page reset whenever a filter changes (not the page, nor the finance
+ * chart's metric, which leaves the list as it is).
  */
 export function listHref(
   base: string,
@@ -136,7 +150,7 @@ export function listHref(
 ): string {
   const next: Record<string, string> = Object.fromEntries(Object.entries(view).map(([key, value]) => [key, String(value)]));
   for (const [key, value] of Object.entries(changes)) next[key] = value === null ? (defaults[key] ?? '') : String(value);
-  if (Object.keys(changes).some((key) => key !== 'page')) next.page = '1';
+  if (Object.keys(changes).some((key) => key !== 'page' && key !== 'metric')) next.page = '1';
   const query = new URLSearchParams();
   const rank = (key: string) => (KEY_ORDER.indexOf(key) + 1 || KEY_ORDER.length + 1);
   for (const [key, value] of Object.entries(next).sort(([a], [b]) => rank(a) - rank(b))) {
@@ -147,9 +161,9 @@ export function listHref(
   return text ? `${base}?${text}` : base;
 }
 
-/** The export link for a list: the API path with the same filters (no page) and `format=csv`. */
+/** The export link for a list: the API path with the same filters (no page, no chart metric) and `format=csv`. */
 export function csvHref(apiBase: string, view: Record<string, string | number>, defaults: Record<string, string> = LIST_DEFAULTS): string {
-  const href = listHref(apiBase, { ...view, page: 1 }, {}, defaults);
+  const href = listHref(apiBase, { ...view, page: 1, metric: '' }, {}, defaults);
   return `${href}${href.includes('?') ? '&' : '?'}format=csv`;
 }
 
@@ -172,24 +186,24 @@ export const KYC_DEFAULTS: Record<string, string> = { ...LIST_DEFAULTS, sort: 'o
 export const PAYOUT_QUEUE_FILTERS = ['all', 'pending', 'approved'] as const;
 export const PAYOUT_HISTORY_FILTERS = ['all', 'pending', 'approved', 'paid', 'failed', 'rejected'] as const;
 
-/** 提现审核: only requests in progress, oldest first. */
-export function payoutQueueView(params: Params) {
+/** 提现审核: only requests in progress, oldest first, on the finance calendar by request time. */
+export function payoutQueueView(params: Params, now: Date = new Date()) {
   return {
     ...common(params),
     status: pick(params, 'status', PAYOUT_QUEUE_FILTERS, 'all'),
-    period: 'all' as RecentPeriod,
+    ...financeTime(params, now),
     sort: pick(params, 'sort', AMOUNT_SORTS, 'oldest'),
   };
 }
 export type PayoutQueueView = ReturnType<typeof payoutQueueView>;
 export const PAYOUT_QUEUE_DEFAULTS: Record<string, string> = { ...LIST_DEFAULTS, sort: 'oldest' };
 
-/** 提现记录: every request in any of the five states, newest first. */
-export function payoutHistoryView(params: Params) {
+/** 提现记录: every request in any of the five states, newest first, on the finance calendar by request time. */
+export function payoutHistoryView(params: Params, now: Date = new Date()) {
   return {
     ...common(params),
     status: pick(params, 'status', PAYOUT_HISTORY_FILTERS, 'all'),
-    period: pick(params, 'period', RECENT_PERIODS, 'all'),
+    ...financeTime(params, now),
     sort: pick(params, 'sort', AMOUNT_SORTS, 'newest'),
   };
 }

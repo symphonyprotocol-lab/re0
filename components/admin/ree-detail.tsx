@@ -1,7 +1,7 @@
 /**
  * The console's Ree detail (prototype admin-ree-detail.js): header with the
- * takedown / restore, metric cards, tabs as links, and the overview,
- * sources and management-log tabs. Server components; the takedown and
+ * takedown / restore, metric cards, tabs as links (in the top bar's second
+ * row), and the overview, sources and management-log tabs. Server components; the takedown and
  * restore dialogs are the shared `ReasonAction`.
  */
 import Link from 'next/link';
@@ -14,7 +14,7 @@ import { fill, formatDateTime, formatNumber } from '@/i18n/format';
 import { Icon } from '@/components/ui/icons';
 import { ReeAvatar } from '@/components/ui/ree-avatar';
 import { ReasonAction } from '@/components/admin/list-client';
-import { Fields, RecordsTable, RoleBadge, Tag, type Crumb } from '@/components/admin/list-kit';
+import { Fields, RecordsTable, RoleBadge, Tag } from '@/components/admin/list-kit';
 
 export const VISIBILITY_TONES = { public: 'blue', private: 'grey', moderated: 'orange' } as const;
 export const STATE_TONES = { ready: 'green', processing: 'grey', failed: 'red', paused: 'grey' } as const;
@@ -121,28 +121,6 @@ export function reeSourceHref(id: string, kid: string, from: string | null, para
 
 /* --------------------------------------------------------------- header */
 
-/** The page head's breadcrumbs alone, for pages whose own header carries the title. */
-export function Breadcrumbs({ crumbs }: { crumbs: Crumb[] }) {
-  return (
-    <nav aria-label="breadcrumb" className="mb-4 flex min-w-0 flex-wrap items-center gap-1.5 text-[12px] text-muted">
-      {crumbs.map((crumb, index) => (
-        <span key={`${crumb.label}-${index}`} className="flex min-w-0 items-center gap-1.5">
-          {index > 0 && <Icon name="chevronRight" className="size-3 flex-none text-[#a3a9bb]" />}
-          {crumb.href ? (
-            <Link href={crumb.href} className="max-w-[220px] truncate hover:text-blue">
-              {crumb.label}
-            </Link>
-          ) : (
-            <span className="max-w-[260px] truncate font-semibold text-ink" aria-current="page">
-              {crumb.label}
-            </span>
-          )}
-        </span>
-      ))}
-    </nav>
-  );
-}
-
 export function ReeHeader({ t, locale, detail, answers }: { t: Messages; locale: Locale; detail: AdminReeDetail; answers: number }) {
   const r = t.consoleRees.ree;
   const { ree, visibility, sources } = detail;
@@ -229,22 +207,9 @@ export function ReeHeader({ t, locale, detail, answers }: { t: Messages; locale:
   );
 }
 
-export function ReeTabs({ t, id, from, active }: { t: Messages; id: string; from: string | null; active: ReeTab }) {
-  const r = t.consoleRees.ree;
-  return (
-    <nav aria-label={r.tabsLabel} className="mt-6 mb-4 flex max-w-full gap-1 overflow-x-auto border-b border-line">
-      {REE_TABS.map((tab) => (
-        <Link
-          key={tab}
-          href={reeDetailHref(id, from, tab)}
-          aria-current={tab === active ? 'page' : undefined}
-          className={`-mb-px flex-none border-b-2 px-3 py-2.5 text-[13px] font-semibold whitespace-nowrap transition ${tab === active ? 'border-blue text-blue' : 'border-transparent text-muted hover:text-ink'}`}
-        >
-          {r.tabs[tab]}
-        </Link>
-      ))}
-    </nav>
-  );
+/** The four tabs as links, for the console top bar's second row; `from` rides along. */
+export function reeTabs(t: Messages, id: string, from: string | null, active: ReeTab) {
+  return REE_TABS.map((tab) => ({ label: t.consoleRees.ree.tabs[tab], href: reeDetailHref(id, from, tab), active: tab === active }));
 }
 
 /* ------------------------------------------------------------- overview */

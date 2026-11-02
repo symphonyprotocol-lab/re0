@@ -363,6 +363,8 @@ export const creditEntry = pgTable(
   (t) => [
     index('credit_entry_user_idx').on(t.userId, t.createdAt),
     index('credit_entry_ref_idx').on(t.refId),
+    /* Per-Ree usage: answer counts (query_base) and income (query_fee_earned), by time for statistics. */
+    index('credit_entry_ree_idx').on(t.reeId, t.reason, t.createdAt).where(sql`ree_id is not null`),
     check('credit_entry_reason_check', oneOf('reason', CREDIT_ENTRY_REASONS)),
   ],
 );

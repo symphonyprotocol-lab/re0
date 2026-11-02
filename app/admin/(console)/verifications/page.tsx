@@ -7,6 +7,7 @@ import { serverMessages } from '@/i18n/server';
 import { fill, formatDateTime, formatNumber } from '@/i18n/format';
 import { ListFilters } from '@/components/admin/list-client';
 import { LinkPager, PageHead, RecordsTable, ResultsLine, RoleBadge, SummaryCards, Tag } from '@/components/admin/list-kit';
+import { ConsoleTopbar } from '@/components/admin/console-topbar';
 import { VerificationStatusTag } from '@/components/admin/user-detail-roles';
 
 export async function generateMetadata(): Promise<Metadata> {
@@ -48,7 +49,8 @@ export default async function VerificationsPage({ searchParams }: Props) {
   }
   return (
     <>
-      <PageHead crumbs={[{ label: t.console.nav.home, href: '/admin/overview' }, { label: v.title }]} title={v.title} lede={v.lede} />
+      <ConsoleTopbar crumbs={[{ label: t.console.nav.home, href: '/admin/overview' }, { label: v.title }]} />
+      <PageHead title={v.title} lede={v.lede} />
       <SummaryCards items={cards} />
       <section className="card overflow-hidden">
         <ListFilters

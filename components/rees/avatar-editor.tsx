@@ -9,16 +9,27 @@ import { ReeAvatar, UserAvatar } from '@/components/ui/ree-avatar';
 
 const TYPES = ['image/jpeg', 'image/png', 'image/webp'];
 
-/** The crop rectangle in source pixels for a square of the image, zoomed and offset (-100..100 each axis). */
-function cropRect(width: number, height: number, zoom: number, x: number, y: number) {
-  const side = Math.min(width, height) / zoom;
-  const left = ((width - side) / 2) * (1 + x / 100);
-  const top = ((height - side) / 2) * (1 + y / 100);
-  return { left, top, side };
+/**
+ * Where to draw the image in a `size`×`size` square: scaled to cover it, then
+ * zoomed (1–3) and offset by `x`/`y` square pixels from centre. The offset is
+ * clamped so the image always covers the square, and the clamped value comes
+ * back as `x`/`y` (prototype profile.js `avatarCrop`).
+ */
+export function avatarCrop(width: number, height: number, zoom = 1, x = 0, y = 0, size = AVATAR_SIZE) {
+  const scale = Math.max(size / width, size / height) * Math.min(3, Math.max(1, zoom));
+  const w = width * scale;
+  const h = height * scale;
+  const dx = Math.min((w - size) / 2, Math.max(-(w - size) / 2, x));
+  const dy = Math.min((h - size) / 2, Math.max(-(h - size) / 2, y));
+  return { left: (size - w) / 2 + dx, top: (size - h) / 2 + dy, width: w, height: h, x: dx, y: dy };
 }
 
+/** Square pixels an arrow key moves the image; Shift moves further. */
+const NUDGE = 8;
+const NUDGE_FAR = 32;
+
 /**
- * Upload, zoom and position, then "使用此头像": the browser crops to 512×512
+ * Upload, zoom and drag (or arrow keys) to position, then "使用此头像": the browser crops to 512×512
  * and uploads the result to Blob; the form saves the pathname with everything
  * else, so cancelling the form keeps the old avatar (prototype dot-avatar.js).
  * `onCropping` reports an open crop, which the form must not save past
@@ -46,9 +57,8 @@ export function AvatarEditor({
   const fileRef = useRef<HTMLInputElement>(null);
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const [image, setImage] = useState<HTMLImageElement | null>(null);
-  const [zoom, setZoom] = useState(1);
-  const [x, setX] = useState(0);
-  const [y, setY] = useState(0);
+  const [crop, setCrop] = useState({ zoom: 1, x: 0, y: 0 });
+  const drag = useRef<{ pointer: number; clientX: number; clientY: number; x: number; y: number } | null>(null);
   const [error, setError] = useState('');
   const [busy, setBusy] = useState(false);
   const cropping = image !== null;
@@ -62,11 +72,18 @@ export function AvatarEditor({
   useEffect(() => {
     const canvas = canvasRef.current;
     if (!canvas || !image) return;
-    const rect = cropRect(image.naturalWidth, image.naturalHeight, zoom, x, y);
+    const rect = avatarCrop(image.naturalWidth, image.naturalHeight, crop.zoom, crop.x, crop.y);
     const brush = canvas.getContext('2d')!;
     brush.clearRect(0, 0, AVATAR_SIZE, AVATAR_SIZE);
-    brush.drawImage(image, rect.left, rect.top, rect.side, rect.side, 0, 0, AVATAR_SIZE, AVATAR_SIZE);
-  }, [image, zoom, x, y]);
+    brush.drawImage(image, rect.left, rect.top, rect.width, rect.height);
+  }, [image, crop]);
+
+  /** Moves or zooms, keeping the stored offset clamped so it never drifts past an edge. */
+  const place = (zoom: number, x: number, y: number) => {
+    if (!image) return;
+    const rect = avatarCrop(image.naturalWidth, image.naturalHeight, zoom, x, y);
+    setCrop({ zoom, x: rect.x, y: rect.y });
+  };
 
   const pick = (file: File | undefined) => {
     setError('');
@@ -79,9 +96,7 @@ export function AvatarEditor({
     const loaded = new Image();
     loaded.onload = () => {
       setImage(loaded);
-      setZoom(1);
-      setX(0);
-      setY(0);
+      setCrop({ zoom: 1, x: 0, y: 0 });
     };
     loaded.onerror = () => setError(f.avatarInvalid);
     loaded.src = url;
@@ -150,21 +165,52 @@ export function AvatarEditor({
               ref={canvasRef}
               width={AVATAR_SIZE}
               height={AVATAR_SIZE}
-              className={`size-36 flex-none border border-line bg-white ${kind === 'user' ? 'rounded-full' : 'rounded-2xl'}`}
+              tabIndex={0}
+              role="img"
+              aria-label={f.cropPreview}
+              className={`size-36 flex-none cursor-grab touch-none border border-line bg-white active:cursor-grabbing ${kind === 'user' ? 'rounded-full' : 'rounded-2xl'}`}
+              onPointerDown={(event) => {
+                if (event.button !== 0) return;
+                event.currentTarget.setPointerCapture(event.pointerId);
+                drag.current = { pointer: event.pointerId, clientX: event.clientX, clientY: event.clientY, x: crop.x, y: crop.y };
+              }}
+              onPointerMove={(event) => {
+                const start = drag.current;
+                if (!start || start.pointer !== event.pointerId) return;
+                const ratio = AVATAR_SIZE / event.currentTarget.getBoundingClientRect().width;
+                place(crop.zoom, start.x + (event.clientX - start.clientX) * ratio, start.y + (event.clientY - start.clientY) * ratio);
+              }}
+              onPointerUp={() => (drag.current = null)}
+              onPointerCancel={() => (drag.current = null)}
+              onKeyDown={(event) => {
+                const step = event.shiftKey ? NUDGE_FAR : NUDGE;
+                const move = ({ ArrowLeft: [-step, 0], ArrowRight: [step, 0], ArrowUp: [0, -step], ArrowDown: [0, step] } as Record<string, [number, number]>)[event.key];
+                if (!move) return;
+                event.preventDefault();
+                place(crop.zoom, crop.x + move[0], crop.y + move[1]);
+              }}
             />
             <div className="flex flex-1 flex-col gap-3 text-[12px]">
-              {(
-                [
-                  [f.cropZoom, zoom, setZoom, 1, 3, 0.01],
-                  [f.cropX, x, setX, -100, 100, 1],
-                  [f.cropY, y, setY, -100, 100, 1],
-                ] as const
-              ).map(([label, current, set, min, max, step]) => (
-                <label key={label} className="flex flex-col gap-1">
-                  {label}
-                  <input type="range" min={min} max={max} step={step} value={current} onChange={(event) => set(Number(event.target.value))} />
-                </label>
-              ))}
+              <p className="text-muted">{f.cropHint}</p>
+              <label className="flex flex-col gap-1">
+                {f.cropZoom}
+                <span className="flex items-center gap-3">
+                  <input
+                    type="range"
+                    className="min-w-0 flex-1"
+                    min={1}
+                    max={3}
+                    step={0.01}
+                    value={crop.zoom}
+                    onChange={(event) => place(Number(event.target.value), crop.x, crop.y)}
+                  />
+                  <output className="w-10 text-right font-mono text-[11px] text-muted">{Math.round(crop.zoom * 100)}%</output>
+                </span>
+              </label>
+              <button type="button" className="btn-ghost self-start" onClick={() => setCrop({ zoom: 1, x: 0, y: 0 })}>
+                <Icon name="refresh" className="size-3.5" />
+                {f.cropReset}
+              </button>
               <div className="flex gap-2">
                 <button type="button" className="btn btn-sm" onClick={use} disabled={busy}>
                   {busy ? <Spinner className="size-3.5" /> : <Icon name="check" className="size-3.5" />}

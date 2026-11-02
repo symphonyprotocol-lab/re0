@@ -9,6 +9,7 @@ import { fill, formatDateTime, formatNumber } from '@/i18n/format';
 import { ReeAvatar } from '@/components/ui/ree-avatar';
 import { ListFilters } from '@/components/admin/list-client';
 import { LinkPager, PageHead, RecordsTable, ResultsLine, RoleBadge, SummaryCards, Tag } from '@/components/admin/list-kit';
+import { ConsoleTopbar } from '@/components/admin/console-topbar';
 import { ReeRowActions, VISIBILITY_TONES } from '@/components/admin/ree-detail';
 
 export async function generateMetadata(): Promise<Metadata> {
@@ -39,7 +40,8 @@ export default async function ReesPage({ searchParams }: Props) {
   const back = encodeURIComponent(href({}));
   return (
     <>
-      <PageHead crumbs={[{ label: t.console.nav.home, href: '/admin/overview' }, { label: r.title }]} title={r.title} lede={r.lede} />
+      <ConsoleTopbar crumbs={[{ label: t.console.nav.home, href: '/admin/overview' }, { label: r.title }]} />
+      <PageHead title={r.title} lede={r.lede} />
       <SummaryCards
         items={[
           { label: r.cards.total, value: n(counts.total), href: listHref('/admin/rees', { size: view.size }), active: !filtered, title: l.clearFilters },

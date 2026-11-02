@@ -189,6 +189,27 @@ export const zh = {
     kycEmpty: '该用户还没有提交身份资料。',
     payoutsEmpty: '该用户还没有提现申请。',
   },
+  /* 充值交易、提现审核、提现记录的统计图表（原型 admin-finance.js）；状态名沿用各列表 */
+  finance: {
+    titles: { purchases: '充值交易统计', payouts: '提现审核统计', 'payout-history': '提现记录统计' },
+    shared: '图表与下方列表共用搜索、状态和时间条件',
+    grouping: { hour: '按小时汇总', day: '按天汇总', days: '每 {n} 天汇总', month: '按月汇总', months: '每 {n} 个月汇总' },
+    metricLabel: '图表指标',
+    metrics: { amount: '金额', count: '笔数' },
+    records: '{n} 笔',
+    inspect: '悬停或聚焦柱形查看明细',
+    empty: {
+      purchases: '此时段没有符合条件的记录',
+      payouts: '此时段没有符合条件的记录',
+      'payout-history': '此时段暂无已打款、打款失败或已驳回记录',
+    },
+    notes: {
+      purchases: '按交易创建时间与当前状态统计；退款、拒付归入原交易日期，不代表退款发生时间。金额为付款金额。',
+      payouts: '仅统计当前待审核与待人工打款申请，按申请时间归类，不代表审核发生时间。金额为申请金额。',
+      'payout-history': '仅统计已打款、打款失败和已驳回的记录，待审核与待人工打款申请仍在下方列表中但不计入图表；按申请时间及当前结果归类，金额为申请金额（未扣手续费），不代表实际打款日期或实付金额。',
+    },
+    missing: '{n} 条记录缺少准确时间，未计入图表。',
+  },
 };
 
 export const en: Shape<typeof zh> = {
@@ -378,5 +399,26 @@ export const en: Shape<typeof zh> = {
   user: {
     kycEmpty: 'This user has not submitted identity details.',
     payoutsEmpty: 'This user has no payout requests.',
+  },
+  finance: {
+    titles: { purchases: 'Purchase statistics', payouts: 'Payout review statistics', 'payout-history': 'Payout history statistics' },
+    shared: 'Chart and list share search, status and time filters',
+    grouping: { hour: 'Hourly totals', day: 'Daily totals', days: 'Totals every {n} days', month: 'Monthly totals', months: 'Totals every {n} months' },
+    metricLabel: 'Chart metric',
+    metrics: { amount: 'Amount', count: 'Count' },
+    records: '{n} records',
+    inspect: 'Hover or focus a bar to inspect details',
+    empty: {
+      purchases: 'No matching records in this period',
+      payouts: 'No matching records in this period',
+      'payout-history': 'No paid, failed or rejected records in this period',
+    },
+    notes: {
+      purchases: 'Grouped by transaction creation time and current status. Refunds and chargebacks use the original transaction date, not the refund date. Amounts are what the buyer paid.',
+      payouts: 'Current pending and awaiting-payment requests only, grouped by request time, not review time. Amounts are requested amounts.',
+      'payout-history':
+        'Paid, failed and rejected requests only; pending and awaiting-payment requests stay in the list below but are not charted. Grouped by request time and current result. Amounts are requested amounts before fees, not net payments or payment-date totals.',
+    },
+    missing: '{n} records lack exact timestamps and are omitted from the chart.',
   },
 };

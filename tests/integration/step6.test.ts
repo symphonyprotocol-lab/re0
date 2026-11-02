@@ -439,4 +439,58 @@ describeWithDb('payouts', () => {
     const counted = await db().execute(sql`select count(*)::int as n from payout where status in ('pending', 'approved')`);
     expect(queue.counts.open).toBe((counted.rows[0] as { n: number }).n);
   });
+
+  it('charts the queue and the outcomes by request time and requested amount, over every matching request', async () => {
+    const tag = uniqueName('payfin');
+    const done = await newUser('Done');
+    const request = async (status: 'pending' | 'approved' | 'paid' | 'failed' | 'rejected', credits: number, at: string, userId?: string) => {
+      const owner = userId ?? (await newUser('Open'));
+      const paid = status === 'paid' ? { paidCents: Math.floor(credits / 100) - 250, transferId: `T-${uniqueName('t')}` } : {};
+      await db()
+        .insert(schema.payout)
+        .values({ userId: owner, credits, paypalEmail: `${tag}-${uniqueName('p')}@example.test`, status, createdAt: new Date(at), ...paid });
+    };
+    await request('paid', 1_000_000, '2026-10-12T04:00:00Z', done);
+    await request('failed', 500_000, '2026-10-13T04:00:00Z', done);
+    await request('rejected', 750_050, '2026-10-14T04:00:00Z', done);
+    for (let index = 0; index < 22; index += 1) await request('failed', 500_000, '2026-10-20T04:00:00Z', done);
+    await request('pending', 2_000_000, '2026-10-12T04:00:00Z');
+    await request('approved', 2_500_000, '2026-10-13T04:00:00Z');
+    const now = new Date();
+
+    const month = { q: tag, period: 'month', date: '2026-10-01' };
+    const history = payoutHistoryView({ ...month, size: '20', page: '2' }, now);
+    const list = await payouts.listPayouts(history, 'history');
+    expect(list.total).toBe(27);
+    expect(list.items).toHaveLength(7);
+    const outcomes = await payouts.payoutTrend(history, 'history', now);
+    expect(outcomes.keys).toEqual(['paid', 'failed', 'rejected']);
+    /* The requested $100, not the $97.50 that arrived; 750,050 credits round to 7,501 cents. */
+    expect(outcomes.totals).toEqual({ paid: { count: 1, cents: 10_000 }, failed: { count: 23, cents: 23 * 5000 }, rejected: { count: 1, cents: 7501 } });
+    expect(outcomes.bars).toHaveLength(31);
+    expect(outcomes.bars[19]!.values.failed.count).toBe(22);
+
+    const failedOnly = await payouts.payoutTrend(payoutHistoryView({ ...month, status: 'failed' }, now), 'history', now);
+    expect(failedOnly.totals.paid.count + failedOnly.totals.rejected.count).toBe(0);
+    expect(failedOnly.totals.failed.count).toBe((await payouts.listPayouts(payoutHistoryView({ ...month, status: 'failed' }, now), 'history')).total);
+
+    const day = await payouts.payoutTrend(payoutHistoryView({ q: tag, period: 'day', date: '2026-10-12' }, now), 'history', now);
+    expect(day.bars).toHaveLength(24);
+    expect(day.bars[12]!.values.paid.count).toBe(1);
+    expect(day.totals.failed.count).toBe(0);
+
+    const custom = payoutHistoryView({ q: tag, period: 'custom', start: '2026-10-14', end: '2026-10-12' }, now);
+    expect((await payouts.payoutTrend(custom, 'history', now)).totals).toEqual({ paid: { count: 1, cents: 10_000 }, failed: { count: 1, cents: 5000 }, rejected: { count: 1, cents: 7501 } });
+
+    const queue = await payouts.payoutTrend(payoutQueueView({ ...month }, now), 'queue', now);
+    expect(queue.keys).toEqual(['pending', 'approved']);
+    expect(queue.totals).toEqual({ pending: { count: 1, cents: 20_000 }, approved: { count: 1, cents: 25_000 } });
+    const approved = await payouts.payoutTrend(payoutQueueView({ ...month, status: 'approved' }, now), 'queue', now);
+    expect(approved.totals.pending.count).toBe(0);
+
+    const all = await payouts.payoutTrend(payoutHistoryView({ q: tag }, now), 'history', now);
+    expect(all.totals.failed.count).toBe(23);
+    expect(all.missingTime).toBe(0);
+    expect(all.bars.length).toBeLessThanOrEqual(24);
+  });
 });

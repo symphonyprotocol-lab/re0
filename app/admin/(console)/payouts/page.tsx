@@ -1,12 +1,15 @@
 import type { Metadata } from 'next';
 import Link from 'next/link';
 import { redirect } from 'next/navigation';
+import { financeFilter } from '@/lib/domain/admin-finance';
 import { AMOUNT_SORTS, csvHref, listHref, PAYOUT_QUEUE_DEFAULTS, PAYOUT_QUEUE_FILTERS, payoutQueueView } from '@/lib/domain/admin-lists';
-import { listPayouts } from '@/lib/services/payouts';
+import { listPayouts, payoutTrend } from '@/lib/services/payouts';
 import { serverMessages } from '@/i18n/server';
 import { formatNumber } from '@/i18n/format';
+import { FinanceChart } from '@/components/admin/finance-chart';
 import { ListFilters } from '@/components/admin/list-client';
 import { LinkPager, PageHead, ResultsLine, SummaryCards } from '@/components/admin/list-kit';
+import { ConsoleTopbar } from '@/components/admin/console-topbar';
 import { creditsUsd } from '@/components/admin/payout-kit';
 import { PayoutsTable } from '@/components/admin/payouts-table';
 import { Icon } from '@/components/ui/icons';
@@ -28,18 +31,18 @@ export default async function PayoutsPage({ searchParams }: Props) {
   const p = t.consolePayouts.payouts;
   const l = t.console.list;
   const view = payoutQueueView(await searchParams);
-  const data = await listPayouts(view, 'queue');
+  const [data, trend] = await Promise.all([listPayouts(view, 'queue'), payoutTrend(view, 'queue')]);
   const current = { ...view, page: data.page };
   const href = (changes: Record<string, string | number | null>) => listHref('/admin/payouts', current, changes, PAYOUT_QUEUE_DEFAULTS);
   // A page past the end (rows went away, a stale link) lands on the last page's canonical URL.
   if (data.page !== view.page) redirect(href({}));
   const n = (value: number) => formatNumber(value, locale);
-  const filtered = Boolean(view.q) || view.status !== 'all' || view.sort !== 'oldest';
-  const reset = listHref('/admin/payouts', { size: view.size }, {}, PAYOUT_QUEUE_DEFAULTS);
+  const filtered = Boolean(view.q) || view.status !== 'all' || view.period !== 'all' || view.sort !== 'oldest';
+  const reset = listHref('/admin/payouts', { size: view.size, metric: view.metric }, {}, PAYOUT_QUEUE_DEFAULTS);
   return (
     <>
+      <ConsoleTopbar crumbs={[{ label: t.console.nav.home, href: '/admin/overview' }, { label: p.title }]} />
       <PageHead
-        crumbs={[{ label: t.console.nav.home, href: '/admin/overview' }, { label: p.title }]}
         title={p.title}
         lede={p.lede}
         actions={
@@ -56,6 +59,13 @@ export default async function PayoutsPage({ searchParams }: Props) {
           { label: p.cards.approved, value: n(data.counts.approved ?? 0), href: href({ status: 'approved' }), active: view.status === 'approved' },
           { label: p.cards.held, value: creditsUsd(data.held) },
         ]}
+      />
+      <FinanceChart
+        kind="payouts"
+        trend={trend}
+        metric={view.metric}
+        metricHrefs={{ amount: href({ metric: 'amount' }), count: href({ metric: 'count' }) }}
+        filter={financeFilter(view)}
       />
       <section className="card overflow-hidden">
         <ListFilters
