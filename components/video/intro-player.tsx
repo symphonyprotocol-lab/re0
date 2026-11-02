@@ -94,11 +94,22 @@ export function IntroPlayer({
   }, [player]);
 
   useEffect(() => {
+    if (!player) return;
+    /* A hidden tab pauses the introduction (prototype README "隐藏标签页后暂停"). */
+    const onVisibility = () => {
+      if (document.hidden && player.isPlaying()) player.pause();
+    };
+    document.addEventListener('visibilitychange', onVisibility);
+    return () => document.removeEventListener('visibilitychange', onVisibility);
+  }, [player]);
+
+  useEffect(() => {
     const onChange = () => {
       if (!document.fullscreenElement && expanded && wanted.current) {
         /* Native fullscreen was left with Escape: fold the page layout too. */
         wanted.current = false;
         setExpanded(false);
+        fullscreenButton.current?.focus({ preventScroll: true });
       }
     };
     document.addEventListener('fullscreenchange', onChange);
@@ -108,12 +119,33 @@ export function IntroPlayer({
   useEffect(() => {
     if (!expanded) return;
     const onKey = (event: KeyboardEvent) => {
+      const node = shell.current;
+      if (event.key === 'Tab' && node) {
+        /* Page fullscreen keeps focus inside the player (prototype suite.js inline fullscreen). */
+        const controls = [...node.querySelectorAll<HTMLElement>('button, a[href], input, [tabindex]:not([tabindex="-1"])')].filter(
+          (element) => !(element as HTMLButtonElement).disabled && element.getClientRects().length > 0,
+        );
+        const first = controls[0];
+        const last = controls.at(-1);
+        if (!first || !last) return;
+        const inside = node.contains(document.activeElement);
+        if (event.shiftKey && (!inside || document.activeElement === first)) {
+          event.preventDefault();
+          last.focus();
+        } else if (!event.shiftKey && (!inside || document.activeElement === last)) {
+          event.preventDefault();
+          first.focus();
+        }
+        return;
+      }
       if (event.key !== 'Escape') return;
       /* Inside a dialog, Escape folds the player first and leaves the dialog open. */
       event.preventDefault();
       event.stopPropagation();
       wanted.current = false;
       setExpanded(false);
+      if (node && document.fullscreenElement === node) void document.exitFullscreen().catch(() => undefined);
+      fullscreenButton.current?.focus({ preventScroll: true });
     };
     document.body.style.overflow = 'hidden';
     window.addEventListener('keydown', onKey, true);
@@ -140,6 +172,7 @@ export function IntroPlayer({
   };
 
   const wanted = useRef(false);
+  const fullscreenButton = useRef<HTMLButtonElement>(null);
   const onFullscreen = () => {
     const node = shell.current;
     if (!node) return;
@@ -150,6 +183,12 @@ export function IntroPlayer({
       return;
     }
     requestNative(node, () => wanted.current);
+    /* Entering fullscreen plays, from the start once it has ended (prototype suite.js `inline-video-fullscreen`). */
+    const player = ref.current;
+    if (player && !player.isPlaying()) {
+      if (player.getCurrentFrame() >= VIDEO_FRAMES - 1) player.seekTo(0);
+      player.play();
+    }
   };
 
   const current = shotAt(frame);
@@ -223,6 +262,7 @@ export function IntroPlayer({
           <span className="tag hidden sm:inline-flex">720p</span>
           {fullscreen && (
             <button
+              ref={fullscreenButton}
               type="button"
               className={`icon-btn ${expanded ? 'text-white hover:bg-white/10 hover:text-white' : ''}`}
               onClick={onFullscreen}

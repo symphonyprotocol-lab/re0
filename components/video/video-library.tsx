@@ -3,7 +3,7 @@
 import Link from 'next/link';
 import { usePathname, useRouter } from 'next/navigation';
 import { useState } from 'react';
-import { VIDEO_PAGE_SIZES } from '@/lib/constants';
+import { VIDEO_EXPORT_CREDITS, VIDEO_PAGE_SIZES, VIDEO_SCRIPT_CREDITS } from '@/lib/constants';
 import type { VideoListItem } from '@/lib/services/video';
 import { useI18n } from '@/i18n/client';
 import { fill, formatNumber } from '@/i18n/format';
@@ -52,7 +52,6 @@ export function VideoLibrary({ result, q }: { result: { items: VideoListItem[]; 
         <section className="card flex flex-col items-center gap-3 px-6 py-14 text-center">
           <Icon name="film" className="size-8 text-blue" />
           <h2 className="text-[16px] font-bold">{q ? l.noMatch : l.empty}</h2>
-          {!q && <p className="text-[12px] text-muted">{l.emptyBody}</p>}
           {!q && (
             <Link href="/rees/new" className="btn btn-sm">
               <Icon name="plus" />
@@ -89,6 +88,10 @@ export function VideoLibrary({ result, q }: { result: { items: VideoListItem[]; 
         </ul>
       )}
       {result.total > 0 && <Pager page={result.page} size={result.size} total={result.total} sizes={VIDEO_PAGE_SIZES} onPage={(page) => go({ page })} onSize={(size) => go({ size, page: 1 })} />}
+      <p className="flex gap-2 rounded-xl border border-line bg-wash px-4 py-3 text-[12px] text-muted">
+        <Icon name="info" className="mt-0.5 size-3.5 flex-none text-blue" />
+        {fill(l.pricing, { script: formatNumber(VIDEO_SCRIPT_CREDITS, locale), export: formatNumber(VIDEO_EXPORT_CREDITS, locale) })}
+      </p>
     </div>
   );
 }

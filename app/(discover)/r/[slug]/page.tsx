@@ -3,7 +3,7 @@ import Link from 'next/link';
 import { notFound } from 'next/navigation';
 import { cache } from 'react';
 import { QUERY_BASE_FEE } from '@/lib/constants';
-import { exploreReturnPath } from '@/lib/domain/explore';
+import { exploreReturnPath, publicTags } from '@/lib/domain/explore';
 import { appBaseUrl } from '@/lib/http/cookies';
 import { currentUser } from '@/lib/http/session';
 import { joinableConversations } from '@/lib/services/conversations';
@@ -16,6 +16,7 @@ import { ReeAvatar } from '@/components/ui/ree-avatar';
 import { RoleBadge } from '@/components/discover/role-badge';
 import { JoinButton } from '@/components/discover/join-button';
 import { PublicListSection } from '@/components/discover/public-list';
+import { PublicVisit } from '@/components/discover/public-visit';
 import { ReeCover } from '@/components/discover/ree-card';
 import { PublicIntro } from '@/components/video/public-intro';
 import { introsFor } from '@/lib/services/video';
@@ -73,6 +74,7 @@ export default async function PublicReePage({ params, searchParams }: Props) {
 
   return (
     <>
+      <PublicVisit from={from} />
       {user ? (
         <Topbar crumbs={[{ label: t.discover.explore.title, href: from }, { label: ree.name }]} />
       ) : (
@@ -103,7 +105,7 @@ export default async function PublicReePage({ params, searchParams }: Props) {
                 <Link href={`/explore?category=${ree.category}`} className="tag hover:border-blue hover:text-blue">
                   {category}
                 </Link>
-                {ree.tags.map((tag) => (
+                {publicTags(ree.tags, category).map((tag) => (
                   <Link key={tag} href={`/explore?q=${encodeURIComponent(tag)}`} className="tag hover:border-blue hover:text-blue">
                     {tag}
                   </Link>

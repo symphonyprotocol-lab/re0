@@ -37,9 +37,12 @@ export const zh = {
     next: '下一页',
     page: '第 {n} 页',
     jump: '跳至',
+    jumpSuffix: '页',
+    jumpLabel: '跳转页码',
     go: '跳转',
     pageOf: '第 {page} / {pages} 页',
     pagination: 'Ree 分页',
+    topPagination: '列表顶部分页',
   },
   card: {
     sources: '{n} 个知识来源',
@@ -93,7 +96,11 @@ export const zh = {
     groupNext: '{group}下一页',
     successfulAnswers: '{n} 次成功回答',
     positive: '{n}% 好评率',
-    notFound: '这个 Ree 不存在，或已不再公开。',
+    notFound: {
+      title: '这个页面，暂时不在知识范围内。',
+      body: '链接可能已失效，或 Ree 已设为私有。',
+      back: '回到发现',
+    },
   },
   home: {
     note: '以下是近 30 天最活跃的公开 Ree，点进去就能加入对话。',
@@ -139,9 +146,12 @@ export const en: Shape<typeof zh> = {
     next: 'Next page',
     page: 'Page {n}',
     jump: 'Go to',
+    jumpSuffix: '',
+    jumpLabel: 'Page number',
     go: 'Go',
     pageOf: 'Page {page} / {pages}',
     pagination: 'Ree pagination',
+    topPagination: 'Top pagination',
   },
   card: {
     sources: '{n} knowledge sources',
@@ -195,7 +205,11 @@ export const en: Shape<typeof zh> = {
     groupNext: '{group} next page',
     successfulAnswers: '{n} successful answers',
     positive: '{n}% positive ratings',
-    notFound: 'This Ree does not exist or is no longer public.',
+    notFound: {
+      title: 'This page is outside our knowledge.',
+      body: 'The link may be unavailable, or this Ree may now be private.',
+      back: 'Back to discover',
+    },
   },
   home: {
     note: 'The most active public Rees of the last 30 days. Open one to add it to a chat.',
