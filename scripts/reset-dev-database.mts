@@ -11,7 +11,8 @@
  *   - the host is a Neon endpoint (`ep-…….neon.tech`);
  *   - it is not the endpoint any of POSTGRES_* / PGHOST* name -- in
  *     .env.local those point at the production main branch;
- *   - it is not a known production endpoint;
+ *   - it is not listed in PRODUCTION_DATABASE_ENDPOINTS (comma-separated
+ *     endpoint ids; set it where the production id is known);
  *   - DATABASE_URL_UNPOOLED, which drizzle-kit migrates through, names the
  *     same endpoint;
  *   - `--confirm` repeats the endpoint id, so nobody resets a branch they did
@@ -22,7 +23,7 @@
  * Preview mode runs in the Vercel build. Neon's integration gives each git
  * branch a copy of main, which still holds the old 86-table schema the new
  * baseline cannot apply on top of. When -- and only when -- VERCEL_ENV is
- * `preview`, the endpoint is not a production one, and the schema is the old
+ * `preview`, the endpoint is not a listed production one, and the schema is the old
  * one (it has the legacy `workspace` table and no `ree` table), the copy is
  * cleared once; later builds of the same branch find `ree` and leave it alone.
  */
@@ -33,7 +34,12 @@ import { spawnSync } from 'node:child_process';
 nextEnv.loadEnvConfig(process.cwd());
 
 /** Endpoints that serve production. Never reset, whatever else is true. */
-const PRODUCTION_ENDPOINTS = new Set(['ep-delicate-bird-b3lct2ck']);
+const PRODUCTION_ENDPOINTS = new Set(
+  (process.env.PRODUCTION_DATABASE_ENDPOINTS ?? '')
+    .split(',')
+    .map((value) => value.trim())
+    .filter(Boolean),
+);
 
 const PRODUCTION_VARIABLES = [
   'POSTGRES_URL',
@@ -50,7 +56,7 @@ function refuse(reason: string): never {
   process.exit(1);
 }
 
-/** `ep-icy-unit-b3kur7hk` from a URL or a bare host, pooler or not. */
+/** The `ep-…` endpoint id from a URL or a bare host, pooler or not. */
 function endpointOf(value: string | undefined): string | null {
   if (!value) return null;
   let host = value;
