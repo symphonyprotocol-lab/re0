@@ -1,7 +1,7 @@
 /**
  * The tables of rebuild-proposal.md 4 delivered so far: the 15 of step 1, the
  * 3 of step 2 (knowledge_folder, github_connection, domain_claim) and step 3's
- * purchase and subscription, with two of its own (billing_event, credit_debt). Enumerations are
+ * purchase and subscription, with three of its own (billing_event, credit_debt, paddle_checkout). Enumerations are
  * text columns with check constraints, so a later step widens one with a
  * plain constraint swap instead of `ALTER TYPE`.
  *
@@ -514,7 +514,8 @@ export const purchase = pgTable(
     index('purchase_user_idx').on(t.userId, t.createdAt),
     check('purchase_kind_check', oneOf('kind', ['plan', 'pack'])),
     check('purchase_status_check', oneOf('status', ['paid', 'refunded', 'chargeback'])),
-    check('purchase_quantity_check', sql`quantity between 1 and 10`),
+    /* 1–10 is the checkout's rule; a payment is recorded as Paddle took it. */
+    check('purchase_quantity_check', sql`quantity >= 1`),
     check('purchase_reversed_check', sql`reversed_credits between 0 and credits`),
   ],
 );
@@ -548,6 +549,25 @@ export const subscription = pgTable(
     index('subscription_user_idx').on(t.userId, t.status),
     check('subscription_status_check', oneOf('status', ['active', 'cancelled', 'expired'])),
   ],
+);
+
+/**
+ * Beyond 4: the Paddle transactions checkout created, so a second Plan
+ * checkout (another tab, a double click) reopens the open one instead of
+ * starting a second subscription.
+ */
+export const paddleCheckout = pgTable(
+  'paddle_checkout',
+  {
+    paddleTransactionId: text('paddle_transaction_id').primaryKey(),
+    userId: uuid('user_id')
+      .notNull()
+      .references(() => user.id),
+    kind: text('kind').$type<'plan' | 'pack'>().notNull(),
+    quantity: integer('quantity').notNull(),
+    createdAt: createdAt(),
+  },
+  (t) => [index('paddle_checkout_user_idx').on(t.userId, t.kind, t.createdAt), check('paddle_checkout_kind_check', oneOf('kind', ['plan', 'pack']))],
 );
 
 /**

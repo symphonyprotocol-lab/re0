@@ -16,7 +16,8 @@ import { TEST_DATABASE_URL, uniqueName } from './setup';
 const describeWithDb = TEST_DATABASE_URL ? describe : describe.skip;
 
 const { createSession } = await import('@/lib/services/auth');
-const { balanceOf, placeHold, releaseHold, addGrant } = await import('@/lib/services/credits');
+const { balanceOf, placeHold, releaseHold, settleHold, addGrant } = await import('@/lib/services/credits');
+const { chargedFromNote } = await import('@/lib/domain/credits');
 const billing = await import('@/lib/services/billing');
 const { signPaddleBody } = await import('@/lib/infra/paddle');
 const { db, schema } = await import('@/lib/infra/db');
@@ -231,6 +232,66 @@ describeWithDb('Plan and Pack purchases', () => {
   });
 });
 
+describeWithDb('one Plan at a time', () => {
+  it('reopens an open Plan checkout instead of creating a second one', async () => {
+    const userId = await newUser();
+    let created = 0;
+    const create = async () => {
+      created += 1;
+      return { id: id('txn') };
+    };
+    const [first, second] = await Promise.all([
+      billing.startCheckout(userId, { kind: 'plan', consent: true }, { config: CONFIG, create, now: during }),
+      billing.startCheckout(userId, { kind: 'plan', consent: true }, { config: CONFIG, create, now: during }),
+    ]);
+    expect(created).toBe(1);
+    expect(first.ok && second.ok && first.transactionId === second.transactionId).toBe(true);
+    /* An hour later it is a new checkout. */
+    const later = await billing.startCheckout(userId, { kind: 'plan', consent: true }, { config: CONFIG, create, now: new Date(during.getTime() + 61 * 60 * 1000) });
+    expect(created).toBe(2);
+    expect(later.ok && first.ok && later.transactionId !== first.transactionId).toBe(true);
+  });
+
+  it('refuses a new Plan while a failed renewal is still being retried', async () => {
+    const userId = await newUser();
+    const { subscriptionId } = await subscribe(userId);
+    const after = new Date(end.getTime() + 60 * 60 * 1000);
+    await billing.applyPaddleEvent(
+      subscriptionEvent(userId, { subscriptionId, status: 'past_due', period: [end, new Date('2027-01-01T00:00:00Z')], updatedAt: after }),
+      PRICES,
+      after,
+    );
+    expect(await billing.hasActivePlan(db(), userId, after)).toBe(false);
+    const create = async () => ({ id: id('txn') });
+    expect(await billing.startCheckout(userId, { kind: 'plan', consent: true }, { config: CONFIG, create, now: after })).toEqual({ ok: false, error: 'renewal_pending' });
+    expect(await billing.startCheckout(userId, { kind: 'pack', quantity: 1, consent: true }, { config: CONFIG, create, now: after })).toEqual({ ok: false, error: 'plan_required' });
+    /* Paddle gives up and cancels: a new Plan may start. */
+    await billing.applyPaddleEvent(subscriptionEvent(userId, { subscriptionId, status: 'canceled', updatedAt: new Date(after.getTime() + 1000), type: 'subscription.canceled' }), PRICES, after);
+    expect((await billing.startCheckout(userId, { kind: 'plan', consent: true }, { config: CONFIG, create, now: after })).ok).toBe(true);
+  });
+});
+
+describeWithDb('payments as Paddle took them', () => {
+  it('credits a Pack quantity beyond the checkout’s ten, and a missing total records the list price', async () => {
+    const userId = await newUser();
+    await subscribe(userId);
+    const big = id('txn');
+    await billing.applyPaddleEvent(transactionEvent(userId, { kind: 'pack', quantity: 12, transactionId: big }), PRICES, during);
+    const odd = transactionEvent(userId, { kind: 'pack', quantity: 2 });
+    (odd.data as { details: unknown }).details = null;
+    await billing.applyPaddleEvent(odd, PRICES, during);
+    const purchases = await db().select().from(schema.purchase).where(and(eq(schema.purchase.userId, userId), eq(schema.purchase.kind, 'pack')));
+    expect(purchases.map((row) => [row.quantity, row.credits, row.amountMinor]).sort()).toEqual([
+      [12, 1_200_000, 12_000],
+      [2, 200_000, 2_000],
+    ]);
+    /* A partial refund of the one without a total stays partial. */
+    await deliver(adjustmentEvent(odd.data.id, { total: '1000' }));
+    const [refunded] = await db().select().from(schema.purchase).where(eq(schema.purchase.paddleTransactionId, odd.data.id));
+    expect(refunded!.reversedCredits).toBe(100_000);
+  });
+});
+
 describeWithDb('the Plan period', () => {
   it('turning renewal off keeps the period; at its end Plan credits expire and Packs stay', async () => {
     const userId = await newUser();
@@ -283,7 +344,7 @@ describeWithDb('the Plan period', () => {
     expect(expiry.map((entry) => entry.delta)).toEqual([-70_000]);
     const summary = await billing.billingSummary(userId, renewedAt);
     expect(summary.plan).toMatchObject({ used: 0, remaining: 100_000 });
-    expect(summary.subscription?.periodEnd).toBe(next[1].toISOString());
+    expect(summary.plan.periodEnd).toBe(next[1].toISOString());
   });
 
   it('ignores an older subscription event than the state it holds', async () => {
@@ -402,5 +463,14 @@ describeWithDb('the ledger list', () => {
     expect((await billing.listEntries(userId, { activity: 'spend', page: 99, size: 20 })).page).toBe(3);
     expect((await billing.listEntries(userId, { activity: 'income', page: 1, size: 20 })).total).toBe(0);
     expect(all.items[0]!.sources).toEqual([{ source: 'welcome', amount: 1 }]);
+  });
+
+  it('shows what a settlement charged even when the caller labels it', async () => {
+    const userId = await newUser();
+    const holdId = await db().transaction((tx) => placeHold(tx, { userId, kind: 'knowledge', amount: 20, refId: randomUUID() }, during));
+    await db().transaction((tx) => settleHold(tx, holdId, 7, { note: 'Handbook.pdf' }, during));
+    const [settle] = (await billing.listEntries(userId, { activity: 'spend', page: 1, size: 20 })).items;
+    expect(settle!.reason).toBe('knowledge_settle');
+    expect(chargedFromNote(settle!.note)).toBe(7);
   });
 });

@@ -11,7 +11,7 @@ import {
   takeBack,
   type PlanSubscription,
 } from '@/lib/domain/billing';
-import type { SpendableGrant } from '@/lib/domain/credits';
+import { chargedFromNote, settlementNote, type SpendableGrant } from '@/lib/domain/credits';
 import { checkoutTransactionBody, customUserId, minorUnits, paddleConfig, parsePaddleEvent, signPaddleBody, verifyPaddleSignature } from '@/lib/infra/paddle';
 import { parseActivity } from '@/lib/http/billing';
 import { safeReturnTo } from '@/lib/domain/auth';
@@ -159,6 +159,17 @@ describe('Paddle', () => {
       checkout: { url: 'https://tunnel.example/checkout' },
     });
     expect(paddleConfig({ PADDLE_API_KEY: 'k' } as unknown as NodeJS.ProcessEnv)).toBeNull();
+  });
+});
+
+describe('settlement notes', () => {
+  it('keep the caller’s label and let the ledger read the charge back', () => {
+    expect(settlementNote('Handbook.pdf', 15, 20)).toBe('Handbook.pdf · charged 15 of 20');
+    expect(settlementNote(null, 0, 20)).toBe('charged 0 of 20');
+    expect(chargedFromNote('Handbook.pdf · charged 15 of 20')).toBe(15);
+    expect(chargedFromNote('charged 0 of 20')).toBe(0);
+    expect(chargedFromNote('Handbook.pdf')).toBeNull();
+    expect(chargedFromNote('a title that says charged 9 of 9 somewhere · x')).toBeNull();
   });
 });
 

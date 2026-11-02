@@ -23,6 +23,17 @@ export function formatDateTime(value: Date | string, locale: 'zh' | 'en'): strin
   }).format(date);
 }
 
+/** A calendar day in UTC+8, e.g. 2026年12月2日 / December 2, 2026. */
+export function formatDate(value: Date | string, locale: 'zh' | 'en'): string {
+  const date = typeof value === 'string' ? new Date(value) : value;
+  return new Intl.DateTimeFormat(locale === 'zh' ? 'zh-CN' : 'en-US', { timeZone: 'Asia/Kuching', year: 'numeric', month: 'long', day: 'numeric' }).format(date);
+}
+
+/** US dollars from cents, always two decimals. */
+export function formatUsd(minor: number, locale: 'zh' | 'en'): string {
+  return new Intl.NumberFormat(locale === 'zh' ? 'zh-CN' : 'en-US', { style: 'currency', currency: 'USD', minimumFractionDigits: 2 }).format(minor / 100);
+}
+
 export function formatBytes(bytes: number): string {
   if (bytes < 1024) return `${bytes} B`;
   if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(1)} KB`;

@@ -40,6 +40,8 @@ export const ESTIMATOR = { min: 10, max: 1_000, step: 10, default: 100 } as cons
  * body go stale.
  */
 export const PADDLE_SIGNATURE_TOLERANCE_SECONDS = 300;
+/** A Plan checkout opened within this long is reopened rather than created again. */
+export const CHECKOUT_REUSE_MS = 60 * 60 * 1000;
 /** Plan grants the expiry cron settles per batch. */
 export const PLAN_EXPIRY_BATCH = 200;
 

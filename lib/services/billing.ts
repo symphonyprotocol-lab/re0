@@ -11,20 +11,21 @@
  * arrives (the webhook is the authority, 8.3); the cron only catches what no
  * renewal will (cancelled or lapsed Plans).
  */
+import { cache } from 'react';
 import { and, count, desc, eq, gt, inArray, lte, sql } from 'drizzle-orm';
-import { PLAN_EXPIRY_BATCH } from '@/lib/constants';
+import { CHECKOUT_REUSE_MS, PACK, PLAN_EXPIRY_BATCH } from '@/lib/constants';
 import {
   ACTIVITY_REASONS,
   creditsFor,
   parseOrder,
   planIsActive,
+  priceMinorFor,
   planUsage,
   reversalCredits,
   subscriptionStatusFrom,
   takeBack,
   type Activity,
   type CheckoutOrder,
-  type PlanSubscription,
   type PlanUsage,
   type PurchaseKind,
 } from '@/lib/domain/billing';
@@ -91,7 +92,13 @@ export async function hasActivePlan(executor: Executor, userId: string, now = ne
 
 /* ---------------------------------------------------------------- checkout */
 
-export type CheckoutRefusal = 'invalid_kind' | 'invalid_quantity' | 'consent_required' | 'plan_required' | 'already_subscribed';
+export type CheckoutRefusal =
+  | 'invalid_kind'
+  | 'invalid_quantity'
+  | 'consent_required'
+  | 'plan_required'
+  | 'already_subscribed'
+  | 'renewal_pending';
 
 export interface CheckoutDeps {
   config?: PaddleConfig;
@@ -102,7 +109,11 @@ export interface CheckoutDeps {
 /**
  * `POST /api/billing/checkout`: checks the order and creates the Paddle
  * transaction the browser's overlay opens. A Pack needs an active Plan
- * (2.3); a second Plan beside an active one is refused.
+ * (2.3). A Plan is refused while another subscription is still alive in
+ * Paddle -- paying, or `past_due` / `paused` (stored as `expired`), which
+ * Paddle may yet collect -- and a Plan checkout opened in the last hour is
+ * reopened instead of created again, so two tabs cannot start two
+ * subscriptions. A per-user advisory lock serialises the check and the create.
  */
 export async function startCheckout(
   userId: string,
@@ -112,12 +123,36 @@ export async function startCheckout(
   const order = parseOrder(input);
   if ('error' in order) return { ok: false, error: order.error };
   if (input.consent !== true) return { ok: false, error: 'consent_required' };
-  const active = await hasActivePlan(db(), userId, deps.now ?? new Date());
-  if (order.kind === 'pack' && !active) return { ok: false, error: 'plan_required' };
-  if (order.kind === 'plan' && active) return { ok: false, error: 'already_subscribed' };
-  const config = deps.config ?? requirePaddle();
-  const transaction = await (deps.create ?? createCheckoutTransaction)(config, order, userId);
-  return { ok: true, transactionId: transaction.id, order };
+  const now = deps.now ?? new Date();
+  return db().transaction(async (tx) => {
+    await tx.execute(sql`select pg_advisory_xact_lock(hashtext(${`checkout:${userId}`}))`);
+    if (order.kind === 'pack' && !planIsActive(await subscriptionOf(tx, userId), now)) return { ok: false as const, error: 'plan_required' as const };
+    if (order.kind === 'plan') {
+      const live = await tx
+        .select({ status: schema.subscription.status })
+        .from(schema.subscription)
+        .where(and(eq(schema.subscription.userId, userId), inArray(schema.subscription.status, ['active', 'expired'])));
+      if (live.some((row) => row.status === 'active')) return { ok: false as const, error: 'already_subscribed' as const };
+      if (live.length > 0) return { ok: false as const, error: 'renewal_pending' as const };
+      const [open] = await tx
+        .select({ id: schema.paddleCheckout.paddleTransactionId })
+        .from(schema.paddleCheckout)
+        .where(
+          and(
+            eq(schema.paddleCheckout.userId, userId),
+            eq(schema.paddleCheckout.kind, 'plan'),
+            gt(schema.paddleCheckout.createdAt, new Date(now.getTime() - CHECKOUT_REUSE_MS)),
+          ),
+        )
+        .orderBy(desc(schema.paddleCheckout.createdAt))
+        .limit(1);
+      if (open) return { ok: true as const, transactionId: open.id, order };
+    }
+    const config = deps.config ?? requirePaddle();
+    const transaction = await (deps.create ?? createCheckoutTransaction)(config, order, userId);
+    await tx.insert(schema.paddleCheckout).values({ paddleTransactionId: transaction.id, userId, kind: order.kind, quantity: order.quantity, createdAt: now });
+    return { ok: true as const, transactionId: transaction.id, order };
+  });
 }
 
 /** `GET /api/billing/checkout?transaction=`: has this checkout's payment been credited to this user yet? */
@@ -225,11 +260,22 @@ async function creditTransaction(tx: Tx, transaction: PaddleTransaction, prices:
   const subscription = await subscriptionByPaddleId(tx, transaction.subscription_id);
   const userId = customUserId(transaction.custom_data) ?? subscription?.userId ?? null;
   if (!userId) throw new RetryLater(`transaction ${transaction.id} names no buyer yet`);
-  const quantity = kind === 'plan' ? 1 : transaction.items[0]?.quantity ?? 1;
-  const order = parseOrder({ kind, quantity });
-  if ('error' in order) return 'refused_quantity';
+  /*
+   * Credited as paid. Checkout only sells 1–10 Packs and the Paddle price
+   * caps the overlay's quantity at 10, so anything else means the price was
+   * changed in Paddle: the buyer still gets what they paid for, and we hear about it.
+   */
+  const quantity = kind === 'plan' ? 1 : (transaction.items[0]?.quantity ?? 1);
+  if (!Number.isInteger(quantity) || quantity < 1) throw new Error(`transaction ${transaction.id} has quantity ${quantity}`);
+  if (quantity > PACK.maxQuantity) console.warn(`transaction ${transaction.id}: ${quantity} packs, beyond the checkout's ${PACK.maxQuantity}`);
+  const order: CheckoutOrder = { kind, quantity };
   const credits = creditsFor(order);
-  const amount = minorUnits(transaction.details?.totals?.grand_total);
+  let amount = minorUnits(transaction.details?.totals?.grand_total);
+  if (!Number.isFinite(amount)) {
+    /* Never 0: a zero would make every later refund read as a full one. */
+    console.warn(`transaction ${transaction.id} has no readable total; recording the list price`);
+    amount = priceMinorFor(order);
+  }
 
   let periodStart: Date | null = null;
   let periodEnd: Date | null = null;
@@ -245,7 +291,7 @@ async function creditTransaction(tx: Tx, transaction: PaddleTransaction, prices:
       quantity: order.quantity,
       paddleTransactionId: transaction.id,
       paddleSubscriptionId: transaction.subscription_id,
-      amountMinor: Number.isFinite(amount) ? amount : 0,
+      amountMinor: amount,
       currency: transaction.currency_code ?? 'USD',
       credits,
       periodStart,
@@ -255,6 +301,14 @@ async function creditTransaction(tx: Tx, transaction: PaddleTransaction, prices:
     .returning({ id: schema.purchase.id });
 
   if (kind === 'plan') {
+    if (subscription === null && transaction.subscription_id) {
+      const [other] = await tx
+        .select({ id: schema.subscription.paddleSubscriptionId })
+        .from(schema.subscription)
+        .where(and(eq(schema.subscription.userId, userId), eq(schema.subscription.status, 'active'), gt(schema.subscription.currentPeriodEnd, now)))
+        .limit(1);
+      if (other) console.warn(`user ${userId} paid for a second Plan ${transaction.subscription_id} beside ${other.id}`);
+    }
     const cutoff = periodStart!.getTime() > now.getTime() ? periodStart! : now;
     await expirePlanGrants(tx, { userId, cutoff }, now);
     /*
@@ -462,48 +516,53 @@ export async function expireDuePlans(now = new Date(), budgetMs = 240_000): Prom
 export interface BillingSummary {
   total: number;
   buckets: { plan: number; welcome: number; pack: number; earned: number };
-  welcomeGranted: number;
   debt: number;
   plan: PlanUsage;
-  subscription: { status: PlanSubscription['status']; cancelAtPeriodEnd: boolean; periodStart: string | null; periodEnd: string | null } | null;
 }
 
-/** This period's Plan grant -- spent to zero or not -- for the meter. */
-async function currentPlanGrant(executor: Executor, userId: string, now: Date): Promise<{ amount: number; remaining: number } | null> {
-  const [row] = await executor
-    .select({ amount: schema.creditGrant.amount, remaining: schema.creditGrant.remaining })
-    .from(schema.creditGrant)
-    .where(
-      and(
-        eq(schema.creditGrant.userId, userId),
-        eq(schema.creditGrant.source, 'plan'),
-        gt(schema.creditGrant.expiresAt, now),
-        sql`coalesce(${schema.creditGrant.periodStart}, ${schema.creditGrant.createdAt}) <= ${now.toISOString()}::timestamptz`,
-      ),
-    )
-    .orderBy(desc(schema.creditGrant.createdAt))
-    .limit(1);
-  return row ?? null;
+/**
+ * What the sidebar and the billing tab both read, loaded once per request
+ * (React `cache`): spendable grants, the subscription, and the latest Plan
+ * grants -- spent to zero or not -- from which the current period's is picked.
+ */
+const billingRows = cache(async (userId: string) => {
+  const executor = db();
+  const [grants, subscription, planGrants] = await Promise.all([
+    grantsOf(executor, userId, false),
+    subscriptionOf(executor, userId),
+    executor
+      .select({
+        amount: schema.creditGrant.amount,
+        remaining: schema.creditGrant.remaining,
+        periodStart: schema.creditGrant.periodStart,
+        expiresAt: schema.creditGrant.expiresAt,
+        createdAt: schema.creditGrant.createdAt,
+      })
+      .from(schema.creditGrant)
+      .where(and(eq(schema.creditGrant.userId, userId), eq(schema.creditGrant.source, 'plan')))
+      .orderBy(desc(schema.creditGrant.expiresAt), desc(schema.creditGrant.createdAt))
+      .limit(3),
+  ]);
+  return { grants, subscription, planGrants };
+});
+
+type PlanGrantRow = Awaited<ReturnType<typeof billingRows>>['planGrants'][number];
+
+/** This period's Plan grant: begun, not yet ended. */
+function currentPlanGrant(planGrants: PlanGrantRow[], now: Date): { amount: number; remaining: number } | null {
+  return planGrants.find((grant) => (grant.periodStart ?? grant.createdAt).getTime() <= now.getTime() && grant.expiresAt!.getTime() > now.getTime()) ?? null;
 }
 
 /** What every workspace page's sidebar shows: the balance and the Plan meter. */
 export async function shellBilling(userId: string, now = new Date()): Promise<{ balance: number; plan: PlanUsage }> {
-  const executor = db();
-  const [grants, subscription, current] = await Promise.all([grantsOf(executor, userId, false), subscriptionOf(executor, userId), currentPlanGrant(executor, userId, now)]);
-  return { balance: availableOf(grants, now), plan: planUsage(subscription, current, now) };
+  const { grants, subscription, planGrants } = await billingRows(userId);
+  return { balance: availableOf(grants, now), plan: planUsage(subscription, currentPlanGrant(planGrants, now), now) };
 }
 
 export async function billingSummary(userId: string, now = new Date()): Promise<BillingSummary> {
-  const executor = db();
-  const [grants, subscription, current, welcome, debt] = await Promise.all([
-    grantsOf(executor, userId, false),
-    subscriptionOf(executor, userId),
-    currentPlanGrant(executor, userId, now),
-    executor
-      .select({ amount: sql<number>`coalesce(sum(${schema.creditGrant.amount}), 0)::bigint` })
-      .from(schema.creditGrant)
-      .where(and(eq(schema.creditGrant.userId, userId), eq(schema.creditGrant.source, 'welcome'))),
-    executor
+  const [{ grants, subscription, planGrants }, debt] = await Promise.all([
+    billingRows(userId),
+    db()
       .select({ remaining: sql<number>`coalesce(sum(${schema.creditDebt.remaining}), 0)::bigint` })
       .from(schema.creditDebt)
       .where(and(eq(schema.creditDebt.userId, userId), gt(schema.creditDebt.remaining, 0))),
@@ -513,17 +572,8 @@ export async function billingSummary(userId: string, now = new Date()): Promise<
   return {
     total: buckets.plan + buckets.welcome + buckets.pack + buckets.earned,
     buckets,
-    welcomeGranted: Number(welcome[0]?.amount ?? 0),
     debt: Number(debt[0]?.remaining ?? 0),
-    plan: planUsage(subscription, current, now),
-    subscription: subscription
-      ? {
-          status: subscription.status,
-          cancelAtPeriodEnd: subscription.cancelAtPeriodEnd,
-          periodStart: subscription.currentPeriodStart?.toISOString() ?? null,
-          periodEnd: subscription.currentPeriodEnd?.toISOString() ?? null,
-        }
-      : null,
+    plan: planUsage(subscription, currentPlanGrant(planGrants, now), now),
   };
 }
 

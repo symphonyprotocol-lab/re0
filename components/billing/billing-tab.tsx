@@ -4,15 +4,11 @@ import { LIST_PAGE_SIZES } from '@/lib/constants';
 import { parseActivity } from '@/lib/http/billing';
 import { billingSummary, listEntries } from '@/lib/services/billing';
 import { serverMessages } from '@/i18n/server';
-import { fill, formatNumber } from '@/i18n/format';
+import { fill, formatDate, formatNumber } from '@/i18n/format';
 import { Icon } from '@/components/ui/icons';
 import { ArrivalNotice } from '@/components/billing/arrival';
 import { Entries } from '@/components/billing/entries';
 import { RenewalControl } from '@/components/billing/renewal';
-
-function formatDay(iso: string, locale: 'zh' | 'en'): string {
-  return new Intl.DateTimeFormat(locale === 'zh' ? 'zh-CN' : 'en-US', { timeZone: 'Asia/Kuching', year: 'numeric', month: 'long', day: 'numeric' }).format(new Date(iso));
-}
 
 /**
  * `/settings?tab=billing` (prototype app.js `billing`): total balance, the
@@ -25,7 +21,7 @@ export async function BillingTab({ userId, query }: { userId: string; query: Rec
   const listQuery = parseActivity(query, LIST_PAGE_SIZES);
   const [summary, entries] = await Promise.all([billingSummary(userId), listEntries(userId, listQuery)]);
   const plan = summary.plan;
-  const periodEnd = plan.periodEnd ? formatDay(plan.periodEnd, locale) : '';
+  const periodEnd = plan.periodEnd ? formatDate(plan.periodEnd, locale) : '';
   const arriving = typeof query.checkout === 'string' && /^txn_[a-z0-9]{10,64}$/.test(query.checkout) ? query.checkout : null;
   const n = (value: number) => formatNumber(value, locale);
   return (

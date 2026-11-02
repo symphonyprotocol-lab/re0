@@ -14,6 +14,7 @@ import {
   availableOf,
   releaseFrom,
   settlement,
+  settlementNote,
   type Allocation,
   type SpendableGrant,
 } from '@/lib/domain/credits';
@@ -268,7 +269,7 @@ export async function settleHold(
     reason: REASONS[hold.kind as 'chat' | 'knowledge'].settle,
     refId: hold.refId,
     reeId: options.reeId ?? null,
-    note: options.note ?? `charged ${charged} of ${hold.amount}`,
+    note: settlementNote(options.note, charged, hold.amount),
     allocations: returned,
     createdAt: now,
   });

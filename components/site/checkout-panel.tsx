@@ -6,7 +6,7 @@ import { useRouter } from 'next/navigation';
 import { useEffect, useRef, useState } from 'react';
 import { PACK, PLAN } from '@/lib/constants';
 import { useI18n } from '@/i18n/client';
-import { fill, formatNumber } from '@/i18n/format';
+import { fill, formatNumber, formatUsd } from '@/i18n/format';
 import { Icon, Spinner } from '@/components/ui/icons';
 
 interface PaddleEvent {
@@ -66,8 +66,7 @@ export function CheckoutPanel({
   const phaseRef = useRef<Phase>('idle');
   phaseRef.current = phase;
 
-  const money = (minor: number) =>
-    new Intl.NumberFormat(locale === 'zh' ? 'zh-CN' : 'en-US', { style: 'currency', currency: 'USD', minimumFractionDigits: 2 }).format(minor / 100);
+  const money = (minor: number) => formatUsd(minor, locale);
   const subtotal = kind === 'plan' ? PLAN.priceMinor : PACK.priceMinor * quantity;
   const credits = kind === 'plan' ? PLAN.credits : PACK.credits * quantity;
   const locked = kind === 'pack' && signedIn && !planActive;
@@ -251,12 +250,12 @@ export function CheckoutPanel({
             <button
               type="button"
               className="btn mt-4 min-h-12 w-full text-[14px]"
-              disabled={!signedIn || !paddle || phase === 'creating' || phase === 'open'}
+              disabled={!signedIn || !paddle || !ready || phase === 'creating' || phase === 'open'}
               onClick={confirm}
             >
-              {phase === 'creating' || phase === 'open' ? <Spinner /> : null}
-              {phase === 'creating' || phase === 'open' ? c.opening : c.confirm}
-              {phase === 'idle' && <Icon name="arrow" />}
+              {phase === 'creating' || phase === 'open' || (signedIn && paddle && !ready) ? <Spinner /> : null}
+              {phase === 'creating' || phase === 'open' ? c.opening : signedIn && paddle && !ready ? c.loading : c.confirm}
+              {phase === 'idle' && ready && <Icon name="arrow" />}
             </button>
           )}
           {!paddle && signedIn && <p className="mt-2 text-[11px] text-muted">{c.errors.payments_unavailable}</p>}

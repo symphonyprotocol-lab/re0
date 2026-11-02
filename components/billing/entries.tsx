@@ -4,6 +4,7 @@ import { useRouter } from 'next/navigation';
 import { useTransition } from 'react';
 import { LIST_PAGE_SIZES } from '@/lib/constants';
 import type { Activity } from '@/lib/domain/billing';
+import { chargedFromNote } from '@/lib/domain/credits';
 import type { EntryRow } from '@/lib/services/billing';
 import { useI18n } from '@/i18n/client';
 import { fill, formatDateTime, formatNumber } from '@/i18n/format';
@@ -33,8 +34,8 @@ export function Entries({ items, total, page, size, activity }: { items: EntryRo
   };
 
   const charged = (entry: EntryRow) => {
-    const match = /^charged (\d+) of \d+$/.exec(entry.note ?? '');
-    return match ? fill(b.charged, { n: formatNumber(Number(match[1]), locale) }) : null;
+    const amount = entry.reason === 'knowledge_settle' || entry.reason === 'query_base' ? chargedFromNote(entry.note) : null;
+    return amount === null ? null : fill(b.charged, { n: formatNumber(amount, locale) });
   };
 
   return (

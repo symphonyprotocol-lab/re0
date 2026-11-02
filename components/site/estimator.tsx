@@ -3,7 +3,7 @@
 import { useId, useState } from 'react';
 import { CREDIT_USD, ESTIMATOR, PLAN, QUERY_BASE_FEE } from '@/lib/constants';
 import { useI18n } from '@/i18n/client';
-import { fill, formatNumber } from '@/i18n/format';
+import { fill, formatNumber, formatUsd } from '@/i18n/format';
 
 /** The pricing page's slider (prototype `#question-range`): answers on your own Ree, in credits and dollars. */
 export function Estimator() {
@@ -12,7 +12,7 @@ export function Estimator() {
   const id = useId();
   const [answers, setAnswers] = useState<number>(ESTIMATOR.default);
   const credits = answers * QUERY_BASE_FEE;
-  const usd = new Intl.NumberFormat(locale === 'zh' ? 'zh-CN' : 'en-US', { style: 'currency', currency: 'USD', minimumFractionDigits: 2 }).format(credits * CREDIT_USD);
+  const usd = formatUsd(Math.round(credits * CREDIT_USD * 100), locale);
   const share = new Intl.NumberFormat(locale === 'zh' ? 'zh-CN' : 'en-US', { style: 'percent', maximumFractionDigits: 1 }).format(credits / PLAN.credits);
   return (
     <section className="card grid gap-6 p-6 md:grid-cols-2 md:p-8">

@@ -42,19 +42,28 @@ interface PaddleEvent {
   data: Record<string, unknown>;
 }
 
-async function listEvents(): Promise<PaddleEvent[]> {
-  const response = await fetch('https://sandbox-api.paddle.com/events?per_page=200&order_by=id%5BDESC%5D', {
-    headers: { Authorization: `Bearer ${apiKey}` },
-  });
-  const body = (await response.json()) as { data?: PaddleEvent[]; error?: { detail?: string } };
-  if (!response.ok || !body.data) throw new Error(`paddle /events: ${response.status} ${body.error?.detail ?? ''}`);
-  return body.data;
+/** Newest first, page after page, until the events are older than `since`, every wanted id is found, or Paddle has no more. */
+async function listEvents(since: Date, ids: Set<string> | null): Promise<PaddleEvent[]> {
+  const events: PaddleEvent[] = [];
+  let url: string | null = 'https://sandbox-api.paddle.com/events?per_page=200&order_by=id%5BDESC%5D';
+  for (let page = 0; url && page < 50; page += 1) {
+    const response = await fetch(url, { headers: { Authorization: `Bearer ${apiKey}` } });
+    const body = (await response.json()) as { data?: PaddleEvent[]; meta?: { pagination?: { next?: string; has_more?: boolean } }; error?: { detail?: string } };
+    if (!response.ok || !body.data) throw new Error(`paddle /events: ${response.status} ${body.error?.detail ?? ''}`);
+    events.push(...body.data);
+    const oldest = body.data.at(-1);
+    if (ids && [...ids].every((id) => events.some((event) => event.event_id === id))) break;
+    if (!body.meta?.pagination?.has_more || !oldest || new Date(oldest.occurred_at) < since) break;
+    url = body.meta.pagination.next ?? null;
+  }
+  return events;
 }
 
 const wanted = /^(transaction|subscription|adjustment)\./;
-const ids = args.ids ? new Set(args.ids.split(',')) : null;
+const ids = args.ids ? new Set<string>(String(args.ids).split(',')) : null;
 const since = args.since ? new Date(args.since) : new Date(Date.now() - 60 * 60 * 1000);
-const events = (await listEvents())
+/* Picking events by id: look back as far as the cursor goes unless --since says otherwise. */
+const events = (await listEvents(ids && !args.since ? new Date(0) : since, ids))
   .filter((event) => wanted.test(event.event_type))
   .filter((event) => (ids ? ids.has(event.event_id) : new Date(event.occurred_at) >= since))
   .reverse();
