@@ -27,6 +27,7 @@ import type { ReeDraft } from '@/lib/domain/ree';
 import type { CitationSnapshot, Locator } from '@/lib/domain/answer';
 import type { Allocation } from '@/lib/domain/credits';
 import type { KnowledgeActivity, KnowledgeChild } from '@/lib/domain/knowledge';
+import type { RoleMetrics } from '@/lib/domain/roles';
 
 const createdAt = () => timestamp('created_at', { withTimezone: true }).notNull().defaultNow();
 const timestampTz = (name: string) => timestamp(name, { withTimezone: true });
@@ -96,6 +97,10 @@ export const ree = pgTable(
     sampleQuestions: jsonb('sample_questions').$type<string[]>().notNull().default([]),
     isPublic: boolean('is_public').notNull().default(false),
     queryFee: integer('query_fee').notNull().default(0),
+    /** Taken down by an administrator (2.5): private until restored, and the owner cannot republish it. */
+    moderatedAt: timestampTz('moderated_at'),
+    moderatedBy: uuid('moderated_by'),
+    moderatedReason: text('moderated_reason'),
     deletedAt: timestampTz('deleted_at'),
     createdAt: createdAt(),
     updatedAt: timestampTz('updated_at').notNull().defaultNow(),
@@ -188,6 +193,12 @@ export const chunk = pgTable(
     ordinal: integer('ordinal').notNull(),
     content: text('content').notNull(),
     embedding: vector('embedding', { dimensions: 1536 }).notNull(),
+    /**
+     * Beyond 4: the candidate model's vector while a re-embed job runs (2.5).
+     * Retrieval keeps reading `embedding`; the job's last step moves these
+     * over in one statement and clears them.
+     */
+    embeddingNext: vector('embedding_next', { dimensions: 1536 }),
     locator: jsonb('locator').$type<Locator>().notNull().default({}),
   },
   (t) => [
@@ -610,5 +621,123 @@ export const creditDebt = pgTable(
   (t) => [
     index('credit_debt_open_idx').on(t.userId).where(sql`remaining > 0`),
     check('credit_debt_remaining_check', sql`remaining >= 0 and remaining <= amount and amount > 0`),
+  ],
+);
+
+/* ------------------------------------------------------------- step 5 */
+
+/**
+ * A request for the verified role (2.7). One pending row per user; a
+ * rejection starts the 30-day wait, a close by an administrator's role change
+ * (made official) does not. `metrics` is the threshold as it stood when the
+ * user applied.
+ */
+export const verificationRequest = pgTable(
+  'verification_request',
+  {
+    id: uuid('id').primaryKey().defaultRandom(),
+    userId: uuid('user_id')
+      .notNull()
+      .references(() => user.id),
+    statement: text('statement').notNull(),
+    links: text('links').array().notNull().default(sql`'{}'::text[]`),
+    metrics: jsonb('metrics').$type<RoleMetrics>().notNull(),
+    status: text('status').$type<'pending' | 'approved' | 'rejected' | 'closed'>().notNull().default('pending'),
+    /** The reviewer's note: required on a rejection and shown to the user. */
+    rejectedReason: text('rejected_reason'),
+    closedByRoleChange: boolean('closed_by_role_change').notNull().default(false),
+    reviewedBy: uuid('reviewed_by'),
+    createdAt: createdAt(),
+    decidedAt: timestampTz('decided_at'),
+  },
+  (t) => [
+    uniqueIndex('verification_request_pending_key').on(t.userId).where(sql`status = 'pending'`),
+    index('verification_request_user_idx').on(t.userId, t.createdAt),
+    index('verification_request_status_idx').on(t.status, t.createdAt),
+    check('verification_request_status_check', oneOf('status', ['pending', 'approved', 'rejected', 'closed'])),
+    check('verification_request_links_check', sql`cardinality(links) <= 3`),
+  ],
+);
+
+export const NOTICE_KINDS = ['takedown', 'restore', 'credits_adjust', 'kyc', 'payout', 'role', 'verification'] as const;
+export type NoticeKind = (typeof NOTICE_KINDS)[number];
+
+/**
+ * An in-app notice (8.2, "通知"): no email, no push. `text` is the
+ * administrator's words (a reason) when there are any; `params` (beyond 4)
+ * carries what the page needs to word the notice in the reader's language.
+ */
+export const notice = pgTable(
+  'notice',
+  {
+    id: uuid('id').primaryKey().defaultRandom(),
+    userId: uuid('user_id')
+      .notNull()
+      .references(() => user.id, { onDelete: 'cascade' }),
+    kind: text('kind').$type<NoticeKind>().notNull(),
+    text: text('text').notNull().default(''),
+    params: jsonb('params').$type<Record<string, string | number | null>>().notNull().default({}),
+    refId: uuid('ref_id'),
+    readAt: timestampTz('read_at'),
+    createdAt: createdAt(),
+  },
+  (t) => [
+    index('notice_user_idx').on(t.userId, t.createdAt),
+    index('notice_unread_idx').on(t.userId).where(sql`read_at is null`),
+    check('notice_kind_check', oneOf('kind', NOTICE_KINDS)),
+  ],
+);
+
+/**
+ * A full re-embed (2.5): every chunk gets the candidate model's vector in
+ * `chunk.embedding_next` while retrieval stays on the old one; the last step
+ * swaps both columns and the enabled entry in one transaction. One running
+ * job at a time. `done` and `total` count chunks.
+ */
+export const reembedJob = pgTable(
+  'reembed_job',
+  {
+    id: uuid('id').primaryKey().defaultRandom(),
+    fromModelConfigId: uuid('from_model_config_id'),
+    toModelConfigId: uuid('to_model_config_id')
+      .notNull()
+      .references(() => modelConfig.id),
+    status: text('status').$type<'running' | 'done' | 'failed'>().notNull().default('running'),
+    total: integer('total').notNull().default(0),
+    done: integer('done').notNull().default(0),
+    /** Beyond 4: why it failed, and who started it. */
+    error: text('error'),
+    startedBy: uuid('started_by'),
+    startedAt: timestampTz('started_at').notNull().defaultNow(),
+    /** Beyond 4: the last time a step saved progress, so a stalled job is picked up again. */
+    heartbeatAt: timestampTz('heartbeat_at'),
+    finishedAt: timestampTz('finished_at'),
+  },
+  (t) => [
+    uniqueIndex('reembed_job_running_key').on(t.status).where(sql`status = 'running'`),
+    check('reembed_job_status_check', oneOf('status', ['running', 'done', 'failed'])),
+  ],
+);
+
+/**
+ * Beyond 4: one model call, for the overview's "本月调用次数与估算成本"
+ * (2.5, 7: usage goes to logs and the cost board, never to the bill).
+ */
+export const modelCall = pgTable(
+  'model_call',
+  {
+    id: uuid('id').primaryKey().defaultRandom(),
+    kind: text('kind').$type<'generation' | 'embedding' | 'transcription'>().notNull(),
+    model: text('model').notNull(),
+    configId: uuid('config_id'),
+    inputTokens: integer('input_tokens').notNull().default(0),
+    outputTokens: integer('output_tokens').notNull().default(0),
+    /** Transcription: seconds of audio. */
+    seconds: integer('seconds').notNull().default(0),
+    createdAt: createdAt(),
+  },
+  (t) => [
+    index('model_call_time_idx').on(t.createdAt),
+    check('model_call_kind_check', oneOf('kind', ['generation', 'embedding', 'transcription'])),
   ],
 );

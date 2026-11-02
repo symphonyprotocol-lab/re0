@@ -29,6 +29,13 @@
       "when": 1793604135003,
       "tag": "0004_checkout_reuse",
       "breakpoints": true
+    },
+    {
+      "idx": 5,
+      "version": "7",
+      "when": 1793606068090,
+      "tag": "0006_roles_statistics_admin",
+      "breakpoints": true
     }
   ]
 }

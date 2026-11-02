@@ -192,3 +192,68 @@ export const ADMIN_PASSWORD_MIN = 12;
 export const SESSION_LIFETIME_MS = 30 * 24 * 60 * 60 * 1000;
 export const OAUTH_STATE_TTL_MS = 10 * 60 * 1000;
 export const DISPLAY_NAME_MAX = 40;
+
+/* ------------------------------------------------------ roles, 2.7 (step 5) */
+
+/**
+ * The verification threshold (2.7, prototype user-role-domain.js): all five
+ * must hold to apply. Code constants, not console settings.
+ */
+export const ROLE_REQUIREMENTS = {
+  registeredDays: 14,
+  publicRees: 1,
+  readySources: 5,
+  externalQuestions: 100,
+  helpfulRate: 0.8,
+} as const;
+/** After a rejection the user waits this long to apply again. */
+export const VERIFICATION_COOLDOWN_DAYS = 30;
+export const VERIFICATION_STATEMENT_MAX = 500;
+export const VERIFICATION_LINKS_MAX = 3;
+export const VERIFICATION_LINK_MAX = 2_048;
+/** Role changes and review notes (prototype role-pages.js: 1–500, visible to the user). */
+export const ROLE_REASON_MAX = 500;
+
+/* ------------------------------------------------- statistics, 8.2 (step 5) */
+
+/** Reporting days run on UTC+8 and weeks start on Monday (prototype statistics-time.js). */
+export const REPORT_UTC_OFFSET_HOURS = 8;
+export const REPORT_TIME_ZONE = 'Asia/Shanghai';
+export const RECENT_RANGES = [7, 30, 90] as const;
+/** A custom range's trend is grouped so it never has more than this many bars. */
+export const TREND_MAX_BARS = 31;
+
+/* ----------------------------------------------------- console, 2.5 (step 5) */
+
+/** Manual credit adjustments: Pack or Plan bucket, whole credits in this range. */
+export const CREDIT_ADJUSTMENT = { min: 1, max: 10_000_000 } as const;
+/** Reasons for credit adjustments and Ree takedowns / restores. */
+export const ADMIN_REASON = { min: 3, max: 300 } as const;
+/** A Ree's sources in the console's detail tab, per page. */
+export const ADMIN_SOURCE_PAGE_SIZE = 20;
+/** An administrator's enrolment link stays good this long. */
+export const ADMIN_INVITE_TTL_MS = 7 * 24 * 60 * 60 * 1000;
+/** Chunks one re-embed step embeds before it saves its progress. */
+export const REEMBED_BATCH = 96;
+/** A re-embed request works this long, then hands over to the next call or cron run. */
+export const REEMBED_STEP_BUDGET_MS = 240_000;
+/** Notices per page in the settings list. */
+export const NOTICE_PAGE_SIZE = 20;
+/**
+ * Prices for the overview's estimated model cost (USD per million tokens, or
+ * per minute for transcription). Operational estimates only: users pay fixed
+ * credits (7). A model missing here shows its calls with the cost unknown.
+ */
+export const MODEL_PRICES: Record<string, { input?: number; output?: number; perMinute?: number }> = {
+  'gpt-5-mini': { input: 0.25, output: 2 },
+  'gpt-5': { input: 1.25, output: 10 },
+  'gpt-4.1-mini': { input: 0.4, output: 1.6 },
+  'gpt-4o-mini': { input: 0.15, output: 0.6 },
+  'text-embedding-3-small': { input: 0.02 },
+  'text-embedding-3-large': { input: 0.13 },
+  'whisper-1': { perMinute: 0.006 },
+  'gpt-4o-mini-transcribe': { perMinute: 0.003 },
+  'gpt-4o-transcribe': { perMinute: 0.006 },
+};
+/** Earned credits needed before a payout can be requested (2.3: USD 50); the dashboard's payout guide reads it. */
+export const PAYOUT_MIN_CREDITS = 500_000;

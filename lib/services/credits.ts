@@ -62,6 +62,8 @@ export async function addGrant(
     periodStart?: Date | null;
     purchaseId?: string | null;
     note?: string | null;
+    /** The Ree the credits came from (query fees), so per-Ree statistics can attribute them. */
+    reeId?: string | null;
   },
   now = new Date(),
 ): Promise<{ grantId: string; offset: number }> {
@@ -84,6 +86,7 @@ export async function addGrant(
     delta: input.amount,
     reason: input.reason,
     refId: input.refId,
+    reeId: input.reeId ?? null,
     note: input.note ?? null,
     allocations: [{ grantId, source: input.source, amount: input.amount }],
     createdAt: now,

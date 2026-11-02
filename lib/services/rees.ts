@@ -281,7 +281,8 @@ export async function updateRee(
   const avatarBlob = fields.avatarBlob && fields.avatarBlob.startsWith(`avatars/${ownerId}/`) ? fields.avatarBlob : null;
   const [row] = await db()
     .update(schema.ree)
-    .set({ ...reeValues(fields), avatarBlob, updatedAt: new Date() })
+    /* A Ree an administrator took down stays private until it is restored (2.5). */
+    .set({ ...reeValues(fields), isPublic: sql`(${fields.isPublic} and "ree"."moderated_at" is null)`, avatarBlob, updatedAt: new Date() })
     .where(and(eq(schema.ree.id, id), ownedLive(ownerId)))
     .returning();
   return row ?? null;
