@@ -15,6 +15,8 @@ export const zh = {
   sortLabel: '知识排序',
   sorts: { new: '最近更新', old: '最早添加', title: '名称排序' },
   clearFilters: '清除',
+  clearFiltersLong: '清除筛选',
+  rowsLabel: '每页显示数量',
   columns: { name: '来源名称', status: '处理状态', enabled: '参与回答', size: '内容规模', updated: '最近更新', actions: '操作' },
   uploaded: '上传或粘贴的知识',
   preview: '预览',
@@ -275,6 +277,9 @@ export const zh = {
     missingBody: '来源可能已被移除，或已在回收站中清除。',
   },
   contentEmpty: '还没有可预览的正文。',
+  extracted: '解析正文',
+  ownerOnly: '仅所有者可预览',
+  openPage: '在单独页面打开',
 };
 
 export const en: Shape<typeof zh> = {
@@ -291,6 +296,8 @@ export const en: Shape<typeof zh> = {
   sortLabel: 'Sort sources',
   sorts: { new: 'Recently updated', old: 'Oldest first', title: 'Name' },
   clearFilters: 'Clear',
+  clearFiltersLong: 'Clear filters',
+  rowsLabel: 'Rows per page',
   columns: { name: 'Source', status: 'Status', enabled: 'Used for answers', size: 'Content', updated: 'Updated', actions: 'Actions' },
   uploaded: 'Uploaded or pasted knowledge',
   preview: 'Preview',
@@ -551,4 +558,7 @@ export const en: Shape<typeof zh> = {
     missingBody: 'The source may have been removed, or purged from the trash.',
   },
   contentEmpty: 'No content to preview yet.',
+  extracted: 'Extracted text',
+  ownerOnly: 'Owner-only preview',
+  openPage: 'Open as a page',
 };

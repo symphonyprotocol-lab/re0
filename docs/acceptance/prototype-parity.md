@@ -41,16 +41,16 @@
 | `#/dashboard` | `/dashboard` | 本地 | 已修；8.2 第 65 行 | 成功回答改按账本计（清空测试对话不再减少）；暂停的来源不算就绪；行操作「管理知识 / 视频介绍」；文案、统计范围说明；收入链接直达流水 |
 | `#/talk` | `/talk` | 本地 | 已修；8.2 第 54 行 | 离开再回来保留问题、所选 Ree 与提问对象，「新建对话」清空 |
 | `#/workspace`、`#/welcome` | `/workspace` → `/dashboard` | 本地 | 已修；8.2 第 33 行 | `/workspace` 跳工作台；`/welcome` 不带过去 |
-| `#/workspace/sources` | `/workspace/sources` | 本地 | 8.2 第 33、66 行 | 参数 `ree=`；多「更新时间」列 |
-| `#/workspace/answers` | `/workspace/answers` | 本地 | 已修；8.2 第 33、66 行 | 日历去掉前后箭头（与原型 README 一致） |
+| `#/workspace/sources` | `/workspace/sources` | 本地 | 8.2 第 33、66 行 | 参数 `ree=`；多「更新时间」列。2026-11-03 视觉逐项对齐（`components/statistics/owner/`，作用域 `.pst`）：标题与标签、行内摘要数字、筛选栏、表格与空态、分页照原型字号间距；状态用 `.tag` 颜色 |
+| `#/workspace/answers` | `/workspace/answers` | 本地 | 已修；8.2 第 33、66 行 | 日历去掉前后箭头（与原型 README 一致）。2026-11-03 视觉逐项对齐（同上）：日历弹层照原型重写（预设、起止输入、年月下拉、日 / 周 / 月格、今天点、区间底色）；记录展开「查看回答正文」、空态、分页 |
 | `#/dots` 我的 Ree | `/rees` | 本地 | 已修 | 列表视图多选与批量公开 / 私有（新接口 `POST /api/rees/batch`）；表头排序；「已下架」状态；顶部紧凑分页、底部页码与跳页；回答数链到统计、「制作 / 编辑视频」；文案 |
 | `#/dots?sample=scale` | 无 | — | 8.2 第 33 行 | 规模演示不带过去 |
 | `#/dots/new` | `/rees/new` | 本地 | 已修；8.2 第 3、56、57 行 | 浏览器后退在步骤间移动；裁剪未确认时拦住切步与保存；分类标签文案与 `n / 3` 计数；面包屑「创建 Ree」 |
 | `#/dots/mine`、`#/dots/mine/settings` | `/rees/[id]`、`/rees/[id]/settings` | 本地 | 已修；8.2 第 2、5 行 | 已下架时公开选项禁用并说明；摘要来源数含全部非回收站来源；公开时「查看公开页」 |
-| `#/dots/mine/knowledge` | `/rees/[id]/knowledge` | 本地 | 已修；8.2 第 9、10、11、55、56、58 行 | 添加整站时先列出已验证域名；越界页码改写 URL |
-| `#/dots/mine/knowledge/:sourceId` | `/rees/[id]/knowledge/[kid]` | 本地 | 已修；8.2 第 55 行 | 面包屑到「Ree › 知识管理」两级可点；标题「知识预览」；「知识管理」tab 显示来源数 |
+| `#/dots/mine/knowledge` | `/rees/[id]/knowledge` | 本地 | 已修；8.2 第 9、10、11、55、56、58 行 | 添加整站时先列出已验证域名；越界页码改写 URL。2026-11-03 视觉逐项对齐（`components/knowledge/knowledge.css`，作用域 `.knowledge-ui`，从原型 CSSOM 按出现的元素抽取）：文件夹卡片、状态标签、搜索与筛选、选择栏、表格（页内滚动、分页固定在底部）、空态、各类弹窗（添加知识、来源菜单、移动、改名、确认、文件夹）改用原型标记；行内「预览」打开弹窗预览，与原型一致 |
+| `#/dots/mine/knowledge/:sourceId` | `/rees/[id]/knowledge/[kid]` | 本地 | 已修；8.2 第 55 行 | 面包屑到「Ree › 知识管理」两级可点；标题「知识预览」；「知识管理」tab 显示来源数。2026-11-03 视觉逐项对齐：页头图标与标题、内容 / 片段 / 记录三栏、查找、来源详情侧栏与操作按钮、文档 / 代码 / 音频转写 / 子页面列表照原型；底部重复的上一篇 / 下一篇去掉（在 tab 行末）；弹窗预览带「仅所有者可预览」与底部导航 |
 | `#/dots/mine/chat` | `/rees/[id]/chat` | 本地 | 已修；8.2 第 16 行 | 示例问题弹层点外面关闭；清空与无知识文案补全 |
-| `#/dots/mine/statistics` | `/rees/[id]/statistics` | 本地 | 已修；8.2 第 30 行 | 去掉日 / 周 / 月的前后箭头 |
+| `#/dots/mine/statistics` | `/rees/[id]/statistics` | 本地 | 已修；8.2 第 30 行 | 去掉日 / 周 / 月的前后箭头。2026-11-03 视觉逐项对齐（`components/statistics/owner/`）：分段式时间切换、日期按钮与日历、指标卡（等宽数字、角标图标、`→`）、趋势卡、说明、筛选与明细表照原型；导语以 Ree 名开头 |
 | `#/dots/mine/video` | `/rees/[id]/video` | 本地 | 已修；8.2 第 23、32、46、47、48、50 行 | 英文「scenes」；门禁、导出与 JSON 形状是定稿 |
 | `#/videos` | `/videos` | 本地 | 已修；8.2 第 49 行 | 价格说明条；空态标题 |
 

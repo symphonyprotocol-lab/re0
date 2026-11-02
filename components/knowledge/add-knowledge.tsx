@@ -8,9 +8,9 @@ import { parseGithubRepo, parseWebUrl } from '@/lib/domain/sources';
 import { api, uploadToBlob } from '@/lib/client/upload';
 import { useI18n } from '@/i18n/client';
 import { fill, formatBytes, formatNumber } from '@/i18n/format';
-import { Icon, Spinner } from '@/components/ui/icons';
-import { Modal } from '@/components/ui/modal';
-import { errorText, KIND_ICONS } from '@/components/knowledge/shared';
+import { Icon } from '@/components/ui/icons';
+import { Modal } from '@/components/knowledge/modal';
+import { errorText, SOURCE_ICONS } from '@/components/knowledge/shared';
 
 /** What a new source would reserve, from what the form holds so far (8.2). */
 export function estimateFor(kind: KnowledgeKind, input: { text?: string; bytes?: number }): number {
@@ -161,124 +161,115 @@ export function AddKnowledgeModal({
       subtitle={folder ? fill(m.folder, { folder: folder.name }) : m.subtitle}
       footer={
         <>
-          <button type="button" className="btn-secondary" onClick={close}>
+          <button type="button" className="btn secondary" onClick={close}>
             {t.common.actions.cancel}
           </button>
-          <button type="button" className="btn" onClick={submit} disabled={busy}>
-            {busy && <Spinner />}
+          <button type="submit" form="knowledge-form" className="btn" disabled={busy}>
+            {busy && <i className="spinner" />}
             {progress !== null ? fill(m.uploading, { percent: progress }) : m.submit}
           </button>
         </>
       }
     >
-      <div className="grid grid-cols-3 gap-2 sm:grid-cols-6" role="radiogroup">
+      <div className="type-grid" role="radiogroup">
         {KNOWLEDGE_KIND_LIST.map((value) => (
-          <button
-            key={value}
-            type="button"
-            role="radio"
-            aria-checked={kind === value}
-            onClick={() => choose(value)}
-            className={`flex flex-col items-center gap-1 rounded-lg border px-2 py-2.5 text-[11px] font-semibold ${
-              kind === value ? 'border-blue bg-soft text-blue' : 'border-line text-muted hover:border-[#c4cce0]'
-            }`}
-          >
-            <Icon name={KIND_ICONS[value]} />
-            {m.kinds[value]}
+          <button key={value} type="button" role="radio" aria-checked={kind === value} className={`type-choice ${kind === value ? 'active' : ''}`} onClick={() => choose(value)}>
+            <Icon name={SOURCE_ICONS[value]} />
+            {t.common.kinds[value]}
           </button>
         ))}
       </div>
-
-      {fileKind && (
-        <>
-          <label
-            onDragOver={(event) => {
-              event.preventDefault();
-              setDragging(true);
-            }}
-            onDragLeave={() => setDragging(false)}
-            onDrop={(event) => {
-              event.preventDefault();
-              setDragging(false);
-              pick(event.dataTransfer.files?.[0]);
-            }}
-            className={`mt-4 flex cursor-pointer flex-col items-center gap-2 rounded-xl border-2 border-dashed px-4 py-8 text-center ${dragging ? 'border-blue bg-soft' : 'border-line bg-wash'}`}
-          >
-            <Icon name={kind === 'audio' ? 'audio' : 'upload'} className="size-6 text-blue" />
-            <strong className="max-w-full truncate text-[13px]">{file ? file.name : m.drop}</strong>
-            <small className="text-[11px] text-muted">{file ? formatBytes(file.size) : m.limits[kind]}</small>
-            <input
-              type="file"
-              className="sr-only"
-              accept={kind === 'audio' ? '.mp3,.m4a,.wav' : '.pdf,.docx,.md,.txt'}
-              onChange={(event) => {
-                pick(event.target.files?.[0]);
-                event.target.value = '';
+      <form
+        id="knowledge-form"
+        onSubmit={(event) => {
+          event.preventDefault();
+          void submit();
+        }}
+      >
+        {fileKind && (
+          <>
+            <label
+              className={`dropzone ${dragging ? 'dragover' : ''}`}
+              onDragOver={(event) => {
+                event.preventDefault();
+                setDragging(true);
               }}
-            />
-          </label>
-          {kind === 'audio' && (
-            <label className="mt-3 flex items-start gap-2 text-[12px]">
-              <input type="checkbox" className="mt-0.5" checked={consent} onChange={(event) => setConsent(event.target.checked)} />
-              {m.consent}
+              onDragLeave={() => setDragging(false)}
+              onDrop={(event) => {
+                event.preventDefault();
+                setDragging(false);
+                pick(event.dataTransfer.files?.[0]);
+              }}
+            >
+              <Icon name={kind === 'audio' ? 'audio' : 'upload'} />
+              <strong>{file ? file.name : m.drop}</strong>
+              <small>{file ? formatBytes(file.size) : m.limits[kind]}</small>
+              <input
+                type="file"
+                accept={kind === 'audio' ? '.mp3,.m4a,.wav' : '.pdf,.docx,.md,.txt'}
+                onChange={(event) => {
+                  pick(event.target.files?.[0]);
+                  event.target.value = '';
+                }}
+              />
             </label>
-          )}
-        </>
-      )}
+            {kind === 'audio' && (
+              <label className="check-row" style={{ fontSize: 10 }}>
+                <input type="checkbox" checked={consent} onChange={(event) => setConsent(event.target.checked)} />
+                {m.consent}
+              </label>
+            )}
+          </>
+        )}
 
-      {urlKind && (
-        <label className="mt-4 block">
-          <span className="field-label">{m.urlLabel[kind]}</span>
-          <input className="input" type="url" inputMode="url" maxLength={KNOWLEDGE_URL_MAX} value={url} placeholder={m.urlPlaceholder[kind]} onChange={(event) => setUrl(event.target.value)} />
-          <small className="hint">{m.urlHint[kind]}</small>
-        </label>
-      )}
-      {kind === 'site' && domains !== null && (
-        <p className="mt-3 flex flex-wrap items-center gap-x-2 gap-y-1 rounded-lg bg-soft px-3 py-2.5 text-[12px] text-[#3b4361]">
-          <Icon name="shield" className="size-4 flex-none text-blue" />
-          <span className="min-w-0 break-words">{domains.length ? fill(m.verifiedDomains, { domains: domains.join(', ') }) : m.noVerifiedDomains}</span>
-          <Link href="/settings?tab=connections" className="text-link text-[12px]">
-            {m.verify}
-            <Icon name="arrow" className="size-3.5" />
-          </Link>
-        </p>
-      )}
-
-      {kind === 'text' && (
-        <div className="mt-4 flex flex-col gap-4">
-          <label>
-            <span className="field-label">{m.title_}</span>
-            <input className="input" maxLength={TEXT_SOURCE_LIMITS.title} value={title} placeholder={m.titlePlaceholder} onChange={(event) => setTitle(event.target.value)} />
-          </label>
-          <label>
-            <span className="field-label flex justify-between">
-              {m.content}
-              <span className="font-mono text-[10px] font-normal text-muted">
-                {content.length} / {TEXT_SOURCE_LIMITS.content}
-              </span>
+        {urlKind && (
+          <div className="field">
+            <label htmlFor="source-url">{m.urlLabel[kind]}</label>
+            <input id="source-url" type="url" inputMode="url" maxLength={KNOWLEDGE_URL_MAX} value={url} placeholder={m.urlPlaceholder[kind]} onChange={(event) => setUrl(event.target.value)} />
+          </div>
+        )}
+        {urlKind && kind !== 'site' && <p className="form-hint">{m.urlHint[kind]}</p>}
+        {kind === 'site' && (
+          <div className="info-strip">
+            <Icon name="shield" />
+            <span>
+              {m.urlHint.site}
+              <br />
+              {domains === null ? '' : domains.length ? fill(m.verifiedDomains, { domains: domains.join(', ') }) : m.noVerifiedDomains}{' '}
+              <Link href="/settings?tab=connections" className="text-link">
+                {m.verify}
+                <Icon name="arrow" />
+              </Link>
             </span>
-            <textarea
-              className="input min-h-[150px] resize-y"
-              rows={6}
-              maxLength={TEXT_SOURCE_LIMITS.content}
-              value={content}
-              placeholder={m.contentPlaceholder}
-              onChange={(event) => setContent(event.target.value)}
-            />
-          </label>
-        </div>
-      )}
+          </div>
+        )}
 
-      <div className="mt-4 flex items-center justify-between rounded-lg border border-line bg-wash px-3 py-2.5 text-[12px]">
-        <span className="text-muted">{m.estimate}</span>
-        <strong className="font-mono">{fill(m.estimateValue, { credits: formatNumber(estimate, locale) })}</strong>
-      </div>
-      <p className="mt-2 text-[11px] text-muted">{m.note}</p>
-      {error && (
-        <p role="alert" className="mt-3 rounded-lg border border-[#f1d4d4] bg-[#fff3f3] px-3 py-2 text-[12px] text-red">
-          {error.text} <FixLink code={error.code} />
+        {kind === 'text' && (
+          <>
+            <div className="field">
+              <label htmlFor="source-title">{m.title_}</label>
+              <input id="source-title" maxLength={TEXT_SOURCE_LIMITS.title} value={title} placeholder={m.titlePlaceholder} onChange={(event) => setTitle(event.target.value)} />
+            </div>
+            <div className="field">
+              <label htmlFor="source-text">{m.content}</label>
+              <textarea id="source-text" rows={6} maxLength={TEXT_SOURCE_LIMITS.content} value={content} placeholder={m.contentPlaceholder} onChange={(event) => setContent(event.target.value)} />
+            </div>
+          </>
+        )}
+
+        <div className="estimate">
+          <span>{m.estimate}</span>
+          <strong>{fill(m.estimateValue, { credits: formatNumber(estimate, locale) })}</strong>
+        </div>
+        <p className="form-hint mt16" style={{ fontSize: 9 }}>
+          {m.note}
         </p>
-      )}
+        {error && (
+          <p role="alert" className="form-error">
+            {error.text} <FixLink code={error.code} />
+          </p>
+        )}
+      </form>
     </Modal>
   );
 }
