@@ -10,6 +10,7 @@ import type { Locale } from '@/i18n/locale';
 import { serverMessages } from '@/i18n/server';
 import { fill, formatDate, formatDateTime, formatNumber, formatUsd } from '@/i18n/format';
 import { Fields, LinkPager, PageHead, RecordsTable, RoleBadge, Tag } from '@/components/admin/list-kit';
+import { ConsoleTopbar } from '@/components/admin/console-topbar';
 import { AdjustCreditsButton, UserStatusButton } from '@/components/admin/user-detail-actions';
 import { RoleHistory, RolePanel } from '@/components/admin/user-detail-roles';
 import { RequirementChecks } from '@/components/ui/requirement-checks';
@@ -55,7 +56,8 @@ function listLabel(t: Messages, from: string): string {
 /**
  * `/admin/users/[id]` (prototype suite.js `userDetail`, role-pages.js
  * `adminUser`): the header, balances, account actions, and seven tabs as
- * links so reload and back keep the place.
+ * links in the top bar's second row (`?tab=credits`, `from` kept) so reload
+ * and back keep the place.
  */
 export default async function UserDetailPage({ params, searchParams }: Props) {
   const { id } = await params;
@@ -327,12 +329,16 @@ export default async function UserDetailPage({ params, searchParams }: Props) {
 
   return (
     <>
-      <PageHead
+      <ConsoleTopbar
         crumbs={[
           { label: t.console.nav.home, href: '/admin/overview' },
           { label: listLabel(t, from), href: from },
           { label: user.name },
         ]}
+        tabs={TABS.map((value) => ({ label: d.tabs[value], href: href(value), active: value === tab }))}
+        tabsLabel={d.tabs.label}
+      />
+      <PageHead
         title={
           <span className="flex min-w-0 items-center gap-3">
             <UserAvatar name={user.name} className="size-11 text-[14px]" />
@@ -367,18 +373,6 @@ export default async function UserDetailPage({ params, searchParams }: Props) {
           </div>
         ))}
       </div>
-      <nav aria-label={d.tabs.label} className="mb-4 flex max-w-full gap-1 overflow-x-auto border-b border-line">
-        {TABS.map((value) => (
-          <Link
-            key={value}
-            href={href(value)}
-            aria-current={value === tab ? 'page' : undefined}
-            className={`-mb-px border-b-2 px-3 py-2.5 text-[13px] font-semibold whitespace-nowrap ${value === tab ? 'border-blue text-blue' : 'border-transparent text-muted hover:text-ink'}`}
-          >
-            {d.tabs[value]}
-          </Link>
-        ))}
-      </nav>
       {body}
     </>
   );

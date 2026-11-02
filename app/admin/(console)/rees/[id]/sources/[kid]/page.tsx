@@ -8,7 +8,8 @@ import { serverMessages } from '@/i18n/server';
 import { fill, formatBytes, formatDateTime, formatNumber } from '@/i18n/format';
 import { Icon } from '@/components/ui/icons';
 import { Fields, PageHead, Tag } from '@/components/admin/list-kit';
-import { Breadcrumbs, STATE_TONES, reeBackLabel, reeBackPath, reeDetailHref, reeSourceHref, sourceParams } from '@/components/admin/ree-detail';
+import { ConsoleTopbar } from '@/components/admin/console-topbar';
+import { STATE_TONES, reeBackLabel, reeBackPath, reeDetailHref, reeSourceHref, sourceParams } from '@/components/admin/ree-detail';
 
 type Props = { params: Promise<{ id: string; kid: string }>; searchParams: Promise<Record<string, string | string[] | undefined>> };
 
@@ -64,7 +65,8 @@ function marked(text: string, query: string): ReactNode {
 /**
  * `/admin/rees/[id]/sources/[kid]` (prototype admin-ree-source.js): a
  * read-only look at one source's saved text, with previous / next through
- * the sources list as it was filtered. Find-in-text (`contentQ`) marks and
+ * the sources list as it was filtered (in the top bar's second row, beside
+ * the crumbs that lead back). Find-in-text (`contentQ`) marks and
  * counts matches; a site's pages or a repository's files are searchable
  * (`childQ`), 30 to a page (`childPage`), and picking one (`child`) shows
  * only its part of the text. All of it lives in the URL.
@@ -89,7 +91,8 @@ export default async function AdminSourcePage({ params, searchParams }: Props) {
   if (!detail || !found) {
     return (
       <>
-        <PageHead crumbs={crumbs} title={s.notFound} />
+        <ConsoleTopbar crumbs={[...crumbs, { label: s.notFound }]} />
+        <PageHead title={s.notFound} />
         <Link href={detail ? sourcesHref : back.href} className="btn-secondary">
           {detail ? s.back : t.consoleRees.ree.back}
         </Link>
@@ -159,7 +162,22 @@ export default async function AdminSourcePage({ params, searchParams }: Props) {
 
   return (
     <>
-      <Breadcrumbs crumbs={[...crumbs, { label: source.title }]} />
+      <ConsoleTopbar
+        crumbs={[...crumbs, { label: source.title }]}
+        secondRow={
+          <div className="flex flex-none items-center gap-2 px-2" role="group" aria-label={s.sequence}>
+            {adjacent(previous, s.previous, 'previous')}
+            <span
+              className="min-w-14 text-center font-mono text-[12px] text-muted"
+              role="status"
+              aria-label={found.position ? fill(s.position, { position: found.position, total: found.total }) : s.outside}
+            >
+              {found.position ? `${n(found.position)} / ${n(found.total)}` : s.outside}
+            </span>
+            {adjacent(next, s.next, 'next')}
+          </div>
+        }
+      />
       <header className="flex flex-wrap items-start justify-between gap-4">
         <div className="flex min-w-0 flex-1 items-start gap-3">
           <span className="inline-flex size-11 flex-none items-center justify-center rounded-xl bg-soft text-blue">
@@ -175,17 +193,6 @@ export default async function AdminSourcePage({ params, searchParams }: Props) {
               <Tag tone="blue">{s.readOnly}</Tag>
             </p>
           </div>
-        </div>
-        <div className="flex flex-wrap items-center gap-2" role="group" aria-label={s.sequence}>
-          {adjacent(previous, s.previous, 'previous')}
-          <span
-            className="min-w-14 text-center font-mono text-[12px] text-muted"
-            role="status"
-            aria-label={found.position ? fill(s.position, { position: found.position, total: found.total }) : s.outside}
-          >
-            {found.position ? `${n(found.position)} / ${n(found.total)}` : s.outside}
-          </span>
-          {adjacent(next, s.next, 'next')}
         </div>
       </header>
 
@@ -346,13 +353,6 @@ export default async function AdminSourcePage({ params, searchParams }: Props) {
           )}
           <p className="border-t border-line px-4 py-2 text-[11px] text-muted">{s.footer}</p>
         </section>
-      </div>
-
-      <div className="mt-5">
-        <Link href={sourcesHref} className="btn-secondary btn-sm">
-          <Icon name="arrowLeft" className="size-3.5" />
-          {s.back}
-        </Link>
       </div>
     </>
   );

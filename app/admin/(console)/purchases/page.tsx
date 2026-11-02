@@ -1,12 +1,15 @@
 import type { Metadata } from 'next';
 import Link from 'next/link';
 import { redirect } from 'next/navigation';
+import { financeFilter } from '@/lib/domain/admin-finance';
 import { csvHref, listHref, purchasesView, PURCHASE_STATUSES, SUBSCRIPTION_STATUSES } from '@/lib/domain/admin-lists';
-import { listPurchases, listSubscriptions, purchaseCounts } from '@/lib/services/admin-purchases';
+import { listPurchases, listSubscriptions, purchaseCounts, purchaseTrend } from '@/lib/services/admin-purchases';
 import { serverMessages } from '@/i18n/server';
 import { fill, formatDateTime, formatNumber, formatUsd } from '@/i18n/format';
+import { FinanceChart } from '@/components/admin/finance-chart';
 import { ListFilters } from '@/components/admin/list-client';
 import { LinkPager, PageHead, RecordsTable, ResultsLine, SummaryCards, Tag } from '@/components/admin/list-kit';
+import { ConsoleTopbar } from '@/components/admin/console-topbar';
 
 export async function generateMetadata(): Promise<Metadata> {
   const { t } = await serverMessages();
@@ -19,7 +22,7 @@ const SIZES = [20, 50, 100].map((size) => [String(size), String(size)] as [strin
 
 /**
  * `/admin/purchases` (prototype admin-records.js, kind `purchases`): two tabs
- * as links, 充值交易 (default) and Plan 订阅, each with its own cards,
+ * as links in the top bar, 充值交易 (default) and Plan 订阅, each with its own cards,
  * filters and CSV. Read-only: refunds happen in Paddle.
  */
 export default async function PurchasesPage({ searchParams }: Props) {
@@ -28,10 +31,11 @@ export default async function PurchasesPage({ searchParams }: Props) {
   const l = t.console.list;
   const view = purchasesView(await searchParams);
   const subscriptions = view.tab === 'subscriptions';
-  const [subscriptionRows, purchaseRows, counts] = await Promise.all([
+  const [subscriptionRows, purchaseRows, counts, trend] = await Promise.all([
     subscriptions ? listSubscriptions(view) : null,
     subscriptions ? null : listPurchases(view),
     purchaseCounts(),
+    subscriptions ? null : purchaseTrend(view),
   ]);
   const data = (subscriptionRows ?? purchaseRows)!;
   const current = { ...view, page: data.page };
@@ -41,7 +45,7 @@ export default async function PurchasesPage({ searchParams }: Props) {
   const n = (value: number) => formatNumber(value, locale);
   const time = (value: Date | null) => (value ? formatDateTime(value, locale) : '—');
   const filtered = Boolean(view.q) || view.status !== 'all' || view.kind !== 'all' || view.period !== 'all' || view.sort !== 'newest';
-  const resetHref = listHref('/admin/purchases', { tab: view.tab, size: view.size });
+  const resetHref = listHref('/admin/purchases', { tab: view.tab, size: view.size, metric: view.metric });
   const back = encodeURIComponent(href({}));
   const period: [string, string][] = [['all', l.allTime], ['7', l.last7], ['30', l.last30], ['90', l.last90]];
   const user = (row: { userId: string; name: string; email: string }, tab: 'summary' | 'purchases' = 'summary') => (
@@ -57,19 +61,16 @@ export default async function PurchasesPage({ searchParams }: Props) {
 
   return (
     <>
-      <PageHead crumbs={[{ label: t.console.nav.home, href: '/admin/overview' }, { label: p.title }]} title={p.title} lede={p.lede} />
-      <nav aria-label={p.tabs.label} className="mb-4 flex max-w-full gap-1 overflow-x-auto border-b border-line">
-        {(['transactions', 'subscriptions'] as const).map((tab) => (
-          <Link
-            key={tab}
-            href={listHref('/admin/purchases', { size: view.size }, { tab })}
-            aria-current={view.tab === tab ? 'page' : undefined}
-            className={`-mb-px border-b-2 px-3 py-2.5 text-[13px] font-semibold whitespace-nowrap ${view.tab === tab ? 'border-blue text-blue' : 'border-transparent text-muted hover:text-ink'}`}
-          >
-            {p.tabs[tab]}
-          </Link>
-        ))}
-      </nav>
+      <ConsoleTopbar
+        crumbs={[{ label: t.console.nav.home, href: '/admin/overview' }, { label: p.title }]}
+        tabs={(['transactions', 'subscriptions'] as const).map((tab) => ({
+          label: p.tabs[tab],
+          href: listHref('/admin/purchases', { size: view.size }, { tab }),
+          active: view.tab === tab,
+        }))}
+        tabsLabel={p.tabs.label}
+      />
+      <PageHead title={p.title} lede={p.lede} />
       <SummaryCards
         items={
           subscriptions
@@ -87,6 +88,15 @@ export default async function PurchasesPage({ searchParams }: Props) {
               ]
         }
       />
+      {trend && (
+        <FinanceChart
+          kind="purchases"
+          trend={trend}
+          metric={view.metric}
+          metricHrefs={{ amount: href({ metric: 'amount' }), count: href({ metric: 'count' }) }}
+          filter={financeFilter(view)}
+        />
+      )}
       <section className="card overflow-hidden">
         <ListFilters
           q={view.q}
@@ -105,7 +115,6 @@ export default async function PurchasesPage({ searchParams }: Props) {
               : [
                   { name: 'status', label: p.filters.status, value: view.status, options: [['all', l.allStatuses], ...PURCHASE_STATUSES.map((s) => [s, p.status[s]] as [string, string])] },
                   { name: 'kind', label: p.filters.kind, value: view.kind, options: [['all', p.allKinds], ['plan', p.kinds.plan], ['pack', p.kinds.pack]] },
-                  { name: 'period', label: p.filters.period, value: view.period, options: period },
                   {
                     name: 'sort',
                     label: p.filters.sort,

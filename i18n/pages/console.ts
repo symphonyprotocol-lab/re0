@@ -21,6 +21,7 @@ export const zh = {
     open: '展开后台导航',
     close: '关闭导航',
     home: '管理后台',
+    breadcrumb: '页面路径',
     backToSite: '返回网站',
   },
   list: {
@@ -131,6 +132,7 @@ export const en: Shape<typeof zh> = {
     open: 'Open console navigation',
     close: 'Close navigation',
     home: 'Console',
+    breadcrumb: 'Breadcrumb',
     backToSite: 'Back to website',
   },
   list: {

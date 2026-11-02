@@ -10,6 +10,7 @@ import { serverMessages } from '@/i18n/server';
 import { fill, formatDateTime } from '@/i18n/format';
 import { ReasonAction } from '@/components/admin/list-client';
 import { Fields, PageHead, RoleBadge, Tag } from '@/components/admin/list-kit';
+import { ConsoleTopbar } from '@/components/admin/console-topbar';
 import { KycStatusTag } from '@/components/admin/payout-kit';
 import { KycDecision, KycFiles } from '@/components/admin/kyc-review';
 import { Icon } from '@/components/ui/icons';
@@ -64,8 +65,8 @@ export default async function KycReviewPage({ params, searchParams }: Props) {
         : k.title;
   return (
     <>
+      <ConsoleTopbar crumbs={[{ label: t.console.nav.home, href: '/admin/overview' }, { label: crumb, href: from }, { label: user.name }]} />
       <PageHead
-        crumbs={[{ label: t.console.nav.home, href: '/admin/overview' }, { label: crumb, href: from }, { label: user.name }]}
         title={d.title}
         lede={
           <span className="flex flex-wrap items-center gap-2">

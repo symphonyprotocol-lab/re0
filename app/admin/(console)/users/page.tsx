@@ -8,6 +8,7 @@ import { serverMessages } from '@/i18n/server';
 import { formatDateTime, formatNumber } from '@/i18n/format';
 import { ListFilters } from '@/components/admin/list-client';
 import { LinkPager, PageHead, RecordsTable, ResultsLine, RoleBadge, SummaryCards, Tag } from '@/components/admin/list-kit';
+import { ConsoleTopbar } from '@/components/admin/console-topbar';
 
 export async function generateMetadata(): Promise<Metadata> {
   const { t } = await serverMessages();
@@ -32,7 +33,8 @@ export default async function UsersPage({ searchParams }: Props) {
   const back = encodeURIComponent(href({}));
   return (
     <>
-      <PageHead crumbs={[{ label: t.console.nav.home, href: '/admin/overview' }, { label: u.title }]} title={u.title} lede={u.lede} />
+      <ConsoleTopbar crumbs={[{ label: t.console.nav.home, href: '/admin/overview' }, { label: u.title }]} />
+      <PageHead title={u.title} lede={u.lede} />
       <SummaryCards
         items={[
           { label: u.cards.total, value: n(counts.total), href: listHref('/admin/users', { size: view.size }), active: !filtered, title: l.clearFilters },

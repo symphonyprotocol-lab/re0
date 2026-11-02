@@ -7,6 +7,7 @@ import { purchaseDetail } from '@/lib/services/admin-purchases';
 import { serverMessages } from '@/i18n/server';
 import { formatDateTime, formatNumber, formatUsd } from '@/i18n/format';
 import { Fields, PageHead, RecordsTable, Tag } from '@/components/admin/list-kit';
+import { ConsoleTopbar } from '@/components/admin/console-topbar';
 import { Icon } from '@/components/ui/icons';
 
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
@@ -69,12 +70,14 @@ export default async function PurchaseDetailPage({ params, searchParams }: Props
 
   return (
     <>
-      <PageHead
+      <ConsoleTopbar
         crumbs={[
           { label: t.console.nav.home, href: '/admin/overview' },
           { label: from.startsWith('/admin/users') ? t.console.nav.users : t.console.nav.purchases, href: from },
           { label: purchase.paddleTransactionId },
         ]}
+      />
+      <PageHead
         title={d.title}
         lede={
           <span className="break-all">

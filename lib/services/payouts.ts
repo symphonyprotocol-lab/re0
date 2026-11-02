@@ -12,9 +12,10 @@
  * it expects, so two administrators pressing at once decide it once; the
  * audit row and the user's notice are written in the same transaction.
  */
-import { and, asc, count, desc, eq, gte, ilike, inArray, ne, or, sql, type SQL } from 'drizzle-orm';
+import { and, asc, count, desc, eq, gte, ilike, inArray, lt, ne, or, sql, type SQL } from 'drizzle-orm';
 import { parseAdminReason } from '@/lib/domain/adjustments';
-import { periodStart, type PayoutHistoryView, type PayoutQueueView } from '@/lib/domain/admin-lists';
+import { CREDITS_PER_CENT, FINANCE_SERIES, financeRange, financeUnit, type FinanceSeries, type FinanceTrend } from '@/lib/domain/admin-finance';
+import type { PayoutHistoryView, PayoutQueueView } from '@/lib/domain/admin-lists';
 import { kycState, type KycState } from '@/lib/domain/kyc';
 import { clampPage, isUuid, likePattern, type ListResult } from '@/lib/domain/list';
 import {
@@ -36,6 +37,7 @@ import {
 import type { UserRole } from '@/lib/domain/roles';
 import { db, schema, type Executor, type Tx } from '@/lib/infra/db';
 import { AdminInputError, audit } from '@/lib/services/admin';
+import { bucketStart, trendOf } from '@/lib/services/admin-finance';
 import { grantsOf, placeHold, releaseHold, settleHold } from '@/lib/services/credits';
 import { latestKyc } from '@/lib/services/kyc';
 import { notify } from '@/lib/services/notices';
@@ -206,12 +208,13 @@ const requestTax = sql<'W-8BEN' | 'W-9' | null>`(select k.tax_form from ${schema
 
 type Scope = 'queue' | 'history';
 
-function payoutWhere(view: PayoutQueueView | PayoutHistoryView, scope: Scope, now: Date): SQL | undefined {
+/** A list's filters, shared by its CSV and its chart: scope, status, the calendar on the request time, search. */
+function payoutWhere(view: PayoutQueueView | PayoutHistoryView, scope: Scope): SQL | undefined {
   const conditions: SQL[] = [];
   if (scope === 'queue') conditions.push(inArray(schema.payout.status, [...OPEN_PAYOUT_STATUSES]));
   if (view.status !== 'all') conditions.push(eq(schema.payout.status, view.status));
-  const since = periodStart(view.period, now);
-  if (since) conditions.push(gte(schema.payout.createdAt, since));
+  const range = financeRange(view);
+  if (range) conditions.push(gte(schema.payout.createdAt, new Date(range.start)), lt(schema.payout.createdAt, new Date(range.end)));
   if (view.q) {
     const pattern = likePattern(view.q);
     conditions.push(
@@ -294,10 +297,9 @@ export async function listPayouts(
   view: PayoutQueueView | PayoutHistoryView,
   scope: Scope,
   options: { all?: boolean } = {},
-  now = new Date(),
 ): Promise<ListResult<PayoutListItem> & { counts: Record<string, number>; held: number }> {
   const database = db();
-  const where = payoutWhere(view, scope, now);
+  const where = payoutWhere(view, scope);
   const [totalRow] = await database.select({ total: count() }).from(schema.payout).innerJoin(schema.user, eq(schema.user.id, schema.payout.userId)).where(where);
   const total = totalRow?.total ?? 0;
   const page = clampPage(view.page, total, view.size);
@@ -311,6 +313,35 @@ export async function listPayouts(
   if (!options.all) query = query.limit(view.size).offset((page - 1) * view.size);
   const rows = await query;
   return { items: rows.map(listItem), total, page, size: view.size, ...(await payoutCounts()) };
+}
+
+/**
+ * A payout list's chart (prototype admin-finance.js): 提现审核 draws the
+ * queue (pending, approved), 提现记录 the outcomes (paid, failed, rejected;
+ * requests still open stay in its list but not in the chart). Every
+ * matching request, not a page, by the UTC+8 hour / day / month it was
+ * requested in; amounts are what was requested, in whole cents per request,
+ * before PayPal's fee, never the net paid.
+ */
+export async function payoutTrend<S extends Scope>(
+  view: PayoutQueueView | PayoutHistoryView,
+  scope: S,
+  now = new Date(),
+): Promise<FinanceTrend<FinanceSeries<S extends 'queue' ? 'payouts' : 'payout-history'>>> {
+  const kind = (scope === 'queue' ? 'payouts' : 'payout-history') as S extends 'queue' ? 'payouts' : 'payout-history';
+  const at = bucketStart(schema.payout.createdAt, financeUnit(view));
+  const rows = await db()
+    .select({
+      status: schema.payout.status,
+      at,
+      count: count(),
+      cents: sql<string>`coalesce(sum(round(${schema.payout.credits}::numeric / ${sql.raw(String(CREDITS_PER_CENT))})), 0)::bigint`,
+    })
+    .from(schema.payout)
+    .innerJoin(schema.user, eq(schema.user.id, schema.payout.userId))
+    .where(and(inArray(schema.payout.status, [...FINANCE_SERIES[kind]]), payoutWhere(view, scope)))
+    .groupBy(schema.payout.status, at);
+  return trendOf(kind, view, rows, now);
 }
 
 export async function openPayoutCount(): Promise<number> {

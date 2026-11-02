@@ -5,6 +5,7 @@ import { payoutDetail } from '@/lib/services/payouts';
 import { serverMessages } from '@/i18n/server';
 import { fill, formatDateTime, formatNumber } from '@/i18n/format';
 import { Fields, PageHead, RoleBadge } from '@/components/admin/list-kit';
+import { ConsoleTopbar } from '@/components/admin/console-topbar';
 import { centsUsd, creditsUsd, KycStatusTag, PayoutStatusTag } from '@/components/admin/payout-kit';
 import { PayoutPayment, PayoutReview } from '@/components/admin/payout-forms';
 import { Icon } from '@/components/ui/icons';
@@ -48,8 +49,8 @@ export async function PayoutDetailPage({ id, payment, query }: { id: string; pay
 
   return (
     <>
+      <ConsoleTopbar crumbs={[{ label: t.console.nav.home, href: '/admin/overview' }, { label: crumb, href: from }, { label: user.name }]} />
       <PageHead
-        crumbs={[{ label: t.console.nav.home, href: '/admin/overview' }, { label: crumb, href: from }, { label: user.name }]}
         title={finished ? d.doneTitle : payment ? d.paymentTitle : d.reviewTitle}
         lede={
           <span className="flex flex-wrap items-center gap-2">

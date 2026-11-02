@@ -26,12 +26,13 @@ const adminAudit = await import('@/lib/services/admin-audit');
 const administrators = await import('@/lib/services/admin-administrators');
 const admin = await import('@/lib/services/admin');
 const statistics = await import('@/lib/services/statistics');
+const adminPurchases = await import('@/lib/services/admin-purchases');
 const reembed = await import('@/lib/services/reembed');
 const models = await import('@/lib/services/models');
 const reesService = await import('@/lib/services/rees');
 const profile = await import('@/lib/services/profile');
 const { forgetModelCache, endpointFor } = await import('@/lib/infra/ai/models');
-const { usersView, auditView, reesView, verificationsView } = await import('@/lib/domain/admin-lists');
+const { usersView, auditView, reesView, verificationsView, purchasesView } = await import('@/lib/domain/admin-lists');
 const { toCsv } = await import('@/lib/domain/csv');
 const { USERS_CSV } = await import('@/lib/http/admin-lists');
 const { totpCounter } = await import('@/lib/domain/totp');
@@ -314,6 +315,66 @@ describeWithDb('Ree takedown', () => {
     expect((await notices.listNotices(owner, 1)).items.map((n) => n.kind)).toEqual(['restore', 'takedown']);
     expect((await adminAudit.listAudit(auditView({ action: 'ree.takedown', q: ree.id }))).total).toBe(1);
     await expect(adminRees.restoreRee(reviewer, ree.id, 'again')).rejects.toMatchObject({ code: 'stale' });
+  });
+});
+
+describeWithDb('purchase chart', () => {
+  it('sums every matching payment by UTC+8 hour, day and month, whatever the page, with the list’s filters', async () => {
+    const tag = uniqueName('fin');
+    const userId = await newUser(tag);
+    const payment = (index: number, status: 'paid' | 'refunded' | 'chargeback', amountMinor: number, at: string) => ({
+      userId,
+      kind: 'pack' as const,
+      paddleTransactionId: `${tag}-${index}`,
+      status,
+      amountMinor,
+      credits: 1000,
+      createdAt: new Date(at),
+    });
+    await db()
+      .insert(schema.purchase)
+      .values([
+        payment(0, 'paid', 2000, '2026-10-30T15:59:59Z'),
+        payment(1, 'paid', 10, '2026-10-30T16:00:00Z'),
+        payment(2, 'paid', 20, '2026-10-30T16:30:00Z'),
+        payment(3, 'refunded', 1000, '2026-10-31T15:59:59Z'),
+        payment(4, 'paid', 4000, '2026-10-31T16:00:00Z'),
+        payment(5, 'chargeback', 333, '2026-10-02T03:00:00Z'),
+        ...Array.from({ length: 45 }, (_, index) => payment(10 + index, 'paid', 101, '2026-10-05T04:00:00Z')),
+      ]);
+    const now = new Date();
+
+    const day = purchasesView({ q: tag, period: 'day', date: '2026-10-31' }, now);
+    expect((await adminPurchases.listPurchases(day)).total).toBe(3);
+    const hourly = await adminPurchases.purchaseTrend(day, now);
+    expect(hourly.bars).toHaveLength(24);
+    expect(hourly.bars[0]!.values.paid).toEqual({ count: 2, cents: 30 });
+    expect(hourly.bars[23]!.values.refunded).toEqual({ count: 1, cents: 1000 });
+
+    let reference: unknown;
+    for (const size of ['20', '50', '100']) {
+      const view = purchasesView({ q: tag, period: 'month', date: '2026-10-01', size, page: '2' }, now);
+      const list = await adminPurchases.listPurchases(view);
+      const trend = await adminPurchases.purchaseTrend(view, now);
+      expect(list.total).toBe(50);
+      expect(trend.bars).toHaveLength(31);
+      expect(trend.totals).toEqual({ paid: { count: 48, cents: 2030 + 45 * 101 }, refunded: { count: 1, cents: 1000 }, chargeback: { count: 1, cents: 333 } });
+      expect(trend.bars[4]!.values.paid).toEqual({ count: 45, cents: 45 * 101 });
+      if (reference) expect(trend.totals).toEqual(reference);
+      reference = trend.totals;
+    }
+
+    const refunded = await adminPurchases.purchaseTrend(purchasesView({ q: tag, status: 'refunded', period: 'month', date: '2026-10-01' }, now), now);
+    expect(refunded.totals.paid.count).toBe(0);
+    expect(refunded.totals.refunded.count).toBe(1);
+
+    const all = await adminPurchases.purchaseTrend(purchasesView({ q: tag }, now), now);
+    const counted = all.keys.reduce((sum, key) => sum + all.totals[key].count, 0);
+    expect(counted).toBe(51);
+    expect(all.missingTime).toBe(0);
+    expect(all.bars.length).toBeLessThanOrEqual(24);
+    const november = all.bars.find((bar) => bar.start <= Date.parse('2026-10-31T16:00:00Z') && Date.parse('2026-10-31T16:00:00Z') < bar.end)!;
+    expect(november.values.paid.cents).toBeGreaterThanOrEqual(4000);
   });
 });
 

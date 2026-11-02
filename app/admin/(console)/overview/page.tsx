@@ -6,6 +6,7 @@ import { serverMessages } from '@/i18n/server';
 import { fill, formatNumber } from '@/i18n/format';
 import { Icon, type IconName } from '@/components/ui/icons';
 import { PageHead, RecordsTable, Tag } from '@/components/admin/list-kit';
+import { ConsoleTopbar } from '@/components/admin/console-topbar';
 import { AuditTable } from '@/components/admin/audit-kit';
 
 export const dynamic = 'force-dynamic';
@@ -54,6 +55,7 @@ export default async function OverviewPage() {
   ];
   return (
     <>
+      <ConsoleTopbar crumbs={[{ label: t.console.nav.home, href: '/admin/overview' }, { label: t.console.nav.overview }]} />
       <PageHead
         title={o.title}
         lede={o.lede}

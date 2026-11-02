@@ -2,11 +2,9 @@
 
 import Link from 'next/link';
 import { usePathname } from 'next/navigation';
-import { useEffect, useState, type ReactNode } from 'react';
+import { createContext, useContext, useEffect, useState, type ReactNode } from 'react';
 import { useI18n } from '@/i18n/client';
 import { Icon, type IconName } from '@/components/ui/icons';
-import { LanguageToggle } from '@/components/ui/language-toggle';
-import { AdministratorsButton } from '@/components/admin/administrators-dialog';
 
 type NavKey = 'overview' | 'users' | 'verifications' | 'purchases' | 'rees' | 'models' | 'audit' | 'kyc' | 'payouts' | 'payout-history';
 
@@ -23,12 +21,27 @@ const NAV: { key: NavKey; icon: IconName; group: 'platform' | 'trust' | 'governa
   { key: 'audit', icon: 'list', group: 'governance' },
 ];
 
+interface ConsoleShellState {
+  collapsed: boolean;
+  toggleCollapsed: () => void;
+  openDrawer: () => void;
+}
+
+const ConsoleShellContext = createContext<ConsoleShellState>({ collapsed: false, toggleCollapsed: () => {}, openDrawer: () => {} });
+
+/** The rail's folded state and the drawer, for the top bar each page renders (`ConsoleTopbar`). */
+export function useConsoleShell(): ConsoleShellState {
+  return useContext(ConsoleShellContext);
+}
+
 /**
  * The console frame (prototype suite.js `adminShell`): a fixed sidebar with
- * the console's pages grouped as in the prototype, a drawer on phones, and a
- * top bar with language, administrators and sign-out. On desktop the sidebar
- * folds to a 68px icon rail; the folded state shares the workspace's
- * `re0_sidebar` cookie (the prototype keeps one `sidebarCollapsed` for both).
+ * the console's pages grouped as in the prototype, and a drawer on phones.
+ * The fixed top bar -- breadcrumbs, tabs, language, administrators and
+ * sign-out -- is `ConsoleTopbar`, which every page renders first, as the
+ * workspace's pages render `Topbar`. On desktop the sidebar folds to a 68px
+ * icon rail; the folded state shares the workspace's `re0_sidebar` cookie
+ * (the prototype keeps one `sidebarCollapsed` for both).
  */
 export function ConsoleShell({
   email,
@@ -141,46 +154,21 @@ export function ConsoleShell({
   const badge = (key: NavKey) => (key === 'verifications' ? pendingVerifications : key === 'kyc' ? pendingKyc : key === 'payouts' ? openPayouts : 0);
 
   return (
-    <div className="min-h-dvh bg-[#f7f8fc]" style={{ ['--console-sidebar' as string]: collapsed ? '68px' : '232px' }}>
-      <div className="fixed inset-y-0 left-0 z-30 hidden w-[var(--console-sidebar)] transition-[width] lg:block">{sidebar(false)}</div>
-      {drawer && (
-        <div className="fixed inset-0 z-50 lg:hidden">
-          <button type="button" aria-label={c.nav.close} className="absolute inset-0 bg-ink/40" onClick={() => setDrawer(false)} tabIndex={-1} />
-          <div className="relative h-full w-fit">{sidebar(true)}</div>
-        </div>
-      )}
-      <div className="min-w-0 transition-[padding] lg:pl-[var(--console-sidebar)]">
-        <header className="fixed inset-x-0 top-0 z-20 border-b border-line bg-white/95 backdrop-blur transition-[left] lg:left-[var(--console-sidebar)]">
-          <div className="flex h-16 items-center gap-2 px-4 md:px-8">
-            <button type="button" className="icon-btn lg:hidden" onClick={() => setDrawer(true)} aria-label={c.nav.open}>
-              <Icon name="menu" />
-            </button>
-            <button
-              type="button"
-              className="icon-btn hidden lg:inline-flex"
-              onClick={toggleCollapsed}
-              aria-controls="console-sidebar"
-              aria-expanded={!collapsed}
-              aria-label={collapsed ? t.common.nav.expand : t.common.nav.collapse}
-              title={collapsed ? t.common.nav.expand : t.common.nav.collapse}
-            >
-              <Icon name="panel" />
-            </button>
-            <span className="min-w-0 flex-1 truncate text-[13px] font-semibold">{c.nav.home}</span>
-            <LanguageToggle />
-            <AdministratorsButton />
-            <form action="/api/admin/auth/logout" method="post">
-              <button type="submit" className="btn-ghost" aria-label={t.admin.signOut} title={t.admin.signOut}>
-                <Icon name="logout" className="size-3.5" />
-                <span className="hidden sm:inline">{t.admin.signOut}</span>
-              </button>
-            </form>
+    <ConsoleShellContext.Provider value={{ collapsed, toggleCollapsed, openDrawer: () => setDrawer(true) }}>
+      <div className="min-h-dvh bg-[#f7f8fc]" style={{ ['--console-sidebar' as string]: collapsed ? '68px' : '232px' }}>
+        <div className="fixed inset-y-0 left-0 z-30 hidden w-[var(--console-sidebar)] transition-[width] lg:block">{sidebar(false)}</div>
+        {drawer && (
+          <div className="fixed inset-0 z-50 lg:hidden">
+            <button type="button" aria-label={c.nav.close} className="absolute inset-0 bg-ink/40" onClick={() => setDrawer(false)} tabIndex={-1} />
+            <div className="relative h-full w-fit">{sidebar(true)}</div>
           </div>
-        </header>
-        <div className="h-16" aria-hidden="true" />
-        <main className="mx-auto max-w-[1240px] px-4 py-6 md:px-8 md:py-8">{children}</main>
-        <footer className="mx-auto max-w-[1240px] px-4 pb-8 font-mono text-[10px] tracking-[0.12em] text-muted md:px-8">{c.footer}</footer>
+        )}
+        <div className="min-w-0 transition-[padding] lg:pl-[var(--console-sidebar)]">
+          {/* The page's ConsoleTopbar comes first in <main> and brings its own spacer. */}
+          <main className="mx-auto max-w-[1240px] px-4 py-6 md:px-8 md:py-8">{children}</main>
+          <footer className="mx-auto max-w-[1240px] px-4 pb-8 font-mono text-[10px] tracking-[0.12em] text-muted md:px-8">{c.footer}</footer>
+        </div>
       </div>
-    </div>
+    </ConsoleShellContext.Provider>
   );
 }

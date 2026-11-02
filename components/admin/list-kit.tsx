@@ -1,6 +1,6 @@
 /**
  * The console's list pieces (prototype admin-records.js / admin-records.css):
- * page head with breadcrumbs, clickable summary cards, the scrollable table,
+ * page head, clickable summary cards, the scrollable table,
  * numbered pages with a jump box, tags and role badges. Server components;
  * the interactive bits live in `list-client.tsx`.
  */
@@ -11,32 +11,10 @@ import { fill } from '@/i18n/format';
 import { Icon } from '@/components/ui/icons';
 import { PageJump } from '@/components/admin/list-client';
 
-export interface Crumb {
-  label: string;
-  href?: string;
-}
-
-export function PageHead({ crumbs, title, lede, actions }: { crumbs?: Crumb[]; title: ReactNode; lede?: ReactNode; actions?: ReactNode }) {
+/** The page's title, lede and actions; its breadcrumbs live in the fixed `ConsoleTopbar`. */
+export function PageHead({ title, lede, actions }: { title: ReactNode; lede?: ReactNode; actions?: ReactNode }) {
   return (
     <div className="mb-6">
-      {crumbs && crumbs.length > 0 && (
-        <nav aria-label="breadcrumb" className="mb-3 flex min-w-0 flex-wrap items-center gap-1.5 text-[12px] text-muted">
-          {crumbs.map((crumb, index) => (
-            <span key={`${crumb.label}-${index}`} className="flex min-w-0 items-center gap-1.5">
-              {index > 0 && <Icon name="chevronRight" className="size-3 flex-none text-[#a3a9bb]" />}
-              {crumb.href ? (
-                <Link href={crumb.href} className="max-w-[220px] truncate hover:text-blue">
-                  {crumb.label}
-                </Link>
-              ) : (
-                <span className="max-w-[260px] truncate font-semibold text-ink" aria-current="page">
-                  {crumb.label}
-                </span>
-              )}
-            </span>
-          ))}
-        </nav>
-      )}
       <div className="flex flex-wrap items-end justify-between gap-4">
         <div className="min-w-0">
           <h1 className="text-[24px] font-extrabold tracking-tight break-words">{title}</h1>
