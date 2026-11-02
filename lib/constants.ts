@@ -169,7 +169,10 @@ export type ModelKind = (typeof MODEL_KINDS)[number];
 export const EMBEDDING_DIMENSIONS = 1536;
 /** `modelFor(kind)` re-reads `model_config` at most this often. */
 export const MODEL_CACHE_MS = 60_000;
-export const MODEL_TIMEOUT_MS = { min: 1_000, max: 300_000, default: 60_000 } as const;
+/** Prototype limits (suite.js model form) except the ceiling: 300 s is the Vercel function limit, not the prototype's 600. */
+export const MODEL_TIMEOUT_MS = { min: 5_000, max: 300_000, default: 60_000 } as const;
+export const MODEL_NAME_MAX_LENGTH = 50;
+export const MODEL_ID_MAX_LENGTH = 120;
 /**
  * Used only when neither the console nor the environment names a model, so a
  * first deployment answers through the AI Gateway out of the box.

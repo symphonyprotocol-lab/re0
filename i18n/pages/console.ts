@@ -11,7 +11,7 @@ export const zh = {
     users: '用户',
     verifications: '认证申请',
     purchases: '充值记录',
-    rees: 'Rees',
+    rees: 'Ree',
     models: '模型',
     audit: '审计',
     kyc: 'KYC 记录',
@@ -104,6 +104,11 @@ export const zh = {
     'ree.restore': '恢复 Ree',
   },
   footer: 'RE0 CONSOLE · 所有时间为 UTC+8',
+  notFound: {
+    title: '记录不存在',
+    body: '这条记录不存在或已被删除，请从列表重新打开。',
+    back: '返回概览',
+  },
 };
 
 export const en: Shape<typeof zh> = {
@@ -209,4 +214,9 @@ export const en: Shape<typeof zh> = {
     'ree.restore': 'Restore Ree',
   },
   footer: 'RE0 CONSOLE · All times are UTC+8',
+  notFound: {
+    title: 'Not found',
+    body: 'This record does not exist or was deleted. Open it again from its list.',
+    back: 'Back to overview',
+  },
 };

@@ -2,6 +2,7 @@ import type { Metadata } from 'next';
 import Link from 'next/link';
 import { notFound } from 'next/navigation';
 import type { ReactNode } from 'react';
+import type { KycStatus } from '@/db/schema';
 import { param } from '@/lib/domain/list';
 import { adminUser, userEntries, userPurchases, userRees, userRoles, type AdminUserDetail } from '@/lib/services/admin-users';
 import type { Messages } from '@/i18n';
@@ -13,9 +14,13 @@ import { AdjustCreditsButton, UserStatusButton } from '@/components/admin/user-d
 import { RoleHistory, RolePanel } from '@/components/admin/user-detail-roles';
 import { RequirementChecks } from '@/components/ui/requirement-checks';
 import { kycHistory } from '@/lib/services/kyc';
+import { listNotices } from '@/lib/services/notices';
+import { answerCounts } from '@/lib/services/statistics';
 import { payoutsOf } from '@/lib/services/payouts';
 import { KycStatusTag } from '@/components/admin/payout-kit';
 import { PayoutsTable } from '@/components/admin/payouts-table';
+import { ReeRowActions } from '@/components/admin/ree-detail';
+import { UserNotices } from '@/components/admin/user-notices';
 import { Icon, type IconName } from '@/components/ui/icons';
 import { ReeAvatar, UserAvatar } from '@/components/ui/ree-avatar';
 
@@ -36,17 +41,15 @@ export async function generateMetadata({ params }: Props): Promise<Metadata> {
   return { title: user ? `${user.name} · ${t.consoleUsers.detail.title}` : t.consoleUsers.detail.title };
 }
 
-/** Only a console list may be the way back: anything else falls back to the users list. */
+/** Only a console page may be the way back: anything else falls back to the users list. */
 function backTo(raw: string): string {
-  return /^\/admin\/(users|verifications|kyc|payouts|payout-history)(?:[/?]|$)/.test(raw) ? raw : '/admin/users';
+  return /^\/admin\/(users|verifications|kyc|payouts|payout-history|purchases|audit|rees)(?:[/?]|$)/.test(raw) && !raw.includes('//') && !raw.includes('\\') ? raw : '/admin/users';
 }
 
-/** The crumb for the list that linked here (step 6 adds the KYC and payout lists). */
+/** The crumb for the page that linked here, named as in the console's navigation. */
 function listLabel(t: Messages, from: string): string {
-  if (from.startsWith('/admin/kyc')) return t.console.nav.kyc;
-  if (from.startsWith('/admin/payout-history')) return t.console.nav['payout-history'];
-  if (from.startsWith('/admin/payouts')) return t.console.nav.payouts;
-  return t.console.nav.users;
+  const key = (['verifications', 'kyc', 'payout-history', 'payouts', 'purchases', 'audit', 'rees'] as const).find((name) => from.startsWith(`/admin/${name}`));
+  return t.console.nav[key ?? 'users'];
 }
 
 /**
@@ -80,12 +83,16 @@ export default async function UserDetailPage({ params, searchParams }: Props) {
   const back = encodeURIComponent(self);
   const n = (value: number) => formatNumber(value, locale);
   const official = user.role === 'official';
-  const fromVerifications = from.startsWith('/admin/verifications');
 
   let body: ReactNode;
   if (tab === 'summary') {
-    const [rees, purchases] = await Promise.all([userRees(id), userPurchases(id)]);
-    body = <Summary t={t} locale={locale} user={user} reesCount={rees.length} purchasesCount={purchases.purchases.length} />;
+    const [rees, purchases, kyc, notices] = await Promise.all([userRees(id), userPurchases(id), kycHistory(id), listNotices(id, 1)]);
+    body = (
+      <div className="flex min-w-0 flex-col gap-4">
+        <Summary t={t} locale={locale} user={user} reesCount={rees.length} purchasesCount={purchases.purchases.length} kyc={kyc[0] ?? null} />
+        <UserNotices t={t} locale={locale} items={notices.items} total={notices.total} />
+      </div>
+    );
   } else if (tab === 'roles') {
     const roles = await userRoles(id);
     body = (
@@ -257,15 +264,18 @@ export default async function UserDetailPage({ params, searchParams }: Props) {
     );
   } else {
     const rees = await userRees(id);
+    const answers = await answerCounts(rees.map((ree) => ree.id), null);
     const r = d.rees;
     body = (
       <section className="card min-w-0 overflow-hidden">
         <RecordsTable
+          actions
           label={t.console.list.tableRegion}
           empty={r.empty}
-          head={[r.columns.name, r.columns.visibility, r.columns.sources, r.columns.created]}
+          head={[r.columns.name, r.columns.visibility, r.columns.sources, r.columns.fee, r.columns.answers, r.columns.created, r.columns.action]}
           rows={rees.map((ree) => {
-            const visibility = ree.deletedAt ? 'deleted' : ree.moderatedAt ? 'moderated' : ree.isPublic ? 'public' : 'private';
+            const live = ree.moderatedAt ? 'moderated' : ree.isPublic ? 'public' : 'private';
+            const visibility = ree.deletedAt ? 'deleted' : live;
             return [
               <Link key="name" href={`/admin/rees/${ree.id}?from=${back}`} className="flex max-w-[280px] min-w-0 items-center gap-2.5 hover:text-blue">
                 <ReeAvatar avatar={ree.avatarBlob} color={ree.color} size="sm" />
@@ -280,9 +290,21 @@ export default async function UserDetailPage({ params, searchParams }: Props) {
               <span key="sources" className="font-mono">
                 {n(ree.readySources)} / {n(ree.sources)}
               </span>,
+              <span key="fee" className="font-mono whitespace-nowrap">
+                {fill(t.consoleRees.rees.fee, { n: n(ree.queryFee) })}
+              </span>,
+              <span key="answers" className="font-mono">
+                {n(answers.get(ree.id) ?? 0)}
+              </span>,
               <span key="created" className="whitespace-nowrap">
                 {formatDateTime(ree.createdAt, locale)}
               </span>,
+              <ReeRowActions
+                key="action"
+                t={t}
+                ree={{ id: ree.id, name: ree.name, slug: ree.slug, visibility: live, deleted: Boolean(ree.deletedAt) }}
+                detailHref={`/admin/rees/${ree.id}?from=${back}`}
+              />,
             ];
           })}
         />
@@ -308,7 +330,7 @@ export default async function UserDetailPage({ params, searchParams }: Props) {
       <PageHead
         crumbs={[
           { label: t.console.nav.home, href: '/admin/overview' },
-          { label: fromVerifications ? t.console.nav.verifications : listLabel(t, from), href: from },
+          { label: listLabel(t, from), href: from },
           { label: user.name },
         ]}
         title={
@@ -391,7 +413,22 @@ function Empty({ icon, title, body }: { icon: IconName; title: string; body: str
   );
 }
 
-function Summary({ t, locale, user, reesCount, purchasesCount }: { t: Messages; locale: Locale; user: AdminUserDetail; reesCount: number; purchasesCount: number }) {
+function Summary({
+  t,
+  locale,
+  user,
+  reesCount,
+  purchasesCount,
+  kyc,
+}: {
+  t: Messages;
+  locale: Locale;
+  user: AdminUserDetail;
+  reesCount: number;
+  purchasesCount: number;
+  /** The newest `kyc_record`, whose state and tax form the summary shows. */
+  kyc: { status: KycStatus; taxForm: string | null } | null;
+}) {
   const d = t.consoleUsers.detail;
   const s = d.summary;
   const time = (value: Date | null | undefined) => (value ? formatDateTime(value, locale) : '—');
@@ -426,6 +463,17 @@ function Summary({ t, locale, user, reesCount, purchasesCount }: { t: Messages; 
               subscription?.currentPeriodStart && subscription.currentPeriodEnd ? `${time(subscription.currentPeriodStart)} — ${time(subscription.currentPeriodEnd)}` : '—',
             ],
             [s.renewal, subscription ? (subscription.status === 'active' && !subscription.cancelAtPeriodEnd ? s.renewalOn : s.renewalOff) : '—'],
+            [
+              s.kyc,
+              user.role === 'official' ? (
+                <Tag key="kyc">{t.consoleUsers.users.kycExempt}</Tag>
+              ) : kyc ? (
+                <KycStatusTag key="kyc" t={t} status={kyc.status} />
+              ) : (
+                <Tag key="kyc">{t.consoleUsers.users.kyc.none}</Tag>
+              ),
+            ],
+            [s.taxForm, kyc?.taxForm ?? '—'],
             [s.role, <RoleBadge key="role" t={t} role={user.role} showNormal />],
             [s.total, <span key="total" className="font-mono">{formatNumber(total, locale)}</span>],
             [s.reesCount, <span key="rees" className="font-mono">{formatNumber(reesCount, locale)}</span>],

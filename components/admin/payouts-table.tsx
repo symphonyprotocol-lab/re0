@@ -21,6 +21,7 @@ export function PayoutsTable({ t, locale, items, back, empty }: { t: Messages; l
   const n = (value: number) => formatNumber(value, locale);
   return (
     <RecordsTable
+      actions
       label={t.console.list.tableRegion}
       empty={empty ?? t.console.list.empty}
       head={[p.columns.applicant, p.columns.amount, p.columns.identity, p.columns.email, p.columns.status, p.columns.review, p.columns.action]}

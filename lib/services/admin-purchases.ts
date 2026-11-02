@@ -34,6 +34,8 @@ export interface SubscriptionRow {
   cancelAtPeriodEnd: boolean;
   currentPeriodStart: Date | null;
   currentPeriodEnd: Date | null;
+  /** Credits left in the user's current Plan grant (prototype admin-records.js "Plan 剩余额度"). */
+  planRemaining: number;
   createdAt: Date;
   updatedAt: Date;
 }
@@ -92,6 +94,9 @@ export async function listPurchases(view: PurchasesView, options: { all?: boolea
   return { items: await query, total, page, size: view.size };
 }
 
+/* The live Plan grant's remaining credits, as the user's balance counts them; written qualified, as drizzle renders columns bare inside sql. */
+const planRemaining = sql<number>`(select coalesce(sum(g.remaining), 0)::bigint from ${schema.creditGrant} g where g.user_id = "subscription"."user_id" and g.source = 'plan' and g.expires_at > now())`;
+
 export async function listSubscriptions(view: PurchasesView, options: { all?: boolean } = {}, now = new Date()): Promise<ListResult<SubscriptionRow>> {
   const conditions: SQL[] = [];
   if (view.status !== 'all') conditions.push(eq(schema.subscription.status, view.status as SubscriptionRow['status']));
@@ -119,6 +124,7 @@ export async function listSubscriptions(view: PurchasesView, options: { all?: bo
       cancelAtPeriodEnd: schema.subscription.cancelAtPeriodEnd,
       currentPeriodStart: schema.subscription.currentPeriodStart,
       currentPeriodEnd: schema.subscription.currentPeriodEnd,
+      planRemaining: planRemaining,
       createdAt: schema.subscription.createdAt,
       updatedAt: schema.subscription.updatedAt,
     })
@@ -128,7 +134,7 @@ export async function listSubscriptions(view: PurchasesView, options: { all?: bo
     .orderBy(view.sort === 'oldest' ? asc(schema.subscription.createdAt) : desc(schema.subscription.createdAt), asc(schema.subscription.id))
     .$dynamic();
   if (!options.all) query = query.limit(view.size).offset((page - 1) * view.size);
-  return { items: await query, total, page, size: view.size };
+  return { items: (await query).map((row) => ({ ...row, planRemaining: Number(row.planRemaining) })), total, page, size: view.size };
 }
 
 export async function purchaseCounts() {

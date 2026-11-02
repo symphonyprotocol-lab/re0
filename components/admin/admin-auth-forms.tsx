@@ -19,7 +19,8 @@ function Input({ id, label, hint, ...rest }: { id: string; label: string; hint?:
   );
 }
 
-export function AdminLoginForm() {
+/** `next` is already checked by the page (`safeAdminNext`), falling back to the overview. */
+export function AdminLoginForm({ next = '/admin/overview' }: { next?: string }) {
   const { t } = useI18n();
   const router = useRouter();
   const [error, setError] = useState('');
@@ -38,7 +39,7 @@ export function AdminLoginForm() {
         });
         setBusy(false);
         if (!result.ok) return setError(t.admin.login.failed);
-        router.push('/admin/overview');
+        router.push(next);
         router.refresh();
       }}
     >

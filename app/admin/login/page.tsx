@@ -4,6 +4,7 @@ import { redirect } from 'next/navigation';
 import QRCode from 'qrcode';
 import { totpProvisioningUri } from '@/lib/domain/totp';
 import { currentAdministrator } from '@/lib/http/admin';
+import { ADMIN_HOME, safeAdminNext } from '@/lib/http/admin-next';
 import { bootstrapChallenge, hasAdministrator } from '@/lib/services/admin';
 import { enrolmentChallenge } from '@/lib/services/admin-administrators';
 import { serverMessages } from '@/i18n/server';
@@ -24,12 +25,15 @@ type Props = { searchParams: Promise<Record<string, string | string[] | undefine
  * `/admin/login`: on an empty installation the first visitor registers the
  * owner (password + TOTP); from then on it only signs in (2.5). An invited
  * administrator's link (`?invite=…`) opens their enrolment instead; a link
- * that is invalid or expired says so above the sign-in form.
+ * that is invalid or expired says so above the sign-in form. A signed-out
+ * deep link arrives with `?next=`, where sign-in then returns.
  */
 export default async function AdminLoginPage({ searchParams }: Props) {
-  const raw = (await searchParams).invite;
+  const params = await searchParams;
+  const raw = params.invite;
   const invite = typeof raw === 'string' ? raw.slice(0, 4096) : '';
-  if (!invite && (await currentAdministrator())) redirect('/admin/overview');
+  const next = safeAdminNext(params.next) ?? ADMIN_HOME;
+  if (!invite && (await currentAdministrator())) redirect(next);
   const { t } = await serverMessages();
   const empty = !(await hasAdministrator());
   const challenge = empty ? await bootstrapChallenge() : null;
@@ -41,7 +45,7 @@ export default async function AdminLoginPage({ searchParams }: Props) {
     ? await QRCode.toDataURL(totpProvisioningUri({ secret: enrolment.secret, account: enrolment.email, issuer: 'RE0 Console' }), { margin: 1, width: 168 })
     : null;
   const invalidInvite = !empty && Boolean(invite) && !enrolment;
-  if (invalidInvite && (await currentAdministrator())) redirect('/admin/overview');
+  if (invalidInvite && (await currentAdministrator())) redirect(next);
   const title = empty ? t.admin.setup.title : enrolment ? t.consoleRees.enrol.title : t.admin.login.title;
   const lede = empty ? t.admin.setup.lede : enrolment ? t.consoleRees.enrol.lede : t.admin.login.lede;
   return (
@@ -53,7 +57,13 @@ export default async function AdminLoginPage({ searchParams }: Props) {
           </span>
           {t.common.brand}
         </span>
-        <LanguageToggle />
+        <span className="flex items-center gap-2">
+          <Link href="/" className="text-link inline-flex items-center gap-1 text-[12px]">
+            {t.admin.backToSite}
+            <Icon name="external" className="size-3.5" />
+          </Link>
+          <LanguageToggle />
+        </span>
       </div>
       <section className="card mt-10 w-full max-w-[440px] p-6 shadow-sm sm:p-8">
         <span className="inline-flex size-11 items-center justify-center rounded-xl bg-soft text-blue">
@@ -73,7 +83,7 @@ export default async function AdminLoginPage({ searchParams }: Props) {
         ) : enrolment && enrolmentQr ? (
           <AdminEnrolForm token={invite} name={enrolment.name} email={enrolment.email} sealedSecret={enrolment.sealedSecret} secret={enrolment.secret} qr={enrolmentQr} />
         ) : (
-          <AdminLoginForm />
+          <AdminLoginForm next={next} />
         )}
         <p className="mt-6 flex items-center gap-2 text-[11px] text-muted">
           <Icon name="lock" className="size-3.5" />

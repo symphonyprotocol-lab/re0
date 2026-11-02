@@ -1,5 +1,6 @@
 import { NextResponse, type NextRequest } from 'next/server';
 import { ADMIN_SESSION_COOKIE, PATH_HEADER, SESSION_COOKIE } from '@/lib/http/cookies';
+import { adminLoginHref } from '@/lib/http/admin-next';
 
 /**
  * A cheap gate that saves anonymous visitors a render: no cookie, no page.
@@ -12,8 +13,12 @@ const WORKSPACE = ['/dashboard', '/rees', '/settings', '/talk', '/chats', '/work
 export function middleware(request: NextRequest): NextResponse {
   const path = request.nextUrl.pathname;
   if (path.startsWith('/admin')) {
-    if (path === '/admin/login' || request.cookies.has(ADMIN_SESSION_COOKIE)) return NextResponse.next();
-    return NextResponse.redirect(new URL('/admin/login', request.url));
+    if (path === '/admin/login') return NextResponse.next();
+    // A signed-out deep link signs in first, then comes back (`next`).
+    if (!request.cookies.has(ADMIN_SESSION_COOKIE)) return NextResponse.redirect(new URL(adminLoginHref(path + request.nextUrl.search), request.url));
+    const headers = new Headers(request.headers);
+    headers.set(PATH_HEADER, path + request.nextUrl.search);
+    return NextResponse.next({ request: { headers } });
   }
   if (WORKSPACE.some((prefix) => path === prefix || path.startsWith(`${prefix}/`))) {
     if (!request.cookies.has(SESSION_COOKIE)) {

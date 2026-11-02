@@ -2,10 +2,12 @@
  * The audit trail (2.5 "审计"): read-only, filtered by the one list of action
  * codes the writers use (8.3), with each row's before and after.
  */
-import { and, asc, count, countDistinct, desc, eq, gte, ilike, or, sql, type SQL } from 'drizzle-orm';
+import { and, asc, count, countDistinct, desc, eq, gte, ilike, inArray, or, sql, type SQL } from 'drizzle-orm';
 import { periodStart, type AuditView } from '@/lib/domain/admin-lists';
+import { actionsLabelled } from '@/lib/domain/audit';
 import { clampPage, likePattern, type ListResult } from '@/lib/domain/list';
 import { db, schema } from '@/lib/infra/db';
+import { en as consoleEn, zh as consoleZh } from '@/i18n/pages/console';
 
 export interface AuditRow {
   id: string;
@@ -25,9 +27,12 @@ function auditWhere(view: AuditView, now: Date): SQL | undefined {
   if (since) conditions.push(gte(schema.adminAudit.createdAt, since));
   if (view.q) {
     const pattern = likePattern(view.q);
+    /* The action's label in either language counts too, so "下架" or "take down" finds `ree.takedown`. */
+    const labelled = actionsLabelled(view.q, [consoleZh.actions, consoleEn.actions]);
     conditions.push(
       or(
         ilike(schema.adminAudit.action, pattern),
+        ...(labelled.length ? [inArray(schema.adminAudit.action, labelled)] : []),
         ilike(schema.adminAudit.target, pattern),
         ilike(schema.administrator.email, pattern),
         ilike(schema.administrator.name, pattern),

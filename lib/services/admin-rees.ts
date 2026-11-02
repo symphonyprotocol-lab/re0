@@ -125,8 +125,16 @@ export async function adminRee(id: string) {
     .where(eq(schema.ree.id, id))
     .limit(1);
   if (!row) return null;
-  const summary = await sourceSummary([id]);
-  return { ...row, sources: summary };
+  const [summary, [video]] = await Promise.all([
+    sourceSummary([id]),
+    database
+      .select({ reeId: schema.reeVideo.reeId })
+      .from(schema.reeVideo)
+      .where(and(eq(schema.reeVideo.reeId, id), eq(schema.reeVideo.generated, true)))
+      .limit(1),
+  ]);
+  /* 视频介绍 已制作 once a script has been generated (prototype admin-ree-detail.js `video.generated`). */
+  return { ...row, sources: summary, hasVideo: Boolean(video) };
 }
 export type AdminReeDetail = NonNullable<Awaited<ReturnType<typeof adminRee>>>;
 

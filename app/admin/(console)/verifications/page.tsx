@@ -1,5 +1,6 @@
 import type { Metadata } from 'next';
 import Link from 'next/link';
+import { redirect } from 'next/navigation';
 import { csvHref, listHref, verificationsView, LIST_DEFAULTS, VERIFICATION_FILTERS } from '@/lib/domain/admin-lists';
 import { listVerifications } from '@/lib/services/roles';
 import { serverMessages } from '@/i18n/server';
@@ -30,6 +31,8 @@ export default async function VerificationsPage({ searchParams }: Props) {
   const data = await listVerifications(view);
   const current = { ...view, page: data.page };
   const href = (changes: Record<string, string | number | null>) => listHref('/admin/verifications', current, changes, DEFAULTS);
+  // A page past the end (rows went away, a stale link) lands on the last page's canonical URL.
+  if (data.page !== view.page) redirect(href({}));
   const n = (value: number) => formatNumber(value, locale);
   const filtered = Boolean(view.q) || view.status !== 'pending';
   const back = encodeURIComponent(href({}));
@@ -66,6 +69,7 @@ export default async function VerificationsPage({ searchParams }: Props) {
         />
         <ResultsLine t={t} total={data.total} page={data.page} size={data.size} exportHref={csvHref('/api/admin/verifications', view, DEFAULTS)} />
         <RecordsTable
+          actions
           label={l.tableRegion}
           empty={l.empty}
           head={[v.columns.applicant, v.columns.statement, v.columns.snapshot, v.columns.status, v.columns.action]}

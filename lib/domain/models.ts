@@ -4,7 +4,7 @@
  * model and endpoint frozen -- changing what answers goes through enabling a
  * different entry, never through editing the live one.
  */
-import { MODEL_KINDS, MODEL_TIMEOUT_MS, type ModelKind } from '@/lib/constants';
+import { MODEL_ID_MAX_LENGTH, MODEL_KINDS, MODEL_NAME_MAX_LENGTH, MODEL_TIMEOUT_MS, type ModelKind } from '@/lib/constants';
 
 export type ModelTransport = 'gateway' | 'openai_compatible';
 
@@ -33,7 +33,7 @@ function str(value: unknown): string {
 
 export function parseModelConfig(raw: Record<string, unknown>): ModelConfigInput | { error: ModelConfigError } {
   const name = str(raw.name);
-  if (!name || name.length > 60) return { error: 'name' };
+  if (!name || name.length > MODEL_NAME_MAX_LENGTH) return { error: 'name' };
   if (!isModelKind(raw.kind)) return { error: 'kind' };
   const transport = raw.transport === 'gateway' || raw.transport === 'openai_compatible' ? raw.transport : null;
   if (!transport) return { error: 'transport' };
@@ -49,7 +49,7 @@ export function parseModelConfig(raw: Record<string, unknown>): ModelConfigInput
   }
   const model = str(raw.model);
   /* The gateway names models `provider/model`. */
-  if (!model || model.length > 200 || (transport === 'gateway' && !/^[\w.-]+\/[\w.:-]+$/.test(model))) {
+  if (!model || model.length > MODEL_ID_MAX_LENGTH || (transport === 'gateway' && !/^[\w.-]+\/[\w.:-]+$/.test(model))) {
     return { error: 'model' };
   }
   const apiKey = str(raw.apiKey);

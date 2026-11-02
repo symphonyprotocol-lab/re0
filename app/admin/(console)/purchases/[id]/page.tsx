@@ -72,7 +72,7 @@ export default async function PurchaseDetailPage({ params, searchParams }: Props
       <PageHead
         crumbs={[
           { label: t.console.nav.home, href: '/admin/overview' },
-          { label: from.startsWith('/admin/users') ? t.console.nav.users : p.title, href: from },
+          { label: from.startsWith('/admin/users') ? t.console.nav.users : t.console.nav.purchases, href: from },
           { label: purchase.paddleTransactionId },
         ]}
         title={d.title}

@@ -39,3 +39,14 @@ export type AuditAction = (typeof AUDIT_ACTIONS)[number];
 export function isAuditAction(value: unknown): value is AuditAction {
   return typeof value === 'string' && (AUDIT_ACTIONS as readonly string[]).includes(value);
 }
+
+/**
+ * The action codes whose label, in any of the given languages, contains `q`
+ * (case-insensitive), so the audit search also finds "下架" or "take down"
+ * (prototype admin-records.js searches the localised action name).
+ */
+export function actionsLabelled(q: string, labels: readonly Partial<Record<string, string>>[]): AuditAction[] {
+  const needle = q.trim().toLowerCase();
+  if (!needle) return [];
+  return AUDIT_ACTIONS.filter((code) => labels.some((names) => (names[code] ?? '').toLowerCase().includes(needle)));
+}

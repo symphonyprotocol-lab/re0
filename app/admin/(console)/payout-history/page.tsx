@@ -1,4 +1,5 @@
 import type { Metadata } from 'next';
+import { redirect } from 'next/navigation';
 import { AMOUNT_SORTS, csvHref, listHref, PAYOUT_HISTORY_FILTERS, payoutHistoryView, RECENT_PERIODS } from '@/lib/domain/admin-lists';
 import { listPayouts } from '@/lib/services/payouts';
 import { serverMessages } from '@/i18n/server';
@@ -27,6 +28,8 @@ export default async function PayoutHistoryPage({ searchParams }: Props) {
   const data = await listPayouts(view, 'history');
   const current = { ...view, page: data.page };
   const href = (changes: Record<string, string | number | null>) => listHref('/admin/payout-history', current, changes);
+  // A page past the end (rows went away, a stale link) lands on the last page's canonical URL.
+  if (data.page !== view.page) redirect(href({}));
   const n = (value: number) => formatNumber(value, locale);
   const filtered = Boolean(view.q) || view.status !== 'all' || view.period !== 'all' || view.sort !== 'newest';
   const reset = listHref('/admin/payout-history', { size: view.size });

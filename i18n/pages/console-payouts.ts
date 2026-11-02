@@ -2,7 +2,7 @@ import type { Shape } from '@/i18n/format';
 
 /** 管理后台：KYC 记录、提现审核、提现记录（step 6，2.5；原型 manual-kyc.js、admin-records.js、suite.js）. */
 export const zh = {
-  kycStatus: { pending: '待审核', verified: '已通过', rejected: '已驳回', reset: '已重置' },
+  kycStatus: { pending: '待审核', verified: '已通过', rejected: '已驳回', reset: '待重新验证' },
   payoutStatus: { pending: '待审核', approved: '待人工打款', paid: '已打款', failed: '打款失败', rejected: '已驳回' },
   errors: {
     reason: '请填写 3–300 个字符的原因。',
@@ -23,7 +23,7 @@ export const zh = {
     title: 'KYC 记录',
     lede: '平台人工审核身份与税务声明。证件限时查看、逐次审计，通过后 30 天删除原图。',
     search: '搜索姓名、邮箱、法定姓名或记录编号…',
-    cards: { all: 'KYC 记录', pending: '待审核', verified: '已通过', rejected: '已驳回', reset: '已重置' },
+    cards: { all: 'KYC 记录', pending: '待审核', verified: '已通过', rejected: '已驳回', reset: '待重新验证' },
     filters: { status: '状态', period: '时间', sort: '排序' },
     allStatuses: '全部状态',
     columns: { applicant: '申请人', submission: '提交信息', status: '审核状态', submitted: '提交时间 · UTC+8', reviewer: '审核人', action: '操作' },
@@ -192,7 +192,7 @@ export const zh = {
 };
 
 export const en: Shape<typeof zh> = {
-  kycStatus: { pending: 'Pending review', verified: 'Verified', rejected: 'Rejected', reset: 'Reset' },
+  kycStatus: { pending: 'Pending review', verified: 'Verified', rejected: 'Rejected', reset: 'Reverification' },
   payoutStatus: { pending: 'Pending review', approved: 'Awaiting payment', paid: 'Paid', failed: 'Payment failed', rejected: 'Rejected' },
   errors: {
     reason: 'Enter a reason of 3–300 characters.',
@@ -213,7 +213,7 @@ export const en: Shape<typeof zh> = {
     title: 'KYC records',
     lede: 'Manual identity and tax review. Image access is time-limited and audited; originals are deleted 30 days after approval.',
     search: 'Name, email, legal name or record ID…',
-    cards: { all: 'KYC records', pending: 'Pending review', verified: 'Verified', rejected: 'Rejected', reset: 'Reset' },
+    cards: { all: 'KYC records', pending: 'Pending review', verified: 'Verified', rejected: 'Rejected', reset: 'Reverification' },
     filters: { status: 'Status', period: 'Time', sort: 'Sort' },
     allStatuses: 'All statuses',
     columns: { applicant: 'Applicant', submission: 'Submission', status: 'Status', submitted: 'Submitted · UTC+8', reviewer: 'Reviewer', action: 'Action' },

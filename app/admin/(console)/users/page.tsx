@@ -1,5 +1,6 @@
 import type { Metadata } from 'next';
 import Link from 'next/link';
+import { redirect } from 'next/navigation';
 import { csvHref, listHref, usersView, ACCOUNT_STATUSES, MEMBERSHIP_STATES, USER_KYC_STATES } from '@/lib/domain/admin-lists';
 import { USER_ROLES } from '@/lib/domain/roles';
 import { listUsers, userCounts } from '@/lib/services/admin-users';
@@ -24,6 +25,8 @@ export default async function UsersPage({ searchParams }: Props) {
   const [data, counts] = await Promise.all([listUsers(view), userCounts()]);
   const current = { ...view, page: data.page };
   const href = (changes: Record<string, string | number | null>) => listHref('/admin/users', current, changes);
+  // A page past the end (rows went away, a stale link) lands on the last page's canonical URL.
+  if (data.page !== view.page) redirect(href({}));
   const n = (value: number) => formatNumber(value, locale);
   const filtered = Boolean(view.q) || ['status', 'role', 'membership', 'kyc', 'period'].some((key) => view[key as keyof typeof view] !== 'all') || view.sort !== 'newest';
   const back = encodeURIComponent(href({}));
@@ -34,7 +37,7 @@ export default async function UsersPage({ searchParams }: Props) {
         items={[
           { label: u.cards.total, value: n(counts.total), href: listHref('/admin/users', { size: view.size }), active: !filtered, title: l.clearFilters },
           { label: u.cards.activePlans, value: n(counts.activePlans), href: href({ membership: 'active' }), active: view.membership === 'active' },
-          { label: u.cards.verified, value: n(counts.verified), href: href({ role: 'verified' }), active: view.role === 'verified' },
+          { label: u.cards.kycVerified, value: n(counts.kycVerified), href: href({ kyc: 'verified' }), active: view.kyc === 'verified' },
           { label: u.cards.disabled, value: n(counts.disabled), href: href({ status: 'disabled' }), active: view.status === 'disabled' },
         ]}
       />
@@ -57,6 +60,7 @@ export default async function UsersPage({ searchParams }: Props) {
         />
         <ResultsLine t={t} total={data.total} page={data.page} size={data.size} exportHref={csvHref('/api/admin/users', view)} />
         <RecordsTable
+          actions
           label={l.tableRegion}
           empty={l.empty}
           head={[u.columns.user, u.columns.role, u.columns.status, u.columns.credits, u.columns.kyc, u.columns.joined, u.columns.action]}
