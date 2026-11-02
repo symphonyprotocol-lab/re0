@@ -178,6 +178,11 @@ export function KnowledgeManager({ reeId }: { reeId: string }) {
   const pageSelected = page.length > 0 && page.every((item) => selected.has(item.id));
   const somePageSelected = page.some((item) => selected.has(item.id));
   const selectedItems = useMemo(() => [...selected.values()], [selected]);
+  const selectPage = (checked: boolean) => {
+    const next = new Map(selected);
+    for (const item of page) checked ? next.set(item.id, actionItem(item)) : next.delete(item.id);
+    setSelected(next);
+  };
   const selectAllMatching = async () => {
     setSelectingAll(true);
     const params = new URLSearchParams(searchKey);
@@ -383,6 +388,9 @@ export function KnowledgeManager({ reeId }: { reeId: string }) {
           <section className="card mt-4 overflow-hidden">
             <div className={`flex flex-wrap items-center justify-between gap-2 border-b border-line px-4 py-2.5 text-[12px] ${selected.size ? 'bg-soft' : 'bg-wash'}`}>
               <div className="flex min-w-0 items-center gap-2">
+                {page.length > 0 && (
+                  <input type="checkbox" className="xl:hidden" aria-label={k.selection.selectPage} checked={pageSelected} onChange={(event) => selectPage(event.target.checked)} />
+                )}
                 <Icon name={selected.size ? 'check' : 'info'} className="size-4 flex-none text-blue" />
                 <span>{selected.size ? fill(k.selection.count, { n: n(selected.size) }) : k.selection.hint}</span>
                 {selected.size > 0 && (
@@ -459,7 +467,7 @@ export function KnowledgeManager({ reeId }: { reeId: string }) {
               </div>
             ) : (
               <table className="w-full table-fixed text-left text-[12px]">
-                <thead className="hidden border-b border-line bg-wash text-[11px] text-muted md:table-header-group">
+                <thead className="hidden border-b border-line bg-wash text-[11px] text-muted xl:table-header-group">
                   <tr>
                     <th className="w-10 py-3 pl-4">
                       <input
@@ -469,25 +477,21 @@ export function KnowledgeManager({ reeId }: { reeId: string }) {
                         ref={(input) => {
                           if (input) input.indeterminate = somePageSelected && !pageSelected;
                         }}
-                        onChange={(event) => {
-                          const next = new Map(selected);
-                          for (const item of page) event.target.checked ? next.set(item.id, actionItem(item)) : next.delete(item.id);
-                          setSelected(next);
-                        }}
+                        onChange={(event) => selectPage(event.target.checked)}
                       />
                     </th>
                     <th className="px-3 py-3 font-semibold">{k.columns.name}</th>
-                    <th className="w-[130px] px-3 py-3 font-semibold">{k.columns.status}</th>
-                    <th className="w-[110px] px-3 py-3 font-semibold">{k.columns.enabled}</th>
-                    <th className="hidden w-[120px] px-3 py-3 font-semibold lg:table-cell">{k.columns.size}</th>
-                    <th className="hidden w-[130px] px-3 py-3 font-semibold xl:table-cell">{k.columns.updated}</th>
-                    <th className="w-[120px] px-3 py-3 font-semibold">{k.columns.actions}</th>
+                    <th className="w-[120px] px-3 py-3 font-semibold">{k.columns.status}</th>
+                    <th className="w-[104px] px-3 py-3 font-semibold">{k.columns.enabled}</th>
+                    <th className="w-[110px] px-3 py-3 font-semibold">{k.columns.size}</th>
+                    <th className="hidden w-[130px] px-3 py-3 font-semibold 2xl:table-cell">{k.columns.updated}</th>
+                    <th className="w-[112px] px-3 py-3 font-semibold">{k.columns.actions}</th>
                   </tr>
                 </thead>
                 <tbody className="divide-y divide-line">
                   {data.items.map((item) => (
-                    <tr key={item.id} className={`flex flex-wrap items-center gap-x-3 gap-y-2 px-4 py-3 md:table-row md:p-0 ${selected.has(item.id) ? 'bg-[#f7faff]' : ''}`}>
-                      <td className="md:py-3 md:pl-4">
+                    <tr key={item.id} className={`flex flex-wrap items-center gap-x-3 gap-y-2 px-4 py-3 xl:table-row xl:p-0 ${selected.has(item.id) ? 'bg-[#f7faff]' : ''}`}>
+                      <td className="xl:py-3 xl:pl-4">
                         <input
                           type="checkbox"
                           aria-label={fill(k.selection.select, { title: item.title })}
@@ -499,7 +503,7 @@ export function KnowledgeManager({ reeId }: { reeId: string }) {
                           }}
                         />
                       </td>
-                      <td className="w-[calc(100%-40px)] min-w-0 md:w-auto md:px-3 md:py-3">
+                      <td className="w-[calc(100%-40px)] min-w-0 xl:w-auto xl:px-3 xl:py-3">
                         <div className="flex min-w-0 items-center gap-3">
                           <span className="inline-flex size-9 flex-none items-center justify-center rounded-lg bg-soft text-blue">
                             <Icon name={KIND_ICONS[item.kind]} />
@@ -523,11 +527,11 @@ export function KnowledgeManager({ reeId }: { reeId: string }) {
                           </span>
                         </div>
                       </td>
-                      <td className="md:px-3">
+                      <td className="xl:px-3">
                         <StatusBadge status={item.status} />
                         {item.status === 'failed' && <small className="mt-1 block text-red">{failureLabel(t, item.error)}</small>}
                       </td>
-                      <td className="md:px-3">
+                      <td className="xl:px-3">
                         {query.trash ? (
                           <span className="text-muted">—</span>
                         ) : (
@@ -537,12 +541,12 @@ export function KnowledgeManager({ reeId }: { reeId: string }) {
                           </span>
                         )}
                       </td>
-                      <td className="hidden text-muted md:px-3 lg:table-cell">
+                      <td className="hidden text-muted xl:table-cell xl:px-3">
                         <span className="block">{scale(item)}</span>
                         <span className="block">{fill(k.scale.chunks, { n: n(item.chunks) })}</span>
                       </td>
-                      <td className="hidden text-muted md:px-3 xl:table-cell">{formatDateTime(item.updatedAt, locale)}</td>
-                      <td className="ml-auto md:ml-0 md:px-3">
+                      <td className="hidden text-muted xl:px-3 2xl:table-cell">{formatDateTime(item.updatedAt, locale)}</td>
+                      <td className="ml-auto xl:ml-0 xl:px-3">
                         <div className="flex gap-1">
                           <Link className="btn-ghost" href={`/rees/${reeId}/knowledge/${item.id}?${libraryParams({ ...query, preview: null }).toString()}`}>
                             <Icon name="external" className="size-3.5" />

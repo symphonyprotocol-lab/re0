@@ -179,25 +179,38 @@ export function audioPieces(bytes: Uint8Array, format: AudioFormat, limit = TRAN
 
 /* -------------------------------------------------------------- transcribe */
 
+/** Pieces transcribed at once: a 100 MB file is five calls, and they must fit the function's time. */
+const PARALLEL_PIECES = 3;
+
 export async function transcribeAudio(bytes: Uint8Array, format: AudioFormat): Promise<Transcript> {
   const endpoint = await endpointFor('transcription');
   const model = transcriptionModel(endpoint);
+  const pieces = audioPieces(bytes, format);
+  const results: Awaited<ReturnType<typeof transcribe>>[] = new Array(pieces.length);
+  let next = 0;
+  const worker = async (): Promise<void> => {
+    for (let index = next++; index < pieces.length; index = next++) {
+      try {
+        results[index] = await transcribe({
+          model,
+          audio: pieces[index]!.bytes,
+          maxRetries: 2,
+          abortSignal: AbortSignal.timeout(Math.max(endpoint.timeoutMs, 120_000)),
+        });
+      } catch (error) {
+        if (error instanceof ProcessingFailure) throw error;
+        throw new ProcessingFailure('transcription_unavailable', error instanceof Error ? error.message : 'transcription failed');
+      }
+    }
+  };
+  await Promise.all(Array.from({ length: Math.min(PARALLEL_PIECES, pieces.length) }, worker));
+
+  /* Stitched in order: each piece's timestamps start where the pieces before it end. */
   const segments: TranscriptSegment[] = [];
   let offset = 0;
   let language: string | null = null;
-  for (const piece of audioPieces(bytes, format)) {
-    let result;
-    try {
-      result = await transcribe({
-        model,
-        audio: piece.bytes,
-        maxRetries: 2,
-        abortSignal: AbortSignal.timeout(Math.max(endpoint.timeoutMs, 120_000)),
-      });
-    } catch (error) {
-      if (error instanceof ProcessingFailure) throw error;
-      throw new ProcessingFailure('transcription_unavailable', error instanceof Error ? error.message : 'transcription failed');
-    }
+  pieces.forEach((piece, index) => {
+    const result = results[index]!;
     language ??= result.language ?? null;
     for (const segment of result.segments) {
       const text = segment.text.trim();
@@ -207,6 +220,6 @@ export async function transcribeAudio(bytes: Uint8Array, format: AudioFormat): P
       segments.push({ start: offset, end: offset + (result.durationInSeconds ?? 0), text: result.text.trim() });
     }
     offset += piece.seconds ?? result.durationInSeconds ?? result.segments.at(-1)?.endSecond ?? 0;
-  }
+  });
   return { segments, durationSeconds: offset, language };
 }

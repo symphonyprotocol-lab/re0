@@ -120,9 +120,10 @@ export function SetupWizard({ initialDraft }: { initialDraft: ReeDraft }) {
     }
     setBusy(false);
     const code = result.data.error ?? '';
+    /* Back to the step at fault first: moving clears the message, so it is shown after. */
+    if (result.data.step && result.data.step < 4) await goTo(result.data.step);
     if (result.status === 402) setError(t.reeSetup.messages.insufficient);
     else showError(code);
-    if (result.data.step && result.data.step < 4) await goTo(result.data.step);
   };
 
   const exit = async () => {

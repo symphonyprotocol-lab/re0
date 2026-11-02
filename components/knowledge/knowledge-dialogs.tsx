@@ -51,7 +51,7 @@ export function SelectionReview({ items }: { items: ActionItem[] }) {
           <span className="truncate">{item.title}</span>
         </p>
       ))}
-      {items.length > 5 && <small className="text-muted">{fill(t.knowledge.selection.andMore, { n: items.length - 5 })}</small>}
+      {items.length > 5 && <small className="text-muted">{fill(t.knowledge.selection.andMore, { n: items.length - 5, total: items.length })}</small>}
     </div>
   );
 }

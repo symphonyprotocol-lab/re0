@@ -116,6 +116,8 @@ export function KnowledgePreview({
   const contentRef = useRef<HTMLDivElement>(null);
   const audioRef = useRef<HTMLAudioElement>(null);
   const seeded = useRef(false);
+  /* A seek asked for before the audio's metadata arrived; applied when it does. */
+  const pendingSeek = useRef<number | null>(null);
 
   const load = useCallback(async () => {
     const result = await api<{ knowledge: KnowledgeDetail }>(`/api/rees/${reeId}/knowledge/${knowledgeId}`);
@@ -164,7 +166,8 @@ export function KnowledgePreview({
     if (seeded.current || !detail || detail.kind !== 'audio' || initialTime == null) return;
     seeded.current = true;
     const audio = audioRef.current;
-    if (audio) audio.currentTime = initialTime;
+    if (audio && audio.readyState >= 1) audio.currentTime = initialTime;
+    else pendingSeek.current = initialTime;
     contentRef.current?.querySelector(`[data-time="${segmentAt(detail.children, initialTime)}"]`)?.scrollIntoView({ block: 'center' });
   }, [detail, initialTime]);
 
@@ -298,7 +301,7 @@ export function KnowledgePreview({
     const page = Math.min(childPage, pages);
     const selected = detail.children[Math.min(child, detail.children.length - 1)];
     body = (
-      <div className="grid grid-cols-1 gap-4 md:grid-cols-[240px_minmax(0,1fr)]">
+      <div className={`grid grid-cols-1 gap-4 ${layout === 'page' ? 'md:grid-cols-[220px_minmax(0,1fr)]' : 'sm:grid-cols-[200px_minmax(0,1fr)]'}`}>
         <aside className="flex min-w-0 flex-col gap-2">
           <div className="flex items-center gap-2 text-[12px] font-semibold">
             <Icon name={detail.kind === 'site' ? 'globe' : 'github'} className="size-4 text-blue" />
@@ -395,7 +398,13 @@ export function KnowledgePreview({
             </small>
           </div>
         </div>
-        <audio ref={audioRef} controls preload="metadata" src={fileUrl} className="w-full" aria-label={k.audio.player} onTimeUpdate={(event) => setActiveTime(event.currentTarget.currentTime)} />
+        <audio ref={audioRef} controls preload="metadata" src={fileUrl} className="w-full" aria-label={k.audio.player} onTimeUpdate={(event) => setActiveTime(event.currentTarget.currentTime)}
+          onLoadedMetadata={(event) => {
+            if (pendingSeek.current === null) return;
+            event.currentTarget.currentTime = pendingSeek.current;
+            pendingSeek.current = null;
+          }}
+        />
         <div className="flex flex-col gap-2">
           {detail.children.map((segment) => (
             <div key={segment.offset} data-time={segment.time} className={`flex gap-3 rounded-lg px-2 py-1.5 ${current === segment.time ? 'bg-soft' : ''}`}>
@@ -405,10 +414,9 @@ export function KnowledgePreview({
                 aria-label={fill(k.audio.seek, { time: clock(segment.time ?? 0) })}
                 onClick={() => {
                   const audio = audioRef.current;
-                  if (audio) {
-                    audio.currentTime = segment.time ?? 0;
-                    void audio.play().catch(() => undefined);
-                  }
+                  if (audio && audio.readyState >= 1) audio.currentTime = segment.time ?? 0;
+                  else pendingSeek.current = segment.time ?? 0;
+                  void audio?.play().catch(() => undefined);
                   setActiveTime(segment.time ?? 0);
                 }}
               >
@@ -425,7 +433,7 @@ export function KnowledgePreview({
   }
 
   const details = (
-    <aside className={`flex min-w-0 flex-col gap-4 ${layout === 'page' ? 'lg:border-l lg:border-line lg:pl-6' : 'border-t border-line pt-4'}`}>
+    <aside className={`flex min-w-0 flex-col gap-4 ${layout === 'page' ? 'border-t border-line pt-4 xl:border-t-0 xl:border-l xl:pt-0 xl:pl-6' : 'border-t border-line pt-4'}`}>
       <div className="flex items-center justify-between gap-2">
         <h3 className="text-[14px] font-bold">{k.details.title}</h3>
         <StatusBadge status={detail.status} />
@@ -582,7 +590,7 @@ export function KnowledgePreview({
           </div>
         )}
       </div>
-      <div className={layout === 'page' ? 'grid grid-cols-1 gap-6 lg:grid-cols-[minmax(0,1fr)_300px]' : 'flex flex-col gap-4'}>
+      <div className={layout === 'page' ? 'grid grid-cols-1 gap-6 xl:grid-cols-[minmax(0,1fr)_300px]' : 'flex flex-col gap-4'}>
         <div ref={contentRef} className="min-h-[240px] min-w-0">
           {body}
         </div>

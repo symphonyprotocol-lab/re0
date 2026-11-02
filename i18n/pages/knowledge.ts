@@ -68,7 +68,7 @@ export const zh = {
     enable: '恢复回答',
     trash: '移到回收站',
     restore: '恢复所选',
-    andMore: '等 {n} 个来源',
+    andMore: '等 {total} 个来源',
   },
   confirm: {
     pauseTitle: '暂停所选来源参与回答？',

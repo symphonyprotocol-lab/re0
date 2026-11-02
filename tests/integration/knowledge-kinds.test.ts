@@ -13,7 +13,7 @@
 import { afterAll, beforeAll, describe, expect, it, vi } from 'vitest';
 import { pointModelsAt, TEST_DATABASE_URL, uniqueName } from './setup';
 import { asc, eq } from 'drizzle-orm';
-import { FAKE_AUDIO_BYTES_PER_SECOND, startFakeOpenAi, type FakeOpenAi } from '../fixtures/fake-openai';
+import { FAKE_AUDIO_BYTES_PER_SECOND, fakeMp3, startFakeOpenAi, type FakeOpenAi } from '../fixtures/fake-openai';
 import { authorization, html, jsonResponse, startFakeWeb, text, type FakeWeb } from '../fixtures/fake-web';
 
 const blobs = vi.hoisted(() => new Map<string, Uint8Array>());
@@ -246,13 +246,6 @@ describeWithDb('pages and websites', () => {
 
 /* ------------------------------------------------------------------- audio */
 
-/** An MP3-shaped buffer: back-to-back MPEG-1 Layer III frames (128 kbps, 44.1 kHz, 417 bytes each). */
-function fakeMp3(bytes: number): Uint8Array {
-  const out = new Uint8Array(bytes);
-  for (let at = 0; at + 4 <= bytes; at += 417) out.set([0xff, 0xfb, 0x90, 0x64], at);
-  return out;
-}
-
 describeWithDb('audio', () => {
   it('transcribes 100 MB in pieces and cites "第 12:34"', async () => {
     const size = 100 * 1024 * 1024;
@@ -261,8 +254,8 @@ describeWithDb('audio', () => {
     blobs.set(path, fakeMp3(size));
     fake.transcripts.clear();
     const calls = fake.requests.filter((request) => request.path.endsWith('/audio/transcriptions')).length;
-    fake.transcripts.set(`${calls}:2`, 'The lighthouse keeper records the tide tables at dawn.');
-    fake.transcripts.set(`${calls + 1}:1`, 'The ferry timetable changes every winter.');
+    fake.transcripts.set('0:2', 'The lighthouse keeper records the tide tables at dawn.');
+    fake.transcripts.set('1:1', 'The ferry timetable changes every winter.');
 
     expect(await refusal(knowledge.addKnowledge(userId, ree, { kind: 'audio', blobPath: path, fileName: 'interview.mp3', consent: false }))).toBe('consent_required');
     const before = await balanceOf(db(), userId);

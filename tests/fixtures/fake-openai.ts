@@ -6,7 +6,7 @@
  * `/audio/transcriptions` answers verbose JSON whose duration is the upload's
  * size at 128 kbps, with a segment every 377 seconds (so the third starts at
  * 12:34); `transcripts` sets the text of particular segments, keyed
- * `call:segment`.
+ * `piece:segment` (a `fakeMp3` piece's own index, else the call's number).
  */
 import { createServer, type Server } from 'node:http';
 import { searchTerms } from '@/lib/domain/retrieval';
@@ -14,7 +14,7 @@ import { searchTerms } from '@/lib/domain/retrieval';
 export interface FakeOpenAi {
   baseUrl: string;
   requests: { path: string; model: string }[];
-  /** Text for transcript segments, keyed `call:segment` (both from 0). */
+  /** Text for transcript segments, keyed `piece:segment` (both from 0). */
   transcripts: Map<string, string>;
   close(): Promise<void>;
 }
@@ -22,6 +22,18 @@ export interface FakeOpenAi {
 /** 128 kbps: what the fake takes an upload's duration to be. */
 export const FAKE_AUDIO_BYTES_PER_SECOND = 16_000;
 export const FAKE_SEGMENT_SECONDS = 377;
+
+/**
+ * An MP3-shaped buffer: back-to-back MPEG-1 Layer III frames (128 kbps,
+ * 44.1 kHz, 417 bytes each). Each frame carries, right after its header, the
+ * index of the transcription piece it lands in, so the fake can tell pieces
+ * apart however the calls interleave.
+ */
+export function fakeMp3(bytes: number, pieceBytes = 24 * 1024 * 1024): Uint8Array {
+  const out = new Uint8Array(bytes);
+  for (let at = 0; at + 5 <= bytes; at += 417) out.set([0xff, 0xfb, 0x90, 0x64, Math.min(255, Math.round(at / (pieceBytes - 4096)))], at);
+  return out;
+}
 
 function vectorOf(text: string): number[] {
   const vector = new Array<number>(1536).fill(0);
@@ -34,7 +46,7 @@ function vectorOf(text: string): number[] {
   return vector.map((value) => value / norm);
 }
 
-export async function startFakeOpenAi(): Promise<FakeOpenAi> {
+export async function startFakeOpenAi(port = 0): Promise<FakeOpenAi> {
   const requests: FakeOpenAi['requests'] = [];
   const transcripts = new Map<string, string>();
   let transcriptionCalls = 0;
@@ -43,7 +55,10 @@ export async function startFakeOpenAi(): Promise<FakeOpenAi> {
     for await (const chunk of req) parts.push(chunk as Buffer);
     const bytes = Buffer.concat(parts);
     if (req.url?.endsWith('/audio/transcriptions')) {
-      const call = transcriptionCalls++;
+      const counted = transcriptionCalls++;
+      /* An MP3 piece from `fakeMp3` names itself in the byte after its first frame header; anything else is numbered by arrival. */
+      const fileStart = bytes.indexOf('\r\n\r\n', bytes.indexOf('filename=')) + 4;
+      const call = bytes[fileStart] === 0xff && bytes[fileStart + 4] !== undefined ? bytes[fileStart + 4]! : counted;
       requests.push({ path: req.url, model: /name="model"\r\n\r\n([^\r]+)/.exec(bytes.subarray(-4096).toString('latin1'))?.[1] ?? '' });
       const duration = bytes.length / FAKE_AUDIO_BYTES_PER_SECOND;
       const segments = [];
@@ -80,7 +95,7 @@ export async function startFakeOpenAi(): Promise<FakeOpenAi> {
     }
     res.writeHead(404).end();
   });
-  await new Promise<void>((resolve) => server.listen(0, '127.0.0.1', resolve));
+  await new Promise<void>((resolve) => server.listen(port, '127.0.0.1', resolve));
   const address = server.address() as { port: number };
   return {
     baseUrl: `http://127.0.0.1:${address.port}/v1`,
