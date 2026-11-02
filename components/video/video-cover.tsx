@@ -113,8 +113,25 @@ export function IntroDialog({ open, onClose, video, name, href, linkLabel }: { o
   );
 }
 
-/** A round play button over a cover; it opens the dialog. Lives beside the cover's link, never inside it. */
-export function PlayIntroButton({ video, name, href, linkLabel, className = '' }: { video: IntroProps; name: string; href: string; linkLabel: string; className?: string }) {
+/**
+ * A round play button over a cover; it opens the dialog. Lives beside the cover's link, never inside it.
+ * `label` with a full `className` replaces the pill (the home page's "15s", prototype `home-dot-card`).
+ */
+export function PlayIntroButton({
+  video,
+  name,
+  href,
+  linkLabel,
+  className = '',
+  label,
+}: {
+  video: IntroProps;
+  name: string;
+  href: string;
+  linkLabel: string;
+  className?: string;
+  label?: string;
+}) {
   const { t } = useI18n();
   const [open, setOpen] = useState(false);
   return (
@@ -123,10 +140,14 @@ export function PlayIntroButton({ video, name, href, linkLabel, className = '' }
         type="button"
         onClick={() => setOpen(true)}
         aria-label={fill(t.video.card.playLabel, { name })}
-        className={`inline-flex items-center gap-1.5 rounded-full bg-white/95 px-3 py-1.5 text-[11px] font-semibold text-ink shadow-md ring-1 ring-black/5 transition hover:bg-blue hover:text-white ${className}`}
+        className={
+          label
+            ? className
+            : `inline-flex items-center gap-1.5 rounded-full bg-white/95 px-3 py-1.5 text-[11px] font-semibold text-ink shadow-md ring-1 ring-black/5 transition hover:bg-blue hover:text-white ${className}`
+        }
       >
         <Icon name="play" className="size-3.5" />
-        {t.video.card.watch}
+        {label ?? t.video.card.watch}
       </button>
       {open && <IntroDialog open={open} onClose={() => setOpen(false)} video={video} name={name} href={href} linkLabel={linkLabel} />}
     </>

@@ -1,38 +1,23 @@
 'use client';
 
+import Link from 'next/link';
 import { useEffect, useRef, useState } from 'react';
 import { useI18n } from '@/i18n/client';
 import { Icon, type IconName } from '@/components/ui/icons';
+import { Modal } from '@/components/ui/modal';
 import { ReeAvatar } from '@/components/ui/ree-avatar';
 
 type QuestionId = 'q1' | 'q2' | 'q3';
 const QUESTIONS: QuestionId[] = ['q1', 'q2', 'q3'];
-const ASK_EVENT = 're0:home-demo';
-
-/** The hero's "看看它如何回答": asks the demo its first question again. */
-export function DemoTrigger({ label }: { label: string }) {
-  return (
-    <button
-      type="button"
-      className="btn-secondary min-h-12 px-5 text-[14px]"
-      onClick={() => {
-        document.getElementById('home-demo')?.scrollIntoView({ behavior: 'smooth', block: 'center' });
-        window.dispatchEvent(new CustomEvent(ASK_EVENT, { detail: 'q1' }));
-      }}
-    >
-      <Icon name="play" />
-      {label}
-    </button>
-  );
-}
 
 /**
- * The home page's question-and-answer example (prototype suite.js
- * `demoVisual`): a Ree with four sources; pick a question and it answers
- * with a citation you can open, or says it does not know and charges nothing.
- * Scripted, no model call.
+ * The question-and-answer window (prototype suite.js `demoVisual`): a Ree with
+ * four sources answering with a citation. On the page it shows the first
+ * answer and its citation opens the source (prototype `home-citation`); in the
+ * dialog you pick a question and it answers, or says it does not know and
+ * charges nothing. Scripted, no model call.
  */
-export function HomeDemo() {
+function DemoWindow({ interactive = false }: { interactive?: boolean }) {
   const { t } = useI18n();
   const d = t.site.demo;
   const [question, setQuestion] = useState<QuestionId>('q1');
@@ -67,13 +52,11 @@ export function HomeDemo() {
   const askRef = useRef(ask);
   askRef.current = ask;
   useEffect(() => {
-    const listener = (event: Event) => askRef.current(((event as CustomEvent).detail as QuestionId) ?? 'q1');
-    window.addEventListener(ASK_EVENT, listener);
+    if (interactive) askRef.current('q1');
     return () => {
-      window.removeEventListener(ASK_EVENT, listener);
       if (timer.current) clearInterval(timer.current);
     };
-  }, []);
+  }, [interactive]);
 
   const typing = shown !== Number.POSITIVE_INFINITY;
   const sources: [IconName, keyof typeof d.sources][] = [
@@ -82,106 +65,149 @@ export function HomeDemo() {
     ['audio', 'audio'],
     ['globe', 'site'],
   ];
+  const cite = question === 'q3' ? null : d[question].cite;
 
   return (
-    <div id="home-demo" className="relative min-w-0" aria-label={d.label} role="region">
-      <div className="overflow-hidden rounded-2xl border border-[#dfe5f2] bg-white shadow-[0_24px_60px_-28px_rgba(9,17,53,0.35)]">
-        <div className="flex items-center gap-3 border-b border-line bg-[#fbfaff] px-4 py-2.5 text-[11px] text-muted">
-          <span className="flex gap-1.5" aria-hidden="true">
-            <i className="size-2 rounded-full bg-[#e2e6f0]" />
-            <i className="size-2 rounded-full bg-[#e2e6f0]" />
-            <i className="size-2 rounded-full bg-[#e2e6f0]" />
+    <>
+      <div className="hero-demo" role="region" aria-label={d.label}>
+        <div className="demo-window-head">
+          <span aria-hidden="true">
+            <i />
+            <i />
+            <i />
           </span>
-          <span className="min-w-0 flex-1 truncate font-mono">{d.path}</span>
-          <Icon name="shield" className="size-3.5" />
+          <span>{d.path}</span>
+          <Icon name="shield" />
         </div>
-        <div className="grid sm:grid-cols-[190px_minmax(0,1fr)]">
-          <div className="hidden flex-col gap-2 border-r border-line bg-wash p-3 sm:flex">
-            <p className="eyebrow px-1">{d.knowledge}</p>
+        <div className="demo-window-body">
+          <div className="demo-source-panel">
+            <p className="eyebrow">KNOWLEDGE</p>
             {sources.map(([icon, key]) => (
-              <div key={key} className="flex items-center gap-2 rounded-lg border border-line bg-white px-2.5 py-2">
-                <Icon name={icon} className="size-4 flex-none text-blue" />
-                <span className="min-w-0 flex-1">
-                  <strong className="block truncate text-[11px]">{d.sources[key].name}</strong>
-                  <small className="text-[10px] text-muted">{d.sources[key].note}</small>
-                </span>
-                <span className="size-1.5 flex-none rounded-full bg-green" aria-hidden="true" />
+              <div key={key} className="demo-source">
+                <Icon name={icon} />
+                <div>
+                  <strong>{d.sources[key].name}</strong>
+                  <small>{d.sources[key].note}</small>
+                </div>
+                <span className="dot" aria-hidden="true" />
               </div>
             ))}
-            <p className="mt-auto flex items-center gap-1.5 px-1 text-[10px] text-muted">
-              <Icon name="plus" className="size-3" />
-              {d.more}
-            </p>
+            <div className="demo-add">
+              <Icon name="plus" /> {d.more}
+            </div>
           </div>
-          <div className="flex min-h-[340px] min-w-0 flex-col p-4">
-            <div className="flex items-center gap-2.5">
-              <ReeAvatar size="sm" />
-              <span className="min-w-0 flex-1">
-                <strong className="block text-[13px]">{d.ree}</strong>
-                <small className="text-[11px] text-green">{d.ready}</small>
+          <div className="demo-conversation" aria-live={interactive ? 'polite' : undefined}>
+            <div className="demo-ree">
+              <ReeAvatar size="sm" className="dot-avatar sm" />
+              <span>
+                {d.ree}
+                <small>{d.ready}</small>
               </span>
+              <span className="demo-online" aria-hidden="true" />
             </div>
-            <div className="mt-4 flex flex-1 flex-col gap-3" aria-live="polite">
-              <p className="ml-auto max-w-[85%] rounded-2xl rounded-br-md bg-blue px-3.5 py-2 text-[13px] text-white">{d[question].question}</p>
-              {question === 'q3' ? (
-                <div className="max-w-[92%] rounded-2xl rounded-bl-md border border-dashed border-[#d5dbe8] bg-wash px-3.5 py-3 text-[13px]">
-                  <strong className="flex items-center gap-1.5">
-                    <Icon name="info" className="size-4 text-muted" />
-                    {d.noAnswer}
-                  </strong>
-                  <p className="mt-1 text-[12px] text-muted">{d.noAnswerNote}</p>
-                  <span className="tag mt-2">{d.free}</span>
-                </div>
-              ) : (
-                <div className="max-w-[92%] rounded-2xl rounded-bl-md border border-line bg-white px-3.5 py-3 text-[13px] leading-relaxed">
-                  <p>
-                    {typing ? answerText.slice(0, shown) : answerText}
-                    {typing ? <span className="ml-0.5 inline-block h-3.5 w-1.5 animate-pulse bg-blue align-middle" aria-hidden="true" /> : <sup className="ml-0.5 font-mono text-blue">1</sup>}
-                  </p>
-                  {!typing && (
-                    <>
-                      <button
-                        type="button"
-                        aria-expanded={citation}
-                        onClick={() => setCitation((value) => !value)}
-                        className="mt-2.5 inline-flex max-w-full items-center gap-1.5 rounded-full border border-[#d8e6fb] bg-soft px-2.5 py-1 text-[11px] font-semibold text-blue hover:border-blue"
-                      >
-                        <Icon name="file" className="size-3.5 flex-none" />
-                        <span className="truncate">1 · {d[question].cite}</span>
-                        <Icon name={citation ? 'chevronDown' : 'chevronRight'} className="size-3 flex-none" />
-                      </button>
-                      {citation && <blockquote className="mt-2 border-l-2 border-blue bg-wash px-3 py-2 text-[12px] text-[#3b4361]">{d[question].excerpt}</blockquote>}
-                      <span className="tag mt-2.5">{d.charged}</span>
-                    </>
-                  )}
-                </div>
-              )}
-            </div>
-            <div className="mt-4 border-t border-line pt-3">
-              <p className="mb-2 text-[11px] text-muted">{d.pick}</p>
-              <div className="flex flex-wrap gap-2">
-                {QUESTIONS.map((id) => (
-                  <button
-                    key={id}
-                    type="button"
-                    onClick={() => ask(id)}
-                    aria-pressed={question === id}
-                    className={`rounded-full border px-3 py-1.5 text-left text-[12px] transition ${
-                      question === id ? 'border-blue bg-soft text-blue' : 'border-line bg-white text-ink hover:border-[#c4cce0]'
-                    }`}
-                  >
-                    {d[id].question}
-                  </button>
-                ))}
+            <div className="demo-user">{d[question].question}</div>
+            {question === 'q3' ? (
+              <div className="demo-answer">
+                <span className="demo-answer-icon">
+                  <Icon name="info" />
+                </span>
+                <p>
+                  {d.noAnswer}
+                  {'\n'}
+                  {d.noAnswerNote}
+                </p>
+                <span className="tag demo-charge">{d.free}</span>
               </div>
+            ) : (
+              <div className="demo-answer">
+                <span className="demo-answer-icon">
+                  <Icon name="sparkle" />
+                </span>
+                <p>
+                  {typing ? answerText.slice(0, shown) : answerText} {!typing && <sup>1</sup>}
+                </p>
+                {!typing && (
+                  <>
+                    <button
+                      type="button"
+                      className="citation-chip"
+                      aria-expanded={interactive ? citation : undefined}
+                      onClick={() => setCitation((value) => !value)}
+                    >
+                      <Icon name="file" /> 1 · {cite} <Icon name="external" />
+                    </button>
+                    {interactive && citation && <blockquote className="citation-preview">{d[question as 'q1' | 'q2'].excerpt}</blockquote>}
+                    {interactive && <span className="tag demo-charge">{d.charged}</span>}
+                  </>
+                )}
+              </div>
+            )}
+            <div className="demo-compose">
+              {d.compose}
+              <span>
+                <Icon name="arrow" className="-rotate-90" />
+              </span>
             </div>
           </div>
         </div>
+        <div className="demo-float-label">
+          <Icon name="file" />
+          {d.float}
+        </div>
       </div>
-      <div className="absolute -bottom-4 left-4 hidden items-center gap-2 rounded-full border border-line bg-white px-3 py-1.5 text-[11px] font-semibold shadow-md sm:flex">
-        <Icon name="file" className="size-3.5 text-blue" />
-        {d.float}
-      </div>
-    </div>
+      {interactive ? (
+        <div className="demo-picks">
+          <p>{d.pick}</p>
+          <div>
+            {QUESTIONS.map((id) => (
+              <button key={id} type="button" onClick={() => ask(id)} aria-pressed={question === id}>
+                {d[id].question}
+              </button>
+            ))}
+          </div>
+        </div>
+      ) : (
+        <Modal open={citation} onClose={() => setCitation(false)} title={d.sourceTitle} subtitle={d.q1.cite}>
+          <div className="citation-preview">{d.q1.excerpt}</div>
+        </Modal>
+      )}
+    </>
+  );
+}
+
+/** The hero's question-and-answer window. */
+export function HomeDemo() {
+  return <DemoWindow />;
+}
+
+/** The hero's "看看它如何回答" (prototype `home-demo`): the same window in a dialog, where you pick the question. */
+export function DemoTrigger({ label }: { label: string }) {
+  const { t } = useI18n();
+  const d = t.site.demo;
+  const [open, setOpen] = useState(false);
+  return (
+    <>
+      <button type="button" className="btn secondary large" onClick={() => setOpen(true)}>
+        <Icon name="play" />
+        {label}
+      </button>
+      <Modal
+        open={open}
+        onClose={() => setOpen(false)}
+        title={d.dialogTitle}
+        subtitle={d.dialogNote}
+        wide
+        footer={
+          <Link href="/explore" className="btn">
+            {d.explore}
+            <Icon name="arrow" />
+          </Link>
+        }
+      >
+        <div className="home-demo-modal">
+          <DemoWindow interactive />
+        </div>
+      </Modal>
+    </>
   );
 }
