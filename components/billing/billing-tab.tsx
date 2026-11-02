@@ -14,7 +14,8 @@ import { PayoutCard } from '@/components/payouts/payout-card';
 /**
  * `/settings?tab=billing` (prototype app.js `billing`): total balance, the
  * welcome strip, Plan / Pack / earned balances, the Plan and Pack cards with
- * renewal control, the ledger, and (step 6) the payout card.
+ * renewal control, the ledger, and (step 6) the payout card. Official
+ * accounts get no earned card and no income in the ledger.
  */
 export async function BillingTab({ userId, query }: { userId: string; query: Record<string, string | undefined> }) {
   const { t, locale } = await serverMessages();
@@ -48,7 +49,7 @@ export async function BillingTab({ userId, query }: { userId: string; query: Rec
           {fill(b.debt, { n: n(summary.debt) })}
         </p>
       )}
-      <div className="grid gap-4 md:grid-cols-3">
+      <div className={`grid gap-4 ${summary.official ? 'md:grid-cols-2' : 'md:grid-cols-3'}`}>
         <BalanceCard
           label={b.planBalance.label}
           tag={<span className={`tag ${plan.active ? 'border-[#d8e6fb] bg-soft text-blue' : ''}`}>{plan.active ? b.planBalance.monthly : b.planBalance.inactive}</span>}
@@ -56,7 +57,9 @@ export async function BillingTab({ userId, query }: { userId: string; query: Rec
           note={plan.active ? fill(b.planBalance.active, { date: periodEnd }) : b.planBalance.idle}
         />
         <BalanceCard label={b.packBalance.label} tag={<Icon name="layers" className="size-4 text-muted" />} value={n(summary.buckets.pack)} note={b.packBalance.note} />
-        <BalanceCard label={b.earnedBalance.label} tag={<Icon name="sparkle" className="size-4" />} value={n(summary.buckets.earned)} note={b.earnedBalance.note} dark />
+        {!summary.official && (
+          <BalanceCard label={b.earnedBalance.label} tag={<Icon name="sparkle" className="size-4" />} value={n(summary.buckets.earned)} note={b.earnedBalance.note} dark />
+        )}
       </div>
       <div className="grid gap-4 md:grid-cols-2">
         <section className={`card flex flex-col p-5 md:p-6 ${plan.active ? 'border-blue ring-1 ring-blue/40' : ''}`}>
@@ -112,7 +115,7 @@ export async function BillingTab({ userId, query }: { userId: string; query: Rec
         <Icon name="info" className="mt-0.5 size-4 flex-none text-blue" />
         {b.info}
       </p>
-      <Entries items={entries.items} total={entries.total} page={entries.page} size={entries.size} activity={listQuery.activity} />
+      <Entries items={entries.items} total={entries.total} page={entries.page} size={entries.size} activity={entries.activity} official={summary.official} />
       <h2 id="payouts" className="mt-4 scroll-mt-28 text-[17px] font-bold">
         {t.payouts.card.heading}
       </h2>

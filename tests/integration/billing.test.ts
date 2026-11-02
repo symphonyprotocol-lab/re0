@@ -473,4 +473,33 @@ describeWithDb('the ledger list', () => {
     const settle = (await billing.listEntries(userId, { activity: 'spend', page: 1, size: 20 })).items.find((item) => item.reason === 'knowledge_settle');
     expect(chargedFromNote(settle?.note)).toBe(7);
   });
+
+  it('leaves query income out for an official account, server side, so pages stay right', async () => {
+    const userId = await newUser();
+    for (let i = 0; i < 3; i += 1) {
+      const holdId = await db().transaction((tx) => placeHold(tx, { userId, kind: 'knowledge', amount: 1, refId: randomUUID() }, new Date(during.getTime() + i * 1000)));
+      await db().transaction((tx) => releaseHold(tx, holdId, {}, new Date(during.getTime() + i * 1000 + 500)));
+    }
+    await db().insert(schema.creditEntry).values(
+      ['query_fee_earned', 'query_fee_earned', 'payout_hold', 'payout_release'].map((reason, i) => ({
+        userId,
+        delta: reason === 'payout_hold' ? -50 : 50,
+        reason: reason as 'query_fee_earned' | 'payout_hold' | 'payout_release',
+        createdAt: new Date(during.getTime() + DAY + i * 1000),
+      })),
+    );
+    expect((await billing.listEntries(userId, { activity: 'all', page: 1, size: 20 })).total).toBe(11);
+    expect((await billing.listEntries(userId, { activity: 'income', page: 1, size: 20 })).total).toBe(4);
+    expect((await billing.billingSummary(userId, during)).official).toBe(false);
+
+    await db().update(schema.user).set({ role: 'official' }).where(eq(schema.user.id, userId));
+    expect((await billing.billingSummary(userId, during)).official).toBe(true);
+    const all = await billing.listEntries(userId, { activity: 'all', page: 1, size: 20 });
+    expect(all.total).toBe(7);
+    expect(all.items.some((item) => item.reason === 'query_fee_earned' || item.reason.startsWith('payout_'))).toBe(false);
+    /* The income filter falls back to everything else, and paging counts only what is shown. */
+    const income = await billing.listEntries(userId, { activity: 'income', page: 2, size: 20 });
+    expect(income).toMatchObject({ activity: 'all', total: 7, page: 1 });
+    expect((await billing.listEntries(userId, { activity: 'spend', page: 1, size: 20 })).total).toBe(6);
+  });
 });

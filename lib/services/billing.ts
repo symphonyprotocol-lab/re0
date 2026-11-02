@@ -12,7 +12,7 @@
  * renewal will (cancelled or lapsed Plans).
  */
 import { cache } from 'react';
-import { and, count, desc, eq, gt, inArray, lte, sql } from 'drizzle-orm';
+import { and, count, desc, eq, gt, inArray, lte, notInArray, sql } from 'drizzle-orm';
 import { CHECKOUT_REUSE_MS, PACK, PLAN_EXPIRY_BATCH } from '@/lib/constants';
 import {
   ACTIVITY_REASONS,
@@ -518,6 +518,8 @@ export interface BillingSummary {
   buckets: { plan: number; welcome: number; pack: number; earned: number };
   debt: number;
   plan: PlanUsage;
+  /** Official accounts see no user-side query income: no earned card, no 收入 tab or rows. */
+  official: boolean;
 }
 
 /**
@@ -560,12 +562,13 @@ export async function shellBilling(userId: string, now = new Date()): Promise<{ 
 }
 
 export async function billingSummary(userId: string, now = new Date()): Promise<BillingSummary> {
-  const [{ grants, subscription, planGrants }, debt] = await Promise.all([
+  const [{ grants, subscription, planGrants }, debt, official] = await Promise.all([
     billingRows(userId),
     db()
       .select({ remaining: sql<number>`coalesce(sum(${schema.creditDebt.remaining}), 0)::bigint` })
       .from(schema.creditDebt)
       .where(and(eq(schema.creditDebt.userId, userId), gt(schema.creditDebt.remaining, 0))),
+    isOfficial(userId),
   ]);
   const bucket = (source: 'plan' | 'welcome' | 'pack' | 'earned') => availableOf(grants.filter((grant) => grant.source === source), now);
   const buckets = { plan: bucket('plan'), welcome: bucket('welcome'), pack: bucket('pack'), earned: bucket('earned') };
@@ -574,8 +577,15 @@ export async function billingSummary(userId: string, now = new Date()): Promise<
     buckets,
     debt: Number(debt[0]?.remaining ?? 0),
     plan: planUsage(subscription, currentPlanGrant(planGrants, now), now),
+    official,
   };
 }
+
+/** Whether the account holds the official role, once per request. */
+const isOfficial = cache(async (userId: string): Promise<boolean> => {
+  const [account] = await db().select({ role: schema.user.role }).from(schema.user).where(eq(schema.user.id, userId)).limit(1);
+  return account?.role === 'official';
+});
 
 export interface EntryRow {
   id: string;
@@ -589,15 +599,23 @@ export interface EntryRow {
   createdAt: string;
 }
 
-/** `GET /api/billing/entries`: the user's ledger, newest first, filtered by activity, paged on the server. */
+/**
+ * `GET /api/billing/entries`: the user's ledger, newest first, filtered by
+ * activity, paged on the server. An official account's income rows (query
+ * fees earned, payouts) are left out here, so totals and pages stay right,
+ * and its `income` filter falls back to `all`.
+ */
 export async function listEntries(
   userId: string,
   query: { activity: Activity; page: number; size: number },
-): Promise<{ items: EntryRow[]; total: number; page: number; size: number }> {
-  const where =
-    query.activity === 'all'
-      ? eq(schema.creditEntry.userId, userId)
-      : and(eq(schema.creditEntry.userId, userId), inArray(schema.creditEntry.reason, [...ACTIVITY_REASONS[query.activity]]));
+): Promise<{ items: EntryRow[]; total: number; page: number; size: number; activity: Activity }> {
+  const official = await isOfficial(userId);
+  const activity = official && query.activity === 'income' ? 'all' : query.activity;
+  const where = and(
+    eq(schema.creditEntry.userId, userId),
+    activity === 'all' ? undefined : inArray(schema.creditEntry.reason, [...ACTIVITY_REASONS[activity]]),
+    official ? notInArray(schema.creditEntry.reason, [...ACTIVITY_REASONS.income]) : undefined,
+  );
   const [{ total }] = (await db().select({ total: count() }).from(schema.creditEntry).where(where)) as [{ total: number }];
   const page = clampPage(query.page, total, query.size);
   const rows = await db()
@@ -625,5 +643,6 @@ export async function listEntries(
     total,
     page,
     size: query.size,
+    activity,
   };
 }

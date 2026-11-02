@@ -69,7 +69,7 @@ export function RoleApplication({ eligible, note }: { eligible: boolean; note: s
           name="statement"
           rows={6}
           required
-          maxLength={VERIFICATION_STATEMENT_MAX * 2}
+          maxLength={VERIFICATION_STATEMENT_MAX}
           value={statement}
           onChange={(event) => setStatement(event.target.value)}
           placeholder={a.statementPlaceholder}
