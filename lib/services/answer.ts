@@ -31,7 +31,7 @@ import { InsufficientCredits } from '@/lib/domain/credits';
 import { modelFor } from '@/lib/infra/ai/models';
 import { db, schema } from '@/lib/infra/db';
 import { json } from '@/lib/http/respond';
-import { embedQuestion, historyTurns, retrieve, type Conversation, type QuestionVector } from '@/lib/services/chat';
+import { embedQuestion, messagesOf, retrieve, turnsOf, type Conversation, type MessageRow, type QuestionVector } from '@/lib/services/chat';
 import { addGrant, balanceOf, placeHold, releaseHold, settleHold } from '@/lib/services/credits';
 import { suggestRees } from '@/lib/services/explore';
 import type { Ree } from '@/lib/services/rees';
@@ -155,7 +155,7 @@ export async function answer(input: {
   };
 
   /** One Ree, start to finish; answers whether it gave an answer (or broke off trying), so suggestions follow only a clean "nobody knows". */
-  const run = async (ree: Ree, write: Write, vector: Promise<QuestionVector> | null): Promise<boolean> => {
+  const run = async (ree: Ree, write: Write, vector: Promise<QuestionVector> | null, history: Promise<MessageRow[]>): Promise<boolean> => {
     const entry = held.find((candidate) => candidate.ree.id === ree.id) ?? null;
     if (!entry) {
       write({ type: 'data-outcome', id: `outcome-${ree.id}`, data: await unanswered(ree, 'no_sources', null) });
@@ -176,11 +176,11 @@ export async function answer(input: {
       console.info(
         `answer ree=${ree.id} model=${generation.endpoint.model} source=${generation.endpoint.source} config=${generation.endpoint.configId ?? '-'} passages=${found.passages.length} best=${found.bestSimilarity?.toFixed(3) ?? '-'}`,
       );
-      const history = await historyTurns(conversation.id, ree.id);
+      const turns = turnsOf(await history, ree.id);
       const result = streamText({
         model: generation.model,
         instructions: instructionsFor({ reeName: ree.name, systemPrompt: ree.systemPrompt, lang: input.lang }),
-        messages: [...history.filter((turn) => turn.content), { role: 'user', content: questionWithPassages(subject, found.passages) }],
+        messages: [...turns.filter((turn) => turn.content), { role: 'user', content: questionWithPassages(subject, found.passages) }],
         maxOutputTokens: MAX_OUTPUT_TOKENS,
         temperature: 0.2,
         maxRetries: 1,
@@ -258,7 +258,10 @@ export async function answer(input: {
       const vector = asking.length ? embedQuestion(subject) : null;
       /* A failed embedding fails every Ree on its own path; nothing is left unhandled. */
       vector?.catch(() => undefined);
-      const results = await Promise.all(targets.map((ree) => run(ree, write, vector)));
+      /* The conversation is read once; each Ree takes only its own turns from it. */
+      const history = messagesOf(conversation.id);
+      history.catch(() => undefined);
+      const results = await Promise.all(targets.map((ree) => run(ree, write, vector, history)));
       if (conversation.kind === 'normal' && !results.some(Boolean)) {
         const suggested = await suggestionsFor(userId, conversation.id, subject, vector).catch(() => []);
         if (suggested.length) {

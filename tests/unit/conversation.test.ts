@@ -55,6 +55,14 @@ describe('who a question goes to', () => {
     expect(questionTargets(rees, '@伙伴0 @伙伴1', null).map((ree) => ree.id)).toEqual(['a', 'b']);
     expect(questionTargets(rees, '@design partner what about tokens?').map((ree) => ree.id)).toEqual(['c']);
   });
+  it('a longer name is not also read as a shorter one it starts with', () => {
+    const named = [
+      { id: 'short', name: 'Alpha' },
+      { id: 'long', name: 'Alpha Refunds' },
+    ];
+    expect(questionTargets(named, '@Alpha Refunds when?').map((ree) => ree.id)).toEqual(['long']);
+    expect(questionTargets(named, '@Alpha Refunds and @Alpha?').map((ree) => ree.id).sort()).toEqual(['long', 'short']);
+  });
   it('an @ naming nobody here goes to nobody, so it cannot be sent', () => {
     expect(questionTargets(rees, '@陌生人 你好')).toEqual([]);
   });

@@ -103,6 +103,12 @@ describeWithDb('multi-Ree conversations', () => {
     await expect(conversations.addParticipant(userId, conversation.id, six[5]!.id)).rejects.toMatchObject({ code: 'too_many_rees', status: 409 });
     expect(await conversations.addParticipant(userId, conversation.id, six[0]!.id)).toBe('present');
     expect(await conversations.participantsOf(db(), conversation.id, userId)).toHaveLength(5);
+    /* The picker's whole-set update is all or nothing. */
+    const outsider = await reeOf(await person(), { content: null, isPublic: false });
+    await expect(conversations.setParticipants(userId, conversation.id, [six[5]!.id, outsider.id])).rejects.toMatchObject({ code: 'ree_unavailable' });
+    expect((await conversations.participantsOf(db(), conversation.id, userId)).map((ree) => ree.id).sort()).toEqual(six.slice(0, 5).map((ree) => ree.id).sort());
+    expect(await conversations.setParticipants(userId, conversation.id, [six[5]!.id, six[0]!.id])).toHaveLength(2);
+    expect((await conversations.participantsOf(db(), conversation.id, userId)).map((ree) => ree.id).sort()).toEqual([six[0]!.id, six[5]!.id].sort());
   });
 
   it('only pulls in the user’s own Rees and public ones', async () => {
@@ -110,6 +116,8 @@ describeWithDb('multi-Ree conversations', () => {
     const asker = await person();
     const hidden = await reeOf(owner, { content: null, isPublic: false });
     await expect(conversations.createConversation(asker, { reeIds: [hidden.id] })).rejects.toMatchObject({ code: 'ree_unavailable' });
+    /* Naming its id to the picker does not reveal it either. */
+    expect((await conversations.pickerCandidates(asker, '', [hidden.id])).map((ree) => ree.id)).not.toContain(hidden.id);
   });
 
   it('answers with every participant by default, side by side, each in its own part', async () => {

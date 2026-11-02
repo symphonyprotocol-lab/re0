@@ -25,8 +25,16 @@ export interface Participant {
  */
 export function questionTargets<P extends Participant>(participants: readonly P[], question: string, scope: string | null = null): P[] {
   if (question.includes('@')) {
-    const text = question.toLocaleLowerCase();
-    return participants.filter((ree) => text.includes(`@${ree.name.toLocaleLowerCase()}`));
+    /* Longest names first, each match blanked out, so "@Alpha Refunds" does not also name "Alpha". */
+    let text = question.toLocaleLowerCase();
+    const named = new Set<string>();
+    for (const ree of [...participants].sort((a, b) => b.name.length - a.name.length)) {
+      const needle = `@${ree.name.toLocaleLowerCase()}`;
+      if (!text.includes(needle)) continue;
+      named.add(ree.id);
+      text = text.split(needle).join(' ');
+    }
+    return participants.filter((ree) => named.has(ree.id));
   }
   const only = scope ? participants.find((ree) => ree.id === scope) : undefined;
   return only ? [only] : [...participants];

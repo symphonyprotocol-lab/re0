@@ -32,7 +32,7 @@ export const conversationApi = {
   batch: (action: BatchAction, ids: string[]) => call<{ changed: number }>('/api/chats/batch', 'POST', { action, ids }),
   ids: (query: URLSearchParams) => call<{ ids: string[] }>(`/api/chats?${query}&ids=1`, 'GET'),
   addRee: (id: string, reeId: string) => call<{ result: 'added' | 'present' }>(`/api/chats/${id}/rees/${reeId}`, 'POST'),
-  removeRee: (id: string, reeId: string) => call<{ removed: boolean }>(`/api/chats/${id}/rees/${reeId}`, 'DELETE'),
+  setRees: (id: string, reeIds: string[]) => call<{ reeIds: string[] }>(`/api/chats/${id}/rees`, 'PUT', { reeIds }),
   vote: (messageId: string, vote: 'up' | 'down' | null) => call<{ vote: 'up' | 'down' | null }>(`/api/messages/${messageId}/feedback`, 'POST', { vote }),
 };
 

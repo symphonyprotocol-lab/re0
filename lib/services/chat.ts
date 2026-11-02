@@ -118,13 +118,11 @@ export async function clearConversation(conversationId: string): Promise<void> {
   await db().delete(schema.message).where(eq(schema.message.conversationId, conversationId));
 }
 
-/** This Ree's own earlier turns, answered ones only, newest last. */
-export async function historyTurns(conversationId: string, reeId: string): Promise<{ role: 'user' | 'assistant'; content: string }[]> {
-  const rows = await db()
-    .select({ role: schema.message.role, content: schema.message.content, noAnswer: schema.message.noAnswer, reeId: schema.message.reeId, id: schema.message.id, requestId: schema.message.requestId })
-    .from(schema.message)
-    .where(eq(schema.message.conversationId, conversationId))
-    .orderBy(asc(schema.message.createdAt));
+/** A Ree's own earlier turns, answered ones only, newest last, from the conversation's rows (read once per question for every Ree asked). */
+export function turnsOf(
+  rows: readonly Pick<MessageRow, 'role' | 'content' | 'noAnswer' | 'reeId' | 'id' | 'requestId'>[],
+  reeId: string,
+): { role: 'user' | 'assistant'; content: string }[] {
   const answered = new Set(rows.filter((row) => row.role === 'ree' && !row.noAnswer && row.reeId === reeId).map((row) => row.requestId));
   const turns: { role: 'user' | 'assistant'; content: string }[] = [];
   for (const row of rows) {

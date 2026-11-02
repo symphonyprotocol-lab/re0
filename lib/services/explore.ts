@@ -16,7 +16,6 @@
 import { and, asc, desc, eq, inArray, isNull, lt, sql, type SQL } from 'drizzle-orm';
 import {
   EXPLORE_EF_SEARCH,
-  EXPLORE_MIN_SIMILARITY,
   EXPLORE_PASSAGES,
   EXPLORE_PROFILE_REES,
   EXPLORE_RATE_LIMIT,
@@ -138,7 +137,8 @@ export async function searchRees(input: {
   const database = db();
   const literal = `[${input.vector.vector.join(',')}]`;
   const exclude = (input.exclude ?? []).filter((id) => /^[0-9a-f-]{36}$/i.test(id));
-  const filtered = Boolean(input.category) || exclude.length > 0;
+  /* A category can leave too few rows behind an index search; up to five excluded Rees only need a longer list (ef_search covers 25 × 16). */
+  const filtered = Boolean(input.category);
   const distance = sql`${schema.reeProfileVector.embedding} <=> ${literal}::vector`;
   const firstLevel = await database.transaction(async (tx) => {
     if (!filtered) await tx.execute(sql.raw(`set local hnsw.ef_search = ${EXPLORE_EF_SEARCH}`));
@@ -154,7 +154,7 @@ export async function searchRees(input: {
         ),
       )
       .orderBy(filtered ? sql`(${distance}) + 0` : distance)
-      .limit(EXPLORE_PROFILE_REES * PROFILE_MAX_VECTORS)
+      .limit((EXPLORE_PROFILE_REES + exclude.length) * PROFILE_MAX_VECTORS)
       .as('nearest');
     return tx
       .select({ reeId: nearest.reeId, similarity: sql<number>`max(1 - ${nearest.distance})` })
@@ -196,7 +196,7 @@ export async function searchRees(input: {
   const hits: SearchHit[] = [];
   for (const row of meta) {
     const found = best.get(row.id)!;
-    if (found.similarity < EXPLORE_MIN_SIMILARITY && !hasEvidence({ bestSimilarity: found.similarity, bestCoverage: found.coverage, terms: terms.length })) continue;
+    if (!hasEvidence({ bestSimilarity: found.similarity, bestCoverage: found.coverage, terms: terms.length })) continue;
     hits.push({ reeId: row.id, similarity: found.similarity, quality: row.rank.quality ?? NEUTRAL_QUALITY, role: row.role, excerpt: excerptOf(found.content, terms), title: found.title });
   }
   return rankHits(hits, input.limit ?? EXPLORE_RESULTS);

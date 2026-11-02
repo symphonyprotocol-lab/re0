@@ -231,8 +231,6 @@ export const EXPLORE_PASSAGES = 50;
 export const EXPLORE_RESULTS = 10;
 /** HNSW candidate list for the profile search; the default 40 would cap the vectors returned. */
 export const EXPLORE_EF_SEARCH = 400;
-/** A Ree whose nearest passage is further than this is not shown for the question (same bar as answering). */
-export const EXPLORE_MIN_SIMILARITY = RETRIEVAL_MIN_SIMILARITY;
 /** Characters of the matched passage on a result card. */
 export const EXPLORE_EXCERPT_CHARS = 160;
 /** Free searches per minute (2.4, "按 IP 和账号限频"). */

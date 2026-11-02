@@ -156,6 +156,32 @@ export async function addParticipant(userId: string, conversationId: string, ree
   });
 }
 
+/**
+ * The participant picker's "完成": the whole new set in one transaction, so
+ * a refused Ree (private now, or a sixth) changes nothing at all. Rees
+ * staying in keep their place; past answers stay either way.
+ */
+export async function setParticipants(userId: string, conversationId: string, reeIds: unknown): Promise<string[]> {
+  const ids = participantSet(Array.isArray(reeIds) ? reeIds.map(String) : []);
+  if (!ids) throw new ConversationError('too_many_rees', 409);
+  return db().transaction(async (tx) => {
+    const [conversation] = await tx
+      .select({ id: schema.conversation.id })
+      .from(schema.conversation)
+      .where(and(eq(schema.conversation.id, conversationId), eq(schema.conversation.userId, userId), eq(schema.conversation.kind, 'normal'), isNull(schema.conversation.deletedAt)))
+      .for('update');
+    if (!conversation) throw new ConversationError('not_found', 404);
+    const current = (await tx.select({ reeId: schema.conversationRee.reeId }).from(schema.conversationRee).where(eq(schema.conversationRee.conversationId, conversationId))).map((row) => row.reeId);
+    const added = ids.filter((id) => !current.includes(id));
+    await assertUsable(tx, userId, added);
+    const removed = current.filter((id) => !ids.includes(id));
+    if (removed.length) await tx.delete(schema.conversationRee).where(and(eq(schema.conversationRee.conversationId, conversationId), inArray(schema.conversationRee.reeId, removed)));
+    const now = Date.now();
+    if (added.length) await tx.insert(schema.conversationRee).values(added.map((reeId, at) => ({ conversationId, reeId, addedAt: new Date(now + at) })));
+    return ids;
+  });
+}
+
 /** Takes a Ree out; its past answers stay in the conversation. */
 export async function removeParticipant(userId: string, conversationId: string, reeId: string): Promise<boolean> {
   const conversation = await liveConversation(userId, conversationId);
@@ -464,8 +490,9 @@ export async function pickerCandidates(userId: string, q: string, include: reado
   const found = rows.map((row) => ({ ...row, price: priceFor(row, userId) }));
   const missing = include.filter((id) => !found.some((row) => row.id === id));
   if (missing.length === 0) return found;
-  const extra = await reeBriefs(db(), userId, missing);
-  return [...[...extra.values()].map((row) => ({ ...row, price: priceFor(row, userId), ready: 0 })), ...found];
+  /* Only Rees this user may still pull in: an id alone must not reveal someone else's private Ree. */
+  const extra = [...(await reeBriefs(db(), userId, missing)).values()].filter((row) => row.usable);
+  return [...extra.map((row) => ({ ...row, price: priceFor(row, userId), ready: 0 })), ...found];
 }
 
 /** The user's own normal conversations a Ree could still join (public page "加入对话"): not full, not already in. */

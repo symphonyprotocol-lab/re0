@@ -1,9 +1,10 @@
-import type { NextRequest } from 'next/server';
+import { after, type NextRequest } from 'next/server';
 import { fail, json, body } from '@/lib/http/respond';
 import { apiUser } from '@/lib/http/session';
 import { db } from '@/lib/infra/db';
 import { inputErrorStatus, knowledgeChild, knowledgeDetail, KnowledgeInputError } from '@/lib/services/knowledge';
 import { renameKnowledge, runBatch } from '@/lib/services/knowledge-library';
+import { refreshProfile } from '@/lib/services/profile';
 import { ownedRee } from '@/lib/services/rees';
 
 type Context = { params: Promise<{ id: string; kid: string }> };
@@ -38,7 +39,11 @@ export async function PATCH(request: NextRequest, context: Context) {
   const input = await body(request);
   try {
     if ('title' in input) await renameKnowledge(ree.id, kid, input.title);
-    if (typeof input.enabled === 'boolean') await runBatch(user.id, ree.id, { action: input.enabled ? 'resume' : 'pause', ids: [kid] });
+    if (typeof input.enabled === 'boolean') {
+      await runBatch(user.id, ree.id, { action: input.enabled ? 'resume' : 'pause', ids: [kid] });
+      /* What the Ree knows changed: its explore profile follows (2.4). */
+      if (ree.isPublic) after(() => refreshProfile(ree.id).catch(() => undefined));
+    }
     if ('folderId' in input) {
       await runBatch(user.id, ree.id, { action: 'move', ids: [kid], folderId: typeof input.folderId === 'string' && input.folderId ? input.folderId : null });
     }
@@ -59,6 +64,7 @@ export async function DELETE(request: NextRequest, context: Context) {
   if (!ree) return fail('not_found', 404);
   try {
     await runBatch(user.id, ree.id, { action: 'trash', ids: [kid] });
+    if (ree.isPublic) after(() => refreshProfile(ree.id).catch(() => undefined));
     return json({ id: kid });
   } catch (error) {
     if (error instanceof KnowledgeInputError) return fail(error.code, inputErrorStatus(error.code));

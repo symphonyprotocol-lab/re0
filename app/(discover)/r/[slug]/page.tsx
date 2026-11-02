@@ -1,12 +1,13 @@
 import type { Metadata } from 'next';
 import Link from 'next/link';
 import { notFound } from 'next/navigation';
+import { cache } from 'react';
 import { QUERY_BASE_FEE } from '@/lib/constants';
 import { exploreReturnPath } from '@/lib/domain/explore';
 import { appBaseUrl } from '@/lib/http/cookies';
 import { currentUser } from '@/lib/http/session';
 import { joinableConversations } from '@/lib/services/conversations';
-import { authorOthers, publicReeBySlug, relatedFor } from '@/lib/services/public-rees';
+import { authorOthers, publicReeBySlug as lookup, relatedFor } from '@/lib/services/public-rees';
 import { serverMessages } from '@/i18n/server';
 import { fill, formatNumber } from '@/i18n/format';
 import { Topbar } from '@/components/shell/topbar';
@@ -16,6 +17,9 @@ import { RoleBadge } from '@/components/discover/role-badge';
 import { JoinButton } from '@/components/discover/join-button';
 import { PublicListSection } from '@/components/discover/public-list';
 import { ReeCover } from '@/components/discover/ree-card';
+
+/** Metadata and the page share one lookup per request. */
+const publicReeBySlug = cache(lookup);
 
 type Props = { params: Promise<{ slug: string }>; searchParams: Promise<Record<string, string | string[] | undefined>> };
 

@@ -1,9 +1,10 @@
-import type { NextRequest } from 'next/server';
+import { after, type NextRequest } from 'next/server';
 import { fail, json } from '@/lib/http/respond';
 import { apiUser } from '@/lib/http/session';
 import { db } from '@/lib/infra/db';
 import { inputErrorStatus, KnowledgeInputError } from '@/lib/services/knowledge';
 import { runBatch } from '@/lib/services/knowledge-library';
+import { refreshProfile } from '@/lib/services/profile';
 import { ownedRee } from '@/lib/services/rees';
 
 /** Back from the trash, with its passages, folder and "参与回答" setting as they were. */
@@ -15,6 +16,7 @@ export async function POST(request: NextRequest, context: { params: Promise<{ id
   if (!ree) return fail('not_found', 404);
   try {
     await runBatch(user.id, ree.id, { action: 'restore', ids: [kid] });
+    if (ree.isPublic) after(() => refreshProfile(ree.id).catch(() => undefined));
     return json({ id: kid });
   } catch (error) {
     if (error instanceof KnowledgeInputError) return fail(error.code, inputErrorStatus(error.code));

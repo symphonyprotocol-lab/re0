@@ -437,7 +437,7 @@ async function embedAll(texts: string[]): Promise<number[][]> {
  * call claims the row (pending → processing) and the second finds nothing to
  * claim.
  */
-export async function processKnowledge(knowledgeId: string): Promise<void> {
+export async function processKnowledge(knowledgeId: string, options: { profile?: boolean } = {}): Promise<string | null> {
   const database = db();
   const now = new Date();
   const [row] = await database
@@ -445,7 +445,7 @@ export async function processKnowledge(knowledgeId: string): Promise<void> {
     .set({ status: 'processing', updatedAt: now, activity: appendActivity([activity('processing', undefined, now)]) })
     .where(and(eq(schema.knowledge.id, knowledgeId), eq(schema.knowledge.status, 'pending')))
     .returning();
-  if (!row) return;
+  if (!row) return null;
 
   try {
     const extracted = await extract(row);
@@ -497,12 +497,14 @@ export async function processKnowledge(knowledgeId: string): Promise<void> {
         })
         .where(eq(schema.knowledge.id, row.id));
     });
-    /* The last step (2.4): suggested example questions and the knowledge profile, free of charge. */
-    await afterKnowledgeReady(row.reeId);
+    /* The last step (2.4): suggested example questions and the knowledge profile, free of charge (a batch does it once at its end). */
+    if (options.profile !== false) await afterKnowledgeReady(row.reeId);
+    return row.reeId;
   } catch (error) {
     const code = error instanceof ProcessingFailure ? error.code : 'unknown';
     console.warn(`knowledge ${row.id} failed code=${code} detail=${error instanceof Error ? error.message : 'unknown'}`);
     await failAndRefund(row.id, row.reeId, row.title, code);
+    return null;
   }
 }
 
@@ -519,13 +521,18 @@ async function failAndRefund(id: string, reeId: string, title: string | null, co
   });
 }
 
-/** Several sources, two at a time (a batch reprocess), inside one function run. */
+/** Several sources, two at a time (a batch reprocess), inside one function run; each Ree's profile is rebuilt once at the end. */
 export async function processMany(ids: readonly string[]): Promise<void> {
   const queue = [...ids];
+  const ready = new Set<string>();
   const worker = async (): Promise<void> => {
-    for (let id = queue.shift(); id; id = queue.shift()) await processKnowledge(id);
+    for (let id = queue.shift(); id; id = queue.shift()) {
+      const reeId = await processKnowledge(id, { profile: false });
+      if (reeId) ready.add(reeId);
+    }
   };
   await Promise.all([worker(), worker()]);
+  for (const reeId of ready) await afterKnowledgeReady(reeId);
 }
 
 /* -------------------------------------------------------------------- read */

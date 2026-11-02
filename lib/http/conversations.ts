@@ -7,8 +7,11 @@ export function conversationFailure(error: unknown) {
   throw error;
 }
 
-/** The client address Vercel puts first in `x-forwarded-for`; null when there is none (local runs). */
+/**
+ * The client address: `x-real-ip`, which Vercel sets itself, before the
+ * first `x-forwarded-for` entry, which a client can write when a proxy only
+ * appends to it. Null when there is neither (local runs).
+ */
 export function clientIp(headers: Headers): string | null {
-  const forwarded = headers.get('x-forwarded-for')?.split(',')[0]?.trim();
-  return forwarded || headers.get('x-real-ip') || null;
+  return headers.get('x-real-ip')?.trim() || headers.get('x-forwarded-for')?.split(',')[0]?.trim() || null;
 }

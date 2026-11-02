@@ -130,10 +130,8 @@ export function ChatRoom({
   const applyParticipants = async (chosen: Member[]) => {
     if (busy) return toast(r.waitBusy);
     const next = new Set(chosen.map((member) => member.id));
-    const current = new Set(members.map((member) => member.id));
     try {
-      for (const member of members) if (!next.has(member.id)) await conversationApi.removeRee(conversation.id, member.id);
-      for (const member of chosen) if (!current.has(member.id)) await conversationApi.addRee(conversation.id, member.id);
+      await conversationApi.setRees(conversation.id, [...next]);
       setMembers(chosen);
       if (scope && !next.has(scope)) setScope(null);
       toast(r.updated);
