@@ -244,7 +244,8 @@ async function realAnswer(ree: typeof schema.ree.$inferSelect): Promise<{ questi
     model: generation.model,
     instructions: instructionsFor({ reeName: ree.name, systemPrompt: ree.systemPrompt, lang: /[㐀-鿿]/.test(question) ? 'zh' : 'en' }),
     prompt: questionWithPassages(question, found.passages),
-    maxOutputTokens: 400,
+    /* The answer path's budget: a reasoning model spends part of it before it writes. */
+    maxOutputTokens: 1_500,
     temperature: 0.2,
     maxRetries: 1,
   });
@@ -330,7 +331,8 @@ export async function writeScript(input: Material): Promise<VideoScenes> {
       instructions,
       prompt,
       output: Output.object({ schema: SCRIPT_SCHEMA }),
-      maxOutputTokens: 800,
+      /* The JSON is short, but a reasoning model thinks first; too small a budget ends before any output. */
+      maxOutputTokens: 4_000,
       temperature: 0.5,
       maxRetries: 1,
     });
