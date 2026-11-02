@@ -2,7 +2,7 @@
  * Acceptance: the first visitor of an empty installation registers the owner;
  * afterwards registration is closed and sign-in needs password + TOTP. The
  * model page keeps one active entry per kind and freezes it; embedding goes
- * through the re-embed placeholder.
+ * through the re-embed job (step 5; the job itself is tested in step5.test.ts).
  */
 import { afterAll, describe, expect, it } from 'vitest';
 import { TEST_DATABASE_URL, uniqueName } from './setup';
@@ -130,11 +130,13 @@ describeWithDb('model configuration', () => {
     const [anyChunk] = await db().select({ id: schema.chunk.id }).from(schema.chunk).limit(1);
     const result = await models.activateModelConfig(owner!.id, candidate.id);
     if (anyChunk) {
-      expect(result).toEqual({ activated: false, reembed: true });
+      expect(result).toMatchObject({ activated: false, reembed: true });
       const [row] = await db().select().from(schema.modelConfig).where(eq(schema.modelConfig.id, candidate.id));
       expect(row?.enabled).toBe(false);
+      /* Not run here: the job would need the gateway. */
+      await db().update(schema.reembedJob).set({ status: 'failed', error: 'test' }).where(eq(schema.reembedJob.status, 'running'));
     } else {
-      expect(result).toEqual({ activated: true, reembed: false });
+      expect(result).toMatchObject({ activated: true, reembed: false });
     }
   });
 });

@@ -121,6 +121,9 @@ export const LIST_DEFAULTS: Record<string, string> = {
   kind: 'all',
 };
 
+/** The order parameters appear in, as in the prototype's `adminRecordPath`. */
+const KEY_ORDER = ['tab', 'q', 'status', 'role', 'membership', 'kyc', 'kind', 'period', 'action', 'sort', 'size', 'page'];
+
 /**
  * The canonical URL of a list with `changes` applied: defaults dropped, and
  * the page reset whenever a filter (anything but the page) changes.
@@ -135,7 +138,8 @@ export function listHref(
   for (const [key, value] of Object.entries(changes)) next[key] = value === null ? (defaults[key] ?? '') : String(value);
   if (Object.keys(changes).some((key) => key !== 'page')) next.page = '1';
   const query = new URLSearchParams();
-  for (const [key, value] of Object.entries(next)) {
+  const rank = (key: string) => (KEY_ORDER.indexOf(key) + 1 || KEY_ORDER.length + 1);
+  for (const [key, value] of Object.entries(next).sort(([a], [b]) => rank(a) - rank(b))) {
     if (value === '' || value === defaults[key]) continue;
     query.set(key, value);
   }
