@@ -1,0 +1,376 @@
+.statistics-period {
+  margin: 0 0 22px;
+}
+.statistics-period-top,
+.statistics-period-form,
+.statistics-trend-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 14px;
+}
+.statistics-period-tabs {
+  display: inline-flex;
+  padding: 4px;
+  gap: 4px;
+  background: #eaeef8;
+  border: 1px solid #e0e6f2;
+  border-radius: 10px;
+  flex-shrink: 0;
+}
+.statistics-period-top {
+  flex-wrap: wrap;
+}
+.statistics-period-tabs a {
+  color: #8291ad;
+  padding: 7px 18px;
+  border-radius: 7px;
+  font-size: 11px;
+  transition:
+    background 0.18s,
+    color 0.18s,
+    box-shadow 0.18s;
+}
+.statistics-period-tabs a:hover {
+  color: #1685ed;
+}
+.statistics-period-tabs [aria-current] {
+  background: white;
+  color: #1685ed;
+  box-shadow: 0 2px 6px #223b5a08;
+  font-weight: 600;
+}
+.statistics-timezone {
+  color: #94a2bc;
+  font-size: 10px;
+  text-align: right;
+  margin: 8px 0 0;
+}
+.statistics-period-form {
+  gap: 10px;
+  margin-left: auto;
+}
+.statistics-date-control {
+  position: relative;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 10px;
+  color: #91a0b9;
+}
+.statistics-date-trigger {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  min-width: 150px;
+  padding: 6px 9px;
+  font: inherit;
+  font-size: 11px;
+  min-height: 32px;
+  background: white;
+  color: #6982a7;
+  border: 1px solid #dce4f3;
+  border-radius: 6px;
+  cursor: pointer;
+}
+.statistics-date-trigger svg {
+  width: 15px;
+  height: 15px;
+  flex: none;
+}
+.statistics-date-control[data-period="week"] .statistics-date-trigger,
+.statistics-date-control[data-period="custom"] .statistics-date-trigger {
+  min-width: 232px;
+  white-space: nowrap;
+}
+.statistics-date-trigger:hover,
+.statistics-date-trigger[aria-expanded="true"] {
+  border-color: #9bc5f3;
+  color: #2088ec;
+}
+.statistics-calendar {
+  position: absolute;
+  z-index: 35;
+  top: calc(100% + 9px);
+  right: 0;
+  width: 312px;
+  max-width: calc(100vw - 36px);
+  padding: 15px;
+  background: white;
+  border: 1px solid #dce5f3;
+  border-radius: 13px;
+  box-shadow: 0 12px 40px #24446c21;
+  color: #6b80a1;
+}
+.statistics-calendar[hidden] {
+  display: none;
+}
+.statistics-calendar-head,
+.statistics-calendar-head > div {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 7px;
+}
+.statistics-calendar-head {
+  margin-bottom: 14px;
+}
+.statistics-range-fields {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 8px;
+  margin-bottom: 14px;
+}
+.statistics-range-presets {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 6px;
+  margin-bottom: 12px;
+}
+.statistics-calendar .statistics-range-presets button {
+  border: 1px solid #e1e8f3;
+  background: #f8faff;
+  padding: 7px 3px;
+  font-size: 10px;
+  white-space: nowrap;
+}
+.statistics-calendar .statistics-range-fields button {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 5px;
+  padding: 9px;
+  border: 1px solid #e1e8f3;
+  text-align: left;
+}
+.statistics-range-fields small {
+  font-size: 9px;
+  color: #8ea2bf;
+}
+.statistics-range-fields strong {
+  font-size: 11px;
+  font-weight: 500;
+}
+.statistics-calendar select {
+  width: auto;
+  padding: 5px 7px;
+  border: 1px solid #e2e8f2;
+  border-radius: 6px;
+  background: #fff;
+  color: #60799d;
+  font-size: 11px;
+}
+.statistics-calendar button {
+  border: 1px solid transparent;
+  background: transparent;
+  color: #6b80a1;
+  border-radius: 7px;
+  padding: 0;
+  font: inherit;
+  font-size: 11px;
+  cursor: pointer;
+}
+.statistics-calendar .statistics-calendar-nav {
+  display: grid;
+  place-items: center;
+  width: 27px;
+  height: 27px;
+  flex: none;
+}
+.statistics-calendar-nav svg {
+  width: 13px;
+  height: 13px;
+}
+.statistics-calendar-nav.is-previous svg {
+  transform: rotate(180deg);
+}
+.statistics-calendar-weekdays,
+.statistics-day-grid {
+  display: grid;
+  grid-template-columns: repeat(7, 1fr);
+  gap: 2px;
+}
+.statistics-calendar-weekdays {
+  margin-bottom: 5px;
+  text-align: center;
+  color: #acb9cc;
+  font-size: 10px;
+}
+.statistics-calendar-weekdays.with-weeks {
+  grid-template-columns: 0.7fr repeat(7, 1fr);
+}
+.statistics-day-grid button {
+  position: relative;
+  height: 32px;
+}
+.statistics-week-grid {
+  display: grid;
+  gap: 4px;
+}
+.statistics-week-grid button {
+  display: grid;
+  grid-template-columns: 0.7fr repeat(7, 1fr);
+  gap: 2px;
+  align-items: center;
+  height: 33px;
+}
+.statistics-week-grid small {
+  font: 9px var(--mono);
+  color: #9eafc7;
+}
+.statistics-calendar .outside-month {
+  color: #bec8d8;
+}
+.statistics-month-grid {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 7px;
+}
+.statistics-month-grid button {
+  height: 44px;
+}
+.statistics-calendar button:enabled:hover {
+  color: #1988ee;
+  background: #f1f7ff;
+}
+.statistics-calendar button[aria-pressed="true"] {
+  background: #eaf3ff;
+  border-color: #c4dcfa;
+  color: #1684e9;
+  font-weight: 600;
+}
+.statistics-calendar button[data-in-range] {
+  background: #f2f7ff;
+  color: #568ec9;
+}
+.statistics-calendar button:disabled {
+  opacity: 0.4;
+  cursor: not-allowed;
+}
+.statistics-day-grid [aria-current="date"]::after {
+  content: "";
+  position: absolute;
+  bottom: 3px;
+  left: calc(50% - 2px);
+  width: 4px;
+  height: 4px;
+  background: #4d9fef;
+  border-radius: 50%;
+}
+.statistics-calendar-hint {
+  margin: 12px 0 0;
+  text-align: center;
+  color: #9aacc6;
+  font-size: 10px;
+}
+.statistics-date-trigger:focus-visible,
+.statistics-calendar button:focus-visible {
+  outline: 2px solid #91bdf2;
+  outline-offset: 2px;
+}
+.statistics-period-form .text-link {
+  font-size: 10px;
+  white-space: nowrap;
+}
+.statistics-trend {
+  padding: 21px 24px 15px;
+  margin-top: 22px;
+}
+.statistics-trend-head {
+  margin-bottom: 18px;
+}
+.statistics-trend h2 {
+  margin: 0;
+  font-size: 13px;
+  font-weight: 600;
+}
+.statistics-trend-head p {
+  margin: 6px 0 0;
+  font-size: 10px;
+  color: #91a2bd;
+}
+.statistics-trend-head > strong {
+  font-size: 23px;
+  color: #2988e9;
+  font-weight: 500;
+}
+.statistics-trend-head > strong small {
+  font: 10px var(--sans);
+  color: #94a4bc;
+  margin-left: 7px;
+}
+.statistics-bars {
+  display: flex;
+  align-items: stretch;
+  gap: 7px;
+  border-bottom: 1px solid #eaf0f8;
+}
+.statistics-bar-item {
+  flex: 1;
+  min-width: 0;
+  text-align: center;
+}
+.statistics-bar-track {
+  height: 95px;
+  display: flex;
+  align-items: flex-end;
+  justify-content: center;
+  border-bottom: 1px solid #e6edf8;
+}
+.statistics-bar-track i {
+  display: block;
+  width: min(70%, 34px);
+  background: linear-gradient(#6cb6fb, #2089ed);
+  border-radius: 4px 4px 0 0;
+}
+.statistics-bar-item:hover .statistics-bar-track {
+  background: #f5f8fd;
+}
+.statistics-bar-label {
+  display: block;
+  min-height: 27px;
+  padding-top: 8px;
+  font: 9px var(--mono);
+  color: #9baac1;
+  white-space: nowrap;
+}
+.statistics-trend-empty {
+  margin: 12px 0 0;
+  font-size: 10px;
+  color: #92a3bf;
+  text-align: center;
+}
+.statistics-coverage {
+  display: block;
+  margin-top: 5px;
+  color: #8498b7;
+}
+.statistics-period a:focus-visible {
+  outline: 2px solid #8ebbf2;
+  outline-offset: 3px;
+}
+@media (max-width: 760px) {
+  .statistics-period-top {
+    flex-wrap: wrap;
+    gap: 9px;
+  }
+  .statistics-period-tabs a {
+    padding: 7px 15px;
+  }
+  .statistics-timezone {
+    font-size: 9px;
+  }
+  .statistics-date-control > span {
+    display: none;
+  }
+  .statistics-trend {
+    padding: 17px 16px 13px;
+  }
+  .statistics-bars {
+    gap: 3px;
+  }
+  .statistics-bar-label {
+    font-size: 8px;
+  }
+}
