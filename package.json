@@ -24,6 +24,9 @@
     "@ai-sdk/openai-compatible": "^3.0.41",
     "@ai-sdk/react": "^4.0.90",
     "@neondatabase/serverless": "^1.0.1",
+    "@remotion/media": "4.0.536",
+    "@remotion/player": "4.0.536",
+    "@remotion/web-renderer": "4.0.536",
     "@vercel/blob": "^2.8.0",
     "ai": "^7.0.87",
     "drizzle-orm": "^0.45.2",
@@ -34,6 +37,7 @@
     "qrcode": "^1.5.4",
     "react": "^19.1.1",
     "react-dom": "^19.1.1",
+    "remotion": "4.0.536",
     "unpdf": "^1.8.1",
     "zod": "^4.6.7"
   },

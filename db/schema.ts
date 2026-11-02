@@ -339,6 +339,8 @@ export const CREDIT_ENTRY_REASONS = [
   'video_script',
   'video_export',
   'admin_adjust',
+  /* Step 7: a video hold given back (a script that failed, an export cancelled or abandoned). */
+  'video_refund',
 ] as const;
 export type CreditEntryReason = (typeof CREDIT_ENTRY_REASONS)[number];
 
@@ -809,5 +811,84 @@ export const modelCall = pgTable(
   (t) => [
     index('model_call_time_idx').on(t.createdAt),
     check('model_call_kind_check', oneOf('kind', ['generation', 'embedding', 'transcription'])),
+  ],
+);
+
+/* ------------------------------------------------------------- step 7 */
+
+/**
+ * A Ree's 15-second introduction (2.6): the four shots' text, the template,
+ * accent, aspect and music switch. `generated` turns true with the first
+ * script and the video exists from then on; `revision` counts saves (the
+ * editor sends it back, so two tabs cannot overwrite each other);
+ * `exports_count` is how many exports were paid for or used the free one,
+ * which decides whether the next is free. Cache hits never count.
+ */
+export const reeVideo = pgTable(
+  'ree_video',
+  {
+    reeId: uuid('ree_id')
+      .primaryKey()
+      .references(() => ree.id, { onDelete: 'cascade' }),
+    generated: boolean('generated').notNull().default(false),
+    revision: integer('revision').notNull().default(0),
+    template: text('template').$type<'editorial' | 'blueprint' | 'spotlight'>().notNull().default('editorial'),
+    accentColor: text('accent_color').notNull().default('#127ee3'),
+    aspect: text('aspect').$type<'16:9' | '9:16'>().notNull().default('16:9'),
+    music: boolean('music').notNull().default(true),
+    scenes: jsonb('scenes').$type<import('@/lib/domain/video').VideoScenes>(),
+    exportsCount: integer('exports_count').notNull().default(0),
+    /** Beyond 4: when the current script was generated. */
+    generatedAt: timestampTz('generated_at'),
+    createdAt: createdAt(),
+    updatedAt: timestampTz('updated_at').notNull().defaultNow(),
+  },
+  (t) => [
+    check('ree_video_template_check', oneOf('template', ['editorial', 'blueprint', 'spotlight'])),
+    check('ree_video_aspect_check', oneOf('aspect', ['16:9', '9:16'])),
+    check('ree_video_accent_check', sql`accent_color ~ '^#[0-9a-f]{6}$'`),
+    check('ree_video_generated_check', sql`not generated or scenes is not null`),
+  ],
+);
+
+/**
+ * One MP4 export, rendered in the owner's browser and uploaded straight to
+ * Blob (2.6). `content_version` is the hash of everything the render drew
+ * (script, live Ree data, template, accent, aspect, music, composition
+ * version): an export whose hash already has a `done` row is a cache hit and
+ * gets no row of its own. A `started` row the browser never completed is
+ * `abandoned` by the cron and its hold released.
+ */
+export const videoExport = pgTable(
+  'video_export',
+  {
+    id: uuid('id').primaryKey().defaultRandom(),
+    reeId: uuid('ree_id')
+      .notNull()
+      .references(() => ree.id, { onDelete: 'cascade' }),
+    /** Beyond 4: who started it (whose credits were held). */
+    userId: uuid('user_id')
+      .notNull()
+      .references(() => user.id),
+    contentVersion: text('content_version').notNull(),
+    template: text('template').$type<'editorial' | 'blueprint' | 'spotlight'>().notNull(),
+    aspect: text('aspect').$type<'16:9' | '9:16'>().notNull(),
+    status: text('status').$type<'started' | 'done' | 'abandoned'>().notNull().default('started'),
+    /** The Blob pathname, served at `/media/<pathname>`. */
+    blobUrl: text('blob_url'),
+    /** Beyond 4: the uploaded file's size. */
+    bytes: integer('bytes'),
+    costCredits: integer('cost_credits').notNull().default(0),
+    createdAt: createdAt(),
+    finishedAt: timestampTz('finished_at'),
+  },
+  (t) => [
+    uniqueIndex('video_export_done_key').on(t.reeId, t.contentVersion).where(sql`status = 'done'`),
+    index('video_export_ree_idx').on(t.reeId, t.createdAt),
+    index('video_export_started_idx').on(t.createdAt).where(sql`status = 'started'`),
+    check('video_export_status_check', oneOf('status', ['started', 'done', 'abandoned'])),
+    check('video_export_template_check', oneOf('template', ['editorial', 'blueprint', 'spotlight'])),
+    check('video_export_aspect_check', oneOf('aspect', ['16:9', '9:16'])),
+    check('video_export_cost_check', sql`cost_credits >= 0`),
   ],
 );

@@ -43,6 +43,13 @@
       "when": 1793616333514,
       "tag": "0006_roles_statistics_admin",
       "breakpoints": true
+    },
+    {
+      "idx": 8,
+      "version": "7",
+      "when": 1793625000000,
+      "tag": "0008_ree_video",
+      "breakpoints": true
     }
   ]
 }

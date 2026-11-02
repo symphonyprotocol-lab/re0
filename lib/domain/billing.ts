@@ -187,6 +187,7 @@ export const ACTIVITY_REASONS: Record<Exclude<Activity, 'all'>, readonly CreditE
     'query_fee_paid',
     'video_script',
     'video_export',
+    'video_refund',
   ],
   income: ['query_fee_earned'],
 };
