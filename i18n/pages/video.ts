@@ -105,6 +105,7 @@ export const zh = {
   },
   placeholder: {
     none: '暂无视频介绍',
+    label: '{name}：暂无视频介绍',
     caption: '认识这个 Ree，从一次对话开始。',
   },
   card: {
@@ -242,6 +243,7 @@ export const en: Shape<typeof zh> = {
   },
   placeholder: {
     none: 'No video introduction yet',
+    label: '{name}: No video introduction yet',
     caption: 'Get to know this Ree through a conversation.',
   },
   card: {

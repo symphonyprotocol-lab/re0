@@ -1,0 +1,1941 @@
+/*
+ * `/rees` (My Rees), ported from the prototype (rebuild-prototype styles.css
+ * `.page` / `.metric` / `.filter` / `.dot-card`, discovery.css toolbar and
+ * pagers, discovery-video.css owned covers, public-dot.css placeholder,
+ * owned-rees.css) with its class names, breakpoints and cascade order, every
+ * rule scoped to `.owned-rees-page`. Tokens and base type: ree-pages.css.
+ */
+/* styles.css */
+.owned-rees-page {
+  box-sizing: border-box;
+}
+.owned-rees-page button,
+.owned-rees-page input,
+.owned-rees-page select {
+  font: inherit;
+}
+.owned-rees-page button,
+.owned-rees-page a,
+.owned-rees-page input,
+.owned-rees-page select {
+  -webkit-tap-highlight-color: transparent;
+}
+.owned-rees-page button {
+  cursor: pointer;
+}
+.owned-rees-page button:disabled {
+  cursor: not-allowed;
+  opacity: 0.45;
+}
+.owned-rees-page button,
+.owned-rees-page a {
+  touch-action: manipulation;
+}
+.owned-rees-page a {
+  color: inherit;
+  text-decoration: none;
+}
+.owned-rees-page button {
+  color: inherit;
+}
+.owned-rees-page h1,
+.owned-rees-page h2,
+.owned-rees-page p {
+  margin: 0px;
+}
+.owned-rees-page h1,
+.owned-rees-page h2 {
+  line-height: 1.3;
+}
+.owned-rees-page button svg,
+.owned-rees-page a svg {
+  flex-shrink: 0;
+}
+.owned-rees-page svg {
+  vertical-align: middle;
+}
+.owned-rees-page::selection {
+  background: rgb(203, 228, 255);
+}
+.owned-rees-page:focus-visible {
+  outline: rgb(119, 183, 250) solid 3px;
+  outline-offset: 4px;
+}
+.owned-rees-page input:focus-visible {
+  outline: 0px;
+  box-shadow: rgba(18, 126, 227, 0.094) 0px 0px 0px 3px;
+  border-color: var(--blue) !important;
+}
+.owned-rees-page input {
+  min-width: 0px;
+}
+.owned-rees-page input[type="checkbox"] {
+  accent-color: var(--blue);
+  width: 16px;
+  height: 16px;
+}
+.owned-rees-page .mono {
+  font-family: var(--mono);
+}
+.owned-rees-page .btn {
+  border: 1px solid transparent;
+  background: var(--blue);
+  color: rgb(255, 255, 255);
+  border-radius: 8px;
+  min-height: 40px;
+  padding: 9px 16px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  font-size: 13px;
+  font-weight: 550;
+  line-height: 1.4;
+  white-space: nowrap;
+  transition: background 0.18s, transform 0.18s, box-shadow 0.18s;
+}
+.owned-rees-page .btn svg {
+  width: 16px;
+  height: 16px;
+}
+.owned-rees-page .btn.secondary {
+  color: var(--ink);
+  background: rgb(255, 255, 255);
+  border-color: var(--line);
+}
+.owned-rees-page .btn.secondary:hover {
+  background: var(--wash);
+  border-color: rgb(196, 204, 224);
+  box-shadow: none;
+}
+.owned-rees-page .btn.sm {
+  min-height: 32px;
+  padding: 6px 10px;
+  font-size: 12px;
+}
+.owned-rees-page .icon-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  flex: 0 0 auto;
+  width: 32px;
+  height: 32px;
+  border: 0px;
+  border-radius: 7px;
+  background: transparent;
+  color: var(--muted);
+  transition: background 0.18s, color 0.18s, transform 0.18s;
+}
+.owned-rees-page .icon-btn:hover {
+  background: var(--soft);
+  color: var(--blue);
+}
+.owned-rees-page .icon-btn:active {
+  transform: scale(0.92);
+}
+.owned-rees-page .icon-btn svg {
+  width: 17px;
+  height: 17px;
+}
+.owned-rees-page .text-link {
+  color: var(--blue);
+  font-size: 12px;
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  border: 0px;
+  background: transparent;
+  padding: 0px;
+  cursor: pointer;
+}
+.owned-rees-page .text-link:hover {
+  text-decoration: underline;
+}
+.owned-rees-page .eyebrow {
+  font-family: var(--mono);
+  font-size: 10px;
+  letter-spacing: 0.15em;
+  text-transform: uppercase;
+  font-weight: 500;
+  color: var(--muted);
+}
+.owned-rees-page .card {
+  background: rgb(255, 255, 255);
+  border: 1px solid var(--line);
+  border-radius: 12px;
+}
+.owned-rees-page .empty {
+  text-align: center;
+  padding: 68px 20px;
+}
+.owned-rees-page .empty >svg {
+  color: rgb(155, 167, 193);
+  margin-bottom: 15px;
+  width: 36px;
+  height: 36px;
+}
+.owned-rees-page .empty p {
+  color: var(--muted);
+  font-size: 13px;
+  margin-bottom: 20px;
+}
+.owned-rees-page.page {
+  max-width: 1360px;
+  margin: auto;
+  padding: 38px 48px 30px;
+  animation: 0.3s ease 0s 1 normal both running page-in;
+}
+.owned-rees-page .page-head {
+  display: flex;
+  align-items: flex-end;
+  justify-content: space-between;
+  gap: 20px;
+  margin-bottom: 30px;
+}
+.owned-rees-page .page-head h1 {
+  font-size: 28px;
+  letter-spacing: -0.7px;
+  font-weight: 650;
+}
+.owned-rees-page .page-head p {
+  font-size: 12px;
+  color: var(--muted);
+  margin-top: 9px;
+}
+.owned-rees-page .page-footer {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  font-size: 9px;
+  color: rgb(161, 166, 184);
+  margin-top: 40px;
+  padding-top: 20px;
+  border-top: 1px solid var(--line);
+}
+.owned-rees-page .page-footer .mono {
+  font-size: 9px;
+  letter-spacing: 0.04em;
+}
+.owned-rees-page .page-footer a:hover {
+  color: var(--blue);
+}
+.owned-rees-page .filter-row {
+  display: flex;
+  gap: 7px;
+  flex-wrap: wrap;
+  margin-bottom: 20px;
+}
+.owned-rees-page .filter {
+  border: 1px solid transparent;
+  background: transparent;
+  border-radius: 6px;
+  padding: 6px 12px;
+  font-size: 10px;
+  color: rgb(138, 145, 167);
+  transition: background 0.18s, color 0.18s, border-color 0.18s;
+}
+.owned-rees-page .filter:hover {
+  background: rgb(234, 234, 247);
+  color: var(--ink);
+}
+.owned-rees-page .filter.active {
+  color: var(--blue);
+  background: rgb(255, 255, 255);
+  border-color: rgb(217, 228, 246);
+}
+.owned-rees-page .dot-grid {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0px, 1fr));
+  gap: 16px;
+}
+.owned-rees-page .dot-card {
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  background: rgb(255, 255, 255);
+  border: 1px solid var(--line);
+  border-radius: 11px;
+  padding: 22px 21px 17px;
+  transition: transform 0.2s, border-color 0.2s;
+}
+.owned-rees-page .dot-card:hover {
+  transform: translateY(-4px);
+  border-color: rgb(184, 206, 239);
+}
+.owned-rees-page .dot-avatar {
+  position: relative;
+  width: 43px;
+  height: 43px;
+  border-radius: 12px;
+  background: rgb(237, 244, 255);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex: 0 0 auto;
+  color: var(--blue);
+  border: 1px solid rgb(224, 234, 250);
+}
+.owned-rees-page .dot-avatar svg {
+  width: 23px;
+  height: 23px;
+}
+.owned-rees-page .dot-avatar.sand {
+  background: rgb(249, 244, 236);
+  color: rgb(161, 138, 96);
+  border-color: rgb(238, 231, 218);
+}
+.owned-rees-page .dot-avatar.lilac {
+  background: rgb(241, 237, 251);
+  color: rgb(146, 117, 191);
+  border-color: rgb(232, 225, 245);
+}
+.owned-rees-page .dot-avatar.sage {
+  background: rgb(234, 244, 240);
+  color: rgb(91, 142, 126);
+  border-color: rgb(223, 235, 229);
+}
+.owned-rees-page .dot-avatar.rose {
+  background: rgb(250, 240, 240);
+  color: rgb(180, 126, 129);
+  border-color: rgb(242, 229, 229);
+}
+.owned-rees-page .dot-avatar.slate {
+  background: rgb(237, 240, 246);
+  color: rgb(117, 137, 169);
+  border-color: rgb(224, 230, 239);
+}
+.owned-rees-page .dot-avatar.sm {
+  width: 31px;
+  height: 31px;
+  border-radius: 9px;
+}
+.owned-rees-page .dot-avatar.sm svg {
+  width: 18px;
+  height: 18px;
+}
+.owned-rees-page .dot-card .description {
+  font-size: 10px;
+  color: rgb(127, 135, 158);
+  line-height: 1.9;
+  min-height: 39px;
+}
+.owned-rees-page .dot-stats {
+  display: flex;
+  gap: 15px;
+  font-size: 9px;
+  color: rgb(138, 147, 169);
+  padding: 12px 0px;
+}
+.owned-rees-page .dot-stats span {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+}
+.owned-rees-page .dot-stats svg {
+  width: 11px;
+  height: 11px;
+}
+.owned-rees-page .card-actions {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-top: auto;
+  gap: 8px;
+}
+.owned-rees-page .card-actions .btn {
+  min-height: 29px;
+  font-size: 9px;
+  padding: 6px 9px;
+  gap: 4px;
+}
+.owned-rees-page .card-actions .btn svg {
+  width: 11px;
+  height: 11px;
+}
+.owned-rees-page .search-small {
+  border: 1px solid var(--line);
+  border-radius: 7px;
+  background: white;
+  padding: 8px 11px;
+  display: flex;
+  gap: 8px;
+  align-items: center;
+}
+.owned-rees-page .search-small svg {
+  width: 14px;
+  height: 14px;
+  color: rgb(160, 167, 185);
+}
+.owned-rees-page .search-small input {
+  border: 0px;
+  outline: 0px;
+  max-width: 180px;
+  font-size: 11px;
+  padding: 0px;
+  box-shadow: none !important;
+}
+.owned-rees-page .owned-card {
+  min-height: 240px;
+}
+.owned-rees-page .owned-card .dot-stats {
+  margin-top: 10px;
+}
+.owned-rees-page .owned-card .card-actions {
+  border-top: 1px solid rgb(238, 240, 246);
+  padding-top: 14px;
+}
+.owned-rees-page .metric-grid {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 16px;
+  margin-bottom: 28px;
+}
+.owned-rees-page .metric {
+  padding: 22px 24px;
+}
+.owned-rees-page .metric p {
+  font-size: 10px;
+  color: rgb(146, 153, 174);
+}
+.owned-rees-page .metric .value {
+  font: 27px var(--mono);
+  letter-spacing: -1px;
+  margin-top: 11px;
+}
+.owned-rees-page .metric .value small {
+  font: 10px var(--sans);
+  letter-spacing: 0px;
+  color: rgb(140, 149, 173);
+  margin-left: 8px;
+}
+.owned-rees-page .metric >small {
+  display: block;
+  font-size: 9px;
+  color: rgb(161, 167, 184);
+  margin-top: 9px;
+}
+.owned-rees-page table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 10px;
+  white-space: nowrap;
+}
+.owned-rees-page th {
+  text-align: left;
+  font-weight: 500;
+  color: rgb(153, 163, 184);
+  font-size: 9px;
+  background: var(--wash);
+  padding: 12px 20px;
+  border-block: 1px solid var(--line);
+}
+.owned-rees-page td {
+  padding: 15px 20px;
+  border-bottom: 1px solid rgb(237, 240, 246);
+  color: rgb(108, 122, 151);
+}
+.owned-rees-page tr:last-child td {
+  border-bottom: 0px;
+}
+@media (min-width: 1500px) {
+  .owned-rees-page.page {
+  padding-top: 45px;
+}
+  .owned-rees-page .dot-card {
+  padding: 25px;
+}
+  .owned-rees-page .dot-card .description {
+  font-size: 11px;
+}
+}
+@media (max-width: 1180px) {
+  .owned-rees-page.page {
+  padding: 30px;
+}
+  .owned-rees-page .dot-grid {
+  gap: 12px;
+}
+  .owned-rees-page .dot-card {
+  padding: 18px 16px;
+}
+  .owned-rees-page .dot-card .description {
+  font-size: 10px;
+}
+  .owned-rees-page .dot-stats {
+  gap: 9px;
+}
+  .owned-rees-page .card-actions {
+  flex-wrap: wrap;
+}
+}
+@media (max-width: 980px) {
+  .owned-rees-page.page {
+  padding: 26px;
+}
+  .owned-rees-page .dot-grid {
+  grid-template-columns: repeat(2, minmax(0px, 1fr));
+}
+}
+@media (max-width: 760px) {
+  .owned-rees-page.page {
+  padding: 25px 20px;
+}
+  .owned-rees-page .page-head h1 {
+  font-size: 25px;
+}
+  .owned-rees-page .page-footer {
+  font-size: 8px;
+}
+  .owned-rees-page .page-footer .mono {
+  font-size: 8px;
+}
+  .owned-rees-page .page-head {
+  align-items: center;
+}
+}
+@media (max-width: 560px) {
+  .owned-rees-page.page {
+  padding: 22px 17px;
+}
+  .owned-rees-page .filter-row {
+  gap: 3px;
+  margin-bottom: 15px;
+}
+  .owned-rees-page .filter {
+  font-size: 9px;
+  padding: 6px 9px;
+}
+  .owned-rees-page .dot-grid {
+  grid-template-columns: 1fr;
+  gap: 13px;
+}
+  .owned-rees-page .dot-card {
+  padding: 20px;
+}
+  .owned-rees-page .dot-card .description {
+  font-size: 11px;
+  min-height: 0px;
+}
+  .owned-rees-page .dot-stats {
+  font-size: 10px;
+  gap: 17px;
+}
+  .owned-rees-page .card-actions .btn {
+  font-size: 10px;
+  min-height: 32px;
+}
+  .owned-rees-page .page-footer {
+  flex-wrap: wrap;
+  gap: 10px;
+  margin-top: 26px;
+}
+  .owned-rees-page .page-head {
+  gap: 12px;
+  margin-bottom: 24px;
+  align-items: flex-start;
+}
+  .owned-rees-page .page-head h1 {
+  font-size: 25px;
+}
+  .owned-rees-page .page-head p {
+  font-size: 10px;
+  max-width: 230px;
+  line-height: 1.9;
+}
+  .owned-rees-page .metric-grid {
+  gap: 8px;
+  margin-bottom: 20px;
+}
+  .owned-rees-page .metric {
+  padding: 15px 12px;
+}
+  .owned-rees-page .metric p {
+  font-size: 8px;
+}
+  .owned-rees-page .metric .value {
+  font-size: 21px;
+}
+  .owned-rees-page .metric .value small {
+  font-size: 8px;
+  margin-left: 3px;
+}
+  .owned-rees-page .metric >small {
+  font-size: 7px;
+  line-height: 1.8;
+}
+  .owned-rees-page .search-small {
+  padding: 7px 9px;
+}
+  .owned-rees-page .search-small input {
+  max-width: 120px;
+  font-size: 10px;
+}
+  .owned-rees-page th,
+.owned-rees-page td {
+  padding: 12px 15px;
+}
+}
+@media (prefers-reduced-motion: reduce) {
+  .owned-rees-page,
+.owned-rees-page::before,
+.owned-rees-page::after {
+  animation: auto ease 0s 1 normal none running none !important;
+  transition: none !important;
+  scroll-behavior: auto !important;
+}
+}
+.owned-rees-page .filter {
+  font-size: 11px;
+}
+.owned-rees-page .dot-card .description {
+  font-size: 12px;
+  color: rgb(119, 131, 157);
+  line-height: 1.8;
+  min-height: 44px;
+}
+.owned-rees-page .dot-stats {
+  font-size: 10px;
+  color: rgb(126, 140, 165);
+}
+.owned-rees-page .card-actions .btn {
+  font-size: 11px;
+  min-height: 34px;
+}
+.owned-rees-page .page-head p {
+  font-size: 13px;
+}
+@media (max-width: 1180px) {
+  .owned-rees-page .dot-grid {
+  gap: 14px;
+}
+  .owned-rees-page .dot-card .description {
+  font-size: 12px;
+}
+  .owned-rees-page .card-actions {
+  row-gap: 12px;
+}
+  .owned-rees-page .dot-card .description {
+  min-height: 44px;
+}
+}
+@media (max-width: 560px) {
+  .owned-rees-page .page-head p {
+  font-size: 12px;
+  max-width: 210px;
+}
+  .owned-rees-page .dot-card .description {
+  font-size: 13px;
+  min-height: 0px;
+}
+  .owned-rees-page .card-actions .btn {
+  font-size: 12px;
+  min-height: 39px;
+}
+  .owned-rees-page .dot-stats {
+  font-size: 11px;
+}
+  .owned-rees-page .filter {
+  min-height: 35px;
+  font-size: 11px;
+}
+  .owned-rees-page .page-footer >span.mono {
+  display: none;
+}
+}
+/* suite.css */
+.owned-rees-page .template-blueprint {
+  background: rgb(16, 36, 70);
+  color: rgb(214, 231, 255);
+  border-color: rgb(42, 69, 106);
+}
+.owned-rees-page .template-spotlight {
+  background: rgb(255, 253, 248);
+  border-color: rgb(237, 230, 216);
+}
+/* discovery-video.css */
+.owned-rees-page .creator-dot-card {
+  overflow: hidden;
+  min-height: 0px;
+}
+.owned-rees-page .creator-dot-card .description {
+  margin: 0px;
+  min-height: 0px;
+  line-height: 1.8;
+  display: -webkit-box;
+  -webkit-line-clamp: 2;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+}
+.owned-rees-page .creator-dot-card .creator-dot-stats {
+  padding: 12px 0px;
+  margin: 0px;
+  gap: 15px;
+  flex-wrap: wrap;
+}
+.owned-rees-page .creator-dot-stats a {
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  color: rgb(135, 149, 174);
+}
+.owned-rees-page .creator-dot-stats a:hover {
+  color: var(--blue);
+}
+.owned-rees-page .creator-dot-card .card-actions {
+  padding-top: 10px;
+}
+.owned-rees-page .creator-dot-card .card-actions >.text-link {
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  font-size: 9px;
+}
+.owned-rees-page .creator-dot-card .card-actions >.text-link svg {
+  width: 13px;
+  height: 13px;
+}
+.owned-rees-page .creator-cover-status {
+  position: absolute;
+  top: 9px;
+  left: 10px;
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  padding: 4px 6px;
+  background: rgba(255, 255, 255, 0.87);
+  color: rgb(113, 134, 164);
+  border-radius: 5px;
+  font-size: 7px;
+  pointer-events: none;
+}
+.owned-rees-page .creator-cover-status svg {
+  width: 9px;
+  height: 9px;
+}
+.owned-rees-page .discovery-cover {
+  position: relative;
+  container-type: inline-size;
+  aspect-ratio: 16 / 9;
+  flex: 0 0 auto;
+  overflow: clip;
+  border: 1px solid rgb(227, 234, 245);
+  border-radius: 8px;
+  margin-bottom: 12px;
+  color: rgb(49, 80, 120);
+  background: rgb(239, 245, 255);
+}
+.owned-rees-page .discovery-cover::before,
+.owned-rees-page .discovery-cover::after {
+  content: "";
+  pointer-events: none;
+  position: absolute;
+  border: 1px solid color-mix(in srgb, var(--video-accent) 18%, transparent);
+  border-radius: 50%;
+  width: 65%;
+  aspect-ratio: 1 / 1;
+  top: -48%;
+  right: -20%;
+}
+.owned-rees-page .discovery-cover::after {
+  width: 85%;
+  top: 60%;
+  left: -50%;
+  border-style: dashed;
+}
+.owned-rees-page .discovery-cover.template-blueprint {
+  background: rgb(25, 52, 85);
+  color: rgb(231, 239, 255);
+  border-color: rgb(39, 71, 109);
+}
+.owned-rees-page .discovery-cover.template-spotlight {
+  background: rgb(252, 247, 237);
+  color: rgb(118, 97, 62);
+  border-color: rgb(238, 228, 206);
+}
+.owned-rees-page .discovery-cover-poster {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  width: 100%;
+  height: 100%;
+  position: relative;
+  padding: 22px 20px 37px;
+  background: radial-gradient(rgba(136, 167, 204, 0.2) 0.7px, transparent 0.7px) 0% 0% / 14px 14px transparent;
+  color: inherit;
+  border: 0px;
+  cursor: pointer;
+  text-align: center;
+}
+.owned-rees-page .discovery-cover-poster:focus-visible {
+  outline: 2px solid var(--blue);
+  outline-offset: -3px;
+}
+.owned-rees-page .discovery-cover.is-video-placeholder {
+  border: 0px;
+  background: transparent;
+}
+.owned-rees-page .discovery-cover.is-video-placeholder::before,
+.owned-rees-page .discovery-cover.is-video-placeholder::after {
+  display: none;
+}
+.owned-rees-page .discovery-cover-poster.is-video-placeholder {
+  padding: 0px;
+  background: none;
+}
+.owned-rees-page .discovery-cover .public-dot-video-placeholder {
+  width: 100%;
+  height: 100%;
+  aspect-ratio: auto;
+  border-radius: 8px;
+}
+.owned-rees-page .discovery-cover .public-dot-video-placeholder-brand {
+  top: 12px;
+  left: 12px;
+  right: 12px;
+  font-size: 9px;
+}
+.owned-rees-page .discovery-cover .public-dot-video-placeholder-brand >span {
+  display: none;
+}
+.owned-rees-page .discovery-cover .public-dot-video-placeholder >div {
+  max-width: 100%;
+  gap: 7px;
+}
+.owned-rees-page .discovery-cover .public-dot-video-placeholder .dot-avatar {
+  width: 28px;
+  height: 28px;
+  border-radius: 9px;
+}
+.owned-rees-page .discovery-cover .public-dot-video-placeholder strong {
+  max-width: 100%;
+  font-size: clamp(12px, 5cqw, 17px);
+  line-height: 1.4;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+  overflow: hidden;
+}
+.owned-rees-page .discovery-cover .public-dot-video-placeholder-status {
+  font-size: 9px;
+}
+.owned-rees-page .discovery-cover .public-dot-video-placeholder-status svg {
+  width: 12px;
+  height: 12px;
+}
+.owned-rees-page .discovery-cover .public-dot-video-placeholder-caption {
+  bottom: 10px;
+  font-size: 7px;
+}
+.owned-rees-page .discovery-cover.is-video-placeholder >.creator-cover-status {
+  left: auto;
+  right: 10px;
+}
+@container (max-width: 270px) {
+  .owned-rees-page .discovery-cover .public-dot-video-placeholder >div {
+  gap: 5px;
+}
+  .owned-rees-page .discovery-cover .public-dot-video-placeholder .dot-avatar {
+  width: 24px;
+  height: 24px;
+}
+  .owned-rees-page .discovery-cover .public-dot-video-placeholder-status {
+  font-size: 8px;
+}
+}
+.owned-rees-page .discovery-cover-kicker {
+  font: 5px var(--mono);
+  letter-spacing: 0.11em;
+  opacity: 0.45;
+  margin-bottom: 12px;
+}
+.owned-rees-page .discovery-cover-identity {
+  display: flex;
+  align-items: center;
+  gap: 9px;
+  max-width: 100%;
+}
+.owned-rees-page .discovery-cover-identity .dot-avatar {
+  width: 32px;
+  height: 32px;
+  border-radius: 10px;
+}
+.owned-rees-page .discovery-cover-identity strong {
+  font-size: clamp(12px, 5.3cqw, 21px);
+  line-height: 1.6;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.owned-rees-page .discovery-cover-tagline {
+  font-size: clamp(8px, 3cqw, 11px);
+  line-height: 1.7;
+  opacity: 0.65;
+  margin-top: 10px;
+  max-width: 95%;
+  display: -webkit-box;
+  -webkit-line-clamp: 2;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+}
+.owned-rees-page .discovery-cover-play {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  position: absolute;
+  left: 13px;
+  bottom: 11px;
+  border-radius: 20px;
+  padding: 6px 10px;
+  background: rgb(255, 255, 255);
+  color: rgb(49, 80, 120);
+  font-size: 8px;
+  box-shadow: rgba(20, 42, 76, 0.05) 0px 2px 10px;
+  transition: background 0.2s, transform 0.2s;
+}
+.owned-rees-page .discovery-cover-play svg {
+  width: 10px;
+  height: 10px;
+}
+.owned-rees-page .discovery-cover-poster:hover .discovery-cover-play {
+  transform: translateY(-2px);
+  color: white;
+  background: var(--blue);
+}
+.owned-rees-page .discovery-cover-duration {
+  position: absolute;
+  right: 13px;
+  bottom: 17px;
+  font: 8px var(--mono);
+  opacity: 0.6;
+}
+@media (prefers-reduced-motion: reduce) {
+  .owned-rees-page .discovery-cover *,
+.owned-rees-page .discovery-cover ::before,
+.owned-rees-page .discovery-cover ::after {
+  animation: auto ease 0s 1 normal none running none !important;
+  transition: none !important;
+}
+}
+/* dot-avatar.css */
+.owned-rees-page .dot-avatar {
+  overflow: hidden;
+}
+.owned-rees-page .dot-avatar >img {
+  display: block;
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  border-radius: inherit;
+}
+/* public-dot.css */
+.owned-rees-page .public-dot-video-placeholder {
+  position: relative;
+  overflow: hidden;
+  aspect-ratio: 16 / 9;
+  display: grid;
+  place-items: center;
+  padding: 0px 18px;
+  border: 1px solid rgb(227, 234, 245);
+  border-radius: 12px;
+  background: radial-gradient(circle at 95% 0px, rgb(232, 239, 252) 0px, rgb(232, 239, 252) 24%, transparent 24.2%), linear-gradient(135deg, rgb(245, 248, 255), rgb(237, 243, 255));
+  text-align: center;
+}
+.owned-rees-page .public-dot-video-placeholder-brand {
+  position: absolute;
+  top: 18px;
+  left: 20px;
+  right: 20px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  color: rgb(115, 152, 200);
+  font: 600 12px var(--mono);
+}
+.owned-rees-page .public-dot-video-placeholder-brand >span {
+  color: rgb(163, 180, 205);
+  font: 5px var(--mono);
+  letter-spacing: 1px;
+}
+.owned-rees-page .public-dot-video-placeholder >div {
+  display: grid;
+  justify-items: center;
+  gap: 10px;
+  min-width: 0px;
+}
+.owned-rees-page .public-dot-video-placeholder .dot-avatar {
+  width: 44px;
+  height: 44px;
+  border-radius: 13px;
+}
+.owned-rees-page .public-dot-video-placeholder strong {
+  color: rgb(78, 108, 150);
+  font-size: clamp(14px, 2vw, 22px);
+  line-height: 1.5;
+  overflow-wrap: anywhere;
+}
+.owned-rees-page .public-dot-video-placeholder-status {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  color: rgb(141, 159, 185);
+  font-size: 10px;
+}
+.owned-rees-page .public-dot-video-placeholder-status svg {
+  width: 14px;
+  height: 14px;
+}
+.owned-rees-page .public-dot-video-placeholder-caption {
+  position: absolute;
+  bottom: 18px;
+  left: 12px;
+  right: 12px;
+  color: rgb(154, 174, 201);
+  font-size: 9px;
+}
+@media (max-width: 760px) {
+  .owned-rees-page .public-dot-video-placeholder-brand {
+  top: 10px;
+  left: 12px;
+  right: 12px;
+  font-size: 9px;
+}
+  .owned-rees-page .public-dot-video-placeholder-brand >span {
+  font-size: 4px;
+  letter-spacing: 0.5px;
+}
+  .owned-rees-page .public-dot-video-placeholder >div {
+  gap: 6px;
+}
+  .owned-rees-page .public-dot-video-placeholder .dot-avatar {
+  width: 28px;
+  height: 28px;
+  border-radius: 9px;
+}
+  .owned-rees-page .public-dot-video-placeholder-status {
+  font-size: 9px;
+}
+  .owned-rees-page .public-dot-video-placeholder-caption {
+  bottom: 8px;
+  font-size: 7px;
+}
+}
+/* discovery.css */
+.owned-rees-page .discovery-scale-notice {
+  display: flex;
+  align-items: center;
+  gap: 9px;
+  padding: 12px 15px;
+  border: 1px solid rgb(223, 233, 250);
+  border-radius: 9px;
+  background: rgb(240, 246, 255);
+  color: rgb(121, 150, 188);
+  font-size: 10px;
+  line-height: 1.8;
+  margin-bottom: 19px;
+}
+.owned-rees-page .discovery-scale-notice >svg {
+  width: 17px;
+  height: 17px;
+  flex: 0 0 auto;
+}
+.owned-rees-page .discovery-scale-notice strong {
+  font-weight: 550;
+}
+.owned-rees-page .discovery-select {
+  min-width: 0px;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  color: rgb(145, 160, 185);
+  font-size: 9px;
+}
+.owned-rees-page .discovery-select >span {
+  white-space: nowrap;
+}
+.owned-rees-page .discovery-select select {
+  min-width: 0px;
+  width: 100%;
+  border: 1px solid rgb(225, 231, 242);
+  border-radius: 8px;
+  background: rgb(255, 255, 255);
+  color: rgb(112, 134, 164);
+  padding: 10px 6px;
+  font-size: 10px;
+  min-height: 41px;
+}
+.owned-rees-page .discovery-results-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 15px;
+  padding: 19px 0px;
+  min-height: 65px;
+}
+.owned-rees-page .discovery-results-head >p {
+  margin: 0px;
+  min-width: 0px;
+  overflow-wrap: anywhere;
+  font-size: 10px;
+  color: rgb(142, 157, 180);
+  line-height: 1.8;
+}
+.owned-rees-page .discovery-results-head strong {
+  color: rgb(93, 116, 151);
+  font-weight: 550;
+}
+.owned-rees-page .discovery-pagination {
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  flex-wrap: wrap;
+  font-size: 10px;
+  color: rgb(136, 155, 184);
+}
+.owned-rees-page .discovery-pagination >a,
+.owned-rees-page .discovery-pagination >span:not(.pagination-ellipsis) {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 31px;
+  height: 31px;
+  padding: 0px 6px;
+  border: 1px solid rgb(225, 231, 242);
+  border-radius: 7px;
+  background: rgb(255, 255, 255);
+}
+.owned-rees-page .discovery-pagination >.mono {
+  border: 0px !important;
+  background: none !important;
+  min-width: 63px !important;
+}
+.owned-rees-page .discovery-pagination >a:hover {
+  background: rgb(239, 245, 255);
+  border-color: rgb(179, 209, 247);
+  color: rgb(22, 133, 233);
+}
+.owned-rees-page .discovery-pagination svg {
+  height: 12px;
+  width: 12px;
+}
+.owned-rees-page .discovery-pagination >:first-child svg {
+  transform: rotate(180deg);
+}
+.owned-rees-page .discovery-pagination >.is-current {
+  color: rgb(22, 133, 233);
+  border-color: rgb(188, 215, 249) !important;
+  background: rgb(237, 245, 255) !important;
+}
+.owned-rees-page .discovery-pagination >.is-disabled {
+  color: rgb(203, 211, 226);
+  background: rgb(249, 250, 255) !important;
+}
+.owned-rees-page .pagination-ellipsis {
+  min-width: 22px;
+  text-align: center;
+}
+.owned-rees-page .discovery-results-footer {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 15px;
+  margin-top: 25px;
+}
+.owned-rees-page .discovery-results-footer >span {
+  font-size: 10px;
+  color: rgb(160, 174, 195);
+  white-space: nowrap;
+}
+@media (max-width: 1050px) {
+  .owned-rees-page .discovery-select >span {
+  display: none;
+}
+  .owned-rees-page .discovery-results-footer {
+  align-items: flex-start;
+}
+  .owned-rees-page .discovery-results-footer .discovery-pagination {
+  justify-content: flex-end;
+}
+}
+@media (max-width: 760px) {
+  .owned-rees-page .discovery-results-footer {
+  flex-direction: column;
+  align-items: stretch;
+}
+  .owned-rees-page .discovery-results-footer .discovery-pagination {
+  justify-content: center;
+}
+}
+@media (max-width: 600px) {
+  .owned-rees-page .discovery-select >span {
+  display: block;
+}
+  .owned-rees-page .discovery-select select {
+  min-height: 32px;
+  padding: 6px;
+}
+  .owned-rees-page .discovery-scale-notice {
+  font-size: 9px;
+  padding: 10px 12px;
+}
+  .owned-rees-page .discovery-results-head {
+  gap: 8px;
+  padding: 14px 0px;
+}
+  .owned-rees-page .discovery-results-head >p {
+  font-size: 9px;
+}
+  .owned-rees-page .discovery-pagination.is-compact {
+  gap: 3px;
+}
+  .owned-rees-page .discovery-pagination.is-compact >a,
+.owned-rees-page .discovery-pagination.is-compact >span:not(.pagination-ellipsis) {
+  min-width: 26px;
+  height: 28px;
+}
+}
+/* owned-rees.css */
+.owned-rees-page.owned-rees-page {
+  animation: auto ease 0s 1 normal none running none;
+}
+.owned-rees-page.owned-rees-page >.page-head .eyebrow {
+  margin: 0px 0px 9px;
+}
+.owned-rees-page .owned-ree-count {
+  font-size: 13px;
+  margin-left: 10px;
+  color: rgb(142, 157, 181);
+}
+.owned-rees-page .owned-ree-head-actions {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  flex: 0 0 auto;
+}
+.owned-rees-page .owned-ree-head-actions .btn {
+  white-space: nowrap;
+}
+.owned-rees-page .owned-ree-toolbar {
+  position: sticky;
+  top: var(--navigation-height, var(--topbar));
+  z-index: 20;
+  background: rgba(248, 246, 255, 0.96);
+  backdrop-filter: blur(16px);
+  padding: 14px 0px 0px;
+  margin-bottom: 16px;
+  border-bottom: 1px solid rgb(228, 232, 242);
+  scroll-margin-top: calc(var(--navigation-height, var(--topbar)) + 8px);
+}
+.owned-rees-page .owned-ree-controls {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+}
+.owned-rees-page .owned-ree-controls .filter-row {
+  margin: 0px;
+  flex: 1 1 0%;
+  gap: 6px;
+}
+.owned-rees-page .owned-ree-controls .filter {
+  white-space: nowrap;
+}
+.owned-rees-page .owned-ree-controls .search-small {
+  width: 250px;
+  max-width: 100%;
+  min-width: 0px;
+}
+.owned-rees-page .owned-ree-controls .search-small input {
+  min-width: 0px;
+  width: 100%;
+}
+.owned-rees-page .owned-ree-controls .search-small button {
+  display: grid;
+  place-items: center;
+  border: 0px;
+  padding: 3px;
+  color: rgb(135, 160, 195);
+  background: transparent;
+}
+.owned-rees-page .owned-ree-controls .search-small button svg {
+  width: 13px;
+  height: 13px;
+}
+.owned-rees-page .owned-ree-controls .discovery-select {
+  flex: 0 0 auto;
+}
+.owned-rees-page .owned-ree-controls .discovery-select select {
+  width: 58px;
+}
+.owned-rees-page .owned-ree-toolbar .discovery-results-head {
+  padding: 12px 0px;
+  min-height: 52px;
+}
+.owned-rees-page.owned-rees-page .dot-grid {
+  align-items: stretch;
+}
+.owned-rees-page.owned-rees-page .dot-card {
+  min-width: 0px;
+}
+.owned-rees-page.owned-rees-page .discovery-cover-identity {
+  min-width: 0px;
+  max-width: 100%;
+}
+.owned-rees-page.owned-rees-page .discovery-cover-identity strong {
+  min-width: 0px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.owned-rees-page.owned-rees-page .creator-dot-stats {
+  flex-wrap: wrap;
+}
+.owned-rees-page.owned-rees-page .creator-dot-stats >span {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+}
+.owned-rees-page .owned-ree-demo-label {
+  color: rgb(153, 169, 192);
+  font-size: 10px;
+}
+.owned-rees-page.owned-rees-page .card-actions >.btn {
+  flex: 0 0 auto;
+}
+.owned-rees-page.owned-rees-page .discovery-results-footer {
+  margin-top: 24px;
+}
+.owned-rees-page #owned-ree-jump {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  margin-left: 8px;
+}
+.owned-rees-page #owned-ree-jump input {
+  width: 55px;
+  min-height: 31px;
+  padding: 4px 5px;
+  text-align: center;
+  border: 1px solid rgb(225, 231, 242);
+  border-radius: 6px;
+  font-size: 10px;
+  color: rgb(109, 131, 163);
+  background: rgb(255, 255, 255);
+}
+.owned-rees-page #owned-ree-jump button {
+  min-height: 31px;
+  border: 1px solid rgb(225, 231, 242);
+  border-radius: 6px;
+  padding: 4px 9px;
+  font-size: 10px;
+  color: rgb(110, 140, 181);
+  background: rgb(255, 255, 255);
+}
+.owned-rees-page .owned-ree-empty {
+  padding: 55px 20px;
+}
+.owned-rees-page .owned-ree-empty h2 {
+  font-size: 17px;
+  margin: 15px 0px 8px;
+}
+.owned-rees-page .owned-ree-empty p {
+  font-size: 12px;
+  margin-bottom: 18px;
+}
+.owned-rees-page.owned-rees-page button:focus-visible,
+.owned-rees-page.owned-rees-page a:focus-visible,
+.owned-rees-page.owned-rees-page select:focus-visible {
+  outline: rgb(142, 187, 241) solid 2px;
+  outline-offset: 3px;
+}
+@media (max-width: 1100px) {
+  .owned-rees-page .owned-ree-controls {
+  flex-wrap: wrap;
+  gap: 10px;
+}
+  .owned-rees-page .owned-ree-controls .filter-row {
+  flex: 1 1 200px;
+}
+  .owned-rees-page .owned-ree-controls .search-small {
+  order: 3;
+  width: 100%;
+}
+  .owned-rees-page .owned-ree-controls .discovery-select >span {
+  display: inline;
+}
+}
+@media (max-width: 760px) {
+  .owned-rees-page.owned-rees-page >.page-head {
+  align-items: flex-start;
+  flex-direction: column;
+  gap: 18px;
+}
+  .owned-rees-page .owned-ree-head-actions {
+  flex-wrap: wrap;
+}
+  .owned-rees-page .owned-ree-head-actions .btn {
+  font-size: 10px;
+  padding: 9px 12px;
+}
+  .owned-rees-page.owned-rees-page >.page-head .eyebrow {
+  font-size: 8px;
+}
+  .owned-rees-page .owned-ree-controls .filter-row {
+  gap: 3px;
+}
+  .owned-rees-page .owned-ree-controls .filter {
+  font-size: 10px;
+  padding: 6px 8px;
+}
+  .owned-rees-page.owned-rees-page .discovery-results-head >p {
+  font-size: 9px;
+}
+  .owned-rees-page.owned-rees-page .discovery-results-footer {
+  align-items: stretch;
+}
+  .owned-rees-page.owned-rees-page .discovery-results-footer .discovery-pagination {
+  justify-content: center;
+}
+  .owned-rees-page #owned-ree-jump {
+  flex-basis: 100%;
+  justify-content: center;
+  margin: 8px 0px 0px;
+}
+}
+.owned-rees-page .owned-ree-list-start {
+  scroll-margin-top: 8px;
+}
+@media (max-width: 1100px) {
+  .owned-rees-page.owned-rees-page .metric-grid {
+  grid-template-columns: minmax(0px, 1fr);
+  gap: 8px;
+}
+  .owned-rees-page.owned-rees-page .metric {
+  display: grid;
+  grid-template-columns: minmax(0px, 1fr) auto;
+  gap: 5px 12px;
+  align-items: center;
+  padding: 12px 16px;
+}
+  .owned-rees-page.owned-rees-page .metric p {
+  font-size: 10px;
+}
+  .owned-rees-page.owned-rees-page .metric .value {
+  grid-area: 1 / 2 / 3;
+  margin: 0px;
+  font-size: 22px;
+  white-space: nowrap;
+}
+  .owned-rees-page.owned-rees-page .metric >small {
+  margin: 0px;
+  font-size: 9px;
+  overflow-wrap: anywhere;
+}
+}
+.owned-rees-page .owned-ree-results-tools {
+  display: flex;
+  align-items: center;
+  gap: 16px;
+  flex: 0 0 auto;
+}
+.owned-rees-page .owned-ree-view-switch {
+  display: inline-flex;
+  gap: 2px;
+  padding: 3px;
+  border: 1px solid rgb(224, 230, 241);
+  background: rgb(239, 239, 248);
+  border-radius: 8px;
+}
+.owned-rees-page .owned-ree-view-switch >button {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  min-height: 28px;
+  padding: 5px 9px;
+  border: 0px;
+  border-radius: 5px;
+  background: transparent;
+  color: rgb(139, 153, 176);
+  font-size: 10px;
+  white-space: nowrap;
+}
+.owned-rees-page .owned-ree-view-switch >button[aria-pressed="true"] {
+  color: var(--blue);
+  background: rgb(255, 255, 255);
+  box-shadow: rgba(24, 41, 82, 0.043) 0px 1px 4px;
+}
+.owned-rees-page .owned-ree-view-switch >button:hover {
+  color: var(--blue);
+}
+.owned-rees-page .owned-ree-view-switch svg {
+  width: 13px;
+  height: 13px;
+  flex: 0 0 auto;
+}
+.owned-rees-page .owned-ree-list-wrap {
+  overflow: hidden;
+}
+.owned-rees-page .owned-ree-table {
+  width: 100%;
+  table-layout: fixed;
+  border-collapse: collapse;
+}
+.owned-rees-page .owned-ree-table th {
+  background: rgb(250, 251, 255);
+  color: rgb(148, 162, 184);
+  font-size: 10px;
+  font-weight: 500;
+  text-align: left;
+  border-bottom: 1px solid rgb(233, 237, 245);
+  padding: 14px 18px;
+  white-space: nowrap;
+}
+.owned-rees-page .owned-ree-table .owned-ree-heading-selection {
+  width: 5%;
+  padding-inline: 8px;
+  text-align: center;
+}
+.owned-rees-page .owned-ree-table .owned-ree-heading-name {
+  width: 34%;
+}
+.owned-rees-page .owned-ree-table .owned-ree-heading-status {
+  width: 11%;
+}
+.owned-rees-page .owned-ree-table .owned-ree-heading-sources {
+  width: 12%;
+}
+.owned-rees-page .owned-ree-table .owned-ree-heading-answers {
+  width: 12%;
+  text-align: right;
+}
+.owned-rees-page .owned-ree-table .owned-ree-heading-actions {
+  width: 26%;
+  text-align: right;
+}
+.owned-rees-page .owned-ree-table td {
+  padding: 16px 18px;
+  border-bottom: 1px solid rgb(237, 240, 247);
+  vertical-align: middle;
+  font-size: 11px;
+}
+.owned-rees-page .owned-ree-table tbody tr:last-child td {
+  border-bottom: 0px;
+}
+.owned-rees-page .owned-ree-table tbody tr:hover {
+  background: rgb(251, 252, 255);
+}
+.owned-rees-page .owned-ree-list-name {
+  display: flex;
+  align-items: center;
+  gap: 11px;
+  width: 100%;
+  min-width: 0px;
+  padding: 0px;
+  border: 0px;
+  background: transparent;
+  text-align: left;
+  color: rgb(78, 98, 129);
+}
+.owned-rees-page .owned-ree-list-name .dot-avatar {
+  width: 34px;
+  height: 34px;
+  min-width: 34px;
+  flex: 0 0 auto;
+  border-radius: 9px;
+}
+.owned-rees-page .owned-ree-list-name >span:last-child {
+  min-width: 0px;
+}
+.owned-rees-page .owned-ree-list-name strong,
+.owned-rees-page .owned-ree-list-name small {
+  display: block;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.owned-rees-page .owned-ree-list-name strong {
+  font-size: 12px;
+  font-weight: 550;
+}
+.owned-rees-page .owned-ree-list-name small {
+  font-size: 10px;
+  color: rgb(153, 166, 188);
+  margin-top: 6px;
+}
+.owned-rees-page .owned-ree-list-name:hover strong {
+  color: var(--blue);
+}
+.owned-rees-page .owned-ree-status {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  font-size: 9px;
+  white-space: nowrap;
+  color: rgb(145, 161, 185);
+}
+.owned-rees-page .owned-ree-status svg {
+  width: 12px;
+  height: 12px;
+  flex: 0 0 auto;
+}
+.owned-rees-page .owned-ree-status.public {
+  color: rgb(98, 153, 141);
+}
+.owned-rees-page .owned-ree-status.moderated {
+  color: rgb(188, 146, 112);
+}
+.owned-rees-page .owned-ree-table .owned-ree-count-link,
+.owned-rees-page .owned-ree-list-sources >strong,
+.owned-rees-page .owned-ree-list-answers >strong {
+  font: 13px var(--mono);
+  color: rgb(82, 104, 135);
+  font-weight: 500;
+  white-space: nowrap;
+}
+.owned-rees-page .owned-ree-table .owned-ree-count-link:hover {
+  color: var(--blue);
+  text-decoration: underline;
+}
+.owned-rees-page .owned-ree-list-sources >small {
+  display: block;
+  font-size: 9px;
+  color: rgb(160, 174, 194);
+  margin-top: 6px;
+  white-space: nowrap;
+}
+.owned-rees-page .owned-ree-table .owned-ree-list-answers {
+  text-align: right;
+}
+.owned-rees-page .owned-ree-list-actions {
+  text-align: right;
+  white-space: nowrap;
+}
+.owned-rees-page .owned-ree-list-actions >* {
+  vertical-align: middle;
+}
+.owned-rees-page .owned-ree-list-actions .btn {
+  min-height: 28px;
+  padding: 6px 8px;
+  font-size: 10px;
+}
+.owned-rees-page .owned-ree-list-actions .text-link {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  font-size: 10px;
+  margin-left: 10px;
+  color: rgb(140, 157, 184);
+}
+.owned-rees-page .owned-ree-list-actions .text-link svg {
+  width: 12px;
+  height: 12px;
+}
+.owned-rees-page .owned-ree-list-actions .icon-btn {
+  display: inline-flex;
+  margin-left: 6px;
+  width: 26px;
+  height: 28px;
+  color: rgb(147, 164, 189);
+}
+.owned-rees-page .owned-ree-list-actions .icon-btn svg {
+  width: 14px;
+  height: 14px;
+}
+.owned-rees-page .owned-ree-list-actions .owned-ree-demo-label {
+  margin-right: 12px;
+  font-size: 9px;
+}
+.owned-rees-page .owned-ree-mobile-label {
+  display: none;
+}
+.owned-rees-page .owned-ree-sr-only {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  padding: 0px;
+  margin: -1px;
+  overflow: hidden;
+  clip: rect(0px, 0px, 0px, 0px);
+  white-space: nowrap;
+  border: 0px;
+}
+@media (min-width: 761px) and (max-width: 1180px) {
+  .owned-rees-page .owned-ree-table th,
+.owned-rees-page .owned-ree-table td {
+  padding-inline: 12px;
+}
+  .owned-rees-page .owned-ree-table .owned-ree-heading-name {
+  width: 29%;
+}
+  .owned-rees-page .owned-ree-table .owned-ree-heading-actions {
+  width: 31%;
+}
+  .owned-rees-page .owned-ree-list-actions .text-link {
+  margin-left: 7px;
+}
+  .owned-rees-page .owned-ree-list-actions .icon-btn {
+  margin-left: 2px;
+}
+}
+@media (max-width: 1050px) {
+  .owned-rees-page .owned-ree-table,
+.owned-rees-page .owned-ree-table tbody {
+  display: block;
+}
+  .owned-rees-page .owned-ree-table thead {
+  display: none;
+}
+  .owned-rees-page .owned-ree-table tbody tr {
+  display: grid;
+  grid-template-columns: 20px minmax(0px, 1fr) auto;
+  gap: 14px 10px;
+  padding: 17px;
+  border-bottom: 1px solid rgb(237, 240, 247);
+}
+  .owned-rees-page .owned-ree-table tbody tr:last-child {
+  border-bottom: 0px;
+}
+  .owned-rees-page .owned-ree-table td {
+  display: block;
+  padding: 0px;
+  border: 0px;
+  min-width: 0px;
+}
+  .owned-rees-page .owned-ree-table .owned-ree-list-identity {
+  grid-area: 1 / 2;
+}
+  .owned-rees-page .owned-ree-table .owned-ree-list-status {
+  grid-area: 1 / 3;
+  align-self: start;
+  padding-top: 3px;
+}
+  .owned-rees-page .owned-ree-table .owned-ree-list-sources {
+  grid-area: 2 / 2;
+  padding-left: 45px;
+}
+  .owned-rees-page .owned-ree-table .owned-ree-list-answers {
+  grid-area: 2 / 3;
+}
+  .owned-rees-page .owned-ree-table .owned-ree-list-actions {
+  grid-area: 3 / 2 / auto / -1;
+  padding-top: 12px;
+  border-top: 1px solid rgb(240, 242, 248);
+}
+  .owned-rees-page .owned-ree-list-name strong {
+  font-size: 11px;
+}
+  .owned-rees-page .owned-ree-list-name small {
+  margin-top: 5px;
+  font-size: 9px;
+}
+  .owned-rees-page .owned-ree-list-sources >small {
+  display: inline;
+  margin-left: 7px;
+  font-size: 8px;
+}
+  .owned-rees-page .owned-ree-mobile-label {
+  display: block;
+  color: rgb(154, 168, 189);
+  font-size: 9px;
+  margin-bottom: 7px;
+}
+  .owned-rees-page .owned-ree-results-tools {
+  gap: 8px;
+}
+  .owned-rees-page .owned-ree-view-switch >button {
+  padding: 5px 7px;
+}
+  .owned-rees-page .owned-ree-view-switch >button >span {
+  display: none;
+}
+  .owned-rees-page.owned-rees-page .discovery-results-head {
+  gap: 10px;
+}
+}
+.owned-rees-page .owned-ree-sort-control {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  color: rgb(145, 160, 184);
+  font-size: 9px;
+  white-space: nowrap;
+}
+.owned-rees-page .owned-ree-sort-control select {
+  width: 145px;
+  max-width: 100%;
+  min-height: 34px;
+  padding: 7px 8px;
+  border: 1px solid rgb(224, 230, 241);
+  border-radius: 7px;
+  background: rgb(255, 255, 255);
+  color: rgb(114, 134, 164);
+  font-size: 10px;
+}
+.owned-rees-page .owned-ree-sort-button {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 0px;
+  min-height: 20px;
+  border: 0px;
+  background: transparent;
+  color: inherit;
+  font: inherit;
+  white-space: nowrap;
+}
+.owned-rees-page .owned-ree-sort-button >svg {
+  width: 12px;
+  height: 12px;
+  flex: 0 0 auto;
+  color: rgb(177, 190, 208);
+}
+.owned-rees-page .owned-ree-table .owned-ree-heading-answers .owned-ree-sort-button {
+  justify-content: flex-end;
+}
+.owned-rees-page .owned-ree-sort-button:hover {
+  color: var(--blue);
+}
+@media (max-width: 1100px) {
+  .owned-rees-page.owned-rees-page .discovery-results-head {
+  flex-wrap: wrap;
+}
+  .owned-rees-page .owned-ree-results-tools {
+  margin-left: auto;
+}
+}
+@media (max-width: 760px) {
+  .owned-rees-page.owned-rees-page .discovery-results-head >p {
+  flex-basis: 100%;
+}
+  .owned-rees-page .owned-ree-results-tools {
+  width: 100%;
+  justify-content: space-between;
+  gap: 6px;
+}
+  .owned-rees-page .owned-ree-sort-control {
+  min-width: 0px;
+}
+  .owned-rees-page .owned-ree-sort-control select {
+  width: 135px;
+  font-size: 9px;
+  padding-inline: 6px;
+}
+  .owned-rees-page .owned-ree-sort-control >span {
+  display: none;
+}
+  .owned-rees-page .owned-ree-results-tools {
+  flex-wrap: wrap;
+}
+  .owned-rees-page .owned-ree-sort-control {
+  flex: 1 1 135px;
+  min-width: 115px;
+}
+  .owned-rees-page .owned-ree-sort-control select {
+  width: 100%;
+}
+  .owned-rees-page .owned-ree-results-tools >.discovery-pagination {
+  margin-left: auto;
+  flex: 0 0 auto;
+}
+}
+.owned-rees-page .owned-ree-list-selection {
+  text-align: center;
+}
+.owned-rees-page .owned-ree-table .owned-ree-list-selection {
+  padding-inline: 8px;
+}
+.owned-rees-page .owned-ree-list-selection >label {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-height: 28px;
+  width: 24px;
+}
+.owned-rees-page.owned-rees-page input[data-owned-ree-check],
+.owned-rees-page.owned-rees-page input[data-owned-ree-page-check] {
+  width: 14px;
+  height: 14px;
+  padding: 0px;
+  margin: 0px;
+  accent-color: var(--blue);
+  flex: 0 0 auto;
+  cursor: pointer;
+}
+.owned-rees-page .owned-ree-table tbody tr.is-selected {
+  background: rgb(240, 246, 255);
+}
+.owned-rees-page .owned-ree-table tbody tr.is-selected:hover {
+  background: rgb(234, 243, 255);
+}
+.owned-rees-page .owned-ree-bulk-bar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  flex-wrap: wrap;
+  padding: 12px 0px;
+  border-top: 1px solid rgb(230, 234, 243);
+  font-size: 10px;
+}
+.owned-rees-page .owned-ree-bulk-summary {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  flex-wrap: wrap;
+  color: rgb(110, 132, 164);
+}
+.owned-rees-page .owned-ree-bulk-summary >label {
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+  min-height: 28px;
+  color: rgb(124, 143, 170);
+}
+.owned-rees-page .owned-ree-bulk-actions {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+  margin-left: auto;
+}
+.owned-rees-page .owned-ree-bulk-actions .btn {
+  min-height: 29px;
+  padding: 6px 10px;
+  font-size: 10px;
+}
+.owned-rees-page .owned-ree-bulk-actions .btn svg {
+  width: 12px;
+  height: 12px;
+}
+.owned-rees-page .owned-ree-bulk-note {
+  padding: 0px 0px 12px;
+  margin: 0px;
+  color: rgb(165, 140, 114);
+  font-size: 10px;
+  line-height: 1.8;
+}
+@media (max-width: 1050px) {
+  .owned-rees-page .owned-ree-table .owned-ree-list-selection {
+  grid-area: 1 / 1;
+  padding: 0px;
+  align-self: start;
+}
+}
+@media (max-width: 760px) {
+  .owned-rees-page .owned-ree-bulk-summary {
+  gap: 8px 12px;
+}
+  .owned-rees-page .owned-ree-bulk-summary [role="status"] {
+  font-size: 9px;
+}
+  .owned-rees-page .owned-ree-bulk-actions {
+  width: 100%;
+  justify-content: flex-end;
+}
+  .owned-rees-page .owned-ree-bulk-actions .btn {
+  padding-inline: 8px;
+}
+  .owned-rees-page .owned-ree-bulk-note {
+  font-size: 9px;
+}
+}
