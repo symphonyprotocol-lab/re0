@@ -24,6 +24,9 @@ Step 5 of `rebuild-proposal.md` §8.4, "角色、统计与后台扩展". Branch 
 
 ## Gotchas found
 
+- **Import only packages listed in `package.json`.** Vercel installs with pnpm (strict `node_modules`), so a package that is only a dependency of a dependency is not importable there even though npm hoists it locally. `next build` passed here and failed on Vercel over `@ai-sdk/provider` (a dependency of `ai`); `lib/infra/ai/usage.ts` now derives those types from `ai` (`Extract<LanguageModel, { specificationVersion: 'v4' }>`). If you do add a dependency, update both `package-lock.json` and `pnpm-lock.yaml`.
+- **Preview databases clear themselves on a journal mismatch.** drizzle's migrator applies only files whose journal `when` is later than the newest applied row and records each file by the sha256 of its text. A preview copy that ran a migration the branch later rewrote (here: 0006 before merging step 4's 0005) can never catch up. `db:prepare-preview` now also clears the preview copy when an applied hash is not in `db/migrations` or a local file would be skipped (`scripts/migration-journal.mts`, tested in `tests/unit/migration-journal.test.ts`); all the old guards still apply. A new migration's `when` must be later than every earlier one's.
+
 - `./scripts/test-integration.sh` always uses the container `re0-test-pg` and ports 5439/5440; two sessions running it at once kill each other's database. I ran a copy with another container name and ports from my scratchpad.
 - Two dev servers on `localhost` with different ports share the `re0_session` cookie and clear each other's (step 4's note); use `127.0.0.1:<port>` for one of them.
 - `listHref` writes parameters in a fixed order so URLs are canonical (tests compare them).

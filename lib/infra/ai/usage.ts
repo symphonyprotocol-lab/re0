@@ -3,10 +3,18 @@
  * cost board, never to the bill). One row per call, written after the call
  * and never in its way: a failed insert is only reported.
  */
-import type { LanguageModelV4, LanguageModelV4StreamPart, LanguageModelV4Usage } from '@ai-sdk/provider';
-import { wrapLanguageModel } from 'ai';
+import { wrapLanguageModel, type LanguageModel } from 'ai';
 import type { ModelKind } from '@/lib/constants';
 import { db, schema } from '@/lib/infra/db';
+
+/*
+ * The provider-level types, derived from `ai` rather than imported from
+ * `@ai-sdk/provider`: that package is only a dependency of `ai`, and Vercel's
+ * pnpm install does not let us import a package we do not list ourselves.
+ */
+type LanguageModelV4 = Extract<LanguageModel, { specificationVersion: 'v4' }>;
+type LanguageModelV4StreamPart = Awaited<ReturnType<LanguageModelV4['doStream']>>['stream'] extends ReadableStream<infer Part> ? Part : never;
+type LanguageModelV4Usage = Extract<LanguageModelV4StreamPart, { type: 'finish' }>['usage'];
 
 export interface ModelCallRecord {
   kind: ModelKind;
