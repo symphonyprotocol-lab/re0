@@ -216,11 +216,6 @@ async function insertRee(tx: Tx, ownerId: string, values: ReturnType<typeof reeV
   throw new Error('could not find a free slug');
 }
 
-/**
- * The wizard's final confirmation: the only moment a Ree is created. The
- * first source, when there is one, is created in the same transaction with
- * its processing hold -- not enough credits and nothing is created at all.
- */
 /** The wizard's first source as a knowledge submission, or null for "稍后添加". */
 export function draftKnowledge(source: DraftSource): NewKnowledge | null {
   switch (source.kind) {
@@ -249,6 +244,11 @@ export async function checkDraftSource(ownerId: string, source: DraftSource): Pr
   await checkKnowledge(ownerId, draftKnowledge(source)!);
 }
 
+/**
+ * The wizard's final confirmation: the only moment a Ree is created. The
+ * first source, when there is one, is created in the same transaction with
+ * its processing hold -- not enough credits and nothing is created at all.
+ */
 export async function createReeFromDraft(ownerId: string): Promise<{ ree: Ree; knowledgeId: string | null }> {
   const draft = await getDraft(ownerId);
   if (!draft) throw new ReeInputError('name', 1);

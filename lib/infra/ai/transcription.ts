@@ -188,16 +188,19 @@ export async function transcribeAudio(bytes: Uint8Array, format: AudioFormat): P
   const pieces = audioPieces(bytes, format);
   const results: Awaited<ReturnType<typeof transcribe>>[] = new Array(pieces.length);
   let next = 0;
+  /* One piece failing fails the source; the others stop rather than pay for transcripts nobody keeps. */
+  const stop = new AbortController();
   const worker = async (): Promise<void> => {
-    for (let index = next++; index < pieces.length; index = next++) {
+    for (let index = next++; index < pieces.length && !stop.signal.aborted; index = next++) {
       try {
         results[index] = await transcribe({
           model,
           audio: pieces[index]!.bytes,
           maxRetries: 2,
-          abortSignal: AbortSignal.timeout(Math.max(endpoint.timeoutMs, 120_000)),
+          abortSignal: AbortSignal.any([stop.signal, AbortSignal.timeout(Math.max(endpoint.timeoutMs, 120_000))]),
         });
       } catch (error) {
+        stop.abort();
         if (error instanceof ProcessingFailure) throw error;
         throw new ProcessingFailure('transcription_unavailable', error instanceof Error ? error.message : 'transcription failed');
       }

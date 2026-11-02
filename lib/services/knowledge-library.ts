@@ -237,15 +237,30 @@ export async function purgeTrash(now = new Date(), limit = 500): Promise<{ purge
       ),
     )
     .returning({ kind: schema.knowledge.kind, source: schema.knowledge.source });
+  const uploads = [
+    ...new Set(rows.filter((row) => (row.kind === 'document' || row.kind === 'audio') && row.source?.startsWith('knowledge/')).map((row) => row.source!)),
+  ];
+  /* The same upload can back more than one source (a submit sent twice); a file still in use stays. */
+  const inUse =
+    uploads.length === 0
+      ? new Set<string | null>()
+      : new Set(
+          (
+            await db()
+              .select({ source: schema.knowledge.source })
+              .from(schema.knowledge)
+              .where(and(inArray(schema.knowledge.kind, ['document', 'audio']), inArray(schema.knowledge.source, uploads)))
+          ).map((row) => row.source),
+        );
   let files = 0;
-  for (const row of rows) {
-    if ((row.kind !== 'document' && row.kind !== 'audio') || !row.source?.startsWith('knowledge/')) continue;
+  for (const source of uploads) {
+    if (inUse.has(source)) continue;
     try {
-      await deleteBlob(row.source);
+      await deleteBlob(source);
       files += 1;
     } catch (error) {
       /* The row is gone either way; an orphaned file is only storage. */
-      console.warn(`purge: could not delete ${row.source}: ${error instanceof Error ? error.message : 'unknown'}`);
+      console.warn(`purge: could not delete ${source}: ${error instanceof Error ? error.message : 'unknown'}`);
     }
   }
   return { purged: rows.length, files };

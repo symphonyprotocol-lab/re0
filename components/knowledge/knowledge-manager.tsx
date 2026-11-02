@@ -3,7 +3,7 @@
 import Link from 'next/link';
 import { usePathname, useRouter, useSearchParams } from 'next/navigation';
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { KNOWLEDGE_FOLDER_NAME_MAX, LIST_PAGE_SIZES } from '@/lib/constants';
+import { KNOWLEDGE_BATCH_MAX, KNOWLEDGE_FOLDER_NAME_MAX, LIST_PAGE_SIZES } from '@/lib/constants';
 import { KNOWLEDGE_KIND_LIST } from '@/lib/domain/knowledge';
 import type { KnowledgeListItem, KnowledgeTab } from '@/lib/services/knowledge';
 import { api } from '@/lib/client/upload';
@@ -187,36 +187,18 @@ export function KnowledgeManager({ reeId }: { reeId: string }) {
     setSelectingAll(true);
     const params = new URLSearchParams(searchKey);
     params.delete('preview');
-    params.set('ids', '1');
-    const ids = await api<{ ids: string[] }>(`/api/rees/${reeId}/knowledge?${params.toString()}`);
+    params.set('ids', 'items');
+    /* One request: the matching sources arrive with what the dialogs list and price; the server checks each again on the action. */
+    const result = await api<{ items: ActionItem[] }>(`/api/rees/${reeId}/knowledge?${params.toString()}`);
     setSelectingAll(false);
-    if (!ids.ok) return;
+    if (!result.ok) return;
     const next = new Map(selected);
-    /* Rows off this page are known by id only until an action lists them; the server checks each one. */
-    for (const id of ids.data.ids) if (!next.has(id)) next.set(id, { id, title: id, kind: 'document', status: 'ready', enabled: true, folderId: null, fileSize: null, chars: 0, deletedAt: null });
+    for (const item of result.data.items) next.set(item.id, item);
     setSelected(next);
   };
 
-  /* Rows known by id only are fetched before a dialog lists or prices them. */
-  const withDetails = async (items: ActionItem[]): Promise<ActionItem[]> => {
-    const unknown = items.filter((item) => item.title === item.id);
-    if (unknown.length === 0) return items;
-    const params = new URLSearchParams(searchKey);
-    params.delete('preview');
-    params.set('size', '100');
-    const known = new Map(items.map((item) => [item.id, item]));
-    for (let pageNo = 1; [...known.values()].some((item) => item.title === item.id); pageNo += 1) {
-      params.set('page', String(pageNo));
-      const result = await api<ListResponse>(`/api/rees/${reeId}/knowledge?${params.toString()}`);
-      if (!result.ok || result.data.items.length === 0 || result.data.page < pageNo) break;
-      for (const row of result.data.items) if (known.has(row.id)) known.set(row.id, actionItem(row));
-    }
-    return [...known.values()];
-  };
-
-  const bulk = async (action: BulkAction | 'move') => {
-    const items = await withDetails(selectedItems);
-    setDialog(action === 'move' ? { type: 'move', items } : { type: 'confirm', action, items });
+  const bulk = (action: BulkAction | 'move') => {
+    setDialog(action === 'move' ? { type: 'move', items: selectedItems } : { type: 'confirm', action, items: selectedItems });
   };
 
   const saveFolder = async () => {
@@ -433,12 +415,13 @@ export function KnowledgeManager({ reeId }: { reeId: string }) {
                 </div>
               )}
             </div>
-            {data && pageSelected && selected.size < data.total && (
+            {data && pageSelected && selected.size < Math.min(data.total, KNOWLEDGE_BATCH_MAX) && (
               <div className="border-b border-line bg-[#f7faff] px-4 py-2 text-[12px]">
                 {k.selection.page}{' '}
                 <button type="button" className="text-link text-[12px]" onClick={selectAllMatching} disabled={selectingAll}>
                   {selectingAll && <Spinner className="size-3" />}
-                  {fill(k.selection.all, { n: n(data.total) })}
+                  {/* One batch takes at most KNOWLEDGE_BATCH_MAX sources; past that the offer says so. */}
+                  {data.total > KNOWLEDGE_BATCH_MAX ? fill(k.selection.allCapped, { n: n(KNOWLEDGE_BATCH_MAX), total: n(data.total) }) : fill(k.selection.all, { n: n(data.total) })}
                 </button>
               </div>
             )}

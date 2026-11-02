@@ -18,7 +18,8 @@ const PRIVATE_V4 =
  * fetcher checks every redirect hop with this too).
  */
 export function isPublicHost(hostname: string): boolean {
-  const host = hostname.toLowerCase().replace(/^\[|\]$/g, '');
+  /* `localhost.` is `localhost`: a fully qualified name must not slip past the names below. */
+  const host = hostname.toLowerCase().replace(/^\[|\]$/g, '').replace(/\.+$/, '');
   if (!host || BLOCKED_HOSTS.has(host) || host.endsWith('.localhost') || host.endsWith('.internal')) return false;
   if (PRIVATE_V4.test(host)) return false;
   if (host.includes(':')) {

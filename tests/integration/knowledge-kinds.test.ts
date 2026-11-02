@@ -135,6 +135,21 @@ describeWithDb('GitHub repositories', () => {
     expect(await refusal(knowledge.refreshKnowledge(userId, ree.id, id))).toBe('github_not_connected');
   });
 
+  it('does not mistake an exhausted anonymous rate limit for a private repository', async () => {
+    serveRepository('acme', 'busy', 'public');
+    /* GitHub's answer once the shared anonymous limit is used up; a token has its own. */
+    const limited = (handler: (url: URL, init: RequestInit | undefined) => Response) => (url: URL, init: RequestInit | undefined) =>
+      authorization(init) ? handler(url, init) : new Response('{"message":"API rate limit exceeded"}', { status: 403, headers: { 'x-ratelimit-remaining': '0' } });
+    web.routes.set('api.github.com/repos/acme/busy', limited(() => jsonResponse({ full_name: 'acme/busy', private: false, default_branch: 'main' })));
+    const { userId, ree } = await userWithRee();
+    expect(await refusal(knowledge.addKnowledge(userId, ree, { kind: 'github', url: 'acme/busy' }))).toBe('source_unreachable');
+
+    await connections.saveGithubConnection(userId, { accessToken: 'gho_secret_token', login: 'acme-dev', scope: 'repo' });
+    const id = await knowledge.addKnowledge(userId, ree, { kind: 'github', url: 'acme/busy' });
+    await knowledge.processKnowledge(id);
+    expect((await knowledge.knowledgeDetail(ree.id, id))?.status).toBe('ready');
+  });
+
   it('says not found for a repository the connected account cannot read', async () => {
     const { userId, ree } = await userWithRee();
     await connections.saveGithubConnection(userId, { accessToken: 'gho_other', login: 'someone', scope: 'repo' });

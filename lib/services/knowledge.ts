@@ -108,10 +108,18 @@ export function appendActivity(entries: KnowledgeActivity[]) {
  */
 export async function checkRepository(ownerId: string, ref: RepositoryRef): Promise<{ fullName: string; private: boolean }> {
   try {
-    const anonymous = await readRepository(ref, null);
+    let anonymous: Awaited<ReturnType<typeof readRepository>> = null;
+    /* Anonymous reads share one rate limit; running out of it says nothing about the repository. */
+    let limited = false;
+    try {
+      anonymous = await readRepository(ref, null);
+    } catch (error) {
+      if (!(error instanceof ProcessingFailure) || error.code !== 'rate_limited') throw error;
+      limited = true;
+    }
     if (anonymous && !anonymous.private) return { fullName: anonymous.fullName, private: false };
     const token = await githubTokenFor(ownerId);
-    if (!token) throw new KnowledgeInputError('github_not_connected');
+    if (!token) throw new KnowledgeInputError(limited ? 'source_unreachable' : 'github_not_connected');
     const granted = await readRepository(ref, token);
     if (!granted) throw new KnowledgeInputError('github_repo_not_found');
     return { fullName: granted.fullName, private: granted.private };
@@ -386,9 +394,10 @@ async function extract(row: KnowledgeRow): Promise<Extracted> {
       try {
         snapshot = await fetchRepositoryFiles(ref, null);
       } catch (error) {
-        if (!(error instanceof ProcessingFailure) || error.code !== 'github_repo_not_found') throw error;
-        /* Not readable anonymously: private, read with the owner's own connection or not at all. */
+        if (!(error instanceof ProcessingFailure) || (error.code !== 'github_repo_not_found' && error.code !== 'rate_limited')) throw error;
+        /* Not readable anonymously (private, or the shared rate limit ran out): read with the owner's own connection or not at all. */
         const token = await githubTokenFor(await ownerOf(row.reeId));
+        if (!token && error.code === 'rate_limited') throw error;
         if (!token) throw new ProcessingFailure('github_not_connected', 'private repository without a GitHub connection');
         snapshot = await fetchRepositoryFiles(ref, token);
       }
@@ -448,6 +457,9 @@ export async function processKnowledge(knowledgeId: string): Promise<void> {
     const price = processingPrice(content.length, extracted.audioSeconds ?? 0);
 
     await database.transaction(async (tx) => {
+      /* A run presumed dead was failed and refunded by `recoverStale`; its late result is dropped, not given away. */
+      const [current] = await tx.select({ status: schema.knowledge.status }).from(schema.knowledge).where(eq(schema.knowledge.id, row.id)).for('update');
+      if (current?.status !== 'processing') return;
       await tx.delete(schema.chunk).where(eq(schema.chunk.knowledgeId, row.id));
       for (let at = 0; at < chunks.length; at += 200) {
         await tx.insert(schema.chunk).values(
@@ -691,22 +703,50 @@ export async function listKnowledge(reeId: string, query: KnowledgeQuery): Promi
   };
 }
 
-/**
- * Every id the filters match, in list order, for "选择全部 N 个筛选结果" and
- * for the preview's previous / next.
- */
-export async function matchingIds(reeId: string, query: Omit<KnowledgeQuery, 'size' | 'page'>): Promise<string[]> {
+async function matchingConditions(reeId: string, query: Omit<KnowledgeQuery, 'size' | 'page'>): Promise<SQL[]> {
   const folder = await validFolder(reeId, query.folder);
   const conditions = scopeConditions(reeId, { ...query, folder });
   const status = query.trash ? null : statusCondition(query.status);
   if (status) conditions.push(status);
+  return conditions;
+}
+
+/** Every id the filters match, in list order, for the preview's previous / next (at most one batch's worth). */
+export async function matchingIds(reeId: string, query: Omit<KnowledgeQuery, 'size' | 'page'>): Promise<string[]> {
   const rows = await db()
     .select({ id: schema.knowledge.id })
     .from(schema.knowledge)
-    .where(and(...conditions))
+    .where(and(...(await matchingConditions(reeId, query))))
     .orderBy(...orderFor(query.sort))
     .limit(KNOWLEDGE_BATCH_MAX);
   return rows.map((row) => row.id);
+}
+
+/** What a batch dialog needs to list and price a source. */
+export type KnowledgeActionItem = Pick<KnowledgeListItem, 'id' | 'title' | 'kind' | 'status' | 'enabled' | 'folderId' | 'fileSize' | 'chars' | 'deletedAt'>;
+
+/**
+ * "选择全部 N 个筛选结果": the first batch's worth of matching sources, in
+ * list order, with what the dialogs show -- one query, so the selection is
+ * ready to act on without paging through the list.
+ */
+export async function matchingItems(reeId: string, query: Omit<KnowledgeQuery, 'size' | 'page'>): Promise<KnowledgeActionItem[]> {
+  return db()
+    .select({
+      id: schema.knowledge.id,
+      title: schema.knowledge.title,
+      kind: schema.knowledge.kind,
+      status: schema.knowledge.status,
+      enabled: schema.knowledge.enabled,
+      folderId: schema.knowledge.folderId,
+      fileSize: schema.knowledge.fileSize,
+      chars: sql<number>`coalesce(length(${schema.knowledge.content}), 0)::int`,
+      deletedAt: schema.knowledge.deletedAt,
+    })
+    .from(schema.knowledge)
+    .where(and(...(await matchingConditions(reeId, query))))
+    .orderBy(...orderFor(query.sort))
+    .limit(KNOWLEDGE_BATCH_MAX);
 }
 
 export interface KnowledgeDetail {

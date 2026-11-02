@@ -12,6 +12,7 @@ import {
   KnowledgeInputError,
   listKnowledge,
   matchingIds,
+  matchingItems,
   processKnowledge,
   recoverStale,
   type NewKnowledge,
@@ -25,7 +26,8 @@ type Context = { params: Promise<{ id: string }> };
 /**
  * `?q&status=all|ready|processing|failed|paused&kind&sort=new|old|title&size&page&folder&view=trash`,
  * plus tab and folder counts. `ids=1` answers every matching id instead
- * ("选择全部 N 个筛选结果", previous / next).
+ * (previous / next); `ids=items` the matching sources with what the batch
+ * dialogs show ("选择全部 N 个筛选结果"). Both stop at one batch's worth.
  */
 export async function GET(request: NextRequest, context: Context) {
   const user = await apiUser(request);
@@ -38,6 +40,7 @@ export async function GET(request: NextRequest, context: Context) {
     const ids = await matchingIds(ree.id, query);
     return json({ ids, total: ids.length });
   }
+  if (param(params, 'ids') === 'items') return json({ items: await matchingItems(ree.id, query) });
   const waiting = await recoverStale(ree.id);
   for (const id of waiting) after(() => processKnowledge(id));
   return json(await listKnowledge(ree.id, query));

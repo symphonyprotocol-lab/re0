@@ -110,6 +110,11 @@ export async function fetchBytes(target: string, options: FetchOptions = {}): Pr
       url = new URL(location, url);
       continue;
     }
+    /* GitHub answers an exhausted rate limit with 403 (or 429): busy, not a refusal. */
+    if (response.status === 429 || (response.status === 403 && response.headers.get('x-ratelimit-remaining') === '0')) {
+      await response.body?.cancel();
+      throw new ProcessingFailure('rate_limited', `${url.host} is rate limiting (${response.status})`);
+    }
     if (response.status === 401 || response.status === 403) {
       await response.body?.cancel();
       throw new ProcessingFailure('source_forbidden', `${url.host} refused the request (${response.status})`);

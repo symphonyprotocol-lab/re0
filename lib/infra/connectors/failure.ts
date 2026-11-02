@@ -11,6 +11,7 @@ export type ProcessingFailureCode =
   | 'source_unreachable'
   | 'source_forbidden'
   | 'source_too_large'
+  | 'rate_limited'
   | 'github_not_connected'
   | 'github_repo_not_found'
   | 'domain_unverified'

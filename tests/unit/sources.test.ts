@@ -37,10 +37,12 @@ describe('source URLs', () => {
   it('accepts public http(s) pages and refuses local, private and credentialed ones', () => {
     expect(parseWebUrl('https://docs.example.com/guide#intro')?.href).toBe('https://docs.example.com/guide');
     expect(parseWebUrl('http://example.org')?.href).toBe('http://example.org/');
-    for (const bad of ['ftp://example.org', 'https://user:pw@example.org', 'http://localhost:3000', 'http://127.0.0.1', 'http://10.1.2.3', 'http://192.168.0.1', 'http://169.254.169.254', 'http://[::1]/', 'http://[::ffff:a9fe:a9fe]/', 'http://intranet', 'nope']) {
+    for (const bad of ['ftp://example.org', 'https://user:pw@example.org', 'http://localhost:3000', 'http://127.0.0.1', 'http://10.1.2.3', 'http://192.168.0.1', 'http://169.254.169.254', 'http://[::1]/', 'http://[::ffff:a9fe:a9fe]/', 'http://intranet', 'http://localhost./', 'http://metadata.google.internal./computeMetadata/v1/', 'nope']) {
       expect(parseWebUrl(bad), bad).toBeNull();
     }
     expect(isPublicHost('metadata.google.internal')).toBe(false);
+    expect(isPublicHost('localhost.')).toBe(false);
+    expect(isPublicHost('api.internal.')).toBe(false);
     expect(isPublicHost('example.com')).toBe(true);
   });
 });

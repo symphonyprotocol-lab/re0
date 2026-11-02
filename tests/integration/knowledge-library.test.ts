@@ -120,6 +120,10 @@ describeWithDb('batch actions', () => {
     const all = await knowledge.matchingIds(ree.id, { ...listQuery, q: 'warehouse', sort: 'title' });
     expect(all).toHaveLength(23);
     expect(all[0]).toBe(ids[0]);
+    /* The same selection with what the dialogs list and price, in one query. */
+    const items = await knowledge.matchingItems(ree.id, { ...listQuery, q: 'warehouse', sort: 'title' });
+    expect(items.map((item) => item.id)).toEqual(all);
+    expect(items[0]).toMatchObject({ title: 'Note 00', kind: 'text', status: 'ready', enabled: true, chars: 'Note number 0 about the warehouse.'.length });
 
     const moved = await library.runBatch(userId, ree.id, { action: 'move', ids: all, folderId: null, newFolderName: 'Warehouse' });
     expect(moved).toMatchObject({ changed: 23, folder: { name: 'Warehouse' } });
@@ -215,6 +219,24 @@ describeWithDb('trash purge', () => {
     await library.purgeTrash(new Date(Date.now() + 30 * 86_400_000 + 60_000));
     expect(await knowledge.knowledgeDetail(ree.id, recent)).toBeNull();
     expect(await knowledge.knowledgeDetail(ree.id, kept)).not.toBeNull();
+  });
+
+  it('keeps an uploaded file another source still uses', async () => {
+    const { userId, ree } = await userWithRee();
+    const path = `knowledge/${userId}/shared/notes.md`;
+    blobs.set(path, new TextEncoder().encode('# Notes\n\nThe office opens at nine.'));
+    /* The same upload submitted twice. */
+    const gone = await knowledge.addKnowledge(userId, ree, { kind: 'document', blobPath: path, fileName: 'notes.md' });
+    const live = await knowledge.addKnowledge(userId, ree, { kind: 'document', blobPath: path, fileName: 'notes.md' });
+    await knowledge.processMany([gone, live]);
+    await library.runBatch(userId, ree.id, { action: 'trash', ids: [gone] });
+    await db().update(schema.knowledge).set({ deletedAt: new Date(Date.now() - 31 * 86_400_000) }).where(eq(schema.knowledge.id, gone));
+
+    const result = await library.purgeTrash();
+    expect(await knowledge.knowledgeDetail(ree.id, gone)).toBeNull();
+    expect(blobs.has(path)).toBe(true);
+    expect(result.files).toBe(0);
+    expect(await knowledge.knowledgeFile(ree.id, live)).toMatchObject({ pathname: path });
   });
 });
 
