@@ -3,8 +3,9 @@
 import Link from 'next/link';
 import { usePathname } from 'next/navigation';
 import { createContext, useContext, useEffect, useState, type ReactNode } from 'react';
+import type { PlanUsage } from '@/lib/domain/billing';
 import { useI18n } from '@/i18n/client';
-import { formatNumber } from '@/i18n/format';
+import { fill, formatNumber } from '@/i18n/format';
 import { Icon, type IconName } from '@/components/ui/icons';
 import { UserAvatar } from '@/components/ui/ree-avatar';
 
@@ -24,6 +25,7 @@ export interface ShellUser {
   name: string;
   avatar: string | null;
   balance: number;
+  plan: PlanUsage;
   reeCount: number;
 }
 
@@ -107,19 +109,7 @@ function Sidebar({ user, collapsed, className, onClose }: { user: ShellUser; col
       </nav>
       <div className="flex-1" />
       <div className={`flex flex-col gap-2 border-t border-line p-3 ${collapsed ? 'items-center px-2' : ''}`}>
-        {!collapsed && (
-          <Link href="/settings?tab=billing" className="block rounded-xl border border-line bg-white px-3 py-2.5 hover:border-[#c4cce0]">
-            <span className="flex items-center justify-between text-[11px] font-semibold text-muted">
-              {t.common.account.free}
-              <span className="text-blue">{t.common.account.upgrade}</span>
-            </span>
-            <span className="mt-1 flex items-baseline gap-1">
-              <strong className="font-mono text-[17px] text-ink">{formatNumber(user.balance, locale)}</strong>
-              <span className="text-[10px] text-muted">{t.common.units.credits}</span>
-            </span>
-            <span className="text-[10px] text-muted">{t.common.account.balance}</span>
-          </Link>
-        )}
+        <PlanMeter user={user} collapsed={collapsed} />
         <div className={`flex items-center gap-2 ${collapsed ? 'flex-col' : ''}`}>
           <Link href="/settings?tab=account" className="flex min-w-0 flex-1 items-center gap-2 rounded-lg p-1 hover:bg-wash" title={t.common.account.settings}>
             <UserAvatar avatar={user.avatar} name={user.name} />
@@ -133,5 +123,82 @@ function Sidebar({ user, collapsed, className, onClose }: { user: ShellUser; col
         </div>
       </div>
     </aside>
+  );
+}
+
+/**
+ * The sidebar's usage card (prototype usage.js `sidebar`): with a Plan, this
+ * period's credits used out of 100,000 and a meter that turns red from 90%;
+ * without one, the balance and the way to subscribe. Folded, an icon whose
+ * title carries the same summary.
+ */
+function PlanMeter({ user, collapsed }: { user: ShellUser; collapsed: boolean }) {
+  const { t, locale } = useI18n();
+  const a = t.common.account;
+  const plan = user.plan;
+  const n = (value: number) => formatNumber(value, locale);
+  const membership = plan.active ? a.member : a.free;
+  const status = plan.active ? (plan.cancelAtPeriodEnd ? a.ending : a.active) : a.upgrade;
+  const summary = plan.active
+    ? fill(a.summaryPlan, { used: n(plan.used), allowance: n(plan.allowance), remaining: n(plan.remaining) })
+    : fill(a.summaryFree, { total: n(user.balance) });
+  if (collapsed) {
+    return (
+      <Link
+        href="/settings?tab=billing"
+        title={`${membership} · ${status}\n${summary}`}
+        aria-label={`${membership} · ${status} · ${summary}`}
+        className={`inline-flex size-10 items-center justify-center rounded-lg border ${plan.warn ? 'border-[#f1d4d4] bg-[#fff3f3] text-red' : 'border-line bg-white text-blue'} hover:border-[#c4cce0]`}
+      >
+        <Icon name="sparkle" className="size-[18px]" />
+      </Link>
+    );
+  }
+  return (
+    <Link
+      href="/settings?tab=billing"
+      aria-label={`${membership} · ${status} · ${summary}`}
+      className={`block rounded-xl border bg-white px-3 py-2.5 hover:border-[#c4cce0] ${plan.warn ? 'border-[#f1d4d4]' : 'border-line'}`}
+    >
+      <span className="flex items-center justify-between gap-2 text-[11px] font-semibold">
+        <span className={plan.active ? 'text-blue' : 'text-muted'}>{membership}</span>
+        <span className={plan.active ? (plan.cancelAtPeriodEnd ? 'text-orange' : 'text-green') : 'text-blue'}>{status}</span>
+      </span>
+      {plan.active ? (
+        <>
+          <span className="mt-1.5 flex items-baseline gap-1">
+            <small className="text-[10px] text-muted">{a.used}</small>
+            <strong className={`font-mono text-[16px] ${plan.warn ? 'text-red' : 'text-ink'}`}>{n(plan.used)}</strong>
+            <span className="font-mono text-[10px] text-muted">/ {n(plan.allowance)}</span>
+          </span>
+          <span
+            role="meter"
+            aria-label={a.meter}
+            aria-valuemin={0}
+            aria-valuemax={plan.allowance}
+            aria-valuenow={plan.used}
+            aria-valuetext={summary}
+            className="mt-1.5 block h-1.5 overflow-hidden rounded-full bg-[#edf0f6]"
+          >
+            <i className={`block h-full rounded-full ${plan.warn ? 'bg-red' : 'bg-blue'}`} style={{ width: `${plan.percent}%` }} />
+          </span>
+          <span className="mt-1.5 flex items-center justify-between text-[10px] text-muted">
+            {fill(a.remaining, { n: n(plan.remaining) })}
+            <Icon name="arrow" className="size-3" />
+          </span>
+        </>
+      ) : (
+        <>
+          <span className="mt-1 flex items-baseline gap-1">
+            <strong className="font-mono text-[17px] text-ink">{n(user.balance)}</strong>
+            <span className="text-[10px] text-muted">{t.common.units.credits}</span>
+          </span>
+          <span className="flex items-center justify-between text-[10px] text-muted">
+            {a.noAllowance}
+            <Icon name="arrow" className="size-3" />
+          </span>
+        </>
+      )}
+    </Link>
   );
 }

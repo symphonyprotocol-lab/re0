@@ -3,17 +3,20 @@
  * exports `zh` and an `en` typed to cover every Chinese key.
  */
 import * as admin from './pages/admin';
+import * as billing from './pages/billing';
 import * as chat from './pages/chat';
 import * as common from './pages/common';
 import * as dashboard from './pages/dashboard';
 import * as knowledge from './pages/knowledge';
+import * as legal from './pages/legal';
 import * as login from './pages/login';
 import * as reeSetup from './pages/ree-setup';
 import * as rees from './pages/rees';
 import * as settings from './pages/settings';
+import * as site from './pages/site';
 import type { Locale } from './locale';
 
-const pages = { common, login, dashboard, rees, reeSetup, knowledge, chat, settings, admin };
+const pages = { common, login, dashboard, rees, reeSetup, knowledge, chat, settings, billing, site, legal, admin };
 
 type Pages = typeof pages;
 export type Messages = { [K in keyof Pages]: Pages[K]['en'] };

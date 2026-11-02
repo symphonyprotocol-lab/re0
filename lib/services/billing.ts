@@ -468,24 +468,37 @@ export interface BillingSummary {
   subscription: { status: PlanSubscription['status']; cancelAtPeriodEnd: boolean; periodStart: string | null; periodEnd: string | null } | null;
 }
 
+/** This period's Plan grant -- spent to zero or not -- for the meter. */
+async function currentPlanGrant(executor: Executor, userId: string, now: Date): Promise<{ amount: number; remaining: number } | null> {
+  const [row] = await executor
+    .select({ amount: schema.creditGrant.amount, remaining: schema.creditGrant.remaining })
+    .from(schema.creditGrant)
+    .where(
+      and(
+        eq(schema.creditGrant.userId, userId),
+        eq(schema.creditGrant.source, 'plan'),
+        gt(schema.creditGrant.expiresAt, now),
+        sql`coalesce(${schema.creditGrant.periodStart}, ${schema.creditGrant.createdAt}) <= ${now.toISOString()}::timestamptz`,
+      ),
+    )
+    .orderBy(desc(schema.creditGrant.createdAt))
+    .limit(1);
+  return row ?? null;
+}
+
+/** What every workspace page's sidebar shows: the balance and the Plan meter. */
+export async function shellBilling(userId: string, now = new Date()): Promise<{ balance: number; plan: PlanUsage }> {
+  const executor = db();
+  const [grants, subscription, current] = await Promise.all([grantsOf(executor, userId, false), subscriptionOf(executor, userId), currentPlanGrant(executor, userId, now)]);
+  return { balance: availableOf(grants, now), plan: planUsage(subscription, current, now) };
+}
+
 export async function billingSummary(userId: string, now = new Date()): Promise<BillingSummary> {
   const executor = db();
-  const [grants, subscription, currentPlan, welcome, debt] = await Promise.all([
+  const [grants, subscription, current, welcome, debt] = await Promise.all([
     grantsOf(executor, userId, false),
     subscriptionOf(executor, userId),
-    executor
-      .select({ amount: schema.creditGrant.amount, remaining: schema.creditGrant.remaining })
-      .from(schema.creditGrant)
-      .where(
-        and(
-          eq(schema.creditGrant.userId, userId),
-          eq(schema.creditGrant.source, 'plan'),
-          gt(schema.creditGrant.expiresAt, now),
-          sql`coalesce(${schema.creditGrant.periodStart}, ${schema.creditGrant.createdAt}) <= ${now.toISOString()}::timestamptz`,
-        ),
-      )
-      .orderBy(desc(schema.creditGrant.createdAt))
-      .limit(1),
+    currentPlanGrant(executor, userId, now),
     executor
       .select({ amount: sql<number>`coalesce(sum(${schema.creditGrant.amount}), 0)::bigint` })
       .from(schema.creditGrant)
@@ -502,7 +515,7 @@ export async function billingSummary(userId: string, now = new Date()): Promise<
     buckets,
     welcomeGranted: Number(welcome[0]?.amount ?? 0),
     debt: Number(debt[0]?.remaining ?? 0),
-    plan: planUsage(subscription, currentPlan[0] ?? null, now),
+    plan: planUsage(subscription, current, now),
     subscription: subscription
       ? {
           status: subscription.status,

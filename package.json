@@ -17,7 +17,8 @@
     "db:migrate": "drizzle-kit migrate",
     "db:reset-dev": "tsx scripts/reset-dev-database.mts",
     "db:prepare-preview": "tsx scripts/reset-dev-database.mts --preview",
-    "db:studio": "drizzle-kit studio"
+    "db:studio": "drizzle-kit studio",
+    "paddle:replay": "tsx scripts/paddle-replay.mts"
   },
   "dependencies": {
     "@ai-sdk/openai-compatible": "^3.0.41",
