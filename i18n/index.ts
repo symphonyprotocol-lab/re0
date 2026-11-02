@@ -14,9 +14,17 @@ import * as reeSetup from './pages/ree-setup';
 import * as rees from './pages/rees';
 import * as settings from './pages/settings';
 import * as site from './pages/site';
+import * as roles from './pages/roles';
+import * as statistics from './pages/statistics';
+import * as notices from './pages/notices';
+import * as console from './pages/console';
+import * as consoleUsers from './pages/console-users';
+import * as consoleRees from './pages/console-rees';
 import type { Locale } from './locale';
 
-const pages = { common, login, dashboard, rees, reeSetup, knowledge, chat, settings, billing, site, legal, admin };
+/* Step 5's pages sit in their own spread, so other steps' additions to the first object merge cleanly. */
+const step5 = { roles, statistics, notices, console, consoleUsers, consoleRees };
+const pages = { common, login, dashboard, rees, reeSetup, knowledge, chat, settings, billing, site, legal, admin, ...step5 };
 
 type Pages = typeof pages;
 export type Messages = { [K in keyof Pages]: Pages[K]['en'] };

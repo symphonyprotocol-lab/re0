@@ -38,7 +38,7 @@ export function AdminLoginForm() {
         });
         setBusy(false);
         if (!result.ok) return setError(t.admin.login.failed);
-        router.push('/admin/models');
+        router.push('/admin/overview');
         router.refresh();
       }}
     >
@@ -91,7 +91,7 @@ export function AdminBootstrapForm({ sealedSecret, secret, qr }: { sealedSecret:
         });
         setBusy(false);
         if (result.ok) {
-          router.push('/admin/models');
+          router.push('/admin/overview');
           router.refresh();
           return;
         }

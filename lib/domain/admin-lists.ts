@@ -142,3 +142,9 @@ export function listHref(
   const text = query.toString();
   return text ? `${base}?${text}` : base;
 }
+
+/** The export link for a list: the API path with the same filters (no page) and `format=csv`. */
+export function csvHref(apiBase: string, view: Record<string, string | number>, defaults: Record<string, string> = LIST_DEFAULTS): string {
+  const href = listHref(apiBase, { ...view, page: 1 }, {}, defaults);
+  return `${href}${href.includes('?') ? '&' : '?'}format=csv`;
+}

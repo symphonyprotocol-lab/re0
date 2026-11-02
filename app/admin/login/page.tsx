@@ -22,7 +22,7 @@ export async function generateMetadata(): Promise<Metadata> {
  * owner (password + TOTP); from then on it only signs in (2.5).
  */
 export default async function AdminLoginPage() {
-  if (await currentAdministrator()) redirect('/admin/models');
+  if (await currentAdministrator()) redirect('/admin/overview');
   const { t } = await serverMessages();
   const empty = !(await hasAdministrator());
   const challenge = empty ? await bootstrapChallenge() : null;
