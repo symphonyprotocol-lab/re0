@@ -1,0 +1,200 @@
+/**
+ * `modelFor(kind)`: the one way business code reaches a model
+ * (rebuild-proposal.md 7). It reads the enabled `model_config` row of that
+ * kind, cached for a minute; without one it falls back to the environment,
+ * and without that to a gateway default, so a first deployment answers.
+ *
+ * Two transports, both through the AI SDK: the Vercel AI Gateway with
+ * `provider/model` names, or any OpenAI-compatible endpoint. Callers get an
+ * AI SDK model and a plain description of where it came from; nothing else
+ * about the provider leaks out.
+ */
+import { createOpenAICompatible } from '@ai-sdk/openai-compatible';
+import { createGateway, embedMany, gateway, type EmbeddingModel, type LanguageModel } from 'ai';
+import { and, eq } from 'drizzle-orm';
+import {
+  DEFAULT_MODELS,
+  EMBEDDING_DIMENSIONS,
+  MODEL_CACHE_MS,
+  MODEL_TIMEOUT_MS,
+  type ModelKind,
+} from '@/lib/constants';
+import type { ModelTransport } from '@/lib/domain/models';
+import { openCredential } from '@/lib/infra/crypto/credentials';
+import { db, schema } from '@/lib/infra/db';
+
+export interface ModelEndpoint {
+  kind: ModelKind;
+  /** The `model_config` row, or null when the environment or the default supplied it. */
+  configId: string | null;
+  name: string;
+  transport: ModelTransport;
+  baseUrl: string | null;
+  model: string;
+  apiKey: string | null;
+  timeoutMs: number;
+  source: 'console' | 'environment' | 'default';
+}
+
+const ENV_PREFIX: Record<ModelKind, string> = {
+  generation: 'GENERATION',
+  embedding: 'EMBEDDING',
+  transcription: 'TRANSCRIPTION',
+};
+
+function env(name: string): string | null {
+  const value = process.env[name]?.trim();
+  return value ? value : null;
+}
+
+/** The endpoint a kind falls back to with no console entry. */
+export function environmentEndpoint(kind: ModelKind): ModelEndpoint {
+  const prefix = ENV_PREFIX[kind];
+  /* EMBEDDING_PROVIDER_* are what deployments before the rebuild hold. */
+  const legacyKey = kind === 'embedding' ? env('EMBEDDING_PROVIDER_API_KEY') : null;
+  const legacyBase =
+    kind === 'embedding' ? (env('EMBEDDING_PROVIDER_BASE_URL') ?? (legacyKey ? 'https://api.openai.com/v1' : null)) : null;
+  const baseUrl = env(`${prefix}_BASE_URL`) ?? legacyBase ?? env('LLM_BASE_URL');
+  const apiKey = env(`${prefix}_API_KEY`) ?? legacyKey ?? (baseUrl ? env('LLM_API_KEY') : env('AI_GATEWAY_API_KEY'));
+  const named = env(`${prefix}_MODEL`);
+  if (baseUrl) {
+    return {
+      kind,
+      configId: null,
+      name: `${prefix}_MODEL`,
+      transport: 'openai_compatible',
+      baseUrl: baseUrl.replace(/\/+$/, ''),
+      /* An OpenAI-compatible endpoint takes the bare model name. */
+      model: named ?? DEFAULT_MODELS[kind].split('/').pop()!,
+      apiKey,
+      timeoutMs: MODEL_TIMEOUT_MS.default,
+      source: named ? 'environment' : 'default',
+    };
+  }
+  return {
+    kind,
+    configId: null,
+    name: `${prefix}_MODEL`,
+    transport: 'gateway',
+    baseUrl: null,
+    model: named ?? DEFAULT_MODELS[kind],
+    apiKey,
+    timeoutMs: MODEL_TIMEOUT_MS.default,
+    source: named ? 'environment' : 'default',
+  };
+}
+
+function sameOrigin(a: string | null, b: string | null): boolean {
+  try {
+    return Boolean(a && b) && new URL(a!).origin === new URL(b!).origin;
+  } catch {
+    return false;
+  }
+}
+
+/**
+ * A console entry as an endpoint. An entry saved without a key borrows the
+ * environment's key for the same kind -- but only for the same transport and,
+ * for an OpenAI-compatible endpoint, the same origin, so a blank key can never
+ * send the deployment's credential to a host an operator typed in.
+ */
+export async function consoleEndpoint(row: typeof schema.modelConfig.$inferSelect): Promise<ModelEndpoint> {
+  let apiKey = await openCredential(row.apiKeyCipher, 'provider');
+  if (!row.apiKeyCipher) {
+    const fallback = environmentEndpoint(row.kind);
+    const matches =
+      fallback.transport === row.transport && (row.transport === 'gateway' || sameOrigin(fallback.baseUrl, row.baseUrl));
+    apiKey = matches ? fallback.apiKey : null;
+  }
+  return {
+    kind: row.kind,
+    configId: row.id,
+    name: row.name,
+    transport: row.transport,
+    baseUrl: row.baseUrl,
+    model: row.model,
+    apiKey,
+    timeoutMs: row.timeoutMs,
+    source: 'console',
+  };
+}
+
+const cache = new Map<ModelKind, { at: number; endpoint: ModelEndpoint }>();
+
+/** Called after the console changes an entry, so this instance does not wait out the minute. */
+export function forgetModelCache(): void {
+  cache.clear();
+}
+
+export async function endpointFor(kind: ModelKind, now = Date.now()): Promise<ModelEndpoint> {
+  const cached = cache.get(kind);
+  if (cached && now - cached.at < MODEL_CACHE_MS) return cached.endpoint;
+  const [row] = await db()
+    .select()
+    .from(schema.modelConfig)
+    .where(and(eq(schema.modelConfig.kind, kind), eq(schema.modelConfig.enabled, true)))
+    .limit(1);
+  const endpoint = row ? await consoleEndpoint(row) : environmentEndpoint(kind);
+  cache.set(kind, { at: now, endpoint });
+  return endpoint;
+}
+
+function compatible(endpoint: ModelEndpoint) {
+  return createOpenAICompatible({
+    name: 'llm',
+    baseURL: endpoint.baseUrl ?? '',
+    apiKey: endpoint.apiKey ?? '',
+    /* Without it an OpenAI-compatible stream omits usage and the cost log reads zero. */
+    includeUsage: true,
+  });
+}
+
+function gatewayFor(endpoint: ModelEndpoint) {
+  return endpoint.apiKey ? createGateway({ apiKey: endpoint.apiKey }) : gateway;
+}
+
+export function languageModel(endpoint: ModelEndpoint): LanguageModel {
+  return endpoint.transport === 'gateway'
+    ? gatewayFor(endpoint).languageModel(endpoint.model)
+    : compatible(endpoint).chatModel(endpoint.model);
+}
+
+export function embeddingModel(endpoint: ModelEndpoint): EmbeddingModel {
+  return endpoint.transport === 'gateway'
+    ? gatewayFor(endpoint).embeddingModel(endpoint.model)
+    : compatible(endpoint).embeddingModel(endpoint.model);
+}
+
+export async function modelFor(kind: 'generation'): Promise<{ model: LanguageModel; endpoint: ModelEndpoint }>;
+export async function modelFor(kind: 'embedding'): Promise<{ model: EmbeddingModel; endpoint: ModelEndpoint }>;
+export async function modelFor(kind: 'generation' | 'embedding') {
+  const endpoint = await endpointFor(kind);
+  return kind === 'generation'
+    ? { model: languageModel(endpoint), endpoint }
+    : { model: embeddingModel(endpoint), endpoint };
+}
+
+/**
+ * Vectors in the stored column's width. A narrower model is zero-padded
+ * (cosine distance is unchanged by it); a wider one cannot be stored.
+ */
+export function toColumn(vector: readonly number[]): number[] {
+  if (vector.length > EMBEDDING_DIMENSIONS) {
+    throw new Error(`embedding of ${vector.length} dimensions does not fit the ${EMBEDDING_DIMENSIONS}-wide column`);
+  }
+  return vector.length === EMBEDDING_DIMENSIONS
+    ? [...vector]
+    : [...vector, ...new Array<number>(EMBEDDING_DIMENSIONS - vector.length).fill(0)];
+}
+
+export async function embedTexts(texts: string[]): Promise<{ vectors: number[][]; endpoint: ModelEndpoint }> {
+  const { model, endpoint } = await modelFor('embedding');
+  const { embeddings } = await embedMany({
+    model,
+    values: texts,
+    maxParallelCalls: 4,
+    maxRetries: 2,
+    abortSignal: AbortSignal.timeout(Math.max(endpoint.timeoutMs, 30_000) * Math.max(1, Math.ceil(texts.length / 96))),
+  });
+  return { vectors: embeddings.map(toColumn), endpoint };
+}

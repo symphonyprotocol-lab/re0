@@ -1,9 +1,9 @@
 {
   "name": "re0",
-  "version": "0.1.0",
+  "version": "0.2.0",
   "private": true,
   "engines": {
-    "node": ">=20.9.0"
+    "node": ">=22"
   },
   "scripts": {
     "dev": "next dev",
@@ -15,30 +15,24 @@
     "typecheck": "tsc --noEmit",
     "db:generate": "drizzle-kit generate",
     "db:migrate": "drizzle-kit migrate",
-    "db:studio": "drizzle-kit studio",
-    "admin:create": "tsx scripts/create-administrator.mts",
-    "profiles:rebuild": "tsx scripts/rebuild-profiles.mts",
-    "uploads:purge": "tsx scripts/purge-uploads.mts",
-    "anchor:release": "tsx scripts/release-anchor-batch.mts",
-    "anchor:remove": "tsx scripts/remove-anchoring.mts"
+    "db:reset-dev": "tsx scripts/reset-dev-database.mts",
+    "db:prepare-preview": "tsx scripts/reset-dev-database.mts --preview",
+    "db:studio": "drizzle-kit studio"
   },
   "dependencies": {
-    "@a2a-js/sdk": "^1.3.0",
     "@ai-sdk/openai-compatible": "^3.0.41",
     "@ai-sdk/react": "^4.0.90",
-    "@aptos-labs/ts-sdk": "^7.3.0",
     "@neondatabase/serverless": "^1.0.1",
     "@vercel/blob": "^2.8.0",
     "ai": "^7.0.87",
     "drizzle-orm": "^0.45.2",
     "hash-wasm": "^4.12.0",
     "jose": "^6.2.10",
+    "mammoth": "^1.12.3",
     "next": "^15.5.28",
     "qrcode": "^1.5.4",
     "react": "^19.1.1",
     "react-dom": "^19.1.1",
-    "turndown": "^7.2.4",
-    "turndown-plugin-gfm": "^1.0.2",
     "unpdf": "^1.8.1",
     "zod": "^4.6.7"
   },
@@ -49,7 +43,6 @@
     "@types/qrcode": "^1.5.6",
     "@types/react": "^19.1.13",
     "@types/react-dom": "^19.1.9",
-    "@types/turndown": "^5.0.6",
     "@types/ws": "^8.18.1",
     "drizzle-kit": "^0.31.4",
     "postcss": "^8.5.23",

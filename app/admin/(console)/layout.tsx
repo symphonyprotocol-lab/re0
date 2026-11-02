@@ -1,47 +1,41 @@
+import Link from 'next/link';
 import type { ReactNode } from 'react';
-import { AdminHeader } from '@/components/admin/header';
-import { AdminSidebar } from '@/components/admin/sidebar';
-import { platformAssetSummary } from '@/lib/application/administration';
-import { requireAdmin } from '@/lib/http/admin';
-import { LocaleProvider } from '@/lib/i18n/client';
-import { translations } from '@/lib/i18n/server';
+import { requireAdministrator } from '@/lib/http/admin';
+import { serverMessages } from '@/i18n/server';
+import { Icon } from '@/components/ui/icons';
 
-/**
- * Console shell -- design source frame `oxEhj`.
- *
- * Dark rail on the left, a search-and-identity header above the work column,
- * and a fluid content column: chrome every console screen shares, so each page
- * renders only its own stack. The column keeps the design's rail-to-content
- * proportion rather than the marketing site's old 918px cap (now 1080px too) -- the console's tables
- * are wide, and the design source is drawn at three quarters of desktop scale.
- *
- * This is also the authorization boundary. The console is a separate authority
- * from the dashboard -- separate entrance, separate identity, mandatory
- * two-factor -- and a signed-in product user must not reach it
- * (requirement.md 3.2), so `requireAdmin` resolves an admin session and nothing
- * else, and fails closed.
- */
+/** The console frame: its own session (checked here against the database), its own fixed bar. */
 export default async function ConsoleLayout({ children }: { children: ReactNode }) {
-  const [session, { locale, t }] = await Promise.all([requireAdmin(), translations()]);
-  /* The rail's badge is the same count the queue shows, read here rather than from a fixture. */
-  const refreshes = session.capabilities.includes('platformAssets')
-    ? await platformAssetSummary()
-    : { queuedRefreshes: 0 };
-
+  const administrator = await requireAdministrator();
+  const { t } = await serverMessages();
   return (
-    <LocaleProvider locale={locale} messages={t}>
-      <div className="console-wash flex min-h-screen flex-col lg:flex-row">
-        <AdminSidebar
-          openRefreshes={refreshes.queuedRefreshes}
-          capabilities={session.capabilities}
-        />
-        <div className="flex min-w-0 flex-1 flex-col">
-          <AdminHeader username={session.username} roles={session.roles} />
-          <main className="mx-auto w-full max-w-[1080px] flex-1 px-[30px] pt-[30px] pb-[70px]">
-            {children}
-          </main>
+    <div className="min-h-dvh bg-[#f7f8fc]">
+      <header className="fixed inset-x-0 top-0 z-20 border-b border-line bg-white/95 backdrop-blur">
+        <div className="mx-auto flex h-16 max-w-[1240px] items-center gap-4 px-4 md:px-8">
+          <span className="flex items-center gap-2 font-extrabold">
+            <span className="inline-flex size-7 items-center justify-center rounded-lg bg-ink text-white">
+              <Icon name="shield" className="size-4" />
+            </span>
+            <span className="hidden sm:inline">
+              {t.common.brand} · {t.admin.console}
+            </span>
+          </span>
+          <nav className="flex flex-1 items-center gap-1 overflow-x-auto">
+            <Link href="/admin/models" className="rounded-lg bg-soft px-3 py-1.5 text-[13px] font-semibold text-blue" aria-current="page">
+              {t.admin.nav.models}
+            </Link>
+          </nav>
+          <span className="hidden truncate text-[12px] text-muted md:inline">{administrator.email}</span>
+          <form action="/api/admin/auth/logout" method="post">
+            <button type="submit" className="btn-ghost">
+              <Icon name="logout" className="size-3.5" />
+              <span className="hidden sm:inline">{t.admin.signOut}</span>
+            </button>
+          </form>
         </div>
-      </div>
-    </LocaleProvider>
+      </header>
+      <div className="h-16" aria-hidden="true" />
+      {children}
+    </div>
   );
 }

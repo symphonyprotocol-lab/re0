@@ -1,0 +1,41 @@
+/**
+ * The one list of audit action codes (rebuild-proposal.md 8.3), shared by the
+ * code that writes `admin_audit` and the filter that reads it.
+ */
+export const AUDIT_ACTIONS = [
+  'admin.bootstrap',
+  'admin.login',
+  'admin.create',
+  'admin.disable',
+  'model.create',
+  'model.update',
+  'model.probe',
+  'model.activate',
+  'model.reembed.start',
+  'model.reembed.done',
+  'model.reembed.failed',
+  'user.disable',
+  'user.restore',
+  'user.credits.adjust',
+  'user.role.official',
+  'user.role.cancel_official',
+  'user.role.revoke',
+  'verification.approved',
+  'verification.rejected',
+  'kyc.verified',
+  'kyc.rejected',
+  'kyc.reset',
+  'kyc.files.view',
+  'payout.approved',
+  'payout.rejected',
+  'payout.paid',
+  'payout.failed',
+  'ree.takedown',
+  'ree.restore',
+] as const;
+
+export type AuditAction = (typeof AUDIT_ACTIONS)[number];
+
+export function isAuditAction(value: unknown): value is AuditAction {
+  return typeof value === 'string' && (AUDIT_ACTIONS as readonly string[]).includes(value);
+}
