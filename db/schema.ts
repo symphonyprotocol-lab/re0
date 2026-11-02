@@ -811,3 +811,113 @@ export const modelCall = pgTable(
     check('model_call_kind_check', oneOf('kind', ['generation', 'embedding', 'transcription'])),
   ],
 );
+
+/* ------------------------------------------------------ payouts, 2.3 (step 6) */
+
+export const KYC_STATUSES = ['pending', 'verified', 'rejected', 'reset'] as const;
+export type KycStatus = (typeof KYC_STATUSES)[number];
+
+/**
+ * One identity submission, reviewed by hand (2.3, 2.5 "KYC 记录"). A user's
+ * current state is their newest row. "要求重新验证" stamps `reset_at` on the
+ * newest row and adds a `reset` row that carries only the reason; the user
+ * then submits again. Images live in private Blob under `kyc/<user>/` and are
+ * deleted 30 days after the decision or the reset (`files_deleted_at`); the
+ * metadata stays.
+ */
+export const kycRecord = pgTable(
+  'kyc_record',
+  {
+    id: uuid('id').primaryKey().defaultRandom(),
+    userId: uuid('user_id')
+      .notNull()
+      .references(() => user.id),
+    /** Only `manual` today; a third-party provider adds a value, history stays valid (2.3). */
+    provider: text('provider').$type<'manual'>().notNull().default('manual'),
+    status: text('status').$type<KycStatus>().notNull().default('pending'),
+    legalName: text('legal_name'),
+    country: text('country'),
+    documentKind: text('document_kind').$type<'passport' | 'id' | 'residence'>(),
+    documentLast4: text('document_last4'),
+    /** The document's expiry date, a calendar day. */
+    documentExpires: text('document_expires'),
+    taxForm: text('tax_form').$type<'W-8BEN' | 'W-9'>(),
+    /** When the user declared the tax form submitted, and agreed to the purpose and retention. */
+    taxDeclaredAt: timestampTz('tax_declared_at'),
+    consentAt: timestampTz('consent_at'),
+    documentBlob: text('document_blob'),
+    selfieBlob: text('selfie_blob'),
+    filesDeletedAt: timestampTz('files_deleted_at'),
+    /** A rejection's reason, or on a `reset` row why re-verification was asked for. */
+    reason: text('reason'),
+    reviewedBy: uuid('reviewed_by'),
+    decidedAt: timestampTz('decided_at'),
+    /** Superseded by a re-verification request at this time. */
+    resetAt: timestampTz('reset_at'),
+    createdAt: createdAt(),
+  },
+  (t) => [
+    index('kyc_record_user_idx').on(t.userId, t.createdAt),
+    index('kyc_record_status_idx').on(t.status, t.createdAt),
+    index('kyc_record_files_idx').on(t.createdAt).where(sql`files_deleted_at is null and (document_blob is not null or selfie_blob is not null)`),
+    check('kyc_record_provider_check', oneOf('provider', ['manual'])),
+    check('kyc_record_status_check', oneOf('status', KYC_STATUSES)),
+    check('kyc_record_document_kind_check', sql`document_kind is null or document_kind in ('passport', 'id', 'residence')`),
+    check('kyc_record_tax_form_check', sql`tax_form is null or tax_form in ('W-8BEN', 'W-9')`),
+    check('kyc_record_expires_check', sql`document_expires is null or document_expires ~ '^[0-9]{4}-[0-9]{2}-[0-9]{2}$'`),
+    /* A submission carries every field; only a `reset` row is a bare reason. */
+    check(
+      'kyc_record_submission_check',
+      sql`status = 'reset' or (legal_name is not null and country is not null and document_kind is not null and document_last4 is not null and document_expires is not null and tax_form is not null and tax_declared_at is not null and consent_at is not null)`,
+    ),
+  ],
+);
+
+export const PAYOUT_STATUSES = ['pending', 'approved', 'rejected', 'paid', 'failed'] as const;
+export type PayoutStatus = (typeof PAYOUT_STATUSES)[number];
+
+/**
+ * A manual PayPal payout (2.3): the requested earned credits are held at
+ * once (`hold_id`), an administrator approves or rejects, sends the money
+ * outside the system and records the transfer, or marks it failed. Rejection
+ * and failure release the hold; payment settles it. `pending` and `approved`
+ * are in progress, and a user has at most one of those.
+ */
+export const payout = pgTable(
+  'payout',
+  {
+    id: uuid('id').primaryKey().defaultRandom(),
+    userId: uuid('user_id')
+      .notNull()
+      .references(() => user.id),
+    credits: bigint('credits', { mode: 'number' }).notNull(),
+    /** The PayPal address at request time, which is where the money goes. */
+    paypalEmail: text('paypal_email').notNull(),
+    status: text('status').$type<PayoutStatus>().notNull().default('pending'),
+    holdId: uuid('hold_id').references(() => creditHold.id),
+    /** The verified identity the request was made under. */
+    kycRecordId: uuid('kyc_record_id').references(() => kycRecord.id),
+    /** The reviewer's note: required on a rejection. */
+    reviewNote: text('review_note'),
+    reviewedBy: uuid('reviewed_by'),
+    reviewedAt: timestampTz('reviewed_at'),
+    transferId: text('transfer_id'),
+    /** What reached the user, in US cents; the rest of the request is PayPal's fee. */
+    paidCents: integer('paid_cents'),
+    feeCredits: bigint('fee_credits', { mode: 'number' }),
+    failureReason: text('failure_reason'),
+    resolvedBy: uuid('resolved_by'),
+    resolvedAt: timestampTz('resolved_at'),
+    createdAt: createdAt(),
+  },
+  (t) => [
+    uniqueIndex('payout_open_key').on(t.userId).where(sql`status in ('pending', 'approved')`),
+    index('payout_user_idx').on(t.userId, t.createdAt),
+    index('payout_status_idx').on(t.status, t.createdAt),
+    check('payout_status_check', oneOf('status', PAYOUT_STATUSES)),
+    check('payout_credits_check', sql`credits > 0`),
+    check('payout_paid_check', sql`(status = 'paid') = (paid_cents is not null and transfer_id is not null)`),
+    check('payout_paid_cents_check', sql`paid_cents is null or (paid_cents > 0 and paid_cents::bigint * 100 <= credits)`),
+    check('payout_fee_check', sql`fee_credits is null or (fee_credits >= 0 and fee_credits = credits - paid_cents::bigint * 100)`),
+  ],
+);
