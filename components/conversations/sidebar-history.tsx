@@ -47,7 +47,17 @@ export function useCurrentConversation(item: HistoryItem | null): void {
  * the search page from anywhere in the workspace -- back to the search a
  * conversation was opened from, when it was -- with the box focused.
  */
-export function SidebarConversations({ history }: { history: HistoryItem[] }) {
+export function SidebarConversations({
+  history,
+  collapsed = false,
+  className = '',
+}: {
+  history: HistoryItem[];
+  /** The desktop rail is folded; the frame's CSS hides the history then. */
+  collapsed?: boolean;
+  /** Extra classes on the tools and the history, for a side inset. */
+  className?: string;
+}) {
   const { t, locale } = useI18n();
   const c = t.conversations.sidebar;
   const pathname = usePathname();
@@ -138,7 +148,7 @@ export function SidebarConversations({ history }: { history: HistoryItem[] }) {
   let last: DateGroup | null = null;
   return (
     <>
-      <div className="chat-sidebar-tools" role="group" aria-label={t.common.nav.conversationActions}>
+      <div className={`chat-sidebar-tools${collapsed ? ' is-collapsed' : ''} ${className}`} role="group" aria-label={t.common.nav.conversationActions}>
         {/* `?new=1` drops the draft kept on /talk and focuses its box. */}
         <Tool href="/talk?new=1" icon="plus" label={c.newChat} active={pathname === '/talk'} primary />
         <Tool
@@ -155,7 +165,7 @@ export function SidebarConversations({ history }: { history: HistoryItem[] }) {
         />
       </div>
       {/* Folded, the rail hides the history (shell.css); the drawer on a phone always shows it. */}
-      <div ref={scroller} className="chat-history-scroll" role="region" tabIndex={0} aria-label={c.history}>
+      <div ref={scroller} className={`chat-history-scroll ${className}`} role="region" tabIndex={0} aria-label={c.history}>
         {showCurrent && (
           <>
             <h3>{c.current}</h3>

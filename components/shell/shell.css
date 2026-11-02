@@ -124,10 +124,13 @@
   font-weight: 550;
   line-height: 1.4;
 }
-.chat-sidebar-tool:hover,
-.chat-sidebar-tool.active {
+.chat-sidebar-tool:hover {
   color: var(--color-blue);
   background: #eaf0fc;
+}
+.chat-sidebar-tool.active {
+  color: #247dce;
+  background: #edf4ff;
 }
 .chat-sidebar-tool > svg {
   width: 17px;

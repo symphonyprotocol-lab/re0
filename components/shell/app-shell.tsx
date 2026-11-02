@@ -90,7 +90,7 @@ export function AppShell({ user, initialCollapsed, children }: { user: ShellUser
   return (
     <ShellContext.Provider value={{ collapsed, toggleCollapsed, openDrawer: () => setDrawer(true) }}>
       <HistoryProvider>
-        <Sidebar user={user} collapsed={collapsed} open={drawer} hidden={phone && !drawer} onClose={() => setDrawer(false)} />
+        <Sidebar user={user} collapsed={collapsed} phone={phone} open={drawer} hidden={phone && !drawer} onClose={() => setDrawer(false)} />
         <div className={`app-main${collapsed ? ' sidebar-collapsed' : ''}`}>{children}</div>
       </HistoryProvider>
     </ShellContext.Provider>
@@ -107,7 +107,7 @@ function NavItem({ href, icon, label, active, count }: { href: string; icon: Ico
   );
 }
 
-function Sidebar({ user, collapsed, open, hidden, onClose }: { user: ShellUser; collapsed: boolean; open: boolean; hidden: boolean; onClose: () => void }) {
+function Sidebar({ user, collapsed, phone, open, hidden, onClose }: { user: ShellUser; collapsed: boolean; phone: boolean; open: boolean; hidden: boolean; onClose: () => void }) {
   const { t } = useI18n();
   const pathname = usePathname();
   const nav = t.common.nav;
@@ -130,7 +130,8 @@ function Sidebar({ user, collapsed, open, hidden, onClose }: { user: ShellUser; 
         <NavItem href="/explore" icon="compass" label={t.discover.nav} active={pathname === '/explore' || pathname.startsWith('/r/')} />
         <NavItem href="/rees" icon="ree" label={nav.rees} active={pathname.startsWith('/rees') || pathname === '/videos'} count={user.reeCount} />
       </nav>
-      <SidebarConversations history={user.history} />
+      {/* The fold only applies on desktop: the phone drawer always shows the history. The aside carries the side padding. */}
+      <SidebarConversations history={user.history} collapsed={collapsed && !phone} className="" />
       <div className="chat-sidebar-footer sidebar-account-footer">
         <PlanMeter user={user} />
         <div className="user-row">
