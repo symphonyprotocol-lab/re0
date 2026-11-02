@@ -469,8 +469,8 @@ describeWithDb('the ledger list', () => {
     const userId = await newUser();
     const holdId = await db().transaction((tx) => placeHold(tx, { userId, kind: 'knowledge', amount: 20, refId: randomUUID() }, during));
     await db().transaction((tx) => settleHold(tx, holdId, 7, { note: 'Handbook.pdf' }, during));
-    const [settle] = (await billing.listEntries(userId, { activity: 'spend', page: 1, size: 20 })).items;
-    expect(settle!.reason).toBe('knowledge_settle');
-    expect(chargedFromNote(settle!.note)).toBe(7);
+    /* Hold and settlement share a timestamp here, so pick the row by reason, not position. */
+    const settle = (await billing.listEntries(userId, { activity: 'spend', page: 1, size: 20 })).items.find((item) => item.reason === 'knowledge_settle');
+    expect(chargedFromNote(settle?.note)).toBe(7);
   });
 });
