@@ -10,7 +10,8 @@ import { serverMessages } from '@/i18n/server';
 import { fill, formatDate, formatDateTime, formatNumber, formatUsd } from '@/i18n/format';
 import { Fields, LinkPager, PageHead, RecordsTable, RoleBadge, Tag } from '@/components/admin/list-kit';
 import { AdjustCreditsButton, UserStatusButton } from '@/components/admin/user-detail-actions';
-import { RequirementChecks, RoleHistory, RolePanel } from '@/components/admin/user-detail-roles';
+import { RoleHistory, RolePanel } from '@/components/admin/user-detail-roles';
+import { RequirementChecks } from '@/components/ui/requirement-checks';
 import { Icon, type IconName } from '@/components/ui/icons';
 import { ReeAvatar, UserAvatar } from '@/components/ui/ree-avatar';
 

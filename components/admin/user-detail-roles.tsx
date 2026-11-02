@@ -1,6 +1,5 @@
 /**
- * The console's role pieces (prototype role-pages.js): the five threshold
- * checks, a user's role panel with its direct changes, and the history of
+ * The console's role pieces (prototype role-pages.js): a user's role panel with its direct changes, and the history of
  * applications and role events. Server components; the role changes go
  * through `ReasonAction`.
  */
@@ -8,7 +7,7 @@ import Link from 'next/link';
 import type { Messages } from '@/i18n';
 import type { Locale } from '@/i18n/locale';
 import { fill, formatDateTime, formatNumber } from '@/i18n/format';
-import { verificationChecks, type RoleMetrics, type UserRole } from '@/lib/domain/roles';
+import type { UserRole } from '@/lib/domain/roles';
 import { ROLE_REASON_MAX } from '@/lib/constants';
 import type { RoleEvent, VerificationRow } from '@/lib/services/roles';
 import { Icon } from '@/components/ui/icons';
@@ -20,43 +19,6 @@ export type VerificationStatus = VerificationRow['status'];
 export function VerificationStatusTag({ t, status }: { t: Messages; status: VerificationStatus }) {
   const tone = status === 'approved' ? 'green' : status === 'rejected' ? 'red' : status === 'pending' ? 'orange' : 'grey';
   return <Tag tone={tone}>{t.consoleUsers.verifications.status[status]}</Tag>;
-}
-
-export function RequirementChecks({ t, locale, metrics }: { t: Messages; locale: Locale; metrics: RoleMetrics }) {
-  const c = t.consoleUsers.checks;
-  const n = (value: number) => formatNumber(value, locale);
-  return (
-    <ul className="divide-y divide-line">
-      {verificationChecks(metrics).map((check) => {
-        const rate = check.key === 'helpfulRate';
-        const value = rate
-          ? check.value === null
-            ? c.noFeedback
-            : fill(c.rate, { rate: Math.round(check.value * 1000) / 10, n: n(metrics.feedbackCount ?? 0) })
-          : fill(c.value, { value: n(check.value ?? 0), target: n(check.target) });
-        const missing = check.passed
-          ? c.met
-          : check.missing === null
-            ? c.needFeedback
-            : fill(c.missing[check.key], { n: rate ? check.missing : n(check.missing) });
-        return (
-          <li key={check.key} className="flex items-start gap-3 py-2.5">
-            <span
-              className={`mt-0.5 inline-flex size-6 flex-none items-center justify-center rounded-full ${check.passed ? 'bg-[#effaf6] text-green' : 'bg-wash text-muted'}`}
-              aria-hidden="true"
-            >
-              <Icon name={check.passed ? 'check' : 'clock'} className="size-3.5" />
-            </span>
-            <div className="min-w-0 flex-1">
-              <strong className="block text-[13px] font-semibold">{c.titles[check.key]}</strong>
-              <span className="text-[12px] text-muted">{value}</span>
-            </div>
-            <small className={`max-w-[45%] text-right text-[11px] font-semibold ${check.passed ? 'text-green' : 'text-orange'}`}>{missing}</small>
-          </li>
-        );
-      })}
-    </ul>
-  );
 }
 
 /**

@@ -21,28 +21,6 @@ export const zh = {
     details: '详情',
     plan: 'Plan',
   },
-  /** The five threshold checks, shared by a user's roles tab and the review page. */
-  checks: {
-    titles: {
-      registeredDays: '注册满 14 天',
-      publicRees: '至少 1 个公开 Ree',
-      readySources: '公开 Ree 已处理知识 ≥ 5 条',
-      externalQuestions: '公开 Ree 被他人提问 ≥ 100 次',
-      helpfulRate: '有效反馈有用率 ≥ 80%',
-    },
-    value: '{value} / {target}',
-    rate: '{rate}% · {n} 份反馈',
-    noFeedback: '暂无他人反馈',
-    met: '已达标',
-    missing: {
-      registeredDays: '还差 {n} 天',
-      publicRees: '还差 {n} 个',
-      readySources: '还差 {n} 条',
-      externalQuestions: '还差 {n} 次',
-      helpfulRate: '还差 {n} 个百分点',
-    },
-    needFeedback: '需要获得他人反馈',
-  },
   detail: {
     title: '用户详情',
     id: 'ID {id}',
@@ -310,27 +288,6 @@ export const en: Shape<typeof zh> = {
     manageRole: 'Manage role',
     details: 'Details',
     plan: 'Plan',
-  },
-  checks: {
-    titles: {
-      registeredDays: 'Registered for 14 days',
-      publicRees: 'At least 1 public Ree',
-      readySources: 'At least 5 processed public sources',
-      externalQuestions: 'At least 100 questions from others',
-      helpfulRate: 'At least 80% helpful feedback',
-    },
-    value: '{value} / {target}',
-    rate: '{rate}% · {n} feedback',
-    noFeedback: 'No feedback from others',
-    met: 'Met',
-    missing: {
-      registeredDays: '{n} days to go',
-      publicRees: '{n} to go',
-      readySources: '{n} to go',
-      externalQuestions: '{n} to go',
-      helpfulRate: '{n} percentage points to go',
-    },
-    needFeedback: 'Feedback from others required',
   },
   detail: {
     title: 'User details',

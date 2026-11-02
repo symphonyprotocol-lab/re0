@@ -124,6 +124,8 @@ export const ree = pgTable(
     ),
     check('ree_query_fee_check', sql`query_fee between 0 and 10000`),
     check('ree_tags_check', sql`cardinality(tags) <= 3`),
+    /* A taken-down Ree is private until an administrator restores it, whoever writes the row (step 5). */
+    check('ree_moderated_private_check', sql`moderated_at is null or not is_public`),
   ],
 );
 

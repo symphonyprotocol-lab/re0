@@ -3,7 +3,7 @@ import Link from 'next/link';
 import { CREDIT_USD, PAYOUT_MIN_CREDITS } from '@/lib/constants';
 import { currentUser } from '@/lib/http/session';
 import { listRees, reeTotals } from '@/lib/services/rees';
-import { dashboardData, ownedReeRows } from '@/lib/services/statistics';
+import { dashboardData } from '@/lib/services/statistics';
 import { serverMessages } from '@/i18n/server';
 import { fill, formatNumber } from '@/i18n/format';
 import { Topbar } from '@/components/shell/topbar';
@@ -41,16 +41,15 @@ function MetricCard({ href, icon, label, value, hint }: { href: string; icon: Ic
 export default async function DashboardPage() {
   const user = (await currentUser())!;
   const { t, locale } = await serverMessages();
-  const [totals, top, board, owned] = await Promise.all([
+  const [totals, top, board] = await Promise.all([
     reeTotals(user.id),
     listRees(user.id, { q: '', visibility: 'all', sort: 'default', size: 12, page: 1 }),
     dashboardData(user.id),
-    ownedReeRows(user.id),
   ]);
   const n = (value: number) => formatNumber(value, locale);
   const official = user.role === 'official';
   const earned = board.earned;
-  const moderated = new Set(owned.filter((ree) => ree.moderatedAt).map((ree) => ree.id));
+  const moderated = new Set(board.moderated);
   return (
     <>
       <Topbar crumbs={[{ label: t.dashboard.title }]} />

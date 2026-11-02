@@ -1,5 +1,5 @@
 {
-  "id": "3ed8b140-1d1d-4545-bbea-984105011ee0",
+  "id": "606732a7-15c1-4918-bb78-391fdacab43e",
   "prevId": "42cfee54-079c-4e71-9f0f-90cd88217f0f",
   "version": "7",
   "dialect": "postgresql",
@@ -2759,6 +2759,10 @@
         "ree_tags_check": {
           "name": "ree_tags_check",
           "value": "cardinality(tags) <= 3"
+        },
+        "ree_moderated_private_check": {
+          "name": "ree_moderated_private_check",
+          "value": "moderated_at is null or not is_public"
         }
       },
       "isRLSEnabled": false

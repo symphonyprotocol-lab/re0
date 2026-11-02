@@ -1,5 +1,5 @@
 import type { ReactNode } from 'react';
-import type { RequirementCheck, UserRole } from '@/lib/domain/roles';
+import type { UserRole } from '@/lib/domain/roles';
 import type { VerificationOverview } from '@/lib/services/roles';
 import { serverMessages } from '@/i18n/server';
 import { fill, formatDateTime, formatNumber } from '@/i18n/format';
@@ -7,6 +7,7 @@ import type { Messages } from '@/i18n';
 import type { Locale } from '@/i18n/locale';
 import { Icon } from '@/components/ui/icons';
 import { RoleApplication } from '@/components/settings/role-application';
+import { RequirementChecks } from '@/components/ui/requirement-checks';
 
 /** The role as a badge: verified green with a shield, official blue with a globe, normal grey. */
 export function RoleTag({ t, role }: { t: Messages; role: UserRole }) {
@@ -79,11 +80,7 @@ export async function RoleTab({ overview }: { overview: VerificationOverview }) 
           <section className="card min-w-0 p-5 md:p-6">
             <h2 className="text-[15px] font-bold">{r.requirements.title}</h2>
             <p className="mt-1 text-[12px] text-muted">{r.requirements.lede}</p>
-            <ul className="mt-3 divide-y divide-line">
-              {overview.checks.map((check) => (
-                <Requirement key={check.key} check={check} feedback={overview.metrics.feedbackCount} t={t} locale={locale} />
-              ))}
-            </ul>
+            <RequirementChecks t={t} locale={locale} metrics={overview.metrics} className="mt-3" />
             <p className="mt-3 text-[11px] leading-relaxed text-muted">{r.requirements.footnote}</p>
           </section>
           <section className="card min-w-0 p-5 md:p-6">
@@ -95,34 +92,6 @@ export async function RoleTab({ overview }: { overview: VerificationOverview }) 
 
       <History overview={overview} t={t} locale={locale} />
     </div>
-  );
-}
-
-function Requirement({ check, feedback, t, locale }: { check: RequirementCheck; feedback: number; t: Messages; locale: Locale }) {
-  const q = t.roles.requirements;
-  const n = (value: number) => formatNumber(value, locale);
-  const value =
-    check.key === 'helpfulRate'
-      ? check.value === null
-        ? q.noFeedback
-        : fill(q.rate, { rate: Math.round(check.value * 1000) / 10, count: n(feedback) })
-      : fill(q.value, { value: n(check.value ?? 0), target: n(check.target) });
-  const missing = check.passed ? q.met : check.missing === null ? q.needFeedback : fill(q.missing[check.key], { n: n(check.missing) });
-  return (
-    <li className="flex items-center gap-3 py-3.5">
-      <span
-        className={`inline-flex size-7 flex-none items-center justify-center rounded-lg ${check.passed ? 'bg-[#eaf7f2] text-green' : 'bg-[#f4f5fa] text-[#a1aec5]'}`}
-        aria-label={check.passed ? q.metLabel : q.pendingLabel}
-        role="img"
-      >
-        <Icon name={check.passed ? 'check' : 'clock'} className="size-3.5" />
-      </span>
-      <div className="min-w-0 flex-1">
-        <strong className="block text-[13px] font-semibold">{q.items[check.key]}</strong>
-        <span className="mt-0.5 block font-mono text-[11px] text-muted">{value}</span>
-      </div>
-      <small className={`max-w-[45%] flex-none text-right text-[11px] ${check.passed ? 'text-green' : 'text-orange'}`}>{missing}</small>
-    </li>
   );
 }
 

@@ -66,7 +66,7 @@ function JobCard({ job }: { job: ReembedJobView }) {
         <span className={`block h-full rounded-full transition-[width] ${job.status === 'failed' ? 'bg-red' : job.status === 'done' ? 'bg-green' : 'bg-blue'}`} style={{ width: `${percent}%` }} />
       </div>
       <div className="mt-2 flex flex-wrap items-center justify-between gap-2 font-mono text-[11px] text-muted">
-        <span>{fill(j.progress, { done: formatNumber(job.done, locale), total: formatNumber(job.total, locale) })}</span>
+        <span>{fill(j.progress, { done: formatNumber(Math.min(job.done, job.total), locale), total: formatNumber(job.total, locale) })}</span>
         <span>{percent}%</span>
       </div>
       <p className="mt-3 text-[12px] leading-relaxed text-[#3b4361]">{job.status === 'running' ? j.running : job.status === 'failed' ? j.failed : j.done}</p>

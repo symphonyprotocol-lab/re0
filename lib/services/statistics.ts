@@ -375,6 +375,8 @@ export interface DashboardData {
   attention: { reeId: string; name: string; moderated: boolean; sources: SourceSummary }[];
   attentionTotal: number;
   earned: number;
+  /** The owner's Rees an administrator took down, for the "已下架" marks. */
+  moderated: string[];
 }
 
 export async function dashboardData(ownerId: string): Promise<DashboardData> {
@@ -410,5 +412,12 @@ export async function dashboardData(ownerId: string): Promise<DashboardData> {
     .map((ree) => ({ reeId: ree.id, name: ree.name, answers: answers.get(ree.id) ?? 0 }))
     .sort((a, b) => b.answers - a.answers)
     .slice(0, 5);
-  return { sources, ranking, attention: attention.slice(0, 5), attentionTotal: attention.length, earned: Number(earnedRow[0]?.sum ?? 0) };
+  return {
+    sources,
+    ranking,
+    attention: attention.slice(0, 5),
+    attentionTotal: attention.length,
+    earned: Number(earnedRow[0]?.sum ?? 0),
+    moderated: rees.filter((ree) => ree.moderatedAt).map((ree) => ree.id),
+  };
 }

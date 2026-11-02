@@ -69,10 +69,13 @@ export async function inviteAdministrator(administratorId: string, raw: { name?:
   const created = await db().transaction(async (tx) => {
     const [existing] = await tx.select({ id: schema.administrator.id }).from(schema.administrator).where(eq(schema.administrator.email, email)).limit(1);
     if (existing) throw new AdminInputError('email_taken');
+    /* Two invites racing past the check above meet the unique index here. */
     const [row] = await tx
       .insert(schema.administrator)
       .values({ name, email, role: 'administrator', passwordHash: '', totpSecretCipher: '', createdBy: administratorId, createdAt: now })
+      .onConflictDoNothing({ target: schema.administrator.email })
       .returning();
+    if (!row) throw new AdminInputError('email_taken');
     await audit(tx, { administratorId, action: 'admin.create', target: row!.id, after: { name, email, role: 'administrator' } });
     return row!;
   });

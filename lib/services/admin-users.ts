@@ -244,6 +244,8 @@ export async function adjustCredits(administratorId: string, id: string, raw: Re
     const grants = await grantsOf(tx, id, true);
     const before = grants.filter((grant) => grant.source === input.bucket && (grant.expiresAt === null || grant.expiresAt > now)).reduce((sum, grant) => sum + grant.remaining, 0);
     const refId = crypto.randomUUID();
+    /* A grant pays open debts first (addGrant): the bucket grows by what is left. */
+    let debtPaid = 0;
     if (input.direction === 'grant') {
       let expiresAt: Date | null = null;
       let periodStartAt: Date | null = null;
@@ -258,11 +260,12 @@ export async function adjustCredits(administratorId: string, id: string, raw: Re
         expiresAt = subscription!.currentPeriodEnd;
         periodStartAt = subscription!.currentPeriodStart;
       }
-      await addGrant(
+      const granted = await addGrant(
         tx,
         { userId: id, source: input.bucket, amount: input.amount, reason: 'admin_adjust', refId, expiresAt, periodStart: periodStartAt, note: input.reason },
         now,
       );
+      debtPaid = granted.offset;
     } else {
       const allocations = deductFromBucket(grants, input.bucket, input.amount, now);
       if (!allocations) throw new AdminInputError('insufficient');
@@ -277,15 +280,16 @@ export async function adjustCredits(administratorId: string, id: string, raw: Re
         createdAt: now,
       });
     }
-    const delta = input.direction === 'grant' ? input.amount : -input.amount;
+    const adjustment = input.direction === 'grant' ? input.amount : -input.amount;
+    const delta = adjustment - debtPaid;
     await audit(tx, {
       administratorId,
       action: 'user.credits.adjust',
       target: id,
       before: { bucket: input.bucket, credits: before },
-      after: { bucket: input.bucket, credits: before + delta, adjustment: delta, reason: input.reason, entry: refId },
+      after: { bucket: input.bucket, credits: before + delta, adjustment, debtPaid, reason: input.reason, entry: refId },
     });
-    await notify(tx, { userId: id, kind: 'credits_adjust', text: input.reason, params: { bucket: input.bucket, delta }, refId });
-    return { delta, bucket: input.bucket, balance: before + delta };
+    await notify(tx, { userId: id, kind: 'credits_adjust', text: input.reason, params: { bucket: input.bucket, delta, debtPaid }, refId });
+    return { delta, debtPaid, bucket: input.bucket, balance: before + delta };
   });
 }

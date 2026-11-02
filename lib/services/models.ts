@@ -15,7 +15,7 @@ import { probeEndpoint, type ProbeResult } from '@/lib/infra/ai/probe';
 import { sealCredential } from '@/lib/infra/crypto/credentials';
 import { db, schema } from '@/lib/infra/db';
 import { audit, AdminInputError } from '@/lib/services/admin';
-import { startReembed } from '@/lib/services/reembed';
+import { runningReembedJob, startReembed } from '@/lib/services/reembed';
 
 export type ModelConfigRow = typeof schema.modelConfig.$inferSelect;
 
@@ -96,6 +96,8 @@ export async function updateModelConfig(administratorId: string, id: string, raw
   if (!current) throw new AdminInputError('not_found');
   const input = parsed({ ...raw, kind: current.kind });
   if (current.enabled && changesWhatAnswers(current, input)) throw new AdminInputError('locked');
+  /* The candidate of a running re-embed job is frozen too: its vectors are being made. */
+  if (changesWhatAnswers(current, input) && (await runningReembedJob())?.toModelConfigId === id) throw new AdminInputError('locked');
   let cipher = current.apiKeyCipher;
   let tail = current.apiKeyTail;
   if (input.apiKey) {

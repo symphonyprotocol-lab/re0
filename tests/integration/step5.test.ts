@@ -10,7 +10,7 @@
  * leaves the old model on failure; invited administrators enrol once.
  */
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
-import { and, eq, inArray, isNotNull, sql } from 'drizzle-orm';
+import { and, eq, inArray, isNotNull, lt, sql } from 'drizzle-orm';
 import { pointModelsAt, TEST_DATABASE_URL, uniqueName } from './setup';
 import { startFakeOpenAi, type FakeOpenAi } from '../fixtures/fake-openai';
 
@@ -242,6 +242,13 @@ describeWithDb('console users', () => {
     await expect(adminUsers.adjustCredits(reviewer, userId, { bucket: 'pack', direction: 'deduct', amount: 5_001, reason: 'claw back' })).rejects.toMatchObject({ code: 'insufficient' });
     await adminUsers.adjustCredits(reviewer, userId, { bucket: 'pack', direction: 'deduct', amount: 5_000, reason: 'claw back' });
     expect(await balanceOf(db(), userId)).toBe(2_000);
+    /* An open debt is paid first: the notice and the audit say what the bucket actually gained. */
+    await db().insert(schema.creditDebt).values({ userId, amount: 300, remaining: 300 });
+    const paid = await adminUsers.adjustCredits(reviewer, userId, { bucket: 'pack', direction: 'grant', amount: 1_000, reason: 'with debt' });
+    expect(paid).toMatchObject({ delta: 700, debtPaid: 300 });
+    expect(await balanceOf(db(), userId)).toBe(2_700);
+    const [latest] = (await notices.listNotices(userId, 1)).items;
+    expect(latest!.params).toMatchObject({ delta: 700, debtPaid: 300 });
 
     await db().insert(schema.subscription).values({
       userId,
@@ -255,9 +262,9 @@ describeWithDb('console users', () => {
     expect(plan!.expiresAt!.getTime()).toBeGreaterThan(Date.now() + 19 * DAY);
 
     const entries = await db().select().from(schema.creditEntry).where(and(eq(schema.creditEntry.userId, userId), eq(schema.creditEntry.reason, 'admin_adjust')));
-    expect(entries.map((entry) => entry.delta).sort((a, b) => a - b)).toEqual([-5000, 300, 5000]);
-    expect((await notices.listNotices(userId, 1)).items.filter((n) => n.kind === 'credits_adjust')).toHaveLength(3);
-    expect((await adminAudit.listAudit(auditView({ action: 'user.credits.adjust', q: userId }))).total).toBe(3);
+    expect(entries.map((entry) => entry.delta).sort((a, b) => a - b)).toEqual([-5000, 300, 1000, 5000]);
+    expect((await notices.listNotices(userId, 1)).items.filter((n) => n.kind === 'credits_adjust')).toHaveLength(4);
+    expect((await adminAudit.listAudit(auditView({ action: 'user.credits.adjust', q: userId }))).total).toBe(4);
   });
 
   it('disables (signing the user out) and restores', async () => {
@@ -348,7 +355,9 @@ describeWithDb('embedding switch', () => {
     await db().update(schema.reembedJob).set({ status: 'failed' }).where(eq(schema.reembedJob.status, 'running'));
     await db().update(schema.modelConfig).set({ enabled: false }).where(eq(schema.modelConfig.kind, 'embedding'));
     const owner = await newUser();
-    await publicRee(owner, { ready: 3 });
+    const indexed = await publicRee(owner, { ready: 3 });
+    await profile.refreshProfile(indexed.id);
+    expect(await profileVectors(indexed.id)).toBeGreaterThan(0);
     const [old] = await db()
       .insert(schema.modelConfig)
       .values({ name: 'old', kind: 'embedding', transport: 'openai_compatible', baseUrl: fake.baseUrl, model: 'fake-embed', enabled: true })
@@ -375,6 +384,8 @@ describeWithDb('embedding switch', () => {
       .returning();
     const started = await reembed.startReembed(reviewer, next!.id);
     expect(started).toMatchObject({ status: 'running', done: 0 });
+    /* The candidate is frozen while its vectors are being made. */
+    await expect(models.updateModelConfig(reviewer, next!.id, { name: 'next', transport: 'openai_compatible', baseUrl: fake.baseUrl, model: 'other-embed', timeoutMs: 60000 })).rejects.toMatchObject({ code: 'locked' });
     /* Mid-job: nothing that answers has changed. */
     const unchanged = await db().select({ id: schema.chunk.id, embedding: schema.chunk.embedding }).from(schema.chunk).where(inArray(schema.chunk.id, before.map((row) => row.id)));
     expect(unchanged.map((row) => row.embedding)).toEqual(before.map((row) => row.embedding));
@@ -385,6 +396,10 @@ describeWithDb('embedding switch', () => {
     expect((await endpointFor('embedding')).configId).toBe(next!.id);
     const [{ n }] = (await db().select({ n: sql<number>`count(*)::int` }).from(schema.chunk).where(isNotNull(schema.chunk.embeddingNext))) as [{ n: number }];
     expect(n).toBe(0);
+    /* Step 4's profiles were rebuilt with the new model after the switch. */
+    const stale = await db().select({ id: schema.reeProfileVector.id }).from(schema.reeProfileVector).where(lt(schema.reeProfileVector.updatedAt, done!.finishedAt!));
+    expect(stale).toHaveLength(0);
+    expect(await profileVectors(indexed.id)).toBeGreaterThan(0);
     expect((await adminAudit.listAudit(auditView({ action: 'model.reembed.done' }))).total).toBeGreaterThan(0);
     expect((await adminAudit.listAudit(auditView({ action: 'model.reembed.failed' }))).total).toBeGreaterThan(0);
     /* Leave the environment's model in charge for the files that follow. */

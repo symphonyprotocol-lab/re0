@@ -11,20 +11,30 @@
  * candidate's vectors and leaves the old entry in use. One job at a time:
  * no other embedding switch while one runs.
  *
- * The work runs in `after()` steps of a few minutes each. The models page
- * polls progress, and a poll that finds the job without a recent heartbeat
- * starts the next step, so a job outlives any single function.
+ * The work runs in `after()` steps of a few minutes each, one runner at a
+ * time. A runner releases the job at the end of its step; the models page's
+ * poll (or the cron) then starts the next step, and takes over a job whose
+ * runner went silent, so a job outlives any single function. After the
+ * switch, step 4's knowledge profiles are rebuilt with the new model.
  */
-import { and, count, desc, eq, isNotNull, isNull, ne, sql } from 'drizzle-orm';
+import { and, count, desc, eq, isNotNull, isNull, lt, ne, or, sql, type SQL } from 'drizzle-orm';
 import { REEMBED_BATCH, REEMBED_STEP_BUDGET_MS } from '@/lib/constants';
 import { consoleEndpoint, embedTexts, forgetModelCache } from '@/lib/infra/ai/models';
 import { db, schema, type Executor } from '@/lib/infra/db';
 import { AdminInputError, audit } from '@/lib/services/admin';
+import { refreshProfile } from '@/lib/services/profile';
 
 export type ReembedJob = typeof schema.reembedJob.$inferSelect;
 
-/** A running job whose last heartbeat is older than this is picked up by the next poll or cron run. */
-export const REEMBED_STALL_MS = 45_000;
+/**
+ * A running job whose runner has been silent this long is taken over by the
+ * next poll or cron run. Longer than one embed call can take (the longest
+ * model timeout plus retries); a runner that ends its step normally releases
+ * the job at once instead.
+ */
+export const REEMBED_STALL_MS = 6 * 60_000;
+/** The heartbeat a released job carries: stale, so the next poll picks it up. */
+const RELEASED = new Date(0);
 
 /** Whether vectors made by `configId` (null: the environment's model) still match the enabled embedding entry. */
 export async function embeddingIsCurrent(executor: Executor, configId: string | null): Promise<boolean> {
@@ -79,7 +89,7 @@ export async function startReembed(administratorId: string, toId: string, now = 
     await tx.update(schema.chunk).set({ embeddingNext: null }).where(isNotNull(schema.chunk.embeddingNext));
     const [job] = await tx
       .insert(schema.reembedJob)
-      .values({ fromModelConfigId: active?.id ?? null, toModelConfigId: toId, total: chunks.n, done: 0, startedBy: administratorId, startedAt: now, heartbeatAt: now })
+      .values({ fromModelConfigId: active?.id ?? null, toModelConfigId: toId, total: chunks.n, done: 0, startedBy: administratorId, startedAt: now, heartbeatAt: RELEASED })
       .returning();
     await audit(tx, { administratorId, action: 'model.reembed.start', target: job!.id, before: shown(active), after: { ...shown(target), total: chunks.n } });
     return job!;
@@ -146,25 +156,59 @@ async function finish(job: ReembedJob, now: Date): Promise<boolean> {
 }
 
 /**
+ * Claims the running job for one runner: only a released or silent job can
+ * be claimed, and only one claimant wins. Answers the lease (the heartbeat
+ * written), which the runner renews before each batch; a renewal that finds
+ * another lease means the job was taken over and this runner stops.
+ */
+async function claim(jobId: string, now: Date): Promise<Date | null> {
+  const [row] = await db()
+    .update(schema.reembedJob)
+    .set({ heartbeatAt: now })
+    .where(
+      and(
+        eq(schema.reembedJob.id, jobId),
+        eq(schema.reembedJob.status, 'running'),
+        or(isNull(schema.reembedJob.heartbeatAt), lt(schema.reembedJob.heartbeatAt, new Date(now.getTime() - REEMBED_STALL_MS))),
+      ),
+    )
+    .returning({ id: schema.reembedJob.id });
+  return row ? now : null;
+}
+
+async function renew(jobId: string, lease: Date, next: Date, progress: { done?: SQL } = {}): Promise<boolean> {
+  const rows = await db()
+    .update(schema.reembedJob)
+    .set({ heartbeatAt: next, ...progress })
+    .where(and(eq(schema.reembedJob.id, jobId), eq(schema.reembedJob.status, 'running'), eq(schema.reembedJob.heartbeatAt, lease)))
+    .returning({ id: schema.reembedJob.id });
+  return rows.length > 0;
+}
+
+/**
  * Works on the running job for up to `budgetMs`: batches of passages without
- * a candidate vector, then the switch. Safe to run twice at once -- the
- * worst case is a batch embedded twice.
+ * a candidate vector, then the switch, then the knowledge profiles. One
+ * runner at a time (`claim`); at the end of its budget it releases the job
+ * for the next poll or cron run.
  */
 export async function runReembed(budgetMs = REEMBED_STEP_BUDGET_MS, now = () => new Date()): Promise<ReembedJob | null> {
   const database = db();
   const deadline = Date.now() + budgetMs;
-  let job = await runningReembedJob();
-  if (!job) return null;
-  const [target] = await database.select().from(schema.modelConfig).where(eq(schema.modelConfig.id, job.toModelConfigId)).limit(1);
+  const running = await runningReembedJob();
+  if (!running) {
+    await rebuildProfiles(deadline);
+    return null;
+  }
+  let lease = await claim(running.id, now());
+  if (!lease) return running;
+  const [target] = await database.select().from(schema.modelConfig).where(eq(schema.modelConfig.id, running.toModelConfigId)).limit(1);
   if (!target) {
-    await fail(job, 'candidate entry removed', now());
-    return job;
+    await fail(running, 'candidate entry removed', now());
+    return running;
   }
   const endpoint = await consoleEndpoint(target);
+  let finished = false;
   while (Date.now() < deadline) {
-    const [state] = await database.select().from(schema.reembedJob).where(eq(schema.reembedJob.id, job.id)).limit(1);
-    if (state?.status !== 'running') return state ?? job;
-    job = state;
     const batch = await database
       .select({ id: schema.chunk.id, content: schema.chunk.content })
       .from(schema.chunk)
@@ -172,14 +216,21 @@ export async function runReembed(budgetMs = REEMBED_STEP_BUDGET_MS, now = () => 
       .orderBy(schema.chunk.id)
       .limit(REEMBED_BATCH);
     if (!batch.length) {
-      if (await finish(job, now())) break;
+      if (await finish(running, now())) {
+        finished = true;
+        break;
+      }
       continue;
     }
+    /* Renew before the slow part, so nobody takes over while this batch is embedded. */
+    const next = now();
+    if (!(await renew(running.id, lease, next))) return running;
+    lease = next;
     let vectors: number[][];
     try {
       vectors = (await embedTexts(batch.map((row) => row.content), endpoint)).vectors;
     } catch (error) {
-      await fail(job, error instanceof Error ? error.message : 'embedding failed', now());
+      await fail(running, error instanceof Error ? error.message : 'embedding failed', now());
       break;
     }
     const values = sql.join(
@@ -187,15 +238,45 @@ export async function runReembed(budgetMs = REEMBED_STEP_BUDGET_MS, now = () => 
       sql`, `,
     );
     await database.execute(sql`update ${schema.chunk} c set embedding_next = v.e from (values ${values}) as v(id, e) where c.id = v.id`);
-    const [progress] = await database.select({ n: count() }).from(schema.chunk).where(isNotNull(schema.chunk.embeddingNext));
-    const [total] = await database.select({ n: count() }).from(schema.chunk);
-    await database
-      .update(schema.reembedJob)
-      .set({ done: progress?.n ?? 0, total: total?.n ?? 0, heartbeatAt: now() })
-      .where(and(eq(schema.reembedJob.id, job.id), eq(schema.reembedJob.status, 'running')));
+    /* Counted as it goes; `finish` recounts once. Passages added meanwhile can push `done` past the first total. */
+    const after = now();
+    if (!(await renew(running.id, lease, after, { done: sql`${schema.reembedJob.done} + ${batch.length}` }))) return running;
+    lease = after;
   }
-  const [final] = await database.select().from(schema.reembedJob).where(eq(schema.reembedJob.id, job.id)).limit(1);
-  return final ?? job;
+  if (finished) await rebuildProfiles(deadline);
+  else await database.update(schema.reembedJob).set({ heartbeatAt: RELEASED }).where(and(eq(schema.reembedJob.id, running.id), eq(schema.reembedJob.heartbeatAt, lease)));
+  const [final] = await database.select().from(schema.reembedJob).where(eq(schema.reembedJob.id, running.id)).limit(1);
+  return final ?? running;
+}
+
+/**
+ * Step 4's knowledge profiles hold vectors too: after a switch, every profile
+ * older than the last completed job is rebuilt with the new model (as many as
+ * fit before `deadline`; the next poll or cron run does the rest).
+ */
+export async function rebuildProfiles(deadline: number): Promise<number> {
+  const [last] = await db()
+    .select({ finishedAt: schema.reembedJob.finishedAt })
+    .from(schema.reembedJob)
+    .where(eq(schema.reembedJob.status, 'done'))
+    .orderBy(desc(schema.reembedJob.finishedAt))
+    .limit(1);
+  if (!last?.finishedAt) return 0;
+  const stale = await db()
+    .selectDistinct({ reeId: schema.reeProfileVector.reeId })
+    .from(schema.reeProfileVector)
+    .where(lt(schema.reeProfileVector.updatedAt, last.finishedAt));
+  let rebuilt = 0;
+  for (const { reeId } of stale) {
+    if (Date.now() >= deadline) break;
+    try {
+      await refreshProfile(reeId);
+      rebuilt += 1;
+    } catch (error) {
+      console.warn(`profile rebuild after re-embed failed ree=${reeId}`, error instanceof Error ? error.message : error);
+    }
+  }
+  return rebuilt;
 }
 
 /** Whether the running job has gone quiet long enough for a poll to start the next step. */

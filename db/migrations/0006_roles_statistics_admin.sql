@@ -66,4 +66,5 @@ CREATE INDEX "notice_unread_idx" ON "notice" USING btree ("user_id") WHERE read_
 CREATE UNIQUE INDEX "reembed_job_running_key" ON "reembed_job" USING btree ("status") WHERE status = 'running';--> statement-breakpoint
 CREATE UNIQUE INDEX "verification_request_pending_key" ON "verification_request" USING btree ("user_id") WHERE status = 'pending';--> statement-breakpoint
 CREATE INDEX "verification_request_user_idx" ON "verification_request" USING btree ("user_id","created_at");--> statement-breakpoint
-CREATE INDEX "verification_request_status_idx" ON "verification_request" USING btree ("status","created_at");
+CREATE INDEX "verification_request_status_idx" ON "verification_request" USING btree ("status","created_at");--> statement-breakpoint
+ALTER TABLE "ree" ADD CONSTRAINT "ree_moderated_private_check" CHECK (moderated_at is null or not is_public);
