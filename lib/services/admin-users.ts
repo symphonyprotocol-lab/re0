@@ -109,9 +109,10 @@ export async function userCounts() {
       activePlans: sql<number>`count(*) filter (where ${membership} = 'active')::int`,
       verified: sql<number>`count(*) filter (where ${schema.user.role} = 'verified')::int`,
       official: sql<number>`count(*) filter (where ${schema.user.role} = 'official')::int`,
+      kycVerified: sql<number>`count(*) filter (where ${userKycState} = 'verified')::int`,
     })
     .from(schema.user);
-  return row ?? { total: 0, disabled: 0, activePlans: 0, verified: 0, official: 0 };
+  return row ?? { total: 0, disabled: 0, activePlans: 0, verified: 0, official: 0, kycVerified: 0 };
 }
 
 export async function adminUser(id: string, now = new Date()) {
@@ -204,6 +205,7 @@ export async function userRees(id: string) {
       moderatedAt: schema.ree.moderatedAt,
       deletedAt: schema.ree.deletedAt,
       createdAt: schema.ree.createdAt,
+      queryFee: schema.ree.queryFee,
       sources: sql<number>`(select count(*)::int from ${schema.knowledge} k where k.ree_id = "ree"."id" and k.deleted_at is null)`,
       readySources: sql<number>`(select count(*)::int from ${schema.knowledge} k where k.ree_id = "ree"."id" and k.deleted_at is null and k.status = 'ready')`,
     })

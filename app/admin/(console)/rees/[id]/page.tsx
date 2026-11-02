@@ -5,7 +5,7 @@ import { answerCounts, reeStatistics, statisticsQuery } from '@/lib/services/sta
 import { serverMessages } from '@/i18n/server';
 import { PageHead } from '@/components/admin/list-kit';
 import { AuditTable } from '@/components/admin/audit-kit';
-import { Breadcrumbs, ReeHeader, ReeOverviewTab, ReeSourcesTab, ReeTabs, reeBackPath, reeDetailHref, reeTab, sourceParams } from '@/components/admin/ree-detail';
+import { Breadcrumbs, ReeHeader, ReeOverviewTab, ReeSourcesTab, ReeTabs, reeBackLabel, reeBackPath, reeDetailHref, reeTab, sourceParams } from '@/components/admin/ree-detail';
 import { ReeStatisticsView } from '@/components/statistics/ree-statistics-view';
 
 type Props = { params: Promise<{ id: string }>; searchParams: Promise<Record<string, string | string[] | undefined>> };
@@ -31,7 +31,7 @@ export default async function ReeDetailPage({ params, searchParams }: Props) {
   const back = reeBackPath(query);
   const crumbs = [
     { label: t.console.nav.home, href: '/admin/overview' },
-    { label: t.consoleRees.rees.title, href: back.href },
+    { label: reeBackLabel(t, back.href), href: back.href },
   ];
   const detail = await load(id);
   if (!detail) {

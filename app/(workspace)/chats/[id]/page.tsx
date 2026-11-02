@@ -40,7 +40,7 @@ export default async function ConversationPage({ params, searchParams }: Props) 
   return (
     <>
       <Topbar
-        crumbs={[{ label: t.conversations.sidebar.search, href: back }, { label: title }]}
+        crumbs={[{ label: t.dashboard.title, href: '/dashboard' }, { label: t.conversations.sidebar.search, href: back }, { label: title }]}
         secondRow={<ParticipantStrip members={members} max={CONVERSATION_MAX_REES} />}
       />
       <ChatRoom

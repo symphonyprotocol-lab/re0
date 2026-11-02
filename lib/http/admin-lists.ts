@@ -83,7 +83,7 @@ export const PURCHASES_CSV = {
 
 export const SUBSCRIPTIONS_CSV = {
   name: 'subscriptions',
-  headers: ['ID', 'Name', 'Email', 'Status', 'Renewal', 'Period start (UTC+8)', 'Period end (UTC+8)', 'Paddle subscription', 'Created (UTC+8)'],
+  headers: ['ID', 'Name', 'Email', 'Status', 'Renewal', 'Period start (UTC+8)', 'Period end (UTC+8)', 'Plan remaining', 'Paddle subscription', 'Created (UTC+8)'],
   row: (s: SubscriptionRow) => [
     s.id,
     s.name,
@@ -92,6 +92,7 @@ export const SUBSCRIPTIONS_CSV = {
     s.status === 'active' && !s.cancelAtPeriodEnd ? 'on' : 'off',
     time(s.currentPeriodStart),
     time(s.currentPeriodEnd),
+    s.planRemaining,
     s.paddleSubscriptionId,
     time(s.createdAt),
   ],

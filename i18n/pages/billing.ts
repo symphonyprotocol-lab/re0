@@ -46,7 +46,7 @@ export const zh = {
   activity: {
     title: '收支明细',
     hint: '先扣 Plan，再扣赠送、Pack 与收入',
-    tabs: { all: '全部明细', spend: '消耗', income: '收入' },
+    tabs: { all: '全部明细', spend: '消费', income: '收入' },
     label: '明细分类',
     item: '事项',
     time: '时间',

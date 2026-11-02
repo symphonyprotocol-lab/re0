@@ -2,7 +2,7 @@
 
 import Link from 'next/link';
 import { useRouter } from 'next/navigation';
-import { useEffect, useState, type ReactNode } from 'react';
+import { useCallback, useEffect, useRef, useState, type ReactNode } from 'react';
 import { EXPLORE_PAGE_SIZES, EXPLORE_RESULTS, REE_CATEGORIES } from '@/lib/constants';
 import { explorePath, type ExploreQuery, type ExploreSort } from '@/lib/domain/explore';
 import type { ExploreResult } from '@/lib/services/explore';
@@ -10,6 +10,7 @@ import { useI18n } from '@/i18n/client';
 import { fill, formatNumber } from '@/i18n/format';
 import { Icon } from '@/components/ui/icons';
 import { ReeCardView } from '@/components/discover/ree-card';
+import { takePublicReturn } from '@/components/discover/public-visit';
 
 /** Page numbers around the current one, gaps as null (prototype `discoveryPageNumbers`). */
 function pageNumbers(page: number, pages: number): (number | null)[] {
@@ -32,10 +33,44 @@ export function ExploreView({ query, result, limited, signedIn }: { query: Explo
   const from = result.total ? (result.page - 1) * result.size + 1 : 0;
   const to = Math.min(result.page * result.size, result.total);
   const go = (changes: Partial<ExploreQuery>) => router.push(explorePath(query, changes), { scroll: false });
+  const toolbar = useRef<HTMLElement>(null);
+  const resultsHead = useRef<HTMLDivElement>(null);
+
+  /* The results head just under the sticky toolbar (prototype discovery.js `scrollToResults`). */
+  const scrollToResults = useCallback(() => {
+    const bar = toolbar.current;
+    const head = resultsHead.current;
+    if (!bar || !head) return;
+    const stickyTop = Number.parseFloat(getComputedStyle(bar).top) || 0;
+    const top = window.scrollY + head.getBoundingClientRect().top - bar.getBoundingClientRect().height - stickyTop;
+    window.scrollTo({ top: Math.max(0, top), behavior: 'instant' });
+  }, []);
+
+  /* On load past page 1, or coming back from a public page. */
+  useEffect(() => {
+    const back = takePublicReturn(current);
+    if (result.page > 1 || back) requestAnimationFrame(scrollToResults);
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- once, on arrival
+  }, []);
+
+  /* After the pager or the page jump moved to another page of the same results. */
+  const shown = useRef({ list: explorePath({ ...query, page: 1 }), page: result.page });
+  useEffect(() => {
+    const list = explorePath({ ...query, page: 1 });
+    const before = shown.current;
+    shown.current = { list, page: result.page };
+    if (before.list === list && before.page !== result.page) requestAnimationFrame(scrollToResults);
+  }, [query, result.page, scrollToResults]);
+
+  /* A `page` past the end (or before the start) was clamped by the server: show the canonical URL. */
+  useEffect(() => {
+    const raw = new URLSearchParams(window.location.search).get('page');
+    if (raw !== null && Number(raw) !== result.page) router.replace(current, { scroll: false });
+  }, [current, result.page, router]);
 
   const pager = (compact: boolean) =>
     pages > 1 && (
-      <nav aria-label={e.pagination} className="flex flex-wrap items-center gap-1 text-[12px]">
+      <nav aria-label={compact ? e.topPagination : e.pagination} className="flex flex-wrap items-center gap-1 text-[12px]">
         <PageLink page={result.page - 1} pages={pages} query={query} label={e.previous}>
           <Icon name="chevronLeft" className="size-3.5" />
         </PageLink>
@@ -74,7 +109,19 @@ export function ExploreView({ query, result, limited, signedIn }: { query: Explo
             <label htmlFor="explore-page" className="text-muted">
               {e.jump}
             </label>
-            <input id="explore-page" type="number" min={1} max={pages} value={jump} onChange={(event) => setJump(event.target.value)} className="h-8 w-14 rounded-lg border border-line px-2 font-mono" />
+            <input
+              id="explore-page"
+              name="page"
+              type="number"
+              min={1}
+              max={pages}
+              required
+              aria-label={e.jumpLabel}
+              value={jump}
+              onChange={(event) => setJump(event.target.value)}
+              className="h-8 w-14 rounded-lg border border-line px-2 font-mono"
+            />
+            {e.jumpSuffix && <span className="text-muted">{e.jumpSuffix}</span>}
             <button type="submit" className="btn-secondary btn-sm">
               {e.go}
             </button>
@@ -91,7 +138,7 @@ export function ExploreView({ query, result, limited, signedIn }: { query: Explo
         <p className="mt-1 text-[13px] text-muted">{e.body}</p>
       </header>
 
-      <section className={`sticky z-10 -mx-4 mt-6 border-b border-line bg-bg/95 px-4 py-3 backdrop-blur sm:-mx-6 sm:px-6 ${signedIn ? 'top-16 md:-mx-8 md:px-8' : 'top-[108px] md:top-16'}`} aria-label={e.label}>
+      <section ref={toolbar} className={`sticky z-10 -mx-4 mt-6 border-b border-line bg-bg/95 px-4 py-3 backdrop-blur sm:-mx-6 sm:px-6 ${signedIn ? 'top-16 md:-mx-8 md:px-8' : 'top-[108px] md:top-16'}`} aria-label={e.label}>
         <div className="flex flex-col gap-3 lg:flex-row lg:items-center">
           <form
             role="search"
@@ -162,7 +209,7 @@ export function ExploreView({ query, result, limited, signedIn }: { query: Explo
 
       {limited && <p className="mt-4 rounded-lg border border-[#f1d4d4] bg-[#fff3f3] px-3 py-2 text-[12px] text-red">{e.limited}</p>}
 
-      <div className="mt-5 flex flex-wrap items-center justify-between gap-3">
+      <div ref={resultsHead} className="mt-5 flex flex-wrap items-center justify-between gap-3">
         <p role="status" aria-live="polite" className="text-[12px] text-muted">
           {query.q && !limited && <strong className="text-ink">“{query.q}” · </strong>}
           {fill(e.results, { n: n(result.total) })}
@@ -183,7 +230,7 @@ export function ExploreView({ query, result, limited, signedIn }: { query: Explo
           <Icon name="search" className="size-7 text-[#a3a9bb]" />
           <h2 className="mt-4 text-[16px] font-bold">{e.emptyTitle}</h2>
           <p className="mt-1 text-[12px] text-muted">{e.emptyBody}</p>
-          <button type="button" className="btn-secondary mt-5" onClick={() => router.push('/explore')}>
+          <button type="button" className="btn-secondary mt-5" onClick={() => go({ q: '', category: null, sort: 'active' })}>
             {e.reset}
           </button>
         </div>

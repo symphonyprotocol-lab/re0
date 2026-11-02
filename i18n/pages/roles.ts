@@ -51,7 +51,7 @@ export const zh = {
     state: {
       pending: '认证申请正在审核，期间不能重复提交。',
       cooldown: '可再次申请时间：{date}',
-      disabled: '账号已停用，不能申请认证。',
+      disabled: '账号已停用，请先恢复账号',
       eligible: '已达到申请门槛，填写陈述后可提交。',
       requirements: '达到全部门槛后即可申请，下面会显示每项差距。',
       role: '当前角色不能申请认证。',
@@ -90,7 +90,7 @@ export const zh = {
 
 export const en: Shape<typeof zh> = {
   title: 'Role & verification',
-  tab: 'Role',
+  tab: 'Role & verification',
   roles: { normal: 'Normal', verified: 'Verified', official: 'Official' },
   summary: {
     eyebrow: 'ACCOUNT ROLE',
@@ -138,7 +138,7 @@ export const en: Shape<typeof zh> = {
     state: {
       pending: 'Your request is under review. Duplicate requests are not allowed.',
       cooldown: 'You can reapply on: {date}',
-      disabled: 'The account is disabled and cannot apply.',
+      disabled: 'The account is disabled',
       eligible: 'You meet the requirements and can submit a statement.',
       requirements: 'Meet all requirements to apply. Remaining gaps are shown alongside.',
       role: 'This role cannot apply for verification.',

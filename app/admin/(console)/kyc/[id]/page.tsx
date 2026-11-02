@@ -55,7 +55,13 @@ export default async function KycReviewPage({ params, searchParams }: Props) {
   const reviewable = data.latest && record.status === 'pending';
   const resettable = data.latest && (record.status === 'verified' || record.status === 'rejected') && user.role !== 'official';
   const expired = record.documentExpires && !documentValid(record.documentExpires, reportingDate());
-  const crumb = from.startsWith('/admin/users') ? t.console.nav.users : from.startsWith('/admin/payout') ? t.console.nav.payouts : k.title;
+  const crumb = from.startsWith('/admin/users')
+    ? t.console.nav.users
+    : from.startsWith('/admin/payout-history')
+      ? t.console.nav['payout-history']
+      : from.startsWith('/admin/payouts')
+        ? t.console.nav.payouts
+        : k.title;
   return (
     <>
       <PageHead

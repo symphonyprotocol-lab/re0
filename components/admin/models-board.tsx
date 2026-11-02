@@ -2,7 +2,7 @@
 
 import { useRouter } from 'next/navigation';
 import { useEffect, useState } from 'react';
-import { MODEL_KINDS, type ModelKind } from '@/lib/constants';
+import { MODEL_ID_MAX_LENGTH, MODEL_KINDS, MODEL_NAME_MAX_LENGTH, MODEL_TIMEOUT_MS, type ModelKind } from '@/lib/constants';
 import type { ModelTransport } from '@/lib/domain/models';
 import type { ModelConfigView } from '@/lib/services/models';
 import { api } from '@/lib/client/upload';
@@ -100,7 +100,7 @@ interface Draft {
  * embedding switch until it ends. Probes send a real request.
  */
 export function ModelsBoard({ initial, initialJob }: { initial: Board; initialJob: ReembedJobView | null }) {
-  const { t } = useI18n();
+  const { t, locale } = useI18n();
   const m = t.admin.models;
   const router = useRouter();
   const toast = useToast();
@@ -249,7 +249,15 @@ export function ModelsBoard({ initial, initialJob }: { initial: Board; initialJo
           const active = configs.find((config) => config.enabled);
           return (
             <section key={kind} className="card flex flex-col gap-3 p-5">
-              <h2 className="text-[15px] font-bold">{m.kinds[kind]}</h2>
+              <div className="flex items-start gap-3">
+                <span className="inline-flex size-9 flex-none items-center justify-center rounded-lg bg-soft text-blue">
+                  <Icon name={kind === 'generation' ? 'sparkle' : kind === 'embedding' ? 'layers' : 'audio'} className="size-4" />
+                </span>
+                <div className="min-w-0">
+                  <h2 className="text-[15px] font-bold">{m.kinds[kind]}</h2>
+                  <p className="mt-0.5 text-[11px] text-muted">{m.kindNotes[kind]}</p>
+                </div>
+              </div>
               {!active && (
                 <div className="rounded-lg border border-dashed border-line bg-wash px-3 py-2.5 text-[11px] text-muted">
                   <strong className="block text-ink">{m.fallback}</strong>
@@ -278,7 +286,17 @@ export function ModelsBoard({ initial, initialJob }: { initial: Board; initialJo
                         <Icon name="settings" className="size-3.5" />
                       </button>
                     </div>
-                    {result?.text && <p className={`mt-2 rounded-md px-2 py-1.5 text-[11px] break-words ${result.ok ? 'bg-[#f1faf6] text-green' : 'bg-[#fff3f3] text-red'}`}>{result.text}</p>}
+                    {result?.text ? (
+                      <p className={`mt-2 rounded-md px-2 py-1.5 text-[11px] break-words ${result.ok ? 'bg-[#f1faf6] text-green' : 'bg-[#fff3f3] text-red'}`}>{result.text}</p>
+                    ) : (
+                      /* The saved outcome of the last probe, so it survives a reload. */
+                      config.lastProbeAt &&
+                      config.lastProbeOk !== null && (
+                        <p className={`mt-2 rounded-md px-2 py-1.5 text-[11px] break-words ${config.lastProbeOk ? 'bg-[#f1faf6] text-green' : 'bg-[#fff3f3] text-red'}`}>
+                          {fill(config.lastProbeOk ? m.lastProbeOk : m.lastProbeFailed, { time: formatDateTime(config.lastProbeAt, locale) })}
+                        </p>
+                      )
+                    )}
                     <div className="mt-3 flex flex-wrap items-center gap-2">
                       <button type="button" className="btn-secondary btn-sm" onClick={() => probe(config)} disabled={result?.busy}>
                         {result?.busy && <Spinner className="size-3" />}
@@ -334,7 +352,7 @@ export function ModelsBoard({ initial, initialJob }: { initial: Board; initialJo
           <div className="flex flex-col gap-4">
             <label>
               <span className="field-label">{m.form.name}</span>
-              <input className="input" maxLength={60} value={draft.name} onChange={(event) => setDraft({ ...draft, name: event.target.value })} />
+              <input className="input" maxLength={MODEL_NAME_MAX_LENGTH} value={draft.name} onChange={(event) => setDraft({ ...draft, name: event.target.value })} />
             </label>
             <label>
               <span className="field-label">{m.form.kind}</span>
@@ -361,7 +379,7 @@ export function ModelsBoard({ initial, initialJob }: { initial: Board; initialJo
             )}
             <label>
               <span className="field-label">{m.form.model}</span>
-              <input className="input font-mono" value={draft.model} disabled={locked} onChange={(event) => setDraft({ ...draft, model: event.target.value })} />
+              <input className="input font-mono" maxLength={MODEL_ID_MAX_LENGTH} value={draft.model} disabled={locked} onChange={(event) => setDraft({ ...draft, model: event.target.value })} />
               <small className="hint">{draft.transport === 'gateway' ? m.form.modelHintGateway : m.form.modelHintCompatible}</small>
             </label>
             <label>
@@ -378,7 +396,7 @@ export function ModelsBoard({ initial, initialJob }: { initial: Board; initialJo
             </label>
             <label>
               <span className="field-label">{m.form.timeout}</span>
-              <input className="input max-w-[160px] font-mono" type="number" min={1} max={300} value={draft.timeout} onChange={(event) => setDraft({ ...draft, timeout: Number(event.target.value) })} />
+              <input className="input max-w-[160px] font-mono" type="number" min={MODEL_TIMEOUT_MS.min / 1000} max={MODEL_TIMEOUT_MS.max / 1000} value={draft.timeout} onChange={(event) => setDraft({ ...draft, timeout: Number(event.target.value) })} />
             </label>
             {error && (
               <p role="alert" className="text-[12px] text-red">

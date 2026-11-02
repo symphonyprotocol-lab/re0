@@ -1,5 +1,6 @@
 import type { Metadata } from 'next';
 import Link from 'next/link';
+import { redirect } from 'next/navigation';
 import { csvHref, KYC_DEFAULTS, KYC_FILTERS, kycView, listHref, RECENT_PERIODS } from '@/lib/domain/admin-lists';
 import { listKyc } from '@/lib/services/kyc';
 import { serverMessages } from '@/i18n/server';
@@ -28,6 +29,8 @@ export default async function KycPage({ searchParams }: Props) {
   const data = await listKyc(view);
   const current = { ...view, page: data.page };
   const href = (changes: Record<string, string | number | null>) => listHref('/admin/kyc', current, changes, KYC_DEFAULTS);
+  // A page past the end (rows went away, a stale link) lands on the last page's canonical URL.
+  if (data.page !== view.page) redirect(href({}));
   const n = (value: number) => formatNumber(value, locale);
   const filtered = Boolean(view.q) || view.status !== 'all' || view.period !== 'all' || view.sort !== 'oldest';
   const back = encodeURIComponent(href({}));
@@ -60,6 +63,7 @@ export default async function KycPage({ searchParams }: Props) {
         />
         <ResultsLine t={t} total={data.total} page={data.page} size={data.size} exportHref={csvHref('/api/admin/kyc', view, KYC_DEFAULTS)} />
         <RecordsTable
+          actions
           label={l.tableRegion}
           empty={l.empty}
           head={[k.columns.applicant, k.columns.submission, k.columns.status, k.columns.submitted, k.columns.reviewer, k.columns.action]}

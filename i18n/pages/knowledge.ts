@@ -150,6 +150,8 @@ export const zh = {
     added: '已添加，正在处理',
     connect: '去连接 GitHub',
     verify: '去验证域名',
+    verifiedDomains: '已验证：{domains}',
+    noVerifiedDomains: '还没有已验证域名。',
   },
   errors: {
     insufficient_credits: '可用 credits 不足，无法预留处理费用。',
@@ -263,6 +265,7 @@ export const zh = {
     downloadText: '下载解析文本',
   },
   page: {
+    title: '知识预览',
     subtitle: '{ree} · 知识预览',
     position: '{n} / {total} 个来源',
     previous: '上一篇',
@@ -423,6 +426,8 @@ export const en: Shape<typeof zh> = {
     added: 'Added. Processing now.',
     connect: 'Connect GitHub',
     verify: 'Verify domain',
+    verifiedDomains: 'Verified: {domains}',
+    noVerifiedDomains: 'No verified domains yet.',
   },
   errors: {
     insufficient_credits: 'Not enough credits to reserve the processing cost.',
@@ -536,6 +541,7 @@ export const en: Shape<typeof zh> = {
     downloadText: 'Download extracted text',
   },
   page: {
+    title: 'Source preview',
     subtitle: '{ree} · Source preview',
     position: '{n} / {total} sources',
     previous: 'Previous',

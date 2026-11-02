@@ -73,15 +73,22 @@ export function SummaryCards({ items }: { items: { label: string; value: ReactNo
   );
 }
 
-/** A wide table that scrolls inside its card on a phone instead of widening the page. */
-export function RecordsTable({ head, rows, empty, label }: { head: ReactNode[]; rows: ReactNode[][]; empty: string; label: string }) {
+/**
+ * A wide table that scrolls inside its card (prototype admin-records.css
+ * `.record-table`): at most about a viewport tall, with the header row stuck
+ * to the top and, for lists whose last column holds the row's actions
+ * (`actions`), that column stuck to the right while the rest scrolls sideways.
+ */
+export function RecordsTable({ head, rows, empty, label, actions = false }: { head: ReactNode[]; rows: ReactNode[][]; empty: string; label: string; actions?: boolean }) {
+  const last = head.length - 1;
+  const stuck = (column: number) => actions && column === last;
   return (
-    <div className="max-w-full overflow-x-auto" role="region" aria-label={label} tabIndex={0}>
-      <table className="w-full min-w-[720px] border-collapse text-left text-[12px]">
+    <div className="max-h-[max(190px,calc(100dvh-280px))] max-w-full overflow-auto overscroll-contain" role="region" aria-label={label} tabIndex={0}>
+      <table className="w-full min-w-[720px] border-separate border-spacing-0 text-left text-[12px]">
         <thead>
-          <tr className="border-b border-line bg-wash text-[11px] text-muted">
+          <tr className="text-[11px] text-muted">
             {head.map((cell, index) => (
-              <th key={index} scope="col" className="px-4 py-2.5 font-semibold whitespace-nowrap">
+              <th key={index} scope="col" className={`sticky top-0 border-b border-line bg-wash px-4 py-2.5 font-semibold whitespace-nowrap ${stuck(index) ? 'right-0 z-[3] border-l' : 'z-[2]'}`}>
                 {cell}
               </th>
             ))}
@@ -96,9 +103,9 @@ export function RecordsTable({ head, rows, empty, label }: { head: ReactNode[]; 
             </tr>
           ) : (
             rows.map((row, index) => (
-              <tr key={index} className="border-b border-line align-top last:border-0 hover:bg-wash/60">
+              <tr key={index} className="group align-top">
                 {row.map((cell, column) => (
-                  <td key={column} className="px-4 py-3">
+                  <td key={column} className={`border-line bg-white px-4 py-3 group-hover:bg-[#f8fbff] ${index < rows.length - 1 ? 'border-b' : ''} ${stuck(column) ? 'sticky right-0 z-[1] border-l' : ''}`}>
                     {cell}
                   </td>
                 ))}

@@ -27,9 +27,9 @@ export async function PayoutCard({ userId }: { userId: string }) {
       <section className="card bg-[#fbfaff] p-5 md:p-6">
         <h2 className="flex items-center gap-2 text-[15px] font-bold">
           <Icon name="globe" className="size-4 text-[#7255bd]" />
-          {c.officialTitle}
+          {t.roles.official.title}
         </h2>
-        <p className="mt-2 text-[13px] leading-relaxed text-muted">{c.officialBody}</p>
+        <p className="mt-2 text-[13px] leading-relaxed text-muted">{t.roles.official.body}</p>
       </section>
     );
   }

@@ -12,7 +12,6 @@ import {
   reportingDate,
   reportingWeek,
   selectionOf,
-  shiftDate,
   validRange,
   type Period,
   type PeriodFilter,
@@ -86,8 +85,6 @@ export function PeriodControls({ filter }: { filter: PeriodFilter }) {
     return hrefWith({ period, date: filter.date });
   };
   const stepper = filter.period === 'day' || filter.period === 'week' || filter.period === 'month' ? filter.period : null;
-  const previous = stepper ? shiftDate(stepper, filter.date, -1) : null;
-  const next = stepper ? shiftDate(stepper, filter.date, 1) : null;
   return (
     <section aria-label={p.label} className="flex flex-col gap-3">
       <div className="flex flex-wrap items-center justify-between gap-x-4 gap-y-2">
@@ -110,22 +107,6 @@ export function PeriodControls({ filter }: { filter: PeriodFilter }) {
       {active && (
         <div className="flex flex-wrap items-center gap-2">
           <DateControl filter={filter} today={today} hrefWith={hrefWith} />
-          {stepper && previous && next && (
-            <span className="flex items-center gap-1">
-              <Link href={hrefWith({ period: stepper, date: previous })} className="icon-btn border border-line bg-white" aria-label={p.previous[stepper]} title={p.previous[stepper]}>
-                <Icon name="chevronLeft" />
-              </Link>
-              {next <= today ? (
-                <Link href={hrefWith({ period: stepper, date: next })} className="icon-btn border border-line bg-white" aria-label={p.next[stepper]} title={p.next[stepper]}>
-                  <Icon name="chevronRight" />
-                </Link>
-              ) : (
-                <button type="button" className="icon-btn border border-line bg-white" aria-label={p.next[stepper]} disabled>
-                  <Icon name="chevronRight" />
-                </button>
-              )}
-            </span>
-          )}
           {stepper && (
             <Link href={hrefWith({ period: stepper, date: today })} className="text-link text-[12px]">
               {p.quick[stepper]}

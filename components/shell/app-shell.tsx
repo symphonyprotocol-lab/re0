@@ -112,7 +112,7 @@ function Sidebar({ user, collapsed, className, onClose }: { user: ShellUser; col
         )}
       </div>
       <nav className={`flex flex-col gap-1 px-3 ${collapsed ? 'px-2' : ''}`}>
-        <NavItem href="/dashboard" icon="dashboard" label={t.common.nav.dashboard} active={pathname === '/dashboard'} collapsed={collapsed} />
+        <NavItem href="/dashboard" icon="dashboard" label={t.common.nav.dashboard} active={pathname === '/dashboard' || pathname.startsWith('/workspace/')} collapsed={collapsed} />
         <NavItem href="/explore" icon="compass" label={t.discover.nav} active={pathname === '/explore' || pathname.startsWith('/r/')} collapsed={collapsed} />
         <NavItem href="/rees" icon="ree" label={t.common.nav.rees} active={pathname.startsWith('/rees') || pathname === '/videos'} collapsed={collapsed} badge={user.reeCount} />
       </nav>
@@ -123,6 +123,7 @@ function Sidebar({ user, collapsed, className, onClose }: { user: ShellUser; col
           <Link
             href={user.unreadNotices > 0 ? '/settings?tab=notices' : '/settings?tab=account'}
             className="flex min-w-0 flex-1 items-center gap-2 rounded-lg p-1 hover:bg-wash"
+            aria-label={user.unreadNotices > 0 ? undefined : t.common.account.openSettings}
             title={user.unreadNotices > 0 ? fill(t.notices.unreadCount, { n: user.unreadNotices }) : t.common.account.settings}
           >
             <span className="relative inline-flex flex-none">
@@ -133,7 +134,12 @@ function Sidebar({ user, collapsed, className, onClose }: { user: ShellUser; col
                 </span>
               )}
             </span>
-            {!collapsed && <span className="min-w-0 truncate text-[13px] font-semibold">{user.name}</span>}
+            {!collapsed && (
+              <span className="min-w-0">
+                <span className="block truncate text-[13px] font-semibold">{user.name}</span>
+                <span className="block truncate text-[11px] text-muted">{t.common.account.subtitle}</span>
+              </span>
+            )}
           </Link>
           <form action="/api/auth/logout" method="post">
             <button type="submit" className="icon-btn" aria-label={t.common.account.signOut} title={t.common.account.signOut}>
@@ -186,7 +192,11 @@ function PlanMeter({ user, collapsed }: { user: ShellUser; collapsed: boolean })
       </span>
       {plan.active ? (
         <>
-          <span className="mt-1.5 flex items-baseline gap-1">
+          <span className="mt-1.5 flex items-baseline justify-between gap-2 text-[10px] text-muted">
+            {a.usedOfAllowance}
+            <small className="text-[10px]">{t.common.units.credits}</small>
+          </span>
+          <span className="mt-0.5 flex items-baseline gap-1">
             <small className="text-[10px] text-muted">{a.used}</small>
             <strong className={`font-mono text-[16px] ${plan.warn ? 'text-red' : 'text-ink'}`}>{n(plan.used)}</strong>
             <span className="font-mono text-[10px] text-muted">/ {n(plan.allowance)}</span>
@@ -209,9 +219,13 @@ function PlanMeter({ user, collapsed }: { user: ShellUser; collapsed: boolean })
         </>
       ) : (
         <>
-          <span className="mt-1 flex items-baseline gap-1">
+          <span className="mt-1.5 flex items-baseline justify-between gap-2 text-[10px] text-muted">
+            {a.balance}
+            <small className="text-[10px]">{t.common.units.credits}</small>
+          </span>
+          <span className="mt-0.5 flex items-baseline gap-1">
+            <small className="text-[10px] text-muted">{a.balanceShort}</small>
             <strong className="font-mono text-[17px] text-ink">{n(user.balance)}</strong>
-            <span className="text-[10px] text-muted">{t.common.units.credits}</span>
           </span>
           <span className="flex items-center justify-between text-[10px] text-muted">
             {a.noAllowance}

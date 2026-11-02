@@ -28,6 +28,7 @@ import {
   pageOf,
   parseExploreQuery,
   positiveRate,
+  publicTags,
   qualityScore,
   rankHits,
   relatedRees,
@@ -144,6 +145,13 @@ describe('explore', () => {
     expect(explorePath({ q: 'a', page: 3 }, { page: 4 })).toBe('/explore?q=a&page=4');
     expect(exploreReturnPath('/explore?q=x&sort=answers&junk=1')).toBe('/explore?q=x&sort=answers');
     expect(exploreReturnPath('/admin')).toBe('/explore');
+  });
+  it('resetting the filters keeps the page size', () => {
+    expect(explorePath({ q: 'a', category: 'design', sort: 'free', size: 48, page: 3 }, { q: '', category: null, sort: 'active' })).toBe('/explore?size=48');
+  });
+  it('public tags drop the category label and repeats', () => {
+    expect(publicTags(['设计', 'UX', 'ux', ' Figma ', 'figma', ''], '设计')).toEqual(['UX', ' Figma ']);
+    expect(publicTags(['Design', 'Research'], 'design')).toEqual(['Research']);
   });
   it('quality stays between the floor and 1, rises with answers, votes and pulls', () => {
     const fresh = NEUTRAL_QUALITY;

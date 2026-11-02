@@ -48,6 +48,12 @@ export function clampPage(page: number, total: number, size: number): number {
   return Math.min(Math.max(1, page), Math.max(1, Math.ceil(total / size)));
 }
 
+/** Page numbers around the current one plus the first and last, gaps as null (prototype `discoveryPageNumbers`). */
+export function pageNumbers(page: number, pages: number): (number | null)[] {
+  const values = [...new Set([1, page - 1, page, page + 1, pages])].filter((value) => value > 0 && value <= pages).sort((a, b) => a - b);
+  return values.flatMap((value, index) => (index && value - values[index - 1]! > 1 ? [null, value] : [value]));
+}
+
 /** `%`, `_` and `\` typed into a search box match themselves. */
 export function likePattern(q: string): string {
   return `%${q.replace(/[\\%_]/g, (c) => `\\${c}`)}%`;

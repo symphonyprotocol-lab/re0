@@ -66,6 +66,7 @@ export function ReeChat({
   const [examples, setExamples] = useState(false);
   const inputRef = useRef<HTMLTextAreaElement>(null);
   const endRef = useRef<HTMLDivElement>(null);
+  const examplesRef = useRef<HTMLDivElement>(null);
   const pendingQuestion = useRef('');
 
   const transport = useMemo(
@@ -119,11 +120,19 @@ export function ReeChat({
     box.style.height = `${Math.min(160, Math.max(52, box.scrollHeight))}px`;
   }, [input]);
 
+  /* Escape or a click outside closes the examples (prototype dot-conversation.js). */
   useEffect(() => {
     if (!examples) return;
     const onKey = (event: KeyboardEvent) => event.key === 'Escape' && setExamples(false);
+    const onPointer = (event: PointerEvent) => {
+      if (!examplesRef.current?.contains(event.target as Node)) setExamples(false);
+    };
     window.addEventListener('keydown', onKey);
-    return () => window.removeEventListener('keydown', onKey);
+    window.addEventListener('pointerdown', onPointer);
+    return () => {
+      window.removeEventListener('keydown', onKey);
+      window.removeEventListener('pointerdown', onPointer);
+    };
   }, [examples]);
 
   const send = (question = input) => {
@@ -354,7 +363,7 @@ export function ReeChat({
               <ReeAvatar avatar={ree.avatarBlob} color={ree.color} size="sm" className="!size-5 !rounded-md [&_svg]:!size-3" />
               <span className="truncate">{ree.name}</span>
             </span>
-            <div className="relative flex items-center gap-2">
+            <div ref={examplesRef} className="relative flex items-center gap-2">
               {ree.sampleQuestions.length > 0 && (
                 <>
                   <button type="button" className="btn-ghost" aria-expanded={examples} onClick={() => setExamples((value) => !value)}>

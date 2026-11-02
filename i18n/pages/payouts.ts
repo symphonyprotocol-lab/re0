@@ -4,7 +4,7 @@ import type { Shape } from '@/i18n/format';
 export const zh = {
   kyc: {
     status: { none: '待提交', pending: '待人工审核', verified: '已通过', rejected: '未通过', reset: '需重新验证' },
-    kinds: { passport: '护照', id: '身份证', residence: '居留许可' },
+    kinds: { passport: '护照', id: '身份证', residence: '居留证' },
     taxForms: { 'W-8BEN': 'W-8BEN · 非美国个人', 'W-9': 'W-9 · 美国纳税人' },
   },
   identity: {
@@ -120,8 +120,6 @@ export const zh = {
     net: '实付 {paid} · 手续费 {fee}',
     transfer: '转账 ID：{id}',
     requestedAt: '申请于 {time}',
-    officialTitle: '官方账号',
-    officialBody: '官方账号无需 KYC，不提供提现。查询费收入在管理后台统计中查看。',
   },
   paypal: {
     title: '设置你的收款方式',
@@ -201,7 +199,7 @@ export const en: Shape<typeof zh> = {
   },
   identity: {
     title: 'Identity verification',
-    crumb: 'Identity',
+    crumb: 'Identity verification',
     submitTitle: 'Submit identity details',
     submittedTitle: 'Submitted identity details',
     submitIntro: 'Complete the three sections below for manual administrator review.',
@@ -312,8 +310,6 @@ export const en: Shape<typeof zh> = {
     net: 'Net paid {paid} · Fee {fee}',
     transfer: 'Transfer ID: {id}',
     requestedAt: 'Requested {time}',
-    officialTitle: 'Official account',
-    officialBody: 'Official accounts do not need KYC or withdrawals. View income in the admin console.',
   },
   paypal: {
     title: 'Set up your payout method',

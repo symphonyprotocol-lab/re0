@@ -31,13 +31,69 @@ export function reeTab(params: Params): ReeTab {
 }
 
 /**
- * Where "back" goes: the list (or a user's Rees tab) the administrator came
- * from, taken only when it is one of those console pages.
+ * Where "back" goes: the list (or a user's Rees tab, or the verification
+ * request whose public Ree was opened) the administrator came from, taken
+ * only when it is one of those console pages.
  */
 export function reeBackPath(params: Params): { href: string; from: string | null } {
   const raw = first(params.from).slice(0, 2000);
-  if ((raw === '/admin/rees' || raw.startsWith('/admin/rees?') || raw.startsWith('/admin/users/')) && !raw.includes('\\')) return { href: raw, from: raw };
+  const allowed = raw === '/admin/rees' || raw.startsWith('/admin/rees?') || raw.startsWith('/admin/users/') || /^\/admin\/verifications(?:[/?]|$)/.test(raw);
+  if (allowed && !raw.includes('\\') && !raw.includes('//')) return { href: raw, from: raw };
   return { href: '/admin/rees', from: null };
+}
+
+/** The crumb for that way back (prototype suite.js `consoleHeader`: 名下 Ree from a user's tab). */
+export function reeBackLabel(t: Messages, href: string): string {
+  if (href.startsWith('/admin/users/')) return t.consoleRees.ree.ownerRees;
+  if (href.startsWith('/admin/verifications')) return t.console.nav.verifications;
+  return t.consoleRees.rees.title;
+}
+
+/**
+ * A Ree row's actions in the console lists (prototype suite.js `dotsTable`):
+ * details, the public page while public, and the takedown / restore dialog.
+ */
+export function ReeRowActions({
+  t,
+  ree,
+  detailHref,
+}: {
+  t: Messages;
+  ree: { id: string; name: string; slug: string; visibility: 'public' | 'private' | 'moderated'; deleted?: boolean };
+  detailHref: string;
+}) {
+  const r = t.consoleRees;
+  return (
+    <div className="flex items-center gap-1.5 whitespace-nowrap">
+      <Link href={detailHref} className="btn-secondary btn-sm">
+        {r.rees.details}
+      </Link>
+      {!ree.deleted && ree.visibility === 'public' && (
+        <>
+          <Link href={`/r/${ree.slug}`} className="icon-btn" target="_blank" rel="noreferrer" aria-label={r.rees.publicPage} title={r.rees.publicPage}>
+            <Icon name="external" className="size-3.5" />
+          </Link>
+          <ReasonAction
+            endpoint={`/api/admin/rees/${ree.id}/takedown`}
+            label={r.rees.takedown}
+            title={fill(r.ree.takedown.title, { name: ree.name })}
+            body={r.ree.takedown.body}
+            confirmLabel={r.ree.takedown.confirm}
+            danger
+          />
+        </>
+      )}
+      {!ree.deleted && ree.visibility === 'moderated' && (
+        <ReasonAction
+          endpoint={`/api/admin/rees/${ree.id}/restore`}
+          label={r.rees.restore}
+          title={fill(r.ree.restore.title, { name: ree.name })}
+          body={r.ree.restore.body}
+          confirmLabel={r.ree.restore.confirm}
+        />
+      )}
+    </div>
+  );
 }
 
 type Extra = Record<string, string | number | null | undefined>;
@@ -220,6 +276,7 @@ export function ReeOverviewTab({ t, locale, detail, from }: { t: Messages; local
                   '—'
                 ),
               ],
+              [r.identity.video, <Tag key="video" tone={detail.hasVideo ? 'green' : 'grey'}>{detail.hasVideo ? r.identity.videoReady : r.identity.videoNone}</Tag>],
               [r.identity.created, formatDateTime(ree.createdAt, locale)],
               [r.identity.updated, formatDateTime(ree.updatedAt, locale)],
             ]}

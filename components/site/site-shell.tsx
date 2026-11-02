@@ -4,7 +4,7 @@ import { currentUser } from '@/lib/http/session';
 import { serverMessages } from '@/i18n/server';
 import { Icon } from '@/components/ui/icons';
 import { LanguageToggle } from '@/components/ui/language-toggle';
-import { SiteNav } from '@/components/site/site-nav';
+import { SignInLink, SiteNav } from '@/components/site/site-nav';
 
 export function Wordmark() {
   return (
@@ -27,8 +27,8 @@ export async function SiteShell({ children }: { children: ReactNode }) {
   const s = t.site;
   const links = [
     { href: '/', label: s.nav.home },
-    { href: '/explore', label: t.discover.nav },
-    { href: '/pricing', label: s.nav.pricing },
+    { href: '/explore', label: t.discover.nav, also: ['/r'] },
+    { href: '/pricing', label: s.nav.pricing, also: ['/checkout'] },
   ];
   const createHref = user ? '/rees/new' : `/login?returnTo=${encodeURIComponent('/rees/new')}`;
   return (
@@ -39,16 +39,20 @@ export async function SiteShell({ children }: { children: ReactNode }) {
           <SiteNav links={links} label={s.nav.label} className="hidden h-16 md:flex" />
           <div className="ml-auto flex items-center gap-2">
             <LanguageToggle signedIn={Boolean(user)} />
-            <Link href={user ? '/dashboard' : '/login'} className="btn-secondary">
-              {user ? s.nav.open : s.nav.signIn}
-            </Link>
-            <Link href={createHref} className="btn hidden sm:inline-flex">
+            {user ? (
+              <Link href="/dashboard" className="btn-secondary">
+                {s.nav.open}
+              </Link>
+            ) : (
+              <SignInLink label={s.nav.signIn} />
+            )}
+            <Link href={createHref} className="btn hidden md:inline-flex">
               {s.nav.create}
               <Icon name="arrow" />
             </Link>
           </div>
         </div>
-        <SiteNav links={links} label={s.nav.label} className="h-11 overflow-x-auto border-t border-[#eef0f6] px-2 md:hidden" />
+        <SiteNav links={links} label={s.nav.label} className="grid h-11 grid-cols-3 border-t border-[#eef0f6] px-2 md:hidden" />
       </header>
       <main id="main" className="flex-1">
         {children}
@@ -65,13 +69,14 @@ export async function SiteShell({ children }: { children: ReactNode }) {
             links={[
               { href: '/explore', label: t.discover.nav },
               { href: '/pricing', label: s.footer.pricing },
+              { href: '/dashboard', label: s.footer.workspace },
             ]}
           />
           <FooterColumn
             title={s.footer.space}
             links={[
-              { href: '/dashboard', label: s.footer.workspace },
               { href: '/rees', label: s.footer.rees },
+              { href: '/chats', label: s.footer.chats },
               { href: '/settings?tab=billing', label: s.footer.billing },
             ]}
           />
@@ -80,6 +85,7 @@ export async function SiteShell({ children }: { children: ReactNode }) {
             links={[
               { href: '/legal/terms', label: s.footer.terms },
               { href: '/legal/privacy', label: s.footer.privacy },
+              { href: '/admin/login', label: s.footer.admin },
             ]}
           />
         </div>

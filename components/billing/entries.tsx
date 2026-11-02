@@ -11,12 +11,27 @@ import { fill, formatDateTime, formatNumber } from '@/i18n/format';
 import { Pager } from '@/components/ui/pager';
 
 /**
- * The ledger (prototype `ledger()`): 全部 / 消耗 / 收入, paged on the server.
+ * The ledger (prototype `ledger()`): 全部 / 消费 / 收入, paged on the server.
  * Filter, page and size live in the URL (`activity`, `page`, `size`), so a
  * refresh or the back button lands on the same rows. Each row says which
  * kinds of credit it moved -- the trace back to its grants.
  */
-export function Entries({ items, total, page, size, activity }: { items: EntryRow[]; total: number; page: number; size: number; activity: Activity }) {
+export function Entries({
+  items,
+  total,
+  page,
+  size,
+  activity,
+  official = false,
+}: {
+  items: EntryRow[];
+  total: number;
+  page: number;
+  size: number;
+  activity: Activity;
+  /** Official accounts have no 收入 tab; the server already leaves their income rows out. */
+  official?: boolean;
+}) {
   const { t, locale } = useI18n();
   const b = t.billing;
   const router = useRouter();
@@ -45,7 +60,7 @@ export function Entries({ items, total, page, size, activity }: { items: EntryRo
         <span className="text-[11px] text-muted">{b.activity.hint}</span>
       </div>
       <div role="tablist" aria-label={b.activity.label} className="mt-3 flex gap-1 overflow-x-auto border-b border-line px-3 md:px-4">
-        {(['all', 'spend', 'income'] as const).map((value) => (
+        {(official ? (['all', 'spend'] as const) : (['all', 'spend', 'income'] as const)).map((value) => (
           <button
             key={value}
             type="button"

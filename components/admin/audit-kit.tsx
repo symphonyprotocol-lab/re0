@@ -25,6 +25,8 @@ export function auditTargetHref(action: string, target: string | null): string |
   if (!target || !/^[0-9a-f-]{36}$/i.test(target)) return null;
   if (action.startsWith('user.') || action.startsWith('verification.')) return `/admin/users/${target}`;
   if (action.startsWith('ree.')) return `/admin/rees/${target}`;
+  if (action.startsWith('kyc.')) return `/admin/kyc/${target}`;
+  if (action.startsWith('payout.')) return `/admin/payouts/${target}`;
   return null;
 }
 
@@ -33,6 +35,7 @@ export function AuditTable({ t, locale, rows, from }: { t: Messages; locale: Loc
   const back = from ? `?from=${encodeURIComponent(from)}` : '';
   return (
     <RecordsTable
+      actions
       label={t.console.list.tableRegion}
       empty={t.console.list.empty}
       head={[a.columns.time, a.columns.administrator, a.columns.action, a.columns.target, a.columns.details]}

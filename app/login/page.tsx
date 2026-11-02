@@ -52,12 +52,10 @@ export default async function LoginPage({ searchParams }: { searchParams: Promis
       <main className="flex items-center justify-center bg-white px-4 py-10 sm:px-8">
         <div className="w-full max-w-[400px]">
           <div className="mb-10 flex items-center justify-between">
-            <span className="flex items-center gap-2 font-extrabold lg:invisible">
-              <span className="inline-flex size-7 items-center justify-center rounded-lg bg-blue text-white">
-                <Icon name="ree" className="size-4" />
-              </span>
-              {t.common.brand}
-            </span>
+            <Link href="/" className="text-link inline-flex items-center gap-1.5 text-[13px]">
+              <Icon name="arrow" className="size-4 rotate-180" />
+              {t.login.back}
+            </Link>
             <LanguageToggle />
           </div>
           <p className="eyebrow">{t.login.eyebrow}</p>
@@ -97,8 +95,21 @@ export default async function LoginPage({ searchParams }: { searchParams: Promis
               <p className="text-[12px] text-muted">{t.login.giftText}</p>
             </div>
           </div>
-          <p className="mt-6 text-[11px] text-muted">{t.login.terms}</p>
-          <div className="mt-8 flex justify-end text-[12px]">
+          <p className="mt-6 text-[11px] text-muted">
+            {t.login.termsBefore}{' '}
+            <Link href="/legal/terms" className="text-link">
+              {t.login.termsLink}
+            </Link>{' '}
+            {t.login.termsAnd}{' '}
+            <Link href="/legal/privacy" className="text-link">
+              {t.login.privacyLink}
+            </Link>
+            {t.login.termsAfter}
+          </p>
+          <div className="mt-8 flex justify-between gap-3 text-[12px]">
+            <Link href="/explore" className="text-link">
+              {t.login.explore}
+            </Link>
             <Link href="/admin/login" className="text-link">
               {t.login.admin}
             </Link>

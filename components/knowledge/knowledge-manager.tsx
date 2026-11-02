@@ -86,6 +86,7 @@ export function KnowledgeManager({ reeId }: { reeId: string }) {
   const toast = useToast();
   const query = libraryQuery(search);
   const [data, setData] = useState<ListResponse | null>(null);
+  const [loadedKey, setLoadedKey] = useState<string | null>(null);
   const [q, setQ] = useState(query.q);
   const [adding, setAdding] = useState(false);
   const [selected, setSelected] = useState<Map<string, ActionItem>>(new Map());
@@ -113,8 +114,20 @@ export function KnowledgeManager({ reeId }: { reeId: string }) {
     const params = new URLSearchParams(searchKey);
     params.delete('preview');
     const result = await api<ListResponse>(`/api/rees/${reeId}/knowledge?${params.toString()}`);
-    if (result.ok) setData(result.data);
+    if (result.ok) {
+      setData(result.data);
+      setLoadedKey(searchKey);
+    }
   }, [reeId, searchKey]);
+
+  /* An out-of-range page: the server answered the last one, the address follows it (prototype `syncURL`). */
+  useEffect(() => {
+    if (!data || loadedKey !== searchKey) return;
+    const current = libraryQuery(new URLSearchParams(searchKey));
+    if (current.page === data.page) return;
+    const value = libraryParams({ ...current, page: data.page }).toString();
+    router.replace(value ? `${pathname}?${value}` : pathname, { scroll: false });
+  }, [data, loadedKey, searchKey, pathname, router]);
 
   useEffect(() => {
     void load();

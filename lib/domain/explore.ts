@@ -202,6 +202,18 @@ export function relatedRees<M extends PublicMeta>(current: PublicMeta, candidate
     .map((row) => row.candidate);
 }
 
+/** A public page's tags: none that repeats the category label, each once, case aside (prototype public-dot.js `overview`). */
+export function publicTags(tags: readonly string[], categoryLabel: string): string[] {
+  const key = (value: string) => value.normalize('NFKC').trim().toLowerCase();
+  const seen = new Set([key(categoryLabel)]);
+  return tags.filter((tag) => {
+    const value = key(tag);
+    if (!value || seen.has(value)) return false;
+    seen.add(value);
+    return true;
+  });
+}
+
 /** One page of four, the page pulled back into range. */
 export function pageOf<T>(rows: readonly T[], requested: number): { items: T[]; total: number; page: number; pages: number } {
   const pages = Math.max(1, Math.ceil(rows.length / PUBLIC_LIST_PAGE_SIZE));

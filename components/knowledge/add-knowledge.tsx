@@ -1,7 +1,7 @@
 'use client';
 
 import Link from 'next/link';
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import { KNOWLEDGE_URL_MAX, TEXT_SOURCE_LIMITS } from '@/lib/constants';
 import { holdFor, KNOWLEDGE_KIND_LIST, validAudio, validDocument, validText, type KnowledgeKind } from '@/lib/domain/knowledge';
 import { parseGithubRepo, parseWebUrl } from '@/lib/domain/sources';
@@ -70,6 +70,18 @@ export function AddKnowledgeModal({
   const [busy, setBusy] = useState(false);
   const [progress, setProgress] = useState<number | null>(null);
   const [dragging, setDragging] = useState(false);
+  /* A website needs a verified domain: the owner sees which before submitting (prototype app.js "已验证："). */
+  const [domains, setDomains] = useState<string[] | null>(null);
+  useEffect(() => {
+    if (!open || kind !== 'site' || domains !== null) return;
+    let live = true;
+    void api<{ items?: { domain: string; status: string }[] }>('/api/domains').then((result) => {
+      if (live && result.ok) setDomains((result.data.items ?? []).filter((item) => item.status === 'verified').map((item) => item.domain));
+    });
+    return () => {
+      live = false;
+    };
+  }, [open, kind, domains]);
 
   const reset = () => {
     setFile(null);
@@ -83,6 +95,7 @@ export function AddKnowledgeModal({
   };
   const close = () => {
     reset();
+    setDomains(null);
     onClose();
   };
   const choose = (next: KnowledgeKind) => {
@@ -219,6 +232,16 @@ export function AddKnowledgeModal({
           <input className="input" type="url" inputMode="url" maxLength={KNOWLEDGE_URL_MAX} value={url} placeholder={m.urlPlaceholder[kind]} onChange={(event) => setUrl(event.target.value)} />
           <small className="hint">{m.urlHint[kind]}</small>
         </label>
+      )}
+      {kind === 'site' && domains !== null && (
+        <p className="mt-3 flex flex-wrap items-center gap-x-2 gap-y-1 rounded-lg bg-soft px-3 py-2.5 text-[12px] text-[#3b4361]">
+          <Icon name="shield" className="size-4 flex-none text-blue" />
+          <span className="min-w-0 break-words">{domains.length ? fill(m.verifiedDomains, { domains: domains.join(', ') }) : m.noVerifiedDomains}</span>
+          <Link href="/settings?tab=connections" className="text-link text-[12px]">
+            {m.verify}
+            <Icon name="arrow" className="size-3.5" />
+          </Link>
+        </p>
       )}
 
       {kind === 'text' && (

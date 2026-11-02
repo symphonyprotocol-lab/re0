@@ -5,7 +5,7 @@ import { useState } from 'react';
 import { DISPLAY_NAME_MAX } from '@/lib/constants';
 import { api } from '@/lib/client/upload';
 import { useI18n } from '@/i18n/client';
-import { formatDateTime } from '@/i18n/format';
+import { fill, formatDateTime } from '@/i18n/format';
 import { Icon, Spinner } from '@/components/ui/icons';
 import { useToast } from '@/components/ui/toast';
 import { AvatarEditor } from '@/components/rees/avatar-editor';
@@ -29,6 +29,10 @@ export function AccountForm({ account }: { account: Account }) {
   const [avatar, setAvatar] = useState(account.avatarBlob);
   const [error, setError] = useState('');
   const [saving, setSaving] = useState(false);
+  const github = account.provider === 'github';
+  const providerName = github ? 'GitHub' : 'Google';
+  /** GitHub's login as `@handle`; Google's handle is the email, so its account shows as the provider. */
+  const handle = github && account.providerHandle ? `@${account.providerHandle}` : null;
 
   const save = async () => {
     const trimmed = name.trim();
@@ -74,18 +78,31 @@ export function AccountForm({ account }: { account: Account }) {
           </div>
           <div className="mt-6 rounded-xl border border-line bg-wash p-4">
             <h2 className="text-[13px] font-bold">{s.login.title}</h2>
+            <div className="mt-3 flex items-center gap-3">
+              <span className="grid size-9 flex-none place-items-center rounded-full border border-line bg-white">
+                {github ? <Icon name="github" className="size-4" /> : <span className="font-extrabold text-[#4285f4]">G</span>}
+              </span>
+              <div className="min-w-0">
+                <strong className="block text-[13px]">{fill(s.login.signIn, { provider: providerName })}</strong>
+                <p className="truncate text-[12px] text-muted">
+                  {account.email}
+                  {handle && ` · ${handle}`}
+                </p>
+              </div>
+            </div>
             <dl className="mt-3 grid grid-cols-1 gap-x-6 gap-y-2 text-[12px] sm:grid-cols-[120px_1fr]">
               <dt className="text-muted">{s.login.provider}</dt>
-              <dd className="flex items-center gap-1.5 font-medium">
-                {account.provider === 'github' ? <Icon name="github" className="size-3.5" /> : <span className="font-extrabold text-[#4285f4]">G</span>}
-                {account.provider === 'github' ? 'GitHub' : 'Google'}
-              </dd>
+              <dd className="font-medium">{providerName}</dd>
               <dt className="text-muted">{s.login.handle}</dt>
-              <dd className="truncate font-medium">{account.providerHandle ?? '—'}</dd>
+              <dd className="truncate font-medium">{handle ?? providerName}</dd>
               <dt className="text-muted">{s.login.email}</dt>
               <dd className="truncate font-medium">{account.email}</dd>
-              <dt className="text-muted">{s.login.lastLogin}</dt>
-              <dd className="font-medium">{account.lastLoginAt ? formatDateTime(account.lastLoginAt, locale) : '—'}</dd>
+              {account.lastLoginAt && (
+                <>
+                  <dt className="text-muted">{s.login.lastLogin}</dt>
+                  <dd className="font-medium">{formatDateTime(account.lastLoginAt, locale)}</dd>
+                </>
+              )}
             </dl>
             <p className="mt-3 text-[11px] text-muted">{s.login.note}</p>
           </div>

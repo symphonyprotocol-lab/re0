@@ -90,7 +90,7 @@ export default async function DashboardPage() {
           <MetricCard href="/workspace/answers" icon="chat" label={t.dashboard.cards.answers} value={n(totals.answers)} hint={t.statistics.dashboard.answersHint} />
           {!official && (
             <MetricCard
-              href="/settings?tab=billing&activity=income"
+              href="/settings?tab=billing&activity=income#credit-activity"
               icon="layers"
               label={t.dashboard.cards.earned}
               value={n(earned)}
@@ -132,7 +132,7 @@ export default async function DashboardPage() {
                       </Link>
                       <span className={`mt-0.5 flex items-center gap-1 text-[11px] ${moderated.has(ree.id) ? 'text-red' : 'text-muted'}`}>
                         <Icon name={ree.isPublic && !moderated.has(ree.id) ? 'globe' : 'lock'} className="size-3" />
-                        {moderated.has(ree.id) ? t.statistics.workspace.takenDown : ree.isPublic ? t.common.visibility.public : t.common.visibility.private}
+                        {moderated.has(ree.id) ? t.statistics.workspace.takenDown : ree.isPublic ? t.dashboard.visibility.public : t.dashboard.visibility.private}
                       </span>
                     </div>
                     <div className="flex gap-6 text-right">
@@ -151,9 +151,9 @@ export default async function DashboardPage() {
                       <Link href={`/rees/${ree.id}/knowledge`} className="btn-secondary btn-sm">
                         {t.dashboard.manageKnowledge}
                       </Link>
-                      <Link href={`/rees/${ree.id}/chat`} className="btn-secondary btn-sm">
-                        <Icon name="chat" className="size-3.5" />
-                        {t.dashboard.testChat}
+                      <Link href={`/rees/${ree.id}/video`} className="btn-ghost">
+                        <Icon name="film" className="size-3.5" />
+                        {t.dashboard.video}
                       </Link>
                     </div>
                   </li>
@@ -173,6 +173,7 @@ export default async function DashboardPage() {
           <RankingPanel t={t} locale={locale} ranking={board.ranking} reeCount={totals.rees} moderated={moderated} />
           <IncomePanel t={t} locale={locale} earned={earned} official={official} stage={payout.stage} kyc={payout.kyc} held={payout.held} />
         </div>
+        <p className="mt-6 text-[11px] text-muted">{t.dashboard.scopeNote}</p>
       </main>
     </>
   );

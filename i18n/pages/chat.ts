@@ -6,7 +6,7 @@ export const zh = {
   readiness: { ready: '可以开始对话', processing: '知识整理中', waiting: '知识未就绪' },
   clear: '清空对话',
   clearTitle: '清空当前对话？',
-  clearBody: '将清空「{name}」在此页面的全部测试消息，清空后无法恢复。知识来源与已产生的费用不受影响。',
+  clearBody: '将清空「{name}」在此页面的全部测试消息，清空后无法恢复。知识来源、累计使用统计与已产生的费用不受影响。',
   cleared: '对话已清空，可以重新测试了',
   eyebrow: 'YOUR KNOWLEDGE. YOUR NEXT QUESTION.',
   empty: {
@@ -30,7 +30,7 @@ export const zh = {
   answerHead: '基于知识来源回答',
   boundary: '知识范围提示',
   noSourcesTitle: '目前还没有可用的知识依据',
-  noSourcesBody: '这个 Ree 暂无已就绪的知识，因此无法给出有依据的回答。',
+  noSourcesBody: '这个 Ree 暂无已就绪、已启用的知识，因此无法给出有依据的回答。',
   outOfScopeTitle: '这个问题，暂时超出了我的知识范围',
   outOfScopeBody: '现有知识里没有找到足够的依据。试着补充问题的背景，或换一个更具体的问法。',
   noCharge: '未作答 · 本次未收费',
@@ -42,7 +42,7 @@ export const zh = {
   failed: '回答没有完成，预留的 credits 已退回。',
   drawer: {
     title: '答案，从这里来。',
-    note: '这是与当前回答关联的引用片段，不是完整知识正文。',
+    note: '这是与当前回答关联的引用片段，不是完整知识正文。音频引用显示时间戳，代码引用显示文件与行号。',
     source: '来源 {n}',
     copy: '复制引用',
     open: '打开来源',
@@ -61,7 +61,7 @@ export const en: Shape<typeof zh> = {
   readiness: { ready: 'Ready to chat', processing: 'Preparing knowledge', waiting: 'Knowledge not ready' },
   clear: 'Clear chat',
   clearTitle: 'Clear this conversation?',
-  clearBody: 'All test messages for “{name}” on this page will be permanently cleared. Knowledge sources and previous charges remain unchanged.',
+  clearBody: 'All test messages for “{name}” on this page will be permanently cleared. Knowledge sources, cumulative usage and previous charges remain unchanged.',
   cleared: 'Conversation cleared. Ready to test again.',
   eyebrow: 'YOUR KNOWLEDGE. YOUR NEXT QUESTION.',
   empty: {
@@ -85,7 +85,7 @@ export const en: Shape<typeof zh> = {
   answerHead: 'Grounded in sources',
   boundary: 'Knowledge boundary',
   noSourcesTitle: 'No knowledge is available yet',
-  noSourcesBody: 'This Ree has no ready sources to ground an answer.',
+  noSourcesBody: 'This Ree has no ready, enabled sources to ground an answer.',
   outOfScopeTitle: 'This question is outside my knowledge for now',
   outOfScopeBody: 'The available knowledge did not provide enough evidence. Add some context or ask a more specific question.',
   noCharge: 'No answer · No credits charged',
@@ -97,7 +97,7 @@ export const en: Shape<typeof zh> = {
   failed: 'The answer did not complete. The reserved credits were released.',
   drawer: {
     title: 'Here is where the answer comes from.',
-    note: 'This is an answer-linked excerpt, not the entire source.',
+    note: 'This is an answer-linked excerpt, not the entire source. Audio uses timestamps; code uses file paths and line numbers.',
     source: 'Source {n}',
     copy: 'Copy excerpt',
     open: 'Open source',

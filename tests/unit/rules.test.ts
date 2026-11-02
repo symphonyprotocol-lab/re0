@@ -25,6 +25,11 @@ describe('sign-in return path', () => {
     expect(safeReturnTo('https://evil.example')).toBe('/dashboard');
     expect(safeReturnTo('/admin/models')).toBe('/dashboard');
   });
+
+  it('returns to every gated workspace page (prototype experience.js safeNext)', () => {
+    expect(safeReturnTo('/videos')).toBe('/videos');
+    expect(safeReturnTo('/workspace/answers?view=records&period=week')).toBe('/workspace/answers?view=records&period=week');
+  });
 });
 
 describe('model configuration (2.5)', () => {

@@ -220,7 +220,7 @@ export function Connections({
         open={Boolean(removing)}
         title={c.removeTitle}
         body={c.removeBody}
-        confirmLabel={c.remove}
+        confirmLabel={c.removeConfirm}
         danger
         onClose={() => setRemoving(null)}
         onConfirm={async () => {

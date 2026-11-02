@@ -16,11 +16,11 @@ export async function generateMetadata(): Promise<Metadata> {
   return { title: t.settings.title };
 }
 
-const TABS = ['account', 'connections', 'billing', 'role', 'notices'] as const;
+const TABS = ['account', 'role', 'connections', 'billing', 'notices'] as const;
 const OUTCOMES = ['connected', 'canceled', 'failed'] as const;
 
 /**
- * `/settings?tab=account|connections|billing`. Connections holds GitHub and
+ * `/settings?tab=account|role|connections|billing|notices`. Connections holds GitHub and
  * the domain claims (step 2); billing holds balances, Plan / Pack and the
  * ledger (step 3; `activity`, `page`, `size`, `checkout` are its parameters).
  * Role holds the verification threshold and application, notices the
@@ -39,9 +39,9 @@ export default async function SettingsPage({ searchParams }: { searchParams: Pro
         tabsLabel={s.tabs.label}
         tabs={[
           { label: s.tabs.account, href: '/settings?tab=account', active: tab === 'account', icon: 'user' },
+          { label: t.roles.tab, href: '/settings?tab=role', active: tab === 'role', icon: 'shield' },
           { label: s.tabs.connections, href: '/settings?tab=connections', active: tab === 'connections', icon: 'globe' },
           { label: s.tabs.billing, href: '/settings?tab=billing', active: tab === 'billing', icon: 'layers' },
-          { label: t.roles.tab, href: '/settings?tab=role', active: tab === 'role', icon: 'shield' },
           { label: t.notices.tab, href: '/settings?tab=notices', active: tab === 'notices', icon: 'info' },
         ]}
       />
