@@ -6,10 +6,12 @@ import { createContext, useContext, useEffect, useState, type ReactNode } from '
 import type { PlanUsage } from '@/lib/domain/billing';
 import { useI18n } from '@/i18n/client';
 import { fill, formatNumber } from '@/i18n/format';
+import { BrandMark } from '@/components/ui/brand-mark';
 import { Icon, type IconName } from '@/components/ui/icons';
 import { UserAvatar } from '@/components/ui/ree-avatar';
 import { HistoryProvider, SidebarConversations } from '@/components/conversations/sidebar-history';
 import type { HistoryItem } from '@/lib/services/conversations';
+import './shell.css';
 
 interface ShellState {
   collapsed: boolean;
@@ -35,21 +37,49 @@ export interface ShellUser {
   unreadNotices: number;
 }
 
+const PHONE = '(max-width: 760px)';
+
 /**
- * The workspace frame (prototype navigation.css): a fixed sidebar that folds
- * to a 68px icon rail on desktop and becomes a drawer on phones. The folded
- * state lives in a cookie so the server renders it without a flash.
+ * The workspace frame (prototype app.js `shell`, conversations.js `sidebar`,
+ * styles in ./shell.css): a fixed 252px sidebar that folds to a 68px icon
+ * rail on desktop and slides in as a drawer on phones, and the main column
+ * the fixed top bar sits over. The folded state lives in a cookie so the
+ * server renders it without a flash.
  */
 export function AppShell({ user, initialCollapsed, children }: { user: ShellUser; initialCollapsed: boolean; children: ReactNode }) {
   const [collapsed, setCollapsed] = useState(initialCollapsed);
   const [drawer, setDrawer] = useState(false);
+  const [phone, setPhone] = useState(false);
   const pathname = usePathname();
   useEffect(() => setDrawer(false), [pathname]);
   useEffect(() => {
+    const query = window.matchMedia(PHONE);
+    const sync = () => setPhone(query.matches);
+    sync();
+    query.addEventListener('change', sync);
+    return () => query.removeEventListener('change', sync);
+  }, []);
+  /* The open drawer closes on Escape and on a tap beside it (prototype app.js); that tap only closes it, it does not also press what lies under the dimmed page. */
+  useEffect(() => {
     if (!drawer) return;
     const onKey = (event: KeyboardEvent) => event.key === 'Escape' && setDrawer(false);
+    const swallow = (event: MouseEvent) => {
+      event.preventDefault();
+      event.stopPropagation();
+    };
+    const onPointer = (event: PointerEvent) => {
+      const target = event.target as Element;
+      if (target.closest('#sidebar') || target.closest('.mobile-menu')) return;
+      document.addEventListener('click', swallow, { capture: true, once: true });
+      setTimeout(() => document.removeEventListener('click', swallow, { capture: true }), 500);
+      setDrawer(false);
+    };
     window.addEventListener('keydown', onKey);
-    return () => window.removeEventListener('keydown', onKey);
+    document.addEventListener('pointerdown', onPointer);
+    return () => {
+      window.removeEventListener('keydown', onKey);
+      document.removeEventListener('pointerdown', onPointer);
+    };
   }, [drawer]);
   const toggleCollapsed = () => {
     setCollapsed((value) => {
@@ -60,90 +90,72 @@ export function AppShell({ user, initialCollapsed, children }: { user: ShellUser
   return (
     <ShellContext.Provider value={{ collapsed, toggleCollapsed, openDrawer: () => setDrawer(true) }}>
       <HistoryProvider>
-      <div className="min-h-dvh" style={{ ['--sidebar' as string]: collapsed ? '68px' : '224px' }}>
-        <Sidebar user={user} collapsed={collapsed} className="fixed inset-y-0 left-0 z-30 hidden w-[var(--sidebar)] md:flex" />
-        {drawer && (
-          <div className="fixed inset-0 z-50 md:hidden">
-            <button type="button" aria-label="close" className="absolute inset-0 bg-ink/30" onClick={() => setDrawer(false)} tabIndex={-1} />
-            <Sidebar user={user} collapsed={false} className="relative flex h-full w-[264px] max-w-[85vw] shadow-2xl" onClose={() => setDrawer(false)} />
-          </div>
-        )}
-        <div className="min-w-0 md:pl-[var(--sidebar)]">{children}</div>
-      </div>
+        <Sidebar user={user} collapsed={collapsed} open={drawer} hidden={phone && !drawer} onClose={() => setDrawer(false)} />
+        <div className={`app-main${collapsed ? ' sidebar-collapsed' : ''}`}>{children}</div>
       </HistoryProvider>
     </ShellContext.Provider>
   );
 }
 
-function NavItem({ href, icon, label, active, collapsed, badge }: { href: string; icon: IconName; label: string; active: boolean; collapsed: boolean; badge?: number }) {
+function NavItem({ href, icon, label, active, count }: { href: string; icon: IconName; label: string; active: boolean; count?: number }) {
   return (
-    <Link
-      href={href}
-      title={collapsed ? label : undefined}
-      aria-current={active ? 'page' : undefined}
-      className={`group flex h-10 items-center gap-3 rounded-lg px-3 text-[13px] font-medium transition ${
-        active ? 'bg-soft text-blue' : 'text-[#3b4361] hover:bg-wash hover:text-ink'
-      } ${collapsed ? 'justify-center px-0' : ''}`}
-    >
-      <Icon name={icon} className="size-[18px] flex-none" />
-      {!collapsed && <span className="min-w-0 flex-1 truncate">{label}</span>}
-      {!collapsed && badge !== undefined && <span className="font-mono text-[10px] text-muted">{badge}</span>}
-      {collapsed && <span className="sr-only">{label}</span>}
+    <Link href={href} className={active ? 'active' : undefined} aria-current={active ? 'page' : undefined} aria-label={label} title={label}>
+      <Icon name={icon} className="" />
+      <span>{label}</span>
+      {count !== undefined && <span className="nav-count">{count}</span>}
     </Link>
   );
 }
 
-function Sidebar({ user, collapsed, className, onClose }: { user: ShellUser; collapsed: boolean; className: string; onClose?: () => void }) {
-  const { t, locale } = useI18n();
+function Sidebar({ user, collapsed, open, hidden, onClose }: { user: ShellUser; collapsed: boolean; open: boolean; hidden: boolean; onClose: () => void }) {
+  const { t } = useI18n();
   const pathname = usePathname();
+  const nav = t.common.nav;
   return (
-    <aside className={`${className} flex-col border-r border-line bg-[#fbfaff]`} aria-label={t.common.nav.main}>
-      <div className={`flex h-16 flex-none items-center gap-2 px-4 ${collapsed ? 'justify-center px-0' : ''}`}>
-        <Link href="/dashboard" className="flex items-center gap-2 font-extrabold tracking-tight">
-          <span className="inline-flex size-8 items-center justify-center rounded-lg bg-blue text-white">
-            <Icon name="ree" className="size-5" />
-          </span>
-          {!collapsed && <span className="text-[17px]">{t.common.brand}</span>}
-        </Link>
-        {onClose && (
-          <button type="button" className="icon-btn ml-auto" onClick={onClose} aria-label={t.common.nav.closeMenu}>
-            <Icon name="close" />
-          </button>
-        )}
-      </div>
-      <nav className={`flex flex-col gap-1 px-3 ${collapsed ? 'px-2' : ''}`}>
-        <NavItem href="/dashboard" icon="dashboard" label={t.common.nav.dashboard} active={pathname === '/dashboard' || pathname.startsWith('/workspace/')} collapsed={collapsed} />
-        <NavItem href="/explore" icon="compass" label={t.discover.nav} active={pathname === '/explore' || pathname.startsWith('/r/')} collapsed={collapsed} />
-        <NavItem href="/rees" icon="ree" label={t.common.nav.rees} active={pathname.startsWith('/rees') || pathname === '/videos'} collapsed={collapsed} badge={user.reeCount} />
+    <aside
+      id="sidebar"
+      className={`sidebar sidebar-chat${collapsed ? ' is-collapsed' : ''}${open ? ' mobile-open' : ''}`}
+      aria-label={nav.main}
+      inert={hidden}
+    >
+      <Link href="/" className="wordmark" aria-label={nav.home}>
+        <BrandMark />
+        <span>{t.common.brand}</span>
+      </Link>
+      <button type="button" className="icon-btn sidebar-close" onClick={onClose} aria-label={nav.closeMenu} title={nav.closeMenu}>
+        <Icon name="close" className="" />
+      </button>
+      <nav className="nav chat-product-nav" aria-label={nav.workspace}>
+        <NavItem href="/dashboard" icon="layers" label={nav.dashboard} active={pathname === '/dashboard' || pathname.startsWith('/workspace/')} />
+        <NavItem href="/explore" icon="compass" label={t.discover.nav} active={pathname === '/explore' || pathname.startsWith('/r/')} />
+        <NavItem href="/rees" icon="ree" label={nav.rees} active={pathname.startsWith('/rees') || pathname === '/videos'} count={user.reeCount} />
       </nav>
-      <SidebarConversations history={user.history} collapsed={collapsed} />
-      <div className={`flex flex-col gap-2 border-t border-line p-3 ${collapsed ? 'items-center px-2' : ''}`}>
-        <PlanMeter user={user} collapsed={collapsed} />
-        <div className={`flex items-center gap-2 ${collapsed ? 'flex-col' : ''}`}>
+      <SidebarConversations history={user.history} />
+      <div className="chat-sidebar-footer sidebar-account-footer">
+        <PlanMeter user={user} />
+        <div className="user-row">
           <Link
             href={user.unreadNotices > 0 ? '/settings?tab=notices' : '/settings?tab=account'}
-            className="flex min-w-0 flex-1 items-center gap-2 rounded-lg p-1 hover:bg-wash"
+            className="user-settings-link"
             aria-label={user.unreadNotices > 0 ? undefined : t.common.account.openSettings}
             title={user.unreadNotices > 0 ? fill(t.notices.unreadCount, { n: user.unreadNotices }) : t.common.account.settings}
           >
-            <span className="relative inline-flex flex-none">
-              <UserAvatar avatar={user.avatar} name={user.name} />
+            <span className="avatar">
+              <UserAvatar avatar={user.avatar} name={user.name} className="size-full" />
               {user.unreadNotices > 0 && (
-                <span className="absolute -top-0.5 -right-0.5 size-2.5 rounded-full border-2 border-[#fbfaff] bg-red">
+                <span className="notice-dot">
                   <span className="sr-only">{fill(t.notices.unreadCount, { n: user.unreadNotices })}</span>
                 </span>
               )}
             </span>
-            {!collapsed && (
-              <span className="min-w-0">
-                <span className="block truncate text-[13px] font-semibold">{user.name}</span>
-                <span className="block truncate text-[11px] text-muted">{t.common.account.subtitle}</span>
-              </span>
-            )}
+            <div className="grow">
+              <strong>{user.name}</strong>
+              <p>{t.common.account.subtitle}</p>
+            </div>
           </Link>
-          <form action="/api/auth/logout" method="post">
+          <form action="/api/auth/logout" method="post" className="contents">
             <button type="submit" className="icon-btn" aria-label={t.common.account.signOut} title={t.common.account.signOut}>
-              <Icon name="logout" />
+              <Icon name="logout" className="" />
             </button>
           </form>
         </div>
@@ -154,11 +166,11 @@ function Sidebar({ user, collapsed, className, onClose }: { user: ShellUser; col
 
 /**
  * The sidebar's usage card (prototype usage.js `sidebar`): with a Plan, this
- * period's credits used out of 100,000 and a meter that turns red from 90%;
- * without one, the balance and the way to subscribe. Folded, an icon whose
- * title carries the same summary.
+ * period's credits used out of 100,000 and a meter that turns amber from
+ * 90%; without one, the balance. Folded, only its icon shows, and the title
+ * carries the same summary.
  */
-function PlanMeter({ user, collapsed }: { user: ShellUser; collapsed: boolean }) {
+function PlanMeter({ user }: { user: ShellUser }) {
   const { t, locale } = useI18n();
   const a = t.common.account;
   const plan = user.plan;
@@ -168,69 +180,57 @@ function PlanMeter({ user, collapsed }: { user: ShellUser; collapsed: boolean })
   const summary = plan.active
     ? fill(a.summaryPlan, { used: n(plan.used), allowance: n(plan.allowance), remaining: n(plan.remaining) })
     : fill(a.summaryFree, { total: n(user.balance) });
-  if (collapsed) {
-    return (
-      <Link
-        href="/settings?tab=billing"
-        title={`${membership} · ${status}\n${summary}`}
-        aria-label={`${membership} · ${status} · ${summary}`}
-        className={`inline-flex size-10 items-center justify-center rounded-lg border ${plan.warn ? 'border-[#f1d4d4] bg-[#fff3f3] text-red' : 'border-line bg-white text-blue'} hover:border-[#c4cce0]`}
-      >
-        <Icon name="sparkle" className="size-[18px]" />
-      </Link>
-    );
-  }
   return (
     <Link
       href="/settings?tab=billing"
+      className={`sidebar-usage ${plan.active ? 'is-member' : 'is-free'}${plan.warn ? ' is-low' : ''}`}
       aria-label={`${membership} · ${status} · ${summary}`}
-      className={`block rounded-xl border bg-white px-3 py-2.5 hover:border-[#c4cce0] ${plan.warn ? 'border-[#f1d4d4]' : 'border-line'}`}
+      title={`${membership} · ${status}\n${summary}`}
     >
-      <span className="flex items-center justify-between gap-2 text-[11px] font-semibold">
-        <span className={plan.active ? 'text-blue' : 'text-muted'}>{membership}</span>
-        <span className={plan.active ? (plan.cancelAtPeriodEnd ? 'text-orange' : 'text-green') : 'text-blue'}>{status}</span>
+      <span className="sidebar-usage-icon">
+        <Icon name="sparkle" className="" />
       </span>
+      <div className="sidebar-usage-head">
+        <strong>{membership}</strong>
+        <span className={plan.active && plan.cancelAtPeriodEnd ? 'ending' : undefined}>{status}</span>
+      </div>
       {plan.active ? (
         <>
-          <span className="mt-1.5 flex items-baseline justify-between gap-2 text-[10px] text-muted">
-            {a.usedOfAllowance}
-            <small className="text-[10px]">{t.common.units.credits}</small>
-          </span>
-          <span className="mt-0.5 flex items-baseline gap-1">
-            <small className="text-[10px] text-muted">{a.used}</small>
-            <strong className={`font-mono text-[16px] ${plan.warn ? 'text-red' : 'text-ink'}`}>{n(plan.used)}</strong>
-            <span className="font-mono text-[10px] text-muted">/ {n(plan.allowance)}</span>
-          </span>
-          <span
+          <div className="sr-only">
+            {a.usedOfAllowance} {t.common.units.credits}
+          </div>
+          <div className="sidebar-usage-amount">
+            <small>{a.used}</small>
+            <strong>{n(plan.used)}</strong>
+            <span>/ {n(plan.allowance)}</span>
+          </div>
+          <div
+            className="sidebar-usage-meter"
             role="meter"
             aria-label={a.meter}
             aria-valuemin={0}
             aria-valuemax={plan.allowance}
             aria-valuenow={plan.used}
             aria-valuetext={summary}
-            className="mt-1.5 block h-1.5 overflow-hidden rounded-full bg-[#edf0f6]"
           >
-            <i className={`block h-full rounded-full ${plan.warn ? 'bg-red' : 'bg-blue'}`} style={{ width: `${plan.percent}%` }} />
-          </span>
-          <span className="mt-1.5 flex items-center justify-between text-[10px] text-muted">
-            {fill(a.remaining, { n: n(plan.remaining) })}
-            <Icon name="arrow" className="size-3" />
-          </span>
+            <i style={{ width: `${plan.percent}%` }} />
+          </div>
+          <div className="sidebar-usage-foot">
+            <span>{fill(a.remaining, { n: n(plan.remaining) })}</span>
+          </div>
         </>
       ) : (
         <>
-          <span className="mt-1.5 flex items-baseline justify-between gap-2 text-[10px] text-muted">
-            {a.balance}
-            <small className="text-[10px]">{t.common.units.credits}</small>
-          </span>
-          <span className="mt-0.5 flex items-baseline gap-1">
-            <small className="text-[10px] text-muted">{a.balanceShort}</small>
-            <strong className="font-mono text-[17px] text-ink">{n(user.balance)}</strong>
-          </span>
-          <span className="flex items-center justify-between text-[10px] text-muted">
-            {a.noAllowance}
-            <Icon name="arrow" className="size-3" />
-          </span>
+          <div className="sr-only">
+            {a.balance} {t.common.units.credits}
+          </div>
+          <div className="sidebar-usage-amount">
+            <small>{a.balanceShort}</small>
+            <strong>{n(user.balance)}</strong>
+          </div>
+          <div className="sidebar-usage-foot">
+            <span>{a.noAllowance}</span>
+          </div>
         </>
       )}
     </Link>

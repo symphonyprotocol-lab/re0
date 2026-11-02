@@ -46,13 +46,20 @@ export function ReeAvatar({
   );
 }
 
+/** First and last word's initials, else the first two letters (prototype profile.js `avatarInitials`). */
+export function avatarInitials(name: string): string {
+  const parts = name.trim().split(/\s+/).filter(Boolean);
+  const [first = 'R', ...rest] = parts;
+  const letters = rest.length ? `${first[0]}${rest[rest.length - 1]![0]}` : Array.from(first).slice(0, 2).join('');
+  return letters.toUpperCase();
+}
+
 export function UserAvatar({ avatar, name, className = 'size-8' }: { avatar?: string | null; name: string; className?: string }) {
   const src = imageUrl(avatar);
-  const initials = Array.from(name.trim()).slice(0, 2).join('').toUpperCase() || 'R';
   return (
-    <span className={`inline-flex flex-none items-center justify-center overflow-hidden rounded-full bg-soft text-[11px] font-bold text-blue ${className}`} aria-hidden="true">
+    <span className={`inline-flex flex-none items-center justify-center overflow-hidden rounded-full bg-[#e8eff9] text-[11px] font-[550] text-[#6e7a9b] ${className}`} aria-hidden="true">
       {/* eslint-disable-next-line @next/next/no-img-element */}
-      {src ? <img src={src} alt="" className="size-full object-cover" referrerPolicy="no-referrer" /> : initials}
+      {src ? <img src={src} alt="" className="size-full object-cover" referrerPolicy="no-referrer" /> : avatarInitials(name)}
     </span>
   );
 }

@@ -19,8 +19,9 @@
 }
 
 :root {
-  --sidebar: 224px;
-  --topbar: 64px;
+  /* The workspace bar's height (prototype navigation.css `--workspace-bar-height`); components/shell/shell.css owns the frame. */
+  --topbar: 74px;
+  font-synthesis: none;
 }
 
 html,
@@ -33,47 +34,80 @@ body {
 
 body {
   overflow-x: hidden;
+  line-height: 1.6;
 }
 
+@media (max-width: 760px) {
+  :root {
+    --topbar: 62px;
+  }
+}
+
+/* The prototype's base type (styles.css): body copy at 1.6, headings at 1.3. A Tailwind `leading-*` still wins. */
+@layer base {
+  h1,
+  h2,
+  h3 {
+    line-height: 1.3;
+  }
+  ::selection {
+    background: #cbe4ff;
+  }
+  :focus-visible {
+    outline: 3px solid #77b7fa;
+    outline-offset: 4px;
+  }
+  :is(input, textarea):focus-visible {
+    outline: 0;
+  }
+}
+
+/*
+ * The prototype's shared controls (styles.css `.btn`, `.icon-btn`, `.card`,
+ * `.field`, `.tag`). Sizes are in px on purpose: the root font size is 14px
+ * here, so a rem-based utility (`size-8`, `p-4`, `rounded-lg`) comes out at
+ * 0.875x its usual px value.
+ */
 @layer components {
   .btn {
-    @apply inline-flex min-h-10 items-center justify-center gap-2 rounded-lg border border-transparent bg-blue px-4 py-2 text-[13px] font-semibold whitespace-nowrap text-white transition hover:bg-blue-dark disabled:cursor-not-allowed disabled:opacity-50;
+    @apply inline-flex min-h-[40px] items-center justify-center gap-[8px] rounded-[8px] border border-transparent bg-blue px-[16px] py-[9px] text-[13px] leading-[1.4] font-[550] whitespace-nowrap text-white transition not-disabled:hover:-translate-y-0.5 not-disabled:active:translate-y-0 not-disabled:active:scale-[0.97] not-disabled:hover:bg-blue-dark not-disabled:hover:shadow-[0_5px_12px_#127ee31a] not-disabled:active:shadow-none disabled:cursor-not-allowed disabled:opacity-45;
   }
   .btn-secondary {
-    @apply inline-flex min-h-10 items-center justify-center gap-2 rounded-lg border border-line bg-white px-4 py-2 text-[13px] font-semibold whitespace-nowrap text-ink transition hover:border-[#c4cce0] hover:bg-wash disabled:cursor-not-allowed disabled:opacity-50;
+    @apply inline-flex min-h-[40px] items-center justify-center gap-[8px] rounded-[8px] border border-line bg-white px-[16px] py-[9px] text-[13px] leading-[1.4] font-[550] whitespace-nowrap text-ink transition not-disabled:hover:-translate-y-0.5 not-disabled:active:translate-y-0 not-disabled:active:scale-[0.97] not-disabled:hover:border-[#c4cce0] not-disabled:hover:bg-wash disabled:cursor-not-allowed disabled:opacity-45;
   }
+  /* Ghost buttons here are the prototype's `.btn.ghost.sm`. */
   .btn-ghost {
-    @apply inline-flex min-h-8 items-center justify-center gap-1.5 rounded-lg px-2.5 py-1.5 text-[12px] font-semibold whitespace-nowrap text-muted transition hover:bg-soft hover:text-blue disabled:cursor-not-allowed disabled:opacity-50;
+    @apply inline-flex min-h-[32px] items-center justify-center gap-[8px] rounded-[8px] border border-transparent px-[10px] py-[6px] text-[12px] leading-[1.4] font-[550] whitespace-nowrap text-muted transition not-disabled:hover:-translate-y-0.5 not-disabled:active:translate-y-0 not-disabled:active:scale-[0.97] not-disabled:hover:bg-soft not-disabled:hover:text-blue disabled:cursor-not-allowed disabled:opacity-45;
   }
   .btn-danger {
-    @apply inline-flex min-h-10 items-center justify-center gap-2 rounded-lg border border-[#f1d4d4] bg-[#fff3f3] px-4 py-2 text-[13px] font-semibold text-red transition hover:bg-[#ffe6e6];
+    @apply inline-flex min-h-[40px] items-center justify-center gap-[8px] rounded-[8px] border border-[#f1d4d4] bg-[#fff3f3] px-[16px] py-[9px] text-[13px] leading-[1.4] font-[550] whitespace-nowrap text-red transition not-disabled:hover:-translate-y-0.5 not-disabled:active:translate-y-0 not-disabled:active:scale-[0.97] not-disabled:hover:bg-[#ffe6e6] disabled:cursor-not-allowed disabled:opacity-45;
   }
   .btn-sm {
-    @apply min-h-8 px-2.5 py-1.5 text-[12px];
+    @apply min-h-[32px] px-[10px] py-[6px] text-[12px];
   }
   .icon-btn {
-    @apply inline-flex size-8 flex-none items-center justify-center rounded-lg text-muted transition hover:bg-soft hover:text-blue disabled:opacity-40;
+    @apply inline-flex size-[32px] flex-none items-center justify-center rounded-[7px] text-muted transition hover:bg-soft hover:text-blue active:scale-[0.92] disabled:opacity-40;
   }
   .card {
-    @apply rounded-xl border border-line bg-white;
+    @apply rounded-[12px] border border-line bg-white;
   }
   .field-label {
-    @apply mb-2 block text-[12px] font-semibold text-ink;
+    @apply mb-[7px] block text-[12px] font-medium text-[#5d6984];
   }
   .input {
-    @apply w-full rounded-lg border border-line bg-white px-3 py-2.5 text-[13px] text-ink outline-none transition placeholder:text-[#a3a9bb] focus:border-blue focus:ring-3 focus:ring-blue/10 disabled:bg-wash;
+    @apply w-full rounded-[7px] border border-[#dfe4ef] bg-white px-[12px] py-[10px] text-[13px] leading-[1.7] text-ink outline-none transition placeholder:text-[#afb4c3] focus:border-blue focus:shadow-[0_0_0_3px_#127ee318] disabled:bg-wash;
   }
   .hint {
     @apply mt-1.5 block text-[11px] leading-relaxed text-muted;
   }
   .eyebrow {
-    @apply font-mono text-[10px] tracking-[0.18em] text-muted uppercase;
+    @apply font-mono text-[10px] font-medium tracking-[0.15em] text-muted uppercase;
   }
   .tag {
-    @apply inline-flex items-center gap-1 rounded-full border border-line bg-wash px-2 py-0.5 text-[11px] font-medium text-muted;
+    @apply inline-flex items-center gap-[5px] rounded-[5px] border border-transparent bg-[#f4f5fa] px-[7px] py-[3px] text-[10px] leading-[1.5] text-[#636b84];
   }
   .text-link {
-    @apply inline-flex items-center gap-1 font-semibold text-blue hover:underline;
+    @apply inline-flex items-center gap-[5px] text-[12px] text-blue hover:underline;
   }
 }
 
