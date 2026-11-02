@@ -108,7 +108,7 @@ export const en: Shape<typeof zh> = {
     settings: 'Profile',
     signOut: 'Sign out',
   },
-  language: { label: 'Interface language', switchTo: '简体中文', short: '中 / EN' },
+  language: { label: 'Interface language', switchTo: '简体中文', short: 'EN / 中' },
   actions: {
     save: 'Save',
     cancel: 'Cancel',
