@@ -7,7 +7,7 @@ import type { IntroProps } from '@/lib/domain/video';
 import { PALETTES, mix } from '@/video/theme';
 import { useI18n } from '@/i18n/client';
 import { fill } from '@/i18n/format';
-import { Icon } from '@/components/ui/icons';
+import { Icon, type IconName } from '@/components/ui/icons';
 import { Modal } from '@/components/ui/modal';
 import { ReeAvatar } from '@/components/ui/ree-avatar';
 
@@ -115,7 +115,8 @@ export function IntroDialog({ open, onClose, video, name, href, linkLabel }: { o
 
 /**
  * A round play button over a cover; it opens the dialog. Lives beside the cover's link, never inside it.
- * `label` with a full `className` replaces the pill (the home page's "15s", prototype `home-dot-card`).
+ * `label` with a full `className` replaces the pill (the home page's "15s", prototype `home-dot-card`;
+ * explore's 含视频介绍 with the `film` icon).
  */
 export function PlayIntroButton({
   video,
@@ -124,6 +125,7 @@ export function PlayIntroButton({
   linkLabel,
   className = '',
   label,
+  icon = 'play',
 }: {
   video: IntroProps;
   name: string;
@@ -131,6 +133,7 @@ export function PlayIntroButton({
   linkLabel: string;
   className?: string;
   label?: string;
+  icon?: IconName;
 }) {
   const { t } = useI18n();
   const [open, setOpen] = useState(false);
@@ -146,7 +149,7 @@ export function PlayIntroButton({
             : `inline-flex items-center gap-1.5 rounded-full bg-white/95 px-3 py-1.5 text-[11px] font-semibold text-ink shadow-md ring-1 ring-black/5 transition hover:bg-blue hover:text-white ${className}`
         }
       >
-        <Icon name="play" className="size-3.5" />
+        <Icon name={icon} className="size-3.5" />
         {label ?? t.video.card.watch}
       </button>
       {open && <IntroDialog open={open} onClose={() => setOpen(false)} video={video} name={name} href={href} linkLabel={linkLabel} />}

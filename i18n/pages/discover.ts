@@ -43,6 +43,7 @@ export const zh = {
     pageOf: '第 {page} / {pages} 页',
     pagination: 'Ree 分页',
     topPagination: '列表顶部分页',
+    list: 'Ree 列表',
   },
   card: {
     sources: '{n} 个知识来源',
@@ -53,6 +54,7 @@ export const zh = {
     noRating: '暂无评价',
     activity: 'Ree 表现',
     noVideo: '暂无视频介绍',
+    view: '查看详情：{name}',
   },
   public: {
     back: '返回发现 Ree',
@@ -152,6 +154,7 @@ export const en: Shape<typeof zh> = {
     pageOf: 'Page {page} / {pages}',
     pagination: 'Ree pagination',
     topPagination: 'Top pagination',
+    list: 'Ree list',
   },
   card: {
     sources: '{n} knowledge sources',
@@ -162,6 +165,7 @@ export const en: Shape<typeof zh> = {
     noRating: 'No ratings yet',
     activity: 'Ree activity',
     noVideo: 'No video introduction yet',
+    view: 'View details: {name}',
   },
   public: {
     back: 'Back to discover',
