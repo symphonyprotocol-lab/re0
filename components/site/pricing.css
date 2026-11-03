@@ -1,0 +1,453 @@
+/*
+ * `/pricing`, ported from the prototype (suite.css `.pricing-*` /
+ * `.purchase-*`, styles.css tables and range) with its breakpoints and
+ * cascade order, every rule scoped to `.pricing-page`. The FAQ uses the home
+ * page's `.home-faq` rules and the shared helpers (.btn, .eyebrow, .tag, .card)
+ * come from site.css.
+ */
+
+.pricing-page input[type="range"] {
+  accent-color: var(--color-blue);
+  width: 100%;
+  margin: 2px;
+}
+.pricing-page .blue {
+  color: var(--color-blue);
+}
+.pricing-page .btn.full {
+  width: 100%;
+}
+.pricing-page .table-wrap {
+  overflow-x: auto;
+}
+.pricing-page table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 10px;
+  white-space: nowrap;
+}
+.pricing-page th {
+  text-align: left;
+  font-weight: 500;
+  color: #99a3b8;
+  font-size: 9px;
+  background: var(--color-wash);
+  padding: 12px 20px;
+  border-block: 1px solid var(--color-line);
+}
+.pricing-page td {
+  padding: 15px 20px;
+  border-bottom: 1px solid #edf0f6;
+  color: #6c7a97;
+}
+.pricing-page tr:last-child td {
+  border-bottom: 0px;
+}
+@media (max-width: 560px) {
+  .pricing-page th,
+  .pricing-page td {
+    padding: 12px 15px;
+  }
+}
+.pricing-page .table-wrap table {
+  font-size: 12px;
+}
+.pricing-page .table-wrap th {
+  font-size: 11px;
+}
+.pricing-page .table-wrap td {
+  color: #75849f;
+}
+.pricing-page {
+  padding-top: 58px;
+  padding-bottom: 70px;
+}
+.pricing-page .pricing-intro {
+  text-align: center;
+  max-width: 750px;
+  margin: 0px auto 43px;
+}
+.pricing-page .pricing-intro > .eyebrow {
+  font-size: 9px;
+  color: #91a1ba;
+}
+.pricing-page .pricing-intro h1 {
+  font-size: 43px;
+  letter-spacing: -1.2px;
+  line-height: 1.5;
+  margin: 16px 0px;
+}
+.pricing-page .pricing-intro h1 em {
+  font-style: normal;
+  color: var(--color-blue);
+  margin-left: 7px;
+}
+.pricing-page .pricing-intro > p {
+  font-size: 13px;
+  line-height: 1.9;
+  color: #8292ab;
+}
+.pricing-page .price-rate {
+  display: inline-block;
+  font-size: 9px;
+  letter-spacing: 0.08em;
+  border: 1px solid #e4eaf4;
+  background: #f9fbfe;
+  padding: 7px 13px;
+  border-radius: 30px;
+  color: #8da1c0;
+  margin-top: 22px;
+}
+.pricing-page .purchase-plans {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0px, 1fr));
+  gap: 21px;
+}
+.pricing-page .purchase-plan {
+  position: relative;
+  border: 1px solid #dfe5f0;
+  border-radius: 12px;
+  padding: 31px 28px;
+  background: #ffffff;
+}
+.pricing-page .purchase-plan.recommended {
+  border: 1px solid #8bb9ee;
+  background: #f8fbff;
+  box-shadow: rgba(237, 244, 255, 0.4) 0px 0px 0px 4px;
+}
+.pricing-page .purchase-plan .plan-ribbon {
+  position: absolute;
+  top: -12px;
+  left: 24px;
+  background: var(--color-blue);
+  border: 3px solid #ffffff;
+  border-radius: 20px;
+  color: #ffffff;
+  font-size: 8px;
+  letter-spacing: 0.05em;
+  padding: 3px 10px;
+}
+.pricing-page .purchase-plan > .eyebrow {
+  font-size: 8px;
+  letter-spacing: 0.1em;
+  color: #97a7c1;
+}
+.pricing-page .purchase-plan h2 {
+  font-size: 25px;
+  margin-top: 15px;
+  font-weight: 550;
+}
+.pricing-page .purchase-plan .purchase-amount {
+  font: 43px var(--font-mono);
+  letter-spacing: -2px;
+  margin: 22px 0px 9px;
+  color: var(--color-ink);
+}
+.pricing-page .purchase-amount small {
+  font: 12px var(--font-sans);
+  letter-spacing: 0px;
+  color: #9aa8bd;
+}
+.pricing-page .plan-grant {
+  font-size: 21px;
+  color: #4779ba;
+  letter-spacing: -0.6px;
+}
+.pricing-page .plan-grant span {
+  font-size: 10px;
+  color: #97a6bc;
+  letter-spacing: 0px;
+}
+.pricing-page .purchase-plan > p:not(.purchase-amount):not(.plan-grant) {
+  font-size: 11px;
+  color: #8d9bb1;
+  line-height: 1.9;
+  margin-top: 9px;
+  min-height: 39px;
+}
+.pricing-page .purchase-plan .btn {
+  margin-top: 26px;
+  min-height: 44px;
+  font-size: 12px;
+}
+.pricing-page .purchase-plan ul {
+  list-style: none;
+  padding: 21px 0px 0px;
+  margin: 23px 0px 0px;
+  border-top: 1px solid #e4eaf3;
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+.pricing-page .purchase-plan li {
+  display: flex;
+  align-items: flex-start;
+  gap: 7px;
+  font-size: 11px;
+  color: #8697b1;
+}
+.pricing-page .purchase-plan li svg {
+  height: 13px;
+  width: 13px;
+  flex: 0 0 auto;
+  color: #82a7d7;
+}
+.pricing-page .pricing-costs {
+  margin-top: 48px;
+  overflow: hidden;
+}
+.pricing-page .pricing-costs > .between {
+  padding: 28px;
+}
+.pricing-page .pricing-costs h2 {
+  font-size: 20px;
+  font-weight: 550;
+  margin-top: 10px;
+}
+.pricing-page .pricing-costs .eyebrow {
+  font-size: 8px;
+}
+.pricing-page .pricing-costs table {
+  white-space: normal;
+}
+.pricing-page .pricing-costs td:first-child {
+  width: 23%;
+  color: #526887;
+}
+.pricing-page .pricing-costs td:nth-child(2) {
+  width: 29%;
+  font-size: 11px;
+  color: #6082ae;
+}
+.pricing-page .pricing-costs td:last-child {
+  font-size: 11px;
+  color: #92a0b6;
+}
+.pricing-page .pricing-estimator {
+  display: grid;
+  grid-template-columns: 1.25fr 1fr;
+  gap: 60px;
+  align-items: center;
+  padding: 30px;
+  margin-top: 24px;
+  background: #fbfcff;
+}
+.pricing-page .pricing-estimator h2 {
+  font-size: 19px;
+  font-weight: 550;
+}
+.pricing-page .pricing-estimator > div > p {
+  font-size: 11px;
+  color: #8e9fb8;
+  margin-top: 10px;
+  line-height: 1.9;
+}
+.pricing-page .pricing-estimator label {
+  display: flex;
+  justify-content: space-between;
+  color: #8b9bb4;
+  font-size: 11px;
+  margin-bottom: 15px;
+}
+.pricing-page .pricing-estimator label strong {
+  font: 12px var(--font-mono);
+  color: #6c8fbd;
+}
+.pricing-page .pricing-estimator > div:last-child > p {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+.pricing-page .pricing-estimator .mono {
+  font-size: 24px;
+  letter-spacing: -1px;
+  color: #376aa6;
+}
+.pricing-page .pricing-estimator > div:last-child > p span {
+  margin-left: auto;
+}
+.pricing-page .pricing-faq {
+  padding-top: 65px;
+}
+@media (max-width: 1200px) {
+  .pricing-page .purchase-plan {
+    padding: 30px 23px;
+  }
+  .pricing-page .purchase-plan > .eyebrow {
+    font-size: 7px;
+  }
+}
+@media (max-width: 1020px) {
+  .pricing-page .pricing-intro h1 {
+    font-size: 36px;
+  }
+  .pricing-page .purchase-plans {
+    gap: 14px;
+  }
+  .pricing-page .purchase-plan {
+    padding-inline: 20px;
+  }
+  .pricing-page .purchase-plan .purchase-amount {
+    font-size: 38px;
+  }
+  .pricing-page .plan-grant {
+    font-size: 18px;
+  }
+  .pricing-page .purchase-plan li {
+    font-size: 10px;
+  }
+  .pricing-page .pricing-estimator {
+    gap: 30px;
+  }
+  .pricing-page .pricing-estimator h2 {
+    font-size: 17px;
+  }
+}
+@media (max-width: 760px) {
+  .pricing-page {
+    padding-top: 38px;
+    padding-bottom: 47px;
+  }
+  .pricing-page .pricing-intro h1 {
+    font-size: 32px;
+  }
+  .pricing-page .pricing-intro h1 em {
+    display: block;
+    margin: 0px;
+  }
+  .pricing-page .pricing-intro > p {
+    font-size: 12px;
+  }
+  .pricing-page .purchase-plans {
+    grid-template-columns: 1fr;
+    gap: 27px;
+  }
+  .pricing-page .purchase-plan {
+    padding: 28px;
+    max-width: 500px;
+    width: 100%;
+    justify-self: center;
+  }
+  .pricing-page .purchase-plan > .eyebrow {
+    font-size: 8px;
+  }
+  .pricing-page .purchase-plan .plan-ribbon {
+    font-size: 8px;
+  }
+  .pricing-page .purchase-plan h2 {
+    font-size: 26px;
+  }
+  .pricing-page .purchase-plan .purchase-amount {
+    font-size: 42px;
+    margin-top: 18px;
+  }
+  .pricing-page .purchase-plan .plan-grant {
+    font-size: 23px;
+  }
+  .pricing-page .purchase-plan > p:not(.purchase-amount):not(.plan-grant) {
+    font-size: 12px;
+    min-height: 0px;
+  }
+  .pricing-page .purchase-plan li {
+    font-size: 12px;
+  }
+  .pricing-page .purchase-plan > .btn {
+    margin-top: 23px;
+  }
+  .pricing-page .purchase-plan ul {
+    margin-top: 24px;
+  }
+  .pricing-page .pricing-costs {
+    margin-top: 37px;
+  }
+  .pricing-page .pricing-costs > .between {
+    padding: 24px;
+  }
+  .pricing-page .pricing-costs h2 {
+    font-size: 19px;
+  }
+  .pricing-page .pricing-costs .table-wrap {
+    width: 100%;
+  }
+  .pricing-page .pricing-costs table {
+    min-width: 640px;
+  }
+  .pricing-page .pricing-estimator {
+    grid-template-columns: 1fr;
+    gap: 24px;
+    padding: 25px;
+  }
+  .pricing-page .pricing-estimator h2 {
+    font-size: 18px;
+  }
+  .pricing-page .pricing-estimator > div > p {
+    font-size: 12px;
+  }
+  .pricing-page .pricing-faq {
+    padding-top: 45px;
+  }
+}
+@media (max-width: 520px) {
+  .pricing-page .pricing-intro h1 {
+    font-size: 30px;
+    line-height: 1.6;
+  }
+  .pricing-page .pricing-intro .eyebrow {
+    font-size: 7px;
+  }
+  .pricing-page .pricing-intro > p {
+    font-size: 12px;
+  }
+  .pricing-page .purchase-plan {
+    padding: 29px 25px;
+  }
+  .pricing-page .pricing-costs .eyebrow {
+    font-size: 7px;
+  }
+  .pricing-page .pricing-costs .tag {
+    font-size: 8px;
+  }
+  .pricing-page .pricing-costs > .between {
+    padding: 23px 20px;
+    gap: 10px;
+  }
+  .pricing-page .pricing-costs h2 {
+    font-size: 18px;
+  }
+  .pricing-page .pricing-costs > .between > .tag {
+    max-width: 98px;
+  }
+  .pricing-page .pricing-estimator {
+    padding: 23px 20px;
+    gap: 21px;
+  }
+  .pricing-page .pricing-estimator h2 {
+    font-size: 18px;
+    line-height: 1.7;
+  }
+  .pricing-page .pricing-estimator > div > p {
+    font-size: 11px;
+  }
+  .pricing-page .pricing-faq {
+    padding-top: 39px;
+  }
+}
+
+/* Why the Pack button is off for a signed-in user without a Plan (2.3); the prototype only disables it. */
+.pricing-page .plan-locked {
+  display: block;
+  margin-top: 9px;
+  font-size: 10px;
+  line-height: 1.7;
+  color: #97a6bc;
+}
+.pricing-page .btn:disabled {
+  cursor: not-allowed;
+  opacity: 0.6;
+}
+/* The estimator's share of a Plan cycle, under the total. */
+.pricing-page .estimator-share {
+  display: block;
+  font-size: 10px;
+  color: #97a6bc;
+}
