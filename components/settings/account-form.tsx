@@ -9,7 +9,7 @@ import { fill, formatDateTime } from '@/i18n/format';
 import { Spinner } from '@/components/ui/icons';
 import { useToast } from '@/components/ui/toast';
 import { ProfileAvatar } from '@/components/settings/profile-avatar';
-import { I } from '@/components/settings/icon';
+import { ProviderMark } from '@/components/settings/provider-mark';
 
 interface Account {
   name: string;
@@ -90,7 +90,9 @@ export function AccountForm({ account }: { account: Account }) {
               <h3 id="profile-login-heading">{s.login.title}</h3>
             </div>
             <div className="profile-provider">
-              <span className="profile-provider-icon">{github ? <I name="github" /> : <b className="google-letter">G</b>}</span>
+              <span className="profile-provider-icon">
+                <ProviderMark provider={account.provider} />
+              </span>
               <div>
                 <strong>{fill(s.login.signIn, { provider: providerName })}</strong>
                 <p>
