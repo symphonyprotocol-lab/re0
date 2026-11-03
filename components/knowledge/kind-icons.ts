@@ -11,9 +11,5 @@ export const KIND_ICONS: Record<KnowledgeKind, IconName> = {
   text: 'text',
 };
 
-/**
- * The knowledge pages' icon per kind, as in the prototype (app.js `kinds`): a
- * website is a globe. A single page is a link there; until the icon set has
- * one it shares the globe.
- */
-export const SOURCE_ICONS: Record<KnowledgeKind, IconName> = { document: 'file', audio: 'audio', github: 'github', page: 'globe', site: 'globe', text: 'text' };
+/** The knowledge pages' icon per kind, as in the prototype (app.js `kinds`): a single page is a link, a website a globe. */
+export const SOURCE_ICONS: Record<KnowledgeKind, IconName> = { document: 'file', audio: 'audio', github: 'github', page: 'link', site: 'globe', text: 'text' };
