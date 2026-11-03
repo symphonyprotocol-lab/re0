@@ -2,7 +2,7 @@
  * `/settings` (every tab) and `/settings/identity`, ported from the prototype
  * (rebuild-prototype styles.css `.page`, `.settings-*`, `.billing-*`,
  * `.plan-card`, `.tab-row`, `.domain-row`, `.kyc-step`, form helpers;
- * settings.css; manual-kyc.css; user-roles.css; suite.css `.google-letter`)
+ * settings.css; manual-kyc.css; user-roles.css)
  * with its class names, breakpoints and cascade order, every rule scoped to
  * `.settings-page`. The shared helpers (.btn, .tag, .card, .field, .muted …)
  * are page-scoped copies, so the Tailwind versions elsewhere are untouched.
@@ -993,15 +993,6 @@
   }
 }
 
-/* suite.css */
-.settings-page .google-letter {
-  font-size: 18px;
-  color: #4285f4;
-  font-weight: 600;
-  position: absolute;
-  left: 19px;
-}
-
 /* settings.css */
 .settings-page .settings-layout {
   display: block;
@@ -1173,10 +1164,6 @@
 .settings-page .profile-provider-icon svg {
   width: 20px;
   height: 20px;
-}
-.settings-page .profile-provider-icon .google-letter {
-  font-size: 22px;
-  color: #4285f4;
 }
 .settings-page .profile-provider strong {
   font-size: 12px;
