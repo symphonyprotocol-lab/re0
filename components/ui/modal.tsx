@@ -1,12 +1,14 @@
 'use client';
 
-import { useEffect, useRef, type ReactNode } from 'react';
+import { useEffect, useId, useRef, type ReactNode } from 'react';
 import { useI18n } from '@/i18n/client';
 import { Icon } from '@/components/ui/icons';
+import './modal.css';
 
 /**
  * Dialogs and drawers on the native `<dialog>`: focus moves in and is trapped,
  * Escape closes, focus returns to the opener -- the browser does all three.
+ * Markup and styles are the prototype's `.modal` / `.drawer` (./modal.css).
  */
 export function Modal({
   open,
@@ -28,6 +30,7 @@ export function Modal({
   wide?: boolean;
 }) {
   const ref = useRef<HTMLDialogElement>(null);
+  const titleId = useId();
   const { t } = useI18n();
   useEffect(() => {
     const dialog = ref.current;
@@ -35,13 +38,10 @@ export function Modal({
     if (open && !dialog.open) dialog.showModal();
     if (!open && dialog.open) dialog.close();
   }, [open]);
-  const placement =
-    variant === 'drawer'
-      ? 'm-0 ml-auto h-dvh max-h-dvh w-full max-w-[460px] rounded-none sm:rounded-l-2xl'
-      : `m-auto w-[calc(100%-32px)] ${wide ? 'max-w-[760px]' : 'max-w-[520px]'} max-h-[calc(100dvh-32px)] rounded-2xl`;
   return (
     <dialog
       ref={ref}
+      aria-labelledby={open ? titleId : undefined}
       onClose={onClose}
       onCancel={(event) => {
         event.preventDefault();
@@ -50,22 +50,22 @@ export function Modal({
       onClick={(event) => {
         if (event.target === ref.current) onClose();
       }}
-      className={`${placement} border border-line bg-white p-0 text-ink shadow-2xl backdrop:bg-ink/30 backdrop:backdrop-blur-[2px]`}
+      className={`modal${variant === 'drawer' ? ' drawer' : ''}${wide ? ' wide' : ''}`}
     >
       {open && (
-        <div className="flex max-h-[inherit] flex-col">
-          <header className="flex items-start justify-between gap-4 border-b border-line px-6 py-5">
-            <div className="min-w-0">
-              <h2 className="text-[17px] font-bold">{title}</h2>
-              {subtitle && <p className="mt-1 text-[12px] text-muted">{subtitle}</p>}
+        <>
+          <header className="modal-head">
+            <div>
+              <h2 id={titleId}>{title}</h2>
+              {subtitle && <p>{subtitle}</p>}
             </div>
-            <button type="button" className="icon-btn" onClick={onClose} aria-label={t.common.actions.close}>
-              <Icon name="close" />
+            <button type="button" className="icon-btn" onClick={onClose} aria-label={t.common.actions.close} title={t.common.actions.close}>
+              <Icon name="close" className="" />
             </button>
           </header>
-          <div className="min-h-0 flex-1 overflow-y-auto px-6 py-5">{children}</div>
-          {footer && <footer className="flex flex-wrap justify-end gap-2 border-t border-line px-6 py-4">{footer}</footer>}
-        </div>
+          <div className="modal-body">{children}</div>
+          {footer && <footer className="modal-footer">{footer}</footer>}
+        </>
       )}
     </dialog>
   );

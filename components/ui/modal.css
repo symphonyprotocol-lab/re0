@@ -1,0 +1,167 @@
+/*
+ * Dialogs and drawers, ported from the prototype (styles.css `.overlay-backdrop`,
+ * `.modal`, `.modal-head` / `-body` / `-footer`, `.drawer`, and its 560px
+ * breakpoint) onto the native `<dialog>`. Unlayered, so it wins over the
+ * Tailwind layers and the browser's own dialog styles.
+ */
+
+.modal {
+  width: 520px;
+  max-width: calc(100% - 48px);
+  max-height: calc(100dvh - 48px);
+  margin: auto;
+  padding: 0;
+  overflow-y: auto;
+  border: 1px solid #fff;
+  border-radius: 14px;
+  background: #fff;
+  box-shadow: 0 20px 90px #0911351c;
+  color: var(--color-ink);
+}
+.modal[open] {
+  animation: modal-in 0.23s ease;
+}
+.modal.wide {
+  width: 720px;
+}
+.modal::backdrop {
+  background: #09113538;
+  backdrop-filter: blur(4px);
+  animation: modal-fade-in 0.18s ease;
+}
+.modal svg {
+  display: inline;
+  vertical-align: middle;
+  flex-shrink: 0;
+}
+
+.modal-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 24px 27px 20px;
+  border-bottom: 1px solid var(--color-line);
+}
+.modal-head > div {
+  min-width: 0;
+}
+.modal-head h2 {
+  font-size: 19px;
+  font-weight: 600;
+  line-height: 1.3;
+}
+.modal-head p {
+  margin-top: 6px;
+  font-size: 11px;
+  color: #8c98ad;
+}
+.modal-head > .icon-btn > svg {
+  width: 17px;
+  height: 17px;
+}
+.modal-body {
+  padding: 24px 27px;
+}
+.modal-footer {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 9px;
+  padding: 17px 27px;
+  border-top: 1px solid var(--color-line);
+  background: var(--color-wash);
+}
+.modal :is(.btn, .btn-secondary, .btn-danger) {
+  min-height: 36px;
+}
+.modal-footer :is(.btn, .btn-secondary, .btn-danger, .btn-ghost) {
+  font-size: 12px;
+}
+
+/* The drawer: full height on the right, sliding in. */
+.modal.drawer {
+  display: none;
+  flex-direction: column;
+  width: 460px;
+  max-width: 100%;
+  height: 100dvh;
+  max-height: 100dvh;
+  margin: 0 0 0 auto;
+  overflow: hidden;
+  border-radius: 0;
+}
+.modal.drawer[open] {
+  display: flex;
+  animation: modal-drawer-in 0.25s ease;
+}
+.modal.drawer .modal-body {
+  flex: 1;
+  min-height: 0;
+  overflow: auto;
+}
+.modal.drawer :is(.modal-head, .modal-footer) {
+  flex: none;
+}
+
+@keyframes modal-in {
+  from {
+    opacity: 0;
+    transform: translateY(12px) scale(0.98);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0) scale(1);
+  }
+}
+@keyframes modal-drawer-in {
+  from {
+    transform: translateX(100%);
+  }
+  to {
+    transform: translateX(0);
+  }
+}
+@keyframes modal-fade-in {
+  from {
+    opacity: 0;
+  }
+}
+
+@media (max-width: 560px) {
+  .modal {
+    max-width: calc(100% - 28px);
+    max-height: calc(100dvh - 28px);
+    border-radius: 12px;
+  }
+  .modal-head {
+    padding: 20px;
+  }
+  .modal-head h2 {
+    font-size: 16px;
+  }
+  .modal-body {
+    padding: 20px;
+  }
+  .modal.wide .modal-body {
+    padding: 18px;
+  }
+  .modal-footer {
+    padding: 15px 20px;
+  }
+  .modal-footer :is(.btn, .btn-secondary, .btn-danger) {
+    min-height: 40px;
+  }
+  .modal.drawer {
+    max-width: 100%;
+    max-height: 100dvh;
+    border-radius: 0;
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  .modal[open],
+  .modal.drawer[open],
+  .modal::backdrop {
+    animation: none;
+  }
+}
