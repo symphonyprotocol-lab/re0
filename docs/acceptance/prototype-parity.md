@@ -20,7 +20,7 @@
 | `#/pricing` | `/pricing` | Preview + 本地 | 一致；8.2 第 13、41 行 | 三档价格、费用表、估算滑块与禁用的 Pack 按钮一致。2026-11-03 视觉逐项对齐（`components/site/pricing.css`）：标题与价格卡的字号间距、推荐卡的浅蓝底与描边、费用表改为卡内整表（手机横向滚动）、估算区两栏、FAQ 与首页同款 |
 | `#/checkout?kind=plan` | `/checkout?kind=plan` | Preview + 本地 | 8.2 第 39 行 | 同意文案与真实 Paddle 状态 |
 | `#/checkout?kind=pack` | `/checkout?kind=pack&quantity=` | Preview + 本地 | 一致；8.2 第 13、39 行 | 1–10 份、无 Plan 时锁定、数量写进 URL |
-| `#/login` | `/login` | Preview + 本地 | 已修；8.2 第 34 行 | 补「返回首页」、条款与隐私链接、「先发现一些 Ree」，文案改回原型；回跳白名单补 `/videos`、`/workspace/*` |
+| `#/login` | `/login` | Preview + 本地 | 已修；8.2 第 34 行 | 补「返回首页」、条款与隐私链接、「先发现一些 Ree」，文案改回原型；回跳白名单补 `/videos`、`/workspace/*`。2026-11-03 视觉逐项对齐（对照实际渲染的 `suite.js` `login()`）：类名、尺寸、颜色与 1020 / 760 / 520 断点照搬原型（`app/login/login.css`），左侧同心圆、Ree 头像卡与「文件—Ree—对话—灵感」来源链、原型图标集、手机端标志；原型的「本地交互原型」说明不搬 |
 | `#/legal/terms`、`#/legal/privacy` | `/legal/terms`、`/legal/privacy` | Preview | 8.2 第 38、40 行 | 完整法律文本替代原型的评审占位 |
 
 ## 发现与公开页
