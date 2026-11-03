@@ -6,7 +6,8 @@ import type { Messages } from '@/i18n';
 import { fill, formatNumber } from '@/i18n/format';
 import { failureLabel } from '@/components/knowledge/status-badge';
 
-export { KIND_ICONS } from '@/components/knowledge/kind-icons';
+export { KIND_ICONS, SOURCE_ICONS } from '@/components/knowledge/kind-icons';
+
 
 /** `m:ss`, or `h:mm:ss` past an hour. */
 export function clock(seconds: number): string {
@@ -28,7 +29,7 @@ export function highlight(text: string, query: string): ReactNode {
   for (let hit = lower.indexOf(needle); hit !== -1 && hits < 1000; hit = lower.indexOf(needle, at)) {
     parts.push(
       text.slice(at, hit),
-      <mark key={hit} data-match="" className="rounded bg-[#fff1b8] px-0.5 text-ink [&.current]:bg-[#ffd666]">
+      <mark key={hit} data-match="">
         {text.slice(hit, hit + needle.length)}
       </mark>,
     );
@@ -39,21 +40,9 @@ export function highlight(text: string, query: string): ReactNode {
   return parts;
 }
 
-/** The on/off switch of "参与回答". */
+/** The on/off switch of "参与回答" (prototype `.switch`; the knob is its ::before). */
 export function Switch({ checked, label, disabled, onChange }: { checked: boolean; label: string; disabled?: boolean; onChange: () => void }) {
-  return (
-    <button
-      type="button"
-      role="switch"
-      aria-checked={checked}
-      aria-label={label}
-      disabled={disabled}
-      onClick={onChange}
-      className={`relative inline-flex h-5 w-9 flex-none items-center rounded-full transition disabled:opacity-40 ${checked ? 'bg-blue' : 'bg-[#cfd5e3]'}`}
-    >
-      <span className={`inline-block size-4 rounded-full bg-white shadow transition ${checked ? 'translate-x-[18px]' : 'translate-x-0.5'}`} />
-    </button>
-  );
+  return <button type="button" className="switch" role="switch" aria-checked={checked} aria-label={label} disabled={disabled} onClick={onChange} />;
 }
 
 export function errorText(t: Messages, code: string | undefined): string {

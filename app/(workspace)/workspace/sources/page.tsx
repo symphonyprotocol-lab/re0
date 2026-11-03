@@ -6,9 +6,9 @@ import { ownedReeRows, WORKSPACE_KINDS, WORKSPACE_SOURCE_STATES, workspaceQuery,
 import { serverMessages } from '@/i18n/server';
 import { formatDateTime } from '@/i18n/format';
 import { Topbar } from '@/components/shell/topbar';
-import { FilterForm } from '@/components/statistics/filter-form';
-import { DetailTable, EmptyState, LinkPager, StatisticsHeading, cell, hrefFor } from '@/components/statistics/shared';
-import { STATE_TONES, SummaryStrip, TakenDownTag } from '@/components/statistics/workspace-bits';
+import { hrefFor } from '@/components/statistics/shared';
+import { OwnerFilters } from '@/components/statistics/owner/filters';
+import { OwnerEmpty, OwnerHeading, OwnerPage, OwnerPager, OwnerSummary, OwnerTable, OwnerTakenDown } from '@/components/statistics/owner/detail';
 
 export async function generateMetadata(): Promise<Metadata> {
   const { t } = await serverMessages();
@@ -16,9 +16,10 @@ export async function generateMetadata(): Promise<Metadata> {
 }
 
 /**
- * `/workspace/sources` (prototype workspace-details.js): every current source
- * across my Rees, the trash excluded, filtered by Ree, type and state, with a
- * way into the preview or the Ree's knowledge page.
+ * `/workspace/sources` (prototype workspace-details.js, its markup and
+ * owner-statistics.css): every current source across my Rees, the trash
+ * excluded, filtered by Ree, type and state, with a way into the preview or
+ * the Ree's knowledge page.
  */
 export default async function WorkspaceSourcesPage({ searchParams }: { searchParams: Promise<Record<string, string | string[] | undefined>> }) {
   const user = (await currentUser())!;
@@ -41,17 +42,17 @@ export default async function WorkspaceSourcesPage({ searchParams }: { searchPar
   return (
     <>
       <Topbar crumbs={[{ label: w.crumb, href: '/dashboard' }, { label: s.title }]} />
-      <main className="mx-auto flex max-w-[1180px] flex-col gap-5 px-4 py-8 md:px-8">
-        <StatisticsHeading title={s.title} lede={s.lede} tag={w.mine} />
-        <SummaryStrip
+      <OwnerPage>
+        <OwnerHeading title={s.title} lede={s.lede} tag={w.mine} />
+        <OwnerSummary
           locale={locale}
           items={[
             [s.all, list.all],
             [s.matching, list.total],
           ]}
         />
-        <section className="card min-w-0 overflow-hidden">
-          <FilterForm
+        <section className="card">
+          <OwnerFilters
             search={{ value: query.q, label: s.search, placeholder: s.search }}
             selects={[
               { name: 'ree', label: w.ree, value: query.ree, options: [['all', w.allRees], ...rees.map((ree) => [ree.id, ree.name] as [string, string])] },
@@ -61,47 +62,45 @@ export default async function WorkspaceSourcesPage({ searchParams }: { searchPar
             size={query.size}
             resetKeys={['ree', 'kind', 'status']}
           />
-          <DetailTable
+          <OwnerTable
             label={s.title}
             heads={[s.heads.source, s.heads.ree, s.heads.status, s.heads.updated, s.heads.actions]}
-            empty={list.all ? <EmptyState icon="search" title={s.empty} body={s.emptyBody} /> : <EmptyState icon="file" title={s.none} body={s.noneBody} />}
+            empty={list.all ? <OwnerEmpty icon="search" title={s.empty} body={s.emptyBody} /> : <OwnerEmpty icon="file" title={s.none} body={s.noneBody} />}
           >
             {list.items.map((source) => (
               <tr key={source.id}>
-                <td className={`${cell} min-w-[220px] max-w-[380px]`}>
-                  <Link href={`/rees/${source.reeId}/knowledge/${source.id}`} className="block font-semibold break-words hover:text-blue">
+                <td>
+                  <Link href={`/rees/${source.reeId}/knowledge/${source.id}`} className="creator-detail-source">
                     {source.title}
                   </Link>
-                  <small className="mt-0.5 block text-[11px] text-muted">{s.kinds[source.kind as keyof typeof s.kinds] ?? source.kind}</small>
+                  <small className="creator-cell-note">{s.kinds[source.kind as keyof typeof s.kinds] ?? source.kind}</small>
                 </td>
-                <td className={`${cell} min-w-[140px]`}>
-                  <span className="flex flex-wrap items-center gap-1.5">
-                    <Link href={`/rees/${source.reeId}/knowledge`} className="break-words text-blue hover:underline">
-                      {source.reeName}
-                    </Link>
-                    {moderated.has(source.reeId) && <TakenDownTag t={t} />}
-                  </span>
+                <td>
+                  <Link href={`/rees/${source.reeId}/knowledge`} className="text-link">
+                    {source.reeName}
+                  </Link>
+                  {moderated.has(source.reeId) && <OwnerTakenDown t={t} />}
                 </td>
-                <td className={cell}>
-                  <span className={`tag whitespace-nowrap ${STATE_TONES[source.state]}`}>{s.statuses[source.state]}</span>
+                <td>
+                  <span className={`tag creator-status-${source.state}`}>{s.statuses[source.state]}</span>
                 </td>
-                <td className={`${cell} whitespace-nowrap text-muted`}>{formatDateTime(source.updatedAt, locale)}</td>
-                <td className={`${cell} whitespace-nowrap`}>
-                  <span className="flex items-center gap-3">
-                    <Link href={`/rees/${source.reeId}/knowledge/${source.id}`} className="text-link text-[12px]">
+                <td>{formatDateTime(source.updatedAt, locale)}</td>
+                <td>
+                  <div className="creator-detail-actions">
+                    <Link href={`/rees/${source.reeId}/knowledge/${source.id}`} className="text-link">
                       {s.preview}
                     </Link>
-                    <Link href={`/rees/${source.reeId}/knowledge${query.status !== 'all' ? `?status=${query.status}` : ''}`} className="text-link text-[12px]">
+                    <Link href={`/rees/${source.reeId}/knowledge${query.status !== 'all' ? `?status=${query.status}` : ''}`} className="text-link">
                       {s.manage}
                     </Link>
-                  </span>
+                  </div>
                 </td>
               </tr>
             ))}
-          </DetailTable>
-          <LinkPager t={t} locale={locale} page={list.page} size={query.size} total={list.total} href={href} />
+          </OwnerTable>
+          <OwnerPager t={t} locale={locale} page={list.page} size={query.size} total={list.total} href={href} />
         </section>
-      </main>
+      </OwnerPage>
     </>
   );
 }

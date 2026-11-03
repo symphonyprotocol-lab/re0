@@ -7,11 +7,20 @@ import { ownedReeRows, workspaceAnswers, workspaceQuery } from '@/lib/services/s
 import { serverMessages } from '@/i18n/server';
 import { fill, formatDateTime, formatNumber } from '@/i18n/format';
 import { Topbar } from '@/components/shell/topbar';
-import { FilterForm } from '@/components/statistics/filter-form';
-import { PeriodControls } from '@/components/statistics/period-controls';
-import { AnswerCell, CitationCell } from '@/components/statistics/ree-statistics-view';
-import { DetailTable, EmptyState, LinkPager, StatisticsHeading, cell, hrefFor } from '@/components/statistics/shared';
-import { SummaryStrip, TakenDownTag } from '@/components/statistics/workspace-bits';
+import { hrefFor } from '@/components/statistics/shared';
+import { OwnerFilters } from '@/components/statistics/owner/filters';
+import { OwnerPeriod } from '@/components/statistics/owner/period';
+import {
+  OwnerAnswerCell,
+  OwnerCitationCell,
+  OwnerEmpty,
+  OwnerHeading,
+  OwnerPage,
+  OwnerPager,
+  OwnerSummary,
+  OwnerTable,
+  OwnerTakenDown,
+} from '@/components/statistics/owner/detail';
 
 export async function generateMetadata(): Promise<Metadata> {
   const { t } = await serverMessages();
@@ -19,8 +28,9 @@ export async function generateMetadata(): Promise<Metadata> {
 }
 
 /**
- * `/workspace/answers` (prototype workspace-details.js): successful answers
- * across my Rees in a period, by Ree or record by record.
+ * `/workspace/answers` (prototype workspace-details.js, its markup and
+ * owner-statistics.css): successful answers across my Rees in a period, by
+ * Ree or record by record.
  */
 export default async function WorkspaceAnswersPage({ searchParams }: { searchParams: Promise<Record<string, string | string[] | undefined>> }) {
   const user = (await currentUser())!;
@@ -50,19 +60,19 @@ export default async function WorkspaceAnswersPage({ searchParams }: { searchPar
   return (
     <>
       <Topbar crumbs={[{ label: w.crumb, href: '/dashboard' }, { label: a.title }]} />
-      <main className="mx-auto flex max-w-[1180px] flex-col gap-5 px-4 py-8 md:px-8">
-        <StatisticsHeading title={a.title} lede={a.lede} tag={w.mine} />
-        <PeriodControls filter={{ period: query.period, date: query.date, start: query.start, end: query.end }} />
-        <SummaryStrip
+      <OwnerPage>
+        <OwnerHeading title={a.title} lede={a.lede} tag={w.mine} />
+        <OwnerPeriod filter={{ period: query.period, date: query.date, start: query.start, end: query.end }} />
+        <OwnerSummary
           locale={locale}
           items={[
             [answerLabel, data.totals.answers],
             [a.saved, data.totals.saved],
           ]}
         />
-        <p className="text-[12px] leading-relaxed text-muted">{a.explanation}</p>
-        <section className="card min-w-0 overflow-hidden">
-          <FilterForm
+        <p className="creator-detail-explanation">{a.explanation}</p>
+        <section className="card">
+          <OwnerFilters
             search={{ value: query.q, label: query.view === 'summary' ? a.searchSummary : a.searchRecords, placeholder: query.view === 'summary' ? a.searchSummary : a.searchRecords }}
             selects={[
               { name: 'ree', label: w.ree, value: query.ree, options: [['all', w.allRees], ...rees.map((ree) => [ree.id, ree.name] as [string, string])] },
@@ -77,78 +87,73 @@ export default async function WorkspaceAnswersPage({ searchParams }: { searchPar
               },
             ]}
             fixed={fill(a.fixed, { period: t.statistics.period.names[query.period] })}
+            fixedIcon
             size={query.size}
             resetKeys={['ree']}
           />
           {data.records ? (
-            <DetailTable
+            <OwnerTable
               label={a.title}
               heads={[a.heads.qa, a.heads.answering, a.heads.source, a.heads.time]}
-              empty={<EmptyState icon="chat" title={a.empty} body={a.emptyBody} />}
+              empty={<OwnerEmpty icon="search" title={a.empty} body={a.emptyBody} />}
             >
               {data.records.items.map((record) => (
                 <tr key={record.id}>
-                  <td className={`${cell} min-w-[260px] max-w-[460px]`}>
-                    <AnswerCell question={record.question} answer={record.answer} t={t} />
+                  <td>
+                    <OwnerAnswerCell question={record.question} answer={record.answer} t={t} />
                   </td>
-                  <td className={`${cell} min-w-[120px]`}>
-                    <span className="flex flex-wrap items-center gap-1.5">
-                      <Link href={`/rees/${record.reeId}/statistics`} className="break-words hover:text-blue">
-                        {record.reeName}
-                      </Link>
-                      {moderated.has(record.reeId) && <TakenDownTag t={t} />}
-                    </span>
+                  <td>
+                    <Link href={`/rees/${record.reeId}/statistics`}>{record.reeName}</Link>
+                    {moderated.has(record.reeId) && <OwnerTakenDown t={t} />}
                   </td>
-                  <td className={`${cell} min-w-[160px] max-w-[260px] break-words`}>
-                    <CitationCell citation={record.citation} t={t} locale={locale} />
+                  <td>
+                    <OwnerCitationCell citation={record.citation} t={t} locale={locale} />
                   </td>
-                  <td className={`${cell} whitespace-nowrap text-muted`}>{formatDateTime(record.createdAt, locale)}</td>
+                  <td>{formatDateTime(record.createdAt, locale)}</td>
                 </tr>
               ))}
-            </DetailTable>
+            </OwnerTable>
           ) : (
-            <DetailTable
+            <OwnerTable
               label={a.title}
               heads={[a.heads.ree, answerLabel, a.heads.saved, a.heads.actions]}
-              empty={<EmptyState icon="search" title={a.empty} body={filtered ? a.emptyBody : t.statistics.dashboard.ranking.empty} />}
+              empty={<OwnerEmpty icon="search" title={a.empty} body={filtered ? a.emptyBody : t.statistics.dashboard.ranking.empty} />}
             >
               {data.summary!.items.map((row) => (
                 <tr key={row.reeId}>
-                  <td className={`${cell} min-w-[180px]`}>
-                    <span className="flex flex-wrap items-center gap-1.5">
-                      <Link href={`/rees/${row.reeId}/statistics`} className="font-semibold break-words hover:text-blue">
-                        {row.name}
-                      </Link>
-                      {moderated.has(row.reeId) && <TakenDownTag t={t} />}
-                    </span>
+                  <td>
+                    <Link href={`/rees/${row.reeId}/statistics`} className="text-link">
+                      {row.name}
+                    </Link>
+                    {moderated.has(row.reeId) && <OwnerTakenDown t={t} />}
                   </td>
-                  <td className={cell}>
-                    <strong className="font-mono">{n(row.answers)}</strong>
+                  <td>
+                    <strong className="mono">{n(row.answers)}</strong>
                   </td>
-                  <td className={cell}>
-                    <span className="font-mono">{n(row.saved)}</span>
+                  <td>
+                    <span className="mono">{n(row.saved)}</span>
                   </td>
-                  <td className={`${cell} whitespace-nowrap`}>
-                    <span className="flex items-center gap-3">
+                  <td>
+                    <div className="creator-detail-actions">
                       {row.saved ? (
-                        <Link href={href({ ree: row.reeId, view: 'records', q: '', page: 1 })} className="text-link text-[12px]">
+                        <Link href={href({ ree: row.reeId, view: 'records', q: '', page: 1 })} className="text-link">
                           {a.viewRecords}
                         </Link>
                       ) : (
-                        <span className="text-[12px] text-muted">{a.noRecords}</span>
+                        <span className="muted">{a.noRecords}</span>
                       )}
-                      <Link href={`/rees/${row.reeId}/statistics`} className="text-link text-[12px]">
+                      <Link href={`/rees/${row.reeId}/statistics`} className="text-link">
                         {a.openRee}
                       </Link>
-                    </span>
+                    </div>
                   </td>
                 </tr>
               ))}
-            </DetailTable>
+            </OwnerTable>
           )}
-          <LinkPager t={t} locale={locale} page={list.page} size={query.size} total={list.total} href={(page) => href({ page })} />
+          <OwnerPager t={t} locale={locale} page={list.page} size={query.size} total={list.total} href={(page) => href({ page })} />
         </section>
-      </main>
+      </OwnerPage>
     </>
   );
 }

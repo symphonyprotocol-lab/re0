@@ -11,7 +11,8 @@ import { fill } from '@/i18n/format';
 import { ReeTopbar } from '@/components/rees/ree-topbar';
 import { Icon } from '@/components/ui/icons';
 import { KnowledgePreviewPage } from '@/components/knowledge/knowledge-preview-page';
-import { KIND_ICONS } from '@/components/knowledge/kind-icons';
+import { SOURCE_ICONS } from '@/components/knowledge/kind-icons';
+import '@/components/knowledge/knowledge.css';
 
 type Props = { params: Promise<{ id: string; kid: string }>; searchParams: Promise<Record<string, string | string[] | undefined>> };
 
@@ -49,14 +50,16 @@ export default async function KnowledgeSourcePage({ params, searchParams }: Prop
     return (
       <>
         <ReeTopbar ree={ree} active="knowledge" crumbs={crumbs} />
-        <main className="mx-auto max-w-[760px] px-4 py-16 md:px-8">
-          <div className="card flex flex-col items-center gap-3 px-6 py-14 text-center">
-            <Icon name="file" className="size-6 text-blue" />
-            <h1 className="text-[17px] font-bold">{k.page.missingTitle}</h1>
-            <p className="text-[12px] text-muted">{k.page.missingBody}</p>
-            <Link href={listHref} className="btn-secondary btn-sm">
-              {k.page.back}
-            </Link>
+        <main className="knowledge-ui">
+          <div className="page">
+            <div className="card empty">
+              <Icon name="file" />
+              <h2>{k.page.missingTitle}</h2>
+              <p>{k.page.missingBody}</p>
+              <Link href={listHref} className="btn secondary">
+                {k.page.back}
+              </Link>
+            </div>
           </div>
         </main>
       </>
@@ -100,46 +103,26 @@ export default async function KnowledgeSourcePage({ params, searchParams }: Prop
           </div>
         }
       />
-      <main className="mx-auto max-w-[1280px] px-4 py-8 md:px-8">
-        <div className="flex min-w-0 items-center gap-3">
-          <span className="inline-flex size-11 flex-none items-center justify-center rounded-xl bg-soft text-blue">
-            <Icon name={KIND_ICONS[header.kind]} className="size-5" />
-          </span>
-          <div className="min-w-0">
-            <h1 className="truncate text-[22px] font-extrabold tracking-tight" title={header.title}>
-              {header.title}
-            </h1>
-            <p className="truncate text-[12px] text-muted">{fill(k.page.subtitle, { ree: ree.name })}</p>
+      <main className="knowledge-ui">
+        <div className="kp-page">
+          <div className="kp-page-head">
+            <span className="file-icon">
+              <Icon name={SOURCE_ICONS[header.kind]} />
+            </span>
+            <div>
+              <h1 title={header.title}>{header.title}</h1>
+              <p>{fill(k.page.subtitle, { ree: ree.name })}</p>
+            </div>
           </div>
-        </div>
-        <div className="card mt-5 p-4 sm:p-6">
-          <KnowledgePreviewPage
-            reeId={ree.id}
-            knowledgeId={kid}
-            initialTime={Number.isFinite(time) && time >= 0 ? time : null}
-            initialChild={Number.isInteger(child) && child >= 0 ? child : 0}
-            previousHref={previous}
-            nextHref={next}
-          />
-        </div>
-        <div className="mt-4 flex flex-wrap items-center justify-between gap-2 text-[12px] text-muted">
-          <span>{index >= 0 && fill(k.page.position, { n: index + 1, total: ids.length })}</span>
-          <div className="flex gap-2">
-            {previous && (
-              <Link href={previous} className="btn-secondary btn-sm">
-                <Icon name="chevronLeft" className="size-3.5" />
-                {k.page.previous}
-              </Link>
-            )}
-            {next && (
-              <Link href={next} className="btn-secondary btn-sm">
-                {k.page.next}
-                <Icon name="chevronRight" className="size-3.5" />
-              </Link>
-            )}
-            <Link href={listHref} className="btn-secondary btn-sm">
-              {k.page.back}
-            </Link>
+          <div className="card kp-page-card">
+            <KnowledgePreviewPage
+              reeId={ree.id}
+              knowledgeId={kid}
+              initialTime={Number.isFinite(time) && time >= 0 ? time : null}
+              initialChild={Number.isInteger(child) && child >= 0 ? child : 0}
+              previousHref={previous}
+              nextHref={next}
+            />
           </div>
         </div>
       </main>

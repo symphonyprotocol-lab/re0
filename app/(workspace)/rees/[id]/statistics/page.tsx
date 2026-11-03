@@ -6,7 +6,7 @@ import { ownedRee } from '@/lib/services/rees';
 import { reeStatistics, statisticsQuery } from '@/lib/services/statistics';
 import { serverMessages } from '@/i18n/server';
 import { ReeTopbar } from '@/components/rees/ree-topbar';
-import { ReeStatisticsView } from '@/components/statistics/ree-statistics-view';
+import { OwnerReeStatistics } from '@/components/statistics/owner/ree-statistics';
 
 export async function generateMetadata(): Promise<Metadata> {
   const { t } = await serverMessages();
@@ -34,16 +34,15 @@ export default async function ReeStatisticsPage({
   return (
     <>
       <ReeTopbar ree={ree} active="statistics" />
-      <main className="mx-auto max-w-[1180px] px-4 py-8 md:px-8">
-        <ReeStatisticsView
-          t={t}
-          locale={locale}
-          data={data}
-          basePath={`/rees/${ree.id}/statistics`}
-          sourcesHref={`/rees/${ree.id}/knowledge?status=ready`}
-          showIncome={showIncome}
-        />
-      </main>
+      <OwnerReeStatistics
+        t={t}
+        locale={locale}
+        data={data}
+        reeName={ree.name}
+        basePath={`/rees/${ree.id}/statistics`}
+        sourcesHref={`/rees/${ree.id}/knowledge?status=ready`}
+        showIncome={showIncome}
+      />
     </>
   );
 }

@@ -7,9 +7,9 @@ import { holdFor, type KnowledgeKind } from '@/lib/domain/knowledge';
 import { api } from '@/lib/client/upload';
 import { useI18n } from '@/i18n/client';
 import { fill, formatNumber } from '@/i18n/format';
-import { Icon, Spinner } from '@/components/ui/icons';
-import { Modal } from '@/components/ui/modal';
-import { errorText, KIND_ICONS } from '@/components/knowledge/shared';
+import { Icon } from '@/components/ui/icons';
+import { Modal } from '@/components/knowledge/modal';
+import { errorText, SOURCE_ICONS } from '@/components/knowledge/shared';
 
 /** What an action needs to know about a source: enough to list it, check it, and price a reprocess. */
 export interface ActionItem {
@@ -44,14 +44,14 @@ export function reprocessCost(item: Pick<ActionItem, 'kind' | 'chars' | 'fileSiz
 export function SelectionReview({ items }: { items: ActionItem[] }) {
   const { t } = useI18n();
   return (
-    <div className="flex flex-col gap-1.5 rounded-lg border border-line bg-wash p-3 text-[12px]">
+    <div className="km-operation-list">
       {items.slice(0, 5).map((item) => (
-        <p key={item.id} className="flex min-w-0 items-center gap-2">
-          <Icon name={KIND_ICONS[item.kind]} className="size-3.5 flex-none text-blue" />
-          <span className="truncate">{item.title}</span>
+        <p key={item.id}>
+          <Icon name={SOURCE_ICONS[item.kind]} />
+          <span>{item.title}</span>
         </p>
       ))}
-      {items.length > 5 && <small className="text-muted">{fill(t.knowledge.selection.andMore, { n: items.length - 5, total: items.length })}</small>}
+      {items.length > 5 && <small>{fill(t.knowledge.selection.andMore, { n: items.length - 5, total: items.length })}</small>}
     </div>
   );
 }
@@ -128,7 +128,7 @@ export function KnowledgeDialogs({
 
   const folderName = (id: string | null) => (id ? (known.find((folder) => folder.id === id)?.name ?? k.folders.unfiled) : k.folders.unfiled);
   const errorBox = error && (
-    <p role="alert" className="mt-3 rounded-lg border border-[#f1d4d4] bg-[#fff3f3] px-3 py-2 text-[12px] text-red">
+    <p role="alert" className="form-error">
       {error.text}{' '}
       {error.code === 'insufficient_credits' && (
         <Link href="/settings?tab=billing" className="font-semibold underline">
@@ -143,7 +143,7 @@ export function KnowledgeDialogs({
     </p>
   );
   const cancel = (
-    <button type="button" className="btn-secondary" onClick={onClose}>
+    <button type="button" className="btn secondary" onClick={onClose}>
       {t.common.actions.cancel}
     </button>
   );
@@ -158,15 +158,15 @@ export function KnowledgeDialogs({
         type="button"
         disabled={options.disabled}
         onClick={run}
-        className={`flex w-full items-center gap-3 rounded-lg px-3 py-2.5 text-left text-[13px] font-medium hover:bg-wash disabled:opacity-40 ${options.danger ? 'text-red' : ''}`}
+        className={`ks-menu-item ${options.danger ? 'danger-text' : ''}`}
       >
-        <Icon name={icon} className="size-4" />
+        <Icon name={icon} />
         {label}
       </button>
     );
     return (
-      <Modal open onClose={onClose} title={item.title} subtitle={t.common.kinds[item.kind]}>
-        <div className="flex flex-col gap-0.5">
+      <Modal open onClose={onClose} title={item.title} subtitle={t.common.kinds[item.kind]} className="ks-menu-modal">
+        <div className="ks-action-menu">
           {onPreview && entry('external', k.menu.preview, () => onPreview(item))}
           {trash ? (
             entry('refresh', k.menu.restore, () => onOpen({ type: 'confirm', action: 'restore', items: [item] }))
@@ -196,7 +196,7 @@ export function KnowledgeDialogs({
           <>
             {cancel}
             <button type="submit" form="knowledge-rename-form" className="btn" disabled={busy}>
-              {busy && <Spinner />}
+              {busy && <i className="spinner" />}
               {k.rename.submit}
             </button>
           </>
@@ -214,10 +214,10 @@ export function KnowledgeDialogs({
             onDone(k.done.renamed);
           }}
         >
-          <label>
-            <span className="field-label">{k.rename.label}</span>
-            <input className="input" value={title} maxLength={KNOWLEDGE_TITLE_MAX} required autoFocus onChange={(event) => setTitle(event.target.value)} />
-          </label>
+          <div className="field">
+            <label htmlFor="knowledge-name">{k.rename.label}</label>
+            <input id="knowledge-name" value={title} maxLength={KNOWLEDGE_TITLE_MAX} required autoFocus onChange={(event) => setTitle(event.target.value)} />
+          </div>
         </form>
         {errorBox}
       </Modal>
@@ -237,7 +237,7 @@ export function KnowledgeDialogs({
           <>
             {cancel}
             <button type="submit" form="knowledge-move-form" className="btn" disabled={busy}>
-              {busy && <Spinner />}
+              {busy && <i className="spinner" />}
               {k.move.submit}
             </button>
           </>
@@ -246,7 +246,6 @@ export function KnowledgeDialogs({
         <SelectionReview items={items} />
         <form
           id="knowledge-move-form"
-          className="mt-4 flex flex-col gap-4"
           onSubmit={async (event) => {
             event.preventDefault();
             const extra = target === 'new' ? { newFolderName: newName } : { folderId: target === 'unfiled' ? null : target };
@@ -256,9 +255,9 @@ export function KnowledgeDialogs({
             onDone(result.changed ? fill(k.done.moved, { n: result.changed, folder: name }) : k.done.alreadyThere);
           }}
         >
-          <label>
-            <span className="field-label">{k.move.target}</span>
-            <select className="input" value={target} onChange={(event) => setTarget(event.target.value)}>
+          <div className="field">
+            <label htmlFor="km-move-folder">{k.move.target}</label>
+            <select id="km-move-folder" value={target} onChange={(event) => setTarget(event.target.value)}>
               <option value="unfiled">{k.folders.unfiled}</option>
               {known.map((folder) => (
                 <option key={folder.id} value={folder.id}>
@@ -267,14 +266,14 @@ export function KnowledgeDialogs({
               ))}
               <option value="new">{k.move.newFolder}</option>
             </select>
-          </label>
+          </div>
           {target === 'new' && (
-            <label>
-              <span className="field-label">{k.move.newName}</span>
-              <input className="input" value={newName} maxLength={KNOWLEDGE_FOLDER_NAME_MAX} required autoFocus onChange={(event) => setNewName(event.target.value)} />
-            </label>
+            <div className="field" id="km-move-new-field">
+              <label htmlFor="km-move-new-name">{k.move.newName}</label>
+              <input id="km-move-new-name" value={newName} maxLength={KNOWLEDGE_FOLDER_NAME_MAX} required autoFocus onChange={(event) => setNewName(event.target.value)} />
+            </div>
           )}
-          <p className="text-[11px] text-muted">{fill(k.move.current, { folders: current.map(folderName).join('、') })}</p>
+          <p className="form-hint">{fill(k.move.current, { folders: current.map(folderName).join('、') })}</p>
         </form>
         {errorBox}
       </Modal>
@@ -306,8 +305,8 @@ export function KnowledgeDialogs({
       footer={
         <>
           {cancel}
-          <button type="button" className={action === 'trash' ? 'btn-danger' : 'btn'} disabled={busy || blocked} onClick={() => void confirm(action, items)}>
-            {busy && <Spinner />}
+          <button type="button" className={action === 'trash' ? 'btn danger' : 'btn'} disabled={busy || blocked} onClick={() => void confirm(action, items)}>
+            {busy && <i className="spinner" />}
             {labels[action]}
           </button>
         </>
@@ -315,12 +314,12 @@ export function KnowledgeDialogs({
     >
       <SelectionReview items={items} />
       {action === 'reprocess' && (
-        <div className="mt-4 flex items-center justify-between rounded-lg border border-line bg-wash px-3 py-2.5 text-[12px]">
-          <span className="text-muted">{k.confirm.reprocessEstimate}</span>
-          <strong className="font-mono">{fill(k.addModal.estimateValue, { credits: formatNumber(total, locale) })}</strong>
+        <div className="estimate">
+          <span>{k.confirm.reprocessEstimate}</span>
+          <strong>{fill(k.addModal.estimateValue, { credits: formatNumber(total, locale) })}</strong>
         </div>
       )}
-      <p className="mt-3 text-[12px] leading-relaxed text-muted">
+      <p className={`form-hint ${action === 'reprocess' ? 'mt16' : ''}`}>
         {blocked
           ? k.confirm.busy
           : action === 'pause'
