@@ -5,9 +5,8 @@ import { QUERY_FEE, REE_CATEGORIES, REE_COLORS, REE_LIMITS, type ReeCategory, ty
 import { CATEGORY_TAGS, charLength, normalizedTag } from '@/lib/domain/ree';
 import { useI18n } from '@/i18n/client';
 import { fill } from '@/i18n/format';
-import { Icon } from '@/components/ui/icons';
-import { ReeAvatar } from '@/components/ui/ree-avatar';
-import { AvatarEditor } from '@/components/rees/avatar-editor';
+import { DotAvatar, PIcon } from '@/components/rees/proto-icon';
+import { ReeAvatarEditor } from '@/components/rees/ree-avatar-editor';
 
 /** What the wizard and the settings page edit. */
 export interface ReeFormState {
@@ -25,37 +24,28 @@ export interface ReeFormState {
 
 type Change = (patch: Partial<ReeFormState>) => void;
 
-export function Field({ id, label, hint, counter, children }: { id: string; label: string; hint?: string; counter?: string; children: ReactNode }) {
+/** A labelled field with its hint (prototype dot-setup.js `field`). */
+export function Field({ id, label, hint, children }: { id: string; label: string; hint?: string; children: ReactNode }) {
   return (
-    <div className="mt-5">
-      <div className="flex items-baseline justify-between gap-2">
-        <label htmlFor={id} className="field-label">
-          {label}
-        </label>
-        {counter && <span className="font-mono text-[10px] text-muted">{counter}</span>}
-      </div>
+    <div className="field">
+      <label htmlFor={id}>{label}</label>
       {children}
-      {hint && <small className="hint">{hint}</small>}
+      {hint && <small>{hint}</small>}
     </div>
   );
 }
 
+/** Avatar, name, introduction and the default colour (prototype dot-setup.js `identity`). */
 export function IdentityFields({ value, onChange, onCropping }: { value: ReeFormState; onChange: Change; onCropping?: (open: boolean) => void }) {
   const { t } = useI18n();
   const f = t.reeSetup.fields;
   return (
     <>
-      <AvatarEditor
-        value={value.avatarBlob}
-        color={value.color}
-        onChange={(avatarBlob) => onChange({ avatarBlob })}
-        labels={{ title: f.avatar, upload: f.avatarUpload, change: f.avatarChange, reset: f.avatarDefault, hint: f.avatarHint, note: f.avatarNote }}
-        onCropping={onCropping}
-      />
-      <Field id="ree-name" label={f.name} counter={fill(f.counter, { count: charLength(value.name), max: REE_LIMITS.name })}>
+      <ReeAvatarEditor value={value.avatarBlob} color={value.color} onChange={(avatarBlob) => onChange({ avatarBlob })} onCropping={onCropping} />
+      <Field id="edit-name" label={f.name}>
         <input
-          id="ree-name"
-          className="input"
+          id="edit-name"
+          name="name"
           required
           maxLength={REE_LIMITS.name}
           value={value.name}
@@ -63,10 +53,10 @@ export function IdentityFields({ value, onChange, onCropping }: { value: ReeForm
           onChange={(event) => onChange({ name: event.target.value })}
         />
       </Field>
-      <Field id="ree-description" label={f.description} counter={fill(f.counter, { count: charLength(value.description), max: REE_LIMITS.description })}>
+      <Field id="edit-description" label={f.description}>
         <textarea
-          id="ree-description"
-          className="input min-h-[84px] resize-y"
+          id="edit-description"
+          name="description"
           rows={3}
           maxLength={REE_LIMITS.description}
           value={value.description}
@@ -74,89 +64,108 @@ export function IdentityFields({ value, onChange, onCropping }: { value: ReeForm
           onChange={(event) => onChange({ description: event.target.value })}
         />
       </Field>
-      <div className="mt-5">
-        <span className="field-label">{f.color}</span>
-        <div className="flex flex-wrap gap-2" role="radiogroup" aria-label={f.color}>
-          {REE_COLORS.map((color) => (
-            <button
-              key={color}
-              type="button"
-              role="radio"
-              aria-checked={value.color === color}
-              aria-label={t.common.colors[color]}
-              title={t.common.colors[color]}
-              onClick={() => onChange({ color })}
-              className={`rounded-2xl p-1 ring-2 transition ${value.color === color ? 'ring-blue' : 'ring-transparent hover:ring-line'}`}
-            >
-              <ReeAvatar color={color} />
-            </button>
-          ))}
-        </div>
+      <span className="field-label">{f.color}</span>
+      <div className="color-options mt16">
+        {REE_COLORS.map((color) => (
+          <button
+            key={color}
+            type="button"
+            className={`color-option ${value.color === color ? 'active' : ''}`}
+            aria-label={t.common.colors[color]}
+            aria-pressed={value.color === color}
+            onClick={() => onChange({ color })}
+          >
+            <DotAvatar avatar={null} color={color} />
+          </button>
+        ))}
       </div>
     </>
   );
 }
 
-function TagsEditor({ category, tags, onChange }: { category: ReeCategory | ''; tags: string[]; onChange: (tags: string[]) => void }) {
+/** Primary category and up to three tags (prototype dot-classification.js `editor`). */
+function ClassificationEditor({ category, tags, onChange }: { category: ReeCategory | ''; tags: string[]; onChange: Change }) {
   const { t, locale } = useI18n();
   const f = t.reeSetup.fields;
   const [input, setInput] = useState('');
   const [error, setError] = useState('');
+  /* The prototype explains an empty list of suggestions only once the category or the search changed. */
+  const [touched, setTouched] = useState(false);
+  const full = tags.length >= REE_LIMITS.tags;
   const add = (raw: string) => {
     const tag = normalizedTag(raw);
     if (!tag) return;
-    if (charLength(tag) > REE_LIMITS.tag) return setError(t.reeSetup.messages.length);
-    if (tags.some((existing) => existing.toLocaleLowerCase() === tag.toLocaleLowerCase())) return setInput('');
-    if (tags.length >= REE_LIMITS.tags) return setError(t.reeSetup.messages.limit);
+    if (charLength(tag) > REE_LIMITS.tag) return setError(f.tagTooLong);
+    if (tags.some((existing) => existing.toLocaleLowerCase() === tag.toLocaleLowerCase())) return setError(f.tagDuplicate);
+    if (full) return setError(f.tagFull);
     setError('');
     setInput('');
-    onChange([...tags, tag]);
+    onChange({ tags: [...tags, tag] });
   };
   const query = normalizedTag(input).toLocaleLowerCase();
-  const pool = query
-    ? REE_CATEGORIES.flatMap((id) => CATEGORY_TAGS[id][locale])
-    : category
-      ? CATEGORY_TAGS[category][locale]
-      : [];
+  const pool = query ? REE_CATEGORIES.flatMap((id) => CATEGORY_TAGS[id][locale]) : category ? CATEGORY_TAGS[category][locale] : [];
   const suggestions = pool
     .filter((tag) => (!query || tag.toLocaleLowerCase().includes(query)) && !tags.some((existing) => existing.toLocaleLowerCase() === tag.toLocaleLowerCase()))
     .slice(0, 8);
   return (
-    <div className="mt-5">
-      <div className="flex items-baseline justify-between gap-2">
-        <label htmlFor="ree-tag-input" className="field-label">
-          {f.tags}
-        </label>
-        <span className="font-mono text-[10px] text-muted">
+    <section className="dot-classification-editor">
+      <Field id="dot-category" label={f.category} hint={f.categoryHint}>
+        <select
+          id="dot-category"
+          name="category"
+          required
+          value={category}
+          onChange={(event) => {
+            setError('');
+            setTouched(true);
+            onChange({ category: event.target.value as ReeCategory });
+          }}
+        >
+          <option value="" disabled>
+            {f.categoryPlaceholder}
+          </option>
+          {REE_CATEGORIES.map((id) => (
+            <option key={id} value={id}>
+              {t.common.categories[id]}
+            </option>
+          ))}
+        </select>
+      </Field>
+      <div className="between classification-label">
+        <span className="field-label">{f.tags}</span>
+        <span className="classification-count">
           {tags.length} / {REE_LIMITS.tags}
         </span>
       </div>
-      {tags.length > 0 && (
-        <div className="mb-2 flex flex-wrap gap-2">
-          {tags.map((tag) => (
-            <span key={tag} className="inline-flex items-center gap-1 rounded-full border border-[#d8e6fb] bg-soft py-1 pr-1 pl-3 text-[12px] font-medium text-blue">
-              {tag}
-              <button
-                type="button"
-                className="inline-flex size-5 items-center justify-center rounded-full hover:bg-white"
-                aria-label={fill(f.tagRemove, { tag })}
-                onClick={() => onChange(tags.filter((existing) => existing !== tag))}
-              >
-                <Icon name="close" className="size-3" />
-              </button>
-            </span>
-          ))}
-        </div>
-      )}
-      <div className="flex gap-2">
+      <div className="classification-selected">
+        {tags.map((tag) => (
+          <span key={tag} className="classification-chip">
+            <span>{tag}</span>
+            <button
+              type="button"
+              aria-label={fill(f.tagRemove, { tag })}
+              onClick={() => {
+                setError('');
+                onChange({ tags: tags.filter((existing) => existing !== tag) });
+              }}
+            >
+              <PIcon name="close" />
+            </button>
+          </span>
+        ))}
+      </div>
+      <div className="classification-search">
+        <PIcon name="search" />
         <input
-          id="ree-tag-input"
-          className="input"
-          value={input}
+          type="search"
           aria-label={f.tagSearch}
           placeholder={f.tagInput}
-          disabled={tags.length >= REE_LIMITS.tags}
-          onChange={(event) => setInput(event.target.value)}
+          maxLength={100}
+          value={input}
+          onChange={(event) => {
+            setTouched(true);
+            setInput(event.target.value);
+          }}
           onKeyDown={(event) => {
             if (event.key === 'Enter' && !event.nativeEvent.isComposing) {
               event.preventDefault();
@@ -164,62 +173,39 @@ function TagsEditor({ category, tags, onChange }: { category: ReeCategory | ''; 
             }
           }}
         />
-        <button type="button" className="btn-secondary" onClick={() => add(input)} disabled={!input.trim() || tags.length >= REE_LIMITS.tags}>
+        <button type="button" className="btn secondary sm" disabled={!query || full} onClick={() => add(input)}>
           {f.tagAdd}
         </button>
       </div>
-      {tags.length < REE_LIMITS.tags &&
-        (suggestions.length > 0 ? (
-          <div className="mt-2 flex flex-wrap gap-1.5">
-            {suggestions.map((tag) => (
-              <button key={tag} type="button" className="tag hover:border-blue hover:text-blue" onClick={() => add(tag)}>
-                <Icon name="plus" className="size-3" />
+      <div className="classification-suggestions">
+        {suggestions.length > 0
+          ? suggestions.map((tag) => (
+              <button key={tag} type="button" className="classification-suggestion" disabled={full} onClick={() => add(tag)}>
+                <PIcon name="plus" />
                 {tag}
               </button>
-            ))}
-          </div>
-        ) : (
-          /* No suggestion to show: say why (prototype dot-classification.js `suggestions`). */
-          <p className="mt-2 text-[11px] text-muted">{query ? f.tagNoMatch : f.tagNoCategory}</p>
-        ))}
-      {error && (
-        <p role="alert" className="mt-1.5 text-[11px] text-red">
-          {error}
-        </p>
-      )}
-      <small className="hint">{f.tagsHint}</small>
-    </div>
+            ))
+          : touched && <span className="classification-hint">{query ? f.tagNoMatch : f.tagNoCategory}</span>}
+      </div>
+      <small className="classification-hint">{f.tagsHint}</small>
+      <p className="classification-error" role="alert" hidden={!error}>
+        {error}
+      </p>
+    </section>
   );
 }
 
-export function PersonalityFields({ value, onChange }: { value: ReeFormState; onChange: Change }) {
+/** Classification, answer style and sample questions (prototype dot-setup.js `personality`). */
+export function PersonalityFields({ value, onChange, children }: { value: ReeFormState; onChange: Change; children?: ReactNode }) {
   const { t } = useI18n();
   const f = t.reeSetup.fields;
   return (
     <>
-      <Field id="ree-category" label={f.category} hint={f.categoryHint}>
-        <select
-          id="ree-category"
-          className="input"
-          value={value.category}
-          required
-          onChange={(event) => onChange({ category: event.target.value as ReeCategory })}
-        >
-          <option value="" disabled>
-            {f.categoryPlaceholder}
-          </option>
-          {REE_CATEGORIES.map((category) => (
-            <option key={category} value={category}>
-              {t.common.categories[category]}
-            </option>
-          ))}
-        </select>
-      </Field>
-      <TagsEditor category={value.category} tags={value.tags} onChange={(tags) => onChange({ tags })} />
-      <Field id="ree-prompt" label={f.prompt} hint={f.promptHint} counter={fill(f.counter, { count: charLength(value.systemPrompt), max: REE_LIMITS.systemPrompt })}>
+      <ClassificationEditor category={value.category} tags={value.tags} onChange={onChange} />
+      <Field id="edit-prompt" label={f.prompt} hint={f.promptHint}>
         <textarea
-          id="ree-prompt"
-          className="input min-h-[120px] resize-y"
+          id="edit-prompt"
+          name="prompt"
           rows={5}
           maxLength={REE_LIMITS.systemPrompt}
           value={value.systemPrompt}
@@ -227,57 +213,51 @@ export function PersonalityFields({ value, onChange }: { value: ReeFormState; on
           onChange={(event) => onChange({ systemPrompt: event.target.value })}
         />
       </Field>
-      <Field id="ree-samples" label={f.samples} hint={f.samplesHint}>
+      <Field id="edit-samples" label={f.samples} hint={f.samplesHint}>
         <textarea
-          id="ree-samples"
-          className="input min-h-[96px] resize-y"
+          id="edit-samples"
+          name="samples"
           rows={4}
           value={value.sampleQuestions}
           placeholder={f.samplesPlaceholder}
           onChange={(event) => onChange({ sampleQuestions: event.target.value })}
         />
       </Field>
+      {children}
     </>
   );
 }
 
-/** `moderated`: a taken-down Ree cannot be made public by its owner (prototype dot-setup.js `publishing`). */
+/** Visibility and the query fee; a taken-down Ree cannot be made public by its owner (prototype dot-setup.js `publishing`). */
 export function PublishingFields({ value, onChange, moderated = false }: { value: ReeFormState; onChange: Change; moderated?: boolean }) {
   const { t } = useI18n();
   const f = t.reeSetup.fields;
   return (
     <>
-      <div className="grid grid-cols-1 gap-3 sm:grid-cols-2" role="radiogroup">
+      <div className="setup-visibility">
         {([false, true] as const).map((isPublic) => (
-          <label
-            key={String(isPublic)}
-            className={`flex gap-3 rounded-xl border p-4 transition ${
-              moderated && isPublic ? 'cursor-not-allowed border-line opacity-50' : value.isPublic === isPublic ? 'cursor-pointer border-blue bg-soft' : 'cursor-pointer border-line hover:border-[#c4cce0]'
-            }`}
-          >
+          <label key={String(isPublic)}>
             <input
               type="radio"
               name="visibility"
-              className="mt-1"
+              value={isPublic ? 'public' : 'private'}
               checked={value.isPublic === isPublic}
               disabled={moderated && isPublic}
               onChange={() => onChange({ isPublic })}
             />
             <span>
-              <strong className="flex items-center gap-1.5 text-[13px]">
-                <Icon name={isPublic ? 'globe' : 'lock'} className="size-4" />
-                {isPublic ? f.public : f.private}
-              </strong>
-              <small className="mt-1 block text-[11px] text-muted">{isPublic ? f.publicHint : f.privateHint}</small>
+              <PIcon name={isPublic ? 'globe' : 'lock'} />
+              <strong>{isPublic ? f.public : f.private}</strong>
+              <small>{isPublic ? f.publicHint : f.privateHint}</small>
             </span>
           </label>
         ))}
       </div>
-      {moderated && <small className="hint">{t.reeSetup.settings.moderatedHint}</small>}
-      <Field id="ree-fee" label={f.fee} hint={f.feeHint}>
+      {moderated && <p className="form-hint">{t.reeSetup.settings.moderatedHint}</p>}
+      <Field id="edit-fee" label={f.fee} hint={f.feeHint}>
         <input
-          id="ree-fee"
-          className="input max-w-[220px] font-mono"
+          id="edit-fee"
+          name="fee"
           type="number"
           min={QUERY_FEE.min}
           max={QUERY_FEE.max}

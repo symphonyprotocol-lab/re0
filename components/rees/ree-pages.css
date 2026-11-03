@@ -1,0 +1,67 @@
+/*
+ * The owner's Ree pages (`/rees`, `/rees/new`, `/rees/[id]/settings`,
+ * `/rees/[id]/video`, `/videos`) take the prototype's own stylesheets,
+ * ported per page with their class names, breakpoints and cascade order and
+ * scoped to the page's root class (owned-rees.css, ree-setup.css,
+ * video-pages.css). This file gives those roots the prototype's base: its
+ * :root tokens under their own names (rebuild-prototype/styles.css) and the
+ * body type the prototype's pages inherit.
+ */
+:where(.owned-rees-page, .dot-setup-page, .dot-settings-page, .video-library-page, .video-editor-page, .setup-progress) {
+  --bg: var(--color-bg);
+  --paper: #fff;
+  --ink: var(--color-ink);
+  --muted: var(--color-muted);
+  --line: var(--color-line);
+  --blue: var(--color-blue);
+  --blue-dark: var(--color-blue-dark);
+  --soft: var(--color-soft);
+  --wash: var(--color-wash);
+  --green: var(--color-green);
+  --red: var(--color-red);
+  --mono: var(--font-mono);
+  --sans: var(--font-sans);
+  font-family: var(--sans);
+  color: var(--ink);
+  font-size: 14px;
+  line-height: 1.6;
+  font-synthesis: none;
+}
+
+/*
+ * What the app's base styles add and the prototype never had: Tailwind's
+ * preflight resets headings, lists, media and form fields, and the app's
+ * `.text-link`, `.tag` and `.field-label` helpers (globals.css) are semibold
+ * or blocks. These put the browser's own defaults back, as the prototype had
+ * them; its own rules (more specific) still win where they say otherwise.
+ * Dialogs keep the app's styles.
+ */
+:where(.owned-rees-page, .dot-setup-page, .dot-settings-page, .video-library-page, .video-editor-page) :where(h1, h2, h3, h4, h5, h6):where(:not(dialog *)) {
+  font-size: revert;
+  font-weight: revert;
+}
+:where(.owned-rees-page, .dot-setup-page, .dot-settings-page, .video-library-page, .video-editor-page) :where(ul, ol, dl, dd, figure, blockquote):where(:not(dialog *)) {
+  margin: revert;
+  padding: revert;
+  list-style: revert;
+}
+:where(.owned-rees-page, .dot-setup-page, .dot-settings-page, .video-library-page, .video-editor-page) :where(svg, img, video, canvas):where(:not(dialog *)) {
+  display: revert;
+}
+:where(.owned-rees-page, .dot-setup-page, .dot-settings-page, .video-library-page, .video-editor-page) :where(input[type='checkbox'], input[type='radio']):where(:not(dialog *)) {
+  margin: revert;
+}
+:where(.owned-rees-page, .dot-setup-page, .dot-settings-page, .video-library-page, .video-editor-page) :where(input:not([type='checkbox'], [type='radio'], [type='range'], [type='file']), textarea, select):where(:not(dialog *)) {
+  background-color: Field;
+  color: FieldText;
+}
+:where(.owned-rees-page, .dot-setup-page, .dot-settings-page, .video-library-page, .video-editor-page) :where(.text-link, .tag):where(:not(dialog *)) {
+  font-weight: inherit;
+}
+:where(.owned-rees-page, .dot-setup-page, .dot-settings-page, .video-library-page, .video-editor-page) :where(.field-label):where(:not(dialog *)) {
+  display: inline;
+  margin-bottom: 0;
+  font-size: inherit;
+  font-weight: inherit;
+  color: inherit;
+}

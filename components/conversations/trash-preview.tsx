@@ -62,11 +62,11 @@ export function TrashPreview({ conversation, onClose, onRestore }: { conversatio
       ) : messages.length === 0 ? (
         <p className="text-[13px] text-muted">{s.previewEmpty}</p>
       ) : (
-        <div className="flex flex-col gap-3">
+        <div className="conv-dialog cl-trash-preview">
           {messages.map((message) => (
-            <article key={message.id} className="rounded-xl border border-line bg-wash px-3 py-2.5">
-              <strong className="block text-[12px]">{message.role === 'user' ? s.you : (message.reeName ?? t.conversations.room.removedRee)}</strong>
-              <p className="mt-1 text-[12px] leading-relaxed whitespace-pre-wrap text-[#3b4361]">{message.content}</p>
+            <article key={message.id}>
+              <strong>{message.role === 'user' ? s.you : (message.reeName ?? t.conversations.room.removedRee)}</strong>
+              <p>{message.content}</p>
             </article>
           ))}
         </div>

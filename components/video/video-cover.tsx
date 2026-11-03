@@ -10,6 +10,7 @@ import { fill } from '@/i18n/format';
 import { Icon, type IconName } from '@/components/ui/icons';
 import { Modal } from '@/components/ui/modal';
 import { ReeAvatar } from '@/components/ui/ree-avatar';
+import { DotAvatar, PIcon } from '@/components/rees/proto-icon';
 
 /* The Player and the composition load only when someone presses play. */
 const IntroPlayer = dynamic(() => import('@/components/video/intro-player').then((module) => module.IntroPlayer), {
@@ -50,6 +51,33 @@ export function VideoPlaceholder({ ree, className = '' }: { ree: CoverRee; class
         {t.video.placeholder.caption}
       </span>
     </span>
+  );
+}
+
+/**
+ * The same placeholder in the prototype's own markup (discovery-video.js
+ * `renderVideoPlaceholder`), for pages that carry the prototype's stylesheet
+ * (`.public-dot-video-placeholder`, owned-rees.css and video-pages.css).
+ */
+export function PlaceholderPoster({ ree }: { ree: CoverRee }) {
+  const { t } = useI18n();
+  return (
+    <div className="public-dot-video-placeholder" role="img" aria-label={fill(t.video.placeholder.label, { name: ree.name })}>
+      <span className="public-dot-video-placeholder-brand" aria-hidden="true">
+        RE0 <span>YOUR KNOWLEDGE. A NEW VOICE.</span>
+      </span>
+      <div>
+        <DotAvatar avatar={ree.avatarBlob} color={ree.color} />
+        <strong>{ree.name}</strong>
+        <span className="public-dot-video-placeholder-status">
+          <PIcon name="film" />
+          {t.video.placeholder.none}
+        </span>
+      </div>
+      <span className="public-dot-video-placeholder-caption" aria-hidden="true">
+        {t.video.placeholder.caption}
+      </span>
+    </div>
   );
 }
 

@@ -11,6 +11,10 @@ export const zh = {
     expand: '展开侧栏',
     openMenu: '打开导航',
     closeMenu: '关闭导航',
+    home: 'RE0 首页',
+    workspace: '空间导航',
+    breadcrumb: '页面路径',
+    conversationActions: '对话操作',
   },
   account: {
     balance: '可用余额',
@@ -94,6 +98,10 @@ export const en: Shape<typeof zh> = {
     expand: 'Expand sidebar',
     openMenu: 'Open navigation',
     closeMenu: 'Close navigation',
+    home: 'RE0 home',
+    workspace: 'Workspace navigation',
+    breadcrumb: 'Breadcrumb',
+    conversationActions: 'Conversation actions',
   },
   account: {
     balance: 'Available balance',

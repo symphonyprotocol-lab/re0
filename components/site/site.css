@@ -6,45 +6,45 @@
  * Tailwind layers on the same elements, the way the prototype's did.
  */
 
-/* The prototype's base elements and helpers, only inside the site's own frame and the explore page (explore.css). */
-:where(.marketing-header, .marketing-footer, .site-home, .discovery-page) {
+/* The prototype's base elements and helpers, only inside the site's own frame, the explore page (explore.css) and pricing (pricing.css). */
+:where(.marketing-header, .marketing-footer, .site-home, .discovery-page, .pricing-page) {
   line-height: 1.6;
   font-synthesis: none;
 }
-:where(.marketing-header, .marketing-footer, .site-home, .discovery-page) :where(h1, h2, h3) {
+:where(.marketing-header, .marketing-footer, .site-home, .discovery-page, .pricing-page) :where(h1, h2, h3) {
   line-height: 1.3;
   font-weight: 700;
 }
-:where(.marketing-header, .marketing-footer, .site-home, .discovery-page) sup {
+:where(.marketing-header, .marketing-footer, .site-home, .discovery-page, .pricing-page) sup {
   position: static;
   vertical-align: super;
 }
-:where(.marketing-header, .marketing-footer, .site-home, .discovery-page) svg {
+:where(.marketing-header, .marketing-footer, .site-home, .discovery-page, .pricing-page) svg {
   display: inline;
   vertical-align: middle;
   flex-shrink: 0;
 }
-:where(.marketing-header, .marketing-footer, .site-home, .discovery-page) .mono {
+:where(.marketing-header, .marketing-footer, .site-home, .discovery-page, .pricing-page) .mono {
   font-family: var(--font-mono);
 }
-:where(.marketing-header, .marketing-footer, .site-home, .discovery-page) .muted {
+:where(.marketing-header, .marketing-footer, .site-home, .discovery-page, .pricing-page) .muted {
   color: var(--color-muted);
 }
-:where(.marketing-header, .marketing-footer, .site-home, .discovery-page) .tiny {
+:where(.marketing-header, .marketing-footer, .site-home, .discovery-page, .pricing-page) .tiny {
   font-size: 11px;
 }
-:where(.marketing-header, .marketing-footer, .site-home, .discovery-page) :is(.marketing-actions, .footer-note, .demo-ree) {
+:where(.marketing-header, .marketing-footer, .site-home, .discovery-page, .pricing-page) :is(.marketing-actions, .footer-note, .demo-ree) {
   display: flex;
   align-items: center;
   gap: 10px;
 }
-:where(.marketing-header, .marketing-footer, .site-home, .discovery-page) .between {
+:where(.marketing-header, .marketing-footer, .site-home, .discovery-page, .pricing-page) .between {
   display: flex;
   align-items: center;
   justify-content: space-between;
   gap: 16px;
 }
-:where(.marketing-header, .marketing-footer, .site-home, .discovery-page) .btn {
+:where(.marketing-header, .marketing-footer, .site-home, .discovery-page, .pricing-page) .btn {
   border: 1px solid transparent;
   background: var(--color-blue);
   color: #ffffff;
@@ -64,49 +64,49 @@
     transform 0.18s,
     box-shadow 0.18s;
 }
-:where(.marketing-header, .marketing-footer, .site-home, .discovery-page) .btn:hover:not(:disabled) {
+:where(.marketing-header, .marketing-footer, .site-home, .discovery-page, .pricing-page) .btn:hover:not(:disabled) {
   background: var(--color-blue-dark);
   transform: translateY(-2px);
   box-shadow: 0 5px 12px rgba(18, 126, 227, 0.1);
 }
-:where(.marketing-header, .marketing-footer, .site-home, .discovery-page) .btn:active:not(:disabled) {
+:where(.marketing-header, .marketing-footer, .site-home, .discovery-page, .pricing-page) .btn:active:not(:disabled) {
   transform: translateY(0) scale(0.97);
   box-shadow: none;
 }
-:where(.marketing-header, .marketing-footer, .site-home, .discovery-page) .btn svg {
+:where(.marketing-header, .marketing-footer, .site-home, .discovery-page, .pricing-page) .btn svg {
   width: 16px;
   height: 16px;
 }
-:where(.marketing-header, .marketing-footer, .site-home, .discovery-page) .btn.secondary {
+:where(.marketing-header, .marketing-footer, .site-home, .discovery-page, .pricing-page) .btn.secondary {
   color: var(--color-ink);
   background: #ffffff;
   border-color: var(--color-line);
 }
-:where(.marketing-header, .marketing-footer, .site-home, .discovery-page) .btn.secondary:hover {
+:where(.marketing-header, .marketing-footer, .site-home, .discovery-page, .pricing-page) .btn.secondary:hover {
   background: var(--color-wash);
   border-color: #c4cce0;
   box-shadow: none;
 }
-:where(.marketing-header, .marketing-footer, .site-home, .discovery-page) .btn.ghost {
+:where(.marketing-header, .marketing-footer, .site-home, .discovery-page, .pricing-page) .btn.ghost {
   color: var(--color-muted);
   background: transparent;
 }
-:where(.marketing-header, .marketing-footer, .site-home, .discovery-page) .btn.ghost:hover {
+:where(.marketing-header, .marketing-footer, .site-home, .discovery-page, .pricing-page) .btn.ghost:hover {
   color: var(--color-blue);
   background: var(--color-soft);
   box-shadow: none;
 }
-:where(.marketing-header, .marketing-footer, .site-home, .discovery-page) .btn.sm {
+:where(.marketing-header, .marketing-footer, .site-home, .discovery-page, .pricing-page) .btn.sm {
   min-height: 32px;
   padding: 6px 10px;
   font-size: 12px;
 }
-:where(.marketing-header, .marketing-footer, .site-home, .discovery-page) .btn.large {
+:where(.marketing-header, .marketing-footer, .site-home, .discovery-page, .pricing-page) .btn.large {
   min-height: 48px;
   padding: 13px 23px;
   font-size: 14px;
 }
-:where(.marketing-header, .marketing-footer, .site-home, .discovery-page) .text-link {
+:where(.marketing-header, .marketing-footer, .site-home, .discovery-page, .pricing-page) .text-link {
   color: var(--color-blue);
   font-size: 12px;
   font-weight: 400;
@@ -114,11 +114,11 @@
   align-items: center;
   gap: 5px;
 }
-:where(.marketing-header, .marketing-footer, .site-home, .discovery-page) .text-link svg {
+:where(.marketing-header, .marketing-footer, .site-home, .discovery-page, .pricing-page) .text-link svg {
   width: 18px;
   height: 18px;
 }
-:where(.marketing-header, .marketing-footer, .site-home, .discovery-page) .eyebrow {
+:where(.marketing-header, .marketing-footer, .site-home, .discovery-page, .pricing-page) .eyebrow {
   font-family: var(--font-mono);
   font-size: 10px;
   letter-spacing: 0.15em;
@@ -126,7 +126,7 @@
   font-weight: 500;
   color: var(--color-muted);
 }
-:where(.marketing-header, .marketing-footer, .site-home, .discovery-page) .tag {
+:where(.marketing-header, .marketing-footer, .site-home, .discovery-page, .pricing-page) .tag {
   display: inline-flex;
   align-items: center;
   gap: 5px;
@@ -139,28 +139,28 @@
   color: #636b84;
   line-height: 1.5;
 }
-:where(.marketing-header, .marketing-footer, .site-home, .discovery-page) .tag.blue {
+:where(.marketing-header, .marketing-footer, .site-home, .discovery-page, .pricing-page) .tag.blue {
   background: var(--color-soft);
   color: var(--color-blue);
 }
-:where(.marketing-header, .marketing-footer, .site-home, .discovery-page) .dot {
+:where(.marketing-header, .marketing-footer, .site-home, .discovery-page, .pricing-page) .dot {
   width: 5px;
   height: 5px;
   background: currentColor;
   border-radius: 50%;
   display: inline-block;
 }
-:where(.marketing-header, .marketing-footer, .site-home, .discovery-page) .rule {
+:where(.marketing-header, .marketing-footer, .site-home, .discovery-page, .pricing-page) .rule {
   height: 1px;
   background: var(--color-line);
   margin: 20px 0;
 }
-:where(.marketing-header, .marketing-footer, .site-home, .discovery-page) .card {
+:where(.marketing-header, .marketing-footer, .site-home, .discovery-page, .pricing-page) .card {
   background: #ffffff;
   border: 1px solid var(--color-line);
   border-radius: 12px;
 }
-:where(.marketing-header, .marketing-footer, .site-home, .discovery-page) .wordmark {
+:where(.marketing-header, .marketing-footer, .site-home, .discovery-page, .pricing-page) .wordmark {
   display: inline-flex;
   align-items: center;
   gap: 9px;
@@ -168,30 +168,30 @@
   font-size: 23px;
   letter-spacing: -0.8px;
 }
-:where(.marketing-header, .marketing-footer, .site-home, .discovery-page) .wordmark > svg {
+:where(.marketing-header, .marketing-footer, .site-home, .discovery-page, .pricing-page) .wordmark > svg {
   width: 31px;
   height: 31px;
 }
-:where(.marketing-header, .marketing-footer, .site-home, .discovery-page) .dot-avatar {
+:where(.marketing-header, .marketing-footer, .site-home, .discovery-page, .pricing-page) .dot-avatar {
   width: 43px;
   height: 43px;
   border-radius: 12px;
   display: flex;
 }
-:where(.marketing-header, .marketing-footer, .site-home, .discovery-page) .dot-avatar svg {
+:where(.marketing-header, .marketing-footer, .site-home, .discovery-page, .pricing-page) .dot-avatar svg {
   width: 23px;
   height: 23px;
 }
-:where(.marketing-header, .marketing-footer, .site-home, .discovery-page) .dot-avatar.sm {
+:where(.marketing-header, .marketing-footer, .site-home, .discovery-page, .pricing-page) .dot-avatar.sm {
   width: 31px;
   height: 31px;
   border-radius: 9px;
 }
-:where(.marketing-header, .marketing-footer, .site-home, .discovery-page) .dot-avatar.sm svg {
+:where(.marketing-header, .marketing-footer, .site-home, .discovery-page, .pricing-page) .dot-avatar.sm svg {
   width: 18px;
   height: 18px;
 }
-:where(.marketing-header, .marketing-footer, .site-home, .discovery-page) .citation-chip {
+:where(.marketing-header, .marketing-footer, .site-home, .discovery-page, .pricing-page) .citation-chip {
   border: 1px solid #e2e8f4;
   background: #ffffff;
   border-radius: 5px;
@@ -202,11 +202,11 @@
   font-size: 10px;
   color: #8190ac;
 }
-:where(.marketing-header, .marketing-footer, .site-home, .discovery-page) .citation-chip:hover {
+:where(.marketing-header, .marketing-footer, .site-home, .discovery-page, .pricing-page) .citation-chip:hover {
   border-color: var(--color-blue);
   color: var(--color-blue);
 }
-:where(.marketing-header, .marketing-footer, .site-home, .discovery-page) .citation-chip svg {
+:where(.marketing-header, .marketing-footer, .site-home, .discovery-page, .pricing-page) .citation-chip svg {
   width: 10px;
   height: 10px;
 }

@@ -3,7 +3,7 @@ import { notFound } from 'next/navigation';
 import { currentUser } from '@/lib/http/session';
 import { db } from '@/lib/infra/db';
 import { maxCostFor } from '@/lib/services/answer';
-import { messagesOf, testConversation, toUIMessages } from '@/lib/services/chat';
+import { messagesOf, testConversation, toUIMessages, votesFor } from '@/lib/services/chat';
 import { readiness } from '@/lib/services/knowledge';
 import { ownedRee } from '@/lib/services/rees';
 import { serverMessages } from '@/i18n/server';
@@ -22,6 +22,7 @@ export default async function ReeChatPage({ params }: { params: Promise<{ id: st
   if (!ree) notFound();
   const conversation = await testConversation(user.id, ree.id);
   const [rows, counts] = await Promise.all([messagesOf(conversation.id), readiness(ree.id)]);
+  const votes = await votesFor(user.id, rows.filter((row) => row.role === 'ree' && !row.noAnswer).map((row) => row.id));
   return (
     <>
       <ReeTopbar ree={ree} active="chat" />
@@ -30,7 +31,7 @@ export default async function ReeChatPage({ params }: { params: Promise<{ id: st
         ree={{ id: ree.id, name: ree.name, avatarBlob: ree.avatarBlob, color: ree.color, sampleQuestions: ree.sampleQuestions }}
         readiness={counts}
         maxCost={maxCostFor(ree, user.id)}
-        initialMessages={toUIMessages(rows)}
+        initialMessages={toUIMessages(rows, { votes })}
       />
     </>
   );

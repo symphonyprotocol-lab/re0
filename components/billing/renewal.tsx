@@ -46,7 +46,7 @@ export function RenewalControl({ cancelAtPeriodEnd, periodEndLabel }: { cancelAt
 
   if (cancelAtPeriodEnd) {
     return (
-      <button type="button" className="btn-secondary w-full" disabled={busy} onClick={() => change('resume')}>
+      <button type="button" className="btn secondary" disabled={busy} onClick={() => change('resume')}>
         {busy && <Spinner />}
         {b.plan.resume}
       </button>
@@ -54,7 +54,7 @@ export function RenewalControl({ cancelAtPeriodEnd, periodEndLabel }: { cancelAt
   }
   return (
     <>
-      <button type="button" className="btn-secondary w-full" onClick={() => setConfirming(true)}>
+      <button type="button" className="btn secondary" onClick={() => setConfirming(true)}>
         {b.plan.manage}
       </button>
       <Modal
@@ -63,17 +63,17 @@ export function RenewalControl({ cancelAtPeriodEnd, periodEndLabel }: { cancelAt
         title={b.manage.title}
         footer={
           <>
-            <button type="button" className="btn-secondary" onClick={() => setConfirming(false)}>
+            <button type="button" className="btn secondary" onClick={() => setConfirming(false)}>
               {b.manage.keep}
             </button>
-            <button type="button" className="btn-danger" disabled={busy} onClick={() => change('cancel')}>
+            <button type="button" className="btn danger" disabled={busy} onClick={() => change('cancel')}>
               {busy && <Spinner />}
               {b.manage.confirm}
             </button>
           </>
         }
       >
-        <p className="text-[13px] leading-relaxed text-muted">{fill(b.manage.body, { date: periodEndLabel })}</p>
+        <p className="small muted">{fill(b.manage.body, { date: periodEndLabel })}</p>
       </Modal>
     </>
   );

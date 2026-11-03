@@ -1,0 +1,1078 @@
+/*
+ * The signed-in workspace frame, ported from the prototype with its class
+ * names, breakpoints and resolved cascade: styles.css `.sidebar` / `.topbar`,
+ * navigation.css (fixed bar, breadcrumbs, context row, collapse, drawer),
+ * conversations.css / experience.css (`.sidebar-chat`, history),
+ * settings.css (usage card, account link). Unlayered on purpose: these rules
+ * win over the Tailwind layers on the same elements, as the prototype's did.
+ *
+ * Variables for pages inside the frame: `--navigation-height` (the fixed
+ * bar, plus the context row when there is one) and `--navigation-sidebar`
+ * on `.app-main`.
+ */
+
+:root {
+  --workspace-bar-height: 74px;
+  --context-bar-height: 44px;
+}
+
+/* ---- Sidebar ---------------------------------------------------------- */
+
+.sidebar {
+  position: fixed;
+  inset: 0 auto 0 0;
+  z-index: 30;
+  display: flex;
+  flex-direction: column;
+  width: 252px;
+  padding: 24px 13px 15px;
+  overflow-y: auto;
+  background: #fbfbff;
+  border-right: 1px solid var(--color-line);
+}
+.sidebar svg {
+  display: inline;
+  vertical-align: middle;
+  flex-shrink: 0;
+}
+.sidebar > .wordmark {
+  display: inline-flex;
+  align-items: center;
+  gap: 9px;
+  padding-left: 9px;
+  font-size: 23px;
+  font-weight: 750;
+  letter-spacing: -0.8px;
+}
+.sidebar > .wordmark > svg {
+  width: 31px;
+  height: 31px;
+}
+.sidebar-close {
+  display: none;
+}
+
+.sidebar .nav {
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+  margin-top: 22px;
+  padding-bottom: 12px;
+  border-bottom: 1px solid #e7eaf3;
+}
+.sidebar .nav a {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  min-height: 33px;
+  padding: 8px 10px;
+  border-radius: 8px;
+  font-size: 11px;
+  font-weight: 500;
+  color: #7e8fa9;
+  transition:
+    color 0.2s,
+    background 0.2s,
+    transform 0.2s;
+}
+.sidebar .nav a svg {
+  width: 16px;
+  height: 16px;
+}
+.sidebar .nav a:hover {
+  color: var(--color-ink);
+  background: #f7f8fc;
+  transform: translateX(2px);
+}
+.sidebar .nav a.active {
+  color: var(--color-blue);
+  background: #eaf0fc;
+}
+.sidebar .nav .nav-count {
+  margin-left: auto;
+  padding: 1px 5px;
+  border-radius: 4px;
+  background: #fff;
+  font: 10px var(--font-mono);
+  color: #9ba1b1;
+}
+
+/* 新建对话 and 搜索对话 (conversations.css `.chat-sidebar-tool`). */
+.chat-sidebar-tools {
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+  margin: 12px 0 2px;
+}
+.chat-sidebar-tool {
+  display: flex;
+  align-items: center;
+  justify-content: flex-start;
+  gap: 10px;
+  min-height: 38px;
+  padding: 10px;
+  border-radius: 7px;
+  font-size: 12px;
+  line-height: 1.6;
+  color: #566986;
+  text-align: left;
+  transition:
+    background 0.15s,
+    color 0.15s;
+}
+.chat-sidebar-tool.is-primary {
+  font-weight: 550;
+  line-height: 1.4;
+}
+.chat-sidebar-tool:hover {
+  color: var(--color-blue);
+  background: #eaf0fc;
+}
+.chat-sidebar-tool.active {
+  color: #247dce;
+  background: #edf4ff;
+}
+.chat-sidebar-tool > svg {
+  width: 17px;
+  height: 17px;
+}
+.chat-sidebar-tool > kbd {
+  margin-left: auto;
+  padding: 2px 4px;
+  border: 1px solid #e6eaf2;
+  border-radius: 3px;
+  font: 8px var(--font-mono);
+  color: #a6b1c4;
+}
+
+/* The quick history (conversations.css `.chat-history-*`). */
+.chat-history-scroll {
+  position: relative;
+  flex: 1;
+  min-height: 0;
+  padding-top: 6px;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  scrollbar-width: thin;
+  scrollbar-color: #dbe2ef transparent;
+}
+.chat-history-scroll > h3 {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  padding: 13px 10px 6px;
+  font-size: 10px;
+  font-weight: 450;
+  line-height: 1.3;
+  color: #9ba7bc;
+}
+.chat-history-count {
+  font: 9px var(--font-mono);
+  color: #a4b2c6;
+}
+.chat-history-date {
+  margin: 0;
+  padding: 9px 10px 4px;
+  font-size: 9px;
+  font-weight: 400;
+  color: #acb7c9;
+}
+.chat-history-row {
+  position: relative;
+  display: flex;
+  align-items: center;
+  min-height: 32px;
+  border-radius: 6px;
+}
+.chat-history-row:hover {
+  background: #eff2f9;
+}
+.chat-history-row.active {
+  background: #eaf0fc;
+}
+.chat-history-row > a {
+  display: flex;
+  flex: 1;
+  align-items: center;
+  gap: 6px;
+  min-width: 0;
+  padding: 8px 10px;
+  font-size: 11px;
+  line-height: 1.7;
+  color: #6c7d98;
+}
+.chat-history-row.active > a {
+  color: #3d79be;
+}
+.chat-history-row > a > svg {
+  width: 11px;
+  height: 11px;
+  color: #8fa9cc;
+}
+.chat-history-row > a > .chat-history-title {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.chat-history-row > .icon-btn {
+  flex: none;
+  width: 24px;
+  height: 26px;
+  margin-right: 4px;
+  color: #94a4be;
+  opacity: 0;
+}
+.chat-history-row > .icon-btn > svg {
+  width: 13px;
+  height: 13px;
+}
+.chat-history-row:hover > .icon-btn,
+.chat-history-row:focus-within > .icon-btn {
+  opacity: 1;
+}
+.chat-history-empty {
+  padding: 17px 10px;
+  font-size: 11px;
+  line-height: 1.9;
+  color: #a2afc4;
+}
+
+/* The usage card and the account row (settings.css). */
+.sidebar-account-footer {
+  flex: none;
+  min-width: 0;
+  margin-top: auto;
+  padding-top: 9px;
+  border-top: 1px solid #e6eaf2;
+  container-type: inline-size;
+}
+.sidebar-usage {
+  position: relative;
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  gap: 5px 8px;
+  margin: 0 3px 9px;
+  padding: 10px 11px;
+  border: 1px solid #e2e9f5;
+  border-radius: 10px;
+  background: #f3f7ff;
+  color: #7287a7;
+  transition:
+    border-color 0.15s,
+    background 0.15s;
+}
+.sidebar-usage:hover {
+  border-color: #bfd6f6;
+  background: #edf4ff;
+}
+.sidebar-usage:focus-visible {
+  outline: 2px solid #8bbcf8;
+  outline-offset: 3px;
+}
+.sidebar-usage-icon {
+  display: none;
+}
+.sidebar-usage-head {
+  grid-column: 1 / -1;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  line-height: 14px;
+}
+.sidebar-usage-head strong {
+  font-size: 10px;
+  font-weight: 550;
+  color: #45658e;
+}
+.sidebar-usage-head > span {
+  padding: 1px 4px;
+  border-radius: 4px;
+  background: #e6f3ed;
+  font-size: 8px;
+  line-height: 12px;
+  color: #4e9b86;
+  white-space: nowrap;
+}
+.sidebar-usage-head > span.ending {
+  background: #fff2e1;
+  color: #b3915c;
+}
+.sidebar-usage.is-free .sidebar-usage-head > span {
+  background: #e5efff;
+  color: #6994cb;
+}
+.sidebar-usage-amount {
+  grid-area: 2 / 1;
+  display: flex;
+  align-items: baseline;
+  gap: 4px;
+  min-width: 0;
+  font-family: var(--font-mono);
+  line-height: 18px;
+  white-space: nowrap;
+}
+.sidebar-usage-amount > strong {
+  font-size: 14px;
+  font-weight: 500;
+  letter-spacing: -0.5px;
+  color: #405c84;
+}
+.sidebar-usage-amount > span {
+  font-size: 8px;
+  color: #98a9c3;
+}
+.sidebar-usage-amount > small {
+  font: 8px var(--font-sans);
+  color: #96a6bf;
+}
+.sidebar-usage-meter {
+  grid-area: 3 / 1 / auto / -1;
+  height: 3px;
+  overflow: hidden;
+  border-radius: 4px;
+  background: #e1e9f7;
+}
+.sidebar-usage-meter > i {
+  display: block;
+  height: 100%;
+  border-radius: 4px;
+  background: #7eaee9;
+  transition: width 0.2s;
+}
+.sidebar-usage.is-low .sidebar-usage-meter > i {
+  background: #c49b67;
+}
+.sidebar-usage-foot {
+  grid-area: 2 / 2;
+  display: flex;
+  align-items: baseline;
+  font-size: 8px;
+  line-height: 18px;
+  color: #98abc7;
+  white-space: nowrap;
+}
+.sidebar-usage-foot > svg {
+  display: none;
+}
+@container (max-width: 190px) {
+  .sidebar-account-footer .sidebar-usage {
+    margin-inline: 0;
+    padding-inline: 8px;
+    column-gap: 4px;
+  }
+  .sidebar-account-footer .sidebar-usage-amount > small {
+    display: none;
+  }
+  .sidebar-account-footer .sidebar-usage-amount > strong {
+    font-size: 13px;
+  }
+  .sidebar-account-footer .sidebar-usage-amount > span,
+  .sidebar-account-footer .sidebar-usage-foot {
+    font-size: 7px;
+  }
+}
+.sidebar .user-row {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 5px 4px 0;
+}
+.user-settings-link {
+  display: flex;
+  flex: 1;
+  align-items: center;
+  gap: 10px;
+  min-width: 0;
+  padding: 5px 3px;
+  border-radius: 8px;
+  transition:
+    background 0.15s,
+    color 0.15s;
+}
+.user-settings-link:hover {
+  background: #edf3fd;
+  color: var(--color-blue);
+}
+.user-settings-link > .avatar {
+  position: relative;
+  width: 31px;
+  height: 31px;
+  overflow: visible;
+}
+.user-settings-link > .avatar > img {
+  border-radius: 50%;
+}
+.user-settings-link .grow {
+  flex: 1;
+  min-width: 0;
+}
+.user-settings-link strong {
+  font-size: 11px;
+  font-weight: 550;
+}
+.user-settings-link p {
+  font-size: 9px;
+  color: #9a9eb0;
+}
+.user-settings-link strong,
+.user-settings-link p {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+/* Unread notices: a red dot on the avatar. */
+.user-settings-link .notice-dot {
+  position: absolute;
+  top: -1px;
+  right: -1px;
+  width: 10px;
+  height: 10px;
+  border: 2px solid #fbfbff;
+  border-radius: 50%;
+  background: var(--color-red);
+}
+.sidebar .user-row .icon-btn > svg,
+.sidebar-close > svg {
+  width: 17px;
+  height: 17px;
+}
+
+/* ---- Main column and the fixed bar ------------------------------------ */
+
+.app-main {
+  --navigation-sidebar: 252px;
+  --navigation-base: var(--workspace-bar-height);
+  --navigation-height: var(--navigation-base);
+  min-width: 0;
+  min-height: 100vh;
+  margin-left: 252px;
+}
+.app-main:has(.context-nav-row) {
+  --navigation-height: calc(var(--navigation-base) + var(--context-bar-height));
+}
+html:has(.app-main) {
+  scroll-padding-top: calc(var(--workspace-bar-height) + 16px);
+}
+html:has(.app-main .context-nav-row) {
+  scroll-padding-top: calc(var(--workspace-bar-height) + var(--context-bar-height) + 16px);
+}
+/* The bar is fixed; this keeps the page below it. */
+.topbar-spacer {
+  height: var(--navigation-height);
+}
+
+.app-main .topbar {
+  position: fixed;
+  inset: 0 0 auto var(--navigation-sidebar);
+  z-index: 25;
+  display: flex;
+  flex-direction: column;
+  height: var(--navigation-height);
+  background: #faf9fff5;
+  backdrop-filter: blur(16px);
+  border-bottom: 1px solid #e0e5f0;
+  box-shadow: 0 2px 10px #18295203;
+}
+.topbar svg {
+  display: inline;
+  vertical-align: middle;
+  flex-shrink: 0;
+}
+.topbar-main {
+  display: flex;
+  flex: none;
+  align-items: center;
+  justify-content: space-between;
+  gap: 24px;
+  min-width: 0;
+  height: var(--navigation-base);
+  padding: 0 36px;
+}
+.topbar-location {
+  display: flex;
+  flex: 1;
+  align-items: center;
+  gap: 10px;
+  min-width: 0;
+}
+.topbar-right {
+  display: flex;
+  flex: none;
+  align-items: center;
+  gap: 18px;
+}
+.topbar .mobile-menu {
+  display: none;
+}
+.topbar .icon-btn > svg {
+  width: 17px;
+  height: 17px;
+}
+.sidebar-collapse {
+  flex: none;
+  color: #8b9ab4;
+}
+.sidebar-collapse:hover {
+  background: #eaf1fe;
+  color: var(--color-blue);
+}
+
+.header-breadcrumbs {
+  display: flex;
+  flex: 1;
+  align-items: center;
+  gap: 9px;
+  min-width: 0;
+  font-size: 11px;
+  color: #8e99af;
+}
+.header-breadcrumbs > a,
+.header-breadcrumbs > span {
+  min-width: 25px;
+  max-width: 210px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.header-breadcrumbs > a {
+  color: #8393ad;
+  transition: color 0.15s;
+}
+.header-breadcrumbs > a:hover {
+  color: var(--color-blue);
+  text-decoration: underline;
+  text-underline-offset: 4px;
+}
+.header-breadcrumbs > span[aria-current] {
+  color: #4e5e7b;
+  font-weight: 550;
+}
+.header-breadcrumbs > svg {
+  flex: none;
+  width: 13px;
+  height: 13px;
+  color: #acb6c9;
+}
+
+/* 中 / EN and 返回官网 (app.js `shell`). */
+.topbar-right > .shell-language {
+  min-height: 32px;
+  gap: 8px;
+  padding: 5px;
+  font-size: 10px;
+}
+.topbar-right > .shell-language > svg {
+  width: 16px;
+  height: 16px;
+}
+.shell-site-link {
+  font-size: 11px;
+}
+.shell-site-link > svg {
+  width: 18px;
+  height: 18px;
+}
+
+/* The second row: a Ree's tabs, the settings tabs, the wizard's steps. */
+.context-nav-row {
+  display: flex;
+  align-items: stretch;
+  justify-content: space-between;
+  gap: 16px;
+  min-width: 0;
+  height: var(--context-bar-height);
+  min-height: var(--context-bar-height);
+  padding: 0 36px;
+  border-top: 1px solid #e9ecf5;
+}
+.header-tabs {
+  display: flex;
+  flex: 1;
+  align-items: stretch;
+  gap: 27px;
+  min-width: 0;
+  margin: 0;
+  padding: 0;
+  overflow-x: auto;
+  overscroll-behavior-inline: contain;
+  scrollbar-width: none;
+}
+.header-tabs::-webkit-scrollbar {
+  display: none;
+}
+.header-tabs > a {
+  display: inline-flex;
+  flex: none;
+  align-items: center;
+  gap: 6px;
+  padding: 0 1px;
+  border-bottom: 2px solid transparent;
+  font-size: 11px;
+  color: #8795af;
+  white-space: nowrap;
+  transition:
+    color 0.15s,
+    border-color 0.15s;
+}
+.header-tabs > a:hover,
+.header-tabs > a.active {
+  color: var(--color-blue);
+}
+.header-tabs > a.active {
+  border-bottom-color: var(--color-blue);
+  font-weight: 550;
+}
+.header-tabs > a > svg {
+  width: 14px;
+  height: 14px;
+}
+.context-nav-actions {
+  display: flex;
+  flex: none;
+  align-items: center;
+  gap: 13px;
+}
+.context-nav-actions > .icon-btn {
+  width: 28px;
+  height: 28px;
+}
+/* For pages that put them in `rowActions`: a Ree's public page link, a source's previous / next. */
+.context-public-link {
+  gap: 6px;
+  font-size: 10px;
+  white-space: nowrap;
+}
+.context-public-link > svg {
+  width: 13px;
+  height: 13px;
+}
+.context-source-nav {
+  display: flex;
+  align-items: center;
+  gap: 3px;
+  padding-right: 10px;
+  border-right: 1px solid #e2e8f3;
+}
+.context-source-nav > span {
+  margin-right: 7px;
+  font-size: 9px;
+  color: #9baac1;
+}
+.context-source-nav .icon-btn {
+  width: 26px;
+  height: 26px;
+}
+.context-source-nav .icon-btn:disabled {
+  opacity: 0.3;
+  cursor: default;
+}
+
+/* A Ree's pages on a phone: ← back and the Ree's name (navigation.css `.ree-workspace-shell`). */
+.ree-mobile-location {
+  display: none;
+}
+
+/* ---- Collapsed rail (≥ 761px) ----------------------------------------- */
+
+@media (min-width: 761px) {
+  .app-main {
+    transition: margin-left 0.2s ease;
+  }
+  .app-main .topbar {
+    transition: left 0.2s ease;
+  }
+  .sidebar {
+    transition:
+      width 0.2s ease,
+      padding 0.2s ease;
+  }
+  .app-main.sidebar-collapsed {
+    --navigation-sidebar: 68px;
+    margin-left: 68px;
+  }
+  .sidebar.is-collapsed {
+    align-items: stretch;
+    width: 68px;
+    padding: 24px 10px 15px;
+  }
+  .sidebar.is-collapsed > .wordmark {
+    justify-content: center;
+    gap: 0;
+    padding: 0;
+  }
+  .sidebar.is-collapsed > .wordmark > span {
+    display: none;
+  }
+  .sidebar.is-collapsed .nav {
+    gap: 7px;
+  }
+  .sidebar.is-collapsed .nav a {
+    justify-content: center;
+    gap: 0;
+    min-height: 42px;
+    padding: 12px 0;
+    font-size: 0;
+  }
+  .sidebar.is-collapsed .nav a svg {
+    width: 18px;
+    height: 18px;
+    margin: 0;
+  }
+  .sidebar.is-collapsed .nav a > span {
+    display: none;
+  }
+  .sidebar.is-collapsed .chat-sidebar-tools {
+    margin: 25px 0 12px;
+  }
+  .sidebar.is-collapsed .chat-sidebar-tool {
+    justify-content: center;
+    padding: 10px 0;
+  }
+  .sidebar.is-collapsed .chat-sidebar-tool > span,
+  .sidebar.is-collapsed .chat-sidebar-tool > kbd {
+    display: none;
+  }
+  .sidebar.is-collapsed .chat-history-scroll {
+    display: none;
+  }
+  /* The label beside an icon on hover (navigation.css). */
+  .sidebar.is-collapsed :is(.nav a, .chat-sidebar-tool) {
+    position: relative;
+  }
+  .sidebar.is-collapsed :is(.nav a, .chat-sidebar-tool)::after {
+    content: attr(aria-label);
+    position: absolute;
+    top: 50%;
+    left: calc(100% + 13px);
+    z-index: 50;
+    padding: 7px 11px;
+    border-radius: 6px;
+    background: #1a2c4c;
+    box-shadow: 0 5px 18px #17284620;
+    font: 11px/1.5 var(--font-sans);
+    color: #fff;
+    white-space: nowrap;
+    opacity: 0;
+    pointer-events: none;
+    transform: translate(4px, -50%);
+    transition:
+      opacity 0.14s,
+      transform 0.14s;
+  }
+  .sidebar.is-collapsed :is(.nav a, .chat-sidebar-tool):is(:hover, :focus-visible)::after {
+    opacity: 1;
+    transform: translate(0, -50%);
+  }
+  .sidebar.is-collapsed .sidebar-usage {
+    display: grid;
+    grid-template-columns: 1fr;
+    place-items: center;
+    gap: 0;
+    min-height: 34px;
+    margin: 0 0 8px;
+    padding: 0;
+    border-color: transparent;
+    background: transparent;
+  }
+  .sidebar.is-collapsed .sidebar-usage > div {
+    display: none;
+  }
+  .sidebar.is-collapsed .sidebar-usage-icon {
+    display: grid;
+    place-items: center;
+    width: 32px;
+    height: 32px;
+    border-radius: 8px;
+    background: #edf3fe;
+    color: #7a9bc8;
+  }
+  .sidebar-usage-icon > svg {
+    width: 17px;
+    height: 17px;
+  }
+  .sidebar.is-collapsed .user-row {
+    flex-direction: column;
+    gap: 8px;
+    margin: 0;
+    padding: 8px 0 0;
+  }
+  .sidebar.is-collapsed .user-row .icon-btn {
+    width: 29px;
+    height: 29px;
+  }
+  .sidebar.is-collapsed .user-settings-link {
+    flex: none;
+    justify-content: center;
+    width: 32px;
+    min-height: 32px;
+    padding: 0;
+  }
+  .sidebar.is-collapsed .user-settings-link .grow {
+    display: none;
+  }
+}
+
+/* ---- Breakpoints ------------------------------------------------------ */
+
+@media (max-width: 1180px) {
+  .topbar-main {
+    gap: 17px;
+    padding-inline: 28px;
+  }
+  .context-nav-row {
+    padding-inline: 28px;
+  }
+  .header-breadcrumbs > a,
+  .header-breadcrumbs > span {
+    max-width: 155px;
+  }
+  .topbar-main .topbar-right {
+    gap: 13px;
+  }
+}
+@media (max-width: 980px) {
+  .topbar-main {
+    gap: 12px;
+    padding-inline: 23px;
+  }
+  .context-nav-row {
+    gap: 12px;
+    padding-inline: 23px;
+  }
+  .header-breadcrumbs {
+    gap: 6px;
+    font-size: 10px;
+  }
+  .header-breadcrumbs > a,
+  .header-breadcrumbs > span {
+    max-width: 135px;
+  }
+}
+/* Phones: the sidebar becomes a drawer over a dimmed page. */
+@media (max-width: 760px) {
+  :root {
+    --workspace-bar-height: 62px;
+  }
+  .sidebar {
+    transform: translateX(-100%);
+    transition: transform 0.25s;
+  }
+  .sidebar.mobile-open {
+    transform: translateX(0);
+    box-shadow: 0 0 0 100vw #09113550;
+  }
+  .sidebar-close {
+    position: absolute;
+    top: 27px;
+    right: 13px;
+    display: inline-flex;
+    width: 28px;
+    height: 28px;
+  }
+  .chat-history-row > .icon-btn {
+    opacity: 1;
+  }
+  .app-main {
+    --navigation-sidebar: 0px;
+    margin-left: 0;
+  }
+  .topbar .mobile-menu {
+    display: inline-flex;
+  }
+  .sidebar-collapse {
+    display: none;
+  }
+  .topbar-main {
+    padding-inline: 20px;
+  }
+  .context-nav-row {
+    gap: 10px;
+    padding-inline: 20px;
+  }
+  .context-nav-actions {
+    gap: 8px;
+  }
+  .context-public-link > span {
+    display: none;
+  }
+  .header-tabs {
+    gap: 21px;
+  }
+}
+@media (hover: none) {
+  .chat-history-row > .icon-btn {
+    opacity: 1;
+  }
+}
+@media (max-width: 600px) {
+  .app-main .topbar .topbar-main {
+    gap: 10px;
+    padding-inline: 14px;
+  }
+  .app-main .topbar .topbar-right {
+    gap: 4px;
+  }
+  .app-main .topbar .header-breadcrumbs {
+    font-size: 10px;
+  }
+  .app-main .topbar .shell-site-link {
+    display: none;
+  }
+}
+@media (max-width: 560px) {
+  .topbar-location {
+    gap: 5px;
+  }
+  .topbar-location > .mobile-menu {
+    flex: none;
+    width: 27px;
+    height: 30px;
+  }
+  .topbar-main .topbar-right .btn-ghost {
+    gap: 4px;
+    font-size: 9px;
+  }
+  .header-breadcrumbs {
+    gap: 5px;
+  }
+  .header-breadcrumbs > a,
+  .header-breadcrumbs > span {
+    max-width: 105px;
+  }
+  /* Three crumbs or more: the first one and its chevron give way. */
+  .header-breadcrumbs:has(> :nth-child(3)) > :first-child,
+  .header-breadcrumbs:has(> :nth-child(3)) > svg:nth-child(2) {
+    display: none;
+  }
+  .context-nav-row {
+    padding-inline: 16px;
+  }
+  .header-tabs {
+    gap: 18px;
+  }
+  .header-tabs > a {
+    gap: 5px;
+  }
+  .context-nav-actions {
+    gap: 7px;
+  }
+  .context-source-nav {
+    padding-right: 0;
+    border: 0;
+  }
+  .context-source-nav > span {
+    display: none;
+  }
+  .context-source-nav .icon-btn {
+    width: 23px;
+  }
+  .context-nav-actions:has(.context-source-nav) > .context-public-link {
+    display: none;
+  }
+}
+/* A Ree's pages on a phone (navigation.css `.ree-workspace-shell`). */
+@media (max-width: 760px) {
+  .app-main:has(.ree-mobile-location) {
+    --context-bar-height: 50px;
+  }
+  .ree-workspace-shell .topbar-main {
+    gap: 8px;
+    padding-inline: 12px;
+  }
+  .ree-workspace-shell .topbar-location {
+    gap: 0;
+  }
+  .ree-workspace-shell .topbar-location > .mobile-menu,
+  .ree-workspace-shell .header-breadcrumbs,
+  .ree-workspace-shell .topbar-right > :not(.shell-language) {
+    display: none;
+  }
+  .ree-workspace-shell .ree-mobile-location {
+    display: flex;
+    flex: 1;
+    align-items: center;
+    gap: 8px;
+    min-width: 0;
+  }
+  .ree-mobile-back {
+    display: inline-flex;
+    flex: none;
+    align-items: center;
+    justify-content: center;
+    width: 36px;
+    height: 40px;
+    border-radius: 8px;
+    color: #7188a9;
+  }
+  .ree-mobile-back:hover {
+    background: #edf3ff;
+    color: var(--color-blue);
+  }
+  .ree-mobile-back > svg {
+    width: 18px;
+    height: 18px;
+  }
+  .ree-mobile-location > span {
+    min-width: 0;
+    overflow: hidden;
+    font-size: 13px;
+    font-weight: 550;
+    color: #4e5e7b;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+  .ree-workspace-shell .topbar-main .topbar-right .shell-language {
+    display: inline-flex;
+    gap: 5px;
+    min-height: 40px;
+    padding: 8px 10px;
+    font-size: 11px;
+    white-space: nowrap;
+  }
+  .ree-workspace-shell .context-nav-row {
+    gap: 8px;
+    padding-inline: 12px;
+  }
+  .ree-workspace-shell .header-tabs {
+    gap: 0;
+    scroll-padding-inline: 6px;
+  }
+  .ree-workspace-shell .header-tabs > a {
+    gap: 6px;
+    padding-inline: 12px;
+    font-size: 12px;
+  }
+  .ree-workspace-shell .context-nav-actions > .context-public-link {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    min-width: 28px;
+    min-height: 36px;
+  }
+  .ree-workspace-shell .context-nav-actions:has(.context-source-nav) > .context-public-link {
+    display: none;
+  }
+  html:has(.ree-workspace-shell) {
+    scroll-padding-top: calc(var(--workspace-bar-height) + 50px + 16px);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .app-main,
+  .sidebar,
+  .app-main .topbar,
+  .sidebar .nav a,
+  .chat-sidebar-tool,
+  .header-tabs > a,
+  .header-breadcrumbs > a,
+  .user-settings-link,
+  .sidebar-usage,
+  .sidebar-usage-meter > i,
+  .sidebar.is-collapsed :is(.nav a, .chat-sidebar-tool)::after {
+    transition: none;
+  }
+}

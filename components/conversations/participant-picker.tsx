@@ -1,14 +1,13 @@
 'use client';
 
 import Link from 'next/link';
-import { useEffect, useLayoutEffect, useRef, useState, type ReactNode } from 'react';
+import { useEffect, useLayoutEffect, useRef, useState } from 'react';
 import { CONVERSATION_MAX_REES } from '@/lib/constants';
 import type { Candidate, ReeBrief } from '@/lib/services/conversations';
 import { useI18n } from '@/i18n/client';
 import { fill, formatNumber } from '@/i18n/format';
-import { Icon } from '@/components/ui/icons';
-import { ReeAvatar } from '@/components/ui/ree-avatar';
 import { RoleBadge } from '@/components/discover/role-badge';
+import { Avatar, I } from '@/components/chat/message-parts';
 
 export type Member = ReeBrief & { price: number };
 
@@ -101,10 +100,12 @@ export function ParticipantPicker({
       const above = at.top - barBottom - 14;
       const below = (window.visualViewport?.height ?? window.innerHeight) - at.bottom - 14;
       const isBelow = below > above;
+      node.classList.toggle('is-below', isBelow);
       node.style.top = isBelow ? `${at.bottom - box.top + 10}px` : 'auto';
       node.style.bottom = isBelow ? 'auto' : `${box.bottom - at.top + 10}px`;
       if (list) {
         const fixed = node.getBoundingClientRect().height - list.getBoundingClientRect().height;
+        list.style.minHeight = '0';
         list.style.maxHeight = `${Math.max(40, Math.min(view === 'manage' ? 250 : 260, Math.max(above, below) - fixed))}px`;
       }
     };
@@ -123,48 +124,50 @@ export function ParticipantPicker({
     setChosen((current) => (on ? (current.length >= CONVERSATION_MAX_REES || current.some((m) => m.id === candidate.id) ? current : [...current, candidate]) : current.filter((m) => m.id !== candidate.id)));
 
   return (
-    <section
-      ref={panel}
-      role="dialog"
-      aria-modal="false"
-      aria-labelledby="room-picker-heading"
-      className="absolute right-0 bottom-full left-0 z-30 flex flex-col rounded-2xl border border-line bg-white shadow-xl sm:right-auto sm:w-[400px]"
-    >
-      <header className="flex items-start justify-between gap-3 border-b border-line p-4">
+    <section ref={panel} role="dialog" aria-modal="false" aria-labelledby="room-picker-heading" className="room-picker">
+      <header>
         <div>
-          <h2 id="room-picker-heading" className="text-[14px] font-bold">
-            {view === 'manage' ? r.manageTitle : r.scopeTitle}
-          </h2>
-          <p className="mt-1 text-[11px] text-muted">{view === 'manage' ? (draft ? r.manageDraft : r.manageBody) : r.scopeBody}</p>
+          <h2 id="room-picker-heading">{view === 'manage' ? r.manageTitle : r.scopeTitle}</h2>
+          <p>{view === 'manage' ? (draft ? r.manageDraft : r.manageBody) : r.scopeBody}</p>
         </div>
         <button type="button" className="icon-btn" aria-label={r.close} onClick={() => onClose(true)}>
-          <Icon name="close" />
+          <I name="close" />
         </button>
       </header>
       {view === 'scope' ? (
         <>
-          <div data-picker-list className="min-h-0 flex-1 overflow-y-auto p-2" role="radiogroup" aria-label={r.scopeLabel}>
+          <div data-picker-list className="room-scope-list" role="radiogroup" aria-label={r.scopeLabel}>
             {members.length > 1 && (
-              <ScopeRow checked={!scope} onClick={() => onScope(null)} icon={<Icon name="users" className="size-5 text-blue" />} title={r.allAnswer} hint={r.allAnswerHint} />
+              <button type="button" role="radio" aria-checked={!scope} onClick={() => onScope(null)}>
+                <I name="users" />
+                <span>
+                  <strong>{r.allAnswer}</strong>
+                  <small>{r.allAnswerHint}</small>
+                </span>
+                {!scope && <I name="check" />}
+              </button>
             )}
-            {members.map((member) => (
-              <ScopeRow
-                key={member.id}
-                checked={scope === member.id || members.length === 1}
-                onClick={() => onScope(member.id)}
-                icon={<ReeAvatar avatar={member.avatarBlob} color={member.color} size="sm" />}
-                title={member.name}
-                badge={member.role}
-                hint={fill(r.scopeHint, { n: n(member.price) })}
-              />
-            ))}
-            {members.length === 0 && <p className="p-4 text-center text-[12px] text-muted">{r.noParticipants}</p>}
+            {members.map((member) => {
+              const checked = scope === member.id || members.length === 1;
+              return (
+                <button key={member.id} type="button" role="radio" aria-checked={checked} onClick={() => onScope(member.id)}>
+                  <Avatar ree={member} sm />
+                  <span>
+                    <strong>{member.name}</strong>
+                    <RoleBadge role={member.role} />
+                    <small>{fill(r.scopeHint, { n: n(member.price) })}</small>
+                  </span>
+                  {checked && <I name="check" />}
+                </button>
+              );
+            })}
+            {members.length === 0 && <p className="room-picker-empty">{r.noParticipants}</p>}
           </div>
-          <footer className="border-t border-line p-2">
-            <button type="button" className="flex h-10 w-full items-center gap-2 rounded-lg px-3 text-[12px] font-semibold text-blue hover:bg-soft" onClick={onManage}>
-              <Icon name="plus" />
+          <footer>
+            <button type="button" className="room-picker-manage" onClick={onManage}>
+              <I name="plus" />
               {r.manage}
-              <small className="ml-auto font-mono text-muted">
+              <small>
                 {members.length}/{CONVERSATION_MAX_REES}
               </small>
             </button>
@@ -172,44 +175,35 @@ export function ParticipantPicker({
         </>
       ) : (
         <>
-          <div className="border-b border-line p-3">
-            <label className="flex items-center gap-2 rounded-lg border border-line px-3 focus-within:border-blue">
-              <Icon name="search" className="size-4 text-muted" />
-              <input
-                type="search"
-                aria-label={r.pickerSearchLabel}
-                placeholder={r.pickerSearch}
-                className="h-9 min-w-0 flex-1 bg-transparent text-[12px] outline-none"
-                value={q}
-                onChange={(event) => setQ(event.target.value)}
-              />
-            </label>
+          <div className="room-picker-search">
+            <I name="search" />
+            <input type="search" aria-label={r.pickerSearchLabel} placeholder={r.pickerSearch} value={q} onChange={(event) => setQ(event.target.value)} />
           </div>
-          <div data-picker-list className="min-h-0 flex-1 overflow-y-auto p-2">
+          <div data-picker-list className="room-picker-list">
             {candidates === null ? (
-              <p className="p-4 text-center text-[12px] text-muted">{t.common.actions.loading}</p>
+              <p className="room-picker-empty">{t.common.actions.loading}</p>
             ) : list.length === 0 ? (
-              <p className="p-4 text-center text-[12px] text-muted">{r.noMatch}</p>
+              <p className="room-picker-empty">{r.noMatch}</p>
             ) : (
               list.map((candidate) => {
                 const checked = chosen.some((member) => member.id === candidate.id);
                 return (
-                  <label key={candidate.id} className="flex cursor-pointer items-center gap-3 rounded-lg px-2 py-2 hover:bg-wash">
-                    <ReeAvatar avatar={candidate.avatarBlob} color={candidate.color} size="sm" />
-                    <span className="min-w-0 flex-1">
-                      <strong className="flex items-center text-[12px]">
-                        <span className="truncate">{candidate.name}</span>
+                  <label key={candidate.id} className="room-picker-row">
+                    <Avatar ree={candidate} sm />
+                    <span>
+                      <strong>
+                        {candidate.name}
                         <RoleBadge role={candidate.role} />
-                        {joined.has(candidate.id) && <small className="ml-1.5 text-[10px] font-normal text-green">{r.joined}</small>}
+                        {joined.has(candidate.id) && <small>{r.joined}</small>}
                       </strong>
-                      <small className="block truncate text-[10px] text-muted">
+                      <small>
                         {fill(r.perAnswer, { n: n(candidate.price) })}
                         {candidate.ownerId === viewerId ? ` · ${r.mine}` : ''}
                       </small>
                     </span>
                     <input
                       type="checkbox"
-                      aria-label={`${r.participants}: ${candidate.name}`}
+                      aria-label={`${r.participantLabel}${candidate.name}`}
                       checked={checked}
                       disabled={!checked && (chosen.length >= CONVERSATION_MAX_REES || !candidate.usable)}
                       onChange={(event) => toggle(candidate, event.target.checked)}
@@ -219,18 +213,18 @@ export function ParticipantPicker({
               })
             )}
           </div>
-          <div className="flex items-center justify-between border-t border-line px-4 py-2 text-[11px]">
-            <span className="text-muted">{fill(r.summary, { n: chosen.length })}</span>
-            <strong className="font-mono">{fill(r.upToShort, { n: n(chosen.reduce((sum, member) => sum + member.price, 0)) })}</strong>
+          <div className="room-picker-summary">
+            <span>{fill(r.summary, { n: chosen.length })}</span>
+            <strong>{fill(r.upToShort, { n: n(chosen.reduce((sum, member) => sum + member.price, 0)) })}</strong>
           </div>
-          <footer className="flex items-center justify-between gap-2 border-t border-line p-3">
-            <Link href="/explore" className="flex items-center gap-1.5 text-[12px] text-blue hover:underline">
-              <Icon name="compass" />
+          <footer>
+            <Link href="/explore">
+              <I name="compass" />
               {r.discover}
             </Link>
             <button
               type="button"
-              className="btn btn-sm"
+              className="btn sm"
               disabled={busy}
               onClick={async () => {
                 setBusy(true);
@@ -242,27 +236,11 @@ export function ParticipantPicker({
               }}
             >
               {r.done}
-              <Icon name="check" />
+              <I name="check" />
             </button>
           </footer>
         </>
       )}
     </section>
-  );
-}
-
-function ScopeRow({ checked, onClick, icon, title, hint, badge }: { checked: boolean; onClick: () => void; icon: ReactNode; title: string; hint: string; badge?: string }) {
-  return (
-    <button type="button" role="radio" aria-checked={checked} onClick={onClick} className={`flex w-full items-center gap-3 rounded-lg px-2 py-2 text-left hover:bg-wash ${checked ? 'bg-soft' : ''}`}>
-      <span className="inline-flex size-8 flex-none items-center justify-center">{icon}</span>
-      <span className="min-w-0 flex-1">
-        <strong className="flex items-center text-[12px]">
-          <span className="truncate">{title}</span>
-          <RoleBadge role={badge} />
-        </strong>
-        <small className="block truncate text-[10px] text-muted">{hint}</small>
-      </span>
-      {checked && <Icon name="check" className="size-4 flex-none text-blue" />}
-    </button>
   );
 }
