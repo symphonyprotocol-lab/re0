@@ -1,22 +1,33 @@
 import type { ReactNode } from 'react';
-import type { UserRole } from '@/lib/domain/roles';
+import { verificationChecks, type RoleMetrics, type UserRole } from '@/lib/domain/roles';
 import type { VerificationOverview } from '@/lib/services/roles';
 import { serverMessages } from '@/i18n/server';
 import { fill, formatDateTime, formatNumber } from '@/i18n/format';
 import type { Messages } from '@/i18n';
 import type { Locale } from '@/i18n/locale';
-import { Icon } from '@/components/ui/icons';
 import { RoleApplication } from '@/components/settings/role-application';
-import { RequirementChecks } from '@/components/ui/requirement-checks';
+import { I } from '@/components/settings/icon';
 
-/** The role as a badge: verified green with a shield, official blue with a globe, normal grey. */
+/** The role as the prototype's badge (user-roles.js `badge`): verified with a shield, official with a globe. */
 export function RoleTag({ t, role }: { t: Messages; role: UserRole }) {
-  const tone = role === 'official' ? 'border-[#e7defa] bg-[#f2edff] text-[#7255bd]' : role === 'verified' ? 'border-[#dcecff] bg-[#edf5ff] text-blue' : '';
   return (
-    <span className={`tag ${tone}`}>
-      {role !== 'normal' && <Icon name={role === 'official' ? 'globe' : 'shield'} className="size-3" />}
+    <span className={`role-badge role-${role}`} title={`${t.roles.badgeTitle}${t.roles.roles[role]}`}>
+      {role !== 'normal' && <I name={role === 'official' ? 'globe' : 'shield'} />}
       {t.roles.roles[role]}
     </span>
+  );
+}
+
+/** The official account's notice (prototype role-pages.js `officialNotice`), also shown in place of the payout card. */
+export function OfficialNotice({ t }: { t: Messages }) {
+  return (
+    <section className="card role-panel role-official-notice">
+      <I name="globe" />
+      <div>
+        <h2>{t.roles.official.title}</h2>
+        <p>{t.roles.official.body}</p>
+      </div>
+    </section>
   );
 }
 
@@ -44,53 +55,75 @@ export async function RoleTab({ overview }: { overview: VerificationOverview }) 
               ? r.apply.state.eligible
               : r.apply.state.requirements;
   return (
-    <div className="flex flex-col gap-5">
-      <section className="card flex flex-col gap-4 p-5 sm:flex-row sm:items-center sm:justify-between md:p-6">
-        <div className="min-w-0">
-          <p className="eyebrow">{r.summary.eyebrow}</p>
-          <h2 className="mt-2 flex flex-wrap items-center gap-2 text-[17px] font-bold">
-            {r.summary.title}
-            <RoleTag t={t} role={role} />
+    <>
+      <section className="card role-panel role-account-summary">
+        <div>
+          <span className="role-eyebrow">{r.summary.eyebrow}</span>
+          <h2>
+            {r.summary.title} <RoleTag t={t} role={role} />
           </h2>
-          <p className="mt-2 text-[12px] leading-relaxed text-muted">{r.summary.note}</p>
+          <p>{r.summary.note}</p>
         </div>
-        <small className="flex-none text-[11px] text-muted">
-          {overview.roleChangedAt ? fill(r.summary.updated, { date: formatDateTime(overview.roleChangedAt, locale) }) : r.summary.default}
-        </small>
+        <small>{overview.roleChangedAt ? fill(r.summary.updated, { date: formatDateTime(overview.roleChangedAt, locale) }) : r.summary.default}</small>
       </section>
 
       {role === 'official' ? (
-        <section className="card flex items-start gap-3 bg-[#fbfaff] p-5 md:p-6">
-          <Icon name="globe" className="mt-0.5 size-5 flex-none text-[#7255bd]" />
-          <div>
-            <h2 className="text-[15px] font-bold">{r.official.title}</h2>
-            <p className="mt-1.5 text-[12px] leading-relaxed text-muted">{r.official.body}</p>
-          </div>
-        </section>
+        <OfficialNotice t={t} />
       ) : role === 'verified' ? (
-        <section className="card border-[#dbeee5] bg-[#f7fcfa] p-5 md:p-6">
-          <h2 className="flex items-center gap-2 text-[15px] font-bold">
-            <Icon name="shield" className="size-5 text-green" />
+        <section className="card role-panel role-success">
+          <h2>
+            <I name="shield" />
             {r.verified.title}
           </h2>
-          <p className="mt-1.5 text-[12px] leading-relaxed text-muted">{r.verified.body}</p>
+          <p>{r.verified.body}</p>
         </section>
       ) : (
-        <div className="grid grid-cols-1 gap-5 lg:grid-cols-[minmax(0,1.05fr)_minmax(0,1fr)]">
-          <section className="card min-w-0 p-5 md:p-6">
-            <h2 className="text-[15px] font-bold">{r.requirements.title}</h2>
-            <p className="mt-1 text-[12px] text-muted">{r.requirements.lede}</p>
-            <RequirementChecks t={t} locale={locale} metrics={overview.metrics} className="mt-3" />
-            <p className="mt-3 text-[11px] leading-relaxed text-muted">{r.requirements.footnote}</p>
+        <div className="role-settings-grid">
+          <section className="card role-panel">
+            <h2>{r.requirements.title}</h2>
+            <p>{r.requirements.lede}</p>
+            <Requirements t={t} locale={locale} metrics={overview.metrics} />
+            <p className="role-footnote">{r.requirements.footnote}</p>
           </section>
-          <section className="card min-w-0 p-5 md:p-6">
-            <h2 className="text-[15px] font-bold">{r.apply.title}</h2>
+          <section className="card role-panel">
+            <h2>{r.apply.title}</h2>
             <RoleApplication eligible={access.eligible} note={stateNote} />
           </section>
         </div>
       )}
 
       <History overview={overview} t={t} locale={locale} />
+    </>
+  );
+}
+
+/** The five checks with "值 / 目标" and what is still missing (prototype role-pages.js `checks`). */
+function Requirements({ t, locale, metrics }: { t: Messages; locale: Locale; metrics: RoleMetrics }) {
+  const q = t.roles.requirements;
+  const n = (value: number) => formatNumber(value, locale);
+  return (
+    <div className="role-requirements">
+      {verificationChecks(metrics).map((check) => {
+        const value =
+          check.key === 'helpfulRate'
+            ? check.value === null
+              ? q.noFeedback
+              : fill(q.rate, { rate: Math.round(check.value * 1000) / 10, count: n(metrics.feedbackCount) })
+            : fill(q.value, { value: n(check.value ?? 0), target: n(check.target) });
+        const missing = check.passed ? q.met : check.missing === null ? q.needFeedback : fill(q.missing[check.key], { n: n(check.missing) });
+        return (
+          <div key={check.key} className={`role-requirement ${check.passed ? 'met' : ''}`}>
+            <span className="role-check" role="img" aria-label={check.passed ? q.metLabel : q.pendingLabel}>
+              <I name={check.passed ? 'check' : 'clock'} />
+            </span>
+            <div>
+              <strong>{q.items[check.key]}</strong>
+              <span>{value}</span>
+            </div>
+            <small>{missing}</small>
+          </div>
+        );
+      })}
     </div>
   );
 }
@@ -102,67 +135,60 @@ function History({ overview, t, locale }: { overview: VerificationOverview; t: M
     ...overview.requests.map((request) => ({
       at: request.createdAt.getTime(),
       node: (
-        <article key={`request-${request.id}`} className="py-4">
-          <div className="flex flex-wrap items-center justify-between gap-2">
-            <strong className="text-[13px]">{h.application}</strong>
+        <article key={`request-${request.id}`} className="role-history-entry">
+          <div className="between">
+            <strong>{h.application}</strong>
             <StatusTag status={request.status} t={t} />
           </div>
-          <small className="mt-1 block text-[11px] text-muted">
+          <small>
             {date(request.createdAt)}
             {request.decidedAt && ` · ${fill(h.reviewed, { date: date(request.decidedAt) })}`}
           </small>
-          <p className="mt-2 text-[12px] leading-relaxed break-words whitespace-pre-wrap">{request.statement}</p>
+          <p className="role-pre">{request.statement}</p>
           {request.links.length > 0 && (
-            <ul className="mt-2 flex flex-col gap-1" aria-label={h.links}>
+            <ul className="role-history-links" aria-label={h.links}>
               {request.links.map((link) => (
-                <li key={link} className="min-w-0">
-                  <a href={link} target="_blank" rel="noopener noreferrer nofollow" className="inline-flex max-w-full items-center gap-1 text-[12px] text-blue hover:underline">
-                    <Icon name="external" className="size-3 flex-none" />
-                    <span className="truncate">{link}</span>
+                <li key={link}>
+                  <a href={link} target="_blank" rel="noopener noreferrer nofollow" className="text-link">
+                    <I name="external" />
+                    <span>{link}</span>
                   </a>
                 </li>
               ))}
             </ul>
           )}
           {request.rejectedReason && (
-            <div className="mt-3 rounded-lg border-l-2 border-[#d9e4f5] bg-[#f7f8fc] px-3.5 py-2.5">
-              <strong className="text-[11px]">{request.status === 'rejected' ? h.rejection : h.note}</strong>
-              <p className="mt-1 text-[12px] leading-relaxed break-words whitespace-pre-wrap text-muted">{request.rejectedReason}</p>
+            <div className="role-feedback">
+              <strong>{request.status === 'rejected' ? h.rejection : h.note}</strong>
+              <p className="role-pre">{request.rejectedReason}</p>
             </div>
           )}
-          {request.closedByRoleChange && <p className="mt-2 text-[11px] text-muted">{h.closedByRole}</p>}
+          {request.closedByRoleChange && <small>{h.closedByRole}</small>}
         </article>
       ),
     })),
     ...overview.events.map((event) => ({
       at: event.at.getTime(),
       node: (
-        <article key={`event-${event.id}`} className="py-4">
-          <div className="flex flex-wrap items-center justify-between gap-2">
-            <strong className="text-[13px]">{fill(h.roleChange, { from: t.roles.roles[event.from], to: t.roles.roles[event.to] })}</strong>
-            <small className="text-[11px] text-muted">{date(event.at)}</small>
+        <article key={`event-${event.id}`} className="role-history-entry">
+          <div className="between">
+            <strong>{fill(h.roleChange, { from: t.roles.roles[event.from], to: t.roles.roles[event.to] })}</strong>
+            <small>{date(event.at)}</small>
           </div>
-          {event.reason && <p className="mt-2 text-[12px] leading-relaxed break-words whitespace-pre-wrap text-muted">{event.reason}</p>}
+          <p className="role-pre">{event.reason || '—'}</p>
         </article>
       ),
     })),
   ].sort((a, b) => b.at - a.at);
   return (
-    <section className="card p-5 md:p-6">
-      <h2 className="text-[15px] font-bold">{h.title}</h2>
-      {entries.length ? <div className="mt-1 divide-y divide-line">{entries.map((entry) => entry.node)}</div> : <p className="mt-3 text-[12px] text-muted">{h.empty}</p>}
+    <section className="card role-panel">
+      <h2>{h.title}</h2>
+      {entries.length ? entries.map((entry) => entry.node) : <p className="muted">{h.empty}</p>}
     </section>
   );
 }
 
 function StatusTag({ status, t }: { status: 'pending' | 'approved' | 'rejected' | 'closed'; t: Messages }) {
-  const tone =
-    status === 'approved'
-      ? 'border-[#cfe9df] bg-[#eef8f4] text-green'
-      : status === 'rejected'
-        ? 'border-[#f1d4d4] bg-[#fff3f3] text-red'
-        : status === 'pending'
-          ? 'border-[#f3e2c6] bg-[#fdf7ec] text-orange'
-          : '';
+  const tone = status === 'approved' ? 'green' : status === 'rejected' ? 'red' : status === 'pending' ? 'orange' : '';
   return <span className={`tag ${tone}`}>{t.roles.history.status[status]}</span>;
 }

@@ -1,15 +1,14 @@
 import Link from 'next/link';
-import type { ReactNode } from 'react';
 import { LIST_PAGE_SIZES } from '@/lib/constants';
 import { parseActivity } from '@/lib/http/billing';
 import { billingSummary, listEntries } from '@/lib/services/billing';
 import { serverMessages } from '@/i18n/server';
 import { fill, formatDate, formatNumber } from '@/i18n/format';
-import { Icon } from '@/components/ui/icons';
 import { ArrivalNotice } from '@/components/billing/arrival';
 import { Entries } from '@/components/billing/entries';
 import { RenewalControl } from '@/components/billing/renewal';
 import { PayoutCard } from '@/components/payouts/payout-card';
+import { I } from '@/components/settings/icon';
 
 /**
  * `/settings?tab=billing` (prototype app.js `billing`): total balance, the
@@ -27,125 +26,122 @@ export async function BillingTab({ userId, query }: { userId: string; query: Rec
   const arriving = typeof query.checkout === 'string' && /^txn_[a-z0-9]{10,64}$/.test(query.checkout) ? query.checkout : null;
   const n = (value: number) => formatNumber(value, locale);
   return (
-    <div className="flex flex-col gap-5">
+    <div className={`settings-billing ${summary.official ? 'official-billing' : ''}`}>
       {arriving && <ArrivalNotice transactionId={arriving} />}
-      <div className="flex items-baseline justify-end gap-2">
-        <span className="text-[12px] text-muted">{b.total}</span>
-        <strong className="font-mono text-[26px]">{n(summary.total)}</strong>
-        <span className="text-[12px] text-muted">credits</span>
+      <div className="billing-summary">
+        <span className="billing-total">
+          {b.total}
+          <strong>{n(summary.total)}</strong>
+          <span>credits</span>
+        </span>
       </div>
       {summary.buckets.welcome > 0 && (
-        <p className="flex flex-wrap items-center justify-between gap-2 rounded-xl border border-[#e6e0f7] bg-[#f7f4ff] px-4 py-2.5 text-[12px]">
-          <span className="flex items-center gap-2">
-            <Icon name="sparkle" className="size-4 text-[#8a6bd1]" />
-            {fill(b.welcome, { n: n(summary.buckets.welcome) })}
+        <div className="welcome-credits">
+          <span>
+            <I name="sparkle" /> {fill(b.welcome, { n: n(summary.buckets.welcome) })}
           </span>
-          <span className="text-muted">{b.noExpiry}</span>
-        </p>
+          <span>{b.noExpiry}</span>
+        </div>
       )}
       {summary.debt > 0 && (
-        <p role="note" className="flex items-start gap-2 rounded-xl border border-[#f3e2c6] bg-[#fdf7ec] px-4 py-2.5 text-[12px] text-orange">
-          <Icon name="info" className="mt-0.5 size-4 flex-none" />
-          {fill(b.debt, { n: n(summary.debt) })}
-        </p>
+        <div role="note" className="billing-debt">
+          <I name="info" />
+          <span>{fill(b.debt, { n: n(summary.debt) })}</span>
+        </div>
       )}
-      <div className={`grid gap-4 ${summary.official ? 'md:grid-cols-2' : 'md:grid-cols-3'}`}>
-        <BalanceCard
-          label={b.planBalance.label}
-          tag={<span className={`tag ${plan.active ? 'border-[#d8e6fb] bg-soft text-blue' : ''}`}>{plan.active ? b.planBalance.monthly : b.planBalance.inactive}</span>}
-          value={n(summary.buckets.plan)}
-          note={plan.active ? fill(b.planBalance.active, { date: periodEnd }) : b.planBalance.idle}
-        />
-        <BalanceCard label={b.packBalance.label} tag={<Icon name="layers" className="size-4 text-muted" />} value={n(summary.buckets.pack)} note={b.packBalance.note} />
+      <div className="billing-balance">
+        <div className="card balance-card">
+          <p className="label">
+            {b.planBalance.label}
+            <span className="tag blue">{plan.active ? b.planBalance.monthly : b.planBalance.inactive}</span>
+          </p>
+          <p className="big-number">{n(summary.buckets.plan)}</p>
+          <small>{plan.active ? fill(b.planBalance.active, { date: periodEnd }) : b.planBalance.idle}</small>
+        </div>
+        <div className="card balance-card">
+          <p className="label">
+            {b.packBalance.label}
+            <I name="layers" />
+          </p>
+          <p className="big-number">{n(summary.buckets.pack)}</p>
+          <small>{b.packBalance.note}</small>
+        </div>
         {!summary.official && (
-          <BalanceCard label={b.earnedBalance.label} tag={<Icon name="sparkle" className="size-4" />} value={n(summary.buckets.earned)} note={b.earnedBalance.note} dark />
+          <div className="card balance-card earned">
+            <p className="label">
+              {b.earnedBalance.label}
+              <I name="sparkle" />
+            </p>
+            <p className="big-number">{n(summary.buckets.earned)}</p>
+            <small>{b.earnedBalance.note}</small>
+          </div>
         )}
       </div>
-      <div className="grid gap-4 md:grid-cols-2">
-        <section className={`card flex flex-col p-5 md:p-6 ${plan.active ? 'border-blue ring-1 ring-blue/40' : ''}`}>
-          <div className="flex items-center justify-between gap-2">
-            <h3 className="text-[17px] font-bold">{b.plan.title}</h3>
-            <span className={`tag ${plan.active ? 'border-[#d8e6fb] bg-soft text-blue' : ''}`}>
-              {plan.active ? (plan.cancelAtPeriodEnd ? b.plan.cancelling : b.plan.current) : b.plan.start}
-            </span>
+      <div className="billing-plans">
+        <section className="card plan-card primary">
+          <div className="between">
+            <h3>{b.plan.title}</h3>
+            <span className={`tag ${plan.active ? 'blue' : ''}`}>{plan.active ? (plan.cancelAtPeriodEnd ? b.plan.cancelling : b.plan.current) : b.plan.start}</span>
           </div>
-          <p className="mt-4">
-            <strong className="text-[28px] font-extrabold">$10</strong>
-            <small className="ml-1 text-muted">/ {b.plan.per}</small>
+          <p className="plan-price">
+            $10<small> / {b.plan.per}</small>
           </p>
-          <p className="text-[13px] text-muted">{b.plan.perCycle}</p>
-          <Perks items={[b.plan.perk1, b.plan.perk2, b.plan.perk3]} />
-          {plan.active && <p className="mt-4 text-[12px] text-muted">{fill(plan.cancelAtPeriodEnd ? b.plan.ends : b.plan.renews, { date: periodEnd })}</p>}
-          <div className="mt-auto pt-5">
-            {plan.active ? (
-              <RenewalControl cancelAtPeriodEnd={plan.cancelAtPeriodEnd} periodEndLabel={periodEnd} />
-            ) : (
-              <Link href="/checkout?kind=plan" className="btn w-full">
-                {b.plan.subscribe}
-              </Link>
-            )}
-          </div>
+          <p>{b.plan.perCycle}</p>
+          <Features items={[b.plan.perk1, b.plan.perk2, b.plan.perk3]} />
+          {plan.active && <p className="plan-renewal">{fill(plan.cancelAtPeriodEnd ? b.plan.ends : b.plan.renews, { date: periodEnd })}</p>}
+          {plan.active ? (
+            <RenewalControl cancelAtPeriodEnd={plan.cancelAtPeriodEnd} periodEndLabel={periodEnd} />
+          ) : (
+            <Link href="/checkout?kind=plan" className="btn">
+              {b.plan.subscribe}
+            </Link>
+          )}
         </section>
-        <section className="card flex flex-col p-5 md:p-6">
-          <div className="flex items-center justify-between gap-2">
-            <h3 className="text-[17px] font-bold">{b.pack.title}</h3>
+        <section className="card plan-card">
+          <div className="between">
+            <h3>{b.pack.title}</h3>
             <span className="tag">{b.pack.tag}</span>
           </div>
-          <p className="mt-4">
-            <strong className="text-[28px] font-extrabold">$10</strong>
-            <small className="ml-1 text-muted">/ {b.pack.per}</small>
+          <p className="plan-price">
+            $10<small> / {b.pack.per}</small>
           </p>
-          <p className="text-[13px] text-muted">{b.pack.perPack}</p>
-          <Perks items={[b.pack.perk1, b.pack.perk2, b.pack.perk3]} />
-          <div className="mt-auto pt-5">
-            {plan.active ? (
-              <Link href="/checkout?kind=pack" className="btn-secondary w-full">
-                {b.pack.buy}
-              </Link>
-            ) : (
-              <button type="button" className="btn-secondary w-full" disabled>
-                <Icon name="lock" />
-                {b.pack.locked}
-              </button>
-            )}
-          </div>
+          <p>{b.pack.perPack}</p>
+          <Features items={[b.pack.perk1, b.pack.perk2, b.pack.perk3]} />
+          {plan.active ? (
+            <Link href="/checkout?kind=pack" className="btn secondary">
+              {b.pack.buy}
+            </Link>
+          ) : (
+            <button type="button" className="btn secondary" disabled>
+              {b.pack.locked}
+            </button>
+          )}
         </section>
       </div>
-      <p className="flex items-start gap-2.5 rounded-xl border border-[#dfe6f5] bg-wash px-4 py-3 text-[12px] leading-relaxed text-muted">
-        <Icon name="info" className="mt-0.5 size-4 flex-none text-blue" />
-        {b.info}
-      </p>
+      <div className="info-strip mt24">
+        <I name="info" />
+        <span>{b.info}</span>
+      </div>
       <Entries items={entries.items} total={entries.total} page={entries.page} size={entries.size} activity={entries.activity} official={summary.official} />
-      <h2 id="payouts" className="mt-4 scroll-mt-28 text-[17px] font-bold">
-        {t.payouts.card.heading}
-      </h2>
+      <div className="between mt32 mb16">
+        <h2 id="payouts" className="section-title payouts-title">
+          {t.payouts.card.heading}
+        </h2>
+      </div>
       <PayoutCard userId={userId} />
     </div>
   );
 }
 
-function BalanceCard({ label, tag, value, note, dark = false }: { label: string; tag: ReactNode; value: string; note: string; dark?: boolean }) {
+function Features({ items }: { items: string[] }) {
   return (
-    <div className={`rounded-xl border p-5 ${dark ? 'border-ink bg-ink text-white' : 'border-line bg-white'}`}>
-      <p className={`flex items-center justify-between gap-2 text-[12px] ${dark ? 'text-white/70' : 'text-muted'}`}>
-        {label}
-        {tag}
-      </p>
-      <p className="mt-3 font-mono text-[28px] leading-none">{value}</p>
-      <p className={`mt-2 text-[11px] ${dark ? 'text-white/60' : 'text-muted'}`}>{note}</p>
-    </div>
-  );
-}
-
-function Perks({ items }: { items: string[] }) {
-  return (
-    <ul className="mt-4 flex flex-col gap-2 text-[12px]">
+    <div className="features">
       {items.map((item) => (
-        <li key={item} className="flex items-start gap-2">
-          <Icon name="check" className="mt-0.5 size-3.5 flex-none text-green" />
+        <span key={item}>
+          <I name="check" />
           {item}
-        </li>
+        </span>
       ))}
-    </ul>
+    </div>
   );
 }

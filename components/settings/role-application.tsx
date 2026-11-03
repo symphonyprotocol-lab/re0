@@ -6,8 +6,9 @@ import { VERIFICATION_LINK_MAX, VERIFICATION_LINKS_MAX, VERIFICATION_STATEMENT_M
 import { api } from '@/lib/client/upload';
 import { useI18n } from '@/i18n/client';
 import { fill } from '@/i18n/format';
-import { Icon, Spinner } from '@/components/ui/icons';
+import { Spinner } from '@/components/ui/icons';
 import { useToast } from '@/components/ui/toast';
+import { I } from '@/components/settings/icon';
 
 type ErrorCode = 'statement' | 'links' | 'requirements' | 'pending' | 'cooldown' | 'role' | 'disabled' | 'failed';
 
@@ -55,32 +56,32 @@ export function RoleApplication({ eligible, note }: { eligible: boolean; note: s
   };
 
   return (
-    <form onSubmit={submit} className="mt-3" noValidate>
-      <p className={`rounded-lg border px-3 py-2.5 text-[12px] leading-relaxed ${eligible ? 'border-[#cfe9df] bg-[#eef8f4] text-green' : 'border-[#e8edf7] bg-[#f6f8fd] text-muted'}`}>{note}</p>
-      <fieldset disabled={!eligible || busy} className="mt-4 min-w-0 disabled:opacity-60">
-        <label htmlFor="role-statement" className="field-label flex items-center justify-between gap-3">
-          {a.statement}
-          <small className={`font-mono text-[11px] font-normal ${count > VERIFICATION_STATEMENT_MAX ? 'text-red' : 'text-muted'}`} aria-live="polite">
-            {count} / {VERIFICATION_STATEMENT_MAX}
-          </small>
-        </label>
-        <textarea
-          id="role-statement"
-          name="statement"
-          rows={6}
-          required
-          maxLength={VERIFICATION_STATEMENT_MAX}
-          value={statement}
-          onChange={(event) => setStatement(event.target.value)}
-          placeholder={a.statementPlaceholder}
-          aria-invalid={error === 'statement' || undefined}
-          className="input resize-y leading-relaxed"
-        />
-        <p className="field-label mt-4">{a.links}</p>
-        <div className="flex flex-col gap-2">
+    <>
+      <p className="role-state-note">{note}</p>
+      <form id="role-application" onSubmit={submit} noValidate>
+        <fieldset disabled={!eligible || busy}>
+          <label htmlFor="role-statement">
+            {a.statement}{' '}
+            <small aria-live="polite" className={count > VERIFICATION_STATEMENT_MAX ? 'role-count-over' : undefined}>
+              {count} / {VERIFICATION_STATEMENT_MAX}
+            </small>
+          </label>
+          <textarea
+            id="role-statement"
+            name="statement"
+            rows={6}
+            required
+            maxLength={VERIFICATION_STATEMENT_MAX}
+            value={statement}
+            onChange={(event) => setStatement(event.target.value)}
+            placeholder={a.statementPlaceholder}
+            aria-invalid={error === 'statement' || undefined}
+          />
+          <label>{a.links}</label>
           {links.map((link, index) => (
             <input
               key={index}
+              name="link"
               type="url"
               inputMode="url"
               maxLength={VERIFICATION_LINK_MAX}
@@ -89,23 +90,21 @@ export function RoleApplication({ eligible, note }: { eligible: boolean; note: s
               aria-invalid={error === 'links' || undefined}
               value={link}
               onChange={(event) => setLinks(links.map((value, at) => (at === index ? event.target.value : value)))}
-              className="input"
             />
           ))}
-        </div>
-      </fieldset>
-      {error && (
-        <p role="alert" className="mt-3 flex items-start gap-1.5 text-[12px] text-red">
-          <Icon name="info" className="mt-0.5 size-3.5 flex-none" />
-          {a.errors[error]}
-        </p>
-      )}
-      <button type="submit" className="btn mt-4 w-full" disabled={!eligible || busy}>
-        {busy ? <Spinner /> : null}
-        {a.submit}
-        {!busy && <Icon name="arrow" />}
-      </button>
-      <p className="mt-3 text-[11px] leading-relaxed text-muted">{a.footnote}</p>
-    </form>
+        </fieldset>
+        <button type="submit" className="btn full" disabled={!eligible || busy}>
+          {busy && <Spinner />}
+          {a.submit}
+          {!busy && <I name="arrow" />}
+        </button>
+        <p className="role-footnote">{a.footnote}</p>
+        {error && (
+          <p role="alert" className="form-error role-form-error">
+            {a.errors[error]}
+          </p>
+        )}
+      </form>
+    </>
   );
 }

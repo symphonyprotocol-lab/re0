@@ -51,9 +51,6 @@ export const zh = {
     feedback: '审核意见',
     protectTitle: '你的资料如何保护',
     protectBody: '仅用于身份与提现审核。资料存放在私有存储中，仅管理员可通过 60 秒有效的链接查看，每次查看都会记录审计。审核通过 30 天后删除原图（未通过或要求重新验证的，同样在 30 天内删除），只保留证件类型、号码后四位、有效期与审核记录。',
-    officialTitle: '官方账号无需身份验证',
-    officialBody: '官方账号无需 KYC，也不提供提现。查询费收入在管理后台统计中查看。',
-    back: '返回余额与计费',
     errors: {
       legal_name: '请填写法定姓名（最多 100 个字符）。',
       country: '请填写国家 / 地区（最多 80 个字符）。',
@@ -241,9 +238,6 @@ export const en: Shape<typeof zh> = {
     feedback: 'Review feedback',
     protectTitle: 'How your documents are protected',
     protectBody: 'Used only for identity and payout review. Files are kept in private storage; administrators view them through links valid for 60 seconds, and every view is audited. Originals are deleted 30 days after approval (and within 30 days of a rejection or a re-verification request); only the document type, last four characters, expiry and the review record remain.',
-    officialTitle: 'Official accounts need no identity verification',
-    officialBody: 'Official accounts do not need KYC and cannot withdraw. Query income is reported in the admin console.',
-    back: 'Back to billing',
     errors: {
       legal_name: 'Enter your legal name (up to 100 characters).',
       country: 'Enter the country or region (up to 80 characters).',

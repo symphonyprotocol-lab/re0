@@ -6,8 +6,9 @@ import { kycOverview } from '@/lib/services/kyc';
 import { payoutOverview, type PayoutRow } from '@/lib/services/payouts';
 import { serverMessages } from '@/i18n/server';
 import { fill, formatDate, formatDateTime, formatNumber } from '@/i18n/format';
-import { Icon } from '@/components/ui/icons';
 import { PaypalButton, RequestPayoutButton } from '@/components/payouts/payout-dialogs';
+import { OfficialNotice } from '@/components/settings/role-tab';
+import { I } from '@/components/settings/icon';
 
 
 /**
@@ -22,17 +23,7 @@ export async function PayoutCard({ userId }: { userId: string }) {
   const c = t.payouts.card;
   const [overview, identity] = await Promise.all([payoutOverview(userId), kycOverview(userId)]);
   const n = (value: number) => formatNumber(value, locale);
-  if (overview.official) {
-    return (
-      <section className="card bg-[#fbfaff] p-5 md:p-6">
-        <h2 className="flex items-center gap-2 text-[15px] font-bold">
-          <Icon name="globe" className="size-4 text-[#7255bd]" />
-          {t.roles.official.title}
-        </h2>
-        <p className="mt-2 text-[13px] leading-relaxed text-muted">{t.roles.official.body}</p>
-      </section>
-    );
-  }
+  if (overview.official) return <OfficialNotice t={t} />;
   const { stage, kyc, open } = overview;
   const record = identity.record;
   const verified = kyc === 'verified';
@@ -50,107 +41,104 @@ export async function PayoutCard({ userId }: { userId: string }) {
   const feedback = record?.reason && (kyc === 'rejected' || kyc === 'reset') ? record.reason : null;
 
   return (
-    <div className="grid min-w-0 gap-5 lg:grid-cols-[minmax(0,1.1fr)_minmax(0,1fr)]">
-      <section className="card min-w-0 p-5 md:p-6">
-        <div className="flex flex-wrap items-center justify-between gap-2">
-          <h2 className="text-[17px] font-bold">{c.title}</h2>
-          <span className="tag border-[#d8e6fb] bg-soft text-blue">{c.tag}</span>
+    <div className="billing-payout">
+      <section className="card settings-card earnings-card">
+        <div className="between">
+          <h2>{c.title}</h2>
+          <span className="tag blue">{c.tag}</span>
         </div>
-        <p className="mt-1 text-[12px] text-muted">{fill(c.lede, { min: n(PAYOUT_MIN_CREDITS), usd: usd(PAYOUT_MIN_CREDITS) })}</p>
+        <p className="muted">{fill(c.lede, { min: n(PAYOUT_MIN_CREDITS), usd: usd(PAYOUT_MIN_CREDITS) })}</p>
 
         <Step done={verified} index="1" title={c.identity} body={detail}>
           {verified ? (
-            <span className="tag flex-none border-[#cde8df] bg-[#effaf6] text-green">
-              <Icon name="check" className="size-3" />
+            <span className="tag green">
+              <I name="check" />
               {c.verified}
             </span>
           ) : (
-            <Link href="/settings/identity" className="btn-secondary btn-sm flex-none">
+            <Link href="/settings/identity" className="btn secondary sm">
               {kyc === 'pending' ? c.view : kyc === 'rejected' || kyc === 'reset' ? c.resubmit : c.submit}
             </Link>
           )}
         </Step>
         {feedback && (
-          <div role="status" className="mt-3 ml-8 rounded-lg border border-[#f0dcc2] bg-[#fff7ec] px-3 py-2.5 text-[12px]">
-            <strong className="block text-orange">{c.feedback}</strong>
-            <p className="mt-1 break-words whitespace-pre-line">{feedback}</p>
+          <div className="kyc-feedback" role="status">
+            <strong>{c.feedback}</strong>
+            <p>{feedback}</p>
           </div>
         )}
         {record && (kyc === 'pending' || kyc === 'verified') && (
-          <p className="mt-2 ml-8 text-[11px] leading-relaxed break-words text-muted">
+          <div className="kyc-record-meta">
             {[record.legalName, record.country, record.documentKind ? t.payouts.kyc.kinds[record.documentKind] : null].filter(Boolean).join(' · ')}
             <br />
             {verified && record.decidedAt
               ? fill(c.metaReviewed, { submitted: formatDate(record.createdAt, locale), reviewed: formatDate(record.decidedAt, locale) })
               : fill(c.meta, { submitted: formatDate(record.createdAt, locale) })}
-          </p>
+          </div>
         )}
 
         <Step done={Boolean(overview.paypalEmail) && verified} index="2" title={c.paypal} body={overview.paypalEmail ?? c.paypalHint}>
           <PaypalButton email={overview.paypalEmail} disabled={!verified} />
         </Step>
 
-        <p className="mt-5 flex items-start gap-2 rounded-lg bg-wash px-3 py-2.5 text-[11px] leading-relaxed text-muted">
-          <Icon name="shield" className="mt-0.5 size-3.5 flex-none text-blue" />
-          {c.privacy}
-        </p>
-        <div className="my-5 border-t border-line" />
-        <div className="flex flex-wrap items-end justify-between gap-3">
-          <span className="text-[12px] text-muted">
+        <div className="kyc-privacy">
+          <I name="shield" />
+          <span>{c.privacy}</span>
+        </div>
+        <div className="rule" />
+        <div className="between">
+          <span className="small muted">
             {c.available}
-            <strong className="mt-1 block font-mono text-[24px] leading-none text-ink">{usd(overview.withdrawable)}</strong>
-            <small className="mt-1 block font-mono text-[11px]">{n(overview.withdrawable)} credits</small>
+            <br />
+            <strong className="mono earnings-amount">{usd(overview.withdrawable)}</strong>
           </span>
           {verified ? (
             <RequestPayoutButton withdrawable={overview.withdrawable} email={overview.paypalEmail} enabled={stage === 'eligible'} />
           ) : kyc === 'pending' ? (
-            <button type="button" className="btn flex-none" disabled>
+            <button type="button" className="btn" disabled>
               {c.pending}
             </button>
           ) : (
-            <Link href="/settings/identity" className="btn flex-none">
+            <Link href="/settings/identity" className="btn">
               {c.verify}
             </Link>
           )}
         </div>
-        {blocked && verified && <p className="mt-3 rounded-lg bg-[#fff7ec] px-3 py-2 text-[12px] text-orange">{blocked}</p>}
+        {blocked && verified && <p className="kyc-feedback small">{blocked}</p>}
         {open && <Progress t={t} locale={locale} payout={open} />}
-        <p className="mt-4 text-[11px] leading-relaxed text-muted">{c.flow}</p>
+        <p className="tiny muted mt16">{c.flow}</p>
       </section>
 
-      <section className="card min-w-0 p-5 md:p-6">
-        <h2 className="text-[17px] font-bold">{c.historyTitle}</h2>
+      <section className="card settings-card earnings-card">
+        <h2>{c.historyTitle}</h2>
         {overview.history.length === 0 ? (
-          <div className="flex flex-col items-center px-3 py-10 text-center">
-            <Icon name="sparkle" className="size-6 text-muted" />
-            <h3 className="mt-3 text-[14px] font-bold">{c.historyEmpty}</h3>
-            <p className="mt-1 text-[12px] text-muted">{c.historyEmptyBody}</p>
+          <div className="empty payout-empty">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.7" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+              <path d="M20 7V4H5a3 3 0 0 0 0 6h16v10H5a3 3 0 0 1-3-3V7" />
+              <path d="M21 10h-6v6h6M17 13h.01" />
+            </svg>
+            <h3>{c.historyEmpty}</h3>
+            <p>{c.historyEmptyBody}</p>
           </div>
         ) : (
-          <ul className="mt-2 divide-y divide-line">
-            {overview.history.map((payout) => (
-              <li key={payout.id} className="flex min-w-0 items-start justify-between gap-3 py-3">
-                <div className="min-w-0">
-                  <h3 className="font-mono text-[14px] font-bold">{usd(payout.credits)}</h3>
-                  <p className="truncate text-[12px] text-muted" title={payout.paypalEmail}>
-                    {payout.paypalEmail}
+          overview.history.map((payout) => (
+            <div key={payout.id} className="settings-row">
+              <div className="min-w-0">
+                <h3 className="mono">{usd(payout.credits)}</h3>
+                <p title={payout.paypalEmail}>{payout.paypalEmail}</p>
+                <p>{fill(c.requestedAt, { time: formatDateTime(payout.createdAt, locale) })}</p>
+                {(payout.status === 'rejected' ? payout.reviewNote : payout.failureReason) && <p>{payout.status === 'rejected' ? payout.reviewNote : payout.failureReason}</p>}
+                {payout.status === 'paid' && payout.paidCents !== null && (
+                  <p>
+                    {fill(c.net, { paid: formatCentsUsd(payout.paidCents), fee: usd(payout.feeCredits ?? 0) })}
+                    <br />
+                    {fill(c.transfer, { id: payout.transferId ?? '—' })}
                   </p>
-                  <p className="text-[11px] text-muted">{fill(c.requestedAt, { time: formatDateTime(payout.createdAt, locale) })}</p>
-                  {payout.status === 'paid' && payout.paidCents !== null && (
-                    <p className="mt-1 text-[11px] break-all text-muted">
-                      {fill(c.net, { paid: formatCentsUsd(payout.paidCents), fee: usd(payout.feeCredits ?? 0) })}
-                      <br />
-                      {fill(c.transfer, { id: payout.transferId ?? '—' })}
-                    </p>
-                  )}
-                  {(payout.status === 'rejected' ? payout.reviewNote : payout.failureReason) && (
-                    <p className="mt-1 text-[11px] break-words text-muted">{payout.status === 'rejected' ? payout.reviewNote : payout.failureReason}</p>
-                  )}
-                </div>
-                <PayoutStateTag status={payout.status} label={c.status[payout.status]} />
-              </li>
-            ))}
-          </ul>
+                )}
+              </div>
+              <PayoutStateTag status={payout.status} label={c.status[payout.status]} />
+            </div>
+          ))
         )}
       </section>
     </div>
@@ -159,40 +147,37 @@ export async function PayoutCard({ userId }: { userId: string }) {
 
 function Step({ done, index, title, body, children }: { done: boolean; index: string; title: string; body: string; children: ReactNode }) {
   return (
-    <div className="mt-5 flex min-w-0 items-start gap-3">
-      <span
-        className={`mt-0.5 inline-flex size-5 flex-none items-center justify-center rounded-full border font-mono text-[10px] ${done ? 'border-[#d1e9de] bg-[#eaf5ef] text-green' : 'border-line text-muted'}`}
-      >
-        {done ? <Icon name="check" className="size-3" /> : index}
-      </span>
-      <div className="min-w-0 flex-1">
-        <strong className="block text-[13px]">{title}</strong>
-        <p className="mt-0.5 text-[12px] break-words text-muted">{body}</p>
+    <div className="kyc-step">
+      <span className={`step-circle ${done ? 'done' : ''}`}>{done ? <I name="check" /> : index}</span>
+      <div className="s-grow">
+        <strong>{title}</strong>
+        <p>{body}</p>
       </div>
       {children}
     </div>
   );
 }
 
+/** The payout in progress in three steps (8.2: the prototype shows none). */
 function Progress({ t, locale, payout }: { t: Awaited<ReturnType<typeof serverMessages>>['t']; locale: 'zh' | 'en'; payout: PayoutRow }) {
   const c = t.payouts.card;
   const current = payout.status === 'pending' ? 1 : 2;
   return (
-    <div className="mt-4 rounded-xl border border-line p-4">
-      <p className="flex flex-wrap items-center justify-between gap-2 text-[12px]">
+    <div className="payout-progress">
+      <p className="between">
         <strong>{c.progress}</strong>
-        <span className="font-mono">
+        <span className="mono">
           {usd(payout.credits)} · {formatDate(payout.createdAt, locale)}
         </span>
       </p>
-      <ol className="mt-3 grid gap-2 sm:grid-cols-3">
+      <ol>
         {c.steps.map((step, index) => (
-          <li key={step.title} className={`rounded-lg px-3 py-2 text-[11px] ${index < current ? 'bg-[#eaf5ef]' : index === current ? 'bg-soft' : 'bg-wash'}`}>
-            <strong className={`flex items-center gap-1 ${index < current ? 'text-green' : index === current ? 'text-blue' : 'text-muted'}`}>
-              {index < current ? <Icon name="check" className="size-3" /> : <span className="font-mono">{index + 1}</span>}
+          <li key={step.title} className={index < current ? 'done' : index === current ? 'current' : ''}>
+            <strong>
+              {index < current ? <I name="check" /> : <span className="mono">{index + 1}</span>}
               {step.title}
             </strong>
-            <span className="mt-0.5 block text-muted">{step.body}</span>
+            <span>{step.body}</span>
           </li>
         ))}
       </ol>
@@ -201,11 +186,6 @@ function Progress({ t, locale, payout }: { t: Awaited<ReturnType<typeof serverMe
 }
 
 export function PayoutStateTag({ status, label }: { status: PayoutRow['status']; label: string }) {
-  const tone =
-    status === 'paid'
-      ? 'border-[#cde8df] bg-[#effaf6] text-green'
-      : status === 'failed' || status === 'rejected'
-        ? 'border-[#f1d4d4] bg-[#fff3f3] text-red'
-        : 'border-[#f0dcc2] bg-[#fff7ec] text-orange';
-  return <span className={`tag flex-none whitespace-nowrap ${tone}`}>{label}</span>;
+  const tone = status === 'paid' ? 'green' : status === 'failed' || status === 'rejected' ? 'red' : 'orange';
+  return <span className={`tag ${tone}`}>{label}</span>;
 }
