@@ -1,12 +1,12 @@
 import type { Metadata } from 'next';
-import Link from 'next/link';
 import { reportingDate } from '@/lib/domain/statistics';
 import { currentUser } from '@/lib/http/session';
 import { kycOverview } from '@/lib/services/kyc';
 import { serverMessages } from '@/i18n/server';
 import { Topbar } from '@/components/shell/topbar';
-import { Icon } from '@/components/ui/icons';
 import { IdentityForm } from '@/components/payouts/identity-form';
+import { OfficialNotice } from '@/components/settings/role-tab';
+import '@/components/settings/settings.css';
 
 export async function generateMetadata(): Promise<Metadata> {
   const { t } = await serverMessages();
@@ -32,18 +32,9 @@ export default async function IdentityPage() {
           { label: f.crumb },
         ]}
       />
-      <main className="mx-auto max-w-[1040px] px-4 py-8 md:px-8">
+      <main className="settings-page kyc-page">
         {official ? (
-          <section className="card mx-auto max-w-[560px] bg-[#fbfaff] p-6 text-center">
-            <span className="mx-auto inline-flex size-10 items-center justify-center rounded-xl bg-white text-[#7255bd]">
-              <Icon name="globe" />
-            </span>
-            <h1 className="mt-3 text-[17px] font-bold">{f.officialTitle}</h1>
-            <p className="mt-2 text-[13px] leading-relaxed text-muted">{f.officialBody}</p>
-            <Link href="/settings?tab=billing" className="btn-secondary mt-5">
-              {f.back}
-            </Link>
-          </section>
+          <OfficialNotice t={t} />
         ) : (
           <IdentityForm
             state={state}

@@ -1,9 +1,8 @@
 /*
  * The conversation pages, ported from the prototype with its class names,
  * breakpoints and cascade order: `/chats/[id]` and `/talk` (chat-room.css,
- * experience.css), `/chats` (conversations.css `.cl-*`), the sidebar's
- * conversation tools and history (conversations.css `.chat-sidebar-tools`,
- * `.chat-history-*`), `/rees/[id]/chat` (dot-conversation.css) and the
+ * experience.css), `/chats` (conversations.css `.cl-*`),
+ * `/rees/[id]/chat` (dot-conversation.css) and the
  * shared message, citation and composer rules from styles.css. The generic
  * helpers (.btn, .icon-btn, .dot-avatar, .message ...) are scoped with
  * `:where()` to these roots, so their specificity is the prototype's own and
@@ -17,7 +16,7 @@
 
 /* ---------- styles.css: base and helpers, scoped ---------- */
 
-:where(.chat-room, .new-conversation-page, .cl-page, .studio-conversation, .conv-citation, .cl-menu-dialog, .chat-sidebar-tools, .chat-history-scroll) {
+:where(.chat-room, .new-conversation-page, .cl-page, .studio-conversation, .conv-citation, .cl-menu-dialog) {
   line-height: 1.6;
 }
 :where(.chat-room, .new-conversation-page, .cl-page, .studio-conversation, .conv-citation, .cl-menu-dialog) :where(h1, h2, h3, h4, p) {
@@ -26,10 +25,10 @@
 :where(.chat-room, .new-conversation-page, .cl-page, .studio-conversation, .conv-citation, .cl-menu-dialog) :where(h1, h2, h3) {
   line-height: 1.3;
 }
-:where(.chat-room, .new-conversation-page, .cl-page, .studio-conversation, .conv-citation, .cl-menu-dialog, .chat-sidebar-tools, .chat-history-scroll) :where(button, a) svg {
+:where(.chat-room, .new-conversation-page, .cl-page, .studio-conversation, .conv-citation, .cl-menu-dialog) :where(button, a) svg {
   flex-shrink: 0;
 }
-:where(.chat-room, .new-conversation-page, .cl-page, .studio-conversation, .conv-citation, .cl-menu-dialog, .chat-sidebar-tools, .chat-history-scroll) svg {
+:where(.chat-room, .new-conversation-page, .cl-page, .studio-conversation, .conv-citation, .cl-menu-dialog) svg {
   vertical-align: middle;
 }
 :where(.chat-room, .new-conversation-page, .cl-page, .studio-conversation) :where(input, textarea):focus-visible {
@@ -121,7 +120,7 @@
   padding: 6px 10px;
   font-size: 12px;
 }
-:where(.chat-room, .new-conversation-page, .cl-page, .studio-conversation, .conv-citation, .cl-menu-dialog, .chat-history-scroll) .icon-btn {
+:where(.chat-room, .new-conversation-page, .cl-page, .studio-conversation, .conv-citation, .cl-menu-dialog) .icon-btn {
   display: inline-flex;
   align-items: center;
   justify-content: center;
@@ -134,14 +133,14 @@
   color: var(--color-muted);
   transition: background 0.18s, color 0.18s, transform 0.18s;
 }
-:where(.chat-room, .new-conversation-page, .cl-page, .studio-conversation, .conv-citation, .cl-menu-dialog, .chat-history-scroll) .icon-btn:hover {
+:where(.chat-room, .new-conversation-page, .cl-page, .studio-conversation, .conv-citation, .cl-menu-dialog) .icon-btn:hover {
   background: var(--color-soft);
   color: var(--color-blue);
 }
-:where(.chat-room, .new-conversation-page, .cl-page, .studio-conversation, .conv-citation, .cl-menu-dialog, .chat-history-scroll) .icon-btn:active {
+:where(.chat-room, .new-conversation-page, .cl-page, .studio-conversation, .conv-citation, .cl-menu-dialog) .icon-btn:active {
   transform: scale(0.92);
 }
-:where(.chat-room, .new-conversation-page, .cl-page, .studio-conversation, .conv-citation, .cl-menu-dialog, .chat-history-scroll) .icon-btn svg {
+:where(.chat-room, .new-conversation-page, .cl-page, .studio-conversation, .conv-citation, .cl-menu-dialog) .icon-btn svg {
   width: 17px;
   height: 17px;
 }
@@ -173,7 +172,7 @@
   border: 1px solid var(--color-line);
   border-radius: 12px;
 }
-:where(.chat-room, .new-conversation-page, .cl-page, .studio-conversation, .conv-citation, .chat-history-scroll) .dot-avatar {
+:where(.chat-room, .new-conversation-page, .cl-page, .studio-conversation, .conv-citation) .dot-avatar {
   position: relative;
   width: 43px;
   height: 43px;
@@ -187,41 +186,41 @@
   border: 1px solid rgb(224, 234, 250);
   overflow: hidden;
 }
-:where(.chat-room, .new-conversation-page, .cl-page, .studio-conversation, .conv-citation, .chat-history-scroll) .dot-avatar svg {
+:where(.chat-room, .new-conversation-page, .cl-page, .studio-conversation, .conv-citation) .dot-avatar svg {
   width: 23px;
   height: 23px;
 }
-:where(.chat-room, .new-conversation-page, .cl-page, .studio-conversation, .conv-citation, .chat-history-scroll) .dot-avatar.sand {
+:where(.chat-room, .new-conversation-page, .cl-page, .studio-conversation, .conv-citation) .dot-avatar.sand {
   background: rgb(249, 244, 236);
   color: rgb(161, 138, 96);
   border-color: rgb(238, 231, 218);
 }
-:where(.chat-room, .new-conversation-page, .cl-page, .studio-conversation, .conv-citation, .chat-history-scroll) .dot-avatar.lilac {
+:where(.chat-room, .new-conversation-page, .cl-page, .studio-conversation, .conv-citation) .dot-avatar.lilac {
   background: rgb(241, 237, 251);
   color: rgb(146, 117, 191);
   border-color: rgb(232, 225, 245);
 }
-:where(.chat-room, .new-conversation-page, .cl-page, .studio-conversation, .conv-citation, .chat-history-scroll) .dot-avatar.sage {
+:where(.chat-room, .new-conversation-page, .cl-page, .studio-conversation, .conv-citation) .dot-avatar.sage {
   background: rgb(234, 244, 240);
   color: rgb(91, 142, 126);
   border-color: rgb(223, 235, 229);
 }
-:where(.chat-room, .new-conversation-page, .cl-page, .studio-conversation, .conv-citation, .chat-history-scroll) .dot-avatar.rose {
+:where(.chat-room, .new-conversation-page, .cl-page, .studio-conversation, .conv-citation) .dot-avatar.rose {
   background: rgb(250, 240, 240);
   color: rgb(180, 126, 129);
   border-color: rgb(242, 229, 229);
 }
-:where(.chat-room, .new-conversation-page, .cl-page, .studio-conversation, .conv-citation, .chat-history-scroll) .dot-avatar.slate {
+:where(.chat-room, .new-conversation-page, .cl-page, .studio-conversation, .conv-citation) .dot-avatar.slate {
   background: rgb(237, 240, 246);
   color: rgb(117, 137, 169);
   border-color: rgb(224, 230, 239);
 }
-:where(.chat-room, .new-conversation-page, .cl-page, .studio-conversation, .conv-citation, .chat-history-scroll) .dot-avatar.sm {
+:where(.chat-room, .new-conversation-page, .cl-page, .studio-conversation, .conv-citation) .dot-avatar.sm {
   width: 31px;
   height: 31px;
   border-radius: 9px;
 }
-:where(.chat-room, .new-conversation-page, .cl-page, .studio-conversation, .conv-citation, .chat-history-scroll) .dot-avatar.sm svg {
+:where(.chat-room, .new-conversation-page, .cl-page, .studio-conversation, .conv-citation) .dot-avatar.sm svg {
   width: 18px;
   height: 18px;
 }
@@ -1627,46 +1626,8 @@
   .cl-search-page .cl-snippet { -webkit-line-clamp: 3; }
 }
 
-/* ---------- conversations.css: the sidebar's conversation tools and history ---------- */
-
-.chat-sidebar-tools { display: flex; flex-direction: column; gap: 3px; margin: 12px 0px 2px; }
-.chat-sidebar-tool { display: flex; align-items: center; justify-content: flex-start; gap: 10px; background: transparent; border: 0px; color: rgb(86, 105, 134); border-radius: 7px; padding: 10px; font-size: 12px; min-height: 38px; text-align: left; transition: background 0.15s, color 0.15s; }
-/* 新建对话 is a `.btn` in the prototype: its weight and line height (its hover lift is left out). */
-.chat-sidebar-tool.btn { font-weight: 550; line-height: 1.4; white-space: nowrap; }
-.chat-sidebar-tool:hover { color: var(--color-blue); background: rgb(234, 240, 252); }
-.chat-sidebar-tool.active { background: rgb(237, 244, 255); color: rgb(36, 125, 206); }
-.chat-sidebar-tool > svg { width: 17px; height: 17px; flex: 0 0 auto; }
-.chat-sidebar-tool > kbd { margin-left: auto; color: rgb(166, 177, 196); font: 8px var(--font-mono); border: 1px solid rgb(230, 234, 242); border-radius: 3px; padding: 2px 4px; }
-.chat-history-scroll { position: relative; min-height: 0px; flex: 1 1 0%; overflow-y: auto; padding-top: 6px; overscroll-behavior: contain; scrollbar-width: thin; scrollbar-color: rgb(219, 226, 239) transparent; }
-.chat-history-scroll > h3 { display: flex; align-items: center; justify-content: space-between; gap: 8px; margin: 0; font-size: 10px; line-height: 1.3; color: rgb(155, 167, 188); font-weight: 450; padding: 13px 10px 6px; }
-.chat-history-count { font: 9px var(--font-mono); color: rgb(164, 178, 198); }
-.chat-history-date { padding: 9px 10px 4px; margin: 0; color: rgb(172, 183, 201); font-size: 9px; font-weight: 400; line-height: 1.6; }
-.chat-history-row { display: flex; align-items: center; position: relative; border-radius: 6px; min-height: 32px; }
-.chat-history-row > a { display: flex; align-items: center; min-width: 0px; gap: 6px; padding: 8px 10px; flex: 1 1 0%; font-size: 11px; color: rgb(108, 125, 152); line-height: 1.7; }
-.chat-history-row > a > span { white-space: nowrap; text-overflow: ellipsis; overflow: hidden; }
-.chat-history-row > a > .chat-history-title { min-width: 0; flex: 1; }
-.chat-history-row > a > svg { width: 11px; height: 11px; flex: 0 0 auto; color: rgb(143, 169, 204); }
-.chat-history-row:hover { background: rgb(239, 242, 249); }
-.chat-history-row.active { background: #eaf0fc; }
-.chat-history-row.active > a { color: #3d79be; }
-.chat-history-row > .icon-btn { opacity: 0; flex: 0 0 auto; width: 24px; height: 26px; margin-right: 4px; color: rgb(148, 164, 190); }
-.chat-history-row > .icon-btn > svg { width: 13px; height: 13px; }
-.chat-history-row:hover > .icon-btn, .chat-history-row:focus-within > .icon-btn, .chat-history-row > .icon-btn[aria-expanded="true"] { opacity: 1; }
-.chat-history-empty { padding: 17px 10px; font-size: 11px; color: #a2afc4; line-height: 1.9; margin: 0; }
-.chat-history-scroll:focus-visible { outline: rgb(189, 214, 248) solid 2px; outline-offset: -2px; border-radius: 5px; }
-.chat-sidebar-tools.is-collapsed { margin: 25px 0 12px; }
-.chat-sidebar-tools.is-collapsed .chat-sidebar-tool { justify-content: center; padding: 10px 0; }
-.chat-sidebar-tools.is-collapsed .chat-sidebar-tool > span,
-.chat-sidebar-tools.is-collapsed .chat-sidebar-tool > kbd { display: none; }
-@media (max-width: 760px) {
-  .chat-history-row > .icon-btn { opacity: 1; }
-}
-@media (hover: none) {
-  .chat-history-row > .icon-btn { opacity: 1; }
-}
-@media (prefers-reduced-motion: reduce) {
-  .chat-sidebar-tool { transition: none; }
-}
+/* The sidebar's history is styled by the frame (components/shell/shell.css); its row menu stays visible while open. */
+.chat-history-row > .icon-btn[aria-expanded="true"] { opacity: 1; }
 
 /* ---------- dot-conversation.css: `/rees/[id]/chat` ---------- */
 

@@ -2,7 +2,7 @@
 
 import Link from 'next/link';
 import { useRouter } from 'next/navigation';
-import type { ReactNode } from 'react';
+import { Fragment, type ReactNode } from 'react';
 import { useI18n } from '@/i18n/client';
 import { Icon } from '@/components/ui/icons';
 import { useShell } from '@/components/shell/app-shell';
@@ -20,17 +20,18 @@ export interface ContextTab {
 }
 
 /**
- * The fixed top bar every workspace page renders first: breadcrumbs (the way
- * back up, prototype "顶部面包屑"), page actions, and an optional second row
- * -- a Ree's tabs, the settings tabs, or the wizard's steps -- that scrolls
- * sideways on a phone. It also renders its own in-flow spacer, so content
- * always starts below it. On a phone the crumbs shrink to fit, and with
- * three or more the first one is left out (prototype navigation.css).
+ * The fixed top bar every workspace page renders first (prototype app.js
+ * `shell` / `workspaceHeader`, styles in ./shell.css): the menu and
+ * fold buttons, breadcrumbs (the way back up), page actions, 中 / EN and
+ * 返回官网, and an optional context row -- a Ree's tabs, the settings tabs,
+ * or the wizard's steps -- that scrolls sideways on a phone. It also renders
+ * its own in-flow spacer, so content always starts below it. On a phone the
+ * crumbs shrink to fit, and with three or more the first one is left out.
  *
  * `mobileBack` is a Ree's pages on a phone (prototype `.ree-workspace-shell`):
  * the first row is only ← back, the Ree's name and the language, and
  * `rowActions` (the public page link, a source's previous / next) sit at the
- * end of the tab row at every width.
+ * end of the context row at every width.
  */
 export function Topbar({
   crumbs,
@@ -52,6 +53,7 @@ export function Topbar({
   const { t, locale } = useI18n();
   const { collapsed, toggleCollapsed, openDrawer } = useShell();
   const router = useRouter();
+  const nav = t.common.nav;
   const hasRow = Boolean(tabs?.length || secondRow);
   const switchLanguage = async () => {
     const lang = locale === 'zh' ? 'en' : 'zh';
@@ -60,71 +62,79 @@ export function Topbar({
   };
   return (
     <>
-      <header data-topbar className="fixed inset-x-0 top-0 z-20 border-b border-[#e0e5f0] bg-[#faf9fff5] backdrop-blur-md md:left-[var(--sidebar)]">
-        <div className="flex h-16 items-center gap-3 px-4 md:px-8">
-          <button type="button" className={`icon-btn ${mobileBack ? 'hidden' : 'md:hidden'}`} onClick={openDrawer} aria-label={t.common.nav.openMenu}>
-            <Icon name="menu" />
-          </button>
-          {mobileBack && (
-            <span className="flex min-w-0 flex-1 items-center gap-1 md:hidden">
-              <Link href={mobileBack.href} className="icon-btn -ml-2 flex-none" aria-label={mobileBack.title} title={mobileBack.title}>
-                <Icon name="chevronLeft" />
-              </Link>
-              <span className="truncate text-[13px] font-semibold text-[#4e5e7b]">{mobileBack.label}</span>
-            </span>
-          )}
-          <button type="button" className="icon-btn hidden md:inline-flex" onClick={toggleCollapsed} aria-label={collapsed ? t.common.nav.expand : t.common.nav.collapse}>
-            <Icon name="panel" />
-          </button>
-          <nav aria-label="breadcrumb" className={`${mobileBack ? 'hidden md:flex' : 'flex'} min-w-0 flex-1 items-center gap-1.5 text-[12px] sm:gap-2 sm:text-[13px]`}>
-            {crumbs.map((crumb, index) => (
-              <span
-                key={`${crumb.label}-${index}`}
-                className={`flex min-w-0 items-center gap-2 ${index === 0 && crumbs.length >= 3 ? 'hidden sm:flex' : ''} ${index < crumbs.length - 1 ? 'max-w-[105px] flex-none sm:max-w-none sm:flex-initial' : ''}`}
-              >
-                {index > 0 && <Icon name="chevronRight" className={`size-3 flex-none text-[#a3a9bb] ${index === 1 && crumbs.length >= 3 ? 'hidden sm:block' : ''}`} />}
-                {crumb.href && index < crumbs.length - 1 ? (
-                  <Link href={crumb.href} className="truncate text-muted hover:text-blue">
-                    {crumb.label}
-                  </Link>
-                ) : (
-                  <span className="truncate font-semibold" aria-current={index === crumbs.length - 1 ? 'page' : undefined}>
-                    {crumb.label}
-                  </span>
-                )}
-              </span>
-            ))}
-          </nav>
-          <div className="flex flex-none items-center gap-2">
-            {actions && <span className={mobileBack ? 'hidden items-center gap-2 md:flex' : 'flex items-center gap-2'}>{actions}</span>}
-            <button type="button" className="btn-ghost" onClick={switchLanguage} aria-label={t.common.language.label}>
-              <Icon name="globe" />
-              <span className="hidden sm:inline">{t.common.language.short}</span>
+      <header data-topbar className={`topbar${mobileBack ? ' ree-workspace-shell' : ''}`}>
+        <div className="topbar-main">
+          <div className="topbar-location">
+            <button type="button" className="icon-btn mobile-menu" onClick={openDrawer} aria-label={nav.openMenu} title={nav.openMenu}>
+              <Icon name="menu" className="" />
+            </button>
+            <button
+              type="button"
+              className="icon-btn sidebar-collapse"
+              onClick={toggleCollapsed}
+              aria-controls="sidebar"
+              aria-expanded={!collapsed}
+              aria-label={collapsed ? nav.expand : nav.collapse}
+              title={collapsed ? nav.expand : nav.collapse}
+            >
+              <Icon name={collapsed ? 'panelOpen' : 'panelClose'} className="" />
+            </button>
+            {mobileBack && (
+              <div className="ree-mobile-location">
+                <Link href={mobileBack.href} className="ree-mobile-back" aria-label={mobileBack.title} title={mobileBack.title}>
+                  <Icon name="arrowLeft" className="" />
+                </Link>
+                <span title={mobileBack.label}>{mobileBack.label}</span>
+              </div>
+            )}
+            <nav className="header-breadcrumbs" aria-label={nav.breadcrumb}>
+              {crumbs.map((crumb, index) => {
+                const last = index === crumbs.length - 1;
+                return (
+                  <Fragment key={`${crumb.label}-${index}`}>
+                    {index > 0 && <Icon name="chevronRight" className="" />}
+                    {crumb.href && !last ? (
+                      <Link href={crumb.href} title={crumb.label}>
+                        {crumb.label}
+                      </Link>
+                    ) : (
+                      <span aria-current={last ? 'page' : undefined} title={crumb.label}>
+                        {crumb.label}
+                      </span>
+                    )}
+                  </Fragment>
+                );
+              })}
+            </nav>
+          </div>
+          <div className="topbar-right">
+            {actions && <div className="flex items-center gap-2">{actions}</div>}
+            <button type="button" className="btn-ghost shell-language" onClick={switchLanguage} aria-label={t.common.language.label}>
+              <Icon name="globe" className="" />
+              {t.common.language.short}
             </button>
             {/* The way out to the public site (prototype app.js "返回官网"). */}
-            <Link href="/" className="hidden items-center gap-1 text-[11px] text-blue hover:underline lg:inline-flex">
+            <Link href="/" className="text-link shell-site-link">
               {t.common.website}
-              <Icon name="external" className="size-3.5" />
+              <Icon name="external" className="" />
             </Link>
           </div>
         </div>
         {hasRow && (
-          <div className="flex h-11 items-stretch gap-1 overflow-x-auto border-t border-[#eceff6] px-2 [scrollbar-width:none] md:px-6">
+          <div className="context-nav-row">
             {tabs ? (
-              <nav aria-label={tabsLabel} className="flex items-stretch gap-1">
+              <nav aria-label={tabsLabel} className="header-tabs">
                 {tabs.map((tab) => (
                   <Link
                     key={tab.href}
                     href={tab.href}
+                    className={tab.active ? 'active' : undefined}
                     aria-current={tab.active ? 'page' : undefined}
                     ref={(node) => {
                       if (node && tab.active) node.scrollIntoView({ block: 'nearest', inline: 'nearest' });
                     }}
-                    className={`flex flex-none items-center gap-1.5 border-b-2 px-3 text-[13px] font-medium whitespace-nowrap ${
-                      tab.active ? 'border-blue text-blue' : 'border-transparent text-muted hover:text-ink'
-                    }`}
                   >
-                    {tab.icon && <Icon name={tab.icon} className="size-[15px]" />}
+                    {tab.icon && <Icon name={tab.icon} className="" />}
                     {tab.label}
                   </Link>
                 ))}
@@ -132,11 +142,11 @@ export function Topbar({
             ) : (
               secondRow
             )}
-            {rowActions && <div className="ml-auto flex flex-none items-center gap-1 pl-2">{rowActions}</div>}
+            {rowActions && <div className="context-nav-actions">{rowActions}</div>}
           </div>
         )}
       </header>
-      <div aria-hidden="true" className={hasRow ? 'h-[108px]' : 'h-16'} />
+      <div aria-hidden="true" className="topbar-spacer" />
     </>
   );
 }

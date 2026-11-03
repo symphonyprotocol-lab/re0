@@ -9,8 +9,9 @@ import { api } from '@/lib/client/upload';
 import { uploadKycImage } from '@/lib/client/kyc-upload';
 import { useI18n } from '@/i18n/client';
 import { fill, formatDateTime } from '@/i18n/format';
-import { Icon, Spinner } from '@/components/ui/icons';
+import { Spinner } from '@/components/ui/icons';
 import { useToast } from '@/components/ui/toast';
+import { I } from '@/components/settings/icon';
 
 export interface IdentityRecord {
   legalName: string | null;
@@ -99,62 +100,70 @@ export function IdentityForm({ state, record, today }: { state: KycState; record
   const feedback = record?.reason && (state === 'rejected' || state === 'reset') ? record.reason : null;
 
   return (
-    <div className="flex min-w-0 flex-col gap-5">
-      <div className="flex flex-wrap items-start justify-between gap-3">
-        <div className="min-w-0">
-          <h1 className="text-[22px] font-extrabold">{locked ? f.submittedTitle : f.submitTitle}</h1>
-          <p className="mt-1 text-[13px] text-muted">{locked ? f.submittedIntro : f.submitIntro}</p>
+    <>
+      <div className="kyc-page-intro">
+        <div>
+          <h1>{locked ? f.submittedTitle : f.submitTitle}</h1>
+          <p>{locked ? f.submittedIntro : f.submitIntro}</p>
         </div>
         {state !== 'none' && <KycStateTag state={state} label={p.kyc.status[state]} />}
       </div>
-      <div className="grid min-w-0 gap-5 lg:grid-cols-[minmax(0,1fr)_300px]">
+      <div className="kyc-page-layout">
         <form
-          className="flex min-w-0 flex-col gap-4"
+          id="manual-kyc-form"
+          className="kyc-page-form"
           onSubmit={(event) => {
             event.preventDefault();
             void submit(event.currentTarget);
           }}
         >
-          <fieldset disabled={locked || busy} className="flex min-w-0 flex-col gap-4">
+          <fieldset className="kyc-page-fields" disabled={locked || busy}>
             <Section index="01" title={f.section1.title} body={f.section1.body}>
-              <div className="grid gap-4 sm:grid-cols-2">
-                <Field id="kyc-name" label={f.legalName}>
-                  <input id="kyc-name" name="legalName" className="input" required maxLength={KYC_LIMITS.legalName} autoComplete="off" placeholder={f.legalNamePlaceholder} defaultValue={record?.legalName ?? ''} />
-                </Field>
-                <Field id="kyc-country" label={f.country}>
-                  <input id="kyc-country" name="country" className="input" required maxLength={KYC_LIMITS.country} placeholder={f.countryPlaceholder} defaultValue={record?.country ?? ''} />
-                </Field>
-                <Field id="kyc-kind" label={f.documentKind}>
-                  <select id="kyc-kind" name="documentKind" className="input pr-8" defaultValue={record?.documentKind ?? 'passport'}>
+              <div className="two-col">
+                <div className="field">
+                  <label htmlFor="kyc-name">{f.legalName}</label>
+                  <input id="kyc-name" name="legalName" required maxLength={KYC_LIMITS.legalName} autoComplete="off" placeholder={f.legalNamePlaceholder} defaultValue={record?.legalName ?? ''} />
+                </div>
+                <div className="field">
+                  <label htmlFor="kyc-country">{f.country}</label>
+                  <input id="kyc-country" name="country" required maxLength={KYC_LIMITS.country} placeholder={f.countryPlaceholder} defaultValue={record?.country ?? ''} />
+                </div>
+              </div>
+              <div className="two-col">
+                <div className="field">
+                  <label htmlFor="kyc-kind">{f.documentKind}</label>
+                  <select id="kyc-kind" name="documentKind" defaultValue={record?.documentKind ?? 'passport'}>
                     {KYC_DOCUMENT_KINDS.map((kind) => (
                       <option key={kind} value={kind}>
                         {p.kyc.kinds[kind]}
                       </option>
                     ))}
                   </select>
-                </Field>
-                <Field id="kyc-last4" label={f.last4} hint={f.last4Hint}>
+                </div>
+                <div className="field">
+                  <label htmlFor="kyc-last4">{f.last4}</label>
                   <input
                     id="kyc-last4"
                     name="documentLast4"
-                    className="input font-mono uppercase"
                     required
                     minLength={KYC_LIMITS.last4}
                     maxLength={KYC_LIMITS.last4}
                     pattern="[A-Za-z0-9]{4}"
+                    title={f.last4Hint}
                     placeholder="2048"
                     autoComplete="off"
                     defaultValue={record?.documentLast4 ?? ''}
                   />
-                </Field>
+                </div>
               </div>
-              <Field id="kyc-expires" label={f.expires} className="mt-4 sm:max-w-[calc(50%-8px)]">
-                <input id="kyc-expires" name="documentExpires" type="date" className="input" required min={locked ? undefined : today} defaultValue={record?.documentExpires ?? ''} />
-              </Field>
+              <div className="field">
+                <label htmlFor="kyc-expires">{f.expires}</label>
+                <input id="kyc-expires" name="documentExpires" type="date" required min={locked ? undefined : today} defaultValue={record?.documentExpires ?? ''} />
+              </div>
             </Section>
 
             <Section index="02" title={f.section2.title} body={f.section2.body}>
-              <div className="grid gap-4 sm:grid-cols-2">
+              <div className="two-col">
                 {(['document', 'selfie'] as const).map((slot) => {
                   const upload = uploads[slot];
                   const submitted = locked && (slot === 'document' ? record?.hasDocument : record?.hasSelfie);
@@ -162,24 +171,16 @@ export function IdentityForm({ state, record, today }: { state: KycState; record
                   const status = deleted ? f.deleted : submitted ? f.submitted : upload ? (upload.progress !== null ? fill(f.uploading, { n: upload.progress }) : f.uploaded) : f.choose;
                   const detail = deleted ? f.deletedHint : upload ? upload.name : submitted ? '' : slot === 'document' ? f.documentHint : f.selfieHint;
                   return (
-                    <div key={slot} className="min-w-0">
-                      <span className="field-label">{slot === 'document' ? f.document : f.selfie}</span>
-                      <label
-                        htmlFor={`kyc-${slot}`}
-                        className={`flex min-h-[112px] min-w-0 cursor-pointer flex-col items-center justify-center gap-1 rounded-xl border border-dashed px-3 py-4 text-center transition ${upload?.pathname || submitted ? 'border-[#cde8df] bg-[#f4fbf8]' : 'border-line bg-wash hover:border-blue'} ${locked ? 'cursor-default' : ''}`}
-                      >
-                        {upload?.progress !== null && upload ? (
-                          <Spinner className="size-5 text-blue" />
-                        ) : (
-                          <Icon name={upload?.pathname || submitted ? 'check' : slot === 'document' ? 'file' : 'users'} className={`size-5 ${upload?.pathname || submitted ? 'text-green' : 'text-muted'}`} />
-                        )}
-                        <strong className="text-[13px]">{status}</strong>
-                        <span className="max-w-full truncate text-[11px] text-muted">{detail}</span>
+                    <div key={slot} className="field">
+                      <label htmlFor={`kyc-${slot}`}>{slot === 'document' ? f.document : f.selfie}</label>
+                      <label className={`kyc-upload ${upload?.pathname || submitted ? 'is-done' : ''}`} htmlFor={`kyc-${slot}`}>
+                        {upload && upload.progress !== null ? <Spinner /> : <I name={upload?.pathname || submitted ? 'check' : slot === 'document' ? 'file' : 'users'} />}
+                        <strong>{status}</strong>
+                        <span>{detail}</span>
                         <input
                           id={`kyc-${slot}`}
                           type="file"
                           accept={Object.keys(KYC_IMAGE_TYPES).join(',')}
-                          className="sr-only"
                           disabled={locked || busy}
                           onChange={(event) => {
                             void pick(slot, event.target.files?.[0]);
@@ -191,60 +192,61 @@ export function IdentityForm({ state, record, today }: { state: KycState; record
                   );
                 })}
               </div>
-              <p className="hint mt-3">{f.imageHint}</p>
+              <p className="form-hint">{f.imageHint}</p>
             </Section>
 
             <Section index="03" title={f.section3.title} body={f.section3.body}>
-              <Field id="kyc-tax" label={f.taxForm}>
-                <select id="kyc-tax" name="taxForm" className="input pr-8" defaultValue={record?.taxForm ?? 'W-8BEN'}>
+              <div className="field">
+                <label htmlFor="kyc-tax">{f.taxForm}</label>
+                <select id="kyc-tax" name="taxForm" defaultValue={record?.taxForm ?? 'W-8BEN'}>
                   {TAX_FORMS.map((form) => (
                     <option key={form} value={form}>
                       {p.kyc.taxForms[form]}
                     </option>
                   ))}
                 </select>
-              </Field>
-              <label className="mt-4 flex items-start gap-2.5 text-[13px] leading-relaxed">
-                <input type="checkbox" name="declared" required className="mt-1 size-4 flex-none accent-blue" defaultChecked={locked && record?.declared} />
+              </div>
+              <label className="check-row small">
+                <input type="checkbox" name="declared" required defaultChecked={locked && record?.declared} />
                 {f.declared}
               </label>
-              <label className="mt-3 flex items-start gap-2.5 text-[13px] leading-relaxed">
-                <input type="checkbox" name="consent" required className="mt-1 size-4 flex-none accent-blue" defaultChecked={locked} />
+              <label className="check-row small mt16">
+                <input type="checkbox" name="consent" required defaultChecked={locked} />
                 {f.consent}
               </label>
             </Section>
           </fieldset>
           {error && (
-            <p role="alert" className="rounded-lg bg-[#fff3f3] px-3 py-2 text-[12px] text-red">
+            <p role="alert" className="form-error">
               {error}
             </p>
           )}
           {!locked && (
-            <div className="flex flex-wrap justify-end gap-2">
-              <Link href="/settings?tab=billing" className="btn-secondary">
+            <div className="kyc-page-actions">
+              <Link href="/settings?tab=billing" className="btn secondary">
                 {f.cancel}
               </Link>
               <button type="submit" className="btn" disabled={busy || uploading}>
-                {busy ? <Spinner /> : null}
+                {busy && <Spinner />}
                 {f.submit}
-                {!busy && <Icon name="arrow" />}
+                {!busy && <I name="arrow" />}
               </button>
             </div>
           )}
         </form>
-        <aside className="flex min-w-0 flex-col gap-4">
-          <section className="card p-5">
-            <span className="inline-flex size-9 items-center justify-center rounded-xl bg-soft text-blue">
-              <Icon name="shield" />
+        <aside className="kyc-page-guide">
+          <section className="card kyc-guide-card">
+            <span className="kyc-guide-icon">
+              <I name="shield" />
             </span>
-            <h2 className="mt-3 text-[15px] font-bold">{locked ? p.kyc.status[state] : f.guideTitle}</h2>
-            <ol className="mt-3 flex list-decimal flex-col gap-2 pl-5 text-[12px] leading-relaxed text-muted">
+            <h2>{locked ? p.kyc.status[state] : f.guideTitle}</h2>
+            <ol>
               {f.guide.map((step) => (
                 <li key={step}>{step}</li>
               ))}
             </ol>
             {locked && record && (
-              <p className="hint mt-4 leading-relaxed">
+              <p className="form-hint">
                 {f.lockedNote}
                 <br />
                 {fill(f.submittedAt, { time: formatDateTime(record.createdAt, locale) })}
@@ -257,66 +259,38 @@ export function IdentityForm({ state, record, today }: { state: KycState; record
               </p>
             )}
             {feedback && (
-              <div role="status" className="mt-4 rounded-lg border border-[#f0dcc2] bg-[#fff7ec] px-3 py-2.5 text-[12px]">
-                <strong className="block text-orange">{f.feedback}</strong>
-                <p className="mt-1 break-words whitespace-pre-line">{feedback}</p>
+              <div className="kyc-feedback" role="status">
+                <strong>{f.feedback}</strong>
+                <p>{feedback}</p>
               </div>
             )}
           </section>
-          <section className="rounded-xl border border-[#dfe6f5] bg-wash p-5">
-            <h3 className="text-[13px] font-bold">{f.protectTitle}</h3>
-            <p className="mt-2 text-[12px] leading-relaxed text-muted">{f.protectBody}</p>
+          <section className="kyc-guide-note">
+            <h3>{f.protectTitle}</h3>
+            <p>{f.protectBody}</p>
           </section>
-          <Link href="/settings?tab=billing" className="text-link text-[12px]">
-            <Icon name="arrowLeft" className="size-3.5" />
-            {f.back}
-          </Link>
         </aside>
       </div>
-    </div>
+    </>
   );
 }
 
 export function KycStateTag({ state, label }: { state: KycState; label: string }) {
-  const tone =
-    state === 'verified'
-      ? 'border-[#cde8df] bg-[#effaf6] text-green'
-      : state === 'rejected'
-        ? 'border-[#f1d4d4] bg-[#fff3f3] text-red'
-        : state === 'none'
-          ? ''
-          : 'border-[#f0dcc2] bg-[#fff7ec] text-orange';
-  return (
-    <span className={`tag whitespace-nowrap ${tone}`}>
-      {state === 'verified' && <Icon name="check" className="size-3" />}
-      {label}
-    </span>
-  );
+  const tone = state === 'verified' ? 'green' : state === 'rejected' ? 'red' : state === 'none' ? '' : 'orange';
+  return <span className={`tag ${tone}`}>{label}</span>;
 }
 
 function Section({ index, title, body, children }: { index: string; title: string; body: string; children: ReactNode }) {
   return (
-    <section className="card min-w-0 p-5 md:p-6">
-      <div className="mb-4 flex items-start gap-3">
-        <span className="font-mono text-[12px] font-bold text-blue">{index}</span>
-        <div className="min-w-0">
-          <h2 className="text-[15px] font-bold">{title}</h2>
-          <p className="mt-0.5 text-[12px] text-muted">{body}</p>
+    <section className="card kyc-form-section">
+      <div className="kyc-section-title">
+        <span>{index}</span>
+        <div>
+          <h2>{title}</h2>
+          <p>{body}</p>
         </div>
       </div>
       {children}
     </section>
-  );
-}
-
-function Field({ id, label, hint, className = '', children }: { id: string; label: string; hint?: string; className?: string; children: ReactNode }) {
-  return (
-    <div className={`min-w-0 ${className}`}>
-      <label htmlFor={id} className="field-label">
-        {label}
-      </label>
-      {children}
-      {hint && <small className="hint">{hint}</small>}
-    </div>
   );
 }

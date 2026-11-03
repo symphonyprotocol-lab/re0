@@ -4,6 +4,7 @@ import type { Shape } from '@/i18n/format';
 export const zh = {
   title: '角色与认证',
   tab: '角色与认证',
+  badgeTitle: '账号角色：',
   roles: { normal: '普通', verified: '认证', official: '官方' },
   summary: {
     eyebrow: 'ACCOUNT ROLE',
@@ -91,6 +92,7 @@ export const zh = {
 export const en: Shape<typeof zh> = {
   title: 'Role & verification',
   tab: 'Role & verification',
+  badgeTitle: 'Account role: ',
   roles: { normal: 'Normal', verified: 'Verified', official: 'Official' },
   summary: {
     eyebrow: 'ACCOUNT ROLE',

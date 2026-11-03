@@ -1,77 +1,90 @@
 import type { SVGProps } from 'react';
 
-/** Stroke icons in the prototype's style: 24-unit grid, 1.7 stroke, round caps. */
-const PATHS = {
-  dashboard: 'M4 13h6V4H4zM14 20h6v-9h-6zM14 4v3h6V4zM4 20h6v-3H4z',
-  plus: 'M12 5v14M5 12h14',
-  search: 'M11 4a7 7 0 1 0 0 14 7 7 0 0 0 0-14zM20 20l-4-4',
-  chat: 'M5 5h14v10H9l-4 4z',
-  file: 'M7 3h7l5 5v13H7zM14 3v5h5M10 13h6M10 17h6',
-  text: 'M5 6h14M5 11h14M5 16h9',
-  settings: 'M12 9a3 3 0 1 0 0 6 3 3 0 0 0 0-6zM19.4 15a1.7 1.7 0 0 0 .3 1.8l.1.1a2 2 0 1 1-2.8 2.8l-.1-.1a1.7 1.7 0 0 0-1.8-.3 1.7 1.7 0 0 0-1 1.5V21a2 2 0 1 1-4 0v-.1a1.7 1.7 0 0 0-1.1-1.5 1.7 1.7 0 0 0-1.8.3l-.1.1a2 2 0 1 1-2.8-2.8l.1-.1a1.7 1.7 0 0 0 .3-1.8 1.7 1.7 0 0 0-1.5-1H3a2 2 0 1 1 0-4h.1a1.7 1.7 0 0 0 1.5-1.1 1.7 1.7 0 0 0-.3-1.8l-.1-.1a2 2 0 1 1 2.8-2.8l.1.1a1.7 1.7 0 0 0 1.8.3H9a1.7 1.7 0 0 0 1-1.5V3a2 2 0 1 1 4 0v.1a1.7 1.7 0 0 0 1 1.5 1.7 1.7 0 0 0 1.8-.3l.1-.1a2 2 0 1 1 2.8 2.8l-.1.1a1.7 1.7 0 0 0-.3 1.8V9a1.7 1.7 0 0 0 1.5 1H21a2 2 0 1 1 0 4h-.1a1.7 1.7 0 0 0-1.5 1z',
-  trash: 'M4 7h16M9 7V4h6v3M6 7l1 13h10l1-13M10 11v6M14 11v6',
-  chevronLeft: 'M15 5l-7 7 7 7',
-  chevronRight: 'M9 5l7 7-7 7',
-  chevronDown: 'M5 9l7 7 7-7',
-  arrow: 'M5 12h14M13 6l6 6-6 6',
-  arrowLeft: 'M19 12H5M11 6l-6 6 6 6',
-  check: 'M5 12.5l4.5 4.5L19 7.5',
-  close: 'M6 6l12 12M18 6L6 18',
-  menu: 'M4 7h16M4 12h16M4 17h16',
-  panel: 'M4 5h16v14H4zM9 5v14',
-  globe: 'M12 3a9 9 0 1 0 0 18 9 9 0 0 0 0-18zM3 12h18M12 3c2.5 2.5 3.5 5.5 3.5 9s-1 6.5-3.5 9c-2.5-2.5-3.5-5.5-3.5-9s1-6.5 3.5-9z',
-  lock: 'M6 11h12v9H6zM8.5 11V8a3.5 3.5 0 0 1 7 0v3',
-  upload: 'M12 16V4M7 9l5-5 5 5M5 20h14',
-  refresh: 'M20 11a8 8 0 0 0-14.6-4.5L4 8M4 4v4h4M4 13a8 8 0 0 0 14.6 4.5L20 16M20 20v-4h-4',
-  shield: 'M12 3l7 3v6c0 4.5-3 7.5-7 9-4-1.5-7-4.5-7-9V6z',
-  info: 'M12 3a9 9 0 1 0 0 18 9 9 0 0 0 0-18zM12 11v5M12 8h.01',
-  light: 'M9 18h6M10 21h4M12 3a6 6 0 0 0-3.5 10.9c.6.5 1 1.2 1 2.1h5c0-.9.4-1.6 1-2.1A6 6 0 0 0 12 3z',
-  send: 'M4 12l16-8-6 16-2.5-6.5z',
-  external: 'M14 4h6v6M20 4l-9 9M18 14v6H4V6h6',
-  copy: 'M9 9h11v11H9zM5 15H4V4h11v1',
-  list: 'M9 6h11M9 12h11M9 18h11M4 6h.01M4 12h.01M4 18h.01',
-  cards: 'M4 4h7v7H4zM13 4h7v7h-7zM4 13h7v7H4zM13 13h7v7h-7z',
-  logout: 'M15 4h4v16h-4M10 8l-4 4 4 4M6 12h10',
-  sparkle: 'M12 3l1.8 5.2L19 10l-5.2 1.8L12 17l-1.8-5.2L5 10l5.2-1.8zM19 16l.7 1.8 1.8.7-1.8.7L19 21l-.7-1.8-1.8-.7 1.8-.7z',
-  layers: 'M12 3l9 5-9 5-9-5zM3 13l9 5 9-5',
-  user: 'M12 4a4 4 0 1 0 0 8 4 4 0 0 0 0-8zM4 21a8 8 0 0 1 16 0',
-  clock: 'M12 3a9 9 0 1 0 0 18 9 9 0 0 0 0-18zM12 7v5l3 2',
-  key: 'M8 14a4 4 0 1 1 3.5-6l9.5.1v3h-2v2h-3v-2h-4.5A4 4 0 0 1 8 14z',
-  github: 'M9 19c-4 1.5-4-2-6-2.5M15 21v-3.5c0-1 .1-1.4-.5-2 2.8-.3 5.5-1.4 5.5-6a4.6 4.6 0 0 0-1.3-3.2 4.2 4.2 0 0 0-.1-3.2s-1-.3-3.4 1.3a11.6 11.6 0 0 0-6 0C6.8 2.8 5.8 3.1 5.8 3.1a4.2 4.2 0 0 0-.1 3.2A4.6 4.6 0 0 0 4.4 9.5c0 4.6 2.7 5.7 5.5 6-.6.6-.6 1.2-.5 2V21',
-  folder: 'M3 6h6l2 2h10v11H3z',
-  pause: 'M8 5v14M16 5v14',
-  play: 'M7 5l12 7-12 7z',
-  dots: 'M4 12a1.5 1.5 0 1 0 3 0 1.5 1.5 0 1 0-3 0M10.5 12a1.5 1.5 0 1 0 3 0 1.5 1.5 0 1 0-3 0M17 12a1.5 1.5 0 1 0 3 0 1.5 1.5 0 1 0-3 0',
-  download: 'M12 4v12M7 11l5 5 5-5M5 20h14',
-  code: 'M9 7l-5 5 5 5M15 7l5 5-5 5',
-  audio: 'M9 18V6l10-2v12M9 18a2.5 2.5 0 1 1-5 0 2.5 2.5 0 0 1 5 0zM19 16a2.5 2.5 0 1 1-5 0 2.5 2.5 0 0 1 5 0z',
-  /* step 4 */
-  compass: 'M12 3a9 9 0 1 0 0 18 9 9 0 0 0 0-18zM15.5 8.5l-2 5-5 2 2-5z',
-  pin: 'M9 4h6l-1 6 3 3H7l3-3zM12 13v7',
-  archive: 'M4 5h16v4H4zM5 9v10h14V9M10 13h4',
-  users: 'M9 11a3.5 3.5 0 1 0 0-7 3.5 3.5 0 0 0 0 7zM3 20c0-3.3 2.7-5.5 6-5.5s6 2.2 6 5.5M16 4.5a3.5 3.5 0 0 1 0 6.5M18 14.8c1.8.7 3 2.6 3 5.2',
-  thumbUp: 'M7 11v9H4v-9zM7 11l4-7a2 2 0 0 1 2 2v4h5.5a2 2 0 0 1 2 2.3l-1.2 6A2 2 0 0 1 17.3 20H7',
-  thumbDown: 'M7 13V4H4v9zM7 13l4 7a2 2 0 0 0 2-2v-4h5.5a2 2 0 0 0 2-2.3l-1.2-6A2 2 0 0 0 17.3 4H7',
-  at: 'M16 12a4 4 0 1 1-8 0 4 4 0 0 1 8 0zM16 12v1.5a2.5 2.5 0 0 0 5 0V12a9 9 0 1 0-3.5 7.1',
-  film: 'M4 5h16v14H4zM8 5v14M16 5v14M4 9h4M4 15h4M16 9h4M16 15h4',
-  /* Step 7: the video player's fullscreen toggle. */
-  expand: 'M4 9V4h5M20 9V4h-5M4 15v5h5M20 15v5h-5',
-  shrink: 'M9 4v5H4M15 4v5h5M9 20v-5H4M15 20v-5h5',
+/** The Ree mark: a knowledge node and its connections -- no face, no robot (prototype dot-avatar.js `DOT_MARK`). */
+const REE_MARK =
+  '<circle cx="12" cy="12" r="3" fill="currentColor" stroke="none"/><path d="M8.3 5.1a7.8 7.8 0 0 1 10.6 10.6M15.7 18.9A7.8 7.8 0 0 1 5.1 8.3"/><circle cx="6" cy="6" r="1.7" fill="currentColor" stroke="none"/><circle cx="18" cy="18" r="1.7" fill="currentColor" stroke="none"/>';
+const CHEVRON = '<path d="m9 5 7 7-7 7"/>';
+const ARROW = '<path d="M4 12h16m-6-6 6 6-6 6"/>';
+const LAYERS = '<path d="m12 2 10 6-10 6L2 8Zm-10 12 10 6 10-6M2 19l10 6 10-6" transform="scale(.9) translate(1 0)"/>';
+const PANEL_CLOSE = '<rect x="3" y="3" width="18" height="18" rx="3"/><path d="M9 3v18m7-13-3 4 3 4"/>';
+const THUMB = '<path d="M4 14h4v8H4Zm4 6h10a2 2 0 0 0 2-1.5l2-8A2 2 0 0 0 20 8h-5V4a2 2 0 0 0-4-1l-3 9" transform="translate(0 -1) scale(.95)"/>';
+const GRID = '<rect x="3" y="3" width="7" height="7" rx="1"/><rect x="14" y="3" width="7" height="7" rx="1"/><rect x="3" y="14" width="7" height="7" rx="1"/><rect x="14" y="14" width="7" height="7" rx="1"/>';
+
+/**
+ * Stroke icons, verbatim from the prototype (rebuild-prototype/app.js
+ * `paths`): 24-unit grid, 1.5 stroke, round caps. Names the prototype lacks
+ * (user, key, at) are drawn in the same style.
+ */
+const GLYPHS = {
+  ree: REE_MARK,
+  dashboard: LAYERS,
+  layers: LAYERS,
+  plus: '<path d="M12 5v14M5 12h14"/>',
+  search: '<circle cx="10.5" cy="10.5" r="6.5"/><path d="m16 16 5 5"/>',
+  chat: '<path d="M21 11.5a8.5 8.5 0 0 1-8.5 8.5H4l-3 2V11.5A8.5 8.5 0 0 1 9.5 3h3a8.5 8.5 0 0 1 8.5 8.5Z"/><path d="M7 10h8m-8 4h5"/>',
+  file: '<path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8Zm0 0v6h6M8 13h8m-8 4h6"/>',
+  text: '<path d="M4 5h16M12 5v15M8 20h8M4 8V5m16 3V5"/>',
+  settings:
+    '<path d="m9 3 1-2h4l1 2 3 2 2-.2 2 3.4-1.3 1.8v3.7l1.3 1.9-2 3.4-2-.2-3 1.7-1 2h-4l-1-2-3-1.7-2 .2-2-3.4L3.3 14v-3.7L2 8.4 4 5l2 .2Z" transform="translate(1 1) scale(.9)"/><circle cx="12" cy="12" r="3"/>',
+  trash: '<path d="M3 6h18M9 6V3h6v3M5 6l1 15h12l1-15M10 10v7m4-7v7"/>',
+  chevronRight: CHEVRON,
+  chevronLeft: `<g transform="rotate(180 12 12)">${CHEVRON}</g>`,
+  chevronDown: '<path d="m6 9 6 6 6-6"/>',
+  arrow: ARROW,
+  arrowLeft: `<g transform="rotate(180 12 12)">${ARROW}</g>`,
+  check: '<path d="m5 12 4 4L19 6"/>',
+  close: '<path d="m6 6 12 12M6 18 18 6"/>',
+  menu: '<path d="M4 6h16M4 12h16M4 18h16"/>',
+  panel: PANEL_CLOSE,
+  panelClose: PANEL_CLOSE,
+  panelOpen: '<rect x="3" y="3" width="18" height="18" rx="3"/><path d="M9 3v18m4-13 3 4-3 4"/>',
+  globe: '<circle cx="12" cy="12" r="9"/><ellipse cx="12" cy="12" rx="4" ry="9"/><path d="M3 12h18"/>',
+  lock: '<rect x="5" y="10" width="14" height="11" rx="2"/><path d="M8 10V7a4 4 0 0 1 8 0v3m-4 5v2"/>',
+  upload: '<path d="M12 16V3m-5 5 5-5 5 5M3 16v5h18v-5"/>',
+  download: '<path d="M12 3v12m-5-5 5 5 5-5M4 16v5h16v-5"/>',
+  refresh: '<path d="M20 10a8 8 0 0 0-14-5L3 8m0-6v6h6m-5 6a8 8 0 0 0 14 5l3-3m0 6v-6h-6"/>',
+  shield: '<path d="m12 2 9 4v6c0 5-9 10-9 10S3 17 3 12V6Z"/><path d="m8 12 3 3 5-6"/>',
+  info: '<circle cx="12" cy="12" r="9"/><path d="M12 10v7m0-11v1"/>',
+  light: '<path d="M9 18h6m-6 3h6M8 14a6 6 0 1 1 8 0c-1 1-1 2-1 4H9c0-2 0-3-1-4Z"/>',
+  send: '<path d="m12 4 7 7m-7-7-7 7m7-7v16"/>',
+  external: '<path d="M14 3h7v7m0-7L11 13M10 3H4v17h17v-6"/>',
+  copy: '<rect x="8" y="8" width="12" height="13" rx="2"/><path d="M16 8V3H4v13h4"/>',
+  link: '<path d="m10 13 4-4m-6 6-1 1a4 4 0 0 1-6-6l5-5a4 4 0 0 1 6 0m0 8 1 1a4 4 0 0 0 6-6l-5-5" transform="translate(2 2) scale(.9)"/>',
+  list: '<path d="M9 5h12M9 12h12M9 19h12M3 5h.01M3 12h.01M3 19h.01"/>',
+  cards: GRID,
+  grid: GRID,
+  sort: '<path d="M8 3v18m-4-4 4 4 4-4M16 21V3m-4 4 4-4 4 4"/>',
+  chart: '<path d="M4 3v18h17M9 16v-5m5 5V6m5 10V9"/>',
+  logout: '<path d="M10 3H4v18h6m6-15 6 6-6 6m-7-6h13"/>',
+  sparkle: '<path d="m12 2 2.7 7.3L22 12l-7.3 2.7L12 22l-2.7-7.3L2 12l7.3-2.7ZM20 2v4m-2-2h4"/>',
+  wallet: '<path d="M20 7V4H5a3 3 0 0 0 0 6h16v10H5a3 3 0 0 1-3-3V7"/><path d="M21 10h-6v6h6M17 13h.01"/>',
+  book: '<path d="M12 6v15M2 3h5a5 5 0 0 1 5 3 5 5 0 0 1 5-3h5v16h-5a5 5 0 0 0-5 2 5 5 0 0 0-5-2H2Z"/>',
+  map: '<path d="m3 5 6-3 6 3 6-3v17l-6 3-6-3-6 3Zm6-3v17m6-14v17"/>',
+  user: '<circle cx="12" cy="8" r="4"/><path d="M4 21v-1a8 8 0 0 1 16 0v1"/>',
+  users: '<circle cx="9" cy="8" r="3"/><path d="M2 21v-3a6 6 0 0 1 12 0v3M17 5a3 3 0 0 1 0 6m1 4a5 5 0 0 1 4 5"/>',
+  clock: '<circle cx="12" cy="12" r="9"/><path d="M12 6v6l4 2"/>',
+  key: '<circle cx="8" cy="15" r="4"/><path d="m11 12 9-9m-4 4 3 3m-6 0 2 2"/>',
+  github:
+    '<path d="M9 19c-4.5 1.5-4.5-2.5-6-3m12 6v-4a3.5 3.5 0 0 0-1-2.5c3.3-.4 6.7-1.6 6.7-7A5.4 5.4 0 0 0 19.2 5c.2-.5.7-2.3-.2-4 0 0-1.3-.4-4.1 1.5a14 14 0 0 0-7.4 0C4.7.6 3.4 1 3.4 1c-.9 1.7-.4 3.5-.2 4a5.4 5.4 0 0 0-1.5 3.7c0 5.3 3.4 6.5 6.7 7a3.5 3.5 0 0 0-1 2.5v4" transform="translate(1 0) scale(.95)"/>',
+  folder: '<path d="M3 7V5a2 2 0 0 1 2-2h5l3 3h6a2 2 0 0 1 2 2v11a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V7Z"/>',
+  pause: '<path d="M8 4v16M16 4v16"/>',
+  play: '<path d="m8 4 12 8-12 8Z"/>',
+  dots: '<circle cx="5" cy="12" r="1"/><circle cx="12" cy="12" r="1"/><circle cx="19" cy="12" r="1"/>',
+  code: '<path d="m8 5-6 7 6 7m8-14 6 7-6 7m-3-17-2 20"/>',
+  audio: '<path d="M3 10v4m4-8v12m5-16v20m5-16v12m4-8v4"/>',
+  compass: '<circle cx="12" cy="12" r="9"/><path d="m16 8-2.4 5.6L8 16l2.4-5.6Z"/>',
+  pin: '<path d="m9 3 12 12-3 3-4-2-4 4-2-2 4-4-2-4Zm-6 18 6-6"/>',
+  archive: '<path d="M4 8h16v13H4ZM3 3h18v5H3Zm6 9h6"/>',
+  thumbUp: THUMB,
+  thumbDown: `<g transform="translate(24 24) rotate(180)">${THUMB.replace(' transform="translate(0 -1) scale(.95)"', '')}</g>`,
+  at: '<circle cx="12" cy="12" r="4"/><path d="M16 8v5a3 3 0 0 0 6 0v-1a10 10 0 1 0-4 8"/>',
+  film: '<rect x="3" y="3" width="18" height="18" rx="2"/><path d="M7 3v18m10-18v18M3 8h4m-4 8h4m10-8h4m-4 8h4"/>',
+  /* The video player's fullscreen toggle (prototype `fullscreen` / `minimize`). */
+  expand: '<path d="M8 3H3v5m13-5h5v5M3 16v5h5m13-5v5h-5"/>',
+  shrink: '<path d="M3 8h5V3m8 0v5h5M8 21v-5H3m13 5v-5h5"/>',
 } as const;
 
-export type IconName = keyof typeof PATHS | 'ree';
-
-/** The Ree mark: a knowledge node and its connections -- no face, no robot (prototype dot-avatar.js). */
-function ReeMark() {
-  return (
-    <>
-      <circle cx="12" cy="12" r="3" fill="currentColor" stroke="none" />
-      <path d="M8.3 5.1a7.8 7.8 0 0 1 10.6 10.6M15.7 18.9A7.8 7.8 0 0 1 5.1 8.3" />
-      <circle cx="6" cy="6" r="1.7" fill="currentColor" stroke="none" />
-      <circle cx="18" cy="18" r="1.7" fill="currentColor" stroke="none" />
-    </>
-  );
-}
+export type IconName = keyof typeof GLYPHS;
 
 export function Icon({ name, className = 'size-4', ...rest }: { name: IconName } & SVGProps<SVGSVGElement>) {
   return (
@@ -79,15 +92,14 @@ export function Icon({ name, className = 'size-4', ...rest }: { name: IconName }
       viewBox="0 0 24 24"
       fill="none"
       stroke="currentColor"
-      strokeWidth={1.7}
+      strokeWidth={1.5}
       strokeLinecap="round"
       strokeLinejoin="round"
       aria-hidden="true"
       className={className}
+      dangerouslySetInnerHTML={{ __html: GLYPHS[name] }}
       {...rest}
-    >
-      {name === 'ree' ? <ReeMark /> : <path d={PATHS[name]} />}
-    </svg>
+    />
   );
 }
 

@@ -10,6 +10,7 @@ import { BillingTab } from '@/components/billing/billing-tab';
 import { Connections } from '@/components/settings/connections';
 import { NoticesTab } from '@/components/settings/notices-tab';
 import { RoleTab } from '@/components/settings/role-tab';
+import '@/components/settings/settings.css';
 
 export async function generateMetadata(): Promise<Metadata> {
   const { t } = await serverMessages();
@@ -38,38 +39,42 @@ export default async function SettingsPage({ searchParams }: { searchParams: Pro
         crumbs={[{ label: t.dashboard.title, href: '/dashboard' }, { label: s.title }]}
         tabsLabel={s.tabs.label}
         tabs={[
-          { label: s.tabs.account, href: '/settings?tab=account', active: tab === 'account', icon: 'user' },
-          { label: t.roles.tab, href: '/settings?tab=role', active: tab === 'role', icon: 'shield' },
-          { label: s.tabs.connections, href: '/settings?tab=connections', active: tab === 'connections', icon: 'globe' },
-          { label: s.tabs.billing, href: '/settings?tab=billing', active: tab === 'billing', icon: 'layers' },
-          { label: t.notices.tab, href: '/settings?tab=notices', active: tab === 'notices', icon: 'info' },
+          { label: s.tabs.account, href: '/settings?tab=account', active: tab === 'account' },
+          { label: t.roles.tab, href: '/settings?tab=role', active: tab === 'role' },
+          { label: s.tabs.connections, href: '/settings?tab=connections', active: tab === 'connections' },
+          { label: s.tabs.billing, href: '/settings?tab=billing', active: tab === 'billing' },
+          { label: t.notices.tab, href: '/settings?tab=notices', active: tab === 'notices' },
         ]}
       />
-      <main className={`mx-auto ${tab === 'billing' || tab === 'role' ? 'max-w-[1040px]' : 'max-w-[820px]'} px-4 py-8 md:px-8`}>
-        {tab === 'account' ? (
-          <AccountForm
-            account={{
-              name: user.name,
-              avatarBlob: user.avatarBlob,
-              email: user.email,
-              provider: user.provider,
-              providerHandle: user.providerHandle,
-              lastLoginAt: user.lastLoginAt?.toISOString() ?? null,
-            }}
-          />
-        ) : tab === 'connections' ? (
-          <Connections
-            github={await githubConnectionFor(user.id)}
-            domains={(await listDomains(user.id)).map((domain) => ({ ...domain, checkedAt: domain.checkedAt?.toISOString() ?? null }))}
-            outcome={(OUTCOMES as readonly string[]).includes(query.github ?? '') ? (query.github as (typeof OUTCOMES)[number]) : null}
-          />
-        ) : tab === 'role' ? (
-          <RoleTab overview={await verificationOverview(user.id)} />
-        ) : tab === 'notices' ? (
-          <NoticesTab {...(await noticesFor(user.id, Number(query.page) || 1))} />
-        ) : (
-          <BillingTab userId={user.id} query={query} />
-        )}
+      <main className="settings-page">
+        <div className="settings-layout">
+          <div className="settings-content">
+            {tab === 'account' ? (
+              <AccountForm
+                account={{
+                  name: user.name,
+                  avatarBlob: user.avatarBlob,
+                  email: user.email,
+                  provider: user.provider,
+                  providerHandle: user.providerHandle,
+                  lastLoginAt: user.lastLoginAt?.toISOString() ?? null,
+                }}
+              />
+            ) : tab === 'connections' ? (
+              <Connections
+                github={await githubConnectionFor(user.id)}
+                domains={(await listDomains(user.id)).map((domain) => ({ ...domain, checkedAt: domain.checkedAt?.toISOString() ?? null }))}
+                outcome={(OUTCOMES as readonly string[]).includes(query.github ?? '') ? (query.github as (typeof OUTCOMES)[number]) : null}
+              />
+            ) : tab === 'role' ? (
+              <RoleTab overview={await verificationOverview(user.id)} />
+            ) : tab === 'notices' ? (
+              <NoticesTab {...(await noticesFor(user.id, Number(query.page) || 1))} />
+            ) : (
+              <BillingTab userId={user.id} query={query} />
+            )}
+          </div>
+        </div>
       </main>
     </>
   );

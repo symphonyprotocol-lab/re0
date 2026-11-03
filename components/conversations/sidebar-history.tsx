@@ -8,8 +8,8 @@ import { conversationApi } from '@/lib/client/conversations';
 import type { HistoryItem } from '@/lib/services/conversations';
 import { useI18n } from '@/i18n/client';
 import { fill, formatNumber } from '@/i18n/format';
+import { Icon } from '@/components/ui/icons';
 import { useToast } from '@/components/ui/toast';
-import { I } from '@/components/chat/message-parts';
 import { ConversationMenu } from '@/components/conversations/conversation-menu';
 import { RenameDialog } from '@/components/conversations/rename-dialog';
 import { OrganizeConfirm, type OrganizeRequest } from '@/components/conversations/organize-confirm';
@@ -47,7 +47,17 @@ export function useCurrentConversation(item: HistoryItem | null): void {
  * the search page from anywhere in the workspace -- back to the search a
  * conversation was opened from, when it was -- with the box focused.
  */
-export function SidebarConversations({ history, collapsed, className = 'px-3' }: { history: HistoryItem[]; collapsed: boolean; /** The sidebar's horizontal inset, until the frame pads the whole sidebar (prototype `.sidebar` padding). */ className?: string }) {
+export function SidebarConversations({
+  history,
+  collapsed = false,
+  className = '',
+}: {
+  history: HistoryItem[];
+  /** The desktop rail is folded; the frame's CSS hides the history then. */
+  collapsed?: boolean;
+  /** Extra classes on the tools and the history, for a side inset. */
+  className?: string;
+}) {
   const { t, locale } = useI18n();
   const c = t.conversations.sidebar;
   const pathname = usePathname();
@@ -105,7 +115,7 @@ export function SidebarConversations({ history, collapsed, className = 'px-3' }:
     return (
       <div key={item.id} className={`chat-history-row${active ? ' active' : ''}`}>
         <Link href={`/chats/${item.id}`} aria-current={active ? 'page' : undefined} aria-label={title} title={title}>
-          {item.pinned && <I name="pin" />}
+          {item.pinned && <Icon name="pin" className="" />}
           <span className="chat-history-title">{title}</span>
         </Link>
         <ConversationMenu
@@ -140,9 +150,9 @@ export function SidebarConversations({ history, collapsed, className = 'px-3' }:
   let last: DateGroup | null = null;
   return (
     <>
-      <div className={`chat-sidebar-tools${collapsed ? ' is-collapsed' : ''} ${className}`} role="group" aria-label={c.tools}>
+      <div className={`chat-sidebar-tools${collapsed ? ' is-collapsed' : ''} ${className}`} role="group" aria-label={t.common.nav.conversationActions}>
         {/* `?new=1` drops the draft kept on /talk and focuses its box. */}
-        <Tool href="/talk?new=1" icon="plus" label={c.newChat} active={pathname === '/talk'} button />
+        <Tool href="/talk?new=1" icon="plus" label={c.newChat} active={pathname === '/talk'} primary />
         <Tool
           href="/chats?focus=1"
           icon="search"
@@ -156,44 +166,42 @@ export function SidebarConversations({ history, collapsed, className = 'px-3' }:
           }}
         />
       </div>
-      {!collapsed && (
-        <div ref={scroller} className={`chat-history-scroll ${className}`} role="region" tabIndex={0} aria-label={c.history}>
-          {showCurrent && (
-            <>
-              <h3>{c.current}</h3>
-              {row(showCurrent)}
-            </>
-          )}
-          {pinned.length > 0 && (
-            <>
-              <h3>
-                {c.pinned}
-                <span className="chat-history-count">{formatNumber(pinned.length, locale)}</span>
-              </h3>
-              {pinned.map(row)}
-            </>
-          )}
-          {recent.length > 0 && (
+      {/* Folded, the rail hides the history (shell.css); the drawer on a phone always shows it. */}
+      <div ref={scroller} className={`chat-history-scroll ${className}`} role="region" tabIndex={0} aria-label={c.history}>
+        {showCurrent && (
+          <>
+            <h3>{c.current}</h3>
+            {row(showCurrent)}
+          </>
+        )}
+        {pinned.length > 0 && (
+          <>
             <h3>
-              {c.recent}
-              <span className="chat-history-count">{formatNumber(recent.length, locale)}</span>
+              {c.pinned}
+              <span className="chat-history-count">{formatNumber(pinned.length, locale)}</span>
             </h3>
-          )}
-          {recent.map((item) => {
-            const group = dateGroup(new Date(item.updatedAt), now, false);
-            const heading = group !== last ? <h4 className="chat-history-date">{c.groups[group]}</h4> : null;
-            last = group;
-            return (
-              <Fragment key={item.id}>
-                {heading}
-                {row(item)}
-              </Fragment>
-            );
-          })}
-          {!pinned.length && !recent.length && !showCurrent && <p className="chat-history-empty">{c.empty}</p>}
-        </div>
-      )}
-      {collapsed && <div className="flex-1" />}
+            {pinned.map(row)}
+          </>
+        )}
+        {recent.length > 0 && (
+          <h3>
+            {c.recent}
+            <span className="chat-history-count">{formatNumber(recent.length, locale)}</span>
+          </h3>
+        )}
+        {recent.map((item) => {
+          const group = dateGroup(new Date(item.updatedAt), now, false);
+          const heading = group !== last ? <h4 className="chat-history-date">{c.groups[group]}</h4> : null;
+          last = group;
+          return (
+            <Fragment key={item.id}>
+              {heading}
+              {row(item)}
+            </Fragment>
+          );
+        })}
+        {history.length === 0 && !showCurrent && <p className="chat-history-empty">{c.empty}</p>}
+      </div>
       <OrganizeConfirm
         request={confirm}
         onClose={() => setConfirm(null)}
@@ -224,10 +232,34 @@ export function SidebarConversations({ history, collapsed, className = 'px-3' }:
   );
 }
 
-function Tool({ href, icon, label, active, kbd, onClick, button = false }: { href: string; icon: 'plus' | 'search'; label: string; active: boolean; kbd?: string; onClick?: (event: MouseEvent<HTMLAnchorElement>) => void; button?: boolean }) {
+/** 新建对话 / 搜索对话 (prototype conversations.js `chat-sidebar-tool`; the first is a `.btn` there, hence `is-primary`). */
+function Tool({
+  href,
+  icon,
+  label,
+  active,
+  primary,
+  kbd,
+  onClick,
+}: {
+  href: string;
+  icon: 'plus' | 'search';
+  label: string;
+  active: boolean;
+  primary?: boolean;
+  kbd?: string;
+  onClick?: (event: MouseEvent<HTMLAnchorElement>) => void;
+}) {
   return (
-    <Link href={href} onClick={onClick} title={label} aria-label={label} aria-current={active ? 'page' : undefined} className={`${button ? 'btn ' : ''}chat-sidebar-tool${active ? ' active' : ''}`}>
-      <I name={icon} />
+    <Link
+      href={href}
+      onClick={onClick}
+      aria-label={label}
+      title={label}
+      aria-current={active ? 'page' : undefined}
+      className={`chat-sidebar-tool${primary ? ' is-primary' : ''}${active ? ' active' : ''}`}
+    >
+      <Icon name={icon} className="" />
       <span>{label}</span>
       {kbd && <kbd>{kbd}</kbd>}
     </Link>

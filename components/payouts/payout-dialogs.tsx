@@ -7,9 +7,10 @@ import { formatCreditsUsd as usd } from '@/lib/domain/payouts';
 import { api } from '@/lib/client/upload';
 import { useI18n } from '@/i18n/client';
 import { fill, formatDate, formatNumber } from '@/i18n/format';
-import { Icon, Spinner } from '@/components/ui/icons';
+import { Spinner } from '@/components/ui/icons';
 import { Modal } from '@/components/ui/modal';
 import { useToast } from '@/components/ui/toast';
+import { I } from '@/components/settings/icon';
 
 
 /** "绑定 / 更换" the PayPal e-mail (prototype `paypalModal`); a change starts the seven-day hold. */
@@ -40,7 +41,7 @@ export function PaypalButton({ email, disabled }: { email: string | null; disabl
 
   return (
     <>
-      <button type="button" className="btn-secondary btn-sm flex-none" disabled={disabled} onClick={() => (setValue(email ?? ''), setError(''), setOpen(true))}>
+      <button type="button" className="btn secondary sm" disabled={disabled} onClick={() => (setValue(email ?? ''), setError(''), setOpen(true))}>
         {email ? t.payouts.card.change : t.payouts.card.connect}
       </button>
       <Modal
@@ -50,7 +51,7 @@ export function PaypalButton({ email, disabled }: { email: string | null; disabl
         subtitle={p.lede}
         footer={
           <>
-            <button type="button" className="btn-secondary" onClick={() => setOpen(false)}>
+            <button type="button" className="btn secondary" onClick={() => setOpen(false)}>
               {p.cancel}
             </button>
             <button type="submit" form="paypal-form" className="btn" disabled={busy}>
@@ -67,16 +68,16 @@ export function PaypalButton({ email, disabled }: { email: string | null; disabl
             void save();
           }}
         >
-          <label htmlFor="paypal-email" className="field-label">
-            {p.email}
-          </label>
-          <input id="paypal-email" type="email" className="input" required maxLength={PAYPAL_EMAIL_MAX} autoComplete="email" value={value} onChange={(event) => setValue(event.target.value)} />
-          <p className="mt-4 flex items-start gap-2 rounded-lg bg-wash px-3 py-2.5 text-[12px] leading-relaxed text-muted">
-            <Icon name="shield" className="mt-0.5 size-4 flex-none text-blue" />
-            {p.note}
-          </p>
+          <div className="field">
+            <label htmlFor="paypal-email">{p.email}</label>
+            <input id="paypal-email" name="email" type="email" required maxLength={PAYPAL_EMAIL_MAX} autoComplete="email" value={value} onChange={(event) => setValue(event.target.value)} />
+          </div>
+          <div className="info-strip">
+            <I name="shield" />
+            <span>{p.note}</span>
+          </div>
           {error && (
-            <p role="alert" className="mt-3 text-[12px] text-red">
+            <p role="alert" className="form-error mt16">
               {error}
             </p>
           )}
@@ -116,7 +117,7 @@ export function RequestPayoutButton({ withdrawable, email, enabled }: { withdraw
 
   return (
     <>
-      <button type="button" className="btn flex-none" disabled={!enabled} onClick={() => (setCredits(String(withdrawable)), setError(''), setOpen(true))}>
+      <button type="button" className="btn" disabled={!enabled} onClick={() => (setCredits(String(withdrawable)), setError(''), setOpen(true))}>
         {t.payouts.card.request}
       </button>
       <Modal
@@ -126,7 +127,7 @@ export function RequestPayoutButton({ withdrawable, email, enabled }: { withdraw
         subtitle={r.lede}
         footer={
           <>
-            <button type="button" className="btn-secondary" onClick={() => setOpen(false)}>
+            <button type="button" className="btn secondary" onClick={() => setOpen(false)}>
               {r.cancel}
             </button>
             <button type="submit" form="payout-form" className="btn" disabled={busy}>
@@ -143,37 +144,35 @@ export function RequestPayoutButton({ withdrawable, email, enabled }: { withdraw
             void submit();
           }}
         >
-          <label htmlFor="payout-credits" className="field-label">
-            {r.credits}
-          </label>
-          <input
-            id="payout-credits"
-            type="number"
-            inputMode="numeric"
-            className="input font-mono"
-            required
-            min={PAYOUT_MIN_CREDITS}
-            max={withdrawable}
-            step={1}
-            value={credits}
-            onChange={(event) => setCredits(event.target.value)}
-          />
-          <small className="hint">
-            {fill(r.creditsHint, { min: n(PAYOUT_MIN_CREDITS), usd: usd(PAYOUT_MIN_CREDITS), max: n(withdrawable) })}
-            {Number.isInteger(amount) && amount > 0 && ` · ${fill(r.equals, { usd: usd(amount) })}`}
-          </small>
-          <div className="mt-4 flex min-w-0 items-center justify-between gap-3 rounded-lg border border-line px-3 py-2.5 text-[12px]">
-            <span className="flex-none text-muted">{r.email}</span>
-            <strong className="min-w-0 truncate" title={email ?? ''}>
-              {email}
-            </strong>
+          <div className="field">
+            <label htmlFor="payout-credits">{r.credits}</label>
+            <input
+              id="payout-credits"
+              name="credits"
+              type="number"
+              inputMode="numeric"
+              required
+              min={PAYOUT_MIN_CREDITS}
+              max={withdrawable}
+              step={1}
+              value={credits}
+              onChange={(event) => setCredits(event.target.value)}
+            />
+            <small>
+              {fill(r.creditsHint, { min: n(PAYOUT_MIN_CREDITS), usd: usd(PAYOUT_MIN_CREDITS), max: n(withdrawable) })}
+              {Number.isInteger(amount) && amount > 0 && ` · ${fill(r.equals, { usd: usd(amount) })}`}
+            </small>
           </div>
-          <p className="mt-4 flex items-start gap-2 rounded-lg bg-wash px-3 py-2.5 text-[12px] leading-relaxed text-muted">
-            <Icon name="info" className="mt-0.5 size-4 flex-none text-blue" />
-            {r.note}
-          </p>
+          <div className="estimate">
+            <span>{r.email}</span>
+            <strong title={email ?? ''}>{email}</strong>
+          </div>
+          <div className="info-strip mt16">
+            <I name="info" />
+            <span>{r.note}</span>
+          </div>
           {error && (
-            <p role="alert" className="mt-3 text-[12px] text-red">
+            <p role="alert" className="form-error mt16">
               {error}
             </p>
           )}
