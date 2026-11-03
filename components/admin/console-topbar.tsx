@@ -1,11 +1,11 @@
 'use client';
 
 import Link from 'next/link';
-import type { ReactNode } from 'react';
+import { Children, Fragment, type ReactNode } from 'react';
 import { useI18n } from '@/i18n/client';
-import { Icon } from '@/components/ui/icons';
 import { LanguageToggle } from '@/components/ui/language-toggle';
 import { AdministratorsButton } from '@/components/admin/administrators-dialog';
+import { CI } from '@/components/admin/console-icon';
 import { useConsoleShell } from '@/components/admin/console-shell';
 
 export interface Crumb {
@@ -21,15 +21,13 @@ export interface ConsoleTab {
 
 /**
  * The console's fixed top bar (prototype suite.js `consoleHeader` /
- * `adminShell`, navigation.css), which every console page renders first,
- * as the workspace's pages render `Topbar`: the menu or rail toggle, the
- * breadcrumbs -- the way back, by clicking a parent's name -- then page
- * actions, language, administrators and sign-out. An optional second row
- * (prototype `.context-nav-row`) holds a page's tabs as links, or other
- * controls such as a source's previous / next; it scrolls sideways on a
- * phone with the active tab kept in view. The bar brings its own in-flow
- * spacer, one or two rows tall, so content always starts below it. On a
- * phone only the last two crumbs show: the way back and the current page.
+ * `adminShell`, navigation.css `.console-topbar`): the phone menu and the rail
+ * toggle, the breadcrumbs -- the way back, by clicking a parent's name -- then
+ * page actions, the environment, language and administrators. An optional
+ * second row (`.context-nav-row`) holds a page's tabs as links, or other
+ * controls; it scrolls sideways on a phone with the active tab kept in view.
+ * Rendered as the first child of `ConsolePage`, which puts it beside the
+ * page's `main`, where the prototype's fixed positioning expects it.
  */
 export function ConsoleTopbar({
   crumbs,
@@ -46,87 +44,98 @@ export function ConsoleTopbar({
 }) {
   const { t } = useI18n();
   const c = t.console;
-  const { collapsed, toggleCollapsed, openDrawer } = useConsoleShell();
-  const hasRow = Boolean(tabs?.length || secondRow);
+  const { collapsed, environment, toggleCollapsed, openDrawer } = useConsoleShell();
   const last = crumbs.length - 1;
+  const toggleLabel = collapsed ? t.common.nav.expand : t.common.nav.collapse;
   return (
-    <>
-      <header data-console-topbar className="fixed inset-x-0 top-0 z-20 border-b border-line bg-white/95 backdrop-blur transition-[left] lg:left-[var(--console-sidebar)]">
-        <div className="flex h-16 items-center gap-2 px-4 md:px-8">
-          <button type="button" className="icon-btn flex-none lg:hidden" onClick={openDrawer} aria-label={c.nav.open}>
-            <Icon name="menu" />
+    <header className="console-topbar">
+      <div className="topbar-main">
+        <div className="topbar-location">
+          <button type="button" className="icon-btn mobile-menu" onClick={openDrawer} aria-label={c.nav.open} title={c.nav.open}>
+            <CI name="menu" />
           </button>
           <button
             type="button"
-            className="icon-btn hidden flex-none lg:inline-flex"
+            className="icon-btn sidebar-collapse"
             onClick={toggleCollapsed}
-            aria-controls="console-sidebar"
+            aria-controls="sidebar"
             aria-expanded={!collapsed}
-            aria-label={collapsed ? t.common.nav.expand : t.common.nav.collapse}
-            title={collapsed ? t.common.nav.expand : t.common.nav.collapse}
+            aria-label={toggleLabel}
+            title={toggleLabel}
           >
-            <Icon name="panel" />
+            <CI name={collapsed ? 'panel-open' : 'panel-close'} />
           </button>
-          <nav aria-label={c.nav.breadcrumb} className="flex min-w-0 flex-1 items-center gap-1.5 text-[12px] sm:gap-2 sm:text-[13px]">
+          <nav className="header-breadcrumbs" aria-label={c.nav.breadcrumb}>
             {crumbs.map((crumb, index) => (
-              <span
-                key={`${crumb.label}-${index}`}
-                className={`flex min-w-0 items-center gap-1.5 sm:gap-2 ${index < last - 1 ? 'hidden sm:flex' : ''} ${
-                  index < last ? 'max-w-[45%] flex-none sm:max-w-[200px] sm:flex-[0_2_auto]' : ''
-                }`}
-              >
-                {index > 0 && <Icon name="chevronRight" className={`size-3 flex-none text-[#a3a9bb] ${index === last - 1 ? 'hidden sm:block' : ''}`} />}
+              <Fragment key={`${crumb.label}-${index}`}>
+                {index > 0 && <CI name="chevron" />}
                 {crumb.href && index < last ? (
-                  <Link href={crumb.href} className="truncate text-muted hover:text-blue" title={crumb.label}>
+                  <Link href={crumb.href} title={crumb.label}>
                     {crumb.label}
                   </Link>
                 ) : (
-                  <span className="truncate font-semibold" aria-current={index === last ? 'page' : undefined} title={crumb.label}>
+                  <span aria-current={index === last ? 'page' : undefined} title={crumb.label}>
                     {crumb.label}
                   </span>
                 )}
-              </span>
+              </Fragment>
             ))}
           </nav>
-          <div className="flex flex-none items-center gap-1.5 sm:gap-2">
-            {actions}
-            <LanguageToggle />
-            <AdministratorsButton />
-            <form action="/api/admin/auth/logout" method="post">
-              <button type="submit" className="btn-ghost" aria-label={t.admin.signOut} title={t.admin.signOut}>
-                <Icon name="logout" className="size-3.5" />
-                <span className="hidden sm:inline">{t.admin.signOut}</span>
-              </button>
-            </form>
-          </div>
         </div>
-        {hasRow && (
-          <div className="flex h-11 items-stretch gap-1 overflow-x-auto overscroll-x-contain border-t border-[#eceff6] px-2 [scrollbar-width:none] md:px-6 [&::-webkit-scrollbar]:hidden">
-            {tabs?.length ? (
-              <nav aria-label={tabsLabel} className="flex items-stretch gap-1">
-                {tabs.map((tab) => (
-                  <Link
-                    key={tab.href}
-                    href={tab.href}
-                    aria-current={tab.active ? 'page' : undefined}
-                    ref={(node) => {
-                      if (node && tab.active) node.scrollIntoView({ block: 'nearest', inline: 'nearest' });
-                    }}
-                    className={`flex flex-none items-center border-b-2 px-3 text-[13px] font-medium whitespace-nowrap ${
-                      tab.active ? 'border-blue text-blue' : 'border-transparent text-muted hover:text-ink'
-                    }`}
-                  >
-                    {tab.label}
-                  </Link>
-                ))}
-              </nav>
-            ) : (
-              secondRow
-            )}
-          </div>
-        )}
-      </header>
-      <div aria-hidden="true" className={hasRow ? 'h-[108px]' : 'h-16'} />
+        <div className={`flex console-header-tools ${actions ? 'has-page-actions' : ''}`}>
+          {actions}
+          <span className="console-environment">
+            <i className="dot" /> {c.nav.environmentBadge[environment]}
+          </span>
+          <LanguageToggle className="btn ghost sm" icon={false} />
+          <AdministratorsButton />
+        </div>
+      </div>
+      {tabs?.length ? (
+        <div className="context-nav-row">
+          <nav className="header-tabs console-detail-tabs" aria-label={tabsLabel}>
+            {tabs.map((tab) => (
+              <Link
+                key={tab.href}
+                href={tab.href}
+                className={tab.active ? 'active' : ''}
+                aria-current={tab.active ? 'page' : undefined}
+                ref={(node) => {
+                  if (node && tab.active) node.scrollIntoView({ block: 'nearest', inline: 'nearest' });
+                }}
+              >
+                {tab.label}
+              </Link>
+            ))}
+          </nav>
+        </div>
+      ) : secondRow ? (
+        <div className="context-nav-row">{secondRow}</div>
+      ) : null}
+    </header>
+  );
+}
+
+/**
+ * A console page: its `ConsoleTopbar` (the first child) beside the page's
+ * `main.console-content` (the rest), which ends with the console's foot line
+ * (prototype `.console-foot`).
+ */
+export function ConsolePage({ children }: { children: ReactNode }) {
+  const { t } = useI18n();
+  const [topbar, ...content] = Children.toArray(children);
+  return (
+    <>
+      {topbar}
+      <main id="main" tabIndex={-1} className="console-content">
+        {content}
+        <div className="console-foot">
+          <span>{t.console.footer}</span>
+          <Link href="/admin/audit" className="btn ghost sm">
+            {t.console.nav.auditLink}
+          </Link>
+        </div>
+      </main>
     </>
   );
 }

@@ -2,6 +2,14 @@ import type { Shape } from '@/i18n/format';
 
 /** 管理后台：KYC 记录、提现审核、提现记录（step 6，2.5；原型 manual-kyc.js、admin-records.js、suite.js）. */
 export const zh = {
+  summary: '全量数据概览',
+  aria: { status: '状态筛选', period: '时间范围', sort: '排序方式', size: '每页条数', kind: '类型筛选' },
+  clear: {
+    kyc: '清除搜索和筛选，显示全部 KYC 记录',
+    payouts: '清除搜索和筛选，显示全部待处理申请',
+    records: '清除搜索和筛选，显示全部记录',
+    subscriptions: '清除搜索和筛选，显示全部订阅',
+  },
   kycStatus: { pending: '待审核', verified: '已通过', rejected: '已驳回', reset: '待重新验证' },
   payoutStatus: { pending: '待审核', approved: '待人工打款', paid: '已打款', failed: '打款失败', rejected: '已驳回' },
   errors: {
@@ -21,7 +29,7 @@ export const zh = {
   },
   kyc: {
     title: 'KYC 记录',
-    lede: '平台人工审核身份与税务声明。证件限时查看、逐次审计，通过后 30 天删除原图。',
+    lede: '按提交时间优先审核；资料在独立页面并排核对。',
     search: '搜索姓名、邮箱、法定姓名或记录编号…',
     cards: { all: 'KYC 记录', pending: '待审核', verified: '已通过', rejected: '已驳回', reset: '待重新验证' },
     filters: { status: '状态', period: '时间', sort: '排序' },
@@ -50,6 +58,8 @@ export const zh = {
     documentHint: '核对姓名、号码与有效期',
     selfie: '手持证件自拍',
     selfieHint: '核对本人面部与手持证件',
+    documentAlt: '证件照预览',
+    selfieAlt: '手持证件自拍预览',
     caption: '仅供本次身份审核使用',
     expiredTitle: '预览已失效',
     expiredBody: '点击「重新获取预览」继续核对。',
@@ -92,9 +102,9 @@ export const zh = {
   },
   payouts: {
     title: '提现审核',
-    lede: '待审核申请先批准或驳回；待打款申请在 PayPal 人工转账后登记结果。',
+    lede: '按申请时间优先处理；待审核与待人工打款分开筛选。',
     historyTitle: '提现记录',
-    historyLede: '每一笔申请、审核与支付结果，都在这里保留。',
+    historyLede: '支持全量检索、状态与时间筛选，查看详情后保留列表位置。',
     search: '搜索姓名、邮箱、PayPal 邮箱、转账 ID 或记录编号…',
     cards: {
       open: '待处理总数',
@@ -151,7 +161,7 @@ export const zh = {
     transferId: 'PayPal 转账 ID（已打款必填）',
     paid: '实付金额 · USD',
     paidHint: '实付金额不得高于申请金额 {max}，差额将登记为手续费。',
-    fee: '手续费',
+    fee: '预计手续费',
     failure: '失败原因（标记失败必填，用户可见）',
     failurePlaceholder: '如果转账失败或被退回，请说明原因',
     paymentPaused: '当前 KYC 未通过，暂停标记打款；仍可登记失败并解冻。',
@@ -195,6 +205,7 @@ export const zh = {
     shared: '图表与下方列表共用搜索、状态和时间条件',
     grouping: { hour: '按小时汇总', day: '按天汇总', days: '每 {n} 天汇总', month: '按月汇总', months: '每 {n} 个月汇总' },
     metricLabel: '图表指标',
+    plotLabel: '金额或笔数趋势',
     metrics: { amount: '金额', count: '笔数' },
     records: '{n} 笔',
     inspect: '悬停或聚焦柱形查看明细',
@@ -213,6 +224,14 @@ export const zh = {
 };
 
 export const en: Shape<typeof zh> = {
+  summary: 'Full catalog summary',
+  aria: { status: 'Status filter', period: 'Date range', sort: 'Sort order', size: 'Rows per page', kind: 'Type filter' },
+  clear: {
+    kyc: 'Clear search and filters to show all KYC records',
+    payouts: 'Clear search and filters to show all pending requests',
+    records: 'Clear search and filters to show all records',
+    subscriptions: 'Clear search and filters to show all subscriptions',
+  },
   kycStatus: { pending: 'Pending review', verified: 'Verified', rejected: 'Rejected', reset: 'Reverification' },
   payoutStatus: { pending: 'Pending review', approved: 'Awaiting payment', paid: 'Paid', failed: 'Payment failed', rejected: 'Rejected' },
   errors: {
@@ -232,7 +251,7 @@ export const en: Shape<typeof zh> = {
   },
   kyc: {
     title: 'KYC records',
-    lede: 'Manual identity and tax review. Image access is time-limited and audited; originals are deleted 30 days after approval.',
+    lede: 'Review oldest submissions first; compare documents on a dedicated page.',
     search: 'Name, email, legal name or record ID…',
     cards: { all: 'KYC records', pending: 'Pending review', verified: 'Verified', rejected: 'Rejected', reset: 'Reverification' },
     filters: { status: 'Status', period: 'Time', sort: 'Sort' },
@@ -261,6 +280,8 @@ export const en: Shape<typeof zh> = {
     documentHint: 'Check name, number and expiry',
     selfie: 'Selfie holding document',
     selfieHint: 'Compare face and held document',
+    documentAlt: 'Identity document preview',
+    selfieAlt: 'Selfie holding document preview',
     caption: 'For this identity review only',
     expiredTitle: 'Preview expired',
     expiredBody: 'Renew the previews to continue comparing.',
@@ -303,9 +324,9 @@ export const en: Shape<typeof zh> = {
   },
   payouts: {
     title: 'Payout review',
-    lede: 'Review requests, then record the result after a manual PayPal transfer.',
+    lede: 'Process oldest requests first; filter review and payment queues separately.',
     historyTitle: 'Payout history',
-    historyLede: 'A complete history of requests, reviews and payment results.',
+    historyLede: 'Search the complete catalog and retain filters when returning from details.',
     search: 'Name, email, PayPal email, transfer ID or record ID…',
     cards: {
       open: 'Awaiting action',
@@ -405,6 +426,7 @@ export const en: Shape<typeof zh> = {
     shared: 'Chart and list share search, status and time filters',
     grouping: { hour: 'Hourly totals', day: 'Daily totals', days: 'Totals every {n} days', month: 'Monthly totals', months: 'Totals every {n} months' },
     metricLabel: 'Chart metric',
+    plotLabel: 'Amount or count trend',
     metrics: { amount: 'Amount', count: 'Count' },
     records: '{n} records',
     inspect: 'Hover or focus a bar to inspect details',

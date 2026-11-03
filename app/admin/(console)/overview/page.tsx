@@ -1,12 +1,11 @@
 import type { Metadata } from 'next';
 import Link from 'next/link';
-import type { ReactNode } from 'react';
 import { adminOverview } from '@/lib/services/admin-overview';
 import { serverMessages } from '@/i18n/server';
 import { fill, formatNumber } from '@/i18n/format';
-import { Icon, type IconName } from '@/components/ui/icons';
-import { PageHead, RecordsTable, Tag } from '@/components/admin/list-kit';
-import { ConsoleTopbar } from '@/components/admin/console-topbar';
+import { CI, type ConsoleIconName } from '@/components/admin/console-icon';
+import { PageHead, RecordsTable, Stats } from '@/components/admin/list-kit';
+import { ConsolePage, ConsoleTopbar } from '@/components/admin/console-topbar';
 import { AuditTable } from '@/components/admin/audit-kit';
 
 export const dynamic = 'force-dynamic';
@@ -26,16 +25,46 @@ function usd(value: number, locale: 'zh' | 'en'): string {
   }).format(value);
 }
 
-function StatCard({ label, value, note, icon }: { label: string; value: ReactNode; note: ReactNode; icon: IconName }) {
+/** A ceiling for the chart's axis: 4, 8, 20, 40, 100, 200, … so the four labels stay round. */
+function axisMax(peak: number): number {
+  for (let scale = 1; ; scale *= 10) for (const step of [4, 8, 20]) if (peak <= step * scale) return step * scale;
+}
+
+/**
+ * The prototype's trend line (suite.js `trendChart`): a 700 × 150 area chart
+ * with four dashed guides, the axis on the left and five dates below.
+ */
+function TrendChart({ days, label }: { days: { day: string; answers: number }[]; label: string }) {
+  const max = axisMax(Math.max(1, ...days.map((day) => day.answers)));
+  const last = Math.max(1, days.length - 1);
+  const points = days.map((day, index) => `${(index * 700) / last} ${145 - (day.answers / max) * 130}`);
+  const ticks = [0, 1, 2, 3, 4].map((step) => days[Math.round((step * last) / 4)]?.day ?? '');
   return (
-    <article className="card min-w-0 px-4 py-4">
-      <div className="flex items-center justify-between gap-2">
-        <span className="truncate text-[12px] font-semibold text-muted">{label}</span>
-        <Icon name={icon} className="size-4 flex-none text-blue" />
+    <div className="trend-chart">
+      <div className="chart-y">
+        {[1, 0.75, 0.5, 0.25].map((share) => (
+          <span key={share}>{Math.round(max * share)}</span>
+        ))}
       </div>
-      <strong className="mt-2 block font-mono text-[24px] leading-tight">{value}</strong>
-      <small className="mt-1 block truncate text-[11px] text-muted">{note}</small>
-    </article>
+      <svg viewBox="0 0 700 150" preserveAspectRatio="none" aria-label={label} role="img">
+        <defs>
+          <linearGradient id="trend-fill" x1="0" y1="0" x2="0" y2="1">
+            <stop offset="0%" stopColor="#127ee3" stopOpacity=".15" />
+            <stop offset="100%" stopColor="#127ee3" stopOpacity="0" />
+          </linearGradient>
+        </defs>
+        {[15, 50, 85, 120].map((y) => (
+          <path key={y} d={`M0 ${y}H700`} stroke="#e9edf5" strokeDasharray="3 5" fill="none" />
+        ))}
+        <path d={`M0 150 ${points.map((point) => `L${point}`).join(' ')} L700 150Z`} fill="url(#trend-fill)" />
+        <path d={points.map((point, index) => `${index ? 'L' : 'M'}${point}`).join(' ')} stroke="#127ee3" strokeWidth="2.5" fill="none" strokeLinejoin="round" />
+      </svg>
+      <div className="chart-x">
+        {ticks.map((day, index) => (
+          <span key={index}>{day.slice(5).replace('-', '.')}</span>
+        ))}
+      </div>
+    </div>
   );
 }
 
@@ -45,177 +74,115 @@ export default async function OverviewPage() {
   const o = t.consoleRees.overview;
   const data = await adminOverview();
   const n = (value: number) => formatNumber(value, locale);
-  const peak = Math.max(1, ...data.trend.map((day) => day.answers));
   const answers = data.trend.reduce((sum, day) => sum + day.answers, 0);
-  const attention: { href?: string; count?: number; label: string; icon: IconName }[] = [
+  const today = new Intl.DateTimeFormat('en-CA', { timeZone: 'Asia/Shanghai', year: 'numeric', month: '2-digit', day: '2-digit' }).format(new Date()).replaceAll('-', '.');
+  // The prototype's order: money first, then identity, verification, models.
+  const attention: { href: string; count: number; label: string; icon: ConsoleIconName }[] = [
+    { href: '/admin/payouts', count: data.pending.payouts, label: o.attention.payouts, icon: 'wallet' },
+    { href: '/admin/kyc?status=pending', count: data.pending.kyc, label: o.attention.kyc, icon: 'shield' },
     { href: '/admin/verifications', count: data.pending.verifications, label: o.attention.verifications, icon: 'shield' },
     { href: '/admin/models', count: data.pending.reembed, label: o.attention.reembed, icon: 'refresh' },
-    { href: '/admin/kyc?status=pending', count: data.pending.kyc, label: o.attention.kyc, icon: 'user' },
-    { href: '/admin/payouts', count: data.pending.payouts, label: o.attention.payouts, icon: 'download' },
   ];
   return (
-    <>
+    <ConsolePage>
       <ConsoleTopbar crumbs={[{ label: t.console.nav.home, href: '/admin/overview' }, { label: t.console.nav.overview }]} />
       <PageHead
         title={o.title}
         lede={o.lede}
         actions={
-          <span className="flex items-center gap-1.5 text-[12px] text-muted">
-            <Icon name="clock" className="size-3.5" />
-            {o.period}
+          <span className="console-date">
+            <CI name="clock" /> {fill(t.console.overview.date, { date: today })}
           </span>
         }
       />
-      <div className="grid grid-cols-1 gap-3 min-[420px]:grid-cols-2 lg:grid-cols-4">
-        <StatCard label={o.cards.users} value={n(data.users.total)} note={fill(o.cards.usersNote, { n: n(data.users.disabled) })} icon="user" />
-        <StatCard
-          label={o.cards.rees}
-          value={n(data.rees.total)}
-          note={fill(o.cards.reesNote, { public: n(data.rees.public), moderated: n(data.rees.moderated) })}
-          icon="ree"
-        />
-        <StatCard label={o.cards.sources} value={n(data.sources.total)} note={fill(o.cards.sourcesNote, { ready: n(data.sources.ready) })} icon="file" />
-        <StatCard label={o.cards.questions} value={n(data.questions30)} note={o.cards.questionsNote} icon="chat" />
-      </div>
-
-      <div className="mt-4 grid grid-cols-1 gap-4 lg:grid-cols-[minmax(0,1fr)_340px]">
-        <section className="card min-w-0 p-5">
-          <div className="flex flex-wrap items-start justify-between gap-3">
-            <div className="min-w-0">
-              <h2 className="text-[16px] font-bold">{o.trend.title}</h2>
-              <p className="mt-1 text-[12px] text-muted">{o.trend.lede}</p>
+      <Stats
+        items={[
+          { label: o.cards.users, value: n(data.users.total), note: fill(o.cards.usersNote, { n: n(data.users.disabled) }), icon: 'users' },
+          { label: o.cards.rees, value: n(data.rees.total), note: fill(o.cards.reesNote, { public: n(data.rees.public), moderated: n(data.rees.moderated) }), icon: 'dot' },
+          { label: o.cards.sources, value: n(data.sources.total), note: fill(o.cards.sourcesNote, { ready: n(data.sources.ready) }), icon: 'file' },
+          { label: o.cards.questions, value: n(data.questions30), note: o.cards.questionsNote, icon: 'chat' },
+        ]}
+      />
+      <div className="console-overview-grid">
+        <section className="card console-chart">
+          <div className="between">
+            <div>
+              <h2>{o.trend.title}</h2>
+              <p>{o.trend.lede}</p>
             </div>
-            <Tag tone="blue">{o.trend.daily}</Tag>
+            <span className="tag blue">{o.trend.daily}</span>
           </div>
-          <div className="mt-5 flex h-40 items-end gap-[2px] sm:gap-1" role="img" aria-label={`${o.trend.legend} · ${fill(o.trend.total, { n: n(answers) })}`}>
-            {data.trend.map((day) => (
-              <div key={day.day} className="group relative flex h-full min-w-0 flex-1 items-end" title={fill(o.trend.bar, { day: day.day, n: n(day.answers) })}>
-                <span
-                  className={`block w-full rounded-t-[3px] ${day.answers ? 'bg-blue group-hover:bg-blue-dark' : 'bg-line'}`}
-                  style={{ height: day.answers ? `${Math.max(4, (day.answers / peak) * 100)}%` : '2px' }}
-                />
-              </div>
-            ))}
-          </div>
-          <div className="mt-2 flex justify-between font-mono text-[10px] text-muted">
-            <span>{data.trend[0]?.day.slice(5)}</span>
-            <span>{data.trend[data.trend.length - 1]?.day.slice(5)}</span>
-          </div>
-          <div className="mt-3 flex flex-wrap items-center gap-x-4 gap-y-1 text-[11px] text-muted">
-            <span className="flex items-center gap-1.5">
-              <i className="inline-block size-2 rounded-full bg-blue" />
-              {o.trend.legend}
-            </span>
+          <TrendChart days={data.trend} label={t.console.overview.chartLabel} />
+          <div className="chart-legend">
+            <i className="dot" />
+            {o.trend.legend}
             <span>{answers ? fill(o.trend.total, { n: n(answers) }) : o.trend.empty}</span>
           </div>
         </section>
-
-        <aside className="card min-w-0 p-5">
+        <aside className="card console-actions">
           <p className="eyebrow">{o.attention.eyebrow}</p>
-          <h2 className="mt-1 text-[16px] font-bold">{o.attention.title}</h2>
-          <ul className="mt-3 flex flex-col gap-1.5">
-            {attention.map((item) => {
-              const body = (
-                <>
-                  <Icon name={item.icon} className="size-4 flex-none text-muted" />
-                  <strong className="font-mono text-[15px]">{item.href ? n(item.count ?? 0) : '—'}</strong>
-                  <span className="min-w-0 flex-1 text-[12px]">{item.label}</span>
-                  {item.href ? <Icon name="chevronRight" className="size-4 flex-none text-muted" /> : <small className="flex-none text-[10px] text-muted">{o.attention.later}</small>}
-                </>
-              );
-              return (
-                <li key={item.label}>
-                  {item.href ? (
-                    <Link href={item.href} className="flex items-center gap-2.5 rounded-lg border border-line px-3 py-2.5 transition hover:border-[#c4cce0] hover:bg-wash">
-                      {body}
-                    </Link>
-                  ) : (
-                    <div className="flex items-center gap-2.5 rounded-lg border border-dashed border-line px-3 py-2.5 opacity-60" aria-disabled="true">
-                      {body}
-                    </div>
-                  )}
-                </li>
-              );
-            })}
-          </ul>
-          <div className="mt-4 grid grid-cols-1 gap-3 border-t border-line pt-4 min-[420px]:grid-cols-2 lg:grid-cols-1">
-            <div className="min-w-0">
-              <span className="block text-[11px] font-semibold text-muted">{o.income.earned}</span>
-              <strong className="mt-0.5 block font-mono text-[20px]">{n(data.earned30)}</strong>
-              <small className="text-[11px] text-muted">{o.income.earnedNote}</small>
-            </div>
-            <div className="min-w-0">
-              <span className="block text-[11px] font-semibold text-muted">{o.income.revenue}</span>
-              <strong className="mt-0.5 block font-mono text-[20px]">{usd(data.revenue30.usd, locale)}</strong>
-              <small className="text-[11px] text-muted">{fill(o.income.revenueNote, { n: n(data.revenue30.payments) })}</small>
-            </div>
+          <h2>{o.attention.title}</h2>
+          {attention.map((item) => (
+            <Link key={item.label} href={item.href} className="attention-row">
+              <CI name={item.icon} />
+              <strong>{n(item.count)}</strong>
+              <span>{item.label}</span>
+              <CI name="chevron" />
+            </Link>
+          ))}
+          <div className="console-income">
+            <span>{o.income.earned}</span>
+            <strong className="mono">{n(data.earned30)}</strong>
           </div>
         </aside>
       </div>
-
-      <section className="card mt-4 overflow-hidden">
-        <div className="flex flex-wrap items-start justify-between gap-3 px-5 pt-5 pb-4">
-          <div className="min-w-0">
-            <h2 className="text-[16px] font-bold">{o.models.title}</h2>
-            <p className="mt-1 text-[12px] text-muted">{fill(o.models.lede, { start: data.month.start, end: data.month.end })}</p>
+      <section className="card console-model-cost">
+        <div className="between">
+          <div>
+            <h2>{o.models.title}</h2>
+            <p>{fill(o.models.lede, { start: data.month.start, end: data.month.end })}</p>
           </div>
-          <Link href="/admin/models" className="text-link text-[12px]">
+          <Link href="/admin/models" className="text-link">
             {o.models.manage}
-            <Icon name="arrow" className="size-3.5" />
+            <CI name="arrow" />
           </Link>
         </div>
         <RecordsTable
           label={t.console.list.tableRegion}
           empty={t.console.list.empty}
-          head={[o.models.kind, o.models.active, o.models.calls, o.models.cost]}
+          head={[t.console.overview.kind, o.models.active, o.models.calls, t.console.overview.cost]}
           rows={data.models.map((row) => [
-            <span key="kind" className="font-semibold whitespace-nowrap">
-              {t.admin.models.kinds[row.kind]}
-            </span>,
-            <div key="model" className="min-w-0">
-              <div className="flex flex-wrap items-center gap-1.5">
-                <code className="font-mono text-[12px] break-all">{row.active}</code>
-                <Tag tone={row.source === 'console' ? 'blue' : 'grey'}>{o.models.sources[row.source]}</Tag>
-              </div>
-              {row.rows.length > 1 && (
-                <ul className="mt-1 text-[11px] text-muted">
-                  {row.rows.map((entry) => (
-                    <li key={entry.model} className="break-all">
-                      {fill(o.models.byModel, { model: entry.model, n: n(entry.calls) })}
-                    </li>
-                  ))}
-                </ul>
-              )}
-            </div>,
-            <span key="calls" className="font-mono">
-              {n(row.calls)}
-            </span>,
-            <div key="cost" className="min-w-0">
-              {row.calls === 0 ? (
-                <span className="font-mono">{usd(0, locale)}</span>
-              ) : row.cost === null ? (
-                <span className="font-mono text-muted" title={o.models.noPrice}>
-                  —
-                </span>
-              ) : (
-                <span className="font-mono">{usd(row.cost, locale)}</span>
-              )}
-              {row.unpriced && <small className="block text-[11px] text-orange">{row.cost === null ? o.models.noPrice : `* ${o.models.noPrice}`}</small>}
-            </div>,
+            t.admin.models.kinds[row.kind],
+            <>
+              <code>{row.active}</code>
+              {row.rows.length > 1 &&
+                row.rows.map((entry) => (
+                  <small key={entry.model} className="cell-subline">
+                    {fill(o.models.byModel, { model: entry.model, n: n(entry.calls) })}
+                  </small>
+                ))}
+            </>,
+            n(row.calls),
+            row.calls > 0 && row.cost === null ? (
+              <span title={o.models.noPrice}>—</span>
+            ) : (
+              <>
+                {usd(row.cost ?? 0, locale)}
+                {row.unpriced && <small className="cell-subline">* {o.models.unpriced}</small>}
+              </>
+            ),
           ])}
         />
-        {data.models.some((row) => row.unpriced) && <p className="border-t border-line px-5 py-3 text-[11px] text-muted">* {o.models.unpriced}</p>}
       </section>
-
-      <section className="card mt-4 overflow-hidden">
-        <div className="flex flex-wrap items-center justify-between gap-3 px-5 pt-5 pb-4">
-          <h2 className="text-[16px] font-bold">{o.recent.title}</h2>
-          <Link href="/admin/audit" className="text-link text-[12px]">
+      <section className="card mt24">
+        <div className="console-table-head">
+          <h2>{o.recent.title}</h2>
+          <Link href="/admin/audit" className="text-link">
             {o.recent.all}
           </Link>
         </div>
         <AuditTable t={t} locale={locale} rows={data.recent} from="/admin/overview" />
       </section>
-    </>
+    </ConsolePage>
   );
 }

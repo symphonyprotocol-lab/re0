@@ -1,6 +1,7 @@
 import type { Metadata } from 'next';
 import Link from 'next/link';
 import { notFound } from 'next/navigation';
+import type { ReactNode } from 'react';
 import { ADMIN_REASON } from '@/lib/constants';
 import { documentValid } from '@/lib/domain/kyc';
 import { param } from '@/lib/domain/list';
@@ -9,11 +10,11 @@ import { kycDetail } from '@/lib/services/kyc';
 import { serverMessages } from '@/i18n/server';
 import { fill, formatDateTime } from '@/i18n/format';
 import { ReasonAction } from '@/components/admin/list-client';
-import { Fields, PageHead, RoleBadge, Tag } from '@/components/admin/list-kit';
-import { ConsoleTopbar } from '@/components/admin/console-topbar';
+import { RoleBadge, Tag } from '@/components/admin/list-kit';
+import { CI } from '@/components/admin/console-icon';
+import { ConsolePage, ConsoleTopbar } from '@/components/admin/console-topbar';
 import { KycStatusTag } from '@/components/admin/payout-kit';
 import { KycDecision, KycFiles } from '@/components/admin/kyc-review';
-import { Icon } from '@/components/ui/icons';
 
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
@@ -63,118 +64,115 @@ export default async function KycReviewPage({ params, searchParams }: Props) {
       : from.startsWith('/admin/payouts')
         ? t.console.nav.payouts
         : k.title;
+  const facts: [string, ReactNode][] = [
+    [d.facts.legalName, record.legalName ?? '—'],
+    [d.facts.country, record.country ?? '—'],
+    [d.facts.kind, record.documentKind ? t.payouts.kyc.kinds[record.documentKind] : '—'],
+    [d.facts.last4, record.documentLast4 ? `•••• ${record.documentLast4}` : '—'],
+    [
+      d.facts.expires,
+      <>
+        {record.documentExpires ?? '—'} {expired && <Tag tone="red">{d.expired}</Tag>}
+      </>,
+    ],
+  ];
+  const rows = (items: [ReactNode, ReactNode][]) => (
+    <div className="review-checklist">
+      {items.map(([label, value], index) => (
+        <div key={index}>
+          <span>{label}</span>
+          <strong>{value}</strong>
+        </div>
+      ))}
+    </div>
+  );
   return (
-    <>
+    <ConsolePage>
       <ConsoleTopbar crumbs={[{ label: t.console.nav.home, href: '/admin/overview' }, { label: crumb, href: from }, { label: user.name }]} />
-      <PageHead
-        title={d.title}
-        lede={
-          <span className="flex flex-wrap items-center gap-2">
-            <span className="min-w-0 break-all">
-              {user.name} · {user.email}
-            </span>
-            <RoleBadge t={t} role={user.role} />
-          </span>
-        }
-        actions={<KycStatusTag t={t} status={record.status} />}
-      />
-      <div className="flex min-w-0 flex-col gap-4">
-        <section className="card grid min-w-0 grid-cols-1 gap-4 p-5 min-[480px]:grid-cols-2 lg:grid-cols-5">
-          {(
-            [
-              [d.facts.legalName, record.legalName ?? '—'],
-              [d.facts.country, record.country ?? '—'],
-              [d.facts.kind, record.documentKind ? t.payouts.kyc.kinds[record.documentKind] : '—'],
-              [d.facts.last4, record.documentLast4 ? `•••• ${record.documentLast4}` : '—'],
-              [
-                d.facts.expires,
-                <span key="expires" className="flex flex-wrap items-center gap-1.5">
-                  {record.documentExpires ?? '—'}
-                  {expired && <Tag tone="red">{d.expired}</Tag>}
-                </span>,
-              ],
-            ] as const
-          ).map(([label, value]) => (
-            <div key={label} className="min-w-0">
-              <span className="block text-[11px] text-muted">{label}</span>
-              <strong className="mt-0.5 block text-[14px] break-words">{value}</strong>
+      <div className="kyc-review-page">
+        <div className="kyc-page-intro">
+          <div>
+            <h1>{d.title}</h1>
+            <p>
+              {user.name} · {user.email} <RoleBadge t={t} role={user.role} />
+            </p>
+          </div>
+          <KycStatusTag t={t} status={record.status} />
+        </div>
+        <section className="card kyc-review-facts">
+          {facts.map(([label, value]) => (
+            <div key={label}>
+              <span>{label}</span>
+              <strong>{value}</strong>
             </div>
           ))}
         </section>
 
         {record.status !== 'reset' && <KycFiles id={record.id} available={!record.filesDeletedAt && (record.hasDocument || record.hasSelfie)} />}
 
-        <div className="grid min-w-0 gap-4 lg:grid-cols-2">
-          <section className="card min-w-0 p-5">
-            <h2 className="text-[15px] font-bold">{d.history}</h2>
-            <div className="mt-3">
-              <Fields
-                items={[
-                  [d.taxForm, record.taxForm ?? '—'],
-                  [d.declaration, record.taxDeclaredAt ? `${k.declared} · ${time(record.taxDeclaredAt)}` : k.notDeclared],
-                  [d.submitted, time(record.createdAt)],
-                  [d.reviewer, data.reviewer ?? '—'],
-                  [d.reviewed, time(record.decidedAt)],
-                  [d.filesDue, record.filesDeletedAt ? fill(d.filesDeletedAt, { time: time(record.filesDeletedAt) }) : time(data.filesDueAt)],
-                ]}
-              />
-            </div>
-            <p className="hint mt-4 leading-relaxed">{d.retention}</p>
+        <div className="kyc-review-bottom">
+          <section className="card kyc-review-history">
+            <h2>{d.history}</h2>
+            {rows([
+              [d.taxForm, record.taxForm ?? '—'],
+              [d.declaration, record.taxDeclaredAt ? `${k.declared} · ${time(record.taxDeclaredAt)}` : k.notDeclared],
+              [d.submitted, time(record.createdAt)],
+              [d.reviewer, data.reviewer ?? '—'],
+              [d.reviewed, time(record.decidedAt)],
+              [d.filesDue, record.filesDeletedAt ? fill(d.filesDeletedAt, { time: time(record.filesDeletedAt) }) : time(data.filesDueAt)],
+            ])}
+            <p className="form-hint mt16">{d.retention}</p>
           </section>
 
-          <section className="card min-w-0 p-5">
-            <h2 className="text-[15px] font-bold">{reviewable ? d.decision : d.result}</h2>
-            {record.reason && <p className="mt-3 rounded-lg bg-wash px-3 py-2.5 text-[13px] break-words whitespace-pre-line">{record.reason}</p>}
-            {user.role === 'official' && <p className="mt-3 rounded-lg bg-[#fbfaff] px-3 py-2 text-[12px] text-muted">{d.official}</p>}
+          <section className="card kyc-review-history">
+            <h2>{reviewable ? d.decision : d.result}</h2>
+            {record.reason && <div className="kyc-feedback">{record.reason}</div>}
+            {user.role === 'official' && <p className="form-hint">{d.official}</p>}
             {reviewable ? (
-              <div className="mt-4">
-                <KycDecision id={record.id} />
-              </div>
+              <KycDecision id={record.id} />
             ) : (
               <>
-                <p className="mt-3 text-[12px] text-muted">{record.status === 'reset' ? d.resetRow : data.latest ? d.processed : d.historical}</p>
+                <p className="muted small">{record.status === 'reset' ? d.resetRow : data.latest ? d.processed : d.historical}</p>
                 {resettable && (
-                  <div className="mt-4">
-                    <ReasonAction
-                      endpoint={`/api/admin/kyc/${record.id}/reset`}
-                      label={d.reset}
-                      icon="refresh"
-                      title={d.resetTitle}
-                      subtitle={user.name}
-                      body={d.resetBody}
-                      confirmLabel={d.resetConfirm}
-                      reason={{ min: ADMIN_REASON.min, max: ADMIN_REASON.max, required: true, label: d.resetReason }}
-                      errors={t.consolePayouts.errors}
-                    />
-                  </div>
+                  <ReasonAction
+                    endpoint={`/api/admin/kyc/${record.id}/reset`}
+                    label={d.reset}
+                    className="btn secondary sm mt16"
+                    title={d.resetTitle}
+                    subtitle={user.name}
+                    body={d.resetBody}
+                    confirmLabel={d.resetConfirm}
+                    reason={{ min: ADMIN_REASON.min, max: ADMIN_REASON.max, required: true, label: d.resetReason }}
+                    errors={t.consolePayouts.errors}
+                  />
                 )}
               </>
             )}
           </section>
         </div>
 
-        <section className="card min-w-0 overflow-hidden">
-          <div className="flex flex-wrap items-center justify-between gap-2 border-b border-line px-4 py-3">
-            <h2 className="text-[15px] font-bold">{d.others}</h2>
-            <Link href={`/admin/users/${user.id}?tab=kyc&from=${back}`} className="text-link text-[12px]">
-              {d.userLink}
-              <Icon name="arrow" className="size-3.5" />
-            </Link>
-          </div>
-          <ul className="divide-y divide-line">
-            {data.history.map((row) => (
-              <li key={row.id}>
-                <Link href={`/admin/kyc/${row.id}${from !== '/admin/kyc' ? `?from=${encodeURIComponent(from)}` : ''}`} className={`flex min-w-0 flex-wrap items-center gap-x-3 gap-y-1 px-4 py-2.5 text-[12px] hover:bg-wash ${row.id === record.id ? 'bg-soft' : ''}`}>
-                  <KycStatusTag t={t} status={row.status} />
-                  {row.id === data.latestId && <Tag tone="blue">{d.current}</Tag>}
-                  <span className="min-w-0 flex-1 truncate">{row.legalName ?? '—'}</span>
-                  <span className="whitespace-nowrap text-muted">{time(row.createdAt)}</span>
+        <section className="card kyc-review-history mt24">
+          <h2>{d.others}</h2>
+          {rows(
+            data.history.map((row) => [
+              <>
+                <KycStatusTag t={t} status={row.status} /> {row.id === data.latestId && <Tag tone="blue">{d.current}</Tag>}
+              </>,
+              row.id === record.id ? (
+                `${row.legalName ?? '—'} · ${time(row.createdAt)}`
+              ) : (
+                <Link className="text-link" href={`/admin/kyc/${row.id}${from !== '/admin/kyc' ? `?from=${encodeURIComponent(from)}` : ''}`}>
+                  {row.legalName ?? '—'} · {time(row.createdAt)}
                 </Link>
-              </li>
-            ))}
-          </ul>
+              ),
+            ]),
+          )}
+          <Link href={`/admin/users/${user.id}?tab=kyc&from=${back}`} className="text-link mt16">
+            {d.userLink}
+            <CI name="arrow" />
+          </Link>
         </section>
       </div>
-    </>
+    </ConsolePage>
   );
 }

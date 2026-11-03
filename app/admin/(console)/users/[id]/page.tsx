@@ -1,7 +1,7 @@
 import type { Metadata } from 'next';
 import Link from 'next/link';
 import { notFound } from 'next/navigation';
-import type { ReactNode } from 'react';
+import { Fragment, type ReactNode } from 'react';
 import type { KycStatus } from '@/db/schema';
 import { param } from '@/lib/domain/list';
 import { adminUser, userEntries, userPurchases, userRees, userRoles, type AdminUserDetail } from '@/lib/services/admin-users';
@@ -9,11 +9,10 @@ import type { Messages } from '@/i18n';
 import type { Locale } from '@/i18n/locale';
 import { serverMessages } from '@/i18n/server';
 import { fill, formatDate, formatDateTime, formatNumber, formatUsd } from '@/i18n/format';
-import { Fields, LinkPager, PageHead, RecordsTable, RoleBadge, Tag } from '@/components/admin/list-kit';
-import { ConsoleTopbar } from '@/components/admin/console-topbar';
+import { LinkPager, RecordsTable, RoleBadge, Stats, Subline, Tag } from '@/components/admin/list-kit';
+import { ConsolePage, ConsoleTopbar } from '@/components/admin/console-topbar';
 import { AdjustCreditsButton, UserStatusButton } from '@/components/admin/user-detail-actions';
-import { RoleHistory, RolePanel } from '@/components/admin/user-detail-roles';
-import { RequirementChecks } from '@/components/ui/requirement-checks';
+import { DotAvatar, RoleChecks, RoleHistory, RolePanel } from '@/components/admin/user-detail-roles';
 import { kycHistory } from '@/lib/services/kyc';
 import { listNotices } from '@/lib/services/notices';
 import { answerCounts } from '@/lib/services/statistics';
@@ -22,8 +21,8 @@ import { KycStatusTag } from '@/components/admin/payout-kit';
 import { PayoutsTable } from '@/components/admin/payouts-table';
 import { ReeRowActions } from '@/components/admin/ree-detail';
 import { UserNotices } from '@/components/admin/user-notices';
-import { Icon, type IconName } from '@/components/ui/icons';
-import { ReeAvatar, UserAvatar } from '@/components/ui/ree-avatar';
+import { ReasonAction } from '@/components/admin/list-client';
+import { ADMIN_REASON } from '@/lib/constants';
 
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 const TABS = ['summary', 'roles', 'credits', 'kyc', 'purchases', 'payouts', 'rees'] as const;
@@ -55,9 +54,9 @@ function listLabel(t: Messages, from: string): string {
 
 /**
  * `/admin/users/[id]` (prototype suite.js `userDetail`, role-pages.js
- * `adminUser`): the header, balances, account actions, and seven tabs as
- * links in the top bar's second row (`?tab=credits`, `from` kept) so reload
- * and back keep the place.
+ * `adminUser`): the header, balances, and seven tabs as links in the top
+ * bar's second row (`?tab=credits`, `from` kept) so reload and back keep the
+ * place; the account actions sit in the summary, as in the prototype.
  */
 export default async function UserDetailPage({ params, searchParams }: Props) {
   const { id } = await params;
@@ -86,226 +85,214 @@ export default async function UserDetailPage({ params, searchParams }: Props) {
   const n = (value: number) => formatNumber(value, locale);
   const official = user.role === 'official';
 
+  const table = t.console.list.tableRegion;
+  const person = <UserLink user={user} href={href('summary')} />;
   let body: ReactNode;
   if (tab === 'summary') {
-    const [rees, purchases, kyc, notices] = await Promise.all([userRees(id), userPurchases(id), kycHistory(id), listNotices(id, 1)]);
+    const [kyc, notices] = await Promise.all([kycHistory(id), listNotices(id, 1)]);
     body = (
-      <div className="flex min-w-0 flex-col gap-4">
-        <Summary t={t} locale={locale} user={user} reesCount={rees.length} purchasesCount={purchases.purchases.length} kyc={kyc[0] ?? null} />
+      <>
+        <Summary t={t} locale={locale} user={user} kyc={kyc[0] ?? null} />
+        <RolePanel t={t} locale={locale} user={user} footnote />
         <UserNotices t={t} locale={locale} items={notices.items} total={notices.total} />
-      </div>
+      </>
     );
   } else if (tab === 'roles') {
     const roles = await userRoles(id);
     body = (
-      <div className="grid min-w-0 gap-4 lg:grid-cols-[minmax(0,1fr)_minmax(0,1fr)]">
-        <div className="flex min-w-0 flex-col gap-4">
-          <RolePanel t={t} locale={locale} user={user} />
-          <section className="card min-w-0 p-5">
-            <h2 className="text-[15px] font-bold">{d.roles.checks}</h2>
-            <p className="mt-1 text-[12px] text-muted">{d.roles.checksHint}</p>
-            <div className="mt-2">
-              <RequirementChecks t={t} locale={locale} metrics={roles.metrics} />
-            </div>
-          </section>
-        </div>
+      <>
+        <RolePanel t={t} locale={locale} user={user} />
         <RoleHistory t={t} locale={locale} requests={roles.requests} events={roles.events} back={back} />
-      </div>
+        <section className="card role-panel">
+          <h2>{d.roles.checks}</h2>
+          <p>{d.roles.checksHint}</p>
+          <RoleChecks t={t} locale={locale} metrics={roles.metrics} />
+        </section>
+      </>
     );
   } else if (tab === 'credits') {
     const entries = await userEntries(id, page, LEDGER_SIZE);
     const c = d.credits;
     body = (
-      <section className="card min-w-0 overflow-hidden">
-        <div className="flex flex-wrap items-baseline justify-between gap-2 border-b border-line px-4 py-3">
-          <h2 className="text-[15px] font-bold">{c.title}</h2>
-          <small className="text-[11px] text-muted">{c.hint}</small>
-        </div>
+      <section className="card">
         <RecordsTable
-          label={t.console.list.tableRegion}
+          label={table}
           empty={c.empty}
-          head={[c.columns.item, c.columns.note, c.columns.delta, c.columns.time]}
+          head={[c.columns.item, c.columns.time, c.columns.note, c.columns.delta]}
           rows={entries.items.map((entry) => [
-            <span key="item" className="font-semibold whitespace-nowrap">
-              {t.billing.reasons[entry.reason] ?? entry.reason}
-            </span>,
-            <span key="note" className="block max-w-[320px] break-words text-muted">
-              {entry.note || '—'}
-            </span>,
-            <Delta key="delta" value={entry.delta} locale={locale} />,
-            <span key="time" className="whitespace-nowrap">
-              {formatDateTime(entry.createdAt, locale)}
+            t.billing.reasons[entry.reason] ?? entry.reason,
+            formatDateTime(entry.createdAt, locale),
+            entry.note || '—',
+            <span key="delta" className={`mono ${entry.delta > 0 ? 'positive' : ''}`}>
+              {entry.delta > 0 ? '+' : ''}
+              {n(entry.delta)}
             </span>,
           ])}
         />
-        <LinkPager t={t} page={entries.page} total={entries.total} size={entries.size} href={(target) => href('credits', target > 1 ? { page: target } : {})} />
+        {entries.total > entries.size && (
+          <LinkPager t={t} page={entries.page} total={entries.total} size={entries.size} href={(target) => href('credits', target > 1 ? { page: target } : {})} />
+        )}
       </section>
     );
   } else if (tab === 'kyc') {
     const records = await kycHistory(id);
-    const k = t.consolePayouts.kyc;
-    body =
-      records.length === 0 ? (
-        <Empty icon="shield" title={d.kyc.title} body={official ? d.kyc.official : t.consolePayouts.user.kycEmpty} />
-      ) : (
-        <section className="card min-w-0 overflow-hidden">
-          <div className="flex flex-wrap items-baseline justify-between gap-2 border-b border-line px-4 py-3">
-            <h2 className="text-[15px] font-bold">{d.kyc.title}</h2>
-            {official && <small className="text-[11px] text-muted">{d.kyc.official}</small>}
-          </div>
-          <RecordsTable
-            label={t.console.list.tableRegion}
-            empty={t.consolePayouts.user.kycEmpty}
-            head={[k.columns.status, k.columns.submission, k.columns.submitted, k.columns.reviewer, k.columns.action]}
-            rows={records.map((row) => [
-              <div key="status" className="flex flex-col items-start gap-1">
-                <KycStatusTag t={t} status={row.status} />
-                {row.filesDeleted && <small className="text-muted">{k.filesDeleted}</small>}
-              </div>,
-              <div key="submission" className="max-w-[260px] min-w-[160px]">
-                <span className="block truncate">{row.legalName ?? '—'}</span>
-                <small className="block truncate text-muted">
-                  {row.country ?? '—'} · {row.documentKind ? t.payouts.kyc.kinds[row.documentKind] : '—'} · {row.taxForm ?? '—'}
-                </small>
-                {row.reason && <small className="block truncate text-muted" title={row.reason}>{row.reason}</small>}
-              </div>,
-              <span key="submitted" className="whitespace-nowrap">
-                {formatDateTime(row.createdAt, locale)}
-              </span>,
-              <span key="reviewer" className="block max-w-[200px] truncate">
-                {row.reviewer ?? '—'}
-              </span>,
-              <Link key="action" href={`/admin/kyc/${row.id}?from=${back}`} className="btn-secondary btn-sm whitespace-nowrap">
-                {row.status === 'pending' ? k.review : k.view}
-              </Link>,
-            ])}
-          />
-        </section>
-      );
+    const k = d.kyc;
+    const kp = t.consolePayouts.kyc;
+    const kd = t.consolePayouts.kycDetail;
+    const time = (value: Date | null) => (value ? formatDateTime(value, locale) : '—');
+    body = (
+      <section className="card">
+        <RecordsTable
+          label={table}
+          empty={official ? k.official : t.consolePayouts.user.kycEmpty}
+          head={[k.columns.user, k.columns.identity, k.columns.document, k.columns.tax, k.columns.time, k.columns.action]}
+          rows={records.map((row, index) => [
+            person,
+            <Fragment key="identity">
+              {row.legalName ?? '—'}
+              <Subline>{row.country ?? '—'}</Subline>
+            </Fragment>,
+            <Fragment key="document">
+              <KycStatusTag t={t} status={row.status} />
+              <Subline>
+                {row.documentKind ? t.payouts.kyc.kinds[row.documentKind] : '—'} {row.documentLast4 ? `•••• ${row.documentLast4}` : ''}
+              </Subline>
+              {row.filesDeleted && <Subline>{kp.filesDeleted}</Subline>}
+            </Fragment>,
+            <Fragment key="tax">
+              {row.taxForm ?? '—'}
+              <Subline>{row.declared ? kp.declared : kp.notDeclared}</Subline>
+            </Fragment>,
+            <Fragment key="time">
+              {time(row.createdAt)}
+              <Subline>
+                {time(row.decidedAt)} · {row.reviewer ?? '—'}
+              </Subline>
+            </Fragment>,
+            <div key="action" className="flex">
+              <Link href={`/admin/kyc/${row.id}?from=${back}`} className="btn secondary sm">
+                {row.status === 'pending' ? kp.review : kp.view}
+              </Link>
+              {index === 0 && !official && (row.status === 'verified' || row.status === 'rejected') && (
+                <ReasonAction
+                  endpoint={`/api/admin/kyc/${row.id}/reset`}
+                  label={kd.reset}
+                  className="btn ghost sm"
+                  title={kd.resetTitle}
+                  subtitle={user.name}
+                  body={kd.resetBody}
+                  confirmLabel={kd.resetConfirm}
+                  reason={{ min: ADMIN_REASON.min, max: ADMIN_REASON.max, required: true, label: kd.resetReason }}
+                  errors={t.consolePayouts.errors}
+                />
+              )}
+            </div>,
+          ])}
+        />
+      </section>
+    );
   } else if (tab === 'payouts') {
     const rows = await payoutsOf(id);
-    body =
-      rows.length === 0 ? (
-        <Empty icon="send" title={d.payouts.title} body={official ? d.payouts.official : t.consolePayouts.user.payoutsEmpty} />
-      ) : (
-        <section className="card min-w-0 overflow-hidden">
-          <div className="border-b border-line px-4 py-3">
-            <h2 className="text-[15px] font-bold">{d.payouts.title}</h2>
-          </div>
-          <PayoutsTable t={t} locale={locale} items={rows} back={back} />
-        </section>
-      );
+    body = (
+      <section className="card">
+        <PayoutsTable t={t} locale={locale} items={rows} back={back} empty={official ? d.payouts.official : t.consolePayouts.user.payoutsEmpty} />
+      </section>
+    );
   } else if (tab === 'purchases') {
     const { purchases, subscriptions } = await userPurchases(id);
     const p = t.consoleUsers.purchases;
+    const pc = d.purchases.columns;
     const s = d.purchases.subscriptionColumns;
     body = (
-      <div className="flex min-w-0 flex-col gap-4">
-        <section className="card min-w-0 overflow-hidden">
-          <div className="flex flex-wrap items-center justify-between gap-2 border-b border-line px-4 py-3">
-            <h2 className="text-[15px] font-bold">{d.purchases.subscription}</h2>
-            <Tag tone={user.membership === 'active' ? 'green' : user.membership === 'none' ? 'grey' : 'orange'}>{t.consoleUsers.users.membership[user.membership]}</Tag>
+      <>
+        <section className="card">
+          <div className="console-table-head">
+            <h2>{d.purchases.title}</h2>
+            <Tag tone={user.membership === 'active' ? 'green' : user.membership === 'cancelled' ? 'orange' : 'grey'}>{t.consoleUsers.users.membershipCell[user.membership]}</Tag>
           </div>
           <RecordsTable
-            label={t.console.list.tableRegion}
-            empty={d.purchases.noSubscription}
-            head={[s.id, s.status, s.renewal, s.period, s.updated]}
-            rows={subscriptions.map((row) => [
-              <span key="id" className="block max-w-[220px] font-mono text-[11px] break-all">
-                {row.paddleSubscriptionId}
-              </span>,
-              <Tag key="status" tone={row.status === 'active' ? 'green' : row.status === 'cancelled' ? 'orange' : 'grey'}>
-                {p.subscriptionStatus[row.status]}
-              </Tag>,
-              row.status === 'active' && !row.cancelAtPeriodEnd ? <Tag key="renewal" tone="green">{p.renewalOn}</Tag> : <Tag key="renewal">{p.renewalOff}</Tag>,
-              <span key="period" className="whitespace-nowrap">
-                {row.currentPeriodStart && row.currentPeriodEnd
-                  ? `${formatDateTime(row.currentPeriodStart, locale)} — ${formatDateTime(row.currentPeriodEnd, locale)}`
-                  : '—'}
-              </span>,
-              <span key="updated" className="whitespace-nowrap">
-                {formatDateTime(row.updatedAt, locale)}
-              </span>,
-            ])}
-          />
-        </section>
-        <section className="card min-w-0 overflow-hidden">
-          <div className="border-b border-line px-4 py-3">
-            <h2 className="text-[15px] font-bold">{d.purchases.title}</h2>
-          </div>
-          <RecordsTable
-            label={t.console.list.tableRegion}
+            label={table}
             empty={d.purchases.empty}
-            head={[p.columns.typeAmount, p.columns.transaction, p.columns.credits, p.columns.statusTime, p.columns.action]}
+            head={[pc.user, pc.kind, pc.amount, pc.credits, pc.transaction, pc.status, pc.time, pc.action]}
             rows={purchases.map((row) => [
-              <div key="type">
-                <strong className="font-mono">{money(row.amountMinor, row.currency, locale)}</strong>
-                <small className="block text-muted">
-                  {p.kinds[row.kind]}
-                  {row.quantity > 1 && ` ${fill(p.quantity, { n: row.quantity })}`}
-                </small>
-              </div>,
-              <span key="txn" className="block max-w-[220px] font-mono text-[11px] break-all">
-                {row.paddleTransactionId}
-              </span>,
-              <div key="credits">
-                <span className="font-mono">{n(row.credits)}</span>
-                {row.reversedCredits > 0 && <small className="block text-red">{fill(p.reversed, { n: n(row.reversedCredits) })}</small>}
-              </div>,
-              <div key="status" className="flex flex-col items-start gap-1">
-                <PurchaseStatusTag t={t} status={row.status} />
-                <small className="whitespace-nowrap text-muted">{formatDateTime(row.createdAt, locale)}</small>
-              </div>,
-              <Link key="action" href={`/admin/purchases/${row.id}?from=${back}`} className="btn-secondary btn-sm">
+              person,
+              <Tag key="kind" dot={false}>
+                {p.kinds[row.kind]}
+                {row.quantity > 1 && ` ${fill(p.quantity, { n: row.quantity })}`}
+              </Tag>,
+              money(row.amountMinor, row.currency, locale),
+              <Fragment key="credits">
+                <span className="mono">{n(row.credits)}</span>
+                {row.reversedCredits > 0 && <Subline>{fill(p.reversed, { n: n(row.reversedCredits) })}</Subline>}
+              </Fragment>,
+              <code key="txn">{row.paddleTransactionId}</code>,
+              <PurchaseStatusTag key="status" t={t} status={row.status} />,
+              formatDateTime(row.createdAt, locale),
+              <Link key="action" href={`/admin/purchases/${row.id}?from=${back}`} className="btn secondary sm">
                 {p.transaction}
               </Link>,
             ])}
           />
         </section>
-      </div>
+        {subscriptions.length > 0 && (
+          <section className="card mt24">
+            <div className="console-table-head">
+              <h2>{d.purchases.subscription}</h2>
+            </div>
+            <RecordsTable
+              label={table}
+              empty={d.purchases.noSubscription}
+              head={[s.id, s.status, s.renewal, s.period, s.updated]}
+              rows={subscriptions.map((row) => [
+                <code key="id">{row.paddleSubscriptionId}</code>,
+                <Tag key="status" tone={row.status === 'active' ? 'green' : row.status === 'cancelled' ? 'orange' : 'grey'}>
+                  {p.subscriptionStatus[row.status]}
+                </Tag>,
+                row.status === 'active' && !row.cancelAtPeriodEnd ? p.renewalOn : p.renewalOff,
+                row.currentPeriodStart && row.currentPeriodEnd ? `${formatDateTime(row.currentPeriodStart, locale)} — ${formatDateTime(row.currentPeriodEnd, locale)}` : '—',
+                formatDateTime(row.updatedAt, locale),
+              ])}
+            />
+          </section>
+        )}
+      </>
     );
   } else {
     const rees = await userRees(id);
     const answers = await answerCounts(rees.map((ree) => ree.id), null);
     const r = d.rees;
     body = (
-      <section className="card min-w-0 overflow-hidden">
+      <section className="card">
         <RecordsTable
-          actions
-          label={t.console.list.tableRegion}
+          label={table}
           empty={r.empty}
-          head={[r.columns.name, r.columns.visibility, r.columns.sources, r.columns.fee, r.columns.answers, r.columns.created, r.columns.action]}
+          head={[r.columns.name, r.columns.owner, r.columns.visibility, r.columns.sources, r.columns.fee, r.columns.answers, r.columns.action]}
           rows={rees.map((ree) => {
             const live = ree.moderatedAt ? 'moderated' : ree.isPublic ? 'public' : 'private';
             const visibility = ree.deletedAt ? 'deleted' : live;
+            const detail = `/admin/rees/${ree.id}?from=${back}`;
             return [
-              <Link key="name" href={`/admin/rees/${ree.id}?from=${back}`} className="flex max-w-[280px] min-w-0 items-center gap-2.5 hover:text-blue">
-                <ReeAvatar avatar={ree.avatarBlob} color={ree.color} size="sm" />
-                <span className="min-w-0">
-                  <strong className="block truncate">{ree.name}</strong>
-                  <small className="block truncate font-mono text-[11px] text-muted">{ree.slug}</small>
+              <Link key="name" href={detail} className="table-person admin-ree-name-link" aria-label={fill(r.open, { name: ree.name })}>
+                <DotAvatar avatar={ree.avatarBlob} color={ree.color} />
+                <span>
+                  <strong>{ree.name}</strong>
+                  <small>{ree.slug}</small>
                 </span>
               </Link>,
-              <Tag key="visibility" tone={visibility === 'public' ? 'green' : visibility === 'moderated' ? 'red' : 'grey'}>
+              person,
+              <span key="visibility" className={`tag ${visibility === 'moderated' ? 'orange' : visibility === 'public' ? 'blue' : ''}`}>
                 {r.visibility[visibility]}
-              </Tag>,
-              <span key="sources" className="font-mono">
-                {n(ree.readySources)} / {n(ree.sources)}
               </span>,
-              <span key="fee" className="font-mono whitespace-nowrap">
-                {fill(t.consoleRees.rees.fee, { n: n(ree.queryFee) })}
-              </span>,
-              <span key="answers" className="font-mono">
-                {n(answers.get(ree.id) ?? 0)}
-              </span>,
-              <span key="created" className="whitespace-nowrap">
-                {formatDateTime(ree.createdAt, locale)}
-              </span>,
+              n(ree.sources),
+              <Fragment key="fee">
+                <span className="mono">{n(ree.queryFee)}</span> credits
+              </Fragment>,
+              n(answers.get(ree.id) ?? 0),
               <ReeRowActions
                 key="action"
                 t={t}
                 ree={{ id: ree.id, name: ree.name, slug: ree.slug, visibility: live, deleted: Boolean(ree.deletedAt) }}
-                detailHref={`/admin/rees/${ree.id}?from=${back}`}
+                detailHref={detail}
               />,
             ];
           })}
@@ -314,21 +301,8 @@ export default async function UserDetailPage({ params, searchParams }: Props) {
     );
   }
 
-  const stats: { label: string; value: number; hint: string; icon: IconName; tone?: string }[] = [
-    {
-      label: d.stats.plan,
-      value: user.balances.plan,
-      hint: user.planActive && user.subscription?.currentPeriodEnd ? fill(d.stats.planUntil, { date: formatDate(user.subscription.currentPeriodEnd, locale) }) : d.stats.planNone,
-      icon: 'layers',
-    },
-    { label: d.stats.pack, value: user.balances.pack, hint: d.stats.packHint, icon: 'cards' },
-    { label: d.stats.earned, value: user.balances.earned, hint: official ? d.stats.earnedOfficial : d.stats.earnedHint, icon: 'sparkle' },
-    { label: d.stats.welcome, value: user.balances.welcome, hint: d.stats.welcomeHint, icon: 'plus' },
-  ];
-  if (user.debt > 0) stats.push({ label: d.stats.debt, value: user.debt, hint: d.stats.debtHint, icon: 'info', tone: 'text-red' });
-
   return (
-    <>
+    <ConsolePage>
       <ConsoleTopbar
         crumbs={[
           { label: t.console.nav.home, href: '/admin/overview' },
@@ -338,43 +312,31 @@ export default async function UserDetailPage({ params, searchParams }: Props) {
         tabs={TABS.map((value) => ({ label: d.tabs[value], href: href(value), active: value === tab }))}
         tabsLabel={d.tabs.label}
       />
-      <PageHead
-        title={
-          <span className="flex min-w-0 items-center gap-3">
-            <UserAvatar name={user.name} className="size-11 text-[14px]" />
-            <span className="min-w-0 break-words">{user.name}</span>
-          </span>
-        }
-        lede={
-          <span className="flex flex-wrap items-center gap-2">
-            <span className="min-w-0 break-all">
-              {user.email} · {fill(d.id, { id: user.id })}
-            </span>
-            <Tag tone={user.disabledAt ? 'red' : 'green'}>{t.consoleUsers.users.status[user.disabledAt ? 'disabled' : 'active']}</Tag>
-            <RoleBadge t={t} role={user.role} showNormal />
-          </span>
-        }
-        actions={
-          <>
-            <AdjustCreditsButton id={user.id} name={user.name} email={user.email} planActive={user.planActive} />
-            <UserStatusButton id={user.id} disabled={Boolean(user.disabledAt)} />
-          </>
-        }
-      />
-      <div className={`mb-4 grid grid-cols-2 gap-3 ${stats.length > 4 ? 'md:grid-cols-3 xl:grid-cols-5' : 'md:grid-cols-4'}`}>
-        {stats.map((stat) => (
-          <div key={stat.label} className="card min-w-0 px-4 py-3">
-            <span className="flex items-center gap-1.5 text-[11px] font-semibold text-muted">
-              <Icon name={stat.icon} className="size-3.5 flex-none" />
-              <span className="truncate">{stat.label}</span>
-            </span>
-            <strong className={`mt-1 block font-mono text-[20px] leading-tight ${stat.tone ?? ''}`}>{n(stat.value)}</strong>
-            <small className="mt-0.5 block text-[11px] text-muted">{stat.hint}</small>
-          </div>
-        ))}
+      <div className="user-detail-head">
+        <span className="avatar">{Array.from(user.name.trim())[0] ?? '?'}</span>
+        <div className="grow">
+          <h1>{user.name}</h1>
+          <p>
+            {user.email} · {fill(d.id, { id: user.id })}
+          </p>
+        </div>
+        <Tag tone={user.disabledAt ? 'grey' : 'green'}>{t.consoleUsers.users.status[user.disabledAt ? 'disabled' : 'active']}</Tag>
+        <RoleBadge t={t} role={user.role} showNormal />
       </div>
+      <Stats
+        items={[
+          {
+            label: d.stats.plan,
+            value: n(user.balances.plan),
+            note: user.planActive && user.subscription?.currentPeriodEnd ? fill(d.stats.planUntil, { date: formatDate(user.subscription.currentPeriodEnd, locale) }) : d.stats.planNone,
+            icon: 'wallet',
+          },
+          { label: d.stats.pack, value: n(user.balances.pack), note: d.stats.packHint, icon: 'layers' },
+          { label: d.stats.earned, value: n(user.balances.earned), note: official ? d.stats.earnedOfficial : d.stats.earnedHint, icon: 'sparkle' },
+        ]}
+      />
       {body}
-    </>
+    </ConsolePage>
   );
 }
 
@@ -382,28 +344,22 @@ function money(minor: number, currency: string, locale: Locale): string {
   return currency === 'USD' ? formatUsd(minor, locale) : `${(minor / 100).toFixed(2)} ${currency}`;
 }
 
-function Delta({ value, locale }: { value: number; locale: Locale }) {
-  return (
-    <span className={`font-mono whitespace-nowrap ${value > 0 ? 'text-green' : value < 0 ? 'text-ink' : 'text-muted'}`}>
-      {value > 0 ? '+' : ''}
-      {formatNumber(value, locale)}
-    </span>
-  );
-}
-
 function PurchaseStatusTag({ t, status }: { t: Messages; status: 'paid' | 'refunded' | 'chargeback' }) {
-  return <Tag tone={status === 'paid' ? 'green' : status === 'refunded' ? 'orange' : 'red'}>{t.consoleUsers.purchases.status[status]}</Tag>;
+  return <Tag tone={status === 'paid' ? 'green' : status === 'refunded' ? 'grey' : 'red'}>{t.consoleUsers.purchases.status[status]}</Tag>;
 }
 
-function Empty({ icon, title, body }: { icon: IconName; title: string; body: string }) {
+/** The user as the prototype's tables show a person (suite.js `userLink`): initial, name and email. */
+function UserLink({ user, href }: { user: { name: string; email: string }; href: string }) {
   return (
-    <section className="card flex min-w-0 flex-col items-center px-6 py-12 text-center">
-      <span className="inline-flex size-11 items-center justify-center rounded-xl bg-soft text-blue">
-        <Icon name={icon} className="size-5" />
+    <Link href={href}>
+      <span className="table-person">
+        <span className="avatar">{Array.from(user.name.trim())[0] ?? '?'}</span>
+        <span>
+          <strong>{user.name}</strong>
+          <small>{user.email}</small>
+        </span>
       </span>
-      <h2 className="mt-3 text-[15px] font-bold">{title}</h2>
-      <p className="mt-1.5 max-w-[420px] text-[13px] leading-relaxed text-muted">{body}</p>
-    </section>
+    </Link>
   );
 }
 
@@ -411,15 +367,11 @@ function Summary({
   t,
   locale,
   user,
-  reesCount,
-  purchasesCount,
   kyc,
 }: {
   t: Messages;
   locale: Locale;
   user: AdminUserDetail;
-  reesCount: number;
-  purchasesCount: number;
   /** The newest `kyc_record`, whose state and tax form the summary shows. */
   kyc: { status: KycStatus; taxForm: string | null } | null;
 }) {
@@ -427,56 +379,55 @@ function Summary({
   const s = d.summary;
   const time = (value: Date | null | undefined) => (value ? formatDateTime(value, locale) : '—');
   const subscription = user.subscription;
-  const total = user.balances.plan + user.balances.pack + user.balances.earned + user.balances.welcome;
+  const lines: [string, ReactNode][] = [
+    [s.email, user.email],
+    [s.status, <Tag key="status" tone={user.disabledAt ? 'grey' : 'green'}>{t.consoleUsers.users.status[user.disabledAt ? 'disabled' : 'active']}</Tag>],
+    [
+      s.membership,
+      <Tag key="membership" tone={user.membership === 'active' ? 'green' : user.membership === 'cancelled' ? 'orange' : 'grey'}>
+        {t.consoleUsers.users.membershipCell[user.membership]}
+      </Tag>,
+    ],
+    [s.period, subscription?.currentPeriodStart && subscription.currentPeriodEnd ? `${time(subscription.currentPeriodStart)} — ${time(subscription.currentPeriodEnd)}` : '—'],
+    [
+      s.kyc,
+      user.role === 'official' ? (
+        <Tag key="kyc" dot={false}>
+          {t.consoleUsers.users.kycExempt}
+        </Tag>
+      ) : kyc ? (
+        <KycStatusTag key="kyc" t={t} status={kyc.status} />
+      ) : (
+        <Tag key="kyc">{t.consoleUsers.users.kyc.none}</Tag>
+      ),
+    ],
+    [s.taxForm, kyc?.taxForm ?? '—'],
+    [s.renewal, subscription ? (subscription.status === 'active' && !subscription.cancelAtPeriodEnd ? s.renewalOn : s.renewalOff) : '—'],
+    [s.provider, user.providerHandle ? `${d.providers[user.provider]} · ${user.providerHandle}` : d.providers[user.provider]],
+    [s.created, time(user.createdAt)],
+    [s.lastLogin, user.lastLoginAt ? time(user.lastLoginAt) : s.never],
+  ];
+  if (user.disabledAt) lines.push([s.disabledSince, time(user.disabledAt)]);
+  lines.push([s.welcome, <span key="welcome" className="mono">{formatNumber(user.balances.welcome, locale)}</span>]);
+  if (user.debt > 0) lines.push([d.stats.debt, <span key="debt" className="mono">{formatNumber(user.debt, locale)}</span>]);
   return (
-    <div className="grid min-w-0 gap-4 lg:grid-cols-[minmax(0,3fr)_minmax(0,2fr)]">
-      <section className="card min-w-0 p-5">
-        <h2 className="mb-4 text-[15px] font-bold">{s.account}</h2>
-        <Fields
-          items={[
-            [s.email, <span key="email" className="break-all">{user.email}</span>],
-            [s.provider, d.providers[user.provider]],
-            [s.handle, user.providerHandle ? <span key="handle" className="break-all">{user.providerHandle}</span> : '—'],
-            [
-              s.status,
-              <span key="status" className="flex flex-wrap items-center gap-2">
-                <Tag tone={user.disabledAt ? 'red' : 'green'}>{t.consoleUsers.users.status[user.disabledAt ? 'disabled' : 'active']}</Tag>
-                {user.disabledAt && <small className="text-muted">{fill(s.disabledAt, { time: time(user.disabledAt) })}</small>}
-              </span>,
-            ],
-            [s.created, time(user.createdAt)],
-            [s.lastLogin, user.lastLoginAt ? time(user.lastLoginAt) : s.never],
-            [
-              s.membership,
-              <Tag key="membership" tone={user.membership === 'active' ? 'green' : user.membership === 'none' ? 'grey' : 'orange'}>
-                {t.consoleUsers.users.membership[user.membership]}
-              </Tag>,
-            ],
-            [
-              s.period,
-              subscription?.currentPeriodStart && subscription.currentPeriodEnd ? `${time(subscription.currentPeriodStart)} — ${time(subscription.currentPeriodEnd)}` : '—',
-            ],
-            [s.renewal, subscription ? (subscription.status === 'active' && !subscription.cancelAtPeriodEnd ? s.renewalOn : s.renewalOff) : '—'],
-            [
-              s.kyc,
-              user.role === 'official' ? (
-                <Tag key="kyc">{t.consoleUsers.users.kycExempt}</Tag>
-              ) : kyc ? (
-                <KycStatusTag key="kyc" t={t} status={kyc.status} />
-              ) : (
-                <Tag key="kyc">{t.consoleUsers.users.kyc.none}</Tag>
-              ),
-            ],
-            [s.taxForm, kyc?.taxForm ?? '—'],
-            [s.role, <RoleBadge key="role" t={t} role={user.role} showNormal />],
-            [s.total, <span key="total" className="font-mono">{formatNumber(total, locale)}</span>],
-            [s.reesCount, <span key="rees" className="font-mono">{formatNumber(reesCount, locale)}</span>],
-            [s.purchasesCount, <span key="purchases" className="font-mono">{formatNumber(purchasesCount, locale)}</span>],
-            [d.stats.debt, <span key="debt" className={`font-mono ${user.debt > 0 ? 'text-red' : ''}`}>{formatNumber(user.debt, locale)}</span>],
-          ]}
-        />
+    <div className="user-detail-overview">
+      <section className="card settings-card">
+        <h2>{s.account}</h2>
+        {lines.map(([label, value]) => (
+          <div key={label} className="detail-line">
+            <span>{label}</span>
+            <strong>{value}</strong>
+          </div>
+        ))}
       </section>
-      <RolePanel t={t} locale={locale} user={user} footnote />
+      <section className="card settings-card">
+        <h2>{s.actions}</h2>
+        <p className="muted mt16">{s.actionsBody}</p>
+        <AdjustCreditsButton id={user.id} name={user.name} email={user.email} planActive={user.planActive} />
+        <UserStatusButton id={user.id} disabled={Boolean(user.disabledAt)} />
+        <p className="form-hint mt16">{s.actionsHint}</p>
+      </section>
     </div>
   );
 }

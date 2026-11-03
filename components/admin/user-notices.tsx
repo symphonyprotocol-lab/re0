@@ -58,29 +58,22 @@ function noticeLine(t: Messages, locale: Locale, notice: NoticeRow): { line: str
   }
 }
 
+/** 账户提示 (prototype `userDetail`): one form hint per notice, with its reason, time and whether it is unread. */
 export function UserNotices({ t, locale, items, total }: { t: Messages; locale: Locale; items: NoticeRow[]; total: number }) {
   const s = t.consoleUsers.detail.summary;
   if (!items.length) return null;
   return (
-    <section className="card min-w-0 p-5">
-      <h2 className="text-[15px] font-bold">{s.notices}</h2>
-      <p className="mt-1 text-[12px] text-muted">{s.noticesHint}</p>
-      <ul className="mt-3 divide-y divide-line">
-        {items.map((notice) => {
-          const { line, reason } = noticeLine(t, locale, notice);
-          return (
-            <li key={notice.id} className="py-2.5 text-[13px]">
-              <p className="break-words">
-                {!notice.readAt && <span className="mr-1.5 inline-block size-1.5 rounded-full bg-red align-middle" title={s.unread} aria-label={s.unread} />}
-                {line}
-              </p>
-              {reason && <p className="mt-0.5 text-[12px] break-words text-muted">{reason}</p>}
-              <small className="mt-0.5 block text-[11px] text-muted">{formatDateTime(notice.createdAt, locale)}</small>
-            </li>
-          );
-        })}
-      </ul>
-      {total > items.length && <p className="mt-2 text-[11px] text-muted">{fill(s.noticesMore, { total: formatNumber(total, locale), n: formatNumber(items.length, locale) })}</p>}
+    <section className="card settings-card mt24">
+      <h2>{s.notices}</h2>
+      {items.map((notice) => {
+        const { line, reason } = noticeLine(t, locale, notice);
+        return (
+          <p key={notice.id} className="form-hint mt16">
+            {[line, reason, formatDateTime(notice.createdAt, locale), notice.readAt ? null : s.unread].filter(Boolean).join(' · ')}
+          </p>
+        );
+      })}
+      {total > items.length && <p className="form-hint mt16">{fill(s.noticesMore, { total: formatNumber(total, locale), n: formatNumber(items.length, locale) })}</p>}
     </section>
   );
 }

@@ -1,0 +1,119 @@
+/*
+ * Prototype rules the console.css crawl never reached, for the Rees pages.
+ * Copied from rebuild-prototype (admin-ree.css, admin-ree-source.css,
+ * dot-statistics.css, workspace.css); the first block fits the shared CSV
+ * export into the Ree list's results line.
+ */
+
+/* The CSV export at the end of the Ree list's results line (as admin-records.css `.record-results button`) */
+:where(.console-app, .admin-login-page) .admin-ree-results > button { margin-left:auto; font-size:10px; display:flex; align-items:center; gap:5px; }
+:where(.console-app, .admin-login-page) .admin-ree-results > button svg { width:12px; height:12px; }
+
+/* admin-ree.css rules for states the crawl never reached */
+:where(.console-app, .admin-login-page) .admin-ree-page .page-head > .btn { flex:none; }
+:where(.console-app, .admin-login-page) .admin-ree-reset { font-size:10px; }
+:where(.console-app, .admin-login-page) .admin-ree-results .tag { margin-left:auto; font-size:9px; }
+:where(.console-app, .admin-login-page) .admin-ree-section > .text-link { display:inline-flex; align-items:center; gap:8px; font-size:10px; margin-top:7px; }
+
+/* admin-ree-source.css: notices, highlights, headings and a site's or repository's item list */
+:where(.console-app, .admin-login-page) .admin-source-notice { margin-bottom:20px; font-size:11px; line-height:1.9; }
+:where(.console-app, .admin-login-page) .admin-source-layout.has-collection { grid-template-columns:245px minmax(0,1fr); }
+:where(.console-app, .admin-login-page) .admin-source-reader-head p { color:#94a8c3; font-size:10px; line-height:1.7; margin:5px 0 0; overflow-wrap:anywhere; }
+:where(.console-app, .admin-login-page) .admin-source-content h2 { font-size:20px; line-height:1.7; margin:8px 0 16px; color:#3c577b; }
+:where(.console-app, .admin-login-page) .admin-source-content h4 { font-size:14px; margin:16px 0 10px; color:#48658b; }
+:where(.console-app, .admin-login-page) .admin-source-gap { height:10px; }
+:where(.console-app, .admin-login-page) .admin-source-content mark { background:#fff0b7; color:#69511a; border-radius:3px; padding:1px 2px; }
+:where(.console-app, .admin-login-page) .admin-source-code { margin:0; white-space:pre-wrap; font:11px/1.9 var(--mono); color:#45658f; }
+:where(.console-app, .admin-login-page) .admin-source-search-result { display:flex; align-items:center; gap:10px; padding:10px 23px; font-size:10px; color:#849cbb; background:#f7faff; }
+:where(.console-app, .admin-login-page) .admin-source-search-result a { font-size:10px; }
+:where(.console-app, .admin-login-page) .admin-source-collection { overflow:hidden; min-width:0; }
+:where(.console-app, .admin-login-page) .admin-source-collection-head { padding:18px 15px; border-bottom:1px solid #e7edf5; }
+:where(.console-app, .admin-login-page) .admin-source-collection-head h2 { font-size:12px; margin:0 0 15px; }
+:where(.console-app, .admin-login-page) .admin-source-collection-head h2 small { color:#9cafc7; margin-left:6px; font-weight:400; }
+:where(.console-app, .admin-login-page) .admin-source-collection-head form { display:flex; gap:6px; }
+:where(.console-app, .admin-login-page) .admin-source-collection-head input { min-width:0; width:100%; font-size:10px; padding:8px; }
+:where(.console-app, .admin-login-page) .admin-source-collection-head .btn { padding:6px 9px; min-width:32px; font-size:9px; }
+:where(.console-app, .admin-login-page) .admin-source-collection-head .btn svg { width:12px; height:12px; }
+:where(.console-app, .admin-login-page) .admin-source-child-list { max-height:510px; overflow:auto; padding:8px; }
+:where(.console-app, .admin-login-page) .admin-source-child-list > a { display:flex; align-items:flex-start; gap:8px; padding:11px 9px; font-size:10px; line-height:1.8; color:#849bbd; border-radius:7px; overflow-wrap:anywhere; }
+:where(.console-app, .admin-login-page) .admin-source-child-list > a svg { width:13px; height:13px; flex:none; margin-top:3px; }
+:where(.console-app, .admin-login-page) .admin-source-child-list > a:hover, :where(.console-app, .admin-login-page) .admin-source-child-list > a.active { background:#edf5ff; color:#2185df; }
+:where(.console-app, .admin-login-page) .admin-source-child-list > p { padding:9px; font-size:10px; }
+:where(.console-app, .admin-login-page) .admin-source-child-pagination { display:flex; justify-content:space-between; gap:12px; border-top:1px solid #e7edf5; padding:13px 16px; font-size:10px; color:#98abc6; }
+:where(.console-app, .admin-login-page) .admin-source-child-pagination a { font-size:10px; }
+@media(max-width:1050px) {
+  :where(.console-app, .admin-login-page) .admin-source-layout.has-collection { grid-template-columns:210px minmax(0,1fr); }
+}
+@media(max-width:760px) {
+  :where(.console-app, .admin-login-page) .admin-source-layout.has-collection { grid-template-columns:1fr; }
+  :where(.console-app, .admin-login-page) .admin-source-child-list { max-height:230px; }
+}
+
+
+/* dot-statistics.css: the period's date picker and calendar, the trend */
+:where(.console-app, .admin-login-page) .statistics-period-form { gap: 10px; margin-left: auto; }
+:where(.console-app, .admin-login-page) .statistics-date-control { position: relative; display: flex; align-items: center; gap: 8px; font-size: 10px; color: #91a0b9; }
+:where(.console-app, .admin-login-page) .statistics-date-trigger { display: flex; align-items: center; justify-content: space-between; gap: 12px; min-width: 150px; padding: 6px 9px; font: inherit; font-size: 11px; min-height: 32px; background: white; color: #6982a7; border: 1px solid #dce4f3; border-radius: 6px; cursor: pointer; }
+:where(.console-app, .admin-login-page) .statistics-date-trigger svg { width: 15px; height: 15px; flex: none; }
+:where(.console-app, .admin-login-page) .statistics-date-control[data-period="week"] .statistics-date-trigger, :where(.console-app, .admin-login-page) .statistics-date-control[data-period="custom"] .statistics-date-trigger { min-width: 232px; white-space: nowrap; }
+:where(.console-app, .admin-login-page) .statistics-date-trigger:hover, :where(.console-app, .admin-login-page) .statistics-date-trigger[aria-expanded="true"] { border-color: #9bc5f3; color: #2088ec; }
+:where(.console-app, .admin-login-page) .statistics-calendar { position: absolute; z-index: 35; top: calc(100% + 9px); right: 0; width: 312px; max-width: calc(100vw - 36px); padding: 15px; background: white; border: 1px solid #dce5f3; border-radius: 13px; box-shadow: 0 12px 40px #24446c21; color: #6b80a1; }
+:where(.console-app, .admin-login-page) .statistics-calendar[hidden] { display: none; }
+:where(.console-app, .admin-login-page) .statistics-calendar-head, :where(.console-app, .admin-login-page) .statistics-calendar-head > div { display: flex; justify-content: space-between; align-items: center; gap: 7px; }
+:where(.console-app, .admin-login-page) .statistics-calendar-head { margin-bottom: 14px; }
+:where(.console-app, .admin-login-page) .statistics-range-fields { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; margin-bottom: 14px; }
+:where(.console-app, .admin-login-page) .statistics-range-presets { display: grid; grid-template-columns: repeat(3, 1fr); gap: 6px; margin-bottom: 12px; }
+:where(.console-app, .admin-login-page) .statistics-calendar .statistics-range-presets button { border: 1px solid #e1e8f3; background: #f8faff; padding: 7px 3px; font-size: 10px; white-space: nowrap; }
+:where(.console-app, .admin-login-page) .statistics-calendar .statistics-range-fields button { display: flex; flex-direction: column; align-items: flex-start; gap: 5px; padding: 9px; border: 1px solid #e1e8f3; text-align: left; }
+:where(.console-app, .admin-login-page) .statistics-range-fields small { font-size: 9px; color: #8ea2bf; }
+:where(.console-app, .admin-login-page) .statistics-range-fields strong { font-size: 11px; font-weight: 500; }
+:where(.console-app, .admin-login-page) .statistics-calendar select { width: auto; padding: 5px 7px; border: 1px solid #e2e8f2; border-radius: 6px; background: #fff; color: #60799d; font-size: 11px; }
+:where(.console-app, .admin-login-page) .statistics-calendar button { border: 1px solid transparent; background: transparent; color: #6b80a1; border-radius: 7px; padding: 0; font: inherit; font-size: 11px; cursor: pointer; }
+:where(.console-app, .admin-login-page) .statistics-calendar .statistics-calendar-nav { display: grid; place-items: center; width: 27px; height: 27px; flex: none; }
+:where(.console-app, .admin-login-page) .statistics-calendar-nav svg { width: 13px; height: 13px; }
+:where(.console-app, .admin-login-page) .statistics-calendar-nav.is-previous svg { transform: rotate(180deg); }
+:where(.console-app, .admin-login-page) .statistics-calendar-weekdays, :where(.console-app, .admin-login-page) .statistics-day-grid { display: grid; grid-template-columns: repeat(7, 1fr); gap: 2px; }
+:where(.console-app, .admin-login-page) .statistics-calendar-weekdays { margin-bottom: 5px; text-align: center; color: #acb9cc; font-size: 10px; }
+:where(.console-app, .admin-login-page) .statistics-calendar-weekdays.with-weeks { grid-template-columns: 0.7fr repeat(7, 1fr); }
+:where(.console-app, .admin-login-page) .statistics-day-grid button { position: relative; height: 32px; }
+:where(.console-app, .admin-login-page) .statistics-week-grid { display: grid; gap: 4px; }
+:where(.console-app, .admin-login-page) .statistics-week-grid button { display: grid; grid-template-columns: 0.7fr repeat(7, 1fr); gap: 2px; align-items: center; height: 33px; }
+:where(.console-app, .admin-login-page) .statistics-week-grid small { font: 9px var(--mono); color: #9eafc7; }
+:where(.console-app, .admin-login-page) .statistics-calendar .outside-month { color: #bec8d8; }
+:where(.console-app, .admin-login-page) .statistics-month-grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 7px; }
+:where(.console-app, .admin-login-page) .statistics-month-grid button { height: 44px; }
+:where(.console-app, .admin-login-page) .statistics-calendar button:enabled:hover { color: #1988ee; background: #f1f7ff; }
+:where(.console-app, .admin-login-page) .statistics-calendar button[aria-pressed="true"] { background: #eaf3ff; border-color: #c4dcfa; color: #1684e9; font-weight: 600; }
+:where(.console-app, .admin-login-page) .statistics-calendar button[data-in-range] { background: #f2f7ff; color: #568ec9; }
+:where(.console-app, .admin-login-page) .statistics-calendar button:disabled { opacity: 0.4; cursor: not-allowed; }
+:where(.console-app, .admin-login-page) .statistics-day-grid [aria-current="date"]::after { content: ""; position: absolute; bottom: 3px; left: calc(50% - 2px); width: 4px; height: 4px; background: #4d9fef; border-radius: 50%; }
+:where(.console-app, .admin-login-page) .statistics-calendar-hint { margin: 12px 0 0; text-align: center; color: #9aacc6; font-size: 10px; }
+:where(.console-app, .admin-login-page) .statistics-date-trigger:focus-visible, :where(.console-app, .admin-login-page) .statistics-calendar button:focus-visible { outline: 2px solid #91bdf2; outline-offset: 2px; }
+:where(.console-app, .admin-login-page) .statistics-period-form .text-link { font-size: 10px; white-space: nowrap; }
+:where(.console-app, .admin-login-page) .statistics-trend { padding: 21px 24px 15px; margin-top: 22px; }
+:where(.console-app, .admin-login-page) .statistics-trend-head { margin-bottom: 18px; }
+:where(.console-app, .admin-login-page) .statistics-trend h2 { margin: 0; font-size: 13px; font-weight: 600; }
+:where(.console-app, .admin-login-page) .statistics-trend-head p { margin: 6px 0 0; font-size: 10px; color: #91a2bd; }
+:where(.console-app, .admin-login-page) .statistics-trend-head > strong { font-size: 23px; color: #2988e9; font-weight: 500; }
+:where(.console-app, .admin-login-page) .statistics-trend-head > strong small { font: 10px var(--sans); color: #94a4bc; margin-left: 7px; }
+:where(.console-app, .admin-login-page) .statistics-bars { display: flex; align-items: stretch; gap: 7px; border-bottom: 1px solid #eaf0f8; }
+:where(.console-app, .admin-login-page) .statistics-bar-item { flex: 1; min-width: 0; text-align: center; }
+:where(.console-app, .admin-login-page) .statistics-bar-track { height: 95px; display: flex; align-items: flex-end; justify-content: center; border-bottom: 1px solid #e6edf8; }
+:where(.console-app, .admin-login-page) .statistics-bar-track i { display: block; width: min(70%, 34px); background: linear-gradient(#6cb6fb, #2089ed); border-radius: 4px 4px 0 0; }
+:where(.console-app, .admin-login-page) .statistics-bar-item:hover .statistics-bar-track { background: #f5f8fd; }
+:where(.console-app, .admin-login-page) .statistics-bar-label { display: block; min-height: 27px; padding-top: 8px; font: 9px var(--mono); color: #9baac1; white-space: nowrap; }
+:where(.console-app, .admin-login-page) .statistics-trend-empty { margin: 12px 0 0; font-size: 10px; color: #92a3bf; text-align: center; }
+@media (max-width: 760px) {
+  :where(.console-app, .admin-login-page) .statistics-date-control > span { display: none; }
+  :where(.console-app, .admin-login-page) .statistics-trend { padding: 17px 16px 13px; }
+  :where(.console-app, .admin-login-page) .statistics-bars { gap: 3px; }
+  :where(.console-app, .admin-login-page) .statistics-bar-label { font-size: 8px; }
+}
+
+/* workspace.css: the statistics detail table's cells */
+:where(.console-app, .admin-login-page) .creator-detail-fixed > svg { width: 14px; height: 14px; }
+:where(.console-app, .admin-login-page) .creator-cell-note { display: block; font-size: 9px; color: #99a9c0; margin-top: 6px; }
+:where(.console-app, .admin-login-page) .creator-answer-question { font-size: 12px; font-weight: 500; display: block; max-width: 460px; line-height: 1.9; }
+:where(.console-app, .admin-login-page) .creator-answer-detail { margin-top: 10px; }
+:where(.console-app, .admin-login-page) .creator-answer-detail summary { font-size: 10px; color: var(--blue); cursor: pointer; }
+:where(.console-app, .admin-login-page) .creator-answer-detail > div { white-space: pre-wrap; line-height: 1.95; padding: 14px; border-radius: 8px; background: #f6f8fd; margin-top: 10px; color: #70839f; max-width: 500px; }

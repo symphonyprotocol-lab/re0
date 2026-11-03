@@ -7,9 +7,8 @@ import { creditsToCents, formatCentsUsd as usd, liveFeeCents } from '@/lib/domai
 import { api } from '@/lib/client/upload';
 import { useI18n } from '@/i18n/client';
 import { fill } from '@/i18n/format';
-import { Icon, Spinner } from '@/components/ui/icons';
+import { CI } from '@/components/admin/console-icon';
 import { useToast } from '@/components/ui/toast';
-
 
 function useAction() {
   const { t } = useI18n();
@@ -43,30 +42,28 @@ export function PayoutReview({ id, allowed, paymentHref }: { id: string; allowed
   const d = t.consolePayouts.payoutDetail;
   const { busy, error, setError, run, errors } = useAction();
   const [note, setNote] = useState('');
+  const alert = error && (
+    <p className="form-error" role="alert">
+      {error}
+    </p>
+  );
   return (
-    <form onSubmit={(event) => event.preventDefault()}>
-      <label htmlFor="review-note" className="field-label">
-        {d.note}
-      </label>
-      <textarea id="review-note" rows={4} maxLength={ADMIN_REASON.max} placeholder={d.notePlaceholder} value={note} onChange={(event) => setNote(event.target.value)} className="input resize-y" />
-      <small className="hint block">{reasonLength(note)} / {ADMIN_REASON.max}</small>
-      {!allowed && <p className="mt-3 rounded-lg bg-[#fff3f3] px-3 py-2 text-[12px] text-red">{d.notAllowed}</p>}
-      {error && (
-        <p role="alert" className="mt-3 text-[12px] text-red">
-          {error}
-        </p>
-      )}
-      <div className="mt-4 flex flex-wrap justify-end gap-2">
+    <form id="payout-review-form" onSubmit={(event) => event.preventDefault()}>
+      <div className="field">
+        <label htmlFor="review-note">{d.note}</label>
+        <textarea id="review-note" name="note" rows={4} maxLength={ADMIN_REASON.max} placeholder={d.notePlaceholder} value={note} onChange={(event) => setNote(event.target.value)} />
+      </div>
+      {!allowed && <p className="form-error">{d.notAllowed}</p>}
+      <div className="payout-page-actions">
         <button
           type="button"
-          className="btn-secondary"
+          className="btn secondary"
           disabled={busy !== null}
           onClick={() => {
             if (reasonLength(note) < ADMIN_REASON.min || reasonLength(note) > ADMIN_REASON.max) return setError(errors.reason!);
             void run('rejected', `/api/admin/payouts/${id}/reject`, { note: note.trim() }, d.rejected);
           }}
         >
-          {busy === 'rejected' && <Spinner />}
           {d.reject}
         </button>
         <button
@@ -78,10 +75,10 @@ export function PayoutReview({ id, allowed, paymentHref }: { id: string; allowed
             void run('approved', `/api/admin/payouts/${id}/approve`, { note: note.trim() }, d.approved, paymentHref);
           }}
         >
-          {busy === 'approved' ? <Spinner /> : <Icon name="check" className="size-4" />}
           {d.approve}
         </button>
       </div>
+      {alert}
     </form>
   );
 }
@@ -101,55 +98,49 @@ export function PayoutPayment({ id, credits, allowed }: { id: string; credits: n
   const fee = paid ? liveFeeCents(paid, credits) : null;
   const max = creditsToCents(credits);
   return (
-    <form onSubmit={(event) => event.preventDefault()}>
-      <label htmlFor="payout-transfer" className="field-label">
-        {d.transferId}
-      </label>
-      <input id="payout-transfer" className="input font-mono" maxLength={PAYOUT_TRANSFER_ID_MAX} autoComplete="off" value={transferId} onChange={(event) => setTransferId(event.target.value)} />
-      <label htmlFor="payout-paid" className="field-label mt-4">
-        {d.paid}
-      </label>
-      <input
-        id="payout-paid"
-        className="input font-mono"
-        type="number"
-        inputMode="decimal"
-        min={0.01}
-        max={Math.floor(max) / 100}
-        step={0.01}
-        placeholder={(Math.floor(max) / 100).toFixed(2)}
-        value={paid}
-        onChange={(event) => setPaid(event.target.value)}
-      />
-      <small className="hint block">{fill(d.paidHint, { max: usd(max) })}</small>
-      <div className="mt-3 flex items-center justify-between gap-2 rounded-lg bg-wash px-3 py-2.5 text-[12px]">
-        <span className="text-muted">{d.fee}</span>
-        <strong className="font-mono" aria-live="polite">
+    <form id="manual-payout-result" onSubmit={(event) => event.preventDefault()}>
+      <div className="field">
+        <label htmlFor="payout-transfer">{d.transferId}</label>
+        <input id="payout-transfer" name="transferId" maxLength={PAYOUT_TRANSFER_ID_MAX} autoComplete="off" value={transferId} onChange={(event) => setTransferId(event.target.value)} />
+      </div>
+      <div className="field">
+        <label htmlFor="payout-actual">{d.paid}</label>
+        <input
+          id="payout-actual"
+          name="actual"
+          type="number"
+          inputMode="decimal"
+          min={0.01}
+          max={Math.floor(max) / 100}
+          step={0.01}
+          placeholder={(Math.floor(max) / 100).toFixed(2)}
+          value={paid}
+          onChange={(event) => setPaid(event.target.value)}
+        />
+        <small>{fill(d.paidHint, { max: usd(max) })}</small>
+      </div>
+      <div className="payout-fee-estimate">
+        <span>{d.fee}</span>
+        <strong id="payout-calculated-fee" aria-live="polite">
           {fee === null ? '—' : usd(fee)}
         </strong>
       </div>
-      <div className="my-5 border-t border-line" />
-      <label htmlFor="payout-failure" className="field-label">
-        {d.failure}
-      </label>
-      <textarea id="payout-failure" rows={3} maxLength={ADMIN_REASON.max} placeholder={d.failurePlaceholder} value={reason} onChange={(event) => setReason(event.target.value)} className="input resize-y" />
-      {!allowed && <p className="mt-3 rounded-lg bg-[#fff3f3] px-3 py-2 text-[12px] text-red">{d.paymentPaused}</p>}
-      {error && (
-        <p role="alert" className="mt-3 text-[12px] text-red">
-          {error}
-        </p>
-      )}
-      <div className="mt-4 flex flex-wrap justify-end gap-2">
+      <div className="rule" />
+      <div className="field">
+        <label htmlFor="payout-failure">{d.failure}</label>
+        <textarea id="payout-failure" name="reason" rows={3} maxLength={ADMIN_REASON.max} placeholder={d.failurePlaceholder} value={reason} onChange={(event) => setReason(event.target.value)} />
+      </div>
+      {!allowed && <p className="form-error">{d.paymentPaused}</p>}
+      <div className="payout-page-actions">
         <button
           type="button"
-          className="btn-secondary"
+          className="btn secondary"
           disabled={busy !== null}
           onClick={() => {
             if (reasonLength(reason) < ADMIN_REASON.min || reasonLength(reason) > ADMIN_REASON.max) return setError(errors.reason!);
             void run('failed', `/api/admin/payouts/${id}/failed`, { reason: reason.trim() }, d.failedDone);
           }}
         >
-          {busy === 'failed' && <Spinner />}
           {d.markFailed}
         </button>
         <button
@@ -162,10 +153,15 @@ export function PayoutPayment({ id, credits, allowed }: { id: string; credits: n
             void run('paid', `/api/admin/payouts/${id}/paid`, { transferId: transferId.trim(), paid }, d.paidDone);
           }}
         >
-          {busy === 'paid' ? <Spinner /> : <Icon name="check" className="size-4" />}
           {d.markPaid}
+          <CI name="check" />
         </button>
       </div>
+      {error && (
+        <p className="form-error" role="alert">
+          {error}
+        </p>
+      )}
     </form>
   );
 }

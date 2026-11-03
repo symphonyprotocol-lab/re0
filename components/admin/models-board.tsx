@@ -8,8 +8,9 @@ import type { ModelConfigView } from '@/lib/services/models';
 import { api } from '@/lib/client/upload';
 import { useI18n } from '@/i18n/client';
 import { fill, formatDateTime, formatNumber } from '@/i18n/format';
-import { Icon, Spinner } from '@/components/ui/icons';
-import { ConfirmModal, Modal } from '@/components/ui/modal';
+import { CI } from '@/components/admin/console-icon';
+import { ConfirmModal, Modal } from '@/components/admin/console-modal';
+import { PageHead, Tag } from '@/components/admin/list-kit';
 import { useToast } from '@/components/ui/toast';
 
 interface Board {
@@ -38,40 +39,36 @@ function JobCard({ job }: { job: ReembedJobView }) {
   const { t, locale } = useI18n();
   const j = t.admin.models.job;
   const percent = job.total > 0 ? Math.min(100, Math.floor((job.done / job.total) * 100)) : job.status === 'done' ? 100 : 0;
-  const tone = job.status === 'running' ? 'border-[#cfe1fb] bg-soft text-blue' : job.status === 'failed' ? 'border-[#f1d4d4] bg-[#fff3f3] text-red' : 'border-[#cde8df] bg-[#effaf6] text-green';
   return (
-    <section className="card mt-5 p-5" aria-live="polite">
-      <div className="flex flex-wrap items-start justify-between gap-3">
-        <div className="flex min-w-0 items-start gap-3">
-          <span className={`inline-flex size-9 flex-none items-center justify-center rounded-lg border ${tone}`}>
-            {job.status === 'running' ? <Spinner /> : <Icon name={job.status === 'failed' ? 'info' : 'check'} />}
-          </span>
-          <div className="min-w-0">
-            <h2 className="text-[15px] font-bold">{j.title}</h2>
-            <p className="mt-0.5 text-[12px] break-words text-muted">
+    <section className="reembed-job card" aria-live="polite">
+      <div className="between">
+        <div className="flex">
+          <span className={job.status === 'running' ? 'spinner' : 'blue'}>{job.status !== 'running' && <CI name={job.status === 'failed' ? 'info' : 'check'} />}</span>
+          <div>
+            <h3>{j.title}</h3>
+            <p>
               {job.fromModelConfigId ? (job.fromName ?? j.unknown) : j.environment} → {job.toName ?? j.unknown}
             </p>
           </div>
         </div>
-        <span className={`tag flex-none ${tone}`}>{j.status[job.status]}</span>
+        <Tag tone={job.status === 'running' ? 'orange' : job.status === 'failed' ? 'red' : 'green'}>{j.status[job.status]}</Tag>
       </div>
-      <div
-        className="mt-4 h-2 overflow-hidden rounded-full bg-wash"
-        role="progressbar"
-        aria-label={j.title}
-        aria-valuemin={0}
-        aria-valuemax={100}
-        aria-valuenow={percent}
-      >
-        <span className={`block h-full rounded-full transition-[width] ${job.status === 'failed' ? 'bg-red' : job.status === 'done' ? 'bg-green' : 'bg-blue'}`} style={{ width: `${percent}%` }} />
+      <div className="progress" role="progressbar" aria-label={j.title} aria-valuemin={0} aria-valuemax={100} aria-valuenow={percent}>
+        <span style={{ width: `${percent}%` }} />
       </div>
-      <div className="mt-2 flex flex-wrap items-center justify-between gap-2 font-mono text-[11px] text-muted">
+      <div className="between">
         <span>{fill(j.progress, { done: formatNumber(Math.min(job.done, job.total), locale), total: formatNumber(job.total, locale) })}</span>
         <span>{percent}%</span>
       </div>
-      <p className="mt-3 text-[12px] leading-relaxed text-[#3b4361]">{job.status === 'running' ? j.running : job.status === 'failed' ? j.failed : j.done}</p>
-      {job.status === 'failed' && job.error && <p className="mt-1 text-[12px] break-words text-red">{fill(j.error, { error: job.error })}</p>}
-      <p className="mt-2 text-[11px] text-muted">
+      <p>
+        {job.status === 'running' ? j.running : job.status === 'failed' ? j.failed : j.done}
+        {job.status === 'failed' && job.error && (
+          <>
+            <br />
+            {fill(j.error, { error: job.error })}
+          </>
+        )}
+        <br />
         {fill(j.started, { time: formatDateTime(job.startedAt, locale) })}
         {job.finishedAt && <> · {fill(j.finished, { time: formatDateTime(job.finishedAt, locale) })}</>}
       </p>
@@ -226,91 +223,91 @@ export function ModelsBoard({ initial, initialJob }: { initial: Board; initialJo
 
   const locked = Boolean(draft?.id && draft.enabled);
 
+  const probeLine = (config: ModelConfigView) => {
+    const result = probes[config.id];
+    if (result?.text) return { ok: Boolean(result.ok), text: result.text };
+    // The saved outcome of the last probe, so it survives a reload.
+    if (config.lastProbeAt && config.lastProbeOk !== null)
+      return { ok: config.lastProbeOk, text: fill(config.lastProbeOk ? m.lastProbeOk : m.lastProbeFailed, { time: formatDateTime(config.lastProbeAt, locale) }) };
+    return null;
+  };
+
   return (
-    <div>
-      <div className="flex flex-wrap items-end justify-between gap-4">
-        <div>
-          <h1 className="text-[26px] font-extrabold tracking-tight">{m.title}</h1>
-          <p className="mt-2 text-[13px] text-muted">{m.lede}</p>
-        </div>
-        <button type="button" className="btn" onClick={() => open('generation')}>
-          <Icon name="plus" />
-          {m.add}
-        </button>
+    <>
+      <PageHead
+        title={m.title}
+        lede={m.lede}
+        actions={
+          <button type="button" className="btn" onClick={() => open('generation')}>
+            <CI name="plus" />
+            {m.add}
+          </button>
+        }
+      />
+      <div className="info-strip mb16">
+        <CI name="info" />
+        <span>{m.info}</span>
       </div>
-      <p className="mt-5 flex gap-2 rounded-lg bg-soft px-3 py-2.5 text-[12px] text-[#3b4361]">
-        <Icon name="info" className="mt-0.5 size-4 flex-none text-blue" />
-        {m.info}
-      </p>
       {job && <JobCard job={job} />}
-      <div className="mt-6 grid grid-cols-1 gap-5 lg:grid-cols-3">
+      <div className="model-kind-grid">
         {MODEL_KINDS.map((kind) => {
           const configs = board.configs.filter((config) => config.kind === kind);
           const active = configs.find((config) => config.enabled);
           return (
-            <section key={kind} className="card flex flex-col gap-3 p-5">
-              <div className="flex items-start gap-3">
-                <span className="inline-flex size-9 flex-none items-center justify-center rounded-lg bg-soft text-blue">
-                  <Icon name={kind === 'generation' ? 'sparkle' : kind === 'embedding' ? 'layers' : 'audio'} className="size-4" />
+            <section key={kind} className="card model-kind">
+              <div className="model-kind-head">
+                <span className="model-kind-icon">
+                  <CI name={kind === 'generation' ? 'sparkle' : kind === 'embedding' ? 'layers' : 'audio'} />
                 </span>
-                <div className="min-w-0">
-                  <h2 className="text-[15px] font-bold">{m.kinds[kind]}</h2>
-                  <p className="mt-0.5 text-[11px] text-muted">{m.kindNotes[kind]}</p>
+                <div>
+                  <h2>{m.kinds[kind]}</h2>
+                  <p>{m.kindNotes[kind]}</p>
                 </div>
               </div>
               {!active && (
-                <div className="rounded-lg border border-dashed border-line bg-wash px-3 py-2.5 text-[11px] text-muted">
-                  <strong className="block text-ink">{m.fallback}</strong>
-                  {fill(m.fallbackBody, { model: board.fallbacks[kind].model })}
+                <div className="info-strip mb16">
+                  <CI name="info" />
+                  <span>
+                    <strong>{m.fallback}</strong> · {fill(m.fallbackBody, { model: board.fallbacks[kind].model })}
+                  </span>
                 </div>
               )}
               {configs.map((config) => {
                 const result = probes[config.id];
+                const line = probeLine(config);
                 return (
-                  <article key={config.id} className={`rounded-xl border p-4 ${config.enabled ? 'border-blue bg-soft/40' : 'border-line'}`}>
-                    <div className="flex items-start justify-between gap-2">
-                      <strong className="min-w-0 truncate text-[13px]">{config.name}</strong>
-                      <span className={`tag flex-none ${config.enabled ? 'border-[#cfe9de] bg-[#f1faf6] text-green' : ''}`}>{config.enabled ? m.enabled : m.inactive}</span>
+                  <article key={config.id} className={`model-config ${config.enabled ? 'enabled' : ''}`}>
+                    <div className="between">
+                      <strong>{config.name}</strong>
+                      <Tag tone={config.enabled ? 'green' : 'grey'}>{config.enabled ? m.enabled : m.inactive}</Tag>
                     </div>
-                    <code className="mt-2 block truncate font-mono text-[12px]">{config.model}</code>
-                    <p className="mt-1 text-[11px] text-muted">
+                    <code>{config.model}</code>
+                    <p>
                       {m.transports[config.transport]} · {Math.round(config.timeoutMs / 1000)}s
                     </p>
-                    {config.baseUrl && <p className="truncate text-[11px] text-muted">{config.baseUrl}</p>}
-                    <div className="mt-2 flex items-center justify-between gap-2 text-[11px] text-muted">
-                      <span className="flex items-center gap-1">
-                        <Icon name="lock" className="size-3" />
-                        {config.hasKey ? `•••• ${config.apiKeyTail ?? ''}` : m.noKey}
+                    {config.baseUrl && <p className="model-endpoint">{config.baseUrl}</p>}
+                    <div className="between model-key">
+                      <span>
+                        <CI name="lock" /> {config.hasKey ? `•••• ${config.apiKeyTail ?? ''}` : m.noKey}
                       </span>
                       <button type="button" className="icon-btn" aria-label={m.edit} title={m.edit} onClick={() => open(kind, config)}>
-                        <Icon name="settings" className="size-3.5" />
+                        <CI name="settings" />
                       </button>
                     </div>
-                    {result?.text ? (
-                      <p className={`mt-2 rounded-md px-2 py-1.5 text-[11px] break-words ${result.ok ? 'bg-[#f1faf6] text-green' : 'bg-[#fff3f3] text-red'}`}>{result.text}</p>
-                    ) : (
-                      /* The saved outcome of the last probe, so it survives a reload. */
-                      config.lastProbeAt &&
-                      config.lastProbeOk !== null && (
-                        <p className={`mt-2 rounded-md px-2 py-1.5 text-[11px] break-words ${config.lastProbeOk ? 'bg-[#f1faf6] text-green' : 'bg-[#fff3f3] text-red'}`}>
-                          {fill(config.lastProbeOk ? m.lastProbeOk : m.lastProbeFailed, { time: formatDateTime(config.lastProbeAt, locale) })}
-                        </p>
-                      )
-                    )}
-                    <div className="mt-3 flex flex-wrap items-center gap-2">
-                      <button type="button" className="btn-secondary btn-sm" onClick={() => probe(config)} disabled={result?.busy}>
-                        {result?.busy && <Spinner className="size-3" />}
+                    {line && <div className={`probe-result ${line.ok ? '' : 'error'}`}>{line.text}</div>}
+                    <div className="flex">
+                      <button type="button" className="btn secondary sm" onClick={() => probe(config)} disabled={result?.busy}>
                         {result?.busy ? m.probing : m.probe}
                       </button>
                       {config.enabled ? (
-                        <span className="flex items-center gap-1 text-[11px] text-muted">
-                          <Icon name="check" className="size-3.5" />
+                        <span className="small muted">
+                          <CI name="check" />
                           {m.inUse}
                         </span>
                       ) : (
                         <button
                           type="button"
-                          className="btn btn-sm"
+                          className="btn sm"
                           onClick={() => setActivate(config)}
                           disabled={kind === 'embedding' && running}
                           title={kind === 'embedding' && running ? m.job.blocked : undefined}
@@ -322,8 +319,8 @@ export function ModelsBoard({ initial, initialJob }: { initial: Board; initialJo
                   </article>
                 );
               })}
-              <button type="button" className="btn-ghost mt-auto w-full" onClick={() => open(kind)}>
-                <Icon name="plus" className="size-3.5" />
+              <button type="button" className="btn ghost full" onClick={() => open(kind)}>
+                <CI name="plus" />
                 {m.addFor}
               </button>
             </section>
@@ -335,75 +332,93 @@ export function ModelsBoard({ initial, initialJob }: { initial: Board; initialJo
         open={Boolean(draft)}
         onClose={() => setDraft(null)}
         title={draft?.id ? m.form.editTitle : m.form.createTitle}
-        subtitle={locked ? m.form.lockedNote : m.form.newNote}
+        subtitle={m.form.keyNote}
         footer={
           <>
-            <button type="button" className="btn-secondary" onClick={() => setDraft(null)}>
+            <button type="button" className="btn secondary" onClick={() => setDraft(null)}>
               {t.common.actions.cancel}
             </button>
-            <button type="button" className="btn" onClick={save} disabled={saving}>
-              {saving && <Spinner />}
+            <button type="submit" form="model-form" className="btn" disabled={saving}>
               {m.form.save}
             </button>
           </>
         }
       >
         {draft && (
-          <div className="flex flex-col gap-4">
-            <label>
-              <span className="field-label">{m.form.name}</span>
-              <input className="input" maxLength={MODEL_NAME_MAX_LENGTH} value={draft.name} onChange={(event) => setDraft({ ...draft, name: event.target.value })} />
-            </label>
-            <label>
-              <span className="field-label">{m.form.kind}</span>
-              <select className="input" value={draft.kind} disabled={Boolean(draft.id)} onChange={(event) => setDraft({ ...draft, kind: event.target.value as ModelKind })}>
+          <form
+            id="model-form"
+            onSubmit={(event) => {
+              event.preventDefault();
+              void save();
+            }}
+          >
+            {error && (
+              <div className="form-error" role="alert">
+                {error}
+              </div>
+            )}
+            <div className="field">
+              <label htmlFor="model-label">{m.form.name}</label>
+              <input id="model-label" required maxLength={MODEL_NAME_MAX_LENGTH} value={draft.name} onChange={(event) => setDraft({ ...draft, name: event.target.value })} />
+            </div>
+            <div className="field">
+              <label htmlFor="model-kind">{m.form.kind}</label>
+              <select id="model-kind" value={draft.kind} disabled={Boolean(draft.id)} onChange={(event) => setDraft({ ...draft, kind: event.target.value as ModelKind })}>
                 {MODEL_KINDS.map((kind) => (
                   <option key={kind} value={kind}>
                     {m.kinds[kind]}
                   </option>
                 ))}
               </select>
-            </label>
-            <label>
-              <span className="field-label">{m.form.transport}</span>
-              <select className="input" value={draft.transport} disabled={locked} onChange={(event) => setDraft({ ...draft, transport: event.target.value as ModelTransport })}>
+            </div>
+            <div className="field">
+              <label htmlFor="model-transport">{m.form.transport}</label>
+              <select id="model-transport" value={draft.transport} disabled={locked} onChange={(event) => setDraft({ ...draft, transport: event.target.value as ModelTransport })}>
                 <option value="gateway">{m.transports.gateway}</option>
                 <option value="openai_compatible">{m.transports.openai_compatible}</option>
               </select>
-            </label>
+            </div>
             {draft.transport === 'openai_compatible' && (
-              <label>
-                <span className="field-label">{m.form.baseUrl}</span>
-                <input className="input font-mono" placeholder="https://api.example.com/v1" value={draft.baseUrl} disabled={locked} onChange={(event) => setDraft({ ...draft, baseUrl: event.target.value })} />
-              </label>
+              <div className="field">
+                <label htmlFor="model-base">{m.form.baseUrl}</label>
+                <input id="model-base" type="url" required placeholder="https://api.example.com/v1" value={draft.baseUrl} disabled={locked} onChange={(event) => setDraft({ ...draft, baseUrl: event.target.value })} />
+              </div>
             )}
-            <label>
-              <span className="field-label">{m.form.model}</span>
-              <input className="input font-mono" maxLength={MODEL_ID_MAX_LENGTH} value={draft.model} disabled={locked} onChange={(event) => setDraft({ ...draft, model: event.target.value })} />
-              <small className="hint">{draft.transport === 'gateway' ? m.form.modelHintGateway : m.form.modelHintCompatible}</small>
-            </label>
-            <label>
-              <span className="field-label">{m.form.apiKey}</span>
+            <div className="field">
+              <label htmlFor="model-name">{m.form.model}</label>
+              <input id="model-name" required maxLength={MODEL_ID_MAX_LENGTH} placeholder="provider/model" value={draft.model} disabled={locked} onChange={(event) => setDraft({ ...draft, model: event.target.value })} />
+              <small>{draft.transport === 'gateway' ? m.form.modelHintGateway : m.form.modelHintCompatible}</small>
+            </div>
+            <div className="field">
+              <label htmlFor="model-key">{m.form.apiKey}</label>
               <input
-                className="input font-mono"
+                id="model-key"
                 type="password"
                 autoComplete="off"
                 value={draft.apiKey}
                 placeholder={draft.tail ? fill(m.form.apiKeyKeep, { tail: draft.tail }) : m.form.apiKeyCarry}
                 onChange={(event) => setDraft({ ...draft, apiKey: event.target.value })}
               />
-              <small className="hint">{m.form.apiKeyHint}</small>
-            </label>
-            <label>
-              <span className="field-label">{m.form.timeout}</span>
-              <input className="input max-w-[160px] font-mono" type="number" min={MODEL_TIMEOUT_MS.min / 1000} max={MODEL_TIMEOUT_MS.max / 1000} value={draft.timeout} onChange={(event) => setDraft({ ...draft, timeout: Number(event.target.value) })} />
-            </label>
-            {error && (
-              <p role="alert" className="text-[12px] text-red">
-                {error}
-              </p>
-            )}
-          </div>
+              <small>{m.form.apiKeyHint}</small>
+            </div>
+            <div className="field">
+              <label htmlFor="model-timeout">{m.form.timeout}</label>
+              <input
+                id="model-timeout"
+                type="number"
+                required
+                step={1}
+                min={MODEL_TIMEOUT_MS.min / 1000}
+                max={MODEL_TIMEOUT_MS.max / 1000}
+                value={draft.timeout}
+                onChange={(event) => setDraft({ ...draft, timeout: Number(event.target.value) })}
+              />
+            </div>
+            <div className="info-strip">
+              <CI name="info" />
+              <span>{locked ? m.form.lockedNote : m.form.rules}</span>
+            </div>
+          </form>
         )}
       </Modal>
 
@@ -415,6 +430,6 @@ export function ModelsBoard({ initial, initialJob }: { initial: Board; initialJo
         onClose={() => setActivate(null)}
         onConfirm={() => activate && doActivate(activate)}
       />
-    </div>
+    </>
   );
 }

@@ -3,9 +3,8 @@ import Link from 'next/link';
 import { auditEntry } from '@/lib/services/admin-audit';
 import { serverMessages } from '@/i18n/server';
 import { formatDateTime } from '@/i18n/format';
-import { Icon } from '@/components/ui/icons';
-import { Fields, PageHead } from '@/components/admin/list-kit';
-import { ConsoleTopbar } from '@/components/admin/console-topbar';
+import { DetailSection, Fields, PageHead } from '@/components/admin/list-kit';
+import { ConsolePage, ConsoleTopbar } from '@/components/admin/console-topbar';
 import { actionLabel, auditTargetHref } from '@/components/admin/audit-kit';
 
 type Props = { params: Promise<{ id: string }>; searchParams: Promise<Record<string, string | string[] | undefined>> };
@@ -45,66 +44,61 @@ export default async function AuditEntryPage({ params, searchParams }: Props) {
   ];
   if (!row) {
     return (
-      <>
+      <ConsolePage>
         <ConsoleTopbar crumbs={[...crumbs, { label: d.notFound }]} />
-        <PageHead title={d.notFound} />
-        <Link href={back} className="btn-secondary">
-          {d.back}
-        </Link>
-      </>
+        <section className="card empty">
+          <h1>{d.notFound}</h1>
+          <Link href={back} className="btn secondary mt16">
+            {d.back}
+          </Link>
+        </section>
+      </ConsolePage>
     );
   }
   const target = auditTargetHref(row.action, row.target);
+  const name = row.administrator ?? a.system;
   return (
-    <>
-      <ConsoleTopbar crumbs={[...crumbs, { label: actionLabel(t, row.action) }]} />
-      <PageHead title={d.title} lede={actionLabel(t, row.action)} />
-      <section className="card p-5">
-        <h2 className="mb-4 text-[15px] font-bold">{d.record}</h2>
-        <Fields
-          items={[
-            [d.id, <code key="id" className="font-mono text-[12px] break-all">{row.id}</code>],
-            [d.time, formatDateTime(row.createdAt, locale)],
-            [d.administrator, <span key="admin" className="break-all">{row.administrator ?? a.system}</span>],
-            [
-              d.action,
-              <span key="action">
-                {actionLabel(t, row.action)}
-                <small className="ml-1.5 font-mono text-[11px] text-muted">{row.action}</small>
-              </span>,
-            ],
-            [
-              d.target,
-              row.target ? (
-                <span key="target" className="flex flex-wrap items-center gap-2">
-                  <code className="font-mono text-[12px] break-all">{row.target}</code>
-                  {target && (
-                    <Link href={target} className="text-link text-[12px]">
-                      {d.openTarget}
-                      <Icon name="arrow" className="size-3.5" />
+    <ConsolePage>
+      <ConsoleTopbar crumbs={[...crumbs, { label: name }]} />
+      <div className="admin-record-detail">
+        <PageHead title={d.title} lede={name} />
+        <DetailSection title={d.record}>
+          <Fields
+            items={[
+              [d.id, row.id],
+              [d.time, formatDateTime(row.createdAt, locale)],
+              [d.administrator, name],
+              [d.action, `${actionLabel(t, row.action)} · ${row.action}`],
+              [
+                d.target,
+                row.target ? (
+                  target ? (
+                    <Link key="target" href={target} className="text-link" title={d.openTarget}>
+                      {row.target}
                     </Link>
-                  )}
-                </span>
-              ) : (
-                '—'
-              ),
-            ],
-          ]}
-        />
-      </section>
-      <div className="mt-4 grid grid-cols-1 gap-4 md:grid-cols-2">
-        {(
-          [
-            [d.before, row.before],
-            [d.after, row.after],
-          ] as const
-        ).map(([label, value]) => (
-          <section key={label} className="card min-w-0 overflow-hidden">
-            <h2 className="border-b border-line px-4 py-3 text-[13px] font-bold">{label}</h2>
-            <pre className="max-h-[60vh] overflow-auto bg-wash px-4 py-3 font-mono text-[12px] leading-relaxed break-all whitespace-pre-wrap">{pretty(value)}</pre>
-          </section>
-        ))}
+                  ) : (
+                    row.target
+                  )
+                ) : (
+                  '—'
+                ),
+              ],
+            ]}
+          />
+        </DetailSection>
+        <div className="record-diff-grid">
+          {(
+            [
+              [d.before, row.before],
+              [d.after, row.after],
+            ] as const
+          ).map(([label, value]) => (
+            <DetailSection key={label} title={label}>
+              <pre>{pretty(value)}</pre>
+            </DetailSection>
+          ))}
+        </div>
       </div>
-    </>
+    </ConsolePage>
   );
 }

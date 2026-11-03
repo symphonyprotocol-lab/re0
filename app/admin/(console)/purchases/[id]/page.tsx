@@ -1,14 +1,14 @@
 import type { Metadata } from 'next';
-import Link from 'next/link';
 import { notFound } from 'next/navigation';
-import type { ReactNode } from 'react';
+import { Fragment, type ReactNode } from 'react';
 import { param } from '@/lib/domain/list';
 import { purchaseDetail } from '@/lib/services/admin-purchases';
+import { formatCentsUsd } from '@/lib/domain/payouts';
 import { serverMessages } from '@/i18n/server';
-import { formatDateTime, formatNumber, formatUsd } from '@/i18n/format';
-import { Fields, PageHead, RecordsTable, Tag } from '@/components/admin/list-kit';
-import { ConsoleTopbar } from '@/components/admin/console-topbar';
-import { Icon } from '@/components/ui/icons';
+import { formatDateTime, formatNumber } from '@/i18n/format';
+import { Clip, DetailSection, Fields, PageHead, Person, RecordsTable, Tag } from '@/components/admin/list-kit';
+import { CI } from '@/components/admin/console-icon';
+import { ConsolePage, ConsoleTopbar } from '@/components/admin/console-topbar';
 
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
@@ -34,18 +34,6 @@ function outcomeTone(outcome: string): 'green' | 'orange' | 'red' | 'grey' {
   return 'grey';
 }
 
-function Card({ title, hint, children, flush = false }: { title: string; hint?: string; children: ReactNode; flush?: boolean }) {
-  return (
-    <section className={`card min-w-0 ${flush ? 'overflow-hidden' : 'p-5'}`}>
-      <div className={flush ? 'border-b border-line px-4 py-3' : 'mb-4'}>
-        <h2 className="text-[15px] font-bold">{title}</h2>
-        {hint && <p className="mt-1 text-[12px] text-muted">{hint}</p>}
-      </div>
-      {children}
-    </section>
-  );
-}
-
 /**
  * `/admin/purchases/[id]` (prototype admin-records.js `detail()`), read-only:
  * the payment, its grant, the ledger rows and debts it caused, and every
@@ -65,152 +53,117 @@ export default async function PurchaseDetailPage({ params, searchParams }: Props
   const self = `/admin/purchases/${id}${from !== '/admin/purchases' ? `?from=${encodeURIComponent(from)}` : ''}`;
   const n = (value: number) => formatNumber(value, locale);
   const time = (value: Date | null | undefined) => (value ? formatDateTime(value, locale) : '—');
-  const amount = purchase.currency === 'USD' ? formatUsd(purchase.amountMinor, locale) : `${(purchase.amountMinor / 100).toFixed(2)} ${purchase.currency}`;
-  const mono = (value: string) => <span className="font-mono text-[12px] break-all">{value}</span>;
+  const amount = purchase.currency === 'USD' ? formatCentsUsd(purchase.amountMinor) : `${(purchase.amountMinor / 100).toFixed(2)} ${purchase.currency}`;
+  const mono = (value: string) => <span className="mono">{value}</span>;
 
   return (
-    <>
+    <ConsolePage>
       <ConsoleTopbar
         crumbs={[
           { label: t.console.nav.home, href: '/admin/overview' },
-          { label: from.startsWith('/admin/users') ? t.console.nav.users : t.console.nav.purchases, href: from },
-          { label: purchase.paddleTransactionId },
+          { label: from.startsWith('/admin/users') ? t.console.nav.users : p.title, href: from },
+          { label: data.name },
         ]}
       />
-      <PageHead
-        title={d.title}
-        lede={
-          <span className="break-all">
-            {data.name} · {amount} · {purchase.paddleTransactionId}
-          </span>
-        }
-      />
-      <div className="mb-4 flex items-start gap-2 rounded-lg border border-[#cfe1fb] bg-soft px-4 py-3 text-[12px] leading-relaxed text-blue">
-        <Icon name="info" className="mt-0.5 size-4 flex-none" />
-        <span>{d.refundNote}</span>
-      </div>
-      <div className="flex min-w-0 flex-col gap-4">
-        <Card title={d.record}>
+      <div className="admin-record-detail">
+        <PageHead title={d.title} lede={data.name} />
+        <div className="info-strip mb16">
+          <CI name="info" />
+          <span>{d.refundNote}</span>
+        </div>
+        <DetailSection title={d.record}>
           <Fields
             items={[
-              [
-                d.user,
-                <span key="user" className="block min-w-0">
-                  <Link href={`/admin/users/${purchase.userId}?tab=purchases&from=${encodeURIComponent(self)}`} className="font-semibold text-blue hover:underline">
-                    {data.name}
-                  </Link>
-                  <small className="block break-all text-muted">{data.email}</small>
-                </span>,
-              ],
+              [d.transaction, mono(purchase.paddleTransactionId)],
+              [d.status, <Tag key="status" tone={purchase.status === 'paid' ? 'green' : purchase.status === 'refunded' ? 'grey' : 'red'}>{p.status[purchase.status]}</Tag>],
+              [d.created, time(purchase.createdAt)],
+              [d.user, <Person key="user" name={data.name} email={data.email} href={`/admin/users/${purchase.userId}?tab=purchases&from=${encodeURIComponent(self)}`} />],
               [d.type, p.kinds[purchase.kind]],
               [d.quantity, n(purchase.quantity)],
-              [d.amount, <span key="amount" className="font-mono">{amount}</span>],
-              [d.credits, <span key="credits" className="font-mono">{n(purchase.credits)}</span>],
-              [d.reversed, <span key="reversed" className={`font-mono ${purchase.reversedCredits > 0 ? 'text-red' : ''}`}>{n(purchase.reversedCredits)}</span>],
-              [d.status, <Tag key="status" tone={purchase.status === 'paid' ? 'green' : purchase.status === 'refunded' ? 'orange' : 'red'}>{p.status[purchase.status]}</Tag>],
-              [d.transaction, mono(purchase.paddleTransactionId)],
+              [d.amount, amount],
+              [d.credits, n(purchase.credits)],
+              [d.reversed, n(purchase.reversedCredits)],
               ...(purchase.paddleSubscriptionId ? [[d.subscription, mono(purchase.paddleSubscriptionId)] as [ReactNode, ReactNode]] : []),
-              [d.created, time(purchase.createdAt)],
               ...(purchase.kind === 'plan' ? [[d.period, purchase.periodStart && purchase.periodEnd ? `${time(purchase.periodStart)} — ${time(purchase.periodEnd)}` : '—'] as [ReactNode, ReactNode]] : []),
             ]}
           />
-        </Card>
+        </DetailSection>
 
-        <Card title={d.grant}>
+        <DetailSection title={d.grant}>
           {grant ? (
             <Fields
               items={[
-                [d.grantAmount, <span key="amount" className="font-mono">{n(grant.amount)}</span>],
-                [d.remaining, <span key="remaining" className="font-mono">{n(grant.remaining)}</span>],
+                [d.grantAmount, n(grant.amount)],
+                [d.remaining, n(grant.remaining)],
                 [d.expires, grant.expiresAt ? time(grant.expiresAt) : d.never],
                 [t.consoleUsers.detail.credits.columns.time, time(grant.createdAt)],
               ]}
             />
           ) : (
-            <p className="text-[13px] text-muted">{d.noGrant}</p>
+            <p className="muted small">{d.noGrant}</p>
           )}
-        </Card>
+        </DetailSection>
 
-        <Card title={d.ledger} flush>
+        <DetailSection title={d.ledger}>
           <RecordsTable
             label={t.console.list.tableRegion}
             empty={d.noLedger}
             head={[d.ledgerColumns.item, d.ledgerColumns.delta, d.ledgerColumns.note, d.ledgerColumns.time]}
             rows={entries.map((entry) => [
-              <span key="item" className="font-semibold whitespace-nowrap">
-                {t.billing.reasons[entry.reason] ?? entry.reason}
-              </span>,
-              <span key="delta" className={`font-mono whitespace-nowrap ${entry.delta > 0 ? 'text-green' : ''}`}>
+              t.billing.reasons[entry.reason] ?? entry.reason,
+              <span key="delta" className="mono">
                 {entry.delta > 0 ? '+' : ''}
                 {n(entry.delta)}
               </span>,
-              <span key="note" className="block max-w-[320px] break-words text-muted">
-                {entry.note || '—'}
-              </span>,
-              <span key="time" className="whitespace-nowrap">
-                {time(entry.createdAt)}
-              </span>,
+              <Clip key="note" value={entry.note || null} />,
+              time(entry.createdAt),
             ])}
           />
-        </Card>
+        </DetailSection>
 
-        <Card title={d.debts} flush>
+        <DetailSection title={d.debts}>
           <RecordsTable
             label={t.console.list.tableRegion}
             empty={d.noDebts}
             head={[d.debtColumns.amount, d.debtColumns.remaining, d.debtColumns.created, d.debtColumns.cleared]}
             rows={debts.map((debt) => [
-              <span key="amount" className="font-mono">
+              <span key="amount" className="mono">
                 {n(debt.amount)}
               </span>,
-              <span key="remaining" className={`font-mono ${debt.remaining > 0 ? 'text-red' : ''}`}>
+              <span key="remaining" className="mono">
                 {n(debt.remaining)}
               </span>,
-              <span key="created" className="whitespace-nowrap">
-                {time(debt.createdAt)}
-              </span>,
-              <span key="cleared" className="whitespace-nowrap">
-                {debt.clearedAt ? time(debt.clearedAt) : d.notCleared}
-              </span>,
+              time(debt.createdAt),
+              debt.clearedAt ? time(debt.clearedAt) : d.notCleared,
             ])}
           />
-        </Card>
+        </DetailSection>
 
-        <Card title={d.webhook} hint={d.webhookHint}>
+        <DetailSection title={d.webhook}>
+          <p className="form-hint mb16">{d.webhookHint}</p>
           {events.length === 0 ? (
-            <p className="text-[13px] text-muted">{d.noEvents}</p>
+            <p className="muted small">{d.noEvents}</p>
           ) : (
-            <ol className="flex flex-col gap-3">
-              {events.map((event) => (
-                <li key={event.id} className="min-w-0 rounded-lg border border-line p-3">
-                  <div className="flex flex-wrap items-center justify-between gap-2">
-                    <strong className="font-mono text-[12px] break-all">{event.eventType}</strong>
-                    <Tag tone={outcomeTone(event.outcome)}>{event.outcome}</Tag>
-                  </div>
-                  <div className="mt-3">
-                    <Fields
-                      items={[
-                        [d.eventColumns.occurred, time(event.occurredAt)],
-                        [d.eventColumns.received, time(event.receivedAt)],
-                      ]}
-                    />
-                  </div>
-                  <small className="mt-1 block font-mono text-[10px] break-all text-muted">{event.id}</small>
-                  <details className="group mt-2 min-w-0">
-                    <summary className="text-link cursor-pointer list-none text-[12px]">
-                      <Icon name="chevronRight" className="size-3.5 transition group-open:rotate-90" />
-                      {d.payload}
-                    </summary>
-                    <pre className="mt-2 max-h-[420px] max-w-full overflow-auto rounded-lg bg-wash p-3 font-mono text-[11px] leading-relaxed">
-                      {JSON.stringify(event.payload, null, 2)}
-                    </pre>
-                  </details>
-                </li>
-              ))}
-            </ol>
+            events.map((event) => (
+              <Fragment key={event.id}>
+                <Fields
+                  items={[
+                    [<span key="type" className="mono">{event.eventType}</span>, <Tag key="outcome" tone={outcomeTone(event.outcome)}>{event.outcome}</Tag>],
+                    [d.eventColumns.occurred, time(event.occurredAt)],
+                    [d.eventColumns.received, time(event.receivedAt)],
+                  ]}
+                />
+                <details className="mb16">
+                  <summary className="text-link">
+                    {d.payload} · <span className="mono">{event.id}</span>
+                  </summary>
+                  <pre>{JSON.stringify(event.payload, null, 2)}</pre>
+                </details>
+              </Fragment>
+            ))
           )}
-        </Card>
+        </DetailSection>
       </div>
-    </>
+    </ConsolePage>
   );
 }

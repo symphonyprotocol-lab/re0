@@ -4,9 +4,10 @@
  * the action's label over its code, the target, and a link to the change.
  */
 import Link from 'next/link';
+import { Fragment } from 'react';
 import type { Messages, Locale } from '@/i18n';
 import { formatDateTime } from '@/i18n/format';
-import { RecordsTable } from '@/components/admin/list-kit';
+import { Clip, OpenLink, RecordsTable, Subline } from '@/components/admin/list-kit';
 
 export interface AuditLine {
   id: string;
@@ -30,7 +31,14 @@ export function auditTargetHref(action: string, target: string | null): string |
   return null;
 }
 
-export function AuditTable({ t, locale, rows, from }: { t: Messages; locale: Locale; rows: AuditLine[]; from?: string }) {
+/**
+ * The audit rows as a table. `compact` (the default) is suite.js `auditTable`,
+ * used by the overview's recent actions and a Ree's management log: plain
+ * cells, the action's label and the target as code, a ghost "view changes".
+ * `records` is the audit log's own (admin-records.js kind `audit`): clipped
+ * cells, the code under the label, and the row's open button.
+ */
+export function AuditTable({ t, locale, rows, from, variant = 'compact' }: { t: Messages; locale: Locale; rows: AuditLine[]; from?: string; variant?: 'compact' | 'records' }) {
   const a = t.consoleRees.audit;
   const back = from ? `?from=${encodeURIComponent(from)}` : '';
   return (
@@ -39,39 +47,32 @@ export function AuditTable({ t, locale, rows, from }: { t: Messages; locale: Loc
       label={t.console.list.tableRegion}
       empty={t.console.list.empty}
       head={[a.columns.time, a.columns.administrator, a.columns.action, a.columns.target, a.columns.details]}
-      rows={rows.map((row) => {
-        const target = auditTargetHref(row.action, row.target);
-        return [
-          <span key="time" className="whitespace-nowrap">
-            {formatDateTime(row.createdAt, locale)}
-          </span>,
-          <span key="admin" className="block max-w-[200px] truncate" title={row.administrator ?? undefined}>
-            {row.administrator ?? a.system}
-          </span>,
-          <div key="action" className="min-w-0">
-            <span className="block font-semibold">{actionLabel(t, row.action)}</span>
-            <small className="block font-mono text-[11px] text-muted">{row.action}</small>
-          </div>,
-          row.target ? (
-            target ? (
-              <Link key="target" href={target} className="block max-w-[200px] font-mono text-[11px] break-all hover:text-blue">
-                {row.target}
-              </Link>
-            ) : (
-              <span key="target" className="block max-w-[200px] font-mono text-[11px] break-all">
-                {row.target}
-              </span>
-            )
-          ) : (
-            <span key="target" className="text-muted">
-              —
-            </span>
-          ),
-          <Link key="view" href={`/admin/audit/${row.id}${back}`} className="btn-secondary btn-sm whitespace-nowrap">
-            {a.view}
-          </Link>,
-        ];
-      })}
+      rows={rows.map((row) =>
+        variant === 'records'
+          ? [
+              formatDateTime(row.createdAt, locale),
+              <Clip key="admin" value={row.administrator ?? a.system} />,
+              <Fragment key="action">
+                {actionLabel(t, row.action)}
+                <Subline>
+                  <Clip value={row.action} className="mono" />
+                </Subline>
+              </Fragment>,
+              <Clip key="target" value={row.target} className="mono" />,
+              <OpenLink key="view" href={`/admin/audit/${row.id}${back}`}>
+                {a.view}
+              </OpenLink>,
+            ]
+          : [
+              formatDateTime(row.createdAt, locale),
+              row.administrator ?? a.system,
+              <code key="action">{actionLabel(t, row.action)}</code>,
+              <code key="target">{row.target ?? '—'}</code>,
+              <Link key="view" href={`/admin/audit/${row.id}${back}`} className="btn ghost sm">
+                {a.view}
+              </Link>,
+            ],
+      )}
     />
   );
 }
