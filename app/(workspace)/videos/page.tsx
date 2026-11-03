@@ -31,9 +31,7 @@ export default async function VideosPage({ searchParams }: { searchParams: Promi
   return (
     <>
       <Topbar crumbs={[{ label: t.dashboard.title, href: '/dashboard' }, { label: t.rees.title, href: '/rees' }, { label: t.video.library.title }]} />
-      <main className="mx-auto max-w-[1180px] px-4 py-8 md:px-8">
-        <VideoLibrary result={JSON.parse(JSON.stringify(result))} q={query.q} />
-      </main>
+      <VideoLibrary result={JSON.parse(JSON.stringify(result))} q={query.q} />
     </>
   );
 }

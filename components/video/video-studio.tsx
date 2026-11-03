@@ -10,10 +10,13 @@ import { api } from '@/lib/client/upload';
 import { PALETTES } from '@/video/theme';
 import { useI18n } from '@/i18n/client';
 import { fill } from '@/i18n/format';
-import { Icon, Spinner } from '@/components/ui/icons';
+import { Icon } from '@/components/ui/icons';
 import { Modal } from '@/components/ui/modal';
 import { useToast } from '@/components/ui/toast';
-import { VideoPlaceholder, type CoverRee } from '@/components/video/video-cover';
+import { PlaceholderPoster, type CoverRee } from '@/components/video/video-cover';
+import { PIcon } from '@/components/rees/proto-icon';
+import '@/components/rees/ree-pages.css';
+import './video-pages.css';
 import { ExportPanel, type LastExport } from '@/components/video/export-panel';
 
 const IntroPlayer = dynamic(() => import('@/components/video/intro-player').then((module) => module.IntroPlayer), {
@@ -162,135 +165,128 @@ export function VideoStudio({
     toast(v.panel.saved);
   };
 
-  const counter = (value: string, max: number) => {
-    const n = chars(value.trim());
-    return <span className={`font-mono text-[10px] ${n > max ? 'font-semibold text-red' : 'text-muted'}`}>{fill(v.panel.count, { n, max })}</span>;
+  const labels = v.panel.labels;
+  const problemsOf = (field: SceneField) => {
+    const problems = errorFor(field);
+    return problems.length > 0 ? (
+      <small id={`video-${field}-error`} className="video-field-error" role="alert">
+        {problems.map(messageOf).join(' · ')}
+      </small>
+    ) : null;
   };
   const textField = (key: 'name' | 'position' | 'question' | 'answer' | 'cta', max: number, multiline = false) => {
     const problems = errorFor(key);
-    const id = `video-${key}`;
+    const id = `scene-${key}`;
+    const shared = {
+      id,
+      name: key,
+      value: draft[key],
+      disabled: !saved.generated,
+      'aria-invalid': problems.length > 0,
+      'aria-describedby': problems.length ? `video-${key}-error` : undefined,
+    };
     return (
-      <div>
-        <div className="mb-1.5 flex items-center justify-between gap-2">
-          <label htmlFor={id} className="text-[12px] font-semibold">
-            {fieldName[key]}
-          </label>
-          {counter(draft[key], max)}
-        </div>
+      <div className="field">
+        <label htmlFor={id}>{fill(labels[key], { max })}</label>
         {multiline ? (
-          <textarea id={id} rows={key === 'answer' ? 3 : 2} className="input resize-y" value={draft[key]} disabled={!saved.generated} aria-invalid={problems.length > 0} aria-describedby={problems.length ? `${id}-error` : undefined} onChange={(event) => set(key, event.target.value)} />
+          <textarea {...shared} rows={key === 'answer' ? 3 : 2} onChange={(event) => set(key, event.target.value)} />
         ) : (
-          <input id={id} className="input" value={draft[key]} disabled={!saved.generated} aria-invalid={problems.length > 0} aria-describedby={problems.length ? `${id}-error` : undefined} onChange={(event) => set(key, event.target.value)} />
+          <input {...shared} onChange={(event) => set(key, event.target.value)} />
         )}
-        {problems.length > 0 && (
-          <p id={`${id}-error`} className="mt-1 text-[11px] text-red" role="alert">
-            {problems.map(messageOf).join(' · ')}
-          </p>
-        )}
+        {problemsOf(key)}
       </div>
     );
   };
   const sourceProblems = errorFor('sources');
-  const sourceLines = draft.sources.split('\n').filter((line) => line.trim()).length;
 
   const shotBlock = (index: number, children: React.ReactNode) => (
-    <details className="group rounded-lg border border-line" open={index === 0}>
-      <summary className="flex cursor-pointer list-none items-center gap-2 px-3 py-2.5 text-[13px] font-semibold">
-        <span className="font-mono text-[11px] text-muted">0{index + 1}</span>
+    <details className="scene-editor" open={index === 0}>
+      <summary>
+        <span className="mono">0{index + 1}</span>
         {v.shots[index]}
-        <small className="font-normal text-muted">{fill(v.shotLength, { n: VIDEO_SHOT_SECONDS[index]! })}</small>
-        <Icon name="chevronDown" className="ml-auto size-4 text-muted transition group-open:rotate-180" />
+        <small>{fill(v.shotLength, { n: VIDEO_SHOT_SECONDS[index]! })}</small>
+        <PIcon name="down" />
       </summary>
-      <div className="flex flex-col gap-3 border-t border-line px-3 py-3">{children}</div>
+      {children}
     </details>
   );
 
   return (
-    <div className="flex flex-col gap-6">
-      <header className="flex flex-wrap items-end justify-between gap-4">
-        <div className="min-w-0">
-          <h1 className="text-[24px] font-extrabold tracking-tight sm:text-[28px]">{v.heading}</h1>
-          <p className="mt-1 text-[13px] text-muted">{fill(v.lede, { name: ree.name })}</p>
+    <main className="page video-editor-page">
+      <div className="page-head">
+        <div>
+          <p className="eyebrow section-kicker">YOUR KNOWLEDGE, CONNECTED</p>
+          <h1>{v.heading}</h1>
+          <p>{fill(v.lede, { name: ree.name })}</p>
         </div>
-        <div className="flex flex-col items-end gap-1">
-          <button type="button" className="btn-secondary" disabled={readySources === 0 || busy !== null} onClick={() => setConfirming(true)}>
-            {busy === 'generate' ? <Spinner /> : <Icon name="sparkle" />}
-            {busy === 'generate' ? v.generating : fill(saved.generated ? v.regenerate : v.generate, { n: VIDEO_SCRIPT_CREDITS })}
-          </button>
-          {readySources === 0 && (
-            <p className="text-right text-[11px] text-muted">
-              {v.needsSource}{' '}
-              <Link href={`/rees/${ree.id}/knowledge`} className="text-link">
-                {v.addKnowledge}
-              </Link>
-            </p>
-          )}
-        </div>
-      </header>
-
+        <button type="button" className="btn secondary" disabled={readySources === 0 || busy !== null} onClick={() => setConfirming(true)}>
+          <PIcon name="sparkle" />
+          {busy === 'generate' ? v.generating : fill(saved.generated ? v.regenerate : v.generate, { n: VIDEO_SCRIPT_CREDITS })}
+        </button>
+      </div>
+      {/* Not in the prototype, which generates from any Ree: a script needs a ready source (8.2). */}
+      {readySources === 0 && (
+        <p className="form-hint video-needs-source">
+          {v.needsSource}{' '}
+          <Link href={`/rees/${ree.id}/knowledge`} className="text-link">
+            {v.addKnowledge}
+          </Link>
+        </p>
+      )}
       {notice && (
-        <p className="rounded-lg border border-[#f1d4d4] bg-[#fff6f6] px-4 py-3 text-[12px] text-red" role="alert">
+        <p className="form-error" role="alert">
           {notice}
         </p>
       )}
 
-      <div className="grid gap-6 lg:grid-cols-[minmax(0,1.5fr)_minmax(300px,1fr)]">
-        <section className="flex min-w-0 flex-col gap-5">
-          <div className="card p-3">
-            {previewProps ? (
-              <IntroPlayer key={previewProps.aspect} props={previewProps} name={ree.name} timeline />
-            ) : (
-              <div className="overflow-hidden rounded-[10px] border border-line">
-                <VideoPlaceholder ree={ree} />
+      <div className="video-editor-grid">
+        <section className="video-preview-column">
+          {previewProps ? (
+            <IntroPlayer key={previewProps.aspect} props={previewProps} name={ree.name} timeline />
+          ) : (
+            <>
+              <div className="card video-player-card">
+                <PlaceholderPoster ree={ree} />
               </div>
-            )}
-          </div>
-          {!previewProps && <p className="hint -mt-3">{v.placeholderHint}</p>}
+              <p className="form-hint">{v.placeholderHint}</p>
+            </>
+          )}
           <ExportPanel ree={ree} props={savedProps} dirty={dirty} exportsCount={saved.exportsCount} lastExport={lastExport} onExported={(count) => setSaved((current) => ({ ...current, exportsCount: count }))} />
         </section>
 
-        <aside className="card h-fit p-5" aria-label={v.panel.title}>
+        <aside className="card video-edit-panel" aria-label={v.panel.title}>
           <form
+            id="video-edit-form"
             onSubmit={(event) => {
               event.preventDefault();
               void save();
             }}
-            className="flex flex-col gap-4"
             noValidate
           >
-            <div className="flex items-center justify-between gap-2">
-              <h2 className="text-[16px] font-bold">{v.panel.title}</h2>
+            <div className="video-edit-header">
+              <h2>{v.panel.title}</h2>
               <span className="tag">{saved.generated ? v.panel.ready : v.panel.draft}</span>
             </div>
-            <fieldset>
-              <legend className="field-label">{v.panel.template}</legend>
-              <div className="grid grid-cols-3 gap-2">
-                {VIDEO_TEMPLATES.map((template) => {
-                  const palette = PALETTES[template];
-                  return (
-                    <label key={template} className="cursor-pointer text-center">
-                      <input type="radio" name="template" value={template} checked={draft.template === template} onChange={() => set('template', template)} className="peer sr-only" />
-                      <span className="flex aspect-video items-center justify-center rounded-lg border-2 border-line peer-checked:border-blue peer-focus-visible:ring-3 peer-focus-visible:ring-blue/20" style={{ backgroundColor: palette.background, color: palette.title }}>
-                        <Icon name="layers" />
-                      </span>
-                      <small className="mt-1 block text-[11px] text-muted">{v.panel.templates[template]}</small>
-                    </label>
-                  );
-                })}
-              </div>
-            </fieldset>
-            <div className="grid grid-cols-2 gap-3">
-              <div>
-                <label htmlFor="video-accent" className="field-label">
-                  {v.panel.accent}
+            <label className="field-label">{v.panel.template}</label>
+            <div className="video-templates">
+              {VIDEO_TEMPLATES.map((template) => (
+                <label key={template}>
+                  <input type="radio" name="template" value={template} checked={draft.template === template} onChange={() => set('template', template)} />
+                  <span className={`template-swatch template-${template}`}>
+                    <PIcon name="layers" />
+                  </span>
+                  <small>{v.panel.templates[template]}</small>
                 </label>
-                <input id="video-accent" type="color" className="h-10 w-full cursor-pointer rounded-lg border border-line bg-white p-1" value={isAccent(draft.accent) ? draft.accent : '#127ee3'} onChange={(event) => set('accent', event.target.value)} />
+              ))}
+            </div>
+            <div className="two-col">
+              <div className="field">
+                <label htmlFor="video-accent">{v.panel.accent}</label>
+                <input type="color" id="video-accent" name="accent" value={isAccent(draft.accent) ? draft.accent : '#127ee3'} onChange={(event) => set('accent', event.target.value)} />
               </div>
-              <div>
-                <label htmlFor="video-aspect" className="field-label">
-                  {v.panel.aspect}
-                </label>
-                <select id="video-aspect" className="input" value={draft.aspect} onChange={(event) => set('aspect', event.target.value as VideoAspect)}>
+              <div className="field">
+                <label htmlFor="video-aspect">{v.panel.aspect}</label>
+                <select name="aspect" id="video-aspect" value={draft.aspect} onChange={(event) => set('aspect', event.target.value as VideoAspect)}>
                   {VIDEO_ASPECTS.map((aspect) => (
                     <option key={aspect} value={aspect}>
                       {v.panel.aspects[aspect]}
@@ -299,7 +295,7 @@ export function VideoStudio({
                 </select>
               </div>
             </div>
-            {!saved.generated && <p className="hint mt-0">{v.panel.lockedHint}</p>}
+            {!saved.generated && <p className="form-hint video-locked-hint">{v.panel.lockedHint}</p>}
             {shotBlock(0, (
               <>
                 {textField('name', VIDEO_LIMITS.name)}
@@ -307,19 +303,19 @@ export function VideoStudio({
               </>
             ))}
             {shotBlock(1, (
-              <div>
-                <div className="mb-1.5 flex items-center justify-between gap-2">
-                  <label htmlFor="video-sources" className="text-[12px] font-semibold">
-                    {v.panel.sources}
-                  </label>
-                  <span className={`font-mono text-[10px] ${sourceLines > VIDEO_LIMITS.sources ? 'font-semibold text-red' : 'text-muted'}`}>{fill(v.panel.sourceCount, { n: sourceLines, max: VIDEO_LIMITS.sources })}</span>
-                </div>
-                <textarea id="video-sources" rows={4} className="input resize-y" value={draft.sources} disabled={!saved.generated} aria-invalid={sourceProblems.length > 0} aria-describedby={sourceProblems.length ? 'video-sources-error' : undefined} onChange={(event) => set('sources', event.target.value)} />
-                {sourceProblems.length > 0 && (
-                  <p id="video-sources-error" className="mt-1 text-[11px] text-red" role="alert">
-                    {sourceProblems.map(messageOf).join(' · ')}
-                  </p>
-                )}
+              <div className="field">
+                <label htmlFor="scene-sources">{fill(labels.sources, { n: VIDEO_LIMITS.sources, max: VIDEO_LIMITS.source })}</label>
+                <textarea
+                  name="sources"
+                  id="scene-sources"
+                  rows={4}
+                  value={draft.sources}
+                  disabled={!saved.generated}
+                  aria-invalid={sourceProblems.length > 0}
+                  aria-describedby={sourceProblems.length ? 'video-sources-error' : undefined}
+                  onChange={(event) => set('sources', event.target.value)}
+                />
+                {problemsOf('sources')}
               </div>
             ))}
             {shotBlock(2, (
@@ -329,16 +325,16 @@ export function VideoStudio({
               </>
             ))}
             {shotBlock(3, textField('cta', VIDEO_LIMITS.cta))}
-            <label className="flex items-center gap-2 text-[12px]">
-              <input type="checkbox" checked={draft.music} onChange={(event) => set('music', event.target.checked)} className="size-4 accent-blue" />
-              <Icon name="audio" className="size-4 text-muted" />
+            <label className="video-music">
+              <input type="checkbox" name="music" checked={draft.music} onChange={(event) => set('music', event.target.checked)} />
+              <PIcon name="audio" />
               {v.panel.music}
             </label>
-            <button type="submit" className="btn w-full" disabled={busy !== null || !dirty || errors.length > 0}>
-              {busy === 'save' ? <Spinner /> : <Icon name="check" />}
+            <button className="btn full" type="submit" disabled={busy !== null || !dirty || errors.length > 0}>
+              <PIcon name="check" />
               {busy === 'save' ? v.panel.saving : v.panel.save}
             </button>
-            {dirty && <p className="-mt-2 text-center text-[11px] text-orange">{v.panel.unsaved}</p>}
+            {dirty && <p className="form-hint video-unsaved">{v.panel.unsaved}</p>}
           </form>
         </aside>
       </div>
@@ -361,6 +357,6 @@ export function VideoStudio({
       >
         <p className="text-[13px] leading-relaxed text-[#3b4361]">{fill(saved.generated ? v.regenerateBody : v.generateBody, { n: VIDEO_SCRIPT_CREDITS })}</p>
       </Modal>
-    </div>
+    </main>
   );
 }

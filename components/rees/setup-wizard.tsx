@@ -8,13 +8,14 @@ import { holdFor, validAudio, validDocument } from '@/lib/domain/knowledge';
 import { SOURCE_CHOICES, validateDraftSource, validateReeFields, type ReeDraft, type SourceChoice } from '@/lib/domain/ree';
 import { api, uploadToBlob } from '@/lib/client/upload';
 import { useI18n } from '@/i18n/client';
-import { fill, formatBytes } from '@/i18n/format';
+import { fill, formatBytes, formatNumber } from '@/i18n/format';
 import { Topbar } from '@/components/shell/topbar';
-import { Icon, Spinner } from '@/components/ui/icons';
 import { ConfirmModal } from '@/components/ui/modal';
-import { ReeAvatar } from '@/components/ui/ree-avatar';
 import { useToast } from '@/components/ui/toast';
 import { Field, IdentityFields, PersonalityFields, PublishingFields, type ReeFormState } from '@/components/rees/ree-fields';
+import { DotAvatar, PIcon } from '@/components/rees/proto-icon';
+import './ree-pages.css';
+import './ree-setup.css';
 
 type Message = keyof ReturnType<typeof useI18n>['t']['reeSetup']['messages'];
 
@@ -53,7 +54,6 @@ export function SetupWizard({ initialDraft }: { initialDraft: ReeDraft }) {
   const [connectLink, setConnectLink] = useState(false);
   const [restart, setRestart] = useState(false);
   const [cropping, setCropping] = useState(false);
-  const fileRef = useRef<HTMLInputElement>(null);
   const step = draft.step;
   const search = useSearchParams();
   const urlStep = Number(search.get('step'));
@@ -205,7 +205,7 @@ export function SetupWizard({ initialDraft }: { initialDraft: ReeDraft }) {
   const fileKind = source.kind === 'document' || source.kind === 'audio';
 
   const progress = (
-    <nav aria-label={w.progress} className="flex items-stretch gap-1">
+    <nav className="setup-progress" aria-label={w.progress}>
       {w.steps.map((label, index) => {
         const number = index + 1;
         const reachable = number <= draft.reached;
@@ -216,22 +216,139 @@ export function SetupWizard({ initialDraft }: { initialDraft: ReeDraft }) {
             disabled={!reachable || busy}
             aria-current={number === step ? 'step' : undefined}
             onClick={() => reachable && goTo(number)}
-            className={`flex flex-none items-center gap-2 border-b-2 px-3 text-[12px] font-medium whitespace-nowrap disabled:opacity-50 ${
-              number === step ? 'border-blue text-blue' : 'border-transparent text-muted hover:text-ink'
-            }`}
           >
-            <span
-              className={`inline-flex size-5 items-center justify-center rounded-full font-mono text-[10px] ${
-                number < step ? 'bg-blue text-white' : number === step ? 'bg-soft text-blue' : 'bg-wash text-muted'
-              }`}
-            >
-              {number < step ? <Icon name="check" className="size-3" /> : number}
-            </span>
+            <span>{number < step ? <PIcon name="check" /> : number}</span>
             {label}
           </button>
         );
       })}
     </nav>
+  );
+
+  const sourceFields = (
+    <>
+      <Field id="setup-source-kind" label={w.sourceLabel}>
+        <select
+          id="setup-source-kind"
+          name="source-kind"
+          value={source.kind}
+          onChange={(event) => patchSource({ kind: event.target.value as SourceChoice, fileName: '', fileSize: 0, blobPath: '' })}
+        >
+          {SOURCE_CHOICES.map((kind) => (
+            <option key={kind} value={kind}>
+              {w.sourceKinds[kind]}
+            </option>
+          ))}
+        </select>
+      </Field>
+      {source.kind === 'later' ? (
+        <div className="setup-source-later">
+          <PIcon name="file" />
+          <h3>{w.laterTitle}</h3>
+          <p>{w.laterBody}</p>
+        </div>
+      ) : source.kind === 'text' ? (
+        <>
+          <Field id="setup-source-title" label={w.sourceTitle}>
+            <input
+              id="setup-source-title"
+              name="source-title"
+              maxLength={TEXT_SOURCE_LIMITS.title}
+              required
+              value={source.title}
+              onChange={(event) => patchSource({ title: event.target.value })}
+            />
+          </Field>
+          <Field id="setup-source-text" label={w.sourceText} hint={w.sourceTextHint}>
+            <textarea
+              id="setup-source-text"
+              name="source-text"
+              rows={8}
+              maxLength={TEXT_SOURCE_LIMITS.content}
+              required
+              value={source.text}
+              onChange={(event) => patchSource({ text: event.target.value })}
+            />
+          </Field>
+        </>
+      ) : fileKind ? (
+        /* The file is uploaded as soon as it is chosen, so the draft keeps it across a refresh. */
+        <div className="setup-file">
+          <input
+            type="file"
+            id="setup-source-file"
+            accept={source.kind === 'audio' ? '.mp3,.m4a,.wav' : '.pdf,.docx,.md,.txt'}
+            disabled={uploading !== null}
+            onChange={(event) => {
+              void chooseFile(event.target.files?.[0]);
+              event.target.value = '';
+            }}
+          />
+          <p>{uploading !== null ? `${w.fileUploading} ${uploading}%` : source.fileName ? `${source.fileName} · ${formatBytes(source.fileSize)}` : w.fileNone}</p>
+          <small>
+            {source.kind === 'audio' ? w.audioLimits : w.fileLimits}
+            {source.blobPath && ` · ${w.fileUploaded}`}
+          </small>
+        </div>
+      ) : (
+        <>
+          <Field id="setup-source-url" label={w.sourceUrl}>
+            <input
+              id="setup-source-url"
+              name="source-url"
+              type="url"
+              inputMode="url"
+              maxLength={KNOWLEDGE_URL_MAX}
+              placeholder={source.kind === 'github' ? 'https://github.com/owner/repo' : 'https://'}
+              required
+              value={source.url}
+              onChange={(event) => patchSource({ url: event.target.value })}
+            />
+          </Field>
+          {source.kind !== 'page' && <p className="form-hint">{source.kind === 'github' ? w.githubHint : w.siteHint}</p>}
+        </>
+      )}
+      {source.kind === 'audio' && (
+        <label className="check-row setup-audio-consent">
+          <input type="checkbox" name="audio-consent" required checked={source.consent} onChange={(event) => patchSource({ consent: event.target.checked })} />
+          {w.audioConsent}
+        </label>
+      )}
+      <div className="info-strip mt24">
+        <PIcon name="info" />
+        <span>{w.noCharge}</span>
+      </div>
+    </>
+  );
+
+  const review = (
+    <>
+      <PublishingFields value={form} onChange={patch} />
+      <div className="setup-review">
+        <h3>{w.reviewTitle}</h3>
+        <div>
+          <DotAvatar avatar={draft.avatarBlob} color={draft.color} />
+          <strong>{draft.name}</strong>
+          {draft.category && <span className="tag">{t.common.categories[draft.category]}</span>}
+        </div>
+        <p>{draft.description}</p>
+        <dl>
+          <div>
+            <dt>{w.reviewTags}</dt>
+            <dd>{draft.tags.join(' · ') || '—'}</dd>
+          </div>
+          <div>
+            <dt>{w.reviewSource}</dt>
+            <dd>{sourceLabel}</dd>
+          </div>
+          <div>
+            <dt>{w.reviewCost}</dt>
+            <dd>{fill(w.reviewCostValue, { credits: formatNumber(estimated, locale) })}</dd>
+          </div>
+        </dl>
+        <small>{w.reviewNote}</small>
+      </div>
+    </>
   );
 
   return (
@@ -240,205 +357,72 @@ export function SetupWizard({ initialDraft }: { initialDraft: ReeDraft }) {
         crumbs={[{ label: t.dashboard.title, href: '/dashboard' }, { label: t.rees.title, href: '/rees' }, { label: w.crumb }]}
         secondRow={progress}
       />
-      <main className="mx-auto max-w-[1180px] px-4 py-8 md:px-8">
-        <div className="flex flex-wrap items-end justify-between gap-4">
+      <main className="page dot-setup-page">
+        <div className="setup-page-heading">
           <div>
             <p className="eyebrow">{w.eyebrow}</p>
-            <h1 className="mt-2 text-[28px] font-extrabold tracking-tight">{w.title}</h1>
-            <p className="mt-2 text-[13px] text-muted">{w.lede}</p>
+            <h1>{w.title}</h1>
+            <p>{w.lede}</p>
           </div>
-          <button type="button" className="btn-secondary btn-sm" onClick={exit} disabled={busy}>
+          <button type="button" className="btn secondary sm" onClick={exit} disabled={busy}>
             {w.saveExit}
           </button>
         </div>
-        <div className="mt-6 grid grid-cols-1 gap-6 lg:grid-cols-[minmax(0,1fr)_320px]">
+        <div className="setup-wizard-grid">
           <form
-            className="card p-5 sm:p-7"
+            id="dot-setup-form"
+            data-step={step}
             onSubmit={(event) => {
               event.preventDefault();
               void next();
             }}
             noValidate
           >
-            <div className="flex items-baseline gap-3 border-b border-line pb-4">
-              <span className="font-mono text-[11px] text-muted">{fill(w.stepOf, { step })}</span>
-              <h2 className="text-[17px] font-bold">{w.steps[step - 1]}</h2>
-            </div>
-            {error && (
-              <p role="alert" className="mt-4 rounded-lg border border-[#f1d4d4] bg-[#fff3f3] px-3 py-2 text-[12px] text-red">
-                {error}{' '}
-                {connectLink && (
-                  <Link href="/settings?tab=connections" className="font-semibold underline">
-                    {w.connections}
-                  </Link>
-                )}
-              </p>
-            )}
-            <div className="mt-2">
+            <section className="card setup-section">
+              <div className="setup-step-title">
+                <span>{fill(w.stepOf, { step })}</span>
+                <h2>{w.steps[step - 1]}</h2>
+              </div>
+              {error && (
+                <p className="form-error" role="alert">
+                  {error}{' '}
+                  {connectLink && (
+                    <Link href="/settings?tab=connections" className="underline">
+                      {w.connections}
+                    </Link>
+                  )}
+                </p>
+              )}
               {step === 1 && <IdentityFields value={form} onChange={patch} onCropping={setCropping} />}
               {step === 2 && <PersonalityFields value={form} onChange={patch} />}
-              {step === 3 && (
-                <>
-                  <Field id="source-kind" label={w.sourceLabel}>
-                    <select
-                      id="source-kind"
-                      className="input"
-                      value={draft.source.kind}
-                      onChange={(event) => patchSource({ kind: event.target.value as SourceChoice, fileName: '', fileSize: 0, blobPath: '' })}
-                    >
-                      {SOURCE_CHOICES.map((kind) => (
-                        <option key={kind} value={kind}>
-                          {w.sourceKinds[kind]}
-                        </option>
-                      ))}
-                    </select>
-                  </Field>
-                  {draft.source.kind === 'later' && (
-                    <div className="mt-5 flex flex-col items-center gap-2 rounded-xl border border-dashed border-line bg-wash px-4 py-8 text-center">
-                      <Icon name="file" className="size-6 text-blue" />
-                      <strong className="text-[14px]">{w.laterTitle}</strong>
-                      <p className="max-w-[420px] text-[12px] text-muted">{w.laterBody}</p>
-                    </div>
-                  )}
-                  {draft.source.kind === 'text' && (
-                    <>
-                      <Field id="source-title" label={w.sourceTitle}>
-                        <input
-                          id="source-title"
-                          className="input"
-                          maxLength={TEXT_SOURCE_LIMITS.title}
-                          value={draft.source.title}
-                          onChange={(event) => patchSource({ title: event.target.value })}
-                        />
-                      </Field>
-                      <Field
-                        id="source-text"
-                        label={w.sourceText}
-                        hint={w.sourceTextHint}
-                        counter={fill(t.reeSetup.fields.counter, { count: draft.source.text.length, max: TEXT_SOURCE_LIMITS.content })}
-                      >
-                        <textarea
-                          id="source-text"
-                          className="input min-h-[180px] resize-y"
-                          rows={8}
-                          maxLength={TEXT_SOURCE_LIMITS.content}
-                          value={draft.source.text}
-                          onChange={(event) => patchSource({ text: event.target.value })}
-                        />
-                      </Field>
-                    </>
-                  )}
-                  {fileKind && (
-                    <div className="mt-5 rounded-xl border border-dashed border-[#c9d6ee] bg-wash p-5">
-                      <div className="flex flex-wrap items-center gap-3">
-                        <button type="button" className="btn-secondary btn-sm" onClick={() => fileRef.current?.click()} disabled={uploading !== null}>
-                          {uploading !== null ? <Spinner className="size-3.5" /> : <Icon name="upload" className="size-3.5" />}
-                          {uploading !== null ? `${w.fileUploading} ${uploading}%` : w.fileChoose}
-                        </button>
-                        <span className="min-w-0 truncate text-[13px] font-medium">
-                          {source.fileName ? `${source.fileName} · ${formatBytes(source.fileSize)}` : w.fileNone}
-                        </span>
-                      </div>
-                      <small className="hint">
-                        {source.kind === 'audio' ? w.audioLimits : w.fileLimits}
-                        {source.blobPath && ` · ${w.fileUploaded}`}
-                      </small>
-                      <input
-                        ref={fileRef}
-                        type="file"
-                        hidden
-                        accept={source.kind === 'audio' ? '.mp3,.m4a,.wav' : '.pdf,.docx,.md,.txt'}
-                        onChange={(event) => {
-                          void chooseFile(event.target.files?.[0]);
-                          event.target.value = '';
-                        }}
-                      />
-                    </div>
-                  )}
-                  {source.kind === 'audio' && (
-                    <label className="mt-4 flex items-start gap-2 text-[12px]">
-                      <input type="checkbox" className="mt-0.5" checked={source.consent} onChange={(event) => patchSource({ consent: event.target.checked })} />
-                      {w.audioConsent}
-                    </label>
-                  )}
-                  {(source.kind === 'github' || source.kind === 'page' || source.kind === 'site') && (
-                    <Field id="source-url" label={w.sourceUrl} hint={source.kind === 'github' ? w.githubHint : source.kind === 'site' ? w.siteHint : w.pageHint}>
-                      <input
-                        id="source-url"
-                        className="input"
-                        type="url"
-                        inputMode="url"
-                        maxLength={KNOWLEDGE_URL_MAX}
-                        placeholder={source.kind === 'github' ? 'https://github.com/owner/repo' : 'https://'}
-                        value={source.url}
-                        onChange={(event) => patchSource({ url: event.target.value })}
-                      />
-                    </Field>
-                  )}
-                  <div className="mt-6 flex gap-2 rounded-lg bg-soft px-3 py-2.5 text-[12px] text-[#3b4361]">
-                    <Icon name="info" className="mt-0.5 size-4 flex-none text-blue" />
-                    {w.noCharge}
-                  </div>
-                </>
-              )}
-              {step === 4 && (
-                <>
-                  <div className="mt-5">
-                    <PublishingFields value={form} onChange={patch} />
-                  </div>
-                  <section className="mt-6 rounded-xl border border-line bg-wash p-5">
-                    <h3 className="text-[14px] font-bold">{w.reviewTitle}</h3>
-                    <div className="mt-3 flex items-center gap-3">
-                      <ReeAvatar avatar={draft.avatarBlob} color={draft.color} />
-                      <strong className="min-w-0 truncate text-[14px]">{draft.name}</strong>
-                      {draft.category && <span className="tag">{t.common.categories[draft.category]}</span>}
-                    </div>
-                    {draft.description && <p className="mt-3 text-[12px] text-muted">{draft.description}</p>}
-                    <dl className="mt-4 grid grid-cols-1 gap-3 text-[12px] sm:grid-cols-3">
-                      <div>
-                        <dt className="text-muted">{w.reviewTags}</dt>
-                        <dd className="mt-1 font-medium">{draft.tags.join(' · ') || '—'}</dd>
-                      </div>
-                      <div className="min-w-0">
-                        <dt className="text-muted">{w.reviewSource}</dt>
-                        <dd className="mt-1 truncate font-medium">{sourceLabel}</dd>
-                      </div>
-                      <div>
-                        <dt className="text-muted">{w.reviewCost}</dt>
-                        <dd className="mt-1 font-mono font-medium">
-                          {estimated ? fill(w.reviewCostValue, { credits: estimated.toLocaleString(locale === 'zh' ? 'zh-CN' : 'en-US') }) : '0 credits'}
-                        </dd>
-                      </div>
-                    </dl>
-                    <small className="hint mt-3">{w.reviewNote}</small>
-                  </section>
-                </>
-              )}
-            </div>
-            <div className="mt-8 flex items-center justify-between gap-3 border-t border-line pt-5">
-              {step > 1 ? (
-                <button type="button" className="btn-secondary" onClick={() => goTo(step - 1)} disabled={busy}>
-                  <Icon name="arrowLeft" />
-                  {w.prev}
+              {step === 3 && sourceFields}
+              {step === 4 && review}
+              <div className="setup-step-actions">
+                {step > 1 ? (
+                  <button type="button" className="btn secondary" onClick={() => goTo(step - 1)} disabled={busy}>
+                    <PIcon name="arrow" />
+                    {w.prev}
+                  </button>
+                ) : (
+                  <Link href="/rees" className="text-link">
+                    {w.backToList}
+                  </Link>
+                )}
+                <button type="submit" className="btn" disabled={busy || uploading !== null}>
+                  {step === 4 ? (busy ? w.creating : w.create) : w.next}
+                  <PIcon name={step === 4 ? 'check' : 'arrow'} />
                 </button>
-              ) : (
-                <Link href="/rees" className="text-link text-[12px]">
-                  {w.backToList}
-                </Link>
-              )}
-              <button type="submit" className="btn" disabled={busy || uploading !== null}>
-                {busy ? <Spinner /> : null}
-                {step === 4 ? (busy ? w.creating : w.create) : w.next}
-                {!busy && <Icon name={step === 4 ? 'check' : 'arrow'} />}
-              </button>
-            </div>
+              </div>
+            </section>
           </form>
-          <aside className="card h-fit p-6 lg:sticky lg:top-[124px]">
-            <ReeAvatar size="lg" color={draft.color} avatar={draft.avatarBlob} />
-            <h2 className="mt-5 text-[19px] leading-snug font-bold">{w.notes[step - 1]}</h2>
-            <p className="mt-3 text-[12px] leading-relaxed text-muted">{w.noteBody}</p>
-            <button type="button" className="btn-ghost mt-4 -ml-2" onClick={() => setRestart(true)} disabled={busy}>
-              <Icon name="refresh" className="size-3.5" />
+          <aside className="setup-wizard-note">
+            <span>
+              <PIcon name="dot" />
+            </span>
+            <h2>{w.notes[step - 1]}</h2>
+            <p>{w.noteBody}</p>
+            <button type="button" className="text-link" onClick={() => setRestart(true)} disabled={busy}>
+              <PIcon name="refresh" />
               {w.restart}
             </button>
           </aside>

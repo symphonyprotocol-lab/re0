@@ -8,6 +8,7 @@ import { introComposition } from '@/video/intro';
 import { useI18n } from '@/i18n/client';
 import { fill } from '@/i18n/format';
 import { Icon } from '@/components/ui/icons';
+import { PIcon } from '@/components/rees/proto-icon';
 
 /**
  * Expands the player node itself, so leaving fullscreen keeps the position
@@ -193,6 +194,68 @@ export function IntroPlayer({
 
   const current = shotAt(frame);
   const windows = shotWindows();
+  /* The editor (prototype suite.js `videoEditor`): the stage in its card with the controls, then the shot timeline. */
+  if (timeline)
+    return (
+      <>
+        <div className="card video-player-card" role="region" aria-label={fill(p.region, { name })}>
+          <div className={`video-stage template-${props.template}${portrait ? ' portrait' : ''}`}>
+            <Player
+              ref={attach}
+              component={composition.component}
+              inputProps={shownProps}
+              durationInFrames={composition.durationInFrames}
+              fps={composition.fps}
+              compositionWidth={composition.width}
+              compositionHeight={composition.height}
+              acknowledgeRemotionLicense
+              autoPlay={autoPlay}
+              clickToPlay={false}
+              moveToBeginningWhenEnded={false}
+              doubleClickToFullscreen={false}
+              spaceKeyToPlayOrPause
+              style={{ width: '100%', height: '100%' }}
+            />
+          </div>
+          <div className="player-controls">
+            <button type="button" className="icon-btn" onClick={toggle} aria-label={playing ? p.pause : ended ? p.replay : p.play} title={playing ? p.pause : ended ? p.replay : p.play} aria-pressed={playing}>
+              <PIcon name={playing ? 'pause' : ended ? 'refresh' : 'play'} />
+            </button>
+            <span className="mono" aria-live="off">
+              {clock(frame)} / {clock(VIDEO_FRAMES)}
+            </span>
+            <input
+              type="range"
+              min={0}
+              max={VIDEO_FRAMES - 1}
+              step={1}
+              value={frame}
+              onChange={(event) => seek(Number(event.target.value))}
+              aria-label={p.seek}
+              aria-valuetext={`${clock(frame)} / ${clock(VIDEO_FRAMES)}`}
+            />
+            {props.music && (
+              <button type="button" className="icon-btn" onClick={() => setSoundOn((on) => !on)} aria-label={p.muted} aria-pressed={!soundOn} title={p.muted}>
+                <PIcon name="audio" />
+              </button>
+            )}
+            <span className="tag">720p</span>
+          </div>
+        </div>
+        <div className="video-timeline" role="group" aria-label={t.video.timeline}>
+          {windows.map((window, index) => (
+            <button key={index} type="button" className={current === index ? 'active' : ''} onClick={() => seek(window.start)} aria-current={current === index ? 'step' : undefined}>
+              <span className="mono">
+                0{index + 1} <small>{fill(t.video.shotLength, { n: VIDEO_SHOT_SECONDS[index]! })}</small>
+              </span>
+              <strong>{t.video.shots[index]}</strong>
+              <i />
+            </button>
+          ))}
+        </div>
+      </>
+    );
+
   return (
     <div className="min-w-0">
       <div
