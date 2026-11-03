@@ -9,8 +9,8 @@ import type { HistoryItem } from '@/lib/services/conversations';
 import { useI18n } from '@/i18n/client';
 import { fill, formatNumber } from '@/i18n/format';
 import { Icon } from '@/components/ui/icons';
-import { RowMenu } from '@/components/ui/row-menu';
 import { useToast } from '@/components/ui/toast';
+import { ConversationMenu } from '@/components/conversations/conversation-menu';
 import { RenameDialog } from '@/components/conversations/rename-dialog';
 import { OrganizeConfirm, type OrganizeRequest } from '@/components/conversations/organize-confirm';
 
@@ -118,7 +118,9 @@ export function SidebarConversations({
           {item.pinned && <Icon name="pin" className="" />}
           <span className="chat-history-title">{title}</span>
         </Link>
-        <RowMenu
+        <ConversationMenu
+          beside
+          title={title}
           label={fill(c.more, { title })}
           items={[
             /* `/chats` works out the tab and page that hold it (prototype conversations.js `cl-select-one`). */
@@ -138,7 +140,7 @@ export function SidebarConversations({
               icon: 'archive',
               onSelect: () => setConfirm({ action: item.archived ? 'unarchive' : 'archive', ids: [item.id], titles: [title], active }),
             },
-            { label: t.conversations.search.trash, icon: 'trash', danger: true, onSelect: () => setConfirm({ action: 'trash', ids: [item.id], titles: [title], active }) },
+            { label: t.conversations.search.trash, icon: 'trash', onSelect: () => setConfirm({ action: 'trash', ids: [item.id], titles: [title], active }) },
           ]}
         />
       </div>

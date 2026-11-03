@@ -4,11 +4,10 @@ import { forwardRef, useEffect, useImperativeHandle, useRef, useState } from 're
 import { QUESTION_MAX_CHARS } from '@/lib/constants';
 import { completeMention, mentionQuery, questionTargets } from '@/lib/domain/conversation';
 import { useI18n } from '@/i18n/client';
-import { fill, formatNumber } from '@/i18n/format';
-import { Icon, Spinner } from '@/components/ui/icons';
-import { ReeAvatar } from '@/components/ui/ree-avatar';
+import { formatNumber } from '@/i18n/format';
 import { useToast } from '@/components/ui/toast';
 import { RoleBadge } from '@/components/discover/role-badge';
+import { Avatar, I } from '@/components/chat/message-parts';
 import { ParticipantPicker, type Member } from '@/components/conversations/participant-picker';
 
 export interface ComposerHandle {
@@ -75,6 +74,9 @@ export const Composer = forwardRef<
   useEffect(() => {
     const node = box.current;
     if (!node) return;
+    /* Grows with the text as it is typed; empty, the stylesheet's height (prototype chat-room.js grows it on input only). */
+    node.style.height = '';
+    if (!input) return;
     node.style.height = 'auto';
     node.style.height = `${Math.min(150, Math.max(54, node.scrollHeight))}px`;
   }, [input]);
@@ -84,6 +86,7 @@ export const Composer = forwardRef<
   const typing = mentionQuery(input);
   const mentions = typing !== null && !menuClosed && members.length > 1 ? members.filter((member) => member.name.toLocaleLowerCase().includes(typing.toLocaleLowerCase())) : [];
   const selected = members.find((member) => member.id === scope) ?? (members.length === 1 ? members[0] : null);
+  const [costBefore, costAfter] = r.upTo.split('{n}');
 
   const send = () => {
     const text = input.trim();
@@ -105,7 +108,7 @@ export const Composer = forwardRef<
   };
 
   return (
-    <div className="relative">
+    <div className="room-input-wrap">
       {picker && (
         <ParticipantPicker
           view={picker}
@@ -128,26 +131,25 @@ export const Composer = forwardRef<
         />
       )}
       <form
-        className="card relative p-3 shadow-sm focus-within:border-blue"
+        className="composer room-composer"
         onSubmit={(event) => {
           event.preventDefault();
           send();
         }}
       >
         {mentions.length > 0 && (
-          <div role="listbox" aria-label={r.mentionMenu} className="absolute bottom-full left-3 z-20 mb-2 w-[min(280px,80vw)] rounded-xl border border-line bg-white p-1.5 shadow-xl">
+          <div className="mention-menu" role="listbox" aria-label={r.mentionMenu}>
             {mentions.map((member, index) => (
               <button
                 key={member.id}
                 type="button"
                 role="option"
                 aria-selected={index === menuIndex}
-                className={`flex w-full items-center gap-2 rounded-lg px-2 py-1.5 text-left text-[12px] hover:bg-soft ${index === menuIndex ? 'bg-soft text-blue' : ''}`}
                 onMouseDown={(event) => event.preventDefault()}
                 onClick={() => pick(member.name)}
               >
-                <ReeAvatar avatar={member.avatarBlob} color={member.color} size="sm" className="!size-6 !rounded-md [&_svg]:!size-3.5" />
-                <span className="truncate">{member.name}</span>
+                <Avatar ree={member} sm />
+                {member.name}
                 <RoleBadge role={member.role} />
               </button>
             ))}
@@ -157,11 +159,11 @@ export const Composer = forwardRef<
           ref={box}
           id="message-input"
           aria-label={r.inputLabel}
-          className="block w-full resize-none bg-transparent px-1 py-1 text-[13px] leading-relaxed outline-none placeholder:text-[#a3a9bb]"
           rows={2}
           maxLength={QUESTION_MAX_CHARS}
           value={input}
           placeholder={members.length ? (draft ? r.placeholderDraft : r.placeholder) : r.placeholderEmpty}
+          disabled={busy}
           onChange={(event) => change(event.target.value)}
           onKeyDown={(event) => {
             /* An IME composing (pinyin and the like) uses Enter and Tab for itself. */
@@ -187,48 +189,57 @@ export const Composer = forwardRef<
             }
           }}
         />
-        <div className="mt-2 flex items-center justify-between gap-2">
-          <button
-            ref={anchor}
-            type="button"
-            data-picker-anchor
-            className="flex min-w-0 items-center gap-1.5 rounded-lg bg-wash px-2 py-1.5 text-[11px] text-[#3b4361] hover:bg-soft hover:text-blue disabled:opacity-60"
-            aria-label={r.scopeLabel}
-            aria-haspopup="dialog"
-            aria-expanded={Boolean(picker)}
-            disabled={busy}
-            onClick={() => {
-              if (busy) return toast(r.waitBusy);
-              if (picker) return closePicker(true);
-              setPicker(members.length ? 'scope' : 'manage');
-            }}
-          >
-            {selected ? <ReeAvatar avatar={selected.avatarBlob} color={selected.color} size="sm" className="!size-5 !rounded-md [&_svg]:!size-3" /> : <Icon name="users" className="size-4" />}
-            <span className="truncate">
-              {selected ? selected.name : members.length ? (
-                <>
-                  {r.allRees} <small className="text-muted">· {members.length}</small>
-                </>
-              ) : (
-                r.chooseRees
-              )}
-            </span>
-            {selected && <RoleBadge role={selected.role} />}
-            <Icon name="chevronDown" className="size-3 flex-none" />
-          </button>
-          <button type="submit" className="btn size-10 min-h-10 flex-none p-0" aria-label={r.send} disabled={busy || !input.trim() || targets.length === 0}>
-            {busy ? <Spinner /> : <Icon name="send" />}
+        <div className="room-compose-tools">
+          <div className="room-dot-tools">
+            <button
+              ref={anchor}
+              type="button"
+              data-picker-anchor
+              className="room-scope-control"
+              aria-label={r.scopeLabel}
+              aria-haspopup="dialog"
+              aria-expanded={Boolean(picker)}
+              disabled={busy}
+              onClick={() => {
+                if (busy) return toast(r.waitBusy);
+                if (picker) return closePicker(true);
+                setPicker(members.length ? 'scope' : 'manage');
+              }}
+            >
+              {selected ? <Avatar ree={selected} sm /> : <I name="users" />}
+              <span>
+                {selected ? (
+                  selected.name
+                ) : members.length ? (
+                  <>
+                    {r.allRees} <small>· {members.length}</small>
+                  </>
+                ) : (
+                  r.chooseRees
+                )}
+              </span>
+              {selected && <RoleBadge role={selected.role} />}
+              <I name="chevronDown" />
+            </button>
+          </div>
+          <button type="submit" className="btn room-send" aria-label={r.send} disabled={busy || !input.trim() || targets.length === 0}>
+            {busy ? <i className="spinner" /> : <I name="send" />}
           </button>
         </div>
       </form>
-      <div className="mt-2 flex flex-wrap items-center justify-between gap-2 px-1 text-[11px] text-muted">
-        <span className="flex items-center gap-1">
-          <Icon name="shield" className="size-3.5" />
-          <span id="cost-label">{fill(r.upTo, { n: formatNumber(cost, locale) })}</span>
-          <span className="text-[#a3a9bb]">· {r.noCharge}</span>
+      <div className="room-compose-meta">
+        <span>
+          <I name="shield" />
+          <span id="cost-label">
+            {costBefore}
+            <strong>{formatNumber(cost, locale)}</strong>
+            {costAfter}
+          </span>
+          <span>· {r.noCharge}</span>
         </span>
-        <span className="hidden sm:inline">{r.keys}</span>
+        <small>{r.keys}</small>
       </div>
+      <p className="room-demo-note">{r.traceNote}</p>
     </div>
   );
 });

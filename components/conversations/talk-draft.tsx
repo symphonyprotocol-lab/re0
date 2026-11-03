@@ -5,8 +5,8 @@ import { useEffect, useRef, useState } from 'react';
 import { autoTitle } from '@/lib/domain/conversation';
 import { ApiError, conversationApi, stashPending } from '@/lib/client/conversations';
 import { useI18n } from '@/i18n/client';
-import { Icon } from '@/components/ui/icons';
 import { useToast } from '@/components/ui/toast';
+import { I, useNavigationHeight } from '@/components/chat/message-parts';
 import { Composer, type ComposerHandle } from '@/components/conversations/composer';
 import type { Member } from '@/components/conversations/participant-picker';
 
@@ -59,6 +59,8 @@ export function TalkDraft({ initialMembers, viewerId, fresh }: { initialMembers:
   const composer = useRef<ComposerHandle>(null);
   const draft = useRef<Draft>({ question: '', members: initialMembers, scope: null });
   const restored = useRef(false);
+  const page = useRef<HTMLElement>(null);
+  useNavigationHeight(page);
 
   const keep = (patch: Partial<Draft>) => {
     draft.current = { ...draft.current, ...patch };
@@ -105,45 +107,48 @@ export function TalkDraft({ initialMembers, viewerId, fresh }: { initialMembers:
     }
   };
 
+  const prompts = [...new Set([...members.flatMap((member) => member.sampleQuestions), ...c.talk.prompts])].slice(0, 2);
   return (
-    <main className="mx-auto flex min-h-[calc(100dvh-64px)] w-full max-w-[760px] flex-col justify-center px-4 py-10 md:px-8">
-      <header className="text-center">
-        <span className="eyebrow">{c.talk.eyebrow}</span>
-        <h1 className="mt-3 text-[30px] font-extrabold tracking-tight">{c.talk.title}</h1>
-        <p className="mt-2 text-[13px] text-muted">{c.talk.body}</p>
-      </header>
-      <div className="mt-8">
-        <Composer
-          ref={composer}
-          members={members}
-          scope={scope}
-          draft
-          busy={busy}
-          viewerId={viewerId}
-          autoFocus
-          onScope={(reeId) => {
-            setScope(reeId);
-            keep({ scope: reeId });
-          }}
-          onParticipants={(chosen) => {
-            const nextScope = scope && chosen.some((member) => member.id === scope) ? scope : null;
-            setMembers(chosen);
-            setScope(nextScope);
-            keep({ members: chosen, scope: nextScope });
-          }}
-          onInput={(question) => keep({ question })}
-          onSend={send}
-        />
+    <section ref={page} className="new-conversation-page" aria-labelledby="new-conversation-heading">
+      <div className="new-conversation-stage">
+        <header className="new-conversation-heading">
+          <p className="eyebrow">{c.talk.eyebrow}</p>
+          <h1 id="new-conversation-heading">{c.talk.title}</h1>
+          <p>{c.talk.body}</p>
+        </header>
+        <div className="new-conversation-composer" aria-label={c.talk.start}>
+          <Composer
+            ref={composer}
+            members={members}
+            scope={scope}
+            draft
+            busy={busy}
+            viewerId={viewerId}
+            autoFocus
+            onScope={(reeId) => {
+              setScope(reeId);
+              keep({ scope: reeId });
+            }}
+            onParticipants={(chosen) => {
+              const nextScope = scope && chosen.some((member) => member.id === scope) ? scope : null;
+              setMembers(chosen);
+              setScope(nextScope);
+              keep({ members: chosen, scope: nextScope });
+            }}
+            onInput={(question) => keep({ question })}
+            onSend={send}
+          />
+        </div>
+        <div className="conversation-prompts">
+          <span>{c.talk.tryAsking}</span>
+          {prompts.map((prompt) => (
+            <button key={prompt} type="button" onClick={() => composer.current?.fill(prompt)} disabled={busy}>
+              <I name="sparkle" />
+              {prompt}
+            </button>
+          ))}
+        </div>
       </div>
-      <div className="mt-6 flex flex-wrap items-center justify-center gap-2 text-[12px]">
-        <span className="text-muted">{c.talk.tryAsking}</span>
-        {[...new Set([...members.flatMap((member) => member.sampleQuestions), ...c.talk.prompts])].slice(0, 4).map((prompt) => (
-          <button key={prompt} type="button" className="flex items-center gap-1.5 rounded-full border border-line bg-white px-3 py-1.5 hover:border-blue hover:text-blue" onClick={() => composer.current?.fill(prompt)} disabled={busy}>
-            <Icon name="sparkle" className="size-3.5" />
-            <span className="max-w-[260px] truncate">{prompt}</span>
-          </button>
-        ))}
-      </div>
-    </main>
+    </section>
   );
 }
