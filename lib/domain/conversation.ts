@@ -188,5 +188,5 @@ export function snippet(text: string, query: string): string {
   return `${start ? '…' : ''}${flat.slice(start, start + 155)}${flat.length > start + 155 ? '…' : ''}`;
 }
 
-export const BATCH_ACTIONS = ['pin', 'unpin', 'archive', 'unarchive', 'trash', 'restore'] as const;
+export const BATCH_ACTIONS = ['pin', 'unpin', 'archive', 'unarchive', 'trash', 'restore', 'delete'] as const;
 export type BatchAction = (typeof BATCH_ACTIONS)[number];

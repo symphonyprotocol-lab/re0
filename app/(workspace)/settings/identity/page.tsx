@@ -27,8 +27,7 @@ export default async function IdentityPage() {
     <>
       <Topbar
         crumbs={[
-          { label: t.dashboard.title, href: '/dashboard' },
-          { label: t.settings.tabs.billing, href: '/settings?tab=billing' },
+          { label: t.settings.tabs.balance, href: '/settings?tab=balance' },
           { label: f.crumb },
         ]}
       />

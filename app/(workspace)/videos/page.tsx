@@ -30,7 +30,7 @@ export default async function VideosPage({ searchParams }: { searchParams: Promi
   const [{ t }, result] = await Promise.all([serverMessages(), listVideos(user.id, query)]);
   return (
     <>
-      <Topbar crumbs={[{ label: t.dashboard.title, href: '/dashboard' }, { label: t.rees.title, href: '/rees' }, { label: t.video.library.title }]} />
+      <Topbar crumbs={[{ label: t.rees.title, href: '/rees' }, { label: t.video.library.title }]} />
       <VideoLibrary result={JSON.parse(JSON.stringify(result))} q={query.q} />
     </>
   );

@@ -1,5 +1,5 @@
 import type { Metadata } from 'next';
-import Link from 'next/link';
+import { WorkspaceLink as Link } from '@/components/shell/workspace-link';
 import { notFound } from 'next/navigation';
 import { currentUser } from '@/lib/http/session';
 import { knowledgeQuery } from '@/lib/http/knowledge';

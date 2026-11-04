@@ -1,5 +1,9 @@
+import { currentPricing } from '@/lib/services/pricing';
+import { welcomeCredits } from '@/lib/services/signup-reward';
+import { fill, formatNumber } from '@/i18n/format';
+import { ProductPrice, PromotionNotice, pricingFaqValues } from '@/components/site/product-price';
 import type { Metadata } from 'next';
-import Link from 'next/link';
+import { WorkspaceLink as Link } from '@/components/shell/workspace-link';
 import { HOME_EXAMPLE_REES } from '@/lib/constants';
 import { currentUser } from '@/lib/http/session';
 import { activeRees } from '@/lib/services/explore';
@@ -24,7 +28,7 @@ const FAQ = ['q1', 'q2', 'q3', 'q4'] as const;
  * components/site/site.css carries its styles.
  */
 export default async function HomePage() {
-  const [user, { t }, examples] = await Promise.all([currentUser(), serverMessages(), activeRees(HOME_EXAMPLE_REES)]);
+  const [user, { t, locale }, examples, prices, welcome] = await Promise.all([currentUser(), serverMessages(), activeRees(HOME_EXAMPLE_REES), currentPricing(), welcomeCredits()]);
   const h = t.site.home;
   const createHref = user ? '/rees/new' : `/login?returnTo=${encodeURIComponent('/rees/new')}`;
   const sources: [IconName, keyof typeof h.sources][] = [
@@ -62,10 +66,10 @@ export default async function HomePage() {
             <DemoTrigger label={h.ctaDemo} />
           </div>
           <div className="home-trial">
-            <span>
+            {welcome.credits > 0 && <span>
               <Icon name="check" />
-              {h.trialCredits}
-            </span>
+              {fill(h.trialCredits, { welcomeCredits: formatNumber(welcome.credits, locale) })}
+            </span>}
             <span>
               <Icon name="check" />
               {h.trialScope}
@@ -282,8 +286,9 @@ export default async function HomePage() {
               <span className="tag blue">{h.monthly}</span>
             </div>
             <p>
-              <strong>$10</strong> / {h.perMonth}
+              <strong><ProductPrice price={prices.plan} kind="plan" locale={locale} labels={t.site.prices} /></strong> / {h.perMonth}
             </p>
+            <PromotionNotice price={prices.plan} kind="plan" locale={locale} labels={t.site.prices} />
             <h3>100,000 credits</h3>
             <div className="rule" />
             {[h.planPerk1, h.planPerk2, h.planPerk3].map((perk) => (
@@ -312,7 +317,7 @@ export default async function HomePage() {
                 {t.site.faq[key].q}
                 <Icon name="plus" />
               </summary>
-              <p>{t.site.faq[key].a}</p>
+              <p>{fill(t.site.faq[key].a, pricingFaqValues(prices, locale, t.site.prices))}</p>
             </details>
           ))}
         </div>
@@ -328,7 +333,7 @@ export default async function HomePage() {
           {h.ctaCreate}
           <Icon name="arrow" />
         </Link>
-        <p>{h.finalNote}</p>
+        {welcome.credits > 0 && <p>{fill(h.finalNote, { welcomeCredits: formatNumber(welcome.credits, locale) })}</p>}
       </section>
     </div>
   );

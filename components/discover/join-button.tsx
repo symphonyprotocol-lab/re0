@@ -1,7 +1,7 @@
 'use client';
 
-import Link from 'next/link';
-import { useRouter } from 'next/navigation';
+import { WorkspaceLink as Link } from '@/components/shell/workspace-link';
+import { useNavigationRouter as useRouter } from '@/components/shell/navigation-provider';
 import { useEffect, useState } from 'react';
 import { CONVERSATION_MAX_REES } from '@/lib/constants';
 import { ApiError, conversationApi } from '@/lib/client/conversations';

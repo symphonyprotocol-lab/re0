@@ -38,7 +38,8 @@ Environment (`.env.local`, or `vercel env pull`):
 | `AI_GATEWAY_API_KEY` | AI Gateway (on Vercel the OIDC token works without it) |
 | `GENERATION_MODEL`, `EMBEDDING_MODEL`, `TRANSCRIPTION_MODEL` | fallback models when the console has none (`provider/model` for the gateway) |
 | `GENERATION_BASE_URL` / `_API_KEY` (and `EMBEDDING_*`, `TRANSCRIPTION_*`), or `LLM_BASE_URL` / `LLM_API_KEY` for all kinds | point a kind at an OpenAI-compatible endpoint instead of the gateway |
-| `OCR_PROVIDER`, `OCR_PROVIDER_API_KEY` | optional OCR for scanned PDFs (ocr.space) |
+| `FIRECRAWL_API_KEY` | optional single-key fallback when `/admin/firecrawl` has no saved keys; PDF and Word parsing normally use the console's encrypted key pool |
+| `FIRECRAWL_BASE_URL` | optional Firecrawl server origin (no `/v2/parse` suffix); self-hosted servers must support Parse and per-page PDF output, and may omit the key if authentication is disabled |
 | `GITHUB_APP_CLIENT_ID/SECRET` | optional: a GitHub App (Contents: read-only) for "连接 GitHub"; without it the sign-in OAuth app is used with the `repo` scope. Either way the callback is `/api/auth/github/callback/connect` |
 | `GITHUB_INGESTION_TOKEN` | optional: raises the anonymous GitHub rate limit for public repositories (never used for private ones) |
 | `CLAIM_DNS_RESOLVERS` | optional: comma-separated resolvers for the domain check's TXT lookup |
@@ -50,6 +51,12 @@ Environment (`.env.local`, or `vercel env pull`):
 | `DATABASE_WS_PROXY` | `next dev` only: run against a local Postgres behind `tests/fixtures/wsproxy.mjs` |
 
 The first visitor of `/admin/login` on an empty database registers the owner (password + TOTP); after that the page only signs in.
+
+Documents use [Firecrawl Parse](https://docs.firecrawl.dev/features/parse): PDF and DOCX bytes are sent directly from the server to `/v2/parse`, with PDF `pages: true` preserving citation page numbers. Markdown and TXT stay local. Missing configuration, invalid responses, missing PDF page data, or explicitly truncated output fail processing and release the reserved credits; there is no local PDF/Word fallback. The upload limit remains 20 MB. The former `OCR_PROVIDER*` settings are no longer used.
+
+Manage document-parsing credentials in **Console → Firecrawl** (`/admin/firecrawl`), after applying migrations `0011_firecrawl_keys` and `0014_firecrawl_fallback`. Add, rename, replace, enable, disable or delete keys without redeploying. Keys use the same `ADMIN_SECRET_KEY` encryption as model credentials; only names and final four characters are returned to the browser or audit log. Duplicate keys are refused. Enabled ordinary keys rotate by least recent allocation in a short database transaction, shared across server instances, with no lock held during the provider request. Set one key as **Main account (fallback only)**: it receives traffic only when all ordinary keys are disabled, cooling down, unreadable, or already failed in the current parse. Once an ordinary key recovers, it takes priority again. The main key still respects its own enabled state and cooldown. Migration `0014_firecrawl_fallback` marks the existing key named `主账号` as the main account; later renaming does not change its role. Selecting a new main account moves the previous one back into ordinary rotation, and both changes are audited. The console shows allocation counts, last HTTP results and cooldowns. Set the default parsing cost on the same Firecrawl page, and optional account-specific costs in each key editor. Embedding and transcription costs are edited with the corresponding model in **Console → Models**. Saving a service configuration and its cost is atomic; existing rates and historical receipt snapshots are preserved. **Pricing & promotions** is reserved for customer-facing Plan / Pack pricing and welcome credits.
+
+HTTP 401/402/403 cools a key for five minutes; HTTP 429 honors `Retry-After` (one second to 24 hours, default one minute). Parsing immediately tries the next available console key, attempting each at most once within a shared 120-second deadline. Network failures are not retried because the original request may already have been billed; they cool the key for five minutes. Other errors, including document validation failures and HTTP 5xx, fail normally. Replacing a key or re-enabling it clears its cooldown. If any console records exist, disabled/cooling keys never fall back to the environment. Only an empty key list uses `FIRECRAWL_API_KEY` (or an unauthenticated self-hosted `FIRECRAWL_BASE_URL`).
 
 ## Database
 
@@ -68,7 +75,7 @@ npm run typecheck
 ./scripts/test-integration.sh
 ```
 
-The second runs the whole suite (unit and integration) against a disposable pgvector container; model calls go to a local fake endpoint, Blob is mocked, and GitHub, websites and DNS are stubbed.
+The second runs the whole suite (unit and integration) against a disposable pgvector container; model calls go to a local fake endpoint, Blob is mocked, and Firecrawl, GitHub, websites and DNS are stubbed.
 
 To walk the app through by hand without real models, run the same fake endpoint on a fixed port and point `LLM_BASE_URL` at it:
 

@@ -749,6 +749,78 @@
   flex: 1 1 0%;
 }
 }
+/* Keep the add-source dialog and its actions steady across all five kinds. */
+.knowledge-ui .add-knowledge-modal {
+  display: flex;
+  flex-direction: column;
+  height: 600px;
+  overflow: hidden;
+}
+.knowledge-ui .add-knowledge-modal > .modal-head,
+.knowledge-ui .add-knowledge-modal > .modal-footer {
+  flex: none;
+}
+.knowledge-ui .add-knowledge-modal > .modal-body {
+  display: flex;
+  flex-direction: column;
+  flex: 1;
+  min-height: 0;
+  overflow-y: auto;
+  padding-block: 20px;
+}
+.knowledge-ui .add-knowledge-modal .type-grid {
+  grid-template-columns: repeat(5, minmax(0, 1fr));
+  flex: none;
+  gap: 7px;
+  margin-bottom: 18px;
+}
+.knowledge-ui .add-knowledge-modal .type-choice {
+  min-width: 0;
+  padding: 10px 4px;
+  white-space: nowrap;
+}
+.knowledge-ui .add-knowledge-modal form {
+  display: flex;
+  flex-direction: column;
+  flex: 1;
+}
+.knowledge-ui .add-knowledge-source {
+  flex: 1;
+  min-height: 164px;
+}
+.knowledge-ui .add-knowledge-modal .dropzone {
+  padding: 18px 15px;
+}
+.knowledge-ui .add-knowledge-modal .dropzone svg {
+  width: 23px;
+  height: 23px;
+  margin-bottom: 6px;
+}
+.knowledge-ui .add-knowledge-modal .dropzone strong {
+  overflow-wrap: anywhere;
+}
+.knowledge-ui .add-knowledge-modal .check-row {
+  min-height: 0;
+  padding: 10px 0;
+  align-items: flex-start;
+}
+.knowledge-ui .add-knowledge-modal .check-row input {
+  flex: none;
+  margin: 2px 0 0;
+}
+.knowledge-ui .add-knowledge-modal .estimate {
+  flex: none;
+  margin-top: 16px;
+}
+@media (max-width: 560px) {
+  .knowledge-ui .add-knowledge-modal .type-grid {
+    gap: 4px;
+  }
+  .knowledge-ui .add-knowledge-modal .type-choice {
+    font-size: 10px;
+    padding-inline: 2px;
+  }
+}
 /* knowledge.css */
 .knowledge-ui .ks-status {
   display: inline-flex;

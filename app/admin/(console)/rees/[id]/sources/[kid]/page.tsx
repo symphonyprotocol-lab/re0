@@ -1,5 +1,5 @@
 import type { Metadata } from 'next';
-import Link from 'next/link';
+import { WorkspaceLink as Link } from '@/components/shell/workspace-link';
 import type { ReactNode } from 'react';
 import { ADMIN_SOURCE_PAGE_SIZE, PREVIEW_CHILDREN_PAGE_SIZE } from '@/lib/constants';
 import { param } from '@/lib/domain/list';

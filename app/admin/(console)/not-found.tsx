@@ -1,4 +1,4 @@
-import Link from 'next/link';
+import { WorkspaceLink as Link } from '@/components/shell/workspace-link';
 import { serverMessages } from '@/i18n/server';
 import { ConsolePage, ConsoleTopbar } from '@/components/admin/console-topbar';
 

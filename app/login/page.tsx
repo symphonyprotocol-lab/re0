@@ -1,5 +1,7 @@
+import { welcomeCredits } from '@/lib/services/signup-reward';
+import { fill, formatNumber } from '@/i18n/format';
 import type { Metadata } from 'next';
-import Link from 'next/link';
+import { WorkspaceLink as Link } from '@/components/shell/workspace-link';
 import { redirect } from 'next/navigation';
 import { isLoginError, safeReturnTo } from '@/lib/domain/auth';
 import { currentUser } from '@/lib/http/session';
@@ -23,7 +25,7 @@ export default async function LoginPage({ searchParams }: { searchParams: Promis
   const params = await searchParams;
   const returnTo = safeReturnTo(params.returnTo);
   if (await currentUser()) redirect(returnTo);
-  const { t } = await serverMessages();
+  const [{ t, locale }, welcome] = await Promise.all([serverMessages(), welcomeCredits()]);
   const l = t.login;
   const error = isLoginError(params.error) ? l.errors[params.error] : null;
   return (
@@ -105,13 +107,14 @@ export default async function LoginPage({ searchParams }: { searchParams: Promis
               {error}
             </p>
           )}
-          <div className="login-welcome">
+          {welcome.credits > 0 && <div className="login-welcome">
             <LoginIcon name="sparkle" />
             <div>
-              <strong>{l.giftAmount}</strong>
+              <strong>{fill(l.giftAmount, { welcomeCredits: formatNumber(welcome.credits, locale) })}</strong>
               <span>{l.giftText}</span>
             </div>
           </div>
+          }
           <p className="login-terms">
             {l.termsBefore}{' '}
             <Link href="/legal/terms" className="text-link">

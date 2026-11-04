@@ -1,12 +1,14 @@
+import { currentPricing } from '@/lib/services/pricing';
+import { ProductPrice, PromotionNotice, pricingFaqValues } from '@/components/site/product-price';
 import type { Metadata } from 'next';
-import Link from 'next/link';
+import { WorkspaceLink as Link } from '@/components/shell/workspace-link';
 import type { ReactNode } from 'react';
-import { WELCOME_CREDITS } from '@/lib/constants';
+import { welcomeCredits } from '@/lib/services/signup-reward';
 import { currentUser } from '@/lib/http/session';
 import { db } from '@/lib/infra/db';
 import { hasActivePlan } from '@/lib/services/billing';
 import { serverMessages } from '@/i18n/server';
-import { formatNumber } from '@/i18n/format';
+import { fill, formatNumber } from '@/i18n/format';
 import { Icon } from '@/components/ui/icons';
 import { Estimator } from '@/components/site/estimator';
 import '@/components/site/pricing.css';
@@ -25,7 +27,7 @@ export async function generateMetadata(): Promise<Metadata> {
  * class names follow the prototype; pricing.css carries its styles.
  */
 export default async function PricingPage() {
-  const [user, { t, locale }] = await Promise.all([currentUser(), serverMessages()]);
+  const [user, { t, locale }, prices, welcome] = await Promise.all([currentUser(), serverMessages(), currentPricing(), welcomeCredits()]);
   const p = t.site.pricing;
   const planActive = user ? await hasActivePlan(db(), user.id) : false;
   const packLocked = Boolean(user) && !planActive;
@@ -47,11 +49,11 @@ export default async function PricingPage() {
           eyebrow={p.free.eyebrow}
           title={p.free.title}
           price="$0"
-          grant={formatNumber(WELCOME_CREDITS, locale)}
+          grant={formatNumber(welcome.credits, locale)}
           note={p.free.note}
           perks={[p.free.perk1, p.free.perk2, p.free.perk3]}
           action={
-            <Link href={user ? '/dashboard' : '/login'} className="btn secondary full">
+            <Link href={user ? '/rees' : '/login'} className="btn secondary full">
               {p.free.cta}
             </Link>
           }
@@ -60,7 +62,8 @@ export default async function PricingPage() {
           recommended={p.plan.ribbon}
           eyebrow={p.plan.eyebrow}
           title="Plan"
-          price="$10"
+          price={<ProductPrice price={prices.plan} kind="plan" locale={locale} labels={t.site.prices} />}
+          promotion={<PromotionNotice price={prices.plan} kind="plan" locale={locale} labels={t.site.prices} />}
           per={p.plan.per}
           grant="100,000"
           grantPer={p.plan.cycle}
@@ -68,7 +71,7 @@ export default async function PricingPage() {
           perks={[p.plan.perk1, p.plan.perk2, p.plan.perk3]}
           action={
             planActive ? (
-              <Link href="/settings?tab=billing" className="btn full">
+              <Link href="/settings?tab=balance" className="btn full">
                 {p.plan.manage}
               </Link>
             ) : (
@@ -82,7 +85,8 @@ export default async function PricingPage() {
         <PlanCard
           eyebrow={p.pack.eyebrow}
           title="Pack"
-          price="$10"
+          price={<ProductPrice price={prices.pack} kind="pack" locale={locale} labels={t.site.prices} />}
+          promotion={<PromotionNotice price={prices.pack} kind="pack" locale={locale} labels={t.site.prices} />}
           per={p.pack.per}
           grant="100,000"
           note={p.pack.note}
@@ -155,7 +159,7 @@ export default async function PricingPage() {
                 {t.site.faq[key].q}
                 <Icon name="plus" />
               </summary>
-              <p>{t.site.faq[key].a}</p>
+              <p>{fill(t.site.faq[key].a, pricingFaqValues(prices, locale, t.site.prices))}</p>
             </details>
           ))}
         </div>
@@ -169,6 +173,7 @@ function PlanCard({
   eyebrow,
   title,
   price,
+  promotion,
   per,
   grant,
   grantPer,
@@ -179,7 +184,8 @@ function PlanCard({
   recommended?: string;
   eyebrow: string;
   title: string;
-  price: string;
+  price: ReactNode;
+  promotion?: ReactNode;
   per?: string;
   grant: string;
   grantPer?: string;
@@ -201,6 +207,7 @@ function PlanCard({
           </>
         )}
       </p>
+      {promotion}
       <p className="plan-grant">
         {grant} <span>credits{grantPer ? ` / ${grantPer}` : ''}</span>
       </p>

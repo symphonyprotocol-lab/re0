@@ -595,7 +595,7 @@
   min-height: 340px;
   display: flex;
   flex-direction: column;
-  background: #faf9fe;
+  background: var(--color-bg);
   position: relative;
   isolation: isolate;
 }
@@ -686,7 +686,7 @@
 }
 .room-compose-dock {
   flex: none;
-  background: linear-gradient(180deg, #faf9fe00, #faf9fe 20px);
+  background: linear-gradient(180deg, #ffffff00, var(--color-bg) 20px);
   padding: 12px 30px 17px;
   z-index: 3;
 }
@@ -1569,8 +1569,8 @@
 .cl-search-page.is-selecting .cl-selection { display: flex; }
 .cl-search-page .cl-selection-options { padding: 10px 16px; }
 .cl-search-page .cl-check { display: none; }
-.cl-search-page .cl-row { grid-template-columns: minmax(0px, 1fr) 112px 32px; gap: 12px; min-height: 88px; padding: 0px 18px; }
-.cl-search-page.is-selecting .cl-row { grid-template-columns: 23px minmax(0px, 1fr) 112px 32px; }
+.cl-search-page .cl-row { grid-template-columns: minmax(0px, 1fr) 112px max-content; gap: 12px; min-height: 88px; padding: 0px 18px; }
+.cl-search-page.is-selecting .cl-row { grid-template-columns: 23px minmax(0px, 1fr) 112px max-content; }
 .cl-search-page.is-selecting .cl-check { display: flex; }
 .cl-search-page .cl-main { padding-block: 17px; }
 .cl-search-page .cl-row-title strong { font-size: 13px; color: rgb(64, 86, 117); }
@@ -1581,6 +1581,12 @@
 .cl-search-page .cl-inline-date { display: none; }
 .cl-search-page .cl-snippet { font-size: 11px; line-height: 1.8; color: rgb(130, 147, 172); margin-top: 9px; white-space: normal; display: -webkit-box; -webkit-box-orient: vertical; -webkit-line-clamp: 2; overflow: hidden; }
 .cl-search-page .cl-row-actions .icon-btn { opacity: 0.35; }
+.cl-search-page .cl-trash-actions .icon-btn { opacity: 1; }
+.cl-search-page .cl-row.is-deleting { background: #fff7f8; pointer-events: none; }
+.cl-row-deleting { display: inline-flex; align-items: center; gap: 7px; color: #bc4b60; font-size: 11px; white-space: nowrap; }
+.cl-row-deleting .spinner { width: 12px; height: 12px; }
+.cl-search-page .cl-row-actions .cl-delete-now { color: #bc4b60; }
+.cl-search-page .cl-row-actions .cl-delete-now:hover { color: #a7334a; background: #fff0f3; }
 .cl-search-page .cl-row:hover .cl-row-actions .icon-btn, .cl-search-page .cl-row:focus-within .cl-row-actions .icon-btn, .cl-search-page .cl-row-actions .icon-btn[aria-expanded="true"] { opacity: 1; }
 .cl-search-page .cl-pagination { padding: 16px 18px; border-top: 1px solid rgb(233, 237, 245); background: rgb(252, 253, 255); flex-wrap: wrap; gap: 12px; }
 .cl-search-page .cl-pagination > span { font-size: 10px; }
@@ -1588,8 +1594,8 @@
 .cl-search-page .cl-empty { padding: 52px 24px; }
 @media (max-width: 1180px) {
   .cl-search-page { padding: 32px 28px 24px; }
-  .cl-search-page .cl-row { grid-template-columns: minmax(0px, 1fr) 82px 30px; }
-  .cl-search-page.is-selecting .cl-row { grid-template-columns: 23px minmax(0px, 1fr) 82px 30px; }
+  .cl-search-page .cl-row { grid-template-columns: minmax(0px, 1fr) 82px max-content; }
+  .cl-search-page.is-selecting .cl-row { grid-template-columns: 23px minmax(0px, 1fr) 82px max-content; }
 }
 @media (max-width: 760px) {
   .cl-search-page { padding: 26px 20px 24px; }
@@ -1607,8 +1613,8 @@
   .cl-search-results-bar { gap: 8px; }
   .cl-search-results-bar .cl-tabs { gap: 18px; }
   .cl-search-results-bar .cl-tab { font-size: 10px; }
-  .cl-search-page .cl-row { grid-template-columns: minmax(0px, 1fr) 28px; padding-inline: 14px; gap: 8px; }
-  .cl-search-page.is-selecting .cl-row { grid-template-columns: 20px minmax(0px, 1fr) 28px; }
+  .cl-search-page .cl-row { grid-template-columns: minmax(0px, 1fr) max-content; padding-inline: 14px; gap: 8px; }
+  .cl-search-page.is-selecting .cl-row { grid-template-columns: 20px minmax(0px, 1fr) max-content; }
   .cl-search-page .cl-time { display: none; }
   .cl-search-page .cl-inline-date { display: inline; }
   .cl-search-page .cl-dot-names { max-width: 160px; }
@@ -1634,7 +1640,7 @@
 .studio-conversation {
   padding: 0;
   min-height: 0;
-  background: #f8f9fc;
+  background: var(--color-bg);
   --studio-width: 800px;
 }
 .studio-chat-toolbar {
@@ -2048,7 +2054,7 @@
 .studio-compose-dock {
   padding: 12px 24px 14px;
   flex: none;
-  background: linear-gradient(#f8f9fc00, #f8f9fc 18px);
+  background: linear-gradient(#ffffff00, var(--color-bg) 18px);
 }
 .studio-compose-inner {
   width: 100%;

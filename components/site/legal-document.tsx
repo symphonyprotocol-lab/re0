@@ -1,4 +1,4 @@
-import Link from 'next/link';
+import { WorkspaceLink as Link } from '@/components/shell/workspace-link';
 
 /** A legal page: title, lede, a table of contents and numbered sections; blank lines in a body start new paragraphs. */
 export function LegalDocument({

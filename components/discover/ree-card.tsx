@@ -1,6 +1,6 @@
 'use client';
 
-import Link from 'next/link';
+import { WorkspaceLink as Link } from '@/components/shell/workspace-link';
 import type { CSSProperties } from 'react';
 import { QUERY_BASE_FEE } from '@/lib/constants';
 import type { ReeCard as Card } from '@/lib/services/explore';
@@ -9,8 +9,10 @@ import { fill, formatNumber } from '@/i18n/format';
 import { Icon } from '@/components/ui/icons';
 import { ReeAvatar } from '@/components/ui/ree-avatar';
 import { RoleBadge } from '@/components/discover/role-badge';
+import { ReeCardMetrics } from '@/components/discover/ree-card-metrics';
 import { PlayIntroButton, VideoPlaceholder, VideoPoster } from '@/components/video/video-cover';
 import type { IntroProps } from '@/lib/domain/video';
+import './ree-video-card.css';
 
 /**
  * The 16:9 cover (step 7): the introduction's opening still when the Ree has
@@ -85,38 +87,25 @@ export function ReeCardView({ ree, from }: { ree: Card; from: string }) {
   const n = (value: number) => formatNumber(value, locale);
   const href = `/r/${ree.slug}${from && from !== '/explore' ? `?from=${encodeURIComponent(from)}` : ''}`;
   return (
-    <article className="dot-card discovery-card" aria-label={ree.name}>
+    <article className="dot-card discovery-card ree-video-card" aria-label={ree.name}>
       <DiscoveryCover ree={ree} href={href} />
-      <p className="description">{ree.description}</p>
-      {ree.excerpt && <p className="match-excerpt">“{ree.excerpt}”</p>}
-      <div className="dot-sources">
-        <Icon name="file" />
-        {fill(c.sources, { n: n(ree.sources) })}
-        <span className="discovery-author">
-          {ree.ownerName}
-          <RoleBadge role={ree.role} />
-        </span>
-      </div>
-      <div className="card-actions">
-        <span className="price" title={fill(c.priceTitle, { base: QUERY_BASE_FEE, fee: ree.queryFee })}>
-          {n(ree.price)}
-          <small>{c.perAnswer}</small>
-        </span>
-        <div className="discovery-card-metrics" role="group" aria-label={c.activity}>
-          <span>
-            <strong>
-              <Icon name="chat" />
-              {n(ree.answers)}
-            </strong>
-            <small>{c.answers}</small>
+      <div className="ree-card-info">
+        <p className="description">{ree.description}</p>
+        {ree.excerpt && <p className="match-excerpt">“{ree.excerpt}”</p>}
+        <div className="dot-sources">
+          <Icon name="file" />
+          {fill(c.sources, { n: n(ree.sources) })}
+          <span className="discovery-author">
+            {ree.ownerName}
+            <RoleBadge role={ree.role} />
           </span>
-          <span>
-            <strong>
-              <Icon name="thumbUp" />
-              {ree.positiveRate === null ? <span className="discovery-rating-empty">{c.noRating}</span> : `${ree.positiveRate}%`}
-            </strong>
-            <small>{c.rating}</small>
+        </div>
+        <div className="card-actions">
+          <span className="price" title={fill(c.priceTitle, { base: QUERY_BASE_FEE, fee: ree.queryFee })}>
+            {n(ree.price)}
+            <small>{c.perAnswer}</small>
           </span>
+          <ReeCardMetrics answers={ree.answers} positiveRate={ree.positiveRate} />
         </div>
       </div>
     </article>

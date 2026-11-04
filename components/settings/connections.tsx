@@ -1,6 +1,6 @@
 'use client';
 
-import { useRouter } from 'next/navigation';
+import { useNavigationRouter as useRouter } from '@/components/shell/navigation-provider';
 import { useEffect, useState } from 'react';
 import { dnsRecordName, wellKnownUrl } from '@/lib/domain/sources';
 import { api } from '@/lib/client/upload';

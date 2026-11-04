@@ -1,4 +1,4 @@
-import Link from 'next/link';
+import { WorkspaceLink as Link } from '@/components/shell/workspace-link';
 import { CREDIT_USD } from '@/lib/constants';
 import type { KycState } from '@/lib/domain/kyc';
 import type { PayoutStage } from '@/lib/domain/payouts';
@@ -8,7 +8,7 @@ import { fill, formatNumber } from '@/i18n/format';
 import type { Locale } from '@/i18n/locale';
 import { Icon } from '@/components/ui/icons';
 
-/* The dashboard's lower panels (prototype workspace.js `attention`, `health`, `distribution`, `income`; styles in app/(workspace)/dashboard/dashboard.css). */
+/* The dashboard's lower panels (prototype workspace.js `attention`, `health`, `distribution`, `income`; styles in ./dashboard.css). */
 
 const STATES = ['ready', 'processing', 'failed', 'paused'] as const;
 
@@ -185,7 +185,7 @@ export function IncomePanel({
   }
   const identity = stage === 'identity_required' || stage === 'identity_pending';
   const copy = g.stages[stage === 'identity_required' && (kyc === 'rejected' || kyc === 'reset') ? 'identity_resubmit' : stage];
-  const href = identity ? '/settings/identity' : stage === 'threshold' ? '/settings?tab=billing&activity=income#credit-activity' : '/settings?tab=billing#payouts';
+  const href = identity ? '/settings/identity' : stage === 'threshold' ? '/settings?tab=billing&activity=income#credit-activity' : '/settings?tab=balance#payouts';
   return (
     <section className="card creator-income">
       <div className="creator-panel-heading">

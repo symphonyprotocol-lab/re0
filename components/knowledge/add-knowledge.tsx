@@ -1,9 +1,9 @@
 'use client';
 
-import Link from 'next/link';
+import { WorkspaceLink as Link } from '@/components/shell/workspace-link';
 import { useEffect, useState } from 'react';
-import { KNOWLEDGE_URL_MAX, TEXT_SOURCE_LIMITS } from '@/lib/constants';
-import { holdFor, KNOWLEDGE_KIND_LIST, validAudio, validDocument, validText, type KnowledgeKind } from '@/lib/domain/knowledge';
+import { KNOWLEDGE_URL_MAX } from '@/lib/constants';
+import { holdFor, ADD_KNOWLEDGE_KINDS, validAudio, validDocument, type AddKnowledgeKind } from '@/lib/domain/knowledge';
 import { parseGithubRepo, parseWebUrl } from '@/lib/domain/sources';
 import { api, uploadToBlob } from '@/lib/client/upload';
 import { useI18n } from '@/i18n/client';
@@ -13,8 +13,7 @@ import { Modal } from '@/components/knowledge/modal';
 import { errorText, SOURCE_ICONS } from '@/components/knowledge/shared';
 
 /** What a new source would reserve, from what the form holds so far (8.2). */
-export function estimateFor(kind: KnowledgeKind, input: { text?: string; bytes?: number }): number {
-  if (kind === 'text') return input.text?.trim() ? holdFor('text', input.text) : 1;
+export function estimateFor(kind: AddKnowledgeKind, input: { bytes?: number }): number {
   if (kind === 'audio') return holdFor('audio', input.bytes ?? 0);
   return holdFor(kind);
 }
@@ -24,7 +23,7 @@ export function FixLink({ code }: { code: string | undefined }) {
   const { t } = useI18n();
   if (code === 'insufficient_credits') {
     return (
-      <Link href="/settings?tab=billing" className="font-semibold underline">
+      <Link href="/settings?tab=balance" className="font-semibold underline">
         {t.chat.insufficient.topUp}
       </Link>
     );
@@ -40,9 +39,9 @@ export function FixLink({ code }: { code: string | undefined }) {
 }
 
 /**
- * "给 Ree 一些知识。" -- the six kinds of 2.1: documents and audio go
+ * "给 Ree 一些知识。" -- the five source choices: documents and audio go
  * straight to Blob and are then submitted, repositories, pages and websites
- * by URL, text as typed. The estimate is the reservation; the real price is
+ * by URL. The estimate is the initial reservation; the real price is
  * settled after processing. Opened inside a folder, the source lands there.
  */
 export function AddKnowledgeModal({
@@ -60,12 +59,10 @@ export function AddKnowledgeModal({
 }) {
   const { t, locale } = useI18n();
   const m = t.knowledge.addModal;
-  const [kind, setKind] = useState<KnowledgeKind>('document');
+  const [kind, setKind] = useState<AddKnowledgeKind>('document');
   const [file, setFile] = useState<File | null>(null);
   const [consent, setConsent] = useState(false);
   const [url, setUrl] = useState('');
-  const [title, setTitle] = useState('');
-  const [content, setContent] = useState('');
   const [error, setError] = useState<{ text: string; code?: string } | null>(null);
   const [busy, setBusy] = useState(false);
   const [progress, setProgress] = useState<number | null>(null);
@@ -87,8 +84,6 @@ export function AddKnowledgeModal({
     setFile(null);
     setConsent(false);
     setUrl('');
-    setTitle('');
-    setContent('');
     setError(null);
     setBusy(false);
     setProgress(null);
@@ -98,7 +93,7 @@ export function AddKnowledgeModal({
     setDomains(null);
     onClose();
   };
-  const choose = (next: KnowledgeKind) => {
+  const choose = (next: AddKnowledgeKind) => {
     setKind(next);
     setFile(null);
     setError(null);
@@ -136,9 +131,7 @@ export function AddKnowledgeModal({
       setBusy(true);
       body = { kind, url: url.trim() };
     } else {
-      if (!validText(title, content)) return setError({ text: t.knowledge.errors.invalid_text });
-      setBusy(true);
-      body = { kind: 'text', title, content };
+      return;
     }
     const result = await api<{ id?: string; error?: string }>(`/api/rees/${reeId}/knowledge`, { method: 'POST', json: { ...body, folderId: folder?.id ?? null } });
     setBusy(false);
@@ -151,12 +144,13 @@ export function AddKnowledgeModal({
     setError({ text: errorText(t, code), code });
   };
 
-  const estimate = estimateFor(kind, { text: content, bytes: file?.size });
+  const estimate = estimateFor(kind, { bytes: file?.size });
 
   return (
     <Modal
       open={open}
       onClose={close}
+      className="add-knowledge-modal"
       title={m.title}
       subtitle={folder ? fill(m.folder, { folder: folder.name }) : m.subtitle}
       footer={
@@ -172,7 +166,7 @@ export function AddKnowledgeModal({
       }
     >
       <div className="type-grid" role="radiogroup">
-        {KNOWLEDGE_KIND_LIST.map((value) => (
+        {ADD_KNOWLEDGE_KINDS.map((value) => (
           <button key={value} type="button" role="radio" aria-checked={kind === value} className={`type-choice ${kind === value ? 'active' : ''}`} onClick={() => choose(value)}>
             <Icon name={SOURCE_ICONS[value]} />
             {t.common.kinds[value]}
@@ -186,82 +180,71 @@ export function AddKnowledgeModal({
           void submit();
         }}
       >
-        {fileKind && (
-          <>
-            <label
-              className={`dropzone ${dragging ? 'dragover' : ''}`}
-              onDragOver={(event) => {
-                event.preventDefault();
-                setDragging(true);
-              }}
-              onDragLeave={() => setDragging(false)}
-              onDrop={(event) => {
-                event.preventDefault();
-                setDragging(false);
-                pick(event.dataTransfer.files?.[0]);
-              }}
-            >
-              <Icon name={kind === 'audio' ? 'audio' : 'upload'} />
-              <strong>{file ? file.name : m.drop}</strong>
-              <small>{file ? formatBytes(file.size) : m.limits[kind]}</small>
-              <input
-                type="file"
-                accept={kind === 'audio' ? '.mp3,.m4a,.wav' : '.pdf,.docx,.md,.txt'}
-                onChange={(event) => {
-                  pick(event.target.files?.[0]);
-                  event.target.value = '';
+        <div className="add-knowledge-source">
+          {fileKind && (
+            <>
+              <label
+                className={`dropzone ${dragging ? 'dragover' : ''}`}
+                onDragOver={(event) => {
+                  event.preventDefault();
+                  setDragging(true);
                 }}
-              />
-            </label>
-            {kind === 'audio' && (
-              <label className="check-row" style={{ fontSize: 10 }}>
-                <input type="checkbox" checked={consent} onChange={(event) => setConsent(event.target.checked)} />
-                {m.consent}
+                onDragLeave={() => setDragging(false)}
+                onDrop={(event) => {
+                  event.preventDefault();
+                  setDragging(false);
+                  pick(event.dataTransfer.files?.[0]);
+                }}
+              >
+                <Icon name={kind === 'audio' ? 'audio' : 'upload'} />
+                <strong>{file ? file.name : m.drop}</strong>
+                <small>{file ? formatBytes(file.size) : m.limits[kind]}</small>
+                <input
+                  type="file"
+                  accept={kind === 'audio' ? '.mp3,.m4a,.wav' : '.pdf,.docx,.md,.txt'}
+                  onChange={(event) => {
+                    pick(event.target.files?.[0]);
+                    event.target.value = '';
+                  }}
+                />
               </label>
-            )}
-          </>
-        )}
+              {kind === 'audio' && (
+                <label className="check-row" style={{ fontSize: 10 }}>
+                  <input type="checkbox" checked={consent} onChange={(event) => setConsent(event.target.checked)} />
+                  {m.consent}
+                </label>
+              )}
+            </>
+          )}
 
-        {urlKind && (
-          <div className="field">
-            <label htmlFor="source-url">{m.urlLabel[kind]}</label>
-            <input id="source-url" type="url" inputMode="url" maxLength={KNOWLEDGE_URL_MAX} value={url} placeholder={m.urlPlaceholder[kind]} onChange={(event) => setUrl(event.target.value)} />
-          </div>
-        )}
-        {urlKind && kind !== 'site' && <p className="form-hint">{m.urlHint[kind]}</p>}
-        {kind === 'site' && (
-          <div className="info-strip">
-            <Icon name="shield" />
-            <span>
-              {m.urlHint.site}
-              <br />
-              {domains === null ? '' : domains.length ? fill(m.verifiedDomains, { domains: domains.join(', ') }) : m.noVerifiedDomains}{' '}
-              <Link href="/settings?tab=connections" className="text-link">
-                {m.verify}
-                <Icon name="arrow" />
-              </Link>
-            </span>
-          </div>
-        )}
-
-        {kind === 'text' && (
-          <>
+          {urlKind && (
             <div className="field">
-              <label htmlFor="source-title">{m.title_}</label>
-              <input id="source-title" maxLength={TEXT_SOURCE_LIMITS.title} value={title} placeholder={m.titlePlaceholder} onChange={(event) => setTitle(event.target.value)} />
+              <label htmlFor="source-url">{m.urlLabel[kind]}</label>
+              <input id="source-url" type="url" inputMode="url" maxLength={KNOWLEDGE_URL_MAX} value={url} placeholder={m.urlPlaceholder[kind]} onChange={(event) => setUrl(event.target.value)} />
             </div>
-            <div className="field">
-              <label htmlFor="source-text">{m.content}</label>
-              <textarea id="source-text" rows={6} maxLength={TEXT_SOURCE_LIMITS.content} value={content} placeholder={m.contentPlaceholder} onChange={(event) => setContent(event.target.value)} />
+          )}
+          {urlKind && kind !== 'site' && <p className="form-hint">{m.urlHint[kind]}</p>}
+          {kind === 'site' && (
+            <div className="info-strip">
+              <Icon name="shield" />
+              <span>
+                {m.urlHint.site}
+                <br />
+                {domains === null ? '' : domains.length ? fill(m.verifiedDomains, { domains: domains.join(', ') }) : m.noVerifiedDomains}{' '}
+                <Link href="/settings?tab=connections" className="text-link">
+                  {m.verify}
+                  <Icon name="arrow" />
+                </Link>
+              </span>
             </div>
-          </>
-        )}
+          )}
+        </div>
 
         <div className="estimate">
           <span>{m.estimate}</span>
           <strong>{fill(m.estimateValue, { credits: formatNumber(estimate, locale) })}</strong>
         </div>
-        <p className="form-hint mt16" style={{ fontSize: 9 }}>
+        <p className="form-hint mt16" style={{ fontSize: 11 }}>
           {m.note}
         </p>
         {error && (

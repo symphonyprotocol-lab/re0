@@ -1,6 +1,6 @@
 'use client';
 
-import Link from 'next/link';
+import { WorkspaceLink as Link } from '@/components/shell/workspace-link';
 import { useEffect, useState } from 'react';
 import { KNOWLEDGE_FOLDER_NAME_MAX, KNOWLEDGE_TITLE_MAX } from '@/lib/constants';
 import { holdFor, type KnowledgeKind } from '@/lib/domain/knowledge';
@@ -34,10 +34,8 @@ export type Dialog =
 
 export const isBusy = (item: { status: string }) => item.status === 'pending' || item.status === 'processing';
 
-/** What reprocessing one source reserves (8.2): its kind's cap, text by length, audio by size. */
+/** What reprocessing one source reserves (8.2): its previous text size or an initial estimate. */
 export function reprocessCost(item: Pick<ActionItem, 'kind' | 'chars' | 'fileSize'>): number {
-  if (item.kind === 'text') return holdFor('text', 'x'.repeat(item.chars));
-  if (item.kind === 'audio') return holdFor('audio', item.fileSize ?? 0);
   return holdFor(item.kind);
 }
 
@@ -131,7 +129,7 @@ export function KnowledgeDialogs({
     <p role="alert" className="form-error">
       {error.text}{' '}
       {error.code === 'insufficient_credits' && (
-        <Link href="/settings?tab=billing" className="font-semibold underline">
+        <Link href="/settings?tab=balance" className="font-semibold underline">
           {t.chat.insufficient.topUp}
         </Link>
       )}

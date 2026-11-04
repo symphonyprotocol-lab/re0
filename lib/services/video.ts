@@ -38,6 +38,7 @@ import {
 } from '@/lib/domain/video';
 import { appBaseUrl } from '@/lib/http/cookies';
 import { modelFor } from '@/lib/infra/ai/models';
+import { generationForUser } from '@/lib/services/generation';
 import { blobSize, deleteBlob, uploadTicket, type UploadTicket } from '@/lib/infra/blob';
 import { db, schema, type Executor, type Tx } from '@/lib/infra/db';
 import { answerable, retrieve } from '@/lib/services/chat';
@@ -254,7 +255,7 @@ async function realAnswer(ree: typeof schema.ree.$inferSelect): Promise<{ questi
   if (!question) return null;
   const found = await retrieve(ree.id, question);
   if (!found.evidence) return null;
-  const generation = await modelFor('generation');
+  const generation = await generationForUser(ree.ownerId, 'video_answer');
   const { text } = await generateText({
     model: generation.model,
     instructions: instructionsFor({ reeName: ree.name, systemPrompt: ree.systemPrompt, lang: /[㐀-鿿]/.test(question) ? 'zh' : 'en' }),
@@ -338,8 +339,8 @@ function describeError(error: SceneError, scenes: VideoScenes): string {
  * not fit (2.6 "超出的由生成器重写而不是截断"); nothing is cut here except
  * titles past the fourth. Throws when it still does not fit.
  */
-export async function writeScript(input: Material): Promise<VideoScenes> {
-  const generation = await modelFor('generation');
+export async function writeScript(input: Material, userId?: string): Promise<VideoScenes> {
+  const generation = await (userId ? generationForUser(userId, 'video_script') : modelFor('generation', 'free', { purpose: 'video_script' }));
   const ask = async (instructions: string, prompt: string) => {
     const { output } = await generateText({
       model: generation.model,
@@ -378,7 +379,7 @@ export async function writeScript(input: Material): Promise<VideoScenes> {
  * stores it (a new revision; the style is kept) and settles; any failure
  * releases the hold. Needs a ready source (8.4 acceptance).
  */
-export async function generateScript(ownerId: string, reeId: string, write: (input: Material) => Promise<VideoScenes> = writeScript) {
+export async function generateScript(ownerId: string, reeId: string, write: (input: Material) => Promise<VideoScenes> = (input) => writeScript(input, ownerId)) {
   const database = db();
   const { ree, holdId } = await database.transaction(async (tx) => {
     const ree = await ownerRee(tx, ownerId, reeId, true);

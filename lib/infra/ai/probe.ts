@@ -48,7 +48,7 @@ export async function probeEndpoint(endpoint: ModelEndpoint): Promise<ProbeResul
   try {
     if (endpoint.kind === 'generation') {
       const result = await generateText({
-        model: languageModel(endpoint),
+        model: languageModel(endpoint, { purpose: 'probe' }),
         prompt: 'Reply with the single word OK.',
         maxOutputTokens: 16,
         maxRetries: 0,

@@ -1,6 +1,6 @@
 'use client';
 
-import Link from 'next/link';
+import { WorkspaceLink as Link } from '@/components/shell/workspace-link';
 import { useRouter } from 'next/navigation';
 import { useState, type ReactNode } from 'react';
 import { KYC_DOCUMENT_KINDS, KYC_IMAGE_MAX_BYTES, KYC_IMAGE_TYPES, KYC_LIMITS, TAX_FORMS } from '@/lib/constants';
@@ -223,7 +223,7 @@ export function IdentityForm({ state, record, today }: { state: KycState; record
           )}
           {!locked && (
             <div className="kyc-page-actions">
-              <Link href="/settings?tab=billing" className="btn secondary">
+              <Link href="/settings?tab=balance" className="btn secondary">
                 {f.cancel}
               </Link>
               <button type="submit" className="btn" disabled={busy || uploading}>

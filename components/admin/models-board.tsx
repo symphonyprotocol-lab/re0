@@ -1,10 +1,13 @@
 'use client';
 
+import { WorkspaceLink as Link } from '@/components/shell/workspace-link';
 import { useRouter } from 'next/navigation';
 import { useEffect, useState } from 'react';
 import { MODEL_ID_MAX_LENGTH, MODEL_KINDS, MODEL_NAME_MAX_LENGTH, MODEL_TIMEOUT_MS, type ModelKind } from '@/lib/constants';
-import type { ModelTransport } from '@/lib/domain/models';
+import type { GenerationAudience, ModelTransport } from '@/lib/domain/models';
 import type { ModelConfigView } from '@/lib/services/models';
+import type { ServicePricingInput } from '@/lib/domain/service-pricing';
+import { ServiceCostFields } from '@/components/admin/service-cost-fields';
 import { api } from '@/lib/client/upload';
 import { useI18n } from '@/i18n/client';
 import { fill, formatDateTime, formatNumber } from '@/i18n/format';
@@ -33,6 +36,7 @@ export interface ReembedJobView {
 }
 
 const JOB_POLL_MS = 2_000;
+const AUDIENCES: GenerationAudience[] = ['free', 'plan'];
 
 /** Prototype `jobHTML()`: from → to, status, progress, and what the state means for retrieval. */
 function JobCard({ job }: { job: ReembedJobView }) {
@@ -87,11 +91,14 @@ interface Draft {
   timeout: number;
   enabled: boolean;
   tail: string | null;
+  inputUsdPerMillion: string;
+  outputUsdPerMillion: string;
+  costPricing: ServicePricingInput | null;
 }
 
 /**
- * `/admin/models` (2.5): a card per kind, any number of entries, exactly one
- * active. Active entries cannot change model or endpoint; generation and
+ * `/admin/models` (2.5): a card per kind, any number of entries, one active
+ * per generation audience (one per kind otherwise). Active entries cannot change model or endpoint; generation and
  * transcription switch on activation, embedding starts the full re-embed
  * job, whose progress is polled every two seconds while it runs; no other
  * embedding switch until it ends. Probes send a real request.
@@ -105,7 +112,7 @@ export function ModelsBoard({ initial, initialJob }: { initial: Board; initialJo
   const [error, setError] = useState('');
   const [saving, setSaving] = useState(false);
   const [probes, setProbes] = useState<Record<string, { busy: boolean; ok?: boolean; text?: string }>>({});
-  const [activate, setActivate] = useState<ModelConfigView | null>(null);
+  const [activate, setActivate] = useState<{ config: ModelConfigView; audience: GenerationAudience } | null>(null);
   const [job, setJob] = useState<ReembedJobView | null>(initialJob);
   const board = initial;
   const running = job?.status === 'running';
@@ -148,10 +155,13 @@ export function ModelsBoard({ initial, initialJob }: { initial: Board; initialJo
             model: config.model,
             apiKey: '',
             timeout: Math.round(config.timeoutMs / 1000),
-            enabled: config.enabled,
+            enabled: config.enabled || config.enabledPlan,
             tail: config.apiKeyTail,
+            inputUsdPerMillion: config.generationPricing?.inputUsdPerMillion ?? '',
+            outputUsdPerMillion: config.generationPricing?.outputUsdPerMillion ?? '',
+            costPricing: config.costPricing,
           }
-        : { id: null, name: '', kind, transport: 'gateway', baseUrl: '', model: '', apiKey: '', timeout: 60, enabled: false, tail: null },
+        : { id: null, name: '', kind, transport: 'gateway', baseUrl: '', model: '', apiKey: '', timeout: 60, enabled: false, tail: null, inputUsdPerMillion: '', outputUsdPerMillion: '', costPricing: null },
     );
   };
 
@@ -167,6 +177,8 @@ export function ModelsBoard({ initial, initialJob }: { initial: Board; initialJo
       model: draft.model,
       apiKey: draft.apiKey,
       timeoutMs: Math.round(draft.timeout * 1000),
+      ...(draft.kind === 'generation' && draft.transport === 'openai_compatible' ? { generationPricing: { inputUsdPerMillion: draft.inputUsdPerMillion, outputUsdPerMillion: draft.outputUsdPerMillion } } : {}),
+      ...(draft.kind !== 'generation' ? { costPricing: draft.costPricing } : {}),
     };
     const result = draft.id
       ? await api<{ error?: string }>(`/api/admin/models/${draft.id}`, { method: 'PUT', json: payload })
@@ -174,7 +186,7 @@ export function ModelsBoard({ initial, initialJob }: { initial: Board; initialJo
     setSaving(false);
     if (!result.ok) {
       const code = result.data.error as keyof typeof m.errors | undefined;
-      setError(code && code in m.errors ? m.errors[code] : t.common.errors.generic);
+      setError(result.data.error === 'cost_pricing' ? t.servicePricing.invalid : code && code in m.errors ? m.errors[code] : t.common.errors.generic);
       return;
     }
     setDraft(null);
@@ -195,7 +207,7 @@ export function ModelsBoard({ initial, initialJob }: { initial: Board; initialJo
     router.refresh();
   };
 
-  const doActivate = async (config: ModelConfigView) => {
+  const doActivate = async (config: ModelConfigView, audience: GenerationAudience) => {
     setActivate(null);
     if (config.kind === 'embedding') {
       /* The re-embed endpoint creates the job and starts it after answering; with nothing indexed it simply enables the entry. */
@@ -216,7 +228,7 @@ export function ModelsBoard({ initial, initialJob }: { initial: Board; initialJo
       router.refresh();
       return;
     }
-    const result = await api<{ activated: boolean; reembed: boolean }>(`/api/admin/models/${config.id}/activate`, { method: 'POST' });
+    const result = await api<{ activated: boolean; reembed: boolean }>(`/api/admin/models/${config.id}/activate`, { method: 'POST', json: { audience } });
     if (!result.ok) return toast(t.common.errors.generic);
     router.refresh();
   };
@@ -238,10 +250,10 @@ export function ModelsBoard({ initial, initialJob }: { initial: Board; initialJo
         title={m.title}
         lede={m.lede}
         actions={
-          <button type="button" className="btn" onClick={() => open('generation')}>
+          <div className="flex"><Link href="/admin/model-calls" className="btn secondary">{t.modelCalls.title}</Link><button type="button" className="btn" onClick={() => open('generation')}>
             <CI name="plus" />
             {m.add}
-          </button>
+          </button></div>
         }
       />
       <div className="info-strip mb16">
@@ -264,7 +276,20 @@ export function ModelsBoard({ initial, initialJob }: { initial: Board; initialJo
                   <p>{m.kindNotes[kind]}</p>
                 </div>
               </div>
-              {!active && (
+              {kind === 'generation' && (
+                <div className="model-audiences">
+                  {AUDIENCES.map((audience) => {
+                    const current = configs.find((config) => audience === 'plan' ? config.enabledPlan : config.enabled);
+                    return (
+                      <div key={audience} className="info-strip mb16">
+                        <CI name={current ? 'check' : 'info'} />
+                        <span><strong>{m.audiences[audience]}</strong> · {current ? `${current.name} · ${current.model}` : fill(m.fallbackBody, { model: board.fallbacks[kind].model })}</span>
+                      </div>
+                    );
+                  })}
+                </div>
+              )}
+              {kind !== 'generation' && !active && (
                 <div className="info-strip mb16">
                   <CI name="info" />
                   <span>
@@ -275,17 +300,25 @@ export function ModelsBoard({ initial, initialJob }: { initial: Board; initialJo
               {configs.map((config) => {
                 const result = probes[config.id];
                 const line = probeLine(config);
+                const enabled = config.enabled || config.enabledPlan;
                 return (
-                  <article key={config.id} className={`model-config ${config.enabled ? 'enabled' : ''}`}>
+                  <article key={config.id} className={`model-config ${enabled ? 'enabled' : ''}`}>
                     <div className="between">
                       <strong>{config.name}</strong>
-                      <Tag tone={config.enabled ? 'green' : 'grey'}>{config.enabled ? m.enabled : m.inactive}</Tag>
+                      <Tag tone={enabled ? 'green' : 'grey'}>{kind === 'generation' && enabled ? AUDIENCES.filter((audience) => audience === 'plan' ? config.enabledPlan : config.enabled).map((audience) => m.audiences[audience]).join(' · ') : enabled ? m.enabled : m.inactive}</Tag>
                     </div>
                     <code>{config.model}</code>
                     <p>
                       {m.transports[config.transport]} · {Math.round(config.timeoutMs / 1000)}s
                     </p>
                     {config.baseUrl && <p className="model-endpoint">{config.baseUrl}</p>}
+                    {kind === 'generation' && <p className="model-generation-pricing">
+                      {config.transport === 'gateway' ? m.pricing.gateway : m.pricing.manual}
+                      <br />{fill(m.pricing.summary, { input: config.generationPricing?.inputUsdPerMillion ?? '—', output: config.generationPricing?.outputUsdPerMillion ?? '—' })}
+                    </p>}
+                    {kind !== 'generation' && <p className="service-cost-summary">
+                      {t.servicePricing.title} · {config.costPricing ? fill(t.servicePricing.summary, { price: config.costPricing.price, unit: t.servicePricing.units[config.costPricing.unit] }) : config.transport === 'gateway' ? t.servicePricing.automatic : t.servicePricing.unknown}
+                    </p>}
                     <div className="between model-key">
                       <span>
                         <CI name="lock" /> {config.hasKey ? `•••• ${config.apiKeyTail ?? ''}` : m.noKey}
@@ -295,11 +328,19 @@ export function ModelsBoard({ initial, initialJob }: { initial: Board; initialJo
                       </button>
                     </div>
                     {line && <div className={`probe-result ${line.ok ? '' : 'error'}`}>{line.text}</div>}
-                    <div className="flex">
+                    <div className="flex model-config-actions">
                       <button type="button" className="btn secondary sm" onClick={() => probe(config)} disabled={result?.busy}>
                         {result?.busy ? m.probing : m.probe}
                       </button>
-                      {config.enabled ? (
+                      {kind === 'generation' ? AUDIENCES.map((audience) => (
+                        (audience === 'plan' ? config.enabledPlan : config.enabled) ? (
+                          <span key={audience} className="small muted"><CI name="check" /> {fill(m.inUseFor, { audience: m.audiences[audience] })}</span>
+                        ) : (
+                          <button key={audience} type="button" className="btn sm" onClick={() => setActivate({ config, audience })}>
+                            {fill(m.activateFor, { audience: m.audiences[audience] })}
+                          </button>
+                        )
+                      )) : config.enabled ? (
                         <span className="small muted">
                           <CI name="check" />
                           {m.inUse}
@@ -308,7 +349,7 @@ export function ModelsBoard({ initial, initialJob }: { initial: Board; initialJo
                         <button
                           type="button"
                           className="btn sm"
-                          onClick={() => setActivate(config)}
+                          onClick={() => setActivate({ config, audience: 'free' })}
                           disabled={kind === 'embedding' && running}
                           title={kind === 'embedding' && running ? m.job.blocked : undefined}
                         >
@@ -363,7 +404,7 @@ export function ModelsBoard({ initial, initialJob }: { initial: Board; initialJo
             </div>
             <div className="field">
               <label htmlFor="model-kind">{m.form.kind}</label>
-              <select id="model-kind" value={draft.kind} disabled={Boolean(draft.id)} onChange={(event) => setDraft({ ...draft, kind: event.target.value as ModelKind })}>
+              <select id="model-kind" value={draft.kind} disabled={Boolean(draft.id)} onChange={(event) => setDraft({ ...draft, kind: event.target.value as ModelKind, costPricing: null })}>
                 {MODEL_KINDS.map((kind) => (
                   <option key={kind} value={kind}>
                     {m.kinds[kind]}
@@ -373,7 +414,7 @@ export function ModelsBoard({ initial, initialJob }: { initial: Board; initialJo
             </div>
             <div className="field">
               <label htmlFor="model-transport">{m.form.transport}</label>
-              <select id="model-transport" value={draft.transport} disabled={locked} onChange={(event) => setDraft({ ...draft, transport: event.target.value as ModelTransport })}>
+              <select id="model-transport" value={draft.transport} disabled={locked} onChange={(event) => setDraft({ ...draft, transport: event.target.value as ModelTransport, inputUsdPerMillion: '', outputUsdPerMillion: '' })}>
                 <option value="gateway">{m.transports.gateway}</option>
                 <option value="openai_compatible">{m.transports.openai_compatible}</option>
               </select>
@@ -389,6 +430,25 @@ export function ModelsBoard({ initial, initialJob }: { initial: Board; initialJo
               <input id="model-name" required maxLength={MODEL_ID_MAX_LENGTH} placeholder="provider/model" value={draft.model} disabled={locked} onChange={(event) => setDraft({ ...draft, model: event.target.value })} />
               <small>{draft.transport === 'gateway' ? m.form.modelHintGateway : m.form.modelHintCompatible}</small>
             </div>
+            {draft.kind === 'generation' && (draft.transport === 'gateway' ? (
+              <div className="info-strip"><CI name="info" /><span>{m.pricing.gatewayNote}</span></div>
+            ) : (
+              <>
+                <div className="field">
+                  <label htmlFor="model-input-price">{m.pricing.input}</label>
+                  <input id="model-input-price" type="number" min="0" max="99999999.999999" step="0.000001" value={draft.inputUsdPerMillion} onChange={(event) => setDraft({ ...draft, inputUsdPerMillion: event.target.value })} />
+                </div>
+                <div className="field">
+                  <label htmlFor="model-output-price">{m.pricing.output}</label>
+                  <input id="model-output-price" type="number" min="0" max="99999999.999999" step="0.000001" value={draft.outputUsdPerMillion} onChange={(event) => setDraft({ ...draft, outputUsdPerMillion: event.target.value })} />
+                  <small>{m.pricing.manualNote}</small>
+                </div>
+              </>
+            ))}
+            {draft.kind !== 'generation' && <>
+              <ServiceCostFields service={draft.kind} value={draft.costPricing} onChange={(costPricing) => setDraft({ ...draft, costPricing })} note={t.servicePricing.modelNote} />
+              <p className="small muted">{draft.transport === 'gateway' ? t.servicePricing.gatewayNote : t.servicePricing.unknownNote}</p>
+            </>}
             <div className="field">
               <label htmlFor="model-key">{m.form.apiKey}</label>
               <input
@@ -424,11 +484,11 @@ export function ModelsBoard({ initial, initialJob }: { initial: Board; initialJo
 
       <ConfirmModal
         open={Boolean(activate)}
-        title={activate?.kind === 'embedding' ? m.reembedTitle : fill(m.activateTitle, { name: activate?.name ?? '' })}
-        body={activate?.kind === 'embedding' ? fill(m.job.confirmBody, { name: activate.name }) : m.activateBody}
-        confirmLabel={activate?.kind === 'embedding' ? m.reembed : m.activate}
+        title={activate?.config.kind === 'embedding' ? m.reembedTitle : activate?.config.kind === 'generation' ? fill(m.activateAudienceTitle, { name: activate.config.name, audience: m.audiences[activate.audience] }) : fill(m.activateTitle, { name: activate?.config.name ?? '' })}
+        body={activate?.config.kind === 'embedding' ? fill(m.job.confirmBody, { name: activate.config.name }) : activate?.config.kind === 'generation' ? fill(m.activateAudienceBody, { audience: m.audiences[activate.audience] }) : m.activateBody}
+        confirmLabel={activate?.config.kind === 'embedding' ? m.reembed : m.activate}
         onClose={() => setActivate(null)}
-        onConfirm={() => activate && doActivate(activate)}
+        onConfirm={() => activate && doActivate(activate.config, activate.audience)}
       />
     </>
   );

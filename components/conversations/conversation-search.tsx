@@ -1,7 +1,8 @@
 'use client';
 
-import Link from 'next/link';
-import { usePathname, useRouter } from 'next/navigation';
+import { WorkspaceLink as Link } from '@/components/shell/workspace-link';
+import { usePathname } from 'next/navigation';
+import { useNavigationRouter as useRouter } from '@/components/shell/navigation-provider';
 import { Fragment, useEffect, useRef, useState, useTransition } from 'react';
 import { CONVERSATION_PERIODS, LIST_PAGE_SIZES } from '@/lib/constants';
 import {
@@ -15,6 +16,7 @@ import {
   type ConversationView,
 } from '@/lib/domain/conversation';
 import { conversationApi } from '@/lib/client/conversations';
+import { animateConversationRemoval } from '@/lib/client/conversation-removal';
 import type { ConversationCounts } from '@/lib/services/conversations';
 import { useI18n } from '@/i18n/client';
 import { fill, formatNumber } from '@/i18n/format';
@@ -65,7 +67,7 @@ function Marked({ text, q }: { text: string; q: string }) {
  * message text and Ree names, with the Ree, time and sort filters always
  * shown; 全部 / 最近 / 置顶 / 归档 / 回收站 tabs whose counts follow the search;
  * results grouped by day, matches marked; a menu per row; and a selection
- * mode for batch pin, archive, trash and restore -- across pages too. Every
+ * mode for batch pin, archive, trash, restore and permanent deletion -- across pages too. Every
  * condition lives in the URL, so refresh and back / forward restore it.
  */
 export function ConversationSearch({
@@ -94,6 +96,9 @@ export function ConversationSearch({
   const [confirm, setConfirm] = useState<OrganizeRequest | null>(null);
   const [renaming, setRenaming] = useState<SearchItem | null>(null);
   const [previewing, setPreviewing] = useState<SearchItem | null>(null);
+  const [deleting, setDeleting] = useState<Set<string>>(new Set());
+  const [removed, setRemoved] = useState<Set<string>>(new Set());
+  const deletionInFlight = useRef(false);
   const box = useRef<HTMLInputElement>(null);
   const typed = useRef(false);
   const page = useRef<HTMLDivElement>(null);
@@ -150,37 +155,60 @@ export function ConversationSearch({
   }, [q]);
 
   const filtered = Boolean(query.q || query.ree || query.days);
-  const pageIds = result.items.map((item) => item.id);
+  // Hide confirmed deletions locally so a slow refresh cannot bring an exited row back.
+  const items = result.items.filter((item) => !removed.has(item.id));
+  const pageIds = items.map((item) => item.id);
   const allOnPage = pageIds.length > 0 && pageIds.every((id) => selected.has(id));
-  const chosen = result.items.filter((item) => selected.has(item.id));
+  const chosen = items.filter((item) => selected.has(item.id));
   const selfPath = (() => {
     const params = conversationSearchParams(shown);
     return params.size ? `/chats?${params}` : '/chats';
   })();
 
   const run = async (action: BatchAction, ids: string[]) => {
+    if (deletionInFlight.current) return;
+    if (action === 'delete') {
+      deletionInFlight.current = true;
+      setDeleting(new Set(ids));
+    }
     try {
       const { changed } = await conversationApi.batch(action, ids);
+      // A stale or partially changed selection must be reconciled by the server.
+      if (action === 'delete' && changed > 0 && changed === new Set(ids).size) {
+        const targets = new Set(ids);
+        const rows = Array.from(page.current?.querySelectorAll<HTMLElement>('[data-conversation-id]') ?? [])
+          .filter((row) => targets.has(row.dataset.conversationId!));
+        await animateConversationRemoval(rows, window.matchMedia('(prefers-reduced-motion: reduce)').matches);
+        setRemoved((current) => new Set([...current, ...ids]));
+      }
       setSelected(new Set());
       toast(
         action === 'trash'
           ? s.trashed
           : action === 'restore'
             ? fill(s.restored, { n: changed })
-            : action === 'pin'
-              ? s.pinnedToast
-              : action === 'unpin'
-                ? s.unpinnedToast
-                : fill(s.changed, { n: changed }),
+            : action === 'delete'
+              ? fill(s.deleted, { n: changed })
+              : action === 'pin'
+                ? s.pinnedToast
+                : action === 'unpin'
+                  ? s.unpinnedToast
+                  : fill(s.changed, { n: changed }),
       );
       router.refresh();
     } catch {
       toast(t.common.errors.generic);
+    } finally {
+      if (action === 'delete') {
+        deletionInFlight.current = false;
+        setDeleting(new Set());
+      }
     }
   };
 
   const ask = (action: BatchAction, ids: string[]) => {
-    if (action === 'archive' || action === 'unarchive' || action === 'trash') {
+    if (deletionInFlight.current) return;
+    if (action === 'archive' || action === 'unarchive' || action === 'trash' || action === 'delete') {
       const titles = result.items.filter((item) => ids.includes(item.id)).map((item) => item.title || t.conversations.sidebar.untitled);
       setConfirm({ action, ids, titles });
     } else void run(action, ids);
@@ -305,7 +333,9 @@ export function ConversationSearch({
 
       <div className="cl-filter-summary" aria-live="polite">
         <span role="status">
-          {filtered ? fill(s.found, { n: formatNumber(result.total, locale) }) : `${fill(s.total, { n: formatNumber(result.total, locale) })}${query.view === 'all' ? s.includesArchived : ''}`}
+          {deleting.size > 0
+            ? fill(s.deleting, { n: formatNumber(deleting.size, locale) })
+            : filtered ? fill(s.found, { n: formatNumber(result.total, locale) }) : `${fill(s.total, { n: formatNumber(result.total, locale) })}${query.view === 'all' ? s.includesArchived : ''}`}
           {pending && <i className="spinner" style={{ width: 9, height: 9, marginLeft: 8, verticalAlign: 'middle' }} />}
         </span>
         {filtered && (
@@ -322,7 +352,7 @@ export function ConversationSearch({
         )}
       </div>
 
-      <section className="card cl-results" aria-label={s.resultsLabel}>
+      <section className="card cl-results" aria-label={s.resultsLabel} aria-busy={deleting.size > 0}>
         <div className={`cl-selection${selected.size ? ' active' : ''}`}>
           <div className="p-flex">
             <I name={selected.size ? 'check' : 'info'} />
@@ -336,10 +366,16 @@ export function ConversationSearch({
           <div className="cl-bulk-actions">
             {selected.size > 0 &&
               (query.view === 'trash' ? (
-                <button type="button" className="btn secondary sm" onClick={() => ask('restore', [...selected])}>
-                  <I name="refresh" />
-                  {s.restore}
-                </button>
+                <>
+                  <button type="button" className="btn secondary sm" disabled={deleting.size > 0} onClick={() => ask('restore', [...selected])}>
+                    <I name="refresh" />
+                    {s.restore}
+                  </button>
+                  <button type="button" className="btn-danger btn-sm" disabled={deleting.size > 0} aria-haspopup="dialog" onClick={() => ask('delete', [...selected])}>
+                    <I name="trash" />
+                    {s.deleteNow}
+                  </button>
+                </>
               ) : (
                 <>
                   {query.view !== 'archived' && (
@@ -382,7 +418,7 @@ export function ConversationSearch({
               className="cl-select-page"
               aria-label={s.selectPageLabel}
               checked={allOnPage}
-              disabled={!pageIds.length}
+              disabled={!pageIds.length || deleting.size > 0}
               ref={(node) => {
                 if (node) node.indeterminate = !allOnPage && pageIds.some((id) => selected.has(id));
               }}
@@ -403,14 +439,15 @@ export function ConversationSearch({
         </div>
 
         <div className="cl-scroll">
-          {result.items.length === 0 ? (
+          {items.length === 0 ? (
             <Empty view={query.view} filtered={filtered} onReset={() => go({ q: '', ree: null, days: null })} onRecent={() => go({ view: 'recent' })} />
           ) : (
-            result.items.map((item) => {
+            items.map((item) => {
               const group = groupOf(item);
               const heading = group !== previousGroup ? <h2 className="cl-date-group">{group}</h2> : null;
               previousGroup = group;
               const trash = query.view === 'trash';
+              const isDeleting = deleting.has(item.id);
               const title = item.title || t.conversations.sidebar.untitled;
               const date = dateLabel(trash ? item.deletedAt ?? item.updatedAt : item.updatedAt);
               const main = (
@@ -460,12 +497,13 @@ export function ConversationSearch({
               return (
                 <Fragment key={item.id}>
                   {heading}
-                  <article className={`cl-row${selected.has(item.id) ? ' selected' : ''}`}>
+                  <article data-conversation-id={item.id} aria-busy={isDeleting} className={`cl-row${selected.has(item.id) ? ' selected' : ''}${isDeleting ? ' is-deleting' : ''}`}>
                     <label className="cl-check">
                       <input
                         type="checkbox"
                         aria-label={`${s.selectPrefix}${title}`}
                         checked={selected.has(item.id)}
+                        disabled={deleting.size > 0}
                         onChange={(event) =>
                           setSelected((current) => {
                             const next = new Set(current);
@@ -477,7 +515,7 @@ export function ConversationSearch({
                       />
                     </label>
                     {trash ? (
-                      <button type="button" className="cl-main" aria-haspopup="dialog" onClick={() => setPreviewing(item)}>
+                      <button type="button" className="cl-main" disabled={isDeleting} aria-haspopup="dialog" onClick={() => setPreviewing(item)}>
                         {main}
                       </button>
                     ) : (
@@ -488,11 +526,21 @@ export function ConversationSearch({
                     <time className="cl-time" dateTime={item.updatedAt} title={item.updatedAt}>
                       {date}
                     </time>
-                    <div className="cl-row-actions">
-                      {trash ? (
-                        <button type="button" className="icon-btn" aria-label={fill(s.restoreOne, { title })} title={fill(s.restoreOne, { title })} onClick={() => ask('restore', [item.id])}>
-                          <I name="refresh" />
-                        </button>
+                    <div className={`cl-row-actions${trash ? ' cl-trash-actions' : ''}`}>
+                      {isDeleting ? (
+                        <span className="cl-row-deleting">
+                          <i className="spinner" aria-hidden="true" />
+                          {s.deletingOne}
+                        </span>
+                      ) : trash ? (
+                        <>
+                          <button type="button" className="icon-btn" disabled={deleting.size > 0} aria-label={fill(s.restoreOne, { title })} title={fill(s.restoreOne, { title })} onClick={() => ask('restore', [item.id])}>
+                            <I name="refresh" />
+                          </button>
+                          <button type="button" className="icon-btn cl-delete-now" disabled={deleting.size > 0} aria-haspopup="dialog" aria-label={fill(s.deleteOne, { title })} title={fill(s.deleteOne, { title })} onClick={() => ask('delete', [item.id])}>
+                            <I name="trash" />
+                          </button>
+                        </>
                       ) : (
                         <ConversationMenu
                           title={title}
@@ -564,6 +612,10 @@ export function ConversationSearch({
         onRestore={async (id) => {
           setPreviewing(null);
           await run('restore', [id]);
+        }}
+        onDelete={(id) => {
+          setPreviewing(null);
+          ask('delete', [id]);
         }}
       />
       <RenameDialog

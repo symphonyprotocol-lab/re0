@@ -13,6 +13,7 @@ import { searchTerms } from '@/lib/domain/retrieval';
 
 export interface FakeOpenAi {
   baseUrl: string;
+  billing: { embeddingTokens: number; omitEmbeddingUsage: boolean };
   requests: { path: string; model: string }[];
   /** Text for transcript segments, keyed `piece:segment` (both from 0). */
   transcripts: Map<string, string>;
@@ -65,6 +66,7 @@ export function videoScript(prompt: string, rewrite: boolean) {
 /** `delayMs` spaces the streamed pieces out, so answers streamed side by side visibly interleave. */
 export async function startFakeOpenAi(port = 0, options: { delayMs?: number } = {}): Promise<FakeOpenAi> {
   const requests: FakeOpenAi['requests'] = [];
+  const billing = { embeddingTokens: 1000, omitEmbeddingUsage: false };
   const transcripts = new Map<string, string>();
   let transcriptionCalls = 0;
   const server: Server = createServer(async (req, res) => {
@@ -93,7 +95,7 @@ export async function startFakeOpenAi(port = 0, options: { delayMs?: number } = 
     if (req.url?.endsWith('/embeddings')) {
       const inputs = Array.isArray(body.input) ? body.input : [String(body.input ?? '')];
       res.writeHead(200, { 'content-type': 'application/json' });
-      res.end(JSON.stringify({ object: 'list', model: body.model, data: inputs.map((input, index) => ({ object: 'embedding', index, embedding: vectorOf(input) })), usage: { prompt_tokens: 1, total_tokens: 1 } }));
+      res.end(JSON.stringify({ object: 'list', model: body.model, data: inputs.map((input, index) => ({ object: 'embedding', index, embedding: vectorOf(input) })), ...(!billing.omitEmbeddingUsage ? { usage: { prompt_tokens: billing.embeddingTokens, total_tokens: billing.embeddingTokens } } : {}) }));
       return;
     }
     if (req.url?.endsWith('/chat/completions')) {
@@ -129,6 +131,7 @@ export async function startFakeOpenAi(port = 0, options: { delayMs?: number } = 
   const address = server.address() as { port: number };
   return {
     baseUrl: `http://127.0.0.1:${address.port}/v1`,
+    billing,
     requests,
     transcripts,
     close: () => new Promise((resolve) => server.close(() => resolve())),

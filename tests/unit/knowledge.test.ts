@@ -1,13 +1,15 @@
 import { describe, expect, it } from 'vitest';
-import { chunkSections, holdFor, validDocument, validText } from '@/lib/domain/knowledge';
-import { htmlToMarkdown } from '@/lib/infra/connectors/docx';
-import { pdfSections } from '@/lib/infra/connectors/pdf';
-import { handbookPages, makePdf } from '../fixtures/pdf';
+import { ADD_KNOWLEDGE_KINDS, chunkSections, holdFor, validDocument, validText } from '@/lib/domain/knowledge';
 
 describe('knowledge rules', () => {
-  it('holds 20 for a document and the exact price for text (8.2)', () => {
-    expect(holdFor('document')).toBe(20);
-    expect(holdFor('text', 'a'.repeat(1001))).toBe(2);
+  it('exposes five new source choices while retaining historical text support', () => {
+    expect(ADD_KNOWLEDGE_KINDS).toEqual(['document', 'audio', 'github', 'page', 'site']);
+  });
+
+  it('reserves a refundable balance check independently of source type or text size', () => {
+    expect(holdFor('document')).toBe(1);
+    expect(holdFor('text', 'a'.repeat(1001))).toBe(1);
+    expect(holdFor('audio', 100 * 1024 * 1024)).toBe(1);
   });
 
   it('accepts PDF, DOCX, MD and TXT up to 20 MB', () => {
@@ -36,20 +38,5 @@ describe('knowledge rules', () => {
     const chunks = chunkSections([{ text: long, locator: {} }]);
     expect(chunks.length).toBeGreaterThan(10);
     expect(Math.max(...chunks.map((chunk) => chunk.content.length))).toBeLessThan(5000);
-  });
-});
-
-describe('connectors', () => {
-  it('reads a 30-page PDF page by page', async () => {
-    const sections = await pdfSections(makePdf(handbookPages()), 'handbook.pdf', null);
-    expect(sections).toHaveLength(30);
-    expect(sections[2]!.locator).toEqual({ page: 3 });
-    expect(sections[2]!.text).toContain('Refunds are issued to the original payment method within 14 days');
-  });
-
-  it('turns mammoth HTML into Markdown', () => {
-    expect(htmlToMarkdown('<h1>Title</h1><p>Hello <strong>world</strong> &amp; more</p><ul><li>One</li></ul><table><tr><td>a</td><td>b</td></tr></table>')).toBe(
-      '# Title\n\nHello **world** & more\n\n- One\n\n| a | b |',
-    );
   });
 });

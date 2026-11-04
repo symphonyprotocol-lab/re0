@@ -1,6 +1,6 @@
 'use client';
 
-import Link from 'next/link';
+import { WorkspaceLink as Link } from '@/components/shell/workspace-link';
 import { useEffect, useRef, useState } from 'react';
 import { useI18n } from '@/i18n/client';
 import { Icon, type IconName } from '@/components/ui/icons';

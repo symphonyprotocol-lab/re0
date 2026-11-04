@@ -1,6 +1,6 @@
 'use client';
 
-import { useRouter } from 'next/navigation';
+import { useNavigationRouter as useRouter } from '@/components/shell/navigation-provider';
 import { useState } from 'react';
 import { ADMIN_REASON, PAYOUT_TRANSFER_ID_MAX } from '@/lib/constants';
 import { creditsToCents, formatCentsUsd as usd, liveFeeCents } from '@/lib/domain/payouts';

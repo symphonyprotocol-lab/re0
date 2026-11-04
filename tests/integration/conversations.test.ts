@@ -195,6 +195,7 @@ describeWithDb('multi-Ree conversations', () => {
     const pricey = await reeOf(owner, { queryFee: 1_500 });
     const second = await reeOf(owner, { queryFee: 1_000 });
     const conversation = await conversations.createConversation(asker, { reeIds: [pricey.id, second.id] });
+    await db().update(schema.creditGrant).set({ remaining: 2_000 }).where(eq(schema.creditGrant.userId, asker));
     const response = await ask(asker, conversation.id, QUESTION);
     expect(response.status).toBe(402);
     expect(await response.json()).toMatchObject({ error: 'insufficient_credits', needed: 2_540 });
@@ -317,6 +318,47 @@ describeWithDb('multi-Ree conversations', () => {
     expect(await conversations.conversationPosition(userId, newest.id, 1)).toBeNull();
     /* 全部 still counts the archived one before it; the trashed one no longer. */
     expect(await conversations.conversationPosition(userId, oldest.id, 1)).toEqual({ view: 'all', page: 2 });
+  });
+
+  it('immediately deletes trashed conversations with their messages, feedback and participants', async () => {
+    const userId = await person();
+    const ree = await reeOf(userId, { content: null, isPublic: false });
+    const conversation = await conversations.createConversation(userId, { reeIds: [ree.id], title: 'Delete now' });
+    const empty = await conversations.createConversation(userId, { title: 'Empty chat' });
+    const [message] = await db().insert(schema.message).values({ conversationId: conversation.id, role: 'ree', reeId: ree.id, content: 'Remove this answer' }).returning();
+    await conversations.setFeedback(userId, message!.id, 'up');
+    await conversations.runBatch(userId, 'trash', [conversation.id, empty.id]);
+
+    expect(await conversations.runBatch(userId, 'delete', [conversation.id, empty.id, conversation.id])).toBe(2);
+    expect(await conversations.liveConversation(userId, conversation.id, { trashed: true })).toBeNull();
+    expect(await conversations.liveConversation(userId, empty.id, { trashed: true })).toBeNull();
+    expect(await chat.messagesOf(conversation.id)).toHaveLength(0);
+    expect(await db().select().from(schema.conversationRee).where(eq(schema.conversationRee.conversationId, conversation.id))).toHaveLength(0);
+    expect(await db().select().from(schema.reeFeedback).where(eq(schema.reeFeedback.messageId, message!.id))).toHaveLength(0);
+    expect(await conversations.runBatch(userId, 'restore', [conversation.id])).toBe(0);
+    expect(await conversations.runBatch(userId, 'delete', [conversation.id])).toBe(0);
+  });
+
+  it('restricts immediate deletion to the caller’s trash, including mixed and restored selections', async () => {
+    const userId = await person();
+    const other = await person();
+    const trashed = await conversations.createConversation(userId, {});
+    const live = await conversations.createConversation(userId, {});
+    const archived = await conversations.createConversation(userId, {});
+    const restored = await conversations.createConversation(userId, {});
+    const foreign = await conversations.createConversation(other, {});
+    const ree = await reeOf(userId, { content: null, isPublic: false });
+    const [testChat] = await db().insert(schema.conversation).values({ userId, kind: 'ree_test', reeId: ree.id, deletedAt: new Date() }).returning();
+    await conversations.runBatch(userId, 'trash', [trashed.id, restored.id]);
+    await conversations.runBatch(userId, 'restore', [restored.id]);
+    await conversations.runBatch(userId, 'archive', [archived.id]);
+    await conversations.runBatch(other, 'trash', [foreign.id]);
+
+    expect(await conversations.runBatch(userId, 'delete', [trashed.id, live.id, archived.id, restored.id, foreign.id, testChat!.id])).toBe(1);
+    const kept = await db().select({ id: schema.conversation.id }).from(schema.conversation).where(inArray(schema.conversation.id, [live.id, archived.id, restored.id, foreign.id, testChat!.id]));
+    expect(kept).toHaveLength(5);
+    expect(await conversations.runBatch(userId, 'delete', [])).toBe(0);
+    expect(await conversations.runBatch(userId, 'delete', ['invalid-id'])).toBe(0);
   });
 
   it('empties the trash after 30 days, messages included', async () => {

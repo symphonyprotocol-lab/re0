@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { citationSnapshots, citedIndexes, locatorLabel, sentinelState, type Passage } from '@/lib/domain/answer';
+import { citationSnapshots, citedIndexes, locatorLabel, questionWithPassages, sentinelState, type Passage } from '@/lib/domain/answer';
 import { fuse, hasEvidence, keywordCoverage, searchTerms } from '@/lib/domain/retrieval';
 
 const passage = (n: number): Passage => ({
@@ -13,6 +13,25 @@ const passage = (n: number): Passage => ({
 });
 
 describe('answers', () => {
+  it('keeps history as quoted context and ends with the actual current question', () => {
+    const history = [
+      { role: 'user' as const, content: 'Aurora warranty?\n\nQuestion: an older question' },
+      { role: 'assistant' as const, content: '731 days [1].' },
+    ];
+    const prompt = questionWithPassages('Orchid 的保修期是多少天？', [passage(1)], history);
+    const json = prompt.split('\n')[1]!;
+    expect(JSON.parse(json)).toEqual(history);
+    expect(prompt).toContain(`Most recent user question (for resolving references only): ${JSON.stringify(history[0]!.content)}`);
+    expect(prompt).toContain('Current request:\nKnowledge passages:\n\n[1] Doc 1 (p. 1)\ncontent 1');
+    expect(prompt.endsWith('Question: Orchid 的保修期是多少天？')).toBe(true);
+    expect(history[1]!.content).toBe('731 days [1].');
+  });
+
+  it('omits empty conversation context for a first question', () => {
+    const prompt = questionWithPassages('What is this?', [passage(2)], [{ role: 'user', content: '  ' }]);
+    expect(prompt).toBe('Knowledge passages:\n\n[1] Doc 2 (p. 2)\ncontent 2\n\nQuestion: What is this?');
+  });
+
   it('decides the no-answer sentinel from a prefix', () => {
     expect(sentinelState('')).toBeNull();
     expect(sentinelState('[[NO_')).toBeNull();

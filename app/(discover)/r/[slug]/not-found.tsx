@@ -1,4 +1,4 @@
-import Link from 'next/link';
+import { WorkspaceLink as Link } from '@/components/shell/workspace-link';
 import { currentUser } from '@/lib/http/session';
 import { serverMessages } from '@/i18n/server';
 import { Topbar } from '@/components/shell/topbar';

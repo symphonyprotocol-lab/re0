@@ -9,6 +9,7 @@
  * embedding switch keeps the old vectors in use until it completes and
  * leaves the old model on failure; invited administrators enrol once.
  */
+import { WELCOME_CREDITS } from '@/lib/constants';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { and, eq, inArray, isNotNull, lt, sql } from 'drizzle-orm';
 import { pointModelsAt, TEST_DATABASE_URL, uniqueName } from './setup';
@@ -239,15 +240,15 @@ describeWithDb('console users', () => {
     const userId = await newUser();
     await expect(adminUsers.adjustCredits(reviewer, userId, { bucket: 'plan', direction: 'grant', amount: 100, reason: 'goodwill' })).rejects.toMatchObject({ code: 'no_plan' });
     await adminUsers.adjustCredits(reviewer, userId, { bucket: 'pack', direction: 'grant', amount: 5_000, reason: 'support credit' });
-    expect(await balanceOf(db(), userId)).toBe(7_000);
+    expect(await balanceOf(db(), userId)).toBe(WELCOME_CREDITS + 5_000);
     await expect(adminUsers.adjustCredits(reviewer, userId, { bucket: 'pack', direction: 'deduct', amount: 5_001, reason: 'claw back' })).rejects.toMatchObject({ code: 'insufficient' });
     await adminUsers.adjustCredits(reviewer, userId, { bucket: 'pack', direction: 'deduct', amount: 5_000, reason: 'claw back' });
-    expect(await balanceOf(db(), userId)).toBe(2_000);
+    expect(await balanceOf(db(), userId)).toBe(WELCOME_CREDITS);
     /* An open debt is paid first: the notice and the audit say what the bucket actually gained. */
     await db().insert(schema.creditDebt).values({ userId, amount: 300, remaining: 300 });
     const paid = await adminUsers.adjustCredits(reviewer, userId, { bucket: 'pack', direction: 'grant', amount: 1_000, reason: 'with debt' });
     expect(paid).toMatchObject({ delta: 700, debtPaid: 300 });
-    expect(await balanceOf(db(), userId)).toBe(2_700);
+    expect(await balanceOf(db(), userId)).toBe(WELCOME_CREDITS + 700);
     const [latest] = (await notices.listNotices(userId, 1)).items;
     expect(latest!.params).toMatchObject({ delta: 700, debtPaid: 300 });
 

@@ -1,6 +1,6 @@
 'use client';
 
-import Link from 'next/link';
+import { WorkspaceLink as Link } from '@/components/shell/workspace-link';
 import { usePathname, useSearchParams } from 'next/navigation';
 import { Suspense } from 'react';
 

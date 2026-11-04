@@ -1,7 +1,8 @@
 'use client';
 
-import { usePathname, useRouter, useSearchParams } from 'next/navigation';
-import Link from 'next/link';
+import { usePathname, useSearchParams } from 'next/navigation';
+import { useNavigationRouter as useRouter } from '@/components/shell/navigation-provider';
+import { WorkspaceLink as Link } from '@/components/shell/workspace-link';
 import { useState, type FormEvent, type ReactNode } from 'react';
 import { api } from '@/lib/client/upload';
 import { useI18n } from '@/i18n/client';

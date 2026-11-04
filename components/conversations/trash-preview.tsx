@@ -9,9 +9,9 @@ import { Modal } from '@/components/ui/modal';
 /**
  * A conversation in the trash, read-only (prototype conversations.js
  * `cl-preview`): its last eight messages -- 我, the Ree's name, or
- * 已移除的 Ree -- and 恢复对话.
+ * 已移除的 Ree -- with restore and immediate deletion actions.
  */
-export function TrashPreview({ conversation, onClose, onRestore }: { conversation: { id: string; title: string } | null; onClose: () => void; onRestore: (id: string) => void | Promise<void> }) {
+export function TrashPreview({ conversation, onClose, onRestore, onDelete }: { conversation: { id: string; title: string } | null; onClose: () => void; onRestore: (id: string) => void | Promise<void>; onDelete: (id: string) => void }) {
   const { t } = useI18n();
   const s = t.conversations.search;
   const [messages, setMessages] = useState<TrashPreviewMessage[] | null>(null);
@@ -44,6 +44,10 @@ export function TrashPreview({ conversation, onClose, onRestore }: { conversatio
         <>
           <button type="button" className="btn-secondary" onClick={onClose}>
             {t.common.actions.cancel}
+          </button>
+          <button type="button" className="btn-danger" onClick={() => id && onDelete(id)}>
+            <Icon name="trash" className="size-4" />
+            {s.deleteNow}
           </button>
           <button type="button" className="btn" onClick={() => id && onRestore(id)}>
             <Icon name="refresh" className="size-4" />

@@ -175,8 +175,16 @@ describe('settlement notes', () => {
 
 describe('pages', () => {
   it('reads the ledger filter from the URL', () => {
-    expect(parseActivity(new URLSearchParams('activity=spend&page=3&size=50'), [20, 50, 100])).toEqual({ activity: 'spend', page: 3, size: 50 });
-    expect(parseActivity(new URLSearchParams('activity=bogus&page=-2&size=7'), [20, 50, 100])).toEqual({ activity: 'all', page: 1, size: 20 });
+    expect(parseActivity(new URLSearchParams('activity=spend&page=3&size=50'), [20, 50, 100])).toMatchObject({ activity: 'spend', page: 3, size: 50, period: 'all', q: '' });
+    expect(parseActivity(new URLSearchParams('activity=bogus&page=-2&size=7'), [20, 50, 100])).toMatchObject({ activity: 'all', page: 1, size: 20, period: 'all', q: '' });
+  });
+
+  it('normalizes reporting dates and search terms for both the page and API', () => {
+    const now = new Date('2026-11-04T04:00:00Z');
+    expect(parseActivity(new URLSearchParams('period=custom&start=2026-11-03&end=2026-11-01&q=%20Handbook%20'), [20, 50], now))
+      .toMatchObject({ period: 'custom', start: '2026-11-01', end: '2026-11-03', q: 'Handbook' });
+    expect(parseActivity(new URLSearchParams('period=day&date=broken'), [20], now))
+      .toMatchObject({ period: 'day', date: '2026-11-04' });
   });
 
   it('lets sign-in return to checkout with its query', () => {

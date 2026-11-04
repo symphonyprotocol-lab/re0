@@ -1,8 +1,9 @@
 'use client';
 
-import Link from 'next/link';
-import { usePathname, useRouter, useSearchParams } from 'next/navigation';
-import { useEffect, useRef, useState, type KeyboardEvent } from 'react';
+import { WorkspaceLink as Link } from '@/components/shell/workspace-link';
+import { usePathname, useSearchParams } from 'next/navigation';
+import { useNavigationRouter as useRouter } from '@/components/shell/navigation-provider';
+import { useEffect, useOptimistic, useRef, useState, useTransition, type CSSProperties, type KeyboardEvent, type MouseEvent } from 'react';
 import { RECENT_RANGES } from '@/lib/constants';
 import {
   PERIODS,
@@ -20,6 +21,7 @@ import { useI18n } from '@/i18n/client';
 import { fill } from '@/i18n/format';
 import { Icon } from '@/components/ui/icons';
 import { periodLabel } from '@/components/statistics/shared';
+import './period-controls.css';
 
 const DAY = 24 * 60 * 60 * 1000;
 const PERIOD_KEYS = ['period', 'date', 'start', 'end', 'page'];
@@ -62,11 +64,15 @@ function moveCursor(cursor: string, period: Period, direction: number): string {
  * starts from the current pathname and query, so the same control serves
  * `/rees/[id]/statistics`, `/workspace/answers` and the console's tab.
  */
-export function PeriodControls({ filter }: { filter: PeriodFilter }) {
+export function PeriodControls({ filter: committedFilter, onChange }: { filter: PeriodFilter; onChange?: (filter: PeriodFilter) => void }) {
   const { t } = useI18n();
   const p = t.statistics.period;
   const pathname = usePathname();
   const search = useSearchParams();
+  const router = useRouter();
+  const [pending, startTransition] = useTransition();
+  const [optimisticFilter, setOptimisticFilter] = useOptimistic(committedFilter);
+  const filter = onChange ? committedFilter : optimisticFilter;
   const hrefWith = (next: PeriodFilter | { period: 'all' }) => {
     const params = new URLSearchParams(search.toString());
     for (const key of PERIOD_KEYS) params.delete(key);
@@ -76,27 +82,40 @@ export function PeriodControls({ filter }: { filter: PeriodFilter }) {
   };
   const today = reportingDate();
   const active = filter.period !== 'all';
-  const tabHref = (period: Period) => {
-    if (period === 'all') return hrefWith({ period: 'all' });
+  const tabFilter = (period: Period): PeriodFilter => {
+    if (period === 'all') return { period: 'all', date: filter.date };
     if (period === 'custom') {
       const range = filter.period === 'custom' ? { start: filter.start!, end: filter.end! } : { start: `${filter.date.slice(0, 7)}-01`, end: filter.date };
-      return hrefWith({ period, date: range.end, ...range });
+      return { period, date: range.end, ...range };
     }
-    return hrefWith({ period, date: filter.date });
+    return { period, date: filter.date };
+  };
+  const select = (event: MouseEvent<HTMLAnchorElement>, next: PeriodFilter) => {
+    if (event.metaKey || event.ctrlKey || event.shiftKey || event.altKey || event.button !== 0) return;
+    event.preventDefault();
+    change(next);
+  };
+  const change = (next: PeriodFilter) => {
+    if (onChange) return onChange(next);
+    startTransition(() => {
+      setOptimisticFilter(next);
+      router.push(hrefWith(next), { scroll: false });
+    });
   };
   const stepper = filter.period === 'day' || filter.period === 'week' || filter.period === 'month' ? filter.period : null;
   return (
-    <section aria-label={p.label} className="flex flex-col gap-3">
+    <section aria-label={p.label} aria-busy={pending} className="flex flex-col gap-3">
       <div className="flex flex-wrap items-center justify-between gap-x-4 gap-y-2">
-        <nav aria-label={p.tabsLabel} className="inline-flex max-w-full flex-wrap rounded-lg border border-line bg-white p-0.5">
+        <nav aria-label={p.tabsLabel} className="report-period-tabs" style={{ '--tab-count': PERIODS.length, '--tab-index': PERIODS.indexOf(filter.period) } as CSSProperties}>
+          <span className="report-period-indicator" aria-hidden="true" />
           {PERIODS.map((period) => (
             <Link
               key={period}
-              href={tabHref(period)}
+              href={hrefWith(tabFilter(period))}
+              scroll={onChange ? false : undefined}
+              onClick={(event) => select(event, tabFilter(period))}
               aria-current={filter.period === period ? 'true' : undefined}
-              className={`rounded-md px-3 py-1.5 text-[12px] font-semibold whitespace-nowrap ${
-                filter.period === period ? 'bg-blue text-white' : 'text-muted hover:bg-wash hover:text-ink'
-              }`}
+              className={filter.period === period ? 'active' : undefined}
             >
               {p.names[period]}
             </Link>
@@ -106,9 +125,9 @@ export function PeriodControls({ filter }: { filter: PeriodFilter }) {
       </div>
       {active && (
         <div className="flex flex-wrap items-center gap-2">
-          <DateControl filter={filter} today={today} hrefWith={hrefWith} />
+          <DateControl filter={filter} today={today} hrefWith={hrefWith} onChange={change} />
           {stepper && (
-            <Link href={hrefWith({ period: stepper, date: today })} className="text-link text-[12px]">
+            <Link href={hrefWith({ period: stepper, date: today })} scroll={onChange ? false : undefined} onClick={(event) => select(event, { period: stepper, date: today })} className="text-link text-[12px]">
               {p.quick[stepper]}
             </Link>
           )}
@@ -118,7 +137,7 @@ export function PeriodControls({ filter }: { filter: PeriodFilter }) {
   );
 }
 
-function DateControl({ filter, today, hrefWith }: { filter: PeriodFilter; today: string; hrefWith: (next: PeriodFilter) => string }) {
+function DateControl({ filter, today, hrefWith, onChange }: { filter: PeriodFilter; today: string; hrefWith: (next: PeriodFilter) => string; onChange?: (filter: PeriodFilter) => void }) {
   const { t, locale } = useI18n();
   const p = t.statistics.period;
   const c = t.statistics.calendar;
@@ -161,7 +180,8 @@ function DateControl({ filter, today, hrefWith }: { filter: PeriodFilter; today:
   };
   const go = (next: PeriodFilter) => {
     setOpen(false);
-    router.push(hrefWith(next));
+    if (onChange) onChange(next);
+    else router.push(hrefWith(next));
   };
   const applyRange = (start: string, end: string) => {
     if (!validRange(start, end)) {
@@ -240,7 +260,7 @@ function DateControl({ filter, today, hrefWith }: { filter: PeriodFilter; today:
         <Icon name="clock" className="size-4 flex-none text-muted" />
       </button>
       {open && (
-        <div role="dialog" aria-label={label} className="absolute top-full left-0 z-30 mt-2 w-[304px] max-w-[calc(100vw-32px)] rounded-xl border border-line bg-white p-3 shadow-xl">
+        <div role="dialog" aria-label={label} className="report-calendar-popover absolute top-full left-0 z-30 mt-2 w-[304px] max-w-[calc(100vw-32px)] rounded-xl border border-line bg-white p-3 shadow-xl">
           {custom && (
             <>
               <div role="group" aria-label={c.presets} className="mb-2 flex flex-wrap gap-1.5">

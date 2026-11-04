@@ -1,5 +1,6 @@
+import { currentPricing, pendingCheckoutPricing } from '@/lib/services/pricing';
 import type { Metadata } from 'next';
-import Link from 'next/link';
+import { WorkspaceLink as Link } from '@/components/shell/workspace-link';
 import { pageQuantity } from '@/lib/domain/billing';
 import { currentUser } from '@/lib/http/session';
 import { db } from '@/lib/infra/db';
@@ -22,14 +23,15 @@ export async function generateMetadata(): Promise<Metadata> {
  */
 export default async function CheckoutPage({ searchParams }: { searchParams: Promise<Record<string, string | undefined>> }) {
   const query = await searchParams;
-  const kind = query.kind === 'pack' ? 'pack' : 'plan';
-  const quantity = kind === 'pack' ? pageQuantity(query.quantity) : 1;
-  const [user, { t }] = await Promise.all([currentUser(), serverMessages()]);
+  const [user, { t }, prices] = await Promise.all([currentUser(), serverMessages(), currentPricing()]);
+  const pending = typeof query._ptxn === 'string' && /^txn_[a-z0-9]{10,64}$/.test(query._ptxn) ? query._ptxn : null;
+  const previous = user && pending ? await pendingCheckoutPricing(user.id, pending) : null;
+  const kind = previous?.kind ?? (query.kind === 'pack' ? 'pack' : 'plan');
+  const quantity = previous?.quantity ?? (kind === 'pack' ? pageQuantity(query.quantity) : 1);
   const c = t.site.checkout;
   const planActive = user ? await hasActivePlan(db(), user.id) : false;
   const config = paddleConfig();
   const self = kind === 'pack' ? `/checkout?kind=pack&quantity=${quantity}` : '/checkout?kind=plan';
-  const pending = typeof query._ptxn === 'string' && /^txn_[a-z0-9]{10,64}$/.test(query._ptxn) ? query._ptxn : null;
   return (
     <div className="mx-auto max-w-[1200px] px-4 py-10 sm:px-6 lg:py-14">
       <p className="flex flex-wrap items-center gap-2 font-mono text-[11px] text-muted">
@@ -74,6 +76,7 @@ export default async function CheckoutPage({ searchParams }: { searchParams: Pro
           </p>
         </section>
         <CheckoutPanel
+          price={previous?.price ?? prices[kind]}
           kind={kind}
           quantity={quantity}
           signedIn={Boolean(user)}

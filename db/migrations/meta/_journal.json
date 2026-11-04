@@ -64,6 +64,62 @@
       "when": 1793635790043,
       "tag": "0009_credit_entry_ree_index",
       "breakpoints": true
+    },
+    {
+      "idx": 10,
+      "version": "7",
+      "when": 1793707388869,
+      "tag": "0010_billing_pricing",
+      "breakpoints": true
+    },
+    {
+      "idx": 11,
+      "version": "7",
+      "when": 1793707445975,
+      "tag": "0011_firecrawl_keys",
+      "breakpoints": true
+    },
+    {
+      "idx": 12,
+      "version": "7",
+      "when": 1793707848303,
+      "tag": "0012_signup_reward",
+      "breakpoints": true
+    },
+    {
+      "idx": 13,
+      "version": "7",
+      "when": 1793716245317,
+      "tag": "0013_provider_pricing",
+      "breakpoints": true
+    },
+    {
+      "idx": 14,
+      "version": "7",
+      "when": 1793717012765,
+      "tag": "0014_firecrawl_fallback",
+      "breakpoints": true
+    },
+    {
+      "idx": 15,
+      "version": "7",
+      "when": 1793718044342,
+      "tag": "0015_generation_audiences",
+      "breakpoints": true
+    },
+    {
+      "idx": 16,
+      "version": "7",
+      "when": 1793718424844,
+      "tag": "0016_knowledge_cost_runs",
+      "breakpoints": true
+    },
+    {
+      "idx": 17,
+      "version": "7",
+      "when": 1793718652147,
+      "tag": "0017_generation_call_reports",
+      "breakpoints": true
     }
   ]
 }

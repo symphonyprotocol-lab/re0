@@ -16,7 +16,7 @@ import {
   wellKnownMatches,
   wellKnownUrl,
 } from '@/lib/domain/sources';
-import { assemble, chunkLines, cleanFolderName, cleanTitle, holdFor, processingPrice } from '@/lib/domain/knowledge';
+import { assemble, chunkLines, cleanFolderName, cleanTitle, holdFor } from '@/lib/domain/knowledge';
 import { htmlLinks, htmlToMarkdown } from '@/lib/infra/connectors/html';
 import { basePath, inScope, pageKey, parseSitemap } from '@/lib/infra/connectors/web';
 import { selectPaths } from '@/lib/infra/connectors/github';
@@ -149,20 +149,8 @@ describe('repositories', () => {
 });
 
 describe('holds and prices (8.2)', () => {
-  it('reserves the prototype numbers as caps and audio by its size', () => {
-    expect(holdFor('document')).toBe(20);
-    expect(holdFor('page')).toBe(20);
-    expect(holdFor('github')).toBe(120);
-    expect(holdFor('site')).toBe(500);
-    expect(holdFor('text', 'x'.repeat(2001))).toBe(3);
-    expect(holdFor('audio', 100 * 1024 * 1024)).toBe(100 * 100 + 100);
-    expect(holdFor('audio', 1)).toBe(101);
-  });
-
-  it('settles at 1 per started 1,000 characters plus 100 per started minute', () => {
-    expect(processingPrice(1)).toBe(1);
-    expect(processingPrice(1000)).toBe(1);
-    expect(processingPrice(1001, 61)).toBe(2 + 200);
+  it('starts with the same refundable balance check for every kind', () => {
+    for (const kind of ['document', 'page', 'github', 'site', 'text', 'audio'] as const) expect(holdFor(kind)).toBe(1);
   });
 
   it('cleans display names and folder names', () => {

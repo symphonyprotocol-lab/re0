@@ -1,5 +1,5 @@
 import type { Metadata } from 'next';
-import Link from 'next/link';
+import { WorkspaceLink as Link } from '@/components/shell/workspace-link';
 import { adminOverview } from '@/lib/services/admin-overview';
 import { serverMessages } from '@/i18n/server';
 import { fill, formatNumber } from '@/i18n/format';
@@ -142,8 +142,8 @@ export default async function OverviewPage() {
             <h2>{o.models.title}</h2>
             <p>{fill(o.models.lede, { start: data.month.start, end: data.month.end })}</p>
           </div>
-          <Link href="/admin/models" className="text-link">
-            {o.models.manage}
+          <Link href="/admin/model-calls" className="text-link">
+            {t.modelCalls.title}
             <CI name="arrow" />
           </Link>
         </div>
@@ -155,6 +155,7 @@ export default async function OverviewPage() {
             t.admin.models.kinds[row.kind],
             <>
               <code>{row.active}</code>
+              {row.activePlan && <small className="cell-subline">{t.admin.models.audiences.plan} · <code>{row.activePlan}</code></small>}
               {row.rows.length > 1 &&
                 row.rows.map((entry) => (
                   <small key={entry.model} className="cell-subline">

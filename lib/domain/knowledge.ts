@@ -8,23 +8,22 @@
  * URL -- per passage so a citation can say where it came from.
  */
 import {
-  AUDIO_CHARS_PER_MINUTE,
-  AUDIO_CREDITS_PER_MINUTE,
   AUDIO_EXTENSIONS,
   AUDIO_MAX_BYTES,
-  AUDIO_MINUTES_PER_MB,
   DOCUMENT_EXTENSIONS,
   DOCUMENT_MAX_BYTES,
   KNOWLEDGE_FOLDER_NAME_MAX,
-  KNOWLEDGE_HOLD,
   KNOWLEDGE_TITLE_MAX,
+  KNOWLEDGE_INITIAL_HOLD,
   TEXT_SOURCE_LIMITS,
 } from '@/lib/constants';
-import { processingCost } from '@/lib/domain/credits';
 import type { Locator } from '@/lib/domain/answer';
 
 export const KNOWLEDGE_KIND_LIST = ['document', 'audio', 'github', 'page', 'site', 'text'] as const;
 export type KnowledgeKind = (typeof KNOWLEDGE_KIND_LIST)[number];
+/** New-source UI choices. Historical pasted sources remain readable and reprocessable. */
+export const ADD_KNOWLEDGE_KINDS = ['document', 'audio', 'github', 'page', 'site'] as const;
+export type AddKnowledgeKind = (typeof ADD_KNOWLEDGE_KINDS)[number];
 export type KnowledgeStatus = 'pending' | 'processing' | 'ready' | 'failed';
 export type DocumentFormat = (typeof DOCUMENT_EXTENSIONS)[number];
 export type AudioFormat = (typeof AUDIO_EXTENSIONS)[number];
@@ -47,6 +46,8 @@ export interface KnowledgeActivity {
     | 'failed'
     | 'refresh'
     | 'settled'
+    | 'reserved'
+    | 'provider_usage'
     | 'refunded'
     | 'paused'
     | 'enabled'
@@ -114,33 +115,9 @@ export function validAudio(fileName: string, size: number): boolean {
   return audioFormat(fileName) !== null && size > 0 && size <= AUDIO_MAX_BYTES;
 }
 
-/** Minutes the hold assumes for an audio file of `bytes` (8.2: about a minute per MB). */
-export function estimatedAudioMinutes(bytes: number): number {
-  return Math.max(1, Math.ceil((bytes / (1024 * 1024)) * AUDIO_MINUTES_PER_MB));
-}
-
-/**
- * What processing reserves up front (8.2): a flat cap per kind, pasted text
- * exactly its price since its size is known, audio its estimated minutes of
- * transcription plus their estimated transcript.
- */
-export function holdFor(kind: 'text', text: string): number;
-export function holdFor(kind: 'audio', bytes: number): number;
-export function holdFor(kind: 'document' | 'page' | 'github' | 'site'): number;
-export function holdFor(kind: KnowledgeKind, measure?: string | number): number;
-export function holdFor(kind: KnowledgeKind, measure?: string | number): number {
-  if (kind === 'text') return processingCost(String(measure ?? '').trim().length);
-  if (kind === 'audio') {
-    const minutes = estimatedAudioMinutes(Number(measure ?? 0));
-    return minutes * AUDIO_CREDITS_PER_MINUTE + processingCost(minutes * AUDIO_CHARS_PER_MINUTE);
-  }
-  return KNOWLEDGE_HOLD[kind];
-}
-
-/** The settled price (2.3): 1 credit per started 1,000 characters, plus 100 per started minute of audio. */
-export function processingPrice(characters: number, audioSeconds = 0): number {
-  const minutes = audioSeconds > 0 ? Math.ceil(audioSeconds / 60) : 0;
-  return processingCost(characters) + minutes * AUDIO_CREDITS_PER_MINUTE;
+/** A refundable balance check, not a processing fee or a quote. Actual supplier costs grow this hold. */
+export function holdFor(_kind: KnowledgeKind, _measure?: string | number): number {
+  return KNOWLEDGE_INITIAL_HOLD;
 }
 
 export function validText(title: string, content: string): boolean {

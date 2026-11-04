@@ -1,7 +1,7 @@
 'use client';
 
 import dynamic from 'next/dynamic';
-import Link from 'next/link';
+import { WorkspaceLink as Link } from '@/components/shell/workspace-link';
 import { useRouter } from 'next/navigation';
 import { useMemo, useState } from 'react';
 import { VIDEO_ASPECTS, VIDEO_LIMITS, VIDEO_SCRIPT_CREDITS, VIDEO_SHOT_SECONDS, VIDEO_TEMPLATES, type VideoAspect, type VideoTemplate } from '@/lib/constants';

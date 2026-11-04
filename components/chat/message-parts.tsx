@@ -1,6 +1,6 @@
 'use client';
 
-import Link from 'next/link';
+import { WorkspaceLink as Link } from '@/components/shell/workspace-link';
 import { useEffect, type ReactNode, type RefObject } from 'react';
 import { locatorLabel, type CitationSnapshot } from '@/lib/domain/answer';
 import { useI18n } from '@/i18n/client';

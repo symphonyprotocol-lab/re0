@@ -58,6 +58,8 @@ export async function adminOverview(now = new Date()) {
         inputTokens: sql<number>`coalesce(sum(${schema.modelCall.inputTokens}), 0)::bigint`,
         outputTokens: sql<number>`coalesce(sum(${schema.modelCall.outputTokens}), 0)::bigint`,
         seconds: sql<number>`coalesce(sum(${schema.modelCall.seconds}), 0)::bigint`,
+        savedCost: sql<string>`coalesce(sum(${schema.modelCall.costUsd}::numeric), 0)::text`,
+        pricedCalls: sql<number>`count(*) filter(where ${schema.modelCall.costUsd} is not null)::int`,
       })
       .from(schema.modelCall)
       .where(and(gte(schema.modelCall.createdAt, new Date(month.start)), sql`${schema.modelCall.createdAt} < ${new Date(month.end)}`))
@@ -81,18 +83,21 @@ export async function adminOverview(now = new Date()) {
   const models = await Promise.all(
     MODEL_KINDS.map(async (kind: ModelKind) => {
       const endpoint = await endpointFor(kind);
+      const planEndpoint = kind === 'generation' ? await endpointFor('generation', Date.now(), 'plan') : null;
       const rows = calls.filter((row) => row.kind === kind).map((row) => {
         const usage = { inputTokens: Number(row.inputTokens), outputTokens: Number(row.outputTokens), seconds: Number(row.seconds) };
-        return { model: row.model, calls: row.calls, ...usage, cost: estimateCost(row.model, usage) };
+        const cost = kind === 'generation' ? row.pricedCalls > 0 ? Number(row.savedCost) : null : estimateCost(row.model, usage);
+        return { model: row.model, calls: row.calls, ...usage, cost, unpriced: kind === 'generation' ? row.pricedCalls < row.calls : cost === null };
       });
       const known = rows.filter((row) => row.cost !== null);
       return {
         kind,
         active: endpoint.model,
+        activePlan: planEndpoint?.model ?? null,
         source: endpoint.source,
         calls: rows.reduce((sum, row) => sum + row.calls, 0),
         cost: known.length ? known.reduce((sum, row) => sum + row.cost!, 0) : null,
-        unpriced: rows.some((row) => row.cost === null),
+        unpriced: rows.some((row) => row.unpriced),
         rows,
       };
     }),

@@ -1,4 +1,4 @@
-import Link from 'next/link';
+import { WorkspaceLink as Link } from '@/components/shell/workspace-link';
 import type { ReactNode } from 'react';
 import { locatorLabel, type CitationSnapshot } from '@/lib/domain/answer';
 import type { Messages } from '@/i18n';

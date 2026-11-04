@@ -1,4 +1,4 @@
-import Link from 'next/link';
+import { WorkspaceLink as Link } from '@/components/shell/workspace-link';
 import { notFound, redirect } from 'next/navigation';
 import type { ReactNode } from 'react';
 import { param } from '@/lib/domain/list';

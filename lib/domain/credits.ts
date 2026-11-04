@@ -8,7 +8,7 @@
  * already gone from the balance; settling returns the unused part and
  * releasing returns all of it.
  */
-import { GRANT_SPEND_ORDER, KNOWLEDGE_CHARS_PER_CREDIT, type GrantSource } from '@/lib/constants';
+import { GRANT_SPEND_ORDER, type GrantSource } from '@/lib/constants';
 
 export interface Allocation {
   grantId: string;
@@ -110,9 +110,4 @@ export function settlementNote(label: string | null | undefined, charged: number
 export function chargedFromNote(note: string | null | undefined): number | null {
   const match = /(?:^| · )charged (\d+) of \d+$/.exec(note ?? '');
   return match ? Number(match[1]) : null;
-}
-
-/** Processing price of extracted text: 1 credit per started 1,000 characters, at least 1. */
-export function processingCost(characters: number): number {
-  return Math.max(1, Math.ceil(characters / KNOWLEDGE_CHARS_PER_CREDIT));
 }

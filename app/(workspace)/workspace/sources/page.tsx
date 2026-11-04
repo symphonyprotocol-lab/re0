@@ -1,5 +1,5 @@
 import type { Metadata } from 'next';
-import Link from 'next/link';
+import { WorkspaceLink as Link } from '@/components/shell/workspace-link';
 import { LIST_PAGE_SIZES } from '@/lib/constants';
 import { currentUser } from '@/lib/http/session';
 import { ownedReeRows, WORKSPACE_KINDS, WORKSPACE_SOURCE_STATES, workspaceQuery, workspaceSources } from '@/lib/services/statistics';
@@ -41,7 +41,7 @@ export default async function WorkspaceSourcesPage({ searchParams }: { searchPar
     });
   return (
     <>
-      <Topbar crumbs={[{ label: w.crumb, href: '/dashboard' }, { label: s.title }]} />
+      <Topbar crumbs={[{ label: t.rees.title, href: '/rees' }, { label: s.title }]} />
       <OwnerPage>
         <OwnerHeading title={s.title} lede={s.lede} tag={w.mine} />
         <OwnerSummary

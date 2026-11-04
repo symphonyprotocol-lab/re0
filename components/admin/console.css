@@ -1567,6 +1567,13 @@
 :where(.console-app, .admin-login-page) .model-config.enabled {
   background: #fbfdff;
 }
+:where(.console-app, .admin-login-page) .model-audiences {
+  grid-column: 1 / -1;
+  overflow-wrap: anywhere;
+}
+:where(.console-app, .admin-login-page) .model-config > .model-config-actions {
+  flex-wrap: wrap;
+}
 :where(.console-app, .admin-login-page) .model-config strong {
   font-size: 12px;
   font-weight: 550;

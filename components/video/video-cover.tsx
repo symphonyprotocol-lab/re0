@@ -1,7 +1,7 @@
 'use client';
 
 import dynamic from 'next/dynamic';
-import Link from 'next/link';
+import { WorkspaceLink as Link } from '@/components/shell/workspace-link';
 import { useState } from 'react';
 import type { IntroProps } from '@/lib/domain/video';
 import { PALETTES, mix } from '@/video/theme';

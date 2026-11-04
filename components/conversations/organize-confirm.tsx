@@ -5,7 +5,7 @@ import { fill, formatNumber } from '@/i18n/format';
 import { I } from '@/components/chat/message-parts';
 import { ConfirmModal } from '@/components/ui/modal';
 
-export type OrganizeAction = 'archive' | 'unarchive' | 'trash';
+export type OrganizeAction = 'archive' | 'unarchive' | 'trash' | 'delete';
 
 export interface OrganizeRequest {
   action: OrganizeAction;
@@ -15,7 +15,7 @@ export interface OrganizeRequest {
 }
 
 /**
- * The confirmation before archiving, moving back or trashing conversations
+ * The confirmation before archiving, moving back, trashing or permanently deleting conversations
  * (prototype conversations.js `archive` / `trash` with `review`): up to five
  * of their titles, and "共 N 场对话" when there are more. `/chats` and the
  * sidebar's row menu share it.
@@ -29,8 +29,8 @@ export function OrganizeConfirm({ request, onClose, onConfirm }: { request: Orga
   return (
     <ConfirmModal
       open={Boolean(request)}
-      danger={action === 'trash'}
-      title={action === 'trash' ? fill(s.trashTitle, { n: count }) : action === 'unarchive' ? s.unarchiveTitle : s.archiveTitle}
+      danger={action === 'trash' || action === 'delete'}
+      title={action === 'delete' ? fill(s.deleteTitle, { n: count }) : action === 'trash' ? fill(s.trashTitle, { n: count }) : action === 'unarchive' ? s.unarchiveTitle : s.archiveTitle}
       body={
         <div className="conv-dialog">
           {count > 0 && (
@@ -44,10 +44,10 @@ export function OrganizeConfirm({ request, onClose, onConfirm }: { request: Orga
               {count > titles.length && <small>{fill(s.reviewTotal, { n: formatNumber(count, locale) })}</small>}
             </div>
           )}
-          <p className="form-hint">{action === 'trash' ? s.trashBody : s.archiveBody}</p>
+          <p className="form-hint">{action === 'delete' ? s.deleteBody : action === 'trash' ? s.trashBody : s.archiveBody}</p>
         </div>
       }
-      confirmLabel={action === 'trash' ? s.trash : action === 'unarchive' ? s.unarchive : s.archiveConfirm}
+      confirmLabel={action === 'delete' ? s.deleteNow : action === 'trash' ? s.trash : action === 'unarchive' ? s.unarchive : s.archiveConfirm}
       onClose={onClose}
       onConfirm={() => {
         if (request) void onConfirm(request);

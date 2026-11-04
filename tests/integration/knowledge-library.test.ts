@@ -10,6 +10,7 @@
  *   - a name with 「失败」 fails only outside production builds.
  * The prototype's knowledge.js assertions, restated against the database.
  */
+import { WELCOME_CREDITS } from '@/lib/constants';
 import { afterAll, beforeAll, describe, expect, it, vi } from 'vitest';
 import { pointModelsAt, TEST_DATABASE_URL, uniqueName } from './setup';
 import { asc, eq, inArray } from 'drizzle-orm';
@@ -247,15 +248,15 @@ describeWithDb('charges', () => {
     const b = await readyText(userId, ree, 'B', 'y'.repeat(1200));
     const before = await balanceOf(db(), userId);
     await library.runBatch(userId, ree.id, { action: 'reprocess', ids: [a, b] });
-    expect(await balanceOf(db(), userId)).toBe(before - 3 - 2);
+    expect(await balanceOf(db(), userId)).toBe(before - 2);
     expect(await refusal(library.runBatch(userId, ree.id, { action: 'reprocess', ids: [a] }))).toBe('busy');
     await knowledge.processMany([a, b]);
-    expect(await balanceOf(db(), userId)).toBe(before - 5);
+    expect(await balanceOf(db(), userId)).toBe(before - 2);
     const entries = await db().select().from(schema.creditEntry).where(eq(schema.creditEntry.refId, a)).orderBy(asc(schema.creditEntry.createdAt));
     expect(entries.map((entry) => [entry.reason, entry.delta])).toEqual([
-      ['knowledge_hold', -3],
+      ['knowledge_hold', -1],
       ['knowledge_settle', 0],
-      ['knowledge_hold', -3],
+      ['knowledge_hold', -1],
       ['knowledge_settle', 0],
     ]);
   });
@@ -274,14 +275,14 @@ describeWithDb('charges', () => {
     const path = `knowledge/${userId}/f/季度报告-失败.md`;
     blobs.set(path, new TextEncoder().encode('# Report\n\nRevenue grew four percent.'));
     const failing = await knowledge.addKnowledge(userId, ree, { kind: 'document', blobPath: path, fileName: '季度报告-失败.md' });
-    expect(await balanceOf(db(), userId)).toBe(1980);
+    expect(await balanceOf(db(), userId)).toBe(WELCOME_CREDITS - 1);
     await knowledge.processKnowledge(failing);
     expect(await knowledge.knowledgeDetail(ree.id, failing)).toMatchObject({ status: 'failed', error: 'simulated' });
-    expect(await balanceOf(db(), userId)).toBe(2000);
+    expect(await balanceOf(db(), userId)).toBe(WELCOME_CREDITS);
     const entries = await db().select().from(schema.creditEntry).where(eq(schema.creditEntry.refId, failing)).orderBy(asc(schema.creditEntry.createdAt));
     expect(entries.map((entry) => [entry.reason, entry.delta])).toEqual([
-      ['knowledge_hold', -20],
-      ['knowledge_refund', 20],
+      ['knowledge_hold', -1],
+      ['knowledge_refund', 1],
     ]);
 
     /* A production build has no switch: the same file is processed normally. */

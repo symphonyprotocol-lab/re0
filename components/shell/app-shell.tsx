@@ -1,6 +1,6 @@
 'use client';
 
-import Link from 'next/link';
+import { WorkspaceLink as Link } from '@/components/shell/workspace-link';
 import { usePathname } from 'next/navigation';
 import { createContext, useContext, useEffect, useState, type ReactNode } from 'react';
 import type { PlanUsage } from '@/lib/domain/billing';
@@ -11,6 +11,7 @@ import { Icon, type IconName } from '@/components/ui/icons';
 import { UserAvatar } from '@/components/ui/ree-avatar';
 import { HistoryProvider, SidebarConversations } from '@/components/conversations/sidebar-history';
 import type { HistoryItem } from '@/lib/services/conversations';
+import { WorkspaceMain } from '@/components/shell/workspace-main';
 import './shell.css';
 
 interface ShellState {
@@ -91,7 +92,7 @@ export function AppShell({ user, initialCollapsed, children }: { user: ShellUser
     <ShellContext.Provider value={{ collapsed, toggleCollapsed, openDrawer: () => setDrawer(true) }}>
       <HistoryProvider>
         <Sidebar user={user} collapsed={collapsed} phone={phone} open={drawer} hidden={phone && !drawer} onClose={() => setDrawer(false)} />
-        <div className={`app-main${collapsed ? ' sidebar-collapsed' : ''}`}>{children}</div>
+        <WorkspaceMain collapsed={collapsed}>{children}</WorkspaceMain>
       </HistoryProvider>
     </ShellContext.Provider>
   );
@@ -125,13 +126,12 @@ function Sidebar({ user, collapsed, phone, open, hidden, onClose }: { user: Shel
       <button type="button" className="icon-btn sidebar-close" onClick={onClose} aria-label={nav.closeMenu} title={nav.closeMenu}>
         <Icon name="close" className="" />
       </button>
-      <nav className="nav chat-product-nav" aria-label={nav.workspace}>
-        <NavItem href="/dashboard" icon="layers" label={nav.dashboard} active={pathname === '/dashboard' || pathname.startsWith('/workspace/')} />
-        <NavItem href="/explore" icon="compass" label={t.discover.nav} active={pathname === '/explore' || pathname.startsWith('/r/')} />
-        <NavItem href="/rees" icon="ree" label={nav.rees} active={pathname.startsWith('/rees') || pathname === '/videos'} count={user.reeCount} />
-      </nav>
       {/* The fold only applies on desktop: the phone drawer always shows the history. The aside carries the side padding. */}
       <SidebarConversations history={user.history} collapsed={collapsed && !phone} className="" />
+      <nav className="nav chat-product-nav" aria-label={nav.workspace}>
+        <NavItem href="/explore" icon="compass" label={t.discover.nav} active={pathname === '/explore' || pathname.startsWith('/r/')} />
+        <NavItem href="/rees" icon="ree" label={nav.rees} active={pathname.startsWith('/rees') || pathname.startsWith('/workspace') || pathname === '/videos'} count={user.reeCount} />
+      </nav>
       <div className="chat-sidebar-footer sidebar-account-footer">
         <PlanMeter user={user} />
         <div className="user-row">
@@ -183,7 +183,7 @@ function PlanMeter({ user }: { user: ShellUser }) {
     : fill(a.summaryFree, { total: n(user.balance) });
   return (
     <Link
-      href="/settings?tab=billing"
+      href="/settings?tab=balance"
       className={`sidebar-usage ${plan.active ? 'is-member' : 'is-free'}${plan.warn ? ' is-low' : ''}`}
       aria-label={`${membership} · ${status} · ${summary}`}
       title={`${membership} · ${status}\n${summary}`}

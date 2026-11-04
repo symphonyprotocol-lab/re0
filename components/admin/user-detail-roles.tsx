@@ -5,7 +5,7 @@
  * verification checks. Server components; the role changes go through
  * `ReasonAction`.
  */
-import Link from 'next/link';
+import { WorkspaceLink as Link } from '@/components/shell/workspace-link';
 import type { Messages } from '@/i18n';
 import type { Locale } from '@/i18n/locale';
 import { fill, formatDateTime, formatNumber } from '@/i18n/format';

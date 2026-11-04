@@ -1,3 +1,5 @@
+import { welcomeCredits } from '@/lib/services/signup-reward';
+import { fill, formatNumber } from '@/i18n/format';
 import type { Metadata } from 'next';
 import { serverMessages } from '@/i18n/server';
 import { LegalDocument } from '@/components/site/legal-document';
@@ -12,7 +14,7 @@ export async function generateMetadata(): Promise<Metadata> {
 
 /** `/legal/terms`. */
 export default async function TermsPage() {
-  const { t } = await serverMessages();
+  const [{ t, locale }, welcome] = await Promise.all([serverMessages(), welcomeCredits()]);
   const d = t.legal.terms;
   return (
     <LegalDocument
@@ -21,7 +23,7 @@ export default async function TermsPage() {
       lede={d.lede}
       updated={t.legal.updated}
       contentsLabel={t.legal.contents}
-      sections={KEYS.map((key, index) => ({ id: IDS[index]!, ...d[key] }))}
+      sections={KEYS.map((key, index) => ({ id: IDS[index]!, ...d[key], body: fill(d[key].body, { welcomeCredits: formatNumber(welcome.credits, locale) }) }))}
       footnote={t.legal.footnote}
       other={{ href: '/legal/privacy', label: t.legal.privacy.title }}
     />

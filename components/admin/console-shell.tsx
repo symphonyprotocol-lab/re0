@@ -1,22 +1,27 @@
 'use client';
 
-import Link from 'next/link';
+import { WorkspaceLink as Link } from '@/components/shell/workspace-link';
 import { usePathname } from 'next/navigation';
 import { Fragment, createContext, useContext, useEffect, useState, type ReactNode } from 'react';
 import { useI18n } from '@/i18n/client';
 import { formatNumber } from '@/i18n/format';
 import { CI, type ConsoleIconName } from '@/components/admin/console-icon';
+import { RouteMotion } from '@/components/shell/workspace-main';
 import './console.css';
 
-type NavKey = 'overview' | 'users' | 'verifications' | 'purchases' | 'rees' | 'models' | 'audit' | 'kyc' | 'payouts' | 'payout-history';
+type NavKey = 'model-calls' | 'knowledge-costs' | 'pricing' | 'overview' | 'users' | 'verifications' | 'purchases' | 'rees' | 'models' | 'firecrawl' | 'audit' | 'kyc' | 'payouts' | 'payout-history';
 export type ConsoleEnvironment = 'production' | 'preview' | 'development';
 
-/* Prototype suite.js `adminNav`: order, icons, and the group labels before the 5th and 9th entries. */
+/* Console navigation order and icons; group labels mark the first item in each category. */
 const NAV: { key: NavKey; icon: ConsoleIconName }[] = [
   { key: 'overview', icon: 'layers' },
   { key: 'models', icon: 'code' },
+  { key: 'firecrawl', icon: 'lock' },
+  { key: 'pricing', icon: 'wallet' },
   { key: 'users', icon: 'users' },
   { key: 'verifications', icon: 'shield' },
+  { key: 'model-calls', icon: 'clock' },
+  { key: 'knowledge-costs', icon: 'file' },
   { key: 'kyc', icon: 'shield' },
   { key: 'purchases', icon: 'wallet' },
   { key: 'payouts', icon: 'check' },
@@ -132,14 +137,15 @@ export function ConsoleShell({
           </div>
           <p className="nav-label">{c.nav.platform}</p>
           <nav aria-label={c.nav.label}>
-            {NAV.map((item, index) => {
+            {NAV.map((item) => {
               const href = `/admin/${item.key}`;
               const active = pathname === href || pathname.startsWith(`${href}/`);
               const count = badge(item.key);
               return (
                 <Fragment key={item.key}>
-                  {index === 4 && <p className="nav-label">{c.nav.trust}</p>}
-                  {index === 8 && <p className="nav-label">{c.nav.governance}</p>}
+                  {item.key === 'model-calls' && <p className="nav-label">{c.nav.usageCosts}</p>}
+                  {item.key === 'kyc' && <p className="nav-label">{c.nav.trust}</p>}
+                  {item.key === 'rees' && <p className="nav-label">{c.nav.governance}</p>}
                   <Link href={href} className={active ? 'active' : ''} aria-current={active ? 'page' : undefined}>
                     <CI name={item.icon} />
                     <span>{c.nav[item.key]}</span>
@@ -172,7 +178,7 @@ export function ConsoleShell({
             </div>
           </div>
         </aside>
-        <div className={`console-main ${collapsed ? 'sidebar-collapsed' : ''}`}>{children}</div>
+        <RouteMotion className={`console-main ${collapsed ? 'sidebar-collapsed' : ''}`}>{children}</RouteMotion>
       </div>
     </ConsoleShellContext.Provider>
   );

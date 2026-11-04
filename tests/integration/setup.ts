@@ -19,6 +19,11 @@ export function pointModelsAt(baseUrl: string): void {
   process.env.TRANSCRIPTION_BASE_URL = baseUrl;
   process.env.TRANSCRIPTION_API_KEY = 'test-key';
   process.env.TRANSCRIPTION_MODEL = 'fake-whisper';
+  process.env.PROVIDER_COST_RATES = JSON.stringify([
+    ...['fake-embed', 'fake-embed-2'].map((model) => ({ service: 'embedding', endpoint: baseUrl, model, unit: 'tokens', usdPerUnit: '0.00000002', source: 'Integration fixture: $0.02/M tokens' })),
+    { service: 'transcription', endpoint: baseUrl, model: 'fake-whisper', unit: 'seconds', usdPerUnit: '0.0001', source: 'Integration fixture: $0.006/minute' },
+    { service: 'firecrawl', endpoint: 'https://api.firecrawl.dev', model: 'parse', unit: 'firecrawl_credits', usdPerUnit: '0.001', source: 'Integration fixture: $1/1000 credits' },
+  ]);
 }
 
 let counter = 0;

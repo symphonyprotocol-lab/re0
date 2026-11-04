@@ -1,6 +1,6 @@
 'use client';
 
-import { useRouter } from 'next/navigation';
+import { useNavigationRouter as useRouter } from '@/components/shell/navigation-provider';
 import { useEffect, useRef, useState } from 'react';
 import { autoTitle } from '@/lib/domain/conversation';
 import { ApiError, conversationApi, stashPending } from '@/lib/client/conversations';

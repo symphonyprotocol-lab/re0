@@ -48,8 +48,13 @@ export default async function ReesPage({ searchParams }: { searchParams: Promise
   const videos = Object.fromEntries(await introsFor(result.items.map((ree) => ree.id)));
   return (
     <>
-      <Topbar crumbs={[{ label: t.dashboard.title, href: '/dashboard' }, { label: t.rees.title }]} />
-      <ReeList result={JSON.parse(JSON.stringify(result))} totals={totals} query={query} videos={videos} />
+      <Topbar crumbs={[{ label: t.rees.title }]} />
+      <ReeList
+        result={JSON.parse(JSON.stringify(result))}
+        totals={totals}
+        query={query}
+        videos={videos}
+      />
     </>
   );
 }

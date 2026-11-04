@@ -1,7 +1,8 @@
 'use client';
 
-import Link from 'next/link';
-import { usePathname, useRouter, useSearchParams } from 'next/navigation';
+import { WorkspaceLink as Link } from '@/components/shell/workspace-link';
+import { usePathname, useSearchParams } from 'next/navigation';
+import { useNavigationRouter as useRouter } from '@/components/shell/navigation-provider';
 import { useEffect, useRef, useState, type KeyboardEvent } from 'react';
 import { RECENT_RANGES } from '@/lib/constants';
 import {

@@ -1,5 +1,5 @@
 import type { Metadata } from 'next';
-import Link from 'next/link';
+import { WorkspaceLink as Link } from '@/components/shell/workspace-link';
 import { LIST_PAGE_SIZES } from '@/lib/constants';
 import { periodParams } from '@/lib/domain/statistics';
 import { currentUser } from '@/lib/http/session';
@@ -59,7 +59,7 @@ export default async function WorkspaceAnswersPage({ searchParams }: { searchPar
   const filtered = Boolean(query.q) || query.ree !== 'all' || ranged;
   return (
     <>
-      <Topbar crumbs={[{ label: w.crumb, href: '/dashboard' }, { label: a.title }]} />
+      <Topbar crumbs={[{ label: t.rees.title, href: '/rees' }, { label: a.title }]} />
       <OwnerPage>
         <OwnerHeading title={a.title} lede={a.lede} tag={w.mine} />
         <OwnerPeriod filter={{ period: query.period, date: query.date, start: query.start, end: query.end }} />

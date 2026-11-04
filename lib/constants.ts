@@ -9,8 +9,8 @@
 /** 1 credit = 0.0001 USD. */
 export const CREDIT_USD = 0.0001;
 
-/** Granted once, at sign-up. */
-export const WELCOME_CREDITS = 2_000;
+/** Default registration gift; /admin/pricing overrides it for future sign-ups. */
+export const WELCOME_CREDITS = 100_000;
 
 /**
  * The order credits are spent in; refunds walk it backwards (8.2, "扣费顺序").
@@ -50,27 +50,8 @@ export const QUERY_BASE_FEE = 20;
 /** The owner's query fee range (credits per answered question). */
 export const QUERY_FEE = { min: 0, max: 10_000, default: 0 } as const;
 
-/** Knowledge processing: 1 credit per started 1,000 extracted characters. */
-export const KNOWLEDGE_CHARS_PER_CREDIT = 1_000;
-/**
- * What processing reserves before it knows the real size (8.2, "知识处理费"):
- * documents and single pages hold a flat cap, repositories and websites a
- * larger one, pasted text holds its own price, audio an estimate from its
- * size. Settled to the real figure afterwards; more is released, a shortfall
- * is not charged.
- */
-export const KNOWLEDGE_HOLD = {
-  document: 20,
-  page: 20,
-  github: 120,
-  site: 500,
-} as const;
-/** Transcription, on top of the text price: per started minute of audio. */
-export const AUDIO_CREDITS_PER_MINUTE = 100;
-/** The hold's duration estimate: about a minute of audio per MB (8.2). */
-export const AUDIO_MINUTES_PER_MB = 1;
-/** And about this much transcript per minute, for the text part of the hold. */
-export const AUDIO_CHARS_PER_MINUTE = 1_000;
+/** Refundable balance check for knowledge processing; actual supplier USD costs determine the bill. */
+export const KNOWLEDGE_INITIAL_HOLD = 1;
 
 /* --------------------------------------------------------------- Ree, 8.2 */
 
@@ -306,8 +287,8 @@ export const REEMBED_STEP_BUDGET_MS = 240_000;
 export const NOTICE_PAGE_SIZE = 20;
 /**
  * Prices for the overview's estimated model cost (USD per million tokens, or
- * per minute for transcription). Operational estimates only: users pay fixed
- * credits (7). A model missing here shows its calls with the cost unknown.
+ * per minute for transcription). Operational overview estimates only; knowledge billing uses actual supplier costs
+ * and versioned provider pricing instead of this legacy lookup. A model missing here shows its calls with the cost unknown.
  */
 export const MODEL_PRICES: Record<string, { input?: number; output?: number; perMinute?: number }> = {
   'gpt-5-mini': { input: 0.25, output: 2 },

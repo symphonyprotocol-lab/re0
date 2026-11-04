@@ -6,7 +6,7 @@
  * jump box, tags and role badges. Server components; the interactive bits
  * live in `list-client.tsx`.
  */
-import Link from 'next/link';
+import { WorkspaceLink as Link } from '@/components/shell/workspace-link';
 import type { ReactNode } from 'react';
 import type { Messages } from '@/i18n';
 import { fill } from '@/i18n/format';

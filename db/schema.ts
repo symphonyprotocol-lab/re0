@@ -26,6 +26,8 @@ import {
 import type { ReeDraft } from '@/lib/domain/ree';
 import type { CitationSnapshot, Locator } from '@/lib/domain/answer';
 import type { Allocation } from '@/lib/domain/credits';
+import type { ProviderCharge, ProviderRate } from '@/lib/domain/provider-cost';
+import type { CallPurpose, CallStatus, CostBasis } from '@/lib/domain/model-calls';
 import type { KnowledgeActivity, KnowledgeChild } from '@/lib/domain/knowledge';
 import type { RoleMetrics } from '@/lib/domain/roles';
 import type { ReeRank } from '@/lib/domain/explore';
@@ -392,6 +394,31 @@ export const creditHold = pgTable(
   ],
 );
 
+/** One durable snapshot per knowledge reservation, including retries. No source FK:
+ * deleting extracted content must not delete its supplier receipts or billing history. */
+export const knowledgeCostRun = pgTable('knowledge_cost_run', {
+  id: uuid('id').primaryKey().references(() => creditHold.id),
+  knowledgeId: uuid('knowledge_id'),
+  reeId: uuid('ree_id'),
+  userId: uuid('user_id').notNull(),
+  title: text('title').notNull(),
+  reeName: text('ree_name').notNull(),
+  kind: text('kind').notNull(),
+  runId: text('run_id'),
+  status: text('status').$type<'pending' | 'processing' | 'ready' | 'failed' | 'unknown'>().notNull(),
+  error: text('error'),
+  /** False for legacy / already-purged sources without supplier metering. */
+  metered: boolean('metered').notNull().default(true),
+  charges: jsonb('charges').$type<ProviderCharge[]>().notNull().default([]),
+  chargedCredits: bigint('charged_credits', { mode: 'number' }),
+  createdAt: createdAt(),
+}, (t) => [
+  index('knowledge_cost_run_created_idx').on(t.createdAt, t.id),
+  index('knowledge_cost_run_source_idx').on(t.knowledgeId),
+  uniqueIndex('knowledge_cost_run_run_idx').on(t.runId),
+  check('knowledge_cost_run_status_check', oneOf('status', ['pending', 'processing', 'ready', 'failed', 'unknown'])),
+]);
+
 export const administrator = pgTable(
   'administrator',
   {
@@ -429,6 +456,15 @@ export const adminSession = pgTable(
   (t) => [index('admin_session_administrator_idx').on(t.administratorId)],
 );
 
+/** Supplier contract prices, versioned in each processing usage record. */
+export const providerPricing = pgTable('provider_pricing', {
+  id: integer('id').primaryKey().default(1),
+  revision: uuid('revision').notNull().defaultRandom(),
+  rates: jsonb('rates').$type<ProviderRate[]>().notNull(),
+  updatedBy: uuid('updated_by').references(() => administrator.id),
+  updatedAt: timestampTz('updated_at').notNull().defaultNow(),
+}, (t) => [check('provider_pricing_singleton_check', sql`${t.id} = 1`)]);
+
 export const modelConfig = pgTable(
   'model_config',
   {
@@ -442,6 +478,8 @@ export const modelConfig = pgTable(
     apiKeyTail: text('api_key_tail'),
     timeoutMs: integer('timeout_ms').notNull().default(60000),
     enabled: boolean('enabled').notNull().default(false),
+    /** Generation has independent Free and Plan activation slots. */
+    enabledPlan: boolean('enabled_plan').notNull().default(false),
     lastProbeAt: timestampTz('last_probe_at'),
     lastProbeOk: boolean('last_probe_ok'),
     updatedBy: uuid('updated_by'),
@@ -449,12 +487,42 @@ export const modelConfig = pgTable(
   },
   (t) => [
     uniqueIndex('model_config_one_enabled_key').on(t.kind).where(sql`enabled`),
+    uniqueIndex('model_config_one_enabled_plan_key').on(t.kind).where(sql`enabled_plan`),
+    check('model_config_enabled_plan_check', sql`not enabled_plan or kind = 'generation'`),
     check('model_config_kind_check', oneOf('kind', ['generation', 'embedding', 'transcription'])),
     check('model_config_transport_check', oneOf('transport', ['gateway', 'openai_compatible'])),
     check(
       'model_config_base_url_check',
       sql`(transport = 'openai_compatible') = (base_url is not null)`,
     ),
+  ],
+);
+
+/** Firecrawl credentials; last_used_at coordinates rotation across server instances. */
+export const firecrawlKey = pgTable(
+  'firecrawl_key',
+  {
+    id: uuid('id').primaryKey().defaultRandom(),
+    name: text('name').notNull(),
+    apiKeyCipher: text('api_key_cipher').notNull(),
+    apiKeyHash: text('api_key_hash').notNull(),
+    apiKeyTail: text('api_key_tail').notNull(),
+    enabled: boolean('enabled').notNull().default(true),
+    isFallback: boolean('is_fallback').notNull().default(false),
+    lastUsedAt: timestampTz('last_used_at'),
+    useCount: integer('use_count').notNull().default(0),
+    lastStatus: integer('last_status'),
+    cooldownUntil: timestampTz('cooldown_until'),
+    updatedBy: uuid('updated_by'),
+    createdAt: createdAt(),
+    updatedAt: timestampTz('updated_at').notNull().defaultNow(),
+  },
+  (t) => [
+    uniqueIndex('firecrawl_key_hash_key').on(t.apiKeyHash),
+    uniqueIndex('firecrawl_key_fallback_key').on(t.isFallback).where(sql`${t.isFallback} = true`),
+    index('firecrawl_key_rotation_idx').on(t.enabled, t.lastUsedAt),
+    check('firecrawl_key_name_check', sql`char_length(name) between 1 and 80`),
+    check('firecrawl_key_use_count_check', sql`use_count >= 0`),
   ],
 );
 
@@ -593,6 +661,9 @@ export const paddleCheckout = pgTable(
   'paddle_checkout',
   {
     paddleTransactionId: text('paddle_transaction_id').primaryKey(),
+    priceKey: text('price_key'),
+    unitPriceMinor: integer('unit_price_minor'),
+    supersededAt: timestampTz('superseded_at'),
     userId: uuid('user_id')
       .notNull()
       .references(() => user.id),
@@ -804,6 +875,20 @@ export const modelCall = pgTable(
     kind: text('kind').$type<'generation' | 'embedding' | 'transcription'>().notNull(),
     model: text('model').notNull(),
     configId: uuid('config_id'),
+    configName: text('config_name'),
+    userId: uuid('user_id'),
+    audience: text('audience').$type<'free' | 'plan'>(),
+    purpose: text('purpose').$type<CallPurpose>(),
+    status: text('status').$type<CallStatus>().notNull().default('unknown'),
+    durationMs: integer('duration_ms'),
+    usageKnown: boolean('usage_known').notNull().default(false),
+    endpoint: text('endpoint'),
+    requestId: text('request_id'),
+    errorCode: text('error_code'),
+    costUsd: text('cost_usd'),
+    costBasis: text('cost_basis').$type<CostBasis>().notNull().default('unresolved'),
+    rate: jsonb('rate').$type<ProviderRate>(),
+    priceRevision: text('price_revision'),
     inputTokens: integer('input_tokens').notNull().default(0),
     outputTokens: integer('output_tokens').notNull().default(0),
     /** Transcription: seconds of audio. */
@@ -812,6 +897,10 @@ export const modelCall = pgTable(
   },
   (t) => [
     index('model_call_time_idx').on(t.createdAt),
+    index('model_call_generation_time_idx').on(t.createdAt, t.id).where(sql`kind = 'generation'`),
+    check('model_call_status_check', oneOf('status', ['unknown', 'succeeded', 'failed', 'aborted'])),
+    check('model_call_audience_check', sql`audience is null or audience in ('free', 'plan')`),
+    check('model_call_cost_basis_check', oneOf('cost_basis', ['unresolved', 'provider_reported', 'configured_rate', 'estimated'])),
     check('model_call_kind_check', oneOf('kind', ['generation', 'embedding', 'transcription'])),
   ],
 );
@@ -1004,3 +1093,37 @@ export const videoExport = pgTable(
     check('video_export_cost_check', sql`cost_credits >= 0`),
   ],
 );
+
+/** Immutable price versions. Historical Paddle IDs remain valid for renewals and delayed webhooks. */
+export const billingPrice = pgTable('billing_price', {
+  id: uuid('id').primaryKey().defaultRandom(),
+  environment: text('environment').$type<'sandbox' | 'production'>().notNull(),
+  kind: text('kind').$type<'plan' | 'pack'>().notNull(),
+  priceMinor: integer('price_minor').notNull(),
+  paddlePriceId: text('paddle_price_id').notNull(),
+  promotionPriceMinor: integer('promotion_price_minor'),
+  promotionStartsAt: timestampTz('promotion_starts_at'),
+  promotionEndsAt: timestampTz('promotion_ends_at'),
+  enabled: boolean('enabled').notNull().default(true),
+  updatedBy: uuid('updated_by').references(() => administrator.id),
+  createdAt: createdAt(),
+}, (t) => [
+  uniqueIndex('billing_price_current_key').on(t.environment, t.kind).where(sql`enabled`),
+  index('billing_price_paddle_idx').on(t.paddlePriceId),
+  check('billing_price_environment_check', oneOf('environment', ['sandbox', 'production'])),
+  check('billing_price_kind_check', oneOf('kind', ['plan', 'pack'])),
+  check('billing_price_amount_check', sql`price_minor between 1 and 100000000`),
+  check('billing_price_promotion_check', sql`(promotion_price_minor is null and promotion_starts_at is null and promotion_ends_at is null) or (promotion_price_minor is not null and promotion_starts_at is not null and promotion_ends_at is not null and promotion_price_minor > 0 and promotion_price_minor < price_minor and promotion_starts_at < promotion_ends_at)`),
+]);
+
+/** The registration gift is independent of the payment provider and only affects future sign-ups. */
+export const signupReward = pgTable('signup_reward', {
+  id: integer('id').primaryKey().default(1),
+  credits: integer('credits').notNull(),
+  revision: uuid('revision').notNull().defaultRandom(),
+  updatedBy: uuid('updated_by').references(() => administrator.id),
+  updatedAt: timestampTz('updated_at').notNull().defaultNow(),
+}, () => [
+  check('signup_reward_singleton_check', sql`id = 1`),
+  check('signup_reward_credits_check', sql`credits between 0 and 100000000`),
+]);

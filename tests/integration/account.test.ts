@@ -1,5 +1,5 @@
 /**
- * Acceptance (8.4 step 1): a new user gets 2,000 welcome credits; signing in
+ * Acceptance (8.4 step 1): a new user gets 100,000 welcome credits; signing in
  * again reuses the account without a second grant; a disabled account cannot
  * sign in; sign-out kills the session.
  */
@@ -23,18 +23,18 @@ const profile = (subject: string) => ({
 });
 
 describeWithDb('sign-up and sessions', () => {
-  it('grants 2,000 welcome credits once, with a ledger row', async () => {
+  it('grants 100,000 welcome credits once, with a ledger row', async () => {
     const subject = uniqueName('user');
     const first = await createSession(profile(subject), 'zh', '/dashboard');
     expect(first.created).toBe(true);
-    expect(await balanceOf(db(), first.userId)).toBe(2000);
+    expect(await balanceOf(db(), first.userId)).toBe(100_000);
     const entries = await db().select().from(schema.creditEntry).where(eq(schema.creditEntry.userId, first.userId));
-    expect(entries.map((entry) => [entry.reason, entry.delta])).toEqual([['welcome', 2000]]);
+    expect(entries.map((entry) => [entry.reason, entry.delta])).toEqual([['welcome', 100_000]]);
 
     const second = await createSession(profile(subject), 'zh', '/dashboard');
     expect(second.created).toBe(false);
     expect(second.userId).toBe(first.userId);
-    expect(await balanceOf(db(), first.userId)).toBe(2000);
+    expect(await balanceOf(db(), first.userId)).toBe(100_000);
   });
 
   it('resolves a live session and forgets it on sign-out', async () => {

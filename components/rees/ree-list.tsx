@@ -1,7 +1,8 @@
 'use client';
 
-import Link from 'next/link';
-import { usePathname, useRouter } from 'next/navigation';
+import { WorkspaceLink as Link } from '@/components/shell/workspace-link';
+import { usePathname } from 'next/navigation';
+import { useNavigationRouter as useRouter } from '@/components/shell/navigation-provider';
 import { useEffect, useRef, useState, useTransition, type CSSProperties, type ReactNode } from 'react';
 import { REE_PAGE_SIZES } from '@/lib/constants';
 import { pageNumbers, type ListResult } from '@/lib/domain/list';
@@ -14,8 +15,11 @@ import { ConfirmModal } from '@/components/ui/modal';
 import { useToast } from '@/components/ui/toast';
 import { IntroDialog, PlaceholderPoster } from '@/components/video/video-cover';
 import { DotAvatar, PIcon } from '@/components/rees/proto-icon';
+import { Icon } from '@/components/ui/icons';
+import { ReeCardMetrics } from '@/components/discover/ree-card-metrics';
 import './ree-pages.css';
 import './owned-rees.css';
+import '@/components/discover/ree-video-card.css';
 import type { IntroProps } from '@/lib/domain/video';
 
 interface Query {
@@ -74,7 +78,7 @@ function OwnedCover({ ree, video }: { ree: ReeListItem; video?: IntroProps }) {
           {open && <IntroDialog open={open} onClose={() => setOpen(false)} video={video} name={ree.name} href={`/rees/${ree.id}/video`} linkLabel={t.video.dialog.studio} />}
         </>
       ) : (
-        <Link href={`/rees/${ree.id}`} className="discovery-cover-poster is-static is-video-placeholder" aria-label={fill(r.openLabel, { name: ree.name })}>
+        <Link href={`/rees/${ree.id}/settings`} className="discovery-cover-poster is-static is-video-placeholder" aria-label={fill(r.openLabel, { name: ree.name })}>
           <PlaceholderPoster ree={ree} />
         </Link>
       )}
@@ -409,11 +413,6 @@ export function ReeList({
           <p>{r.lede}</p>
         </div>
         <div className="owned-ree-head-actions">
-          {/* Step 7: the video studio (prototype `#/videos`, reached there from the command palette) is reached from here. */}
-          <Link href="/videos" className="btn secondary">
-            <PIcon name="film" />
-            {t.video.library.entry}
-          </Link>
           <Link href="/rees/new" className="btn">
             <PIcon name="plus" />
             {r.create}
@@ -422,19 +421,19 @@ export function ReeList({
       </div>
 
       <div className="metric-grid">
-        {[
-          [r.stats.sources, n(totals.sources), r.stats.sourcesUnit, r.stats.sourcesHint],
-          [r.stats.answers, n(totals.answers), r.stats.answersUnit, r.stats.answersHint],
-          [r.stats.public, n(totals.public), r.stats.publicUnit, fill(r.stats.publicHint, { private: n(totals.private) })],
-        ].map(([label, value, unit, hint]) => (
-          <div key={label} className="card metric">
+        {([
+          [r.stats.sources, n(totals.sources), r.stats.sourcesUnit, r.stats.sourcesHint, '/workspace/sources'],
+          [r.stats.answers, n(totals.answers), r.stats.answersUnit, r.stats.answersHint, '/workspace/answers'],
+          [r.stats.public, n(totals.public), r.stats.publicUnit, fill(r.stats.publicHint, { private: n(totals.private) }), '/rees?visibility=public'],
+        ] as const).map(([label, value, unit, hint, href]) => (
+          <Link key={label} href={href} className="card metric">
             <p>{label}</p>
             <div className="value">
               {value}
               <small>{unit}</small>
             </div>
             <small>{hint}</small>
-          </div>
+          </Link>
         ))}
       </div>
 
@@ -537,27 +536,19 @@ export function ReeList({
         ) : !list ? (
           <div className="dot-grid" style={fade}>
             {result.items.map((ree) => (
-              <article key={ree.id} className="dot-card owned-card creator-dot-card" aria-label={ree.name}>
+              <article key={ree.id} className="dot-card owned-card creator-dot-card ree-video-card" aria-label={ree.name}>
                 <OwnedCover ree={ree} video={videos[ree.id]} />
-                <p className="description">{ree.description}</p>
-                <div className="dot-stats creator-dot-stats">
-                  <Link href={`/rees/${ree.id}/knowledge`} aria-label={fill(r.rowLabels.knowledge, { name: ree.name })}>
-                    <PIcon name="file" />
-                    {fill(r.sourcesShort, { count: n(ree.sources) })}
-                  </Link>
-                  <Link href={`/rees/${ree.id}/statistics`} aria-label={fill(r.rowLabels.statistics, { name: ree.name })}>
-                    <PIcon name="chat" />
-                    {fill(r.answersShort, { count: n(ree.answers) })}
-                  </Link>
-                </div>
-                <div className="card-actions">
-                  <Link href={`/rees/${ree.id}/video`} className="text-link">
-                    <PIcon name="film" />
-                    {videos[ree.id] ? r.video.edit : r.video.create}
-                  </Link>
-                  <Link href={`/rees/${ree.id}`} className="btn secondary sm">
-                    {r.open} <PIcon name="arrow" />
-                  </Link>
+                <div className="ree-card-info">
+                  <p className="description">{ree.description}</p>
+                  <div className="card-actions">
+                    <Link href={`/rees/${ree.id}/knowledge`} className="dot-sources" aria-label={fill(r.rowLabels.knowledge, { name: ree.name })}>
+                      <Icon name="file" />
+                      {fill(t.discover.card.sources, { n: n(ree.sources) })}
+                    </Link>
+                    <Link href={`/rees/${ree.id}/statistics`} className="ree-card-statistics" aria-label={fill(r.rowLabels.statistics, { name: ree.name })}>
+                      <ReeCardMetrics answers={ree.answers} positiveRate={ree.positiveRate} />
+                    </Link>
+                  </div>
                 </div>
               </article>
             ))}
@@ -597,7 +588,7 @@ export function ReeList({
                       </label>
                     </td>
                     <td className="owned-ree-list-identity">
-                      <Link href={`/rees/${ree.id}`} className="owned-ree-list-name" aria-label={fill(r.openLabel, { name: ree.name })}>
+                      <Link href={`/rees/${ree.id}/settings`} className="owned-ree-list-name" aria-label={fill(r.openLabel, { name: ree.name })}>
                         <DotAvatar avatar={ree.avatarBlob} color={ree.color} small />
                         <span>
                           <strong title={ree.name}>{ree.name}</strong>

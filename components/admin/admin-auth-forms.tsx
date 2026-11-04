@@ -1,6 +1,6 @@
 'use client';
 
-import { useRouter } from 'next/navigation';
+import { useNavigationRouter as useRouter } from '@/components/shell/navigation-provider';
 import { useState } from 'react';
 import { ADMIN_PASSWORD_MIN } from '@/lib/constants';
 import { api } from '@/lib/client/upload';

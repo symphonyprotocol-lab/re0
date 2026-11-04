@@ -1,5 +1,5 @@
 import type { Metadata } from 'next';
-import Link from 'next/link';
+import { WorkspaceLink as Link } from '@/components/shell/workspace-link';
 import { redirect } from 'next/navigation';
 import { csvHref, listHref, reesView, REE_VISIBILITY } from '@/lib/domain/admin-lists';
 import { listAdminRees } from '@/lib/services/admin-rees';

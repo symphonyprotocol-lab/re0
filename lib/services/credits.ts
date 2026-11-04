@@ -7,7 +7,7 @@
  */
 import { and, asc, eq, gt, inArray, lte, sql } from 'drizzle-orm';
 import type { CreditEntryReason } from '@/db/schema';
-import { WELCOME_CREDITS, type GrantSource } from '@/lib/constants';
+import { type GrantSource } from '@/lib/constants';
 import { offsetDebts } from '@/lib/domain/billing';
 import {
   allocate,
@@ -18,6 +18,7 @@ import {
   type Allocation,
   type SpendableGrant,
 } from '@/lib/domain/credits';
+import { welcomeCredits } from '@/lib/services/signup-reward';
 import { schema, type Executor, type Tx } from '@/lib/infra/db';
 
 export { InsufficientCredits } from '@/lib/domain/credits';
@@ -51,16 +52,18 @@ function reasonsFor(kind: string, ledger?: SubLedger) {
 }
 
 export async function grantWelcome(tx: Tx, userId: string, now = new Date()): Promise<void> {
+  const { credits } = await welcomeCredits(tx);
+  if (credits === 0) return;
   const [grant] = await tx
     .insert(schema.creditGrant)
-    .values({ userId, source: 'welcome', amount: WELCOME_CREDITS, remaining: WELCOME_CREDITS, createdAt: now })
+    .values({ userId, source: 'welcome', amount: credits, remaining: credits, createdAt: now })
     .returning({ id: schema.creditGrant.id });
   await tx.insert(schema.creditEntry).values({
     userId,
-    delta: WELCOME_CREDITS,
+    delta: credits,
     reason: 'welcome',
     refId: grant!.id,
-    allocations: [{ grantId: grant!.id, source: 'welcome', amount: WELCOME_CREDITS }],
+    allocations: [{ grantId: grant!.id, source: 'welcome', amount: credits }],
     createdAt: now,
   });
 }
@@ -267,6 +270,38 @@ async function openHold(tx: Tx, holdId: string) {
     .where(and(eq(schema.creditHold.id, holdId), eq(schema.creditHold.status, 'held')))
     .for('update');
   return hold ?? null;
+}
+
+/** Increase a knowledge reservation to its measured cost before embedding.
+ * The caller locks the source first. Allocation and the extra ledger debit
+ * are atomic; failure leaves the original reservation intact for refund.
+ */
+export async function reserveKnowledgeUsage(
+  tx: Tx,
+  holdId: string,
+  actual: number,
+  options: { reeId: string; note?: string | null },
+  now = new Date(),
+): Promise<number> {
+  if (!Number.isSafeInteger(actual) || actual < 0) throw new Error('invalid knowledge price');
+  const hold = await openHold(tx, holdId);
+  if (!hold || hold.kind !== 'knowledge') throw new Error('knowledge reservation unavailable');
+  const extra = Math.max(0, actual - hold.amount);
+  if (extra === 0) return 0;
+  const allocations = allocate(await grantsOf(tx, hold.userId, true), extra, now);
+  await moveGrants(tx, allocations, -1);
+  await tx.update(schema.creditHold).set({ amount: actual, allocations: [...hold.allocations, ...allocations] }).where(eq(schema.creditHold.id, holdId));
+  await tx.insert(schema.creditEntry).values({
+    userId: hold.userId,
+    delta: -extra,
+    reason: 'knowledge_hold',
+    refId: hold.refId,
+    reeId: options.reeId,
+    note: options.note ?? null,
+    allocations,
+    createdAt: now,
+  });
+  return extra;
 }
 
 /**

@@ -5,6 +5,7 @@
 import { and, asc, desc, eq, ilike, inArray, isNull, or, sql, type SQL } from 'drizzle-orm';
 import { REE_PAGE_SIZES } from '@/lib/constants';
 import { clampPage, likePattern, type ListResult } from '@/lib/domain/list';
+import { positiveRate } from '@/lib/domain/explore';
 import {
   coerceDraft,
   newReeDraft,
@@ -24,6 +25,7 @@ import {
 import { db, schema, type Executor, type Tx } from '@/lib/infra/db';
 import { detachRee } from '@/lib/services/conversations';
 import { checkKnowledge, createKnowledgeInTx, type NewKnowledge } from '@/lib/services/knowledge';
+import { votesByOthers } from '@/lib/services/ree-feedback';
 
 export type Ree = typeof schema.ree.$inferSelect;
 
@@ -55,6 +57,7 @@ export interface ReeListItem {
   sources: number;
   readySources: number;
   answers: number;
+  positiveRate: number | null;
   createdAt: Date;
 }
 
@@ -132,6 +135,8 @@ export async function listRees(
       sources: sourcesCount,
       readySources: readyCount,
       answers: answersCount,
+      up: votesByOthers('up'),
+      down: votesByOthers('down'),
       createdAt: schema.ree.createdAt,
     })
     .from(schema.ree)
@@ -139,7 +144,12 @@ export async function listRees(
     .orderBy(...order)
     .limit(size)
     .offset((page - 1) * size);
-  return { items, total, page, size };
+  return {
+    items: items.map(({ up, down, ...ree }) => ({ ...ree, positiveRate: positiveRate(up, down) })),
+    total,
+    page,
+    size,
+  };
 }
 
 /** Whole-collection figures for the page header and the dashboard; they ignore search and paging. */

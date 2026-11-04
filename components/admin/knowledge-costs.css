@@ -1,0 +1,20 @@
+.knowledge-costs-page .record-summary { grid-template-columns: repeat(5, minmax(0, 1fr)); }
+.knowledge-costs-page .record-summary-item { flex-direction: column; align-items: flex-start; gap: 12px; }
+.knowledge-costs-page .record-summary-item strong { font-size: 20px; overflow-wrap: anywhere; }
+.knowledge-costs-page .cost-filters { margin-bottom: 18px; }
+.knowledge-costs-page .cost-period { margin-bottom: 20px; }
+.knowledge-costs-page .cost-notes { color: var(--muted); font-size: 12px; line-height: 1.8; margin: 16px 0 22px; }
+.knowledge-costs-page .cost-section-title { font-size: 16px; margin: 20px; }
+.cost-amount { overflow-wrap: anywhere; white-space: normal; }
+.cost-usage { display: flex; flex-direction: column; gap: 5px; font-size: 12px; }
+.cost-usage b { font-weight: 500; }
+.knowledge-costs-page .record-detail-section { margin-top: 18px; }
+.knowledge-costs-page .record-fields dd { overflow-wrap: anywhere; }
+.knowledge-costs-page .cost-receipt { padding: 16px 0; border-bottom: 1px solid var(--line); }
+.knowledge-costs-page .cost-receipt:last-child { border-bottom: 0; }
+.knowledge-costs-page .cost-receipt h3 { margin: 0 0 14px; font-size: 14px; }
+.knowledge-costs-page .record-table .table-wrap { max-height: 560px; }
+@media (max-width: 1000px) { .knowledge-costs-page .record-summary { grid-template-columns: repeat(2, minmax(0, 1fr)); } }
+@media (max-width: 560px) { .knowledge-costs-page .record-summary { grid-template-columns: 1fr; } }
+.knowledge-costs-page .record-summary-item strong span { font: inherit; color: inherit; }
+.knowledge-costs-page .record-table + .record-table { margin-top: 20px; }

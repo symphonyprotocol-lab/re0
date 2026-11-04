@@ -1,7 +1,8 @@
 'use client';
 
-import Link from 'next/link';
-import { usePathname, useRouter, useSearchParams } from 'next/navigation';
+import { WorkspaceLink as Link } from '@/components/shell/workspace-link';
+import { usePathname, useSearchParams } from 'next/navigation';
+import { useNavigationRouter as useRouter } from '@/components/shell/navigation-provider';
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { KNOWLEDGE_BATCH_MAX, KNOWLEDGE_FOLDER_NAME_MAX, LIST_PAGE_SIZES } from '@/lib/constants';
 import { KNOWLEDGE_KIND_LIST } from '@/lib/domain/knowledge';

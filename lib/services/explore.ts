@@ -32,6 +32,7 @@ import { db, schema } from '@/lib/infra/db';
 import { answerable, embedQuestion, type QuestionVector } from '@/lib/services/chat';
 import type { IntroProps } from '@/lib/domain/video';
 import { introsFor } from '@/lib/services/video';
+import { votesByOthers } from '@/lib/services/ree-feedback';
 
 const reeId = sql.raw('"ree"."id"');
 const reeOwner = sql.raw('"ree"."owner_id"');
@@ -45,8 +46,6 @@ export function publicRee(): SQL {
 export const readySources = sql<number>`(select count(*)::int from ${schema.knowledge} k where k.ree_id = ${reeId} and k.status = 'ready' and k.enabled and k.deleted_at is null)`;
 /** Successful answers to other people, all time. */
 export const answersByOthers = sql<number>`(select count(*)::int from ${schema.message} m join ${schema.conversation} c on c.id = m.conversation_id where m.ree_id = ${reeId} and m.role = 'ree' and not m.no_answer and c.user_id <> ${reeOwner})`;
-const votesByOthers = (vote: 'up' | 'down') =>
-  sql<number>`(select count(*)::int from ${schema.reeFeedback} f join ${schema.message} m on m.id = f.message_id where m.ree_id = ${reeId} and f.vote = ${vote} and f.user_id <> ${reeOwner})`;
 
 export interface ReeCard {
   id: string;

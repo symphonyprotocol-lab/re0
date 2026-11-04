@@ -239,13 +239,22 @@ export async function updateConversation(
 /**
  * The batch actions (prototype conversations.js): pin only what is not
  * archived; archiving unpins; trash and restore move whole conversations,
- * messages and participants kept. Answers how many rows changed.
+ * messages and participants kept. Delete permanently removes only the
+ * caller's trashed conversations, cascading to messages and participants.
+ * Answers how many rows changed.
  */
 export async function runBatch(userId: string, action: BatchAction, ids: readonly string[], now = new Date()): Promise<number> {
   const unique = [...new Set(ids)].filter((id) => /^[0-9a-f-]{36}$/i.test(id));
   if (unique.length === 0) return 0;
   if (unique.length > CONVERSATION_BATCH_MAX) throw new ConversationError('too_many');
   const mine = and(eq(schema.conversation.userId, userId), eq(schema.conversation.kind, 'normal'), inArray(schema.conversation.id, unique));
+  if (action === 'delete') {
+    const rows = await db()
+      .delete(schema.conversation)
+      .where(and(mine, isNotNull(schema.conversation.deletedAt)))
+      .returning({ id: schema.conversation.id });
+    return rows.length;
+  }
   const live = and(mine, isNull(schema.conversation.deletedAt));
   const change = {
     pin: { set: { pinned: true }, where: and(live, isNull(schema.conversation.archivedAt)) },

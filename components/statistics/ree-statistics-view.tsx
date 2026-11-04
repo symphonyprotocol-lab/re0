@@ -1,4 +1,4 @@
-import Link from 'next/link';
+import { WorkspaceLink as Link } from '@/components/shell/workspace-link';
 import { LIST_PAGE_SIZES } from '@/lib/constants';
 import { locatorLabel, type CitationSnapshot } from '@/lib/domain/answer';
 import { periodParams, reportingDate } from '@/lib/domain/statistics';

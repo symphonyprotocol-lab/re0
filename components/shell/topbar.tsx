@@ -1,6 +1,6 @@
 'use client';
 
-import Link from 'next/link';
+import { WorkspaceLink as Link } from '@/components/shell/workspace-link';
 import { useRouter } from 'next/navigation';
 import { Fragment, type ReactNode } from 'react';
 import { useI18n } from '@/i18n/client';
@@ -128,13 +128,13 @@ export function Topbar({
                   <Link
                     key={tab.href}
                     href={tab.href}
+                    icon={tab.icon}
                     className={tab.active ? 'active' : undefined}
                     aria-current={tab.active ? 'page' : undefined}
                     ref={(node) => {
                       if (node && tab.active) node.scrollIntoView({ block: 'nearest', inline: 'nearest' });
                     }}
                   >
-                    {tab.icon && <Icon name={tab.icon} className="" />}
                     {tab.label}
                   </Link>
                 ))}

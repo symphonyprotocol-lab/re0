@@ -10,6 +10,7 @@
  * GitHub, the sites and DNS are stubbed; transcription and embeddings go to
  * the local fake endpoint.
  */
+import { WELCOME_CREDITS } from '@/lib/constants';
 import { afterAll, beforeAll, describe, expect, it, vi } from 'vitest';
 import { pointModelsAt, TEST_DATABASE_URL, uniqueName } from './setup';
 import { asc, eq } from 'drizzle-orm';
@@ -103,7 +104,7 @@ describeWithDb('GitHub repositories', () => {
     serveRepository('acme', 'handbook', 'public');
     const { userId, ree } = await userWithRee();
     const id = await knowledge.addKnowledge(userId, ree, { kind: 'github', url: 'https://github.com/acme/handbook/tree/main/docs' });
-    expect(await balanceOf(db(), userId)).toBe(2000 - 120);
+    expect(await balanceOf(db(), userId)).toBe(WELCOME_CREDITS - 1);
     await knowledge.processKnowledge(id);
     const detail = await knowledge.knowledgeDetail(ree.id, id);
     expect(detail).toMatchObject({ status: 'ready', title: 'acme/handbook', source: 'https://github.com/acme/handbook' });
@@ -119,7 +120,7 @@ describeWithDb('GitHub repositories', () => {
     serveRepository('acme', 'secret', 'private');
     const { userId, ree } = await userWithRee();
     expect(await refusal(knowledge.addKnowledge(userId, ree, { kind: 'github', url: 'https://github.com/acme/secret' }))).toBe('github_not_connected');
-    expect(await balanceOf(db(), userId)).toBe(2000);
+    expect(await balanceOf(db(), userId)).toBe(WELCOME_CREDITS);
 
     await connections.saveGithubConnection(userId, { accessToken: 'gho_secret_token', login: 'acme-dev', scope: 'repo' });
     expect(await connections.githubConnectionFor(userId)).toMatchObject({ login: 'acme-dev' });
@@ -223,7 +224,7 @@ describeWithDb('pages and websites', () => {
 
     const before = await balanceOf(db(), userId);
     const id = await knowledge.addKnowledge(userId, ree, { kind: 'site', url: 'https://docs.example.com/guide' });
-    expect(await balanceOf(db(), userId)).toBe(before - 500);
+    expect(await balanceOf(db(), userId)).toBe(before - 1);
     await knowledge.processKnowledge(id);
     const detail = await knowledge.knowledgeDetail(ree.id, id);
     expect(detail?.status).toBe('ready');
@@ -235,7 +236,7 @@ describeWithDb('pages and websites', () => {
     expect(detail!.content).toBeNull();
     const limits = detail!.children.findIndex((child) => child.label === 'Limits');
     expect((await knowledge.knowledgeChild(ree.id, id, limits))?.content).toContain('500 seats');
-    const settled = Math.ceil((await knowledge.knowledgeText(ree.id, id))!.content.length / 1000);
+    const settled = 1;
     expect(await balanceOf(db(), userId)).toBe(before - settled);
   });
 
@@ -275,8 +276,8 @@ describeWithDb('audio', () => {
     expect(await refusal(knowledge.addKnowledge(userId, ree, { kind: 'audio', blobPath: path, fileName: 'interview.mp3', consent: false }))).toBe('consent_required');
     const before = await balanceOf(db(), userId);
     const id = await knowledge.addKnowledge(userId, ree, { kind: 'audio', blobPath: path, fileName: 'interview.mp3', consent: true });
-    /* The hold: 100 MB ≈ 100 minutes × 100 credits, plus their estimated transcript. */
-    expect(await balanceOf(db(), userId)).toBe(before - 10_100);
+    /* Initial balance check is refundable; duration does not quote the final cost. */
+    expect(await balanceOf(db(), userId)).toBe(before - 1);
 
     await knowledge.processKnowledge(id);
     const transcriptions = fake.requests.filter((request) => request.path.endsWith('/audio/transcriptions'));
@@ -297,11 +298,14 @@ describeWithDb('audio', () => {
     expect(locatorLabel(retrieval.passages[0]!.locator, 'zh')).toBe('第 12:34');
     expect(locatorLabel(retrieval.passages[0]!.locator, 'en')).toBe('12:34');
 
-    /* About 109 minutes: more than the hold, and a shortfall is not charged (多退少不补). */
+    /* Sum each transcription piece’s provider cost and the embedding cost, then round once. */
+    const charges = detail!.activity.filter((entry) => entry.code === 'provider_usage').map((entry) => JSON.parse(String(entry.detail!.charge)));
+    const price = Math.ceil(charges.reduce((sum, charge) => sum + Number(charge.costUsd), 0) / 0.0001);
+    expect(price).toBeGreaterThan(6_500);
+    expect(await balanceOf(db(), userId)).toBe(before - price);
     const entries = await db().select().from(schema.creditEntry).where(eq(schema.creditEntry.refId, id)).orderBy(asc(schema.creditEntry.createdAt));
-    expect(entries.map((entry) => [entry.reason, entry.delta])).toEqual([
-      ['knowledge_hold', -10_100],
-      ['knowledge_settle', 0],
-    ]);
+    expect(entries[0]).toMatchObject({ reason: 'knowledge_hold', delta: -1 });
+    expect(entries.at(-1)).toMatchObject({ reason: 'knowledge_settle', delta: 0 });
+    expect(entries.reduce((sum, entry) => sum + entry.delta, 0)).toBe(-price);
   }, 60_000);
 });

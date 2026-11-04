@@ -1,4 +1,4 @@
-import Link from 'next/link';
+import { WorkspaceLink as Link } from '@/components/shell/workspace-link';
 import type { ReactNode } from 'react';
 import { PAYOUT_MIN_CREDITS } from '@/lib/constants';
 import { formatCentsUsd, formatCreditsUsd as usd } from '@/lib/domain/payouts';

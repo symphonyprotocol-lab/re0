@@ -20,7 +20,6 @@ import {
   CHUNK_TARGET_TOKENS,
   estimateTokens,
   holdFor,
-  processingPrice,
   validAudio,
   validDocument,
   validText,
@@ -43,8 +42,11 @@ import { fetchRepositoryFiles, readRepository } from '@/lib/infra/connectors/git
 import { crawlSite, fetchPage } from '@/lib/infra/connectors/web';
 import { db, schema, type Tx } from '@/lib/infra/db';
 import { githubTokenFor, hasVerifiedDomainFor } from '@/lib/services/connections';
-import { heldFor, placeHold, releaseHold, settleHold } from '@/lib/services/credits';
+import { heldFor, InsufficientCredits, placeHold, releaseHold, reserveKnowledgeUsage, settleHold } from '@/lib/services/credits';
 import { afterKnowledgeReady } from '@/lib/services/profile';
+import { drainProviderCalls, withProviderMeter } from '@/lib/infra/ai/provider-meter';
+import { ProviderCostUnavailable, providerTotal, type ProviderCharge } from '@/lib/domain/provider-cost';
+import { providerPrices } from '@/lib/services/provider-pricing';
 
 export type NewKnowledge = (
   | { kind: 'document'; blobPath: string; fileName: string }
@@ -238,7 +240,8 @@ export async function createKnowledgeInTx(tx: Tx, ownerId: string, ree: { id: st
     .insert(schema.knowledge)
     .values({ ...values, reeId: ree.id, folderId, status: 'pending', activity: [activity('added', { credits: hold }, now)], createdAt: now, updatedAt: now })
     .returning({ id: schema.knowledge.id });
-  await placeHold(tx, { userId: ownerId, kind: 'knowledge', amount: hold, refId: row!.id, reeId: ree.id, note: values.title }, now);
+  const holdId = await placeHold(tx, { userId: ownerId, kind: 'knowledge', amount: hold, refId: row!.id, reeId: ree.id, note: values.title }, now);
+  await snapshotCostRun(tx, holdId, row!.id, now);
   return row!.id;
 }
 
@@ -251,7 +254,57 @@ export async function addKnowledge(ownerId: string, ree: { id: string }, input: 
 
 type KnowledgeRow = typeof schema.knowledge.$inferSelect;
 
-/** What reprocessing a row reserves: the same cap as adding it (8.2, "重新处理"). */
+async function snapshotCostRun(tx: Tx, holdId: string, knowledgeId: string, now: Date) {
+  const [source] = await tx.select({ title: schema.knowledge.title, kind: schema.knowledge.kind, reeId: schema.ree.id, reeName: schema.ree.name, userId: schema.ree.ownerId })
+    .from(schema.knowledge).innerJoin(schema.ree, eq(schema.knowledge.reeId, schema.ree.id)).where(eq(schema.knowledge.id, knowledgeId));
+  if (!source) throw new Error('knowledge cost source missing');
+  await tx.insert(schema.knowledgeCostRun).values({ ...source, id: holdId, knowledgeId, status: 'pending', createdAt: now }).onConflictDoNothing();
+}
+
+function processingRun(row: Pick<KnowledgeRow, 'activity'>): string | undefined {
+  const entry = row.activity.filter((item) => item.code === 'processing').at(-1);
+  return String(entry?.detail?.runId ?? entry?.at ?? '');
+}
+function ownsProcessingRun(row: Pick<KnowledgeRow, 'status' | 'activity'> | undefined, runId: string): boolean {
+  return row?.status === 'processing' && processingRun(row) === runId;
+}
+function runCharges(log: KnowledgeActivity[], runId: string): ProviderCharge[] {
+  return log.filter((entry) => entry.code === 'provider_usage' && entry.detail?.runId === runId)
+    .map((entry) => JSON.parse(String(entry.detail!.charge)) as ProviderCharge);
+}
+
+/** Persist each successful supplier response, including its price snapshot, before proceeding. */
+async function recordProviderCharge(knowledgeId: string, charge: ProviderCharge): Promise<void> {
+  const outcome = await db().transaction(async (tx) => {
+    const [row] = await tx.select().from(schema.knowledge).where(eq(schema.knowledge.id, knowledgeId)).for('update');
+    // Receipts outlive source content, including late replies after a stale run was refunded.
+    await tx.update(schema.knowledgeCostRun).set({ charges: sql`${schema.knowledgeCostRun.charges} || ${JSON.stringify([charge])}::jsonb` })
+      .where(and(eq(schema.knowledgeCostRun.runId, charge.runId), sql`not exists (select 1 from jsonb_array_elements(${schema.knowledgeCostRun.charges}) c where c->>'id' = ${charge.id})`));
+    if (!row) return 'stale';
+    const previous = runCharges(row!.activity, charge.runId);
+    if (previous.some((entry) => entry.id === charge.id)) return null;
+    const current = ownsProcessingRun(row, charge.runId);
+    await tx.update(schema.knowledge).set({ activity: appendActivity([activity('provider_usage', { runId: charge.runId, charge: JSON.stringify(charge), ...(current ? {} : { late: 1 }) })]) }).where(eq(schema.knowledge.id, knowledgeId));
+    // Keep late supplier costs for reconciliation, without touching a newer run's credits.
+    if (!current) return 'stale';
+    if (charge.costUsd === null || previous.some((entry) => entry.costUsd === null)) return null;
+    const holdId = await heldFor(tx, knowledgeId, 'knowledge');
+    if (!holdId) throw new Error('knowledge reservation missing');
+    try {
+      const extra = await reserveKnowledgeUsage(tx, holdId, providerTotal([...previous, charge]).credits, { reeId: row!.reeId, note: row!.title });
+      if (extra > 0) await tx.update(schema.knowledge).set({ activity: appendActivity([activity('reserved', { credits: extra })]) }).where(eq(schema.knowledge.id, knowledgeId));
+    } catch (error) {
+      // Allocation checks the full balance before mutating; retain the usage record even on refusal.
+      if (error instanceof InsufficientCredits) return error;
+      throw error;
+    }
+    return null;
+  });
+  if (outcome === 'stale') throw new Error('stale processing run');
+  if (outcome) throw outcome;
+}
+
+/** Initial reservation only; supplier responses determine the final price. */
 export function reprocessHold(row: Pick<KnowledgeRow, 'kind' | 'content' | 'fileSize'>): number {
   if (row.kind === 'text') return holdFor('text', row.content ?? '');
   if (row.kind === 'audio') return holdFor('audio', row.fileSize ?? 0);
@@ -279,7 +332,7 @@ export async function checkReprocess(ownerId: string, rows: readonly Pick<Knowle
 }
 
 /**
- * Reprocess ready or failed sources: each a fresh reservation, charged again
+ * Reprocess ready or failed sources: each a fresh usage reservation, charged again
  * (8.2, "重新处理"), its old passages replaced when it succeeds. All or none:
  * a busy row or a short balance refuses the whole batch.
  */
@@ -297,7 +350,8 @@ export async function reprocessInTx(tx: Tx, ownerId: string, reeId: string, ids:
       .update(schema.knowledge)
       .set({ status: 'pending', error: null, updatedAt: now, activity: appendActivity([activity('refresh', { credits: hold }, now)]) })
       .where(eq(schema.knowledge.id, row.id));
-    await placeHold(tx, { userId: ownerId, kind: 'knowledge', amount: hold, refId: row.id, reeId, note: row.title }, now);
+    const holdId = await placeHold(tx, { userId: ownerId, kind: 'knowledge', amount: hold, refId: row.id, reeId, note: row.title }, now);
+    await snapshotCostRun(tx, holdId, row.id, now);
   }
 }
 
@@ -386,7 +440,7 @@ async function extract(row: KnowledgeRow): Promise<Extracted> {
         })),
         chunks: audioChunks(transcript.segments),
         audioSeconds: seconds,
-        log: [activity('transcribed', { minutes: Math.ceil(seconds / 60) })],
+        log: [activity('transcribed', { seconds })],
       };
     }
     case 'github': {
@@ -430,6 +484,7 @@ async function embedAll(texts: string[]): Promise<{ vectors: number[][]; configI
     const { vectors, endpoint } = await embedTexts(texts);
     return { vectors, configId: endpoint.configId };
   } catch (error) {
+    if (error instanceof ProviderCostUnavailable || error instanceof InsufficientCredits) throw error;
     throw new ProcessingFailure('embedding_unavailable', error instanceof Error ? error.message : 'embedding failed');
   }
 }
@@ -440,13 +495,30 @@ async function embedAll(texts: string[]): Promise<{ vectors: number[][]; configI
  * claim.
  */
 export async function processKnowledge(knowledgeId: string, options: { profile?: boolean } = {}): Promise<string | null> {
+  const runId = crypto.randomUUID();
+  const prices = await providerPrices();
+  const reeId = await withProviderMeter({ runId, prices, record: (charge) => recordProviderCharge(knowledgeId, charge) }, () => processKnowledgeRun(knowledgeId, runId));
+  // Profile maintenance remains platform-funded and must not enter this source's cost scope.
+  if (reeId && options.profile !== false) await afterKnowledgeReady(reeId);
+  return reeId;
+}
+
+async function processKnowledgeRun(knowledgeId: string, runId: string): Promise<string | null> {
   const database = db();
   const now = new Date();
-  const [row] = await database
+  const row = await database.transaction(async (tx) => {
+    const [claimed] = await tx
     .update(schema.knowledge)
-    .set({ status: 'processing', updatedAt: now, activity: appendActivity([activity('processing', undefined, now)]) })
+    .set({ status: 'processing', updatedAt: now, activity: appendActivity([activity('processing', { runId }, now)]) })
     .where(and(eq(schema.knowledge.id, knowledgeId), eq(schema.knowledge.status, 'pending')))
     .returning();
+    if (!claimed) return null;
+    const holdId = await heldFor(tx, knowledgeId, 'knowledge');
+    if (!holdId) throw new Error('knowledge reservation missing');
+    await snapshotCostRun(tx, holdId, knowledgeId, now);
+    await tx.update(schema.knowledgeCostRun).set({ runId, status: 'processing', metered: true }).where(eq(schema.knowledgeCostRun.id, holdId));
+    return claimed;
+  });
   if (!row) return null;
 
   try {
@@ -457,7 +529,6 @@ export async function processKnowledge(knowledgeId: string, options: { profile?:
     const chunks = extracted.chunks ?? chunkSections(extracted.sections);
     if (chunks.length === 0) throw new ProcessingFailure('empty_text', 'nothing to chunk');
     let embedded = await embedAll(chunks.map((chunk) => chunk.content));
-    const price = processingPrice(content.length, extracted.audioSeconds ?? 0);
 
     /*
      * A re-embed job may switch the embedding model between embedding and
@@ -467,8 +538,8 @@ export async function processKnowledge(knowledgeId: string, options: { profile?:
     for (let attempt = 0; ; attempt += 1) {
       const outcome = await database.transaction(async (tx) => {
         /* A run presumed dead was failed and refunded by `recoverStale`; its late result is dropped, not given away. */
-        const [current] = await tx.select({ status: schema.knowledge.status }).from(schema.knowledge).where(eq(schema.knowledge.id, row.id)).for('update');
-        if (current?.status !== 'processing') return 'dropped';
+        const [current] = await tx.select({ status: schema.knowledge.status, activity: schema.knowledge.activity, title: schema.knowledge.title, originalTitle: schema.knowledge.originalTitle }).from(schema.knowledge).where(eq(schema.knowledge.id, row.id)).for('update');
+        if (!ownsProcessingRun(current, runId)) return 'dropped';
         if (!(await embeddingIsCurrent(tx, embedded.configId))) return 'stale_model';
         const vectors = embedded.vectors;
         await tx.delete(schema.chunk).where(eq(schema.chunk.knowledgeId, row.id));
@@ -485,14 +556,18 @@ export async function processKnowledge(knowledgeId: string, options: { profile?:
           );
         }
         const holdId = await heldFor(tx, row.id, 'knowledge');
-        const settled = holdId ? await settleHold(tx, holdId, price, { reeId: row.reeId, note: row.title }) : null;
+        if (!holdId) throw new Error('knowledge reservation missing');
+        const total = providerTotal(runCharges(current!.activity, runId));
+        const settled = await settleHold(tx, holdId, total.credits, { reeId: row.reeId, note: row.title });
+        if (!settled || settled.charged !== total.credits) throw new Error('knowledge settlement mismatch');
         const done = new Date();
+        await tx.update(schema.knowledgeCostRun).set({ status: 'ready', chargedCredits: settled.charged }).where(eq(schema.knowledgeCostRun.id, holdId));
         const log: KnowledgeActivity[] = extracted.log.map((entry) => ({ ...entry, at: done.toISOString() }));
         log.push(activity('parsed', pages > 0 ? { chars: content.length, pages } : { chars: content.length }, done));
         log.push(activity('chunked', { chunks: chunks.length }, done));
-        if (settled) log.push(activity('settled', { charged: settled.charged, released: settled.released }, done));
+        log.push(activity('settled', { charged: settled.charged, released: settled.released, costUsd: total.costUsd, tariff: 'provider-cost-v1' }, done));
         log.push(activity('ready', undefined, done));
-        const renamed = row.title !== row.originalTitle;
+        const renamed = current!.title !== current!.originalTitle;
         const fetchedTitle = extracted.title?.trim().slice(0, KNOWLEDGE_TITLE_MAX);
         await tx
           .update(schema.knowledge)
@@ -508,26 +583,32 @@ export async function processKnowledge(knowledgeId: string, options: { profile?:
           .where(eq(schema.knowledge.id, row.id));
         return 'stored';
       });
+      if (outcome === 'dropped') return null;
       if (outcome !== 'stale_model') break;
       if (attempt >= 1) throw new ProcessingFailure('embedding_unavailable', 'the embedding model switched twice while storing');
       forgetModelCache();
       embedded = await embedAll(chunks.map((chunk) => chunk.content));
     }
     /* The last step (2.4): suggested example questions and the knowledge profile, free of charge (a batch does it once at its end). */
-    if (options.profile !== false) await afterKnowledgeReady(row.reeId);
     return row.reeId;
   } catch (error) {
-    const code = error instanceof ProcessingFailure ? error.code : 'unknown';
+    await drainProviderCalls();
+    const code = error instanceof InsufficientCredits ? 'insufficient_credits' : error instanceof ProviderCostUnavailable ? error.code : error instanceof ProcessingFailure ? error.code : 'unknown';
     console.warn(`knowledge ${row.id} failed code=${code} detail=${error instanceof Error ? error.message : 'unknown'}`);
-    await failAndRefund(row.id, row.reeId, row.title, code);
+    await failAndRefund(row.id, row.reeId, row.title, code, new Date(), runId);
     return null;
   }
 }
 
-async function failAndRefund(id: string, reeId: string, title: string | null, code: string, when = new Date()): Promise<void> {
+async function failAndRefund(id: string, reeId: string, title: string | null, code: string, when = new Date(), runId?: string): Promise<void> {
   await db().transaction(async (tx) => {
+    const [current] = await tx.select().from(schema.knowledge).where(eq(schema.knowledge.id, id)).for('update');
+    if (current?.status !== 'processing' || (runId && !ownsProcessingRun(current, runId))) return;
     const holdId = await heldFor(tx, id, 'knowledge');
     const released = holdId ? await releaseHold(tx, holdId, { reeId, note: title }) : null;
+    const failedRun = runId ?? processingRun(current);
+    if (holdId || failedRun) await tx.update(schema.knowledgeCostRun).set({ status: 'failed', error: code, chargedCredits: 0 })
+      .where(holdId ? eq(schema.knowledgeCostRun.id, holdId) : eq(schema.knowledgeCostRun.runId, failedRun!));
     const log: KnowledgeActivity[] = [activity('failed', { reason: code }, when)];
     if (released) log.push(activity('refunded', { credits: released }, when));
     await tx
@@ -909,7 +990,7 @@ const STALE_PENDING_MS = 60 * 1000;
 export async function recoverStale(reeId: string, now = new Date()): Promise<string[]> {
   const database = db();
   const dead = await database
-    .select({ id: schema.knowledge.id, title: schema.knowledge.title })
+    .select({ id: schema.knowledge.id, title: schema.knowledge.title, activity: schema.knowledge.activity })
     .from(schema.knowledge)
     .where(
       and(
@@ -918,7 +999,9 @@ export async function recoverStale(reeId: string, now = new Date()): Promise<str
         sql`${schema.knowledge.updatedAt} < ${new Date(now.getTime() - STALE_PROCESSING_MS)}`,
       ),
     );
-  for (const { id, title } of dead) await failAndRefund(id, reeId, title, 'unknown', now);
+  for (const { id, title, activity: log } of dead) {
+    await failAndRefund(id, reeId, title, 'unknown', now, processingRun({ activity: log }));
+  }
   const waiting = await database
     .select({ id: schema.knowledge.id })
     .from(schema.knowledge)

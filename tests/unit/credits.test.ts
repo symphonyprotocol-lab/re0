@@ -1,6 +1,6 @@
 /** The ledger's arithmetic (rebuild-proposal.md 2.3; 8.2 "扣费顺序", "知识处理费"). */
 import { describe, expect, it } from 'vitest';
-import { allocate, availableOf, InsufficientCredits, processingCost, releaseFrom, settlement, type SpendableGrant } from '@/lib/domain/credits';
+import { allocate, availableOf, InsufficientCredits, releaseFrom, settlement, type SpendableGrant } from '@/lib/domain/credits';
 
 const now = new Date('2026-11-02T00:00:00Z');
 const grant = (id: string, source: SpendableGrant['source'], remaining: number, expiresAt: Date | null = null, created = 0): SpendableGrant => ({
@@ -50,10 +50,5 @@ describe('release and settlement', () => {
     expect(settlement(20, 41)).toEqual({ charged: 20, released: 0 });
   });
 
-  it('prices text at 1 credit per started 1,000 characters', () => {
-    expect(processingCost(1)).toBe(1);
-    expect(processingCost(1000)).toBe(1);
-    expect(processingCost(1001)).toBe(2);
-    expect(processingCost(18234)).toBe(19);
-  });
+
 });

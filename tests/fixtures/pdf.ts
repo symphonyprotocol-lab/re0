@@ -1,7 +1,7 @@
 /**
  * A minimal text PDF writer for tests: one Helvetica page per entry, one
- * line per string (ASCII). Enough for pdf.js to extract real per-page text,
- * which is what the knowledge pipeline and its page locators need.
+ * line per string (ASCII). Used as the bytes uploaded to the fake Firecrawl
+ * endpoint; its per-page response comes from the same handbook fixture.
  */
 export function makePdf(pages: string[][]): Uint8Array {
   const objects: string[] = [];

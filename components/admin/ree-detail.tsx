@@ -6,7 +6,7 @@
  * and the overview and sources tabs. Server components; the takedown and
  * restore dialogs are the shared `ReasonAction`.
  */
-import Link from 'next/link';
+import { WorkspaceLink as Link } from '@/components/shell/workspace-link';
 import { Fragment, type ReactNode } from 'react';
 import { QUERY_BASE_FEE } from '@/lib/constants';
 import type { AdminReeDetail, SourceFilter } from '@/lib/services/admin-rees';

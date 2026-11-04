@@ -1,0 +1,52 @@
+.report-period-tabs {
+  position: relative;
+  display: grid;
+  grid-template-columns: repeat(var(--tab-count), minmax(0, 1fr));
+  width: 330px;
+  max-width: 100%;
+  padding: 3px;
+  border: 1px solid var(--color-line);
+  border-radius: 9px;
+  background: #fff;
+  isolation: isolate;
+}
+.report-period-indicator {
+  position: absolute;
+  z-index: -1;
+  top: 3px;
+  bottom: 3px;
+  left: 3px;
+  width: calc((100% - 6px) / var(--tab-count));
+  border-radius: 6px;
+  background: var(--color-blue);
+  box-shadow: 0 2px 5px #267fd52b;
+  transform: translateX(calc(var(--tab-index) * 100%));
+  transition: transform 260ms cubic-bezier(.22, 1, .36, 1);
+}
+.report-period-tabs > a {
+  padding: 7px 5px;
+  border-radius: 6px;
+  color: var(--color-muted);
+  font-size: 12px;
+  font-weight: 600;
+  line-height: 1.4;
+  text-align: center;
+  white-space: nowrap;
+  transition: color 180ms ease, background-color 180ms ease, transform 120ms ease;
+}
+.report-period-tabs > a:hover { color: var(--color-blue); background: #2184d90a; }
+.report-period-tabs > a.active { color: #fff; background: transparent; }
+.report-period-tabs > a:active { transform: scale(.95); }
+.report-period-tabs > a:focus-visible { outline: 2px solid var(--color-blue); outline-offset: 3px; }
+.report-calendar-popover { transform-origin: top left; animation: report-calendar-in 180ms ease-out; }
+@keyframes report-calendar-in {
+  from { opacity: 0; transform: translateY(-5px) scale(.98); }
+  to { opacity: 1; transform: translateY(0) scale(1); }
+}
+@media (prefers-reduced-motion: reduce) {
+  .report-period-indicator, .report-period-tabs > a { transition: none; }
+  .report-calendar-popover { animation: none; }
+}
+@media (max-width: 480px) {
+  .report-period-tabs > a { padding-inline: 2px; font-size: 11px; white-space: normal; }
+}

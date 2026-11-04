@@ -1,5 +1,5 @@
 import type { Metadata } from 'next';
-import Link from 'next/link';
+import { WorkspaceLink as Link } from '@/components/shell/workspace-link';
 import { notFound } from 'next/navigation';
 import { Fragment, type ReactNode } from 'react';
 import type { KycStatus } from '@/db/schema';

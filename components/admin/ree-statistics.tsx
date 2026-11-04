@@ -7,7 +7,7 @@
  * by the same `reeStatistics` as the product's own statistics page; every
  * link is `base` + `keep` (the tab and the way back) + the view's state.
  */
-import Link from 'next/link';
+import { WorkspaceLink as Link } from '@/components/shell/workspace-link';
 import { LIST_PAGE_SIZES } from '@/lib/constants';
 import { locatorLabel } from '@/lib/domain/answer';
 import { periodParams, reportingDate } from '@/lib/domain/statistics';

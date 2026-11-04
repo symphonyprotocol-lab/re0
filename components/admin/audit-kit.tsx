@@ -3,7 +3,7 @@
  * overview's recent actions, a Ree's management log): time in UTC+8, who,
  * the action's label over its code, the target, and a link to the change.
  */
-import Link from 'next/link';
+import { WorkspaceLink as Link } from '@/components/shell/workspace-link';
 import { Fragment } from 'react';
 import type { Messages, Locale } from '@/i18n';
 import { formatDateTime } from '@/i18n/format';
@@ -28,6 +28,7 @@ export function auditTargetHref(action: string, target: string | null): string |
   if (action.startsWith('ree.')) return `/admin/rees/${target}`;
   if (action.startsWith('kyc.')) return `/admin/kyc/${target}`;
   if (action.startsWith('payout.')) return `/admin/payouts/${target}`;
+  if (action.startsWith('firecrawl.key.')) return '/admin/firecrawl';
   return null;
 }
 

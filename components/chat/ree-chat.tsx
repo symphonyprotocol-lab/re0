@@ -1,6 +1,6 @@
 'use client';
 
-import Link from 'next/link';
+import { WorkspaceLink as Link } from '@/components/shell/workspace-link';
 import { useRouter } from 'next/navigation';
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { useChat } from '@ai-sdk/react';
@@ -378,7 +378,7 @@ export function ReeChat({
             <button type="button" className="btn-secondary" onClick={() => setInsufficient(null)}>
               {t.common.actions.cancel}
             </button>
-            <Link href="/settings?tab=billing" className="btn">
+            <Link href="/settings?tab=balance" className="btn">
               {c.insufficient.topUp}
               <Icon name="arrow" />
             </Link>

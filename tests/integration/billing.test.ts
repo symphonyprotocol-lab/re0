@@ -12,6 +12,7 @@ import { randomUUID } from 'node:crypto';
 import { describe, expect, it } from 'vitest';
 import { and, eq } from 'drizzle-orm';
 import { TEST_DATABASE_URL, uniqueName } from './setup';
+import { WELCOME_CREDITS } from '@/lib/constants';
 
 const describeWithDb = TEST_DATABASE_URL ? describe : describe.skip;
 
@@ -158,7 +159,7 @@ describeWithDb('Plan and Pack purchases', () => {
   it('credits a Plan payment with 100,000 credits for its period, once', async () => {
     const userId = await newUser();
     const { transactionId } = await subscribe(userId);
-    expect(await balanceOf(db(), userId, during)).toBe(102_000);
+    expect(await balanceOf(db(), userId, during)).toBe(WELCOME_CREDITS + 100_000);
     const [plan] = (await grantsOf(userId)).filter((grant) => grant.source === 'plan');
     expect(plan).toMatchObject({ amount: 100_000, remaining: 100_000 });
     expect(plan!.expiresAt?.toISOString()).toBe(end.toISOString());
@@ -168,7 +169,7 @@ describeWithDb('Plan and Pack purchases', () => {
     const again = transactionEvent(userId, { kind: 'plan', transactionId, period: [start, end], type: 'transaction.paid' });
     expect(await billing.applyPaddleEvent(again, PRICES, during)).toBe('already_credited');
     expect(await billing.applyPaddleEvent(again, PRICES, during)).toBe('duplicate');
-    expect(await balanceOf(db(), userId, during)).toBe(102_000);
+    expect(await balanceOf(db(), userId, during)).toBe(WELCOME_CREDITS + 100_000);
 
     const summary = await billing.billingSummary(userId, during);
     expect(summary.plan).toMatchObject({ active: true, allowance: 100_000, used: 0, remaining: 100_000 });
@@ -206,7 +207,7 @@ describeWithDb('Plan and Pack purchases', () => {
     const [purchase] = await db().select().from(schema.purchase).where(and(eq(schema.purchase.userId, userId), eq(schema.purchase.kind, 'pack')));
     expect(purchase).toMatchObject({ quantity: 3, credits: 300_000, amountMinor: 3000, status: 'paid' });
     /* Long after every Plan period: the Pack is still there. */
-    expect(await balanceOf(db(), userId, new Date('2028-01-01T00:00:00Z'))).toBe(302_000);
+    expect(await balanceOf(db(), userId, new Date('2028-01-01T00:00:00Z'))).toBe(WELCOME_CREDITS + 300_000);
   });
 
   it('spends Plan, then welcome, then Pack, then earned; refunds walk back', async () => {
@@ -215,19 +216,19 @@ describeWithDb('Plan and Pack purchases', () => {
     await billing.applyPaddleEvent(transactionEvent(userId, { kind: 'pack', quantity: 1 }), PRICES, during);
     await db().transaction((tx) => addGrant(tx, { userId, source: 'earned', amount: 5_000, reason: 'admin_adjust', refId: randomUUID() }, during));
     const holdId = await db().transaction((tx) =>
-      placeHold(tx, { userId, kind: 'knowledge', amount: 100_000 + 2_000 + 100_000 + 1_000, refId: randomUUID() }, during),
+      placeHold(tx, { userId, kind: 'knowledge', amount: 100_000 + WELCOME_CREDITS + 100_000 + 1_000, refId: randomUUID() }, during),
     );
     const [hold] = await db().select().from(schema.creditHold).where(eq(schema.creditHold.id, holdId));
     expect(hold!.allocations.map((allocation) => [allocation.source, allocation.amount])).toEqual([
       ['plan', 100_000],
-      ['welcome', 2_000],
+      ['welcome', WELCOME_CREDITS],
       ['pack', 100_000],
       ['earned', 1_000],
     ]);
     expect(await balanceOf(db(), userId, during)).toBe(4_000);
     await db().transaction((tx) => releaseHold(tx, holdId, {}, during));
     const byKind = Object.fromEntries((await grantsOf(userId)).map((grant) => [grant.source, grant.remaining]));
-    expect(byKind).toEqual({ welcome: 2_000, plan: 100_000, pack: 100_000, earned: 5_000 });
+    expect(byKind).toEqual({ welcome: WELCOME_CREDITS, plan: 100_000, pack: 100_000, earned: 5_000 });
     await expectLedgerTraceable(userId);
   });
 });
@@ -311,12 +312,12 @@ describeWithDb('the Plan period', () => {
     await billing.setRenewal(userId, 'cancel', { config: CONFIG, cancel: async () => cancelledAgain, now: during });
 
     const after = new Date(end.getTime() + 2 * 60 * 60 * 1000);
-    expect(await balanceOf(db(), userId, after)).toBe(202_000);
+    expect(await balanceOf(db(), userId, after)).toBe(WELCOME_CREDITS + 200_000);
     const swept = await billing.expireDuePlans(after);
     expect(swept.grants).toBeGreaterThanOrEqual(1);
     expect(swept.subscriptions).toBeGreaterThanOrEqual(1);
     const byKind = Object.fromEntries((await grantsOf(userId)).map((grant) => [grant.source, grant.remaining]));
-    expect(byKind).toEqual({ welcome: 2_000, plan: 0, pack: 200_000 });
+    expect(byKind).toEqual({ welcome: WELCOME_CREDITS, plan: 0, pack: 200_000 });
     const expiry = (await entriesOf(userId)).filter((entry) => entry.reason === 'expire');
     expect(expiry.map((entry) => entry.delta)).toEqual([-100_000]);
     expect(await billing.hasActivePlan(db(), userId, after)).toBe(false);
@@ -373,8 +374,8 @@ describeWithDb('refunds and chargebacks', () => {
     await subscribe(userId);
     const packTxn = id('txn');
     await billing.applyPaddleEvent(transactionEvent(userId, { kind: 'pack', quantity: 1, transactionId: packTxn }), PRICES, during);
-    /* Spend everything but 10,000: Plan, welcome and 92,000 of the Pack. */
-    await db().transaction((tx) => placeHold(tx, { userId, kind: 'knowledge', amount: 192_000, refId: randomUUID() }, during));
+    /* Spend everything but 10,000: Plan, welcome and 90,000 of the Pack. */
+    await db().transaction((tx) => placeHold(tx, { userId, kind: 'knowledge', amount: 100_000 + WELCOME_CREDITS + 90_000, refId: randomUUID() }, during));
     expect(await balanceOf(db(), userId, during)).toBe(10_000);
 
     const adjustmentId = id('adj');
@@ -427,7 +428,7 @@ describeWithDb('the webhook door', () => {
     await expect(billing.receivePaddleWebhook(raw, null, CONFIG)).rejects.toBeInstanceOf(billing.WebhookRejected);
     const stale = signPaddleBody(raw, CONFIG.webhookSecret, Date.now() - 10 * 60 * 1000);
     await expect(billing.receivePaddleWebhook(raw, stale, CONFIG)).rejects.toBeInstanceOf(billing.WebhookRejected);
-    expect(await balanceOf(db(), userId)).toBe(2_000);
+    expect(await balanceOf(db(), userId)).toBe(WELCOME_CREDITS);
   });
 
   it('asks for a retry when it cannot tell whose payment it is, and leaves no trace', async () => {
@@ -501,5 +502,53 @@ describeWithDb('the ledger list', () => {
     const income = await billing.listEntries(userId, { activity: 'income', page: 2, size: 20 });
     expect(income).toMatchObject({ activity: 'all', total: 7, page: 1 });
     expect((await billing.listEntries(userId, { activity: 'spend', page: 1, size: 20 })).total).toBe(6);
+  });
+});
+
+
+describeWithDb('billing reporting periods', () => {
+  it('uses UTC+8 inclusive days and exclusive ends for day, week, month and custom ranges', async () => {
+    const userId = await newUser();
+    const other = await newUser();
+    const dates = ['2026-10-31T15:59:59Z', '2026-10-31T16:00:00Z', '2026-11-01T15:59:59Z', '2026-11-01T16:00:00Z'];
+    await db().insert(schema.creditEntry).values(dates.map((at) => ({ userId, reason: 'query_fee_paid' as const, delta: -5, note: 'Handbook 100%', createdAt: new Date(at) })));
+    await db().insert(schema.creditEntry).values({ userId: other, reason: 'query_fee_paid', delta: -999, note: 'Handbook 100%', createdAt: new Date(dates[1]!) });
+    const base = { activity: 'spend' as const, page: 1, size: 20, q: 'Handbook' };
+    const day = await billing.listEntries(userId, { ...base, period: 'day', date: '2026-11-01' });
+    expect(day.total).toBe(2);
+    expect(day.summary.spend).toBe(10);
+    expect((await billing.listEntries(userId, { ...base, period: 'week', date: '2026-11-01' })).total).toBe(3);
+    expect((await billing.listEntries(userId, { ...base, period: 'month', date: '2026-11-01' })).total).toBe(3);
+    expect((await billing.listEntries(userId, { ...base, period: 'custom', date: '2026-11-02', start: '2026-11-01', end: '2026-11-02' })).total).toBe(3);
+    expect((await billing.listEntries(userId, { ...base, q: '100%' })).total).toBe(4);
+    expect((await billing.listEntries(userId, { ...base, q: 'missing' })).summary).toEqual({ spend: 0, income: 0, purchases: 0 });
+    const page = await billing.listEntries(userId, { ...base, period: 'day', date: '2026-11-01', size: 1, page: 2 });
+    expect(page).toMatchObject({ total: 2, page: 2, summary: { spend: 10 } });
+    expect(page.items).toHaveLength(1);
+  });
+
+  it('counts settled charges once, keeps income separate from payout transfers, and searches Ree names', async () => {
+    const userId = await newUser();
+    const [ree] = await db().insert(schema.ree).values({ ownerId: userId, name: 'Reporting Ree', slug: uniqueName('reporting') }).returning();
+    const holdId = await db().transaction((tx) => placeHold(tx, { userId, kind: 'knowledge', amount: 100, refId: randomUUID() }, new Date('2026-11-02T15:59:59Z')));
+    await db().transaction((tx) => settleHold(tx, holdId, 7, { note: 'Boundary settlement', reeId: ree!.id }, new Date('2026-11-02T16:00:00Z')));
+    await db().insert(schema.creditEntry).values([
+      { userId, reason: 'query_fee_earned', delta: 50 },
+      { userId, reason: 'purchase', delta: 1000 },
+      { userId, reason: 'payout_hold', delta: -30 },
+      { userId, reason: 'payout_release', delta: 30 },
+      { userId, reason: 'video_script', delta: -100 },
+      { userId, reason: 'video_script', delta: 80, note: 'charged 20 of 100' },
+    ].map((row) => ({ ...row, reeId: ree!.id, createdAt: new Date('2026-11-03T01:00:00Z') })) as (typeof schema.creditEntry.$inferInsert)[]);
+    const base = { activity: 'all' as const, page: 1, size: 20, period: 'day' as const, date: '2026-11-03', q: 'Reporting Ree' };
+    expect((await billing.listEntries(userId, { ...base, date: '2026-11-02', q: '' })).summary.spend).toBe(0);
+    const result = await billing.listEntries(userId, base);
+    expect(result.summary).toEqual({ spend: 27, income: 50, purchases: 1000 });
+    expect(result.items.every((entry) => entry.reeName === 'Reporting Ree')).toBe(true);
+    expect((await billing.listEntries(userId, { ...base, activity: 'income' })).summary).toEqual(result.summary);
+    await db().update(schema.user).set({ role: 'official' }).where(eq(schema.user.id, userId));
+    const official = await billing.listEntries(userId, { ...base, activity: 'income' });
+    expect(official.activity).toBe('all');
+    expect(official.summary).toEqual({ spend: 27, income: 0, purchases: 1000 });
   });
 });

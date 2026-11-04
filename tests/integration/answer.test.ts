@@ -7,9 +7,11 @@
  */
 import { afterAll, beforeAll, describe, expect, it, vi } from 'vitest';
 import { pointModelsAt, TEST_DATABASE_URL, uniqueName } from './setup';
-import { asc, eq } from 'drizzle-orm';
+import { and, asc, eq } from 'drizzle-orm';
 import { startFakeOpenAi, type FakeOpenAi } from '../fixtures/fake-openai';
 import { handbookPages, makePdf } from '../fixtures/pdf';
+import { startFakeFirecrawl } from '../fixtures/fake-firecrawl';
+import type { FakeWeb } from '../fixtures/fake-web';
 
 const blobs = vi.hoisted(() => new Map<string, Uint8Array>());
 vi.mock('@/lib/infra/blob', () => ({
@@ -32,12 +34,18 @@ const { newReeDraft } = await import('@/lib/domain/ree');
 const { forgetModelCache } = await import('@/lib/infra/ai/models');
 
 let fake: FakeOpenAi;
+let firecrawl: FakeWeb;
 beforeAll(async () => {
+  firecrawl = startFakeFirecrawl();
   fake = await startFakeOpenAi();
   pointModelsAt(fake.baseUrl);
   forgetModelCache();
 });
-afterAll(() => fake?.close());
+afterAll(async () => {
+  firecrawl?.restore();
+  vi.unstubAllEnvs();
+  await fake?.close();
+});
 
 async function setUp(withKnowledge: boolean) {
   const subject = uniqueName('ask');
@@ -80,6 +88,9 @@ describeWithDb('answering', () => {
     expect(result.deltas).toBeGreaterThan(1);
     expect(result.text).toContain('[1]');
     expect(result.outcome).toMatchObject({ noAnswer: false, cost: 20, model: 'fake-gen-1' });
+    const calls = await db().select().from(schema.modelCall).where(and(eq(schema.modelCall.userId, userId), eq(schema.modelCall.purpose, 'answer')));
+    expect(calls).toHaveLength(1);
+    expect(calls[0]).toMatchObject({ model: 'fake-gen-1', audience: 'free', status: 'succeeded', usageKnown: true });
     expect(result.outcome!.citations[0]).toMatchObject({ index: 1 });
     expect(result.outcome!.citations[0]!.locator.page).toBe(3);
     expect(await balanceOf(db(), userId)).toBe(before - 20);
@@ -150,5 +161,32 @@ describeWithDb('answering', () => {
     expect(fake.requests.filter((request) => request.path.endsWith('/chat/completions')).at(-1)?.model).toBe('fake-gen-2');
     await db().delete(schema.modelConfig).where(eq(schema.modelConfig.id, created.id));
     forgetModelCache();
+  });
+
+  it('routes by the asking user’s active Plan, and returns to Free when it expires', async () => {
+    const { userId: ownerId, ree } = await setUp(true);
+    const { userId } = await setUp(false);
+    const conversation = await chat.testConversation(userId, ree.id);
+    const [administrator] = await db().select().from(schema.administrator).limit(1);
+    const adminId = administrator!.id;
+    const plan = await models.createModelConfig(adminId, { name: 'Plan', kind: 'generation', transport: 'openai_compatible', baseUrl: fake.baseUrl, model: 'fake-gen-plan', apiKey: 'k' });
+    const now = Date.now();
+    const subscribe = (id: string) => db().insert(schema.subscription).values({ userId: id, paddleSubscriptionId: uniqueName('sub'), status: 'active', cancelAtPeriodEnd: true, currentPeriodEnd: new Date(now + 86_400_000) });
+    try {
+      await models.activateModelConfig(adminId, plan.id, 'plan');
+      /* A Plan owner does not give their Free visitor access to the Plan model. */
+      await subscribe(ownerId);
+      const answerResponse = async () => answer({ userId, lang: 'zh', conversation, targets: [ree], question: 'When are refunds issued to the original payment method?' });
+      expect((await consume(await answerResponse())).outcome?.model).toBe('fake-gen-1');
+      await subscribe(userId);
+      expect((await consume(await answerResponse())).outcome?.model).toBe('fake-gen-plan');
+      expect(fake.requests.filter((request) => request.path.endsWith('/chat/completions')).at(-1)?.model).toBe('fake-gen-plan');
+      await db().update(schema.subscription).set({ currentPeriodEnd: new Date(now - 1) }).where(eq(schema.subscription.userId, userId));
+      /* Membership must change without clearing endpoint caches. */
+      expect((await consume(await answerResponse())).outcome?.model).toBe('fake-gen-1');
+    } finally {
+      await db().delete(schema.modelConfig).where(eq(schema.modelConfig.id, plan.id));
+      forgetModelCache();
+    }
   });
 });

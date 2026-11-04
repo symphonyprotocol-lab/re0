@@ -37,7 +37,7 @@ export default async function ConversationPage({ params, searchParams }: Props) 
   const back = searchReturnPath((await searchParams).from);
   return (
     <>
-      <Topbar crumbs={[{ label: t.dashboard.title, href: '/dashboard' }, { label: t.conversations.sidebar.search, href: back }, { label: title }]} />
+      <Topbar crumbs={[{ label: t.conversations.sidebar.search, href: back }, { label: title }]} />
       <ChatRoom
         conversation={{ id: conversation.id, title, pinned: conversation.pinned, archived: Boolean(conversation.archivedAt), updatedAt: conversation.updatedAt.toISOString() }}
         members={members}

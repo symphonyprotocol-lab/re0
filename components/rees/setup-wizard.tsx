@@ -1,9 +1,10 @@
 'use client';
 
-import Link from 'next/link';
-import { useRouter, useSearchParams } from 'next/navigation';
+import { WorkspaceLink as Link } from '@/components/shell/workspace-link';
+import { useSearchParams } from 'next/navigation';
+import { useNavigationRouter as useRouter } from '@/components/shell/navigation-provider';
 import { useEffect, useRef, useState } from 'react';
-import { KNOWLEDGE_URL_MAX, TEXT_SOURCE_LIMITS } from '@/lib/constants';
+import { KNOWLEDGE_URL_MAX } from '@/lib/constants';
 import { holdFor, validAudio, validDocument } from '@/lib/domain/knowledge';
 import { SOURCE_CHOICES, validateDraftSource, validateReeFields, type ReeDraft, type SourceChoice } from '@/lib/domain/ree';
 import { api, uploadToBlob } from '@/lib/client/upload';
@@ -47,7 +48,7 @@ export function SetupWizard({ initialDraft }: { initialDraft: ReeDraft }) {
   const w = t.reeSetup.wizard;
   const router = useRouter();
   const toast = useToast();
-  const [draft, setDraft] = useState<ReeDraft>(initialDraft);
+  const [draft, setDraft] = useState<ReeDraft>(() => initialDraft.source.kind === 'text' ? { ...initialDraft, source: { ...initialDraft.source, kind: 'later' } } : initialDraft);
   const [error, setError] = useState('');
   const [busy, setBusy] = useState(false);
   const [uploading, setUploading] = useState<number | null>(null);
@@ -234,7 +235,7 @@ export function SetupWizard({ initialDraft }: { initialDraft: ReeDraft }) {
           value={source.kind}
           onChange={(event) => patchSource({ kind: event.target.value as SourceChoice, fileName: '', fileSize: 0, blobPath: '' })}
         >
-          {SOURCE_CHOICES.map((kind) => (
+          {SOURCE_CHOICES.filter((kind) => kind !== 'text').map((kind) => (
             <option key={kind} value={kind}>
               {w.sourceKinds[kind]}
             </option>
@@ -247,30 +248,6 @@ export function SetupWizard({ initialDraft }: { initialDraft: ReeDraft }) {
           <h3>{w.laterTitle}</h3>
           <p>{w.laterBody}</p>
         </div>
-      ) : source.kind === 'text' ? (
-        <>
-          <Field id="setup-source-title" label={w.sourceTitle}>
-            <input
-              id="setup-source-title"
-              name="source-title"
-              maxLength={TEXT_SOURCE_LIMITS.title}
-              required
-              value={source.title}
-              onChange={(event) => patchSource({ title: event.target.value })}
-            />
-          </Field>
-          <Field id="setup-source-text" label={w.sourceText} hint={w.sourceTextHint}>
-            <textarea
-              id="setup-source-text"
-              name="source-text"
-              rows={8}
-              maxLength={TEXT_SOURCE_LIMITS.content}
-              required
-              value={source.text}
-              onChange={(event) => patchSource({ text: event.target.value })}
-            />
-          </Field>
-        </>
       ) : fileKind ? (
         /* The file is uploaded as soon as it is chosen, so the draft keeps it across a refresh. */
         <div className="setup-file">
@@ -354,7 +331,7 @@ export function SetupWizard({ initialDraft }: { initialDraft: ReeDraft }) {
   return (
     <>
       <Topbar
-        crumbs={[{ label: t.dashboard.title, href: '/dashboard' }, { label: t.rees.title, href: '/rees' }, { label: w.crumb }]}
+        crumbs={[{ label: t.rees.title, href: '/rees' }, { label: w.crumb }]}
         secondRow={progress}
       />
       <main className="page dot-setup-page">

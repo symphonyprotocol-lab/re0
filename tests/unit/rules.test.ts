@@ -21,9 +21,9 @@ describe('list contract (8.1)', () => {
 describe('sign-in return path', () => {
   it('only returns into the app', () => {
     expect(safeReturnTo('/rees/abc/chat')).toBe('/rees/abc/chat');
-    expect(safeReturnTo('//evil.example')).toBe('/dashboard');
-    expect(safeReturnTo('https://evil.example')).toBe('/dashboard');
-    expect(safeReturnTo('/admin/models')).toBe('/dashboard');
+    expect(safeReturnTo('//evil.example')).toBe('/rees');
+    expect(safeReturnTo('https://evil.example')).toBe('/rees');
+    expect(safeReturnTo('/admin/models')).toBe('/rees');
   });
 
   it('returns to every gated workspace page (prototype experience.js safeNext)', () => {

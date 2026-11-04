@@ -224,17 +224,35 @@ async function call<T>(config: PaddleConfig, method: 'GET' | 'POST' | 'PATCH', p
   return json.data;
 }
 
+export interface CheckoutPrice {
+  priceId: string;
+  priceMinor: number;
+  regularPriceMinor: number;
+}
+
 /** The body of `POST /transactions` for one checkout. Exported for its test. */
-export function checkoutTransactionBody(config: PaddleConfig, order: CheckoutOrder, userId: string) {
+export function checkoutTransactionBody(config: PaddleConfig, order: CheckoutOrder, userId: string, price?: CheckoutPrice) {
   return {
-    items: [{ price_id: order.kind === 'plan' ? config.planPriceId : config.packPriceId, quantity: order.quantity }],
+    items: [{ price_id: price?.priceId ?? (order.kind === 'plan' ? config.planPriceId : config.packPriceId), quantity: order.quantity }],
+    ...(price ? { currency_code: 'USD' } : {}),
+    ...(price && price.priceMinor < price.regularPriceMinor
+      ? {
+          discount: {
+            description: 'RE0 limited-time promotion',
+            type: 'flat_per_seat',
+            amount: String(price.regularPriceMinor - price.priceMinor),
+            currency_code: 'USD',
+            recur: false,
+          },
+        }
+      : {}),
     custom_data: { [CUSTOM.userId]: userId, [CUSTOM.kind]: order.kind },
     checkout: { url: config.checkoutUrl },
   };
 }
 
-export async function createCheckoutTransaction(config: PaddleConfig, order: CheckoutOrder, userId: string): Promise<{ id: string }> {
-  const transaction = await call<{ id: string }>(config, 'POST', '/transactions', checkoutTransactionBody(config, order, userId));
+export async function createCheckoutTransaction(config: PaddleConfig, order: CheckoutOrder, userId: string, price?: CheckoutPrice): Promise<{ id: string }> {
+  const transaction = await call<{ id: string }>(config, 'POST', '/transactions', checkoutTransactionBody(config, order, userId, price));
   return { id: transaction.id };
 }
 
@@ -248,4 +266,26 @@ export function cancelAtPeriodEnd(config: PaddleConfig, subscriptionId: string):
 /** Withdraws a scheduled cancellation, so the subscription renews again. */
 export function resumeRenewal(config: PaddleConfig, subscriptionId: string): Promise<PaddleSubscription> {
   return call<PaddleSubscription>(config, 'PATCH', `/subscriptions/${encodeURIComponent(subscriptionId)}`, { scheduled_change: null });
+}
+
+/** Price versions are created instead of modifying prices already used by subscriptions. */
+export async function provisionPrice(config: PaddleConfig, kind: 'plan' | 'pack', amount: number, sourcePriceId: string): Promise<string> {
+  const source = await call<{ id: string; product_id: string; tax_mode: string; unit_price: { amount: string; currency_code: string }; billing_cycle: { interval: string; frequency: number } | null; quantity: { minimum: number; maximum: number }; unit_price_overrides?: unknown[]; trial_period?: unknown }>(config, 'GET', `/prices/${encodeURIComponent(sourcePriceId)}`);
+  const cycleMatches = kind === 'plan' ? source.billing_cycle?.interval === 'month' && source.billing_cycle.frequency === 1 : source.billing_cycle === null;
+  if (Number(source.unit_price.amount) === amount && source.unit_price.currency_code === 'USD' && cycleMatches && !source.trial_period && !source.unit_price_overrides?.length && source.quantity.minimum === 1 && source.quantity.maximum === (kind === 'plan' ? 1 : 10)) return source.id;
+  const price = await call<{ id: string }>(config, 'POST', '/prices', {
+    product_id: source.product_id,
+    description: `RE0 ${kind} USD ${amount / 100}`,
+    name: kind === 'plan' ? 'Plan' : 'Pack',
+    unit_price: { amount: String(amount), currency_code: 'USD' },
+    billing_cycle: kind === 'plan' ? { interval: 'month', frequency: 1 } : null,
+    trial_period: null,
+    tax_mode: source.tax_mode,
+    quantity: { minimum: 1, maximum: kind === 'plan' ? 1 : 10 },
+  });
+  return price.id;
+}
+
+export async function cancelCheckoutTransaction(config: PaddleConfig, id: string): Promise<void> {
+  await call(config, 'PATCH', `/transactions/${encodeURIComponent(id)}`, { status: 'canceled' });
 }

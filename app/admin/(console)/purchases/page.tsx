@@ -1,5 +1,5 @@
 import type { Metadata } from 'next';
-import Link from 'next/link';
+import { WorkspaceLink as Link } from '@/components/shell/workspace-link';
 import { redirect } from 'next/navigation';
 import { Fragment } from 'react';
 import { financeFilter } from '@/lib/domain/admin-finance';

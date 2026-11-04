@@ -680,13 +680,10 @@
   top: var(--discovery-sticky-top);
   z-index: 20;
   padding: 13px 0px 11px;
-  background: rgba(248, 247, 255, 0.96);
-  backdrop-filter: blur(16px);
-  border-bottom: 1px solid #e4e8f3;
-  box-shadow: rgba(28, 53, 91, 0.21) 0px 7px 12px -12px;
+  background: var(--color-bg);
 }
 .marketing-site .discovery-page .discovery-toolbar {
-  background: rgba(255, 255, 255, 0.96);
+  background: var(--color-paper);
 }
 .discovery-page .discovery-search-row {
   display: grid;

@@ -1,7 +1,8 @@
 'use client';
 
-import Link from 'next/link';
-import { usePathname, useRouter } from 'next/navigation';
+import { WorkspaceLink as Link } from '@/components/shell/workspace-link';
+import { usePathname, useSearchParams } from 'next/navigation';
+import { useNavigationRouter as useRouter } from '@/components/shell/navigation-provider';
 import { createContext, Fragment, useContext, useEffect, useMemo, useRef, useState, type MouseEvent, type ReactNode } from 'react';
 import { dateGroup, searchReturnPath, type DateGroup } from '@/lib/domain/conversation';
 import { conversationApi } from '@/lib/client/conversations';
@@ -41,7 +42,7 @@ export function useCurrentConversation(item: HistoryItem | null): void {
 
 /**
  * The sidebar's conversation tools and history (prototype conversations.js
- * `sidebar`): 新建对话 and 搜索对话 (⌘K), then pinned and recent
+ * `sidebar`): 新建对话, 搜索对话 (⌘K), and 回收站, then pinned and recent
  * conversations, recent ones grouped by day in UTC+8; the open one is
  * highlighted, and shown on its own when it is archived. ⌘K / Ctrl+K opens
  * the search page from anywhere in the workspace -- back to the search a
@@ -61,6 +62,8 @@ export function SidebarConversations({
   const { t, locale } = useI18n();
   const c = t.conversations.sidebar;
   const pathname = usePathname();
+  const searchParams = useSearchParams();
+  const inTrash = pathname === '/chats' && searchParams.get('view') === 'trash';
   const router = useRouter();
   const toast = useToast();
   const { current } = useContext(HistoryContext);
@@ -157,7 +160,7 @@ export function SidebarConversations({
           href="/chats?focus=1"
           icon="search"
           label={c.search}
-          active={pathname === '/chats'}
+          active={pathname === '/chats' && !inTrash}
           kbd="⌘ K"
           onClick={(event) => {
             if (event.metaKey || event.ctrlKey || event.shiftKey || event.button !== 0) return;
@@ -165,6 +168,7 @@ export function SidebarConversations({
             openSearch();
           }}
         />
+        <Tool href="/chats?view=trash" icon="trash" label={t.conversations.search.views.trash} active={inTrash} />
       </div>
       {/* Folded, the rail hides the history (shell.css); the drawer on a phone always shows it. */}
       <div ref={scroller} className={`chat-history-scroll ${className}`} role="region" tabIndex={0} aria-label={c.history}>
@@ -232,7 +236,7 @@ export function SidebarConversations({
   );
 }
 
-/** 新建对话 / 搜索对话 (prototype conversations.js `chat-sidebar-tool`; the first is a `.btn` there, hence `is-primary`). */
+/** 新建对话 / 搜索对话 / 回收站 (the first is a `.btn` in the prototype, hence `is-primary`). */
 function Tool({
   href,
   icon,
@@ -243,7 +247,7 @@ function Tool({
   onClick,
 }: {
   href: string;
-  icon: 'plus' | 'search';
+  icon: 'plus' | 'search' | 'trash';
   label: string;
   active: boolean;
   primary?: boolean;

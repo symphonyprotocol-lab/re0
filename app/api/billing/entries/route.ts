@@ -5,7 +5,7 @@ import { json } from '@/lib/http/respond';
 import { apiUser } from '@/lib/http/session';
 import { listEntries } from '@/lib/services/billing';
 
-/** `GET /api/billing/entries?activity=all|spend|income&page=&size=20|50|100`: the ledger, `{items, total, page, size}`. */
+/** `GET /api/billing/entries?activity=all|spend|income&page=&size=20|50|100`: the ledger and summary, with reporting period and note / Ree search filters. */
 export async function GET(request: NextRequest) {
   const user = await apiUser(request);
   if (user instanceof Response) return user;

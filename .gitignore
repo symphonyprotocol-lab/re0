@@ -48,3 +48,8 @@ yarn-error.log*
 /.source/
 next-env.d.ts
 *.tsbuildinfo
+
+# build outputs and nested dependencies
+node_modules/
+/packages/cli/dist/
+/move/**/build/

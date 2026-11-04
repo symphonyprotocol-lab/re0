@@ -1,10 +1,11 @@
-import Link from 'next/link';
+import { WorkspaceLink as Link } from '@/components/shell/workspace-link';
 import type { ReactNode } from 'react';
 import { currentUser } from '@/lib/http/session';
 import { serverMessages } from '@/i18n/server';
 import { Icon } from '@/components/ui/icons';
 import { LanguageToggle } from '@/components/ui/language-toggle';
 import { SignInLink, SiteNav } from '@/components/site/site-nav';
+import { RouteMotion } from '@/components/shell/workspace-main';
 import './site.css';
 
 /** The RE0 mark (prototype icon.svg). */
@@ -56,7 +57,7 @@ export async function SiteShell({ children }: { children: ReactNode }) {
           <div className="marketing-actions">
             <LanguageToggle signedIn={Boolean(user)} className="btn ghost sm" icon={false} />
             {user ? (
-              <Link href="/dashboard" className="btn secondary">
+              <Link href="/rees" className="btn secondary">
                 {s.nav.open}
               </Link>
             ) : (
@@ -70,7 +71,7 @@ export async function SiteShell({ children }: { children: ReactNode }) {
         </div>
       </header>
       <main id="main" className="flex-1">
-        {children}
+        <RouteMotion className="site-route-content">{children}</RouteMotion>
       </main>
       <footer className="marketing-footer">
         <div className="marketing-wrap">
@@ -88,7 +89,6 @@ export async function SiteShell({ children }: { children: ReactNode }) {
               links={[
                 { href: '/explore', label: s.footer.discover },
                 { href: '/pricing', label: s.footer.pricing },
-                { href: '/dashboard', label: s.footer.workspace },
               ]}
             />
             <FooterColumn
@@ -96,7 +96,7 @@ export async function SiteShell({ children }: { children: ReactNode }) {
               links={[
                 { href: '/rees', label: s.footer.rees },
                 { href: '/chats', label: s.footer.chats },
-                { href: '/settings?tab=billing', label: s.footer.billing },
+                { href: '/settings?tab=balance', label: s.footer.billing },
               ]}
             />
             <FooterColumn

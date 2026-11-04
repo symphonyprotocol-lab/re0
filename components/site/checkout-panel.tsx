@@ -1,8 +1,10 @@
 'use client';
 
-import Link from 'next/link';
+import type { PriceView } from '@/lib/domain/pricing';
+import { PromotionNotice } from '@/components/site/product-price';
+import { WorkspaceLink as Link } from '@/components/shell/workspace-link';
 import Script from 'next/script';
-import { useRouter } from 'next/navigation';
+import { useNavigationRouter as useRouter } from '@/components/shell/navigation-provider';
 import { useEffect, useRef, useState } from 'react';
 import { PACK, PLAN } from '@/lib/constants';
 import { useI18n } from '@/i18n/client';
@@ -39,6 +41,7 @@ type Phase = 'idle' | 'creating' | 'open' | 'closed' | 'completed';
  */
 export function CheckoutPanel({
   kind,
+  price,
   quantity: initialQuantity,
   signedIn,
   email,
@@ -47,6 +50,7 @@ export function CheckoutPanel({
   pendingTransaction,
 }: {
   kind: 'plan' | 'pack';
+  price: PriceView;
   quantity: number;
   signedIn: boolean;
   email: string | null;
@@ -67,7 +71,7 @@ export function CheckoutPanel({
   phaseRef.current = phase;
 
   const money = (minor: number) => formatUsd(minor, locale);
-  const subtotal = kind === 'plan' ? PLAN.priceMinor : PACK.priceMinor * quantity;
+  const subtotal = price.effectivePriceMinor * quantity;
   const credits = kind === 'plan' ? PLAN.credits : PACK.credits * quantity;
   const locked = kind === 'pack' && signedIn && !planActive;
   const alreadyPlan = kind === 'plan' && planActive;
@@ -78,9 +82,9 @@ export function CheckoutPanel({
       if (event.name === 'checkout.completed') {
         const id = event.data?.transaction_id ?? transaction.current;
         setPhase('completed');
-        /* The overlay outlives a client-side navigation; close it so the billing tab shows. */
+        /* The overlay outlives a client-side navigation; close it so the balance tab shows. */
         window.setTimeout(() => window.Paddle?.Checkout.close(), 1_500);
-        router.push(id ? `/settings?tab=billing&checkout=${encodeURIComponent(id)}` : '/settings?tab=billing');
+        router.push(id ? `/settings?tab=balance&checkout=${encodeURIComponent(id)}` : '/settings?tab=balance');
       } else if (event.name === 'checkout.closed' && phaseRef.current !== 'completed') {
         setPhase('closed');
       }
@@ -128,7 +132,7 @@ export function CheckoutPanel({
       const response = await fetch('/api/billing/checkout', {
         method: 'POST',
         headers: { 'content-type': 'application/json' },
-        body: JSON.stringify({ kind, quantity, consent: true }),
+        body: JSON.stringify({ kind, quantity, consent: true, quoteKey: price.quoteKey }),
       });
       const body = (await response.json().catch(() => ({}))) as { transactionId?: string; error?: keyof typeof c.errors };
       if (!response.ok || !body.transactionId) {
@@ -136,6 +140,7 @@ export function CheckoutPanel({
           router.push(`/login?returnTo=${encodeURIComponent(window.location.pathname + window.location.search)}`);
           return;
         }
+        if (body.error === 'price_changed') { setConsent(false); router.refresh(); }
         setError((body.error && c.errors[body.error]) || t.common.errors.generic);
         setPhase('idle');
         return;
@@ -183,6 +188,7 @@ export function CheckoutPanel({
           </select>
         </div>
       )}
+      {price.promotional && <p className="mt-4"><PromotionNotice price={price} kind={kind} locale={locale} labels={t.site.prices} /></p>}
       <dl className="mt-5 flex flex-col gap-2.5 text-[13px]">
         <div className="flex justify-between">
           <dt className="text-muted">{c.subtotal}</dt>
@@ -212,7 +218,7 @@ export function CheckoutPanel({
           </Link>
         </div>
       ) : alreadyPlan ? (
-        <Link href="/settings?tab=billing" className="btn mt-6 w-full">
+        <Link href="/settings?tab=balance" className="btn mt-6 w-full">
           {c.hasPlan}
         </Link>
       ) : (

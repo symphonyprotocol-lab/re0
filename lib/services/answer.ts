@@ -28,7 +28,7 @@ import { citationSnapshots, instructionsFor, questionWithPassages, sentinelState
 import { TEXT_META_KEY, textPartId, type InsufficientCreditsBody, type ReeOutcome, type ReeUIMessage, type SuggestedRee } from '@/lib/domain/chat-message';
 import { autoTitle, withoutMentions } from '@/lib/domain/conversation';
 import { InsufficientCredits } from '@/lib/domain/credits';
-import { modelFor } from '@/lib/infra/ai/models';
+import { generationForUser } from '@/lib/services/generation';
 import { db, schema } from '@/lib/infra/db';
 import { json } from '@/lib/http/respond';
 import { embedQuestion, messagesOf, retrieve, turnsOf, type Conversation, type MessageRow, type QuestionVector } from '@/lib/services/chat';
@@ -154,6 +154,8 @@ export async function answer(input: {
     return outcome(ree.id, { messageId: row.id, noAnswer: true, reason });
   };
 
+  /* All Rees in one question use the asking user's membership and the same model. */
+  let generationRequest: ReturnType<typeof generationForUser> | undefined;
   /** One Ree, start to finish; answers whether it gave an answer (or broke off trying), so suggestions follow only a clean "nobody knows". */
   const run = async (ree: Ree, write: Write, vector: Promise<QuestionVector> | null, history: Promise<MessageRow[]>): Promise<boolean> => {
     const entry = held.find((candidate) => candidate.ree.id === ree.id) ?? null;
@@ -171,7 +173,7 @@ export async function answer(input: {
         write({ type: 'data-outcome', id: `outcome-${ree.id}`, data: await unanswered(ree, 'out_of_scope', entry) });
         return false;
       }
-      const generation = await modelFor('generation');
+      const generation = await (generationRequest ??= generationForUser(userId, 'answer'));
       model = generation.endpoint.model;
       console.info(
         `answer ree=${ree.id} model=${generation.endpoint.model} source=${generation.endpoint.source} config=${generation.endpoint.configId ?? '-'} passages=${found.passages.length} best=${found.bestSimilarity?.toFixed(3) ?? '-'}`,
@@ -180,7 +182,7 @@ export async function answer(input: {
       const result = streamText({
         model: generation.model,
         instructions: instructionsFor({ reeName: ree.name, systemPrompt: ree.systemPrompt, lang: input.lang }),
-        messages: [...turns.filter((turn) => turn.content), { role: 'user', content: questionWithPassages(subject, found.passages) }],
+        messages: [{ role: 'user', content: questionWithPassages(subject, found.passages, turns) }],
         maxOutputTokens: MAX_OUTPUT_TOKENS,
         temperature: 0.2,
         maxRetries: 1,

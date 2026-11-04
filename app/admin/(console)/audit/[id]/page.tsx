@@ -1,5 +1,5 @@
 import type { Metadata } from 'next';
-import Link from 'next/link';
+import { WorkspaceLink as Link } from '@/components/shell/workspace-link';
 import { auditEntry } from '@/lib/services/admin-audit';
 import { serverMessages } from '@/i18n/server';
 import { formatDateTime } from '@/i18n/format';

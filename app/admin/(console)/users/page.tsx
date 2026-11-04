@@ -1,5 +1,5 @@
 import type { Metadata } from 'next';
-import Link from 'next/link';
+import { WorkspaceLink as Link } from '@/components/shell/workspace-link';
 import { Fragment } from 'react';
 import { redirect } from 'next/navigation';
 import { csvHref, listHref, usersView, ACCOUNT_STATUSES, MEMBERSHIP_STATES, USER_KYC_STATES } from '@/lib/domain/admin-lists';

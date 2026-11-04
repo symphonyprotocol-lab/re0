@@ -1,12 +1,20 @@
 /**
  * The console's model page rules (rebuild-proposal.md 2.5, "模型"): any
- * number of entries per kind, exactly one enabled, and an enabled entry's
+ * number of entries per kind, one enabled per audience for generation and
+ * one per kind otherwise, and an enabled entry's
  * model and endpoint frozen -- changing what answers goes through enabling a
  * different entry, never through editing the live one.
  */
 import { MODEL_ID_MAX_LENGTH, MODEL_KINDS, MODEL_NAME_MAX_LENGTH, MODEL_TIMEOUT_MS, type ModelKind } from '@/lib/constants';
+import { picoUsd, usdPico } from '@/lib/domain/provider-cost';
+import { parseServicePricing, type ServicePricingInput } from '@/lib/domain/service-pricing';
 
 export type ModelTransport = 'gateway' | 'openai_compatible';
+export type GenerationAudience = 'free' | 'plan';
+export interface ModelGenerationPrice { inputUsdPerMillion: string; outputUsdPerMillion: string }
+/** Human-facing prices use USD / 1M tokens; stored supplier rates use USD / token. */
+export function perTokenUsd(perMillion: string): string { return picoUsd(usdPico(perMillion) / 1_000_000n); }
+export function perMillionUsd(perToken: string): string { return picoUsd(usdPico(perToken) * 1_000_000n).replace(/\.?0+$/, ''); }
 
 export interface ModelConfigInput {
   name: string;
@@ -17,9 +25,12 @@ export interface ModelConfigInput {
   /** Empty means "keep the stored key" on edit, "none" on create. */
   apiKey: string;
   timeoutMs: number;
+  /** Omitted preserves a saved price; null explicitly removes it. */
+  generationPricing?: ModelGenerationPrice | null;
+  costPricing?: ServicePricingInput | null;
 }
 
-export type ModelConfigError = 'name' | 'kind' | 'transport' | 'base_url' | 'model' | 'api_key' | 'timeout';
+export type ModelConfigError = 'name' | 'kind' | 'transport' | 'base_url' | 'model' | 'api_key' | 'timeout' | 'generation_pricing' | 'cost_pricing';
 
 export const API_KEY_MAX_LENGTH = 512;
 
@@ -58,7 +69,26 @@ export function parseModelConfig(raw: Record<string, unknown>): ModelConfigInput
   if (!Number.isInteger(timeoutMs) || timeoutMs < MODEL_TIMEOUT_MS.min || timeoutMs > MODEL_TIMEOUT_MS.max) {
     return { error: 'timeout' };
   }
-  return { name, kind: raw.kind, transport, baseUrl, model, apiKey, timeoutMs };
+  let generationPricing: ModelGenerationPrice | null | undefined;
+  if (raw.kind === 'generation' && transport === 'openai_compatible' && raw.generationPricing !== undefined) {
+    const value = raw.generationPricing;
+    if (value === null) generationPricing = null;
+    else if (typeof value === 'object' && !Array.isArray(value)) {
+      const prices = value as Record<string, unknown>;
+      if (typeof prices.inputUsdPerMillion !== 'string' || typeof prices.outputUsdPerMillion !== 'string') return { error: 'generation_pricing' };
+      const input = str(prices.inputUsdPerMillion);
+      const output = str(prices.outputUsdPerMillion);
+      if (!input && !output) generationPricing = null;
+      else if (/^\d{1,8}(?:\.\d{1,6})?$/.test(input) && /^\d{1,8}(?:\.\d{1,6})?$/.test(output)) generationPricing = { inputUsdPerMillion: input, outputUsdPerMillion: output };
+      else return { error: 'generation_pricing' };
+    } else return { error: 'generation_pricing' };
+  }
+  let costPricing: ServicePricingInput | null | undefined;
+  if (raw.costPricing !== undefined && raw.kind !== 'generation') {
+    try { costPricing = parseServicePricing(raw.costPricing, raw.kind); }
+    catch { return { error: 'cost_pricing' }; }
+  }
+  return { name, kind: raw.kind, transport, baseUrl, model, apiKey, timeoutMs, ...(generationPricing !== undefined ? { generationPricing } : {}), ...(costPricing !== undefined ? { costPricing } : {}) };
 }
 
 /** What the page shows instead of a key. */

@@ -380,10 +380,6 @@
 .owned-rees-page .owned-card .dot-stats {
   margin-top: 10px;
 }
-.owned-rees-page .owned-card .card-actions {
-  border-top: 1px solid rgb(238, 240, 246);
-  padding-top: 14px;
-}
 .owned-rees-page .metric-grid {
   display: grid;
   grid-template-columns: repeat(3, 1fr);
@@ -1219,11 +1215,9 @@
   position: sticky;
   top: var(--navigation-height, var(--topbar));
   z-index: 20;
-  background: rgba(248, 246, 255, 0.96);
-  backdrop-filter: blur(16px);
+  background: var(--color-bg);
   padding: 14px 0px 0px;
   margin-bottom: 16px;
-  border-bottom: 1px solid rgb(228, 232, 242);
   scroll-margin-top: calc(var(--navigation-height, var(--topbar)) + 8px);
 }
 .owned-rees-page .owned-ree-controls {

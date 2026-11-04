@@ -1,4 +1,4 @@
-import Link from 'next/link';
+import { WorkspaceLink as Link } from '@/components/shell/workspace-link';
 import type { ReactNode } from 'react';
 import { Icon } from '@/components/ui/icons';
 import { reeSourceCount } from '@/lib/services/rees';
@@ -32,7 +32,6 @@ export async function ReeTopbar({
   return (
     <Topbar
       crumbs={[
-        { label: t.dashboard.title, href: '/dashboard' },
         { label: t.rees.title, href: '/rees' },
         { label: ree.name, ...(nested ? { href: `/rees/${ree.id}` } : {}) },
         ...crumbs,

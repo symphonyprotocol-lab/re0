@@ -1,7 +1,7 @@
 'use client';
 
-import Link from 'next/link';
-import { useRouter } from 'next/navigation';
+import { WorkspaceLink as Link } from '@/components/shell/workspace-link';
+import { useNavigationRouter as useRouter } from '@/components/shell/navigation-provider';
 import { useCallback, useEffect, useRef, useState, type ReactNode } from 'react';
 import { EXPLORE_PAGE_SIZES, EXPLORE_RESULTS, REE_CATEGORIES } from '@/lib/constants';
 import { explorePath, type ExploreQuery, type ExploreSort } from '@/lib/domain/explore';

@@ -1,6 +1,6 @@
 'use client';
 
-import Link from 'next/link';
+import { WorkspaceLink as Link } from '@/components/shell/workspace-link';
 import { useEffect, useLayoutEffect, useRef, useState } from 'react';
 import { CONVERSATION_MAX_REES } from '@/lib/constants';
 import type { Candidate, ReeBrief } from '@/lib/services/conversations';

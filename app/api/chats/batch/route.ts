@@ -5,7 +5,7 @@ import { body, fail, json } from '@/lib/http/respond';
 import { apiUser } from '@/lib/http/session';
 import { runBatch } from '@/lib/services/conversations';
 
-/** `{action: pin|unpin|archive|unarchive|trash|restore, ids}` → `{changed}`. */
+/** `{action: pin|unpin|archive|unarchive|trash|restore|delete, ids}` → `{changed}`. Delete is restricted to the caller's trash. */
 export async function POST(request: NextRequest) {
   const user = await apiUser(request);
   if (user instanceof Response) return user;

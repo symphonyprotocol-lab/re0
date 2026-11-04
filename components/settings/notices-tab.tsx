@@ -1,6 +1,6 @@
 'use client';
 
-import Link from 'next/link';
+import { WorkspaceLink as Link } from '@/components/shell/workspace-link';
 import { useRouter } from 'next/navigation';
 import { useEffect, useRef, useState } from 'react';
 import { api } from '@/lib/client/upload';
@@ -49,7 +49,7 @@ function describe(t: Messages, locale: Locale, notice: NoticeItem): { line: stri
       return {
         line: fill(delta >= 0 ? l.creditsAdd : l.creditsDeduct, { n: formatNumber(Math.abs(delta), locale), bucket }),
         icon: 'layers',
-        href: '/settings?tab=billing',
+        href: '/settings?tab=balance',
         action: o.billing,
         reason,
       };
@@ -70,7 +70,7 @@ function describe(t: Messages, locale: Locale, notice: NoticeItem): { line: stri
       /* Step 6: an identity decision or a re-verification request. */
       const k = t.payouts.notices;
       const line = p.decision === 'verified' ? k.verified : p.decision === 'rejected' ? k.rejected : p.decision === 'reset' ? k.reset : l.kyc;
-      return { line, icon: 'shield', href: p.decision === 'verified' ? '/settings?tab=billing#payouts' : '/settings/identity', action: p.decision === 'verified' ? o.billing : k.identity, reason };
+      return { line, icon: 'shield', href: p.decision === 'verified' ? '/settings?tab=balance#payouts' : '/settings/identity', action: p.decision === 'verified' ? o.billing : k.identity, reason };
     }
     case 'payout': {
       /* Step 6: a payout approved, rejected, paid or failed. */
@@ -87,7 +87,7 @@ function describe(t: Messages, locale: Locale, notice: NoticeItem): { line: stri
               : p.status === 'failed'
                 ? fill(k.failed, { usd })
                 : l.payout;
-      return { line, icon: 'sparkle', href: '/settings?tab=billing#payouts', action: o.billing, reason };
+      return { line, icon: 'sparkle', href: '/settings?tab=balance#payouts', action: o.billing, reason };
     }
     default:
       return { line: l.other, icon: 'info', href: null, action: null, reason };

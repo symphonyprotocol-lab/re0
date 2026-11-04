@@ -5,6 +5,7 @@
  */
 import { describe, expect, it, vi } from 'vitest';
 import { TEST_DATABASE_URL, uniqueName } from './setup';
+import { WELCOME_CREDITS } from '@/lib/constants';
 import { and, eq, inArray } from 'drizzle-orm';
 
 vi.mock('@/lib/infra/blob', () => ({
@@ -60,7 +61,7 @@ describeWithDb('Ree setup draft', () => {
     expect(knowledgeId).toBeNull();
     expect(ree).toMatchObject({ name: 'Created', category: 'technology', tags: ['React'], sampleQuestions: ['What is it?'], isPublic: false });
     expect(await rees.getDraft(userId)).toBeNull();
-    expect(await balanceOf(db(), userId)).toBe(2000);
+    expect(await balanceOf(db(), userId)).toBe(WELCOME_CREDITS);
   });
 
   it('creates a pasted-text first source with its processing hold', async () => {
@@ -68,16 +69,16 @@ describeWithDb('Ree setup draft', () => {
     await rees.saveDraft(userId, { ...ready('With text'), source: { kind: 'text', title: 'Notes', text: 'x'.repeat(2500), fileName: '', fileSize: 0, blobPath: '' } });
     const { ree, knowledgeId } = await rees.createReeFromDraft(userId);
     expect(knowledgeId).not.toBeNull();
-    expect(await balanceOf(db(), userId)).toBe(1997);
+    expect(await balanceOf(db(), userId)).toBe(WELCOME_CREDITS - 1);
     const [hold] = await db().select().from(schema.creditHold).where(eq(schema.creditHold.refId, knowledgeId!));
-    expect(hold).toMatchObject({ kind: 'knowledge', amount: 3, status: 'held' });
+    expect(hold).toMatchObject({ kind: 'knowledge', amount: 1, status: 'held' });
     const [row] = await db().select().from(schema.knowledge).where(eq(schema.knowledge.id, knowledgeId!));
     expect(row).toMatchObject({ reeId: ree.id, kind: 'text', status: 'pending' });
   });
 
   it('creates nothing when the first source cannot be paid for', async () => {
     const userId = await newUser();
-    await db().update(schema.creditGrant).set({ remaining: 5 }).where(eq(schema.creditGrant.userId, userId));
+    await db().update(schema.creditGrant).set({ remaining: 0 }).where(eq(schema.creditGrant.userId, userId));
     await rees.saveDraft(userId, { ...ready('Too poor'), source: { kind: 'document', title: '', text: '', fileName: 'a.pdf', fileSize: 1024, blobPath: `knowledge/${userId}/x/a.pdf` } });
     await expect(rees.createReeFromDraft(userId)).rejects.toMatchObject({ name: 'InsufficientCredits' });
     expect(await db().select().from(schema.ree).where(eq(schema.ree.ownerId, userId))).toHaveLength(0);
@@ -146,6 +147,22 @@ async function conversationWith(userId: string, reeId: string, kind: 'normal' | 
 }
 
 describeWithDb('/rees counts', () => {
+  it('shows the same feedback percentage as discovery and excludes the owner’s votes', async () => {
+    const owner = await newUser();
+    const voters = await Promise.all([newUser(), newUser(), newUser()]);
+    const ree = await reeRow(owner);
+    const listed = async () => (await rees.listRees(owner, { q: '', visibility: 'all', sort: 'default', size: 12, page: 1 })).items[0];
+    expect((await listed())!.positiveRate).toBeNull();
+
+    const conversationId = await conversationWith(owner, ree.id, 'ree_test');
+    const [answer] = await db().insert(schema.message).values({ conversationId, role: 'ree', reeId: ree.id, content: 'answer' }).returning({ id: schema.message.id });
+    await db().insert(schema.reeFeedback).values({ messageId: answer!.id, userId: owner, vote: 'down' });
+    expect((await listed())!.positiveRate).toBeNull();
+
+    await db().insert(schema.reeFeedback).values(voters.map((userId, index) => ({ messageId: answer!.id, userId, vote: index < 2 ? 'up' as const : 'down' as const })));
+    expect((await listed())!.positiveRate).toBe(67);
+  });
+
   it('keeps successful answers once the test chat is cleared, and counts paused sources as not ready', async () => {
     const owner = await newUser();
     const ree = await reeRow(owner);

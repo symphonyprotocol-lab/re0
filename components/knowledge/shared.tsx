@@ -5,6 +5,7 @@ import type { KnowledgeActivity } from '@/lib/domain/knowledge';
 import type { Messages } from '@/i18n';
 import { fill, formatNumber } from '@/i18n/format';
 import { failureLabel } from '@/components/knowledge/status-badge';
+import type { ProviderCharge } from '@/lib/domain/provider-cost';
 
 export { KIND_ICONS, SOURCE_ICONS } from '@/components/knowledge/kind-icons';
 
@@ -56,6 +57,23 @@ export function activityLabel(t: Messages, locale: 'zh' | 'en', entry: Knowledge
   const d = entry.detail ?? {};
   const n = (value: unknown) => formatNumber(Number(value ?? 0), locale);
   switch (entry.code) {
+    case 'transcribed':
+      return d.seconds !== undefined ? fill(k.transcribedSeconds, { seconds: n(d.seconds) }) : fill(k.transcribed, { minutes: n(d.minutes) });
+    case 'provider_usage': {
+      try {
+        const charge = JSON.parse(String(d.charge)) as ProviderCharge;
+        const service = charge.service === 'transcription' ? k.transcriptionService : charge.service === 'embedding' ? 'Embedding' : 'Firecrawl';
+        const units = [charge.usage.firecrawlCredits !== undefined ? `${n(charge.usage.firecrawlCredits)} Firecrawl credits` : '', charge.usage.inputTokens !== undefined ? `${n(charge.usage.inputTokens)} input tokens` : '', charge.usage.outputTokens !== undefined ? `${n(charge.usage.outputTokens)} output tokens` : '', charge.usage.seconds !== undefined ? fill(k.seconds, { seconds: n(charge.usage.seconds) }) : ''].filter(Boolean).join(', ');
+        return fill(k.providerUsage, { service, model: charge.model, usage: units, cost: charge.costUsd === null ? k.costUnresolved : `$${charge.costUsd.replace(/0+$/, '').replace(/\.$/, '')}` }) + (d.reconciled ? ` · ${k.reconciledUsage}` : d.late ? ` · ${k.lateUsage}` : '');
+      } catch { return k.costUnresolved; }
+    }
+    case 'settled': {
+      const values = Object.fromEntries(Object.entries(d).map(([key, value]) => [key, typeof value === 'number' ? n(value) : value]));
+      if (typeof values.costUsd === 'string') values.costUsd = values.costUsd.replace(/0+$/, '').replace(/\.$/, '');
+      const label = fill(k.settled, values);
+      if (d.tariff === 'provider-cost-v1') return `${label} · ${fill(k.providerTotal, values)}`;
+      return d.tariff ? `${label} · ${fill(k.usage, values)}` : label;
+    }
     case 'parsed':
       return fill(k.parsed, { chars: n(d.chars), pages: d.pages ? fill(k.parsedPages, { pages: n(d.pages) }) : '' });
     case 'failed':

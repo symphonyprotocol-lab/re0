@@ -12,7 +12,7 @@
  * renewal will (cancelled or lapsed Plans).
  */
 import { cache } from 'react';
-import { and, count, desc, eq, gt, inArray, lte, notInArray, sql } from 'drizzle-orm';
+import { and, count, desc, eq, gt, gte, ilike, inArray, isNull, lt, lte, notInArray, or, sql } from 'drizzle-orm';
 import { CHECKOUT_REUSE_MS, PACK, PLAN_EXPIRY_BATCH } from '@/lib/constants';
 import {
   ACTIVITY_REASONS,
@@ -30,10 +30,12 @@ import {
   type PurchaseKind,
 } from '@/lib/domain/billing';
 import { availableOf } from '@/lib/domain/credits';
-import { clampPage } from '@/lib/domain/list';
+import { clampPage, likePattern } from '@/lib/domain/list';
+import { periodRange, reportingDate, type PeriodFilter } from '@/lib/domain/statistics';
 import { db, schema, type Executor, type Tx } from '@/lib/infra/db';
 import {
   cancelAtPeriodEnd,
+  cancelCheckoutTransaction,
   createCheckoutTransaction,
   customUserId,
   minorUnits,
@@ -50,6 +52,7 @@ import {
   type PaddleSubscription,
   type PaddleTransaction,
 } from '@/lib/infra/paddle';
+import { checkoutPrice } from '@/lib/services/pricing';
 import { addGrant, expirePlanGrants, grantsOf, moveGrants } from '@/lib/services/credits';
 
 export class WebhookRejected extends Error {
@@ -98,11 +101,13 @@ export type CheckoutRefusal =
   | 'consent_required'
   | 'plan_required'
   | 'already_subscribed'
-  | 'renewal_pending';
+  | 'renewal_pending'
+  | 'price_changed';
 
 export interface CheckoutDeps {
   config?: PaddleConfig;
   create?: typeof createCheckoutTransaction;
+  cancel?: typeof cancelCheckoutTransaction;
   now?: Date;
 }
 
@@ -117,7 +122,7 @@ export interface CheckoutDeps {
  */
 export async function startCheckout(
   userId: string,
-  input: { kind?: unknown; quantity?: unknown; consent?: unknown },
+  input: { kind?: unknown; quantity?: unknown; consent?: unknown; quoteKey?: unknown },
   deps: CheckoutDeps = {},
 ): Promise<{ ok: true; transactionId: string; order: CheckoutOrder } | { ok: false; error: CheckoutRefusal }> {
   const order = parseOrder(input);
@@ -127,6 +132,9 @@ export async function startCheckout(
   return db().transaction(async (tx) => {
     await tx.execute(sql`select pg_advisory_xact_lock(hashtext(${`checkout:${userId}`}))`);
     if (order.kind === 'pack' && !planIsActive(await subscriptionOf(tx, userId), now)) return { ok: false as const, error: 'plan_required' as const };
+    const config = deps.config ?? requirePaddle();
+    const price = await checkoutPrice(tx, config, order.kind, now);
+    if (input.quoteKey !== undefined && input.quoteKey !== price.quoteKey) return { ok: false as const, error: 'price_changed' as const };
     if (order.kind === 'plan') {
       const live = await tx
         .select({ status: schema.subscription.status })
@@ -135,22 +143,27 @@ export async function startCheckout(
       if (live.some((row) => row.status === 'active')) return { ok: false as const, error: 'already_subscribed' as const };
       if (live.length > 0) return { ok: false as const, error: 'renewal_pending' as const };
       const [open] = await tx
-        .select({ id: schema.paddleCheckout.paddleTransactionId })
+        .select({ id: schema.paddleCheckout.paddleTransactionId, priceKey: schema.paddleCheckout.priceKey })
         .from(schema.paddleCheckout)
         .where(
           and(
             eq(schema.paddleCheckout.userId, userId),
             eq(schema.paddleCheckout.kind, 'plan'),
+            isNull(schema.paddleCheckout.supersededAt),
             gt(schema.paddleCheckout.createdAt, new Date(now.getTime() - CHECKOUT_REUSE_MS)),
           ),
         )
         .orderBy(desc(schema.paddleCheckout.createdAt))
         .limit(1);
-      if (open) return { ok: true as const, transactionId: open.id, order };
+      if (open && ((!open.priceKey && price.revision === 'default') || open.priceKey === price.quoteKey)) return { ok: true as const, transactionId: open.id, order };
+      if (open) {
+        // Cancel before replacing: a failed cancellation must never start a second subscription.
+        await (deps.cancel ?? cancelCheckoutTransaction)(config, open.id);
+        await tx.update(schema.paddleCheckout).set({ supersededAt: now }).where(eq(schema.paddleCheckout.paddleTransactionId, open.id));
+      }
     }
-    const config = deps.config ?? requirePaddle();
-    const transaction = await (deps.create ?? createCheckoutTransaction)(config, order, userId);
-    await tx.insert(schema.paddleCheckout).values({ paddleTransactionId: transaction.id, userId, kind: order.kind, quantity: order.quantity, createdAt: now });
+    const transaction = await (deps.create ?? createCheckoutTransaction)(config, order, userId, price);
+    await tx.insert(schema.paddleCheckout).values({ paddleTransactionId: transaction.id, userId, kind: order.kind, quantity: order.quantity, priceKey: price.quoteKey, unitPriceMinor: price.priceMinor, createdAt: now });
     return { ok: true as const, transactionId: transaction.id, order };
   });
 }
@@ -183,7 +196,7 @@ export async function receivePaddleWebhook(
   return applyPaddleEvent(event, config, now);
 }
 
-type Prices = Pick<PaddleConfig, 'planPriceId' | 'packPriceId'>;
+type Prices = Pick<PaddleConfig, 'planPriceId' | 'packPriceId'> & Partial<Pick<PaddleConfig, 'environment'>>;
 
 /**
  * Applies one notification. The `billing_event` row and the effects commit
@@ -223,11 +236,13 @@ async function dispatch(tx: Tx, event: PaddleEvent, prices: Prices, now: Date): 
   return 'ignored';
 }
 
-function kindOf(transaction: PaddleTransaction, prices: Prices): PurchaseKind | null {
-  const priceIds = transaction.items.map((item) => item.price?.id ?? item.price_id);
+async function kindOf(tx: Tx, transaction: { items: { price: { id: string } | null; price_id?: string }[] }, prices: Prices): Promise<PurchaseKind | null> {
+  const priceIds = transaction.items.map((item) => item.price?.id ?? item.price_id).filter((id): id is string => Boolean(id));
   if (priceIds.includes(prices.planPriceId)) return 'plan';
   if (priceIds.includes(prices.packPriceId)) return 'pack';
-  return null;
+  if (!priceIds.length) return null;
+  const [known] = await tx.select({ kind: schema.billingPrice.kind }).from(schema.billingPrice).where(and(inArray(schema.billingPrice.paddlePriceId, priceIds), prices.environment ? eq(schema.billingPrice.environment, prices.environment) : undefined)).limit(1);
+  return known?.kind ?? null;
 }
 
 async function subscriptionByPaddleId(tx: Tx, paddleId: string | null | undefined): Promise<SubscriptionRow | null> {
@@ -249,7 +264,7 @@ function addMonth(date: Date): Date {
  * is when a period ends, 8.3). A Pack grants 100,000 per pack, no expiry.
  */
 async function creditTransaction(tx: Tx, transaction: PaddleTransaction, prices: Prices, now: Date): Promise<string> {
-  const kind = kindOf(transaction, prices);
+  const kind = await kindOf(tx, transaction, prices);
   if (!kind) return 'ignored';
   const [existing] = await tx
     .select({ id: schema.purchase.id })
@@ -274,7 +289,10 @@ async function creditTransaction(tx: Tx, transaction: PaddleTransaction, prices:
   if (!Number.isFinite(amount)) {
     /* Never 0: a zero would make every later refund read as a full one. */
     console.warn(`transaction ${transaction.id} has no readable total; recording the list price`);
-    amount = priceMinorFor(order);
+    const [snapshot] = await tx.select({ amount: schema.paddleCheckout.unitPriceMinor }).from(schema.paddleCheckout).where(eq(schema.paddleCheckout.paddleTransactionId, transaction.id)).limit(1);
+    const priceId = transaction.items[0]?.price?.id ?? transaction.items[0]?.price_id;
+    const [catalogue] = priceId ? await tx.select({ amount: schema.billingPrice.priceMinor }).from(schema.billingPrice).where(eq(schema.billingPrice.paddlePriceId, priceId)).limit(1) : [];
+    amount = (snapshot?.amount ?? catalogue?.amount ?? priceMinorFor({ kind, quantity: 1 })) * quantity;
   }
 
   let periodStart: Date | null = null;
@@ -352,7 +370,7 @@ async function creditTransaction(tx: Tx, transaction: PaddleTransaction, prices:
 
 /** A subscription event: the Plan's state as Paddle holds it, unless we already hold a newer one. */
 async function mirrorSubscription(tx: Tx, entity: PaddleSubscription, prices: Prices, now: Date): Promise<string> {
-  if (entity.items?.length && !entity.items.some((item) => item.price?.id === prices.planPriceId)) return 'ignored';
+  if (entity.items?.length && await kindOf(tx, { items: entity.items }, prices) !== 'plan') return 'ignored';
   const existing = await subscriptionByPaddleId(tx, entity.id);
   let userId = existing?.userId ?? customUserId(entity.custom_data);
   if (!userId && entity.transaction_id) {
@@ -597,6 +615,13 @@ export interface EntryRow {
   /** Credits per source this row moved: what makes every row traceable to its grants. */
   sources: { source: string; amount: number }[];
   createdAt: string;
+  reeName: string | null;
+}
+
+export interface ActivitySummary {
+  spend: number;
+  income: number;
+  purchases: number;
 }
 
 /**
@@ -607,26 +632,48 @@ export interface EntryRow {
  */
 export async function listEntries(
   userId: string,
-  query: { activity: Activity; page: number; size: number },
-): Promise<{ items: EntryRow[]; total: number; page: number; size: number; activity: Activity }> {
+  query: { activity: Activity; page: number; size: number; q?: string } & Partial<PeriodFilter>,
+): Promise<{ items: EntryRow[]; total: number; page: number; size: number; activity: Activity; summary: ActivitySummary }> {
   const official = await isOfficial(userId);
   const activity = official && query.activity === 'income' ? 'all' : query.activity;
-  const where = and(
+  const range = periodRange({ ...query, period: query.period ?? 'all', date: query.date ?? reportingDate() });
+  const pattern = query.q ? likePattern(query.q) : null;
+  const scope = and(
     eq(schema.creditEntry.userId, userId),
-    activity === 'all' ? undefined : inArray(schema.creditEntry.reason, [...ACTIVITY_REASONS[activity]]),
     official ? notInArray(schema.creditEntry.reason, [...ACTIVITY_REASONS.income]) : undefined,
+    range ? gte(schema.creditEntry.createdAt, new Date(range.start)) : undefined,
+    range ? lt(schema.creditEntry.createdAt, new Date(range.end)) : undefined,
+    pattern ? or(ilike(schema.creditEntry.note, pattern), ilike(schema.ree.name, pattern)) : undefined,
   );
-  const [{ total }] = (await db().select({ total: count() }).from(schema.creditEntry).where(where)) as [{ total: number }];
+  const where = and(scope, activity === 'all' ? undefined : inArray(schema.creditEntry.reason, [...ACTIVITY_REASONS[activity]]));
+  const database = db();
+  // Count actual charges at settlement time. Reservations and returns can
+  // cross midnight and must never inflate a day's spending.
+  const charged = sql`case
+    when ${schema.creditEntry.reason} in ('knowledge_settle', 'query_base', 'video_script', 'video_export')
+      then coalesce(substring(${schema.creditEntry.note} from 'charged ([0-9]+) of [0-9]+$')::bigint, 0)
+    when ${schema.creditEntry.reason} = 'query_fee_paid' then greatest(-${schema.creditEntry.delta}, 0)
+    else 0 end`;
+  const [[counted], [summary]] = await Promise.all([
+    database.select({ total: count() }).from(schema.creditEntry).leftJoin(schema.ree, eq(schema.ree.id, schema.creditEntry.reeId)).where(where),
+    database.select({
+      spend: sql<number>`coalesce(sum(${charged}), 0)::bigint`,
+      income: sql<number>`coalesce(sum(case when ${schema.creditEntry.reason} = 'query_fee_earned' then ${schema.creditEntry.delta} else 0 end), 0)::bigint`,
+      purchases: sql<number>`coalesce(sum(case when ${schema.creditEntry.reason} = 'purchase' then ${schema.creditEntry.delta} else 0 end), 0)::bigint`,
+    }).from(schema.creditEntry).leftJoin(schema.ree, eq(schema.ree.id, schema.creditEntry.reeId)).where(scope),
+  ]);
+  const total = counted?.total ?? 0;
   const page = clampPage(query.page, total, query.size);
-  const rows = await db()
-    .select()
+  const rows = await database
+    .select({ entry: schema.creditEntry, reeName: schema.ree.name })
     .from(schema.creditEntry)
+    .leftJoin(schema.ree, eq(schema.ree.id, schema.creditEntry.reeId))
     .where(where)
     .orderBy(desc(schema.creditEntry.createdAt), desc(schema.creditEntry.id))
     .limit(query.size)
     .offset((page - 1) * query.size);
   return {
-    items: rows.map((row) => {
+    items: rows.map(({ entry: row, reeName }) => {
       const sources = new Map<string, number>();
       for (const allocation of row.allocations) sources.set(allocation.source, (sources.get(allocation.source) ?? 0) + allocation.amount);
       return {
@@ -638,11 +685,13 @@ export async function listEntries(
         refId: row.refId,
         sources: [...sources].map(([source, amount]) => ({ source, amount })),
         createdAt: row.createdAt.toISOString(),
+        reeName,
       };
     }),
     total,
     page,
     size: query.size,
     activity,
+    summary: { spend: Number(summary?.spend ?? 0), income: Number(summary?.income ?? 0), purchases: Number(summary?.purchases ?? 0) },
   };
 }

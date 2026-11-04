@@ -18,6 +18,9 @@ import { AUDIO_CONTENT_TYPES, type AudioFormat } from '@/lib/domain/knowledge';
 import { ProcessingFailure } from '@/lib/infra/connectors/failure';
 import { endpointFor, type ModelEndpoint } from '@/lib/infra/ai/models';
 import { recordModelCall } from '@/lib/infra/ai/usage';
+import { modelCostTarget, prepareProviderCall, providerWork, tokenUsage } from '@/lib/infra/ai/provider-meter';
+import { ProviderCostUnavailable } from '@/lib/domain/provider-cost';
+import { InsufficientCredits } from '@/lib/domain/credits';
 
 export interface TranscriptSegment {
   start: number;
@@ -38,6 +41,7 @@ interface VerboseTranscription {
   language?: string;
   duration?: number;
   segments?: { start?: number; end?: number; text?: string }[];
+  usage?: unknown;
 }
 
 /** `audio/transcriptions` on an OpenAI-compatible endpoint, as an AI SDK transcription model. */
@@ -75,17 +79,31 @@ function compatibleTranscriptionModel(endpoint: ModelEndpoint): V4TranscriptionM
         language: body.language,
         durationInSeconds: typeof body.duration === 'number' ? body.duration : segments.at(-1)?.endSecond,
         warnings: [],
-        response: { timestamp: new Date(), modelId: endpoint.model },
+        response: { timestamp: new Date(), modelId: endpoint.model, body },
       };
     },
   };
 }
 
 export function transcriptionModel(endpoint: ModelEndpoint): TranscriptionModel {
-  if (endpoint.transport === 'gateway') {
-    return (endpoint.apiKey ? createGateway({ apiKey: endpoint.apiKey }) : gateway).transcriptionModel(endpoint.model);
-  }
-  return compatibleTranscriptionModel(endpoint);
+  const model = endpoint.transport === 'gateway'
+    ? (endpoint.apiKey ? createGateway({ apiKey: endpoint.apiKey }) : gateway).transcriptionModel(endpoint.model)
+    : compatibleTranscriptionModel(endpoint);
+  return {
+    specificationVersion: 'v4', provider: model.provider, modelId: model.modelId,
+    async doGenerate(options) {
+      return providerWork(async () => {
+        const call = await prepareProviderCall(modelCostTarget(endpoint, 'transcription'));
+        const result = await model.doGenerate(options);
+        const body = result.response?.body as { usage?: unknown } | undefined;
+        await call?.complete({
+          usage: { ...tokenUsage(body?.usage), seconds: result.durationInSeconds ?? undefined },
+          providerMetadata: result.providerMetadata, requestId: result.response?.headers?.['x-request-id'],
+      });
+      return result;
+      });
+    },
+  };
 }
 
 /* ------------------------------------------------------------------ pieces */
@@ -202,12 +220,15 @@ export async function transcribeAudio(bytes: Uint8Array, format: AudioFormat): P
         });
       } catch (error) {
         stop.abort();
-        if (error instanceof ProcessingFailure) throw error;
+        if (error instanceof ProcessingFailure || error instanceof ProviderCostUnavailable || error instanceof InsufficientCredits) throw error;
         throw new ProcessingFailure('transcription_unavailable', error instanceof Error ? error.message : 'transcription failed');
       }
     }
   };
-  await Promise.all(Array.from({ length: Math.min(PARALLEL_PIECES, pieces.length) }, worker));
+  // Wait for every worker so no paid response arrives after the run has been refunded.
+  const workers = await Promise.allSettled(Array.from({ length: Math.min(PARALLEL_PIECES, pieces.length) }, worker));
+  const failed = workers.find((result) => result.status === 'rejected');
+  if (failed?.status === 'rejected') throw failed.reason;
 
   /* Stitched in order: each piece's timestamps start where the pieces before it end. */
   const segments: TranscriptSegment[] = [];

@@ -13,7 +13,8 @@
 import { generateText } from 'ai';
 import { and, asc, eq, sql } from 'drizzle-orm';
 import { PROFILE_CENTROIDS, PROFILE_KMEANS_ITERATIONS, PROFILE_KMEANS_SAMPLE, PROFILE_SAMPLE_QUESTIONS, REE_LIMITS } from '@/lib/constants';
-import { embedTexts, modelFor } from '@/lib/infra/ai/models';
+import { embedTexts } from '@/lib/infra/ai/models';
+import { generationForUser } from '@/lib/services/generation';
 import { db, schema } from '@/lib/infra/db';
 import { answerable } from '@/lib/services/chat';
 import { publicRee } from '@/lib/services/explore';
@@ -141,7 +142,7 @@ export function parseQuestions(text: string): string[] {
 export async function suggestQuestions(reeId: string): Promise<string[]> {
   const database = db();
   const [ree] = await database
-    .select({ name: schema.ree.name, description: schema.ree.description, sampleQuestions: schema.ree.sampleQuestions, suggestedQuestions: schema.ree.suggestedQuestions })
+    .select({ ownerId: schema.ree.ownerId, name: schema.ree.name, description: schema.ree.description, sampleQuestions: schema.ree.sampleQuestions, suggestedQuestions: schema.ree.suggestedQuestions })
     .from(schema.ree)
     .where(eq(schema.ree.id, reeId))
     .limit(1);
@@ -155,7 +156,7 @@ export async function suggestQuestions(reeId: string): Promise<string[]> {
     .limit(6);
   if (passages.length === 0) return [];
   try {
-    const generation = await modelFor('generation');
+    const generation = await generationForUser(ree.ownerId, 'suggestions');
     const { text } = await generateText({
       model: generation.model,
       instructions: [

@@ -1,7 +1,7 @@
 /**
- * `modelFor(kind)`: the one way business code reaches a model
- * (rebuild-proposal.md 7). It reads the enabled `model_config` row of that
- * kind, cached for a minute; without one it falls back to the environment,
+ * `modelFor(kind, audience?)`: the one way business code reaches a model
+ * (rebuild-proposal.md 7). It reads the enabled `model_config` row for that
+ * kind and generation audience, cached separately for a minute; without one it falls back to the environment,
  * and without that to a gateway default, so a first deployment answers.
  *
  * Two transports, both through the AI SDK: the Vercel AI Gateway with
@@ -10,7 +10,7 @@
  * about the provider leaks out.
  */
 import { createOpenAICompatible } from '@ai-sdk/openai-compatible';
-import { createGateway, embedMany, gateway, type EmbeddingModel, type LanguageModel } from 'ai';
+import { createGateway, embedMany, gateway, wrapEmbeddingModel, type EmbeddingModel, type LanguageModel } from 'ai';
 import { and, eq } from 'drizzle-orm';
 import {
   DEFAULT_MODELS,
@@ -19,10 +19,12 @@ import {
   MODEL_TIMEOUT_MS,
   type ModelKind,
 } from '@/lib/constants';
-import { mayCarryKey, type ModelTransport } from '@/lib/domain/models';
+import { mayCarryKey, type GenerationAudience, type ModelTransport } from '@/lib/domain/models';
+import type { GenerationCallContext } from '@/lib/domain/model-calls';
 import { openCredential } from '@/lib/infra/crypto/credentials';
 import { db, schema } from '@/lib/infra/db';
 import { loggedLanguageModel, recordModelCall } from '@/lib/infra/ai/usage';
+import { modelCostTarget, prepareProviderCall, providerWork } from '@/lib/infra/ai/provider-meter';
 
 export interface ModelEndpoint {
   kind: ModelKind;
@@ -110,23 +112,25 @@ export async function consoleEndpoint(row: typeof schema.modelConfig.$inferSelec
   };
 }
 
-const cache = new Map<ModelKind, { at: number; endpoint: ModelEndpoint }>();
+const cache = new Map<string, { at: number; endpoint: ModelEndpoint }>();
 
 /** Called after the console changes an entry, so this instance does not wait out the minute. */
 export function forgetModelCache(): void {
   cache.clear();
 }
 
-export async function endpointFor(kind: ModelKind, now = Date.now()): Promise<ModelEndpoint> {
-  const cached = cache.get(kind);
+export async function endpointFor(kind: ModelKind, now = Date.now(), audience: GenerationAudience = 'free'): Promise<ModelEndpoint> {
+  const plan = kind === 'generation' && audience === 'plan';
+  const cacheKey = plan ? 'generation:plan' : kind;
+  const cached = cache.get(cacheKey);
   if (cached && now - cached.at < MODEL_CACHE_MS) return cached.endpoint;
   const [row] = await db()
     .select()
     .from(schema.modelConfig)
-    .where(and(eq(schema.modelConfig.kind, kind), eq(schema.modelConfig.enabled, true)))
+    .where(and(eq(schema.modelConfig.kind, kind), eq(plan ? schema.modelConfig.enabledPlan : schema.modelConfig.enabled, true)))
     .limit(1);
   const endpoint = row ? await consoleEndpoint(row) : environmentEndpoint(kind);
-  cache.set(kind, { at: now, endpoint });
+  cache.set(cacheKey, { at: now, endpoint });
   return endpoint;
 }
 
@@ -144,24 +148,36 @@ function gatewayFor(endpoint: ModelEndpoint) {
   return endpoint.apiKey ? createGateway({ apiKey: endpoint.apiKey }) : gateway;
 }
 
-export function languageModel(endpoint: ModelEndpoint): LanguageModel {
+export function languageModel(endpoint: ModelEndpoint, context: GenerationCallContext = {}): LanguageModel {
   const model =
     endpoint.transport === 'gateway' ? gatewayFor(endpoint).languageModel(endpoint.model) : compatible(endpoint).chatModel(endpoint.model);
-  return loggedLanguageModel(model, { model: endpoint.model, configId: endpoint.configId });
+  return loggedLanguageModel(model, { ...context, model: endpoint.model, configId: endpoint.configId, configName: endpoint.name, transport: endpoint.transport, baseUrl: endpoint.baseUrl });
 }
 
 export function embeddingModel(endpoint: ModelEndpoint): EmbeddingModel {
-  return endpoint.transport === 'gateway'
+  const model = endpoint.transport === 'gateway'
     ? gatewayFor(endpoint).embeddingModel(endpoint.model)
     : compatible(endpoint).embeddingModel(endpoint.model);
+  return wrapEmbeddingModel({ model, middleware: {
+    specificationVersion: 'v4',
+    wrapEmbed: async ({ doEmbed }) => providerWork(async () => {
+      const call = await prepareProviderCall(modelCostTarget(endpoint, 'embedding'));
+      const result = await doEmbed();
+      await call?.complete({
+        usage: { inputTokens: result.usage?.tokens }, providerMetadata: result.providerMetadata,
+        requestId: result.response?.headers?.['x-request-id'],
+      });
+      return result;
+    }),
+  } });
 }
 
-export async function modelFor(kind: 'generation'): Promise<{ model: LanguageModel; endpoint: ModelEndpoint }>;
+export async function modelFor(kind: 'generation', audience?: GenerationAudience, context?: GenerationCallContext): Promise<{ model: LanguageModel; endpoint: ModelEndpoint }>;
 export async function modelFor(kind: 'embedding'): Promise<{ model: EmbeddingModel; endpoint: ModelEndpoint }>;
-export async function modelFor(kind: 'generation' | 'embedding') {
-  const endpoint = await endpointFor(kind);
+export async function modelFor(kind: 'generation' | 'embedding', audience: GenerationAudience = 'free', context: GenerationCallContext = {}) {
+  const endpoint = await endpointFor(kind, Date.now(), audience);
   return kind === 'generation'
-    ? { model: languageModel(endpoint), endpoint }
+    ? { model: languageModel(endpoint, { ...context, audience }), endpoint }
     : { model: embeddingModel(endpoint), endpoint };
 }
 

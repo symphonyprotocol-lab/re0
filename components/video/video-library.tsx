@@ -1,7 +1,8 @@
 'use client';
 
-import Link from 'next/link';
-import { usePathname, useRouter } from 'next/navigation';
+import { WorkspaceLink as Link } from '@/components/shell/workspace-link';
+import { usePathname } from 'next/navigation';
+import { useNavigationRouter as useRouter } from '@/components/shell/navigation-provider';
 import { useState, type ReactNode } from 'react';
 import { VIDEO_EXPORT_CREDITS, VIDEO_PAGE_SIZES, VIDEO_SCRIPT_CREDITS } from '@/lib/constants';
 import { pageNumbers } from '@/lib/domain/list';

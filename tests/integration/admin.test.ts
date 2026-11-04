@@ -4,11 +4,13 @@
  * model page keeps one active entry per kind and freezes it; embedding goes
  * through the re-embed job (step 5; the job itself is tested in step5.test.ts).
  */
-import { afterAll, describe, expect, it } from 'vitest';
+import { afterAll, describe, expect, it, vi } from 'vitest';
+import { readFile } from 'node:fs/promises';
 import { TEST_DATABASE_URL, uniqueName } from './setup';
-import { and, eq } from 'drizzle-orm';
+import { and, eq, sql } from 'drizzle-orm';
 
 const describeWithDb = TEST_DATABASE_URL ? describe : describe.skip;
+vi.mock('@/lib/infra/ai/gateway-generation-pricing', () => ({ gatewayGenerationPricing: async () => undefined }));
 
 const admin = await import('@/lib/services/admin');
 const models = await import('@/lib/services/models');
@@ -93,6 +95,22 @@ describeWithDb('model configuration', () => {
     await db().delete(schema.modelConfig);
   });
 
+  it('migrates the existing active generation model to both audiences', async () => {
+    const migration = await readFile(new URL('../../db/migrations/0015_generation_audiences.sql', import.meta.url), 'utf8');
+    await db().transaction(async (tx) => {
+      /* A temporary legacy table isolates the data migration from the real test schema. */
+      await tx.execute(sql`create temporary table model_config (id text primary key, kind text not null, enabled boolean not null) on commit drop`);
+      await tx.execute(sql`insert into model_config values ('live', 'generation', true), ('candidate', 'generation', false), ('embed', 'embedding', true)`);
+      for (const statement of migration.split('--> statement-breakpoint')) await tx.execute(sql.raw(statement));
+      const rows = await tx.execute(sql`select id, enabled_plan from model_config order by id`);
+      expect(rows.rows).toEqual([
+        { id: 'candidate', enabled_plan: false },
+        { id: 'embed', enabled_plan: false },
+        { id: 'live', enabled_plan: true },
+      ]);
+    });
+  });
+
   it('keeps one active entry per kind, freezes it, and switches generation at once', async () => {
     const [owner] = await db().select().from(schema.administrator).limit(1);
     await db().delete(schema.reembedJob);
@@ -126,9 +144,43 @@ describeWithDb('model configuration', () => {
     expect(moved).toMatchObject({ hasKey: false, apiKeyTail: null });
   });
 
+  it('switches Free and Plan independently, including shared models and separate caches', async () => {
+    const [owner] = await db().select().from(schema.administrator).limit(1);
+    const create = (name: string) => models.createModelConfig(owner!.id, { name, kind: 'generation', transport: 'gateway', model: `openai/${name}`, apiKey: '' });
+    const free = await create('free');
+    const plan = await create('plan');
+    const next = await create('next');
+    await models.activateModelConfig(owner!.id, free.id, 'free');
+    await models.activateModelConfig(owner!.id, free.id, 'plan');
+    expect((await endpointFor('generation')).configId).toBe(free.id);
+    expect((await endpointFor('generation', Date.now(), 'plan')).configId).toBe(free.id);
+
+    await models.activateModelConfig(owner!.id, plan.id, 'plan');
+    expect((await endpointFor('generation')).configId).toBe(free.id);
+    expect((await endpointFor('generation', Date.now(), 'plan')).configId).toBe(plan.id);
+    await expect(db().update(schema.modelConfig).set({ enabledPlan: true }).where(eq(schema.modelConfig.id, free.id))).rejects.toThrow();
+    await expect(models.updateModelConfig(owner!.id, plan.id, { name: 'Plan', transport: 'gateway', model: 'openai/changed' })).rejects.toMatchObject({ code: 'locked' });
+    await models.activateModelConfig(owner!.id, next.id, 'free');
+    expect((await endpointFor('generation')).configId).toBe(next.id);
+    expect((await endpointFor('generation', Date.now(), 'plan')).configId).toBe(plan.id);
+
+    /* Both candidates race for one slot; both operations must complete successfully. */
+    await Promise.all([models.activateModelConfig(owner!.id, free.id, 'plan'), models.activateModelConfig(owner!.id, next.id, 'plan')]);
+    const board = await models.listModelConfigs();
+    expect(board.configs.filter((row) => row.kind === 'generation' && row.enabled)).toHaveLength(1);
+    expect(board.configs.filter((row) => row.enabledPlan)).toHaveLength(1);
+    expect((await endpointFor('generation')).configId).toBe(next.id);
+
+    await db().update(schema.modelConfig).set({ enabledPlan: false }).where(eq(schema.modelConfig.kind, 'generation'));
+    forgetModelCache();
+    expect((await endpointFor('generation', Date.now(), 'plan')).configId).toBeNull();
+    expect((await endpointFor('generation')).configId).toBe(next.id);
+  });
+
   it('routes an embedding switch through the re-embed job once passages exist', async () => {
     const [owner] = await db().select().from(schema.administrator).limit(1);
     const candidate = await models.createModelConfig(owner!.id, { name: 'Embed', kind: 'embedding', transport: 'gateway', model: 'openai/text-embedding-3-large', apiKey: 'k' });
+    await expect(models.activateModelConfig(owner!.id, candidate.id, 'plan')).rejects.toMatchObject({ code: 'audience' });
     const [anyChunk] = await db().select({ id: schema.chunk.id }).from(schema.chunk).limit(1);
     const result = await models.activateModelConfig(owner!.id, candidate.id);
     if (anyChunk) {

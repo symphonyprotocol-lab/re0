@@ -3,7 +3,7 @@ import type { Shape } from '@/i18n/format';
 /** `/settings`: the account tab, connections and domains; the billing tab's words are in `billing.ts`. */
 export const zh = {
   title: '设置',
-  tabs: { account: '个人资料', connections: '连接与域名', billing: '余额与计费', label: '设置分类' },
+  tabs: { account: '个人资料', connections: '连接与域名', balance: '余额', billing: '计费', label: '设置分类' },
   profile: '个人资料',
   avatar: '头像',
   avatarUpload: '上传头像',
@@ -87,7 +87,7 @@ export const zh = {
 
 export const en: Shape<typeof zh> = {
   title: 'Settings',
-  tabs: { account: 'Profile', connections: 'Connections & domains', billing: 'Credits & billing', label: 'Settings sections' },
+  tabs: { account: 'Profile', connections: 'Connections & domains', balance: 'Balance', billing: 'Billing', label: 'Settings sections' },
   profile: 'Profile',
   avatar: 'Profile photo',
   avatarUpload: 'Upload photo',
