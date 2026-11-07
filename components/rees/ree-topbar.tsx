@@ -5,6 +5,7 @@ import { reeSourceCount } from '@/lib/services/rees';
 import { serverMessages } from '@/i18n/server';
 import { formatNumber } from '@/i18n/format';
 import { Topbar, type Crumb } from '@/components/shell/topbar';
+import { ShareButton } from '@/components/share/share-button';
 
 /**
  * A Ree's pages share one top bar: the way back to My Rees and the Ree's tabs
@@ -60,6 +61,8 @@ export async function ReeTopbar({
               <span className="hidden lg:inline">{t.rees.publicPage}</span>
             </Link>
           )}
+          {/* Sharing: the share page `/s/[slug]`; a private or taken-down Ree's dialog says why it cannot be shared. */}
+          {ree.slug && <ShareButton ree={{ name: ree.name, slug: ree.slug }} state={ree.moderatedAt ? 'moderated' : ree.isPublic ? 'public' : 'private'} settingsHref={`/rees/${ree.id}/settings`} />}
         </>
       }
     />

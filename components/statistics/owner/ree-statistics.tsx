@@ -7,6 +7,7 @@ import { fill, formatDateTime, formatNumber } from '@/i18n/format';
 import type { Locale } from '@/i18n/locale';
 import { hrefFor } from '@/components/statistics/shared';
 import { StatIcon, type StatIconName } from '@/components/statistics/owner/icons';
+import { Icon, type IconName } from '@/components/ui/icons';
 import { OwnerFilters } from '@/components/statistics/owner/filters';
 import { OwnerPeriod } from '@/components/statistics/owner/period';
 import {
@@ -93,6 +94,8 @@ export function OwnerReeStatistics({
 
       {data.trend && <Trend t={t} locale={locale} trend={data.trend} period={query.period} income={view === 'income'} />}
 
+      <ShareFigures t={t} locale={locale} share={data.share} />
+
       <p className="creator-detail-explanation">
         {s.explanation}
         {ranged && ` ${s.explanationPeriod}`}
@@ -169,6 +172,38 @@ function Metric({ href, icon, label, value, note }: { href: string; icon: StatIc
       <strong className="mono">{value}</strong>
       <small>{note}</small>
     </Link>
+  );
+}
+
+/** The share page's figures for the same period (lib/services/share.ts); plain cards, nothing to open. */
+function ShareFigures({ t, locale, share }: { t: Messages; locale: Locale; share: ReeStatistics['share'] }) {
+  const s = t.share.stats;
+  const n = (value: number) => formatNumber(value, locale);
+  const cards: { icon: IconName; label: string; value: string; note: string }[] = [
+    { icon: 'share', label: s.visits, value: n(share.visits), note: s.visitsNote },
+    { icon: 'users', label: s.visitors, value: n(share.visitors), note: s.visitorsNote },
+    { icon: 'chat', label: s.conversations, value: n(share.conversations), note: s.conversationsNote },
+    { icon: 'chart', label: s.rate, value: share.rate === null ? s.noRate : `${share.rate}%`, note: s.rateNote },
+  ];
+  return (
+    <section className="share-figures" aria-label={s.title} style={{ marginTop: 22 }}>
+      <div className="statistics-trend-head" style={{ marginBottom: 12 }}>
+        <h2 style={{ fontSize: 13, fontWeight: 600 }}>{s.title}</h2>
+        <p>{s.lede}</p>
+      </div>
+      <div className="creator-metrics">
+        {cards.map((card) => (
+          <div key={card.label} className="card creator-metric">
+            <div className="between">
+              <span>{card.label}</span>
+              <Icon name={card.icon} className="" />
+            </div>
+            <strong className="mono">{card.value}</strong>
+            <small>{card.note}</small>
+          </div>
+        ))}
+      </div>
+    </section>
   );
 }
 

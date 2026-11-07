@@ -1127,3 +1127,30 @@ export const signupReward = pgTable('signup_reward', {
   check('signup_reward_singleton_check', sql`id = 1`),
   check('signup_reward_credits_check', sql`credits between 0 and 100000000`),
 ]);
+
+/**
+ * Beyond 4: the share page `/s/[slug]` -- a visit, or a conversation the
+ * visitor started or joined from it. `visitor_id` is the random id of the
+ * `re0_visitor` cookie (no IP, no user agent); the owner's own visits are
+ * not recorded. One conversion per conversation and Ree.
+ */
+export const reeShareEvent = pgTable(
+  'ree_share_event',
+  {
+    id: uuid('id').primaryKey().defaultRandom(),
+    reeId: uuid('ree_id')
+      .notNull()
+      .references(() => ree.id, { onDelete: 'cascade' }),
+    kind: text('kind').$type<'visit' | 'conversation'>().notNull(),
+    visitorId: text('visitor_id').notNull(),
+    userId: uuid('user_id').references(() => user.id, { onDelete: 'set null' }),
+    conversationId: uuid('conversation_id').references(() => conversation.id, { onDelete: 'set null' }),
+    createdAt: createdAt(),
+  },
+  (t) => [
+    index('ree_share_event_ree_idx').on(t.reeId, t.kind, t.createdAt),
+    index('ree_share_event_visitor_idx').on(t.visitorId, t.reeId, t.createdAt),
+    uniqueIndex('ree_share_event_conversation_key').on(t.conversationId, t.reeId).where(sql`kind = 'conversation'`),
+    check('ree_share_event_kind_check', oneOf('kind', ['visit', 'conversation'])),
+  ],
+);

@@ -18,6 +18,7 @@ import type { CitationSnapshot } from '@/lib/domain/answer';
 import { clampPage, likePattern, param, type ListResult } from '@/lib/domain/list';
 import { fillBuckets, periodFilter, periodRange, trendBuckets, type PeriodFilter, type Range } from '@/lib/domain/statistics';
 import { db, schema } from '@/lib/infra/db';
+import { shareStatistics, type ShareStatistics } from '@/lib/services/share';
 
 type Params = URLSearchParams | Record<string, string | string[] | undefined>;
 
@@ -202,6 +203,8 @@ export interface ReeStatistics {
   trend: { grouping: 'hour' | 'day' | 'days'; bars: { start: number; end: number; value: number }[] } | null;
   answerList: ListResult<AnswerRecord> | null;
   incomeList: ListResult<IncomeRecord> | null;
+  /** The share page `/s/[slug]` in the period: visits, visitors and the conversations it started. */
+  share: ShareStatistics;
 }
 
 /**
@@ -214,13 +217,14 @@ export async function reeStatistics(reeId: string, query: StatisticsQuery, optio
   const view = options.withIncome ? query.view : 'answers';
   const ids = [reeId];
   const database = db();
-  const [answers, saved, sources, incomeRow] = await Promise.all([
+  const [answers, saved, sources, incomeRow, share] = await Promise.all([
     answerCounts(ids, range),
     savedCounts(ids, range),
     sourceSummary(ids),
     options.withIncome
       ? database.select({ sum: sql<number>`coalesce(sum(${schema.creditEntry.delta}), 0)::bigint` }).from(schema.creditEntry).where(incomeEntries(ids, range))
       : Promise.resolve([{ sum: 0 }]),
+    shareStatistics(reeId, range),
   ]);
   let trend: ReeStatistics['trend'] = null;
   if (range) {
@@ -249,6 +253,7 @@ export async function reeStatistics(reeId: string, query: StatisticsQuery, optio
     trend,
     answerList: view === 'answers' ? await answerRecords(ids, range, query.q, query.size, query.page) : null,
     incomeList: view === 'income' ? await incomeRecords(ids, range, query.q, query.size, query.page) : null,
+    share,
   };
 }
 
