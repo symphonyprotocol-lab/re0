@@ -11,11 +11,12 @@ import { api } from '@/lib/client/upload';
 import { useI18n } from '@/i18n/client';
 import { fill, formatDateTime, formatNumber } from '@/i18n/format';
 import { Icon } from '@/components/ui/icons';
+import { RowMenu, type MenuItem } from '@/components/ui/row-menu';
 import { ConfirmModal, Modal } from '@/components/knowledge/modal';
 import { useToast } from '@/components/ui/toast';
 import { AddKnowledgeModal } from '@/components/knowledge/add-knowledge';
 import { KnowledgePreview } from '@/components/knowledge/knowledge-preview';
-import { KnowledgeDialogs, isBusy, type ActionItem, type BulkAction, type Dialog } from '@/components/knowledge/knowledge-dialogs';
+import { KnowledgeDialogs, isBusy, reprocessCost, type ActionItem, type BulkAction, type Dialog } from '@/components/knowledge/knowledge-dialogs';
 import { StatusBadge, failureLabel } from '@/components/knowledge/status-badge';
 import { clock, errorText, highlight, SOURCE_ICONS, Switch } from '@/components/knowledge/shared';
 import '@/components/knowledge/knowledge.css';
@@ -188,6 +189,20 @@ export function KnowledgeManager({ reeId }: { reeId: string }) {
     await load();
   };
 
+  const sourceMenu = (item: Item): MenuItem[] => {
+    const source = actionItem(item);
+    const preview: MenuItem = { label: k.menu.preview, icon: 'external', onSelect: () => go({ preview: item.id }, { keepSelection: true }) };
+    if (query.trash) return [preview, { label: k.menu.restore, icon: 'refresh', onSelect: () => setDialog({ type: 'confirm', action: 'restore', items: [source] }) }];
+    return [
+      preview,
+      { label: k.menu.move, icon: 'folder', onSelect: () => setDialog({ type: 'move', items: [source] }) },
+      { label: k.menu.rename, icon: 'settings', onSelect: () => setDialog({ type: 'rename', item: source }) },
+      { label: item.enabled ? k.menu.pause : k.menu.enable, icon: item.enabled ? 'pause' : 'play', onSelect: () => void toggle(item) },
+      { label: fill(k.menu.reprocess, { credits: n(reprocessCost(source)) }), icon: 'refresh', disabled: isBusy(source), onSelect: () => setDialog({ type: 'confirm', action: 'reprocess', items: [source] }) },
+      { label: k.menu.trash, icon: 'trash', danger: true, disabled: isBusy(source), onSelect: () => setDialog({ type: 'confirm', action: 'trash', items: [source] }) },
+    ];
+  };
+
   const page = data?.items ?? [];
   const pageSelected = page.length > 0 && page.every((item) => selected.has(item.id));
   const somePageSelected = page.some((item) => selected.has(item.id));
@@ -301,7 +316,14 @@ export function KnowledgeManager({ reeId }: { reeId: string }) {
               {folderRow('all', k.folders.all, data?.folderCounts.all, false)}
               {folderRow('unfiled', k.folders.unfiled, data?.folderCounts.unfiled, false)}
               <div className="km-folder-divider" />
-              {data?.folders.map((folder) => folderRow(folder.id, folder.name, folder.count, true))}
+              {data ? (
+                data.folders.map((folder) => folderRow(folder.id, folder.name, folder.count, true))
+              ) : (
+                <p className="km-folders-loading" role="status">
+                  <i className="spinner" aria-hidden="true" />
+                  {t.common.actions.loading}
+                </p>
+              )}
             </nav>
             {data && data.folders.length === 0 && <p className="km-folders-empty">{k.folders.empty}</p>}
             <button type="button" className="km-folder-new" onClick={() => setFolderForm({ id: null, name: '' })}>
@@ -492,19 +514,7 @@ export function KnowledgeManager({ reeId }: { reeId: string }) {
                         <td className="km-date-col">{formatDateTime(item.updatedAt, locale)}</td>
                         <td>
                           <div className="km-row-actions">
-                            <button type="button" className="btn ghost sm" onClick={() => go({ preview: item.id }, { keepSelection: true })}>
-                              <Icon name="external" />
-                              {k.preview}
-                            </button>
-                            {query.trash ? (
-                              <button type="button" className="btn secondary sm" onClick={() => setDialog({ type: 'confirm', action: 'restore', items: [actionItem(item)] })}>
-                                {k.menu.restore}
-                              </button>
-                            ) : (
-                              <button type="button" className="icon-btn" aria-label={fill(k.more, { title: item.title })} title={fill(k.more, { title: item.title })} onClick={() => setDialog({ type: 'menu', item: actionItem(item) })}>
-                                <Icon name="dots" />
-                              </button>
-                            )}
+                            <RowMenu label={fill(k.more, { title: item.title })} items={sourceMenu(item)} />
                           </div>
                         </td>
                       </tr>
@@ -591,12 +601,7 @@ export function KnowledgeManager({ reeId }: { reeId: string }) {
         reeId={reeId}
         dialog={dialog}
         folders={data?.folders}
-        onOpen={setDialog}
         onClose={() => setDialog(null)}
-        onPreview={(item) => {
-          setDialog(null);
-          go({ preview: item.id }, { keepSelection: true });
-        }}
         onDone={async (message) => {
           setDialog(null);
           setSelected(new Map());

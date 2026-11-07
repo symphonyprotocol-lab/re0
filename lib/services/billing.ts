@@ -52,7 +52,7 @@ import {
   type PaddleSubscription,
   type PaddleTransaction,
 } from '@/lib/infra/paddle';
-import { checkoutPrice } from '@/lib/services/pricing';
+import { checkoutPrice, currentUnitCredits } from '@/lib/services/pricing';
 import { addGrant, expirePlanGrants, grantsOf, moveGrants } from '@/lib/services/credits';
 
 export class WebhookRejected extends Error {
@@ -129,6 +129,25 @@ export async function startCheckout(
   if ('error' in order) return { ok: false, error: order.error };
   if (input.consent !== true) return { ok: false, error: 'consent_required' };
   const now = deps.now ?? new Date();
+  /*
+   * Replacing a stale Plan checkout commits its cancellation and supersede on
+   * their own, then starts over under the lock: a later Paddle or DB failure
+   * can no longer roll back our record of a cancellation Paddle already made.
+   */
+  for (let attempt = 0; ; attempt += 1) {
+    const result = await checkoutAttempt(userId, input, order, now, deps);
+    if (result !== 'superseded') return result;
+    if (attempt >= 2) throw new Error('plan checkout kept changing while it was replaced');
+  }
+}
+
+async function checkoutAttempt(
+  userId: string,
+  input: { quoteKey?: unknown },
+  order: CheckoutOrder,
+  now: Date,
+  deps: CheckoutDeps,
+): Promise<{ ok: true; transactionId: string; order: CheckoutOrder } | { ok: false; error: CheckoutRefusal } | 'superseded'> {
   return db().transaction(async (tx) => {
     await tx.execute(sql`select pg_advisory_xact_lock(hashtext(${`checkout:${userId}`}))`);
     if (order.kind === 'pack' && !planIsActive(await subscriptionOf(tx, userId), now)) return { ok: false as const, error: 'plan_required' as const };
@@ -155,15 +174,19 @@ export async function startCheckout(
         )
         .orderBy(desc(schema.paddleCheckout.createdAt))
         .limit(1);
-      if (open && ((!open.priceKey && price.revision === 'default') || open.priceKey === price.quoteKey)) return { ok: true as const, transactionId: open.id, order };
+      if (open?.priceKey === price.quoteKey) return { ok: true as const, transactionId: open.id, order };
       if (open) {
         // Cancel before replacing: a failed cancellation must never start a second subscription.
         await (deps.cancel ?? cancelCheckoutTransaction)(config, open.id);
         await tx.update(schema.paddleCheckout).set({ supersededAt: now }).where(eq(schema.paddleCheckout.paddleTransactionId, open.id));
+        return 'superseded' as const;
       }
     }
     const transaction = await (deps.create ?? createCheckoutTransaction)(config, order, userId, price);
-    await tx.insert(schema.paddleCheckout).values({ paddleTransactionId: transaction.id, userId, kind: order.kind, quantity: order.quantity, priceKey: price.quoteKey, unitPriceMinor: price.priceMinor, createdAt: now });
+    await tx.insert(schema.paddleCheckout).values({
+      paddleTransactionId: transaction.id, userId, kind: order.kind, quantity: order.quantity,
+      priceKey: price.quoteKey, unitPriceMinor: price.priceMinor, unitCredits: price.credits, createdAt: now,
+    });
     return { ok: true as const, transactionId: transaction.id, order };
   });
 }
@@ -258,10 +281,9 @@ function addMonth(date: Date): Date {
 }
 
 /**
- * A paid transaction: one purchase, one grant. A Plan payment -- the first
- * or a renewal -- grants the period's 100,000 credits expiring at the
- * period's end, and writes off what is left of earlier periods (the renewal
- * is when a period ends, 8.3). A Pack grants 100,000 per pack, no expiry.
+ * A paid transaction: one purchase, one grant. A checkout grants the quoted
+ * credits. Renewals grant the current allowance through the new period's end.
+ * Pack credits do not expire.
  */
 async function creditTransaction(tx: Tx, transaction: PaddleTransaction, prices: Prices, now: Date): Promise<string> {
   const kind = await kindOf(tx, transaction, prices);
@@ -284,12 +306,16 @@ async function creditTransaction(tx: Tx, transaction: PaddleTransaction, prices:
   if (!Number.isInteger(quantity) || quantity < 1) throw new Error(`transaction ${transaction.id} has quantity ${quantity}`);
   if (quantity > PACK.maxQuantity) console.warn(`transaction ${transaction.id}: ${quantity} packs, beyond the checkout's ${PACK.maxQuantity}`);
   const order: CheckoutOrder = { kind, quantity };
-  const credits = creditsFor(order);
+  const [snapshot] = await tx
+    .select({ amount: schema.paddleCheckout.unitPriceMinor, credits: schema.paddleCheckout.unitCredits })
+    .from(schema.paddleCheckout)
+    .where(eq(schema.paddleCheckout.paddleTransactionId, transaction.id))
+    .limit(1);
+  const credits = creditsFor(order, snapshot?.credits ?? await currentUnitCredits(tx, kind, prices.environment));
   let amount = minorUnits(transaction.details?.totals?.grand_total);
   if (!Number.isFinite(amount)) {
     /* Never 0: a zero would make every later refund read as a full one. */
     console.warn(`transaction ${transaction.id} has no readable total; recording the list price`);
-    const [snapshot] = await tx.select({ amount: schema.paddleCheckout.unitPriceMinor }).from(schema.paddleCheckout).where(eq(schema.paddleCheckout.paddleTransactionId, transaction.id)).limit(1);
     const priceId = transaction.items[0]?.price?.id ?? transaction.items[0]?.price_id;
     const [catalogue] = priceId ? await tx.select({ amount: schema.billingPrice.priceMinor }).from(schema.billingPrice).where(eq(schema.billingPrice.paddlePriceId, priceId)).limit(1) : [];
     amount = (snapshot?.amount ?? catalogue?.amount ?? priceMinorFor({ kind, quantity: 1 })) * quantity;
@@ -573,10 +599,16 @@ function currentPlanGrant(planGrants: PlanGrantRow[], now: Date): { amount: numb
   return planGrants.find((grant) => (grant.periodStart ?? grant.createdAt).getTime() <= now.getTime() && grant.expiresAt!.getTime() > now.getTime()) ?? null;
 }
 
+async function currentPlanUsage(subscription: SubscriptionRow | null, planGrants: PlanGrantRow[], now: Date) {
+  const grant = currentPlanGrant(planGrants, now);
+  const allowance = !grant && planIsActive(subscription, now) ? await currentUnitCredits(db(), 'plan') : undefined;
+  return planUsage(subscription, grant, now, allowance);
+}
+
 /** What every workspace page's sidebar shows: the balance and the Plan meter. */
 export async function shellBilling(userId: string, now = new Date()): Promise<{ balance: number; plan: PlanUsage }> {
   const { grants, subscription, planGrants } = await billingRows(userId);
-  return { balance: availableOf(grants, now), plan: planUsage(subscription, currentPlanGrant(planGrants, now), now) };
+  return { balance: availableOf(grants, now), plan: await currentPlanUsage(subscription, planGrants, now) };
 }
 
 export async function billingSummary(userId: string, now = new Date()): Promise<BillingSummary> {
@@ -594,7 +626,7 @@ export async function billingSummary(userId: string, now = new Date()): Promise<
     total: buckets.plan + buckets.welcome + buckets.pack + buckets.earned,
     buckets,
     debt: Number(debt[0]?.remaining ?? 0),
-    plan: planUsage(subscription, currentPlanGrant(planGrants, now), now),
+    plan: await currentPlanUsage(subscription, planGrants, now),
     official,
   };
 }

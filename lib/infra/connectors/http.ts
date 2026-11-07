@@ -34,6 +34,7 @@ export interface FetchedResource {
   /** Where the body actually came from, after redirects. */
   url: string;
   status: number;
+  headers: Headers;
   contentType: string;
   body: string;
 }
@@ -117,7 +118,7 @@ export async function fetchBytes(target: string, options: FetchOptions = {}): Pr
     }
     if (response.status === 401 || response.status === 403) {
       await response.body?.cancel();
-      throw new ProcessingFailure('source_forbidden', `${url.host} refused the request (${response.status})`);
+      throw new ProcessingFailure('source_forbidden', `${url.host} refused the request (${response.status})`, response.status);
     }
     if (response.status === 404 || response.status === 410) {
       await response.body?.cancel();
@@ -136,6 +137,7 @@ export async function fetchBytes(target: string, options: FetchOptions = {}): Pr
     return {
       url: url.toString(),
       status: response.status,
+      headers: response.headers,
       contentType: (response.headers.get('content-type') ?? '').split(';')[0]?.trim().toLowerCase() ?? '',
       body: new TextDecoder('utf-8', { fatal: false }).decode(bytes),
       bytes,

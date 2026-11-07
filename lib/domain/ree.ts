@@ -5,16 +5,21 @@
  * everything the browser already checked.
  */
 import {
-  KNOWLEDGE_URL_MAX,
   QUERY_FEE,
   REE_CATEGORIES,
   REE_COLORS,
   REE_LIMITS,
-  TEXT_SOURCE_LIMITS,
   type ReeCategory,
   type ReeColor,
 } from '@/lib/constants';
-import { parseGithubRepo, parseWebUrl } from '@/lib/domain/sources';
+import { isUuid } from '@/lib/domain/list';
+
+export function isReeCoverPath(pathname: string, reeId: string): boolean {
+  const [directory, id, file, ...rest] = pathname.split('/');
+  const [key, extension, ...suffix] = (file ?? '').split('.');
+  return directory === 'ree-covers' && id === reeId && isUuid(id) && !rest.length &&
+    isUuid(key) && !suffix.length && (extension === 'jpg' || extension === 'png' || extension === 'webp');
+}
 
 /** Suggested tags per category; anything else may be typed (prototype dot-classification.js). */
 export const CATEGORY_TAGS: Record<ReeCategory, { zh: string[]; en: string[] }> = {
@@ -89,25 +94,7 @@ export function sampleQuestionList(value: string | readonly string[]): string[] 
   return lines.map((line) => line.trim()).filter(Boolean);
 }
 
-export const SOURCE_CHOICES = ['later', 'document', 'audio', 'github', 'page', 'site', 'text'] as const;
-export type SourceChoice = (typeof SOURCE_CHOICES)[number];
-
-/** The wizard's first-source step: any of the six kinds, or "稍后添加". */
-export interface DraftSource {
-  kind: SourceChoice;
-  title: string;
-  text: string;
-  /** Set once the document or audio has been uploaded to Blob, so a reload keeps it. */
-  fileName: string;
-  fileSize: number;
-  blobPath: string;
-  /** A repository, page or website URL. */
-  url: string;
-  /** Audio: the owner agreed to send it to the transcription service. */
-  consent: boolean;
-}
-
-/** `user.ree_draft`: everything the four steps collect, saved on every step change. */
+/** `user.ree_draft`: everything the three steps collect, saved on every step change. */
 export interface ReeDraft {
   name: string;
   description: string;
@@ -123,7 +110,6 @@ export interface ReeDraft {
   /** The step being shown and the furthest one reached; later steps stay locked. */
   step: number;
   reached: number;
-  source: DraftSource;
 }
 
 export function newReeDraft(): ReeDraft {
@@ -140,13 +126,12 @@ export function newReeDraft(): ReeDraft {
     queryFee: QUERY_FEE.default,
     step: 1,
     reached: 1,
-    source: { kind: 'later', title: '', text: '', fileName: '', fileSize: 0, blobPath: '', url: '', consent: false },
   };
 }
 
 function clampStep(value: unknown): number {
   const step = Number(value);
-  return Number.isInteger(step) ? Math.min(4, Math.max(1, step)) : 1;
+  return Number.isInteger(step) ? Math.min(3, Math.max(1, step)) : 1;
 }
 
 function str(value: unknown, max: number): string {
@@ -161,8 +146,6 @@ function str(value: unknown, max: number): string {
 export function coerceDraft(input: unknown): ReeDraft {
   const raw = (typeof input === 'object' && input !== null ? input : {}) as Record<string, unknown>;
   const base = newReeDraft();
-  const source = (typeof raw.source === 'object' && raw.source !== null ? raw.source : {}) as Record<string, unknown>;
-  const kind = (SOURCE_CHOICES as readonly unknown[]).includes(source.kind) ? (source.kind as SourceChoice) : 'later';
   const reached = clampStep(raw.reached);
   return {
     name: str(raw.name, REE_LIMITS.name * 2),
@@ -177,16 +160,6 @@ export function coerceDraft(input: unknown): ReeDraft {
     queryFee: Number.isFinite(Number(raw.queryFee)) ? Number(raw.queryFee) : base.queryFee,
     step: Math.min(clampStep(raw.step), reached),
     reached,
-    source: {
-      kind,
-      title: str(source.title, TEXT_SOURCE_LIMITS.title * 2),
-      text: str(source.text, TEXT_SOURCE_LIMITS.content + 1),
-      fileName: str(source.fileName, 300),
-      fileSize: Number.isFinite(Number(source.fileSize)) ? Number(source.fileSize) : 0,
-      blobPath: typeof source.blobPath === 'string' && source.blobPath.startsWith('knowledge/') ? source.blobPath : '',
-      url: str(source.url, KNOWLEDGE_URL_MAX),
-      consent: source.consent === true,
-    },
   };
 }
 
@@ -224,27 +197,9 @@ export function validateReeFields(fields: ReeFields, step: number): { step: numb
   if (samples.length > REE_LIMITS.sampleQuestions || samples.some((s) => charLength(s) > REE_LIMITS.sampleQuestion)) {
     return { step: 2, error: 'samples' };
   }
-  if (step >= 4) {
+  if (step >= 3) {
     const fee = Number(fields.queryFee);
-    if (!Number.isInteger(fee) || fee < QUERY_FEE.min || fee > QUERY_FEE.max) return { step: 4, error: 'fee' };
-  }
-  return null;
-}
-
-export type SourceError = 'file' | 'source-text' | 'audio-consent' | 'url' | 'github-url';
-
-/** The first source, checked before the last step and again at creation. */
-export function validateDraftSource(source: DraftSource): SourceError | null {
-  if ((source.kind === 'document' || source.kind === 'audio') && !source.blobPath) return 'file';
-  if (source.kind === 'audio' && !source.consent) return 'audio-consent';
-  if (source.kind === 'github' && !parseGithubRepo(source.url)) return 'github-url';
-  if ((source.kind === 'page' || source.kind === 'site') && !parseWebUrl(source.url)) return 'url';
-  if (source.kind === 'text') {
-    const title = source.title.trim();
-    const text = source.text.trim();
-    if (!title || !text || charLength(title) > TEXT_SOURCE_LIMITS.title || text.length > TEXT_SOURCE_LIMITS.content) {
-      return 'source-text';
-    }
+    if (!Number.isInteger(fee) || fee < QUERY_FEE.min || fee > QUERY_FEE.max) return { step: 3, error: 'fee' };
   }
   return null;
 }

@@ -15,8 +15,8 @@
   --ink: #091135;
   --muted: #697088;
   --line: #e2e6f0;
-  --blue: #127ee3;
-  --blue-dark: #0867c4;
+  --blue: var(--color-blue);
+  --blue-dark: var(--color-blue-dark);
   --soft: #edf4ff;
   --wash: #fafaff;
   --green: #128168;
@@ -3467,6 +3467,15 @@
 .knowledge-ui .km-folder-divider {
   border-top: 1px solid rgb(231, 235, 243);
   margin: 9px 5px;
+}
+.knowledge-ui .km-folders-loading {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  flex: 0 0 auto;
+  padding: 11px 7px;
+  color: rgb(109, 127, 158);
+  font-size: 11px;
 }
 .knowledge-ui .km-folder-new {
   display: flex;

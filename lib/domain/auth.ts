@@ -34,7 +34,7 @@ export function safeReturnTo(input: unknown): string {
   if (!input.startsWith('/') || input.startsWith('//')) return DEFAULT_RETURN_TO;
   if (input.includes('\\') || hasControlCharacter(input)) return DEFAULT_RETURN_TO;
   const path = (input.split('?')[0] ?? '').split('#')[0] ?? '';
-  const allowed = RETURN_TO_PREFIXES.some((p) => path === p || path.startsWith(`${p}/`));
+  const allowed = path === '/' || RETURN_TO_PREFIXES.some((p) => path === p || path.startsWith(`${p}/`));
   return allowed ? input : DEFAULT_RETURN_TO;
 }
 

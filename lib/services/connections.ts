@@ -1,11 +1,11 @@
 /**
- * "连接与域名" (rebuild-proposal.md 2.2): a user's GitHub grant for private
+ * "连接与域名" (rebuild-proposal.md 2.2): a user's GitHub grant for
  * repositories, and the domains they proved are theirs for website crawls.
  *
  * The GitHub connect flow is the old `github-connection.ts`: a sealed
  * handshake cookie carries `state`, the callback exchanges the code, and the
  * token is sealed at rest. One connection per user; reconnecting replaces
- * it, disconnecting deletes it, after which private repositories stop
+ * it, disconnecting deletes it, after which repositories stop
  * refreshing.
  *
  * A domain claim is created with its challenge and checked on demand, by

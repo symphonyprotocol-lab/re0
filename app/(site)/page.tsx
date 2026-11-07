@@ -7,12 +7,14 @@ import { WorkspaceLink as Link } from '@/components/shell/workspace-link';
 import { HOME_EXAMPLE_REES } from '@/lib/constants';
 import { currentUser } from '@/lib/http/session';
 import { activeRees } from '@/lib/services/explore';
+import { favoriteReeIds } from '@/lib/services/ree-favorites';
 import { PlayIntroButton } from '@/components/video/video-cover';
 import { serverMessages } from '@/i18n/server';
 import { Icon, type IconName } from '@/components/ui/icons';
 import { ReeAvatar } from '@/components/ui/ree-avatar';
 import { DemoTrigger, HomeDemo } from '@/components/site/home-demo';
 import { RoleBadge } from '@/components/discover/role-badge';
+import { ReeFavoriteButton } from '@/components/rees/ree-favorite-button';
 
 export async function generateMetadata(): Promise<Metadata> {
   const { t } = await serverMessages();
@@ -29,6 +31,7 @@ const FAQ = ['q1', 'q2', 'q3', 'q4'] as const;
  */
 export default async function HomePage() {
   const [user, { t, locale }, examples, prices, welcome] = await Promise.all([currentUser(), serverMessages(), activeRees(HOME_EXAMPLE_REES), currentPricing(), welcomeCredits()]);
+  const favoriteIds = user ? await favoriteReeIds(user.id, examples.map(ree => ree.id)) : undefined;
   const h = t.site.home;
   const createHref = user ? '/rees/new' : `/login?returnTo=${encodeURIComponent('/rees/new')}`;
   const sources: [IconName, keyof typeof h.sources][] = [
@@ -192,7 +195,7 @@ export default async function HomePage() {
         </div>
       </section>
 
-      <section className="marketing-wrap home-section">
+      <section className="marketing-wrap home-section scroll-mt-24" id="home-ree-examples">
         <div className="between home-section-head">
           <div>
             <p className="eyebrow">A COMPANION FOR EVERY CURIOSITY</p>
@@ -210,9 +213,10 @@ export default async function HomePage() {
                     <div className="between">
                       <ReeAvatar avatar={ree.avatarBlob} color={ree.color} className="dot-avatar" />
                       {/* Step 7 (prototype home-dot-card "15s"): a Ree with an introduction plays it here. */}
-                      {ree.video && (
-                        <PlayIntroButton video={ree.video} name={ree.name} href={`/r/${ree.slug}`} linkLabel={t.video.dialog.details} label="15s" className="btn ghost sm" />
-                      )}
+                      <div className="flex items-center gap-1">
+                        {ree.video && <PlayIntroButton video={ree.video} name={ree.name} href={`/r/${ree.slug}`} linkLabel={t.video.dialog.details} label="15s" className="btn ghost sm" />}
+                        {ree.ownerId !== user?.id && <ReeFavoriteButton ree={ree} favorite={favoriteIds?.includes(ree.id)} returnTo="/#home-ree-examples" />}
+                      </div>
                     </div>
                     <h3>
                       {ree.name}
@@ -289,7 +293,7 @@ export default async function HomePage() {
               <strong><ProductPrice price={prices.plan} kind="plan" locale={locale} labels={t.site.prices} /></strong> / {h.perMonth}
             </p>
             <PromotionNotice price={prices.plan} kind="plan" locale={locale} labels={t.site.prices} />
-            <h3>100,000 credits</h3>
+            <h3>{formatNumber(prices.plan.credits, locale)} credits</h3>
             <div className="rule" />
             {[h.planPerk1, h.planPerk2, h.planPerk3].map((perk) => (
               <span key={perk}>

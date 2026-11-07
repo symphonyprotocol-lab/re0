@@ -8,7 +8,6 @@
 import {
   VIDEO_ASPECTS,
   VIDEO_DEFAULT_ACCENT,
-  VIDEO_EXPORT_CREDITS,
   VIDEO_FPS,
   VIDEO_FRAMES,
   VIDEO_LIMITS,
@@ -19,9 +18,11 @@ import {
   type VideoAspect,
   type VideoTemplate,
 } from '@/lib/constants';
+import { PRODUCT_DEMO_TEMPLATE, type ProductDemo } from '@/lib/domain/product-demo';
 
 /** The text of the four shots. */
 export interface VideoScenes {
+  demo?: ProductDemo;
   /** Shot 1, 3 s: the name (≤ 20) and a one-line positioning (≤ 24). */
   opening: { name: string; position: string };
   /** Shot 2, 4 s: up to four knowledge titles (≤ 20 each); more sources show as "等 N 项". */
@@ -54,9 +55,14 @@ export interface IntroRee {
 
 /** Everything the composition draws: Player and web renderer get exactly this (a `type`, as Remotion props must be). */
 export type IntroProps = VideoStyle & {
+  narrationUrl?: string;
   scenes: VideoScenes;
   ree: IntroRee;
 };
+
+export function hasVideoAudio(props: IntroProps): boolean {
+  return props.music || Boolean(props.narrationUrl);
+}
 
 export type SceneField = 'name' | 'position' | 'sources' | 'source' | 'question' | 'answer' | 'cta';
 
@@ -157,7 +163,7 @@ export function parseVideoPatch(input: Record<string, unknown>): { patch: VideoP
   return { patch, revision };
 }
 
-export const DEFAULT_STYLE: VideoStyle = { template: 'editorial', accent: VIDEO_DEFAULT_ACCENT, aspect: '16:9', music: true };
+export const DEFAULT_STYLE: VideoStyle = { template: PRODUCT_DEMO_TEMPLATE, accent: VIDEO_DEFAULT_ACCENT, aspect: '16:9', music: true };
 
 /* ------------------------------------------------------------- timeline */
 
@@ -197,9 +203,9 @@ export function clock(frame: number, fps = VIDEO_FPS): string {
 
 /* ------------------------------------------------------------- money */
 
-/** Each Ree's first export is free (`exports_count` 0); every later one costs 50. */
-export function exportCost(exportsCount: number): number {
-  return exportsCount === 0 ? 0 : VIDEO_EXPORT_CREDITS;
+/** Each Ree's first completed export is free. */
+export function exportCost(exportsCount: number, laterCredits: number): number {
+  return exportsCount === 0 ? 0 : laterCredits;
 }
 
 /* ------------------------------------------------------------- script text */
@@ -252,7 +258,7 @@ export function canonicalJson(value: unknown): string {
 export function scriptDownload(name: string, props: IntroProps): Record<string, unknown> {
   const windows = shotWindows();
   const durations = VIDEO_SHOT_SECONDS;
-  return {
+  const spec = {
     ree: name,
     duration: VIDEO_FRAMES / VIDEO_FPS,
     fps: VIDEO_FPS,
@@ -261,6 +267,18 @@ export function scriptDownload(name: string, props: IntroProps): Record<string, 
     template: props.template,
     accent: props.accent,
     music: props.music,
+  };
+  if (props.scenes.demo) {
+    const { audioId: _audioId, cues, ...story } = props.scenes.demo;
+    return {
+      ...spec,
+      voice: 'AI-generated English narration',
+      ...story,
+      captions: cues.map((cue) => ({ text: cue.text, start: cue.start / VIDEO_FPS, end: cue.end / VIDEO_FPS })),
+    };
+  }
+  return {
+    ...spec,
     scenes: [
       { shot: 'opening', start: windows[0]!.start / VIDEO_FPS, duration: durations[0], ...props.scenes.opening },
       { shot: 'sources', start: windows[1]!.start / VIDEO_FPS, duration: durations[1], ...props.scenes.sources },

@@ -36,12 +36,16 @@ export function Field({ id, label, hint, children }: { id: string; label: string
 }
 
 /** Avatar, name, introduction and the default colour (prototype dot-setup.js `identity`). */
-export function IdentityFields({ value, onChange, onCropping }: { value: ReeFormState; onChange: Change; onCropping?: (open: boolean) => void }) {
+export function IdentityFields({ value, onChange, onCropping, media }: {
+  value: ReeFormState;
+  onChange: Change;
+  onCropping?: (open: boolean) => void;
+  media?: ReactNode;
+}) {
   const { t } = useI18n();
   const f = t.reeSetup.fields;
-  return (
+  const details = (
     <>
-      <ReeAvatarEditor value={value.avatarBlob} color={value.color} onChange={(avatarBlob) => onChange({ avatarBlob })} onCropping={onCropping} />
       <Field id="edit-name" label={f.name}>
         <input
           id="edit-name"
@@ -64,15 +68,44 @@ export function IdentityFields({ value, onChange, onCropping }: { value: ReeForm
           onChange={(event) => onChange({ description: event.target.value })}
         />
       </Field>
-      <span className="field-label">{f.color}</span>
-      <div className="color-options mt16">
+    </>
+  );
+  if (media) {
+    return (
+      <div className="ree-identity-layout">
+        {media}
+        <div className="ree-identity-details">{details}</div>
+      </div>
+    );
+  }
+  return (
+    <>
+      <ReeAvatarEditor value={value.avatarBlob} color={value.color} onChange={(avatarBlob) => onChange({ avatarBlob })} onCropping={onCropping} />
+      {details}
+      <ReeAvatarColors value={value.color} onChange={onChange} />
+    </>
+  );
+}
+
+export function ReeAvatarColors({ value, onChange, compact = false }: {
+  value: ReeColor;
+  onChange: Change;
+  compact?: boolean;
+}) {
+  const { t } = useI18n();
+  const label = t.reeSetup.fields.color;
+  return (
+    <>
+      {!compact && <span className="field-label">{label}</span>}
+      <div className={`color-options ${compact ? 'ree-identity-palette' : 'mt16'}`} role="group" aria-label={label}>
         {REE_COLORS.map((color) => (
           <button
             key={color}
             type="button"
-            className={`color-option ${value.color === color ? 'active' : ''}`}
+            className={`color-option ${value === color ? 'active' : ''}`}
             aria-label={t.common.colors[color]}
-            aria-pressed={value.color === color}
+            aria-pressed={value === color}
+            title={compact ? t.common.colors[color] : undefined}
             onClick={() => onChange({ color })}
           >
             <DotAvatar avatar={null} color={color} />

@@ -24,15 +24,17 @@ type Method = 'dns_txt' | 'well_known';
 
 /**
  * `/settings?tab=connections` (prototype app.js "连接与域名"): connect or
- * disconnect GitHub for private repositories, and the domains verified for
+ * disconnect GitHub for repository imports, and the domains verified for
  * website crawls -- add, a two-method verification wizard, remove.
  */
 export function Connections({
   github,
+  githubAccess,
   domains: initialDomains,
   outcome,
 }: {
   github: { login: string } | null;
+  githubAccess: { app: boolean; url: string };
   domains: DomainRow[];
   /** `?github=` after the connect flow returned. */
   outcome: 'connected' | 'canceled' | 'failed' | null;
@@ -139,7 +141,17 @@ export function Connections({
         </div>
         <div className="info-strip mt24">
           <I name="shield" />
-          <span>{c.githubNote}</span>
+          <div>
+            <p>{c.githubNote}</p>
+            <p>{githubAccess.app ? c.githubAppAccess : c.githubOauthAccess}</p>
+            <a className="text-link" href={githubAccess.url} target="_blank" rel="noreferrer">{c.githubManage}</a>
+            {github && (
+              <form method="post" action="/api/auth/github/connect">
+                <input type="hidden" name="returnTo" value="/settings?tab=connections" />
+                <button type="submit" className="text-link">{c.githubReconnect}</button>
+              </form>
+            )}
+          </div>
         </div>
       </section>
 

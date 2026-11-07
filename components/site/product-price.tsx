@@ -1,5 +1,5 @@
 import type { PriceView } from '@/lib/domain/pricing';
-import { fill, formatUsd } from '@/i18n/format';
+import { fill, formatNumber, formatUsd } from '@/i18n/format';
 import type { Messages, Locale } from '@/i18n';
 
 type PriceProps = { price: PriceView; kind: 'plan' | 'pack'; locale: Locale; labels: Messages['site']['prices'] };
@@ -32,6 +32,8 @@ export function pricingFaqValues(prices: { plan: PriceView; pack: PriceView }, l
   return {
     planPrice: formatUsd(prices.plan.effectivePriceMinor, locale),
     packPrice: formatUsd(prices.pack.effectivePriceMinor, locale),
+    planCredits: formatNumber(prices.plan.credits, locale),
+    packCredits: formatNumber(prices.pack.credits, locale),
     planPromotion: prices.plan.promotional ? fill(labels.planPromotion, { price: formatUsd(prices.plan.priceMinor, locale) }) : '',
   };
 }

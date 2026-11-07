@@ -267,7 +267,7 @@
   left: 0px;
   right: 0px;
   height: 2px;
-  background: var(--color-blue);
+  background: var(--color-brand-blue);
 }
 .marketing-nav > .marketing-actions {
   margin-left: auto;
@@ -376,7 +376,7 @@
 }
 .home-hero h1 em {
   font-style: normal;
-  color: var(--color-blue);
+  color: var(--color-brand-blue);
 }
 .home-hero-copy > p {
   font-size: 14px;

@@ -5,6 +5,7 @@
  */
 import { createGateway, embed, gateway, generateText, transcribe } from 'ai';
 import { embeddingModel, languageModel, type ModelEndpoint } from '@/lib/infra/ai/models';
+import { speakDemoLines } from '@/lib/infra/ai/speech';
 
 export interface ProbeResult {
   ok: boolean;
@@ -46,6 +47,10 @@ export async function probeEndpoint(endpoint: ModelEndpoint): Promise<ProbeResul
   const started = Date.now();
   const signal = AbortSignal.timeout(endpoint.timeoutMs);
   try {
+    if (endpoint.kind === 'speech') {
+      await speakDemoLines(endpoint, ['Your voice model is ready.']);
+      return { ok: true, latencyMs: Date.now() - started, detail: 'Speech generated successfully' };
+    }
     if (endpoint.kind === 'generation') {
       const result = await generateText({
         model: languageModel(endpoint, { purpose: 'probe' }),

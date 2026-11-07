@@ -42,7 +42,7 @@ export async function PATCH(request: NextRequest, context: Context) {
     if (typeof input.enabled === 'boolean') {
       await runBatch(user.id, ree.id, { action: input.enabled ? 'resume' : 'pause', ids: [kid] });
       /* What the Ree knows changed: its explore profile follows (2.4). */
-      if (ree.isPublic) after(() => refreshProfile(ree.id).catch(() => undefined));
+      if (ree.isPublished) after(() => refreshProfile(ree.id).catch(() => undefined));
     }
     if ('folderId' in input) {
       await runBatch(user.id, ree.id, { action: 'move', ids: [kid], folderId: typeof input.folderId === 'string' && input.folderId ? input.folderId : null });
@@ -64,7 +64,7 @@ export async function DELETE(request: NextRequest, context: Context) {
   if (!ree) return fail('not_found', 404);
   try {
     await runBatch(user.id, ree.id, { action: 'trash', ids: [kid] });
-    if (ree.isPublic) after(() => refreshProfile(ree.id).catch(() => undefined));
+    if (ree.isPublished) after(() => refreshProfile(ree.id).catch(() => undefined));
     return json({ id: kid });
   } catch (error) {
     if (error instanceof KnowledgeInputError) return fail(error.code, inputErrorStatus(error.code));

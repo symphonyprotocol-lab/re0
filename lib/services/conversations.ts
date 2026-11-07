@@ -27,7 +27,7 @@ export class ConversationError extends Error {
 export function usableBy(userId: string): SQL {
   return and(
     isNull(schema.ree.deletedAt),
-    or(eq(schema.ree.ownerId, userId), and(eq(schema.ree.isPublic, true), isNull(schema.ree.moderatedAt))),
+    or(eq(schema.ree.ownerId, userId), and(eq(schema.ree.isPublic, true), eq(schema.ree.isPublished, true), isNull(schema.ree.moderatedAt))),
   )!;
 }
 
@@ -65,7 +65,7 @@ const briefColumns = (viewerId: string) => ({
   ownerName: schema.user.name,
   role: schema.user.role,
   queryFee: schema.ree.queryFee,
-  isPublic: schema.ree.isPublic,
+  isPublic: sql<boolean>`(${schema.ree.isPublic} and ${schema.ree.isPublished})`,
   sampleQuestions: schema.ree.sampleQuestions,
   usable: sql<boolean>`(${usableBy(viewerId)})`,
 });

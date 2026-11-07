@@ -69,7 +69,7 @@ const vector = (seed: number) => Array.from({ length: 1536 }, (_, index) => (ind
 async function publicRee(ownerId: string, options: { ready?: number; isPublic?: boolean } = {}) {
   const [ree] = await db()
     .insert(schema.ree)
-    .values({ ownerId, name: uniqueName('ree'), slug: uniqueName('slug'), isPublic: options.isPublic ?? true, category: 'technology' })
+    .values({ ownerId, name: uniqueName('ree'), slug: uniqueName('slug'), isPublic: options.isPublic ?? true, isPublished: options.isPublic ?? true, category: 'technology' })
     .returning();
   for (let index = 0; index < (options.ready ?? 0); index += 1) {
     const [k] = await db()

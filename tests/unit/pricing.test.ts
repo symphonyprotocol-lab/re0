@@ -19,6 +19,7 @@ const config: PaddleConfig = {
 };
 const settings = {
   priceMinor: 1500,
+  credits: 65_000,
   promotion: { priceMinor: 799, startsAt: '2026-11-10T00:00:00+08:00', endsAt: '2026-11-12T00:00:00+08:00' },
 };
 afterEach(() => vi.unstubAllGlobals());
@@ -26,6 +27,8 @@ describe('scheduled pricing', () => {
   it('falls back to the PLAN and PACK constants', () => {
     expect(defaultPrice('plan').priceMinor).toBe(PLAN.priceMinor);
     expect(defaultPrice('pack').priceMinor).toBe(PACK.priceMinor);
+    expect(defaultPrice('plan').credits).toBe(50_000);
+    expect(defaultPrice('pack').credits).toBe(100_000);
   });
   it('includes the exact start and excludes the exact end, including UTC+8 offsets', () => {
     const start = Date.parse(settings.promotion.startsAt),
@@ -40,6 +43,8 @@ describe('scheduled pricing', () => {
     expect(parsePriceSettings(settings)?.promotion?.startsAt).toBe('2026-11-09T16:00:00.000Z');
     for (const priceMinor of [0, -1, 1.5, NaN, Infinity, '1000', 100_000_001])
       expect(parsePriceSettings({ ...settings, priceMinor })).toBeNull();
+    for (const credits of [0, -1, 1.5, NaN, Infinity, '50000', 100_000_001])
+      expect(parsePriceSettings({ ...settings, credits })).toBeNull();
     expect(parsePriceSettings({ ...settings, promotion: { ...settings.promotion, priceMinor: 1500 } })).toBeNull();
     expect(parsePriceSettings({ ...settings, promotion: { ...settings.promotion, endsAt: settings.promotion.startsAt } })).toBeNull();
     expect(parsePriceSettings({ ...settings, promotion: { ...settings.promotion, startsAt: '2026-11-10T00:00' } })).toBeNull();
@@ -54,6 +59,8 @@ describe('scheduled pricing', () => {
       const faq = fill(t.site.faq.q3.a, pricingFaqValues({ plan: price, pack: defaultPrice('pack') }, locale, t.site.prices));
       expect(faq).toContain('7.99');
       expect(faq).toContain('15.00');
+      expect(faq).toContain('65,000');
+      expect(faq).toContain('100,000');
       expect(faq).not.toContain('{');
     }
   });
@@ -109,7 +116,7 @@ describe('Paddle price and discount construction', () => {
 });
 
 describe('welcome credit display templates', () => {
-  it('uses the configured amount in both languages without changing Plan/Pack allowances', () => {
+  it('uses the configured welcome amount in both languages', () => {
     for (const locale of ['zh', 'en'] as const) {
       const t = messages(locale);
       const values = { welcomeCredits: '25,000' };
@@ -117,7 +124,6 @@ describe('welcome credit display templates', () => {
         expect(fill(template, values)).toContain('25,000');
         expect(fill(template, values)).not.toContain('{welcomeCredits}');
       }
-      expect(t.legal.terms.s3.body).toContain('100,000');
     }
   });
 });

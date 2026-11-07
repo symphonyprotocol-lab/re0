@@ -2,8 +2,9 @@
 
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { Player, type PlayerRef } from '@remotion/player';
-import { VIDEO_FRAMES, VIDEO_SHOT_SECONDS } from '@/lib/constants';
-import { clock, shotAt, shotWindows, type IntroProps } from '@/lib/domain/video';
+import { VIDEO_FPS, VIDEO_FRAMES, VIDEO_SHOT_SECONDS } from '@/lib/constants';
+import { clock, hasVideoAudio, shotAt, shotWindows, type IntroProps } from '@/lib/domain/video';
+import { demoTimeline } from '@/lib/domain/product-demo';
 import { introComposition } from '@/video/intro';
 import { useI18n } from '@/i18n/client';
 import { fill } from '@/i18n/format';
@@ -64,7 +65,8 @@ export function IntroPlayer({
   const [frame, setFrame] = useState(0);
   const [playing, setPlaying] = useState(false);
   const [soundOn, setSoundOn] = useState(!autoPlay);
-  const shownProps = props.music && !soundOn ? { ...props, music: false } : props;
+  const hasSound = hasVideoAudio(props);
+  const shownProps = hasSound && !soundOn ? { ...props, music: false, narrationUrl: undefined } : props;
   const [expanded, setExpanded] = useState(false);
   const composition = introComposition(props.aspect);
   const portrait = props.aspect === '9:16';
@@ -192,8 +194,9 @@ export function IntroPlayer({
     }
   };
 
-  const current = shotAt(frame);
-  const windows = shotWindows();
+  const demo = props.scenes.demo;
+  const windows = demo ? demoTimeline(demo) : shotWindows();
+  const current = demo ? Math.max(0, windows.findIndex((window) => frame < window.end)) : shotAt(frame);
   /* The editor (prototype suite.js `videoEditor`): the stage in its card with the controls, then the shot timeline. */
   if (timeline)
     return (
@@ -234,7 +237,7 @@ export function IntroPlayer({
               aria-label={p.seek}
               aria-valuetext={`${clock(frame)} / ${clock(VIDEO_FRAMES)}`}
             />
-            {props.music && (
+            {hasSound && (
               <button type="button" className="icon-btn" onClick={() => setSoundOn((on) => !on)} aria-label={p.muted} aria-pressed={!soundOn} title={p.muted}>
                 <PIcon name="audio" />
               </button>
@@ -246,9 +249,9 @@ export function IntroPlayer({
           {windows.map((window, index) => (
             <button key={index} type="button" className={current === index ? 'active' : ''} onClick={() => seek(window.start)} aria-current={current === index ? 'step' : undefined}>
               <span className="mono">
-                0{index + 1} <small>{fill(t.video.shotLength, { n: VIDEO_SHOT_SECONDS[index]! })}</small>
+                0{index + 1} <small>{fill(t.video.shotLength, { n: demo ? Math.round((window.end - window.start) / VIDEO_FPS * 10) / 10 : VIDEO_SHOT_SECONDS[index]! })}</small>
               </span>
-              <strong>{t.video.shots[index]}</strong>
+              <strong>{demo ? index === 0 ? t.video.shots[0] : demo.steps[index - 1] : t.video.shots[index]}</strong>
               <i />
             </button>
           ))}
@@ -310,7 +313,7 @@ export function IntroPlayer({
             aria-valuetext={`${clock(frame)} / ${clock(VIDEO_FRAMES)}`}
             className="h-1 min-w-0 flex-1 accent-blue"
           />
-          {props.music && (
+          {hasSound && (
             <button
               type="button"
               className={`icon-btn ${expanded ? 'text-white hover:bg-white/10 hover:text-white' : ''}`}

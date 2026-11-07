@@ -3,6 +3,8 @@ import { chunkSections } from '@/lib/domain/knowledge';
 import { citationSnapshots, locatorLabel } from '@/lib/domain/answer';
 import { documentSections } from '@/lib/infra/connectors';
 import { claimFirecrawlKey, recordFirecrawlKeyResult } from '@/lib/infra/firecrawl/keys';
+import { withProviderMeter } from '@/lib/infra/ai/provider-meter';
+import { providerRateSchema, type ProviderCharge } from '@/lib/domain/provider-cost';
 
 vi.mock('@/lib/infra/firecrawl/keys', () => ({ claimFirecrawlKey: vi.fn(), recordFirecrawlKeyResult: vi.fn() }));
 
@@ -153,6 +155,59 @@ describe('Firecrawl document ingestion', () => {
   it('rejects non-JSON responses', async () => {
     fetchMock.mockResolvedValueOnce(new Response('<html>Bad gateway</html>'));
     await expect(documentSections(bytes, 'document.pdf')).rejects.toMatchObject({ code: 'parse_failed' });
+  });
+
+  it('does not cool down a key that answered, even when its reply cannot be used', async () => {
+    const credential = { id: 'first', apiKey: 'fc-console-first' };
+    vi.mocked(claimFirecrawlKey).mockResolvedValueOnce({ managed: true, credential });
+    fetchMock.mockResolvedValueOnce(new Response('<html>not json</html>', { status: 200 }));
+    await expect(documentSections(bytes, 'document.pdf')).rejects.toMatchObject({ code: 'parse_failed' });
+    expect(vi.mocked(recordFirecrawlKeyResult).mock.calls).toEqual([[credential, 200, null]]);
+  });
+
+  it('cools down a key whose request itself failed', async () => {
+    const credential = { id: 'first', apiKey: 'fc-console-first' };
+    vi.mocked(claimFirecrawlKey).mockResolvedValueOnce({ managed: true, credential });
+    fetchMock.mockRejectedValueOnce(new TypeError('fetch failed'));
+    await expect(documentSections(bytes, 'document.pdf')).rejects.toMatchObject({ code: 'parse_failed' });
+    expect(recordFirecrawlKeyResult).toHaveBeenCalledWith(credential, 0);
+  });
+
+  describe('metered', () => {
+    const rate = providerRateSchema.parse({ service: 'firecrawl', endpoint: 'https://api.firecrawl.dev', model: 'parse', unit: 'firecrawl_credits', usdPerUnit: '0.0038', source: 'test plan' });
+    const metered = async <T>(work: () => Promise<T>) => {
+      const charges: ProviderCharge[] = [];
+      const result = withProviderMeter({ runId: 'run', prices: { revision: 'v1', rates: [rate] }, record: async (charge) => { charges.push(charge); } }, work);
+      return { result, charges };
+    };
+
+    it('processes Word without creditsUsed and keeps its cost unresolved instead of guessing one', async () => {
+      reply({ markdown: '# Warranty\n\nTwo years.' });
+      const { result, charges } = await metered(() => documentSections(bytes, 'policy.docx'));
+      expect(await result).toEqual([{ text: '# Warranty\n\nTwo years.', locator: {} }]);
+      expect(charges).toEqual([expect.objectContaining({ service: 'firecrawl', costUsd: null, basis: 'unresolved' })]);
+    });
+
+    it('bills a PDF at its documented 1 credit per page when creditsUsed is missing', async () => {
+      reply({ pages: [{ pageNumber: 1, markdown: 'One.' }, { pageNumber: 2, markdown: 'Two.' }], metadata: { numPages: 2, totalPages: 2 } });
+      const { result, charges } = await metered(() => documentSections(bytes, 'document.pdf'));
+      await result;
+      expect(charges[0]).toMatchObject({ usage: { firecrawlCredits: 2 }, costUsd: '0.007600000000' });
+    });
+
+    it('still fails a PDF that reports no usage at all', async () => {
+      reply({ pages: [{ pageNumber: 1, markdown: 'One.' }] });
+      const { result, charges } = await metered(() => documentSections(bytes, 'document.pdf'));
+      await expect(result).rejects.toThrow('usage_unavailable');
+      expect(charges[0]).toMatchObject({ costUsd: null });
+    });
+
+    it('keeps an unreadable but billed reply as an unresolved receipt', async () => {
+      fetchMock.mockResolvedValueOnce(new Response('<html>not json</html>', { status: 200 }));
+      const { result, charges } = await metered(() => documentSections(bytes, 'document.pdf'));
+      await expect(result).rejects.toMatchObject({ code: 'parse_failed' });
+      expect(charges).toEqual([expect.objectContaining({ costUsd: null, basis: 'unresolved' })]);
+    });
   });
 
   it('rejects PDF output without per-page data instead of attributing all text to page one', async () => {

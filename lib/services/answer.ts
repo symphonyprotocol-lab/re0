@@ -309,7 +309,7 @@ export async function storedSuggestions(userId: string, rows: readonly { id: str
     })
     .from(schema.ree)
     .innerJoin(schema.user, eq(schema.user.id, schema.ree.ownerId))
-    .where(and(inArray(schema.ree.id, ids), eq(schema.ree.isPublic, true), isNull(schema.ree.moderatedAt), isNull(schema.ree.deletedAt)));
+    .where(and(inArray(schema.ree.id, ids), eq(schema.ree.isPublic, true), eq(schema.ree.isPublished, true), isNull(schema.ree.moderatedAt), isNull(schema.ree.deletedAt)));
   const byId = new Map<string, SuggestedRee>(
     found.map((ree) => [ree.id, { id: ree.id, slug: ree.slug, name: ree.name, description: ree.description, avatarBlob: ree.avatarBlob, color: ree.color, role: ree.role, price: maxCostFor(ree, userId) }]),
   );

@@ -250,7 +250,7 @@ export async function takeDownRee(administratorId: string, reeId: string, rawRea
     if (ree.deletedAt || ree.moderatedAt || !ree.isPublic) throw new AdminInputError('stale');
     await tx
       .update(schema.ree)
-      .set({ isPublic: false, moderatedAt: now, moderatedBy: administratorId, moderatedReason: reason, updatedAt: now })
+      .set({ isPublic: false, isPublished: false, moderatedAt: now, moderatedBy: administratorId, moderatedReason: reason, updatedAt: now })
       .where(eq(schema.ree.id, reeId));
     /* Out of other people's conversations, history kept, as when an owner makes a Ree private (step 4). */
     const conversations = await detachRee(tx, reeId, { includeOwner: false });
@@ -275,7 +275,7 @@ export async function restoreRee(administratorId: string, reeId: string, rawReas
     if (ree.deletedAt || !ree.moderatedAt) throw new AdminInputError('stale');
     await tx
       .update(schema.ree)
-      .set({ isPublic: true, moderatedAt: null, moderatedBy: null, moderatedReason: null, updatedAt: now })
+      .set({ isPublic: true, isPublished: true, moderatedAt: null, moderatedBy: null, moderatedReason: null, updatedAt: now })
       .where(eq(schema.ree.id, reeId));
     await audit(tx, {
       administratorId,

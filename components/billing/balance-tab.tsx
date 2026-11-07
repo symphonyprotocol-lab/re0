@@ -49,7 +49,7 @@ export async function BalanceTab({ userId, query }: { userId: string; query: Rec
             <span className="tag blue">{plan.active ? b.planBalance.monthly : b.planBalance.inactive}</span>
           </p>
           <p className="big-number">{n(summary.buckets.plan)}</p>
-          <small>{plan.active ? fill(b.planBalance.active, { date: periodEnd }) : b.planBalance.idle}</small>
+          <small>{plan.active ? fill(b.planBalance.active, { date: periodEnd }) : fill(b.planBalance.idle, { credits: n(prices.plan.credits) })}</small>
         </div>
         <div className="card balance-card">
           <p className="label">
@@ -81,7 +81,7 @@ export async function BalanceTab({ userId, query }: { userId: string; query: Rec
             <ProductPrice price={prices.plan} kind="plan" locale={locale} labels={t.site.prices} /><small> / {b.plan.per}</small>
           </p>
           <PromotionNotice price={prices.plan} kind="plan" locale={locale} labels={t.site.prices} />
-          <p>{b.plan.perCycle}</p>
+          <p>{fill(b.plan.perCycle, { credits: n(prices.plan.credits) })}</p>
           <Features items={[b.plan.perk1, b.plan.perk2, b.plan.perk3]} />
           {plan.active && <p className="plan-renewal">{fill(plan.cancelAtPeriodEnd ? b.plan.ends : b.plan.renews, { date: periodEnd })}</p>}
           {plan.active ? (
@@ -101,7 +101,7 @@ export async function BalanceTab({ userId, query }: { userId: string; query: Rec
             <ProductPrice price={prices.pack} kind="pack" locale={locale} labels={t.site.prices} /><small> / {b.pack.per}</small>
           </p>
           <PromotionNotice price={prices.pack} kind="pack" locale={locale} labels={t.site.prices} />
-          <p>{b.pack.perPack}</p>
+          <p>{fill(b.pack.perPack, { credits: n(prices.pack.credits) })}</p>
           <Features items={[b.pack.perk1, b.pack.perk2, b.pack.perk3]} />
           {plan.active ? (
             <Link href="/checkout?kind=pack" className="btn secondary">

@@ -1,3 +1,5 @@
+import { ReePublication } from '@/components/rees/ree-publication';
+import { ReeSettingsPreviewButton } from '@/components/rees/ree-settings-preview-button';
 import { WorkspaceLink as Link } from '@/components/shell/workspace-link';
 import type { ReactNode } from 'react';
 import { Icon } from '@/components/ui/icons';
@@ -21,7 +23,7 @@ export async function ReeTopbar({
   actions,
   crumbs = [],
 }: {
-  ree: { id: string; name: string; slug?: string; isPublic?: boolean; moderatedAt?: Date | null };
+  ree: { id: string; name: string; slug?: string; isPublic?: boolean; isPublished?: boolean; moderatedAt?: Date | null };
   active: 'settings' | 'knowledge' | 'video' | 'statistics' | 'chat';
   actions?: ReactNode;
   crumbs?: Crumb[];
@@ -53,11 +55,18 @@ export async function ReeTopbar({
       rowActions={
         <>
           {actions}
-          {/* Step 4: a public Ree's page, apart from its tabs (prototype "公开页入口独立放在右侧"). */}
-          {ree.isPublic && !ree.moderatedAt && ree.slug && (
-            <Link href={`/r/${ree.slug}`} className="btn-ghost" title={t.rees.publicPage}>
+          {active === 'settings' ? <ReeSettingsPreviewButton /> : (
+            <Link href={`/rees/${ree.id}/preview`} className="btn-secondary btn-sm shrink-0">
               <Icon name="external" />
-              <span className="hidden lg:inline">{t.rees.publicPage}</span>
+              {t.reeSetup.settings.preview}
+            </Link>
+          )}
+          <ReePublication ree={{ ...ree, isPublic: Boolean(ree.isPublic), isPublished: Boolean(ree.isPublished) }} />
+          {/* Step 4: a public Ree's page, apart from its tabs (prototype "公开页入口独立放在右侧"). */}
+          {ree.isPublic && ree.isPublished && !ree.moderatedAt && ree.slug && (
+            <Link href={`/r/${ree.slug}`} className="btn-ghost context-public-link" title={t.rees.publicPage} aria-label={t.rees.publicPage}>
+              <Icon name="external" />
+              <span>{t.rees.publicPage}</span>
             </Link>
           )}
         </>

@@ -55,6 +55,18 @@ function connectClient(): Client {
   return { id: clientId(), secret: clientSecret(), scope: CONNECT_SCOPE };
 }
 
+export function githubRepositoryAccess() {
+  const app = Boolean(process.env.GITHUB_APP_CLIENT_ID?.trim() && process.env.GITHUB_APP_CLIENT_SECRET?.trim());
+  const slug = process.env.GITHUB_APP_SLUG?.trim() ?? '';
+  const install = app && /^[a-z0-9-]+$/i.test(slug);
+  return {
+    app,
+    url: install
+      ? `https://github.com/apps/${slug}/installations/new`
+      : app ? 'https://github.com/settings/installations' : 'https://github.com/settings/applications',
+  };
+}
+
 /** The OAuth-app fallback's scope for "连接 GitHub". */
 export const CONNECT_SCOPE = 'repo read:user';
 

@@ -8,14 +8,14 @@
  * reads the new row (this instance at once, others within the minute
  * `modelFor` caches for). Embedding switches only through a re-embed job.
  */
-import { and, asc, eq, ne, sql } from 'drizzle-orm';
+import { and, asc, desc, eq, ne, sql } from 'drizzle-orm';
 import type { ModelKind } from '@/lib/constants';
 import { changesWhatAnswers, keyTail, mayCarryKey, parseModelConfig, perMillionUsd, switchesImmediately, type GenerationAudience, type ModelConfigInput, type ModelGenerationPrice } from '@/lib/domain/models';
 import type { ProviderRate } from '@/lib/domain/provider-cost';
 import { gatewayGenerationPricing } from '@/lib/infra/ai/gateway-generation-pricing';
 import { configuredProviderRate, providerPrices, saveModelGenerationPrice, saveModelProcessingPrice, type ProviderPrices } from '@/lib/services/provider-pricing';
 import { modelPricingTarget, servicePricingOf, type ServicePricingInput } from '@/lib/domain/service-pricing';
-import { consoleEndpoint, environmentEndpoint, forgetModelCache } from '@/lib/infra/ai/models';
+import { consoleEndpoint, endpointHasCredentials, environmentEndpoint, forgetModelCache } from '@/lib/infra/ai/models';
 import { probeEndpoint, type ProbeResult } from '@/lib/infra/ai/probe';
 import { sealCredential } from '@/lib/infra/crypto/credentials';
 import { db, schema } from '@/lib/infra/db';
@@ -43,7 +43,9 @@ async function view(row: ModelConfigRow, prices?: ProviderPrices): Promise<Model
       ...(rate ? { inputUsdPerMillion: perMillionUsd(rate.usdPerUnit), ...(rate.outputUsdPerUnit !== undefined ? { outputUsdPerMillion: perMillionUsd(rate.outputUsdPerUnit) } : {}) } : {}),
     };
   }
-  const costPricing = row.kind === 'generation' ? null : servicePricingOf(configuredProviderRate(prices ?? await providerPrices(), modelPricingTarget(row)));
+  const costPricing = row.kind === 'embedding' || row.kind === 'transcription'
+    ? servicePricingOf(configuredProviderRate(prices ?? await providerPrices(), modelPricingTarget({ ...row, kind: row.kind })))
+    : null;
   return { ...rest, hasKey: Boolean(apiKeyCipher), generationPricing, costPricing };
 }
 
@@ -65,7 +67,7 @@ export async function listModelConfigs(): Promise<{
   };
   return {
     configs: await Promise.all(rows.map((row) => view(row, prices))),
-    fallbacks: { generation: fallback('generation'), embedding: fallback('embedding'), transcription: fallback('transcription') },
+    fallbacks: { generation: fallback('generation'), embedding: fallback('embedding'), transcription: fallback('transcription'), speech: fallback('speech') },
   };
 }
 
@@ -80,8 +82,9 @@ async function carriedKey(input: ModelConfigInput): Promise<{ cipher: string; ta
   const rows = await db()
     .select()
     .from(schema.modelConfig)
-    .where(eq(schema.modelConfig.transport, input.transport));
-  const donor = rows.find((row) => row.apiKeyCipher && mayCarryKey(row, input));
+    .where(eq(schema.modelConfig.transport, input.transport))
+    .orderBy(desc(schema.modelConfig.enabled), desc(schema.modelConfig.updatedAt));
+  const donor = rows.find((row) => row.kind !== 'speech' && row.apiKeyCipher && mayCarryKey(row, input));
   return donor?.apiKeyCipher ? { cipher: donor.apiKeyCipher, tail: donor.apiKeyTail } : null;
 }
 
@@ -89,7 +92,7 @@ export async function createModelConfig(administratorId: string, raw: Record<str
   const input = parsed(raw);
   const key = input.apiKey
     ? { cipher: await sealCredential(input.apiKey, 'provider'), tail: keyTail(input.apiKey) }
-    : await carriedKey(input);
+    : input.kind === 'speech' && input.transport !== 'gateway' ? null : await carriedKey(input);
   const database = db();
   const created = await database.transaction(async (tx) => {
     const [row] = await tx
@@ -168,6 +171,7 @@ export async function activateModelConfig(administratorId: string, id: string, a
   const database = db();
   const [target] = await database.select().from(schema.modelConfig).where(eq(schema.modelConfig.id, id)).limit(1);
   if (!target) throw new AdminInputError('not_found');
+  if (target.kind === 'speech' && !endpointHasCredentials(await consoleEndpoint(target))) throw new AdminInputError('voice_key_required');
   if ((audience !== 'free' && audience !== 'plan') || (audience === 'plan' && target.kind !== 'generation')) throw new AdminInputError('audience');
   if (target.kind === 'embedding' && target.enabled) return { activated: true, reembed: false, jobId: null };
   if (!switchesImmediately(target.kind)) {

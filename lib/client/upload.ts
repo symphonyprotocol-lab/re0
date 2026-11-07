@@ -11,7 +11,8 @@ export async function uploadToBlob(
   file: Blob,
   ticketRequest:
     | { purpose: 'document' | 'audio'; fileName: string; size: number }
-    | { purpose: 'avatar'; contentType: string; size: number },
+    | { purpose: 'avatar'; contentType: string; size: number }
+    | { purpose: 'ree-cover'; reeId: string; contentType: string; size: number },
   onProgress?: (percent: number) => void,
 ): Promise<{ pathname: string } | { error: string }> {
   const response = await fetch('/api/upload-token', {

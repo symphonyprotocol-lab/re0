@@ -1,0 +1,115 @@
+.ree-publication {
+  position: relative;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  flex: none;
+}
+
+.ree-publication__status {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 4px 8px;
+  border: 1px solid #e4e9f1;
+  border-radius: 999px;
+  background: #f7f9fc;
+  color: #75839b;
+  font-size: 10px;
+  font-weight: 500;
+  line-height: 14px;
+  white-space: nowrap;
+}
+
+.ree-publication__dot {
+  width: 5px;
+  height: 5px;
+  flex: none;
+  border-radius: 50%;
+  background: #98a5b9;
+}
+
+.ree-publication__status.is-published {
+  border-color: #dceee5;
+  background: #f1faf5;
+  color: #388163;
+}
+
+.ree-publication__status.is-published .ree-publication__dot {
+  background: #42a57d;
+}
+
+.ree-publication .ree-publication__button {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  min-height: 30px;
+  padding: 6px 10px;
+  border: 1px solid #dde4f0;
+  border-radius: 7px;
+  background: #fff;
+  color: #62728e;
+  font-size: 11px;
+  font-weight: 500;
+  line-height: 16px;
+  white-space: nowrap;
+  cursor: pointer;
+  transition: background 0.15s, border-color 0.15s, color 0.15s;
+}
+
+.ree-publication__button > svg {
+  display: block;
+  width: 13px;
+  height: 13px;
+  flex: none;
+}
+
+.ree-publication__button:hover:not(:disabled) {
+  border-color: #becbe0;
+  background: #f6f8fc;
+  color: #344b6b;
+}
+
+.ree-publication.is-unpublished .ree-publication__button {
+  border-color: #cfe2ff;
+  background: #f1f7ff;
+  color: var(--color-blue);
+}
+
+.ree-publication.is-unpublished .ree-publication__button:hover:not(:disabled) {
+  border-color: #a9ceff;
+  background: #e7f1ff;
+}
+
+.ree-publication__button:disabled {
+  cursor: wait;
+  opacity: 0.55;
+}
+
+.ree-publication__error {
+  position: absolute;
+  top: calc(100% + 8px);
+  right: 0;
+  z-index: 10;
+  width: max-content;
+  max-width: min(300px, 80vw);
+  padding: 8px 10px;
+  border: 1px solid #f0dada;
+  border-radius: 7px;
+  background: #fff7f7;
+  color: #b44e55;
+  font-size: 11px;
+  line-height: 1.5;
+}
+
+.ree-card-info > .ree-publication__status { margin-top: 12px; }
+
+@media (max-width: 760px) {
+  .context-nav-actions .ree-publication__status { display: none; }
+  .context-nav-actions .ree-publication__button {
+    min-height: 28px;
+    padding: 5px 8px;
+    font-size: 10px;
+  }
+}

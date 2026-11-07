@@ -1382,7 +1382,7 @@
 .cl-tab { display: flex; align-items: center; gap: 6px; border: 0; border-bottom: 2px solid transparent; background: transparent; color: rgb(139, 154, 179); padding: 12px 0px 13px; white-space: nowrap; font-size: 11px; transition: color 0.16s, border-color 0.16s; }
 .cl-tab > svg { height: 14px; width: 14px; }
 .cl-tab > span { font: 9px var(--font-mono); padding: 1px 5px; border-radius: 4px; background: rgb(237, 240, 248); color: rgb(152, 169, 193); }
-.cl-tab.active { color: rgb(34, 125, 206); border-color: var(--color-blue); }
+.cl-tab.active { color: var(--color-blue); border-color: var(--color-blue); }
 .cl-tab.active > span { background: rgb(228, 238, 252); color: rgb(98, 151, 211); }
 .cl-tab:hover { color: var(--color-blue); }
 .cl-filter-summary { display: flex; align-items: center; gap: 10px; justify-content: space-between; color: rgb(154, 171, 197); font-size: 9px; line-height: 1.7; min-height: 37px; flex: 0 0 auto; }

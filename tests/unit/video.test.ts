@@ -109,10 +109,10 @@ describe('timeline', () => {
 });
 
 describe('exports and text', () => {
-  it('makes each Ree’s first export free and every later one 50', () => {
-    expect(exportCost(0)).toBe(0);
-    expect(exportCost(1)).toBe(50);
-    expect(exportCost(7)).toBe(50);
+  it('makes each Ree’s first export free and uses the configured price for later exports', () => {
+    expect(exportCost(0, 65)).toBe(0);
+    expect(exportCost(1, 65)).toBe(65);
+    expect(exportCost(7, 65)).toBe(65);
   });
 
   it('takes an answer’s first sentence without citations or Markdown', () => {

@@ -1,5 +1,6 @@
 import { NextResponse, type NextRequest } from 'next/server';
 import { DISPLAY_NAME_MAX } from '@/lib/constants';
+import { profileChanges } from '@/lib/domain/account';
 import { LOCALE_COOKIE } from '@/lib/http/cookies';
 import { body, fail, json } from '@/lib/http/respond';
 import { apiUser } from '@/lib/http/session';
@@ -13,6 +14,10 @@ function shown(user: typeof schema.user.$inferSelect) {
     id: user.id,
     email: user.email,
     name: user.name,
+    title: user.title,
+    description: user.description,
+    website: user.website,
+    socialContacts: user.socialContacts,
     avatarBlob: user.avatarBlob,
     lang: user.lang,
     provider: user.provider,
@@ -27,12 +32,14 @@ export async function GET(request: NextRequest) {
   return json({ account: shown(user), balance: await balanceOf(db(), user.id) });
 }
 
-/** Display name, avatar (an uploaded `avatars/<user>/…` pathname, or null for the default) and language. */
+/** Profile, avatar (an owned upload or null for the default) and language. */
 export async function PATCH(request: NextRequest) {
   const user = await apiUser(request);
   if (user instanceof Response) return user;
   const input = await body(request);
-  const changes: Partial<typeof schema.user.$inferInsert> = {};
+  const details = profileChanges(input);
+  if ('error' in details) return fail(details.error, 422);
+  const changes: Partial<typeof schema.user.$inferInsert> = { ...details.changes };
   if ('name' in input) {
     const name = String(input.name ?? '').trim();
     if (!name || Array.from(name).length > DISPLAY_NAME_MAX) return fail('name', 422);
@@ -40,7 +47,9 @@ export async function PATCH(request: NextRequest) {
   }
   if ('avatarBlob' in input) {
     const avatar = input.avatarBlob;
-    if (avatar !== null && !(typeof avatar === 'string' && avatar.startsWith(`avatars/${user.id}/`))) return fail('avatar', 422);
+    // OAuth photos are external URLs. Keeping the current photo is valid;
+    // replacing it still requires this user's uploaded avatar pathname.
+    if (avatar !== user.avatarBlob && avatar !== null && !(typeof avatar === 'string' && avatar.startsWith(`avatars/${user.id}/`))) return fail('avatar', 422);
     changes.avatarBlob = avatar as string | null;
   }
   if ('lang' in input) {

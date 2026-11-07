@@ -1,7 +1,7 @@
 /*
  * `/explore` and its cards, ported from the prototype (rebuild-prototype
  * discovery.css, styles.css `.search-box` / `.filter` / `.dot-card`,
- * discovery-video.css `.discovery-cover`, public-dot.css placeholder) with its
+ * and the public-dot.css video placeholder) with its
  * class names, breakpoints and cascade order, every rule scoped to
  * `.discovery-page`. The page sits in the site frame for visitors
  * (`.marketing-site`) and in the workspace once signed in, as in the
@@ -343,23 +343,6 @@
 .discovery-page .discovery-card {
   overflow: hidden;
 }
-.discovery-page .discovery-card .discovery-cover {
-  z-index: 2;
-}
-.discovery-page .discovery-cover-label {
-  position: absolute;
-  left: 13px;
-  bottom: 14px;
-  display: flex;
-  align-items: center;
-  gap: 5px;
-  font-size: 8px;
-  opacity: 0.65;
-}
-.discovery-page .discovery-cover-label svg {
-  width: 11px;
-  height: 11px;
-}
 .discovery-page .discovery-card .description {
   margin: 0px;
   min-height: 0px;
@@ -383,178 +366,6 @@
 }
 .discovery-page .discovery-card .card-actions {
   padding-top: 10px;
-}
-.discovery-page .discovery-cover {
-  position: relative;
-  container-type: inline-size;
-  aspect-ratio: 16 / 9;
-  flex: 0 0 auto;
-  overflow: clip;
-  border: 1px solid #e3eaf5;
-  border-radius: 8px;
-  margin-bottom: 12px;
-  color: #315078;
-  background: #eff5ff;
-}
-.discovery-page .discovery-cover::before,
-.discovery-page .discovery-cover::after {
-  content: "";
-  pointer-events: none;
-  position: absolute;
-  border: 1px solid color-mix(in srgb, var(--video-accent) 18%, transparent);
-  border-radius: 50%;
-  width: 65%;
-  aspect-ratio: 1 / 1;
-  top: -48%;
-  right: -20%;
-}
-.discovery-page .discovery-cover::after {
-  width: 85%;
-  top: 60%;
-  left: -50%;
-  border-style: dashed;
-}
-.discovery-page .discovery-cover.template-blueprint {
-  background: #193455;
-  color: #e7efff;
-  border-color: #27476d;
-}
-.discovery-page .discovery-cover.template-spotlight {
-  background: #fcf7ed;
-  color: #76613e;
-  border-color: #eee4ce;
-}
-.discovery-page .discovery-cover-poster {
-  display: flex;
-  flex-direction: column;
-  align-items: center;
-  justify-content: center;
-  width: 100%;
-  height: 100%;
-  position: relative;
-  padding: 22px 20px 37px;
-  background: radial-gradient(rgba(136, 167, 204, 0.2) 0.7px, transparent 0.7px) 0% 0% / 14px 14px transparent;
-  color: inherit;
-  border: 0px;
-  cursor: pointer;
-  text-align: center;
-}
-.discovery-page .discovery-cover-poster:focus-visible {
-  outline: 2px solid var(--color-blue);
-  outline-offset: -3px;
-}
-.discovery-page .discovery-cover.is-video-placeholder {
-  border: 0px;
-  background: transparent;
-}
-.discovery-page .discovery-cover.is-video-placeholder::before,
-.discovery-page .discovery-cover.is-video-placeholder::after {
-  display: none;
-}
-.discovery-page .discovery-cover-poster.is-video-placeholder {
-  padding: 0px;
-  background: none;
-}
-.discovery-page .discovery-cover .public-dot-video-placeholder {
-  width: 100%;
-  height: 100%;
-  aspect-ratio: auto;
-  border-radius: 8px;
-}
-.discovery-page .discovery-cover .public-dot-video-placeholder-brand {
-  top: 12px;
-  left: 12px;
-  right: 12px;
-  font-size: 9px;
-}
-.discovery-page .discovery-cover .public-dot-video-placeholder-brand > span {
-  display: none;
-}
-.discovery-page .discovery-cover .public-dot-video-placeholder > div {
-  max-width: 100%;
-  gap: 7px;
-}
-.discovery-page .discovery-cover .public-dot-video-placeholder .dot-avatar {
-  width: 28px;
-  height: 28px;
-  border-radius: 9px;
-}
-.discovery-page .discovery-cover .public-dot-video-placeholder strong {
-  max-width: 100%;
-  font-size: clamp(12px, 5cqw, 17px);
-  line-height: 1.4;
-  white-space: nowrap;
-  text-overflow: ellipsis;
-  overflow: hidden;
-}
-.discovery-page .discovery-cover .public-dot-video-placeholder-status {
-  font-size: 9px;
-}
-.discovery-page .discovery-cover .public-dot-video-placeholder-status svg {
-  width: 12px;
-  height: 12px;
-}
-.discovery-page .discovery-cover .public-dot-video-placeholder-caption {
-  bottom: 10px;
-  font-size: 7px;
-}
-@media (max-width: 270px) {
-  .discovery-page .discovery-cover .public-dot-video-placeholder > div {
-    gap: 5px;
-  }
-  .discovery-page .discovery-cover .public-dot-video-placeholder .dot-avatar {
-    width: 24px;
-    height: 24px;
-  }
-  .discovery-page .discovery-cover .public-dot-video-placeholder-status {
-    font-size: 8px;
-  }
-}
-.discovery-page .discovery-cover-kicker {
-  font: 5px var(--font-mono);
-  letter-spacing: 0.11em;
-  opacity: 0.45;
-  margin-bottom: 12px;
-}
-.discovery-page .discovery-cover-identity {
-  display: flex;
-  align-items: center;
-  gap: 9px;
-  max-width: 100%;
-}
-.discovery-page .discovery-cover-identity .dot-avatar {
-  width: 32px;
-  height: 32px;
-  border-radius: 10px;
-}
-.discovery-page .discovery-cover-identity .dot-avatar svg {
-  width: 18px;
-  height: 18px;
-}
-.discovery-page .discovery-cover-identity strong {
-  font-size: clamp(12px, 5.3cqw, 21px);
-  line-height: 1.6;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-.discovery-page .discovery-cover-tagline {
-  font-size: clamp(8px, 3cqw, 11px);
-  line-height: 1.7;
-  opacity: 0.65;
-  margin-top: 10px;
-  max-width: 95%;
-  display: -webkit-box;
-  -webkit-line-clamp: 2;
-  -webkit-box-orient: vertical;
-  overflow: hidden;
-}
-.discovery-page .discovery-cover-duration {
-  position: absolute;
-  right: 13px;
-  bottom: 17px;
-  font: 8px var(--font-mono);
-  opacity: 0.6;
 }
 .discovery-page .public-dot-video-placeholder {
   position: relative;
@@ -1048,23 +859,6 @@
   color: var(--color-muted);
   font-size: 13px;
   margin-bottom: 20px;
-}
-
-/*
- * 含视频介绍 plays the introduction in place (8.4 "explore 卡片 16:9 封面与播放弹窗");
- * it is drawn exactly as the prototype's label, over the cover's link.
- */
-.discovery-page button.discovery-cover-label {
-  z-index: 3;
-  padding: 0;
-  border: 0;
-  background: none;
-  color: inherit;
-  cursor: pointer;
-  transition: opacity 0.18s;
-}
-.discovery-page button.discovery-cover-label:hover {
-  opacity: 1;
 }
 
 /* The passage a question matched (prototype styles.css `.match-excerpt`). */

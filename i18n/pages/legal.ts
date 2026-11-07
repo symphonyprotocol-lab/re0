@@ -19,11 +19,11 @@ export const zh = {
     },
     s2: {
       title: 'Credits',
-      body: 'RE0 的所有消耗以 credit 计，1 credit = 0.0001 美元（10 美元 = 100,000 credits）。Credits 是预付的使用额度，不是货币，不能转让，除第 7 节所述的收入 credits 外不能兑换为现金。\n\n新用户注册赠送 {welcomeCredits} credits，不过期。消耗的先后顺序为：当期 Plan → 注册赠送 → Pack → 收入 credits；退还时按相反顺序退回。余额不足时操作会被拒绝，不会透支。',
+      body: 'RE0 的所有消耗以 credit 计，1 credit = 0.0001 美元。Credits 是预付的使用额度，不是货币，不能转让，除第 7 节所述的收入 credits 外不能兑换为现金。\n\n新用户注册赠送 {welcomeCredits} credits，不过期。消耗的先后顺序为：当期 Plan → 注册赠送 → Pack → 收入 credits；退还时按相反顺序退回。余额不足时操作会被拒绝，不会透支。',
     },
     s3: {
       title: 'Plan 与 Pack',
-      body: 'Plan 为每月 10 美元的订阅，每个计费周期到账 100,000 credits，仅在当期有效，周期结束时未用完的部分作废。Plan 按月自动续费，你可以随时在「余额与计费」中关闭续费；关闭后当期 credits 仍可使用至周期末，之后不再扣款，也不再到账。\n\nPack 为 10 美元一份的一次性购买，每份 100,000 credits，一次可买 1 到 10 份，永不过期。只有 Plan 订阅在有效期内的用户可以购买 Pack；Plan 取消或到期后，已购买的 Pack 仍可使用。',
+      body: 'Plan 按月订阅。新订阅的价格和积分额度以结账时显示为准，续费按发放时的月度积分额度到账。每期积分仅在当期有效，周期结束时未用完的部分作废。Plan 按月自动续费，你可以随时在「余额与计费」中关闭续费；关闭后当期 credits 仍可使用至周期末，之后不再扣款，也不再到账。\n\nPack 为一次性购买，每份价格和积分额度以结账时显示为准，一次可买 1 到 10 份，积分永不过期。只有 Plan 订阅在有效期内的用户可以购买 Pack；Plan 取消或到期后，已购买的 Pack 仍可使用。',
     },
     s4: {
       title: '付款与 Paddle',
@@ -109,11 +109,11 @@ export const en: Shape<typeof zh> = {
     },
     s2: {
       title: 'Credits',
-      body: 'Everything on RE0 is charged in credits: 1 credit = USD 0.0001 (USD 10 = 100,000 credits). Credits are prepaid usage, not money; they cannot be transferred and, except for earned credits under section 7, cannot be exchanged for cash.\n\nNew users receive {welcomeCredits} welcome credits that do not expire. Credits are spent in this order: current Plan → welcome → Pack → earned; returns go back in reverse order. When the balance is too low, the action is refused; nothing is overdrawn.',
+      body: 'Everything on RE0 is charged in credits: 1 credit = USD 0.0001. Credits are prepaid usage, not money; they cannot be transferred and, except for earned credits under section 7, cannot be exchanged for cash.\n\nNew users receive {welcomeCredits} welcome credits that do not expire. Credits are spent in this order: current Plan → welcome → Pack → earned; returns go back in reverse order. When the balance is too low, the action is refused; nothing is overdrawn.',
     },
     s3: {
       title: 'Plan and Pack',
-      body: 'The Plan is a USD 10 monthly subscription that credits 100,000 credits each billing cycle, valid only for that cycle; whatever is unused expires at its end. The Plan renews monthly; you can turn renewal off at any time under Credits & billing. The current cycle’s credits remain usable until it ends; after that you are not charged and receive no further credits.\n\nA Pack is a one-time purchase of USD 10 for 100,000 credits that never expire, 1 to 10 per checkout. Packs are sold only while your Plan is active; Packs you bought remain usable after the Plan ends.',
+      body: 'The Plan is a monthly subscription. The price and allowance for a new subscription are shown at checkout. Renewals grant the monthly allowance in effect when the payment is credited. Each cycle’s credits are valid for that cycle and any unused credits expire at its end. The Plan renews monthly; you can turn renewal off at any time under Credits & billing. The current cycle’s credits remain usable until it ends; after that you are not charged and receive no further credits.\n\nA Pack is a one-time purchase of non-expiring credits. The price and allowance per pack are shown at checkout, where you can buy 1 to 10 packs. Packs are sold only while your Plan is active; Packs you bought remain usable after the Plan ends.',
     },
     s4: {
       title: 'Payment and Paddle',

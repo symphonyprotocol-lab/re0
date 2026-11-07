@@ -5,13 +5,19 @@ import { CI } from '@/components/admin/console-icon';
 import { useI18n } from '@/i18n/client';
 import { formatNumber, formatUsd } from '@/i18n/format';
 import './pricing-board.css';
-import type { PricingView, PriceView, WelcomeCreditsView } from '@/lib/domain/pricing';
+import type { PricingView, PriceView, CreditAmountView } from '@/lib/domain/pricing';
 
 // datetime-local uses the explicitly labelled business timezone, regardless of the browser timezone.
 const localTime = (iso: string) => new Date(Date.parse(iso) + 8 * 3600_000).toISOString().slice(0, 16);
 const utcTime = (value: string) => (value ? new Date(`${value}:00+08:00`).toISOString() : '');
 
-export function PricingBoard({ initial, configured, welcome }: { initial: PricingView; configured: boolean; welcome: WelcomeCreditsView }) {
+export function PricingBoard({ initial, configured, welcome, videoScript, videoExport }: {
+  initial: PricingView;
+  configured: boolean;
+  welcome: CreditAmountView;
+  videoScript: CreditAmountView;
+  videoExport: CreditAmountView;
+}) {
   const { t } = useI18n();
   const p = t.pricingAdmin;
   return (
@@ -22,7 +28,9 @@ export function PricingBoard({ initial, configured, welcome }: { initial: Pricin
         <span>{p.note}</span>
       </div>
       {!configured && <p role="status">{p.unavailable}</p>}
-      <WelcomeCreditsForm initial={welcome} />
+      <CreditAmountForm kind="welcome" initial={welcome} />
+      <CreditAmountForm kind="video_script" initial={videoScript} />
+      <CreditAmountForm kind="video_export" initial={videoExport} />
       <div className="pricing-admin-grid">
         {(['plan', 'pack'] as const).map((kind) => (
           <PriceForm key={kind} kind={kind} initial={initial[kind]} configured={configured} />
@@ -36,6 +44,7 @@ function PriceForm({ kind, initial, configured }: { kind: 'plan' | 'pack'; initi
   const p = t.pricingAdmin;
   const [price, setPrice] = useState(initial);
   const [regular, setRegular] = useState(String(initial.priceMinor / 100));
+  const [credits, setCredits] = useState(String(initial.credits));
   const [enabled, setEnabled] = useState(Boolean(initial.promotion));
   const [promo, setPromo] = useState(initial.promotion ? String(initial.promotion.priceMinor / 100) : '');
   const [start, setStart] = useState(initial.promotion ? localTime(initial.promotion.startsAt) : '');
@@ -55,6 +64,7 @@ function PriceForm({ kind, initial, configured }: { kind: 'plan' | 'pack'; initi
           kind,
           revision: price.revision,
           priceMinor: cents(regular),
+          credits: Number(credits),
           promotion: enabled ? { priceMinor: cents(promo), startsAt: utcTime(start), endsAt: utcTime(end) } : null,
         }),
       });
@@ -86,6 +96,8 @@ function PriceForm({ kind, initial, configured }: { kind: 'plan' | 'pack'; initi
       </div>
       <p>
         {p.current}: <strong>{formatUsd(price.effectivePriceMinor, locale)}</strong>
+        {' · '}
+        <strong>{formatNumber(price.credits, locale)} credits</strong>
       </p>
       <fieldset disabled={busy || !configured} className="grid gap-4">
         <label className="grid gap-2">
@@ -99,6 +111,19 @@ function PriceForm({ kind, initial, configured }: { kind: 'plan' | 'pack'; initi
             required
             value={regular}
             onChange={(e) => setRegular(e.target.value)}
+          />
+        </label>
+        <label className="grid gap-2">
+          {kind === 'plan' ? p.planCredits : p.packCredits}
+          <input
+            className="input"
+            type="number"
+            min="1"
+            max="100000000"
+            step="1"
+            required
+            value={credits}
+            onChange={(e) => setCredits(e.target.value)}
           />
         </label>
         <label className="flex gap-2 items-center">
@@ -139,9 +164,13 @@ function PriceForm({ kind, initial, configured }: { kind: 'plan' | 'pack'; initi
   );
 }
 
-function WelcomeCreditsForm({ initial }: { initial: WelcomeCreditsView }) {
+const creditAmountKeys = { welcome: 'welcome', video_script: 'videoScript', video_export: 'videoExport' } as const;
+
+function CreditAmountForm({ initial, kind }: { initial: CreditAmountView; kind: keyof typeof creditAmountKeys }) {
   const { t, locale } = useI18n();
   const p = t.pricingAdmin;
+  const key = creditAmountKeys[kind];
+  const labels = p[key];
   const [saved, setSaved] = useState(initial);
   const [amount, setAmount] = useState(String(initial.credits));
   const [busy, setBusy] = useState(false);
@@ -155,15 +184,16 @@ function WelcomeCreditsForm({ initial }: { initial: WelcomeCreditsView }) {
       const response = await fetch('/api/admin/pricing', {
         method: 'PUT',
         headers: { 'content-type': 'application/json' },
-        body: JSON.stringify({ kind: 'welcome', credits, revision: saved.revision }),
+        body: JSON.stringify({ kind, credits, revision: saved.revision }),
       });
-      const result = (await response.json()) as { welcome?: WelcomeCreditsView; error?: keyof typeof p.errors };
-      if (!response.ok || !result.welcome) {
+      const result = (await response.json()) as Partial<Record<typeof key, CreditAmountView>> & { error?: keyof typeof p.errors };
+      const updated = result[key];
+      if (!response.ok || !updated) {
         setMessage((result.error && p.errors[result.error]) || t.common.errors.generic);
         return;
       }
-      setSaved(result.welcome);
-      setMessage(p.welcome.saved);
+      setSaved(updated);
+      setMessage(labels.saved);
     } catch {
       setMessage(t.common.errors.network);
     } finally {
@@ -171,22 +201,22 @@ function WelcomeCreditsForm({ initial }: { initial: WelcomeCreditsView }) {
     }
   }
   return (
-    <form className="card pricing-admin-card pricing-welcome-card" onSubmit={save}>
+    <form className="card pricing-admin-card pricing-credit-card" onSubmit={save}>
       <div>
-        <h2>{p.welcome.title}</h2>
-        <p className="muted">{p.welcome.note}</p>
+        <h2>{labels.title}</h2>
+        <p className="muted">{labels.note}</p>
       </div>
       <p>
-        {p.welcome.current}: <strong>{formatNumber(saved.credits, locale)} credits</strong>
+        {labels.current}: <strong>{formatNumber(saved.credits, locale)} credits</strong>
       </p>
       <fieldset disabled={busy}>
         <label>
-          {p.welcome.amount}
+          {labels.amount}
           <input
             className="input"
             type="number"
             required
-            min="0"
+            min={kind === 'welcome' ? 0 : 1}
             max="100000000"
             step="1"
             value={amount}
@@ -194,7 +224,7 @@ function WelcomeCreditsForm({ initial }: { initial: WelcomeCreditsView }) {
           />
         </label>
         <button className="btn" type="submit">
-          {busy ? p.saving : p.welcome.save}
+          {busy ? p.saving : labels.save}
         </button>
       </fieldset>
       {message && <p role="status">{message}</p>}

@@ -618,7 +618,7 @@
 }
 .video-editor-page .video-templates {
   display: grid;
-  grid-template-columns: repeat(3, minmax(0px, 1fr));
+  grid-template-columns: repeat(4, minmax(0px, 1fr));
   gap: 9px;
   margin-top: 12px;
   margin-bottom: 23px;
@@ -655,6 +655,19 @@
   background: rgb(255, 250, 240);
   border-color: rgb(236, 227, 208);
   color: rgb(181, 165, 133);
+}
+.video-editor-page .template-swatch.template-product-demo {
+  background: linear-gradient(135deg, #edf4ff, #dcecff);
+  color: #245bd6;
+}
+.video-editor-page .video-demo-script {
+  list-style: decimal;
+  display: grid;
+  gap: 6px;
+  padding-left: 22px;
+  font-size: 13px;
+  line-height: 1.5;
+  color: #405674;
 }
 .video-editor-page .template-swatch svg {
   height: 22px;
@@ -1671,4 +1684,144 @@
   .video-library-page .discovery-results-footer .discovery-pagination {
   justify-content: center;
 }
+}
+
+/* Generation in progress: the old preview stays visible under a veil with the steps, so it reads as about to be replaced. */
+.video-editor-page .video-preview-stage {
+  position: relative;
+}
+.video-editor-page .video-preview-stage[aria-busy='true'] > :not(.video-generation-overlay) {
+  pointer-events: none;
+}
+.video-editor-page .video-generation-overlay {
+  position: absolute;
+  inset: 0;
+  z-index: 5;
+  display: grid;
+  place-items: center;
+  overflow: hidden;
+  padding: 18px;
+  border-radius: 14px;
+  background: rgba(247, 250, 255, .78);
+  backdrop-filter: blur(2px);
+}
+.video-editor-page .video-generation-skeleton {
+  position: absolute;
+  inset: 0;
+  display: grid;
+  align-content: start;
+  gap: 14px;
+  padding: 34px 32px;
+}
+.video-editor-page .video-generation-skeleton > i {
+  display: block;
+  height: 14px;
+  border-radius: 6px;
+  background: linear-gradient(100deg, #e6edf7 20%, #f6f9ff 45%, #e6edf7 70%);
+  background-size: 220% 100%;
+  animation: video-generation-shimmer 1.5s ease-in-out infinite;
+}
+.video-editor-page .video-generation-skeleton > i:first-child { width: 42%; height: 26px; }
+.video-editor-page .video-generation-skeleton > i:nth-child(2) { width: 68%; }
+.video-editor-page .video-generation-skeleton > i:nth-child(3) { width: 54%; }
+.video-editor-page .video-generation-card {
+  position: relative;
+  display: grid;
+  gap: 12px;
+  width: min(340px, 100%);
+  padding: 18px 20px;
+  border: 1px solid rgb(227, 234, 245);
+  border-radius: 12px;
+  background: #fff;
+  box-shadow: 0 12px 32px rgba(23, 43, 77, .1);
+}
+.video-editor-page .video-generation-card > p {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 12px;
+  margin: 0;
+  font-size: 13px;
+  color: rgb(32, 43, 70);
+}
+.video-editor-page .video-generation-card > p .mono {
+  font-size: 11px;
+  color: rgb(113, 136, 170);
+}
+.video-editor-page .video-generation-card > small {
+  font-size: 11px;
+  line-height: 1.5;
+  color: rgb(113, 136, 170);
+}
+.video-editor-page .video-generation-steps {
+  display: grid;
+  gap: 8px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+.video-editor-page .video-generation-steps li {
+  display: flex;
+  align-items: center;
+  gap: 9px;
+  font-size: 12px;
+  color: rgb(150, 165, 190);
+}
+.video-editor-page .video-generation-steps li > i,
+.video-editor-page .video-generation-steps li > svg {
+  flex: none;
+  width: 14px;
+  height: 14px;
+}
+.video-editor-page .video-generation-steps li > i {
+  border: 1.5px solid rgb(206, 216, 232);
+  border-radius: 50%;
+}
+.video-editor-page .video-generation-steps li[data-state='done'] {
+  color: rgb(59, 67, 97);
+}
+.video-editor-page .video-generation-steps li[data-state='done'] > svg {
+  color: var(--blue);
+}
+.video-editor-page .video-generation-steps li[data-state='active'] {
+  color: var(--blue);
+  font-weight: 600;
+}
+.video-editor-page .video-generation-steps li[data-state='active'] > i {
+  border-color: rgba(18, 126, 227, .25);
+  border-top-color: var(--blue);
+  animation: video-generation-spin .9s linear infinite;
+}
+.video-editor-page .video-generate-spin {
+  animation: video-generation-spin .9s linear infinite;
+}
+/* While generating, the panel's controls are locked; dim them like the disabled save button so a click that does nothing is expected. */
+.video-editor-page .video-edit-panel[aria-busy='true'] :is(.video-templates, .two-col, form > .field, form > .form-hint, .scene-editor) {
+  opacity: 0.45;
+  color: rgb(113, 136, 170);
+}
+.video-editor-page .video-edit-panel[aria-busy='true'] :is(.video-templates, .two-col, form > .field, form > .form-hint, .scene-editor, .video-music),
+.video-editor-page .video-edit-panel[aria-busy='true'] :is(.video-templates, .two-col, form > .field, form > .form-hint, .scene-editor, .video-music) * {
+  cursor: not-allowed;
+}
+.video-editor-page .video-edit-panel[aria-busy='true'] .video-templates input:checked + .template-swatch {
+  filter: saturate(.4);
+}
+@keyframes video-generation-shimmer {
+  from { background-position: 100% 0; }
+  to { background-position: -100% 0; }
+}
+@keyframes video-generation-spin {
+  to { transform: rotate(360deg); }
+}
+@media (prefers-reduced-motion: reduce) {
+  .video-editor-page .video-generation-skeleton > i,
+  .video-editor-page .video-generation-steps li[data-state='active'] > i,
+  .video-editor-page .video-generate-spin {
+    animation: none;
+  }
+  .video-editor-page .video-generation-steps li[data-state='active'] > i {
+    border-color: var(--blue);
+    background: radial-gradient(circle, var(--blue) 0 3px, transparent 3.5px);
+  }
 }

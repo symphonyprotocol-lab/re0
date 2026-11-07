@@ -93,6 +93,17 @@ describeWithDb('admin pricing and checkout', () => {
     ).rejects.toThrow('provider unavailable');
     expect(await checkoutPrice(db(), config, 'plan', now)).toMatchObject({ priceMinor: 700, revision });
   });
+  it('archives a newly created Paddle price when its catalogue row cannot be saved', async () => {
+    const created = `pri_${randomUUID().replaceAll('-', '')}`;
+    const archive = vi.fn(async () => {});
+    // An administrator that does not exist fails the row's foreign key after Paddle has the price.
+    await expect(savePricing(randomUUID(), 'plan', { ...input, revision, priceMinor: 1900 }, { ...deps, provision: async () => created, archive })).rejects.toThrow();
+    expect(archive).toHaveBeenCalledWith(config, created);
+    expect(await checkoutPrice(db(), config, 'plan', now)).toMatchObject({ revision });
+    const before = archive.mock.calls.length;
+    await expect(savePricing(owner, 'plan', { ...input, revision: 'stale' }, { ...deps, archive })).rejects.toMatchObject({ code: 'pricing_conflict' });
+    expect(archive).toHaveBeenCalledTimes(before);
+  });
   it('blocks stale page quotes and cancels an old Plan checkout before replacing it', async () => {
     const userId = await buyer();
     const create = vi.fn(async (_config: PaddleConfig, _order: CheckoutOrder, _user: string, _price?: CheckoutPrice) => ({
@@ -122,12 +133,38 @@ describeWithDb('admin pricing and checkout', () => {
     expect(create).toHaveBeenCalledTimes(2);
     expect(create.mock.calls[1]![3]).toMatchObject({ priceMinor: 1500, regularPriceMinor: 1500 });
   });
-  it('credits historical prices after a new regular price is published', async () => {
+  it('keeps a Paddle cancellation recorded when creating its replacement fails', async () => {
+    const userId = await buyer();
+    const staleId = `txn_${randomUUID()}`;
+    await db().insert(schema.paddleCheckout).values({ paddleTransactionId: staleId, userId, kind: 'plan', quantity: 1, priceKey: 'stale:regular', createdAt: now });
+    const quote = await checkoutPrice(db(), config, 'plan', now);
+    const cancel = vi.fn(async () => {});
+    const failing = vi.fn(async () => {
+      throw new Error('paddle unavailable');
+    });
+    await expect(startCheckout(userId, { kind: 'plan', consent: true, quoteKey: quote.quoteKey }, { config, create: failing, cancel, now })).rejects.toThrow('paddle unavailable');
+    const [stale] = await db().select().from(schema.paddleCheckout).where(eq(schema.paddleCheckout.paddleTransactionId, staleId));
+    expect(stale!.supersededAt).not.toBeNull();
+    const replacement = `txn_${randomUUID()}`;
+    const retried = await startCheckout(userId, { kind: 'plan', consent: true, quoteKey: quote.quoteKey }, { config, create: async () => ({ id: replacement }), cancel, now });
+    expect(retried).toMatchObject({ ok: true, transactionId: replacement });
+    expect(cancel).toHaveBeenCalledTimes(1);
+  });
+  it('honors the first checkout quote and uses the new allowance on renewal at the historical price', async () => {
     const old = await checkoutPrice(db(), config, 'plan', now);
-    await savePricing(owner, 'plan', { priceMinor: 2000, promotion: null, revision }, deps);
     const userId = await buyer();
     const transactionId = `txn_${randomUUID()}`,
       subscriptionId = `sub_${randomUUID()}`;
+    const checkout = await startCheckout(userId, { kind: 'plan', consent: true, quoteKey: old.quoteKey }, {
+      config, create: async () => ({ id: transactionId }), now,
+    });
+    expect(checkout.ok).toBe(true);
+    const calls = provision.mock.calls.length;
+    const changed = await savePricing(owner, 'plan', { priceMinor: 1500, credits: 65_000, promotion: old.promotion, revision }, deps);
+    expect(changed.credits).toBe(65_000);
+    expect(changed.quoteKey).not.toBe(old.quoteKey);
+    expect(provision).toHaveBeenCalledTimes(calls);
+    await savePricing(owner, 'plan', { priceMinor: 2000, promotion: null, revision: changed.revision }, deps);
     expect(
       await applyPaddleEvent(
         {
@@ -165,10 +202,28 @@ describeWithDb('admin pricing and checkout', () => {
       ),
     ).toBe('credited');
     const [purchase] = await db().select().from(schema.purchase).where(eq(schema.purchase.paddleTransactionId, transactionId));
-    expect(purchase).toMatchObject({ amountMinor: 1500, credits: 100_000 });
+    expect(purchase).toMatchObject({ amountMinor: 1500, credits: 50_000 });
+    expect(await pendingCheckoutPricing(userId, transactionId)).toMatchObject({ price: { credits: 50_000 } });
+
+    const renewalId = `txn_${randomUUID()}`;
+    const periodEnd = new Date(later.getTime() + 30 * 86400_000);
+    expect(await applyPaddleEvent({
+      event_id: `evt_${randomUUID()}`,
+      event_type: 'transaction.paid',
+      occurred_at: later.toISOString(),
+      data: {
+        id: renewalId,
+        subscription_id: subscriptionId,
+        items: [{ price: { id: old.priceId }, quantity: 1 }],
+        billing_period: { starts_at: later.toISOString(), ends_at: periodEnd.toISOString() },
+        details: { totals: { grand_total: '1500' } },
+      },
+    }, config, later)).toBe('credited');
+    const [renewal] = await db().select().from(schema.purchase).where(eq(schema.purchase.paddleTransactionId, renewalId));
+    expect(renewal).toMatchObject({ amountMinor: 1500, credits: 65_000 });
   });
   it('retains promotional payment snapshots for a missing webhook total', async () => {
-    const price = await savePricing(owner, 'pack', input, deps);
+    const price = await savePricing(owner, 'pack', { ...input, credits: 60_000 }, deps);
     const userId = await buyer();
     await db()
       .insert(schema.subscription)
@@ -184,6 +239,7 @@ describeWithDb('admin pricing and checkout', () => {
     expect(checkout.ok).toBe(true);
     const quote = create.mock.calls[0]![3]!;
     const transactionId = checkout.ok ? checkout.transactionId : '';
+    await savePricing(owner, 'pack', { revision: price.revision, priceMinor: 2000, credits: 70_000, promotion: null }, deps);
     await applyPaddleEvent(
       {
         event_id: `evt_${randomUUID()}`,
@@ -200,13 +256,26 @@ describeWithDb('admin pricing and checkout', () => {
       later,
     );
     const [purchase] = await db().select().from(schema.purchase).where(eq(schema.purchase.paddleTransactionId, transactionId));
-    expect(purchase).toMatchObject({ amountMinor: 2100, credits: 300_000 });
-    await savePricing(owner, 'pack', { revision: price.revision, priceMinor: 2000, promotion: null }, deps);
+    expect(purchase).toMatchObject({ amountMinor: 2100, credits: 180_000 });
     expect(await pendingCheckoutPricing(userId, transactionId)).toMatchObject({
       kind: 'pack',
       quantity: 3,
-      price: { priceMinor: 1500, effectivePriceMinor: 700 },
+      price: { priceMinor: 1500, effectivePriceMinor: 700, credits: 60_000 },
     });
     expect(await pendingCheckoutPricing(await buyer(), transactionId)).toBeNull();
+  });
+  it('uses the new allowance for legacy catalogue prices while preserving legacy checkout quotes', async () => {
+    const legacyConfig = { ...config, environment: 'production' as const };
+    await db().insert(schema.billingPrice).values({
+      environment: legacyConfig.environment, kind: 'plan', priceMinor: 1000, paddlePriceId: config.planPriceId,
+    });
+    expect(await checkoutPrice(db(), legacyConfig, 'plan', now)).toMatchObject({ priceMinor: 1000, credits: 50_000 });
+
+    const userId = await buyer();
+    const transactionId = `txn_${randomUUID()}`;
+    await db().insert(schema.paddleCheckout).values({
+      paddleTransactionId: transactionId, userId, kind: 'plan', quantity: 1, createdAt: now,
+    });
+    expect(await pendingCheckoutPricing(userId, transactionId)).toMatchObject({ price: { credits: 100_000 } });
   });
 });

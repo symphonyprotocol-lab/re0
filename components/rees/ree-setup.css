@@ -885,54 +885,6 @@
   font-size: 10px;
   color: rgb(150, 167, 190);
 }
-.dot-setup-page .setup-source-later {
-  border: 1px dashed rgb(215, 226, 241);
-  border-radius: 9px;
-  padding: 36px 25px;
-  text-align: center;
-  background: rgb(249, 251, 255);
-}
-.dot-setup-page .setup-source-later >svg {
-  color: rgb(137, 172, 224);
-  height: 30px;
-  width: 30px;
-  margin-bottom: 17px;
-}
-.dot-setup-page .setup-source-later h3 {
-  font-size: 15px;
-  margin: 0px 0px 13px;
-}
-.dot-setup-page .setup-source-later p {
-  color: rgb(154, 168, 189);
-  font-size: 11px;
-  line-height: 1.9;
-  margin: 0px;
-}
-.dot-setup-page .setup-file {
-  border: 1px dashed rgb(212, 222, 237);
-  border-radius: 8px;
-  padding: 23px;
-  background: rgb(249, 251, 255);
-}
-.dot-setup-page .setup-file input {
-  max-width: 100%;
-  font-size: 10px;
-}
-.dot-setup-page .setup-file p {
-  font-size: 11px;
-  color: rgb(126, 146, 175);
-  overflow-wrap: anywhere;
-}
-.dot-setup-page .setup-file small {
-  font-size: 9px;
-  color: rgb(155, 168, 187);
-  line-height: 1.8;
-}
-.dot-setup-page .setup-audio-consent {
-  font-size: 10px;
-  line-height: 1.8;
-  margin-top: 18px;
-}
 .dot-setup-page .setup-review {
   border: 1px solid var(--line);
   border-radius: 9px;

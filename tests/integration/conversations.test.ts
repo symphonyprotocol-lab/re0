@@ -65,6 +65,7 @@ async function reeOf(ownerId: string, options: { name?: string; content?: string
     reached: 4,
   });
   const { ree } = await rees.createReeFromDraft(ownerId);
+  if (ree.isPublic) await rees.setReePublished(ownerId, ree.id, true);
   const content = options.content === undefined ? REFUNDS : options.content;
   if (content) {
     const id = await knowledge.addKnowledge(ownerId, ree, { kind: 'text', title: `${ree.name} notes`, content });

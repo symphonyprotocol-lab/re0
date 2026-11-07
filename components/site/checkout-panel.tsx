@@ -6,7 +6,8 @@ import { WorkspaceLink as Link } from '@/components/shell/workspace-link';
 import Script from 'next/script';
 import { useNavigationRouter as useRouter } from '@/components/shell/navigation-provider';
 import { useEffect, useRef, useState } from 'react';
-import { PACK, PLAN } from '@/lib/constants';
+import { PACK } from '@/lib/constants';
+import { creditsFor } from '@/lib/domain/billing';
 import { useI18n } from '@/i18n/client';
 import { fill, formatNumber, formatUsd } from '@/i18n/format';
 import { Icon, Spinner } from '@/components/ui/icons';
@@ -72,7 +73,7 @@ export function CheckoutPanel({
 
   const money = (minor: number) => formatUsd(minor, locale);
   const subtotal = price.effectivePriceMinor * quantity;
-  const credits = kind === 'plan' ? PLAN.credits : PACK.credits * quantity;
+  const credits = creditsFor({ kind, quantity }, price.credits);
   const locked = kind === 'pack' && signedIn && !planActive;
   const alreadyPlan = kind === 'plan' && planActive;
 
@@ -167,7 +168,7 @@ export function CheckoutPanel({
         <h2 className="text-[22px] font-extrabold">{kind === 'plan' ? c.planName : c.packName}</h2>
         <span className="tag border-[#d8e6fb] bg-soft text-blue">{kind === 'plan' ? c.monthly : c.oneTime}</span>
       </div>
-      <p className="mt-1 text-[13px] text-muted">{kind === 'plan' ? c.planBody : c.packBody}</p>
+      <p className="mt-1 text-[13px] text-muted">{fill(kind === 'plan' ? c.planBody : c.packBody, { credits: formatNumber(price.credits, locale) })}</p>
       {kind === 'pack' && (
         <div className="mt-5 flex items-center justify-between gap-3">
           <label htmlFor="pack-quantity" className="text-[13px] font-semibold">

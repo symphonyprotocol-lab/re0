@@ -1,17 +1,11 @@
 /**
- * Acceptance: the four-step draft can be left and resumed and creates nothing
- * until confirmed; creation with a first source reserves its cost or, short
- * of credits, creates nothing. `/rees` follows the list contract.
+ * Acceptance: the three-step draft can be left and resumed and creates nothing
+ * until confirmed; creation ignores legacy sources and costs no credits. `/rees` follows the list contract.
  */
-import { describe, expect, it, vi } from 'vitest';
+import { describe, expect, it } from 'vitest';
 import { TEST_DATABASE_URL, uniqueName } from './setup';
 import { WELCOME_CREDITS } from '@/lib/constants';
 import { and, eq, inArray } from 'drizzle-orm';
-
-vi.mock('@/lib/infra/blob', () => ({
-  blobSize: async () => 1024,
-  readBlob: async () => new TextEncoder().encode('# Notes\n\nSome text.'),
-}));
 
 const describeWithDb = TEST_DATABASE_URL ? describe : describe.skip;
 
@@ -31,11 +25,11 @@ async function newUser() {
 const ready = (name: string) => ({
   ...newReeDraft(),
   name,
-  category: 'technology',
+  category: 'technology' as const,
   tags: ['React'],
   sampleQuestions: 'What is it?',
-  step: 4,
-  reached: 4,
+  step: 3,
+  reached: 3,
 });
 
 describeWithDb('Ree setup draft', () => {
@@ -57,38 +51,25 @@ describeWithDb('Ree setup draft', () => {
   it('creates the Ree on confirmation and clears the draft', async () => {
     const userId = await newUser();
     await rees.saveDraft(userId, ready('Created'));
-    const { ree, knowledgeId } = await rees.createReeFromDraft(userId);
-    expect(knowledgeId).toBeNull();
-    expect(ree).toMatchObject({ name: 'Created', category: 'technology', tags: ['React'], sampleQuestions: ['What is it?'], isPublic: false });
+    const { ree } = await rees.createReeFromDraft(userId);
+    expect(ree).toMatchObject({ name: 'Created', category: 'technology', tags: ['React'], sampleQuestions: ['What is it?'], isPublic: false, isPublished: false });
     expect(await rees.getDraft(userId)).toBeNull();
     expect(await balanceOf(db(), userId)).toBe(WELCOME_CREDITS);
   });
 
-  it('creates a pasted-text first source with its processing hold', async () => {
-    const userId = await newUser();
-    await rees.saveDraft(userId, { ...ready('With text'), source: { kind: 'text', title: 'Notes', text: 'x'.repeat(2500), fileName: '', fileSize: 0, blobPath: '' } });
-    const { ree, knowledgeId } = await rees.createReeFromDraft(userId);
-    expect(knowledgeId).not.toBeNull();
-    expect(await balanceOf(db(), userId)).toBe(WELCOME_CREDITS - 1);
-    const [hold] = await db().select().from(schema.creditHold).where(eq(schema.creditHold.refId, knowledgeId!));
-    expect(hold).toMatchObject({ kind: 'knowledge', amount: 1, status: 'held' });
-    const [row] = await db().select().from(schema.knowledge).where(eq(schema.knowledge.id, knowledgeId!));
-    expect(row).toMatchObject({ reeId: ree.id, kind: 'text', status: 'pending' });
-  });
-
-  it('creates nothing when the first source cannot be paid for', async () => {
+  it('ignores a legacy first source and creates for free even with no credits', async () => {
     const userId = await newUser();
     await db().update(schema.creditGrant).set({ remaining: 0 }).where(eq(schema.creditGrant.userId, userId));
-    await rees.saveDraft(userId, { ...ready('Too poor'), source: { kind: 'document', title: '', text: '', fileName: 'a.pdf', fileSize: 1024, blobPath: `knowledge/${userId}/x/a.pdf` } });
-    await expect(rees.createReeFromDraft(userId)).rejects.toMatchObject({ name: 'InsufficientCredits' });
-    expect(await db().select().from(schema.ree).where(eq(schema.ree.ownerId, userId))).toHaveLength(0);
-    expect(await rees.getDraft(userId)).not.toBeNull();
-  });
-
-  it('refuses a document someone else uploaded', async () => {
-    const userId = await newUser();
-    await rees.saveDraft(userId, { ...ready('Stolen'), source: { kind: 'document', title: '', text: '', fileName: 'a.pdf', fileSize: 1024, blobPath: 'knowledge/someone-else/x/a.pdf' } });
-    await expect(rees.createReeFromDraft(userId)).rejects.toMatchObject({ code: 'invalid_document' });
+    // Simulate a draft saved before the knowledge step was removed.
+    const legacy = { ...ready('Legacy draft'), step: 4, reached: 4, source: { kind: 'document', fileName: 'a.pdf', blobPath: 'knowledge/old/a.pdf' } };
+    await db().update(schema.user).set({ reeDraft: legacy }).where(eq(schema.user.id, userId));
+    expect(await rees.getDraft(userId)).toMatchObject({ step: 3, reached: 3 });
+    const { ree } = await rees.createReeFromDraft(userId);
+    expect(ree.name).toBe('Legacy draft');
+    expect(await db().select().from(schema.knowledge).where(eq(schema.knowledge.reeId, ree.id))).toHaveLength(0);
+    expect(await db().select().from(schema.creditHold).where(eq(schema.creditHold.userId, userId))).toHaveLength(0);
+    expect(await balanceOf(db(), userId)).toBe(0);
+    expect(await rees.getDraft(userId)).toBeNull();
   });
 });
 
@@ -97,7 +78,8 @@ describeWithDb('/rees list contract and settings', () => {
     const userId = await newUser();
     for (let i = 1; i <= 14; i += 1) {
       await rees.saveDraft(userId, { ...ready(`Ree ${i}`), isPublic: i % 2 === 0, description: i === 7 ? 'about gardening' : '' });
-      await rees.createReeFromDraft(userId);
+      const { ree } = await rees.createReeFromDraft(userId);
+      if (ree.isPublic) await rees.setReePublished(userId, ree.id, true);
     }
     const all = await rees.listRees(userId, { q: '', visibility: 'all', sort: 'name_asc', size: 12, page: 1 });
     expect(all.total).toBe(14);

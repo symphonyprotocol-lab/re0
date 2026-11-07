@@ -3,8 +3,7 @@
 import { useRouter } from 'next/navigation';
 import { useEffect, useRef, useState } from 'react';
 import { put } from '@vercel/blob/client';
-import { VIDEO_EXPORT_CREDITS } from '@/lib/constants';
-import { exportBrowserRefused, exportCost, introSize, scriptDownload, type IntroProps } from '@/lib/domain/video';
+import { exportBrowserRefused, exportCost, hasVideoAudio, introSize, scriptDownload, type IntroProps } from '@/lib/domain/video';
 import { api } from '@/lib/client/upload';
 import { useI18n } from '@/i18n/client';
 import { fill, formatDate } from '@/i18n/format';
@@ -46,6 +45,7 @@ export function ExportPanel({
   props,
   dirty,
   exportsCount,
+  exportCredits,
   lastExport,
   onExported,
 }: {
@@ -53,6 +53,7 @@ export function ExportPanel({
   props: IntroProps | null;
   dirty: boolean;
   exportsCount: number;
+  exportCredits: number;
   lastExport: LastExport | null;
   onExported: (count: number) => void;
 }) {
@@ -66,7 +67,7 @@ export function ExportPanel({
   const [result, setResult] = useState<{ url: string; aspect: string; cost: number; cached: boolean } | null>(null);
   const [error, setError] = useState<string | null>(null);
   const running = useRef<{ exportId: string; controller: AbortController } | null>(null);
-  const cost = exportCost(exportsCount);
+  const cost = exportCost(exportsCount, exportCredits);
 
   /* Leaving the page mid-export gives the hold back now rather than at the next cron run. */
   useEffect(() => {
@@ -92,7 +93,7 @@ export function ExportPanel({
     }
     try {
       const { canRenderMediaOnWeb } = await import('@remotion/web-renderer');
-      const check = await canRenderMediaOnWeb({ ...introSize(props.aspect), container: 'mp4', videoCodec: 'h264', muted: !props.music });
+      const check = await canRenderMediaOnWeb({ ...introSize(props.aspect), container: 'mp4', videoCodec: 'h264', muted: !hasVideoAudio(props) });
       if (!check.canRender) {
         setDialog('unsupported');
         return;
@@ -117,13 +118,19 @@ export function ExportPanel({
   };
 
   const run = async () => {
+    if (quote === null) return;
     setDialog(null);
     setResult(null);
     setError(null);
     setJob({ phase: 'render', percent: 0 });
-    const started = await api<Start & { error?: string }>(`/api/rees/${ree.id}/video/exports`, { method: 'POST' });
+    const started = await api<Start & { error?: string }>(`/api/rees/${ree.id}/video/exports`, { method: 'POST', json: { maxCost: quote } });
     if (!started.ok) {
       setJob(null);
+      if (started.data.error === 'price_changed') {
+        setError(e.priceChanged);
+        router.refresh();
+        return;
+      }
       setError(started.data.error === 'insufficient_credits' ? e.insufficient : started.data.error === 'no_script' ? e.noScript : fill(e.failed, { reason: started.data.error ?? started.status }));
       return;
     }
@@ -143,7 +150,7 @@ export function ExportPanel({
         inputProps: start.props,
         container: 'mp4',
         videoCodec: 'h264',
-        muted: !start.props.music,
+        muted: !hasVideoAudio(start.props),
         licenseKey: LICENSE_KEY,
         signal: controller.signal,
         onProgress: ({ progress }) => setJob({ phase: 'render', percent: Math.round(progress * 100) }),
@@ -200,7 +207,7 @@ export function ExportPanel({
       <div className="between">
         <div>
           <h3 id="video-export-title">{e.title}</h3>
-          <p>{exportsCount === 0 ? e.firstFree : fill(e.later, { n: VIDEO_EXPORT_CREDITS })}</p>
+          <p>{exportsCount === 0 ? e.firstFree : fill(e.later, { n: exportCredits })}</p>
         </div>
         <span className="tag blue">{cost === 0 ? e.freeTag : fill(e.costTag, { n: cost })}</span>
       </div>

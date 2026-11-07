@@ -1,13 +1,15 @@
 import type { NextRequest } from 'next/server';
-import { AUDIO_MAX_BYTES, DOCUMENT_MAX_BYTES } from '@/lib/constants';
+import { AUDIO_MAX_BYTES, DOCUMENT_MAX_BYTES, REE_COVER_MAX_BYTES, REE_IMAGE_EXTENSIONS } from '@/lib/constants';
 import { AUDIO_CONTENT_TYPES, audioFormat, DOCUMENT_CONTENT_TYPES, documentFormat, validAudio, validDocument } from '@/lib/domain/knowledge';
+import { isUuid } from '@/lib/domain/list';
 import { body, fail, json } from '@/lib/http/respond';
 import { apiUser } from '@/lib/http/session';
 import { uploadTicket } from '@/lib/infra/blob';
+import { db } from '@/lib/infra/db';
+import { ownedRee } from '@/lib/services/rees';
 
 /** A cropped 512×512 avatar is far below this. */
 const AVATAR_MAX_BYTES = 1024 * 1024;
-const AVATAR_TYPES: Record<string, string> = { 'image/webp': 'webp', 'image/png': 'png', 'image/jpeg': 'jpg' };
 
 /** Keeps a readable name in the pathname without letting it steer the path. */
 function safeName(fileName: string): string {
@@ -55,14 +57,23 @@ export async function POST(request: NextRequest) {
     return json({ ...ticket, contentType });
   }
 
-  if (input.purpose === 'avatar') {
+  if (input.purpose === 'avatar' || input.purpose === 'ree-cover') {
+    const isCover = input.purpose === 'ree-cover';
     const contentType = String(input.contentType ?? '');
-    const extension = AVATAR_TYPES[contentType];
+    const extension = Object.hasOwn(REE_IMAGE_EXTENSIONS, contentType) && REE_IMAGE_EXTENSIONS[contentType as keyof typeof REE_IMAGE_EXTENSIONS];
     const size = Number(input.size ?? 0);
-    if (!extension || size <= 0 || size > AVATAR_MAX_BYTES) return fail('invalid_avatar', 422);
-    const ticket = await uploadTicket(`avatars/${user.id}/${id}.${extension}`, {
+    const maxBytes = isCover ? REE_COVER_MAX_BYTES : AVATAR_MAX_BYTES;
+    if (!extension || !Number.isSafeInteger(size) || size <= 0 || size > maxBytes) {
+      return fail(isCover ? 'invalid_cover' : 'invalid_avatar', 422);
+    }
+    let directory = `avatars/${user.id}`;
+    if (isCover) {
+      if (!isUuid(input.reeId) || !(await ownedRee(db(), user.id, input.reeId))) return fail('not_found', 404);
+      directory = `ree-covers/${input.reeId.toLowerCase()}`;
+    }
+    const ticket = await uploadTicket(`${directory}/${id}.${extension}`, {
       contentTypes: [contentType],
-      maxBytes: AVATAR_MAX_BYTES,
+      maxBytes,
     });
     return json({ ...ticket, contentType, url: `/media/${ticket.pathname}` });
   }

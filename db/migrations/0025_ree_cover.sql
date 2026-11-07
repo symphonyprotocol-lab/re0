@@ -1,0 +1,1 @@
+ALTER TABLE "ree" ADD COLUMN "cover_blob" text;

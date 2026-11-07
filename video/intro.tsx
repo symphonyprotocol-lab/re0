@@ -15,6 +15,7 @@ import { VIDEO_FPS, VIDEO_FRAMES, type VideoAspect } from '@/lib/constants';
 import { introSize, scriptLang, shotAt, shotWindows, type IntroProps } from '@/lib/domain/video';
 import { Avatar, Backdrop, Chrome, Glyph, QrCode, ShotFade, shotSpan, useEntrance, useUnit } from './parts';
 import { MONO, mix, PALETTES, SANS, type Palette } from './theme';
+import { ProductDemoVideo } from './product-demo';
 
 /** The built-in music (video/music/generate.mts), served from `public/`. */
 export const INTRO_MUSIC = '/video/intro-music.wav';
@@ -269,7 +270,7 @@ function Music() {
   );
 }
 
-export function ReeIntro(props: IntroProps) {
+function ClassicIntro({ silent = false, ...props }: IntroProps & { silent?: boolean }) {
   const palette = PALETTES[props.template] ?? PALETTES.editorial;
   const captions = CAPTIONS[scriptLang(props.scenes)];
   const { durationInFrames } = useVideoConfig();
@@ -288,9 +289,20 @@ export function ReeIntro(props: IntroProps) {
         );
       })}
       <ChromeAtFrame palette={palette} props={props} />
-      {props.music && <Music />}
+      {props.music && !silent && <Music />}
     </AbsoluteFill>
   );
+}
+
+export function ReeIntro(props: IntroProps) {
+  return props.template === 'product-demo' && props.scenes.demo ? <ProductDemoVideo {...props} /> : <ClassicIntro {...props} />;
+}
+
+/** The same visual composition without loading audio for a still. */
+export function ReeIntroStill(props: IntroProps) {
+  return props.template === 'product-demo' && props.scenes.demo
+    ? <ProductDemoVideo {...props} narrationUrl={undefined} music={false} />
+    : <ClassicIntro {...props} silent />;
 }
 
 /** The composition as Player and `renderMediaOnWeb()` take it: 15 s, 24 fps, 720p in the chosen aspect. */

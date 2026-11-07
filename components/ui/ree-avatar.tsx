@@ -2,7 +2,7 @@ import { Icon } from '@/components/ui/icons';
 
 /** The six default colors (prototype styles.css `.dot-avatar.*`). */
 const COLORS: Record<string, string> = {
-  default: 'bg-soft text-blue border-[#e0eafa]',
+  default: 'bg-soft text-brand-blue border-[#e0eafa]',
   lilac: 'bg-[#f1edfb] text-[#9275bf] border-[#e8e1f5]',
   sand: 'bg-[#f9f4ec] text-[#a18a60] border-[#eee7da]',
   sage: 'bg-[#eaf4f0] text-[#5b8e7e] border-[#dfebe5]',

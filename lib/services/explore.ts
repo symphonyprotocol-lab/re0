@@ -39,7 +39,7 @@ const reeOwner = sql.raw('"ree"."owner_id"');
 
 /** Public: shown, not taken down, not deleted. */
 export function publicRee(): SQL {
-  return and(eq(schema.ree.isPublic, true), isNull(schema.ree.moderatedAt), isNull(schema.ree.deletedAt))!;
+  return and(eq(schema.ree.isPublic, true), eq(schema.ree.isPublished, true), isNull(schema.ree.moderatedAt), isNull(schema.ree.deletedAt))!;
 }
 
 /** Ready, enabled sources (the count a public page and a card show; titles never). */
@@ -53,6 +53,7 @@ export interface ReeCard {
   name: string;
   description: string;
   avatarBlob: string | null;
+  coverBlob: string | null;
   color: string;
   category: string;
   tags: string[];
@@ -68,7 +69,7 @@ export interface ReeCard {
   /** The matched passage, when the card answers a question. */
   excerpt: string | null;
   createdAt: Date;
-  /** Step 7: the Ree's introduction for the cover and its play dialog; null without one. */
+  /** Introduction when requested by the caller and available. */
   video: IntroProps | null;
 }
 
@@ -78,6 +79,7 @@ const cardColumns = {
   name: schema.ree.name,
   description: schema.ree.description,
   avatarBlob: schema.ree.avatarBlob,
+  coverBlob: schema.ree.coverBlob,
   color: schema.ree.color,
   category: schema.ree.category,
   tags: schema.ree.tags,
@@ -111,11 +113,16 @@ async function withIntros(cards: ReeCard[]): Promise<ReeCard[]> {
 }
 
 /** Cards for these public Rees, in the order given. */
-export async function reeCards(ids: readonly string[], excerpts: ReadonlyMap<string, string> = new Map()): Promise<ReeCard[]> {
+export async function reeCards(
+  ids: readonly string[],
+  excerpts: ReadonlyMap<string, string> = new Map(),
+  { includeIntros = true } = {},
+): Promise<ReeCard[]> {
   if (ids.length === 0) return [];
   const rows = await cardQuery().where(and(inArray(schema.ree.id, [...ids]), publicRee()));
   const byId = new Map(rows.map((row) => [row.id, row]));
-  return withIntros(ids.map((id) => byId.get(id)).filter((row): row is CardRow => Boolean(row)).map((row) => toCard(row, excerpts.get(row.id) ?? null)));
+  const cards = ids.map((id) => byId.get(id)).filter((row): row is CardRow => Boolean(row)).map((row) => toCard(row, excerpts.get(row.id) ?? null));
+  return includeIntros ? withIntros(cards) : cards;
 }
 
 /* ------------------------------------------------------------- the search */
@@ -242,13 +249,14 @@ const roleOrder = sql<number>`case ${schema.user.role} when 'official' then 2 wh
  * question: public Rees, most active in 30 days first, the role only
  * breaking ties (8.2, "explore 排序").
  */
-export async function explore(query: ExploreQuery): Promise<ExploreResult> {
+export async function explore(query: ExploreQuery, { includeIntros = true } = {}): Promise<ExploreResult> {
   if (query.q) {
     const vector = await embedQuestion(query.q);
     const hits = await searchRees({ question: query.q, vector, category: query.category });
     let cards = await reeCards(
       hits.map((hit) => hit.reeId),
       new Map(hits.map((hit) => [hit.reeId, hit.excerpt])),
+      { includeIntros },
     );
     if (query.sort === 'answers') cards = [...cards].sort((a, b) => b.answers - a.answers);
     if (query.sort === 'free') cards = [...cards].sort((a, b) => a.queryFee - b.queryFee);
@@ -271,7 +279,8 @@ export async function explore(query: ExploreQuery): Promise<ExploreResult> {
     .orderBy(...order)
     .limit(query.size)
     .offset((page - 1) * query.size);
-  return { mode: 'browse', items: await withIntros(rows.map((row) => toCard(row))), total, page, size: query.size };
+  const cards = rows.map((row) => toCard(row));
+  return { mode: 'browse', items: includeIntros ? await withIntros(cards) : cards, total, page, size: query.size };
 }
 
 /** The most active public Rees (home page examples). */

@@ -7,7 +7,7 @@ import { unreadNotices } from '@/lib/services/notices';
 import { reeCount } from '@/lib/services/rees';
 import { AppShell } from '@/components/shell/app-shell';
 
-/** The signed-in frame with its sidebar data, shared by the workspace and by `/explore` and `/r/[slug]` once signed in. */
+/** The persistent signed-in frame, owned by the product layout for workspace and discovery routes. */
 export async function WorkspaceFrame({ user, children }: { user: SessionUser; children: ReactNode }) {
   const [billing, count, history, jar, unread] = await Promise.all([
     shellBilling(user.id),

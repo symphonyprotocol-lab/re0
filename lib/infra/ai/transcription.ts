@@ -96,9 +96,12 @@ export function transcriptionModel(endpoint: ModelEndpoint): TranscriptionModel 
         const call = await prepareProviderCall(modelCostTarget(endpoint, 'transcription'));
         const result = await model.doGenerate(options);
         const body = result.response?.body as { usage?: unknown } | undefined;
+        // Reported duration first, then the last segment's end, then a WAV piece's own header.
+        const seconds = result.durationInSeconds ?? result.segments.at(-1)?.endSecond ?? wavSeconds(options.audio);
         await call?.complete({
-          usage: { ...tokenUsage(body?.usage), seconds: result.durationInSeconds ?? undefined },
+          usage: { ...tokenUsage(body?.usage), seconds },
           providerMetadata: result.providerMetadata, requestId: result.response?.headers?.['x-request-id'],
+          acceptUnknownCost: seconds === undefined,
       });
       return result;
       });
@@ -112,6 +115,13 @@ export interface AudioPiece {
   bytes: Uint8Array;
   /** Exact duration when the format tells it (WAV), else null. */
   seconds: number | null;
+}
+
+/** The exact length of WAV audio from its header; undefined for other formats. */
+export function wavSeconds(audio: unknown): number | undefined {
+  if (!(audio instanceof Uint8Array)) return undefined;
+  const pieces = wavPieces(audio, audio.length + 1024);
+  return pieces?.length ? pieces.reduce((sum, piece) => sum + (piece.seconds ?? 0), 0) : undefined;
 }
 
 function ascii(bytes: Uint8Array, at: number, length: number): string {

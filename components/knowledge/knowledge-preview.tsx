@@ -572,7 +572,6 @@ export function KnowledgePreview({
       <KnowledgeDialogs
         reeId={reeId}
         dialog={dialog}
-        onOpen={setDialog}
         onClose={() => setDialog(null)}
         onDone={(message) => {
           setDialog(null);

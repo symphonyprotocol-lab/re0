@@ -3,6 +3,7 @@ import type { PurchaseKind } from '@/lib/domain/billing';
 
 export interface PriceSettings {
   priceMinor: number;
+  credits: number;
   promotion: { priceMinor: number; startsAt: string; endsAt: string } | null;
 }
 export interface PriceView extends PriceSettings {
@@ -21,19 +22,21 @@ export function priceView(settings: PriceSettings, revision: string, now = new D
     revision,
     promotional,
     effectivePriceMinor: promotional ? promo!.priceMinor : settings.priceMinor,
-    quoteKey: `${revision}:${promotional ? 'promotion' : 'regular'}`,
+    quoteKey: `${revision}:${promotional ? 'promotion' : 'regular'}:${settings.credits}`,
   };
 }
 
 export function defaultPrice(kind: PurchaseKind, now = new Date()): PriceView {
-  return priceView({ priceMinor: (kind === 'plan' ? PLAN : PACK).priceMinor, promotion: null }, 'default', now);
+  const { priceMinor, credits } = kind === 'plan' ? PLAN : PACK;
+  return priceView({ priceMinor, credits, promotion: null }, 'default', now);
 }
 
 /** Currency is USD cents; reject rounding, partial dates and non-discount promotions. */
-export function parsePriceSettings(raw: Record<string, unknown>): PriceSettings | null {
+export function parsePriceSettings(raw: Record<string, unknown>): (Omit<PriceSettings, 'credits'> & { credits?: number }) | null {
   const validAmount = (n: unknown): n is number => typeof n === 'number' && Number.isSafeInteger(n) && n >= 1 && n <= 100_000_000;
-  if (!validAmount(raw.priceMinor)) return null;
-  if (raw.promotion === null) return { priceMinor: raw.priceMinor, promotion: null };
+  if (!validAmount(raw.priceMinor) || (raw.credits !== undefined && !validAmount(raw.credits))) return null;
+  const { priceMinor, credits } = raw;
+  if (raw.promotion === null) return { priceMinor, credits, promotion: null };
   if (!raw.promotion || typeof raw.promotion !== 'object' || Array.isArray(raw.promotion)) return null;
   const p = raw.promotion as Record<string, unknown>;
   const date = (s: unknown): s is string =>
@@ -42,23 +45,32 @@ export function parsePriceSettings(raw: Record<string, unknown>): PriceSettings 
     Number.isFinite(Date.parse(s));
   if (
     !validAmount(p.priceMinor) ||
-    p.priceMinor >= raw.priceMinor ||
+    p.priceMinor >= priceMinor ||
     !date(p.startsAt) ||
     !date(p.endsAt) ||
     Date.parse(p.startsAt) >= Date.parse(p.endsAt)
   )
     return null;
   return {
-    priceMinor: raw.priceMinor,
+    priceMinor,
+    credits,
     promotion: { priceMinor: p.priceMinor, startsAt: new Date(p.startsAt).toISOString(), endsAt: new Date(p.endsAt).toISOString() },
   };
 }
 
-export interface WelcomeCreditsView {
+export interface CreditAmountView {
   credits: number;
   revision: string;
 }
 
+function validCreditAmount(value: unknown, min: number): value is number {
+  return typeof value === 'number' && Number.isSafeInteger(value) && value >= min && value <= 100_000_000;
+}
+
 export function validWelcomeCredits(value: unknown): value is number {
-  return typeof value === 'number' && Number.isSafeInteger(value) && value >= 0 && value <= 100_000_000;
+  return validCreditAmount(value, 0);
+}
+
+export function validVideoCredits(value: unknown): value is number {
+  return validCreditAmount(value, 1);
 }

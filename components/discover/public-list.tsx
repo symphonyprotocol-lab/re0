@@ -7,6 +7,7 @@ import { fill, formatNumber } from '@/i18n/format';
 import { Icon } from '@/components/ui/icons';
 import { ReeCover } from '@/components/discover/ree-card';
 import { RoleBadge } from '@/components/discover/role-badge';
+import { ReeFavoriteButton } from '@/components/rees/ree-favorite-button';
 
 /** "相关 Rees" / "作者的其他 Rees" (prototype public-dot.js `recommendationGroup`): four a page, each group paged on its own. */
 export function PublicListSection({
@@ -18,6 +19,9 @@ export function PublicListSection({
   previousHref,
   nextHref,
   from,
+  returnTo,
+  favoriteIds,
+  viewerId,
 }: {
   kind: 'related' | 'author';
   list: PublicList;
@@ -27,6 +31,9 @@ export function PublicListSection({
   previousHref: string;
   nextHref: string;
   from: string;
+  returnTo: string;
+  favoriteIds?: string[];
+  viewerId?: string;
 }) {
   const { t, locale } = useI18n();
   const p = t.discover.public;
@@ -50,24 +57,33 @@ export function PublicListSection({
           {list.items.map((ree) => {
             const href = `/r/${ree.slug}${from !== '/explore' ? `?from=${encodeURIComponent(from)}` : ''}`;
             return (
-              <li key={ree.id} className="min-w-0 overflow-hidden rounded-xl border border-line bg-white">
-                <Link href={href} className="block" tabIndex={-1} aria-hidden="true">
-                  <ReeCover ree={ree} />
-                </Link>
-                <Link href={href} className="block p-3 hover:text-blue">
-                  <strong className="flex min-w-0 items-center text-[13px]">
-                    <span className="truncate">{ree.name}</span>
-                  </strong>
-                  <p className="mt-1 line-clamp-2 text-[11px] text-muted">{ree.description}</p>
-                  <span className="mt-2 flex flex-wrap items-center gap-x-2 text-[10px] text-muted">
-                    <span className="flex items-center">
-                      {ree.ownerName}
-                      <RoleBadge role={ree.role} />
+              <li key={ree.id} className="group relative min-w-0 overflow-hidden rounded-xl border border-line bg-white transition-[scale,box-shadow] has-[>div>a>.workspace-link-progress[data-pending=true]]:scale-[0.985] has-[>div>a>.workspace-link-progress[data-pending=true]]:ring-2 has-[>div>a>.workspace-link-progress[data-pending=true]]:ring-[#c5dcf8]">
+                <ReeCover ree={ree} />
+                <div className="flex items-start gap-1.5 p-3">
+                  {/* One link per Ree; its ::after covers the whole card (the link is unpositioned so the li holds it). */}
+                  <Link
+                    href={href}
+                    className="static! block min-w-0 flex-1 group-hover:text-blue after:absolute after:inset-0 after:z-0 after:content-['']"
+                  >
+                    <strong className="flex min-w-0 items-center text-[13px]">
+                      <span className="truncate">{ree.name}</span>
+                    </strong>
+                    <p className="mt-1 line-clamp-2 text-[11px] text-muted">{ree.description}</p>
+                    <span className="mt-2 flex flex-wrap items-center gap-x-2 text-[10px] text-muted">
+                      <span className="flex items-center">
+                        {ree.ownerName}
+                        <RoleBadge role={ree.role} />
+                      </span>
+                      <span>{fill(p.successfulAnswers, { n: n(ree.answers) })}</span>
+                      <span>{ree.positiveRate === null ? p.noRating : fill(p.positive, { n: ree.positiveRate })}</span>
                     </span>
-                    <span>{fill(p.successfulAnswers, { n: n(ree.answers) })}</span>
-                    <span>{ree.positiveRate === null ? p.noRating : fill(p.positive, { n: ree.positiveRate })}</span>
-                  </span>
-                </Link>
+                  </Link>
+                  {ree.ownerId !== viewerId && (
+                    <span className="relative z-10 shrink-0">
+                      <ReeFavoriteButton ree={ree} favorite={favoriteIds?.includes(ree.id)} returnTo={returnTo} />
+                    </span>
+                  )}
+                </div>
               </li>
             );
           })}

@@ -3,33 +3,31 @@
  * and soft deletion (rebuild-proposal.md 3, 8.2).
  */
 import { and, asc, desc, eq, ilike, inArray, isNull, or, sql, type SQL } from 'drizzle-orm';
-import { REE_PAGE_SIZES } from '@/lib/constants';
+import { REE_COVER_MAX_BYTES, REE_PAGE_SIZES } from '@/lib/constants';
 import { clampPage, likePattern, type ListResult } from '@/lib/domain/list';
 import { positiveRate } from '@/lib/domain/explore';
 import {
   coerceDraft,
+  isReeCoverPath,
   newReeDraft,
   randomSlug,
   REE_BATCH_MAX,
   reeValues,
-  validateDraftSource,
   validateReeFields,
-  type DraftSource,
   type ReeDraft,
   type ReeFieldError,
   type ReeFields,
-  type SourceError,
   type VisibilityPlan,
   visibilityPlan,
 } from '@/lib/domain/ree';
+import { blobSize } from '@/lib/infra/blob';
 import { db, schema, type Executor, type Tx } from '@/lib/infra/db';
 import { detachRee } from '@/lib/services/conversations';
-import { checkKnowledge, createKnowledgeInTx, type NewKnowledge } from '@/lib/services/knowledge';
 import { votesByOthers } from '@/lib/services/ree-feedback';
 
 export type Ree = typeof schema.ree.$inferSelect;
 
-export const REE_VISIBILITIES = ['all', 'public', 'private'] as const;
+export const REE_VISIBILITIES = ['all', 'public', 'private', 'published', 'unpublished'] as const;
 export const REE_SORTS = [
   'default',
   'name_asc',
@@ -48,10 +46,12 @@ export interface ReeListItem {
   slug: string;
   description: string;
   avatarBlob: string | null;
+  coverBlob: string | null;
   color: string;
   category: string;
   tags: string[];
   isPublic: boolean;
+  isPublished: boolean;
   /** Taken down by an administrator: shown as "已下架" and never made public by the owner (2.5). */
   moderatedAt: Date | null;
   sources: number;
@@ -85,6 +85,8 @@ function listWhere(ownerId: string, query: { q: string; visibility: ReeVisibilit
   const conditions: SQL[] = [ownedLive(ownerId)];
   if (query.visibility === 'public') conditions.push(eq(schema.ree.isPublic, true));
   if (query.visibility === 'private') conditions.push(eq(schema.ree.isPublic, false));
+  if (query.visibility === 'published') conditions.push(eq(schema.ree.isPublished, true));
+  if (query.visibility === 'unpublished') conditions.push(eq(schema.ree.isPublished, false));
   if (query.q) {
     const pattern = likePattern(query.q);
     conditions.push(
@@ -127,10 +129,12 @@ export async function listRees(
       slug: schema.ree.slug,
       description: schema.ree.description,
       avatarBlob: schema.ree.avatarBlob,
+      coverBlob: schema.ree.coverBlob,
       color: schema.ree.color,
       category: schema.ree.category,
       tags: schema.ree.tags,
       isPublic: schema.ree.isPublic,
+      isPublished: schema.ree.isPublished,
       moderatedAt: schema.ree.moderatedAt,
       sources: sourcesCount,
       readySources: readyCount,
@@ -157,7 +161,7 @@ export async function reeTotals(ownerId: string) {
   const [row] = await db()
     .select({
       rees: sql<number>`count(*)::int`,
-      public: sql<number>`count(*) filter (where ${schema.ree.isPublic})::int`,
+      public: sql<number>`count(*) filter (where ${schema.ree.isPublished})::int`,
       sources: sql<number>`coalesce(sum(${sourcesCount}), 0)::int`,
       readySources: sql<number>`coalesce(sum(${readyCount}), 0)::int`,
       answers: sql<number>`coalesce(sum(${answersCount}), 0)::int`,
@@ -254,7 +258,7 @@ function draftFields(draft: ReeDraft): ReeFields & { isPublic: boolean; color: u
 
 export class ReeInputError extends Error {
   constructor(
-    readonly field: ReeFieldError | SourceError,
+    readonly field: ReeFieldError | 'invalid_cover',
     readonly step: number,
   ) {
     super(field);
@@ -277,78 +281,44 @@ async function insertRee(tx: Tx, ownerId: string, values: ReturnType<typeof reeV
   throw new Error('could not find a free slug');
 }
 
-/** The wizard's first source as a knowledge submission, or null for "稍后添加". */
-export function draftKnowledge(source: DraftSource): NewKnowledge | null {
-  switch (source.kind) {
-    case 'later':
-      return null;
-    case 'document':
-      return { kind: 'document', blobPath: source.blobPath, fileName: source.fileName };
-    case 'audio':
-      return { kind: 'audio', blobPath: source.blobPath, fileName: source.fileName, consent: source.consent };
-    case 'text':
-      return { kind: 'text', title: source.title, content: source.text };
-    case 'github':
-    case 'page':
-    case 'site':
-      return { kind: source.kind, url: source.url };
-  }
-}
-
-/**
- * The part of a first source's check that needs the network -- a private
- * repository's GitHub connection, a website's verified domain -- run when
- * the wizard leaves step 3, so the owner is told there and not at the end.
- */
-export async function checkDraftSource(ownerId: string, source: DraftSource): Promise<void> {
-  if (source.kind !== 'github' && source.kind !== 'site') return;
-  await checkKnowledge(ownerId, draftKnowledge(source)!);
-}
-
-/**
- * The wizard's final confirmation: the only moment a Ree is created. The
- * first source, when there is one, is created in the same transaction with
- * its processing hold -- not enough credits and nothing is created at all.
- */
-export async function createReeFromDraft(ownerId: string): Promise<{ ree: Ree; knowledgeId: string | null }> {
+/** The wizard's final confirmation creates the Ree and clears its draft. */
+export async function createReeFromDraft(ownerId: string): Promise<{ ree: Ree }> {
   const draft = await getDraft(ownerId);
   if (!draft) throw new ReeInputError('name', 1);
-  const invalid = validateReeFields(draftFields(draft), 4);
+  const invalid = validateReeFields(draftFields(draft), 3);
   if (invalid) throw new ReeInputError(invalid.error, invalid.step);
-  const sourceError = validateDraftSource(draft.source);
-  if (sourceError) throw new ReeInputError(sourceError, 3);
-
-  const source = draftKnowledge(draft.source);
-  /* The upload is checked against Blob before the transaction opens. */
-  const checked = source ? await checkKnowledge(ownerId, source) : null;
-
   return db().transaction(async (tx) => {
     const avatar = draft.avatarBlob?.startsWith(`avatars/${ownerId}/`) ? draft.avatarBlob : null;
     const ree = await insertRee(tx, ownerId, reeValues(draftFields(draft)), avatar);
-    let knowledgeId: string | null = null;
-    if (checked) knowledgeId = await createKnowledgeInTx(tx, ownerId, ree, checked);
     await tx.update(schema.user).set({ reeDraft: null }).where(eq(schema.user.id, ownerId));
-    return { ree, knowledgeId };
+    return { ree };
   });
 }
 
 export async function updateRee(
   ownerId: string,
   id: string,
-  fields: ReeFields & { isPublic: boolean; color: unknown; avatarBlob: string | null },
+  fields: ReeFields & { isPublic: boolean; color: unknown; avatarBlob: string | null; coverBlob?: string | null },
 ): Promise<Ree | null> {
-  const invalid = validateReeFields(fields, 4);
+  const invalid = validateReeFields(fields, 3);
   if (invalid) throw new ReeInputError(invalid.error, invalid.step);
   const avatarBlob = fields.avatarBlob && fields.avatarBlob.startsWith(`avatars/${ownerId}/`) ? fields.avatarBlob : null;
+  const { coverBlob } = fields;
+  if (coverBlob !== undefined && coverBlob !== null) {
+    if (!isReeCoverPath(coverBlob, id.toLowerCase())) throw new ReeInputError('invalid_cover', 1);
+    if (!(await ownedRee(db(), ownerId, id))) return null;
+    const size = await blobSize(coverBlob);
+    if (!size || size > REE_COVER_MAX_BYTES) throw new ReeInputError('invalid_cover', 1);
+  }
   return db().transaction(async (tx) => {
     const [row] = await tx
       .update(schema.ree)
       /* A Ree an administrator took down stays private until it is restored (2.5). */
-      .set({ ...reeValues(fields), isPublic: sql`(${fields.isPublic} and "ree"."moderated_at" is null)`, avatarBlob, updatedAt: new Date() })
+      .set({ ...reeValues(fields), isPublic: sql`(${fields.isPublic} and "ree"."moderated_at" is null)`, isPublished: sql`(${fields.isPublic} and "ree"."is_published" and "ree"."moderated_at" is null)`, avatarBlob, coverBlob, updatedAt: new Date() })
       .where(and(eq(schema.ree.id, id), ownedLive(ownerId)))
       .returning();
     /* Private now: out of other people's conversations and out of discovery (8.2); the history stays. */
-    if (row && !row.isPublic) await hide(tx, row.id, { includeOwner: false });
+    if (row && !row.isPublished) await hide(tx, row.id, { includeOwner: false });
     return row ?? null;
   });
 }
@@ -378,11 +348,33 @@ export async function setReesVisibility(ownerId: string, ids: readonly string[],
     if (plan.changes.length) {
       await tx
         .update(schema.ree)
-        .set({ isPublic: sql`(${isPublic} and "ree"."moderated_at" is null)`, updatedAt: new Date() })
+        .set({ isPublic: sql`(${isPublic} and "ree"."moderated_at" is null)`, isPublished: sql`(${isPublic} and "ree"."is_published" and "ree"."moderated_at" is null)`, updatedAt: new Date() })
         .where(inArray(schema.ree.id, plan.changes));
       if (!isPublic) for (const id of plan.changes) await hide(tx, id, { includeOwner: false });
     }
     return plan;
+  });
+}
+
+export class ReePublicationError extends Error {
+  constructor(readonly code: 'not_public' | 'moderated') {
+    super(code);
+    this.name = 'ReePublicationError';
+  }
+}
+
+/** Publish only an owned, public Ree. Unpublishing retains its public configuration. */
+export async function setReePublished(ownerId: string, id: string, isPublished: boolean): Promise<Ree | null> {
+  if (!/^[0-9a-f-]{36}$/i.test(id)) return null;
+  return db().transaction(async (tx) => {
+    const [current] = await tx.select().from(schema.ree).where(and(eq(schema.ree.id, id), ownedLive(ownerId))).for('update');
+    if (!current) return null;
+    if (isPublished && current.moderatedAt) throw new ReePublicationError('moderated');
+    if (isPublished && !current.isPublic) throw new ReePublicationError('not_public');
+    if (current.isPublished === isPublished) return current;
+    const [ree] = await tx.update(schema.ree).set({ isPublished, updatedAt: new Date() }).where(eq(schema.ree.id, id)).returning();
+    if (!isPublished) await hide(tx, id, { includeOwner: false });
+    return ree!;
   });
 }
 
@@ -396,7 +388,7 @@ export async function deleteRee(ownerId: string, id: string): Promise<boolean> {
   return db().transaction(async (tx) => {
     const rows = await tx
       .update(schema.ree)
-      .set({ deletedAt: new Date(), isPublic: false })
+      .set({ deletedAt: new Date(), isPublic: false, isPublished: false })
       .where(and(eq(schema.ree.id, id), ownedLive(ownerId)))
       .returning({ id: schema.ree.id });
     if (rows.length) await hide(tx, id, { includeOwner: true });

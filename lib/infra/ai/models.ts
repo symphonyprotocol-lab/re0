@@ -17,6 +17,7 @@ import {
   EMBEDDING_DIMENSIONS,
   MODEL_CACHE_MS,
   MODEL_TIMEOUT_MS,
+  OPENAI_SPEECH_BASE,
   type ModelKind,
 } from '@/lib/constants';
 import { mayCarryKey, type GenerationAudience, type ModelTransport } from '@/lib/domain/models';
@@ -43,6 +44,7 @@ const ENV_PREFIX: Record<ModelKind, string> = {
   generation: 'GENERATION',
   embedding: 'EMBEDDING',
   transcription: 'TRANSCRIPTION',
+  speech: 'SPEECH',
 };
 
 function env(name: string): string | null {
@@ -53,6 +55,15 @@ function env(name: string): string | null {
 /** The endpoint a kind falls back to with no console entry. */
 export function environmentEndpoint(kind: ModelKind): ModelEndpoint {
   const prefix = ENV_PREFIX[kind];
+  if (kind === 'speech') {
+    const apiKey = env('SPEECH_API_KEY') ?? env('AI_GATEWAY_API_KEY');
+    const model = env('SPEECH_MODEL');
+    return {
+      kind, configId: null, name: 'Vercel AI Gateway', transport: 'gateway',
+      baseUrl: null, model: model ?? DEFAULT_MODELS.speech, apiKey,
+      timeoutMs: MODEL_TIMEOUT_MS.default, source: apiKey || model ? 'environment' : 'default',
+    };
+  }
   /* EMBEDDING_PROVIDER_* are what deployments before the rebuild hold. */
   const legacyKey = kind === 'embedding' ? env('EMBEDDING_PROVIDER_API_KEY') : null;
   const legacyBase =
@@ -97,7 +108,8 @@ export async function consoleEndpoint(row: typeof schema.modelConfig.$inferSelec
   let apiKey = await openCredential(row.apiKeyCipher, 'provider');
   if (!row.apiKeyCipher) {
     const fallback = environmentEndpoint(row.kind);
-    apiKey = mayCarryKey(fallback, row) ? fallback.apiKey : null;
+    apiKey = mayCarryKey(fallback, row) ? fallback.apiKey
+      : row.kind === 'speech' && row.baseUrl === OPENAI_SPEECH_BASE ? env('OPENAI_API_KEY') : null;
   }
   return {
     kind: row.kind,
@@ -144,7 +156,11 @@ function compatible(endpoint: ModelEndpoint) {
   });
 }
 
-function gatewayFor(endpoint: ModelEndpoint) {
+export function endpointHasCredentials(endpoint: ModelEndpoint): boolean {
+  return Boolean(endpoint.apiKey || (endpoint.transport === 'gateway' && (env('VERCEL_OIDC_TOKEN') || env('VERCEL') === '1')));
+}
+
+export function gatewayFor(endpoint: ModelEndpoint) {
   return endpoint.apiKey ? createGateway({ apiKey: endpoint.apiKey }) : gateway;
 }
 

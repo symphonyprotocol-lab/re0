@@ -36,7 +36,7 @@ export async function POST(request: NextRequest, context: { params: Promise<{ id
         : await runBatch(user.id, ree.id, { action, ids });
     if (result.process.length > 0) after(() => processMany(result.process));
     /* Paused, resumed, trashed or restored sources change what the Ree knows: its explore profile follows (2.4). */
-    if (['pause', 'resume', 'trash', 'restore'].includes(action) && ree.isPublic) after(() => refreshProfile(ree.id).catch(() => undefined));
+    if (['pause', 'resume', 'trash', 'restore'].includes(action) && ree.isPublished) after(() => refreshProfile(ree.id).catch(() => undefined));
     return json({ changed: result.changed, folder: result.folder ?? null });
   } catch (error) {
     if (error instanceof KnowledgeInputError) return fail(error.code, inputErrorStatus(error.code));

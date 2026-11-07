@@ -5,10 +5,11 @@
   --color-bg: #f5f3ff;
   --color-paper: #ffffff;
   --color-ink: #091135;
-  --color-muted: #697088;
+  --color-muted: #626a81;
   --color-line: #e2e6f0;
-  --color-blue: #127ee3;
-  --color-blue-dark: #0867c4;
+  --color-brand-blue: #127ee3;
+  --color-blue: #0867c4;
+  --color-blue-dark: #0756a7;
   --color-soft: #edf4ff;
   --color-wash: #fafaff;
   --color-green: #128168;
@@ -69,6 +70,10 @@ body {
  * 0.875x its usual px value.
  */
 @layer components {
+  .brand-zero {
+    font-family: var(--font-mono);
+    font-size: 0.97em;
+  }
   .btn {
     @apply inline-flex min-h-[40px] items-center justify-center gap-[8px] rounded-[8px] border border-transparent bg-blue px-[16px] py-[9px] text-[13px] leading-[1.4] font-[550] whitespace-nowrap text-white transition not-disabled:hover:-translate-y-0.5 not-disabled:active:translate-y-0 not-disabled:active:scale-[0.97] not-disabled:hover:bg-blue-dark not-disabled:hover:shadow-[0_5px_12px_#127ee31a] not-disabled:active:shadow-none disabled:cursor-not-allowed disabled:opacity-45;
   }

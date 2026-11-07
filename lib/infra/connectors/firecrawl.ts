@@ -60,6 +60,8 @@ export async function firecrawlSections(bytes: Uint8Array, fileName: string, for
     }
     const remaining = deadline - Date.now();
     if (remaining <= 0) throw lastFailure ?? new ProcessingFailure('parse_failed', 'Firecrawl document parsing timed out');
+    // Once Firecrawl has answered, the key worked: later failures are ours, not the key's.
+    let answered = false;
     try {
       const call = await prepareProviderCall({ service: 'firecrawl', endpoint: (customBase || DEFAULT_BASE_URL).replace(/\/+$/, ''), model: 'parse', account: credential.id ?? 'environment' });
       const response = await fetch(`${(customBase || DEFAULT_BASE_URL).replace(/\/+$/, '')}/v2/parse`, {
@@ -70,6 +72,7 @@ export async function firecrawlSections(bytes: Uint8Array, fileName: string, for
         cache: 'no-store',
         redirect: 'error',
       });
+      answered = true;
       await recordFirecrawlKeyResult(credential, response.status, response.headers.get('retry-after'));
       if (!response.ok) {
         const code = response.status === 429 ? 'rate_limited' : response.status === 413 ? 'source_too_large' : 'parse_failed';
@@ -77,16 +80,30 @@ export async function firecrawlSections(bytes: Uint8Array, fileName: string, for
         if (credential.id && rotatesFirecrawlKey(response.status)) continue;
         throw lastFailure;
       }
-      const raw = await response.json();
+      const requestId = response.headers.get('x-request-id') ?? undefined;
+      const raw: unknown = await response.json().catch(() => null);
+      if (raw === null) {
+        // Billed but unreadable: keep the receipt unresolved for reconciliation, then fail the parse.
+        await call?.complete({ usage: {}, requestId, acceptUnknownCost: true });
+        throw new ProcessingFailure('parse_failed', 'Firecrawl returned an invalid document response');
+      }
       const metadata = (raw as { data?: { metadata?: { creditsUsed?: number; numPages?: number } } }).data?.metadata;
-      await call?.complete({ usage: { firecrawlCredits: metadata?.creditsUsed ?? (format === 'pdf' ? metadata?.numPages : undefined) }, requestId: response.headers.get('x-request-id') ?? undefined });
+      /*
+       * PDF parsing is documented at 1 credit per page. Word has no documented
+       * price, so without `creditsUsed` its cost stays unresolved (never guessed)
+       * and the document is still processed; the console flags it for reconciliation.
+       */
+      await call?.complete({
+        usage: { firecrawlCredits: metadata?.creditsUsed ?? (format === 'pdf' ? metadata?.numPages : undefined) },
+        requestId, acceptUnknownCost: format === 'docx',
+      });
       const parsed = parsedDocument.safeParse(raw);
       if (!parsed.success) throw new ProcessingFailure('parse_failed', 'Firecrawl returned an invalid document response');
       data = parsed.data.data;
       break;
     } catch (error) {
       if (error instanceof ProcessingFailure || error instanceof ProviderCostUnavailable || error instanceof InsufficientCredits) throw error;
-      await recordFirecrawlKeyResult(credential, 0);
+      if (!answered) await recordFirecrawlKeyResult(credential, 0);
       // Provider errors may contain credentials or document text; keep them out of logs.
       throw new ProcessingFailure('parse_failed', 'Firecrawl document parsing request failed or timed out');
     }

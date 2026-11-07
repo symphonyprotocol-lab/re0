@@ -41,7 +41,7 @@ Environment (`.env.local`, or `vercel env pull`):
 | `FIRECRAWL_API_KEY` | optional single-key fallback when `/admin/firecrawl` has no saved keys; PDF and Word parsing normally use the console's encrypted key pool |
 | `FIRECRAWL_BASE_URL` | optional Firecrawl server origin (no `/v2/parse` suffix); self-hosted servers must support Parse and per-page PDF output, and may omit the key if authentication is disabled |
 | `GITHUB_APP_CLIENT_ID/SECRET` | optional: a GitHub App (Contents: read-only) for "连接 GitHub"; without it the sign-in OAuth app is used with the `repo` scope. Either way the callback is `/api/auth/github/callback/connect` |
-| `GITHUB_INGESTION_TOKEN` | optional: raises the anonymous GitHub rate limit for public repositories (never used for private ones) |
+| `GITHUB_APP_SLUG` | the name in the GitHub App's public URL, used to open its installation page for personal accounts and organizations |
 | `CLAIM_DNS_RESOLVERS` | optional: comma-separated resolvers for the domain check's TXT lookup |
 | `CRON_SECRET` | protects `/api/cron/purge-trash`, `/api/cron/expire-plan`, `/api/cron/rank` and `/api/cron/reembed` (Vercel Cron sends it); unset, the routes stay shut |
 | `PADDLE_API_KEY`, `PADDLE_CLIENT_TOKEN`, `PADDLE_WEBHOOK_SECRET`, `PADDLE_ENVIRONMENT` (`sandbox` or `production`) | Paddle Billing: server API key, the public token Paddle.js uses, the notification destination's secret. All of these plus the two price ids, or checkout stays off |
@@ -51,6 +51,8 @@ Environment (`.env.local`, or `vercel env pull`):
 | `DATABASE_WS_PROXY` | `next dev` only: run against a local Postgres behind `tests/fixtures/wsproxy.mjs` |
 
 The first visitor of `/admin/login` on an empty database registers the owner (password + TOTP); after that the page only signs in.
+
+The **Product demo · Voiceover** video template uses OpenAI TTS-1 through Vercel AI Gateway. Under **Console → Models → Voiceover**, test and activate the prefilled model. The model can reuse a saved Gateway credential or accept a dedicated Gateway API key, which is encrypted. Without a saved voiceover configuration, the app can use the deployment's Gateway key or Vercel OIDC.
 
 Documents use [Firecrawl Parse](https://docs.firecrawl.dev/features/parse): PDF and DOCX bytes are sent directly from the server to `/v2/parse`, with PDF `pages: true` preserving citation page numbers. Markdown and TXT stay local. Missing configuration, invalid responses, missing PDF page data, or explicitly truncated output fail processing and release the reserved credits; there is no local PDF/Word fallback. The upload limit remains 20 MB. The former `OCR_PROVIDER*` settings are no longer used.
 

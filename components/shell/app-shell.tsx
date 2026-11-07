@@ -6,7 +6,7 @@ import { createContext, useContext, useEffect, useState, type ReactNode } from '
 import type { PlanUsage } from '@/lib/domain/billing';
 import { useI18n } from '@/i18n/client';
 import { fill, formatNumber } from '@/i18n/format';
-import { BrandMark } from '@/components/ui/brand-mark';
+import { BrandMark, BrandName } from '@/components/ui/brand-mark';
 import { Icon, type IconName } from '@/components/ui/icons';
 import { UserAvatar } from '@/components/ui/ree-avatar';
 import { HistoryProvider, SidebarConversations } from '@/components/conversations/sidebar-history';
@@ -121,7 +121,7 @@ function Sidebar({ user, collapsed, phone, open, hidden, onClose }: { user: Shel
     >
       <Link href="/" className="wordmark" aria-label={nav.home}>
         <BrandMark />
-        <span>{t.common.brand}</span>
+        <BrandName />
       </Link>
       <button type="button" className="icon-btn sidebar-close" onClick={onClose} aria-label={nav.closeMenu} title={nav.closeMenu}>
         <Icon name="close" className="" />
@@ -167,7 +167,7 @@ function Sidebar({ user, collapsed, phone, open, hidden, onClose }: { user: Shel
 
 /**
  * The sidebar's usage card (prototype usage.js `sidebar`): with a Plan, this
- * period's credits used out of 100,000 and a meter that turns amber from
+ * period's credits used and a meter that turns amber from
  * 90%; without one, the balance. Folded, only its icon shows, and the title
  * carries the same summary.
  */

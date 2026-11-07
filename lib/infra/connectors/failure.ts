@@ -22,6 +22,7 @@ export class ProcessingFailure extends Error {
   constructor(
     readonly code: ProcessingFailureCode,
     message: string,
+    readonly httpStatus?: number,
   ) {
     super(message);
     this.name = 'ProcessingFailure';

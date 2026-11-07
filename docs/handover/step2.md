@@ -42,7 +42,7 @@ Without `GITHUB_APP_CLIENT_ID/SECRET` the connect flow falls back to the sign-in
 - **Opt out of user-to-server token expiration** (Optional features). The stored grant has no refresh token; an expiring token would stop private repositories processing after 8 hours.
 - Then generate a client secret and set `GITHUB_APP_CLIENT_ID` / `GITHUB_APP_CLIENT_SECRET` for Production and Preview (`vercel env add …`) and in `.env.local`.
 
-A GitHub App's user token only reaches repositories where the App is **installed**: each user installs it (`https://github.com/apps/<slug>/installations/new`) and picks repositories, otherwise adding a private repository answers `github_repo_not_found`. The connections tab does not link to the install page yet; a `GITHUB_APP_SLUG` variable and a "选择可读取的仓库" link there would close that gap.
+A GitHub App's user token can read private repositories where the App is installed and the user has access. Set `GITHUB_APP_SLUG` to enable the direct installation link in Connections and the GitHub import dialog. On GitHub, select the personal account or organization and the repositories to grant, then refresh the repository list in RE0.
 
 ## Left for later steps
 

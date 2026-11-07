@@ -32,8 +32,8 @@ export function pageQuantity(raw: string | undefined): number {
   return Number.isFinite(value) ? Math.min(PACK.maxQuantity, Math.max(PACK.minQuantity, value)) : PACK.minQuantity;
 }
 
-export function creditsFor(order: CheckoutOrder): number {
-  return order.kind === 'plan' ? PLAN.credits : PACK.credits * order.quantity;
+export function creditsFor(order: CheckoutOrder, unitCredits: number): number {
+  return order.kind === 'plan' ? unitCredits : unitCredits * order.quantity;
 }
 
 /** Before tax: Paddle adds tax at checkout. */
@@ -83,15 +83,15 @@ export interface PlanUsage {
 
 /**
  * The sidebar's meter (prototype usage.js `creditUsage`): this period's Plan
- * credits used out of 100,000. Pack, welcome and earned credits are not part
+ * credits used. Pack, welcome and earned credits are not part
  * of it. A Plan whose period's payment has not arrived yet reads as unused.
  */
-export function planUsage(subscription: PlanSubscription | null, currentGrant: { amount: number; remaining: number } | null, now: Date): PlanUsage {
+export function planUsage(subscription: PlanSubscription | null, currentGrant: { amount: number; remaining: number } | null, now: Date, currentAllowance: number = PLAN.credits): PlanUsage {
   const active = planIsActive(subscription, now);
   if (!active) {
     return { active: false, cancelAtPeriodEnd: false, periodEnd: null, allowance: 0, used: 0, remaining: 0, percent: 0, warn: false };
   }
-  const allowance = currentGrant?.amount ?? PLAN.credits;
+  const allowance = currentGrant?.amount ?? currentAllowance;
   const remaining = currentGrant ? currentGrant.remaining : allowance;
   const used = Math.max(0, allowance - remaining);
   const percent = allowance ? Math.min(100, Math.round((used / allowance) * 10_000) / 100) : 0;
@@ -120,9 +120,11 @@ export function reversalCredits(
   adjustmentMinor: number,
 ): number {
   const open = purchase.credits - purchase.reversedCredits;
-  if (open <= 0 || !Number.isFinite(adjustmentMinor) || adjustmentMinor <= 0) return 0;
+  if (open <= 0 || !Number.isSafeInteger(adjustmentMinor) || adjustmentMinor <= 0) return 0;
   if (purchase.amountMinor <= 0 || adjustmentMinor >= purchase.amountMinor) return open;
-  return Math.min(open, Math.round((purchase.credits * adjustmentMinor) / purchase.amountMinor));
+  const total = BigInt(purchase.amountMinor);
+  const refunded = (BigInt(purchase.credits) * BigInt(adjustmentMinor) + total / 2n) / total;
+  return Math.min(open, Number(refunded));
 }
 
 /**

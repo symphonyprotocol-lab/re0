@@ -1,9 +1,9 @@
 /**
  * Knowledge: the six kinds of rebuild-proposal.md 2.1, from added to ready.
  *
- * Adding one checks it first -- the upload against Blob, a repository's
- * visibility (a private one needs the owner's GitHub connection), a
- * website's domain claim -- outside any transaction, then writes the row and
+ * Adding one checks it first -- the upload against Blob, access through
+ * the owner's GitHub connection, a website's domain claim -- outside any
+ * transaction, then writes the row and
  * reserves its processing cost in one transaction. Processing runs after the
  * response (Next's `after`, inside the route's `maxDuration`): read or fetch
  * or transcribe → chunk → embed → store, and settle the reservation to the
@@ -105,25 +105,11 @@ export function appendActivity(entries: KnowledgeActivity[]) {
 
 /* ------------------------------------------------------------------ checks */
 
-/**
- * Whether the owner may read the repository: a public one anyone may (no
- * claim needed, 2.2); a private one only with their own GitHub connection
- * whose account can read it.
- */
+/** Check that the owner's connected GitHub account can read the repository. */
 export async function checkRepository(ownerId: string, ref: RepositoryRef): Promise<{ fullName: string; private: boolean }> {
   try {
-    let anonymous: Awaited<ReturnType<typeof readRepository>> = null;
-    /* Anonymous reads share one rate limit; running out of it says nothing about the repository. */
-    let limited = false;
-    try {
-      anonymous = await readRepository(ref, null);
-    } catch (error) {
-      if (!(error instanceof ProcessingFailure) || error.code !== 'rate_limited') throw error;
-      limited = true;
-    }
-    if (anonymous && !anonymous.private) return { fullName: anonymous.fullName, private: false };
     const token = await githubTokenFor(ownerId);
-    if (!token) throw new KnowledgeInputError(limited ? 'source_unreachable' : 'github_not_connected');
+    if (!token) throw new KnowledgeInputError('github_not_connected');
     const granted = await readRepository(ref, token);
     if (!granted) throw new KnowledgeInputError('github_repo_not_found');
     return { fullName: granted.fullName, private: granted.private };
@@ -287,11 +273,13 @@ async function recordProviderCharge(knowledgeId: string, charge: ProviderCharge)
     await tx.update(schema.knowledge).set({ activity: appendActivity([activity('provider_usage', { runId: charge.runId, charge: JSON.stringify(charge), ...(current ? {} : { late: 1 }) })]) }).where(eq(schema.knowledge.id, knowledgeId));
     // Keep late supplier costs for reconciliation, without touching a newer run's credits.
     if (!current) return 'stale';
-    if (charge.costUsd === null || previous.some((entry) => entry.costUsd === null)) return null;
+    // An unresolved receipt reserves nothing; the known costs around it still do.
+    if (charge.costUsd === null) return null;
     const holdId = await heldFor(tx, knowledgeId, 'knowledge');
     if (!holdId) throw new Error('knowledge reservation missing');
     try {
-      const extra = await reserveKnowledgeUsage(tx, holdId, providerTotal([...previous, charge]).credits, { reeId: row!.reeId, note: row!.title });
+      const known = [...previous, charge].filter((entry) => entry.costUsd !== null);
+      const extra = await reserveKnowledgeUsage(tx, holdId, providerTotal(known).credits, { reeId: row!.reeId, note: row!.title });
       if (extra > 0) await tx.update(schema.knowledge).set({ activity: appendActivity([activity('reserved', { credits: extra })]) }).where(eq(schema.knowledge.id, knowledgeId));
     } catch (error) {
       // Allocation checks the full balance before mutating; retain the usage record even on refusal.
@@ -312,9 +300,8 @@ export function reprocessHold(row: Pick<KnowledgeRow, 'kind' | 'content' | 'file
 }
 
 /**
- * The network half of the reprocess check: a private repository still needs
- * the connection (disconnecting stops refreshes, 2.2), a website still needs
- * its domain. Run before the transaction.
+ * The network half of the reprocess check: a repository still needs the
+ * GitHub connection, a website still needs its domain. Run before the transaction.
  */
 export async function checkReprocess(ownerId: string, rows: readonly Pick<KnowledgeRow, 'kind' | 'source'>[]): Promise<void> {
   for (const row of rows) {
@@ -446,17 +433,9 @@ async function extract(row: KnowledgeRow): Promise<Extracted> {
     case 'github': {
       const ref = parseGithubRepo(row.source);
       if (!ref) throw new ProcessingFailure('github_repo_not_found', 'not a repository URL');
-      let snapshot;
-      try {
-        snapshot = await fetchRepositoryFiles(ref, null);
-      } catch (error) {
-        if (!(error instanceof ProcessingFailure) || (error.code !== 'github_repo_not_found' && error.code !== 'rate_limited')) throw error;
-        /* Not readable anonymously (private, or the shared rate limit ran out): read with the owner's own connection or not at all. */
-        const token = await githubTokenFor(await ownerOf(row.reeId));
-        if (!token && error.code === 'rate_limited') throw error;
-        if (!token) throw new ProcessingFailure('github_not_connected', 'private repository without a GitHub connection');
-        snapshot = await fetchRepositoryFiles(ref, token);
-      }
+      const token = await githubTokenFor(await ownerOf(row.reeId));
+      if (!token) throw new ProcessingFailure('github_not_connected', 'repository without a GitHub connection');
+      const snapshot = await fetchRepositoryFiles(ref, token);
       return {
         sections: snapshot.files.map((file) => ({ text: file.content, locator: { path: file.path }, byLines: true, child: { label: file.path, path: file.path } })),
         log: [activity('fetched', { files: snapshot.files.length, revision: snapshot.revision.slice(0, 7) })],
@@ -557,7 +536,10 @@ async function processKnowledgeRun(knowledgeId: string, runId: string): Promise<
         }
         const holdId = await heldFor(tx, row.id, 'knowledge');
         if (!holdId) throw new Error('knowledge reservation missing');
-        const total = providerTotal(runCharges(current!.activity, runId));
+        // Only accepted unknown costs can be unresolved here (any other one failed its call); they are not billed.
+        const charges = runCharges(current!.activity, runId);
+        const resolved = charges.filter((charge) => charge.costUsd !== null);
+        const total = providerTotal(resolved);
         const settled = await settleHold(tx, holdId, total.credits, { reeId: row.reeId, note: row.title });
         if (!settled || settled.charged !== total.credits) throw new Error('knowledge settlement mismatch');
         const done = new Date();
@@ -565,7 +547,10 @@ async function processKnowledgeRun(knowledgeId: string, runId: string): Promise<
         const log: KnowledgeActivity[] = extracted.log.map((entry) => ({ ...entry, at: done.toISOString() }));
         log.push(activity('parsed', pages > 0 ? { chars: content.length, pages } : { chars: content.length }, done));
         log.push(activity('chunked', { chunks: chunks.length }, done));
-        log.push(activity('settled', { charged: settled.charged, released: settled.released, costUsd: total.costUsd, tariff: 'provider-cost-v1' }, done));
+        log.push(activity('settled', {
+          charged: settled.charged, released: settled.released, costUsd: total.costUsd, tariff: 'provider-cost-v1',
+          ...(charges.length > resolved.length ? { unresolvedCalls: charges.length - resolved.length } : {}),
+        }, done));
         log.push(activity('ready', undefined, done));
         const renamed = current!.title !== current!.originalTitle;
         const fetchedTitle = extracted.title?.trim().slice(0, KNOWLEDGE_TITLE_MAX);
@@ -605,11 +590,21 @@ async function failAndRefund(id: string, reeId: string, title: string | null, co
     const [current] = await tx.select().from(schema.knowledge).where(eq(schema.knowledge.id, id)).for('update');
     if (current?.status !== 'processing' || (runId && !ownsProcessingRun(current, runId))) return;
     const holdId = await heldFor(tx, id, 'knowledge');
-    const released = holdId ? await releaseHold(tx, holdId, { reeId, note: title }) : null;
+    /*
+     * Running out of credits is the one failure the owner pays for: supplier
+     * costs already reserved against their balance stay charged (the call that
+     * overran it is ours). Every other failure is refunded in full.
+     */
+    const spent = holdId && runId && code === 'insufficient_credits'
+      ? providerTotal(runCharges(current.activity, runId).filter((charge) => charge.costUsd !== null)).credits
+      : null;
+    const settled = holdId && spent !== null ? await settleHold(tx, holdId, spent, { reeId, note: title }) : null;
+    const released = holdId && !settled ? await releaseHold(tx, holdId, { reeId, note: title }) : null;
     const failedRun = runId ?? processingRun(current);
-    if (holdId || failedRun) await tx.update(schema.knowledgeCostRun).set({ status: 'failed', error: code, chargedCredits: 0 })
+    if (holdId || failedRun) await tx.update(schema.knowledgeCostRun).set({ status: 'failed', error: code, chargedCredits: settled?.charged ?? 0 })
       .where(holdId ? eq(schema.knowledgeCostRun.id, holdId) : eq(schema.knowledgeCostRun.runId, failedRun!));
     const log: KnowledgeActivity[] = [activity('failed', { reason: code }, when)];
+    if (settled) log.push(activity('settled', { charged: settled.charged, released: settled.released }, when));
     if (released) log.push(activity('refunded', { credits: released }, when));
     await tx
       .update(schema.knowledge)

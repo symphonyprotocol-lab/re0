@@ -1,6 +1,7 @@
-/** The avatar crop maths behind drag, arrow keys and zoom (prototype profile.js `avatarCrop`). */
+/** Crop geometry behind drag, arrow keys and zoom. */
 import { describe, expect, it } from 'vitest';
 import { avatarCrop } from '@/components/rees/avatar-editor';
+import { imageCrop } from '@/lib/domain/image-crop';
 
 const covers = (rect: ReturnType<typeof avatarCrop>, size = 512) =>
   rect.left <= 0 && rect.top <= 0 && rect.left + rect.width >= size && rect.top + rect.height >= size;
@@ -53,5 +54,24 @@ describe('avatarCrop', () => {
       for (const zoom of [1, 1.37, 2, 3])
         for (const x of [-5000, -120, 0, 77, 5000])
           for (const y of [-5000, -33, 0, 210, 5000]) expect(covers(avatarCrop(width, height, zoom, x, y))).toBe(true);
+  });
+});
+
+describe('16:9 cover crop', () => {
+  it('keeps a portrait image covering the frame at either vertical limit', () => {
+    expect(imageCrop(512, 768, 1280, 720, 1, 200, 999)).toMatchObject({
+      left: 0, top: 0, width: 1280, height: 1920, x: 0, y: 600,
+    });
+    expect(imageCrop(512, 768, 1280, 720, 1, 200, -999)).toMatchObject({ top: -1200, y: -600 });
+  });
+
+  it('clamps a wide image to the new horizontal and vertical limits after zooming out', () => {
+    const zoomed = imageCrop(1600, 600, 1280, 720, 2, 900, -240);
+    expect(zoomed).toMatchObject({ x: 900, y: -240 });
+    const out = imageCrop(1600, 600, 1280, 720, 1, zoomed.x, zoomed.y);
+    expect(out).toMatchObject({
+      left: 0, top: 0, width: 1920, height: 720, x: 320,
+    });
+    expect(Math.abs(out.y)).toBe(0);
   });
 });

@@ -1,14 +1,14 @@
 /**
  * A Ree's video introduction against the database (rebuild-proposal.md 2.6,
- * 8.4 step 7): the four-shot script written by the generation model (20
- * credits, held then settled, refunded when it fails), the owner's edits,
+ * 8.4 step 7): the four-shot script written by the generation model
+ * (credits held then settled, refunded when it fails), the owner's edits,
  * and MP4 exports rendered in the owner's browser -- each Ree's first free,
- * then 50 credits held at the start and settled when the file is uploaded;
+ * then the configured price held at the start and settled after upload;
  * the same picture again is a cache hit, free and not counted. A started
  * export whose tab closed is abandoned and released by the cron.
  */
 import { createHash, randomUUID } from 'node:crypto';
-import { and, asc, desc, eq, inArray, isNull, lt, sql } from 'drizzle-orm';
+import { and, asc, desc, eq, inArray, isNull, lt, or, sql } from 'drizzle-orm';
 import { alias } from 'drizzle-orm/pg-core';
 import { generateText, Output } from 'ai';
 import { z } from 'zod';
@@ -18,9 +18,10 @@ import {
   VIDEO_EXPORT_ABANDON_MINUTES,
   VIDEO_EXPORT_MAX_BYTES,
   VIDEO_LIMITS,
-  VIDEO_SCRIPT_CREDITS,
   VIDEO_SCRIPT_REWRITES,
+  type VideoTemplate,
 } from '@/lib/constants';
+import { demoGenerationLimit, demoSpeechRate, narrationPath, PRODUCT_DEMO_TEMPLATE } from '@/lib/domain/product-demo';
 import { instructionsFor, NO_ANSWER_SENTINEL, questionWithPassages } from '@/lib/domain/answer';
 import { clampPage, isUuid, likePattern } from '@/lib/domain/list';
 import {
@@ -37,8 +38,10 @@ import {
   type VideoScenes,
 } from '@/lib/domain/video';
 import { appBaseUrl } from '@/lib/http/cookies';
-import { modelFor } from '@/lib/infra/ai/models';
+import { endpointFor, endpointHasCredentials, modelFor } from '@/lib/infra/ai/models';
 import { generationForUser } from '@/lib/services/generation';
+import { DemoScriptError, writeProductDemo } from '@/lib/services/product-demo';
+import { videoExportPrice, videoScriptPrice } from '@/lib/services/video-pricing';
 import { blobSize, deleteBlob, uploadTicket, type UploadTicket } from '@/lib/infra/blob';
 import { db, schema, type Executor, type Tx } from '@/lib/infra/db';
 import { answerable, retrieve } from '@/lib/services/chat';
@@ -116,18 +119,22 @@ async function readySourceCounts(reeIds: readonly string[]): Promise<Map<string,
 
 /* -------------------------------------------------------------- props */
 
-type ReeFacts = Pick<typeof schema.ree.$inferSelect, 'slug' | 'avatarBlob' | 'color' | 'queryFee' | 'isPublic' | 'moderatedAt'>;
+type ReeFacts = Pick<typeof schema.ree.$inferSelect, 'slug' | 'avatarBlob' | 'color' | 'queryFee' | 'isPublic' | 'isPublished' | 'moderatedAt'>;
 
 /** The composition's props: the saved script and style, and the Ree's live facts. */
 export function introProps(video: VideoRow, ree: ReeFacts, sourcesTotal: number): IntroProps | null {
   if (!video.generated || !video.scenes) return null;
-  const visible = ree.isPublic && !ree.moderatedAt;
+  const visible = ree.isPublic && ree.isPublished && !ree.moderatedAt;
+  const { demo, ...legacyScenes } = video.scenes;
+  const productDemo = video.template === PRODUCT_DEMO_TEMPLATE ? demo : undefined;
+  if (video.template === PRODUCT_DEMO_TEMPLATE && !productDemo) return null;
   return {
     template: video.template,
     accent: video.accentColor,
     aspect: video.aspect,
     music: video.music,
-    scenes: video.scenes,
+    scenes: productDemo ? { ...legacyScenes, demo: productDemo } : legacyScenes,
+    ...(productDemo ? { narrationUrl: `/media/${narrationPath(video.reeId, productDemo.audioId)}` } : {}),
     ree: {
       avatarUrl: ree.avatarBlob ? (ree.avatarBlob.startsWith('avatars/') ? `/media/${ree.avatarBlob}` : ree.avatarBlob) : null,
       color: ree.color,
@@ -160,6 +167,7 @@ export async function introsFor(reeIds: readonly string[]): Promise<Map<string, 
         color: schema.ree.color,
         queryFee: schema.ree.queryFee,
         isPublic: schema.ree.isPublic,
+        isPublished: schema.ree.isPublished,
         moderatedAt: schema.ree.moderatedAt,
       })
       .from(schema.reeVideo)
@@ -178,7 +186,7 @@ export async function introsFor(reeIds: readonly string[]): Promise<Map<string, 
 export async function videoStudio(ownerId: string, reeId: string) {
   const database = db();
   const ree = await ownerRee(database, ownerId, reeId);
-  const [video, ready, last] = await Promise.all([
+  const [video, ready, last, voice, scriptPrice, exportPrice] = await Promise.all([
     videoOf(database, reeId),
     readySourceCount(database, reeId),
     database
@@ -187,15 +195,22 @@ export async function videoStudio(ownerId: string, reeId: string) {
       .where(and(eq(schema.videoExport.reeId, reeId), eq(schema.videoExport.status, 'done')))
       .orderBy(desc(schema.videoExport.finishedAt))
       .limit(1),
+    endpointFor('speech'),
+    videoScriptPrice(database),
+    videoExportPrice(database),
   ]);
   const row = video ?? emptyVideo(reeId);
   const props = introProps(row, ree, ready);
   const latest = last[0] ?? null;
+  const rate = voice.transport === 'gateway' ? demoSpeechRate(voice.model) : 0;
   return {
     ree,
     video: row,
     props,
     readySources: ready,
+    scriptCredits: scriptPrice.credits,
+    exportCredits: exportPrice.credits,
+    demoCredits: rate !== undefined && endpointHasCredentials(voice) ? demoGenerationLimit(rate, scriptPrice.credits) : null,
     lastExport: latest ? { id: latest.id, url: `/media/${latest.blobUrl}`, aspect: latest.aspect, cost: latest.costCredits, finishedAt: latest.finishedAt, current: props ? latest.contentVersion === contentVersion(props) : false } : null,
   };
 }
@@ -269,7 +284,7 @@ async function realAnswer(ree: typeof schema.ree.$inferSelect): Promise<{ questi
   return { question, answer: firstSentence(text) };
 }
 
-async function material(ree: typeof schema.ree.$inferSelect): Promise<Material> {
+async function material(ree: typeof schema.ree.$inferSelect, demo = false): Promise<Material> {
   const database = db();
   const [sources, passages, qa] = await Promise.all([
     database
@@ -283,9 +298,9 @@ async function material(ree: typeof schema.ree.$inferSelect): Promise<Material> 
       .from(schema.chunk)
       .innerJoin(schema.knowledge, eq(schema.knowledge.id, schema.chunk.knowledgeId))
       .where(and(eq(schema.chunk.reeId, ree.id), ...answerable()))
-      .orderBy(asc(schema.chunk.knowledgeId), asc(schema.chunk.ordinal))
-      .limit(4),
-    realAnswer(ree).catch((error) => {
+      .orderBy(...(demo ? [asc(schema.chunk.ordinal), asc(schema.chunk.knowledgeId)] : [asc(schema.chunk.knowledgeId), asc(schema.chunk.ordinal)]))
+      .limit(demo ? 8 : 4),
+    demo ? null : realAnswer(ree).catch((error) => {
       console.warn(`video answer ree=${ree.id} failed: ${error instanceof Error ? error.message : 'unknown'}`);
       return null;
     }),
@@ -375,45 +390,70 @@ export async function writeScript(input: Material, userId?: string): Promise<Vid
 }
 
 /**
- * `POST /api/rees/[id]/video/script`: holds 20 credits, writes the script,
+ * `POST /api/rees/[id]/video/script`: holds the quoted credits, writes the script,
  * stores it (a new revision; the style is kept) and settles; any failure
  * releases the hold. Needs a ready source (8.4 acceptance).
  */
-export async function generateScript(ownerId: string, reeId: string, write: (input: Material) => Promise<VideoScenes> = (input) => writeScript(input, ownerId)) {
+export async function generateScript(
+  ownerId: string,
+  reeId: string,
+  write: (input: Material) => Promise<VideoScenes> = (input) => writeScript(input, ownerId),
+  options: { template?: VideoTemplate; revision?: number; maxCost?: number } = {},
+) {
   const database = db();
-  const { ree, holdId } = await database.transaction(async (tx) => {
+  const { ree, holdId, current, template, voice, speechRate, scriptCredits } = await database.transaction(async (tx) => {
     const ree = await ownerRee(tx, ownerId, reeId, true);
+    const current = (await videoOf(tx, reeId, true)) ?? emptyVideo(reeId);
+    if (options.revision !== undefined && current.revision !== options.revision) throw new VideoError('stale', 409);
     if ((await readySourceCount(tx, reeId)) === 0) throw new VideoError('no_ready_source', 409);
+    const template = options.template ?? DEFAULT_STYLE.template;
+    const voice = template === PRODUCT_DEMO_TEMPLATE ? await endpointFor('speech') : null;
+    const speechRate = voice?.transport === 'gateway' ? demoSpeechRate(voice.model) : 0;
+    if (speechRate === undefined || (voice && !endpointHasCredentials(voice))) throw new VideoError('voice_not_configured', 409);
+    const { credits: scriptCredits } = await videoScriptPrice(tx);
+    const amount = demoGenerationLimit(speechRate, scriptCredits);
+    if (options.maxCost !== undefined && amount > options.maxCost) throw new VideoError('price_changed', 409);
     const [running] = await tx
       .select({ id: schema.creditHold.id })
       .from(schema.creditHold)
       .where(and(eq(schema.creditHold.refId, reeId), eq(schema.creditHold.kind, 'video'), eq(schema.creditHold.status, 'held')))
       .limit(1);
     if (running) throw new VideoError('script_running', 409);
-    const holdId = await placeHold(tx, { userId: ownerId, kind: 'video', ledger: 'video_script', amount: VIDEO_SCRIPT_CREDITS, refId: reeId, reeId, note: ree.name });
-    return { ree, holdId };
+    const holdId = await placeHold(tx, { userId: ownerId, kind: 'video', ledger: 'video_script', amount, refId: reeId, reeId, note: ree.name });
+    return { ree, holdId, current, template, voice, speechRate, scriptCredits };
   });
-  let scenes: VideoScenes;
+  const demo = template === PRODUCT_DEMO_TEMPLATE;
+  let audioId: string | undefined;
   try {
-    scenes = await write(await material(ree));
+    const input = await material(ree, demo);
+    const productDemo = voice ? await writeProductDemo(input, reeId, ownerId, voice, speechRate, current.scenes) : null;
+    const scenes = productDemo?.scenes ?? { ...await write(input), ...(current.scenes?.demo ? { demo: current.scenes.demo } : {}) };
+    if (demo) audioId = scenes.demo?.audioId;
+    const row = await database.transaction(async (tx) => {
+      await ownerRee(tx, ownerId, reeId, true);
+      if (((await videoOf(tx, reeId, true))?.revision ?? 0) !== current.revision) throw new VideoError('stale', 409);
+      const now = new Date();
+      const music = current.template === PRODUCT_DEMO_TEMPLATE || current.scenes?.demo ? current.music : true;
+      const style = { template, ...(demo ? { aspect: '16:9' as const, music } : {}) };
+      const values = { ...style, generated: true, scenes, generatedAt: now, updatedAt: now };
+      const [row] = await tx
+        .insert(schema.reeVideo)
+        .values({ ...values, reeId, revision: 1 })
+        .onConflictDoUpdate({ target: schema.reeVideo.reeId, set: { ...values, revision: sql`${schema.reeVideo.revision} + 1` } })
+        .returning();
+      const settlement = await settleHold(tx, holdId, scriptCredits + (productDemo?.voiceCredits ?? 0), { reeId, note: ree.name, ledger: 'video_script' });
+      if (!settlement) throw new VideoError('script_failed', 409);
+      return { ...row!, generationCost: settlement.charged };
+    });
+    if (demo && current.scenes?.demo) await deleteBlob(narrationPath(reeId, current.scenes.demo.audioId)).catch(() => undefined);
+    return row;
   } catch (error) {
     console.warn(`video script ree=${reeId} failed: ${error instanceof Error ? error.message : 'unknown'}`);
+    if (audioId && error instanceof VideoError) await deleteBlob(narrationPath(reeId, audioId)).catch(() => undefined);
     await database.transaction((tx) => releaseHold(tx, holdId, { reeId, note: ree.name, ledger: 'video_script' }));
-    throw new VideoError('script_failed', 502);
+    if (error instanceof VideoError) throw error;
+    throw new VideoError(error instanceof DemoScriptError ? 'demo_script_unfit' : 'script_failed', 502);
   }
-  return database.transaction(async (tx) => {
-    const now = new Date();
-    const [row] = await tx
-      .insert(schema.reeVideo)
-      .values({ reeId, generated: true, revision: 1, scenes, generatedAt: now, updatedAt: now })
-      .onConflictDoUpdate({
-        target: schema.reeVideo.reeId,
-        set: { generated: true, scenes, revision: sql`${schema.reeVideo.revision} + 1`, generatedAt: now, updatedAt: now },
-      })
-      .returning();
-    await settleHold(tx, holdId, VIDEO_SCRIPT_CREDITS, { reeId, note: ree.name, ledger: 'video_script' });
-    return row!;
-  });
 }
 
 /* -------------------------------------------------------------- edits */
@@ -425,16 +465,21 @@ export async function generateScript(ownerId: string, reeId: string, write: (inp
  */
 export async function saveVideo(ownerId: string, reeId: string, patch: VideoPatch, revision: number): Promise<VideoRow> {
   return db().transaction(async (tx) => {
-    await ownerRee(tx, ownerId, reeId);
+    await ownerRee(tx, ownerId, reeId, true);
     const current = (await videoOf(tx, reeId, true)) ?? emptyVideo(reeId);
     if (current.revision !== revision) throw new VideoError('stale', 409, { revision: current.revision });
     if (patch.scenes && !current.generated) throw new VideoError('no_script', 409);
+    const template = patch.template ?? current.template;
+    if (template === PRODUCT_DEMO_TEMPLATE && current.generated && !current.scenes?.demo) throw new VideoError('no_script', 409);
+    const scenes = patch.scenes && template !== PRODUCT_DEMO_TEMPLATE
+      ? { ...patch.scenes, ...(current.scenes?.demo ? { demo: current.scenes.demo } : {}) }
+      : current.scenes;
     const values = {
-      template: patch.template ?? current.template,
+      template,
       accentColor: patch.accent ?? current.accentColor,
-      aspect: patch.aspect ?? current.aspect,
+      aspect: template === PRODUCT_DEMO_TEMPLATE ? '16:9' as const : patch.aspect ?? current.aspect,
       music: patch.music ?? current.music,
-      scenes: patch.scenes ?? current.scenes,
+      scenes,
       updatedAt: new Date(),
     };
     const [row] = await tx
@@ -468,7 +513,8 @@ export async function exportQuote(ownerId: string, reeId: string): Promise<{ cac
     .from(schema.videoExport)
     .where(and(eq(schema.videoExport.reeId, reeId), eq(schema.videoExport.contentVersion, contentVersion(props)), eq(schema.videoExport.status, 'done')))
     .limit(1);
-  return { cached: done ? `/media/${done.blobUrl}` : null, cost: done ? 0 : exportCost(video.exportsCount) };
+  if (done) return { cached: `/media/${done.blobUrl}`, cost: 0 };
+  return { cached: null, cost: exportCost(video.exportsCount, (await videoExportPrice(database)).credits) };
 }
 
 /** Gives back a started export's hold and marks it abandoned; its upload, if any arrived, is deleted. */
@@ -490,10 +536,10 @@ export function exportPathname(reeId: string, exportId: string): string {
  * `POST /api/rees/[id]/video/exports`: the export starts from what is saved.
  * Same picture as a finished export → that file, free, not counted. Else a
  * `started` row (any earlier unfinished one is abandoned first, so a reload
- * never leaves two holds), 50 credits held unless it is the Ree's first, and
+ * never leaves two holds), the current price held unless it is the Ree's first, and
  * an upload token for exactly this export's pathname.
  */
-export async function startExport(ownerId: string, reeId: string, now = new Date()): Promise<ExportStart> {
+export async function startExport(ownerId: string, reeId: string, now = new Date(), maxCost?: number): Promise<ExportStart> {
   const { start, staleUploads } = await db().transaction(async (tx) => {
     const ree = await ownerRee(tx, ownerId, reeId, true);
     const video = await videoOf(tx, reeId, true);
@@ -506,13 +552,14 @@ export async function startExport(ownerId: string, reeId: string, now = new Date
       .where(and(eq(schema.videoExport.reeId, reeId), eq(schema.videoExport.contentVersion, version), eq(schema.videoExport.status, 'done')))
       .limit(1);
     if (done) return { start: { cached: true as const, url: `/media/${done.blobUrl}`, aspect: done.aspect }, staleUploads: [] };
+    const cost = exportCost(video.exportsCount, (await videoExportPrice(tx)).credits);
+    if (maxCost !== undefined && cost > maxCost) throw new VideoError('price_changed', 409);
     const open = await tx
       .select()
       .from(schema.videoExport)
       .where(and(eq(schema.videoExport.reeId, reeId), eq(schema.videoExport.status, 'started')))
       .for('update');
     for (const row of open) await abandon(tx, row, now);
-    const cost = exportCost(video.exportsCount);
     const exportId = randomUUID();
     await tx.insert(schema.videoExport).values({ id: exportId, reeId, userId: ownerId, contentVersion: version, template: video.template, aspect: video.aspect, costCredits: cost, createdAt: now });
     if (cost > 0) await placeHold(tx, { userId: ownerId, kind: 'video', ledger: 'video_export', amount: cost, refId: exportId, reeId, note: ree.name }, now);
@@ -603,6 +650,30 @@ export async function exportFinished(reeId: string, exportId: string): Promise<b
   return Boolean(row);
 }
 
+/** A finished introduction is visible only to its owner or while its Ree is published. */
+export async function exportVisibleTo(reeId: string, exportId: string, viewerId: string | null): Promise<boolean> {
+  const [row] = await db().select({ id: schema.videoExport.id }).from(schema.videoExport)
+    .innerJoin(schema.ree, eq(schema.ree.id, schema.videoExport.reeId))
+    .where(and(
+      eq(schema.videoExport.id, exportId), eq(schema.videoExport.reeId, reeId), eq(schema.videoExport.status, 'done'),
+      isNull(schema.ree.deletedAt),
+      or(viewerId ? eq(schema.ree.ownerId, viewerId) : undefined,
+        and(eq(schema.ree.isPublic, true), eq(schema.ree.isPublished, true), isNull(schema.ree.moderatedAt))),
+    )).limit(1);
+  return Boolean(row);
+}
+
+export async function narrationVisibleTo(reeId: string, audioId: string, viewerId: string | null): Promise<boolean> {
+  const [row] = await db().select({ template: schema.reeVideo.template, scenes: schema.reeVideo.scenes, ownerId: schema.ree.ownerId })
+    .from(schema.reeVideo)
+    .innerJoin(schema.ree, eq(schema.ree.id, schema.reeVideo.reeId))
+    .where(and(eq(schema.reeVideo.reeId, reeId), isNull(schema.ree.deletedAt),
+      or(viewerId ? eq(schema.ree.ownerId, viewerId) : undefined,
+        and(eq(schema.ree.isPublic, true), eq(schema.ree.isPublished, true), isNull(schema.ree.moderatedAt)))))
+    .limit(1);
+  return row?.scenes?.demo?.audioId === audioId && (row.ownerId === viewerId || row.template === PRODUCT_DEMO_TEMPLATE);
+}
+
 /**
  * `/api/cron/abandon-exports`: exports started more than 30 minutes ago and
  * never completed (the tab was closed) are abandoned and their holds
@@ -687,7 +758,7 @@ export async function listVideos(ownerId: string, query: { q: string; page: numb
         slug: ree.slug,
         avatarBlob: ree.avatarBlob,
         color: ree.color,
-        isPublic: ree.isPublic && !ree.moderatedAt,
+        isPublic: ree.isPublic && ree.isPublished && !ree.moderatedAt,
         generated: row.generated,
         template: row.template,
         accent: row.accentColor,

@@ -30,20 +30,20 @@
   }
 }
 
-.pricing-welcome-card {
+.pricing-credit-card {
   margin-top: 24px;
 }
-.pricing-welcome-card fieldset {
+.pricing-credit-card fieldset {
   grid-template-columns: minmax(160px, 360px) auto;
   align-items: end;
   justify-content: start;
 }
-.pricing-welcome-card .muted {
+.pricing-credit-card .muted {
   margin-top: 8px;
   font-size: 12px;
 }
 @media (max-width: 760px) {
-  .pricing-welcome-card fieldset {
+  .pricing-credit-card fieldset {
     grid-template-columns: minmax(0, 1fr);
   }
 }

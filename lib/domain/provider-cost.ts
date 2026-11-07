@@ -125,7 +125,7 @@ export function rateCost(rate: ProviderRate, usage: ProviderUsage): string {
   return exactUsd(cost, 18);
 }
 
-export function providerTotal(charges: readonly ProviderCharge[]) {
+export function providerTotal(charges: readonly Pick<ProviderCharge, 'costUsd'>[]) {
   if (charges.some((charge) => charge.costUsd === null)) throw new ProviderCostUnavailable('usage_unavailable');
   const amounts = charges.map((charge) => decimalUsd(charge.costUsd!));
   const scale = Math.max(12, ...amounts.map((amount) => amount.scale));

@@ -5,9 +5,10 @@
  * model and endpoint frozen -- changing what answers goes through enabling a
  * different entry, never through editing the live one.
  */
-import { MODEL_ID_MAX_LENGTH, MODEL_KINDS, MODEL_NAME_MAX_LENGTH, MODEL_TIMEOUT_MS, type ModelKind } from '@/lib/constants';
+import { MODEL_ID_MAX_LENGTH, MODEL_KINDS, MODEL_NAME_MAX_LENGTH, MODEL_TIMEOUT_MS, OPENAI_SPEECH_BASE, type ModelKind } from '@/lib/constants';
 import { picoUsd, usdPico } from '@/lib/domain/provider-cost';
 import { parseServicePricing, type ServicePricingInput } from '@/lib/domain/service-pricing';
+import { demoSpeechRate } from '@/lib/domain/product-demo';
 
 export type ModelTransport = 'gateway' | 'openai_compatible';
 export type GenerationAudience = 'free' | 'plan';
@@ -58,11 +59,13 @@ export function parseModelConfig(raw: Record<string, unknown>): ModelConfigInput
       return { error: 'base_url' };
     }
   }
+  if (raw.kind === 'speech' && transport === 'openai_compatible' && baseUrl !== OPENAI_SPEECH_BASE) return { error: 'base_url' };
   const model = str(raw.model);
   /* The gateway names models `provider/model`. */
   if (!model || model.length > MODEL_ID_MAX_LENGTH || (transport === 'gateway' && !/^[\w.-]+\/[\w.:-]+$/.test(model))) {
     return { error: 'model' };
   }
+  if (raw.kind === 'speech' && transport === 'gateway' && demoSpeechRate(model) === undefined) return { error: 'model' };
   const apiKey = str(raw.apiKey);
   if (apiKey.length > API_KEY_MAX_LENGTH) return { error: 'api_key' };
   const timeoutMs = Number(raw.timeoutMs ?? MODEL_TIMEOUT_MS.default);
@@ -84,7 +87,7 @@ export function parseModelConfig(raw: Record<string, unknown>): ModelConfigInput
     } else return { error: 'generation_pricing' };
   }
   let costPricing: ServicePricingInput | null | undefined;
-  if (raw.costPricing !== undefined && raw.kind !== 'generation') {
+  if (raw.costPricing !== undefined && (raw.kind === 'embedding' || raw.kind === 'transcription')) {
     try { costPricing = parseServicePricing(raw.costPricing, raw.kind); }
     catch { return { error: 'cost_pricing' }; }
   }

@@ -47,7 +47,7 @@ export async function computeRanks(now = new Date()): Promise<number> {
       where cr.added_at >= ${since}::timestamptz and c.user_id <> o.owner_id
       group by cr.ree_id
     ) p on p.ree_id = r.id
-    where r.is_public and r.moderated_at is null and r.deleted_at is null`);
+    where r.is_public and r.is_published and r.moderated_at is null and r.deleted_at is null`);
   const rows = counted.rows;
   const computedAt = now.toISOString();
   for (let at = 0; at < rows.length; at += 500) {

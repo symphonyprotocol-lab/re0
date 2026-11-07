@@ -47,7 +47,7 @@ async function tableExists(executor: Executor, name: string): Promise<boolean> {
 
 /** The user's public, live, not-taken-down Rees: the only ones the threshold counts. */
 function countedRees(userId: string): SQL {
-  return sql`select r.id from ${schema.ree} r where r.owner_id = ${userId} and r.is_public and r.moderated_at is null and r.deleted_at is null`;
+  return sql`select r.id from ${schema.ree} r where r.owner_id = ${userId} and r.is_public and r.is_published and r.moderated_at is null and r.deleted_at is null`;
 }
 
 export async function roleMetrics(executor: Executor, userId: string, now = new Date()): Promise<RoleMetrics> {
@@ -312,7 +312,7 @@ export async function verificationDetail(id: string, now = new Date()) {
         readySources: sql<number>`(select count(*)::int from ${schema.knowledge} k where k.ree_id = "ree"."id" and k.deleted_at is null and k.status = 'ready')`,
       })
       .from(schema.ree)
-      .where(and(eq(schema.ree.ownerId, row.user.id), eq(schema.ree.isPublic, true), sql`${schema.ree.moderatedAt} is null`, sql`${schema.ree.deletedAt} is null`))
+      .where(and(eq(schema.ree.ownerId, row.user.id), eq(schema.ree.isPublic, true), eq(schema.ree.isPublished, true), sql`${schema.ree.moderatedAt} is null`, sql`${schema.ree.deletedAt} is null`))
       .orderBy(desc(schema.ree.createdAt)),
   ]);
   return {

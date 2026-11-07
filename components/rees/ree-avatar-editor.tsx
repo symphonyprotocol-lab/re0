@@ -23,11 +23,13 @@ export function ReeAvatarEditor({
   color,
   onChange,
   onCropping,
+  compact = false,
 }: {
   value: string | null;
   color: string;
   onChange: (pathname: string | null) => void;
   onCropping?: (open: boolean) => void;
+  compact?: boolean;
 }) {
   const { t } = useI18n();
   const f = t.reeSetup.fields;
@@ -110,9 +112,11 @@ export function ReeAvatarEditor({
     <section className="dot-avatar-editor">
       <span className="field-label">{f.avatar}</span>
       <div className="dot-avatar-edit-row">
-        <div className="dot-avatar-preview">
-          <DotAvatar avatar={value} color={color} />
-        </div>
+        {!compact && (
+          <div className="dot-avatar-preview">
+            <DotAvatar avatar={value} color={color} />
+          </div>
+        )}
         <div className="grow">
           <div className="dot-avatar-buttons">
             <button type="button" className="btn secondary sm" onClick={() => fileRef.current?.click()}>
@@ -131,7 +135,7 @@ export function ReeAvatarEditor({
               {f.avatarDefault}
             </button>
           </div>
-          <p>{f.avatarHint}</p>
+          {!compact && <p>{f.avatarHint}</p>}
         </div>
       </div>
       <input
@@ -178,7 +182,7 @@ export function ReeAvatarEditor({
           </>
         )}
       </div>
-      <small className="dot-avatar-save-note">{f.avatarNote}</small>
+      {!compact && <small className="dot-avatar-save-note">{f.avatarNote}</small>}
     </section>
   );
 }

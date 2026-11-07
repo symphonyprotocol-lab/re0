@@ -4,55 +4,36 @@ import { WorkspaceLink as Link } from '@/components/shell/workspace-link';
 import { useSearchParams } from 'next/navigation';
 import { useNavigationRouter as useRouter } from '@/components/shell/navigation-provider';
 import { useEffect, useRef, useState } from 'react';
-import { KNOWLEDGE_URL_MAX } from '@/lib/constants';
-import { holdFor, validAudio, validDocument } from '@/lib/domain/knowledge';
-import { SOURCE_CHOICES, validateDraftSource, validateReeFields, type ReeDraft, type SourceChoice } from '@/lib/domain/ree';
-import { api, uploadToBlob } from '@/lib/client/upload';
+import { validateReeFields, type ReeDraft } from '@/lib/domain/ree';
+import { api } from '@/lib/client/upload';
 import { useI18n } from '@/i18n/client';
-import { fill, formatBytes, formatNumber } from '@/i18n/format';
+import { fill } from '@/i18n/format';
 import { Topbar } from '@/components/shell/topbar';
 import { ConfirmModal } from '@/components/ui/modal';
 import { useToast } from '@/components/ui/toast';
-import { Field, IdentityFields, PersonalityFields, PublishingFields, type ReeFormState } from '@/components/rees/ree-fields';
+import { IdentityFields, PersonalityFields, PublishingFields, type ReeFormState } from '@/components/rees/ree-fields';
 import { DotAvatar, PIcon } from '@/components/rees/proto-icon';
 import './ree-pages.css';
 import './ree-setup.css';
 
 type Message = keyof ReturnType<typeof useI18n>['t']['reeSetup']['messages'];
 
-/** Server refusals of a first source, as the wizard's own messages (prototype dot-setup.js errors). */
-const SOURCE_REFUSALS: Record<string, Message> = {
-  invalid_document: 'file-format',
-  invalid_audio: 'file-format',
-  upload_missing: 'file',
-  consent_required: 'audio-consent',
-  invalid_text: 'source-text',
-  invalid_url: 'url',
-  invalid_github_url: 'github-url',
-  github_not_connected: 'github-auth',
-  github_repo_not_found: 'github-missing',
-  domain_unverified: 'domain',
-  source_unreachable: 'unreachable',
-};
-
 /**
- * `/rees/new`: four steps -- identity, knowledge & personality, first
- * knowledge, publish & review (prototype dot-setup.js). Every step change
+ * `/rees/new`: three steps -- identity, knowledge & personality,
+ * publish & review (prototype dot-setup.js). Every step change
  * saves the draft to `user.ree_draft`, so leaving and coming back (on any
  * device) resumes it; only the final confirmation creates the Ree. Each step
  * is its own history entry (`?step=`), so the browser's back and forward walk
  * the steps, never past the furthest one reached.
  */
 export function SetupWizard({ initialDraft }: { initialDraft: ReeDraft }) {
-  const { t, locale } = useI18n();
+  const { t } = useI18n();
   const w = t.reeSetup.wizard;
   const router = useRouter();
   const toast = useToast();
-  const [draft, setDraft] = useState<ReeDraft>(() => initialDraft.source.kind === 'text' ? { ...initialDraft, source: { ...initialDraft.source, kind: 'later' } } : initialDraft);
+  const [draft, setDraft] = useState<ReeDraft>(initialDraft);
   const [error, setError] = useState('');
   const [busy, setBusy] = useState(false);
-  const [uploading, setUploading] = useState<number | null>(null);
-  const [connectLink, setConnectLink] = useState(false);
   const [restart, setRestart] = useState(false);
   const [cropping, setCropping] = useState(false);
   const step = draft.step;
@@ -64,18 +45,15 @@ export function SetupWizard({ initialDraft }: { initialDraft: ReeDraft }) {
   });
 
   const patch = (changes: Partial<ReeDraft>) => setDraft((current) => ({ ...current, ...changes }));
-  const patchSource = (changes: Partial<ReeDraft['source']>) => setDraft((current) => ({ ...current, source: { ...current.source, ...changes } }));
   const form: ReeFormState = draft;
 
-  const save = async (next: ReeDraft, checkSource = false) => {
-    const result = await api<{ draft?: ReeDraft; error?: string }>('/api/rees/draft', { method: 'PUT', json: { draft: next, checkSource } });
+  const save = async (next: ReeDraft) => {
+    const result = await api<{ draft?: ReeDraft; error?: string }>('/api/rees/draft', { method: 'PUT', json: { draft: next } });
     return result.ok ? null : (result.data.error ?? 'generic');
   };
 
   const showError = (code: string) => {
-    const message = SOURCE_REFUSALS[code];
-    setError(message ? t.reeSetup.messages[message] : code in t.reeSetup.messages ? t.reeSetup.messages[code as Message] : t.common.errors.generic);
-    setConnectLink(code === 'github_not_connected' || code === 'domain_unverified');
+    setError(code in t.reeSetup.messages ? t.reeSetup.messages[code as Message] : t.common.errors.generic);
   };
 
   /* Every history entry names its step: the first one gets it without a new entry. */
@@ -87,13 +65,12 @@ export function SetupWizard({ initialDraft }: { initialDraft: ReeDraft }) {
   useEffect(() => {
     const current = draftRef.current;
     if (!Number.isInteger(urlStep) || urlStep < 1) return;
-    const target = Math.min(urlStep, current.reached, 4);
+    const target = Math.min(urlStep, current.reached, 3);
     if (target !== urlStep) router.replace(`/rees/new?step=${target}`, { scroll: false });
     if (target === current.step) return;
     const moved = { ...current, step: target };
     setDraft(moved);
     setError('');
-    setConnectLink(false);
     void save(moved);
     // eslint-disable-next-line react-hooks/exhaustive-deps -- only an address change moves the wizard here
   }, [urlStep]);
@@ -108,30 +85,16 @@ export function SetupWizard({ initialDraft }: { initialDraft: ReeDraft }) {
   const goTo = async (target: number, base: ReeDraft = draft) => {
     if (cropBlocks()) return;
     const next = { ...base, step: target, reached: Math.max(base.reached, target) };
-    /* Leaving step 3 checks the source against GitHub and the domain claims first. */
-    if (base.step === 3 && target === 4) {
-      setBusy(true);
-      const refused = await save(next, true);
-      setBusy(false);
-      if (refused) return showError(refused);
-    }
     setDraft(next);
     setError('');
-    setConnectLink(false);
     await save(next);
     router.push(`/rees/new?step=${target}`, { scroll: false });
     window.scrollTo({ top: 0 });
   };
 
   const invalidFor = (upTo: number): { step: number; message: Message } | null => {
-    const fields = { ...draft, tags: draft.tags };
-    const invalid = validateReeFields(fields, upTo >= 4 ? 4 : Math.min(upTo, 2));
-    if (invalid) return { step: invalid.step, message: invalid.error };
-    if (upTo >= 3) {
-      const source = validateDraftSource(draft.source);
-      if (source) return { step: 3, message: source };
-    }
-    return null;
+    const invalid = validateReeFields(draft, upTo);
+    return invalid ? { step: invalid.step, message: invalid.error } : null;
   };
 
   const next = async () => {
@@ -147,22 +110,21 @@ export function SetupWizard({ initialDraft }: { initialDraft: ReeDraft }) {
       }
       return;
     }
-    if (step < 4) return goTo(step + 1);
+    if (step < 3) return goTo(step + 1);
     setBusy(true);
     await save(draft);
-    const result = await api<{ id?: string; knowledgeId?: string | null; error?: string; step?: number }>('/api/rees', { method: 'POST' });
+    const result = await api<{ id?: string; error?: string; step?: number }>('/api/rees', { method: 'POST' });
     if (result.ok && result.data.id) {
       toast(w.created);
-      router.push(`/rees/${result.data.id}/${result.data.knowledgeId ? 'knowledge' : 'settings'}`);
+      router.push(`/rees/${result.data.id}/settings`);
       router.refresh();
       return;
     }
     setBusy(false);
     const code = result.data.error ?? '';
     /* Back to the step at fault first: moving clears the message, so it is shown after. */
-    if (result.data.step && result.data.step < 4) await goTo(result.data.step);
-    if (result.status === 402) setError(t.reeSetup.messages.insufficient);
-    else showError(code);
+    if (result.data.step && result.data.step < 3) await goTo(result.data.step);
+    showError(code);
   };
 
   const exit = async () => {
@@ -171,39 +133,6 @@ export function SetupWizard({ initialDraft }: { initialDraft: ReeDraft }) {
     toast(w.draftSaved);
     router.push('/rees');
   };
-
-  const chooseFile = async (file: File | undefined) => {
-    if (!file) return;
-    setError('');
-    const audio = draft.source.kind === 'audio';
-    if (!(audio ? validAudio : validDocument)(file.name, file.size)) {
-      setError(t.reeSetup.messages['file-format']);
-      return;
-    }
-    setUploading(0);
-    const result = await uploadToBlob(file, { purpose: audio ? 'audio' : 'document', fileName: file.name, size: file.size }, setUploading);
-    setUploading(null);
-    if ('error' in result) {
-      setError(t.reeSetup.messages.upload);
-      return;
-    }
-    const nextDraft = { ...draft, source: { ...draft.source, fileName: file.name, fileSize: file.size, blobPath: result.pathname } };
-    setDraft(nextDraft);
-    await save(nextDraft);
-  };
-
-  const source = draft.source;
-  const estimated =
-    source.kind === 'later' ? 0 : source.kind === 'text' ? holdFor('text', source.text) : source.kind === 'audio' ? holdFor('audio', source.fileSize) : holdFor(source.kind);
-  const sourceLabel =
-    source.kind === 'later'
-      ? w.sourceKinds.later
-      : source.kind === 'text'
-        ? source.title || w.sourceKinds.text
-        : source.kind === 'document' || source.kind === 'audio'
-          ? source.fileName || w.sourceKinds[source.kind]
-          : source.url || w.sourceKinds[source.kind];
-  const fileKind = source.kind === 'document' || source.kind === 'audio';
 
   const progress = (
     <nav className="setup-progress" aria-label={w.progress}>
@@ -226,78 +155,6 @@ export function SetupWizard({ initialDraft }: { initialDraft: ReeDraft }) {
     </nav>
   );
 
-  const sourceFields = (
-    <>
-      <Field id="setup-source-kind" label={w.sourceLabel}>
-        <select
-          id="setup-source-kind"
-          name="source-kind"
-          value={source.kind}
-          onChange={(event) => patchSource({ kind: event.target.value as SourceChoice, fileName: '', fileSize: 0, blobPath: '' })}
-        >
-          {SOURCE_CHOICES.filter((kind) => kind !== 'text').map((kind) => (
-            <option key={kind} value={kind}>
-              {w.sourceKinds[kind]}
-            </option>
-          ))}
-        </select>
-      </Field>
-      {source.kind === 'later' ? (
-        <div className="setup-source-later">
-          <PIcon name="file" />
-          <h3>{w.laterTitle}</h3>
-          <p>{w.laterBody}</p>
-        </div>
-      ) : fileKind ? (
-        /* The file is uploaded as soon as it is chosen, so the draft keeps it across a refresh. */
-        <div className="setup-file">
-          <input
-            type="file"
-            id="setup-source-file"
-            accept={source.kind === 'audio' ? '.mp3,.m4a,.wav' : '.pdf,.docx,.md,.txt'}
-            disabled={uploading !== null}
-            onChange={(event) => {
-              void chooseFile(event.target.files?.[0]);
-              event.target.value = '';
-            }}
-          />
-          <p>{uploading !== null ? `${w.fileUploading} ${uploading}%` : source.fileName ? `${source.fileName} · ${formatBytes(source.fileSize)}` : w.fileNone}</p>
-          <small>
-            {source.kind === 'audio' ? w.audioLimits : w.fileLimits}
-            {source.blobPath && ` · ${w.fileUploaded}`}
-          </small>
-        </div>
-      ) : (
-        <>
-          <Field id="setup-source-url" label={w.sourceUrl}>
-            <input
-              id="setup-source-url"
-              name="source-url"
-              type="url"
-              inputMode="url"
-              maxLength={KNOWLEDGE_URL_MAX}
-              placeholder={source.kind === 'github' ? 'https://github.com/owner/repo' : 'https://'}
-              required
-              value={source.url}
-              onChange={(event) => patchSource({ url: event.target.value })}
-            />
-          </Field>
-          {source.kind !== 'page' && <p className="form-hint">{source.kind === 'github' ? w.githubHint : w.siteHint}</p>}
-        </>
-      )}
-      {source.kind === 'audio' && (
-        <label className="check-row setup-audio-consent">
-          <input type="checkbox" name="audio-consent" required checked={source.consent} onChange={(event) => patchSource({ consent: event.target.checked })} />
-          {w.audioConsent}
-        </label>
-      )}
-      <div className="info-strip mt24">
-        <PIcon name="info" />
-        <span>{w.noCharge}</span>
-      </div>
-    </>
-  );
-
   const review = (
     <>
       <PublishingFields value={form} onChange={patch} />
@@ -313,14 +170,6 @@ export function SetupWizard({ initialDraft }: { initialDraft: ReeDraft }) {
           <div>
             <dt>{w.reviewTags}</dt>
             <dd>{draft.tags.join(' · ') || '—'}</dd>
-          </div>
-          <div>
-            <dt>{w.reviewSource}</dt>
-            <dd>{sourceLabel}</dd>
-          </div>
-          <div>
-            <dt>{w.reviewCost}</dt>
-            <dd>{fill(w.reviewCostValue, { credits: formatNumber(estimated, locale) })}</dd>
           </div>
         </dl>
         <small>{w.reviewNote}</small>
@@ -362,18 +211,12 @@ export function SetupWizard({ initialDraft }: { initialDraft: ReeDraft }) {
               </div>
               {error && (
                 <p className="form-error" role="alert">
-                  {error}{' '}
-                  {connectLink && (
-                    <Link href="/settings?tab=connections" className="underline">
-                      {w.connections}
-                    </Link>
-                  )}
+                  {error}
                 </p>
               )}
               {step === 1 && <IdentityFields value={form} onChange={patch} onCropping={setCropping} />}
               {step === 2 && <PersonalityFields value={form} onChange={patch} />}
-              {step === 3 && sourceFields}
-              {step === 4 && review}
+              {step === 3 && review}
               <div className="setup-step-actions">
                 {step > 1 ? (
                   <button type="button" className="btn secondary" onClick={() => goTo(step - 1)} disabled={busy}>
@@ -385,9 +228,9 @@ export function SetupWizard({ initialDraft }: { initialDraft: ReeDraft }) {
                     {w.backToList}
                   </Link>
                 )}
-                <button type="submit" className="btn" disabled={busy || uploading !== null}>
-                  {step === 4 ? (busy ? w.creating : w.create) : w.next}
-                  <PIcon name={step === 4 ? 'check' : 'arrow'} />
+                <button type="submit" className="btn" disabled={busy}>
+                  {step === 3 ? (busy ? w.creating : w.create) : w.next}
+                  <PIcon name={step === 3 ? 'check' : 'arrow'} />
                 </button>
               </div>
             </section>

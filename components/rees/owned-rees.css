@@ -708,210 +708,6 @@
   width: 9px;
   height: 9px;
 }
-.owned-rees-page .discovery-cover {
-  position: relative;
-  container-type: inline-size;
-  aspect-ratio: 16 / 9;
-  flex: 0 0 auto;
-  overflow: clip;
-  border: 1px solid rgb(227, 234, 245);
-  border-radius: 8px;
-  margin-bottom: 12px;
-  color: rgb(49, 80, 120);
-  background: rgb(239, 245, 255);
-}
-.owned-rees-page .discovery-cover::before,
-.owned-rees-page .discovery-cover::after {
-  content: "";
-  pointer-events: none;
-  position: absolute;
-  border: 1px solid color-mix(in srgb, var(--video-accent) 18%, transparent);
-  border-radius: 50%;
-  width: 65%;
-  aspect-ratio: 1 / 1;
-  top: -48%;
-  right: -20%;
-}
-.owned-rees-page .discovery-cover::after {
-  width: 85%;
-  top: 60%;
-  left: -50%;
-  border-style: dashed;
-}
-.owned-rees-page .discovery-cover.template-blueprint {
-  background: rgb(25, 52, 85);
-  color: rgb(231, 239, 255);
-  border-color: rgb(39, 71, 109);
-}
-.owned-rees-page .discovery-cover.template-spotlight {
-  background: rgb(252, 247, 237);
-  color: rgb(118, 97, 62);
-  border-color: rgb(238, 228, 206);
-}
-.owned-rees-page .discovery-cover-poster {
-  display: flex;
-  flex-direction: column;
-  align-items: center;
-  justify-content: center;
-  width: 100%;
-  height: 100%;
-  position: relative;
-  padding: 22px 20px 37px;
-  background: radial-gradient(rgba(136, 167, 204, 0.2) 0.7px, transparent 0.7px) 0% 0% / 14px 14px transparent;
-  color: inherit;
-  border: 0px;
-  cursor: pointer;
-  text-align: center;
-}
-.owned-rees-page .discovery-cover-poster:focus-visible {
-  outline: 2px solid var(--blue);
-  outline-offset: -3px;
-}
-.owned-rees-page .discovery-cover.is-video-placeholder {
-  border: 0px;
-  background: transparent;
-}
-.owned-rees-page .discovery-cover.is-video-placeholder::before,
-.owned-rees-page .discovery-cover.is-video-placeholder::after {
-  display: none;
-}
-.owned-rees-page .discovery-cover-poster.is-video-placeholder {
-  padding: 0px;
-  background: none;
-}
-.owned-rees-page .discovery-cover .public-dot-video-placeholder {
-  width: 100%;
-  height: 100%;
-  aspect-ratio: auto;
-  border-radius: 8px;
-}
-.owned-rees-page .discovery-cover .public-dot-video-placeholder-brand {
-  top: 12px;
-  left: 12px;
-  right: 12px;
-  font-size: 9px;
-}
-.owned-rees-page .discovery-cover .public-dot-video-placeholder-brand >span {
-  display: none;
-}
-.owned-rees-page .discovery-cover .public-dot-video-placeholder >div {
-  max-width: 100%;
-  gap: 7px;
-}
-.owned-rees-page .discovery-cover .public-dot-video-placeholder .dot-avatar {
-  width: 28px;
-  height: 28px;
-  border-radius: 9px;
-}
-.owned-rees-page .discovery-cover .public-dot-video-placeholder strong {
-  max-width: 100%;
-  font-size: clamp(12px, 5cqw, 17px);
-  line-height: 1.4;
-  white-space: nowrap;
-  text-overflow: ellipsis;
-  overflow: hidden;
-}
-.owned-rees-page .discovery-cover .public-dot-video-placeholder-status {
-  font-size: 9px;
-}
-.owned-rees-page .discovery-cover .public-dot-video-placeholder-status svg {
-  width: 12px;
-  height: 12px;
-}
-.owned-rees-page .discovery-cover .public-dot-video-placeholder-caption {
-  bottom: 10px;
-  font-size: 7px;
-}
-.owned-rees-page .discovery-cover.is-video-placeholder >.creator-cover-status {
-  left: auto;
-  right: 10px;
-}
-@container (max-width: 270px) {
-  .owned-rees-page .discovery-cover .public-dot-video-placeholder >div {
-  gap: 5px;
-}
-  .owned-rees-page .discovery-cover .public-dot-video-placeholder .dot-avatar {
-  width: 24px;
-  height: 24px;
-}
-  .owned-rees-page .discovery-cover .public-dot-video-placeholder-status {
-  font-size: 8px;
-}
-}
-.owned-rees-page .discovery-cover-kicker {
-  font: 5px var(--mono);
-  letter-spacing: 0.11em;
-  opacity: 0.45;
-  margin-bottom: 12px;
-}
-.owned-rees-page .discovery-cover-identity {
-  display: flex;
-  align-items: center;
-  gap: 9px;
-  max-width: 100%;
-}
-.owned-rees-page .discovery-cover-identity .dot-avatar {
-  width: 32px;
-  height: 32px;
-  border-radius: 10px;
-}
-.owned-rees-page .discovery-cover-identity strong {
-  font-size: clamp(12px, 5.3cqw, 21px);
-  line-height: 1.6;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-.owned-rees-page .discovery-cover-tagline {
-  font-size: clamp(8px, 3cqw, 11px);
-  line-height: 1.7;
-  opacity: 0.65;
-  margin-top: 10px;
-  max-width: 95%;
-  display: -webkit-box;
-  -webkit-line-clamp: 2;
-  -webkit-box-orient: vertical;
-  overflow: hidden;
-}
-.owned-rees-page .discovery-cover-play {
-  display: flex;
-  align-items: center;
-  gap: 6px;
-  position: absolute;
-  left: 13px;
-  bottom: 11px;
-  border-radius: 20px;
-  padding: 6px 10px;
-  background: rgb(255, 255, 255);
-  color: rgb(49, 80, 120);
-  font-size: 8px;
-  box-shadow: rgba(20, 42, 76, 0.05) 0px 2px 10px;
-  transition: background 0.2s, transform 0.2s;
-}
-.owned-rees-page .discovery-cover-play svg {
-  width: 10px;
-  height: 10px;
-}
-.owned-rees-page .discovery-cover-poster:hover .discovery-cover-play {
-  transform: translateY(-2px);
-  color: white;
-  background: var(--blue);
-}
-.owned-rees-page .discovery-cover-duration {
-  position: absolute;
-  right: 13px;
-  bottom: 17px;
-  font: 8px var(--mono);
-  opacity: 0.6;
-}
-@media (prefers-reduced-motion: reduce) {
-  .owned-rees-page .discovery-cover *,
-.owned-rees-page .discovery-cover ::before,
-.owned-rees-page .discovery-cover ::after {
-  animation: auto ease 0s 1 normal none running none !important;
-  transition: none !important;
-}
-}
 /* dot-avatar.css */
 .owned-rees-page .dot-avatar {
   overflow: hidden;
@@ -1270,16 +1066,6 @@
 .owned-rees-page.owned-rees-page .dot-card {
   min-width: 0px;
 }
-.owned-rees-page.owned-rees-page .discovery-cover-identity {
-  min-width: 0px;
-  max-width: 100%;
-}
-.owned-rees-page.owned-rees-page .discovery-cover-identity strong {
-  min-width: 0px;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
 .owned-rees-page.owned-rees-page .creator-dot-stats {
   flex-wrap: wrap;
 }
@@ -1518,6 +1304,16 @@
 .owned-rees-page .owned-ree-table tbody tr:hover {
   background: rgb(251, 252, 255);
 }
+/* The whole row opens the Ree (ree-list.tsx `openRow`); the checkbox cell selects instead. */
+.owned-rees-page .owned-ree-table tbody tr {
+  cursor: pointer;
+}
+.owned-rees-page .owned-ree-table tbody .owned-ree-list-selection {
+  cursor: default;
+}
+.owned-rees-page .owned-ree-table tbody tr:hover .owned-ree-list-name strong {
+  color: var(--blue);
+}
 .owned-rees-page .owned-ree-list-name {
   display: flex;
   align-items: center;
@@ -1572,7 +1368,7 @@
   height: 12px;
   flex: 0 0 auto;
 }
-.owned-rees-page .owned-ree-status.public {
+.owned-rees-page .owned-ree-status.published {
   color: rgb(98, 153, 141);
 }
 .owned-rees-page .owned-ree-status.moderated {
@@ -1932,4 +1728,9 @@
   .owned-rees-page .owned-ree-bulk-note {
   font-size: 9px;
 }
+}
+
+.owned-rees-page .owned-ree-list-actions > .ree-publication {
+  display: inline-flex;
+  margin-right: 8px;
 }

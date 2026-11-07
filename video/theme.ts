@@ -26,7 +26,7 @@ export const SANS = '"PingFang SC", "Hiragino Sans GB", "Noto Sans SC", "Microso
 export const SERIF = 'Georgia, "Songti SC", "Noto Serif SC", "STSong", serif';
 export const MONO = '"SFMono-Regular", Menlo, Consolas, "Liberation Mono", monospace';
 
-export const PALETTES: Record<VideoTemplate, Palette> = {
+export const PALETTES: Record<Exclude<VideoTemplate, 'product-demo'>, Palette> & { 'product-demo'?: Palette } = {
   editorial: {
     background: '#f2f6ff',
     title: '#314d75',

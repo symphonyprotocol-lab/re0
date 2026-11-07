@@ -10,6 +10,7 @@ import { useI18n } from '@/i18n/client';
 import { fill, formatBytes, formatNumber } from '@/i18n/format';
 import { Icon } from '@/components/ui/icons';
 import { Modal } from '@/components/knowledge/modal';
+import { GithubRepositoryPicker } from '@/components/knowledge/github-repository-picker';
 import { errorText, SOURCE_ICONS } from '@/components/knowledge/shared';
 
 /** What a new source would reserve, from what the form holds so far (8.2). */
@@ -67,6 +68,29 @@ export function AddKnowledgeModal({
   const [busy, setBusy] = useState(false);
   const [progress, setProgress] = useState<number | null>(null);
   const [dragging, setDragging] = useState(false);
+  const [githubStatus, setGithubStatus] = useState<'checking' | 'connected' | 'disconnected' | 'unavailable'>('checking');
+  const [githubAccessUrl, setGithubAccessUrl] = useState('');
+  useEffect(() => {
+    if (!open || kind !== 'github' || githubStatus !== 'checking') return;
+    let live = true;
+    void api<{ connection?: { login: string } | null; repositoryAccess?: { url: string } }>('/api/auth/github/connect').then(
+      (result) => {
+        if (!live) return;
+        if (!result.ok || result.data.connection === undefined) setGithubStatus('unavailable');
+        else {
+          setGithubStatus(result.data.connection ? 'connected' : 'disconnected');
+          setGithubAccessUrl(result.data.repositoryAccess?.url ?? '/settings?tab=connections');
+        }
+      },
+      () => {
+        if (live) setGithubStatus('unavailable');
+      },
+    );
+    return () => {
+      live = false;
+    };
+  }, [open, kind, githubStatus]);
+
   /* A website needs a verified domain: the owner sees which before submitting (prototype app.js "已验证："). */
   const [domains, setDomains] = useState<string[] | null>(null);
   useEffect(() => {
@@ -87,6 +111,7 @@ export function AddKnowledgeModal({
     setError(null);
     setBusy(false);
     setProgress(null);
+    setGithubStatus('checking');
   };
   const close = () => {
     reset();
@@ -94,6 +119,7 @@ export function AddKnowledgeModal({
     onClose();
   };
   const choose = (next: AddKnowledgeKind) => {
+    if (next !== kind) setGithubStatus('checking');
     setKind(next);
     setFile(null);
     setError(null);
@@ -101,6 +127,7 @@ export function AddKnowledgeModal({
 
   const fileKind = kind === 'document' || kind === 'audio';
   const urlKind = kind === 'github' || kind === 'page' || kind === 'site';
+  const githubBlocked = kind === 'github' && githubStatus !== 'connected';
   const valid = kind === 'audio' ? validAudio : validDocument;
 
   const pick = (picked: File | undefined) => {
@@ -111,6 +138,7 @@ export function AddKnowledgeModal({
   };
 
   const submit = async () => {
+    if (busy || githubBlocked) return;
     setError(null);
     let body: Record<string, unknown>;
     if (fileKind) {
@@ -141,6 +169,10 @@ export function AddKnowledgeModal({
       return;
     }
     const code = result.status === 402 ? 'insufficient_credits' : result.data.error;
+    if (code === 'github_not_connected') {
+      setGithubStatus('disconnected');
+      return;
+    }
     setError({ text: errorText(t, code), code });
   };
 
@@ -158,7 +190,7 @@ export function AddKnowledgeModal({
           <button type="button" className="btn secondary" onClick={close}>
             {t.common.actions.cancel}
           </button>
-          <button type="submit" form="knowledge-form" className="btn" disabled={busy}>
+          <button type="submit" form="knowledge-form" className="btn" disabled={busy || githubBlocked}>
             {busy && <i className="spinner" />}
             {progress !== null ? fill(m.uploading, { percent: progress }) : m.submit}
           </button>
@@ -217,13 +249,32 @@ export function AddKnowledgeModal({
             </>
           )}
 
-          {urlKind && (
+          {kind === 'github' && !githubBlocked && (
+            <GithubRepositoryPicker url={url} accessUrl={githubAccessUrl} onSelect={setUrl} />
+          )}
+          {urlKind && !githubBlocked && (
             <div className="field">
               <label htmlFor="source-url">{m.urlLabel[kind]}</label>
               <input id="source-url" type="url" inputMode="url" maxLength={KNOWLEDGE_URL_MAX} value={url} placeholder={m.urlPlaceholder[kind]} onChange={(event) => setUrl(event.target.value)} />
             </div>
           )}
-          {urlKind && kind !== 'site' && <p className="form-hint">{m.urlHint[kind]}</p>}
+          {urlKind && kind !== 'site' && !githubBlocked && <p className="form-hint">{m.urlHint[kind]}</p>}
+          {githubBlocked && (
+            <div className="info-strip">
+              <Icon name="github" />
+              <div>
+                <div role="status">
+                  {githubStatus === 'checking' ? m.githubChecking : githubStatus === 'unavailable' ? m.githubUnavailable : m.githubRequired}
+                </div>
+                {githubStatus === 'disconnected' && <FixLink code="github_not_connected" />}
+                {githubStatus === 'unavailable' && (
+                  <button type="button" className="text-link" onClick={() => setGithubStatus('checking')}>
+                    {t.common.actions.retry}
+                  </button>
+                )}
+              </div>
+            </div>
+          )}
           {kind === 'site' && (
             <div className="info-strip">
               <Icon name="shield" />
@@ -240,13 +291,17 @@ export function AddKnowledgeModal({
           )}
         </div>
 
-        <div className="estimate">
-          <span>{m.estimate}</span>
-          <strong>{fill(m.estimateValue, { credits: formatNumber(estimate, locale) })}</strong>
-        </div>
-        <p className="form-hint mt16" style={{ fontSize: 11 }}>
-          {m.note}
-        </p>
+        {!githubBlocked && (
+          <>
+            <div className="estimate">
+              <span>{m.estimate}</span>
+              <strong>{fill(m.estimateValue, { credits: formatNumber(estimate, locale) })}</strong>
+            </div>
+            <p className="form-hint mt16" style={{ fontSize: 11 }}>
+              {m.note}
+            </p>
+          </>
+        )}
         {error && (
           <p role="alert" className="form-error">
             {error.text} <FixLink code={error.code} />

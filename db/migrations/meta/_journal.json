@@ -120,6 +120,76 @@
       "when": 1793718652147,
       "tag": "0017_generation_call_reports",
       "breakpoints": true
+    },
+    {
+      "idx": 18,
+      "version": "7",
+      "when": 1793849401901,
+      "tag": "0018_user_profile",
+      "breakpoints": true
+    },
+    {
+      "idx": 19,
+      "version": "7",
+      "when": 1793879974241,
+      "tag": "0019_ree_publication",
+      "breakpoints": true
+    },
+    {
+      "idx": 20,
+      "version": "7",
+      "when": 1793949684526,
+      "tag": "0020_video_product_demo",
+      "breakpoints": true
+    },
+    {
+      "idx": 21,
+      "version": "7",
+      "when": 1793950136172,
+      "tag": "0021_model_voiceover",
+      "breakpoints": true
+    },
+    {
+      "idx": 22,
+      "version": "7",
+      "when": 1793951907981,
+      "tag": "0022_ree_comments",
+      "breakpoints": true
+    },
+    {
+      "idx": 23,
+      "version": "7",
+      "when": 1793953554492,
+      "tag": "0023_billing_tier_credits",
+      "breakpoints": true
+    },
+    {
+      "idx": 24,
+      "version": "7",
+      "when": 1793954089306,
+      "tag": "0024_ree_favorites",
+      "breakpoints": true
+    },
+    {
+      "idx": 25,
+      "version": "7",
+      "when": 1793960031852,
+      "tag": "0025_ree_cover",
+      "breakpoints": true
+    },
+    {
+      "idx": 26,
+      "version": "7",
+      "when": 1793975306703,
+      "tag": "0026_video_pricing",
+      "breakpoints": true
+    },
+    {
+      "idx": 27,
+      "version": "7",
+      "when": 1793976025088,
+      "tag": "0027_video_export_pricing",
+      "breakpoints": true
     }
   ]
 }

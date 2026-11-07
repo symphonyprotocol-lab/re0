@@ -1296,34 +1296,93 @@
     height: 220px;
   }
 }
+/* Profile fields remain together while sign-in details occupy the second column. */
+.settings-page .profile-editor {
+  min-width: 0;
+  margin: 0;
+  padding: 0;
+  border: 0;
+}
+.settings-page .profile-character-count {
+  text-align: right;
+}
+.settings-page .profile-socials {
+  margin: 24px 0;
+  padding-top: 22px;
+  border-top: 1px solid #e9edf5;
+}
+.settings-page .profile-socials-head {
+  gap: 12px;
+  flex-wrap: wrap;
+}
+.settings-page .profile-socials h3 {
+  font-size: 12px;
+  font-weight: 550;
+}
+.settings-page .profile-socials-head .btn {
+  font-size: 11px;
+  padding: 7px 10px;
+}
+.settings-page .profile-socials-hint {
+  margin-top: 10px;
+  font-size: 11px;
+  color: #8493ad;
+}
+.settings-page .profile-social-list {
+  display: grid;
+  gap: 14px;
+  margin-top: 16px;
+}
+.settings-page .profile-social-row {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(0, 1.6fr) auto;
+  gap: 10px;
+  align-items: end;
+}
+.settings-page .profile-social-row .field {
+  margin: 0;
+}
+.settings-page .profile-social-remove {
+  min-height: 44px;
+  padding: 0 3px;
+  color: #8493ad;
+  font-size: 11px;
+}
+.settings-page .profile-social-remove:hover {
+  color: var(--color-red);
+}
+.settings-page .profile-social-remove:focus-visible {
+  outline: 2px solid var(--color-blue);
+  outline-offset: 2px;
+}
+.settings-page .profile-editor > .form-error {
+  margin-bottom: 16px;
+}
 @media (min-width: 1000px) {
   .settings-page #profile-form {
     display: grid;
-    grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
-    grid-template-rows: auto auto 1fr;
-    gap: 22px 28px;
+    grid-template-columns: minmax(0, 1.2fr) minmax(0, 1fr);
+    gap: 28px;
     align-items: start;
   }
-  .settings-page #profile-form > .profile-avatar-field {
-    grid-column: 1;
-    grid-row: 1;
-    margin: 0;
-  }
-  .settings-page #profile-form > .field {
-    grid-column: 1;
-    grid-row: 2;
-    margin: 0;
-  }
   .settings-page #profile-form > .profile-login-info {
-    grid-column: 2;
-    grid-row: 1 / span 3;
     margin: 0;
   }
-  .settings-page #profile-form > button[type="submit"] {
+}
+@media (max-width: 560px) {
+  .settings-page .profile-social-row {
+    grid-template-columns: minmax(0, 1fr) auto;
+    padding: 14px;
+    border: 1px solid #e2e8f2;
+    border-radius: 8px;
+  }
+  .settings-page .profile-social-row .field {
     grid-column: 1;
-    grid-row: 3;
-    justify-self: start;
-    align-self: start;
+  }
+  .settings-page .profile-social-remove {
+    grid-column: 2;
+    grid-row: 1 / span 2;
+    align-self: center;
   }
 }
 

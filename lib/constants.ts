@@ -24,7 +24,7 @@ export type GrantSource = (typeof GRANT_SPEND_ORDER)[number];
  * billing period they arrive in and expire at its end. Cancelling keeps them
  * to the end of the period.
  */
-export const PLAN = { priceMinor: 1_000, currency: 'USD', credits: 100_000, interval: 'month' } as const;
+export const PLAN = { priceMinor: 1_000, currency: 'USD', credits: 50_000, interval: 'month' } as const;
 /**
  * A Pack: one-off, never expires, sold only to a user whose Plan is active,
  * 1 to 10 in one checkout (8.2, "Pack 数量").
@@ -83,6 +83,8 @@ export type ReeColor = (typeof REE_COLORS)[number];
 export const AVATAR_SIZE = 512;
 /** What the cropper accepts before cropping (prototype profile.js). */
 export const AVATAR_SOURCE_MAX_BYTES = 5 * 1024 * 1024;
+export const REE_COVER_MAX_BYTES = 5 * 1024 * 1024;
+export const REE_IMAGE_EXTENSIONS = { 'image/jpeg': 'jpg', 'image/png': 'png', 'image/webp': 'webp' } as const;
 
 /* --------------------------------------------------------- knowledge, 2.1 */
 
@@ -143,7 +145,8 @@ export const EXPLORE_PAGE_SIZES = [24, 48, 96] as const;
 
 /* ------------------------------------------------------------ models, 2.5 */
 
-export const MODEL_KINDS = ['generation', 'embedding', 'transcription'] as const;
+export const OPENAI_SPEECH_BASE = 'https://api.openai.com/v1';
+export const MODEL_KINDS = ['generation', 'embedding', 'transcription', 'speech'] as const;
 export type ModelKind = (typeof MODEL_KINDS)[number];
 
 /** Width of every stored vector column. */
@@ -162,6 +165,7 @@ export const DEFAULT_MODELS: Record<ModelKind, string> = {
   generation: 'openai/gpt-5-mini',
   embedding: 'openai/text-embedding-3-small',
   transcription: 'openai/whisper-1',
+  speech: 'openai/tts-1',
 };
 
 /* ------------------------------------------------------------- admin, 2.5 */
@@ -347,15 +351,15 @@ export const VIDEO_TRANSITION_FRAMES = 10;
  * English alike. The generator rewrites anything longer; the editor refuses it.
  */
 export const VIDEO_LIMITS = { name: 20, position: 24, sources: 4, source: 20, question: 30, answer: 50, cta: 16 } as const;
-export const VIDEO_TEMPLATES = ['editorial', 'blueprint', 'spotlight'] as const;
+export const VIDEO_TEMPLATES = ['editorial', 'blueprint', 'spotlight', 'product-demo'] as const;
 export type VideoTemplate = (typeof VIDEO_TEMPLATES)[number];
 export const VIDEO_ASPECTS = ['16:9', '9:16'] as const;
 export type VideoAspect = (typeof VIDEO_ASPECTS)[number];
 export const VIDEO_DEFAULT_ACCENT = '#127ee3';
-/** Generating or regenerating a script costs one question's worth (2.6 "收费"). */
-export const VIDEO_SCRIPT_CREDITS = 20;
+/** Default script price, covering observed development model costs with room for rewrites. */
+export const DEFAULT_VIDEO_SCRIPT_CREDITS = 5;
 /** An MP4 export: each Ree's first is free, then this much; a cache hit is free and does not use up the free one. */
-export const VIDEO_EXPORT_CREDITS = 50;
+export const DEFAULT_VIDEO_EXPORT_CREDITS = 50;
 /** Times the generator is asked to rewrite fields over their limits before the script fails and is refunded. */
 export const VIDEO_SCRIPT_REWRITES = 2;
 /** An exported 15-second 720p MP4 is a few MB; the upload token allows up to this. */

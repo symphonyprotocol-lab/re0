@@ -27,7 +27,6 @@ export interface ActionItem {
 export type BulkAction = 'pause' | 'resume' | 'trash' | 'reprocess' | 'restore';
 
 export type Dialog =
-  | { type: 'menu'; item: ActionItem }
   | { type: 'move'; items: ActionItem[] }
   | { type: 'rename'; item: ActionItem }
   | { type: 'confirm'; action: BulkAction; items: ActionItem[] };
@@ -55,7 +54,7 @@ export function SelectionReview({ items }: { items: ActionItem[] }) {
 }
 
 /**
- * The dialogs the library and the preview share: a source's menu, moving,
+ * The dialogs the library and the preview share: moving,
  * renaming, and the confirmations before a batch. Each runs its request
  * and reports back with a message to toast.
  */
@@ -63,19 +62,15 @@ export function KnowledgeDialogs({
   reeId,
   dialog,
   folders,
-  onOpen,
   onClose,
   onDone,
-  onPreview,
 }: {
   reeId: string;
   dialog: Dialog | null;
   /** Known folders; fetched when moving if not given. */
   folders?: { id: string; name: string }[];
-  onOpen: (next: Dialog) => void;
   onClose: () => void;
   onDone: (message: string) => void;
-  onPreview?: (item: ActionItem) => void;
 }) {
   const { t, locale } = useI18n();
   const k = t.knowledge;
@@ -147,41 +142,6 @@ export function KnowledgeDialogs({
   );
 
   if (!dialog) return null;
-
-  if (dialog.type === 'menu') {
-    const item = dialog.item;
-    const trash = Boolean(item.deletedAt);
-    const entry = (icon: Parameters<typeof Icon>[0]['name'], label: string, run: () => void, options: { danger?: boolean; disabled?: boolean } = {}) => (
-      <button
-        type="button"
-        disabled={options.disabled}
-        onClick={run}
-        className={`ks-menu-item ${options.danger ? 'danger-text' : ''}`}
-      >
-        <Icon name={icon} />
-        {label}
-      </button>
-    );
-    return (
-      <Modal open onClose={onClose} title={item.title} subtitle={t.common.kinds[item.kind]} className="ks-menu-modal">
-        <div className="ks-action-menu">
-          {onPreview && entry('external', k.menu.preview, () => onPreview(item))}
-          {trash ? (
-            entry('refresh', k.menu.restore, () => onOpen({ type: 'confirm', action: 'restore', items: [item] }))
-          ) : (
-            <>
-              {entry('folder', k.menu.move, () => onOpen({ type: 'move', items: [item] }))}
-              {entry('settings', k.menu.rename, () => onOpen({ type: 'rename', item }))}
-              {entry(item.enabled ? 'pause' : 'play', item.enabled ? k.menu.pause : k.menu.enable, () => void confirm(item.enabled ? 'pause' : 'resume', [item]))}
-              {entry('refresh', fill(k.menu.reprocess, { credits: formatNumber(reprocessCost(item), locale) }), () => onOpen({ type: 'confirm', action: 'reprocess', items: [item] }), { disabled: isBusy(item) })}
-              {entry('trash', k.menu.trash, () => onOpen({ type: 'confirm', action: 'trash', items: [item] }), { danger: true, disabled: isBusy(item) })}
-            </>
-          )}
-        </div>
-        {errorBox}
-      </Modal>
-    );
-  }
 
   if (dialog.type === 'rename') {
     return (

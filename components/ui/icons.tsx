@@ -75,6 +75,7 @@ const GLYPHS = {
   audio: '<path d="M3 10v4m4-8v12m5-16v20m5-16v12m4-8v4"/>',
   compass: '<circle cx="12" cy="12" r="9"/><path d="m16 8-2.4 5.6L8 16l2.4-5.6Z"/>',
   pin: '<path d="m9 3 12 12-3 3-4-2-4 4-2-2 4-4-2-4Zm-6 18 6-6"/>',
+  bookmark: '<path d="M6 3h12v18l-6-4-6 4z"/>',
   archive: '<path d="M4 8h16v13H4ZM3 3h18v5H3Zm6 9h6"/>',
   thumbUp: THUMB,
   thumbDown: `<g transform="translate(24 24) rotate(180)">${THUMB.replace(' transform="translate(0 -1) scale(.95)"', '')}</g>`,

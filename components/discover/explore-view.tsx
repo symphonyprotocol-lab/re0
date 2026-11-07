@@ -25,7 +25,14 @@ function pageNumbers(page: number, pages: number): (number | null)[] {
  * so results can be shared and restored. Styled by explore.css with the
  * prototype's class names.
  */
-export function ExploreView({ query, result, limited, signedIn }: { query: ExploreQuery; result: ExploreResult; limited: boolean; signedIn: boolean }) {
+export function ExploreView({ query, result, limited, signedIn, favoriteIds, viewerId }: {
+  query: ExploreQuery;
+  result: ExploreResult;
+  limited: boolean;
+  signedIn: boolean;
+  favoriteIds?: string[];
+  viewerId?: string;
+}) {
   const { t, locale } = useI18n();
   const e = t.discover.explore;
   const router = useRouter();
@@ -36,6 +43,7 @@ export function ExploreView({ query, result, limited, signedIn }: { query: Explo
   const n = (value: number) => formatNumber(value, locale);
   const pages = Math.max(1, Math.ceil(result.total / result.size));
   const current = explorePath({ ...query, page: result.page });
+  const favorites = favoriteIds && new Set(favoriteIds);
   const from = result.total ? (result.page - 1) * result.size + 1 : 0;
   const to = Math.min(result.page * result.size, result.total);
   const go = (changes: Partial<ExploreQuery>) => router.push(explorePath(query, changes), { scroll: false });
@@ -239,7 +247,7 @@ export function ExploreView({ query, result, limited, signedIn }: { query: Explo
       {result.items.length > 0 ? (
         <div id="explore-results" className="dot-grid" aria-label={e.list}>
           {result.items.map((ree) => (
-            <ReeCardView key={ree.id} ree={ree} from={current} />
+            <ReeCardView key={ree.id} ree={ree} from={current} favorite={favorites?.has(ree.id)} viewerId={viewerId} />
           ))}
         </div>
       ) : (

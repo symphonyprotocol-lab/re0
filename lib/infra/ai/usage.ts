@@ -1,6 +1,5 @@
 /** One durable row per provider attempt, including retries, errors and cancelled streams. */
 import { wrapLanguageModel, type LanguageModel } from 'ai';
-import { type ModelKind } from '@/lib/constants';
 import { generationCost, type CallStatus, type CostBasis, type GenerationCallContext } from '@/lib/domain/model-calls';
 import { type ProviderRate } from '@/lib/domain/provider-cost';
 import { gatewayGenerationPricing } from '@/lib/infra/ai/gateway-generation-pricing';
@@ -12,7 +11,7 @@ type StreamPart = Awaited<ReturnType<LanguageModelV4['doStream']>>['stream'] ext
 type Usage = Extract<StreamPart, { type: 'finish' }>['usage'];
 
 export interface ModelCallRecord extends GenerationCallContext {
-  kind: ModelKind; model: string; configId: string | null; configName?: string;
+  kind: typeof schema.modelCall.$inferInsert.kind; model: string; configId: string | null; configName?: string;
   inputTokens?: number; outputTokens?: number; seconds?: number;
   status?: CallStatus; durationMs?: number; usageKnown?: boolean; endpoint?: string;
   requestId?: string; errorCode?: string; createdAt?: Date;
@@ -60,20 +59,21 @@ const failure = (error: unknown): { status: CallStatus; errorCode: string } => (
 export function loggedLanguageModel(model: LanguageModelV4, call: Call): LanguageModelV4 {
   async function attempt() {
     const endpoint = safeEndpoint(call);
-    const price = await pricing(call, endpoint);
+    // Looked up alongside the provider call, never before it: the price only matters to the log row.
+    const pending = pricing(call, endpoint).catch(() => ({}) as Awaited<ReturnType<typeof pricing>>);
     const started = new Date();
     let saved: Promise<void> | undefined;
     return (status: CallStatus, usage?: Usage, metadata?: unknown, requestId?: string, errorCode?: string) => {
-      saved ??= recordModelCall({
+      const durationMs = Math.min(2_147_483_647, Math.max(0, Date.now() - started.getTime()));
+      saved ??= pending.then((price) => recordModelCall({
         kind: 'generation', model: call.model, configId: call.configId, configName: call.configName,
         userId: call.userId, audience: call.audience, purpose: call.purpose ?? 'other',
-        status, endpoint, requestId, errorCode, createdAt: started,
-        durationMs: Math.min(2_147_483_647, Math.max(0, Date.now() - started.getTime())),
+        status, endpoint, requestId, errorCode, createdAt: started, durationMs,
         inputTokens: usage?.inputTokens.total, outputTokens: usage?.outputTokens.total,
         usageKnown: usage?.inputTokens.total !== undefined && usage.outputTokens.total !== undefined,
         ...generationCost({ gateway: call.transport === 'gateway', metadata, rate: price.rate, estimated: price.estimated, usage: { inputTokens: usage?.inputTokens.total, outputTokens: usage?.outputTokens.total } }),
         rate: price.rate, priceRevision: price.priceRevision,
-      });
+      }));
       return saved;
     };
   }

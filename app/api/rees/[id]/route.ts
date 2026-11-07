@@ -19,6 +19,8 @@ export async function PATCH(request: NextRequest, context: Context) {
   const user = await apiUser(request);
   if (user instanceof Response) return user;
   const input = await body(request);
+  const coverBlob = input.coverBlob;
+  if (coverBlob !== undefined && coverBlob !== null && typeof coverBlob !== 'string') return fail('invalid_cover', 422);
   try {
     const ree = await updateRee(user.id, (await context.params).id, {
       name: String(input.name ?? ''),
@@ -31,9 +33,10 @@ export async function PATCH(request: NextRequest, context: Context) {
       isPublic: input.isPublic === true,
       color: input.color,
       avatarBlob: typeof input.avatarBlob === 'string' ? input.avatarBlob : null,
+      coverBlob,
     });
     /* What the profile is made of may have changed: a public Ree's is rebuilt, free (2.4). */
-    if (ree?.isPublic) after(() => refreshProfile(ree.id).catch(() => undefined));
+    if (ree?.isPublished) after(() => refreshProfile(ree.id).catch(() => undefined));
     return ree ? json({ ree }) : fail('not_found', 404);
   } catch (error) {
     if (error instanceof ReeInputError) return fail(error.field, 422);

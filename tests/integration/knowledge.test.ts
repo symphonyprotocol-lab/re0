@@ -131,7 +131,7 @@ describeWithDb('document processing', () => {
     expect(await balanceOf(db(), userId)).toBe(WELCOME_CREDITS - price * 2);
   });
 
-  it('stops and refunds when actual provider cost exceeds the available balance', async () => {
+  it('stops when actual provider cost exceeds the available balance, charging only what was reserved', async () => {
     const { userId, ree } = await userWithRee();
     await db().update(schema.creditGrant).set({ remaining: 20 }).where(eq(schema.creditGrant.userId, userId));
     fake.billing.embeddingTokens = 200_000;
@@ -142,9 +142,29 @@ describeWithDb('document processing', () => {
     await knowledge.processKnowledge(id, { profile: false });
     expect(await knowledge.knowledgeDetail(ree.id, id)).toMatchObject({ status: 'failed', error: 'insufficient_credits', chunks: [] });
     expect(fake.requests.filter((request) => request.path.endsWith('/embeddings'))).toHaveLength(calls + 1);
-    expect(await balanceOf(db(), userId)).toBe(20);
+    // The overrunning embedding call is not covered; the 1-credit reservation already was.
+    expect(await balanceOf(db(), userId)).toBe(19);
     const [hold] = await db().select().from(schema.creditHold).where(eq(schema.creditHold.refId, id));
-    expect(hold).toMatchObject({ status: 'released', amount: 1 });
+    expect(hold).toMatchObject({ status: 'settled', amount: 1 });
+  });
+
+  it('keeps supplier costs already reserved when a later call runs out of credits', async () => {
+    const { userId, ree } = await userWithRee();
+    await db().update(schema.creditGrant).set({ remaining: 310 }).where(eq(schema.creditGrant.userId, userId));
+    fake.billing.embeddingTokens = 200_000;
+    const path = `knowledge/${userId}/usage/parsed-then-unfunded.pdf`;
+    blobs.set(path, makePdf(handbookPages()));
+    const id = await knowledge.addKnowledge(userId, ree, { kind: 'document', blobPath: path, fileName: 'parsed-then-unfunded.pdf' });
+    await knowledge.processKnowledge(id, { profile: false });
+    const detail = await knowledge.knowledgeDetail(ree.id, id);
+    expect(detail).toMatchObject({ status: 'failed', error: 'insufficient_credits', chunks: [] });
+    expect(detail!.activity.find((entry) => entry.code === 'settled')?.detail).toMatchObject({ charged: 300, released: 0 });
+    expect(detail!.activity.some((entry) => entry.code === 'refunded')).toBe(false);
+    expect(await balanceOf(db(), userId)).toBe(10);
+    const [hold] = await db().select().from(schema.creditHold).where(eq(schema.creditHold.refId, id));
+    expect(hold).toMatchObject({ status: 'settled', amount: 300 });
+    const [run] = await db().select().from(schema.knowledgeCostRun).where(eq(schema.knowledgeCostRun.id, hold!.id));
+    expect(run).toMatchObject({ status: 'failed', error: 'insufficient_credits', chargedCredits: 300 });
   });
 
   it('refunds the expanded reservation in full if embedding fails', async () => {
@@ -324,6 +344,29 @@ describeWithDb('document processing', () => {
     const result = await retrieve(ree.id, 'Devices are covered for how many years?');
     expect(result.evidence).toBe(true);
     expect(result.passages.some((passage) => passage.knowledgeId === id && passage.content.includes('two years'))).toBe(true);
+  });
+
+  it('processes Word that Firecrawl reports no usage for, billing only the known costs', async () => {
+    const route = 'api.firecrawl.dev/v2/parse';
+    const original = firecrawl.routes.get(route)!;
+    firecrawl.routes.set(route, () => jsonResponse({ success: true, data: { markdown: '# Warranty\n\nDevices are covered for two years.' } }));
+    try {
+      const { userId, ree } = await userWithRee();
+      const path = `knowledge/${userId}/word/unmetered.docx`;
+      blobs.set(path, new Uint8Array([80, 75, 3, 4]));
+      const id = await knowledge.addKnowledge(userId, ree, { kind: 'document', blobPath: path, fileName: 'unmetered.docx' });
+      await knowledge.processKnowledge(id, { profile: false });
+      const detail = await knowledge.knowledgeDetail(ree.id, id);
+      expect(detail).toMatchObject({ status: 'ready' });
+      const settled = detail!.activity.find((entry) => entry.code === 'settled')!.detail!;
+      expect(settled).toMatchObject({ unresolvedCalls: 1 });
+      // Only the embedding cost is billed; the Word parse waits for reconciliation in the console.
+      expect(await balanceOf(db(), userId)).toBe(WELCOME_CREDITS - Number(settled.charged));
+      const [run] = await db().select().from(schema.knowledgeCostRun).where(eq(schema.knowledgeCostRun.knowledgeId, id));
+      expect(run!.charges.filter((charge) => charge.costUsd === null)).toEqual([expect.objectContaining({ service: 'firecrawl', basis: 'unresolved' })]);
+    } finally {
+      firecrawl.routes.set(route, original);
+    }
   });
 
   it('fails and refunds when Firecrawl cannot provide PDF page attribution', async () => {

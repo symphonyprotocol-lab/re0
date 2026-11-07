@@ -6,6 +6,7 @@ import { redirect } from 'next/navigation';
 import { isLoginError, safeReturnTo } from '@/lib/domain/auth';
 import { currentUser } from '@/lib/http/session';
 import { serverMessages } from '@/i18n/server';
+import { BrandMark } from '@/components/ui/brand-mark';
 import { LanguageToggle } from '@/components/ui/language-toggle';
 import { Wordmark } from '@/components/site/site-shell';
 import { LoginIcon } from './login-icons';
@@ -77,6 +78,7 @@ export default async function LoginPage({ searchParams }: { searchParams: Promis
             </Link>
             <LanguageToggle className="btn ghost sm" icon={false} />
           </div>
+          <BrandMark className="login-mobile-mark" size={33} />
           <p className="eyebrow">{l.eyebrow}</p>
           <h2>
             {l.hello1}

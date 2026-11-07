@@ -24,6 +24,7 @@ import {
   vector,
 } from 'drizzle-orm/pg-core';
 import type { ReeDraft } from '@/lib/domain/ree';
+import type { SocialContact } from '@/lib/domain/account';
 import type { CitationSnapshot, Locator } from '@/lib/domain/answer';
 import type { Allocation } from '@/lib/domain/credits';
 import type { ProviderCharge, ProviderRate } from '@/lib/domain/provider-cost';
@@ -31,6 +32,8 @@ import type { CallPurpose, CallStatus, CostBasis } from '@/lib/domain/model-call
 import type { KnowledgeActivity, KnowledgeChild } from '@/lib/domain/knowledge';
 import type { RoleMetrics } from '@/lib/domain/roles';
 import type { ReeRank } from '@/lib/domain/explore';
+import { REE_COMMENT_MAX_LENGTH } from '@/lib/domain/ree-comment';
+import { MODEL_KINDS, VIDEO_TEMPLATES, type ModelKind } from '@/lib/constants';
 
 const createdAt = () => timestamp('created_at', { withTimezone: true }).notNull().defaultNow();
 const timestampTz = (name: string) => timestamp(name, { withTimezone: true });
@@ -45,6 +48,10 @@ export const user = pgTable(
     id: uuid('id').primaryKey().defaultRandom(),
     email: text('email').notNull(),
     name: text('name').notNull(),
+    title: text('title').notNull().default(''),
+    description: text('description').notNull().default(''),
+    website: text('website').notNull().default(''),
+    socialContacts: jsonb('social_contacts').$type<SocialContact[]>().notNull().default([]),
     /** A Blob pathname once uploaded; the provider's avatar URL until then. */
     avatarBlob: text('avatar_blob'),
     lang: text('lang').$type<'zh' | 'en'>().notNull().default('zh'),
@@ -93,12 +100,15 @@ export const ree = pgTable(
     slug: text('slug').notNull(),
     description: text('description').notNull().default(''),
     avatarBlob: text('avatar_blob'),
+    coverBlob: text('cover_blob'),
     color: text('color').notNull().default('default'),
     category: text('category').notNull().default('other'),
     tags: text('tags').array().notNull().default(sql`'{}'::text[]`),
     systemPrompt: text('system_prompt').notNull().default(''),
     sampleQuestions: jsonb('sample_questions').$type<string[]>().notNull().default([]),
     isPublic: boolean('is_public').notNull().default(false),
+    /** Publication is a separate owner action; new Rees start unpublished. */
+    isPublished: boolean('is_published').notNull().default(false),
     queryFee: integer('query_fee').notNull().default(0),
     /** Taken down by an administrator (2.5): hidden from discovery and other people's conversations, and not republishable by its owner, until restored. */
     moderatedAt: timestampTz('moderated_at'),
@@ -114,7 +124,7 @@ export const ree = pgTable(
   },
   (t) => [
     uniqueIndex('ree_slug_key').on(t.slug),
-    index('ree_public_idx').on(t.category, t.createdAt).where(sql`is_public and moderated_at is null and deleted_at is null`),
+    index('ree_public_idx').on(t.category, t.createdAt).where(sql`is_public and is_published and moderated_at is null and deleted_at is null`),
     index('ree_owner_idx').on(t.ownerId, t.createdAt),
     check(
       'ree_color_check',
@@ -128,6 +138,37 @@ export const ree = pgTable(
     check('ree_tags_check', sql`cardinality(tags) <= 3`),
     /* A taken-down Ree is private until an administrator restores it, whoever writes the row (step 5). */
     check('ree_moderated_private_check', sql`moderated_at is null or not is_public`),
+    check('ree_published_public_check', sql`not is_published or (is_public and moderated_at is null and deleted_at is null)`),
+  ],
+);
+
+export const reeFavorite = pgTable(
+  'ree_favorite',
+  {
+    userId: uuid('user_id').notNull().references(() => user.id, { onDelete: 'cascade' }),
+    reeId: uuid('ree_id').notNull().references(() => ree.id, { onDelete: 'cascade' }),
+    createdAt: createdAt(),
+  },
+  (t) => [
+    primaryKey({ columns: [t.userId, t.reeId] }),
+    index('ree_favorite_recent_idx').on(t.userId, t.createdAt.desc(), t.reeId.desc()),
+    index('ree_favorite_ree_idx').on(t.reeId),
+  ],
+);
+
+export const reeComment = pgTable(
+  'ree_comment',
+  {
+    id: uuid('id').primaryKey(),
+    reeId: uuid('ree_id').notNull().references(() => ree.id, { onDelete: 'cascade' }),
+    userId: uuid('user_id').notNull().references(() => user.id, { onDelete: 'cascade' }),
+    content: text('content').notNull(),
+    createdAt: createdAt(),
+  },
+  (t) => [
+    index('ree_comment_recent_idx').on(t.reeId, t.createdAt.desc(), t.id.desc()),
+    index('ree_comment_user_idx').on(t.userId),
+    check('ree_comment_content_check', sql`char_length(content) between 1 and ${sql.raw(String(REE_COMMENT_MAX_LENGTH))}`),
   ],
 );
 
@@ -470,7 +511,7 @@ export const modelConfig = pgTable(
   {
     id: uuid('id').primaryKey().defaultRandom(),
     name: text('name').notNull(),
-    kind: text('kind').$type<'generation' | 'embedding' | 'transcription'>().notNull(),
+    kind: text('kind').$type<ModelKind>().notNull(),
     transport: text('transport').$type<'gateway' | 'openai_compatible'>().notNull(),
     baseUrl: text('base_url'),
     model: text('model').notNull(),
@@ -489,7 +530,7 @@ export const modelConfig = pgTable(
     uniqueIndex('model_config_one_enabled_key').on(t.kind).where(sql`enabled`),
     uniqueIndex('model_config_one_enabled_plan_key').on(t.kind).where(sql`enabled_plan`),
     check('model_config_enabled_plan_check', sql`not enabled_plan or kind = 'generation'`),
-    check('model_config_kind_check', oneOf('kind', ['generation', 'embedding', 'transcription'])),
+    check('model_config_kind_check', oneOf('kind', MODEL_KINDS)),
     check('model_config_transport_check', oneOf('transport', ['gateway', 'openai_compatible'])),
     check(
       'model_config_base_url_check',
@@ -663,6 +704,7 @@ export const paddleCheckout = pgTable(
     paddleTransactionId: text('paddle_transaction_id').primaryKey(),
     priceKey: text('price_key'),
     unitPriceMinor: integer('unit_price_minor'),
+    unitCredits: integer('unit_credits').notNull().default(100_000),
     supersededAt: timestampTz('superseded_at'),
     userId: uuid('user_id')
       .notNull()
@@ -1033,7 +1075,7 @@ export const reeVideo = pgTable(
       .references(() => ree.id, { onDelete: 'cascade' }),
     generated: boolean('generated').notNull().default(false),
     revision: integer('revision').notNull().default(0),
-    template: text('template').$type<'editorial' | 'blueprint' | 'spotlight'>().notNull().default('editorial'),
+    template: text('template').$type<(typeof VIDEO_TEMPLATES)[number]>().notNull().default('editorial'),
     accentColor: text('accent_color').notNull().default('#127ee3'),
     aspect: text('aspect').$type<'16:9' | '9:16'>().notNull().default('16:9'),
     music: boolean('music').notNull().default(true),
@@ -1045,7 +1087,7 @@ export const reeVideo = pgTable(
     updatedAt: timestampTz('updated_at').notNull().defaultNow(),
   },
   (t) => [
-    check('ree_video_template_check', oneOf('template', ['editorial', 'blueprint', 'spotlight'])),
+    check('ree_video_template_check', oneOf('template', VIDEO_TEMPLATES)),
     check('ree_video_aspect_check', oneOf('aspect', ['16:9', '9:16'])),
     check('ree_video_accent_check', sql`accent_color ~ '^#[0-9a-f]{6}$'`),
     check('ree_video_generated_check', sql`not generated or scenes is not null`),
@@ -1072,7 +1114,7 @@ export const videoExport = pgTable(
       .notNull()
       .references(() => user.id),
     contentVersion: text('content_version').notNull(),
-    template: text('template').$type<'editorial' | 'blueprint' | 'spotlight'>().notNull(),
+    template: text('template').$type<(typeof VIDEO_TEMPLATES)[number]>().notNull(),
     aspect: text('aspect').$type<'16:9' | '9:16'>().notNull(),
     status: text('status').$type<'started' | 'done' | 'abandoned'>().notNull().default('started'),
     /** The Blob pathname, served at `/media/<pathname>`. */
@@ -1088,7 +1130,7 @@ export const videoExport = pgTable(
     index('video_export_ree_idx').on(t.reeId, t.createdAt),
     index('video_export_started_idx').on(t.createdAt).where(sql`status = 'started'`),
     check('video_export_status_check', oneOf('status', ['started', 'done', 'abandoned'])),
-    check('video_export_template_check', oneOf('template', ['editorial', 'blueprint', 'spotlight'])),
+    check('video_export_template_check', oneOf('template', VIDEO_TEMPLATES)),
     check('video_export_aspect_check', oneOf('aspect', ['16:9', '9:16'])),
     check('video_export_cost_check', sql`cost_credits >= 0`),
   ],
@@ -1100,6 +1142,7 @@ export const billingPrice = pgTable('billing_price', {
   environment: text('environment').$type<'sandbox' | 'production'>().notNull(),
   kind: text('kind').$type<'plan' | 'pack'>().notNull(),
   priceMinor: integer('price_minor').notNull(),
+  credits: integer('credits'),
   paddlePriceId: text('paddle_price_id').notNull(),
   promotionPriceMinor: integer('promotion_price_minor'),
   promotionStartsAt: timestampTz('promotion_starts_at'),
@@ -1113,6 +1156,7 @@ export const billingPrice = pgTable('billing_price', {
   check('billing_price_environment_check', oneOf('environment', ['sandbox', 'production'])),
   check('billing_price_kind_check', oneOf('kind', ['plan', 'pack'])),
   check('billing_price_amount_check', sql`price_minor between 1 and 100000000`),
+  check('billing_price_credits_check', sql`credits between 1 and 100000000`),
   check('billing_price_promotion_check', sql`(promotion_price_minor is null and promotion_starts_at is null and promotion_ends_at is null) or (promotion_price_minor is not null and promotion_starts_at is not null and promotion_ends_at is not null and promotion_price_minor > 0 and promotion_price_minor < price_minor and promotion_starts_at < promotion_ends_at)`),
 ]);
 
@@ -1126,4 +1170,28 @@ export const signupReward = pgTable('signup_reward', {
 }, () => [
   check('signup_reward_singleton_check', sql`id = 1`),
   check('signup_reward_credits_check', sql`credits between 0 and 100000000`),
+]);
+
+/** The flat video script charge, shared by standard scripts and narrated demos. */
+export const videoPricing = pgTable('video_pricing', {
+  id: integer('id').primaryKey().default(1),
+  scriptCredits: integer('script_credits').notNull(),
+  revision: uuid('revision').notNull().defaultRandom(),
+  updatedBy: uuid('updated_by').references(() => administrator.id),
+  updatedAt: timestampTz('updated_at').notNull().defaultNow(),
+}, () => [
+  check('video_pricing_singleton_check', sql`id = 1`),
+  check('video_pricing_script_credits_check', sql`script_credits between 1 and 100000000`),
+]);
+
+/** The charge for new MP4 exports after a Ree's first successful export. */
+export const videoExportPricing = pgTable('video_export_pricing', {
+  id: integer('id').primaryKey().default(1),
+  credits: integer('credits').notNull(),
+  revision: uuid('revision').notNull().defaultRandom(),
+  updatedBy: uuid('updated_by').references(() => administrator.id),
+  updatedAt: timestampTz('updated_at').notNull().defaultNow(),
+}, () => [
+  check('video_export_pricing_singleton_check', sql`id = 1`),
+  check('video_export_pricing_credits_check', sql`credits between 1 and 100000000`),
 ]);

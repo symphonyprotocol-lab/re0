@@ -68,9 +68,19 @@ export async function prepareProviderCall(target: ProviderTarget) {
   const configured = configuredProviderRate(meter.prices, target);
   const rate = configured ?? await catalogRate(target);
   const gateway = target.endpoint.startsWith('https://ai-gateway.vercel.sh/');
-  if (!rate && !gateway) throw new ProviderCostUnavailable('pricing_unavailable');
+  if (!rate && !gateway) {
+    // An operator error, not the user's: name the price the console (or PROVIDER_COST_RATES) is missing.
+    console.warn(`no supplier price for ${target.service} ${target.endpoint} ${target.model} account=${target.account ?? '*'}; set it in the console`);
+    throw new ProviderCostUnavailable('pricing_unavailable');
+  }
   return {
-    async complete(input: { usage: ProviderUsage; providerMetadata?: unknown; requestId?: string }) {
+    /**
+     * `acceptUnknownCost`: the supplier gives no usage we can price (a Word parse
+     * without `creditsUsed`, audio without a duration). The receipt is kept as
+     * unresolved for reconciliation instead of failing the source; it is never
+     * billed as zero or estimated.
+     */
+    async complete(input: { usage: ProviderUsage; providerMetadata?: unknown; requestId?: string; acceptUnknownCost?: boolean }) {
       let direct: string | null = null;
       let invalidReportedCost = false;
       try { direct = gateway ? reportedGatewayCost(input.providerMetadata) : null; }
@@ -89,7 +99,7 @@ export async function prepareProviderCall(target: ProviderTarget) {
         ...(typeof generationId === 'string' ? { generationId } : {}),
       };
       await meter.record(charge);
-      if (costUsd === null) throw new ProviderCostUnavailable('usage_unavailable');
+      if (costUsd === null && !input.acceptUnknownCost) throw new ProviderCostUnavailable('usage_unavailable');
     },
   };
 }

@@ -6,6 +6,7 @@ import { Fragment, createContext, useContext, useEffect, useState, type ReactNod
 import { useI18n } from '@/i18n/client';
 import { formatNumber } from '@/i18n/format';
 import { CI, type ConsoleIconName } from '@/components/admin/console-icon';
+import { BrandMark, BrandName } from '@/components/ui/brand-mark';
 import { RouteMotion } from '@/components/shell/workspace-main';
 import './console.css';
 
@@ -48,16 +49,8 @@ export function useConsoleShell(): ConsoleShellState {
 export function ConsoleWordmark({ label }: { label: string }) {
   return (
     <Link className="wordmark" href="/" aria-label={label}>
-      <svg viewBox="0 0 32 32" aria-hidden="true">
-        <rect width="32" height="32" rx="10.6667" fill="#127ee3" />
-        <g fill="#ffffff" stroke="#ffffff" strokeWidth="1" strokeLinejoin="round">
-          <path d="M17.25 8.91 A 7.2 7.2 0 1 0 23.2 16" fill="none" strokeWidth="3" />
-          <circle cx="17.25" cy="8.91" r="1.5" stroke="none" />
-          <path d="M23.2 11.4 L 25.75 16 L 20.65 16 Z" />
-          <circle cx="16" cy="16" r="2.5" stroke="none" />
-        </g>
-      </svg>
-      <span>RE0</span>
+      <BrandMark />
+      <BrandName />
     </Link>
   );
 }

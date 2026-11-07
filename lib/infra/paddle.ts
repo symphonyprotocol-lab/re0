@@ -286,6 +286,19 @@ export async function provisionPrice(config: PaddleConfig, kind: 'plan' | 'pack'
   return price.id;
 }
 
+/** Withdraws a price version our catalogue never recorded, so nobody can be charged it. */
+export async function archivePrice(config: PaddleConfig, id: string): Promise<void> {
+  await call(config, 'PATCH', `/prices/${encodeURIComponent(id)}`, { status: 'archived' });
+}
+
+/** Idempotent: a transaction an earlier, interrupted replacement already canceled counts as canceled. */
 export async function cancelCheckoutTransaction(config: PaddleConfig, id: string): Promise<void> {
-  await call(config, 'PATCH', `/transactions/${encodeURIComponent(id)}`, { status: 'canceled' });
+  const path = `/transactions/${encodeURIComponent(id)}`;
+  try {
+    await call(config, 'PATCH', path, { status: 'canceled' });
+  } catch (error) {
+    if (!(error instanceof PaddleError) || error.status === undefined) throw error;
+    const current = await call<Pick<PaddleTransaction, 'status'>>(config, 'GET', path);
+    if (current.status !== 'canceled') throw error;
+  }
 }

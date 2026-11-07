@@ -67,7 +67,8 @@ describe('the Plan', () => {
     expect(planUsage({ ...active, cancelAtPeriodEnd: true }, { amount: 100_000, remaining: 50_000 }, now)).toMatchObject({ active: true, cancelAtPeriodEnd: true });
     expect(planUsage(null, null, now)).toMatchObject({ active: false, allowance: 0, used: 0, percent: 0 });
     /* Paid, but the period's payment has not arrived yet: nothing used. */
-    expect(planUsage(active, null, now)).toMatchObject({ used: 0, remaining: 100_000 });
+    expect(planUsage(active, null, now)).toMatchObject({ used: 0, remaining: 50_000 });
+    expect(planUsage(active, null, now, 60_000)).toMatchObject({ used: 0, remaining: 60_000 });
   });
 });
 
@@ -82,6 +83,7 @@ describe('refunds', () => {
     expect(reversalCredits(purchase, Number.NaN)).toBe(0);
     /* Tax-inclusive totals on both sides: a refund of the whole charge takes everything back. */
     expect(reversalCredits({ credits: 100_000, amountMinor: 1_190, reversedCredits: 0 }, 1_190)).toBe(100_000);
+    expect(reversalCredits({ credits: 1_000_000_000, amountMinor: 1_000_000_001, reversedCredits: 0 }, 500_000_001)).toBe(500_000_000);
   });
 
   const grant = (id: string, source: SpendableGrant['source'], remaining: number): SpendableGrant => ({

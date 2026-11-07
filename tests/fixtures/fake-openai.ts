@@ -63,6 +63,39 @@ export function videoScript(prompt: string, rewrite: boolean) {
   };
 }
 
+/** `TERSE NARRATION` in the sources: a too-short first draft, fixed when asked to rewrite it. `ENDLESS NARRATION`: always far too long. */
+function demoStoryboard(prompt: string, system: string): Record<string, unknown> {
+  if (prompt.includes('ENDLESS NARRATION') || (prompt.includes('TERSE NARRATION') && !system.includes('Your previous narration had'))) {
+    const long = 'Then the terminal checks every detail of the request before it shows the final result.';
+    return {
+      ...demoStoryboard(prompt.replace(/(ENDLESS|TERSE) NARRATION/g, ''), system),
+      narration: prompt.includes('ENDLESS NARRATION')
+        ? { hook: 'Need to check who can enter a door today?', prepare: long, action: long, result: long }
+        : { hook: 'Check access.', prepare: 'Hold a badge.', action: 'Scan it.', result: 'See the result.' },
+    };
+  }
+  if (prompt.includes('DW200 reader')) return {
+    visual: { layout: 'device', tone: 'teal', subject: 'DW200 badge reader', deviceAction: 'scan' },
+    headline: 'Verify access with one scan',
+    summary: 'Use the DW200 terminal to check an employee badge.',
+    exampleTitle: 'Employee badge',
+    exampleText: 'Present a badge at the DW200 reader.',
+    result: 'The terminal displays whether access is allowed.',
+    steps: { prepare: 'Present a badge', action: 'Scan badge', result: 'Check access' },
+    narration: { hook: 'Need to check who can enter a door?', prepare: 'Hold an employee badge near the reader.', action: 'Scan the badge and wait for verification.', result: 'The terminal displays the access result right away.' },
+  };
+  return {
+    visual: { layout: 'conversation', tone: 'amber', subject: 'Refund assistant', deviceAction: 'none' },
+    headline: 'Find your refund window',
+    summary: 'Get a clear answer from the refund policy.',
+    exampleTitle: 'Refund policy',
+    exampleText: 'When will my refund arrive?',
+    result: 'Refunds arrive within fourteen days.',
+    steps: { prepare: 'Ask a question', action: 'Find the answer', result: 'Check the policy' },
+    narration: { hook: 'Waiting to find out when your refund arrives?', prepare: 'Ask the assistant when the money comes back.', action: 'It checks the refund policy for the timing.', result: 'Your payment is refunded within fourteen days.' },
+  };
+}
+
 /** `delayMs` spaces the streamed pieces out, so answers streamed side by side visibly interleave. */
 export async function startFakeOpenAi(port = 0, options: { delayMs?: number } = {}): Promise<FakeOpenAi> {
   const requests: FakeOpenAi['requests'] = [];
@@ -104,6 +137,8 @@ export async function startFakeOpenAi(port = 0, options: { delayMs?: number } = 
       const system = JSON.stringify(body.messages?.[0]?.content ?? '');
       const text = system.includes('Suggest three example questions')
         ? 'When are refunds issued?\nHow long does a refund take?\nWhere does the refund go?'
+        : system.includes('continuous 15-second English product demonstration')
+          ? JSON.stringify(demoStoryboard(question, system))
         : system.includes('Rewrite this video script') || system.includes('video introduction script')
           ? JSON.stringify(videoScript(question, system.includes('Rewrite this video script')))
           : question.includes('DECLINE')

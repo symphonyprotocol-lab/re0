@@ -1,8 +1,7 @@
 /**
  * Acceptance (8.4 step 2), the four kinds that reach outside:
- *   - a public repository is added from its URL alone; a private one is
- *     refused until the owner connects GitHub, then read with their token
- *     and cited by file and line;
+ *   - public and private repositories require the owner's GitHub connection,
+ *     are read with their token, and are cited by file and line;
  *   - a single page needs no claim; a website is refused until its domain is
  *     verified, by DNS TXT or by the well-known file, either one;
  *   - a 100 MB audio file is cut into pieces, transcribed with timestamps
@@ -30,6 +29,7 @@ const { createSession } = await import('@/lib/services/auth');
 const { balanceOf } = await import('@/lib/services/credits');
 const knowledge = await import('@/lib/services/knowledge');
 const connections = await import('@/lib/services/connections');
+const { listGithubRepositories } = await import('@/lib/infra/connectors/github');
 const rees = await import('@/lib/services/rees');
 const chat = await import('@/lib/services/chat');
 const { db, schema } = await import('@/lib/infra/db');
@@ -78,7 +78,7 @@ const SOURCE = 'export function greet(name: string) {\n  return `hello ${name}`;
 
 function serveRepository(owner: string, name: string, visibility: 'public' | 'private') {
   const repo = `api.github.com/repos/${owner}/${name}`;
-  const allowed = (init: RequestInit | undefined) => visibility === 'public' || authorization(init) === 'Bearer gho_secret_token';
+  const allowed = (init: RequestInit | undefined) => authorization(init) === 'Bearer gho_secret_token';
   web.routes.set(repo, (_url, init) =>
     allowed(init) ? jsonResponse({ full_name: `${owner}/${name}`, private: visibility === 'private', default_branch: 'main' }) : jsonResponse({ message: 'Not Found' }, 404),
   );
@@ -95,15 +95,30 @@ function serveRepository(owner: string, name: string, visibility: 'public' | 'pr
         })
       : jsonResponse({}, 404),
   );
-  web.routes.set(`raw.githubusercontent.com/${owner}/${name}/abc1234def/README.md`, (_url, init) => (allowed(init) ? text(README) : text('', 'text/plain')));
-  web.routes.set(`raw.githubusercontent.com/${owner}/${name}/abc1234def/src/greet.ts`, (_url, init) => (allowed(init) ? text(SOURCE) : text('', 'text/plain')));
+  for (const [path, content] of [['README.md', README], ['src/greet.ts', SOURCE]] as const) {
+    const file = visibility === 'private'
+      ? `${repo}/contents/${path}?ref=abc1234def`
+      : `raw.githubusercontent.com/${owner}/${name}/abc1234def/${path}`;
+    web.routes.set(file, (_url, init) => (
+      allowed(init) && (visibility === 'public' || new Headers(init?.headers).get('accept') === 'application/vnd.github.raw+json')
+        ? text(content)
+        : jsonResponse({}, 404)
+    ));
+  }
 }
 
 describeWithDb('GitHub repositories', () => {
-  it('adds a public repository from its URL and cites file and line', async () => {
+  it('requires a GitHub connection for a public repository and cites file and line', async () => {
     serveRepository('acme', 'handbook', 'public');
     const { userId, ree } = await userWithRee();
-    const id = await knowledge.addKnowledge(userId, ree, { kind: 'github', url: 'https://github.com/acme/handbook/tree/main/docs' });
+    const input = { kind: 'github', url: 'https://github.com/acme/handbook/tree/main/docs' } as const;
+    const before = web.requests.length;
+    expect(await refusal(knowledge.addKnowledge(userId, ree, input))).toBe('github_not_connected');
+    expect(web.requests).toHaveLength(before);
+    expect(await balanceOf(db(), userId)).toBe(WELCOME_CREDITS);
+
+    await connections.saveGithubConnection(userId, { accessToken: 'gho_secret_token', login: 'acme-dev', scope: 'repo' });
+    const id = await knowledge.addKnowledge(userId, ree, input);
     expect(await balanceOf(db(), userId)).toBe(WELCOME_CREDITS - 1);
     await knowledge.processKnowledge(id);
     const detail = await knowledge.knowledgeDetail(ree.id, id);
@@ -114,6 +129,10 @@ describeWithDb('GitHub repositories', () => {
     expect(locatorLabel(deploys!.locator, 'zh')).toContain('README.md:5');
     const file = await knowledge.knowledgeChild(ree.id, id, 1);
     expect(file?.content).toBe(SOURCE.trimEnd());
+
+    await connections.disconnectGithub(userId);
+    expect(await refusal(knowledge.refreshKnowledge(userId, ree.id, id))).toBe('github_not_connected');
+    expect((await knowledge.knowledgeDetail(ree.id, id))?.status).toBe('ready');
   });
 
   it('refuses a private repository until GitHub is connected, then reads it with the token', async () => {
@@ -136,19 +155,27 @@ describeWithDb('GitHub repositories', () => {
     expect(await refusal(knowledge.refreshKnowledge(userId, ree.id, id))).toBe('github_not_connected');
   });
 
-  it('does not mistake an exhausted anonymous rate limit for a private repository', async () => {
-    serveRepository('acme', 'busy', 'public');
-    /* GitHub's answer once the shared anonymous limit is used up; a token has its own. */
-    const limited = (handler: (url: URL, init: RequestInit | undefined) => Response) => (url: URL, init: RequestInit | undefined) =>
-      authorization(init) ? handler(url, init) : new Response('{"message":"API rate limit exceeded"}', { status: 403, headers: { 'x-ratelimit-remaining': '0' } });
-    web.routes.set('api.github.com/repos/acme/busy', limited(() => jsonResponse({ full_name: 'acme/busy', private: false, default_branch: 'main' })));
+  it('stops queued public repository processing if GitHub was disconnected', async () => {
+    serveRepository('acme', 'queued', 'public');
     const { userId, ree } = await userWithRee();
-    expect(await refusal(knowledge.addKnowledge(userId, ree, { kind: 'github', url: 'acme/busy' }))).toBe('source_unreachable');
-
     await connections.saveGithubConnection(userId, { accessToken: 'gho_secret_token', login: 'acme-dev', scope: 'repo' });
-    const id = await knowledge.addKnowledge(userId, ree, { kind: 'github', url: 'acme/busy' });
+    const id = await knowledge.addKnowledge(userId, ree, { kind: 'github', url: 'acme/queued' });
+    await connections.disconnectGithub(userId);
+
+    const before = web.requests.length;
     await knowledge.processKnowledge(id);
-    expect((await knowledge.knowledgeDetail(ree.id, id))?.status).toBe('ready');
+    expect(web.requests).toHaveLength(before);
+    expect((await knowledge.knowledgeDetail(ree.id, id))).toMatchObject({ status: 'failed', error: 'github_not_connected' });
+    expect(await balanceOf(db(), userId)).toBe(WELCOME_CREDITS);
+  });
+
+  it('reports an exhausted GitHub rate limit as a temporary access failure', async () => {
+    web.routes.set('api.github.com/repos/acme/busy', () =>
+      new Response('{"message":"API rate limit exceeded"}', { status: 403, headers: { 'x-ratelimit-remaining': '0' } }),
+    );
+    const { userId, ree } = await userWithRee();
+    await connections.saveGithubConnection(userId, { accessToken: 'gho_secret_token', login: 'acme-dev', scope: 'repo' });
+    expect(await refusal(knowledge.addKnowledge(userId, ree, { kind: 'github', url: 'acme/busy' }))).toBe('source_unreachable');
   });
 
   it('says not found for a repository the connected account cannot read', async () => {
@@ -156,6 +183,30 @@ describeWithDb('GitHub repositories', () => {
     await connections.saveGithubConnection(userId, { accessToken: 'gho_other', login: 'someone', scope: 'repo' });
     expect(await refusal(knowledge.addKnowledge(userId, ree, { kind: 'github', url: 'https://github.com/acme/secret' }))).toBe('github_repo_not_found');
     expect(await refusal(knowledge.addKnowledge(userId, ree, { kind: 'github', url: 'https://gitlab.com/acme/secret' }))).toBe('invalid_github_url');
+    web.routes.set('api.github.com/repos/acme/restricted', () => jsonResponse({}, 403));
+    expect(await refusal(knowledge.addKnowledge(userId, ree, { kind: 'github', url: 'acme/restricted' }))).toBe('github_repo_not_found');
+  });
+
+  it('lists personal and organization repositories using the connected user token and follows pagination', async () => {
+    const token = 'ghu_repository_grant';
+    const { userId } = await userWithRee();
+    await connections.saveGithubConnection(userId, { accessToken: token, login: 'acme-dev', scope: 'github_app' });
+    web.routes.set('api.github.com/user/repos', (url, init) => {
+      if (authorization(init) !== `Bearer ${token}`) return jsonResponse({}, 401);
+      if (url.searchParams.get('page') === '2') return jsonResponse([{ full_name: 'another-org/private-docs' }]);
+      return new Response(JSON.stringify([{ full_name: 'acme-dev/notes' }, { full_name: 'acme/handbook' }]), {
+        headers: { link: '<https://api.github.com/user/repos?page=2>; rel="next"' },
+      });
+    });
+    const connectedToken = await connections.githubTokenFor(userId);
+    expect(await listGithubRepositories(connectedToken!, 1)).toEqual({
+      repositories: ['acme-dev/notes', 'acme/handbook'],
+      nextPage: 2,
+    });
+    expect(await listGithubRepositories(connectedToken!, 2)).toEqual({
+      repositories: ['another-org/private-docs'],
+      nextPage: null,
+    });
   });
 });
 

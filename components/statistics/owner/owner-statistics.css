@@ -14,8 +14,8 @@
   --ink: #091135;
   --muted: #697088;
   --line: #e2e6f0;
-  --blue: #127ee3;
-  --blue-dark: #0867c4;
+  --blue: var(--color-blue);
+  --blue-dark: var(--color-blue-dark);
   --soft: #edf4ff;
   --wash: #fafaff;
   --green: #128168;

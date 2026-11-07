@@ -1,16 +1,15 @@
 /**
  * GitHub repositories (rebuild-proposal.md 2.1, from the old
  * `fetchGithubSnapshot`): the default branch's tree is read once through
- * the REST API, and the files come from the raw host pinned to that commit,
- * so a push half-way through cannot mix two versions.
+ * the REST API. File reads are pinned to that commit so a push half-way
+ * through cannot mix two versions.
  *
- * A public repository is read anonymously (or with the deployment's own
- * `GITHUB_INGESTION_TOKEN`, which only raises the rate limit); a private one
- * with its owner's own token from `github_connection` (2.2). The token is
+ * Repositories are read with the Ree owner's token from
+ * `github_connection`. The token is
  * sent to GitHub's hosts only -- `http.ts` drops it on any redirect away.
  */
 import { GITHUB_LIMITS } from '@/lib/constants';
-import type { RepositoryRef } from '@/lib/domain/sources';
+import { parseGithubRepo, type RepositoryRef } from '@/lib/domain/sources';
 import { fetchDocument, fetchJson } from './http';
 import { ProcessingFailure } from './failure';
 
@@ -29,20 +28,38 @@ export interface RepositoryFile {
   content: string;
 }
 
-function headers(token: string | null): Record<string, string> {
-  const credential = token ?? process.env.GITHUB_INGESTION_TOKEN?.trim() ?? '';
+export interface GithubRepositoryPage {
+  repositories: string[];
+  nextPage: number | null;
+}
+
+function headers(token: string): Record<string, string> {
   return {
     'x-github-api-version': '2022-11-28',
-    ...(credential ? { authorization: `Bearer ${credential}` } : {}),
+    authorization: `Bearer ${token}`,
   };
 }
 
+/** GitHub lists the personal, collaborator and organization repositories visible to this grant. */
+export async function listGithubRepositories(token: string, page: number): Promise<GithubRepositoryPage> {
+  const params = new URLSearchParams({ per_page: '50', page: String(page), sort: 'full_name', direction: 'asc' });
+  const response = await fetchDocument(`${API}/user/repos?${params}`, {
+    accept: 'application/vnd.github+json',
+    headers: headers(token),
+    maxBytes: 2 * 1024 * 1024,
+  });
+  const entries = JSON.parse(response.body) as { full_name: string }[];
+  const repositories = entries.map((entry) => entry.full_name).filter((name) => parseGithubRepo(name) !== null);
+  const hasNext = /<[^>]+>;\s*rel="next"/.test(response.headers.get('link') ?? '');
+  return { repositories, nextPage: hasNext ? page + 1 : null };
+}
+
 /**
- * The repository as `token` sees it (anonymous when null), or null when
+ * The repository as `token` sees it, or null when
  * GitHub says there is none -- which is also what it says about a private
  * repository the caller cannot read.
  */
-export async function readRepository(ref: RepositoryRef, token: string | null): Promise<RepositoryInfo | null> {
+export async function readRepository(ref: RepositoryRef, token: string): Promise<RepositoryInfo | null> {
   try {
     const repository = await fetchJson<{ full_name?: string; private?: boolean; default_branch?: string }>(
       `${API}/repos/${encodeURIComponent(ref.owner)}/${encodeURIComponent(ref.name)}`,
@@ -54,7 +71,7 @@ export async function readRepository(ref: RepositoryRef, token: string | null): 
       defaultBranch: repository.default_branch ?? 'HEAD',
     };
   } catch (error) {
-    if (error instanceof ProcessingFailure && (error.code === 'source_missing' || (error.code === 'source_forbidden' && !token))) return null;
+    if (error instanceof ProcessingFailure && (error.code === 'source_missing' || error.httpStatus === 403)) return null;
     throw error;
   }
 }
@@ -93,19 +110,20 @@ export function selectPaths(entries: readonly { path: string; size?: number }[],
  */
 export async function fetchRepositoryFiles(
   ref: RepositoryRef,
-  token: string | null,
+  token: string,
 ): Promise<{ repository: RepositoryInfo; revision: string; files: RepositoryFile[]; truncated: boolean }> {
   const repository = await readRepository(ref, token);
   if (!repository) throw new ProcessingFailure('github_repo_not_found', `${ref.owner}/${ref.name} is not readable`);
   const [owner, name] = repository.fullName.split('/') as [string, string];
+  const repoApi = `${API}/repos/${encodeURIComponent(owner)}/${encodeURIComponent(name)}`;
   const branch = await fetchJson<{ commit?: { sha?: string } }>(
-    `${API}/repos/${encodeURIComponent(owner)}/${encodeURIComponent(name)}/branches/${encodeURIComponent(repository.defaultBranch)}`,
+    `${repoApi}/branches/${encodeURIComponent(repository.defaultBranch)}`,
     { headers: headers(token) },
   );
   const revision = branch.commit?.sha;
   if (!revision) throw new ProcessingFailure('empty_text', `${repository.fullName} has no commits`);
   const tree = await fetchJson<{ tree?: { path?: string; type?: string; size?: number }[]; truncated?: boolean }>(
-    `${API}/repos/${encodeURIComponent(owner)}/${encodeURIComponent(name)}/git/trees/${revision}?recursive=1`,
+    `${repoApi}/git/trees/${revision}?recursive=1`,
     { headers: headers(token), maxBytes: 32 * 1024 * 1024 },
   );
   const blobs = (tree.tree ?? []).filter((entry): entry is { path: string; type: string; size?: number } => entry.type === 'blob' && typeof entry.path === 'string');
@@ -118,13 +136,18 @@ export async function fetchRepositoryFiles(
   for (let at = 0; at < paths.length; at += CONCURRENCY) {
     const batch = paths.slice(at, at + CONCURRENCY);
     const results = await Promise.allSettled(
-      batch.map((path) =>
-        fetchDocument(`${RAW}/${owner}/${name}/${revision}/${path.split('/').map(encodeURIComponent).join('/')}`, {
-          accept: 'text/plain, */*',
+      batch.map((path) => {
+        const encodedPath = path.split('/').map(encodeURIComponent).join('/');
+        // The Contents API accepts GitHub App user tokens for private repositories.
+        const url = repository.private
+          ? `${repoApi}/contents/${encodedPath}?ref=${encodeURIComponent(revision)}`
+          : `${RAW}/${owner}/${name}/${revision}/${encodedPath}`;
+        return fetchDocument(url, {
+          accept: repository.private ? 'application/vnd.github.raw+json' : 'text/plain, */*',
           headers: headers(token),
           maxBytes: GITHUB_LIMITS.fileBytes,
-        }),
-      ),
+        });
+      }),
     );
     results.forEach((result, index) => {
       if (result.status !== 'fulfilled') return;

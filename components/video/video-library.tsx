@@ -4,7 +4,7 @@ import { WorkspaceLink as Link } from '@/components/shell/workspace-link';
 import { usePathname } from 'next/navigation';
 import { useNavigationRouter as useRouter } from '@/components/shell/navigation-provider';
 import { useState, type ReactNode } from 'react';
-import { VIDEO_EXPORT_CREDITS, VIDEO_PAGE_SIZES, VIDEO_SCRIPT_CREDITS } from '@/lib/constants';
+import { VIDEO_PAGE_SIZES } from '@/lib/constants';
 import { pageNumbers } from '@/lib/domain/list';
 import type { VideoListItem } from '@/lib/services/video';
 import { useI18n } from '@/i18n/client';
@@ -19,7 +19,12 @@ import './video-pages.css';
  * pricing strip. The search and the pager (not in the prototype, which lists
  * every Ree on one page) show only once the Rees outgrow the first page.
  */
-export function VideoLibrary({ result, q }: { result: { items: VideoListItem[]; total: number; page: number; size: number }; q: string }) {
+export function VideoLibrary({ result, q, scriptCredits, exportCredits }: {
+  result: { items: VideoListItem[]; total: number; page: number; size: number };
+  q: string;
+  scriptCredits: number;
+  exportCredits: number;
+}) {
   const { t, locale } = useI18n();
   const l = t.video.library;
   const router = useRouter();
@@ -91,7 +96,7 @@ export function VideoLibrary({ result, q }: { result: { items: VideoListItem[]; 
                       {item.exportsCount > 0 && ` · ${fill(l.exports, { n: formatNumber(item.exportsCount, locale) })}`}
                     </p>
                   </div>
-                  <Link href={href} className="text-link">
+                  <Link href={href} className="text-link shrink-0">
                     {l.edit}
                     <PIcon name="arrow" />
                   </Link>
@@ -138,7 +143,7 @@ export function VideoLibrary({ result, q }: { result: { items: VideoListItem[]; 
       )}
       <div className="info-strip mt24">
         <PIcon name="info" />
-        <span>{fill(l.pricing, { script: formatNumber(VIDEO_SCRIPT_CREDITS, locale), export: formatNumber(VIDEO_EXPORT_CREDITS, locale) })}</span>
+        <span>{fill(l.pricing, { script: formatNumber(scriptCredits, locale), export: formatNumber(exportCredits, locale) })}</span>
       </div>
     </main>
   );

@@ -4,7 +4,7 @@
  * off the 4.5 MB function body limit; the server reads them back with the
  * read-write token.
  */
-import { BlobNotFoundError, del, get, head } from '@vercel/blob';
+import { BlobNotFoundError, del, get, head, put } from '@vercel/blob';
 import { generateClientTokenFromReadWriteToken } from '@vercel/blob/client';
 
 function token(): string {
@@ -38,6 +38,10 @@ export async function readBlob(pathname: string): Promise<Uint8Array | null> {
   const result = await get(pathname, { access: 'private', token: token(), useCache: false });
   if (!result || result.statusCode !== 200) return null;
   return new Uint8Array(await new Response(result.stream).arrayBuffer());
+}
+
+export async function writeNarration(pathname: string, wav: Buffer): Promise<void> {
+  await put(pathname, wav, { access: 'private', contentType: 'audio/wav', addRandomSuffix: false, token: token() });
 }
 
 /** Streamed, for serving avatars without buffering them. */

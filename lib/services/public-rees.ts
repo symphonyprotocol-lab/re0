@@ -5,9 +5,11 @@
  * names, introductions, tags and category only) and the owner's other
  * public Rees.
  */
-import { and, desc, eq, ne, or, sql } from 'drizzle-orm';
+import { and, desc, eq, isNull, ne, or, sql, type SQL } from 'drizzle-orm';
 import { PUBLIC_LIST_PAGE_SIZE, PUBLIC_RELATED_CANDIDATES, QUERY_BASE_FEE } from '@/lib/constants';
 import { positiveRate, relatedRees } from '@/lib/domain/explore';
+import type { SocialContact } from '@/lib/domain/account';
+import { isUuid } from '@/lib/domain/list';
 import { db, schema } from '@/lib/infra/db';
 import { answersByOthers, publicRee, readySources, reeCards, type ReeCard } from '@/lib/services/explore';
 
@@ -17,6 +19,7 @@ export interface PublicRee {
   name: string;
   description: string;
   avatarBlob: string | null;
+  coverBlob: string | null;
   color: string;
   category: string;
   tags: string[];
@@ -24,6 +27,10 @@ export interface PublicRee {
   ownerId: string;
   ownerName: string;
   ownerAvatar: string | null;
+  ownerTitle: string;
+  ownerDescription: string;
+  ownerWebsite: string;
+  ownerSocialContacts: SocialContact[];
   role: 'normal' | 'verified' | 'official';
   queryFee: number;
   price: number;
@@ -38,6 +45,27 @@ const reeOwner = sql.raw('"ree"."owner_id"');
 
 export async function publicReeBySlug(slug: string): Promise<PublicRee | null> {
   if (!/^[a-z0-9-]{1,64}$/i.test(slug)) return null;
+  return reeDetails(and(eq(schema.ree.slug, slug.toLowerCase()), publicRee())!);
+}
+
+export async function reeForPreview(id: string, ownerId: string): Promise<PublicRee | null> {
+  if (!isUuid(id)) return null;
+  return reeDetails(and(eq(schema.ree.id, id), eq(schema.ree.ownerId, ownerId), isNull(schema.ree.deletedAt))!);
+}
+
+export async function coverVisibleTo(id: string, pathname: string, viewerId: string | null): Promise<boolean> {
+  const [row] = await db().select({ id: schema.ree.id }).from(schema.ree)
+    .where(and(
+      eq(schema.ree.id, id),
+      eq(schema.ree.coverBlob, pathname),
+      isNull(schema.ree.deletedAt),
+      or(viewerId ? eq(schema.ree.ownerId, viewerId) : undefined, publicRee()),
+    ))
+    .limit(1);
+  return Boolean(row);
+}
+
+async function reeDetails(where: SQL): Promise<PublicRee | null> {
   const [row] = await db()
     .select({
       id: schema.ree.id,
@@ -45,6 +73,7 @@ export async function publicReeBySlug(slug: string): Promise<PublicRee | null> {
       name: schema.ree.name,
       description: schema.ree.description,
       avatarBlob: schema.ree.avatarBlob,
+      coverBlob: schema.ree.coverBlob,
       color: schema.ree.color,
       category: schema.ree.category,
       tags: schema.ree.tags,
@@ -52,6 +81,10 @@ export async function publicReeBySlug(slug: string): Promise<PublicRee | null> {
       ownerId: schema.ree.ownerId,
       ownerName: schema.user.name,
       ownerAvatar: schema.user.avatarBlob,
+      ownerTitle: schema.user.title,
+      ownerDescription: schema.user.description,
+      ownerWebsite: schema.user.website,
+      ownerSocialContacts: schema.user.socialContacts,
       role: schema.user.role,
       queryFee: schema.ree.queryFee,
       sources: readySources,
@@ -62,7 +95,7 @@ export async function publicReeBySlug(slug: string): Promise<PublicRee | null> {
     })
     .from(schema.ree)
     .innerJoin(schema.user, eq(schema.user.id, schema.ree.ownerId))
-    .where(and(eq(schema.ree.slug, slug.toLowerCase()), publicRee()))
+    .where(where)
     .limit(1);
   if (!row) return null;
   const { up, down, ...rest } = row;

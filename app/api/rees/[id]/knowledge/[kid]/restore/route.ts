@@ -16,7 +16,7 @@ export async function POST(request: NextRequest, context: { params: Promise<{ id
   if (!ree) return fail('not_found', 404);
   try {
     await runBatch(user.id, ree.id, { action: 'restore', ids: [kid] });
-    if (ree.isPublic) after(() => refreshProfile(ree.id).catch(() => undefined));
+    if (ree.isPublished) after(() => refreshProfile(ree.id).catch(() => undefined));
     return json({ id: kid });
   } catch (error) {
     if (error instanceof KnowledgeInputError) return fail(error.code, inputErrorStatus(error.code));

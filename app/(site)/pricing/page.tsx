@@ -4,6 +4,7 @@ import type { Metadata } from 'next';
 import { WorkspaceLink as Link } from '@/components/shell/workspace-link';
 import type { ReactNode } from 'react';
 import { welcomeCredits } from '@/lib/services/signup-reward';
+import { videoExportPrice, videoScriptPrice } from '@/lib/services/video-pricing';
 import { currentUser } from '@/lib/http/session';
 import { db } from '@/lib/infra/db';
 import { hasActivePlan } from '@/lib/services/billing';
@@ -27,11 +28,18 @@ export async function generateMetadata(): Promise<Metadata> {
  * class names follow the prototype; pricing.css carries its styles.
  */
 export default async function PricingPage() {
-  const [user, { t, locale }, prices, welcome] = await Promise.all([currentUser(), serverMessages(), currentPricing(), welcomeCredits()]);
+  const [user, { t, locale }, prices, welcome, scriptPrice, exportPrice] = await Promise.all([
+    currentUser(), serverMessages(), currentPricing(), welcomeCredits(), videoScriptPrice(), videoExportPrice(),
+  ]);
   const p = t.site.pricing;
   const planActive = user ? await hasActivePlan(db(), user.id) : false;
   const packLocked = Boolean(user) && !planActive;
   const costs = (['ask', 'process', 'audio', 'script', 'export'] as const).map((key) => p.costs[key]);
+  const videoPrices = {
+    scriptCredits: formatNumber(scriptPrice.credits, locale),
+    exportCredits: formatNumber(exportPrice.credits, locale),
+  };
+  const faqValues = { ...pricingFaqValues(prices, locale, t.site.prices), ...videoPrices };
   return (
     <div className="marketing-wrap pricing-page">
       <div className="pricing-intro">
@@ -65,7 +73,7 @@ export default async function PricingPage() {
           price={<ProductPrice price={prices.plan} kind="plan" locale={locale} labels={t.site.prices} />}
           promotion={<PromotionNotice price={prices.plan} kind="plan" locale={locale} labels={t.site.prices} />}
           per={p.plan.per}
-          grant="100,000"
+          grant={formatNumber(prices.plan.credits, locale)}
           grantPer={p.plan.cycle}
           note={p.plan.note}
           perks={[p.plan.perk1, p.plan.perk2, p.plan.perk3]}
@@ -88,7 +96,7 @@ export default async function PricingPage() {
           price={<ProductPrice price={prices.pack} kind="pack" locale={locale} labels={t.site.prices} />}
           promotion={<PromotionNotice price={prices.pack} kind="pack" locale={locale} labels={t.site.prices} />}
           per={p.pack.per}
-          grant="100,000"
+          grant={formatNumber(prices.pack.credits, locale)}
           note={p.pack.note}
           perks={[p.pack.perk1, p.pack.perk2, p.pack.perk3]}
           action={
@@ -132,7 +140,7 @@ export default async function PricingPage() {
               {costs.map((row) => (
                 <tr key={row.activity}>
                   <td>{row.activity}</td>
-                  <td>{row.cost}</td>
+                  <td>{fill(row.cost, videoPrices)}</td>
                   <td>{row.details}</td>
                 </tr>
               ))}
@@ -141,7 +149,7 @@ export default async function PricingPage() {
         </div>
       </section>
 
-      <Estimator />
+      <Estimator planCredits={prices.plan.credits} />
 
       <section className="home-faq pricing-faq">
         <div>
@@ -159,7 +167,7 @@ export default async function PricingPage() {
                 {t.site.faq[key].q}
                 <Icon name="plus" />
               </summary>
-              <p>{fill(t.site.faq[key].a, pricingFaqValues(prices, locale, t.site.prices))}</p>
+              <p>{fill(t.site.faq[key].a, faqValues)}</p>
             </details>
           ))}
         </div>

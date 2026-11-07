@@ -1,6 +1,6 @@
 /**
  * Acceptance (8.4 step 3), against the database with Paddle's notifications
- * replayed as signed bodies: a Plan payment credits 100,000 credits for its
+ * replayed as signed bodies: a Plan payment credits 50,000 credits for its
  * period; a Pack needs an active Plan and 3 Packs credit 300,000 that never
  * expire; credits are spent Plan → welcome → Pack → earned and every ledger
  * row names its grants; turning renewal off keeps the period, which then
@@ -156,12 +156,12 @@ async function expectLedgerTraceable(userId: string) {
 }
 
 describeWithDb('Plan and Pack purchases', () => {
-  it('credits a Plan payment with 100,000 credits for its period, once', async () => {
+  it('credits a Plan payment with 50,000 credits for its period, once', async () => {
     const userId = await newUser();
     const { transactionId } = await subscribe(userId);
-    expect(await balanceOf(db(), userId, during)).toBe(WELCOME_CREDITS + 100_000);
+    expect(await balanceOf(db(), userId, during)).toBe(WELCOME_CREDITS + 50_000);
     const [plan] = (await grantsOf(userId)).filter((grant) => grant.source === 'plan');
-    expect(plan).toMatchObject({ amount: 100_000, remaining: 100_000 });
+    expect(plan).toMatchObject({ amount: 50_000, remaining: 50_000 });
     expect(plan!.expiresAt?.toISOString()).toBe(end.toISOString());
     expect(plan!.periodStart?.toISOString()).toBe(start.toISOString());
 
@@ -169,11 +169,11 @@ describeWithDb('Plan and Pack purchases', () => {
     const again = transactionEvent(userId, { kind: 'plan', transactionId, period: [start, end], type: 'transaction.paid' });
     expect(await billing.applyPaddleEvent(again, PRICES, during)).toBe('already_credited');
     expect(await billing.applyPaddleEvent(again, PRICES, during)).toBe('duplicate');
-    expect(await balanceOf(db(), userId, during)).toBe(WELCOME_CREDITS + 100_000);
+    expect(await balanceOf(db(), userId, during)).toBe(WELCOME_CREDITS + 50_000);
 
     const summary = await billing.billingSummary(userId, during);
-    expect(summary.plan).toMatchObject({ active: true, allowance: 100_000, used: 0, remaining: 100_000 });
-    expect(await billing.checkoutState(userId, transactionId)).toEqual({ credited: true, kind: 'plan', credits: 100_000 });
+    expect(summary.plan).toMatchObject({ active: true, allowance: 50_000, used: 0, remaining: 50_000 });
+    expect(await billing.checkoutState(userId, transactionId)).toEqual({ credited: true, kind: 'plan', credits: 50_000 });
     await expectLedgerTraceable(userId);
   });
 
@@ -216,11 +216,11 @@ describeWithDb('Plan and Pack purchases', () => {
     await billing.applyPaddleEvent(transactionEvent(userId, { kind: 'pack', quantity: 1 }), PRICES, during);
     await db().transaction((tx) => addGrant(tx, { userId, source: 'earned', amount: 5_000, reason: 'admin_adjust', refId: randomUUID() }, during));
     const holdId = await db().transaction((tx) =>
-      placeHold(tx, { userId, kind: 'knowledge', amount: 100_000 + WELCOME_CREDITS + 100_000 + 1_000, refId: randomUUID() }, during),
+      placeHold(tx, { userId, kind: 'knowledge', amount: 50_000 + WELCOME_CREDITS + 100_000 + 1_000, refId: randomUUID() }, during),
     );
     const [hold] = await db().select().from(schema.creditHold).where(eq(schema.creditHold.id, holdId));
     expect(hold!.allocations.map((allocation) => [allocation.source, allocation.amount])).toEqual([
-      ['plan', 100_000],
+      ['plan', 50_000],
       ['welcome', WELCOME_CREDITS],
       ['pack', 100_000],
       ['earned', 1_000],
@@ -228,7 +228,7 @@ describeWithDb('Plan and Pack purchases', () => {
     expect(await balanceOf(db(), userId, during)).toBe(4_000);
     await db().transaction((tx) => releaseHold(tx, holdId, {}, during));
     const byKind = Object.fromEntries((await grantsOf(userId)).map((grant) => [grant.source, grant.remaining]));
-    expect(byKind).toEqual({ welcome: WELCOME_CREDITS, plan: 100_000, pack: 100_000, earned: 5_000 });
+    expect(byKind).toEqual({ welcome: WELCOME_CREDITS, plan: 50_000, pack: 100_000, earned: 5_000 });
     await expectLedgerTraceable(userId);
   });
 });
@@ -319,7 +319,7 @@ describeWithDb('the Plan period', () => {
     const byKind = Object.fromEntries((await grantsOf(userId)).map((grant) => [grant.source, grant.remaining]));
     expect(byKind).toEqual({ welcome: WELCOME_CREDITS, plan: 0, pack: 200_000 });
     const expiry = (await entriesOf(userId)).filter((entry) => entry.reason === 'expire');
-    expect(expiry.map((entry) => entry.delta)).toEqual([-100_000]);
+    expect(expiry.map((entry) => entry.delta)).toEqual([-50_000]);
     expect(await billing.hasActivePlan(db(), userId, after)).toBe(false);
     const create = async () => ({ id: id('txn') });
     expect(await billing.startCheckout(userId, { kind: 'pack', quantity: 1, consent: true }, { config: CONFIG, create, now: after })).toEqual({ ok: false, error: 'plan_required' });
@@ -340,11 +340,11 @@ describeWithDb('the Plan period', () => {
     await billing.applyPaddleEvent(subscriptionEvent(userId, { subscriptionId, period: next }), PRICES, renewedAt);
     expect(await billing.applyPaddleEvent(transactionEvent(userId, { kind: 'plan', subscriptionId, period: next }), PRICES, renewedAt)).toBe('credited');
     const plans = (await grantsOf(userId)).filter((grant) => grant.source === 'plan');
-    expect(plans.map((grant) => grant.remaining)).toEqual([0, 100_000]);
+    expect(plans.map((grant) => grant.remaining)).toEqual([0, 50_000]);
     const expiry = (await entriesOf(userId)).filter((entry) => entry.reason === 'expire');
-    expect(expiry.map((entry) => entry.delta)).toEqual([-70_000]);
+    expect(expiry.map((entry) => entry.delta)).toEqual([-20_000]);
     const summary = await billing.billingSummary(userId, renewedAt);
-    expect(summary.plan).toMatchObject({ used: 0, remaining: 100_000 });
+    expect(summary.plan).toMatchObject({ used: 0, remaining: 50_000 });
     expect(summary.plan.periodEnd).toBe(next[1].toISOString());
   });
 
@@ -374,23 +374,23 @@ describeWithDb('refunds and chargebacks', () => {
     await subscribe(userId);
     const packTxn = id('txn');
     await billing.applyPaddleEvent(transactionEvent(userId, { kind: 'pack', quantity: 1, transactionId: packTxn }), PRICES, during);
-    /* Spend everything but 10,000: Plan, welcome and 90,000 of the Pack. */
-    await db().transaction((tx) => placeHold(tx, { userId, kind: 'knowledge', amount: 100_000 + WELCOME_CREDITS + 90_000, refId: randomUUID() }, during));
-    expect(await balanceOf(db(), userId, during)).toBe(10_000);
+    /* Spend Plan, welcome and 40,000 of the Pack. */
+    await db().transaction((tx) => placeHold(tx, { userId, kind: 'knowledge', amount: 50_000 + WELCOME_CREDITS + 40_000, refId: randomUUID() }, during));
+    expect(await balanceOf(db(), userId, during)).toBe(60_000);
 
     const adjustmentId = id('adj');
     expect(await deliver(adjustmentEvent(packTxn, { total: '1000', adjustmentId }))).toBe('refunded');
     expect(await balanceOf(db(), userId, during)).toBe(0);
     const [debt] = await db().select().from(schema.creditDebt).where(eq(schema.creditDebt.userId, userId));
-    expect(debt).toMatchObject({ amount: 90_000, remaining: 90_000 });
+    expect(debt).toMatchObject({ amount: 40_000, remaining: 40_000 });
     const [refund] = (await entriesOf(userId)).filter((entry) => entry.reason === 'refund');
-    expect(refund!.delta).toBe(-10_000);
+    expect(refund!.delta).toBe(-60_000);
     const [purchase] = await db().select().from(schema.purchase).where(eq(schema.purchase.paddleTransactionId, packTxn));
     expect(purchase).toMatchObject({ status: 'refunded', reversedCredits: 100_000 });
 
     /* The same adjustment again (created, then updated): nothing more. */
     expect(await deliver(adjustmentEvent(packTxn, { total: '1000', adjustmentId }))).toBe('already_reversed');
-    expect((await billing.billingSummary(userId, during)).debt).toBe(90_000);
+    expect((await billing.billingSummary(userId, during)).debt).toBe(40_000);
 
     /* Next month's Plan pays the debt first. */
     const next: [Date, Date] = [end, new Date('2027-01-01T00:00:00Z')];
@@ -400,7 +400,7 @@ describeWithDb('refunds and chargebacks', () => {
     const [cleared] = await db().select().from(schema.creditDebt).where(eq(schema.creditDebt.userId, userId));
     expect(cleared!.remaining).toBe(0);
     expect(cleared!.clearedAt).not.toBeNull();
-    expect((await entriesOf(userId)).filter((entry) => entry.reason === 'debt_offset').map((entry) => entry.delta)).toEqual([-90_000]);
+    expect((await entriesOf(userId)).filter((entry) => entry.reason === 'debt_offset').map((entry) => entry.delta)).toEqual([-40_000]);
     await expectLedgerTraceable(userId);
   });
 

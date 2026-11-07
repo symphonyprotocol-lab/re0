@@ -8,6 +8,16 @@ import { db, schema, type Executor, type Tx } from '@/lib/infra/db';
 import { AdminInputError, audit } from '@/lib/services/admin';
 
 export interface ProviderPrices { revision: string; rates: ProviderRate[] }
+/**
+ * What a fresh deployment meters with before the console or PROVIDER_COST_RATES
+ * sets anything: the project's Firecrawl Hobby account ($19 for 5,000 credits,
+ * docs/handover/knowledge-billing.md). Saving any supplier price in the console
+ * stores this alongside it, where it can be edited. Custom embedding and
+ * transcription endpoints have no default and refuse paid calls until priced.
+ */
+export const DEFAULT_PROVIDER_RATES: ProviderRate[] = providerRatesSchema.parse([
+  { service: 'firecrawl', endpoint: 'https://api.firecrawl.dev', model: 'parse', unit: 'firecrawl_credits', usdPerUnit: '0.0038', source: 'Firecrawl Hobby: $19 / 5,000 credits (2026-11-03)' },
+]);
 export function providerPricingMigrationMissing(error: unknown): boolean {
   let current = error;
   for (let at = 0; at < 4 && current && typeof current === 'object'; at += 1) {
@@ -19,7 +29,7 @@ export function providerPricingMigrationMissing(error: unknown): boolean {
 export async function providerPrices(executor: Executor = db()): Promise<ProviderPrices> {
   // Optional bootstrapping for deployments without console settings. Never assume a missing rate is free.
   const environment = process.env.PROVIDER_COST_RATES;
-  const fallback = () => ({ revision: environment ? `env:${createHash('sha256').update(environment).digest('hex')}` : 'default', rates: environment ? providerRatesSchema.parse(JSON.parse(environment)) : [] });
+  const fallback = () => ({ revision: environment ? `env:${createHash('sha256').update(environment).digest('hex')}` : 'default', rates: environment ? providerRatesSchema.parse(JSON.parse(environment)) : DEFAULT_PROVIDER_RATES });
   try {
     const [row] = await executor.select().from(schema.providerPricing).where(eq(schema.providerPricing.id, 1)).limit(1);
     return row ? { revision: row.revision, rates: row.rates } : fallback();
@@ -77,8 +87,8 @@ export async function saveServicePrice(tx: Tx, administratorId: string, target: 
 }
 
 export async function saveModelProcessingPrice(tx: Tx, administratorId: string, input: ModelConfigInput): Promise<void> {
-  if (input.kind === 'generation') return;
-  await saveServicePrice(tx, administratorId, modelPricingTarget(input), input.costPricing, `Model configuration: ${input.name}`);
+  if (input.kind !== 'embedding' && input.kind !== 'transcription') return;
+  await saveServicePrice(tx, administratorId, modelPricingTarget({ ...input, kind: input.kind }), input.costPricing, `Model configuration: ${input.name}`);
 }
 
 /** Model editing shares the existing rate store and lock with the supplier-price form. */

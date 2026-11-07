@@ -123,6 +123,9 @@
   width: 31px;
   height: 31px;
 }
+.suite-login .login-mobile-mark {
+  display: none;
+}
 
 /* The page (suite.css). */
 .suite-login {
@@ -417,14 +420,8 @@
   .login-top-link {
     margin-bottom: 35px;
   }
-  /* The RE0 mark (prototype icon.svg) above the eyebrow, standing in for the hidden story panel. */
-  .suite-login-form > div > .eyebrow:before {
-    content: "";
+  .suite-login .login-mobile-mark {
     display: block;
-    background: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='32' height='32' viewBox='0 0 32 32'%3E%3Crect width='32' height='32' rx='10.6667' fill='%23127ee3'/%3E%3Cg fill='%23fff' stroke='%23fff' stroke-width='1' stroke-linejoin='round'%3E%3Cpath d='M17.25 8.91 A 7.2 7.2 0 1 0 23.2 16' fill='none' stroke-width='3'/%3E%3Ccircle cx='17.25' cy='8.91' r='1.5' stroke='none'/%3E%3Cpath d='M23.2 11.4 L 25.75 16 L 20.65 16 Z'/%3E%3Ccircle cx='16' cy='16' r='2.5' stroke='none'/%3E%3C/g%3E%3C/svg%3E")
-      no-repeat center;
-    width: 33px;
-    height: 33px;
     margin-bottom: 31px;
   }
   .suite-login-form h2 {

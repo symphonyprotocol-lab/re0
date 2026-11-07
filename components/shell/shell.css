@@ -597,7 +597,7 @@ html:has(.app-main .context-nav-row) {
   display: flex;
   flex: 1;
   align-items: stretch;
-  gap: 27px;
+  gap: 13px;
   min-width: 0;
   margin: 0;
   padding: 0;
@@ -613,7 +613,7 @@ html:has(.app-main .context-nav-row) {
   flex: none;
   align-items: center;
   gap: 6px;
-  padding: 0 1px;
+  padding: 0 8px;
   border-bottom: 2px solid transparent;
   font-size: 11px;
   color: #8795af;
@@ -904,7 +904,7 @@ html:has(.app-main .context-nav-row) {
     display: none;
   }
   .header-tabs {
-    gap: 21px;
+    gap: 7px;
   }
 }
 @media (hover: none) {
@@ -956,7 +956,7 @@ html:has(.app-main .context-nav-row) {
     padding-inline: 16px;
   }
   .header-tabs {
-    gap: 18px;
+    gap: 4px;
   }
   .header-tabs > a {
     gap: 5px;

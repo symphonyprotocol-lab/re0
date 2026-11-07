@@ -3,7 +3,7 @@
 import { WorkspaceLink as Link } from '@/components/shell/workspace-link';
 import { useRouter } from 'next/navigation';
 import { useEffect, useState } from 'react';
-import { MODEL_ID_MAX_LENGTH, MODEL_KINDS, MODEL_NAME_MAX_LENGTH, MODEL_TIMEOUT_MS, type ModelKind } from '@/lib/constants';
+import { DEFAULT_MODELS, MODEL_ID_MAX_LENGTH, MODEL_KINDS, MODEL_NAME_MAX_LENGTH, MODEL_TIMEOUT_MS, type ModelKind } from '@/lib/constants';
 import type { GenerationAudience, ModelTransport } from '@/lib/domain/models';
 import type { ModelConfigView } from '@/lib/services/models';
 import type { ServicePricingInput } from '@/lib/domain/service-pricing';
@@ -161,7 +161,9 @@ export function ModelsBoard({ initial, initialJob }: { initial: Board; initialJo
             outputUsdPerMillion: config.generationPricing?.outputUsdPerMillion ?? '',
             costPricing: config.costPricing,
           }
-        : { id: null, name: '', kind, transport: 'gateway', baseUrl: '', model: '', apiKey: '', timeout: 60, enabled: false, tail: null, inputUsdPerMillion: '', outputUsdPerMillion: '', costPricing: null },
+        : { id: null, name: kind === 'speech' ? 'OpenAI TTS-1' : '', kind, transport: 'gateway',
+            baseUrl: '', model: kind === 'speech' ? DEFAULT_MODELS.speech : '',
+            apiKey: '', timeout: 60, enabled: false, tail: null, inputUsdPerMillion: '', outputUsdPerMillion: '', costPricing: null },
     );
   };
 
@@ -178,7 +180,7 @@ export function ModelsBoard({ initial, initialJob }: { initial: Board; initialJo
       apiKey: draft.apiKey,
       timeoutMs: Math.round(draft.timeout * 1000),
       ...(draft.kind === 'generation' && draft.transport === 'openai_compatible' ? { generationPricing: { inputUsdPerMillion: draft.inputUsdPerMillion, outputUsdPerMillion: draft.outputUsdPerMillion } } : {}),
-      ...(draft.kind !== 'generation' ? { costPricing: draft.costPricing } : {}),
+      ...(draft.kind === 'embedding' || draft.kind === 'transcription' ? { costPricing: draft.costPricing } : {}),
     };
     const result = draft.id
       ? await api<{ error?: string }>(`/api/admin/models/${draft.id}`, { method: 'PUT', json: payload })
@@ -228,8 +230,8 @@ export function ModelsBoard({ initial, initialJob }: { initial: Board; initialJo
       router.refresh();
       return;
     }
-    const result = await api<{ activated: boolean; reembed: boolean }>(`/api/admin/models/${config.id}/activate`, { method: 'POST', json: { audience } });
-    if (!result.ok) return toast(t.common.errors.generic);
+    const result = await api<{ activated: boolean; reembed: boolean; error?: string }>(`/api/admin/models/${config.id}/activate`, { method: 'POST', json: { audience } });
+    if (!result.ok) return toast(result.data.error === 'voice_key_required' ? m.speechSetup : t.common.errors.generic);
     router.refresh();
   };
 
@@ -293,7 +295,7 @@ export function ModelsBoard({ initial, initialJob }: { initial: Board; initialJo
                 <div className="info-strip mb16">
                   <CI name="info" />
                   <span>
-                    <strong>{m.fallback}</strong> · {fill(m.fallbackBody, { model: board.fallbacks[kind].model })}
+                    {kind === 'speech' ? m.speechSetup : <><strong>{m.fallback}</strong> · {fill(m.fallbackBody, { model: board.fallbacks[kind].model })}</>}
                   </span>
                 </div>
               )}
@@ -316,7 +318,7 @@ export function ModelsBoard({ initial, initialJob }: { initial: Board; initialJo
                       {config.transport === 'gateway' ? m.pricing.gateway : m.pricing.manual}
                       <br />{fill(m.pricing.summary, { input: config.generationPricing?.inputUsdPerMillion ?? '—', output: config.generationPricing?.outputUsdPerMillion ?? '—' })}
                     </p>}
-                    {kind !== 'generation' && <p className="service-cost-summary">
+                    {(kind === 'embedding' || kind === 'transcription') && <p className="service-cost-summary">
                       {t.servicePricing.title} · {config.costPricing ? fill(t.servicePricing.summary, { price: config.costPricing.price, unit: t.servicePricing.units[config.costPricing.unit] }) : config.transport === 'gateway' ? t.servicePricing.automatic : t.servicePricing.unknown}
                     </p>}
                     <div className="between model-key">
@@ -404,7 +406,11 @@ export function ModelsBoard({ initial, initialJob }: { initial: Board; initialJo
             </div>
             <div className="field">
               <label htmlFor="model-kind">{m.form.kind}</label>
-              <select id="model-kind" value={draft.kind} disabled={Boolean(draft.id)} onChange={(event) => setDraft({ ...draft, kind: event.target.value as ModelKind, costPricing: null })}>
+              <select id="model-kind" value={draft.kind} disabled={Boolean(draft.id)} onChange={(event) => {
+                const kind = event.target.value as ModelKind;
+                if (kind === 'speech' || draft.kind === 'speech') open(kind);
+                else setDraft({ ...draft, kind, costPricing: null });
+              }}>
                 {MODEL_KINDS.map((kind) => (
                   <option key={kind} value={kind}>
                     {m.kinds[kind]}
@@ -414,7 +420,7 @@ export function ModelsBoard({ initial, initialJob }: { initial: Board; initialJo
             </div>
             <div className="field">
               <label htmlFor="model-transport">{m.form.transport}</label>
-              <select id="model-transport" value={draft.transport} disabled={locked} onChange={(event) => setDraft({ ...draft, transport: event.target.value as ModelTransport, inputUsdPerMillion: '', outputUsdPerMillion: '' })}>
+              <select id="model-transport" value={draft.transport} disabled={locked || draft.kind === 'speech'} onChange={(event) => setDraft({ ...draft, transport: event.target.value as ModelTransport, inputUsdPerMillion: '', outputUsdPerMillion: '' })}>
                 <option value="gateway">{m.transports.gateway}</option>
                 <option value="openai_compatible">{m.transports.openai_compatible}</option>
               </select>
@@ -422,7 +428,7 @@ export function ModelsBoard({ initial, initialJob }: { initial: Board; initialJo
             {draft.transport === 'openai_compatible' && (
               <div className="field">
                 <label htmlFor="model-base">{m.form.baseUrl}</label>
-                <input id="model-base" type="url" required placeholder="https://api.example.com/v1" value={draft.baseUrl} disabled={locked} onChange={(event) => setDraft({ ...draft, baseUrl: event.target.value })} />
+                <input id="model-base" type="url" required placeholder="https://api.example.com/v1" value={draft.baseUrl} disabled={locked || draft.kind === 'speech'} onChange={(event) => setDraft({ ...draft, baseUrl: event.target.value })} />
               </div>
             )}
             <div className="field">
@@ -445,7 +451,7 @@ export function ModelsBoard({ initial, initialJob }: { initial: Board; initialJo
                 </div>
               </>
             ))}
-            {draft.kind !== 'generation' && <>
+            {(draft.kind === 'embedding' || draft.kind === 'transcription') && <>
               <ServiceCostFields service={draft.kind} value={draft.costPricing} onChange={(costPricing) => setDraft({ ...draft, costPricing })} note={t.servicePricing.modelNote} />
               <p className="small muted">{draft.transport === 'gateway' ? t.servicePricing.gatewayNote : t.servicePricing.unknownNote}</p>
             </>}

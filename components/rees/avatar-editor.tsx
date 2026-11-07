@@ -2,6 +2,7 @@
 
 import { useEffect, useRef, useState } from 'react';
 import { AVATAR_SIZE, AVATAR_SOURCE_MAX_BYTES } from '@/lib/constants';
+import { imageCrop } from '@/lib/domain/image-crop';
 import { uploadToBlob } from '@/lib/client/upload';
 import { useI18n } from '@/i18n/client';
 import { Icon, Spinner } from '@/components/ui/icons';
@@ -16,12 +17,7 @@ const TYPES = ['image/jpeg', 'image/png', 'image/webp'];
  * back as `x`/`y` (prototype profile.js `avatarCrop`).
  */
 export function avatarCrop(width: number, height: number, zoom = 1, x = 0, y = 0, size = AVATAR_SIZE) {
-  const scale = Math.max(size / width, size / height) * Math.min(3, Math.max(1, zoom));
-  const w = width * scale;
-  const h = height * scale;
-  const dx = Math.min((w - size) / 2, Math.max(-(w - size) / 2, x));
-  const dy = Math.min((h - size) / 2, Math.max(-(h - size) / 2, y));
-  return { left: (size - w) / 2 + dx, top: (size - h) / 2 + dy, width: w, height: h, x: dx, y: dy };
+  return imageCrop(width, height, size, size, zoom, x, y);
 }
 
 /** Square pixels an arrow key moves the image; Shift moves further. */

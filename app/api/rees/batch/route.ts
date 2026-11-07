@@ -1,9 +1,8 @@
-import { after, type NextRequest } from 'next/server';
+import type { NextRequest } from 'next/server';
 import { isUuid } from '@/lib/domain/list';
 import { REE_BATCH_MAX } from '@/lib/domain/ree';
 import { body, fail, json } from '@/lib/http/respond';
 import { apiUser } from '@/lib/http/session';
-import { refreshProfile } from '@/lib/services/profile';
 import { setReesVisibility } from '@/lib/services/rees';
 
 /**
@@ -21,11 +20,5 @@ export async function POST(request: NextRequest) {
     return fail('invalid_batch', 422);
   }
   const plan = await setReesVisibility(user.id, [...new Set(raw)], input.isPublic);
-  /* Newly public Rees join discovery: their profiles are rebuilt, free (2.4), as after a single update. */
-  if (input.isPublic && plan.changes.length) {
-    after(async () => {
-      for (const id of plan.changes) await refreshProfile(id).catch(() => undefined);
-    });
-  }
   return json(plan);
 }

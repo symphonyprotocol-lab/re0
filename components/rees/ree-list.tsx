@@ -1,26 +1,27 @@
 'use client';
 
+import { ReePublication, ReePublicationStatus } from '@/components/rees/ree-publication';
 import { WorkspaceLink as Link } from '@/components/shell/workspace-link';
 import { usePathname } from 'next/navigation';
 import { useNavigationRouter as useRouter } from '@/components/shell/navigation-provider';
-import { useEffect, useRef, useState, useTransition, type CSSProperties, type ReactNode } from 'react';
+import { useEffect, useRef, useState, useTransition, type MouseEvent, type ReactNode } from 'react';
 import { REE_PAGE_SIZES } from '@/lib/constants';
 import { pageNumbers, type ListResult } from '@/lib/domain/list';
 import { REE_BATCH_MAX, visibilityPlan, type VisibilityPlan, type VisibilityRow } from '@/lib/domain/ree';
+import type { IntroProps } from '@/lib/domain/video';
 import type { ReeListItem, ReeSelectionItem, ReeSort, ReeVisibility } from '@/lib/services/rees';
 import { api } from '@/lib/client/upload';
 import { useI18n } from '@/i18n/client';
 import { fill, formatNumber } from '@/i18n/format';
 import { ConfirmModal } from '@/components/ui/modal';
 import { useToast } from '@/components/ui/toast';
-import { IntroDialog, PlaceholderPoster } from '@/components/video/video-cover';
+import { ReeCardCover } from '@/components/rees/ree-card-cover';
 import { DotAvatar, PIcon } from '@/components/rees/proto-icon';
 import { Icon } from '@/components/ui/icons';
 import { ReeCardMetrics } from '@/components/discover/ree-card-metrics';
 import './ree-pages.css';
 import './owned-rees.css';
 import '@/components/discover/ree-video-card.css';
-import type { IntroProps } from '@/lib/domain/video';
 
 interface Query {
   q: string;
@@ -44,58 +45,50 @@ const SORT_PARAMS: Record<ReeSort, { sort?: string; order?: string }> = {
 type SortKey = 'name' | 'sources' | 'answers';
 type Selected = Map<string, { name: string; isPublic: boolean; moderated: boolean }>;
 
-/**
- * A card's 16:9 cover (prototype suite.js `discoveryCover(b, { owned: true })`):
- * with an introduction, its opening shot in the saved template, and the
- * poster plays it; without one, the 暂无视频介绍 placeholder linking to the
- * studio. The visibility label sits in a corner either way.
- */
 function OwnedCover({ ree, video }: { ree: ReeListItem; video?: IntroProps }) {
   const { t } = useI18n();
   const r = t.rees;
-  const [open, setOpen] = useState(false);
   const state = stateOf(ree);
   return (
-    <div
-      className={`discovery-cover template-${video?.template ?? 'editorial'}${video ? '' : ' is-video-placeholder'}`}
-      style={{ '--video-accent': video?.accent ?? '#127ee3' } as CSSProperties}
-    >
-      {video ? (
-        <>
-          <button type="button" className="discovery-cover-poster" aria-label={fill(t.video.card.playLabel, { name: ree.name })} onClick={() => setOpen(true)}>
-            <span className="discovery-cover-kicker">MEET YOUR KNOWLEDGE COMPANION</span>
-            <span className="discovery-cover-identity">
-              <DotAvatar avatar={ree.avatarBlob} color={ree.color} />
-              <strong>{ree.name}</strong>
-            </span>
-            <span className="discovery-cover-tagline">{video.scenes.opening.position}</span>
-            <span className="discovery-cover-play">
-              <PIcon name="play" />
-              <span>{t.video.card.watch}</span>
-            </span>
-            <span className="discovery-cover-duration">00:15</span>
-          </button>
-          {open && <IntroDialog open={open} onClose={() => setOpen(false)} video={video} name={ree.name} href={`/rees/${ree.id}/video`} linkLabel={t.video.dialog.studio} />}
-        </>
-      ) : (
-        <Link href={`/rees/${ree.id}/settings`} className="discovery-cover-poster is-static is-video-placeholder" aria-label={fill(r.openLabel, { name: ree.name })}>
-          <PlaceholderPoster ree={ree} />
-        </Link>
+    <ReeCardCover ree={ree} href={`/rees/${ree.id}/settings`} label={fill(r.openLabel, { name: ree.name })} video={video}>
+      {(state === 'private' || state === 'moderated') && (
+        <span className="creator-cover-status">
+          <PIcon name={STATE_ICONS[state]} />
+          {r.status[state]}
+        </span>
       )}
-      <span className="creator-cover-status">
-        <PIcon name={state === 'public' ? 'globe' : 'lock'} />
-        {r.status[state]}
-      </span>
-    </div>
+    </ReeCardCover>
   );
 }
 
-/** A Ree's state for the owner: taken down wins over its public flag (prototype owned-rees.js `list`). */
-function stateOf(ree: { isPublic: boolean; moderatedAt: Date | string | null }): 'public' | 'private' | 'moderated' {
-  return ree.moderatedAt ? 'moderated' : ree.isPublic ? 'public' : 'private';
+/**
+ * A click anywhere on a list row opens the Ree, as its name link does. The
+ * link stays the row's one tab stop; the click is forwarded to it so Next's
+ * navigation feedback and modifier keys behave the same. The selection cell,
+ * the row's own controls and text selections are left alone.
+ */
+function openRow(event: MouseEvent<HTMLTableRowElement>) {
+  if (event.defaultPrevented || event.button !== 0) return;
+  const target = event.target as Element;
+  if (target.closest('a, button, input, select, textarea, label, [role="button"], .owned-ree-list-selection')) return;
+  if (window.getSelection()?.toString()) return;
+  const link = event.currentTarget.querySelector<HTMLAnchorElement>('a.owned-ree-list-name');
+  link?.dispatchEvent(new window.MouseEvent('click', {
+    bubbles: true,
+    cancelable: true,
+    ctrlKey: event.ctrlKey,
+    metaKey: event.metaKey,
+    shiftKey: event.shiftKey,
+    altKey: event.altKey,
+  }));
 }
 
-const STATE_ICONS = { public: 'globe', private: 'lock', moderated: 'shield' } as const;
+/** A Ree's state for the owner: taken down wins over its public flag (prototype owned-rees.js `list`). */
+function stateOf(ree: { isPublic: boolean; isPublished: boolean; moderatedAt: Date | string | null }): 'published' | 'unpublished' | 'private' | 'moderated' {
+  return ree.moderatedAt ? 'moderated' : !ree.isPublic ? 'private' : ree.isPublished ? 'published' : 'unpublished';
+}
+
+const STATE_ICONS = { published: 'globe', unpublished: 'lock', private: 'lock', moderated: 'shield' } as const;
 
 /**
  * `/rees`: the server filters, sorts and pages; this only writes the choice
@@ -112,13 +105,12 @@ export function ReeList({
   result,
   totals,
   query,
-  videos = {},
+  coverVideos,
 }: {
   result: ListResult<ReeListItem>;
   totals: { rees: number; public: number; private: number; sources: number; answers: number };
   query: Query;
-  /** Step 7: introductions by Ree id; a Ree with one gets its opening still and a play button. */
-  videos?: Record<string, IntroProps>;
+  coverVideos: Record<string, IntroProps | undefined>;
 }) {
   const { t, locale } = useI18n();
   const r = t.rees;
@@ -424,7 +416,7 @@ export function ReeList({
         {([
           [r.stats.sources, n(totals.sources), r.stats.sourcesUnit, r.stats.sourcesHint, '/workspace/sources'],
           [r.stats.answers, n(totals.answers), r.stats.answersUnit, r.stats.answersHint, '/workspace/answers'],
-          [r.stats.public, n(totals.public), r.stats.publicUnit, fill(r.stats.publicHint, { private: n(totals.private) }), '/rees?visibility=public'],
+          [r.stats.public, n(totals.public), r.stats.publicUnit, fill(r.stats.publicHint, { private: n(totals.private) }), '/rees?visibility=published'],
         ] as const).map(([label, value, unit, hint, href]) => (
           <Link key={label} href={href} className="card metric">
             <p>{label}</p>
@@ -441,7 +433,7 @@ export function ReeList({
       <section className="owned-ree-toolbar" id="owned-ree-results" aria-label={r.toolbar}>
         <div className="owned-ree-controls">
           <div className="filter-row" role="group" aria-label={r.filters.label}>
-            {(['all', 'public', 'private'] as const).map((value) => (
+            {(['all', 'public', 'private', 'published', 'unpublished'] as const).map((value) => (
               <button
                 key={value}
                 type="button"
@@ -537,7 +529,7 @@ export function ReeList({
           <div className="dot-grid" style={fade}>
             {result.items.map((ree) => (
               <article key={ree.id} className="dot-card owned-card creator-dot-card ree-video-card" aria-label={ree.name}>
-                <OwnedCover ree={ree} video={videos[ree.id]} />
+                <OwnedCover ree={ree} video={coverVideos[ree.id]} />
                 <div className="ree-card-info">
                   <p className="description">{ree.description}</p>
                   <div className="card-actions">
@@ -549,6 +541,7 @@ export function ReeList({
                       <ReeCardMetrics answers={ree.answers} positiveRate={ree.positiveRate} />
                     </Link>
                   </div>
+                  <ReePublicationStatus ree={ree} />
                 </div>
               </article>
             ))}
@@ -575,7 +568,7 @@ export function ReeList({
               </thead>
               <tbody>
                 {result.items.map((ree) => (
-                  <tr key={ree.id} className={`owned-ree-list-row${selected.has(ree.id) ? ' is-selected' : ''}`}>
+                  <tr key={ree.id} className={`owned-ree-list-row${selected.has(ree.id) ? ' is-selected' : ''}`} onClick={openRow}>
                     <td className="owned-ree-list-selection">
                       <label>
                         <input
@@ -611,6 +604,7 @@ export function ReeList({
                       </Link>
                     </td>
                     <td className="owned-ree-list-actions">
+                      <ReePublication ree={ree} showStatus={false} />
                       <Link href={`/rees/${ree.id}/knowledge`} className="btn secondary sm" aria-label={fill(r.rowLabels.knowledge, { name: ree.name })}>
                         {r.manageKnowledge}
                       </Link>

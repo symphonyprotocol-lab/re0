@@ -37,8 +37,8 @@
   --ink: #091135;
   --muted: #697088;
   --line: #e2e6f0;
-  --blue: #127ee3;
-  --blue-dark: #0867c4;
+  --blue: var(--color-blue);
+  --blue-dark: var(--color-blue-dark);
   --soft: #edf4ff;
   --wash: #fafaff;
   --green: #128168;
@@ -3377,8 +3377,8 @@ html:has(.console-main > .console-topbar > .context-nav-row) {
 :where(.console-app, .admin-login-page) .admin-ree-pagination { display:flex; align-items:center; justify-content:space-between; gap:14px; flex-wrap:wrap; padding:15px 20px; border-top:1px solid #e7edf5; font-size:10px; color:#8b9db7; }
 :where(.console-app, .admin-login-page) .admin-ree-pages { display:flex; align-items:center; gap:5px; }
 :where(.console-app, .admin-login-page) .admin-ree-pages > a, :where(.console-app, .admin-login-page) .admin-ree-pages > span:not(.pagination-ellipsis) { display:inline-flex; align-items:center; justify-content:center; min-width:31px; height:31px; padding:0 6px; border:1px solid #e0e7f2; border-radius:7px; background:#fff; color:#7991b1; }
-:where(.console-app, .admin-login-page) .admin-ree-pages > a:hover { color:#127ee3; background:#f0f6ff; border-color:#b6d4f8; }
-:where(.console-app, .admin-login-page) .admin-ree-pages .is-current { color:#127ee3!important; background:#edf5ff!important; border-color:#b6d4f8!important; }
+:where(.console-app, .admin-login-page) .admin-ree-pages > a:hover { color:var(--blue); background:#f0f6ff; border-color:#b6d4f8; }
+:where(.console-app, .admin-login-page) .admin-ree-pages .is-current { color:var(--blue)!important; background:#edf5ff!important; border-color:#b6d4f8!important; }
 :where(.console-app, .admin-login-page) .admin-ree-pages .is-disabled { color:#c2cede!important; background:#fafbff!important; }
 :where(.console-app, .admin-login-page) .admin-ree-pages svg { width:12px; height:12px; }
 :where(.console-app, .admin-login-page) .admin-ree-pages > :first-child svg { transform:rotate(180deg); }

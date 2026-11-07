@@ -36,6 +36,16 @@ describe('generation call logging', () => {
     expect(state.records[0]).toMatchObject({ userId: 'user', audience: 'plan', purpose: 'answer', status: 'succeeded', inputTokens: 100, outputTokens: 50, usageKnown: true, endpoint: 'https://provider.test/v1', costUsd: '0.000400000000', costBasis: 'configured_rate', priceRevision: 'v1', rate });
     expect(JSON.stringify(state.records)).not.toMatch(/secret|hidden/);
   });
+  it('starts the provider stream without waiting for the price lookup', async () => {
+    let resolvePrice!: (value: undefined) => void;
+    vi.mocked(gatewayGenerationPricing).mockReturnValueOnce(new Promise((resolve) => { resolvePrice = resolve; }));
+    const source = fake();
+    const pending = loggedLanguageModel(source, { ...call, transport: 'gateway' }).doStream({ prompt: [] });
+    await vi.waitFor(() => expect(source.doStream).toHaveBeenCalled());
+    resolvePrice(undefined);
+    await drain((await pending).stream);
+    expect(state.records).toHaveLength(1);
+  });
   it('records streamed completion once with the response request ID', async () => {
     const stream = await loggedLanguageModel(fake([{ type: 'response-metadata', id: 'request-1' }, finish]), call).doStream({ prompt: [] });
     await drain(stream.stream);

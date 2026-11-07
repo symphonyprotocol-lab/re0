@@ -2,6 +2,7 @@ import { NextResponse, type NextRequest } from 'next/server';
 import { appBaseUrl } from '@/lib/http/cookies';
 import { fail, json } from '@/lib/http/respond';
 import { apiUser, currentUser, sameOrigin, setHandshakeCookie } from '@/lib/http/session';
+import { githubRepositoryAccess } from '@/lib/infra/identity/github';
 import { beginGithubConnect, CONNECTIONS_PATH, connectReturnPath, disconnectGithub, githubConnectionFor } from '@/lib/services/connections';
 
 type Context = { params: Promise<{ provider: string }> };
@@ -20,7 +21,7 @@ export async function GET(request: NextRequest, context: Context) {
   if (!(await isGithub(context))) return fail('not_found', 404);
   const user = await apiUser(request);
   if (user instanceof Response) return user;
-  return json({ connection: await githubConnectionFor(user.id) });
+  return json({ connection: await githubConnectionFor(user.id), repositoryAccess: githubRepositoryAccess() });
 }
 
 /** "连接 GitHub": the settings form posts here; we answer with GitHub's consent screen. */
@@ -42,7 +43,7 @@ export async function POST(request: NextRequest, context: Context) {
   }
 }
 
-/** "断开连接": the token is deleted; private repositories stop refreshing, their knowledge stays. */
+/** "断开连接": the token is deleted and repository refreshes stop. Imported knowledge stays. */
 export async function DELETE(request: NextRequest, context: Context) {
   if (!(await isGithub(context))) return fail('not_found', 404);
   const user = await apiUser(request);

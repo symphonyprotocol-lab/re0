@@ -1,0 +1,2 @@
+ALTER TABLE "model_config" DROP CONSTRAINT "model_config_kind_check";--> statement-breakpoint
+ALTER TABLE "model_config" ADD CONSTRAINT "model_config_kind_check" CHECK (kind in ('generation', 'embedding', 'transcription', 'speech'));
