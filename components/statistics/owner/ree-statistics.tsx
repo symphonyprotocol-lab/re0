@@ -94,8 +94,6 @@ export function OwnerReeStatistics({
 
       {data.trend && <Trend t={t} locale={locale} trend={data.trend} period={query.period} income={view === 'income'} />}
 
-      <ShareFigures t={t} locale={locale} share={data.share} />
-
       <p className="creator-detail-explanation">
         {s.explanation}
         {ranged && ` ${s.explanationPeriod}`}
@@ -158,6 +156,8 @@ export function OwnerReeStatistics({
         )}
         <OwnerPager t={t} locale={locale} page={list?.page ?? 1} size={query.size} total={total} href={(page) => href({ page })} />
       </section>
+
+      {(data.share.shareable || data.share.visits > 0 || data.share.conversations > 0) && <ShareFigures t={t} locale={locale} share={data.share} />}
     </OwnerPage>
   );
 }
@@ -175,7 +175,11 @@ function Metric({ href, icon, label, value, note }: { href: string; icon: StatIc
   );
 }
 
-/** The share page's figures for the same period (lib/services/share.ts); plain cards, nothing to open. */
+/**
+ * The share page's figures for the same period (lib/services/share.ts),
+ * after the answers: plain cards, nothing to open. A Ree that was never
+ * shareable and has no figures shows none.
+ */
 function ShareFigures({ t, locale, share }: { t: Messages; locale: Locale; share: ReeStatistics['share'] }) {
   const s = t.share.stats;
   const n = (value: number) => formatNumber(value, locale);
@@ -186,7 +190,7 @@ function ShareFigures({ t, locale, share }: { t: Messages; locale: Locale; share
     { icon: 'chart', label: s.rate, value: share.rate === null ? s.noRate : `${share.rate}%`, note: s.rateNote },
   ];
   return (
-    <section className="share-figures" aria-label={s.title} style={{ marginTop: 22 }}>
+    <section className="share-figures" aria-label={s.title} style={{ marginTop: 25 }}>
       <div className="statistics-trend-head" style={{ marginBottom: 12 }}>
         <h2 style={{ fontSize: 13, fontWeight: 600 }}>{s.title}</h2>
         <p>{s.lede}</p>

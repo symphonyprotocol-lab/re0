@@ -1,121 +1,147 @@
 /**
  * The share page `/s/[slug]`: who opened it and how many conversations it
- * started. Only a public Ree has one (the same `publicRee()` gate as
+ * started. Only a public Ree has one (`publicReeRef`, the same gate as
  * `/r/[slug]`). A visitor is the random id of the `re0_visitor` cookie --
  * no IP or user agent is stored; the owner's own visits are not counted.
  *
- * - a visit is recorded at most once per visitor and Ree in
- *   `SHARE_VISIT_DEDUPE_MINUTES`, so reloads do not inflate it;
+ * - a visit counts once per visitor, Ree and half-hour slot; the unique
+ *   index makes that hold for concurrent beacons too;
+ * - a browser without the cookie is answered `cookie` and counted only when
+ *   it comes back with it, so a client that keeps no cookies counts nothing;
+ * - an IP is limited per minute over all Rees, and per hour for each Ree;
  * - a conversion is a conversation the visitor created with the Ree, or
- *   added the Ree to, from the share page -- once per conversation.
+ *   added the Ree to, within `SHARE_CONVERSION_MINUTES`, by a browser that
+ *   visited the share page within `SHARE_ATTRIBUTION_HOURS` -- once per
+ *   conversation.
  */
-import { and, eq, gte, lt, sql, type SQL } from 'drizzle-orm';
+import { and, eq, gte, sql } from 'drizzle-orm';
 import type { Range } from '@/lib/domain/statistics';
+import { isUuid } from '@/lib/domain/list';
 import { db, schema } from '@/lib/infra/db';
-import { publicRee } from '@/lib/services/explore';
+import { hitRateBucket } from '@/lib/services/explore';
+import { publicReeRef } from '@/lib/services/public-rees';
 
-/** Reloads inside this window are the same visit. */
-export const SHARE_VISIT_DEDUPE_MINUTES = 30;
-/** Recorded visits per IP per minute; past it the beacon is answered but not stored. */
-export const SHARE_RATE_LIMIT = { windowSeconds: 60, perIp: 60 } as const;
+/** A visitor counts once per slot of this length. */
+export const SHARE_VISIT_SLOT_SECONDS = 1_800;
+/** Beacons per IP per minute, over all Rees; past it nothing is read or stored. */
+export const SHARE_IP_PER_MINUTE = 60;
+/** New visits per IP per Ree per hour (an office behind one address still counts). */
+export const SHARE_IP_PER_REE_HOUR = 30;
+/** The Ree must have joined the conversation this recently to count as a conversion. */
+export const SHARE_CONVERSION_MINUTES = 30;
+/** ...and the browser must have visited the share page this recently. */
+export const SHARE_ATTRIBUTION_HOURS = 24;
 
-const VISITOR_ID = /^[a-f0-9-]{36}$/;
-
-export function validVisitorId(value: string | undefined | null): value is string {
-  return Boolean(value && VISITOR_ID.test(value));
+export function visitSlot(at: Date): number {
+  return Math.floor(at.getTime() / 1_000 / SHARE_VISIT_SLOT_SECONDS);
 }
 
-/** The public Ree behind a share link, or null when it is private, taken down, deleted or unknown. */
-async function sharedRee(slug: string): Promise<{ id: string; ownerId: string } | null> {
-  if (!/^[a-z0-9-]{1,64}$/i.test(slug)) return null;
-  const [row] = await db()
-    .select({ id: schema.ree.id, ownerId: schema.ree.ownerId })
-    .from(schema.ree)
-    .where(and(eq(schema.ree.slug, slug.toLowerCase()), publicRee()))
-    .limit(1);
-  return row ?? null;
-}
+export type VisitResult = 'recorded' | 'repeat' | 'cookie' | 'owner' | 'limited' | 'not_found';
 
-async function allowIp(ip: string | null, now: Date): Promise<boolean> {
-  if (!ip) return true;
-  const windowMs = SHARE_RATE_LIMIT.windowSeconds * 1_000;
-  const windowStart = new Date(Math.floor(now.getTime() / windowMs) * windowMs);
-  const [row] = await db()
-    .insert(schema.rateBucket)
-    .values({ key: `share:ip:${ip}`, windowStart, hits: 1 })
-    .onConflictDoUpdate({ target: [schema.rateBucket.key, schema.rateBucket.windowStart], set: { hits: sql`${schema.rateBucket.hits} + 1` } })
-    .returning({ hits: schema.rateBucket.hits });
-  return (row?.hits ?? 0) <= SHARE_RATE_LIMIT.perIp;
-}
-
-export type VisitResult = 'recorded' | 'repeat' | 'owner' | 'limited' | 'not_found';
-
-/** One open of `/s/[slug]`. */
-export async function recordShareVisit(input: { slug: string; visitorId: string; userId: string | null; ip: string | null }, now = new Date()): Promise<VisitResult> {
-  const ree = await sharedRee(input.slug);
+/** One open of `/s/[slug]`. `freshVisitor`: the request carried no visitor cookie; one is being set. */
+export async function recordShareVisit(input: { slug: string; visitorId: string; freshVisitor: boolean; userId: string | null; ip: string | null }, now = new Date()): Promise<VisitResult> {
+  if (input.ip && !(await hitRateBucket(`share:ip:${input.ip}`, SHARE_IP_PER_MINUTE, 60, now))) return 'limited';
+  const ree = await publicReeRef(input.slug);
   if (!ree) return 'not_found';
   if (input.userId === ree.ownerId) return 'owner';
-  const since = new Date(now.getTime() - SHARE_VISIT_DEDUPE_MINUTES * 60_000);
-  const [recent] = await db()
-    .select({ id: schema.reeShareEvent.id })
-    .from(schema.reeShareEvent)
-    .where(and(eq(schema.reeShareEvent.visitorId, input.visitorId), eq(schema.reeShareEvent.reeId, ree.id), eq(schema.reeShareEvent.kind, 'visit'), gte(schema.reeShareEvent.createdAt, since)))
-    .limit(1);
-  if (recent) return 'repeat';
-  if (!(await allowIp(input.ip, now))) return 'limited';
-  await db().insert(schema.reeShareEvent).values({ reeId: ree.id, kind: 'visit', visitorId: input.visitorId, userId: input.userId, createdAt: now });
+  if (input.freshVisitor) return 'cookie';
+  const inserted = await db()
+    .insert(schema.reeShareEvent)
+    .values({ reeId: ree.id, kind: 'visit', visitorId: input.visitorId, userId: input.userId, visitSlot: visitSlot(now), createdAt: now })
+    .onConflictDoNothing()
+    .returning({ id: schema.reeShareEvent.id });
+  const row = inserted[0];
+  if (!row) return 'repeat';
+  if (input.ip && !(await hitRateBucket(`share:ip:${input.ip}:${ree.id}`, SHARE_IP_PER_REE_HOUR, 3_600, now))) {
+    await db().delete(schema.reeShareEvent).where(eq(schema.reeShareEvent.id, row.id));
+    return 'limited';
+  }
   return 'recorded';
 }
 
-export type ConversionResult = 'recorded' | 'repeat' | 'owner' | 'not_found';
+export type ConversionResult = 'recorded' | 'repeat' | 'unattributed' | 'owner' | 'not_found';
 
 /**
  * A conversation started (or joined) from `/s/[slug]`. It must be the
- * user's own and already hold the Ree, so a conversion cannot be claimed
- * for someone else's conversation or one without the Ree.
+ * user's own and have taken the Ree in just now, and this browser must
+ * have visited the share page -- so an old conversation cannot be claimed,
+ * nor someone else's.
  */
-export async function recordShareConversion(input: { slug: string; visitorId: string; userId: string; conversationId: string }): Promise<ConversionResult> {
-  const ree = await sharedRee(input.slug);
-  if (!ree || !/^[a-f0-9-]{36}$/i.test(input.conversationId)) return 'not_found';
+export async function recordShareConversion(input: { slug: string; visitorId: string; userId: string; conversationId: string }, now = new Date()): Promise<ConversionResult> {
+  if (!isUuid(input.conversationId)) return 'not_found';
+  const ree = await publicReeRef(input.slug);
+  if (!ree) return 'not_found';
   if (input.userId === ree.ownerId) return 'owner';
   const [member] = await db()
-    .select({ id: schema.conversation.id })
+    .select({ addedAt: schema.conversationRee.addedAt })
     .from(schema.conversation)
     .innerJoin(schema.conversationRee, and(eq(schema.conversationRee.conversationId, schema.conversation.id), eq(schema.conversationRee.reeId, ree.id)))
     .where(and(eq(schema.conversation.id, input.conversationId), eq(schema.conversation.userId, input.userId)))
     .limit(1);
   if (!member) return 'not_found';
+  if (member.addedAt.getTime() < now.getTime() - SHARE_CONVERSION_MINUTES * 60_000) return 'unattributed';
+  const [visited] = await db()
+    .select({ id: schema.reeShareEvent.id })
+    .from(schema.reeShareEvent)
+    .where(
+      and(
+        eq(schema.reeShareEvent.visitorId, input.visitorId),
+        eq(schema.reeShareEvent.reeId, ree.id),
+        eq(schema.reeShareEvent.kind, 'visit'),
+        gte(schema.reeShareEvent.createdAt, new Date(now.getTime() - SHARE_ATTRIBUTION_HOURS * 3_600_000)),
+      ),
+    )
+    .limit(1);
+  if (!visited) return 'unattributed';
   const inserted = await db()
     .insert(schema.reeShareEvent)
-    .values({ reeId: ree.id, kind: 'conversation', visitorId: input.visitorId, userId: input.userId, conversationId: input.conversationId })
+    .values({ reeId: ree.id, kind: 'conversation', visitorId: input.visitorId, userId: input.userId, conversationId: input.conversationId, createdAt: now })
     .onConflictDoNothing()
     .returning({ id: schema.reeShareEvent.id });
   return inserted.length ? 'recorded' : 'repeat';
 }
 
 export interface ShareStatistics {
-  /** Opens of the share page (deduplicated per visitor every 30 minutes). */
+  /** Whether the Ree has a share page now (public and not taken down). */
+  shareable: boolean;
+  /** Opens of the share page (once per visitor every half hour). */
   visits: number;
   /** Distinct visitors (browsers). */
   visitors: number;
   /** Conversations started or joined from it. */
   conversations: number;
-  /** `conversations / visitors` as a whole percentage, or null without visitors. */
+  /** Visitors of the period who also started a conversation in it. */
+  converted: number;
+  /** `converted / visitors` as a whole percentage, or null without visitors. */
   rate: number | null;
 }
 
 export async function shareStatistics(reeId: string, range: Range | null): Promise<ShareStatistics> {
-  const within: SQL[] = range ? [gte(schema.reeShareEvent.createdAt, new Date(range.start)), lt(schema.reeShareEvent.createdAt, new Date(range.end))] : [];
-  const [row] = await db()
-    .select({
-      visits: sql<number>`count(*) filter (where ${schema.reeShareEvent.kind} = 'visit')::int`,
-      visitors: sql<number>`count(distinct ${schema.reeShareEvent.visitorId}) filter (where ${schema.reeShareEvent.kind} = 'visit')::int`,
-      conversations: sql<number>`count(*) filter (where ${schema.reeShareEvent.kind} = 'conversation')::int`,
-    })
-    .from(schema.reeShareEvent)
-    .where(and(eq(schema.reeShareEvent.reeId, reeId), ...within));
-  const visits = row?.visits ?? 0;
-  const visitors = row?.visitors ?? 0;
-  const conversations = row?.conversations ?? 0;
-  return { visits, visitors, conversations, rate: visitors ? Math.round((Math.min(conversations, visitors) / visitors) * 100) : null };
+  const start = range ? new Date(range.start).toISOString() : null;
+  const end = range ? new Date(range.end).toISOString() : null;
+  const within = (alias: string) => (range ? sql.raw(`and ${alias}.created_at >= '${start}'::timestamptz and ${alias}.created_at < '${end}'::timestamptz`) : sql``);
+  const result = await db().execute<{ shareable: boolean; visits: number; visitors: number; conversations: number; converted: number }>(sql`
+    select
+      exists (select 1 from ${schema.ree} r where r.id = ${reeId} and r.is_public and r.moderated_at is null and r.deleted_at is null) as shareable,
+      count(*) filter (where e.kind = 'visit')::int as visits,
+      count(distinct e.visitor_id) filter (where e.kind = 'visit')::int as visitors,
+      count(*) filter (where e.kind = 'conversation')::int as conversations,
+      count(distinct e.visitor_id) filter (
+        where e.kind = 'visit'
+          and exists (select 1 from ${schema.reeShareEvent} c where c.ree_id = e.ree_id and c.visitor_id = e.visitor_id and c.kind = 'conversation' ${within('c')})
+      )::int as converted
+    from ${schema.reeShareEvent} e
+    where e.ree_id = ${reeId} ${within('e')}
+  `);
+  const row = result.rows[0] ?? { shareable: false, visits: 0, visitors: 0, conversations: 0, converted: 0 };
+  const visitors = Number(row.visitors);
+  const converted = Number(row.converted);
+  return {
+    shareable: Boolean(row.shareable),
+    visits: Number(row.visits),
+    visitors,
+    conversations: Number(row.conversations),
+    converted,
+    rate: visitors ? Math.round((converted / visitors) * 100) : null,
+  };
 }
