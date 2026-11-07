@@ -24,12 +24,18 @@ export function JoinButton({
   conversations,
   returnTo,
   openOnLoad,
+  label,
+  share,
 }: {
   ree: { id: string; name: string; description: string; avatarBlob: string | null; color: string; price: number };
   signedIn: boolean;
   conversations: { id: string; title: string; members: number }[];
   returnTo: string;
   openOnLoad: boolean;
+  /** The button's label in place of 「加入对话」. */
+  label?: string;
+  /** On the share page `/s/[slug]`: the slug, so the conversation counts as one the share page started. */
+  share?: string;
 }) {
   const { t } = useI18n();
   const p = t.discover.public;
@@ -45,10 +51,16 @@ export function JoinButton({
     return (
       <Link href={`/login?returnTo=${encodeURIComponent(returnTo)}`} className="btn w-full justify-center">
         <Icon name="plus" />
-        {p.join}
+        {label ?? p.join}
       </Link>
     );
   }
+
+  /* A share page's conversion; never holds up opening the conversation. */
+  const converted = (conversationId: string) =>
+    share
+      ? fetch(`/api/share/${encodeURIComponent(share)}/conversion`, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ conversationId }), keepalive: true }).catch(() => undefined)
+      : Promise.resolve();
 
   const fail = (error: unknown) => {
     setBusy(false);
@@ -59,7 +71,7 @@ export function JoinButton({
     <>
       <button type="button" className="btn w-full justify-center" onClick={() => setOpen(true)}>
         <Icon name="plus" />
-        {p.join}
+        {label ?? p.join}
       </button>
       <Modal open={open} onClose={() => setOpen(false)} title={p.joinTitle} subtitle={`${ree.name} · ${fill(t.conversations.room.perAnswer, { n: ree.price })}`}>
         <div className="flex items-center gap-3">
@@ -79,7 +91,8 @@ export function JoinButton({
               onClick={async () => {
                 setBusy(true);
                 try {
-                  await conversationApi.addRee(conversation.id, ree.id);
+                  const { result } = await conversationApi.addRee(conversation.id, ree.id);
+                  if (result === 'added') void converted(conversation.id);
                   toast(p.joined);
                   router.push(`/chats/${conversation.id}`);
                 } catch (error) {
@@ -107,6 +120,7 @@ export function JoinButton({
             setBusy(true);
             try {
               const { id } = await conversationApi.create([ree.id], fill(p.joinNewTitle, { name: ree.name }).slice(0, 120));
+              void converted(id);
               router.push(`/chats/${id}`);
             } catch (error) {
               fail(error);

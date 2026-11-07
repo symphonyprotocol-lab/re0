@@ -295,24 +295,30 @@ export async function activeRees(limit: number): Promise<ReeCard[]> {
 /* ----------------------------------------------------------- rate limits */
 
 /**
- * Counts one search against each key in a fixed one-minute window and
- * answers whether every key is still within its limit. A key over its limit
- * keeps counting, so hammering does not open the window early.
+ * Counts one hit against `key` in a fixed window and answers whether it is
+ * still within `limit`. A key over its limit keeps counting, so hammering
+ * does not open the window early. Windows of up to an hour only: the
+ * hourly job clears older ones.
  */
-export async function allowSearch(keys: { ip: string | null; userId: string | null }, now = new Date()): Promise<boolean> {
-  const windowMs = EXPLORE_RATE_LIMIT.windowSeconds * 1_000;
+export async function hitRateBucket(key: string, limit: number, windowSeconds: number, now = new Date()): Promise<boolean> {
+  const windowMs = windowSeconds * 1_000;
   const windowStart = new Date(Math.floor(now.getTime() / windowMs) * windowMs);
+  const [row] = await db()
+    .insert(schema.rateBucket)
+    .values({ key, windowStart, hits: 1 })
+    .onConflictDoUpdate({ target: [schema.rateBucket.key, schema.rateBucket.windowStart], set: { hits: sql`${schema.rateBucket.hits} + 1` } })
+    .returning({ hits: schema.rateBucket.hits });
+  return (row?.hits ?? 0) <= limit;
+}
+
+/** One free search against the IP's and the account's one-minute limits. */
+export async function allowSearch(keys: { ip: string | null; userId: string | null }, now = new Date()): Promise<boolean> {
   const checks: [string, number][] = [];
   if (keys.ip) checks.push([`explore:ip:${keys.ip}`, EXPLORE_RATE_LIMIT.perIp]);
   if (keys.userId) checks.push([`explore:user:${keys.userId}`, EXPLORE_RATE_LIMIT.perUser]);
   let allowed = true;
   for (const [key, limit] of checks) {
-    const [row] = await db()
-      .insert(schema.rateBucket)
-      .values({ key, windowStart, hits: 1 })
-      .onConflictDoUpdate({ target: [schema.rateBucket.key, schema.rateBucket.windowStart], set: { hits: sql`${schema.rateBucket.hits} + 1` } })
-      .returning({ hits: schema.rateBucket.hits });
-    if ((row?.hits ?? 0) > limit) allowed = false;
+    if (!(await hitRateBucket(key, limit, EXPLORE_RATE_LIMIT.windowSeconds, now))) allowed = false;
   }
   return allowed;
 }

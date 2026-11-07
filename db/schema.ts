@@ -1195,3 +1195,36 @@ export const videoExportPricing = pgTable('video_export_pricing', {
   check('video_export_pricing_singleton_check', sql`id = 1`),
   check('video_export_pricing_credits_check', sql`credits between 1 and 100000000`),
 ]);
+
+/**
+ * Beyond 4: the share page `/s/[slug]` -- a visit, or a conversation the
+ * visitor started or joined from it. `visitor_id` is the random id of the
+ * `re0_visitor` cookie (no IP, no user agent); the owner's own visits are
+ * not recorded. A visit holds its half-hour `visit_slot`, so one visitor
+ * counts once per slot even when two tabs open at once; one conversion per
+ * conversation and Ree.
+ */
+export const reeShareEvent = pgTable(
+  'ree_share_event',
+  {
+    id: uuid('id').primaryKey().defaultRandom(),
+    reeId: uuid('ree_id')
+      .notNull()
+      .references(() => ree.id, { onDelete: 'cascade' }),
+    kind: text('kind').$type<'visit' | 'conversation'>().notNull(),
+    visitorId: text('visitor_id').notNull(),
+    userId: uuid('user_id').references(() => user.id, { onDelete: 'set null' }),
+    conversationId: uuid('conversation_id').references(() => conversation.id, { onDelete: 'set null' }),
+    /** Visits only: `floor(epoch seconds / 1800)`. */
+    visitSlot: integer('visit_slot'),
+    createdAt: createdAt(),
+  },
+  (t) => [
+    index('ree_share_event_ree_idx').on(t.reeId, t.kind, t.createdAt),
+    index('ree_share_event_visitor_idx').on(t.visitorId, t.reeId, t.createdAt),
+    uniqueIndex('ree_share_event_conversation_key').on(t.conversationId, t.reeId).where(sql`kind = 'conversation'`),
+    uniqueIndex('ree_share_event_visit_key').on(t.visitorId, t.reeId, t.visitSlot).where(sql`kind = 'visit'`),
+    check('ree_share_event_kind_check', oneOf('kind', ['visit', 'conversation'])),
+    check('ree_share_event_visit_slot_check', sql`(kind = 'visit') = (visit_slot is not null)`),
+  ],
+);

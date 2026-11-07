@@ -30,6 +30,7 @@ import * as consoleRees from './pages/console-rees';
 import * as payouts from './pages/payouts';
 import * as consolePayouts from './pages/console-payouts';
 import * as video from './pages/video';
+import * as share from './pages/share';
 import type { Locale } from './locale';
 
 /* Step 5's pages sit in their own spread, so other steps' additions to the first object merge cleanly. */
@@ -37,7 +38,9 @@ const step5 = { roles, statistics, notices, console, consoleUsers, consoleRees }
 const step6 = { payouts, consolePayouts };
 /* Step 7's page sits in its own spread too. */
 const step7 = { video };
-const pages = { servicePricing, modelCalls, knowledgeCosts, pricingAdmin, common, login, dashboard, rees, reeSetup, knowledge, chat, settings, billing, site, legal, admin, firecrawl, conversations, discover, ...step5, ...step6, ...step7 };
+/* Sharing a Ree sits in its own spread too. */
+const sharing = { share };
+const pages = { servicePricing, modelCalls, knowledgeCosts, pricingAdmin, common, login, dashboard, rees, reeSetup, knowledge, chat, settings, billing, site, legal, admin, firecrawl, conversations, discover, ...step5, ...step6, ...step7, ...sharing };
 
 type Pages = typeof pages;
 export type Messages = { [K in keyof Pages]: Pages[K]['en'] };

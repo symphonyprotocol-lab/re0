@@ -44,7 +44,7 @@ const reeId = sql.raw('"ree"."id"');
 const reeOwner = sql.raw('"ree"."owner_id"');
 
 export async function publicReeBySlug(slug: string): Promise<PublicRee | null> {
-  if (!/^[a-z0-9-]{1,64}$/i.test(slug)) return null;
+  if (!validSlug(slug)) return null;
   return reeDetails(and(eq(schema.ree.slug, slug.toLowerCase()), publicRee())!);
 }
 
@@ -138,4 +138,20 @@ export async function authorOthers(ree: PublicRee, page: number): Promise<Public
     .limit(PUBLIC_LIST_PAGE_SIZE)
     .offset((current - 1) * PUBLIC_LIST_PAGE_SIZE);
   return { items: await reeCards(ids.map((row) => row.id)), total, page: current, pages };
+}
+
+/** A slug as the public page and the share page accept it. */
+function validSlug(slug: string): boolean {
+  return /^[a-z0-9-]{1,64}$/i.test(slug);
+}
+
+/** Just enough of a public Ree to act on its slug (the share page's beacons): the same gate as `publicReeBySlug`. */
+export async function publicReeRef(slug: string): Promise<{ id: string; ownerId: string } | null> {
+  if (!validSlug(slug)) return null;
+  const [row] = await db()
+    .select({ id: schema.ree.id, ownerId: schema.ree.ownerId })
+    .from(schema.ree)
+    .where(and(eq(schema.ree.slug, slug.toLowerCase()), publicRee()))
+    .limit(1);
+  return row ?? null;
 }
