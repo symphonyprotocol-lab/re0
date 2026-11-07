@@ -36,8 +36,7 @@ export const zh = {
     sources: '{n} 个知识来源',
     answers: '{n} 次成功回答',
     profile: '查看完整主页',
-    footer: '在 RE0，用你的知识创建一个 Ree。',
-    create: '创建我的 Ree',
+    powered: '由 RE0 提供',
     notFound: {
       title: '这个分享链接暂时打不开。',
       body: '链接可能已失效，或 Ree 已设为私有。',
@@ -91,8 +90,7 @@ export const en: Shape<typeof zh> = {
     sources: 'Knowledge sources: {n}',
     answers: 'Successful answers: {n}',
     profile: 'View full profile',
-    footer: 'Create a Ree from your own knowledge on RE0.',
-    create: 'Create my Ree',
+    powered: 'Powered by RE0',
     notFound: {
       title: 'This share link cannot be opened right now.',
       body: 'The link may be unavailable, or this Ree may now be private.',

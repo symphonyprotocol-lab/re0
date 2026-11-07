@@ -64,99 +64,89 @@ export default async function SharePage({ params, searchParams }: Props) {
   const category = t.common.categories[ree.category as keyof typeof t.common.categories] ?? ree.category;
 
   return (
-    <ShareFrame signedIn={Boolean(user)} home={`RE0 ${t.site.nav.home}`} action={user ? { href: '/rees', label: t.site.nav.open } : { href: `/login?returnTo=${encodeURIComponent(`/s/${ree.slug}`)}`, label: t.site.nav.signIn }}>
+    <ShareFrame powered={s.powered}>
       <ShareVisit slug={ree.slug} />
-      <main className="mx-auto w-full max-w-[760px] flex-1 px-4 pb-14 sm:px-6">
-        <article className="card overflow-hidden shadow-[0_18px_48px_#0911350d]" aria-label={ree.name}>
-          <div className="border-b border-line">
-            {video ? <PublicIntro ree={ree} video={video} autoPlay={one(query.video) === '1'} /> : <ReeCover ree={ree} />}
-          </div>
-          <div className="p-5 sm:p-8">
-            <header className="flex items-center gap-4">
-              <ReeAvatar avatar={ree.avatarBlob} color={ree.color} size="lg" />
-              <div className="min-w-0">
-                <span className="font-mono text-[10px] tracking-[0.18em] text-muted">{s.eyebrow}</span>
-                <h1 className="mt-1 text-[24px] leading-tight font-extrabold tracking-tight break-words sm:text-[30px]">{ree.name}</h1>
-                <p className="mt-1 flex items-center text-[12px] text-muted">
-                  {fill(s.sharedBy, { name: ree.ownerName })}
-                  <RoleBadge role={ree.role} />
-                </p>
-              </div>
-            </header>
-            {ree.description && <p className="mt-5 text-[14px] leading-relaxed text-[#3b4361]">{ree.description}</p>}
-            <ul className="mt-4 flex flex-wrap gap-2 text-[11px]" aria-label={ree.name}>
-              <li className="tag">{category}</li>
-              <li className="tag">
-                <Icon name="layers" className="size-3" />
-                {fill(s.sources, { n: n(ree.sources) })}
-              </li>
-              {ree.answers > 0 && (
-                <li className="tag">
-                  <Icon name="chat" className="size-3" />
-                  {fill(s.answers, { n: n(ree.answers) })}
-                </li>
-              )}
-              {ree.positiveRate !== null && (
-                <li className="tag">
-                  <Icon name="thumbUp" className="size-3" />
-                  {fill(t.discover.public.positive, { n: ree.positiveRate })}
-                </li>
-              )}
-            </ul>
-
-            {ree.sampleQuestions.length > 0 && (
-              <section className="mt-7">
-                <h2 className="flex items-center gap-2 text-[14px] font-bold">
-                  <Icon name="sparkle" className="size-4 text-blue" />
-                  {s.topics}
-                </h2>
-                <ol className="mt-3 flex flex-col gap-2">
-                  {ree.sampleQuestions.slice(0, 3).map((question, index) => (
-                    <li key={question} className="flex gap-3 rounded-xl border border-line bg-wash px-4 py-3 text-[13px]">
-                      <span className="font-mono text-[11px] text-muted">{String(index + 1).padStart(2, '0')}</span>
-                      <p>{question}</p>
-                    </li>
-                  ))}
-                </ol>
-              </section>
-            )}
-
-            <section className="mt-7 rounded-[12px] border border-[#d6e6fb] bg-soft p-4 sm:p-5" aria-label={s.start}>
-              <p className="flex gap-2 text-[12px] leading-relaxed text-[#3b4361]">
-                <Icon name="shield" className="mt-0.5 size-3.5 flex-none text-green" />
-                {s.startHint}
+      <article className="card overflow-hidden shadow-[0_18px_48px_#0911350d]" aria-label={ree.name}>
+        <div className="border-b border-line">
+          {video ? <PublicIntro ree={ree} video={video} autoPlay={one(query.video) === '1'} /> : <ReeCover ree={ree} />}
+        </div>
+        <div className="p-5 sm:p-8">
+          <header className="flex items-center gap-4">
+            <ReeAvatar avatar={ree.avatarBlob} color={ree.color} size="lg" />
+            <div className="min-w-0">
+              <span className="font-mono text-[10px] tracking-[0.18em] text-muted">{s.eyebrow}</span>
+              <h1 className="mt-1 text-[24px] leading-tight font-extrabold tracking-tight break-words sm:text-[30px]">{ree.name}</h1>
+              <p className="mt-1 flex items-center text-[12px] text-muted">
+                {fill(s.sharedBy, { name: ree.ownerName })}
+                <RoleBadge role={ree.role} />
               </p>
-              <div className="mt-4">
-                <JoinButton
-                  ree={{ id: ree.id, name: ree.name, description: ree.description, avatarBlob: ree.avatarBlob, color: ree.color, price }}
-                  signedIn={Boolean(user)}
-                  conversations={conversations}
-                  returnTo={`/s/${ree.slug}?join=1`}
-                  openOnLoad={one(query.join) === '1'}
-                  label={s.start}
-                  share={own ? undefined : ree.slug}
-                />
-              </div>
-              <p className="mt-2 text-center text-[11px] text-muted">{user ? fill(s.perAnswer, { n: n(price) }) : s.signIn}</p>
-            </section>
-
-            <div className="mt-5 flex justify-center">
-              <Link href={`/r/${ree.slug}`} className="text-link">
-                {s.profile}
-                <Icon name="chevronRight" className="size-3" />
-              </Link>
             </div>
-          </div>
-        </article>
+          </header>
+          {ree.description && <p className="mt-5 text-[14px] leading-relaxed text-[#3b4361]">{ree.description}</p>}
+          <ul className="mt-4 flex flex-wrap gap-2 text-[11px]" aria-label={ree.name}>
+            <li className="tag">{category}</li>
+            <li className="tag">
+              <Icon name="layers" className="size-3" />
+              {fill(s.sources, { n: n(ree.sources) })}
+            </li>
+            {ree.answers > 0 && (
+              <li className="tag">
+                <Icon name="chat" className="size-3" />
+                {fill(s.answers, { n: n(ree.answers) })}
+              </li>
+            )}
+            {ree.positiveRate !== null && (
+              <li className="tag">
+                <Icon name="thumbUp" className="size-3" />
+                {fill(t.discover.public.positive, { n: ree.positiveRate })}
+              </li>
+            )}
+          </ul>
 
-        <footer className="mt-8 flex flex-col items-center gap-3 text-center text-[12px] text-muted">
-          <p>{s.footer}</p>
-          <Link href={user ? '/rees/new' : `/login?returnTo=${encodeURIComponent('/rees/new')}`} className="btn-secondary btn-sm">
-            <Icon name="plus" />
-            {s.create}
-          </Link>
-        </footer>
-      </main>
+          {ree.sampleQuestions.length > 0 && (
+            <section className="mt-7">
+              <h2 className="flex items-center gap-2 text-[14px] font-bold">
+                <Icon name="sparkle" className="size-4 text-blue" />
+                {s.topics}
+              </h2>
+              <ol className="mt-3 flex flex-col gap-2">
+                {ree.sampleQuestions.slice(0, 3).map((question, index) => (
+                  <li key={question} className="flex gap-3 rounded-xl border border-line bg-wash px-4 py-3 text-[13px]">
+                    <span className="font-mono text-[11px] text-muted">{String(index + 1).padStart(2, '0')}</span>
+                    <p>{question}</p>
+                  </li>
+                ))}
+              </ol>
+            </section>
+          )}
+
+          <section className="mt-7 rounded-[12px] border border-[#d6e6fb] bg-soft p-4 sm:p-5" aria-label={s.start}>
+            <p className="flex gap-2 text-[12px] leading-relaxed text-[#3b4361]">
+              <Icon name="shield" className="mt-0.5 size-3.5 flex-none text-green" />
+              {s.startHint}
+            </p>
+            <div className="mt-4">
+              <JoinButton
+                ree={{ id: ree.id, name: ree.name, description: ree.description, avatarBlob: ree.avatarBlob, color: ree.color, price }}
+                signedIn={Boolean(user)}
+                conversations={conversations}
+                returnTo={`/s/${ree.slug}?join=1`}
+                openOnLoad={one(query.join) === '1'}
+                label={s.start}
+                share={own ? undefined : ree.slug}
+              />
+            </div>
+            <p className="mt-2 text-center text-[11px] text-muted">{user ? fill(s.perAnswer, { n: n(price) }) : s.signIn}</p>
+          </section>
+
+          <div className="mt-5 flex justify-center">
+            <Link href={`/r/${ree.slug}`} className="text-link">
+              {s.profile}
+              <Icon name="chevronRight" className="size-3" />
+            </Link>
+          </div>
+        </div>
+      </article>
     </ShareFrame>
   );
 }
