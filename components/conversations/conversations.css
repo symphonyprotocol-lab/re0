@@ -2525,3 +2525,104 @@
   color: var(--color-muted);
   margin-bottom: 4px;
 }
+
+/* ------------------------------------------------------------ Ree 圆桌 */
+
+/* "综合这 N 个回答" under the last answer. */
+.chat-room .synthesis-action {
+  margin: -12px 0 30px 38px;
+}
+.chat-room .synthesis-action .btn {
+  gap: 6px;
+}
+.chat-room .synthesis-action .btn svg {
+  width: 13px;
+  height: 13px;
+}
+.chat-room .synthesis-action small {
+  color: #8e9db4;
+  font-size: 10px;
+}
+
+/* The synthesis: a panel apart from the Rees' bubbles. */
+.chat-room .message.synthesis {
+  border: 1px solid #dfe6f3;
+  border-radius: 14px;
+  background: #f7f9ff;
+  padding: 16px 18px 12px;
+}
+.chat-room .message.synthesis .answer-text {
+  padding-left: 0;
+}
+.chat-room .message.synthesis .answer-markdown p.font-bold {
+  font-size: 12px;
+  color: var(--color-blue);
+  margin-top: 6px;
+}
+.chat-room .synthesis-mark {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 28px;
+  height: 28px;
+  border-radius: 8px;
+  background: var(--color-blue);
+  color: #fff;
+}
+.chat-room .synthesis-mark svg {
+  width: 15px;
+  height: 15px;
+}
+.chat-room .synthesis-source {
+  display: inline-flex;
+  align-items: center;
+  height: 16px;
+  margin: 0 2px;
+  padding: 1px 6px;
+  border: 0;
+  border-radius: 4px;
+  background: rgb(232, 242, 255);
+  color: var(--color-blue);
+  font: 9px var(--font-mono);
+  vertical-align: middle;
+  white-space: nowrap;
+  cursor: pointer;
+}
+.chat-room button.synthesis-source:hover {
+  background: var(--color-blue);
+  color: #fff;
+}
+.chat-room .synthesis-source.plain {
+  background: #eef0f6;
+  color: var(--color-muted);
+  cursor: default;
+}
+.chat-room .synthesis-status {
+  font-size: 12px;
+  color: var(--color-muted);
+}
+.chat-room .synthesis-note {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  margin-top: 12px;
+  font-size: 10px;
+  color: #8e9db4;
+}
+.chat-room .synthesis-note svg {
+  width: 11px;
+  height: 11px;
+  flex: none;
+}
+.chat-room .message.synthesis .message-feedback {
+  margin-left: 0;
+  padding-left: 0;
+}
+@media (max-width: 600px) {
+  .chat-room .synthesis-action {
+    margin-left: 0;
+  }
+  .chat-room .message.synthesis {
+    padding: 13px 13px 10px;
+  }
+}

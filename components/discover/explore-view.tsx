@@ -3,13 +3,14 @@
 import { WorkspaceLink as Link } from '@/components/shell/workspace-link';
 import { useNavigationRouter as useRouter } from '@/components/shell/navigation-provider';
 import { useCallback, useEffect, useRef, useState, type ReactNode } from 'react';
-import { EXPLORE_PAGE_SIZES, EXPLORE_RESULTS, REE_CATEGORIES } from '@/lib/constants';
+import { EXPLORE_PAGE_SIZES, EXPLORE_RESULTS, REE_CATEGORIES, ROUNDTABLE_REES, SYNTHESIS_ENABLED, SYNTHESIS_MIN_ANSWERS } from '@/lib/constants';
 import { explorePath, type ExploreQuery, type ExploreSort } from '@/lib/domain/explore';
 import type { ExploreResult } from '@/lib/services/explore';
 import { useI18n } from '@/i18n/client';
 import { fill, formatNumber } from '@/i18n/format';
 import { Icon } from '@/components/ui/icons';
 import { ReeCardView } from '@/components/discover/ree-card';
+import { RoundtableEntry } from '@/components/discover/roundtable-entry';
 import { takePublicReturn } from '@/components/discover/public-visit';
 import '@/components/site/site.css';
 import '@/components/discover/explore.css';
@@ -243,6 +244,10 @@ export function ExploreView({ query, result, limited, signedIn, favoriteIds, vie
         </p>
         {pager(true)}
       </div>
+
+      {SYNTHESIS_ENABLED && result.mode === 'search' && result.page === 1 && result.items.length >= SYNTHESIS_MIN_ANSWERS && (
+        <RoundtableEntry question={query.q} rees={result.items.slice(0, ROUNDTABLE_REES)} signedIn={signedIn} returnTo={current} />
+      )}
 
       {result.items.length > 0 ? (
         <div id="explore-results" className="dot-grid" aria-label={e.list}>

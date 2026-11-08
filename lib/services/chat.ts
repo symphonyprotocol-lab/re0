@@ -5,7 +5,7 @@
 import { and, asc, eq, inArray, isNull, sql, type SQL } from 'drizzle-orm';
 import { HISTORY_TURNS, RETRIEVAL_RECALL, RETRIEVAL_TOP_K } from '@/lib/constants';
 import type { Passage } from '@/lib/domain/answer';
-import { checkPartId, TEXT_META_KEY, textPartId, type ReeOutcome, type ReeUIMessage, type SuggestedRee } from '@/lib/domain/chat-message';
+import { checkPartId, SYNTHESIS_PART_ID, TEXT_META_KEY, textPartId, type ReeOutcome, type ReeUIMessage, type SuggestedRee, type SynthesisPart } from '@/lib/domain/chat-message';
 import { fuse, hasEvidence, keywordCoverage, searchTerms } from '@/lib/domain/retrieval';
 import { likePattern } from '@/lib/domain/list';
 import { embedTexts } from '@/lib/infra/ai/models';
@@ -65,11 +65,12 @@ export function outcomeOf(row: MessageRow, vote: 'up' | 'down' | null = null): R
 /**
  * Stored rows as `useChat` messages: each question, then one assistant
  * message holding the reply of every Ree it went to, in the order they were
- * written, and the suggestions shown under it when nobody could answer.
+ * written, the suggestions shown under it when nobody could answer, and the
+ * question's synthesis (Ree 圆桌) when there is one.
  */
 export function toUIMessages(
   rows: readonly MessageRow[],
-  extras: { votes?: ReadonlyMap<string, 'up' | 'down'>; suggestions?: ReadonlyMap<string, SuggestedRee[]> } = {},
+  extras: { votes?: ReadonlyMap<string, 'up' | 'down'>; suggestions?: ReadonlyMap<string, SuggestedRee[]>; syntheses?: ReadonlyMap<string, SynthesisPart> } = {},
 ): ReeUIMessage[] {
   const replies = new Map<string, MessageRow[]>();
   for (const row of rows) {
@@ -85,8 +86,17 @@ export function toUIMessages(
       out.push({ id: row.id, role: 'user', parts: [{ type: 'text', text: row.content }] });
       const answers = replies.get(row.id) ?? [];
       const suggested = extras.suggestions?.get(row.id) ?? [];
+      const synthesis = extras.syntheses?.get(row.id);
       if (answers.length === 0 && suggested.length === 0) continue;
-      out.push({ id: `${row.id}-replies`, role: 'assistant', parts: [...answers.flatMap((reply) => replyParts(reply, extras.votes?.get(reply.id) ?? null)), ...(suggested.length ? [{ type: 'data-suggestions' as const, id: 'suggestions', data: { rees: suggested } }] : [])] });
+      out.push({
+        id: `${row.id}-replies`,
+        role: 'assistant',
+        parts: [
+          ...answers.flatMap((reply) => replyParts(reply, extras.votes?.get(reply.id) ?? null)),
+          ...(suggested.length ? [{ type: 'data-suggestions' as const, id: 'suggestions', data: { rees: suggested } }] : []),
+          ...(synthesis ? [{ type: 'data-synthesis' as const, id: SYNTHESIS_PART_ID, data: synthesis }] : []),
+        ],
+      });
     }
   }
   /* Replies whose question row is missing still show, rather than vanish. */

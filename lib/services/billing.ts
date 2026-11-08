@@ -682,7 +682,7 @@ export async function listEntries(
   // Count actual charges at settlement time. Reservations and returns can
   // cross midnight and must never inflate a day's spending.
   const charged = sql`case
-    when ${schema.creditEntry.reason} in ('knowledge_settle', 'query_base', 'verify_settle', 'video_script', 'video_export')
+    when ${schema.creditEntry.reason} in ('knowledge_settle', 'query_base', 'verify_settle', 'synthesis_settle', 'video_script', 'video_export')
       then coalesce(substring(${schema.creditEntry.note} from 'charged ([0-9]+) of [0-9]+$')::bigint, 0)
     when ${schema.creditEntry.reason} = 'query_fee_paid' then greatest(-${schema.creditEntry.delta}, 0)
     else 0 end`;

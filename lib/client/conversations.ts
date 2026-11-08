@@ -3,12 +3,15 @@
  * or throws an `ApiError` carrying the `{error}` code, so a page can show
  * its own message for it.
  */
+import type { InsufficientCreditsBody, SynthesisPart } from '@/lib/domain/chat-message';
 import type { BatchAction } from '@/lib/domain/conversation';
 
 export class ApiError extends Error {
   constructor(
     readonly code: string,
     readonly status: number,
+    /** The whole error body, e.g. the balance and the need of a 402. */
+    readonly body: Record<string, unknown> = {},
   ) {
     super(code);
     this.name = 'ApiError';
@@ -34,6 +37,7 @@ export const conversationApi = {
   addRee: (id: string, reeId: string) => call<{ result: 'added' | 'present' }>(`/api/chats/${id}/rees/${reeId}`, 'POST'),
   setRees: (id: string, reeIds: string[]) => call<{ reeIds: string[] }>(`/api/chats/${id}/rees`, 'PUT', { reeIds }),
   vote: (messageId: string, vote: 'up' | 'down' | null) => call<{ vote: 'up' | 'down' | null }>(`/api/messages/${messageId}/feedback`, 'POST', { vote }),
+  voteSynthesis: (synthesisId: string, vote: 'up' | 'down' | null) => call<{ vote: 'up' | 'down' | null }>(`/api/syntheses/${synthesisId}/feedback`, 'POST', { vote }),
 };
 
 /** A question typed on `/talk`, carried to the new conversation's page, which sends it. */
@@ -63,4 +67,39 @@ export function takePending(id: string): PendingQuestion | null {
   } catch {
     return null;
   }
+}
+
+/**
+ * "综合这 N 个回答": streams the synthesis of one question, handing the part
+ * so far -- the lettered Rees, the raw text -- to `onUpdate` as it arrives,
+ * and answers the finished part (`done` or `failed`). A refusal before the
+ * stream -- 402, 409 -- throws an `ApiError` with the body (an
+ * `InsufficientCreditsBody` for a 402).
+ */
+export async function streamSynthesis(conversationId: string, requestId: string, onUpdate: (part: SynthesisPart) => void): Promise<SynthesisPart> {
+  const response = await fetch(`/api/chats/${conversationId}/messages/${requestId}/synthesis`, { method: 'POST' });
+  if (!response.ok || !response.body) {
+    const data = (await response.json().catch(() => ({}))) as Partial<InsufficientCreditsBody> & { error?: string };
+    throw new ApiError(data.error ?? 'generic', response.status, data);
+  }
+  const reader = response.body.pipeThrough(new TextDecoderStream()).getReader();
+  let buffer = '';
+  let latest = null as SynthesisPart | null;
+  for (;;) {
+    const { value, done } = await reader.read();
+    if (value) buffer += value;
+    const lines = buffer.split('\n');
+    buffer = done ? '' : lines.pop()!;
+    for (const line of lines) {
+      if (!line.startsWith('data: ') || line === 'data: [DONE]') continue;
+      const chunk = JSON.parse(line.slice(6)) as { type: string; delta?: string; data?: SynthesisPart };
+      if (chunk.type === 'text-delta' && chunk.delta && latest?.state === 'streaming') latest = { ...latest, content: latest.content + chunk.delta };
+      else if (chunk.type === 'data-synthesis' && chunk.data) latest = chunk.data;
+      else continue;
+      onUpdate(latest);
+    }
+    if (done) break;
+  }
+  if (!latest || latest.state === 'streaming') throw new ApiError('synthesis_failed', 500);
+  return latest;
 }

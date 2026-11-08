@@ -880,3 +880,62 @@
     display: none;
   }
 }
+
+/* "一起问前 3 个 Ree": one strip above the results, the cards untouched. */
+.discovery-page .roundtable-entry {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  margin: 0 0 16px;
+  padding: 12px 14px;
+  border: 1px solid #dfe6f3;
+  border-radius: 12px;
+  background: #f7f9ff;
+}
+.discovery-page .roundtable-entry-avatars {
+  display: flex;
+  flex: none;
+}
+.discovery-page .roundtable-entry-avatar {
+  width: 28px;
+  height: 28px;
+  border-radius: 8px;
+  border: 2px solid #fff;
+}
+.discovery-page .roundtable-entry-avatar + .roundtable-entry-avatar {
+  margin-left: -8px;
+}
+.discovery-page .roundtable-entry-text {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  min-width: 0;
+  flex: 1;
+}
+.discovery-page .roundtable-entry-text strong {
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--color-ink);
+}
+.discovery-page .roundtable-entry-text span {
+  font-size: 10px;
+  line-height: 1.6;
+  color: #8e9db4;
+  overflow-wrap: anywhere;
+}
+.discovery-page .roundtable-entry .btn {
+  flex: none;
+  white-space: nowrap;
+}
+.discovery-page .roundtable-entry .btn small {
+  opacity: 0.8;
+}
+@media (max-width: 640px) {
+  .discovery-page .roundtable-entry {
+    flex-wrap: wrap;
+  }
+  .discovery-page .roundtable-entry .btn {
+    width: 100%;
+    justify-content: center;
+  }
+}

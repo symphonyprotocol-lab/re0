@@ -59,6 +59,20 @@ export const VERIFY_ENABLED = true;
 export const VERIFY_REASON_CHARS = 80;
 /** Sentences one check sends to the model at most; longer answers are checked from the start. */
 export const VERIFY_MAX_SENTENCES = 40;
+/**
+ * Ree 圆桌: one synthesis of the answers several Rees gave to one question,
+ * charged once, all to the platform -- the owners already earned their
+ * query fees answering (ree-council-proposal.md 4.3).
+ */
+export const SYNTHESIS_FEE = 30;
+/** The rollout switch for the synthesis and the explore entry that leads to it. */
+export const SYNTHESIS_ENABLED = true;
+/** Answers a synthesis needs at least. */
+export const SYNTHESIS_MIN_ANSWERS = 2;
+/** A synthesis still marked running after this long is taken to have died and may be started again. */
+export const SYNTHESIS_STALE_MS = 10 * 60 * 1000;
+/** "一起问前 3 个 Ree" on explore. */
+export const ROUNDTABLE_REES = 3;
 /** The owner's query fee range (credits per answered question). */
 export const QUERY_FEE = { min: 0, max: 10_000, default: 0 } as const;
 

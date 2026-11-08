@@ -20,10 +20,12 @@ export interface Participant {
 /**
  * The Rees a question is for (prototype chat-room.js `targets`): an explicit
  * `@name` wins and names only those; otherwise "只问这个 Ree" when it picks a
- * participant; otherwise everyone. A question with an `@` that names no
- * participant goes to nobody -- the page refuses to send it.
+ * participant; otherwise everyone. A list of ids as the scope is "一起问这
+ * 3 个" under suggestions: those participants only, none left means everyone.
+ * A question with an `@` that names no participant goes to nobody -- the
+ * page refuses to send it.
  */
-export function questionTargets<P extends Participant>(participants: readonly P[], question: string, scope: string | null = null): P[] {
+export function questionTargets<P extends Participant>(participants: readonly P[], question: string, scope: string | readonly string[] | null = null): P[] {
   if (question.includes('@')) {
     /* Longest names first, each match blanked out, so "@Alpha Refunds" does not also name "Alpha". */
     let text = question.toLocaleLowerCase();
@@ -35,6 +37,10 @@ export function questionTargets<P extends Participant>(participants: readonly P[
       text = text.split(needle).join(' ');
     }
     return participants.filter((ree) => named.has(ree.id));
+  }
+  if (Array.isArray(scope)) {
+    const some = participants.filter((ree) => scope.includes(ree.id));
+    return some.length ? some : [...participants];
   }
   const only = scope ? participants.find((ree) => ree.id === scope) : undefined;
   return only ? [only] : [...participants];

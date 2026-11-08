@@ -5,10 +5,21 @@ import { useRouter } from 'next/navigation';
 import { useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
 import { useChat } from '@ai-sdk/react';
 import { DefaultChatTransport } from 'ai';
-import { CONVERSATION_MAX_REES } from '@/lib/constants';
+import { CONVERSATION_MAX_REES, SYNTHESIS_ENABLED, SYNTHESIS_MIN_ANSWERS } from '@/lib/constants';
 import type { CitationSnapshot, SentenceCheck } from '@/lib/domain/answer';
-import { repliesOf, suggestionsOf, type InsufficientCreditsBody, type ReeReply, type ReeUIMessage, type SuggestedRee } from '@/lib/domain/chat-message';
-import { ApiError, conversationApi, takePending } from '@/lib/client/conversations';
+import {
+  repliesOf,
+  requestIdOf,
+  suggestionsOf,
+  SYNTHESIS_PART_ID,
+  synthesisOf,
+  type InsufficientCreditsBody,
+  type ReeReply,
+  type ReeUIMessage,
+  type SuggestedRee,
+  type SynthesisPart,
+} from '@/lib/domain/chat-message';
+import { ApiError, conversationApi, streamSynthesis, takePending } from '@/lib/client/conversations';
 import { useI18n } from '@/i18n/client';
 import { fill, formatNumber } from '@/i18n/format';
 import { AnswerText, Avatar, CheckDrawer, CheckLine, CitationChips, CitationDrawer, Feedback, I, Typing, useNavigationHeight } from '@/components/chat/message-parts';
@@ -17,6 +28,7 @@ import { Modal } from '@/components/ui/modal';
 import { useToast } from '@/components/ui/toast';
 import { RoleBadge } from '@/components/discover/role-badge';
 import { Composer, type ComposerHandle } from '@/components/conversations/composer';
+import { SynthesisBubble, SynthesisButton } from '@/components/conversations/synthesis';
 import { useCurrentConversation } from '@/components/conversations/sidebar-history';
 import type { Member } from '@/components/conversations/participant-picker';
 
@@ -27,6 +39,15 @@ function textOf(message: ReeUIMessage): string {
   return message.parts.map((part) => (part.type === 'text' ? part.text : '')).join('');
 }
 
+/** Answers a synthesis can draw on: given, finished and stored. */
+function answered(replies: readonly ReeReply[]): ReeReply[] {
+  return replies.filter((reply) => reply.outcome && !reply.outcome.noAnswer && !reply.outcome.failed && reply.outcome.messageId && reply.text.trim());
+}
+
+function asMember(ree: SuggestedRee): Member {
+  return { ...ree, ownerId: '', ownerName: '', queryFee: ree.price, isPublic: true, sampleQuestions: [], usable: true, role: ree.role as Member['role'] };
+}
+
 /**
  * `/chats/[id]` (prototype chat-room.js, app.js `messageHTML`): a quiet
  * reading column filling the window under the top bar, the composer docked
@@ -34,7 +55,8 @@ function textOf(message: ReeUIMessage): string {
  * Ree with nothing relevant is one grey line, and when nobody could answer,
  * the public Rees that might know are offered one click away under it.
  * Citations open the drawer from their snapshots; answers can be voted on
- * and copied.
+ * and copied. A question two or more Rees answered can be synthesized once
+ * (Ree 圆桌), and the suggested Rees can be asked all together.
  */
 export function ChatRoom({
   conversation,
@@ -51,6 +73,7 @@ export function ChatRoom({
 }) {
   const { t, locale } = useI18n();
   const r = t.conversations.room;
+  const rt = t.conversations.roundtable;
   const router = useRouter();
   const toast = useToast();
   const [members, setMembers] = useState(initialMembers);
@@ -61,11 +84,13 @@ export function ChatRoom({
   const [citation, setCitation] = useState<{ entry: CitationSnapshot; ree: Member | null } | null>(null);
   const [insufficient, setInsufficient] = useState<InsufficientCreditsBody | null>(null);
   const [votes, setVotes] = useState<Record<string, 'up' | 'down' | null>>({});
+  /* The question whose synthesis is being written, if any. */
+  const [synthesizing, setSynthesizing] = useState<string | null>(null);
   const composer = useRef<ComposerHandle>(null);
   const endRef = useRef<HTMLDivElement>(null);
   const page = useRef<HTMLElement>(null);
   useNavigationHeight(page);
-  const pending = useRef<{ question: string; scope: string | null; verify: boolean }>({ question: '', scope: null, verify: false });
+  const pending = useRef<{ question: string; scope: string | readonly string[] | null; verify: boolean }>({ question: '', scope: null, verify: false });
   const sentPending = useRef(false);
 
   useEffect(() => setMembers(initialMembers), [initialMembers]);
@@ -111,7 +136,7 @@ export function ChatRoom({
   });
   const busy = status === 'submitted' || status === 'streaming';
 
-  const ask = (question: string, chosenScope = scope, checking = verify) => {
+  const ask = (question: string, chosenScope: string | readonly string[] | null = scope, checking = verify) => {
     pending.current = { question, scope: chosenScope, verify: checking };
     void sendMessage({ text: question });
   };
@@ -151,14 +176,67 @@ export function ChatRoom({
     if (members.length >= CONVERSATION_MAX_REES) return toast(r.full);
     try {
       await conversationApi.addRee(conversation.id, ree.id);
-      setMembers((current) => [
-        ...current,
-        { ...ree, ownerId: '', ownerName: '', queryFee: ree.price, isPublic: true, sampleQuestions: [], usable: true, role: ree.role as Member['role'] },
-      ]);
+      setMembers((current) => [...current, asMember(ree)]);
       toast(r.suggestionAdded);
       router.refresh();
     } catch (error) {
       toast(error instanceof ApiError && error.code === 'too_many_rees' ? r.full : t.common.errors.generic);
+    }
+  };
+
+  /** "一起问这 3 个": the suggested Rees that fit join, and the question goes to them alone. */
+  const askTogether = async (rees: SuggestedRee[], question: string) => {
+    if (busy || synthesizing) return toast(r.waitBusy);
+    const adding = rees.slice(0, Math.max(0, CONVERSATION_MAX_REES - members.length));
+    if (!adding.length || !question) return toast(r.full);
+    try {
+      await conversationApi.setRees(conversation.id, [...members.map((member) => member.id), ...adding.map((ree) => ree.id)]);
+      setMembers((current) => [...current, ...adding.map(asMember)]);
+      ask(question, adding.map((ree) => ree.id));
+    } catch (error) {
+      toast(error instanceof ApiError && error.code === 'too_many_rees' ? r.full : error instanceof ApiError && error.code === 'ree_unavailable' ? r.unavailable : t.common.errors.generic);
+    }
+  };
+
+  /** Puts a question's synthesis part in place, or takes it out. */
+  const putSynthesis = (messageId: string, data: SynthesisPart | null) =>
+    setMessages((current) =>
+      current.map((message) =>
+        message.id !== messageId
+          ? message
+          : { ...message, parts: [...message.parts.filter((part) => part.type !== 'data-synthesis'), ...(data ? [{ type: 'data-synthesis' as const, id: SYNTHESIS_PART_ID, data }] : [])] },
+      ),
+    );
+
+  const synthesize = async (message: ReeUIMessage) => {
+    if (busy || synthesizing) return toast(r.waitBusy);
+    const requestId = requestIdOf(message);
+    setSynthesizing(requestId);
+    try {
+      putSynthesis(message.id, await streamSynthesis(conversation.id, requestId, (part) => putSynthesis(message.id, part)));
+    } catch (error) {
+      putSynthesis(message.id, null);
+      if (error instanceof ApiError && error.status === 402) setInsufficient(error.body as unknown as InsufficientCreditsBody);
+      else if (error instanceof ApiError && error.code === 'already_synthesized') toast(rt.already);
+      else if (error instanceof ApiError && error.code === 'synthesis_running') toast(rt.running);
+      else if (error instanceof ApiError && error.code === 'not_enough_answers') toast(rt.notEnough);
+      else toast(t.common.errors.generic);
+    } finally {
+      setSynthesizing(null);
+    }
+  };
+
+  const voteSynthesis = async (part: SynthesisPart, messageId: string, value: 'up' | 'down') => {
+    if (!part.synthesisId) return;
+    const current = part.vote;
+    const next = current === value ? null : value;
+    putSynthesis(messageId, { ...part, vote: next });
+    try {
+      await conversationApi.voteSynthesis(part.synthesisId, next);
+      toast(r.feedbackSaved);
+    } catch {
+      putSynthesis(messageId, { ...part, vote: current });
+      toast(t.common.errors.generic);
     }
   };
 
@@ -219,30 +297,63 @@ export function ChatRoom({
               const suggestions = suggestionsOf(message).filter((ree) => !members.some((member) => member.id === ree.id));
               /* The public Rees that might know go under the last Ree that could not answer (prototype `.no-answer` `.flex.mt16`). */
               const lastNoAnswer = replies.map((reply) => Boolean(reply.outcome?.noAnswer)).lastIndexOf(true);
-              return replies.map((reply, at) => (
-                <Reply
-                  key={`${message.id}:${reply.reeId}`}
-                  reply={reply}
-                  ree={reeById[reply.reeId] ?? null}
-                  streaming={live && !reply.outcome}
-                  vote={reply.outcome?.messageId ? (votes[reply.outcome.messageId] !== undefined ? votes[reply.outcome.messageId]! : (reply.outcome.vote ?? null)) : null}
-                  onVote={(value, current) => reply.outcome?.messageId && vote(reply.outcome.messageId, value, current)}
-                  onCitation={(entry) => setCitation({ entry, ree: reeById[reply.reeId] ?? null })}
-                  onCheck={(check) => setChecked({ check, reply })}
-                  suggestions={
-                    at === lastNoAnswer && suggestions.length > 0 ? (
-                      <div className="p-flex mt16">
-                        {suggestions.map((ree) => (
-                          <button key={ree.id} type="button" className="btn secondary sm" title={fill(r.perAnswer, { n: n(ree.price) })} onClick={() => addSuggested(ree)} disabled={busy}>
-                            <I name="plus" />
-                            {ree.name}
-                          </button>
-                        ))}
-                      </div>
-                    ) : null
-                  }
-                />
-              ));
+              const question = messages[index - 1]?.role === 'user' ? textOf(messages[index - 1]!) : '';
+              const synthesis = synthesisOf(message);
+              const answers = answered(replies);
+              const canSynthesize = SYNTHESIS_ENABLED && !live && answers.length >= SYNTHESIS_MIN_ANSWERS && (!synthesis || synthesis.state === 'failed');
+              const room = CONVERSATION_MAX_REES - members.length;
+              const together = suggestions.slice(0, Math.max(0, room));
+              return [
+                ...replies.map((reply, at) => (
+                  <Reply
+                    key={`${message.id}:${reply.reeId}`}
+                    reply={reply}
+                    ree={reeById[reply.reeId] ?? null}
+                    streaming={live && !reply.outcome}
+                    vote={reply.outcome?.messageId ? (votes[reply.outcome.messageId] !== undefined ? votes[reply.outcome.messageId]! : (reply.outcome.vote ?? null)) : null}
+                    onVote={(value, current) => reply.outcome?.messageId && vote(reply.outcome.messageId, value, current)}
+                    onCitation={(entry) => setCitation({ entry, ree: reeById[reply.reeId] ?? null })}
+                    onCheck={(check) => setChecked({ check, reply })}
+                    suggestions={
+                      at === lastNoAnswer && suggestions.length > 0 ? (
+                        <div className="p-flex mt16">
+                          {suggestions.map((ree) => (
+                            <button key={ree.id} type="button" className="btn secondary sm" title={fill(r.perAnswer, { n: n(ree.price) })} onClick={() => addSuggested(ree)} disabled={busy}>
+                              <I name="plus" />
+                              {ree.name}
+                            </button>
+                          ))}
+                          {SYNTHESIS_ENABLED && together.length >= SYNTHESIS_MIN_ANSWERS && question && (
+                            <button
+                              type="button"
+                              className="btn sm"
+                              title={`${rt.askTogetherHint} · ${fill(r.upToShort, { n: n(together.reduce((sum, ree) => sum + ree.price, 0)) })}`}
+                              onClick={() => askTogether(together, question)}
+                              disabled={busy || Boolean(synthesizing)}
+                            >
+                              <I name="users" />
+                              {fill(rt.askTogether, { n: together.length })}
+                            </button>
+                          )}
+                        </div>
+                      ) : null
+                    }
+                  />
+                )),
+                synthesis ? (
+                  <SynthesisBubble
+                    key={`${message.id}:synthesis`}
+                    part={synthesis}
+                    directory={reeById}
+                    vote={synthesis.vote}
+                    onVote={(value) => voteSynthesis(synthesis, message.id, value)}
+                    onSource={(entry, reeId) => setCitation({ entry, ree: reeById[reeId] ?? null })}
+                  />
+                ) : null,
+                canSynthesize ? (
+                  <SynthesisButton key={`${message.id}:synthesize`} answers={answers.length} disabled={busy || Boolean(synthesizing)} onClick={() => synthesize(message)} />
+                ) : null,
+              ];
             })}
           </div>
         )}
@@ -251,7 +362,7 @@ export function ChatRoom({
       </div>
 
       <div className="room-compose-dock">
-        <Composer ref={composer} members={members} scope={scope} verify={verify} onVerify={setVerify} draft={false} busy={busy} viewerId={viewerId} onScope={setScope} onParticipants={applyParticipants} onSend={(question) => ask(question)} />
+        <Composer ref={composer} members={members} scope={scope} verify={verify} onVerify={setVerify} draft={false} busy={busy || Boolean(synthesizing)} viewerId={viewerId} onScope={setScope} onParticipants={applyParticipants} onSend={(question) => ask(question)} />
       </div>
 
       <CheckDrawer check={checked?.check ?? null} text={checked?.reply.text ?? ''} citations={checked?.reply.outcome?.citations ?? []} onClose={() => setChecked(null)} />

@@ -12,6 +12,9 @@
  * (`UNSUPPORTED`) and an uncited sentence and a closing pleasantry. A check
  * request (回答核验) gets a verdict per sentence -- and one for a sentence
  * that does not exist -- or a server error while `checks.fail` is set.
+ * A synthesis request (Ree 圆桌) gets four sections with good, grouped and
+ * bogus markers; nothing but bogus ones when the question has
+ * `SYNTH_EMPTY`; a server error while `synthesis.fail` is set.
  */
 import { createServer, type Server } from 'node:http';
 import { searchTerms } from '@/lib/domain/retrieval';
@@ -24,6 +27,8 @@ export interface FakeOpenAi {
   transcripts: Map<string, string>;
   /** `fail`: answer check requests with a server error. */
   checks: { fail: boolean };
+  /** `fail`: synthesis requests with a server error. */
+  synthesis: { fail: boolean };
   close(): Promise<void>;
 }
 
@@ -138,6 +143,7 @@ export async function startFakeOpenAi(port = 0, options: { delayMs?: number } = 
   const billing = { embeddingTokens: 1000, omitEmbeddingUsage: false };
   const transcripts = new Map<string, string>();
   const checks = { fail: false };
+  const synthesis = { fail: false };
   let transcriptionCalls = 0;
   const server: Server = createServer(async (req, res) => {
     const parts: Buffer[] = [];
@@ -172,12 +178,17 @@ export async function startFakeOpenAi(port = 0, options: { delayMs?: number } = 
       const last = body.messages?.at(-1);
       const question = typeof last?.content === 'string' ? last.content : JSON.stringify(last?.content ?? '');
       const system = JSON.stringify(body.messages?.[0]?.content ?? '');
-      if (system.includes('You check an answer against the knowledge passages') && checks.fail) {
+      const moderating = system.includes('You moderate a round table of Rees');
+      if ((system.includes('You check an answer against the knowledge passages') && checks.fail) || (moderating && synthesis.fail)) {
         res.writeHead(500, { 'content-type': 'application/json' });
         res.end(JSON.stringify({ error: { message: 'check failed', type: 'server_error' } }));
         return;
       }
-      const text = system.includes('You check an answer against the knowledge passages')
+      const text = moderating
+        ? question.includes('SYNTH_EMPTY')
+          ? '[C1] [9]'
+          : '## 结论\n- Refunds go back to the original payment method within 14 days [A1][B1].\n## 共识\n- Both name the same window [A1, B1].\n## 分歧\n- None noted [C1] [A9].\n## 没覆盖到\n- Store credit is not covered [B] [2].'
+        : system.includes('You check an answer against the knowledge passages')
         ? JSON.stringify(checkVerdicts(typeof last?.content === 'string' ? last.content : ((last?.content ?? []) as { text?: string }[]).map((part) => part.text ?? '').join('')))
         : system.includes('Suggest three example questions')
         ? 'When are refunds issued?\nHow long does a refund take?\nWhere does the refund go?'
@@ -218,6 +229,7 @@ export async function startFakeOpenAi(port = 0, options: { delayMs?: number } = 
     requests,
     transcripts,
     checks,
+    synthesis,
     close: () => new Promise((resolve) => server.close(() => resolve())),
   };
 }

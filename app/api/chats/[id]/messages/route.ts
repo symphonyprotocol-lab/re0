@@ -1,6 +1,6 @@
 import { and, inArray } from 'drizzle-orm';
 import type { NextRequest } from 'next/server';
-import { QUESTION_MAX_CHARS } from '@/lib/constants';
+import { CONVERSATION_MAX_REES, QUESTION_MAX_CHARS } from '@/lib/constants';
 import { questionTargets } from '@/lib/domain/conversation';
 import { body, fail, json } from '@/lib/http/respond';
 import { apiUser } from '@/lib/http/session';
@@ -17,9 +17,9 @@ type Context = { params: Promise<{ id: string }> };
 /**
  * One question, answered as a UI message stream (`useChat` on the client),
  * every asked Ree in its own text part tagged with its id
- * (rebuild-proposal.md 3). `{question, scope}`: `scope` is "只问这个 Ree";
- * an `@name` in the question overrides it, and an `@` that names no
- * participant is refused. The single-Ree test conversation of
+ * (rebuild-proposal.md 3). `{question, scope}`: `scope` is "只问这个 Ree"
+ * (one id) or "一起问这 3 个" (a list); an `@name` in the question
+ * overrides it, and an `@` that names no participant is refused. The single-Ree test conversation of
  * `/rees/[id]/chat` uses the same route with its one Ree. `verify` is
  * "核对引用" for this question; left out, it is on in the test conversation
  * and off elsewhere.
@@ -42,7 +42,8 @@ export async function POST(request: NextRequest, context: Context) {
 
   const participants = (await participantsOf(db(), conversation.id, user.id)).filter((ree) => ree.usable);
   if (participants.length === 0) return fail('no_participants', 422);
-  const chosen = questionTargets(participants, question, typeof input.scope === 'string' ? input.scope : null);
+  const scope = typeof input.scope === 'string' ? input.scope : Array.isArray(input.scope) ? input.scope.filter((id): id is string => typeof id === 'string').slice(0, CONVERSATION_MAX_REES) : null;
+  const chosen = questionTargets(participants, question, scope);
   if (chosen.length === 0) return fail('unknown_mention', 422);
   const rows = await db()
     .select()

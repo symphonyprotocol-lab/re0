@@ -10,6 +10,7 @@
  */
 import type { UIMessage } from 'ai';
 import type { CitationSnapshot, SentenceCheck } from '@/lib/domain/answer';
+import type { SynthesisSource } from '@/lib/domain/synthesis';
 
 export interface ReeOutcome {
   reeId: string;
@@ -63,7 +64,27 @@ export interface ReeCheck {
   cost: number;
 }
 
-export type ReeUIMessage = UIMessage<never, { outcome: ReeOutcome; ree: ReeStart; suggestions: Suggestions; check: ReeCheck }>;
+/**
+ * Ree 圆桌 under a question (ree-council-proposal.md 4): `streaming` while it
+ * is written (the raw text so far), then `done` with the markers checked
+ * and mapped to `sources`, or `failed` (nothing was charged). One per
+ * question, id `synthesis`.
+ */
+export interface SynthesisPart {
+  synthesisId: string | null;
+  requestId: string;
+  state: 'streaming' | 'done' | 'failed';
+  content: string;
+  /** The Rees lettered A, B, C in this order. */
+  reeIds: string[];
+  sources: SynthesisSource[];
+  cost: number;
+  vote: 'up' | 'down' | null;
+}
+
+export const SYNTHESIS_PART_ID = 'synthesis';
+
+export type ReeUIMessage = UIMessage<never, { outcome: ReeOutcome; ree: ReeStart; suggestions: Suggestions; check: ReeCheck; synthesis: SynthesisPart }>;
 
 /** The tag on a Ree's text part (`providerMetadata.re0.reeId`). */
 export const TEXT_META_KEY = 're0';
@@ -106,6 +127,16 @@ export function repliesOf(message: ReeUIMessage): ReeReply[] {
     }
   }
   return order.map((reeId) => replies.get(reeId)!);
+}
+
+export function synthesisOf(message: ReeUIMessage): SynthesisPart | null {
+  for (const part of message.parts) if (part.type === 'data-synthesis') return part.data;
+  return null;
+}
+
+/** The question an assistant message answers: its id without the `-replies` the stream gives it. */
+export function requestIdOf(message: Pick<ReeUIMessage, 'id'>): string {
+  return message.id.replace(/-replies$/, '');
 }
 
 export function suggestionsOf(message: ReeUIMessage): SuggestedRee[] {

@@ -26,6 +26,7 @@ import {
 import type { ReeDraft } from '@/lib/domain/ree';
 import type { SocialContact } from '@/lib/domain/account';
 import type { CitationSnapshot, Locator, SentenceCheck } from '@/lib/domain/answer';
+import type { SynthesisSource } from '@/lib/domain/synthesis';
 import type { Allocation } from '@/lib/domain/credits';
 import type { ProviderCharge, ProviderRate } from '@/lib/domain/provider-cost';
 import type { CallPurpose, CallStatus, CostBasis } from '@/lib/domain/model-calls';
@@ -417,6 +418,10 @@ export const CREDIT_ENTRY_REASONS = [
   'verify_hold',
   'verify_settle',
   'verify_refund',
+  /* Ree 圆桌: one synthesis of a question's answers, to the platform. */
+  'synthesis_hold',
+  'synthesis_settle',
+  'synthesis_refund',
 ] as const;
 export type CreditEntryReason = (typeof CREDIT_ENTRY_REASONS)[number];
 
@@ -808,6 +813,60 @@ export const reeFeedback = pgTable(
     createdAt: createdAt(),
   },
   (t) => [primaryKey({ columns: [t.messageId, t.userId] }), check('ree_feedback_vote_check', oneOf('vote', ['up', 'down']))],
+);
+
+/**
+ * Ree 圆桌 (ree-council-proposal.md 4.3): one synthesis per question, kept
+ * apart from `message` so every count of Ree answers, answer rates and
+ * income stays as it is, and so no Ree ever sees it in its history.
+ * `request_id` is the question; clearing the conversation removes it. A
+ * `running` row is a synthesis being written (or one that died, once it is
+ * older than SYNTHESIS_STALE_MS); a failed one is deleted.
+ */
+export const synthesis = pgTable(
+  'synthesis',
+  {
+    id: uuid('id').primaryKey().defaultRandom(),
+    conversationId: uuid('conversation_id')
+      .notNull()
+      .references(() => conversation.id, { onDelete: 'cascade' }),
+    requestId: uuid('request_id')
+      .notNull()
+      .references(() => message.id, { onDelete: 'cascade' }),
+    userId: uuid('user_id')
+      .notNull()
+      .references(() => user.id),
+    status: text('status').$type<'running' | 'done'>().notNull().default('running'),
+    content: text('content').notNull().default(''),
+    /** The Rees whose answers went in, lettered A, B, C in this order. */
+    reeIds: jsonb('ree_ids').$type<string[]>().notNull().default([]),
+    /** The kept markers, mapped back to the answers and citation snapshots. */
+    sources: jsonb('sources').$type<SynthesisSource[]>().notNull().default([]),
+    costCredits: integer('cost_credits').notNull().default(0),
+    model: text('model'),
+    createdAt: createdAt(),
+  },
+  (t) => [
+    uniqueIndex('synthesis_request_key').on(t.requestId),
+    index('synthesis_conversation_idx').on(t.conversationId),
+    check('synthesis_status_check', oneOf('status', ['running', 'done'])),
+  ],
+);
+
+/** "有用 / 没用" on a synthesis; never counted toward any Ree's rating. */
+export const synthesisFeedback = pgTable(
+  'synthesis_feedback',
+  {
+    synthesisId: uuid('synthesis_id')
+      .notNull()
+      .references(() => synthesis.id, { onDelete: 'cascade' }),
+    userId: uuid('user_id')
+      .notNull()
+      .references(() => user.id, { onDelete: 'cascade' }),
+    vote: text('vote').$type<'up' | 'down'>().notNull(),
+    createdAt: createdAt(),
+  },
+  (t) => [primaryKey({ columns: [t.synthesisId, t.userId] }), check('synthesis_feedback_vote_check', oneOf('vote', ['up', 'down']))],
 );
 
 /**

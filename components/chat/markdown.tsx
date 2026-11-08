@@ -12,7 +12,12 @@ interface Context {
   citation: (index: number, key: string) => ReactNode;
   marks: readonly TextMark[];
   mark?: (index: number, children: ReactNode, key: string) => ReactNode;
+  /** A synthesis's `[A2]` / `[A]` markers; without it they stay text. */
+  source?: (marker: string, key: string) => ReactNode;
 }
+
+const TOKENS = /(\*\*[^*]+\*\*|`[^`]+`|\*[^*\s][^*]*\*|\[\d{1,2}\])/g;
+const TOKENS_WITH_SOURCES = /(\*\*[^*]+\*\*|`[^`]+`|\*[^*\s][^*]*\*|\[\d{1,2}\]|\[[A-E]\d{0,2}\])/g;
 
 /** Plain text at `base` in the source, the parts inside a mark handed to `mark`. */
 function marked(text: string, base: number, context: Context, key: string): ReactNode[] {
@@ -40,7 +45,7 @@ function marked(text: string, base: number, context: Context, key: string): Reac
  */
 function inline(text: string, base: number, context: Context, prefix: string): ReactNode[] {
   const nodes: ReactNode[] = [];
-  const pattern = /(\*\*[^*]+\*\*|`[^`]+`|\*[^*\s][^*]*\*|\[\d{1,2}\])/g;
+  const pattern = context.source ? TOKENS_WITH_SOURCES : TOKENS;
   let last = 0;
   let index = 0;
   for (const match of text.matchAll(pattern)) {
@@ -50,7 +55,8 @@ function inline(text: string, base: number, context: Context, prefix: string): R
     const key = `${prefix}-${index++}`;
     if (token.startsWith('**')) nodes.push(<strong key={key}>{marked(token.slice(2, -2), base + at + 2, context, key)}</strong>);
     else if (token.startsWith('`')) nodes.push(<code key={key} className="rounded bg-wash px-1 font-mono text-[12px]">{token.slice(1, -1)}</code>);
-    else if (token.startsWith('[')) nodes.push(context.citation(Number(token.slice(1, -1)), key));
+    else if (/^\[\d/.test(token)) nodes.push(context.citation(Number(token.slice(1, -1)), key));
+    else if (token.startsWith('[')) nodes.push(context.source!(token.slice(1, -1), key));
     else nodes.push(<em key={key}>{marked(token.slice(1, -1), base + at + 1, context, key)}</em>);
     last = at + token.length;
   }
@@ -63,15 +69,17 @@ export function Markdown({
   citation,
   marks = [],
   mark,
+  source,
   className = 'flex flex-col gap-3',
 }: {
   text: string;
   citation: (index: number, key: string) => ReactNode;
   marks?: readonly TextMark[];
   mark?: (index: number, children: ReactNode, key: string) => ReactNode;
+  source?: (marker: string, key: string) => ReactNode;
   className?: string;
 }) {
-  const context: Context = { citation, marks, mark };
+  const context: Context = { citation, marks, mark, source };
   const blocks: ReactNode[] = [];
   const lines = text.replace(/\r\n?/g, '\n').split('\n');
   /* Where each line starts in the source, so marks find their text. */

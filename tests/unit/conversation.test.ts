@@ -49,6 +49,10 @@ describe('who a question goes to', () => {
   });
   it('"只问这个 Ree" picks one without removing the others', () => {
     expect(questionTargets(rees, '问题', 'b').map((ree) => ree.id)).toEqual(['b']);
+    /* "一起问这 3 个": a list picks those participants; ids no longer here fall away, and none left means everyone. */
+    expect(questionTargets(rees, '问题', ['c', 'a', 'gone']).map((ree) => ree.id)).toEqual(['a', 'c']);
+    expect(questionTargets(rees, '问题', ['gone']).map((ree) => ree.id)).toEqual(['a', 'b', 'c']);
+    expect(questionTargets(rees, '@伙伴1 问题', ['a']).map((ree) => ree.id)).toEqual(['b']);
     expect(rees).toHaveLength(3);
   });
   it('an explicit @ wins over the scope, and several can be named', () => {
