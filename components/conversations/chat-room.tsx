@@ -213,7 +213,10 @@ export function ChatRoom({
     const requestId = requestIdOf(message);
     setSynthesizing(requestId);
     try {
-      putSynthesis(message.id, await streamSynthesis(conversation.id, requestId, (part) => putSynthesis(message.id, part)));
+      const final = await streamSynthesis(conversation.id, requestId, (part) => putSynthesis(message.id, part));
+      putSynthesis(message.id, final);
+      /* The balance in the sidebar moved. */
+      if (final.state === 'done') router.refresh();
     } catch (error) {
       putSynthesis(message.id, null);
       if (error instanceof ApiError && error.status === 402) setInsufficient(error.body as unknown as InsufficientCreditsBody);

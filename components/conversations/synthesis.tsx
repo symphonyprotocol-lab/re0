@@ -25,12 +25,20 @@ export function SynthesisButton({ answers, disabled, onClick }: { answers: numbe
   );
 }
 
-/** The marker's text when shown: the Ree's name, and the citation number when it names one. */
-function markerLabel(marker: string, reeIds: readonly string[], directory: ReeDirectory, removed: string): { reeId: string | null; name: string; index: number | null } {
+/**
+ * The marker's text when shown: the Ree's name and the citation number --
+ * "设计系统顾问 2". Two Rees of the same name keep their letters apart:
+ * "设计系统顾问 A2", "设计系统顾问 B".
+ */
+function markerLabel(marker: string, reeIds: readonly string[], directory: ReeDirectory, removed: string): { name: string; index: number | null; text: string } {
   const label = marker[0]!;
-  const reeId = reeIds[SYNTHESIS_LABELS.indexOf(label as (typeof SYNTHESIS_LABELS)[number])] ?? null;
+  const nameOf = (id: string | undefined) => (id && directory[id]?.name) || removed;
+  const reeId = reeIds[SYNTHESIS_LABELS.indexOf(label as (typeof SYNTHESIS_LABELS)[number])];
+  const name = nameOf(reeId);
   const index = marker.length > 1 ? Number(marker.slice(1)) : null;
-  return { reeId, name: (reeId && directory[reeId]?.name) || removed, index };
+  const shared = reeIds.filter((id) => nameOf(id) === name).length > 1;
+  const tail = `${shared ? label : ''}${index ?? ''}`;
+  return { name, index, text: tail ? `${name} ${tail}` : name };
 }
 
 /**
@@ -58,14 +66,12 @@ export function SynthesisBubble({
   const streaming = part.state === 'streaming';
   /* Copied, a marker reads as the Ree's name: "[产品手册 Ree 2]". */
   const copyText = part.content.replace(/\[([A-E])(\d{1,2})?\]/g, (marker) => {
-    const { name, index } = markerLabel(marker.slice(1, -1), part.reeIds, directory, t.conversations.room.removedRee);
-    return `[${index === null ? name : `${name} ${index}`}]`;
+    return `[${markerLabel(marker.slice(1, -1), part.reeIds, directory, t.conversations.room.removedRee).text}]`;
   });
 
   const source = (marker: string, key: string) => {
-    const { name, index } = markerLabel(marker, part.reeIds, directory, t.conversations.room.removedRee);
+    const { name, text } = markerLabel(marker, part.reeIds, directory, t.conversations.room.removedRee);
     const kept = bySource.get(marker);
-    const text = index === null ? name : `${name} ${index}`;
     if (kept?.citation) {
       const citation = kept.citation;
       return (
