@@ -340,6 +340,28 @@ export const message = pgTable(
   ],
 );
 
+/**
+ * 回答核验 tallies, one per completed check: what the owner's statistics
+ * count. Kept apart from the reply so that clearing a test conversation,
+ * which deletes its messages, leaves the figures as the answer counts are.
+ */
+export const answerCheck = pgTable(
+  'answer_check',
+  {
+    id: uuid('id').primaryKey().defaultRandom(),
+    reeId: uuid('ree_id')
+      .notNull()
+      .references(() => ree.id, { onDelete: 'cascade' }),
+    messageId: uuid('message_id').references(() => message.id, { onDelete: 'set null' }),
+    cited: integer('cited').notNull().default(0),
+    unsupported: integer('unsupported').notNull().default(0),
+    partial: integer('partial').notNull().default(0),
+    uncited: integer('uncited').notNull().default(0),
+    createdAt: createdAt(),
+  },
+  (t) => [index('answer_check_ree_idx').on(t.reeId, t.createdAt)],
+);
+
 export const creditGrant = pgTable(
   'credit_grant',
   {

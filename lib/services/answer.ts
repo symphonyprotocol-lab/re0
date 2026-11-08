@@ -33,11 +33,13 @@ import { NO_ANSWER_SUGGESTIONS, QUERY_BASE_FEE, VERIFY_ENABLED, VERIFY_FEE, VERI
 import {
   checkInstructions,
   checkPrompt,
+  checkSummary,
   checkResults,
   citationSnapshots,
   instructionsFor,
   questionWithPassages,
   reasonLanguage,
+  isNoAnswer,
   sentinelState,
   splitSentences,
   type Passage,
@@ -232,6 +234,8 @@ export async function answer(input: {
       const cost = await database.transaction(async (tx) => {
         const charged = (await settleHold(tx, holdId, VERIFY_FEE, { reeId: ree.id, note: ree.name, ledger: 'chat_verify' }))?.charged ?? 0;
         await tx.update(schema.message).set({ checks, checkState: 'done', checkCredits: charged }).where(eq(schema.message.id, replyId));
+        const { cited, unsupported, partial, uncited } = checkSummary(checks);
+        await tx.insert(schema.answerCheck).values({ reeId: ree.id, messageId: replyId, cited, unsupported, partial, uncited });
         return charged;
       });
       part({ state: 'done', checks, cost });
@@ -304,7 +308,7 @@ export async function answer(input: {
         () => undefined,
       );
 
-      if (decided === true || streamed.trim().length === 0) {
+      if (decided === true || isNoAnswer(streamed)) {
         write({ type: 'data-outcome', id: `outcome-${ree.id}`, data: { ...(await unanswered(ree, 'out_of_scope', entry)), model } });
         return false;
       }

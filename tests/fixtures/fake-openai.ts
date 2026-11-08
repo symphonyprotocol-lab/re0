@@ -185,6 +185,8 @@ export async function startFakeOpenAi(port = 0, options: { delayMs?: number } = 
           ? JSON.stringify(demoStoryboard(question, system))
         : system.includes('continuous 15-second English')
           ? JSON.stringify(storyboard(system))
+          : question.includes('LATE REFUSAL')
+          ? 'These passages do not cover that question. [[NO_ANSWER]]'
           : question.includes('DECLINE')
           ? '[[NO_ANSWER]]'
           : question.includes('MIXED')

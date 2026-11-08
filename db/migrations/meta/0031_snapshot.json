@@ -1,5 +1,5 @@
 {
-  "id": "96279e4f-a098-4c05-b131-d9cceb119a98",
+  "id": "44481bf3-7cff-4db5-93c8-1774a848d430",
   "prevId": "34662c43-ba0e-411b-96ac-31d4643a6dbc",
   "version": "7",
   "dialect": "postgresql",
@@ -261,6 +261,122 @@
           "value": "role in ('owner', 'administrator')"
         }
       },
+      "isRLSEnabled": false
+    },
+    "public.answer_check": {
+      "name": "answer_check",
+      "schema": "",
+      "columns": {
+        "id": {
+          "name": "id",
+          "type": "uuid",
+          "primaryKey": true,
+          "notNull": true,
+          "default": "gen_random_uuid()"
+        },
+        "ree_id": {
+          "name": "ree_id",
+          "type": "uuid",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "message_id": {
+          "name": "message_id",
+          "type": "uuid",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "cited": {
+          "name": "cited",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": true,
+          "default": 0
+        },
+        "unsupported": {
+          "name": "unsupported",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": true,
+          "default": 0
+        },
+        "partial": {
+          "name": "partial",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": true,
+          "default": 0
+        },
+        "uncited": {
+          "name": "uncited",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": true,
+          "default": 0
+        },
+        "created_at": {
+          "name": "created_at",
+          "type": "timestamp with time zone",
+          "primaryKey": false,
+          "notNull": true,
+          "default": "now()"
+        }
+      },
+      "indexes": {
+        "answer_check_ree_idx": {
+          "name": "answer_check_ree_idx",
+          "columns": [
+            {
+              "expression": "ree_id",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            },
+            {
+              "expression": "created_at",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            }
+          ],
+          "isUnique": false,
+          "concurrently": false,
+          "method": "btree",
+          "with": {}
+        }
+      },
+      "foreignKeys": {
+        "answer_check_ree_id_ree_id_fk": {
+          "name": "answer_check_ree_id_ree_id_fk",
+          "tableFrom": "answer_check",
+          "tableTo": "ree",
+          "columnsFrom": [
+            "ree_id"
+          ],
+          "columnsTo": [
+            "id"
+          ],
+          "onDelete": "cascade",
+          "onUpdate": "no action"
+        },
+        "answer_check_message_id_message_id_fk": {
+          "name": "answer_check_message_id_message_id_fk",
+          "tableFrom": "answer_check",
+          "tableTo": "message",
+          "columnsFrom": [
+            "message_id"
+          ],
+          "columnsTo": [
+            "id"
+          ],
+          "onDelete": "set null",
+          "onUpdate": "no action"
+        }
+      },
+      "compositePrimaryKeys": {},
+      "uniqueConstraints": {},
+      "policies": {},
+      "checkConstraints": {},
       "isRLSEnabled": false
     },
     "public.billing_event": {

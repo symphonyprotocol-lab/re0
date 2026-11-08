@@ -108,6 +108,15 @@ export function sentinelState(prefix: string): boolean | null {
   return NO_ANSWER_SENTINEL.startsWith(trimmed) ? null : false;
 }
 
+/**
+ * Whether a finished reply is the no-answer case. The sentinel is meant to
+ * stand alone, but a model sometimes writes a refusal first and ends it with
+ * the sentinel; that is no answer too, whatever came before it.
+ */
+export function isNoAnswer(text: string): boolean {
+  return text.trim().length === 0 || text.includes(NO_ANSWER_SENTINEL);
+}
+
 /** Passage numbers the answer actually cites, in first-seen order. */
 export function citedIndexes(text: string, count: number): number[] {
   const seen: number[] = [];

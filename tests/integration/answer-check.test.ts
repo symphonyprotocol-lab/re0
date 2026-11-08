@@ -128,6 +128,10 @@ describeWithDb('answer checks (回答核验)', () => {
     const part = ui[1]!.parts.find((entry) => entry.type === 'data-check');
     expect(part).toMatchObject({ data: { state: 'done', cost: VERIFY_FEE, checks: done.checks } });
     expect(await checkFigures(ree.id, null)).toEqual({ answers: 1, cited: 1, unsupported: 0, partial: 0, uncited: 0 });
+
+    /* Clearing the test conversation deletes the reply, not what its check counted. */
+    await chat.clearConversation(conversation.id);
+    expect(await checkFigures(ree.id, null)).toEqual({ answers: 1, cited: 1, unsupported: 0, partial: 0, uncited: 0 });
   });
 
   it('flags unsupported and uncited sentences, leaves out pleasantries and drops verdicts for sentences never asked about', async () => {
@@ -157,6 +161,23 @@ describeWithDb('answer checks (回答核验)', () => {
       ['query_refund', QUERY_BASE_FEE],
       ['verify_refund', VERIFY_FEE],
     ]);
+  });
+
+  it('treats a refusal that ends with the sentinel as no answer and checks nothing', async () => {
+    const { userId, ree, conversation } = await testChat();
+    const before = await balanceOf(db(), userId);
+    const result = await read(await answer({ userId, lang: 'en', conversation, targets: [ree], question: `${QUESTION} LATE REFUSAL`, verify: true }));
+    expect(result.outcomes[0]).toMatchObject({ noAnswer: true, cost: 0 });
+    expect(result.checks).toEqual([]);
+    expect(await balanceOf(db(), userId)).toBe(before);
+    expect(await ledger(userId)).toEqual([
+      ['query_hold', -QUERY_BASE_FEE],
+      ['verify_hold', -VERIFY_FEE],
+      ['query_refund', QUERY_BASE_FEE],
+      ['verify_refund', VERIFY_FEE],
+    ]);
+    const [reply] = await db().select().from(schema.message).where(and(eq(schema.message.conversationId, conversation.id), eq(schema.message.role, 'ree')));
+    expect(reply).toMatchObject({ noAnswer: true, content: '', checkState: null });
   });
 
   it('keeps the answer and refunds the check when the check fails', async () => {

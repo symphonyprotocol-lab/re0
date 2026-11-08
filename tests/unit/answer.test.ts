@@ -6,6 +6,7 @@ import {
   checkSummary,
   citationSnapshots,
   citedIndexes,
+  isNoAnswer,
   locatorLabel,
   questionWithPassages,
   reasonLanguage,
@@ -50,6 +51,13 @@ describe('answers', () => {
     expect(sentinelState('[[NO_')).toBeNull();
     expect(sentinelState('  [[NO_ANSWER]]')).toBe(true);
     expect(sentinelState('Refunds')).toBe(false);
+  });
+
+  it('reads a finished reply that ends with the sentinel as no answer', () => {
+    expect(isNoAnswer('[[NO_ANSWER]]')).toBe(true);
+    expect(isNoAnswer('These passages do not cover that. [[NO_ANSWER]]')).toBe(true);
+    expect(isNoAnswer('  \n')).toBe(true);
+    expect(isNoAnswer('Refunds take 14 days [1].')).toBe(false);
   });
 
   it('snapshots the cited passages under the numbers the text uses', () => {

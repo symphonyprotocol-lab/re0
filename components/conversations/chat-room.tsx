@@ -341,7 +341,7 @@ function Reply({
       </div>
       <AnswerText text={reply.text} citations={citations} failed={outcome?.failed} onCitation={onCitation} checks={reply.check?.checks} onCheck={onCheck} />
       <CitationChips citations={citations} onCitation={onCitation} />
-      <CheckLine check={reply.check} cost={reply.check?.cost ? fill(t.chat.check.cost, { credits: formatNumber(reply.check.cost, locale) }) : undefined} />
+      <CheckLine check={reply.check} text={reply.text} cost={reply.check?.cost ? fill(t.chat.check.cost, { credits: formatNumber(reply.check.cost, locale) }) : undefined} />
       {outcome && !outcome.failed && outcome.messageId && (
         <Feedback text={reply.text} vote={vote} onVote={(value) => onVote(value, vote)} cost={fill(t.chat.cost, { credits: formatNumber(outcome.cost, locale) })} />
       )}

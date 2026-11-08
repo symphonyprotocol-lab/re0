@@ -281,7 +281,7 @@ export function ReeChat({
                     {head(c.answerHead)}
                     <AnswerText text={text} citations={citations} failed={outcome?.failed} onCitation={setCitation} checks={checkOf(message)?.checks} onCheck={(check) => setChecked({ check, text, citations })} />
                     <CitationChips citations={citations} onCitation={setCitation} />
-                    <CheckLine check={checkOf(message)} cost={checkOf(message)?.cost ? fill(c.check.cost, { credits: n(checkOf(message)!.cost) }) : undefined} />
+                    <CheckLine check={checkOf(message)} text={text} cost={checkOf(message)?.cost ? fill(c.check.cost, { credits: n(checkOf(message)!.cost) }) : undefined} />
                     {outcome && !outcome.failed && (
                       <Feedback
                         text={text}

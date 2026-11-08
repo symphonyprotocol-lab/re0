@@ -2,7 +2,8 @@
 
 import { WorkspaceLink as Link } from '@/components/shell/workspace-link';
 import { useEffect, type ReactNode, type RefObject } from 'react';
-import { checkSummary, locatorLabel, type CitationSnapshot, type SentenceCheck } from '@/lib/domain/answer';
+import { VERIFY_MAX_SENTENCES } from '@/lib/constants';
+import { checkSummary, locatorLabel, splitSentences, type CitationSnapshot, type SentenceCheck } from '@/lib/domain/answer';
 import type { ReeCheck } from '@/lib/domain/chat-message';
 import { useI18n } from '@/i18n/client';
 import { fill, formatNumber } from '@/i18n/format';
@@ -129,7 +130,8 @@ export function AnswerText({
  * The line under a checked answer: "5 句有引用：4 句有依据 · 1 句依据不足 ·
  * 另有 1 句未引用", or that the check is running, failed or found nothing.
  */
-export function CheckLine({ check, cost }: { check: ReeCheck | null; cost?: string }) {
+/** The check's one line under an answer; `text` is the answer, for saying when only its first sentences were checked. */
+export function CheckLine({ check, text, cost }: { check: ReeCheck | null; text: string; cost?: string }) {
   const { t } = useI18n();
   const c = t.chat.check;
   if (!check) return null;
@@ -150,11 +152,14 @@ export function CheckLine({ check, cost }: { check: ReeCheck | null; cost?: stri
     );
   }
   const summary = checkSummary(check.checks);
+  /* The server checks the first VERIFY_MAX_SENTENCES sentences as split here; past them, say so. */
+  const limited = splitSentences(text, Number.MAX_SAFE_INTEGER).length > VERIFY_MAX_SENTENCES ? ` ${fill(c.limited, { n: VERIFY_MAX_SENTENCES })}` : '';
   if (summary.cited === 0 && summary.uncited === 0) {
     return (
       <p className="check-line" role="status">
         <I name="shield" />
         {check.cost > 0 ? c.none : c.noneRefunded}
+        {limited}
       </p>
     );
   }
@@ -175,6 +180,7 @@ export function CheckLine({ check, cost }: { check: ReeCheck | null; cost?: stri
             {part}
           </span>
         ))}
+        {limited}
       </span>
       {cost && <small>{cost}</small>}
     </p>

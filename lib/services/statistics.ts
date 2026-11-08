@@ -12,7 +12,7 @@
  *   answers times the fee;
  * - sources are the current snapshot, not a figure of the period.
  */
-import { and, desc, eq, gte, ilike, inArray, isNull, lt, or, sql, type SQL } from 'drizzle-orm';
+import { and, desc, eq, gte, ilike, inArray, isNull, lt, or, sql, type AnyColumn, type SQL } from 'drizzle-orm';
 import { LIST_PAGE_SIZES } from '@/lib/constants';
 import type { CitationSnapshot } from '@/lib/domain/answer';
 import { clampPage, likePattern, param, type ListResult } from '@/lib/domain/list';
@@ -69,7 +69,7 @@ export function statisticsQuery(params: Params, now = new Date()) {
 }
 export type StatisticsQuery = ReturnType<typeof statisticsQuery>;
 
-function within(column: typeof schema.creditEntry.createdAt | typeof schema.message.createdAt, range: Range | null): SQL[] {
+function within(column: typeof schema.creditEntry.createdAt | typeof schema.message.createdAt | typeof schema.answerCheck.createdAt, range: Range | null): SQL[] {
   return range ? [gte(column, new Date(range.start)), lt(column, new Date(range.end))] : [];
 }
 
@@ -220,19 +220,23 @@ export interface CheckFigures {
   uncited: number;
 }
 
-/** What the checks of this Ree's answers in the period found, from the checks kept on the answers. */
+/**
+ * What the checks of this Ree's answers in the period found, from the
+ * tallies kept per check: clearing a test conversation does not take them
+ * back, as it does not take back the answers counted.
+ */
 export async function checkFigures(reeId: string, range: Range | null): Promise<CheckFigures> {
-  const count = (where: SQL) => sql<number>`coalesce(sum((select count(*) from jsonb_array_elements(${schema.message.checks}) as c where ${where})), 0)::int`;
+  const sum = (column: AnyColumn) => sql<number>`coalesce(sum(${column}), 0)::int`;
   const [row] = await db()
     .select({
       answers: sql<number>`count(*)::int`,
-      cited: count(sql`c->>'status' <> 'uncited'`),
-      unsupported: count(sql`c->>'status' = 'unsupported'`),
-      partial: count(sql`c->>'status' = 'partial'`),
-      uncited: count(sql`c->>'status' = 'uncited'`),
+      cited: sum(schema.answerCheck.cited),
+      unsupported: sum(schema.answerCheck.unsupported),
+      partial: sum(schema.answerCheck.partial),
+      uncited: sum(schema.answerCheck.uncited),
     })
-    .from(schema.message)
-    .where(and(eq(schema.message.role, 'ree'), eq(schema.message.reeId, reeId), eq(schema.message.checkState, 'done'), ...within(schema.message.createdAt, range)));
+    .from(schema.answerCheck)
+    .where(and(eq(schema.answerCheck.reeId, reeId), ...within(schema.answerCheck.createdAt, range)));
   return { answers: row?.answers ?? 0, cited: row?.cited ?? 0, unsupported: row?.unsupported ?? 0, partial: row?.partial ?? 0, uncited: row?.uncited ?? 0 };
 }
 

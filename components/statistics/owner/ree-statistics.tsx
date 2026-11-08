@@ -176,28 +176,15 @@ function Metric({ href, icon, label, value, note }: { href: string; icon: StatIc
   );
 }
 
-/**
- * 回答核验 for the same period: how many answers were checked, and how
- * often a cited sentence lacked support or a statement cited nothing --
- * where the owner's knowledge needs filling in. Shown once anything was
- * checked; never on the public page.
- */
-function CheckFigures({ t, locale, checks }: { t: Messages; locale: Locale; checks: ReeStatistics['checks'] }) {
-  const s = t.statistics.checks;
-  const n = (value: number) => formatNumber(value, locale);
-  const rate = (part: number, whole: number) => (whole > 0 ? `${Math.round((part / whole) * 100)}%` : s.noRate);
-  const sentences = checks.cited + checks.uncited;
-  const cards: { icon: IconName; label: string; value: string; note: string }[] = [
-    { icon: 'shield', label: s.answers, value: n(checks.answers), note: s.answersNote },
-    { icon: 'info', label: s.unsupported, value: rate(checks.unsupported, checks.cited), note: s.unsupportedNote },
-    { icon: 'list', label: s.partial, value: rate(checks.partial, checks.cited), note: s.partialNote },
-    { icon: 'text', label: s.uncited, value: rate(checks.uncited, sentences), note: s.uncitedNote },
-  ];
+type FigureCard = { icon: IconName; label: string; value: string; note: string };
+
+/** A titled row of plain figure cards after the answers, nothing to open: the checks and the share page. */
+function FigureCards({ title, lede, cards }: { title: string; lede: string; cards: FigureCard[] }) {
   return (
-    <section className="share-figures" aria-label={s.title} style={{ marginTop: 25 }}>
+    <section className="share-figures" aria-label={title} style={{ marginTop: 25 }}>
       <div className="statistics-trend-head" style={{ marginBottom: 12 }}>
-        <h2 style={{ fontSize: 13, fontWeight: 600 }}>{s.title}</h2>
-        <p>{s.lede}</p>
+        <h2 style={{ fontSize: 13, fontWeight: 600 }}>{title}</h2>
+        <p>{lede}</p>
       </div>
       <div className="creator-metrics">
         {cards.map((card) => (
@@ -216,6 +203,26 @@ function CheckFigures({ t, locale, checks }: { t: Messages; locale: Locale; chec
 }
 
 /**
+ * 回答核验 for the same period: how many answers were checked, and how
+ * often a cited sentence lacked support or a statement cited nothing --
+ * where the owner's knowledge needs filling in. Shown once anything was
+ * checked; never on the public page.
+ */
+function CheckFigures({ t, locale, checks }: { t: Messages; locale: Locale; checks: ReeStatistics['checks'] }) {
+  const s = t.statistics.checks;
+  const n = (value: number) => formatNumber(value, locale);
+  const rate = (part: number, whole: number) => (whole > 0 ? `${Math.round((part / whole) * 100)}%` : s.noRate);
+  const sentences = checks.cited + checks.uncited;
+  const cards: FigureCard[] = [
+    { icon: 'shield', label: s.answers, value: n(checks.answers), note: s.answersNote },
+    { icon: 'info', label: s.unsupported, value: rate(checks.unsupported, checks.cited), note: s.unsupportedNote },
+    { icon: 'list', label: s.partial, value: rate(checks.partial, checks.cited), note: s.partialNote },
+    { icon: 'text', label: s.uncited, value: rate(checks.uncited, sentences), note: s.uncitedNote },
+  ];
+  return <FigureCards title={s.title} lede={s.lede} cards={cards} />;
+}
+
+/**
  * The share page's figures for the same period (lib/services/share.ts),
  * after the answers: plain cards, nothing to open. A Ree that was never
  * shareable and has no figures shows none.
@@ -223,32 +230,13 @@ function CheckFigures({ t, locale, checks }: { t: Messages; locale: Locale; chec
 function ShareFigures({ t, locale, share }: { t: Messages; locale: Locale; share: ReeStatistics['share'] }) {
   const s = t.share.stats;
   const n = (value: number) => formatNumber(value, locale);
-  const cards: { icon: IconName; label: string; value: string; note: string }[] = [
+  const cards: FigureCard[] = [
     { icon: 'share', label: s.visits, value: n(share.visits), note: s.visitsNote },
     { icon: 'users', label: s.visitors, value: n(share.visitors), note: s.visitorsNote },
     { icon: 'chat', label: s.conversations, value: n(share.conversations), note: s.conversationsNote },
     { icon: 'chart', label: s.rate, value: share.rate === null ? s.noRate : `${share.rate}%`, note: s.rateNote },
   ];
-  return (
-    <section className="share-figures" aria-label={s.title} style={{ marginTop: 25 }}>
-      <div className="statistics-trend-head" style={{ marginBottom: 12 }}>
-        <h2 style={{ fontSize: 13, fontWeight: 600 }}>{s.title}</h2>
-        <p>{s.lede}</p>
-      </div>
-      <div className="creator-metrics">
-        {cards.map((card) => (
-          <div key={card.label} className="card creator-metric">
-            <div className="between">
-              <span>{card.label}</span>
-              <Icon name={card.icon} className="" />
-            </div>
-            <strong className="mono">{card.value}</strong>
-            <small>{card.note}</small>
-          </div>
-        ))}
-      </div>
-    </section>
-  );
+  return <FigureCards title={s.title} lede={s.lede} cards={cards} />;
 }
 
 /**
