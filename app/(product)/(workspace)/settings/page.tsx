@@ -13,6 +13,9 @@ import { BalanceTab } from '@/components/billing/balance-tab';
 import { Connections } from '@/components/settings/connections';
 import { NoticesTab } from '@/components/settings/notices-tab';
 import { RoleTab } from '@/components/settings/role-tab';
+import { ApiKeysTab } from '@/components/settings/api-keys-tab';
+import { appBaseUrl } from '@/lib/http/cookies';
+import { listApiKeys } from '@/lib/services/api-keys';
 import '@/components/settings/settings.css';
 
 export async function generateMetadata(): Promise<Metadata> {
@@ -20,7 +23,7 @@ export async function generateMetadata(): Promise<Metadata> {
   return { title: t.settings.title };
 }
 
-const TABS = ['account', 'role', 'connections', 'balance', 'billing', 'notices'] as const;
+const TABS = ['account', 'role', 'connections', 'balance', 'billing', 'notices', 'api'] as const;
 const OUTCOMES = ['connected', 'canceled', 'failed'] as const;
 
 /**
@@ -28,7 +31,8 @@ const OUTCOMES = ['connected', 'canceled', 'failed'] as const;
  * the domain claims (step 2); balance holds credits, Plan / Pack and payouts; billing holds the
  * ledger (`activity`, reporting period, search, and pagination). `checkout` belongs to balance.
  * Role holds the verification threshold and application, notices the
- * in-app notices (step 5; `page` is the notices' parameter).
+ * in-app notices (step 5; `page` is the notices' parameter). API holds the
+ * keys for the MCP server and how to connect a client.
  */
 export default async function SettingsPage({ searchParams }: { searchParams: Promise<Record<string, string | undefined>> }) {
   const user = (await currentUser())!;
@@ -52,6 +56,7 @@ export default async function SettingsPage({ searchParams }: { searchParams: Pro
           { label: s.tabs.balance, href: '/settings?tab=balance', active: tab === 'balance', icon: 'wallet' },
           { label: s.tabs.billing, href: '/settings?tab=billing', active: tab === 'billing', icon: 'file' },
           { label: t.notices.tab, href: '/settings?tab=notices', active: tab === 'notices', icon: 'bell' },
+          { label: t.apiKeys.tab, href: '/settings?tab=api', active: tab === 'api', icon: 'key' },
         ]}
       />
       <main className="settings-page">
@@ -83,6 +88,8 @@ export default async function SettingsPage({ searchParams }: { searchParams: Pro
               <RoleTab overview={await verificationOverview(user.id)} />
             ) : tab === 'notices' ? (
               <NoticesTab {...(await noticesFor(user.id, Number(query.page) || 1))} />
+            ) : tab === 'api' ? (
+              <ApiKeysTab keys={(await listApiKeys(user.id)).map(serializeKey)} mcpUrl={`${appBaseUrl()}/api/mcp`} />
             ) : tab === 'balance' ? (
               <BalanceTab userId={user.id} query={query} />
             ) : (
@@ -103,5 +110,15 @@ async function noticesFor(userId: string, page: number) {
     page: list.page,
     size: list.size,
     unread: list.unread,
+  };
+}
+
+function serializeKey(key: Awaited<ReturnType<typeof listApiKeys>>[number]) {
+  return {
+    ...key,
+    createdAt: key.createdAt.toISOString(),
+    lastUsedAt: key.lastUsedAt?.toISOString() ?? null,
+    expiresAt: key.expiresAt?.toISOString() ?? null,
+    revokedAt: key.revokedAt?.toISOString() ?? null,
   };
 }

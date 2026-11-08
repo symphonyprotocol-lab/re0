@@ -206,3 +206,53 @@ export function AdjustCreditsButton({ id, name, email, planActive }: { id: strin
     </>
   );
 }
+
+/** 强制吊销 one of the user's API keys: a confirmation, then the audited revoke. */
+export function ApiKeyRevokeButton({ userId, userName, keyId, keyLabel }: { userId: string; userName: string; keyId: string; keyLabel: string }) {
+  const { t } = useI18n();
+  const a = t.apiKeys.admin;
+  const router = useRouter();
+  const toast = useToast();
+  const errorText = useErrorText();
+  const [open, setOpen] = useState(false);
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState('');
+  return (
+    <>
+      <button type="button" className="btn secondary sm" onClick={() => (setError(''), setOpen(true))}>
+        {a.revoke}
+      </button>
+      <ConfirmModal
+        open={open}
+        title={a.revokeTitle}
+        body={
+          <>
+            {error && (
+              <span className="form-error" role="alert">
+                {error}
+              </span>
+            )}
+            {fill(a.revokeBody, { name: userName, key: keyLabel })}
+          </>
+        }
+        confirmLabel={a.revoke}
+        danger
+        busy={busy}
+        onClose={() => setOpen(false)}
+        onConfirm={async () => {
+          setBusy(true);
+          setError('');
+          const result = await api<{ error?: string }>(`/api/admin/users/${userId}/api-keys/${keyId}`, { method: 'DELETE' });
+          setBusy(false);
+          if (!result.ok) {
+            setError(errorText(result.data.error));
+            return;
+          }
+          setOpen(false);
+          toast(a.revoked);
+          router.refresh();
+        }}
+      />
+    </>
+  );
+}

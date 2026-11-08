@@ -225,6 +225,13 @@
       "when": 1794115041928,
       "tag": "0032_ree_roundtable",
       "breakpoints": true
+    },
+    {
+      "idx": 33,
+      "version": "7",
+      "when": 1794149110765,
+      "tag": "0033_mcp_api_keys",
+      "breakpoints": true
     }
   ]
 }

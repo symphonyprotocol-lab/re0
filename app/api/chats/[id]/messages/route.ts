@@ -28,7 +28,8 @@ export async function POST(request: NextRequest, context: Context) {
   const user = await apiUser(request);
   if (user instanceof Response) return user;
   const conversation = await ownedConversation(user.id, (await context.params).id);
-  if (!conversation || conversation.deletedAt) return fail('not_found', 404);
+  /* MCP conversations are asked through `/api/mcp` only. */
+  if (!conversation || conversation.deletedAt || conversation.kind === 'mcp') return fail('not_found', 404);
   const input = await body(request);
   const question = String(input.question ?? '').trim();
   if (!question || question.length > QUESTION_MAX_CHARS) return fail('invalid_question', 422);

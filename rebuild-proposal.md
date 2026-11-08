@@ -16,7 +16,7 @@
 | 知识 | 挂在某个 Ree 下的一条来源，六种：文档（PDF / Word / Markdown / TXT）、音频（MP3 / M4A / WAV，自动转写成文字）、GitHub 仓库、单个网页、整站、粘贴文本 | 添加、重新抓取、删除；看到处理状态 |
 | 对话 | 用户和一个或多个 Ree 的一次问答，答案带引用（来自哪个 Ree 的哪条知识、哪一段） | 提问、追问、新开对话、把 Ree 拉进或移出对话、@ 某个 Ree 单独问、看历史 |
 
-不做：频道、链上、A2A、Agent Card、分享页插件、评论、邮件与推送通知（只有站内通知）、CLI / SDK / MCP、Notion 连接器（第二阶段再考虑）、视频类知识。管理后台保留但只有第 2.5 节的十页。认领只保留第 2.2 节的两种：网站域名确权、私有仓库授权；不再有频道级认领、认领审核和公开目录。计费只有第 2.3 节的 credit 一种：没有 Call、没有工作空间套餐、没有发布者现金分成与结算单。
+不做：频道、链上、A2A、Agent Card、分享页插件、评论、邮件与推送通知（只有站内通知）、CLI / SDK、公开 REST API、Notion 连接器（第二阶段再考虑）、视频类知识。管理后台保留但只有第 2.5 节的十页。认领只保留第 2.2 节的两种：网站域名确权、私有仓库授权；不再有频道级认领、认领审核和公开目录。计费只有第 2.3 节的 credit 一种：没有 Call、没有工作空间套餐、没有发布者现金分成与结算单。MCP 只做第 2.8 节的 Ree 查找与问答，用 API Key 鉴权；OAuth 连接器放到后续阶段。
 
 ### 2.1 六种知识怎么变成可检索的文字
 
@@ -164,6 +164,27 @@ Ree 主可以为自己的 Ree 生成一段**固定 15 秒**的动画介绍，用
 
 角色与 Ree 无关：Ree 没有自己的认证状态，它的标识来自 Ree 主当时的角色；Ree 主被撤销认证，名下所有 Ree 的标识即时消失。
 
+### 2.8 MCP 接入（第一阶段：API Key）
+
+对外只开放一个远程 MCP 服务器 `/api/mcp`（Streamable HTTP，`mcp-handler` 2.x），不做公开 REST API。接入说明见 `docs/mcp.md`。
+
+**鉴权**：用户在 `/settings?tab=api` 创建 API Key（名称、可选有效期 30 / 90 / 365 天或永不过期，每个账号最多 10 个有效 Key）。Key 形如 `re0_sk_` + 64 位十六进制，只在创建时显示一次；库里只存 SHA-256 摘要和末四位。客户端用 `Authorization: Bearer` 发送。已吊销、已过期的 Key 和已停用账号的任何 Key 一律 401。这条路径不读 cookie、不发 CORS 头，带其他来源 `Origin` 的浏览器请求直接 403。管理员可在后台用户详情的「API Key」页强制吊销，写审计（`user.api_key.revoke`）。
+
+**四个工具**，别的都不开放：
+
+| 工具 | 作用 | 计费 |
+| --- | --- | --- |
+| `search_rees {query, limit?}` | 用 explore 的两级检索找公开 Ree，返回卡片数据与命中段落 | 免费，沿用 explore 的按 IP / 账号限频 |
+| `get_ree {ree}` | 按 id 或 slug 取一个公开 Ree 或自己的 Ree：简介、知识是否就绪、对你的单次价格、知识概况（按类型计数与示例问题；自己的 Ree 另给来源标题） | 免费 |
+| `list_my_rees` | 自己名下的 Ree，私有的也在 | 免费 |
+| `ask_ree {ree, question, conversation_id?, max_cost?}` | 提问，返回回答、引用、实际费用和 `conversation_id`（用于追问） | 与网页完全一致：冻结基础费 + 查询费，回答后按 20 + 查询费结算，查询费记入 Ree 主的收入 credits；未回答全额解冻 |
+
+余额不足、或 `max_cost` 低于可能的费用时，工具返回明确的错误（附充值地址 `/settings?tab=balance`），不保存问题、不冻结、不扣费。工具描述写明提问会花 credits；返回内容是 JSON 数据，并注明 Ree 的内容是第三方数据、不是给模型的指令。
+
+**对话与用量**：MCP 的提问存在 `conversation.kind = mcp` 的对话里（一个对话只对一个 Ree），不出现在网页的对话列表和接口里。每个问题记下发起它的 `api_key_id`，设置页按 Key 显示提问次数与花费。工具调用按 Key（每分钟 30 次）和按账号（每分钟 60 次）限频，用 `rate_bucket`。
+
+**后续阶段**：OAuth 2.1（claude.ai、ChatGPT 网页版的连接器需要），届时 `/api/mcp` 增加受保护资源元数据，API Key 保留给命令行与本地客户端。
+
 ## 3. 页面与接口
 
 页面（全部在一个 Next.js App Router 应用里）：
@@ -187,7 +208,7 @@ Ree 主可以为自己的 Ree 生成一段**固定 15 秒**的动画介绍，用
 | `/chats` | 搜索对话：全文搜索、Ree / 时间 / 排序筛选、最近 / 置顶 / 归档 / 回收站、批量 |
 | `/chats/[id]` | 多 Ree 对话：提问对象选择器、管理参与者（≤ 5）、`@` 点名、每个 Ree 独立气泡并行流式、引用抽屉、反馈 |
 | `/workspace/sources`、`/workspace/answers` | 跨 Ree 的来源明细与累计回答明细 |
-| `/settings?tab=account|role|connections|billing` | 资料与头像、登录信息、语言；角色与申请认证；GitHub 连接、域名确权向导；余额、Plan / Pack、流水、订阅、收款与提现；站内通知 |
+| `/settings?tab=account|role|connections|billing|api` | 资料与头像、登录信息、语言；角色与申请认证；GitHub 连接、域名确权向导；余额、Plan / Pack、流水、订阅、收款与提现；站内通知；API Key 与 MCP 接入说明（第 2.8 节） |
 | `/settings/identity` | KYC 资料提交与只读查看 |
 | `/billing` | 302 到 `/settings?tab=billing` |
 | `/admin/*` | 管理后台十页（第 2.5 节）及其详情页；独立的管理员登录 |
@@ -238,6 +259,10 @@ Ree 主可以为自己的 Ree 生成一段**固定 15 秒**的动画介绍，用
 | `POST /api/chats` / `DELETE /api/chats/[id]` | 新建、删除对话；新建时可带初始 Ree 列表 |
 | `POST` / `DELETE /api/chats/[id]/rees/[reeId]` | 拉进、移出一个 Ree；只能拉自己的或公开的 |
 | `POST /api/chats/[id]/messages` | 发一个问题，流式返回：每个作答 Ree 一段独立的回答流，事件带 `ree_id`；`/rees/[id]` 里的单 Ree 对话也是走这个接口，只是对话里只有一个 Ree |
+| `GET` / `POST /api/account/api-keys`、`DELETE /api/account/api-keys/[id]` | 自己的 API Key：列表（含用量）、创建（完整 Key 只在这次响应里）、吊销 |
+| `DELETE /api/admin/users/[id]/api-keys/[keyId]` | 管理员强制吊销用户的 API Key，写审计 |
+
+对外的只有一个：`POST /api/mcp`，MCP 服务器（第 2.8 节），`Authorization: Bearer re0_sk_…`。
 
 ## 4. 数据模型（29 张表，取代 86 张）
 
@@ -248,9 +273,9 @@ ree           id, owner_id, name, slug, description, avatar_blob, color(default|
 knowledge     id, ree_id, folder_id, kind(document|audio|github|page|site|text), title, original_title, source(url、仓库或 blob 路径), file_name, file_size, status(pending|processing|ready|failed), error, enabled(参与回答), content(解析正文), children jsonb(整站子页面 / 仓库文件目录), activity jsonb(处理记录), consent_at(音频转写同意), deleted_at, created_at, updated_at
 knowledge_folder  id, ree_id, name(≤40，同 Ree 内唯一), created_at
 chunk         id, knowledge_id, ree_id(冗余，供跨 Ree 检索按公开过滤), ordinal, content, embedding vector(1536), locator jsonb（页码 / 时间戳 / 文件路径与行号 / 标题）
-conversation  id, user_id, kind(normal|ree_test), ree_id(ree_test 时为该 Ree), title, pinned, archived_at, deleted_at, created_at, updated_at
+conversation  id, user_id, kind(normal|ree_test|mcp), ree_id(ree_test 时为该 Ree), title, pinned, archived_at, deleted_at, created_at, updated_at
 conversation_ree  conversation_id, ree_id, added_at（一个对话里的参与者；Ree 转私有后自动移出，历史消息保留）
-message       id, conversation_id, role(user|ree), ree_id(用户消息为空), content, citations jsonb(每条：knowledge_id、title、kind、locator、excerpt 快照), no_answer, no_answer_reason(no_sources|out_of_scope), request_id, cost_credits, created_at
+message       id, conversation_id, role(user|ree), ree_id(用户消息为空), content, citations jsonb(每条：knowledge_id、title、kind、locator、excerpt 快照), no_answer, no_answer_reason(no_sources|out_of_scope), request_id, cost_credits, api_key_id(经 MCP 提的问题：发起的 Key), created_at
 github_connection  user_id, github_login, encrypted_token, scope, connected_at
 domain_claim  id, user_id, domain, method(dns_txt|well_known), challenge, status(pending|verified|failed), verified_at
 credit_grant  id, user_id, source(welcome|plan|pack|earned), amount, remaining, expires_at(plan 为周期末，其余空), created_at
@@ -271,6 +296,7 @@ reembed_job   id, from_model_config_id, to_model_config_id, status(running|done|
 verification_request  id, user_id, statement(≤500), links text[](≤3), metrics jsonb(提交时的门槛指标快照), status(pending|approved|rejected|closed), rejected_reason, closed_by_role_change, reviewed_by, created_at, decided_at（同一用户同时只有一条 pending；角色变更历史从这张表和 admin_audit 里查）
 notice        id, user_id, kind(takedown|restore|credits_adjust|kyc|payout|role|verification), text, ref_id, read_at, created_at
 admin_audit   id, administrator_id, action, target, before jsonb, after jsonb, created_at
+api_key       id, user_id, name(≤60), key_digest(SHA-256，唯一), key_tail(末四位), last_used_at, expires_at(可空), revoked_at, created_at（MCP 鉴权，第 2.8 节；只吊销不删除）
 ```
 
 chunk 表按 `ree_id` 做 hash 分区（或先只建 `(ree_id, embedding)` 的复合 HNSW 索引，分区留到单表过千万段再做），单 Ree 对话和第二级检索都只碰自己的那一片。

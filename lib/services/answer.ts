@@ -24,6 +24,10 @@
  *      answer or the check failed (ree-council-proposal.md 3).
  *
  * Usage tokens go to the log only; users pay fixed credits (7, "计费对接").
+ *
+ * Steps 1-2 are `holdQuestion`, 3-6 `runQuestion`, which reports through
+ * adapter-neutral events. Two adapters read them: `answer`, the web's
+ * `useChat` stream, and `collectAnswer`, which the MCP server waits on.
  */
 import { randomUUID } from 'node:crypto';
 import { createUIMessageStream, createUIMessageStreamResponse, generateText, Output, streamText, type UIMessageStreamWriter } from 'ai';
@@ -118,7 +122,7 @@ async function readyRees(ids: readonly string[]): Promise<Set<string>> {
   return new Set(rows.map((row) => row.reeId));
 }
 
-export async function answer(input: {
+export interface AnswerInput {
   userId: string;
   lang: 'zh' | 'en';
   conversation: Conversation;
@@ -127,7 +131,40 @@ export async function answer(input: {
   question: string;
   /** 回答核验 for this question: "核对引用" in the composer, on by default in the test conversation. */
   verify?: boolean;
-}): Promise<Response> {
+  /** The API key that asked, when the question came through the MCP server; stored on the question for per-key usage. */
+  apiKeyId?: string | null;
+}
+
+/**
+ * What the core flow reports while it answers, adapter-neutral: the web turns
+ * it into `useChat` chunks, the MCP server collects it into one result.
+ */
+export type AnswerEvent =
+  | { type: 'text-start'; reeId: string }
+  | { type: 'text-delta'; reeId: string; delta: string }
+  | { type: 'text-end'; reeId: string }
+  | { type: 'outcome'; outcome: ReeOutcome }
+  | { type: 'check'; check: ReeCheck }
+  | { type: 'suggestions'; rees: SuggestedRee[] };
+export type Emit = (event: AnswerEvent) => void;
+
+/** A question saved with its holds placed, ready to be answered. */
+export interface HeldQuestion {
+  input: AnswerInput;
+  askedId: string;
+  held: Held[];
+  /** The asked Rees with ready knowledge; the others answer "no sources" without a hold. */
+  asking: Ree[];
+  subject: string;
+}
+
+export type Holding = { ok: true; question: HeldQuestion } | { ok: false; balance: number; needed: number };
+
+/**
+ * Steps 1 and 2: the question and every hold in one transaction. Not enough
+ * credits for all of them → nothing is saved and nothing is held.
+ */
+export async function holdQuestion(input: AnswerInput): Promise<Holding> {
   const { userId, conversation, targets, question } = input;
   const verifying = VERIFY_ENABLED && input.verify === true;
   /* What is asked, without the `@name`s that only say who is asked. */
@@ -137,13 +174,11 @@ export async function answer(input: {
   const asking = targets.filter((ree) => ready.has(ree.id));
   const needed = asking.reduce((sum, ree) => sum + maxCostFor(ree, userId) + (verifying ? VERIFY_FEE : 0), 0);
 
-  let askedId: string;
-  let held: Held[];
   try {
-    ({ askedId, held } = await database.transaction(async (tx) => {
+    const { askedId, held } = await database.transaction(async (tx) => {
       const [asked] = await tx
         .insert(schema.message)
-        .values({ conversationId: conversation.id, role: 'user', content: question })
+        .values({ conversationId: conversation.id, role: 'user', content: question, apiKeyId: input.apiKeyId ?? null })
         .returning({ id: schema.message.id });
       const holds: Held[] = [];
       for (const ree of asking) {
@@ -159,18 +194,27 @@ export async function answer(input: {
         .set({
           updatedAt: new Date(),
           archivedAt: null,
-          ...(conversation.kind === 'normal' && !conversation.title ? { title: autoTitle(question) } : {}),
+          ...((conversation.kind === 'normal' || conversation.kind === 'mcp') && !conversation.title ? { title: autoTitle(question) } : {}),
         })
         .where(eq(schema.conversation.id, conversation.id));
       return { askedId: asked!.id, held: holds };
-    }));
+    });
+    return { ok: true, question: { input, askedId, held, asking, subject } };
   } catch (error) {
-    if (error instanceof InsufficientCredits) {
-      const body: InsufficientCreditsBody = { error: 'insufficient_credits', balance: await balanceOf(database, userId), needed };
-      return json(body, 402);
-    }
+    if (error instanceof InsufficientCredits) return { ok: false, balance: await balanceOf(database, userId), needed };
     throw error;
   }
+}
+
+/**
+ * Steps 3 to 6 for a held question: every asked Ree at once, each settled
+ * or released on its own, then the suggestions when nobody could answer.
+ * Resolves once every hold is closed; `emit` only reports.
+ */
+export async function runQuestion(question: HeldQuestion, emit: Emit): Promise<void> {
+  const { input, askedId, asking, subject } = question;
+  const { userId, conversation, targets } = input;
+  const database = db();
 
   const release = async (entry: Held) => {
     await database.transaction(async (tx) => {
@@ -205,10 +249,10 @@ export async function answer(input: {
    * stored on the reply, or given back when the model fails, times out or
    * returns nothing usable; the answer itself stands either way.
    */
-  const check = async (entry: Held, replyId: string, text: string, passages: readonly Passage[], write: Write) => {
+  const check = async (entry: Held, replyId: string, text: string, passages: readonly Passage[]) => {
     const { ree } = entry;
     const holdId = entry.verifyHold!;
-    const part = (data: Omit<ReeCheck, 'reeId' | 'messageId'>) => write({ type: 'data-check', id: checkPartId(ree.id), data: { reeId: ree.id, messageId: replyId, ...data } });
+    const part = (data: Omit<ReeCheck, 'reeId' | 'messageId'>) => emit({ type: 'check', check: { reeId: ree.id, messageId: replyId, ...data } });
     const sentences = splitSentences(text, passages.length).slice(0, VERIFY_MAX_SENTENCES);
     try {
       /* Nothing that reads as a sentence: nothing to check, nothing charged. */
@@ -254,20 +298,18 @@ export async function answer(input: {
     }
   };
   /** One Ree, start to finish; answers whether it gave an answer (or broke off trying), so suggestions follow only a clean "nobody knows". */
-  const run = async (ree: Ree, write: Write, vector: Promise<QuestionVector> | null, history: Promise<MessageRow[]>): Promise<boolean> => {
-    const entry = held.find((candidate) => candidate.ree.id === ree.id) ?? null;
+  const run = async (ree: Ree, vector: Promise<QuestionVector> | null, history: Promise<MessageRow[]>): Promise<boolean> => {
+    const entry = question.held.find((candidate) => candidate.ree.id === ree.id) ?? null;
     if (!entry) {
-      write({ type: 'data-outcome', id: `outcome-${ree.id}`, data: await unanswered(ree, 'no_sources', null) });
+      emit({ type: 'outcome', outcome: await unanswered(ree, 'no_sources', null) });
       return false;
     }
-    const partId = textPartId(ree.id);
-    const meta = { [TEXT_META_KEY]: { reeId: ree.id } };
     let model: string | null = null;
     let textOpen = false;
     try {
       const found = await retrieve(ree.id, subject, await vector!);
       if (!found.evidence) {
-        write({ type: 'data-outcome', id: `outcome-${ree.id}`, data: await unanswered(ree, 'out_of_scope', entry) });
+        emit({ type: 'outcome', outcome: await unanswered(ree, 'out_of_scope', entry) });
         return false;
       }
       const generation = await (generationRequest ??= generationForUser(userId, 'answer'));
@@ -293,13 +335,13 @@ export async function answer(input: {
       let raw = '';
       /* A sentinel written after the answer began is dropped, never shown or stored. */
       let held = '';
-      const emit = (text: string, flush = false) => {
+      const send = (text: string, flush = false) => {
         raw += text;
-        const { send, keep } = flush ? { send: (held + text).split(NO_ANSWER_SENTINEL).join(''), keep: '' } : withoutSentinel(held + text);
+        const { send: out, keep } = flush ? { send: (held + text).split(NO_ANSWER_SENTINEL).join(''), keep: '' } : withoutSentinel(held + text);
         held = keep;
-        if (!send) return;
-        write({ type: 'text-delta', id: partId, delta: send });
-        streamed += send;
+        if (!out) return;
+        emit({ type: 'text-delta', reeId: ree.id, delta: out });
+        streamed += out;
       };
       for await (const delta of result.textStream) {
         if (decided === true) continue;
@@ -307,15 +349,15 @@ export async function answer(input: {
           pending += delta;
           decided = sentinelState(pending);
           if (decided !== false) continue;
-          write({ type: 'text-start', id: partId, providerMetadata: meta });
+          emit({ type: 'text-start', reeId: ree.id });
           textOpen = true;
-          emit(pending);
+          send(pending);
           continue;
         }
-        emit(delta);
+        send(delta);
       }
-      if (textOpen) emit('', true);
-      if (textOpen) write({ type: 'text-end', id: partId });
+      if (textOpen) send('', true);
+      if (textOpen) emit({ type: 'text-end', reeId: ree.id });
       textOpen = false;
       void Promise.resolve(result.usage).then(
         (usage) => console.info(`answer usage ree=${ree.id} model=${model} in=${usage.inputTokens ?? 0} out=${usage.outputTokens ?? 0}`),
@@ -323,7 +365,7 @@ export async function answer(input: {
       );
 
       if (decided === true || isNoAnswer(raw)) {
-        write({ type: 'data-outcome', id: `outcome-${ree.id}`, data: { ...(await unanswered(ree, 'out_of_scope', entry)), model } });
+        emit({ type: 'outcome', outcome: { ...(await unanswered(ree, 'out_of_scope', entry)), model } });
         return false;
       }
 
@@ -349,42 +391,99 @@ export async function answer(input: {
         });
         return charged;
       });
-      write({ type: 'data-outcome', id: `outcome-${ree.id}`, data: outcome(ree.id, { messageId: replyId, cost, citations, model }) });
-      if (entry.verifyHold) await check(entry, replyId, streamed, found.passages, write);
+      emit({ type: 'outcome', outcome: outcome(ree.id, { messageId: replyId, cost, citations, model }) });
+      if (entry.verifyHold) await check(entry, replyId, streamed, found.passages);
       return true;
     } catch (error) {
       console.warn(`answer ree=${ree.id} failed: ${error instanceof Error ? error.message : 'unknown'}`);
       await release(entry).catch(() => undefined);
-      if (textOpen) write({ type: 'text-end', id: partId });
-      write({ type: 'data-outcome', id: `outcome-${ree.id}`, data: outcome(ree.id, { failed: true, model }) });
+      if (textOpen) emit({ type: 'text-end', reeId: ree.id });
+      emit({ type: 'outcome', outcome: outcome(ree.id, { failed: true, model }) });
       return true;
     }
   };
 
+  const vector = asking.length ? embedQuestion(subject) : null;
+  /* A failed embedding fails every Ree on its own path; nothing is left unhandled. */
+  vector?.catch(() => undefined);
+  /* The conversation is read once; each Ree takes only its own turns from it. */
+  const history = messagesOf(conversation.id);
+  history.catch(() => undefined);
+  const results = await Promise.all(targets.map((ree) => run(ree, vector, history)));
+  if (conversation.kind === 'normal' && !results.some(Boolean)) {
+    const suggested = await suggestionsFor(userId, conversation.id, subject, vector).catch(() => []);
+    if (suggested.length) {
+      await database.update(schema.message).set({ suggestedReeIds: suggested.map((ree) => ree.id) }).where(eq(schema.message.id, askedId));
+      emit({ type: 'suggestions', rees: suggested });
+    }
+  }
+}
+
+/** The web adapter's chunk for one core event: each Ree in its own text part tagged with its id. */
+function uiChunk(event: AnswerEvent): Parameters<Writer['write']>[0] {
+  switch (event.type) {
+    case 'text-start':
+      return { type: 'text-start', id: textPartId(event.reeId), providerMetadata: { [TEXT_META_KEY]: { reeId: event.reeId } } };
+    case 'text-delta':
+      return { type: 'text-delta', id: textPartId(event.reeId), delta: event.delta };
+    case 'text-end':
+      return { type: 'text-end', id: textPartId(event.reeId) };
+    case 'outcome':
+      return { type: 'data-outcome', id: `outcome-${event.outcome.reeId}`, data: event.outcome };
+    case 'check':
+      return { type: 'data-check', id: checkPartId(event.check.reeId), data: event.check };
+    case 'suggestions':
+      return { type: 'data-suggestions', id: 'suggestions', data: { rees: event.rees } };
+  }
+}
+
+/**
+ * The web: one question as a `useChat` UI message stream, or 402 before any
+ * stream starts when the credits do not cover every hold.
+ */
+export async function answer(input: AnswerInput): Promise<Response> {
+  const holding = await holdQuestion(input);
+  if (!holding.ok) {
+    const body: InsufficientCreditsBody = { error: 'insufficient_credits', balance: holding.balance, needed: holding.needed };
+    return json(body, 402);
+  }
+  const { question } = holding;
   const stream = createUIMessageStream<ReeUIMessage>({
     execute: async ({ writer }) => {
       const write = safe(writer);
-      write({ type: 'start', messageId: `${askedId}-replies` });
-      for (const ree of targets) write({ type: 'data-ree', id: ree.id, data: { reeId: ree.id } });
-      const vector = asking.length ? embedQuestion(subject) : null;
-      /* A failed embedding fails every Ree on its own path; nothing is left unhandled. */
-      vector?.catch(() => undefined);
-      /* The conversation is read once; each Ree takes only its own turns from it. */
-      const history = messagesOf(conversation.id);
-      history.catch(() => undefined);
-      const results = await Promise.all(targets.map((ree) => run(ree, write, vector, history)));
-      if (conversation.kind === 'normal' && !results.some(Boolean)) {
-        const suggested = await suggestionsFor(userId, conversation.id, subject, vector).catch(() => []);
-        if (suggested.length) {
-          await database.update(schema.message).set({ suggestedReeIds: suggested.map((ree) => ree.id) }).where(eq(schema.message.id, askedId));
-          write({ type: 'data-suggestions', id: 'suggestions', data: { rees: suggested } });
-        }
-      }
+      write({ type: 'start', messageId: `${question.askedId}-replies` });
+      for (const ree of input.targets) write({ type: 'data-ree', id: ree.id, data: { reeId: ree.id } });
+      await runQuestion(question, (event) => write(uiChunk(event)));
       write({ type: 'finish' });
     },
     onError: () => 'answer_failed',
   });
   return createUIMessageStreamResponse({ stream });
+}
+
+/** One Ree's part of a collected answer. */
+export interface CollectedReply {
+  text: string;
+  outcome: ReeOutcome | null;
+}
+
+/**
+ * The collecting adapter (the MCP server): runs a held question to the end
+ * and answers each Ree's final text and outcome. `onEvent` sees every event
+ * as it happens, for progress; it must not throw.
+ */
+export async function collectAnswer(question: HeldQuestion, onEvent?: Emit): Promise<Map<string, CollectedReply>> {
+  const replies = new Map<string, CollectedReply>(question.input.targets.map((ree) => [ree.id, { text: '', outcome: null }]));
+  await runQuestion(question, (event) => {
+    if (event.type === 'text-delta') replies.get(event.reeId)!.text += event.delta;
+    if (event.type === 'outcome') replies.get(event.outcome.reeId)!.outcome = event.outcome;
+    try {
+      onEvent?.(event);
+    } catch {
+      /* progress is best effort */
+    }
+  });
+  return replies;
 }
 
 /** Public Rees, not already in the conversation, that might know (explore's search on the same question). */

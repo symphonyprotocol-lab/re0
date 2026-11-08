@@ -31,6 +31,7 @@ import * as payouts from './pages/payouts';
 import * as consolePayouts from './pages/console-payouts';
 import * as video from './pages/video';
 import * as share from './pages/share';
+import * as apiKeys from './pages/api-keys';
 import type { Locale } from './locale';
 
 /* Step 5's pages sit in their own spread, so other steps' additions to the first object merge cleanly. */
@@ -40,7 +41,9 @@ const step6 = { payouts, consolePayouts };
 const step7 = { video };
 /* Sharing a Ree sits in its own spread too. */
 const sharing = { share };
-const pages = { servicePricing, modelCalls, knowledgeCosts, pricingAdmin, common, login, dashboard, rees, reeSetup, knowledge, chat, settings, billing, site, legal, admin, firecrawl, conversations, discover, ...step5, ...step6, ...step7, ...sharing };
+/* The MCP server's API keys sit in their own spread too. */
+const mcp = { apiKeys };
+const pages = { servicePricing, modelCalls, knowledgeCosts, pricingAdmin, common, login, dashboard, rees, reeSetup, knowledge, chat, settings, billing, site, legal, admin, firecrawl, conversations, discover, ...step5, ...step6, ...step7, ...sharing, ...mcp };
 
 type Pages = typeof pages;
 export type Messages = { [K in keyof Pages]: Pages[K]['en'] };
