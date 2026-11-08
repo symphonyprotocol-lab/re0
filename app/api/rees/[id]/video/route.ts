@@ -20,14 +20,14 @@ export async function GET(request: NextRequest, context: Context) {
 }
 
 /**
- * Saves the shots' text, template, accent, aspect and music (rebuild-proposal.md 5).
- * Text over a shot's limit is refused with every broken limit listed, never cut.
+ * Saves the video type, accent and music (rebuild-proposal.md 5); the script
+ * itself is only ever generated.
  */
 export async function PATCH(request: NextRequest, context: Context) {
   const user = await apiUser(request);
   if (user instanceof Response) return user;
   const parsed = parseVideoPatch(await body(request));
-  if ('error' in parsed) return fail(parsed.error, 422, parsed.errors ? { errors: parsed.errors } : {});
+  if ('error' in parsed) return fail(parsed.error, 422);
   const id = (await context.params).id;
   try {
     const video = await saveVideo(user.id, id, parsed.patch, parsed.revision);

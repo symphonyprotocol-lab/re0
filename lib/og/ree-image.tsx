@@ -4,7 +4,7 @@ import { QUERY_BASE_FEE } from '@/lib/constants';
 import { publicReeBySlug } from '@/lib/services/public-rees';
 import { introsFor } from '@/lib/services/video';
 import type { IntroProps } from '@/lib/domain/video';
-import { AVATAR_COLORS, mix, PALETTES } from '@/video/theme';
+import { AVATAR_COLORS, mix, POSTER } from '@/video/theme';
 
 /** The card's size; each route's `opengraph-image.tsx` declares the same literal for Next. */
 export const OG_SIZE = { width: 1200, height: 630 };
@@ -25,13 +25,12 @@ async function fontFor(text: string): Promise<ArrayBuffer | null> {
 }
 
 /**
- * The introduction's first frame (step 7, 8.4 "Open Graph 图换成视频首帧"):
- * shot 1 as the composition draws it on frame 0 -- template, accent, name
- * and positioning -- laid out on the preview's 1200×630. Satori cannot run
- * the composition itself, so this mirrors `Opening` in video/intro.tsx.
+ * The introduction's poster (step 7, 8.4 "Open Graph 图换成视频首帧"): the
+ * accent, name and positioning laid out on the preview's 1200×630, as the
+ * cards' `VideoPoster` draws them. Satori cannot run the composition itself.
  */
 function firstFrame(video: IntroProps, color: string, font: boolean) {
-  const palette = PALETTES[video.template] ?? PALETTES.editorial;
+  const palette = POSTER;
   const tone = AVATAR_COLORS[color] ?? AVATAR_COLORS.default!;
   const ink = color === 'default' ? video.accent : tone.ink;
   const u = 630 / 720;

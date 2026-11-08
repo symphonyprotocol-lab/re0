@@ -4,7 +4,7 @@ import dynamic from 'next/dynamic';
 import { WorkspaceLink as Link } from '@/components/shell/workspace-link';
 import { useState } from 'react';
 import type { IntroProps } from '@/lib/domain/video';
-import { PALETTES, mix } from '@/video/theme';
+import { POSTER as palette, mix } from '@/video/theme';
 import { useI18n } from '@/i18n/client';
 import { fill } from '@/i18n/format';
 import { Icon, type IconName } from '@/components/ui/icons';
@@ -88,7 +88,6 @@ export function PlaceholderPoster({ ree }: { ree: CoverRee }) {
  */
 export function VideoPoster({ ree, video, className = '' }: { ree: CoverRee; video: IntroProps; className?: string }) {
   const { t } = useI18n();
-  const palette = PALETTES[video.template] ?? PALETTES.editorial;
   return (
     <span className={`@container relative flex aspect-video w-full flex-col items-center justify-center gap-1.5 overflow-hidden px-4 pb-5 text-center ${className}`} style={{ backgroundColor: palette.background }}>
       <span
@@ -103,7 +102,7 @@ export function VideoPoster({ ree, video, className = '' }: { ree: CoverRee; vid
         MEET YOUR KNOWLEDGE COMPANION
       </span>
       <ReeAvatar avatar={ree.avatarBlob} color={ree.color} size="md" />
-      <strong className="max-w-[88%] truncate text-[15px]" style={{ color: palette.title, fontFamily: palette.titleFont }}>
+      <strong className="max-w-[88%] truncate text-[15px]" style={{ color: palette.title }}>
         {video.scenes.opening.name}
       </strong>
       <span className="hidden max-w-[88%] truncate text-[11px] @[260px]:block" style={{ color: palette.body }}>

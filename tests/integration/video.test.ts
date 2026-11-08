@@ -1,12 +1,13 @@
 /**
  * Step 7 acceptance (rebuild-proposal.md 8.4 "视频介绍"): no script without a
- * ready source; a script holds and settles the configured price, stays inside every
- * shot's limit (an over-limit reply is rewritten, not cut) and is refunded
- * when the model cannot fit it; hand edits over a limit are refused; the
- * first export is free, the second uses the configured price, the same picture again is a
- * cache hit -- free and not counted; an export whose tab closed is released
- * by the cron; cancelling releases at once; public pages and cards carry
- * the introduction. Blob is stubbed; the model is the local fake.
+ * ready source or a voice model; a narrated script holds the most it can
+ * cost and settles the actual script and voiceover cost, in each video
+ * type with its own story; a narration that never fits is refunded; the
+ * type stays the one the script was written in; the first export is free,
+ * the second uses the configured price, the same picture again is a cache
+ * hit -- free and not counted; an export whose tab closed is released by
+ * the cron; cancelling releases at once; public pages and cards carry the
+ * introduction. Blob and the voice are stubbed; the model is the local fake.
  */
 import { afterAll, beforeAll, describe, expect, it, vi } from 'vitest';
 import { pointModelsAt, TEST_DATABASE_URL, uniqueName } from './setup';
@@ -33,21 +34,56 @@ const { balanceOf } = await import('@/lib/services/credits');
 const knowledge = await import('@/lib/services/knowledge');
 const rees = await import('@/lib/services/rees');
 const video = await import('@/lib/services/video');
+const models = await import('@/lib/services/models');
 const { reeCards } = await import('@/lib/services/explore');
 const { db, schema } = await import('@/lib/infra/db');
 const { newReeDraft } = await import('@/lib/domain/ree');
-const { parseVideoPatch, sceneErrors, chars } = await import('@/lib/domain/video');
-const { VIDEO_LIMITS, DEFAULT_VIDEO_SCRIPT_CREDITS } = await import('@/lib/constants');
+const { parseVideoPatch } = await import('@/lib/domain/video');
+const { DEFAULT_VIDEO_SCRIPT_CREDITS } = await import('@/lib/constants');
 const { saveVideoExportPrice, videoExportPrice, saveVideoScriptPrice, videoScriptPrice } = await import('@/lib/services/video-pricing');
 const { forgetModelCache } = await import('@/lib/infra/ai/models');
 
+/* Four voiced lines at 0.00024 USD each cost 10 credits; the hold covers the most four lines could cost (54). */
+const VOICE_CREDITS = 10;
+const VOICE_LIMIT = 54;
+const VOICE_KEY = 'test-voice-key-not-logged';
+const take = Buffer.alloc(2 * 24_000 * 2);
+for (let sample = 0; sample < take.length; sample += 2) take.writeInt16LE(1_200, sample);
+
 let fake: FakeOpenAi;
+let adminId: string;
+let voiceId: string | null = null;
+
+async function enableVoice() {
+  const model = await models.createModelConfig(adminId, { kind: 'speech', name: 'OpenAI TTS-1', transport: 'gateway', model: 'openai/tts-1', apiKey: VOICE_KEY });
+  await models.activateModelConfig(adminId, model.id);
+  voiceId = model.id;
+  forgetModelCache();
+  return model;
+}
+
+async function disableVoice() {
+  if (voiceId) await db().delete(schema.modelConfig).where(eq(schema.modelConfig.id, voiceId));
+  voiceId = null;
+  forgetModelCache();
+}
+
 beforeAll(async () => {
   fake = await startFakeOpenAi();
   pointModelsAt(fake.baseUrl);
   forgetModelCache();
+  speak.mockImplementation(async (_voice: unknown, lines: readonly string[]) => lines.map(() => ({ pcm: take, costUsd: '0.00024' })));
+  if (!TEST_DATABASE_URL) return;
+  const [admin] = await db().insert(schema.administrator).values({
+    name: 'Video test', email: `${uniqueName('video-admin')}@example.test`, passwordHash: 'unused', totpSecretCipher: 'unused',
+  }).returning({ id: schema.administrator.id });
+  adminId = admin!.id;
+  await enableVoice();
 });
-afterAll(() => fake?.close());
+afterAll(async () => {
+  if (TEST_DATABASE_URL) await disableVoice();
+  await fake?.close();
+});
 
 const POLICY = 'Refund policy. Refunds are issued to the original payment method within 14 days of the request.';
 
@@ -57,12 +93,12 @@ async function owner() {
   return userId;
 }
 
-async function reeOf(userId: string, options: { name?: string; content?: string | null; isPublic?: boolean } = {}) {
+async function reeOf(userId: string, options: { name?: string; content?: string | null; isPublic?: boolean; title?: string } = {}) {
   await rees.saveDraft(userId, { ...newReeDraft(), name: options.name ?? uniqueName('Ree').slice(0, 40), description: 'Answers about refunds.', category: 'business', isPublic: options.isPublic ?? true, step: 4, reached: 4 });
   const { ree } = await rees.createReeFromDraft(userId);
   if (ree.isPublic) await rees.setReePublished(userId, ree.id, true);
   if (options.content !== null) {
-    const id = await knowledge.addKnowledge(userId, ree, { kind: 'text', title: 'Refund policy notes', content: options.content ?? POLICY });
+    const id = await knowledge.addKnowledge(userId, ree, { kind: 'text', title: options.title ?? 'Refund policy notes', content: options.content ?? POLICY });
     await knowledge.processKnowledge(id);
   }
   return ree;
@@ -87,9 +123,8 @@ async function code(promise: Promise<unknown>): Promise<string> {
   return 'accepted';
 }
 
-function generateClassic(...[userId, reeId, write, options]: Parameters<typeof video.generateScript>) {
-  return video.generateScript(userId, reeId, write, { template: 'editorial', ...options });
-}
+const generate = (...args: Parameters<typeof video.generateScript>) => video.generateScript(...args);
+const chatCalls = () => fake.requests.filter((request) => request.path.endsWith('/chat/completions')).length;
 
 /** The browser's part: render, upload to the ticket's pathname. */
 function upload(pathname: string) {
@@ -106,210 +141,194 @@ describeWithDb('video script', () => {
     expect(await entries(userId, ree.id)).toEqual([]);
   });
 
-  it('holds and settles the default price and keeps every shot inside its limit', async () => {
+  it('holds the most a narrated script can cost and settles the script price plus the voiceover', async () => {
     const userId = await owner();
     const ree = await reeOf(userId);
     const before = await balanceOf(db(), userId);
-    const row = await generateClassic(userId, ree.id);
-    expect(row.generated).toBe(true);
-    expect(row.revision).toBe(1);
-    expect(sceneErrors(row.scenes!)).toEqual([]);
-    expect(row.scenes!.sources.titles.length).toBeLessThanOrEqual(VIDEO_LIMITS.sources);
-    expect(await balanceOf(db(), userId)).toBe(before - DEFAULT_VIDEO_SCRIPT_CREDITS);
+    expect((await video.videoStudio(userId, ree.id)).demoCredits).toBe(DEFAULT_VIDEO_SCRIPT_CREDITS + VOICE_LIMIT);
+    const row = await generate(userId, ree.id);
+    expect(row).toMatchObject({ generated: true, revision: 1, template: 'product-demo', aspect: '16:9', generationCost: DEFAULT_VIDEO_SCRIPT_CREDITS + VOICE_CREDITS });
+    expect(await balanceOf(db(), userId)).toBe(before - DEFAULT_VIDEO_SCRIPT_CREDITS - VOICE_CREDITS);
     expect(await entries(userId, ree.id)).toEqual([
-      { reason: 'video_script', delta: -DEFAULT_VIDEO_SCRIPT_CREDITS },
-      { reason: 'video_script', delta: 0 },
+      { reason: 'video_script', delta: -(DEFAULT_VIDEO_SCRIPT_CREDITS + VOICE_LIMIT) },
+      { reason: 'video_script', delta: VOICE_LIMIT - VOICE_CREDITS },
     ]);
-    /* Regenerating charges again and makes a new revision; the style stays. */
-    await video.saveVideo(userId, ree.id, { template: 'blueprint' }, 1);
-    const again = await generateClassic(userId, ree.id, undefined, { template: 'blueprint' });
-    expect(again.revision).toBe(3);
-    expect(again.template).toBe('blueprint');
-    expect(await balanceOf(db(), userId)).toBe(before - 2 * DEFAULT_VIDEO_SCRIPT_CREDITS);
+    /* Regenerating in another type charges again, makes a new revision and replaces the narration. */
+    const first = row.scenes!.demo!.audioId;
+    const again = await generate(userId, ree.id, { template: 'user-manual', revision: row.revision });
+    expect(again).toMatchObject({ revision: 2, template: 'user-manual' });
+    expect(again.scenes!.demo).toMatchObject({ kind: 'user-manual' });
+    expect(blobs.has(`video-narration/${ree.id}/${first}.wav`)).toBe(false);
+    expect(await balanceOf(db(), userId)).toBe(before - 2 * (DEFAULT_VIDEO_SCRIPT_CREDITS + VOICE_CREDITS));
+  });
+
+  it('writes each video type with its own scenes and keeps the poster text', async () => {
+    const userId = await owner();
+    const manual = await generate(userId, (await reeOf(userId, { isPublic: false })).id, { template: 'user-manual' });
+    expect(manual.scenes!.demo).toMatchObject({
+      kind: 'user-manual', subject: 'DW200 terminal', steps: ['Set up', 'Add a card', 'Stay safe'],
+      setup: ['Mount the wall bracket', 'Connect the twelve volt supply', 'Wait for the green light'],
+      operation: { title: 'Add an access card' }, caution: { title: 'Keep the reader dry' },
+    });
+    expect(manual.scenes!.demo!.cues.map((cue) => cue.text)).toEqual([
+      'Here is how to get your DW200 terminal running.', 'Mount the bracket and connect the power supply first.',
+      'Then open Settings and add an access card.', 'Keep the reader dry to avoid failed scans.',
+    ]);
+    const course = await generate(userId, (await reeOf(userId, { isPublic: false })).id, { template: 'course-intro' });
+    expect(course.scenes!.demo).toMatchObject({
+      kind: 'course-intro', course: 'Refund operations 101', badges: ['3 modules', 'Self-paced'], audience: ['Support agents', 'Team leads'],
+      modules: ['Refund basics', 'Original payment methods', 'Fourteen-day timing'], cta: 'Start the course',
+    });
+    const article = await generate(userId, (await reeOf(userId, { isPublic: false })).id, { template: 'article-summary' });
+    expect(article.scenes!.demo).toMatchObject({
+      kind: 'article-summary', source: 'Refund policy notes', evidence: { figure: '14 days' }, further: ['Store credit rules'],
+      points: ['Refunds go to the original method', 'The window is fourteen days', 'Store credit is never forced'],
+    });
+    expect(article.scenes!.opening.position).toBe('Refunds should be…');
+    expect(article.scenes!.sources.titles).toEqual(['Refund policy notes']);
+    const { props } = await video.videoStudio(userId, article.reeId);
+    expect(props).toMatchObject({ template: 'article-summary', narrationUrl: `/media/video-narration/${article.reeId}/${article.scenes!.demo!.audioId}.wav` });
   });
 
   it('keeps the reserved price during generation and refuses a stale quote before debiting', async () => {
     const userId = await owner();
     const ree = await reeOf(userId);
     const before = await balanceOf(db(), userId);
-    const [admin] = await db().insert(schema.administrator).values({
-      name: 'Video pricing test', email: `${uniqueName('video-price')}@example.test`, passwordHash: 'unused', totpSecretCipher: 'unused',
-    }).returning({ id: schema.administrator.id });
     const defaults = await videoScriptPrice();
     expect(defaults).toEqual({ credits: 5, revision: 'default' });
     try {
-      expect(await code(saveVideoScriptPrice(admin!.id, { credits: 0, revision: defaults.revision }))).toBe('invalid_video_script_credits');
-      const first = await saveVideoScriptPrice(admin!.id, { credits: 8, revision: defaults.revision });
-      expect(await code(saveVideoScriptPrice(admin!.id, { credits: 9, revision: defaults.revision }))).toBe('pricing_conflict');
-      expect((await video.videoStudio(userId, ree.id)).scriptCredits).toBe(8);
-      const generated = await generateClassic(userId, ree.id, async (input) => {
-        await saveVideoScriptPrice(admin!.id, { credits: 11, revision: first.revision });
-        return video.writeScript(input, userId);
-      }, { maxCost: 8 });
-      expect(generated.generationCost).toBe(8);
-      expect(await code(generateClassic(userId, ree.id, undefined, { maxCost: 8 }))).toBe('price_changed');
-      expect(await balanceOf(db(), userId)).toBe(before - 8);
+      expect(await code(saveVideoScriptPrice(adminId, { credits: 0, revision: defaults.revision }))).toBe('invalid_video_script_credits');
+      const first = await saveVideoScriptPrice(adminId, { credits: 8, revision: defaults.revision });
+      expect(await code(saveVideoScriptPrice(adminId, { credits: 9, revision: defaults.revision }))).toBe('pricing_conflict');
+      expect((await video.videoStudio(userId, ree.id))).toMatchObject({ scriptCredits: 8, demoCredits: 8 + VOICE_LIMIT });
+      /* The price changes while the voice is being generated: the reserved one is charged. */
+      speak.mockImplementationOnce(async (_voice: unknown, lines: readonly string[]) => {
+        await saveVideoScriptPrice(adminId, { credits: 11, revision: first.revision });
+        return lines.map(() => ({ pcm: take, costUsd: '0.00024' }));
+      });
+      const generated = await generate(userId, ree.id, { maxCost: 8 + VOICE_LIMIT });
+      expect(generated.generationCost).toBe(8 + VOICE_CREDITS);
+      expect(await code(generate(userId, ree.id, { maxCost: 8 + VOICE_LIMIT }))).toBe('price_changed');
+      expect(await balanceOf(db(), userId)).toBe(before - 8 - VOICE_CREDITS);
       expect(await entries(userId, ree.id)).toEqual([
-        { reason: 'video_script', delta: -8 },
-        { reason: 'video_script', delta: 0 },
+        { reason: 'video_script', delta: -(8 + VOICE_LIMIT) },
+        { reason: 'video_script', delta: VOICE_LIMIT - VOICE_CREDITS },
       ]);
     } finally {
       await db().delete(schema.videoPricing);
     }
   });
 
-  it('asks the model to rewrite a field over its limit instead of cutting it', async () => {
+  it('suggests the video type from the Ree’s knowledge before it has a video', async () => {
     const userId = await owner();
-    const ree = await reeOf(userId, { name: uniqueName('LONGSCRIPT').slice(0, 40) });
-    const calls = fake.requests.length;
-    const row = await generateClassic(userId, ree.id);
-    expect(chars(row.scenes!.opening.name)).toBeLessThanOrEqual(VIDEO_LIMITS.name);
-    expect(row.scenes!.opening.name).toBe('Refund Helper');
-    /* One live answer for shot 3 is not needed here (no example questions); the script and its rewrite are two calls. */
-    expect(fake.requests.slice(calls).filter((request) => request.path.endsWith('/chat/completions')).length).toBeGreaterThanOrEqual(2);
-  });
-
-  it('refunds the hold when the script cannot be made to fit', async () => {
-    const userId = await owner();
-    const ree = await reeOf(userId, { name: uniqueName('FAILSCRIPT').slice(0, 40) });
-    const before = await balanceOf(db(), userId);
-    expect(await code(generateClassic(userId, ree.id))).toBe('script_failed');
-    expect(await balanceOf(db(), userId)).toBe(before);
-    expect(await entries(userId, ree.id)).toEqual([
-      { reason: 'video_script', delta: -DEFAULT_VIDEO_SCRIPT_CREDITS },
-      { reason: 'video_refund', delta: DEFAULT_VIDEO_SCRIPT_CREDITS },
-    ]);
-    expect(await video.videoOf(db(), ree.id)).toBeNull();
-  });
-
-  it('uses an answer the owner liked, or asks an example question now, for shot 3', async () => {
-    const userId = await owner();
-    await rees.saveDraft(userId, { ...newReeDraft(), name: uniqueName('Asked').slice(0, 40), description: 'Refunds.', category: 'business', sampleQuestions: 'When are refunds issued?', step: 4, reached: 4 });
-    const { ree } = await rees.createReeFromDraft(userId);
-    const id = await knowledge.addKnowledge(userId, ree, { kind: 'text', title: 'Refund policy notes', content: POLICY });
-    await knowledge.processKnowledge(id);
-    const prompts: string[] = [];
-    await generateClassic(userId, ree.id, async (material) => {
-      prompts.push(`${material.question} => ${material.answer}`);
-      return { opening: { name: 'Refunds', position: 'Policy answers' }, sources: { titles: ['Notes'] }, answer: { question: material.question!, answer: material.answer! }, closing: { cta: 'Ask it' } };
-    });
-    /* The fake's answer, first sentence only, citation marker gone. */
-    expect(prompts).toEqual(['When are refunds issued? => Refunds are issued to the original payment method within 14 days.']);
+    const manual = await reeOf(userId, { name: 'DW200 manual', isPublic: false });
+    expect(await video.videoStudio(userId, manual.id)).toMatchObject({ recommended: 'user-manual', video: { template: 'user-manual', generated: false } });
+    const course = await reeOf(userId, { isPublic: false, title: 'Week 1 lesson: refunds' });
+    expect(await video.videoStudio(userId, course.id)).toMatchObject({ recommended: 'course-intro', video: { template: 'course-intro' } });
+    const plain = await reeOf(userId, { isPublic: false });
+    expect((await video.videoStudio(userId, plain.id)).recommended).toBe('product-demo');
+    /* Once there is a video, its own type is shown; the suggestion is only a badge. */
+    await video.saveVideo(userId, manual.id, { template: 'article-summary' }, 0);
+    expect(await video.videoStudio(userId, manual.id)).toMatchObject({ recommended: 'user-manual', video: { template: 'article-summary' } });
   });
 });
 
 describeWithDb('video edits', () => {
-  it('refuses over-limit text, saves within limits, and stops a stale tab', async () => {
+  it('saves the style, keeps the script’s type, and stops a stale tab', async () => {
     const userId = await owner();
     const ree = await reeOf(userId);
-    const row = await generateClassic(userId, ree.id);
-    const tooLong = parseVideoPatch({ revision: row.revision, scenes: { ...row.scenes, closing: { cta: '这是一句远远超过十六个字的号召文字内容' } } });
-    expect('error' in tooLong && tooLong.error).toBe('scene_limits');
-    expect('error' in tooLong && tooLong.errors).toEqual([{ field: 'cta', issue: 'too_long', max: 16 }]);
-    const parsed = parseVideoPatch({ revision: row.revision, accent: '#AA3355', aspect: '9:16', music: false, scenes: { ...row.scenes, closing: { cta: '现在就问它' } } });
+    const row = await generate(userId, ree.id);
+    const parsed = parseVideoPatch({ revision: row.revision, accent: '#AA3355', aspect: '9:16', music: false });
     if ('error' in parsed) throw new Error(parsed.error);
     const saved = await video.saveVideo(userId, ree.id, parsed.patch, parsed.revision);
-    expect(saved).toMatchObject({ accentColor: '#aa3355', aspect: '9:16', music: false, revision: row.revision + 1 });
-    expect(saved.scenes!.closing.cta).toBe('现在就问它');
+    /* The narrated videos are landscape only. */
+    expect(saved).toMatchObject({ accentColor: '#aa3355', aspect: '16:9', music: false, revision: row.revision + 1, scenes: row.scenes });
+    expect(await code(video.saveVideo(userId, ree.id, { template: 'course-intro' }, saved.revision))).toBe('no_script');
+    expect((await video.videoStudio(userId, ree.id)).props?.template).toBe('product-demo');
     expect(await code(video.saveVideo(userId, ree.id, { music: true }, row.revision))).toBe('stale');
   });
 
-  it('lets the style be saved before a script exists, but not shot text', async () => {
+  it('lets the style be saved before a script exists', async () => {
     const userId = await owner();
     const ree = await reeOf(userId);
-    const styled = await video.saveVideo(userId, ree.id, { template: 'spotlight' }, 0);
-    expect(styled).toMatchObject({ generated: false, template: 'spotlight', revision: 1 });
-    const scenes = { opening: { name: 'A', position: 'B' }, sources: { titles: ['C'] }, answer: { question: 'D', answer: 'E' }, closing: { cta: 'F' } };
-    expect(await code(video.saveVideo(userId, ree.id, { scenes }, 1))).toBe('no_script');
+    const styled = await video.saveVideo(userId, ree.id, { template: 'article-summary' }, 0);
+    expect(styled).toMatchObject({ generated: false, template: 'article-summary', revision: 1 });
+    expect((await video.videoStudio(userId, ree.id)).props).toBeNull();
+    const row = await generate(userId, ree.id, { revision: 1 });
+    expect(row).toMatchObject({ template: 'article-summary', scenes: { demo: { kind: 'article-summary' } } });
   });
 });
 
 describeWithDb('product demo voiceover', () => {
-  it('defaults to a content-specific voiceover demo even when the saved template is Blueprint', async () => {
+  it('needs a configured voice, picks a layout from the sources and rewrites a narration that does not fit', async () => {
     const userId = await owner();
     const ree = await reeOf(userId, {
-      name: 'DW200 manual', isPublic: false,
+      name: 'DW200 badge reader', isPublic: false,
       content: 'Hold an employee badge at the DW200 reader. The terminal scans the badge and displays whether access is allowed.',
     });
-    expect((await video.videoStudio(userId, ree.id)).video.template).toBe('product-demo');
-    const legacy = await generateClassic(userId, ree.id, undefined, { template: 'blueprint' });
-    const options = { revision: legacy.revision };
     const before = await balanceOf(db(), userId);
-    expect(await code(video.generateScript(userId, ree.id, undefined, options))).toBe('voice_not_configured');
-    expect(await balanceOf(db(), userId)).toBe(before);
-    expect((await video.videoStudio(userId, ree.id)).props?.template).toBe('blueprint');
-
-    const [admin] = await db().insert(schema.administrator).values({
-      name: 'Voice model test', email: `${uniqueName('voice-admin')}@example.test`, passwordHash: 'unused', totpSecretCipher: 'unused',
-    }).returning({ id: schema.administrator.id });
-    const models = await import('@/lib/services/models');
-    const key = 'test-voice-key-not-logged';
-    const model = await models.createModelConfig(admin!.id, {
-      kind: 'speech', name: 'OpenAI TTS-1', transport: 'gateway',
-      model: 'openai/tts-1', apiKey: key,
-    });
-    expect(model.hasKey).toBe(true);
-    expect(JSON.stringify(model)).not.toContain(key);
-    await models.activateModelConfig(admin!.id, model.id);
-    const take = Buffer.alloc(2 * 24_000 * 2);
-    for (let sample = 0; sample < take.length; sample += 2) take.writeInt16LE(1_200, sample);
-
+    await disableVoice();
     try {
-      const { demoCredits } = await video.videoStudio(userId, ree.id);
-      expect(demoCredits).toBe(DEFAULT_VIDEO_SCRIPT_CREDITS + 54);
-      expect(await code(video.generateScript(userId, ree.id, undefined, { ...options, maxCost: demoCredits! - 1 }))).toBe('price_changed');
+      expect((await video.videoStudio(userId, ree.id)).demoCredits).toBeNull();
+      expect(await code(video.generateScript(userId, ree.id))).toBe('voice_not_configured');
       expect(await balanceOf(db(), userId)).toBe(before);
-      speak.mockResolvedValueOnce(Array.from({ length: 4 }, () => ({ pcm: take, costUsd: '0.00024' })));
-      const row = await video.generateScript(userId, ree.id, undefined, options);
-      expect(speak.mock.calls.at(-1)?.[0]).toMatchObject({ apiKey: key, model: 'openai/tts-1' });
-      expect(row).toMatchObject({ template: 'product-demo', aspect: '16:9', generated: true, generationCost: DEFAULT_VIDEO_SCRIPT_CREDITS + 10 });
-      const demo = row.scenes!.demo!;
-      expect(demo.visual).toEqual({ layout: 'device', tone: 'teal', subject: 'DW200 badge reader', deviceAction: 'scan' });
-      expect(demo.cues).toHaveLength(4);
-      expect(demo.cues[0]).toMatchObject({ start: 6, text: 'Need to check who can enter a door?' });
-      expect(demo.cues[1]!.start).toBeGreaterThan(demo.cues[0]!.end);
-      expect(demo.cues[3]!.end).toBe(348);
-      expect(await video.narrationVisibleTo(ree.id, demo.audioId, null)).toBe(false);
-      expect(await video.narrationVisibleTo(ree.id, demo.audioId, userId)).toBe(true);
-      const { props } = await video.videoStudio(userId, ree.id);
-      expect(props?.narrationUrl).toBe(`/media/video-narration/${ree.id}/${demo.audioId}.wav`);
-      expect(blobs.has(props!.narrationUrl!.slice('/media/'.length))).toBe(true);
-      const started = await video.startExport(userId, ree.id);
-      if (started.cached) throw new Error('The first demo export should be new');
-      expect(started.props).toMatchObject({ narrationUrl: props!.narrationUrl, aspect: '16:9', scenes: { demo: { visual: demo.visual, cues: demo.cues } } });
-      upload(started.upload.pathname);
-      expect(await video.completeExport(userId, ree.id, started.exportId)).toMatchObject({ cost: 0 });
-
-      speak.mockRejectedValueOnce(new Error('voice unavailable'));
-      expect(await code(video.generateScript(userId, ree.id, undefined, { ...options, revision: row.revision }))).toBe('script_failed');
-      expect((await video.videoOf(db(), ree.id))?.scenes?.demo?.audioId).toBe(demo.audioId);
-      expect(await balanceOf(db(), userId)).toBe(before - DEFAULT_VIDEO_SCRIPT_CREDITS - 10);
-
-      const refundRee = await reeOf(userId, { isPublic: false });
-      speak.mockResolvedValueOnce(Array.from({ length: 4 }, () => ({ pcm: take, costUsd: '0.00024' })));
-      const refund = await video.generateScript(userId, refundRee.id);
-      expect(refund.scenes?.demo?.visual).toEqual({ layout: 'conversation', tone: 'amber', subject: 'Refund assistant' });
-
-      /* A too-short narration is rewritten from the last draft; one that never fits is refunded with its own code. */
-      const demoCalls = () => fake.requests.filter((request) => request.path.endsWith('/chat/completions')).length;
-      const terse = await reeOf(userId, { isPublic: false, content: `${POLICY} TERSE NARRATION` });
-      let calls = demoCalls();
-      speak.mockResolvedValueOnce(Array.from({ length: 4 }, () => ({ pcm: take, costUsd: '0.00024' })));
-      const rewritten = await video.generateScript(userId, terse.id);
-      expect(demoCalls() - calls).toBe(2);
-      expect(rewritten.scenes?.demo?.cues[0]?.text).toBe('Waiting to find out when your refund arrives?');
-      const endless = await reeOf(userId, { isPublic: false, content: `${POLICY} ENDLESS NARRATION` });
-      const beforeEndless = await balanceOf(db(), userId);
-      calls = demoCalls();
-      speak.mockClear();
-      expect(await code(video.generateScript(userId, endless.id))).toBe('demo_script_unfit');
-      expect(demoCalls() - calls).toBe(3);
-      expect(speak).not.toHaveBeenCalled();
-      expect(await balanceOf(db(), userId)).toBe(beforeEndless);
     } finally {
-      await db().delete(schema.modelConfig).where(eq(schema.modelConfig.id, model.id));
-      forgetModelCache();
+      const model = await enableVoice();
+      expect(model.hasKey).toBe(true);
+      expect(JSON.stringify(model)).not.toContain(VOICE_KEY);
     }
+
+    const { demoCredits } = await video.videoStudio(userId, ree.id);
+    expect(await code(video.generateScript(userId, ree.id, { maxCost: demoCredits! - 1 }))).toBe('price_changed');
+    expect(await balanceOf(db(), userId)).toBe(before);
+    const row = await video.generateScript(userId, ree.id, { template: 'product-demo' });
+    expect(speak.mock.calls.at(-1)?.[0]).toMatchObject({ apiKey: VOICE_KEY, model: 'openai/tts-1' });
+    const demo = row.scenes!.demo!;
+    if (demo.kind) throw new Error('expected a product demo');
+    expect(demo.visual).toEqual({ layout: 'device', tone: 'teal', subject: 'DW200 badge reader', deviceAction: 'scan' });
+    expect(demo.cues).toHaveLength(4);
+    expect(demo.cues[0]).toMatchObject({ start: 6, text: 'Need to check who can enter a door?' });
+    expect(demo.cues[1]!.start).toBeGreaterThan(demo.cues[0]!.end);
+    expect(demo.cues[3]!.end).toBe(348);
+    expect(await video.narrationVisibleTo(ree.id, demo.audioId, null)).toBe(false);
+    expect(await video.narrationVisibleTo(ree.id, demo.audioId, userId)).toBe(true);
+    const { props } = await video.videoStudio(userId, ree.id);
+    expect(props?.narrationUrl).toBe(`/media/video-narration/${ree.id}/${demo.audioId}.wav`);
+    expect(blobs.has(props!.narrationUrl!.slice('/media/'.length))).toBe(true);
+    const started = await video.startExport(userId, ree.id);
+    if (started.cached) throw new Error('The first demo export should be new');
+    expect(started.props).toMatchObject({ narrationUrl: props!.narrationUrl, aspect: '16:9', scenes: { demo: { visual: demo.visual, cues: demo.cues } } });
+    upload(started.upload.pathname);
+    expect(await video.completeExport(userId, ree.id, started.exportId)).toMatchObject({ cost: 0 });
+
+    speak.mockRejectedValueOnce(new Error('voice unavailable'));
+    expect(await code(video.generateScript(userId, ree.id, { revision: row.revision }))).toBe('script_failed');
+    expect((await video.videoOf(db(), ree.id))?.scenes?.demo?.audioId).toBe(demo.audioId);
+    expect(await balanceOf(db(), userId)).toBe(before - DEFAULT_VIDEO_SCRIPT_CREDITS - VOICE_CREDITS);
+
+    const refundRee = await reeOf(userId, { isPublic: false });
+    const refund = await video.generateScript(userId, refundRee.id);
+    expect(refund.scenes?.demo).toMatchObject({ visual: { layout: 'conversation', tone: 'amber', subject: 'Refund assistant' } });
+
+    /* A too-short narration is rewritten from the last draft; one that never fits is refunded with its own code. */
+    const terse = await reeOf(userId, { isPublic: false, content: `${POLICY} TERSE NARRATION` });
+    let calls = chatCalls();
+    const rewritten = await video.generateScript(userId, terse.id);
+    expect(chatCalls() - calls).toBe(2);
+    expect(rewritten.scenes?.demo?.cues[0]?.text).toBe('Waiting to find out when your refund arrives?');
+    const endless = await reeOf(userId, { isPublic: false, content: `${POLICY} ENDLESS NARRATION` });
+    const beforeEndless = await balanceOf(db(), userId);
+    calls = chatCalls();
+    speak.mockClear();
+    expect(await code(video.generateScript(userId, endless.id))).toBe('demo_script_unfit');
+    expect(chatCalls() - calls).toBe(3);
+    expect(speak).not.toHaveBeenCalled();
+    expect(await balanceOf(db(), userId)).toBe(beforeEndless);
+    expect(await entries(userId, endless.id)).toEqual([
+      { reason: 'video_script', delta: -(DEFAULT_VIDEO_SCRIPT_CREDITS + VOICE_LIMIT) },
+      { reason: 'video_refund', delta: DEFAULT_VIDEO_SCRIPT_CREDITS + VOICE_LIMIT },
+    ]);
+    expect(await video.videoOf(db(), endless.id)).toBeNull();
   });
 });
 
@@ -317,7 +336,7 @@ describeWithDb('video exports', () => {
   it('first free, second 50 by default, unchanged again a free uncounted cache hit', async () => {
     const userId = await owner();
     const ree = await reeOf(userId);
-    await generateClassic(userId, ree.id);
+    await generate(userId, ree.id);
     const start = await balanceOf(db(), userId);
     expect(await video.exportQuote(userId, ree.id)).toEqual({ cached: null, cost: 0 });
 
@@ -372,8 +391,8 @@ describeWithDb('video exports', () => {
     const userId = await owner();
     const ree = await reeOf(userId);
     const another = await reeOf(userId);
-    const script = await generateClassic(userId, ree.id);
-    await generateClassic(userId, another.id);
+    const script = await generate(userId, ree.id);
+    await generate(userId, another.id);
     const [admin] = await db().insert(schema.administrator).values({
       name: 'Export pricing test', email: `${uniqueName('export-price')}@example.test`, passwordHash: 'unused', totpSecretCipher: 'unused',
     }).returning({ id: schema.administrator.id });
@@ -416,7 +435,7 @@ describeWithDb('video exports', () => {
   it('a cache hit does not use up the free export', async () => {
     const userId = await owner();
     const ree = await reeOf(userId);
-    await generateClassic(userId, ree.id);
+    await generate(userId, ree.id);
     const first = await video.startExport(userId, ree.id);
     if (first.cached) throw new Error('unexpected cache hit');
     /* Cancelled: released at once, the free one is still there. */
@@ -429,13 +448,13 @@ describeWithDb('video exports', () => {
   it('releases the hold of an export whose tab was closed, through the cron', async () => {
     const userId = await owner();
     const ree = await reeOf(userId);
-    await generateClassic(userId, ree.id);
+    await generate(userId, ree.id);
     const free = await video.startExport(userId, ree.id);
     if (free.cached) throw new Error('unexpected cache hit');
     upload(free.upload.pathname);
     await video.completeExport(userId, ree.id, free.exportId);
     const current = (await video.videoOf(db(), ree.id))!;
-    await video.saveVideo(userId, ree.id, { template: 'spotlight' }, current.revision);
+    await video.saveVideo(userId, ree.id, { accent: '#aa3355' }, current.revision);
     const before = await balanceOf(db(), userId);
     const started = new Date(Date.now() - 31 * 60_000);
     const paid = await video.startExport(userId, ree.id, started);
@@ -462,12 +481,12 @@ describeWithDb('video exports', () => {
   it('starting again abandons the earlier unfinished export, so a reload never holds twice', async () => {
     const userId = await owner();
     const ree = await reeOf(userId);
-    await generateClassic(userId, ree.id);
+    await generate(userId, ree.id);
     const free = await video.startExport(userId, ree.id);
     if (free.cached) throw new Error('unexpected cache hit');
     upload(free.upload.pathname);
     await video.completeExport(userId, ree.id, free.exportId);
-    await video.saveVideo(userId, ree.id, { aspect: '9:16' }, (await video.videoOf(db(), ree.id))!.revision);
+    await video.saveVideo(userId, ree.id, { accent: '#aa3355' }, (await video.videoOf(db(), ree.id))!.revision);
     const before = await balanceOf(db(), userId);
     await video.startExport(userId, ree.id);
     await video.startExport(userId, ree.id);
@@ -480,7 +499,7 @@ describeWithDb('video exports', () => {
     const userId = await owner();
     const ree = await reeOf(userId);
     expect(await code(video.startExport(userId, ree.id))).toBe('no_script');
-    await generateClassic(userId, ree.id);
+    await generate(userId, ree.id);
     expect(await code(video.startExport(await owner(), ree.id))).toBe('not_found');
     /* An id that is not a uuid is "not found", never a database error. */
     expect(await code(video.videoStudio(userId, 'abc'))).toBe('not_found');
@@ -493,7 +512,7 @@ describeWithDb('video on public surfaces', () => {
   it('hides exported introductions and share links on unpublish while retaining owner access', async () => {
     const userId = await owner();
     const ree = await reeOf(userId);
-    await generateClassic(userId, ree.id);
+    await generate(userId, ree.id);
     const first = await video.startExport(userId, ree.id);
     if (first.cached) throw new Error('unexpected cache hit');
     upload(first.upload.pathname);
@@ -510,12 +529,12 @@ describeWithDb('video on public surfaces', () => {
     const userId = await owner();
     const shown = await reeOf(userId);
     const bare = await reeOf(userId);
-    await generateClassic(userId, shown.id);
+    await generate(userId, shown.id);
     const cards = await reeCards([shown.id, bare.id]);
-    expect(cards.find((card) => card.id === shown.id)!.video?.scenes.opening.name).toBe('Refund Helper');
+    expect(cards.find((card) => card.id === shown.id)!.video?.scenes.demo?.headline).toBe('Find your refund window');
     expect(cards.find((card) => card.id === bare.id)!.video).toBeNull();
     const hidden = await reeOf(userId, { isPublic: false });
-    await generateClassic(userId, hidden.id);
+    await generate(userId, hidden.id);
     expect((await video.introsFor([hidden.id])).get(hidden.id)!.ree.shareUrl).toBeNull();
   });
 });
