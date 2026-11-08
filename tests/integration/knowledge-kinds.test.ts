@@ -4,8 +4,9 @@
  *     are read with their token, and are cited by file and line;
  *   - a single page needs no claim; a website is refused until its domain is
  *     verified, by DNS TXT or by the well-known file, either one;
- *   - a 100 MB audio file is cut into pieces, transcribed with timestamps
- *     stitched across them, and a passage starting at 754 s cites "第 12:34".
+ *   - a 100 MB audio file is cut into ten-minute pieces, transcribed with
+ *     timestamps stitched across them, and a passage starting at 377 s cites
+ *     "第 6:17".
  * GitHub, the sites and DNS are stubbed; transcription and embeddings go to
  * the local fake endpoint.
  */
@@ -13,7 +14,7 @@ import { WELCOME_CREDITS } from '@/lib/constants';
 import { afterAll, beforeAll, describe, expect, it, vi } from 'vitest';
 import { pointModelsAt, TEST_DATABASE_URL, uniqueName } from './setup';
 import { asc, eq } from 'drizzle-orm';
-import { FAKE_AUDIO_BYTES_PER_SECOND, fakeMp3, startFakeOpenAi, type FakeOpenAi } from '../fixtures/fake-openai';
+import { FAKE_MP3_FRAME_SECONDS, FAKE_MP3_PIECE_FRAMES, fakeMp3, startFakeOpenAi, type FakeOpenAi } from '../fixtures/fake-openai';
 import { authorization, html, jsonResponse, startFakeWeb, text, type FakeWeb } from '../fixtures/fake-web';
 
 const blobs = vi.hoisted(() => new Map<string, Uint8Array>());
@@ -314,14 +315,14 @@ describeWithDb('pages and websites', () => {
 /* ------------------------------------------------------------------- audio */
 
 describeWithDb('audio', () => {
-  it('transcribes 100 MB in pieces and cites "第 12:34"', async () => {
+  it('transcribes 100 MB in pieces and cites "第 6:17"', async () => {
     const size = 100 * 1024 * 1024;
     const { userId, ree } = await userWithRee(20_000);
     const path = `knowledge/${userId}/a/interview.mp3`;
     blobs.set(path, fakeMp3(size));
     fake.transcripts.clear();
     const calls = fake.requests.filter((request) => request.path.endsWith('/audio/transcriptions')).length;
-    fake.transcripts.set('0:2', 'The lighthouse keeper records the tide tables at dawn.');
+    fake.transcripts.set('0:1', 'The lighthouse keeper records the tide tables at dawn.');
     fake.transcripts.set('1:1', 'The ferry timetable changes every winter.');
 
     expect(await refusal(knowledge.addKnowledge(userId, ree, { kind: 'audio', blobPath: path, fileName: 'interview.mp3', consent: false }))).toBe('consent_required');
@@ -332,22 +333,24 @@ describeWithDb('audio', () => {
 
     await knowledge.processKnowledge(id);
     const transcriptions = fake.requests.filter((request) => request.path.endsWith('/audio/transcriptions'));
-    expect(transcriptions.length - calls).toBe(5);
+    /* Ten-minute pieces: 100 MB at 128 kbps is eleven calls, none near the call's 120 s. */
+    expect(transcriptions.length - calls).toBe(Math.ceil(size / (FAKE_MP3_PIECE_FRAMES * 417)));
     expect(transcriptions.at(-1)?.model).toBe('fake-whisper');
 
     const detail = await knowledge.knowledgeDetail(ree.id, id);
     expect(detail?.status).toBe('ready');
     const lighthouse = detail!.children.find((child) => (detail!.content ?? '').slice(child.offset, child.offset + child.length).includes('lighthouse'));
-    expect(lighthouse?.time).toBe(754);
-    const firstPiece = Math.ceil((24 * 1024 * 1024 - 4096) / 417) * 417;
+    expect(lighthouse?.time).toBe(377);
+    /* The second piece starts where the first piece's frames end, not where the endpoint says it did. */
+    const firstPiece = FAKE_MP3_PIECE_FRAMES * FAKE_MP3_FRAME_SECONDS;
     const ferry = detail!.children.find((child) => (detail!.content ?? '').slice(child.offset, child.offset + child.length).includes('ferry'));
-    expect(ferry!.time!).toBeGreaterThan(firstPiece / FAKE_AUDIO_BYTES_PER_SECOND + 376);
-    expect(ferry!.time!).toBeLessThan(firstPiece / FAKE_AUDIO_BYTES_PER_SECOND + 378);
+    expect(ferry!.time!).toBeGreaterThan(firstPiece + 376);
+    expect(ferry!.time!).toBeLessThan(firstPiece + 378);
 
     const retrieval = await chat.retrieve(ree.id, 'When does the lighthouse keeper record the tide tables?');
-    expect(retrieval.passages[0]?.locator.time).toBe(754);
-    expect(locatorLabel(retrieval.passages[0]!.locator, 'zh')).toBe('第 12:34');
-    expect(locatorLabel(retrieval.passages[0]!.locator, 'en')).toBe('12:34');
+    expect(retrieval.passages[0]?.locator.time).toBe(377);
+    expect(locatorLabel(retrieval.passages[0]!.locator, 'zh')).toBe('第 6:17');
+    expect(locatorLabel(retrieval.passages[0]!.locator, 'en')).toBe('6:17');
 
     /* Sum each transcription piece’s provider cost and the embedding cost, then round once. */
     const charges = detail!.activity.filter((entry) => entry.code === 'provider_usage').map((entry) => JSON.parse(String(entry.detail!.charge)));

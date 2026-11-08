@@ -6,14 +6,23 @@
  * `@ai-sdk/openai-compatible` provider has no transcription model) that
  * posts to `audio/transcriptions` asking for segment timestamps.
  *
- * Endpoints take about 25 MB per call. A larger MP3 is cut at frame
- * boundaries and a larger WAV at sample boundaries (each piece with its own
- * header), and each piece's timestamps are shifted by the duration before
- * it. M4A cannot be cut without a demuxer, so it is sent whole; an endpoint
- * that refuses it fails the source, refunded.
+ * Endpoints take about 25 MB per call, and a call is given 120 s. MP3 is cut
+ * at frame boundaries and WAV at sample boundaries (each piece with its own
+ * header) into pieces of at most 24 MiB and ten minutes, transcribed in
+ * parallel; each piece's timestamps are shifted by the duration before it.
+ * M4A cannot be cut without a demuxer, so it is sent whole and must fit one
+ * call (24 MiB, 20 minutes); a longer one fails before any paid call.
  */
 import { createGateway, gateway, transcribe, type TranscriptionModel } from 'ai';
-import { TRANSCRIPTION_PIECE_BYTES } from '@/lib/constants';
+import {
+  AUDIO_MAX_SECONDS,
+  M4A_MAX_BYTES,
+  M4A_MAX_SECONDS,
+  TRANSCRIPTION_CALL_MIN_MS,
+  TRANSCRIPTION_MS_PER_AUDIO_SECOND,
+  TRANSCRIPTION_PIECE_BYTES,
+  TRANSCRIPTION_PIECE_SECONDS,
+} from '@/lib/constants';
 import { AUDIO_CONTENT_TYPES, type AudioFormat } from '@/lib/domain/knowledge';
 import { ProcessingFailure } from '@/lib/infra/connectors/failure';
 import { endpointFor, type ModelEndpoint } from '@/lib/infra/ai/models';
@@ -67,7 +76,7 @@ function compatibleTranscriptionModel(endpoint: ModelEndpoint): V4TranscriptionM
       });
       if (!response.ok) {
         await response.body?.cancel();
-        throw new ProcessingFailure('transcription_unavailable', `transcription endpoint answered ${response.status}`);
+        throw new ProcessingFailure('transcription_unavailable', `transcription endpoint answered ${response.status}`, response.status);
       }
       const body = (await response.json()) as VerboseTranscription;
       const segments = (body.segments ?? [])
@@ -120,7 +129,7 @@ export interface AudioPiece {
 /** The exact length of WAV audio from its header; undefined for other formats. */
 export function wavSeconds(audio: unknown): number | undefined {
   if (!(audio instanceof Uint8Array)) return undefined;
-  const pieces = wavPieces(audio, audio.length + 1024);
+  const pieces = wavPieces(audio, audio.length + 1024, Infinity);
   return pieces?.length ? pieces.reduce((sum, piece) => sum + (piece.seconds ?? 0), 0) : undefined;
 }
 
@@ -129,7 +138,7 @@ function ascii(bytes: Uint8Array, at: number, length: number): string {
 }
 
 /** WAV: the `fmt ` and `data` chunks found, the data cut on block boundaries, a fresh header on each piece. */
-function wavPieces(bytes: Uint8Array, limit: number): AudioPiece[] | null {
+function wavPieces(bytes: Uint8Array, limit: number, maxSeconds: number): AudioPiece[] | null {
   if (bytes.length < 44 || ascii(bytes, 0, 4) !== 'RIFF' || ascii(bytes, 8, 4) !== 'WAVE') return null;
   const view = new DataView(bytes.buffer, bytes.byteOffset, bytes.byteLength);
   let at = 12;
@@ -154,7 +163,9 @@ function wavPieces(bytes: Uint8Array, limit: number): AudioPiece[] | null {
     at += 8 + size + (size % 2);
   }
   if (!fmt || dataStart < 0 || byteRate <= 0) return null;
-  const per = Math.max(blockAlign, Math.floor((limit - 64 - fmt.length) / blockAlign) * blockAlign);
+  const perBytes = Math.floor((limit - 64 - fmt.length) / blockAlign) * blockAlign;
+  const perSeconds = Number.isFinite(maxSeconds) ? Math.floor((byteRate * maxSeconds) / blockAlign) * blockAlign : Infinity;
+  const per = Math.max(blockAlign, Math.min(perBytes, perSeconds));
   const pieces: AudioPiece[] = [];
   for (let offset = 0; offset < dataLength; offset += per) {
     const data = bytes.subarray(dataStart + offset, dataStart + Math.min(dataLength, offset + per));
@@ -174,64 +185,233 @@ function wavPieces(bytes: Uint8Array, limit: number): AudioPiece[] | null {
   return pieces;
 }
 
-/** The next MPEG audio frame header at or after `from` (sync word 0xFFE, valid version, layer, bitrate and rate). */
+/* Kilobits per second by bitrate index 1-14: MPEG-1 layers I, II, III; MPEG-2/2.5 layer I; MPEG-2/2.5 layers II and III. */
+const MPEG1_BITRATES = [
+  [32, 64, 96, 128, 160, 192, 224, 256, 288, 320, 352, 384, 416, 448],
+  [32, 48, 56, 64, 80, 96, 112, 128, 160, 192, 224, 256, 320, 384],
+  [32, 40, 48, 56, 64, 80, 96, 112, 128, 160, 192, 224, 256, 320],
+] as const;
+const MPEG2_BITRATES = [
+  [32, 48, 56, 64, 80, 96, 112, 128, 144, 160, 176, 192, 224, 256],
+  [8, 16, 24, 32, 40, 48, 56, 64, 80, 96, 112, 128, 144, 160],
+] as const;
+/** Sample rates by the header's version bits: 3 MPEG-1, 2 MPEG-2, 0 MPEG-2.5. */
+const MPEG_SAMPLE_RATES: Record<number, readonly number[]> = { 3: [44100, 48000, 32000], 2: [22050, 24000, 16000], 0: [11025, 12000, 8000] };
+
+/** The MPEG audio frame whose header starts at `at`: its length in bytes and in seconds, or null if none starts there. */
+function frameAt(bytes: Uint8Array, at: number): { length: number; seconds: number } | null {
+  if (at + 4 > bytes.length || bytes[at] !== 0xff || (bytes[at + 1]! & 0xe0) !== 0xe0) return null;
+  const version = (bytes[at + 1]! >> 3) & 0x03;
+  const layerBits = (bytes[at + 1]! >> 1) & 0x03;
+  const bitrateIndex = (bytes[at + 2]! >> 4) & 0x0f;
+  const rateIndex = (bytes[at + 2]! >> 2) & 0x03;
+  const padding = (bytes[at + 2]! >> 1) & 0x01;
+  if (version === 1 || layerBits === 0 || bitrateIndex === 0 || bitrateIndex === 0x0f || rateIndex === 0x03) return null;
+  const layer = 4 - layerBits;
+  const mpeg1 = version === 3;
+  const kbps = (mpeg1 ? MPEG1_BITRATES[layer - 1]! : MPEG2_BITRATES[layer === 1 ? 0 : 1]!)[bitrateIndex - 1]!;
+  const rate = MPEG_SAMPLE_RATES[version]![rateIndex]!;
+  const samples = layer === 1 ? 384 : layer === 3 && !mpeg1 ? 576 : 1152;
+  const length = layer === 1 ? (Math.floor((12 * kbps * 1000) / rate) + padding) * 4 : Math.floor(((samples / 8) * kbps * 1000) / rate) + padding;
+  return { length, seconds: samples / rate };
+}
+
+/** The next MPEG audio frame header at or after `from`. */
 function nextFrame(bytes: Uint8Array, from: number): number {
-  for (let at = from; at + 4 <= bytes.length; at += 1) {
-    if (bytes[at] !== 0xff || (bytes[at + 1]! & 0xe0) !== 0xe0) continue;
-    const version = (bytes[at + 1]! >> 3) & 0x03;
-    const layer = (bytes[at + 1]! >> 1) & 0x03;
-    const bitrate = (bytes[at + 2]! >> 4) & 0x0f;
-    const rate = (bytes[at + 2]! >> 2) & 0x03;
-    if (version !== 1 && layer !== 0 && bitrate !== 0 && bitrate !== 0x0f && rate !== 0x03) return at;
-  }
+  for (let at = from; at + 4 <= bytes.length; at += 1) if (frameAt(bytes, at)) return at;
   return bytes.length;
 }
 
-function mp3Pieces(bytes: Uint8Array, limit: number): AudioPiece[] {
+/** Where the audio starts: after an ID3v2 tag, whose cover art could otherwise pass for frame headers. */
+function id3v2End(bytes: Uint8Array): number {
+  if (bytes.length < 10 || ascii(bytes, 0, 3) !== 'ID3') return 0;
+  const size = ((bytes[6]! & 0x7f) << 21) | ((bytes[7]! & 0x7f) << 14) | ((bytes[8]! & 0x7f) << 7) | (bytes[9]! & 0x7f);
+  const footer = bytes[5]! & 0x10 ? 10 : 0;
+  return Math.min(bytes.length, 10 + size + footer);
+}
+
+/**
+ * MP3: walked frame by frame (constant or variable bitrate alike), cut before
+ * the frame that would take a piece over `limit` bytes or `maxSeconds`. Each
+ * piece knows its exact length, so timestamps stitch without trusting the
+ * endpoint's reported duration.
+ */
+function mp3Pieces(bytes: Uint8Array, limit: number, maxSeconds: number): AudioPiece[] {
   const pieces: AudioPiece[] = [];
   let start = 0;
-  while (start < bytes.length) {
-    const end = start + limit >= bytes.length ? bytes.length : nextFrame(bytes, start + limit - 4096);
-    pieces.push({ bytes: bytes.subarray(start, end), seconds: null });
-    start = end;
+  let seconds = 0;
+  let frames = 0;
+  let at = nextFrame(bytes, id3v2End(bytes));
+  while (at < bytes.length) {
+    const frame = frameAt(bytes, at);
+    if (!frame) {
+      at = nextFrame(bytes, at + 1);
+      continue;
+    }
+    if (at > start && seconds > 0 && (at + frame.length - start > limit || seconds + frame.seconds > maxSeconds)) {
+      pieces.push({ bytes: bytes.subarray(start, at), seconds });
+      start = at;
+      seconds = 0;
+    }
+    seconds += frame.seconds;
+    frames += 1;
+    at += frame.length;
   }
+  if (frames === 0) return bytes.length <= limit ? [{ bytes, seconds: null }] : byteCutPieces(bytes, limit);
+  pieces.push({ bytes: bytes.subarray(start), seconds });
   return pieces;
 }
 
-/** The audio in pieces an endpoint accepts in one call. */
-export function audioPieces(bytes: Uint8Array, format: AudioFormat, limit = TRANSCRIPTION_PIECE_BYTES): AudioPiece[] {
-  if (bytes.length <= limit) return [{ bytes, seconds: null }];
-  if (format === 'wav') return wavPieces(bytes, limit) ?? [{ bytes, seconds: null }];
-  if (format === 'mp3') return mp3Pieces(bytes, limit);
-  return [{ bytes, seconds: null }];
+/** Bytes with no frame header found: cut at `limit`, length unknown. */
+function byteCutPieces(bytes: Uint8Array, limit: number): AudioPiece[] {
+  const pieces: AudioPiece[] = [];
+  for (let start = 0; start < bytes.length; start += limit) pieces.push({ bytes: bytes.subarray(start, start + limit), seconds: null });
+  return pieces;
+}
+
+/**
+ * The audio in pieces an endpoint accepts and answers in one call: at most
+ * `limit` bytes and `maxSeconds` long. M4A is never cut (`checkM4a` keeps it
+ * within one call).
+ */
+export function audioPieces(bytes: Uint8Array, format: AudioFormat, limit = TRANSCRIPTION_PIECE_BYTES, maxSeconds = TRANSCRIPTION_PIECE_SECONDS): AudioPiece[] {
+  if (format === 'wav') return wavPieces(bytes, limit, maxSeconds) ?? [{ bytes, seconds: null }];
+  if (format === 'mp3') return mp3Pieces(bytes, limit, maxSeconds);
+  return [{ bytes, seconds: m4aSeconds(bytes) }];
+}
+
+/* -------------------------------------------------------------------- m4a */
+
+/** The length of MP4/M4A audio from its `moov/mvhd` box, or null when it cannot be read. */
+export function m4aSeconds(bytes: Uint8Array): number | null {
+  const view = new DataView(bytes.buffer, bytes.byteOffset, bytes.byteLength);
+  const findBox = (type: string, from: number, to: number): { start: number; end: number } | null => {
+    for (let at = from; at + 8 <= to; ) {
+      let size = view.getUint32(at);
+      let header = 8;
+      if (size === 1) {
+        if (at + 16 > to) return null;
+        size = Number(view.getBigUint64(at + 8));
+        header = 16;
+      } else if (size === 0) {
+        size = to - at;
+      }
+      if (size < header) return null;
+      if (ascii(bytes, at + 4, 4) === type) return { start: at + header, end: Math.min(to, at + size) };
+      at += size;
+    }
+    return null;
+  };
+  const moov = findBox('moov', 0, bytes.length);
+  const mvhd = moov && findBox('mvhd', moov.start, moov.end);
+  if (!mvhd || mvhd.start + 32 > mvhd.end) return null;
+  const version = bytes[mvhd.start]!;
+  const timescale = view.getUint32(mvhd.start + (version === 1 ? 20 : 12));
+  const duration = version === 1 ? Number(view.getBigUint64(mvhd.start + 24)) : view.getUint32(mvhd.start + 16);
+  return timescale > 0 ? duration / timescale : null;
+}
+
+/** M4A goes to the endpoint in one call, so it must fit one: refused before any paid call when it is too large or too long. */
+function checkM4a(bytes: Uint8Array): void {
+  const seconds = m4aSeconds(bytes);
+  if (bytes.length > M4A_MAX_BYTES || (seconds !== null && seconds > M4A_MAX_SECONDS)) {
+    throw new ProcessingFailure('m4a_too_long', `m4a of ${bytes.length} bytes and ${seconds ?? '?'} s is over one call`);
+  }
 }
 
 /* -------------------------------------------------------------- transcribe */
 
-/** Pieces transcribed at once: a 100 MB file is five calls, and they must fit the function's time. */
-const PARALLEL_PIECES = 3;
+/**
+ * Pieces transcribed at once. A 100 MB MP3 at 128 kbps is eleven ten-minute
+ * pieces of about 45 s each: two rounds, well inside the function's 300 s.
+ */
+const PARALLEL_PIECES = 6;
+
+/** How long one call may take for this much audio (unknown length: the floor). */
+export function callTimeoutMs(endpointTimeoutMs: number, seconds: number | null): number {
+  return Math.max(endpointTimeoutMs, TRANSCRIPTION_CALL_MIN_MS, Math.ceil((seconds ?? 0) * TRANSCRIPTION_MS_PER_AUDIO_SECOND));
+}
+
+/** The HTTP status somewhere in an error's chain (AI SDK retry and gateway errors wrap the provider's). */
+function statusOf(error: unknown, depth = 0): number | undefined {
+  if (!error || typeof error !== 'object' || depth > 4) return undefined;
+  const record = error as { httpStatus?: unknown; statusCode?: unknown; status?: unknown; lastError?: unknown; cause?: unknown };
+  for (const value of [record.httpStatus, record.statusCode, record.status]) if (typeof value === 'number') return value;
+  return statusOf(record.lastError, depth + 1) ?? statusOf(record.cause, depth + 1);
+}
+
+/**
+ * What the owner is told when a call fails: out of time (retry, or cut the
+ * audio shorter), the audio itself refused (corrupt or not really that
+ * format), or the service unavailable.
+ */
+export function transcriptionFailure(error: unknown, timedOut: boolean): ProcessingFailure {
+  const message = error instanceof Error ? error.message : 'transcription failed';
+  if (timedOut) return new ProcessingFailure('transcription_timeout', message);
+  const status = statusOf(error);
+  if (status === 400 || status === 413 || status === 415 || status === 422) return new ProcessingFailure('audio_rejected', message, status);
+  return new ProcessingFailure('transcription_unavailable', message, status);
+}
+
+/** Lower-cased words, or single CJK characters, with where each ends in the text. */
+function overlapTokens(text: string): { token: string; end: number }[] {
+  const tokens: { token: string; end: number }[] = [];
+  for (const match of text.matchAll(/[\p{Script=Han}\p{Script=Hiragana}\p{Script=Katakana}\p{Script=Hangul}]|(?:(?![\p{Script=Han}\p{Script=Hiragana}\p{Script=Katakana}\p{Script=Hangul}])[\p{L}\p{N}'])+/gu)) {
+    tokens.push({ token: match[0].toLowerCase(), end: match.index + match[0].length });
+  }
+  return tokens;
+}
+
+/** Tokens compared at a seam: enough for a cut-off sentence the endpoint finished on both sides. */
+const SEAM_TOKENS = 40;
+
+/**
+ * Pieces are cut without overlap, so the endpoint often finishes the word or
+ * sentence cut at the end of one piece and hears it again at the start of the
+ * next. Drops from `next` the longest start that repeats the end of
+ * `previous`, word for word (character for character in CJK).
+ */
+export function trimSeam(previous: string, next: string): string {
+  const tail = overlapTokens(previous).slice(-SEAM_TOKENS).map((item) => item.token);
+  const head = overlapTokens(next).slice(0, SEAM_TOKENS);
+  for (let size = Math.min(tail.length, head.length); size > 0; size -= 1) {
+    let same = true;
+    for (let k = 0; k < size && same; k += 1) same = tail[tail.length - size + k] === head[k]!.token;
+    if (same) return next.slice(head[size - 1]!.end).replace(/^[\s\p{P}]+/u, '');
+  }
+  return next;
+}
 
 export async function transcribeAudio(bytes: Uint8Array, format: AudioFormat): Promise<Transcript> {
+  if (format === 'm4a') checkM4a(bytes);
+  const pieces = audioPieces(bytes, format);
+  /* Refused before any paid call: longer audio cannot be transcribed within one function run. */
+  const known = pieces.every((piece) => piece.seconds !== null) ? pieces.reduce((sum, piece) => sum + piece.seconds!, 0) : null;
+  if (known !== null && known > AUDIO_MAX_SECONDS) {
+    throw new ProcessingFailure('audio_too_long', `${Math.round(known)} s of audio is over ${AUDIO_MAX_SECONDS} s`);
+  }
   const endpoint = await endpointFor('transcription');
   const model = transcriptionModel(endpoint);
-  const pieces = audioPieces(bytes, format);
   const results: Awaited<ReturnType<typeof transcribe>>[] = new Array(pieces.length);
   let next = 0;
   /* One piece failing fails the source; the others stop rather than pay for transcripts nobody keeps. */
   const stop = new AbortController();
   const worker = async (): Promise<void> => {
     for (let index = next++; index < pieces.length && !stop.signal.aborted; index = next++) {
+      const timeout = AbortSignal.timeout(callTimeoutMs(endpoint.timeoutMs, pieces[index]!.seconds));
       try {
         results[index] = await transcribe({
           model,
           audio: pieces[index]!.bytes,
           maxRetries: 2,
-          abortSignal: AbortSignal.any([stop.signal, AbortSignal.timeout(Math.max(endpoint.timeoutMs, 120_000))]),
+          abortSignal: AbortSignal.any([stop.signal, timeout]),
         });
       } catch (error) {
+        const stopped = stop.signal.aborted;
         stop.abort();
-        if (error instanceof ProcessingFailure || error instanceof ProviderCostUnavailable || error instanceof InsufficientCredits) throw error;
-        throw new ProcessingFailure('transcription_unavailable', error instanceof Error ? error.message : 'transcription failed');
+        if (error instanceof ProviderCostUnavailable || error instanceof InsufficientCredits) throw error;
+        if (error instanceof ProcessingFailure && error.code !== 'transcription_unavailable') throw error;
+        throw transcriptionFailure(error, timeout.aborted && !stopped);
       }
     }
   };
@@ -247,13 +427,12 @@ export async function transcribeAudio(bytes: Uint8Array, format: AudioFormat): P
   pieces.forEach((piece, index) => {
     const result = results[index]!;
     language ??= result.language ?? null;
-    for (const segment of result.segments) {
-      const text = segment.text.trim();
-      if (text) segments.push({ start: offset + segment.startSecond, end: offset + segment.endSecond, text });
-    }
-    if (result.segments.length === 0 && result.text.trim()) {
-      segments.push({ start: offset, end: offset + (result.durationInSeconds ?? 0), text: result.text.trim() });
-    }
+    const own: TranscriptSegment[] = result.segments.map((segment) => ({ start: offset + segment.startSecond, end: offset + segment.endSecond, text: segment.text.trim() }));
+    if (own.length === 0 && result.text.trim()) own.push({ start: offset, end: offset + (result.durationInSeconds ?? 0), text: result.text.trim() });
+    /* The seam: what the previous piece already said is not said twice. */
+    const first = own.findIndex((segment) => segment.text);
+    if (index > 0 && first >= 0 && segments.length > 0) own[first]!.text = trimSeam(segments.at(-1)!.text, own[first]!.text);
+    for (const segment of own) if (segment.text) segments.push(segment);
     offset += piece.seconds ?? result.durationInSeconds ?? result.segments.at(-1)?.endSecond ?? 0;
   });
   recordModelCall({ kind: 'transcription', model: endpoint.model, configId: endpoint.configId, seconds: offset });

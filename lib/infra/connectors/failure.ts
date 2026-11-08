@@ -16,6 +16,10 @@ export type ProcessingFailureCode =
   | 'github_repo_not_found'
   | 'domain_unverified'
   | 'transcription_unavailable'
+  | 'm4a_too_long'
+  | 'audio_too_long'
+  | 'audio_rejected'
+  | 'transcription_timeout'
   | 'simulated';
 
 export class ProcessingFailure extends Error {

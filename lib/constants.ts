@@ -124,6 +124,33 @@ export const AUDIO_EXTENSIONS = ['mp3', 'm4a', 'wav'] as const;
  * pieces this size and the timestamps stitched back together.
  */
 export const TRANSCRIPTION_PIECE_BYTES = 24 * 1024 * 1024;
+/**
+ * The longest piece, too: Whisper takes about 4.5 s per minute of audio and a
+ * call is given 120 s, so ten minutes answers in under a minute. Without it a
+ * 24 MB piece of 64 kbps audio (52 minutes) always ran out of time.
+ */
+export const TRANSCRIPTION_PIECE_SECONDS = 10 * 60;
+/**
+ * M4A cannot be cut without a demuxer, so it is one call: the endpoint's size
+ * and a length that still answers inside the call's 120 s. Longer recordings
+ * are asked for as MP3 or WAV.
+ */
+export const M4A_MAX_BYTES = TRANSCRIPTION_PIECE_BYTES;
+export const M4A_MAX_SECONDS = 20 * 60;
+/**
+ * The longest audio source: eighteen ten-minute pieces, three rounds of six
+ * calls of about 50 s, so transcription, embedding and storing finish inside
+ * the function's 300 s. A 100 MB file at a low bitrate (32 kbps is seven
+ * hours) would not.
+ */
+export const AUDIO_MAX_SECONDS = 3 * 60 * 60;
+/**
+ * A transcription call's time: at least 120 s, and twice what Whisper
+ * usually takes for the audio (about 4.5 s a minute), so a twenty-minute M4A
+ * gets 180 s rather than running close to the edge.
+ */
+export const TRANSCRIPTION_CALL_MIN_MS = 120_000;
+export const TRANSCRIPTION_MS_PER_AUDIO_SECOND = 150;
 export const TEXT_SOURCE_LIMITS = { title: 100, content: 30_000 } as const;
 export const KNOWLEDGE_TITLE_MAX = 200;
 export const KNOWLEDGE_URL_MAX = 2_048;

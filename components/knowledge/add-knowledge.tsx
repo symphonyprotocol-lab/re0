@@ -1,11 +1,12 @@
 'use client';
 
 import { WorkspaceLink as Link } from '@/components/shell/workspace-link';
-import { useEffect, useState } from 'react';
-import { KNOWLEDGE_URL_MAX } from '@/lib/constants';
-import { holdFor, ADD_KNOWLEDGE_KINDS, validAudio, validDocument, type AddKnowledgeKind } from '@/lib/domain/knowledge';
+import { useEffect, useRef, useState } from 'react';
+import { AUDIO_MAX_SECONDS, KNOWLEDGE_URL_MAX, M4A_MAX_SECONDS } from '@/lib/constants';
+import { holdFor, ADD_KNOWLEDGE_KINDS, audioFormat, audioProblem, validDocument, type AddKnowledgeKind } from '@/lib/domain/knowledge';
 import { parseGithubRepo, parseWebUrl } from '@/lib/domain/sources';
 import { api, uploadToBlob } from '@/lib/client/upload';
+import { audioFileSeconds } from '@/lib/client/audio';
 import { useI18n } from '@/i18n/client';
 import { fill, formatBytes, formatNumber } from '@/i18n/format';
 import { Icon } from '@/components/ui/icons';
@@ -68,6 +69,13 @@ export function AddKnowledgeModal({
   const [busy, setBusy] = useState(false);
   const [progress, setProgress] = useState<number | null>(null);
   const [dragging, setDragging] = useState(false);
+  /* Bumped by every pick, reset and kind change: an audio length read late is dropped. */
+  const picking = useRef(0);
+  /* The error sits below the cost note; bring it into view in the scrolling dialog. */
+  const errorRef = useRef<HTMLParagraphElement>(null);
+  useEffect(() => {
+    if (error) errorRef.current?.scrollIntoView({ block: 'nearest', behavior: 'smooth' });
+  }, [error]);
   const [githubStatus, setGithubStatus] = useState<'checking' | 'connected' | 'disconnected' | 'unavailable'>('checking');
   const [githubAccessUrl, setGithubAccessUrl] = useState('');
   useEffect(() => {
@@ -105,6 +113,7 @@ export function AddKnowledgeModal({
   }, [open, kind, domains]);
 
   const reset = () => {
+    picking.current += 1;
     setFile(null);
     setConsent(false);
     setUrl('');
@@ -120,6 +129,7 @@ export function AddKnowledgeModal({
   };
   const choose = (next: AddKnowledgeKind) => {
     if (next !== kind) setGithubStatus('checking');
+    picking.current += 1;
     setKind(next);
     setFile(null);
     setError(null);
@@ -128,13 +138,21 @@ export function AddKnowledgeModal({
   const fileKind = kind === 'document' || kind === 'audio';
   const urlKind = kind === 'github' || kind === 'page' || kind === 'site';
   const githubBlocked = kind === 'github' && githubStatus !== 'connected';
-  const valid = kind === 'audio' ? validAudio : validDocument;
-
-  const pick = (picked: File | undefined) => {
+  const pick = async (picked: File | undefined) => {
     if (!picked) return;
-    const ok = valid(picked.name, picked.size);
-    setError(ok ? null : { text: t.knowledge.errors[kind === 'audio' ? 'invalid_audio' : 'invalid_document'] });
-    setFile(ok ? picked : null);
+    const ticket = ++picking.current;
+    let problem: 'invalid_document' | 'invalid_audio' | 'm4a_too_long' | 'audio_too_long' | null =
+      kind === 'audio' ? audioProblem(picked.name, picked.size) : validDocument(picked.name, picked.size) ? null : 'invalid_document';
+    /* Length limits are refused here rather than after the upload: M4A is one call, any audio at most three hours. */
+    if (!problem && kind === 'audio') {
+      setFile(null);
+      const seconds = await audioFileSeconds(picked);
+      if (ticket !== picking.current) return;
+      if (seconds !== null && audioFormat(picked.name) === 'm4a' && seconds > M4A_MAX_SECONDS) problem = 'm4a_too_long';
+      else if (seconds !== null && seconds > AUDIO_MAX_SECONDS) problem = 'audio_too_long';
+    }
+    setError(problem ? { text: t.knowledge.errors[problem], code: problem } : null);
+    setFile(problem ? null : picked);
   };
 
   const submit = async () => {
@@ -150,7 +168,8 @@ export function AddKnowledgeModal({
       setProgress(null);
       if ('error' in uploaded) {
         setBusy(false);
-        return setError({ text: t.reeSetup.messages.upload });
+        const code = uploaded.error;
+        return setError(code in t.knowledge.errors ? { text: errorText(t, code), code } : { text: t.reeSetup.messages.upload });
       }
       body = { kind, blobPath: uploaded.pathname, fileName: file.name, consent };
     } else if (urlKind) {
@@ -225,7 +244,7 @@ export function AddKnowledgeModal({
                 onDrop={(event) => {
                   event.preventDefault();
                   setDragging(false);
-                  pick(event.dataTransfer.files?.[0]);
+                  void pick(event.dataTransfer.files?.[0]);
                 }}
               >
                 <Icon name={kind === 'audio' ? 'audio' : 'upload'} />
@@ -235,7 +254,7 @@ export function AddKnowledgeModal({
                   type="file"
                   accept={kind === 'audio' ? '.mp3,.m4a,.wav' : '.pdf,.docx,.md,.txt'}
                   onChange={(event) => {
-                    pick(event.target.files?.[0]);
+                    void pick(event.target.files?.[0]);
                     event.target.value = '';
                   }}
                 />
@@ -303,7 +322,7 @@ export function AddKnowledgeModal({
           </>
         )}
         {error && (
-          <p role="alert" className="form-error">
+          <p ref={errorRef} role="alert" className="form-error">
             {error.text} <FixLink code={error.code} />
           </p>
         )}
