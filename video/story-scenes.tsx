@@ -73,10 +73,6 @@ export function ManualScene({ story, accent, beats }: SceneProps<ManualStory>) {
           <BeatLabel index={1} text={story.steps[1]} color={accent} />
           <strong style={{ display: 'block', marginTop: 14, fontSize: 26, lineHeight: 1.18, ...clip }}>{story.operation.title}</strong>
           <p style={{ margin: '10px 0 0', fontSize: 20, lineHeight: 1.38, color: muted, ...clip }}>{story.operation.detail}</p>
-          <div style={{ marginTop: 16, display: 'inline-flex', alignItems: 'center', gap: 8, padding: '8px 14px', borderRadius: 10, background: mix(accent, '#ffffff', .12 + .88 * beats.through[1]), color: beats.through[1] > .5 ? '#ffffff' : accent, fontSize: 17, fontWeight: 700 }}>
-            <Glyph name="arrow" color={beats.through[1] > .5 ? '#ffffff' : accent} size={18} style={{ translate: `${6 * beats.enter[1]}px` }} />
-            {story.steps[1]}
-          </div>
         </div>
         <div style={{ ...panel(2), background: amber.paper, border: `1.5px solid ${beats.active === 3 ? amber.ink : amber.line}`, color: amber.ink }}>
           <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
@@ -187,7 +183,7 @@ export function ArticleScene({ story, accent, beats }: SceneProps<ArticleStory>)
 
       <div style={{ position: 'absolute', top: 336, left: 64, width: 336, ...card, ...rise(beats.enter[1]), borderTop: `4px solid ${accent}` }}>
         <BeatLabel index={1} text={story.steps[1]} color={accent} />
-        <div style={{ marginTop: 8, fontFamily: SERIF, fontSize: 60, lineHeight: 1.05, fontWeight: 700, color: accent, ...clip }}>{story.evidence.figure}</div>
+        <div style={{ marginTop: 8, fontFamily: SERIF, fontSize: story.evidence.figure.length > 7 ? 40 : 60, lineHeight: 1.05, fontWeight: 700, color: accent, ...clip }}>{story.evidence.figure}</div>
         <p style={{ margin: '8px 0 0', fontSize: 18, lineHeight: 1.35, color: muted, ...clip }}>{story.evidence.text}</p>
       </div>
       <div style={{ position: 'absolute', top: 336, left: 424, width: 372, ...card, ...rise(beats.enter[2]), background: mix(accent, '#ffffff', .07) }}>
