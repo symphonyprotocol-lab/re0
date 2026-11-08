@@ -154,7 +154,7 @@ export function CheckLine({ check, cost }: { check: ReeCheck | null; cost?: stri
     return (
       <p className="check-line" role="status">
         <I name="shield" />
-        {c.none}
+        {check.cost > 0 ? c.none : c.noneRefunded}
       </p>
     );
   }

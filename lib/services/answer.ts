@@ -37,6 +37,7 @@ import {
   citationSnapshots,
   instructionsFor,
   questionWithPassages,
+  reasonLanguage,
   sentinelState,
   splitSentences,
   type Passage,
@@ -219,7 +220,7 @@ export async function answer(input: {
       const { output } = await generateText({
         model: generation.model,
         output: Output.object({ schema: CHECK_SCHEMA }),
-        instructions: checkInstructions(input.lang),
+        instructions: checkInstructions(reasonLanguage(text, input.lang)),
         prompt: checkPrompt(sentences, passages),
         maxOutputTokens: CHECK_OUTPUT_TOKENS,
         temperature: 0,

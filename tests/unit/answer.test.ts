@@ -2,11 +2,13 @@ import { describe, expect, it } from 'vitest';
 import {
   checkPrompt,
   checkResults,
+  checkInstructions,
   checkSummary,
   citationSnapshots,
   citedIndexes,
   locatorLabel,
   questionWithPassages,
+  reasonLanguage,
   sentinelState,
   splitSentences,
   type Passage,
@@ -141,6 +143,14 @@ describe('answer checks (回答核验)', () => {
     expect(judged).toBe(3);
     expect(checks[1]).toMatchObject({ start: sentences[2]!.start, end: sentences[2]!.end });
     expect(checkResults(sentences, null, 80)).toEqual({ checks: [], judged: 0 });
+  });
+
+  it('writes reasons in the language of the answer, not of the instructions', () => {
+    expect(reasonLanguage('设计令牌按照 color-text-primary 命名 [1]。', 'en')).toBe('zh');
+    expect(reasonLanguage('Refunds take 14 days [1].', 'zh')).toBe('en');
+    expect(reasonLanguage('[1] 42.', 'zh')).toBe('zh');
+    expect(checkInstructions('zh')).toContain('written in Simplified Chinese');
+    expect(checkInstructions('en')).toContain('written in English');
   });
 
   it('sums up a check', () => {
