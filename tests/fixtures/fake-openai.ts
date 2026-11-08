@@ -7,6 +7,11 @@
  * size at 128 kbps, with a segment every 377 seconds (so the third starts at
  * 12:34); `transcripts` sets the text of particular segments, keyed
  * `piece:segment` (a `fakeMp3` piece's own index, else the call's number).
+ *
+ * A question with `MIXED` gets an answer with a supported, an unsupported
+ * (`UNSUPPORTED`) and an uncited sentence and a closing pleasantry. A check
+ * request (回答核验) gets a verdict per sentence -- and one for a sentence
+ * that does not exist -- or a server error while `checks.fail` is set.
  */
 import { createServer, type Server } from 'node:http';
 import { searchTerms } from '@/lib/domain/retrieval';
@@ -17,6 +22,8 @@ export interface FakeOpenAi {
   requests: { path: string; model: string }[];
   /** Text for transcript segments, keyed `piece:segment` (both from 0). */
   transcripts: Map<string, string>;
+  /** `fail`: answer check requests with a server error. */
+  checks: { fail: boolean };
   close(): Promise<void>;
 }
 
@@ -107,11 +114,30 @@ function storyboard(system: string): Record<string, unknown> {
   };
 }
 
+/** Verdicts for a check request: by the markers in each sentence, plus one for an id that was never asked about. */
+function checkVerdicts(prompt: string): Record<string, unknown> {
+  const listed = /Sentences:\n(\[.*\])\s*$/s.exec(prompt)?.[1];
+  const sentences = (listed ? JSON.parse(listed) : []) as { id: number; text: string; cites: number[] }[];
+  return {
+    sentences: [
+      ...sentences.map((sentence) =>
+        sentence.cites.length
+          ? sentence.text.includes('UNSUPPORTED')
+            ? { id: sentence.id, verdict: 'unsupported', reason: 'The passage does not mention store credit.' }
+            : { id: sentence.id, verdict: 'supported', reason: 'Passage 1 states the refund method and timing.' }
+          : { id: sentence.id, verdict: sentence.text.startsWith('Hope') ? 'not_claim' : 'claim', reason: '' },
+      ),
+      { id: 999, verdict: 'supported', reason: 'Not a sentence that was asked about.' },
+    ],
+  };
+}
+
 /** `delayMs` spaces the streamed pieces out, so answers streamed side by side visibly interleave. */
 export async function startFakeOpenAi(port = 0, options: { delayMs?: number } = {}): Promise<FakeOpenAi> {
   const requests: FakeOpenAi['requests'] = [];
   const billing = { embeddingTokens: 1000, omitEmbeddingUsage: false };
   const transcripts = new Map<string, string>();
+  const checks = { fail: false };
   let transcriptionCalls = 0;
   const server: Server = createServer(async (req, res) => {
     const parts: Buffer[] = [];
@@ -146,7 +172,14 @@ export async function startFakeOpenAi(port = 0, options: { delayMs?: number } = 
       const last = body.messages?.at(-1);
       const question = typeof last?.content === 'string' ? last.content : JSON.stringify(last?.content ?? '');
       const system = JSON.stringify(body.messages?.[0]?.content ?? '');
-      const text = system.includes('Suggest three example questions')
+      if (system.includes('You check an answer against the knowledge passages') && checks.fail) {
+        res.writeHead(500, { 'content-type': 'application/json' });
+        res.end(JSON.stringify({ error: { message: 'check failed', type: 'server_error' } }));
+        return;
+      }
+      const text = system.includes('You check an answer against the knowledge passages')
+        ? JSON.stringify(checkVerdicts(typeof last?.content === 'string' ? last.content : ((last?.content ?? []) as { text?: string }[]).map((part) => part.text ?? '').join('')))
+        : system.includes('Suggest three example questions')
         ? 'When are refunds issued?\nHow long does a refund take?\nWhere does the refund go?'
         : system.includes('continuous 15-second English product demonstration')
           ? JSON.stringify(demoStoryboard(question, system))
@@ -154,6 +187,8 @@ export async function startFakeOpenAi(port = 0, options: { delayMs?: number } = 
           ? JSON.stringify(storyboard(system))
           : question.includes('DECLINE')
           ? '[[NO_ANSWER]]'
+          : question.includes('MIXED')
+          ? 'Refunds are issued to the original payment method within 14 days [1]. Store credit is offered on request UNSUPPORTED [1]. Refunds are always quick. Hope this helps!'
           : 'Refunds are issued to the original payment method within 14 days [1].';
       const pieces = text.match(/.{1,12}/gs) ?? [text];
       const id = 'chatcmpl-test';
@@ -180,6 +215,7 @@ export async function startFakeOpenAi(port = 0, options: { delayMs?: number } = 
     billing,
     requests,
     transcripts,
+    checks,
     close: () => new Promise((resolve) => server.close(() => resolve())),
   };
 }

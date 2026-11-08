@@ -1,13 +1,13 @@
 'use client';
 
 import { forwardRef, useEffect, useImperativeHandle, useRef, useState } from 'react';
-import { QUESTION_MAX_CHARS } from '@/lib/constants';
+import { QUESTION_MAX_CHARS, VERIFY_ENABLED, VERIFY_FEE } from '@/lib/constants';
 import { completeMention, mentionQuery, questionTargets } from '@/lib/domain/conversation';
 import { useI18n } from '@/i18n/client';
 import { formatNumber } from '@/i18n/format';
 import { useToast } from '@/components/ui/toast';
 import { RoleBadge } from '@/components/discover/role-badge';
-import { Avatar, I } from '@/components/chat/message-parts';
+import { Avatar, CheckToggle, I } from '@/components/chat/message-parts';
 import { ParticipantPicker, type Member } from '@/components/conversations/participant-picker';
 
 export interface ComposerHandle {
@@ -19,14 +19,18 @@ export interface ComposerHandle {
 /**
  * The input under a conversation (prototype chat-room.js `composer`): the
  * question, the "who answers" control beside it, the `@` menu of
- * participants, and "最多 N credits" for exactly the Rees this question
- * would go to. A question whose `@` names nobody here cannot be sent.
+ * participants, "核对引用" for this question, and "最多 N credits" for
+ * exactly the Rees this question would go to, their check fees included. A
+ * question whose `@` names nobody here cannot be sent.
  */
 export const Composer = forwardRef<
   ComposerHandle,
   {
     members: Member[];
     scope: string | null;
+    /** "核对引用" for the next question. */
+    verify: boolean;
+    onVerify: (on: boolean) => void;
     draft: boolean;
     busy: boolean;
     viewerId: string;
@@ -37,7 +41,7 @@ export const Composer = forwardRef<
     onInput?: (text: string) => void;
     autoFocus?: boolean;
   }
->(function Composer({ members, scope, draft, busy, viewerId, onScope, onParticipants, onSend, onInput, autoFocus }, ref) {
+>(function Composer({ members, scope, verify, onVerify, draft, busy, viewerId, onScope, onParticipants, onSend, onInput, autoFocus }, ref) {
   const { t, locale } = useI18n();
   const r = t.conversations.room;
   const toast = useToast();
@@ -82,7 +86,8 @@ export const Composer = forwardRef<
   }, [input]);
 
   const targets = questionTargets(members, input, scope);
-  const cost = targets.reduce((sum, member) => sum + member.price, 0);
+  const checking = VERIFY_ENABLED && verify;
+  const cost = targets.reduce((sum, member) => sum + member.price + (checking ? VERIFY_FEE : 0), 0);
   const typing = mentionQuery(input);
   const mentions = typing !== null && !menuClosed && members.length > 1 ? members.filter((member) => member.name.toLocaleLowerCase().includes(typing.toLocaleLowerCase())) : [];
   const selected = members.find((member) => member.id === scope) ?? (members.length === 1 ? members[0] : null);
@@ -221,6 +226,7 @@ export const Composer = forwardRef<
               {selected && <RoleBadge role={selected.role} />}
               <I name="chevronDown" />
             </button>
+            {VERIFY_ENABLED && <CheckToggle on={verify} onChange={onVerify} disabled={busy} fee={VERIFY_FEE} />}
           </div>
           <button type="submit" className="btn room-send" aria-label={r.send} disabled={busy || !input.trim() || targets.length === 0}>
             {busy ? <i className="spinner" /> : <I name="send" />}

@@ -40,6 +40,8 @@ export const conversationApi = {
 export interface PendingQuestion {
   question: string;
   scope: string | null;
+  /** "核对引用" as it was set on `/talk`. */
+  verify?: boolean;
 }
 
 const pendingKey = (id: string) => `re0:pending:${id}`;

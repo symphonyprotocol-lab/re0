@@ -157,6 +157,7 @@ export function OwnerReeStatistics({
         <OwnerPager t={t} locale={locale} page={list?.page ?? 1} size={query.size} total={total} href={(page) => href({ page })} />
       </section>
 
+      {data.checks.answers > 0 && <CheckFigures t={t} locale={locale} checks={data.checks} />}
       {(data.share.shareable || data.share.visits > 0 || data.share.conversations > 0) && <ShareFigures t={t} locale={locale} share={data.share} />}
     </OwnerPage>
   );
@@ -172,6 +173,45 @@ function Metric({ href, icon, label, value, note }: { href: string; icon: StatIc
       <strong className="mono">{value}</strong>
       <small>{note}</small>
     </Link>
+  );
+}
+
+/**
+ * 回答核验 for the same period: how many answers were checked, and how
+ * often a cited sentence lacked support or a statement cited nothing --
+ * where the owner's knowledge needs filling in. Shown once anything was
+ * checked; never on the public page.
+ */
+function CheckFigures({ t, locale, checks }: { t: Messages; locale: Locale; checks: ReeStatistics['checks'] }) {
+  const s = t.statistics.checks;
+  const n = (value: number) => formatNumber(value, locale);
+  const rate = (part: number, whole: number) => (whole > 0 ? `${Math.round((part / whole) * 100)}%` : s.noRate);
+  const sentences = checks.cited + checks.uncited;
+  const cards: { icon: IconName; label: string; value: string; note: string }[] = [
+    { icon: 'shield', label: s.answers, value: n(checks.answers), note: s.answersNote },
+    { icon: 'info', label: s.unsupported, value: rate(checks.unsupported, checks.cited), note: s.unsupportedNote },
+    { icon: 'list', label: s.partial, value: rate(checks.partial, checks.cited), note: s.partialNote },
+    { icon: 'text', label: s.uncited, value: rate(checks.uncited, sentences), note: s.uncitedNote },
+  ];
+  return (
+    <section className="share-figures" aria-label={s.title} style={{ marginTop: 25 }}>
+      <div className="statistics-trend-head" style={{ marginBottom: 12 }}>
+        <h2 style={{ fontSize: 13, fontWeight: 600 }}>{s.title}</h2>
+        <p>{s.lede}</p>
+      </div>
+      <div className="creator-metrics">
+        {cards.map((card) => (
+          <div key={card.label} className="card creator-metric">
+            <div className="between">
+              <span>{card.label}</span>
+              <Icon name={card.icon} className="" />
+            </div>
+            <strong className="mono">{card.value}</strong>
+            <small>{card.note}</small>
+          </div>
+        ))}
+      </div>
+    </section>
   );
 }
 

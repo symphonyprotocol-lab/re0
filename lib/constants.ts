@@ -47,6 +47,18 @@ export const PLAN_EXPIRY_BATCH = 200;
 
 /** Platform base fee per answered question, charged on your own Ree too. */
 export const QUERY_BASE_FEE = 20;
+/**
+ * 回答核验: checking one Ree's answer against the passages it cited, per
+ * answering Ree, all to the platform (ree-council-proposal.md 3.3). Held with
+ * the question; given back when the Ree does not answer or the check fails.
+ */
+export const VERIFY_FEE = 10;
+/** The rollout switch for answer checking; off, the toggle is gone and nothing is checked or held. */
+export const VERIFY_ENABLED = true;
+/** The longest reason a check gives for one sentence. */
+export const VERIFY_REASON_CHARS = 80;
+/** Sentences one check sends to the model at most; longer answers are checked from the start. */
+export const VERIFY_MAX_SENTENCES = 40;
 /** The owner's query fee range (credits per answered question). */
 export const QUERY_FEE = { min: 0, max: 10_000, default: 0 } as const;
 

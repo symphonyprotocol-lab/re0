@@ -17,15 +17,31 @@
  *      stored with its citation snapshots.
  *   5. When nobody could answer, the public Rees that might know are
  *      suggested under the question (2.4, "对话里的兜底").
+ *   6. 回答核验, when asked for: each answering Ree's check fee is held with
+ *      the rest; once its answer is settled, its cited sentences are checked
+ *      against the full passages still in memory, the result stored on the
+ *      reply, and the fee settled -- or given back when the Ree did not
+ *      answer or the check failed (ree-council-proposal.md 3).
  *
  * Usage tokens go to the log only; users pay fixed credits (7, "计费对接").
  */
 import { randomUUID } from 'node:crypto';
-import { createUIMessageStream, createUIMessageStreamResponse, streamText, type UIMessageStreamWriter } from 'ai';
+import { createUIMessageStream, createUIMessageStreamResponse, generateText, Output, streamText, type UIMessageStreamWriter } from 'ai';
+import { z } from 'zod';
 import { and, eq, inArray, isNull } from 'drizzle-orm';
-import { NO_ANSWER_SUGGESTIONS, QUERY_BASE_FEE } from '@/lib/constants';
-import { citationSnapshots, instructionsFor, questionWithPassages, sentinelState } from '@/lib/domain/answer';
-import { TEXT_META_KEY, textPartId, type InsufficientCreditsBody, type ReeOutcome, type ReeUIMessage, type SuggestedRee } from '@/lib/domain/chat-message';
+import { NO_ANSWER_SUGGESTIONS, QUERY_BASE_FEE, VERIFY_ENABLED, VERIFY_FEE, VERIFY_MAX_SENTENCES, VERIFY_REASON_CHARS } from '@/lib/constants';
+import {
+  checkInstructions,
+  checkPrompt,
+  checkResults,
+  citationSnapshots,
+  instructionsFor,
+  questionWithPassages,
+  sentinelState,
+  splitSentences,
+  type Passage,
+} from '@/lib/domain/answer';
+import { checkPartId, TEXT_META_KEY, textPartId, type InsufficientCreditsBody, type ReeCheck, type ReeOutcome, type ReeUIMessage, type SuggestedRee } from '@/lib/domain/chat-message';
 import { autoTitle, withoutMentions } from '@/lib/domain/conversation';
 import { InsufficientCredits } from '@/lib/domain/credits';
 import { generationForUser } from '@/lib/services/generation';
@@ -40,6 +56,18 @@ type Writer = UIMessageStreamWriter<ReeUIMessage>;
 type Write = (chunk: Parameters<Writer['write']>[0]) => void;
 
 const MAX_OUTPUT_TOKENS = 1_500;
+const CHECK_OUTPUT_TOKENS = 2_000;
+
+/** Loose on purpose: `checkResults` keeps only what fits the sentences asked about. */
+const CHECK_SCHEMA = z.object({
+  sentences: z.array(
+    z.object({
+      id: z.number().describe('The sentence id.'),
+      verdict: z.string().describe('supported, partial or unsupported for a sentence that cites passages; claim or not_claim for one that cites nothing.'),
+      reason: z.string().optional().describe('At most 80 characters; empty for claim and not_claim.'),
+    }),
+  ),
+});
 
 /** The most a question to this Ree can cost this user: the base fee, plus the query fee when it is not theirs. */
 export function maxCostFor(ree: Pick<Ree, 'ownerId' | 'queryFee'>, userId: string): number {
@@ -70,6 +98,8 @@ interface Held {
   baseHold: string;
   feeHold: string | null;
   fee: number;
+  /** The check fee, when this question is checked. */
+  verifyHold: string | null;
 }
 
 /** Rees among these with at least one source answers may use. */
@@ -89,14 +119,17 @@ export async function answer(input: {
   /** Who this question is for, already resolved from `@`, "只问这个 Ree" and the participants. */
   targets: Ree[];
   question: string;
+  /** 回答核验 for this question: "核对引用" in the composer, on by default in the test conversation. */
+  verify?: boolean;
 }): Promise<Response> {
   const { userId, conversation, targets, question } = input;
+  const verifying = VERIFY_ENABLED && input.verify === true;
   /* What is asked, without the `@name`s that only say who is asked. */
   const subject = withoutMentions(question, targets.map((ree) => ree.name));
   const database = db();
   const ready = await readyRees(targets.map((ree) => ree.id));
   const asking = targets.filter((ree) => ready.has(ree.id));
-  const needed = asking.reduce((sum, ree) => sum + maxCostFor(ree, userId), 0);
+  const needed = asking.reduce((sum, ree) => sum + maxCostFor(ree, userId) + (verifying ? VERIFY_FEE : 0), 0);
 
   let askedId: string;
   let held: Held[];
@@ -111,7 +144,8 @@ export async function answer(input: {
         const fee = feeFor(ree, userId);
         const baseHold = await placeHold(tx, { userId, kind: 'chat', amount: QUERY_BASE_FEE, refId: asked!.id, reeId: ree.id, note: ree.name });
         const feeHold = fee > 0 ? await placeHold(tx, { userId, kind: 'chat', ledger: 'chat_fee', amount: fee, refId: asked!.id, reeId: ree.id, note: ree.name }) : null;
-        holds.push({ ree, baseHold, feeHold, fee });
+        const verifyHold = verifying ? await placeHold(tx, { userId, kind: 'chat', ledger: 'chat_verify', amount: VERIFY_FEE, refId: asked!.id, reeId: ree.id, note: ree.name }) : null;
+        holds.push({ ree, baseHold, feeHold, fee, verifyHold });
       }
       /* A question brings an archived conversation back to Recent (8.2); the first one names it. */
       await tx
@@ -136,6 +170,7 @@ export async function answer(input: {
     await database.transaction(async (tx) => {
       await releaseHold(tx, entry.baseHold, { reeId: entry.ree.id, note: entry.ree.name });
       if (entry.feeHold) await releaseHold(tx, entry.feeHold, { reeId: entry.ree.id, note: entry.ree.name, ledger: 'chat_fee' });
+      if (entry.verifyHold) await releaseHold(tx, entry.verifyHold, { reeId: entry.ree.id, note: entry.ree.name, ledger: 'chat_verify' });
     });
   };
 
@@ -144,6 +179,7 @@ export async function answer(input: {
       if (entry) {
         await releaseHold(tx, entry.baseHold, { reeId: ree.id, note: ree.name });
         if (entry.feeHold) await releaseHold(tx, entry.feeHold, { reeId: ree.id, note: ree.name, ledger: 'chat_fee' });
+        if (entry.verifyHold) await releaseHold(tx, entry.verifyHold, { reeId: ree.id, note: ree.name, ledger: 'chat_verify' });
       }
       const [reply] = await tx
         .insert(schema.message)
@@ -156,6 +192,59 @@ export async function answer(input: {
 
   /* All Rees in one question use the asking user's membership and the same model. */
   let generationRequest: ReturnType<typeof generationForUser> | undefined;
+  let checkRequest: ReturnType<typeof generationForUser> | undefined;
+
+  /**
+   * 回答核验 of one settled answer. The check fee is settled with the result
+   * stored on the reply, or given back when the model fails, times out or
+   * returns nothing usable; the answer itself stands either way.
+   */
+  const check = async (entry: Held, replyId: string, text: string, passages: readonly Passage[], write: Write) => {
+    const { ree } = entry;
+    const holdId = entry.verifyHold!;
+    const part = (data: Omit<ReeCheck, 'reeId' | 'messageId'>) => write({ type: 'data-check', id: checkPartId(ree.id), data: { reeId: ree.id, messageId: replyId, ...data } });
+    const sentences = splitSentences(text, passages.length).slice(0, VERIFY_MAX_SENTENCES);
+    try {
+      /* Nothing that reads as a sentence: nothing to check, nothing charged. */
+      if (sentences.length === 0) {
+        await database.transaction(async (tx) => {
+          await releaseHold(tx, holdId, { reeId: ree.id, note: ree.name, ledger: 'chat_verify' });
+          await tx.update(schema.message).set({ checkState: 'done' }).where(eq(schema.message.id, replyId));
+        });
+        part({ state: 'done', checks: [], cost: 0 });
+        return;
+      }
+      part({ state: 'pending', checks: [], cost: 0 });
+      const generation = await (checkRequest ??= generationForUser(userId, 'verify'));
+      const { output } = await generateText({
+        model: generation.model,
+        output: Output.object({ schema: CHECK_SCHEMA }),
+        instructions: checkInstructions(input.lang),
+        prompt: checkPrompt(sentences, passages),
+        maxOutputTokens: CHECK_OUTPUT_TOKENS,
+        temperature: 0,
+        maxRetries: 1,
+        abortSignal: AbortSignal.timeout(Math.max(generation.endpoint.timeoutMs, 30_000)),
+      });
+      const { checks, judged } = checkResults(sentences, output, VERIFY_REASON_CHARS);
+      if (judged === 0) throw new Error('no usable verdict');
+      const cost = await database.transaction(async (tx) => {
+        const charged = (await settleHold(tx, holdId, VERIFY_FEE, { reeId: ree.id, note: ree.name, ledger: 'chat_verify' }))?.charged ?? 0;
+        await tx.update(schema.message).set({ checks, checkState: 'done', checkCredits: charged }).where(eq(schema.message.id, replyId));
+        return charged;
+      });
+      part({ state: 'done', checks, cost });
+    } catch (error) {
+      console.warn(`check ree=${ree.id} failed: ${error instanceof Error ? error.message : 'unknown'}`);
+      await database
+        .transaction(async (tx) => {
+          await releaseHold(tx, holdId, { reeId: ree.id, note: ree.name, ledger: 'chat_verify' });
+          await tx.update(schema.message).set({ checkState: 'failed' }).where(eq(schema.message.id, replyId));
+        })
+        .catch(() => undefined);
+      part({ state: 'failed', checks: [], cost: 0 });
+    }
+  };
   /** One Ree, start to finish; answers whether it gave an answer (or broke off trying), so suggestions follow only a clean "nobody knows". */
   const run = async (ree: Ree, write: Write, vector: Promise<QuestionVector> | null, history: Promise<MessageRow[]>): Promise<boolean> => {
     const entry = held.find((candidate) => candidate.ree.id === ree.id) ?? null;
@@ -242,6 +331,7 @@ export async function answer(input: {
         return charged;
       });
       write({ type: 'data-outcome', id: `outcome-${ree.id}`, data: outcome(ree.id, { messageId: replyId, cost, citations, model }) });
+      if (entry.verifyHold) await check(entry, replyId, streamed, found.passages, write);
       return true;
     } catch (error) {
       console.warn(`answer ree=${ree.id} failed: ${error instanceof Error ? error.message : 'unknown'}`);

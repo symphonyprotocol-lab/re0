@@ -6,12 +6,12 @@ import { useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
 import { useChat } from '@ai-sdk/react';
 import { DefaultChatTransport } from 'ai';
 import { CONVERSATION_MAX_REES } from '@/lib/constants';
-import type { CitationSnapshot } from '@/lib/domain/answer';
+import type { CitationSnapshot, SentenceCheck } from '@/lib/domain/answer';
 import { repliesOf, suggestionsOf, type InsufficientCreditsBody, type ReeReply, type ReeUIMessage, type SuggestedRee } from '@/lib/domain/chat-message';
 import { ApiError, conversationApi, takePending } from '@/lib/client/conversations';
 import { useI18n } from '@/i18n/client';
 import { fill, formatNumber } from '@/i18n/format';
-import { AnswerText, Avatar, CitationChips, CitationDrawer, Feedback, I, Typing, useNavigationHeight } from '@/components/chat/message-parts';
+import { AnswerText, Avatar, CheckDrawer, CheckLine, CitationChips, CitationDrawer, Feedback, I, Typing, useNavigationHeight } from '@/components/chat/message-parts';
 import { Icon } from '@/components/ui/icons';
 import { Modal } from '@/components/ui/modal';
 import { useToast } from '@/components/ui/toast';
@@ -55,6 +55,9 @@ export function ChatRoom({
   const toast = useToast();
   const [members, setMembers] = useState(initialMembers);
   const [scope, setScope] = useState<string | null>(null);
+  /* "核对引用" is off in a conversation until turned on, and stays as set for the next questions. */
+  const [verify, setVerify] = useState(false);
+  const [checked, setChecked] = useState<{ check: SentenceCheck; reply: ReeReply } | null>(null);
   const [citation, setCitation] = useState<{ entry: CitationSnapshot; ree: Member | null } | null>(null);
   const [insufficient, setInsufficient] = useState<InsufficientCreditsBody | null>(null);
   const [votes, setVotes] = useState<Record<string, 'up' | 'down' | null>>({});
@@ -62,7 +65,7 @@ export function ChatRoom({
   const endRef = useRef<HTMLDivElement>(null);
   const page = useRef<HTMLElement>(null);
   useNavigationHeight(page);
-  const pending = useRef<{ question: string; scope: string | null }>({ question: '', scope: null });
+  const pending = useRef<{ question: string; scope: string | null; verify: boolean }>({ question: '', scope: null, verify: false });
   const sentPending = useRef(false);
 
   useEffect(() => setMembers(initialMembers), [initialMembers]);
@@ -108,8 +111,8 @@ export function ChatRoom({
   });
   const busy = status === 'submitted' || status === 'streaming';
 
-  const ask = (question: string, chosenScope = scope) => {
-    pending.current = { question, scope: chosenScope };
+  const ask = (question: string, chosenScope = scope, checking = verify) => {
+    pending.current = { question, scope: chosenScope, verify: checking };
     void sendMessage({ text: question });
   };
 
@@ -120,7 +123,8 @@ export function ChatRoom({
     const carried = takePending(conversation.id);
     if (!carried) return;
     setScope(carried.scope);
-    ask(carried.question, carried.scope);
+    setVerify(Boolean(carried.verify));
+    ask(carried.question, carried.scope, Boolean(carried.verify));
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [conversation.id]);
 
@@ -224,6 +228,7 @@ export function ChatRoom({
                   vote={reply.outcome?.messageId ? (votes[reply.outcome.messageId] !== undefined ? votes[reply.outcome.messageId]! : (reply.outcome.vote ?? null)) : null}
                   onVote={(value, current) => reply.outcome?.messageId && vote(reply.outcome.messageId, value, current)}
                   onCitation={(entry) => setCitation({ entry, ree: reeById[reply.reeId] ?? null })}
+                  onCheck={(check) => setChecked({ check, reply })}
                   suggestions={
                     at === lastNoAnswer && suggestions.length > 0 ? (
                       <div className="p-flex mt16">
@@ -246,8 +251,10 @@ export function ChatRoom({
       </div>
 
       <div className="room-compose-dock">
-        <Composer ref={composer} members={members} scope={scope} draft={false} busy={busy} viewerId={viewerId} onScope={setScope} onParticipants={applyParticipants} onSend={(question) => ask(question)} />
+        <Composer ref={composer} members={members} scope={scope} verify={verify} onVerify={setVerify} draft={false} busy={busy} viewerId={viewerId} onScope={setScope} onParticipants={applyParticipants} onSend={(question) => ask(question)} />
       </div>
+
+      <CheckDrawer check={checked?.check ?? null} text={checked?.reply.text ?? ''} citations={checked?.reply.outcome?.citations ?? []} onClose={() => setChecked(null)} />
 
       <CitationDrawer citation={citation?.entry ?? null} ree={citation?.ree ?? null} canOpen={citation?.ree?.ownerId === viewerId} onClose={() => setCitation(null)} />
 
@@ -297,6 +304,7 @@ function Reply({
   vote,
   onVote,
   onCitation,
+  onCheck,
   suggestions,
 }: {
   reply: ReeReply;
@@ -305,6 +313,7 @@ function Reply({
   vote: 'up' | 'down' | null;
   onVote: (value: 'up' | 'down', current: 'up' | 'down' | null) => void;
   onCitation: (entry: CitationSnapshot) => void;
+  onCheck: (check: SentenceCheck) => void;
   suggestions: ReactNode;
 }) {
   const { t, locale } = useI18n();
@@ -330,8 +339,9 @@ function Reply({
         <RoleBadge role={ree?.role} />
         <small>{r.grounded}</small>
       </div>
-      <AnswerText text={reply.text} citations={citations} failed={outcome?.failed} onCitation={onCitation} />
+      <AnswerText text={reply.text} citations={citations} failed={outcome?.failed} onCitation={onCitation} checks={reply.check?.checks} onCheck={onCheck} />
       <CitationChips citations={citations} onCitation={onCitation} />
+      <CheckLine check={reply.check} cost={reply.check?.cost ? fill(t.chat.check.cost, { credits: formatNumber(reply.check.cost, locale) }) : undefined} />
       {outcome && !outcome.failed && outcome.messageId && (
         <Feedback text={reply.text} vote={vote} onVote={(value) => onVote(value, vote)} cost={fill(t.chat.cost, { credits: formatNumber(outcome.cost, locale) })} />
       )}

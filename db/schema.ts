@@ -25,7 +25,7 @@ import {
 } from 'drizzle-orm/pg-core';
 import type { ReeDraft } from '@/lib/domain/ree';
 import type { SocialContact } from '@/lib/domain/account';
-import type { CitationSnapshot, Locator } from '@/lib/domain/answer';
+import type { CitationSnapshot, Locator, SentenceCheck } from '@/lib/domain/answer';
 import type { Allocation } from '@/lib/domain/credits';
 import type { ProviderCharge, ProviderRate } from '@/lib/domain/provider-cost';
 import type { CallPurpose, CallStatus, CostBasis } from '@/lib/domain/model-calls';
@@ -320,6 +320,12 @@ export const message = pgTable(
     costCredits: integer('cost_credits').notNull().default(0),
     /** Beyond 4, on a question every asked Ree left unanswered: the public Rees suggested under it ("这些公开 Ree 可能知道"). */
     suggestedReeIds: jsonb('suggested_ree_ids').$type<string[]>().notNull().default([]),
+    /** 回答核验, on an answer the asker had checked: one entry per sentence, where it sits and whether its passages back it. */
+    checks: jsonb('checks').$type<SentenceCheck[]>().notNull().default([]),
+    /** Null when no check was asked for; `failed` when it broke off and its fee went back. */
+    checkState: text('check_state').$type<'done' | 'failed'>(),
+    /** What the check was charged, apart from the answer's `cost_credits`. */
+    checkCredits: integer('check_credits').notNull().default(0),
     createdAt: createdAt(),
   },
   (t) => [
@@ -330,6 +336,7 @@ export const message = pgTable(
       'message_no_answer_reason_check',
       sql`no_answer_reason is null or no_answer_reason in ('no_sources', 'out_of_scope')`,
     ),
+    check('message_check_state_check', sql`check_state is null or check_state in ('done', 'failed')`),
   ],
 );
 
@@ -384,6 +391,10 @@ export const CREDIT_ENTRY_REASONS = [
   'admin_adjust',
   /* Step 7: a video hold given back (a script that failed, an export cancelled or abandoned). */
   'video_refund',
+  /* 回答核验: the per-Ree check fee, held with the question, all to the platform. */
+  'verify_hold',
+  'verify_settle',
+  'verify_refund',
 ] as const;
 export type CreditEntryReason = (typeof CREDIT_ENTRY_REASONS)[number];
 

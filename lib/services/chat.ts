@@ -5,7 +5,7 @@
 import { and, asc, eq, inArray, isNull, sql, type SQL } from 'drizzle-orm';
 import { HISTORY_TURNS, RETRIEVAL_RECALL, RETRIEVAL_TOP_K } from '@/lib/constants';
 import type { Passage } from '@/lib/domain/answer';
-import { TEXT_META_KEY, textPartId, type ReeOutcome, type ReeUIMessage, type SuggestedRee } from '@/lib/domain/chat-message';
+import { checkPartId, TEXT_META_KEY, textPartId, type ReeOutcome, type ReeUIMessage, type SuggestedRee } from '@/lib/domain/chat-message';
 import { fuse, hasEvidence, keywordCoverage, searchTerms } from '@/lib/domain/retrieval';
 import { likePattern } from '@/lib/domain/list';
 import { embedTexts } from '@/lib/infra/ai/models';
@@ -100,6 +100,9 @@ function replyParts(row: MessageRow, vote: 'up' | 'down' | null): ReeUIMessage['
     { type: 'data-ree', id: reeId, data: { reeId } },
     ...(row.content ? [{ type: 'text' as const, text: row.content, state: 'done' as const, providerMetadata: { [TEXT_META_KEY]: { reeId, part: textPartId(reeId) } } }] : []),
     { type: 'data-outcome', id: `outcome-${reeId}`, data: outcomeOf(row, vote) },
+    ...(row.checkState
+      ? [{ type: 'data-check' as const, id: checkPartId(reeId), data: { reeId, messageId: row.id, state: row.checkState, checks: row.checks, cost: row.checkCredits } }]
+      : []),
   ];
 }
 

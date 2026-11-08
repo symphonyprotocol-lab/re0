@@ -55,6 +55,7 @@ export function TalkDraft({ initialMembers, viewerId, fresh }: { initialMembers:
   const toast = useToast();
   const [members, setMembers] = useState(initialMembers);
   const [scope, setScope] = useState<string | null>(null);
+  const [verify, setVerify] = useState(false);
   const [busy, setBusy] = useState(false);
   const composer = useRef<ComposerHandle>(null);
   const draft = useRef<Draft>({ question: '', members: initialMembers, scope: null });
@@ -97,7 +98,7 @@ export function TalkDraft({ initialMembers, viewerId, fresh }: { initialMembers:
         members.map((member) => member.id),
         autoTitle(question),
       );
-      stashPending(id, { question, scope });
+      stashPending(id, { question, scope, verify });
       writeDraft(viewerId, null);
       router.push(`/chats/${id}`);
     } catch (error) {
@@ -121,6 +122,8 @@ export function TalkDraft({ initialMembers, viewerId, fresh }: { initialMembers:
             ref={composer}
             members={members}
             scope={scope}
+            verify={verify}
+            onVerify={setVerify}
             draft
             busy={busy}
             viewerId={viewerId}

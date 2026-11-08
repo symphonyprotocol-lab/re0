@@ -9,7 +9,7 @@
  * updated in place while several stream at once.
  */
 import type { UIMessage } from 'ai';
-import type { CitationSnapshot } from '@/lib/domain/answer';
+import type { CitationSnapshot, SentenceCheck } from '@/lib/domain/answer';
 
 export interface ReeOutcome {
   reeId: string;
@@ -48,7 +48,22 @@ export interface Suggestions {
   rees: SuggestedRee[];
 }
 
-export type ReeUIMessage = UIMessage<never, { outcome: ReeOutcome; ree: ReeStart; suggestions: Suggestions }>;
+/**
+ * 回答核验 of one Ree's answer, sent after its outcome: `pending` while the
+ * check runs, then `done` with the checked sentences or `failed` (the fee
+ * went back). Its id is `check-<reeId>`, so the later state replaces the
+ * earlier one in place.
+ */
+export interface ReeCheck {
+  reeId: string;
+  messageId: string;
+  state: 'pending' | 'done' | 'failed';
+  checks: SentenceCheck[];
+  /** What the check cost; 0 while pending and when it failed. */
+  cost: number;
+}
+
+export type ReeUIMessage = UIMessage<never, { outcome: ReeOutcome; ree: ReeStart; suggestions: Suggestions; check: ReeCheck }>;
 
 /** The tag on a Ree's text part (`providerMetadata.re0.reeId`). */
 export const TEXT_META_KEY = 're0';
@@ -57,10 +72,15 @@ export function textPartId(reeId: string): string {
   return `answer-${reeId}`;
 }
 
+export function checkPartId(reeId: string): string {
+  return `check-${reeId}`;
+}
+
 export interface ReeReply {
   reeId: string;
   text: string;
   outcome: ReeOutcome | null;
+  check: ReeCheck | null;
 }
 
 /** An assistant message's replies, one per Ree, in the order the Rees started. */
@@ -70,7 +90,7 @@ export function repliesOf(message: ReeUIMessage): ReeReply[] {
   const at = (reeId: string) => {
     let reply = replies.get(reeId);
     if (!reply) {
-      reply = { reeId, text: '', outcome: null };
+      reply = { reeId, text: '', outcome: null, check: null };
       replies.set(reeId, reply);
       order.push(reeId);
     }
@@ -79,6 +99,7 @@ export function repliesOf(message: ReeUIMessage): ReeReply[] {
   for (const part of message.parts) {
     if (part.type === 'data-ree') at(part.data.reeId);
     else if (part.type === 'data-outcome') at(part.data.reeId).outcome = part.data;
+    else if (part.type === 'data-check') at(part.data.reeId).check = part.data;
     else if (part.type === 'text') {
       const reeId = (part.providerMetadata?.[TEXT_META_KEY] as { reeId?: string } | undefined)?.reeId;
       if (reeId) at(reeId).text += part.text;

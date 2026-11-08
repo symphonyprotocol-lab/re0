@@ -5,16 +5,16 @@ import { useRouter } from 'next/navigation';
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { useChat } from '@ai-sdk/react';
 import { DefaultChatTransport } from 'ai';
-import { QUESTION_MAX_CHARS } from '@/lib/constants';
-import type { CitationSnapshot } from '@/lib/domain/answer';
-import { repliesOf, type InsufficientCreditsBody, type ReeOutcome, type ReeUIMessage } from '@/lib/domain/chat-message';
+import { QUESTION_MAX_CHARS, VERIFY_ENABLED, VERIFY_FEE } from '@/lib/constants';
+import type { CitationSnapshot, SentenceCheck } from '@/lib/domain/answer';
+import { repliesOf, type InsufficientCreditsBody, type ReeCheck, type ReeOutcome, type ReeUIMessage } from '@/lib/domain/chat-message';
 import { useI18n } from '@/i18n/client';
 import { fill, formatNumber } from '@/i18n/format';
 import { conversationApi } from '@/lib/client/conversations';
 import { Icon } from '@/components/ui/icons';
 import { ConfirmModal, Modal } from '@/components/ui/modal';
 import { useToast } from '@/components/ui/toast';
-import { AnswerText, Avatar, CitationChips, CitationDrawer, Feedback, I, Typing, useNavigationHeight } from '@/components/chat/message-parts';
+import { AnswerText, Avatar, CheckDrawer, CheckLine, CheckToggle, CitationChips, CitationDrawer, Feedback, I, Typing, useNavigationHeight } from '@/components/chat/message-parts';
 
 interface ChatRee {
   id: string;
@@ -29,6 +29,10 @@ function outcomeOf(message: ReeUIMessage): ReeOutcome | null {
   return repliesOf(message)[0]?.outcome ?? null;
 }
 
+function checkOf(message: ReeUIMessage): ReeCheck | null {
+  return repliesOf(message)[0]?.check ?? null;
+}
+
 function textOf(message: ReeUIMessage): string {
   if (message.role === 'user') return message.parts.map((part) => (part.type === 'text' ? part.text : '')).join('');
   return repliesOf(message)[0]?.text ?? '';
@@ -40,6 +44,8 @@ function textOf(message: ReeUIMessage): string {
  * credits", no-answer cards that say whether knowledge is missing or the
  * question is out of scope -- and that nothing was charged -- and clearing.
  * Answers stream through `useChat`; `[n]` markers open the citation drawer.
+ * "核对引用" is on here by default, so the owner sees which sentences lack
+ * support and what knowledge to add (ree-council-proposal.md 3.1).
  */
 export function ReeChat({
   conversationId,
@@ -60,6 +66,8 @@ export function ReeChat({
   const toast = useToast();
   const [input, setInput] = useState('');
   const [citation, setCitation] = useState<CitationSnapshot | null>(null);
+  const [verify, setVerify] = useState(VERIFY_ENABLED);
+  const [checked, setChecked] = useState<{ check: SentenceCheck; text: string; citations: CitationSnapshot[] } | null>(null);
   const [insufficient, setInsufficient] = useState<InsufficientCreditsBody | null>(null);
   const [confirmClear, setConfirmClear] = useState(false);
   const [examples, setExamples] = useState(false);
@@ -70,12 +78,13 @@ export function ReeChat({
   const page = useRef<HTMLElement>(null);
   useNavigationHeight(page);
   const pendingQuestion = useRef('');
+  const pendingVerify = useRef(false);
 
   const transport = useMemo(
     () =>
       new DefaultChatTransport<ReeUIMessage>({
         api: `/api/chats/${conversationId}/messages`,
-        prepareSendMessagesRequest: () => ({ body: { question: pendingQuestion.current } }),
+        prepareSendMessagesRequest: () => ({ body: { question: pendingQuestion.current, verify: pendingVerify.current } }),
       }),
     [conversationId],
   );
@@ -150,6 +159,7 @@ export function ReeChat({
     const text = question.trim();
     if (!text || busy) return;
     pendingQuestion.current = text;
+    pendingVerify.current = VERIFY_ENABLED && verify;
     setInput('');
     setExamples(false);
     void sendMessage({ text });
@@ -158,6 +168,7 @@ export function ReeChat({
   const readinessLabel = ready ? c.readiness.ready : readiness.processing ? c.readiness.processing : c.readiness.waiting;
   const n = (value: number) => formatNumber(value, locale);
   const [costBefore, costAfter] = c.upTo.split('{credits}');
+  const upTo = maxCost + (VERIFY_ENABLED && verify ? VERIFY_FEE : 0);
 
   const vote = async (messageId: string, value: 'up' | 'down', current: 'up' | 'down' | null) => {
     const next = current === value ? null : value;
@@ -268,8 +279,9 @@ export function ReeChat({
                 return (
                   <article key={message.id} className="message" aria-busy={streaming}>
                     {head(c.answerHead)}
-                    <AnswerText text={text} citations={citations} failed={outcome?.failed} onCitation={setCitation} />
+                    <AnswerText text={text} citations={citations} failed={outcome?.failed} onCitation={setCitation} checks={checkOf(message)?.checks} onCheck={(check) => setChecked({ check, text, citations })} />
                     <CitationChips citations={citations} onCitation={setCitation} />
+                    <CheckLine check={checkOf(message)} cost={checkOf(message)?.cost ? fill(c.check.cost, { credits: n(checkOf(message)!.cost) }) : undefined} />
                     {outcome && !outcome.failed && (
                       <Feedback
                         text={text}
@@ -320,6 +332,7 @@ export function ReeChat({
                   <span>{ree.name}</span>
                 </span>
                 <div>
+                  {VERIFY_ENABLED && <CheckToggle on={verify} onChange={setVerify} disabled={busy} fee={VERIFY_FEE} className="studio-check-toggle" />}
                   {ree.sampleQuestions.length > 0 && (
                     <details ref={examplesRef} className="studio-examples" open={examples}>
                       <summary
@@ -354,7 +367,7 @@ export function ReeChat({
                 <I name="shield" />
                 <span id="cost-label">
                   {costBefore}
-                  <strong>{n(maxCost)}</strong>
+                  <strong>{n(upTo)}</strong>
                   {costAfter}
                 </span>
                 <span className="studio-no-answer-note">· {c.noAnswerNote}</span>
@@ -367,6 +380,7 @@ export function ReeChat({
       </div>
 
       <CitationDrawer citation={citation} ree={ree} canOpen onClose={() => setCitation(null)} />
+      <CheckDrawer check={checked?.check ?? null} text={checked?.text ?? ''} citations={checked?.citations ?? []} onClose={() => setChecked(null)} />
 
       <Modal
         open={Boolean(insufficient)}

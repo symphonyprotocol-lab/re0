@@ -205,6 +205,35 @@ export interface ReeStatistics {
   incomeList: ListResult<IncomeRecord> | null;
   /** The share page `/s/[slug]` in the period: visits, visitors and the conversations it started. */
   share: ShareStatistics;
+  /** 回答核验 in the period, for the owner only (ree-council-proposal.md 3.3). */
+  checks: CheckFigures;
+}
+
+export interface CheckFigures {
+  /** Answers whose check completed. */
+  answers: number;
+  /** Sentences with citations that were judged, and how many of them were not, or only partly, supported. */
+  cited: number;
+  unsupported: number;
+  partial: number;
+  /** Statements of fact without a citation. */
+  uncited: number;
+}
+
+/** What the checks of this Ree's answers in the period found, from the checks kept on the answers. */
+export async function checkFigures(reeId: string, range: Range | null): Promise<CheckFigures> {
+  const count = (where: SQL) => sql<number>`coalesce(sum((select count(*) from jsonb_array_elements(${schema.message.checks}) as c where ${where})), 0)::int`;
+  const [row] = await db()
+    .select({
+      answers: sql<number>`count(*)::int`,
+      cited: count(sql`c->>'status' <> 'uncited'`),
+      unsupported: count(sql`c->>'status' = 'unsupported'`),
+      partial: count(sql`c->>'status' = 'partial'`),
+      uncited: count(sql`c->>'status' = 'uncited'`),
+    })
+    .from(schema.message)
+    .where(and(eq(schema.message.role, 'ree'), eq(schema.message.reeId, reeId), eq(schema.message.checkState, 'done'), ...within(schema.message.createdAt, range)));
+  return { answers: row?.answers ?? 0, cited: row?.cited ?? 0, unsupported: row?.unsupported ?? 0, partial: row?.partial ?? 0, uncited: row?.uncited ?? 0 };
 }
 
 /**
@@ -217,7 +246,7 @@ export async function reeStatistics(reeId: string, query: StatisticsQuery, optio
   const view = options.withIncome ? query.view : 'answers';
   const ids = [reeId];
   const database = db();
-  const [answers, saved, sources, incomeRow, share] = await Promise.all([
+  const [answers, saved, sources, incomeRow, share, checks] = await Promise.all([
     answerCounts(ids, range),
     savedCounts(ids, range),
     sourceSummary(ids),
@@ -225,6 +254,7 @@ export async function reeStatistics(reeId: string, query: StatisticsQuery, optio
       ? database.select({ sum: sql<number>`coalesce(sum(${schema.creditEntry.delta}), 0)::bigint` }).from(schema.creditEntry).where(incomeEntries(ids, range))
       : Promise.resolve([{ sum: 0 }]),
     shareStatistics(reeId, range),
+    checkFigures(reeId, range),
   ]);
   let trend: ReeStatistics['trend'] = null;
   if (range) {
@@ -254,6 +284,7 @@ export async function reeStatistics(reeId: string, query: StatisticsQuery, optio
     answerList: view === 'answers' ? await answerRecords(ids, range, query.q, query.size, query.page) : null,
     incomeList: view === 'income' ? await incomeRecords(ids, range, query.q, query.size, query.page) : null,
     share,
+    checks,
   };
 }
 
