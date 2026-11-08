@@ -15,6 +15,7 @@ import {
   KNOWLEDGE_FOLDER_NAME_MAX,
   KNOWLEDGE_TITLE_MAX,
   KNOWLEDGE_INITIAL_HOLD,
+  M4A_MAX_BYTES,
   TEXT_SOURCE_LIMITS,
 } from '@/lib/constants';
 import type { Locator } from '@/lib/domain/answer';
@@ -111,8 +112,20 @@ export function validDocument(fileName: string, size: number): boolean {
   return documentFormat(fileName) !== null && size > 0 && size <= DOCUMENT_MAX_BYTES;
 }
 
+/** The largest upload of this format: M4A goes to the transcription endpoint whole. */
+export function audioMaxBytes(format: AudioFormat): number {
+  return format === 'm4a' ? M4A_MAX_BYTES : AUDIO_MAX_BYTES;
+}
+
+/** Why an audio file cannot be added, or null: the wrong kind or size, or an M4A too large to transcribe in one call. */
+export function audioProblem(fileName: string, size: number): 'invalid_audio' | 'm4a_too_long' | null {
+  const format = audioFormat(fileName);
+  if (!format || !(size > 0) || size > AUDIO_MAX_BYTES) return 'invalid_audio';
+  return size > audioMaxBytes(format) ? 'm4a_too_long' : null;
+}
+
 export function validAudio(fileName: string, size: number): boolean {
-  return audioFormat(fileName) !== null && size > 0 && size <= AUDIO_MAX_BYTES;
+  return audioProblem(fileName, size) === null;
 }
 
 /** A refundable balance check, not a processing fee or a quote. Actual supplier costs grow this hold. */

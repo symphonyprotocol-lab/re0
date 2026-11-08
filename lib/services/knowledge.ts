@@ -16,11 +16,11 @@ import {
   activity,
   assemble,
   audioFormat,
+  audioProblem,
   chunkSections,
   CHUNK_TARGET_TOKENS,
   estimateTokens,
   holdFor,
-  validAudio,
   validDocument,
   validText,
   type DraftChunk,
@@ -70,6 +70,7 @@ export type CheckedKnowledge = (
 export type KnowledgeInputCode =
   | 'invalid_document'
   | 'invalid_audio'
+  | 'm4a_too_long'
   | 'consent_required'
   | 'invalid_text'
   | 'invalid_url'
@@ -142,7 +143,9 @@ export async function checkKnowledge(ownerId: string, input: NewKnowledge): Prom
     }
     case 'audio': {
       if (!input.consent) throw new KnowledgeInputError('consent_required');
-      const size = await checkUpload(ownerId, input.blobPath, input.fileName, validAudio, 'invalid_audio');
+      const size = await checkUpload(ownerId, input.blobPath, input.fileName, (name, bytes) => audioProblem(name, bytes) !== 'invalid_audio', 'invalid_audio');
+      const problem = audioProblem(input.fileName, size);
+      if (problem) throw new KnowledgeInputError(problem);
       return { kind: 'audio', blobPath: input.blobPath, fileName: input.fileName, size, folderId };
     }
     case 'text':
