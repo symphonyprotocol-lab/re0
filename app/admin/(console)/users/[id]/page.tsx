@@ -11,7 +11,8 @@ import { serverMessages } from '@/i18n/server';
 import { fill, formatDate, formatDateTime, formatNumber, formatUsd } from '@/i18n/format';
 import { LinkPager, RecordsTable, RoleBadge, Stats, Subline, Tag } from '@/components/admin/list-kit';
 import { ConsolePage, ConsoleTopbar } from '@/components/admin/console-topbar';
-import { AdjustCreditsButton, UserStatusButton } from '@/components/admin/user-detail-actions';
+import { AdjustCreditsButton, ApiKeyRevokeButton, UserStatusButton } from '@/components/admin/user-detail-actions';
+import { listApiKeys } from '@/lib/services/api-keys';
 import { DotAvatar, RoleChecks, RoleHistory, RolePanel } from '@/components/admin/user-detail-roles';
 import { kycHistory } from '@/lib/services/kyc';
 import { listNotices } from '@/lib/services/notices';
@@ -25,7 +26,7 @@ import { ReasonAction } from '@/components/admin/list-client';
 import { ADMIN_REASON } from '@/lib/constants';
 
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
-const TABS = ['summary', 'roles', 'credits', 'kyc', 'purchases', 'payouts', 'rees'] as const;
+const TABS = ['summary', 'roles', 'credits', 'kyc', 'purchases', 'payouts', 'rees', 'keys'] as const;
 type Tab = (typeof TABS)[number];
 const LEDGER_SIZE = 20;
 
@@ -54,7 +55,7 @@ function listLabel(t: Messages, from: string): string {
 
 /**
  * `/admin/users/[id]` (prototype suite.js `userDetail`, role-pages.js
- * `adminUser`): the header, balances, and seven tabs as links in the top
+ * `adminUser`): the header, balances, and eight tabs as links in the top
  * bar's second row (`?tab=credits`, `from` kept) so reload and back keep the
  * place; the account actions sit in the summary, as in the prototype.
  */
@@ -256,6 +257,37 @@ export default async function UserDetailPage({ params, searchParams }: Props) {
           </section>
         )}
       </>
+    );
+  } else if (tab === 'keys') {
+    const keys = await listApiKeys(id);
+    const a = t.apiKeys;
+    const now = Date.now();
+    body = (
+      <section className="card">
+        <RecordsTable
+          label={table}
+          empty={a.admin.empty}
+          head={[a.columns.name, a.columns.key, a.columns.created, a.columns.lastUsed, a.columns.usage, a.columns.status, a.columns.action]}
+          rows={keys.map((key) => {
+            const status = key.revokedAt ? 'revoked' : key.expiresAt && key.expiresAt.getTime() <= now ? 'expired' : 'active';
+            const label = `re0_sk_…${key.tail}`;
+            return [
+              <Fragment key="name">
+                <strong>{key.name}</strong>
+                <Subline>{key.expiresAt ? fill(a.expires, { date: formatDate(key.expiresAt, locale) }) : a.noExpiry}</Subline>
+              </Fragment>,
+              <code key="key">{label}</code>,
+              formatDateTime(key.createdAt, locale),
+              key.lastUsedAt ? formatDateTime(key.lastUsedAt, locale) : a.never,
+              fill(a.usage, { questions: n(key.questions), spent: n(key.spent) }),
+              <Tag key="status" tone={status === 'active' ? 'green' : status === 'revoked' ? 'red' : 'orange'}>
+                {a.status[status]}
+              </Tag>,
+              status === 'revoked' ? '—' : <ApiKeyRevokeButton key="action" userId={user.id} userName={user.name} keyId={key.id} keyLabel={`${key.name} (${label})`} />,
+            ];
+          })}
+        />
+      </section>
     );
   } else {
     const rees = await userRees(id);

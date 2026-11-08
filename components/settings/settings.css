@@ -2136,3 +2136,36 @@
   .settings-page .billing-loading-track { transition: none; }
   .settings-page .is-pending .billing-result-enter { transform: none; }
 }
+
+/* `/settings?tab=api`: API keys for the MCP server. */
+.settings-page .api-key-row h3 {
+  font: 500 11px var(--font-sans, inherit);
+}
+.settings-page .api-key-tail {
+  margin-left: 6px;
+  font: 10px var(--font-mono);
+  color: #8195b4;
+}
+.settings-page .api-key-row small {
+  display: block;
+}
+.settings-page .api-key-usage {
+  margin-top: 3px;
+}
+.settings-page .api-key-snippet {
+  position: relative;
+  padding-right: 40px;
+}
+.settings-page .api-key-snippet code {
+  font: inherit;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+.settings-page .api-key-snippet .icon-btn {
+  position: absolute;
+  top: 6px;
+  right: 6px;
+}
+.settings-page .api-key-gap {
+  margin-top: 7px;
+}

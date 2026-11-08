@@ -156,7 +156,6 @@ export interface HeldQuestion {
   /** The asked Rees with ready knowledge; the others answer "no sources" without a hold. */
   asking: Ree[];
   subject: string;
-  verifying: boolean;
 }
 
 export type Holding = { ok: true; question: HeldQuestion } | { ok: false; balance: number; needed: number };
@@ -200,7 +199,7 @@ export async function holdQuestion(input: AnswerInput): Promise<Holding> {
         .where(eq(schema.conversation.id, conversation.id));
       return { askedId: asked!.id, held: holds };
     });
-    return { ok: true, question: { input, askedId, held, asking, subject, verifying } };
+    return { ok: true, question: { input, askedId, held, asking, subject } };
   } catch (error) {
     if (error instanceof InsufficientCredits) return { ok: false, balance: await balanceOf(database, userId), needed };
     throw error;

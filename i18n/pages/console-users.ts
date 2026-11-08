@@ -77,7 +77,7 @@ export const zh = {
         insufficient: '该余额不足，扣回后不能低于零。',
       },
     },
-    tabs: { label: '用户详情分区', summary: '账户总览', roles: '角色与认证', credits: 'Credit 流水', kyc: 'KYC 记录', purchases: '充值与订阅', payouts: '提现记录', rees: '名下 Ree' },
+    tabs: { label: '用户详情分区', summary: '账户总览', roles: '角色与认证', credits: 'Credit 流水', kyc: 'KYC 记录', purchases: '充值与订阅', payouts: '提现记录', rees: '名下 Ree', keys: 'API Key' },
     summary: {
       account: '账户与订阅',
       email: 'Email',
@@ -353,7 +353,7 @@ export const en: Shape<typeof zh> = {
         insufficient: 'Not enough credits in this bucket; the balance cannot go below zero.',
       },
     },
-    tabs: { label: 'User detail sections', summary: 'Account', roles: 'Role & verification', credits: 'Credits', kyc: 'KYC', purchases: 'Purchases', payouts: 'Payouts', rees: 'Rees' },
+    tabs: { label: 'User detail sections', summary: 'Account', roles: 'Role & verification', credits: 'Credits', kyc: 'KYC', purchases: 'Purchases', payouts: 'Payouts', rees: 'Rees', keys: 'API keys' },
     summary: {
       account: 'Account & subscription',
       email: 'Email',
