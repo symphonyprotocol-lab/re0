@@ -112,20 +112,21 @@ describeWithDb('Firecrawl console and shared key pool', () => {
       const auth = new Headers(init.headers).get('authorization')!;
       requests.push(auth);
       if (auth !== `Bearer ${mainKey}`) return new Response('', { status, headers: { 'retry-after': '90' } });
-      return Response.json({ success: true, data: { pages: [{ pageNumber: 3, markdown: 'Fallback PDF content.' }], markdown: 'Fallback Word content.' } });
+      return Response.json({ success: true, data: { pages: [{ pageNumber: 3, markdown: 'Fallback PDF content.' }] } });
     }));
+    // Bytes pdf.js cannot open are not parsed locally, so they reach the key pool.
     expect(await documentSections(new Uint8Array([1]), 'manual.pdf')).toEqual([{ text: 'Fallback PDF content.', locator: { page: 3 } }]);
     expect(requests).toEqual([`Bearer ${keyA}`, `Bearer ${keyB}`, `Bearer ${mainKey}`]);
-    expect(await documentSections(new Uint8Array([1]), 'manual.docx')).toEqual([{ text: 'Fallback Word content.', locator: {} }]);
+    expect(await documentSections(new Uint8Array([2]), 'manual.pdf')).toEqual([{ text: 'Fallback PDF content.', locator: { page: 3 } }]);
     expect(requests.at(-1)).toBe(`Bearer ${mainKey}`);
     // On recovery the ordinary key handles the next parse, without consuming main-account traffic.
     await db().update(schema.firecrawlKey).set({ cooldownUntil: null }).where(eq(schema.firecrawlKey.id, a.id));
     requests.length = 0;
     vi.stubGlobal('fetch', vi.fn(async (_url, init) => {
       requests.push(new Headers(init.headers).get('authorization')!);
-      return Response.json({ success: true, data: { markdown: 'Recovered Word content.' } });
+      return Response.json({ success: true, data: { pages: [{ pageNumber: 1, markdown: 'Recovered PDF content.' }] } });
     }));
-    await documentSections(new Uint8Array([1]), 'manual.docx');
+    await documentSections(new Uint8Array([1]), 'manual.pdf');
     expect(requests).toEqual([`Bearer ${keyA}`]);
   });
 

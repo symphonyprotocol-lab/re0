@@ -4,7 +4,7 @@ import { eq, sql } from 'drizzle-orm';
 import { pointModelsAt, TEST_DATABASE_URL, uniqueName } from './setup';
 import { startFakeOpenAi, type FakeOpenAi } from '../fixtures/fake-openai';
 import { startFakeFirecrawl } from '../fixtures/fake-firecrawl';
-import { handbookPages, makePdf } from '../fixtures/pdf';
+import { handbookPages, makePdf, scannedHandbookPdf } from '../fixtures/pdf';
 import type { FakeWeb } from '../fixtures/fake-web';
 import { knowledgeCostsView } from '@/lib/domain/knowledge-costs';
 import { providerTotal, type ProviderCharge } from '@/lib/domain/provider-cost';
@@ -45,8 +45,9 @@ describeWithDb('knowledge cost reconciliation reports', () => {
 
   it('keeps retries separate, includes failed supplier costs, excludes open holds from net charges, and retains receipts after source purge', async () => {
     const { userId, ree, subject } = await owner();
+    // A scanned page sends the file to (fake) Firecrawl, whose credits are part of the cost.
     const path = `knowledge/${userId}/costs/test.pdf`;
-    blobs.set(path, makePdf(handbookPages()));
+    blobs.set(path, scannedHandbookPdf());
     const source = await addKnowledge(userId, ree, { kind: 'document', blobPath: path, fileName: 'test.pdf' });
     await Promise.all([processKnowledge(source, { profile: false }), processKnowledge(source, { profile: false })]);
     await refreshKnowledge(userId, ree.id, source);
@@ -78,6 +79,22 @@ describeWithDb('knowledge cost reconciliation reports', () => {
     expect((await knowledgeCostDetail(ready.id))?.charges).toEqual(ready.charges);
     expect((await knowledgeCostReport(view)).summary).toEqual(report.summary);
     expect(await knowledgeCostDetail('not-a-uuid')).toBeNull();
+  });
+
+  it('reports a locally parsed document with its embedding receipt only and a known cost', async () => {
+    const { userId, ree, subject } = await owner();
+    const path = `knowledge/${userId}/costs/local.pdf`;
+    blobs.set(path, makePdf(handbookPages()));
+    const source = await addKnowledge(userId, ree, { kind: 'document', blobPath: path, fileName: 'local.pdf' });
+    await processKnowledge(source, { profile: false });
+    const report = await knowledgeCostReport(knowledgeCostsView({ q: subject }));
+    expect(report.summary).toMatchObject({ attempts: 1, ready: 1, failed: 0, active: 0, unknown: 0, chargedCredits: 1, refundedCredits: 0, heldCredits: 0 });
+    expect(report.providers.map((p) => [p.service, p.calls, p.unresolved, p.firecrawlCredits])).toEqual([['embedding', 1, 0, '0']]);
+    const [run] = report.items;
+    expect(run).toMatchObject({ status: 'ready', kind: 'document', metered: true, calls: 1, unresolved: 0, chargedCredits: 1, reservedCredits: 1 });
+    expect(run!.costUsd).toBe(run!.knownCostUsd);
+    expect(Number(run!.costUsd)).toBeGreaterThan(0);
+    expect(providerTotal(run!.charges).credits).toBe(run!.chargedCredits);
   });
 
   it('backfills exact historical receipts and legacy reservations without fabricating zero costs', async () => {

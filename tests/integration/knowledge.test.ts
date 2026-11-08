@@ -1,15 +1,17 @@
 /**
  * Acceptance: a 30-page PDF goes processing → ready with 30 page-located
  * passages; the charge is the settled price (≤ the hold) and the ledger has
- * the hold and the settlement. Failures refund in full; reprocessing charges
- * again.
+ * the hold and the settlement. A text PDF is parsed locally and pays only for
+ * embedding; a scanned one goes to (fake) Firecrawl and pays its credits too.
+ * Failures refund in full; reprocessing charges again.
  */
 import { WELCOME_CREDITS } from '@/lib/constants';
 import { afterAll, beforeAll, beforeEach, describe, expect, it, vi } from 'vitest';
 import { pointModelsAt, TEST_DATABASE_URL, uniqueName } from './setup';
 import { asc, eq } from 'drizzle-orm';
 import { startFakeOpenAi, type FakeOpenAi } from '../fixtures/fake-openai';
-import { handbookPages, makePdf } from '../fixtures/pdf';
+import { handbookPages, makePdf, scannedHandbookPdf } from '../fixtures/pdf';
+import { makeDocx, word } from '../fixtures/docx';
 import { startFakeFirecrawl } from '../fixtures/fake-firecrawl';
 import { jsonResponse, type FakeWeb } from '../fixtures/fake-web';
 
@@ -153,7 +155,7 @@ describeWithDb('document processing', () => {
     await db().update(schema.creditGrant).set({ remaining: 310 }).where(eq(schema.creditGrant.userId, userId));
     fake.billing.embeddingTokens = 200_000;
     const path = `knowledge/${userId}/usage/parsed-then-unfunded.pdf`;
-    blobs.set(path, makePdf(handbookPages()));
+    blobs.set(path, scannedHandbookPdf());
     const id = await knowledge.addKnowledge(userId, ree, { kind: 'document', blobPath: path, fileName: 'parsed-then-unfunded.pdf' });
     await knowledge.processKnowledge(id, { profile: false });
     const detail = await knowledge.knowledgeDetail(ree.id, id);
@@ -170,7 +172,7 @@ describeWithDb('document processing', () => {
   it('refunds the expanded reservation in full if embedding fails', async () => {
     const { userId, ree } = await userWithRee();
     const path = `knowledge/${userId}/usage/unavailable.pdf`;
-    blobs.set(path, makePdf(handbookPages()));
+    blobs.set(path, scannedHandbookPdf());
     const id = await knowledge.addKnowledge(userId, ree, { kind: 'document', blobPath: path, fileName: 'unavailable.pdf' });
     const spy = vi.spyOn(models, 'embedTexts').mockRejectedValueOnce(new Error('embedding offline'));
     try {
@@ -260,19 +262,51 @@ describeWithDb('document processing', () => {
     }
   });
 
-  it('processes a 30-page PDF and settles the real price', async () => {
+  it('parses a 30-page text PDF locally and settles only the embedding', async () => {
     const { userId, ree } = await userWithRee();
     const path = `knowledge/${userId}/1/handbook.pdf`;
     blobs.set(path, makePdf(handbookPages()));
     const id = await knowledge.addKnowledge(userId, ree, { kind: 'document', blobPath: path, fileName: 'handbook.pdf' });
     expect(await balanceOf(db(), userId)).toBe(WELCOME_CREDITS - 1);
+    const firecrawlCalls = firecrawl.requests.length;
 
     await knowledge.processKnowledge(id);
+    expect(firecrawl.requests).toHaveLength(firecrawlCalls);
     const detail = await knowledge.knowledgeDetail(ree.id, id);
     expect(detail?.status).toBe('ready');
     expect(detail?.chunks).toHaveLength(30);
     expect(detail?.chunks[2]?.locator).toMatchObject({ page: 3 });
-    const chars = detail!.content!.length;
+    expect(detail?.chunks[2]?.content).toContain('within 14 days');
+    expect(detail?.activity.map((entry) => entry.code)).toEqual(['added', 'processing', 'provider_usage', 'parsed', 'chunked', 'settled', 'ready']);
+    expect(detail!.activity.find((entry) => entry.code === 'parsed')?.detail).toMatchObject({ pages: 30 });
+
+    const entries = await db().select().from(schema.creditEntry).where(eq(schema.creditEntry.refId, id)).orderBy(asc(schema.creditEntry.createdAt));
+    expect(entries.map((entry) => [entry.reason, entry.delta])).toEqual([['knowledge_hold', -1], ['knowledge_settle', 0]]);
+    expect(await balanceOf(db(), userId)).toBe(WELCOME_CREDITS - 1);
+    const [run] = await db().select().from(schema.knowledgeCostRun).where(eq(schema.knowledgeCostRun.knowledgeId, id));
+    expect(run).toMatchObject({ status: 'ready', chargedCredits: 1 });
+    expect(run!.charges.map((charge) => charge.service)).toEqual(['embedding']);
+
+    const listed = await knowledge.listKnowledge(ree.id, { q: 'refunds', status: 'ready', kind: 'all', sort: 'recent', size: 20, page: 1 });
+    expect(listed.items).toHaveLength(1);
+    expect(listed.items[0]).toMatchObject({ chunks: 30, chars: detail!.content!.length });
+    expect(listed.counts).toMatchObject({ all: 1, ready: 1, processing: 0, failed: 0 });
+  });
+
+  it('sends a 30-page PDF with a scanned page to Firecrawl and settles the real price', async () => {
+    const { userId, ree } = await userWithRee();
+    const path = `knowledge/${userId}/1/scanned.pdf`;
+    blobs.set(path, scannedHandbookPdf());
+    const id = await knowledge.addKnowledge(userId, ree, { kind: 'document', blobPath: path, fileName: 'scanned.pdf' });
+    expect(await balanceOf(db(), userId)).toBe(WELCOME_CREDITS - 1);
+    const firecrawlCalls = firecrawl.requests.length;
+
+    await knowledge.processKnowledge(id);
+    expect(firecrawl.requests).toHaveLength(firecrawlCalls + 1);
+    const detail = await knowledge.knowledgeDetail(ree.id, id);
+    expect(detail?.status).toBe('ready');
+    expect(detail?.chunks).toHaveLength(30);
+    expect(detail?.chunks[2]?.locator).toMatchObject({ page: 3 });
     const price = 301;
     expect(detail?.activity.map((entry) => entry.code)).toEqual(['added', 'processing', 'provider_usage', 'reserved', 'provider_usage', 'reserved', 'parsed', 'chunked', 'settled', 'ready']);
 
@@ -284,11 +318,6 @@ describeWithDb('document processing', () => {
       ['knowledge_settle', 0],
     ]);
     expect(await balanceOf(db(), userId)).toBe(WELCOME_CREDITS - price);
-
-    const listed = await knowledge.listKnowledge(ree.id, { q: 'refunds', status: 'ready', kind: 'all', sort: 'recent', size: 20, page: 1 });
-    expect(listed.items).toHaveLength(1);
-    expect(listed.items[0]).toMatchObject({ chunks: 30, chars });
-    expect(listed.counts).toMatchObject({ all: 1, ready: 1, processing: 0, failed: 0 });
   });
 
   it('fails and refunds in full when the file is gone; reprocessing charges again', async () => {
@@ -329,44 +358,42 @@ describeWithDb('document processing', () => {
     await expect(knowledge.addKnowledge(userId, ree, { kind: 'document', blobPath: path, fileName: 'run.exe' })).rejects.toMatchObject({ code: 'invalid_document' });
   });
 
-  it('stores Word markdown from Firecrawl and makes it retrievable', async () => {
+  it('parses Word locally, bills only the embedding and makes it retrievable', async () => {
     const { userId, ree } = await userWithRee();
     const path = `knowledge/${userId}/word/warranty.docx`;
-    blobs.set(path, new Uint8Array([80, 75, 3, 4]));
+    blobs.set(path, makeDocx([
+      word.heading(1, 'Warranty'),
+      word.paragraph('Devices are covered for two years.'),
+      word.table([['Item', 'Years'], ['Device', '2']]),
+    ]));
     const id = await knowledge.addKnowledge(userId, ree, { kind: 'document', blobPath: path, fileName: 'warranty.docx' });
-    await knowledge.processKnowledge(id);
+    const firecrawlCalls = firecrawl.requests.length;
+    await knowledge.processKnowledge(id, { profile: false });
+    expect(firecrawl.requests).toHaveLength(firecrawlCalls);
     const detail = await knowledge.knowledgeDetail(ree.id, id);
     expect(detail).toMatchObject({ status: 'ready' });
     expect(detail!.content).toContain('| Device | 2 |');
     expect(detail!.chunks.some((chunk) => chunk.content.includes('two years'))).toBe(true);
     expect(detail!.chunks.every((chunk) => chunk.locator.page === undefined)).toBe(true);
+    const settled = detail!.activity.find((entry) => entry.code === 'settled')!.detail!;
+    expect(settled).not.toHaveProperty('unresolvedCalls');
+    expect(await balanceOf(db(), userId)).toBe(WELCOME_CREDITS - Number(settled.charged));
+    const [run] = await db().select().from(schema.knowledgeCostRun).where(eq(schema.knowledgeCostRun.knowledgeId, id));
+    expect(run!.charges.map((charge) => charge.service)).toEqual(['embedding']);
     const { retrieve } = await import('@/lib/services/chat');
     const result = await retrieve(ree.id, 'Devices are covered for how many years?');
     expect(result.evidence).toBe(true);
     expect(result.passages.some((passage) => passage.knowledgeId === id && passage.content.includes('two years'))).toBe(true);
   });
 
-  it('processes Word that Firecrawl reports no usage for, billing only the known costs', async () => {
-    const route = 'api.firecrawl.dev/v2/parse';
-    const original = firecrawl.routes.get(route)!;
-    firecrawl.routes.set(route, () => jsonResponse({ success: true, data: { markdown: '# Warranty\n\nDevices are covered for two years.' } }));
-    try {
-      const { userId, ree } = await userWithRee();
-      const path = `knowledge/${userId}/word/unmetered.docx`;
-      blobs.set(path, new Uint8Array([80, 75, 3, 4]));
-      const id = await knowledge.addKnowledge(userId, ree, { kind: 'document', blobPath: path, fileName: 'unmetered.docx' });
-      await knowledge.processKnowledge(id, { profile: false });
-      const detail = await knowledge.knowledgeDetail(ree.id, id);
-      expect(detail).toMatchObject({ status: 'ready' });
-      const settled = detail!.activity.find((entry) => entry.code === 'settled')!.detail!;
-      expect(settled).toMatchObject({ unresolvedCalls: 1 });
-      // Only the embedding cost is billed; the Word parse waits for reconciliation in the console.
-      expect(await balanceOf(db(), userId)).toBe(WELCOME_CREDITS - Number(settled.charged));
-      const [run] = await db().select().from(schema.knowledgeCostRun).where(eq(schema.knowledgeCostRun.knowledgeId, id));
-      expect(run!.charges.filter((charge) => charge.costUsd === null)).toEqual([expect.objectContaining({ service: 'firecrawl', basis: 'unresolved' })]);
-    } finally {
-      firecrawl.routes.set(route, original);
-    }
+  it('fails and refunds a Word file that is not a document', async () => {
+    const { userId, ree } = await userWithRee();
+    const path = `knowledge/${userId}/word/broken.docx`;
+    blobs.set(path, new Uint8Array([80, 75, 3, 4]));
+    const id = await knowledge.addKnowledge(userId, ree, { kind: 'document', blobPath: path, fileName: 'broken.docx' });
+    await knowledge.processKnowledge(id, { profile: false });
+    expect(await knowledge.knowledgeDetail(ree.id, id)).toMatchObject({ status: 'failed', error: 'parse_failed', chunks: [] });
+    expect(await balanceOf(db(), userId)).toBe(WELCOME_CREDITS);
   });
 
   it('fails and refunds when Firecrawl cannot provide PDF page attribution', async () => {
@@ -376,7 +403,7 @@ describeWithDb('document processing', () => {
     try {
       const { userId, ree } = await userWithRee();
       const path = `knowledge/${userId}/bad/unreadable.pdf`;
-      blobs.set(path, makePdf(handbookPages()));
+      blobs.set(path, scannedHandbookPdf());
       const id = await knowledge.addKnowledge(userId, ree, { kind: 'document', blobPath: path, fileName: 'unreadable.pdf' });
       await knowledge.processKnowledge(id);
       expect(await knowledge.knowledgeDetail(ree.id, id)).toMatchObject({ status: 'failed', error: 'parse_failed', chunks: [] });

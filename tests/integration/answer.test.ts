@@ -57,6 +57,8 @@ async function setUp(withKnowledge: boolean) {
     blobs.set(path, makePdf(handbookPages()));
     const id = await knowledge.addKnowledge(userId, ree, { kind: 'document', blobPath: path, fileName: 'handbook.pdf' });
     await knowledge.processKnowledge(id);
+    // A text PDF is parsed locally; the fake Firecrawl only guards against a real request.
+    expect(firecrawl.requests).toEqual([]);
   }
   const conversation = await chat.testConversation(userId, ree.id);
   return { userId, ree, conversation };
