@@ -6,15 +6,18 @@ import {
   checkSummary,
   citationSnapshots,
   citedIndexes,
+  instructionsFor,
   isNoAnswer,
   locatorLabel,
+  questionLanguage,
   questionWithPassages,
   reasonLanguage,
   sentinelState,
   splitSentences,
+  withoutSentinel,
   type Passage,
 } from '@/lib/domain/answer';
-import { fuse, hasEvidence, keywordCoverage, searchTerms } from '@/lib/domain/retrieval';
+import { clipTokens, fuse, hasEvidence, isLibraryQuestion, keywordCoverage, overviewText, searchTerms } from '@/lib/domain/retrieval';
 
 const passage = (n: number): Passage => ({
   chunkId: `c${n}`,
@@ -58,6 +61,8 @@ describe('answers', () => {
     expect(isNoAnswer('These passages do not cover that. [[NO_ANSWER]]')).toBe(true);
     expect(isNoAnswer('  \n')).toBe(true);
     expect(isNoAnswer('Refunds take 14 days [1].')).toBe(false);
+    /* A sentinel inside an answer that goes on is dropped from the text, not a refusal. */
+    expect(isNoAnswer('Refunds take 14 days [1]. [[NO_ANSWER]] Store credit is not covered.')).toBe(false);
   });
 
   it('snapshots the cited passages under the numbers the text uses', () => {
@@ -194,5 +199,96 @@ describe('retrieval', () => {
     expect(hasEvidence({ bestSimilarity: 0.45, bestCoverage: 0, terms: 3 })).toBe(true);
     expect(hasEvidence({ bestSimilarity: 0.1, bestCoverage: 0.2, terms: 3 })).toBe(false);
     expect(hasEvidence({ bestSimilarity: 0.1, bestCoverage: 1, terms: 3 })).toBe(true);
+  });
+});
+
+describe('a sentinel inside an answer', () => {
+  it('is dropped from the stream, even split across deltas', () => {
+    let held = '';
+    let shown = '';
+    for (const delta of ['Revenue was €130.7M [4].\n\n[[NO_', 'ANSWER]]\n\nThe factory [', '4].']) {
+      const { send, keep } = withoutSentinel(held + delta);
+      shown += send;
+      held = keep;
+    }
+    expect(shown + held).toBe('Revenue was €130.7M [4].\n\n\n\nThe factory [4].');
+    expect(withoutSentinel('Answer [[NO')).toEqual({ send: 'Answer ', keep: '[[NO' });
+    expect(withoutSentinel('see [1]')).toEqual({ send: 'see [1]', keep: '' });
+  });
+
+  it('is asked for only when nothing can be answered, and exact strings stay as written', () => {
+    const rules = instructionsFor({ reeName: 'R', systemPrompt: '', lang: 'zh' });
+    expect(rules).toContain('Never write [[NO_ANSWER]] inside an answer.');
+    expect(rules).toContain('do not translate, transliterate or convert them');
+  });
+});
+
+describe('questions about the sources themselves', () => {
+  it('are told apart from questions about a fact', () => {
+    for (const question of [
+      'List every recording in this knowledge base and give the closing fact of each one.',
+      'Summarize the documents.',
+      'Which recordings mention Chile?',
+      'How many sources are there?',
+      '列出所有录音，以及每段结尾说了什么',
+      '这些文档分别讲什么？',
+      '知识库里有哪些资料？',
+      '一共有几段录音？',
+    ]) expect(isLibraryQuestion(question), question).toBe(true);
+    for (const question of ['What revenue did Lumetra report in 2017?', '青岚山第37条路线叫什么？', 'Who was elected mayor in 1716?', 'How many working days do warranty repairs take?', '保修维修要几个工作日？']) {
+      expect(isLibraryQuestion(question), question).toBe(false);
+    }
+  });
+
+  it('see each source as kind, length, beginning and end', () => {
+    const head = 'Chapter 1. The year 1706. '.repeat(200);
+    const tail = 'The vault code is BLUE HERON SEVENTY TWO. This is the end of the history of Varnholm.';
+    const text = overviewText({ kind: 'audio', chars: 40_215, parts: 446, seconds: 2379.5, labels: null, head, tail });
+    expect(text).toContain('Overview of this whole source: audio recording, 39:40 long, 40,215 characters of text.');
+    expect(text).toMatch(/^Beginning: Chapter 1\. The year 1706\./m);
+    expect(text).toContain('End: … ' + tail);
+    expect(text.length).toBeLessThan(2000);
+
+    const short = overviewText({ kind: 'text', chars: 11, parts: 0, seconds: null, labels: null, head: 'Hello world', tail: 'Hello world' });
+    expect(short).toContain('Full text: Hello world');
+    expect(short).not.toContain('Beginning:');
+
+    const repo = overviewText({ kind: 'github', chars: 9000, parts: 42, seconds: 3 * 3600 + 5, labels: ['README.md', 'src/index.ts'], head: 'x '.repeat(2000), tail: 'y '.repeat(2000) });
+    expect(repo).toContain('code repository, 3:00:05 long, 9,000 characters of text, 42 files');
+    expect(repo).toContain('Files include: README.md; src/index.ts; …');
+  });
+
+  it('clip by the chunker token estimate, from either end', () => {
+    expect(clipTokens('abcdefgh', 1, 'start')).toBe('abcd');
+    expect(clipTokens('abcdefgh', 1, 'end')).toBe('efgh');
+    expect(clipTokens('青鸟归巢八十八', 4, 'end')).toBe('巢八十八');
+  });
+
+  it('reach the model under their own heading, numbered with the passages after them', () => {
+    const passage = (title: string, locator: Passage['locator']): Passage => ({ chunkId: title, knowledgeId: title, title, kind: 'audio', content: `text of ${title}`, locator, similarity: 0 });
+    const prompt = questionWithPassages('List every recording.', [passage('a.mp3', { overview: true }), passage('b.mp3', { overview: true }), passage('a.mp3', { time: 754 })]);
+    expect(prompt).toContain('Source overviews (one per source, 2 sources):\n\n[1] a.mp3 (source overview)');
+    expect(prompt).toContain('[2] b.mp3 (source overview)');
+    expect(prompt).toContain('Passages from inside those sources (details only, not further sources):\n\n[3] a.mp3 (12:34)');
+    expect(questionWithPassages('Q', [passage('a.mp3', { time: 1 })])).toContain('Knowledge passages:\n\n[1] a.mp3 (0:01)');
+  });
+
+  it('are cited as a source overview', () => {
+    expect(locatorLabel({ overview: true }, 'zh')).toBe('来源概览');
+    expect(locatorLabel({ overview: true }, 'en')).toBe('source overview');
+  });
+});
+
+describe('the answer language', () => {
+  it('follows a question plainly written in Chinese, Japanese or Korean', () => {
+    expect(questionLanguage('这个知识库里有哪些录音？')).toBe('Chinese');
+    expect(questionLanguage('Lumetra 在 2017 年第四季度的营收是多少？')).toBe('Chinese');
+    expect(questionLanguage('この録音は何について話していますか')).toBe('Japanese');
+    expect(questionLanguage('이 녹음은 무엇에 관한 것입니까')).toBe('Korean');
+    expect(questionLanguage('What is the summit password 青鸟归巢八十八?')).toBeNull();
+    expect(questionLanguage('List every recording.')).toBeNull();
+    expect(questionLanguage('???')).toBeNull();
+    expect(questionWithPassages('这个知识库里有哪些录音？', [])).toMatch(/\n\nWrite the answer in Chinese\.\nQuestion: 这个知识库里有哪些录音？$/);
+    expect(questionWithPassages('List every recording.', [])).not.toContain('Write the answer in');
   });
 });

@@ -351,6 +351,17 @@ describeWithDb('audio', () => {
     expect(retrieval.passages[0]?.locator.time).toBe(377);
     expect(locatorLabel(retrieval.passages[0]!.locator, 'zh')).toBe('第 6:17');
     expect(locatorLabel(retrieval.passages[0]!.locator, 'en')).toBe('6:17');
+    expect(retrieval.passages.some((passage) => passage.locator.overview)).toBe(false);
+
+    /* A question about the sources themselves also sees the recording whole: its length, beginning and end. */
+    const library = await chat.retrieve(ree.id, 'List every recording and how each one ends.');
+    expect(library.evidence).toBe(true);
+    expect(library.passages[0]).toMatchObject({ knowledgeId: id, locator: { overview: true } });
+    expect(library.passages[0]!.content).toMatch(/^Overview of this whole source: audio recording, 1:49:\d\d long/);
+    /* The fake transcript is short, so the overview carries all of it. */
+    expect(library.passages[0]!.content).toContain('Full text: Part 0-0 of the recording');
+    expect(library.passages[0]!.content).toContain('The lighthouse keeper records the tide tables at dawn.');
+    expect(library.passages.filter((passage) => !passage.locator.overview).length).toBeGreaterThan(0);
 
     /* Sum each transcription piece’s provider cost and the embedding cost, then round once. */
     const charges = detail!.activity.filter((entry) => entry.code === 'provider_usage').map((entry) => JSON.parse(String(entry.detail!.charge)));

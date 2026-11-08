@@ -183,6 +183,15 @@ export const RETRIEVAL_RRF_K = 60;
  * does not answer and nothing is charged.
  */
 export const RETRIEVAL_MIN_SIMILARITY = 0.3;
+/**
+ * Questions about the sources themselves ("list every recording", "每份文档
+ * 讲什么") get a generated overview of each source -- kind, length,
+ * beginning and end -- on top of the passages: at most this many sources,
+ * with this much of their beginning and end.
+ */
+export const RETRIEVAL_OVERVIEWS_MAX = 10;
+export const OVERVIEW_HEAD_TOKENS = 120;
+export const OVERVIEW_TAIL_TOKENS = 250;
 /** Characters of a passage kept in a citation's snapshot. */
 export const CITATION_EXCERPT_CHARS = 600;
 /** Characters a question may have. */

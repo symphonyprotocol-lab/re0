@@ -3,7 +3,8 @@
  * keyword recall fused by reciprocal rank, then a confidence decision on
  * whether anything recalled is evidence at all (rebuild-proposal.md 5, step 2).
  */
-import { RETRIEVAL_MIN_SIMILARITY, RETRIEVAL_RRF_K } from '@/lib/constants';
+import { OVERVIEW_HEAD_TOKENS, OVERVIEW_TAIL_TOKENS, RETRIEVAL_MIN_SIMILARITY, RETRIEVAL_RRF_K } from '@/lib/constants';
+import type { KnowledgeKind } from '@/lib/domain/knowledge';
 
 function isCjk(code: number): boolean {
   return (code >= 0x3400 && code <= 0x9fff) || (code >= 0xf900 && code <= 0xfaff);
@@ -64,4 +65,89 @@ export function fuse(lists: readonly (readonly string[])[], k = RETRIEVAL_RRF_K)
 export function hasEvidence(input: { bestSimilarity: number | null; bestCoverage: number; terms: number }): boolean {
   if (input.bestSimilarity !== null && input.bestSimilarity >= RETRIEVAL_MIN_SIMILARITY) return true;
   return input.terms >= 2 && input.bestCoverage >= 0.75;
+}
+
+/* ---------------------------------------------------------------- overviews */
+
+/**
+ * Whether a question is about the sources themselves -- what there is, each
+ * one, how many, a list or summary -- rather than a fact inside one. Passage
+ * recall cannot answer those (no single passage speaks for a whole source),
+ * so they also get each source's overview. A false positive only adds
+ * context; it never takes passages away.
+ */
+export function isLibraryQuestion(question: string): boolean {
+  /* Counting asks about the sources only with a source word after it: "how many working days" and 几个工作日 are about the content. */
+  if (/\b(all|every|each|list|lists|listing|overview|overviews|summari[sz]e|summary|summaries|(?:how many|which) (?:sources?|documents?|docs?|files?|recordings?|audios?|pages?|repositories|repos?))\b/i.test(question)) return true;
+  if (/(几|多少)\s*(个|份|段|篇|条)?\s*(来源|文档|文件|录音|音频|网页|页面|资料|知识|仓库)/.test(question)) return true;
+  return /(所有|全部|每个|每一|每份|每段|每篇|各个|各份|各段|各自|分别|列出|列举|哪些|概览|概括|总结|汇总|总览|梳理)/.test(question);
+}
+
+const KIND_WORDS: Record<KnowledgeKind, string> = {
+  audio: 'audio recording',
+  document: 'document',
+  github: 'code repository',
+  page: 'web page',
+  site: 'website',
+  text: 'text note',
+};
+
+function tokenCost(character: string): number {
+  return isCjk(character.codePointAt(0) ?? 0) ? 1 : 0.25;
+}
+
+/** At most `max` tokens from the start (or the end) of `text`, by the chunker's estimate. */
+export function clipTokens(text: string, max: number, from: 'start' | 'end'): string {
+  const characters = Array.from(text);
+  if (from === 'end') characters.reverse();
+  let tokens = 0;
+  let kept = 0;
+  for (const character of characters) {
+    tokens += tokenCost(character);
+    if (tokens > max) break;
+    kept += 1;
+  }
+  const clipped = characters.slice(0, kept);
+  if (from === 'end') clipped.reverse();
+  return clipped.join('').trim();
+}
+
+function duration(seconds: number): string {
+  const total = Math.round(seconds);
+  const h = Math.floor(total / 3600);
+  const m = Math.floor((total % 3600) / 60);
+  const s = String(total % 60).padStart(2, '0');
+  return h > 0 ? `${h}:${String(m).padStart(2, '0')}:${s}` : `${m}:${s}`;
+}
+
+/**
+ * A whole source in a few hundred tokens: what it is, how long, how it
+ * begins and how it ends (or all of it when it is that short), and for a
+ * repository or website the first of its files or pages.
+ */
+export function overviewText(input: {
+  kind: KnowledgeKind;
+  chars: number;
+  parts: number;
+  seconds: number | null;
+  labels: readonly string[] | null;
+  head: string;
+  tail: string;
+}): string {
+  const facts = [KIND_WORDS[input.kind]];
+  if (input.seconds !== null && input.seconds > 0) facts.push(`${duration(input.seconds)} long`);
+  facts.push(`${input.chars.toLocaleString('en-US')} characters of text`);
+  if ((input.kind === 'github' || input.kind === 'site') && input.parts > 0) facts.push(`${input.parts} ${input.kind === 'github' ? 'files' : 'pages'}`);
+  const lines = [`Overview of this whole source: ${facts.join(', ')}.`];
+  /* A short source fits whole: its head is all of it and within both budgets together. */
+  const all = input.head.trim();
+  if (input.chars <= Array.from(input.head).length && clipTokens(all, OVERVIEW_HEAD_TOKENS + OVERVIEW_TAIL_TOKENS, 'start') === all) {
+    lines.push(`Full text: ${all}`);
+  } else {
+    lines.push(`Beginning: ${clipTokens(input.head, OVERVIEW_HEAD_TOKENS, 'start')} …`);
+    lines.push(`End: … ${clipTokens(input.tail, OVERVIEW_TAIL_TOKENS, 'end')}`);
+  }
+  const labels = (input.labels ?? []).filter(Boolean);
+  if (labels.length) lines.push(`${input.kind === 'github' ? 'Files' : 'Pages'} include: ${labels.join('; ')}${input.parts > labels.length ? '; …' : ''}`);
+  return lines.join('\n');
 }

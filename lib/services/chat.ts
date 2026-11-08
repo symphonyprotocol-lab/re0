@@ -2,11 +2,11 @@
  * The single-Ree test conversation (`conversation.kind = ree_test`) and the
  * retrieval it answers from (rebuild-proposal.md 5).
  */
-import { and, asc, eq, inArray, isNull, sql, type SQL } from 'drizzle-orm';
-import { HISTORY_TURNS, RETRIEVAL_RECALL, RETRIEVAL_TOP_K } from '@/lib/constants';
+import { and, asc, desc, eq, inArray, isNull, sql, type SQL } from 'drizzle-orm';
+import { HISTORY_TURNS, RETRIEVAL_OVERVIEWS_MAX, RETRIEVAL_RECALL, RETRIEVAL_TOP_K } from '@/lib/constants';
 import type { Passage } from '@/lib/domain/answer';
 import { checkPartId, SYNTHESIS_PART_ID, TEXT_META_KEY, textPartId, type ReeOutcome, type ReeUIMessage, type SuggestedRee, type SynthesisPart } from '@/lib/domain/chat-message';
-import { fuse, hasEvidence, keywordCoverage, searchTerms } from '@/lib/domain/retrieval';
+import { fuse, hasEvidence, isLibraryQuestion, keywordCoverage, overviewText, searchTerms } from '@/lib/domain/retrieval';
 import { likePattern } from '@/lib/domain/list';
 import { embedTexts } from '@/lib/infra/ai/models';
 import { db, schema } from '@/lib/infra/db';
@@ -230,12 +230,62 @@ export async function retrieve(reeId: string, question: string, embedded?: Quest
     };
   });
   const bestSimilarity = semantic.length ? Number(semantic[0]!.similarity) : null;
-  return {
-    passages,
-    bestSimilarity,
-    evidence: passages.length > 0 && hasEvidence({ bestSimilarity, bestCoverage: keyword[0]?.coverage ?? 0, terms: terms.length }),
-    model,
-  };
+  const evidence = passages.length > 0 && hasEvidence({ bestSimilarity, bestCoverage: keyword[0]?.coverage ?? 0, terms: terms.length });
+  /* A question about the sources themselves also sees each source whole, the closest sources first. */
+  if (isLibraryQuestion(question)) {
+    const overviews = await sourceOverviews(reeId, [...new Set(semantic.map((row) => row.knowledgeId))]);
+    if (overviews.length) return { passages: [...overviews, ...passages], bestSimilarity, evidence: true, model };
+  }
+  return { passages, bestSimilarity, evidence, model };
+}
+
+/** Characters read from each end of a source to build its overview (more than the overview keeps). */
+const OVERVIEW_READ_CHARS = 2000;
+
+/**
+ * Overviews of a Ree's answerable sources, built from the stored text at
+ * question time (nothing to keep in sync, nothing to backfill): the sources
+ * recall ranked first, then the most recently updated.
+ */
+export async function sourceOverviews(reeId: string, ranked: readonly string[]): Promise<Passage[]> {
+  const k = schema.knowledge;
+  const rows = await db()
+    .select({
+      id: k.id,
+      title: k.title,
+      kind: k.kind,
+      chars: sql<number>`char_length(coalesce(${k.content}, ''))`,
+      head: sql<string>`left(coalesce(${k.content}, ''), ${OVERVIEW_READ_CHARS})`,
+      tail: sql<string>`right(coalesce(${k.content}, ''), ${OVERVIEW_READ_CHARS})`,
+      parts: sql<number>`jsonb_array_length(coalesce(${k.children}, '[]'::jsonb))`,
+      seconds: sql<number | null>`case when ${k.kind} = 'audio' then (${k.children} -> -1 ->> 'end')::float end`,
+      labels: sql<string[] | null>`case when ${k.kind} in ('github', 'site') then (select jsonb_agg(c ->> 'label') from (select jsonb_array_elements(${k.children}) as c limit 20) as first) end`,
+    })
+    .from(k)
+    .where(and(eq(k.reeId, reeId), ...answerable()))
+    .orderBy(ranked.length ? sql`case when ${inArray(k.id, [...ranked])} then 0 else 1 end` : sql`1`, desc(k.updatedAt))
+    .limit(RETRIEVAL_OVERVIEWS_MAX);
+  const rank = (id: string) => (ranked.includes(id) ? ranked.indexOf(id) : ranked.length);
+  return rows
+    .filter((row) => row.chars > 0)
+    .sort((a, b) => rank(a.id) - rank(b.id))
+    .map((row) => ({
+      chunkId: `overview:${row.id}`,
+      knowledgeId: row.id,
+      title: row.title,
+      kind: row.kind,
+      content: overviewText({
+        kind: row.kind,
+        chars: Number(row.chars),
+        parts: Number(row.parts),
+        seconds: row.seconds === null ? null : Number(row.seconds),
+        labels: row.labels,
+        head: row.head,
+        tail: row.tail,
+      }),
+      locator: { overview: true },
+      similarity: 0,
+    }));
 }
 
 export interface QuestionVector {

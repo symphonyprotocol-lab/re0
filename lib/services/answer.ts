@@ -37,11 +37,13 @@ import {
   checkResults,
   citationSnapshots,
   instructionsFor,
+  NO_ANSWER_SENTINEL,
   questionWithPassages,
   reasonLanguage,
   isNoAnswer,
   sentinelState,
   splitSentences,
+  withoutSentinel,
   type Passage,
 } from '@/lib/domain/answer';
 import { checkPartId, TEXT_META_KEY, textPartId, type InsufficientCreditsBody, type ReeCheck, type ReeOutcome, type ReeUIMessage, type SuggestedRee } from '@/lib/domain/chat-message';
@@ -287,6 +289,18 @@ export async function answer(input: {
       let decided: boolean | null = null;
       let pending = '';
       let streamed = '';
+      /* Everything the model wrote, sentinels included: a reply that ends on one is still no answer. */
+      let raw = '';
+      /* A sentinel written after the answer began is dropped, never shown or stored. */
+      let held = '';
+      const emit = (text: string, flush = false) => {
+        raw += text;
+        const { send, keep } = flush ? { send: (held + text).split(NO_ANSWER_SENTINEL).join(''), keep: '' } : withoutSentinel(held + text);
+        held = keep;
+        if (!send) return;
+        write({ type: 'text-delta', id: partId, delta: send });
+        streamed += send;
+      };
       for await (const delta of result.textStream) {
         if (decided === true) continue;
         if (decided === null) {
@@ -295,13 +309,12 @@ export async function answer(input: {
           if (decided !== false) continue;
           write({ type: 'text-start', id: partId, providerMetadata: meta });
           textOpen = true;
-          write({ type: 'text-delta', id: partId, delta: pending });
-          streamed += pending;
+          emit(pending);
           continue;
         }
-        write({ type: 'text-delta', id: partId, delta });
-        streamed += delta;
+        emit(delta);
       }
+      if (textOpen) emit('', true);
       if (textOpen) write({ type: 'text-end', id: partId });
       textOpen = false;
       void Promise.resolve(result.usage).then(
@@ -309,7 +322,7 @@ export async function answer(input: {
         () => undefined,
       );
 
-      if (decided === true || isNoAnswer(streamed)) {
+      if (decided === true || isNoAnswer(raw)) {
         write({ type: 'data-outcome', id: `outcome-${ree.id}`, data: { ...(await unanswered(ree, 'out_of_scope', entry)), model } });
         return false;
       }
