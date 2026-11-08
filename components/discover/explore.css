@@ -331,15 +331,6 @@
 .marketing-site .discovery-page .filter-row {
   margin-block: 17px 24px;
 }
-.discovery-page .template-blueprint {
-  background: #102446;
-  color: #d6e7ff;
-  border-color: #2a456a;
-}
-.discovery-page .template-spotlight {
-  background: #fffdf8;
-  border-color: #ede6d8;
-}
 .discovery-page .discovery-card {
   overflow: hidden;
 }

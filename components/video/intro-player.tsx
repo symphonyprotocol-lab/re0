@@ -2,8 +2,8 @@
 
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { Player, type PlayerRef } from '@remotion/player';
-import { VIDEO_FPS, VIDEO_FRAMES, VIDEO_SHOT_SECONDS } from '@/lib/constants';
-import { clock, hasVideoAudio, shotAt, shotWindows, type IntroProps } from '@/lib/domain/video';
+import { VIDEO_FPS, VIDEO_FRAMES } from '@/lib/constants';
+import { clock, hasVideoAudio, type IntroProps } from '@/lib/domain/video';
 import { demoTimeline } from '@/lib/domain/product-demo';
 import { introComposition } from '@/video/intro';
 import { useI18n } from '@/i18n/client';
@@ -195,8 +195,8 @@ export function IntroPlayer({
   };
 
   const demo = props.scenes.demo;
-  const windows = demo ? demoTimeline(demo) : shotWindows();
-  const current = demo ? Math.max(0, windows.findIndex((window) => frame < window.end)) : shotAt(frame);
+  const windows = demo ? demoTimeline(demo) : [];
+  const current = Math.max(0, windows.findIndex((window) => frame < window.end));
   /* The editor (prototype suite.js `videoEditor`): the stage in its card with the controls, then the shot timeline. */
   if (timeline)
     return (
@@ -249,9 +249,9 @@ export function IntroPlayer({
           {windows.map((window, index) => (
             <button key={index} type="button" className={current === index ? 'active' : ''} onClick={() => seek(window.start)} aria-current={current === index ? 'step' : undefined}>
               <span className="mono">
-                0{index + 1} <small>{fill(t.video.shotLength, { n: demo ? Math.round((window.end - window.start) / VIDEO_FPS * 10) / 10 : VIDEO_SHOT_SECONDS[index]! })}</small>
+                0{index + 1} <small>{fill(t.video.shotLength, { n: Math.round((window.end - window.start) / VIDEO_FPS * 10) / 10 })}</small>
               </span>
-              <strong>{demo ? index === 0 ? t.video.shots[0] : demo.steps[index - 1] : t.video.shots[index]}</strong>
+              <strong>{index === 0 ? t.video.opening : demo?.steps[index - 1]}</strong>
               <i />
             </button>
           ))}
@@ -341,30 +341,6 @@ export function IntroPlayer({
           )}
         </div>
       </div>
-      {timeline && (
-        <div className="mt-3 grid grid-cols-[3fr_4fr_5fr_3fr] gap-1.5" role="group" aria-label={t.video.timeline}>
-          {windows.map((window, index) => (
-            <button
-              key={index}
-              type="button"
-              onClick={() => seek(window.start)}
-              aria-current={current === index ? 'step' : undefined}
-              className={`min-w-0 rounded-lg border px-2 py-2 text-left transition ${current === index ? 'border-blue bg-soft' : 'border-line bg-white hover:border-[#c4cce0]'}`}
-            >
-              <span className="block font-mono text-[10px] text-muted">
-                0{index + 1} <small>{fill(t.video.shotLength, { n: VIDEO_SHOT_SECONDS[index]! })}</small>
-              </span>
-              <strong className="block truncate text-[11px] sm:text-[12px]">{t.video.shots[index]}</strong>
-              <i className="mt-1.5 block h-1 overflow-hidden rounded-full bg-line">
-                <span
-                  className="block h-full bg-blue"
-                  style={{ width: `${Math.max(0, Math.min(100, ((frame - window.start) / (window.end - window.start)) * 100))}%` }}
-                />
-              </i>
-            </button>
-          ))}
-        </div>
-      )}
     </div>
   );
 }

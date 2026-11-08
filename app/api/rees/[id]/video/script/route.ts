@@ -5,13 +5,13 @@ import { apiUser } from '@/lib/http/session';
 import { videoFailure } from '@/lib/http/video';
 import { generateScript, introsFor } from '@/lib/services/video';
 
-/* One live answer and up to three generation calls. */
+/* Up to three generation calls and four voiced lines. */
 export const maxDuration = 120;
 
 /**
- * Generates or regenerates the four-shot script (rebuild-proposal.md 2.6):
- * Script and any voiceover credits are reserved, then settled or refunded. Refused
- * without a ready source (409 `no_ready_source`).
+ * Generates or regenerates the narrated script in the chosen video type
+ * (rebuild-proposal.md 2.6): script and voiceover credits are reserved, then
+ * settled or refunded. Refused without a ready source (409 `no_ready_source`).
  */
 export async function POST(request: NextRequest, context: { params: Promise<{ id: string }> }) {
   const user = await apiUser(request);
@@ -22,7 +22,7 @@ export async function POST(request: NextRequest, context: { params: Promise<{ id
   if (revision !== undefined && (typeof revision !== 'number' || !Number.isSafeInteger(revision) || revision < 0)) return fail('invalid_revision', 422);
   if (maxCost !== undefined && (typeof maxCost !== 'number' || !Number.isSafeInteger(maxCost) || maxCost < 0)) return fail('invalid_price', 422);
   try {
-    const { generationCost, ...video } = await generateScript(user.id, id, undefined, { template: template as VideoTemplate | undefined, revision, maxCost });
+    const { generationCost, ...video } = await generateScript(user.id, id, { template: template as VideoTemplate | undefined, revision, maxCost });
     return json({ video, cost: generationCost, props: (await introsFor([id])).get(id) ?? null });
   } catch (error) {
     return videoFailure(error);

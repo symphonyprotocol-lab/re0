@@ -33,7 +33,7 @@ import type { KnowledgeActivity, KnowledgeChild } from '@/lib/domain/knowledge';
 import type { RoleMetrics } from '@/lib/domain/roles';
 import type { ReeRank } from '@/lib/domain/explore';
 import { REE_COMMENT_MAX_LENGTH } from '@/lib/domain/ree-comment';
-import { MODEL_KINDS, VIDEO_TEMPLATES, type ModelKind } from '@/lib/constants';
+import { MODEL_KINDS, VIDEO_EXPORT_TEMPLATES, VIDEO_TEMPLATES, type ModelKind } from '@/lib/constants';
 
 const createdAt = () => timestamp('created_at', { withTimezone: true }).notNull().defaultNow();
 const timestampTz = (name: string) => timestamp(name, { withTimezone: true });
@@ -1075,7 +1075,7 @@ export const reeVideo = pgTable(
       .references(() => ree.id, { onDelete: 'cascade' }),
     generated: boolean('generated').notNull().default(false),
     revision: integer('revision').notNull().default(0),
-    template: text('template').$type<(typeof VIDEO_TEMPLATES)[number]>().notNull().default('editorial'),
+    template: text('template').$type<(typeof VIDEO_TEMPLATES)[number]>().notNull().default('product-demo'),
     accentColor: text('accent_color').notNull().default('#127ee3'),
     aspect: text('aspect').$type<'16:9' | '9:16'>().notNull().default('16:9'),
     music: boolean('music').notNull().default(true),
@@ -1114,7 +1114,7 @@ export const videoExport = pgTable(
       .notNull()
       .references(() => user.id),
     contentVersion: text('content_version').notNull(),
-    template: text('template').$type<(typeof VIDEO_TEMPLATES)[number]>().notNull(),
+    template: text('template').$type<(typeof VIDEO_EXPORT_TEMPLATES)[number]>().notNull(),
     aspect: text('aspect').$type<'16:9' | '9:16'>().notNull(),
     status: text('status').$type<'started' | 'done' | 'abandoned'>().notNull().default('started'),
     /** The Blob pathname, served at `/media/<pathname>`. */
@@ -1130,7 +1130,7 @@ export const videoExport = pgTable(
     index('video_export_ree_idx').on(t.reeId, t.createdAt),
     index('video_export_started_idx').on(t.createdAt).where(sql`status = 'started'`),
     check('video_export_status_check', oneOf('status', ['started', 'done', 'abandoned'])),
-    check('video_export_template_check', oneOf('template', VIDEO_TEMPLATES)),
+    check('video_export_template_check', oneOf('template', VIDEO_EXPORT_TEMPLATES)),
     check('video_export_aspect_check', oneOf('aspect', ['16:9', '9:16'])),
     check('video_export_cost_check', sql`cost_credits >= 0`),
   ],

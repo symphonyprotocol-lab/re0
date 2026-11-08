@@ -638,16 +638,6 @@
   display: none;
 }
 }
-/* suite.css */
-.owned-rees-page .template-blueprint {
-  background: rgb(16, 36, 70);
-  color: rgb(214, 231, 255);
-  border-color: rgb(42, 69, 106);
-}
-.owned-rees-page .template-spotlight {
-  background: rgb(255, 253, 248);
-  border-color: rgb(237, 230, 216);
-}
 /* discovery-video.css */
 .owned-rees-page .creator-dot-card {
   overflow: hidden;

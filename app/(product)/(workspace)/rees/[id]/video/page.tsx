@@ -13,8 +13,8 @@ export async function generateMetadata(): Promise<Metadata> {
 
 /**
  * `/rees/[id]/video` (rebuild-proposal.md 8.4 step 7, prototype
- * `#/dots/:id/video`): the Ree's 15-second introduction -- script, shots,
- * style, Player preview, export and sharing. Owner only.
+ * `#/dots/:id/video`): the Ree's 15-second narrated introduction -- video
+ * type, script, style, Player preview, export and sharing. Owner only.
  */
 export default async function ReeVideoPage({ params }: { params: Promise<{ id: string }> }) {
   const user = (await currentUser())!;
@@ -23,13 +23,14 @@ export default async function ReeVideoPage({ params }: { params: Promise<{ id: s
     throw error;
   });
   if (!studio) notFound();
-  const { ree, video, props, readySources, scriptCredits, exportCredits, demoCredits, lastExport } = studio;
+  const { ree, video, props, readySources, recommended, scriptCredits, exportCredits, demoCredits, lastExport } = studio;
   return (
     <>
       <ReeTopbar ree={ree} active="video" />
       <VideoStudio
           ree={{ id: ree.id, name: ree.name, slug: ree.slug, avatarBlob: ree.avatarBlob, color: ree.color, isPublic: ree.isPublic && ree.isPublished && !ree.moderatedAt }}
           readySources={readySources}
+          recommended={recommended}
           scriptCredits={scriptCredits}
           exportCredits={exportCredits}
           demoCredits={demoCredits}

@@ -47,22 +47,6 @@ function vectorOf(text: string): number[] {
   return vector.map((value) => value / norm);
 }
 
-/**
- * Step 7: the four-shot script. A prompt naming LONGSCRIPT gets a name over
- * the 20-character limit (the generator must ask for a rewrite), FAILSCRIPT
- * an over-limit name every time (the script fails and is refunded).
- */
-export function videoScript(prompt: string, rewrite: boolean) {
-  const failing = prompt.includes('FAILSCRIPT');
-  const long = failing || (prompt.includes('LONGSCRIPT') && !rewrite);
-  return {
-    opening: { name: long ? `${failing ? 'FAILSCRIPT ' : ''}A name far too long for the opening shot` : 'Refund Helper', position: 'Answers from your policy' },
-    sources: { titles: ['Refund policy notes', 'Store credit rules'] },
-    answer: { question: 'When are refunds issued?', answer: 'Refunds go back to the original card in 14 days.' },
-    closing: { cta: 'Ask it now' },
-  };
-}
-
 /** `TERSE NARRATION` in the sources: a too-short first draft, fixed when asked to rewrite it. `ENDLESS NARRATION`: always far too long. */
 function demoStoryboard(prompt: string, system: string): Record<string, unknown> {
   if (prompt.includes('ENDLESS NARRATION') || (prompt.includes('TERSE NARRATION') && !system.includes('Your previous narration had'))) {
@@ -93,6 +77,33 @@ function demoStoryboard(prompt: string, system: string): Record<string, unknown>
     result: 'Refunds arrive within fourteen days.',
     steps: { prepare: 'Ask a question', action: 'Find the answer', result: 'Check the policy' },
     narration: { hook: 'Waiting to find out when your refund arrives?', prepare: 'Ask the assistant when the money comes back.', action: 'It checks the refund policy for the timing.', result: 'Your payment is refunded within fourteen days.' },
+  };
+}
+
+/** The other video types' storyboards: the user manual's quick start, the course introduction and the article summary. */
+function storyboard(system: string): Record<string, unknown> {
+  if (system.includes('quick-start video')) return {
+    subject: 'DW200 terminal', headline: 'Set up the DW200 in minutes', summary: 'A quick start for the DW200 access terminal.',
+    setup: ['Mount the wall bracket', 'Connect the twelve volt supply', 'Wait for the green light'],
+    operation: { title: 'Add an access card', detail: 'Open Settings, choose Access, then Add card and hold the card to the reader.' },
+    caution: { title: 'Keep the reader dry', text: 'Water on the reader causes failed scans; wipe it and restart the terminal.' },
+    steps: { setup: 'Set up', operate: 'Add a card', caution: 'Stay safe' },
+    narration: { hook: 'Here is how to get your DW200 terminal running.', setup: 'Mount the bracket and connect the power supply first.', operate: 'Then open Settings and add an access card.', caution: 'Keep the reader dry to avoid failed scans.' },
+  };
+  if (system.includes('introduction video for the course')) return {
+    course: 'Refund operations 101', headline: 'Handle every refund with confidence', summary: 'A short course on the refund policy for support teams.',
+    badges: ['3 modules', 'Self-paced'], audience: ['Support agents', 'Team leads'],
+    modules: ['Refund basics', 'Original payment methods', 'Fourteen-day timing'], outcomes: ['Answer refund questions', 'Explain timing clearly'], cta: 'Start the course',
+    steps: { audience: 'Who it is for', syllabus: 'What you learn', outcome: 'What you get' },
+    narration: { hook: 'Want to answer every refund question with confidence?', audience: 'This course is built for support agents and their leads.', syllabus: 'It covers refund basics, payment methods and timing.', outcome: 'Finish it and explain any refund clearly.' },
+  };
+  return {
+    source: 'Refund policy notes', headline: 'Refunds should be fast and predictable', summary: 'Why the policy commits to a fixed refund window.',
+    points: ['Refunds go to the original method', 'The window is fourteen days', 'Store credit is never forced'],
+    evidence: { figure: '14 days', text: 'Every refund reaches the original payment method within fourteen days.' },
+    conclusion: 'A fixed window keeps customers informed and trusting.', further: ['Store credit rules'],
+    steps: { points: 'Key points', evidence: 'The evidence', takeaway: 'Takeaway' },
+    narration: { thesis: 'Refunds should be fast and predictable.', points: 'They return to the original payment method, never as credit.', evidence: 'Every refund arrives within fourteen days of the request.', takeaway: 'A fixed window keeps customers informed and trusting.' },
   };
 }
 
@@ -139,8 +150,8 @@ export async function startFakeOpenAi(port = 0, options: { delayMs?: number } = 
         ? 'When are refunds issued?\nHow long does a refund take?\nWhere does the refund go?'
         : system.includes('continuous 15-second English product demonstration')
           ? JSON.stringify(demoStoryboard(question, system))
-        : system.includes('Rewrite this video script') || system.includes('video introduction script')
-          ? JSON.stringify(videoScript(question, system.includes('Rewrite this video script')))
+        : system.includes('continuous 15-second English')
+          ? JSON.stringify(storyboard(system))
           : question.includes('DECLINE')
           ? '[[NO_ANSWER]]'
           : 'Refunds are issued to the original payment method within 14 days [1].';

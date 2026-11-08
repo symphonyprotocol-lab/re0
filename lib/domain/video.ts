@@ -1,35 +1,33 @@
 /**
- * A Ree's 15-second introduction without the database (rebuild-proposal.md
- * 2.6, prototype suite.js `videoEditor`): the four shots and their character
- * limits, the shot timeline, what an export costs, and the props the
- * Remotion composition in `video/` draws. Shared by the server (script
- * generation, export cache identity), the editor and the composition.
+ * A Ree's 15-second narrated introduction without the database
+ * (rebuild-proposal.md 2.6): the stored script, its style, what an export
+ * costs, and the props the Remotion composition in `video/` draws. Shared by
+ * the server (script generation, export cache identity), the editor and the
+ * composition. The story itself, per video type, is in `product-demo.ts`.
  */
 import {
   VIDEO_ASPECTS,
   VIDEO_DEFAULT_ACCENT,
   VIDEO_FPS,
   VIDEO_FRAMES,
-  VIDEO_LIMITS,
   VIDEO_LONG_SIDE,
   VIDEO_SHORT_SIDE,
-  VIDEO_SHOT_SECONDS,
   VIDEO_TEMPLATES,
   type VideoAspect,
   type VideoTemplate,
 } from '@/lib/constants';
-import { PRODUCT_DEMO_TEMPLATE, type ProductDemo } from '@/lib/domain/product-demo';
+import { PRODUCT_DEMO_TEMPLATE, type VideoStory } from '@/lib/domain/product-demo';
 
-/** The text of the four shots. */
+/**
+ * The stored script. `demo` is the narrated story; the other fields are the
+ * Ree's name and one-line positioning, its knowledge titles and a closing
+ * line, which posters, cards and link previews show.
+ */
 export interface VideoScenes {
-  demo?: ProductDemo;
-  /** Shot 1, 3 s: the name (≤ 20) and a one-line positioning (≤ 24). */
+  demo?: VideoStory;
   opening: { name: string; position: string };
-  /** Shot 2, 4 s: up to four knowledge titles (≤ 20 each); more sources show as "等 N 项". */
   sources: { titles: string[] };
-  /** Shot 3, 5 s: one real question (≤ 30) and the first sentence of its answer (≤ 50). */
   answer: { question: string; answer: string };
-  /** Shot 4, 3 s: a call to action (≤ 16) beside the price and the link. */
   closing: { cta: string };
 }
 
@@ -64,76 +62,19 @@ export function hasVideoAudio(props: IntroProps): boolean {
   return props.music || Boolean(props.narrationUrl);
 }
 
-export type SceneField = 'name' | 'position' | 'sources' | 'source' | 'question' | 'answer' | 'cta';
-
-export interface SceneError {
-  field: SceneField;
-  /** Which source title, for `source`. */
-  index?: number;
-  issue: 'empty' | 'too_long' | 'too_many';
-  max: number;
-}
-
 /** Characters as people count them: code points, so a Chinese character or an emoji is one. */
 export function chars(text: string): number {
   return Array.from(text).length;
-}
-
-const SCENE_FIELDS: { field: Exclude<SceneField, 'sources' | 'source'>; read: (scenes: VideoScenes) => string; max: number }[] = [
-  { field: 'name', read: (scenes) => scenes.opening.name, max: VIDEO_LIMITS.name },
-  { field: 'position', read: (scenes) => scenes.opening.position, max: VIDEO_LIMITS.position },
-  { field: 'question', read: (scenes) => scenes.answer.question, max: VIDEO_LIMITS.question },
-  { field: 'answer', read: (scenes) => scenes.answer.answer, max: VIDEO_LIMITS.answer },
-  { field: 'cta', read: (scenes) => scenes.closing.cta, max: VIDEO_LIMITS.cta },
-];
-
-/** Every limit the four shots break; empty when the script can be saved. */
-export function sceneErrors(scenes: VideoScenes): SceneError[] {
-  const errors: SceneError[] = [];
-  for (const { field, read, max } of SCENE_FIELDS) {
-    const value = read(scenes).trim();
-    if (!value) errors.push({ field, issue: 'empty', max });
-    else if (chars(value) > max) errors.push({ field, issue: 'too_long', max });
-  }
-  const titles = scenes.sources.titles;
-  if (titles.length === 0) errors.push({ field: 'sources', issue: 'empty', max: VIDEO_LIMITS.sources });
-  if (titles.length > VIDEO_LIMITS.sources) errors.push({ field: 'sources', issue: 'too_many', max: VIDEO_LIMITS.sources });
-  titles.forEach((title, index) => {
-    if (!title.trim()) errors.push({ field: 'source', index, issue: 'empty', max: VIDEO_LIMITS.source });
-    else if (chars(title.trim()) > VIDEO_LIMITS.source) errors.push({ field: 'source', index, issue: 'too_long', max: VIDEO_LIMITS.source });
-  });
-  return errors;
-}
-
-function text(value: unknown): string {
-  return typeof value === 'string' ? value.replace(/\s+/g, ' ').trim() : '';
-}
-
-/** The four shots out of a request or a model reply, whitespace tidied; shape only, limits are `sceneErrors`. */
-export function readScenes(input: unknown): VideoScenes | null {
-  if (!input || typeof input !== 'object') return null;
-  const value = input as Record<string, Record<string, unknown> | undefined>;
-  const titles = value.sources?.titles;
-  if (!Array.isArray(titles)) return null;
-  return {
-    opening: { name: text(value.opening?.name), position: text(value.opening?.position) },
-    sources: { titles: titles.map(text).filter(Boolean) },
-    answer: { question: text(value.answer?.question), answer: text(value.answer?.answer) },
-    closing: { cta: text(value.closing?.cta) },
-  };
 }
 
 export function isAccent(value: unknown): value is string {
   return typeof value === 'string' && /^#[0-9a-f]{6}$/i.test(value);
 }
 
-export type VideoPatch = Partial<VideoStyle> & { scenes?: VideoScenes };
+export type VideoPatch = Partial<VideoStyle>;
 
-/**
- * `PATCH /api/rees/[id]/video`: any of the style fields and the scenes, and
- * the revision the editor loaded. Over-limit text is refused, never cut.
- */
-export function parseVideoPatch(input: Record<string, unknown>): { patch: VideoPatch; revision: number } | { error: string; errors?: SceneError[] } {
+/** `PATCH /api/rees/[id]/video`: any of the style fields, and the revision the editor loaded. */
+export function parseVideoPatch(input: Record<string, unknown>): { patch: VideoPatch; revision: number } | { error: string } {
   const revision = Number(input.revision);
   if (!Number.isInteger(revision) || revision < 0) return { error: 'invalid_revision' };
   const patch: VideoPatch = {};
@@ -153,43 +94,12 @@ export function parseVideoPatch(input: Record<string, unknown>): { patch: VideoP
     if (typeof input.music !== 'boolean') return { error: 'invalid_music' };
     patch.music = input.music;
   }
-  if (input.scenes !== undefined) {
-    const scenes = readScenes(input.scenes);
-    if (!scenes) return { error: 'invalid_scenes' };
-    const errors = sceneErrors(scenes);
-    if (errors.length) return { error: 'scene_limits', errors };
-    patch.scenes = scenes;
-  }
   return { patch, revision };
 }
 
 export const DEFAULT_STYLE: VideoStyle = { template: PRODUCT_DEMO_TEMPLATE, accent: VIDEO_DEFAULT_ACCENT, aspect: '16:9', music: true };
 
 /* ------------------------------------------------------------- timeline */
-
-export interface ShotWindow {
-  /** First frame of the shot, at its cut. */
-  start: number;
-  /** One past its last frame. */
-  end: number;
-}
-
-/** The four shots on the 360-frame timeline: 0–72, 72–168, 168–288, 288–360 at 24 fps. */
-export function shotWindows(fps = VIDEO_FPS): ShotWindow[] {
-  const windows: ShotWindow[] = [];
-  let at = 0;
-  for (const seconds of VIDEO_SHOT_SECONDS) {
-    windows.push({ start: at, end: at + seconds * fps });
-    at += seconds * fps;
-  }
-  return windows;
-}
-
-/** The shot a frame belongs to (cut to cut; the crossfade straddles each cut). */
-export function shotAt(frame: number, fps = VIDEO_FPS): number {
-  const index = shotWindows(fps).findIndex((window) => frame < window.end);
-  return index === -1 ? VIDEO_SHOT_SECONDS.length - 1 : index;
-}
 
 /** 1280×720 or 720×1280. */
 export function introSize(aspect: VideoAspect): { width: number; height: number } {
@@ -210,37 +120,6 @@ export function exportCost(exportsCount: number, laterCredits: number): number {
 
 /* ------------------------------------------------------------- script text */
 
-/** Chinese when the script has CJK characters: the video's own captions ("我知道的，从这里来。") follow it. */
-export function scriptLang(scenes: VideoScenes): 'zh' | 'en' {
-  const all = [scenes.opening.name, scenes.opening.position, scenes.answer.question, scenes.answer.answer, scenes.closing.cta, ...scenes.sources.titles].join('');
-  return /[㐀-鿿豈-﫿]/.test(all) ? 'zh' : 'en';
-}
-
-/**
- * An answer's first sentence (2.6 "答案取第一句"), citation markers and
- * Markdown taken off: headings, quotes and list bullets at a line's start,
- * bold, emphasis and code around words. A `*` or `_` inside a word or a
- * sum (snake_case, 2*3) is text and stays.
- */
-export function firstSentence(answer: string): string {
-  const plain = answer
-    .replace(/\s*\[\d+\]/g, '')
-    .replace(/^[ \t]*(?:#{1,6}|>+|[-*+]|\d+\.)[ \t]+/gm, '')
-    .replace(/(\*\*|__)(?=\S)(.+?)(?<=\S)\1/g, '$2')
-    .replace(/(?<![\w*])\*(?=\S)([^*]+?)(?<=\S)\*(?![\w*])/g, '$1')
-    .replace(/(?<![\w_])_(?=\S)([^_]+?)(?<=\S)_(?![\w_])/g, '$1')
-    .replace(/`([^`]+)`/g, '$1')
-    .replace(/\s+/g, ' ')
-    .trim();
-  const match = /^.+?(?:[。！？!?]|\.(?=\s|$))/u.exec(plain);
-  return (match ? match[0] : plain).trim();
-}
-
-/** The fields a model reply still has over their limits (empty and too-long both count), for the rewrite request. */
-export function fieldsToRewrite(scenes: VideoScenes): SceneError[] {
-  return sceneErrors(scenes).filter((error) => error.issue !== 'too_many');
-}
-
 /** JSON keys sorted, so the same props always hash the same. */
 export function canonicalJson(value: unknown): string {
   if (Array.isArray(value)) return `[${value.map(canonicalJson).join(',')}]`;
@@ -256,8 +135,6 @@ export function canonicalJson(value: unknown): string {
 
 /** "下载脚本" (prototype `download-script`): the script, its style and the fixed spec. */
 export function scriptDownload(name: string, props: IntroProps): Record<string, unknown> {
-  const windows = shotWindows();
-  const durations = VIDEO_SHOT_SECONDS;
   const spec = {
     ree: name,
     duration: VIDEO_FRAMES / VIDEO_FPS,
@@ -268,23 +145,13 @@ export function scriptDownload(name: string, props: IntroProps): Record<string, 
     accent: props.accent,
     music: props.music,
   };
-  if (props.scenes.demo) {
-    const { audioId: _audioId, cues, ...story } = props.scenes.demo;
-    return {
-      ...spec,
-      voice: 'AI-generated English narration',
-      ...story,
-      captions: cues.map((cue) => ({ text: cue.text, start: cue.start / VIDEO_FPS, end: cue.end / VIDEO_FPS })),
-    };
-  }
+  if (!props.scenes.demo) return spec;
+  const { audioId: _audioId, cues, kind: _kind, ...story } = props.scenes.demo;
   return {
     ...spec,
-    scenes: [
-      { shot: 'opening', start: windows[0]!.start / VIDEO_FPS, duration: durations[0], ...props.scenes.opening },
-      { shot: 'sources', start: windows[1]!.start / VIDEO_FPS, duration: durations[1], ...props.scenes.sources },
-      { shot: 'answer', start: windows[2]!.start / VIDEO_FPS, duration: durations[2], ...props.scenes.answer },
-      { shot: 'closing', start: windows[3]!.start / VIDEO_FPS, duration: durations[3], ...props.scenes.closing },
-    ],
+    voice: 'AI-generated English narration',
+    ...story,
+    captions: cues.map((cue) => ({ text: cue.text, start: cue.start / VIDEO_FPS, end: cue.end / VIDEO_FPS })),
   };
 }
 

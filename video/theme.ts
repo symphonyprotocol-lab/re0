@@ -1,71 +1,21 @@
 /**
- * The three templates (prototype suite.css `.template-*`) as plain colours.
- * Colours are mixed here rather than with CSS `color-mix()`, and the
- * backgrounds use only what the web renderer paints (linear gradients,
- * borders, images): its limits are listed in the step-7 handover.
+ * Colours and type for the narrated videos, their posters and link
+ * previews. Colours are mixed here rather than with CSS `color-mix()`, and
+ * the backgrounds use only what the web renderer paints (linear gradients,
+ * borders, images).
  */
-import type { VideoTemplate } from '@/lib/constants';
-
-export interface Palette {
-  background: string;
-  title: string;
-  body: string;
-  faint: string;
-  card: string;
-  cardBorder: string;
-  /** The question bubble, before the accent is mixed in. */
-  bubbleBase: string;
-  /** Text drawn on the bubble. */
-  bubbleInk: string;
-  watermark: (accent: string) => string;
-  titleFont: string;
-  grid: 'dots' | 'lines' | 'faint-dots';
-}
 
 export const SANS = '"PingFang SC", "Hiragino Sans GB", "Noto Sans SC", "Microsoft YaHei", -apple-system, "Segoe UI", Roboto, sans-serif';
 export const SERIF = 'Georgia, "Songti SC", "Noto Serif SC", "STSong", serif';
 export const MONO = '"SFMono-Regular", Menlo, Consolas, "Liberation Mono", monospace';
 
-export const PALETTES: Record<Exclude<VideoTemplate, 'product-demo'>, Palette> & { 'product-demo'?: Palette } = {
-  editorial: {
-    background: '#f2f6ff',
-    title: '#314d75',
-    body: '#7f97b8',
-    faint: '#a2b4cd',
-    card: '#ffffff',
-    cardBorder: '#dfe8f5',
-    bubbleBase: '#ffffff',
-    bubbleInk: '#213a5f',
-    watermark: (accent) => accent,
-    titleFont: SANS,
-    grid: 'dots',
-  },
-  blueprint: {
-    background: '#102446',
-    title: '#d1e4ff',
-    body: '#9fb8da',
-    faint: '#6f8db5',
-    card: '#172f52',
-    cardBorder: '#355476',
-    bubbleBase: '#234b77',
-    bubbleInk: '#e3f0ff',
-    watermark: () => '#d1e4ff',
-    titleFont: SANS,
-    grid: 'lines',
-  },
-  spotlight: {
-    background: '#fffdf8',
-    title: '#6d634d',
-    body: '#9a8d72',
-    faint: '#c0b294',
-    card: '#ffffff',
-    cardBorder: '#ede6d8',
-    bubbleBase: '#fff8ea',
-    bubbleInk: '#5b5240',
-    watermark: () => '#968163',
-    titleFont: SERIF,
-    grid: 'faint-dots',
-  },
+/** The still poster of an introduction (cards and the link preview): a light page with the accent. */
+export const POSTER = {
+  background: '#f2f6ff',
+  title: '#314d75',
+  body: '#7f97b8',
+  faint: '#a2b4cd',
+  watermark: (accent: string) => accent,
 };
 
 function channels(hex: string): [number, number, number] {
