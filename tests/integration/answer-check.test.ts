@@ -34,9 +34,10 @@ beforeAll(async () => {
 });
 afterAll(() => fake?.close());
 
-const REFUNDS = 'Refund policy. Refunds are issued to the original payment method within 14 days of the request. Store credit is never forced on a customer.';
+/* Not the refund passage other files search explore for: public Rees made here would crowd their results. */
+const WARRANTY = 'Warranty policy. Warranty repairs are finished within 10 working days of the drop-off. A loan unit is offered while the repair is open.';
 const TIDES = 'Lighthouse log. The keeper records the tide tables at dawn, every day of the year, and checks the lamp before dusk.';
-const QUESTION = 'When are refunds issued to the original payment method?';
+const QUESTION = 'How many working days do warranty repairs take?';
 
 async function person() {
   const subject = uniqueName('chk');
@@ -57,7 +58,7 @@ async function reeOf(ownerId: string, options: { content?: string | null; isPubl
   });
   const { ree } = await rees.createReeFromDraft(ownerId);
   if (ree.isPublic) await rees.setReePublished(ownerId, ree.id, true);
-  const content = options.content === undefined ? REFUNDS : options.content;
+  const content = options.content === undefined ? WARRANTY : options.content;
   if (content) {
     const id = await knowledge.addKnowledge(ownerId, ree, { kind: 'text', title: `${ree.name} notes`, content });
     await knowledge.processKnowledge(id);
@@ -88,7 +89,7 @@ async function ledger(userId: string) {
 
 async function testChat(withKnowledge = true) {
   const userId = await person();
-  const ree = await reeOf(userId, { content: withKnowledge ? REFUNDS : TIDES });
+  const ree = await reeOf(userId, { content: withKnowledge ? WARRANTY : TIDES });
   const conversation = await chat.testConversation(userId, ree.id);
   return { userId, ree, conversation };
 }
