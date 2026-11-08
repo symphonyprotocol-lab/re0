@@ -2,7 +2,9 @@
   "buildCommand": "if [ \"$VERCEL_ENV\" = \"preview\" ]; then npm run db:prepare-preview; fi && if [ \"$VERCEL_ENV\" = \"production\" ] || [ \"$VERCEL_ENV\" = \"preview\" ]; then npm run db:migrate; fi && npm run build",
   "git": {
     "deploymentEnabled": {
-      "develop": false
+      "develop": false,
+      "rebuild": false,
+      "claude/**": false
     }
   },
   "crons": [
