@@ -25,6 +25,7 @@ export const AUDIT_ACTIONS = [
   'user.role.official',
   'user.role.cancel_official',
   'user.role.revoke',
+  'user.api_key.revoke',
   'verification.approved',
   'verification.rejected',
   'kyc.verified',

@@ -9,6 +9,7 @@
  */
 import { sql } from 'drizzle-orm';
 import {
+  type AnyPgColumn,
   bigint,
   boolean,
   check,
@@ -267,7 +268,8 @@ export const conversation = pgTable(
     userId: uuid('user_id')
       .notNull()
       .references(() => user.id),
-    kind: text('kind').$type<'normal' | 'ree_test'>().notNull().default('normal'),
+    /** `mcp`: questions asked through the MCP server (`/api/mcp`), one Ree each; never in the web lists. */
+    kind: text('kind').$type<'normal' | 'ree_test' | 'mcp'>().notNull().default('normal'),
     reeId: uuid('ree_id').references(() => ree.id),
     title: text('title').notNull().default(''),
     pinned: boolean('pinned').notNull().default(false),
@@ -285,7 +287,7 @@ export const conversation = pgTable(
     uniqueIndex('conversation_ree_test_key')
       .on(t.userId, t.reeId)
       .where(sql`kind = 'ree_test'`),
-    check('conversation_kind_check', oneOf('kind', ['normal', 'ree_test'])),
+    check('conversation_kind_check', oneOf('kind', ['normal', 'ree_test', 'mcp'])),
     check('conversation_ree_test_check', sql`(kind = 'ree_test') = (ree_id is not null)`),
   ],
 );
@@ -327,10 +329,13 @@ export const message = pgTable(
     checkState: text('check_state').$type<'done' | 'failed'>(),
     /** What the check was charged, apart from the answer's `cost_credits`. */
     checkCredits: integer('check_credits').notNull().default(0),
+    /** On a question asked through the MCP server: the API key that asked it, for per-key usage. */
+    apiKeyId: uuid('api_key_id').references((): AnyPgColumn => apiKey.id, { onDelete: 'set null' }),
     createdAt: createdAt(),
   },
   (t) => [
     index('message_conversation_idx').on(t.conversationId, t.createdAt),
+    index('message_api_key_idx').on(t.apiKeyId, t.createdAt).where(sql`api_key_id is not null`),
     index('message_ree_idx').on(t.reeId, t.createdAt).where(sql`role = 'ree'`),
     check('message_role_check', oneOf('role', ['user', 'ree'])),
     check(
@@ -1318,5 +1323,35 @@ export const reeShareEvent = pgTable(
     uniqueIndex('ree_share_event_visit_key').on(t.visitorId, t.reeId, t.visitSlot).where(sql`kind = 'visit'`),
     check('ree_share_event_kind_check', oneOf('kind', ['visit', 'conversation'])),
     check('ree_share_event_visit_slot_check', sql`(kind = 'visit') = (visit_slot is not null)`),
+  ],
+);
+
+/* ------------------------------------------------------------------ MCP */
+
+/**
+ * A user's API key for the MCP server (`/api/mcp`). The key itself
+ * (`re0_sk_` + 64 hex) is shown once, at creation; only its SHA-256 digest
+ * and last four characters are kept. Keys are revoked, never deleted, so
+ * the questions they asked keep their tag.
+ */
+export const apiKey = pgTable(
+  'api_key',
+  {
+    id: uuid('id').primaryKey().defaultRandom(),
+    userId: uuid('user_id')
+      .notNull()
+      .references(() => user.id, { onDelete: 'cascade' }),
+    name: text('name').notNull(),
+    keyDigest: text('key_digest').notNull(),
+    keyTail: text('key_tail').notNull(),
+    lastUsedAt: timestampTz('last_used_at'),
+    expiresAt: timestampTz('expires_at'),
+    revokedAt: timestampTz('revoked_at'),
+    createdAt: createdAt(),
+  },
+  (t) => [
+    uniqueIndex('api_key_digest_key').on(t.keyDigest),
+    index('api_key_user_idx').on(t.userId, t.createdAt),
+    check('api_key_name_check', sql`char_length(name) between 1 and 60`),
   ],
 );

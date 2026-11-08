@@ -19,6 +19,7 @@ export async function POST(request: NextRequest, context: Context) {
   if (user instanceof Response) return user;
   const { id, requestId } = await context.params;
   const conversation = await ownedConversation(user.id, id);
-  if (!conversation || conversation.deletedAt) return fail('not_found', 404);
+  /* MCP conversations are asked through `/api/mcp` only. */
+  if (!conversation || conversation.deletedAt || conversation.kind === 'mcp') return fail('not_found', 404);
   return synthesize({ userId: user.id, lang: user.lang, conversation, requestId });
 }

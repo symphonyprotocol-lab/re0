@@ -436,3 +436,21 @@ export const VIDEO_PAGE_SIZES = [12, 24, 48] as const;
  * export cached under the old drawing is not handed out for the new one.
  */
 export const VIDEO_COMPOSITION_VERSION = 1;
+
+/* ------------------------------------------------------------------ MCP */
+
+/** API keys for `/api/mcp`: `re0_sk_` and 64 hex characters. */
+export const API_KEY_PREFIX = 're0_sk_';
+export const API_KEY_NAME_MAX = 60;
+/** Live (not revoked, not expired) keys per account. */
+export const API_KEY_MAX_ACTIVE = 10;
+/** The longest expiry a key can be given; no expiry is also allowed. */
+export const API_KEY_MAX_DAYS = 365;
+/** `last_used_at` is written at most this often per key. */
+export const API_KEY_LAST_USED_RESOLUTION_MS = 60_000;
+/** MCP tool calls per minute, per key and per account (every key of it together). */
+export const MCP_RATE_LIMIT = { windowSeconds: 60, perKey: 30, perUser: 60 } as const;
+/** `search_rees` returns at most this many Rees (explore's question search gives 10). */
+export const MCP_SEARCH_MAX = 10;
+/** Ready sources listed by title in `get_ree` for the caller's own Ree. */
+export const MCP_SOURCE_TITLES = 30;
