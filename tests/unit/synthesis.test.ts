@@ -36,6 +36,17 @@ describe('Ree 圆桌 synthesis', () => {
     expect(material[1].answer).toBe('Within two weeks [B1].');
   });
 
+  it('names Rees that share a name with their letter, as the source chips do', () => {
+    const twins = letterAnswers([
+      { reeId: 'r1', messageId: 'm1', reeName: '设计系统顾问', text: 'A [1].', citations: [citation(1)] },
+      { reeId: 'r2', messageId: 'm2', reeName: 'Handbook', text: 'B [1].', citations: [citation(1)] },
+      { reeId: 'r3', messageId: 'm3', reeName: '设计系统顾问', text: 'C [1].', citations: [citation(1)] },
+    ]);
+    const material = JSON.parse(synthesisPrompt('Q', twins).split('Answers:\n')[1]!);
+    expect(material.map((entry: { name: string }) => entry.name)).toEqual(['设计系统顾问 A', 'Handbook', '设计系统顾问 C']);
+    expect(synthesisInstructions('zh')).toContain('never by its letter alone');
+  });
+
   it('asks for the four sections in the asker’s language and for no verdict by majority', () => {
     expect(synthesisInstructions('zh')).toContain('"## 结论", "## 共识", "## 分歧", "## 没覆盖到"');
     expect(synthesisInstructions('en')).toContain('"## Conclusion", "## Agreement", "## Disagreement", "## Not covered"');
