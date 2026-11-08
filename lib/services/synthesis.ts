@@ -3,7 +3,8 @@
  * Rees gave to one question, streamed.
  *
  *   1. The question must be the asker's, with at least two answers, and no
- *      synthesis yet (a running one that died long ago may be replaced).
+ *      synthesis yet. A running one that died long ago -- its function cut
+ *      off mid-stream -- may be replaced; its fee goes back first.
  *   2. SYNTHESIS_FEE is held -- to the platform; the owners were paid when
  *      they answered -- in one transaction with the row that claims the
  *      question. Not enough credits → 402, nothing kept.
@@ -22,6 +23,7 @@ import { InsufficientCredits } from '@/lib/domain/credits';
 import { cleanSynthesis, letterAnswers, synthesisInstructions, synthesisPrompt, type SynthesisAnswer } from '@/lib/domain/synthesis';
 import { fail, json } from '@/lib/http/respond';
 import { db, schema } from '@/lib/infra/db';
+import { safe } from '@/lib/services/answer';
 import type { Conversation } from '@/lib/services/chat';
 import { ConversationError } from '@/lib/services/conversations';
 import { balanceOf, placeHold, releaseHold, settleHold } from '@/lib/services/credits';
@@ -45,16 +47,6 @@ export async function synthesisAnswers(conversationId: string, requestId: string
   );
 }
 
-function safe(writer: Writer) {
-  return (chunk: Parameters<Writer['write']>[0]) => {
-    try {
-      writer.write(chunk);
-    } catch {
-      /* the client went away */
-    }
-  };
-}
-
 export async function synthesize(input: { userId: string; lang: 'zh' | 'en'; conversation: Conversation; requestId: string }): Promise<Response> {
   const { userId, conversation, requestId } = input;
   if (!SYNTHESIS_ENABLED || conversation.kind !== 'normal' || !/^[0-9a-f-]{36}$/i.test(requestId)) return fail('not_found', 404);
@@ -71,16 +63,25 @@ export async function synthesize(input: { userId: string; lang: 'zh' | 'en'; con
   let claimed: { synthesisId: string; holdId: string } | null;
   try {
     claimed = await database.transaction(async (tx) => {
-      await tx
+      const stale = await tx
         .delete(schema.synthesis)
-        .where(and(eq(schema.synthesis.requestId, requestId), eq(schema.synthesis.status, 'running'), lt(schema.synthesis.createdAt, new Date(Date.now() - SYNTHESIS_STALE_MS))));
+        .where(and(eq(schema.synthesis.requestId, requestId), eq(schema.synthesis.status, 'running'), lt(schema.synthesis.createdAt, new Date(Date.now() - SYNTHESIS_STALE_MS))))
+        .returning({ id: schema.synthesis.id });
+      /* Each synthesis holds its fee under its own id; one that died never gave it back. */
+      if (stale.length) {
+        const holds = await tx
+          .select({ id: schema.creditHold.id })
+          .from(schema.creditHold)
+          .where(and(inArray(schema.creditHold.refId, stale.map((row) => row.id)), eq(schema.creditHold.status, 'held')));
+        for (const hold of holds) await releaseHold(tx, hold.id, { note: 'synthesis', ledger: 'chat_synthesis' });
+      }
       const [row] = await tx
         .insert(schema.synthesis)
         .values({ conversationId: conversation.id, requestId, userId, reeIds: answers.map((answer) => answer.reeId) })
         .onConflictDoNothing()
         .returning({ id: schema.synthesis.id });
       if (!row) return null;
-      const holdId = await placeHold(tx, { userId, kind: 'chat', ledger: 'chat_synthesis', amount: SYNTHESIS_FEE, refId: requestId, note: 'synthesis' });
+      const holdId = await placeHold(tx, { userId, kind: 'chat', ledger: 'chat_synthesis', amount: SYNTHESIS_FEE, refId: row.id, note: 'synthesis' });
       return { synthesisId: row.id, holdId };
     });
   } catch (error) {

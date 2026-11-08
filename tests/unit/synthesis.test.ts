@@ -53,4 +53,12 @@ describe('Ree 圆桌 synthesis', () => {
     ]);
     expect(cleanSynthesis('  [C1] [9] ', answers)).toEqual({ content: '', sources: [] });
   });
+
+  it('leaves code and link text as written', () => {
+    const text = '- Use `items[1]` here [A1].\n\n```js\nconst first = rows[0] ?? list[B];\n```\n- See [B](https://example.test/b) [B].\n- Unclosed\n```\nkeep[2]';
+    const { content, sources } = cleanSynthesis(text, answers);
+    expect(content).toBe(text);
+    expect(sources.map((source) => source.marker)).toEqual(['A1', 'B']);
+    expect(cleanSynthesis('Bare [2] and `[2]`', answers).content).toBe('Bare and `[2]`');
+  });
 });

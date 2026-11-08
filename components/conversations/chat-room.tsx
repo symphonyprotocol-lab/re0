@@ -184,18 +184,39 @@ export function ChatRoom({
     }
   };
 
-  /** "一起问这 3 个": the suggested Rees that fit join, and the question goes to them alone. */
+  /**
+   * "一起问这 3 个": the suggested Rees join one by one -- only added, so
+   * nobody already in the conversation is dropped -- as many as fit, and
+   * the question goes to those that are in.
+   */
   const askTogether = async (rees: SuggestedRee[], question: string) => {
     if (busy || synthesizing) return toast(r.waitBusy);
-    const adding = rees.slice(0, Math.max(0, CONVERSATION_MAX_REES - members.length));
-    if (!adding.length || !question) return toast(r.full);
-    try {
-      await conversationApi.setRees(conversation.id, [...members.map((member) => member.id), ...adding.map((ree) => ree.id)]);
-      setMembers((current) => [...current, ...adding.map(asMember)]);
-      ask(question, adding.map((ree) => ree.id));
-    } catch (error) {
-      toast(error instanceof ApiError && error.code === 'too_many_rees' ? r.full : error instanceof ApiError && error.code === 'ree_unavailable' ? r.unavailable : t.common.errors.generic);
+    if (!question) return toast(t.common.errors.generic);
+    const present = new Set(members.map((member) => member.id));
+    let room = Math.max(0, CONVERSATION_MAX_REES - members.length);
+    const asked: SuggestedRee[] = [];
+    const joined: SuggestedRee[] = [];
+    let failure: unknown = null;
+    for (const ree of rees) {
+      if (present.has(ree.id)) {
+        asked.push(ree);
+        continue;
+      }
+      if (room === 0) break;
+      try {
+        await conversationApi.addRee(conversation.id, ree.id);
+      } catch (error) {
+        failure = error;
+        break;
+      }
+      room -= 1;
+      asked.push(ree);
+      joined.push(ree);
     }
+    if (joined.length) setMembers((current) => [...current, ...joined.filter((ree) => !current.some((member) => member.id === ree.id)).map(asMember)]);
+    if (failure) toast(failure instanceof ApiError && failure.code === 'too_many_rees' ? r.full : failure instanceof ApiError && failure.code === 'ree_unavailable' ? r.unavailable : t.common.errors.generic);
+    if (!asked.length) return failure ? undefined : toast(r.full);
+    ask(question, asked.map((ree) => ree.id));
   };
 
   /** Puts a question's synthesis part in place, or takes it out. */

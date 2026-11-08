@@ -86,7 +86,8 @@ function outcome(reeId: string, partial: Partial<ReeOutcome>): ReeOutcome {
 }
 
 /** Writes are best effort: a reader who left mid-answer must not stop the settlement. */
-function safe(writer: Writer): Write {
+/** A writer that ignores a client that went away; the stream carries on so the ledger is settled. */
+export function safe(writer: Writer): Write {
   return (chunk) => {
     try {
       writer.write(chunk);

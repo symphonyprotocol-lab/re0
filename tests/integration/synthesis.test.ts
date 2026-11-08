@@ -15,7 +15,7 @@ import { startFakeOpenAi, type FakeOpenAi } from '../fixtures/fake-openai';
 const describeWithDb = TEST_DATABASE_URL ? describe : describe.skip;
 
 const { createSession } = await import('@/lib/services/auth');
-const { balanceOf } = await import('@/lib/services/credits');
+const { balanceOf, placeHold } = await import('@/lib/services/credits');
 const knowledge = await import('@/lib/services/knowledge');
 const rees = await import('@/lib/services/rees');
 const chat = await import('@/lib/services/chat');
@@ -36,9 +36,10 @@ beforeAll(async () => {
 });
 afterAll(() => fake?.close());
 
-const REFUNDS = 'Refund policy. Refunds are issued to the original payment method within 14 days of the request. Store credit is never forced on a customer.';
+/* Not the refund passage other files search explore for: public Rees made here would crowd their results. */
+const WARRANTY = 'Warranty policy. Warranty repairs are finished within 10 working days of the drop-off. A loan unit is offered while the repair is open.';
 const TIDES = 'Lighthouse log. The keeper records the tide tables at dawn, every day of the year, and checks the lamp before dusk.';
-const QUESTION = 'When are refunds issued to the original payment method?';
+const QUESTION = 'How many working days do warranty repairs take?';
 
 async function person() {
   const subject = uniqueName('rt');
@@ -59,7 +60,7 @@ async function reeOf(ownerId: string, options: { content?: string; isPublic?: bo
   });
   const { ree } = await rees.createReeFromDraft(ownerId);
   if (ree.isPublic) await rees.setReePublished(ownerId, ree.id, true);
-  const id = await knowledge.addKnowledge(ownerId, ree, { kind: 'text', title: `${ree.name} notes`, content: options.content ?? REFUNDS });
+  const id = await knowledge.addKnowledge(ownerId, ree, { kind: 'text', title: `${ree.name} notes`, content: options.content ?? WARRANTY });
   await knowledge.processKnowledge(id);
   const [row] = await db().select().from(schema.ree).where(eq(schema.ree.id, ree.id));
   return row!;
@@ -216,14 +217,28 @@ describeWithDb('Ree 圆桌 synthesis', () => {
     expect(await db().select().from(schema.synthesis).where(eq(schema.synthesis.requestId, requestId))).toEqual([]);
   });
 
-  it('replaces a running synthesis that died long ago, but not a live one', async () => {
+  it('replaces a running synthesis that died long ago, giving its fee back, but not a live one', async () => {
     const { asker, conversation, requestId } = await answeredTwice();
-    await db().insert(schema.synthesis).values({ conversationId: conversation.id, requestId, userId: asker });
+    const before = await balanceOf(db(), asker);
+    /* A synthesis whose function was cut off mid-stream: its row and its hold, never closed. */
+    await db().transaction(async (tx) => {
+      const [row] = await tx.insert(schema.synthesis).values({ conversationId: conversation.id, requestId, userId: asker }).returning({ id: schema.synthesis.id });
+      await placeHold(tx, { userId: asker, kind: 'chat', ledger: 'chat_synthesis', amount: SYNTHESIS_FEE, refId: row!.id, note: 'synthesis' });
+    });
     const live = await synthesize({ userId: asker, lang: 'zh', conversation, requestId });
     expect(live.status).toBe(409);
     expect(await live.json()).toMatchObject({ error: 'synthesis_running' });
     await db().update(schema.synthesis).set({ createdAt: new Date(Date.now() - SYNTHESIS_STALE_MS - 1000) }).where(eq(schema.synthesis.requestId, requestId));
     expect(parts(await events(await synthesize({ userId: asker, lang: 'zh', conversation, requestId }))).at(-1)!.state).toBe('done');
+    /* Charged once: the dead one's fee came back when it was replaced. */
+    expect(await balanceOf(db(), asker)).toBe(before - SYNTHESIS_FEE);
+    expect((await synthesisLedger(asker)).map(([reason, delta]) => [reason, delta])).toEqual([
+      ['synthesis_hold', -SYNTHESIS_FEE],
+      ['synthesis_refund', SYNTHESIS_FEE],
+      ['synthesis_hold', -SYNTHESIS_FEE],
+      ['synthesis_settle', 0],
+    ]);
+    expect(await db().select().from(schema.creditHold).where(and(eq(schema.creditHold.userId, asker), eq(schema.creditHold.status, 'held')))).toEqual([]);
   });
 
   it('records 有用 / 没用 for the asker only, apart from any Ree rating', async () => {

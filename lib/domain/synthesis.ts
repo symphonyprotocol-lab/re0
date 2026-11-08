@@ -78,29 +78,47 @@ export function synthesisPrompt(question: string, answers: readonly SynthesisAns
   return `Question: ${JSON.stringify(question)}\n\nAnswers:\n${JSON.stringify(material)}`;
 }
 
-const GROUPED = /\[\s*([A-Z]\d{0,2}(?:\s*[,，、;；]\s*[A-Z]\d{0,2})+)\s*\]/g;
-const MARKER = / ?\[([A-Z])(\d{1,2})?\]| ?\[\d{1,2}\]/g;
+const GROUPED = /\[\s*([A-Z]\d{0,2}(?:\s*[,，、;；]\s*[A-Z]\d{0,2})+)\s*\](?!\()/g;
+/* Not a link's text: `[B](https://…)` is left alone. */
+const MARKER = / ?\[([A-Z])(\d{1,2})?\](?!\()| ?\[\d{1,2}\](?!\()/g;
+/* Fenced blocks (an unclosed one runs to the end) and inline code spans. */
+const CODE = /```[\s\S]*?(?:```|$)|`[^`\n]*`/g;
+
+/** `prose` applied to the text outside code; code is kept exactly as written. */
+function outsideCode(text: string, prose: (part: string) => string): string {
+  let out = '';
+  let last = 0;
+  for (const match of text.matchAll(CODE)) {
+    out += prose(text.slice(last, match.index)) + match[0];
+    last = match.index + match[0].length;
+  }
+  return out + prose(text.slice(last));
+}
 
 /**
  * The synthesis as it is kept: every `[A2]` / `[A]` that names a Ree and a
  * citation it really has stays, anything else -- an unknown letter, a
  * citation the answer never had, a bare `[2]` -- is removed. Grouped markers
- * (`[A1, B2]`) are split first. Sources are the kept markers, first seen first.
+ * (`[A1, B2]`) are split first. Code and link text are left as written:
+ * `items[1]` in code is not a marker. Sources are the kept markers, first
+ * seen first.
  */
 export function cleanSynthesis(text: string, answers: readonly SynthesisAnswer[]): { content: string; sources: SynthesisSource[] } {
   const byLabel = new Map(answers.map((answer) => [answer.label, answer]));
   const sources = new Map<string, SynthesisSource>();
-  const split = text.replace(/\r\n?/g, '\n').replace(GROUPED, (_, inner: string) => inner.split(/\s*[,，、;；]\s*/).map((marker) => `[${marker}]`).join(''));
-  const content = split.replace(MARKER, (whole, label: string | undefined, digits: string | undefined) => {
+  const marker = (whole: string, label: string | undefined, digits: string | undefined) => {
     const answer = label ? byLabel.get(label) : undefined;
     if (!answer) return '';
     const index = digits === undefined ? null : Number(digits);
     const citation = index === null ? null : (answer.citations.find((entry) => entry.index === index) ?? null);
     if (index !== null && !citation) return '';
-    const marker = `${label}${digits ?? ''}`;
-    if (!sources.has(marker)) sources.set(marker, { marker, reeId: answer.reeId, messageId: answer.messageId, index, citation });
-    return `${whole.startsWith(' ') ? ' ' : ''}[${marker}]`;
-  });
+    const kept = `${label}${digits ?? ''}`;
+    if (!sources.has(kept)) sources.set(kept, { marker: kept, reeId: answer.reeId, messageId: answer.messageId, index, citation });
+    return `${whole.startsWith(' ') ? ' ' : ''}[${kept}]`;
+  };
+  const content = outsideCode(text.replace(/\r\n?/g, '\n'), (prose) =>
+    prose.replace(GROUPED, (_, inner: string) => inner.split(/\s*[,，、;；]\s*/).map((one) => `[${one}]`).join('')).replace(MARKER, marker),
+  );
   return { content: content.trim(), sources: [...sources.values()] };
 }
 

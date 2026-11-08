@@ -3,7 +3,8 @@
  * or throws an `ApiError` carrying the `{error}` code, so a page can show
  * its own message for it.
  */
-import type { InsufficientCreditsBody, SynthesisPart } from '@/lib/domain/chat-message';
+import { parseJsonEventStream, readUIMessageStream, uiMessageChunkSchema, type UIMessageChunk } from 'ai';
+import { synthesisOf, type InsufficientCreditsBody, type ReeUIMessage, type SynthesisPart } from '@/lib/domain/chat-message';
 import type { BatchAction } from '@/lib/domain/conversation';
 
 export class ApiError extends Error {
@@ -82,23 +83,21 @@ export async function streamSynthesis(conversationId: string, requestId: string,
     const data = (await response.json().catch(() => ({}))) as Partial<InsufficientCreditsBody> & { error?: string };
     throw new ApiError(data.error ?? 'generic', response.status, data);
   }
-  const reader = response.body.pipeThrough(new TextDecoderStream()).getReader();
-  let buffer = '';
+  const chunks = parseJsonEventStream({ stream: response.body, schema: uiMessageChunkSchema }).pipeThrough(
+    new TransformStream<{ success: true; value: UIMessageChunk } | { success: false; error: unknown }, UIMessageChunk>({
+      transform: (result, controller) => {
+        if (result.success) controller.enqueue(result.value);
+      },
+    }),
+  );
   let latest = null as SynthesisPart | null;
-  for (;;) {
-    const { value, done } = await reader.read();
-    if (value) buffer += value;
-    const lines = buffer.split('\n');
-    buffer = done ? '' : lines.pop()!;
-    for (const line of lines) {
-      if (!line.startsWith('data: ') || line === 'data: [DONE]') continue;
-      const chunk = JSON.parse(line.slice(6)) as { type: string; delta?: string; data?: SynthesisPart };
-      if (chunk.type === 'text-delta' && chunk.delta && latest?.state === 'streaming') latest = { ...latest, content: latest.content + chunk.delta };
-      else if (chunk.type === 'data-synthesis' && chunk.data) latest = chunk.data;
-      else continue;
-      onUpdate(latest);
-    }
-    if (done) break;
+  for await (const message of readUIMessageStream<ReeUIMessage>({ stream: chunks })) {
+    const part = synthesisOf(message);
+    if (!part) continue;
+    /* While it streams the text arrives as a text part; once done, the part carries the cleaned text. */
+    const text = message.parts.find((entry) => entry.type === 'text')?.text ?? '';
+    latest = part.state === 'streaming' ? { ...part, content: text } : part;
+    onUpdate(latest);
   }
   if (!latest || latest.state === 'streaming') throw new ApiError('synthesis_failed', 500);
   return latest;
