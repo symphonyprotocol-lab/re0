@@ -44,6 +44,14 @@ afterAll(() => fake?.close());
 const REFUNDS = 'Refund policy. Refunds are issued to the original payment method within 14 days of the request. Store credit is never forced on a customer.';
 const TIDES = 'Lighthouse log. The keeper records the tide tables at dawn, every day of the year, and checks the lamp before dusk.';
 const QUESTION = 'When are refunds issued to the original payment method?';
+/**
+ * A passage for the question plus a unique word. Explore's first level
+ * ranks Rees by their nearest profile vector, and other test files leave
+ * dozens of public Rees whose refund passage is nearer the bare question
+ * than REFUNDS plus a word would be; a passage that is mostly the question
+ * itself plus the word stays first however many of those there are.
+ */
+const wordPassage = (word: string) => `Ledger ${word}: refunds are issued to the original payment method.`;
 
 async function person(role: 'normal' | 'verified' | 'official' = 'normal') {
   const subject = uniqueName('u');
@@ -154,9 +162,9 @@ describeWithDb('multi-Ree conversations', () => {
 
   it('a Ree with nothing relevant does not answer or charge; when nobody can, public Rees are suggested', async () => {
     const asker = await person();
-    /* A word only this test uses, so Rees public from other tests do not crowd the three suggestions. */
+    /* A word only this test uses, in a passage close to the question, so the many public refund Rees of other tests do not crowd the suggestions. */
     const word = `zq${Date.now().toString(36)}`;
-    const expert = await reeOf(await person(), { content: `${REFUNDS} Ledger ${word} entry.`, isPublic: true });
+    const expert = await reeOf(await person(), { content: wordPassage(word), isPublic: true });
     const tides = await reeOf(asker, { content: TIDES, isPublic: false });
     const empty = await reeOf(asker, { content: null, isPublic: false });
     const conversation = await conversations.createConversation(asker, { reeIds: [tides.id, empty.id] });
@@ -395,7 +403,7 @@ describeWithDb('multi-Ree conversations', () => {
 describeWithDb('explore and public pages', () => {
   it('finds Rees by a matched passage, the excerpt taken from it, and ranks a tie by role', async () => {
     const word = `zx${Date.now().toString(36)}`;
-    const content = `${REFUNDS} Ledger ${word} entry.`;
+    const content = wordPassage(word);
     const normal = await reeOf(await person(), { content });
     const official = await reeOf(await person('official'), { content });
     const tides = await reeOf(await person(), { content: TIDES });
