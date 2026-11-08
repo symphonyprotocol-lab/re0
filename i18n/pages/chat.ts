@@ -139,7 +139,7 @@ export const en: Shape<typeof zh> = {
     failed: 'Could not check citations. The check fee was refunded.',
     none: 'No statements to check.',
     noneRefunded: 'Nothing to check. The check fee was refunded.',
-    cited: '{n} cited sentences: ',
+    cited: 'Of {n} cited: ',
     supported: '{n} supported',
     partial: '{n} partly supported',
     unsupported: '{n} not supported',
