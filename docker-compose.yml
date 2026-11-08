@@ -1,0 +1,60 @@
+# Local development database: `npm run db:up` (start), `npm run db:down`
+# (stop; the data stays in the `re0-dev-pg` volume).
+#
+# The app talks to Postgres through @neondatabase/serverless, which speaks
+# the wire protocol over a WebSocket, so a plain Postgres needs the small
+# proxy in tests/fixtures/wsproxy.mjs in front of it. `.env.local`:
+#
+#   DATABASE_URL=postgres://postgres:pw@127.0.0.1:5432/re0
+#   DATABASE_URL_UNPOOLED=postgres://postgres:pw@127.0.0.1:5432/re0
+#   DATABASE_WS_PROXY=127.0.0.1:5433/v2
+#
+# Postgres 18 matches production (Neon). The integration tests use their own
+# throwaway container on 5439/5440 (scripts/test-integration.sh) and never
+# touch this one. The project and volume names are fixed so every worktree
+# shares the same database.
+name: re0-dev
+
+services:
+  postgres:
+    image: pgvector/pgvector:pg18
+    container_name: re0-dev-pg
+    restart: unless-stopped
+    environment:
+      POSTGRES_PASSWORD: pw
+      POSTGRES_DB: re0
+    ports:
+      - 127.0.0.1:5432:5432
+    volumes:
+      # From 18 on the image keeps PGDATA in a versioned directory under
+      # /var/lib/postgresql, so the volume mounts the parent.
+      - re0-dev-pg:/var/lib/postgresql
+    healthcheck:
+      # The database, not just the server: pg_isready succeeds before
+      # POSTGRES_DB exists on first start.
+      test: ['CMD', 'psql', '-U', 'postgres', '-d', 're0', '-c', 'select 1']
+      interval: 2s
+      timeout: 5s
+      retries: 30
+
+  wsproxy:
+    image: node:24-bookworm
+    container_name: re0-dev-wsproxy
+    restart: unless-stopped
+    depends_on:
+      postgres:
+        condition: service_healthy
+    working_dir: /app
+    command: ['node', 'tests/fixtures/wsproxy.mjs']
+    environment:
+      WSPROXY_PORT: '5433'
+      WSPROXY_TARGET: postgres:5432
+    ports:
+      - 127.0.0.1:5433:5433
+    volumes:
+      - ./tests/fixtures/wsproxy.mjs:/app/tests/fixtures/wsproxy.mjs:ro
+      - ./node_modules/ws:/app/node_modules/ws:ro
+
+volumes:
+  re0-dev-pg:
+    name: re0-dev-pg

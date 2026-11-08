@@ -22,14 +22,26 @@ This is the rebuild (`rebuild` branch). The plan is [`rebuild-proposal.md`](rebu
 
 ```bash
 npm install
+npm run db:up     # local Postgres 18 + pgvector in Docker, and its WebSocket proxy
+npm run db:migrate
 npm run dev
 ```
+
+Local development runs against a Postgres container (`docker-compose.yml`: `re0-dev-pg` on `127.0.0.1:5432`, data in the `re0-dev-pg` volume) behind `tests/fixtures/wsproxy.mjs` (`re0-dev-wsproxy` on `127.0.0.1:5433`), because the app's driver speaks Postgres over a WebSocket. Point `.env.local` at it:
+
+```bash
+DATABASE_URL="postgres://postgres:pw@127.0.0.1:5432/re0"
+DATABASE_URL_UNPOOLED="postgres://postgres:pw@127.0.0.1:5432/re0"
+DATABASE_WS_PROXY="127.0.0.1:5433/v2"
+```
+
+`vercel env pull` writes Vercel's Development values instead; put these three lines back afterwards. There is no Neon branch for local development any more; Neon serves production (and preview builds) only.
 
 Environment (`.env.local`, or `vercel env pull`):
 
 | Variable | Purpose |
 | --- | --- |
-| `DATABASE_URL`, `DATABASE_URL_UNPOOLED` | Neon (`dev` branch locally); migrations use the unpooled one |
+| `DATABASE_URL`, `DATABASE_URL_UNPOOLED` | Neon in production; locally the Docker Postgres above. Migrations use the unpooled one |
 | `APP_BASE_URL` | the origin OAuth callbacks and same-origin checks use |
 | `AUTH_SECRET` (or the older `SESSION_SIGNING_SECRET`) | session digests and sealed cookies, ≥ 32 chars |
 | `ADMIN_SECRET_KEY` (or the older `CREDENTIAL_ENCRYPTION_KEY`) | encrypts model API keys and TOTP secrets, ≥ 32 chars |
@@ -48,7 +60,7 @@ Environment (`.env.local`, or `vercel env pull`):
 | `PADDLE_PLAN_PRICE_ID`, `PADDLE_PACK_PRICE_ID` | the catalogue prices: Plan USD 10 monthly (quantity 1), Pack USD 10 (quantity 1–10) |
 | `PADDLE_CHECKOUT_BASE_URL` | optional: the origin a transaction's checkout link points at, when it is not `APP_BASE_URL` (Paddle will not take `localhost`) |
 | `E2E_LOGIN_SECRET` | `next dev` only: enables `POST /api/auth/e2e` for test sign-in; ignored in builds |
-| `DATABASE_WS_PROXY` | `next dev` only: run against a local Postgres behind `tests/fixtures/wsproxy.mjs` |
+| `DATABASE_WS_PROXY` | not in production builds: the WebSocket proxy in front of a local Postgres (`127.0.0.1:5433/v2` with `npm run db:up`); `next dev` and `drizzle-kit` both honour it |
 
 The first visitor of `/admin/login` on an empty database registers the owner (password + TOTP); after that the page only signs in.
 
@@ -64,9 +76,12 @@ HTTP 401/402/403 cools a key for five minutes; HTTP 429 honors `Retry-After` (on
 
 ```bash
 npm run db:generate   # after editing db/schema.ts
-npm run db:migrate    # apply to DATABASE_URL_UNPOOLED
-npm run db:reset-dev -- --confirm=<endpoint id>   # drop and rebuild the Neon dev branch (guarded, see the script)
+npm run db:migrate    # apply to DATABASE_URL_UNPOOLED (through DATABASE_WS_PROXY locally)
+npm run db:psql       # psql into the local database
+npm run db:down       # stop the containers; the volume keeps the data
 ```
+
+To start the local database over: `docker compose down -v`, then `npm run db:up` and `npm run db:migrate`. `npm run db:reset-dev -- --confirm=<endpoint id>` does the same for a non-production Neon branch, should one be used again (guarded, see the script).
 
 Preview builds clear a preview branch that still carries the pre-rebuild schema once (`db:prepare-preview`, `vercel.json`), then migrate.
 
