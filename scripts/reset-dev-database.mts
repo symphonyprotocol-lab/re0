@@ -1,7 +1,9 @@
 /**
  * Drops and recreates the public schema of the database DATABASE_URL points
  * at, then applies db/migrations. rebuild-proposal.md 8: the Neon dev branch
- * starts over with the rebuild.
+ * starts over with the rebuild. (That branch is gone -- local development uses
+ * the Docker database in docker-compose.yml, reset with `docker compose down
+ * -v` -- so local mode is only for another non-production Neon branch.)
  *
  *   npm run db:reset-dev -- --confirm=<endpoint id>
  *
