@@ -215,13 +215,51 @@ async function call<T>(config: PaddleConfig, method: 'GET' | 'POST' | 'PATCH', p
   } catch (error) {
     throw new PaddleError(`paddle ${method} ${path}: ${(error as Error).message}`);
   }
-  const json = (await response.json().catch(() => null)) as { data?: T; error?: { code?: string; detail?: string } } | null;
+  const json = (await response.json().catch(() => null)) as { data?: T; error?: unknown; meta?: unknown } | null;
   if (!response.ok || !json || json.data === undefined) {
-    /* The error code and detail only -- never the request, which carries the key. */
-    const reason = json?.error ? `${json.error.code ?? ''} ${json.error.detail ?? ''}`.trim() : '';
-    throw new PaddleError(`paddle ${method} ${path}: ${response.status} ${reason}`.trim(), response.status);
+    throw new PaddleError(`paddle ${method} ${path}: ${response.status} ${paddleErrorReason(json)}`.trim(), response.status);
   }
   return json.data;
+}
+
+const MAX_FIELD_ERRORS = 5;
+const MAX_ERROR_PART = 200;
+
+function clip(value: unknown, max = MAX_ERROR_PART): string {
+  if (typeof value !== 'string') return '';
+  const flat = value.replace(/\s+/g, ' ').trim();
+  return flat.length > max ? `${flat.slice(0, max)}…` : flat;
+}
+
+/**
+ * What Paddle said about a failed call, for the log: the error code and
+ * detail, the field-level validation errors (`error.errors[]`, where a
+ * `400 bad_request` puts the useful part), and `meta.request_id` for Paddle
+ * support. Only fields of the response are read, and each is clipped --
+ * never the request, which carries the key.
+ */
+export function paddleErrorReason(json: unknown): string {
+  if (!json || typeof json !== 'object') return '';
+  const { error, meta } = json as { error?: unknown; meta?: unknown };
+  const parts: string[] = [];
+  if (error && typeof error === 'object') {
+    const { code, detail, errors } = error as { code?: unknown; detail?: unknown; errors?: unknown };
+    const head = `${clip(code, 64)} ${clip(detail)}`.trim();
+    if (head) parts.push(head);
+    if (Array.isArray(errors) && errors.length > 0) {
+      const items = errors.slice(0, MAX_FIELD_ERRORS).map((item) => {
+        const { field, message } = (item && typeof item === 'object' ? item : {}) as { field?: unknown; message?: unknown };
+        const name = clip(field, 100);
+        const text = clip(message);
+        return name && text ? `${name}: ${text}` : name || text || '?';
+      });
+      const more = errors.length > MAX_FIELD_ERRORS ? `; +${errors.length - MAX_FIELD_ERRORS} more` : '';
+      parts.push(`[${items.join('; ')}${more}]`);
+    }
+  }
+  const requestId = meta && typeof meta === 'object' ? clip((meta as { request_id?: unknown }).request_id, 64) : '';
+  if (requestId) parts.push(`(request_id ${requestId})`);
+  return parts.join(' ');
 }
 
 export interface CheckoutPrice {
