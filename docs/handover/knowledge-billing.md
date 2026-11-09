@@ -11,8 +11,8 @@
 - **AI Gateway**：每次响应优先读取 `providerMetadata.gateway.cost`（包括明确的 0）；没有返回实际费用时，读取其公开 `/v1/models` 最新价目表，以当前模型对应的 token / 秒单价计算。目录缓存 60 秒。不使用存在阶梯价格或供应商差价的简单单价作为最终账单。
 - **自定义 embedding**：严格匹配服务 API 地址、模型和账户配置，以供应商返回的实际输入 token 数计费。每次 `doEmbed` 分别记录，SDK 拆分多批不会丢失或覆盖费用。无按字符数估算的兜底。
 - **语音转文字**：每段 `doGenerate` 单独记录，优先使用实际美元费用；否则按模型的实际 token 或音频秒数计价。支持输入 / 音频输入 / 输出 token 不同单价，以及供应商最低计费量、计费步长。不会用文件大小或转写文字量代替实际时长。响应没有时长时，依次取最后一个片段的结束时间、WAV 文件头记录的精确时长；仍未知时保留转写结果，该次费用记为未确认（不扣用户、不估算），在后台成本页待核对。
-- **Firecrawl Parse**：优先使用响应 `metadata.creditsUsed`；PDF 在该字段缺失时可按官方的每页 1 Firecrawl credit 规则使用 `metadata.numPages`，包含空白页。Word 没有用量字段时不猜测（官方文档未给出 Word 的单价）：文档照常处理，Firecrawl 这一项记为未确认费用、不向用户收取，只结算其余已知成本，在后台成本页标为待核对。响应已返回但无法解析时，同样保留一条未确认收据再失败。只有请求本身失败（401 / 402 / 403 / 429 或网络错误）才让密钥进入冷却。以账户真实套餐支付金额除以包含的 Firecrawl credits 得到单价，支持不同密钥账户的独立价格。Firecrawl credits 与平台 credits 是不同单位。
-- 目前网页、整站和 GitHub 使用本地连接器；没有实际调用 Firecrawl 时不收 Firecrawl 费用。Markdown / TXT 本地解析同样没有解析服务费。它们仍按实际 embedding 成本结算。
+- **Firecrawl Parse**：只有本地读不了文字层的 PDF（扫描页、字体加载失败、乱码或文件打不开，见 `lib/infra/connectors/pdf.ts`）整份送 Firecrawl；有可用文字层的 PDF 和全部 Word 都在本地解析，不调用 Firecrawl，也就没有 Firecrawl 收据。优先使用响应 `metadata.creditsUsed`；PDF 在该字段缺失时可按官方的每页 1 Firecrawl credit 规则使用 `metadata.numPages`，包含空白页。响应已返回但无法解析时，同样保留一条未确认收据再失败。只有请求本身失败（401 / 402 / 403 / 429 或网络错误）才让密钥进入冷却。以账户真实套餐支付金额除以包含的 Firecrawl credits 得到单价，支持不同密钥账户的独立价格。Firecrawl credits 与平台 credits 是不同单位。
+- 目前网页、整站和 GitHub 使用本地连接器；没有实际调用 Firecrawl 时不收 Firecrawl 费用。Word、有文字层的 PDF 和 Markdown / TXT 本地解析同样没有解析服务费。它们仍按实际 embedding 成本结算。
 
 例如 Firecrawl 实际消耗 30 credits，套餐单价 $0.001 / Firecrawl credit，embedding 额外花费 $0.00002，则总成本 $0.03002，最终收取 301 平台 credits。两次各 $0.00004 的 embedding 调用合计 $0.00008，只收取 1 credit。
 
@@ -40,7 +40,7 @@ Firecrawl 操作为 `parse`，默认地址 `https://api.firecrawl.dev`；账户 
 
 自定义服务缺少单价时，在付费请求前停止（来源显示 `pricing_unavailable`，服务端日志写明缺少哪一项单价）；响应缺少用量且没有实际金额时，记录费用未确认状态，失败并退款，交由管理员核对，绝不回退到固定费用或将未知成本当作免费。
 
-**部署步骤**：数据库没有价格配置且未设置 `PROVIDER_COST_RATES` 时，代码内置的唯一默认价是上文本项目 Firecrawl Hobby 账户的 `https://api.firecrawl.dev` · `parse` · `$0.0038 / Firecrawl credit`（`DEFAULT_PROVIDER_RATES`），因此新部署可直接处理 PDF / Word；后台首次保存任一供应商价格时会一并写入该默认价。更换 Firecrawl 套餐、使用自建 `FIRECRAWL_BASE_URL`，或启用非 AI Gateway 的 embedding / 转写端点时，必须在上线前于 `/admin/firecrawl`、`/admin/models` 配置对应单价（或在 `PROVIDER_COST_RATES` 中提供），否则这些来源会全部以 `pricing_unavailable` 失败。仓库中没有任何自定义 embedding / 转写端点的真实单价，不提供默认值。
+**部署步骤**：数据库没有价格配置且未设置 `PROVIDER_COST_RATES` 时，代码内置的唯一默认价是上文本项目 Firecrawl Hobby 账户的 `https://api.firecrawl.dev` · `parse` · `$0.0038 / Firecrawl credit`（`DEFAULT_PROVIDER_RATES`），因此新部署可直接处理需要 Firecrawl 的 PDF；后台首次保存任一供应商价格时会一并写入该默认价。更换 Firecrawl 套餐、使用自建 `FIRECRAWL_BASE_URL`，或启用非 AI Gateway 的 embedding / 转写端点时，必须在上线前于 `/admin/firecrawl`、`/admin/models` 配置对应单价（或在 `PROVIDER_COST_RATES` 中提供），否则这些来源会全部以 `pricing_unavailable` 失败。仓库中没有任何自定义 embedding / 转写端点的真实单价，不提供默认值。
 
 ## 数据迁移与验证
 

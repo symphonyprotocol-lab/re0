@@ -22,7 +22,7 @@
 
 | 类型 | 输入 | 处理 | 现有代码 |
 | --- | --- | --- | --- |
-| 文档 | 浏览器直传 Vercel Blob 的 PDF / DOCX / MD / TXT，单文件上限 20 MB | PDF 走 pdf.js，扫描件走 OCR；DOCX 用 `mammoth` 转成 Markdown；MD / TXT 直接读 | PDF、OCR、Markdown 可搬；**DOCX 新写**（约 50 行） |
+| 文档 | 浏览器直传 Vercel Blob 的 PDF / DOCX / MD / TXT，单文件上限 20 MB | PDF 先在本地读文字层（`unpdf` 的 pdf.js），按字号、行距还原成每页 Markdown；有扫描页、字体加载失败或乱码时整份交给 Firecrawl Parse；DOCX 用 `mammoth` + `turndown` 在本地转成 Markdown；MD / TXT 直接读 | PDF、OCR、Markdown 可搬；**DOCX 新写**（约 50 行） |
 | 音频 | 直传 Blob 的 MP3 / M4A / WAV，单文件上限 100 MB | 调语音转写接口（OpenAI 兼容的 `audio/transcriptions`，带时间戳），按时间段切块，引用显示「第 12:34」 | 现有只存文件不转写，**转写新写**；旧产品承诺音频不出第三方，新产品**要把音频发给转写服务**，需要你认可 |
 | GitHub | 仓库 URL，公开或私有 | 读默认分支的文件树，取 Markdown、文档和源码文件，按文件切块，引用显示文件路径与行号。公开仓库匿名读，**不需要确权**；私有仓库要先绑定 GitHub 账号授权（第 2.2 节），用用户自己的 token 读 | `fetchGithubSnapshot` 可搬，加一条带用户 token 的分支 |
 | 单个网页 | 一个 URL | 只抓这一页，正文转 Markdown，**不需要确权** | `web.ts`、`http.ts` 可搬 |

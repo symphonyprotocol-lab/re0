@@ -5,9 +5,12 @@ import { documentSections } from '@/lib/infra/connectors';
 import { claimFirecrawlKey, recordFirecrawlKeyResult } from '@/lib/infra/firecrawl/keys';
 import { withProviderMeter } from '@/lib/infra/ai/provider-meter';
 import { providerRateSchema, type ProviderCharge } from '@/lib/domain/provider-cost';
+import { buildPdf, draw, makePdf } from '../fixtures/pdf';
+import { makeDocx, makeZip, word } from '../fixtures/docx';
 
 vi.mock('@/lib/infra/firecrawl/keys', () => ({ claimFirecrawlKey: vi.fn(), recordFirecrawlKeyResult: vi.fn() }));
 
+/** `%PDF` and nothing else: pdf.js cannot open it, so it goes to Firecrawl. */
 const bytes = new Uint8Array([37, 80, 68, 70]);
 const fetchMock = vi.fn<typeof fetch>();
 
@@ -29,7 +32,7 @@ function reply(data: unknown) {
   fetchMock.mockResolvedValueOnce(Response.json({ success: true, data }));
 }
 
-describe('Firecrawl document ingestion', () => {
+describe('Firecrawl document ingestion (PDFs the local parser hands over)', () => {
   it('switches to the next console key after a rate limit, without using the environment key', async () => {
     vi.mocked(claimFirecrawlKey)
       .mockResolvedValueOnce({ managed: true, credential: { id: 'first', apiKey: 'fc-console-first' } })
@@ -94,20 +97,11 @@ describe('Firecrawl document ingestion', () => {
     expect(locatorLabel(citations[0]!.locator, 'zh')).toContain('第 3 页');
   });
 
-  it('uploads Word documents and retains Markdown headings and tables without inventing page numbers', async () => {
-    const markdown = '# Policy\n\n| Item | Years |\n| --- | --- |\n| Warranty | 2 |';
-    reply({ markdown });
-    expect(await documentSections(bytes, 'policy.DOCX')).toEqual([{ text: markdown, locator: {} }]);
-    const form = fetchMock.mock.calls[0]![1]!.body as FormData;
-    expect((form.get('file') as File).type).toBe('application/vnd.openxmlformats-officedocument.wordprocessingml.document');
-    expect(JSON.parse(form.get('options') as string)).not.toHaveProperty('parsers');
-  });
-
   it('supports a self-hosted Parse server with an optional key', async () => {
     vi.stubEnv('FIRECRAWL_BASE_URL', 'http://localhost:3002/');
     vi.stubEnv('FIRECRAWL_API_KEY', '');
-    reply({ markdown: 'Self-hosted document.' });
-    await documentSections(bytes, 'notes.docx');
+    reply({ pages: [{ pageNumber: 1, markdown: 'Self-hosted document.' }] });
+    await documentSections(bytes, 'notes.pdf');
     const [url, init] = fetchMock.mock.calls[0]!;
     expect(url).toBe('http://localhost:3002/v2/parse');
     expect(new Headers(init!.headers).has('authorization')).toBe(false);
@@ -122,9 +116,9 @@ describe('Firecrawl document ingestion', () => {
     expect(await (form.get('file') as File).text()).toBe('PDF');
   });
 
-  it.each(['pdf', 'docx'])('refuses unconfigured %s parsing without a local fallback', async (extension) => {
+  it('refuses an unreadable PDF when Firecrawl is not configured', async () => {
     vi.stubEnv('FIRECRAWL_API_KEY', '');
-    await expect(documentSections(bytes, `document.${extension}`)).rejects.toMatchObject({ code: 'parse_failed' });
+    await expect(documentSections(bytes, 'document.pdf')).rejects.toMatchObject({ code: 'parse_failed' });
     expect(fetchMock).not.toHaveBeenCalled();
   });
 
@@ -181,13 +175,6 @@ describe('Firecrawl document ingestion', () => {
       return { result, charges };
     };
 
-    it('processes Word without creditsUsed and keeps its cost unresolved instead of guessing one', async () => {
-      reply({ markdown: '# Warranty\n\nTwo years.' });
-      const { result, charges } = await metered(() => documentSections(bytes, 'policy.docx'));
-      expect(await result).toEqual([{ text: '# Warranty\n\nTwo years.', locator: {} }]);
-      expect(charges).toEqual([expect.objectContaining({ service: 'firecrawl', costUsd: null, basis: 'unresolved' })]);
-    });
-
     it('bills a PDF at its documented 1 credit per page when creditsUsed is missing', async () => {
       reply({ pages: [{ pageNumber: 1, markdown: 'One.' }, { pageNumber: 2, markdown: 'Two.' }], metadata: { numPages: 2, totalPages: 2 } });
       const { result, charges } = await metered(() => documentSections(bytes, 'document.pdf'));
@@ -230,12 +217,163 @@ describe('Firecrawl document ingestion', () => {
     await expect(documentSections(bytes, 'document.pdf')).rejects.toMatchObject({ code: 'parse_failed', message: 'Firecrawl returned incomplete PDF page data' });
   });
 
+  it('rejects a PDF Firecrawl finds empty', async () => {
+    reply({ pages: [{ pageNumber: 1, markdown: ' \n ' }] });
+    await expect(documentSections(bytes, 'document.pdf')).rejects.toMatchObject({ code: 'empty_text' });
+  });
+});
+
+/** Runs `work` inside a provider meter and returns what it recorded. */
+async function chargesOf(work: () => Promise<unknown>): Promise<ProviderCharge[]> {
+  const charges: ProviderCharge[] = [];
+  await withProviderMeter({ runId: 'run', prices: { revision: 'v1', rates: [] }, record: async (charge) => { charges.push(charge); } }, work);
+  return charges;
+}
+
+/** A report page: running header, title, heading, two paragraphs, a list, and a page-number footer. */
+function reportPage(n: number, total: number): string {
+  return [
+    draw.text('ACME Confidential', { y: 815, size: 9 }),
+    draw.text(n === 1 ? 'Annual Report' : `Part ${n}`, { y: 760, size: 24 }),
+    draw.text('Revenue overview', { y: 720, size: 15 }),
+    draw.text(`Revenue grew in region ${n} this year, led by`, { y: 696 }),
+    draw.text('strong demand for the new devices.', { y: 682 }),
+    draw.text('A second paragraph starts after a wider gap.', { y: 650 }),
+    draw.text('• First bullet point', { y: 630 }),
+    draw.text('• Second bullet point', { y: 616 }),
+    draw.text(`Page ${n} of ${total}`, { y: 30, size: 9 }),
+  ].join(' ');
+}
+
+describe('local PDF parsing', () => {
+  it('reads a text PDF without Firecrawl and rebuilds headings, paragraphs and lists', async () => {
+    vi.stubEnv('FIRECRAWL_API_KEY', '');
+    const sections = await documentSections(buildPdf([reportPage(1, 1)]), 'report.pdf');
+    // One page cannot show a header repeating, but a bare page number at the edge is still dropped.
+    expect(sections).toEqual([{
+      text: [
+        'ACME Confidential',
+        '# Annual Report',
+        '## Revenue overview',
+        'Revenue grew in region 1 this year, led by strong demand for the new devices.',
+        'A second paragraph starts after a wider gap.',
+        '- First bullet point\n- Second bullet point',
+      ].join('\n\n'),
+      locator: { page: 1 },
+    }]);
+    expect(fetchMock).not.toHaveBeenCalled();
+  });
+
+  it('strips headers and footers that repeat at the same place, and keeps physical page numbers past a blank page', async () => {
+    const sections = await documentSections(buildPdf([reportPage(1, 4), '', reportPage(3, 4), reportPage(4, 4)]), 'report.pdf');
+    expect(sections.map((section) => section.locator.page)).toEqual([1, 3, 4]);
+    expect(sections.map((section) => section.text).join('\n')).not.toMatch(/ACME Confidential|Page \d of 4/);
+    expect(sections[1]!.text).toContain('Revenue grew in region 3');
+
+    const chunk = chunkSections(sections).find((chunk) => chunk.content.includes('region 3'))!;
+    const citations = citationSnapshots('Revenue grew. [1]', [{
+      ...chunk, chunkId: 'chunk', knowledgeId: 'source', title: 'Report', kind: 'document', similarity: 1,
+    }]);
+    expect(citations[0]!.locator).toMatchObject({ page: 3, heading: 'Part 3 › Revenue overview' });
+  });
+
+  it('keeps a running line that changes from page to page', async () => {
+    const pages = ['Onboarding', 'Billing', 'Refunds'].map((topic, index) => [`Chapter ${index + 1}: ${topic}`, '', `How ${topic.toLowerCase()} works.`]);
+    const sections = await documentSections(makePdf(pages), 'handbook.pdf');
+    expect(sections.map((section) => section.text)).toEqual([
+      'Chapter 1: Onboarding\n\nHow onboarding works.', 'Chapter 2: Billing\n\nHow billing works.', 'Chapter 3: Refunds\n\nHow refunds works.',
+    ]);
+  });
+
+  it('records no provider call', async () => {
+    expect(await chargesOf(() => documentSections(makePdf([['Local text only.']]), 'local.pdf'))).toEqual([]);
+  });
+
+  it('sends the whole file to Firecrawl when any page is an image without text', async () => {
+    const scanned = buildPdf([reportPage(1, 3), draw.image(), reportPage(3, 3)]);
+    const original = new Uint8Array(scanned);
+    reply({ pages: [1, 2, 3].map((pageNumber) => ({ pageNumber, markdown: `OCR page ${pageNumber}` })), metadata: { numPages: 3, totalPages: 3 } });
+    const sections = await documentSections(scanned, 'scan.pdf');
+    expect(sections.map((section) => section.locator.page)).toEqual([1, 2, 3]);
+    expect(sections[1]!.text).toBe('OCR page 2');
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+    // pdf.js detaches what it parses; Firecrawl still receives every byte of the original.
+    const form = fetchMock.mock.calls[0]![1]!.body as FormData;
+    expect(new Uint8Array(await (form.get('file') as File).arrayBuffer())).toEqual(original);
+  });
+
+  it('accepts a page with a few words over an image only when the page has text enough', async () => {
+    const caption = [draw.image(), draw.text('Figure 1: the device from the front, with every port labelled for reference.', { y: 60 })].join(' ');
+    expect(await documentSections(buildPdf([caption]), 'figure.pdf')).toEqual([
+      { text: 'Figure 1: the device from the front, with every port labelled for reference.', locator: { page: 1 } },
+    ]);
+    expect(fetchMock).not.toHaveBeenCalled();
+  });
+
   it.each([
-    ['pdf', { pages: [{ pageNumber: 1, markdown: ' \n ' }] }],
-    ['docx', { markdown: ' \n ' }],
-  ])('rejects empty %s documents', async (extension, data) => {
-    reply(data);
-    await expect(documentSections(bytes, `document.${extension}`)).rejects.toMatchObject({ code: 'empty_text' });
+    ['garbled text', buildPdf([draw.text('This line maps every glyph into the private-use area.', { y: 700, font: 'F2' })])],
+    ['a font that cannot be loaded', buildPdf([[draw.text('Latin text extracts while the CJK font beside it fails.', { y: 760 }), draw.cjk(700)].join(' ')])],
+    ['no text on any page', buildPdf(['', ''])],
+  ])('sends the file to Firecrawl for %s', async (_case, pdf) => {
+    reply({ pages: [{ pageNumber: 1, markdown: 'Parsed by Firecrawl.' }] });
+    expect(await documentSections(pdf, 'document.pdf')).toEqual([{ text: 'Parsed by Firecrawl.', locator: { page: 1 } }]);
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+  });
+
+  it('parses locally when garbled characters are only a trace', async () => {
+    const pdf = buildPdf([[
+      draw.text('Plenty of clean text on this page keeps the share of bad characters small,', { y: 700 }),
+      draw.text('so a single stray glyph does not send the file away.', { y: 686 }),
+      draw.text('x', { x: 400, y: 686, font: 'F2' }),
+    ].join(' ')]);
+    const [section] = await documentSections(pdf, 'document.pdf');
+    expect(section!.text).toContain('Plenty of clean text');
+    expect(fetchMock).not.toHaveBeenCalled();
+  });
+});
+
+describe('local Word parsing', () => {
+  const policy = makeDocx([
+    word.heading(1, 'Warranty'),
+    word.paragraph('Devices are covered for two years.'),
+    word.heading(2, 'Exclusions'),
+    word.bullet('Water damage'),
+    word.bullet('Lost devices'),
+    word.table([['Item', 'Years'], ['Device', '2'], ['Battery | pack', '1']]),
+  ]);
+
+  it('turns headings, lists and tables into Markdown without Firecrawl or page numbers', async () => {
+    vi.stubEnv('FIRECRAWL_API_KEY', '');
+    const sections = await documentSections(policy, 'policy.DOCX');
+    expect(sections).toEqual([{
+      text: [
+        '# Warranty',
+        'Devices are covered for two years.',
+        '## Exclusions',
+        '-   Water damage\n-   Lost devices',
+        '| Item | Years |\n| --- | --- |\n| Device | 2 |\n| Battery \\| pack | 1 |',
+      ].join('\n\n'),
+      locator: {},
+    }]);
+    expect(fetchMock).not.toHaveBeenCalled();
+    const chunk = chunkSections(sections).find((chunk) => chunk.content.includes('Water damage'))!;
+    expect(chunk.locator).toMatchObject({ heading: 'Warranty › Exclusions' });
+  });
+
+  it('records no provider call', async () => {
+    expect(await chargesOf(() => documentSections(policy, 'policy.docx'))).toEqual([]);
+  });
+
+  it.each([
+    ['not a zip', new Uint8Array([80, 75, 3, 4])],
+    ['a zip without a Word document', makeZip({ 'notes.txt': 'Not Word.' })],
+  ])('fails to parse %s', async (_case, file) => {
+    await expect(documentSections(file, 'broken.docx')).rejects.toMatchObject({ code: 'parse_failed' });
+    expect(fetchMock).not.toHaveBeenCalled();
+  });
+
+  it('rejects a Word document without text', async () => {
+    await expect(documentSections(makeDocx([word.paragraph('  ')]), 'blank.docx')).rejects.toMatchObject({ code: 'empty_text' });
   });
 });
 

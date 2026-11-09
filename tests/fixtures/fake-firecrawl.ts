@@ -1,4 +1,8 @@
-/** Firecrawl's Parse contract, without uploading integration fixtures to a vendor. */
+/**
+ * Firecrawl's Parse contract, without uploading integration fixtures to a
+ * vendor. Only PDFs the local parser cannot read reach it (a scanned page, for
+ * instance); it answers with the handbook's pages whatever the file holds.
+ */
 import { vi } from 'vitest';
 import { handbookPages } from './pdf';
 import { jsonResponse, startFakeWeb, type FakeWeb } from './fake-web';
@@ -14,7 +18,7 @@ export function startFakeFirecrawl(): FakeWeb {
       success: true,
       data: file.name.toLowerCase().endsWith('.pdf')
         ? { pages, markdown: pages.map((page) => page.markdown).join('\n\n'), metadata: { numPages: pages.length, totalPages: pages.length, creditsUsed: pages.length } }
-        : { metadata: { creditsUsed: 1 }, markdown: '# Warranty\n\nDevices are covered for two years.\n\n| Item | Years |\n| --- | --- |\n| Device | 2 |' },
+        : { metadata: { creditsUsed: 1 }, markdown: '# Unexpected\n\nWord documents are parsed locally.' },
     });
   });
   return web;
