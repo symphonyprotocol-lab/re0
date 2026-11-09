@@ -2749,7 +2749,6 @@ html:has(.console-main > .console-topbar > .context-nav-row) {
     :where(.console-app, .admin-login-page) .header-breadcrumbs > span {
       max-width: 135px;
     }
-  :where(.console-app, .admin-login-page) .console-header-tools.has-page-actions .admin-manage-label { display: none; }
 }
 @media (max-width: 760px) {
   :where(.console-app, .admin-login-page), html:has(.console-app) {
@@ -3719,6 +3718,8 @@ html:has(.console-main > .console-topbar > .context-nav-row) {
 :where(.console-app, .admin-login-page) .role-admin-list .record-table th:nth-child(2) { width:30%; }
 :where(.console-app, .admin-login-page) .role-admin-list .record-table th:last-child { width:115px; }
 :where(.console-app, .admin-login-page) .role-admin-list .record-table td { overflow-wrap:anywhere; }
+:where(.console-app, .admin-login-page) .record-table.administrators-records th:first-child { width:26%; }
+:where(.console-app, .admin-login-page) .record-table.administrators-records th:last-child { width:220px; }
 :where(.console-app, .admin-login-page) .role-list-pager { display:flex; justify-content:flex-end; padding:16px 20px; border-top:1px solid #e6ecf5; }
 :where(.console-app, .admin-login-page) .role-list-pager nav { display:flex; gap:6px; align-items:center; }
 :where(.console-app, .admin-login-page) .role-list-pager a { display:flex; align-items:center; justify-content:center; min-width:30px; height:30px; border-radius:7px; color:#8199b8; font-size:11px; border:1px solid #e5ebf6; }
