@@ -6,6 +6,8 @@ import { currentPricing, savePricing } from '@/lib/services/pricing';
 import { welcomeCredits, saveWelcomeCredits } from '@/lib/services/signup-reward';
 import { videoExportPrice, saveVideoExportPrice, videoScriptPrice, saveVideoScriptPrice } from '@/lib/services/video-pricing';
 import { AdminInputError, resolveAdminSession } from '@/lib/services/admin';
+import { infraCostRates, saveInfraCostRates } from '@/lib/services/infra-pricing';
+import { defaultInfraCostRates } from '@/lib/domain/infra-cost';
 import { defaultPrice } from '@/lib/domain/pricing';
 const state = vi.hoisted(() => ({ admin: false }));
 vi.mock('next/headers', () => ({
@@ -18,6 +20,7 @@ vi.mock('@/lib/services/admin', async (original) => ({
 }));
 vi.mock('@/lib/services/pricing', () => ({ currentPricing: vi.fn(), savePricing: vi.fn() }));
 vi.mock('@/lib/services/signup-reward', () => ({ welcomeCredits: vi.fn(), saveWelcomeCredits: vi.fn() }));
+vi.mock('@/lib/services/infra-pricing', () => ({ infraCostRates: vi.fn(), saveInfraCostRates: vi.fn() }));
 vi.mock('@/lib/services/video-pricing', () => ({
   videoScriptPrice: vi.fn(), saveVideoScriptPrice: vi.fn(), videoExportPrice: vi.fn(), saveVideoExportPrice: vi.fn(),
 }));
@@ -57,8 +60,10 @@ describe('unified pricing administrator API', () => {
     const videoExport = { credits: 50, revision: 'default' };
     vi.mocked(videoScriptPrice).mockResolvedValue(videoScript);
     vi.mocked(videoExportPrice).mockResolvedValue(videoExport);
+    vi.mocked(infraCostRates).mockResolvedValue(defaultInfraCostRates());
     expect(await (await GET(request('GET'))).json()).toMatchObject({
       plan: { priceMinor: 1000, credits: 50_000 }, pack: { priceMinor: 1000, credits: 100_000 }, welcome, videoScript, videoExport,
+      infraCosts: { transferPerGb: '0.15', blobStoragePerGbMonth: '0.028', databaseStoragePerGbMonth: '0.55', databaseIndexFactor: '2', chunkRowBytes: 200, revision: 'default' },
     });
     vi.mocked(saveWelcomeCredits).mockResolvedValue(welcome);
     expect(await (await PUT(request('PUT'))).json()).toEqual({ welcome });
@@ -95,6 +100,22 @@ describe('unified pricing administrator API', () => {
     expect(await (await PUT(request('PUT', undefined, input))).json()).toEqual({ videoExport });
     expect(saveVideoExportPrice).toHaveBeenCalledWith('admin-id', input);
     expect(saveVideoScriptPrice).not.toHaveBeenCalled();
+    expect(savePricing).not.toHaveBeenCalled();
+  });
+  it('saves infrastructure costs through the authenticated pricing API, and reports invalid rates as 422', async () => {
+    const input = { kind: 'infra_costs', revision: 'default', transferPerGb: '0.2', blobStoragePerGbMonth: '0.03', databaseStoragePerGbMonth: '0.6', databaseIndexFactor: '2', chunkRowBytes: 200 };
+    expect((await PUT(request('PUT', undefined, input as never))).status).toBe(401);
+    state.admin = true;
+    expect((await PUT(request('PUT', 'https://attacker.test', input as never))).status).toBe(403);
+    expect(saveInfraCostRates).not.toHaveBeenCalled();
+    const infraCosts = { ...input, revision: 'next', effectiveFrom: new Date().toISOString() };
+    vi.mocked(saveInfraCostRates).mockResolvedValue(infraCosts as never);
+    expect(await (await PUT(request('PUT', undefined, input as never))).json()).toEqual({ infraCosts });
+    expect(saveInfraCostRates).toHaveBeenCalledWith('admin-id', input);
+    vi.mocked(saveInfraCostRates).mockRejectedValue(new AdminInputError('invalid_infra_costs'));
+    const refused = await PUT(request('PUT', undefined, { ...input, transferPerGb: '0' } as never));
+    expect(refused.status).toBe(422);
+    expect(await refused.json()).toMatchObject({ error: 'invalid_infra_costs' });
     expect(savePricing).not.toHaveBeenCalled();
   });
 });

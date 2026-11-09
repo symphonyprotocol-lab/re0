@@ -27,6 +27,9 @@ describe('third-party cost billing', () => {
   it('respects duration billing increments and separate transcription token prices', () => {
     expect(rateCost(rate({ service: 'transcription', unit: 'seconds', usdPerUnit: '0.0001', incrementUnits: 1 }), { seconds: 61.2 })).toBe('0.006200000000');
     expect(rateCost(rate({ service: 'transcription', unit: 'seconds', usdPerUnit: '0.01', incrementUnits: 0.01 }), { seconds: 0.14 })).toBe('0.001400000000');
+    // A measured fraction of a micro-second is rounded up, never down; floating-point noise is not.
+    expect(rateCost(rate({ service: 'transcription', unit: 'seconds', usdPerUnit: '1' }), { seconds: 1.0000004 })).toBe('1.000001000000');
+    expect(rateCost(rate({ service: 'transcription', unit: 'seconds', usdPerUnit: '1' }), { seconds: 0.1 + 0.2 })).toBe('0.300000000000');
     expect(rateCost(rate({ service: 'transcription', usdPerUnit: '0.0000025', audioInputUsdPerUnit: '0.000005', outputUsdPerUnit: '0.00001' }), { inputTokens: 100, audioInputTokens: 80, outputTokens: 10 })).toBe('0.000550000000');
   });
   it('refuses missing usage and unresolved costs rather than assuming free or estimating characters', () => {

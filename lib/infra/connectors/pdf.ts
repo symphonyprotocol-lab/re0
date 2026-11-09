@@ -73,7 +73,8 @@ const REPEAT_SHARE = 0.6;
 const PAGE_NUMBER_MIN_PAGES = 2;
 
 export type PdfFallback = 'unreadable' | 'font_failed' | 'image_page' | 'garbled' | 'no_text' | 'budget';
-export type PdfTextLayer = { sections: Section[] } | { fallback: PdfFallback; page?: number };
+/** `pages`: the document's page count when it could be opened, so Firecrawl's per-page price can be reserved first. */
+export type PdfTextLayer = { sections: Section[] } | { fallback: PdfFallback; page?: number; pages?: number };
 
 interface TextItem {
   str: string;
@@ -389,24 +390,24 @@ export async function pdfTextLayer(bytes: Uint8Array, { deadline = Infinity }: {
   }
   let withImages: typeof pdf | undefined;
   try {
-    if (pdf.numPages > LOCAL_MAX_PAGES) return { fallback: 'budget' };
+    if (pdf.numPages > LOCAL_MAX_PAGES) return { fallback: 'budget', pages: pdf.numPages };
     const pages: PageLines[] = [];
     let chars = 0;
     let bad = 0;
     for (let number = 1; number <= pdf.numPages; number += 1) {
-      if (Date.now() > stopAt) return { fallback: 'budget', page: number };
+      if (Date.now() > stopAt) return { fallback: 'budget', pages: pdf.numPages, page: number };
       const page = await pdf.getPage(number);
       const content = await page.getTextContent();
       const operators = await page.getOperatorList();
       const fonts = new Set(operators.fnArray.flatMap((fn, at) => fn === OPS.setFont ? [String(operators.argsArray[at]?.[0])] : []));
       // A font pdf.js failed to load resolves to its error message instead of a font object.
       if ([...fonts].some((font) => page.commonObjs.has(font) && typeof page.commonObjs.get(font) === 'string')) {
-        return { fallback: 'font_failed', page: number };
+        return { fallback: 'font_failed', pages: pdf.numPages, page: number };
       }
       const text = content.items.map((item) => ('str' in item ? item.str : '')).join('');
       const pageChars = nonWhitespace(text);
       const pageBad = badCharacters(text);
-      if (pageChars >= GARBLED_PAGE_MIN_CHARS && pageBad > GARBLED_SHARE_MAX * pageChars) return { fallback: 'garbled', page: number };
+      if (pageChars >= GARBLED_PAGE_MIN_CHARS && pageBad > GARBLED_SHARE_MAX * pageChars) return { fallback: 'garbled', pages: pdf.numPages, page: number };
       chars += pageChars;
       bad += pageBad;
       const [, y0 = 0, , y1 = 0] = page.view;
@@ -425,18 +426,18 @@ export async function pdfTextLayer(bytes: Uint8Array, { deadline = Infinity }: {
         const painted = await imagePage.getOperatorList();
         const coverage = imageCoverage(painted, imagePage.view, OPS);
         imagePage.cleanup();
-        if (coverage >= IMAGE_COVERAGE_MIN) return { fallback: 'image_page', page: number };
+        if (coverage >= IMAGE_COVERAGE_MIN) return { fallback: 'image_page', pages: pdf.numPages, page: number };
       }
       await yieldToEventLoop();
     }
-    if (bad > GARBLED_SHARE_MAX * chars) return { fallback: 'garbled' };
+    if (bad > GARBLED_SHARE_MAX * chars) return { fallback: 'garbled', pages: pdf.numPages };
     // No page has any text, yet none is a scan by the rules above (text drawn as outlines, say): let OCR try.
-    if (chars === 0) return { fallback: 'no_text' };
+    if (chars === 0) return { fallback: 'no_text', pages: pdf.numPages };
 
     stripMargins(pages);
     const lines = pages.flatMap((page) => page.lines);
     // Only headers, footers and page numbers: whatever the body is, it is not in the text layer.
-    if (lines.length === 0) return { fallback: 'no_text' };
+    if (lines.length === 0) return { fallback: 'no_text', pages: pdf.numPages };
     const body = weightedMedian(lines, (line) => line.size);
     const gaps = pages.flatMap((page) => page.lines.slice(1).flatMap((line, at) => {
       const previous = page.lines[at]!;
@@ -447,10 +448,10 @@ export async function pdfTextLayer(bytes: Uint8Array, { deadline = Infinity }: {
     const sections = pages
       .map((page) => ({ text: pageMarkdown(page.lines, body, gap), locator: { page: page.number } }))
       .filter((section) => section.text.length > 0);
-    if (sections.length === 0) return { fallback: 'no_text' };
+    if (sections.length === 0) return { fallback: 'no_text', pages: pdf.numPages };
     return { sections };
   } catch {
-    return { fallback: 'unreadable' };
+    return { fallback: 'unreadable', pages: pdf.numPages || undefined };
   } finally {
     await Promise.allSettled([pdf.loadingTask.destroy(), withImages?.loadingTask.destroy()]);
   }

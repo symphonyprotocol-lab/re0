@@ -232,6 +232,20 @@
       "when": 1794149110765,
       "tag": "0033_mcp_api_keys",
       "breakpoints": true
+    },
+    {
+      "idx": 34,
+      "version": "7",
+      "when": 1794195806076,
+      "tag": "0034_knowledge_storage_billing",
+      "breakpoints": true
+    },
+    {
+      "idx": 35,
+      "version": "7",
+      "when": 1794197413808,
+      "tag": "0035_infra_cost_rates",
+      "breakpoints": true
     }
   ]
 }

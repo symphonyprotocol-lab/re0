@@ -5,7 +5,9 @@
  * answerable passages (k-means in the database with pgvector's `avg`), or
  * the passages themselves while there are fewer than 12. Recomputed as the
  * last step of processing knowledge and whenever what it is made of
- * changes; free of charge. Private, taken-down and deleted Rees have none.
+ * changes. Its embedding is billed to the Ree's owner (`meteredWork`,
+ * docs/audit/credit-import-audit.md P2): it always runs, and what the
+ * balance cannot cover is owed. Private, taken-down and deleted Rees have none.
  *
  * Also here: the three example questions the system suggests after the
  * first source is ready, kept until the owner adopts them (8.2, "示例问题").
@@ -18,6 +20,7 @@ import { generationForUser } from '@/lib/services/generation';
 import { db, schema } from '@/lib/infra/db';
 import { answerable } from '@/lib/services/chat';
 import { publicRee } from '@/lib/services/explore';
+import { meteredWork } from '@/lib/services/metered-work';
 
 type Kind = 'profile' | 'sample_question' | 'centroid';
 
@@ -94,7 +97,7 @@ async function passageVectors(reeId: string): Promise<number[][]> {
 export async function refreshProfile(reeId: string): Promise<number> {
   const database = db();
   const [ree] = await database
-    .select({ id: schema.ree.id, name: schema.ree.name, description: schema.ree.description, category: schema.ree.category, tags: schema.ree.tags, sampleQuestions: schema.ree.sampleQuestions, suggestedQuestions: schema.ree.suggestedQuestions })
+    .select({ id: schema.ree.id, ownerId: schema.ree.ownerId, name: schema.ree.name, description: schema.ree.description, category: schema.ree.category, tags: schema.ree.tags, sampleQuestions: schema.ree.sampleQuestions, suggestedQuestions: schema.ree.suggestedQuestions })
     .from(schema.ree)
     .where(and(eq(schema.ree.id, reeId), publicRee()))
     .limit(1);
@@ -104,7 +107,13 @@ export async function refreshProfile(reeId: string): Promise<number> {
   }
   const questions = (ree.sampleQuestions.length ? ree.sampleQuestions : ree.suggestedQuestions).slice(0, PROFILE_SAMPLE_QUESTIONS);
   const introduction = [ree.name, ree.description, ree.category, ...ree.tags].filter(Boolean).join('\n');
-  const [{ vectors }, passages] = await Promise.all([embedTexts([introduction, ...questions]), passageVectors(reeId)]);
+  const [{ vectors }, passages] = await Promise.all([
+    meteredWork(
+      { userId: ree.ownerId, reeId, kind: 'profile', title: `${ree.name} · knowledge profile`, reeName: ree.name, refuse: false },
+      () => embedTexts([introduction, ...questions]),
+    ),
+    passageVectors(reeId),
+  ]);
   const rows: { kind: Kind; embedding: number[] }[] = [
     { kind: 'profile', embedding: vectors[0]! },
     ...questions.map((_, at) => ({ kind: 'sample_question' as const, embedding: vectors[at + 1]! })),
@@ -136,8 +145,9 @@ export function parseQuestions(text: string): string[] {
 /**
  * After the first source is ready, a Ree with no example questions gets
  * three suggestions written from its passages. They are stored apart and
- * shown only when the owner adopts them in settings. Free; a failure just
- * leaves none.
+ * shown only when the owner adopts them in settings. The generation is
+ * billed to the owner (`meteredWork`, P2) and optional: a balance that
+ * cannot cover its estimate leaves none, as any failure does.
  */
 export async function suggestQuestions(reeId: string): Promise<string[]> {
   const database = db();
@@ -157,7 +167,7 @@ export async function suggestQuestions(reeId: string): Promise<string[]> {
   if (passages.length === 0) return [];
   try {
     const generation = await generationForUser(ree.ownerId, 'suggestions');
-    const { text } = await generateText({
+    const { text } = await meteredWork({ userId: ree.ownerId, reeId, kind: 'suggestions', title: `${ree.name} · example questions`, reeName: ree.name, refuse: true }, () => generateText({
       model: generation.model,
       instructions: [
         'Suggest three example questions a visitor could ask this knowledge companion.',
@@ -168,7 +178,7 @@ export async function suggestQuestions(reeId: string): Promise<string[]> {
       maxOutputTokens: 300,
       temperature: 0.4,
       maxRetries: 1,
-    });
+    }));
     const questions = parseQuestions(text);
     if (questions.length === 0) return [];
     await database.update(schema.ree).set({ suggestedQuestions: questions }).where(and(eq(schema.ree.id, reeId), sql`jsonb_array_length(${schema.ree.sampleQuestions}) = 0`));

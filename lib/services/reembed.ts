@@ -16,12 +16,20 @@
  * poll (or the cron) then starts the next step, and takes over a job whose
  * runner went silent, so a job outlives any single function. After the
  * switch, step 4's knowledge profiles are rebuilt with the new model.
+ *
+ * Billing (docs/audit/credit-import-audit.md P3): each batch is embedded
+ * per knowledge-base owner, and each owner pays for their own passages
+ * (`meteredWork`, one run per owner per batch). The switch must complete, so
+ * a call is never refused for want of credits: what a balance cannot cover
+ * is owed. A candidate model without a price fails the job rather than run
+ * unbilled.
  */
 import { and, count, desc, eq, isNotNull, isNull, lt, ne, or, sql, type SQL } from 'drizzle-orm';
 import { REEMBED_BATCH, REEMBED_STEP_BUDGET_MS } from '@/lib/constants';
 import { consoleEndpoint, embedTexts, forgetModelCache } from '@/lib/infra/ai/models';
 import { db, schema, type Executor } from '@/lib/infra/db';
 import { AdminInputError, audit } from '@/lib/services/admin';
+import { meteredWork } from '@/lib/services/metered-work';
 import { refreshProfile } from '@/lib/services/profile';
 
 export type ReembedJob = typeof schema.reembedJob.$inferSelect;
@@ -210,8 +218,9 @@ export async function runReembed(budgetMs = REEMBED_STEP_BUDGET_MS, now = () => 
   let finished = false;
   while (Date.now() < deadline) {
     const batch = await database
-      .select({ id: schema.chunk.id, content: schema.chunk.content })
+      .select({ id: schema.chunk.id, content: schema.chunk.content, ownerId: schema.ree.ownerId, reeName: schema.ree.name })
       .from(schema.chunk)
+      .innerJoin(schema.ree, eq(schema.ree.id, schema.chunk.reeId))
       .where(isNull(schema.chunk.embeddingNext))
       .orderBy(schema.chunk.id)
       .limit(REEMBED_BATCH);
@@ -226,15 +235,24 @@ export async function runReembed(budgetMs = REEMBED_STEP_BUDGET_MS, now = () => 
     const next = now();
     if (!(await renew(running.id, lease, next))) return running;
     lease = next;
-    let vectors: number[][];
+    const vectors = new Map<string, number[]>();
     try {
-      vectors = (await embedTexts(batch.map((row) => row.content), endpoint)).vectors;
+      const owners = new Map<string, typeof batch>();
+      for (const row of batch) owners.set(row.ownerId, [...(owners.get(row.ownerId) ?? []), row]);
+      for (const [ownerId, rows] of owners) {
+        const names = [...new Set(rows.map((row) => row.reeName))];
+        const embedded = await meteredWork(
+          { userId: ownerId, reeId: null, kind: 'reembed', title: `Embedding model switch · ${rows.length} passages`, reeName: names.join(', ').slice(0, 300), refuse: false },
+          () => embedTexts(rows.map((row) => row.content), endpoint),
+        );
+        rows.forEach((row, index) => vectors.set(row.id, embedded.vectors[index]!));
+      }
     } catch (error) {
       await fail(running, error instanceof Error ? error.message : 'embedding failed', now());
       break;
     }
     const values = sql.join(
-      batch.map((row, index) => sql`(${row.id}::uuid, ${JSON.stringify(vectors[index])}::vector)`),
+      batch.map((row) => sql`(${row.id}::uuid, ${JSON.stringify(vectors.get(row.id))}::vector)`),
       sql`, `,
     );
     await database.execute(sql`update ${schema.chunk} c set embedding_next = v.e from (values ${values}) as v(id, e) where c.id = v.id`);

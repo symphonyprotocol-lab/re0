@@ -29,7 +29,7 @@ export async function documentSections(bytes: Uint8Array, fileName: string): Pro
     if ('sections' in layer) return layer.sections;
     // The reason only, never the file name or its text.
     console.info(`pdf text layer unusable reason=${layer.fallback}${layer.page ? ` page=${layer.page}` : ''}; parsing with Firecrawl`);
-    return firecrawlSections(bytes, fileName, { deadline });
+    return firecrawlSections(bytes, fileName, { deadline, pages: layer.pages });
   }
   if (format === 'md' || format === 'txt') {
     return [{ text: decoder.decode(bytes).replace(/^﻿/, '').replace(/\r\n?/g, '\n'), locator: {} }];

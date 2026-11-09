@@ -16,6 +16,7 @@ import {
   index,
   integer,
   jsonb,
+  numeric,
   pgTable,
   primaryKey,
   text,
@@ -224,6 +225,8 @@ export const knowledge = pgTable(
     deletedAt: timestampTz('deleted_at'),
     createdAt: createdAt(),
     updatedAt: timestampTz('updated_at').notNull().defaultNow(),
+    /** Storage is billed up to here (null: from `created_at`), see `lib/services/storage-billing.ts`. */
+    storageBilledAt: timestampTz('storage_billed_at'),
   },
   (t) => [
     index('knowledge_ree_idx').on(t.reeId, t.updatedAt),
@@ -427,6 +430,8 @@ export const CREDIT_ENTRY_REASONS = [
   'synthesis_hold',
   'synthesis_settle',
   'synthesis_refund',
+  /* Knowledge storage (Blob files, text, passages and vectors), billed daily: docs/audit/credit-import-audit.md P4. */
+  'storage_charge',
 ] as const;
 export type CreditEntryReason = (typeof CREDIT_ENTRY_REASONS)[number];
 
@@ -801,6 +806,20 @@ export const creditDebt = pgTable(
     check('credit_debt_remaining_check', sql`remaining >= 0 and remaining <= amount and amount > 0`),
   ],
 );
+
+/**
+ * A user's knowledge storage cost so far (`lib/services/storage-billing.ts`):
+ * pico-dollars accrued, and the credits charged for them. The charge is
+ * always `ceil(cost)`, so it is never below cost and at most one credit above.
+ */
+export const storageAccrual = pgTable('storage_accrual', {
+  userId: uuid('user_id')
+    .primaryKey()
+    .references(() => user.id, { onDelete: 'cascade' }),
+  costPico: numeric('cost_pico', { precision: 40, scale: 0 }).notNull().default('0'),
+  chargedCredits: bigint('charged_credits', { mode: 'number' }).notNull().default(0),
+  updatedAt: timestampTz('updated_at').notNull().defaultNow(),
+});
 
 /* ------------------------------------------------- step 4: conversations, explore */
 
@@ -1267,6 +1286,31 @@ export const signupReward = pgTable('signup_reward', {
 }, () => [
   check('signup_reward_singleton_check', sql`id = 1`),
   check('signup_reward_credits_check', sql`credits between 0 and 100000000`),
+]);
+
+/**
+ * Our infrastructure rates (docs/audit/credit-import-audit.md P4), edited on
+ * 价格与促销. Append-only like `billing_price`: each save adds a row from
+ * `effective_from` on, so storage already accrued keeps the rate it accrued
+ * at. The latest row applies; with none, `DEFAULT_INFRA_COST_RATES`. Every
+ * rate is above zero and the index factor at least 1, so nothing can be
+ * billed below cost.
+ */
+export const infraCostRates = pgTable('infra_cost_rates', {
+  id: uuid('id').primaryKey().defaultRandom(),
+  transferPerGb: numeric('transfer_per_gb', { precision: 20, scale: 12 }).notNull(),
+  blobStoragePerGbMonth: numeric('blob_storage_per_gb_month', { precision: 20, scale: 12 }).notNull(),
+  databaseStoragePerGbMonth: numeric('database_storage_per_gb_month', { precision: 20, scale: 12 }).notNull(),
+  databaseIndexFactor: numeric('database_index_factor', { precision: 7, scale: 4 }).notNull(),
+  chunkRowBytes: integer('chunk_row_bytes').notNull(),
+  effectiveFrom: timestampTz('effective_from').notNull().defaultNow(),
+  updatedBy: uuid('updated_by').references(() => administrator.id, { onDelete: 'set null' }),
+  createdAt: createdAt(),
+}, (t) => [
+  index('infra_cost_rates_effective_idx').on(t.effectiveFrom),
+  check('infra_cost_rates_positive_check', sql`transfer_per_gb > 0 and blob_storage_per_gb_month > 0 and database_storage_per_gb_month > 0`),
+  check('infra_cost_rates_factor_check', sql`database_index_factor >= 1 and database_index_factor <= 100`),
+  check('infra_cost_rates_overhead_check', sql`chunk_row_bytes between 1 and 100000`),
 ]);
 
 /** The flat video script charge, shared by standard scripts and narrated demos. */

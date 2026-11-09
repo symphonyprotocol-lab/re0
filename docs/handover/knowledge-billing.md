@@ -153,3 +153,22 @@ Firecrawl Credit Usage API 在两次 PDF 解析前后均确认余额下降 1。�
 本次合计扣除 44 credits，余额从 101,858 到 101,814。该 Ree 的统计为 4 次尝试（2 次历史失败、2 次本轮成功），净扣 44、已退回 43、未结预留 0；总成本 $0.0084849600152587890，历史失败成本仍为 $0.0042420000076293945。原失败成本记录、已释放预留和退款流水逐行快照未变，原来源活动完整保留为追加前缀；费率（含版本）未变。独立 Python Decimal 按本次真实供应商响应和本轮流水计算一致，另用直连 SQL 核对每条来源 2 个成本尝试、1 条原退款、1 条成功结算、0 个未结预留。浏览器后台会话已过期，未绕过登录；后台统计服务与数据库验证已完成。
 
 证据保留于当前聊天 `retry-after-refund-verification/result.json`、`before.json`、`independent-reconciliation.json`。未触发 Preview 部署。
+
+## 计费审计：只能多算不能少算（2026-11-09）
+
+按用户要求"可以多算，但不能少算"审计了全部导入路径，表格与结论见 `docs/audit/credit-import-audit.md`。本节修改了上文三条规则：
+
+- **余额不足**：不再由平台承担超出余额的那次调用。失败时按本轮全部已发生的供应商成本结算：先扣光余额，余下部分记为 `credit_debt`，下次到账先还（与退款不足同一机制）；流水备注 "N owed"，`settled` 活动带 `owed`。
+- **付费调用前先预留上限**：Firecrawl 按本地读到的页数（每页 1 Firecrawl credit），转写按分段自身时长，embedding 按 UTF-8 字节数 + 每条 8 个 token 的上限，以同一单价在请求前预留。余额不够就不发请求，以 `insufficient_credits` 失败、不扣费。估计只是预留，不是账单；结算仍按实测用量，多出的部分退回，因此后台"退回 credits"会包含这部分。
+- **未确认用量不再按 0 计费**：转写时长取上报时长、最后片段结束时间、分段自身时长（WAV / MP3 / M4A）三者中的最大值；三者都拿不到时失败退款，并保留收据供核对，不再"保留转写结果、该次费用不扣"。成功路径只要有未确认收据就失败。Firecrawl 缺 `creditsUsed` 时取 `numPages` / `totalPages` / 返回页数 / 本地页数中的最大值。实测用量换算到百万分之一单位时向上取整。
+
+失败全额退款（余额不足除外）、免费知识画像、模型切换后的重新向量化这三项政策保持不变，已在审计文档中列为待决。
+
+## 全部计费、失败不退（2026-11-09）
+
+用户决定审计中的 P1–P4「全部需要计费，失败不退」。本节取代上文"沿用处理失败全额退款"及"知识画像免费"的说法，细节见 `docs/audit/credit-import-audit.md`。
+
+- **P1 失败不退**：任何失败（含超时回收）都按本轮已发生的全部成本结算，只退没用掉的预留；有无法定价的收据时整笔预留不退；什么都没花的失败才全额退回。运行关闭后才到的收据按差额补扣（`chargeLateReceipt`）。
+- **P2 画像与示例问题**：由 Ree 主人付费，走与知识处理相同的预留、结算（`meteredWork`，在 `knowledge_cost_run` 里记 `kind` = `profile` / `suggestions`）。画像必须执行，余额不够就记欠款；示例问题余额不够时不调用。生成调用的计量在 `loggedLanguageModel.wrapGenerate` 里，只在计量范围内生效。
+- **P3 重新向量化**：每批按知识库主人分组，各自付费（`kind = reembed`），余额不够就记欠款；候选模型没有单价时任务失败。
+- **P4 存储与流量**：单价在管理后台「价格与促销 → 基础设施成本」配置（表 `infra_cost_rates`，迁移 `0035`，只追加不修改，按生效时间分段计价），`DEFAULT_INFRA_COST_RATES` 为种子默认值。处理时的流量记成 `bandwidth` 收据。存储由每天的 `/api/cron/charge-storage` 和清空回收站前的结算按秒累计到 `storage_accrual`，账本条目为 `storage_charge`。迁移 `0034_knowledge_storage_billing` 新增 `knowledge.storage_billed_at`、`storage_accrual`，以及新的流水原因。

@@ -27,7 +27,7 @@ import { AUDIO_CONTENT_TYPES, type AudioFormat } from '@/lib/domain/knowledge';
 import { ProcessingFailure } from '@/lib/infra/connectors/failure';
 import { endpointFor, type ModelEndpoint } from '@/lib/infra/ai/models';
 import { recordModelCall } from '@/lib/infra/ai/usage';
-import { modelCostTarget, prepareProviderCall, providerWork, tokenUsage } from '@/lib/infra/ai/provider-meter';
+import { meterTransfer, modelCostTarget, prepareProviderCall, providerWork, tokenUsage } from '@/lib/infra/ai/provider-meter';
 import { ProviderCostUnavailable } from '@/lib/domain/provider-cost';
 import { InsufficientCredits } from '@/lib/domain/credits';
 
@@ -102,17 +102,29 @@ export function transcriptionModel(endpoint: ModelEndpoint): TranscriptionModel 
     specificationVersion: 'v4', provider: model.provider, modelId: model.modelId,
     async doGenerate(options) {
       return providerWork(async () => {
-        const call = await prepareProviderCall(modelCostTarget(endpoint, 'transcription'));
-        const result = await model.doGenerate(options);
-        const body = result.response?.body as { usage?: unknown } | undefined;
-        // Reported duration first, then the last segment's end, then a WAV piece's own header.
-        const seconds = result.durationInSeconds ?? result.segments.at(-1)?.endSecond ?? wavSeconds(options.audio);
-        await call?.complete({
-          usage: { ...tokenUsage(body?.usage), seconds },
-          providerMetadata: result.providerMetadata, requestId: result.response?.headers?.['x-request-id'],
-          acceptUnknownCost: seconds === undefined,
-      });
-      return result;
+        // The piece's own length (WAV header, MP3 frames, M4A `mvhd`) is reserved before the call.
+        const own = localSeconds(options.audio, options.mediaType);
+        const call = await prepareProviderCall(modelCostTarget(endpoint, 'transcription'), own === undefined ? {} : { estimate: { seconds: own } });
+        try {
+          meterTransfer('upload', options.audio instanceof Uint8Array ? options.audio.length : Math.ceil((options.audio.length * 3) / 4));
+          const result = await model.doGenerate(options);
+          const body = result.response?.body as { usage?: unknown } | undefined;
+          /*
+           * The longest of the reported duration, the last segment's end and the
+           * piece's own length: a segment can end before trailing silence the
+           * endpoint still bills. None known: the receipt stays unresolved and
+           * the source fails (never billed as zero).
+           */
+          const known = [result.durationInSeconds, result.segments.at(-1)?.endSecond, own].filter((value): value is number => typeof value === 'number' && Number.isFinite(value) && value >= 0);
+          const seconds = known.length > 0 ? Math.max(...known) : undefined;
+          await call?.complete({
+            usage: { ...tokenUsage(body?.usage), seconds },
+            providerMetadata: result.providerMetadata, requestId: result.response?.headers?.['x-request-id'],
+          });
+          return result;
+        } finally {
+          call?.release();
+        }
       });
     },
   };
@@ -131,6 +143,22 @@ export function wavSeconds(audio: unknown): number | undefined {
   if (!(audio instanceof Uint8Array)) return undefined;
   const pieces = wavPieces(audio, audio.length + 1024, Infinity);
   return pieces?.length ? pieces.reduce((sum, piece) => sum + (piece.seconds ?? 0), 0) : undefined;
+}
+
+/**
+ * The length of an audio piece from its own bytes: a WAV header, an M4A
+ * `mvhd` box, or MPEG frames walked one by one (when the media type says
+ * MP3). Undefined when it cannot be read.
+ */
+export function localSeconds(audio: unknown, mediaType: string): number | undefined {
+  if (!(audio instanceof Uint8Array)) return undefined;
+  if (audio.length >= 12 && ascii(audio, 0, 4) === 'RIFF') return wavSeconds(audio);
+  if (audio.length >= 8 && ascii(audio, 4, 4) === 'ftyp') return m4aSeconds(audio) ?? undefined;
+  if (/mpeg|mp3/i.test(mediaType)) {
+    const pieces = mp3Pieces(audio, Infinity, Infinity);
+    return pieces.every((piece) => piece.seconds !== null) ? pieces.reduce((sum, piece) => sum + piece.seconds!, 0) : undefined;
+  }
+  return undefined;
 }
 
 function ascii(bytes: Uint8Array, at: number, length: number): string {
