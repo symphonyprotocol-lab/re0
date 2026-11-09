@@ -331,8 +331,16 @@
   font: 8px var(--font-sans);
   color: #96a6bf;
 }
-.sidebar-usage-meter {
+.sidebar-usage-gift {
   grid-area: 3 / 1 / auto / -1;
+  margin-top: -3px;
+  font-size: 8px;
+  line-height: 11px;
+  color: #8aa6cc;
+  white-space: nowrap;
+}
+.sidebar-usage-meter {
+  grid-area: 4 / 1 / auto / -1;
   height: 3px;
   overflow: hidden;
   border-radius: 4px;
@@ -360,6 +368,17 @@
 .sidebar-usage-foot > svg {
   display: none;
 }
+.sidebar-usage-plan {
+  grid-area: 5 / 1 / auto / -1;
+  display: flex;
+  justify-content: space-between;
+  gap: 6px;
+  min-width: 0;
+  font-size: 8px;
+  line-height: 12px;
+  color: #98abc7;
+  white-space: nowrap;
+}
 @container (max-width: 190px) {
   .sidebar-account-footer .sidebar-usage {
     margin-inline: 0;
@@ -373,7 +392,9 @@
     font-size: 13px;
   }
   .sidebar-account-footer .sidebar-usage-amount > span,
-  .sidebar-account-footer .sidebar-usage-foot {
+  .sidebar-account-footer .sidebar-usage-foot,
+  .sidebar-account-footer .sidebar-usage-gift,
+  .sidebar-account-footer .sidebar-usage-plan {
     font-size: 7px;
   }
 }

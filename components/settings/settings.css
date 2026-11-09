@@ -618,17 +618,6 @@
   color: var(--color-blue);
   border-color: var(--color-blue);
 }
-.settings-page .billing-total {
-  display: flex;
-  align-items: center;
-  gap: 12px;
-  color: #8d97af;
-  font-size: 11px;
-}
-.settings-page .billing-total strong {
-  font: 15px var(--font-mono);
-  color: var(--color-blue);
-}
 .settings-page .billing-payout {
   display: grid;
   grid-template-columns: 1.1fr 1fr;
@@ -747,23 +736,6 @@
   color: #8b99b2;
   line-height: 1.9;
 }
-.settings-page .welcome-credits {
-  margin-bottom: 18px;
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 12px;
-  padding: 13px 18px;
-  border: 1px solid #d6e8fa;
-  border-radius: 9px;
-  background: #f0f6ff;
-  color: #6a92c0;
-  font-size: 11px;
-}
-.settings-page .welcome-credits svg {
-  width: 16px;
-  height: 16px;
-}
 @media (max-width: 1180px) {
   .settings-page .settings-layout {
     grid-template-columns: 130px minmax(0, 1fr);
@@ -851,13 +823,6 @@
   .settings-page .billing-plans {
     grid-template-columns: 1fr;
   }
-  .settings-page .billing-total {
-    font-size: 9px;
-    gap: 5px;
-  }
-  .settings-page .billing-total strong {
-    font-size: 12px;
-  }
   .settings-page .plan-card {
     padding: 24px;
   }
@@ -874,13 +839,6 @@
   .settings-page th,
   .settings-page td {
     padding: 12px 15px;
-  }
-  .settings-page .welcome-credits {
-    font-size: 10px;
-    padding: 12px;
-  }
-  .settings-page .welcome-credits .text-link {
-    font-size: 9px;
   }
 }
 .settings-page .tag svg {
@@ -1000,9 +958,6 @@
 .settings-page .settings-content {
   min-width: 0;
 }
-.settings-page .settings-billing .billing-total {
-  flex: none;
-}
 @media (min-width: 761px) {
   .settings-page .settings-content > .settings-card {
     max-width: 960px;
@@ -1019,27 +974,89 @@
     grid-template-columns: 1fr;
   }
 }
-@media (max-width: 760px) {
-  .settings-page .settings-billing .billing-total strong {
-    font-size: 16px;
-  }
-}
-@media (max-width: 480px) {
-  .settings-page .settings-billing .billing-total {
-    font-size: 8px;
-    gap: 4px;
-  }
-  .settings-page .settings-billing .billing-total strong {
-    font-size: 15px;
-  }
-}
 
-.settings-page .billing-summary {
+/* 总余额: the first thing on the balance tab, ahead of the per-bucket cards. */
+.settings-page .billing-total-card {
   display: flex;
-  align-items: center;
-  justify-content: flex-end;
+  align-items: flex-end;
+  justify-content: space-between;
+  gap: 24px;
   margin-bottom: 18px;
-  min-height: 24px;
+  padding: 23px;
+}
+.settings-page .billing-total-main {
+  min-width: 0;
+}
+.settings-page .billing-total-card .label {
+  font-size: 12px;
+  color: #8a94ab;
+}
+.settings-page .billing-total-number {
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+  margin: 12px 0 8px;
+  font-family: var(--font-mono);
+}
+.settings-page .billing-total-number strong {
+  font-size: 38px;
+  font-weight: 500;
+  letter-spacing: -1.5px;
+  line-height: 1;
+  color: var(--color-blue);
+}
+.settings-page .billing-total-number span {
+  font-size: 11px;
+  color: #8d97af;
+}
+.settings-page .billing-total-gift {
+  margin: -2px 0 8px;
+  font-size: 11px;
+  color: #6a92c0;
+}
+.settings-page .billing-total-card small {
+  font-size: 10px;
+  color: #8594ad;
+}
+.settings-page .billing-total-parts {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+  gap: 8px 22px;
+  margin: 0;
+}
+.settings-page .billing-total-parts > div {
+  display: grid;
+  gap: 4px;
+  text-align: right;
+}
+.settings-page .billing-total-parts dt {
+  font-size: 10px;
+  color: #9ca5b9;
+}
+.settings-page .billing-total-parts dd {
+  margin: 0;
+  font: 14px var(--font-mono);
+  color: #405c84;
+}
+@media (max-width: 760px) {
+  .settings-page .billing-total-card {
+    display: grid;
+    align-items: start;
+    gap: 16px;
+    padding: 18px 20px;
+  }
+  .settings-page .billing-total-number strong {
+    font-size: 30px;
+  }
+  .settings-page .billing-total-parts {
+    justify-content: space-between;
+    padding-top: 14px;
+    border-top: 1px solid #edf1f7;
+  }
+  .settings-page .billing-total-parts > div {
+    text-align: left;
+  }
 }
 .settings-page .settings-billing .billing-balance {
   margin-top: 0;

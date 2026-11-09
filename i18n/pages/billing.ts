@@ -2,9 +2,12 @@ import type { Shape } from '@/i18n/format';
 
 /** `/settings?tab=billing` (prototype app.js `billing`, `ledger`): balance, Plan / Pack, the ledger, renewal. */
 export const zh = {
-  total: '总余额',
-  welcome: '注册赠送额度 · {n} credits',
-  noExpiry: '不过期',
+  total: {
+    label: '总余额',
+    includesWelcome: '含赠送 {n}',
+    note: '提问与知识处理可用的全部 credits',
+    parts: { plan: 'Plan', welcome: '注册赠送', pack: 'Pack', earned: '收入' },
+  },
   debt: '待抵扣 {n} credits：退款时已经用掉的部分，会从下一次到账中先扣除。',
   planBalance: {
     label: 'Plan 当期额度',
@@ -115,9 +118,12 @@ export const zh = {
 };
 
 export const en: Shape<typeof zh> = {
-  total: 'Total balance',
-  welcome: 'Welcome credits · {n} credits',
-  noExpiry: 'No expiration',
+  total: {
+    label: 'Total balance',
+    includesWelcome: 'incl. {n} bonus',
+    note: 'Every credit available for questions and knowledge processing',
+    parts: { plan: 'Plan', welcome: 'Welcome', pack: 'Pack', earned: 'Earned' },
+  },
   debt: '{n} credits owed: the part of a refund already spent, deducted first from your next credits.',
   planBalance: {
     label: 'Plan credits',
