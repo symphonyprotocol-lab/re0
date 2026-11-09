@@ -11,7 +11,7 @@
 - **AI Gateway**：每次响应优先读取 `providerMetadata.gateway.cost`（包括明确的 0）；没有返回实际费用时，读取其公开 `/v1/models` 最新价目表，以当前模型对应的 token / 秒单价计算。目录缓存 60 秒。不使用存在阶梯价格或供应商差价的简单单价作为最终账单。
 - **自定义 embedding**：严格匹配服务 API 地址、模型和账户配置，以供应商返回的实际输入 token 数计费。每次 `doEmbed` 分别记录，SDK 拆分多批不会丢失或覆盖费用。无按字符数估算的兜底。
 - **语音转文字**：每段 `doGenerate` 单独记录，优先使用实际美元费用；否则按模型的实际 token 或音频秒数计价。支持输入 / 音频输入 / 输出 token 不同单价，以及供应商最低计费量、计费步长。不会用文件大小或转写文字量代替实际时长。响应没有时长时，依次取最后一个片段的结束时间、WAV 文件头记录的精确时长；仍未知时保留转写结果，该次费用记为未确认（不扣用户、不估算），在后台成本页待核对。
-- **Firecrawl Parse**：只有本地读不了文字层的 PDF（扫描页、字体加载失败、乱码或文件打不开，见 `lib/infra/connectors/pdf.ts`）整份送 Firecrawl；有可用文字层的 PDF 和全部 Word 都在本地解析，不调用 Firecrawl，也就没有 Firecrawl 收据。优先使用响应 `metadata.creditsUsed`；PDF 在该字段缺失时可按官方的每页 1 Firecrawl credit 规则使用 `metadata.numPages`，包含空白页。响应已返回但无法解析时，同样保留一条未确认收据再失败。只有请求本身失败（401 / 402 / 403 / 429 或网络错误）才让密钥进入冷却。以账户真实套餐支付金额除以包含的 Firecrawl credits 得到单价，支持不同密钥账户的独立价格。Firecrawl credits 与平台 credits 是不同单位。
+- **Firecrawl Parse**：只有本地读不了文字层的 PDF（扫描页、字体加载失败、乱码、文件打不开，或本地读取超出 60 秒 / 1000 页的预算，见 `lib/infra/connectors/pdf.ts`）整份送 Firecrawl；有可用文字层的 PDF 和全部 Word 都在本地解析，不调用 Firecrawl，也就没有 Firecrawl 收据。优先使用响应 `metadata.creditsUsed`；PDF 在该字段缺失时可按官方的每页 1 Firecrawl credit 规则使用 `metadata.numPages`，包含空白页。响应已返回但无法解析时，同样保留一条未确认收据再失败。只有请求本身失败（401 / 402 / 403 / 429 或网络错误）才让密钥进入冷却。以账户真实套餐支付金额除以包含的 Firecrawl credits 得到单价，支持不同密钥账户的独立价格。Firecrawl credits 与平台 credits 是不同单位。
 - 目前网页、整站和 GitHub 使用本地连接器；没有实际调用 Firecrawl 时不收 Firecrawl 费用。Word、有文字层的 PDF 和 Markdown / TXT 本地解析同样没有解析服务费。它们仍按实际 embedding 成本结算。
 
 例如 Firecrawl 实际消耗 30 credits，套餐单价 $0.001 / Firecrawl credit，embedding 额外花费 $0.00002，则总成本 $0.03002，最终收取 301 平台 credits。两次各 $0.00004 的 embedding 调用合计 $0.00008，只收取 1 credit。

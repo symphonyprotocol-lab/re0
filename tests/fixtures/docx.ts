@@ -1,35 +1,46 @@
 /**
  * Word documents built in code: a .docx is a zip of XML parts, written here
  * uncompressed (stored entries), with just the parts mammoth reads: the
- * document, its styles (heading names) and numbering (bullets).
+ * document, its styles (heading names) and numbering (bullets). `deflatedZip`
+ * builds a zip bomb.
  */
-import { crc32 } from 'node:zlib';
+import { Readable } from 'node:stream';
+import { crc32, createDeflateRaw } from 'node:zlib';
 
-/** A zip archive of `files`, every entry stored without compression. */
-export function makeZip(files: Record<string, string>): Uint8Array {
+interface ZipEntry {
+  name: string;
+  /** The stored bytes: the content itself, or its raw deflate stream. */
+  data: Uint8Array;
+  deflated: boolean;
+  /** What the headers declare; a zip bomb may lie about it. */
+  size: number;
+  crc: number;
+}
+
+function zip(entries: ZipEntry[]): Uint8Array {
   const encoder = new TextEncoder();
   const local: Uint8Array[] = [];
   const central: Uint8Array[] = [];
   let offset = 0;
-  for (const [name, content] of Object.entries(files)) {
+  for (const { name, data, deflated, size, crc } of entries) {
     const path = encoder.encode(name);
-    const data = encoder.encode(content);
-    const checksum = crc32(data);
     const header = new DataView(new ArrayBuffer(30));
     header.setUint32(0, 0x04034b50, true);
     header.setUint16(4, 20, true);
-    header.setUint32(14, checksum, true);
+    header.setUint16(8, deflated ? 8 : 0, true);
+    header.setUint32(14, crc, true);
     header.setUint32(18, data.length, true);
-    header.setUint32(22, data.length, true);
+    header.setUint32(22, size, true);
     header.setUint16(26, path.length, true);
     local.push(new Uint8Array(header.buffer), path, data);
     const entry = new DataView(new ArrayBuffer(46));
     entry.setUint32(0, 0x02014b50, true);
     entry.setUint16(4, 20, true);
     entry.setUint16(6, 20, true);
-    entry.setUint32(16, checksum, true);
+    entry.setUint16(10, deflated ? 8 : 0, true);
+    entry.setUint32(16, crc, true);
     entry.setUint32(20, data.length, true);
-    entry.setUint32(24, data.length, true);
+    entry.setUint32(24, size, true);
     entry.setUint16(28, path.length, true);
     entry.setUint32(42, offset, true);
     central.push(new Uint8Array(entry.buffer), path);
@@ -38,8 +49,8 @@ export function makeZip(files: Record<string, string>): Uint8Array {
   const directorySize = central.reduce((sum, part) => sum + part.length, 0);
   const end = new DataView(new ArrayBuffer(22));
   end.setUint32(0, 0x06054b50, true);
-  end.setUint16(8, Object.keys(files).length, true);
-  end.setUint16(10, Object.keys(files).length, true);
+  end.setUint16(8, entries.length, true);
+  end.setUint16(10, entries.length, true);
   end.setUint32(12, directorySize, true);
   end.setUint32(16, offset, true);
   const parts = [...local, ...central, new Uint8Array(end.buffer)];
@@ -50,6 +61,28 @@ export function makeZip(files: Record<string, string>): Uint8Array {
     at += part.length;
   }
   return out;
+}
+
+/** A zip archive of `files`, every entry stored without compression. */
+export function makeZip(files: Record<string, string>): Uint8Array {
+  return zip(Object.entries(files).map(([name, content]) => {
+    const data = new TextEncoder().encode(content);
+    return { name, data, deflated: false, size: data.length, crc: crc32(data) };
+  }));
+}
+
+/**
+ * A zip bomb: one entry of `bytes` zeros, deflated to a sliver, whose headers
+ * claim it inflates to 1 KB. Built as a stream, so the zeros never sit in memory.
+ */
+export async function deflatedZip(name: string, bytes: number): Promise<Uint8Array> {
+  const zeros = Buffer.alloc(1024 * 1024);
+  const chunks: Buffer[] = [];
+  const source = Readable.from((function* () {
+    for (let left = bytes; left > 0; left -= zeros.length) yield left >= zeros.length ? zeros : zeros.subarray(0, left);
+  })());
+  for await (const chunk of source.pipe(createDeflateRaw({ level: 9 }))) chunks.push(chunk as Buffer);
+  return zip([{ name, data: new Uint8Array(Buffer.concat(chunks)), deflated: true, size: 1024, crc: 0 }]);
 }
 
 const W = 'xmlns:w="http://schemas.openxmlformats.org/wordprocessingml/2006/main"';

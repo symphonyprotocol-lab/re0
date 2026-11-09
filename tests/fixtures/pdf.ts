@@ -3,14 +3,15 @@
  * entry, one line per string (ASCII): a text layer the local parser reads.
  * `buildPdf` takes raw content streams, so a test can draw what it needs:
  * text at a size and place, an image XObject with no text (a scanned page),
- * text whose ToUnicode map points into the private-use area (garbled), or
- * a CJK font that needs pdf.js's predefined CMaps (which fails to load).
+ * text whose ToUnicode map points into the private-use area (garbled), a
+ * CJK font that needs pdf.js's predefined CMaps, or one naming a CMap that
+ * does not exist (which fails to load).
  */
 const PAGE_WIDTH = 612;
 export const PAGE_HEIGHT = 842;
 
-/** Fonts and image every page can use: F1 Helvetica, F2 garbled Helvetica, F3 CJK, Im1 a 2x2 image. */
-const RESOURCES = '<< /Font << /F1 3 0 R /F2 4 0 R /F3 6 0 R >> /XObject << /Im1 9 0 R >> >>';
+/** Fonts and image every page can use: F1 Helvetica, F2 garbled Helvetica, F3 CJK, F4 broken CJK, Im1 a 2x2 image. */
+const RESOURCES = '<< /Font << /F1 3 0 R /F2 4 0 R /F3 6 0 R /F4 10 0 R >> /XObject << /Im1 9 0 R >> >>';
 const PUA_CMAP = [
   '/CIDInit /ProcSet findresource begin 12 dict begin begincmap',
   '/CMapName /Garbled def 1 begincodespacerange <00> <FF> endcodespacerange',
@@ -25,6 +26,7 @@ const SHARED = [
   '<< /Type /Font /Subtype /CIDFontType0 /BaseFont /STSong-Light /CIDSystemInfo << /Registry (Adobe) /Ordering (GB1) /Supplement 4 >> /FontDescriptor 8 0 R >>',
   '<< /Type /FontDescriptor /FontName /STSong-Light /Flags 6 /FontBBox [0 0 1000 1000] /ItalicAngle 0 /Ascent 880 /Descent -120 /CapHeight 880 /StemV 80 >>',
   `<< /Type /XObject /Subtype /Image /Width 2 /Height 2 /ColorSpace /DeviceRGB /BitsPerComponent 8 /Filter /ASCIIHexDecode /Length ${PIXELS.length + 1} >>\nstream\n${PIXELS}>\nendstream`,
+  '<< /Type /Font /Subtype /Type0 /BaseFont /STSong-Light /Encoding /Missing-UCS2-H /DescendantFonts [7 0 R] >>',
 ];
 
 /** A PDF string body; `•` becomes its WinAnsi byte, everything else must be ASCII. */
@@ -35,10 +37,11 @@ export const draw = {
   /** One line of Helvetica (`F1`), or garbled Helvetica (`F2`), at a baseline. */
   text: (text: string, { x = 56, y, size = 11, font = 'F1' }: { x?: number; y: number; size?: number; font?: 'F1' | 'F2' }) =>
     `BT /${font} ${size} Tf ${x} ${y} Td (${escape(text)}) Tj ET`,
-  /** Two Chinese characters in a font that needs a predefined CMap. */
-  cjk: (y: number) => `BT /F3 14 Tf 56 ${y} Td <4E2D6587> Tj ET`,
-  /** The image, scaled over most of the page. */
-  image: () => `q 480 0 0 680 66 80 cm /Im1 Do Q`,
+  /** Two Chinese characters (中文) in a font that needs a predefined CMap; `broken` names one that does not exist. */
+  cjk: (y: number, { broken = false }: { broken?: boolean } = {}) => `BT /${broken ? 'F4' : 'F3'} 11 Tf 56 ${y} Td <4E2D6587> Tj ET`,
+  /** The image, scaled over most of the page by default, or drawn at `x`, `y` with a size. */
+  image: ({ x = 66, y = 80, width = 480, height = 680 }: { x?: number; y?: number; width?: number; height?: number } = {}) =>
+    `q ${width} 0 0 ${height} ${x} ${y} cm /Im1 Do Q`,
 };
 
 /** A PDF with one page per content stream, every page sharing `RESOURCES`. */
