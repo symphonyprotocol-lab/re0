@@ -13,8 +13,8 @@ const config: PaddleConfig = {
   apiKey: 'test',
   webhookSecret: 'test',
   clientToken: 'test',
-  planPriceId: 'pri_pricing_original_plan',
-  packPriceId: 'pri_pricing_original_pack',
+  planPriceId: 'pri_01pricingplan0000000000000',
+  packPriceId: 'pri_01pricingpack0000000000000',
   environment: 'sandbox',
   checkoutUrl: 'http://localhost/checkout',
 };
@@ -27,8 +27,10 @@ const input = {
 };
 let owner: string;
 let revision: string;
-const provision = vi.fn(async () => `pri_${randomUUID().replaceAll('-', '')}`);
-const deps = { config, provision, now };
+const priceId = () => `pri_${randomUUID().replaceAll('-', '').slice(0, 26)}`;
+const provision = vi.fn(async () => priceId());
+const verify = vi.fn(async () => null);
+const deps = { config, provision, verify, now };
 const describeWithDb = TEST_DATABASE_URL ? describe : describe.skip;
 async function buyer() {
   const subject = uniqueName('pricing');
@@ -94,7 +96,7 @@ describeWithDb('admin pricing and checkout', () => {
     expect(await checkoutPrice(db(), config, 'plan', now)).toMatchObject({ priceMinor: 700, revision });
   });
   it('archives a newly created Paddle price when its catalogue row cannot be saved', async () => {
-    const created = `pri_${randomUUID().replaceAll('-', '')}`;
+    const created = priceId();
     const archive = vi.fn(async () => {});
     // An administrator that does not exist fails the row's foreign key after Paddle has the price.
     await expect(savePricing(randomUUID(), 'plan', { ...input, revision, priceMinor: 1900 }, { ...deps, provision: async () => created, archive })).rejects.toThrow();
@@ -277,5 +279,23 @@ describeWithDb('admin pricing and checkout', () => {
       paddleTransactionId: transactionId, userId, kind: 'plan', quantity: 1, createdAt: now,
     });
     expect(await pendingCheckoutPricing(userId, transactionId)).toMatchObject({ price: { credits: 100_000 } });
+  });
+  it('charges the environment price over a stored product ID and replaces it on a verified save', async () => {
+    const production = { ...config, environment: 'production' as const };
+    const errors = vi.spyOn(console, 'error').mockImplementation(() => {});
+    const [bad] = await db().insert(schema.billingPrice).values({
+      environment: 'production', kind: 'pack', priceMinor: 1000, paddlePriceId: 'pro_01jcproduct0000000000000000',
+    }).returning();
+    expect(await checkoutPrice(db(), production, 'pack', now)).toMatchObject({ priceId: config.packPriceId, revision: bad!.id });
+    const settings = { revision: bad!.id, priceMinor: 1000, credits: 90_000, promotion: null };
+    await expect(savePricing(owner, 'pack', settings, { ...deps, config: production, verify: async () => 'Paddle answered 404' }))
+      .rejects.toMatchObject({ code: 'invalid_paddle_price' });
+    const saved = await savePricing(owner, 'pack', settings, { ...deps, config: production });
+    expect(verify).toHaveBeenLastCalledWith(production, 'pack', config.packPriceId);
+    const [current] = await db().select().from(schema.billingPrice).where(and(
+      eq(schema.billingPrice.environment, 'production'), eq(schema.billingPrice.kind, 'pack'), eq(schema.billingPrice.enabled, true),
+    ));
+    expect(current).toMatchObject({ id: saved.revision, paddlePriceId: config.packPriceId, credits: 90_000 });
+    errors.mockRestore();
   });
 });

@@ -147,8 +147,8 @@ describe('Paddle', () => {
       PADDLE_API_KEY: 'k',
       PADDLE_WEBHOOK_SECRET: 's',
       PADDLE_CLIENT_TOKEN: 't',
-      PADDLE_PLAN_PRICE_ID: 'pri_plan',
-      PADDLE_PACK_PRICE_ID: 'pri_pack',
+      PADDLE_PLAN_PRICE_ID: 'pri_01plan00000000000000000000',
+      PADDLE_PACK_PRICE_ID: 'pri_01pack00000000000000000000',
       PADDLE_ENVIRONMENT: 'sandbox',
       APP_BASE_URL: 'http://localhost:3000',
       PADDLE_CHECKOUT_BASE_URL: 'https://tunnel.example/',
@@ -156,7 +156,7 @@ describe('Paddle', () => {
     expect(config.environment).toBe('sandbox');
     expect(config.checkoutUrl).toBe('https://tunnel.example/checkout');
     expect(checkoutTransactionBody(config, { kind: 'pack', quantity: 3 }, 'user-1')).toEqual({
-      items: [{ price_id: 'pri_pack', quantity: 3 }],
+      items: [{ price_id: 'pri_01pack00000000000000000000', quantity: 3 }],
       custom_data: { re0_user_id: 'user-1', re0_kind: 'pack' },
       checkout: { url: 'https://tunnel.example/checkout' },
     });

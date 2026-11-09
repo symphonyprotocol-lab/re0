@@ -2,7 +2,17 @@ import { and, eq, isNull, sql } from 'drizzle-orm';
 import { defaultPrice, parsePriceSettings, priceView, type PricingView, type PriceView } from '@/lib/domain/pricing';
 import type { PurchaseKind } from '@/lib/domain/billing';
 import { db, schema, type Executor } from '@/lib/infra/db';
-import { archivePrice, paddleConfig, provisionPrice, requirePaddle, type PaddleConfig } from '@/lib/infra/paddle';
+import {
+  archivePrice,
+  describeBadPriceId,
+  isPaddlePriceId,
+  paddleConfig,
+  PaddleError,
+  provisionPrice,
+  requirePaddle,
+  verifyPrice,
+  type PaddleConfig,
+} from '@/lib/infra/paddle';
 import { AdminInputError, audit } from '@/lib/services/admin';
 
 export function pricingEnvironment(): 'sandbox' | 'production' {
@@ -44,12 +54,26 @@ export async function currentPricing(now = new Date()): Promise<PricingView> {
   return result;
 }
 
+/**
+ * The Paddle price a catalogue row charges. A row holding something that is
+ * not a price ID (saved while the environment's was wrong) would fail every
+ * checkout, so the environment's price is used instead and the row logged.
+ */
+function cataloguePriceId(row: Row | undefined, config: PaddleConfig, kind: PurchaseKind): string {
+  const fallback = kind === 'plan' ? config.planPriceId : config.packPriceId;
+  if (!row || isPaddlePriceId(row.paddlePriceId)) return row?.paddlePriceId ?? fallback;
+  console.error(
+    `pricing: billing_price ${row.id} (${row.environment} ${row.kind}) holds an invalid Paddle price ID (${describeBadPriceId(row.paddlePriceId)}); using ${kind === 'plan' ? 'PADDLE_PLAN_PRICE_ID' : 'PADDLE_PACK_PRICE_ID'} instead. Re-save ${kind} pricing to replace it.`,
+  );
+  return fallback;
+}
+
 export async function checkoutPrice(executor: Executor, config: PaddleConfig, kind: PurchaseKind, now: Date) {
   const row = (await pricingRows(executor, config.environment)).find((r) => r.kind === kind);
   const price = row ? view(row, now) : defaultPrice(kind, now);
   return {
     ...price,
-    priceId: row?.paddlePriceId ?? (kind === 'plan' ? config.planPriceId : config.packPriceId),
+    priceId: cataloguePriceId(row, config, kind),
     regularPriceMinor: price.priceMinor,
     priceMinor: price.effectivePriceMinor,
   };
@@ -64,7 +88,7 @@ export async function savePricing(
   administratorId: string,
   kind: PurchaseKind,
   raw: Record<string, unknown>,
-  deps: { config?: PaddleConfig; provision?: typeof provisionPrice; archive?: typeof archivePrice; now?: Date } = {},
+  deps: { config?: PaddleConfig; provision?: typeof provisionPrice; verify?: typeof verifyPrice; archive?: typeof archivePrice; now?: Date } = {},
 ): Promise<PriceView> {
   const input = parsePriceSettings(raw);
   if (!input || typeof raw.revision !== 'string') throw new AdminInputError('invalid_pricing');
@@ -88,7 +112,7 @@ function savePricingInTx(
   raw: Record<string, unknown>,
   input: NonNullable<ReturnType<typeof parsePriceSettings>>,
   config: PaddleConfig,
-  deps: { provision?: typeof provisionPrice; now?: Date },
+  deps: { provision?: typeof provisionPrice; verify?: typeof verifyPrice; now?: Date },
   created: (paddlePriceId: string) => void,
 ): Promise<PriceView> {
   return db().transaction(async (tx) => {
@@ -101,11 +125,22 @@ function savePricingInTx(
       (input.promotion.priceMinor !== before.promotion?.priceMinor ||
         input.promotion.startsAt !== before.promotion.startsAt || input.promotion.endsAt !== before.promotion.endsAt))
       throw new AdminInputError('invalid_pricing');
-    const sourceId = previous?.paddlePriceId ?? (kind === 'plan' ? config.planPriceId : config.packPriceId);
-    const paddlePriceId = input.priceMinor === before.priceMinor
-      ? sourceId
-      : await (deps.provision ?? provisionPrice)(config, kind, input.priceMinor, sourceId);
+    const sourceId = cataloguePriceId(previous, config, kind);
+    let paddlePriceId: string;
+    if (input.priceMinor === before.priceMinor) {
+      // A price kept as it is is checked with Paddle first: once in an enabled row, it overrides the environment.
+      const problem = await (deps.verify ?? verifyPrice)(config, kind, sourceId);
+      if (problem !== null) {
+        const origin = previous?.paddlePriceId === sourceId ? `billing_price ${previous.id}` : kind === 'plan' ? 'PADDLE_PLAN_PRICE_ID' : 'PADDLE_PACK_PRICE_ID';
+        console.error(`pricing: the ${kind} Paddle price from ${origin} cannot be kept: ${problem}`);
+        throw new AdminInputError('invalid_paddle_price');
+      }
+      paddlePriceId = sourceId;
+    } else {
+      paddlePriceId = await (deps.provision ?? provisionPrice)(config, kind, input.priceMinor, sourceId);
+    }
     if (paddlePriceId !== sourceId) created(paddlePriceId);
+    if (!isPaddlePriceId(paddlePriceId)) throw new PaddleError(`paddle returned an invalid price ID (${describeBadPriceId(paddlePriceId)})`);
     // Retain the environment's original catalogue ID even after its first replacement.
     if (!previous && paddlePriceId !== sourceId)
       await tx.insert(schema.billingPrice).values({
