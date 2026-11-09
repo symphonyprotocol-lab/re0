@@ -5,6 +5,7 @@ import { type ProviderRate } from '@/lib/domain/provider-cost';
 import { gatewayGenerationPricing } from '@/lib/infra/ai/gateway-generation-pricing';
 import { db, schema } from '@/lib/infra/db';
 import { configuredProviderRate, providerPrices } from '@/lib/services/provider-pricing';
+import { prepareProviderCall } from '@/lib/infra/ai/provider-meter';
 
 type LanguageModelV4 = Extract<LanguageModel, { specificationVersion: 'v4' }>;
 type StreamPart = Awaited<ReturnType<LanguageModelV4['doStream']>>['stream'] extends ReadableStream<infer Part> ? Part : never;
@@ -52,6 +53,11 @@ async function pricing(call: Call, endpoint: string | undefined): Promise<{ rate
   } catch { /* Reporting must never prevent generation. */ }
   return {};
 }
+const utf8 = new TextEncoder();
+/** An upper bound of a generation's tokens: the prompt's UTF-8 bytes, and the output cap (or 8,192 without one). */
+function generationBound(params: { prompt: unknown; maxOutputTokens?: number }): { inputTokens: number; outputTokens: number } {
+  return { inputTokens: utf8.encode(JSON.stringify(params.prompt ?? '')).length, outputTokens: params.maxOutputTokens ?? 8192 };
+}
 const aborted = (error: unknown) => error instanceof Error && ['AbortError', 'TimeoutError'].includes(error.name);
 // Store a controlled error category, since provider messages can contain credentials or request bodies.
 const failure = (error: unknown): { status: CallStatus; errorCode: string } => ({ status: aborted(error) ? 'aborted' : 'failed', errorCode: aborted(error) ? 'request_aborted' : 'provider_error' });
@@ -79,17 +85,32 @@ export function loggedLanguageModel(model: LanguageModelV4, call: Call): Languag
   }
   return wrapLanguageModel({ model, middleware: {
     specificationVersion: 'v4',
-    wrapGenerate: async ({ doGenerate }) => {
+    wrapGenerate: async ({ doGenerate, params }) => {
+      /*
+       * Inside a metered run (knowledge suggestions, docs/audit/credit-import-audit.md
+       * P2) the call is priced and billed like any supplier call: its upper
+       * bound reserved first, its receipt recorded after. Elsewhere `call` is null.
+       */
+      const endpoint = safeEndpoint(call);
+      const metered = endpoint
+        ? await prepareProviderCall({ service: 'generation', endpoint, model: call.model }, { estimate: generationBound(params) })
+        : await prepareProviderCall({ service: 'generation', endpoint: 'unknown:', model: call.model });
       const save = await attempt();
       try {
         const result = await doGenerate();
         const status = result.finishReason.unified === 'error' ? 'failed' : 'succeeded';
         await save(status, result.usage, result.providerMetadata, result.response?.id ?? result.response?.headers?.['x-request-id'], status === 'failed' ? 'provider_error' : undefined);
+        await metered?.complete({
+          usage: { inputTokens: result.usage.inputTokens.total, outputTokens: result.usage.outputTokens.total },
+          providerMetadata: result.providerMetadata, requestId: result.response?.headers?.['x-request-id'],
+        });
         return result;
       } catch (error) {
         const state = failure(error);
         await save(state.status, undefined, undefined, undefined, state.errorCode);
         throw error;
+      } finally {
+        metered?.release();
       }
     },
     wrapStream: async ({ doStream }) => {

@@ -1,7 +1,7 @@
 import type { Shape } from '@/i18n/format';
 export const zh = {
   title: '价格与促销',
-  description: '管理视频脚本和导出价格、注册赠送积分，以及 Plan 和 Pack 的价格与积分额度。促销按 UTC+8 自动开始和结束。',
+  description: '管理视频脚本和导出价格、注册赠送积分、知识处理的基础设施成本，以及 Plan 和 Pack 的价格与积分额度。促销按 UTC+8 自动开始和结束。',
   welcome: {
     title: '新用户注册赠送',
     amount: '赠送积分（credits）',
@@ -25,6 +25,22 @@ export const zh = {
     note: '每个 Ree 首次导出免费。已导出过的版本可免费重用。价格适用于保存后启动的导出。',
     save: '保存视频导出价格',
     saved: '视频导出价格已保存',
+  },
+  infraCosts: {
+    title: '基础设施成本',
+    note: '知识处理的流量和知识存储按这里的单价向知识库主人收费（1 credit = $0.0001），在 Vercel / Neon 标价基础上取偏高值，保证不低于成本。所有单价必须大于 0，索引倍数不小于 1。保存后立即生效：之后的流量按新单价计算；存储从保存的那一刻起按新单价计算，此前已累计的存储时间仍按旧单价。',
+    current: '当前单价',
+    since: '生效于',
+    defaults: '默认值（尚未配置）',
+    fields: {
+      transferPerGb: '流量单价（USD / GB）',
+      blobStoragePerGbMonth: 'Blob 存储单价（USD / GB·月）',
+      databaseStoragePerGbMonth: '数据库存储单价（USD / GB·月）',
+      databaseIndexFactor: '数据库索引倍数（×，存储字节按此倍数计）',
+      chunkRowBytes: '每个片段的额外字节数（行与元数据，不含正文和向量）',
+    },
+    save: '保存基础设施成本',
+    saved: '基础设施成本已保存',
   },
   providers: {
     title: '第三方服务成本',
@@ -55,18 +71,20 @@ export const zh = {
     provider_pricing_migration_required: '请先应用 0013_provider_pricing 数据库迁移。当前仍可从环境配置读取成本。',
     invalid_provider_pricing: '请检查服务地址、模型、单价及计费单位，不能重复配置同一账户和模型。',
     invalid_welcome_credits: '请输入 0 到 100,000,000 之间的整数积分。',
+    invalid_infra_costs: '单价须大于 0（最多 12 位小数），索引倍数须在 1 到 100 之间（最多 4 位小数），片段额外字节数须为 1 到 100,000 之间的整数。',
     invalid_video_script_credits: '请输入 1 到 100,000,000 之间的整数积分。',
     invalid_video_export_credits: '请输入 1 到 100,000,000 之间的整数积分。',
     invalid_pricing: '请检查金额及积分额度。积分须为 1 到 100,000,000 之间的整数。新促销价须低于常规价，结束时间须晚于开始时间和当前时间。',
     pricing_conflict: '价格已被其他管理员修改，请刷新后重试。',
     payment_provider: '支付服务同步失败，价格未保存。请检查 Paddle API 权限后重试。',
+    invalid_paddle_price: '当前 Paddle 价格不可用（ID 无效、已归档或计费周期不符），价格未保存。请检查 PADDLE_PLAN_PRICE_ID / PADDLE_PACK_PRICE_ID 及 Paddle 中的价格。',
     payments_unavailable: '支付服务未配置，无法保存价格。',
   },
 };
 export const en: Shape<typeof zh> = {
   title: 'Pricing & promotions',
   description:
-    'Manage video script and export pricing, welcome credits, and the prices and allowances for Plan and Pack. Promotions start and end automatically in UTC+8.',
+    'Manage video script and export pricing, welcome credits, the infrastructure costs knowledge is billed at, and the prices and allowances for Plan and Pack. Promotions start and end automatically in UTC+8.',
   welcome: {
     title: 'New user welcome credits',
     amount: 'Welcome amount (credits)',
@@ -90,6 +108,22 @@ export const en: Shape<typeof zh> = {
     note: 'The first export is free for each Ree. Previously exported versions can be reused for free. The price applies to exports started after saving.',
     save: 'Save video export price',
     saved: 'Video export price saved',
+  },
+  infraCosts: {
+    title: 'Infrastructure costs',
+    note: 'Knowledge processing transfer and knowledge storage are charged to the knowledge base owner at these rates (1 credit = $0.0001). They sit at or above Vercel / Neon list prices so nothing is billed below cost. Every rate must be above 0 and the index multiplier at least 1. Changes apply at once: later transfer uses the new rate, and storage uses it from the moment you save; storage time accrued before keeps the old rate.',
+    current: 'Current rates',
+    since: 'in effect since',
+    defaults: 'Defaults (not configured yet)',
+    fields: {
+      transferPerGb: 'Transfer (USD / GB)',
+      blobStoragePerGbMonth: 'Blob storage (USD / GB-month)',
+      databaseStoragePerGbMonth: 'Database storage (USD / GB-month)',
+      databaseIndexFactor: 'Database index multiplier (×, applied to stored bytes)',
+      chunkRowBytes: 'Extra bytes per passage (row and metadata, beyond text and vector)',
+    },
+    save: 'Save infrastructure costs',
+    saved: 'Infrastructure costs saved',
   },
   providers: {
     title: 'Third-party service costs',
@@ -120,11 +154,13 @@ export const en: Shape<typeof zh> = {
     provider_pricing_migration_required: 'Apply database migration 0013_provider_pricing to save here. Environment prices remain available.',
     invalid_provider_pricing: 'Check endpoint, model, prices and units. Duplicate account/model rates are not allowed.',
     invalid_welcome_credits: 'Enter a whole number of credits between 0 and 100,000,000.',
+    invalid_infra_costs: 'Rates must be above 0 (up to 12 decimals), the index multiplier between 1 and 100 (up to 4 decimals), and the extra bytes per passage a whole number from 1 to 100,000.',
     invalid_video_script_credits: 'Enter a whole number of credits between 1 and 100,000,000.',
     invalid_video_export_credits: 'Enter a whole number of credits between 1 and 100,000,000.',
     invalid_pricing: 'Check the price and allowance. Credits must be a whole number from 1 to 100,000,000. New promotions must offer a lower price and end after the start and the current time.',
     pricing_conflict: 'Another administrator changed pricing. Refresh and try again.',
     payment_provider: 'Payment provider sync failed; pricing was not saved. Check Paddle API permissions and retry.',
+    invalid_paddle_price: 'The current Paddle price cannot be used (invalid ID, archived, or wrong billing cycle); pricing was not saved. Check PADDLE_PLAN_PRICE_ID / PADDLE_PACK_PRICE_ID and the price in Paddle.',
     payments_unavailable: 'Payments are not configured. Pricing cannot be saved.',
   },
 };

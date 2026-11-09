@@ -170,20 +170,35 @@ export function languageModel(endpoint: ModelEndpoint, context: GenerationCallCo
   return loggedLanguageModel(model, { ...context, model: endpoint.model, configId: endpoint.configId, configName: endpoint.name, transport: endpoint.transport, baseUrl: endpoint.baseUrl });
 }
 
+const utf8 = new TextEncoder();
+
+/**
+ * An upper bound of the input tokens a call bills: byte-level BPE tokenizers
+ * never make more tokens than UTF-8 bytes, plus a few per input for special
+ * tokens. Reserved before the call (`prepareProviderCall`'s estimate).
+ */
+export function embeddingTokenBound(values: readonly unknown[]): number {
+  return values.reduce<number>((sum, value) => sum + (typeof value === 'string' ? utf8.encode(value).length : 0) + 8, 0);
+}
+
 export function embeddingModel(endpoint: ModelEndpoint): EmbeddingModel {
   const model = endpoint.transport === 'gateway'
     ? gatewayFor(endpoint).embeddingModel(endpoint.model)
     : compatible(endpoint).embeddingModel(endpoint.model);
   return wrapEmbeddingModel({ model, middleware: {
     specificationVersion: 'v4',
-    wrapEmbed: async ({ doEmbed }) => providerWork(async () => {
-      const call = await prepareProviderCall(modelCostTarget(endpoint, 'embedding'));
-      const result = await doEmbed();
-      await call?.complete({
-        usage: { inputTokens: result.usage?.tokens }, providerMetadata: result.providerMetadata,
-        requestId: result.response?.headers?.['x-request-id'],
-      });
-      return result;
+    wrapEmbed: async ({ doEmbed, params }) => providerWork(async () => {
+      const call = await prepareProviderCall(modelCostTarget(endpoint, 'embedding'), { estimate: { inputTokens: embeddingTokenBound(params.values) } });
+      try {
+        const result = await doEmbed();
+        await call?.complete({
+          usage: { inputTokens: result.usage?.tokens }, providerMetadata: result.providerMetadata,
+          requestId: result.response?.headers?.['x-request-id'],
+        });
+        return result;
+      } finally {
+        call?.release();
+      }
     }),
   } });
 }

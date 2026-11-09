@@ -684,7 +684,7 @@ export async function listEntries(
   const charged = sql`case
     when ${schema.creditEntry.reason} in ('knowledge_settle', 'query_base', 'verify_settle', 'synthesis_settle', 'video_script', 'video_export')
       then coalesce(substring(${schema.creditEntry.note} from 'charged ([0-9]+) of [0-9]+$')::bigint, 0)
-    when ${schema.creditEntry.reason} = 'query_fee_paid' then greatest(-${schema.creditEntry.delta}, 0)
+    when ${schema.creditEntry.reason} in ('query_fee_paid', 'storage_charge') then greatest(-${schema.creditEntry.delta}, 0)
     else 0 end`;
   const [[counted], [summary]] = await Promise.all([
     database.select({ total: count() }).from(schema.creditEntry).leftJoin(schema.ree, eq(schema.ree.id, schema.creditEntry.reeId)).where(where),

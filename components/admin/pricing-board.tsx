@@ -6,17 +6,19 @@ import { useI18n } from '@/i18n/client';
 import { formatNumber, formatUsd } from '@/i18n/format';
 import './pricing-board.css';
 import type { PricingView, PriceView, CreditAmountView } from '@/lib/domain/pricing';
+import type { InfraCostRatesView } from '@/lib/domain/infra-cost';
 
 // datetime-local uses the explicitly labelled business timezone, regardless of the browser timezone.
 const localTime = (iso: string) => new Date(Date.parse(iso) + 8 * 3600_000).toISOString().slice(0, 16);
 const utcTime = (value: string) => (value ? new Date(`${value}:00+08:00`).toISOString() : '');
 
-export function PricingBoard({ initial, configured, welcome, videoScript, videoExport }: {
+export function PricingBoard({ initial, configured, welcome, videoScript, videoExport, infraCosts }: {
   initial: PricingView;
   configured: boolean;
   welcome: CreditAmountView;
   videoScript: CreditAmountView;
   videoExport: CreditAmountView;
+  infraCosts: InfraCostRatesView;
 }) {
   const { t } = useI18n();
   const p = t.pricingAdmin;
@@ -31,6 +33,7 @@ export function PricingBoard({ initial, configured, welcome, videoScript, videoE
       <CreditAmountForm kind="welcome" initial={welcome} />
       <CreditAmountForm kind="video_script" initial={videoScript} />
       <CreditAmountForm kind="video_export" initial={videoExport} />
+      <InfraCostForm initial={infraCosts} />
       <div className="pricing-admin-grid">
         {(['plan', 'pack'] as const).map((kind) => (
           <PriceForm key={kind} kind={kind} initial={initial[kind]} configured={configured} />
@@ -223,6 +226,97 @@ function CreditAmountForm({ initial, kind }: { initial: CreditAmountView; kind: 
             onChange={(e) => setAmount(e.target.value)}
           />
         </label>
+        <button className="btn" type="submit">
+          {busy ? p.saving : labels.save}
+        </button>
+      </fieldset>
+      {message && <p role="status">{message}</p>}
+    </form>
+  );
+}
+
+const infraFields = [
+  { key: 'transferPerGb', step: '0.000000000001', min: '0.000000000001' },
+  { key: 'blobStoragePerGbMonth', step: '0.000000000001', min: '0.000000000001' },
+  { key: 'databaseStoragePerGbMonth', step: '0.000000000001', min: '0.000000000001' },
+  { key: 'databaseIndexFactor', step: '0.0001', min: '1' },
+  { key: 'chunkRowBytes', step: '1', min: '1' },
+] as const;
+
+/** Our infrastructure rates: transfer, Blob and database storage (docs/audit/credit-import-audit.md P4). */
+function InfraCostForm({ initial }: { initial: InfraCostRatesView }) {
+  const { t, locale } = useI18n();
+  const p = t.pricingAdmin;
+  const labels = p.infraCosts;
+  const [saved, setSaved] = useState(initial);
+  const [values, setValues] = useState<Record<(typeof infraFields)[number]['key'], string>>({
+    transferPerGb: initial.transferPerGb,
+    blobStoragePerGbMonth: initial.blobStoragePerGbMonth,
+    databaseStoragePerGbMonth: initial.databaseStoragePerGbMonth,
+    databaseIndexFactor: initial.databaseIndexFactor,
+    chunkRowBytes: String(initial.chunkRowBytes),
+  });
+  const [busy, setBusy] = useState(false);
+  const [message, setMessage] = useState('');
+  async function save(event: FormEvent) {
+    event.preventDefault();
+    setBusy(true);
+    setMessage('');
+    try {
+      const response = await fetch('/api/admin/pricing', {
+        method: 'PUT',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({
+          kind: 'infra_costs',
+          revision: saved.revision,
+          transferPerGb: values.transferPerGb.trim(),
+          blobStoragePerGbMonth: values.blobStoragePerGbMonth.trim(),
+          databaseStoragePerGbMonth: values.databaseStoragePerGbMonth.trim(),
+          databaseIndexFactor: values.databaseIndexFactor.trim(),
+          chunkRowBytes: /^\d+$/.test(values.chunkRowBytes.trim()) ? Number(values.chunkRowBytes.trim()) : null,
+        }),
+      });
+      const result = (await response.json()) as { infraCosts?: InfraCostRatesView; error?: keyof typeof p.errors };
+      if (!response.ok || !result.infraCosts) {
+        setMessage((result.error && p.errors[result.error]) || t.common.errors.generic);
+        return;
+      }
+      setSaved(result.infraCosts);
+      setMessage(labels.saved);
+    } catch {
+      setMessage(t.common.errors.network);
+    } finally {
+      setBusy(false);
+    }
+  }
+  return (
+    <form className="card pricing-admin-card pricing-credit-card" onSubmit={save}>
+      <div>
+        <h2>{labels.title}</h2>
+        <p className="muted">{labels.note}</p>
+      </div>
+      <p>
+        {labels.current}:{' '}
+        <strong>
+          {saved.effectiveFrom ? `${labels.since} ${new Date(saved.effectiveFrom).toLocaleString(locale, { timeZone: 'Asia/Shanghai' })} (UTC+8)` : labels.defaults}
+        </strong>
+      </p>
+      <fieldset disabled={busy} className="grid gap-4">
+        {infraFields.map((field) => (
+          <label className="grid gap-2" key={field.key}>
+            {labels.fields[field.key]}
+            <input
+              className="input"
+              type="number"
+              inputMode="decimal"
+              required
+              min={field.min}
+              step={field.step}
+              value={values[field.key]}
+              onChange={(e) => setValues({ ...values, [field.key]: e.target.value })}
+            />
+          </label>
+        ))}
         <button className="btn" type="submit">
           {busy ? p.saving : labels.save}
         </button>

@@ -10,6 +10,7 @@
  * pinning, which `fetch` does not expose; the deployment's egress rules are
  * the other half.
  */
+import { meterTransfer } from '@/lib/infra/ai/provider-meter';
 import { isPublicHost } from '@/lib/domain/sources';
 import { ProcessingFailure } from './failure';
 
@@ -133,7 +134,15 @@ export async function fetchBytes(target: string, options: FetchOptions = {}): Pr
       await response.body?.cancel();
       throw new ProcessingFailure('source_too_large', `${url.host} declared ${declared} bytes`);
     }
-    const bytes = await readCapped(response, limit, url.host);
+    let bytes: Uint8Array;
+    try {
+      bytes = await readCapped(response, limit, url.host);
+    } catch (error) {
+      // A body cut off at the limit was still transferred up to it.
+      if (error instanceof ProcessingFailure && error.code === 'source_too_large') meterTransfer('fetch', limit);
+      throw error;
+    }
+    meterTransfer('fetch', bytes.length);
     return {
       url: url.toString(),
       status: response.status,

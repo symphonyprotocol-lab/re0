@@ -42,9 +42,10 @@ import { fetchRepositoryFiles, readRepository } from '@/lib/infra/connectors/git
 import { crawlSite, fetchPage } from '@/lib/infra/connectors/web';
 import { db, schema, type Tx } from '@/lib/infra/db';
 import { githubTokenFor, hasVerifiedDomainFor } from '@/lib/services/connections';
-import { heldFor, InsufficientCredits, placeHold, releaseHold, reserveKnowledgeUsage, settleHold } from '@/lib/services/credits';
+import { heldFor, InsufficientCredits, placeHold, reserveKnowledgeUsage, settleHold } from '@/lib/services/credits';
 import { afterKnowledgeReady } from '@/lib/services/profile';
-import { drainProviderCalls, withProviderMeter } from '@/lib/infra/ai/provider-meter';
+import { drainProviderCalls, flushTransfer, meterTransfer, withProviderMeter } from '@/lib/infra/ai/provider-meter';
+import { chargeLateReceipt, settleRun } from '@/lib/services/metered-work';
 import { ProviderCostUnavailable, providerTotal, type ProviderCharge } from '@/lib/domain/provider-cost';
 import { providerPrices } from '@/lib/services/provider-pricing';
 
@@ -269,13 +270,20 @@ async function recordProviderCharge(knowledgeId: string, charge: ProviderCharge)
     // Receipts outlive source content, including late replies after a stale run was refunded.
     await tx.update(schema.knowledgeCostRun).set({ charges: sql`${schema.knowledgeCostRun.charges} || ${JSON.stringify([charge])}::jsonb` })
       .where(and(eq(schema.knowledgeCostRun.runId, charge.runId), sql`not exists (select 1 from jsonb_array_elements(${schema.knowledgeCostRun.charges}) c where c->>'id' = ${charge.id})`));
-    if (!row) return 'stale';
+    // A run already closed (refunded as dead, or purged) is billed for what arrived late.
+    if (!row) {
+      if (charge.costUsd !== null) await chargeLateReceipt(tx, charge.runId);
+      return 'stale';
+    }
     const previous = runCharges(row!.activity, charge.runId);
     if (previous.some((entry) => entry.id === charge.id)) return null;
     const current = ownsProcessingRun(row, charge.runId);
     await tx.update(schema.knowledge).set({ activity: appendActivity([activity('provider_usage', { runId: charge.runId, charge: JSON.stringify(charge), ...(current ? {} : { late: 1 }) })]) }).where(eq(schema.knowledge.id, knowledgeId));
-    // Keep late supplier costs for reconciliation, without touching a newer run's credits.
-    if (!current) return 'stale';
+    // A late supplier cost is billed to the run it belongs to, without touching a newer run's credits.
+    if (!current) {
+      if (charge.costUsd !== null) await chargeLateReceipt(tx, charge.runId);
+      return 'stale';
+    }
     // An unresolved receipt reserves nothing; the known costs around it still do.
     if (charge.costUsd === null) return null;
     const holdId = await heldFor(tx, knowledgeId, 'knowledge');
@@ -293,6 +301,25 @@ async function recordProviderCharge(knowledgeId: string, charge: ProviderCharge)
   });
   if (outcome === 'stale') throw new Error('stale processing run');
   if (outcome) throw outcome;
+}
+
+/**
+ * Before a paid call: the run's known costs plus the estimated cost of every
+ * call in flight (this one included) are reserved, or `InsufficientCredits`
+ * stops the call before it is made (the supplier is never paid for work the
+ * balance cannot cover). The bill is still the measured usage; whatever the
+ * estimates reserved beyond it is returned at settlement.
+ */
+async function reserveEstimate(knowledgeId: string, runId: string, inflight: readonly string[]): Promise<void> {
+  await db().transaction(async (tx) => {
+    const [row] = await tx.select().from(schema.knowledge).where(eq(schema.knowledge.id, knowledgeId)).for('update');
+    if (!row || !ownsProcessingRun(row, runId)) throw new Error('stale processing run');
+    const holdId = await heldFor(tx, knowledgeId, 'knowledge');
+    if (!holdId) throw new Error('knowledge reservation missing');
+    const known = runCharges(row.activity, runId).filter((entry) => entry.costUsd !== null);
+    const extra = await reserveKnowledgeUsage(tx, holdId, providerTotal([...known, ...inflight.map((costUsd) => ({ costUsd }))]).credits, { reeId: row.reeId, note: row.title });
+    if (extra > 0) await tx.update(schema.knowledge).set({ activity: appendActivity([activity('reserved', { credits: extra, estimate: 1 })]) }).where(eq(schema.knowledge.id, knowledgeId));
+  });
 }
 
 /** Initial reservation only; supplier responses determine the final price. */
@@ -410,6 +437,7 @@ async function extract(row: KnowledgeRow): Promise<Extracted> {
       if (!row.source || !row.fileName) throw new ProcessingFailure('source_missing', 'no stored file');
       const bytes = await readBlob(row.source);
       if (!bytes) throw new ProcessingFailure('source_missing', `${row.source} is not in storage`);
+      meterTransfer('blob_read', bytes.length);
       if (bytes.length > DOCUMENT_MAX_BYTES) throw new ProcessingFailure('unsupported_format', 'file too large');
       return { sections: await documentSections(bytes, row.fileName), log: [] };
     }
@@ -418,6 +446,7 @@ async function extract(row: KnowledgeRow): Promise<Extracted> {
       if (!row.source || !format) throw new ProcessingFailure('source_missing', 'no stored audio');
       const bytes = await readBlob(row.source);
       if (!bytes) throw new ProcessingFailure('source_missing', `${row.source} is not in storage`);
+      meterTransfer('blob_read', bytes.length);
       if (bytes.length > AUDIO_MAX_BYTES) throw new ProcessingFailure('unsupported_format', 'file too large');
       const transcript = await transcribeAudio(bytes, format);
       if (transcript.segments.length === 0) throw new ProcessingFailure('empty_text', 'nothing was transcribed');
@@ -479,7 +508,23 @@ async function embedAll(texts: string[]): Promise<{ vectors: number[][]; configI
 export async function processKnowledge(knowledgeId: string, options: { profile?: boolean } = {}): Promise<string | null> {
   const runId = crypto.randomUUID();
   const prices = await providerPrices();
-  const reeId = await withProviderMeter({ runId, prices, record: (charge) => recordProviderCharge(knowledgeId, charge) }, () => processKnowledgeRun(knowledgeId, runId));
+  /* Estimates of the calls not yet answered: parallel calls reserve for each other too. */
+  const inflight = new Map<symbol, string>();
+  const reeId = await withProviderMeter({
+    runId, prices,
+    record: (charge) => recordProviderCharge(knowledgeId, charge),
+    reserve: async (costUsd) => {
+      const key = Symbol('estimate');
+      inflight.set(key, costUsd);
+      try {
+        await reserveEstimate(knowledgeId, runId, [...inflight.values()]);
+      } catch (error) {
+        inflight.delete(key);
+        throw error;
+      }
+      return () => { inflight.delete(key); };
+    },
+  }, () => processKnowledgeRun(knowledgeId, runId));
   // Profile maintenance remains platform-funded and must not enter this source's cost scope.
   if (reeId && options.profile !== false) await afterKnowledgeReady(reeId);
   return reeId;
@@ -505,6 +550,8 @@ async function processKnowledgeRun(knowledgeId: string, runId: string): Promise<
 
   try {
     const extracted = await extract(row);
+    // What reading the source moved (pages fetched, the upload read back and sent on) is a receipt like any supplier's.
+    await flushTransfer();
     const { content, children } = assemble(extracted.sections);
     if (!content.trim()) throw new ProcessingFailure('empty_text', 'no text extracted');
     const pages = extracted.sections.filter((section) => section.locator.page !== undefined).length;
@@ -539,9 +586,10 @@ async function processKnowledgeRun(knowledgeId: string, runId: string): Promise<
         }
         const holdId = await heldFor(tx, row.id, 'knowledge');
         if (!holdId) throw new Error('knowledge reservation missing');
-        // Only accepted unknown costs can be unresolved here (any other one failed its call); they are not billed.
+        // A source never becomes ready with a cost nobody can price: it would be billed as zero.
         const charges = runCharges(current!.activity, runId);
         const resolved = charges.filter((charge) => charge.costUsd !== null);
+        if (resolved.length !== charges.length) throw new ProviderCostUnavailable('usage_unavailable');
         const total = providerTotal(resolved);
         const settled = await settleHold(tx, holdId, total.credits, { reeId: row.reeId, note: row.title });
         if (!settled || settled.charged !== total.credits) throw new Error('knowledge settlement mismatch');
@@ -550,10 +598,7 @@ async function processKnowledgeRun(knowledgeId: string, runId: string): Promise<
         const log: KnowledgeActivity[] = extracted.log.map((entry) => ({ ...entry, at: done.toISOString() }));
         log.push(activity('parsed', pages > 0 ? { chars: content.length, pages } : { chars: content.length }, done));
         log.push(activity('chunked', { chunks: chunks.length }, done));
-        log.push(activity('settled', {
-          charged: settled.charged, released: settled.released, costUsd: total.costUsd, tariff: 'provider-cost-v1',
-          ...(charges.length > resolved.length ? { unresolvedCalls: charges.length - resolved.length } : {}),
-        }, done));
+        log.push(activity('settled', { charged: settled.charged, released: settled.released, costUsd: total.costUsd, tariff: 'provider-cost-v1' }, done));
         log.push(activity('ready', undefined, done));
         const renamed = current!.title !== current!.originalTitle;
         const fetchedTitle = extracted.title?.trim().slice(0, KNOWLEDGE_TITLE_MAX);
@@ -581,6 +626,8 @@ async function processKnowledgeRun(knowledgeId: string, runId: string): Promise<
     return row.reeId;
   } catch (error) {
     await drainProviderCalls();
+    // Transfer before the failure was incurred all the same; a refusal to reserve it still leaves its receipt.
+    await flushTransfer().catch(() => undefined);
     const code = error instanceof InsufficientCredits ? 'insufficient_credits' : error instanceof ProviderCostUnavailable ? error.code : error instanceof ProcessingFailure ? error.code : 'unknown';
     console.warn(`knowledge ${row.id} failed code=${code} detail=${error instanceof Error ? error.message : 'unknown'}`);
     await failAndRefund(row.id, row.reeId, row.title, code, new Date(), runId);
@@ -594,21 +641,20 @@ async function failAndRefund(id: string, reeId: string, title: string | null, co
     if (current?.status !== 'processing' || (runId && !ownsProcessingRun(current, runId))) return;
     const holdId = await heldFor(tx, id, 'knowledge');
     /*
-     * Running out of credits is the one failure the owner pays for: supplier
-     * costs already reserved against their balance stay charged (the call that
-     * overran it is ours). Every other failure is refunded in full.
+     * A failure keeps every cost the run incurred (docs/audit/credit-import-audit.md,
+     * P1): its resolved receipts are charged, the call that overran the
+     * balance included, and only what was reserved and never used goes back.
+     * What the balance cannot cover is owed. A run with nothing spent is
+     * refunded in full.
      */
-    const spent = holdId && runId && code === 'insufficient_credits'
-      ? providerTotal(runCharges(current.activity, runId).filter((charge) => charge.costUsd !== null)).credits
-      : null;
-    const settled = holdId && spent !== null ? await settleHold(tx, holdId, spent, { reeId, note: title }) : null;
-    const released = holdId && !settled ? await releaseHold(tx, holdId, { reeId, note: title }) : null;
     const failedRun = runId ?? processingRun(current);
+    const charges = failedRun ? runCharges(current.activity, failedRun) : [];
+    const settled = holdId ? await settleRun(tx, holdId, charges, { reeId, note: title }) : null;
     if (holdId || failedRun) await tx.update(schema.knowledgeCostRun).set({ status: 'failed', error: code, chargedCredits: settled?.charged ?? 0 })
       .where(holdId ? eq(schema.knowledgeCostRun.id, holdId) : eq(schema.knowledgeCostRun.runId, failedRun!));
     const log: KnowledgeActivity[] = [activity('failed', { reason: code }, when)];
-    if (settled) log.push(activity('settled', { charged: settled.charged, released: settled.released }, when));
-    if (released) log.push(activity('refunded', { credits: released }, when));
+    if (settled && !settled.refunded) log.push(activity('settled', { charged: settled.charged, released: settled.released, ...(settled.owed > 0 ? { owed: settled.owed } : {}) }, when));
+    if (settled?.refunded) log.push(activity('refunded', { credits: settled.released }, when));
     await tx
       .update(schema.knowledge)
       .set({ status: 'failed', error: code, updatedAt: when, activity: appendActivity(log) })

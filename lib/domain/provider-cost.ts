@@ -41,6 +41,8 @@ export interface ProviderUsage {
   audioInputTokens?: number;
   seconds?: number;
   firecrawlCredits?: number;
+  /** Bytes moved (`bandwidth` receipts). */
+  bytes?: number;
 }
 export interface ProviderTarget {
   service: ProviderRate['service'];
@@ -48,7 +50,12 @@ export interface ProviderTarget {
   model: string;
   account?: string;
 }
-export interface ProviderCharge extends ProviderTarget {
+/**
+ * One receipt. `bandwidth` is our own transfer cost (`lib/domain/infra-cost.ts`),
+ * metered by bytes rather than priced by a supplier.
+ */
+export interface ProviderCharge extends Omit<ProviderTarget, 'service'> {
+  service: ProviderTarget['service'] | 'bandwidth';
   id: string;
   runId: string;
   at: string;
@@ -101,13 +108,16 @@ function exactUsd(units: bigint, scale: number): string {
 export function rateCost(rate: ProviderRate, usage: ProviderUsage): string {
   const quantity = rate.unit === 'tokens' ? usage.inputTokens : rate.unit === 'seconds' ? usage.seconds : usage.firecrawlCredits;
   if (quantity === undefined || !Number.isFinite(quantity) || quantity < 0) throw new ProviderCostUnavailable('usage_unavailable');
-  const units = (amount: number) => {
+  const units = (amount: number, up = false) => {
     if (!Number.isFinite(amount) || amount < 0) throw new ProviderCostUnavailable('usage_unavailable');
-    return BigInt(Math.round(amount * 1_000_000));
+    const scaled = amount * 1_000_000;
+    const nearest = Math.round(scaled);
+    // Measured usage rounds up past floating-point noise: a real fraction of a micro-unit is billed, never dropped.
+    return BigInt(up && scaled - nearest > 1e-6 ? Math.ceil(scaled) : nearest);
   };
   // Integer micro-units avoid false extra billing increments from e.g. 0.14 / 0.01.
   const step = units(rate.incrementUnits);
-  const measured = units(quantity);
+  const measured = units(quantity, true);
   const rounded = step > 0n ? ceilDiv(measured, step) * step : measured;
   const minimum = units(rate.minimumUnits);
   const billable = rounded > minimum ? rounded : minimum;
@@ -123,6 +133,13 @@ export function rateCost(rate: ProviderRate, usage: ProviderUsage): string {
     if (rate.outputUsdPerUnit !== undefined) cost += multiply(units(usage.outputTokens!), rate.outputUsdPerUnit);
   }
   return exactUsd(cost, 18);
+}
+
+/** Pico-dollars to credits, rounded up. */
+export function picoCredits(pico: bigint): number {
+  const credits = Number(ceilDiv(pico, CREDIT_PICO_USD));
+  if (!Number.isSafeInteger(credits)) throw new Error('storage charge exceeds ledger range');
+  return credits;
 }
 
 export function providerTotal(charges: readonly Pick<ProviderCharge, 'costUsd'>[]) {
