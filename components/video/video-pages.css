@@ -1,0 +1,1777 @@
+/*
+ * `/rees/[id]/video` and `/videos`, ported from the prototype
+ * (rebuild-prototype styles.css `.page` / `.field` / `.btn`, suite.css video
+ * editor and library, discovery-video.css, public-dot.css placeholder) with
+ * its class names, breakpoints and cascade order, scoped to
+ * `.video-editor-page` and `.video-library-page`. The stage itself is the
+ * Remotion Player, so only the stage's frame (`.video-stage`) is kept, not the
+ * prototype's HTML scenes. Tokens and base type: ree-pages.css.
+ */
+/* styles.css */
+.video-editor-page {
+  box-sizing: border-box;
+}
+.video-editor-page button,
+.video-editor-page input,
+.video-editor-page textarea,
+.video-editor-page select {
+  font: inherit;
+}
+.video-editor-page button,
+.video-editor-page a,
+.video-editor-page input,
+.video-editor-page textarea,
+.video-editor-page select {
+  -webkit-tap-highlight-color: transparent;
+}
+.video-editor-page button {
+  cursor: pointer;
+}
+.video-editor-page button:disabled {
+  cursor: not-allowed;
+  opacity: 0.45;
+}
+.video-editor-page button,
+.video-editor-page a {
+  touch-action: manipulation;
+}
+.video-editor-page a {
+  color: inherit;
+  text-decoration: none;
+}
+.video-editor-page button {
+  color: inherit;
+}
+.video-editor-page h1,
+.video-editor-page h2,
+.video-editor-page h3,
+.video-editor-page p {
+  margin: 0px;
+}
+.video-editor-page h1,
+.video-editor-page h2,
+.video-editor-page h3 {
+  line-height: 1.3;
+}
+.video-editor-page button svg,
+.video-editor-page a svg {
+  flex-shrink: 0;
+}
+.video-editor-page svg {
+  vertical-align: middle;
+}
+.video-editor-page::selection {
+  background: rgb(203, 228, 255);
+}
+.video-editor-page:focus-visible {
+  outline: rgb(119, 183, 250) solid 3px;
+  outline-offset: 4px;
+}
+.video-editor-page input:focus-visible,
+.video-editor-page textarea:focus-visible {
+  outline: 0px;
+  box-shadow: rgba(18, 126, 227, 0.094) 0px 0px 0px 3px;
+  border-color: var(--blue) !important;
+}
+.video-editor-page input,
+.video-editor-page textarea {
+  min-width: 0px;
+}
+.video-editor-page textarea {
+  resize: vertical;
+}
+.video-editor-page input[type="checkbox"] {
+  accent-color: var(--blue);
+  width: 16px;
+  height: 16px;
+}
+.video-editor-page input[type="range"] {
+  accent-color: var(--blue);
+  width: 100%;
+}
+.video-editor-page .mono {
+  font-family: var(--mono);
+}
+.video-editor-page .blue {
+  color: var(--blue);
+}
+.video-editor-page .flex {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+.video-editor-page .between {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+}
+.video-editor-page .mt16 {
+  margin-top: 16px;
+}
+.video-editor-page .btn {
+  border: 1px solid transparent;
+  background: var(--blue);
+  color: rgb(255, 255, 255);
+  border-radius: 8px;
+  min-height: 40px;
+  padding: 9px 16px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  font-size: 13px;
+  font-weight: 550;
+  line-height: 1.4;
+  white-space: nowrap;
+  transition: background 0.18s, transform 0.18s, box-shadow 0.18s;
+}
+.video-editor-page .btn svg {
+  width: 16px;
+  height: 16px;
+}
+.video-editor-page .btn.secondary {
+  color: var(--ink);
+  background: rgb(255, 255, 255);
+  border-color: var(--line);
+}
+.video-editor-page .btn.secondary:hover {
+  background: var(--wash);
+  border-color: rgb(196, 204, 224);
+  box-shadow: none;
+}
+.video-editor-page .btn.ghost {
+  color: var(--muted);
+  background: transparent;
+}
+.video-editor-page .btn.ghost:hover {
+  color: var(--blue);
+  background: var(--soft);
+  box-shadow: none;
+}
+.video-editor-page .btn.sm {
+  min-height: 32px;
+  padding: 6px 10px;
+  font-size: 12px;
+}
+.video-editor-page .btn.full {
+  width: 100%;
+}
+.video-editor-page .icon-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  flex: 0 0 auto;
+  width: 32px;
+  height: 32px;
+  border: 0px;
+  border-radius: 7px;
+  background: transparent;
+  color: var(--muted);
+  transition: background 0.18s, color 0.18s, transform 0.18s;
+}
+.video-editor-page .icon-btn:hover {
+  background: var(--soft);
+  color: var(--blue);
+}
+.video-editor-page .icon-btn:active {
+  transform: scale(0.92);
+}
+.video-editor-page .icon-btn svg {
+  width: 17px;
+  height: 17px;
+}
+.video-editor-page .eyebrow {
+  font-family: var(--mono);
+  font-size: 10px;
+  letter-spacing: 0.15em;
+  text-transform: uppercase;
+  font-weight: 500;
+  color: var(--muted);
+}
+.video-editor-page .tag {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  background: rgb(244, 245, 250);
+  border: 1px solid transparent;
+  border-radius: 5px;
+  padding: 3px 7px;
+  font-size: 10px;
+  color: rgb(99, 107, 132);
+  line-height: 1.5;
+}
+.video-editor-page .tag.blue {
+  background: var(--soft);
+  color: var(--blue);
+}
+.video-editor-page .card {
+  background: rgb(255, 255, 255);
+  border: 1px solid var(--line);
+  border-radius: 12px;
+}
+.video-editor-page .progress {
+  height: 3px;
+  background: rgb(232, 235, 243);
+  border-radius: 3px;
+  overflow: hidden;
+}
+.video-editor-page .progress >span {
+  display: block;
+  height: 100%;
+  background: var(--blue);
+  border-radius: 3px;
+  transition: width 0.6s;
+}
+.video-editor-page.page {
+  max-width: 1360px;
+  margin: auto;
+  padding: 38px 48px 30px;
+  animation: 0.3s ease 0s 1 normal both running page-in;
+}
+.video-editor-page .page-head {
+  display: flex;
+  align-items: flex-end;
+  justify-content: space-between;
+  gap: 20px;
+  margin-bottom: 30px;
+}
+.video-editor-page .page-head h1 {
+  font-size: 28px;
+  letter-spacing: -0.7px;
+  font-weight: 650;
+}
+.video-editor-page .page-head p {
+  font-size: 12px;
+  color: var(--muted);
+  margin-top: 9px;
+}
+.video-editor-page .page-footer {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  font-size: 9px;
+  color: rgb(161, 166, 184);
+  margin-top: 40px;
+  padding-top: 20px;
+  border-top: 1px solid var(--line);
+}
+.video-editor-page .page-footer .mono {
+  font-size: 9px;
+  letter-spacing: 0.04em;
+}
+.video-editor-page .page-footer a:hover {
+  color: var(--blue);
+}
+.video-editor-page .dot-avatar {
+  position: relative;
+  width: 43px;
+  height: 43px;
+  border-radius: 12px;
+  background: rgb(237, 244, 255);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex: 0 0 auto;
+  color: var(--blue);
+  border: 1px solid rgb(224, 234, 250);
+}
+.video-editor-page .dot-avatar svg {
+  width: 23px;
+  height: 23px;
+}
+.video-editor-page .field {
+  display: flex;
+  flex-direction: column;
+  gap: 7px;
+  margin-bottom: 18px;
+}
+.video-editor-page .field label,
+.video-editor-page .field-label {
+  font-size: 11px;
+  color: rgb(93, 105, 132);
+  font-weight: 500;
+}
+.video-editor-page .field input,
+.video-editor-page .field textarea,
+.video-editor-page .field select {
+  width: 100%;
+  border: 1px solid rgb(223, 228, 239);
+  border-radius: 7px;
+  padding: 10px 12px;
+  background: rgb(255, 255, 255);
+  color: var(--ink);
+  font-size: 12px;
+  line-height: 1.7;
+  transition: border-color 0.2s, box-shadow 0.2s;
+}
+.video-editor-page .field textarea {
+  min-height: 90px;
+}
+.video-editor-page .field input::placeholder,
+.video-editor-page .field textarea::placeholder {
+  color: rgb(175, 180, 195);
+}
+.video-editor-page .form-error {
+  font-size: 10px;
+  color: var(--red);
+  padding: 9px 12px;
+  border-radius: 6px;
+  background: rgb(255, 240, 240);
+  margin-bottom: 14px;
+}
+.video-editor-page .two-col {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 17px;
+}
+.video-editor-page .form-hint {
+  font-size: 10px;
+  color: rgb(139, 153, 178);
+  line-height: 1.9;
+}
+@keyframes page-in { 
+  0% {
+  opacity: 0;
+  transform: translateY(7px);
+}
+  100% {
+  opacity: 1;
+  transform: translateY(0px);
+}
+}
+@media (min-width: 1500px) {
+  .video-editor-page.page {
+  padding-top: 45px;
+}
+}
+@media (max-width: 1180px) {
+  .video-editor-page.page {
+  padding: 30px;
+}
+}
+@media (max-width: 980px) {
+  .video-editor-page.page {
+  padding: 26px;
+}
+}
+@media (max-width: 760px) {
+  .video-editor-page.page {
+  padding: 25px 20px;
+}
+  .video-editor-page .page-head h1 {
+  font-size: 25px;
+}
+  .video-editor-page .page-footer {
+  font-size: 8px;
+}
+  .video-editor-page .page-footer .mono {
+  font-size: 8px;
+}
+  .video-editor-page .page-head {
+  align-items: center;
+}
+}
+@media (max-width: 560px) {
+  .video-editor-page.page {
+  padding: 22px 17px;
+}
+  .video-editor-page .page-footer {
+  flex-wrap: wrap;
+  gap: 10px;
+  margin-top: 26px;
+}
+  .video-editor-page .page-head {
+  gap: 12px;
+  margin-bottom: 24px;
+  align-items: flex-start;
+}
+  .video-editor-page .page-head h1 {
+  font-size: 25px;
+}
+  .video-editor-page .page-head p {
+  font-size: 10px;
+  max-width: 230px;
+  line-height: 1.9;
+}
+  .video-editor-page .page-head >.btn {
+  font-size: 10px;
+  padding: 10px;
+  min-height: 36px;
+}
+  .video-editor-page .page-head >.btn svg {
+  width: 12px;
+  height: 12px;
+}
+  .video-editor-page .two-col {
+  grid-template-columns: 1fr;
+  gap: 0px;
+}
+}
+@media (prefers-reduced-motion: reduce) {
+  .video-editor-page,
+.video-editor-page::before,
+.video-editor-page::after {
+  animation: auto ease 0s 1 normal none running none !important;
+  transition: none !important;
+  scroll-behavior: auto !important;
+}
+}
+.video-editor-page .field label,
+.video-editor-page .field-label {
+  font-size: 12px;
+}
+.video-editor-page .field input,
+.video-editor-page .field textarea,
+.video-editor-page .field select {
+  font-size: 13px;
+}
+.video-editor-page .form-hint {
+  font-size: 12px;
+  color: rgb(124, 140, 167);
+}
+.video-editor-page .page-head p {
+  font-size: 13px;
+}
+@media (max-width: 560px) {
+  .video-editor-page .page-head p {
+  font-size: 12px;
+  max-width: 210px;
+}
+  .video-editor-page .page-footer >span.mono {
+  display: none;
+}
+}
+/* suite.css */
+.video-editor-page .section-kicker {
+  margin: 0px 0px 12px !important;
+  font-size: 9px !important;
+  letter-spacing: 0.13em !important;
+  color: rgb(142, 154, 178) !important;
+}
+.video-editor-page.video-editor-page .page-head h1 {
+  font-size: 25px;
+}
+.video-editor-page.video-editor-page .page-head p {
+  font-size: 11px;
+}
+.video-editor-page.video-editor-page .page-head .btn {
+  font-size: 10px;
+}
+.video-editor-page .video-editor-grid {
+  display: grid;
+  grid-template-columns: minmax(0px, 1.5fr) minmax(300px, 1fr);
+  gap: 23px;
+  align-items: start;
+}
+.video-editor-page .video-player-card {
+  overflow: hidden;
+  padding: 10px;
+}
+.video-editor-page .video-stage {
+  position: relative;
+  aspect-ratio: 16 / 9;
+  overflow: hidden;
+  isolation: isolate;
+  border-radius: 7px;
+  background: rgb(242, 246, 255);
+  border: 1px solid rgb(227, 234, 245);
+  min-height: 250px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  --video-accent: #127ee3;
+}
+.video-editor-page .player-controls {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 11px 6px 1px;
+}
+.video-editor-page .player-controls >.mono {
+  font-size: 8px;
+  color: rgb(162, 177, 200);
+  white-space: nowrap;
+}
+.video-editor-page .player-controls input {
+  width: 100%;
+  accent-color: var(--blue);
+  height: 3px;
+}
+.video-editor-page .player-controls .tag {
+  font-size: 8px;
+  background: rgb(241, 245, 253);
+  color: rgb(155, 175, 204);
+}
+.video-editor-page .player-controls .icon-btn {
+  height: 25px;
+  width: 25px;
+}
+.video-editor-page .player-controls .icon-btn svg {
+  height: 13px;
+  width: 13px;
+}
+.video-editor-page .video-timeline {
+  display: grid;
+  grid-template-columns: 3fr 4fr 5fr 3fr;
+  gap: 7px;
+  margin: 12px 0px 23px;
+}
+.video-editor-page .video-timeline >button {
+  min-width: 0px;
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  gap: 9px;
+  background: rgb(255, 255, 255);
+  border: 1px solid rgb(224, 232, 244);
+  border-radius: 7px;
+  padding: 11px 10px;
+  color: rgb(153, 171, 197);
+  text-align: left;
+  transition: border-color 0.2s, background 0.2s;
+}
+.video-editor-page .video-timeline .mono {
+  font-size: 9px;
+  display: flex;
+  justify-content: space-between;
+  width: 100%;
+}
+.video-editor-page .video-timeline .mono small {
+  font-size: 8px;
+  color: rgb(180, 191, 209);
+}
+.video-editor-page .video-timeline strong {
+  font-size: 9px;
+  font-weight: 500;
+  white-space: nowrap;
+}
+.video-editor-page .video-timeline button.active {
+  border-color: rgb(158, 194, 240);
+  background: rgb(244, 248, 255);
+  color: rgb(109, 152, 206);
+}
+.video-editor-page .video-timeline i {
+  height: 2px;
+  display: block;
+  width: 100%;
+  background: rgb(235, 240, 248);
+  border-radius: 2px;
+}
+.video-editor-page .video-timeline button.active i {
+  background: rgb(149, 187, 238);
+}
+.video-editor-page .video-export-panel {
+  padding: 22px;
+}
+.video-editor-page .video-export-panel h3 {
+  font-size: 14px;
+  font-weight: 550;
+}
+.video-editor-page .video-export-panel p {
+  font-size: 10px;
+  line-height: 1.8;
+  color: rgb(151, 169, 195);
+  margin-top: 7px;
+}
+.video-editor-page .video-export-panel .btn {
+  font-size: 10px;
+  padding: 9px 11px;
+}
+.video-editor-page .video-export-panel >.flex {
+  flex-wrap: wrap;
+  gap: 8px;
+}
+.video-editor-page .video-export-panel .tag {
+  font-size: 9px;
+}
+.video-editor-page .video-edit-panel {
+  padding: 23px;
+}
+.video-editor-page .video-edit-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 13px;
+  margin-bottom: 22px;
+}
+.video-editor-page .video-edit-header h2 {
+  font-size: 15px;
+  font-weight: 550;
+}
+.video-editor-page .video-edit-header >.tag {
+  font-size: 8px;
+}
+.video-editor-page .video-edit-panel .field-label,
+.video-editor-page .video-edit-panel .field label {
+  font-size: 10px;
+  color: rgb(139, 160, 188);
+}
+.video-editor-page .video-templates {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0px, 1fr));
+  gap: 9px;
+  margin-top: 12px;
+  margin-bottom: 23px;
+}
+.video-editor-page .video-templates label {
+  position: relative;
+  cursor: pointer;
+}
+.video-editor-page .video-templates input {
+  position: absolute;
+  left: 5px;
+  top: 5px;
+  opacity: 0;
+  width: 1px;
+  height: 1px;
+}
+.video-editor-page .template-swatch {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  height: 51px;
+  width: 100%;
+  border: 1px solid rgb(224, 232, 244);
+  border-radius: 7px;
+  color: rgb(147, 172, 208);
+  background: rgb(241, 246, 255);
+  transition: border-color 0.2s, box-shadow 0.2s;
+}
+.video-editor-page .template-swatch.template-product-demo {
+  background: linear-gradient(135deg, #edf4ff, #dcecff);
+  color: #245bd6;
+}
+.video-editor-page .template-swatch.template-user-manual {
+  background: linear-gradient(135deg, #f4f6f9, #e3e9f1);
+  color: #3d5574;
+}
+.video-editor-page .template-swatch.template-course-intro {
+  background: linear-gradient(135deg, #fbf8f3, #ece6ff);
+  color: #6a4fc0;
+}
+.video-editor-page .template-swatch.template-article-summary {
+  background: linear-gradient(135deg, #fbf9f5, #f3ece0);
+  color: #8a6a3a;
+}
+.video-editor-page .video-templates .template-recommended {
+  position: absolute;
+  top: -7px;
+  right: -4px;
+  padding: 1px 6px;
+  border-radius: 8px;
+  background: var(--blue);
+  color: #fff;
+  font-size: 8px;
+  line-height: 14px;
+  pointer-events: none;
+}
+.video-editor-page .video-template-focus {
+  margin: -12px 0 20px;
+}
+.video-editor-page .video-template-focus ol {
+  display: grid;
+  gap: 3px;
+  margin: 6px 0 0;
+  padding-left: 18px;
+  list-style: decimal;
+}
+.video-editor-page .video-demo-script {
+  list-style: decimal;
+  display: grid;
+  gap: 6px;
+  padding-left: 22px;
+  font-size: 13px;
+  line-height: 1.5;
+  color: #405674;
+}
+.video-editor-page .template-swatch svg {
+  height: 22px;
+  width: 22px;
+}
+.video-editor-page .video-templates label >small {
+  display: block;
+  text-align: center;
+  font-size: 9px;
+  color: rgb(154, 172, 191);
+  margin-top: 8px;
+}
+.video-editor-page .video-templates input:checked +.template-swatch {
+  outline: 2px solid var(--blue);
+  outline-offset: 2px;
+}
+.video-editor-page .video-templates input:focus-visible +.template-swatch {
+  box-shadow: rgba(18, 126, 227, 0.133) 0px 0px 0px 4px;
+}
+.video-editor-page .video-edit-panel input,
+.video-editor-page .video-edit-panel textarea,
+.video-editor-page .video-edit-panel select {
+  font-size: 11px;
+}
+.video-editor-page .video-edit-panel input[type="color"] {
+  padding: 4px;
+  height: 37px;
+}
+.video-editor-page .video-edit-panel .two-col {
+  gap: 13px;
+}
+.video-editor-page .video-music {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  font-size: 9px;
+  color: rgb(147, 167, 194);
+  border-top: 1px solid rgb(229, 236, 245);
+  padding-block: 18px;
+}
+.video-editor-page .video-music svg {
+  height: 12px;
+  width: 12px;
+  color: rgb(167, 185, 208);
+}
+.video-editor-page .video-edit-panel .btn {
+  font-size: 11px;
+}
+.video-editor-page .export-running {
+  margin-top: 20px;
+  padding-top: 17px;
+  border-top: 1px solid rgb(229, 237, 247);
+}
+.video-editor-page .export-running strong {
+  font-size: 11px;
+  font-weight: 500;
+  color: rgb(134, 161, 195);
+}
+.video-editor-page .export-running >.progress {
+  margin-block: 8px 11px;
+}
+.video-editor-page .export-running small {
+  font-size: 9px;
+  color: rgb(168, 184, 206);
+}
+.video-editor-page .export-complete {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 10px;
+  color: rgb(123, 169, 151);
+  margin-top: 20px;
+}
+.video-editor-page .export-complete svg {
+  width: 13px;
+  height: 13px;
+}
+@keyframes scene-in { 
+  0% {
+  opacity: 0;
+  transform: translateY(8px);
+}
+  100% {
+  opacity: 1;
+  transform: translateY(0px);
+}
+}
+@media (max-width: 1200px) {
+  .video-editor-page .video-editor-grid {
+  grid-template-columns: minmax(0px, 1.4fr) minmax(280px, 1fr);
+  gap: 17px;
+}
+  .video-editor-page .video-edit-panel {
+  padding: 20px;
+}
+  .video-editor-page .video-stage {
+  min-height: 230px;
+}
+}
+@media (max-width: 1020px) {
+  .video-editor-page .video-editor-grid {
+  grid-template-columns: 1fr;
+}
+  .video-editor-page .video-edit-panel {
+  padding: 25px;
+}
+  .video-editor-page .video-edit-panel .two-col {
+  grid-template-columns: 1fr 1fr;
+}
+  .video-editor-page.video-editor-page .page-head {
+  align-items: flex-start;
+  gap: 17px;
+}
+  .video-editor-page.video-editor-page .page-head h1 {
+  font-size: 22px;
+}
+  .video-editor-page.video-editor-page .page-head .btn {
+  font-size: 9px;
+  white-space: normal;
+  max-width: 170px;
+  flex: 0 0 auto;
+}
+  .video-editor-page .video-stage {
+  min-height: 280px;
+}
+}
+@media (max-width: 760px) {
+  .video-editor-page.video-editor-page >.page-head {
+  gap: 15px;
+}
+  .video-editor-page.video-editor-page >.page-head h1 {
+  font-size: 23px;
+}
+  .video-editor-page.video-editor-page >.page-head .btn {
+  font-size: 10px;
+}
+  .video-editor-page .video-export-panel {
+  padding: 22px;
+}
+}
+@media (max-width: 520px) {
+  .video-editor-page.video-editor-page >.page-head {
+  flex-direction: column;
+  gap: 17px;
+}
+  .video-editor-page.video-editor-page >.page-head h1 {
+  font-size: 24px;
+}
+  .video-editor-page.video-editor-page >.page-head p {
+  font-size: 11px;
+  max-width: none;
+}
+  .video-editor-page.video-editor-page >.page-head >.btn {
+  font-size: 11px;
+  max-width: none;
+  min-height: 38px;
+}
+  .video-editor-page .video-editor-grid {
+  gap: 19px;
+}
+  .video-editor-page .video-player-card {
+  padding: 7px;
+}
+  .video-editor-page .video-stage {
+  min-height: 210px;
+}
+  .video-editor-page .player-controls {
+  gap: 7px;
+  padding: 12px 3px 3px;
+}
+  .video-editor-page .player-controls >.mono {
+  font-size: 7px;
+}
+  .video-editor-page .video-timeline {
+  gap: 5px;
+}
+  .video-editor-page .video-timeline >button {
+  padding: 9px 7px;
+  gap: 8px;
+}
+  .video-editor-page .video-timeline strong {
+  font-size: 7px;
+}
+  .video-editor-page .video-timeline .mono {
+  font-size: 8px;
+}
+  .video-editor-page .video-timeline .mono small {
+  font-size: 6px;
+}
+  .video-editor-page .video-export-panel {
+  padding: 22px 19px;
+}
+  .video-editor-page .video-export-panel h3 {
+  font-size: 15px;
+}
+  .video-editor-page .video-export-panel p {
+  font-size: 11px;
+}
+  .video-editor-page .video-export-panel .btn {
+  font-size: 11px;
+  min-height: 39px;
+}
+  .video-editor-page .video-export-panel .btn svg {
+  height: 13px;
+  width: 13px;
+}
+  .video-editor-page .video-export-panel >.between {
+  align-items: flex-start;
+}
+  .video-editor-page .video-export-panel >.between >.tag {
+  font-size: 8px;
+  flex: 0 0 auto;
+}
+  .video-editor-page .video-edit-panel {
+  padding: 24px 21px;
+}
+  .video-editor-page .video-edit-header h2 {
+  font-size: 17px;
+}
+  .video-editor-page .video-edit-panel .field-label,
+.video-editor-page .video-edit-panel .field label {
+  font-size: 12px;
+}
+  .video-editor-page .video-templates {
+  gap: 11px;
+}
+  .video-editor-page .template-swatch {
+  height: 60px;
+}
+  .video-editor-page .video-templates label >small {
+  font-size: 11px;
+}
+  .video-editor-page .video-edit-panel input,
+.video-editor-page .video-edit-panel select,
+.video-editor-page .video-edit-panel textarea {
+  font-size: 12px;
+}
+  .video-editor-page .video-music {
+  font-size: 10px;
+  padding-block: 19px;
+}
+  .video-editor-page .video-edit-panel form >.btn {
+  font-size: 12px;
+  min-height: 43px;
+}
+}
+/* dot-avatar.css */
+.video-editor-page .dot-avatar {
+  overflow: hidden;
+}
+.video-editor-page .dot-avatar >img {
+  display: block;
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  border-radius: inherit;
+}
+/* public-dot.css */
+.video-editor-page .public-dot-video-placeholder {
+  position: relative;
+  overflow: hidden;
+  aspect-ratio: 16 / 9;
+  display: grid;
+  place-items: center;
+  padding: 0px 18px;
+  border: 1px solid rgb(227, 234, 245);
+  border-radius: 12px;
+  background: radial-gradient(circle at 95% 0px, rgb(232, 239, 252) 0px, rgb(232, 239, 252) 24%, transparent 24.2%), linear-gradient(135deg, rgb(245, 248, 255), rgb(237, 243, 255));
+  text-align: center;
+}
+.video-editor-page .public-dot-video-placeholder-brand {
+  position: absolute;
+  top: 18px;
+  left: 20px;
+  right: 20px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  color: rgb(115, 152, 200);
+  font: 600 12px var(--mono);
+}
+.video-editor-page .public-dot-video-placeholder-brand >span {
+  color: rgb(163, 180, 205);
+  font: 5px var(--mono);
+  letter-spacing: 1px;
+}
+.video-editor-page .public-dot-video-placeholder >div {
+  display: grid;
+  justify-items: center;
+  gap: 10px;
+  min-width: 0px;
+}
+.video-editor-page .public-dot-video-placeholder .dot-avatar {
+  width: 44px;
+  height: 44px;
+  border-radius: 13px;
+}
+.video-editor-page .public-dot-video-placeholder strong {
+  color: rgb(78, 108, 150);
+  font-size: clamp(14px, 2vw, 22px);
+  line-height: 1.5;
+  overflow-wrap: anywhere;
+}
+.video-editor-page .public-dot-video-placeholder-status {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  color: rgb(141, 159, 185);
+  font-size: 10px;
+}
+.video-editor-page .public-dot-video-placeholder-status svg {
+  width: 14px;
+  height: 14px;
+}
+.video-editor-page .public-dot-video-placeholder-caption {
+  position: absolute;
+  bottom: 18px;
+  left: 12px;
+  right: 12px;
+  color: rgb(154, 174, 201);
+  font-size: 9px;
+}
+@media (max-width: 760px) {
+  .video-editor-page .public-dot-video-placeholder-brand {
+  top: 10px;
+  left: 12px;
+  right: 12px;
+  font-size: 9px;
+}
+  .video-editor-page .public-dot-video-placeholder-brand >span {
+  font-size: 4px;
+  letter-spacing: 0.5px;
+}
+  .video-editor-page .public-dot-video-placeholder >div {
+  gap: 6px;
+}
+  .video-editor-page .public-dot-video-placeholder .dot-avatar {
+  width: 28px;
+  height: 28px;
+  border-radius: 9px;
+}
+  .video-editor-page .public-dot-video-placeholder-status {
+  font-size: 9px;
+}
+  .video-editor-page .public-dot-video-placeholder-caption {
+  bottom: 8px;
+  font-size: 7px;
+}
+}
+
+/* suite.css `.video-stage.portrait`, at its widths (the editor rendered here was landscape). */
+.video-editor-page .video-stage.portrait {
+  aspect-ratio: 9/16;
+  min-height: 0;
+  max-height: 590px;
+  width: 67%;
+  margin: auto;
+}
+@media (max-width: 1020px) {
+  .video-editor-page .video-stage.portrait {
+    width: 50%;
+  }
+}
+@media (max-width: 520px) {
+  .video-editor-page .video-stage.portrait {
+    width: 72%;
+    max-height: 440px;
+  }
+}
+/*
+ * Not in the prototype: a script needs a ready source, shot text is locked
+ * until the script exists, an over-limit shot says so, unsaved edits are
+ * flagged, and an export can be outdated by later edits (8.2).
+ */
+.video-editor-page .video-needs-source {
+  margin: -18px 0 20px;
+  text-align: right;
+}
+.video-editor-page .video-unsaved {
+  margin-top: 10px;
+  text-align: center;
+}
+.video-editor-page .export-outdated {
+  display: block;
+  color: rgb(155, 168, 187);
+}
+
+/* ---------------------------------------------------------------- /videos */
+/* styles.css */
+.video-library-page {
+  box-sizing: border-box;
+}
+.video-library-page button,
+.video-library-page input {
+  font: inherit;
+}
+.video-library-page button,
+.video-library-page a,
+.video-library-page input {
+  -webkit-tap-highlight-color: transparent;
+}
+.video-library-page button {
+  cursor: pointer;
+}
+.video-library-page button:disabled {
+  cursor: not-allowed;
+  opacity: 0.45;
+}
+.video-library-page button,
+.video-library-page a {
+  touch-action: manipulation;
+}
+.video-library-page a {
+  color: inherit;
+  text-decoration: none;
+}
+.video-library-page button {
+  color: inherit;
+}
+.video-library-page h1,
+.video-library-page h2,
+.video-library-page h3,
+.video-library-page p {
+  margin: 0px;
+}
+.video-library-page h1,
+.video-library-page h2,
+.video-library-page h3 {
+  line-height: 1.3;
+}
+.video-library-page button svg,
+.video-library-page a svg {
+  flex-shrink: 0;
+}
+.video-library-page svg {
+  vertical-align: middle;
+}
+.video-library-page::selection {
+  background: rgb(203, 228, 255);
+}
+.video-library-page:focus-visible {
+  outline: rgb(119, 183, 250) solid 3px;
+  outline-offset: 4px;
+}
+.video-library-page input:focus-visible {
+  outline: 0px;
+  box-shadow: rgba(18, 126, 227, 0.094) 0px 0px 0px 3px;
+  border-color: var(--blue) !important;
+}
+.video-library-page input {
+  min-width: 0px;
+}
+.video-library-page .mono {
+  font-family: var(--mono);
+}
+.video-library-page .between {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+}
+.video-library-page .mt24 {
+  margin-top: 24px;
+}
+.video-library-page .btn {
+  border: 1px solid transparent;
+  background: var(--blue);
+  color: rgb(255, 255, 255);
+  border-radius: 8px;
+  min-height: 40px;
+  padding: 9px 16px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  font-size: 13px;
+  font-weight: 550;
+  line-height: 1.4;
+  white-space: nowrap;
+  transition: background 0.18s, transform 0.18s, box-shadow 0.18s;
+}
+.video-library-page .btn.secondary {
+  color: var(--ink);
+  background: rgb(255, 255, 255);
+  border-color: var(--line);
+}
+.video-library-page .btn.secondary:hover {
+  background: var(--wash);
+  border-color: rgb(196, 204, 224);
+  box-shadow: none;
+}
+.video-library-page .text-link {
+  color: var(--blue);
+  font-size: 12px;
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  border: 0px;
+  background: transparent;
+  padding: 0px;
+  cursor: pointer;
+}
+.video-library-page .text-link:hover {
+  text-decoration: underline;
+}
+.video-library-page .eyebrow {
+  font-family: var(--mono);
+  font-size: 10px;
+  letter-spacing: 0.15em;
+  text-transform: uppercase;
+  font-weight: 500;
+  color: var(--muted);
+}
+.video-library-page .card {
+  background: rgb(255, 255, 255);
+  border: 1px solid var(--line);
+  border-radius: 12px;
+}
+.video-library-page .empty {
+  text-align: center;
+  padding: 68px 20px;
+}
+.video-library-page .empty >svg {
+  color: rgb(155, 167, 193);
+  margin-bottom: 15px;
+  width: 36px;
+  height: 36px;
+}
+.video-library-page .empty h3 {
+  font-size: 17px;
+  margin-bottom: 8px;
+}
+.video-library-page.page {
+  max-width: 1360px;
+  margin: auto;
+  padding: 38px 48px 30px;
+  animation: 0.3s ease 0s 1 normal both running page-in;
+}
+.video-library-page .page-head {
+  display: flex;
+  align-items: flex-end;
+  justify-content: space-between;
+  gap: 20px;
+  margin-bottom: 30px;
+}
+.video-library-page .page-head h1 {
+  font-size: 28px;
+  letter-spacing: -0.7px;
+  font-weight: 650;
+}
+.video-library-page .page-head p {
+  font-size: 12px;
+  color: var(--muted);
+  margin-top: 9px;
+}
+.video-library-page .page-footer {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  font-size: 9px;
+  color: rgb(161, 166, 184);
+  margin-top: 40px;
+  padding-top: 20px;
+  border-top: 1px solid var(--line);
+}
+.video-library-page .page-footer .mono {
+  font-size: 9px;
+  letter-spacing: 0.04em;
+}
+.video-library-page .page-footer a:hover {
+  color: var(--blue);
+}
+.video-library-page .dot-avatar {
+  position: relative;
+  width: 43px;
+  height: 43px;
+  border-radius: 12px;
+  background: rgb(237, 244, 255);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex: 0 0 auto;
+  color: var(--blue);
+  border: 1px solid rgb(224, 234, 250);
+}
+.video-library-page .dot-avatar svg {
+  width: 23px;
+  height: 23px;
+}
+.video-library-page .dot-avatar.sand {
+  background: rgb(249, 244, 236);
+  color: rgb(161, 138, 96);
+  border-color: rgb(238, 231, 218);
+}
+.video-library-page .dot-avatar.lilac {
+  background: rgb(241, 237, 251);
+  color: rgb(146, 117, 191);
+  border-color: rgb(232, 225, 245);
+}
+.video-library-page .dot-avatar.sage {
+  background: rgb(234, 244, 240);
+  color: rgb(91, 142, 126);
+  border-color: rgb(223, 235, 229);
+}
+.video-library-page .dot-avatar.rose {
+  background: rgb(250, 240, 240);
+  color: rgb(180, 126, 129);
+  border-color: rgb(242, 229, 229);
+}
+.video-library-page .dot-avatar.slate {
+  background: rgb(237, 240, 246);
+  color: rgb(117, 137, 169);
+  border-color: rgb(224, 230, 239);
+}
+.video-library-page .search-small {
+  border: 1px solid var(--line);
+  border-radius: 7px;
+  background: white;
+  padding: 8px 11px;
+  display: flex;
+  gap: 8px;
+  align-items: center;
+}
+.video-library-page .search-small svg {
+  width: 14px;
+  height: 14px;
+  color: rgb(160, 167, 185);
+}
+.video-library-page .search-small input {
+  border: 0px;
+  outline: 0px;
+  max-width: 180px;
+  font-size: 11px;
+  padding: 0px;
+  box-shadow: none !important;
+}
+.video-library-page .info-strip {
+  display: flex;
+  align-items: flex-start;
+  gap: 9px;
+  padding: 12px 14px;
+  background: rgb(242, 246, 255);
+  border: 1px solid rgb(228, 236, 251);
+  border-radius: 7px;
+  font-size: 10px;
+  color: rgb(129, 149, 180);
+  line-height: 1.9;
+}
+.video-library-page .info-strip svg {
+  width: 14px;
+  height: 14px;
+  flex: 0 0 auto;
+  margin-top: 2px;
+}
+@keyframes page-in { 
+  0% {
+  opacity: 0;
+  transform: translateY(7px);
+}
+  100% {
+  opacity: 1;
+  transform: translateY(0px);
+}
+}
+@media (min-width: 1500px) {
+  .video-library-page.page {
+  padding-top: 45px;
+}
+}
+@media (max-width: 1180px) {
+  .video-library-page.page {
+  padding: 30px;
+}
+}
+@media (max-width: 980px) {
+  .video-library-page.page {
+  padding: 26px;
+}
+}
+@media (max-width: 760px) {
+  .video-library-page.page {
+  padding: 25px 20px;
+}
+  .video-library-page .page-head h1 {
+  font-size: 25px;
+}
+  .video-library-page .page-footer {
+  font-size: 8px;
+}
+  .video-library-page .page-footer .mono {
+  font-size: 8px;
+}
+  .video-library-page .page-head {
+  align-items: center;
+}
+}
+@media (max-width: 560px) {
+  .video-library-page.page {
+  padding: 22px 17px;
+}
+  .video-library-page .page-footer {
+  flex-wrap: wrap;
+  gap: 10px;
+  margin-top: 26px;
+}
+  .video-library-page .page-head {
+  gap: 12px;
+  margin-bottom: 24px;
+  align-items: flex-start;
+}
+  .video-library-page .page-head h1 {
+  font-size: 25px;
+}
+  .video-library-page .page-head p {
+  font-size: 10px;
+  max-width: 230px;
+  line-height: 1.9;
+}
+  .video-library-page .search-small {
+  padding: 7px 9px;
+}
+  .video-library-page .search-small input {
+  max-width: 120px;
+  font-size: 10px;
+}
+}
+@media (prefers-reduced-motion: reduce) {
+  .video-library-page,
+.video-library-page::before,
+.video-library-page::after {
+  animation: auto ease 0s 1 normal none running none !important;
+  transition: none !important;
+  scroll-behavior: auto !important;
+}
+}
+.video-library-page .info-strip {
+  font-size: 11px;
+  color: rgb(113, 136, 170);
+}
+.video-library-page .page-head p {
+  font-size: 13px;
+}
+@media (max-width: 560px) {
+  .video-library-page .page-head p {
+  font-size: 12px;
+  max-width: 210px;
+}
+  .video-library-page .page-footer >span.mono {
+  display: none;
+}
+}
+/* suite.css */
+.video-library-page .section-kicker {
+  margin: 0px 0px 12px !important;
+  font-size: 9px !important;
+  letter-spacing: 0.13em !important;
+  color: rgb(142, 154, 178) !important;
+}
+.video-library-page .video-library {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0px, 1fr));
+  gap: 22px;
+}
+.video-library-page .video-library-card {
+  overflow: hidden;
+}
+.video-library-page .video-library-poster {
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 17px;
+  padding: 30px;
+  background: rgb(241, 245, 255);
+  aspect-ratio: 16 / 9;
+  min-height: 200px;
+}
+.video-library-page .video-library-poster .dot-avatar {
+  height: 57px;
+  width: 57px;
+  border-radius: 16px;
+}
+.video-library-page .video-library-poster .dot-avatar svg {
+  height: 30px;
+  width: 30px;
+}
+.video-library-page .video-library-poster h2 {
+  font-size: 20px;
+  font-weight: 500;
+  color: rgb(96, 127, 166);
+}
+.video-library-page .video-library-poster >span:not(.dot-avatar) {
+  position: absolute;
+  bottom: 16px;
+  right: 17px;
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  font: 9px var(--mono);
+  color: rgb(155, 176, 206);
+}
+.video-library-page .video-library-poster >span svg {
+  height: 11px;
+  width: 11px;
+}
+.video-library-page .video-library-card >.between {
+  padding: 22px;
+}
+.video-library-page .video-library-card strong {
+  font-size: 13px;
+  font-weight: 550;
+}
+.video-library-page .video-library-card p {
+  font-size: 10px;
+  color: rgb(159, 176, 200);
+  margin-top: 6px;
+}
+.video-library-page .video-library-card .text-link {
+  font-size: 10px;
+}
+@media (max-width: 1020px) {
+  .video-library-page .video-library {
+  grid-template-columns: 1fr 1fr;
+}
+  .video-library-page .video-library-poster {
+  min-height: 160px;
+}
+  .video-library-page .video-library-poster h2 {
+  font-size: 17px;
+}
+  .video-library-page .video-library-card >.between {
+  flex-wrap: wrap;
+  gap: 15px;
+}
+}
+@media (max-width: 760px) {
+  .video-library-page .video-library-poster {
+  min-height: 185px;
+}
+}
+@media (max-width: 520px) {
+  .video-library-page .video-library {
+  grid-template-columns: 1fr;
+}
+  .video-library-page .video-library-poster {
+  min-height: 200px;
+}
+  .video-library-page .video-library-poster h2 {
+  font-size: 23px;
+}
+  .video-library-page .video-library-card >.between {
+  padding: 22px;
+}
+  .video-library-page .video-library-card strong {
+  font-size: 14px;
+}
+  .video-library-page .video-library-card p {
+  font-size: 11px;
+}
+  .video-library-page .video-library-card .text-link {
+  font-size: 11px;
+}
+}
+/* dot-avatar.css */
+.video-library-page .dot-avatar {
+  overflow: hidden;
+}
+.video-library-page .dot-avatar >img {
+  display: block;
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  border-radius: inherit;
+}
+/* discovery.css */
+.video-library-page .discovery-pagination {
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  flex-wrap: wrap;
+  font-size: 10px;
+  color: rgb(136, 155, 184);
+}
+.video-library-page .discovery-pagination >a,
+.video-library-page .discovery-pagination >span:not(.pagination-ellipsis) {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 31px;
+  height: 31px;
+  padding: 0px 6px;
+  border: 1px solid rgb(225, 231, 242);
+  border-radius: 7px;
+  background: rgb(255, 255, 255);
+}
+.video-library-page .discovery-pagination >a:hover {
+  background: rgb(239, 245, 255);
+  border-color: rgb(179, 209, 247);
+  color: rgb(22, 133, 233);
+}
+.video-library-page .discovery-pagination svg {
+  height: 12px;
+  width: 12px;
+}
+.video-library-page .discovery-pagination >:first-child svg {
+  transform: rotate(180deg);
+}
+.video-library-page .discovery-pagination >.is-current {
+  color: rgb(22, 133, 233);
+  border-color: rgb(188, 215, 249) !important;
+  background: rgb(237, 245, 255) !important;
+}
+.video-library-page .discovery-pagination >.is-disabled {
+  color: rgb(203, 211, 226);
+  background: rgb(249, 250, 255) !important;
+}
+.video-library-page .pagination-ellipsis {
+  min-width: 22px;
+  text-align: center;
+}
+.video-library-page .discovery-results-footer {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 15px;
+  margin-top: 25px;
+}
+.video-library-page .discovery-results-footer >span {
+  font-size: 10px;
+  color: rgb(160, 174, 195);
+  white-space: nowrap;
+}
+@media (max-width: 1050px) {
+  .video-library-page .discovery-results-footer {
+  align-items: flex-start;
+}
+  .video-library-page .discovery-results-footer .discovery-pagination {
+  justify-content: flex-end;
+}
+}
+@media (max-width: 760px) {
+  .video-library-page .discovery-results-footer {
+  flex-direction: column;
+  align-items: stretch;
+}
+  .video-library-page .discovery-results-footer .discovery-pagination {
+  justify-content: center;
+}
+}
+
+/* Generation in progress: the old preview stays visible under a veil with the steps, so it reads as about to be replaced. */
+.video-editor-page .video-preview-stage {
+  position: relative;
+}
+.video-editor-page .video-preview-stage[aria-busy='true'] > :not(.video-generation-overlay) {
+  pointer-events: none;
+}
+.video-editor-page .video-generation-overlay {
+  position: absolute;
+  inset: 0;
+  z-index: 5;
+  display: grid;
+  place-items: center;
+  overflow: hidden;
+  padding: 18px;
+  border-radius: 14px;
+  background: rgba(247, 250, 255, .78);
+  backdrop-filter: blur(2px);
+}
+.video-editor-page .video-generation-skeleton {
+  position: absolute;
+  inset: 0;
+  display: grid;
+  align-content: start;
+  gap: 14px;
+  padding: 34px 32px;
+}
+.video-editor-page .video-generation-skeleton > i {
+  display: block;
+  height: 14px;
+  border-radius: 6px;
+  background: linear-gradient(100deg, #e6edf7 20%, #f6f9ff 45%, #e6edf7 70%);
+  background-size: 220% 100%;
+  animation: video-generation-shimmer 1.5s ease-in-out infinite;
+}
+.video-editor-page .video-generation-skeleton > i:first-child { width: 42%; height: 26px; }
+.video-editor-page .video-generation-skeleton > i:nth-child(2) { width: 68%; }
+.video-editor-page .video-generation-skeleton > i:nth-child(3) { width: 54%; }
+.video-editor-page .video-generation-card {
+  position: relative;
+  display: grid;
+  gap: 12px;
+  width: min(340px, 100%);
+  padding: 18px 20px;
+  border: 1px solid rgb(227, 234, 245);
+  border-radius: 12px;
+  background: #fff;
+  box-shadow: 0 12px 32px rgba(23, 43, 77, .1);
+}
+.video-editor-page .video-generation-card > p {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 12px;
+  margin: 0;
+  font-size: 13px;
+  color: rgb(32, 43, 70);
+}
+.video-editor-page .video-generation-card > p .mono {
+  font-size: 11px;
+  color: rgb(113, 136, 170);
+}
+.video-editor-page .video-generation-card > small {
+  font-size: 11px;
+  line-height: 1.5;
+  color: rgb(113, 136, 170);
+}
+.video-editor-page .video-generation-steps {
+  display: grid;
+  gap: 8px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+.video-editor-page .video-generation-steps li {
+  display: flex;
+  align-items: center;
+  gap: 9px;
+  font-size: 12px;
+  color: rgb(150, 165, 190);
+}
+.video-editor-page .video-generation-steps li > i,
+.video-editor-page .video-generation-steps li > svg {
+  flex: none;
+  width: 14px;
+  height: 14px;
+}
+.video-editor-page .video-generation-steps li > i {
+  border: 1.5px solid rgb(206, 216, 232);
+  border-radius: 50%;
+}
+.video-editor-page .video-generation-steps li[data-state='done'] {
+  color: rgb(59, 67, 97);
+}
+.video-editor-page .video-generation-steps li[data-state='done'] > svg {
+  color: var(--blue);
+}
+.video-editor-page .video-generation-steps li[data-state='active'] {
+  color: var(--blue);
+  font-weight: 600;
+}
+.video-editor-page .video-generation-steps li[data-state='active'] > i {
+  border-color: rgba(18, 126, 227, .25);
+  border-top-color: var(--blue);
+  animation: video-generation-spin .9s linear infinite;
+}
+.video-editor-page .video-generate-spin {
+  animation: video-generation-spin .9s linear infinite;
+}
+/* While generating, the panel's controls are locked; dim them like the disabled save button so a click that does nothing is expected. */
+.video-editor-page .video-edit-panel[aria-busy='true'] :is(.video-templates, .two-col, form > .field, form > .form-hint) {
+  opacity: 0.45;
+  color: rgb(113, 136, 170);
+}
+.video-editor-page .video-edit-panel[aria-busy='true'] :is(.video-templates, .two-col, form > .field, form > .form-hint, .video-music),
+.video-editor-page .video-edit-panel[aria-busy='true'] :is(.video-templates, .two-col, form > .field, form > .form-hint, .video-music) * {
+  cursor: not-allowed;
+}
+.video-editor-page .video-edit-panel[aria-busy='true'] .video-templates input:checked + .template-swatch {
+  filter: saturate(.4);
+}
+@keyframes video-generation-shimmer {
+  from { background-position: 100% 0; }
+  to { background-position: -100% 0; }
+}
+@keyframes video-generation-spin {
+  to { transform: rotate(360deg); }
+}
+@media (prefers-reduced-motion: reduce) {
+  .video-editor-page .video-generation-skeleton > i,
+  .video-editor-page .video-generation-steps li[data-state='active'] > i,
+  .video-editor-page .video-generate-spin {
+    animation: none;
+  }
+  .video-editor-page .video-generation-steps li[data-state='active'] > i {
+    border-color: var(--blue);
+    background: radial-gradient(circle, var(--blue) 0 3px, transparent 3.5px);
+  }
+}

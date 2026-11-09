@@ -1,436 +1,126 @@
 @import 'tailwindcss';
 
-/*
- * Design tokens lifted from knowleg-market.pen.
- *
- * These are the defaults, and they are what the admin console alone renders in
- * -- it stays on the design source's own light look. The marketing site and the
- * dashboard re-declare the same names against the Clearbit palette further
- * down, so one block per surface is the whole of that surface's look and no
- * page carries a `dark:` variant of its own.
- */
+/* The prototype's palette (rebuild-prototype/styles.css): electric blue, navy ink, paper, lavender wash. */
 @theme {
-  --color-surface: #f9fdff;
-  --color-card: #ffffff;
-  --color-subtle: #f7fbfb;
-  --color-mutedbg: #ebf4f4;
-  --color-line: #dae3e4;
-  --color-ink: #031a1e;
-  --color-inkdeep: #061415;
-  --color-muted: #50686d;
-  --color-steel: #2d4e54;
-  --color-faint: #8aa0a4;
-  --color-brand: #00bba7;
-  /* Label on a brand fill. White in the design source; in dark the fill is
-     lifted for contrast against the page, which leaves white too faint on it. */
-  --color-onbrand: #ffffff;
-  --color-brandink: #006363;
-  --color-brandsoft: #e4f2f2;
-  --color-good: #079566;
-  --color-goodsoft: #e7f7ef;
-  --color-warn: #9a6320;
-  --color-warnsoft: #fbe9e2;
-  /* Usage bars: the lighter segment is document fetches, the darker retrieval. */
-  --color-bar: #62ddbd;
-  --color-barstrong: #00ad8d;
-  --color-terminal: #171d20;
-  /* Marketing-only: the CTA panel, and the two hairlines that are not `line` --
-     the install chip's outer edge and the catalogue row's brand badge. */
-  --color-panel: #f0f0f0;
-  --color-termline: #10292c;
-  --color-brandline: #a3d9d5;
-  /* Playground transcript: the tray, the two bubbles, the input and the
-     citation accent. The code block inside an answer is dark in both themes,
-     so it stays spelled inline there. */
-  --color-tray: #f8f9f8;
-  --color-bubble: #079b78;
-  --color-reply: #f2f4f3;
-  --color-field: #fdfefe;
-  --color-cite: #087c6a;
-  /* Library scope + review-status palette, from the dashboard design frames. */
-  --color-pubsoft: #e9f8f4;
-  --color-pubink: #087c6a;
-  --color-publine: #9dd8d3;
-  --color-privsoft: #f0ecfb;
-  --color-privink: #6450aa;
-  --color-priv: #8067cf;
-  --color-amber: #e9a23b;
-  --color-rose: #e05858;
-  --color-err: #bd3e3e;
-  --color-errsoft: #fdeceb;
-  /* Admin console: dark rail, work-area wash and the status tints of its tables. */
-  --color-console: #102b31;
-  --color-consoledeep: #17343a;
-  --color-consolewash: #f4f8f7;
-  --color-consoletext: #adc1c4;
-  --color-consolemuted: #67858b;
-  --color-mint: #4cdbc0;
-  --color-ambersoft: #fff4e4;
-  --color-amberink: #b66b13;
-  --color-rosesoft: #fff0f0;
-  --color-infosoft: #e8eef6;
-  --color-infoink: #3f5f92;
-
-  /*
-   * Clearbit design system -- the raw palette, spelled once here so a band can
-   * reach for a colour directly. The semantic tokens above are re-pointed at
-   * these values on the marketing and dashboard surfaces further down; the
-   * admin console keeps the original design-source values and is untouched by
-   * any of it.
-   *
-   * The whole chromatic budget is one blue. Everything else is ink, paper and
-   * two neutrals -- the restraint is the system.
-   */
-  --color-midnight: #091135;
-  --color-electric: #0f77ff;
-  --color-cobalt: #127ee3;
-  --color-slate: #36394a;
-  --color-frost: #e1e9f0;
-  --color-mist: #b1bbcd;
+  --color-bg: #f5f3ff;
   --color-paper: #ffffff;
-  --color-lavender: #f5f3ff;
-
-  /*
-   * Type scale. The signature is the tracking: it opens as the size grows,
-   * which is the opposite of the usual display treatment and the reason large
-   * headlines here read as architectural rather than dense. Nothing in this
-   * system carries negative tracking.
-   */
-  --text-caption: 14px;
-  --text-caption--line-height: 1.43;
-  --text-caption--letter-spacing: 0.004em;
-  --text-body: 16px;
-  --text-body--line-height: 1.5;
-  --text-body--letter-spacing: 0.008em;
-  --text-subheading: 18px;
-  --text-subheading--line-height: 1.5;
-  --text-subheading--letter-spacing: 0.014em;
-  --text-heading-sm: 32px;
-  --text-heading-sm--line-height: 1.25;
-  --text-heading-sm--letter-spacing: 0.016em;
-  --text-heading: 56px;
-  --text-heading--line-height: 1.25;
-  --text-heading--letter-spacing: 0.018em;
-  --text-display: 64px;
-  --text-display--line-height: 1.25;
-  --text-display--letter-spacing: 0.018em;
-
-  /*
-   * The only shadow in the system, and it is a focus ring rather than an
-   * elevation: resting surfaces get their depth from tint and hairline, never
-   * from a drop shadow.
-   */
-  --shadow-focus:
-    0 0 0 1px rgb(15, 119, 255), 0 1px 2px 0 rgba(12, 43, 100, 0.32),
-    0 6px 16px 0 rgba(12, 43, 100, 0.32);
-
-  --font-sans: var(--font-inter), ui-sans-serif, system-ui, sans-serif;
-  --font-mono: var(--font-jetbrains), ui-monospace, SFMono-Regular, monospace;
-}
-
-/*
- * The showcase page's display face (app/s/[slug]/render.tsx sets
- * `--font-bricolage` on the page). A plain class rather than a theme entry:
- * the face is one page's voice, and a utility name the theme would mint for
- * it belongs to no other surface. Elsewhere the variable is unset, and the
- * stack falls through to Inter.
- */
-.font-display {
-  font-family: var(--font-bricolage), var(--font-inter), ui-sans-serif, system-ui, sans-serif;
-}
-
-/*
- * Product surfaces (public site, dashboard, admin) commit to the single light
- * look of the design source.
- *
- * This has to be explicit rather than inherited: the docs site uses Fumadocs,
- * whose theme toggle puts `.dark` on <html> and repaints <body>. That class
- * survives navigation away from /docs, so without pinning both the background
- * and color-scheme here, returning to the product would leave a dark body
- * behind the page and dark native controls inside it.
- */
-.product-surface {
-  background-color: var(--color-surface);
-  color: var(--color-ink);
-  color-scheme: light;
-}
-
-/*
- * Clearbit token set.
- *
- * One block carries both themes. Every value is a `light-dark()` pair, so which
- * half applies is decided by one thing -- the surface's `color-scheme` -- and
- * the header's theme toggle has exactly one switch to throw rather than a
- * second copy of the palette to keep in step.
- *
- * The light half is the system as designed: a near-achromatic canvas where
- * Midnight Ink carries every word and one blue fires only on actions. Depth is
- * a tint and a hairline, never a shadow, which is why `shadow-md` resolves to
- * nothing here -- the utility is still sprinkled through the pages, and this is
- * what neutralises every one of them in a line.
- *
- * The dark half is a derivation, since the source system is light only. It
- * takes Midnight Ink off the text and makes it the ground, which keeps the
- * whole thing inside the one navy the palette already commits to, and lifts the
- * blue so it still reads as the accent against it.
- *
- * `err`, `warn` and their tints are the one place the palette cannot help: it
- * offers no status hues at all, and a destructive or failing state has to be
- * distinguishable from a working one. They keep functional colours, damped
- * toward the navy so they sit with it.
- *
- * The dashboard reads from the same block but is pinned to `color-scheme:
- * light` by `.product-surface`, so it resolves the light half and stays the
- * light work area it is meant to be.
- */
-.site-surface,
-.dashboard-wash {
-  --color-surface: light-dark(#f5f3ff, #060c26);
-  --color-card: light-dark(#ffffff, #091135);
-  --color-subtle: light-dark(#f5f3ff, #0d1740);
-  --color-mutedbg: light-dark(#e1e9f0, #1a2352);
-  --color-line: light-dark(#e1e9f0, #232c5c);
-  --color-ink: light-dark(#091135, #ffffff);
-  --color-inkdeep: light-dark(#091135, #04081c);
-  --color-muted: light-dark(#36394a, #b1bbcd);
-  --color-steel: light-dark(#091135, #e1e9f0);
-  --color-faint: light-dark(#b1bbcd, #7c86a8);
-  --color-brand: #127ee3;
-  --color-onbrand: #ffffff;
-  --color-brandink: light-dark(#0f77ff, #6aa9ff);
-  --color-brandsoft: light-dark(#f5f3ff, #16215a);
-  --color-brandline: light-dark(#0f77ff, #2a5fae);
-  --color-good: light-dark(#127ee3, #6aa9ff);
-  --color-goodsoft: light-dark(#f5f3ff, #16215a);
-  --color-warn: light-dark(#8a5a00, #e0a94a);
-  --color-warnsoft: light-dark(#fdf3e2, #3a2f14);
-  --color-err: light-dark(#b3231f, #f08a8a);
-  --color-errsoft: light-dark(#fdeceb, #3a1c22);
-  --color-rose: light-dark(#d4453f, #f08a8a);
-  --color-bar: light-dark(#b1bbcd, #2a5fae);
-  --color-barstrong: #127ee3;
-  --color-terminal: light-dark(#091135, #04081c);
-  --color-panel: light-dark(#f5f3ff, #0d1740);
-  --color-termline: #232c5c;
-  --color-tray: light-dark(#f5f3ff, #0d1740);
-  --color-bubble: light-dark(#127ee3, #1a4f96);
-  --color-reply: light-dark(#f5f3ff, #1a2352);
-  --color-field: light-dark(#ffffff, #060c26);
-  --color-cite: light-dark(#0f77ff, #6aa9ff);
-  --color-pubsoft: light-dark(#f5f3ff, #16215a);
-  --color-pubink: light-dark(#0f77ff, #6aa9ff);
-  --color-publine: light-dark(#0f77ff, #2a5fae);
-  /* Private scope goes neutral rather than chromatic. The budget is one blue,
-     so the only way to separate it from public is to take the blue away. */
-  --color-privsoft: light-dark(#e1e9f0, #1a2352);
-  --color-privink: light-dark(#36394a, #b1bbcd);
-  --color-priv: light-dark(#b1bbcd, #7c86a8);
-  --color-amber: light-dark(#c98a17, #e0a94a);
-  --color-ambersoft: light-dark(#fdf3e2, #3a2f14);
-  --color-amberink: light-dark(#8a5a00, #e0a94a);
-  --color-mint: #127ee3;
-  --color-eyebrow: light-dark(#091135, #ffffff);
-
-  /*
-   * Shape language, and the 4px gap between the two radii is deliberate: cards
-   * at 12px, buttons and inputs at 8px, tags left fully round. There are no
-   * intermediate values in this system, so redefining Tailwind's own radius
-   * names collapses every `rounded-*` utility on the surface onto the two the
-   * system actually has.
-   */
-  --radius-sm: 8px;
-  --radius-md: 8px;
-  --radius-lg: 12px;
-  --radius-xl: 12px;
-  --radius-2xl: 12px;
-
-  /* Resting surfaces carry no shadow at all. */
-  --shadow-md: 0 0 #0000;
-}
-
-/*
- * The marketing site's theme.
- *
- * It follows the reader's system by default -- `color-scheme: light dark` is
- * what makes every `light-dark()` above resolve that way -- and the header's
- * toggle overrides it by writing `data-theme` on <html>. That is the whole of
- * the switch: no `dark:` variants anywhere in the pages, and no second palette.
- *
- * The declaration has to be repeated here because `.product-surface` pins
- * `color-scheme: light` on the same element; without overriding it the page
- * would be dark while its scrollbars and native controls stayed light.
- */
-.site-surface {
-  color-scheme: light dark;
-  background-color: var(--color-card);
-  color: var(--color-ink);
-}
-
-html[data-theme='light'] .site-surface {
-  color-scheme: light;
-}
-
-html[data-theme='dark'] .site-surface {
-  color-scheme: dark;
-}
-
-/*
- * The wrapper is only as tall as the page; the canvas behind it belongs to the
- * document, and left at the UA default it flashes white on an overscroll bounce
- * and on the paint before the wrapper mounts. Matched here rather than in the
- * root layout, which must stay colourless for the docs site -- the `:has()` is
- * what keeps this to pages the marketing wrapper is on.
- */
-html:has(.site-surface) {
-  color-scheme: light dark;
-  background-color: light-dark(#ffffff, #091135);
-}
-
-html[data-theme='light']:has(.site-surface) {
-  color-scheme: light;
-}
-
-html[data-theme='dark']:has(.site-surface) {
-  color-scheme: dark;
-}
-
-/*
- * The tinted zone.
- *
- * Sections alternate between the plain paper canvas and this wash, and that
- * alternation is the whole of the page's structure -- no rules drawn between
- * sections, no shadows under them, only the change of ground. It is a tint
- * rather than an inversion, so it declares nothing but its own surface: the
- * ink, the hairlines and the accent carry straight through from the page.
- */
-.wash-band {
-  background-color: var(--color-surface);
-}
-
-/*
- * A card floating on that wash -- where the product gets shown.
- *
- * Paper, a hairline, 12px, and nothing else. It restates `card` so it stays
- * paper-white when the section under it is tinted, which is the contrast the
- * whole showcase pattern rests on.
- */
-.paper-card {
-  --color-card: light-dark(#ffffff, #0d1740);
-
-  background-color: var(--color-card);
-  border: 1px solid var(--color-line);
-}
-
-/*
- * Chrome band -- the navigation capsule.
- *
- * It is the same capsule in both themes. Like the bands it pins its own
- * `color-scheme` and paints its own plane rather than following the page: the
- * canvas and the content flip with the theme, the chrome does not.
- *
- * The blue is Cobalt Surface, the palette's wash for decorative bands. Spending
- * a chromatic surface on the whole capsule is a deliberate departure from this
- * system's rationing of its one blue, and it is why the filled action inside
- * inverts: with the accent underneath it, a blue button would have nothing left
- * to say. On this plane the fill is paper and the label is the capsule's own
- * blue -- the same button doing the same job in the other direction.
- *
- * Pinning the scheme is what lets the rest go unsaid: every `light-dark()`
- * token inside resolves on its light half, so only what a blue ground actually
- * changes is restated here.
- *
- * The background is opaque on purpose. The capsule travels over both grounds
- * the page alternates between, and letting either show through would leave its
- * labels sitting on a moving colour.
- */
-.chrome-band {
-  color-scheme: light;
-  background-color: #127ee3;
-  --color-ink: #ffffff;
-  --color-muted: #d3e6fb;
-  --color-line: rgba(255, 255, 255, 0.28);
-  --color-brand: #ffffff;
-  --color-onbrand: #127ee3;
-}
-
-/*
- * ...and its scrolled state, which is likewise the same in both themes.
- *
- * The capsule drops to paper and hands ink, hairline and the filled action back
- * to their page values: the blue is the resting state, the one the reader sees
- * before the page has gone anywhere, and carrying it down the whole scroll
- * would drag a saturated pill over every section beneath it.
- *
- * White on the paper canvas needs an edge drawn for it, and it is a ring rather
- * than a border so gaining it does not grow the capsule by two pixels
- * mid-scroll.
- */
-.chrome-scrolled {
-  background-color: #ffffff;
   --color-ink: #091135;
-  --color-muted: #36394a;
-  --color-line: #e1e9f0;
-  --color-brand: #127ee3;
-  --color-onbrand: #ffffff;
-
-  box-shadow: 0 0 0 1px var(--color-line);
+  --color-muted: #626a81;
+  --color-line: #e2e6f0;
+  --color-brand-blue: #127ee3;
+  --color-blue: #0867c4;
+  --color-blue-dark: #0756a7;
+  --color-soft: #edf4ff;
+  --color-wash: #fafaff;
+  --color-green: #128168;
+  --color-red: #bf4343;
+  --color-orange: #b8742a;
+  --font-sans: var(--font-inter), 'PingFang SC', 'Microsoft YaHei', system-ui, sans-serif;
+  --font-mono: var(--font-jetbrains), ui-monospace, monospace;
 }
 
-/*
- * Section tag.
- *
- * In this system the label above a heading is not a tracked-out cap but plain
- * text at caption size in the same Midnight Ink as the heading it introduces --
- * the hierarchy is carried by size and position, not by colour or by case. That
- * also retires the Han-script exception the tracked-out version needed: at 14px
- * the label is legible in either script without help.
- */
-@layer components {
-  .eyebrow {
-    font-size: 14px;
-    line-height: 1.43;
-    letter-spacing: 0.004em;
-    font-weight: 500;
-    color: var(--color-eyebrow, var(--color-ink));
+:root {
+  /* The workspace bar's height (prototype navigation.css `--workspace-bar-height`); components/shell/shell.css owns the frame. */
+  --topbar: 74px;
+  font-synthesis: none;
+}
+
+html,
+body {
+  background: var(--color-bg);
+  color: var(--color-ink);
+  font-size: 14px;
+  -webkit-font-smoothing: antialiased;
+}
+
+body {
+  overflow-x: hidden;
+  line-height: 1.6;
+}
+
+@media (max-width: 760px) {
+  :root {
+    --topbar: 62px;
   }
 }
 
-/* Work area of the admin console, as in the design source. */
-.console-wash {
-  background-color: var(--color-consolewash);
-}
-
-/* Split panel behind the administrator sign-in, as in the design source. */
-.console-signin-wash {
-  background-image:
-    radial-gradient(ellipse 50% 50% at 15% 85%, rgba(35, 199, 172, 0.22) 0%, transparent 34%),
-    linear-gradient(173.757deg, #102b31 9.249%, #163a40 59.78%, #0c262c 90.751%);
-  background-repeat: no-repeat, no-repeat;
-  background-size: 100% 100%, 100% 100%;
+/* The prototype's base type (styles.css): body copy at 1.6, headings at 1.3. A Tailwind `leading-*` still wins. */
+@layer base {
+  h1,
+  h2,
+  h3 {
+    line-height: 1.3;
+  }
+  ::selection {
+    background: #cbe4ff;
+  }
+  :focus-visible {
+    outline: 3px solid #77b7fa;
+    outline-offset: 4px;
+  }
+  :is(input, textarea):focus-visible {
+    outline: 0;
+  }
 }
 
 /*
- * The dashboard work area.
- *
- * Flat Lavender Wash with the panels floating paper-white on it. The design
- * source had a tinted fade here; this system has no gradient language to say it
- * with, so the tint is the whole of it.
+ * The prototype's shared controls (styles.css `.btn`, `.icon-btn`, `.card`,
+ * `.field`, `.tag`). Sizes are in px on purpose: the root font size is 14px
+ * here, so a rem-based utility (`size-8`, `p-4`, `rounded-lg`) comes out at
+ * 0.875x its usual px value.
  */
-.dashboard-wash {
-  background-color: var(--color-surface);
+@layer components {
+  .brand-zero {
+    font-family: var(--font-mono);
+    font-size: 0.97em;
+  }
+  .btn {
+    @apply inline-flex min-h-[40px] items-center justify-center gap-[8px] rounded-[8px] border border-transparent bg-blue px-[16px] py-[9px] text-[13px] leading-[1.4] font-[550] whitespace-nowrap text-white transition not-disabled:hover:-translate-y-0.5 not-disabled:active:translate-y-0 not-disabled:active:scale-[0.97] not-disabled:hover:bg-blue-dark not-disabled:hover:shadow-[0_5px_12px_#127ee31a] not-disabled:active:shadow-none disabled:cursor-not-allowed disabled:opacity-45;
+  }
+  .btn-secondary {
+    @apply inline-flex min-h-[40px] items-center justify-center gap-[8px] rounded-[8px] border border-line bg-white px-[16px] py-[9px] text-[13px] leading-[1.4] font-[550] whitespace-nowrap text-ink transition not-disabled:hover:-translate-y-0.5 not-disabled:active:translate-y-0 not-disabled:active:scale-[0.97] not-disabled:hover:border-[#c4cce0] not-disabled:hover:bg-wash disabled:cursor-not-allowed disabled:opacity-45;
+  }
+  /* Ghost buttons here are the prototype's `.btn.ghost.sm`. */
+  .btn-ghost {
+    @apply inline-flex min-h-[32px] items-center justify-center gap-[8px] rounded-[8px] border border-transparent px-[10px] py-[6px] text-[12px] leading-[1.4] font-[550] whitespace-nowrap text-muted transition not-disabled:hover:-translate-y-0.5 not-disabled:active:translate-y-0 not-disabled:active:scale-[0.97] not-disabled:hover:bg-soft not-disabled:hover:text-blue disabled:cursor-not-allowed disabled:opacity-45;
+  }
+  .btn-danger {
+    @apply inline-flex min-h-[40px] items-center justify-center gap-[8px] rounded-[8px] border border-[#f1d4d4] bg-[#fff3f3] px-[16px] py-[9px] text-[13px] leading-[1.4] font-[550] whitespace-nowrap text-red transition not-disabled:hover:-translate-y-0.5 not-disabled:active:translate-y-0 not-disabled:active:scale-[0.97] not-disabled:hover:bg-[#ffe6e6] disabled:cursor-not-allowed disabled:opacity-45;
+  }
+  .btn-sm {
+    @apply min-h-[32px] px-[10px] py-[6px] text-[12px];
+  }
+  .icon-btn {
+    @apply inline-flex size-[32px] flex-none items-center justify-center rounded-[7px] text-muted transition hover:bg-soft hover:text-blue active:scale-[0.92] disabled:opacity-40;
+  }
+  .card {
+    @apply rounded-[12px] border border-line bg-white;
+  }
+  .field-label {
+    @apply mb-[7px] block text-[12px] font-medium text-[#5d6984];
+  }
+  .input {
+    @apply w-full rounded-[7px] border border-[#dfe4ef] bg-white px-[12px] py-[10px] text-[13px] leading-[1.7] text-ink outline-none transition placeholder:text-[#afb4c3] focus:border-blue focus:shadow-[0_0_0_3px_#127ee318] disabled:bg-wash;
+  }
+  .hint {
+    @apply mt-1.5 block text-[11px] leading-relaxed text-muted;
+  }
+  .eyebrow {
+    @apply font-mono text-[10px] font-medium tracking-[0.15em] text-muted uppercase;
+  }
+  .tag {
+    @apply inline-flex items-center gap-[5px] rounded-[5px] border border-transparent bg-[#f4f5fa] px-[7px] py-[3px] text-[10px] leading-[1.5] text-[#636b84];
+  }
+  .text-link {
+    @apply inline-flex items-center gap-[5px] text-[12px] text-blue hover:underline;
+  }
 }
 
-/* The dashboard's navigation bar (components/dashboard/navigation-progress.tsx):
-   quick at first, then creeping, never reaching the end until the page lands. */
-@keyframes nav-progress {
-  from { width: 8%; }
-  20% { width: 45%; }
-  60% { width: 75%; }
-  to { width: 92%; }
-}
-
-/* A floating card opening under its trigger (components/dashboard/library-rebuild.tsx). */
-@keyframes popover-in {
-  from { opacity: 0; transform: translateY(-4px); }
-  to { opacity: 1; transform: translateY(0); }
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    transition: none !important;
+    animation: none !important;
+  }
 }

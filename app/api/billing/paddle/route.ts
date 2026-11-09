@@ -1,39 +1,31 @@
 /**
- * POST /api/billing/paddle -- Paddle's webhook destination. architecture.md 11.3.
+ * `POST /api/billing/paddle`: Paddle's notification destination (its URL in
+ * the Paddle dashboard must end in this path).
  *
- * The body is read as text and handed over untouched: the signature is over
- * the exact bytes Paddle sent, and parsing first would verify a re-serialised
- * copy instead.
- *
- * The status codes are the retry policy. A 2xx tells Paddle to stop, which is
- * right for everything the use case returns -- including notifications it
- * recorded but could not place, which would fail the same way on every retry.
- * A 401 is a forged or mis-signed request. A 5xx is reserved for "try again":
- * the settings are missing, or the database or Paddle's API was unreachable,
- * the transaction rolled back, and the event is still unprocessed.
+ * The body is read as text and verified untouched: the signature is over the
+ * exact bytes. Status codes are the retry policy: 2xx stops Paddle (applied,
+ * a duplicate, or not ours), 401 is a forged or mis-signed request, 5xx asks
+ * for a retry -- settings missing, the database unreachable, or a buyer we
+ * cannot place yet; the transaction rolled back and nothing was recorded.
  */
-import { NextResponse, type NextRequest } from 'next/server';
-import { receivePaymentWebhook } from '@/lib/application/billing';
-import { PaymentNotConfigured, WebhookRejected } from '@/lib/infrastructure/payment/provider';
+import type { NextRequest } from 'next/server';
+import { fail, json } from '@/lib/http/respond';
+import { PaddleNotConfigured } from '@/lib/infra/paddle';
+import { receivePaddleWebhook, RetryLater, WebhookRejected } from '@/lib/services/billing';
 
-export async function POST(request: NextRequest): Promise<NextResponse> {
+export async function POST(request: NextRequest) {
   const rawBody = await request.text();
   try {
-    const outcome = await receivePaymentWebhook(rawBody, request.headers.get('paddle-signature'));
-    return NextResponse.json({ outcome });
+    const outcome = await receivePaddleWebhook(rawBody, request.headers.get('paddle-signature'));
+    return json({ outcome });
   } catch (error) {
-    if (error instanceof WebhookRejected) {
-      return NextResponse.json({ error: 'invalid_signature' }, { status: 401 });
+    if (error instanceof WebhookRejected) return fail('invalid_signature', 401);
+    if (error instanceof PaddleNotConfigured) return fail('not_configured', 503);
+    if (error instanceof RetryLater) {
+      console.warn('paddle webhook deferred', error.message);
+      return fail('retry', 503);
     }
-    /*
-     * Settings missing is still "try again": a deployment whose secret was
-     * dropped in a bad release should catch up once it is restored, not lose
-     * every payment made in between.
-     */
-    if (error instanceof PaymentNotConfigured) {
-      return NextResponse.json({ error: 'not_configured' }, { status: 503 });
-    }
-    console.error('payment webhook failed', (error as Error).message);
-    return NextResponse.json({ error: 'retry' }, { status: 500 });
+    console.error('paddle webhook failed', (error as Error).message);
+    return fail('retry', 500);
   }
 }

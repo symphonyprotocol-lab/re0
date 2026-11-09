@@ -1,0 +1,733 @@
+<title>Re0 项目介绍</title>
+<meta name="claude:viewport-fit-sides" content="cover">
+<meta name="description" content="Re0 把公开文档和私有资料变成 AI Agent 可检索、可引用、可独立验证的版本化知识库，按 Call 计费，并按调用量向知识库维护者分成。">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&family=JetBrains+Mono:wght@400;500;700&display=swap" rel="stylesheet">
+<style>
+  /* Layout: a ledger. Sections are rows on a long statement; figures are set in
+     mono like line items, the brand blue marks only money and the thesis. */
+  :root {
+    --bg: #f5f3ff;
+    --card: #ffffff;
+    --subtle: #eef1fb;
+    --line: #e1e9f0;
+    --ink: #091135;
+    --muted: #3d4157;
+    --faint: #6f7898;
+    --brand: #127ee3;
+    --brandink: #0f6fd6;
+    --brandsoft: #e6f0fd;
+    --onbrand: #ffffff;
+    --panel: #091135;
+    --panelink: #e1e9f0;
+    --panelmuted: #8b95b8;
+    --panelline: #232c5c;
+    --good: #0a8a5f;
+    --shadow: 0 1px 2px rgba(9, 17, 53, .04), 0 10px 30px rgba(9, 17, 53, .06);
+    --f-body: Inter, "PingFang SC", "Hiragino Sans GB", "Microsoft YaHei", "Noto Sans SC", system-ui, sans-serif;
+    --f-mono: "JetBrains Mono", ui-monospace, SFMono-Regular, Menlo, monospace;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root:not([data-theme="light"]) {
+      --bg: #060c26; --card: #091135; --subtle: #0d1740; --line: #232c5c;
+      --ink: #ffffff; --muted: #c1c9da; --faint: #8b95b8;
+      --brand: #3a91f0; --brandink: #6aa9ff; --brandsoft: #16215a; --onbrand: #ffffff;
+      --panel: #04081c; --panelink: #e1e9f0; --panelmuted: #8b95b8; --panelline: #232c5c;
+      --good: #4cc79a;
+      --shadow: 0 1px 2px rgba(0, 0, 0, .3), 0 10px 30px rgba(0, 0, 0, .3);
+      color-scheme: dark;
+    }
+  }
+  :root[data-theme="dark"] {
+    --bg: #060c26; --card: #091135; --subtle: #0d1740; --line: #232c5c;
+    --ink: #ffffff; --muted: #c1c9da; --faint: #8b95b8;
+    --brand: #3a91f0; --brandink: #6aa9ff; --brandsoft: #16215a; --onbrand: #ffffff;
+    --panel: #04081c; --panelink: #e1e9f0; --panelmuted: #8b95b8; --panelline: #232c5c;
+    --good: #4cc79a;
+    --shadow: 0 1px 2px rgba(0, 0, 0, .3), 0 10px 30px rgba(0, 0, 0, .3);
+    color-scheme: dark;
+  }
+
+  * { box-sizing: border-box; }
+  html { scroll-behavior: smooth; }
+  @media (prefers-reduced-motion: reduce) { html { scroll-behavior: auto; } }
+  body {
+    margin: 0; background: var(--bg); color: var(--ink);
+    font-family: var(--f-body); font-size: 16px; line-height: 1.7;
+    -webkit-font-smoothing: antialiased;
+  }
+  body::before {
+    content: ""; position: fixed; inset: 0 0 auto; height: env(safe-area-inset-top, 0px);
+    z-index: 30; background: var(--bg);
+  }
+  a { color: inherit; }
+  a:focus-visible, button:focus-visible, input:focus-visible, summary:focus-visible {
+    outline: 2px solid var(--brand); outline-offset: 3px; border-radius: 4px;
+  }
+  .mono { font-family: var(--f-mono); }
+  .wrap {
+    max-width: 1120px; margin: 0 auto;
+    padding-left: max(16px, env(safe-area-inset-left, 0px));
+    padding-right: max(16px, env(safe-area-inset-right, 0px));
+  }
+  @media (min-width: 760px) {
+    .wrap {
+      padding-left: max(32px, env(safe-area-inset-left, 0px));
+      padding-right: max(32px, env(safe-area-inset-right, 0px));
+    }
+  }
+  h1, h2, h3 { text-wrap: balance; margin: 0; }
+
+  /* Header */
+  .top {
+    position: sticky; top: env(safe-area-inset-top, 0px); z-index: 20;
+    background: color-mix(in srgb, var(--bg) 88%, transparent);
+    backdrop-filter: saturate(1.4) blur(10px);
+    border-bottom: 1px solid var(--line);
+  }
+  .top .wrap { display: flex; align-items: center; justify-content: space-between; gap: 16px; height: 60px; }
+  .brand { display: flex; align-items: center; gap: 10px; font-weight: 800; font-size: 19px; text-decoration: none; }
+  .brand svg { width: 26px; height: 26px; flex: none; }
+  .brand small { font-weight: 500; font-size: 13px; color: var(--faint); margin-left: 4px; }
+  .top nav { display: none; gap: 24px; font-size: 14px; color: var(--muted); }
+  .top nav a { text-decoration: none; }
+  .top nav a:hover { color: var(--ink); }
+  @media (min-width: 900px) { .top nav { display: flex; } }
+  .btn {
+    display: inline-flex; align-items: center; justify-content: center; gap: 8px;
+    height: 42px; padding: 0 18px; border-radius: 8px; font-weight: 600; font-size: 15px;
+    text-decoration: none; white-space: nowrap; border: 1px solid transparent;
+  }
+  .btn-primary { background: var(--brand); color: var(--onbrand); }
+  .btn-primary:hover { filter: brightness(.94); }
+  .btn-ghost { background: var(--card); border-color: var(--line); color: var(--ink); }
+  .btn-ghost:hover { border-color: var(--brand); }
+  .btn-sm { height: 36px; padding: 0 14px; font-size: 14px; }
+
+  /* Hero */
+  .hero { padding-block: 64px 56px; }
+  @media (min-width: 960px) { .hero { padding-block: 96px 80px; } }
+  .hero-grid { display: grid; gap: 48px; align-items: center; }
+  @media (min-width: 960px) { .hero-grid { grid-template-columns: 1.1fr .9fr; } }
+  .hero-grid > * { min-width: 0; }
+  .kicker {
+    font-family: var(--f-mono); font-size: 12.5px; letter-spacing: .1em; text-transform: uppercase;
+    color: var(--brandink); margin: 0 0 18px;
+  }
+  h1 { font-size: clamp(32px, 4.2vw, 52px); line-height: 1.18; letter-spacing: -.025em; font-weight: 800; }
+  h1 em { font-style: normal; color: var(--brand); }
+  @media (min-width: 640px) { h1 .nw { white-space: nowrap; } }
+  .lead { font-size: clamp(17px, 2vw, 19px); color: var(--muted); max-width: 34em; margin: 22px 0 32px; }
+  .cta-row { display: flex; flex-wrap: wrap; gap: 12px; }
+
+  .facts {
+    display: grid; grid-template-columns: repeat(2, 1fr); gap: 1px; margin-top: 44px;
+    background: var(--line); border: 1px solid var(--line); border-radius: 12px; overflow: hidden;
+  }
+  @media (min-width: 640px) { .facts { grid-template-columns: repeat(4, 1fr); } }
+  .facts div { background: var(--card); padding: 16px 18px; min-width: 0; }
+  .facts strong { display: block; font-family: var(--f-mono); font-size: 22px; font-weight: 700; letter-spacing: -.02em; }
+  .facts span { font-size: 13px; color: var(--muted); line-height: 1.45; display: block; margin-top: 2px; }
+
+  /* Settlement statement mock */
+  .stmt {
+    background: var(--panel); color: var(--panelink); border: 1px solid var(--panelline);
+    border-radius: 12px; box-shadow: 0 24px 60px rgba(9, 17, 53, .22); font-family: var(--f-mono);
+    font-size: 13px; overflow: hidden;
+  }
+  .stmt-head { display: flex; justify-content: space-between; gap: 12px; padding: 14px 18px; border-bottom: 1px solid var(--panelline); color: var(--panelmuted); font-size: 12px; }
+  .stmt-head b { color: var(--panelink); font-weight: 500; }
+  .stmt-body { padding: 8px 18px 4px; overflow-x: auto; }
+  .stmt table { width: 100%; border-collapse: collapse; font-variant-numeric: tabular-nums; }
+  .stmt td { padding: 9px 0; border-bottom: 1px dashed var(--panelline); white-space: nowrap; color: var(--panelink); }
+  .stmt td:last-child { text-align: right; padding-left: 16px; }
+  .stmt tr:last-child td { border-bottom: 0; }
+  .stmt .dim { color: var(--panelmuted); }
+  .stmt .sum td { font-weight: 700; color: #ffffff; border-top: 1px solid var(--panelline); border-bottom: 0; padding-top: 12px; }
+  .stmt .sum td:last-child { color: #6aa9ff; }
+  .stmt-foot { padding: 12px 18px 14px; border-top: 1px solid var(--panelline); color: var(--panelmuted); font-size: 11.5px; line-height: 1.6; }
+  .stmt-foot b { color: #9fe0c0; font-weight: 500; }
+  .stmt-label { font-family: var(--f-body); font-size: 12.5px; color: var(--faint); margin-top: 10px; text-align: center; }
+
+  /* Sections */
+  section { padding-block: 72px; border-top: 1px solid var(--line); }
+  @media (min-width: 960px) { section { padding-block: 96px; } }
+  .sec-head { display: grid; gap: 12px; margin-bottom: 44px; max-width: 760px; }
+  .sec-no { font-family: var(--f-mono); font-size: 12.5px; letter-spacing: .1em; text-transform: uppercase; color: var(--brandink); }
+  h2 { font-size: clamp(27px, 3.6vw, 38px); line-height: 1.22; letter-spacing: -.02em; font-weight: 800; }
+  .sec-lead { color: var(--muted); font-size: 17px; margin: 0; max-width: 40em; }
+  .card { background: var(--card); border: 1px solid var(--line); border-radius: 12px; }
+
+  /* Problem */
+  .problems { display: grid; gap: 16px; }
+  @media (min-width: 860px) { .problems { grid-template-columns: repeat(3, 1fr); } }
+  .problem { padding: 26px; }
+  .problem .who { font-family: var(--f-mono); font-size: 12px; letter-spacing: .08em; text-transform: uppercase; color: var(--faint); }
+  .problem h3 { font-size: 18px; margin: 8px 0 10px; line-height: 1.4; }
+  .problem p { margin: 0; color: var(--muted); font-size: 15px; }
+
+  /* Product */
+  .product { display: grid; gap: 32px; }
+  @media (min-width: 960px) { .product { grid-template-columns: .9fr 1.1fr; gap: 48px; align-items: start; } }
+  .product > * { min-width: 0; }
+  .two-step { padding: 24px; }
+  .two-step h3 { font-size: 16px; margin-bottom: 14px; }
+  .call { display: grid; gap: 4px; padding: 14px 16px; border-radius: 8px; background: var(--subtle); font-family: var(--f-mono); font-size: 13px; overflow-x: auto; }
+  .call + .call { margin-top: 10px; }
+  .call .fn { color: var(--brandink); font-weight: 700; }
+  .call .ret { color: var(--muted); white-space: nowrap; }
+  .two-step p { margin: 16px 0 0; color: var(--muted); font-size: 14.5px; }
+  .caps { display: grid; gap: 0; border-top: 1px solid var(--line); }
+  .cap { display: grid; grid-template-columns: 7.5em 1fr; gap: 16px; padding: 16px 0; border-bottom: 1px solid var(--line); }
+  .cap dt { font-weight: 700; }
+  .cap dd { margin: 0; color: var(--muted); font-size: 15px; min-width: 0; }
+  @media (max-width: 520px) { .cap { grid-template-columns: 1fr; gap: 4px; } }
+
+  /* Business model */
+  .plans { display: grid; gap: 16px; }
+  @media (min-width: 860px) { .plans { grid-template-columns: repeat(3, 1fr); } }
+  .plan { padding: 26px; display: grid; gap: 6px; align-content: start; }
+  .plan.on { border: 2px solid var(--brand); box-shadow: var(--shadow); }
+  .plan .name { font-weight: 700; font-size: 16px; display: flex; justify-content: space-between; align-items: center; gap: 8px; }
+  .tag { font-size: 12px; font-weight: 600; padding: 2px 10px; border-radius: 999px; background: var(--brandsoft); color: var(--brandink); }
+  .plan .price { font-family: var(--f-mono); font-size: 38px; font-weight: 700; letter-spacing: -.03em; line-height: 1.15; }
+  .plan .price small { font-family: var(--f-body); font-size: 14px; font-weight: 500; color: var(--muted); letter-spacing: 0; }
+  .plan .calls { font-family: var(--f-mono); color: var(--brandink); font-size: 14px; font-weight: 500; }
+  .plan p { margin: 8px 0 0; color: var(--muted); font-size: 14.5px; }
+
+  .econ { display: grid; gap: 16px; margin-top: 32px; }
+  @media (min-width: 860px) { .econ { grid-template-columns: repeat(3, 1fr); } }
+  .econ-item { padding: 22px 24px; background: var(--subtle); border-radius: 12px; }
+  .econ-item .fig { font-family: var(--f-mono); font-size: 26px; font-weight: 700; letter-spacing: -.02em; }
+  .econ-item h3 { font-size: 15px; margin: 2px 0 6px; }
+  .econ-item p { margin: 0; color: var(--muted); font-size: 14px; }
+
+  .streams { margin-top: 32px; overflow-x: auto; }
+  .streams table { width: 100%; border-collapse: collapse; font-size: 14.5px; min-width: 560px; }
+  .streams th, .streams td { text-align: left; padding: 12px 14px; border-bottom: 1px solid var(--line); vertical-align: top; }
+  .streams th { font-family: var(--f-mono); font-size: 12px; letter-spacing: .08em; text-transform: uppercase; color: var(--faint); font-weight: 500; }
+  .streams td:first-child { font-weight: 600; white-space: nowrap; }
+  .streams td { color: var(--muted); }
+  .status { display: inline-block; font-size: 12.5px; font-weight: 600; padding: 2px 10px; border-radius: 999px; white-space: nowrap; }
+  .status.live { background: color-mix(in srgb, var(--good) 14%, transparent); color: var(--good); }
+  .status.next { background: var(--brandsoft); color: var(--brandink); }
+  .status.later { background: var(--subtle); color: var(--faint); border: 1px solid var(--line); }
+
+  /* Flywheel */
+  .loop { display: grid; gap: 12px; counter-reset: loop; }
+  @media (min-width: 900px) { .loop { grid-template-columns: repeat(4, 1fr); } }
+  .loop li { list-style: none; position: relative; padding: 22px 22px 22px; background: var(--card); border: 1px solid var(--line); border-radius: 12px; }
+  .loop li::before {
+    counter-increment: loop; content: counter(loop);
+    display: grid; place-items: center; width: 30px; height: 30px; border-radius: 999px;
+    background: var(--brandsoft); color: var(--brandink); font-family: var(--f-mono); font-weight: 700; font-size: 14px; margin-bottom: 12px;
+  }
+  .loop h3 { font-size: 16px; margin-bottom: 6px; }
+  .loop p { margin: 0; font-size: 14.5px; color: var(--muted); }
+  .loop-back { margin-top: 14px; font-size: 14px; color: var(--faint); font-family: var(--f-mono); }
+  .loop ol { margin: 0; padding: 0; }
+
+  .rules { display: grid; gap: 16px; margin-top: 40px; }
+  @media (min-width: 860px) { .rules { grid-template-columns: repeat(2, 1fr); } }
+  @media (min-width: 1000px) { .rules.three { grid-template-columns: repeat(3, 1fr); } }
+  .pre-title { font-size: 20px; margin: 48px 0 0; }
+  .pre-title + .rules { margin-top: 16px; }
+  .rules .when { margin: -4px 0 12px; font-size: 13.5px; color: var(--faint); }
+  .rules .card { padding: 24px 26px; }
+  .rules h3 { font-size: 16px; margin-bottom: 10px; }
+  .rules ul { margin: 0; padding-left: 20px; display: grid; gap: 6px; color: var(--muted); font-size: 14.5px; }
+  .rules li::marker { color: var(--brand); }
+
+  /* Model */
+  .model { display: grid; gap: 24px; }
+  @media (min-width: 960px) { .model { grid-template-columns: 1fr 1fr; gap: 32px; } }
+  .model > * { min-width: 0; }
+  .controls { padding: 26px; }
+  .controls h3 { font-size: 18px; }
+  .controls .hint { margin: 4px 0 22px; color: var(--muted); font-size: 14px; }
+  .field { margin-bottom: 20px; }
+  .field:last-child { margin-bottom: 0; }
+  .field-head { display: flex; justify-content: space-between; align-items: baseline; gap: 12px; margin-bottom: 8px; font-size: 14.5px; }
+  .field-head label { color: var(--muted); }
+  .field-head output { font-family: var(--f-mono); font-weight: 700; white-space: nowrap; font-variant-numeric: tabular-nums; }
+  input[type=range] { width: 100%; accent-color: var(--brand); margin: 0; height: 24px; }
+  .out { padding: 26px; display: grid; gap: 20px; align-content: start; }
+  .out-rows { display: grid; gap: 0; font-variant-numeric: tabular-nums; }
+  .out-row { display: flex; justify-content: space-between; gap: 16px; padding: 11px 0; border-bottom: 1px dashed var(--line); font-size: 15px; }
+  .out-row span:first-child { color: var(--muted); }
+  .out-row span:last-child { font-family: var(--f-mono); font-weight: 600; white-space: nowrap; }
+  .out-row.total { border-bottom: 0; border-top: 1px solid var(--ink); padding-top: 14px; font-size: 16px; }
+  .out-row.total span { color: var(--ink); font-weight: 700; }
+  .out-row.pool span:last-child { color: var(--brand); }
+  .bar { display: flex; height: 14px; border-radius: 999px; overflow: hidden; background: var(--subtle); }
+  .bar i { display: block; height: 100%; transition: width .25s; }
+  .bar .b-fee { background: var(--line); }
+  .bar .b-pool { background: var(--brand); }
+  .bar .b-keep { background: var(--ink); }
+  @media (prefers-reduced-motion: reduce) { .bar i { transition: none; } }
+  .legend { display: flex; flex-wrap: wrap; gap: 8px 18px; font-size: 13px; color: var(--muted); }
+  .legend span { display: inline-flex; align-items: center; gap: 6px; }
+  .legend span::before { content: ""; width: 10px; height: 10px; border-radius: 3px; background: var(--c); }
+  .assume { font-size: 12.5px; color: var(--faint); line-height: 1.7; margin: 0; }
+
+  /* Competition */
+  .comp { overflow-x: auto; }
+  .comp table { width: 100%; border-collapse: collapse; min-width: 640px; font-size: 14.5px; }
+  .comp th, .comp td { text-align: left; padding: 14px 16px; border-bottom: 1px solid var(--line); vertical-align: top; }
+  .comp thead th { font-family: var(--f-mono); font-size: 12px; letter-spacing: .08em; text-transform: uppercase; color: var(--faint); font-weight: 500; }
+  .comp td { color: var(--muted); }
+  .comp td:first-child { font-weight: 600; color: var(--ink); white-space: nowrap; }
+  .comp tr.us td { background: var(--brandsoft); color: var(--ink); }
+  .comp tr.us td:first-child { color: var(--brandink); }
+  .comp-note { font-size: 13px; color: var(--faint); margin: 14px 0 0; }
+
+  .moat { display: grid; gap: 16px; margin-top: 40px; }
+  @media (min-width: 760px) { .moat { grid-template-columns: repeat(2, 1fr); } }
+  .moat .card { padding: 24px 26px; }
+  .moat h3 { font-size: 17px; margin-bottom: 8px; }
+  .moat p { margin: 0; color: var(--muted); font-size: 15px; }
+
+  /* Roadmap */
+  .road { display: grid; gap: 16px; }
+  @media (min-width: 900px) { .road { grid-template-columns: repeat(3, 1fr); } }
+  .road .card { padding: 26px; display: grid; gap: 12px; align-content: start; }
+  .road h3 { font-size: 18px; }
+  .road ul { margin: 0; padding-left: 20px; display: grid; gap: 8px; color: var(--muted); font-size: 14.5px; }
+  .road li::marker { color: var(--faint); }
+
+  /* Close */
+  .close { padding-block: 72px 88px; border-top: 1px solid var(--line); }
+  .close-card {
+    border-radius: 16px; padding: 48px 24px; text-align: center;
+    background: var(--panel); color: var(--panelink); border: 1px solid var(--panelline);
+  }
+  .close-card h2 { color: #ffffff; }
+  .close-card p { color: var(--panelmuted); max-width: 36em; margin: 14px auto 28px; font-size: 16.5px; }
+  .close-card .btn-ghost { background: transparent; color: #ffffff; border-color: var(--panelline); }
+  .close-card .btn-ghost:hover { border-color: #6aa9ff; }
+  .close-card .btn-primary { background: #127ee3; color: #ffffff; }
+  footer { padding-block: 0 48px; color: var(--faint); font-size: 13.5px; }
+  footer .wrap { display: flex; flex-wrap: wrap; justify-content: space-between; gap: 12px; }
+</style>
+
+<header class="top">
+  <div class="wrap">
+    <a class="brand" href="#top">
+      <svg viewBox="0 0 32 32" aria-hidden="true"><rect width="32" height="32" rx="10.67" fill="#127ee3"/><g fill="#fff" stroke="#fff" stroke-linejoin="round"><path d="M17.25 8.91A7.2 7.2 0 1 0 23.2 16" fill="none" stroke-width="3"/><circle cx="17.25" cy="8.91" r="1.5" stroke="none"/><path d="M23.2 11.4 25.75 16h-5.1Z"/><circle cx="16" cy="16" r="2.5" stroke="none"/></g></svg>
+      Re0<small>项目介绍</small>
+    </a>
+    <nav aria-label="页面导航">
+      <a href="#problem">背景</a>
+      <a href="#product">功能</a>
+      <a href="#model">价格</a>
+      <a href="#flywheel">发布者收益</a>
+      <a href="#market">对比</a>
+      <a href="#stack">技术</a>
+      <a href="#roadmap">路线图</a>
+    </nav>
+    <a class="btn btn-primary btn-sm" href="https://re0.io/playground">试用产品</a>
+  </div>
+</header>
+
+<main id="top">
+  <div class="hero">
+    <div class="wrap hero-grid">
+      <div>
+        <p class="kicker">Knowledge supply for AI agents</p>
+        <h1><span class="nw">把文档变成</span><br><em class="nw">可检索、可引用、可验证</em><br><span class="nw">的版本化知识库</span></h1>
+        <p class="lead">Re0 把公开文档和你有权使用的私有资料整理成带版本、带出处的知识库，按 Call 计费，并为通过审核的专家库提供调用分成。</p>
+        <div class="cta-row">
+          <a class="btn btn-primary" href="https://re0.io/playground">在线试用</a>
+          <a class="btn btn-ghost" href="https://re0.io/libraries">浏览知识库目录</a>
+        </div>
+        <div class="facts">
+          <div><strong>$0.001</strong><span>每个 Call 的付费价格</span></div>
+          <div><strong>≤ 20%</strong><span>净收入用于发布者分成</span></div>
+          <div><strong>0</strong><span>REST / MCP 链路中的 LLM 调用</span></div>
+          <div><strong>4</strong><span>入口已实现：Web、REST、MCP、CLI/SDK</span></div>
+        </div>
+      </div>
+
+      <div>
+        <div class="stmt" role="img" aria-label="一张示例发布者结算单：按调用量计算的收益、45 天持有期和链上摘要">
+          <div class="stmt-head"><span>结算单 <b>/acme/payments-api</b></span><span>2026-09</span></div>
+          <div class="stmt-body">
+            <table>
+              <tr><td class="dim">可分成 query-docs</td><td>182,400</td></tr>
+              <tr><td class="dim">全部可分成 Call 中占比</td><td>3.12%</td></tr>
+              <tr><td class="dim">当期分成池</td><td>$4,210.00</td></tr>
+              <tr><td class="dim">自刷与超限调用</td><td>不计</td></tr>
+              <tr class="sum"><td>本期收益</td><td>$131.35</td></tr>
+            </table>
+          </div>
+          <div class="stmt-foot">
+            持有期 45 天 · 转为不过期 Calls，或满 $20 提现到 PayPal<br>
+            摘要已锚定 <b>aptos · 0x7c4e…e41a</b>
+          </div>
+        </div>
+        <p class="stmt-label">示例数据，用于说明结算单结构</p>
+      </div>
+    </div>
+  </div>
+
+  <section id="problem">
+    <div class="wrap">
+      <div class="sec-head">
+        <span class="sec-no">背景</span>
+        <h2>Agent 写代码的速度，取决于它读到的文档对不对</h2>
+        <p class="sec-lead">Claude、Codex、Cursor 正在成为文档的主要读者。这条链路上的三方都有没被解决的问题。</p>
+      </div>
+      <div class="problems">
+        <div class="card problem">
+          <span class="who">开发者</span>
+          <h3>Agent 引用过期的 API，而且说不清出处</h3>
+          <p>模型训练数据有截止日期。框架每月都在变，Agent 写出的代码常常基于旧版本，错了也无从查证是哪一份文档说的。</p>
+        </div>
+        <div class="card problem">
+          <span class="who">团队与采购</span>
+          <h3>按 Token 计费的上下文，账单无法预估</h3>
+          <p>同样一次查询，返回长短不同，费用就不同。团队也很难控制 Agent 能读哪些来源，私有资料的边界不清楚。</p>
+        </div>
+        <div class="card problem">
+          <span class="who">文档维护者</span>
+          <h3>知识被 AI 大量消费，维护者一分钱拿不到</h3>
+          <p>最有价值的文档来自框架作者、API 提供方和行业专家，他们最没有理由免费给第三方平台持续维护。供给因此腐化。</p>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <section id="product">
+    <div class="wrap">
+      <div class="sec-head">
+        <span class="sec-no">功能</span>
+        <h2>一个为 Agent 准备的、可审计的知识层</h2>
+        <p class="sec-lead">Web、REST API、远程 MCP、CLI/SDK 四个入口共用同一套身份、版本、访问规则、计量和审计，均已在代码中实现。</p>
+      </div>
+      <div class="product">
+        <div class="card two-step">
+          <h3>Agent 只需要两次调用</h3>
+          <div class="call">
+            <span><span class="fn">resolve-library-id</span>(libraryName: "next.js")</span>
+            <span class="ret">→ /vercel/next.js · verified · trust 92</span>
+          </div>
+          <div class="call">
+            <span><span class="fn">query-docs</span>(libraryId: "/vercel/next.js", query: "cache components")</span>
+            <span class="ret">→ 6 段上下文 · 每段带来源 URL、章节、版本号</span>
+          </div>
+          <p>第二步必须指定一个明确的库。这个约束让每一次计费都对应到唯一的知识库版本，是分成能够成立的技术前提。</p>
+        </div>
+        <dl class="caps">
+          <div class="cap"><dt>始终最新</dt><dd>按来源变化创建不可变版本，按日或按周自动刷新；刷新失败时旧版本继续服务。</dd></div>
+          <div class="cap"><dt>可信目录</dt><dd>公开库经来源、权利与安全审核，带 Trust Score 和 Benchmark Score；所有权通过仓库权限或 DNS 认领。</dd></div>
+          <div class="cap"><dt>可追溯</dt><dd>每段上下文保留来源 URL、文档、章节和版本，Agent 的回答能逐句落到出处。</dd></div>
+          <div class="cap"><dt>可独立验证</dt><dd>版本、每日审计链头和发布者结算单的摘要写入 Aptos 主网，第三方不调用 Re0 即可校验。</dd></div>
+          <div class="cap"><dt>可治理</dt><dd>私有仓库、Notion、PDF 只服务所属工作空间；访问规则同时约束 Web、REST 和 MCP。</dd></div>
+          <div class="cap"><dt>多种来源</dt><dd>GitHub、网站（含 JS 渲染）、llms.txt、OpenAPI、Notion、PDF（含扫描件 OCR），以及嵌入官网的问答插件。</dd></div>
+        </dl>
+      </div>
+    </div>
+  </section>
+
+  <section id="model">
+    <div class="wrap">
+      <div class="sec-head">
+        <span class="sec-no">价格</span>
+        <h2>按 Call 计费，账单可以预估</h2>
+        <p class="sec-lead">只有三档自助价格，以 USD 结算，没有 Enterprise 档位。返回多少内容都不改变价格，所有公开知识库全部可查。</p>
+      </div>
+
+      <div class="plans">
+        <div class="card plan">
+          <div class="name">Free</div>
+          <div class="price">$0<small> / 月</small></div>
+          <div class="calls">1,000 Calls / 月</div>
+          <p>个人试用。5 个自建库、单库 20 MB、3 个 API Key，可查全部公开库。</p>
+        </div>
+        <div class="card plan on">
+          <div class="name">Pro <span class="tag">推荐</span></div>
+          <div class="price">$5<small> / 月</small></div>
+          <div class="calls">5,000 Calls / 月</div>
+          <p>25 个自建库、单库 100 MB、20 个 Key；参与发布者分成的前提。</p>
+        </div>
+        <div class="card plan">
+          <div class="name">Additional Calls</div>
+          <div class="price">$5<small> / 包</small></div>
+          <div class="calls">+5,000 Calls，永不过期</div>
+          <p>Pro 用户一次性购买，跨账期结转；降级到 Free 后余额仍可用。</p>
+        </div>
+      </div>
+
+      <div class="econ">
+        <div class="econ-item">
+          <div class="fig">1 Call</div>
+          <h3>一次成功的检索</h3>
+          <p><span class="mono">resolve-library-id</span> 和 <span class="mono">query-docs</span> 各计一次。返回多少 Chunk、多少 Token 都不改变价格，缓存命中也是 1 Call。</p>
+        </div>
+        <div class="econ-item">
+          <div class="fig">0 Call</div>
+          <h3>空结果与失败不收费</h3>
+          <p>返回零条结果的查询不计费；认证失败、参数错误、访问拒绝和平台错误也不计。页面浏览和 Dashboard 操作从不计费。</p>
+        </div>
+        <div class="econ-item">
+          <div class="fig">按新增</div>
+          <h3>建库只为新内容付费</h3>
+          <p>每次发布版本按新解析的内容折算 Calls，来源没变化不计费，平台升级引起的重建也由平台承担。</p>
+        </div>
+      </div>
+
+      <p class="comp-note">扣减顺序固定：先扣当期套餐额度，再扣调用包余额。套餐额度在账期末清零，调用包余额一直保留。</p>
+    </div>
+  </section>
+
+  <section id="flywheel">
+    <div class="wrap">
+      <div class="sec-head">
+        <span class="sec-no">发布者收益</span>
+        <h2>满足条件的专家库，按被调用次数分成</h2>
+        <p class="sec-lead">分成不是所有公开库都有。库要带「专家库」标签、所有者要在付费订阅中，调用也要来自其他工作空间。满足这些前提的调用，才进入当期分成池，按次数线性分给库的所有者。</p>
+      </div>
+
+      <ol class="loop">
+        <li><h3>维护者发布专家库</h3><p>公开库通过审核并有明确所有者，再申请专家库标签，由管理员批准。所有者工作空间需保持 Pro 订阅。</p></li>
+        <li><h3>Agent 调用更多</h3><p>目录更全、更新更及时，开发者把更多查询交给 Re0。</p></li>
+        <li><h3>收入与分成池增长</h3><p>订阅和调用包收入上升，分成池随之变大，每次调用都留下可复算的收益事件。</p></li>
+        <li><h3>更多维护者加入</h3><p>收益在 45 天持有期后可转为 Calls，或满 $20 提现到 PayPal，吸引下一批维护者。</p></li>
+      </ol>
+      <p class="loop-back">↺ 第 4 步回到第 1 步</p>
+
+      <h3 class="pre-title">参与分成的前提</h3>
+      <div class="rules three">
+        <div class="card">
+          <h3>库的条件</h3>
+          <p class="when">每次调用时实时判断，任一项不满足，这次调用就不产生收益</p>
+          <ul>
+            <li>公开且已发布，未被安全暂停</li>
+            <li>有明确所有者：工作空间建库时已验证来源，或已完成所有权认领；平台自建库不参与</li>
+            <li>带「专家库」标签：所有者申请、管理员按审核清单批准，可被撤销</li>
+            <li>所有者工作空间处于付费订阅</li>
+          </ul>
+        </div>
+        <div class="card">
+          <h3>调用的条件</h3>
+          <p class="when">只有其他用户真实用到这个库的调用才计入</p>
+          <ul>
+            <li>只计返回了结果的 <span class="mono">query-docs</span>；<span class="mono">resolve-library-id</span>、空结果和匿名试用都不计</li>
+            <li>所有者自己的调用不计；与所有者同一付款人或同一管理者的关联工作空间也不计，关账时按最新关联关系再核对一次</li>
+            <li>同一调用方对同一个库每天最多 200 次计入分成，超出的照常计费、不产生收益</li>
+          </ul>
+        </div>
+        <div class="card">
+          <h3>结算</h3>
+          <p class="when">按账期计算，收益不追溯到满足条件之前</p>
+          <ul>
+            <li>分成池 = 当期净收入 × 可分成调用占全部计费调用的比例 × 20%，按调用次数线性分配，不按 Trust Score 加权</li>
+            <li>关账时库处于暂停状态，当期收益作废</li>
+            <li>45 天持有期后，任意金额可转为不过期的 Calls，或满 $20 申请提现到 PayPal</li>
+          </ul>
+        </div>
+      </div>
+      <p class="comp-note">申请专家库标签时，库还要公开、已发布、所有者在付费订阅中，且评测题集达到题数下限、当前版本的命中率达到下限（阈值由运营在后台配置）。申请被拒或标签被撤销后，7 天内不能重新申请。收益数据不进入检索和排序。</p>
+    </div>
+  </section>
+
+  <section id="unit">
+    <div class="wrap">
+      <div class="sec-head">
+        <span class="sec-no">收益估算</span>
+        <h2>一个专家库每月能分到多少</h2>
+        <p class="sec-lead">收益 ≈ 满足上述前提的调用次数 × 平台每个计费 Call 的平均净收入 × 20%。拖动滑块看不同调用量下的结果。</p>
+      </div>
+
+      <div class="model">
+        <div class="card controls">
+          <h3>估算条件</h3>
+          <p class="hint">示例假设，实际金额取决于当期平台净收入与全部可分成调用。</p>
+          <div class="field">
+            <div class="field-head"><label for="m-calls">每月计入分成的 query-docs 次数</label><output id="o-calls" for="m-calls"></output></div>
+            <input id="m-calls" type="range" min="0" max="100" value="50">
+          </div>
+          <div class="field">
+            <div class="field-head"><label for="m-rev">每个计费 Call 的平均净收入</label><output id="o-rev" for="m-rev"></output></div>
+            <input id="m-rev" type="range" min="2" max="10" value="8" step="1">
+          </div>
+        </div>
+
+        <div class="card out" aria-live="polite">
+          <div class="out-rows">
+            <div class="out-row"><span>可分成调用</span><span id="r-calls"></span></div>
+            <div class="out-row"><span>× 每 Call 净收入</span><span id="r-rev"></span></div>
+            <div class="out-row"><span>× 分成比例</span><span>20%</span></div>
+            <div class="out-row total pool"><span>每月收益</span><span id="r-month"></span></div>
+          </div>
+          <div class="out-rows">
+            <div class="out-row"><span>或转为不过期的 Calls</span><span id="r-credit"></span></div>
+            <div class="out-row"><span>累计到 $20 提现门槛</span><span id="r-payout"></span></div>
+          </div>
+          <p class="assume">按 Pro 价格 $5 / 5,000 Calls，满额付费时每个 Call 约 $0.001；免费用量、支付手续费和退款会拉低这个值。转为 Calls 时按调用包价格换算并向上取整，不设门槛。</p>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <section id="market">
+    <div class="wrap">
+      <div class="sec-head">
+        <span class="sec-no">对比</span>
+        <h2>MCP 生态已经给工具作者分钱，还没人给知识提供者分钱</h2>
+        <p class="sec-lead">截至 2026 年 8 月对同类产品的调研。</p>
+      </div>
+      <div class="comp card">
+        <table>
+          <thead><tr><th>产品</th><th>做什么</th><th>知识提供者能否获得收入</th></tr></thead>
+          <tbody>
+            <tr><td>Context7</td><td>面向 Agent 的文档检索，库所有者可认领并管理配置</td><td>没有面向文档贡献者的分成；社区讨论过接入广告，收益归平台</td></tr>
+            <tr><td>DeepWiki / Ref / Docfork</td><td>代码库与文档的 AI 检索</td><td>没有贡献者分成</td></tr>
+            <tr><td>MCP 市场（MCPize、AgenticMarket 等）</td><td>MCP Server 的分发与收费</td><td>给工具开发者分 80–90%，分的是工具的钱，被检索的文档仍然无人付费</td></tr>
+            <tr class="us"><td>Re0</td><td>版本化、可验证的知识库，按 Call 计费</td><td>满足前提的专家库按调用量分得可归因净收入的 20%，结算单上链</td></tr>
+          </tbody>
+        </table>
+      </div>
+      <p class="comp-note">接口形态参考了 Context7 的两步查询，现有 Agent 的接入习惯可以直接迁移。</p>
+
+      <div class="moat">
+        <div class="card">
+          <h3>确定性归因</h3>
+          <p>按 Token 计费、或一次查询融合多个库结果的服务，无法在没有分摊争议的情况下给单个知识库算钱。Re0 的每个计费单位都对应一个库的一个版本，分成可以用原始调用记录逐条复算。</p>
+        </div>
+        <div class="card">
+          <h3>可公开验证的账本</h3>
+          <p>版本内容和结算单的摘要锚定在 Aptos 主网，配套的独立 Verifier 不依赖 Re0 的接口。发布者不需要信任平台，自己就能核对账单没被改过。</p>
+        </div>
+        <div class="card">
+          <h3>所有权认领</h3>
+          <p>能拿到分成的人必须证明自己控制来源：GitHub 仓库要求 admin 或 maintain 权限，网站要求 DNS TXT 记录。镜像站和 Fork 抢不走收益。</p>
+        </div>
+        <div class="card">
+          <h3>排序保持中立</h3>
+          <p>收益数据不进入检索、召回和排序；Trust Score 只决定能否参与分成，不决定分多少。目录质量不会因为分成机制而被博弈。</p>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <section id="stack">
+    <div class="wrap">
+      <div class="sec-head">
+        <span class="sec-no">技术</span>
+        <h2>发布是一次真正的数据库事务</h2>
+        <p class="sec-lead">Chunk 正文、全文索引和向量存在同一个 Postgres 里，并在同一个事务内写入。一个版本要么完整发布，要么完全不出现，不存在跨系统的中间状态。</p>
+      </div>
+      <div class="comp card">
+        <table>
+          <thead><tr><th>关注点</th><th>选型</th><th>说明</th></tr></thead>
+          <tbody>
+            <tr><td>Web 与 BFF</td><td>Next.js App Router</td><td>部署在 Vercel Functions</td></tr>
+            <tr><td>业务数据库</td><td>Neon Postgres + Drizzle</td><td>生产、预览、本地按分支隔离</td></tr>
+            <tr><td>检索</td><td>Postgres 全文检索 + BM25，pgvector</td><td>向量与 Chunk 同库同事务</td></tr>
+            <tr><td>对象存储</td><td>Vercel Blob / S3 兼容 Bucket</td><td>每个环境一个私有 Store</td></tr>
+            <tr><td>长任务</td><td>Vercel Workflows</td><td>建库、刷新、重试，Cron 兜底</td></tr>
+            <tr><td>边缘状态</td><td>Upstash Redis</td><td>只做匿名限流与检索缓存</td></tr>
+            <tr><td>链上存证</td><td>Aptos 主网</td><td>只写摘要；链不可用时其他功能不受影响</td></tr>
+          </tbody>
+        </table>
+      </div>
+    </div>
+  </section>
+
+  <section id="roadmap">
+    <div class="wrap">
+      <div class="sec-head">
+        <span class="sec-no">路线图</span>
+        <h2>MVP 已完成，下一步扩大出账能力和买方类型</h2>
+      </div>
+      <div class="road">
+        <div class="card">
+          <span class="status live">已完成</span>
+          <h3>MVP</h3>
+          <ul>
+            <li>公共站点、用户 Dashboard、管理后台</li>
+            <li>REST API、远程 MCP、CLI、TypeScript SDK、独立 Verifier</li>
+            <li>按 Call 计量、Free / Pro / 调用包、构建计量</li>
+            <li>发布者分成记账、收益 Dashboard、额度抵扣、人工 PayPal 出账</li>
+            <li>版本与结算单链上存证</li>
+          </ul>
+        </div>
+        <div class="card">
+          <span class="status next">下一步</span>
+          <h3>规模化供给</h3>
+          <ul>
+            <li>接入自动出账服务（候选 Trolley、Tipalti、Stripe Connect、PayPal Payouts），承担 KYC 与税表</li>
+            <li>用真实分配数据定档分成门槛和反刷量参数</li>
+            <li>Docker 私有部署形态，面向有合规要求的团队</li>
+          </ul>
+        </div>
+        <div class="card">
+          <span class="status later">扩展轨</span>
+          <h3>专家数据与评测</h3>
+          <ul>
+            <li>承接模型公司的训练数据与评测订单，从预注册专家池委派专家生产</li>
+            <li>首期封闭试点：1 个付费买方、20–30 名专家、200–500 个任务</li>
+            <li>开发以签下付费试点为门槛，不改变现有自助价格与接口</li>
+          </ul>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <div class="close">
+    <div class="wrap">
+      <div class="close-card">
+        <h2>让文档保持最新，让维护有回报</h2>
+        <p>免费注册即得每月 1,000 Calls。一条命令把 Re0 接入 Claude Code、Cursor 或 Codex：</p>
+        <p><code class="mono" style="color:#e1e9f0">npx @symphonyprotocollab/re0 setup</code></p>
+        <div class="cta-row" style="justify-content:center">
+          <a class="btn btn-primary" href="https://re0.io/playground">在线试用</a>
+          <a class="btn btn-ghost" href="https://re0.io/contact">联系我们</a>
+        </div>
+      </div>
+    </div>
+  </div>
+</main>
+
+<footer>
+  <div class="wrap">
+    <span>© 2026 Re0 · Symphony Protocol Lab</span>
+    <span>re0.io</span>
+  </div>
+</footer>
+
+<script>
+  (function () {
+    var SHARE = 0.2, CALLS_PER_DOLLAR = 5000 / 5, PAYOUT_MIN = 20;
+    var fmt = new Intl.NumberFormat('en-US');
+    var $ = function (id) { return document.getElementById(id); };
+
+    // The calls slider is logarithmic: 0..100 maps to 1k..2M so both a niche
+    // library and a framework-sized one land somewhere usable on the track.
+    function callsValue() {
+      var v = 1000 * Math.pow(2000, $('m-calls').value / 100);
+      var mag = Math.pow(10, Math.floor(Math.log10(v)) - 1);
+      return Math.round(v / mag) * mag;
+    }
+    function usd(n) { return n >= 100 ? '$' + fmt.format(Math.round(n)) : '$' + n.toFixed(2); }
+
+    function update() {
+      var calls = callsValue();
+      var perCall = $('m-rev').value / 10000;
+      var monthly = calls * perCall * SHARE;
+      var months = monthly > 0 ? Math.ceil(PAYOUT_MIN / monthly) : Infinity;
+
+      $('o-calls').textContent = fmt.format(calls) + ' 次';
+      $('o-rev').textContent = '$' + perCall.toFixed(4);
+      $('r-calls').textContent = fmt.format(calls);
+      $('r-rev').textContent = '$' + perCall.toFixed(4);
+      $('r-month').textContent = usd(monthly);
+      $('r-credit').textContent = fmt.format(Math.ceil(monthly * CALLS_PER_DOLLAR)) + ' Calls';
+      $('r-payout').textContent = months <= 1 ? '当月即可提现' : months > 99 ? '建议转为 Calls' : months + ' 个月';
+    }
+    ['m-calls', 'm-rev'].forEach(function (id) { $(id).addEventListener('input', update); });
+    update();
+  })();
+</script>

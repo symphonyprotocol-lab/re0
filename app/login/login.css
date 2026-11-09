@@ -1,0 +1,457 @@
+/*
+ * The sign-in page, ported from the prototype's `#/login` (rebuild-prototype
+ * suite.css `.suite-login*`, styles.css base helpers) with its class names,
+ * breakpoints and cascade order. Every rule is scoped to `.suite-login`, and
+ * unlayered on purpose so it wins over the Tailwind layers (globals.css
+ * `.btn`, `.eyebrow`, `.text-link`) on the same elements.
+ */
+
+/* The prototype's base elements and helpers, only inside this page. */
+.suite-login {
+  line-height: 1.6;
+  font-synthesis: none;
+}
+.suite-login :where(h1, h2, h3) {
+  line-height: 1.3;
+}
+.suite-login svg {
+  display: inline;
+  vertical-align: middle;
+  flex-shrink: 0;
+}
+.suite-login :focus-visible {
+  outline: 3px solid #77b7fa;
+  outline-offset: 4px;
+}
+.suite-login .mono {
+  font-family: var(--font-mono);
+}
+.suite-login .eyebrow {
+  font-family: var(--font-mono);
+  font-size: 10px;
+  letter-spacing: 0.15em;
+  text-transform: uppercase;
+  font-weight: 500;
+  color: var(--color-muted);
+}
+.suite-login .text-link {
+  color: var(--color-blue);
+  font-size: 12px;
+  font-weight: inherit;
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  border: 0;
+  background: transparent;
+  padding: 0;
+  cursor: pointer;
+  text-decoration: none;
+}
+.suite-login .text-link:hover {
+  text-decoration: underline;
+}
+.suite-login .btn {
+  border: 1px solid transparent;
+  background: var(--color-blue);
+  color: #ffffff;
+  border-radius: 8px;
+  min-height: 40px;
+  padding: 9px 16px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  font-size: 13px;
+  font-weight: 550;
+  line-height: 1.4;
+  white-space: nowrap;
+  cursor: pointer;
+  transition:
+    background 0.18s,
+    transform 0.18s,
+    box-shadow 0.18s;
+}
+.suite-login .btn:hover:not(:disabled) {
+  background: var(--color-blue-dark);
+  transform: translateY(-2px);
+  box-shadow: 0 5px 12px #127ee31a;
+}
+.suite-login .btn:active:not(:disabled) {
+  transform: translateY(0) scale(0.97);
+  box-shadow: none;
+}
+.suite-login .btn svg {
+  width: 16px;
+  height: 16px;
+}
+.suite-login .btn.secondary {
+  color: var(--color-ink);
+  background: #ffffff;
+  border-color: var(--color-line);
+}
+.suite-login .btn.secondary:hover {
+  background: var(--color-wash);
+  border-color: #c4cce0;
+  box-shadow: none;
+}
+.suite-login .btn.ghost {
+  color: var(--color-muted);
+  background: transparent;
+}
+.suite-login .btn.ghost:hover {
+  color: var(--color-blue);
+  background: var(--color-soft);
+  box-shadow: none;
+}
+.suite-login .btn.sm {
+  min-height: 32px;
+  padding: 6px 10px;
+  font-size: 12px;
+}
+.suite-login .btn.full {
+  width: 100%;
+}
+.suite-login .wordmark {
+  display: inline-flex;
+  align-items: center;
+  gap: 9px;
+  font-weight: 750;
+  font-size: 23px;
+  letter-spacing: -0.8px;
+}
+.suite-login .wordmark > svg {
+  width: 31px;
+  height: 31px;
+}
+.suite-login .login-mobile-mark {
+  display: none;
+}
+
+/* The page (suite.css). */
+.suite-login {
+  min-height: 100dvh;
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  background: #fff;
+}
+.suite-login-story {
+  background: #f1f3fd;
+  border-right: 1px solid #e2e8f3;
+  padding: 39px 10%;
+  display: flex;
+  flex-direction: column;
+  justify-content: space-between;
+  gap: 60px;
+  position: relative;
+  overflow: hidden;
+}
+.suite-login-story:before {
+  content: "";
+  position: absolute;
+  right: -130px;
+  top: 20%;
+  width: 500px;
+  height: 500px;
+  border: 1px solid #e3e8f6;
+  border-radius: 50%;
+  pointer-events: none;
+}
+.suite-login-story:after {
+  content: "";
+  position: absolute;
+  right: -75px;
+  top: 27%;
+  width: 370px;
+  height: 370px;
+  border: 1px dashed #dce4f4;
+  border-radius: 50%;
+  pointer-events: none;
+}
+.suite-login-story > * {
+  position: relative;
+  z-index: 1;
+}
+.suite-login-story .wordmark {
+  font-size: 27px;
+}
+.suite-login-story > .mono {
+  font-size: 8px;
+  letter-spacing: 0.12em;
+  color: #96a9c7;
+}
+.suite-login-story .eyebrow {
+  font-size: 9px;
+  color: #8fa3c5;
+}
+.suite-login-story h1 {
+  font-size: 43px;
+  line-height: 1.55;
+  letter-spacing: -1px;
+  font-weight: 550;
+  margin-block: 22px;
+}
+.suite-login-story h1 em {
+  font-style: normal;
+  color: var(--color-blue);
+}
+.suite-login-story > div > p:not(.eyebrow) {
+  font-size: 13px;
+  color: #8d9db7;
+  line-height: 2;
+}
+.login-story-card {
+  background: #ffffffb5;
+  border: 1px solid #dfe7f5;
+  border-radius: 11px;
+  margin-top: 43px;
+  padding: 25px;
+  max-width: 390px;
+}
+.login-story-card .login-story-ree {
+  display: flex;
+  align-items: center;
+  gap: 13px;
+}
+.login-story-card .dot-avatar {
+  width: 43px;
+  height: 43px;
+  flex: none;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border: 1px solid #e0eafa;
+  border-radius: 12px;
+  background: var(--color-soft);
+  color: var(--color-blue);
+  overflow: hidden;
+}
+.login-story-card .dot-avatar svg {
+  width: 23px;
+  height: 23px;
+}
+.login-story-card strong {
+  display: block;
+  font-size: 12px;
+  font-weight: 500;
+  color: #6c86ac;
+}
+.login-story-card small {
+  display: block;
+  font-size: 9px;
+  color: #a1b0c8;
+  margin-top: 6px;
+}
+.login-source-chain {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  color: #a2b5d1;
+  margin-top: 25px;
+  padding: 17px 5px 0;
+  border-top: 1px solid #e6ebf4;
+}
+.login-source-chain svg {
+  height: 23px;
+  width: 23px;
+}
+.login-source-chain i {
+  height: 1px;
+  background: #dce5f2;
+  flex: 1;
+}
+.suite-login-form {
+  padding: 40px 40px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+.suite-login-form > div {
+  width: 342px;
+  max-width: 100%;
+}
+.login-top-link {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 55px;
+}
+.login-top-link .text-link {
+  font-size: 10px;
+  color: #91a3be;
+}
+.login-top-link .text-link svg {
+  transform: rotate(180deg);
+}
+.suite-login .login-top-link > .btn {
+  font-size: 9px;
+}
+.suite-login-form .eyebrow {
+  font-size: 9px;
+  color: #91a7c6;
+}
+.suite-login-form h2 {
+  font-size: 35px;
+  line-height: 1.5;
+  font-weight: 550;
+  letter-spacing: -1px;
+  margin: 13px 0 14px;
+}
+.suite-login-form > div > p:not(.eyebrow) {
+  font-size: 12px;
+  color: #8c9db6;
+}
+.suite-login-form .oauth-buttons {
+  display: flex;
+  flex-direction: column;
+  margin: 29px 0 23px;
+  gap: 12px;
+}
+/* Each button sits in its own form, so it is not blockified as a flex item the way the prototype's are. */
+.suite-login-form .oauth-buttons .btn {
+  display: flex;
+  min-height: 46px;
+  font-size: 12px;
+  background: #fff;
+  position: relative;
+}
+.suite-login .google-letter {
+  font-size: 18px;
+  color: #4285f4;
+  font-weight: 600;
+  position: absolute;
+  left: 19px;
+}
+.suite-login-form .oauth-buttons svg {
+  width: 18px;
+  height: 18px;
+  position: absolute;
+  left: 19px;
+}
+.suite-login-form .login-error {
+  font-size: 10px;
+  color: var(--color-red);
+  padding: 9px 12px;
+  border-radius: 6px;
+  background: #fff0f0;
+  margin-bottom: 14px;
+}
+.login-welcome {
+  display: flex;
+  gap: 12px;
+  padding: 15px 16px;
+  border-radius: 8px;
+  background: #f5f8ff;
+  border: 1px solid #e5edfa;
+  align-items: center;
+}
+.login-welcome > svg {
+  height: 19px;
+  width: 19px;
+  color: #8aafd9;
+}
+.login-welcome strong {
+  font: 13px var(--font-mono);
+  color: #6d92c2;
+  display: block;
+}
+.login-welcome span {
+  font-size: 9px;
+  color: #93a7c5;
+  display: block;
+  margin-top: 4px;
+}
+.suite-login-form .login-terms {
+  font-size: 9px !important;
+  color: #9babc2 !important;
+  line-height: 2.1;
+  text-align: center;
+  margin: 24px 0;
+}
+.login-terms .text-link {
+  font-size: 9px;
+}
+.login-other {
+  margin-top: 24px;
+  display: flex;
+  justify-content: space-between;
+  gap: 15px;
+}
+.login-other .text-link {
+  font-size: 10px;
+  color: #92a4bf;
+}
+
+@media (max-width: 1020px) {
+  .suite-login-story {
+    padding-inline: 9%;
+  }
+  .suite-login-story h1 {
+    font-size: 36px;
+  }
+  .suite-login-form {
+    padding: 35px;
+  }
+  .login-story-card {
+    padding: 21px;
+  }
+  .login-story-card strong {
+    font-size: 10px;
+  }
+  .login-story-card small {
+    font-size: 8px;
+  }
+}
+
+@media (max-width: 760px) {
+  .suite-login {
+    grid-template-columns: 1fr;
+  }
+  .suite-login-story {
+    display: none;
+  }
+  .suite-login-form {
+    min-height: 100dvh;
+    padding: 30px 25px;
+  }
+  .suite-login-form > div {
+    max-width: 365px;
+    width: 100%;
+  }
+  .login-top-link {
+    margin-bottom: 35px;
+  }
+  .suite-login .login-mobile-mark {
+    display: block;
+    margin-bottom: 31px;
+  }
+  .suite-login-form h2 {
+    font-size: 35px;
+  }
+  .suite-login-form .login-terms {
+    font-size: 10px !important;
+  }
+  .login-terms .text-link {
+    font-size: 10px;
+  }
+  .login-other .text-link {
+    font-size: 11px;
+  }
+}
+
+@media (max-width: 520px) {
+  .suite-login-form {
+    padding: 30px 25px;
+  }
+  .suite-login-form h2 {
+    font-size: 32px;
+  }
+  .suite-login-form > div > p:not(.eyebrow) {
+    font-size: 12px;
+  }
+  .login-welcome span {
+    font-size: 10px;
+  }
+  .login-other .text-link {
+    font-size: 10px;
+  }
+}

@@ -1,18 +1,36 @@
 {
-  "buildCommand": "if [ \"$VERCEL_ENV\" = \"production\" ] || [ \"$VERCEL_ENV\" = \"preview\" ]; then npm run db:migrate; fi && npm run build",
+  "buildCommand": "if [ \"$VERCEL_ENV\" = \"preview\" ]; then npm run db:prepare-preview && npm run db:migrate; fi && npm run build && if [ \"$VERCEL_ENV\" = \"production\" ]; then npm run db:deploy; fi",
+  "git": {
+    "deploymentEnabled": {
+      "develop": false,
+      "rebuild": false,
+      "claude/**": false
+    }
+  },
   "crons": [
     {
-      "path": "/api/cron/drain",
+      "path": "/api/cron/purge-trash",
+      "schedule": "30 3 * * *"
+    },
+    {
+      "path": "/api/cron/expire-plan",
+      "schedule": "15 0 * * *"
+    },
+    {
+      "path": "/api/cron/rank",
+      "schedule": "7 * * * *"
+    },
+    {
+      "path": "/api/cron/reembed",
       "schedule": "*/10 * * * *"
     },
     {
-      "path": "/api/cron/anchor",
+      "path": "/api/cron/purge-kyc-files",
+      "schedule": "45 3 * * *"
+    },
+    {
+      "path": "/api/cron/abandon-exports",
       "schedule": "*/15 * * * *"
     }
-  ],
-  "git": {
-    "deploymentEnabled": {
-      "develop": false
-    }
-  }
+  ]
 }

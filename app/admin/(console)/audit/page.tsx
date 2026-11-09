@@ -1,255 +1,67 @@
 import type { Metadata } from 'next';
-import { FilterSelect } from '@/components/admin/list-controls';
-import {
-  ConsoleButton,
-  ConsoleNotice,
-  ConsolePageHeader,
-  EmptyRow,
-  ExportLink,
-  ListToolbar,
-  Pagination,
-  Panel,
-  Pill,
-  TableScroller,
-  TD,
-  TH,
-} from '@/components/admin/ui';
-import { ChevronDownIcon, ScrollTextIcon } from '@/components/ui/icons';
-import { listAuditEntries, type AuditResultFilter } from '@/lib/application/administration';
-import { diffAuditValues, type AuditValueChange } from '@/lib/domain/admin';
-import { requireAdminCapability } from '@/lib/http/admin';
-import { fill } from '@/lib/i18n/format';
-import { getMessages } from '@/lib/i18n/server';
-import { oneOf, PAGE_SIZE, pageNumber, pageWindow, searchTerm, utcInstant } from '../list-params';
+import { redirect } from 'next/navigation';
+import { AUDIT_ACTIONS } from '@/lib/domain/audit';
+import { auditView, csvHref, listHref } from '@/lib/domain/admin-lists';
+import { auditCounts, listAudit } from '@/lib/services/admin-audit';
+import { serverMessages } from '@/i18n/server';
+import { fill, formatNumber } from '@/i18n/format';
+import { ListFilters } from '@/components/admin/list-client';
+import { LinkPager, PageHead, RecordSection, ResultsLine, SummaryCards } from '@/components/admin/list-kit';
+import { ConsolePage, ConsoleTopbar } from '@/components/admin/console-topbar';
+import { AuditTable, actionLabel } from '@/components/admin/audit-kit';
+import { RecordPage } from '@/components/admin/finance-chart';
 
 export async function generateMetadata(): Promise<Metadata> {
-  return { title: (await getMessages()).admin.audit.title };
+  const { t } = await serverMessages();
+  return { title: t.consoleRees.audit.title };
 }
 
-const RESULTS: AuditResultFilter[] = ['all', 'success', 'failure'];
+type Props = { searchParams: Promise<Record<string, string | string[] | undefined>> };
 
-/** Nothing recorded, e.g. an action with no target or a request with no origin. */
-const NONE = '—';
-
-/** A leaf as the diff prints it: JSON, so a string and a number stay apart. */
-function leaf(value: unknown): string {
-  if (value === undefined) return NONE;
-  const text = JSON.stringify(value);
-  return text.length > 120 ? `${text.slice(0, 117)}…` : text;
-}
-
-/**
- * The before/after snapshots an entry carries, folded shut by default: the
- * table stays one line per action, and the values open in place -- a native
- * `<details>`, so the log needs no client code to be read.
- */
-function ValueDiff({
-  changes,
-  summary,
-  none,
-}: {
-  changes: AuditValueChange[];
-  summary: string;
-  none: string;
-}) {
+/** `/admin/audit` (prototype admin-records.js, kind `audit`): read-only, filtered by the one list of action codes, CSV of every match. */
+export default async function AuditPage({ searchParams }: Props) {
+  const { t, locale } = await serverMessages();
+  const a = t.consoleRees.audit;
+  const l = t.console.list;
+  const view = auditView(await searchParams);
+  const [data, counts] = await Promise.all([listAudit(view), auditCounts()]);
+  const current = { ...view, page: data.page };
+  const href = (changes: Record<string, string | number | null>) => listHref('/admin/audit', current, changes);
+  // A page past the end (rows went away, a stale link) lands on the last page's canonical URL.
+  if (data.page !== view.page) redirect(href({}));
+  const n = (value: number) => formatNumber(value, locale);
+  const filtered = Boolean(view.q) || view.action !== 'all' || view.period !== 'all' || view.sort !== 'newest';
   return (
-    <details className="group mt-1 text-[11px] tracking-[-0.023em]">
-      <summary className="flex cursor-pointer list-none items-center gap-1 text-muted hover:text-ink [&::-webkit-details-marker]:hidden">
-        <ChevronDownIcon size={12} className="transition-transform group-open:rotate-180" />
-        {summary}
-      </summary>
-      {changes.length === 0 ? (
-        <p className="mt-1.5 text-muted">{none}</p>
-      ) : (
-        <dl className="mt-1.5 grid grid-cols-[auto_1fr] gap-x-3 gap-y-1 rounded-[6px] bg-subtle px-2.5 py-2">
-          {changes.map((change) => (
-            <div key={change.path} className="contents">
-              <dt className="font-mono text-steel">{change.path}</dt>
-              <dd className="flex min-w-0 flex-wrap items-center gap-1.5 font-mono">
-                <span className={change.before === undefined ? 'text-faint' : 'text-err line-through'}>
-                  {leaf(change.before)}
-                </span>
-                <span aria-hidden className="text-faint">
-                  →
-                </span>
-                <span className={change.after === undefined ? 'text-faint' : 'text-pubink'}>
-                  {leaf(change.after)}
-                </span>
-              </dd>
-            </div>
-          ))}
-        </dl>
-      )}
-    </details>
-  );
-}
-
-/**
- * Audit log -- design source frame `Uko79`.
- *
- * Reads the real `audit_log`: append only, kept 365 days, and chained so the
- * daily head can be anchored (requirement.md 5.3). The head is shown as a
- * value, not as a claim about a chain -- anchoring has no interface here, and
- * a transaction hash this screen did not read would be the one lie a
- * tamper-evident log cannot afford.
- *
- * The origin column is a digest, not the address the design frame draws: plain
- * IPs must not reach product storage (requirement.md 12), which is why
- * `audit_log` stores `ip_digest` and there is nothing else to show.
- */
-export default async function AdminAuditPage({
-  searchParams,
-}: {
-  searchParams: Promise<Record<string, string | string[] | undefined>>;
-}) {
-  const [, params, t] = await Promise.all([
-    requireAdminCapability('audit'),
-    searchParams,
-    getMessages(),
-  ]);
-  const a = t.admin.audit;
-  const f = t.admin.filters;
-  const query = searchTerm(params.q);
-  const result = oneOf(params.result, RESULTS, 'all');
-  const page = pageNumber(params.page);
-
-  const { rows, total, chainHead } = await listAuditEntries({
-    query,
-    result,
-    limit: PAGE_SIZE,
-    offset: (page - 1) * PAGE_SIZE,
-  });
-  const view = pageWindow({ page, total, rows: rows.length });
-
-  /*
-   * `action` is a machine code, so an action this build has no label for still
-   * has to appear -- printing the code beats hiding the row.
-   */
-  const actionLabels: Record<string, string> = a.actions;
-
-  const link = (target: number) => {
-    const next = new URLSearchParams();
-    if (query) next.set('q', query);
-    if (result !== 'all') next.set('result', result);
-    if (target > 1) next.set('page', String(target));
-    return next.size > 0 ? `/admin/audit?${next.toString()}` : '/admin/audit';
-  };
-
-  return (
-    <div className="flex flex-col gap-[18px]">
-      <ConsolePageHeader eyebrow={t.admin.eyebrow} title={a.title} description={a.description} />
-
-      <ConsoleNotice
-        icon={<ScrollTextIcon size={18} />}
-        title={a.retentionTitle}
-        body={a.retentionBody}
-        action={
-          <ExportLink resource="audit" query={query} status={result} label={a.exportLog} />
-        }
-      />
-
-
-      <Panel>
-        {/* GET, so a filtered page of the log is a URL an operator can keep. */}
-        <form method="get">
-          <ListToolbar placeholder={a.searchPlaceholder} name="q" defaultValue={query}>
-            <FilterSelect
-              name="result"
-              label={a.resultFilter}
-              value={result}
-              options={[
-                { id: 'all', label: f.all },
-                { id: 'success', label: f.auditSuccess },
-                { id: 'failure', label: f.auditFailure },
-              ]}
-            />
-            <ConsoleButton type="submit">{t.admin.administrators.searchSubmit}</ConsoleButton>
-            <ExportLink
-              resource="audit"
-              query={query}
-              status={result}
-              label={t.admin.actions.export}
-            />
-          </ListToolbar>
-        </form>
-
-        <TableScroller>
-          <table className="w-full min-w-[820px] border-collapse text-left">
-            <thead>
-              <tr>
-                {a.columns.map((column) => (
-                  <th key={column} scope="col" className={TH}>
-                    {column}
-                  </th>
-                ))}
-              </tr>
-            </thead>
-            <tbody>
-              {rows.length === 0 ? (
-                <EmptyRow columns={a.columns.length} message={a.empty} />
-              ) : null}
-              {rows.map((entry) => {
-                const changes =
-                  entry.beforeValue !== null || entry.afterValue !== null
-                    ? diffAuditValues(entry.beforeValue, entry.afterValue)
-                    : null;
-                return (
-                  <tr key={entry.id} className="border-t-2 border-line">
-                    <td className={TD}>
-                      <code className="font-mono text-[11px] tracking-[-0.01em] whitespace-nowrap text-steel">
-                        {utcInstant(entry.createdAt)}
-                      </code>
-                    </td>
-                    <td className={TD}>{entry.administratorName ?? a.unknownAdmin}</td>
-                    <td className={TD}>
-                      <span className="flex flex-col gap-0.5">
-                        <span className="font-medium text-ink">
-                          {actionLabels[entry.action] ?? entry.action}
-                        </span>
-                        {/* requirement.md 5.3 records a reason; it belongs beside the action. */}
-                        {entry.reason ? (
-                          <span className="text-[11px] text-muted">{entry.reason}</span>
-                        ) : null}
-                        {changes ? (
-                          <ValueDiff
-                            changes={changes}
-                            summary={fill(a.values.summary, { count: changes.length })}
-                            none={a.values.none}
-                          />
-                        ) : null}
-                      </span>
-                    </td>
-                    <td className={TD}>{entry.targetId ?? NONE}</td>
-                    <td className={TD}>
-                      <code className="font-mono text-[11px] tracking-[-0.01em] text-muted">
-                        {entry.originDigest ?? NONE}
-                      </code>
-                    </td>
-                    <td className={TD}>
-                      <Pill tone={entry.result === 'success' ? 'ok' : 'danger'}>
-                        {entry.result === 'success' ? f.auditSuccess : f.auditFailure}
-                      </Pill>
-                    </td>
-                  </tr>
-                );
-              })}
-            </tbody>
-          </table>
-        </TableScroller>
-
-        <Pagination
-          summary={fill(a.showing, {
-            from: view.from,
-            to: view.to,
-            total: total.toLocaleString('en-US'),
-          })}
-          pages={view.pages}
-          activePage={page}
-          pageCount={view.pageCount}
-          href={link}
-          labels={t.admin.actions}
+    <ConsolePage>
+      <ConsoleTopbar crumbs={[{ label: t.console.nav.home, href: '/admin/overview' }, { label: a.title }]} />
+      <RecordPage kind="audit">
+        <PageHead title={a.title} lede={a.lede} />
+        <SummaryCards
+          items={[
+            { label: a.cards.total, value: n(counts.total) },
+            { label: a.cards.administrators, value: n(counts.administrators) },
+            { label: a.cards.actions, value: n(counts.actions) },
+          ]}
         />
-      </Panel>
-    </div>
+        <RecordSection>
+          <ListFilters
+            q={view.q}
+            placeholder={a.search}
+            defaults={{ action: 'all', period: 'all', sort: 'newest', size: '20' }}
+            resetHref={listHref('/admin/audit', { size: view.size })}
+            filtered={filtered}
+            selects={[
+              { name: 'action', label: a.filters.action, aria: a.filterLabels.action, value: view.action, options: [['all', a.allActions], ...AUDIT_ACTIONS.map((code) => [code, actionLabel(t, code)] as [string, string])] },
+              { name: 'period', label: a.filters.period, aria: a.filterLabels.period, value: view.period, options: [['all', l.allTime], ['7', l.last7], ['30', l.last30], ['90', l.last90]] },
+              { name: 'sort', label: a.filters.sort, aria: a.filterLabels.sort, value: view.sort, options: [['newest', l.newest], ['oldest', l.oldest]] },
+              { name: 'size', label: l.perPage, aria: a.filterLabels.size, value: String(view.size), options: [20, 50, 100].map((size) => [String(size), fill(l.rows, { n: size })] as [string, string]) },
+            ]}
+          />
+          <ResultsLine t={t} total={data.total} page={data.page} size={data.size} exportHref={csvHref('/api/admin/audit', view)} />
+          <AuditTable t={t} locale={locale} rows={data.items} from={href({})} variant="records" />
+          <LinkPager t={t} page={data.page} total={data.total} size={data.size} href={(page) => href({ page })} />
+        </RecordSection>
+      </RecordPage>
+    </ConsolePage>
   );
 }

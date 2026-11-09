@@ -1,0 +1,31 @@
+import type { Shape } from '@/i18n/format';
+export const zh = {
+  title: '服务成本', override: '为此配置设置成本单价',
+  modelNote: '单价与此端点、模型一起保存，供同端点同模型的配置共用。仅影响后续请求，历史记录保留价格快照。',
+  gatewayNote: '优先按 Gateway 响应的实际金额计费；此处单价用于响应未返回金额时的核算。未手动配置时读取 Gateway 价目表。',
+  unknownNote: '未配置表示成本未知，0 表示确认免费。自定义端点缺少单价时不会发起付费预处理请求。',
+  inherit: '使用服务默认成本', automatic: '自动读取 Gateway 费用', unknown: '尚未配置成本',
+  unit: '计费单位', units: { million_tokens: '百万输入 tokens', seconds: '音频秒', firecrawl_credits: 'Firecrawl credit' },
+  price: '成本单价（USD / {unit}）', outputPrice: '输出价格（USD / 百万 tokens，选填）', audioPrice: '音频输入价格（USD / 百万 tokens，选填）',
+  minimum: '最低计费数量', increment: '计费步长（0 为按实际用量）', quantityNote: 'token 计费时，最低数量和步长均以单个 token 为单位。',
+  source: '单价依据（价目表或合同，选填）', advanced: '更多计费规则',
+  firecrawlDefault: '默认解析成本', firecrawlDefaultNote: '填写套餐实际支付金额 ÷ 所含 Firecrawl credits。此单价适用于未设置单独成本的 Key 及环境变量回退；单个 Key 可在编辑时覆盖。',
+  firecrawlKeyNote: '此成本仅适用于当前 Key。关闭后继承服务默认单价，适合不同套餐的账号分别核算。',
+  defaultEnabled: '配置默认解析成本', saveDefault: '保存默认成本', saved: '服务成本已保存',
+  summary: '${price} / {unit}', invalid: '请填写有效成本：金额须为非负数；百万 token 价格最多 6 位小数，其余价格最多 12 位小数。',
+};
+export const en: Shape<typeof zh> = {
+  title: 'Service cost', override: 'Set a unit cost for this configuration',
+  modelNote: 'Saved with this endpoint and model, and shared by configurations using the same endpoint/model. Changes affect future requests; past calls retain price snapshots.',
+  gatewayNote: 'Gateway-reported charges take priority. This rate is used when a response has no charge. Without a manual rate, the Gateway catalogue is used.',
+  unknownNote: 'Missing prices mean unknown cost; zero means verified free. Custom endpoints without prices will not receive paid preprocessing requests.',
+  inherit: 'Use the service default cost', automatic: 'Read Gateway costs automatically', unknown: 'Cost not configured',
+  unit: 'Billing unit', units: { million_tokens: '1M input tokens', seconds: 'audio second', firecrawl_credits: 'Firecrawl credit' },
+  price: 'Unit cost (USD / {unit})', outputPrice: 'Output price (USD / 1M tokens, optional)', audioPrice: 'Audio input price (USD / 1M tokens, optional)',
+  minimum: 'Minimum billable quantity', increment: 'Billing increment (0 for exact usage)', quantityNote: 'Token minimums and increments are measured in individual tokens.',
+  source: 'Rate reference (price list or contract, optional)', advanced: 'Additional billing rules',
+  firecrawlDefault: 'Default parsing cost', firecrawlDefaultNote: 'Enter the actual plan payment divided by its included Firecrawl credits. Applies to keys without an override and to environment fallback. Individual keys can override it in their editor.',
+  firecrawlKeyNote: 'Applies only to this key. Disable to inherit the default rate, allowing accounts with different plans to use different costs.',
+  defaultEnabled: 'Configure a default parsing cost', saveDefault: 'Save default cost', saved: 'Service cost saved',
+  summary: '${price} / {unit}', invalid: 'Enter a nonnegative cost: up to 6 decimal places for prices per million tokens, or 12 for other unit prices.',
+};

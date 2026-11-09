@@ -1,0 +1,229 @@
+/* Full-width covers with compact metadata, shared by both Ree lists. */
+:is(.discovery-page, .owned-rees-page) {
+  --color-bg: #ffffff;
+  --color-muted: #606670;
+  background: var(--color-bg);
+}
+:is(.discovery-page, .owned-rees-page) article.dot-card.ree-video-card {
+  padding: 0;
+  border: 0;
+  background: transparent;
+  overflow: visible;
+  min-width: 0;
+  border-radius: 0;
+  transform: none;
+  isolation: isolate;
+}
+:is(.discovery-page, .owned-rees-page) article.dot-card.ree-video-card::before {
+  content: '';
+  position: absolute;
+  inset: -10px;
+  z-index: -1;
+  pointer-events: none;
+  border-radius: 20px;
+  background: #f8f9fa;
+  opacity: 0;
+  transition: opacity 0.16s ease;
+}
+:is(.discovery-page, .owned-rees-page) article.dot-card.ree-video-card:hover::before {
+  opacity: 1;
+}
+.ree-card-cover {
+  position: relative;
+}
+.ree-card-cover-link {
+  display: block;
+  border-radius: 12px 12px 4px 4px;
+  transition: scale 160ms ease, box-shadow 160ms ease;
+}
+/*
+ * The whole card opens the Ree: the cover link stays the card's one tab stop
+ * and accessible name, and its ::after stretches over the article. The cover
+ * wrapper and the link stop being positioned so the article is the containing
+ * block (the cover sits at the article's top-left, so the cover-anchored
+ * spinner and status pill land where they did). The card's own controls sit
+ * above the overlay and keep their behaviour.
+ */
+.ree-video-card .ree-card-cover,
+.ree-video-card .ree-card-cover-link {
+  position: static;
+}
+.ree-video-card .ree-card-cover-link::after {
+  content: '';
+  position: absolute;
+  inset: 0;
+  z-index: 1;
+}
+.ree-video-card .ree-card-cover-link:focus-visible {
+  outline: none;
+}
+.ree-video-card .ree-card-cover-link:focus-visible::after {
+  border-radius: 12px;
+  outline: 3px solid #77b7fa;
+  outline-offset: 6px;
+}
+.ree-video-card .ree-card-info :is(a, button, input, select, textarea, label, [tabindex]) {
+  position: relative;
+  z-index: 2;
+}
+.ree-card-cover-title {
+  display: block;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  color: var(--color-ink);
+  font-size: 14px;
+  font-weight: 650;
+  line-height: 1.4;
+}
+.ree-card-cover-link:hover .ree-card-cover-title,
+.ree-video-card:hover .ree-card-cover-title {
+  color: var(--color-blue);
+}
+/*
+ * Keep navigation feedback on the Ree that was clicked: the whole card (its
+ * hover area) shrinks slightly and gets the ring; the spinner stays over the cover.
+ */
+:is(.discovery-page, .owned-rees-page) article.dot-card.ree-video-card {
+  transition: scale 160ms ease;
+}
+.ree-video-card:has(.ree-card-cover-link > .workspace-link-progress[data-pending='true']) {
+  scale: 0.985;
+}
+:is(.discovery-page, .owned-rees-page) article.dot-card.ree-video-card:has(.ree-card-cover-link > .workspace-link-progress[data-pending='true'])::before {
+  opacity: 1;
+  box-shadow: 0 0 0 2px #c5dcf8;
+}
+.ree-card-cover-link > .workspace-link-progress {
+  display: grid;
+  place-items: center;
+  position: absolute;
+  inset: 0 0 auto;
+  z-index: 4;
+  width: 100%;
+  height: auto;
+  aspect-ratio: 16 / 9;
+  margin: 0;
+  border-radius: 12px;
+  background: #f4f8ffb8;
+  backdrop-filter: blur(2px);
+  color: #127ee3;
+}
+.ree-card-cover-link > .workspace-link-progress::before {
+  width: 32px;
+  height: 32px;
+  border-width: 3px;
+}
+/* The compact list keeps its text in place and spins over the avatar. */
+.owned-rees-page .owned-ree-list-name > .workspace-link-progress {
+  left: 9px;
+  right: auto;
+  width: 16px;
+  height: 16px;
+  margin-top: -8px;
+  color: #127ee3;
+}
+.owned-rees-page .owned-ree-list-name:has(> .workspace-link-progress[data-pending='true']) > .dot-avatar { opacity: 0.2; }
+.owned-rees-page .owned-ree-list-row:has(.workspace-link-progress[data-pending='true']) { background: #f1f6ff; }
+@media (prefers-reduced-motion: reduce) {
+  .ree-card-cover-link,
+  :is(.discovery-page, .owned-rees-page) article.dot-card.ree-video-card { transition: none; }
+  .ree-video-card:has(.ree-card-cover-link > .workspace-link-progress[data-pending='true']) { scale: none; }
+}
+:is(.discovery-page, .owned-rees-page) article.ree-video-card .public-dot-video-placeholder {
+  border: 0;
+  border-radius: 12px;
+}
+.ree-video-card .ree-card-info {
+  min-width: 0;
+  padding-top: 3px;
+}
+:is(.discovery-page, .owned-rees-page) article.ree-video-card .description {
+  margin: 3px 0 0;
+  min-height: 0;
+  color: #606670;
+  font-size: 11px;
+  line-height: 1.5;
+  -webkit-line-clamp: 1;
+}
+:is(.discovery-page, .owned-rees-page) article.ree-video-card :is(.dot-sources, .creator-dot-stats) {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 5px 10px;
+  margin: 4px 0 0;
+  padding: 0;
+  border: 0;
+  color: #606670;
+  font-size: 10px;
+  line-height: 1.5;
+}
+:is(.discovery-page, .owned-rees-page) article.ree-video-card .discovery-author {
+  margin-left: 0;
+  max-width: 100%;
+}
+:is(.discovery-page, .owned-rees-page) article.ree-video-card :is(.creator-dot-stats a, .dot-sources > svg, .creator-dot-stats svg, .price small) {
+  color: #606670;
+}
+:is(.discovery-page, .owned-rees-page) article.ree-video-card .card-actions {
+  display: flex;
+  margin: 6px 0 0;
+  padding: 0;
+  border: 0;
+  gap: 6px 12px;
+  align-items: center;
+  justify-content: space-between;
+  flex-wrap: wrap;
+}
+:is(.discovery-page, .owned-rees-page) article.ree-video-card .price {
+  font-size: 10px;
+}
+:is(.discovery-page, .owned-rees-page) article.ree-video-card .discovery-card-metrics {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin-left: 0;
+  min-width: 0;
+}
+:is(.discovery-page, .owned-rees-page) article.ree-video-card .discovery-card-metrics > span {
+  display: inline-flex;
+  align-items: center;
+  gap: 3px;
+}
+:is(.discovery-page, .owned-rees-page) article.ree-video-card .discovery-card-metrics strong {
+  display: inline-flex;
+  align-items: center;
+  gap: 3px;
+  color: #4b5563;
+  font: 500 10px var(--font-mono);
+  white-space: nowrap;
+}
+:is(.discovery-page, .owned-rees-page) article.ree-video-card .card-actions > .dot-sources {
+  align-items: center;
+  gap: 5px;
+  margin: 0;
+}
+:is(.discovery-page, .owned-rees-page) article.ree-video-card .dot-sources > svg {
+  width: 11px;
+  height: 11px;
+  flex: 0 0 auto;
+}
+:is(.discovery-page, .owned-rees-page) article.ree-video-card .discovery-card-metrics strong > svg {
+  width: 10px;
+  height: 10px;
+  color: #606670;
+}
+:is(.discovery-page, .owned-rees-page) article.ree-video-card :is(.discovery-card-metrics > span > small, .discovery-rating-empty) {
+  color: #606670;
+  font-size: 9px;
+}
+:is(.discovery-page, .owned-rees-page) article.ree-video-card .card-actions > .btn {
+  padding: 3px 7px;
+  min-height: 25px;
+  font-size: 9px;
+}
+:is(.discovery-page, .owned-rees-page) article.ree-video-card .match-excerpt {
+  margin-top: 5px;
+  padding: 5px 8px;
+  font-size: 10px;
+  line-height: 1.5;
+}

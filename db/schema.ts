@@ -1,2179 +1,1357 @@
-import {
-  check,
-  customType,
-  date,
-  pgTable,
-  pgEnum,
-  text,
-  uuid,
-  integer,
-  bigint,
-  bigserial,
-  boolean,
-  timestamp,
-  jsonb,
-  vector,
-  index,
-  uniqueIndex,
-  primaryKey,
-} from 'drizzle-orm/pg-core';
+/**
+ * The tables of rebuild-proposal.md 4 delivered so far: the 15 of step 1, the
+ * 3 of step 2 (knowledge_folder, github_connection, domain_claim) and step 3's
+ * purchase and subscription, with three of its own (billing_event, credit_debt, paddle_checkout). Enumerations are
+ * text columns with check constraints, so a later step widens one with a
+ * plain constraint swap instead of `ALTER TYPE`.
+ *
+ * Columns beyond 4 are marked; each is called out in the step-1 PR.
+ */
 import { sql } from 'drizzle-orm';
+import {
+  type AnyPgColumn,
+  bigint,
+  boolean,
+  check,
+  index,
+  integer,
+  jsonb,
+  pgTable,
+  primaryKey,
+  text,
+  timestamp,
+  uniqueIndex,
+  uuid,
+  vector,
+} from 'drizzle-orm/pg-core';
+import type { ReeDraft } from '@/lib/domain/ree';
+import type { SocialContact } from '@/lib/domain/account';
+import type { CitationSnapshot, Locator, SentenceCheck } from '@/lib/domain/answer';
+import type { SynthesisSource } from '@/lib/domain/synthesis';
+import type { Allocation } from '@/lib/domain/credits';
+import type { ProviderCharge, ProviderRate } from '@/lib/domain/provider-cost';
+import type { CallPurpose, CallStatus, CostBasis } from '@/lib/domain/model-calls';
+import type { KnowledgeActivity, KnowledgeChild } from '@/lib/domain/knowledge';
+import type { RoleMetrics } from '@/lib/domain/roles';
+import type { ReeRank } from '@/lib/domain/explore';
+import { REE_COMMENT_MAX_LENGTH } from '@/lib/domain/ree-comment';
+import { MODEL_KINDS, VIDEO_EXPORT_TEMPLATES, VIDEO_TEMPLATES, type ModelKind } from '@/lib/constants';
 
-/**
- * Postgres schema. See architecture.md 6.
- *
- * Conventions (architecture.md 6.4):
- * - ids are application-generated UUIDv7
- * - timestamps are UTC
- * - money is an integer in the minor unit plus an ISO 4217 code, never a float
- */
+const createdAt = () => timestamp('created_at', { withTimezone: true }).notNull().defaultNow();
+const timestampTz = (name: string) => timestamp(name, { withTimezone: true });
 
-// ---------------------------------------------------------------- enums
+function oneOf(column: string, values: readonly string[]) {
+  return sql.raw(`${column} in (${values.map((value) => `'${value}'`).join(', ')})`);
+}
 
-export const visibilityEnum = pgEnum('visibility', ['public', 'private']);
-/** The retrieval models the console configures; see `providerModelConfig`. */
-export const modelKindEnum = pgEnum('model_kind', ['embedding', 'rerank']);
-/** The page-rendering fallbacks; see `renderConfig`. `lib/domain/render-config.ts`. */
-export const renderProviderEnum = pgEnum('render_provider', ['firecrawl', 'anysearch', 'jina']);
-export const lifecycleStatusEnum = pgEnum('lifecycle_status', [
-  'draft',
-  'submitted',
-  'reviewing',
-  'changes_requested',
-  'published',
-  'suspended',
-  'archived',
-]);
-export const indexStatusEnum = pgEnum('index_status', [
-  'pending',
-  'processing',
-  'ready',
-  'failed',
-  'stale',
-  'deleting',
-]);
-export const claimStatusEnum = pgEnum('claim_status', [
-  'pending',
-  'verified',
-  'failed',
-  'expired',
-  'revoked',
-]);
-export const claimMethodEnum = pgEnum('claim_method', [
-  'github_permission',
-  'dns_txt',
-  'well_known',
-]);
-export const sourceTypeEnum = pgEnum('source_type', [
-  'github',
-  'website',
-  'llms_txt',
-  'markdown',
-  'pdf',
-  'openapi',
-  'notion',
-]);
-export const workspaceRoleEnum = pgEnum('workspace_role', [
-  'owner',
-  'admin',
-  'developer',
-  'viewer',
-]);
-export const subscriptionStatusEnum = pgEnum('subscription_status', [
-  'active',
-  'past_due',
-  'canceled',
-  'trialing',
-  /** Paused at the provider: grants nothing, but is still a subscription that can resume. */
-  'paused',
-]);
-export const reservationStatusEnum = pgEnum('reservation_status', [
-  'pending',
-  'committed',
-  'released',
-]);
-export const anchorSubjectEnum = pgEnum('anchor_subject_type', [
-  'version',
-  'audit_head',
-  'earning_statement',
-]);
-export const anchorBatchStatusEnum = pgEnum('anchor_batch_status', [
-  'pending',
-  'submitted',
-  'confirmed',
-  'failed',
-  'superseded',
-]);
-export const settlementStatusEnum = pgEnum('settlement_status', [
-  'accrued',
-  'held',
-  'paid',
-  /**
-   * Discharged as Additional Calls rather than money: the publisher turned the
-   * statement into an `addon_grant` (publisher-revenue-share.md 3.4). Distinct
-   * from `paid` so the books still say what left as cash and what never did.
-   */
-  'redeemed',
-  'clawed_back',
-  'voided',
-]);
-export const billingDocumentKindEnum = pgEnum('billing_document_kind', [
-  'subscription',
-  'pack',
-]);
-/**
- * The provider's own vocabulary, mirrored rather than reshaped. One column
- * covers issuing and payment because that is how a provider models a billing
- * document; see lib/domain/billing.
- */
-export const billingDocumentStatusEnum = pgEnum('billing_document_status', [
-  'draft',
-  'open',
-  'paid',
-  'failed',
-  'refunded',
-  'void',
-  'uncollectible',
-]);
-export const policyModeEnum = pgEnum('policy_mode', ['quality', 'select']);
-/**
- * An owner's application to have a public library tagged as an expert
- * library (expert-library-prd.md 4.5). `approved` and `library.expert_tagged_at`
- * move together; `revoked` is an approval an administrator later withdrew.
- */
-export const expertApplicationStatusEnum = pgEnum('expert_application_status', [
-  'pending',
-  'approved',
-  'rejected',
-  'withdrawn',
-  'revoked',
-]);
-
-/** Which door a site key opens: the widget on the owner's site, or a showcase page of ours. */
-export const siteKeyKindEnum = pgEnum('site_key_kind', ['embed', 'showcase']);
-export const showcaseKindEnum = pgEnum('showcase_kind', ['company', 'product']);
-export const showcaseStatusEnum = pgEnum('showcase_status', [
-  'draft',
-  'published',
-  'disabled',
-  'taken_down',
-]);
-export const showcaseAccessEnum = pgEnum('showcase_access', ['public', 'unlisted']);
-export const showcaseLeadStatusEnum = pgEnum('showcase_lead_status', ['new', 'handled']);
-export const showcaseDomainStatusEnum = pgEnum('showcase_domain_status', [
-  'pending_ownership',
-  'pending_dns',
-  'ready',
-  'failed',
-]);
-
-// ---------------------------------------------------------------- identity & commerce
-
-/**
- * `email` is deliberately not unique: requirement.md 3.2 forbids merging
- * accounts that happen to share an address, so two providers reporting the
- * same mailbox stay two accounts until the user links them from a session.
- */
-export const user = pgTable('user', {
-  id: uuid('id').primaryKey(),
-  email: text('email').notNull(),
-  displayName: text('display_name'),
-  avatarUrl: text('avatar_url'),
-  status: text('status').notNull().default('active'),
-  createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
-  updatedAt: timestamp('updated_at', { withTimezone: true }).notNull().defaultNow(),
-});
-
-export const oauthAccount = pgTable(
-  'oauth_account',
+export const user = pgTable(
+  'user',
   {
-    id: uuid('id').primaryKey(),
-    userId: uuid('user_id').notNull().references(() => user.id),
-    provider: text('provider').notNull(),
-    providerSubject: text('provider_subject').notNull(),
-    lastLoginAt: timestamp('last_login_at', { withTimezone: true }),
-    createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
-  },
-  (t) => [uniqueIndex('oauth_provider_subject_uq').on(t.provider, t.providerSubject)],
-);
-
-/**
- * Session digest. The cookie carries a random token; only its HMAC is stored,
- * the same "never keep the secret itself" rule the API keys follow.
- *
- * `client_summary` is a coarse fingerprint (user agent family only). Plain IPs
- * must not be written to product storage -- architecture.md 11.2.
- */
-export const userSession = pgTable(
-  'user_session',
-  {
-    id: uuid('id').primaryKey(),
-    userId: uuid('user_id').notNull().references(() => user.id),
-    tokenHash: text('token_hash').notNull(),
-    clientSummary: jsonb('client_summary').$type<Record<string, string>>().notNull().default({}),
-    lastSeenAt: timestamp('last_seen_at', { withTimezone: true }).notNull().defaultNow(),
-    revokedAt: timestamp('revoked_at', { withTimezone: true }),
-    expiresAt: timestamp('expires_at', { withTimezone: true }).notNull(),
-    createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
-  },
-  (t) => [
-    uniqueIndex('user_session_token_hash_uq').on(t.tokenHash),
-    /** Suspending an account and counting its live sessions both read by user. */
-    index('user_session_user_idx').on(t.userId),
-  ],
-);
-
-/**
- * A person's GitHub account, connected for repository imports.
- *
- * Login drops the provider token (requirement.md 12). This is the separate
- * grant a person gives on the wizard so it can list their own public
- * repositories and, at submit, prove the chosen one is theirs
- * (lib/domain/github.ts). `token_sealed` is the access token sealed with the
- * cookie key -- never the token itself -- and the row sits apart from
- * business tables as requirement.md 12 asks. One per user; reconnecting
- * replaces the token.
- */
-export const githubConnection = pgTable(
-  'github_connection',
-  {
-    id: uuid('id').primaryKey(),
-    userId: uuid('user_id').notNull().references(() => user.id),
-    /** GitHub's numeric account id as text; logins are renamed, ids are not. */
-    githubUserId: text('github_user_id').notNull(),
-    login: text('login').notNull(),
-    tokenSealed: text('token_sealed').notNull(),
-    scope: text('scope').notNull().default(''),
-    createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
-    updatedAt: timestamp('updated_at', { withTimezone: true }).notNull().defaultNow(),
-  },
-  (t) => [uniqueIndex('github_connection_user_uq').on(t.userId)],
-);
-
-/**
- * A person's Notion account, connected for page imports.
- *
- * The counterpart of `githubConnection` for the one source that cannot be
- * read anonymously: the sealed token is the only way to fetch the pages the
- * person shared with the integration, so it is kept for the library's
- * refreshes as well as for the wizard's listing (lib/domain/notion.ts). One
- * per user; reconnecting replaces the token.
- */
-export const notionConnection = pgTable(
-  'notion_connection',
-  {
-    id: uuid('id').primaryKey(),
-    userId: uuid('user_id').notNull().references(() => user.id),
-    /** The integration's bot id in the granted workspace. */
-    botId: text('bot_id').notNull(),
-    notionWorkspaceId: text('notion_workspace_id').notNull(),
-    workspaceName: text('workspace_name'),
-    notionUserId: text('notion_user_id'),
-    ownerName: text('owner_name'),
-    tokenSealed: text('token_sealed').notNull(),
-    createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
-    updatedAt: timestamp('updated_at', { withTimezone: true }).notNull().defaultNow(),
-  },
-  (t) => [uniqueIndex('notion_connection_user_uq').on(t.userId)],
-);
-
-export const workspace = pgTable('workspace', {
-  id: uuid('id').primaryKey(),
-  name: text('name').notNull(),
-  /** `personal` is the only kind in the MVP; team workspaces reuse the table. */
-  kind: text('kind').notNull().default('personal'),
-  createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
-});
-
-export const workspaceMember = pgTable(
-  'workspace_member',
-  {
-    workspaceId: uuid('workspace_id').notNull().references(() => workspace.id),
-    userId: uuid('user_id').notNull().references(() => user.id),
-    role: workspaceRoleEnum('role').notNull(),
-    createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
-  },
-  (t) => [
-    primaryKey({ columns: [t.workspaceId, t.userId] }),
-    /**
-     * The primary key leads with `workspace_id`, so "which workspaces is this
-     * user in" -- the direction every console screen asks -- cannot use it.
-     */
-    index('workspace_member_user_idx').on(t.userId),
-  ],
-);
-
-export const apiKey = pgTable(
-  'api_key',
-  {
-    id: uuid('id').primaryKey(),
-    workspaceId: uuid('workspace_id').notNull().references(() => workspace.id),
-    name: text('name').notNull(),
-    /** Only the hash is stored. The full value is shown once, at creation. */
-    keyHash: text('key_hash').notNull(),
-    keyPrefix: text('key_prefix').notNull(),
-    lastFour: text('last_four').notNull(),
-    scopes: jsonb('scopes').$type<string[]>().notNull(),
-    environment: text('environment').notNull(),
-    lastUsedAt: timestamp('last_used_at', { withTimezone: true }),
-    revokedAt: timestamp('revoked_at', { withTimezone: true }),
-    createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
-  },
-  (t) => [
-    uniqueIndex('api_key_hash_uq').on(t.keyHash),
-    /** Listing or counting a workspace's keys, which authentication never does. */
-    index('api_key_workspace_idx').on(t.workspaceId),
-  ],
-);
-
-export const plan = pgTable('plan', {
-  /**
-   * `free`, `pro` and `addon`, and nothing else. requirement.md 4.1, 4.3.
-   *
-   * Additional Calls is a pack, not a subscription tier: it has a Plan Version
-   * so its price and calls-per-pack are versioned and frozen like the others,
-   * but no `subscription` row may point at that version. See lib/domain/plans.
-   */
-  id: text('id').primaryKey(),
-  name: text('name').notNull(),
-});
-
-export const planVersion = pgTable(
-  'plan_version',
-  {
-    id: uuid('id').primaryKey(),
-    planId: text('plan_id').notNull().references(() => plan.id),
-    priceMinor: integer('price_minor').notNull(),
-    currency: text('currency').notNull().default('USD'),
-    monthlyCalls: integer('monthly_calls').notNull(),
-    libraryLimit: integer('library_limit').notNull(),
-    librarySizeBytesLimit: bigint('library_size_bytes_limit', { mode: 'number' }).notNull(),
-    apiKeyLimit: integer('api_key_limit').notNull(),
-    /** Publisher share rate, frozen per version. requirement.md 4.4 */
-    shareRateBps: integer('share_rate_bps').notNull().default(2000),
-    /**
-     * What a library build costs, frozen per version like every price here.
-     * library-build-billing.md 3.3; `lib/domain/build-billing.ts` `BuildRates`.
-     * The pack stores the 0 sentinel in all three, never a rate.
-     */
-    buildBaseCalls: integer('build_base_calls').notNull().default(1),
-    buildTokensPerCall: integer('build_tokens_per_call').notNull().default(20_000),
-    buildPagesPerCall: integer('build_pages_per_call').notNull().default(5),
-    capabilities: jsonb('capabilities').$type<Record<string, unknown>>().notNull().default({}),
-    createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
-  },
-  /** "The newest version of this plan", which every allowance lookup asks. */
-  (t) => [index('plan_version_plan_idx').on(t.planId, t.createdAt.desc())],
-);
-
-export const subscription = pgTable(
-  'subscription',
-  {
-    id: uuid('id').primaryKey(),
-    workspaceId: uuid('workspace_id').notNull().references(() => workspace.id),
-    planVersionId: uuid('plan_version_id').notNull().references(() => planVersion.id),
-    status: subscriptionStatusEnum('status').notNull(),
-    providerCustomerId: text('provider_customer_id'),
-    providerSubscriptionId: text('provider_subscription_id'),
-    periodStart: timestamp('period_start', { withTimezone: true }).notNull(),
-    periodEnd: timestamp('period_end', { withTimezone: true }).notNull(),
-    /**
-     * When a cancellation the subscriber has already asked for takes effect.
-     * The provider keeps the subscription `active` until then, so without this
-     * a subscription that will lapse reads the same as one that renews. Null
-     * means it renews -- or, on a Free row, that nothing renews it.
-     */
-    cancelAt: timestamp('cancel_at', { withTimezone: true }),
-    /**
-     * When the provider says this state was true. Webhooks arrive out of
-     * order, so an event only overwrites a row whose state is older than its
-     * own. Null on rows no provider wrote -- the Free subscription signup
-     * creates -- which any event may supersede.
-     */
-    observedAt: timestamp('observed_at', { withTimezone: true }),
-  },
-  (t) => [
-    /** The per-request quota transaction reads a workspace's subscription. */
-    index('subscription_workspace_idx').on(t.workspaceId),
-    /** One provider subscription, one row; nulls (Free rows) stay distinct. */
-    uniqueIndex('subscription_provider_uq').on(t.providerSubscriptionId),
-    /** "Is any subscription still on this plan version", before retiring one. */
-    index('subscription_plan_version_idx').on(t.planVersionId),
-  ],
-);
-
-/**
- * Additional Calls. requirement.md 4.3: the balance never expires and carries
- * across periods, so quota checks must read the balance and must not filter on
- * a validity window. See architecture.md 11.1.
- */
-export const addonGrant = pgTable(
-  'addon_grant',
-  {
-    id: uuid('id').primaryKey(),
-    workspaceId: uuid('workspace_id').notNull().references(() => workspace.id),
-    callsGranted: integer('calls_granted').notNull(),
-    callsConsumed: integer('calls_consumed').notNull().default(0),
-    priceMinor: integer('price_minor').notNull(),
-    currency: text('currency').notNull().default('USD'),
-    providerOrderId: text('provider_order_id'),
-    /**
-     * Set when the grant was not bought but redeemed: a publisher turned
-     * settled earnings into calls (publisher-revenue-share.md 3.4). Then
-     * `price_minor` is the earnings consumed, not a pack price, and the grant
-     * is not a purchase -- `workspaceBilling` must not count it as one.
-     *
-     * The foreign key to `publisher_account` lives in the migration only:
-     * that table is declared further down, and this file has no forward
-     * `references()` -- drizzle resolves them lazily, but a tool walking the
-     * table config at import time would hit the temporal dead zone.
-     */
-    publisherAccountId: uuid('publisher_account_id'),
-    /** Who redeemed it, as `user:<id>` or `api_key:<id>`; null on a bought pack. */
-    redeemedBy: text('redeemed_by'),
-    createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
-  },
-  (t) => [
-    /** The per-request quota transaction reads a workspace's grant balances. */
-    index('addon_grant_workspace_idx').on(t.workspaceId),
-    /** A pack order is granted once, however often its events are redelivered. */
-    uniqueIndex('addon_grant_provider_order_uq').on(t.providerOrderId),
-    /** The publisher's redemption history, newest first. */
-    index('addon_grant_publisher_idx').on(t.publisherAccountId, t.createdAt.desc()),
-  ],
-);
-
-export const paymentEvent = pgTable(
-  'payment_event',
-  {
-    id: uuid('id').primaryKey(),
-    provider: text('provider').notNull(),
-    externalEventId: text('external_event_id').notNull(),
-    payload: jsonb('payload').notNull(),
-    processedAt: timestamp('processed_at', { withTimezone: true }).notNull().defaultNow(),
-  },
-  (t) => [uniqueIndex('payment_event_uq').on(t.provider, t.externalEventId)],
-);
-
-/**
- * The console's read-only mirror of the Payment Provider's billing documents.
- *
- * requirement.md 5.3 asks the console to show orders, payment state, refunds
- * and invoicing status, and says every human action goes through the provider.
- * architecture.md 11.3 fixes what may be kept on this side: the external id,
- * the status, the amount and the currency. Cards, addresses and the provider's
- * rendered invoice stay over there and are not columns here.
- *
- * `payment_event` is the append-only, verified log of what the provider said;
- * this is the projection of it a screen can query. One row per provider
- * document, rewritten in place as its state moves, which is what makes
- * `(provider, external_id)` the key rather than the primary key: the row is
- * mutable because it mirrors something mutable.
- */
-export const billingDocument = pgTable(
-  'billing_document',
-  {
-    id: uuid('id').primaryKey(),
-    workspaceId: uuid('workspace_id').notNull().references(() => workspace.id),
-    provider: text('provider').notNull(),
-    /** The provider's machine id -- what an operator pastes into its console. */
-    externalId: text('external_id').notNull(),
-    /** Its human-facing number, or the external id again when it issues none. */
-    number: text('number').notNull(),
-    kind: billingDocumentKindEnum('kind').notNull(),
-    status: billingDocumentStatusEnum('status').notNull(),
-    amountMinor: integer('amount_minor').notNull(),
-    /**
-     * Refunds are their own column rather than a rewritten amount: what was
-     * charged is a fact about the past, and a dispute that cannot see both
-     * numbers cannot be settled. Partial refunds need it too.
-     */
-    refundedMinor: integer('refunded_minor').notNull().default(0),
-    /** As the provider settled it. requirement.md 4.3 keeps the original code. */
-    currency: text('currency').notNull().default('USD'),
-    /**
-     * A method *type* -- `card`, `alipay` -- never an instrument. A last-four
-     * is card data by any useful definition and does not belong on this side.
-     */
-    method: text('method'),
-    /** What was billed, when it is a subscription period. */
-    subscriptionId: uuid('subscription_id').references(() => subscription.id),
-    /** What was bought, when it is a call pack. */
-    addonGrantId: uuid('addon_grant_id').references(() => addonGrant.id),
-    /** The immutable version the order was priced against. requirement.md 4.3 */
-    planVersionId: uuid('plan_version_id').references(() => planVersion.id),
-    periodStart: timestamp('period_start', { withTimezone: true }),
-    periodEnd: timestamp('period_end', { withTimezone: true }),
-    issuedAt: timestamp('issued_at', { withTimezone: true }).notNull(),
-    paidAt: timestamp('paid_at', { withTimezone: true }),
-    /** The verified event that last wrote this row -- the trail back to source. */
-    lastEventId: uuid('last_event_id').references(() => paymentEvent.id),
-    /**
-     * The instant the provider says this state was true, not the instant we
-     * wrote it. Webhooks arrive out of order, so this is what decides whether
-     * an arriving event is newer than the row it would overwrite.
-     */
-    observedAt: timestamp('observed_at', { withTimezone: true }).notNull().defaultNow(),
-  },
-  (t) => [
-    uniqueIndex('billing_document_uq').on(t.provider, t.externalId),
-    /*
-     * Money is checked where it is stored, not only where it is parsed. The
-     * mirror refuses these too (lib/domain/billing), but the table is written
-     * by adapters, and an adapter that confuses minor and major units -- or
-     * reports more back than went out -- must not be able to drive the
-     * revenue readout negative.
-     */
-    check(
-      'billing_document_amount_ck',
-      sql`${t.amountMinor} >= 0 and ${t.refundedMinor} >= 0 and ${t.refundedMinor} <= ${t.amountMinor}`,
-    ),
-    /** The console's default order, and the page window that walks it. */
-    index('billing_document_issued_idx').on(t.issuedAt.desc(), t.id.desc()),
-    index('billing_document_status_idx').on(t.status, t.issuedAt.desc()),
-    index('billing_document_workspace_idx').on(t.workspaceId, t.issuedAt.desc()),
-  ],
-);
-
-/**
- * Checkouts this server opened at the Payment Provider. A paid checkout only
- * becomes a `subscription` row when its webhook lands, so until then this is
- * the one place that knows a purchase is under way; checkout reads it to
- * reuse an open one and to refuse a second subscription while the first is
- * still being confirmed. See lib/application/billing/checkout.
- */
-export const paymentCheckout = pgTable(
-  'payment_checkout',
-  {
-    id: uuid('id').primaryKey(),
-    workspaceId: uuid('workspace_id').notNull().references(() => workspace.id),
-    provider: text('provider').notNull(),
-    externalId: text('external_id').notNull(),
-    kind: billingDocumentKindEnum('kind').notNull(),
-    /** The version it was priced at; an open checkout is only reused while that is still live. */
-    planVersionId: uuid('plan_version_id').notNull().references(() => planVersion.id),
-    checkoutUrl: text('checkout_url').notNull(),
-    createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
-  },
-  (t) => [
-    uniqueIndex('payment_checkout_uq').on(t.provider, t.externalId),
-    index('payment_checkout_workspace_idx').on(t.workspaceId, t.createdAt.desc()),
-  ],
-);
-
-// ---------------------------------------------------------------- knowledge
-
-export const library = pgTable(
-  'library',
-  {
-    id: uuid('id').primaryKey(),
-    /** Public, stable id such as /vercel/next.js. requirement.md 6.1 */
-    publicId: text('public_id').notNull(),
-    title: text('title').notNull(),
-    description: text('description'),
-    domainTag: text('domain_tag'),
-    language: text('language'),
-    /**
-     * Ownership. Written only by a verified claim or an admin ruling.
-     * architecture.md 5.4 -- ingestion, review and refresh must never touch it.
-     */
-    ownerWorkspaceId: uuid('owner_workspace_id').references(() => workspace.id),
-    isPlatformLibrary: boolean('is_platform_library').notNull().default(false),
-    visibility: visibilityEnum('visibility').notNull(),
-    lifecycleStatus: lifecycleStatusEnum('lifecycle_status').notNull(),
-    indexStatus: indexStatusEnum('index_status').notNull(),
-    currentVersionId: uuid('current_version_id'),
-    storageBytes: bigint('storage_bytes', { mode: 'number' }).notNull().default(0),
-    lastCheckedAt: timestamp('last_checked_at', { withTimezone: true }),
-    lastSuccessfulRefreshAt: timestamp('last_successful_refresh_at', { withTimezone: true }),
-    createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
-    /**
-     * The tombstone. architecture.md 8.4: a delete first makes the library
-     * unreachable in Postgres -- this column, `archived`, `deleting`, and the
-     * publication pointer withdrawn -- and the Delete Workflow then removes
-     * the content. The row itself stays: `usage_event`, `earning_event` and
-     * `settlement` are append-only facts that reference it, and a deleted
-     * library's billing history is still history. Every list and lookup of
-     * live libraries filters on this being null.
-     */
-    deletedAt: timestamp('deleted_at', { withTimezone: true }),
-    /**
-     * The expert-library tag (expert-library-prd.md 4.3). Null means the
-     * library is not one. Written only by the console's approval and cleared
-     * only by its revocation; nothing in ingestion, review or ownership
-     * touches it. Read by exactly one decision -- whether a served call earns
-     * (`commitCall`) -- and never by retrieval or ranking.
-     */
-    expertTaggedAt: timestamp('expert_tagged_at', { withTimezone: true }),
-    /**
-     * The owner's rights declaration (lib/domain/rights.ts): origin,
-     * licence, how the content was written, their note, who declared and
-     * when. Required before a public library may be submitted
-     * (review-visibility-proposal.md 5.1); null on a private library that
-     * never declared, and on libraries created before it existed.
-     */
-    rightsDeclaration: jsonb('rights_declaration').$type<{
-      origin: string;
-      license: string;
-      generation: string;
-      note: string;
-      declaredAt: string;
-      declaredBy: string | null;
-    }>(),
-  },
-  (t) => [
-    /**
-     * Partial: a deleted library releases its Library ID. A workspace that
-     * deletes `/owner/repo` and adds it again must not be told the id is
-     * taken by a tombstone, and every lookup by `public_id` already excludes
-     * deleted rows -- so the constraint only has to hold among live ones.
-     */
-    uniqueIndex('library_public_id_uq')
-      .on(t.publicId)
-      .where(sql`${t.deletedAt} is null`),
-    index('library_owner_idx').on(t.ownerWorkspaceId),
-    index('library_visibility_lifecycle_idx').on(t.visibility, t.lifecycleStatus),
-    /**
-     * The console's platform-library list reads `library` the other way round
-     * from the catalogue: it starts from `is_platform_library`, and the false
-     * rows outnumber the true ones by orders of magnitude. Partial, so this
-     * costs one entry per platform library rather than one per library.
-     */
-    index('library_platform_idx')
-      .on(t.lifecycleStatus, t.createdAt.desc())
-      .where(sql`${t.isPlatformLibrary}`),
-  ],
-);
-
-/**
- * A publishable key for the website widget. requirement.md 9.4,
- * lib/domain/site-key.ts.
- *
- * Stored in the clear, on purpose: the value is pasted into the owner's web
- * page, where every visitor can read it, so a hash would protect nothing.
- * What the row protects is spelled out in its columns -- the origins that may
- * embed the widget and how many Calls a day the key may spend. One key serves
- * one library; the widget answers from that library and nothing else.
- */
-export const siteKey = pgTable(
-  'site_key',
-  {
-    id: uuid('id').primaryKey(),
-    workspaceId: uuid('workspace_id').notNull().references(() => workspace.id),
-    libraryId: uuid('library_id').notNull().references(() => library.id),
-    name: text('name').notNull(),
-    key: text('key').notNull(),
-    /**
-     * `embed` is the owner's key for their own site. `showcase` is the key a
-     * showcase page of ours answers through: never listed to the owner,
-     * never counted against the per-library key limit, revoked with its page.
-     */
-    kind: siteKeyKindEnum('kind').notNull().default('embed'),
-    /** Normalised origins (scheme://host[:port]) that may embed the widget. */
-    allowedOrigins: jsonb('allowed_origins').$type<string[]>().notNull(),
-    /** Calls this key may spend per rolling day, from the workspace's quota. */
-    dailyLimit: integer('daily_limit').notNull(),
-    /** The owner's greeting; null shows the product default. */
-    welcome: text('welcome'),
-    /** The widget's button and bubble colour, `#rrggbb`. */
-    accent: text('accent').notNull(),
-    lastUsedAt: timestamp('last_used_at', { withTimezone: true }),
-    revokedAt: timestamp('revoked_at', { withTimezone: true }),
-    createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
-  },
-  (t) => [
-    uniqueIndex('site_key_key_uq').on(t.key),
-    /** The library page lists its keys; authentication never does. */
-    index('site_key_library_idx').on(t.libraryId),
-  ],
-);
-
-/**
- * Where a site key's widget has actually been seen. requirement.md 9.4,
- * lib/application/embed/origins.ts.
- *
- * `siteKey.allowedOrigins` is what the owner permits; this is which of those
- * sites has pasted the snippet. One row per key and origin: `loads` counts
- * the widget page served to that parent, `questions` the visitor questions
- * admitted from it. Usage marks, not an audit fact -- written fire-and-forget
- * and dropped with the key.
- */
-export const siteKeyOrigin = pgTable(
-  'site_key_origin',
-  {
-    id: uuid('id').primaryKey(),
-    siteKeyId: uuid('site_key_id')
-      .notNull()
-      .references(() => siteKey.id, { onDelete: 'cascade' }),
-    /** Normalised, as `allowedOrigins` holds it. */
-    origin: text('origin').notNull(),
-    loads: integer('loads').notNull().default(0),
-    questions: integer('questions').notNull().default(0),
-    firstSeenAt: timestamp('first_seen_at', { withTimezone: true }).notNull().defaultNow(),
-    lastSeenAt: timestamp('last_seen_at', { withTimezone: true }).notNull().defaultNow(),
-  },
-  (t) => [uniqueIndex('site_key_origin_uq').on(t.siteKeyId, t.origin)],
-);
-
-/**
- * What the website widget was asked, per library. requirement.md 9.4,
- * lib/application/embed/exchanges.ts.
- *
- * The request log keeps no query text (architecture.md 17.1); this table
- * does, on purpose: a visitor asked the owner's site, and the owner reads
- * what their visitors ask and what they were told to grow the library from
- * it. Scoped to the library, nothing of the visitor beyond the site they
- * asked from; the owner's own try-outs from the dashboard are previews.
- */
-export const widgetExchange = pgTable(
-  'widget_exchange',
-  {
-    id: uuid('id').primaryKey(),
-    libraryId: uuid('library_id').notNull().references(() => library.id),
-    workspaceId: uuid('workspace_id').notNull().references(() => workspace.id),
-    /** Kept after the key is revoked; null once the key row is gone. */
-    siteKeyId: uuid('site_key_id').references(() => siteKey.id, { onDelete: 'set null' }),
-    origin: text('origin').notNull(),
-    preview: boolean('preview').notNull().default(false),
-    question: text('question').notNull(),
-    /** The query the answer was retrieved with when the question itself missed. */
-    rewrittenQuery: text('rewritten_query'),
-    /** 'answer' | 'no_context' | 'degraded' | 'not_ready' | 'unavailable' (the widget's outcome kinds). */
-    outcome: text('outcome').notNull(),
-    /** The bound sentences, joined; null when nothing was generated. */
-    answer: text('answer'),
-    sources: jsonb('sources').$type<{ url: string; title: string }[]>().notNull().default([]),
-    latencyMs: integer('latency_ms'),
-    /** The visitor's verdict on a showcase page: 'helpful' | 'unhelpful'; null when none was given. */
-    feedback: text('feedback'),
-    createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
-  },
-  (t) => [index('widget_exchange_library_time_idx').on(t.libraryId, t.createdAt)],
-);
-
-/**
- * The owner's FAQ for a library. requirement.md 9.4, lib/domain/faq.ts.
- *
- * Each entry becomes a document of the next build -- question as title,
- * answer as body, cited to `pageUrl` -- so a recurring widget question finds
- * a chunk written for it. `libraryVersion.faqDigest` remembers the FAQ a
- * version was built with.
- */
-export const libraryFaq = pgTable(
-  'library_faq',
-  {
-    id: uuid('id').primaryKey(),
-    libraryId: uuid('library_id').notNull().references(() => library.id),
-    workspaceId: uuid('workspace_id').notNull().references(() => workspace.id),
-    question: text('question').notNull(),
-    answer: text('answer').notNull(),
-    /** The page the entry stands for; what its citation opens. */
-    pageUrl: text('page_url').notNull(),
-    createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
-    updatedAt: timestamp('updated_at', { withTimezone: true }).notNull().defaultNow(),
-  },
-  (t) => [index('library_faq_library_idx').on(t.libraryId, t.createdAt)],
-);
-
-/**
- * A library shared as a standalone page. lib/domain/showcase.ts.
- *
- * One live row per library. The page answers through its own `siteKey`
- * (kind `showcase`), so the widget's exchange log, FAQ and quota brakes
- * apply unchanged. `content` is the owner's copy for the top of the page,
- * validated by the domain before it is stored; `starterQuestions` the chips
- * under it. `slug` is the public address; `previousSlug` keeps the last one
- * so a link already shared keeps working after a rename.
- */
-export const libraryShowcase = pgTable(
-  'library_showcase',
-  {
-    id: uuid('id').primaryKey(),
-    libraryId: uuid('library_id').notNull().references(() => library.id),
-    workspaceId: uuid('workspace_id').notNull().references(() => workspace.id),
-    siteKeyId: uuid('site_key_id').notNull().references(() => siteKey.id),
-    kind: showcaseKindEnum('kind').notNull(),
-    slug: text('slug').notNull(),
-    previousSlug: text('previous_slug'),
-    status: showcaseStatusEnum('status').notNull().default('draft'),
-    access: showcaseAccessEnum('access').notNull().default('public'),
-    locale: text('locale').notNull().default('en'),
-    content: jsonb('content').$type<Record<string, unknown>>().notNull().default({}),
-    starterQuestions: jsonb('starter_questions').$type<string[]>().notNull().default([]),
-    logoKey: text('logo_key'),
-    screenshotKey: text('screenshot_key'),
-    accent: text('accent').notNull(),
-    showBranding: boolean('show_branding').notNull().default(true),
-    /** Link-only pages may ask for a password: argon2id, null when none. */
-    passwordHash: text('password_hash'),
-    /** Bumped on every password change; the unlock cookie names the version it was issued for. */
-    passwordVersion: integer('password_version').notNull().default(0),
-    /** After this the page is closed to visitors; null never expires. */
-    expiresAt: timestamp('expires_at', { withTimezone: true }),
-    generatedAt: timestamp('generated_at', { withTimezone: true }),
-    publishedAt: timestamp('published_at', { withTimezone: true }),
-    disabledAt: timestamp('disabled_at', { withTimezone: true }),
-    createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
-    updatedAt: timestamp('updated_at', { withTimezone: true }).notNull().defaultNow(),
-    deletedAt: timestamp('deleted_at', { withTimezone: true }),
-  },
-  (t) => [
-    uniqueIndex('library_showcase_library_uq')
-      .on(t.libraryId)
-      .where(sql`${t.deletedAt} is null`),
-    uniqueIndex('library_showcase_slug_uq')
-      .on(t.slug)
-      .where(sql`${t.deletedAt} is null`),
-    index('library_showcase_previous_slug_idx')
-      .on(t.previousSlug)
-      .where(sql`${t.previousSlug} is not null`),
-    index('library_showcase_workspace_idx').on(t.workspaceId),
-  ],
-);
-
-/** Views, questions and CTA clicks per showcase page and UTC day. Counters, written off the request path. */
-export const libraryShowcaseDaily = pgTable(
-  'library_showcase_daily',
-  {
-    showcaseId: uuid('showcase_id')
-      .notNull()
-      .references(() => libraryShowcase.id, { onDelete: 'cascade' }),
-    day: date('day', { mode: 'string' }).notNull(),
-    views: integer('views').notNull().default(0),
-    questions: integer('questions').notNull().default(0),
-    ctaClicks: integer('cta_clicks').notNull().default(0),
-    leads: integer('leads').notNull().default(0),
-  },
-  (t) => [primaryKey({ columns: [t.showcaseId, t.day] })],
-);
-
-/**
- * A lead left on a showcase page (lib/domain/showcase.ts `validateLead`):
- * a visitor the library could not answer, their contact, and the exchange
- * they were in. The one table that holds a visitor's personal data; the
- * exchange log never does, and nothing here is embedded or grouped.
- */
-export const showcaseLead = pgTable(
-  'showcase_lead',
-  {
-    id: uuid('id').primaryKey(),
-    showcaseId: uuid('showcase_id')
-      .notNull()
-      .references(() => libraryShowcase.id, { onDelete: 'cascade' }),
-    libraryId: uuid('library_id').notNull().references(() => library.id),
-    workspaceId: uuid('workspace_id').notNull().references(() => workspace.id),
-    exchangeId: uuid('exchange_id').references(() => widgetExchange.id, { onDelete: 'set null' }),
+    id: uuid('id').primaryKey().defaultRandom(),
     email: text('email').notNull(),
-    name: text('name'),
-    message: text('message'),
-    status: showcaseLeadStatusEnum('status').notNull().default('new'),
-    createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
-    handledAt: timestamp('handled_at', { withTimezone: true }),
+    name: text('name').notNull(),
+    title: text('title').notNull().default(''),
+    description: text('description').notNull().default(''),
+    website: text('website').notNull().default(''),
+    socialContacts: jsonb('social_contacts').$type<SocialContact[]>().notNull().default([]),
+    /** A Blob pathname once uploaded; the provider's avatar URL until then. */
+    avatarBlob: text('avatar_blob'),
+    lang: text('lang').$type<'zh' | 'en'>().notNull().default('zh'),
+    provider: text('provider').$type<'google' | 'github'>().notNull(),
+    /** Beyond 4: the provider's stable account id, which sign-in matches on. */
+    providerSubject: text('provider_subject').notNull(),
+    providerHandle: text('provider_handle'),
+    lastLoginAt: timestampTz('last_login_at'),
+    role: text('role').$type<'normal' | 'verified' | 'official'>().notNull().default('normal'),
+    roleChangedAt: timestampTz('role_changed_at'),
+    disabledAt: timestampTz('disabled_at'),
+    paypalEmail: text('paypal_email'),
+    paypalEmailChangedAt: timestampTz('paypal_email_changed_at'),
+    reeDraft: jsonb('ree_draft').$type<ReeDraft>(),
+    createdAt: createdAt(),
   },
   (t) => [
-    index('showcase_lead_showcase_idx').on(t.showcaseId, t.createdAt),
-    index('showcase_lead_workspace_new_idx')
-      .on(t.workspaceId)
-      .where(sql`${t.status} = 'new'`),
+    uniqueIndex('user_provider_subject_key').on(t.provider, t.providerSubject),
+    check('user_lang_check', oneOf('lang', ['zh', 'en'])),
+    check('user_provider_check', oneOf('provider', ['google', 'github'])),
+    check('user_role_check', oneOf('role', ['normal', 'verified', 'official'])),
   ],
 );
 
-/**
- * A showcase page on the owner's own subdomain (lib/domain/showcase.ts
- * `parseCustomHost`, lib/application/showcase/domain.ts). Ownership is
- * proved through a TXT challenge first; only then is the host added to the
- * deployment's Vercel project. The challenge token is kept in the clear:
- * the owner is shown the record until it resolves, and it proves control
- * of this host for this page and nothing else. One host per page.
- */
-export const showcaseDomain = pgTable(
-  'showcase_domain',
+/** `id` is the keyed digest of the cookie's token, never the token itself. */
+export const session = pgTable(
+  'session',
   {
-    id: uuid('id').primaryKey(),
-    showcaseId: uuid('showcase_id')
+    id: text('id').primaryKey(),
+    userId: uuid('user_id')
       .notNull()
-      .references(() => libraryShowcase.id, { onDelete: 'cascade' }),
-    workspaceId: uuid('workspace_id').notNull().references(() => workspace.id),
-    host: text('host').notNull(),
-    status: showcaseDomainStatusEnum('status').notNull().default('pending_ownership'),
-    verificationId: uuid('verification_id').references(() => domainVerification.id, { onDelete: 'set null' }),
-    verificationToken: text('verification_token'),
-    /** The record Vercel asks for when the host was used on another account; null when none was asked. */
-    vercelTxtName: text('vercel_txt_name'),
-    vercelTxtValue: text('vercel_txt_value'),
-    lastCheckedAt: timestamp('last_checked_at', { withTimezone: true }),
-    error: text('error'),
-    createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
-    updatedAt: timestamp('updated_at', { withTimezone: true }).notNull().defaultNow(),
+      .references(() => user.id, { onDelete: 'cascade' }),
+    expiresAt: timestampTz('expires_at').notNull(),
   },
-  (t) => [uniqueIndex('showcase_domain_showcase_uq').on(t.showcaseId), uniqueIndex('showcase_domain_host_uq').on(t.host)],
+  (t) => [index('session_user_idx').on(t.userId)],
 );
 
-export const libraryAlias = pgTable(
-  'library_alias',
+export const ree = pgTable(
+  'ree',
   {
-    id: uuid('id').primaryKey(),
-    fromPublicId: text('from_public_id').notNull(),
-    libraryId: uuid('library_id').notNull().references(() => library.id),
-  },
-  (t) => [uniqueIndex('library_alias_uq').on(t.fromPublicId)],
-);
-
-export const source = pgTable(
-  'source',
-  {
-    id: uuid('id').primaryKey(),
-    libraryId: uuid('library_id').notNull().references(() => library.id),
-    type: sourceTypeEnum('type').notNull(),
-    location: text('location').notNull(),
-    config: jsonb('config').$type<Record<string, unknown>>().notNull().default({}),
-    /** Encrypted reference only. Never the secret itself. */
-    credentialRef: text('credential_ref'),
-    refreshPolicy: jsonb('refresh_policy').$type<Record<string, unknown>>().notNull().default({}),
-  },
-  (t) => [index('source_library_idx').on(t.libraryId)],
-);
-
-export const libraryVersion = pgTable(
-  'library_version',
-  {
-    id: uuid('id').primaryKey(),
-    libraryId: uuid('library_id').notNull().references(() => library.id),
-    label: text('label').notNull(),
-    sourceDigest: text('source_digest').notNull(),
-    /**
-     * What each source contributed to this version, keyed by source id: its
-     * own snapshot digest, content bytes and the facts scoring reads. The
-     * next build compares a source's fresh digest against this and, when
-     * equal, copies the source's documents and chunks forward instead of
-     * parsing and embedding them again (`build-version.ts`). Null on versions
-     * built before this existed, which the next build treats as "rebuild all".
-     */
-    sourceDigests: jsonb('source_digests').$type<
-      Record<
-        string,
-        { digest: string; bytes: number; lastModifiedAt: string | null; hasLicense: boolean }
-      >
-    >(),
-    parserVersion: text('parser_version').notNull(),
-    chunkerVersion: text('chunker_version').notNull(),
-    embeddingModel: text('embedding_model').notNull(),
-    /**
-     * The width the model was asked for, frozen beside its name.
-     *
-     * The column is fixed and narrower vectors are zero-padded into it
-     * (`lib/domain/model-config.ts`), so the stored width says nothing about
-     * which space a version lives in -- two builds of the same model at
-     * different dimensions are as incomparable as two different models, and
-     * without this the guard on the retrieval path could not tell them apart.
-     */
-    embeddingDimensions: integer('embedding_dimensions').notNull().default(1536),
-    /**
-     * The text-search configuration its chunks were indexed with, resolved from
-     * the library's language at build time.
-     *
-     * Frozen here alongside the parser, chunker and embedding model
-     * (requirement.md 8.1) because it is the fourth thing that decides what a
-     * version is -- and because a build compares all four against the current
-     * version to decide whether an unchanged source still needs rebuilding.
-     */
-    /**
-     * The FAQ this version was built with (lib/domain/faq.ts `faqCanonical`,
-     * hashed); null when the library had none. A build compares it to know
-     * whether an edit to the FAQ alone is a change.
-     */
-    faqDigest: text('faq_digest'),
-    searchConfig: text('search_config').notNull().default('simple'),
-    /** Merkle root over ordered chunk digests, input to Version Anchor. */
-    contentMerkleRoot: text('content_merkle_root'),
-    /**
-     * The bottom-k sketch of this version's chunks (lib/domain/fingerprint.ts),
-     * for the review rules' duplicate check against published libraries.
-     * Null on versions built before it existed, which simply never match.
-     */
-    contentSketch: jsonb('content_sketch').$type<string[]>(),
-    indexStatus: indexStatusEnum('index_status').notNull(),
-    totalTokens: integer('total_tokens').notNull().default(0),
-    totalChunks: integer('total_chunks').notNull().default(0),
-    publishedAt: timestamp('published_at', { withTimezone: true }),
-    createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
+    id: uuid('id').primaryKey().defaultRandom(),
+    ownerId: uuid('owner_id')
+      .notNull()
+      .references(() => user.id),
+    name: text('name').notNull(),
+    slug: text('slug').notNull(),
+    description: text('description').notNull().default(''),
+    avatarBlob: text('avatar_blob'),
+    coverBlob: text('cover_blob'),
+    color: text('color').notNull().default('default'),
+    category: text('category').notNull().default('other'),
+    tags: text('tags').array().notNull().default(sql`'{}'::text[]`),
+    systemPrompt: text('system_prompt').notNull().default(''),
+    sampleQuestions: jsonb('sample_questions').$type<string[]>().notNull().default([]),
+    isPublic: boolean('is_public').notNull().default(false),
+    /** Publication is a separate owner action; new Rees start unpublished. */
+    isPublished: boolean('is_published').notNull().default(false),
+    queryFee: integer('query_fee').notNull().default(0),
+    /** Taken down by an administrator (2.5): hidden from discovery and other people's conversations, and not republishable by its owner, until restored. */
+    moderatedAt: timestampTz('moderated_at'),
+    moderatedBy: uuid('moderated_by'),
+    moderatedReason: text('moderated_reason'),
+    /** The explore ranking, materialised hourly by `/api/cron/rank` (4). */
+    rank: jsonb('rank').$type<ReeRank>().notNull().default({}),
+    /** Beyond 4: three example questions the system wrote after the first ready source, shown only once the owner adopts them (8.2). */
+    suggestedQuestions: jsonb('suggested_questions').$type<string[]>().notNull().default([]),
+    deletedAt: timestampTz('deleted_at'),
+    createdAt: createdAt(),
+    updatedAt: timestampTz('updated_at').notNull().defaultNow(),
   },
   (t) => [
-    index('library_version_library_idx').on(t.libraryId, t.createdAt.desc()),
-    /** One build per label: the console's version list is chosen from by label. */
-    uniqueIndex('library_version_label_uq').on(t.libraryId, t.label),
-  ],
-);
-
-export const libraryReview = pgTable('library_review', {
-  id: uuid('id').primaryKey(),
-  libraryId: uuid('library_id').notNull().references(() => library.id),
-  versionId: uuid('version_id').references(() => libraryVersion.id),
-  stage: text('stage').notNull(),
-  outcome: text('outcome'),
-  feedback: jsonb('feedback').$type<string[]>().notNull().default([]),
-  /**
-   * requirement.md 7.4's five checks, each with a verdict and a note
-   * (lib/domain/review.ts `ReviewChecklist`). Null on a private library's
-   * safety pause, and on rows written before the checklist existed.
-   */
-  checklist: jsonb('checklist').$type<Record<string, { verdict: string; note: string }>>(),
-  /**
-   * The machine decision this row appeals (lib/domain/library.ts
-   * `appealableDecision`): set on the owner's `appeal` row, null otherwise.
-   * No foreign key, like `reviewer_id`: the rows are append-only anyway.
-   */
-  appealOf: uuid('appeal_of'),
-  reviewerId: uuid('reviewer_id'),
-  createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
-  decidedAt: timestamp('decided_at', { withTimezone: true }),
-});
-
-/**
- * Ownership claim. requirement.md 7.3, architecture.md 5.4.
- * A partial unique index keeps at most one pending claim per library.
- */
-export const libraryClaim = pgTable(
-  'library_claim',
-  {
-    id: uuid('id').primaryKey(),
-    libraryId: uuid('library_id').notNull().references(() => library.id),
-    claimantWorkspaceId: uuid('claimant_workspace_id').notNull().references(() => workspace.id),
-    method: claimMethodEnum('method').notNull(),
-    /** Hash only. The plaintext challenge is returned once, at creation. */
-    challengeTokenHash: text('challenge_token_hash').notNull(),
-    status: claimStatusEnum('status').notNull(),
-    failureReason: text('failure_reason'),
-    attempts: integer('attempts').notNull().default(0),
-    expiresAt: timestamp('expires_at', { withTimezone: true }).notNull(),
-    verifiedAt: timestamp('verified_at', { withTimezone: true }),
-    rulingAdminId: uuid('ruling_admin_id'),
-    rulingReason: text('ruling_reason'),
-    createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
-  },
-  (t) => [
-    uniqueIndex('library_claim_pending_uq')
-      .on(t.libraryId)
-      .where(sql`${t.status} = 'pending'`),
-    index('library_claim_claimant_idx').on(t.claimantWorkspaceId),
-  ],
-);
-
-/**
- * An expert-library application. expert-library-prd.md 4.5, 7.
- *
- * Append-only history: a rejection and a later revocation are two rows that
- * stay, and the detail screens list them all. The partial unique index keeps
- * one pending application per library. `workspace_id` is the owner at the
- * time of applying, kept so a later ownership transfer does not rewrite who
- * asked. `decided_by_admin_id` is not a foreign key, like
- * `library_claim.ruling_admin_id`: the decision outlives the account.
- */
-export const expertApplication = pgTable(
-  'expert_application',
-  {
-    id: uuid('id').primaryKey(),
-    libraryId: uuid('library_id').notNull().references(() => library.id),
-    workspaceId: uuid('workspace_id').notNull().references(() => workspace.id),
-    status: expertApplicationStatusEnum('status').notNull(),
-    /** The applicant's statement for the reviewer; optional, capped at 500. */
-    note: text('note'),
-    /**
-     * The applicant's structured statement (lib/domain/expert-library.ts
-     * `ExpertMaterials`): scope, maintenance, credentials and the note.
-     * Null on applications made before it existed.
-     */
-    materials: jsonb('materials').$type<{ scope: string; maintenance: string; credentials: string; note: string }>(),
-    /** The reviewer's checklist behind the decision (`ExpertChecklist`); null on a revocation and older rows. */
-    checklist: jsonb('checklist').$type<Record<string, { verdict: string; note: string }>>(),
-    /** Why it was approved, rejected or revoked; the owner reads this. */
-    decisionReason: text('decision_reason'),
-    decidedByAdminId: uuid('decided_by_admin_id'),
-    decidedAt: timestamp('decided_at', { withTimezone: true }),
-    createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
-  },
-  (t) => [
-    uniqueIndex('expert_application_pending_uq')
-      .on(t.libraryId)
-      .where(sql`${t.status} = 'pending'`),
-    index('expert_application_library_idx').on(t.libraryId, t.createdAt.desc()),
-    index('expert_application_status_idx').on(t.status, t.createdAt.desc()),
-  ],
-);
-
-/**
- * A challenge proving a workspace controls a host, met before a website,
- * llms.txt or OpenAPI library may be created from it (requirement.md 7.3.2,
- * architecture.md 5.4, lib/domain/domain-verification.ts). Reuses the claim
- * enums: a domain challenge is a claim made before the library exists, and
- * a verified one is copied onto `library_claim` when the library is created.
- * Hash only; the plaintext token is returned once. Spent on exactly one
- * library through `consumed_library_id`.
- */
-export const domainVerification = pgTable(
-  'domain_verification',
-  {
-    id: uuid('id').primaryKey(),
-    workspaceId: uuid('workspace_id').notNull().references(() => workspace.id),
-    host: text('host').notNull(),
-    method: claimMethodEnum('method').notNull(),
-    challengeTokenHash: text('challenge_token_hash').notNull(),
-    status: claimStatusEnum('status').notNull(),
-    failureReason: text('failure_reason'),
-    attempts: integer('attempts').notNull().default(0),
-    expiresAt: timestamp('expires_at', { withTimezone: true }).notNull(),
-    verifiedAt: timestamp('verified_at', { withTimezone: true }),
-    consumedLibraryId: uuid('consumed_library_id').references(() => library.id, { onDelete: 'set null' }),
-    createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
-  },
-  (t) => [index('domain_verification_workspace_idx').on(t.workspaceId, t.createdAt)],
-);
-
-export const libraryScore = pgTable(
-  'library_score',
-  {
-    id: uuid('id').primaryKey(),
-    libraryId: uuid('library_id').notNull().references(() => library.id),
-    algorithmVersion: text('algorithm_version').notNull(),
-    trustScore: integer('trust_score').notNull(),
-    benchmarkScore: integer('benchmark_score').notNull(),
-    breakdown: jsonb('breakdown').$type<Record<string, number>>().notNull().default({}),
-    computedAt: timestamp('computed_at', { withTimezone: true }).notNull().defaultNow(),
-  },
-  /** "This library's newest score", which the catalogue reads per row. */
-  (t) => [index('library_score_current_idx').on(t.libraryId, t.computedAt.desc())],
-);
-
-/**
- * A library's test set: questions with a known answer location, put to every
- * build through the real retrieval (lib/domain/benchmark.ts,
- * ingestion/evaluate.ts). requirement.md 6.3.
- *
- * Rows belong to the library, not to a version -- the same question is asked
- * of each build, which is what makes two builds' hit rates comparable. The
- * `last_*` columns are the most recent run only; the aggregate a score was
- * computed from is frozen on that `library_score.breakdown`.
- */
-export const libraryEvalQuestion = pgTable(
-  'library_eval_question',
-  {
-    id: uuid('id').primaryKey(),
-    libraryId: uuid('library_id').notNull().references(() => library.id),
-    question: text('question').notNull(),
-    /**
-     * Who wrote it: `admin` for the platform's own measuring instrument,
-     * `owner` for the library owner's self-check (review-visibility-
-     * proposal.md 5.2). Only `admin` questions move the Benchmark; a
-     * reviewer adopts an owner's question by setting this to `admin`.
-     */
-    author: text('author').notNull().default('admin'),
-    /** Matched against a passage's source URL and document title. */
-    expectedSource: text('expected_source'),
-    /** Matched against a passage's body. */
-    expectedText: text('expected_text'),
-    /** No foreign key: a version may be purged while its questions stay. */
-    lastVersionId: uuid('last_version_id'),
-    /** 1-based rank of the first satisfying passage; null is a miss. */
-    lastRank: integer('last_rank'),
-    lastEvaluatedAt: timestamp('last_evaluated_at', { withTimezone: true }),
-    createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
-  },
-  (t) => [
-    index('library_eval_question_library_idx').on(t.libraryId, t.createdAt),
+    uniqueIndex('ree_slug_key').on(t.slug),
+    index('ree_public_idx').on(t.category, t.createdAt).where(sql`is_public and is_published and moderated_at is null and deleted_at is null`),
+    index('ree_owner_idx').on(t.ownerId, t.createdAt),
     check(
-      'library_eval_question_expectation',
-      sql`${t.expectedSource} is not null or ${t.expectedText} is not null`,
+      'ree_color_check',
+      oneOf('color', ['default', 'lilac', 'sand', 'sage', 'rose', 'slate']),
     ),
-    check('library_eval_question_author', sql`${t.author} in ('owner', 'admin')`),
+    check(
+      'ree_category_check',
+      oneOf('category', ['technology', 'design', 'business', 'learning', 'professional', 'life', 'other']),
+    ),
+    check('ree_query_fee_check', sql`query_fee between 0 and 10000`),
+    check('ree_tags_check', sql`cardinality(tags) <= 3`),
+    /* A taken-down Ree is private until an administrator restores it, whoever writes the row (step 5). */
+    check('ree_moderated_private_check', sql`moderated_at is null or not is_public`),
+    check('ree_published_public_check', sql`not is_published or (is_public and moderated_at is null and deleted_at is null)`),
   ],
 );
 
-export const document = pgTable(
-  'document',
+export const reeFavorite = pgTable(
+  'ree_favorite',
   {
-    id: uuid('id').primaryKey(),
-    libraryId: uuid('library_id').notNull().references(() => library.id),
-    versionId: uuid('version_id').notNull().references(() => libraryVersion.id),
-    title: text('title').notNull(),
-    sourceUrl: text('source_url').notNull(),
-    objectKey: text('object_key'),
-    /**
-     * Which source this document came from. No foreign key: a source may be
-     * removed while the versions it fed stay immutable. Null on documents
-     * written before this existed.
-     */
-    sourceId: uuid('source_id'),
-    /**
-     * What the build's scan found in this file (lib/domain/ingestion.ts
-     * `safetyFindingsOf`): the reason behind its chunks' `safety_status`,
-     * kept so a reviewer sees which rule fired. Empty for a clean file.
-     */
-    safetyFindings: jsonb('safety_findings').$type<string[]>().notNull().default([]),
+    userId: uuid('user_id').notNull().references(() => user.id, { onDelete: 'cascade' }),
+    reeId: uuid('ree_id').notNull().references(() => ree.id, { onDelete: 'cascade' }),
+    createdAt: createdAt(),
   },
-  /** Documents are counted per version -- versions are immutable, so a count by
-      library would include every superseded build. */
-  (t) => [index('document_version_idx').on(t.versionId)],
+  (t) => [
+    primaryKey({ columns: [t.userId, t.reeId] }),
+    index('ree_favorite_recent_idx').on(t.userId, t.createdAt.desc(), t.reeId.desc()),
+    index('ree_favorite_ree_idx').on(t.reeId),
+  ],
 );
 
-/**
- * Chunk text, the full-text vector and the embedding live on one row so that
- * publishing is a single ACID transaction. architecture.md 1.2 and 8.3.
- */
+export const reeComment = pgTable(
+  'ree_comment',
+  {
+    id: uuid('id').primaryKey(),
+    reeId: uuid('ree_id').notNull().references(() => ree.id, { onDelete: 'cascade' }),
+    userId: uuid('user_id').notNull().references(() => user.id, { onDelete: 'cascade' }),
+    content: text('content').notNull(),
+    createdAt: createdAt(),
+  },
+  (t) => [
+    index('ree_comment_recent_idx').on(t.reeId, t.createdAt.desc(), t.id.desc()),
+    index('ree_comment_user_idx').on(t.userId),
+    check('ree_comment_content_check', sql`char_length(content) between 1 and ${sql.raw(String(REE_COMMENT_MAX_LENGTH))}`),
+  ],
+);
+
+/** Folders group a Ree's knowledge (8.2); names are unique per Ree, ignoring case. */
+export const knowledgeFolder = pgTable(
+  'knowledge_folder',
+  {
+    id: uuid('id').primaryKey().defaultRandom(),
+    reeId: uuid('ree_id')
+      .notNull()
+      .references(() => ree.id),
+    name: text('name').notNull(),
+    createdAt: createdAt(),
+  },
+  (t) => [
+    uniqueIndex('knowledge_folder_name_key').on(t.reeId, sql`lower(${t.name})`),
+    check('knowledge_folder_name_check', sql`char_length(name) between 1 and 40`),
+  ],
+);
+
+export const knowledge = pgTable(
+  'knowledge',
+  {
+    id: uuid('id').primaryKey().defaultRandom(),
+    reeId: uuid('ree_id')
+      .notNull()
+      .references(() => ree.id),
+    /** Null is "未分组"; deleting a folder sends its rows back there, trash included. */
+    folderId: uuid('folder_id').references(() => knowledgeFolder.id, { onDelete: 'set null' }),
+    kind: text('kind').$type<'document' | 'audio' | 'github' | 'page' | 'site' | 'text'>().notNull(),
+    title: text('title').notNull(),
+    originalTitle: text('original_title').notNull(),
+    /** Blob pathname for an upload, the URL for a fetched source, null for text. */
+    source: text('source'),
+    fileName: text('file_name'),
+    fileSize: bigint('file_size', { mode: 'number' }),
+    status: text('status')
+      .$type<'pending' | 'processing' | 'ready' | 'failed'>()
+      .notNull()
+      .default('pending'),
+    error: text('error'),
+    /** "参与回答": a paused source keeps its passages but is not searched. */
+    enabled: boolean('enabled').notNull().default(true),
+    content: text('content'),
+    /** A website's pages, a repository's files, an audio file's transcript segments: slices of `content`. */
+    children: jsonb('children').$type<KnowledgeChild[]>().notNull().default([]),
+    activity: jsonb('activity').$type<KnowledgeActivity[]>().notNull().default([]),
+    /** When the owner agreed to send this audio to the transcription service (2.1). */
+    consentAt: timestampTz('consent_at'),
+    /** In the trash since; purged with its passages 30 days later. */
+    deletedAt: timestampTz('deleted_at'),
+    createdAt: createdAt(),
+    updatedAt: timestampTz('updated_at').notNull().defaultNow(),
+  },
+  (t) => [
+    index('knowledge_ree_idx').on(t.reeId, t.updatedAt),
+    index('knowledge_folder_idx').on(t.folderId),
+    index('knowledge_trash_idx').on(t.deletedAt).where(sql`deleted_at is not null`),
+    check('knowledge_kind_check', oneOf('kind', ['document', 'audio', 'github', 'page', 'site', 'text'])),
+    check('knowledge_status_check', oneOf('status', ['pending', 'processing', 'ready', 'failed'])),
+  ],
+);
+
 export const chunk = pgTable(
   'chunk',
   {
-    id: uuid('id').primaryKey(),
-    libraryId: uuid('library_id').notNull().references(() => library.id),
-    versionId: uuid('version_id').notNull().references(() => libraryVersion.id),
-    documentId: uuid('document_id').notNull().references(() => document.id),
+    id: uuid('id').primaryKey().defaultRandom(),
+    knowledgeId: uuid('knowledge_id')
+      .notNull()
+      .references(() => knowledge.id, { onDelete: 'cascade' }),
+    /** Copied from the knowledge, so a search scopes by Ree without a join. */
+    reeId: uuid('ree_id').notNull(),
     ordinal: integer('ordinal').notNull(),
-    body: text('body').notNull(),
-    tokens: integer('tokens').notNull(),
-    citation: jsonb('citation').$type<Record<string, unknown>>().notNull(),
-    safetyStatus: text('safety_status').notNull().default('clean'),
-    /**
-     * The Postgres text-search configuration this chunk was indexed with,
-     * resolved from `library.language` at build time.
-     *
-     * Denormalized because a generated column may only read its own row -- and
-     * because editing the library's language afterwards must not restate what
-     * an already published Version means. See `lib/domain/ingestion.ts`.
-     */
-    searchConfig: text('search_config').notNull().default('simple'),
-    /**
-     * Generated from `body` and `search_config`, never written. A stored
-     * generated column cannot drift from the text it indexes, and chunks are
-     * immutable once inserted (requirement.md 8.1 freezes a published Version),
-     * so it is computed once.
-     *
-     * A `case` over literal configurations rather than a `::regconfig` cast:
-     * the cast is a catalogue lookup, which makes it STABLE, and Postgres
-     * refuses a non-IMMUTABLE generation expression outright.
-     */
-    searchVector: customType<{ data: string; driverData: string; notNull: false }>({
-      dataType: () => 'tsvector',
-    })('search_vector').generatedAlwaysAs(sql`case "search_config"
-        when 'arabic' then to_tsvector('arabic', "body")
-        when 'armenian' then to_tsvector('armenian', "body")
-        when 'basque' then to_tsvector('basque', "body")
-        when 'catalan' then to_tsvector('catalan', "body")
-        when 'danish' then to_tsvector('danish', "body")
-        when 'dutch' then to_tsvector('dutch', "body")
-        when 'english' then to_tsvector('english', "body")
-        when 'finnish' then to_tsvector('finnish', "body")
-        when 'french' then to_tsvector('french', "body")
-        when 'german' then to_tsvector('german', "body")
-        when 'greek' then to_tsvector('greek', "body")
-        when 'hindi' then to_tsvector('hindi', "body")
-        when 'hungarian' then to_tsvector('hungarian', "body")
-        when 'indonesian' then to_tsvector('indonesian', "body")
-        when 'irish' then to_tsvector('irish', "body")
-        when 'italian' then to_tsvector('italian', "body")
-        when 'lithuanian' then to_tsvector('lithuanian', "body")
-        when 'nepali' then to_tsvector('nepali', "body")
-        when 'norwegian' then to_tsvector('norwegian', "body")
-        when 'portuguese' then to_tsvector('portuguese', "body")
-        when 'romanian' then to_tsvector('romanian', "body")
-        when 'russian' then to_tsvector('russian', "body")
-        when 'serbian' then to_tsvector('serbian', "body")
-        when 'spanish' then to_tsvector('spanish', "body")
-        when 'swedish' then to_tsvector('swedish', "body")
-        when 'tamil' then to_tsvector('tamil', "body")
-        when 'turkish' then to_tsvector('turkish', "body")
-        when 'yiddish' then to_tsvector('yiddish', "body")
-        else to_tsvector('simple', "body")
-      end`),
-    /**
-     * The pre-segmented form of `body`'s Han runs (space-joined bigrams, see
-     * lib/domain/cjk.ts), written by the build for chunks that contain CJK
-     * text and null otherwise. Stored rather than generated because Postgres
-     * cannot compute it: segmentation is exactly what stock Postgres lacks
-     * (migration 0011). Immutable like the rest of the row; changing the
-     * segmentation scheme requires a CHUNKER_VERSION bump so every affected
-     * version rebuilds instead of holding rows two schemes wrote.
-     */
-    bodySegmented: text('body_segmented'),
-    /**
-     * The CJK keyword index: `simple` is finally correct here because the
-     * text arrives pre-segmented. Empty (not null) for non-CJK rows, so the
-     * retrieval predicate can OR the two vectors without a null guard.
-     */
-    searchVectorCjk: customType<{ data: string; driverData: string; notNull: false }>({
-      dataType: () => 'tsvector',
-    })('search_vector_cjk').generatedAlwaysAs(
-      sql`to_tsvector('simple', coalesce("body_segmented", ''))`,
-    ),
-    embedding: vector('embedding', { dimensions: 1536 }),
-  },
-  (t) => [
-    index('chunk_library_version_idx').on(t.libraryId, t.versionId),
-    index('chunk_search_vector_cjk_idx').using('gin', t.searchVectorCjk),
-    /*
-     * No ANN index on `embedding` -- deliberately. architecture.md 9.1:
-     * retrieval always pins one version first, so vector recall is an exact
-     * scan of that version's few thousand rows via the index above. A global
-     * HNSW here would be maintained on every ingestion insert and searched
-     * with a filter it cannot honour. The picture-layer HNSW lives on
-     * `library_profile_vector`, which is small enough to be one.
-     */
-    index('chunk_search_vector_idx').using('gin', t.searchVector),
-    /** One chunk per position, so a retried build cannot duplicate one. */
-    uniqueIndex('chunk_position_uq').on(t.versionId, t.documentId, t.ordinal),
-    /**
-     * Every stored value has a `case` branch above. Without this a config with
-     * no branch would generate a NULL vector -- a chunk that exists and can
-     * never be found.
-     */
-    check('chunk_search_config_ck', sql`${t.searchConfig} in ('simple', 'arabic', 'armenian', 'basque', 'catalan', 'danish', 'dutch', 'english', 'finnish', 'french', 'german', 'greek', 'hindi', 'hungarian', 'indonesian', 'irish', 'italian', 'lithuanian', 'nepali', 'norwegian', 'portuguese', 'romanian', 'russian', 'serbian', 'spanish', 'swedish', 'tamil', 'turkish', 'yiddish')`),
-  ],
-);
-
-/**
- * The library profile: content-derived routing data. architecture.md 9.6.
- *
- * One row per built Version, written in the `profile` step of a build and
- * immutable after it, like everything else the version carries. Library-level
- * discovery searches this row -- never `library.title`, which on a UGC
- * platform carries no signal about the content.
- *
- * `search_text` is pre-segmented (space-joined titles and extracted terms, CJK
- * already split into n-grams by the domain extractor), which is why `simple`
- * is the right configuration here even though it is the wrong one for CJK
- * chunk bodies: segmentation happened before Postgres ever saw the text.
- */
-export const libraryProfile = pgTable(
-  'library_profile',
-  {
-    id: uuid('id').primaryKey(),
-    libraryId: uuid('library_id').notNull().references(() => library.id),
-    versionId: uuid('version_id').notNull().references(() => libraryVersion.id),
-    /** Which extractor built this row; a new extractor rebuilds, never mixes. */
-    profileVersion: text('profile_version').notNull(),
-    documentTitles: jsonb('document_titles').$type<string[]>().notNull(),
-    terms: jsonb('terms').$type<string[]>().notNull(),
-    searchText: text('search_text').notNull(),
-    searchVector: customType<{ data: string; driverData: string; notNull: false }>({
-      dataType: () => 'tsvector',
-    })('search_vector').generatedAlwaysAs(sql`to_tsvector('simple', "search_text")`),
-    createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
-  },
-  (t) => [
-    uniqueIndex('library_profile_version_uq').on(t.versionId),
-    index('library_profile_library_idx').on(t.libraryId),
-    index('library_profile_search_idx').using('gin', t.searchVector),
-  ],
-);
-
-/**
- * The picture-layer vectors: centroid embeddings of a version's chunks, a
- * handful per library. architecture.md 9.1 and 9.6 -- this table is the one
- * place a global HNSW is affordable and correct, because its row count is
- * libraries x centroids (tens per library), not chunks.
- */
-export const libraryProfileVector = pgTable(
-  'library_profile_vector',
-  {
-    id: uuid('id').primaryKey(),
-    libraryId: uuid('library_id').notNull().references(() => library.id),
-    versionId: uuid('version_id').notNull().references(() => libraryVersion.id),
-    ordinal: integer('ordinal').notNull(),
+    content: text('content').notNull(),
     embedding: vector('embedding', { dimensions: 1536 }).notNull(),
+    /**
+     * Beyond 4: the candidate model's vector while a re-embed job runs (2.5).
+     * Retrieval keeps reading `embedding`; the job's last step moves these
+     * over in one statement and clears them.
+     */
+    embeddingNext: vector('embedding_next', { dimensions: 1536 }),
+    locator: jsonb('locator').$type<Locator>().notNull().default({}),
   },
   (t) => [
-    uniqueIndex('library_profile_vector_uq').on(t.versionId, t.ordinal),
-    index('library_profile_vector_library_idx').on(t.libraryId),
-    index('library_profile_vector_hnsw_idx').using(
-      'hnsw',
-      t.embedding.op('vector_cosine_ops'),
-    ),
+    index('chunk_knowledge_idx').on(t.knowledgeId, t.ordinal),
+    index('chunk_ree_idx').on(t.reeId),
+    index('chunk_embedding_idx').using('hnsw', t.embedding.op('vector_cosine_ops')),
   ],
 );
 
-/**
- * Retrieval's tunables, in force as the newest row. architecture.md 9.2, 9.6.
- *
- * Append-only like `llm_config`: a save mints a row, and the history is the
- * record of what retrieval was doing when. An empty table means the domain
- * defaults (`lib/domain/retrieval-config.ts`), which are the constants the
- * code used before this table existed. The newest row's id joins every
- * public cache key, so a change retires cached results without a flush.
- */
-/**
- * The public-review rules in force as the newest row (lib/domain/auto-review.ts
- * `ReviewRules`). Append-only like `retrieval_config`: a save mints a row,
- * and the history is the record of what the rules layer was deciding by
- * when. An empty table means the domain defaults.
- */
-export const reviewConfig = pgTable(
-  'review_config',
+export const conversation = pgTable(
+  'conversation',
   {
-    id: uuid('id').primaryKey(),
-    /* The public-review thresholds this table was made for were dropped on 2026-10-23 (migration 0056); the expert gate's remain. */
-    expertMinQuestions: integer('expert_min_questions').notNull().default(10),
-    expertHitRateMin: integer('expert_hit_rate_min').notNull().default(70),
-    createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
-  },
-  (t) => [index('review_config_time_idx').on(t.createdAt.desc())],
-);
-
-export const retrievalConfig = pgTable(
-  'retrieval_config',
-  {
-    id: uuid('id').primaryKey(),
-    recallLimit: integer('recall_limit').notNull(),
-    rrfK: integer('rrf_k').notNull(),
-    rerankWindow: integer('rerank_window').notNull(),
-    rerankDocumentChars: integer('rerank_document_chars').notNull(),
-    cacheTtlSeconds: integer('cache_ttl_seconds').notNull(),
-    playgroundTokensDefault: integer('playground_tokens_default').notNull(),
-    playgroundTokensMax: integer('playground_tokens_max').notNull(),
-    routingRecallLimit: integer('routing_recall_limit').notNull(),
-    routingRareSampleCap: integer('routing_rare_sample_cap').notNull(),
-    routingResultLimit: integer('routing_result_limit').notNull(),
-    playgroundAgent: integer('playground_agent').notNull().default(0),
-    playgroundAgentSteps: integer('playground_agent_steps').notNull().default(4),
-    playgroundAgentQueries: integer('playground_agent_queries').notNull().default(3),
-    playgroundAgentResolves: integer('playground_agent_resolves').notNull().default(2),
-    createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
-  },
-  (t) => [index('retrieval_config_time_idx').on(t.createdAt.desc())],
-);
-
-/**
- * The playground's selectable models. architecture.md 9.5 -- the playground is
- * the only entry that calls a model, and these rows are what the console
- * configures: provider endpoint, model id, credential, budgets and unit
- * prices. The credential is sealed at rest and never leaves the server in the
- * clear (15.3); an edit that leaves the field blank carries the stored one
- * forward, so re-minting an entry does not mean re-typing the secret.
- *
- * Immutable versions like plans and policies, but a chain per `slug` rather
- * than one for the table: an entry's history is its rows in slug order, and
- * the configuration in force is the newest row of each slug. Editing an entry
- * appends; nothing here is ever updated, which is what keeps a cost event's
- * frozen prices meaning what they meant when it was written.
- */
-export const llmConfig = pgTable(
-  'llm_config',
-  {
-    id: uuid('id').primaryKey(),
-    /** One model entry's stable identity; an edit mints a successor sharing it. */
-    slug: text('slug').notNull(),
-    /** What the console calls it -- a model id is rarely readable on its own. */
-    label: text('label').notNull(),
-    baseUrl: text('base_url').notNull(),
-    model: text('model').notNull(),
-    /**
-     * The provider credential, sealed with `CREDENTIAL_ENCRYPTION_KEY`
-     * (`lib/infrastructure/crypto/credentials.ts`). Null on an entry nobody
-     * has given a key yet, which is a model that cannot be called rather than
-     * one quietly borrowing another entry's credential.
-     */
-    apiKeyCipher: text('api_key_cipher'),
-    /** The model's context window; the playground sizes retrieval from it. */
-    maxInputTokens: integer('max_input_tokens').notNull().default(8_000),
-    maxOutputTokens: integer('max_output_tokens').notNull(),
-    timeoutMs: integer('timeout_ms').notNull(),
-    /** Micro-USD per million tokens, frozen per version like every price here. */
-    promptPriceMicro: bigint('prompt_price_micro', { mode: 'number' }).notNull(),
-    completionPriceMicro: bigint('completion_price_micro', { mode: 'number' }).notNull(),
-    /** Rate for input tokens the provider served from its cache, read-side. */
-    cachePriceMicro: bigint('cache_price_micro', { mode: 'number' }).notNull().default(0),
-    /*
-     * Declared abilities. Only `supportsReasoning` changes how the playground
-     * calls the model today (it gates `reasoningEffort`); the other two record
-     * what an entry is capable of, for entry points that can use them.
-     */
-    supportsTools: boolean('supports_tools').notNull().default(false),
-    supportsReasoning: boolean('supports_reasoning').notNull().default(false),
-    supportsVision: boolean('supports_vision').notNull().default(false),
-    /** Null unless `supportsReasoning`; the application enforces that pairing. */
-    reasoningEffort: text('reasoning_effort').$type<'minimal' | 'low' | 'medium' | 'high'>(),
-    enabled: boolean('enabled').notNull().default(true),
-    createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
-  },
-  (t) => [index('llm_config_slug_time_idx').on(t.slug, t.createdAt.desc())],
-);
-
-/**
- * The retrieval models: the embedding model a version's vectors are built and
- * queried with, and the reranker that refines the fused head.
- * architecture.md 9.1, 9.2.
- *
- * One row per `kind`, newest in force -- there is exactly one model an
- * installation is indexing with and one reranker in front of its results, so
- * unlike `llm_config` there is nothing to assign. Append-only for the same
- * reason as `retrieval_config`: a change to either of these changes what
- * retrieval *is*, and the history of when it changed is the table itself.
- *
- * `dimensions` belongs only to an embedding entry and is what
- * `library_version.embedding_dimensions` freezes; the stored vector columns
- * are wider and narrower vectors are padded into them (lib/domain/model-config.ts).
- * A rerank row leaves it null.
- */
-export const providerModelConfig = pgTable(
-  'provider_model_config',
-  {
-    id: uuid('id').primaryKey(),
-    kind: modelKindEnum('kind').notNull(),
-    /** What the console calls it -- a model id is rarely readable on its own. */
-    label: text('label').notNull(),
-    baseUrl: text('base_url').notNull(),
-    model: text('model').notNull(),
-    /** Sealed like `llm_config.api_key_cipher`; never stored in the clear. */
-    apiKeyCipher: text('api_key_cipher'),
-    /** Embedding only; null on a rerank row. */
-    dimensions: integer('dimensions'),
-    timeoutMs: integer('timeout_ms').notNull(),
-    /**
-     * Switched off means the stage does not run: retrieval keeps its keyword
-     * leg without an embedding model, and fusion order stands without a
-     * reranker. Both are documented degradations, not failures.
-     */
-    enabled: boolean('enabled').notNull().default(true),
-    createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
+    id: uuid('id').primaryKey().defaultRandom(),
+    userId: uuid('user_id')
+      .notNull()
+      .references(() => user.id),
+    /** `mcp`: questions asked through the MCP server (`/api/mcp`), one Ree each; never in the web lists. */
+    kind: text('kind').$type<'normal' | 'ree_test' | 'mcp'>().notNull().default('normal'),
+    reeId: uuid('ree_id').references(() => ree.id),
+    title: text('title').notNull().default(''),
+    pinned: boolean('pinned').notNull().default(false),
+    /** Archived since; a new question brings it back to Recent (8.2, "对话列表"). */
+    archivedAt: timestampTz('archived_at'),
+    /** In the trash since; purged with its messages 30 days later. */
+    deletedAt: timestampTz('deleted_at'),
+    createdAt: createdAt(),
+    updatedAt: timestampTz('updated_at').notNull().defaultNow(),
   },
   (t) => [
-    index('provider_model_config_kind_time_idx').on(t.kind, t.createdAt.desc()),
-    /* A rerank row carrying a width would describe a model that does not
-       exist, and an embedding row without one cannot be padded. */
+    index('conversation_user_idx').on(t.userId, t.updatedAt),
+    index('conversation_trash_idx').on(t.deletedAt).where(sql`deleted_at is not null`),
+    check('conversation_title_check', sql`char_length(title) <= 120`),
+    uniqueIndex('conversation_ree_test_key')
+      .on(t.userId, t.reeId)
+      .where(sql`kind = 'ree_test'`),
+    check('conversation_kind_check', oneOf('kind', ['normal', 'ree_test', 'mcp'])),
+    check('conversation_ree_test_check', sql`(kind = 'ree_test') = (ree_id is not null)`),
+  ],
+);
+
+export const conversationRee = pgTable(
+  'conversation_ree',
+  {
+    conversationId: uuid('conversation_id')
+      .notNull()
+      .references(() => conversation.id, { onDelete: 'cascade' }),
+    reeId: uuid('ree_id')
+      .notNull()
+      .references(() => ree.id),
+    addedAt: timestampTz('added_at').notNull().defaultNow(),
+  },
+  (t) => [primaryKey({ columns: [t.conversationId, t.reeId] })],
+);
+
+export const message = pgTable(
+  'message',
+  {
+    id: uuid('id').primaryKey().defaultRandom(),
+    conversationId: uuid('conversation_id')
+      .notNull()
+      .references(() => conversation.id, { onDelete: 'cascade' }),
+    role: text('role').$type<'user' | 'ree'>().notNull(),
+    reeId: uuid('ree_id').references(() => ree.id),
+    content: text('content').notNull(),
+    citations: jsonb('citations').$type<CitationSnapshot[]>().notNull().default([]),
+    noAnswer: boolean('no_answer').notNull().default(false),
+    noAnswerReason: text('no_answer_reason').$type<'no_sources' | 'out_of_scope'>(),
+    requestId: uuid('request_id'),
+    costCredits: integer('cost_credits').notNull().default(0),
+    /** Beyond 4, on a question every asked Ree left unanswered: the public Rees suggested under it ("这些公开 Ree 可能知道"). */
+    suggestedReeIds: jsonb('suggested_ree_ids').$type<string[]>().notNull().default([]),
+    /** 回答核验, on an answer the asker had checked: one entry per sentence, where it sits and whether its passages back it. */
+    checks: jsonb('checks').$type<SentenceCheck[]>().notNull().default([]),
+    /** Null when no check was asked for; `failed` when it broke off and its fee went back. */
+    checkState: text('check_state').$type<'done' | 'failed'>(),
+    /** What the check was charged, apart from the answer's `cost_credits`. */
+    checkCredits: integer('check_credits').notNull().default(0),
+    /** On a question asked through the MCP server: the API key that asked it, for per-key usage. */
+    apiKeyId: uuid('api_key_id').references((): AnyPgColumn => apiKey.id, { onDelete: 'set null' }),
+    createdAt: createdAt(),
+  },
+  (t) => [
+    index('message_conversation_idx').on(t.conversationId, t.createdAt),
+    index('message_api_key_idx').on(t.apiKeyId, t.createdAt).where(sql`api_key_id is not null`),
+    index('message_ree_idx').on(t.reeId, t.createdAt).where(sql`role = 'ree'`),
+    check('message_role_check', oneOf('role', ['user', 'ree'])),
     check(
-      'provider_model_config_dimensions',
-      sql`(${t.kind} = 'embedding') = (${t.dimensions} is not null)`,
+      'message_no_answer_reason_check',
+      sql`no_answer_reason is null or no_answer_reason in ('no_sources', 'out_of_scope')`,
     ),
+    check('message_check_state_check', sql`check_state is null or check_state in ('done', 'failed')`),
   ],
 );
 
 /**
- * The rendering fallback a website build reaches when a site refuses the
- * plain fetch or serves a script shell. architecture.md 8.2. Append-only like
- * `provider_model_config`: one provider in force, the newest row. No row at
- * all means the deployment's `RENDER_PROVIDER*` variables.
+ * 回答核验 tallies, one per completed check: what the owner's statistics
+ * count. Kept apart from the reply so that clearing a test conversation,
+ * which deletes its messages, leaves the figures as the answer counts are.
  */
-export const renderConfig = pgTable(
-  'render_config',
+export const answerCheck = pgTable(
+  'answer_check',
   {
-    id: uuid('id').primaryKey(),
-    provider: renderProviderEnum('provider').notNull(),
-    /**
-     * A self-hosted instance; null calls the vendor's hosted API. Stored keys
-     * are only ever sent to the hosted API, so a row with a base URL calls
-     * without authentication.
-     */
-    baseUrl: text('base_url'),
-    enabled: boolean('enabled').notNull().default(true),
-    createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
+    id: uuid('id').primaryKey().defaultRandom(),
+    reeId: uuid('ree_id')
+      .notNull()
+      .references(() => ree.id, { onDelete: 'cascade' }),
+    messageId: uuid('message_id').references(() => message.id, { onDelete: 'set null' }),
+    cited: integer('cited').notNull().default(0),
+    unsupported: integer('unsupported').notNull().default(0),
+    partial: integer('partial').notNull().default(0),
+    uncited: integer('uncited').notNull().default(0),
+    createdAt: createdAt(),
   },
-  (t) => [index('render_config_time_idx').on(t.createdAt.desc())],
+  (t) => [index('answer_check_ree_idx').on(t.reeId, t.createdAt)],
 );
 
-/**
- * Each provider's pool of API keys, tried in `position` order. Mutable, unlike
- * the configuration: a build records here that the provider called a key
- * spent or refused, and every console change is in the audit chain instead.
- */
-export const renderProviderKey = pgTable(
-  'render_provider_key',
+export const creditGrant = pgTable(
+  'credit_grant',
   {
-    id: uuid('id').primaryKey(),
-    provider: renderProviderEnum('provider').notNull(),
-    label: text('label').notNull(),
-    /** Sealed like `provider_model_config.api_key_cipher`. */
-    apiKeyCipher: text('api_key_cipher').notNull(),
-    position: integer('position').notNull(),
-    enabled: boolean('enabled').notNull().default(true),
-    /**
-     * What the provider last said was wrong with the key -- `exhausted` (402)
-     * or `rejected` (401, AnySearch's 403) -- and when. A key that failed
-     * within `RENDER_KEY_COOLDOWN_MS` is tried after the others; it is never
-     * switched off by a build. Cleared when it answers again or from the
-     * console.
-     */
-    failure: text('failure').$type<'exhausted' | 'rejected'>(),
-    failureDetail: text('failure_detail'),
-    failedAt: timestamp('failed_at', { withTimezone: true }),
-    createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
+    id: uuid('id').primaryKey().defaultRandom(),
+    userId: uuid('user_id')
+      .notNull()
+      .references(() => user.id),
+    source: text('source').$type<'welcome' | 'plan' | 'pack' | 'earned'>().notNull(),
+    amount: bigint('amount', { mode: 'number' }).notNull(),
+    remaining: bigint('remaining', { mode: 'number' }).notNull(),
+    /** A Plan grant's period: it is spendable from `period_start` until `expires_at` (the period's end). */
+    expiresAt: timestampTz('expires_at'),
+    /** Beyond 4: when a Plan grant's period began. */
+    periodStart: timestampTz('period_start'),
+    /** Beyond 4: the purchase a Plan or Pack grant came from; one grant per purchase. */
+    purchaseId: uuid('purchase_id').references(() => purchase.id),
+    createdAt: createdAt(),
   },
   (t) => [
-    index('render_provider_key_order_idx').on(t.provider, t.position),
-    check(
-      'render_provider_key_failure',
-      sql`${t.failure} is null or ${t.failure} in ('exhausted', 'rejected')`,
-    ),
+    index('credit_grant_user_idx').on(t.userId),
+    uniqueIndex('credit_grant_purchase_key').on(t.purchaseId).where(sql`purchase_id is not null`),
+    index('credit_grant_expiry_idx').on(t.expiresAt).where(sql`source = 'plan' and remaining > 0`),
+    check('credit_grant_source_check', oneOf('source', ['welcome', 'plan', 'pack', 'earned'])),
+    check('credit_grant_remaining_check', sql`remaining >= 0 and remaining <= amount`),
+    check('credit_grant_plan_check', sql`(source = 'plan') = (expires_at is not null)`),
   ],
 );
 
-/**
- * Which registry entry answers which callers: the model the platform spends
- * on a visitor who has paid nothing (`trial`: anonymous, or a workspace on
- * the free plan) and the one a paid subscription buys (`subscriber`).
- * Append-only; the newest row is in force. Null trial means the newest
- * enabled entry; null subscriber means the trial model.
- */
-export const llmAudienceAssignment = pgTable(
-  'llm_audience_assignment',
+export const CREDIT_ENTRY_REASONS = [
+  'welcome',
+  'knowledge_hold',
+  'knowledge_settle',
+  'knowledge_refund',
+  'query_hold',
+  'query_base',
+  'query_refund',
+  'query_fee_paid',
+  'query_fee_earned',
+  'purchase',
+  'refund',
+  'chargeback',
+  'debt_offset',
+  'expire',
+  'payout_hold',
+  'payout_release',
+  'payout_paid',
+  'video_script',
+  'video_export',
+  'admin_adjust',
+  /* Step 7: a video hold given back (a script that failed, an export cancelled or abandoned). */
+  'video_refund',
+  /* 回答核验: the per-Ree check fee, held with the question, all to the platform. */
+  'verify_hold',
+  'verify_settle',
+  'verify_refund',
+  /* Ree 圆桌: one synthesis of a question's answers, to the platform. */
+  'synthesis_hold',
+  'synthesis_settle',
+  'synthesis_refund',
+] as const;
+export type CreditEntryReason = (typeof CREDIT_ENTRY_REASONS)[number];
+
+/** Append-only. `allocations` (beyond 4) names the grants each row moved. */
+export const creditEntry = pgTable(
+  'credit_entry',
   {
-    id: uuid('id').primaryKey(),
-    trialSlug: text('trial_slug'),
-    subscriberSlug: text('subscriber_slug'),
-    createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
+    id: uuid('id').primaryKey().defaultRandom(),
+    userId: uuid('user_id')
+      .notNull()
+      .references(() => user.id),
+    delta: bigint('delta', { mode: 'number' }).notNull(),
+    reason: text('reason').$type<CreditEntryReason>().notNull(),
+    refId: uuid('ref_id'),
+    reeId: uuid('ree_id'),
+    note: text('note'),
+    allocations: jsonb('allocations').$type<Allocation[]>().notNull().default([]),
+    createdAt: createdAt(),
   },
-  (t) => [index('llm_audience_assignment_time_idx').on(t.createdAt.desc())],
+  (t) => [
+    index('credit_entry_user_idx').on(t.userId, t.createdAt),
+    index('credit_entry_ref_idx').on(t.refId),
+    /* Per-Ree usage: answer counts (query_base) and income (query_fee_earned), by time for statistics. */
+    index('credit_entry_ree_idx').on(t.reeId, t.reason, t.createdAt).where(sql`ree_id is not null`),
+    check('credit_entry_reason_check', oneOf('reason', CREDIT_ENTRY_REASONS)),
+  ],
 );
 
-/**
- * One row per model call the playground made: the cost metric of 9.5 ("模型
- * Token 只进成本指标"). Token counts and the cost computed with the config's
- * frozen prices -- never the query, never the answer (same secrecy as the
- * query itself). The library is referenced by public id, deliberately without
- * a foreign key: spend history must survive the library it was spent on.
- */
-export const llmCostEvent = pgTable(
-  'llm_cost_event',
+export const creditHold = pgTable(
+  'credit_hold',
   {
-    id: uuid('id').primaryKey(),
-    configId: uuid('config_id').notNull().references(() => llmConfig.id),
-    libraryPublicId: text('library_public_id').notNull(),
-    workspaceId: uuid('workspace_id'),
-    model: text('model').notNull(),
-    promptTokens: integer('prompt_tokens').notNull(),
-    completionTokens: integer('completion_tokens').notNull(),
-    /** Of `promptTokens`, the ones the provider served from cache. */
-    cachedTokens: integer('cached_tokens').notNull().default(0),
-    /** Of `completionTokens`, the ones spent thinking. A breakdown, not an addition. */
-    reasoningTokens: integer('reasoning_tokens').notNull().default(0),
-    costMicroUsd: bigint('cost_micro_usd', { mode: 'number' }).notNull(),
-    latencyMs: integer('latency_ms'),
-    /** `answer` for the playground and the widget; `review` for the model layer of public review. */
-    purpose: text('purpose').notNull().default('answer'),
-    createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
+    id: uuid('id').primaryKey().defaultRandom(),
+    userId: uuid('user_id')
+      .notNull()
+      .references(() => user.id),
+    kind: text('kind').$type<'chat' | 'knowledge' | 'video' | 'payout'>().notNull(),
+    amount: bigint('amount', { mode: 'number' }).notNull(),
+    allocations: jsonb('allocations').$type<Allocation[]>().notNull(),
+    status: text('status').$type<'held' | 'settled' | 'released'>().notNull().default('held'),
+    refId: uuid('ref_id'),
+    createdAt: createdAt(),
+    closedAt: timestampTz('closed_at'),
   },
-  (t) => [index('llm_cost_event_time_idx').on(t.createdAt)],
+  (t) => [
+    index('credit_hold_user_idx').on(t.userId, t.status),
+    index('credit_hold_ref_idx').on(t.refId),
+    check('credit_hold_kind_check', oneOf('kind', ['chat', 'knowledge', 'video', 'payout'])),
+    check('credit_hold_status_check', oneOf('status', ['held', 'settled', 'released'])),
+  ],
 );
 
-// ---------------------------------------------------------------- policy, usage, ops
-
-export const policyVersion = pgTable('policy_version', {
-  id: uuid('id').primaryKey(),
-  workspaceId: uuid('workspace_id').notNull().references(() => workspace.id),
-  mode: policyModeEnum('mode'),
-  sourceTypes: jsonb('source_types').$type<Record<string, boolean>>().notNull().default({}),
-  qualityFilters: jsonb('quality_filters').$type<Record<string, unknown>>().notNull().default({}),
-  appliedAt: timestamp('applied_at', { withTimezone: true }),
-  createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
-});
-
-export const policyLibraryEntry = pgTable('policy_library_entry', {
-  id: uuid('id').primaryKey(),
-  policyVersionId: uuid('policy_version_id').notNull().references(() => policyVersion.id),
+/** One durable snapshot per knowledge reservation, including retries. No source FK:
+ * deleting extracted content must not delete its supplier receipts or billing history. */
+export const knowledgeCostRun = pgTable('knowledge_cost_run', {
+  id: uuid('id').primaryKey().references(() => creditHold.id),
+  knowledgeId: uuid('knowledge_id'),
+  reeId: uuid('ree_id'),
+  userId: uuid('user_id').notNull(),
+  title: text('title').notNull(),
+  reeName: text('ree_name').notNull(),
   kind: text('kind').notNull(),
-  targetType: text('target_type').notNull(),
-  targetValue: text('target_value').notNull(),
-});
-
-export const usageReservation = pgTable(
-  'usage_reservation',
-  {
-    id: uuid('id').primaryKey(),
-    workspaceId: uuid('workspace_id').notNull().references(() => workspace.id),
-    requestId: text('request_id').notNull(),
-    status: reservationStatusEnum('status').notNull(),
-    /** Seats held: 1 for a retrieval, the quoted cap for a build. */
-    calls: integer('calls').notNull().default(1),
-    /**
-     * 'retrieval' or 'build'. The abandoned-seat sweep in `reserveCall` only
-     * releases retrieval seats: a build's seat outlives the sweep's TTL and
-     * is released by the operation that holds it.
-     */
-    kind: text('kind').notNull().default('retrieval'),
-    createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
-  },
-  (t) => [
-    uniqueIndex('usage_reservation_request_uq').on(t.requestId),
-    /** The per-request quota transaction counts a workspace's reservations. */
-    index('usage_reservation_workspace_idx').on(t.workspaceId),
-  ],
-);
-
-export const usageEvent = pgTable(
-  'usage_event',
-  {
-    id: uuid('id').primaryKey(),
-    workspaceId: uuid('workspace_id').notNull().references(() => workspace.id),
-    requestId: text('request_id').notNull(),
-    libraryId: uuid('library_id').references(() => library.id),
-    versionId: uuid('version_id').references(() => libraryVersion.id),
-    operation: text('operation').notNull(),
-    entrypoint: text('entrypoint').notNull(),
-    /** 'plan' or 'addon'. Recorded so billing disputes need no reconstruction. */
-    debitSource: text('debit_source').notNull(),
-    addonGrantId: uuid('addon_grant_id').references(() => addonGrant.id),
-    statusCode: integer('status_code').notNull(),
-    latencyMs: integer('latency_ms'),
-    inputTokens: integer('input_tokens'),
-    returnedTokens: integer('returned_tokens'),
-    /**
-     * The event's weight against the allowance: 1 for every retrieval, the
-     * priced figure for a build (`entrypoint = 'build'`). Every count of
-     * consumption sums this rather than counting rows.
-     */
-    calls: integer('calls').notNull().default(1),
-    /** A build's measurements and the rates it was priced at. `BuildDetail`. */
-    buildDetail: jsonb('build_detail').$type<Record<string, unknown>>(),
-    createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
-  },
-  (t) => [
-    uniqueIndex('usage_event_request_uq').on(t.requestId),
-    index('usage_event_workspace_time_idx').on(t.workspaceId, t.createdAt),
-    /** Retrieval calls per library, for the console's per-library figures. */
-    index('usage_event_library_time_idx').on(t.libraryId, t.createdAt),
-    /** "What did this version's build cost", read by the library page. */
-    index('usage_event_version_idx')
-      .on(t.versionId)
-      .where(sql`${t.entrypoint} = 'build'`),
-  ],
-);
-
-export const usageSummary = pgTable(
-  'usage_summary',
-  {
-    id: uuid('id').primaryKey(),
-    workspaceId: uuid('workspace_id').notNull().references(() => workspace.id),
-    periodStart: timestamp('period_start', { withTimezone: true }).notNull(),
-    bucketDate: timestamp('bucket_date', { withTimezone: true }).notNull(),
-    /** Retrieval calls in the bucket. */
-    calls: integer('calls').notNull().default(0),
-    /** Build calls in the bucket, kept apart so the dashboard can say which is which. */
-    buildCalls: integer('build_calls').notNull().default(0),
-  },
-  (t) => [uniqueIndex('usage_summary_uq').on(t.workspaceId, t.bucketDate)],
-);
-
-export const publisherAccount = pgTable(
-  'publisher_account',
-  {
-    id: uuid('id').primaryKey(),
-    workspaceId: uuid('workspace_id').notNull().references(() => workspace.id),
-    providerAccountId: text('provider_account_id'),
-    taxStatus: text('tax_status').notNull().default('pending'),
-    agreementVersion: text('agreement_version'),
-    createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
-  },
-  /** One account per workspace: the application check-then-inserts on it. */
-  (t) => [uniqueIndex('publisher_account_workspace_uq').on(t.workspaceId)],
-);
-
-/**
- * Written in the same transaction as the usage event. architecture.md 11.4.
- * Requires the target library to have an owner, so unclaimed libraries earn nothing.
- */
-export const earningEvent = pgTable(
-  'earning_event',
-  {
-    id: uuid('id').primaryKey(),
-    requestId: text('request_id').notNull(),
-    libraryId: uuid('library_id').notNull().references(() => library.id),
-    versionId: uuid('version_id').references(() => libraryVersion.id),
-    ownerWorkspaceId: uuid('owner_workspace_id').notNull().references(() => workspace.id),
-    planVersionId: uuid('plan_version_id').notNull().references(() => planVersion.id),
-    shareRateBps: integer('share_rate_bps').notNull(),
-    periodId: text('period_id').notNull(),
-    flagged: boolean('flagged').notNull().default(false),
-    createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
-  },
-  (t) => [
-    uniqueIndex('earning_event_request_uq').on(t.requestId),
-    index('earning_event_period_library_idx').on(t.periodId, t.libraryId),
-  ],
-);
-
-export const revenuePeriod = pgTable(
-  'revenue_period',
-  {
-    id: text('id').primaryKey(),
-    netRevenueMinor: bigint('net_revenue_minor', { mode: 'number' }).notNull(),
-    currency: text('currency').notNull().default('USD'),
-    totalBilledCalls: bigint('total_billed_calls', { mode: 'number' }).notNull(),
-    totalAttributableCalls: bigint('total_attributable_calls', { mode: 'number' }).notNull(),
-    shareRateBps: integer('share_rate_bps').notNull(),
-    poolMinor: bigint('pool_minor', { mode: 'number' }).notNull(),
-    lockedAt: timestamp('locked_at', { withTimezone: true }),
-  },
-);
-
-export const settlement = pgTable(
-  'settlement',
-  {
-    id: uuid('id').primaryKey(),
-    periodId: text('period_id').notNull().references(() => revenuePeriod.id),
-    publisherAccountId: uuid('publisher_account_id').notNull().references(() => publisherAccount.id),
-    libraryId: uuid('library_id').notNull().references(() => library.id),
-    attributableCalls: bigint('attributable_calls', { mode: 'number' }).notNull(),
-    amountMinor: bigint('amount_minor', { mode: 'number' }).notNull(),
-    currency: text('currency').notNull().default('USD'),
-    status: settlementStatusEnum('status').notNull(),
-    statementDigest: text('statement_digest'),
-    /**
-     * The grant a `redeemed` statement became, so the discharge is traceable in
-     * both directions: statement -> calls here, calls -> statements by joining
-     * back. Null unless the status is `redeemed`.
-     */
-    addonGrantId: uuid('addon_grant_id').references(() => addonGrant.id),
-    /**
-     * The cash payout the statement is in: set while it is `held` in a request
-     * and kept once `paid`; cleared when the payout fails and the statement
-     * returns to `accrued`. The foreign key lives in the migration only, for the
-     * same forward-reference reason as `addon_grant.publisher_account_id`.
-     */
-    payoutId: uuid('payout_id'),
-    createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
-  },
-  /** "Which statements does this payout cover", read when it is marked paid or failed. */
-  (t) => [index('settlement_payout_idx').on(t.payoutId)],
-);
-
-/**
- * A cash payout, paid by hand (publisher-revenue-share.md 3.4): the publisher
- * requests it with a PayPal address, an operator sends the money from the
- * platform's PayPal account and records the transaction id here. `status` is
- * `requested`, `paid` or `failed`; at most one request per publisher is open.
- */
-export const payout = pgTable(
-  'payout',
-  {
-    id: uuid('id').primaryKey(),
-    publisherAccountId: uuid('publisher_account_id').notNull().references(() => publisherAccount.id),
-    amountMinor: bigint('amount_minor', { mode: 'number' }).notNull(),
-    currency: text('currency').notNull().default('USD'),
-    /** The rail; `paypal` is the only one. */
-    method: text('method').notNull().default('paypal'),
-    /** Where the money goes: a PayPal account email, never a card or bank number. */
-    payeeEmail: text('payee_email'),
-    /** The PayPal transaction id the operator entered when marking it paid. */
-    providerReference: text('provider_reference'),
-    status: text('status').notNull(),
-    failureReason: text('failure_reason'),
-    /** Who asked for it, as `user:<id>` or `api_key:<id>`, like `addon_grant.redeemed_by`. */
-    requestedBy: text('requested_by'),
-    /** The administrator who marked it paid or failed; FK in the migration only. */
-    resolvedBy: uuid('resolved_by'),
-    resolvedAt: timestamp('resolved_at', { withTimezone: true }),
-    createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
-  },
-  (t) => [
-    /** One open request per publisher: a second press cannot split the statements. */
-    uniqueIndex('payout_open_uq')
-      .on(t.publisherAccountId)
-      .where(sql`${t.status} = 'requested'`),
-    /** The console queue, oldest request first. */
-    index('payout_status_time_idx').on(t.status, t.createdAt),
-  ],
-);
-
-// ---------------------------------------------------------------- anchoring
-
-export const anchorBatch = pgTable(
-  'anchor_batch',
-  {
-    id: uuid('id').primaryKey(),
-    subjectType: anchorSubjectEnum('subject_type').notNull(),
-    leafSchemaVersion: integer('leaf_schema_version').notNull(),
-    merkleRoot: text('merkle_root').notNull(),
-    leafCount: integer('leaf_count').notNull(),
-    windowStart: timestamp('window_start', { withTimezone: true }).notNull(),
-    windowEnd: timestamp('window_end', { withTimezone: true }).notNull(),
-    network: text('network').notNull(),
-    txHash: text('tx_hash'),
-    status: anchorBatchStatusEnum('status').notNull(),
-    attempts: integer('attempts').notNull().default(0),
-    confirmedAt: timestamp('confirmed_at', { withTimezone: true }),
-    /**
-     * When the batch was planned, not when its window closed. A backfill
-     * anchors versions published days earlier, so `window_end` would make every
-     * catch-up batch look overdue the moment it existed; the staleness alarm
-     * needs this clock instead (aptos-anchoring-proposal.md 4.8).
-     */
-    createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
-  },
-  (t) => [uniqueIndex('anchor_batch_tx_uq').on(t.txHash)],
-);
-
-export const anchorLeaf = pgTable(
-  'anchor_leaf',
-  {
-    id: uuid('id').primaryKey(),
-    batchId: uuid('batch_id').notNull().references(() => anchorBatch.id),
-    leafHash: text('leaf_hash').notNull(),
-    leafSchemaVersion: integer('leaf_schema_version').notNull(),
-    subjectType: anchorSubjectEnum('subject_type').notNull(),
-    subjectId: text('subject_id').notNull(),
-    leafIndex: integer('leaf_index').notNull(),
-    merkleProof: jsonb('merkle_proof').$type<string[]>(),
-  },
-  (t) => [
-    uniqueIndex('anchor_leaf_subject_uq').on(
-      t.subjectType,
-      t.subjectId,
-      t.leafSchemaVersion,
-    ),
-  ],
-);
-
-// ---------------------------------------------------------------- operations & admin
-
-export const workflowOperation = pgTable(
-  'workflow_operation',
-  {
-    id: uuid('id').primaryKey(),
-    libraryId: uuid('library_id').references(() => library.id),
-    operationType: text('operation_type').notNull(),
-    sourceDigest: text('source_digest'),
-    /**
-     * A refresh asked for one source only: that source is fetched, the
-     * others are carried forward from the current version unfetched. Null
-     * means every source.
-     */
-    sourceId: uuid('source_id'),
-    status: text('status').notNull(),
-    attempts: integer('attempts').notNull().default(0),
-    error: text('error'),
-    /**
-     * `manual` for an operator's button or a workspace action, `scheduled`
-     * for a refresh the drain queued from a source's refresh policy.
-     * `lib/domain/ingestion.ts` `OperationTrigger`.
-     */
-    trigger: text('trigger').notNull().default('manual'),
-    /**
-     * How the pages of a build were fetched -- our own fetch vs a rendering
-     * provider, per page. Written by the build after `fetch-snapshot`; null
-     * for operations that fetch nothing or from sources with no such choice.
-     * `lib/domain/ingestion.ts` `FetchSummary`.
-     */
-    fetchSummary: jsonb('fetch_summary').$type<{
-      direct: number;
-      rendered: number;
-      renderer: 'firecrawl' | 'anysearch' | 'jina' | null;
-    }>(),
-    /**
-     * Where a running build is: the architecture.md 8.2 step it is in and
-     * what it has counted so far. Written by the build at each stage
-     * boundary and once per embedding window; kept on the finished row as
-     * its final figures. `lib/domain/ingestion.ts` `BuildProgress`.
-     */
-    stage: text('stage'),
-    progress: jsonb('progress').$type<{
-      files?: number;
-      documents?: number;
-      chunksTotal?: number;
-      chunksDone?: number;
-    }>(),
-    /**
-     * The build's seat in the call ledger. library-build-billing.md 4:
-     * `quoted_calls` is the cap reserved before fetching, `charged_calls` the
-     * priced figure once chunking measured the build; the reservation is
-     * committed with the version's publication and released on every other
-     * outcome. All null for a build that was never billable.
-     */
-    reservationId: uuid('reservation_id').references(() => usageReservation.id),
-    quotedCalls: integer('quoted_calls'),
-    chargedCalls: integer('charged_calls'),
-    createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
-    updatedAt: timestamp('updated_at', { withTimezone: true }).notNull().defaultNow(),
-  },
-  (t) => [
-    uniqueIndex('workflow_operation_uq').on(t.libraryId, t.sourceDigest, t.operationType),
-    /** "Is anything open for this library", and the queue depth above the list. */
-    index('workflow_operation_library_idx').on(t.libraryId, t.operationType, t.status),
-    /** The queue drain: oldest pending first, which every worker asks for. */
-    index('workflow_operation_pending_idx')
-      .on(t.createdAt)
-      .where(sql`${t.status} = 'pending'`),
-    /** "What finished in the last day", the console's health panel. */
-    index('workflow_operation_updated_idx').on(t.updatedAt),
-  ],
-);
-
-export const requestLog = pgTable(
-  'request_log',
-  {
-    id: uuid('id').primaryKey(),
-    workspaceId: uuid('workspace_id').references(() => workspace.id),
-    requestId: text('request_id').notNull(),
-    operation: text('operation').notNull(),
-    /**
-     * By public id and without a foreign key, like the cost events: the
-     * request history a user reads must survive the library it touched.
-     * The query text is deliberately absent (architecture.md 17.1).
-     */
-    libraryPublicId: text('library_public_id'),
-    /** 'rest' | 'mcp' | 'web' -- which door the request came through. */
-    entrypoint: text('entrypoint'),
-    statusCode: integer('status_code').notNull(),
-    latencyMs: integer('latency_ms'),
-    /** Tokens served, as the usage event counts them. Null when nothing was. */
-    returnedTokens: integer('returned_tokens'),
-    /**
-     * The key that authenticated the request, so the screen can show its
-     * masked prefix. No foreign key, like the library above: the log must
-     * outlive whatever it names, and a key row is only ever revoked anyway.
-     */
-    apiKeyId: uuid('api_key_id'),
-    createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
-  },
-  (t) => [
-    index('request_log_workspace_time_idx').on(t.workspaceId, t.createdAt),
-    /**
-     * The console's health panel counts the last day's requests across every
-     * workspace. Without a time-only index that is a scan of the busiest
-     * table in the schema on every overview render.
-     */
-    index('request_log_time_idx').on(t.createdAt),
-  ],
-);
-
-export const report = pgTable('report', {
-  id: uuid('id').primaryKey(),
-  libraryId: uuid('library_id').notNull().references(() => library.id),
-  reporterUserId: uuid('reporter_user_id').references(() => user.id),
-  category: text('category').notNull(),
-  detail: text('detail'),
-  resolution: text('resolution'),
-  createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
-});
+  runId: text('run_id'),
+  status: text('status').$type<'pending' | 'processing' | 'ready' | 'failed' | 'unknown'>().notNull(),
+  error: text('error'),
+  /** False for legacy / already-purged sources without supplier metering. */
+  metered: boolean('metered').notNull().default(true),
+  charges: jsonb('charges').$type<ProviderCharge[]>().notNull().default([]),
+  chargedCredits: bigint('charged_credits', { mode: 'number' }),
+  createdAt: createdAt(),
+}, (t) => [
+  index('knowledge_cost_run_created_idx').on(t.createdAt, t.id),
+  index('knowledge_cost_run_source_idx').on(t.knowledgeId),
+  uniqueIndex('knowledge_cost_run_run_idx').on(t.runId),
+  check('knowledge_cost_run_status_check', oneOf('status', ['pending', 'processing', 'ready', 'failed', 'unknown'])),
+]);
 
 export const administrator = pgTable(
   'administrator',
   {
-    id: uuid('id').primaryKey(),
-    username: text('username').notNull(),
+    id: uuid('id').primaryKey().defaultRandom(),
+    name: text('name').notNull(),
     email: text('email').notNull(),
-    /**
-     * Argon2id. Admin identity is separate from user OAuth (requirement.md 3.2).
-     * Null until an invited administrator finishes enrolment -- a placeholder
-     * hash would be a credential that exists but nobody chose.
-     */
-    passwordHash: text('password_hash'),
-    /**
-     * TOTP shared secret, sealed with `CREDENTIAL_ENCRYPTION_KEY` -- a plain
-     * secret here would make the second factor worth exactly as much as the
-     * password hash it sits next to.
-     */
-    mfaSecret: text('mfa_secret'),
-    /**
-     * Highest TOTP step already spent on a successful sign-in. A code is only
-     * accepted strictly above it, so an observed code cannot be replayed inside
-     * its own validity window (RFC 6238 5.2).
-     */
-    mfaLastCounter: bigint('mfa_last_counter', { mode: 'number' }),
-    mfaEnrolledAt: timestamp('mfa_enrolled_at', { withTimezone: true }),
-    /** `invited` until enrolment completes, then `active`, or `disabled`. */
-    status: text('status').notNull().default('invited'),
-    /**
-     * Single-use enrolment secret, stored as a keyed digest like every other
-     * token here, with a deadline so a forgotten invitation stops being a way in.
-     */
-    inviteTokenHash: text('invite_token_hash'),
-    inviteExpiresAt: timestamp('invite_expires_at', { withTimezone: true }),
-    invitedBy: uuid('invited_by'),
-    /** Reset on a successful sign-in; drives the lockout in lib/domain/admin. */
+    role: text('role').$type<'owner' | 'administrator'>().notNull().default('administrator'),
+    passwordHash: text('password_hash').notNull(),
+    totpSecretCipher: text('totp_secret_cipher').notNull(),
+    /** Beyond 4: the last TOTP step spent, so a code cannot be replayed. */
+    totpLastCounter: bigint('totp_last_counter', { mode: 'number' }),
+    /** Beyond 4: lockout after repeated failures. */
     failedAttempts: integer('failed_attempts').notNull().default(0),
-    lockedUntil: timestamp('locked_until', { withTimezone: true }),
-    lastActiveAt: timestamp('last_active_at', { withTimezone: true }),
-    createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
+    lockedUntil: timestampTz('locked_until'),
+    disabledAt: timestampTz('disabled_at'),
+    createdBy: uuid('created_by'),
+    createdAt: createdAt(),
   },
   (t) => [
-    uniqueIndex('administrator_username_uq').on(t.username),
-    uniqueIndex('administrator_email_uq').on(t.email),
-    uniqueIndex('administrator_invite_token_uq').on(t.inviteTokenHash),
+    uniqueIndex('administrator_email_key').on(t.email),
+    check('administrator_role_check', oneOf('role', ['owner', 'administrator'])),
+  ],
+);
+
+/** `id` is the keyed digest of the cookie's token. */
+export const adminSession = pgTable(
+  'admin_session',
+  {
+    id: text('id').primaryKey(),
+    administratorId: uuid('administrator_id')
+      .notNull()
+      .references(() => administrator.id, { onDelete: 'cascade' }),
+    expiresAt: timestampTz('expires_at').notNull(),
+  },
+  (t) => [index('admin_session_administrator_idx').on(t.administratorId)],
+);
+
+/** Supplier contract prices, versioned in each processing usage record. */
+export const providerPricing = pgTable('provider_pricing', {
+  id: integer('id').primaryKey().default(1),
+  revision: uuid('revision').notNull().defaultRandom(),
+  rates: jsonb('rates').$type<ProviderRate[]>().notNull(),
+  updatedBy: uuid('updated_by').references(() => administrator.id),
+  updatedAt: timestampTz('updated_at').notNull().defaultNow(),
+}, (t) => [check('provider_pricing_singleton_check', sql`${t.id} = 1`)]);
+
+export const modelConfig = pgTable(
+  'model_config',
+  {
+    id: uuid('id').primaryKey().defaultRandom(),
+    name: text('name').notNull(),
+    kind: text('kind').$type<ModelKind>().notNull(),
+    transport: text('transport').$type<'gateway' | 'openai_compatible'>().notNull(),
+    baseUrl: text('base_url'),
+    model: text('model').notNull(),
+    apiKeyCipher: text('api_key_cipher'),
+    apiKeyTail: text('api_key_tail'),
+    timeoutMs: integer('timeout_ms').notNull().default(60000),
+    enabled: boolean('enabled').notNull().default(false),
+    /** Generation has independent Free and Plan activation slots. */
+    enabledPlan: boolean('enabled_plan').notNull().default(false),
+    lastProbeAt: timestampTz('last_probe_at'),
+    lastProbeOk: boolean('last_probe_ok'),
+    updatedBy: uuid('updated_by'),
+    updatedAt: timestampTz('updated_at').notNull().defaultNow(),
+  },
+  (t) => [
+    uniqueIndex('model_config_one_enabled_key').on(t.kind).where(sql`enabled`),
+    uniqueIndex('model_config_one_enabled_plan_key').on(t.kind).where(sql`enabled_plan`),
+    check('model_config_enabled_plan_check', sql`not enabled_plan or kind = 'generation'`),
+    check('model_config_kind_check', oneOf('kind', MODEL_KINDS)),
+    check('model_config_transport_check', oneOf('transport', ['gateway', 'openai_compatible'])),
+    check(
+      'model_config_base_url_check',
+      sql`(transport = 'openai_compatible') = (base_url is not null)`,
+    ),
+  ],
+);
+
+/** Firecrawl credentials; last_used_at coordinates rotation across server instances. */
+export const firecrawlKey = pgTable(
+  'firecrawl_key',
+  {
+    id: uuid('id').primaryKey().defaultRandom(),
+    name: text('name').notNull(),
+    apiKeyCipher: text('api_key_cipher').notNull(),
+    apiKeyHash: text('api_key_hash').notNull(),
+    apiKeyTail: text('api_key_tail').notNull(),
+    enabled: boolean('enabled').notNull().default(true),
+    isFallback: boolean('is_fallback').notNull().default(false),
+    lastUsedAt: timestampTz('last_used_at'),
+    useCount: integer('use_count').notNull().default(0),
+    lastStatus: integer('last_status'),
+    cooldownUntil: timestampTz('cooldown_until'),
+    updatedBy: uuid('updated_by'),
+    createdAt: createdAt(),
+    updatedAt: timestampTz('updated_at').notNull().defaultNow(),
+  },
+  (t) => [
+    uniqueIndex('firecrawl_key_hash_key').on(t.apiKeyHash),
+    uniqueIndex('firecrawl_key_fallback_key').on(t.isFallback).where(sql`${t.isFallback} = true`),
+    index('firecrawl_key_rotation_idx').on(t.enabled, t.lastUsedAt),
+    check('firecrawl_key_name_check', sql`char_length(name) between 1 and 80`),
+    check('firecrawl_key_use_count_check', sql`use_count >= 0`),
+  ],
+);
+
+export const adminAudit = pgTable(
+  'admin_audit',
+  {
+    id: uuid('id').primaryKey().defaultRandom(),
+    administratorId: uuid('administrator_id'),
+    action: text('action').notNull(),
+    target: text('target'),
+    before: jsonb('before'),
+    after: jsonb('after'),
+    createdAt: createdAt(),
+  },
+  (t) => [index('admin_audit_time_idx').on(t.createdAt), index('admin_audit_action_idx').on(t.action)],
+);
+
+/** A user's GitHub grant for private repositories (2.2); the token is sealed under ADMIN_SECRET_KEY. */
+export const githubConnection = pgTable('github_connection', {
+  userId: uuid('user_id')
+    .primaryKey()
+    .references(() => user.id, { onDelete: 'cascade' }),
+  githubLogin: text('github_login').notNull(),
+  encryptedToken: text('encrypted_token').notNull(),
+  scope: text('scope').notNull().default(''),
+  connectedAt: timestampTz('connected_at').notNull().defaultNow(),
+});
+
+/**
+ * A domain the user proved is theirs (2.2), once for all their Rees. `method`
+ * is the check that passed; `challenge` is the value either check looks for.
+ */
+export const domainClaim = pgTable(
+  'domain_claim',
+  {
+    id: uuid('id').primaryKey().defaultRandom(),
+    userId: uuid('user_id')
+      .notNull()
+      .references(() => user.id, { onDelete: 'cascade' }),
+    domain: text('domain').notNull(),
+    method: text('method').$type<'dns_txt' | 'well_known'>(),
+    challenge: text('challenge').notNull(),
+    status: text('status').$type<'pending' | 'verified' | 'failed'>().notNull().default('pending'),
+    verifiedAt: timestampTz('verified_at'),
+    /** Beyond 4: when the last check ran, for the page's "最近检查". */
+    checkedAt: timestampTz('checked_at'),
+    createdAt: createdAt(),
+  },
+  (t) => [
+    uniqueIndex('domain_claim_user_domain_key').on(t.userId, t.domain),
+    check('domain_claim_method_check', sql`method is null or method in ('dns_txt', 'well_known')`),
+    check('domain_claim_status_check', oneOf('status', ['pending', 'verified', 'failed'])),
   ],
 );
 
 /**
- * Console session digest, deliberately a different table from `user_session`.
- *
- * Two authorities, two stores: a product session can never be presented as an
- * admin one and vice versa, whatever a cookie says (requirement.md 3.2).
+ * One paid Paddle transaction (2.3): a Plan's first payment or a renewal, or
+ * a checkout of 1 to 10 Packs. Created by the webhook when the money has
+ * arrived, never at checkout, so an abandoned checkout leaves nothing behind.
  */
-export const adminSession = pgTable(
-  'admin_session',
+export const purchase = pgTable(
+  'purchase',
   {
-    id: uuid('id').primaryKey(),
-    administratorId: uuid('administrator_id')
+    id: uuid('id').primaryKey().defaultRandom(),
+    userId: uuid('user_id')
       .notNull()
-      .references(() => administrator.id),
-    tokenHash: text('token_hash').notNull(),
-    clientSummary: jsonb('client_summary').$type<Record<string, string>>().notNull().default({}),
-    lastSeenAt: timestamp('last_seen_at', { withTimezone: true }).notNull().defaultNow(),
-    revokedAt: timestamp('revoked_at', { withTimezone: true }),
-    expiresAt: timestamp('expires_at', { withTimezone: true }).notNull(),
-    createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
+      .references(() => user.id),
+    kind: text('kind').$type<'plan' | 'pack'>().notNull(),
+    quantity: integer('quantity').notNull().default(1),
+    paddleTransactionId: text('paddle_transaction_id').notNull(),
+    /** Beyond 4: the subscription a Plan payment belongs to. */
+    paddleSubscriptionId: text('paddle_subscription_id'),
+    status: text('status').$type<'paid' | 'refunded' | 'chargeback'>().notNull().default('paid'),
+    /** What the buyer paid, tax included, in the currency's minor unit. */
+    amountMinor: bigint('amount_minor', { mode: 'number' }).notNull(),
+    /** Beyond 4. */
+    currency: text('currency').notNull().default('USD'),
+    credits: bigint('credits', { mode: 'number' }).notNull(),
+    /** Beyond 4: credits taken back so far by refunds and chargebacks. */
+    reversedCredits: bigint('reversed_credits', { mode: 'number' }).notNull().default(0),
+    /** Beyond 4: Paddle adjustments already applied, so a re-sent one is not applied twice. */
+    adjustmentIds: text('adjustment_ids').array().notNull().default(sql`'{}'::text[]`),
+    /** Beyond 4: a Plan payment's billing period. */
+    periodStart: timestampTz('period_start'),
+    periodEnd: timestampTz('period_end'),
+    createdAt: createdAt(),
   },
-  (t) => [uniqueIndex('admin_session_token_hash_uq').on(t.tokenHash)],
-);
-
-export const adminRole = pgTable('admin_role', {
-  id: text('id').primaryKey(),
-  name: text('name').notNull(),
-});
-
-export const adminPermission = pgTable(
-  'admin_permission',
-  {
-    roleId: text('role_id').notNull().references(() => adminRole.id),
-    capability: text('capability').notNull(),
-    level: text('level').notNull(),
-  },
-  (t) => [primaryKey({ columns: [t.roleId, t.capability] })],
-);
-
-export const administratorRole = pgTable(
-  'administrator_role',
-  {
-    administratorId: uuid('administrator_id').notNull().references(() => administrator.id),
-    roleId: text('role_id').notNull().references(() => adminRole.id),
-  },
-  (t) => [primaryKey({ columns: [t.administratorId, t.roleId] })],
+  (t) => [
+    uniqueIndex('purchase_paddle_transaction_key').on(t.paddleTransactionId),
+    index('purchase_user_idx').on(t.userId, t.createdAt),
+    check('purchase_kind_check', oneOf('kind', ['plan', 'pack'])),
+    check('purchase_status_check', oneOf('status', ['paid', 'refunded', 'chargeback'])),
+    /* 1–10 is the checkout's rule; a payment is recorded as Paddle took it. */
+    check('purchase_quantity_check', sql`quantity >= 1`),
+    check('purchase_reversed_check', sql`reversed_credits between 0 and credits`),
+  ],
 );
 
 /**
- * Append only. The database role gets INSERT and SELECT, never UPDATE or DELETE.
- * prevHash/hash form the chain whose daily head is anchored. architecture.md 14.
+ * A user's Plan (2.3), mirrored from Paddle's subscription events. Active
+ * means paying: it unlocks Packs until `current_period_end`. Cancelling sets
+ * `cancel_at_period_end`; the period's credits stay spendable to its end.
  */
-export const auditLog = pgTable(
-  'audit_log',
+export const subscription = pgTable(
+  'subscription',
   {
-    id: uuid('id').primaryKey(),
-    /**
-     * Insertion order, and the only unambiguous way to find the chain head:
-     * two entries can share `created_at` to the microsecond, and random uuids
-     * give no tie-break.
-     */
-    seq: bigserial('seq', { mode: 'number' }).notNull(),
-    administratorId: uuid('administrator_id').references(() => administrator.id),
-    action: text('action').notNull(),
-    targetType: text('target_type'),
-    targetId: text('target_id'),
-    reason: text('reason'),
-    beforeValue: jsonb('before_value'),
-    afterValue: jsonb('after_value'),
-    ipDigest: text('ip_digest'),
-    result: text('result').notNull(),
-    prevHash: text('prev_hash'),
-    hash: text('hash').notNull(),
-    createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
+    id: uuid('id').primaryKey().defaultRandom(),
+    userId: uuid('user_id')
+      .notNull()
+      .references(() => user.id),
+    paddleSubscriptionId: text('paddle_subscription_id').notNull(),
+    /** Beyond 4. */
+    paddleCustomerId: text('paddle_customer_id'),
+    status: text('status').$type<'active' | 'cancelled' | 'expired'>().notNull(),
+    cancelAtPeriodEnd: boolean('cancel_at_period_end').notNull().default(false),
+    currentPeriodStart: timestampTz('current_period_start'),
+    currentPeriodEnd: timestampTz('current_period_end'),
+    /** Beyond 4: Paddle's `updated_at` of the state held here; an older event never overwrites a newer one. */
+    paddleUpdatedAt: timestampTz('paddle_updated_at'),
+    createdAt: createdAt(),
+    updatedAt: timestampTz('updated_at').notNull().defaultNow(),
   },
   (t) => [
-    uniqueIndex('audit_log_hash_uq').on(t.hash),
-    index('audit_log_time_idx').on(t.createdAt),
-    /*
-     * Declared because `seq DESC` is a read path, not just a write one: the
-     * chain head is read under the writer's advisory lock on every append, and
-     * the console lists the log in this order a page at a time. It exists in
-     * the database from 0004; leaving it out here would let the next generated
-     * migration drop it and turn both into a sort of the whole table.
-     */
-    index('audit_log_seq_idx').on(t.seq.desc()),
-    /** One target's history, newest first -- how the console reads the log. */
-    index('audit_log_target_idx').on(t.targetType, t.targetId, t.seq.desc()),
+    uniqueIndex('subscription_paddle_key').on(t.paddleSubscriptionId),
+    index('subscription_user_idx').on(t.userId, t.status),
+    check('subscription_status_check', oneOf('status', ['active', 'cancelled', 'expired'])),
+  ],
+);
+
+/**
+ * Beyond 4: the Paddle transactions checkout created, so a second Plan
+ * checkout (another tab, a double click) reopens the open one instead of
+ * starting a second subscription.
+ */
+export const paddleCheckout = pgTable(
+  'paddle_checkout',
+  {
+    paddleTransactionId: text('paddle_transaction_id').primaryKey(),
+    priceKey: text('price_key'),
+    unitPriceMinor: integer('unit_price_minor'),
+    unitCredits: integer('unit_credits').notNull().default(100_000),
+    supersededAt: timestampTz('superseded_at'),
+    userId: uuid('user_id')
+      .notNull()
+      .references(() => user.id),
+    kind: text('kind').$type<'plan' | 'pack'>().notNull(),
+    quantity: integer('quantity').notNull(),
+    createdAt: createdAt(),
+  },
+  (t) => [index('paddle_checkout_user_idx').on(t.userId, t.kind, t.createdAt), check('paddle_checkout_kind_check', oneOf('kind', ['plan', 'pack']))],
+);
+
+/**
+ * Beyond 4: every Paddle notification we accepted, by Paddle's event id. The
+ * row is written in the transaction that applies the event, so a re-delivery
+ * finds it and changes nothing, and a failed one leaves no row to block the retry.
+ */
+export const billingEvent = pgTable(
+  'billing_event',
+  {
+    id: text('id').primaryKey(),
+    eventType: text('event_type').notNull(),
+    occurredAt: timestampTz('occurred_at'),
+    /** What the event did: `credited`, `refunded`, `subscription`, `ignored`, … */
+    outcome: text('outcome').notNull(),
+    payload: jsonb('payload').notNull(),
+    receivedAt: timestampTz('received_at').notNull().defaultNow(),
+  },
+  (t) => [index('billing_event_time_idx').on(t.receivedAt)],
+);
+
+/**
+ * Beyond 4: what a refund or chargeback could not take back because the
+ * credits were already spent (2.3, "不足部分记一条负债行"). The balance never
+ * goes below zero; the next credits to arrive pay this off first.
+ */
+export const creditDebt = pgTable(
+  'credit_debt',
+  {
+    id: uuid('id').primaryKey().defaultRandom(),
+    userId: uuid('user_id')
+      .notNull()
+      .references(() => user.id),
+    amount: bigint('amount', { mode: 'number' }).notNull(),
+    remaining: bigint('remaining', { mode: 'number' }).notNull(),
+    purchaseId: uuid('purchase_id').references(() => purchase.id),
+    createdAt: createdAt(),
+    clearedAt: timestampTz('cleared_at'),
+  },
+  (t) => [
+    index('credit_debt_open_idx').on(t.userId).where(sql`remaining > 0`),
+    check('credit_debt_remaining_check', sql`remaining >= 0 and remaining <= amount and amount > 0`),
+  ],
+);
+
+/* ------------------------------------------------- step 4: conversations, explore */
+
+/** "有用 / 没用" on one Ree answer (2.4), one vote per user; voting the same way again takes it back. */
+export const reeFeedback = pgTable(
+  'ree_feedback',
+  {
+    messageId: uuid('message_id')
+      .notNull()
+      .references(() => message.id, { onDelete: 'cascade' }),
+    userId: uuid('user_id')
+      .notNull()
+      .references(() => user.id, { onDelete: 'cascade' }),
+    vote: text('vote').$type<'up' | 'down'>().notNull(),
+    createdAt: createdAt(),
+  },
+  (t) => [primaryKey({ columns: [t.messageId, t.userId] }), check('ree_feedback_vote_check', oneOf('vote', ['up', 'down']))],
+);
+
+/**
+ * Ree 圆桌 (ree-council-proposal.md 4.3): one synthesis per question, kept
+ * apart from `message` so every count of Ree answers, answer rates and
+ * income stays as it is, and so no Ree ever sees it in its history.
+ * `request_id` is the question; clearing the conversation removes it. A
+ * `running` row is a synthesis being written (or one that died, once it is
+ * older than SYNTHESIS_STALE_MS); a failed one is deleted.
+ */
+export const synthesis = pgTable(
+  'synthesis',
+  {
+    id: uuid('id').primaryKey().defaultRandom(),
+    conversationId: uuid('conversation_id')
+      .notNull()
+      .references(() => conversation.id, { onDelete: 'cascade' }),
+    requestId: uuid('request_id')
+      .notNull()
+      .references(() => message.id, { onDelete: 'cascade' }),
+    userId: uuid('user_id')
+      .notNull()
+      .references(() => user.id),
+    status: text('status').$type<'running' | 'done'>().notNull().default('running'),
+    content: text('content').notNull().default(''),
+    /** The Rees whose answers went in, lettered A, B, C in this order. */
+    reeIds: jsonb('ree_ids').$type<string[]>().notNull().default([]),
+    /** The kept markers, mapped back to the answers and citation snapshots. */
+    sources: jsonb('sources').$type<SynthesisSource[]>().notNull().default([]),
+    costCredits: integer('cost_credits').notNull().default(0),
+    model: text('model'),
+    createdAt: createdAt(),
+  },
+  (t) => [
+    uniqueIndex('synthesis_request_key').on(t.requestId),
+    index('synthesis_conversation_idx').on(t.conversationId),
+    check('synthesis_status_check', oneOf('status', ['running', 'done'])),
+  ],
+);
+
+/** "有用 / 没用" on a synthesis; never counted toward any Ree's rating. */
+export const synthesisFeedback = pgTable(
+  'synthesis_feedback',
+  {
+    synthesisId: uuid('synthesis_id')
+      .notNull()
+      .references(() => synthesis.id, { onDelete: 'cascade' }),
+    userId: uuid('user_id')
+      .notNull()
+      .references(() => user.id, { onDelete: 'cascade' }),
+    vote: text('vote').$type<'up' | 'down'>().notNull(),
+    createdAt: createdAt(),
+  },
+  (t) => [primaryKey({ columns: [t.synthesisId, t.userId] }), check('synthesis_feedback_vote_check', oneOf('vote', ['up', 'down']))],
+);
+
+/**
+ * A public Ree's knowledge profile (2.4): at most 16 vectors -- its
+ * introduction and tags, its example questions, and centroids of its
+ * passages. Only public Rees have rows; turning private deletes them.
+ */
+export const reeProfileVector = pgTable(
+  'ree_profile_vector',
+  {
+    id: uuid('id').primaryKey().defaultRandom(),
+    reeId: uuid('ree_id')
+      .notNull()
+      .references(() => ree.id, { onDelete: 'cascade' }),
+    kind: text('kind').$type<'profile' | 'sample_question' | 'centroid'>().notNull(),
+    embedding: vector('embedding', { dimensions: 1536 }).notNull(),
+    updatedAt: timestampTz('updated_at').notNull().defaultNow(),
+  },
+  (t) => [
+    index('ree_profile_vector_ree_idx').on(t.reeId),
+    index('ree_profile_vector_embedding_idx').using('hnsw', t.embedding.op('vector_cosine_ops')),
+    check('ree_profile_vector_kind_check', oneOf('kind', ['profile', 'sample_question', 'centroid'])),
+  ],
+);
+
+/** Beyond 4: fixed-window request counters for the free, unauthenticated explore search (2.4, "按 IP 和账号限频"). */
+export const rateBucket = pgTable(
+  'rate_bucket',
+  {
+    key: text('key').notNull(),
+    windowStart: timestampTz('window_start').notNull(),
+    hits: integer('hits').notNull().default(0),
+  },
+  (t) => [primaryKey({ columns: [t.key, t.windowStart] })],
+);
+
+/* ------------------------------------------------------------- step 5 */
+
+/**
+ * A request for the verified role (2.7). One pending row per user; a
+ * rejection starts the 30-day wait, a close by an administrator's role change
+ * (made official) does not. `metrics` is the threshold as it stood when the
+ * user applied.
+ */
+export const verificationRequest = pgTable(
+  'verification_request',
+  {
+    id: uuid('id').primaryKey().defaultRandom(),
+    userId: uuid('user_id')
+      .notNull()
+      .references(() => user.id),
+    statement: text('statement').notNull(),
+    links: text('links').array().notNull().default(sql`'{}'::text[]`),
+    metrics: jsonb('metrics').$type<RoleMetrics>().notNull(),
+    status: text('status').$type<'pending' | 'approved' | 'rejected' | 'closed'>().notNull().default('pending'),
+    /** The reviewer's note: required on a rejection and shown to the user. */
+    rejectedReason: text('rejected_reason'),
+    closedByRoleChange: boolean('closed_by_role_change').notNull().default(false),
+    reviewedBy: uuid('reviewed_by'),
+    createdAt: createdAt(),
+    decidedAt: timestampTz('decided_at'),
+  },
+  (t) => [
+    uniqueIndex('verification_request_pending_key').on(t.userId).where(sql`status = 'pending'`),
+    index('verification_request_user_idx').on(t.userId, t.createdAt),
+    index('verification_request_status_idx').on(t.status, t.createdAt),
+    check('verification_request_status_check', oneOf('status', ['pending', 'approved', 'rejected', 'closed'])),
+    check('verification_request_links_check', sql`cardinality(links) <= 3`),
+  ],
+);
+
+export const NOTICE_KINDS = ['takedown', 'restore', 'credits_adjust', 'kyc', 'payout', 'role', 'verification'] as const;
+export type NoticeKind = (typeof NOTICE_KINDS)[number];
+
+/**
+ * An in-app notice (8.2, "通知"): no email, no push. `text` is the
+ * administrator's words (a reason) when there are any; `params` (beyond 4)
+ * carries what the page needs to word the notice in the reader's language.
+ */
+export const notice = pgTable(
+  'notice',
+  {
+    id: uuid('id').primaryKey().defaultRandom(),
+    userId: uuid('user_id')
+      .notNull()
+      .references(() => user.id, { onDelete: 'cascade' }),
+    kind: text('kind').$type<NoticeKind>().notNull(),
+    text: text('text').notNull().default(''),
+    params: jsonb('params').$type<Record<string, string | number | null>>().notNull().default({}),
+    refId: uuid('ref_id'),
+    readAt: timestampTz('read_at'),
+    createdAt: createdAt(),
+  },
+  (t) => [
+    index('notice_user_idx').on(t.userId, t.createdAt),
+    index('notice_unread_idx').on(t.userId).where(sql`read_at is null`),
+    check('notice_kind_check', oneOf('kind', NOTICE_KINDS)),
+  ],
+);
+
+/**
+ * A full re-embed (2.5): every chunk gets the candidate model's vector in
+ * `chunk.embedding_next` while retrieval stays on the old one; the last step
+ * swaps both columns and the enabled entry in one transaction. One running
+ * job at a time. `done` and `total` count chunks.
+ */
+export const reembedJob = pgTable(
+  'reembed_job',
+  {
+    id: uuid('id').primaryKey().defaultRandom(),
+    fromModelConfigId: uuid('from_model_config_id'),
+    toModelConfigId: uuid('to_model_config_id')
+      .notNull()
+      .references(() => modelConfig.id),
+    status: text('status').$type<'running' | 'done' | 'failed'>().notNull().default('running'),
+    total: integer('total').notNull().default(0),
+    done: integer('done').notNull().default(0),
+    /** Beyond 4: why it failed, and who started it. */
+    error: text('error'),
+    startedBy: uuid('started_by'),
+    startedAt: timestampTz('started_at').notNull().defaultNow(),
+    /** Beyond 4: the last time a step saved progress, so a stalled job is picked up again. */
+    heartbeatAt: timestampTz('heartbeat_at'),
+    finishedAt: timestampTz('finished_at'),
+  },
+  (t) => [
+    uniqueIndex('reembed_job_running_key').on(t.status).where(sql`status = 'running'`),
+    check('reembed_job_status_check', oneOf('status', ['running', 'done', 'failed'])),
+  ],
+);
+
+/**
+ * Beyond 4: one model call, for the overview's "本月调用次数与估算成本"
+ * (2.5, 7: usage goes to logs and the cost board, never to the bill).
+ */
+export const modelCall = pgTable(
+  'model_call',
+  {
+    id: uuid('id').primaryKey().defaultRandom(),
+    kind: text('kind').$type<'generation' | 'embedding' | 'transcription'>().notNull(),
+    model: text('model').notNull(),
+    configId: uuid('config_id'),
+    configName: text('config_name'),
+    userId: uuid('user_id'),
+    audience: text('audience').$type<'free' | 'plan'>(),
+    purpose: text('purpose').$type<CallPurpose>(),
+    status: text('status').$type<CallStatus>().notNull().default('unknown'),
+    durationMs: integer('duration_ms'),
+    usageKnown: boolean('usage_known').notNull().default(false),
+    endpoint: text('endpoint'),
+    requestId: text('request_id'),
+    errorCode: text('error_code'),
+    costUsd: text('cost_usd'),
+    costBasis: text('cost_basis').$type<CostBasis>().notNull().default('unresolved'),
+    rate: jsonb('rate').$type<ProviderRate>(),
+    priceRevision: text('price_revision'),
+    inputTokens: integer('input_tokens').notNull().default(0),
+    outputTokens: integer('output_tokens').notNull().default(0),
+    /** Transcription: seconds of audio. */
+    seconds: integer('seconds').notNull().default(0),
+    createdAt: createdAt(),
+  },
+  (t) => [
+    index('model_call_time_idx').on(t.createdAt),
+    index('model_call_generation_time_idx').on(t.createdAt, t.id).where(sql`kind = 'generation'`),
+    check('model_call_status_check', oneOf('status', ['unknown', 'succeeded', 'failed', 'aborted'])),
+    check('model_call_audience_check', sql`audience is null or audience in ('free', 'plan')`),
+    check('model_call_cost_basis_check', oneOf('cost_basis', ['unresolved', 'provider_reported', 'configured_rate', 'estimated'])),
+    check('model_call_kind_check', oneOf('kind', ['generation', 'embedding', 'transcription'])),
+  ],
+);
+
+/* ------------------------------------------------------ payouts, 2.3 (step 6) */
+
+export const KYC_STATUSES = ['pending', 'verified', 'rejected', 'reset'] as const;
+export type KycStatus = (typeof KYC_STATUSES)[number];
+
+/**
+ * One identity submission, reviewed by hand (2.3, 2.5 "KYC 记录"). A user's
+ * current state is their newest row. "要求重新验证" stamps `reset_at` on the
+ * newest row and adds a `reset` row that carries only the reason; the user
+ * then submits again. Images live in private Blob under `kyc/<user>/` and are
+ * deleted 30 days after the decision or the reset (`files_deleted_at`); the
+ * metadata stays.
+ */
+export const kycRecord = pgTable(
+  'kyc_record',
+  {
+    id: uuid('id').primaryKey().defaultRandom(),
+    userId: uuid('user_id')
+      .notNull()
+      .references(() => user.id),
+    /** Only `manual` today; a third-party provider adds a value, history stays valid (2.3). */
+    provider: text('provider').$type<'manual'>().notNull().default('manual'),
+    status: text('status').$type<KycStatus>().notNull().default('pending'),
+    legalName: text('legal_name'),
+    country: text('country'),
+    documentKind: text('document_kind').$type<'passport' | 'id' | 'residence'>(),
+    documentLast4: text('document_last4'),
+    /** The document's expiry date, a calendar day. */
+    documentExpires: text('document_expires'),
+    taxForm: text('tax_form').$type<'W-8BEN' | 'W-9'>(),
+    /** When the user declared the tax form submitted, and agreed to the purpose and retention. */
+    taxDeclaredAt: timestampTz('tax_declared_at'),
+    consentAt: timestampTz('consent_at'),
+    documentBlob: text('document_blob'),
+    selfieBlob: text('selfie_blob'),
+    filesDeletedAt: timestampTz('files_deleted_at'),
+    /** A rejection's reason, or on a `reset` row why re-verification was asked for. */
+    reason: text('reason'),
+    reviewedBy: uuid('reviewed_by'),
+    decidedAt: timestampTz('decided_at'),
+    /** Superseded by a re-verification request at this time. */
+    resetAt: timestampTz('reset_at'),
+    createdAt: createdAt(),
+  },
+  (t) => [
+    index('kyc_record_user_idx').on(t.userId, t.createdAt),
+    index('kyc_record_status_idx').on(t.status, t.createdAt),
+    index('kyc_record_files_idx').on(t.createdAt).where(sql`files_deleted_at is null and (document_blob is not null or selfie_blob is not null)`),
+    check('kyc_record_provider_check', oneOf('provider', ['manual'])),
+    check('kyc_record_status_check', oneOf('status', KYC_STATUSES)),
+    check('kyc_record_document_kind_check', sql`document_kind is null or document_kind in ('passport', 'id', 'residence')`),
+    check('kyc_record_tax_form_check', sql`tax_form is null or tax_form in ('W-8BEN', 'W-9')`),
+    check('kyc_record_expires_check', sql`document_expires is null or document_expires ~ '^[0-9]{4}-[0-9]{2}-[0-9]{2}$'`),
+    /* A submission carries every field; only a `reset` row is a bare reason. */
+    check(
+      'kyc_record_submission_check',
+      sql`status = 'reset' or (legal_name is not null and country is not null and document_kind is not null and document_last4 is not null and document_expires is not null and tax_form is not null and tax_declared_at is not null and consent_at is not null)`,
+    ),
+  ],
+);
+
+export const PAYOUT_STATUSES = ['pending', 'approved', 'rejected', 'paid', 'failed'] as const;
+export type PayoutStatus = (typeof PAYOUT_STATUSES)[number];
+
+/**
+ * A manual PayPal payout (2.3): the requested earned credits are held at
+ * once (`hold_id`), an administrator approves or rejects, sends the money
+ * outside the system and records the transfer, or marks it failed. Rejection
+ * and failure release the hold; payment settles it. `pending` and `approved`
+ * are in progress, and a user has at most one of those.
+ */
+export const payout = pgTable(
+  'payout',
+  {
+    id: uuid('id').primaryKey().defaultRandom(),
+    userId: uuid('user_id')
+      .notNull()
+      .references(() => user.id),
+    credits: bigint('credits', { mode: 'number' }).notNull(),
+    /** The PayPal address at request time, which is where the money goes. */
+    paypalEmail: text('paypal_email').notNull(),
+    status: text('status').$type<PayoutStatus>().notNull().default('pending'),
+    holdId: uuid('hold_id').references(() => creditHold.id),
+    /** The verified identity the request was made under. */
+    kycRecordId: uuid('kyc_record_id').references(() => kycRecord.id),
+    /** The reviewer's note: required on a rejection. */
+    reviewNote: text('review_note'),
+    reviewedBy: uuid('reviewed_by'),
+    reviewedAt: timestampTz('reviewed_at'),
+    transferId: text('transfer_id'),
+    /** What reached the user, in US cents; the rest of the request is PayPal's fee. */
+    paidCents: integer('paid_cents'),
+    feeCredits: bigint('fee_credits', { mode: 'number' }),
+    failureReason: text('failure_reason'),
+    resolvedBy: uuid('resolved_by'),
+    resolvedAt: timestampTz('resolved_at'),
+    createdAt: createdAt(),
+  },
+  (t) => [
+    uniqueIndex('payout_open_key').on(t.userId).where(sql`status in ('pending', 'approved')`),
+    index('payout_user_idx').on(t.userId, t.createdAt),
+    index('payout_status_idx').on(t.status, t.createdAt),
+    check('payout_status_check', oneOf('status', PAYOUT_STATUSES)),
+    check('payout_credits_check', sql`credits > 0`),
+    check('payout_paid_check', sql`(status = 'paid') = (paid_cents is not null and transfer_id is not null)`),
+    check('payout_paid_cents_check', sql`paid_cents is null or (paid_cents > 0 and paid_cents::bigint * 100 <= credits)`),
+    check('payout_fee_check', sql`fee_credits is null or (fee_credits >= 0 and fee_credits = credits - paid_cents::bigint * 100)`),
+  ],
+);
+
+/* ------------------------------------------------------------- step 7 */
+
+/**
+ * A Ree's 15-second introduction (2.6): the four shots' text, the template,
+ * accent, aspect and music switch. `generated` turns true with the first
+ * script and the video exists from then on; `revision` counts saves (the
+ * editor sends it back, so two tabs cannot overwrite each other);
+ * `exports_count` is how many exports were paid for or used the free one,
+ * which decides whether the next is free. Cache hits never count.
+ */
+export const reeVideo = pgTable(
+  'ree_video',
+  {
+    reeId: uuid('ree_id')
+      .primaryKey()
+      .references(() => ree.id, { onDelete: 'cascade' }),
+    generated: boolean('generated').notNull().default(false),
+    revision: integer('revision').notNull().default(0),
+    template: text('template').$type<(typeof VIDEO_TEMPLATES)[number]>().notNull().default('product-demo'),
+    accentColor: text('accent_color').notNull().default('#127ee3'),
+    aspect: text('aspect').$type<'16:9' | '9:16'>().notNull().default('16:9'),
+    music: boolean('music').notNull().default(true),
+    scenes: jsonb('scenes').$type<import('@/lib/domain/video').VideoScenes>(),
+    exportsCount: integer('exports_count').notNull().default(0),
+    /** Beyond 4: when the current script was generated. */
+    generatedAt: timestampTz('generated_at'),
+    createdAt: createdAt(),
+    updatedAt: timestampTz('updated_at').notNull().defaultNow(),
+  },
+  (t) => [
+    check('ree_video_template_check', oneOf('template', VIDEO_TEMPLATES)),
+    check('ree_video_aspect_check', oneOf('aspect', ['16:9', '9:16'])),
+    check('ree_video_accent_check', sql`accent_color ~ '^#[0-9a-f]{6}$'`),
+    check('ree_video_generated_check', sql`not generated or scenes is not null`),
+  ],
+);
+
+/**
+ * One MP4 export, rendered in the owner's browser and uploaded straight to
+ * Blob (2.6). `content_version` is the hash of everything the render drew
+ * (script, live Ree data, template, accent, aspect, music, composition
+ * version): an export whose hash already has a `done` row is a cache hit and
+ * gets no row of its own. A `started` row the browser never completed is
+ * `abandoned` by the cron and its hold released.
+ */
+export const videoExport = pgTable(
+  'video_export',
+  {
+    id: uuid('id').primaryKey().defaultRandom(),
+    reeId: uuid('ree_id')
+      .notNull()
+      .references(() => ree.id, { onDelete: 'cascade' }),
+    /** Beyond 4: who started it (whose credits were held). */
+    userId: uuid('user_id')
+      .notNull()
+      .references(() => user.id),
+    contentVersion: text('content_version').notNull(),
+    template: text('template').$type<(typeof VIDEO_EXPORT_TEMPLATES)[number]>().notNull(),
+    aspect: text('aspect').$type<'16:9' | '9:16'>().notNull(),
+    status: text('status').$type<'started' | 'done' | 'abandoned'>().notNull().default('started'),
+    /** The Blob pathname, served at `/media/<pathname>`. */
+    blobUrl: text('blob_url'),
+    /** Beyond 4: the uploaded file's size. */
+    bytes: integer('bytes'),
+    costCredits: integer('cost_credits').notNull().default(0),
+    createdAt: createdAt(),
+    finishedAt: timestampTz('finished_at'),
+  },
+  (t) => [
+    uniqueIndex('video_export_done_key').on(t.reeId, t.contentVersion).where(sql`status = 'done'`),
+    index('video_export_ree_idx').on(t.reeId, t.createdAt),
+    index('video_export_started_idx').on(t.createdAt).where(sql`status = 'started'`),
+    check('video_export_status_check', oneOf('status', ['started', 'done', 'abandoned'])),
+    check('video_export_template_check', oneOf('template', VIDEO_EXPORT_TEMPLATES)),
+    check('video_export_aspect_check', oneOf('aspect', ['16:9', '9:16'])),
+    check('video_export_cost_check', sql`cost_credits >= 0`),
+  ],
+);
+
+/** Immutable price versions. Historical Paddle IDs remain valid for renewals and delayed webhooks. */
+export const billingPrice = pgTable('billing_price', {
+  id: uuid('id').primaryKey().defaultRandom(),
+  environment: text('environment').$type<'sandbox' | 'production'>().notNull(),
+  kind: text('kind').$type<'plan' | 'pack'>().notNull(),
+  priceMinor: integer('price_minor').notNull(),
+  credits: integer('credits'),
+  paddlePriceId: text('paddle_price_id').notNull(),
+  promotionPriceMinor: integer('promotion_price_minor'),
+  promotionStartsAt: timestampTz('promotion_starts_at'),
+  promotionEndsAt: timestampTz('promotion_ends_at'),
+  enabled: boolean('enabled').notNull().default(true),
+  updatedBy: uuid('updated_by').references(() => administrator.id),
+  createdAt: createdAt(),
+}, (t) => [
+  uniqueIndex('billing_price_current_key').on(t.environment, t.kind).where(sql`enabled`),
+  index('billing_price_paddle_idx').on(t.paddlePriceId),
+  check('billing_price_environment_check', oneOf('environment', ['sandbox', 'production'])),
+  check('billing_price_kind_check', oneOf('kind', ['plan', 'pack'])),
+  check('billing_price_amount_check', sql`price_minor between 1 and 100000000`),
+  check('billing_price_credits_check', sql`credits between 1 and 100000000`),
+  check('billing_price_promotion_check', sql`(promotion_price_minor is null and promotion_starts_at is null and promotion_ends_at is null) or (promotion_price_minor is not null and promotion_starts_at is not null and promotion_ends_at is not null and promotion_price_minor > 0 and promotion_price_minor < price_minor and promotion_starts_at < promotion_ends_at)`),
+]);
+
+/** The registration gift is independent of the payment provider and only affects future sign-ups. */
+export const signupReward = pgTable('signup_reward', {
+  id: integer('id').primaryKey().default(1),
+  credits: integer('credits').notNull(),
+  revision: uuid('revision').notNull().defaultRandom(),
+  updatedBy: uuid('updated_by').references(() => administrator.id),
+  updatedAt: timestampTz('updated_at').notNull().defaultNow(),
+}, () => [
+  check('signup_reward_singleton_check', sql`id = 1`),
+  check('signup_reward_credits_check', sql`credits between 0 and 100000000`),
+]);
+
+/** The flat video script charge, shared by standard scripts and narrated demos. */
+export const videoPricing = pgTable('video_pricing', {
+  id: integer('id').primaryKey().default(1),
+  scriptCredits: integer('script_credits').notNull(),
+  revision: uuid('revision').notNull().defaultRandom(),
+  updatedBy: uuid('updated_by').references(() => administrator.id),
+  updatedAt: timestampTz('updated_at').notNull().defaultNow(),
+}, () => [
+  check('video_pricing_singleton_check', sql`id = 1`),
+  check('video_pricing_script_credits_check', sql`script_credits between 1 and 100000000`),
+]);
+
+/** The charge for new MP4 exports after a Ree's first successful export. */
+export const videoExportPricing = pgTable('video_export_pricing', {
+  id: integer('id').primaryKey().default(1),
+  credits: integer('credits').notNull(),
+  revision: uuid('revision').notNull().defaultRandom(),
+  updatedBy: uuid('updated_by').references(() => administrator.id),
+  updatedAt: timestampTz('updated_at').notNull().defaultNow(),
+}, () => [
+  check('video_export_pricing_singleton_check', sql`id = 1`),
+  check('video_export_pricing_credits_check', sql`credits between 1 and 100000000`),
+]);
+
+/**
+ * Beyond 4: the share page `/s/[slug]` -- a visit, or a conversation the
+ * visitor started or joined from it. `visitor_id` is the random id of the
+ * `re0_visitor` cookie (no IP, no user agent); the owner's own visits are
+ * not recorded. A visit holds its half-hour `visit_slot`, so one visitor
+ * counts once per slot even when two tabs open at once; one conversion per
+ * conversation and Ree.
+ */
+export const reeShareEvent = pgTable(
+  'ree_share_event',
+  {
+    id: uuid('id').primaryKey().defaultRandom(),
+    reeId: uuid('ree_id')
+      .notNull()
+      .references(() => ree.id, { onDelete: 'cascade' }),
+    kind: text('kind').$type<'visit' | 'conversation'>().notNull(),
+    visitorId: text('visitor_id').notNull(),
+    userId: uuid('user_id').references(() => user.id, { onDelete: 'set null' }),
+    conversationId: uuid('conversation_id').references(() => conversation.id, { onDelete: 'set null' }),
+    /** Visits only: `floor(epoch seconds / 1800)`. */
+    visitSlot: integer('visit_slot'),
+    createdAt: createdAt(),
+  },
+  (t) => [
+    index('ree_share_event_ree_idx').on(t.reeId, t.kind, t.createdAt),
+    index('ree_share_event_visitor_idx').on(t.visitorId, t.reeId, t.createdAt),
+    uniqueIndex('ree_share_event_conversation_key').on(t.conversationId, t.reeId).where(sql`kind = 'conversation'`),
+    uniqueIndex('ree_share_event_visit_key').on(t.visitorId, t.reeId, t.visitSlot).where(sql`kind = 'visit'`),
+    check('ree_share_event_kind_check', oneOf('kind', ['visit', 'conversation'])),
+    check('ree_share_event_visit_slot_check', sql`(kind = 'visit') = (visit_slot is not null)`),
+  ],
+);
+
+/* ------------------------------------------------------------------ MCP */
+
+/**
+ * A user's API key for the MCP server (`/api/mcp`). The key itself
+ * (`re0_sk_` + 64 hex) is shown once, at creation; only its SHA-256 digest
+ * and last four characters are kept. Keys are revoked, never deleted, so
+ * the questions they asked keep their tag.
+ */
+export const apiKey = pgTable(
+  'api_key',
+  {
+    id: uuid('id').primaryKey().defaultRandom(),
+    userId: uuid('user_id')
+      .notNull()
+      .references(() => user.id, { onDelete: 'cascade' }),
+    name: text('name').notNull(),
+    keyDigest: text('key_digest').notNull(),
+    keyTail: text('key_tail').notNull(),
+    lastUsedAt: timestampTz('last_used_at'),
+    expiresAt: timestampTz('expires_at'),
+    revokedAt: timestampTz('revoked_at'),
+    createdAt: createdAt(),
+  },
+  (t) => [
+    uniqueIndex('api_key_digest_key').on(t.keyDigest),
+    index('api_key_user_idx').on(t.userId, t.createdAt),
+    check('api_key_name_check', sql`char_length(name) between 1 and 60`),
   ],
 );

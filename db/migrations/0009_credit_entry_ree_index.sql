@@ -1,0 +1,1 @@
+CREATE INDEX "credit_entry_ree_idx" ON "credit_entry" USING btree ("ree_id","reason","created_at") WHERE ree_id is not null;

@@ -1,0 +1,14 @@
+.firecrawl-info { padding: 18px 20px; margin-bottom: 20px; }
+.firecrawl-info p + p { margin-top: 8px; }
+.firecrawl-info code { overflow-wrap: anywhere; }
+.firecrawl-key-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(min(100%, 330px), 1fr)); gap: 16px; }
+.firecrawl-key-card { padding: 20px; min-width: 0; }
+.firecrawl-key-card > p, .firecrawl-key-card > dl, .firecrawl-key-card > .flex { margin-top: 16px; }
+.firecrawl-key-card strong, .firecrawl-key-card dd { overflow-wrap: anywhere; }
+.firecrawl-key-card dl > div { display: flex; justify-content: space-between; gap: 16px; padding: 6px 0; }
+.firecrawl-key-card dt { color: var(--muted); }
+.firecrawl-key-card dd { margin: 0; text-align: right; }
+.firecrawl-checkbox { display: flex; align-items: center; gap: 10px; }
+.firecrawl-checkbox input { width: auto; }
+.firecrawl-stats .suite-stats { grid-template-columns: repeat(3, minmax(0, 1fr)); }
+@media (max-width: 700px) { .firecrawl-stats .suite-stats { grid-template-columns: 1fr; } }

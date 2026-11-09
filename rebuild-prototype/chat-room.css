@@ -1,0 +1,767 @@
+/* Chat-first inner page: a quiet reading column with tools beside the composer. */
+.room-sr-only {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  overflow: hidden;
+  clip: rect(0, 0, 0, 0);
+  white-space: nowrap;
+}
+.chat-room {
+  --room-width: 760px;
+  height: calc(100dvh - var(--navigation-height));
+  min-height: 340px;
+  display: flex;
+  flex-direction: column;
+  background: #faf9fe;
+  position: relative;
+  isolation: isolate;
+}
+.room-messages {
+  flex: 1;
+  min-height: 0;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  scrollbar-width: thin;
+  scrollbar-color: #dbe1ef transparent;
+  padding: 36px 30px 20px;
+  scroll-behavior: smooth;
+  outline-offset: -3px;
+}
+.room-thread {
+  max-width: var(--room-width);
+  width: 100%;
+  margin: auto;
+}
+.chat-room .message {
+  margin-bottom: 30px;
+}
+.chat-room .message.user {
+  justify-content: flex-end;
+  margin: 0 0 34px;
+}
+.chat-room .user-bubble {
+  max-width: 85%;
+  background: #eeedf7;
+  color: #415370;
+  border-radius: 18px 18px 5px 18px;
+  font-size: 13px;
+  line-height: 1.9;
+  padding: 12px 18px;
+}
+.chat-room .message-head {
+  gap: 10px;
+  margin-bottom: 15px;
+}
+.chat-room .message-head strong {
+  font-size: 12px;
+  font-weight: 550;
+}
+.chat-room .message-head small {
+  font-size: 9px;
+  color: #a3aec2;
+}
+.chat-room .message-head .dot-avatar {
+  width: 28px;
+  height: 28px;
+  border-radius: 9px;
+}
+.chat-room .answer-text {
+  font-size: 14px;
+  line-height: 2;
+  color: #52637e;
+  padding-left: 38px;
+}
+.chat-room .citation-chips,
+.chat-room .message-feedback {
+  margin-left: 38px;
+}
+.chat-room .citation-chip {
+  background: #fff;
+  border-color: #e3e7f1;
+  font-size: 10px;
+}
+.chat-room .message-feedback {
+  opacity: 0.7;
+}
+.chat-room .message-feedback:hover {
+  opacity: 1;
+}
+.chat-room .no-answer {
+  background: #f1f3fa;
+  border: 0;
+  border-radius: 10px;
+  padding: 16px 18px;
+  line-height: 1.9;
+  margin-bottom: 24px;
+}
+.chat-room .typing {
+  max-width: var(--room-width);
+  margin: 0 auto 20px;
+}
+.chat-room .room-thread .flex {
+  flex-wrap: wrap;
+}
+.room-compose-dock {
+  flex: none;
+  background: linear-gradient(180deg, #faf9fe00, #faf9fe 20px);
+  padding: 12px 30px 17px;
+  z-index: 3;
+}
+.room-input-wrap {
+  max-width: var(--room-width);
+  width: 100%;
+  margin: auto;
+  position: relative;
+}
+.room-composer {
+  border-radius: 17px;
+  border: 1px solid #dfe4ef;
+  background: #fff;
+  box-shadow: 0 4px 20px #253b5a04;
+  padding: 17px 17px 12px;
+}
+.room-composer:focus-within {
+  border-color: #9cc6f6;
+  box-shadow: 0 0 0 3px #127ee307;
+}
+.room-composer textarea {
+  font-size: 13px;
+  min-height: 54px;
+  max-height: 150px;
+  line-height: 1.9;
+  color: #445775;
+}
+.room-compose-tools {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  margin-top: 11px;
+}
+.room-dot-tools {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
+}
+.room-dot-tools button {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  cursor: pointer;
+  border: 0;
+  background: transparent;
+  color: #7588a7;
+  border-radius: 8px;
+  padding: 6px 8px;
+  min-height: 32px;
+  transition:
+    background 0.15s,
+    color 0.15s;
+}
+.room-dot-tools button:hover,
+.room-dot-tools button[aria-expanded="true"] {
+  background: #eef4ff;
+  color: var(--blue);
+}
+.room-scope-control {
+  font-size: 11px;
+  max-width: 300px;
+}
+.room-scope-control > span:not(.dot-avatar) {
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.room-scope-control small {
+  font-size: 10px;
+  color: #a0acc1;
+}
+.room-dot-tools button > svg {
+  width: 15px;
+  height: 15px;
+  flex: none;
+}
+.room-scope-control > svg:last-child {
+  width: 11px;
+  height: 11px;
+}
+.room-dot-tools .dot-avatar {
+  width: 24px;
+  height: 24px;
+  min-width: 24px;
+  border-radius: 7px;
+}
+.room-dot-tools .dot-avatar svg {
+  width: 14px;
+  height: 14px;
+}
+.room-dot-tools button:disabled {
+  opacity: 0.5;
+  cursor: wait;
+}
+.room-send {
+  width: 34px;
+  min-width: 34px;
+  height: 34px;
+  min-height: 34px;
+  border-radius: 10px;
+  padding: 0;
+}
+.room-send > svg {
+  width: 18px;
+  height: 18px;
+}
+.room-compose-meta {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 12px;
+  margin: 11px 3px 0;
+  color: #9aa8bf;
+  font-size: 9px;
+}
+.room-compose-meta > span {
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  flex-wrap: wrap;
+}
+.room-compose-meta svg {
+  width: 11px;
+  height: 11px;
+}
+.room-compose-meta strong {
+  font-weight: 500;
+}
+.room-compose-meta > small {
+  font-size: 8px;
+  color: #aab4c6;
+  white-space: nowrap;
+}
+.room-demo-note {
+  text-align: center;
+  color: #b0b8ca;
+  font-size: 8px;
+  line-height: 1.8;
+  margin-top: 9px;
+}
+.room-empty {
+  max-width: 620px;
+  min-height: 100%;
+  padding: 30px 10px;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  text-align: center;
+  margin: auto;
+}
+.room-empty-avatar {
+  display: grid;
+  place-items: center;
+  margin-bottom: 22px;
+  color: var(--blue);
+}
+.room-empty-avatar > .dot-avatar {
+  width: 47px;
+  height: 47px;
+  border-radius: 14px;
+}
+.room-empty-avatar > .dot-avatar svg {
+  width: 23px;
+  height: 23px;
+}
+.room-empty-avatar > svg {
+  width: 36px;
+  height: 36px;
+}
+.room-empty .eyebrow {
+  color: #a0abc0;
+  font-size: 8px;
+  letter-spacing: 2px;
+}
+.room-empty h2 {
+  font-size: 27px;
+  letter-spacing: -0.7px;
+  font-weight: 550;
+  margin: 16px 0 10px;
+  color: #17233f;
+  line-height: 1.6;
+}
+.room-empty > p:not(.eyebrow) {
+  font-size: 12px;
+  color: #8c9bb4;
+  line-height: 1.9;
+  max-width: 410px;
+}
+.room-starters {
+  width: 100%;
+  max-width: 460px;
+  display: flex;
+  flex-direction: column;
+  gap: 9px;
+  margin-top: 28px;
+}
+.room-starters > button {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 18px;
+  text-align: left;
+  background: #fff8;
+  border: 1px solid #e6e8f2;
+  border-radius: 10px;
+  padding: 12px 15px;
+  font-size: 11px;
+  line-height: 1.8;
+  color: #7e8eaa;
+  cursor: pointer;
+  transition:
+    border-color 0.17s,
+    background 0.17s,
+    transform 0.17s;
+}
+.room-starters > button > svg {
+  width: 13px;
+  height: 13px;
+  color: #9eb2ce;
+  flex: none;
+}
+.room-starters > button:hover {
+  border-color: #b8d3f5;
+  background: white;
+  transform: translateX(3px);
+}
+.room-empty > .btn {
+  margin-top: 25px;
+}
+.room-picker {
+  position: absolute;
+  bottom: calc(100% + 12px);
+  left: 0;
+  z-index: 15;
+  width: 360px;
+  max-width: 100%;
+  background: #fff;
+  border: 1px solid #e0e6f0;
+  border-radius: 13px;
+  box-shadow: 0 12px 46px #23395419;
+  overflow: hidden;
+  animation: room-picker-in 0.15s ease;
+}
+.room-picker > header {
+  display: flex;
+  justify-content: space-between;
+  align-items: flex-start;
+  padding: 17px 16px 13px;
+  gap: 10px;
+}
+.room-picker h2 {
+  font-size: 12px;
+  font-weight: 550;
+  margin: 0;
+  color: #344a6c;
+}
+.room-picker header p {
+  font-size: 9px;
+  color: #9ba8bd;
+  line-height: 1.9;
+  margin-top: 5px;
+}
+.room-picker header .icon-btn {
+  width: 23px;
+  min-width: 23px;
+  height: 23px;
+  padding: 4px;
+}
+.room-picker header .icon-btn svg {
+  width: 13px;
+  height: 13px;
+}
+.room-picker-search {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  border: 1px solid #e2e8f2;
+  border-radius: 7px;
+  margin: 0 14px 8px;
+  padding: 7px 9px;
+  color: #a0aec3;
+}
+.room-picker-search > svg {
+  width: 13px;
+  height: 13px;
+  flex: none;
+}
+.room-picker-search > input {
+  border: 0;
+  padding: 0;
+  background: transparent;
+  min-width: 0;
+  width: 100%;
+  box-shadow: none;
+  font-size: 10px;
+  outline: none;
+}
+.room-picker-search:focus-within {
+  border-color: #9cc4f7;
+}
+.room-picker-list {
+  max-height: min(250px, calc(100dvh - 420px));
+  min-height: 85px;
+  overflow: auto;
+  overscroll-behavior: contain;
+  padding: 0 7px;
+  scrollbar-width: thin;
+}
+.room-picker-row {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 10px 9px;
+  border-radius: 7px;
+  cursor: pointer;
+}
+.room-picker-row:hover {
+  background: #f6f8fd;
+}
+.room-picker-row > .dot-avatar {
+  width: 30px;
+  height: 30px;
+  min-width: 30px;
+  border-radius: 8px;
+}
+.room-picker-row > .dot-avatar svg {
+  width: 16px;
+  height: 16px;
+}
+.room-picker-row > span:last-of-type {
+  flex: 1;
+  min-width: 0;
+}
+.room-picker-row strong {
+  display: flex;
+  gap: 7px;
+  align-items: center;
+  font-size: 11px;
+  color: #5d7392;
+  font-weight: 500;
+  line-height: 1.6;
+}
+.room-picker-row strong small {
+  font-size: 8px;
+  background: #eef4fe;
+  color: #87a4cc;
+  border-radius: 3px;
+  padding: 1px 4px;
+  flex: none;
+}
+.room-picker-row > span > small {
+  font-size: 9px;
+  color: #a1aec3;
+  display: block;
+  margin-top: 4px;
+}
+.room-picker-row input {
+  width: 14px;
+  height: 14px;
+  flex: none;
+  accent-color: var(--blue);
+  cursor: pointer;
+}
+.room-picker-row:has(input:disabled) {
+  opacity: 0.45;
+}
+.room-picker-summary {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 12px 16px 9px;
+  font-size: 9px;
+  color: #9ba9bd;
+}
+.room-picker-summary strong {
+  color: #7890b1;
+  font-weight: 500;
+}
+.room-picker > footer {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 12px 15px;
+  border-top: 1px solid #edf0f6;
+  gap: 15px;
+}
+.room-picker > footer > a {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 10px;
+  color: #8ca4c6;
+}
+.room-picker > footer > a svg {
+  width: 13px;
+  height: 13px;
+}
+.room-picker > footer > .btn {
+  display: flex;
+  gap: 7px;
+  min-height: 31px;
+  font-size: 10px;
+  padding: 7px 15px;
+}
+.room-picker > footer > .btn svg {
+  width: 12px;
+  height: 12px;
+}
+.room-picker-empty {
+  text-align: center;
+  padding: 30px 12px;
+  color: #9aa9bf;
+  font-size: 11px;
+  line-height: 1.8;
+}
+.room-scope-list {
+  padding: 0 7px 8px;
+  max-height: 260px;
+  overflow: auto;
+}
+.room-scope-list > button {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  width: 100%;
+  border: 0;
+  background: transparent;
+  border-radius: 7px;
+  padding: 11px 10px;
+  text-align: left;
+  cursor: pointer;
+  color: #7a92b5;
+}
+.room-scope-list > button:hover,
+.room-scope-list > button[aria-checked="true"] {
+  background: #f2f7ff;
+}
+.room-scope-list > button > .dot-avatar {
+  width: 29px;
+  height: 29px;
+  min-width: 29px;
+  border-radius: 8px;
+}
+.room-scope-list > button > .dot-avatar svg {
+  width: 16px;
+  height: 16px;
+}
+.room-scope-list > button > svg:first-child {
+  width: 29px;
+  height: 20px;
+  flex: none;
+}
+.room-scope-list > button > span:last-of-type {
+  flex: 1;
+  min-width: 0;
+}
+.room-scope-list strong {
+  display: block;
+  font-size: 11px;
+  font-weight: 500;
+  color: #617a9c;
+}
+.room-scope-list small {
+  display: block;
+  font-size: 9px;
+  color: #9caac0;
+  margin-top: 4px;
+}
+.room-scope-list > button > svg:last-child:not(:first-child) {
+  width: 14px;
+  height: 14px;
+  color: var(--blue);
+}
+.room-picker-manage {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  background: transparent;
+  border: 0;
+  width: 100%;
+  font-size: 11px;
+  color: #7891b5;
+  padding: 3px 1px;
+  cursor: pointer;
+}
+.room-picker-manage svg {
+  width: 14px;
+  height: 14px;
+}
+.room-picker-manage small {
+  margin-left: auto;
+  font-size: 9px;
+  color: #a1afc6;
+}
+@keyframes room-picker-in {
+  from {
+    opacity: 0;
+    transform: translateY(6px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+@media (max-width: 760px) {
+  .room-messages {
+    padding: 28px 22px 16px;
+  }
+  .room-compose-dock {
+    padding: 10px 22px 15px;
+  }
+  .chat-room .answer-text {
+    font-size: 13px;
+    line-height: 1.95;
+  }
+  .room-empty h2 {
+    font-size: 24px;
+  }
+  .room-empty > p:not(.eyebrow) {
+    font-size: 11px;
+  }
+  .room-empty .eyebrow {
+    font-size: 7px;
+    letter-spacing: 1.5px;
+  }
+}
+@media (max-width: 600px) {
+  .room-messages {
+    padding: 25px 17px 10px;
+  }
+  .room-compose-dock {
+    padding: 9px 13px max(12px, env(safe-area-inset-bottom));
+  }
+  .room-composer {
+    padding: 14px 13px 11px;
+    border-radius: 15px;
+  }
+  .room-composer textarea {
+    font-size: 12px;
+    min-height: 50px;
+  }
+  .room-compose-meta {
+    font-size: 8px;
+    gap: 6px;
+  }
+  .room-compose-meta > small {
+    display: none;
+  }
+  .room-demo-note {
+    font-size: 7px;
+    margin-top: 7px;
+  }
+  .room-scope-control {
+    max-width: 220px;
+    font-size: 10px;
+  }
+  .room-empty {
+    padding: 10px 5px;
+    min-height: 100%;
+  }
+  .room-empty h2 {
+    font-size: 22px;
+  }
+  .room-empty-avatar {
+    margin-bottom: 17px;
+  }
+  .room-empty .eyebrow {
+    font-size: 6px;
+    letter-spacing: 1.1px;
+  }
+  .room-starters {
+    margin-top: 23px;
+    gap: 8px;
+  }
+  .room-starters > button {
+    font-size: 10px;
+    padding: 11px 12px;
+  }
+  .chat-room .message-head small {
+    display: none;
+  }
+  .chat-room .answer-text {
+    padding-left: 0;
+    font-size: 12px;
+  }
+  .chat-room .citation-chips,
+  .chat-room .message-feedback {
+    margin-left: 0;
+  }
+  .chat-room .user-bubble {
+    font-size: 12px;
+    padding: 10px 14px;
+    max-width: 92%;
+  }
+  .chat-room .message {
+    margin-bottom: 25px;
+  }
+  .chat-room .message.user {
+    margin-bottom: 27px;
+  }
+  .room-picker {
+    width: 360px;
+    max-width: 100%;
+    bottom: calc(100% + 9px);
+  }
+  .room-picker-list {
+    max-height: min(230px, calc(100dvh - 390px));
+  }
+  .room-scope-list {
+    max-height: min(260px, calc(100dvh - 330px));
+  }
+  .room-picker-row strong {
+    font-size: 10px;
+  }
+  .room-picker header p {
+    font-size: 8px;
+  }
+  .room-picker > header {
+    padding-top: 14px;
+  }
+  .chat-room .no-answer .flex {
+    gap: 6px;
+  }
+  .chat-room .no-answer .btn {
+    font-size: 9px;
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  .room-picker {
+    animation: none;
+  }
+  .room-messages {
+    scroll-behavior: auto;
+  }
+  .room-starters > button,
+  .room-dot-tools button {
+    transition: none;
+  }
+}
+
+/* The same composer and picker also serve the unsent conversation draft. */
+.talk-home .room-input-wrap {
+  margin-top: 28px;
+  z-index: 4;
+}
+.room-picker.is-below {
+  top: calc(100% + 12px);
+  bottom: auto;
+}
+@media (max-width: 600px) {
+  .talk-home .room-input-wrap {
+    margin-top: 25px;
+  }
+  .room-picker.is-below {
+    top: calc(100% + 9px);
+  }
+}

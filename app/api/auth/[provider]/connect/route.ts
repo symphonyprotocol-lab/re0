@@ -1,92 +1,53 @@
-/**
- * POST /api/auth/{github|notion}/connect -- ask for import access.
- *
- * The second consent a signed-in person gives, separate from login: the
- * token it yields is kept (sealed) so the library wizard can list what the
- * account may import -- their own public repositories on GitHub, the pages
- * they shared with the integration on Notion -- and prove the one they pick
- * is theirs. Only these two providers have a connect step; any other is a
- * 404-shaped refusal.
- *
- * POST, same-origin and behind a session, like the login start: a bare link
- * or a prefetch must not be able to begin a grant on someone's behalf.
- */
 import { NextResponse, type NextRequest } from 'next/server';
-import { GITHUB_CONNECT_RETURN_TO } from '@/lib/domain/github';
-import { NOTION_CONNECT_RETURN_TO } from '@/lib/domain/notion';
-import { beginGithubConnect, beginNotionConnect, resolveSession } from '@/lib/application/auth';
-import {
-  appRedirect,
-  loginRedirect,
-  logAuthFailure,
-  withinRateLimit,
-} from '@/lib/http/auth-endpoints';
-import { newRequestId } from '@/lib/http/respond';
-import {
-  githubConnectCallbackUrl,
-  isSameOrigin,
-  notionConnectCallbackUrl,
-  SESSION_COOKIE,
-  setGithubConnectCookie,
-  setNotionConnectCookie,
-} from '@/lib/http/session';
+import { appBaseUrl } from '@/lib/http/cookies';
+import { fail, json } from '@/lib/http/respond';
+import { apiUser, currentUser, sameOrigin, setHandshakeCookie } from '@/lib/http/session';
+import { githubRepositoryAccess } from '@/lib/infra/identity/github';
+import { beginGithubConnect, CONNECTIONS_PATH, connectReturnPath, disconnectGithub, githubConnectionFor } from '@/lib/services/connections';
 
-type ConnectProvider = 'github' | 'notion';
+type Context = { params: Promise<{ provider: string }> };
 
-function isConnectProvider(value: string): value is ConnectProvider {
-  return value === 'github' || value === 'notion';
+/** Only GitHub has a repository grant (2.2); the dynamic segment is shared with sign-in. */
+async function isGithub(context: Context): Promise<boolean> {
+  return (await context.params).provider === 'github';
 }
 
-export async function POST(
-  request: NextRequest,
-  context: { params: Promise<{ provider: string }> },
-): Promise<NextResponse> {
-  const requestId = newRequestId();
-  const { provider } = await context.params;
-  if (!isConnectProvider(provider)) {
-    return new NextResponse('not found', { status: 404 });
-  }
-  if (!(await isSameOrigin())) {
-    return new NextResponse('cross-origin request refused', { status: 403 });
-  }
+function connectCallbackUrl(): string {
+  return `${appBaseUrl()}/api/auth/github/callback/connect`;
+}
 
+/** The connection, without its token. */
+export async function GET(request: NextRequest, context: Context) {
+  if (!(await isGithub(context))) return fail('not_found', 404);
+  const user = await apiUser(request);
+  if (user instanceof Response) return user;
+  return json({ connection: await githubConnectionFor(user.id), repositoryAccess: githubRepositoryAccess() });
+}
+
+/** "连接 GitHub": the settings form posts here; we answer with GitHub's consent screen. */
+export async function POST(request: NextRequest, context: Context) {
+  if (!(await isGithub(context))) return fail('not_found', 404);
+  if (!sameOrigin(request.headers)) return new NextResponse('cross-origin request refused', { status: 403 });
+  const back = (path: string) => NextResponse.redirect(new URL(path, appBaseUrl()), 303);
+  const user = await currentUser();
+  if (!user) return back(`/login?returnTo=${encodeURIComponent(CONNECTIONS_PATH)}`);
   const form = await request.formData().catch(() => null);
-  const returnTo = form?.get('returnTo');
-  const fallback = provider === 'github' ? GITHUB_CONNECT_RETURN_TO : NOTION_CONNECT_RETURN_TO;
-  const back = typeof returnTo === 'string' ? returnTo : fallback;
-  /* The outcome parameter the wizard reads: `?github=` or `?notion=`. */
-  const failed = `${back}?${provider}=failed`;
-
-  const session = await resolveSession(request.cookies.get(SESSION_COOKIE)?.value);
-  if (!session) return loginRedirect(undefined, back);
-  if (!(await withinRateLimit(request, `${provider}-connect`))) {
-    return appRedirect(failed);
-  }
-
   try {
-    if (provider === 'github') {
-      const started = await beginGithubConnect({
-        returnTo: back,
-        redirectUri: githubConnectCallbackUrl(),
-      });
-      const response = NextResponse.redirect(started.redirectUrl, 303);
-      setGithubConnectCookie(response, started.handshake, started.expiresAt);
-      return response;
-    }
-    const started = await beginNotionConnect({
-      returnTo: back,
-      redirectUri: notionConnectCallbackUrl(),
-    });
+    const started = await beginGithubConnect({ returnTo: form?.get('returnTo') ?? CONNECTIONS_PATH, redirectUri: connectCallbackUrl() });
     const response = NextResponse.redirect(started.redirectUrl, 303);
-    setNotionConnectCookie(response, started.handshake, started.expiresAt);
+    setHandshakeCookie(response, started.handshake, started.expiresAt);
     return response;
   } catch (error) {
-    logAuthFailure({
-      requestId,
-      provider: `${provider}-connect`,
-      error: 'oauth_failed',
-      detail: error instanceof Error ? error.message : 'unknown',
-    });
-    return appRedirect(failed);
+    console.warn(`github connect start failed: ${error instanceof Error ? error.message : 'unknown'}`);
+    return back(connectReturnPath(CONNECTIONS_PATH, 'failed'));
   }
+}
+
+/** "断开连接": the token is deleted and repository refreshes stop. Imported knowledge stays. */
+export async function DELETE(request: NextRequest, context: Context) {
+  if (!(await isGithub(context))) return fail('not_found', 404);
+  const user = await apiUser(request);
+  if (user instanceof Response) return user;
+  await disconnectGithub(user.id);
+  return json({ connection: null });
 }

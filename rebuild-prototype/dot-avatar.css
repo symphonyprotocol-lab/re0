@@ -1,0 +1,98 @@
+.dot-avatar {
+  overflow: hidden;
+}
+.dot-avatar > img {
+  display: block;
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  border-radius: inherit;
+}
+.dot-avatar-editor {
+  margin-bottom: 24px;
+}
+.dot-avatar-editor > .field-label {
+  display: block;
+  margin-bottom: 12px;
+}
+.dot-avatar-edit-row {
+  display: flex;
+  gap: 15px;
+  align-items: center;
+}
+.dot-avatar-preview > .dot-avatar {
+  width: 66px;
+  height: 66px;
+  border-radius: 18px;
+}
+.dot-avatar-preview svg {
+  width: 38px;
+  height: 38px;
+}
+.dot-avatar-buttons {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  align-items: center;
+}
+.dot-avatar-editor p,
+.dot-avatar-save-note {
+  font-size: 10px;
+  color: #96a4ba;
+  line-height: 1.8;
+  margin: 9px 0 0;
+}
+.dot-avatar-save-note {
+  display: block;
+}
+.dot-avatar-editor .dot-avatar-error {
+  color: #bb4d61;
+}
+.dot-avatar-crop {
+  margin-top: 15px;
+  padding: 15px;
+  background: #f7f9fd;
+  border: 1px solid var(--line);
+  border-radius: 9px;
+}
+.dot-avatar-crop[hidden] {
+  display: none;
+}
+.dot-avatar-crop h3 {
+  font-size: 12px;
+  margin: 0 0 12px;
+}
+.dot-avatar-crop canvas {
+  display: block;
+  width: min(100%, 220px);
+  aspect-ratio: 1;
+  height: auto;
+  margin: 0 auto 15px;
+  border-radius: 20%;
+  border: 1px solid #dbe3ef;
+  background: repeating-conic-gradient(#edf0f7 0 25%, #fff 0 50%) 0 / 16px 16px;
+}
+.dot-avatar-crop label {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  font-size: 10px;
+  color: #8294b0;
+  margin-bottom: 12px;
+}
+.dot-avatar-crop input {
+  flex: 1;
+  min-width: 0;
+}
+.dot-avatar-crop .dot-avatar-buttons {
+  margin-top: 15px;
+}
+@media (max-width: 480px) {
+  .dot-avatar-preview > .dot-avatar {
+    width: 56px;
+    height: 56px;
+  }
+  .dot-avatar-edit-row {
+    gap: 10px;
+  }
+}

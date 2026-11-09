@@ -1,205 +1,111 @@
 import type { Metadata } from 'next';
+import { WorkspaceLink as Link } from '@/components/shell/workspace-link';
+import { Fragment } from 'react';
 import { redirect } from 'next/navigation';
-import { FilterSelect } from '@/components/admin/list-controls';
-import {
-  ConsoleButton,
-  ConsolePageHeader,
-  EmptyRow,
-  ExportLink,
-  IconLink,
-  ListToolbar,
-  Monogram,
-  Pagination,
-  Panel,
-  Pill,
-  TableScroller,
-  TD,
-  TH,
-  TitleCell,
-} from '@/components/admin/ui';
-import { UserStatusControl } from '@/components/admin/user-status-dialog';
-import { EyeIcon } from '@/components/ui/icons';
-import { listConsoleUsers, type UserStatusFilter } from '@/lib/application/administration';
-import { requireAdminCapability } from '@/lib/http/admin';
-import { fill } from '@/lib/i18n/format';
-import { getMessages } from '@/lib/i18n/server';
-import {
-  initialsOf,
-  oneOf,
-  PAGE_SIZE,
-  pageNumber,
-  pageWindow,
-  searchTerm,
-  utcDate,
-} from '../list-params';
-import { setUserStatusAction } from './actions';
+import { csvHref, listHref, usersView, ACCOUNT_STATUSES, MEMBERSHIP_STATES, USER_KYC_STATES } from '@/lib/domain/admin-lists';
+import { USER_ROLES } from '@/lib/domain/roles';
+import { listUsers, userCounts } from '@/lib/services/admin-users';
+import { serverMessages } from '@/i18n/server';
+import { fill, formatDateTime, formatNumber } from '@/i18n/format';
+import { ListFilters } from '@/components/admin/list-client';
+import { LinkPager, OpenLink, PageHead, Person, RecordSection, RecordsTable, ResultsLine, RoleBadge, Subline, SummaryCards, Tag } from '@/components/admin/list-kit';
+import { ConsolePage, ConsoleTopbar } from '@/components/admin/console-topbar';
+import { RecordPage } from '@/components/admin/finance-chart';
+import '@/components/admin/console-users.css';
 
 export async function generateMetadata(): Promise<Metadata> {
-  return { title: (await getMessages()).admin.users.title };
+  const { t } = await serverMessages();
+  return { title: t.consoleUsers.users.title };
 }
 
-const STATUSES: UserStatusFilter[] = ['all', 'active', 'suspended'];
+type Props = { searchParams: Promise<Record<string, string | string[] | undefined>> };
 
-/**
- * Registered users -- design source frame `SRtSN`.
- *
- * Reads the real `user` table. Library and call counts come from the tables
- * that own them, so an account with no activity reads zero; call metering is
- * not live yet (architecture.md 21), which is why that column is all zeroes
- * rather than invented traffic.
- *
- * The two row controls are the two things requirement.md 5.3 asks for beyond
- * the list itself: open the account, and enable or suspend it.
- */
-export default async function AdminUsersPage({
-  searchParams,
-}: {
-  searchParams: Promise<Record<string, string | string[] | undefined>>;
-}) {
-  const [, params, t] = await Promise.all([
-    requireAdminCapability('users'),
-    searchParams,
-    getMessages(),
-  ]);
-  const u = t.admin.users;
-  const f = t.admin.filters;
-  const query = searchTerm(params.q);
-  const status = oneOf(params.status, STATUSES, 'all');
-  const page = pageNumber(params.page);
-
-  const { rows, total } = await listConsoleUsers({
-    query,
-    status,
-    limit: PAGE_SIZE,
-    offset: (page - 1) * PAGE_SIZE,
-    suspensionScope: true,
-  });
-
-  const view = pageWindow({ page, total, rows: rows.length });
-
-  /** Keeps the search and filter on the URL when the page changes. */
-  const link = (target: number) => {
-    const next = new URLSearchParams();
-    if (query) next.set('q', query);
-    if (status !== 'all') next.set('status', status);
-    if (target > 1) next.set('page', String(target));
-    return next.size > 0 ? `/admin/users?${next.toString()}` : '/admin/users';
-  };
-
-  /*
-   * A page past the end is sent to the last real one rather than rendered. The
-   * footer would read `0`-`0` over an empty table on its own, which is honest
-   * but useless: a stale bookmark deserves the list, not an empty page.
-   */
-  if (total > 0 && page > view.pageCount) redirect(link(view.pageCount));
-
+/** `/admin/users` (prototype admin-records.js, kind `users`): combined filters, server paging, CSV of every match. */
+export default async function UsersPage({ searchParams }: Props) {
+  const { t, locale } = await serverMessages();
+  const u = t.consoleUsers.users;
+  const l = t.console.list;
+  const view = usersView(await searchParams);
+  const [data, counts] = await Promise.all([listUsers(view), userCounts()]);
+  const current = { ...view, page: data.page };
+  const href = (changes: Record<string, string | number | null>) => listHref('/admin/users', current, changes);
+  // A page past the end (rows went away, a stale link) lands on the last page's canonical URL.
+  if (data.page !== view.page) redirect(href({}));
+  const n = (value: number) => formatNumber(value, locale);
+  const filtered = Boolean(view.q) || ['status', 'role', 'membership', 'kyc', 'period'].some((key) => view[key as keyof typeof view] !== 'all') || view.sort !== 'newest';
+  const back = encodeURIComponent(href({}));
   return (
-    <div className="flex flex-col gap-[18px]">
-      <ConsolePageHeader eyebrow={t.admin.eyebrow} title={u.title} description={u.description} />
-
-      <Panel>
-        {/* GET, so a filtered list is a URL an operator can keep or share. */}
-        <form method="get">
-          <ListToolbar placeholder={u.searchPlaceholder} name="q" defaultValue={query}>
-            <FilterSelect
-              name="status"
-              label={f.label}
-              value={status}
-              options={[
-                { id: 'all', label: f.all },
-                { id: 'active', label: f.userActive },
-                { id: 'suspended', label: f.userSuspended },
-              ]}
-            />
-            <ConsoleButton type="submit">{t.admin.administrators.searchSubmit}</ConsoleButton>
-            <ExportLink
-              resource="users"
-              query={query}
-              status={status}
-              label={t.admin.actions.export}
-            />
-          </ListToolbar>
-        </form>
-
-        <TableScroller>
-          <table className="w-full min-w-[720px] border-collapse text-left">
-            <thead>
-              <tr>
-                {u.columns.map((column) => (
-                  <th key={column} scope="col" className={TH}>
-                    {column}
-                  </th>
-                ))}
-                <th scope="col" className={`${TH} w-[86px]`}>
-                  <span className="sr-only">{t.admin.actions.more}</span>
-                </th>
-              </tr>
-            </thead>
-            <tbody>
-              {rows.length === 0 ? (
-                <EmptyRow columns={u.columns.length + 1} message={u.empty} />
-              ) : null}
-              {rows.map((user) => (
-                <tr key={user.id} className="border-t-2 border-line">
-                  <td className={TD}>
-                    <TitleCell
-                      title={user.displayName}
-                      meta={user.email}
-                      leading={<Monogram initial={initialsOf(user.displayName)} />}
-                    />
-                  </td>
-                  <td className={TD}>
-                    <Pill tone={user.planName === 'Free' ? 'neutral' : 'ok'}>{user.planName}</Pill>
-                  </td>
-                  <td className={TD}>{user.libraries.toLocaleString('en-US')}</td>
-                  <td className={TD}>{user.callsThisMonth.toLocaleString('en-US')}</td>
-                  <td className={`${TD} whitespace-nowrap`}>{utcDate(user.joinedAt)}</td>
-                  <td className={TD}>
-                    <Pill tone={user.status === 'active' ? 'ok' : 'danger'}>
-                      {user.status === 'active'
-                        ? t.adminDemo.userStatus.active
-                        : t.adminDemo.userStatus.suspended}
-                    </Pill>
-                  </td>
-                  <td className={TD}>
-                    <span className="flex items-center gap-1.5">
-                      <IconLink label={t.admin.actions.view} href={`/admin/users/${user.id}`}>
-                        <EyeIcon size={14} />
-                      </IconLink>
-                      <UserStatusControl
-                        action={setUserStatusAction}
-                        target={{
-                          id: user.id,
-                          displayName: user.displayName,
-                          email: user.email,
-                          initial: initialsOf(user.displayName),
-                          status: user.status,
-                          liveSessions: user.liveSessions ?? 0,
-                          liveApiKeys: user.liveApiKeys ?? 0,
-                          publishedLibraries: user.publishedLibraries ?? 0,
-                        }}
-                      />
-                    </span>
-                  </td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
-        </TableScroller>
-
-        <Pagination
-          summary={fill(u.showing, {
-            from: view.from,
-            to: view.to,
-            total: total.toLocaleString('en-US'),
-          })}
-          pages={view.pages}
-          activePage={page}
-          pageCount={view.pageCount}
-          href={link}
-          labels={t.admin.actions}
+    <ConsolePage>
+      <ConsoleTopbar crumbs={[{ label: t.console.nav.home, href: '/admin/overview' }, { label: u.title }]} />
+      <RecordPage kind="users">
+        <PageHead title={u.title} lede={u.lede} />
+        <SummaryCards
+          label={u.summaryLabel}
+          items={[
+            { label: u.cards.total, value: n(counts.total), href: listHref('/admin/users', { size: view.size }), active: !filtered, title: u.clearTitle },
+            { label: u.cards.activePlans, value: n(counts.activePlans), href: href({ membership: 'active' }), active: view.membership === 'active', title: fill(l.filterBy, { label: u.cards.activePlans }) },
+            { label: u.cards.kycVerified, value: n(counts.kycVerified), href: href({ kyc: 'verified' }), active: view.kyc === 'verified', title: fill(l.filterBy, { label: u.cards.kycVerified }) },
+            { label: u.cards.disabled, value: n(counts.disabled), href: href({ status: 'disabled' }), active: view.status === 'disabled', title: fill(l.filterBy, { label: u.cards.disabled }) },
+          ]}
         />
-      </Panel>
-    </div>
+        <RecordSection>
+          <ListFilters
+            variant="users"
+            q={view.q}
+            placeholder={u.search}
+            defaults={{ status: 'all', role: 'all', membership: 'all', kyc: 'all', period: 'all', sort: 'newest', size: '20' }}
+            resetHref={listHref('/admin/users', { size: view.size })}
+            filtered={filtered}
+            selects={[
+              { name: 'size', label: l.perPage, aria: u.perPageLabel, value: String(view.size), options: [20, 50, 100].map((size) => [String(size), fill(l.rows, { n: size })] as [string, string]) },
+              { name: 'status', label: u.filters.status, aria: u.filterLabels.status, value: view.status, options: [['all', u.allStatuses], ...ACCOUNT_STATUSES.map((s) => [s, u.status[s]] as [string, string])] },
+              { name: 'role', label: u.filters.role, aria: u.filterLabels.role, value: view.role, options: [['all', u.allRoles], ...USER_ROLES.map((r) => [r, t.console.roles[r]] as [string, string])] },
+              { name: 'membership', label: u.filters.membership, aria: u.filterLabels.membership, value: view.membership, options: [['all', u.allMemberships], ...MEMBERSHIP_STATES.map((m) => [m, u.membership[m]] as [string, string])] },
+              { name: 'kyc', label: u.filters.kyc, aria: u.filterLabels.kyc, value: view.kyc, options: [['all', u.allKyc], ...USER_KYC_STATES.map((k) => [k, u.kyc[k]] as [string, string])] },
+              { name: 'period', label: u.filters.period, aria: u.filterLabels.period, value: view.period, options: [['all', l.allTime], ['7', l.last7], ['30', l.last30], ['90', l.last90]] },
+              { name: 'sort', label: u.filters.sort, aria: u.filterLabels.sort, value: view.sort, options: [['newest', l.newest], ['oldest', l.oldest]] },
+            ]}
+          />
+          <ResultsLine t={t} total={data.total} page={data.page} size={data.size} exportHref={csvHref('/api/admin/users', view)} />
+          <RecordsTable
+            label={l.tableRegion}
+            empty={l.empty}
+            head={[u.columns.user, u.columns.role, u.columns.status, u.columns.credits, u.columns.kyc, u.columns.joined, u.columns.action]}
+            rows={data.items.map((row) => [
+              <Person key="user" name={row.name} email={row.email} href={`/admin/users/${row.id}?from=${back}`} />,
+              <Fragment key="role">
+                <RoleBadge t={t} role={row.role} showNormal />
+                <Link href={`/admin/users/${row.id}?tab=roles&from=${back}`} className="text-link cell-subline">
+                  {u.manageRole}
+                </Link>
+              </Fragment>,
+              <Fragment key="status">
+                <Tag tone={row.status === 'active' ? 'green' : 'grey'}>{u.status[row.status]}</Tag>
+                <Subline>
+                  {u.plan} · {u.membershipCell[row.membership]}
+                </Subline>
+              </Fragment>,
+              <span key="credits" className="mono">
+                {n(row.plan + row.pack + row.earned + row.welcome)}
+              </span>,
+              row.role === 'official' ? (
+                <Tag key="kyc" dot={false}>
+                  {u.kycExempt}
+                </Tag>
+              ) : (
+                <Tag key="kyc" tone={row.kyc === 'verified' ? 'green' : row.kyc === 'rejected' ? 'red' : row.kyc === 'pending' ? 'orange' : 'grey'}>
+                  {u.kyc[row.kyc]}
+                </Tag>
+              ),
+              formatDateTime(row.createdAt, locale),
+              <OpenLink key="action" href={`/admin/users/${row.id}?from=${back}`}>
+                {u.details}
+              </OpenLink>,
+            ])}
+          />
+          <LinkPager t={t} page={data.page} total={data.total} size={data.size} href={(page) => href({ page })} />
+        </RecordSection>
+      </RecordPage>
+    </ConsolePage>
   );
 }

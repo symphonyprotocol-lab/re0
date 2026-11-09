@@ -2,33 +2,19 @@
 const config = {
   reactStrictMode: true,
   serverExternalPackages: ['@neondatabase/serverless'],
-  /* A showcase screenshot may be 2 MB (lib/domain/showcase.ts SHOWCASE_LIMITS)
-     and it is posted through a server action; the default cap is 1 MB. */
-  experimental: { serverActions: { bodySizeLimit: '3mb' } },
-  async headers() {
-    return [
-      /*
-       * The website widget's loader and iframe assets (requirement.md 9.4).
-       * Fetched by customers' pages, so cacheable at the edge but short-lived
-       * in the browser: a fix ships to every site within a few minutes.
-       */
-      {
-        source: '/(widget|embed-app)\\.(js|css)',
-        headers: [
-          { key: 'Access-Control-Allow-Origin', value: '*' },
-          { key: 'Cache-Control', value: 'public, max-age=300, s-maxage=3600' },
-          { key: 'X-Content-Type-Options', value: 'nosniff' },
-        ],
-      },
-      {
-        source: '/.well-known/agent-skills/:path*',
-        headers: [
-          { key: 'Access-Control-Allow-Origin', value: '*' },
-          { key: 'Cache-Control', value: 'public, max-age=300, s-maxage=3600' },
-          { key: 'X-Content-Type-Options', value: 'nosniff' },
-        ],
-      },
-    ];
+  /*
+   * pdf.js reads its predefined CMaps (non-embedded CJK fonts) and standard
+   * font data from disk at runtime (lib/infra/connectors/pdf.ts), so the
+   * routes that process documents ship those folders with them.
+   */
+  outputFileTracingIncludes: {
+    '/api/rees/*/knowledge{,/**}': ['./node_modules/pdfjs-dist/cmaps/**/*', './node_modules/pdfjs-dist/standard_fonts/**/*'],
+  },
+  images: {
+    remotePatterns: [
+      { protocol: 'https', hostname: 'avatars.githubusercontent.com' },
+      { protocol: 'https', hostname: 'lh3.googleusercontent.com' },
+    ],
   },
 };
 

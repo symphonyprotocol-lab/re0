@@ -1,0 +1,9 @@
+import { apiAdministrator } from '@/lib/http/admin';
+import { fail, json } from '@/lib/http/respond';
+import { knowledgeCostDetail } from '@/lib/services/admin-knowledge-costs';
+export async function GET(request: Request, { params }: { params: Promise<{ id: string }> }) {
+  const administrator = await apiAdministrator(request);
+  if (administrator instanceof Response) return administrator;
+  const detail = await knowledgeCostDetail((await params).id);
+  return detail ? json(detail) : fail('not_found', 404);
+}

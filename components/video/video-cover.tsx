@@ -1,0 +1,185 @@
+'use client';
+
+import dynamic from 'next/dynamic';
+import { WorkspaceLink as Link } from '@/components/shell/workspace-link';
+import { useState } from 'react';
+import type { IntroProps } from '@/lib/domain/video';
+import { POSTER as palette, mix } from '@/video/theme';
+import { useI18n } from '@/i18n/client';
+import { fill } from '@/i18n/format';
+import { Icon, type IconName } from '@/components/ui/icons';
+import { Modal } from '@/components/ui/modal';
+import { ReeAvatar } from '@/components/ui/ree-avatar';
+import { DotAvatar, PIcon } from '@/components/rees/proto-icon';
+
+/* The Player and the composition load only when someone presses play. */
+const IntroPlayer = dynamic(() => import('@/components/video/intro-player').then((module) => module.IntroPlayer), {
+  ssr: false,
+  loading: () => <div className="aspect-video w-full animate-pulse rounded-[10px] bg-soft" />,
+});
+
+export interface CoverRee {
+  name: string;
+  avatarBlob: string | null;
+  color: string;
+}
+
+/**
+ * The 16:9 cover of a Ree without an introduction (prototype
+ * discovery-video.js `renderVideoPlaceholder`): brand line, avatar, name,
+ * 暂无视频介绍. Explore, My Rees, `/videos`, the public page and the editor
+ * share it.
+ */
+export function VideoPlaceholder({ ree, className = '' }: { ree: CoverRee; className?: string }) {
+  const { t } = useI18n();
+  return (
+    <span
+      role="img"
+      aria-label={`${ree.name}: ${t.video.placeholder.none}`}
+      className={`@container relative flex aspect-video w-full flex-col items-center justify-center gap-2 overflow-hidden bg-gradient-to-br from-[#f3f7ff] to-[#f5f3ff] px-4 text-center ${className}`}
+    >
+      <span className="absolute top-3 left-4 flex items-center gap-2 font-mono text-[11px] font-bold text-blue" aria-hidden="true">
+        RE0 <span className="hidden text-[7px] font-normal tracking-[0.12em] text-[#9fb1ca] @[320px]:inline">YOUR KNOWLEDGE. A NEW VOICE.</span>
+      </span>
+      <ReeAvatar avatar={ree.avatarBlob} color={ree.color} size="lg" />
+      <strong className="max-w-[85%] truncate text-[13px] text-ink">{ree.name}</strong>
+      <small className="flex items-center gap-1 text-[10px] text-muted">
+        <Icon name="film" className="size-3" />
+        {t.video.placeholder.none}
+      </small>
+      <span className="absolute bottom-3 hidden text-[10px] text-[#9fb1ca] @[340px]:block" aria-hidden="true">
+        {t.video.placeholder.caption}
+      </span>
+    </span>
+  );
+}
+
+/**
+ * The same placeholder in the prototype's own markup (discovery-video.js
+ * `renderVideoPlaceholder`), for pages that carry the prototype's stylesheet
+ * (`.public-dot-video-placeholder`, owned-rees.css and video-pages.css).
+ */
+export function PlaceholderPoster({ ree }: { ree: CoverRee }) {
+  const { t } = useI18n();
+  return (
+    <div className="public-dot-video-placeholder" role="img" aria-label={fill(t.video.placeholder.label, { name: ree.name })}>
+      <span className="public-dot-video-placeholder-brand" aria-hidden="true">
+        RE0 <span>YOUR KNOWLEDGE. A NEW VOICE.</span>
+      </span>
+      <div>
+        <DotAvatar avatar={ree.avatarBlob} color={ree.color} />
+        <strong>{ree.name}</strong>
+        <span className="public-dot-video-placeholder-status">
+          <PIcon name="film" />
+          {t.video.placeholder.none}
+        </span>
+      </div>
+      <span className="public-dot-video-placeholder-caption" aria-hidden="true">
+        {t.video.placeholder.caption}
+      </span>
+    </div>
+  );
+}
+
+/**
+ * A Ree with an introduction: its opening shot as a still, in the saved
+ * template and accent (prototype `discoveryCoverContent`), with 含视频介绍
+ * and the length. Drawn in plain CSS, so cards cost no Player.
+ */
+export function VideoPoster({ ree, video, className = '' }: { ree: CoverRee; video: IntroProps; className?: string }) {
+  const { t } = useI18n();
+  return (
+    <span className={`@container relative flex aspect-video w-full flex-col items-center justify-center gap-1.5 overflow-hidden px-4 pb-5 text-center ${className}`} style={{ backgroundColor: palette.background }}>
+      <span
+        aria-hidden="true"
+        className="absolute -top-1/3 -right-[8%] aspect-square h-[80%] rounded-full border"
+        style={{ borderColor: mix(video.accent, palette.background, 0.16) }}
+      />
+      <span className="absolute top-3 left-4 font-mono text-[11px] font-bold" style={{ color: palette.watermark(video.accent) }} aria-hidden="true">
+        RE0
+      </span>
+      <span className="hidden font-mono text-[8px] tracking-[0.16em] @[320px]:block" style={{ color: palette.faint }} aria-hidden="true">
+        MEET YOUR KNOWLEDGE COMPANION
+      </span>
+      <ReeAvatar avatar={ree.avatarBlob} color={ree.color} size="md" />
+      <strong className="max-w-[88%] truncate text-[15px]" style={{ color: palette.title }}>
+        {video.scenes.opening.name}
+      </strong>
+      <span className="hidden max-w-[88%] truncate text-[11px] @[260px]:block" style={{ color: palette.body }}>
+        {video.scenes.opening.position}
+      </span>
+      <span className="absolute bottom-2.5 left-3 inline-flex items-center gap-1 rounded-full bg-ink/70 px-2 py-0.5 text-[10px] font-medium text-white">
+        <Icon name="film" className="size-3" />
+        <span className="hidden @[260px]:inline">{t.video.card.has}</span>
+      </span>
+      <span className="absolute right-3 bottom-2.5 rounded-full bg-ink/70 px-2 py-0.5 font-mono text-[10px] text-white">00:15</span>
+    </span>
+  );
+}
+
+/** The 15-second dialog (prototype `playVideoModal`): the Player, already playing (muted until the viewer turns the sound on), and the way on. */
+export function IntroDialog({ open, onClose, video, name, href, linkLabel }: { open: boolean; onClose: () => void; video: IntroProps; name: string; href: string; linkLabel: string }) {
+  const { t } = useI18n();
+  return (
+    <Modal
+      open={open}
+      onClose={onClose}
+      title={t.video.dialog.title}
+      subtitle={name}
+      wide
+      footer={
+        <Link href={href} className="btn">
+          {linkLabel}
+          <Icon name="arrow" />
+        </Link>
+      }
+    >
+      <IntroPlayer props={video} name={name} autoPlay fullscreen />
+      <p className="hint mt-3">{t.video.dialog.note}</p>
+    </Modal>
+  );
+}
+
+/**
+ * A round play button over a cover; it opens the dialog. Lives beside the cover's link, never inside it.
+ * `label` with a full `className` replaces the pill (the home page's "15s", prototype `home-dot-card`;
+ * explore's 含视频介绍 with the `film` icon).
+ */
+export function PlayIntroButton({
+  video,
+  name,
+  href,
+  linkLabel,
+  className = '',
+  label,
+  icon = 'play',
+}: {
+  video: IntroProps;
+  name: string;
+  href: string;
+  linkLabel: string;
+  className?: string;
+  label?: string;
+  icon?: IconName;
+}) {
+  const { t } = useI18n();
+  const [open, setOpen] = useState(false);
+  return (
+    <>
+      <button
+        type="button"
+        onClick={() => setOpen(true)}
+        aria-label={fill(t.video.card.playLabel, { name })}
+        className={
+          label
+            ? className
+            : `inline-flex items-center gap-1.5 rounded-full bg-white/95 px-3 py-1.5 text-[11px] font-semibold text-ink shadow-md ring-1 ring-black/5 transition hover:bg-blue hover:text-white ${className}`
+        }
+      >
+        <Icon name={icon} className="size-3.5" />
+        {label ?? t.video.card.watch}
+      </button>
+      {open && <IntroDialog open={open} onClose={() => setOpen(false)} video={video} name={name} href={href} linkLabel={linkLabel} />}
+    </>
+  );
+}

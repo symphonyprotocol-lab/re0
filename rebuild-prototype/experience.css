@@ -1,0 +1,89 @@
+/* Dedicated conversation creation, separate from workspace management. */
+.new-conversation-page {
+  min-height: calc(100dvh - var(--navigation-height, 74px));
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 64px 48px 100px;
+}
+.new-conversation-stage { width: 100%; max-width: 760px; min-width: 0; }
+.new-conversation-heading { text-align: center; margin-bottom: 30px; }
+.new-conversation-heading .eyebrow { font-size: 9px; margin-bottom: 15px; }
+.new-conversation-heading h1 { font-size: 32px; font-weight: 650; letter-spacing: -.7px; }
+.new-conversation-heading > p:last-child { color: #8796b0; font-size: 12px; line-height: 1.8; margin-top: 12px; }
+.new-conversation-composer { min-width: 0; }
+.new-conversation-composer .room-input-wrap {
+  width: 100%;
+  max-width: none;
+  margin: 0;
+  padding: 0;
+}
+.new-conversation-composer .room-composer {
+  background: #fff;
+  border-radius: 14px;
+  border-color: #d8e2f2;
+  box-shadow: 0 5px 24px #18396a05;
+  padding: 20px 20px 14px;
+}
+.new-conversation-composer .room-composer:focus-within {
+  border-color: #8cbbf7;
+  box-shadow: 0 0 0 3px #1683ec0a;
+}
+.new-conversation-composer .room-composer textarea { min-height: 96px; font-size: 14px; }
+.new-conversation-composer .room-compose-meta { justify-content: space-between; padding-inline: 3px; flex-wrap: wrap; gap: 4px; }
+.new-conversation-composer .room-demo-note { text-align: left; padding-left: 3px; }
+.conversation-prompts {
+  display: flex;
+  gap: 8px;
+  align-items: center;
+  justify-content: center;
+  flex-wrap: wrap;
+  margin-top: 22px;
+}
+.conversation-prompts > span { font-size: 10px; color: #98a6bf; }
+.conversation-prompts button {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 8px 11px;
+  border: 1px solid #e0e5f1;
+  border-radius: 6px;
+  background: transparent;
+  color: #7a8ba8;
+  font-size: 10px;
+  text-align: left;
+}
+.conversation-prompts button:hover { color: var(--blue); background: #fff; border-color: #bfd7f8; }
+.conversation-prompts svg { width: 12px; height: 12px; flex: none; }
+.dashboard-section-heading { display: flex; justify-content: space-between; align-items: center; gap: 12px; margin-bottom: 15px; }
+.dashboard-section-heading h2 { font-size: 14px; font-weight: 600; }
+.dashboard-section-heading > span { color: #9ba9bf; font-size: 10px; }
+.sidebar-chat .chat-product-nav { margin-top: 22px; }
+.sidebar-chat .chat-product-nav a.active { color: var(--blue); background: #eaf0fc; }
+.sidebar-chat .chat-sidebar-tools { margin: 12px 0 2px; }
+.sidebar-chat .chat-sidebar-tool.active { background: #edf4ff; color: #247dce; }
+.sidebar-chat .chat-product-nav .nav-count { margin-left: auto; font-size: 10px; }
+@media (min-width: 761px) {
+  .creator-overview .creator-overview-head { margin-bottom: 24px; }
+  .creator-overview .creator-metric { padding: 18px 20px; gap: 12px; }
+  .creator-overview .creator-metric > strong { font-size: 27px; }
+}
+@media (max-width: 760px) {
+  .new-conversation-page { padding: 36px 20px 56px; }
+  .new-conversation-heading { margin-bottom: 24px; }
+  .new-conversation-heading h1 { font-size: 27px; }
+  .new-conversation-heading > p:last-child { font-size: 11px; }
+  .new-conversation-composer .room-composer { padding: 16px; }
+  .new-conversation-composer .room-composer textarea { font-size: 13px; }
+  .new-conversation-composer .room-compose-meta { font-size: 8px; }
+  .conversation-prompts > span { width: 100%; text-align: center; }
+  .conversation-prompts button { max-width: 100%; line-height: 1.7; }
+  .dashboard-section-heading > span { display: none; }
+}
+@media (max-width: 600px) {
+  .app-main > .topbar .topbar-main { padding-inline: 14px; gap: 10px; }
+  .app-main > .topbar .shell-site-link,
+  .app-main > .topbar .prototype-badge { display: none; }
+  .app-main > .topbar .topbar-right { gap: 4px; }
+  .app-main > .topbar .header-breadcrumbs { font-size: 10px; }
+}

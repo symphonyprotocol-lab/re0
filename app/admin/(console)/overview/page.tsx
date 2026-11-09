@@ -1,474 +1,189 @@
 import type { Metadata } from 'next';
-import Link from 'next/link';
-import { GrowthChart } from '@/components/admin/growth-chart';
-import {
-  CONSOLE_PANEL,
-  ConsoleButton,
-  ConsolePageHeader,
-  Meter,
-  Panel,
-  PanelHead,
-  Pill,
-} from '@/components/admin/ui';
-import {
-  ArrowUpRightIcon,
-  CalendarIcon,
-  CircleDollarSignIcon,
-  DatabaseIcon,
-  ReceiptIcon,
-  TrendingUpIcon,
-  UsersIcon,
-} from '@/components/ui/icons';
-import {
-  consoleOverview,
-  healthNeedsAttention,
-  type ConsoleAuditRow,
-  type WindowedCount,
-} from '@/lib/application/administration';
-import type { AdminCapability } from '@/lib/domain/admin';
-import { percentFromBps } from '@/lib/domain/billing';
-import {
-  changeBps,
-  DEFAULT_OVERVIEW_RANGE,
-  OVERVIEW_RANGES,
-  shareBps,
-  type OverviewRange,
-} from '@/lib/domain/overview';
-import { requireAdmin } from '@/lib/http/admin';
-import type { Dictionary } from '@/lib/i18n/dictionary';
-import { fill } from '@/lib/i18n/format';
-import { getMessages } from '@/lib/i18n/server';
-import { money, oneOf } from '../list-params';
+import { WorkspaceLink as Link } from '@/components/shell/workspace-link';
+import { adminOverview } from '@/lib/services/admin-overview';
+import { serverMessages } from '@/i18n/server';
+import { fill, formatNumber } from '@/i18n/format';
+import { CI, type ConsoleIconName } from '@/components/admin/console-icon';
+import { PageHead, RecordsTable, Stats } from '@/components/admin/list-kit';
+import { ConsolePage, ConsoleTopbar } from '@/components/admin/console-topbar';
+import { AuditTable } from '@/components/admin/audit-kit';
+
+export const dynamic = 'force-dynamic';
 
 export async function generateMetadata(): Promise<Metadata> {
-  return { title: (await getMessages()).admin.overview.title };
+  const { t } = await serverMessages();
+  return { title: t.consoleRees.overview.title };
 }
 
-type Overview = Dictionary['admin']['overview'];
-
-interface StatTile {
-  need: AdminCapability;
-  label: string;
-  value: string;
-  Icon: typeof UsersIcon;
-  /** Period-over-period move in basis points; null when there is nothing to compare. */
-  changeBps: number | null;
-  /** Which earlier period the move is against; the tiles do not all share one. */
-  deltaLabel: string;
-  /** What to say under the value when there is no move to show. */
-  caption: string;
+/** Small amounts keep their cents' fractions: an embedding month can cost $0.0042. */
+function usd(value: number, locale: 'zh' | 'en'): string {
+  return new Intl.NumberFormat(locale === 'zh' ? 'zh-CN' : 'en-US', {
+    style: 'currency',
+    currency: 'USD',
+    minimumFractionDigits: 2,
+    maximumFractionDigits: value > 0 && value < 1 ? 4 : 2,
+  }).format(value);
 }
 
-type ActivityTone = 'brand' | 'neutral' | 'amber' | 'rose';
-
-const ACTIVITY_TONE: Record<ActivityTone, string> = {
-  brand: 'bg-brandsoft text-brandink',
-  neutral: 'bg-mutedbg text-steel',
-  amber: 'bg-ambersoft text-amberink',
-  rose: 'bg-rosesoft text-err',
-};
-
-const MINUTE_MS = 60 * 1000;
-const HOUR_MS = 60 * MINUTE_MS;
-const DAY_MS = 24 * HOUR_MS;
-
-/** `2 分钟前`, `3 小时前`, `5 天前` -- the grain the activity list reads at. */
-function ago(ms: number, o: Overview): string {
-  if (ms < MINUTE_MS) return o.ago.now;
-  if (ms < HOUR_MS) return fill(o.ago.minutes, { n: Math.floor(ms / MINUTE_MS) });
-  if (ms < DAY_MS) return fill(o.ago.hours, { n: Math.floor(ms / HOUR_MS) });
-  return fill(o.ago.days, { n: Math.floor(ms / DAY_MS) });
-}
-
-/** `40 分钟`, `1.5 小时`, `3 天` -- how long a library has waited. */
-function duration(ms: number, o: Overview): string {
-  if (ms < HOUR_MS) return fill(o.duration.minutes, { n: Math.max(1, Math.round(ms / MINUTE_MS)) });
-  if (ms < DAY_MS) return fill(o.duration.hours, { n: (ms / HOUR_MS).toFixed(1).replace(/\.0$/, '') });
-  return fill(o.duration.days, { n: (ms / DAY_MS).toFixed(1).replace(/\.0$/, '') });
-}
-
-/** `+12.8%`; the sign is part of the figure, so a fall reads as one. */
-function signedPercent(bps: number): string {
-  return `${bps > 0 ? '+' : bps < 0 ? '−' : ''}${percentFromBps(Math.abs(bps))}%`;
+/** A ceiling for the chart's axis: 4, 8, 20, 40, 100, 200, … so the four labels stay round. */
+function axisMax(peak: number): number {
+  for (let scale = 1; ; scale *= 10) for (const step of [4, 8, 20]) if (peak <= step * scale) return step * scale;
 }
 
 /**
- * A failed action is always red. Beyond that, the tone follows what was
- * touched: an account is amber because suspending one is the console's
- * heaviest lever, a platform library is brand, and the rest is neutral.
+ * The prototype's trend line (suite.js `trendChart`): a 700 × 150 area chart
+ * with four dashed guides, the axis on the left and five dates below.
  */
-function activityTone(entry: ConsoleAuditRow): ActivityTone {
-  if (entry.result !== 'success') return 'rose';
-  if (entry.action.startsWith('user.')) return 'amber';
-  if (entry.action.startsWith('platform_library.')) return 'brand';
-  return 'neutral';
-}
-
-function rangeOf(value: string | string[] | undefined): OverviewRange {
-  const allowed = OVERVIEW_RANGES.map(String);
-  return Number(oneOf(value, allowed, String(DEFAULT_OVERVIEW_RANGE))) as OverviewRange;
-}
-
-/**
- * Operations overview -- design source frame `oxEhj`.
- *
- * Every figure comes from `consoleOverview`, which reads the table that owns
- * it and leaves out whatever this session's capabilities do not cover. This
- * is the one console screen open to every administrator -- it is where
- * `requireAdminCapability` sends anyone who lands somewhere they are not
- * entitled to -- so a tile or panel a role may not act on is not rendered,
- * and its query is not run either.
- *
- * The range control is real: `?range=7|30|90` moves the window the tiles
- * compare against and the days the chart draws.
- */
-export default async function AdminOverviewPage({
-  searchParams,
-}: {
-  searchParams: Promise<Record<string, string | string[] | undefined>>;
-}) {
-  const [session, params, t] = await Promise.all([requireAdmin(), searchParams, getMessages()]);
-  const o = t.admin.overview;
-  const range = rangeOf(params.range);
-  const now = new Date();
-
-  const view = await consoleOverview({ range, capabilities: session.capabilities, now });
-  const can = (capability: AdminCapability) => session.capabilities.includes(capability);
-
-  const windowed = (counts: WindowedCount | null) => ({
-    value: (counts?.total ?? 0).toLocaleString('en-US'),
-    changeBps: counts ? changeBps(counts.inWindow, counts.inPreviousWindow) : null,
-    deltaLabel: o.previousWindow,
-    caption: fill(o.newInWindow, { count: counts?.inWindow ?? 0 }),
-  });
-
-  const revenue = view.revenue;
-
-  const tiles: StatTile[] = (
-    [
-      { need: 'users', label: o.stats.users, Icon: UsersIcon, ...windowed(view.users) },
-      { need: 'libraries', label: o.stats.libraries, Icon: DatabaseIcon, ...windowed(view.libraries) },
-      /*
-       * Money is compared month to month whatever the range control says --
-       * that is how the billing screen and the provider's statements cut it
-       * -- so this tile names its period where the others name theirs.
-       */
-      {
-        need: 'billing',
-        label: o.stats.revenue,
-        Icon: CircleDollarSignIcon,
-        value: money(revenue?.monthNetMinor ?? 0, revenue?.currency),
-        changeBps: revenue ? changeBps(revenue.monthNetMinor, revenue.previousMonthNetMinor) : null,
-        deltaLabel: o.previousMonth,
-        caption: o.previousMonthNone,
-      },
-      /*
-       * Paying workspaces and the share of accounts they are. Both need
-       * `billing`; the rate also needs `users`, and reads as unavailable
-       * rather than zero without it.
-       */
-      {
-        need: 'billing',
-        label: o.paid.label,
-        Icon: ReceiptIcon,
-        value: (view.paidWorkspaces ?? 0).toLocaleString('en-US'),
-        changeBps: null,
-        deltaLabel: '',
-        caption:
-          view.conversionBps === null
-            ? o.paid.conversionNone
-            : fill(o.paid.conversion, { rate: percentFromBps(view.conversionBps) }),
-      },
-    ] satisfies StatTile[]
-  ).filter((tile) => can(tile.need));
-
-  const attention = healthNeedsAttention(view.health);
-  const api = view.health.api;
-  const index = view.health.index;
-  const builds = view.health.builds;
-  const finished = builds.succeeded + builds.failed;
-
-  /*
-   * Each meter is a share of "fine": successful requests, indexed libraries,
-   * builds that finished well, libraries that have not waited a day. An empty
-   * denominator is a full bar -- nothing has gone wrong when nothing happened.
-   */
-  const health = [
-    {
-      label: o.health.api,
-      value:
-        api.requests === 0
-          ? o.health.apiNone
-          : fill(o.health.apiValue, {
-              requests: api.requests.toLocaleString('en-US'),
-              rate: percentFromBps(shareBps(api.requests - api.failures, api.requests)),
-            }),
-      percent: api.requests === 0 ? 100 : ((api.requests - api.failures) / api.requests) * 100,
-    },
-    {
-      label: o.health.index,
-      value: index.total === 0 ? o.health.indexNone : fill(o.health.indexValue, index),
-      percent: index.total === 0 ? 100 : (index.ready / index.total) * 100,
-    },
-    {
-      label: o.health.builds,
-      value: fill(o.health.buildsValue, builds),
-      percent: finished === 0 ? 100 : (builds.succeeded / finished) * 100,
-    },
-  ];
-
-  /*
-   * Configuration facts, not probes: each says whether a service is wired
-   * up, never whether it answered just now. The payment row is the honest
-   * "no": nothing executes a payout until an adapter exists.
-   */
-  const services = view.services;
-  const onOff = (configured: boolean) => (configured ? o.services.on : o.services.off);
-  const serviceRows: { label: string; value: string; tone: 'ok' | 'warn' | 'neutral' }[] = [
-    {
-      label: o.services.llm,
-      value: services.llm.model
-        ? fill(services.llm.keyPresent ? o.services.llmReady : o.services.llmKeyMissing, {
-            model: services.llm.model,
-          })
-        : o.services.llmNone,
-      tone: services.llm.model && services.llm.keyPresent ? 'ok' : 'warn',
-    },
-    {
-      label: o.services.retrieval,
-      value: fill(o.services.retrievalValue, {
-        embeddings: onOff(services.retrieval.embeddings),
-        rerank: onOff(services.retrieval.rerank),
-      }),
-      tone: services.retrieval.embeddings ? 'ok' : 'warn',
-    },
-    {
-      label: o.services.objectStore,
-      value: onOff(services.objectStore),
-      tone: services.objectStore ? 'ok' : 'warn',
-    },
-    {
-      label: o.services.ingestion,
-      value: onOff(services.ingestion),
-      tone: services.ingestion ? 'ok' : 'warn',
-    },
-    { label: o.services.payments, value: o.services.paymentsNone, tone: 'neutral' },
-  ];
-
-  const rangeHref = (days: OverviewRange) =>
-    days === DEFAULT_OVERVIEW_RANGE ? '/admin/overview' : `/admin/overview?range=${days}`;
-
-  const actionLabels: Record<string, string> = t.admin.audit.actions;
-
+function TrendChart({ days, label }: { days: { day: string; answers: number }[]; label: string }) {
+  const max = axisMax(Math.max(1, ...days.map((day) => day.answers)));
+  const last = Math.max(1, days.length - 1);
+  const points = days.map((day, index) => `${(index * 700) / last} ${145 - (day.answers / max) * 130}`);
+  const ticks = [0, 1, 2, 3, 4].map((step) => days[Math.round((step * last) / 4)]?.day ?? '');
   return (
-    <div className="flex flex-col gap-[18px]">
-      {/* Page header -- design source `oxEhj`. */}
-      <ConsolePageHeader
-        eyebrow={t.admin.eyebrow}
+    <div className="trend-chart">
+      <div className="chart-y">
+        {[1, 0.75, 0.5, 0.25].map((share) => (
+          <span key={share}>{Math.round(max * share)}</span>
+        ))}
+      </div>
+      <svg viewBox="0 0 700 150" preserveAspectRatio="none" aria-label={label} role="img">
+        <defs>
+          <linearGradient id="trend-fill" x1="0" y1="0" x2="0" y2="1">
+            <stop offset="0%" stopColor="#127ee3" stopOpacity=".15" />
+            <stop offset="100%" stopColor="#127ee3" stopOpacity="0" />
+          </linearGradient>
+        </defs>
+        {[15, 50, 85, 120].map((y) => (
+          <path key={y} d={`M0 ${y}H700`} stroke="#e9edf5" strokeDasharray="3 5" fill="none" />
+        ))}
+        <path d={`M0 150 ${points.map((point) => `L${point}`).join(' ')} L700 150Z`} fill="url(#trend-fill)" />
+        <path d={points.map((point, index) => `${index ? 'L' : 'M'}${point}`).join(' ')} stroke="#127ee3" strokeWidth="2.5" fill="none" strokeLinejoin="round" />
+      </svg>
+      <div className="chart-x">
+        {ticks.map((day, index) => (
+          <span key={index}>{day.slice(5).replace('-', '.')}</span>
+        ))}
+      </div>
+    </div>
+  );
+}
+
+/** `/admin/overview` (2.5 "概览", prototype `adminOverview()`), on live figures. */
+export default async function OverviewPage() {
+  const { t, locale } = await serverMessages();
+  const o = t.consoleRees.overview;
+  const data = await adminOverview();
+  const n = (value: number) => formatNumber(value, locale);
+  const answers = data.trend.reduce((sum, day) => sum + day.answers, 0);
+  const today = new Intl.DateTimeFormat('en-CA', { timeZone: 'Asia/Shanghai', year: 'numeric', month: '2-digit', day: '2-digit' }).format(new Date()).replaceAll('-', '.');
+  // The prototype's order: money first, then identity, verification, models.
+  const attention: { href: string; count: number; label: string; icon: ConsoleIconName }[] = [
+    { href: '/admin/payouts', count: data.pending.payouts, label: o.attention.payouts, icon: 'wallet' },
+    { href: '/admin/kyc?status=pending', count: data.pending.kyc, label: o.attention.kyc, icon: 'shield' },
+    { href: '/admin/verifications', count: data.pending.verifications, label: o.attention.verifications, icon: 'shield' },
+    { href: '/admin/models', count: data.pending.reembed, label: o.attention.reembed, icon: 'refresh' },
+  ];
+  return (
+    <ConsolePage>
+      <ConsoleTopbar crumbs={[{ label: t.console.nav.home, href: '/admin/overview' }, { label: t.console.nav.overview }]} />
+      <PageHead
         title={o.title}
-        description={o.description}
-        action={
-          <span className="flex items-center gap-1.5">
-            {OVERVIEW_RANGES.map((days) => (
-              <ConsoleButton
-                key={days}
-                href={rangeHref(days)}
-                variant={days === range ? 'primary' : 'outline'}
-              >
-                {days === range ? <CalendarIcon size={14} /> : null}
-                {fill(o.range, { days })}
-              </ConsoleButton>
-            ))}
+        lede={o.lede}
+        actions={
+          <span className="console-date">
+            <CI name="clock" /> {fill(t.console.overview.date, { date: today })}
           </span>
         }
       />
-
-      {/* Metric strip. */}
-      <section className="grid grid-cols-1 gap-3 sm:grid-cols-2 xl:grid-cols-4">
-        {tiles.map((tile) => (
-          <article key={tile.label} className={`${CONSOLE_PANEL} flex items-center gap-3 p-[18px]`}>
-            <span className="flex size-10 shrink-0 items-center justify-center rounded-[9px] bg-brandsoft text-brand">
-              <tile.Icon size={18} />
-            </span>
-            <span className="flex min-w-0 flex-col gap-[3px]">
-              <span className="text-[11px] leading-[1.35] tracking-[-0.023em] text-muted">
-                {tile.label}
-              </span>
-              <span className="text-[20px] leading-[1.3] font-semibold tracking-[-0.03em] text-ink">
-                {tile.value}
-              </span>
-              {tile.changeBps !== null ? (
-                <span
-                  className={`flex items-center gap-1 text-[11px] tracking-[-0.023em] ${
-                    tile.changeBps < 0 ? 'text-err' : 'text-good'
-                  }`}
-                >
-                  <TrendingUpIcon size={12} className={tile.changeBps < 0 ? 'rotate-180' : ''} />
-                  {signedPercent(tile.changeBps)}
-                  <span className="text-muted">{tile.deltaLabel}</span>
-                </span>
-              ) : (
-                <span className="text-[11px] tracking-[-0.023em] text-amberink">{tile.caption}</span>
-              )}
-            </span>
-          </article>
-        ))}
-      </section>
-
-      {/* User growth. */}
-      {can('users') && view.growth ? (
-        <Panel>
-          <PanelHead
-            title={o.growthTitle}
-            description={o.growthSubtitle}
-            action={
-              <span className="text-[12px] tracking-[-0.023em] text-muted">
-                {fill(o.range, { days: range })}
-              </span>
-            }
-          />
-          <div className="flex flex-col gap-4 p-[19px]">
-            <div className="flex flex-wrap items-center gap-x-8 gap-y-3">
-              <span className="flex flex-col gap-0.5">
-                <span className="text-[19px] leading-[1.3] font-semibold tracking-[-0.03em] text-ink">
-                  {(view.users?.inWindow ?? 0).toLocaleString('en-US')}
-                </span>
-                <span className="text-[11px] tracking-[-0.023em] text-muted">{o.growthNewUsers}</span>
-              </span>
-              {/* Who paid is billing data; a session without it sees sign-ups alone. */}
-              {view.conversionBps !== null ? (
-                <span className="flex flex-col gap-0.5">
-                  <span className="text-[19px] leading-[1.3] font-semibold tracking-[-0.03em] text-ink">
-                    {percentFromBps(view.conversionBps)}%
-                  </span>
-                  <span className="text-[11px] tracking-[-0.023em] text-muted">{o.growthConversion}</span>
-                </span>
-              ) : null}
-              <ul className="flex items-center gap-3.5">
-                {[
-                  { label: o.seriesUsers, dot: 'bg-barstrong' },
-                  ...(view.growthIncludesPaid ? [{ label: o.seriesPaid, dot: 'bg-bar' }] : []),
-                ].map((series) => (
-                  <li
-                    key={series.label}
-                    className="flex items-center gap-1.5 text-[11px] tracking-[-0.023em] text-muted"
-                  >
-                    <span aria-hidden className={`size-[7px] rounded-full ${series.dot}`} />
-                    {series.label}
-                  </li>
-                ))}
-              </ul>
+      <Stats
+        items={[
+          { label: o.cards.users, value: n(data.users.total), note: fill(o.cards.usersNote, { n: n(data.users.disabled) }), icon: 'users' },
+          { label: o.cards.rees, value: n(data.rees.total), note: fill(o.cards.reesNote, { public: n(data.rees.public), moderated: n(data.rees.moderated) }), icon: 'dot' },
+          { label: o.cards.sources, value: n(data.sources.total), note: fill(o.cards.sourcesNote, { ready: n(data.sources.ready) }), icon: 'file' },
+          { label: o.cards.questions, value: n(data.questions30), note: o.cards.questionsNote, icon: 'chat' },
+        ]}
+      />
+      <div className="console-overview-grid">
+        <section className="card console-chart">
+          <div className="between">
+            <div>
+              <h2>{o.trend.title}</h2>
+              <p>{o.trend.lede}</p>
             </div>
-            <GrowthChart points={view.growth} showPaid={view.growthIncludesPaid} />
+            <span className="tag blue">{o.trend.daily}</span>
           </div>
-        </Panel>
-      ) : null}
-
-      {/* Live activity -- reachable only with the audit capability, since it is
-          a window onto the same events the audit log records. */}
-      {can('audit') && view.activity ? (
-        <Panel>
-          <PanelHead
-            title={o.activityTitle}
-            description={o.activitySubtitle}
-            action={
-              <Link
-                href="/admin/audit"
-                className="inline-flex items-center gap-1.5 text-[12px] tracking-[-0.023em] text-brandink hover:text-brand"
-              >
-                {o.activityLink}
-                <ArrowUpRightIcon size={13} />
-              </Link>
-            }
-          />
-          {view.activity.length === 0 ? (
-            <p className="px-[17px] py-5 text-[12px] tracking-[-0.023em] text-muted">{o.activityEmpty}</p>
-          ) : (
-            <ul className="px-[17px]">
-              {view.activity.map((entry, index) => {
-                const title = actionLabels[entry.action] ?? entry.action;
-                const who = entry.administratorName ?? entry.administratorEmail ?? o.unknownAdmin;
-                return (
-                  <li
-                    key={entry.id}
-                    className={`flex items-center gap-2.5 py-3.5 ${
-                      index === view.activity!.length - 1 ? '' : 'border-b-2 border-line'
-                    }`}
-                  >
-                    <span
-                      aria-hidden
-                      className={`flex size-[29px] shrink-0 items-center justify-center rounded-[7px] ${ACTIVITY_TONE[activityTone(entry)]}`}
-                    >
-                      <span className="size-1.5 rounded-full bg-current" />
-                    </span>
-                    <span className="flex min-w-0 flex-1 flex-col gap-[3px]">
-                      <span className="truncate text-[12px] tracking-[-0.023em] text-ink">
-                        {entry.result === 'success' ? title : `${title} · ${o.activityFailed}`}
-                      </span>
-                      <span className="truncate text-[11px] tracking-[-0.023em] text-muted">
-                        {entry.targetId ? `${who} · ${entry.targetId}` : who}
-                      </span>
-                    </span>
-                    <span
-                      title={entry.createdAt.toISOString()}
-                      className="shrink-0 text-[11px] tracking-[-0.023em] whitespace-nowrap text-muted"
-                    >
-                      {ago(now.getTime() - entry.createdAt.getTime(), o)}
-                    </span>
-                  </li>
-                );
-              })}
-            </ul>
-          )}
-        </Panel>
-      ) : null}
-
-      {/* Platform health. */}
-      <Panel>
-        <PanelHead
-          title={o.healthTitle}
-          description={o.healthSubtitle}
-          action={
-            <span
-              className={`inline-flex items-center gap-1.5 text-[12px] font-semibold tracking-[-0.023em] ${
-                attention ? 'text-amberink' : 'text-pubink'
-              }`}
-            >
-              <span aria-hidden className={`size-1.5 rounded-full ${attention ? 'bg-amberink' : 'bg-good'}`} />
-              {attention ? o.healthAttention : o.healthOk}
-            </span>
-          }
-        />
-        <ul className="flex flex-col gap-3.5 px-[17px] py-4">
-          {health.map((row) => (
-            <li key={row.label} className="flex flex-col gap-2">
-              <span className="flex items-center justify-between gap-3">
-                <span className="text-[12px] font-semibold tracking-[-0.023em] text-ink">{row.label}</span>
-                <span className="text-[11px] tracking-[-0.023em] text-muted">{row.value}</span>
-              </span>
-              <Meter value={row.percent} />
-            </li>
+          <TrendChart days={data.trend} label={t.console.overview.chartLabel} />
+          <div className="chart-legend">
+            <i className="dot" />
+            {o.trend.legend}
+            <span>{answers ? fill(o.trend.total, { n: n(answers) }) : o.trend.empty}</span>
+          </div>
+        </section>
+        <aside className="card console-actions">
+          <p className="eyebrow">{o.attention.eyebrow}</p>
+          <h2>{o.attention.title}</h2>
+          {attention.map((item) => (
+            <Link key={item.label} href={item.href} className="attention-row">
+              <CI name={item.icon} />
+              <strong>{n(item.count)}</strong>
+              <span>{item.label}</span>
+              <CI name="chevron" />
+            </Link>
           ))}
-        </ul>
-
-        {/* External services -- wired up or not, from the environment and the registry. */}
-        <div className="border-t-2 border-line px-[17px] py-4">
-          <p className="mb-3 text-[11px] font-bold tracking-[0.02em] text-faint">{o.services.title}</p>
-          <ul className="flex flex-col gap-2.5">
-            {serviceRows.map((row) => (
-              <li key={row.label} className="flex flex-wrap items-center justify-between gap-2">
-                <span className="text-[12px] font-semibold tracking-[-0.023em] text-ink">{row.label}</span>
-                <span className="flex items-center gap-2">
-                  <span className="text-[11px] tracking-[-0.023em] text-muted">{row.value}</span>
-                  <Pill tone={row.tone}>
-                    {row.tone === 'ok' ? o.services.on : row.tone === 'warn' ? o.services.off : o.services.absent}
-                  </Pill>
-                </span>
-              </li>
-            ))}
-          </ul>
+          <div className="console-income">
+            <span>{o.income.earned}</span>
+            <strong className="mono">{n(data.earned30)}</strong>
+          </div>
+        </aside>
+      </div>
+      <section className="card console-model-cost">
+        <div className="between">
+          <div>
+            <h2>{o.models.title}</h2>
+            <p>{fill(o.models.lede, { start: data.month.start, end: data.month.end })}</p>
+          </div>
+          <Link href="/admin/model-calls" className="text-link">
+            {t.modelCalls.title}
+            <CI name="arrow" />
+          </Link>
         </div>
-      </Panel>
-    </div>
+        <RecordsTable
+          label={t.console.list.tableRegion}
+          empty={t.console.list.empty}
+          head={[t.console.overview.kind, o.models.active, o.models.calls, t.console.overview.cost]}
+          rows={data.models.map((row) => [
+            t.admin.models.kinds[row.kind],
+            <>
+              <code>{row.active}</code>
+              {row.activePlan && <small className="cell-subline">{t.admin.models.audiences.plan} · <code>{row.activePlan}</code></small>}
+              {row.rows.length > 1 &&
+                row.rows.map((entry) => (
+                  <small key={entry.model} className="cell-subline">
+                    {fill(o.models.byModel, { model: entry.model, n: n(entry.calls) })}
+                  </small>
+                ))}
+            </>,
+            n(row.calls),
+            row.calls > 0 && row.cost === null ? (
+              <span title={o.models.noPrice}>—</span>
+            ) : (
+              <>
+                {usd(row.cost ?? 0, locale)}
+                {row.unpriced && <small className="cell-subline">* {o.models.unpriced}</small>}
+              </>
+            ),
+          ])}
+        />
+      </section>
+      <section className="card mt24">
+        <div className="console-table-head">
+          <h2>{o.recent.title}</h2>
+          <Link href="/admin/audit" className="text-link">
+            {o.recent.all}
+          </Link>
+        </div>
+        <AuditTable t={t} locale={locale} rows={data.recent} from="/admin/overview" />
+      </section>
+    </ConsolePage>
   );
 }

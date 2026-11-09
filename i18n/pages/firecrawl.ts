@@ -1,0 +1,43 @@
+import type { Shape } from '@/i18n/format';
+
+export const zh = {
+  title: 'Firecrawl Key 管理',
+  lede: '管理 PDF 和 Word 文档解析使用的 API Key。普通 Key 按请求轮替，主账号仅在普通 Key 全部不可用时兜底。',
+  policy: '鉴权失败、余额不足或限流时暂时跳过该 Key，并尝试其他可用 Key。每次解析最多尝试每个 Key 一次；网络超时不自动重试。',
+  storage: 'Key 加密保存，只显示尾号；留空编辑会保留原 Key。修改会立即用于下一次请求。',
+  fallback: '后台列表为空时使用环境变量；列表中存在 Key 时，仅使用后台启用且未冷却的 Key。',
+  environmentReady: '环境变量回退已配置', environmentMissing: '环境变量回退未配置', endpoint: '解析服务地址',
+  add: '添加 Key', refresh: '刷新', edit: '编辑', remove: '删除', enable: '启用', disable: '停用',
+  enabled: '轮替中', disabled: '已停用', cooling: '冷却中',
+  total: '已保存 Key', available: '当前可用', uses: '分配次数',
+  empty: '还没有保存 Firecrawl Key。添加并启用后即可参与文档解析。',
+  lastUsed: '最近分配', lastStatus: '最近请求结果', never: '暂无', requestFailed: '请求失败或无法解密', cooldown: '冷却至 {time}',
+  createTitle: '添加 Firecrawl Key', editTitle: '编辑 Firecrawl Key',
+  name: '名称', nameHint: '例如：主账号、备用账号', key: 'API Key', keepKey: '留空保留现有 Key（尾号 {tail}）',
+  mainAccount: '主账号 · 仅兜底', rotatingAccount: '普通账号 · 参与轮替', standby: '兜底待命',
+  fallbackField: '设为主账号（仅兜底）', fallbackHint: '只能设置一个主账号。保存后会替换原主账号；普通账号恢复可用后，自动优先使用普通账号。',
+  enabledField: '启用此 Key', save: '保存', saved: '已保存', deleted: '已删除',
+  deleteTitle: '删除「{name}」？', deleteBody: '删除后该 Key 不再参与新的解析请求。删除最后一个 Key 后会回退环境变量。',
+  errors: { name: '请输入 1–80 个字符的名称。', api_key: '请输入 8–512 个字符、不含空白的 API Key。', enabled: '启用状态无效。', is_fallback: '主账号设置无效。', duplicate: '这个 Key 已经保存，请编辑现有记录。', not_found: '记录不存在，请刷新后重试。', failed: '操作失败，请稍后重试。' },
+};
+
+export const en: Shape<typeof zh> = {
+  title: 'Firecrawl keys',
+  lede: 'Manage API keys for PDF and Word parsing. Ordinary keys rotate between requests. The main account is used only when all ordinary keys are unavailable.',
+  policy: 'Authentication failures, insufficient credits and rate limits temporarily skip a key and try another available key. Each key is attempted once per parse; network timeouts are not automatically retried.',
+  storage: 'Keys are encrypted; only their last four characters are shown. Leave the key blank when editing to keep it. Changes apply to the next request.',
+  fallback: 'An empty list uses environment configuration. When any keys are saved, only enabled console keys outside cooldown are used.',
+  environmentReady: 'Environment fallback configured', environmentMissing: 'Environment fallback not configured', endpoint: 'Parse service origin',
+  add: 'Add key', refresh: 'Refresh', edit: 'Edit', remove: 'Delete', enable: 'Enable', disable: 'Disable',
+  enabled: 'In rotation', disabled: 'Disabled', cooling: 'Cooling down',
+  total: 'Saved keys', available: 'Available now', uses: 'Allocations',
+  empty: 'No Firecrawl keys saved. Add and enable a key to start parsing documents.',
+  lastUsed: 'Last allocated', lastStatus: 'Last request result', never: 'None', requestFailed: 'Request failed or key cannot be decrypted', cooldown: 'Cooling down until {time}',
+  createTitle: 'Add Firecrawl key', editTitle: 'Edit Firecrawl key',
+  name: 'Name', nameHint: 'For example: Primary account, Backup account', key: 'API key', keepKey: 'Leave blank to keep the existing key (ending {tail})',
+  mainAccount: 'Main account · fallback only', rotatingAccount: 'Ordinary account · rotation', standby: 'On standby',
+  fallbackField: 'Set as main account (fallback only)', fallbackHint: 'Only one main account can be set. Saving replaces the previous selection. Ordinary accounts take priority again as soon as they are available.',
+  enabledField: 'Enable this key', save: 'Save', saved: 'Saved', deleted: 'Deleted',
+  deleteTitle: 'Delete “{name}”?', deleteBody: 'This key will no longer serve new parsing requests. Deleting the last key restores environment fallback.',
+  errors: { name: 'Enter a name of 1–80 characters.', api_key: 'Enter an API key of 8–512 characters without whitespace.', enabled: 'Invalid enabled state.', is_fallback: 'Invalid main account setting.', duplicate: 'This key is already saved. Edit the existing record.', not_found: 'Record not found. Refresh and retry.', failed: 'The action failed. Please retry.' },
+};
