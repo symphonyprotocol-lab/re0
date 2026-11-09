@@ -244,7 +244,7 @@ async function call<T>(config: PaddleConfig, method: 'GET' | 'POST' | 'PATCH', p
   return json.data;
 }
 
-const MAX_FIELD_ERRORS = 5;
+const MAX_FIELD_ERRORS = 20;
 const MAX_ERROR_PART = 200;
 
 function clip(value: unknown, max = MAX_ERROR_PART): string {
@@ -311,9 +311,41 @@ export function checkoutTransactionBody(config: PaddleConfig, order: CheckoutOrd
   };
 }
 
+/**
+ * What a checkout body looked like, for the log when Paddle refuses it: the
+ * items and whether each price ID is well formed, whether a discount was
+ * sent, the currency and the checkout URL. Custom data is reduced to its key
+ * names, so the buyer's ID stays out; the key and headers are not part of
+ * the body at all.
+ */
+export function checkoutBodyShape(body: ReturnType<typeof checkoutTransactionBody>) {
+  return {
+    items: body.items.map((item) => {
+      const id: unknown = item.price_id;
+      return {
+        price_id: typeof id === 'string' ? clip(id, 64) : null,
+        price_id_type: typeof id,
+        price_id_length: typeof id === 'string' ? id.length : null,
+        price_id_valid: isPaddlePriceId(id),
+        quantity: item.quantity,
+      };
+    }),
+    discount: 'discount' in body,
+    currency_code: 'currency_code' in body ? body.currency_code : null,
+    checkout_url: body.checkout.url,
+    custom_data_keys: Object.keys(body.custom_data),
+  };
+}
+
 export async function createCheckoutTransaction(config: PaddleConfig, order: CheckoutOrder, userId: string, price?: CheckoutPrice): Promise<{ id: string }> {
-  const transaction = await call<{ id: string }>(config, 'POST', '/transactions', checkoutTransactionBody(config, order, userId, price));
-  return { id: transaction.id };
+  const body = checkoutTransactionBody(config, order, userId, price);
+  try {
+    const transaction = await call<{ id: string }>(config, 'POST', '/transactions', body);
+    return { id: transaction.id };
+  } catch (error) {
+    console.error(`paddle: checkout transaction refused (${config.environment}); sent ${JSON.stringify(checkoutBodyShape(body))}`);
+    throw error;
+  }
 }
 
 /** Stops renewal: the subscription stays active to the end of the period, then cancels. */
