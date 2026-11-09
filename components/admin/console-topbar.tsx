@@ -4,7 +4,6 @@ import { WorkspaceLink as Link } from '@/components/shell/workspace-link';
 import { Children, Fragment, type ReactNode } from 'react';
 import { useI18n } from '@/i18n/client';
 import { LanguageToggle } from '@/components/ui/language-toggle';
-import { AdministratorsButton } from '@/components/admin/administrators-dialog';
 import { CI } from '@/components/admin/console-icon';
 import { useConsoleShell } from '@/components/admin/console-shell';
 
@@ -23,7 +22,7 @@ export interface ConsoleTab {
  * The console's fixed top bar (prototype suite.js `consoleHeader` /
  * `adminShell`, navigation.css `.console-topbar`): the phone menu and the rail
  * toggle, the breadcrumbs -- the way back, by clicking a parent's name -- then
- * page actions, the environment, language and administrators. An optional
+ * page actions, the environment and language. An optional
  * second row (`.context-nav-row`) holds a page's tabs as links, or other
  * controls; it scrolls sideways on a phone with the active tab kept in view.
  * Rendered as the first child of `ConsolePage`, which puts it beside the
@@ -88,7 +87,6 @@ export function ConsoleTopbar({
             <i className="dot" /> {c.nav.environmentBadge[environment]}
           </span>
           <LanguageToggle className="btn ghost sm" icon={false} />
-          <AdministratorsButton />
         </div>
       </div>
       {tabs?.length ? (
