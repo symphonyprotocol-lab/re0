@@ -8,7 +8,7 @@ import type { Section } from '@/lib/domain/knowledge';
 import { ProcessingFailure } from './failure';
 import { rotatesFirecrawlKey } from '@/lib/domain/firecrawl';
 import { claimFirecrawlKey, recordFirecrawlKeyResult, type FirecrawlCredential } from '@/lib/infra/firecrawl/keys';
-import { prepareProviderCall } from '@/lib/infra/ai/provider-meter';
+import { meterTransfer, prepareProviderCall } from '@/lib/infra/ai/provider-meter';
 import { ProviderCostUnavailable } from '@/lib/domain/provider-cost';
 import { InsufficientCredits } from '@/lib/domain/credits';
 
@@ -72,6 +72,8 @@ export async function firecrawlSections(bytes: Uint8Array, fileName: string, { d
         { service: 'firecrawl', endpoint: (customBase || DEFAULT_BASE_URL).replace(/\/+$/, ''), model: 'parse', account: credential.id ?? 'environment' },
         knownPages ? { estimate: { firecrawlCredits: knownPages } } : {},
       );
+      // The whole file goes out with every attempt, answered or not.
+      meterTransfer('upload', bytes.length);
       const response = await fetch(`${(customBase || DEFAULT_BASE_URL).replace(/\/+$/, '')}/v2/parse`, {
         method: 'POST',
         headers: credential.apiKey ? { Authorization: `Bearer ${credential.apiKey}` } : {},

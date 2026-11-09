@@ -27,7 +27,7 @@ import { AUDIO_CONTENT_TYPES, type AudioFormat } from '@/lib/domain/knowledge';
 import { ProcessingFailure } from '@/lib/infra/connectors/failure';
 import { endpointFor, type ModelEndpoint } from '@/lib/infra/ai/models';
 import { recordModelCall } from '@/lib/infra/ai/usage';
-import { modelCostTarget, prepareProviderCall, providerWork, tokenUsage } from '@/lib/infra/ai/provider-meter';
+import { meterTransfer, modelCostTarget, prepareProviderCall, providerWork, tokenUsage } from '@/lib/infra/ai/provider-meter';
 import { ProviderCostUnavailable } from '@/lib/domain/provider-cost';
 import { InsufficientCredits } from '@/lib/domain/credits';
 
@@ -106,6 +106,7 @@ export function transcriptionModel(endpoint: ModelEndpoint): TranscriptionModel 
         const own = localSeconds(options.audio, options.mediaType);
         const call = await prepareProviderCall(modelCostTarget(endpoint, 'transcription'), own === undefined ? {} : { estimate: { seconds: own } });
         try {
+          meterTransfer('upload', options.audio instanceof Uint8Array ? options.audio.length : Math.ceil((options.audio.length * 3) / 4));
           const result = await model.doGenerate(options);
           const body = result.response?.body as { usage?: unknown } | undefined;
           /*

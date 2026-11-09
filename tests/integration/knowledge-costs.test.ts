@@ -57,21 +57,24 @@ describeWithDb('knowledge cost reconciliation reports', () => {
     await addKnowledge(userId, ree, { kind: 'text', title: 'Pending', content: 'Pending reservation.' });
     const view = knowledgeCostsView({ q: subject });
     const report = await knowledgeCostReport(view);
-    expect(report.summary).toMatchObject({ attempts: 3, ready: 1, failed: 1, active: 1, unknown: 1, chargedCredits: 301, heldCredits: 1 });
-    expect(Number(report.summary.knownCostUsd)).toBeCloseTo(0.06002, 12);
-    expect(Number(report.summary.failedCostUsd)).toBe(0.03);
-    expect(report.providers.map((p) => [p.service, p.calls]).sort()).toEqual([['embedding', 1], ['embedding', 1], ['firecrawl', 2]]);
     const ready = report.items.find((r) => r.status === 'ready')!;
     const failed = report.items.find((r) => r.status === 'failed')!;
-    expect(ready.charges).toHaveLength(2);
+    expect(report.summary).toMatchObject({ attempts: 3, ready: 1, failed: 1, active: 1, unknown: 1, heldCredits: 1 });
+    expect(report.summary.chargedCredits).toBe(ready.chargedCredits! + failed.chargedCredits!);
+    // Two Firecrawl parses and two embeddings, and each run's transfer (the Blob read, the upload to Firecrawl).
+    expect(Number(report.summary.knownCostUsd)).toBeGreaterThan(0.06002);
+    expect(Number(report.summary.knownCostUsd)).toBeLessThan(0.0601);
+    expect(Number(report.summary.failedCostUsd)).toBeGreaterThan(0.03);
+    expect(report.providers.filter((p) => p.service !== 'bandwidth').map((p) => [p.service, p.calls]).sort()).toEqual([['embedding', 1], ['embedding', 1], ['firecrawl', 2]]);
+    expect(report.providers.filter((p) => p.service === 'bandwidth').reduce((sum, p) => sum + p.calls, 0)).toBe(4);
+    expect(ready.charges.filter((charge) => charge.service !== 'bandwidth')).toHaveLength(2);
     expect(ready.refundedCredits).toBe(ready.reservedCredits - ready.chargedCredits!);
     expect(providerTotal(ready.charges).credits).toBe(ready.chargedCredits);
-    // A failure gives back its whole reservation: Firecrawl's 300 and the embedding estimate reserved before the call.
-    expect(failed).toMatchObject({ costUsd: null, chargedCredits: 0, unresolved: 1 });
-    expect(failed.reservedCredits).toBeGreaterThanOrEqual(300);
-    expect(failed.refundedCredits).toBe(failed.reservedCredits);
-    // Refunded in all: the failure's reservation and what the ready run's estimates reserved beyond its measured cost.
-    expect(report.summary.refundedCredits).toBe(failed.refundedCredits + ready.refundedCredits);
+    // P1: a failure with a cost nobody could price (the embedding's usage was omitted) keeps its whole reservation.
+    expect(failed).toMatchObject({ costUsd: null, unresolved: 1, refundedCredits: 0 });
+    expect(failed.chargedCredits).toBe(failed.reservedCredits);
+    expect(failed.reservedCredits).toBeGreaterThanOrEqual(301);
+    expect(report.summary.refundedCredits).toBe(ready.refundedCredits);
     const ledger = await db().select().from(schema.creditEntry).where(eq(schema.creditEntry.refId, source));
     expect(-ledger.reduce((total, entry) => total + entry.delta, 0)).toBe(report.summary.chargedCredits);
     expect((await knowledgeCostReport({ ...view, size: 1, page: 99 })).page).toBe(3);
@@ -95,9 +98,10 @@ describeWithDb('knowledge cost reconciliation reports', () => {
     await processKnowledge(source, { profile: false });
     const report = await knowledgeCostReport(knowledgeCostsView({ q: subject }));
     expect(report.summary).toMatchObject({ attempts: 1, ready: 1, failed: 0, active: 0, unknown: 0, chargedCredits: 1, heldCredits: 0 });
-    expect(report.providers.map((p) => [p.service, p.calls, p.unresolved, p.firecrawlCredits])).toEqual([['embedding', 1, 0, '0']]);
+    // No Firecrawl: the embedding, and the file read back from Blob.
+    expect(report.providers.map((p) => [p.service, p.calls, p.unresolved, p.firecrawlCredits]).sort()).toEqual([['bandwidth', 1, 0, '0'], ['embedding', 1, 0, '0']]);
     const [run] = report.items;
-    expect(run).toMatchObject({ status: 'ready', kind: 'document', metered: true, calls: 1, unresolved: 0, chargedCredits: 1 });
+    expect(run).toMatchObject({ status: 'ready', kind: 'document', metered: true, calls: 2, unresolved: 0, chargedCredits: 1 });
     // The embedding was reserved at its upper bound before the call; what that held beyond the measured cost came back.
     expect(run!.reservedCredits).toBeGreaterThan(1);
     expect(report.summary.refundedCredits).toBe(run!.reservedCredits - 1);

@@ -9,6 +9,10 @@
   },
   "crons": [
     {
+      "path": "/api/cron/charge-storage",
+      "schedule": "0 3 * * *"
+    },
+    {
       "path": "/api/cron/purge-trash",
       "schedule": "30 3 * * *"
     },

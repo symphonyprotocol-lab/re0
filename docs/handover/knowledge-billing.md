@@ -163,3 +163,12 @@ Firecrawl Credit Usage API 在两次 PDF 解析前后均确认余额下降 1。�
 - **未确认用量不再按 0 计费**：转写时长取上报时长、最后片段结束时间、分段自身时长（WAV / MP3 / M4A）三者中的最大值；三者都拿不到时失败退款，并保留收据供核对，不再"保留转写结果、该次费用不扣"。成功路径只要有未确认收据就失败。Firecrawl 缺 `creditsUsed` 时取 `numPages` / `totalPages` / 返回页数 / 本地页数中的最大值。实测用量换算到百万分之一单位时向上取整。
 
 失败全额退款（余额不足除外）、免费知识画像、模型切换后的重新向量化这三项政策保持不变，已在审计文档中列为待决。
+
+## 全部计费、失败不退（2026-11-09）
+
+用户决定审计中的 P1–P4「全部需要计费，失败不退」。本节取代上文"沿用处理失败全额退款"及"知识画像免费"的说法，细节见 `docs/audit/credit-import-audit.md`。
+
+- **P1 失败不退**：任何失败（含超时回收）都按本轮已发生的全部成本结算，只退没用掉的预留；有无法定价的收据时整笔预留不退；什么都没花的失败才全额退回。运行关闭后才到的收据按差额补扣（`chargeLateReceipt`）。
+- **P2 画像与示例问题**：由 Ree 主人付费，走与知识处理相同的预留、结算（`meteredWork`，在 `knowledge_cost_run` 里记 `kind` = `profile` / `suggestions`）。画像必须执行，余额不够就记欠款；示例问题余额不够时不调用。生成调用的计量在 `loggedLanguageModel.wrapGenerate` 里，只在计量范围内生效。
+- **P3 重新向量化**：每批按知识库主人分组，各自付费（`kind = reembed`），余额不够就记欠款；候选模型没有单价时任务失败。
+- **P4 存储与流量**：单价集中在 `INFRA_COST_RATES`（`lib/constants.ts`）。处理时的流量记成 `bandwidth` 收据。存储由每天的 `/api/cron/charge-storage` 和清空回收站前的结算按秒累计到 `storage_accrual`，账本条目为 `storage_charge`。迁移 `0034_knowledge_storage_billing` 新增 `knowledge.storage_billed_at`、`storage_accrual`，以及新的流水原因。

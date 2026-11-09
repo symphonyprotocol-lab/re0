@@ -1,71 +1,107 @@
 # 知识入库 credit 计费审计
 
-2026-11-09，基于 `rebuild`（含 PR #89 / #91 本地 PDF / Word 解析）。规则：**可以多算，不能少算**——用户为一条知识付出的 credits 必须 ≥ 这次处理实际产生的供应商成本（按 `credits = ceil(美元成本 / 0.0001)`，见 `docs/handover/knowledge-billing.md`）。
+2026-11-09，基于 `rebuild`（含 PR #89 / #91 本地 PDF / Word 解析）。规则：**可以多算，不能少算**。用户为知识付出的 credits 必须 ≥ 实际产生的成本，按 `credits = ceil(美元成本 / 0.0001)` 换算（见 `docs/handover/knowledge-billing.md`）。用户随后决定 P1–P4 **全部计费、失败不退**（「全部需要计费，失败不退」），已在同一个 PR 里实现。
 
 ## 结论摘要
 
-- 所有导入入口最终都走同一条管线：`createKnowledgeInTx` / `reprocessInTx` 先放 1 credit 预留 → `processKnowledge` 在 `withProviderMeter` 里跑 → 每次付费调用的收据先落库并原子补足预留 → 成功时在写入片段的同一事务里按完整成本结算（`settled.charged === total.credits`，否则整轮失败）。没有绕开计量的付费调用。
-- 发现并已修复 6 处少算（见下文"已修复"）。最严重的是**余额不足时，超出余额的那次调用整笔由平台承担**：例如余额 100 的用户上传一份 100 页扫描 PDF，Firecrawl 实际成本 3,800 credits，用户只被扣 1 credit。
-- 有 4 项属于产品政策，按现状保留，列为待决（见"待决"）。最主要的一项是：处理失败一律全额退款，已发生的供应商成本由平台承担。
+- **统一管线**：所有导入入口都走同一条管线。
+  1. `createKnowledgeInTx` / `reprocessInTx` 先放 1 credit 预留。
+  2. `processKnowledge` 在 `withProviderMeter` 里运行。
+  3. 每次付费调用前，按上限估计补足预留；不够就不发请求。
+  4. 调用返回后，收据立即落库，并原子补足预留。
+  5. 成功时，在写入片段的同一事务里按完整成本结算。
+  - 没有绕开计量的付费调用。
+- **少算问题**：审计发现 6 处少算，已修复（F1–F6）。最严重的是余额不足时，超出余额的那次调用整笔由平台承担。
+- **P1–P4 已按用户决定实现**：
+  - 失败不再全额退款，只退未用掉的预留（P1）。
+  - 知识画像和示例问题由 Ree 主人付费（P2）。
+  - 模型切换后的重新向量化由各知识库主人付费（P3）。
+  - 存储和流量计费（P4）。
+- **欠款**：任何已经发生的成本，余额不够时记为欠款（`credit_debt`），下次到账先还。
+
+## 计费口径
+
+| 成本 | 依据 | 单价 / 换算 | 位置 |
+| --- | --- | --- | --- |
+| Firecrawl Parse | 供应商实际 `creditsUsed`；缺失时取所有页数中的最大值 | 后台配置的账户单价（当前 $0.0038 / Firecrawl credit） | `lib/infra/connectors/firecrawl.ts:109` |
+| embedding / 转写 / 生成 | Gateway 实际账单优先；否则按配置单价或 Gateway 目录价 × 实测用量 | 同上；生成目录价必须同时有输入和输出单价，否则不用 | `lib/infra/ai/provider-meter.ts`、`lib/infra/ai/usage.ts:96` |
+| 流量（P4） | 处理时我们读写的字节数：网页 / GitHub 抓取、从 Blob 读回上传文件、发给 Firecrawl / 转写的文件 | `INFRA_COST_RATES.transferPerGb` = **$0.15 / GB**（见下方保守取值） | `lib/constants.ts:103`、`meterTransfer` `lib/infra/ai/provider-meter.ts:43` |
+| Blob 存储（P4） | 上传文件大小 × 存储秒数 | **$0.028 / GB-month**：Vercel 标价 $0.023，加 $0.005 摊销上传 / 列举等操作费 | `lib/constants.ts:103`、`lib/services/storage-billing.ts` |
+| 数据库存储（P4） | 知识正文、children、活动记录、片段正文 + 向量（每片段 1536×4 + 200 字节）× 2（索引）× 存储秒数 | **$0.55 / GB-month**：Neon 存储 $0.35 + 即时恢复历史 $0.20 | 同上 |
+
+**保守取值说明**（PR 里同样标出）：
+
+- **流量**：代码和配置里找不到函数出站抓取的计价表。Vercel 相关的几项是：Blob 数据传输 $0.05 / GB；缓存未命中时另加 Fast Origin Transfer $0.06 / GB；Fast Data Transfer 起价 $0.15 / GB。这里统一取最贵的 $0.15 / GB。
+- **单位**：GB 按 10^9 字节（单位更小，算出的 GB 更多）。按秒的存储价把一个月按 28 天算（最短的月）。
+- **集中定义**：三个单价都只定义在 `INFRA_COST_RATES` 一个常量里。
+- **价格来源**：
+  - [Vercel Blob 用量与价格](https://vercel.com/docs/vercel-blob/usage-and-pricing)
+  - [Vercel 价格页](https://vercel.com/pricing)
+  - [Neon 价格页](https://neon.com/pricing)
 
 ## 按导入路径
 
-成本来源里的"无"是指没有第三方付费调用（只有本地 CPU、出站流量或 Blob 存储）。
-
-| 路径 | 入口 | 成本来源 | 是否计费 | 计费位置 | 测试 | 问题 / 结论 |
+| 路径 | 入口 | 成本来源 | 是否计费 | 计费位置 | 测试 | 结论 |
 | --- | --- | --- | --- | --- | --- | --- |
-| 文档 · Markdown / TXT 上传 | `POST /api/rees/[id]/knowledge` (`kind: document`) | embedding | 是 | 预留 `lib/services/knowledge.ts:232`；每次调用 `recordProviderCharge` `:266`；结算 `:582` | `knowledge.test.ts` "bills actual embedding tokens…"、"follows supplier price changes…"、"charges a call that overran…"、"refuses the call before…" | 正确；修复后加了调用前预留（F2）和余额不足补扣（F1） |
-| 文档 · Word（本地解析，#89/#91） | 同上 | embedding（解析在本地，无 Firecrawl） | 是 | 同上 | `knowledge.test.ts` "parses Word locally…"、"fails and refunds a Word file…" | 正确；本地解析不产生收据，只按 embedding 结算 |
-| 文档 · 有文字层的 PDF（本地解析） | 同上 | embedding | 是 | 同上 | `knowledge.test.ts` "parses a 30-page text PDF locally…"；`knowledge-costs.test.ts` | 正确 |
-| 文档 · 扫描 / 乱码 PDF（Firecrawl 兜底） | 同上 | Firecrawl Parse + embedding | 是 | Firecrawl 计量 `lib/infra/connectors/firecrawl.ts:71`、`:107` | `knowledge.test.ts` "sends a 30-page PDF with a scanned page…"、"refuses a scanned PDF before Firecrawl…"、"keeps supplier costs already reserved…"、"fails and refunds when Firecrawl cannot provide…"；`document-connectors.test.ts`（单元） | **F1**：一次 Firecrawl 调用的成本超出余额时整笔不收；**F4**：缺 `creditsUsed` 时只按 `numPages` 计费，截断响应会少算；**F2**：调用前没有按页数预留 |
-| 音频 · MP3 / WAV / M4A | 同上 (`kind: audio`) | 转写（每段一次调用）+ embedding | 是 | 转写计量 `lib/infra/ai/transcription.ts:107`、`:118` | `knowledge-kinds.test.ts` "transcribes 100 MB in pieces…"；`transcription-usage.test.ts`（单元） | **F3**：响应缺时长时取最后一个片段的结束时间（片段结束早于尾部静音就会少算），MP3 / M4A 自己能算出的时长没用上；再不行就记"未确认"，来源照样 ready，这次转写**按 0 计费** |
-| GitHub 仓库 | 同上 (`kind: github`) | embedding（GitHub API 免费） | 是 | 同上 | `knowledge-kinds.test.ts` "requires a GitHub connection…" | 正确 |
-| 单个网页 | 同上 (`kind: page`) | embedding（本地抓取，不走 Firecrawl） | 是 | 同上 | `knowledge-kinds.test.ts` "fetches a single page…" | 正确 |
-| 整站 | 同上 (`kind: site`) | embedding（本地爬取） | 是 | 同上 | `knowledge-kinds.test.ts` "refuses a website until its domain is verified…" | 正确 |
-| 粘贴文本（历史数据） | 新建入口已移除；只剩重新处理 | embedding | 是 | 同上 | `knowledge.test.ts` "processes pasted text…"、"charges zero for an explicitly free supplier…" | 正确 |
-| 单条重新处理 | `POST /api/rees/[id]/knowledge/[kid]/refresh` → `refreshKnowledge` | 与该类型首次处理相同 | 是，每次新预留、新结算 | `reprocessInTx` `lib/services/knowledge.ts:348`、`:362` | `knowledge.test.ts` "bills actual embedding tokens…"（重新处理再扣一次）、"fails and refunds in full when the file is gone; reprocessing charges again" | 正确 |
-| 批量重新处理 | `POST /api/rees/[id]/knowledge/batch` (`reprocess`) → `runBatch` → `processMany` | 同上 | 是，每条一个预留，余额不足整批拒绝 | `lib/services/knowledge-library.ts:138`；`processMany` `lib/services/knowledge.ts:655` | `knowledge-library.test.ts` "reprocessing charges again…"、"refuses a reprocess the balance cannot cover…" | 正确 |
-| 漏跑的 pending 补跑 | `GET /api/rees/[id]/knowledge` → `recoverStale` → `processKnowledge` | 同首次处理 | 是（复用原预留） | `lib/services/knowledge.ts:1023` | `knowledge.test.ts` "keeps a retried run funded…" | 正确 |
-| 超时运行回收 | `recoverStale` → `failAndRefund('unknown')` | 已发生的供应商成本 | **否**，全额退款 | `lib/services/knowledge.ts:624` | `knowledge-costs.test.ts` "closes a legacy processing snapshot…" | 政策 P1（待决）；修复后，超时旧任务迟到的 embedding 在发出前就被拒绝（F2 的附带效果），平台不再为它付费 |
-| 并发 / 重复触发 | 同一条知识 `processKnowledge` 跑两次 | — | 只领取一次 | 领取 `pending → processing`，`processKnowledgeRun` `lib/services/knowledge.ts:523` | `knowledge.test.ts` "bills actual embedding tokens…"（两个 worker 并发） | 正确 |
-| 移动 / 暂停 / 启用 / 回收站 / 恢复 / 改名 | batch、PATCH、restore 路由 | 无（不重新 embedding） | 不需要 | `runBatch` 其余分支 | `knowledge-library.test.ts` | 正确；恢复保留原片段，不重新处理 |
-| 知识画像 / 示例问题 | `afterKnowledgeReady` / `refreshProfile`（入库成功后、启停变化后） | 生成 + embedding | **否**（平台承担） | `lib/services/knowledge.ts:519`、`:665`；`lib/services/profile.ts:107` | — | 政策 P2（待决） |
-| embedding 模型切换后重新向量化 | 后台 `reembed` 任务 | embedding | **否**（平台承担） | `lib/services/reembed.ts:231` | — | 政策 P3（待决）；处理中途模型切换导致的重复 embedding 由用户承担（按实际成本） |
-| MCP / API Key | `lib/services/mcp.ts` | — | — | — | — | 只读知识，不写入；没有导入路径 |
+| 文档 · Markdown / TXT | `POST /api/rees/[id]/knowledge` (`kind: document`) | embedding + Blob 读取流量 | 是 | 预留 `lib/services/knowledge.ts:233`；收据 `recordProviderCharge` `:267`；流量 `:440`、`:554`；结算 `:594` | `knowledge.test.ts` "bills actual embedding tokens…"、"follows supplier price changes…"、"charges a call that overran…"、"refuses the call before…" | 已修 F1、F2；加了流量 |
+| 文档 · Word（本地解析） | 同上 | embedding + Blob 读取 | 是 | 同上 | `knowledge.test.ts` "parses Word locally…"、"fails a Word file that is not a document, keeping only the cost of reading it" | 正确 |
+| 文档 · 有文字层的 PDF | 同上 | embedding + Blob 读取 | 是 | 同上 | `knowledge.test.ts` "parses a 30-page text PDF locally…"；`knowledge-costs.test.ts` | 正确 |
+| 文档 · 扫描 PDF（Firecrawl） | 同上 | Firecrawl + embedding + Blob 读取 + 上传到 Firecrawl | 是 | Firecrawl `lib/infra/connectors/firecrawl.ts:71`、`:76`、`:109` | `knowledge.test.ts` "sends a 30-page PDF with a scanned page…"、"refuses a scanned PDF before Firecrawl…"、"keeps supplier costs already reserved…"、"fails when Firecrawl cannot provide PDF page attribution…"、"keeps what a run spent when embedding fails…"；`document-connectors.test.ts` | 已修 F1、F2、F4；失败不退（P1） |
+| 音频 · MP3 / WAV / M4A | 同上 (`kind: audio`) | 转写 + embedding + Blob 读取 + 上传到转写端点 | 是 | `lib/infra/ai/transcription.ts:107`、`:109`、`:119` | `knowledge-kinds.test.ts` "transcribes 100 MB in pieces…"；`transcription-usage.test.ts` | 已修 F3 |
+| GitHub 仓库 | 同上 (`kind: github`) | embedding + 抓取流量 | 是 | 抓取流量 `lib/infra/connectors/http.ts:145` | `knowledge-kinds.test.ts` "requires a GitHub connection…" | 加了流量 |
+| 单个网页 | 同上 (`kind: page`) | embedding + 抓取流量 | 是 | 同上 | `knowledge-kinds.test.ts` "fetches a single page…"（断言流量收据的字节数） | 加了流量 |
+| 整站 | 同上 (`kind: site`) | embedding + 抓取流量（含 robots / sitemap） | 是 | 同上 | `knowledge-kinds.test.ts` "refuses a website until its domain is verified…" | 加了流量 |
+| 粘贴文本（历史数据） | 只剩重新处理 | embedding | 是 | 同上 | `knowledge.test.ts` "processes pasted text…"、"charges zero for an explicitly free supplier…" | 正确 |
+| 单条 / 批量重新处理 | `refresh`、`batch reprocess` → `reprocessInTx` / `processMany` | 同首次处理 | 是，每次新预留、新结算 | `lib/services/knowledge.ts:356`、`:666` | `knowledge.test.ts` "keeps what a run spent when embedding fails…"（失败后重新处理再收一次）；`knowledge-library.test.ts` | 正确 |
+| 失败（任何原因，P1） | `failAndRefund` | 已发生的全部成本 | **是**，只退没用掉的预留；有无法定价的收据时整笔预留不退 | `settleRun` `lib/services/metered-work.ts:34`；`lib/services/knowledge.ts:652` | `knowledge.test.ts` 多个失败用例 | **P1 已实现** |
+| 超时回收 / 迟到收据 | `recoverStale` → `failAndRefund('unknown')`；运行关闭后才到的收据 | 已发生的成本 | 是；迟到收据按差额补扣 | `chargeLateReceipt` `lib/services/metered-work.ts:60`；`lib/services/knowledge.ts:267` | `knowledge.test.ts` "keeps a retried run funded when a timed-out worker returns" | **P1 已实现** |
+| 并发 / 重复触发 | 同一条知识跑两次 `processKnowledge` | — | 只领取一次 | `processKnowledgeRun` `lib/services/knowledge.ts:533` | `knowledge.test.ts` "bills actual embedding tokens…" | 正确 |
+| 移动 / 暂停 / 启用 / 回收站 / 恢复 / 改名 | batch、PATCH、restore | 无（只会触发 P2 的画像刷新） | 不需要 | `runBatch` | `knowledge-library.test.ts` | 正确 |
+| 知识画像（P2） | `refreshProfile`：入库后、启停 / 恢复 / 发布后、模型切换后重建 | embedding | **是**，Ree 主人付费；必须执行，余额不够就记欠款 | `lib/services/profile.ts:111` | `knowledge-billing.test.ts` P2 | **P2 已实现** |
+| 示例问题（P2） | `suggestQuestions`：第一条来源 ready 后 | 生成 | **是**，Ree 主人付费；属可选功能，余额不够就不调用、不生成 | `lib/services/profile.ts:170`；生成计量 `lib/infra/ai/usage.ts:96` | `knowledge-billing.test.ts` P2 | **P2 已实现** |
+| 模型切换后重新向量化（P3） | `runReembed`（后台 / cron） | embedding | **是**，每批按知识库主人分组，各付各的；切换必须完成，余额不够就记欠款；候选模型没有单价时任务失败 | `lib/services/reembed.ts:244` | `knowledge-billing.test.ts` P3 | **P3 已实现** |
+| 存储（P4） | 每天的 cron `/api/cron/charge-storage`；清空回收站前同一事务内结算 | Blob 文件 + 数据库行，按秒计 | **是**，按累计成本向上取整，从不低于成本，最多多 1 credit | `accrueStorage` `lib/services/storage-billing.ts:57`；`chargeStorage` `:99`；`purgeTrash` `lib/services/knowledge-library.ts:236` | `knowledge-billing.test.ts` P4 | **P4 已实现** |
+| MCP / API Key | `lib/services/mcp.ts` | — | — | — | — | 只读，没有导入路径 |
 
-## 已修复
+## 已修复的少算
 
-| # | 问题 | 少算场景 | 修复 | 位置 | 测试 |
-| --- | --- | --- | --- | --- | --- |
-| F1 | 余额不足时，超出余额的那次调用整笔不收（"那次调用由平台承担"） | 余额 20、embedding 实际 40 → 只扣 1；余额 100、Firecrawl 3,800 → 只扣 1 | 余额不足失败时按全部已发生成本结算：先把余额全部转入预留，剩下的记 `credit_debt`（与退款不足同一机制，下次到账先还债），流水备注 "N owed"，`settled` 活动带 `owed` | `chargeKnowledgeShortfall` `lib/services/credits.ts:320`；`failAndRefund` `lib/services/knowledge.ts:638` | `knowledge.test.ts` "charges a call that overran the balance in full…"（含还债）、"keeps supplier costs already reserved…"（340 = 310 + 欠 30） |
-| F2 | 付费调用前不检查余额，只有 1 credit 预留 | 同 F1：付费调用已经发生，才发现余额不够 | `prepareProviderCall` 支持 `estimate`：按同一单价把"已知成本 + 本次上限估计"在请求**之前**预留，不够就抛 `InsufficientCredits`，不发请求。估计值：Firecrawl 用本地读到的页数（每页 1 credit）；转写用分段自己的时长（WAV 头、MP3 帧、M4A `mvhd`）；embedding 用 UTF-8 字节数 + 每条 8（字节级 BPE 的 token 数不会超过字节数）。估计只是预留，最终仍按实测用量结算，多出的部分在结算时退回。同一轮里并行的调用（转写分段、embedding 分批）把彼此的估计也算进去；调用结束（成功、失败或换 Key 重试）后它的估计就移出 | `lib/infra/ai/provider-meter.ts:92`；`reserveEstimate` `lib/services/knowledge.ts:305`；`lib/infra/connectors/firecrawl.ts:71`；`lib/infra/ai/transcription.ts:107`；`lib/infra/ai/models.ts:191`；`lib/infra/connectors/pdf.ts`（回退结果带 `pages`） | `knowledge.test.ts` "refuses the call before it is made…"、"refuses a scanned PDF before Firecrawl…"；`document-connectors.test.ts` "reserves the local page count…"、"releases each rotated key's page estimate…"、"makes no paid call…"；`transcription-usage.test.ts` "reserves the piece's own length…" |
-| F3 | 转写时长偏短；拿不到时长时这次调用按 0 计费，来源照样 ready | 响应没有 `duration`，最后一个片段在尾部静音之前就结束；或 MP3 / M4A 响应既无时长也无片段 | 计费秒数取"上报时长、最后片段结束时间、分段自身时长"三者中的最大值；去掉转写的 `acceptUnknownCost`，三者都拿不到时按 `usage_unavailable` 失败（保留收据供核对），不再静默按 0 计费 | `lib/infra/ai/transcription.ts:118`、`localSeconds` `:152` | `transcription-usage.test.ts` "bills the longest of…"、"prices an MP3 piece by its own frames…"、"fails rather than bill zero…" |
-| F4 | Firecrawl 缺 `creditsUsed` 时只按 `numPages` 计费 | `numPages < totalPages` 的截断响应只按已返回页数计费；只有 `pages` 数组、没有 metadata 时直接失败 | 没有 `creditsUsed` 时，取 `numPages`、`totalPages`、`pages` 数组长度、本地页数中的最大值 | `lib/infra/connectors/firecrawl.ts:107` | `document-connectors.test.ts` "bills the largest page count of a truncated reply…"、"bills the pages a reply returned…" |
-| F5 | 计量用量四舍五入到百万分之一单位 | 如转写 4.4200000763 秒被舍到 4.420000 秒（金额极小，但方向是向下） | 实测用量向上取整，浮点噪声（< 1e-6 单位）不算，避免把 0.14 / 0.01 这类情况多算一个步长 | `rateCost` `lib/domain/provider-cost.ts:113` | `provider-cost.test.ts` "respects duration billing increments…" |
-| F6 | 成功路径允许带"未确认"收据结算，未确认部分按 0 计费 | 任何被 `acceptUnknownCost` 放行的调用 | 成功结算前检查：本轮只要有未确认收据就以 `usage_unavailable` 失败，绝不带着按 0 计费的成本变成 ready | `lib/services/knowledge.ts:580` | 所有成功用例经过 `expectChargedAtLeastCost`（断言 ready 运行没有未确认收据） |
+| # | 问题 | 修复 | 位置 | 测试 |
+| --- | --- | --- | --- | --- |
+| F1 | 余额不足时，超出余额的那次调用整笔不收。例：余额 100、Firecrawl 3,800 credits，只扣 1 | 按全部已发生成本结算：先扣光余额，剩下的记 `credit_debt` | `takeOrOwe` / `chargeKnowledgeShortfall` `lib/services/credits.ts:319`、`:352` | "charges a call that overran the balance in full…"（含还债） |
+| F2 | 付费调用前不检查余额 | 调用前按上限估计预留（Firecrawl 本地页数、转写分段时长、embedding / 生成按 UTF-8 字节数和输出上限），并行调用互相计入，不够就不发请求；结算按实测用量，多出的退回 | `lib/infra/ai/provider-meter.ts:123`；`reserveEstimate` `lib/services/knowledge.ts:313` | "refuses the call before it is made…"、"refuses a scanned PDF before Firecrawl…"、单元测试 |
+| F3 | 转写时长偏短；拿不到时长时按 0 计费，来源照样 ready | 取上报时长、最后片段结束时间、分段自身时长三者中的最大值；都拿不到时失败 | `lib/infra/ai/transcription.ts:119` | `transcription-usage.test.ts` |
+| F4 | Firecrawl 缺 `creditsUsed` 时只按 `numPages` 计费 | 取所有页数中的最大值 | `lib/infra/connectors/firecrawl.ts:109` | `document-connectors.test.ts` |
+| F5 | 用量换算时四舍五入 | 向上取整（浮点噪声除外） | `lib/domain/provider-cost.ts` `rateCost` | `provider-cost.test.ts` |
+| F6 | 带"未确认"收据仍能结算成 ready | 有未确认收据就失败，且整笔预留不退 | `lib/services/knowledge.ts:592` | 所有用例经过 `expectChargedAtLeastCost` |
 
-附带修正：后台知识成本页的 `refundedCredits` 改为 `greatest(预留 − 已扣, 0)`（`lib/services/admin-knowledge-costs.ts`），因为有欠款时已扣会大于预留。
+## 测试不变量
 
-### 测试不变量
+`tests/integration/billing-audit.ts` 的 `expectChargedAtLeastCost(knowledgeId)` 对每一轮处理（成功或失败）断言：
 
-新文件 `tests/integration/billing-audit.ts` 提供 `expectChargedAtLeastCost(knowledgeId)`，对一条知识的每一轮处理断言：
+- `chargedCredits`（含欠款）≥ `ceil(全部已知收据成本 / 0.0001)`；
+- 没有收据的运行扣费为 0；ready 运行没有未确认收据；
+- 账本净扣 + 欠款 = 各轮扣费之和，没有未关闭的预留。
 
-- ready 运行和余额不足运行：`chargedCredits`（含欠款）≥ `ceil(全部已知收据美元成本 / 0.0001)`，且 ready 运行没有未确认收据；
-- 其他失败运行：扣费为 0（政策 P1）；
-- 账本净扣 + 欠款 = 各轮 `chargedCredits` 之和，没有未关闭的预留。
+P2 / P3 的运行在 `knowledge-billing.test.ts` 的 `runsOf` 里做同样的断言。存储断言三点：
+- `chargedCredits = ceil(累计 pico 美元 / 10^8)`，并且足以覆盖累计成本；
+- 每次累计成本都高于"只按 Vercel 标价 $0.023 / GB-month、31 天一个月、只算文件本身"的独立下限；
+- 多次小额结算后仍不低于总成本。
 
-上表每种导入路径的集成测试都调用了它。
+## 用户可见的行为变化
 
-## 待决（产品政策，未改动）
+- **失败不退**：处理失败时，已发生的成本照收，只退没用掉的预留。重新处理一个反复失败的文件，每次都收费。什么都没花的失败（文件不存在、名字触发的模拟失败）仍然全额退回。
+- **未知成本整笔不退**：失败时如果有供应商成本无法确定（例如自定义 embedding 端点没返回 usage），整笔预留不退。
+- **每次处理都多一点流量费**：读回上传文件、抓取网页 / 仓库、发给 Firecrawl / 转写，按 $0.15 / GB 计。金额通常远小于 1 credit，但每轮只向上取整一次，所以小文件通常多 1 credit。后台成本页会多出"流量"类收据。
+- **画像和示例问题收费**：入库后的知识画像，以及启停 / 恢复 / 发布、模型切换后的画像重建，每次至少 1 credit；余额为 0 时记欠款。示例问题在余额不够时直接不生成。
+- **重新向量化收费**：管理员切换 embedding 模型后，每个知识库主人为自己的片段付费，余额不够就记欠款。候选模型必须先配好单价，否则任务失败。
+- **存储每天扣费**：账本里出现"知识存储"（`storage_charge`）条目，计入"消耗"统计。回收站里的来源一直计费，直到 30 天后被清除；已删除 Ree 的知识也一直计费，因为它们仍然占着存储。
+- **可能欠款**：任何已经发生的成本，余额不够时都会记欠款（`/billing` 显示欠款，下次到账先还）。
 
-| # | 内容 | 现状 | 影响 / 建议 |
-| --- | --- | --- | --- |
-| P1 | 处理失败（余额不足除外）全额退款，已发生的供应商成本由平台承担；超时回收同理 | `failAndRefund`，`docs/handover/knowledge-billing.md`"沿用处理失败全额退款的产品政策" | 可以被反复利用：比如一份 Firecrawl 能解析、但之后才失败的文件（页码缺失、截断、没有正文），每次重新处理平台都付一次 Firecrawl。建议：失败原因属于来源本身（`empty_text`、`parse_failed` 等）时按已发生成本结算，平台侧故障（`embedding_unavailable`、`pricing_unavailable`、超时）才全额退款。需要产品决定 |
-| P2 | 知识画像、示例问题的生成和 embedding 免费 | `afterKnowledgeReady` 在计量范围外运行 | 每次入库成功、启停、恢复都会触发一次，成本随来源数量增长；是否计入入库费用需要产品决定 |
-| P3 | 管理员切换 embedding 模型后的全量重新向量化免费 | `lib/services/reembed.ts` | 平台主动操作，平台承担比较合理；记录在案 |
-| P4 | 本地解析 CPU、网页 / GitHub 抓取流量、Blob 存储和向量存储不计费 | 只有第三方付费调用进入收据 | 符合现有"只按第三方实际成本"的规则；如果要覆盖存储成本，需要单独定价 |
+## 剩余说明
 
-另外两点说明：
-
-- F1 会让用户欠款（余额显示 0，`/billing` 显示欠款，下次到账先还）。F2 的调用前预留让绝大多数情况在付费调用发生之前就被拒绝，欠款只在估计偏低时出现：没有本地页数的 PDF，或者供应商实际计费超过字节上限。
-- 自定义 embedding 端点不返回 usage 时仍然失败退款（原有政策，`knowledge.test.ts` "records missing usage for reconciliation…"），没有改成按字节上限计费。
+- **未计入的成本**：
+  - embedding 请求本身的出站字节（很小）。
+  - 网页抓取中 4xx / 5xx 错误响应的正文。
+  - 流式生成（`wrapStream`）不在计量范围内。计量范围里没有流式生成调用；聊天走自己的计费。
+- **未关联到知识行的 Blob 文件**：申请了上传令牌但没有加入知识库的文件，由 Blob 平台承担。这类文件不在 `knowledge` 表里，需要单独的孤儿文件清理。
+- **迟到收据的账本位置**：迟到收据补扣时写成 `knowledge_hold` 条目，备注 "(late receipt)"。`/billing` 的"消耗"汇总只统计结算条目，所以这笔补扣不会出现在消耗汇总里，但余额和账本都正确。

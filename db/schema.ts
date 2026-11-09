@@ -16,6 +16,7 @@ import {
   index,
   integer,
   jsonb,
+  numeric,
   pgTable,
   primaryKey,
   text,
@@ -224,6 +225,8 @@ export const knowledge = pgTable(
     deletedAt: timestampTz('deleted_at'),
     createdAt: createdAt(),
     updatedAt: timestampTz('updated_at').notNull().defaultNow(),
+    /** Storage is billed up to here (null: from `created_at`), see `lib/services/storage-billing.ts`. */
+    storageBilledAt: timestampTz('storage_billed_at'),
   },
   (t) => [
     index('knowledge_ree_idx').on(t.reeId, t.updatedAt),
@@ -427,6 +430,8 @@ export const CREDIT_ENTRY_REASONS = [
   'synthesis_hold',
   'synthesis_settle',
   'synthesis_refund',
+  /* Knowledge storage (Blob files, text, passages and vectors), billed daily: docs/audit/credit-import-audit.md P4. */
+  'storage_charge',
 ] as const;
 export type CreditEntryReason = (typeof CREDIT_ENTRY_REASONS)[number];
 
@@ -801,6 +806,20 @@ export const creditDebt = pgTable(
     check('credit_debt_remaining_check', sql`remaining >= 0 and remaining <= amount and amount > 0`),
   ],
 );
+
+/**
+ * A user's knowledge storage cost so far (`lib/services/storage-billing.ts`):
+ * pico-dollars accrued, and the credits charged for them. The charge is
+ * always `ceil(cost)`, so it is never below cost and at most one credit above.
+ */
+export const storageAccrual = pgTable('storage_accrual', {
+  userId: uuid('user_id')
+    .primaryKey()
+    .references(() => user.id, { onDelete: 'cascade' }),
+  costPico: numeric('cost_pico', { precision: 40, scale: 0 }).notNull().default('0'),
+  chargedCredits: bigint('charged_credits', { mode: 'number' }).notNull().default(0),
+  updatedAt: timestampTz('updated_at').notNull().defaultNow(),
+});
 
 /* ------------------------------------------------- step 4: conversations, explore */
 

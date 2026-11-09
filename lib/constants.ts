@@ -79,6 +79,40 @@ export const QUERY_FEE = { min: 0, max: 10_000, default: 0 } as const;
 /** Refundable balance check for knowledge processing; actual supplier USD costs determine the bill. */
 export const KNOWLEDGE_INITIAL_HOLD = 1;
 
+/**
+ * Our own infrastructure costs billed with knowledge (docs/audit/credit-import-audit.md,
+ * P4), in USD. None of them is reported per call, so each is a published list
+ * price rounded up to the dearest meter it can fall under -- never below cost.
+ * Per-second storage divides a month by 28 days, the shortest month.
+ * Change them here only.
+ *
+ *   - `blobStoragePerGbMonth`: Vercel Blob storage, $0.023 / GB-month
+ *     (vercel.com/docs/vercel-blob/usage-and-pricing), plus $0.005 for the
+ *     upload's advanced operation and list / head calls spread over the file.
+ *   - `databaseStoragePerGbMonth`: Neon storage $0.35 + instant-restore history
+ *     $0.20 / GB-month (neon.com/pricing). Stored bytes are counted with a 2×
+ *     factor for indexes (the vector index the size of the vectors again).
+ *   - `transferPerGb`: bytes our functions fetch or send while processing a
+ *     source (web pages, GitHub files, the stored upload read back from Blob,
+ *     the file sent to Firecrawl or the transcription endpoint). Vercel bills
+ *     Blob data transfer $0.05 + Fast Origin Transfer $0.06 / GB on a cache
+ *     miss and Fast Data Transfer from $0.15 / GB; the dearest, $0.15, applies
+ *     to all of it -- no meter of ours is published for outbound fetches, so
+ *     this is the conservative choice the audit calls out.
+ */
+export const INFRA_COST_RATES = {
+  blobStoragePerGbMonth: '0.028',
+  databaseStoragePerGbMonth: '0.55',
+  databaseIndexFactor: 2,
+  transferPerGb: '0.15',
+  /** Bytes per GB: decimal, the smaller unit, so more GBs are counted. */
+  bytesPerGb: 1_000_000_000,
+  /** Seconds in the shortest month. */
+  monthSeconds: 28 * 24 * 60 * 60,
+  /** Per stored passage beyond its text: the vector (4 bytes a dimension, see EMBEDDING_DIMENSIONS) and row overhead. */
+  chunkRowBytes: 200,
+} as const;
+
 /* --------------------------------------------------------------- Ree, 8.2 */
 
 export const REE_LIMITS = {

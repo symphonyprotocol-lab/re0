@@ -3,7 +3,7 @@
  * passages; the charge is the settled price (≤ the hold) and the ledger has
  * the hold and the settlement. A text PDF is parsed locally and pays only for
  * embedding; a scanned one goes to (fake) Firecrawl and pays its credits too.
- * Failures refund in full; reprocessing charges again.
+ * A failure keeps what it spent and returns the rest; reprocessing charges again.
  */
 import { WELCOME_CREDITS } from '@/lib/constants';
 import { afterAll, beforeAll, beforeEach, describe, expect, it, vi } from 'vitest';
@@ -68,13 +68,18 @@ describeWithDb('document processing', () => {
     process.env.PROVIDER_COST_RATES = JSON.stringify(configured);
     const second = await knowledge.addKnowledge(userId, ree, { kind: 'document', blobPath: path, fileName: 'same.md' });
     await knowledge.processKnowledge(second, { profile: false });
-    expect(await balanceOf(db(), userId)).toBe(WELCOME_CREDITS - 1 - 20);
+    // Each run also pays for reading the file back from Blob, a fraction of a credit that rounds the run up.
+    expect(await balanceOf(db(), userId)).toBe(WELCOME_CREDITS - 1 - 21);
     await expectChargedAtLeastCost(first);
     await expectChargedAtLeastCost(second);
     const firstDetail = await knowledge.knowledgeDetail(ree.id, first);
     const secondDetail = await knowledge.knowledgeDetail(ree.id, second);
-    const oldCharge = JSON.parse(String(firstDetail!.activity.find((entry) => entry.code === 'provider_usage')!.detail!.charge));
-    const newCharge = JSON.parse(String(secondDetail!.activity.find((entry) => entry.code === 'provider_usage')!.detail!.charge));
+    const embeddingCharge = (detail: typeof firstDetail) => detail!.activity
+      .filter((entry) => entry.code === 'provider_usage')
+      .map((entry) => JSON.parse(String(entry.detail!.charge)))
+      .find((charge) => charge.service === 'embedding');
+    const oldCharge = embeddingCharge(firstDetail);
+    const newCharge = embeddingCharge(secondDetail);
     expect(oldCharge.rate.usdPerUnit).toBe('0.00000002');
     expect(newCharge.rate.usdPerUnit).toBe('0.000002');
     expect(newCharge.priceRevision).not.toBe(oldCharge.priceRevision);
@@ -102,7 +107,7 @@ describeWithDb('document processing', () => {
     expect(await balanceOf(db(), userId)).toBe(WELCOME_CREDITS);
   });
 
-  it('records missing usage for reconciliation and refunds rather than fabricating a bill', async () => {
+  it('records missing usage for reconciliation and keeps the reservation rather than bill zero', async () => {
     const { userId, ree } = await userWithRee();
     fake.billing.omitEmbeddingUsage = true;
     const id = await knowledge.addKnowledge(userId, ree, { kind: 'text', title: 'Unknown usage', content: 'The endpoint returns no token usage.' });
@@ -111,7 +116,11 @@ describeWithDb('document processing', () => {
     expect(detail).toMatchObject({ status: 'failed', error: 'usage_unavailable' });
     const charge = JSON.parse(String(detail!.activity.find((entry) => entry.code === 'provider_usage')!.detail!.charge));
     expect(charge).toMatchObject({ basis: 'unresolved', costUsd: null });
-    expect(await balanceOf(db(), userId)).toBe(WELCOME_CREDITS);
+    // A cost nobody can price keeps everything reserved for it (P1): the 1-credit hold, which covered the call's estimate.
+    const [hold] = await db().select().from(schema.creditHold).where(eq(schema.creditHold.refId, id));
+    expect(hold).toMatchObject({ status: 'settled' });
+    expect(await balanceOf(db(), userId)).toBe(WELCOME_CREDITS - hold!.amount);
+    expect(await expectChargedAtLeastCost(id)).toEqual([expect.objectContaining({ status: 'failed', charged: hold!.amount, unresolved: 1 })]);
   });
 
   it.each([20_001, 47_001])('bills actual embedding tokens for a %i-character source, once', async (characters) => {
@@ -121,11 +130,15 @@ describeWithDb('document processing', () => {
     blobs.set(path, new TextEncoder().encode('x'.repeat(characters)));
     const id = await knowledge.addKnowledge(userId, ree, { kind: 'document', blobPath: path, fileName: 'large.md' });
     await Promise.all([knowledge.processKnowledge(id, { profile: false }), knowledge.processKnowledge(id, { profile: false })]);
-    const price = 40;
+    // $0.004 of embedding (40 credits) and the file read back from Blob: rounded up once, 41.
+    const price = 41;
     expect(await balanceOf(db(), userId)).toBe(WELCOME_CREDITS - price);
     const detail = await knowledge.knowledgeDetail(ree.id, id);
     expect(detail?.status).toBe('ready');
-    expect(detail?.activity.find((entry) => entry.code === 'settled')?.detail).toMatchObject({ tariff: 'provider-cost-v1', costUsd: '0.004000000000', charged: price });
+    const settled = detail?.activity.find((entry) => entry.code === 'settled')?.detail;
+    expect(settled).toMatchObject({ tariff: 'provider-cost-v1', charged: price });
+    expect(Number(settled!.costUsd)).toBeGreaterThan(0.004);
+    expect(Number(settled!.costUsd)).toBeLessThan(0.0041);
     const entries = await db().select().from(schema.creditEntry).where(eq(schema.creditEntry.refId, id)).orderBy(asc(schema.creditEntry.createdAt));
     expect(entries[0]).toMatchObject({ reason: 'knowledge_hold', delta: -1 });
     expect(entries.at(-1)?.reason).toBe('knowledge_settle');
@@ -150,21 +163,21 @@ describeWithDb('document processing', () => {
     const detail = await knowledge.knowledgeDetail(ree.id, id);
     expect(detail).toMatchObject({ status: 'failed', error: 'insufficient_credits', chunks: [] });
     expect(fake.requests.filter((request) => request.path.endsWith('/embeddings'))).toHaveLength(calls + 1);
-    // $0.004 of embedding is 40 credits: all 20 the balance had, and 20 owed.
+    // $0.004 of embedding and the file's transfer: 41 credits, all 20 the balance had, and 21 owed.
     expect(await balanceOf(db(), userId)).toBe(0);
-    expect(await debtOf(userId)).toBe(20);
-    expect(detail!.activity.find((entry) => entry.code === 'settled')?.detail).toMatchObject({ charged: 40, owed: 20 });
+    expect(await debtOf(userId)).toBe(21);
+    expect(detail!.activity.find((entry) => entry.code === 'settled')?.detail).toMatchObject({ charged: 41, owed: 21 });
     const [hold] = await db().select().from(schema.creditHold).where(eq(schema.creditHold.refId, id));
     expect(hold).toMatchObject({ status: 'settled', amount: 20 });
-    expect(await expectChargedAtLeastCost(id)).toEqual([expect.objectContaining({ cost: 40, charged: 40, owed: 20 })]);
+    expect(await expectChargedAtLeastCost(id)).toEqual([expect.objectContaining({ cost: 41, charged: 41, owed: 21 })]);
     const entries = await db().select().from(schema.creditEntry).where(eq(schema.creditEntry.refId, id)).orderBy(asc(schema.creditEntry.createdAt));
-    expect(entries.some((entry) => entry.note?.endsWith('20 owed'))).toBe(true);
+    expect(entries.some((entry) => entry.note?.endsWith('21 owed'))).toBe(true);
 
     // The debt is paid first from the next credits to arrive.
     const { addGrant } = await import('@/lib/services/credits');
     await db().transaction((tx) => addGrant(tx, { userId, source: 'pack', amount: 50, reason: 'admin_adjust', refId: id }));
     expect(await debtOf(userId)).toBe(0);
-    expect(await balanceOf(db(), userId)).toBe(30);
+    expect(await balanceOf(db(), userId)).toBe(29);
   });
 
   it('refuses the call before it is made when the balance cannot cover its estimate', async () => {
@@ -178,10 +191,10 @@ describeWithDb('document processing', () => {
     await knowledge.processKnowledge(id, { profile: false });
     expect(await knowledge.knowledgeDetail(ree.id, id)).toMatchObject({ status: 'failed', error: 'insufficient_credits', chunks: [] });
     expect(fake.requests.filter((request) => request.path.endsWith('/embeddings'))).toHaveLength(calls);
-    // No supplier was paid, so nothing is charged and nothing is owed.
-    expect(await balanceOf(db(), userId)).toBe(3);
+    // No supplier was paid; reading the file back from Blob was, and that one credit is the whole charge.
+    expect(await balanceOf(db(), userId)).toBe(2);
     expect(await debtOf(userId)).toBe(0);
-    expect(await expectChargedAtLeastCost(id)).toEqual([expect.objectContaining({ cost: 0, charged: 0, receipts: 0 })]);
+    expect(await expectChargedAtLeastCost(id)).toEqual([expect.objectContaining({ cost: 1, charged: 1, receipts: 1 })]);
   });
 
   it('refuses a scanned PDF before Firecrawl when the balance cannot cover its pages', async () => {
@@ -195,7 +208,8 @@ describeWithDb('document processing', () => {
     await knowledge.processKnowledge(id, { profile: false });
     expect(firecrawl.requests).toHaveLength(firecrawlCalls);
     expect(await knowledge.knowledgeDetail(ree.id, id)).toMatchObject({ status: 'failed', error: 'insufficient_credits' });
-    expect(await balanceOf(db(), userId)).toBe(299);
+    // Only the file's read from Blob was spent: one credit.
+    expect(await balanceOf(db(), userId)).toBe(298);
     expect(await debtOf(userId)).toBe(0);
     await expectChargedAtLeastCost(id);
   });
@@ -210,19 +224,19 @@ describeWithDb('document processing', () => {
     await knowledge.processKnowledge(id, { profile: false });
     const detail = await knowledge.knowledgeDetail(ree.id, id);
     expect(detail).toMatchObject({ status: 'failed', error: 'insufficient_credits', chunks: [] });
-    // Firecrawl's 300 and the overrunning embedding's 40: 340, of which the balance had 310.
-    expect(detail!.activity.find((entry) => entry.code === 'settled')?.detail).toMatchObject({ charged: 340, released: 0, owed: 30 });
+    // Firecrawl's 300, the overrunning embedding's 40 and the file's transfer: 341, of which the balance had 310.
+    expect(detail!.activity.find((entry) => entry.code === 'settled')?.detail).toMatchObject({ charged: 341, released: 0, owed: 31 });
     expect(detail!.activity.some((entry) => entry.code === 'refunded')).toBe(false);
     expect(await balanceOf(db(), userId)).toBe(0);
-    expect(await debtOf(userId)).toBe(30);
+    expect(await debtOf(userId)).toBe(31);
     const [hold] = await db().select().from(schema.creditHold).where(eq(schema.creditHold.refId, id));
     expect(hold).toMatchObject({ status: 'settled', amount: 310 });
     const [run] = await db().select().from(schema.knowledgeCostRun).where(eq(schema.knowledgeCostRun.id, hold!.id));
-    expect(run).toMatchObject({ status: 'failed', error: 'insufficient_credits', chargedCredits: 340 });
-    expect(await expectChargedAtLeastCost(id)).toEqual([expect.objectContaining({ cost: 340, charged: 340 })]);
+    expect(run).toMatchObject({ status: 'failed', error: 'insufficient_credits', chargedCredits: 341 });
+    expect(await expectChargedAtLeastCost(id)).toEqual([expect.objectContaining({ cost: 341, charged: 341 })]);
   });
 
-  it('refunds the expanded reservation in full if embedding fails', async () => {
+  it('keeps what a run spent when embedding fails, returning only the unused reservation', async () => {
     const { userId, ree } = await userWithRee();
     const path = `knowledge/${userId}/usage/unavailable.pdf`;
     blobs.set(path, scannedHandbookPdf());
@@ -231,11 +245,16 @@ describeWithDb('document processing', () => {
     try {
       await knowledge.processKnowledge(id, { profile: false });
       expect(await knowledge.knowledgeDetail(ree.id, id)).toMatchObject({ status: 'failed', error: 'embedding_unavailable', chunks: [] });
-      expect(await balanceOf(db(), userId)).toBe(WELCOME_CREDITS);
+      // P1: Firecrawl's 300 and the file's transfer stay charged (301); nothing else was reserved.
+      expect(await balanceOf(db(), userId)).toBe(WELCOME_CREDITS - 301);
       const [hold] = await db().select().from(schema.creditHold).where(eq(schema.creditHold.refId, id));
-      expect(hold).toMatchObject({ status: 'released', amount: 300 });
-      // Policy: a failure is refunded in full; Firecrawl's receipt stays on the run as platform cost.
-      expect(await expectChargedAtLeastCost(id)).toEqual([expect.objectContaining({ cost: 300, charged: 0 })]);
+      expect(hold).toMatchObject({ status: 'settled' });
+      expect(await expectChargedAtLeastCost(id)).toEqual([expect.objectContaining({ status: 'failed', cost: 301, charged: 301 })]);
+      // Reprocessing it is billed again in full.
+      await knowledge.refreshKnowledge(userId, ree.id, id);
+      await knowledge.processKnowledge(id, { profile: false });
+      expect((await expectChargedAtLeastCost(id)).map((run) => [run.status, run.charged])).toEqual([['failed', 301], ['ready', 301]]);
+      expect(await balanceOf(db(), userId)).toBe(WELCOME_CREDITS - 602);
     } finally {
       spy.mockRestore();
     }
@@ -293,23 +312,26 @@ describeWithDb('document processing', () => {
     try {
       await oldEntered;
       await knowledge.recoverStale(ree.id, new Date(Date.now() + 16 * 60_000));
-      expect(await balanceOf(db(), userId)).toBe(WELCOME_CREDITS);
+      // The dead run had read the file from Blob: that cost stays charged (1), the rest of its reservation came back.
+      expect(await balanceOf(db(), userId)).toBe(WELCOME_CREDITS - 1);
       await knowledge.refreshKnowledge(userId, ree.id, id);
       newRun = knowledge.processKnowledge(id, { profile: false });
       await newEntered;
       resumeOld();
       expect(await oldRun).toBeNull();
       expect(await knowledge.knowledgeDetail(ree.id, id)).toMatchObject({ status: 'processing' });
-      expect(await balanceOf(db(), userId)).toBe(WELCOME_CREDITS - 1);
+      expect(await balanceOf(db(), userId)).toBe(WELCOME_CREDITS - 2);
       resumeNew();
       await newRun;
       expect(await knowledge.knowledgeDetail(ree.id, id)).toMatchObject({ status: 'ready' });
-      expect(await balanceOf(db(), userId)).toBe(WELCOME_CREDITS - 40);
+      expect(await balanceOf(db(), userId)).toBe(WELCOME_CREDITS - 1 - 41);
       const costs = await db().select().from(schema.knowledgeCostRun).where(eq(schema.knowledgeCostRun.knowledgeId, id));
       expect(costs).toHaveLength(2);
-      // The timed-out run's late embedding is refused before it is sent: its reservation was already refunded.
-      expect(costs.find((run) => run.status === 'failed')).toMatchObject({ chargedCredits: 0, charges: [] });
-      expect(costs.find((run) => run.status === 'ready')).toMatchObject({ chargedCredits: 40, charges: [expect.objectContaining({ costUsd: '0.004000000000' })] });
+      // The timed-out run's late embedding is refused before it is sent, so its only receipt is the Blob read.
+      expect(costs.find((run) => run.status === 'failed')).toMatchObject({ chargedCredits: 1, charges: [expect.objectContaining({ service: 'bandwidth' })] });
+      expect(costs.find((run) => run.status === 'ready')).toMatchObject({ chargedCredits: 41 });
+      expect(costs.find((run) => run.status === 'ready')!.charges.find((charge) => charge.service === 'embedding')).toMatchObject({ costUsd: '0.004000000000' });
+      await expectChargedAtLeastCost(id);
     } finally {
       resumeOld();
       resumeNew();
@@ -326,14 +348,15 @@ describeWithDb('document processing', () => {
     expect(await balanceOf(db(), userId)).toBe(WELCOME_CREDITS - 1);
     const firecrawlCalls = firecrawl.requests.length;
 
-    await knowledge.processKnowledge(id);
+    await knowledge.processKnowledge(id, { profile: false });
     expect(firecrawl.requests).toHaveLength(firecrawlCalls);
     const detail = await knowledge.knowledgeDetail(ree.id, id);
     expect(detail?.status).toBe('ready');
     expect(detail?.chunks).toHaveLength(30);
     expect(detail?.chunks[2]?.locator).toMatchObject({ page: 3 });
     expect(detail?.chunks[2]?.content).toContain('within 14 days');
-    expect(detail?.activity.map((entry) => entry.code).filter((code) => code !== 'reserved')).toEqual(['added', 'processing', 'provider_usage', 'parsed', 'chunked', 'settled', 'ready']);
+    // Two receipts: the file read back from Blob, and the embedding.
+    expect(detail?.activity.map((entry) => entry.code).filter((code) => code !== 'reserved')).toEqual(['added', 'processing', 'provider_usage', 'provider_usage', 'parsed', 'chunked', 'settled', 'ready']);
     expect(detail!.activity.find((entry) => entry.code === 'parsed')?.detail).toMatchObject({ pages: 30 });
 
     const entries = await db().select().from(schema.creditEntry).where(eq(schema.creditEntry.refId, id)).orderBy(asc(schema.creditEntry.createdAt));
@@ -343,7 +366,7 @@ describeWithDb('document processing', () => {
     await expectChargedAtLeastCost(id);
     const [run] = await db().select().from(schema.knowledgeCostRun).where(eq(schema.knowledgeCostRun.knowledgeId, id));
     expect(run).toMatchObject({ status: 'ready', chargedCredits: 1 });
-    expect(run!.charges.map((charge) => charge.service)).toEqual(['embedding']);
+    expect(run!.charges.map((charge) => charge.service)).toEqual(['bandwidth', 'embedding']);
 
     const listed = await knowledge.listKnowledge(ree.id, { q: 'refunds', status: 'ready', kind: 'all', sort: 'recent', size: 20, page: 1 });
     expect(listed.items).toHaveLength(1);
@@ -359,7 +382,7 @@ describeWithDb('document processing', () => {
     expect(await balanceOf(db(), userId)).toBe(WELCOME_CREDITS - 1);
     const firecrawlCalls = firecrawl.requests.length;
 
-    await knowledge.processKnowledge(id);
+    await knowledge.processKnowledge(id, { profile: false });
     expect(firecrawl.requests).toHaveLength(firecrawlCalls + 1);
     const detail = await knowledge.knowledgeDetail(ree.id, id);
     expect(detail?.status).toBe('ready');
@@ -370,7 +393,8 @@ describeWithDb('document processing', () => {
     const codes = detail!.activity.map((entry) => entry.code);
     expect(codes.indexOf('reserved')).toBeLessThan(codes.indexOf('provider_usage'));
     expect(detail!.activity.find((entry) => entry.code === 'reserved')?.detail).toMatchObject({ credits: 299, estimate: 1 });
-    expect(codes.filter((code) => code !== 'reserved')).toEqual(['added', 'processing', 'provider_usage', 'provider_usage', 'parsed', 'chunked', 'settled', 'ready']);
+    // Receipts: Firecrawl, the transfer (Blob read and the upload to Firecrawl, one each), the embedding.
+    expect(codes.filter((code) => code !== 'reserved')).toEqual(['added', 'processing', 'provider_usage', 'provider_usage', 'provider_usage', 'provider_usage', 'parsed', 'chunked', 'settled', 'ready']);
 
     const entries = await db().select().from(schema.creditEntry).where(eq(schema.creditEntry.refId, id)).orderBy(asc(schema.creditEntry.createdAt));
     expect(entries.slice(0, 2).map((entry) => [entry.reason, entry.delta])).toEqual([['knowledge_hold', -1], ['knowledge_hold', -299]]);
@@ -394,7 +418,7 @@ describeWithDb('document processing', () => {
     blobs.set(path, new TextEncoder().encode('# Notes\n\nThe office opens at nine.'));
     await knowledge.refreshKnowledge(userId, ree.id, id);
     expect(await balanceOf(db(), userId)).toBe(WELCOME_CREDITS - 1);
-    await knowledge.processKnowledge(id);
+    await knowledge.processKnowledge(id, { profile: false });
     expect((await knowledge.knowledgeDetail(ree.id, id))?.status).toBe('ready');
     expect(await balanceOf(db(), userId)).toBe(WELCOME_CREDITS - 1);
     const reasons = (await db().select().from(schema.creditEntry).where(eq(schema.creditEntry.refId, id)).orderBy(asc(schema.creditEntry.createdAt))).map((entry) => entry.reason);
@@ -406,8 +430,8 @@ describeWithDb('document processing', () => {
     const { userId, ree } = await userWithRee();
     const id = await knowledge.addKnowledge(userId, ree, { kind: 'text', title: 'Policy', content: 'Refund policy. '.repeat(100) });
     await expect(knowledge.refreshKnowledge(userId, ree.id, id)).rejects.toMatchObject({ code: 'busy' });
-    await knowledge.processKnowledge(id);
-    await knowledge.processKnowledge(id);
+    await knowledge.processKnowledge(id, { profile: false });
+    await knowledge.processKnowledge(id, { profile: false });
     expect((await knowledge.knowledgeDetail(ree.id, id))?.status).toBe('ready');
     expect(await balanceOf(db(), userId)).toBe(WELCOME_CREDITS - 1);
     expect(await expectChargedAtLeastCost(id)).toEqual([expect.objectContaining({ status: 'ready', charged: 1 })]);
@@ -441,7 +465,7 @@ describeWithDb('document processing', () => {
     expect(settled).not.toHaveProperty('unresolvedCalls');
     expect(await balanceOf(db(), userId)).toBe(WELCOME_CREDITS - Number(settled.charged));
     const [run] = await db().select().from(schema.knowledgeCostRun).where(eq(schema.knowledgeCostRun.knowledgeId, id));
-    expect(run!.charges.map((charge) => charge.service)).toEqual(['embedding']);
+    expect(run!.charges.map((charge) => charge.service)).toEqual(['bandwidth', 'embedding']);
     await expectChargedAtLeastCost(id);
     const { retrieve } = await import('@/lib/services/chat');
     const result = await retrieve(ree.id, 'Devices are covered for how many years?');
@@ -449,18 +473,18 @@ describeWithDb('document processing', () => {
     expect(result.passages.some((passage) => passage.knowledgeId === id && passage.content.includes('two years'))).toBe(true);
   });
 
-  it('fails and refunds a Word file that is not a document', async () => {
+  it('fails a Word file that is not a document, keeping only the cost of reading it', async () => {
     const { userId, ree } = await userWithRee();
     const path = `knowledge/${userId}/word/broken.docx`;
     blobs.set(path, new Uint8Array([80, 75, 3, 4]));
     const id = await knowledge.addKnowledge(userId, ree, { kind: 'document', blobPath: path, fileName: 'broken.docx' });
     await knowledge.processKnowledge(id, { profile: false });
     expect(await knowledge.knowledgeDetail(ree.id, id)).toMatchObject({ status: 'failed', error: 'parse_failed', chunks: [] });
-    expect(await balanceOf(db(), userId)).toBe(WELCOME_CREDITS);
-    await expectChargedAtLeastCost(id);
+    expect(await balanceOf(db(), userId)).toBe(WELCOME_CREDITS - 1);
+    expect(await expectChargedAtLeastCost(id)).toEqual([expect.objectContaining({ status: 'failed', charged: 1, receipts: 1 })]);
   });
 
-  it('fails and refunds when Firecrawl cannot provide PDF page attribution', async () => {
+  it('fails when Firecrawl cannot provide PDF page attribution, keeping what Firecrawl cost', async () => {
     const route = 'api.firecrawl.dev/v2/parse';
     const original = firecrawl.routes.get(route)!;
     firecrawl.routes.set(route, () => jsonResponse({ success: true, data: { markdown: 'Text without page numbers.', metadata: { creditsUsed: 30 } } }));
@@ -471,9 +495,10 @@ describeWithDb('document processing', () => {
       const id = await knowledge.addKnowledge(userId, ree, { kind: 'document', blobPath: path, fileName: 'unreadable.pdf' });
       await knowledge.processKnowledge(id);
       expect(await knowledge.knowledgeDetail(ree.id, id)).toMatchObject({ status: 'failed', error: 'parse_failed', chunks: [] });
-      expect(await balanceOf(db(), userId)).toBe(WELCOME_CREDITS);
+      expect(await balanceOf(db(), userId)).toBe(WELCOME_CREDITS - 301);
       const entries = await db().select().from(schema.creditEntry).where(eq(schema.creditEntry.refId, id)).orderBy(asc(schema.creditEntry.createdAt));
-      expect(entries.map((entry) => [entry.reason, entry.delta])).toEqual([['knowledge_hold', -1], ['knowledge_hold', -299], ['knowledge_refund', 300]]);
+      expect(entries.map((entry) => entry.reason)).not.toContain('knowledge_refund');
+      expect(await expectChargedAtLeastCost(id)).toEqual([expect.objectContaining({ status: 'failed', cost: 301, charged: 301 })]);
     } finally {
       firecrawl.routes.set(route, original);
     }

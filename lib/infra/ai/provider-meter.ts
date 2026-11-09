@@ -1,6 +1,6 @@
 import { AsyncLocalStorage } from 'node:async_hooks';
 import {
-  ProviderCostUnavailable, providerRateSchema, rateCost, reportedGatewayCost,
+  ProviderCostUnavailable, providerRateSchema, rateCost, reportedGatewayCost, transferCostUsd,
   type ProviderCharge, type ProviderRate, type ProviderTarget, type ProviderUsage,
 } from '@/lib/domain/provider-cost';
 import { configuredProviderRate, type ProviderPrices } from '@/lib/services/provider-pricing';
@@ -18,6 +18,8 @@ interface Meter {
    */
   reserve?(costUsd: string): Promise<() => void>;
   pending?: Set<Promise<void>>;
+  /** Bytes moved since the last `flushTransfer`, by what moved them. */
+  transfer?: Map<string, number>;
 }
 const context = new AsyncLocalStorage<Meter>();
 export const withProviderMeter = <T>(meter: Meter, work: () => Promise<T>) => context.run(meter, work);
@@ -33,6 +35,32 @@ export async function drainProviderCalls(): Promise<void> {
   const pending = context.getStore()?.pending;
   while (pending?.size) await Promise.all([...pending]);
 }
+/**
+ * Our own transfer while a metered run works (`INFRA_COST_RATES.transferPerGb`):
+ * a page fetched, the upload read back from Blob, the file sent on to a
+ * supplier. Outside a run it is not ours to bill and is ignored.
+ */
+export function meterTransfer(what: 'fetch' | 'blob_read' | 'upload', bytes: number): void {
+  const meter = context.getStore();
+  if (!meter || !Number.isFinite(bytes) || bytes <= 0) return;
+  (meter.transfer ??= new Map()).set(what, (meter.transfer.get(what) ?? 0) + Math.ceil(bytes));
+}
+
+/** Records the transfer metered so far as `bandwidth` receipts, one per kind, and starts counting afresh. */
+export async function flushTransfer(): Promise<void> {
+  const meter = context.getStore();
+  if (!meter?.transfer?.size) return;
+  const moved = [...meter.transfer];
+  meter.transfer.clear();
+  for (const [what, bytes] of moved) {
+    await meter.record({
+      service: 'bandwidth', endpoint: 'vercel:functions', model: what, account: '*',
+      id: crypto.randomUUID(), runId: meter.runId, at: new Date().toISOString(),
+      usage: { bytes }, costUsd: transferCostUsd(bytes), basis: 'configured_rate',
+    });
+  }
+}
+
 const CATALOG_URL = 'https://ai-gateway.vercel.sh/v1/models';
 let catalog: { at: number; rows: CatalogModel[] } | undefined;
 interface CatalogModel { id: string; pricing?: Record<string, unknown> }
@@ -51,11 +79,14 @@ async function catalogRate(target: ProviderTarget): Promise<ProviderRate | undef
     const price = catalog.rows.find((model) => model.id === target.model)?.pricing;
     // Tiered/provider-dependent prices require the billed cost or an explicit contract rate.
     if (!price || price.varies_by_provider || price.input_tiers || price.inputTiers) return undefined;
+    if (target.service === 'generation' && price.output === undefined) return undefined;
     const seconds = target.service === 'transcription' && typeof price.transcription_duration_cost_per_second === 'string';
     const parsed = providerRateSchema.safeParse({
       ...target, account: '*', unit: seconds ? 'seconds' : 'tokens',
       usdPerUnit: seconds ? price.transcription_duration_cost_per_second : price.input,
       ...(!seconds && target.service === 'transcription' ? { outputUsdPerUnit: price.output, audioInputUsdPerUnit: price.audio_input_token_cost } : {}),
+      // Generation bills its output tokens too: a rate without them would undercount.
+      ...(target.service === 'generation' ? { outputUsdPerUnit: price.output } : {}),
       source: CATALOG_URL,
     });
     return parsed.success ? parsed.data : undefined;

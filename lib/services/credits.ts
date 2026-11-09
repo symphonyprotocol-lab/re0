@@ -284,7 +284,7 @@ export async function reserveKnowledgeUsage(
   tx: Tx,
   holdId: string,
   actual: number,
-  options: { reeId: string; note?: string | null },
+  options: { reeId: string | null; note?: string | null },
   now = new Date(),
 ): Promise<number> {
   if (!Number.isSafeInteger(actual) || actual < 0) throw new Error('invalid knowledge price');
@@ -309,19 +309,51 @@ export async function reserveKnowledgeUsage(
 }
 
 /**
- * A knowledge run that ran out of credits after a supplier already billed
- * it: the cost is the owner's in full (credits are never undercounted). The
- * hold grows by whatever the balance still has, and the part nothing can
- * cover becomes a `credit_debt` row, paid off first by the next credits to
- * arrive (as a refund's shortfall is, 2.3). The entry is written even when
- * the balance is empty, so the ledger shows what is owed. Returns the debt.
- * The caller then settles the hold at `actual`.
+ * Takes `amount` from the balance as far as it goes and owes the rest: one
+ * entry (written even when the balance is empty, so the ledger shows what is
+ * owed) and, for the part nothing could cover, a `credit_debt` row the next
+ * credits to arrive pay off first (as a refund's shortfall is, 2.3). For
+ * costs already incurred, which are never undercounted. Returns what was
+ * taken, its allocations, and the debt.
+ */
+export async function takeOrOwe(
+  tx: Tx,
+  input: { userId: string; amount: number; reason: CreditEntryReason; refId: string | null; reeId?: string | null; note?: string | null },
+  now = new Date(),
+): Promise<{ taken: number; owed: number; allocations: Allocation[] }> {
+  if (!Number.isSafeInteger(input.amount) || input.amount < 0) throw new Error('invalid charge');
+  if (input.amount === 0) return { taken: 0, owed: 0, allocations: [] };
+  const grants = await grantsOf(tx, input.userId, true);
+  const taken = Math.min(input.amount, availableOf(grants, now));
+  const allocations = taken > 0 ? allocate(grants, taken, now) : [];
+  await moveGrants(tx, allocations, -1);
+  const owed = input.amount - taken;
+  await tx.insert(schema.creditEntry).values({
+    userId: input.userId,
+    delta: -taken,
+    reason: input.reason,
+    refId: input.refId,
+    reeId: input.reeId ?? null,
+    note: owed > 0 ? `${input.note ?? ''}${input.note ? ': ' : ''}${owed} owed` : (input.note ?? null),
+    allocations,
+    createdAt: now,
+  });
+  if (owed > 0) await tx.insert(schema.creditDebt).values({ userId: input.userId, amount: owed, remaining: owed, createdAt: now });
+  return { taken, owed, allocations };
+}
+
+/**
+ * A knowledge run whose incurred cost is more than its reservation (it ran
+ * out of credits after a supplier billed it, or it failed): the cost is the
+ * owner's in full. The hold grows by whatever the balance still has
+ * (`takeOrOwe`, written as `knowledge_hold`); the rest is owed. Returns the
+ * debt. The caller then settles the hold at `actual`.
  */
 export async function chargeKnowledgeShortfall(
   tx: Tx,
   holdId: string,
   actual: number,
-  options: { reeId: string; note?: string | null },
+  options: { reeId: string | null; note?: string | null },
   now = new Date(),
 ): Promise<number> {
   if (!Number.isSafeInteger(actual) || actual < 0) throw new Error('invalid knowledge price');
@@ -329,23 +361,8 @@ export async function chargeKnowledgeShortfall(
   if (!hold || hold.kind !== 'knowledge') throw new Error('knowledge reservation unavailable');
   const need = actual - hold.amount;
   if (need <= 0) return 0;
-  const grants = await grantsOf(tx, hold.userId, true);
-  const take = Math.min(need, availableOf(grants, now));
-  const allocations = take > 0 ? allocate(grants, take, now) : [];
-  await moveGrants(tx, allocations, -1);
-  await tx.update(schema.creditHold).set({ amount: hold.amount + take, allocations: [...hold.allocations, ...allocations] }).where(eq(schema.creditHold.id, holdId));
-  const owed = need - take;
-  await tx.insert(schema.creditEntry).values({
-    userId: hold.userId,
-    delta: -take,
-    reason: 'knowledge_hold',
-    refId: hold.refId,
-    reeId: options.reeId,
-    note: owed > 0 ? `${options.note ?? ''}${options.note ? ': ' : ''}${owed} owed` : (options.note ?? null),
-    allocations,
-    createdAt: now,
-  });
-  if (owed > 0) await tx.insert(schema.creditDebt).values({ userId: hold.userId, amount: owed, remaining: owed, createdAt: now });
+  const { taken, owed, allocations } = await takeOrOwe(tx, { userId: hold.userId, amount: need, reason: 'knowledge_hold', refId: hold.refId, reeId: options.reeId, note: options.note }, now);
+  await tx.update(schema.creditHold).set({ amount: hold.amount + taken, allocations: [...hold.allocations, ...allocations] }).where(eq(schema.creditHold.id, holdId));
   return owed;
 }
 

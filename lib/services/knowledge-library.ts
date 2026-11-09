@@ -13,6 +13,7 @@ import { activity, cleanFolderName, cleanTitle } from '@/lib/domain/knowledge';
 import { deleteBlob } from '@/lib/infra/blob';
 import { db, schema, type Tx } from '@/lib/infra/db';
 import { appendActivity, checkReprocess, KnowledgeInputError, reprocessInTx } from '@/lib/services/knowledge';
+import { accrueStorage, rowsIn } from '@/lib/services/storage-billing';
 
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
@@ -224,19 +225,20 @@ export async function renameKnowledge(reeId: string, knowledgeId: string, raw: u
  */
 export async function purgeTrash(now = new Date(), limit = 500): Promise<{ purged: number; files: number }> {
   const cutoff = new Date(now.getTime() - TRASH_RETENTION_DAYS * 24 * 60 * 60 * 1000);
-  const rows = await db()
-    .delete(schema.knowledge)
-    .where(
-      inArray(
-        schema.knowledge.id,
-        db()
-          .select({ id: schema.knowledge.id })
-          .from(schema.knowledge)
-          .where(and(isNotNull(schema.knowledge.deletedAt), lt(schema.knowledge.deletedAt, cutoff)))
-          .limit(limit),
-      ),
-    )
-    .returning({ kind: schema.knowledge.kind, source: schema.knowledge.source });
+  const due = await db()
+    .select({ id: schema.knowledge.id })
+    .from(schema.knowledge)
+    .where(and(isNotNull(schema.knowledge.deletedAt), lt(schema.knowledge.deletedAt, cutoff)))
+    .limit(limit);
+  /* Their storage is billed up to the moment they go, in the same transaction (P4). */
+  const rows = due.length === 0 ? [] : await db().transaction(async (tx) => {
+    const ids = due.map((row) => row.id);
+    await accrueStorage(tx, rowsIn(ids), now);
+    return tx
+      .delete(schema.knowledge)
+      .where(and(inArray(schema.knowledge.id, ids), isNotNull(schema.knowledge.deletedAt)))
+      .returning({ kind: schema.knowledge.kind, source: schema.knowledge.source });
+  });
   const uploads = [
     ...new Set(rows.filter((row) => (row.kind === 'document' || row.kind === 'audio') && row.source?.startsWith('knowledge/')).map((row) => row.source!)),
   ];
