@@ -2,8 +2,11 @@
  * Knowledge storage, billed to the knowledge-base owner
  * (docs/audit/credit-import-audit.md P4): every source row from its creation
  * until it is purged -- the uploaded file in Blob, and in the database its
- * text, children, activity and passages with their vectors -- at
- * `INFRA_COST_RATES`, per byte-second.
+ * text, children, activity and passages with their vectors -- at the
+ * console's storage rates (`lib/services/infra-pricing.ts`), per byte and
+ * millisecond. Time is priced at the rate that applied then: an interval a
+ * rate change falls inside is split there, so a change never reprices
+ * storage already accrued, and applies from the moment it was saved.
  *
  * `accrueStorage` adds what the rows cost since they were last billed
  * (`knowledge.storage_billed_at`) to the owner's `storage_accrual` and charges
@@ -15,16 +18,21 @@
  * cannot cover is owed (`takeOrOwe`).
  */
 import { asc, eq, inArray, lt, sql, type SQL } from 'drizzle-orm';
-import { CHUNK_OVERHEAD_BYTES, picoCredits, storageCostPico } from '@/lib/domain/provider-cost';
+import { chunkOverheadBytes, storageCostPico } from '@/lib/domain/infra-cost';
+import { picoCredits } from '@/lib/domain/provider-cost';
+import { infraRateSegments } from '@/lib/services/infra-pricing';
 import { db, schema, type Tx } from '@/lib/infra/db';
 import { takeOrOwe } from '@/lib/services/credits';
 
 interface Measured {
   userId: string;
   id: string;
-  blobBytes: string;
-  databaseBytes: string;
-  seconds: string;
+  blobBytes: bigint;
+  /** Database bytes before the passages' per-row overhead (which depends on the rate in effect). */
+  databaseBytes: bigint;
+  chunks: bigint;
+  /** Epoch ms the row was last billed up to (rounded down, so never a millisecond short). */
+  since: number;
 }
 
 export interface StorageCharge {
@@ -35,19 +43,22 @@ export interface StorageCharge {
   credits: number;
 }
 
-/** The rows' stored bytes and the seconds since each was last billed, locked for the update that follows. */
-async function measure(tx: Tx, where: SQL, now: Date): Promise<Measured[]> {
-  const rows = await tx.execute<{ user_id: string; id: string; blob_bytes: string; database_bytes: string; seconds: string }>(sql`
+/** The rows' stored bytes and when each was last billed, locked for the update that follows. */
+async function measure(tx: Tx, where: SQL): Promise<Measured[]> {
+  const rows = await tx.execute<{ user_id: string; id: string; blob_bytes: string; database_bytes: string; chunks: string; since: string }>(sql`
     select r.owner_id as user_id, k.id,
       (case when k.kind in ('document', 'audio') and k.source like 'knowledge/%' then coalesce(k.file_size, 0) else 0 end)::text as blob_bytes,
       (coalesce(octet_length(k.content), 0) + octet_length(k.children::text) + octet_length(k.activity::text)
-        + coalesce((select sum(octet_length(c.content) + ${CHUNK_OVERHEAD_BYTES}) from ${schema.chunk} c where c.knowledge_id = k.id), 0))::text as database_bytes,
-      greatest(0, ceil(extract(epoch from (${now.toISOString()}::timestamptz - coalesce(k.storage_billed_at, k.created_at)))))::bigint::text as seconds
+        + coalesce((select sum(octet_length(c.content)) from ${schema.chunk} c where c.knowledge_id = k.id), 0))::text as database_bytes,
+      (select count(*) from ${schema.chunk} c where c.knowledge_id = k.id)::text as chunks,
+      floor(extract(epoch from coalesce(k.storage_billed_at, k.created_at)) * 1000)::bigint::text as since
     from ${schema.knowledge} k join ${schema.ree} r on r.id = k.ree_id
     where ${where}
     order by k.id
     for update of k`);
-  return rows.rows.map((row) => ({ userId: row.user_id, id: row.id, blobBytes: row.blob_bytes, databaseBytes: row.database_bytes, seconds: row.seconds }));
+  return rows.rows.map((row) => ({
+    userId: row.user_id, id: row.id, blobBytes: BigInt(row.blob_bytes), databaseBytes: BigInt(row.database_bytes), chunks: BigInt(row.chunks), since: Number(row.since),
+  }));
 }
 
 /**
@@ -55,20 +66,26 @@ async function measure(tx: Tx, where: SQL, now: Date): Promise<Measured[]> {
  * `where` selects knowledge rows (alias `k`).
  */
 export async function accrueStorage(tx: Tx, where: SQL, now = new Date()): Promise<StorageCharge[]> {
-  const rows = await measure(tx, where, now);
+  const rows = await measure(tx, where);
   if (rows.length === 0) return [];
-  const perUser = new Map<string, { blob: bigint; database: bigint }>();
+  const end = now.getTime();
+  const segments = await infraRateSegments(tx, rows.reduce((first, row) => Math.min(first, row.since), end), end);
+  /* Per owner, per rate segment: byte-milliseconds of Blob and of database. */
+  const perUser = new Map<string, { blob: bigint; database: bigint }[]>();
   for (const row of rows) {
-    const seconds = BigInt(row.seconds);
-    const sum = perUser.get(row.userId) ?? { blob: 0n, database: 0n };
-    sum.blob += BigInt(row.blobBytes) * seconds;
-    sum.database += BigInt(row.databaseBytes) * seconds;
-    perUser.set(row.userId, sum);
+    const sums = perUser.get(row.userId) ?? segments.map(() => ({ blob: 0n, database: 0n }));
+    segments.forEach((segment, at) => {
+      const ms = BigInt(Math.max(0, Math.min(end, segment.to) - Math.max(row.since, segment.from)));
+      if (ms === 0n) return;
+      sums[at]!.blob += row.blobBytes * ms;
+      sums[at]!.database += (row.databaseBytes + row.chunks * BigInt(chunkOverheadBytes(segment.rates))) * ms;
+    });
+    perUser.set(row.userId, sums);
   }
   await tx.update(schema.knowledge).set({ storageBilledAt: now }).where(inArray(schema.knowledge.id, rows.map((row) => row.id)));
   const charges: StorageCharge[] = [];
-  for (const [userId, sum] of perUser) {
-    const costPico = storageCostPico(sum.blob, sum.database);
+  for (const [userId, sums] of perUser) {
+    const costPico = sums.reduce((sum, part, at) => sum + storageCostPico(part.blob, part.database, segments[at]!.rates), 0n);
     await tx.insert(schema.storageAccrual).values({ userId, updatedAt: now }).onConflictDoNothing();
     const [accrual] = await tx.select().from(schema.storageAccrual).where(eq(schema.storageAccrual.userId, userId)).for('update');
     const total = BigInt(accrual!.costPico) + costPico;

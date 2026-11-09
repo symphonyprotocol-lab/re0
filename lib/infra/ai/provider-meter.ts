@@ -1,9 +1,11 @@
 import { AsyncLocalStorage } from 'node:async_hooks';
 import {
-  ProviderCostUnavailable, providerRateSchema, rateCost, reportedGatewayCost, transferCostUsd,
+  ProviderCostUnavailable, providerRateSchema, rateCost, reportedGatewayCost,
   type ProviderCharge, type ProviderRate, type ProviderTarget, type ProviderUsage,
 } from '@/lib/domain/provider-cost';
 import { configuredProviderRate, type ProviderPrices } from '@/lib/services/provider-pricing';
+import { infraCostRates } from '@/lib/services/infra-pricing';
+import { transferCostUsd } from '@/lib/domain/infra-cost';
 
 interface Meter {
   runId: string;
@@ -36,7 +38,7 @@ export async function drainProviderCalls(): Promise<void> {
   while (pending?.size) await Promise.all([...pending]);
 }
 /**
- * Our own transfer while a metered run works (`INFRA_COST_RATES.transferPerGb`):
+ * Our own transfer while a metered run works (the console's transfer rate, `lib/services/infra-pricing.ts`):
  * a page fetched, the upload read back from Blob, the file sent on to a
  * supplier. Outside a run it is not ours to bill and is ignored.
  */
@@ -46,17 +48,22 @@ export function meterTransfer(what: 'fetch' | 'blob_read' | 'upload', bytes: num
   (meter.transfer ??= new Map()).set(what, (meter.transfer.get(what) ?? 0) + Math.ceil(bytes));
 }
 
-/** Records the transfer metered so far as `bandwidth` receipts, one per kind, and starts counting afresh. */
+/**
+ * Records the transfer metered so far as `bandwidth` receipts, one per kind,
+ * priced at the transfer rate in effect now, and starts counting afresh.
+ */
 export async function flushTransfer(): Promise<void> {
   const meter = context.getStore();
   if (!meter?.transfer?.size) return;
   const moved = [...meter.transfer];
   meter.transfer.clear();
+  const rates = await infraCostRates();
   for (const [what, bytes] of moved) {
     await meter.record({
       service: 'bandwidth', endpoint: 'vercel:functions', model: what, account: '*',
       id: crypto.randomUUID(), runId: meter.runId, at: new Date().toISOString(),
-      usage: { bytes }, costUsd: transferCostUsd(bytes), basis: 'configured_rate',
+      usage: { bytes }, costUsd: transferCostUsd(bytes, rates), basis: 'configured_rate',
+      priceRevision: `infra:${rates.revision}:${rates.transferPerGb}`,
     });
   }
 }

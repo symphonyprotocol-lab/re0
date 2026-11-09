@@ -1,5 +1,5 @@
 import { z } from 'zod';
-import { CREDIT_USD, EMBEDDING_DIMENSIONS, INFRA_COST_RATES } from '@/lib/constants';
+import { CREDIT_USD } from '@/lib/constants';
 
 /** Unit prices allow 12 decimal places; upstream billed amounts retain their full precision. */
 const SCALE = 1_000_000_000_000n;
@@ -51,7 +51,7 @@ export interface ProviderTarget {
   account?: string;
 }
 /**
- * One receipt. `bandwidth` is our own transfer cost (`INFRA_COST_RATES`),
+ * One receipt. `bandwidth` is our own transfer cost (`lib/domain/infra-cost.ts`),
  * metered by bytes rather than priced by a supplier.
  */
 export interface ProviderCharge extends Omit<ProviderTarget, 'service'> {
@@ -133,26 +133,6 @@ export function rateCost(rate: ProviderRate, usage: ProviderUsage): string {
     if (rate.outputUsdPerUnit !== undefined) cost += multiply(units(usage.outputTokens!), rate.outputUsdPerUnit);
   }
   return exactUsd(cost, 18);
-}
-
-/** Our transfer cost for `bytes`, rounded up to the pico-dollar (`INFRA_COST_RATES.transferPerGb`). */
-export function transferCostUsd(bytes: number): string {
-  if (!Number.isSafeInteger(bytes) || bytes < 0) throw new Error('invalid byte count');
-  return exactUsd(ceilDiv(BigInt(bytes) * usdPico(INFRA_COST_RATES.transferPerGb), BigInt(INFRA_COST_RATES.bytesPerGb)), 12);
-}
-
-/** Bytes a stored passage takes in the database beyond its text. */
-export const CHUNK_OVERHEAD_BYTES = EMBEDDING_DIMENSIONS * 4 + INFRA_COST_RATES.chunkRowBytes;
-
-/**
- * Storage cost in pico-dollars, rounded up: `blobByteSeconds` of Blob and
- * `databaseByteSeconds` of database (before the index factor).
- */
-export function storageCostPico(blobByteSeconds: bigint, databaseByteSeconds: bigint): bigint {
-  const per = BigInt(INFRA_COST_RATES.bytesPerGb) * BigInt(INFRA_COST_RATES.monthSeconds);
-  const blob = blobByteSeconds * usdPico(INFRA_COST_RATES.blobStoragePerGbMonth);
-  const database = databaseByteSeconds * BigInt(INFRA_COST_RATES.databaseIndexFactor) * usdPico(INFRA_COST_RATES.databaseStoragePerGbMonth);
-  return ceilDiv(blob + database, per);
 }
 
 /** Pico-dollars to credits, rounded up. */

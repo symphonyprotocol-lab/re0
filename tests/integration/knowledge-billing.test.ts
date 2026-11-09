@@ -31,7 +31,8 @@ const storage = await import('@/lib/services/storage-billing');
 const library = await import('@/lib/services/knowledge-library');
 const { db, schema } = await import('@/lib/infra/db');
 const { forgetModelCache } = await import('@/lib/infra/ai/models');
-const { CHUNK_OVERHEAD_BYTES, providerTotal } = await import('@/lib/domain/provider-cost');
+const { providerTotal } = await import('@/lib/domain/provider-cost');
+const { chunkOverheadBytes, defaultInfraCostRates } = await import('@/lib/domain/infra-cost');
 
 let fake: FakeOpenAi;
 beforeAll(async () => {
@@ -259,7 +260,7 @@ describeWithDb('P4: storage', () => {
   it('counts a passage with its vector beyond its text', async () => {
     const owner = await newUser();
     const { id } = await storedDocument(owner, { fileSize: 0, ageDays: 28 });
-    const [measured] = (await db().execute<{ bytes: string }>(sql`select sum(octet_length(content) + ${CHUNK_OVERHEAD_BYTES})::text as bytes from ${schema.chunk} where knowledge_id = ${id}`)).rows;
+    const [measured] = (await db().execute<{ bytes: string }>(sql`select sum(octet_length(content) + ${chunkOverheadBytes(defaultInfraCostRates())})::text as bytes from ${schema.chunk} where knowledge_id = ${id}`)).rows;
     expect(Number(measured!.bytes)).toBeGreaterThan(1536 * 4);
     const ids = (await db().select({ id: schema.knowledge.id }).from(schema.knowledge).innerJoin(schema.ree, eq(schema.ree.id, schema.knowledge.reeId)).where(eq(schema.ree.ownerId, owner))).map((row) => row.id);
     await db().transaction((tx) => storage.accrueStorage(tx, storage.rowsIn(ids), new Date()));

@@ -25,19 +25,33 @@
 | --- | --- | --- | --- |
 | Firecrawl Parse | 供应商实际 `creditsUsed`；缺失时取所有页数中的最大值 | 后台配置的账户单价（当前 $0.0038 / Firecrawl credit） | `lib/infra/connectors/firecrawl.ts:109` |
 | embedding / 转写 / 生成 | Gateway 实际账单优先；否则按配置单价或 Gateway 目录价 × 实测用量 | 同上；生成目录价必须同时有输入和输出单价，否则不用 | `lib/infra/ai/provider-meter.ts`、`lib/infra/ai/usage.ts:96` |
-| 流量（P4） | 处理时我们读写的字节数：网页 / GitHub 抓取、从 Blob 读回上传文件、发给 Firecrawl / 转写的文件 | `INFRA_COST_RATES.transferPerGb` = **$0.15 / GB**（见下方保守取值） | `lib/constants.ts:103`、`meterTransfer` `lib/infra/ai/provider-meter.ts:43` |
-| Blob 存储（P4） | 上传文件大小 × 存储秒数 | **$0.028 / GB-month**：Vercel 标价 $0.023，加 $0.005 摊销上传 / 列举等操作费 | `lib/constants.ts:103`、`lib/services/storage-billing.ts` |
-| 数据库存储（P4） | 知识正文、children、活动记录、片段正文 + 向量（每片段 1536×4 + 200 字节）× 2（索引）× 存储秒数 | **$0.55 / GB-month**：Neon 存储 $0.35 + 即时恢复历史 $0.20 | 同上 |
+| 流量（P4） | 处理时我们读写的字节数：网页 / GitHub 抓取、从 Blob 读回上传文件、发给 Firecrawl / 转写的文件 | 后台可配置，默认 **$0.15 / GB**（见下方保守取值） | `meterTransfer` / `flushTransfer` `lib/infra/ai/provider-meter.ts` |
+| Blob 存储（P4） | 上传文件大小 × 存储时长 | 后台可配置，默认 **$0.028 / GB-month**：Vercel 标价 $0.023，加 $0.005 摊销上传 / 列举等操作费 | `lib/services/storage-billing.ts` |
+| 数据库存储（P4） | 知识正文、children、活动记录、片段正文 + 向量（每片段 1536×4 + 额外字节，默认 200）× 索引倍数（默认 2）× 存储时长 | 后台可配置，默认 **$0.55 / GB-month**：Neon 存储 $0.35 + 即时恢复历史 $0.20 | 同上 |
 
 **保守取值说明**（PR 里同样标出）：
 
 - **流量**：代码和配置里找不到函数出站抓取的计价表。Vercel 相关的几项是：Blob 数据传输 $0.05 / GB；缓存未命中时另加 Fast Origin Transfer $0.06 / GB；Fast Data Transfer 起价 $0.15 / GB。这里统一取最贵的 $0.15 / GB。
 - **单位**：GB 按 10^9 字节（单位更小，算出的 GB 更多）。按秒的存储价把一个月按 28 天算（最短的月）。
-- **集中定义**：三个单价都只定义在 `INFRA_COST_RATES` 一个常量里。
+- **可在后台配置**：三个单价、数据库索引倍数和每个片段的额外字节数，都在管理后台「价格与促销 → 基础设施成本」里修改（见下一节）。`DEFAULT_INFRA_COST_RATES`（`lib/constants.ts`）只是种子默认值。
 - **价格来源**：
   - [Vercel Blob 用量与价格](https://vercel.com/docs/vercel-blob/usage-and-pricing)
   - [Vercel 价格页](https://vercel.com/pricing)
   - [Neon 价格页](https://neon.com/pricing)
+
+## 基础设施成本的配置（价格与促销页）
+
+- **存储**：表 `infra_cost_rates`（迁移 `0035_infra_cost_rates`），按 `billing_price` 的方式只追加不修改。每次保存新增一行，记录 `effective_from`（生效时间）。迁移写入一行种子数据，即当前默认值，生效时间为 1970 年。库里没有任何行时，计费使用 `DEFAULT_INFRA_COST_RATES`，绝不会是 0。
+- **页面与接口**：页面是 `/admin/pricing` 里新增的「基础设施成本」卡片，沿用该页的表单、i18n（zh / en）、修订号冲突检查、`pricing.update` 审计（目标为 `infra_costs`）以及同一个管理员会话校验（`apiAdministrator`）。接口是 `PUT /api/admin/pricing`，参数 `kind: 'infra_costs'`；`GET` 返回 `infraCosts`。
+- **服务端校验**（`parseInfraCostRates`，`lib/domain/infra-cost.ts`）：
+  - 三个单价必须大于 0，最多 12 位小数。
+  - 索引倍数在 1–100 之间：小于 1 会少算存储字节。
+  - 每个片段的额外字节数是 1–100,000 的整数。
+  - 数据库 check 约束兜底，0 或负数写不进去。
+- **生效时间**：
+  - 流量在记收据时读取当时的单价，收据带 `priceRevision`。
+  - 存储按每个计费区间里实际生效的单价分段计算（`infraRateSegments`）。修改只从保存的那一刻起生效，已累计的存储时间不会按新单价重算。
+- **未开放配置的参数**：GB = 10^9 字节、一个月按 28 天（`INFRA_COST_UNITS`）是单位定义；调用前预留的估计参数（embedding 每条 +8 token、生成默认输出上限 8,192）只影响预留，不影响账单。这些都不放到后台。
 
 ## 按导入路径
 
@@ -86,6 +100,17 @@ P2 / P3 的运行在 `knowledge-billing.test.ts` 的 `runsOf` 里做同样的断
 - `chargedCredits = ceil(累计 pico 美元 / 10^8)`，并且足以覆盖累计成本；
 - 每次累计成本都高于"只按 Vercel 标价 $0.023 / GB-month、31 天一个月、只算文件本身"的独立下限；
 - 多次小额结算后仍不低于总成本。
+
+基础设施成本配置的测试：
+- `tests/integration/infra-pricing.test.ts`：
+  - 读取种子值和默认值；
+  - 保存后写审计；
+  - 拒绝 0、负数、过小的倍数、过期修订号（数据库约束兜底）；
+  - 无管理员会话时，通过 `/api/admin/pricing` 读写都返回 401；
+  - 改价后流量收据按新单价计费，`expectChargedAtLeastCost` 仍然成立；
+  - 存储按改价时间分段计价，之后再改价不会重算已累计的部分。
+- `tests/unit/infra-cost.test.ts`：校验规则和计价的精确取整。
+- `tests/unit/pricing-routes.test.ts`：路由的权限、跨域和 422。
 
 ## 用户可见的行为变化
 

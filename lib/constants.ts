@@ -81,17 +81,18 @@ export const KNOWLEDGE_INITIAL_HOLD = 1;
 
 /**
  * Our own infrastructure costs billed with knowledge (docs/audit/credit-import-audit.md,
- * P4), in USD. None of them is reported per call, so each is a published list
- * price rounded up to the dearest meter it can fall under -- never below cost.
- * Per-second storage divides a month by 28 days, the shortest month.
- * Change them here only.
+ * P4), in USD. Editable in the console (价格与促销 → 基础设施成本, stored in
+ * `infra_cost_rates`); these are the seeded defaults, used whenever nothing
+ * is configured -- never 0. None is reported per call, so each is a
+ * published list price rounded up to the dearest meter it can fall under.
  *
  *   - `blobStoragePerGbMonth`: Vercel Blob storage, $0.023 / GB-month
  *     (vercel.com/docs/vercel-blob/usage-and-pricing), plus $0.005 for the
  *     upload's advanced operation and list / head calls spread over the file.
  *   - `databaseStoragePerGbMonth`: Neon storage $0.35 + instant-restore history
- *     $0.20 / GB-month (neon.com/pricing). Stored bytes are counted with a 2×
- *     factor for indexes (the vector index the size of the vectors again).
+ *     $0.20 / GB-month (neon.com/pricing).
+ *   - `databaseIndexFactor`: stored database bytes are counted this many
+ *     times over for indexes (the vector index the size of the vectors again).
  *   - `transferPerGb`: bytes our functions fetch or send while processing a
  *     source (web pages, GitHub files, the stored upload read back from Blob,
  *     the file sent to Firecrawl or the transcription endpoint). Vercel bills
@@ -99,18 +100,23 @@ export const KNOWLEDGE_INITIAL_HOLD = 1;
  *     miss and Fast Data Transfer from $0.15 / GB; the dearest, $0.15, applies
  *     to all of it -- no meter of ours is published for outbound fetches, so
  *     this is the conservative choice the audit calls out.
+ *   - `chunkRowBytes`: per stored passage beyond its text and vector (row,
+ *     locator, ids).
  */
-export const INFRA_COST_RATES = {
+export const DEFAULT_INFRA_COST_RATES = {
+  transferPerGb: '0.15',
   blobStoragePerGbMonth: '0.028',
   databaseStoragePerGbMonth: '0.55',
-  databaseIndexFactor: 2,
-  transferPerGb: '0.15',
+  databaseIndexFactor: '2',
+  chunkRowBytes: 200,
+} as const;
+
+/** The units the infrastructure rates are in; not configurable. */
+export const INFRA_COST_UNITS = {
   /** Bytes per GB: decimal, the smaller unit, so more GBs are counted. */
   bytesPerGb: 1_000_000_000,
-  /** Seconds in the shortest month. */
-  monthSeconds: 28 * 24 * 60 * 60,
-  /** Per stored passage beyond its text: the vector (4 bytes a dimension, see EMBEDDING_DIMENSIONS) and row overhead. */
-  chunkRowBytes: 200,
+  /** Milliseconds in the shortest month (28 days): the per-second storage price is never below any month's. */
+  monthMs: 28 * 24 * 60 * 60 * 1000,
 } as const;
 
 /* --------------------------------------------------------------- Ree, 8.2 */

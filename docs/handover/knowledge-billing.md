@@ -171,4 +171,4 @@ Firecrawl Credit Usage API 在两次 PDF 解析前后均确认余额下降 1。�
 - **P1 失败不退**：任何失败（含超时回收）都按本轮已发生的全部成本结算，只退没用掉的预留；有无法定价的收据时整笔预留不退；什么都没花的失败才全额退回。运行关闭后才到的收据按差额补扣（`chargeLateReceipt`）。
 - **P2 画像与示例问题**：由 Ree 主人付费，走与知识处理相同的预留、结算（`meteredWork`，在 `knowledge_cost_run` 里记 `kind` = `profile` / `suggestions`）。画像必须执行，余额不够就记欠款；示例问题余额不够时不调用。生成调用的计量在 `loggedLanguageModel.wrapGenerate` 里，只在计量范围内生效。
 - **P3 重新向量化**：每批按知识库主人分组，各自付费（`kind = reembed`），余额不够就记欠款；候选模型没有单价时任务失败。
-- **P4 存储与流量**：单价集中在 `INFRA_COST_RATES`（`lib/constants.ts`）。处理时的流量记成 `bandwidth` 收据。存储由每天的 `/api/cron/charge-storage` 和清空回收站前的结算按秒累计到 `storage_accrual`，账本条目为 `storage_charge`。迁移 `0034_knowledge_storage_billing` 新增 `knowledge.storage_billed_at`、`storage_accrual`，以及新的流水原因。
+- **P4 存储与流量**：单价在管理后台「价格与促销 → 基础设施成本」配置（表 `infra_cost_rates`，迁移 `0035`，只追加不修改，按生效时间分段计价），`DEFAULT_INFRA_COST_RATES` 为种子默认值。处理时的流量记成 `bandwidth` 收据。存储由每天的 `/api/cron/charge-storage` 和清空回收站前的结算按秒累计到 `storage_accrual`，账本条目为 `storage_charge`。迁移 `0034_knowledge_storage_billing` 新增 `knowledge.storage_billed_at`、`storage_accrual`，以及新的流水原因。

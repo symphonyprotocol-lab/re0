@@ -1288,6 +1288,31 @@ export const signupReward = pgTable('signup_reward', {
   check('signup_reward_credits_check', sql`credits between 0 and 100000000`),
 ]);
 
+/**
+ * Our infrastructure rates (docs/audit/credit-import-audit.md P4), edited on
+ * 价格与促销. Append-only like `billing_price`: each save adds a row from
+ * `effective_from` on, so storage already accrued keeps the rate it accrued
+ * at. The latest row applies; with none, `DEFAULT_INFRA_COST_RATES`. Every
+ * rate is above zero and the index factor at least 1, so nothing can be
+ * billed below cost.
+ */
+export const infraCostRates = pgTable('infra_cost_rates', {
+  id: uuid('id').primaryKey().defaultRandom(),
+  transferPerGb: numeric('transfer_per_gb', { precision: 20, scale: 12 }).notNull(),
+  blobStoragePerGbMonth: numeric('blob_storage_per_gb_month', { precision: 20, scale: 12 }).notNull(),
+  databaseStoragePerGbMonth: numeric('database_storage_per_gb_month', { precision: 20, scale: 12 }).notNull(),
+  databaseIndexFactor: numeric('database_index_factor', { precision: 7, scale: 4 }).notNull(),
+  chunkRowBytes: integer('chunk_row_bytes').notNull(),
+  effectiveFrom: timestampTz('effective_from').notNull().defaultNow(),
+  updatedBy: uuid('updated_by').references(() => administrator.id, { onDelete: 'set null' }),
+  createdAt: createdAt(),
+}, (t) => [
+  index('infra_cost_rates_effective_idx').on(t.effectiveFrom),
+  check('infra_cost_rates_positive_check', sql`transfer_per_gb > 0 and blob_storage_per_gb_month > 0 and database_storage_per_gb_month > 0`),
+  check('infra_cost_rates_factor_check', sql`database_index_factor >= 1 and database_index_factor <= 100`),
+  check('infra_cost_rates_overhead_check', sql`chunk_row_bytes between 1 and 100000`),
+]);
+
 /** The flat video script charge, shared by standard scripts and narrated demos. */
 export const videoPricing = pgTable('video_pricing', {
   id: integer('id').primaryKey().default(1),
