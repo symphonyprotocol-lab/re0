@@ -65,7 +65,8 @@ describeWithDb('console authority', () => {
     await expect(
       admin.bootstrapFirstAdministrator({ name: 'Intruder', email: 'intruder@example.test', password, sealedSecret: second.sealed, code: await code(second.secret) }),
     ).rejects.toMatchObject({ code: 'bootstrap_closed' });
-    const audit = await db().select().from(schema.adminAudit).where(eq(schema.adminAudit.action, 'admin.bootstrap'));
+    // The audit log is append-only and other files bootstrap too (admin-bootstrap-legacy), so count this test's own row.
+    const audit = await db().select().from(schema.adminAudit).where(and(eq(schema.adminAudit.action, 'admin.bootstrap'), eq(schema.adminAudit.target, email)));
     expect(audit).toHaveLength(1);
   });
 
