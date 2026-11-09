@@ -7,13 +7,13 @@
 import { and, asc, count, desc, eq, gte, ilike, isNull, or, sql, type SQL } from 'drizzle-orm';
 import { parseAdjustment } from '@/lib/domain/adjustments';
 import { deductFromBucket } from '@/lib/domain/adjustments';
-import { planIsActive } from '@/lib/domain/billing';
 import { periodStart, type UsersView } from '@/lib/domain/admin-lists';
 import { clampPage, likePattern, type ListResult } from '@/lib/domain/list';
 import type { UserRole } from '@/lib/domain/roles';
 import { db, schema } from '@/lib/infra/db';
 import { AdminInputError, audit } from '@/lib/services/admin';
 import { addGrant, grantsOf, moveGrants } from '@/lib/services/credits';
+import { planStateOf } from '@/lib/services/billing';
 import { notify } from '@/lib/services/notices';
 import { roleHistory, roleMetrics } from '@/lib/services/roles';
 import type { KycState } from '@/lib/domain/kyc';
@@ -133,6 +133,7 @@ export async function adminUser(id: string, now = new Date()) {
     .select({ remaining: sql<number>`coalesce(sum(${schema.creditDebt.remaining}), 0)::bigint` })
     .from(schema.creditDebt)
     .where(eq(schema.creditDebt.userId, id));
+  const plan = await planStateOf(database, id, now);
   return {
     id: account.id,
     name: account.name,
@@ -153,7 +154,10 @@ export async function adminUser(id: string, now = new Date()) {
     debt: Number(debt?.remaining ?? 0),
     membership: balances?.membership ?? 'none',
     subscription: subscription ?? null,
-    planActive: planIsActive(subscription ?? null, now),
+    planActive: plan.active,
+    /** Where the Plan comes from (`paddle` or `redeemed`), and how far redeemed Plans reach. */
+    planSource: plan.source,
+    redeemedUntil: plan.redeemedUntil,
   };
 }
 export type AdminUserDetail = NonNullable<Awaited<ReturnType<typeof adminUser>>>;
@@ -254,15 +258,11 @@ export async function adjustCredits(administratorId: string, id: string, raw: Re
       let expiresAt: Date | null = null;
       let periodStartAt: Date | null = null;
       if (input.bucket === 'plan') {
-        const [subscription] = await tx
-          .select()
-          .from(schema.subscription)
-          .where(eq(schema.subscription.userId, id))
-          .orderBy(desc(schema.subscription.updatedAt))
-          .limit(1);
-        if (!planIsActive(subscription ?? null, now)) throw new AdminInputError('no_plan');
-        expiresAt = subscription!.currentPeriodEnd;
-        periodStartAt = subscription!.currentPeriodStart;
+        /* Paid or redeemed: the grant lasts to the end of the current period either way. */
+        const plan = await planStateOf(tx, id, now);
+        if (!plan.active) throw new AdminInputError('no_plan');
+        expiresAt = plan.periodEnd;
+        periodStartAt = plan.periodStart;
       }
       const granted = await addGrant(
         tx,

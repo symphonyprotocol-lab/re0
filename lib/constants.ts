@@ -30,6 +30,39 @@ export const PLAN = { priceMinor: 1_000, currency: 'USD', credits: 50_000, inter
  * 1 to 10 in one checkout (8.2, "Pack 数量").
  */
 export const PACK = { priceMinor: 1_000, currency: 'USD', credits: 100_000, minQuantity: 1, maxQuantity: 10 } as const;
+/**
+ * Redeem codes (docs/design/redeem-codes.md). The alphabet leaves out
+ * 0 O 1 I L U; 12 random characters are about 59 bits. A batch of one code
+ * may carry an administrator's own text instead (a public campaign code).
+ */
+export const REDEEM = {
+  alphabet: 'ABCDEFGHJKMNPQRSTVWXYZ23456789',
+  randomLength: 12,
+  groupLength: 4,
+  maxCodes: 10_000,
+  insertChunk: 500,
+  defaultValidDays: 90,
+  planMonths: { min: 1, max: 12 },
+  packQuantity: { min: 1, max: 10 },
+  prefix: { min: 2, max: 8 },
+  custom: { min: 6, max: 32 },
+  /** A typed code, normalised, outside this length is refused without a lookup. */
+  input: { min: 6, max: 40 },
+  name: 80,
+  note: 500,
+} as const;
+/**
+ * Failed guesses (`code_not_found`) a user and an IP may make per window
+ * before redeeming answers 429 without a lookup. Windows stay within the
+ * hour `clearRateBuckets` keeps.
+ */
+export const REDEEM_RATE_LIMIT = [
+  { scope: 'user', windowSeconds: 900, limit: 5 },
+  { scope: 'ip', windowSeconds: 900, limit: 20 },
+  { scope: 'user', windowSeconds: 3_600, limit: 20 },
+] as const;
+/** Redeemed Plan months the hourly cron issues per run. */
+export const REDEEM_PLAN_BATCH = 200;
 /** The sidebar's Plan meter turns red from this share of the period's credits used. */
 export const PLAN_USAGE_WARN_PERCENT = 90;
 /** The pricing page's estimator: successful answers on your own Ree (prototype `#/pricing`). */

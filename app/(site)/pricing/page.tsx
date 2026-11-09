@@ -118,6 +118,11 @@ export default async function PricingPage() {
           }
         />
       </div>
+      <p className="pricing-redeem">
+        <Link href="/settings?tab=balance#redeem" className="text-link">
+          {t.billing.redeem.link}
+        </Link>
+      </p>
 
       <section className="pricing-costs card">
         <div className="between">

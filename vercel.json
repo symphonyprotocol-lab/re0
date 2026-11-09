@@ -21,6 +21,10 @@
       "schedule": "15 0 * * *"
     },
     {
+      "path": "/api/cron/plan-redemptions",
+      "schedule": "20 * * * *"
+    },
+    {
       "path": "/api/cron/rank",
       "schedule": "7 * * * *"
     },

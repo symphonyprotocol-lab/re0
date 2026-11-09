@@ -88,6 +88,9 @@ export async function addGrant(
     expiresAt?: Date | null;
     periodStart?: Date | null;
     purchaseId?: string | null;
+    /** A redeem code's Pack (period 0) or one month of its Plan; at most one grant per pair. */
+    redemptionId?: string | null;
+    redemptionPeriod?: number | null;
     note?: string | null;
     /** The Ree the credits came from (step 4's query fees), so per-Ree statistics can attribute them. */
     reeId?: string | null;
@@ -104,6 +107,8 @@ export async function addGrant(
       expiresAt: input.expiresAt ?? null,
       periodStart: input.periodStart ?? null,
       purchaseId: input.purchaseId ?? null,
+      redemptionId: input.redemptionId ?? null,
+      redemptionPeriod: input.redemptionId ? (input.redemptionPeriod ?? 0) : null,
       createdAt: now,
     })
     .returning({ id: schema.creditGrant.id });

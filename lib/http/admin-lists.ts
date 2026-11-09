@@ -6,6 +6,7 @@
 import { NextResponse } from 'next/server';
 import { CREDIT_USD } from '@/lib/constants';
 import { toCsv } from '@/lib/domain/csv';
+import { codeState } from '@/lib/domain/redeem';
 import type { ListResult } from '@/lib/domain/list';
 import { reportingTime } from '@/lib/domain/statistics';
 import { fail, json } from '@/lib/http/respond';
@@ -17,6 +18,7 @@ import type { PurchaseRow, SubscriptionRow } from '@/lib/services/admin-purchase
 import type { VerificationListItem } from '@/lib/services/roles';
 import type { KycListItem } from '@/lib/services/kyc';
 import type { PayoutListItem } from '@/lib/services/payouts';
+import type { BatchSummary, CodeExportRow, RedemptionRow } from '@/lib/services/admin-redeem';
 
 export function csvResponse(name: string, headers: readonly string[], rows: readonly (readonly unknown[])[]): NextResponse {
   return new NextResponse(toCsv(headers, rows), {
@@ -59,6 +61,9 @@ const STATUS: Record<string, number> = {
   kyc_required: 409,
   kyc_pending: 409,
   transfer_used: 409,
+  /* Redeem codes. */
+  custom_code_taken: 409,
+  sealed: 409,
 };
 
 /** An `AdminInputError` as the response the console expects; anything else is rethrown. */
@@ -167,3 +172,57 @@ export const PAYOUTS_CSV = {
     time(p.resolvedAt),
   ],
 };
+
+/* Redeem codes (docs/design/redeem-codes.md 3.5): target and limits spelled out, times in UTC+8. */
+const redeemTarget = (kind: 'plan' | 'pack', planMonths: number | null, packQuantity: number | null) =>
+  kind === 'plan' ? `Plan ${planMonths} month(s)` : `Pack x${packQuantity}`;
+
+export const REDEEM_BATCHES_CSV = {
+  name: 'redeem-batches',
+  headers: ['ID', 'Name', 'Kind', 'Target', 'Credits', 'Codes', 'Uses per code', 'Uses per user', 'Redemptions', 'Status', 'Starts (UTC+8)', 'Expires (UTC+8)', 'Created by', 'Created (UTC+8)', 'Note'],
+  row: (b: BatchSummary) => [
+    b.id,
+    b.name,
+    b.kind,
+    redeemTarget(b.kind, b.planMonths, b.packQuantity),
+    b.credits,
+    b.codeCount,
+    b.maxRedemptions ?? 'unlimited',
+    b.perUserLimit,
+    b.redemptionCount,
+    b.phase,
+    time(b.startsAt),
+    time(b.expiresAt),
+    b.createdByName ?? '',
+    time(b.createdAt),
+    b.note ?? '',
+  ],
+};
+
+export function redeemCodesCsv(batch: BatchSummary) {
+  return {
+    name: 'redeem-codes',
+    headers: ['Code', 'Batch', 'Kind', 'Target', 'Credits', 'Uses per code', 'Redemptions', 'Code status', 'Batch status', 'Starts (UTC+8)', 'Expires (UTC+8)'],
+    row: (c: CodeExportRow) => [
+      c.code,
+      batch.name,
+      batch.kind,
+      redeemTarget(batch.kind, batch.planMonths, batch.packQuantity),
+      batch.credits,
+      c.maxRedemptions ?? 'unlimited',
+      c.redemptionCount,
+      codeState(c),
+      batch.phase,
+      time(batch.startsAt),
+      time(batch.expiresAt),
+    ],
+  };
+}
+
+export function redeemRedemptionsCsv(batch: BatchSummary) {
+  return {
+    name: 'redeem-redemptions',
+    headers: ['Redeemed (UTC+8)', 'User email', 'User ID', 'Code (last 4)', 'Batch', 'Kind', 'Credits', 'Plan starts (UTC+8)', 'Plan ends (UTC+8)'],
+    row: (r: RedemptionRow) => [time(r.createdAt), r.email, r.userId, r.last4, batch.name, r.kind, r.credits, time(r.planStartsAt), time(r.planEndsAt)],
+  };
+}

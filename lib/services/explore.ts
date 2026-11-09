@@ -13,7 +13,7 @@
  * per IP and per account. The cards' figures are other people's questions
  * only, so an owner testing their own Ree does not move them.
  */
-import { and, asc, desc, eq, inArray, isNull, lt, sql, type SQL } from 'drizzle-orm';
+import { and, asc, desc, eq, inArray, isNull, sql, type SQL } from 'drizzle-orm';
 import {
   EXPLORE_EF_SEARCH,
   EXPLORE_PASSAGES,
@@ -33,6 +33,7 @@ import { answerable, embedQuestion, type QuestionVector } from '@/lib/services/c
 import type { IntroProps } from '@/lib/domain/video';
 import { introsFor } from '@/lib/services/video';
 import { votesByOthers } from '@/lib/services/ree-feedback';
+import { hitRateBucket } from '@/lib/services/rate-limit';
 
 const reeId = sql.raw('"ree"."id"');
 const reeOwner = sql.raw('"ree"."owner_id"');
@@ -294,22 +295,7 @@ export async function activeRees(limit: number): Promise<ReeCard[]> {
 
 /* ----------------------------------------------------------- rate limits */
 
-/**
- * Counts one hit against `key` in a fixed window and answers whether it is
- * still within `limit`. A key over its limit keeps counting, so hammering
- * does not open the window early. Windows of up to an hour only: the
- * hourly job clears older ones.
- */
-export async function hitRateBucket(key: string, limit: number, windowSeconds: number, now = new Date()): Promise<boolean> {
-  const windowMs = windowSeconds * 1_000;
-  const windowStart = new Date(Math.floor(now.getTime() / windowMs) * windowMs);
-  const [row] = await db()
-    .insert(schema.rateBucket)
-    .values({ key, windowStart, hits: 1 })
-    .onConflictDoUpdate({ target: [schema.rateBucket.key, schema.rateBucket.windowStart], set: { hits: sql`${schema.rateBucket.hits} + 1` } })
-    .returning({ hits: schema.rateBucket.hits });
-  return (row?.hits ?? 0) <= limit;
-}
+export { clearRateBuckets, hitRateBucket } from '@/lib/services/rate-limit';
 
 /** One free search against the IP's and the account's one-minute limits. */
 export async function allowSearch(keys: { ip: string | null; userId: string | null }, now = new Date()): Promise<boolean> {
@@ -321,9 +307,4 @@ export async function allowSearch(keys: { ip: string | null; userId: string | nu
     if (!(await hitRateBucket(key, limit, EXPLORE_RATE_LIMIT.windowSeconds, now))) allowed = false;
   }
   return allowed;
-}
-
-/** Old windows, cleared by the hourly rank job. */
-export async function clearRateBuckets(now = new Date()): Promise<void> {
-  await db().delete(schema.rateBucket).where(lt(schema.rateBucket.windowStart, new Date(now.getTime() - 3_600_000)));
 }

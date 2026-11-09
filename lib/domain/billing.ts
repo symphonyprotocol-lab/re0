@@ -70,10 +70,110 @@ export function planIsActive(subscription: PlanSubscription | null, now: Date): 
   return subscription.currentPeriodEnd !== null && subscription.currentPeriodEnd.getTime() > now.getTime();
 }
 
+/* ------------------------------------------- redeemed Plans and Plan state */
+
+/**
+ * `months` calendar months after `date` (UTC), the day clamped to the
+ * target month's last: 31 Jan + 1 month is 28 (or 29) Feb, not 3 Mar.
+ */
+export function addMonths(date: Date, months: number): Date {
+  const year = date.getUTCFullYear();
+  const month = date.getUTCMonth() + months;
+  const lastDay = new Date(Date.UTC(year, month + 1, 0)).getUTCDate();
+  const day = Math.min(date.getUTCDate(), lastDay);
+  return new Date(Date.UTC(year, month, day, date.getUTCHours(), date.getUTCMinutes(), date.getUTCSeconds(), date.getUTCMilliseconds()));
+}
+
+/** Month `index` (from 0) of a redeemed Plan starting at `startsAt`; always counted from the start, so months never drift. */
+export function redeemedPeriod(startsAt: Date, index: number): { start: Date; end: Date } {
+  return { start: addMonths(startsAt, index), end: addMonths(startsAt, index + 1) };
+}
+
+/** The month of a redeemed Plan `at` falls in, or null outside it. */
+export function redeemedPeriodIndexAt(plan: RedeemedPlan, at: Date): number | null {
+  if (at.getTime() < plan.startsAt.getTime() || at.getTime() >= plan.endsAt.getTime()) return null;
+  for (let index = 0; index < plan.months; index += 1) {
+    if (at.getTime() < redeemedPeriod(plan.startsAt, index).end.getTime()) return index;
+  }
+  return plan.months - 1;
+}
+
+/** A redeemed Plan: [startsAt, endsAt), `months` monthly grants (docs/design/redeem-codes.md 4.2). */
+export interface RedeemedPlan {
+  startsAt: Date;
+  endsAt: Date;
+  months: number;
+}
+
+/**
+ * Whether the user's Plan is in force and where it comes from: a paying
+ * Paddle subscription, else a redeemed Plan covering now. `redeemedUntil`
+ * is how far redeemed Plans reach without a gap; `redeemedNext` a redeemed
+ * Plan waiting for a Paddle period to end.
+ */
+export interface PlanState {
+  active: boolean;
+  source: 'paddle' | 'redeemed' | null;
+  cancelAtPeriodEnd: boolean;
+  periodStart: Date | null;
+  periodEnd: Date | null;
+  redeemedUntil: Date | null;
+  redeemedNext: Date | null;
+}
+
+export function planStateFrom(subscription: PlanSubscription | null, redeemed: readonly RedeemedPlan[], now: Date): PlanState {
+  const plans = [...redeemed].sort((a, b) => a.startsAt.getTime() - b.startsAt.getTime());
+  /* How far redeemed Plans reach from `from` without a gap. */
+  const reach = (from: Date): Date => {
+    let end = from;
+    for (let moved = true; moved; ) {
+      moved = false;
+      for (const plan of plans) {
+        if (plan.startsAt.getTime() <= end.getTime() && plan.endsAt.getTime() > end.getTime()) {
+          end = plan.endsAt;
+          moved = true;
+        }
+      }
+    }
+    return end;
+  };
+  const queued = plans.find((plan) => plan.startsAt.getTime() > now.getTime()) ?? null;
+  if (planIsActive(subscription, now)) {
+    return {
+      active: true,
+      source: 'paddle',
+      cancelAtPeriodEnd: subscription!.cancelAtPeriodEnd,
+      periodStart: subscription!.currentPeriodStart,
+      periodEnd: subscription!.currentPeriodEnd,
+      redeemedUntil: queued ? reach(queued.startsAt) : null,
+      redeemedNext: queued?.startsAt ?? null,
+    };
+  }
+  const current = plans.find((plan) => redeemedPeriodIndexAt(plan, now) !== null);
+  if (current) {
+    const period = redeemedPeriod(current.startsAt, redeemedPeriodIndexAt(current, now)!);
+    return { active: true, source: 'redeemed', cancelAtPeriodEnd: false, periodStart: period.start, periodEnd: period.end, redeemedUntil: reach(now), redeemedNext: null };
+  }
+  return {
+    active: false,
+    source: null,
+    cancelAtPeriodEnd: false,
+    periodStart: null,
+    periodEnd: null,
+    redeemedUntil: queued ? reach(queued.startsAt) : null,
+    redeemedNext: queued?.startsAt ?? null,
+  };
+}
+
 export interface PlanUsage {
   active: boolean;
+  /** `redeemed`: a redeem code's Plan, with no renewal to turn on or off. */
+  source: 'paddle' | 'redeemed' | null;
   cancelAtPeriodEnd: boolean;
   periodEnd: string | null;
+  /** How far redeemed Plans reach, and when one waiting behind a Paddle period begins. */
+  redeemedUntil: string | null;
+  redeemedNext: string | null;
   allowance: number;
   used: number;
   remaining: number;
@@ -86,19 +186,27 @@ export interface PlanUsage {
  * credits used. Pack, welcome and earned credits are not part
  * of it. A Plan whose period's payment has not arrived yet reads as unused.
  */
-export function planUsage(subscription: PlanSubscription | null, currentGrant: { amount: number; remaining: number } | null, now: Date, currentAllowance: number = PLAN.credits): PlanUsage {
-  const active = planIsActive(subscription, now);
-  if (!active) {
-    return { active: false, cancelAtPeriodEnd: false, periodEnd: null, allowance: 0, used: 0, remaining: 0, percent: 0, warn: false };
+export function planUsage(
+  plan: PlanState | PlanSubscription | null,
+  currentGrant: { amount: number; remaining: number } | null,
+  now: Date,
+  currentAllowance: number = PLAN.credits,
+): PlanUsage {
+  const state = plan && 'source' in plan ? plan : planStateFrom(plan, [], now);
+  const redeemed = { redeemedUntil: state.redeemedUntil?.toISOString() ?? null, redeemedNext: state.redeemedNext?.toISOString() ?? null };
+  if (!state.active) {
+    return { active: false, source: null, cancelAtPeriodEnd: false, periodEnd: null, ...redeemed, allowance: 0, used: 0, remaining: 0, percent: 0, warn: false };
   }
   const allowance = currentGrant?.amount ?? currentAllowance;
   const remaining = currentGrant ? currentGrant.remaining : allowance;
   const used = Math.max(0, allowance - remaining);
   const percent = allowance ? Math.min(100, Math.round((used / allowance) * 10_000) / 100) : 0;
   return {
-    active,
-    cancelAtPeriodEnd: subscription!.cancelAtPeriodEnd,
-    periodEnd: subscription!.currentPeriodEnd?.toISOString() ?? null,
+    active: true,
+    source: state.source,
+    cancelAtPeriodEnd: state.cancelAtPeriodEnd,
+    periodEnd: state.periodEnd?.toISOString() ?? null,
+    ...redeemed,
     allowance,
     used,
     remaining,

@@ -38,6 +38,12 @@ export const AUDIT_ACTIONS = [
   'payout.failed',
   'ree.takedown',
   'ree.restore',
+  'redeem.batch.create',
+  'redeem.batch.update',
+  'redeem.batch.export',
+  'redeem.code.reveal',
+  'redeem.code.disable',
+  'redeem.code.enable',
 ] as const;
 
 export type AuditAction = (typeof AUDIT_ACTIONS)[number];

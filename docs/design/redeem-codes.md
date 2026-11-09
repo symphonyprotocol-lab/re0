@@ -1,6 +1,8 @@
 # 兑换码（Redeem codes）设计稿
 
-2026-11-09，基于 `rebuild` 分支 `d3a864e2`。本文只是设计，等用户 review 后再实现；没有代码、没有迁移。
+2026-11-09，基于 `rebuild` 分支 `d3a864e2`。
+
+**状态**：用户 2026-11-09 确认第 9 节全部按推荐默认实现，已在同一 PR 中实现。下文已按实现同步；与最初设计稿不同的地方在第 11 节列出。第二期事项（撤销兑换、Paddle 顺延扣款日、失败尝试表、资格条件、概览统计）不在本次范围。
 
 需求原话：增加兑换码功能，可以兑换 plan 或者是 pack，可以设定一个兑换码可以兑换多少次，以及有效期，可以批量生成。
 
@@ -43,13 +45,13 @@
 | `credits` | bigint not null | **建批次时的快照**：Plan = 每期 credits（当时 `currentUnitCredits('plan')`）；Pack = `pack_quantity × 当时单包 credits`。之后改价不影响已发出的码。 |
 | `code_prefix` | text | 可选前缀，2–8 位 `[A-Z0-9]`。 |
 | `code_count` | integer not null | 1–10,000。 |
-| `max_redemptions` | integer | 每个码可兑换次数，null = 不限（只允许 `code_count = 1` 时为 null）。 |
-| `per_user_limit` | integer not null default 1 | **同一用户在整个批次内**最多兑换次数（见 4.4）。 |
+| `max_redemptions` | integer | 每个码可兑换次数（1–1,000,000，默认 1），null = 不限（只允许 `code_count = 1` 时为 null）。 |
+| `per_user_limit` | integer not null default 1 | **同一用户在整个批次内**最多兑换次数（1–1,000，见 4.4）。 |
 | `starts_at` | timestamptz not null | 默认创建时刻。 |
 | `expires_at` | timestamptz | null = 不过期（不推荐，后台默认填 90 天后）。 |
 | `status` | text not null default `'active'` | `'active' \| 'disabled'`。 |
 | `redemption_count` | integer not null default 0 | 冗余汇总，列表展示用，和码上的计数同事务更新。 |
-| `created_by` | uuid → administrator | |
+| `created_by` | uuid → administrator，`on delete set null` | |
 | `created_at` / `updated_at` | timestamptz | |
 
 约束：`kind` / `status` 的 check；`(kind = 'plan') = (plan_months is not null)`、`(kind = 'pack') = (pack_quantity is not null)`；`plan_months between 1 and 12`、`pack_quantity between 1 and 10`、`credits between 1 and 100000000`；`max_redemptions is null or max_redemptions >= 1`；`max_redemptions is not null or code_count = 1`；`per_user_limit >= 1`；`expires_at is null or starts_at < expires_at`。
@@ -61,7 +63,7 @@
 | --- | --- | --- |
 | `id` | uuid pk | |
 | `batch_id` | uuid not null → redeem_batch | |
-| `code_digest` | text not null | 规范化后码的 SHA-256（hex），**unique**，查询入口。 |
+| `code_digest` | text not null | `sha256('redeem:' + 规范化后的码)`（base64url，同 `api_key` 的写法），**unique**，查询入口。 |
 | `code_sealed` | text not null | `sealCredential(code, 'redeem_code')`，供后台再次导出（见 3.4）。 |
 | `code_last4` | text not null | 后四位明文，列表展示 / 模糊搜索。 |
 | `max_redemptions` | integer | 从批次复制，便于单行原子判断。 |
@@ -87,7 +89,7 @@
 | `request_id` | uuid | 客户端每次提交生成的幂等键。 |
 | `ip_hash` | text | `sha256(ip + 日盐)`，排查滥用用，不存明文 IP。 |
 | `user_agent` | text | 截断到 200 字。 |
-| `revoked_at` / `revoked_by` | timestamptz / uuid | 预留给后台撤销（第二期，见 7）。 |
+| `revoked_at` / `revoked_by` | timestamptz / uuid（`on delete set null`） | 预留给后台撤销（第二期，见 Q5），本次没有任何代码写它。 |
 | `created_at` | timestamptz | |
 
 约束：`(kind = 'plan') = (plan_starts_at is not null and plan_ends_at is not null and plan_months is not null)`。
@@ -96,13 +98,13 @@
 ### 2.4 现有表的改动
 
 - `credit_grant`：新增 `redemption_id uuid → redeem_redemption`、`redemption_period smallint`。`unique(redemption_id, redemption_period) where redemption_id is not null` 保证每期只发一次；check `purchase_id is null or redemption_id is null`。Pack 兑换只有 period 0；Plan 兑换每月一条（0..months-1）。`source` 仍是 `'plan'` / `'pack'`，**扣费顺序和 Plan 过期逻辑完全不用改**。
-- `credit_entry`：`CREDIT_ENTRY_REASONS` 增加 `'redeem'`（check 约束换一次）。`ref_id` = redemption id，`note` 形如 `redeem ····7KQ2 · 春季活动 · plan 1/3`（不写完整码）。
-- `AUDIT_ACTIONS` 增加 `redeem.batch.create`、`redeem.batch.update`（改名 / 备注 / 有效期 / 启停）、`redeem.batch.export`、`redeem.code.disable`、`redeem.code.enable`；第二期再加 `redeem.redemption.revoke`。`admin_audit.action` 是 text，无约束要改。
+- `credit_entry`：`CREDIT_ENTRY_REASONS` 增加 `'redeem'`（check 约束换一次）。`ref_id` = redemption id，`note` 形如 `redeem ····7KQ2 · plan 1/3` 或 `redeem ····7KQ2 · pack x2`。不写完整码，也不写批次名（批次名是后台内部名称，用户的账本里看得到 note）。
+- `AUDIT_ACTIONS` 增加 `redeem.batch.create`、`redeem.batch.update`（改名 / 备注 / 有效期 / 启停）、`redeem.batch.export`、`redeem.code.reveal`、`redeem.code.disable`、`redeem.code.enable`；第二期再加 `redeem.redemption.revoke`。`admin_audit.action` 是 text，无约束要改。
 - `CredentialPurpose` 增加 `'redeem_code'`。
 
 ### 2.5 迁移
 
-一个迁移 `0036_redeem_codes.sql` + drizzle 快照，journal `when` 必须大于所有已应用迁移（实现时再按 `rebuild` 上的最新值取，并在本地库查询确认）。内容：建三张表与索引、`credit_grant` 加两列与约束、`credit_entry_reason_check` 换约束。不写 `BEGIN` / `ON COMMIT DROP`（`test-integration.sh` 逐句自动提交）。纯新增，无需回填。
+一个迁移 `0036_redeem_codes.sql` + drizzle 快照（`drizzle-kit generate` 生成），journal `when` = 1794234669018，大于本地库 `drizzle.__drizzle_migrations` 中已应用的最大值 1794197413808。内容：建三张表与索引、`credit_grant` 加两列与约束、`credit_entry_reason_check` 换约束。不写 `BEGIN` / `ON COMMIT DROP`（`test-integration.sh` 逐句自动提交）。纯新增，无需回填。
 
 ## 3. 码的格式与生成
 
@@ -121,7 +123,8 @@
 
 - 服务端用 `crypto.getRandomValues` + 拒绝采样（避免取模偏差）生成。
 - 一个事务内：插入批次 → 每 500 个码一组 `insert … on conflict (code_digest) do nothing returning`，冲突的重新生成补齐（理论上不会发生），最后断言总数 = `code_count`。10,000 个码 × 加密开销在一次请求内可完成；实现时测一下耗时，必要时把上限降到 5,000。
-- 创建接口直接返回本批次的明文码（JSON），前端立刻提供 CSV 下载。
+- 创建接口直接返回本批次的明文码（JSON），前端立刻提供"下载 CSV"和"复制全部"。
+- 自定义码已存在时整批回滚，返回 `custom_code_taken`。
 
 ### 3.4 明文还是哈希？
 
@@ -149,7 +152,7 @@
 
 - 第 k 期：`[addMonths(start, k), addMonths(start, k+1))`（UTC，与 `creditTransaction` 的 `addMonth` 兜底一致）。
 - 每期一条 `credit_grant(source='plan', expires_at=期末, period_start=期初, redemption_id, redemption_period=k)`，额度 = 快照的 `credits`。期末未用完照常由 `expirePlanGrants` 清零——**不把 3 个月的额度一次性给齐**，否则会变成"3 倍额度、3 个月有效"，和付费 Plan 的语义不同。
-- 生效那一刻（兑换时或排队到点）立即发第 0 期；后续各期由新的每小时 cron（`/api/cron/plan-redemptions`，例如 `20 * * * *`）补发，幂等靠 `unique(redemption_id, redemption_period)`。发新一期前先 `expirePlanGrants(userId, cutoff=期初)`，同续费 webhook。最多一小时的到账延迟期间，侧栏按现有逻辑显示"本期未使用"（`planUsage` 对"本期 grant 未到"已有处理）。
+- 兑换时若立即生效，当场发第 0 期；排队的兑换到点后由每小时的 cron（`/api/cron/plan-redemptions`，`20 * * * *`，已登记在 `vercel.json`）发第 0 期，之后各期也由它在每期开始后发放。幂等靠 `unique(redemption_id, redemption_period)` 和发放前的存在检查；cron 按 id 分页、`for update skip locked`，重叠运行不会重复发。发新一期前先 `expirePlanGrants(userId, cutoff=max(期初, now))`，同续费 webhook。cron 整月都没跑到的期次不补发（那一期的额度到现在已经过期了），只发当前期。最多一小时的到账延迟期间，侧栏按现有逻辑显示"本期未使用"（`planUsage` 对"本期 grant 未到"已有处理）。
 
 **Plan 有效的判定**改为统一的 `planStateOf(executor, userId, now)`：
 
@@ -173,7 +176,7 @@ active Paddle subscription（planIsActive）  → { active, source: 'paddle', pe
 | Paddle 订阅有效、**会自动续费** | **拒绝**，`plan_subscription_renewing`。提示"关闭自动续费后再兑换，兑换的 Plan 会在本期结束后接上"。否则下期 Paddle 照常扣款，用户等于花钱又兑换了一份。 |
 | Paddle 订阅 `past_due` / `paused`（库里存 `expired`） | 拒绝，`plan_renewal_pending`，与结账的 `renewal_pending` 一致。 |
 
-反方向（兑换 Plan 生效 / 排队中再去 Paddle 订阅）：`startCheckout` 对 Plan 增加一个拒绝 `plan_redeemed_active`，定价页显示"兑换的 Plan 有效至 X，到期后可订阅"。为了让兑换和结账互斥，兑换 Plan 时拿同一把 `pg_advisory_xact_lock(hashtext('checkout:' || userId))`，并像 `checkoutAttempt` 那样作废该用户一小时内未完成的 Plan checkout（`cancelCheckoutTransaction` + `superseded_at`）。
+反方向（兑换 Plan 生效 / 排队中再去 Paddle 订阅）：`startCheckout` 对 Plan 增加一个拒绝 `plan_redeemed_active`（409）；余额页 Plan 卡的按钮变成禁用的"兑换的 Plan 到期后可订阅"。为了让兑换和结账互斥，兑换 Plan 时拿同一把 `pg_advisory_xact_lock(hashtext('checkout:' || userId))`，并像 `checkoutAttempt` 那样作废该用户一小时内未完成的 Plan checkout（`cancelCheckoutTransaction` + `superseded_at`）。
 
 兜底：如果兑换后仍有一笔之前打开的 Plan 付款到账（overlay 已在别的标签页付了），webhook 照常记账（钱已收），沿用现有"user paid for a second Plan"的 warn，管理员在交易页处理。不做自动退款。
 
@@ -211,7 +214,7 @@ Paddle 自动续费用户想用兑换码的更好体验是"把 Paddle 的下次�
 - **审计**：
   - 成功兑换：`redeem_redemption` 本身就是审计记录（谁、哪个码、何时、`ip_hash`、UA、得到什么），后台可按批次 / 用户查看导出；用户侧账本有 `redeem` 流水。
   - 后台操作：`admin_audit`（建批次、改有效期、启停、导出）。
-  - 失败尝试：MVP 只在服务端日志记一行（user、ip_hash、错误码、digest 前 8 位），不建表。确有需要再加 `redeem_attempt` 表（Q7）。
+  - 失败尝试：MVP 只在服务端日志记一行（`console.info`：user、ip_hash 前 8 位、错误码、digest 前 8 位），不建表。确有需要再加 `redeem_attempt` 表（Q7）。
 - 停用的账号没有会话，无法兑换；官方账号允许兑换。
 
 ## 6. 界面
@@ -229,9 +232,9 @@ Paddle 自动续费用户想用兑换码的更好体验是"把 Paddle 的下次�
   - 提交后进入结果页：显示全部码，按钮"下载 CSV""复制全部"。
 - **批次详情** `/admin/redeem-codes/[id]`：
   - 头部：批次信息、进度、"停用 / 启用批次"、"修改有效期"、"导出码 CSV"、"导出兑换记录 CSV"。批次的兑换内容、次数限制创建后不可改（它们是对持码人的承诺）；需要不同条件就新建批次。
-  - 「兑换码」表：码（默认只显示 `····7KQ2`，点"显示"解密并记审计）、已用 / 上限、状态、最近兑换时间、单码停用 / 启用。
+  - 「兑换码」表：码（默认只显示 `····7KQ2`，点"显示"解密并记 `redeem.code.reveal` 审计）、已用 / 上限、状态（可兑换 / 已用完 / 已停用）、最近兑换时间、单码停用 / 启用。两个表是顶栏的两个 tab（`?tab=codes|redemptions`）。
   - 「兑换记录」表：时间、用户（链接到 `/admin/users/[id]`）、码后四位、得到的 credits / Plan 起止。
-- 用户详情页 `/admin/users/[id]` 的余额区块增加"兑换记录"小表，Plan 状态显示来源（Paddle / 兑换至 X）。
+- 用户详情页 `/admin/users/[id]`：「充值」tab 底部增加"兑换记录"表（链接到对应批次）；顶部 Plan 余额卡在兑换 Plan 生效时显示"兑换的 Plan 至 X"。后台"给 Plan 桶加 credits"对兑换 Plan 同样可用，到期时间取当期期末。
 
 ### 6.2 用户侧
 
@@ -248,7 +251,8 @@ Paddle 自动续费用户想用兑换码的更好体验是"把 Paddle 的下次�
 ### 6.3 i18n 键（zh / en 各一份）
 
 - `i18n/pages/billing.ts`：`reasons.redeem`；`redeem.{title, hint, placeholder, submit, submitting, link}`；`redeem.success.{pack, plan, planQueued}`；`redeem.errors.{code_not_found, code_not_started, code_expired, code_disabled, code_exhausted, already_redeemed, plan_subscription_renewing, plan_renewal_pending, too_many_attempts, generic}`；`plan.redeemedUntil`、`plan.redeemedNext`；结账页 `errors.plan_redeemed_active`。
-- 新文件 `i18n/pages/redeem-admin.ts`：列表、表单、详情、状态、CSV 表头等；`console.nav['redeem-codes']`；审计动作名称 `redeem.batch.create` 等（审计搜索按本地化名称匹配）。
+- 新文件 `i18n/pages/redeem-admin.ts`（`t.redeemAdmin`）：列表、表单、结果、详情、状态、错误、用户页兑换记录；`console.nav['redeem-codes']`；审计动作名称 `redeem.batch.create` 等（审计搜索按本地化名称匹配）。CSV 表头是英文，与其他后台导出一致。
+- `i18n/pages/site.ts`：结账错误 `plan_redeemed_active`；定价页 Plan / Pack 卡下方"有兑换码？"链接到余额页兑换卡。
 
 ## 7. API 与错误码
 
@@ -276,18 +280,18 @@ Paddle 自动续费用户想用兑换码的更好体验是"把 Paddle 的下次�
 | 路由 | 说明 |
 | --- | --- |
 | `GET /api/admin/redeem-batches` | 列表：`q`、`status`、`kind`、`period`、`sort`、`size`、`page`；`format=csv`。 |
-| `POST /api/admin/redeem-batches` | 建批次，返回批次与明文码。错误：`invalid_kind`、`invalid_target`、`invalid_count`、`invalid_limits`、`invalid_window`、`invalid_prefix`、`custom_code_taken`。 |
+| `POST /api/admin/redeem-batches` | 建批次，返回批次与明文码（201）。错误（422，`custom_code_taken` 409）：`invalid_name`、`invalid_note`、`invalid_kind`、`invalid_target`、`invalid_count`、`invalid_limits`、`invalid_window`、`invalid_prefix`、`invalid_custom_code`、`custom_code_taken`。 |
 | `GET /api/admin/redeem-batches/[id]` | 详情与统计。 |
 | `PATCH /api/admin/redeem-batches/[id]` | 仅 `name`、`note`、`status`、`expiresAt`。 |
 | `GET /api/admin/redeem-batches/[id]/codes` | 码列表（掩码）；`format=csv` 导出明文并审计。 |
-| `GET /api/admin/redeem-codes/[id]/reveal` | 解密单个码，审计。 |
-| `PATCH /api/admin/redeem-codes/[id]` | `status`。 |
+| `POST /api/admin/redeem-codes/[id]/reveal` | 解密单个码，审计（用 POST，因为每次都会写审计）。 |
+| `PATCH /api/admin/redeem-codes/[id]` | `status`；错误 `invalid_status`。 |
 | `GET /api/admin/redeem-batches/[id]/redemptions` | 兑换记录；`format=csv`。 |
 | 第二期：`POST /api/admin/redemptions/[id]/revoke` | 撤销一次兑换（见 Q5）。 |
 
 `GET /api/cron/plan-redemptions`：补发到期的兑换 Plan 各期 credits；按 `CRON_SECRET` 鉴权，同其他 cron。
 
-代码位置：纯规则（码生成 / 规范化、批次参数校验、Plan 期次计算、`planStateOf` 的判定）放 `lib/domain/redeem.ts`；数据库与事务放 `lib/services/redeem.ts`；后台列表放 `lib/services/admin-redeem.ts`。
+代码位置：码生成 / 规范化、批次参数校验、排队起点放 `lib/domain/redeem.ts`；Plan 期次（`addMonths`、`redeemedPeriod`）和 Plan 状态（`planStateFrom`）与其他 Plan 规则一起放 `lib/domain/billing.ts`；`planStateOf` / `redeemedPlansOf` 在 `lib/services/billing.ts`；兑换事务和 cron 在 `lib/services/redeem.ts`；后台在 `lib/services/admin-redeem.ts`；固定窗口限频从 `explore.ts` 提到 `lib/services/rate-limit.ts`（`explore.ts` 原样转导出）。`/redeem?code=` 是 `app/redeem/route.ts`。
 
 ## 8. 测试计划
 
@@ -308,7 +312,7 @@ Paddle 自动续费用户想用兑换码的更好体验是"把 Paddle 的下次�
 6. 有效期与状态：未开始、已过期、批次停用、单码停用；停用后已兑换的 credits 不变。
 7. 限频：连续 5 次 `code_not_found` 后第 6 次 429 且不查库；真实但过期的码不计数。
 8. 账本一致：所有场景结束后，grant 余额之和 = 流水之和（对账辅助放进 `tests/integration/billing-audit.ts`，和 `debtOf` 等放在一起）。
-9. 后台权限：未登录 / 非管理员访问各路由被拒。
+9. 后台权限：各路由都走 `apiAdministrator`（与其他后台路由相同）。本次没有为它单独写测试——路由处理依赖 Next 的请求上下文，集成测试只测服务层。
 
 浏览器验收（需要用户登录后台一次）：建批次 → 下载 CSV → 用户侧兑换 Pack 和 Plan → 余额卡、侧栏 Plan 条、账本、后台兑换记录都对得上。
 
@@ -335,3 +339,19 @@ Paddle 自动续费用户想用兑换码的更好体验是"把 Paddle 的下次�
 4. 后台 API 与页面、CSV、审计。
 5. 用户侧兑换卡、Plan 卡状态、账本文案、i18n。
 6. 本地浏览器验收；PR 指向 `rebuild`，不创建 Preview 部署。
+
+## 11. 实现记录（2026-11-09）
+
+与上文最初设计稿的差异，以及实现时补充的决定：
+
+- **digest**：`sha256('redeem:' + 码)` 的 base64url（沿用 `lib/infra/crypto/tokens.ts` 的 `sha256`），不是 hex。
+- **账本 note 不写批次名**：批次名是后台内部名称，而 note 用户在账本里看得到。
+- **新增审计动作** `redeem.code.reveal`；"显示"接口改为 POST。
+- **管理员外键** `created_by` / `revoked_by` 为 `on delete set null`，删除管理员不受兑换码批次阻挡（集成测试 `admin.test.ts` 会清空管理员表）。
+- **Plan 有效判定**统一为 `planStateOf`（`lib/services/billing.ts`），替换了 `hasActivePlan`、Pack 结账门槛、侧栏 / 余额页 Plan 用量、后台用户 `planActive`、后台给 Plan 桶加 credits。Paddle 订阅相关的续费开关（`setRenewal`）仍只看 Paddle 订阅。后台用户列表的"会员状态"筛选仍是 Paddle 订阅状态，没有改。
+- **`planUsage`** 新增 `source`（`paddle` / `redeemed`）、`redeemedUntil`、`redeemedNext`；兼容旧的传 Paddle 订阅的调用。
+- **Plan 结账拒绝 `plan_redeemed_active`** 的条件是"存在任何未结束的兑换 Plan"（生效中或排队中）。
+- **cron 不补发错过的整月**，只发当前期（见 4.2）。
+- **限频**：只有 `code_not_found`（含格式不对）计数；超限时在查库前返回 429 和 `retryAfter`（响应头 `retry-after` 同步）。
+
+验证：`npm run typecheck`；单元测试 `tests/unit/redeem.test.ts`（码格式与分布、规范化、批次参数、月份切分与月底、排队起点、Plan 状态）和原有 `tests/unit/billing.test.ts`；集成测试 `tests/integration/redeem.test.ts`（第 8 节 1–8）与全套 `./scripts/test-integration.sh`。浏览器验收需要用户登录一次后台。

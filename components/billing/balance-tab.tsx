@@ -6,6 +6,7 @@ import { serverMessages } from '@/i18n/server';
 import { fill, formatDate, formatNumber, formatUsd } from '@/i18n/format';
 import { ArrivalNotice } from '@/components/billing/arrival';
 import { RenewalControl } from '@/components/billing/renewal';
+import { RedeemCard } from '@/components/billing/redeem-card';
 import { PayoutCard } from '@/components/payouts/payout-card';
 import { I } from '@/components/settings/icon';
 
@@ -16,6 +17,10 @@ export async function BalanceTab({ userId, query }: { userId: string; query: Rec
   const [summary, prices] = await Promise.all([billingSummary(userId), currentPricing()]);
   const plan = summary.plan;
   const periodEnd = plan.periodEnd ? formatDate(plan.periodEnd, locale) : '';
+  const redeemed = plan.source === 'redeemed';
+  const redeemedUntil = plan.redeemedUntil ? formatDate(plan.redeemedUntil, locale) : '';
+  /* A redeemed Plan in force or waiting: no subscribing until it ends (checkout refuses it too). */
+  const redeemedHeld = redeemed || Boolean(plan.redeemedNext);
   const arriving = typeof query.checkout === 'string' && /^txn_[a-z0-9]{10,64}$/.test(query.checkout) ? query.checkout : null;
   const n = (value: number) => formatNumber(value, locale);
   return (
@@ -37,7 +42,7 @@ export async function BalanceTab({ userId, query }: { userId: string; query: Rec
             <p className="label">
               {b.total.plan.label}
               <span className={`tag ${plan.active ? (plan.cancelAtPeriodEnd ? 'orange' : 'blue') : ''}`}>
-                {plan.active ? (plan.cancelAtPeriodEnd ? b.total.plan.ending : b.total.plan.monthly) : b.total.plan.inactive}
+                {plan.active ? (redeemed ? b.total.plan.redeemed : plan.cancelAtPeriodEnd ? b.total.plan.ending : b.total.plan.monthly) : b.total.plan.inactive}
               </span>
             </p>
             <p className="billing-bucket-number">{n(summary.buckets.plan)}</p>
@@ -78,7 +83,7 @@ export async function BalanceTab({ userId, query }: { userId: string; query: Rec
         <section className="card plan-card primary">
           <div className="between">
             <h3>{b.plan.title}</h3>
-            <span className={`tag ${plan.active ? 'blue' : ''}`}>{plan.active ? (plan.cancelAtPeriodEnd ? b.plan.cancelling : b.plan.current) : b.plan.start}</span>
+            <span className={`tag ${plan.active ? 'blue' : ''}`}>{plan.active ? (redeemed ? b.plan.redeemed : plan.cancelAtPeriodEnd ? b.plan.cancelling : b.plan.current) : b.plan.start}</span>
           </div>
           {plan.active && <small>{b.plan.offerPrice}</small>}
           <p className="plan-price">
@@ -87,9 +92,18 @@ export async function BalanceTab({ userId, query }: { userId: string; query: Rec
           <PromotionNotice price={prices.plan} kind="plan" locale={locale} labels={t.site.prices} />
           <p>{fill(b.plan.perCycle, { credits: n(prices.plan.credits) })}</p>
           <Features items={[b.plan.perk1, b.plan.perk2, b.plan.perk3]} />
-          {plan.active && <p className="plan-renewal">{fill(plan.cancelAtPeriodEnd ? b.plan.ends : b.plan.renews, { date: periodEnd })}</p>}
-          {plan.active ? (
+          {plan.active && (
+            <p className="plan-renewal">{redeemed ? fill(b.plan.redeemedUntil, { date: redeemedUntil }) : fill(plan.cancelAtPeriodEnd ? b.plan.ends : b.plan.renews, { date: periodEnd })}</p>
+          )}
+          {plan.redeemedNext && (
+            <p className="plan-renewal">{fill(b.plan.redeemedNext, { date: formatDate(plan.redeemedNext, locale), until: redeemedUntil })}</p>
+          )}
+          {plan.active && !redeemed ? (
             <RenewalControl cancelAtPeriodEnd={plan.cancelAtPeriodEnd} periodEndLabel={periodEnd} />
+          ) : redeemedHeld ? (
+            <button type="button" className="btn" disabled>
+              {b.plan.redeemedLater}
+            </button>
           ) : (
             <Link href="/checkout?kind=plan" className="btn">
               {fill(b.plan.subscribe, { price: formatUsd(prices.plan.effectivePriceMinor, locale) })}
@@ -118,6 +132,7 @@ export async function BalanceTab({ userId, query }: { userId: string; query: Rec
           )}
         </section>
       </div>
+      <RedeemCard initialCode={typeof query.code === 'string' ? query.code.slice(0, 60) : ''} />
       <div className="info-strip mt24">
         <I name="info" />
         <span>{b.info}</span>

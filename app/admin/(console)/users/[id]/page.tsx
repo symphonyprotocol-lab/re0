@@ -13,6 +13,7 @@ import { LinkPager, RecordsTable, RoleBadge, Stats, Subline, Tag } from '@/compo
 import { ConsolePage, ConsoleTopbar } from '@/components/admin/console-topbar';
 import { AdjustCreditsButton, ApiKeyRevokeButton, UserStatusButton } from '@/components/admin/user-detail-actions';
 import { listApiKeys } from '@/lib/services/api-keys';
+import { redemptionsOf } from '@/lib/services/redeem';
 import { DotAvatar, RoleChecks, RoleHistory, RolePanel } from '@/components/admin/user-detail-roles';
 import { kycHistory } from '@/lib/services/kyc';
 import { listNotices } from '@/lib/services/notices';
@@ -200,7 +201,8 @@ export default async function UserDetailPage({ params, searchParams }: Props) {
       </section>
     );
   } else if (tab === 'purchases') {
-    const { purchases, subscriptions } = await userPurchases(id);
+    const [{ purchases, subscriptions }, redemptions] = await Promise.all([userPurchases(id), redemptionsOf(id)]);
+    const ru = t.redeemAdmin.user;
     const p = t.consoleUsers.purchases;
     const pc = d.purchases.columns;
     const s = d.purchases.subscriptionColumns;
@@ -256,6 +258,27 @@ export default async function UserDetailPage({ params, searchParams }: Props) {
             />
           </section>
         )}
+        <section className="card mt24">
+          <div className="console-table-head">
+            <h2>{ru.title}</h2>
+          </div>
+          <RecordsTable
+            label={table}
+            empty={ru.empty}
+            head={[ru.columns.time, ru.columns.batch, ru.columns.code, ru.columns.credits, ru.columns.plan]}
+            rows={redemptions.map((row) => [
+              formatDateTime(row.createdAt, locale),
+              <Link key="batch" className="text-link" href={`/admin/redeem-codes/${row.batchId}?tab=redemptions`}>
+                {row.batchName}
+              </Link>,
+              <span key="code" className="mono">{`····${row.last4}`}</span>,
+              <span key="credits" className="mono">
+                {row.kind === 'plan' ? fill(t.redeemAdmin.detail.creditsPlan, { credits: n(row.credits), months: row.planMonths ?? 0 }) : n(row.credits)}
+              </span>,
+              row.planStartsAt && row.planEndsAt ? `${formatDateTime(row.planStartsAt, locale)} — ${formatDateTime(row.planEndsAt, locale)}` : '—',
+            ])}
+          />
+        </section>
       </>
     );
   } else if (tab === 'keys') {
@@ -360,7 +383,12 @@ export default async function UserDetailPage({ params, searchParams }: Props) {
           {
             label: d.stats.plan,
             value: n(user.balances.plan),
-            note: user.planActive && user.subscription?.currentPeriodEnd ? fill(d.stats.planUntil, { date: formatDate(user.subscription.currentPeriodEnd, locale) }) : d.stats.planNone,
+            note:
+              user.planActive && user.planSource === 'redeemed' && user.redeemedUntil
+                ? fill(t.redeemAdmin.user.redeemedUntil, { date: formatDate(user.redeemedUntil, locale) })
+                : user.planActive && user.subscription?.currentPeriodEnd
+                  ? fill(d.stats.planUntil, { date: formatDate(user.subscription.currentPeriodEnd, locale) })
+                  : d.stats.planNone,
             icon: 'wallet',
           },
           { label: d.stats.pack, value: n(user.balances.pack), note: d.stats.packHint, icon: 'layers' },

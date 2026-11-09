@@ -246,6 +246,13 @@
       "when": 1794197413808,
       "tag": "0035_infra_cost_rates",
       "breakpoints": true
+    },
+    {
+      "idx": 36,
+      "version": "7",
+      "when": 1794234669018,
+      "tag": "0036_redeem_codes",
+      "breakpoints": true
     }
   ]
 }
