@@ -26,7 +26,7 @@ export interface CostProviderRow {
 const base = sql`with runs as (
   select r.*, u.name, u.email, h.closed_at, h.amount as reserved_credits,
     case when h.status = 'held' then h.amount else 0 end as held_credits,
-    case when h.status = 'released' then h.amount when h.status = 'settled' then h.amount - coalesce(r.charged_credits, 0) else 0 end as refunded_credits,
+    case when h.status = 'released' then h.amount when h.status = 'settled' then greatest(h.amount - coalesce(r.charged_credits, 0), 0) else 0 end as refunded_credits,
     coalesce(c.cost, 0)::text as known_cost_usd,
     case when not r.metered or c.unresolved > 0 then null else coalesce(c.cost, 0)::text end as cost_usd,
     c.calls, c.unresolved

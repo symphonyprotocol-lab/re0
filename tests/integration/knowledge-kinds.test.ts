@@ -16,6 +16,7 @@ import { pointModelsAt, TEST_DATABASE_URL, uniqueName } from './setup';
 import { asc, eq } from 'drizzle-orm';
 import { FAKE_MP3_FRAME_SECONDS, FAKE_MP3_PIECE_FRAMES, fakeMp3, startFakeOpenAi, type FakeOpenAi } from '../fixtures/fake-openai';
 import { authorization, html, jsonResponse, startFakeWeb, text, type FakeWeb } from '../fixtures/fake-web';
+import { expectChargedAtLeastCost } from './billing-audit';
 
 const blobs = vi.hoisted(() => new Map<string, Uint8Array>());
 vi.mock('@/lib/infra/blob', () => ({
@@ -130,6 +131,7 @@ describeWithDb('GitHub repositories', () => {
     expect(locatorLabel(deploys!.locator, 'zh')).toContain('README.md:5');
     const file = await knowledge.knowledgeChild(ree.id, id, 1);
     expect(file?.content).toBe(SOURCE.trimEnd());
+    expect(await expectChargedAtLeastCost(id)).toEqual([expect.objectContaining({ status: 'ready', receipts: 1 })]);
 
     await connections.disconnectGithub(userId);
     expect(await refusal(knowledge.refreshKnowledge(userId, ree.id, id))).toBe('github_not_connected');
@@ -234,6 +236,10 @@ describeWithDb('pages and websites', () => {
     expect(detail!.content).toContain('npm install acme@4');
     expect(detail!.content).not.toContain('navigation chrome');
     expect(detail!.chunks[0]!.locator).toMatchObject({ url: 'https://blog.example.org/notes' });
+    // A page is fetched locally: its one receipt is the embedding.
+    const [run] = await expectChargedAtLeastCost(id);
+    expect(run).toMatchObject({ status: 'ready', receipts: 1 });
+    expect(await balanceOf(db(), userId)).toBe(WELCOME_CREDITS - run!.charged);
   });
 
   it('refuses local and private addresses', async () => {
@@ -290,6 +296,7 @@ describeWithDb('pages and websites', () => {
     expect((await knowledge.knowledgeChild(ree.id, id, limits))?.content).toContain('500 seats');
     const settled = 1;
     expect(await balanceOf(db(), userId)).toBe(before - settled);
+    expect(await expectChargedAtLeastCost(id)).toEqual([expect.objectContaining({ status: 'ready', charged: settled })]);
   });
 
   it('verifies by the well-known file when DNS has nothing', async () => {
@@ -370,7 +377,11 @@ describeWithDb('audio', () => {
     expect(await balanceOf(db(), userId)).toBe(before - price);
     const entries = await db().select().from(schema.creditEntry).where(eq(schema.creditEntry.refId, id)).orderBy(asc(schema.creditEntry.createdAt));
     expect(entries[0]).toMatchObject({ reason: 'knowledge_hold', delta: -1 });
-    expect(entries.at(-1)).toMatchObject({ reason: 'knowledge_settle', delta: 0 });
+    expect(entries.at(-1)).toMatchObject({ reason: 'knowledge_settle' });
     expect(entries.reduce((sum, entry) => sum + entry.delta, 0)).toBe(-price);
+    // Every piece's own length was reserved before it was sent, and each receipt bills at least that length.
+    expect(detail!.activity.some((entry) => entry.code === 'reserved' && entry.detail?.estimate === 1)).toBe(true);
+    for (const charge of charges.filter((entry) => entry.service === 'transcription')) expect(charge.usage.seconds).toBeGreaterThan(0);
+    expect(await expectChargedAtLeastCost(id)).toEqual([expect.objectContaining({ status: 'ready', charged: price })]);
   }, 60_000);
 });

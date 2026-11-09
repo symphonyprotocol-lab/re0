@@ -9,6 +9,14 @@ interface Meter {
   runId: string;
   prices: ProviderPrices;
   record(charge: ProviderCharge): Promise<void>;
+  /**
+   * Reserve a call's estimated cost (USD) on top of what the run already
+   * spent and what calls still in flight estimated, BEFORE the paid request
+   * goes out. Throws `InsufficientCredits` when the balance cannot cover it,
+   * so the call is never made. The returned function takes the estimate out
+   * of the in-flight sum once the call's receipt is recorded.
+   */
+  reserve?(costUsd: string): Promise<() => void>;
   pending?: Set<Promise<void>>;
 }
 const context = new AsyncLocalStorage<Meter>();
@@ -61,8 +69,15 @@ export function modelCostTarget(endpoint: { transport: string; baseUrl: string |
   return { service, endpoint: url.href.replace(/\/+$/, ''), model: endpoint.model };
 }
 
-/** Resolve a custom account's rate BEFORE making a paid request. Gateway can report its exact cost instead. */
-export async function prepareProviderCall(target: ProviderTarget) {
+/**
+ * Resolve a custom account's rate BEFORE making a paid request. Gateway can
+ * report its exact cost instead. `estimate` is an upper bound of the usage
+ * the call will bill (pages, audio seconds, input tokens): priced at the same
+ * rate, it is reserved before the request, so a balance that cannot pay for
+ * the call refuses it instead of the platform paying for it. The final bill
+ * is still the measured usage.
+ */
+export async function prepareProviderCall(target: ProviderTarget, options: { estimate?: ProviderUsage } = {}) {
   const meter = context.getStore();
   if (!meter) return null;
   const configured = configuredProviderRate(meter.prices, target);
@@ -73,12 +88,20 @@ export async function prepareProviderCall(target: ProviderTarget) {
     console.warn(`no supplier price for ${target.service} ${target.endpoint} ${target.model} account=${target.account ?? '*'}; set it in the console`);
     throw new ProviderCostUnavailable('pricing_unavailable');
   }
+  let settled: (() => void) | undefined;
+  if (rate && options.estimate && meter.reserve) {
+    let estimated: string | null = null;
+    try { estimated = rateCost(rate, options.estimate); } catch (error) { if (!(error instanceof ProviderCostUnavailable)) throw error; }
+    if (estimated !== null) settled = await meter.reserve(estimated);
+  }
   return {
+    /** Takes this call's estimate out of the run's in-flight sum; call it however the request ends (idempotent). */
+    release() { settled?.(); },
     /**
-     * `acceptUnknownCost`: the supplier gives no usage we can price (a Word parse
-     * without `creditsUsed`, audio without a duration). The receipt is kept as
-     * unresolved for reconciliation instead of failing the source; it is never
-     * billed as zero or estimated.
+     * `acceptUnknownCost`: the supplier gave a reply we cannot price (Firecrawl
+     * answering with unreadable JSON). The receipt is kept as unresolved for
+     * reconciliation and the caller fails the source; a source never becomes
+     * ready with an unresolved receipt (`processKnowledgeRun`).
      */
     async complete(input: { usage: ProviderUsage; providerMetadata?: unknown; requestId?: string; acceptUnknownCost?: boolean }) {
       let direct: string | null = null;
@@ -98,7 +121,7 @@ export async function prepareProviderCall(target: ProviderTarget) {
         ...(input.requestId ? { requestId: input.requestId } : {}),
         ...(typeof generationId === 'string' ? { generationId } : {}),
       };
-      await meter.record(charge);
+      try { await meter.record(charge); } finally { settled?.(); }
       if (costUsd === null && !input.acceptUnknownCost) throw new ProviderCostUnavailable('usage_unavailable');
     },
   };

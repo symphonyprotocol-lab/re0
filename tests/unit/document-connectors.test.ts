@@ -7,6 +7,7 @@ import { pdfTextLayer } from '@/lib/infra/connectors/pdf';
 import { claimFirecrawlKey, recordFirecrawlKeyResult } from '@/lib/infra/firecrawl/keys';
 import { withProviderMeter } from '@/lib/infra/ai/provider-meter';
 import { providerRateSchema, type ProviderCharge } from '@/lib/domain/provider-cost';
+import { InsufficientCredits } from '@/lib/domain/credits';
 import { buildPdf, draw, makePdf } from '../fixtures/pdf';
 import { deflatedZip, makeDocx, makeZip, word } from '../fixtures/docx';
 
@@ -185,11 +186,62 @@ describe('Firecrawl document ingestion (PDFs the local parser hands over)', () =
       expect(charges[0]).toMatchObject({ usage: { firecrawlCredits: 2 }, costUsd: '0.007600000000' });
     });
 
-    it('still fails a PDF that reports no usage at all', async () => {
+    it('bills the pages a reply returned when it reports no usage', async () => {
       reply({ pages: [{ pageNumber: 1, markdown: 'One.' }] });
+      const { result, charges } = await metered(() => documentSections(bytes, 'document.pdf'));
+      await result;
+      expect(charges[0]).toMatchObject({ usage: { firecrawlCredits: 1 }, costUsd: '0.003800000000' });
+    });
+
+    it('bills the largest page count of a truncated reply, never the pages it returned', async () => {
+      reply({ pages: [{ pageNumber: 1, markdown: 'One.' }, { pageNumber: 2, markdown: 'Two.' }], metadata: { numPages: 2, totalPages: 5 } });
+      const { result, charges } = await metered(() => documentSections(bytes, 'document.pdf'));
+      await expect(result).rejects.toMatchObject({ code: 'parse_failed' });
+      expect(charges[0]).toMatchObject({ usage: { firecrawlCredits: 5 }, costUsd: '0.019000000000' });
+    });
+
+    it('still fails a reply with neither usage nor any page count', async () => {
+      reply({});
       const { result, charges } = await metered(() => documentSections(bytes, 'document.pdf'));
       await expect(result).rejects.toThrow('usage_unavailable');
       expect(charges[0]).toMatchObject({ costUsd: null });
+    });
+
+    it('reserves the local page count at 1 credit per page before sending the file', async () => {
+      const pdf = buildPdf([draw.image(), draw.image(), draw.image()]);
+      const reserved: string[] = [];
+      let sentAfterReserve = false;
+      fetchMock.mockImplementationOnce(async () => { sentAfterReserve = reserved.length === 1; return Response.json({ success: true, data: { pages: [1, 2, 3].map((pageNumber) => ({ pageNumber, markdown: `Page ${pageNumber}.` })), metadata: { creditsUsed: 3 } } }); });
+      await withProviderMeter({ runId: 'run', prices: { revision: 'v1', rates: [rate] }, record: async () => undefined, reserve: async (cost) => { reserved.push(cost); return () => undefined; } },
+        () => documentSections(pdf, 'scan.pdf'));
+      expect(reserved).toEqual(['0.011400000000']);
+      expect(sentAfterReserve).toBe(true);
+    });
+
+    it('releases each rotated key\'s page estimate, so a retry does not reserve the pages twice', async () => {
+      const pdf = buildPdf([draw.image(), draw.image(), draw.image()]);
+      vi.mocked(claimFirecrawlKey)
+        .mockResolvedValueOnce({ managed: true, credential: { id: 'first', apiKey: 'fc-console-first' } })
+        .mockResolvedValueOnce({ managed: true, credential: { id: 'second', apiKey: 'fc-console-second' } });
+      fetchMock.mockResolvedValueOnce(new Response('', { status: 429 }));
+      reply({ pages: [1, 2, 3].map((pageNumber) => ({ pageNumber, markdown: `Page ${pageNumber}.` })), metadata: { creditsUsed: 3 } });
+      const inflight = new Set<number>();
+      const peaks: number[] = [];
+      let next = 0;
+      await withProviderMeter({
+        runId: 'run', prices: { revision: 'v1', rates: [rate] }, record: async () => undefined,
+        reserve: async () => { const key = next++; inflight.add(key); peaks.push(inflight.size); return () => { inflight.delete(key); }; },
+      }, () => documentSections(pdf, 'scan.pdf'));
+      expect(peaks).toEqual([1, 1]);
+      expect(inflight.size).toBe(0);
+    });
+
+    it('makes no paid call when the balance cannot cover the reserved pages', async () => {
+      const pdf = buildPdf([draw.image(), draw.image(), draw.image()]);
+      const calls = fetchMock.mock.calls.length;
+      await expect(withProviderMeter({ runId: 'run', prices: { revision: 'v1', rates: [rate] }, record: async () => undefined, reserve: async () => { throw new InsufficientCredits(115, 10); } },
+        () => documentSections(pdf, 'scan.pdf'))).rejects.toBeInstanceOf(InsufficientCredits);
+      expect(fetchMock.mock.calls.length).toBe(calls);
     });
 
     it('keeps an unreadable but billed reply as an unresolved receipt', async () => {
@@ -416,7 +468,7 @@ describe('local PDF parsing', () => {
   });
 
   it('hands the file to Firecrawl when local reading runs out of time', async () => {
-    expect(await pdfTextLayer(makePdf([['Local text.']]), { deadline: Date.now() - 1 })).toEqual({ fallback: 'budget', page: 1 });
+    expect(await pdfTextLayer(makePdf([['Local text.']]), { deadline: Date.now() - 1 })).toEqual({ fallback: 'budget', page: 1, pages: 1 });
 
     const base = Date.now();
     let calls = 0;

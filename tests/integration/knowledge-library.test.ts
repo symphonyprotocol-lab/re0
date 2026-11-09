@@ -15,6 +15,7 @@ import { afterAll, beforeAll, describe, expect, it, vi } from 'vitest';
 import { pointModelsAt, TEST_DATABASE_URL, uniqueName } from './setup';
 import { asc, eq, inArray } from 'drizzle-orm';
 import { startFakeOpenAi, type FakeOpenAi } from '../fixtures/fake-openai';
+import { expectChargedAtLeastCost } from './billing-audit';
 
 const blobs = vi.hoisted(() => new Map<string, Uint8Array>());
 vi.mock('@/lib/infra/blob', () => ({
@@ -259,6 +260,7 @@ describeWithDb('charges', () => {
       ['knowledge_hold', -1],
       ['knowledge_settle', 0],
     ]);
+    for (const id of [a, b]) expect((await expectChargedAtLeastCost(id)).map((run) => [run.status, run.charged])).toEqual([['ready', 1], ['ready', 1]]);
   });
 
   it('refuses a reprocess the balance cannot cover, whole', async () => {

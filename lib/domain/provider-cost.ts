@@ -101,13 +101,16 @@ function exactUsd(units: bigint, scale: number): string {
 export function rateCost(rate: ProviderRate, usage: ProviderUsage): string {
   const quantity = rate.unit === 'tokens' ? usage.inputTokens : rate.unit === 'seconds' ? usage.seconds : usage.firecrawlCredits;
   if (quantity === undefined || !Number.isFinite(quantity) || quantity < 0) throw new ProviderCostUnavailable('usage_unavailable');
-  const units = (amount: number) => {
+  const units = (amount: number, up = false) => {
     if (!Number.isFinite(amount) || amount < 0) throw new ProviderCostUnavailable('usage_unavailable');
-    return BigInt(Math.round(amount * 1_000_000));
+    const scaled = amount * 1_000_000;
+    const nearest = Math.round(scaled);
+    // Measured usage rounds up past floating-point noise: a real fraction of a micro-unit is billed, never dropped.
+    return BigInt(up && scaled - nearest > 1e-6 ? Math.ceil(scaled) : nearest);
   };
   // Integer micro-units avoid false extra billing increments from e.g. 0.14 / 0.01.
   const step = units(rate.incrementUnits);
-  const measured = units(quantity);
+  const measured = units(quantity, true);
   const rounded = step > 0n ? ceilDiv(measured, step) * step : measured;
   const minimum = units(rate.minimumUnits);
   const billable = rounded > minimum ? rounded : minimum;

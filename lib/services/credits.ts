@@ -309,6 +309,47 @@ export async function reserveKnowledgeUsage(
 }
 
 /**
+ * A knowledge run that ran out of credits after a supplier already billed
+ * it: the cost is the owner's in full (credits are never undercounted). The
+ * hold grows by whatever the balance still has, and the part nothing can
+ * cover becomes a `credit_debt` row, paid off first by the next credits to
+ * arrive (as a refund's shortfall is, 2.3). The entry is written even when
+ * the balance is empty, so the ledger shows what is owed. Returns the debt.
+ * The caller then settles the hold at `actual`.
+ */
+export async function chargeKnowledgeShortfall(
+  tx: Tx,
+  holdId: string,
+  actual: number,
+  options: { reeId: string; note?: string | null },
+  now = new Date(),
+): Promise<number> {
+  if (!Number.isSafeInteger(actual) || actual < 0) throw new Error('invalid knowledge price');
+  const hold = await openHold(tx, holdId);
+  if (!hold || hold.kind !== 'knowledge') throw new Error('knowledge reservation unavailable');
+  const need = actual - hold.amount;
+  if (need <= 0) return 0;
+  const grants = await grantsOf(tx, hold.userId, true);
+  const take = Math.min(need, availableOf(grants, now));
+  const allocations = take > 0 ? allocate(grants, take, now) : [];
+  await moveGrants(tx, allocations, -1);
+  await tx.update(schema.creditHold).set({ amount: hold.amount + take, allocations: [...hold.allocations, ...allocations] }).where(eq(schema.creditHold.id, holdId));
+  const owed = need - take;
+  await tx.insert(schema.creditEntry).values({
+    userId: hold.userId,
+    delta: -take,
+    reason: 'knowledge_hold',
+    refId: hold.refId,
+    reeId: options.reeId,
+    note: owed > 0 ? `${options.note ?? ''}${options.note ? ': ' : ''}${owed} owed` : (options.note ?? null),
+    allocations,
+    createdAt: now,
+  });
+  if (owed > 0) await tx.insert(schema.creditDebt).values({ userId: hold.userId, amount: owed, remaining: owed, createdAt: now });
+  return owed;
+}
+
+/**
  * Charges `actual` (capped at what was held) and returns the rest. Always
  * writes the settlement entry -- with delta 0 when the hold was exact -- so
  * the ledger shows a hold and its settlement as a pair.

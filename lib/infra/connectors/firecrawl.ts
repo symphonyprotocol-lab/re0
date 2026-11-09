@@ -28,8 +28,12 @@ const parsedDocument = z.object({
   }),
 });
 
-/** `deadline` (epoch ms) bounds the whole call, key rotation included. */
-export async function firecrawlSections(bytes: Uint8Array, fileName: string, { deadline = Date.now() + TIMEOUT_MS }: { deadline?: number } = {}): Promise<Section[]> {
+/**
+ * `deadline` (epoch ms) bounds the whole call, key rotation included.
+ * `pages`, the page count when the PDF could be opened locally, is reserved
+ * at Firecrawl's 1 credit per page before the file is sent.
+ */
+export async function firecrawlSections(bytes: Uint8Array, fileName: string, { deadline = Date.now() + TIMEOUT_MS, pages: knownPages }: { deadline?: number; pages?: number } = {}): Promise<Section[]> {
   const customBase = process.env.FIRECRAWL_BASE_URL?.trim();
   const attempted: string[] = [];
   let lastFailure: ProcessingFailure | null = null;
@@ -62,8 +66,12 @@ export async function firecrawlSections(bytes: Uint8Array, fileName: string, { d
     if (remaining <= 0) throw lastFailure ?? new ProcessingFailure('parse_failed', 'Firecrawl document parsing timed out');
     // Once Firecrawl has answered, the key worked: later failures are ours, not the key's.
     let answered = false;
+    let call: Awaited<ReturnType<typeof prepareProviderCall>> = null;
     try {
-      const call = await prepareProviderCall({ service: 'firecrawl', endpoint: (customBase || DEFAULT_BASE_URL).replace(/\/+$/, ''), model: 'parse', account: credential.id ?? 'environment' });
+      call = await prepareProviderCall(
+        { service: 'firecrawl', endpoint: (customBase || DEFAULT_BASE_URL).replace(/\/+$/, ''), model: 'parse', account: credential.id ?? 'environment' },
+        knownPages ? { estimate: { firecrawlCredits: knownPages } } : {},
+      );
       const response = await fetch(`${(customBase || DEFAULT_BASE_URL).replace(/\/+$/, '')}/v2/parse`, {
         method: 'POST',
         headers: credential.apiKey ? { Authorization: `Bearer ${credential.apiKey}` } : {},
@@ -87,9 +95,17 @@ export async function firecrawlSections(bytes: Uint8Array, fileName: string, { d
         await call?.complete({ usage: {}, requestId, acceptUnknownCost: true });
         throw new ProcessingFailure('parse_failed', 'Firecrawl returned an invalid document response');
       }
-      const metadata = (raw as { data?: { metadata?: { creditsUsed?: number; numPages?: number } } }).data?.metadata;
-      // PDF parsing is documented at 1 credit per page.
-      await call?.complete({ usage: { firecrawlCredits: metadata?.creditsUsed ?? metadata?.numPages }, requestId });
+      const reply = (raw as { data?: { pages?: unknown; metadata?: { creditsUsed?: number; numPages?: number; totalPages?: number } } }).data;
+      const metadata = reply?.metadata;
+      /*
+       * PDF parsing is documented at 1 credit per page. Without `creditsUsed`,
+       * the largest page count any part of the reply (or our own reading) gives
+       * is billed, so a truncated reply is never billed for fewer pages.
+       */
+      const pageCounts = [metadata?.numPages, metadata?.totalPages, Array.isArray(reply?.pages) ? reply.pages.length : undefined, knownPages]
+        .filter((value): value is number => typeof value === 'number' && Number.isFinite(value) && value > 0);
+      const firecrawlCredits = typeof metadata?.creditsUsed === 'number' ? metadata.creditsUsed : pageCounts.length > 0 ? Math.max(...pageCounts) : undefined;
+      await call?.complete({ usage: { firecrawlCredits }, requestId });
       const parsed = parsedDocument.safeParse(raw);
       if (!parsed.success) throw new ProcessingFailure('parse_failed', 'Firecrawl returned an invalid document response');
       data = parsed.data.data;
@@ -99,6 +115,9 @@ export async function firecrawlSections(bytes: Uint8Array, fileName: string, { d
       if (!answered) await recordFirecrawlKeyResult(credential, 0);
       // Provider errors may contain credentials or document text; keep them out of logs.
       throw new ProcessingFailure('parse_failed', 'Firecrawl document parsing request failed or timed out');
+    } finally {
+      // A rotated key's request is answered or abandoned: its page estimate leaves the in-flight sum.
+      call?.release();
     }
   }
 

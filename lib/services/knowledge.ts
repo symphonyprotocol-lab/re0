@@ -42,7 +42,7 @@ import { fetchRepositoryFiles, readRepository } from '@/lib/infra/connectors/git
 import { crawlSite, fetchPage } from '@/lib/infra/connectors/web';
 import { db, schema, type Tx } from '@/lib/infra/db';
 import { githubTokenFor, hasVerifiedDomainFor } from '@/lib/services/connections';
-import { heldFor, InsufficientCredits, placeHold, releaseHold, reserveKnowledgeUsage, settleHold } from '@/lib/services/credits';
+import { chargeKnowledgeShortfall, heldFor, InsufficientCredits, placeHold, releaseHold, reserveKnowledgeUsage, settleHold } from '@/lib/services/credits';
 import { afterKnowledgeReady } from '@/lib/services/profile';
 import { drainProviderCalls, withProviderMeter } from '@/lib/infra/ai/provider-meter';
 import { ProviderCostUnavailable, providerTotal, type ProviderCharge } from '@/lib/domain/provider-cost';
@@ -295,6 +295,25 @@ async function recordProviderCharge(knowledgeId: string, charge: ProviderCharge)
   if (outcome) throw outcome;
 }
 
+/**
+ * Before a paid call: the run's known costs plus the estimated cost of every
+ * call in flight (this one included) are reserved, or `InsufficientCredits`
+ * stops the call before it is made (the supplier is never paid for work the
+ * balance cannot cover). The bill is still the measured usage; whatever the
+ * estimates reserved beyond it is returned at settlement.
+ */
+async function reserveEstimate(knowledgeId: string, runId: string, inflight: readonly string[]): Promise<void> {
+  await db().transaction(async (tx) => {
+    const [row] = await tx.select().from(schema.knowledge).where(eq(schema.knowledge.id, knowledgeId)).for('update');
+    if (!row || !ownsProcessingRun(row, runId)) throw new Error('stale processing run');
+    const holdId = await heldFor(tx, knowledgeId, 'knowledge');
+    if (!holdId) throw new Error('knowledge reservation missing');
+    const known = runCharges(row.activity, runId).filter((entry) => entry.costUsd !== null);
+    const extra = await reserveKnowledgeUsage(tx, holdId, providerTotal([...known, ...inflight.map((costUsd) => ({ costUsd }))]).credits, { reeId: row.reeId, note: row.title });
+    if (extra > 0) await tx.update(schema.knowledge).set({ activity: appendActivity([activity('reserved', { credits: extra, estimate: 1 })]) }).where(eq(schema.knowledge.id, knowledgeId));
+  });
+}
+
 /** Initial reservation only; supplier responses determine the final price. */
 export function reprocessHold(row: Pick<KnowledgeRow, 'kind' | 'content' | 'fileSize'>): number {
   if (row.kind === 'text') return holdFor('text', row.content ?? '');
@@ -479,7 +498,23 @@ async function embedAll(texts: string[]): Promise<{ vectors: number[][]; configI
 export async function processKnowledge(knowledgeId: string, options: { profile?: boolean } = {}): Promise<string | null> {
   const runId = crypto.randomUUID();
   const prices = await providerPrices();
-  const reeId = await withProviderMeter({ runId, prices, record: (charge) => recordProviderCharge(knowledgeId, charge) }, () => processKnowledgeRun(knowledgeId, runId));
+  /* Estimates of the calls not yet answered: parallel calls reserve for each other too. */
+  const inflight = new Map<symbol, string>();
+  const reeId = await withProviderMeter({
+    runId, prices,
+    record: (charge) => recordProviderCharge(knowledgeId, charge),
+    reserve: async (costUsd) => {
+      const key = Symbol('estimate');
+      inflight.set(key, costUsd);
+      try {
+        await reserveEstimate(knowledgeId, runId, [...inflight.values()]);
+      } catch (error) {
+        inflight.delete(key);
+        throw error;
+      }
+      return () => { inflight.delete(key); };
+    },
+  }, () => processKnowledgeRun(knowledgeId, runId));
   // Profile maintenance remains platform-funded and must not enter this source's cost scope.
   if (reeId && options.profile !== false) await afterKnowledgeReady(reeId);
   return reeId;
@@ -539,9 +574,10 @@ async function processKnowledgeRun(knowledgeId: string, runId: string): Promise<
         }
         const holdId = await heldFor(tx, row.id, 'knowledge');
         if (!holdId) throw new Error('knowledge reservation missing');
-        // Only accepted unknown costs can be unresolved here (any other one failed its call); they are not billed.
+        // A source never becomes ready with a cost nobody can price: it would be billed as zero.
         const charges = runCharges(current!.activity, runId);
         const resolved = charges.filter((charge) => charge.costUsd !== null);
+        if (resolved.length !== charges.length) throw new ProviderCostUnavailable('usage_unavailable');
         const total = providerTotal(resolved);
         const settled = await settleHold(tx, holdId, total.credits, { reeId: row.reeId, note: row.title });
         if (!settled || settled.charged !== total.credits) throw new Error('knowledge settlement mismatch');
@@ -550,10 +586,7 @@ async function processKnowledgeRun(knowledgeId: string, runId: string): Promise<
         const log: KnowledgeActivity[] = extracted.log.map((entry) => ({ ...entry, at: done.toISOString() }));
         log.push(activity('parsed', pages > 0 ? { chars: content.length, pages } : { chars: content.length }, done));
         log.push(activity('chunked', { chunks: chunks.length }, done));
-        log.push(activity('settled', {
-          charged: settled.charged, released: settled.released, costUsd: total.costUsd, tariff: 'provider-cost-v1',
-          ...(charges.length > resolved.length ? { unresolvedCalls: charges.length - resolved.length } : {}),
-        }, done));
+        log.push(activity('settled', { charged: settled.charged, released: settled.released, costUsd: total.costUsd, tariff: 'provider-cost-v1' }, done));
         log.push(activity('ready', undefined, done));
         const renamed = current!.title !== current!.originalTitle;
         const fetchedTitle = extracted.title?.trim().slice(0, KNOWLEDGE_TITLE_MAX);
@@ -594,20 +627,22 @@ async function failAndRefund(id: string, reeId: string, title: string | null, co
     if (current?.status !== 'processing' || (runId && !ownsProcessingRun(current, runId))) return;
     const holdId = await heldFor(tx, id, 'knowledge');
     /*
-     * Running out of credits is the one failure the owner pays for: supplier
-     * costs already reserved against their balance stay charged (the call that
-     * overran it is ours). Every other failure is refunded in full.
+     * Running out of credits is the one failure the owner pays for, in full:
+     * every supplier cost the run incurred stays charged, the call that
+     * overran the balance included -- what the balance cannot cover is owed
+     * (`chargeKnowledgeShortfall`). Every other failure is refunded in full.
      */
     const spent = holdId && runId && code === 'insufficient_credits'
       ? providerTotal(runCharges(current.activity, runId).filter((charge) => charge.costUsd !== null)).credits
       : null;
+    const owed = holdId && spent !== null ? await chargeKnowledgeShortfall(tx, holdId, spent, { reeId, note: title }) : 0;
     const settled = holdId && spent !== null ? await settleHold(tx, holdId, spent, { reeId, note: title }) : null;
     const released = holdId && !settled ? await releaseHold(tx, holdId, { reeId, note: title }) : null;
     const failedRun = runId ?? processingRun(current);
-    if (holdId || failedRun) await tx.update(schema.knowledgeCostRun).set({ status: 'failed', error: code, chargedCredits: settled?.charged ?? 0 })
+    if (holdId || failedRun) await tx.update(schema.knowledgeCostRun).set({ status: 'failed', error: code, chargedCredits: (settled?.charged ?? 0) + owed })
       .where(holdId ? eq(schema.knowledgeCostRun.id, holdId) : eq(schema.knowledgeCostRun.runId, failedRun!));
     const log: KnowledgeActivity[] = [activity('failed', { reason: code }, when)];
-    if (settled) log.push(activity('settled', { charged: settled.charged, released: settled.released }, when));
+    if (settled) log.push(activity('settled', { charged: settled.charged + owed, released: settled.released, ...(owed > 0 ? { owed } : {}) }, when));
     if (released) log.push(activity('refunded', { credits: released }, when));
     await tx
       .update(schema.knowledge)
