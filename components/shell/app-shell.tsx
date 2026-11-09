@@ -166,10 +166,11 @@ function Sidebar({ user, collapsed, phone, open, hidden, onClose }: { user: Shel
 }
 
 /**
- * The sidebar's usage card (prototype usage.js `sidebar`): with a Plan, this
- * period's credits used and a meter that turns amber from
- * 90%; without one, the balance. Folded, only its icon shows, and the title
- * carries the same summary.
+ * The sidebar's usage card (prototype usage.js `sidebar`): the headline is the
+ * total available balance -- the same 总余额 as the balance tab, Plan +
+ * welcome + Pack + earned. With a Plan, the meter and the line under it show
+ * this period's Plan credits used, turning amber from 90%. Folded, only its
+ * icon shows, and the title carries the same summary.
  */
 function PlanMeter({ user }: { user: ShellUser }) {
   const { t, locale } = useI18n();
@@ -179,7 +180,7 @@ function PlanMeter({ user }: { user: ShellUser }) {
   const membership = plan.active ? a.member : a.free;
   const status = plan.active ? (plan.cancelAtPeriodEnd ? a.ending : a.active) : a.upgrade;
   const summary = plan.active
-    ? fill(a.summaryPlan, { used: n(plan.used), allowance: n(plan.allowance), remaining: n(plan.remaining) })
+    ? fill(a.summaryPlan, { total: n(user.balance), used: n(plan.used), allowance: n(plan.allowance), remaining: n(plan.remaining) })
     : fill(a.summaryFree, { total: n(user.balance) });
   return (
     <Link
@@ -195,16 +196,16 @@ function PlanMeter({ user }: { user: ShellUser }) {
         <strong>{membership}</strong>
         <span className={plan.active && plan.cancelAtPeriodEnd ? 'ending' : undefined}>{status}</span>
       </div>
+      <div className="sr-only">
+        {a.balance} {t.common.units.credits}
+      </div>
+      <div className="sidebar-usage-amount">
+        <small>{a.balanceShort}</small>
+        <strong>{n(user.balance)}</strong>
+        {plan.active && <span>{t.common.units.credits}</span>}
+      </div>
       {plan.active ? (
         <>
-          <div className="sr-only">
-            {a.usedOfAllowance} {t.common.units.credits}
-          </div>
-          <div className="sidebar-usage-amount">
-            <small>{a.used}</small>
-            <strong>{n(plan.used)}</strong>
-            <span>/ {n(plan.allowance)}</span>
-          </div>
           <div
             className="sidebar-usage-meter"
             role="meter"
@@ -216,23 +217,15 @@ function PlanMeter({ user }: { user: ShellUser }) {
           >
             <i style={{ width: `${plan.percent}%` }} />
           </div>
-          <div className="sidebar-usage-foot">
+          <div className="sidebar-usage-plan">
+            <span>{fill(a.planUsed, { used: n(plan.used), allowance: n(plan.allowance) })}</span>
             <span>{fill(a.remaining, { n: n(plan.remaining) })}</span>
           </div>
         </>
       ) : (
-        <>
-          <div className="sr-only">
-            {a.balance} {t.common.units.credits}
-          </div>
-          <div className="sidebar-usage-amount">
-            <small>{a.balanceShort}</small>
-            <strong>{n(user.balance)}</strong>
-          </div>
-          <div className="sidebar-usage-foot">
-            <span>{a.noAllowance}</span>
-          </div>
-        </>
+        <div className="sidebar-usage-foot">
+          <span>{a.noAllowance}</span>
+        </div>
       )}
     </Link>
   );

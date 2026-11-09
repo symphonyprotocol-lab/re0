@@ -360,6 +360,17 @@
 .sidebar-usage-foot > svg {
   display: none;
 }
+.sidebar-usage-plan {
+  grid-area: 4 / 1 / auto / -1;
+  display: flex;
+  justify-content: space-between;
+  gap: 6px;
+  min-width: 0;
+  font-size: 8px;
+  line-height: 12px;
+  color: #98abc7;
+  white-space: nowrap;
+}
 @container (max-width: 190px) {
   .sidebar-account-footer .sidebar-usage {
     margin-inline: 0;
@@ -373,7 +384,8 @@
     font-size: 13px;
   }
   .sidebar-account-footer .sidebar-usage-amount > span,
-  .sidebar-account-footer .sidebar-usage-foot {
+  .sidebar-account-footer .sidebar-usage-foot,
+  .sidebar-account-footer .sidebar-usage-plan {
     font-size: 7px;
   }
 }

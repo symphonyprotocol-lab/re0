@@ -21,13 +21,33 @@ export async function BalanceTab({ userId, query }: { userId: string; query: Rec
   return (
     <div className={`settings-billing ${summary.official ? 'official-billing' : ''}`}>
       {arriving && <ArrivalNotice transactionId={arriving} />}
-      <div className="billing-summary">
-        <span className="billing-total">
-          {b.total}
-          <strong>{n(summary.total)}</strong>
-          <span>credits</span>
-        </span>
-      </div>
+      <section className="card billing-total-card" aria-labelledby="billing-total-label">
+        <div className="billing-total-main">
+          <p className="label" id="billing-total-label">
+            {b.total.label}
+          </p>
+          <p className="billing-total-number">
+            <strong>{n(summary.total)}</strong>
+            <span>credits</span>
+          </p>
+          <small>{b.total.note}</small>
+        </div>
+        <dl className="billing-total-parts">
+          {(
+            [
+              ['plan', summary.buckets.plan],
+              ['welcome', summary.buckets.welcome],
+              ['pack', summary.buckets.pack],
+              ...(summary.official ? [] : ([['earned', summary.buckets.earned]] as const)),
+            ] as const
+          ).map(([part, value]) => (
+            <div key={part}>
+              <dt>{b.total.parts[part]}</dt>
+              <dd>{n(value)}</dd>
+            </div>
+          ))}
+        </dl>
+      </section>
       {summary.buckets.welcome > 0 && (
         <div className="welcome-credits">
           <span>
