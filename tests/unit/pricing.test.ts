@@ -91,7 +91,7 @@ describe('Paddle price and discount construction', () => {
         new Response(
           JSON.stringify({
             data: {
-              id: 'pri_old',
+              id: 'pri_01old000000000000000000000',
               product_id: 'pro_test',
               tax_mode: 'internal',
               unit_price: { amount: '1000', currency_code: 'USD' },
@@ -103,7 +103,7 @@ describe('Paddle price and discount construction', () => {
       )
       .mockResolvedValueOnce(new Response(JSON.stringify({ data: { id: 'pri_new' } })));
     vi.stubGlobal('fetch', fetch);
-    expect(await provisionPrice(config, 'pack', 1200, 'pri_old')).toBe('pri_new');
+    expect(await provisionPrice(config, 'pack', 1200, 'pri_01old000000000000000000000')).toBe('pri_new');
     expect(JSON.parse(fetch.mock.calls[1]![1].body)).toMatchObject({
       product_id: 'pro_test',
       tax_mode: 'internal',

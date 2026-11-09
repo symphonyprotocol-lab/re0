@@ -60,6 +60,7 @@ export const zh = {
     invalid_pricing: '请检查金额及积分额度。积分须为 1 到 100,000,000 之间的整数。新促销价须低于常规价，结束时间须晚于开始时间和当前时间。',
     pricing_conflict: '价格已被其他管理员修改，请刷新后重试。',
     payment_provider: '支付服务同步失败，价格未保存。请检查 Paddle API 权限后重试。',
+    invalid_paddle_price: '当前 Paddle 价格不可用（ID 无效、已归档或计费周期不符），价格未保存。请检查 PADDLE_PLAN_PRICE_ID / PADDLE_PACK_PRICE_ID 及 Paddle 中的价格。',
     payments_unavailable: '支付服务未配置，无法保存价格。',
   },
 };
@@ -125,6 +126,7 @@ export const en: Shape<typeof zh> = {
     invalid_pricing: 'Check the price and allowance. Credits must be a whole number from 1 to 100,000,000. New promotions must offer a lower price and end after the start and the current time.',
     pricing_conflict: 'Another administrator changed pricing. Refresh and try again.',
     payment_provider: 'Payment provider sync failed; pricing was not saved. Check Paddle API permissions and retry.',
+    invalid_paddle_price: 'The current Paddle price cannot be used (invalid ID, archived, or wrong billing cycle); pricing was not saved. Check PADDLE_PLAN_PRICE_ID / PADDLE_PACK_PRICE_ID and the price in Paddle.',
     payments_unavailable: 'Payments are not configured. Pricing cannot be saved.',
   },
 };

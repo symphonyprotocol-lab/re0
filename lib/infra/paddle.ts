@@ -55,9 +55,24 @@ export class PaddleError extends Error {
   }
 }
 
+/** Paddle's own format for a price ID; a product ID (`pro_…`) in its place fails every checkout. */
+const PRICE_ID = /^pri_[a-z0-9]{26}$/;
+
+export function isPaddlePriceId(value: unknown): value is string {
+  return typeof value === 'string' && PRICE_ID.test(value);
+}
+
+/** What a bad ID looks like, for the log: its prefix and length, never the value itself. */
+export function describeBadPriceId(value: string): string {
+  const prefix = /^[A-Za-z]{1,8}_/.exec(value)?.[0];
+  return `${prefix ? `starts with "${prefix}"` : 'has no prefix'}, ${value.length} characters; expected pri_ and 26 lowercase letters or digits`;
+}
+
 /**
  * The deployment's Paddle settings, or null when any is missing: a key
- * without a webhook secret could take money it would never hear about.
+ * without a webhook secret could take money it would never hear about. A
+ * price ID that is not one is treated as missing and logged, so it is never
+ * sent to Paddle.
  */
 export function paddleConfig(env: NodeJS.ProcessEnv = process.env): PaddleConfig | null {
   const apiKey = env.PADDLE_API_KEY?.trim();
@@ -67,6 +82,13 @@ export function paddleConfig(env: NodeJS.ProcessEnv = process.env): PaddleConfig
   const packPriceId = env.PADDLE_PACK_PRICE_ID?.trim();
   const base = (env.PADDLE_CHECKOUT_BASE_URL?.trim() || env.APP_BASE_URL?.trim() || '').replace(/\/+$/, '');
   if (!apiKey || !webhookSecret || !clientToken || !planPriceId || !packPriceId || !base) return null;
+  let invalid = false;
+  for (const [name, value] of [['PADDLE_PLAN_PRICE_ID', planPriceId], ['PADDLE_PACK_PRICE_ID', packPriceId]] as const) {
+    if (isPaddlePriceId(value)) continue;
+    console.error(`paddle: ${name} is not a Paddle price ID (${describeBadPriceId(value)}); payments are disabled until it is fixed`);
+    invalid = true;
+  }
+  if (invalid) return null;
   return {
     apiKey,
     webhookSecret,
@@ -306,11 +328,53 @@ export function resumeRenewal(config: PaddleConfig, subscriptionId: string): Pro
   return call<PaddleSubscription>(config, 'PATCH', `/subscriptions/${encodeURIComponent(subscriptionId)}`, { scheduled_change: null });
 }
 
+interface PaddlePrice {
+  id: string;
+  status: string;
+  product_id: string;
+  tax_mode: string;
+  unit_price: { amount: string; currency_code: string };
+  billing_cycle: { interval: string; frequency: number } | null;
+  quantity: { minimum: number; maximum: number };
+  unit_price_overrides?: unknown[];
+  trial_period?: unknown;
+}
+
+function getPrice(config: PaddleConfig, id: string): Promise<PaddlePrice> {
+  if (!isPaddlePriceId(id)) return Promise.reject(new PaddleError(`paddle GET /prices: not a Paddle price ID (${describeBadPriceId(id)})`));
+  return call<PaddlePrice>(config, 'GET', `/prices/${encodeURIComponent(id)}`);
+}
+
+/** Why a price cannot be charged for `kind` -- archived, another currency, the wrong billing cycle -- or null. */
+function priceProblem(price: PaddlePrice, kind: 'plan' | 'pack'): string | null {
+  if (price.status !== 'active') return `status is ${clip(price.status, 32) || 'missing'}`;
+  if (price.unit_price.currency_code !== 'USD') return `currency is ${clip(price.unit_price.currency_code, 8)}`;
+  const cycle = price.billing_cycle;
+  if (kind === 'plan' && !(cycle?.interval === 'month' && cycle.frequency === 1)) return 'Plan price is not billed monthly';
+  if (kind === 'pack' && cycle !== null) return 'Pack price is recurring';
+  return null;
+}
+
+/**
+ * Whether a catalogue price can be kept as it is: null when Paddle has it,
+ * active, in USD and on `kind`'s billing cycle, else what is wrong. A price
+ * Paddle does not know (400, 404) is a problem, not an outage; other
+ * failures throw.
+ */
+export async function verifyPrice(config: PaddleConfig, kind: 'plan' | 'pack', id: string): Promise<string | null> {
+  if (!isPaddlePriceId(id)) return `not a Paddle price ID (${describeBadPriceId(id)})`;
+  try {
+    return priceProblem(await getPrice(config, id), kind);
+  } catch (error) {
+    if (error instanceof PaddleError && (error.status === 400 || error.status === 404)) return `Paddle answered ${error.status}`;
+    throw error;
+  }
+}
+
 /** Price versions are created instead of modifying prices already used by subscriptions. */
 export async function provisionPrice(config: PaddleConfig, kind: 'plan' | 'pack', amount: number, sourcePriceId: string): Promise<string> {
-  const source = await call<{ id: string; product_id: string; tax_mode: string; unit_price: { amount: string; currency_code: string }; billing_cycle: { interval: string; frequency: number } | null; quantity: { minimum: number; maximum: number }; unit_price_overrides?: unknown[]; trial_period?: unknown }>(config, 'GET', `/prices/${encodeURIComponent(sourcePriceId)}`);
-  const cycleMatches = kind === 'plan' ? source.billing_cycle?.interval === 'month' && source.billing_cycle.frequency === 1 : source.billing_cycle === null;
-  if (Number(source.unit_price.amount) === amount && source.unit_price.currency_code === 'USD' && cycleMatches && !source.trial_period && !source.unit_price_overrides?.length && source.quantity.minimum === 1 && source.quantity.maximum === (kind === 'plan' ? 1 : 10)) return source.id;
+  const source = await getPrice(config, sourcePriceId);
+  if (priceProblem(source, kind) === null && Number(source.unit_price.amount) === amount && !source.trial_period && !source.unit_price_overrides?.length && source.quantity.minimum === 1 && source.quantity.maximum === (kind === 'plan' ? 1 : 10)) return source.id;
   const price = await call<{ id: string }>(config, 'POST', '/prices', {
     product_id: source.product_id,
     description: `RE0 ${kind} USD ${amount / 100}`,
