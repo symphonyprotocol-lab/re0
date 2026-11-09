@@ -31,23 +31,42 @@ export async function BalanceTab({ userId, query }: { userId: string; query: Rec
             <span>credits</span>
           </p>
           {summary.buckets.welcome > 0 && <p className="billing-total-gift">{fill(b.total.includesWelcome, { n: n(summary.buckets.welcome) })}</p>}
-          <small>{b.total.note}</small>
         </div>
-        <dl className="billing-total-parts">
-          {(
-            [
-              ['plan', summary.buckets.plan],
-              ['welcome', summary.buckets.welcome],
-              ['pack', summary.buckets.pack],
-              ...(summary.official ? [] : ([['earned', summary.buckets.earned]] as const)),
-            ] as const
-          ).map(([part, value]) => (
-            <div key={part}>
-              <dt>{b.total.parts[part]}</dt>
-              <dd>{n(value)}</dd>
-            </div>
-          ))}
-        </dl>
+        <ul className="billing-buckets" aria-label={b.total.buckets}>
+          <li className="billing-bucket">
+            <p className="label">
+              {b.total.plan.label}
+              <span className={`tag ${plan.active ? (plan.cancelAtPeriodEnd ? 'orange' : 'blue') : ''}`}>
+                {plan.active ? (plan.cancelAtPeriodEnd ? b.total.plan.ending : b.total.plan.monthly) : b.total.plan.inactive}
+              </span>
+            </p>
+            <p className="billing-bucket-number">{n(summary.buckets.plan)}</p>
+            <small>{plan.active ? fill(b.total.plan.expires, { date: periodEnd }) : fill(b.total.plan.idle, { credits: n(prices.plan.credits) })}</small>
+          </li>
+          <li className="billing-bucket">
+            <p className="label">{b.total.welcome.label}</p>
+            <p className="billing-bucket-number">{n(summary.buckets.welcome)}</p>
+            <small>{b.total.welcome.note}</small>
+          </li>
+          <li className="billing-bucket">
+            <p className="label">
+              {b.total.pack.label}
+              <I name="layers" />
+            </p>
+            <p className="billing-bucket-number">{n(summary.buckets.pack)}</p>
+            <small>{b.total.pack.note}</small>
+          </li>
+          {!summary.official && (
+            <li className="billing-bucket earned">
+              <p className="label">
+                {b.total.earned.label}
+                <I name="sparkle" />
+              </p>
+              <p className="billing-bucket-number">{n(summary.buckets.earned)}</p>
+              <small>{b.total.earned.note}</small>
+            </li>
+          )}
+        </ul>
       </section>
       {summary.debt > 0 && (
         <div role="note" className="billing-debt">
@@ -55,34 +74,6 @@ export async function BalanceTab({ userId, query }: { userId: string; query: Rec
           <span>{fill(b.debt, { n: n(summary.debt) })}</span>
         </div>
       )}
-      <div className="billing-balance">
-        <div className="card balance-card">
-          <p className="label">
-            {b.planBalance.label}
-            <span className="tag blue">{plan.active ? b.planBalance.monthly : b.planBalance.inactive}</span>
-          </p>
-          <p className="big-number">{n(summary.buckets.plan)}</p>
-          <small>{plan.active ? fill(b.planBalance.active, { date: periodEnd }) : fill(b.planBalance.idle, { credits: n(prices.plan.credits) })}</small>
-        </div>
-        <div className="card balance-card">
-          <p className="label">
-            {b.packBalance.label}
-            <I name="layers" />
-          </p>
-          <p className="big-number">{n(summary.buckets.pack)}</p>
-          <small>{b.packBalance.note}</small>
-        </div>
-        {!summary.official && (
-          <div className="card balance-card earned">
-            <p className="label">
-              {b.earnedBalance.label}
-              <I name="sparkle" />
-            </p>
-            <p className="big-number">{n(summary.buckets.earned)}</p>
-            <small>{b.earnedBalance.note}</small>
-          </div>
-        )}
-      </div>
       <div className="billing-plans mt32">
         <section className="card plan-card primary">
           <div className="between">
