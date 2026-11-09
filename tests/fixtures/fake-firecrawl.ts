@@ -11,14 +11,11 @@ export function startFakeFirecrawl(): FakeWeb {
   vi.stubEnv('FIRECRAWL_API_KEY', 'fc-integration-test');
   vi.stubEnv('FIRECRAWL_BASE_URL', 'https://api.firecrawl.dev');
   const web = startFakeWeb(['api.firecrawl.dev']);
-  web.routes.set('api.firecrawl.dev/v2/parse', (_url, init) => {
-    const file = (init!.body as FormData).get('file') as File;
+  web.routes.set('api.firecrawl.dev/v2/parse', () => {
     const pages = handbookPages().map((lines, index) => ({ pageNumber: index + 1, markdown: lines.join('\n') }));
     return jsonResponse({
       success: true,
-      data: file.name.toLowerCase().endsWith('.pdf')
-        ? { pages, markdown: pages.map((page) => page.markdown).join('\n\n'), metadata: { numPages: pages.length, totalPages: pages.length, creditsUsed: pages.length } }
-        : { metadata: { creditsUsed: 1 }, markdown: '# Unexpected\n\nWord documents are parsed locally.' },
+      data: { pages, markdown: pages.map((page) => page.markdown).join('\n\n'), metadata: { numPages: pages.length, totalPages: pages.length, creditsUsed: pages.length } },
     });
   });
   return web;

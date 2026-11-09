@@ -1,7 +1,7 @@
 /**
- * Uploaded PDF and Word documents through Firecrawl's /v2/parse endpoint.
- * Send bytes, not a public Blob URL. PDF pages keep their physical page
- * numbers all the way through chunking and citation snapshots.
+ * Uploaded PDFs the local parser cannot read (./pdf.ts), through Firecrawl's
+ * /v2/parse endpoint. Send bytes, not a public Blob URL. Pages keep their
+ * physical page numbers all the way through chunking and citation snapshots.
  */
 import { z } from 'zod';
 import type { Section } from '@/lib/domain/knowledge';
@@ -12,13 +12,13 @@ import { prepareProviderCall } from '@/lib/infra/ai/provider-meter';
 import { ProviderCostUnavailable } from '@/lib/domain/provider-cost';
 import { InsufficientCredits } from '@/lib/domain/credits';
 
+/** Used when the caller gives no deadline. */
 const TIMEOUT_MS = 120_000;
 const DEFAULT_BASE_URL = 'https://api.firecrawl.dev';
 
 const parsedDocument = z.object({
   success: z.literal(true),
   data: z.object({
-    markdown: z.string().optional(),
     pages: z.array(z.object({ pageNumber: z.number().int().positive(), markdown: z.string() })).optional(),
     metadata: z.object({
       numPages: z.number().int().nonnegative().optional(),
@@ -28,20 +28,20 @@ const parsedDocument = z.object({
   }),
 });
 
-export async function firecrawlSections(bytes: Uint8Array, fileName: string, format: 'pdf' | 'docx'): Promise<Section[]> {
+/** `deadline` (epoch ms) bounds the whole call, key rotation included. */
+export async function firecrawlSections(bytes: Uint8Array, fileName: string, { deadline = Date.now() + TIMEOUT_MS }: { deadline?: number } = {}): Promise<Section[]> {
   const customBase = process.env.FIRECRAWL_BASE_URL?.trim();
-  const deadline = Date.now() + TIMEOUT_MS;
   const attempted: string[] = [];
   let lastFailure: ProcessingFailure | null = null;
 
   const form = new FormData();
-  const contentType = format === 'pdf' ? 'application/pdf' : 'application/vnd.openxmlformats-officedocument.wordprocessingml.document';
-  form.set('file', new Blob([new Uint8Array(bytes)], { type: contentType }), fileName);
+  form.set('file', new Blob([new Uint8Array(bytes)], { type: 'application/pdf' }), fileName);
   form.set('options', JSON.stringify({
     formats: ['markdown'],
     onlyMainContent: false,
-    timeout: TIMEOUT_MS,
-    ...(format === 'pdf' ? { parsers: [{ type: 'pdf', mode: 'auto', pages: true }] } : {}),
+    // Firecrawl's own limit; our request is aborted at the same deadline.
+    timeout: Math.max(1, Math.floor(deadline - Date.now())),
+    parsers: [{ type: 'pdf', mode: 'auto', pages: true }],
   }));
 
   let data: z.infer<typeof parsedDocument>['data'];
@@ -88,15 +88,8 @@ export async function firecrawlSections(bytes: Uint8Array, fileName: string, for
         throw new ProcessingFailure('parse_failed', 'Firecrawl returned an invalid document response');
       }
       const metadata = (raw as { data?: { metadata?: { creditsUsed?: number; numPages?: number } } }).data?.metadata;
-      /*
-       * PDF parsing is documented at 1 credit per page. Word has no documented
-       * price, so without `creditsUsed` its cost stays unresolved (never guessed)
-       * and the document is still processed; the console flags it for reconciliation.
-       */
-      await call?.complete({
-        usage: { firecrawlCredits: metadata?.creditsUsed ?? (format === 'pdf' ? metadata?.numPages : undefined) },
-        requestId, acceptUnknownCost: format === 'docx',
-      });
+      // PDF parsing is documented at 1 credit per page.
+      await call?.complete({ usage: { firecrawlCredits: metadata?.creditsUsed ?? metadata?.numPages }, requestId });
       const parsed = parsedDocument.safeParse(raw);
       if (!parsed.success) throw new ProcessingFailure('parse_failed', 'Firecrawl returned an invalid document response');
       data = parsed.data.data;
@@ -114,25 +107,20 @@ export async function firecrawlSections(bytes: Uint8Array, fileName: string, for
     throw new ProcessingFailure('parse_failed', 'Firecrawl returned a truncated document');
   }
 
-  let sections: Section[];
-  if (format === 'pdf') {
-    // Never fall back to document-level markdown: its page attribution is lost.
-    if (!data.pages) throw new ProcessingFailure('parse_failed', 'Firecrawl did not return physical PDF pages');
-    const pages = [...data.pages].sort((a, b) => a.pageNumber - b.pageNumber);
-    if (new Set(pages.map((page) => page.pageNumber)).size !== pages.length) {
-      throw new ProcessingFailure('parse_failed', 'Firecrawl returned duplicate PDF page numbers');
-    }
-    const expectedPages = totalPages ?? numPages;
-    if (expectedPages !== undefined && (pages.length !== expectedPages || pages.some((page) => page.pageNumber > expectedPages))) {
-      throw new ProcessingFailure('parse_failed', 'Firecrawl returned incomplete PDF page data');
-    }
-    sections = pages.map((page) => ({ text: page.markdown.trim(), locator: { page: page.pageNumber } }));
-  } else {
-    if (data.markdown === undefined) throw new ProcessingFailure('parse_failed', 'Firecrawl did not return Word document markdown');
-    sections = [{ text: data.markdown.trim(), locator: {} }];
+  // Never fall back to document-level markdown: its page attribution is lost.
+  if (!data.pages) throw new ProcessingFailure('parse_failed', 'Firecrawl did not return physical PDF pages');
+  const pages = [...data.pages].sort((a, b) => a.pageNumber - b.pageNumber);
+  if (new Set(pages.map((page) => page.pageNumber)).size !== pages.length) {
+    throw new ProcessingFailure('parse_failed', 'Firecrawl returned duplicate PDF page numbers');
+  }
+  const expectedPages = totalPages ?? numPages;
+  if (expectedPages !== undefined && (pages.length !== expectedPages || pages.some((page) => page.pageNumber > expectedPages))) {
+    throw new ProcessingFailure('parse_failed', 'Firecrawl returned incomplete PDF page data');
   }
   // Filter blank pages only after assigning their original numbers.
-  sections = sections.filter((section) => section.text.length > 0);
+  const sections: Section[] = pages
+    .map((page) => ({ text: page.markdown.trim(), locator: { page: page.pageNumber } }))
+    .filter((section) => section.text.length > 0);
   if (sections.length === 0) throw new ProcessingFailure('empty_text', 'Firecrawl extracted no document text');
   return sections;
 }

@@ -2,11 +2,13 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { chunkSections } from '@/lib/domain/knowledge';
 import { citationSnapshots, locatorLabel } from '@/lib/domain/answer';
 import { documentSections } from '@/lib/infra/connectors';
+import { firecrawlSections } from '@/lib/infra/connectors/firecrawl';
+import { pdfTextLayer } from '@/lib/infra/connectors/pdf';
 import { claimFirecrawlKey, recordFirecrawlKeyResult } from '@/lib/infra/firecrawl/keys';
 import { withProviderMeter } from '@/lib/infra/ai/provider-meter';
 import { providerRateSchema, type ProviderCharge } from '@/lib/domain/provider-cost';
 import { buildPdf, draw, makePdf } from '../fixtures/pdf';
-import { makeDocx, makeZip, word } from '../fixtures/docx';
+import { deflatedZip, makeDocx, makeZip, word } from '../fixtures/docx';
 
 vi.mock('@/lib/infra/firecrawl/keys', () => ({ claimFirecrawlKey: vi.fn(), recordFirecrawlKeyResult: vi.fn() }));
 
@@ -84,10 +86,11 @@ describe('Firecrawl document ingestion (PDFs the local parser hands over)', () =
     expect(file.name).toBe('产品手册.PDF');
     expect(file.type).toBe('application/pdf');
     expect(new Uint8Array(await file.arrayBuffer())).toEqual(bytes);
-    expect(JSON.parse(form.get('options') as string)).toMatchObject({
-      formats: ['markdown'], onlyMainContent: false, timeout: 120_000,
-      parsers: [{ type: 'pdf', mode: 'auto', pages: true }],
-    });
+    const options = JSON.parse(form.get('options') as string);
+    expect(options).toMatchObject({ formats: ['markdown'], onlyMainContent: false, parsers: [{ type: 'pdf', mode: 'auto', pages: true }] });
+    // What is left of the document's 120 s once the local reader gave up.
+    expect(options.timeout).toBeGreaterThan(100_000);
+    expect(options.timeout).toBeLessThanOrEqual(120_000);
 
     const chunk = chunkSections(sections).find((chunk) => chunk.content.includes('设备保修两年'))!;
     const citations = citationSnapshots('设备保修两年。[1]', [{
@@ -217,6 +220,13 @@ describe('Firecrawl document ingestion (PDFs the local parser hands over)', () =
     await expect(documentSections(bytes, 'document.pdf')).rejects.toMatchObject({ code: 'parse_failed', message: 'Firecrawl returned incomplete PDF page data' });
   });
 
+  it('stops before calling Firecrawl when the deadline has passed', async () => {
+    await expect(firecrawlSections(bytes, 'document.pdf', { deadline: Date.now() - 1 })).rejects.toMatchObject({
+      code: 'parse_failed', message: 'Firecrawl document parsing timed out',
+    });
+    expect(fetchMock).not.toHaveBeenCalled();
+  });
+
   it('rejects a PDF Firecrawl finds empty', async () => {
     reply({ pages: [{ pageNumber: 1, markdown: ' \n ' }] });
     await expect(documentSections(bytes, 'document.pdf')).rejects.toMatchObject({ code: 'empty_text' });
@@ -302,18 +312,44 @@ describe('local PDF parsing', () => {
     expect(new Uint8Array(await (form.get('file') as File).arrayBuffer())).toEqual(original);
   });
 
-  it('accepts a page with a few words over an image only when the page has text enough', async () => {
-    const caption = [draw.image(), draw.text('Figure 1: the device from the front, with every port labelled for reference.', { y: 60 })].join(' ');
+  it('parses a figure locally when its caption is body text', async () => {
+    const caption = [draw.image({ y: 160 }), draw.text('Figure 1: the device from the front, with every port labelled for reference.', { y: 130 })].join(' ');
     expect(await documentSections(buildPdf([caption]), 'figure.pdf')).toEqual([
       { text: 'Figure 1: the device from the front, with every port labelled for reference.', locator: { page: 1 } },
     ]);
     expect(fetchMock).not.toHaveBeenCalled();
   });
 
+  it('parses locally past a cover page with a logo and a short title', async () => {
+    const cover = [draw.image({ x: 56, y: 700, width: 90, height: 60 }), draw.text('Annual Report 2025', { y: 600, size: 24 })].join(' ');
+    const sections = await documentSections(buildPdf([cover, reportPage(2, 3), reportPage(3, 3)]), 'report.pdf');
+    expect(sections.map((section) => section.locator.page)).toEqual([1, 2, 3]);
+    expect(sections[0]!.text).toBe('# Annual Report 2025');
+    expect(fetchMock).not.toHaveBeenCalled();
+  });
+
+  it.each([1, 3])('sends a %i-page scan stamped with a digital header to Firecrawl', async (count) => {
+    const stamped = Array.from({ length: count }, (_, at) => [
+      draw.text(`Confidential - ACME Corp - Bates ACME-00012${at} - Page ${at + 1} of ${count}`, { y: 815, size: 9 }),
+      draw.image(),
+    ].join(' '));
+    reply({ pages: Array.from({ length: count }, (_, at) => ({ pageNumber: at + 1, markdown: `OCR page ${at + 1}` })) });
+    expect((await documentSections(buildPdf(stamped), 'scan.pdf')).map((section) => section.text)[0]).toBe('OCR page 1');
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+  });
+
+  it('reads CJK text in a font that needs one of pdf.js\'s predefined CMaps', async () => {
+    expect(await documentSections(buildPdf([[draw.text('Product manual', { y: 760 }), draw.cjk(700)].join(' ')]), 'manual.pdf')).toEqual([
+      { text: 'Product manual\n\n中文', locator: { page: 1 } },
+    ]);
+    expect(fetchMock).not.toHaveBeenCalled();
+  });
+
   it.each([
     ['garbled text', buildPdf([draw.text('This line maps every glyph into the private-use area.', { y: 700, font: 'F2' })])],
-    ['a font that cannot be loaded', buildPdf([[draw.text('Latin text extracts while the CJK font beside it fails.', { y: 760 }), draw.cjk(700)].join(' ')])],
+    ['a font that cannot be loaded', buildPdf([[draw.text('Latin text extracts while the CJK font beside it fails.', { y: 760 }), draw.cjk(700, { broken: true })].join(' ')])],
     ['no text on any page', buildPdf(['', ''])],
+    ['nothing but page numbers', buildPdf(['1', '2', '3'].map((n) => draw.text(n, { x: 300, y: 30 })))],
   ])('sends the file to Firecrawl for %s', async (_case, pdf) => {
     reply({ pages: [{ pageNumber: 1, markdown: 'Parsed by Firecrawl.' }] });
     expect(await documentSections(pdf, 'document.pdf')).toEqual([{ text: 'Parsed by Firecrawl.', locator: { page: 1 } }]);
@@ -329,6 +365,72 @@ describe('local PDF parsing', () => {
     const [section] = await documentSections(pdf, 'document.pdf');
     expect(section!.text).toContain('Plenty of clean text');
     expect(fetchMock).not.toHaveBeenCalled();
+  });
+
+  it('escapes body lines that would read as Markdown, and keeps its own headings and bullets', async () => {
+    const page = [
+      draw.text('Setup', { y: 760, size: 15 }),
+      draw.text('# install deps', { y: 730 }),
+      draw.text('```', { y: 700 }),
+      draw.text('> not a quote', { y: 670 }),
+      draw.text('• A real bullet', { y: 640 }),
+      draw.text('The rest of the page stays outside any code block.', { y: 610 }),
+    ].join(' ');
+    const sections = await documentSections(buildPdf([page]), 'setup.pdf');
+    expect(sections[0]!.text).toBe([
+      '## Setup', '\\# install deps', '\\```', '\\> not a quote', '- A real bullet', 'The rest of the page stays outside any code block.',
+    ].join('\n\n'));
+    const chunks = chunkSections(sections);
+    expect(chunks.map((chunk) => chunk.locator.heading)).toEqual(['Setup']);
+    expect(chunks[0]!.content).toContain('The rest of the page');
+  });
+
+  it('keeps a line drawn out of order in one paragraph', async () => {
+    const page = [
+      draw.text('world, drawn before its first word,', { x: 88, y: 700 }),
+      draw.text('Hello', { y: 700 }),
+      draw.text('and the sentence goes on below.', { y: 686 }),
+    ].join(' ');
+    expect((await documentSections(buildPdf([page]), 'order.pdf'))[0]!.text).toBe('Hello world, drawn before its first word, and the sentence goes on below.');
+  });
+
+  it('keeps columns drawn one after the other apart', async () => {
+    const page = [
+      draw.text('Left column first line', { y: 700 }), draw.text('left column second line.', { y: 686 }),
+      draw.text('Right column first line', { x: 320, y: 700 }), draw.text('right column second line.', { x: 320, y: 686 }),
+    ].join(' ');
+    expect((await documentSections(buildPdf([page]), 'columns.pdf'))[0]!.text)
+      .toBe('Left column first line left column second line.\n\nRight column first line right column second line.');
+  });
+
+  it('strips bare page numbers only when they rise from page to page', async () => {
+    const body = (text: string) => draw.text(text, { y: 700 });
+    const numbered = (marks: string[]) => buildPdf(marks.map((mark, at) => [body(`Body of page ${at + 1}.`), draw.text(mark, { x: 300, y: 30 })].join(' ')));
+    for (const marks of [['1', '2', '3'], ['i', 'ii', 'iii']]) {
+      expect((await documentSections(numbered(marks), 'numbered.pdf')).map((section) => section.text)).toEqual(['Body of page 1.', 'Body of page 2.', 'Body of page 3.']);
+    }
+    // A one-page invoice's total, and words that only look like roman numerals, stay.
+    expect((await documentSections(numbered(['1500']), 'invoice.pdf'))[0]!.text).toBe('Body of page 1.\n\n1500');
+    expect((await documentSections(numbered(['civic', 'ill']), 'words.pdf')).map((section) => section.text)).toEqual(['Body of page 1.\n\ncivic', 'Body of page 2.\n\nill']);
+    expect((await documentSections(numbered(['7', '7', '7']), 'same.pdf')).map((section) => section.text.endsWith('7'))).toEqual([true, true, true]);
+  });
+
+  it('hands the file to Firecrawl when local reading runs out of time', async () => {
+    expect(await pdfTextLayer(makePdf([['Local text.']]), { deadline: Date.now() - 1 })).toEqual({ fallback: 'budget', page: 1 });
+
+    const base = Date.now();
+    let calls = 0;
+    // The document deadline and the local budget start at `base`; every later reading is 70 s on.
+    const now = vi.spyOn(Date, 'now').mockImplementation(() => (calls++ < 2 ? base : base + 70_000));
+    try {
+      reply({ pages: [{ pageNumber: 1, markdown: 'Parsed by Firecrawl.' }] });
+      expect(await documentSections(makePdf([['Local text.']]), 'slow.pdf')).toEqual([{ text: 'Parsed by Firecrawl.', locator: { page: 1 } }]);
+    } finally {
+      now.mockRestore();
+    }
+    const form = fetchMock.mock.calls[0]![1]!.body as FormData;
+    // Firecrawl gets what is left of the document's 120 s, not a fresh 120 s.
+    expect(JSON.parse(form.get('options') as string).timeout).toBe(50_000);
   });
 });
 
@@ -374,6 +476,12 @@ describe('local Word parsing', () => {
 
   it('rejects a Word document without text', async () => {
     await expect(documentSections(makeDocx([word.paragraph('  ')]), 'blank.docx')).rejects.toMatchObject({ code: 'empty_text' });
+  });
+
+  it('refuses a zip that inflates past the size cap, whatever its headers declare', async () => {
+    const bomb = await deflatedZip('word/document.xml', 210 * 1024 * 1024);
+    expect(bomb.length).toBeLessThan(1024 * 1024);
+    await expect(documentSections(bomb, 'bomb.docx')).rejects.toMatchObject({ code: 'source_too_large' });
   });
 });
 

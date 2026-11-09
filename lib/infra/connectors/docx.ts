@@ -4,11 +4,18 @@
  * turndown with the GFM plugin turns that into Markdown for the chunker. A
  * Word file has no physical pages, so it is one section without a locator.
  */
+import JSZip from 'jszip';
 import mammoth from 'mammoth';
 import TurndownService from 'turndown';
 import { gfm } from 'turndown-plugin-gfm';
 import type { Section } from '@/lib/domain/knowledge';
 import { ProcessingFailure } from './failure';
+
+/**
+ * mammoth inflates the parts it reads whole, in memory. A .docx whose
+ * entries inflate past this in total (a zip bomb) is refused first.
+ */
+const UNCOMPRESSED_MAX_BYTES = 200 * 1024 * 1024;
 
 /** Images are dropped without being read: base64 data URIs would only bloat the passages. */
 const skipImages = mammoth.images.imgElement(async () => ({ src: '' }));
@@ -47,7 +54,39 @@ function markdownService(): TurndownService {
   return service;
 }
 
+/**
+ * Inflates every entry as a stream and counts its bytes, stopping as soon as
+ * the total passes the cap. The sizes a zip declares are not trusted: they
+ * are only what the archive claims.
+ */
+async function refuseZipBomb(bytes: Uint8Array): Promise<void> {
+  let zip: JSZip;
+  try {
+    zip = await JSZip.loadAsync(bytes);
+  } catch {
+    throw new ProcessingFailure('parse_failed', 'The Word document could not be read');
+  }
+  let total = 0;
+  for (const entry of Object.values(zip.files)) {
+    if (entry.dir) continue;
+    const exceeded = await new Promise<boolean>((resolve, reject) => {
+      const stream = entry.nodeStream('nodebuffer');
+      stream.on('data', (chunk: Buffer) => {
+        total += chunk.length;
+        if (total <= UNCOMPRESSED_MAX_BYTES) return;
+        stream.pause();
+        stream.removeAllListeners('data');
+        resolve(true);
+      });
+      stream.on('end', () => resolve(false));
+      stream.on('error', () => reject(new ProcessingFailure('parse_failed', 'The Word document could not be read')));
+    });
+    if (exceeded) throw new ProcessingFailure('source_too_large', 'The Word document inflates past the size limit');
+  }
+}
+
 export async function docxSections(bytes: Uint8Array): Promise<Section[]> {
+  await refuseZipBomb(bytes);
   let html: string;
   try {
     ({ value: html } = await mammoth.convertToHtml(
