@@ -8,16 +8,10 @@ import { CI } from '@/components/admin/console-icon';
 import { ConfirmModal, Modal } from '@/components/admin/console-modal';
 import { Clip, PageHead, Person, RecordSection, RecordsTable, SummaryCards, Tag } from '@/components/admin/list-kit';
 import { useToast } from '@/components/ui/toast';
+import type { AdministratorRow } from '@/lib/services/admin-administrators';
 
-export interface AdministratorItem {
-  id: string;
-  name: string;
-  email: string;
-  role: 'owner' | 'administrator';
-  status: 'active' | 'invited' | 'disabled';
-  createdAt: string;
-  createdBy: string | null;
-}
+/** `AdministratorRow` as it crosses to the browser: the date as an ISO string. */
+export type AdministratorItem = Omit<AdministratorRow, 'createdAt'> & { createdAt: string };
 
 const STATUS_TONES = { active: 'green', invited: 'orange', disabled: 'red' } as const;
 const STATUSES = ['active', 'invited', 'disabled'] as const;
@@ -65,23 +59,24 @@ export function AdministratorsBoard({ initial, self }: { initial: AdministratorI
     setCreated({ email, link });
   };
 
+  /* A thrown request (network down) answers null, so `busy` is always released and the generic error shows. */
   const disable = async (item: AdministratorItem) => {
     setBusy(item.id);
     setError('');
-    const result = await api<{ error?: string }>(`/api/admin/administrators/${item.id}`, { method: 'POST', json: { action: 'disable' } });
+    const result = await api<{ error?: string }>(`/api/admin/administrators/${item.id}`, { method: 'POST', json: { action: 'disable' } }).catch(() => null);
     setBusy('');
     setDisabling(null);
-    if (!result.ok) setError(message(result.data.error));
+    if (!result?.ok) setError(message(result?.data.error));
     await load();
   };
 
   const copyLink = async (item: AdministratorItem) => {
     setBusy(item.id);
     setError('');
-    const result = await api<{ link?: string; error?: string }>(`/api/admin/administrators/${item.id}`, { method: 'POST', json: { action: 'link' } });
+    const result = await api<{ link?: string; error?: string }>(`/api/admin/administrators/${item.id}`, { method: 'POST', json: { action: 'link' } }).catch(() => null);
     setBusy('');
-    if (!result.ok || !result.data.link) {
-      setError(message(result.data.error));
+    if (!result?.ok || !result.data.link) {
+      setError(message(result?.data.error));
       return load();
     }
     if (await copyText(result.data.link)) toast(a.linkCopied);
@@ -92,13 +87,14 @@ export function AdministratorsBoard({ initial, self }: { initial: AdministratorI
     const form = new FormData(formElement);
     const email = String(form.get('email') ?? '').trim();
     setBusy('add');
+    setError('');
     setAddError('');
     const result = await api<{ link?: string; error?: string }>('/api/admin/administrators', {
       method: 'POST',
       json: { name: String(form.get('name') ?? '').trim(), email },
-    });
+    }).catch(() => null);
     setBusy('');
-    if (!result.ok || !result.data.link) return setAddError(message(result.data.error));
+    if (!result?.ok || !result.data.link) return setAddError(message(result?.data.error));
     formElement.reset();
     setAdding(false);
     showLink(email, result.data.link);
@@ -171,7 +167,7 @@ export function AdministratorsBoard({ initial, self }: { initial: AdministratorI
       <SummaryCards
         label={a.title}
         items={[
-          { label: a.title, value: formatNumber(items.length, locale) },
+          { label: a.cards.all, value: formatNumber(items.length, locale) },
           ...STATUSES.map((status) => ({ label: a.status[status], value: formatNumber(items.filter((item) => item.status === status).length, locale) })),
         ]}
       />
