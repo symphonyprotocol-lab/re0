@@ -605,10 +605,20 @@ async function currentPlanUsage(subscription: SubscriptionRow | null, planGrants
   return planUsage(subscription, grant, now, allowance);
 }
 
-/** What every workspace page's sidebar shows: the balance and the Plan meter. */
-export async function shellBilling(userId: string, now = new Date()): Promise<{ balance: number; plan: PlanUsage }> {
+/**
+ * What every workspace page's sidebar shows: the total balance (the billing
+ * tab's 总余额), the welcome credits it includes, and the Plan meter.
+ */
+export async function shellBilling(userId: string, now = new Date()): Promise<{ balance: number; welcome: number; plan: PlanUsage }> {
   const { grants, subscription, planGrants } = await billingRows(userId);
-  return { balance: availableOf(grants, now), plan: await currentPlanUsage(subscription, planGrants, now) };
+  return {
+    balance: availableOf(grants, now),
+    welcome: availableOf(
+      grants.filter((grant) => grant.source === 'welcome'),
+      now,
+    ),
+    plan: await currentPlanUsage(subscription, planGrants, now),
+  };
 }
 
 export async function billingSummary(userId: string, now = new Date()): Promise<BillingSummary> {

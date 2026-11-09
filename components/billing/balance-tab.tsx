@@ -30,6 +30,7 @@ export async function BalanceTab({ userId, query }: { userId: string; query: Rec
             <strong>{n(summary.total)}</strong>
             <span>credits</span>
           </p>
+          {summary.buckets.welcome > 0 && <p className="billing-total-gift">{fill(b.total.includesWelcome, { n: n(summary.buckets.welcome) })}</p>}
           <small>{b.total.note}</small>
         </div>
         <dl className="billing-total-parts">
@@ -48,14 +49,6 @@ export async function BalanceTab({ userId, query }: { userId: string; query: Rec
           ))}
         </dl>
       </section>
-      {summary.buckets.welcome > 0 && (
-        <div className="welcome-credits">
-          <span>
-            <I name="sparkle" /> {fill(b.welcome, { n: n(summary.buckets.welcome) })}
-          </span>
-          <span>{b.noExpiry}</span>
-        </div>
-      )}
       {summary.debt > 0 && (
         <div role="note" className="billing-debt">
           <I name="info" />

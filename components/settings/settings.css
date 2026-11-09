@@ -736,23 +736,6 @@
   color: #8b99b2;
   line-height: 1.9;
 }
-.settings-page .welcome-credits {
-  margin-bottom: 18px;
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 12px;
-  padding: 13px 18px;
-  border: 1px solid #d6e8fa;
-  border-radius: 9px;
-  background: #f0f6ff;
-  color: #6a92c0;
-  font-size: 11px;
-}
-.settings-page .welcome-credits svg {
-  width: 16px;
-  height: 16px;
-}
 @media (max-width: 1180px) {
   .settings-page .settings-layout {
     grid-template-columns: 130px minmax(0, 1fr);
@@ -856,13 +839,6 @@
   .settings-page th,
   .settings-page td {
     padding: 12px 15px;
-  }
-  .settings-page .welcome-credits {
-    font-size: 10px;
-    padding: 12px;
-  }
-  .settings-page .welcome-credits .text-link {
-    font-size: 9px;
   }
 }
 .settings-page .tag svg {
@@ -1032,6 +1008,11 @@
 .settings-page .billing-total-number span {
   font-size: 11px;
   color: #8d97af;
+}
+.settings-page .billing-total-gift {
+  margin: -2px 0 8px;
+  font-size: 11px;
+  color: #6a92c0;
 }
 .settings-page .billing-total-card small {
   font-size: 10px;
