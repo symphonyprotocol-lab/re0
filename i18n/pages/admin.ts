@@ -40,6 +40,7 @@ export const zh = {
       email: '请输入有效的邮箱。',
       password: '密码至少 12 个字符。',
       totp: '验证码不正确，请检查验证器后重试。',
+      bootstrap_email: '这个安装由旧版后台升级而来：首位管理员要用旧后台超级管理员的邮箱和密码创建（TOTP 重新绑定）。',
     },
   },
   models: {
@@ -177,6 +178,7 @@ export const en: Shape<typeof zh> = {
       email: 'Enter a valid email.',
       password: 'Use at least 12 characters.',
       totp: 'The code is incorrect. Check your authenticator and try again.',
+      bootstrap_email: 'This installation was upgraded from the old console: create the first administrator with the email and password of one of its super administrators (TOTP is set up anew).',
     },
   },
   models: {

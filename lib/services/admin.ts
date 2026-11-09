@@ -72,6 +72,37 @@ export async function bootstrapChallenge(): Promise<{ secret: string; sealed: st
   return { secret, sealed: await seal({ secret, issuedAt: Date.now() }) };
 }
 
+/**
+ * Who may register the first administrator, or null for anyone.
+ *
+ * An empty installation lets its first visitor become the owner. A database
+ * cut over from the old app (scripts/database-cutover.mts) goes live with an
+ * empty administrator table straight from the production build, so there the
+ * old console's archived accounts decide: its active super administrators, or
+ * every active administrator when it had no super one. Each comes with its
+ * old Argon2id hash -- the same encoding this module writes -- because an
+ * email alone is guessable: whoever registers must also know that account's
+ * old password. A fresh install (no archive, or nobody active in it) stays open.
+ */
+export async function bootstrapAllowlist(executor: Executor = db()): Promise<{ email: string; passwordHash: string }[] | null> {
+  const archive = await executor.execute<{ administrators: boolean; roles: boolean }>(sql`
+    select to_regclass('legacy_main.administrator') is not null as administrators,
+           to_regclass('legacy_main.administrator_role') is not null as roles`);
+  if (!archive.rows[0]?.administrators) return null;
+  const rows = await executor.execute<{ email: string; password_hash: string; super: boolean }>(
+    archive.rows[0].roles
+      ? sql`select lower(btrim(a.email)) as email, a.password_hash,
+                   exists (select 1 from legacy_main.administrator_role r where r.administrator_id = a.id and r.role_id = 'super') as super
+            from legacy_main.administrator a where a.status = 'active' and a.password_hash is not null`
+      : sql`select lower(btrim(a.email)) as email, a.password_hash, false as super
+            from legacy_main.administrator a where a.status = 'active' and a.password_hash is not null`,
+  );
+  const active = rows.rows;
+  if (!active.length) return null;
+  const supers = active.filter((row) => row.super);
+  return (supers.length ? supers : active).map((row) => ({ email: row.email, passwordHash: row.password_hash }));
+}
+
 export class AdminInputError extends Error {
   constructor(readonly code: string) {
     super(code);
@@ -100,6 +131,13 @@ export async function bootstrapFirstAdministrator(input: {
 
   return db().transaction(async (tx) => {
     await tx.execute(sql`select pg_advisory_xact_lock(hashtext('re0:admin-bootstrap'))`);
+    const allowed = await bootstrapAllowlist(tx);
+    if (allowed) {
+      /* One answer for a wrong email and a wrong password, and a hash checked either way. */
+      const entry = allowed.find((candidate) => candidate.email === email);
+      const proven = await verifyPassword(input.password, entry?.passwordHash ?? (await decoyHash()));
+      if (!entry || !proven) throw new AdminInputError('bootstrap_email');
+    }
     const [created] = await tx
       .insert(schema.administrator)
       .select(

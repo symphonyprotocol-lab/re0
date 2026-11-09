@@ -20,6 +20,8 @@
     "db:migrate": "drizzle-kit migrate",
     "db:reset-dev": "tsx scripts/reset-dev-database.mts",
     "db:prepare-preview": "tsx scripts/reset-dev-database.mts --preview",
+    "db:deploy": "tsx scripts/database-cutover-cli.mts deploy",
+    "db:cutover": "tsx scripts/database-cutover-cli.mts",
     "db:studio": "drizzle-kit studio",
     "paddle:replay": "tsx scripts/paddle-replay.mts"
   },
