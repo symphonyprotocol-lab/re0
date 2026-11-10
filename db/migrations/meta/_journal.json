@@ -292,8 +292,15 @@
     {
       "idx": 42,
       "version": "7",
-      "when": 1794304773608,
-      "tag": "0042_embedding_spaces",
+      "when": 1794305773608,
+      "tag": "0043_earned_restore",
+      "breakpoints": true
+    },
+    {
+      "idx": 43,
+      "version": "7",
+      "when": 1794317184983,
+      "tag": "0044_embedding_spaces",
       "breakpoints": true
     }
   ]

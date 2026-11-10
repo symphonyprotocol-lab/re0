@@ -195,9 +195,9 @@ Firecrawl Credit Usage API 在两次 PDF 解析前后均确认余额下降 1。�
 
 ## 模型切换改为一行（M13，2026-11-10）
 
-迁移 `0042_embedding_spaces`。上面"切换的最后一步仍是整表重写"的做法已经取消。
+迁移 `0044_embedding_spaces`。上面"切换的最后一步仍是整表重写"的做法已经取消。
 
-- **向量空间**（`lib/services/embedding-space.ts`）：每个存下的向量都带上它所属的"空间"（uuid），不同模型的向量永远不放在一起比较。片段有两个槽位 `embedding` / `embedding_next`，各自带标签 `embedding_space` / `embedding_next_space`；两个槽位没有主次之分，检索读标签等于问题所在空间的那个槽位。画像向量（`ree_profile_vector.embedding_space`）只有一个槽位。启用的 embedding 条目的 `model_config.embedding_space` 就是当前空间。0042 之前的向量没有标签，算作"基础空间"（全零 uuid）；环境变量模型、0042 前启用的条目也属于基础空间。**不需要回填。**
+- **向量空间**（`lib/services/embedding-space.ts`）：每个存下的向量都带上它所属的"空间"（uuid），不同模型的向量永远不放在一起比较。片段有两个槽位 `embedding` / `embedding_next`，各自带标签 `embedding_space` / `embedding_next_space`；两个槽位没有主次之分，检索读标签等于问题所在空间的那个槽位。画像向量（`ree_profile_vector.embedding_space`）只有一个槽位。启用的 embedding 条目的 `model_config.embedding_space` 就是当前空间。0044 之前的向量没有标签，算作"基础空间"（全零 uuid）；环境变量模型、0044 前启用的条目也属于基础空间。**不需要回填。**
 - **检索**：问题向量化时带上该端点的空间（`QuestionVector.space`），`chat.ts` 的 `retrieve`、`explore.ts` 的两级检索、`profile.ts` 的质心都只读这个空间的向量。切换那一刻正在进行的回答仍然用旧空间的问题向量去读旧向量，不会去比新向量。某个片段在该空间没有向量时，它只是查不到，而不是被拿去和另一个模型的向量比。
 - **任务**：开始时任务拿到自己的新空间（`reembed_job.space`）；如果是重启一个失败的、目标相同且条目未修改的任务，就沿用失败任务的空间，已做的向量保留，不重复计费。每批把候选模型的向量写进片段的"空闲槽位"，也就是不放当前空间向量的那个；当前向量一直不动，所以开始任务时也不再清空 `embedding_next`。
 - **切换**：只改 `model_config` 一行：启用候选条目，并把它的 `embedding_space` 设为任务空间，加上任务行本身。没有锁表，也不读写任何片段。正确性靠 `reembed_job.arrived` 计数：入库在持有共享切换锁时给正在运行的任务计数加一；任务在批量查询之前读一次计数，查询发现已经没有缺向量的片段后，才在独占切换锁下比较计数。计数没变，说明查询之后没有新来源入库，可以切换；变了就继续循环。
@@ -209,7 +209,7 @@ Firecrawl Credit Usage API 在两次 PDF 解析前后均确认余额下降 1。�
 - **迁移在大表上的行为**：`chunk` 加两个没有默认值的可空列，再去掉 `embedding` 的 NOT NULL。这些都只改系统目录，不扫描也不重写数据，只需要短暂的 ACCESS EXCLUSIVE 锁（在生产的 `lock_timeout` 10 秒以内）。`model_config` / `ree_profile_vector` 也只是加可空列。`reembed_job` 只有几行，先加列，再 `space = id`，再设为 NOT NULL。迁移里不回填任何数据，也不建索引（生产的迁移在一个事务里执行，用不了 `CONCURRENTLY`）。
 - **已知限制**：
   - 部署切换期间，旧版本实例写入的片段没有标签，读作基础空间。只要在新版本完成第一次切换之前写入，就是正确的。如果在部署窗口内同时完成一次模型切换，那几行会找不到（不会混用）。所以不要在部署过程中切换模型。
-  - 0042 之前就失败的任务留下的 `embedding_next` 没有标签，会被清理；重启这类任务时会重新向量化并收费。
+  - 0044 之前就失败的任务留下的 `embedding_next` 没有标签，会被清理；重启这类任务时会重新向量化并收费。
   - 没有任何片段时直接启用条目（`activateModelConfig`）会给它一个新空间。如果"检查到零个片段"和"启用"之间恰好有来源入库，那些片段会找不到（不会混用）。
 - **测试**（`tests/integration/knowledge-billing.test.ts`，"M13" 一组）：
   - 跨 3 批以上的切换，每批之间都跑检索：旧空间的问题对每个片段的相似度精确等于基础向量的值，新空间只返回已经补上的片段；任务中途入库一个来源；

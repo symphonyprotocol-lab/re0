@@ -17,7 +17,7 @@
  * (`cleanupEmbeddingSpaces`), and a chunk with no vector in a space is
  * simply not found in it -- never compared across models.
  *
- * The base space is everything made before spaces existed (0042): untagged
+ * The base space is everything made before spaces existed (0044): untagged
  * vectors, the environment's model, and an entry enabled before then.
  */
 import { sql, type SQL } from 'drizzle-orm';

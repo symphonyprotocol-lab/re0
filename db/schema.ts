@@ -254,7 +254,7 @@ export const chunk = pgTable(
      * retrieval reads whichever carries the space its question was embedded
      * in, so a model switch is a one-row flip of the active space and never
      * rewrites these (2.5, reembed.ts). A slot with no vector has no tag;
-     * `embedding` without a tag is a vector stored before 0042, in the base space.
+     * `embedding` without a tag is a vector stored before 0044, in the base space.
      */
     embedding: vector('embedding', { dimensions: 1536 }),
     embeddingSpace: uuid('embedding_space'),
@@ -471,6 +471,8 @@ export const CREDIT_ENTRY_REASONS = [
   'chargeback_reverse',
   /* A Ree owner's unmatured earned credits voided because the purchase that paid for them was refunded or charged back. */
   'earned_void',
+  /* What an `earned_void` took is given back as the asker pays off (or a won chargeback cancels) the debt it was voided for. */
+  'earned_restore',
 ] as const;
 export type CreditEntryReason = (typeof CREDIT_ENTRY_REASONS)[number];
 
@@ -1085,7 +1087,7 @@ export const reeProfileVector = pgTable(
       .references(() => ree.id, { onDelete: 'cascade' }),
     kind: text('kind').$type<'profile' | 'sample_question' | 'centroid'>().notNull(),
     embedding: vector('embedding', { dimensions: 1536 }).notNull(),
-    /** The embedding space of `embedding`; null for rows made before 0042 (the base space). */
+    /** The embedding space of `embedding`; null for rows made before 0044 (the base space). */
     embeddingSpace: uuid('embedding_space'),
     updatedAt: timestampTz('updated_at').notNull().defaultNow(),
   },
