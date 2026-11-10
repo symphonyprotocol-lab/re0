@@ -1,5 +1,5 @@
 {
-  "buildCommand": "if [ \"$VERCEL_ENV\" = \"preview\" ]; then npm run db:prepare-preview && npm run db:migrate; fi && npm run build && if [ \"$VERCEL_ENV\" = \"production\" ]; then npm run db:deploy; fi",
+  "buildCommand": "npm run build && if [ \"$VERCEL_ENV\" = \"production\" ]; then npm run db:deploy; fi",
   "git": {
     "deploymentEnabled": {
       "develop": false,

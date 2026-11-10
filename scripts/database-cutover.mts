@@ -43,6 +43,19 @@ export interface Queryable {
 }
 
 export const LOCK_KEY = 're0:database-deploy';
+
+/**
+ * Every transaction here runs with these. A migration waiting on a lock queues
+ * every later query on that table behind it (an `ALTER TABLE credit_entry`
+ * behind one long transaction stalls all billing), so it gives up after
+ * `lockTimeoutMs` and the build fails with the old deployment still serving;
+ * a statement that runs away is cut off rather than holding the build.
+ */
+export interface TransactionLimits {
+  lockTimeoutMs: number;
+  statementTimeoutMs: number;
+}
+export const DEFAULT_LIMITS: TransactionLimits = { lockTimeoutMs: 10_000, statementTimeoutMs: 10 * 60_000 };
 /** `when` of the old app's last migration (`0060_manual_payout` on `main`). */
 export const LEGACY_LAST_WHEN = 1793200000000;
 export const LEGACY_SCHEMA = 'legacy_main';
@@ -206,15 +219,31 @@ export interface AppliedMigration {
  * instead of its own: the same journal table, the same sha256 of each file,
  * and a file runs when its `when` is later than the newest applied one. A
  * later `drizzle-kit migrate` therefore sees this journal as its own.
+ *
+ * Unlike drizzle, a file whose `when` is not later than the newest applied
+ * one but that never ran (its `when` is in no journal row) is refused rather
+ * than skipped for good: that is a migration renumbered or merged below one
+ * already deployed. A file edited after it ran keeps its `when` and is not
+ * flagged.
  */
 export async function applyMigrations(db: Queryable, folder: string): Promise<AppliedMigration[]> {
   await db.query('create schema if not exists drizzle');
   await db.query('create table if not exists drizzle.__drizzle_migrations (id serial primary key, hash text not null, created_at bigint)');
-  const last = await db.query('select created_at::text as created_at from drizzle.__drizzle_migrations order by created_at desc limit 1');
-  const lastWhen = last.rows[0] ? Number(last.rows[0].created_at) : null;
+  const journal = await db.query('select created_at::text as created_at from drizzle.__drizzle_migrations');
+  const ran = new Set(journal.rows.map((row) => Number(row.created_at)));
+  const lastWhen = ran.size ? Math.max(...ran) : null;
   const tags = (JSON.parse(readFileSync(join(folder, 'meta', '_journal.json'), 'utf8')) as { entries: { tag: string }[] }).entries.map((e) => e.tag);
+  const files = readMigrationFiles({ migrationsFolder: folder });
+  const skipped = files.flatMap((migration, index) =>
+    lastWhen !== null && migration.folderMillis <= lastWhen && !ran.has(migration.folderMillis) ? [tags[index] ?? String(migration.folderMillis)] : [],
+  );
+  if (skipped.length) {
+    throw new CutoverRefused(
+      `${skipped.join(', ')} would be skipped: a migration with a later \`when\` (${lastWhen}) is already applied. Give ${skipped.length > 1 ? 'them' : 'it'} a \`when\` above every applied one; nothing was changed`,
+    );
+  }
   const applied: AppliedMigration[] = [];
-  for (const [index, migration] of readMigrationFiles({ migrationsFolder: folder }).entries()) {
+  for (const [index, migration] of files.entries()) {
     if (lastWhen !== null && lastWhen >= migration.folderMillis) continue;
     for (const statement of migration.sql) {
       if (statement.trim()) await db.query(statement);
@@ -225,10 +254,13 @@ export async function applyMigrations(db: Queryable, folder: string): Promise<Ap
   return applied;
 }
 
-async function inTransaction<T>(db: Queryable, work: () => Promise<T>): Promise<T> {
+async function inTransaction<T>(db: Queryable, work: () => Promise<T>, limits: TransactionLimits = DEFAULT_LIMITS): Promise<T> {
   await db.query('begin');
   try {
+    await db.query(`set local statement_timeout = ${Math.max(1, Math.trunc(limits.statementTimeoutMs))}`);
+    /* Waiting for a concurrent build is not a lock to give up on: the lock timeout starts once this build holds the deploy lock. */
     await db.query('select pg_advisory_xact_lock(hashtext($1))', [LOCK_KEY]);
+    await db.query(`set local lock_timeout = ${Math.max(1, Math.trunc(limits.lockTimeoutMs))}`);
     const result = await work();
     await db.query('commit');
     return result;
@@ -246,7 +278,7 @@ export interface DeployResult {
 }
 
 /** The production build's database step: archive the old app's schema once, then migrate; all or nothing. */
-export async function deployDatabase(db: Queryable, folder: string, now = new Date()): Promise<DeployResult> {
+export async function deployDatabase(db: Queryable, folder: string, now = new Date(), limits: TransactionLimits = DEFAULT_LIMITS): Promise<DeployResult> {
   return inTransaction(db, async () => {
     const before = await inspect(db);
     const plan = planDeploy(before);
@@ -254,7 +286,7 @@ export async function deployDatabase(db: Queryable, folder: string, now = new Da
     if (plan.archive) await archiveLegacy(db, before, now);
     const applied = await applyMigrations(db, folder);
     return { before, archived: plan.archive, reason: plan.reason, applied };
-  });
+  }, limits);
 }
 
 /** Puts the old app's tables back in `public` and parks the rebuild's, for an Instant Rollback to the old deployment. */
