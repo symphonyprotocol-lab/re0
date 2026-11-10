@@ -21,6 +21,7 @@ import { db, schema } from '@/lib/infra/db';
 import { answerable } from '@/lib/services/chat';
 import { publicRee } from '@/lib/services/explore';
 import { meteredWork } from '@/lib/services/metered-work';
+import { ProviderCostUnavailable } from '@/lib/domain/provider-cost';
 
 type Kind = 'profile' | 'sample_question' | 'centroid';
 
@@ -184,7 +185,16 @@ export async function suggestQuestions(reeId: string): Promise<string[]> {
     await database.update(schema.ree).set({ suggestedQuestions: questions }).where(and(eq(schema.ree.id, reeId), sql`jsonb_array_length(${schema.ree.sampleQuestions}) = 0`));
     return questions;
   } catch (error) {
-    console.warn(`suggest questions ree=${reeId} failed: ${error instanceof Error ? error.message : 'unknown'}`);
+    /*
+     * Fails closed: without a generation unit price for the suggestions model
+     * (console, /admin/models) the call is never made and nothing is charged
+     * (`requireRate` in `meteredWork`). Say so plainly: it is an operator's fix.
+     */
+    if (error instanceof ProviderCostUnavailable && error.code === 'pricing_unavailable') {
+      console.error(`suggest questions ree=${reeId} skipped: the example-question generation model has no unit price; set it in /admin/models`);
+    } else {
+      console.warn(`suggest questions ree=${reeId} failed: ${error instanceof Error ? error.message : 'unknown'}`);
+    }
     return [];
   }
 }

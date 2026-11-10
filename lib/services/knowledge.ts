@@ -525,7 +525,7 @@ export async function processKnowledge(knowledgeId: string, options: { profile?:
       return () => { inflight.delete(key); };
     },
   }, () => processKnowledgeRun(knowledgeId, runId));
-  // Profile maintenance remains platform-funded and must not enter this source's cost scope.
+  // Profile maintenance is billed on its own run (`meteredWork`, P2), outside this source's cost scope.
   if (reeId && options.profile !== false) await afterKnowledgeReady(reeId);
   return reeId;
 }
@@ -1059,6 +1059,35 @@ export async function recoverStale(reeId: string, now = new Date()): Promise<str
     .orderBy(asc(schema.knowledge.createdAt))
     .limit(5);
   return waiting.map((row) => row.id);
+}
+
+/**
+ * A deleted Ree's sources that are waiting to be processed will never be
+ * (nobody can reach the Ree to start them): each is failed as `ree_deleted`
+ * and its reservation goes back in full -- nothing was spent before a run
+ * starts. A run that claims the row meanwhile wins (the row is no longer
+ * `pending`). Called by the trash purge before it removes the Ree's knowledge.
+ */
+export async function abandonPending(reeId: string, now = new Date()): Promise<number> {
+  const waiting = await db()
+    .select({ id: schema.knowledge.id, title: schema.knowledge.title })
+    .from(schema.knowledge)
+    .where(and(eq(schema.knowledge.reeId, reeId), eq(schema.knowledge.status, 'pending'), sql`${schema.knowledge.updatedAt} < ${new Date(now.getTime() - STALE_PENDING_MS)}`));
+  let abandoned = 0;
+  for (const { id, title } of waiting) {
+    await db().transaction(async (tx) => {
+      const [current] = await tx.select({ status: schema.knowledge.status }).from(schema.knowledge).where(eq(schema.knowledge.id, id)).for('update');
+      if (current?.status !== 'pending') return;
+      const holdId = await heldFor(tx, id, 'knowledge');
+      const settled = holdId ? await settleRun(tx, holdId, [], { reeId, note: title }) : null;
+      if (holdId) await tx.update(schema.knowledgeCostRun).set({ status: 'failed', error: 'ree_deleted', chargedCredits: 0 }).where(eq(schema.knowledgeCostRun.id, holdId));
+      const log: KnowledgeActivity[] = [activity('failed', { reason: 'ree_deleted' }, now)];
+      if (settled?.refunded) log.push(activity('refunded', { credits: settled.released }, now));
+      await tx.update(schema.knowledge).set({ status: 'failed', error: 'ree_deleted', updatedAt: now, activity: appendActivity(log) }).where(eq(schema.knowledge.id, id));
+      abandoned += 1;
+    });
+  }
+  return abandoned;
 }
 
 /** What answers can draw on: ready, enabled and not in the trash; and what is still being prepared. */

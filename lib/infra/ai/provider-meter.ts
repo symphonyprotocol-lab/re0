@@ -19,6 +19,12 @@ interface Meter {
    * of the in-flight sum once the call's receipt is recorded.
    */
   reserve?(costUsd: string): Promise<() => void>;
+  /**
+   * Refuse a call whose rate is unknown before it is made, even on AI
+   * Gateway (which may still report its cost after): optional work must not
+   * spend what it could not reserve.
+   */
+  requireRate?: boolean;
   pending?: Set<Promise<void>>;
   /** Bytes moved since the last `flushTransfer`, by what moved them. */
   transfer?: Map<string, number>;
@@ -121,7 +127,7 @@ export async function prepareProviderCall(target: ProviderTarget, options: { est
   const configured = configuredProviderRate(meter.prices, target);
   const rate = configured ?? await catalogRate(target);
   const gateway = target.endpoint.startsWith('https://ai-gateway.vercel.sh/');
-  if (!rate && !gateway) {
+  if (!rate && (!gateway || meter.requireRate)) {
     // An operator error, not the user's: name the price the console (or PROVIDER_COST_RATES) is missing.
     console.warn(`no supplier price for ${target.service} ${target.endpoint} ${target.model} account=${target.account ?? '*'}; set it in the console`);
     throw new ProviderCostUnavailable('pricing_unavailable');
