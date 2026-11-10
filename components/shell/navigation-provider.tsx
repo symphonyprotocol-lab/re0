@@ -1,5 +1,6 @@
 'use client';
 
+import '@/lib/client/zod-jitless';
 import { createContext, startTransition as startReactTransition, useCallback, useContext, useEffect, useMemo, useState, useTransition, type ReactNode } from 'react';
 import { useRouter } from 'next/navigation';
 import './workspace-motion.css';
