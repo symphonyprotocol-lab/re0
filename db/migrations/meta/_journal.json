@@ -288,6 +288,13 @@
       "when": 1794296164412,
       "tag": "0041_message_client_request",
       "breakpoints": true
+    },
+    {
+      "idx": 42,
+      "version": "7",
+      "when": 1794305773608,
+      "tag": "0043_earned_restore",
+      "breakpoints": true
     }
   ]
 }

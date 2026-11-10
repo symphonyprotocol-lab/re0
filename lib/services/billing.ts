@@ -57,7 +57,7 @@ import {
   type PaddleTransaction,
 } from '@/lib/infra/paddle';
 import { checkoutPrice, currentUnitCredits } from '@/lib/services/pricing';
-import { addGrant, expirePlanGrants, grantsOf, moveGrants } from '@/lib/services/credits';
+import { addGrant, expirePlanGrants, grantsOf, moveGrants, restoreVoidedEarned } from '@/lib/services/credits';
 
 export class WebhookRejected extends Error {
   constructor(message: string) {
@@ -555,13 +555,16 @@ async function writeSubscription(tx: Tx, userId: string, existing: SubscriptionR
  * owners keep what they earned. When a debt forms, up to the debt's amount
  * of the earned credits this purchase funded (`funding_purchase_id`) that
  * have not matured yet is voided, newest first (review H2); what matured,
- * is held for a payout or was spent is never taken back.
+ * is held for a payout or was spent is never taken back. As the asker pays
+ * the debt off, the voided credits come back to the owners in step
+ * (`restoreVoidedEarned`), so nothing is recovered twice.
  *
  * An approved `chargeback_reverse` (a chargeback the merchant won) gives
  * back what was taken: this purchase's open debt is cancelled first, then
  * the credits go back to the grants the chargeback took them from, as long
- * as each can still be spent (an ended Plan period is not revived). Owners'
- * voided earned credits are not restored.
+ * as each can still be spent (an ended Plan period is not revived). The
+ * debt it cancels counts as settled, so owners' earned credits voided for it
+ * come back the same way as when the asker pays it off.
  */
 async function applyAdjustment(tx: Tx, adjustment: PaddleAdjustment, now: Date): Promise<string> {
   if (adjustment.status !== 'approved') return 'ignored';
@@ -724,6 +727,7 @@ async function reverseChargeback(tx: Tx, purchase: typeof schema.purchase.$infer
     cancelled += cancel;
     left -= cancel;
   }
+  const restoredEarned = cancelled > 0 ? await restoreVoidedEarned(tx, purchase.id, now) : 0;
   /* The credits the chargebacks of this purchase took, per grant, less what reversals already gave back. */
   const takenRows = await tx
     .select({ reason: schema.creditEntry.reason, allocations: schema.creditEntry.allocations })
@@ -752,7 +756,7 @@ async function reverseChargeback(tx: Tx, purchase: typeof schema.purchase.$infer
     delta: back,
     reason: 'chargeback_reverse',
     refId: purchase.id,
-    note: [`chargeback_reverse ${adjustment.id}: ${restore} credits`, cancelled ? `${cancelled} of debt cancelled` : '', back ? `${back} back to the grants it was taken from` : '', left ? `${left} not restored (its grant can no longer be spent)` : '']
+    note: [`chargeback_reverse ${adjustment.id}: ${restore} credits`, cancelled ? `${cancelled} of debt cancelled` : '', restoredEarned ? `${restoredEarned} of owners' voided earnings restored` : '', back ? `${back} back to the grants it was taken from` : '', left ? `${left} not restored (its grant can no longer be spent)` : '']
       .filter(Boolean)
       .join(', '),
     allocations,

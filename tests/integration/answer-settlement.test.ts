@@ -24,7 +24,7 @@ vi.mock('@/lib/infra/blob', () => ({
 const describeWithDb = TEST_DATABASE_URL ? describe : describe.skip;
 
 const { createSession } = await import('@/lib/services/auth');
-const { addGrant, balanceOf, placeHold } = await import('@/lib/services/credits');
+const { addGrant, balanceOf, placeHold, restoreVoidedEarned } = await import('@/lib/services/credits');
 const billing = await import('@/lib/services/billing');
 const knowledge = await import('@/lib/services/knowledge');
 const rees = await import('@/lib/services/rees');
@@ -246,6 +246,81 @@ describeWithDb('a refund of the asker’s purchase voids the owner’s unmatured
     /* Asker: nothing left on the Pack, the whole refund owed; welcome untouched. */
     const [debt] = await db().select().from(schema.creditDebt).where(eq(schema.creditDebt.userId, askerId));
     expect(debt).toMatchObject({ amount: 100_000, remaining: 100_000 });
+  });
+});
+
+describeWithDb('paying off a refund debt restores the owner’s voided earnings in step', () => {
+  const PRICES = { planPriceId: 'x', packPriceId: 'y' };
+
+  async function entriesOf(userId: string, reason: 'earned_void' | 'earned_restore') {
+    return db().select().from(schema.creditEntry).where(and(eq(schema.creditEntry.userId, userId), eq(schema.creditEntry.reason, reason)));
+  }
+
+  /** One answered question paid from a Pack whose rest is held, then that Pack refunded or charged back in full: 100,000 owed, FEE voided. */
+  async function voidedByDebt(action = 'refund') {
+    const setup = await setUp();
+    await emptyWelcome(setup.askerId);
+    const pack = await boughtPack(setup.askerId, 100_000);
+    await read(await answer({ userId: setup.askerId, lang: 'en', conversation: setup.conversation, targets: [setup.ree], question: QUESTION }));
+    await db().transaction((tx) => placeHold(tx, { userId: setup.askerId, kind: 'knowledge', amount: 100_000 - QUERY_BASE_FEE - FEE, refId: crypto.randomUUID() }));
+    const [grant] = await earnedGrants(setup.ownerId);
+    expect(await billing.applyPaddleEvent(refundEvent(pack.transactionId, '1000', action), PRICES)).toBe(action === 'refund' ? 'refunded' : 'charged_back');
+    expect((await earnedGrants(setup.ownerId))[0]!.remaining).toBe(0);
+    return { ...setup, pack, grant: grant! };
+  }
+
+  it('restores in proportion to what is repaid, into the same grant with its original maturity, and a replay restores nothing', async () => {
+    const { ownerId, askerId, pack, grant } = await voidedByDebt();
+    /* 40% of the debt repaid: 40% of what was voided comes back. */
+    await boughtPack(askerId, 40_000);
+    let [after] = await earnedGrants(ownerId);
+    expect(after).toMatchObject({ id: grant.id, remaining: 2_000, withdrawableAt: grant.withdrawableAt, fundingPurchaseId: pack.purchaseId });
+    expect(after!.withdrawableAt!.getTime()).toBeGreaterThan(Date.now());
+    /* The rest repaid: all of it is back, never more. */
+    await boughtPack(askerId, 60_000);
+    [after] = await earnedGrants(ownerId);
+    expect(after!.remaining).toBe(FEE);
+    const restores = await entriesOf(ownerId, 'earned_restore');
+    expect(restores.map((entry) => entry.delta)).toEqual([2_000, 3_000]);
+    expect(restores.every((entry) => entry.refId === pack.purchaseId)).toBe(true);
+    /* Settling again, or credits arriving with no debt left, gives nothing more. */
+    expect(await db().transaction((tx) => restoreVoidedEarned(tx, pack.purchaseId))).toBe(0);
+    await boughtPack(askerId, 10_000);
+    expect((await entriesOf(ownerId, 'earned_restore')).length).toBe(2);
+    expect((await earnedGrants(ownerId))[0]!.remaining).toBe(FEE);
+  });
+
+  it('a debt that voided less than it owed gives back only what was voided', async () => {
+    const { ownerId, askerId, conversation, ree } = await setUp();
+    await emptyWelcome(askerId);
+    const pack = await boughtPack(askerId, 100_000);
+    await read(await answer({ userId: askerId, lang: 'en', conversation, targets: [ree], question: QUESTION }));
+    await read(await answer({ userId: askerId, lang: 'en', conversation, targets: [ree], question: QUESTION }));
+    const earned = await earnedGrants(ownerId);
+    /* One matured: the void cannot take it (unrecovered), so it never comes back either. */
+    await db().update(schema.creditGrant).set({ withdrawableAt: new Date(Date.now() - DAY) }).where(eq(schema.creditGrant.id, earned[0]!.id));
+    await db().transaction((tx) => placeHold(tx, { userId: askerId, kind: 'knowledge', amount: 100_000 - 2 * (QUERY_BASE_FEE + FEE), refId: crypto.randomUUID() }));
+    await billing.applyPaddleEvent(refundEvent(pack.transactionId), PRICES);
+    await boughtPack(askerId, 100_000);
+    expect((await entriesOf(ownerId, 'earned_restore')).map((entry) => entry.delta)).toEqual([FEE]);
+    expect((await earnedGrants(ownerId)).map((grant) => grant.remaining)).toEqual([FEE, FEE]);
+  });
+
+  it('a won chargeback and a repayment of the same debt do not restore twice', async () => {
+    const { ownerId, askerId, pack, grant } = await voidedByDebt('chargeback');
+    /* 20,000 repaid: 1,000 back. */
+    await boughtPack(askerId, 20_000);
+    expect((await earnedGrants(ownerId))[0]!.remaining).toBe(1_000);
+    /* The merchant wins: the other 80,000 of debt is cancelled, the rest of the void comes back, once. */
+    const reverse = refundEvent(pack.transactionId, '1000', 'chargeback_reverse');
+    expect(await billing.applyPaddleEvent(reverse, PRICES)).toBe('chargeback_reversed');
+    await billing.applyPaddleEvent({ ...reverse, event_id: uniqueName('evt') }, PRICES);
+    await boughtPack(askerId, 50_000);
+    const [after] = await earnedGrants(ownerId);
+    expect(after).toMatchObject({ id: grant.id, remaining: FEE, withdrawableAt: grant.withdrawableAt });
+    expect((await entriesOf(ownerId, 'earned_restore')).map((entry) => entry.delta)).toEqual([1_000, 4_000]);
+    const [debt] = await db().select().from(schema.creditDebt).where(eq(schema.creditDebt.userId, askerId));
+    expect(debt!.remaining).toBe(0);
   });
 });
 
