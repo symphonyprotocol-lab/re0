@@ -23,10 +23,25 @@ if (wsProxy) {
  */
 let pool: Pool | undefined;
 
+/**
+ * A pool whose idle clients may be cut off (a Neon compute scaling to zero,
+ * a proxy restart). pg emits that as an `error` on the pool; with no listener
+ * an EventEmitter `error` is an uncaught exception that takes the whole
+ * instance down, every stream on it included. The broken client is already
+ * discarded, so logging is all there is to do; the next query opens a new one.
+ */
+export function createPool(connectionString: string): Pool {
+  const created = new Pool({ connectionString });
+  created.on('error', (error: Error) => {
+    console.error(`database pool: idle client dropped (${error.message})`);
+  });
+  return created;
+}
+
 export function db() {
   const url = process.env.DATABASE_URL;
   if (!url) throw new Error('DATABASE_URL is not set');
-  pool ??= new Pool({ connectionString: url });
+  pool ??= createPool(url);
   return drizzle(pool, { schema });
 }
 
