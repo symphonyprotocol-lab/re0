@@ -1,5 +1,5 @@
 {
-  "id": "621927ce-2f43-4810-b789-304c6676e493",
+  "id": "9cedb807-e66f-4169-b0c2-fa3d11d49e5e",
   "prevId": "1d4bb6ab-4088-48ea-9cd0-c7e30c7aa32b",
   "version": "7",
   "dialect": "postgresql",
@@ -211,12 +211,6 @@
         "locked_until": {
           "name": "locked_until",
           "type": "timestamp with time zone",
-          "primaryKey": false,
-          "notNull": false
-        },
-        "invite_nonce": {
-          "name": "invite_nonce",
-          "type": "text",
           "primaryKey": false,
           "notNull": false
         },
@@ -827,22 +821,6 @@
           "isUnique": false,
           "concurrently": false,
           "method": "btree",
-          "with": {}
-        },
-        "chunk_embedding_idx": {
-          "name": "chunk_embedding_idx",
-          "columns": [
-            {
-              "expression": "embedding",
-              "isExpression": false,
-              "asc": true,
-              "nulls": "last",
-              "opclass": "vector_cosine_ops"
-            }
-          ],
-          "isUnique": false,
-          "concurrently": false,
-          "method": "hnsw",
           "with": {}
         }
       },

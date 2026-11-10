@@ -123,8 +123,21 @@ export async function checkRepository(ownerId: string, ref: RepositoryRef): Prom
   }
 }
 
+/**
+ * An upload's pathname as `/api/upload-token` issues it:
+ * `knowledge/<owner>/<id>/<name>`, two plain segments under the owner's
+ * prefix. No `.` / `..` segment and nothing a URL would decode into one
+ * (`%`, `\`, `?`, `#`), so the path cannot reach another user's file.
+ */
+export function ownUploadPath(ownerId: string, blobPath: string): boolean {
+  const prefix = `knowledge/${ownerId}/`;
+  if (!blobPath.startsWith(prefix)) return false;
+  const segments = blobPath.slice(prefix.length).split('/');
+  return segments.length === 2 && segments.every((segment) => segment !== '' && segment !== '.' && segment !== '..' && !/[%\\?#\u0000-\u001f]/.test(segment));
+}
+
 async function checkUpload(ownerId: string, blobPath: string, fileName: string, valid: (name: string, size: number) => boolean, code: KnowledgeInputCode) {
-  if (!blobPath.startsWith(`knowledge/${ownerId}/`) || !valid(fileName, 1)) throw new KnowledgeInputError(code);
+  if (!ownUploadPath(ownerId, blobPath) || !valid(fileName, 1)) throw new KnowledgeInputError(code);
   const size = await blobSize(blobPath);
   if (size === null) throw new KnowledgeInputError('upload_missing');
   if (!valid(fileName, size)) throw new KnowledgeInputError(code);
@@ -525,7 +538,7 @@ export async function processKnowledge(knowledgeId: string, options: { profile?:
       return () => { inflight.delete(key); };
     },
   }, () => processKnowledgeRun(knowledgeId, runId));
-  // Profile maintenance remains platform-funded and must not enter this source's cost scope.
+  // Profile maintenance is billed on its own run (`meteredWork`, P2), outside this source's cost scope.
   if (reeId && options.profile !== false) await afterKnowledgeReady(reeId);
   return reeId;
 }
@@ -1059,6 +1072,51 @@ export async function recoverStale(reeId: string, now = new Date()): Promise<str
     .orderBy(asc(schema.knowledge.createdAt))
     .limit(5);
   return waiting.map((row) => row.id);
+}
+
+/**
+ * A deleted Ree's sources that are waiting to be processed will never be
+ * (nobody can reach the Ree to start them): each is failed as `ree_deleted`
+ * and its reservation goes back in full -- nothing was spent before a run
+ * starts. A run that claims the row meanwhile wins (the row is no longer
+ * `pending`). Called by the trash purge before it removes the Ree's knowledge.
+ */
+export async function abandonPending(reeId: string, now = new Date()): Promise<number> {
+  const waiting = await db()
+    .select({ id: schema.knowledge.id, title: schema.knowledge.title })
+    .from(schema.knowledge)
+    .where(and(eq(schema.knowledge.reeId, reeId), eq(schema.knowledge.status, 'pending'), sql`${schema.knowledge.updatedAt} < ${new Date(now.getTime() - STALE_PENDING_MS)}`));
+  let abandoned = 0;
+  for (const { id, title } of waiting) {
+    await db().transaction(async (tx) => {
+      const [current] = await tx.select({ status: schema.knowledge.status }).from(schema.knowledge).where(eq(schema.knowledge.id, id)).for('update');
+      if (current?.status !== 'pending') return;
+      const holdId = await heldFor(tx, id, 'knowledge');
+      const settled = holdId ? await settleRun(tx, holdId, [], { reeId, note: title }) : null;
+      if (holdId) await tx.update(schema.knowledgeCostRun).set({ status: 'failed', error: 'ree_deleted', chargedCredits: 0 }).where(eq(schema.knowledgeCostRun.id, holdId));
+      const log: KnowledgeActivity[] = [activity('failed', { reason: 'ree_deleted' }, now)];
+      if (settled?.refunded) log.push(activity('refunded', { credits: settled.released }, now));
+      await tx.update(schema.knowledge).set({ status: 'failed', error: 'ree_deleted', updatedAt: now, activity: appendActivity(log) }).where(eq(schema.knowledge.id, id));
+      abandoned += 1;
+    });
+  }
+  return abandoned;
+}
+
+/**
+ * The cron's share of `recoverStale`: dead runs in every Ree, not only the
+ * ones whose owner opens the list, so a reservation never stays frozen
+ * because nobody looked. Answers how many Rees it swept (at most `limit`).
+ * Waiting rows are left for the list to start (it runs them after the response).
+ */
+export async function recoverStaleEverywhere(now = new Date(), limit = 50): Promise<number> {
+  const rees = await db()
+    .selectDistinct({ reeId: schema.knowledge.reeId })
+    .from(schema.knowledge)
+    .where(and(eq(schema.knowledge.status, 'processing'), sql`${schema.knowledge.updatedAt} < ${new Date(now.getTime() - STALE_PROCESSING_MS)}`))
+    .limit(limit);
+  for (const { reeId } of rees) await recoverStale(reeId, now);
+  return rees.length;
 }
 
 /** What answers can draw on: ready, enabled and not in the trash; and what is still being prepared. */

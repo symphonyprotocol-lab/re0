@@ -234,13 +234,14 @@ export async function reeAudit(administrator: Administrator, reeId: string) {
 
 /**
  * The Ree's place in discovery after a takedown or restore: step 4's profile
- * vectors exist only for public Rees, so this removes or rebuilds them. A
- * model failure here does not undo the decision; the next knowledge run
+ * vectors exist only for public Rees, so this removes or rebuilds them. An
+ * administrator's decision, so the platform pays the rebuild, not the owner.
+ * A model failure here does not undo the decision; the next knowledge run
  * rebuilds the profile.
  */
 async function refreshDiscovery(reeId: string): Promise<void> {
   try {
-    await refreshProfile(reeId);
+    await refreshProfile(reeId, { billTo: 'platform' });
   } catch (error) {
     console.warn(`profile refresh after moderation failed ree=${reeId}`, error instanceof Error ? error.message : error);
   }

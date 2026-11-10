@@ -7,12 +7,12 @@
  * is one transaction, so it lands whole or not at all. Each change writes a
  * line in the row's processing record.
  */
-import { and, eq, inArray, isNotNull, isNull, lt, ne, sql } from 'drizzle-orm';
+import { and, eq, inArray, isNotNull, isNull, lt, ne, notInArray, or, sql } from 'drizzle-orm';
 import { KNOWLEDGE_BATCH_MAX, TRASH_RETENTION_DAYS } from '@/lib/constants';
 import { activity, cleanFolderName, cleanTitle } from '@/lib/domain/knowledge';
 import { deleteBlob } from '@/lib/infra/blob';
 import { db, schema, type Tx } from '@/lib/infra/db';
-import { appendActivity, checkReprocess, KnowledgeInputError, reprocessInTx } from '@/lib/services/knowledge';
+import { appendActivity, checkReprocess, KnowledgeInputError, abandonPending, recoverStale, reprocessInTx } from '@/lib/services/knowledge';
 import { accrueStorage, rowsIn } from '@/lib/services/storage-billing';
 
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
@@ -218,17 +218,35 @@ export async function renameKnowledge(reeId: string, knowledgeId: string, raw: u
 /* ------------------------------------------------------------------- purge */
 
 /**
- * Removes knowledge that has been in the trash for 30 days: the rows, their
- * passages (cascade) and their uploaded files. Idempotent -- a second run
- * finds nothing older -- and bounded per run; Vercel Cron calls it daily.
- * Citations already given keep their snapshots (`message.citations`).
+ * Removes knowledge that has been in the trash for 30 days, and all
+ * knowledge of a deleted Ree (its owner can no longer reach it, and it stopped
+ * being billed when the Ree went): the rows, their passages (cascade) and
+ * their uploaded files. A deleted Ree's source still being processed goes
+ * once its run ends (a dead run is failed first, as `recoverStale` does on
+ * read). Idempotent -- a second run finds nothing more -- and bounded per
+ * run; Vercel Cron calls it daily. Citations already given keep their
+ * snapshots (`message.citations`).
  */
 export async function purgeTrash(now = new Date(), limit = 500): Promise<{ purged: number; files: number }> {
   const cutoff = new Date(now.getTime() - TRASH_RETENTION_DAYS * 24 * 60 * 60 * 1000);
+  const orphaned = sql`exists (select 1 from ${schema.ree} r where r.id = ${schema.knowledge.reeId} and r.deleted_at is not null)`;
+  const stuck = await db()
+    .selectDistinct({ reeId: schema.knowledge.reeId })
+    .from(schema.knowledge)
+    .where(and(orphaned, inArray(schema.knowledge.status, ['pending', 'processing'])))
+    .limit(50);
+  for (const { reeId } of stuck) {
+    await recoverStale(reeId, now);
+    await abandonPending(reeId, now);
+  }
+  const purgeable = or(
+    and(isNotNull(schema.knowledge.deletedAt), lt(schema.knowledge.deletedAt, cutoff)),
+    and(orphaned, notInArray(schema.knowledge.status, ['pending', 'processing'])),
+  )!;
   const due = await db()
     .select({ id: schema.knowledge.id })
     .from(schema.knowledge)
-    .where(and(isNotNull(schema.knowledge.deletedAt), lt(schema.knowledge.deletedAt, cutoff)))
+    .where(purgeable)
     .limit(limit);
   /* Their storage is billed up to the moment they go, in the same transaction (P4). */
   const rows = due.length === 0 ? [] : await db().transaction(async (tx) => {
@@ -236,7 +254,7 @@ export async function purgeTrash(now = new Date(), limit = 500): Promise<{ purge
     await accrueStorage(tx, rowsIn(ids), now);
     return tx
       .delete(schema.knowledge)
-      .where(and(inArray(schema.knowledge.id, ids), isNotNull(schema.knowledge.deletedAt)))
+      .where(and(inArray(schema.knowledge.id, ids), purgeable))
       .returning({ kind: schema.knowledge.kind, source: schema.knowledge.source });
   });
   const uploads = [
