@@ -1,5 +1,5 @@
 {
-  "id": "b8c219eb-6443-4d7a-b22f-f5802eba2b08",
+  "id": "37b8d340-70b5-4fd4-a476-7f2dedb543cc",
   "prevId": "ecc7c364-1f22-4f57-b064-3353f7667186",
   "version": "7",
   "dialect": "postgresql",
@@ -211,6 +211,12 @@
         "locked_until": {
           "name": "locked_until",
           "type": "timestamp with time zone",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "invite_nonce": {
+          "name": "invite_nonce",
+          "type": "text",
           "primaryKey": false,
           "notNull": false
         },
@@ -3040,12 +3046,6 @@
           "primaryKey": false,
           "notNull": false
         },
-        "client_request_id": {
-          "name": "client_request_id",
-          "type": "uuid",
-          "primaryKey": false,
-          "notNull": false
-        },
         "created_at": {
           "name": "created_at",
           "type": "timestamp with time zone",
@@ -3072,28 +3072,6 @@
             }
           ],
           "isUnique": false,
-          "concurrently": false,
-          "method": "btree",
-          "with": {}
-        },
-        "message_client_request_key": {
-          "name": "message_client_request_key",
-          "columns": [
-            {
-              "expression": "conversation_id",
-              "isExpression": false,
-              "asc": true,
-              "nulls": "last"
-            },
-            {
-              "expression": "client_request_id",
-              "isExpression": false,
-              "asc": true,
-              "nulls": "last"
-            }
-          ],
-          "isUnique": true,
-          "where": "client_request_id is not null",
           "concurrently": false,
           "method": "btree",
           "with": {}

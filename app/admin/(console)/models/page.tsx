@@ -1,4 +1,5 @@
 import type { Metadata } from 'next';
+import { requireAdministrator } from '@/lib/http/admin';
 import { listModelConfigs } from '@/lib/services/models';
 import { latestReembedJob } from '@/lib/services/reembed';
 import { serverMessages } from '@/i18n/server';
@@ -11,6 +12,7 @@ export async function generateMetadata(): Promise<Metadata> {
 }
 
 export default async function ModelsPage() {
+  await requireAdministrator();
   const [{ t }, data, job] = await Promise.all([serverMessages(), listModelConfigs(), latestReembedJob()]);
   return (
     <ConsolePage>

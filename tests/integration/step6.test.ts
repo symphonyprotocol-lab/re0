@@ -11,6 +11,7 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { and, desc, eq, sql } from 'drizzle-orm';
 import { TEST_DATABASE_URL, uniqueName } from './setup';
+import { consoleAdministrator } from '../fixtures/console-administrator';
 
 const blobs = vi.hoisted(() => ({
   files: new Map<string, { size: number; contentType: string }>(),
@@ -176,7 +177,7 @@ describeWithDb('identity verification', () => {
       ['kyc', 'rejected'],
       ['kyc', 'verified'],
     ]);
-    const audits = await adminAudit.listAudit(auditView({ q: second.id }));
+    const audits = await adminAudit.listAudit(await consoleAdministrator(), auditView({ q: second.id }));
     expect(audits.items.map((row) => row.action)).toEqual(['kyc.verified']);
     expect((await kyc.listKyc(kycView({ q: userId }))).items.map((row) => row.status)).toEqual(['rejected', 'verified']);
     const users = await adminUsers.listUsers(usersView({ q: userId, kyc: 'verified' }));
@@ -193,7 +194,7 @@ describeWithDb('identity verification', () => {
     expect(first.files.document!.url).toContain(`kyc/${userId}/`);
     expect(Date.parse(first.files.selfie!.expiresAt) - now.getTime()).toBe(60_000);
     await kyc.kycFiles(reviewer, record.id);
-    const views = await adminAudit.listAudit(auditView({ action: 'kyc.files.view', q: record.id }));
+    const views = await adminAudit.listAudit(await consoleAdministrator(), auditView({ action: 'kyc.files.view', q: record.id }));
     expect(views.total).toBe(4);
     expect(views.items.map((row) => (row.after as { file: string }).file).sort()).toEqual(['document', 'document', 'selfie', 'selfie']);
   });
@@ -214,7 +215,7 @@ describeWithDb('identity verification', () => {
     await expect(kyc.requestReverification(reviewer, record.id, 'Twice over')).rejects.toMatchObject({ code: 'stale' });
     const again = await kyc.submitKyc(userId, form(userId));
     expect(again.status).toBe('pending');
-    const audits = await adminAudit.listAudit(auditView({ action: 'kyc.reset', q: record.id }));
+    const audits = await adminAudit.listAudit(await consoleAdministrator(), auditView({ action: 'kyc.reset', q: record.id }));
     expect(audits.total).toBe(1);
   });
 
@@ -369,7 +370,7 @@ describeWithDb('payouts', () => {
     await expect(payouts.failPayout(reviewer, second.id, 'Returned by PayPal')).rejects.toMatchObject({ code: 'stale' });
     await expect(payouts.recordPayment(reviewer, second.id, { transferId: 'OTHER', paid: '55.00' })).rejects.toMatchObject({ code: 'stale' });
 
-    const audits = await adminAudit.listAudit(auditView({ q: second.id }));
+    const audits = await adminAudit.listAudit(await consoleAdministrator(), auditView({ q: second.id }));
     expect(audits.items.map((row) => row.action).sort()).toEqual(['payout.approved', 'payout.paid']);
     const notices = await db().select().from(schema.notice).where(and(eq(schema.notice.userId, userId), eq(schema.notice.kind, 'payout'))).orderBy(desc(schema.notice.createdAt));
     expect(notices[0]!.params).toMatchObject({ status: 'paid', credits: 600_000, paidCents: 5_500 });

@@ -9,6 +9,7 @@ import { periodStart, RECENT_PERIODS, type PurchasesView, type RecentPeriod } fr
 import { clampPage, likePattern, type ListResult } from '@/lib/domain/list';
 import { db, schema } from '@/lib/infra/db';
 import { bucketStart, trendOf } from '@/lib/services/admin-finance';
+import { assertConsole, type Administrator } from '@/lib/services/admin';
 
 export interface PurchaseRow {
   id: string;
@@ -60,7 +61,8 @@ function purchaseConditions(view: PurchasesView): SQL[] {
   return conditions;
 }
 
-export async function listPurchases(view: PurchasesView, options: { all?: boolean } = {}): Promise<ListResult<PurchaseRow>> {
+export async function listPurchases(administrator: Administrator, view: PurchasesView, options: { all?: boolean } = {}): Promise<ListResult<PurchaseRow>> {
+  assertConsole(administrator);
   const conditions = purchaseConditions(view);
   const where = conditions.length ? and(...conditions) : undefined;
   const database = db();
@@ -107,7 +109,8 @@ export async function listPurchases(view: PurchasesView, options: { all?: boolea
  * matching payment, not a page, by its current status and the UTC+8 hour /
  * day / month it was created in, summing what the buyer paid in cents.
  */
-export async function purchaseTrend(view: PurchasesView, now = new Date()): Promise<FinanceTrend<(typeof FINANCE_SERIES)['purchases'][number]>> {
+export async function purchaseTrend(administrator: Administrator, view: PurchasesView, now = new Date()): Promise<FinanceTrend<(typeof FINANCE_SERIES)['purchases'][number]>> {
+  assertConsole(administrator);
   const at = bucketStart(schema.purchase.createdAt, financeUnit(view));
   const rows = await db()
     .select({ status: schema.purchase.status, at, count: count(), cents: sql<string>`coalesce(sum(${schema.purchase.amountMinor}), 0)::bigint` })
@@ -121,7 +124,8 @@ export async function purchaseTrend(view: PurchasesView, now = new Date()): Prom
 /* The live Plan grant's remaining credits, as the user's balance counts them; written qualified, as drizzle renders columns bare inside sql. */
 const planRemaining = sql<number>`(select coalesce(sum(g.remaining), 0)::bigint from ${schema.creditGrant} g where g.user_id = "subscription"."user_id" and g.source = 'plan' and g.expires_at > now())`;
 
-export async function listSubscriptions(view: PurchasesView, options: { all?: boolean } = {}, now = new Date()): Promise<ListResult<SubscriptionRow>> {
+export async function listSubscriptions(administrator: Administrator, view: PurchasesView, options: { all?: boolean } = {}, now = new Date()): Promise<ListResult<SubscriptionRow>> {
+  assertConsole(administrator);
   const conditions: SQL[] = [];
   if (view.status !== 'all') conditions.push(eq(schema.subscription.status, view.status as SubscriptionRow['status']));
   const since = periodStart((RECENT_PERIODS as readonly string[]).includes(view.period) ? (view.period as RecentPeriod) : 'all', now);
@@ -161,7 +165,8 @@ export async function listSubscriptions(view: PurchasesView, options: { all?: bo
   return { items: (await query).map((row) => ({ ...row, planRemaining: Number(row.planRemaining) })), total, page, size: view.size };
 }
 
-export async function purchaseCounts() {
+export async function purchaseCounts(administrator: Administrator) {
+  assertConsole(administrator);
   const database = db();
   const [purchases] = await database
     .select({
@@ -187,7 +192,8 @@ export async function purchaseCounts() {
  * (purchase, refunds, chargebacks) and every Paddle notification about the
  * transaction, as stored.
  */
-export async function purchaseDetail(id: string) {
+export async function purchaseDetail(administrator: Administrator, id: string) {
+  assertConsole(administrator);
   const database = db();
   const [row] = await database
     .select({ purchase: schema.purchase, name: schema.user.name, email: schema.user.email })

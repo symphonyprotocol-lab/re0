@@ -1,4 +1,5 @@
 import type { Metadata } from 'next';
+import { requireAdministrator } from '@/lib/http/admin';
 import { redirect } from 'next/navigation';
 import { financeFilter } from '@/lib/domain/admin-finance';
 import { AMOUNT_SORTS, csvHref, listHref, PAYOUT_QUEUE_DEFAULTS, PAYOUT_QUEUE_FILTERS, payoutQueueView } from '@/lib/domain/admin-lists';
@@ -25,6 +26,7 @@ type Props = { searchParams: Promise<Record<string, string | string[] | undefine
  * is done moves to 提现记录.
  */
 export default async function PayoutsPage({ searchParams }: Props) {
+  await requireAdministrator();
   const { t, locale } = await serverMessages();
   const c = t.consolePayouts;
   const p = c.payouts;

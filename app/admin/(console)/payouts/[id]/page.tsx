@@ -1,4 +1,5 @@
 import type { Metadata } from 'next';
+import { requireAdministrator } from '@/lib/http/admin';
 import { serverMessages } from '@/i18n/server';
 import { PayoutDetailPage } from '@/components/admin/payout-detail';
 
@@ -14,5 +15,6 @@ export async function generateMetadata(): Promise<Metadata> {
 
 /** `/admin/payouts/[id]`: review a pending request, or read a finished one; an approved one goes to `/payment`. */
 export default async function PayoutPage({ params, searchParams }: Props) {
+  await requireAdministrator();
   return <PayoutDetailPage id={(await params).id} payment={false} query={await searchParams} />;
 }

@@ -60,7 +60,7 @@ describeWithDb('sign-up and sessions', () => {
     const adapter = { authorizeUrl: () => 'https://provider.test/authorize', exchange: async () => profile(subject) };
     const started = await beginOAuth({ provider: 'github', returnTo: '/rees/new', redirectUri: 'http://localhost/cb', adapter });
     const { unseal } = await import('@/lib/infra/crypto/sealed');
-    const handshake = await unseal<{ state: string }>(started.handshake);
+    const handshake = await unseal<{ state: string }>('oauth-handshake', started.handshake);
     const result = await completeOAuth({
       provider: 'github',
       code: 'code',

@@ -10,6 +10,7 @@ import { randomUUID } from 'node:crypto';
 import { beforeAll, describe, expect, it } from 'vitest';
 import { and, eq } from 'drizzle-orm';
 import { TEST_DATABASE_URL, uniqueName } from './setup';
+import { consoleAdministrator } from '../fixtures/console-administrator';
 import { REDEEM_RATE_LIMIT } from '@/lib/constants';
 
 const describeWithDb = TEST_DATABASE_URL ? describe : describe.skip;
@@ -135,7 +136,7 @@ describeWithDb('redeem codes', () => {
       expect(codes).toContain(await openCredential(row.codeSealed, 'redeem_code'));
     }
 
-    const found = await adminRedeem.listBatches(redeemBatchesView({ q: codes[7]!.toLowerCase() }), {}, t0);
+    const found = await adminRedeem.listBatches(await consoleAdministrator(), redeemBatchesView({ q: codes[7]!.toLowerCase() }), {}, t0);
     expect(found.items.map((item) => item.id)).toEqual([created.id]);
 
     const exported = await adminRedeem.exportCodes(administratorId, created.id, redeemBatchView({}));

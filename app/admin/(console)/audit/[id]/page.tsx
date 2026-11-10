@@ -1,4 +1,5 @@
 import type { Metadata } from 'next';
+import { requireAdministrator } from '@/lib/http/admin';
 import { WorkspaceLink as Link } from '@/components/shell/workspace-link';
 import { auditEntry } from '@/lib/services/admin-audit';
 import { serverMessages } from '@/i18n/server';
@@ -28,12 +29,13 @@ function pretty(value: unknown): string {
 
 /** `/admin/audit/[id]` (prototype admin-records.js `detail()`): the entry, and its before / after side by side. */
 export default async function AuditEntryPage({ params, searchParams }: Props) {
+  const administrator = await requireAdministrator();
   const { t, locale } = await serverMessages();
   const a = t.consoleRees.audit;
   const d = a.detail;
   const id = (await params).id;
   const back = backPath((await searchParams).from);
-  const row = UUID.test(id) ? await auditEntry(id) : null;
+  const row = UUID.test(id) ? await auditEntry(administrator, id) : null;
   /* The way back is the page the entry was opened from, named as that page. */
   const crumbs = [
     { label: t.console.nav.home, href: '/admin/overview' },

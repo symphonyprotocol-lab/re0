@@ -8,6 +8,7 @@ import { actionsLabelled } from '@/lib/domain/audit';
 import { clampPage, likePattern, type ListResult } from '@/lib/domain/list';
 import { db, schema } from '@/lib/infra/db';
 import { en as consoleEn, zh as consoleZh } from '@/i18n/pages/console';
+import { assertConsole, type Administrator } from '@/lib/services/admin';
 
 export interface AuditRow {
   id: string;
@@ -43,7 +44,8 @@ function auditWhere(view: AuditView, now: Date): SQL | undefined {
   return conditions.length ? and(...conditions) : undefined;
 }
 
-export async function listAudit(view: AuditView, options: { all?: boolean } = {}, now = new Date()): Promise<ListResult<AuditRow>> {
+export async function listAudit(administrator: Administrator, view: AuditView, options: { all?: boolean } = {}, now = new Date()): Promise<ListResult<AuditRow>> {
+  assertConsole(administrator);
   const database = db();
   const where = auditWhere(view, now);
   const [counted] = await database
@@ -73,14 +75,16 @@ export async function listAudit(view: AuditView, options: { all?: boolean } = {}
   return { items: await query, total, page, size: view.size };
 }
 
-export async function auditCounts() {
+export async function auditCounts(administrator: Administrator) {
+  assertConsole(administrator);
   const [row] = await db()
     .select({ total: count(), administrators: countDistinct(schema.adminAudit.administratorId), actions: countDistinct(schema.adminAudit.action) })
     .from(schema.adminAudit);
   return row ?? { total: 0, administrators: 0, actions: 0 };
 }
 
-export async function auditEntry(id: string): Promise<AuditRow | null> {
+export async function auditEntry(administrator: Administrator, id: string): Promise<AuditRow | null> {
+  assertConsole(administrator);
   const [row] = await db()
     .select({
       id: schema.adminAudit.id,
