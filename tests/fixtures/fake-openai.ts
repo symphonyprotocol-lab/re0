@@ -25,7 +25,13 @@ import { searchTerms } from '@/lib/domain/retrieval';
 export interface FakeOpenAi {
   baseUrl: string;
   billing: { embeddingTokens: number; omitEmbeddingUsage: boolean };
-  requests: { path: string; model: string }[];
+  /** Every request; an embedding request also carries its inputs. */
+  requests: { path: string; model: string; inputs?: string[] }[];
+  /**
+   * `model`: embedding requests for it answer a server error once `after`
+   * of them have succeeded (null: never).
+   */
+  embeddings: { failModel: string | null; after: number };
   /** Text for transcript segments, keyed `piece:segment` (both from 0). */
   transcripts: Map<string, string>;
   /** `fail`: answer check requests with a server error. */
@@ -152,6 +158,8 @@ export async function startFakeOpenAi(port = 0, options: { delayMs?: number } = 
   const transcripts = new Map<string, string>();
   const checks = { fail: false };
   const synthesis = { fail: false };
+  const embeddings: FakeOpenAi['embeddings'] = { failModel: null, after: 0 };
+  let failingEmbeds = 0;
   let transcriptionCalls = 0;
   const server: Server = createServer(async (req, res) => {
     const parts: Buffer[] = [];
@@ -175,9 +183,15 @@ export async function startFakeOpenAi(port = 0, options: { delayMs?: number } = 
     }
     const raw = bytes.toString('utf8');
     const body = JSON.parse(raw || '{}') as { model?: string; input?: string[]; stream?: boolean; messages?: { role: string; content: unknown }[] };
-    requests.push({ path: req.url ?? '', model: body.model ?? '' });
-    if (req.url?.endsWith('/embeddings')) {
-      const inputs = Array.isArray(body.input) ? body.input : [String(body.input ?? '')];
+    const embedding = Boolean(req.url?.endsWith('/embeddings'));
+    const inputs = Array.isArray(body.input) ? body.input : [String(body.input ?? '')];
+    if (embedding && embeddings.failModel !== null && body.model === embeddings.failModel && failingEmbeds++ >= embeddings.after) {
+      res.writeHead(500, { 'content-type': 'application/json' });
+      res.end(JSON.stringify({ error: { message: 'embedding failed', type: 'server_error' } }));
+      return;
+    }
+    requests.push({ path: req.url ?? '', model: body.model ?? '', ...(embedding ? { inputs } : {}) });
+    if (embedding) {
       res.writeHead(200, { 'content-type': 'application/json' });
       res.end(JSON.stringify({ object: 'list', model: body.model, data: inputs.map((input, index) => ({ object: 'embedding', index, embedding: vectorOf(input) })), ...(!billing.omitEmbeddingUsage ? { usage: { prompt_tokens: billing.embeddingTokens, total_tokens: billing.embeddingTokens } } : {}) }));
       return;
@@ -243,6 +257,7 @@ export async function startFakeOpenAi(port = 0, options: { delayMs?: number } = 
     baseUrl: `http://127.0.0.1:${address.port}/v1`,
     billing,
     requests,
+    embeddings,
     transcripts,
     checks,
     synthesis,

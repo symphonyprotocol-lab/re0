@@ -10,7 +10,8 @@ export const maxDuration = 120;
 /**
  * Rebuilds the Ree's knowledge profile now (rebuild-proposal.md 2.4); the
  * end of every knowledge run and every settings save do the same on their
- * own. A private Ree's profile is removed. Free.
+ * own. A private Ree's profile is removed. Billed to the owner like every
+ * profile build (`meteredWork`, docs/audit/credit-import-audit.md P2).
  */
 export async function POST(request: NextRequest, context: { params: Promise<{ id: string }> }) {
   const user = await apiUser(request);

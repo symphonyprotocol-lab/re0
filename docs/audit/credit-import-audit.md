@@ -73,7 +73,7 @@
 | 移动 / 暂停 / 启用 / 回收站 / 恢复 / 改名 | batch、PATCH、restore | 无（只会触发 P2 的画像刷新） | 不需要 | `runBatch` | `knowledge-library.test.ts` | 正确 |
 | 知识画像（P2） | `refreshProfile`：入库后、启停 / 恢复 / 发布后、模型切换后重建 | embedding | **是**，Ree 主人付费；必须执行，余额不够就记欠款 | `lib/services/profile.ts:111` | `knowledge-billing.test.ts` P2 | **P2 已实现** |
 | 示例问题（P2） | `suggestQuestions`：第一条来源 ready 后 | 生成 | **是**，Ree 主人付费；属可选功能，余额不够就不调用、不生成 | `lib/services/profile.ts:170`；生成计量 `lib/infra/ai/usage.ts:96` | `knowledge-billing.test.ts` P2 | **P2 已实现** |
-| 模型切换后重新向量化（P3） | `runReembed`（后台 / cron） | embedding | **是**，每批按知识库主人分组，各付各的；切换必须完成，余额不够就记欠款；候选模型没有单价时任务失败 | `lib/services/reembed.ts:244` | `knowledge-billing.test.ts` P3 | **P3 已实现** |
+| 模型切换后重新向量化（P3） | `runReembed`（后台 / cron） | embedding | **是**，各知识库主人付自己的片段，每个任务一个运行、结束时统一取整一次；失败重启同一模型时保留已完成的向量，不重复收费；切换必须完成，余额不够就记欠款；候选模型没有单价时任务失败 | `ownerRun` / `settleReembedRuns` `lib/services/reembed.ts` | `knowledge-billing.test.ts` P3 | **P3 已实现** |
 | 存储（P4） | 每天的 cron `/api/cron/charge-storage`；清空回收站前同一事务内结算 | Blob 文件 + 数据库行，按秒计 | **是**，按累计成本向上取整，从不低于成本，最多多 1 credit | `accrueStorage` `lib/services/storage-billing.ts:57`；`chargeStorage` `:99`；`purgeTrash` `lib/services/knowledge-library.ts:236` | `knowledge-billing.test.ts` P4 | **P4 已实现** |
 | MCP / API Key | `lib/services/mcp.ts` | — | — | — | — | 只读，没有导入路径 |
 
@@ -119,7 +119,7 @@ P2 / P3 的运行在 `knowledge-billing.test.ts` 的 `runsOf` 里做同样的断
 - **每次处理都多一点流量费**：读回上传文件、抓取网页 / 仓库、发给 Firecrawl / 转写，按 $0.15 / GB 计。金额通常远小于 1 credit，但每轮只向上取整一次，所以小文件通常多 1 credit。后台成本页会多出"流量"类收据。
 - **画像和示例问题收费**：入库后的知识画像，以及启停 / 恢复 / 发布、模型切换后的画像重建，每次至少 1 credit；余额为 0 时记欠款。示例问题在余额不够时直接不生成。
 - **重新向量化收费**：管理员切换 embedding 模型后，每个知识库主人为自己的片段付费，余额不够就记欠款。候选模型必须先配好单价，否则任务失败。
-- **存储每天扣费**：账本里出现"知识存储"（`storage_charge`）条目，计入"消耗"统计。回收站里的来源一直计费，直到 30 天后被清除；已删除 Ree 的知识也一直计费，因为它们仍然占着存储。
+- **存储每天扣费**：账本里出现"知识存储"（`storage_charge`）条目，计入"消耗"统计。回收站里的来源一直计费，直到 30 天后被清除；已删除 Ree 的知识计费到删除时刻为止，下一次清空回收站时连同文件一并删除。存量知识从上线（迁移 0038）起计费，不追溯。
 - **可能欠款**：任何已经发生的成本，余额不够时都会记欠款（`/billing` 显示欠款，下次到账先还）。
 
 ## 剩余说明

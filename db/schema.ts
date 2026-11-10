@@ -260,7 +260,12 @@ export const chunk = pgTable(
   (t) => [
     index('chunk_knowledge_idx').on(t.knowledgeId, t.ordinal),
     index('chunk_ree_idx').on(t.reeId),
-    index('chunk_embedding_idx').using('hnsw', t.embedding.op('vector_cosine_ops')),
+    /*
+     * No vector index: retrieval is an exact scan within one Ree (`+ 0` in
+     * chat.ts / explore.ts keeps the planner off one), and an HNSW index made
+     * every write -- above all the model switch's swap of every passage,
+     * reembed.ts `finish` -- rebuild graph entries nobody reads (0038).
+     */
   ],
 );
 
