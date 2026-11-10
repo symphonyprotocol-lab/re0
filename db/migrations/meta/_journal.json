@@ -260,6 +260,13 @@
       "when": 1794281622414,
       "tag": "0037_redeem_next_period",
       "breakpoints": true
+    },
+    {
+      "idx": 38,
+      "version": "7",
+      "when": 1794283374905,
+      "tag": "0038_knowledge_billing_fixes",
+      "breakpoints": true
     }
   ]
 }

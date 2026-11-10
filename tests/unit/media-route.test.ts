@@ -106,3 +106,18 @@ describe('stored avatar pathnames', () => {
     expect(avatarImageUrl('https://avatars.githubusercontent.com/u/1')).toBe('https://avatars.githubusercontent.com/u/1');
   });
 });
+
+describe('knowledge upload pathnames', () => {
+  it('accept only the uploader’s shape under the owner', async () => {
+    const { isKnowledgeUploadPath } = await import('@/lib/domain/blob-path');
+    expect(isKnowledgeUploadPath(`knowledge/${user}/${file}/报告 (1).pdf`, user)).toBe(true);
+    for (const pathname of [
+      `knowledge/${user}/${file}/100%.pdf`,
+      `knowledge/${user}/../${reeId}/${file}/x.pdf`,
+      `knowledge/${user}/%2e%2e/x.pdf`,
+      `knowledge/${user}/${file}/sub/x.pdf`,
+      `knowledge/${user}/x.pdf`,
+      `knowledge/${reeId}/${file}/x.pdf`,
+    ]) expect(isKnowledgeUploadPath(pathname, user), pathname).toBe(false);
+  });
+});

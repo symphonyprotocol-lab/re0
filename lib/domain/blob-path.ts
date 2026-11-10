@@ -19,3 +19,15 @@ export function assertBlobPathname(pathname: string): string {
   if (!isSafeBlobPathname(pathname)) throw new Error(`unsafe blob pathname: ${JSON.stringify(pathname.slice(0, 200))}`);
   return pathname;
 }
+
+/**
+ * A knowledge upload's pathname as `/api/upload-token` issues it:
+ * `knowledge/<owner>/<id>/<name>` — exactly two segments under the owner's
+ * prefix, safe as above, and no `%` at all (the uploader replaces it in file
+ * names), so the path cannot reach another user's file.
+ */
+export function isKnowledgeUploadPath(pathname: string, ownerId: string): boolean {
+  const prefix = `knowledge/${ownerId}/`;
+  if (!pathname.startsWith(prefix) || pathname.includes('%') || !isSafeBlobPathname(pathname)) return false;
+  return pathname.slice(prefix.length).split('/').length === 2;
+}
