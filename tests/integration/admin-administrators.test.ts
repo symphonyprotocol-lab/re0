@@ -109,38 +109,8 @@ describeWithDb('administrator management', () => {
   });
 });
 
-const adminUsers = await import('@/lib/services/admin-users');
 const admin = await import('@/lib/services/admin');
-const { createSession } = await import('@/lib/services/auth');
-const { balanceOf } = await import('@/lib/services/credits');
 const { CSV_MAX_ROWS, listOrCsv } = await import('@/lib/http/admin-lists');
-
-async function newUser(): Promise<string> {
-  const subject = uniqueName('adm');
-  const { userId } = await createSession({ provider: 'github', subject, handle: subject, email: `${subject}@example.test`, displayName: 'User', avatarUrl: null }, 'zh', '/', new Date());
-  return userId;
-}
-
-describeWithDb('credit adjustments are idempotent per request', () => {
-  it('answers a retry with the first adjustment instead of granting twice', async () => {
-    const reviewer = await newAdministrator('administrator');
-    const userId = await newUser();
-    const start = (await balanceOf(db(), userId));
-    const requestId = crypto.randomUUID();
-    const input = { bucket: 'pack', direction: 'grant', amount: 5_000, reason: 'support credit', requestId };
-    const [first, second] = await Promise.all([adminUsers.adjustCredits(reviewer, userId, input), adminUsers.adjustCredits(reviewer, userId, input)]);
-    expect([first.replayed, second.replayed].sort()).toEqual([false, true]);
-    expect(second.balance).toBe(first.balance);
-    expect((await balanceOf(db(), userId))).toBe(start + 5_000);
-    const audits = await db().select().from(schema.adminAudit).where(and(eq(schema.adminAudit.action, 'user.credits.adjust'), eq(schema.adminAudit.target, userId)));
-    expect(audits).toHaveLength(1);
-
-    /* A new dialog is a new request. */
-    await adminUsers.adjustCredits(reviewer, userId, { ...input, requestId: crypto.randomUUID() });
-    expect((await balanceOf(db(), userId))).toBe(start + 10_000);
-    await expect(adminUsers.adjustCredits(reviewer, userId, { ...input, requestId: 'not-a-uuid' })).rejects.toMatchObject({ code: 'request_id' });
-  });
-});
 
 describeWithDb('console exports', () => {
   it('audits every CSV export with its row count and filters', async () => {

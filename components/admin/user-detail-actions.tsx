@@ -81,8 +81,6 @@ export function AdjustCreditsButton({ id, name, email, planActive }: { id: strin
   const [error, setError] = useState('');
   const [bucket, setBucket] = useState<'pack' | 'plan'>('pack');
   const [direction, setDirection] = useState<'grant' | 'deduct'>('grant');
-  /* One per opening of the dialog: a retried or doubled submit adjusts once. */
-  const [requestId, setRequestId] = useState('');
   const planLocked = direction === 'grant' && !planActive;
   return (
     <>
@@ -93,7 +91,6 @@ export function AdjustCreditsButton({ id, name, email, planActive }: { id: strin
           setError('');
           setBucket('pack');
           setDirection('grant');
-          setRequestId(crypto.randomUUID());
           setOpen(true);
         }}
       >
@@ -133,7 +130,7 @@ export function AdjustCreditsButton({ id, name, email, planActive }: { id: strin
             setError('');
             const result = await api<{ error?: string; delta?: number }>(`/api/admin/users/${id}/credits`, {
               method: 'POST',
-              json: { bucket, direction, amount, reason, requestId },
+              json: { bucket, direction, amount, reason },
             });
             setBusy(false);
             if (!result.ok) return setError(errorText(result.data.error, a.errors));
