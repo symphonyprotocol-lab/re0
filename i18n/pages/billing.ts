@@ -40,6 +40,7 @@ export const zh = {
     redeemedUntil: '兑换的 Plan，有效至 {date}，到期后不扣款',
     redeemedNext: '兑换的 Plan 将于 {date} 接续，有效至 {until}',
     redeemedLater: '兑换的 Plan 到期后可订阅',
+    resumeBlocked: '已兑换 Plan，无需恢复续费',
   },
   pack: {
     title: 'Pack',
@@ -145,6 +146,7 @@ export const zh = {
   },
   errors: {
     no_subscription: '没有生效中的 Plan。',
+    plan_redeemed_queued: '你已兑换的 Plan 会在本周期结束后接上，不能再恢复自动续费。',
     payments_unavailable: '支付暂未开通，请稍后再试。',
     payment_provider: 'Paddle 暂时无法处理，请稍后重试。',
   },
@@ -189,6 +191,7 @@ export const en: Shape<typeof zh> = {
     redeemedUntil: 'Redeemed Plan, active until {date} with no charge',
     redeemedNext: 'A redeemed Plan follows on {date}, active until {until}',
     redeemedLater: 'Subscribe once your redeemed Plan ends',
+    resumeBlocked: 'Redeemed Plan follows, no renewal needed',
   },
   pack: {
     title: 'Pack',
@@ -294,6 +297,7 @@ export const en: Shape<typeof zh> = {
   },
   errors: {
     no_subscription: 'No active Plan.',
+    plan_redeemed_queued: 'A redeemed Plan follows this cycle, so renewal cannot be turned back on.',
     payments_unavailable: 'Payments are not available yet. Please try again later.',
     payment_provider: 'Paddle could not process this. Please try again.',
   },

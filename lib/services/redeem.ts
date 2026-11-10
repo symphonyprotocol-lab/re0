@@ -6,20 +6,22 @@
  * redemptions, or a redemption and a Plan checkout, never interleave), then
  * the code's row lock (so a code's uses never exceed its limit), then every
  * check, and only then the writes. A refused redemption has written
- * nothing. Wrong guesses are counted in `rate_bucket` and, past the limit,
- * refused before the database is asked about the code.
+ * nothing. Every attempt takes a slot in its user's and IP's `rate_bucket`
+ * windows before the database is asked about the code; an attempt that was
+ * not a wrong guess gives its slots back, so only guesses use up the limit.
  */
 import { and, asc, count, eq, gt, isNull, lte, max, sql } from 'drizzle-orm';
 import { CHECKOUT_REUSE_MS, REDEEM_PLAN_BATCH, REDEEM_RATE_LIMIT } from '@/lib/constants';
 import { redeemedPeriod, redeemedPeriodIndexAt } from '@/lib/domain/billing';
 import { isUuid } from '@/lib/domain/list';
 import { batchPhase, maskedCode, normalizeCode, redeemedPlanEnd, redeemedPlanStart, type RedeemKind } from '@/lib/domain/redeem';
-import { sha256 } from '@/lib/infra/crypto/tokens';
+import { encryptionSecret } from '@/lib/infra/crypto/secrets';
+import { hmacSha256, sha256 } from '@/lib/infra/crypto/tokens';
 import { db, schema, type Tx } from '@/lib/infra/db';
 import { cancelCheckoutTransaction, paddleConfig } from '@/lib/infra/paddle';
 import { addGrant, balanceOf, expirePlanGrants } from '@/lib/services/credits';
 import { redeemedPlansOf } from '@/lib/services/billing';
-import { hitRateBucket, peekRateBucket } from '@/lib/services/rate-limit';
+import { takeRateSlots, type RateRule } from '@/lib/services/rate-limit';
 
 export type RedeemRefusal =
   | 'code_not_found'
@@ -58,30 +60,20 @@ export function codeDigest(normalized: string): Promise<string> {
   return sha256(`redeem:${normalized}`);
 }
 
-function rateKeys(userId: string, ip: string | null | undefined) {
+function rateRules(userId: string, ip: string | null | undefined): RateRule[] {
   return REDEEM_RATE_LIMIT.flatMap((rule) => {
     const subject = rule.scope === 'user' ? userId : ip;
     return subject ? [{ key: `redeem:${rule.scope}:${subject}:${rule.windowSeconds}`, limit: rule.limit, windowSeconds: rule.windowSeconds }] : [];
   });
 }
 
-/** Seconds until the user may guess again, or null while under every limit. */
-async function limited(userId: string, ip: string | null | undefined, now: Date): Promise<number | null> {
-  let wait: number | null = null;
-  for (const rule of rateKeys(userId, ip)) {
-    const { hits, retryAfter } = await peekRateBucket(rule.key, rule.windowSeconds, now);
-    if (hits >= rule.limit) wait = Math.max(wait ?? 0, retryAfter);
-  }
-  return wait;
-}
-
-async function countGuess(userId: string, ip: string | null | undefined, now: Date): Promise<void> {
-  for (const rule of rateKeys(userId, ip)) await hitRateBucket(rule.key, rule.limit, rule.windowSeconds, now);
-}
-
-/** A day-salted digest of the IP: enough to see one source behind many accounts, without keeping the address. */
+/**
+ * A day-salted HMAC of the IP under a key derived from ADMIN_SECRET_KEY:
+ * enough to see one source behind many accounts that day, and, unlike a
+ * plain digest, not reversible by hashing every IPv4 address.
+ */
 async function ipHash(ip: string | null | undefined, now: Date): Promise<string | null> {
-  return ip ? sha256(`redeem-ip:${now.toISOString().slice(0, 10)}:${ip}`) : null;
+  return ip ? hmacSha256(encryptionSecret(), `redeem-ip:${now.toISOString().slice(0, 10)}:${ip}`) : null;
 }
 
 type RedemptionRow = typeof schema.redeemRedemption.$inferSelect;
@@ -145,13 +137,21 @@ function outcomeOf(redemption: RedemptionRow, balance: number, now: Date): Redee
 /** `POST /api/billing/redeem`. */
 export async function redeemCode(userId: string, input: { code?: unknown; requestId?: unknown }, context: RedeemContext = {}): Promise<RedeemResult> {
   const now = context.now ?? new Date();
-  const wait = await limited(userId, context.ip, now);
-  if (wait !== null) return { ok: false, error: 'too_many_attempts', retryAfter: wait };
-  const normalized = normalizeCode(input.code);
-  if (!normalized) {
-    await countGuess(userId, context.ip, now);
-    return { ok: false, error: 'code_not_found' };
+  const slots = await takeRateSlots(rateRules(userId, context.ip), now);
+  if (!slots.ok) return { ok: false, error: 'too_many_attempts', retryAfter: slots.retryAfter };
+  let result: RedeemResult | null = null;
+  try {
+    result = await attempt(userId, input, context, now);
+    return result;
+  } finally {
+    /* A wrong guess keeps its slots; anything else, a throw included, gives them back. */
+    if (!(result && !result.ok && result.error === 'code_not_found')) await slots.release();
   }
+}
+
+async function attempt(userId: string, input: { code?: unknown; requestId?: unknown }, context: RedeemContext, now: Date): Promise<RedeemResult> {
+  const normalized = normalizeCode(input.code);
+  if (!normalized) return { ok: false, error: 'code_not_found' };
   const requestId = isUuid(input.requestId) ? input.requestId : null;
   const digest = await codeDigest(normalized);
   const hashedIp = await ipHash(context.ip, now);
@@ -159,13 +159,17 @@ export async function redeemCode(userId: string, input: { code?: unknown; reques
 
   const result = await db().transaction(async (tx): Promise<RedeemResult> => {
     await tx.execute(sql`select pg_advisory_xact_lock(hashtext(${`checkout:${userId}`}))`);
+    let storedRequestId = requestId;
     if (requestId) {
       const [replay] = await tx
-        .select()
+        .select({ redemption: schema.redeemRedemption, digest: schema.redeemCode.codeDigest })
         .from(schema.redeemRedemption)
+        .innerJoin(schema.redeemCode, eq(schema.redeemCode.id, schema.redeemRedemption.codeId))
         .where(and(eq(schema.redeemRedemption.userId, userId), eq(schema.redeemRedemption.requestId, requestId)))
         .limit(1);
-      if (replay) return { ok: true, ...outcomeOf(replay, await balanceOf(tx, userId, now), now) };
+      /* The same request again gets its first answer. The id reused for another code is a new request, stored without the id it cannot share. */
+      if (replay && replay.digest === digest) return { ok: true, ...outcomeOf(replay.redemption, await balanceOf(tx, userId, now), now) };
+      if (replay) storedRequestId = null;
     }
     const [found] = await tx
       .select({ code: schema.redeemCode, batch: schema.redeemBatch })
@@ -180,12 +184,13 @@ export async function redeemCode(userId: string, input: { code?: unknown; reques
     if (phase === 'disabled') return { ok: false, error: 'code_disabled' };
     if (phase === 'scheduled') return { ok: false, error: 'code_not_started', startsAt: batch.startsAt.toISOString() };
     if (phase === 'expired') return { ok: false, error: 'code_expired' };
-    if (code.maxRedemptions !== null && code.redemptionCount >= code.maxRedemptions) return { ok: false, error: 'code_exhausted' };
+    /* The user's own limit first: someone re-entering the single-use code they used is told they already have. */
     const [mine] = await tx
       .select({ n: count() })
       .from(schema.redeemRedemption)
       .where(and(eq(schema.redeemRedemption.batchId, batch.id), eq(schema.redeemRedemption.userId, userId), isNull(schema.redeemRedemption.revokedAt)));
     if ((mine?.n ?? 0) >= batch.perUserLimit) return { ok: false, error: 'already_redeemed' };
+    if (code.maxRedemptions !== null && code.redemptionCount >= code.maxRedemptions) return { ok: false, error: 'code_exhausted' };
 
     let planStartsAt: Date | null = null;
     let planEndsAt: Date | null = null;
@@ -228,7 +233,7 @@ export async function redeemCode(userId: string, input: { code?: unknown; reques
         planMonths: batch.planMonths,
         planStartsAt,
         planEndsAt,
-        requestId,
+        requestId: storedRequestId,
         ipHash: hashedIp,
         userAgent: context.userAgent ? context.userAgent.slice(0, 200) : null,
         createdAt: now,
@@ -270,7 +275,6 @@ export async function redeemCode(userId: string, input: { code?: unknown; reques
     return { ok: true, ...outcomeOf(redemption!, await balanceOf(tx, userId, now), now) };
   });
 
-  if (!result.ok && result.error === 'code_not_found') await countGuess(userId, context.ip, now);
   if (!result.ok) console.info(`redeem refused: user ${userId} ip ${hashedIp?.slice(0, 8) ?? '-'} ${result.error} ${digest.slice(0, 8)}`);
   for (const id of superseded) {
     try {

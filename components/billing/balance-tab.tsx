@@ -98,7 +98,12 @@ export async function BalanceTab({ userId, query }: { userId: string; query: Rec
           {plan.redeemedNext && (
             <p className="plan-renewal">{fill(b.plan.redeemedNext, { date: formatDate(plan.redeemedNext, locale), until: redeemedUntil })}</p>
           )}
-          {plan.active && !redeemed ? (
+          {plan.active && !redeemed && plan.cancelAtPeriodEnd && plan.redeemedNext ? (
+            /* A redeemed Plan follows this paid period: renewing would overlap it, and the API refuses it. */
+            <button type="button" className="btn secondary" disabled>
+              {b.plan.resumeBlocked}
+            </button>
+          ) : plan.active && !redeemed ? (
             <RenewalControl cancelAtPeriodEnd={plan.cancelAtPeriodEnd} periodEndLabel={periodEnd} />
           ) : redeemedHeld ? (
             <button type="button" className="btn" disabled>

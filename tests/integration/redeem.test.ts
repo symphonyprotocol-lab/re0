@@ -134,6 +134,13 @@ describeWithDb('redeem codes', () => {
     expect(exported.rows.map((row) => row.code).sort()).toEqual([...codes].sort());
     const audits = await db().select().from(schema.adminAudit).where(eq(schema.adminAudit.target, created.id));
     expect(audits.map((row) => row.action).sort()).toEqual(['redeem.batch.create', 'redeem.batch.export']);
+
+    /* A code that will not open fails the whole export, as "显示" does, and no export is recorded. */
+    await db().update(schema.redeemCode).set({ codeSealed: 'bad.seal' }).where(eq(schema.redeemCode.id, rows[3]!.id));
+    await expect(adminRedeem.exportCodes(administratorId, created.id, redeemBatchView({}))).rejects.toMatchObject({ code: 'sealed' });
+    await expect(adminRedeem.revealCode(administratorId, rows[3]!.id)).rejects.toMatchObject({ code: 'sealed' });
+    const after = await db().select().from(schema.adminAudit).where(eq(schema.adminAudit.target, created.id));
+    expect(after.filter((row) => row.action === 'redeem.batch.export')).toHaveLength(1);
   });
 
   it('refuses a custom code that is taken, and bad settings', async () => {
@@ -241,6 +248,15 @@ describeWithDb('redeem codes', () => {
     /* Nothing granted yet; the Paddle Plan is still the one in force. */
     expect((await grantsOf(subscriber)).filter((row) => row.source === 'plan' && row.redemptionId)).toHaveLength(0);
     expect((await billing.billingSummary(subscriber, t0)).plan).toMatchObject({ source: 'paddle', redeemedNext: periodEnd.toISOString() });
+    /* Turning renewal back on would charge for a second Plan over the redeemed months: refused before Paddle is asked. */
+    let resumed = false;
+    const resume = async () => {
+      resumed = true;
+      throw new Error('Paddle must not be asked');
+    };
+    expect(await billing.setRenewal(subscriber, 'resume', { config: CONFIG, resume, now: t0 })).toEqual({ ok: false, error: 'plan_redeemed_queued' });
+    expect(resumed).toBe(false);
+    expect((await billing.subscriptionOf(db(), subscriber))?.cancelAtPeriodEnd).toBe(true);
 
     /* The hour after the Paddle period ends, the cron starts it. */
     const handover = new Date(periodEnd.getTime() + HOUR);
@@ -268,6 +284,9 @@ describeWithDb('redeem codes', () => {
     const [row] = await db().select().from(schema.redeemBatch).where(eq(schema.redeemBatch.id, created.id));
     expect(row?.redemptionCount).toBe(3);
     expect(await db().select().from(schema.redeemRedemption).where(eq(schema.redeemRedemption.batchId, created.id))).toHaveLength(3);
+    /* Someone who got one of the uses and enters the code again is told they already have it, not that it ran out. */
+    const winner = users[results.findIndex((result) => result.ok)]!;
+    expect(await use(winner, codes[0]!)).toEqual({ ok: false, error: 'already_redeemed' });
   });
 
   it('answers a replayed request with the first answer, and counts per-user limits across the batch', async () => {
@@ -277,7 +296,9 @@ describeWithDb('redeem codes', () => {
     const [first, again] = await Promise.all([use(userId, codes[0]!, t0, { requestId }), use(userId, codes[0]!, t0, { requestId })]);
     expect(first.ok && again.ok && first.redemptionId === again.redemptionId).toBe(true);
     expect(await db().select().from(schema.redeemRedemption).where(and(eq(schema.redeemRedemption.userId, userId), eq(schema.redeemRedemption.requestId, requestId)))).toHaveLength(1);
-    expect((await use(userId, codes[1]!)).ok).toBe(true);
+    /* The same id sent with another code is not a replay: that code is redeemed in its own right. */
+    const other = await use(userId, codes[1]!, t0, { requestId });
+    expect(other.ok && first.ok && other.redemptionId !== first.redemptionId).toBe(true);
     expect(await use(userId, codes[2]!)).toMatchObject({ ok: false, error: 'already_redeemed' });
     await expectLedgerTraceable(userId);
   });
@@ -320,5 +341,26 @@ describeWithDb('redeem codes', () => {
     /* Another user on the same IP is still under the IP's limit; the window passing lets this user back in. */
     expect((await use(await newUser(), good[0]!, now, { ip })).ok).toBe(true);
     expect(await use(userId, good[0]!, new Date(now.getTime() + 16 * 60_000), { ip })).toMatchObject({ error: 'code_exhausted' });
+  });
+
+  it('lets no more wrong guesses reach the lookup than the limit, however many arrive at once', async () => {
+    const now = new Date('2027-03-10T08:02:00Z');
+    const userLimit = REDEEM_RATE_LIMIT.find((rule) => rule.scope === 'user')!.limit;
+    const ipLimit = REDEEM_RATE_LIMIT.find((rule) => rule.scope === 'ip')!.limit;
+    const guesser = await newUser();
+    const guesses = await Promise.all(Array.from({ length: userLimit * 3 }, (_, at) => use(guesser, `NOPE-${at}BBB-BBBB`, now)));
+    expect(guesses.filter((result) => !result.ok && result.error === 'code_not_found')).toHaveLength(userLimit);
+    expect(guesses.filter((result) => !result.ok && result.error === 'too_many_attempts')).toHaveLength(userLimit * 2);
+
+    /* One IP behind many accounts, each under its own limit. */
+    const ip = `10.78.${Math.floor(Math.random() * 255)}.1`;
+    const accounts = await Promise.all(Array.from({ length: Math.ceil((ipLimit * 2) / userLimit) }, () => newUser()));
+    const fromIp = await Promise.all(accounts.flatMap((userId) => Array.from({ length: userLimit }, (_, at) => use(userId, `NOPE-${at}CCC-CCCC`, now, { ip }))));
+    expect(fromIp.filter((result) => !result.ok && result.error === 'code_not_found')).toHaveLength(ipLimit);
+
+    /* Codes that work give their slots back: a user can redeem past the guess limit. */
+    const honest = await newUser();
+    const { codes: shared } = await batch({ kind: 'pack', packQuantity: 1, codeCount: 1, maxRedemptions: userLimit * 2, perUserLimit: userLimit * 2 });
+    for (let at = 0; at < userLimit * 2; at += 1) expect((await use(honest, shared[0]!, now)).ok).toBe(true);
   });
 });

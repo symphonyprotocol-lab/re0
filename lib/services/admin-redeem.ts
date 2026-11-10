@@ -326,7 +326,7 @@ export interface CodeExportRow extends CodeRow {
   code: string;
 }
 
-/** Every code of the batch the view matches, in plaintext: audited as an export. */
+/** Every code of the batch the view matches, in plaintext: audited as an export. All or nothing: one code that will not open fails it. */
 export async function exportCodes(administratorId: string, batchId: string, view: RedeemBatchView): Promise<{ batch: BatchDetail; rows: CodeExportRow[] }> {
   const batch = await getBatch(batchId);
   if (!batch) throw new AdminInputError('not_found');
@@ -338,7 +338,7 @@ export async function exportCodes(administratorId: string, batchId: string, view
   const opened = await Promise.all(
     rows.map(async (row) => ({
       id: row.id,
-      code: (await openCredential(row.codeSealed, 'redeem_code')) ?? '',
+      code: await openCredential(row.codeSealed, 'redeem_code'),
       last4: row.codeLast4,
       maxRedemptions: row.maxRedemptions,
       redemptionCount: row.redemptionCount,
@@ -347,8 +347,10 @@ export async function exportCodes(administratorId: string, batchId: string, view
       createdAt: row.createdAt,
     })),
   );
+  /* A code that will not open (ADMIN_SECRET_KEY changed) fails the export, as "显示" does, rather than writing blank codes. */
+  if (opened.some((row) => row.code === null)) throw new AdminInputError('sealed');
   await audit(db(), { administratorId, action: 'redeem.batch.export', target: batchId, after: { codes: opened.length, status: view.status, q: view.q || null } });
-  return { batch, rows: opened };
+  return { batch, rows: opened.map((row) => ({ ...row, code: row.code! })) };
 }
 
 /** One code in plaintext, for the console's "显示": audited. */

@@ -50,7 +50,7 @@ export function RedeemCard({ initialCode = '' }: { initialCode?: string }) {
   const submit = async () => {
     const value = code.trim();
     if (!value || busy) return;
-    /* The same code typed again keeps its request id until it gets an answer. */
+    /* The same code submitted again keeps its request id until it gets a definite answer. */
     if (request.current?.code !== value) request.current = { code: value, id: crypto.randomUUID() };
     setBusy(true);
     setMessage(null);
@@ -61,7 +61,8 @@ export function RedeemCard({ initialCode = '' }: { initialCode?: string }) {
         body: JSON.stringify({ code: value, requestId: request.current.id }),
       });
       const body = (await response.json().catch(() => ({}))) as Redeemed & { error?: string; retryAfter?: number; startsAt?: string };
-      request.current = null;
+      /* Only a definite answer retires the id: after a 5xx or a timeout the redemption may have committed, and a retry must replay it. */
+      if (response.status < 500) request.current = null;
       if (!response.ok) {
         setMessage({ ok: false, text: failure(body) });
         return;

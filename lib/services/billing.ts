@@ -528,7 +528,7 @@ async function applyAdjustment(tx: Tx, adjustment: PaddleAdjustment, now: Date):
 
 /* ----------------------------------------------------------------- renewal */
 
-export type RenewalRefusal = 'no_subscription' | 'invalid_action';
+export type RenewalRefusal = 'no_subscription' | 'invalid_action' | 'plan_redeemed_queued';
 
 /**
  * `POST /api/billing/subscription`: turn renewal off (the Plan runs to the
@@ -548,6 +548,8 @@ export async function setRenewal(
   if (current.cancelAtPeriodEnd === wantCancel) {
     return { ok: true, cancelAtPeriodEnd: wantCancel, periodEnd: current.currentPeriodEnd?.toISOString() ?? null };
   }
+  /* A redeemed Plan waits for this period's end; renewing too would charge for a second Plan over the same months. */
+  if (!wantCancel && (await redeemedPlansOf(db(), userId, now)).length > 0) return { ok: false, error: 'plan_redeemed_queued' };
   const config = deps.config ?? requirePaddle();
   const entity = wantCancel
     ? await (deps.cancel ?? cancelAtPeriodEnd)(config, current.paddleSubscriptionId)
