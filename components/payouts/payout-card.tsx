@@ -1,6 +1,6 @@
 import { WorkspaceLink as Link } from '@/components/shell/workspace-link';
 import type { ReactNode } from 'react';
-import { PAYOUT_MIN_CREDITS } from '@/lib/constants';
+import { EARNED_MATURITY_DAYS, PAYOUT_MIN_CREDITS } from '@/lib/constants';
 import { formatCentsUsd, formatCreditsUsd as usd } from '@/lib/domain/payouts';
 import { kycOverview } from '@/lib/services/kyc';
 import { payoutOverview, type PayoutRow } from '@/lib/services/payouts';
@@ -104,6 +104,17 @@ export async function PayoutCard({ userId }: { userId: string }) {
             </Link>
           )}
         </div>
+        {(overview.maturing > 0 || overview.locked > 0) && (
+          <p className="tiny muted mt16">
+            {overview.maturing > 0 && overview.nextMaturesAt && (
+              <>
+                {fill(c.maturing, { amount: usd(overview.maturing), days: String(EARNED_MATURITY_DAYS), next: usd(overview.nextMaturing), date: formatDate(overview.nextMaturesAt, locale) })}
+                {overview.locked > 0 && <br />}
+              </>
+            )}
+            {overview.locked > 0 && fill(c.locked, { amount: usd(overview.locked) })}
+          </p>
+        )}
         {blocked && verified && <p className="kyc-feedback small">{blocked}</p>}
         {open && <Progress t={t} locale={locale} payout={open} />}
         <p className="tiny muted mt16">{c.flow}</p>

@@ -98,6 +98,8 @@ export async function addGrant(
     reeId?: string | null;
     /** Earned grants: when a payout may draw on them; null or left out, never (review H2). */
     withdrawableAt?: Date | null;
+    /** Earned grants: the asker's purchase that paid for them, voided while unmatured if it is refunded. */
+    fundingPurchaseId?: string | null;
   },
   now = new Date(),
 ): Promise<{ grantId: string; offset: number }> {
@@ -114,6 +116,7 @@ export async function addGrant(
       redemptionId: input.redemptionId ?? null,
       redemptionPeriod: input.redemptionId ? (input.redemptionPeriod ?? 0) : null,
       withdrawableAt: input.source === 'earned' ? (input.withdrawableAt ?? null) : null,
+      fundingPurchaseId: input.source === 'earned' ? (input.fundingPurchaseId ?? null) : null,
       createdAt: now,
     })
     .returning({ id: schema.creditGrant.id });
@@ -451,21 +454,37 @@ export async function releaseHold(
  * Plan and Pack grants bought through Paddle, and withdrawable earned
  * grants. Welcome credits, redeemed codes and console grants are free.
  */
-export async function paidShare(executor: Executor, allocations: readonly Allocation[]): Promise<{ paid: number; free: number }> {
+export async function paidShare(
+  executor: Executor,
+  allocations: readonly Allocation[],
+): Promise<{ paid: number; free: number; byPurchase: Map<string | null, number> }> {
+  const byPurchase = new Map<string | null, number>();
   const ids = [...new Set(allocations.filter((entry) => entry.amount > 0).map((entry) => entry.grantId))];
-  if (ids.length === 0) return { paid: 0, free: 0 };
+  if (ids.length === 0) return { paid: 0, free: 0, byPurchase };
   const rows = await executor
-    .select({ id: schema.creditGrant.id, source: schema.creditGrant.source, purchaseId: schema.creditGrant.purchaseId, withdrawableAt: schema.creditGrant.withdrawableAt })
+    .select({
+      id: schema.creditGrant.id,
+      source: schema.creditGrant.source,
+      purchaseId: schema.creditGrant.purchaseId,
+      withdrawableAt: schema.creditGrant.withdrawableAt,
+      fundingPurchaseId: schema.creditGrant.fundingPurchaseId,
+    })
     .from(schema.creditGrant)
     .where(inArray(schema.creditGrant.id, ids));
-  const paying = new Set(rows.filter(grantIsPaid).map((row) => row.id));
+  /* The purchase each paying grant traces back to: its own for a Plan or Pack, the one that funded it for earned credits. */
+  const funding = new Map(rows.filter(grantIsPaid).map((row) => [row.id, row.source === 'earned' ? row.fundingPurchaseId : row.purchaseId]));
   let paid = 0;
   let free = 0;
   for (const entry of allocations) {
-    if (paying.has(entry.grantId)) paid += entry.amount;
-    else free += entry.amount;
+    if (!funding.has(entry.grantId)) {
+      free += entry.amount;
+      continue;
+    }
+    paid += entry.amount;
+    const key = funding.get(entry.grantId) ?? null;
+    byPurchase.set(key, (byPurchase.get(key) ?? 0) + entry.amount);
   }
-  return { paid, free };
+  return { paid, free, byPurchase };
 }
 
 function grantIsPaid(grant: { source: GrantSource; purchaseId: string | null; withdrawableAt: Date | null }): boolean {

@@ -22,7 +22,7 @@ vi.mock('@/lib/infra/blob', () => ({ uploadTicket: async (pathname: string) => (
 const describeWithDb = TEST_DATABASE_URL ? describe : describe.skip;
 
 const { createSession } = await import('@/lib/services/auth');
-const { addGrant, balanceOf } = await import('@/lib/services/credits');
+const { addGrant, balanceOf, expirePlanGrants, placeHold } = await import('@/lib/services/credits');
 const billing = await import('@/lib/services/billing');
 const kyc = await import('@/lib/services/kyc');
 const payouts = await import('@/lib/services/payouts');
@@ -174,6 +174,94 @@ describeWithDb('Paddle payments are credited from our own records (M5)', () => {
     };
     await expect(billing.applyPaddleEvent(event, PRICES, during)).rejects.toBeInstanceOf(billing.RetryLater);
     expect(await db().select().from(schema.billingEvent).where(eq(schema.billingEvent.id, event.event_id))).toHaveLength(0);
+  });
+});
+
+/* ------------------------------------------------ refunds and chargebacks */
+
+function adjustment(transactionId: string, action: string, total = '1000') {
+  return {
+    event_id: id('evt'),
+    event_type: 'adjustment.updated',
+    occurred_at: during.toISOString(),
+    data: { id: id('adj'), transaction_id: transactionId, action, status: 'approved', totals: { total } },
+  };
+}
+
+async function boughtPack(userId: string) {
+  const transactionId = await checkout(userId, 'pack');
+  await billing.applyPaddleEvent(transaction(userId, { kind: 'pack', transactionId }), PRICES, during);
+  return transactionId;
+}
+
+async function spend(userId: string, amount: number, now = during) {
+  await db().transaction((tx) => placeHold(tx, { userId, kind: 'knowledge', amount, refId: randomUUID() }, now));
+}
+
+async function debts(userId: string) {
+  return db().select().from(schema.creditDebt).where(eq(schema.creditDebt.userId, userId));
+}
+
+describeWithDb('a refund takes back only from the purchase it refunds', () => {
+  it('a spent Pack becomes a debt; another Pack and the welcome credits are left alone', async () => {
+    const userId = await newUser();
+    const transactionId = await boughtPack(userId);
+    await boughtPack(userId);
+    /* Welcome (100,000) is spent first, then 60,000 of the older Pack. */
+    await spend(userId, 160_000);
+    expect(await balanceOf(db(), userId, during)).toBe(140_000);
+    expect(await billing.applyPaddleEvent(adjustment(transactionId, 'refund'), PRICES, during)).toBe('refunded');
+    /* Its own 40,000 left is taken back; the 60,000 spent is owed, not taken from the second Pack. */
+    expect(await balanceOf(db(), userId, during)).toBe(100_000);
+    expect((await debts(userId)).map((row) => row.amount)).toEqual([60_000]);
+  });
+
+  it('a Plan period that ended: what expired unused is not owed, only what was spent', async () => {
+    const userId = await newUser();
+    const subscriptionId = id('sub');
+    const first = await checkout(userId, 'plan');
+    await billing.applyPaddleEvent(subscriptionCreated(userId, subscriptionId, first), PRICES, during);
+    await billing.applyPaddleEvent(transaction(userId, { kind: 'plan', transactionId: first, subscriptionId }), PRICES, during);
+    /* 10,000 of the Plan's 50,000 spent (Plan credits go first), the other 40,000 expire with the period. */
+    await spend(userId, 10_000);
+    const after = new Date(end.getTime() + 1000);
+    await db().transaction((tx) => expirePlanGrants(tx, { userId, cutoff: after }, after));
+    const welcome = await balanceOf(db(), userId, after);
+    expect(await billing.applyPaddleEvent(adjustment(first, 'refund'), PRICES, after)).toBe('refunded');
+    expect(await balanceOf(db(), userId, after)).toBe(welcome);
+    expect((await debts(userId)).map((row) => row.amount)).toEqual([10_000]);
+  });
+
+  it('a chargeback the merchant wins gives back what it took: the debt first, then the Pack, once', async () => {
+    const userId = await newUser();
+    const transactionId = await boughtPack(userId);
+    await spend(userId, 130_000);
+    expect(await billing.applyPaddleEvent(adjustment(transactionId, 'chargeback'), PRICES, during)).toBe('charged_back');
+    expect((await debts(userId)).map((row) => row.remaining)).toEqual([30_000]);
+    const [purchase] = await purchases(userId);
+    expect(purchase).toMatchObject({ status: 'chargeback', reversedCredits: 100_000 });
+
+    const reverse = adjustment(transactionId, 'chargeback_reverse');
+    expect(await billing.applyPaddleEvent(reverse, PRICES, during)).toBe('chargeback_reversed');
+    expect((await debts(userId)).map((row) => row.remaining)).toEqual([0]);
+    expect(await balanceOf(db(), userId, during)).toBe(70_000);
+    const [restored] = await purchases(userId);
+    expect(restored).toMatchObject({ status: 'paid', reversedCredits: 0 });
+    const entries = await db().select().from(schema.creditEntry).where(and(eq(schema.creditEntry.userId, userId), eq(schema.creditEntry.reason, 'chargeback_reverse')));
+    expect(entries.map((entry) => entry.delta)).toEqual([70_000]);
+    /* Re-delivered under a new event id: the adjustment id is applied once. */
+    expect(await billing.applyPaddleEvent({ ...reverse, event_id: id('evt') }, PRICES, during)).toBe('already_reversed');
+  });
+});
+
+describeWithDb('unmatched payments for the console (M5 follow-up)', () => {
+  it('lists the payments that were recorded but not credited, newest first, with the count', async () => {
+    const userId = await newUser();
+    const event = transaction(userId, { kind: 'pack' });
+    expect(await billing.applyPaddleEvent(event, PRICES, during)).toBe('unmatched');
+    const listed = await billing.unmatchedBillingEvents(200);
+    expect(listed.total).toBeGreaterThanOrEqual(1);
+    expect(listed.items.find((item) => item.id === event.event_id)).toMatchObject({ eventType: 'transaction.completed', transactionId: event.data.id, userId, priceIds: [PRICES.packPriceId] });
   });
 });
 

@@ -63,6 +63,25 @@ export async function withdrawable(executor: Executor, userId: string, lock = fa
   return grants.filter((grant) => isWithdrawable(grant, now)).reduce((sum, grant) => sum + grant.remaining, 0);
 }
 
+/**
+ * The earned credits a payout cannot draw on yet, for the earnings card:
+ * paid-for earnings still in their maturity period (and when the next of
+ * them matures), and earnings paid from free credits, which never can be.
+ */
+export async function earnedBreakdown(executor: Executor, userId: string, now = new Date()): Promise<{ maturing: number; locked: number; nextMaturesAt: Date | null; nextMaturing: number }> {
+  const grants = (await grantsOf(executor, userId, false)).filter((grant) => grant.source === 'earned');
+  const pending = grants.filter((grant) => grant.withdrawableAt && grant.withdrawableAt.getTime() > now.getTime());
+  const next = pending.reduce<Date | null>((soonest, grant) => (!soonest || grant.withdrawableAt!.getTime() < soonest.getTime() ? grant.withdrawableAt! : soonest), null);
+  /* Grants maturing on the same calendar day show as one amount. */
+  const sameDay = (date: Date) => next !== null && date.toISOString().slice(0, 10) === next.toISOString().slice(0, 10);
+  return {
+    maturing: pending.reduce((sum, grant) => sum + grant.remaining, 0),
+    locked: grants.filter((grant) => !grant.withdrawableAt).reduce((sum, grant) => sum + grant.remaining, 0),
+    nextMaturesAt: next,
+    nextMaturing: pending.filter((grant) => sameDay(grant.withdrawableAt!)).reduce((sum, grant) => sum + grant.remaining, 0),
+  };
+}
+
 /** What the user still owes from refunds or chargebacks that found the credits spent (2.3). */
 export async function openDebt(executor: Executor, userId: string): Promise<number> {
   const [row] = await executor
@@ -116,6 +135,12 @@ export interface PayoutOverview {
   paypalEmail: string | null;
   paypalHoldUntil: Date | null;
   withdrawable: number;
+  /** Paid-for earnings still maturing, and when the next of them can be withdrawn (review H2). */
+  maturing: number;
+  nextMaturesAt: Date | null;
+  nextMaturing: number;
+  /** Earnings paid from askers' free credits: spendable, never withdrawable. */
+  locked: number;
   open: PayoutRow | null;
   history: PayoutRow[];
 }
@@ -126,7 +151,9 @@ export async function payoutOverview(userId: string, now = new Date()): Promise<
   const { account, kyc, open, available, stage } = await standing(database, userId, now);
   const history = await database.select().from(schema.payout).where(eq(schema.payout.userId, userId)).orderBy(desc(schema.payout.createdAt)).limit(50);
   const holdUntil = paypalHoldUntil(account.paypalEmailChangedAt);
+  const earned = await earnedBreakdown(database, userId, now);
   return {
+    ...earned,
     stage,
     kyc,
     official: account.role === 'official',

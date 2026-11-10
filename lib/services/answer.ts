@@ -144,6 +144,13 @@ export interface AnswerInput {
   verify?: boolean;
   /** The API key that asked, when the question came through the MCP server; stored on the question for per-key usage. */
   apiKeyId?: string | null;
+  /**
+   * The query fee per Ree id the asker saw when asking (the web's composer).
+   * A Ree whose fee is now higher refuses the question before anything is
+   * held, so a raised price is never charged without being shown. Left out
+   * (MCP, older clients), the current fee applies.
+   */
+  seenFees?: Record<string, number> | null;
 }
 
 /**
@@ -169,7 +176,20 @@ export interface HeldQuestion {
   subject: string;
 }
 
-export type Holding = { ok: true; question: HeldQuestion } | { ok: false; balance: number; needed: number };
+export type Holding =
+  | { ok: true; question: HeldQuestion }
+  | { ok: false; reason: 'insufficient'; balance: number; needed: number }
+  | { ok: false; reason: 'price_changed'; fees: { reeId: string; fee: number }[] };
+
+/** Rees whose fee to this user is now above what the asker saw: the "price changed" answer. */
+export function raisedFees(targets: readonly Pick<Ree, 'id' | 'ownerId' | 'queryFee'>[], userId: string, seen: Record<string, number> | null | undefined): { reeId: string; fee: number }[] {
+  if (!seen || typeof seen !== 'object') return [];
+  return targets.flatMap((ree) => {
+    const fee = feeFor(ree, userId);
+    const shown = seen[ree.id];
+    return fee > 0 && (typeof shown !== 'number' || !Number.isFinite(shown) || fee > shown) ? [{ reeId: ree.id, fee }] : [];
+  });
+}
 
 /**
  * Steps 1 and 2: the question and every hold in one transaction. Not enough
@@ -181,6 +201,8 @@ export async function holdQuestion(input: AnswerInput): Promise<Holding> {
   /* What is asked, without the `@name`s that only say who is asked. */
   const subject = withoutMentions(question, targets.map((ree) => ree.name));
   const database = db();
+  const raised = raisedFees(targets, userId, input.seenFees);
+  if (raised.length) return { ok: false, reason: 'price_changed', fees: raised };
   const ready = await readyRees(targets.map((ree) => ree.id));
   const asking = targets.filter((ree) => ready.has(ree.id));
   const needed = asking.reduce((sum, ree) => sum + maxCostFor(ree, userId) + (verifying ? VERIFY_FEE : 0), 0);
@@ -212,7 +234,7 @@ export async function holdQuestion(input: AnswerInput): Promise<Holding> {
     });
     return { ok: true, question: { input, askedId, held, asking, subject } };
   } catch (error) {
-    if (error instanceof InsufficientCredits) return { ok: false, balance: await balanceOf(database, userId), needed };
+    if (error instanceof InsufficientCredits) return { ok: false, reason: 'insufficient', balance: await balanceOf(database, userId), needed };
     throw error;
   }
 }
@@ -405,10 +427,12 @@ export async function runQuestion(question: HeldQuestion, emit: Emit): Promise<v
          */
         if (paid && paid.charged > 0) {
           const share = await paidShare(tx, paid.chargedAllocations);
-          const credit = (amount: number, withdrawableAt: Date | null, note: string) =>
-            addGrant(tx, { userId: ree.ownerId, source: 'earned', amount, reason: 'query_fee_earned', refId: replyId, reeId: ree.id, note, withdrawableAt });
-          if (share.paid > 0) await credit(share.paid, new Date(Date.now() + EARNED_MATURITY_DAYS * 86_400_000), ree.name);
-          if (share.free > 0) await credit(share.free, null, `${ree.name} · free credits, not withdrawable`);
+          const credit = (amount: number, withdrawableAt: Date | null, note: string, fundingPurchaseId: string | null) =>
+            addGrant(tx, { userId: ree.ownerId, source: 'earned', amount, reason: 'query_fee_earned', refId: replyId, reeId: ree.id, note, withdrawableAt, fundingPurchaseId });
+          /* One grant per paying purchase, so a refund of one voids only what it paid for while it has not matured. */
+          const matures = new Date(Date.now() + EARNED_MATURITY_DAYS * 86_400_000);
+          for (const [purchaseId, amount] of share.byPurchase) if (amount > 0) await credit(amount, matures, ree.name, purchaseId);
+          if (share.free > 0) await credit(share.free, null, `${ree.name} · free credits, not withdrawable`, null);
         }
         const charged = (base?.charged ?? 0) + (paid?.charged ?? 0);
         await tx.insert(schema.message).values({
@@ -479,6 +503,7 @@ function uiChunk(event: AnswerEvent): Parameters<Writer['write']>[0] {
 export async function answer(input: AnswerInput): Promise<Response> {
   const holding = await holdQuestion(input);
   if (!holding.ok) {
+    if (holding.reason === 'price_changed') return json({ error: 'price_changed', fees: holding.fees }, 409);
     const body: InsufficientCreditsBody = { error: 'insufficient_credits', balance: holding.balance, needed: holding.needed };
     return json(body, 402);
   }

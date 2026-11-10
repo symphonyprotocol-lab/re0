@@ -23,7 +23,8 @@ vi.mock('@/lib/infra/blob', () => ({
 const describeWithDb = TEST_DATABASE_URL ? describe : describe.skip;
 
 const { createSession } = await import('@/lib/services/auth');
-const { addGrant, balanceOf } = await import('@/lib/services/credits');
+const { addGrant, balanceOf, placeHold } = await import('@/lib/services/credits');
+const billing = await import('@/lib/services/billing');
 const knowledge = await import('@/lib/services/knowledge');
 const rees = await import('@/lib/services/rees');
 const chat = await import('@/lib/services/chat');
@@ -74,15 +75,27 @@ async function setUp(fee = FEE) {
   return { ownerId, ree, askerId, conversation };
 }
 
-/** A Pack bought through Paddle: a purchase row and the grant it paid for. */
+/** A Pack bought through Paddle: a purchase row and the grant it paid for. Answers its transaction and purchase ids. */
 async function boughtPack(userId: string, credits: number) {
-  await db().transaction(async (tx) => {
+  const transactionId = uniqueName('txn');
+  const purchaseId = await db().transaction(async (tx) => {
     const [purchase] = await tx
       .insert(schema.purchase)
-      .values({ userId, kind: 'pack', paddleTransactionId: uniqueName('txn'), amountMinor: 1_000, credits })
+      .values({ userId, kind: 'pack', paddleTransactionId: transactionId, amountMinor: 1_000, credits })
       .returning({ id: schema.purchase.id });
     await addGrant(tx, { userId, source: 'pack', amount: credits, reason: 'purchase', refId: purchase!.id, purchaseId: purchase!.id });
+    return purchase!.id;
   });
+  return { transactionId, purchaseId };
+}
+
+function refundEvent(transactionId: string, total = '1000', action = 'refund') {
+  return {
+    event_id: uniqueName('evt'),
+    event_type: 'adjustment.updated',
+    occurred_at: new Date().toISOString(),
+    data: { id: uniqueName('adj'), transaction_id: transactionId, action, status: 'approved', totals: { total } },
+  };
 }
 
 async function emptyWelcome(userId: string) {
@@ -141,6 +154,64 @@ describeWithDb('who may withdraw a query fee (H2)', () => {
       [1_000, false],
       [4_000, true],
     ]);
+  });
+});
+
+describeWithDb('a refund of the asker’s purchase voids the owner’s unmatured earnings (H2 follow-up)', () => {
+  it('voids what has not matured, notes what has, and never takes the owner below zero', async () => {
+    const { ownerId, ree, askerId, conversation } = await setUp();
+    await emptyWelcome(askerId);
+    const pack = await boughtPack(askerId, 100_000);
+    await read(await answer({ userId: askerId, lang: 'en', conversation, targets: [ree], question: QUESTION }));
+    await read(await answer({ userId: askerId, lang: 'en', conversation, targets: [ree], question: QUESTION }));
+    const earned = await earnedGrants(ownerId);
+    expect(earned.map((grant) => grant.fundingPurchaseId)).toEqual([pack.purchaseId, pack.purchaseId]);
+    /* One of the two has already matured: it stays the owner's. */
+    await db().update(schema.creditGrant).set({ withdrawableAt: new Date(Date.now() - DAY) }).where(eq(schema.creditGrant.id, earned[0]!.id));
+    /* The asker spends the rest, so the full refund finds 89,960 credits spent. */
+    await db().transaction((tx) => placeHold(tx, { userId: askerId, kind: 'knowledge', amount: 100_000 - 2 * (QUERY_BASE_FEE + FEE), refId: crypto.randomUUID() }));
+    expect(await billing.applyPaddleEvent(refundEvent(pack.transactionId), { planPriceId: 'x', packPriceId: 'y' })).toBe('refunded');
+    const after = await earnedGrants(ownerId);
+    const unmatured = after.find((grant) => grant.id !== earned[0]!.id)!;
+    expect(unmatured.remaining).toBe(0);
+    expect(after.find((grant) => grant.id === earned[0]!.id)!.remaining).toBe(FEE);
+    const [voidEntry] = await db().select().from(schema.creditEntry).where(and(eq(schema.creditEntry.userId, ownerId), eq(schema.creditEntry.reason, 'earned_void')));
+    expect(voidEntry).toMatchObject({ delta: -FEE, refId: pack.purchaseId });
+    expect(voidEntry!.note).toContain(`${FEE} could not be recovered`);
+    /* Asker: nothing left on the Pack, the whole refund owed; welcome untouched. */
+    const [debt] = await db().select().from(schema.creditDebt).where(eq(schema.creditDebt.userId, askerId));
+    expect(debt).toMatchObject({ amount: 100_000, remaining: 100_000 });
+  });
+});
+
+describeWithDb('the price the asker saw (review low)', () => {
+  it('refuses a question when a fee went up since it was shown, before holding anything', async () => {
+    const { ree, askerId, conversation } = await setUp();
+    const before = await balanceOf(db(), askerId);
+    const raised = await answer({ userId: askerId, lang: 'en', conversation, targets: [ree], question: QUESTION, seenFees: { [ree.id]: FEE - 1 } });
+    expect(raised.status).toBe(409);
+    expect(await raised.json()).toEqual({ error: 'price_changed', fees: [{ reeId: ree.id, fee: FEE }] });
+    expect(await balanceOf(db(), askerId)).toBe(before);
+    expect(await chat.messagesOf(conversation.id)).toHaveLength(0);
+    /* The same or a lower fee than shown is asked as usual. */
+    const same = await read(await answer({ userId: askerId, lang: 'en', conversation, targets: [ree], question: QUESTION, seenFees: { [ree.id]: FEE } }));
+    expect(same.outcome).toMatchObject({ noAnswer: false, cost: QUERY_BASE_FEE + FEE });
+  });
+});
+
+describeWithDb('the earnings card (H2 follow-up)', () => {
+  it('splits earned credits into withdrawable, maturing (with the next date) and never withdrawable', async () => {
+    const userId = await newUser('earner');
+    const now = new Date();
+    const soon = new Date(now.getTime() + 3 * DAY);
+    await db().transaction(async (tx) => {
+      await addGrant(tx, { userId, source: 'earned', amount: 1_000, reason: 'query_fee_earned', refId: crypto.randomUUID(), withdrawableAt: new Date(now.getTime() - DAY) });
+      await addGrant(tx, { userId, source: 'earned', amount: 2_000, reason: 'query_fee_earned', refId: crypto.randomUUID(), withdrawableAt: soon });
+      await addGrant(tx, { userId, source: 'earned', amount: 4_000, reason: 'query_fee_earned', refId: crypto.randomUUID(), withdrawableAt: new Date(now.getTime() + 20 * DAY) });
+      await addGrant(tx, { userId, source: 'earned', amount: 8_000, reason: 'query_fee_earned', refId: crypto.randomUUID(), withdrawableAt: null });
+    });
+    expect(await payouts.earnedBreakdown(db(), userId, now)).toEqual({ maturing: 6_000, locked: 8_000, nextMaturesAt: soon, nextMaturing: 2_000 });
+    expect(await payouts.payoutOverview(userId, now)).toMatchObject({ withdrawable: 1_000, maturing: 6_000, locked: 8_000, nextMaturing: 2_000 });
   });
 });
 
@@ -207,6 +278,23 @@ describeWithDb('the chat-hold cron (H5)', () => {
     await releaseStaleChatHolds();
     expect(await balanceOf(db(), askerId)).toBe(before);
     expect((await db().select().from(schema.creditEntry).where(and(eq(schema.creditEntry.userId, askerId), eq(schema.creditEntry.refId, askedId)))).length).toBe(entries.length);
+  });
+
+  it('gives back the fee of a round-table synthesis that died while running, and frees the request for another', async () => {
+    const { ree, askerId, conversation } = await setUp();
+    const holding = await holdQuestion({ userId: askerId, lang: 'en', conversation, targets: [ree], question: QUESTION });
+    const askedId = holding.ok ? holding.question.askedId : '';
+    await db().update(schema.creditHold).set({ status: 'released' }).where(eq(schema.creditHold.refId, askedId));
+    const before = await balanceOf(db(), askerId);
+    const old = new Date(Date.now() - CHAT_HOLD_STALE_MS - 60_000);
+    const [row] = await db().insert(schema.synthesis).values({ conversationId: conversation.id, requestId: askedId, userId: askerId, reeIds: [ree.id], createdAt: old }).returning({ id: schema.synthesis.id });
+    await db().transaction((tx) => placeHold(tx, { userId: askerId, kind: 'chat', ledger: 'chat_synthesis', amount: 30, refId: row!.id, note: 'synthesis' }, old));
+    expect(await balanceOf(db(), askerId)).toBe(before - 30);
+    await releaseStaleChatHolds();
+    expect(await balanceOf(db(), askerId)).toBe(before);
+    expect(await db().select().from(schema.synthesis).where(eq(schema.synthesis.id, row!.id))).toHaveLength(0);
+    const [refund] = await db().select().from(schema.creditEntry).where(and(eq(schema.creditEntry.refId, row!.id), eq(schema.creditEntry.reason, 'synthesis_refund')));
+    expect(refund).toMatchObject({ delta: 30 });
   });
 
   it('the cron route wants the cron secret', async () => {

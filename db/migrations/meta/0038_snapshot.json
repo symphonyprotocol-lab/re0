@@ -1,5 +1,5 @@
 {
-  "id": "6f2a694b-08f2-4480-b7eb-541e6eae62c4",
+  "id": "90ba90fb-3bf4-49b0-9c7a-2e183de38619",
   "prevId": "1d4bb6ab-4088-48ea-9cd0-c7e30c7aa32b",
   "version": "7",
   "dialect": "postgresql",
@@ -1362,7 +1362,7 @@
       "checkConstraints": {
         "credit_entry_reason_check": {
           "name": "credit_entry_reason_check",
-          "value": "reason in ('welcome', 'knowledge_hold', 'knowledge_settle', 'knowledge_refund', 'query_hold', 'query_base', 'query_refund', 'query_fee_paid', 'query_fee_earned', 'purchase', 'refund', 'chargeback', 'debt_offset', 'expire', 'payout_hold', 'payout_release', 'payout_paid', 'video_script', 'video_export', 'admin_adjust', 'video_refund', 'verify_hold', 'verify_settle', 'verify_refund', 'synthesis_hold', 'synthesis_settle', 'synthesis_refund', 'storage_charge', 'redeem')"
+          "value": "reason in ('welcome', 'knowledge_hold', 'knowledge_settle', 'knowledge_refund', 'query_hold', 'query_base', 'query_refund', 'query_fee_paid', 'query_fee_earned', 'purchase', 'refund', 'chargeback', 'debt_offset', 'expire', 'payout_hold', 'payout_release', 'payout_paid', 'video_script', 'video_export', 'admin_adjust', 'video_refund', 'verify_hold', 'verify_settle', 'verify_refund', 'synthesis_hold', 'synthesis_settle', 'synthesis_refund', 'storage_charge', 'redeem', 'chargeback_reverse', 'earned_void')"
         }
       },
       "isRLSEnabled": false
@@ -1438,6 +1438,12 @@
           "primaryKey": false,
           "notNull": false
         },
+        "funding_purchase_id": {
+          "name": "funding_purchase_id",
+          "type": "uuid",
+          "primaryKey": false,
+          "notNull": false
+        },
         "created_at": {
           "name": "created_at",
           "type": "timestamp with time zone",
@@ -1458,6 +1464,22 @@
             }
           ],
           "isUnique": false,
+          "concurrently": false,
+          "method": "btree",
+          "with": {}
+        },
+        "credit_grant_funding_idx": {
+          "name": "credit_grant_funding_idx",
+          "columns": [
+            {
+              "expression": "funding_purchase_id",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            }
+          ],
+          "isUnique": false,
+          "where": "funding_purchase_id is not null",
           "concurrently": false,
           "method": "btree",
           "with": {}
@@ -1550,6 +1572,19 @@
           "tableTo": "redeem_redemption",
           "columnsFrom": [
             "redemption_id"
+          ],
+          "columnsTo": [
+            "id"
+          ],
+          "onDelete": "no action",
+          "onUpdate": "no action"
+        },
+        "credit_grant_funding_purchase_id_purchase_id_fk": {
+          "name": "credit_grant_funding_purchase_id_purchase_id_fk",
+          "tableFrom": "credit_grant",
+          "tableTo": "purchase",
+          "columnsFrom": [
+            "funding_purchase_id"
           ],
           "columnsTo": [
             "id"

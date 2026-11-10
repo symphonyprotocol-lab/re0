@@ -396,11 +396,18 @@ export const creditGrant = pgTable(
      * withdrawable (review H2). Always null on other sources.
      */
     withdrawableAt: timestampTz('withdrawable_at'),
+    /**
+     * An earned grant's paying purchase: the asker's Plan or Pack the fee was
+     * paid from. A refund or chargeback of it voids what of this grant has
+     * not matured yet (review H2). Null when free or untraceable.
+     */
+    fundingPurchaseId: uuid('funding_purchase_id').references(() => purchase.id),
     createdAt: createdAt(),
   },
   (t) => [
     index('credit_grant_user_idx').on(t.userId),
     check('credit_grant_withdrawable_check', sql`withdrawable_at is null or source = 'earned'`),
+    index('credit_grant_funding_idx').on(t.fundingPurchaseId).where(sql`funding_purchase_id is not null`),
     uniqueIndex('credit_grant_purchase_key').on(t.purchaseId).where(sql`purchase_id is not null`),
     uniqueIndex('credit_grant_redemption_key').on(t.redemptionId, t.redemptionPeriod).where(sql`redemption_id is not null`),
     check('credit_grant_origin_check', sql`purchase_id is null or redemption_id is null`),
@@ -447,6 +454,10 @@ export const CREDIT_ENTRY_REASONS = [
   'storage_charge',
   /* A redeem code: a Pack's credits, or one month of a redeemed Plan (docs/design/redeem-codes.md). */
   'redeem',
+  /* A chargeback the merchant won: what it took back is restored (debt cancelled first, then the purchase's grant). */
+  'chargeback_reverse',
+  /* A Ree owner's unmatured earned credits voided because the purchase that paid for them was refunded or charged back. */
+  'earned_void',
 ] as const;
 export type CreditEntryReason = (typeof CREDIT_ENTRY_REASONS)[number];
 
