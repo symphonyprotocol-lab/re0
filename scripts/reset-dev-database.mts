@@ -20,7 +20,12 @@
  *   - `--confirm` repeats the endpoint id, so nobody resets a branch they did
  *     not look at.
  *
- *   npm run db:prepare-preview        (vercel.json, preview builds only)
+ *   ALLOW_PREVIEW_DATABASE_RESET=1 npm run db:prepare-preview
+ *
+ * re0 no longer deploys Previews (AGENTS.md) and vercel.json no longer runs
+ * this, so preview mode also refuses unless ALLOW_PREVIEW_DATABASE_RESET is
+ * `1` in that build's environment: a Preview build re-enabled by accident
+ * must not be one hand-kept endpoint list away from dropping a database.
  *
  * Preview mode runs in the Vercel build. Neon's integration gives each git
  * branch a copy of main, which still holds the old 86-table schema the new
@@ -94,6 +99,7 @@ const sql = neon(url);
 
 if (preview) {
   if (process.env.VERCEL_ENV !== 'preview') refuse('--preview runs only in a Vercel preview build');
+  if (process.env.ALLOW_PREVIEW_DATABASE_RESET !== '1') refuse('Preview deployments are retired; set ALLOW_PREVIEW_DATABASE_RESET=1 in the Preview environment to clear a preview database');
   /* Without the deny list a preview that fell back to the production database would look like a legacy preview copy. */
   if (PRODUCTION_ENDPOINTS.size === 0) refuse('set PRODUCTION_DATABASE_ENDPOINTS in the Preview environment before clearing anything');
   const [state] = (await sql`

@@ -9,7 +9,7 @@
  * the `vector` extension and main's journal stand in for it.
  */
 import { afterAll, describe, expect, it } from 'vitest';
-import { mkdtempSync, mkdirSync, writeFileSync } from 'node:fs';
+import { cpSync, mkdtempSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { Client } from '@neondatabase/serverless';
@@ -161,5 +161,60 @@ describeWithDb('production cutover', () => {
     expect(result).toMatchObject({ archived: false });
     expect(result.applied).toHaveLength(migrations.length);
     expect(await inspect(client)).toMatchObject({ public: 'rebuild', legacyArchived: false });
+  });
+
+  async function freshDatabase(): Promise<Client> {
+    const name = uniqueName('fresh').replace(/[^a-z0-9_]/gi, '_').toLowerCase();
+    await db().execute(sql.raw(`create database ${name}`));
+    created.push(name);
+    const url = new URL(TEST_DATABASE_URL!);
+    url.pathname = `/${name}`;
+    const client = new Client({ connectionString: url.toString() });
+    await client.connect();
+    clients.push(client);
+    return client;
+  }
+
+  /** db/migrations plus one more file, journalled with `when`. */
+  function withExtraMigration(tag: string, when: number, text: string): string {
+    const folder = mkdtempSync(join(tmpdir(), 're0-cutover-'));
+    cpSync(MIGRATIONS, folder, { recursive: true });
+    const journal = JSON.parse(readFileSync(join(folder, 'meta', '_journal.json'), 'utf8')) as { entries: { idx: number; tag: string; when: number }[] };
+    journal.entries.push({ idx: journal.entries.length, tag, when, breakpoints: true } as never);
+    writeFileSync(join(folder, 'meta', '_journal.json'), JSON.stringify(journal));
+    writeFileSync(join(folder, `${tag}.sql`), text);
+    return folder;
+  }
+
+  it('refuses a migration that would be skipped because a later one already ran', async () => {
+    const client = await freshDatabase();
+    await deployDatabase(client, MIGRATIONS);
+    const late = withExtraMigration('9998_merged_below', migrations[1]!.folderMillis + 1, 'CREATE TABLE "late_table" (id int);');
+    await expect(deployDatabase(client, late)).rejects.toThrow(/9998_merged_below would be skipped/);
+    expect(await scalar(client, `select to_regclass('public.late_table') is null`)).toBe(true);
+    /* An applied file edited afterwards keeps its \`when\` and is not refused. */
+    const edited = mkdtempSync(join(tmpdir(), 're0-cutover-'));
+    cpSync(MIGRATIONS, edited, { recursive: true });
+    const firstTag = (JSON.parse(readFileSync(join(edited, 'meta', '_journal.json'), 'utf8')) as { entries: { tag: string }[] }).entries[0]!.tag;
+    writeFileSync(join(edited, `${firstTag}.sql`), `${readFileSync(join(edited, `${firstTag}.sql`), 'utf8')}\n-- a comment added later\n`);
+    expect(await deployDatabase(client, edited)).toMatchObject({ applied: [] });
+  });
+
+  it('gives up on a migration stuck behind a lock instead of queueing everything behind it', async () => {
+    const client = await freshDatabase();
+    await deployDatabase(client, MIGRATIONS);
+    const url = new URL(TEST_DATABASE_URL!);
+    url.pathname = `/${client.database}`;
+    const holder = new Client({ connectionString: url.toString() });
+    await holder.connect();
+    clients.push(holder);
+    await holder.query('begin');
+    await holder.query('lock table "user" in access share mode');
+    const blocked = withExtraMigration('9999_alter_user', migrations.at(-1)!.folderMillis + 1, 'ALTER TABLE "user" ADD COLUMN "late" int;');
+    const started = Date.now();
+    await expect(deployDatabase(client, blocked, new Date(), { lockTimeoutMs: 300, statementTimeoutMs: 60_000 })).rejects.toThrow(/lock timeout/);
+    expect(Date.now() - started).toBeLessThan(10_000);
+    await holder.query('rollback');
+    expect(await deployDatabase(client, blocked)).toMatchObject({ applied: [{ tag: '9999_alter_user' }] });
   });
 });

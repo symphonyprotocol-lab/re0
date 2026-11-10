@@ -29,7 +29,7 @@ export async function ReeDetail({ ree, query = {}, viewerId, preview = false, dr
     preview ? null : authorOthers(ree, authorPage),
     !preview && viewerId ? joinableConversations(viewerId, ree.id) : [],
     introsFor([ree.id]),
-    preview ? null : listReeComments(ree.id),
+    preview ? null : listReeComments(ree.id, undefined, viewerId),
   ]);
   if (!preview && !comments) notFound();
   const favoriteIds = viewerId && related && author

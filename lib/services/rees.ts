@@ -4,10 +4,11 @@
  */
 import { and, asc, desc, eq, ilike, inArray, isNull, or, sql, type SQL } from 'drizzle-orm';
 import { REE_COVER_MAX_BYTES, REE_PAGE_SIZES } from '@/lib/constants';
-import { clampPage, likePattern, type ListResult } from '@/lib/domain/list';
+import { clampPage, likePattern, type ListResult, isUuid } from '@/lib/domain/list';
 import { positiveRate } from '@/lib/domain/explore';
 import {
   coerceDraft,
+  isAvatarPath,
   isReeCoverPath,
   newReeDraft,
   randomSlug,
@@ -215,7 +216,7 @@ export async function reeCount(ownerId: string): Promise<number> {
 
 /** The owner's live Ree, or null for anyone else's, a deleted one, or a malformed id. */
 export async function ownedRee(executor: Executor, ownerId: string, id: string): Promise<Ree | null> {
-  if (!/^[0-9a-f-]{36}$/i.test(id)) return null;
+  if (!isUuid(id)) return null;
   const [row] = await executor
     .select()
     .from(schema.ree)
@@ -288,7 +289,7 @@ export async function createReeFromDraft(ownerId: string): Promise<{ ree: Ree }>
   const invalid = validateReeFields(draftFields(draft), 3);
   if (invalid) throw new ReeInputError(invalid.error, invalid.step);
   return db().transaction(async (tx) => {
-    const avatar = draft.avatarBlob?.startsWith(`avatars/${ownerId}/`) ? draft.avatarBlob : null;
+    const avatar = isAvatarPath(draft.avatarBlob, ownerId) ? draft.avatarBlob : null;
     const ree = await insertRee(tx, ownerId, reeValues(draftFields(draft)), avatar);
     await tx.update(schema.user).set({ reeDraft: null }).where(eq(schema.user.id, ownerId));
     return { ree };
@@ -302,7 +303,8 @@ export async function updateRee(
 ): Promise<Ree | null> {
   const invalid = validateReeFields(fields, 3);
   if (invalid) throw new ReeInputError(invalid.error, invalid.step);
-  const avatarBlob = fields.avatarBlob && fields.avatarBlob.startsWith(`avatars/${ownerId}/`) ? fields.avatarBlob : null;
+  /* Only the owner's own upload, in the exact shape `/api/upload-token` writes; anything else clears it. */
+  const avatarBlob = isAvatarPath(fields.avatarBlob, ownerId) ? fields.avatarBlob : null;
   const { coverBlob } = fields;
   if (coverBlob !== undefined && coverBlob !== null) {
     if (!isReeCoverPath(coverBlob, id.toLowerCase())) throw new ReeInputError('invalid_cover', 1);
@@ -365,7 +367,7 @@ export class ReePublicationError extends Error {
 
 /** Publish only an owned, public Ree. Unpublishing retains its public configuration. */
 export async function setReePublished(ownerId: string, id: string, isPublished: boolean): Promise<Ree | null> {
-  if (!/^[0-9a-f-]{36}$/i.test(id)) return null;
+  if (!isUuid(id)) return null;
   return db().transaction(async (tx) => {
     const [current] = await tx.select().from(schema.ree).where(and(eq(schema.ree.id, id), ownedLive(ownerId))).for('update');
     if (!current) return null;

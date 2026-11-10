@@ -35,6 +35,7 @@ import { parseGithubRepo, parseWebUrl, repositoryUrl, type RepositoryRef } from 
 import { embedTexts, forgetModelCache } from '@/lib/infra/ai/models';
 import { embeddingIsCurrent } from '@/lib/services/reembed';
 import { transcribeAudio } from '@/lib/infra/ai/transcription';
+import { isKnowledgeUploadPath } from '@/lib/domain/blob-path';
 import { blobSize, readBlob } from '@/lib/infra/blob';
 import { documentSections, ProcessingFailure } from '@/lib/infra/connectors';
 import { simulatedFailureFor } from '@/lib/infra/connectors/failure';
@@ -123,17 +124,9 @@ export async function checkRepository(ownerId: string, ref: RepositoryRef): Prom
   }
 }
 
-/**
- * An upload's pathname as `/api/upload-token` issues it:
- * `knowledge/<owner>/<id>/<name>`, two plain segments under the owner's
- * prefix. No `.` / `..` segment and nothing a URL would decode into one
- * (`%`, `\`, `?`, `#`), so the path cannot reach another user's file.
- */
+/** An upload's pathname as `/api/upload-token` issues it (`isKnowledgeUploadPath`). */
 export function ownUploadPath(ownerId: string, blobPath: string): boolean {
-  const prefix = `knowledge/${ownerId}/`;
-  if (!blobPath.startsWith(prefix)) return false;
-  const segments = blobPath.slice(prefix.length).split('/');
-  return segments.length === 2 && segments.every((segment) => segment !== '' && segment !== '.' && segment !== '..' && !/[%\\?#\u0000-\u001f]/.test(segment));
+  return isKnowledgeUploadPath(blobPath, ownerId);
 }
 
 async function checkUpload(ownerId: string, blobPath: string, fileName: string, valid: (name: string, size: number) => boolean, code: KnowledgeInputCode) {

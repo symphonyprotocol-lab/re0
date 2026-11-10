@@ -46,12 +46,13 @@ describeWithDb('account profile persistence', () => {
       const read = await GET(new NextRequest('http://localhost/api/account'));
       expect((await read.json()).account).toMatchObject(details);
       // An unchanged OAuth URL is allowed, but new external URLs and other users' uploads are not.
-      for (const avatarBlob of ['https://example.com/new-avatar.png', 'avatars/someone-else/photo.webp']) {
+      /* Only the uploader's shape, `avatars/<own id>/<uuid>.<jpg|png|webp>`, is accepted. */
+      for (const avatarBlob of ['https://example.com/new-avatar.png', 'avatars/someone-else/photo.webp', `avatars/${user!.id}/photo.webp`, `avatars/${user!.id}/../../api/account`]) {
         const rejected = await PATCH(request({ avatarBlob }));
         expect(rejected.status).toBe(422);
         expect(await rejected.json()).toEqual({ error: 'avatar' });
       }
-      const ownAvatar = `avatars/${user!.id}/photo.webp`;
+      const ownAvatar = `avatars/${user!.id}/${crypto.randomUUID()}.webp`;
       expect((await PATCH(request({ avatarBlob: ownAvatar }))).status).toBe(200);
       expect((await PATCH(request({ avatarBlob: providerAvatar }))).status).toBe(422);
       expect((await PATCH(request({ avatarBlob: null }))).status).toBe(200);

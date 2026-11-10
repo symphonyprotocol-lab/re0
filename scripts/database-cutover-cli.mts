@@ -61,7 +61,7 @@ function describe(state: DatabaseState): string {
 }
 
 if (command === 'deploy' && process.env.VERCEL && process.env.VERCEL_ENV !== 'production') {
-  refuse('db:deploy runs only in a production build (previews use db:prepare-preview + db:migrate)');
+  refuse('db:deploy runs only in a production build (Preview builds do not touch a database)');
 }
 console.log(`database: ${target}`);
 

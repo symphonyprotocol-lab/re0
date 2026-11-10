@@ -436,12 +436,20 @@ describeWithDb('explore and public pages', () => {
     await read(await ask(asker, conversation.id, QUESTION));
     await computeRanks();
     const [ranked] = await db().select({ rank: schema.ree.rank }).from(schema.ree).where(eq(schema.ree.id, busy.id));
-    expect(ranked!.rank).toMatchObject({ asked30: 1, answered30: 1, pulls30: 1, activity30: 2 });
+    expect(ranked!.rank).toMatchObject({ asked30: 1, answered30: 1, pulls30: 1, activity30: 2, answersAll: 1 });
     const browse = await explore.explore(parseExploreQuery(new URLSearchParams({ category: 'life' })));
     expect(browse.mode).toBe('browse');
     const ids = browse.items.map((card) => card.id);
     expect(ids.indexOf(busy.id)).toBeLessThan(ids.indexOf(quiet.id));
     expect(browse.items.every((card) => card.category === 'life')).toBe(true);
+
+    /* "回答最多" orders by the hourly count, not by aggregating every message per request. */
+    const byAnswers = async () => (await explore.explore(parseExploreQuery(new URLSearchParams({ category: 'life', sort: 'answers', size: '96' })))).items.map((card) => card.id);
+    const answered = await byAnswers();
+    expect(answered.indexOf(busy.id)).toBeLessThan(answered.indexOf(quiet.id));
+    await db().update(schema.ree).set({ rank: { answersAll: 1_000_000 } }).where(eq(schema.ree.id, quiet.id));
+    const reordered = await byAnswers();
+    expect(reordered.indexOf(quiet.id)).toBeLessThan(reordered.indexOf(busy.id));
   });
 
   it('counts free searches per IP and per account', async () => {

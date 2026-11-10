@@ -6,6 +6,10 @@
  */
 import { BlobNotFoundError, del, get, head, put } from '@vercel/blob';
 import { generateClientTokenFromReadWriteToken } from '@vercel/blob/client';
+import { assertBlobPathname } from '@/lib/domain/blob-path';
+
+/* Every pathname this module and `blob-access.ts` touch passes `assertBlobPathname`. */
+export { assertBlobPathname };
 
 function token(): string {
   const value = process.env.BLOB_READ_WRITE_TOKEN;
@@ -22,6 +26,7 @@ export async function uploadTicket(
   pathname: string,
   options: { contentTypes: string[]; maxBytes: number; ttlSeconds?: number },
 ): Promise<UploadTicket> {
+  assertBlobPathname(pathname);
   const clientToken = await generateClientTokenFromReadWriteToken({
     token: token(),
     pathname,
@@ -35,12 +40,14 @@ export async function uploadTicket(
 }
 
 export async function readBlob(pathname: string): Promise<Uint8Array | null> {
+  assertBlobPathname(pathname);
   const result = await get(pathname, { access: 'private', token: token(), useCache: false });
   if (!result || result.statusCode !== 200) return null;
   return new Uint8Array(await new Response(result.stream).arrayBuffer());
 }
 
 export async function writeNarration(pathname: string, wav: Buffer): Promise<void> {
+  assertBlobPathname(pathname);
   await put(pathname, wav, { access: 'private', contentType: 'audio/wav', addRandomSuffix: false, token: token() });
 }
 
@@ -48,6 +55,7 @@ export async function writeNarration(pathname: string, wav: Buffer): Promise<voi
 export async function streamBlob(
   pathname: string,
 ): Promise<{ stream: ReadableStream<Uint8Array>; contentType: string | null } | null> {
+  assertBlobPathname(pathname);
   const result = await get(pathname, { access: 'private', token: token() });
   if (!result || result.statusCode !== 200) return null;
   return { stream: result.stream, contentType: result.blob.contentType ?? null };
@@ -61,6 +69,7 @@ export async function streamBlobRange(
   pathname: string,
   range: string | null,
 ): Promise<{ body: ReadableStream<Uint8Array>; status: number; headers: Headers } | null> {
+  assertBlobPathname(pathname);
   const safeRange = range && /^bytes=\d*-\d*$/.test(range) ? range : null;
   const result = await get(pathname, { access: 'private', token: token(), ...(safeRange ? { headers: { range: safeRange } } : {}) });
   if (!result || result.statusCode !== 200) return null;
@@ -73,6 +82,7 @@ export async function streamBlobRange(
 }
 
 export async function blobSize(pathname: string): Promise<number | null> {
+  assertBlobPathname(pathname);
   try {
     return (await head(pathname, { token: token() })).size;
   } catch (error) {
@@ -82,5 +92,6 @@ export async function blobSize(pathname: string): Promise<number | null> {
 }
 
 export async function deleteBlob(pathname: string): Promise<void> {
+  assertBlobPathname(pathname);
   await del(pathname, { token: token() });
 }

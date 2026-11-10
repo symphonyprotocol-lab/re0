@@ -1,5 +1,5 @@
 {
-  "buildCommand": "if [ \"$VERCEL_ENV\" = \"preview\" ]; then npm run db:prepare-preview && npm run db:migrate; fi && npm run build && if [ \"$VERCEL_ENV\" = \"production\" ]; then npm run db:deploy; fi",
+  "buildCommand": "npm run build && if [ \"$VERCEL_ENV\" = \"production\" ]; then npm run db:deploy; fi",
   "git": {
     "deploymentEnabled": {
       "develop": false,
@@ -39,6 +39,10 @@
     {
       "path": "/api/cron/abandon-exports",
       "schedule": "*/15 * * * *"
+    },
+    {
+      "path": "/api/cron/purge-uploads",
+      "schedule": "50 3 * * *"
     },
     {
       "path": "/api/cron/release-chat-holds",
