@@ -29,3 +29,10 @@ describe('preview database reset', () => {
     expect(refused.stderr).toMatch(/Preview deployments are retired.*ALLOW_PREVIEW_DATABASE_RESET=1/);
   });
 });
+
+describe('cron schedule', () => {
+  it('runs the orphan upload reaper daily', () => {
+    const vercel = JSON.parse(readFileSync(join(process.cwd(), 'vercel.json'), 'utf8')) as { crons: { path: string; schedule: string }[] };
+    expect(vercel.crons).toContainEqual({ path: '/api/cron/purge-uploads', schedule: '50 3 * * *' });
+  });
+});

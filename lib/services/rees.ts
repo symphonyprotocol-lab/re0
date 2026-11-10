@@ -8,6 +8,7 @@ import { clampPage, likePattern, type ListResult } from '@/lib/domain/list';
 import { positiveRate } from '@/lib/domain/explore';
 import {
   coerceDraft,
+  isAvatarPath,
   isReeCoverPath,
   newReeDraft,
   randomSlug,
@@ -288,7 +289,7 @@ export async function createReeFromDraft(ownerId: string): Promise<{ ree: Ree }>
   const invalid = validateReeFields(draftFields(draft), 3);
   if (invalid) throw new ReeInputError(invalid.error, invalid.step);
   return db().transaction(async (tx) => {
-    const avatar = draft.avatarBlob?.startsWith(`avatars/${ownerId}/`) ? draft.avatarBlob : null;
+    const avatar = isAvatarPath(draft.avatarBlob, ownerId) ? draft.avatarBlob : null;
     const ree = await insertRee(tx, ownerId, reeValues(draftFields(draft)), avatar);
     await tx.update(schema.user).set({ reeDraft: null }).where(eq(schema.user.id, ownerId));
     return { ree };
@@ -302,7 +303,8 @@ export async function updateRee(
 ): Promise<Ree | null> {
   const invalid = validateReeFields(fields, 3);
   if (invalid) throw new ReeInputError(invalid.error, invalid.step);
-  const avatarBlob = fields.avatarBlob && fields.avatarBlob.startsWith(`avatars/${ownerId}/`) ? fields.avatarBlob : null;
+  /* Only the owner's own upload, in the exact shape `/api/upload-token` writes; anything else clears it. */
+  const avatarBlob = isAvatarPath(fields.avatarBlob, ownerId) ? fields.avatarBlob : null;
   const { coverBlob } = fields;
   if (coverBlob !== undefined && coverBlob !== null) {
     if (!isReeCoverPath(coverBlob, id.toLowerCase())) throw new ReeInputError('invalid_cover', 1);

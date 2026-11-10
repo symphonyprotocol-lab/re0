@@ -43,6 +43,12 @@ suite('explicit Ree publication', () => {
     vi.mocked(blobSize).mockResolvedValueOnce(1024);
     expect(await updateRee(owner, ree.id, { ...ree, coverBlob: cover })).toMatchObject({ coverBlob: cover });
     expect(await updateRee(owner, ree.id, { ...ree, coverBlob: undefined })).toMatchObject({ coverBlob: cover });
+    /* Avatars: only the owner's upload in the uploader's shape is kept. */
+    const avatar = `avatars/${owner}/${crypto.randomUUID()}.png`;
+    expect(await updateRee(owner, ree.id, { ...ree, avatarBlob: avatar, coverBlob: undefined })).toMatchObject({ avatarBlob: avatar });
+    for (const bad of [`avatars/${owner}/../../api/account`, `avatars/${owner}/photo.png`, `avatars/${other}/${crypto.randomUUID()}.png`]) {
+      expect(await updateRee(owner, ree.id, { ...ree, avatarBlob: bad, coverBlob: undefined })).toMatchObject({ avatarBlob: null });
+    }
     expect(await reeForPreview(ree.id, owner)).toMatchObject({ coverBlob: cover });
     expect(await coverVisibleTo(ree.id, cover, owner)).toBe(true);
     expect(await coverVisibleTo(ree.id, cover, other)).toBe(false);
