@@ -16,8 +16,13 @@ describe('security response headers', () => {
     expect(headers['x-frame-options']).toBe('DENY');
     expect(headers['content-security-policy']).toContain("frame-ancestors 'none'");
     expect(headers['content-security-policy']).toContain("object-src 'none'");
+    expect(headers['content-security-policy']).toContain("img-src 'self' data: blob: https:");
     expect(headers['permissions-policy']).toContain('camera=()');
+    /* Nothing that Paddle checkout or the in-browser video export depends on is enforced before a browser check. */
+    for (const source of ['script-src', 'style-src', 'font-src', 'media-src', 'worker-src', 'connect-src', 'frame-src', 'default-src', 'form-action']) {
+      expect(headers['content-security-policy']).not.toContain(source);
+    }
     const report = headers['content-security-policy-report-only']!;
-    for (const directive of ["default-src 'self'", 'https://cdn.paddle.com', 'frame-src https://*.paddle.com', "frame-ancestors 'none'"]) expect(report).toContain(directive);
+    for (const directive of ["default-src 'self'", 'https://cdn.paddle.com', 'frame-src https://*.paddle.com', "worker-src 'self' blob:"]) expect(report).toContain(directive);
   });
 });
