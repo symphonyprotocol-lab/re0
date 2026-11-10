@@ -89,7 +89,20 @@ const TAG_MAX = 4096;
  * PAIRED elements balanced — a stray close dropped, an unclosed open closed
  * where its parent closes, a `<p>` closing the `<p>` it interrupts.
  */
+/* The last two inputs: a page and its head slice (title, robots). */
+const recent: { input: string; output: string }[] = [];
+
 export function normalizeMarkup(html: string): string {
+  /* A page is read by several helpers in turn (Markdown, title, links); normalise it once. */
+  const hit = recent.find((entry) => entry.input === html);
+  if (hit) return hit.output;
+  const output = normalizeOnce(html);
+  recent.unshift({ input: html, output });
+  recent.length = Math.min(recent.length, 2);
+  return output;
+}
+
+function normalizeOnce(html: string): string {
   const lower = html.toLowerCase();
   const out: string[] = [];
   const open: string[] = [];
