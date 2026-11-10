@@ -22,6 +22,8 @@ export interface SpendableGrant {
   remaining: number;
   expiresAt: Date | null;
   createdAt: Date;
+  /** Earned grants only: when a payout may draw on it; null, never (review H2). */
+  withdrawableAt?: Date | null;
 }
 
 export class InsufficientCredits extends Error {
@@ -45,6 +47,12 @@ export function spendOrder(grants: readonly SpendableGrant[], now: Date): Spenda
     .sort((a, b) => {
       const bySource = GRANT_SPEND_ORDER.indexOf(a.source) - GRANT_SPEND_ORDER.indexOf(b.source);
       if (bySource !== 0) return bySource;
+      /* Earned: what can never be withdrawn goes first, then what matures last, so withdrawable credits stay. */
+      if (a.source === 'earned') {
+        const aOut = a.withdrawableAt?.getTime() ?? Number.POSITIVE_INFINITY;
+        const bOut = b.withdrawableAt?.getTime() ?? Number.POSITIVE_INFINITY;
+        if (aOut !== bOut) return bOut - aOut;
+      }
       const aEnd = a.expiresAt?.getTime() ?? Number.POSITIVE_INFINITY;
       const bEnd = b.expiresAt?.getTime() ?? Number.POSITIVE_INFINITY;
       if (aEnd !== bEnd) return aEnd - bEnd;
@@ -54,6 +62,11 @@ export function spendOrder(grants: readonly SpendableGrant[], now: Date): Spenda
 
 export function availableOf(grants: readonly SpendableGrant[], now: Date): number {
   return grants.filter((grant) => usable(grant, now)).reduce((sum, grant) => sum + grant.remaining, 0);
+}
+
+/** Whether a payout may draw on this grant now: earned, paid for, and past its maturity. */
+export function isWithdrawable(grant: Pick<SpendableGrant, 'source' | 'remaining' | 'withdrawableAt'>, now: Date): boolean {
+  return grant.source === 'earned' && grant.remaining > 0 && grant.withdrawableAt != null && grant.withdrawableAt.getTime() <= now.getTime();
 }
 
 /** Which grants `amount` comes out of. Throws when the usable balance cannot cover it. */
@@ -89,6 +102,19 @@ export function releaseFrom(allocations: readonly Allocation[], amount: number):
     left -= give;
   }
   return released;
+}
+
+/** What stays charged of a hold once `released` of it goes back: the allocations `releaseFrom` leaves. */
+export function chargedFrom(allocations: readonly Allocation[], released: number): Allocation[] {
+  const back = new Map<string, number>();
+  for (const entry of releaseFrom(allocations, released)) back.set(entry.grantId, (back.get(entry.grantId) ?? 0) + entry.amount);
+  const kept: Allocation[] = [];
+  for (const entry of allocations) {
+    const give = Math.min(entry.amount, back.get(entry.grantId) ?? 0);
+    back.set(entry.grantId, (back.get(entry.grantId) ?? 0) - give);
+    if (entry.amount - give > 0) kept.push({ ...entry, amount: entry.amount - give });
+  }
+  return kept;
 }
 
 /** A hold settled at `actual`: more than was held is never charged (2.3, "多退少不补"). */

@@ -140,6 +140,8 @@ export async function PayoutDetailPage({ id, payment, query }: { id: string; pay
                 [d.kycStatus, <KycStatusTag key="kyc" t={t} status={payout.kyc} />],
                 [d.tax, payout.taxForm ? fill(d.taxValue, { form: payout.taxForm }) : '—'],
                 [d.paypal, payout.paypalEmail],
+                ...(user.debt > 0 ? [[d.debt, fill(d.debtValue, { credits: formatNumber(user.debt, locale) })] as [ReactNode, ReactNode]] : []),
+                ...(user.disabled ? [[d.accountState, d.accountDisabled] as [ReactNode, ReactNode]] : []),
               ])}
               {!finished && user.paypalEmail && user.paypalEmail !== payout.paypalEmail && <p className="form-error mt16">{fill(d.paypalChanged, { email: user.paypalEmail })}</p>}
             </section>

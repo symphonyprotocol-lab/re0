@@ -43,6 +43,10 @@
     {
       "path": "/api/cron/purge-uploads",
       "schedule": "50 3 * * *"
+    },
+    {
+      "path": "/api/cron/release-chat-holds",
+      "schedule": "*/5 * * * *"
     }
   ]
 }

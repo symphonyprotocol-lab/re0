@@ -55,7 +55,9 @@ export async function POST(request: NextRequest, context: Context) {
     .where(and(inArray(schema.ree.id, chosen.map((ree) => ree.id)), usableBy(user.id)));
   const targets = chosen.flatMap((ree) => rows.find((row) => row.id === ree.id) ?? []);
   if (targets.length === 0) return fail('no_participants', 422);
-  return answer({ userId: user.id, lang: user.lang, conversation, targets, question, verify });
+  /* `fees`: the query fee per Ree the composer showed; a higher one now is refused with `price_changed`. */
+  const seenFees = input.fees && typeof input.fees === 'object' && !Array.isArray(input.fees) ? (input.fees as Record<string, number>) : null;
+  return answer({ userId: user.id, lang: user.lang, conversation, targets, question, verify, seenFees });
 }
 
 /** "清空对话" of the test conversation: removes the messages; the ledger keeps what was charged. */
