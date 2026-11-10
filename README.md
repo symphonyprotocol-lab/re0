@@ -85,6 +85,18 @@ To start the local database over: `docker compose down -v`, then `npm run db:up`
 
 Preview deployments are retired: `vercel.json` builds without touching a database except in production (`db:deploy`). `db:prepare-preview` still exists for a Preview build that sets `ALLOW_PREVIEW_DATABASE_RESET=1` on purpose, and refuses otherwise.
 
+## Security headers
+
+`next.config.mjs` sends HSTS, `nosniff`, a same-origin referrer, `X-Frame-Options: DENY` and a Permissions-Policy on every route. The Content-Security-Policy is enforced:
+
+- Pages get theirs from `middleware.ts`, built per request by `lib/http/csp.ts` around a fresh nonce. Next reads the nonce from the request's policy header and stamps it on its own script tags; `'strict-dynamic'` then trusts what those scripts load (Paddle.js through `next/script`, Paddle's loader, the lazy video-export chunks). Scripts never run inline. The policy allows exactly: Paddle (`cdn.paddle.com` for the script, its environment's CDN for the stylesheet, `*.paddle.com` for the checkout frame and its calls), WebAssembly and `blob:` workers for the in-browser MP4 export, `blob:`/`data:` media and previews, the GitHub / Google avatar hosts and Vercel Blob for images, Vercel Blob's client upload under `connect-src`, and GitHub / Google as sign-in form targets. Fonts come from this origin (`next/font` self-hosts them).
+- API routes, `/media`, Next's static files and `public/` are never documents and get `default-src 'none'`.
+- Every page was already rendered per request (the root layout reads the session and language cookies), so the nonce costs no static rendering or CDN caching.
+
+Kill switch: set `CSP_REPORT_ONLY=1` in the project's environment and redeploy. The same policy is then sent as `Content-Security-Policy-Report-Only`: nothing is blocked, and violations show up in the browser console as `[Report Only] Refused to ...`. Remove the variable (and redeploy) to enforce again. Middleware reads the variable per request; the non-document policy comes from `next.config.mjs` and so follows it at build time, which a redeploy is. There is no report endpoint, so the policy has no `report-uri` / `report-to`.
+
+A new external origin (a script, an iframe, an analytics tag) has to be added to `lib/http/csp.ts` and `tests/unit/security-headers.test.ts`, or the browser refuses it.
+
 ## Checks
 
 ```bash

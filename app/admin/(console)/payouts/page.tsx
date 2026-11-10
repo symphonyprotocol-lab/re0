@@ -4,6 +4,7 @@ import { redirect } from 'next/navigation';
 import { financeFilter } from '@/lib/domain/admin-finance';
 import { AMOUNT_SORTS, csvHref, listHref, PAYOUT_QUEUE_DEFAULTS, PAYOUT_QUEUE_FILTERS, payoutQueueView } from '@/lib/domain/admin-lists';
 import { listPayouts, payoutTrend } from '@/lib/services/payouts';
+import { payoutFundingLines } from '@/lib/services/payout-funding';
 import { serverMessages } from '@/i18n/server';
 import { fill, formatNumber } from '@/i18n/format';
 import { FinanceChart, RecordPage } from '@/components/admin/finance-chart';
@@ -26,7 +27,7 @@ type Props = { searchParams: Promise<Record<string, string | string[] | undefine
  * is done moves to 提现记录.
  */
 export default async function PayoutsPage({ searchParams }: Props) {
-  await requireAdministrator();
+  const administrator = await requireAdministrator();
   const { t, locale } = await serverMessages();
   const c = t.consolePayouts;
   const p = c.payouts;
@@ -37,6 +38,7 @@ export default async function PayoutsPage({ searchParams }: Props) {
   const href = (changes: Record<string, string | number | null>) => listHref('/admin/payouts', current, changes, PAYOUT_QUEUE_DEFAULTS);
   // A page past the end (rows went away, a stale link) lands on the last page's canonical URL.
   if (data.page !== view.page) redirect(href({}));
+  const funding = await payoutFundingLines(administrator, data.items.map((item) => item.id));
   const n = (value: number) => formatNumber(value, locale);
   const filtered = Boolean(view.q) || view.status !== 'all' || view.period !== 'all' || view.sort !== 'oldest';
   const reset = listHref('/admin/payouts', { size: view.size, metric: view.metric }, {}, PAYOUT_QUEUE_DEFAULTS);
@@ -78,7 +80,7 @@ export default async function PayoutsPage({ searchParams }: Props) {
             <input type="hidden" name="period" value={view.period} />
           </ListFilters>
           <ResultsLine t={t} total={data.total} page={data.page} size={data.size} exportHref={csvHref('/api/admin/payouts', view, PAYOUT_QUEUE_DEFAULTS)} />
-          <PayoutsTable t={t} locale={locale} items={data.items} back={encodeURIComponent(href({}))} />
+          <PayoutsTable t={t} locale={locale} items={data.items} back={encodeURIComponent(href({}))} funding={funding} />
           <LinkPager t={t} page={data.page} total={data.total} size={data.size} href={(page) => href({ page })} />
         </RecordSection>
       </RecordPage>
