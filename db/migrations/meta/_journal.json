@@ -260,6 +260,13 @@
       "when": 1794281622414,
       "tag": "0037_redeem_next_period",
       "breakpoints": true
+    },
+    {
+      "idx": 38,
+      "version": "7",
+      "when": 1794282622414,
+      "tag": "0038_admin_invite_nonce",
+      "breakpoints": true
     }
   ]
 }

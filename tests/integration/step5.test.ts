@@ -56,10 +56,10 @@ async function newUser(name = 'Owner', createdAt = new Date()): Promise<string> 
   return userId;
 }
 
-async function newAdministrator(): Promise<string> {
+async function newAdministrator(role: 'owner' | 'administrator' = 'administrator'): Promise<string> {
   const [row] = await db()
     .insert(schema.administrator)
-    .values({ name: 'Reviewer', email: `${uniqueName('admin')}@example.test`, passwordHash: 'x', totpSecretCipher: 'x' })
+    .values({ name: 'Reviewer', email: `${uniqueName('admin')}@example.test`, role, passwordHash: 'x', totpSecretCipher: 'x' })
     .returning({ id: schema.administrator.id });
   return row!.id;
 }
@@ -488,7 +488,7 @@ describeWithDb('notices', () => {
 
 describeWithDb('administrators', () => {
   it('invites, enrols once with password and TOTP, and disables', async () => {
-    const owner = await newAdministrator();
+    const owner = await newAdministrator('owner');
     const email = `${uniqueName('invitee')}@example.test`;
     const { id, token } = await administrators.inviteAdministrator(owner, { name: 'Invitee', email });
     await expect(administrators.inviteAdministrator(owner, { name: 'Again', email })).rejects.toMatchObject({ code: 'email_taken' });

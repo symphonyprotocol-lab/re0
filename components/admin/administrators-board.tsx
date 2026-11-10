@@ -30,10 +30,11 @@ async function copyText(text: string): Promise<boolean> {
  * administrator with role, status and who added them; disable another one
  * (never yourself or the owner); copy a pending invitee's enrolment link
  * again; add one, which answers a one-time enrolment link to hand over --
- * nothing is emailed. The server renders the first list; every change
+ * nothing is emailed. Only the owner sees these actions (the server refuses
+ * anyone else); an inviter may still copy their own invitee's link. The server renders the first list; every change
  * reloads it from `/api/admin/administrators`.
  */
-export function AdministratorsBoard({ initial, self }: { initial: AdministratorItem[]; self: string }) {
+export function AdministratorsBoard({ initial, self, owner, selfEmail }: { initial: AdministratorItem[]; self: string; owner: boolean; selfEmail: string }) {
   const { t, locale } = useI18n();
   const a = t.consoleRees.administrators;
   const toast = useToast();
@@ -118,13 +119,13 @@ export function AdministratorsBoard({ initial, self }: { initial: AdministratorI
     </span>,
     <Clip key="by" value={item.createdBy} />,
     <div key="actions" className="flex">
-      {item.status === 'invited' && (
+      {item.status === 'invited' && (owner || item.createdBy === selfEmail) && (
         <button type="button" className="btn ghost sm" onClick={() => void copyLink(item)} disabled={busy === item.id}>
           <CI name="copy" />
           {a.copyLink}
         </button>
       )}
-      {item.status !== 'disabled' && item.role !== 'owner' && item.id !== self && (
+      {owner && item.status !== 'disabled' && item.role !== 'owner' && item.id !== self && (
         <button
           type="button"
           className="btn ghost sm"
@@ -146,17 +147,19 @@ export function AdministratorsBoard({ initial, self }: { initial: AdministratorI
         title={a.title}
         lede={a.lede}
         actions={
-          <button
-            type="button"
-            className="btn"
-            onClick={() => {
-              setAddError('');
-              setAdding(true);
-            }}
-          >
-            <CI name="plus" />
-            {a.add}
-          </button>
+          owner && (
+            <button
+              type="button"
+              className="btn"
+              onClick={() => {
+                setAddError('');
+                setAdding(true);
+              }}
+            >
+              <CI name="plus" />
+              {a.add}
+            </button>
+          )
         }
       />
       {error && (

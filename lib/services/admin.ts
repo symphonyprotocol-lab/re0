@@ -8,7 +8,7 @@
  * lock and `where not exists`, so a second registration -- even a direct POST
  * racing the first -- is refused.
  */
-import { and, eq, gt, isNull, lt, or, sql } from 'drizzle-orm';
+import { and, eq, gt, isNull, lt, lte, or, sql } from 'drizzle-orm';
 import { ADMIN_LOCKOUT_MS, ADMIN_MAX_FAILED_ATTEMPTS, ADMIN_PASSWORD_MIN, ADMIN_SESSION_LIFETIME_MS } from '@/lib/constants';
 import type { AuditAction } from '@/lib/domain/audit';
 import { randomTotpSecret, verifyTotpCounter } from '@/lib/domain/totp';
@@ -17,6 +17,7 @@ import { authSecret } from '@/lib/infra/crypto/secrets';
 import { seal, unseal } from '@/lib/infra/crypto/sealed';
 import { hmacSha256, randomToken } from '@/lib/infra/crypto/tokens';
 import { db, schema, type Executor } from '@/lib/infra/db';
+import { takeRateSlots } from '@/lib/services/rate-limit';
 import { argon2id, argon2Verify } from 'hash-wasm';
 
 export type Administrator = typeof schema.administrator.$inferSelect;
@@ -152,6 +153,7 @@ export async function bootstrapFirstAdministrator(input: {
             totpLastCounter: sql`${counter}::bigint`.as('totp_last_counter'),
             failedAttempts: sql`0`.as('failed_attempts'),
             lockedUntil: sql`null::timestamptz`.as('locked_until'),
+            inviteNonce: sql`null::text`.as('invite_nonce'),
             disabledAt: sql`null::timestamptz`.as('disabled_at'),
             createdBy: sql`null::uuid`.as('created_by'),
             createdAt: sql`now()`.as('created_at'),
@@ -196,34 +198,77 @@ export async function closeAdminSession(token: string | undefined | null): Promi
   await db().delete(schema.adminSession).where(eq(schema.adminSession.id, await adminSessionHash(token)));
 }
 
+/** Sign-in throttles: failures per email at one address, and per address across emails (15-minute windows). */
+export const ADMIN_LOGIN_RATE = { pair: 5, address: 20, windowSeconds: 15 * 60 } as const;
+
+/** Refused before any credential is checked: too many recent failures from this address. */
+export class AdminRateLimitError extends Error {
+  constructor(readonly retryAfter: number) {
+    super('too_many_attempts');
+    this.name = 'AdminRateLimitError';
+  }
+}
+
+async function signInRateRules(email: string, ip: string | null | undefined) {
+  /* Digests, so `rate_bucket` holds no email or address in the clear. */
+  const address = ip || 'unknown';
+  const [pair, source] = await Promise.all([
+    hmacSha256(authSecret(), `admin-login:${email}:${address}`),
+    hmacSha256(authSecret(), `admin-login:${address}`),
+  ]);
+  return [
+    { key: `admin-login:pair:${pair}`, limit: ADMIN_LOGIN_RATE.pair, windowSeconds: ADMIN_LOGIN_RATE.windowSeconds },
+    { key: `admin-login:ip:${source}`, limit: ADMIN_LOGIN_RATE.address, windowSeconds: ADMIN_LOGIN_RATE.windowSeconds },
+  ];
+}
+
 /**
- * Password and TOTP together; every failure reads the same to the caller. A
- * TOTP step is spent on use, five failures lock the account for 15 minutes.
+ * Password and TOTP together; every credential failure reads the same to
+ * the caller. Two separate brakes:
+ *
+ * - Wrong passwords are throttled per email + client address and per
+ *   address (`rate_bucket`, failures only), never per account, so a stranger
+ *   who knows an email cannot lock its administrator out.
+ * - Once the password is right, TOTP is the barrier: each such attempt
+ *   claims one of the account's five tries with a conditional update before
+ *   the code is checked, so parallel guesses cannot all slip under the
+ *   limit. The fifth claim locks the account for 15 minutes unless its code
+ *   is right; a lock that has run out starts the count again. Only someone
+ *   holding the password can trigger this lock.
+ *
+ * A TOTP step is spent on use. Expired console sessions are swept on success.
  */
-export async function signInAdministrator(input: { email: string; password: string; code: string }, now = new Date()) {
+export async function signInAdministrator(input: { email: string; password: string; code: string; ip?: string | null }, now = new Date()) {
   const database = db();
   const email = input.email.trim().toLowerCase();
+  const slots = await takeRateSlots(await signInRateRules(email, input.ip), now);
+  if (!slots.ok) throw new AdminRateLimitError(slots.retryAfter);
   const [account] = await database.select().from(schema.administrator).where(eq(schema.administrator.email, email)).limit(1);
-  if (!account) {
+  if (!account || account.disabledAt || account.passwordHash === '') {
     await verifyPassword(input.password, await decoyHash());
     throw new AdminInputError('invalid_credentials');
   }
-  if (account.disabledAt || (account.lockedUntil && account.lockedUntil.getTime() > now.getTime())) {
-    await verifyPassword(input.password, await decoyHash());
-    throw new AdminInputError('invalid_credentials');
-  }
-  const passwordOk = await verifyPassword(input.password, account.passwordHash);
+  if (!(await verifyPassword(input.password, account.passwordHash))) throw new AdminInputError('invalid_credentials');
+
+  /* Claim a try: refused while locked; a lock that has run out starts over at one. */
+  const expired = sql`(${schema.administrator.lockedUntil} is not null and ${schema.administrator.lockedUntil} <= ${now})`;
+  const attempts = sql`case when ${expired} then 1 else ${schema.administrator.failedAttempts} + 1 end`;
+  const [claim] = await database
+    .update(schema.administrator)
+    .set({
+      failedAttempts: attempts,
+      lockedUntil: sql`case when ${attempts} >= ${ADMIN_MAX_FAILED_ATTEMPTS} then ${new Date(now.getTime() + ADMIN_LOCKOUT_MS)}::timestamptz else null end`,
+    })
+    .where(and(eq(schema.administrator.id, account.id), or(isNull(schema.administrator.lockedUntil), lte(schema.administrator.lockedUntil, now))))
+    .returning({ attempts: schema.administrator.failedAttempts, totpLastCounter: schema.administrator.totpLastCounter });
+  if (!claim) throw new AdminInputError('invalid_credentials');
+
   const secret = await openCredential(account.totpSecretCipher, 'totp');
-  const counter = secret ? await verifyTotpCounter(secret, input.code, now, { minCounter: account.totpLastCounter }) : null;
-  if (!passwordOk || counter === null) {
-    await database
-      .update(schema.administrator)
-      .set({
-        failedAttempts: sql`${schema.administrator.failedAttempts} + 1`,
-        lockedUntil: sql`case when ${schema.administrator.failedAttempts} + 1 >= ${ADMIN_MAX_FAILED_ATTEMPTS}
-          then now() + (${ADMIN_LOCKOUT_MS} || ' milliseconds')::interval else ${schema.administrator.lockedUntil} end`,
-      })
-      .where(eq(schema.administrator.id, account.id));
+  const counter = secret ? await verifyTotpCounter(secret, input.code, now, { minCounter: claim.totpLastCounter }) : null;
+  if (counter === null) {
+    if (claim.attempts >= ADMIN_MAX_FAILED_ATTEMPTS) {
+      await audit(database, { administratorId: account.id, action: 'admin.login.locked', target: account.email, after: { lockedForMinutes: ADMIN_LOCKOUT_MS / 60_000 } });
+    }
     throw new AdminInputError('invalid_credentials');
   }
   /* Spend the step atomically: a second sign-in with the same code loses this race. */
@@ -238,6 +283,9 @@ export async function signInAdministrator(input: { email: string; password: stri
     )
     .returning({ id: schema.administrator.id });
   if (!burned) throw new AdminInputError('invalid_credentials');
+  /* Not a failure: give back the throttle slots this attempt held. */
+  await slots.release();
+  await database.delete(schema.adminSession).where(lt(schema.adminSession.expiresAt, now));
   const session = await openAdminSession(account.id, now);
   await audit(database, { administratorId: account.id, action: 'admin.login', target: account.email });
   return session;

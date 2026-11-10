@@ -29,7 +29,7 @@ export function auditTargetHref(action: string, target: string | null): string |
   if (action.startsWith('kyc.')) return `/admin/kyc/${target}`;
   if (action.startsWith('payout.')) return `/admin/payouts/${target}`;
   if (action.startsWith('firecrawl.key.')) return '/admin/firecrawl';
-  if (action === 'admin.create' || action === 'admin.disable') return '/admin/administrators';
+  if (action === 'admin.create' || action === 'admin.disable' || action === 'admin.invite.reissue' || action === 'admin.login.locked') return '/admin/administrators';
   return null;
 }
 

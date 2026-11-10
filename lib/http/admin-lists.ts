@@ -55,6 +55,7 @@ const STATUS: Record<string, number> = {
   email_taken: 409,
   self: 409,
   owner: 409,
+  owner_only: 403,
   /* Step 6: the user's state forbids it now. */
   official: 409,
   disabled: 409,

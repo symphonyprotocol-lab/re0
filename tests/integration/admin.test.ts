@@ -79,13 +79,66 @@ describeWithDb('console authority', () => {
     expect(await admin.resolveAdminSession(session.token, later)).toBeNull();
   });
 
-  it('locks the account after five failures', async () => {
+  it('throttles wrong passwords per address without locking the account', async () => {
     const at = new Date(Date.now() + 120_000);
+    const attacker = '203.0.113.7';
+    /* The replayed code in the test above was a right password with a spent step: one TOTP try. */
+    const [before] = await db().select().from(schema.administrator).where(eq(schema.administrator.email, email));
+    expect(before).toMatchObject({ failedAttempts: 1, lockedUntil: null });
     for (let i = 0; i < 5; i += 1) {
-      await expect(admin.signInAdministrator({ email, password: 'wrong', code: '123456' }, at)).rejects.toMatchObject({ code: 'invalid_credentials' });
+      await expect(admin.signInAdministrator({ email, password: 'wrong', code: '123456', ip: attacker }, at)).rejects.toMatchObject({ code: 'invalid_credentials' });
     }
-    await expect(admin.signInAdministrator({ email, password, code: await code(secret, at) }, at)).rejects.toMatchObject({ code: 'invalid_credentials' });
-    await db().update(schema.administrator).set({ failedAttempts: 0, lockedUntil: null }).where(eq(schema.administrator.email, email));
+    /* The sixth try from that address is refused before anything is checked, even with the right credentials. */
+    await expect(admin.signInAdministrator({ email, password, code: await code(secret, at), ip: attacker }, at)).rejects.toBeInstanceOf(admin.AdminRateLimitError);
+    /* The owner, elsewhere, is not locked out by a stranger who only knows the email. */
+    const [row] = await db().select().from(schema.administrator).where(eq(schema.administrator.email, email));
+    expect(row).toMatchObject({ failedAttempts: 1, lockedUntil: null });
+    const session = await admin.signInAdministrator({ email, password, code: await code(secret, at), ip: '198.51.100.1' }, at);
+    await admin.closeAdminSession(session.token);
+  });
+
+  it('throttles one address across emails', async () => {
+    const at = new Date(Date.now() + 150_000);
+    const address = '203.0.113.8';
+    for (let i = 0; i < admin.ADMIN_LOGIN_RATE.address; i += 1) {
+      await expect(admin.signInAdministrator({ email: `nobody-${i}@example.test`, password: 'wrong', code: '123456', ip: address }, at)).rejects.toMatchObject({ code: 'invalid_credentials' });
+    }
+    await expect(admin.signInAdministrator({ email: 'another@example.test', password: 'wrong', code: '123456', ip: address }, at)).rejects.toBeInstanceOf(admin.AdminRateLimitError);
+  });
+
+  it('counts parallel TOTP guesses atomically and locks after five', async () => {
+    const at = new Date(Date.now() + 180_000);
+    const right = await code(secret, at);
+    const wrong = right === '000000' ? '111111' : '000000';
+    /* Ten guesses at once, each from its own address so the address throttle stays out of it. */
+    const results = await Promise.allSettled(
+      Array.from({ length: 10 }, (_, i) => admin.signInAdministrator({ email, password, code: wrong, ip: `192.0.2.${10 + i}` }, at)),
+    );
+    expect(results.every((result) => result.status === 'rejected')).toBe(true);
+    const [row] = await db().select().from(schema.administrator).where(eq(schema.administrator.email, email));
+    /* Only five reached the code check; the rest met the lock. */
+    expect(row!.failedAttempts).toBe(5);
+    expect(row!.lockedUntil!.getTime()).toBe(at.getTime() + 15 * 60_000);
+    await expect(admin.signInAdministrator({ email, password, code: right, ip: '192.0.2.99' }, at)).rejects.toMatchObject({ code: 'invalid_credentials' });
+    const locked = await db().select().from(schema.adminAudit).where(and(eq(schema.adminAudit.action, 'admin.login.locked'), eq(schema.adminAudit.administratorId, row!.id)));
+    expect(locked).toHaveLength(1);
+
+    /* The lock runs out and the count starts over. */
+    const after = new Date(at.getTime() + 16 * 60_000);
+    const session = await admin.signInAdministrator({ email, password, code: await code(secret, after), ip: '192.0.2.99' }, after);
+    const [reset] = await db().select().from(schema.administrator).where(eq(schema.administrator.email, email));
+    expect(reset).toMatchObject({ failedAttempts: 0, lockedUntil: null });
+    await admin.closeAdminSession(session.token);
+  });
+
+  it('sweeps expired console sessions on sign-in', async () => {
+    const at = new Date(Date.now() + 40 * 60_000);
+    const [row] = await db().select().from(schema.administrator).where(eq(schema.administrator.email, email));
+    const stale = await admin.openAdminSession(row!.id, new Date(at.getTime() - 30 * 24 * 60 * 60_000));
+    const staleId = await admin.adminSessionHash(stale.token);
+    const session = await admin.signInAdministrator({ email, password, code: await code(secret, at), ip: '192.0.2.200' }, at);
+    expect(await db().select().from(schema.adminSession).where(eq(schema.adminSession.id, staleId))).toHaveLength(0);
+    await admin.closeAdminSession(session.token);
   });
 });
 
