@@ -4,6 +4,7 @@ import { GET } from '@/app/api/admin/knowledge-costs/route';
 import { GET as DETAIL } from '@/app/api/admin/knowledge-costs/[id]/route';
 import { apiAdministrator } from '@/lib/http/admin';
 import { recordExport } from '@/lib/services/admin';
+import { CSV_MAX_ROWS } from '@/lib/http/admin-lists';
 import { knowledgeCostDetail, knowledgeCostReport } from '@/lib/services/admin-knowledge-costs';
 import { costUsd, knowledgeCostsView } from '@/lib/domain/knowledge-costs';
 vi.mock('@/lib/http/admin', () => ({ apiAdministrator: vi.fn() }));
@@ -27,6 +28,10 @@ describe('knowledge cost report access and exports', () => {
     expect(await response.text()).toContain('0.0004420000076293945');
     expect(knowledgeCostReport).toHaveBeenCalledWith(expect.objectContaining({ status: 'failed', kind: 'audio', page: 2 }), { all: true });
     expect(recordExport).toHaveBeenCalledWith('admin', 'knowledge-costs', 1, { status: 'failed', kind: 'audio', page: '2' });
+    vi.mocked(knowledgeCostReport).mockClear();
+    vi.mocked(knowledgeCostReport).mockResolvedValue({ items: [], total: CSV_MAX_ROWS + 1, page: 1, size: 20, summary: {}, providers: [] } as unknown as Awaited<ReturnType<typeof knowledgeCostReport>>);
+    expect((await GET(req('?format=csv'))).status).toBe(413);
+    expect(knowledgeCostReport).not.toHaveBeenCalledWith(expect.anything(), { all: true });
     vi.mocked(knowledgeCostDetail).mockResolvedValue(null);
     expect((await DETAIL(req(), { params: Promise.resolve({ id: 'missing' }) })).status).toBe(404);
   });
