@@ -83,12 +83,14 @@ export function ReeChat({
   useNavigationHeight(page);
   const pendingQuestion = useRef('');
   const pendingVerify = useRef(false);
+  /* One per ask, so a replay of the request places no second hold on the server (review C2). */
+  const pendingRequestId = useRef('');
 
   const transport = useMemo(
     () =>
       new DefaultChatTransport<ReeUIMessage>({
         api: `/api/chats/${conversationId}/messages`,
-        prepareSendMessagesRequest: () => ({ body: { question: pendingQuestion.current, verify: pendingVerify.current } }),
+        prepareSendMessagesRequest: () => ({ body: { question: pendingQuestion.current, verify: pendingVerify.current, requestId: pendingRequestId.current } }),
       }),
     [conversationId],
   );
@@ -100,9 +102,15 @@ export function ReeChat({
     onError: (error) => {
       /* A refused hold comes back as a 402 JSON body instead of a stream. */
       try {
-        const body = JSON.parse(error.message) as Partial<InsufficientCreditsBody>;
+        const body = JSON.parse(error.message) as Partial<InsufficientCreditsBody> & { error?: string };
         /* Refused before anything was asked: take the question back into the box. */
         setMessages((current) => (current.at(-1)?.role === 'user' ? current.slice(0, -1) : current));
+        /* Already asked and being answered on the server: show its copy instead. */
+        if ((body.error as string | undefined) === 'duplicate_request') {
+          toast(c.alreadyAsked);
+          router.refresh();
+          return;
+        }
         setInput(pendingQuestion.current);
         if (body.error === 'insufficient_credits') {
           setInsufficient(body as InsufficientCreditsBody);
@@ -174,6 +182,7 @@ export function ReeChat({
     const text = question.trim();
     if (!text || busy || waiting) return;
     pendingQuestion.current = text;
+    pendingRequestId.current = crypto.randomUUID();
     pendingVerify.current = VERIFY_ENABLED && verify;
     setInput('');
     setExamples(false);

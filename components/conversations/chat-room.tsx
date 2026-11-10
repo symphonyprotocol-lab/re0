@@ -109,7 +109,7 @@ export function ChatRoom({
   const endRef = useRef<HTMLDivElement>(null);
   const page = useRef<HTMLElement>(null);
   useNavigationHeight(page);
-  const pending = useRef<{ question: string; scope: string | readonly string[] | null; verify: boolean; fees: Record<string, number> }>({ question: '', scope: null, verify: false, fees: {} });
+  const pending = useRef<{ question: string; scope: string | readonly string[] | null; verify: boolean; fees: Record<string, number>; requestId: string }>({ question: '', scope: null, verify: false, fees: {}, requestId: '' });
   const sentPending = useRef(false);
 
   useEffect(() => setMembers(initialMembers), [initialMembers]);
@@ -138,6 +138,11 @@ export function ChatRoom({
       try {
         const body = JSON.parse(error.message) as Partial<InsufficientCreditsBody> & { error?: string };
         setMessages((current) => current.slice(0, -1));
+        /* The server already has this ask and is answering it: show its copy, ask nothing again. */
+        if ((body.error as string | undefined) === 'duplicate_request') {
+          toast(r.alreadyAsked);
+          return router.refresh();
+        }
         composer.current?.fill(pending.current.question);
         if (body.error === 'insufficient_credits') return setInsufficient(body as InsufficientCreditsBody);
         if (body.error === 'unknown_mention') return toast(r.unknownMention);
@@ -170,7 +175,8 @@ export function ChatRoom({
 
   const ask = (question: string, chosenScope: string | readonly string[] | null = scope, checking = verify) => {
     /* The fees on screen go with the question; a higher one on the server is refused, never charged unseen. */
-    pending.current = { question, scope: chosenScope, verify: checking, fees: Object.fromEntries(members.map((member) => [member.id, member.queryFee])) };
+    /* `requestId`: one per ask, so a replay of this request places no second hold on the server (review C2). */
+    pending.current = { question, scope: chosenScope, verify: checking, fees: Object.fromEntries(members.map((member) => [member.id, member.queryFee])), requestId: crypto.randomUUID() };
     void sendMessage({ text: question });
   };
 
