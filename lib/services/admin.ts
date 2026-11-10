@@ -70,7 +70,7 @@ export async function hasAdministrator(): Promise<boolean> {
 /** The secret shown on the first-run form, sealed so the browser cannot choose its own. */
 export async function bootstrapChallenge(): Promise<{ secret: string; sealed: string }> {
   const secret = randomTotpSecret();
-  return { secret, sealed: await seal({ secret, issuedAt: Date.now() }) };
+  return { secret, sealed: await seal({ purpose: 'admin-bootstrap-totp', secret, issuedAt: Date.now() }) };
 }
 
 /**
@@ -123,8 +123,11 @@ export async function bootstrapFirstAdministrator(input: {
   if (!name || name.length > 40) throw new AdminInputError('name');
   if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email) || email.length > 254) throw new AdminInputError('email');
   if (input.password.length < ADMIN_PASSWORD_MIN || input.password.length > 256) throw new AdminInputError('password');
-  const challenge = await unseal<{ secret: string; issuedAt: number }>(input.sealedSecret);
-  if (!challenge || Date.now() - challenge.issuedAt > 60 * 60 * 1000) throw new AdminInputError('totp');
+  /* Bound to its purpose: no other sealed ticket (an enrolment challenge, say) passes for this one. */
+  const challenge = await unseal<{ purpose?: string; secret: string; issuedAt: number }>(input.sealedSecret);
+  if (!challenge || challenge.purpose !== 'admin-bootstrap-totp' || typeof challenge.secret !== 'string' || Date.now() - challenge.issuedAt > 60 * 60 * 1000) {
+    throw new AdminInputError('totp');
+  }
   const counter = await verifyTotpCounter(challenge.secret, input.code);
   if (counter === null) throw new AdminInputError('totp');
   const passwordHash = await hashPassword(input.password);

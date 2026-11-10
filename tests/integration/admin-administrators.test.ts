@@ -108,3 +108,76 @@ describeWithDb('administrator management', () => {
     expect(await administrators.enrolmentChallenge(legacy)).toBeNull();
   });
 });
+
+const adminUsers = await import('@/lib/services/admin-users');
+const admin = await import('@/lib/services/admin');
+const { createSession } = await import('@/lib/services/auth');
+const { balanceOf } = await import('@/lib/services/credits');
+const { CSV_MAX_ROWS, listOrCsv } = await import('@/lib/http/admin-lists');
+
+async function newUser(): Promise<string> {
+  const subject = uniqueName('adm');
+  const { userId } = await createSession({ provider: 'github', subject, handle: subject, email: `${subject}@example.test`, displayName: 'User', avatarUrl: null }, 'zh', '/', new Date());
+  return userId;
+}
+
+describeWithDb('credit adjustments are idempotent per request', () => {
+  it('answers a retry with the first adjustment instead of granting twice', async () => {
+    const reviewer = await newAdministrator('administrator');
+    const userId = await newUser();
+    const start = (await balanceOf(db(), userId));
+    const requestId = crypto.randomUUID();
+    const input = { bucket: 'pack', direction: 'grant', amount: 5_000, reason: 'support credit', requestId };
+    const [first, second] = await Promise.all([adminUsers.adjustCredits(reviewer, userId, input), adminUsers.adjustCredits(reviewer, userId, input)]);
+    expect([first.replayed, second.replayed].sort()).toEqual([false, true]);
+    expect(second.balance).toBe(first.balance);
+    expect((await balanceOf(db(), userId))).toBe(start + 5_000);
+    const audits = await db().select().from(schema.adminAudit).where(and(eq(schema.adminAudit.action, 'user.credits.adjust'), eq(schema.adminAudit.target, userId)));
+    expect(audits).toHaveLength(1);
+
+    /* A new dialog is a new request. */
+    await adminUsers.adjustCredits(reviewer, userId, { ...input, requestId: crypto.randomUUID() });
+    expect((await balanceOf(db(), userId))).toBe(start + 10_000);
+    await expect(adminUsers.adjustCredits(reviewer, userId, { ...input, requestId: 'not-a-uuid' })).rejects.toMatchObject({ code: 'request_id' });
+  });
+});
+
+describeWithDb('console exports', () => {
+  it('audits every CSV export with its row count and filters', async () => {
+    const reviewer = await newAdministrator('administrator');
+    const request = new Request('http://localhost/api/admin/users?format=csv&status=disabled');
+    const csv = { name: 'test-export', headers: ['ID'], row: (item: { id: string }) => [item.id] };
+    const response = await listOrCsv(request, { id: reviewer }, async () => ({ items: [{ id: 'a' }, { id: 'b' }], total: 2, page: 1, size: 20 }), csv);
+    expect(response.status).toBe(200);
+    const rows = await db().select().from(schema.adminAudit).where(and(eq(schema.adminAudit.action, 'admin.export'), eq(schema.adminAudit.administratorId, reviewer)));
+    expect(rows).toHaveLength(1);
+    expect(rows[0]).toMatchObject({ target: 'test-export', after: { rows: 2, query: { status: 'disabled' } } });
+  });
+
+  it('refuses an export past the row cap before loading it', async () => {
+    const reviewer = await newAdministrator('administrator');
+    let loadedAll = false;
+    const response = await listOrCsv(
+      new Request('http://localhost/api/admin/users?format=csv'),
+      { id: reviewer },
+      async (all) => {
+        loadedAll ||= all;
+        return { items: [], total: CSV_MAX_ROWS + 1, page: 1, size: 20 };
+      },
+      { name: 'too-big', headers: ['ID'], row: () => [] },
+    );
+    expect(response.status).toBe(413);
+    expect(loadedAll).toBe(false);
+  });
+});
+
+describeWithDb('sealed challenges are bound to their purpose', () => {
+  it('does not take an enrolment challenge as the first-run TOTP secret', async () => {
+    const owner = await newAdministrator('owner');
+    const { token } = await administrators.inviteAdministrator(owner, { name: 'Invitee', email: `${uniqueName('invitee')}@example.test` });
+    const challenge = await administrators.enrolmentChallenge(token);
+    await expect(
+      admin.bootstrapFirstAdministrator({ name: 'X', email: `${uniqueName('x')}@example.test`, password: 'correct horse battery', sealedSecret: challenge!.sealedSecret, code: await code(challenge!.secret) }),
+    ).rejects.toMatchObject({ code: 'totp' });
+  });
+});

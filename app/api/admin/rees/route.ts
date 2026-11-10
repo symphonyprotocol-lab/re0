@@ -9,5 +9,5 @@ export async function GET(request: NextRequest) {
   const administrator = await apiAdministrator(request);
   if (administrator instanceof Response) return administrator;
   const view = reesView(request.nextUrl.searchParams);
-  return listOrCsv(request, (all) => listAdminRees(view, { all }), REES_CSV);
+  return listOrCsv(request, administrator, (all) => listAdminRees(view, { all }), REES_CSV);
 }

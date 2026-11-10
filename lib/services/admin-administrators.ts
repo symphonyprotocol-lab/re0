@@ -146,15 +146,15 @@ export async function enrolmentChallenge(token: string, now = new Date()) {
   const row = await invitedAdministrator(token, now);
   if (!row) return null;
   const secret = randomTotpSecret();
-  return { name: row.name, email: row.email, secret, sealedSecret: await seal({ secret, issuedAt: now.getTime(), binding: row.id }) };
+  return { name: row.name, email: row.email, secret, sealedSecret: await seal({ purpose: 'admin-enrol-totp', secret, issuedAt: now.getTime(), binding: row.id }) };
 }
 
 export async function acceptInvite(input: { token: string; password: string; sealedSecret: string; code: string }, now = new Date()): Promise<Administrator> {
   const row = await invitedAdministrator(input.token, now);
   if (!row) throw new AdminInputError('invite_invalid');
   if (input.password.length < ADMIN_PASSWORD_MIN || input.password.length > 256) throw new AdminInputError('password');
-  const challenge = await unseal<{ secret: string; issuedAt: number; binding: string }>(input.sealedSecret);
-  if (!challenge || challenge.binding !== row.id || now.getTime() - challenge.issuedAt > 60 * 60 * 1000) throw new AdminInputError('totp');
+  const challenge = await unseal<{ purpose?: string; secret: string; issuedAt: number; binding: string }>(input.sealedSecret);
+  if (!challenge || challenge.purpose !== 'admin-enrol-totp' || challenge.binding !== row.id || now.getTime() - challenge.issuedAt > 60 * 60 * 1000) throw new AdminInputError('totp');
   const counter = await verifyTotpCounter(challenge.secret, input.code, now);
   if (counter === null) throw new AdminInputError('totp');
   const [enrolled] = await db()

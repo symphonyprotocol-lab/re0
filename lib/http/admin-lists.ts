@@ -10,7 +10,8 @@ import { codeState } from '@/lib/domain/redeem';
 import type { ListResult } from '@/lib/domain/list';
 import { reportingTime } from '@/lib/domain/statistics';
 import { fail, json } from '@/lib/http/respond';
-import { AdminInputError } from '@/lib/services/admin';
+import { db } from '@/lib/infra/db';
+import { AdminInputError, audit } from '@/lib/services/admin';
 import type { AdminReeRow } from '@/lib/services/admin-rees';
 import type { AdminUserRow } from '@/lib/services/admin-users';
 import type { AuditRow } from '@/lib/services/admin-audit';
@@ -34,14 +35,30 @@ export function wantsCsv(request: Request): boolean {
   return new URL(request.url).searchParams.get('format') === 'csv';
 }
 
-/** A list endpoint: JSON page, or the full filtered export. */
+/** The most rows one export may carry; past it the console asks for narrower filters. */
+export const CSV_MAX_ROWS = 50_000;
+
+/**
+ * An export leaves an audit row (`admin.export`): which list, how many rows,
+ * and the filters, since exports carry KYC names and PayPal addresses.
+ */
+export async function auditExport(administratorId: string, request: Request, name: string, rows: number): Promise<void> {
+  const query = Object.fromEntries([...new URL(request.url).searchParams].filter(([key]) => key !== 'format'));
+  await audit(db(), { administratorId, action: 'admin.export', target: name, after: { rows, query } });
+}
+
+/** A list endpoint: JSON page, or the full filtered export (counted first, capped, audited). */
 export async function listOrCsv<T>(
   request: Request,
+  administrator: { id: string },
   load: (all: boolean) => Promise<ListResult<T>>,
   csv: { name: string; headers: readonly string[]; row: (item: T) => readonly unknown[] },
 ): Promise<NextResponse> {
   if (wantsCsv(request)) {
+    const { total } = await load(false);
+    if (total > CSV_MAX_ROWS) return fail('export_too_large', 413, { total, max: CSV_MAX_ROWS });
     const { items } = await load(true);
+    await auditExport(administrator.id, request, csv.name, items.length);
     return csvResponse(csv.name, csv.headers, items.map(csv.row));
   }
   return json(await load(false));

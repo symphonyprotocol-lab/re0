@@ -10,6 +10,6 @@ export async function GET(request: NextRequest) {
   if (administrator instanceof Response) return administrator;
   const view = purchasesView(request.nextUrl.searchParams);
   return view.tab === 'subscriptions'
-    ? listOrCsv(request, (all) => listSubscriptions(view, { all }), SUBSCRIPTIONS_CSV)
-    : listOrCsv(request, (all) => listPurchases(view, { all }), PURCHASES_CSV);
+    ? listOrCsv(request, administrator, (all) => listSubscriptions(view, { all }), SUBSCRIPTIONS_CSV)
+    : listOrCsv(request, administrator, (all) => listPurchases(view, { all }), PURCHASES_CSV);
 }

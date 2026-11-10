@@ -5,7 +5,7 @@
  * also leaves the user a notice.
  */
 import { and, asc, count, desc, eq, gte, ilike, isNull, or, sql, type SQL } from 'drizzle-orm';
-import { parseAdjustment } from '@/lib/domain/adjustments';
+import { parseAdjustment, type AdjustmentBucket } from '@/lib/domain/adjustments';
 import { deductFromBucket } from '@/lib/domain/adjustments';
 import { periodStart, type UsersView } from '@/lib/domain/admin-lists';
 import { clampPage, likePattern, type ListResult } from '@/lib/domain/list';
@@ -238,20 +238,40 @@ export async function setUserDisabled(administratorId: string, id: string, disab
   });
 }
 
+const REQUEST_ID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+
 /**
  * A grant or deduction on the Pack or Plan bucket. A Plan grant expires with
  * the current period, so it needs an active Plan; a deduction takes only
  * what the bucket has.
+ *
+ * `requestId` (a UUID the console mints per dialog) becomes the entry's
+ * `refId`: a retry or double submit with the same one answers the first
+ * adjustment again (`replayed: true`) instead of adjusting twice. The check
+ * runs under the user's row lock, so two copies in flight meet there.
  */
 export async function adjustCredits(administratorId: string, id: string, raw: Record<string, unknown>, now = new Date()) {
   const input = parseAdjustment(raw);
   if ('error' in input) throw new AdminInputError(input.error);
+  if (raw.requestId !== undefined && (typeof raw.requestId !== 'string' || !REQUEST_ID.test(raw.requestId))) throw new AdminInputError('request_id');
+  const requestId = typeof raw.requestId === 'string' ? raw.requestId.toLowerCase() : null;
   return db().transaction(async (tx) => {
     const [account] = await tx.select({ id: schema.user.id }).from(schema.user).where(eq(schema.user.id, id)).for('update');
     if (!account) throw new AdminInputError('not_found');
+    if (requestId) {
+      const [earlier] = await tx
+        .select({ after: schema.adminAudit.after })
+        .from(schema.adminAudit)
+        .where(and(eq(schema.adminAudit.action, 'user.credits.adjust'), eq(schema.adminAudit.target, id), sql`${schema.adminAudit.after}->>'entry' = ${requestId}`))
+        .limit(1);
+      if (earlier) {
+        const after = earlier.after as { bucket: AdjustmentBucket; credits: number; adjustment: number; debtPaid: number };
+        return { delta: after.adjustment - after.debtPaid, debtPaid: after.debtPaid, bucket: after.bucket, balance: after.credits, replayed: true };
+      }
+    }
     const grants = await grantsOf(tx, id, true);
     const before = grants.filter((grant) => grant.source === input.bucket && (grant.expiresAt === null || grant.expiresAt > now)).reduce((sum, grant) => sum + grant.remaining, 0);
-    const refId = crypto.randomUUID();
+    const refId = requestId ?? crypto.randomUUID();
     /* A grant pays open debts first (addGrant): the bucket grows by what is left. */
     let debtPaid = 0;
     if (input.direction === 'grant') {
@@ -294,6 +314,6 @@ export async function adjustCredits(administratorId: string, id: string, raw: Re
       after: { bucket: input.bucket, credits: before + delta, adjustment, debtPaid, reason: input.reason, entry: refId },
     });
     await notify(tx, { userId: id, kind: 'credits_adjust', text: input.reason, params: { bucket: input.bucket, delta, debtPaid }, refId });
-    return { delta, debtPaid, bucket: input.bucket, balance: before + delta };
+    return { delta, debtPaid, bucket: input.bucket, balance: before + delta, replayed: false };
   });
 }

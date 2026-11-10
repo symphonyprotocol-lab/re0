@@ -9,5 +9,5 @@ export async function GET(request: NextRequest) {
   const administrator = await apiAdministrator(request);
   if (administrator instanceof Response) return administrator;
   const view = payoutQueueView(request.nextUrl.searchParams);
-  return listOrCsv(request, (all) => listPayouts(view, 'queue', { all }), PAYOUTS_CSV);
+  return listOrCsv(request, administrator, (all) => listPayouts(view, 'queue', { all }), PAYOUTS_CSV);
 }
