@@ -31,6 +31,8 @@ const reembed = await import('@/lib/services/reembed');
 const storage = await import('@/lib/services/storage-billing');
 const library = await import('@/lib/services/knowledge-library');
 const rees = await import('@/lib/services/rees');
+const adminRees = await import('@/lib/services/admin-rees');
+const knowledge = await import('@/lib/services/knowledge');
 const { placeHold } = await import('@/lib/services/credits');
 const { db, schema } = await import('@/lib/infra/db');
 const { forgetModelCache } = await import('@/lib/infra/ai/models');
@@ -441,5 +443,51 @@ describeWithDb('metered runs: crash recovery and unknown prices', () => {
     await expect(withProviderMeter({ ...meter, requireRate: true }, () => prepareProviderCall(target))).rejects.toMatchObject({ code: 'pricing_unavailable' });
     // Required work (no `requireRate`) still goes ahead and takes the cost Gateway reports.
     await expect(withProviderMeter(meter, () => prepareProviderCall(target))).resolves.not.toBeNull();
+  });
+});
+
+describeWithDb('who pays, and what the platform cleans up', () => {
+  it("an administrator restoring a Ree rebuilds its profile at the platform's cost, not the owner's", async () => {
+    const owner = await newUser();
+    const { ree } = await reeWith(owner, { passages: 2 });
+    const [admin] = await db().insert(schema.administrator).values({ name: 'Moderator', email: `${uniqueName('admin')}@example.test`, passwordHash: 'x', totpSecretCipher: 'x' }).returning({ id: schema.administrator.id });
+    await adminRees.takeDownRee(admin!.id, ree.id, 'Rights claim');
+    await adminRees.restoreRee(admin!.id, ree.id, 'Rights cleared');
+    expect((await db().select().from(schema.reeProfileVector).where(eq(schema.reeProfileVector.reeId, ree.id))).length).toBeGreaterThan(0);
+    expect(await runsOf(owner, 'profile')).toHaveLength(0);
+    expect(await balanceOf(db(), owner)).toBe(WELCOME_CREDITS);
+    // The owner's own rebuild is still the owner's.
+    await profile.refreshProfile(ree.id);
+    expect(await runsOf(owner, 'profile')).toHaveLength(1);
+  });
+
+  it("accepts only an upload path as the upload token issues it, under the owner's own prefix", async () => {
+    const owner = await newUser();
+    expect(knowledge.ownUploadPath(owner, `knowledge/${owner}/${crypto.randomUUID()}/manual.pdf`)).toBe(true);
+    for (const path of [
+      `knowledge/${owner}/../other/x/manual.pdf`,
+      `knowledge/${owner}/%2e%2e/videos/x.pdf`,
+      `knowledge/${owner}/a/b/../../../other/manual.pdf`,
+      `knowledge/${owner}/a\\..\\manual.pdf`,
+      `knowledge/${owner}/manual.pdf`,
+    ]) expect(knowledge.ownUploadPath(owner, path)).toBe(false);
+    await expect(knowledge.checkKnowledge(owner, { kind: 'document', blobPath: `knowledge/${owner}/%2e%2e/x.pdf`, fileName: 'x.pdf', folderId: null }))
+      .rejects.toMatchObject({ code: 'invalid_document' });
+  });
+
+  it('fails a dead knowledge run in a Ree nobody is looking at, returning its reservation', async () => {
+    const owner = await newUser();
+    const { ree } = await reeWith(owner, { passages: 0 });
+    const [row] = await db().insert(schema.knowledge)
+      .values({ reeId: ree.id, kind: 'text', title: 'Stuck', originalTitle: 'Stuck', status: 'processing', content: 'Stuck.', updatedAt: new Date(Date.now() - 60 * 60_000) })
+      .returning({ id: schema.knowledge.id });
+    const holdId = await db().transaction((tx) => placeHoldFor(tx, owner, row!.id));
+    expect(await balanceOf(db(), owner)).toBe(WELCOME_CREDITS - 1);
+    expect(await knowledge.recoverStaleEverywhere()).toBeGreaterThanOrEqual(1);
+    const [after] = await db().select({ status: schema.knowledge.status }).from(schema.knowledge).where(eq(schema.knowledge.id, row!.id));
+    expect(after!.status).toBe('failed');
+    const [hold] = await db().select().from(schema.creditHold).where(eq(schema.creditHold.id, holdId));
+    expect(hold!.status).toBe('released');
+    expect(await balanceOf(db(), owner)).toBe(WELCOME_CREDITS);
   });
 });

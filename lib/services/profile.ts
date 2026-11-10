@@ -95,7 +95,13 @@ async function passageVectors(reeId: string): Promise<number[][]> {
  * run: rebuilds the Ree's profile, or removes it when the Ree is not
  * public. Answers how many vectors it now has.
  */
-export async function refreshProfile(reeId: string): Promise<number> {
+/**
+ * `billTo`: who pays the profile's embedding. The owner (the default) when
+ * the owner's own action asked for it -- a knowledge run, a settings save,
+ * publishing. The platform when an administrator did (a restore after a
+ * takedown): the call goes out unmetered and its cost is ours.
+ */
+export async function refreshProfile(reeId: string, { billTo = 'owner' }: { billTo?: 'owner' | 'platform' } = {}): Promise<number> {
   const database = db();
   const [ree] = await database
     .select({ id: schema.ree.id, ownerId: schema.ree.ownerId, name: schema.ree.name, description: schema.ree.description, category: schema.ree.category, tags: schema.ree.tags, sampleQuestions: schema.ree.sampleQuestions, suggestedQuestions: schema.ree.suggestedQuestions })
@@ -109,10 +115,12 @@ export async function refreshProfile(reeId: string): Promise<number> {
   const questions = (ree.sampleQuestions.length ? ree.sampleQuestions : ree.suggestedQuestions).slice(0, PROFILE_SAMPLE_QUESTIONS);
   const introduction = [ree.name, ree.description, ree.category, ...ree.tags].filter(Boolean).join('\n');
   const [{ vectors }, passages] = await Promise.all([
-    meteredWork(
-      { userId: ree.ownerId, reeId, kind: 'profile', title: `${ree.name} · knowledge profile`, reeName: ree.name, refuse: false },
-      () => embedTexts([introduction, ...questions]),
-    ),
+    billTo === 'platform'
+      ? embedTexts([introduction, ...questions])
+      : meteredWork(
+        { userId: ree.ownerId, reeId, kind: 'profile', title: `${ree.name} · knowledge profile`, reeName: ree.name, refuse: false },
+        () => embedTexts([introduction, ...questions]),
+      ),
     passageVectors(reeId),
   ]);
   const rows: { kind: Kind; embedding: number[] }[] = [

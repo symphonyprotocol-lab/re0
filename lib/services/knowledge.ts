@@ -123,8 +123,21 @@ export async function checkRepository(ownerId: string, ref: RepositoryRef): Prom
   }
 }
 
+/**
+ * An upload's pathname as `/api/upload-token` issues it:
+ * `knowledge/<owner>/<id>/<name>`, two plain segments under the owner's
+ * prefix. No `.` / `..` segment and nothing a URL would decode into one
+ * (`%`, `\`, `?`, `#`), so the path cannot reach another user's file.
+ */
+export function ownUploadPath(ownerId: string, blobPath: string): boolean {
+  const prefix = `knowledge/${ownerId}/`;
+  if (!blobPath.startsWith(prefix)) return false;
+  const segments = blobPath.slice(prefix.length).split('/');
+  return segments.length === 2 && segments.every((segment) => segment !== '' && segment !== '.' && segment !== '..' && !/[%\\?#\u0000-\u001f]/.test(segment));
+}
+
 async function checkUpload(ownerId: string, blobPath: string, fileName: string, valid: (name: string, size: number) => boolean, code: KnowledgeInputCode) {
-  if (!blobPath.startsWith(`knowledge/${ownerId}/`) || !valid(fileName, 1)) throw new KnowledgeInputError(code);
+  if (!ownUploadPath(ownerId, blobPath) || !valid(fileName, 1)) throw new KnowledgeInputError(code);
   const size = await blobSize(blobPath);
   if (size === null) throw new KnowledgeInputError('upload_missing');
   if (!valid(fileName, size)) throw new KnowledgeInputError(code);
@@ -1088,6 +1101,22 @@ export async function abandonPending(reeId: string, now = new Date()): Promise<n
     });
   }
   return abandoned;
+}
+
+/**
+ * The cron's share of `recoverStale`: dead runs in every Ree, not only the
+ * ones whose owner opens the list, so a reservation never stays frozen
+ * because nobody looked. Answers how many Rees it swept (at most `limit`).
+ * Waiting rows are left for the list to start (it runs them after the response).
+ */
+export async function recoverStaleEverywhere(now = new Date(), limit = 50): Promise<number> {
+  const rees = await db()
+    .selectDistinct({ reeId: schema.knowledge.reeId })
+    .from(schema.knowledge)
+    .where(and(eq(schema.knowledge.status, 'processing'), sql`${schema.knowledge.updatedAt} < ${new Date(now.getTime() - STALE_PROCESSING_MS)}`))
+    .limit(limit);
+  for (const { reeId } of rees) await recoverStale(reeId, now);
+  return rees.length;
 }
 
 /** What answers can draw on: ready, enabled and not in the trash; and what is still being prepared. */
