@@ -7,11 +7,13 @@
  */
 import { and, asc, eq, gt, inArray, lte, sql } from 'drizzle-orm';
 import type { CreditEntryReason } from '@/db/schema';
-import { type GrantSource } from '@/lib/constants';
+import { PAYING_GRANT_SOURCES, type GrantSource } from '@/lib/constants';
 import { offsetDebts } from '@/lib/domain/billing';
 import {
   allocate,
   availableOf,
+  chargedFrom,
+  isWithdrawable,
   releaseFrom,
   settlement,
   settlementNote,
@@ -94,6 +96,8 @@ export async function addGrant(
     note?: string | null;
     /** The Ree the credits came from (step 4's query fees), so per-Ree statistics can attribute them. */
     reeId?: string | null;
+    /** Earned grants: when a payout may draw on them; null or left out, never (review H2). */
+    withdrawableAt?: Date | null;
   },
   now = new Date(),
 ): Promise<{ grantId: string; offset: number }> {
@@ -109,6 +113,7 @@ export async function addGrant(
       purchaseId: input.purchaseId ?? null,
       redemptionId: input.redemptionId ?? null,
       redemptionPeriod: input.redemptionId ? (input.redemptionPeriod ?? 0) : null,
+      withdrawableAt: input.source === 'earned' ? (input.withdrawableAt ?? null) : null,
       createdAt: now,
     })
     .returning({ id: schema.creditGrant.id });
@@ -206,6 +211,7 @@ export async function grantsOf(executor: Executor, userId: string, lock: boolean
       remaining: schema.creditGrant.remaining,
       expiresAt: schema.creditGrant.expiresAt,
       createdAt: schema.creditGrant.createdAt,
+      withdrawableAt: schema.creditGrant.withdrawableAt,
     })
     .from(schema.creditGrant)
     .where(and(eq(schema.creditGrant.userId, userId), sql`${schema.creditGrant.remaining} > 0`));
@@ -237,6 +243,8 @@ export interface HoldInput {
   ledger?: SubLedger;
   /** Only these grants may pay (a payout draws on earned credits alone, 2.3). */
   sources?: readonly GrantSource[];
+  /** Only withdrawable earned grants may pay: paid for and matured (a payout, review H2). */
+  withdrawableOnly?: boolean;
 }
 
 /**
@@ -245,7 +253,9 @@ export interface HoldInput {
  * nothing is overdrawn.
  */
 export async function placeHold(tx: Tx, input: HoldInput, now = new Date()): Promise<string> {
-  const grants = (await grantsOf(tx, input.userId, true)).filter((grant) => !input.sources || input.sources.includes(grant.source));
+  const grants = (await grantsOf(tx, input.userId, true)).filter(
+    (grant) => (!input.sources || input.sources.includes(grant.source)) && (!input.withdrawableOnly || isWithdrawable(grant, now)),
+  );
   const allocations = allocate(grants, input.amount, now);
   await moveGrants(tx, allocations, -1);
   const [hold] = await tx
@@ -256,6 +266,8 @@ export async function placeHold(tx: Tx, input: HoldInput, now = new Date()): Pro
       amount: input.amount,
       allocations,
       refId: input.refId,
+      ledger: input.ledger ?? null,
+      reeId: input.reeId ?? null,
       createdAt: now,
     })
     .returning({ id: schema.creditHold.id });
@@ -382,9 +394,10 @@ export async function settleHold(
   actual: number,
   options: { reeId?: string | null; note?: string | null; ledger?: SubLedger } = {},
   now = new Date(),
-): Promise<{ charged: number; released: number } | null> {
+): Promise<{ charged: number; released: number; chargedAllocations: Allocation[] } | null> {
   const hold = await openHold(tx, holdId);
   if (!hold) return null;
+  const ledger = options.ledger ?? (hold.ledger as SubLedger | null) ?? undefined;
   const { charged, released } = settlement(hold.amount, actual);
   const returned = releaseFrom(hold.allocations, released);
   await moveGrants(tx, returned, 1);
@@ -395,14 +408,14 @@ export async function settleHold(
   await tx.insert(schema.creditEntry).values({
     userId: hold.userId,
     delta: released,
-    reason: reasonsFor(hold.kind, options.ledger).settle,
+    reason: reasonsFor(hold.kind, ledger).settle,
     refId: hold.refId,
-    reeId: options.reeId ?? null,
+    reeId: options.reeId ?? hold.reeId ?? null,
     note: settlementNote(options.note, charged, hold.amount),
     allocations: returned,
     createdAt: now,
   });
-  return { charged, released };
+  return { charged, released, chargedAllocations: chargedFrom(hold.allocations, released) };
 }
 
 /** Returns a whole hold: processing failed, the question went unanswered. */
@@ -414,6 +427,7 @@ export async function releaseHold(
 ): Promise<number | null> {
   const hold = await openHold(tx, holdId);
   if (!hold) return null;
+  const ledger = options.ledger ?? (hold.ledger as SubLedger | null) ?? undefined;
   await moveGrants(tx, hold.allocations, 1);
   await tx
     .update(schema.creditHold)
@@ -422,14 +436,41 @@ export async function releaseHold(
   await tx.insert(schema.creditEntry).values({
     userId: hold.userId,
     delta: hold.amount,
-    reason: reasonsFor(hold.kind, options.ledger).release,
+    reason: reasonsFor(hold.kind, ledger).release,
     refId: hold.refId,
-    reeId: options.reeId ?? null,
+    reeId: options.reeId ?? hold.reeId ?? null,
     note: options.note ?? null,
     allocations: hold.allocations,
     createdAt: now,
   });
   return hold.amount;
+}
+
+/**
+ * How much of a charge was paid from money someone paid in (review H2):
+ * Plan and Pack grants bought through Paddle, and withdrawable earned
+ * grants. Welcome credits, redeemed codes and console grants are free.
+ */
+export async function paidShare(executor: Executor, allocations: readonly Allocation[]): Promise<{ paid: number; free: number }> {
+  const ids = [...new Set(allocations.filter((entry) => entry.amount > 0).map((entry) => entry.grantId))];
+  if (ids.length === 0) return { paid: 0, free: 0 };
+  const rows = await executor
+    .select({ id: schema.creditGrant.id, source: schema.creditGrant.source, purchaseId: schema.creditGrant.purchaseId, withdrawableAt: schema.creditGrant.withdrawableAt })
+    .from(schema.creditGrant)
+    .where(inArray(schema.creditGrant.id, ids));
+  const paying = new Set(rows.filter(grantIsPaid).map((row) => row.id));
+  let paid = 0;
+  let free = 0;
+  for (const entry of allocations) {
+    if (paying.has(entry.grantId)) paid += entry.amount;
+    else free += entry.amount;
+  }
+  return { paid, free };
+}
+
+function grantIsPaid(grant: { source: GrantSource; purchaseId: string | null; withdrawableAt: Date | null }): boolean {
+  if (!(PAYING_GRANT_SOURCES as readonly GrantSource[]).includes(grant.source)) return false;
+  return grant.source === 'earned' ? grant.withdrawableAt !== null : grant.purchaseId !== null;
 }
 
 /** The open hold for a reference (a knowledge row being processed), if any. */

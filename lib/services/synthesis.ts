@@ -131,7 +131,13 @@ export async function synthesize(input: { userId: string; lang: 'zh' | 'en'; con
           abortSignal: AbortSignal.timeout(Math.max(generation.endpoint.timeoutMs, 30_000) * 2),
         });
         let streamed = '';
-        for await (const delta of result.textStream) {
+        /* The full stream: `textStream` drops `error` / `abort` parts, which would charge a cut-off synthesis (review M6). */
+        for await (const chunk of result.stream) {
+          if (chunk.type === 'error') throw chunk.error instanceof Error ? chunk.error : new Error(`stream error: ${String(chunk.error)}`);
+          if (chunk.type === 'abort') throw new Error(`stream aborted${chunk.reason ? `: ${chunk.reason}` : ''}`);
+          if (chunk.type === 'finish' && chunk.finishReason === 'error') throw new Error('stream finished with an error');
+          if (chunk.type !== 'text-delta') continue;
+          const delta = chunk.text;
           if (!open) {
             write({ type: 'text-start', id: TEXT_ID });
             open = true;
@@ -152,7 +158,7 @@ export async function synthesize(input: { userId: string; lang: 'zh' | 'en'; con
       } catch (error) {
         console.warn(`synthesis request=${requestId} failed: ${error instanceof Error ? error.message : 'unknown'}`);
         if (open) write({ type: 'text-end', id: TEXT_ID });
-        await giveBack().catch(() => undefined);
+        await giveBack().catch((failure: unknown) => console.error(`synthesis request=${requestId} hold not given back: ${failure instanceof Error ? failure.message : 'unknown'}`));
         write(part({ synthesisId: null, state: 'failed', content: '', sources: [], cost: 0 }));
       }
       write({ type: 'finish' });

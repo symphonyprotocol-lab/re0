@@ -179,6 +179,8 @@ describeWithDb('admin pricing and checkout', () => {
             items: [{ price: { id: old.priceId } }],
             custom_data: { re0_user_id: userId },
             current_billing_period: { starts_at: now.toISOString(), ends_at: later.toISOString() },
+            /* The checkout `startCheckout` opened above: a subscription is ours only through one. */
+            transaction_id: transactionId,
           },
         },
         config,

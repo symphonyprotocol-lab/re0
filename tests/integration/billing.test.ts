@@ -53,7 +53,7 @@ const id = (prefix: string) => `${prefix}_${randomUUID().replace(/-/g, '').slice
 
 function transactionEvent(
   userId: string | null,
-  options: { kind: 'plan' | 'pack'; quantity?: number; transactionId?: string; subscriptionId?: string | null; period?: [Date, Date]; total?: string; type?: string },
+  options: { kind: 'plan' | 'pack'; quantity?: number; transactionId?: string; subscriptionId?: string | null; period?: [Date, Date]; total?: string; type?: string; renewal?: boolean },
 ) {
   const period = options.period;
   return {
@@ -65,7 +65,7 @@ function transactionEvent(
       status: 'completed',
       customer_id: 'ctm_test',
       subscription_id: options.subscriptionId ?? null,
-      origin: 'web',
+      origin: options.renewal ? 'subscription_recurring' : 'web',
       currency_code: 'USD',
       custom_data: userId ? { re0_user_id: userId, re0_kind: options.kind } : null,
       billing_period: period ? { starts_at: period[0].toISOString(), ends_at: period[1].toISOString() } : null,
@@ -112,8 +112,46 @@ function adjustmentEvent(transactionId: string, options: { action?: string; tota
   };
 }
 
+/**
+ * What `startCheckout` leaves behind for these events: the checkout row of a
+ * web payment, and the checkout a new subscription started from. A payment
+ * or subscription without one is not ours (review M5); tests of that build
+ * their events without this.
+ */
+async function ours(event: { event_type: string; data: unknown }) {
+  const data = event.data as {
+    id: string;
+    origin?: string;
+    custom_data?: Record<string, unknown> | null;
+    items?: { quantity?: number; price: { id: string } | null }[];
+    transaction_id?: string | null;
+  };
+  const userId = typeof data.custom_data?.re0_user_id === 'string' ? data.custom_data.re0_user_id : null;
+  if (!userId) return;
+  const kind = data.custom_data?.re0_kind === 'pack' ? 'pack' : 'plan';
+  const credits = kind === 'plan' ? 50_000 : 100_000;
+  if (event.event_type.startsWith('transaction.') && data.origin === 'web') {
+    await db()
+      .insert(schema.paddleCheckout)
+      .values({ paddleTransactionId: data.id, userId, kind, quantity: data.items?.[0]?.quantity ?? 1, unitCredits: credits })
+      .onConflictDoNothing();
+  }
+  if (event.event_type.startsWith('subscription.') && !data.transaction_id) {
+    const [held] = await db().select({ id: schema.subscription.id }).from(schema.subscription).where(eq(schema.subscription.paddleSubscriptionId, data.id)).limit(1);
+    if (held) return;
+    data.transaction_id = id('txn');
+    await db().insert(schema.paddleCheckout).values({ paddleTransactionId: data.transaction_id, userId, kind: 'plan', quantity: 1, unitCredits: 50_000 });
+  }
+}
+
+async function applyPaddleEvent(event: Parameters<typeof billing.applyPaddleEvent>[0], prices: Parameters<typeof billing.applyPaddleEvent>[1], now?: Date) {
+  await ours(event);
+  return billing.applyPaddleEvent(event, prices, now);
+}
+
 /** Through the webhook entry point, signed like Paddle signs it. */
-async function deliver(event: object, now = during) {
+async function deliver(event: { event_type: string; data: unknown }, now = during) {
+  await ours(event);
   const raw = JSON.stringify(event);
   return billing.receivePaddleWebhook(raw, signPaddleBody(raw, CONFIG.webhookSecret), CONFIG, now);
 }
@@ -122,8 +160,8 @@ async function deliver(event: object, now = during) {
 async function subscribe(userId: string, now = during) {
   const subscriptionId = id('sub');
   const transactionId = id('txn');
-  await billing.applyPaddleEvent(subscriptionEvent(userId, { subscriptionId, type: 'subscription.created' }), PRICES, now);
-  await billing.applyPaddleEvent(transactionEvent(userId, { kind: 'plan', transactionId, subscriptionId, period: [start, end] }), PRICES, now);
+  await applyPaddleEvent(subscriptionEvent(userId, { subscriptionId, type: 'subscription.created' }), PRICES, now);
+  await applyPaddleEvent(transactionEvent(userId, { kind: 'plan', transactionId, subscriptionId, period: [start, end] }), PRICES, now);
   return { subscriptionId, transactionId };
 }
 
@@ -167,8 +205,8 @@ describeWithDb('Plan and Pack purchases', () => {
 
     /* The same payment told twice (`transaction.paid`, then `.completed`) and an event re-sent. */
     const again = transactionEvent(userId, { kind: 'plan', transactionId, period: [start, end], type: 'transaction.paid' });
-    expect(await billing.applyPaddleEvent(again, PRICES, during)).toBe('already_credited');
-    expect(await billing.applyPaddleEvent(again, PRICES, during)).toBe('duplicate');
+    expect(await applyPaddleEvent(again, PRICES, during)).toBe('already_credited');
+    expect(await applyPaddleEvent(again, PRICES, during)).toBe('duplicate');
     expect(await balanceOf(db(), userId, during)).toBe(WELCOME_CREDITS + 50_000);
 
     const summary = await billing.billingSummary(userId, during);
@@ -213,7 +251,7 @@ describeWithDb('Plan and Pack purchases', () => {
   it('spends Plan, then welcome, then Pack, then earned; refunds walk back', async () => {
     const userId = await newUser();
     await subscribe(userId);
-    await billing.applyPaddleEvent(transactionEvent(userId, { kind: 'pack', quantity: 1 }), PRICES, during);
+    await applyPaddleEvent(transactionEvent(userId, { kind: 'pack', quantity: 1 }), PRICES, during);
     await db().transaction((tx) => addGrant(tx, { userId, source: 'earned', amount: 5_000, reason: 'admin_adjust', refId: randomUUID() }, during));
     const holdId = await db().transaction((tx) =>
       placeHold(tx, { userId, kind: 'knowledge', amount: 50_000 + WELCOME_CREDITS + 100_000 + 1_000, refId: randomUUID() }, during),
@@ -257,7 +295,7 @@ describeWithDb('one Plan at a time', () => {
     const userId = await newUser();
     const { subscriptionId } = await subscribe(userId);
     const after = new Date(end.getTime() + 60 * 60 * 1000);
-    await billing.applyPaddleEvent(
+    await applyPaddleEvent(
       subscriptionEvent(userId, { subscriptionId, status: 'past_due', period: [end, new Date('2027-01-01T00:00:00Z')], updatedAt: after }),
       PRICES,
       after,
@@ -267,7 +305,7 @@ describeWithDb('one Plan at a time', () => {
     expect(await billing.startCheckout(userId, { kind: 'plan', consent: true }, { config: CONFIG, create, now: after })).toEqual({ ok: false, error: 'renewal_pending' });
     expect(await billing.startCheckout(userId, { kind: 'pack', quantity: 1, consent: true }, { config: CONFIG, create, now: after })).toEqual({ ok: false, error: 'plan_required' });
     /* Paddle gives up and cancels: a new Plan may start. */
-    await billing.applyPaddleEvent(subscriptionEvent(userId, { subscriptionId, status: 'canceled', updatedAt: new Date(after.getTime() + 1000), type: 'subscription.canceled' }), PRICES, after);
+    await applyPaddleEvent(subscriptionEvent(userId, { subscriptionId, status: 'canceled', updatedAt: new Date(after.getTime() + 1000), type: 'subscription.canceled' }), PRICES, after);
     expect((await billing.startCheckout(userId, { kind: 'plan', consent: true }, { config: CONFIG, create, now: after })).ok).toBe(true);
   });
 });
@@ -277,10 +315,10 @@ describeWithDb('payments as Paddle took them', () => {
     const userId = await newUser();
     await subscribe(userId);
     const big = id('txn');
-    await billing.applyPaddleEvent(transactionEvent(userId, { kind: 'pack', quantity: 12, transactionId: big }), PRICES, during);
+    await applyPaddleEvent(transactionEvent(userId, { kind: 'pack', quantity: 12, transactionId: big }), PRICES, during);
     const odd = transactionEvent(userId, { kind: 'pack', quantity: 2 });
     (odd.data as { details: unknown }).details = null;
-    await billing.applyPaddleEvent(odd, PRICES, during);
+    await applyPaddleEvent(odd, PRICES, during);
     const purchases = await db().select().from(schema.purchase).where(and(eq(schema.purchase.userId, userId), eq(schema.purchase.kind, 'pack')));
     expect(purchases.map((row) => [row.quantity, row.credits, row.amountMinor]).sort()).toEqual([
       [12, 1_200_000, 12_000],
@@ -297,7 +335,7 @@ describeWithDb('the Plan period', () => {
   it('turning renewal off keeps the period; at its end Plan credits expire and Packs stay', async () => {
     const userId = await newUser();
     const { subscriptionId } = await subscribe(userId);
-    await billing.applyPaddleEvent(transactionEvent(userId, { kind: 'pack', quantity: 2 }), PRICES, during);
+    await applyPaddleEvent(transactionEvent(userId, { kind: 'pack', quantity: 2 }), PRICES, during);
 
     const cancelled = { ...subscriptionEvent(userId, { subscriptionId, cancel: true }).data };
     const result = await billing.setRenewal(userId, 'cancel', { config: CONFIG, cancel: async () => cancelled, now: during });
@@ -326,7 +364,7 @@ describeWithDb('the Plan period', () => {
 
     /* The cron again, and Paddle's own `canceled` notice later: nothing more to do. */
     await billing.expireDuePlans(after);
-    await billing.applyPaddleEvent(subscriptionEvent(userId, { subscriptionId, status: 'canceled', type: 'subscription.canceled' }), PRICES, after);
+    await applyPaddleEvent(subscriptionEvent(userId, { subscriptionId, status: 'canceled', type: 'subscription.canceled' }), PRICES, after);
     expect((await entriesOf(userId)).filter((entry) => entry.reason === 'expire')).toHaveLength(1);
     await expectLedgerTraceable(userId);
   });
@@ -337,8 +375,8 @@ describeWithDb('the Plan period', () => {
     await db().transaction((tx) => placeHold(tx, { userId, kind: 'knowledge', amount: 30_000, refId: randomUUID() }, during));
     const next: [Date, Date] = [end, new Date('2027-01-01T00:00:00Z')];
     const renewedAt = new Date(end.getTime() + 5 * 60 * 1000);
-    await billing.applyPaddleEvent(subscriptionEvent(userId, { subscriptionId, period: next }), PRICES, renewedAt);
-    expect(await billing.applyPaddleEvent(transactionEvent(userId, { kind: 'plan', subscriptionId, period: next }), PRICES, renewedAt)).toBe('credited');
+    await applyPaddleEvent(subscriptionEvent(userId, { subscriptionId, period: next }), PRICES, renewedAt);
+    expect(await applyPaddleEvent(transactionEvent(userId, { kind: 'plan', subscriptionId, period: next, renewal: true }), PRICES, renewedAt)).toBe('credited');
     const plans = (await grantsOf(userId)).filter((grant) => grant.source === 'plan');
     expect(plans.map((grant) => grant.remaining)).toEqual([0, 50_000]);
     const expiry = (await entriesOf(userId)).filter((entry) => entry.reason === 'expire');
@@ -351,9 +389,9 @@ describeWithDb('the Plan period', () => {
   it('ignores an older subscription event than the state it holds', async () => {
     const userId = await newUser();
     const { subscriptionId } = await subscribe(userId);
-    await billing.applyPaddleEvent(subscriptionEvent(userId, { subscriptionId, cancel: true, updatedAt: new Date('2026-11-05T00:00:00Z') }), PRICES, during);
+    await applyPaddleEvent(subscriptionEvent(userId, { subscriptionId, cancel: true, updatedAt: new Date('2026-11-05T00:00:00Z') }), PRICES, during);
     expect(
-      await billing.applyPaddleEvent(subscriptionEvent(userId, { subscriptionId, updatedAt: new Date('2026-11-04T00:00:00Z') }), PRICES, during),
+      await applyPaddleEvent(subscriptionEvent(userId, { subscriptionId, updatedAt: new Date('2026-11-04T00:00:00Z') }), PRICES, during),
     ).toBe('stale');
     expect((await billing.subscriptionOf(db(), userId))?.cancelAtPeriodEnd).toBe(true);
   });
@@ -361,9 +399,9 @@ describeWithDb('the Plan period', () => {
   it('a payment that beats its subscription event still unlocks Packs', async () => {
     const userId = await newUser();
     const subscriptionId = id('sub');
-    await billing.applyPaddleEvent(transactionEvent(userId, { kind: 'plan', subscriptionId, period: [start, end] }), PRICES, during);
+    await applyPaddleEvent(transactionEvent(userId, { kind: 'plan', subscriptionId, period: [start, end] }), PRICES, during);
     expect(await billing.hasActivePlan(db(), userId, during)).toBe(true);
-    await billing.applyPaddleEvent(subscriptionEvent(userId, { subscriptionId, type: 'subscription.created' }), PRICES, during);
+    await applyPaddleEvent(subscriptionEvent(userId, { subscriptionId, type: 'subscription.created' }), PRICES, during);
     expect(await db().select().from(schema.subscription).where(eq(schema.subscription.userId, userId))).toHaveLength(1);
   });
 });
@@ -373,7 +411,7 @@ describeWithDb('refunds and chargebacks', () => {
     const userId = await newUser();
     await subscribe(userId);
     const packTxn = id('txn');
-    await billing.applyPaddleEvent(transactionEvent(userId, { kind: 'pack', quantity: 1, transactionId: packTxn }), PRICES, during);
+    await applyPaddleEvent(transactionEvent(userId, { kind: 'pack', quantity: 1, transactionId: packTxn }), PRICES, during);
     /* Spend Plan, welcome and 40,000 of the Pack. */
     await db().transaction((tx) => placeHold(tx, { userId, kind: 'knowledge', amount: 50_000 + WELCOME_CREDITS + 40_000, refId: randomUUID() }, during));
     expect(await balanceOf(db(), userId, during)).toBe(60_000);
@@ -395,7 +433,7 @@ describeWithDb('refunds and chargebacks', () => {
     /* Next month's Plan pays the debt first. */
     const next: [Date, Date] = [end, new Date('2027-01-01T00:00:00Z')];
     const subscription = await billing.subscriptionOf(db(), userId);
-    await billing.applyPaddleEvent(transactionEvent(userId, { kind: 'plan', subscriptionId: subscription!.paddleSubscriptionId, period: next }), PRICES, end);
+    await applyPaddleEvent(transactionEvent(userId, { kind: 'plan', subscriptionId: subscription!.paddleSubscriptionId, period: next, renewal: true }), PRICES, end);
     expect(await balanceOf(db(), userId, end)).toBe(10_000);
     const [cleared] = await db().select().from(schema.creditDebt).where(eq(schema.creditDebt.userId, userId));
     expect(cleared!.remaining).toBe(0);
@@ -408,7 +446,7 @@ describeWithDb('refunds and chargebacks', () => {
     const userId = await newUser();
     await subscribe(userId);
     const packTxn = id('txn');
-    await billing.applyPaddleEvent(transactionEvent(userId, { kind: 'pack', quantity: 4, transactionId: packTxn }), PRICES, during);
+    await applyPaddleEvent(transactionEvent(userId, { kind: 'pack', quantity: 4, transactionId: packTxn }), PRICES, during);
     await deliver(adjustmentEvent(packTxn, { total: '1000' }));
     expect((await grantsOf(userId)).find((grant) => grant.source === 'pack')!.remaining).toBe(300_000);
     expect(await deliver(adjustmentEvent(packTxn, { total: '500', status: 'pending_approval' }))).toBe('ignored');
@@ -431,18 +469,24 @@ describeWithDb('the webhook door', () => {
     expect(await balanceOf(db(), userId)).toBe(WELCOME_CREDITS);
   });
 
-  it('asks for a retry when it cannot tell whose payment it is, and leaves no trace', async () => {
-    const event = transactionEvent(null, { kind: 'pack', quantity: 1 });
-    await expect(billing.applyPaddleEvent(event, PRICES, during)).rejects.toBeInstanceOf(billing.RetryLater);
+  it('asks for a retry when a renewal’s subscription is not here yet, and leaves no trace', async () => {
+    const event = transactionEvent(null, { kind: 'plan', subscriptionId: id('sub'), period: [start, end], renewal: true });
+    await expect(applyPaddleEvent(event, PRICES, during)).rejects.toBeInstanceOf(billing.RetryLater);
     expect(await db().select().from(schema.billingEvent).where(eq(schema.billingEvent.id, event.event_id))).toHaveLength(0);
+  });
+
+  it('records, without crediting, a payment that names no buyer and no checkout of ours', async () => {
+    const event = transactionEvent(null, { kind: 'pack', quantity: 1 });
+    expect(await applyPaddleEvent(event, PRICES, during)).toBe('unmatched');
+    expect(await db().select().from(schema.purchase).where(eq(schema.purchase.paddleTransactionId, event.data.id))).toHaveLength(0);
   });
 
   it('ignores what is not ours', async () => {
     const userId = await newUser();
     const foreign = transactionEvent(userId, { kind: 'pack' });
     foreign.data.items = [{ quantity: 1, price: { id: 'pri_someone_else' } }];
-    expect(await billing.applyPaddleEvent(foreign, PRICES, during)).toBe('ignored');
-    expect(await billing.applyPaddleEvent({ event_id: id('evt'), event_type: 'customer.updated', data: {} }, PRICES, during)).toBe('ignored');
+    expect(await applyPaddleEvent(foreign, PRICES, during)).toBe('ignored');
+    expect(await applyPaddleEvent({ event_id: id('evt'), event_type: 'customer.updated', data: {} }, PRICES, during)).toBe('ignored');
   });
 });
 

@@ -64,7 +64,8 @@ async function newAdministrator(): Promise<string> {
 }
 
 async function earn(userId: string, amount: number): Promise<void> {
-  await db().transaction((tx) => addGrant(tx, { userId, source: 'earned', amount, reason: 'query_fee_earned', refId: crypto.randomUUID() }));
+  /* Paid for by the askers and past the maturity period, so a payout may draw on it (review H2). */
+  await db().transaction((tx) => addGrant(tx, { userId, source: 'earned', amount, reason: 'query_fee_earned', refId: crypto.randomUUID(), withdrawableAt: new Date(Date.now() - 24 * 60 * 60 * 1000) }));
 }
 
 async function pack(userId: string, amount: number): Promise<void> {

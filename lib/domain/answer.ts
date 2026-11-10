@@ -152,6 +152,17 @@ export function isNoAnswer(text: string): boolean {
 }
 
 /**
+ * Whether a finished stream settles as no answer (review H3): it was the
+ * sentinel from the start, or it ends on the sentinel after no more than a
+ * short refusal was shown. A reply that showed more than `refusalChars`
+ * before ending on the sentinel was read as an answer and is charged as one.
+ */
+export function settlesAsNoAnswer(raw: string, shown: string, refusalChars: number): boolean {
+  if (!isNoAnswer(raw)) return false;
+  return Array.from(shown.trim()).length <= refusalChars;
+}
+
+/**
  * A streamed answer with the sentinel taken out: some models answer, write the
  * sentinel anyway, then answer again. `send` is safe to show; `keep` is a tail
  * that could still turn into the sentinel and waits for the next delta.

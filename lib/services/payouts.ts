@@ -35,6 +35,7 @@ import {
   type PayoutStatus,
 } from '@/lib/domain/payouts';
 import type { UserRole } from '@/lib/domain/roles';
+import { isWithdrawable } from '@/lib/domain/credits';
 import { db, schema, type Executor, type Tx } from '@/lib/infra/db';
 import { AdminInputError, audit } from '@/lib/services/admin';
 import { bucketStart, trendOf } from '@/lib/services/admin-finance';
@@ -52,10 +53,23 @@ export class PayoutRefused extends Error {
   }
 }
 
-/** Earned credits not yet spent or held: the most a payout may ask for. */
-export async function withdrawable(executor: Executor, userId: string, lock = false): Promise<number> {
+/**
+ * Earned credits not yet spent or held that a payout may draw on: paid for
+ * by the askers (not from free credits) and past `EARNED_MATURITY_DAYS`
+ * (review H2). The most a payout may ask for.
+ */
+export async function withdrawable(executor: Executor, userId: string, lock = false, now = new Date()): Promise<number> {
   const grants = await grantsOf(executor, userId, lock);
-  return grants.filter((grant) => grant.source === 'earned').reduce((sum, grant) => sum + grant.remaining, 0);
+  return grants.filter((grant) => isWithdrawable(grant, now)).reduce((sum, grant) => sum + grant.remaining, 0);
+}
+
+/** What the user still owes from refunds or chargebacks that found the credits spent (2.3). */
+export async function openDebt(executor: Executor, userId: string): Promise<number> {
+  const [row] = await executor
+    .select({ owed: sql<string>`coalesce(sum(${schema.creditDebt.remaining}), 0)` })
+    .from(schema.creditDebt)
+    .where(and(eq(schema.creditDebt.userId, userId), sql`${schema.creditDebt.remaining} > 0`));
+  return Number(row?.owed ?? 0);
 }
 
 async function openPayout(executor: Executor, userId: string): Promise<PayoutRow | null> {
@@ -73,7 +87,7 @@ async function standing(executor: Executor, userId: string, now: Date, lock = fa
   if (!account) throw new PayoutRefused('not_found');
   const latest = await latestKyc(executor, userId);
   const open = await openPayout(executor, userId);
-  const available = await withdrawable(executor, userId, lock);
+  const available = await withdrawable(executor, userId, lock, now);
   const kyc = kycState(latest);
   const stage = payoutStage({
     official: account.role === 'official',
@@ -159,10 +173,13 @@ export async function requestPayout(userId: string, rawCredits: unknown, now = n
       await tx.execute(sql`select pg_advisory_xact_lock(hashtext(${`payout:${userId}`}))`);
       const { account, latest, available, stage } = await standing(tx, userId, now, true);
       if (stage !== 'eligible' && stage !== 'threshold') throw new PayoutRefused(STAGE_REFUSALS[stage]);
+      if (account.disabledAt) throw new PayoutRefused('disabled');
+      /* A refund that found the credits spent is owed first; it is not paid out of the platform's pocket (review M10). */
+      if ((await openDebt(tx, userId)) > 0) throw new PayoutRefused('debt_open');
       const credits = parsePayoutCredits(rawCredits, available);
       if (typeof credits !== 'number') throw new PayoutRefused(credits.error);
       const id = crypto.randomUUID();
-      const holdId = await placeHold(tx, { userId, kind: 'payout', amount: credits, refId: id, note: `PayPal ${account.paypalEmail}`, sources: ['earned'] }, now);
+      const holdId = await placeHold(tx, { userId, kind: 'payout', amount: credits, refId: id, note: `PayPal ${account.paypalEmail}`, sources: ['earned'], withdrawableOnly: true }, now);
       const [row] = await tx
         .insert(schema.payout)
         .values({ id, userId, credits, paypalEmail: account.paypalEmail!, holdId, kycRecordId: latest!.id, createdAt: now })
@@ -370,6 +387,7 @@ export async function payoutDetail(id: string) {
     .limit(1);
   if (!row) return null;
   const latest = await latestKyc(database, row.payout.userId);
+  const debt = await openDebt(database, row.payout.userId);
   const item = listItem(row);
   return {
     payout: item,
@@ -380,10 +398,12 @@ export async function payoutDetail(id: string) {
       role: row.account.role,
       disabled: Boolean(row.account.disabledAt),
       paypalEmail: row.account.paypalEmail,
+      /** Credits still owed from refunds or chargebacks; approval and payment wait until it is cleared. */
+      debt,
     },
     kyc: latest ? { id: latest.id, status: latest.status, taxForm: latest.taxForm, declared: Boolean(latest.taxDeclaredAt), legalName: latest.legalName } : null,
-    /** Approval and payment need verified identity and a non-official account (8.4 step 6). */
-    payable: item.kyc === 'verified' && row.account.role !== 'official',
+    /** Approval and payment need verified identity, a non-official, active account and no open refund debt (8.4 step 6, review M10). */
+    payable: item.kyc === 'verified' && row.account.role !== 'official' && !row.account.disabledAt && debt === 0,
   };
 }
 
@@ -395,8 +415,11 @@ async function lockPayout(tx: Tx, id: string): Promise<PayoutRow> {
 }
 
 async function assertPayable(tx: Tx, userId: string): Promise<void> {
-  const [account] = await tx.select({ role: schema.user.role }).from(schema.user).where(eq(schema.user.id, userId)).limit(1);
+  const [account] = await tx.select({ role: schema.user.role, disabledAt: schema.user.disabledAt }).from(schema.user).where(eq(schema.user.id, userId)).limit(1);
   if (account?.role === 'official') throw new AdminInputError('official');
+  /* A disabled account, or one that still owes a refund, is not paid (review M10); rejecting it stays possible. */
+  if (account?.disabledAt) throw new AdminInputError('disabled');
+  if ((await openDebt(tx, userId)) > 0) throw new AdminInputError('debt_open');
   if (kycState(await latestKyc(tx, userId)) !== 'verified') throw new AdminInputError('kyc_required');
 }
 
@@ -438,6 +461,16 @@ export async function decidePayout(administratorId: string, id: string, decision
 export async function recordPayment(administratorId: string, id: string, input: { transferId?: unknown; paid?: unknown }, now = new Date()): Promise<PayoutRow> {
   const transferId = parseTransferId(input.transferId);
   if (!transferId) throw new AdminInputError('transfer_id');
+  try {
+    return await recordPaymentInTx(administratorId, id, transferId, input, now);
+  } catch (error) {
+    /* `payout_transfer_key`: two requests recorded with one transfer at the same moment. */
+    if ((error as { cause?: { code?: string } } | null)?.cause?.code === '23505') throw new AdminInputError('transfer_used');
+    throw error;
+  }
+}
+
+function recordPaymentInTx(administratorId: string, id: string, transferId: string, input: { paid?: unknown }, now: Date): Promise<PayoutRow> {
   return db().transaction(async (tx) => {
     const payout = await lockPayout(tx, id);
     if (!canMove(payout.status, 'paid')) throw new AdminInputError('stale');
