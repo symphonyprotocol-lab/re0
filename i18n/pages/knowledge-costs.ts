@@ -17,7 +17,7 @@ export const zh = {
   revision: '价格版本', rate: '当时采用的单价', rateSource: '单价依据', account: '服务账户 / 密钥 ID',
   createdAt: '预留时间', closedAt: '结算 / 退款时间', back: '返回成本统计', openSource: '查看知识来源', pricing: '成本单价配置',
   retention: '明细保留添加时的来源名称和用量快照；来源清理后仍可对账。', costHigh: '成本从高到低', costLow: '成本从低到高',
-  refundNote: '退回金额包括失败全额退款，以及成功结算时退回的多余预留。未结算预留不计入净扣费。',
+  refundNote: '退回金额包括失败时没用掉的预留（什么都没花的失败全额退回），以及成功结算时退回的多余预留。未结算预留不计入净扣费。',
 };
 export const en: Shape<typeof zh> = {
   title: 'Knowledge processing costs', description: 'Supplier usage and customer credits for each preprocessing attempt. Retries are recorded separately.',
@@ -37,5 +37,5 @@ export const en: Shape<typeof zh> = {
   revision: 'Price revision', rate: 'Unit rate used', rateSource: 'Rate source', account: 'Service account / key ID',
   createdAt: 'Reserved at', closedAt: 'Settled / refunded at', back: 'Back to cost statistics', openSource: 'View knowledge source', pricing: 'Supplier price settings',
   retention: 'Source names and usage are saved as snapshots for reconciliation after source cleanup.', costHigh: 'Highest cost first', costLow: 'Lowest cost first',
-  refundNote: 'Returned credits include full failure refunds and unused reservations returned on success. Open reservations are excluded from net charges.',
+  refundNote: 'Returned credits include reservations a failure did not use (all of it when nothing was spent) and unused reservations returned on success. Open reservations are excluded from net charges.',
 };

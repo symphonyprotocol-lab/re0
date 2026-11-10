@@ -151,6 +151,25 @@ export interface AnswerInput {
    * (MCP, older clients), the current fee applies.
    */
   seenFees?: Record<string, number> | null;
+  /**
+   * The id the web client gave this ask (review C2). A second request with
+   * the same id in the conversation is refused as `duplicate` before any
+   * hold, so a replayed request never charges twice. Not a UUID → ignored.
+   */
+  clientRequestId?: string | null;
+}
+
+const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+
+/** The client's request id when it is one the column can hold, lower-cased; otherwise none. */
+export function clientRequestIdOf(value: unknown): string | null {
+  return typeof value === 'string' && UUID.test(value) ? value.toLowerCase() : null;
+}
+
+function isClientRequestRepeat(error: unknown): boolean {
+  const cause = error as { code?: string; constraint?: string; cause?: { code?: string; constraint?: string } } | null;
+  const pg = cause?.code === '23505' ? cause : cause?.cause?.code === '23505' ? cause.cause : null;
+  return Boolean(pg) && (pg!.constraint === undefined || pg!.constraint === 'message_client_request_key');
 }
 
 /**
@@ -179,7 +198,8 @@ export interface HeldQuestion {
 export type Holding =
   | { ok: true; question: HeldQuestion }
   | { ok: false; reason: 'insufficient'; balance: number; needed: number }
-  | { ok: false; reason: 'price_changed'; fees: { reeId: string; fee: number }[] };
+  | { ok: false; reason: 'price_changed'; fees: { reeId: string; fee: number }[] }
+  | { ok: false; reason: 'duplicate' };
 
 /** Rees whose fee to this user is now above what the asker saw: the "price changed" answer. */
 export function raisedFees(targets: readonly Pick<Ree, 'id' | 'ownerId' | 'queryFee'>[], userId: string, seen: Record<string, number> | null | undefined): { reeId: string; fee: number }[] {
@@ -201,6 +221,16 @@ export async function holdQuestion(input: AnswerInput): Promise<Holding> {
   /* What is asked, without the `@name`s that only say who is asked. */
   const subject = withoutMentions(question, targets.map((ree) => ree.name));
   const database = db();
+  const clientRequestId = clientRequestIdOf(input.clientRequestId);
+  /* A replay of an ask already taken is told so before the fee check, so it is never offered as a new question (C2). */
+  if (clientRequestId) {
+    const [taken] = await database
+      .select({ id: schema.message.id })
+      .from(schema.message)
+      .where(and(eq(schema.message.conversationId, conversation.id), eq(schema.message.clientRequestId, clientRequestId)))
+      .limit(1);
+    if (taken) return { ok: false, reason: 'duplicate' };
+  }
   const raised = raisedFees(targets, userId, input.seenFees);
   if (raised.length) return { ok: false, reason: 'price_changed', fees: raised };
   const ready = await readyRees(targets.map((ree) => ree.id));
@@ -211,7 +241,7 @@ export async function holdQuestion(input: AnswerInput): Promise<Holding> {
     const { askedId, held } = await database.transaction(async (tx) => {
       const [asked] = await tx
         .insert(schema.message)
-        .values({ conversationId: conversation.id, role: 'user', content: question, apiKeyId: input.apiKeyId ?? null })
+        .values({ conversationId: conversation.id, role: 'user', content: question, apiKeyId: input.apiKeyId ?? null, clientRequestId })
         .returning({ id: schema.message.id });
       const holds: Held[] = [];
       for (const ree of asking) {
@@ -235,6 +265,8 @@ export async function holdQuestion(input: AnswerInput): Promise<Holding> {
     return { ok: true, question: { input, askedId, held, asking, subject } };
   } catch (error) {
     if (error instanceof InsufficientCredits) return { ok: false, reason: 'insufficient', balance: await balanceOf(database, userId), needed };
+    /* The same ask racing the first one past the check above: the unique index refuses it, nothing is held. */
+    if (clientRequestId && isClientRequestRepeat(error)) return { ok: false, reason: 'duplicate' };
     throw error;
   }
 }
@@ -504,6 +536,7 @@ export async function answer(input: AnswerInput): Promise<Response> {
   const holding = await holdQuestion(input);
   if (!holding.ok) {
     if (holding.reason === 'price_changed') return json({ error: 'price_changed', fees: holding.fees }, 409);
+    if (holding.reason === 'duplicate') return json({ error: 'duplicate_request' }, 409);
     const body: InsufficientCreditsBody = { error: 'insufficient_credits', balance: holding.balance, needed: holding.needed };
     return json(body, 402);
   }

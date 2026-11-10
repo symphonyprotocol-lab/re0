@@ -6,7 +6,7 @@ import { body, fail, json } from '@/lib/http/respond';
 import { rateLimited } from '@/lib/http/rate-limit';
 import { apiUser } from '@/lib/http/session';
 import { db, schema } from '@/lib/infra/db';
-import { answer } from '@/lib/services/answer';
+import { answer, clientRequestIdOf } from '@/lib/services/answer';
 import { clearConversation, ownedConversation } from '@/lib/services/chat';
 import { participantsOf, usableBy } from '@/lib/services/conversations';
 import { ownedRee } from '@/lib/services/rees';
@@ -41,7 +41,7 @@ export async function POST(request: NextRequest, context: Context) {
   if (conversation.kind === 'ree_test') {
     const ree = conversation.reeId ? await ownedRee(db(), user.id, conversation.reeId) : null;
     if (!ree) return fail('not_found', 404);
-    return answer({ userId: user.id, lang: user.lang, conversation, targets: [ree], question, verify });
+    return answer({ userId: user.id, lang: user.lang, conversation, targets: [ree], question, verify, clientRequestId: clientRequestIdOf(input.requestId) });
   }
 
   const participants = (await participantsOf(db(), conversation.id, user.id)).filter((ree) => ree.usable);
@@ -57,7 +57,7 @@ export async function POST(request: NextRequest, context: Context) {
   if (targets.length === 0) return fail('no_participants', 422);
   /* `fees`: the query fee per Ree the composer showed; a higher one now is refused with `price_changed`. */
   const seenFees = input.fees && typeof input.fees === 'object' && !Array.isArray(input.fees) ? (input.fees as Record<string, number>) : null;
-  return answer({ userId: user.id, lang: user.lang, conversation, targets, question, verify, seenFees });
+  return answer({ userId: user.id, lang: user.lang, conversation, targets, question, verify, seenFees, clientRequestId: clientRequestIdOf(input.requestId) });
 }
 
 /** "清空对话" of the test conversation: removes the messages; the ledger keeps what was charged. */

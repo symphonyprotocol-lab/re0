@@ -339,10 +339,13 @@ export const message = pgTable(
     checkCredits: integer('check_credits').notNull().default(0),
     /** On a question asked through the MCP server: the API key that asked it, for per-key usage. */
     apiKeyId: uuid('api_key_id').references((): AnyPgColumn => apiKey.id, { onDelete: 'set null' }),
+    /** On a question from the web: the id the client gave this ask, so a replayed request places no second hold. */
+    clientRequestId: uuid('client_request_id'),
     createdAt: createdAt(),
   },
   (t) => [
     index('message_conversation_idx').on(t.conversationId, t.createdAt),
+    uniqueIndex('message_client_request_key').on(t.conversationId, t.clientRequestId).where(sql`client_request_id is not null`),
     index('message_api_key_idx').on(t.apiKeyId, t.createdAt).where(sql`api_key_id is not null`),
     index('message_ree_idx').on(t.reeId, t.createdAt).where(sql`role = 'ree'`),
     check('message_role_check', oneOf('role', ['user', 'ree'])),

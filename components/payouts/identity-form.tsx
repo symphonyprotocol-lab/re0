@@ -2,7 +2,7 @@
 
 import { WorkspaceLink as Link } from '@/components/shell/workspace-link';
 import { useRouter } from 'next/navigation';
-import { useState, type ReactNode } from 'react';
+import { useRef, useState, type ReactNode } from 'react';
 import { KYC_DOCUMENT_KINDS, KYC_IMAGE_MAX_BYTES, KYC_IMAGE_TYPES, KYC_LIMITS, TAX_FORMS } from '@/lib/constants';
 import type { KycSlot, KycState } from '@/lib/domain/kyc';
 import { api } from '@/lib/client/upload';
@@ -50,16 +50,21 @@ export function IdentityForm({ state, record, today }: { state: KycState; record
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState('');
   const errors = f.errors as Record<string, string>;
+  /* The newest pick per slot: an earlier photo that finishes uploading later does not replace it. */
+  const picks = useRef<Record<KycSlot, number>>({ document: 0, selfie: 0 });
 
   async function pick(slot: KycSlot, file: File | undefined) {
     if (!file) return;
+    const ticket = ++picks.current[slot];
+    const latest = () => picks.current[slot] === ticket;
     setError('');
     if (!KYC_IMAGE_TYPES[file.type] || file.size <= 0 || file.size > KYC_IMAGE_MAX_BYTES) {
       setError(errors.invalid_image!);
       return;
     }
     setUploads((current) => ({ ...current, [slot]: { name: file.name, pathname: null, progress: 0 } }));
-    const result = await uploadKycImage(file, (progress) => setUploads((current) => ({ ...current, [slot]: { name: file.name, pathname: null, progress } })));
+    const result = await uploadKycImage(file, (progress) => latest() && setUploads((current) => ({ ...current, [slot]: { name: file.name, pathname: null, progress } })));
+    if (!latest()) return;
     if ('error' in result) {
       setUploads((current) => ({ ...current, [slot]: null }));
       setError(errors[result.error] ?? errors.upload!);

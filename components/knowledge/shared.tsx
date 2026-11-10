@@ -70,7 +70,8 @@ export function activityLabel(t: Messages, locale: 'zh' | 'en', entry: Knowledge
     case 'settled': {
       const values = Object.fromEntries(Object.entries(d).map(([key, value]) => [key, typeof value === 'number' ? n(value) : value]));
       if (typeof values.costUsd === 'string') values.costUsd = values.costUsd.replace(/0+$/, '').replace(/\.$/, '');
-      const label = fill(k.settled, values);
+      /* A failure the balance could not cover is owed (review C9): say so rather than "settled, released". */
+      const label = fill(Number(d.owed ?? 0) > 0 ? k.settledOwed : k.settled, values);
       if (d.tariff === 'provider-cost-v1') return `${label} · ${fill(k.providerTotal, values)}`;
       return d.tariff ? `${label} · ${fill(k.usage, values)}` : label;
     }

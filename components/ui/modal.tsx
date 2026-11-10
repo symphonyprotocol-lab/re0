@@ -19,6 +19,7 @@ export function Modal({
   footer,
   variant = 'center',
   wide = false,
+  dismissible = true,
 }: {
   open: boolean;
   onClose: () => void;
@@ -28,6 +29,8 @@ export function Modal({
   footer?: ReactNode;
   variant?: 'center' | 'drawer';
   wide?: boolean;
+  /** False for a dialog whose content is shown once (a new API key): Escape and a click outside leave it open; its buttons still close it. */
+  dismissible?: boolean;
 }) {
   const ref = useRef<HTMLDialogElement>(null);
   const titleId = useId();
@@ -45,10 +48,10 @@ export function Modal({
       onClose={onClose}
       onCancel={(event) => {
         event.preventDefault();
-        onClose();
+        if (dismissible) onClose();
       }}
       onClick={(event) => {
-        if (event.target === ref.current) onClose();
+        if (dismissible && event.target === ref.current) onClose();
       }}
       className={`modal${variant === 'drawer' ? ' drawer' : ''}${wide ? ' wide' : ''}`}
     >

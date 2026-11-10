@@ -4,7 +4,7 @@ import { searchReturnPath } from '@/lib/domain/conversation';
 import { currentUser } from '@/lib/http/session';
 import { db } from '@/lib/infra/db';
 import { storedSuggestions } from '@/lib/services/answer';
-import { messagesOf, toUIMessages, votesFor } from '@/lib/services/chat';
+import { answeringQuestion, messagesOf, toUIMessages, votesFor } from '@/lib/services/chat';
 import { liveConversation, participantsOf, priceFor, reeBriefs } from '@/lib/services/conversations';
 import { synthesesFor } from '@/lib/services/synthesis';
 import { serverMessages } from '@/i18n/server';
@@ -27,11 +27,12 @@ export default async function ConversationPage({ params, searchParams }: Props) 
   if (!conversation) notFound();
   const [participants, rows] = await Promise.all([participantsOf(db(), conversation.id, user!.id), messagesOf(conversation.id)]);
   const answerIds = rows.filter((row) => row.role === 'ree' && !row.noAnswer).map((row) => row.id);
-  const [briefs, votes, suggestions, syntheses] = await Promise.all([
+  const [briefs, votes, suggestions, syntheses, answering] = await Promise.all([
     reeBriefs(db(), user!.id, rows.flatMap((row) => (row.reeId ? [row.reeId] : []))),
     votesFor(user!.id, answerIds),
     storedSuggestions(user!.id, rows),
     synthesesFor(user!.id, conversation.id),
+    answeringQuestion(user!.id, rows),
   ]);
   const members = participants.filter((ree) => ree.usable).map((ree) => ({ ...ree, price: priceFor(ree, user!.id) }));
   const directory: ReeDirectory = Object.fromEntries([...briefs.values()].map((ree) => [ree.id, { ...ree, price: priceFor(ree, user!.id) }]));
@@ -45,6 +46,7 @@ export default async function ConversationPage({ params, searchParams }: Props) 
         members={members}
         directory={directory}
         initialMessages={toUIMessages(rows, { votes, suggestions, syntheses })}
+        answering={answering}
         viewerId={user!.id}
       />
     </>

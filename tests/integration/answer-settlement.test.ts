@@ -7,7 +7,8 @@
  */
 import { afterAll, beforeAll, describe, expect, it, vi } from 'vitest';
 import { pointModelsAt, TEST_DATABASE_URL, uniqueName } from './setup';
-import { and, eq } from 'drizzle-orm';
+import { and, eq, inArray } from 'drizzle-orm';
+import { randomUUID } from 'node:crypto';
 import { startFakeOpenAi, type FakeOpenAi } from '../fixtures/fake-openai';
 import { handbookPages, makePdf } from '../fixtures/pdf';
 import { startFakeFirecrawl } from '../fixtures/fake-firecrawl';
@@ -304,5 +305,36 @@ describeWithDb('the chat-hold cron (H5)', () => {
     const ok = await cron.GET(new Request('http://localhost/api/cron/release-chat-holds', { headers: { authorization: 'Bearer cron-test-secret' } }) as never);
     expect(ok.status).toBe(200);
     expect(await ok.json()).toMatchObject({ failed: 0 });
+  });
+});
+
+describeWithDb('one ask, one hold (review C2)', () => {
+  it('refuses a repeated client request id in the conversation before holding anything', async () => {
+    const { ree, askerId, conversation } = await setUp();
+    const requestId = randomUUID();
+    const first = await holdQuestion({ userId: askerId, lang: 'en', conversation, targets: [ree], question: QUESTION, clientRequestId: requestId });
+    expect(first.ok).toBe(true);
+    const askedId = first.ok ? first.question.askedId : '';
+    const afterFirst = await balanceOf(db(), askerId);
+
+    const again = await holdQuestion({ userId: askerId, lang: 'en', conversation, targets: [ree], question: QUESTION, clientRequestId: requestId.toUpperCase() });
+    expect(again).toEqual({ ok: false, reason: 'duplicate' });
+    /* Even when the fee shown with it is now out of date: a replay is not offered as a new question. */
+    const stale = await holdQuestion({ userId: askerId, lang: 'en', conversation, targets: [ree], question: QUESTION, clientRequestId: requestId, seenFees: { [ree.id]: 0 } });
+    expect(stale).toEqual({ ok: false, reason: 'duplicate' });
+    expect(await balanceOf(db(), askerId)).toBe(afterFirst);
+    const asked = await db().select().from(schema.message).where(and(eq(schema.message.conversationId, conversation.id), eq(schema.message.role, 'user')));
+    expect(asked).toHaveLength(1);
+
+    const response = await answer({ userId: askerId, lang: 'en', conversation, targets: [ree], question: QUESTION, clientRequestId: requestId });
+    expect(response.status).toBe(409);
+    expect(await response.json()).toEqual({ error: 'duplicate_request' });
+
+    /* A new id, or none (MCP, older clients), asks again; a malformed one is ignored rather than failing the ask. */
+    const other = await holdQuestion({ userId: askerId, lang: 'en', conversation, targets: [ree], question: QUESTION, clientRequestId: randomUUID() });
+    const bare = await holdQuestion({ userId: askerId, lang: 'en', conversation, targets: [ree], question: QUESTION, clientRequestId: 'not-a-uuid' });
+    expect(other.ok && bare.ok).toBe(true);
+    const ids = [askedId, other.ok ? other.question.askedId : '', bare.ok ? bare.question.askedId : ''];
+    await db().update(schema.creditHold).set({ status: 'released' }).where(inArray(schema.creditHold.refId, ids));
   });
 });

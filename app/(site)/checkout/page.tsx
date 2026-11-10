@@ -1,4 +1,6 @@
-import { currentPricing, pendingCheckoutPricing } from '@/lib/services/pricing';
+import { redirect } from 'next/navigation';
+import { currentPricing, ownsPaddleTransaction, pendingCheckoutPricing } from '@/lib/services/pricing';
+import { paymentLinkAccess } from '@/lib/domain/payment-link';
 import type { Metadata } from 'next';
 import { WorkspaceLink as Link } from '@/components/shell/workspace-link';
 import { pageQuantity } from '@/lib/domain/billing';
@@ -24,14 +26,26 @@ export async function generateMetadata(): Promise<Metadata> {
 export default async function CheckoutPage({ searchParams }: { searchParams: Promise<Record<string, string | undefined>> }) {
   const query = await searchParams;
   const [user, { t }, prices] = await Promise.all([currentUser(), serverMessages(), currentPricing()]);
-  const pending = typeof query._ptxn === 'string' && /^txn_[a-z0-9]{10,64}$/.test(query._ptxn) ? query._ptxn : null;
+  const linked = typeof query._ptxn === 'string' ? query._ptxn : null;
+  const pending = linked && /^txn_[a-z0-9]{10,64}$/.test(linked) ? linked : null;
   const previous = user && pending ? await pendingCheckoutPricing(user.id, pending) : null;
   const kind = previous?.kind ?? (query.kind === 'pack' ? 'pack' : 'plan');
   const quantity = previous?.quantity ?? (kind === 'pack' ? pageQuantity(query.quantity) : 1);
+  const self = kind === 'pack' ? `/checkout?kind=pack&quantity=${quantity}` : '/checkout?kind=plan';
+  /*
+   * Paddle.js opens any `_ptxn` in the address on its own, so a transaction
+   * that is not the viewer's never reaches the page (review C12): a visitor
+   * signs in first, anyone else's link loses it.
+   */
+  if (linked !== null) {
+    const owned = Boolean(user && pending && (previous || (await ownsPaddleTransaction(user.id, pending))));
+    const access = paymentLinkAccess({ signedIn: Boolean(user), owned });
+    if (access === 'sign_in') redirect(`/login?returnTo=${encodeURIComponent(pending ? `/checkout?_ptxn=${pending}` : self)}`);
+    if (access === 'drop') redirect(self);
+  }
   const c = t.site.checkout;
   const planActive = user ? await hasActivePlan(db(), user.id) : false;
   const config = paddleConfig();
-  const self = kind === 'pack' ? `/checkout?kind=pack&quantity=${quantity}` : '/checkout?kind=plan';
   return (
     <div className="mx-auto max-w-[1200px] px-4 py-10 sm:px-6 lg:py-14">
       <p className="flex flex-wrap items-center gap-2 font-mono text-[11px] text-muted">

@@ -1,7 +1,7 @@
 'use client';
 
 import { WorkspaceLink as Link } from '@/components/shell/workspace-link';
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { KNOWLEDGE_FOLDER_NAME_MAX, KNOWLEDGE_TITLE_MAX } from '@/lib/constants';
 import { holdFor, type KnowledgeKind } from '@/lib/domain/knowledge';
 import { api } from '@/lib/client/upload';
@@ -81,6 +81,13 @@ export function KnowledgeDialogs({
   const [newName, setNewName] = useState('');
   const [known, setKnown] = useState<{ id: string; name: string }[]>(folders ?? []);
 
+  /*
+   * The fields are set when a dialog opens, not when `folders` changes: the
+   * library polls every 3 s while a source processes, and each poll hands a
+   * new `folders` array (review C10). A newer list only refreshes the choices.
+   */
+  const latestFolders = useRef(folders);
+  latestFolders.current = folders;
   useEffect(() => {
     setError(null);
     setBusy(false);
@@ -89,10 +96,13 @@ export function KnowledgeDialogs({
       const current = [...new Set(dialog.items.map((item) => item.folderId ?? 'unfiled'))];
       setTarget(current.length === 1 ? current[0]! : 'unfiled');
       setNewName('');
-      if (folders) setKnown(folders);
+      if (latestFolders.current) setKnown(latestFolders.current);
       else void api<{ items: { id: string; name: string }[] }>(`/api/rees/${reeId}/folders`).then((result) => result.ok && setKnown(result.data.items));
     }
-  }, [dialog, folders, reeId]);
+  }, [dialog, reeId]);
+  useEffect(() => {
+    if (folders) setKnown(folders);
+  }, [folders]);
 
   const fail = (code: string | undefined, status: number) => setError({ text: status === 402 ? k.errors.insufficient_credits : errorText(t, code), code: status === 402 ? 'insufficient_credits' : code });
 

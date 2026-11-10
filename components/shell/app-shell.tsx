@@ -32,6 +32,8 @@ export interface ShellUser {
   balance: number;
   /** Welcome credits included in `balance`: the 「含赠送」 note under it. */
   welcome: number;
+  /** Open debt (knowledge costs a failure kept that the balance could not cover), repaid from the next credits. */
+  debt: number;
   plan: PlanUsage;
   reeCount: number;
   /** Step 4: the sidebar's pinned and recent conversations. */
@@ -182,9 +184,10 @@ function PlanMeter({ user }: { user: ShellUser }) {
   const membership = plan.active ? a.member : a.free;
   const status = plan.active ? (plan.cancelAtPeriodEnd ? a.ending : a.active) : a.upgrade;
   const gift = user.welcome > 0 ? fill(a.summaryGift, { n: n(user.welcome) }) : '';
-  const summary = plan.active
-    ? fill(a.summaryPlan, { total: n(user.balance), gift, used: n(plan.used), allowance: n(plan.allowance), remaining: n(plan.remaining) })
-    : fill(a.summaryFree, { total: n(user.balance), gift });
+  const summary =
+    (plan.active
+      ? fill(a.summaryPlan, { total: n(user.balance), gift, used: n(plan.used), allowance: n(plan.allowance), remaining: n(plan.remaining) })
+      : fill(a.summaryFree, { total: n(user.balance), gift })) + (user.debt > 0 ? fill(a.summaryDebt, { n: n(user.debt) }) : '');
   return (
     <Link
       href="/settings?tab=balance"
@@ -207,7 +210,13 @@ function PlanMeter({ user }: { user: ShellUser }) {
         <strong>{n(user.balance)}</strong>
         {plan.active && <span>{t.common.units.credits}</span>}
       </div>
-      {user.welcome > 0 && <div className="sidebar-usage-gift">{fill(a.includesWelcome, { n: n(user.welcome) })}</div>}
+      {(user.welcome > 0 || user.debt > 0) && (
+        <div className="sidebar-usage-gift">
+          {user.welcome > 0 && fill(a.includesWelcome, { n: n(user.welcome) })}
+          {user.welcome > 0 && user.debt > 0 && ' · '}
+          {user.debt > 0 && <span className="sidebar-usage-debt">{fill(a.owes, { n: n(user.debt) })}</span>}
+        </div>
+      )}
       {plan.active ? (
         <>
           <div

@@ -131,7 +131,7 @@ export default async function KycReviewPage({ params, searchParams }: Props) {
             {record.reason && <div className="kyc-feedback">{record.reason}</div>}
             {user.role === 'official' && <p className="form-hint">{d.official}</p>}
             {reviewable ? (
-              <KycDecision id={record.id} />
+              <KycDecision id={record.id} name={record.legalName ? `${user.name} · ${record.legalName}` : user.name} />
             ) : (
               <>
                 <p className="muted small">{record.status === 'reset' ? d.resetRow : data.latest ? d.processed : d.historical}</p>

@@ -11,6 +11,7 @@ import { repliesOf, type InsufficientCreditsBody, type ReeCheck, type ReeOutcome
 import { useI18n } from '@/i18n/client';
 import { fill, formatNumber } from '@/i18n/format';
 import { conversationApi } from '@/lib/client/conversations';
+import { useServerTranscript } from '@/components/chat/use-server-transcript';
 import { Icon } from '@/components/ui/icons';
 import { ConfirmModal, Modal } from '@/components/ui/modal';
 import { useToast } from '@/components/ui/toast';
@@ -53,12 +54,15 @@ export function ReeChat({
   readiness,
   maxCost,
   initialMessages,
+  answering = false,
 }: {
   conversationId: string;
   ree: ChatRee;
   readiness: { ready: number; processing: number };
   maxCost: number;
   initialMessages: ReeUIMessage[];
+  /** The latest question is still being answered on the server (its chat hold is open). */
+  answering?: boolean;
 }) {
   const { t, locale } = useI18n();
   const c = t.chat;
@@ -79,12 +83,14 @@ export function ReeChat({
   useNavigationHeight(page);
   const pendingQuestion = useRef('');
   const pendingVerify = useRef(false);
+  /* One per ask, so a replay of the request places no second hold on the server (review C2). */
+  const pendingRequestId = useRef('');
 
   const transport = useMemo(
     () =>
       new DefaultChatTransport<ReeUIMessage>({
         api: `/api/chats/${conversationId}/messages`,
-        prepareSendMessagesRequest: () => ({ body: { question: pendingQuestion.current, verify: pendingVerify.current } }),
+        prepareSendMessagesRequest: () => ({ body: { question: pendingQuestion.current, verify: pendingVerify.current, requestId: pendingRequestId.current } }),
       }),
     [conversationId],
   );
@@ -96,27 +102,44 @@ export function ReeChat({
     onError: (error) => {
       /* A refused hold comes back as a 402 JSON body instead of a stream. */
       try {
-        const body = JSON.parse(error.message) as Partial<InsufficientCreditsBody>;
-        if (body.error === 'insufficient_credits') {
-          setInsufficient(body as InsufficientCreditsBody);
-          setMessages((current) => current.slice(0, -1));
-          setInput(pendingQuestion.current);
+        const body = JSON.parse(error.message) as Partial<InsufficientCreditsBody> & { error?: string };
+        /* Refused before anything was asked: take the question back into the box. */
+        setMessages((current) => (current.at(-1)?.role === 'user' ? current.slice(0, -1) : current));
+        /* Already asked and being answered on the server: show its copy instead. */
+        if ((body.error as string | undefined) === 'duplicate_request') {
+          toast(c.alreadyAsked);
+          router.refresh();
           return;
         }
+        setInput(pendingQuestion.current);
+        if (body.error === 'insufficient_credits') {
+          setInsufficient(body as InsufficientCreditsBody);
+          return;
+        }
+        toast(t.common.errors.generic);
+        return;
       } catch {
-        /* not JSON */
+        /* not JSON: the stream itself broke */
       }
-      toast(t.common.errors.generic);
+      /* The server keeps answering and settles what it gives: show its copy rather than a half answer (review C3). */
+      toast(c.interrupted);
+      router.refresh();
     },
     onFinish: () => router.refresh(),
   });
 
   const busy = status === 'submitted' || status === 'streaming';
+  const { waiting } = useServerTranscript({ initialMessages, answering, busy, setMessages });
   const ready = readiness.ready > 0;
 
+  /* Follow the answer down only while the reader was at the bottom: scrolling up to reread is not pulled back. */
+  const lastHeight = useRef<number | null>(null);
   useEffect(() => {
     const transcript = endRef.current?.parentElement;
-    if (transcript) transcript.scrollTop = transcript.scrollHeight;
+    if (!transcript) return;
+    const before = lastHeight.current;
+    if (before === null || before - transcript.scrollTop - transcript.clientHeight < 80) transcript.scrollTop = transcript.scrollHeight;
+    lastHeight.current = transcript.scrollHeight;
   }, [messages]);
 
   useEffect(() => {
@@ -157,8 +180,9 @@ export function ReeChat({
 
   const send = (question = input) => {
     const text = question.trim();
-    if (!text || busy) return;
+    if (!text || busy || waiting) return;
     pendingQuestion.current = text;
+    pendingRequestId.current = crypto.randomUUID();
     pendingVerify.current = VERIFY_ENABLED && verify;
     setInput('');
     setExamples(false);
@@ -205,7 +229,7 @@ export function ReeChat({
             <i />
             {readinessLabel}
           </span>
-          <button type="button" className="studio-clear" disabled={!messages.length || busy} onClick={() => setConfirmClear(true)}>
+          <button type="button" className="studio-clear" disabled={!messages.length || busy || waiting} onClick={() => setConfirmClear(true)}>
             <I name="trash" />
             {c.clear}
           </button>
@@ -295,6 +319,12 @@ export function ReeChat({
                 );
               })}
               {status === 'submitted' && messages.at(-1)?.role === 'user' && <Typing />}
+              {waiting && (
+                <div className="room-waiting flex items-center gap-3" role="status">
+                  <Typing />
+                  <p className="muted text-[12px]">{c.stillAnswering}</p>
+                </div>
+              )}
             </div>
           )}
           <div ref={endRef} />
@@ -315,12 +345,13 @@ export function ReeChat({
                 rows={2}
                 maxLength={QUESTION_MAX_CHARS}
                 required
-                disabled={busy}
+                disabled={busy || waiting}
                 value={input}
                 placeholder={ready ? c.placeholderReady : c.placeholderWaiting}
                 onChange={(event) => setInput(event.target.value)}
                 onKeyDown={(event) => {
-                  if (event.key === 'Enter' && !event.shiftKey && !event.nativeEvent.isComposing) {
+                  /* Safari reports the IME's confirming Enter as keyCode 229 with isComposing already false. */
+                  if (event.key === 'Enter' && !event.shiftKey && !event.nativeEvent.isComposing && event.keyCode !== 229) {
                     event.preventDefault();
                     send();
                   }
@@ -356,7 +387,7 @@ export function ReeChat({
                       </div>
                     </details>
                   )}
-                  <button type="submit" className="btn studio-send" aria-label={c.send} disabled={busy || !input.trim()}>
+                  <button type="submit" className="btn studio-send" aria-label={c.send} disabled={busy || waiting || !input.trim()}>
                     {busy ? <i className="spinner" /> : <I name="send" />}
                   </button>
                 </div>

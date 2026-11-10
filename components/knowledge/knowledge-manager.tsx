@@ -8,6 +8,7 @@ import { KNOWLEDGE_BATCH_MAX, KNOWLEDGE_FOLDER_NAME_MAX, LIST_PAGE_SIZES } from 
 import { KNOWLEDGE_KIND_LIST } from '@/lib/domain/knowledge';
 import type { KnowledgeListItem, KnowledgeTab } from '@/lib/services/knowledge';
 import { api } from '@/lib/client/upload';
+import { latestRequest } from '@/lib/client/latest';
 import { useI18n } from '@/i18n/client';
 import { fill, formatDateTime, formatNumber } from '@/i18n/format';
 import { Icon } from '@/components/ui/icons';
@@ -112,15 +113,19 @@ export function KnowledgeManager({ reeId }: { reeId: string }) {
     [pathname, router, searchKey],
   );
 
+  /* The list's poll, a filter change and a refresh after an action can overlap: only the newest answer lands (review C11). */
+  const [listRequest] = useState(latestRequest);
   const load = useCallback(async () => {
+    const current = listRequest();
     const params = new URLSearchParams(searchKey);
     params.delete('preview');
     const result = await api<ListResponse>(`/api/rees/${reeId}/knowledge?${params.toString()}`);
+    if (!current()) return;
     if (result.ok) {
       setData(result.data);
       setLoadedKey(searchKey);
     }
-  }, [reeId, searchKey]);
+  }, [reeId, searchKey, listRequest]);
 
   /* An out-of-range page: the server answered the last one, the address follows it (prototype `syncURL`). */
   useEffect(() => {
@@ -636,7 +641,7 @@ export function KnowledgeManager({ reeId }: { reeId: string }) {
           </div>
         }
       >
-        {query.preview && <KnowledgePreview reeId={reeId} knowledgeId={query.preview} layout="modal" onChanged={() => void refreshAll()} />}
+        {query.preview && <KnowledgePreview key={query.preview} reeId={reeId} knowledgeId={query.preview} layout="modal" onChanged={() => void refreshAll()} />}
       </Modal>
 
       <Modal

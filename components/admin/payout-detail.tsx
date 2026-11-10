@@ -112,7 +112,7 @@ export async function PayoutDetailPage({ id, payment, query }: { id: string; pay
                   <CI name="info" />
                   <span>{d.paymentInfo}</span>
                 </div>
-                <PayoutPayment id={payout.id} credits={payout.credits} allowed={data.payable} />
+                <PayoutPayment id={payout.id} credits={payout.credits} payee={{ name: user.name, paypal: payout.paypalEmail }} allowed={data.payable} />
               </section>
             ) : (
               <section className="card payout-detail-card">
@@ -121,7 +121,7 @@ export async function PayoutDetailPage({ id, payment, query }: { id: string; pay
                   <CI name="shield" />
                   <span>{d.decisionInfo}</span>
                 </div>
-                <PayoutReview id={payout.id} allowed={data.payable} paymentHref={`/admin/payouts/${payout.id}/payment${suffix}`} />
+                <PayoutReview id={payout.id} credits={payout.credits} payee={{ name: user.name, paypal: payout.paypalEmail }} allowed={data.payable} paymentHref={`/admin/payouts/${payout.id}/payment${suffix}`} />
               </section>
             )}
           </div>
