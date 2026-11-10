@@ -7,9 +7,12 @@
  * added meanwhile are embedded by the old model and simply join the queue --
  * and its last step, in one transaction that holds new chunks out, moves
  * every `embedding_next` into `embedding` and enables the candidate. Until
- * then the two sets of vectors live side by side; a failure clears the
- * candidate's vectors and leaves the old entry in use. One job at a time:
- * no other embedding switch while one runs.
+ * then the two sets of vectors live side by side; a failure leaves the old
+ * entry in use and keeps the candidate's vectors made so far, so restarting
+ * the switch to the same, unedited entry carries on where it stopped
+ * instead of embedding (and billing) those passages again. Starting a switch
+ * to any other entry clears them. One job at a time: no other embedding
+ * switch while one runs.
  *
  * The work runs in `after()` steps of a few minutes each, one runner at a
  * time. A runner releases the job at the end of its step; the models page's
@@ -17,19 +20,23 @@
  * runner went silent, so a job outlives any single function. After the
  * switch, step 4's knowledge profiles are rebuilt with the new model.
  *
- * Billing (docs/audit/credit-import-audit.md P3): each batch is embedded
- * per knowledge-base owner, and each owner pays for their own passages
- * (`meteredWork`, one run per owner per batch). The switch must complete, so
- * a call is never refused for want of credits: what a balance cannot cover
- * is owed. A candidate model without a price fails the job rather than run
- * unbilled.
+ * Billing (docs/audit/credit-import-audit.md P3): each knowledge-base owner
+ * pays for their own passages. Batches are taken owner by owner, each
+ * owner's passages are embedded in their own calls, and every receipt goes
+ * on ONE metered run per owner per job (`reembed:<job>:<owner>`), settled
+ * once when the job is over -- so an owner is charged the job's whole cost
+ * rounded up once, never once per batch. The switch must complete, so a
+ * call is never refused for want of credits: what a balance cannot cover is
+ * owed. A candidate model without a price fails the job rather than run
+ * unbilled. A failed job is settled at what it spent (P1); its vectors are
+ * kept for a restart (above), so nobody pays twice for the same passage.
  */
 import { and, count, desc, eq, isNotNull, isNull, lt, ne, or, sql, type SQL } from 'drizzle-orm';
 import { REEMBED_BATCH, REEMBED_STEP_BUDGET_MS } from '@/lib/constants';
 import { consoleEndpoint, embedTexts, forgetModelCache } from '@/lib/infra/ai/models';
 import { db, schema, type Executor } from '@/lib/infra/db';
 import { AdminInputError, audit } from '@/lib/services/admin';
-import { meteredWork } from '@/lib/services/metered-work';
+import { closeMeteredRun, meterInto, openMeteredRun, openRunNamed, type MeteredRun, type MeteredWork } from '@/lib/services/metered-work';
 import { refreshProfile } from '@/lib/services/profile';
 
 export type ReembedJob = typeof schema.reembedJob.$inferSelect;
@@ -93,13 +100,20 @@ export async function startReembed(administratorId: string, toId: string, now = 
       .from(schema.modelConfig)
       .where(and(eq(schema.modelConfig.kind, 'embedding'), eq(schema.modelConfig.enabled, true)))
       .limit(1);
-    /* Leftovers of a failed job are not the candidate's. */
-    await tx.update(schema.chunk).set({ embeddingNext: null }).where(isNotNull(schema.chunk.embeddingNext));
+    /*
+     * Vectors left by the last job are the candidate's only when that job
+     * failed switching to this same entry, unedited since it started: then
+     * they are kept (and were paid for). Anything else is cleared.
+     */
+    const [previous] = await tx.select().from(schema.reembedJob).orderBy(desc(schema.reembedJob.startedAt)).limit(1);
+    const resumes = previous?.status === 'failed' && previous.toModelConfigId === toId && target.updatedAt.getTime() <= previous.startedAt.getTime();
+    if (!resumes) await tx.update(schema.chunk).set({ embeddingNext: null }).where(isNotNull(schema.chunk.embeddingNext));
+    const [kept] = resumes ? await tx.select({ n: count() }).from(schema.chunk).where(isNotNull(schema.chunk.embeddingNext)) : [{ n: 0 }];
     const [job] = await tx
       .insert(schema.reembedJob)
-      .values({ fromModelConfigId: active?.id ?? null, toModelConfigId: toId, total: chunks.n, done: 0, startedBy: administratorId, startedAt: now, heartbeatAt: RELEASED })
+      .values({ fromModelConfigId: active?.id ?? null, toModelConfigId: toId, total: chunks.n, done: kept?.n ?? 0, startedBy: administratorId, startedAt: now, heartbeatAt: RELEASED })
       .returning();
-    await audit(tx, { administratorId, action: 'model.reembed.start', target: job!.id, before: shown(active), after: { ...shown(target), total: chunks.n } });
+    await audit(tx, { administratorId, action: 'model.reembed.start', target: job!.id, before: shown(active), after: { ...shown(target), total: chunks.n, kept: kept?.n ?? 0 } });
     return job!;
   });
 }
@@ -112,7 +126,7 @@ async function fail(job: ReembedJob, reason: string, now = new Date()): Promise<
     .where(and(eq(schema.reembedJob.id, job.id), eq(schema.reembedJob.status, 'running')))
     .returning({ id: schema.reembedJob.id });
   if (!failed) return;
-  await database.update(schema.chunk).set({ embeddingNext: null }).where(isNotNull(schema.chunk.embeddingNext));
+  /* The candidate's vectors stay for a restart (see `startReembed`); what the job spent is settled by `settleReembedRuns`. */
   await audit(database, { administratorId: job.startedBy, action: 'model.reembed.failed', target: job.id, after: { error: reason.slice(0, 500), done: job.done, total: job.total } });
 }
 
@@ -139,6 +153,11 @@ async function finish(job: ReembedJob, now: Date): Promise<boolean> {
     if (current?.status !== 'running') return true;
     const [missing] = await tx.select({ n: count() }).from(schema.chunk).where(isNull(schema.chunk.embeddingNext));
     if (missing?.n) return false;
+    /*
+     * One statement, on purpose: done in batches, answers between them would
+     * compare a question against vectors of two models. Kept cheap by having
+     * no vector index on `chunk` to rebuild (migration 0038).
+     */
     await tx.execute(sql`update ${schema.chunk} set embedding = embedding_next, embedding_next = null`);
     await tx
       .update(schema.modelConfig)
@@ -169,6 +188,48 @@ async function finish(job: ReembedJob, now: Date): Promise<boolean> {
  * written), which the runner renews before each batch; a renewal that finds
  * another lease means the job was taken over and this runner stops.
  */
+/** The run an owner's re-embedding is billed on for one job. */
+const runName = (jobId: string, ownerId: string) => `reembed:${jobId}:${ownerId}`;
+
+async function ownerRun(job: ReembedJob, ownerId: string, reeNames: string[]): Promise<MeteredRun> {
+  const input: MeteredWork = { userId: ownerId, reeId: null, kind: 'reembed', title: 'Embedding model switch', reeName: reeNames.join(', ').slice(0, 300), refuse: false };
+  const name = runName(job.id, ownerId);
+  const open = await openRunNamed(name, input);
+  if (open) return open;
+  try {
+    return await openMeteredRun(input, { runId: name, refId: job.id });
+  } catch (error) {
+    /* A runner that took the job over opened it meanwhile (unique run id). */
+    const raced = await openRunNamed(name, input);
+    if (raced) return raced;
+    throw error;
+  }
+}
+
+/**
+ * Settles every owner's run of each job that is no longer running, at what
+ * it recorded, once (`closeMeteredRun`): `ready` after a switch, `failed`
+ * after a failure (what was spent is charged, P1). Runs as many as fit
+ * before `deadline`; the next poll or cron run does the rest. Answers how
+ * many it closed.
+ */
+export async function settleReembedRuns(deadline = Date.now() + 60_000): Promise<number> {
+  const open = await db().execute<{ id: string; run_id: string; user_id: string; ree_name: string; title: string; job_status: string }>(sql`
+    select r.id, r.run_id, r.user_id, r.ree_name, r.title, j.status as job_status
+    from ${schema.knowledgeCostRun} r
+    join ${schema.reembedJob} j on r.run_id like 'reembed:' || j.id::text || ':%'
+    where r.kind = 'reembed' and r.status = 'processing' and j.status <> 'running'
+    order by r.created_at
+    limit 1000`);
+  let closed = 0;
+  for (const row of open.rows) {
+    if (Date.now() >= deadline) break;
+    const input: MeteredWork = { userId: row.user_id, reeId: null, kind: 'reembed', title: row.title, reeName: row.ree_name, refuse: false };
+    if ((await closeMeteredRun({ holdId: row.id, runId: row.run_id, input }, row.job_status === 'done' ? null : 'failed')) !== null) closed += 1;
+  }
+  return closed;
+}
+
 async function claim(jobId: string, now: Date): Promise<Date | null> {
   const [row] = await db()
     .update(schema.reembedJob)
@@ -204,6 +265,7 @@ export async function runReembed(budgetMs = REEMBED_STEP_BUDGET_MS, now = () => 
   const deadline = Date.now() + budgetMs;
   const running = await runningReembedJob();
   if (!running) {
+    await settleReembedRuns(deadline);
     await rebuildProfiles(deadline);
     return null;
   }
@@ -222,7 +284,8 @@ export async function runReembed(budgetMs = REEMBED_STEP_BUDGET_MS, now = () => 
       .from(schema.chunk)
       .innerJoin(schema.ree, eq(schema.ree.id, schema.chunk.reeId))
       .where(isNull(schema.chunk.embeddingNext))
-      .orderBy(schema.chunk.id)
+      /* Owner by owner, so a batch is one or two owners' passages, not one passage each of ninety-six. */
+      .orderBy(schema.ree.ownerId, schema.chunk.id)
       .limit(REEMBED_BATCH);
     if (!batch.length) {
       if (await finish(running, now())) {
@@ -235,33 +298,33 @@ export async function runReembed(budgetMs = REEMBED_STEP_BUDGET_MS, now = () => 
     const next = now();
     if (!(await renew(running.id, lease, next))) return running;
     lease = next;
-    const vectors = new Map<string, number[]>();
     try {
       const owners = new Map<string, typeof batch>();
       for (const row of batch) owners.set(row.ownerId, [...(owners.get(row.ownerId) ?? []), row]);
       for (const [ownerId, rows] of owners) {
-        const names = [...new Set(rows.map((row) => row.reeName))];
-        const embedded = await meteredWork(
-          { userId: ownerId, reeId: null, kind: 'reembed', title: `Embedding model switch · ${rows.length} passages`, reeName: names.join(', ').slice(0, 300), refuse: false },
-          () => embedTexts(rows.map((row) => row.content), endpoint),
+        const run = await ownerRun(running, ownerId, [...new Set(rows.map((row) => row.reeName))]);
+        const embedded = await meterInto(run, () => embedTexts(rows.map((row) => row.content), endpoint));
+        if (!embedded.ok) throw embedded.error;
+        /* Stored owner by owner: a later owner's failure never discards (and so re-bills) vectors already paid for. */
+        const values = sql.join(
+          rows.map((row, index) => sql`(${row.id}::uuid, ${JSON.stringify(embedded.value.vectors[index])}::vector)`),
+          sql`, `,
         );
-        rows.forEach((row, index) => vectors.set(row.id, embedded.vectors[index]!));
+        await database.execute(sql`update ${schema.chunk} c set embedding_next = v.e from (values ${values}) as v(id, e) where c.id = v.id`);
       }
     } catch (error) {
       await fail(running, error instanceof Error ? error.message : 'embedding failed', now());
       break;
     }
-    const values = sql.join(
-      batch.map((row) => sql`(${row.id}::uuid, ${JSON.stringify(vectors.get(row.id))}::vector)`),
-      sql`, `,
-    );
-    await database.execute(sql`update ${schema.chunk} c set embedding_next = v.e from (values ${values}) as v(id, e) where c.id = v.id`);
     /* Counted as it goes; `finish` recounts once. Passages added meanwhile can push `done` past the first total. */
     const after = now();
     if (!(await renew(running.id, lease, after, { done: sql`${schema.reembedJob.done} + ${batch.length}` }))) return running;
     lease = after;
   }
-  if (finished) await rebuildProfiles(deadline);
+  if (finished) {
+    await settleReembedRuns(deadline);
+    await rebuildProfiles(deadline);
+  } else if ((await runningReembedJob())?.id !== running.id) await settleReembedRuns(deadline);
   else await database.update(schema.reembedJob).set({ heartbeatAt: RELEASED }).where(and(eq(schema.reembedJob.id, running.id), eq(schema.reembedJob.heartbeatAt, lease)));
   const [final] = await database.select().from(schema.reembedJob).where(eq(schema.reembedJob.id, running.id)).limit(1);
   return final ?? running;
