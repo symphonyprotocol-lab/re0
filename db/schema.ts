@@ -558,6 +558,8 @@ export const administrator = pgTable(
     /** Beyond 4: lockout after repeated failures. */
     failedAttempts: integer('failed_attempts').notNull().default(0),
     lockedUntil: timestampTz('locked_until'),
+    /** An invited row's current enrolment-link nonce; re-issuing a link rotates it, enrolling clears it. */
+    inviteNonce: text('invite_nonce'),
     disabledAt: timestampTz('disabled_at'),
     createdBy: uuid('created_by'),
     createdAt: createdAt(),

@@ -1,4 +1,5 @@
 import type { Metadata } from 'next';
+import { requireAdministrator } from '@/lib/http/admin';
 import { WorkspaceLink as Link } from '@/components/shell/workspace-link';
 import { Fragment } from 'react';
 import { redirect } from 'next/navigation';
@@ -22,6 +23,7 @@ type Props = { searchParams: Promise<Record<string, string | string[] | undefine
 
 /** `/admin/users` (prototype admin-records.js, kind `users`): combined filters, server paging, CSV of every match. */
 export default async function UsersPage({ searchParams }: Props) {
+  await requireAdministrator();
   const { t, locale } = await serverMessages();
   const u = t.consoleUsers.users;
   const l = t.console.list;

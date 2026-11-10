@@ -9,5 +9,5 @@ export async function GET(request: NextRequest) {
   const administrator = await apiAdministrator(request);
   if (administrator instanceof Response) return administrator;
   const view = auditView(request.nextUrl.searchParams);
-  return listOrCsv(request, (all) => listAudit(view, { all }), AUDIT_CSV);
+  return listOrCsv(request, administrator, (all) => listAudit(administrator, view, { all }), AUDIT_CSV);
 }

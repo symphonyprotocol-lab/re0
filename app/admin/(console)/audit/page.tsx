@@ -1,4 +1,5 @@
 import type { Metadata } from 'next';
+import { requireAdministrator } from '@/lib/http/admin';
 import { redirect } from 'next/navigation';
 import { AUDIT_ACTIONS } from '@/lib/domain/audit';
 import { auditView, csvHref, listHref } from '@/lib/domain/admin-lists';
@@ -20,11 +21,12 @@ type Props = { searchParams: Promise<Record<string, string | string[] | undefine
 
 /** `/admin/audit` (prototype admin-records.js, kind `audit`): read-only, filtered by the one list of action codes, CSV of every match. */
 export default async function AuditPage({ searchParams }: Props) {
+  const administrator = await requireAdministrator();
   const { t, locale } = await serverMessages();
   const a = t.consoleRees.audit;
   const l = t.console.list;
   const view = auditView(await searchParams);
-  const [data, counts] = await Promise.all([listAudit(view), auditCounts()]);
+  const [data, counts] = await Promise.all([listAudit(administrator, view), auditCounts(administrator)]);
   const current = { ...view, page: data.page };
   const href = (changes: Record<string, string | number | null>) => listHref('/admin/audit', current, changes);
   // A page past the end (rows went away, a stale link) lands on the last page's canonical URL.

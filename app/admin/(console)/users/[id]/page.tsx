@@ -1,4 +1,5 @@
 import type { Metadata } from 'next';
+import { requireAdministrator } from '@/lib/http/admin';
 import { WorkspaceLink as Link } from '@/components/shell/workspace-link';
 import { notFound } from 'next/navigation';
 import { Fragment, type ReactNode } from 'react';
@@ -37,6 +38,7 @@ type Props = {
 };
 
 export async function generateMetadata({ params }: Props): Promise<Metadata> {
+  await requireAdministrator();
   const { t } = await serverMessages();
   const { id } = await params;
   const user = UUID.test(id) ? await adminUser(id) : null;
@@ -61,6 +63,7 @@ function listLabel(t: Messages, from: string): string {
  * place; the account actions sit in the summary, as in the prototype.
  */
 export default async function UserDetailPage({ params, searchParams }: Props) {
+  await requireAdministrator();
   const { id } = await params;
   if (!UUID.test(id)) notFound();
   const query = await searchParams;

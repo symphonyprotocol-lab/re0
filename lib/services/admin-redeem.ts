@@ -23,7 +23,7 @@ import {
 } from '@/lib/domain/redeem';
 import { openCredential, sealCredential } from '@/lib/infra/crypto/credentials';
 import { db, schema, type Tx } from '@/lib/infra/db';
-import { AdminInputError, audit } from '@/lib/services/admin';
+import { AdminInputError, audit, assertConsole, type Administrator } from '@/lib/services/admin';
 import { currentUnitCredits } from '@/lib/services/pricing';
 import { codeDigest } from '@/lib/services/redeem';
 
@@ -196,7 +196,8 @@ async function batchSearch(q: string): Promise<SQL | undefined> {
   return or(...conditions);
 }
 
-export async function listBatches(view: RedeemBatchesView, options: { all?: boolean } = {}, now = new Date()): Promise<ListResult<BatchSummary>> {
+export async function listBatches(administrator: Administrator, view: RedeemBatchesView, options: { all?: boolean } = {}, now = new Date()): Promise<ListResult<BatchSummary>> {
+  assertConsole(administrator);
   const conditions: SQL[] = [];
   const phase = phaseCondition(view.status, now);
   if (phase) conditions.push(phase);
@@ -223,7 +224,8 @@ export async function listBatches(view: RedeemBatchesView, options: { all?: bool
 }
 
 /** The summary cards above the list, filters ignored. */
-export async function batchCounts(now = new Date()) {
+export async function batchCounts(administrator: Administrator, now = new Date()) {
+  assertConsole(administrator);
   const b = schema.redeemBatch;
   const [row] = await db()
     .select({
@@ -236,7 +238,12 @@ export async function batchCounts(now = new Date()) {
   return { batches: row?.batches ?? 0, active: Number(row?.active ?? 0), codes: Number(row?.codes ?? 0), redemptions: Number(row?.redemptions ?? 0) };
 }
 
-export async function getBatch(id: string, now = new Date()) {
+export async function getBatch(administrator: Administrator, id: string, now = new Date()) {
+  assertConsole(administrator);
+  return batchDetail(id, now);
+}
+
+async function batchDetail(id: string, now = new Date()) {
   if (!isUuid(id)) return null;
   const database = db();
   const [row] = await database
@@ -293,7 +300,8 @@ async function codeConditions(batchId: string, view: RedeemBatchView): Promise<S
 }
 
 /** A batch's codes, masked (`····7KQ2`). */
-export async function listCodes(batchId: string, view: RedeemBatchView): Promise<ListResult<CodeRow>> {
+export async function listCodes(administrator: Administrator, batchId: string, view: RedeemBatchView): Promise<ListResult<CodeRow>> {
+  assertConsole(administrator);
   const where = and(...(await codeConditions(batchId, view)));
   const database = db();
   const [counted] = await database.select({ total: count() }).from(schema.redeemCode).where(where);
@@ -328,7 +336,7 @@ export interface CodeExportRow extends CodeRow {
 
 /** Every code of the batch the view matches, in plaintext: audited as an export. All or nothing: one code that will not open fails it. */
 export async function exportCodes(administratorId: string, batchId: string, view: RedeemBatchView): Promise<{ batch: BatchDetail; rows: CodeExportRow[] }> {
-  const batch = await getBatch(batchId);
+  const batch = await batchDetail(batchId);
   if (!batch) throw new AdminInputError('not_found');
   const rows = await db()
     .select()
@@ -379,7 +387,7 @@ export async function updateBatch(administratorId: string, id: string, raw: Reco
     const before = Object.fromEntries(Object.keys(update).map((key) => [key, batch[key as keyof typeof update]]));
     await audit(tx, { administratorId, action: 'redeem.batch.update', target: id, before, after: update });
   });
-  return (await getBatch(id, now))!;
+  return (await batchDetail(id, now))!;
 }
 
 /** `PATCH /api/admin/redeem-codes/[id]` `{ status }`: one code off or back on. */
@@ -419,7 +427,8 @@ export interface RedemptionRow {
   createdAt: Date;
 }
 
-export async function listRedemptions(batchId: string, view: RedeemBatchView, options: { all?: boolean } = {}): Promise<ListResult<RedemptionRow>> {
+export async function listRedemptions(administrator: Administrator, batchId: string, view: RedeemBatchView, options: { all?: boolean } = {}): Promise<ListResult<RedemptionRow>> {
+  assertConsole(administrator);
   const r = schema.redeemRedemption;
   const conditions: SQL[] = [eq(r.batchId, batchId)];
   if (view.q) {

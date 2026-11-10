@@ -1,4 +1,5 @@
 import type { Metadata } from 'next';
+import { requireAdministrator } from '@/lib/http/admin';
 import { notFound, redirect } from 'next/navigation';
 import { codeState } from '@/lib/domain/redeem';
 import { csvHref, listHref, REDEEM_BATCH_DEFAULTS, redeemBatchView } from '@/lib/domain/admin-lists';
@@ -30,8 +31,9 @@ const CODE_TONES = { available: 'green', used_up: 'grey', disabled: 'red' } as c
  * plaintext with an audit row) or its redemptions.
  */
 export default async function RedeemBatchPage({ params, searchParams }: Props) {
+  const administrator = await requireAdministrator();
   const { id } = await params;
-  const batch = await getBatch(id);
+  const batch = await getBatch(administrator, id);
   if (!batch) notFound();
   const { t, locale } = await serverMessages();
   const r = t.redeemAdmin;
@@ -39,8 +41,8 @@ export default async function RedeemBatchPage({ params, searchParams }: Props) {
   const l = t.console.list;
   const view = redeemBatchView(await searchParams);
   const base = `/admin/redeem-codes/${batch.id}`;
-  const codes = view.tab === 'codes' ? await listCodes(batch.id, view) : null;
-  const redemptions = view.tab === 'redemptions' ? await listRedemptions(batch.id, view) : null;
+  const codes = view.tab === 'codes' ? await listCodes(administrator, batch.id, view) : null;
+  const redemptions = view.tab === 'redemptions' ? await listRedemptions(administrator, batch.id, view) : null;
   const list = codes ?? redemptions!;
   const current = { ...view, page: list.page };
   const href = (changes: Record<string, string | number | null>) => listHref(base, current, changes, REDEEM_BATCH_DEFAULTS);

@@ -1,4 +1,5 @@
 import type { Metadata } from 'next';
+import { requireAdministrator } from '@/lib/http/admin';
 import { WorkspaceLink as Link } from '@/components/shell/workspace-link';
 import { notFound } from 'next/navigation';
 import type { ReactNode } from 'react';
@@ -41,6 +42,7 @@ function backTo(raw: string): string {
  * record can be sent back for re-verification.
  */
 export default async function KycReviewPage({ params, searchParams }: Props) {
+  await requireAdministrator();
   const { id } = await params;
   if (!UUID.test(id)) notFound();
   const query = await searchParams;
