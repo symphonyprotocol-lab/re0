@@ -54,6 +54,36 @@ export class PrivateAddressError extends Error {
   }
 }
 
+/**
+ * Link-local and cloud metadata addresses: the instance's own credentials
+ * live there. Private ranges are not in this list on purpose (a model server
+ * on a private network is a legitimate endpoint); these never are.
+ */
+const METADATA = new BlockList();
+METADATA.addSubnet('169.254.0.0', 16, 'ipv4');
+/* Alibaba Cloud's metadata service sits in CGNAT space. */
+METADATA.addAddress('100.100.100.200', 'ipv4');
+METADATA.addSubnet('fe80::', 10, 'ipv6');
+/* AWS's IPv6 instance metadata endpoint. */
+METADATA.addAddress('fd00:ec2::254', 'ipv6');
+const METADATA_NAMES = new Set(['metadata.google.internal', 'metadata.goog', 'metadata', 'instance-data', 'instance-data.ec2.internal']);
+
+/** Whether an IP literal is link-local or a cloud metadata address. */
+export function isMetadataAddress(raw: string): boolean {
+  const address = raw.replace(/^\[|\]$/g, '').split('%')[0]!;
+  const family = isIP(address);
+  if (family === 4) return METADATA.check(address, 'ipv4');
+  if (family !== 6) return false;
+  const v4 = embeddedV4(address);
+  if (v4) return METADATA.check(v4, 'ipv4');
+  return METADATA.check(address, 'ipv6');
+}
+
+/** Whether a hostname is a metadata service by name. */
+export function isMetadataName(hostname: string): boolean {
+  return METADATA_NAMES.has(hostname.toLowerCase().replace(/\.+$/, ''));
+}
+
 type Resolve = (hostname: string) => Promise<LookupAddress[]>;
 
 const systemResolve: Resolve = (hostname) =>
@@ -64,11 +94,17 @@ const systemResolve: Resolve = (hostname) =>
  * is private, and hands back only the answers it checked.
  */
 export function publicOnlyLookup(resolve: Resolve = systemResolve): LookupFunction {
+  return checkedLookup(isPublicAddress, resolve);
+}
+
+/** A `net.connect` lookup that resolves once and refuses the host unless every answer passes `allowed`. */
+export function checkedLookup(allowed: (address: string) => boolean, resolve: Resolve = systemResolve): LookupFunction {
   return (hostname, options, callback) => {
+    if (isMetadataName(hostname)) return callback(new PrivateAddressError(hostname, hostname), '', 0);
     resolve(hostname).then(
       (addresses) => {
         const wanted = options.family === 4 || options.family === 6 ? addresses.filter((entry) => entry.family === options.family) : addresses;
-        const blocked = addresses.find((entry) => !isPublicAddress(entry.address));
+        const blocked = addresses.find((entry) => !allowed(entry.address));
         if (blocked) return callback(new PrivateAddressError(hostname, blocked.address), '', 0);
         if (!wanted.length) return callback(Object.assign(new Error(`${hostname} has no address`), { code: 'ENOTFOUND' }), '', 0);
         if (options.all) return (callback as unknown as (error: null, addresses: LookupAddress[]) => void)(null, wanted);
@@ -86,6 +122,29 @@ export function publicOnlyDispatcher(): Agent {
   shared ??= new Agent({ connect: { lookup: publicOnlyLookup() } });
   return shared;
 }
+
+let models: Agent | null = null;
+
+/**
+ * For administrator-configured model endpoints: private hosts are allowed,
+ * link-local and metadata addresses are not, checked on the address dialled.
+ */
+export function modelEndpointDispatcher(): Agent {
+  models ??= new Agent({ connect: { lookup: checkedLookup((address) => !isMetadataAddress(address)) } });
+  return models;
+}
+
+/**
+ * `fetch` for a model endpoint. An IP literal never reaches a lookup, so it
+ * is checked here; a name is checked at connect time by the dispatcher.
+ */
+export const modelFetch: typeof fetch = async (input, init) => {
+  const url = new URL(typeof input === 'string' ? input : input instanceof URL ? input.href : input.url);
+  if (isMetadataAddress(url.hostname) || isMetadataName(url.hostname)) {
+    throw new TypeError('fetch failed', { cause: new PrivateAddressError(url.hostname, url.hostname) });
+  }
+  return fetch(input, { ...init, dispatcher: modelEndpointDispatcher() } as RequestInit);
+};
 
 /** Whether a failed fetch was refused by `publicOnlyLookup` (fetch wraps it as `cause`, sometimes twice). */
 export function isPrivateAddressFailure(error: unknown): boolean {
