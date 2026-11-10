@@ -8,7 +8,7 @@ import type { SessionUser } from '@/lib/services/auth';
 const PAGE_SIZE = 20;
 const { ree, reeComment, user } = schema;
 
-export async function listReeComments(reeId: string, before?: string): Promise<ReeCommentPage | null> {
+export async function listReeComments(reeId: string, before?: string, viewerId?: string): Promise<ReeCommentPage | null> {
   const conn = db();
   const cursor = alias(reeComment, 'cursor_comment');
   const boundary = conn.select({ createdAt: cursor.createdAt, id: cursor.id }).from(cursor)
@@ -19,6 +19,7 @@ export async function listReeComments(reeId: string, before?: string): Promise<R
     createdAt: reeComment.createdAt,
     authorName: user.name,
     authorAvatar: user.avatarBlob,
+    authorId: reeComment.userId,
   })
     .from(reeComment)
     .innerJoin(user, eq(user.id, reeComment.userId))
@@ -36,7 +37,9 @@ export async function listReeComments(reeId: string, before?: string): Promise<R
       createdAt: page.createdAt,
       authorName: page.authorName,
       authorAvatar: page.authorAvatar,
+      authorId: page.authorId,
     },
+    ownerId: ree.ownerId,
     total: sql<number>`(select count(*)::int from ${reeComment} where ${reeComment.reeId} = ${ree.id})`,
   })
     .from(ree)
@@ -45,9 +48,12 @@ export async function listReeComments(reeId: string, before?: string): Promise<R
     .orderBy(desc(page.createdAt), desc(page.id));
 
   if (!rows[0]) return null;
-  const items = rows.slice(0, PAGE_SIZE).flatMap(({ comment }) =>
-    comment ? [{ ...comment, createdAt: comment.createdAt.toISOString() }] : [],
-  );
+  const ownerId = rows[0].ownerId;
+  const items = rows.slice(0, PAGE_SIZE).flatMap(({ comment }) => {
+    if (!comment) return [];
+    const { authorId, ...shown } = comment;
+    return [{ ...shown, createdAt: comment.createdAt.toISOString(), canDelete: Boolean(viewerId) && (viewerId === authorId || viewerId === ownerId) }];
+  });
   return { items, total: rows[0].total, next: rows.length > PAGE_SIZE ? items.at(-1)!.id : null };
 }
 
@@ -80,6 +86,21 @@ export async function addReeComment(
       createdAt: saved.createdAt.toISOString(),
       authorName: author.name,
       authorAvatar: author.avatarBlob,
+      canDelete: true,
     };
   });
+}
+
+/**
+ * Deletes a comment for its author or the Ree's owner, whatever the Ree's
+ * state (an owner tidying an unpublished Ree still may). Deleting what is
+ * already gone, or what the viewer may not delete, answers false.
+ */
+export async function deleteReeComment(reeId: string, commentId: string, viewerId: string): Promise<boolean> {
+  const deleted = await db().delete(reeComment).where(and(
+    eq(reeComment.id, commentId),
+    eq(reeComment.reeId, reeId),
+    sql`(${reeComment.userId} = ${viewerId} or exists (select 1 from ${ree} where ${ree.id} = ${reeComment.reeId} and ${ree.ownerId} = ${viewerId}))`,
+  )).returning({ id: reeComment.id });
+  return deleted.length > 0;
 }

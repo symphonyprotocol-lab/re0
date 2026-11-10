@@ -358,6 +358,24 @@ export const EXPLORE_EF_SEARCH = 400;
 export const EXPLORE_EXCERPT_CHARS = 160;
 /** Free searches per minute (2.4, "按 IP 和账号限频"). */
 export const EXPLORE_RATE_LIMIT = { windowSeconds: 60, perIp: 30, perUser: 30 } as const;
+/**
+ * Per-account request limits on the routes that cost us or move a public
+ * signal (lib/http/rate-limit.ts): asking (an unanswered question is free but
+ * still embeds and calls the model), new conversations (each one is a pull in
+ * the explore ranking), comments, upload tokens (each up to 100 MB of Blob)
+ * and domain checks (a DNS and an HTTPS request each). Every rule is a fixed
+ * window within the hour `clearRateBuckets` keeps; a signed-out caller is
+ * keyed by client address instead.
+ */
+export const USER_RATE_LIMITS = {
+  ask: [{ windowSeconds: 60, limit: 20 }, { windowSeconds: 3_600, limit: 300 }],
+  conversation: [{ windowSeconds: 60, limit: 10 }, { windowSeconds: 3_600, limit: 60 }],
+  /* Adding a Ree to a conversation is a pull too. */
+  participants: [{ windowSeconds: 60, limit: 30 }, { windowSeconds: 3_600, limit: 300 }],
+  comment: [{ windowSeconds: 60, limit: 5 }, { windowSeconds: 3_600, limit: 30 }],
+  uploadToken: [{ windowSeconds: 60, limit: 30 }, { windowSeconds: 3_600, limit: 200 }],
+  domainVerify: [{ windowSeconds: 60, limit: 5 }, { windowSeconds: 3_600, limit: 30 }],
+} as const satisfies Record<string, readonly { windowSeconds: number; limit: number }[]>;
 /** Quality signals look back this far (2.4). */
 export const QUALITY_WINDOW_DAYS = 30;
 /**

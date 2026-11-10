@@ -14,7 +14,7 @@ import {
   type ReeCommentPage,
 } from '@/lib/domain/ree-comment';
 
-type Issue = 'loadError' | 'publishError' | 'invalid' | 'expired' | 'unavailable';
+type Issue = 'loadError' | 'publishError' | 'invalid' | 'expired' | 'unavailable' | 'rateLimited' | 'removeError';
 
 function commentTime(value: string, now: number, locale: 'zh' | 'en', justNow: string) {
   const minutes = Math.max(0, Math.floor((now - Date.parse(value)) / 60_000));
@@ -39,6 +39,7 @@ export function ReeComments({ reeId, initial, signedIn, loginHref, renderedAt }:
   const [now, setNow] = useState(renderedAt);
   const [draft, setDraft] = useState('');
   const [pending, setPending] = useState<'post' | 'load' | null>(null);
+  const [removing, setRemoving] = useState<string | null>(null);
   const [issue, setIssue] = useState<Issue | null>(null);
   const [posted, setPosted] = useState(false);
   const retry = useRef<{ id: string; content: string } | null>(null);
@@ -64,7 +65,7 @@ export function ReeComments({ reeId, initial, signedIn, loginHref, renderedAt }:
       if (!response.ok) {
         if (response.status === 409) retry.current = null;
         setIssue(response.status === 401 ? 'expired' : response.status === 404 ? 'unavailable'
-          : response.status === 422 ? 'invalid' : 'publishError');
+          : response.status === 422 ? 'invalid' : response.status === 429 ? 'rateLimited' : 'publishError');
         return;
       }
       const { comment } = await response.json() as { comment: ReeComment };
@@ -82,6 +83,27 @@ export function ReeComments({ reeId, initial, signedIn, loginHref, renderedAt }:
       setIssue('publishError');
     } finally {
       setPending(null);
+    }
+  }
+
+  async function remove(id: string) {
+    if (removing) return;
+    setRemoving(id);
+    setIssue(null);
+    try {
+      const response = await fetch(`${endpoint}/${id}`, { method: 'DELETE' });
+      /* Already gone counts as done. */
+      if (!response.ok && response.status !== 404) {
+        setIssue(response.status === 401 ? 'expired' : 'removeError');
+        return;
+      }
+      setPage(current => current.items.some(item => item.id === id)
+        ? { ...current, items: current.items.filter(item => item.id !== id), total: Math.max(0, current.total - 1) }
+        : current);
+    } catch {
+      setIssue('removeError');
+    } finally {
+      setRemoving(null);
     }
   }
 
@@ -180,12 +202,23 @@ export function ReeComments({ reeId, initial, signedIn, loginHref, renderedAt }:
             {page.items.map(comment => (
               <li key={comment.id} className="flex items-start gap-3 border-t border-line py-3 last:pb-0">
                 <UserAvatar name={comment.authorName} avatar={comment.authorAvatar} className="size-8" />
-                <div className="min-w-0">
+                <div className="min-w-0 flex-1">
                   <div className="flex flex-wrap items-baseline gap-x-2 gap-y-0.5">
                     <strong className="text-[12px] font-semibold [overflow-wrap:anywhere]">{comment.authorName}</strong>
                     <time dateTime={comment.createdAt} title={formatDateTime(comment.createdAt, locale)} className="text-[11px] text-muted">
                       {commentTime(comment.createdAt, now, locale, c.justNow)}
                     </time>
+                    {comment.canDelete && (
+                      <button
+                        type="button"
+                        className="ml-auto text-[11px] text-muted hover:text-red disabled:opacity-60"
+                        aria-label={c.removeLabel}
+                        disabled={removing !== null}
+                        onClick={() => remove(comment.id)}
+                      >
+                        {removing === comment.id ? c.removing : c.remove}
+                      </button>
+                    )}
                   </div>
                   <p className="mt-0.5 text-[13px] whitespace-pre-wrap [overflow-wrap:anywhere]">{comment.content}</p>
                 </div>
