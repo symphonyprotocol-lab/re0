@@ -23,7 +23,7 @@ export function actionLabel(t: Messages, action: string): string {
 
 /** Where an audit target lives in the console, by the action's family. */
 export function auditTargetHref(action: string, target: string | null): string | null {
-  if (!target || !/^[0-9a-f-]{36}$/i.test(target)) return null;
+  if (!target || !/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(target)) return null;
   if (action.startsWith('user.') || action.startsWith('verification.')) return `/admin/users/${target}`;
   if (action.startsWith('ree.')) return `/admin/rees/${target}`;
   if (action.startsWith('kyc.')) return `/admin/kyc/${target}`;

@@ -10,6 +10,7 @@ export async function POST(request: NextRequest, context: { params: Promise<{ id
   const administrator = await apiAdministrator(request);
   if (administrator instanceof Response) return administrator;
   const id = (await context.params).id;
+  if (!/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(id)) return fail('not_found', 404);
   const { action } = await body(request);
   try {
     if (action === 'disable') {

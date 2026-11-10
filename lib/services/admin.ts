@@ -60,6 +60,11 @@ export async function audit(
   });
 }
 
+/** A console export: which list, how many rows, under which filters. */
+export async function recordExport(administratorId: string, name: string, rows: number, query: Record<string, string>): Promise<void> {
+  await audit(db(), { administratorId, action: 'admin.export', target: name, after: { rows, query } });
+}
+
 /* --------------------------------------------------------------- bootstrap */
 
 export async function hasAdministrator(): Promise<boolean> {

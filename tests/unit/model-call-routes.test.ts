@@ -3,8 +3,10 @@ import { NextRequest, NextResponse } from 'next/server';
 import { GET } from '@/app/api/admin/model-calls/route';
 import { GET as detail } from '@/app/api/admin/model-calls/[id]/route';
 import { apiAdministrator } from '@/lib/http/admin';
+import { recordExport } from '@/lib/services/admin';
 import { modelCallDetail, modelCallReport } from '@/lib/services/admin-model-calls';
 vi.mock('@/lib/http/admin', () => ({ apiAdministrator: vi.fn() }));
+vi.mock('@/lib/services/admin', async (importOriginal) => ({ ...(await importOriginal<typeof import('@/lib/services/admin')>()), recordExport: vi.fn() }));
 vi.mock('@/lib/services/admin-model-calls', () => ({ modelCallDetail: vi.fn(), modelCallReport: vi.fn() }));
 const request = (query = '') => new NextRequest(`https://console.test/api/admin/model-calls?${query}`);
 const context = { params: Promise.resolve({ id: 'call-id' }) };
@@ -27,6 +29,7 @@ describe('generation call report access', () => {
     expect(response.headers.get('content-type')).toContain('text/csv');
     expect(modelCallReport).toHaveBeenLastCalledWith(expect.objectContaining({ audience: 'plan' }), { all: true });
     expect(await response.text()).toContain('Cost USD');
+    expect(recordExport).toHaveBeenCalledWith('admin', 'model-calls', 0, { audience: 'plan' });
   });
   it('returns 404 for missing details', async () => {
     vi.mocked(modelCallDetail).mockResolvedValue(null);

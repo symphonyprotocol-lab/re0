@@ -10,8 +10,7 @@ import { codeState } from '@/lib/domain/redeem';
 import type { ListResult } from '@/lib/domain/list';
 import { reportingTime } from '@/lib/domain/statistics';
 import { fail, json } from '@/lib/http/respond';
-import { db } from '@/lib/infra/db';
-import { AdminInputError, audit } from '@/lib/services/admin';
+import { AdminInputError, recordExport } from '@/lib/services/admin';
 import type { AdminReeRow } from '@/lib/services/admin-rees';
 import type { AdminUserRow } from '@/lib/services/admin-users';
 import type { AuditRow } from '@/lib/services/admin-audit';
@@ -44,7 +43,7 @@ export const CSV_MAX_ROWS = 50_000;
  */
 export async function auditExport(administratorId: string, request: Request, name: string, rows: number): Promise<void> {
   const query = Object.fromEntries([...new URL(request.url).searchParams].filter(([key]) => key !== 'format'));
-  await audit(db(), { administratorId, action: 'admin.export', target: name, after: { rows, query } });
+  await recordExport(administratorId, name, rows, query);
 }
 
 /** A list endpoint: JSON page, or the full filtered export (counted first, capped, audited). */

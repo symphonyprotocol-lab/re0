@@ -8,6 +8,6 @@ export async function GET(request: NextRequest, context: { params: Promise<{ id:
   const administrator = await apiAdministrator(request);
   if (administrator instanceof Response) return administrator;
   const { id } = await context.params;
-  const detail = /^[0-9a-f-]{36}$/i.test(id) ? await payoutDetail(id) : null;
+  const detail = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(id) ? await payoutDetail(id) : null;
   return detail ? json(detail) : fail('not_found', 404);
 }
