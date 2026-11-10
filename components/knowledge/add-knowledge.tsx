@@ -183,6 +183,8 @@ export function AddKnowledgeModal({
       if ('error' in uploaded) {
         setBusy(false);
         const code = uploaded.error;
+        /* The upload-token route's own limit, not a source's: `rate_limited` among the processing errors means the latter. */
+        if (code === 'rate_limited') return setError({ text: t.knowledge.uploadRateLimited });
         return setError(code in t.knowledge.errors ? { text: errorText(t, code), code } : { text: t.reeSetup.messages.upload });
       }
       body = { kind, blobPath: uploaded.pathname, fileName: file.name, consent };

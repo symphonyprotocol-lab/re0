@@ -166,6 +166,7 @@ export const zh = {
     verifiedDomains: '已验证：{domains}',
     noVerifiedDomains: '还没有已验证域名。',
   },
+  uploadRateLimited: '上传太频繁了，请稍等片刻再试。',
   errors: {
     insufficient_credits: '可用 credits 不足，无法预留处理费用。',
     invalid_document: '文件格式或大小不符合要求。文档最大 20 MB。',
@@ -476,6 +477,7 @@ export const en: Shape<typeof zh> = {
     verifiedDomains: 'Verified: {domains}',
     noVerifiedDomains: 'No verified domains yet.',
   },
+  uploadRateLimited: 'Too many uploads in a short time. Wait a moment and try again.',
   errors: {
     insufficient_credits: 'Not enough credits to reserve the processing cost.',
     invalid_document: 'Unsupported file format or size. Documents: 20 MB.',

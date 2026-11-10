@@ -319,6 +319,9 @@ describeWithDb('one ask, one hold (review C2)', () => {
 
     const again = await holdQuestion({ userId: askerId, lang: 'en', conversation, targets: [ree], question: QUESTION, clientRequestId: requestId.toUpperCase() });
     expect(again).toEqual({ ok: false, reason: 'duplicate' });
+    /* Even when the fee shown with it is now out of date: a replay is not offered as a new question. */
+    const stale = await holdQuestion({ userId: askerId, lang: 'en', conversation, targets: [ree], question: QUESTION, clientRequestId: requestId, seenFees: { [ree.id]: 0 } });
+    expect(stale).toEqual({ ok: false, reason: 'duplicate' });
     expect(await balanceOf(db(), askerId)).toBe(afterFirst);
     const asked = await db().select().from(schema.message).where(and(eq(schema.message.conversationId, conversation.id), eq(schema.message.role, 'user')));
     expect(asked).toHaveLength(1);

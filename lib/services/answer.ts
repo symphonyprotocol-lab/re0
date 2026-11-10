@@ -221,12 +221,21 @@ export async function holdQuestion(input: AnswerInput): Promise<Holding> {
   /* What is asked, without the `@name`s that only say who is asked. */
   const subject = withoutMentions(question, targets.map((ree) => ree.name));
   const database = db();
+  const clientRequestId = clientRequestIdOf(input.clientRequestId);
+  /* A replay of an ask already taken is told so before the fee check, so it is never offered as a new question (C2). */
+  if (clientRequestId) {
+    const [taken] = await database
+      .select({ id: schema.message.id })
+      .from(schema.message)
+      .where(and(eq(schema.message.conversationId, conversation.id), eq(schema.message.clientRequestId, clientRequestId)))
+      .limit(1);
+    if (taken) return { ok: false, reason: 'duplicate' };
+  }
   const raised = raisedFees(targets, userId, input.seenFees);
   if (raised.length) return { ok: false, reason: 'price_changed', fees: raised };
   const ready = await readyRees(targets.map((ree) => ree.id));
   const asking = targets.filter((ree) => ready.has(ree.id));
   const needed = asking.reduce((sum, ree) => sum + maxCostFor(ree, userId) + (verifying ? VERIFY_FEE : 0), 0);
-  const clientRequestId = clientRequestIdOf(input.clientRequestId);
 
   try {
     const { askedId, held } = await database.transaction(async (tx) => {
@@ -256,7 +265,7 @@ export async function holdQuestion(input: AnswerInput): Promise<Holding> {
     return { ok: true, question: { input, askedId, held, asking, subject } };
   } catch (error) {
     if (error instanceof InsufficientCredits) return { ok: false, reason: 'insufficient', balance: await balanceOf(database, userId), needed };
-    /* The same ask again (a replayed request): the first one holds and answers; this one places nothing. */
+    /* The same ask racing the first one past the check above: the unique index refuses it, nothing is held. */
     if (clientRequestId && isClientRequestRepeat(error)) return { ok: false, reason: 'duplicate' };
     throw error;
   }
