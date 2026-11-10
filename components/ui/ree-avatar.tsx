@@ -1,4 +1,5 @@
 import { Icon } from '@/components/ui/icons';
+import { avatarImageUrl } from '@/lib/domain/ree';
 
 /** The six default colors (prototype styles.css `.dot-avatar.*`). */
 const COLORS: Record<string, string> = {
@@ -18,10 +19,7 @@ const SIZES = {
 };
 
 /** `avatars/…` pathnames are served by /media; anything else is an external URL (OAuth). */
-export function imageUrl(avatar: string | null | undefined): string | null {
-  if (!avatar) return null;
-  return avatar.startsWith('avatars/') ? `/media/${avatar}` : avatar;
-}
+export const imageUrl = avatarImageUrl;
 
 export function ReeAvatar({
   avatar,

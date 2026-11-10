@@ -35,6 +35,7 @@ import { parseGithubRepo, parseWebUrl, repositoryUrl, type RepositoryRef } from 
 import { embedTexts, forgetModelCache } from '@/lib/infra/ai/models';
 import { embeddingIsCurrent } from '@/lib/services/reembed';
 import { transcribeAudio } from '@/lib/infra/ai/transcription';
+import { isSafeBlobPathname } from '@/lib/domain/blob-path';
 import { blobSize, readBlob } from '@/lib/infra/blob';
 import { documentSections, ProcessingFailure } from '@/lib/infra/connectors';
 import { simulatedFailureFor } from '@/lib/infra/connectors/failure';
@@ -124,7 +125,7 @@ export async function checkRepository(ownerId: string, ref: RepositoryRef): Prom
 }
 
 async function checkUpload(ownerId: string, blobPath: string, fileName: string, valid: (name: string, size: number) => boolean, code: KnowledgeInputCode) {
-  if (!blobPath.startsWith(`knowledge/${ownerId}/`) || !valid(fileName, 1)) throw new KnowledgeInputError(code);
+  if (!blobPath.startsWith(`knowledge/${ownerId}/`) || !isSafeBlobPathname(blobPath) || !valid(fileName, 1)) throw new KnowledgeInputError(code);
   const size = await blobSize(blobPath);
   if (size === null) throw new KnowledgeInputError('upload_missing');
   if (!valid(fileName, size)) throw new KnowledgeInputError(code);

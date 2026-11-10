@@ -13,8 +13,10 @@ const AVATAR_MAX_BYTES = 1024 * 1024;
 
 /** Keeps a readable name in the pathname without letting it steer the path. */
 function safeName(fileName: string): string {
-  const cleaned = fileName.normalize('NFKC').replace(/[\\/:*?"<>|\u0000-\u001f]/g, '_').trim();
-  return cleaned.slice(-120) || 'file';
+  const cleaned = fileName.normalize('NFKC').replace(/[\\/:*?"<>|#%\u0000-\u001f]/g, '_').trim();
+  const name = cleaned.slice(-120);
+  /* `.` and `..` are path syntax, not names (lib/infra/blob.ts refuses them). */
+  return name && name !== '.' && name !== '..' ? name : 'file';
 }
 
 /**

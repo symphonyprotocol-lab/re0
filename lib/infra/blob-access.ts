@@ -8,6 +8,7 @@
  * so a deleted image is gone at once rather than served from cache.
  */
 import { BlobNotFoundError, del, head, issueSignedToken, list, presignUrl } from '@vercel/blob';
+import { assertBlobPathname } from '@/lib/domain/blob-path';
 
 function token(): string {
   const value = process.env.BLOB_READ_WRITE_TOKEN;
@@ -16,6 +17,7 @@ function token(): string {
 }
 
 export async function blobInfo(pathname: string): Promise<{ size: number; contentType: string } | null> {
+  assertBlobPathname(pathname);
   try {
     const info = await head(pathname, { token: token() });
     return { size: info.size, contentType: info.contentType };
@@ -26,6 +28,7 @@ export async function blobInfo(pathname: string): Promise<{ size: number; conten
 }
 
 export async function signedReadUrl(pathname: string, ttlSeconds: number, now = Date.now()): Promise<{ url: string; expiresAt: Date }> {
+  assertBlobPathname(pathname);
   const validUntil = now + ttlSeconds * 1000;
   const signed = await issueSignedToken({ token: token(), pathname, operations: ['get'], validUntil });
   const { presignedUrl } = await presignUrl(signed, { operation: 'get', pathname, validUntil, access: 'private', useCache: false });
@@ -43,5 +46,6 @@ export async function listByPrefix(prefix: string, options: { cursor?: string; l
 /** Deleting what is already gone is not an error. */
 export async function deleteBlobs(pathnames: readonly string[]): Promise<void> {
   if (!pathnames.length) return;
+  pathnames.forEach(assertBlobPathname);
   await del([...pathnames], { token: token() });
 }
