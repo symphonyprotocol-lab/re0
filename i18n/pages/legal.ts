@@ -35,7 +35,7 @@ export const zh = {
     },
     s6: {
       title: '消耗与结算',
-      body: '向 Ree 提问时，每个实际作答的 Ree 收取 20 credits 基本使用费，提问他人的 Ree 时另付该 Ree 主设定的查询费；没有相关知识、未作答的不收费。知识处理按实际调用的 Firecrawl、embedding、语音转文字等第三方服务成本计费，不另收字符费；各项美元费用汇总后按 1 credit = $0.0001 换算，最后统一向上取整。初始预留可退、不是总价上限，实际费用自动补足、多余退回；余额不足则停止，处理失败全额退回。第三方单价随供应商及所选模型调整，实际用量与费用可在处理记录中查看。',
+      body: '向 Ree 提问时，每个实际作答的 Ree 收取 20 credits 基本使用费，提问他人的 Ree 时另付该 Ree 主设定的查询费；没有相关知识、未作答的不收费。知识处理按实际调用的 Firecrawl、embedding、语音转文字等第三方服务成本计费，不另收字符费；各项美元费用汇总后按 1 credit = $0.0001 换算，最后统一向上取整。初始预留可退、不是总价上限，实际费用自动补足、多余退回；余额不足则停止；处理失败时按已发生的成本结算，只退回没用掉的预留，余额不够支付的部分记为欠款，下次到账时先还。第三方单价随供应商及所选模型调整，实际用量与费用可在处理记录中查看。',
     },
     s7: {
       title: '收入 credits 与提现',
@@ -125,7 +125,7 @@ export const en: Shape<typeof zh> = {
     },
     s6: {
       title: 'Usage and settlement',
-      body: 'Each Ree that actually answers a question charges a 20-credit base fee; asking someone else’s Ree adds the query fee its owner set. An unanswered question costs nothing. Knowledge processing passes through actual costs from services called, including Firecrawl, embedding and transcription, with no character fee. USD costs are totaled, converted at 1 credit = $0.0001 and rounded up once. Initial reservations are refundable, not price caps. Shortfalls are reserved automatically; unused credits are returned. Insufficient balance stops processing, and failures are fully refunded. Provider rates depend on the supplier and selected model; actual usage and costs appear in processing activity.',
+      body: 'Each Ree that actually answers a question charges a 20-credit base fee; asking someone else’s Ree adds the query fee its owner set. An unanswered question costs nothing. Knowledge processing passes through actual costs from services called, including Firecrawl, embedding and transcription, with no character fee. USD costs are totaled, converted at 1 credit = $0.0001 and rounded up once. Initial reservations are refundable, not price caps. Shortfalls are reserved automatically; unused credits are returned. Insufficient balance stops processing. A failed run is charged for the costs already incurred and only unused credits are returned; what the balance cannot cover is owed and repaid from the next credits. Provider rates depend on the supplier and selected model; actual usage and costs appear in processing activity.',
     },
     s7: {
       title: 'Earned credits and payouts',

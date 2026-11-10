@@ -28,9 +28,20 @@ export function ArrivalNotice({ transactionId }: { transactionId: string }) {
       if (stopped) return;
       try {
         const response = await fetch(`/api/billing/checkout?transaction=${encodeURIComponent(transactionId)}`, { cache: 'no-store' });
+        /* Signed out meanwhile: no later poll can succeed. */
+        if (response.status === 401) {
+          setState((current) => ({ ...current, phase: 'slow' }));
+          return;
+        }
         const body = (await response.json()) as { credited?: boolean; credits?: number };
         if (body.credited) {
           setState({ phase: 'done', credits: body.credits ?? 0 });
+          /* Arrived: a reload of this address need not wait for it again. */
+          const url = new URL(window.location.href);
+          if (url.searchParams.has('checkout')) {
+            url.searchParams.delete('checkout');
+            window.history.replaceState(null, '', url);
+          }
           router.refresh();
           return;
         }

@@ -84,6 +84,7 @@ export const zh = {
   },
   errors: {
     stale: '记录状态已变化，请刷新后重试。',
+    network: '网络连接中断，操作可能已经生效。请先刷新页面确认，再决定是否重试。',
     not_found: '记录不存在或已删除。',
     reason: '请填写有效的原因。',
     generic: '无法完成操作，请检查后重试。',
@@ -233,6 +234,7 @@ export const en: Shape<typeof zh> = {
   },
   errors: {
     stale: 'The record changed. Refresh and try again.',
+    network: 'The connection dropped and the action may already have taken effect. Reload to check before trying again.',
     not_found: 'The record does not exist or was deleted.',
     reason: 'Enter a valid reason.',
     generic: 'Could not complete the operation. Check and try again.',

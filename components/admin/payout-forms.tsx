@@ -8,7 +8,14 @@ import { api } from '@/lib/client/upload';
 import { useI18n } from '@/i18n/client';
 import { fill } from '@/i18n/format';
 import { CI } from '@/components/admin/console-icon';
+import { useConfirmStep } from '@/components/admin/confirm-step';
 import { useToast } from '@/components/ui/toast';
+
+/** Who a payout goes to, named in the confirmation of every final decision on it. */
+export interface Payee {
+  name: string;
+  paypal: string;
+}
 
 function useAction() {
   const { t } = useI18n();
@@ -37,10 +44,13 @@ function useAction() {
 const reasonLength = (value: string) => Array.from(value.trim()).length;
 
 /** 审核决定 (prototype `#payout-review-form`): approve keeps the hold; reject needs 3–300 characters and releases it. */
-export function PayoutReview({ id, allowed, paymentHref }: { id: string; allowed: boolean; paymentHref: string }) {
+export function PayoutReview({ id, credits, payee, allowed, paymentHref }: { id: string; credits: number; payee: Payee; allowed: boolean; paymentHref: string }) {
   const { t } = useI18n();
   const d = t.consolePayouts.payoutDetail;
+  const c = t.consoleConfirm.payout;
   const { busy, error, setError, run, errors } = useAction();
+  const { ask, dialog } = useConfirmStep();
+  const amount = usd(creditsToCents(credits));
   const [note, setNote] = useState('');
   const alert = error && (
     <p className="form-error" role="alert">
@@ -61,7 +71,14 @@ export function PayoutReview({ id, allowed, paymentHref }: { id: string; allowed
           disabled={busy !== null}
           onClick={() => {
             if (reasonLength(note) < ADMIN_REASON.min || reasonLength(note) > ADMIN_REASON.max) return setError(errors.reason!);
-            void run('rejected', `/api/admin/payouts/${id}/reject`, { note: note.trim() }, d.rejected);
+            setError('');
+            ask({
+              title: c.rejectTitle,
+              body: fill(c.rejectBody, { name: payee.name, paypal: payee.paypal, amount }),
+              label: c.reject,
+              danger: true,
+              run: () => run('rejected', `/api/admin/payouts/${id}/reject`, { note: note.trim() }, d.rejected),
+            });
           }}
         >
           {d.reject}
@@ -79,6 +96,7 @@ export function PayoutReview({ id, allowed, paymentHref }: { id: string; allowed
         </button>
       </div>
       {alert}
+      {dialog}
     </form>
   );
 }
@@ -88,10 +106,13 @@ export function PayoutReview({ id, allowed, paymentHref }: { id: string; allowed
  * net dollars, with the fee (requested − paid) shown as it is typed; or a
  * failure reason, which releases the hold. Both are final.
  */
-export function PayoutPayment({ id, credits, allowed }: { id: string; credits: number; allowed: boolean }) {
+export function PayoutPayment({ id, credits, payee, allowed }: { id: string; credits: number; payee: Payee; allowed: boolean }) {
   const { t } = useI18n();
   const d = t.consolePayouts.payoutDetail;
+  const c = t.consoleConfirm.payout;
   const { busy, error, setError, run, errors } = useAction();
+  const { ask, dialog } = useConfirmStep();
+  const amount = usd(creditsToCents(credits));
   const [transferId, setTransferId] = useState('');
   const [paid, setPaid] = useState('');
   const [reason, setReason] = useState('');
@@ -138,7 +159,14 @@ export function PayoutPayment({ id, credits, allowed }: { id: string; credits: n
           disabled={busy !== null}
           onClick={() => {
             if (reasonLength(reason) < ADMIN_REASON.min || reasonLength(reason) > ADMIN_REASON.max) return setError(errors.reason!);
-            void run('failed', `/api/admin/payouts/${id}/failed`, { reason: reason.trim() }, d.failedDone);
+            setError('');
+            ask({
+              title: c.failedTitle,
+              body: fill(c.failedBody, { name: payee.name, paypal: payee.paypal, amount }),
+              label: c.failed,
+              danger: true,
+              run: () => run('failed', `/api/admin/payouts/${id}/failed`, { reason: reason.trim() }, d.failedDone),
+            });
           }}
         >
           {d.markFailed}
@@ -150,7 +178,13 @@ export function PayoutPayment({ id, credits, allowed }: { id: string; credits: n
           onClick={() => {
             if (!transferId.trim()) return setError(errors.transfer_id!);
             if (fee === null) return setError(errors.paid_amount!);
-            void run('paid', `/api/admin/payouts/${id}/paid`, { transferId: transferId.trim(), paid }, d.paidDone);
+            setError('');
+            ask({
+              title: c.paidTitle,
+              body: fill(c.paidBody, { name: payee.name, paypal: payee.paypal, paid: usd(Math.round(Number(paid) * 100)), transfer: transferId.trim(), amount }),
+              label: c.paid,
+              run: () => run('paid', `/api/admin/payouts/${id}/paid`, { transferId: transferId.trim(), paid }, d.paidDone),
+            });
           }}
         >
           {d.markPaid}
@@ -162,6 +196,7 @@ export function PayoutPayment({ id, credits, allowed }: { id: string; credits: n
           {error}
         </p>
       )}
+      {dialog}
     </form>
   );
 }

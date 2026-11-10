@@ -4,6 +4,7 @@ import { useState, type ReactNode } from 'react';
 import { useRouter } from 'next/navigation';
 import Link from 'next/link';
 import { api } from '@/lib/client/upload';
+import { revealedFor, type Revealed } from '@/lib/client/revealed-code';
 import { useI18n } from '@/i18n/client';
 import { fill, formatNumber } from '@/i18n/format';
 import { CI } from '@/components/admin/console-icon';
@@ -343,7 +344,15 @@ export function BatchActions({ batch }: { batch: { id: string; name: string; not
   return (
     <div className="flex">
       {error && !editing && !confirming && <span className="form-error" role="alert">{error}</span>}
-      <button type="button" className="btn secondary" disabled={busy} onClick={() => { setError(''); setEditing(true); }}>
+      <button type="button" className="btn secondary" disabled={busy} onClick={() => {
+          /* Each opening starts from the saved batch: a cancelled draft (say, "no expiry" ticked) is not saved by the next one. */
+          setError('');
+          setName(batch.name);
+          setNote(batch.note ?? '');
+          setExpiresAt(batch.expiresAt ? localTime(batch.expiresAt) : '');
+          setNoExpiry(!batch.expiresAt);
+          setEditing(true);
+        }}>
         {d.edit}
       </button>
       <button
@@ -423,13 +432,15 @@ export function RevealCode({ id, last4 }: { id: string; last4: string }) {
   const d = t.redeemAdmin.detail;
   const errorText = useErrorText();
   const toast = useToast();
-  const [code, setCode] = useState<string | null>(null);
+  const [revealed, setRevealed] = useState<Revealed>(null);
+  const code = revealedFor(revealed, id);
+  const setCode = (value: null) => setRevealed(value);
   const [busy, setBusy] = useState(false);
   const reveal = async () => {
     setBusy(true);
     try {
       const response = await api<{ code?: string; error?: string }>(`/api/admin/redeem-codes/${id}/reveal`, { method: 'POST' });
-      if (response.ok && response.data.code) setCode(response.data.code);
+      if (response.ok && response.data.code) setRevealed({ id, code: response.data.code });
       else toast(errorText(response.data.error));
     } catch {
       toast(errorText());

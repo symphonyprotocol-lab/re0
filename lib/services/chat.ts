@@ -40,6 +40,39 @@ export async function ownedConversation(userId: string, id: string): Promise<Con
   return row ?? null;
 }
 
+/**
+ * How long a question can still be answering: the answer stream and the
+ * citation check together stay under the 300 s function limit, so a hold
+ * older than this belongs to a function that was killed (the hold reaper
+ * gives it back) and nothing more will arrive.
+ */
+export const ANSWER_PENDING_MS = 6 * 60_000;
+
+/**
+ * Whether the conversation's latest question is still being answered: one
+ * of its chat holds is open. A page loaded (or refreshed after a dropped
+ * stream) while that is so shows the question as waiting and polls, rather
+ * than inviting the asker to pay for it again (review C3).
+ */
+export async function answeringQuestion(userId: string, rows: readonly Pick<MessageRow, 'id' | 'role'>[], now = new Date()): Promise<boolean> {
+  const asked = [...rows].reverse().find((row) => row.role === 'user');
+  if (!asked) return false;
+  const [hold] = await db()
+    .select({ id: schema.creditHold.id })
+    .from(schema.creditHold)
+    .where(
+      and(
+        eq(schema.creditHold.userId, userId),
+        eq(schema.creditHold.kind, 'chat'),
+        eq(schema.creditHold.refId, asked.id),
+        eq(schema.creditHold.status, 'held'),
+        sql`${schema.creditHold.createdAt} > ${new Date(now.getTime() - ANSWER_PENDING_MS).toISOString()}::timestamptz`,
+      ),
+    )
+    .limit(1);
+  return Boolean(hold);
+}
+
 export async function messagesOf(conversationId: string): Promise<MessageRow[]> {
   return db()
     .select()

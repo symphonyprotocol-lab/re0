@@ -69,6 +69,12 @@ export function RedeemCard({ initialCode = '' }: { initialCode?: string }) {
       }
       setMessage({ ok: true, text: success(body) });
       setCode('');
+      /* A code that came in the address (`/redeem?code=`) is spent: keep it out of the history and of the next reload. */
+      const url = new URL(window.location.href);
+      if (url.searchParams.has('code')) {
+        url.searchParams.delete('code');
+        window.history.replaceState(null, '', url);
+      }
       router.refresh();
     } catch {
       setMessage({ ok: false, text: r.errors.generic });

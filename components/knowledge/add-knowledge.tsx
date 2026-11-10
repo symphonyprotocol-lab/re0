@@ -67,7 +67,12 @@ export function AddKnowledgeModal({
   const [url, setUrl] = useState('');
   const [error, setError] = useState<{ text: string; code?: string } | null>(null);
   const [busy, setBusy] = useState(false);
+  /* The knowledge POST is on the wire: it cannot be taken back, so the dialog stays open until it answers. */
+  const [registering, setRegistering] = useState(false);
   const [progress, setProgress] = useState<number | null>(null);
+  /* The submission in flight: Cancel, Escape and reset abort it, so nothing is uploaded or registered after. */
+  const submission = useRef<AbortController | null>(null);
+  useEffect(() => () => submission.current?.abort(), []);
   const [dragging, setDragging] = useState(false);
   /* Bumped by every pick, reset and kind change: an audio length read late is dropped. */
   const picking = useRef(0);
@@ -113,16 +118,20 @@ export function AddKnowledgeModal({
   }, [open, kind, domains]);
 
   const reset = () => {
+    submission.current?.abort();
+    submission.current = null;
     picking.current += 1;
     setFile(null);
     setConsent(false);
     setUrl('');
     setError(null);
     setBusy(false);
+    setRegistering(false);
     setProgress(null);
     setGithubStatus('checking');
   };
   const close = () => {
+    if (registering) return;
     reset();
     setDomains(null);
     onClose();
@@ -159,12 +168,17 @@ export function AddKnowledgeModal({
     if (busy || githubBlocked) return;
     setError(null);
     let body: Record<string, unknown>;
+    const controller = new AbortController();
+    const { signal } = controller;
     if (fileKind) {
       if (!file) return setError({ text: t.knowledge.errors[kind === 'audio' ? 'invalid_audio' : 'invalid_document'] });
       if (kind === 'audio' && !consent) return setError({ text: t.knowledge.errors.consent_required });
+      submission.current = controller;
       setBusy(true);
       setProgress(0);
-      const uploaded = await uploadToBlob(file, { purpose: kind, fileName: file.name, size: file.size }, setProgress);
+      const uploaded = await uploadToBlob(file, { purpose: kind, fileName: file.name, size: file.size }, (percent) => !signal.aborted && setProgress(percent), signal);
+      /* Cancelled while uploading: the dialog was reset already; nothing is registered. */
+      if (signal.aborted) return;
       setProgress(null);
       if ('error' in uploaded) {
         setBusy(false);
@@ -175,12 +189,17 @@ export function AddKnowledgeModal({
     } else if (urlKind) {
       const ok = kind === 'github' ? parseGithubRepo(url) : parseWebUrl(url);
       if (!ok) return setError({ text: t.knowledge.errors[kind === 'github' ? 'invalid_github_url' : 'invalid_url'] });
+      submission.current = controller;
       setBusy(true);
       body = { kind, url: url.trim() };
     } else {
       return;
     }
+    if (signal.aborted) return;
+    setRegistering(true);
     const result = await api<{ id?: string; error?: string }>(`/api/rees/${reeId}/knowledge`, { method: 'POST', json: { ...body, folderId: folder?.id ?? null } });
+    if (submission.current === controller) submission.current = null;
+    setRegistering(false);
     setBusy(false);
     if (result.ok) {
       reset();
@@ -206,7 +225,7 @@ export function AddKnowledgeModal({
       subtitle={folder ? fill(m.folder, { folder: folder.name }) : m.subtitle}
       footer={
         <>
-          <button type="button" className="btn secondary" onClick={close}>
+          <button type="button" className="btn secondary" onClick={close} disabled={registering}>
             {t.common.actions.cancel}
           </button>
           <button type="submit" form="knowledge-form" className="btn" disabled={busy || githubBlocked}>

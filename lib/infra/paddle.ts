@@ -348,6 +348,11 @@ export async function createCheckoutTransaction(config: PaddleConfig, order: Che
   }
 }
 
+/** One transaction as Paddle holds it (to check a payment link's owner). */
+export function getTransaction(config: PaddleConfig, transactionId: string): Promise<PaddleTransaction> {
+  return call<PaddleTransaction>(config, 'GET', `/transactions/${encodeURIComponent(transactionId)}`);
+}
+
 /** Stops renewal: the subscription stays active to the end of the period, then cancels. */
 export function cancelAtPeriodEnd(config: PaddleConfig, subscriptionId: string): Promise<PaddleSubscription> {
   return call<PaddleSubscription>(config, 'POST', `/subscriptions/${encodeURIComponent(subscriptionId)}/cancel`, {

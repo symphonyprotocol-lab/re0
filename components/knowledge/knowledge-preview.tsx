@@ -5,6 +5,7 @@ import { PREVIEW_CHILDREN_PAGE_SIZE, TRASH_RETENTION_DAYS } from '@/lib/constant
 import { locatorLabel, type Locator } from '@/lib/domain/answer';
 import type { KnowledgeActivity, KnowledgeChild, KnowledgeKind } from '@/lib/domain/knowledge';
 import { api } from '@/lib/client/upload';
+import { latestRequest } from '@/lib/client/latest';
 import { useI18n } from '@/i18n/client';
 import { fill, formatBytes, formatDateTime, formatNumber } from '@/i18n/format';
 import { Icon, type IconName } from '@/components/ui/icons';
@@ -116,11 +117,15 @@ export function KnowledgePreview({
   /* A seek asked for before the audio's metadata arrived; applied when it does. */
   const pendingSeek = useRef<number | null>(null);
 
+  /* The 3-second poll and a reload after an action can overlap: only the newest answer lands (review C11). */
+  const [detailRequest] = useState(latestRequest);
   const load = useCallback(async () => {
+    const current = detailRequest();
     const result = await api<{ knowledge: KnowledgeDetail }>(`/api/rees/${reeId}/knowledge/${knowledgeId}`);
+    if (!current()) return;
     if (result.ok) setDetail(result.data.knowledge);
     else if (result.status === 404) setMissing(true);
-  }, [reeId, knowledgeId]);
+  }, [reeId, knowledgeId, detailRequest]);
 
   useEffect(() => {
     setDetail(null);
@@ -148,7 +153,11 @@ export function KnowledgePreview({
     if (!detail || !perChild || detail.status !== 'ready' || detail.children.length === 0) return;
     const index = Math.min(child, detail.children.length - 1);
     setChildText(null);
-    void api<{ content: string }>(`/api/rees/${reeId}/knowledge/${knowledgeId}?child=${index}`).then((result) => result.ok && setChildText(result.data.content));
+    let live = true;
+    void api<{ content: string }>(`/api/rees/${reeId}/knowledge/${knowledgeId}?child=${index}`).then((result) => live && result.ok && setChildText(result.data.content));
+    return () => {
+      live = false;
+    };
   }, [detail, perChild, child, reeId, knowledgeId]);
 
   /* Count the marks after each render of the content, and keep the current one in view. */

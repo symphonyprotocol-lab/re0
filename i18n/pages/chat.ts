@@ -3,6 +3,8 @@ import type { Shape } from '@/i18n/format';
 /** `/rees/[id]/chat`: the owner's test conversation (prototype dot-conversation.js). */
 export const zh = {
   grounded: '仅基于当前启用的知识作答',
+  interrupted: '连接中断，正在读取服务器上的回答。',
+  stillAnswering: '回答仍在生成，完成后会自动显示，无需重新提问。',
   readiness: { ready: '可以开始对话', processing: '知识整理中', waiting: '知识未就绪' },
   clear: '清空对话',
   clearTitle: '清空当前对话？',
@@ -85,6 +87,8 @@ export const zh = {
 
 export const en: Shape<typeof zh> = {
   grounded: 'Answers grounded in enabled knowledge',
+  interrupted: 'The connection dropped. Loading the answer from the server.',
+  stillAnswering: 'The answer is still being written and will appear here. No need to ask again.',
   readiness: { ready: 'Ready to chat', processing: 'Preparing knowledge', waiting: 'Knowledge not ready' },
   clear: 'Clear chat',
   clearTitle: 'Clear this conversation?',

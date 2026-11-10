@@ -106,6 +106,9 @@ export function VideoStudio({
   const [notice, setNotice] = useState<string | null>(null);
   const [elapsed, setElapsed] = useState(0);
   const generating = busy === 'generate';
+  /* An export renders what is saved: while one runs, generating or saving would leave it stale the moment it is paid for (review C13). */
+  const [exporting, setExporting] = useState(false);
+  const locked = busy !== null || exporting;
 
   useEffect(() => {
     if (!generating) return;
@@ -130,7 +133,7 @@ export function VideoStudio({
   const set = <K extends keyof Draft>(key: K, value: Draft[K]) => setDraft((current) => ({ ...current, [key]: value }));
 
   const generate = async () => {
-    if (demoCredits === null) return;
+    if (demoCredits === null || locked) return;
     setConfirming(false);
     setBusy('generate');
     setNotice(null);
@@ -157,6 +160,7 @@ export function VideoStudio({
   };
 
   const save = async () => {
+    if (locked) return;
     if (!isAccent(draft.accent)) {
       setNotice(v.panel.invalidAccent);
       return;
@@ -210,7 +214,7 @@ export function VideoStudio({
           <h1>{v.heading}</h1>
           <p>{fill(v.demo.lede, { name: ree.name, kind: kindName })}</p>
         </div>
-        <button type="button" className="btn secondary" disabled={readySources === 0 || busy !== null || demoCredits === null} aria-busy={generating || undefined} onClick={() => setConfirming(true)}>
+        <button type="button" className="btn secondary" disabled={readySources === 0 || locked || demoCredits === null} aria-busy={generating || undefined} onClick={() => setConfirming(true)}>
           {generating ? <PIcon name="refresh" className="video-generate-spin" /> : <PIcon name="sparkle" />}
           {generating ? fill(v.progress.elapsed, { time: clock(elapsed) }) : generateLabel}
         </button>
@@ -244,7 +248,7 @@ export function VideoStudio({
             {progress}
           </div>
           {!previewProps && <p className="form-hint">{saved.generated ? v.demo.switchHint : v.demo.hint}</p>}
-          <ExportPanel ree={ree} props={savedProps} dirty={dirty} exportsCount={saved.exportsCount} exportCredits={exportCredits} lastExport={lastExport} onExported={(count) => setSaved((current) => ({ ...current, exportsCount: count }))} />
+          <ExportPanel ree={ree} props={savedProps} dirty={dirty} exportsCount={saved.exportsCount} exportCredits={exportCredits} lastExport={lastExport} editing={busy !== null} onRunning={setExporting} onExported={(count) => setSaved((current) => ({ ...current, exportsCount: count }))} />
         </section>
 
         <aside className="card video-edit-panel" aria-label={v.panel.title} aria-busy={generating || undefined}>
@@ -309,7 +313,7 @@ export function VideoStudio({
               <PIcon name="audio" />
               {v.demo.music}
             </label>
-            <button className="btn full" type="submit" disabled={busy !== null || !dirty || (needsStory && saved.generated)}>
+            <button className="btn full" type="submit" disabled={locked || !dirty || (needsStory && saved.generated)}>
               <PIcon name="check" />
               {busy === 'save' ? v.panel.saving : v.panel.save}
             </button>
@@ -327,7 +331,7 @@ export function VideoStudio({
             <button type="button" className="btn-secondary" onClick={() => setConfirming(false)}>
               {t.common.actions.cancel}
             </button>
-            <button type="button" className="btn" disabled={demoCredits === null} onClick={() => void generate()}>
+            <button type="button" className="btn" disabled={demoCredits === null || locked} onClick={() => void generate()}>
               <Icon name="sparkle" />
               {generateLabel}
             </button>

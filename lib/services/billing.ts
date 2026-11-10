@@ -655,18 +655,29 @@ async function currentPlanUsage(subscription: SubscriptionRow | null, redeemed: 
 
 /**
  * What every workspace page's sidebar shows: the total balance (the billing
- * tab's 总余额), the welcome credits it includes, and the Plan meter.
+ * tab's 总余额), the welcome credits it includes, any open debt, and the
+ * Plan meter.
  */
-export async function shellBilling(userId: string, now = new Date()): Promise<{ balance: number; welcome: number; plan: PlanUsage }> {
-  const { grants, subscription, redeemed, planGrants } = await billingRows(userId);
+export async function shellBilling(userId: string, now = new Date()): Promise<{ balance: number; welcome: number; debt: number; plan: PlanUsage }> {
+  const [{ grants, subscription, redeemed, planGrants }, debt] = await Promise.all([billingRows(userId), openDebt(userId)]);
   return {
     balance: availableOf(grants, now),
     welcome: availableOf(
       grants.filter((grant) => grant.source === 'welcome'),
       now,
     ),
+    debt,
     plan: await currentPlanUsage(subscription, redeemed, planGrants, now),
   };
+}
+
+/** Credits still owed: a failed run's costs the balance could not cover, a refund taken back after spending. */
+async function openDebt(userId: string): Promise<number> {
+  const [row] = await db()
+    .select({ remaining: sql<number>`coalesce(sum(${schema.creditDebt.remaining}), 0)::bigint` })
+    .from(schema.creditDebt)
+    .where(and(eq(schema.creditDebt.userId, userId), gt(schema.creditDebt.remaining, 0)));
+  return Number(row?.remaining ?? 0);
 }
 
 export async function billingSummary(userId: string, now = new Date()): Promise<BillingSummary> {

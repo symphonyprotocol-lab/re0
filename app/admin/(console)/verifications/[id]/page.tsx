@@ -114,7 +114,7 @@ export default async function VerificationReviewPage({ params, searchParams }: P
                 <>
                   <p>{d.pendingBody}</p>
                   {user.disabled && <p className="role-state-note">{d.disabled}</p>}
-                  <VerificationDecision id={request.id} />
+                  <VerificationDecision id={request.id} name={user.name} />
                 </>
               ) : (
                 <>

@@ -296,8 +296,8 @@ export function Feedback({ text, vote, onVote, cost, title }: { text: string; vo
         aria-label={r.copy}
         title={r.copy}
         onClick={async () => {
-          await navigator.clipboard.writeText(text);
-          toast(t.common.actions.copied);
+          /* A refused clipboard (permission, insecure context) says so rather than "copied". */
+          await navigator.clipboard.writeText(text).then(() => toast(t.common.actions.copied), () => toast(t.common.errors.generic));
         }}
       >
         <I name="copy" />
@@ -346,8 +346,7 @@ export function CitationDrawer({
               type="button"
               className="btn secondary"
               onClick={async () => {
-                await navigator.clipboard.writeText(`${citation.title}${where ? ` · ${where}` : ''}\n${citation.excerpt}`);
-                toast(t.common.actions.copied);
+                await navigator.clipboard.writeText(`${citation.title}${where ? ` · ${where}` : ''}\n${citation.excerpt}`).then(() => toast(t.common.actions.copied), () => toast(t.common.errors.generic));
               }}
             >
               <I name="copy" />

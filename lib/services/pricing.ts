@@ -2,9 +2,12 @@ import { and, eq, isNull, sql } from 'drizzle-orm';
 import { defaultPrice, parsePriceSettings, priceView, type PricingView, type PriceView } from '@/lib/domain/pricing';
 import type { PurchaseKind } from '@/lib/domain/billing';
 import { db, schema, type Executor } from '@/lib/infra/db';
+import { transactionBelongsTo } from '@/lib/domain/payment-link';
 import {
   archivePrice,
+  customUserId,
   describeBadPriceId,
+  getTransaction,
   isPaddlePriceId,
   paddleConfig,
   PaddleError,
@@ -183,6 +186,30 @@ export function paymentsConfigured() {
 }
 
 /** A payment link displays the original price and credits, visible only to its buyer. */
+/**
+ * Whether a payment link's transaction we hold no checkout row for is still
+ * this user's (a Paddle email's payment-method update): asked of Paddle,
+ * checked against the user's id and subscriptions. Any doubt -- no Paddle,
+ * an API error -- answers false, so the link is dropped rather than opened.
+ */
+export async function ownsPaddleTransaction(userId: string, transactionId: string, fetchTransaction = getTransaction): Promise<boolean> {
+  const config = paddleConfig();
+  if (!config) return false;
+  /* One of our own checkouts that is not this user's live one (someone else's, or superseded): never opened. */
+  const [checkout] = await db().select({ id: schema.paddleCheckout.paddleTransactionId }).from(schema.paddleCheckout).where(eq(schema.paddleCheckout.paddleTransactionId, transactionId)).limit(1);
+  if (checkout) return false;
+  try {
+    const [transaction, subscriptions] = await Promise.all([
+      fetchTransaction(config, transactionId),
+      db().select({ id: schema.subscription.paddleSubscriptionId }).from(schema.subscription).where(eq(schema.subscription.userId, userId)),
+    ]);
+    return transactionBelongsTo(transaction, userId, subscriptions.map((row) => row.id), customUserId);
+  } catch (error) {
+    console.warn(`checkout: payment link ${transactionId} not checked: ${error instanceof Error ? error.message : 'unknown'}`);
+    return false;
+  }
+}
+
 export async function pendingCheckoutPricing(userId: string, transactionId: string) {
   const [order] = await db()
     .select()

@@ -432,6 +432,40 @@ describeWithDb('video exports', () => {
     }
   });
 
+  it('a new source, a new price or publishing leaves the export current and cached (review C4)', async () => {
+    const userId = await owner();
+    const ree = await reeOf(userId, { isPublic: false });
+    await generate(userId, ree.id);
+    const first = await video.startExport(userId, ree.id);
+    if (first.cached) throw new Error('unexpected cache hit');
+    upload(first.upload.pathname);
+    await video.completeExport(userId, ree.id, first.exportId);
+
+    /* Nothing the frames draw: another source, a higher query fee, publishing (a share link). */
+    const id = await knowledge.addKnowledge(userId, ree, { kind: 'text', title: 'More notes', content: `${POLICY} Exchanges are free.` });
+    await knowledge.processKnowledge(id);
+    await db().update(schema.ree).set({ queryFee: 40, isPublic: true }).where(eq(schema.ree.id, ree.id));
+    await rees.setReePublished(userId, ree.id, true);
+    expect(await video.exportQuote(userId, ree.id)).toEqual({ cached: `/media/${first.upload.pathname}`, cost: 0 });
+    expect((await video.videoStudio(userId, ree.id)).lastExport).toMatchObject({ current: true });
+    expect((await video.startExport(userId, ree.id)).cached).toBe(true);
+  });
+
+  it('an export stored under the old whole-props identity still matches while nothing changed (review C4)', async () => {
+    const userId = await owner();
+    const ree = await reeOf(userId);
+    await generate(userId, ree.id);
+    const studio = await video.videoStudio(userId, ree.id);
+    const pathname = `videos/${ree.id}/legacy.mp4`;
+    await db().insert(schema.videoExport).values({
+      reeId: ree.id, userId, contentVersion: video.legacyContentVersion(studio.props!), template: studio.video.template, aspect: studio.video.aspect,
+      costCredits: 0, status: 'done', blobUrl: pathname, finishedAt: new Date(),
+    });
+    expect(video.contentVersion(studio.props!)).not.toBe(video.legacyContentVersion(studio.props!));
+    expect(await video.exportQuote(userId, ree.id)).toEqual({ cached: `/media/${pathname}`, cost: 0 });
+    expect((await video.videoStudio(userId, ree.id)).lastExport).toMatchObject({ current: true });
+  });
+
   it('a cache hit does not use up the free export', async () => {
     const userId = await owner();
     const ree = await reeOf(userId);

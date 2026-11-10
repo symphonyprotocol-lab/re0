@@ -98,8 +98,7 @@ export function Connections({
   };
 
   const copy = async (value: string) => {
-    await navigator.clipboard.writeText(value);
-    toast(c.copied);
+    await navigator.clipboard.writeText(value).then(() => toast(c.copied), () => toast(t.common.errors.generic));
   };
 
   const row = (label: string, value: string) => (
