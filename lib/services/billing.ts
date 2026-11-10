@@ -12,7 +12,7 @@
  * renewal will (cancelled or lapsed Plans).
  */
 import { cache } from 'react';
-import { and, count, desc, eq, gt, gte, ilike, inArray, isNull, lt, lte, notInArray, or, sql } from 'drizzle-orm';
+import { and, asc, count, desc, eq, gt, gte, ilike, inArray, isNull, lt, lte, notInArray, or, sql } from 'drizzle-orm';
 import { CHECKOUT_REUSE_MS, PACK, PLAN_EXPIRY_BATCH } from '@/lib/constants';
 import {
   ACTIVITY_REASONS,
@@ -25,6 +25,7 @@ import {
   planUsage,
   reversalCredits,
   subscriptionStatusFrom,
+  takeBack,
   type Activity,
   type CheckoutOrder,
   type PlanState,
@@ -56,7 +57,7 @@ import {
   type PaddleTransaction,
 } from '@/lib/infra/paddle';
 import { checkoutPrice, currentUnitCredits } from '@/lib/services/pricing';
-import { addGrant, expirePlanGrants, grantsOf, moveGrants } from '@/lib/services/credits';
+import { addGrant, expirePlanGrants, grantsOf, moveGrants, restoreVoidedEarned } from '@/lib/services/credits';
 
 export class WebhookRejected extends Error {
   constructor(message: string) {
@@ -536,17 +537,34 @@ async function writeSubscription(tx: Tx, userId: string, existing: SubscriptionR
 
 /**
  * An approved refund or chargeback takes back the refunded share of the
- * purchase's credits from that purchase's own grant only; what of it is
- * already spent becomes a debt the next credits pay off (2.3), and other
- * buckets are left alone. Credits of a Plan period that expired unused were
- * written off already and are not owed again. The balance never goes
- * negative. The spent part may have paid query fees: whatever of the
- * earned credits it funded has not matured yet is voided (review H2).
+ * purchase's credits (terms s5): first from what is left of the purchase's
+ * own grant, then from the user's other spendable credits in the spending
+ * order (current Plan → welcome → Pack → earned; within earned, what can
+ * never be withdrawn first and what is already withdrawable last), and what
+ * nothing covers becomes a debt the next credits pay off first (2.3). The
+ * balance never goes negative. Credits held for a payout or anything else
+ * are not spendable, so they are never taken.
+ *
+ * One exception: a Plan period that has ended. What of it expired unused
+ * was written off and is not owed, so it is taken from nowhere; only what
+ * was really spent from it counts, less what earlier refunds already took.
+ *
+ * The spent part of the purchase may have paid query fees. Owners' earned
+ * credits are voided only when the refund leaves the buyer in debt: when it
+ * is recovered in full (from the purchase or the buyer's other credits) the
+ * owners keep what they earned. When a debt forms, up to the debt's amount
+ * of the earned credits this purchase funded (`funding_purchase_id`) that
+ * have not matured yet is voided, newest first (review H2); what matured,
+ * is held for a payout or was spent is never taken back. As the asker pays
+ * the debt off, the voided credits come back to the owners in step
+ * (`restoreVoidedEarned`), so nothing is recovered twice.
  *
  * An approved `chargeback_reverse` (a chargeback the merchant won) gives
  * back what was taken: this purchase's open debt is cancelled first, then
- * the rest returns to its grant (unless that is a Plan period that has
- * ended). Owners' voided earned credits are not restored.
+ * the credits go back to the grants the chargeback took them from, as long
+ * as each can still be spent (an ended Plan period is not revived). The
+ * debt it cancels counts as settled, so owners' earned credits voided for it
+ * come back the same way as when the asker pays it off.
  */
 async function applyAdjustment(tx: Tx, adjustment: PaddleAdjustment, now: Date): Promise<string> {
   if (adjustment.status !== 'approved') return 'ignored';
@@ -576,22 +594,25 @@ async function applyAdjustment(tx: Tx, adjustment: PaddleAdjustment, now: Date):
   const chargeback = adjustment.action === 'chargeback';
   if (credits > 0) {
     const [own] = await tx.select().from(schema.creditGrant).where(eq(schema.creditGrant.purchaseId, purchase.id)).for('update');
-    const taken = Math.min(credits, own?.remaining ?? 0);
-    const allocations = own && taken > 0 ? [{ grantId: own.id, source: own.source, amount: taken }] : [];
-    await moveGrants(tx, allocations, -1);
-    const spent = credits - taken;
-    /* A Plan period that ended: what expired unused was never spent, so it is not owed. */
-    let owed = spent;
-    let unowed = 0;
+    /* A Plan period that ended: what expired unused (or is left but no longer spendable) was never spent, so it is not owed. */
+    let due = credits;
     if (own && own.source === 'plan' && own.expiresAt && own.expiresAt.getTime() <= now.getTime()) {
       const expired = await expiredFrom(tx, own.id);
-      owed = Math.min(spent, Math.max(0, own.amount - expired - purchase.reversedCredits));
-      unowed = spent - owed;
+      due = Math.min(credits, Math.max(0, own.amount - expired - own.remaining - purchase.reversedCredits));
     }
-    const voided = owed > 0 ? await voidFundedEarned(tx, purchase.id, owed, `${adjustment.action} ${adjustment.id}`, now) : { voided: 0, unrecovered: 0 };
+    const unowed = credits - due;
+    /* The purchase's own grant first (an ended Plan's is not spendable, so it is skipped), then the rest in the spending order. */
+    const { allocations, shortfall } = due > 0 ? takeBack(await grantsOf(tx, purchase.userId, true), own?.id ?? null, due, now) : { allocations: [], shortfall: 0 };
+    await moveGrants(tx, allocations, -1);
+    const taken = due - shortfall;
+    const fromOwn = allocations.filter((entry) => entry.grantId === own?.id).reduce((sum, entry) => sum + entry.amount, 0);
+    /* Owners keep what this purchase paid them unless the buyer is left owing: then at most the debt is voided from them. */
+    const voided = shortfall > 0 ? await voidFundedEarned(tx, purchase.id, shortfall, `${adjustment.action} ${adjustment.id}`, now) : { voided: 0, unrecovered: 0 };
     const notes = [
       `${adjustment.action} ${adjustment.id}: ${credits} credits`,
-      owed ? `${owed} owed` : '',
+      fromOwn ? `${fromOwn} from the purchase` : '',
+      taken - fromOwn ? `${taken - fromOwn} from other credits` : '',
+      shortfall ? `${shortfall} owed` : '',
       unowed ? `${unowed} expired unused, not owed` : '',
       voided.voided ? `${voided.voided} of owners' unmatured earnings voided` : '',
       voided.unrecovered ? `${voided.unrecovered} of owners' earnings already matured or spent, not recovered` : '',
@@ -605,8 +626,8 @@ async function applyAdjustment(tx: Tx, adjustment: PaddleAdjustment, now: Date):
       allocations,
       createdAt: now,
     });
-    if (owed > 0) {
-      await tx.insert(schema.creditDebt).values({ userId: purchase.userId, amount: owed, remaining: owed, purchaseId: purchase.id, createdAt: now });
+    if (shortfall > 0) {
+      await tx.insert(schema.creditDebt).values({ userId: purchase.userId, amount: shortfall, remaining: shortfall, purchaseId: purchase.id, createdAt: now });
     }
   }
   await tx
@@ -630,7 +651,7 @@ async function expiredFrom(tx: Tx, grantId: string): Promise<number> {
 }
 
 /**
- * Voids up to `wanted` of the earned credits a refunded purchase paid for,
+ * Voids up to `wanted` (the refund's debt) of the earned credits a refunded purchase paid for,
  * from grants that have not matured yet, newest first; never what matured,
  * is held for a payout or already spent. One `earned_void` entry per owner
  * says what was voided and what could not be (review H2).
@@ -706,17 +727,36 @@ async function reverseChargeback(tx: Tx, purchase: typeof schema.purchase.$infer
     cancelled += cancel;
     left -= cancel;
   }
-  const [own] = await tx.select().from(schema.creditGrant).where(eq(schema.creditGrant.purchaseId, purchase.id)).for('update');
-  const live = own && (own.expiresAt === null || own.expiresAt.getTime() > now.getTime());
-  const back = live ? Math.min(left, own.amount - own.remaining) : 0;
-  const allocations = back > 0 ? [{ grantId: own!.id, source: own!.source, amount: back }] : [];
+  const restoredEarned = cancelled > 0 ? await restoreVoidedEarned(tx, purchase.id, now) : 0;
+  /* The credits the chargebacks of this purchase took, per grant, less what reversals already gave back. */
+  const takenRows = await tx
+    .select({ reason: schema.creditEntry.reason, allocations: schema.creditEntry.allocations })
+    .from(schema.creditEntry)
+    .where(and(eq(schema.creditEntry.refId, purchase.id), inArray(schema.creditEntry.reason, ['chargeback', 'chargeback_reverse'])))
+    .orderBy(asc(schema.creditEntry.createdAt));
+  const owed = new Map<string, number>();
+  for (const row of takenRows) for (const entry of row.allocations) owed.set(entry.grantId, (owed.get(entry.grantId) ?? 0) + (row.reason === 'chargeback' ? entry.amount : -entry.amount));
+  const ids = [...owed].filter(([, amount]) => amount > 0).map(([grantId]) => grantId);
+  const grants = ids.length ? await tx.select().from(schema.creditGrant).where(inArray(schema.creditGrant.id, ids)).for('update') : [];
+  /* The purchase's own grant first, then the others; a grant that can no longer be spent (an ended Plan period) is not revived. */
+  grants.sort((x, y) => Number(y.purchaseId === purchase.id) - Number(x.purchaseId === purchase.id));
+  const allocations: Allocation[] = [];
+  for (const grant of grants) {
+    if (left === 0) break;
+    if (grant.expiresAt && grant.expiresAt.getTime() <= now.getTime()) continue;
+    const give = Math.min(left, owed.get(grant.id) ?? 0, grant.amount - grant.remaining);
+    if (give <= 0) continue;
+    allocations.push({ grantId: grant.id, source: grant.source, amount: give });
+    left -= give;
+  }
+  const back = allocations.reduce((sum, entry) => sum + entry.amount, 0);
   await moveGrants(tx, allocations, 1);
   await tx.insert(schema.creditEntry).values({
     userId: purchase.userId,
     delta: back,
     reason: 'chargeback_reverse',
     refId: purchase.id,
-    note: [`chargeback_reverse ${adjustment.id}: ${restore} credits`, cancelled ? `${cancelled} of debt cancelled` : '', back ? `${back} back to the purchase` : '', left - back ? `${left - back} not restored (the Plan period ended)` : '']
+    note: [`chargeback_reverse ${adjustment.id}: ${restore} credits`, cancelled ? `${cancelled} of debt cancelled` : '', restoredEarned ? `${restoredEarned} of owners' voided earnings restored` : '', back ? `${back} back to the grants it was taken from` : '', left ? `${left} not restored (its grant can no longer be spent)` : '']
       .filter(Boolean)
       .join(', '),
     allocations,

@@ -466,6 +466,8 @@ export const CREDIT_ENTRY_REASONS = [
   'chargeback_reverse',
   /* A Ree owner's unmatured earned credits voided because the purchase that paid for them was refunded or charged back. */
   'earned_void',
+  /* What an `earned_void` took is given back as the asker pays off (or a won chargeback cancels) the debt it was voided for. */
+  'earned_restore',
 ] as const;
 export type CreditEntryReason = (typeof CREDIT_ENTRY_REASONS)[number];
 

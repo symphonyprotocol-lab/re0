@@ -132,7 +132,7 @@ export async function addGrant(
     createdAt: now,
   });
   const debts = await tx
-    .select({ id: schema.creditDebt.id, remaining: schema.creditDebt.remaining })
+    .select({ id: schema.creditDebt.id, remaining: schema.creditDebt.remaining, purchaseId: schema.creditDebt.purchaseId })
     .from(schema.creditDebt)
     .where(and(eq(schema.creditDebt.userId, input.userId), gt(schema.creditDebt.remaining, 0)))
     .orderBy(asc(schema.creditDebt.createdAt))
@@ -162,7 +162,90 @@ export async function addGrant(
     allocations: [{ grantId, source: input.source, amount: offset }],
     createdAt: now,
   });
+  /* A refund debt paid off (in part): owners' earnings voided for it come back as far as it is paid. */
+  const paid = new Set(offsets.map((entry) => debts.find((debt) => debt.id === entry.debtId)?.purchaseId).filter((id): id is string => Boolean(id)));
+  for (const purchaseId of paid) await restoreVoidedEarned(tx, purchaseId, now);
   return { grantId, offset };
+}
+
+/**
+ * Gives Ree owners back the earned credits a refund voided (`earned_void`),
+ * in step with how much of that refund's debt has since been settled, by
+ * the asker's later credits or a won chargeback cancelling it, so the
+ * platform never recovers the same credits from both the asker and the
+ * owners. Per debt, what may come back is its share of what was voided for
+ * it: voided × settled ÷ owed, rounded down; a void is the debt's when the
+ * same transaction wrote both (they share `created_at`). What a void could
+ * not take (`unrecovered`: matured, held, spent) was never taken, so none
+ * of it comes back; a void with no debt (an older rule) never comes back.
+ *
+ * The credits go back into the very grants the voids took them from, oldest
+ * void first and in the order it took them, so they keep their original
+ * `withdrawable_at` and funding purchase. One `earned_restore` entry per
+ * owner names the purchase and the debts. Idempotent: what was restored
+ * before is subtracted, so running it again restores nothing new. The caller
+ * holds this purchase's debt rows locked, which serialises two settlements.
+ */
+export async function restoreVoidedEarned(tx: Tx, purchaseId: string, now = new Date()): Promise<number> {
+  const debts = await tx
+    .select({ id: schema.creditDebt.id, amount: schema.creditDebt.amount, remaining: schema.creditDebt.remaining, createdAt: schema.creditDebt.createdAt })
+    .from(schema.creditDebt)
+    .where(eq(schema.creditDebt.purchaseId, purchaseId))
+    .orderBy(asc(schema.creditDebt.createdAt))
+    .for('update');
+  if (debts.length === 0) return 0;
+  const entries = await tx
+    .select({ reason: schema.creditEntry.reason, delta: schema.creditEntry.delta, allocations: schema.creditEntry.allocations, createdAt: schema.creditEntry.createdAt })
+    .from(schema.creditEntry)
+    .where(and(inArray(schema.creditEntry.reason, ['earned_void', 'earned_restore']), eq(schema.creditEntry.refId, purchaseId)))
+    .orderBy(asc(schema.creditEntry.createdAt), asc(schema.creditEntry.id));
+  const voids = entries.filter((entry) => entry.reason === 'earned_void');
+  let target = 0;
+  for (const debt of debts) {
+    const voided = voids.filter((entry) => entry.createdAt.getTime() === debt.createdAt.getTime()).reduce((sum, entry) => sum + -entry.delta, 0);
+    if (voided > 0 && debt.amount > 0) target += Math.floor((voided * (debt.amount - debt.remaining)) / debt.amount);
+  }
+  /* Per grant: what the voids took and the restores already gave back. */
+  const owed = new Map<string, number>();
+  for (const entry of voids) for (const part of entry.allocations ?? []) owed.set(part.grantId, (owed.get(part.grantId) ?? 0) + part.amount);
+  let restored = 0;
+  for (const entry of entries) {
+    if (entry.reason !== 'earned_restore') continue;
+    restored += entry.delta;
+    for (const part of entry.allocations ?? []) owed.set(part.grantId, (owed.get(part.grantId) ?? 0) - part.amount);
+  }
+  let budget = target - restored;
+  if (budget <= 0 || owed.size === 0) return 0;
+  const grants = await tx
+    .select({ id: schema.creditGrant.id, userId: schema.creditGrant.userId, source: schema.creditGrant.source })
+    .from(schema.creditGrant)
+    .where(inArray(schema.creditGrant.id, [...owed.keys()]))
+    .for('update');
+  const byOwner = new Map<string, Allocation[]>();
+  for (const [grantId, outstanding] of owed) {
+    if (budget === 0) break;
+    const grant = grants.find((row) => row.id === grantId);
+    if (!grant || outstanding <= 0) continue;
+    const give = Math.min(budget, outstanding);
+    byOwner.set(grant.userId, [...(byOwner.get(grant.userId) ?? []), { grantId, source: grant.source, amount: give }]);
+    budget -= give;
+  }
+  let total = 0;
+  for (const [userId, allocations] of byOwner) {
+    await moveGrants(tx, allocations, 1);
+    const amount = allocations.reduce((sum, entry) => sum + entry.amount, 0);
+    total += amount;
+    await tx.insert(schema.creditEntry).values({
+      userId,
+      delta: amount,
+      reason: 'earned_restore',
+      refId: purchaseId,
+      note: `the asker settled the refund debt (${debts.map((debt) => debt.id).join(', ')}); ${amount} voided earned credits restored`,
+      allocations,
+      createdAt: now,
+    });
+  }
+  return total;
 }
 
 /**
