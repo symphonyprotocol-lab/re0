@@ -17,6 +17,7 @@ type Counts = Record<string, unknown> & {
   up: number;
   down: number;
   pulls: number;
+  answers_all: number;
 };
 
 export async function computeRanks(now = new Date()): Promise<number> {
@@ -27,7 +28,8 @@ export async function computeRanks(now = new Date()): Promise<number> {
       coalesce(q.answered, 0)::int as answered,
       coalesce(v.up, 0)::int as up,
       coalesce(v.down, 0)::int as down,
-      coalesce(p.pulls, 0)::int as pulls
+      coalesce(p.pulls, 0)::int as pulls,
+      coalesce(a.answers, 0)::int as answers_all
     from ${schema.ree} r
     left join (
       select m.ree_id, count(*) as asked, count(*) filter (where not m.no_answer) as answered
@@ -47,6 +49,13 @@ export async function computeRanks(now = new Date()): Promise<number> {
       where cr.added_at >= ${since}::timestamptz and c.user_id <> o.owner_id
       group by cr.ree_id
     ) p on p.ree_id = r.id
+    left join (
+      /* The explore "回答最多" order, all time: once an hour here instead of over every message on every browse. */
+      select m.ree_id, count(*) as answers
+      from ${schema.message} m join ${schema.conversation} c on c.id = m.conversation_id join ${schema.ree} o on o.id = m.ree_id
+      where m.role = 'ree' and not m.no_answer and c.user_id <> o.owner_id
+      group by m.ree_id
+    ) a on a.ree_id = r.id
     where r.is_public and r.is_published and r.moderated_at is null and r.deleted_at is null`);
   const rows = counted.rows;
   const computedAt = now.toISOString();
@@ -59,6 +68,7 @@ export async function computeRanks(now = new Date()): Promise<number> {
         down30: row.down,
         pulls30: row.pulls,
         activity30: row.asked + row.pulls,
+        answersAll: row.answers_all,
         quality: qualityScore(row),
         computedAt,
       };

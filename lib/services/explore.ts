@@ -242,6 +242,8 @@ export interface ExploreResult extends ListResult<ReeCard> {
 }
 
 const activity = sql<number>`coalesce((${schema.ree.rank} ->> 'activity30')::int, 0)`;
+/* Materialised hourly by `/api/cron/rank`: ordering by the live count aggregated every message of every public Ree per request. */
+const answersRanked = sql<number>`coalesce((${schema.ree.rank} ->> 'answersAll')::int, 0)`;
 const roleOrder = sql<number>`case ${schema.user.role} when 'official' then 2 when 'verified' then 1 else 0 end`;
 
 /**
@@ -272,7 +274,7 @@ export async function explore(query: ExploreQuery, { includeIntros = true } = {}
   const page = clampPage(query.page, total, query.size);
   const order = {
     active: [desc(activity), desc(roleOrder), desc(schema.ree.createdAt)],
-    answers: [desc(answersByOthers), desc(roleOrder), desc(schema.ree.createdAt)],
+    answers: [desc(answersRanked), desc(roleOrder), desc(schema.ree.createdAt)],
     free: [asc(schema.ree.queryFee), desc(roleOrder), desc(activity), desc(schema.ree.createdAt)],
   }[query.sort];
   const rows = await cardQuery()

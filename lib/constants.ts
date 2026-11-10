@@ -375,6 +375,8 @@ export const USER_RATE_LIMITS = {
   comment: [{ windowSeconds: 60, limit: 5 }, { windowSeconds: 3_600, limit: 30 }],
   uploadToken: [{ windowSeconds: 60, limit: 30 }, { windowSeconds: 3_600, limit: 200 }],
   domainVerify: [{ windowSeconds: 60, limit: 5 }, { windowSeconds: 3_600, limit: 30 }],
+  /* `/api/explore` without a question; a question has its own EXPLORE_RATE_LIMIT. */
+  browse: [{ windowSeconds: 60, limit: 120 }, { windowSeconds: 3_600, limit: 2_000 }],
 } as const satisfies Record<string, readonly { windowSeconds: number; limit: number }[]>;
 /** Quality signals look back this far (2.4). */
 export const QUALITY_WINDOW_DAYS = 30;

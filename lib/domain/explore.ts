@@ -25,6 +25,8 @@ export interface ReeRank {
   pulls30?: number;
   /** Questions asked plus pulls into conversations: the "近 30 天活跃" order. */
   activity30?: number;
+  /** Successful answers to other people, all time: the "回答最多" order. */
+  answersAll?: number;
   quality?: number;
   computedAt?: string;
 }

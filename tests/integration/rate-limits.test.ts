@@ -17,6 +17,7 @@ import { POST as ask } from '@/app/api/chats/[id]/messages/route';
 import { PUT as setParticipants } from '@/app/api/chats/[id]/rees/route';
 import { POST as uploadToken } from '@/app/api/upload-token/route';
 import { POST as verifyDomain } from '@/app/api/domains/[id]/verify/route';
+import { GET as browse } from '@/app/api/explore/route';
 import type { RateLimitName } from '@/lib/http/rate-limit';
 
 let token: string | undefined;
@@ -57,6 +58,7 @@ const routes: [RateLimitName, () => Promise<Response>][] = [
   ['participants', () => setParticipants(post(`/api/chats/${conversationId}/rees`, { reeIds: [] }, 'PUT'), { params: Promise.resolve({ id: conversationId }) })],
   ['uploadToken', () => uploadToken(post('/api/upload-token', { purpose: 'avatar', contentType: 'image/png', size: 10 }))],
   ['domainVerify', () => verifyDomain(post(`/api/domains/${conversationId}/verify`, {}), { params: Promise.resolve({ id: conversationId }) })],
+  ['browse', () => browse(new NextRequest(`${base}/api/explore?sort=answers`))],
 ];
 
 suite('user route rate limits', () => {
