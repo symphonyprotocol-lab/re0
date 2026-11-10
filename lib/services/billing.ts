@@ -19,6 +19,8 @@ import {
   creditsFor,
   parseOrder,
   planIsActive,
+  planStateFrom,
+  redeemedPeriodIndexAt,
   priceMinorFor,
   planUsage,
   reversalCredits,
@@ -26,8 +28,10 @@ import {
   takeBack,
   type Activity,
   type CheckoutOrder,
+  type PlanState,
   type PlanUsage,
   type PurchaseKind,
+  type RedeemedPlan,
 } from '@/lib/domain/billing';
 import { availableOf } from '@/lib/domain/credits';
 import { clampPage, likePattern } from '@/lib/domain/list';
@@ -89,8 +93,42 @@ export async function subscriptionOf(executor: Executor, userId: string): Promis
   return row ?? null;
 }
 
+/**
+ * The user's redeemed Plans that have not ended by `now` (docs/design/redeem-codes.md
+ * 4.2), current and waiting; every one when `now` is null.
+ */
+export async function redeemedPlansOf(executor: Executor, userId: string, now: Date | null = new Date()): Promise<RedeemedPlan[]> {
+  const rows = await executor
+    .select({
+      startsAt: schema.redeemRedemption.planStartsAt,
+      endsAt: schema.redeemRedemption.planEndsAt,
+      months: schema.redeemRedemption.planMonths,
+      credits: schema.redeemRedemption.credits,
+    })
+    .from(schema.redeemRedemption)
+    .where(
+      and(
+        eq(schema.redeemRedemption.userId, userId),
+        eq(schema.redeemRedemption.kind, 'plan'),
+        isNull(schema.redeemRedemption.revokedAt),
+        now ? gt(schema.redeemRedemption.planEndsAt, now) : undefined,
+      ),
+    );
+  return rows.map((row) => ({ startsAt: row.startsAt!, endsAt: row.endsAt!, months: row.months!, credits: row.credits }));
+}
+
+/**
+ * Whether the user's Plan is in force: a paying Paddle subscription, else a
+ * redeemed Plan. Everything a Plan unlocks -- Packs, the Plan model, the
+ * meter, the console's Plan credits -- asks this, never the subscription alone.
+ */
+export async function planStateOf(executor: Executor, userId: string, now = new Date()): Promise<PlanState> {
+  const [subscription, redeemed] = await Promise.all([subscriptionOf(executor, userId), redeemedPlansOf(executor, userId, now)]);
+  return planStateFrom(subscription, redeemed, now);
+}
+
 export async function hasActivePlan(executor: Executor, userId: string, now = new Date()): Promise<boolean> {
-  return planIsActive(await subscriptionOf(executor, userId), now);
+  return (await planStateOf(executor, userId, now)).active;
 }
 
 /* ---------------------------------------------------------------- checkout */
@@ -102,6 +140,7 @@ export type CheckoutRefusal =
   | 'plan_required'
   | 'already_subscribed'
   | 'renewal_pending'
+  | 'plan_redeemed_active'
   | 'price_changed';
 
 export interface CheckoutDeps {
@@ -150,7 +189,7 @@ async function checkoutAttempt(
 ): Promise<{ ok: true; transactionId: string; order: CheckoutOrder } | { ok: false; error: CheckoutRefusal } | 'superseded'> {
   return db().transaction(async (tx) => {
     await tx.execute(sql`select pg_advisory_xact_lock(hashtext(${`checkout:${userId}`}))`);
-    if (order.kind === 'pack' && !planIsActive(await subscriptionOf(tx, userId), now)) return { ok: false as const, error: 'plan_required' as const };
+    if (order.kind === 'pack' && !(await planStateOf(tx, userId, now)).active) return { ok: false as const, error: 'plan_required' as const };
     const config = deps.config ?? requirePaddle();
     const price = await checkoutPrice(tx, config, order.kind, now);
     if (input.quoteKey !== undefined && input.quoteKey !== price.quoteKey) return { ok: false as const, error: 'price_changed' as const };
@@ -161,6 +200,8 @@ async function checkoutAttempt(
         .where(and(eq(schema.subscription.userId, userId), inArray(schema.subscription.status, ['active', 'expired'])));
       if (live.some((row) => row.status === 'active')) return { ok: false as const, error: 'already_subscribed' as const };
       if (live.length > 0) return { ok: false as const, error: 'renewal_pending' as const };
+      /* A redeemed Plan, in force or waiting: subscribing now would pay for months already given. */
+      if ((await redeemedPlansOf(tx, userId, now)).length > 0) return { ok: false as const, error: 'plan_redeemed_active' as const };
       const [open] = await tx
         .select({ id: schema.paddleCheckout.paddleTransactionId, priceKey: schema.paddleCheckout.priceKey })
         .from(schema.paddleCheckout)
@@ -493,7 +534,7 @@ async function applyAdjustment(tx: Tx, adjustment: PaddleAdjustment, now: Date):
 
 /* ----------------------------------------------------------------- renewal */
 
-export type RenewalRefusal = 'no_subscription' | 'invalid_action';
+export type RenewalRefusal = 'no_subscription' | 'invalid_action' | 'plan_redeemed_queued';
 
 /**
  * `POST /api/billing/subscription`: turn renewal off (the Plan runs to the
@@ -513,6 +554,8 @@ export async function setRenewal(
   if (current.cancelAtPeriodEnd === wantCancel) {
     return { ok: true, cancelAtPeriodEnd: wantCancel, periodEnd: current.currentPeriodEnd?.toISOString() ?? null };
   }
+  /* A redeemed Plan waits for this period's end; renewing too would charge for a second Plan over the same months. */
+  if (!wantCancel && (await redeemedPlansOf(db(), userId, now)).length > 0) return { ok: false, error: 'plan_redeemed_queued' };
   const config = deps.config ?? requirePaddle();
   const entity = wantCancel
     ? await (deps.cancel ?? cancelAtPeriodEnd)(config, current.paddleSubscriptionId)
@@ -573,9 +616,11 @@ export interface BillingSummary {
  */
 const billingRows = cache(async (userId: string) => {
   const executor = db();
-  const [grants, subscription, planGrants] = await Promise.all([
+  const [grants, subscription, redeemed, planGrants] = await Promise.all([
     grantsOf(executor, userId, false),
     subscriptionOf(executor, userId),
+    /* Unfiltered by time: the summary is read at the caller's `now`, and a user holds a handful at most. */
+    redeemedPlansOf(executor, userId, null),
     executor
       .select({
         amount: schema.creditGrant.amount,
@@ -589,7 +634,7 @@ const billingRows = cache(async (userId: string) => {
       .orderBy(desc(schema.creditGrant.expiresAt), desc(schema.creditGrant.createdAt))
       .limit(3),
   ]);
-  return { grants, subscription, planGrants };
+  return { grants, subscription, redeemed, planGrants };
 });
 
 type PlanGrantRow = Awaited<ReturnType<typeof billingRows>>['planGrants'][number];
@@ -599,10 +644,13 @@ function currentPlanGrant(planGrants: PlanGrantRow[], now: Date): { amount: numb
   return planGrants.find((grant) => (grant.periodStart ?? grant.createdAt).getTime() <= now.getTime() && grant.expiresAt!.getTime() > now.getTime()) ?? null;
 }
 
-async function currentPlanUsage(subscription: SubscriptionRow | null, planGrants: PlanGrantRow[], now: Date) {
+async function currentPlanUsage(subscription: SubscriptionRow | null, redeemed: RedeemedPlan[], planGrants: PlanGrantRow[], now: Date) {
+  const state = planStateFrom(subscription, redeemed, now);
   const grant = currentPlanGrant(planGrants, now);
-  const allowance = !grant && planIsActive(subscription, now) ? await currentUnitCredits(db(), 'plan') : undefined;
-  return planUsage(subscription, grant, now, allowance);
+  /* Before this month's grant arrives: a redeemed Plan's own snapshot, a paid one's current price. */
+  const redeemedCredits = state.source === 'redeemed' ? redeemed.find((plan) => redeemedPeriodIndexAt(plan, now) !== null)?.credits : undefined;
+  const allowance = !grant && state.active ? (redeemedCredits ?? (await currentUnitCredits(db(), 'plan'))) : undefined;
+  return planUsage(state, grant, now, allowance);
 }
 
 /**
@@ -610,19 +658,19 @@ async function currentPlanUsage(subscription: SubscriptionRow | null, planGrants
  * tab's 总余额), the welcome credits it includes, and the Plan meter.
  */
 export async function shellBilling(userId: string, now = new Date()): Promise<{ balance: number; welcome: number; plan: PlanUsage }> {
-  const { grants, subscription, planGrants } = await billingRows(userId);
+  const { grants, subscription, redeemed, planGrants } = await billingRows(userId);
   return {
     balance: availableOf(grants, now),
     welcome: availableOf(
       grants.filter((grant) => grant.source === 'welcome'),
       now,
     ),
-    plan: await currentPlanUsage(subscription, planGrants, now),
+    plan: await currentPlanUsage(subscription, redeemed, planGrants, now),
   };
 }
 
 export async function billingSummary(userId: string, now = new Date()): Promise<BillingSummary> {
-  const [{ grants, subscription, planGrants }, debt, official] = await Promise.all([
+  const [{ grants, subscription, redeemed, planGrants }, debt, official] = await Promise.all([
     billingRows(userId),
     db()
       .select({ remaining: sql<number>`coalesce(sum(${schema.creditDebt.remaining}), 0)::bigint` })
@@ -636,7 +684,7 @@ export async function billingSummary(userId: string, now = new Date()): Promise<
     total: buckets.plan + buckets.welcome + buckets.pack + buckets.earned,
     buckets,
     debt: Number(debt[0]?.remaining ?? 0),
-    plan: await currentPlanUsage(subscription, planGrants, now),
+    plan: await currentPlanUsage(subscription, redeemed, planGrants, now),
     official,
   };
 }

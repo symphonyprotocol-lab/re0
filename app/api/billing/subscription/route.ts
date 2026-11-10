@@ -10,7 +10,7 @@ export async function POST(request: NextRequest) {
   if (user instanceof Response) return user;
   try {
     const result = await setRenewal(user.id, (await body(request)).action);
-    if (!result.ok) return fail(result.error, result.error === 'no_subscription' ? 409 : 400);
+    if (!result.ok) return fail(result.error, result.error === 'invalid_action' ? 400 : 409);
     return json(result);
   } catch (error) {
     if (error instanceof PaddleNotConfigured) return fail('payments_unavailable', 503);

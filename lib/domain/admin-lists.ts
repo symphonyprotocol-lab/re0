@@ -114,6 +114,34 @@ export function reesView(params: Params) {
 }
 export type ReesView = ReturnType<typeof reesView>;
 
+/* ------------------------------------------------------- redeem codes */
+
+export const REDEEM_BATCH_PHASES = ['active', 'scheduled', 'expired', 'disabled'] as const;
+
+/** 兑换码 batches: phase, kind, last N days; `q` is a batch name, a whole code or a code's last four. */
+export function redeemBatchesView(params: Params) {
+  return {
+    ...common(params),
+    status: pick(params, 'status', ['all', ...REDEEM_BATCH_PHASES] as const, 'all'),
+    kind: pick(params, 'kind', ['all', 'plan', 'pack'] as const, 'all'),
+    period: pick(params, 'period', RECENT_PERIODS, 'all'),
+    sort: pick(params, 'sort', TIME_SORTS, 'newest'),
+  };
+}
+export type RedeemBatchesView = ReturnType<typeof redeemBatchesView>;
+
+export const REDEEM_CODE_FILTERS = ['all', 'available', 'used_up', 'disabled'] as const;
+
+/** One batch's two tables: its codes (`q` = last four or a whole code) and its redemptions (`q` = user name or email). */
+export function redeemBatchView(params: Params) {
+  return {
+    ...common(params),
+    tab: pick(params, 'tab', ['codes', 'redemptions'] as const, 'codes'),
+    status: pick(params, 'status', REDEEM_CODE_FILTERS, 'all'),
+  };
+}
+export type RedeemBatchView = ReturnType<typeof redeemBatchView>;
+
 /** Defaults each list leaves out of its URL. */
 export const LIST_DEFAULTS: Record<string, string> = {
   q: '',
@@ -133,6 +161,9 @@ export const LIST_DEFAULTS: Record<string, string> = {
   end: '',
   metric: 'amount',
 };
+
+/** A redeem batch's page opens on its codes. */
+export const REDEEM_BATCH_DEFAULTS: Record<string, string> = { ...LIST_DEFAULTS, tab: 'codes' };
 
 /** The order parameters appear in, as in the prototype's `adminRecordPath`. */
 const KEY_ORDER = ['tab', 'q', 'status', 'role', 'membership', 'kyc', 'kind', 'period', 'date', 'start', 'end', 'metric', 'action', 'sort', 'size', 'page'];

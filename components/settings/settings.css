@@ -2124,3 +2124,56 @@
 .settings-page .api-key-gap {
   margin-top: 7px;
 }
+
+/* 兑换码 (docs/design/redeem-codes.md 6.2): a code in, what it gave or why not. */
+.settings-page .redeem-card {
+  padding: 22px 26px;
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(0, 1.2fr);
+  align-items: center;
+  gap: 12px 24px;
+}
+.settings-page .redeem-card h3 {
+  font-size: 16px;
+  font-weight: 550;
+}
+.settings-page .redeem-card > div > p {
+  margin-top: 6px;
+  font-size: 10px;
+  color: #8b96ae;
+}
+.settings-page .redeem-card form {
+  display: flex;
+  gap: 10px;
+}
+.settings-page .redeem-card input {
+  flex: 1;
+  height: 38px;
+  padding: 0 12px;
+  border: 1px solid var(--color-line);
+  border-radius: 7px;
+  background: #fff;
+  font: 13px var(--font-mono);
+  letter-spacing: 0.5px;
+}
+.settings-page .redeem-card .btn {
+  flex: none;
+  gap: 6px;
+}
+.settings-page .redeem-message {
+  grid-column: 1 / -1;
+  font-size: 11px;
+  line-height: 1.7;
+}
+.settings-page .redeem-message.ok {
+  color: var(--color-green, #1f9d6b);
+}
+.settings-page .redeem-message.error {
+  color: var(--color-red, #d64545);
+}
+@media (max-width: 760px) {
+  .settings-page .redeem-card {
+    grid-template-columns: 1fr;
+    padding: 20px;
+  }
+}

@@ -387,11 +387,17 @@ export const creditGrant = pgTable(
     periodStart: timestampTz('period_start'),
     /** Beyond 4: the purchase a Plan or Pack grant came from; one grant per purchase. */
     purchaseId: uuid('purchase_id').references(() => purchase.id),
+    /** Beyond 4: the redemption a redeemed Pack or Plan period came from; `redemption_period` is the Plan month (0 for a Pack). */
+    redemptionId: uuid('redemption_id').references((): AnyPgColumn => redeemRedemption.id),
+    redemptionPeriod: integer('redemption_period'),
     createdAt: createdAt(),
   },
   (t) => [
     index('credit_grant_user_idx').on(t.userId),
     uniqueIndex('credit_grant_purchase_key').on(t.purchaseId).where(sql`purchase_id is not null`),
+    uniqueIndex('credit_grant_redemption_key').on(t.redemptionId, t.redemptionPeriod).where(sql`redemption_id is not null`),
+    check('credit_grant_origin_check', sql`purchase_id is null or redemption_id is null`),
+    check('credit_grant_redemption_check', sql`(redemption_id is null) = (redemption_period is null)`),
     index('credit_grant_expiry_idx').on(t.expiresAt).where(sql`source = 'plan' and remaining > 0`),
     check('credit_grant_source_check', oneOf('source', ['welcome', 'plan', 'pack', 'earned'])),
     check('credit_grant_remaining_check', sql`remaining >= 0 and remaining <= amount`),
@@ -432,6 +438,8 @@ export const CREDIT_ENTRY_REASONS = [
   'synthesis_refund',
   /* Knowledge storage (Blob files, text, passages and vectors), billed daily: docs/audit/credit-import-audit.md P4. */
   'storage_charge',
+  /* A redeem code: a Pack's credits, or one month of a redeemed Plan (docs/design/redeem-codes.md). */
+  'redeem',
 ] as const;
 export type CreditEntryReason = (typeof CREDIT_ENTRY_REASONS)[number];
 
@@ -804,6 +812,130 @@ export const creditDebt = pgTable(
   (t) => [
     index('credit_debt_open_idx').on(t.userId).where(sql`remaining > 0`),
     check('credit_debt_remaining_check', sql`remaining >= 0 and remaining <= amount and amount > 0`),
+  ],
+);
+
+/* ------------------------------------------------------------ redeem codes */
+
+/**
+ * One generation of redeem codes (docs/design/redeem-codes.md): what each
+ * code gives, how often it and each user may use it, and when. Target and
+ * limits are a promise to whoever holds a code, so only the name, note,
+ * status and expiry change afterwards. `credits` is snapshotted at creation:
+ * a Plan's per-month allowance, or a Pack batch's total.
+ */
+export const redeemBatch = pgTable(
+  'redeem_batch',
+  {
+    id: uuid('id').primaryKey().defaultRandom(),
+    name: text('name').notNull(),
+    note: text('note'),
+    kind: text('kind').$type<'plan' | 'pack'>().notNull(),
+    planMonths: integer('plan_months'),
+    packQuantity: integer('pack_quantity'),
+    credits: bigint('credits', { mode: 'number' }).notNull(),
+    codePrefix: text('code_prefix'),
+    codeCount: integer('code_count').notNull(),
+    /** Per code; null (unlimited) only for a batch of one code. */
+    maxRedemptions: integer('max_redemptions'),
+    /** Per user, across the whole batch. */
+    perUserLimit: integer('per_user_limit').notNull().default(1),
+    startsAt: timestampTz('starts_at').notNull(),
+    expiresAt: timestampTz('expires_at'),
+    status: text('status').$type<'active' | 'disabled'>().notNull().default('active'),
+    redemptionCount: integer('redemption_count').notNull().default(0),
+    createdBy: uuid('created_by').references(() => administrator.id, { onDelete: 'set null' }),
+    createdAt: createdAt(),
+    updatedAt: timestampTz('updated_at').notNull().defaultNow(),
+  },
+  (t) => [
+    index('redeem_batch_created_idx').on(t.createdAt),
+    index('redeem_batch_status_idx').on(t.status, t.expiresAt),
+    check('redeem_batch_kind_check', oneOf('kind', ['plan', 'pack'])),
+    check('redeem_batch_status_check', oneOf('status', ['active', 'disabled'])),
+    check('redeem_batch_target_check', sql`(kind = 'plan') = (plan_months is not null) and (kind = 'pack') = (pack_quantity is not null)`),
+    check('redeem_batch_months_check', sql`plan_months is null or plan_months between 1 and 12`),
+    check('redeem_batch_quantity_check', sql`pack_quantity is null or pack_quantity between 1 and 10`),
+    check('redeem_batch_credits_check', sql`credits between 1 and 100000000`),
+    check('redeem_batch_count_check', sql`code_count between 1 and 10000`),
+    check('redeem_batch_limits_check', sql`(max_redemptions is null or max_redemptions >= 1) and (max_redemptions is not null or code_count = 1) and per_user_limit >= 1`),
+    check('redeem_batch_window_check', sql`expires_at is null or starts_at < expires_at`),
+    check('redeem_batch_name_check', sql`char_length(name) between 1 and 80`),
+  ],
+);
+
+/** A code of a batch. Only its digest is looked up; the sealed copy is for the console's export. */
+export const redeemCode = pgTable(
+  'redeem_code',
+  {
+    id: uuid('id').primaryKey().defaultRandom(),
+    batchId: uuid('batch_id')
+      .notNull()
+      .references(() => redeemBatch.id),
+    codeDigest: text('code_digest').notNull(),
+    codeSealed: text('code_sealed').notNull(),
+    codeLast4: text('code_last4').notNull(),
+    maxRedemptions: integer('max_redemptions'),
+    redemptionCount: integer('redemption_count').notNull().default(0),
+    status: text('status').$type<'active' | 'disabled'>().notNull().default('active'),
+    lastRedeemedAt: timestampTz('last_redeemed_at'),
+    createdAt: createdAt(),
+  },
+  (t) => [
+    uniqueIndex('redeem_code_digest_key').on(t.codeDigest),
+    index('redeem_code_batch_idx').on(t.batchId, t.createdAt),
+    index('redeem_code_last4_idx').on(t.batchId, t.codeLast4),
+    check('redeem_code_status_check', oneOf('status', ['active', 'disabled'])),
+    check('redeem_code_count_check', sql`redemption_count >= 0 and (max_redemptions is null or redemption_count <= max_redemptions)`),
+  ],
+);
+
+/**
+ * One successful redemption. A redeemed Plan is the run
+ * [plan_starts_at, plan_ends_at), one Plan grant per month; it makes the
+ * user's Plan active as a paying subscription does (`planStateOf`).
+ */
+export const redeemRedemption = pgTable(
+  'redeem_redemption',
+  {
+    id: uuid('id').primaryKey().defaultRandom(),
+    codeId: uuid('code_id')
+      .notNull()
+      .references(() => redeemCode.id),
+    batchId: uuid('batch_id')
+      .notNull()
+      .references(() => redeemBatch.id),
+    userId: uuid('user_id')
+      .notNull()
+      .references(() => user.id),
+    kind: text('kind').$type<'plan' | 'pack'>().notNull(),
+    credits: bigint('credits', { mode: 'number' }).notNull(),
+    planMonths: integer('plan_months'),
+    planStartsAt: timestampTz('plan_starts_at'),
+    planEndsAt: timestampTz('plan_ends_at'),
+    /**
+     * A Plan's next month still to be issued: when it begins, or null once
+     * the last month is out (or for a Pack). The cron picks up rows whose
+     * time has come (docs/design/redeem-codes.md 11.2).
+     */
+    nextPeriodAt: timestampTz('next_period_at'),
+    requestId: uuid('request_id'),
+    ipHash: text('ip_hash'),
+    userAgent: text('user_agent'),
+    /** Reserved for a later "revoke" (design Q5); nothing sets it yet. */
+    revokedAt: timestampTz('revoked_at'),
+    revokedBy: uuid('revoked_by').references(() => administrator.id, { onDelete: 'set null' }),
+    createdAt: createdAt(),
+  },
+  (t) => [
+    uniqueIndex('redeem_redemption_request_key').on(t.userId, t.requestId).where(sql`request_id is not null`),
+    index('redeem_redemption_batch_user_idx').on(t.batchId, t.userId),
+    index('redeem_redemption_code_idx').on(t.codeId, t.createdAt),
+    index('redeem_redemption_batch_time_idx').on(t.batchId, t.createdAt),
+    index('redeem_redemption_plan_idx').on(t.userId, t.planEndsAt).where(sql`kind = 'plan' and revoked_at is null`),
+    index('redeem_redemption_next_period_idx').on(t.nextPeriodAt).where(sql`next_period_at is not null and revoked_at is null`),
+    check('redeem_redemption_kind_check', oneOf('kind', ['plan', 'pack'])),
+    check('redeem_redemption_plan_check', sql`(kind = 'plan') = (plan_months is not null and plan_starts_at is not null and plan_ends_at is not null)`),
   ],
 );
 
