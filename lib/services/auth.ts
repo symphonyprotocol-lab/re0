@@ -7,7 +7,7 @@
  * A first sign-in creates the user and grants the welcome credits in the
  * same transaction as the session (rebuild-proposal.md 2.3).
  */
-import { and, eq, gt } from 'drizzle-orm';
+import { and, eq, gt, inArray, lt } from 'drizzle-orm';
 import { OAUTH_STATE_TTL_MS, DISPLAY_NAME_MAX } from '@/lib/constants';
 import {
   AuthFailure,
@@ -194,4 +194,25 @@ export async function resolveSession(token: string | undefined | null, now = new
 export async function signOut(token: string | undefined | null): Promise<void> {
   if (!token) return;
   await db().delete(schema.session).where(eq(schema.session.id, await sessionTokenHash(token)));
+}
+
+/**
+ * Deletes expired product and console sessions, in bounded batches (the
+ * hourly rank job runs it). A resolved session is already refused past its
+ * expiry; this only keeps the tables from growing.
+ */
+export async function clearExpiredSessions(now = new Date(), batch = 5_000): Promise<{ sessions: number; adminSessions: number }> {
+  const sweep = async (table: typeof schema.session | typeof schema.adminSession) => {
+    let removed = 0;
+    for (let round = 0; round < 20; round += 1) {
+      const rows = await db()
+        .delete(table)
+        .where(inArray(table.id, db().select({ id: table.id }).from(table).where(lt(table.expiresAt, now)).limit(batch)))
+        .returning({ id: table.id });
+      removed += rows.length;
+      if (rows.length < batch) break;
+    }
+    return removed;
+  };
+  return { sessions: await sweep(schema.session), adminSessions: await sweep(schema.adminSession) };
 }
