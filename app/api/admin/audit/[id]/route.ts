@@ -10,6 +10,6 @@ export async function GET(request: NextRequest, context: { params: Promise<{ id:
   if (administrator instanceof Response) return administrator;
   const params = await adminParams(context.params);
   if (params instanceof Response) return params;
-  const entry = await auditEntry(params.id);
+  const entry = await auditEntry(administrator, params.id);
   return entry ? json(entry) : fail('not_found', 404);
 }

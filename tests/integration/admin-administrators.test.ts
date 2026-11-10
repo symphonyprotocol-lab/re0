@@ -7,6 +7,7 @@
 import { describe, expect, it } from 'vitest';
 import { and, eq } from 'drizzle-orm';
 import { TEST_DATABASE_URL, uniqueName } from './setup';
+import { consoleAdministrator } from '../fixtures/console-administrator';
 
 const describeWithDb = TEST_DATABASE_URL ? describe : describe.skip;
 
@@ -70,7 +71,7 @@ describeWithDb('administrator management', () => {
     await expect(administrators.disableAdministrator(formerOwner, other)).rejects.toMatchObject({ code: 'owner_only' });
 
     await administrators.disableAdministrator(owner, other);
-    expect((await administrators.listAdministrators()).find((row) => row.id === other)!.status).toBe('disabled');
+    expect((await administrators.listAdministrators(await consoleAdministrator())).find((row) => row.id === other)!.status).toBe('disabled');
   });
 
   it('rotates the link on re-issue, voiding the previous one, and audits it', async () => {
@@ -149,5 +150,17 @@ describeWithDb('sealed challenges are bound to their purpose', () => {
     await expect(
       admin.bootstrapFirstAdministrator({ name: 'X', email: `${uniqueName('x')}@example.test`, password: 'correct horse battery', sealedSecret: challenge!.sealedSecret, code: await code(challenge!.secret) }),
     ).rejects.toMatchObject({ code: 'totp' });
+  });
+});
+
+describeWithDb('console read services need an administrator', () => {
+  it('refuses a disabled or unenrolled administrator row', async () => {
+    const adminAudit = await import('@/lib/services/admin-audit');
+    const { auditView } = await import('@/lib/domain/admin-lists');
+    const id = await newAdministrator('administrator', { disabledAt: new Date() });
+    const [disabled] = await db().select().from(schema.administrator).where(eq(schema.administrator.id, id));
+    await expect(adminAudit.listAudit(disabled!, auditView({}))).rejects.toMatchObject({ code: 'unauthorized' });
+    await expect(administrators.listAdministrators({ ...disabled!, disabledAt: null, passwordHash: '' })).rejects.toMatchObject({ code: 'unauthorized' });
+    expect((await adminAudit.listAudit({ ...disabled!, disabledAt: null }, auditView({}))).page).toBe(1);
   });
 });

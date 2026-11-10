@@ -14,6 +14,7 @@ import { pendingVerifications } from '@/lib/services/roles';
 import { pendingKyc } from '@/lib/services/kyc';
 import { openPayoutCount } from '@/lib/services/payouts';
 import { runningReembedJob } from '@/lib/services/reembed';
+import { assertConsole, type Administrator } from '@/lib/services/admin';
 
 const DAY = 24 * 60 * 60 * 1000;
 
@@ -28,7 +29,8 @@ export function estimateCost(model: string, usage: { inputTokens: number; output
   );
 }
 
-export async function adminOverview(now = new Date()) {
+export async function adminOverview(administrator: Administrator, now = new Date()) {
+  assertConsole(administrator);
   const database = db();
   const since = new Date(now.getTime() - 30 * DAY);
   const month = periodRange({ period: 'month', date: reportingDate(now) })!;
@@ -74,7 +76,7 @@ export async function adminOverview(now = new Date()) {
       .from(schema.creditEntry)
       .where(and(eq(schema.creditEntry.reason, 'query_base'), gte(schema.creditEntry.createdAt, new Date(now.getTime() - 30 * DAY))))
       .groupBy(sql`1`),
-    listAudit({ q: '', action: 'all', period: 'all', sort: 'newest', size: 5, page: 1 }),
+    listAudit(administrator, { q: '', action: 'all', period: 'all', sort: 'newest', size: 5, page: 1 }),
     pendingKyc(),
     openPayoutCount(),
   ]);

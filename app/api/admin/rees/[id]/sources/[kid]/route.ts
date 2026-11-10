@@ -11,6 +11,6 @@ export async function GET(request: NextRequest, context: { params: Promise<{ id:
   const params = await adminParams(context.params);
   if (params instanceof Response) return params;
   const { id, kid } = params;
-  const source = await adminReeSource(id, kid, sourceFilter(request.nextUrl.searchParams));
+  const source = await adminReeSource(administrator, id, kid, sourceFilter(request.nextUrl.searchParams));
   return source ? json(source) : fail('not_found', 404);
 }

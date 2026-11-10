@@ -24,8 +24,8 @@ export async function GET(request: NextRequest, context: { params: Promise<{ id:
       const csv = redeemCodesCsv(batch);
       return csvResponse(csv.name, csv.headers, rows.map(csv.row));
     }
-    if (!(await getBatch(id))) return fail('not_found', 404);
-    return json(await listCodes(id, view));
+    if (!(await getBatch(administrator, id))) return fail('not_found', 404);
+    return json(await listCodes(administrator, id, view));
   } catch (error) {
     return adminFailure(error);
   }

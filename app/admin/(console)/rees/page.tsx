@@ -27,12 +27,12 @@ type Props = { searchParams: Promise<Record<string, string | string[] | undefine
  * server paging, CSV of every match, and takedown / restore from the row.
  */
 export default async function ReesPage({ searchParams }: Props) {
-  await requireAdministrator();
+  const administrator = await requireAdministrator();
   const { t, locale } = await serverMessages();
   const r = t.consoleRees.rees;
   const l = t.console.list;
   const view = reesView(await searchParams);
-  const data = await listAdminRees(view);
+  const data = await listAdminRees(administrator, view);
   const current = { ...view, page: data.page };
   const href = (changes: Record<string, string | number | null>) => listHref('/admin/rees', current, changes);
   // A page past the end (rows went away, a stale link) lands on the last page's canonical URL.

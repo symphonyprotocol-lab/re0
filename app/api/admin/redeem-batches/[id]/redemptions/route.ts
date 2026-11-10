@@ -12,8 +12,8 @@ export async function GET(request: NextRequest, context: { params: Promise<{ id:
   if (administrator instanceof Response) return administrator;
   const params = await adminParams(context.params);
   if (params instanceof Response) return params;
-  const batch = await getBatch(params.id);
+  const batch = await getBatch(administrator, params.id);
   if (!batch) return fail('not_found', 404);
   const view = redeemBatchView(request.nextUrl.searchParams);
-  return listOrCsv(request, administrator, (all) => listRedemptions(batch.id, view, { all }), redeemRedemptionsCsv(batch));
+  return listOrCsv(request, administrator, (all) => listRedemptions(administrator, batch.id, view, { all }), redeemRedemptionsCsv(batch));
 }

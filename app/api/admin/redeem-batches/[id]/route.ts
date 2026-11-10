@@ -11,7 +11,7 @@ export async function GET(request: NextRequest, context: { params: Promise<{ id:
   if (administrator instanceof Response) return administrator;
   const params = await adminParams(context.params);
   if (params instanceof Response) return params;
-  const batch = await getBatch(params.id);
+  const batch = await getBatch(administrator, params.id);
   return batch ? json(batch) : fail('not_found', 404);
 }
 

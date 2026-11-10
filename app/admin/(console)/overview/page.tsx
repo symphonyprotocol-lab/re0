@@ -71,10 +71,10 @@ function TrendChart({ days, label }: { days: { day: string; answers: number }[];
 
 /** `/admin/overview` (2.5 "概览", prototype `adminOverview()`), on live figures. */
 export default async function OverviewPage() {
-  await requireAdministrator();
+  const administrator = await requireAdministrator();
   const { t, locale } = await serverMessages();
   const o = t.consoleRees.overview;
-  const data = await adminOverview();
+  const data = await adminOverview(administrator);
   const n = (value: number) => formatNumber(value, locale);
   const answers = data.trend.reduce((sum, day) => sum + day.answers, 0);
   const today = new Intl.DateTimeFormat('en-CA', { timeZone: 'Asia/Shanghai', year: 'numeric', month: '2-digit', day: '2-digit' }).format(new Date()).replaceAll('-', '.');

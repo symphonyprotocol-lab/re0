@@ -65,6 +65,15 @@ export async function recordExport(administratorId: string, name: string, rows: 
   await audit(db(), { administratorId, action: 'admin.export', target: name, after: { rows, query } });
 }
 
+/**
+ * The console's read services take the administrator a session check
+ * returned (`requireAdministrator()` / `apiAdministrator()`), so a caller
+ * without one does not compile; a disabled or unenrolled row is refused here too.
+ */
+export function assertConsole(administrator: Administrator): void {
+  if (!administrator || administrator.disabledAt || administrator.passwordHash === '') throw new AdminInputError('unauthorized');
+}
+
 /* --------------------------------------------------------------- bootstrap */
 
 export async function hasAdministrator(): Promise<boolean> {

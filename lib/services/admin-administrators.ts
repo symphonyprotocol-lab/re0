@@ -21,7 +21,7 @@ import { sealCredential } from '@/lib/infra/crypto/credentials';
 import { seal, unseal } from '@/lib/infra/crypto/sealed';
 import { randomToken } from '@/lib/infra/crypto/tokens';
 import { db, schema, type Executor } from '@/lib/infra/db';
-import { AdminInputError, audit, hashPassword, type Administrator } from '@/lib/services/admin';
+import { AdminInputError, audit, hashPassword, type Administrator, assertConsole } from '@/lib/services/admin';
 
 export interface AdministratorRow {
   id: string;
@@ -36,7 +36,8 @@ export interface AdministratorRow {
 /** An invited row has no password yet; nothing can sign in with it. */
 const invited = (row: { passwordHash: string }) => row.passwordHash === '';
 
-export async function listAdministrators(): Promise<AdministratorRow[]> {
+export async function listAdministrators(administrator: Administrator): Promise<AdministratorRow[]> {
+  assertConsole(administrator);
   const creator = sql<string | null>`(select c.email from ${schema.administrator} c where c.id = "administrator"."created_by")`;
   const rows = await db()
     .select({ row: schema.administrator, creator })

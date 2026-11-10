@@ -12,7 +12,7 @@ export async function generateMetadata(): Promise<Metadata> {
 /** The console's administrators (2.5): every administrator sees the list; only the owner manages it, as `/api/admin/administrators` enforces. */
 export default async function AdministratorsPage() {
   const administrator = await requireAdministrator();
-  const [{ t }, items] = await Promise.all([serverMessages(), listAdministrators()]);
+  const [{ t }, items] = await Promise.all([serverMessages(), listAdministrators(administrator)]);
   return (
     <ConsolePage>
       <ConsoleTopbar crumbs={[{ label: t.console.nav.home, href: '/admin/overview' }, { label: t.console.nav.administrators }]} />

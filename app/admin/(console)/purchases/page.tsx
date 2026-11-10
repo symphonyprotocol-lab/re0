@@ -27,7 +27,7 @@ type Props = { searchParams: Promise<Record<string, string | string[] | undefine
  * filters and CSV. Read-only: refunds happen in Paddle.
  */
 export default async function PurchasesPage({ searchParams }: Props) {
-  await requireAdministrator();
+  const administrator = await requireAdministrator();
   const { t, locale } = await serverMessages();
   const c = t.consolePayouts;
   const p = t.consoleUsers.purchases;
@@ -35,10 +35,10 @@ export default async function PurchasesPage({ searchParams }: Props) {
   const view = purchasesView(await searchParams);
   const subscriptions = view.tab === 'subscriptions';
   const [subscriptionRows, purchaseRows, counts, trend] = await Promise.all([
-    subscriptions ? listSubscriptions(view) : null,
-    subscriptions ? null : listPurchases(view),
-    purchaseCounts(),
-    subscriptions ? null : purchaseTrend(view),
+    subscriptions ? listSubscriptions(administrator, view) : null,
+    subscriptions ? null : listPurchases(administrator, view),
+    purchaseCounts(administrator),
+    subscriptions ? null : purchaseTrend(administrator, view),
   ]);
   const data = (subscriptionRows ?? purchaseRows)!;
   const current = { ...view, page: data.page };

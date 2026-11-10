@@ -8,7 +8,7 @@ import { inviteAdministrator, listAdministrators } from '@/lib/services/admin-ad
 export async function GET(request: NextRequest) {
   const administrator = await apiAdministrator(request);
   if (administrator instanceof Response) return administrator;
-  return json({ items: await listAdministrators(), self: administrator.id });
+  return json({ items: await listAdministrators(administrator), self: administrator.id });
 }
 
 /** `{ name, email }`: adds an administrator and answers the one-time enrolment link to hand over. */

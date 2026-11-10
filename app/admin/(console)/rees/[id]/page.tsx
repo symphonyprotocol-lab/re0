@@ -1,5 +1,6 @@
 import type { Metadata } from 'next';
 import { requireAdministrator } from '@/lib/http/admin';
+import type { Administrator } from '@/lib/services/admin';
 import { WorkspaceLink as Link } from '@/components/shell/workspace-link';
 import { adminRee, adminReeSources, reeAudit, sourceFilter } from '@/lib/services/admin-rees';
 import { answerCounts, reeStatistics, statisticsQuery } from '@/lib/services/statistics';
@@ -13,20 +14,20 @@ type Props = { params: Promise<{ id: string }>; searchParams: Promise<Record<str
 
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
-async function load(id: string) {
-  return UUID.test(id) ? adminRee(id) : null;
+async function load(administrator: Administrator, id: string) {
+  return UUID.test(id) ? adminRee(administrator, id) : null;
 }
 
 export async function generateMetadata({ params }: Props): Promise<Metadata> {
-  await requireAdministrator();
+  const administrator = await requireAdministrator();
   const { t } = await serverMessages();
-  const detail = await load((await params).id);
+  const detail = await load(administrator, (await params).id);
   return { title: detail ? `${detail.ree.name} · ${t.consoleRees.rees.title}` : t.consoleRees.ree.notFound };
 }
 
 /** `/admin/rees/[id]` (prototype admin-ree-detail.js): four tabs as links in the top bar's actions, `from` kept for the way back. */
 export default async function ReeDetailPage({ params, searchParams }: Props) {
-  await requireAdministrator();
+  const administrator = await requireAdministrator();
   const { t, locale } = await serverMessages();
   const r = t.consoleRees.ree;
   const id = (await params).id;
@@ -36,7 +37,7 @@ export default async function ReeDetailPage({ params, searchParams }: Props) {
     { label: t.console.nav.home, href: '/admin/overview' },
     { label: reeBackLabel(t, back.href), href: back.href },
   ];
-  const detail = await load(id);
+  const detail = await load(administrator, id);
   if (!detail) {
     return (
       <ConsolePage>
@@ -56,7 +57,7 @@ export default async function ReeDetailPage({ params, searchParams }: Props) {
   let body;
   if (tab === 'sources') {
     const filter = sourceFilter(query);
-    const data = await adminReeSources(id, filter);
+    const data = await adminReeSources(administrator, id, filter);
     body = <ReeSourcesTab t={t} locale={locale} id={id} from={from} filter={filter} data={data} />;
   } else if (tab === 'statistics') {
     const data = await reeStatistics(id, statisticsQuery(query), { withIncome: true });
@@ -72,7 +73,7 @@ export default async function ReeDetailPage({ params, searchParams }: Props) {
       />
     );
   } else if (tab === 'audit') {
-    const rows = await reeAudit(id);
+    const rows = await reeAudit(administrator, id);
     body = (
       <section className="card">
         <div className="admin-ree-section admin-ree-audit-head">
