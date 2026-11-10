@@ -86,35 +86,66 @@ export interface MeteredWork {
   refuse: boolean;
 }
 
-/** Runs `work` with every supplier call and transfer in it billed to `input.userId`. */
-export async function meteredWork<T>(input: MeteredWork, work: () => Promise<T>): Promise<T> {
-  const runId = crypto.randomUUID();
-  const prices = await providerPrices();
-  const now = new Date();
+/** A metered run kept open across several pieces of work, settled once (`closeMeteredRun`). */
+export interface MeteredRun {
+  holdId: string;
+  runId: string;
+  input: MeteredWork;
+}
+
+/**
+ * Opens a run: its hold (1 credit to prove the balance when the work can be
+ * refused, else 0) and its `knowledge_cost_run` row in `processing`.
+ * `runId` names the run (unique); `refId` is what the ledger entries point at.
+ */
+export async function openMeteredRun(input: MeteredWork, options: { runId?: string; refId?: string } = {}, now = new Date()): Promise<MeteredRun> {
+  const runId = options.runId ?? crypto.randomUUID();
   const holdId = await db().transaction(async (tx) => {
-    const id = await placeHold(tx, { userId: input.userId, kind: 'knowledge', amount: input.refuse ? 1 : 0, refId: runId, reeId: input.reeId, note: input.title }, now);
+    const id = await placeHold(tx, { userId: input.userId, kind: 'knowledge', amount: input.refuse ? 1 : 0, refId: options.refId ?? runId, reeId: input.reeId, note: input.title }, now);
     await tx.insert(schema.knowledgeCostRun).values({
       id, knowledgeId: null, reeId: input.reeId, userId: input.userId, title: input.title, reeName: input.reeName,
       kind: input.kind, runId, status: 'processing', metered: true, createdAt: now,
     });
     return id;
   });
+  return { holdId, runId, input };
+}
+
+/** The open run named `runId`, if there is one. */
+export async function openRunNamed(runId: string, input: MeteredWork): Promise<MeteredRun | null> {
+  const [row] = await db()
+    .select({ id: schema.knowledgeCostRun.id })
+    .from(schema.knowledgeCostRun)
+    .where(and(eq(schema.knowledgeCostRun.runId, runId), eq(schema.knowledgeCostRun.status, 'processing')))
+    .limit(1);
+  return row ? { holdId: row.id, runId, input } : null;
+}
+
+const lockedRun = async (tx: Tx, holdId: string) => {
+  const [run] = await tx.select().from(schema.knowledgeCostRun).where(eq(schema.knowledgeCostRun.id, holdId)).for('update');
+  return run!;
+};
+
+/**
+ * Runs `work` with every supplier call and transfer in it recorded on `run`
+ * (as each receipt arrives, in its own transaction, so a function that dies
+ * later loses none of them). Does not settle: see `closeMeteredRun`.
+ */
+export async function meterInto<T>(run: MeteredRun, work: () => Promise<T>): Promise<{ ok: true; value: T } | { ok: false; error: unknown }> {
+  const { holdId, runId, input } = run;
+  const prices = await providerPrices();
   const inflight = new Map<symbol, string>();
-  const locked = async (tx: Tx) => {
-    const [run] = await tx.select().from(schema.knowledgeCostRun).where(eq(schema.knowledgeCostRun.id, holdId)).for('update');
-    return run!;
-  };
   const record = async (charge: ProviderCharge): Promise<void> => {
     const refusal = await db().transaction(async (tx) => {
-      const run = await locked(tx);
-      if (run.charges.some((entry) => entry.id === charge.id)) return null;
+      const current = await lockedRun(tx, holdId);
+      if (current.charges.some((entry) => entry.id === charge.id)) return null;
       await tx.update(schema.knowledgeCostRun).set({ charges: sql`${schema.knowledgeCostRun.charges} || ${JSON.stringify([charge])}::jsonb` }).where(eq(schema.knowledgeCostRun.id, holdId));
-      if (run.status !== 'processing') {
+      if (current.status !== 'processing') {
         await chargeLateReceipt(tx, runId);
         return null;
       }
       if (!input.refuse || charge.costUsd === null) return null;
-      const known = [...run.charges, charge].filter((entry) => entry.costUsd !== null);
+      const known = [...current.charges, charge].filter((entry) => entry.costUsd !== null);
       try {
         await reserveKnowledgeUsage(tx, holdId, providerTotal(known).credits, { reeId: input.reeId, note: input.title });
       } catch (error) {
@@ -130,8 +161,8 @@ export async function meteredWork<T>(input: MeteredWork, work: () => Promise<T>)
     inflight.set(key, costUsd);
     try {
       await db().transaction(async (tx) => {
-        const run = await locked(tx);
-        const known = run.charges.filter((entry) => entry.costUsd !== null);
+        const current = await lockedRun(tx, holdId);
+        const known = current.charges.filter((entry) => entry.costUsd !== null);
         await reserveKnowledgeUsage(tx, holdId, providerTotal([...known, ...[...inflight.values()].map((cost) => ({ costUsd: cost }))]).credits, { reeId: input.reeId, note: input.title });
       });
     } catch (error) {
@@ -140,7 +171,8 @@ export async function meteredWork<T>(input: MeteredWork, work: () => Promise<T>)
     }
     return () => { inflight.delete(key); };
   };
-  const outcome: { ok: true; value: T } | { ok: false; error: unknown } = await withProviderMeter({ runId, prices, record, ...(input.refuse ? { reserve } : {}) }, async () => {
+  /* Optional work is never sent to a supplier whose price is unknown beforehand (it could not be reserved). */
+  return withProviderMeter({ runId, prices, record, ...(input.refuse ? { reserve, requireRate: true } : {}) }, async () => {
     try {
       const value = await work();
       await flushTransfer();
@@ -151,15 +183,60 @@ export async function meteredWork<T>(input: MeteredWork, work: () => Promise<T>)
       return { ok: false as const, error };
     }
   });
-  // A success with a receipt nobody can price is billed as a failure would be, never as zero.
-  await db().transaction(async (tx) => {
-    const run = await locked(tx);
-    const settled = await settleRun(tx, holdId, run.charges, { reeId: input.reeId, note: input.title });
-    const error = outcome.ok ? null : outcome.error instanceof InsufficientCredits ? 'insufficient_credits' : 'failed';
+}
+
+/**
+ * Settles an open run at everything it recorded (`settleRun`) and closes it
+ * `ready` or `failed`. A run already closed (by another closer, or the
+ * reaper) is left as it is (null). Answers the credits charged now.
+ */
+export async function closeMeteredRun(run: MeteredRun, error: string | null): Promise<number | null> {
+  return db().transaction(async (tx) => {
+    const current = await lockedRun(tx, run.holdId);
+    if (current.status !== 'processing') return null;
+    // A success with a receipt nobody can price is billed as a failure would be, never as zero.
+    const settled = await settleRun(tx, run.holdId, current.charges, { reeId: run.input.reeId, note: run.input.title });
     await tx.update(schema.knowledgeCostRun)
-      .set({ status: outcome.ok ? 'ready' : 'failed', error, chargedCredits: settled?.charged ?? 0 })
-      .where(eq(schema.knowledgeCostRun.id, holdId));
+      .set({ status: error === null ? 'ready' : 'failed', error, chargedCredits: settled?.charged ?? 0 })
+      .where(eq(schema.knowledgeCostRun.id, run.holdId));
+    return settled?.charged ?? 0;
   });
+}
+
+/** Runs `work` with every supplier call and transfer in it billed to `input.userId`, settled at once. */
+export async function meteredWork<T>(input: MeteredWork, work: () => Promise<T>): Promise<T> {
+  const run = await openMeteredRun(input);
+  const outcome = await meterInto(run, work);
+  await closeMeteredRun(run, outcome.ok ? null : outcome.error instanceof InsufficientCredits ? 'insufficient_credits' : 'failed');
   if (!outcome.ok) throw outcome.error;
   return outcome.value;
+}
+
+/** How long a one-shot metered run (profile, example questions) may stay open: far past any function's life. */
+export const METERED_RUN_STALE_MS = 30 * 60_000;
+
+/**
+ * The backstop for a function that died between placing a run's hold and
+ * settling it (a timeout, a deploy): every metered run still `processing`
+ * past `METERED_RUN_STALE_MS` is settled at the receipts it recorded and
+ * failed as `abandoned` -- what it spent is charged, what it reserved and
+ * never used goes back. A re-embed run belongs to its job and stays open
+ * while that job runs; `settleReembedRuns` closes it once the job is over.
+ * Answers how many runs it closed.
+ */
+export async function reapMeteredRuns(now = new Date(), limit = 200): Promise<number> {
+  const cutoff = new Date(now.getTime() - METERED_RUN_STALE_MS);
+  const stale = await db().execute<{ id: string; run_id: string; user_id: string; ree_id: string | null; kind: string; title: string; ree_name: string }>(sql`
+    select r.id, r.run_id, r.user_id, r.ree_id, r.kind, r.title, r.ree_name
+    from ${schema.knowledgeCostRun} r
+    where r.status = 'processing' and r.knowledge_id is null and r.metered and r.kind in ('profile', 'suggestions')
+      and r.created_at < ${cutoff}
+    order by r.created_at
+    limit ${limit}`);
+  let closed = 0;
+  for (const row of stale.rows) {
+    const input: MeteredWork = { userId: row.user_id, reeId: row.ree_id, kind: row.kind as MeteredKind, title: row.title, reeName: row.ree_name, refuse: row.kind === 'suggestions' };
+    if ((await closeMeteredRun({ holdId: row.id, runId: row.run_id, input }, 'abandoned')) !== null) closed += 1;
+  }
+  return closed;
 }
