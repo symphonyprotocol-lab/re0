@@ -26,7 +26,7 @@ import {
 } from '@/lib/constants';
 import type { SuggestedRee } from '@/lib/domain/chat-message';
 import { excerptOf, NEUTRAL_QUALITY, positiveRate, rankHits, type ExploreQuery } from '@/lib/domain/explore';
-import { clampPage, type ListResult } from '@/lib/domain/list';
+import { clampPage, type ListResult, isUuid } from '@/lib/domain/list';
 import { hasEvidence, keywordCoverage, searchTerms } from '@/lib/domain/retrieval';
 import { db, schema } from '@/lib/infra/db';
 import { answerable, embedQuestion, type QuestionVector } from '@/lib/services/chat';
@@ -153,7 +153,7 @@ export async function searchRees(input: {
 }): Promise<SearchHit[]> {
   const database = db();
   const literal = `[${input.vector.vector.join(',')}]`;
-  const exclude = (input.exclude ?? []).filter((id) => /^[0-9a-f-]{36}$/i.test(id));
+  const exclude = (input.exclude ?? []).filter((id) => isUuid(id));
   /* A category can leave too few rows behind an index search; up to five excluded Rees only need a longer list (ef_search covers 25 × 16). */
   const filtered = Boolean(input.category);
   const distance = sql`${schema.reeProfileVector.embedding} <=> ${literal}::vector`;

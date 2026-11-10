@@ -4,7 +4,7 @@
  */
 import { and, asc, desc, eq, ilike, inArray, isNull, or, sql, type SQL } from 'drizzle-orm';
 import { REE_COVER_MAX_BYTES, REE_PAGE_SIZES } from '@/lib/constants';
-import { clampPage, likePattern, type ListResult } from '@/lib/domain/list';
+import { clampPage, likePattern, type ListResult, isUuid } from '@/lib/domain/list';
 import { positiveRate } from '@/lib/domain/explore';
 import {
   coerceDraft,
@@ -216,7 +216,7 @@ export async function reeCount(ownerId: string): Promise<number> {
 
 /** The owner's live Ree, or null for anyone else's, a deleted one, or a malformed id. */
 export async function ownedRee(executor: Executor, ownerId: string, id: string): Promise<Ree | null> {
-  if (!/^[0-9a-f-]{36}$/i.test(id)) return null;
+  if (!isUuid(id)) return null;
   const [row] = await executor
     .select()
     .from(schema.ree)
@@ -367,7 +367,7 @@ export class ReePublicationError extends Error {
 
 /** Publish only an owned, public Ree. Unpublishing retains its public configuration. */
 export async function setReePublished(ownerId: string, id: string, isPublished: boolean): Promise<Ree | null> {
-  if (!/^[0-9a-f-]{36}$/i.test(id)) return null;
+  if (!isUuid(id)) return null;
   return db().transaction(async (tx) => {
     const [current] = await tx.select().from(schema.ree).where(and(eq(schema.ree.id, id), ownedLive(ownerId))).for('update');
     if (!current) return null;
