@@ -549,9 +549,13 @@ async function writeSubscription(tx: Tx, userId: string, existing: SubscriptionR
  * was written off and is not owed, so it is taken from nowhere; only what
  * was really spent from it counts, less what earlier refunds already took.
  *
- * The spent part of the purchase may have paid query fees: whatever of the
- * earned credits it funded has not matured yet is voided from those owners
- * (review H2), independently of how the buyer pays the refund back.
+ * The spent part of the purchase may have paid query fees. Owners' earned
+ * credits are voided only when the refund leaves the buyer in debt: when it
+ * is recovered in full (from the purchase or the buyer's other credits) the
+ * owners keep what they earned. When a debt forms, up to the debt's amount
+ * of the earned credits this purchase funded (`funding_purchase_id`) that
+ * have not matured yet is voided, newest first (review H2); what matured,
+ * is held for a payout or was spent is never taken back.
  *
  * An approved `chargeback_reverse` (a chargeback the merchant won) gives
  * back what was taken: this purchase's open debt is cancelled first, then
@@ -599,9 +603,8 @@ async function applyAdjustment(tx: Tx, adjustment: PaddleAdjustment, now: Date):
     await moveGrants(tx, allocations, -1);
     const taken = due - shortfall;
     const fromOwn = allocations.filter((entry) => entry.grantId === own?.id).reduce((sum, entry) => sum + entry.amount, 0);
-    /* What of the purchase was already spent when it was refunded: what may have paid owners' query fees. */
-    const spent = due - fromOwn;
-    const voided = spent > 0 ? await voidFundedEarned(tx, purchase.id, spent, `${adjustment.action} ${adjustment.id}`, now) : { voided: 0, unrecovered: 0 };
+    /* Owners keep what this purchase paid them unless the buyer is left owing: then at most the debt is voided from them. */
+    const voided = shortfall > 0 ? await voidFundedEarned(tx, purchase.id, shortfall, `${adjustment.action} ${adjustment.id}`, now) : { voided: 0, unrecovered: 0 };
     const notes = [
       `${adjustment.action} ${adjustment.id}: ${credits} credits`,
       fromOwn ? `${fromOwn} from the purchase` : '',
@@ -645,7 +648,7 @@ async function expiredFrom(tx: Tx, grantId: string): Promise<number> {
 }
 
 /**
- * Voids up to `wanted` of the earned credits a refunded purchase paid for,
+ * Voids up to `wanted` (the refund's debt) of the earned credits a refunded purchase paid for,
  * from grants that have not matured yet, newest first; never what matured,
  * is held for a payout or already spent. One `earned_void` entry per owner
  * says what was voided and what could not be (review H2).

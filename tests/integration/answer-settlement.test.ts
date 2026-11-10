@@ -158,7 +158,71 @@ describeWithDb('who may withdraw a query fee (H2)', () => {
   });
 });
 
-describeWithDb('a refund of the asker’s purchase voids the owner’s unmatured earnings (H2 follow-up)', () => {
+describeWithDb('a refund of the asker’s purchase voids the owner’s unmatured earnings only when it leaves a debt (H2 follow-up)', () => {
+  async function voidsOf(ownerId: string) {
+    return db().select().from(schema.creditEntry).where(and(eq(schema.creditEntry.userId, ownerId), eq(schema.creditEntry.reason, 'earned_void')));
+  }
+
+  it('a refund the purchase’s own credits cover leaves the owner’s earnings alone', async () => {
+    const { ownerId, ree, askerId, conversation } = await setUp();
+    await emptyWelcome(askerId);
+    const pack = await boughtPack(askerId, 100_000);
+    await read(await answer({ userId: askerId, lang: 'en', conversation, targets: [ree], question: QUESTION }));
+    /* Half refunded: 50,000 credits, all still on the Pack. */
+    expect(await billing.applyPaddleEvent(refundEvent(pack.transactionId, '500'), { planPriceId: 'x', packPriceId: 'y' })).toBe('refunded');
+    expect((await earnedGrants(ownerId)).map((grant) => grant.remaining)).toEqual([FEE]);
+    expect(await voidsOf(ownerId)).toHaveLength(0);
+    expect(await db().select().from(schema.creditDebt).where(eq(schema.creditDebt.userId, askerId))).toHaveLength(0);
+  });
+
+  it('a refund the buyer’s other balances cover leaves the owner’s earnings alone', async () => {
+    const { ownerId, ree, askerId, conversation } = await setUp();
+    await emptyWelcome(askerId);
+    const pack = await boughtPack(askerId, 100_000);
+    await read(await answer({ userId: askerId, lang: 'en', conversation, targets: [ree], question: QUESTION }));
+    /* The rest of the Pack is held, so the refund comes wholly from another Pack bought later. */
+    await db().transaction((tx) => placeHold(tx, { userId: askerId, kind: 'knowledge', amount: 100_000 - QUERY_BASE_FEE - FEE, refId: crypto.randomUUID() }));
+    const other = await boughtPack(askerId, 200_000);
+    expect(await billing.applyPaddleEvent(refundEvent(pack.transactionId), { planPriceId: 'x', packPriceId: 'y' })).toBe('refunded');
+    const [otherGrant] = await db().select().from(schema.creditGrant).where(eq(schema.creditGrant.purchaseId, other.purchaseId));
+    expect(otherGrant!.remaining).toBe(100_000);
+    expect(await db().select().from(schema.creditDebt).where(eq(schema.creditDebt.userId, askerId))).toHaveLength(0);
+    expect((await earnedGrants(ownerId)).map((grant) => grant.remaining)).toEqual([FEE]);
+    expect(await voidsOf(ownerId)).toHaveLength(0);
+  });
+
+  it('a debt voids at most its own amount of unmatured earnings, never what matured, and a replay changes nothing', async () => {
+    const { ownerId, ree, askerId, conversation } = await setUp();
+    await emptyWelcome(askerId);
+    const pack = await boughtPack(askerId, 100_000);
+    for (let i = 0; i < 3; i++) await read(await answer({ userId: askerId, lang: 'en', conversation, targets: [ree], question: QUESTION }));
+    const earned = await earnedGrants(ownerId);
+    expect(earned).toHaveLength(3);
+    const matured = earned[0]!.id;
+    await db().update(schema.creditGrant).set({ withdrawableAt: new Date(Date.now() - DAY) }).where(eq(schema.creditGrant.id, matured));
+    /* The rest of the Pack is held; another Pack covers 92,000 of the refund, so 8,000 is owed. */
+    await db().transaction((tx) => placeHold(tx, { userId: askerId, kind: 'knowledge', amount: 100_000 - 3 * (QUERY_BASE_FEE + FEE), refId: crypto.randomUUID() }));
+    await boughtPack(askerId, 92_000);
+    const event = refundEvent(pack.transactionId);
+    expect(await billing.applyPaddleEvent(event, { planPriceId: 'x', packPriceId: 'y' })).toBe('refunded');
+    const [debt] = await db().select().from(schema.creditDebt).where(eq(schema.creditDebt.userId, askerId));
+    expect(debt).toMatchObject({ amount: 8_000, remaining: 8_000 });
+    const after = await earnedGrants(ownerId);
+    expect(after.find((grant) => grant.id === matured)!.remaining).toBe(FEE);
+    /* 8,000 of the 10,000 unmatured is voided, not all of it. */
+    expect(after.filter((grant) => grant.id !== matured).reduce((sum, grant) => sum + grant.remaining, 0)).toBe(2 * FEE - 8_000);
+    const voids = await voidsOf(ownerId);
+    expect(voids.map((entry) => entry.delta)).toEqual([-8_000]);
+    expect(voids[0]).toMatchObject({ refId: pack.purchaseId });
+
+    /* The same adjustment delivered again, under the same and a new event id. */
+    await billing.applyPaddleEvent(event, { planPriceId: 'x', packPriceId: 'y' });
+    expect(await billing.applyPaddleEvent({ ...event, event_id: uniqueName('evt') }, { planPriceId: 'x', packPriceId: 'y' })).toBe('already_reversed');
+    expect((await voidsOf(ownerId)).map((entry) => entry.delta)).toEqual([-8_000]);
+    expect(await db().select().from(schema.creditDebt).where(eq(schema.creditDebt.userId, askerId))).toHaveLength(1);
+    expect((await earnedGrants(ownerId)).reduce((sum, grant) => sum + grant.remaining, 0)).toBe(3 * FEE - 8_000);
+  });
+
   it('voids what has not matured, notes what has, and never takes the owner below zero', async () => {
     const { ownerId, ree, askerId, conversation } = await setUp();
     await emptyWelcome(askerId);
