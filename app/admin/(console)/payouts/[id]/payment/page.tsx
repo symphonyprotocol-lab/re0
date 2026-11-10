@@ -15,6 +15,6 @@ export async function generateMetadata(): Promise<Metadata> {
 
 /** `/admin/payouts/[id]/payment`: record the transfer or the failure of an approved request; read-only once done. */
 export default async function PayoutPaymentPage({ params, searchParams }: Props) {
-  await requireAdministrator();
-  return <PayoutDetailPage id={(await params).id} payment query={await searchParams} />;
+  const administrator = await requireAdministrator();
+  return <PayoutDetailPage administrator={administrator} id={(await params).id} payment query={await searchParams} />;
 }
