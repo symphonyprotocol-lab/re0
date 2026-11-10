@@ -20,6 +20,7 @@ import {
   parseOrder,
   planIsActive,
   planStateFrom,
+  redeemedPeriodIndexAt,
   priceMinorFor,
   planUsage,
   reversalCredits,
@@ -98,7 +99,12 @@ export async function subscriptionOf(executor: Executor, userId: string): Promis
  */
 export async function redeemedPlansOf(executor: Executor, userId: string, now: Date | null = new Date()): Promise<RedeemedPlan[]> {
   const rows = await executor
-    .select({ startsAt: schema.redeemRedemption.planStartsAt, endsAt: schema.redeemRedemption.planEndsAt, months: schema.redeemRedemption.planMonths })
+    .select({
+      startsAt: schema.redeemRedemption.planStartsAt,
+      endsAt: schema.redeemRedemption.planEndsAt,
+      months: schema.redeemRedemption.planMonths,
+      credits: schema.redeemRedemption.credits,
+    })
     .from(schema.redeemRedemption)
     .where(
       and(
@@ -108,7 +114,7 @@ export async function redeemedPlansOf(executor: Executor, userId: string, now: D
         now ? gt(schema.redeemRedemption.planEndsAt, now) : undefined,
       ),
     );
-  return rows.map((row) => ({ startsAt: row.startsAt!, endsAt: row.endsAt!, months: row.months! }));
+  return rows.map((row) => ({ startsAt: row.startsAt!, endsAt: row.endsAt!, months: row.months!, credits: row.credits }));
 }
 
 /**
@@ -641,7 +647,9 @@ function currentPlanGrant(planGrants: PlanGrantRow[], now: Date): { amount: numb
 async function currentPlanUsage(subscription: SubscriptionRow | null, redeemed: RedeemedPlan[], planGrants: PlanGrantRow[], now: Date) {
   const state = planStateFrom(subscription, redeemed, now);
   const grant = currentPlanGrant(planGrants, now);
-  const allowance = !grant && state.active ? await currentUnitCredits(db(), 'plan') : undefined;
+  /* Before this month's grant arrives: a redeemed Plan's own snapshot, a paid one's current price. */
+  const redeemedCredits = state.source === 'redeemed' ? redeemed.find((plan) => redeemedPeriodIndexAt(plan, now) !== null)?.credits : undefined;
+  const allowance = !grant && state.active ? (redeemedCredits ?? (await currentUnitCredits(db(), 'plan'))) : undefined;
   return planUsage(state, grant, now, allowance);
 }
 

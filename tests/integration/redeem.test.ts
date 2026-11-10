@@ -215,6 +215,36 @@ describeWithDb('redeem codes', () => {
     await expectLedgerTraceable(userId);
   });
 
+  it('issues a month as soon as it is due, then moves on; the meter keeps the snapshot until it arrives', async () => {
+    const userId = await newUser();
+    const { codes } = await batch({ kind: 'plan', planMonths: 2, codeCount: 1 });
+    const result = await use(userId, codes[0]!);
+    if (!result.ok) throw new Error(result.error);
+    const row = async () => (await db().select().from(schema.redeemRedemption).where(eq(schema.redeemRedemption.id, result.redemptionId)))[0]!;
+    /* Month 0 went out with the redemption; the cron's next stop is month 1. */
+    expect((await row()).nextPeriodAt?.toISOString()).toBe('2027-04-10T08:00:00.000Z');
+
+    /* A snapshot unlike today's Plan price: the one the code was issued at. */
+    await db().update(schema.redeemRedemption).set({ credits: 12_345 }).where(eq(schema.redeemRedemption.id, result.redemptionId));
+    const due = new Date('2027-04-10T08:00:30Z');
+    expect((await billing.billingSummary(userId, due)).plan).toMatchObject({ active: true, source: 'redeemed', allowance: 12_345, used: 0, remaining: 12_345 });
+
+    /* Not yet due: nothing happens. */
+    await redeem.issueRedeemedPlanMonths(new Date('2027-04-10T07:59:00Z'));
+    expect((await grantsOf(userId)).filter((grant) => grant.redemptionId)).toHaveLength(1);
+
+    await redeem.issueRedeemedPlanMonths(due);
+    expect((await grantsOf(userId)).filter((grant) => grant.redemptionId).map((grant) => [grant.redemptionPeriod, grant.amount])).toEqual([
+      [0, expect.any(Number)],
+      [1, 12_345],
+    ]);
+    /* That was the last month: the row leaves the cron's index. */
+    expect((await row()).nextPeriodAt).toBeNull();
+    await redeem.issueRedeemedPlanMonths(new Date('2027-05-01T00:00:00Z'));
+    expect((await grantsOf(userId)).filter((grant) => grant.redemptionId)).toHaveLength(2);
+    await expectLedgerTraceable(userId);
+  });
+
   it('lines a redeemed Plan up behind earlier ones and a Paddle Plan whose renewal is off; refuses a renewing one', async () => {
     const months = await batch({ kind: 'plan', planMonths: 2, codeCount: 3 });
     const more = await batch({ kind: 'plan', planMonths: 1, codeCount: 3 });
@@ -258,8 +288,9 @@ describeWithDb('redeem codes', () => {
     expect(resumed).toBe(false);
     expect((await billing.subscriptionOf(db(), subscriber))?.cancelAtPeriodEnd).toBe(true);
 
-    /* The hour after the Paddle period ends, the cron starts it. */
-    const handover = new Date(periodEnd.getTime() + HOUR);
+    /* The cron starts it as soon as the Paddle period ends. */
+    expect((await db().select().from(schema.redeemRedemption).where(eq(schema.redeemRedemption.userId, subscriber)))[0]?.nextPeriodAt?.toISOString()).toBe(periodEnd.toISOString());
+    const handover = new Date(periodEnd.getTime() + 60_000);
     await redeem.issueRedeemedPlanMonths(handover);
     const [first] = (await grantsOf(subscriber)).filter((row) => row.redemptionId);
     expect(first).toMatchObject({ source: 'plan', redemptionPeriod: 0 });

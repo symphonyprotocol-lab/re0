@@ -913,6 +913,12 @@ export const redeemRedemption = pgTable(
     planMonths: integer('plan_months'),
     planStartsAt: timestampTz('plan_starts_at'),
     planEndsAt: timestampTz('plan_ends_at'),
+    /**
+     * A Plan's next month still to be issued: when it begins, or null once
+     * the last month is out (or for a Pack). The cron picks up rows whose
+     * time has come (docs/design/redeem-codes.md 11.2).
+     */
+    nextPeriodAt: timestampTz('next_period_at'),
     requestId: uuid('request_id'),
     ipHash: text('ip_hash'),
     userAgent: text('user_agent'),
@@ -927,7 +933,7 @@ export const redeemRedemption = pgTable(
     index('redeem_redemption_code_idx').on(t.codeId, t.createdAt),
     index('redeem_redemption_batch_time_idx').on(t.batchId, t.createdAt),
     index('redeem_redemption_plan_idx').on(t.userId, t.planEndsAt).where(sql`kind = 'plan' and revoked_at is null`),
-    index('redeem_redemption_plan_due_idx').on(t.planEndsAt).where(sql`kind = 'plan' and revoked_at is null`),
+    index('redeem_redemption_next_period_idx').on(t.nextPeriodAt).where(sql`next_period_at is not null and revoked_at is null`),
     check('redeem_redemption_kind_check', oneOf('kind', ['plan', 'pack'])),
     check('redeem_redemption_plan_check', sql`(kind = 'plan') = (plan_months is not null and plan_starts_at is not null and plan_ends_at is not null)`),
   ],

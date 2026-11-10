@@ -152,7 +152,7 @@
 
 - 第 k 期：`[addMonths(start, k), addMonths(start, k+1))`（UTC，与 `creditTransaction` 的 `addMonth` 兜底一致）。
 - 每期一条 `credit_grant(source='plan', expires_at=期末, period_start=期初, redemption_id, redemption_period=k)`，额度 = 快照的 `credits`。期末未用完照常由 `expirePlanGrants` 清零——**不把 3 个月的额度一次性给齐**，否则会变成"3 倍额度、3 个月有效"，和付费 Plan 的语义不同。
-- 兑换时若立即生效，当场发第 0 期；排队的兑换到点后由每小时的 cron（`/api/cron/plan-redemptions`，`20 * * * *`，已登记在 `vercel.json`）发第 0 期，之后各期也由它在每期开始后发放。幂等靠 `unique(redemption_id, redemption_period)` 和发放前的存在检查；cron 按 id 分页、`for update skip locked`，重叠运行不会重复发。发新一期前先 `expirePlanGrants(userId, cutoff=max(期初, now))`，同续费 webhook。cron 整月都没跑到的期次不补发（那一期的额度到现在已经过期了），只发当前期。最多一小时的到账延迟期间，侧栏按现有逻辑显示"本期未使用"（`planUsage` 对"本期 grant 未到"已有处理）。
+- 兑换时若立即生效，当场发第 0 期；排队的兑换到点后由 cron（`/api/cron/plan-redemptions`，最初为每小时 `20 * * * *`，现为每分钟 `* * * * *`，见 11.2，已登记在 `vercel.json`）发第 0 期，之后各期也由它在每期开始后发放。幂等靠 `unique(redemption_id, redemption_period)` 和发放前的存在检查；cron 按 `next_period_at` 取到期行、`for update skip locked`，重叠运行不会重复发。发新一期前先 `expirePlanGrants(userId, cutoff=max(期初, now))`，同续费 webhook。cron 整月都没跑到的期次不补发（那一期的额度到现在已经过期了），只发当前期。到账延迟（现最多约一分钟）期间，侧栏按现有逻辑显示"本期未使用"（`planUsage` 对"本期 grant 未到"已有处理），额度取兑换时的快照。
 
 **Plan 有效的判定**改为统一的 `planStateOf(executor, userId, now)`：
 
@@ -364,10 +364,14 @@ Paddle 自动续费用户想用兑换码的更好体验是"把 Paddle 的下次�
 - **CSV 导出全有或全无**：任何一个码解不开（`ADMIN_SECRET_KEY` 换过），导出失败并返回 `sealed`（409），与"显示"一致；不写空码，也不记 `redeem.batch.export` 审计。
 - **用户侧 `requestId`**：只在拿到明确答复（2xx 或 4xx）后才换新的；5xx、网络错误或超时后再点兑换，沿用原 `requestId`，已提交但响应丢失的兑换会被重放，而不是再兑换一次。
 
-### 11.2 已知待办（暂不处理）
+### 11.2 第二轮修正：按期到点发放（2026-11-10）
 
-- **期初最长约 1 小时的空档**：排队的兑换 Plan 在 Paddle 期末（或上一个兑换 Plan 结束）之后，要等下一次整点 cron 才发第一期额度。期间 `planStateOf` 已经算 Plan 有效，但 Plan 桶里还没有当期额度。
-- **cron 每页的聚合**：`issueRedeemedPlanMonths` 每页都对 `credit_grant` 按 `redemption_id` 做一次全表 `max(redemption_period)` 聚合，没有限制在本页的兑换记录上。数据量大时应改为只聚合本页 id。
-- **空档期的用量条**：上面的空档里，侧栏 / 余额页的 Plan 用量条按"有效 Plan、当期额度 0"显示。
+11.1 当时留下的三件事已处理：
+
+- **期初空档缩到一分钟内**：`redeem_redemption` 新增 `next_period_at`（迁移 `0037_redeem_next_period`）：下一个还没发的月份的开始时间，最后一期发出后为 null，Pack 恒为 null。兑换时写入：排队的是 `plan_starts_at`，立即生效的（当场发了第 0 期）是第 1 期的开始。cron 改为每分钟（`* * * * *`），只读 `next_period_at <= now` 的行（部分索引 `redeem_redemption_next_period_idx`），发 `now` 所在的那一期（仍不补发整月错过的期），然后把 `next_period_at` 推到再下一期或 null。没有到期行时，一次运行只是一条走索引的查询。于是每期开始（包括排在 Paddle 期末或上一个兑换 Plan 之后的第一期）到额度到账最多约一分钟，而不是一小时。没有采用"提前发下一期"，因为 `availableOf` 不看 `period_start`，提前发的额度当场就能花。
+- **cron 不再做全表聚合**：去掉了每页对 `credit_grant` 的 `max(redemption_period)` 子查询；是否已发由 `next_period_at` 决定，重复发放仍由 `issuePlanMonth` 的存在检查和 `credit_grant_redemption_key` 兜底。cron 的分页不再需要 id 游标：处理过的行 `next_period_at` 都会前移，下一页自然看不到。原来给 cron 用的 `redeem_redemption_plan_due_idx` 删除。
+- **空档期的用量条**用该兑换 Plan 的快照额度（`redeem_redemption.credits`），不再用当前 Plan 售价。`RedeemedPlan` 增加可选的 `credits`，`redeemedPlansOf` 读出它。
+
+迁移对已有的未结束兑换 Plan 回填 `next_period_at = plan_starts_at`；cron 第一次跑到时算出当前期，已发过的不会重发，然后正常前移。
 
 验证：`npm run typecheck`；单元测试 `tests/unit/redeem.test.ts`（码格式与分布、规范化、批次参数、月份切分与月底、排队起点、Plan 状态）和原有 `tests/unit/billing.test.ts`；集成测试 `tests/integration/redeem.test.ts`（第 8 节 1–8）与全套 `./scripts/test-integration.sh`。浏览器验收需要用户登录一次后台。

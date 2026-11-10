@@ -103,6 +103,8 @@ export interface RedeemedPlan {
   startsAt: Date;
   endsAt: Date;
   months: number;
+  /** Credits per month, snapshotted when the code was redeemed. */
+  credits?: number;
 }
 
 /**

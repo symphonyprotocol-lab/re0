@@ -1,5 +1,5 @@
 /**
- * Redeeming a code (docs/design/redeem-codes.md 4, 5) and the hourly cron
+ * Redeeming a code (docs/design/redeem-codes.md 4, 5) and the per-minute cron
  * that issues a redeemed Plan's later months.
  *
  * One redemption is one transaction: the user's checkout lock (so two
@@ -10,7 +10,7 @@
  * windows before the database is asked about the code; an attempt that was
  * not a wrong guess gives its slots back, so only guesses use up the limit.
  */
-import { and, asc, count, eq, gt, isNull, lte, max, sql } from 'drizzle-orm';
+import { and, asc, count, eq, gt, isNotNull, isNull, lte, sql } from 'drizzle-orm';
 import { CHECKOUT_REUSE_MS, REDEEM_PLAN_BATCH, REDEEM_RATE_LIMIT } from '@/lib/constants';
 import { redeemedPeriod, redeemedPeriodIndexAt } from '@/lib/domain/billing';
 import { isUuid } from '@/lib/domain/list';
@@ -114,6 +114,11 @@ async function issuePlanMonth(tx: Tx, redemption: RedemptionRow, last4: string, 
     now,
   );
   return true;
+}
+
+/** When month `index + 1` of a redeemed Plan begins, or null when `index` is its last. */
+function monthAfter(startsAt: Date, months: number, index: number): Date | null {
+  return index + 1 < months ? redeemedPeriod(startsAt, index + 1).start : null;
 }
 
 function outcomeOf(redemption: RedemptionRow, balance: number, now: Date): RedeemOutcome {
@@ -233,6 +238,8 @@ async function attempt(userId: string, input: { code?: unknown; requestId?: unkn
         planMonths: batch.planMonths,
         planStartsAt,
         planEndsAt,
+        /* A queued Plan waits for its first month; one starting now has month 0 issued below, so the cron's next stop is month 1. */
+        nextPeriodAt: planStartsAt ? (planStartsAt.getTime() > now.getTime() ? planStartsAt : monthAfter(planStartsAt, batch.planMonths!, 0)) : null,
         requestId: storedRequestId,
         ipHash: hashedIp,
         userAgent: context.userAgent ? context.userAgent.slice(0, 200) : null,
@@ -293,53 +300,42 @@ async function attempt(userId: string, input: { code?: unknown; requestId?: unkn
 /* -------------------------------------------------------------------- cron */
 
 /**
- * `GET /api/cron/plan-redemptions` (hourly): each redeemed Plan in force
- * gets its current month's grant if it has not had it. Months the cron
- * missed entirely are not back-filled -- their credits would already have
- * expired. Pages of `REDEEM_PLAN_BATCH`, one transaction each, rows locked
- * with SKIP LOCKED so overlapping runs share the work. Idempotent.
+ * `GET /api/cron/plan-redemptions` (every minute): each redeemed Plan whose
+ * `next_period_at` has come gets that month's grant, and `next_period_at`
+ * moves on to the month after (null after the last). Only due rows are
+ * read, through a partial index, so a run with nothing due is one indexed
+ * query. Months the cron missed entirely are not back-filled -- their
+ * credits would already have expired -- only the month `now` falls in is
+ * issued. Pages of `REDEEM_PLAN_BATCH`, one transaction each, rows locked
+ * with SKIP LOCKED so overlapping runs share the work. Idempotent: a month
+ * already issued is not issued again (`credit_grant_redemption_key`).
  */
 export async function issueRedeemedPlanMonths(now = new Date(), budgetMs = 240_000): Promise<{ issued: number }> {
   const started = Date.now();
   let issued = 0;
-  let after = '00000000-0000-0000-0000-000000000000';
   for (;;) {
     const page = await db().transaction(async (tx) => {
-      const issuedPeriod = tx
-        .select({ redemptionId: schema.creditGrant.redemptionId, latest: max(schema.creditGrant.redemptionPeriod).as('latest') })
-        .from(schema.creditGrant)
-        .where(sql`${schema.creditGrant.redemptionId} is not null`)
-        .groupBy(schema.creditGrant.redemptionId)
-        .as('issued_period');
       const rows = await tx
-        .select({ redemption: schema.redeemRedemption, last4: schema.redeemCode.codeLast4, latest: issuedPeriod.latest })
+        .select({ redemption: schema.redeemRedemption, last4: schema.redeemCode.codeLast4 })
         .from(schema.redeemRedemption)
         .innerJoin(schema.redeemCode, eq(schema.redeemCode.id, schema.redeemRedemption.codeId))
-        .leftJoin(issuedPeriod, eq(issuedPeriod.redemptionId, schema.redeemRedemption.id))
-        .where(
-          and(
-            eq(schema.redeemRedemption.kind, 'plan'),
-            isNull(schema.redeemRedemption.revokedAt),
-            lte(schema.redeemRedemption.planStartsAt, now),
-            gt(schema.redeemRedemption.planEndsAt, now),
-            gt(schema.redeemRedemption.id, after),
-          ),
-        )
-        .orderBy(asc(schema.redeemRedemption.id))
+        .where(and(isNotNull(schema.redeemRedemption.nextPeriodAt), isNull(schema.redeemRedemption.revokedAt), lte(schema.redeemRedemption.nextPeriodAt, now)))
+        .orderBy(asc(schema.redeemRedemption.nextPeriodAt), asc(schema.redeemRedemption.id))
         .limit(REDEEM_PLAN_BATCH)
         .for('update', { of: schema.redeemRedemption, skipLocked: true });
       let count = 0;
-      for (const row of rows) {
-        const plan = { startsAt: row.redemption.planStartsAt!, endsAt: row.redemption.planEndsAt!, months: row.redemption.planMonths! };
+      for (const { redemption, last4 } of rows) {
+        const plan = { startsAt: redemption.planStartsAt!, endsAt: redemption.planEndsAt!, months: redemption.planMonths! };
         const index = redeemedPeriodIndexAt(plan, now);
-        if (index === null || (row.latest !== null && row.latest >= index)) continue;
-        if (await issuePlanMonth(tx, row.redemption, row.last4, index, now)) count += 1;
+        if (index !== null && (await issuePlanMonth(tx, redemption, last4, index, now))) count += 1;
+        /* Every due row moves forward, so the next page never sees it again. */
+        const next = index === null ? null : monthAfter(plan.startsAt, plan.months, index);
+        await tx.update(schema.redeemRedemption).set({ nextPeriodAt: next }).where(eq(schema.redeemRedemption.id, redemption.id));
       }
-      return { count, last: rows.at(-1)?.redemption.id ?? null, size: rows.length };
+      return { count, size: rows.length };
     });
     issued += page.count;
-    if (!page.last || page.size < REDEEM_PLAN_BATCH || Date.now() - started > budgetMs) break;
-    after = page.last;
+    if (page.size < REDEEM_PLAN_BATCH || Date.now() - started > budgetMs) break;
   }
   return { issued };
 }

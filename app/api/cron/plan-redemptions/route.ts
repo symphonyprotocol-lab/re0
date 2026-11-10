@@ -6,8 +6,8 @@ import { issueRedeemedPlanMonths } from '@/lib/services/redeem';
 export const maxDuration = 300;
 
 /**
- * Vercel Cron (vercel.json, hourly): a redeemed Plan's later months, each
- * granted when it begins (docs/design/redeem-codes.md 4.2), and the first
+ * Vercel Cron (vercel.json, every minute): a redeemed Plan's later months, each
+ * granted within a minute of when it begins (docs/design/redeem-codes.md 4.2), and the first
  * month of one that waited behind a Paddle period or another redeemed Plan.
  * Vercel sends `Authorization: Bearer $CRON_SECRET`; without the secret the
  * route stays shut. Idempotent.
