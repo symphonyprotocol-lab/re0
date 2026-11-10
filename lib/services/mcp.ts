@@ -267,6 +267,8 @@ export async function askReeTool(caller: ApiKeyCaller, input: AskInput, progress
   if (!holding.ok) {
     /* Spent elsewhere in the meantime: the question was not saved; drop the conversation made for it. */
     if (!existing) await db().delete(schema.conversation).where(eq(schema.conversation.id, conversation.id));
+    /* MCP sends no seen fees, so the price check never refuses here. */
+    if (holding.reason !== 'insufficient') throw new Error('unexpected price check on an MCP question');
     throw insufficient(holding.balance, holding.needed);
   }
   const replies = await collectAnswer(holding.question, progress.onEvent);

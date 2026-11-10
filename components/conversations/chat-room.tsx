@@ -109,7 +109,7 @@ export function ChatRoom({
   const endRef = useRef<HTMLDivElement>(null);
   const page = useRef<HTMLElement>(null);
   useNavigationHeight(page);
-  const pending = useRef<{ question: string; scope: string | readonly string[] | null; verify: boolean }>({ question: '', scope: null, verify: false });
+  const pending = useRef<{ question: string; scope: string | readonly string[] | null; verify: boolean; fees: Record<string, number> }>({ question: '', scope: null, verify: false, fees: {} });
   const sentPending = useRef(false);
 
   useEffect(() => setMembers(initialMembers), [initialMembers]);
@@ -142,6 +142,11 @@ export function ChatRoom({
         if (body.error === 'insufficient_credits') return setInsufficient(body as InsufficientCreditsBody);
         if (body.error === 'unknown_mention') return toast(r.unknownMention);
         if (body.error === 'no_participants') return toast(r.noParticipants);
+        /* An owner raised a query fee since the page loaded: show the new prices and let the asker send again. */
+        if (body.error === 'price_changed') {
+          toast(r.priceChanged);
+          return router.refresh();
+        }
       } catch {
         /* not JSON */
       }
@@ -164,7 +169,8 @@ export function ChatRoom({
   const { waiting } = useServerTranscript({ initialMessages, answering, busy, setMessages });
 
   const ask = (question: string, chosenScope: string | readonly string[] | null = scope, checking = verify) => {
-    pending.current = { question, scope: chosenScope, verify: checking };
+    /* The fees on screen go with the question; a higher one on the server is refused, never charged unseen. */
+    pending.current = { question, scope: chosenScope, verify: checking, fees: Object.fromEntries(members.map((member) => [member.id, member.queryFee])) };
     void sendMessage({ text: question });
   };
 

@@ -20,6 +20,23 @@ export const GRANT_SPEND_ORDER = ['plan', 'welcome', 'pack', 'earned'] as const;
 export type GrantSource = (typeof GRANT_SPEND_ORDER)[number];
 
 /**
+ * The grant sources that carry money someone paid (review H2). A query fee
+ * is credited to the owner as withdrawable earned credits only for the part
+ * the asker paid from these; the rest (welcome credits, redeemed codes,
+ * console grants) still reaches the owner as earned credits they can spend
+ * but never withdraw. Within a source, only grants that are themselves
+ * paid count: a Plan or Pack grant bought through Paddle (it has a
+ * purchase), an earned grant that is withdrawable.
+ */
+export const PAYING_GRANT_SOURCES = ['plan', 'pack', 'earned'] as const satisfies readonly GrantSource[];
+/**
+ * Days withdrawable earned credits wait before a payout may draw on them
+ * (review H2): the window in which a refund or chargeback of what paid for
+ * them usually arrives.
+ */
+export const EARNED_MATURITY_DAYS = 30;
+
+/**
  * The Plan: a monthly Paddle subscription whose credits are good for the
  * billing period they arrive in and expire at its end. Cancelling keeps them
  * to the end of the period.
@@ -80,6 +97,25 @@ export const PLAN_EXPIRY_BATCH = 200;
 
 /** Platform base fee per answered question, charged on your own Ree too. */
 export const QUERY_BASE_FEE = 20;
+/**
+ * A reply that ends on the no-answer sentinel is no answer only while what
+ * was shown before it is at most this many characters -- a short refusal.
+ * Past that the reader has had an answer and it is settled as one (review H3).
+ */
+export const NO_ANSWER_REFUSAL_CHARS = 120;
+/**
+ * Upper bounds on one answer's model calls, so the stream and its check end
+ * inside the route's 300-second `maxDuration` (review H5).
+ */
+export const ANSWER_STREAM_TIMEOUT_MAX_MS = 180_000;
+export const ANSWER_CHECK_TIMEOUT_MAX_MS = 90_000;
+/**
+ * A chat hold still open after this long belongs to a stream that died (the
+ * function was killed or redeployed); the reaper cron releases it.
+ */
+export const CHAT_HOLD_STALE_MS = 10 * 60 * 1000;
+/** Chat holds the reaper releases per run. */
+export const CHAT_HOLD_REAP_BATCH = 200;
 /**
  * 回答核验: checking one Ree's answer against the passages it cited, per
  * answering Ree, all to the platform (ree-council-proposal.md 3.3). Held with

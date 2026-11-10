@@ -12,6 +12,8 @@
  * (`UNSUPPORTED`) and an uncited sentence and a closing pleasantry. A check
  * request (回答核验) gets a verdict per sentence -- and one for a sentence
  * that does not exist -- or a server error while `checks.fail` is set.
+ * `LONG THEN SENTINEL` gets a full cited answer that ends on the sentinel;
+ * `STREAM ERROR` streams the start of an answer, then a provider error.
  * A synthesis request (Ree 圆桌) gets four sections with good, grouped and
  * bogus markers; nothing but bogus ones when the question has
  * `SYNTH_EMPTY`; a server error while `synthesis.fail` is set.
@@ -216,6 +218,8 @@ export async function startFakeOpenAi(port = 0, options: { delayMs?: number } = 
           ? JSON.stringify(demoStoryboard(question, system))
         : system.includes('continuous 15-second English')
           ? JSON.stringify(storyboard(system))
+          : question.includes('LONG THEN SENTINEL')
+          ? 'Refunds are issued to the original payment method within 14 days of the request [1]. The handbook also says the refund goes back to the same card or account that paid, never as store credit, and that the customer is told when it is sent [1]. [[NO_ANSWER]]'
           : question.includes('LATE REFUSAL')
           ? 'These passages do not cover that question. [[NO_ANSWER]]'
           : question.includes('DECLINE')
@@ -231,6 +235,12 @@ export async function startFakeOpenAi(port = 0, options: { delayMs?: number } = 
         return;
       }
       res.writeHead(200, { 'content-type': 'text/event-stream' });
+      if (question.includes('STREAM ERROR')) {
+        for (const piece of pieces.slice(0, 3)) res.write(`data: ${JSON.stringify({ id, object: 'chat.completion.chunk', created: 0, model: body.model, choices: [{ index: 0, delta: { content: piece }, finish_reason: null }] })}\n\n`);
+        res.write(`data: ${JSON.stringify({ error: { message: 'upstream overloaded', type: 'server_error', param: null, code: 'overloaded' } })}\n\n`);
+        res.end();
+        return;
+      }
       for (const piece of pieces) {
         if (options.delayMs) await new Promise((resolve) => setTimeout(resolve, options.delayMs));
         res.write(`data: ${JSON.stringify({ id, object: 'chat.completion.chunk', created: 0, model: body.model, choices: [{ index: 0, delta: { content: piece }, finish_reason: null }] })}\n\n`);
