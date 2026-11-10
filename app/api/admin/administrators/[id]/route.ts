@@ -1,4 +1,5 @@
 import type { NextRequest } from 'next/server';
+import { adminParams } from '@/lib/http/admin-params';
 import { apiAdministrator } from '@/lib/http/admin';
 import { adminFailure } from '@/lib/http/admin-lists';
 import { appBaseUrl } from '@/lib/http/cookies';
@@ -9,8 +10,9 @@ import { disableAdministrator, reissueInvite } from '@/lib/services/admin-admini
 export async function POST(request: NextRequest, context: { params: Promise<{ id: string }> }) {
   const administrator = await apiAdministrator(request);
   if (administrator instanceof Response) return administrator;
-  const id = (await context.params).id;
-  if (!/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(id)) return fail('not_found', 404);
+  const params = await adminParams(context.params);
+  if (params instanceof Response) return params;
+  const { id } = params;
   const { action } = await body(request);
   try {
     if (action === 'disable') {

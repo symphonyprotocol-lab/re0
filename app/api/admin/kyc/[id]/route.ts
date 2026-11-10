@@ -1,4 +1,5 @@
 import type { NextRequest } from 'next/server';
+import { adminParams } from '@/lib/http/admin-params';
 import { apiAdministrator } from '@/lib/http/admin';
 import { fail, json } from '@/lib/http/respond';
 import { kycDetail } from '@/lib/services/kyc';
@@ -7,7 +8,9 @@ import { kycDetail } from '@/lib/services/kyc';
 export async function GET(request: NextRequest, context: { params: Promise<{ id: string }> }) {
   const administrator = await apiAdministrator(request);
   if (administrator instanceof Response) return administrator;
-  const { id } = await context.params;
-  const detail = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(id) ? await kycDetail(id) : null;
+  const params = await adminParams(context.params);
+  if (params instanceof Response) return params;
+  const { id } = params;
+  const detail = await kycDetail(id);
   return detail ? json(detail) : fail('not_found', 404);
 }

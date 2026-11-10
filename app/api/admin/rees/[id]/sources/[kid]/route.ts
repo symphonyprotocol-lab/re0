@@ -1,4 +1,5 @@
 import type { NextRequest } from 'next/server';
+import { adminParams } from '@/lib/http/admin-params';
 import { apiAdministrator } from '@/lib/http/admin';
 import { fail, json } from '@/lib/http/respond';
 import { adminReeSource, sourceFilter } from '@/lib/services/admin-rees';
@@ -7,7 +8,9 @@ import { adminReeSource, sourceFilter } from '@/lib/services/admin-rees';
 export async function GET(request: NextRequest, context: { params: Promise<{ id: string; kid: string }> }) {
   const administrator = await apiAdministrator(request);
   if (administrator instanceof Response) return administrator;
-  const { id, kid } = await context.params;
+  const params = await adminParams(context.params);
+  if (params instanceof Response) return params;
+  const { id, kid } = params;
   const source = await adminReeSource(id, kid, sourceFilter(request.nextUrl.searchParams));
   return source ? json(source) : fail('not_found', 404);
 }

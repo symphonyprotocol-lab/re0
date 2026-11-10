@@ -110,13 +110,13 @@ function routes(dir: string): string[] {
   });
 }
 
-function unguardedHandlers(source: string): string[] {
+function unguardedHandlers(source: string, dynamic = false): string[] {
   const file = ts.createSourceFile('route.ts', source, ts.ScriptTarget.Latest, true, ts.ScriptKind.TS);
   const missing: string[] = [];
   for (const statement of file.statements) {
     if (!ts.isFunctionDeclaration(statement) || !statement.body || !statement.name) continue;
     if (!statement.modifiers?.some((modifier) => modifier.kind === ts.SyntaxKind.ExportKeyword)) continue;
-    const [first, second] = statement.body.statements;
+    const [first, second, third, fourth] = statement.body.statements;
     const declaration = first && ts.isVariableStatement(first) ? first.declarationList.declarations[0] : undefined;
     const init = declaration?.initializer;
     const guarded =
@@ -128,6 +128,20 @@ function unguardedHandlers(source: string): string[] {
       ts.isIfStatement(second) &&
       second.expression.getText() === `${declaration!.name.getText()} instanceof Response`;
     if (!guarded) missing.push(statement.name.text);
+    /* A route with `[segments]` then checks them: `const params = await adminParams(context.params); if (params instanceof Response) return params;` */
+    if (guarded && dynamic) {
+      const params = third && ts.isVariableStatement(third) ? third.declarationList.declarations[0] : undefined;
+      const call = params?.initializer;
+      const checked =
+        !!call &&
+        ts.isAwaitExpression(call) &&
+        ts.isCallExpression(call.expression) &&
+        call.expression.expression.getText() === 'adminParams' &&
+        !!fourth &&
+        ts.isIfStatement(fourth) &&
+        fourth.expression.getText() === `${params!.name.getText()} instanceof Response`;
+      if (!checked) missing.push(`${statement.name.text} (params)`);
+    }
   }
   return missing;
 }
@@ -136,11 +150,14 @@ describe('console API handlers check the administrator session', () => {
   const files = routes(API_ROOT);
 
   it.each(files.map((file) => [relative(API_ROOT, file), file]))('%s opens with apiAdministrator()', (_, file) => {
-    expect(unguardedHandlers(readFileSync(file, 'utf8'))).toEqual([]);
+    expect(unguardedHandlers(readFileSync(file, 'utf8'), file.includes('['))).toEqual([]);
   });
 
   it('flags a handler without the check', () => {
     expect(unguardedHandlers(`export async function GET(request) { return json(await listUsers()); }`)).toEqual(['GET']);
     expect(unguardedHandlers(`export async function GET(request) { const a = await apiAdministrator(request); return json(await listUsers()); }`)).toEqual(['GET']);
+    const guarded = `const a = await apiAdministrator(request); if (a instanceof Response) return a;`;
+    expect(unguardedHandlers(`export async function GET(request, context) { ${guarded} return json(await adminUser((await context.params).id)); }`, true)).toEqual(['GET (params)']);
+    expect(unguardedHandlers(`export async function GET(request, context) { ${guarded} const p = await adminParams(context.params); if (p instanceof Response) return p; return json(await adminUser(p.id)); }`, true)).toEqual([]);
   });
 });

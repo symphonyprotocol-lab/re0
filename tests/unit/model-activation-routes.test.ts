@@ -8,7 +8,7 @@ import { AdminInputError } from '@/lib/services/admin';
 vi.mock('@/lib/http/admin', () => ({ apiAdministrator: vi.fn() }));
 vi.mock('@/lib/services/models', () => ({ activateModelConfig: vi.fn() }));
 
-const context = { params: Promise.resolve({ id: 'model' }) };
+const context = { params: Promise.resolve({ id: '00000000-0000-4000-8000-0000000000aa' }) };
 const request = (input?: unknown) => new NextRequest('https://console.example.test/api/admin/models/model/activate', {
   method: 'POST',
   ...(input === undefined ? {} : { body: JSON.stringify(input), headers: { 'content-type': 'application/json' } }),
@@ -29,9 +29,9 @@ describe('model activation audience', () => {
 
   it('passes the selected audience and keeps bodyless activations compatible', async () => {
     await POST(request({ audience: 'plan' }), context);
-    expect(activateModelConfig).toHaveBeenLastCalledWith('admin', 'model', 'plan');
+    expect(activateModelConfig).toHaveBeenLastCalledWith('admin', '00000000-0000-4000-8000-0000000000aa', 'plan');
     await POST(request(), context);
-    expect(activateModelConfig).toHaveBeenLastCalledWith('admin', 'model', 'free');
+    expect(activateModelConfig).toHaveBeenLastCalledWith('admin', '00000000-0000-4000-8000-0000000000aa', 'free');
   });
 
   it('rejects unsupported audiences and Plan activation for other model kinds', async () => {

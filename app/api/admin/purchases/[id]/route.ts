@@ -1,4 +1,5 @@
 import type { NextRequest } from 'next/server';
+import { adminParams } from '@/lib/http/admin-params';
 import { apiAdministrator } from '@/lib/http/admin';
 import { fail, json } from '@/lib/http/respond';
 import { purchaseDetail } from '@/lib/services/admin-purchases';
@@ -7,6 +8,8 @@ import { purchaseDetail } from '@/lib/services/admin-purchases';
 export async function GET(request: NextRequest, context: { params: Promise<{ id: string }> }) {
   const administrator = await apiAdministrator(request);
   if (administrator instanceof Response) return administrator;
-  const detail = await purchaseDetail((await context.params).id);
+  const params = await adminParams(context.params);
+  if (params instanceof Response) return params;
+  const detail = await purchaseDetail(params.id);
   return detail ? json(detail) : fail('not_found', 404);
 }
