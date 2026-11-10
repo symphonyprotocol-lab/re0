@@ -532,6 +532,35 @@ export const PAYPAL_EMAIL_MAX = 254;
 export const PAYPAL_CHANGE_HOLD_DAYS = 7;
 /** The PayPal transfer id an administrator records. */
 export const PAYOUT_TRANSFER_ID_MAX = 100;
+/**
+ * Where a payout's money came from (review H2): the signals the review page
+ * and the queue show beside a request. Each is a flag for a second look,
+ * never a refusal; shares are of the credits the payout draws on.
+ * - `topPayerShare`: one asker paid at least this share.
+ * - `freshPayerDays` / `freshPayerShare`: askers whose account was at most
+ *   this many days old at their first question here paid at least this share.
+ * - `exclusivePayerShare`: askers who own no Ree and asked no other owner's
+ *   Rees paid at least this share.
+ * - `sharedIdentityPayers`: at least this many askers share the owner's
+ *   sign-in e-mail or PayPal e-mail (lower-cased, `+tag` dropped).
+ * - `maxFeeShare`: at least this share of the questions paid the highest
+ *   query fee an owner can set (`QUERY_FEE.max`).
+ * - `refundedShare`: at least this share was paid from purchases later
+ *   refunded or charged back (any amount at all is listed; this raises it).
+ */
+export const PAYOUT_REVIEW_SIGNALS = {
+  topPayerShare: 0.5,
+  freshPayerDays: 7,
+  freshPayerShare: 0.3,
+  exclusivePayerShare: 0.5,
+  sharedIdentityPayers: 1,
+  maxFeeShare: 0.5,
+  refundedShare: 0,
+} as const;
+/** Askers per page on the payout review page. */
+export const PAYOUT_PAYERS_PAGE_SIZE = 20;
+/** Upcoming maturity dates listed on the payout review page. */
+export const PAYOUT_MATURITY_DATES = 6;
 
 /* ------------------------------------------------------- video, 2.6 (step 7) */
 

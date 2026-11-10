@@ -15,6 +15,6 @@ export async function generateMetadata(): Promise<Metadata> {
 
 /** `/admin/payouts/[id]`: review a pending request, or read a finished one; an approved one goes to `/payment`. */
 export default async function PayoutPage({ params, searchParams }: Props) {
-  await requireAdministrator();
-  return <PayoutDetailPage id={(await params).id} payment={false} query={await searchParams} />;
+  const administrator = await requireAdministrator();
+  return <PayoutDetailPage administrator={administrator} id={(await params).id} payment={false} query={await searchParams} />;
 }
