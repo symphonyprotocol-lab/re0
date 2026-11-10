@@ -170,6 +170,8 @@ describeWithDb('P3: re-embedding after a model switch', () => {
     fake.embeddings.failModel = null;
     fake.embeddings.shift = {};
     fake.embeddings.beforeAnswer = null;
+    /* A test that failed mid-job must not leave the job running or its entry in charge for the files that follow. */
+    await db().update(schema.reembedJob).set({ status: 'failed' }).where(eq(schema.reembedJob.status, 'running'));
     await db().update(schema.modelConfig).set({ enabled: false }).where(eq(schema.modelConfig.kind, 'embedding'));
     forgetModelCache();
   }
@@ -289,6 +291,8 @@ describeWithDb('M13: the switch is one row, and answers never mix two models', (
     fake.embeddings.failModel = null;
     fake.embeddings.shift = {};
     fake.embeddings.beforeAnswer = null;
+    /* A test that failed mid-job must not leave the job running or its entry in charge for the files that follow. */
+    await db().update(schema.reembedJob).set({ status: 'failed' }).where(eq(schema.reembedJob.status, 'running'));
     await db().update(schema.modelConfig).set({ enabled: false }).where(eq(schema.modelConfig.kind, 'embedding'));
     forgetModelCache();
   }
