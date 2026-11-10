@@ -83,7 +83,7 @@ npm run db:down       # stop the containers; the volume keeps the data
 
 To start the local database over: `docker compose down -v`, then `npm run db:up` and `npm run db:migrate`. `npm run db:reset-dev -- --confirm=<endpoint id>` does the same for a non-production Neon branch, should one be used again (guarded, see the script).
 
-Preview builds clear a preview branch that still carries the pre-rebuild schema once (`db:prepare-preview`, `vercel.json`), then migrate.
+Preview deployments are retired: `vercel.json` builds without touching a database except in production (`db:deploy`). `db:prepare-preview` still exists for a Preview build that sets `ALLOW_PREVIEW_DATABASE_RESET=1` on purpose, and refuses otherwise.
 
 ## Checks
 

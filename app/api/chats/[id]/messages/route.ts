@@ -3,6 +3,7 @@ import type { NextRequest } from 'next/server';
 import { CONVERSATION_MAX_REES, QUESTION_MAX_CHARS } from '@/lib/constants';
 import { questionTargets } from '@/lib/domain/conversation';
 import { body, fail, json } from '@/lib/http/respond';
+import { rateLimited } from '@/lib/http/rate-limit';
 import { apiUser } from '@/lib/http/session';
 import { db, schema } from '@/lib/infra/db';
 import { answer, clientRequestIdOf } from '@/lib/services/answer';
@@ -27,6 +28,8 @@ type Context = { params: Promise<{ id: string }> };
 export async function POST(request: NextRequest, context: Context) {
   const user = await apiUser(request);
   if (user instanceof Response) return user;
+  const limited = await rateLimited('ask', { userId: user.id, headers: request.headers });
+  if (limited) return limited;
   const conversation = await ownedConversation(user.id, (await context.params).id);
   /* MCP conversations are asked through `/api/mcp` only. */
   if (!conversation || conversation.deletedAt || conversation.kind === 'mcp') return fail('not_found', 404);

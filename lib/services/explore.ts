@@ -26,7 +26,7 @@ import {
 } from '@/lib/constants';
 import type { SuggestedRee } from '@/lib/domain/chat-message';
 import { excerptOf, NEUTRAL_QUALITY, positiveRate, rankHits, type ExploreQuery } from '@/lib/domain/explore';
-import { clampPage, type ListResult } from '@/lib/domain/list';
+import { clampPage, type ListResult, isUuid } from '@/lib/domain/list';
 import { hasEvidence, keywordCoverage, searchTerms } from '@/lib/domain/retrieval';
 import { db, schema } from '@/lib/infra/db';
 import { answerable, embedQuestion, type QuestionVector } from '@/lib/services/chat';
@@ -153,7 +153,7 @@ export async function searchRees(input: {
 }): Promise<SearchHit[]> {
   const database = db();
   const literal = `[${input.vector.vector.join(',')}]`;
-  const exclude = (input.exclude ?? []).filter((id) => /^[0-9a-f-]{36}$/i.test(id));
+  const exclude = (input.exclude ?? []).filter((id) => isUuid(id));
   /* A category can leave too few rows behind an index search; up to five excluded Rees only need a longer list (ef_search covers 25 × 16). */
   const filtered = Boolean(input.category);
   const distance = sql`${schema.reeProfileVector.embedding} <=> ${literal}::vector`;
@@ -242,6 +242,8 @@ export interface ExploreResult extends ListResult<ReeCard> {
 }
 
 const activity = sql<number>`coalesce((${schema.ree.rank} ->> 'activity30')::int, 0)`;
+/* Materialised hourly by `/api/cron/rank`: ordering by the live count aggregated every message of every public Ree per request. */
+const answersRanked = sql<number>`coalesce((${schema.ree.rank} ->> 'answersAll')::int, 0)`;
 const roleOrder = sql<number>`case ${schema.user.role} when 'official' then 2 when 'verified' then 1 else 0 end`;
 
 /**
@@ -272,7 +274,7 @@ export async function explore(query: ExploreQuery, { includeIntros = true } = {}
   const page = clampPage(query.page, total, query.size);
   const order = {
     active: [desc(activity), desc(roleOrder), desc(schema.ree.createdAt)],
-    answers: [desc(answersByOthers), desc(roleOrder), desc(schema.ree.createdAt)],
+    answers: [desc(answersRanked), desc(roleOrder), desc(schema.ree.createdAt)],
     free: [asc(schema.ree.queryFee), desc(roleOrder), desc(activity), desc(schema.ree.createdAt)],
   }[query.sort];
   const rows = await cardQuery()

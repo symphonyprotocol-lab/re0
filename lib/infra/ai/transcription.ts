@@ -25,6 +25,7 @@ import {
 } from '@/lib/constants';
 import { AUDIO_CONTENT_TYPES, type AudioFormat } from '@/lib/domain/knowledge';
 import { ProcessingFailure } from '@/lib/infra/connectors/failure';
+import { modelFetch } from '@/lib/infra/connectors/address';
 import { endpointFor, type ModelEndpoint } from '@/lib/infra/ai/models';
 import { recordModelCall } from '@/lib/infra/ai/usage';
 import { meterTransfer, modelCostTarget, prepareProviderCall, providerWork, tokenUsage } from '@/lib/infra/ai/provider-meter';
@@ -67,7 +68,7 @@ function compatibleTranscriptionModel(endpoint: ModelEndpoint): V4TranscriptionM
       form.set('model', endpoint.model);
       form.set('response_format', 'verbose_json');
       form.append('timestamp_granularities[]', 'segment');
-      const response = await fetch(`${endpoint.baseUrl}/audio/transcriptions`, {
+      const response = await modelFetch(`${endpoint.baseUrl}/audio/transcriptions`, {
         method: 'POST',
         headers: endpoint.apiKey ? { authorization: `Bearer ${endpoint.apiKey}` } : {},
         body: form,
