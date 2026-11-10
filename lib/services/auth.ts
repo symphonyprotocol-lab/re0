@@ -77,8 +77,11 @@ export async function beginOAuth(input: {
     codeChallenge: await codeChallengeS256(handshake.codeVerifier),
     redirectUri: input.redirectUri,
   });
-  return { redirectUrl, handshake: await seal(handshake), expiresAt: handshake.expiresAt };
+  return { redirectUrl, handshake: await seal('oauth-handshake', handshake), expiresAt: handshake.expiresAt };
 }
+
+/** A handshake sealed before purposes: an OAuth one names a provider and no purpose. Ten minutes at most. */
+const legacyHandshake = (payload: unknown) => typeof payload === 'object' && payload !== null && typeof (payload as { provider?: unknown }).provider === 'string' && !('purpose' in payload);
 
 function verifyHandshake(handshake: Handshake | null, provider: IdentityProvider, state: string | null, code: string | null, now: Date): Handshake {
   if (!handshake || typeof handshake.state !== 'string') throw new AuthFailure('oauth_failed', 'missing or unreadable handshake');
@@ -108,7 +111,7 @@ export async function completeOAuth(input: {
   adapter?: IdentityAdapter;
 }): Promise<CompleteOAuthResult> {
   const now = input.now ?? new Date();
-  const handshake = verifyHandshake(await unseal<Handshake>(input.sealedHandshake), input.provider, input.state, input.code, now);
+  const handshake = verifyHandshake(await unseal<Handshake>('oauth-handshake', input.sealedHandshake, legacyHandshake), input.provider, input.state, input.code, now);
   const profile = await (input.adapter ?? identityAdapter).exchange({
     provider: input.provider,
     code: input.code!,

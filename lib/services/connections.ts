@@ -40,7 +40,7 @@ export async function beginGithubConnect(input: { returnTo: unknown; redirectUri
   const handshake: ConnectHandshake = { purpose: 'github_connect', state: randomToken(), returnTo, expiresAt: now.getTime() + OAUTH_STATE_TTL_MS };
   return {
     redirectUrl: connectAuthorizeUrl({ state: handshake.state, redirectUri: input.redirectUri }),
-    handshake: await seal(handshake),
+    handshake: await seal('github-connect', handshake),
     expiresAt: handshake.expiresAt,
   };
 }
@@ -55,7 +55,7 @@ export async function completeGithubConnect(input: {
   exchange?: (input: { code: string; redirectUri: string }) => Promise<RepositoryGrant>;
 }): Promise<{ login: string; returnTo: string }> {
   const now = input.now ?? new Date();
-  const handshake = await unseal<ConnectHandshake>(input.sealedHandshake);
+  const handshake = await unseal<ConnectHandshake>('github-connect', input.sealedHandshake, (payload) => (payload as { purpose?: unknown } | null)?.purpose === 'github_connect');
   if (!handshake || handshake.purpose !== 'github_connect' || typeof handshake.state !== 'string') {
     throw new AuthFailure('oauth_failed', 'missing or unreadable connect handshake');
   }

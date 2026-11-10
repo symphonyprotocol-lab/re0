@@ -13,7 +13,7 @@ const describeWithDb = TEST_DATABASE_URL ? describe : describe.skip;
 const administrators = await import('@/lib/services/admin-administrators');
 const { db, schema } = await import('@/lib/infra/db');
 const { totpCounter } = await import('@/lib/domain/totp');
-const { seal } = await import('@/lib/infra/crypto/sealed');
+const { legacySeal } = await import('../fixtures/legacy-seal');
 
 /** RFC 6238, computed independently of the code under test. */
 async function code(secret: string, at = new Date()): Promise<string> {
@@ -100,7 +100,7 @@ describeWithDb('administrator management', () => {
     const bystander = await newAdministrator('administrator');
     /* An invitation made before management was the owner's: no nonce, created by a plain administrator. */
     const invitee = await newAdministrator('administrator', { passwordHash: '', totpSecretCipher: '', createdBy: inviter });
-    const legacy = await seal({ purpose: 'admin-invite', id: invitee, expiresAt: Date.now() + 60_000 });
+    const legacy = await legacySeal({ purpose: 'admin-invite', id: invitee, expiresAt: Date.now() + 60_000 });
     expect(await administrators.enrolmentChallenge(legacy)).not.toBeNull();
     await expect(administrators.reissueInvite(bystander, invitee)).rejects.toMatchObject({ code: 'owner_only' });
     const link = await administrators.reissueInvite(inviter, invitee);
