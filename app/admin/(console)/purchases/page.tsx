@@ -7,17 +7,20 @@ import { financeFilter } from '@/lib/domain/admin-finance';
 import { csvHref, listHref, purchasesView, PURCHASE_STATUSES, SUBSCRIPTION_STATUSES } from '@/lib/domain/admin-lists';
 import { listPurchases, listSubscriptions, purchaseCounts, purchaseTrend } from '@/lib/services/admin-purchases';
 import { formatCentsUsd } from '@/lib/domain/payouts';
+import { unmatchedBillingEvents } from '@/lib/services/billing';
 import { serverMessages } from '@/i18n/server';
 import { fill, formatDateTime, formatNumber } from '@/i18n/format';
 import { FinanceChart, RecordPage } from '@/components/admin/finance-chart';
 import { ListFilters } from '@/components/admin/list-client';
-import { Clip, LinkPager, OpenLink, PageHead, Person, RecordSection, RecordsTable, ResultsLine, Subline, SummaryCards, Tag } from '@/components/admin/list-kit';
+import { Clip, DetailSection, LinkPager, OpenLink, PageHead, Person, RecordSection, RecordsTable, ResultsLine, Subline, SummaryCards, Tag } from '@/components/admin/list-kit';
 import { ConsolePage, ConsoleTopbar } from '@/components/admin/console-topbar';
 
 export async function generateMetadata(): Promise<Metadata> {
   const { t } = await serverMessages();
   return { title: t.consoleUsers.purchases.title };
 }
+
+const UNMATCHED_SHOWN = 20;
 
 type Props = { searchParams: Promise<Record<string, string | string[] | undefined>> };
 
@@ -34,11 +37,13 @@ export default async function PurchasesPage({ searchParams }: Props) {
   const l = t.console.list;
   const view = purchasesView(await searchParams);
   const subscriptions = view.tab === 'subscriptions';
-  const [subscriptionRows, purchaseRows, counts, trend] = await Promise.all([
+  const [subscriptionRows, purchaseRows, counts, trend, unmatched] = await Promise.all([
     subscriptions ? listSubscriptions(administrator, view) : null,
     subscriptions ? null : listPurchases(administrator, view),
     purchaseCounts(administrator),
     subscriptions ? null : purchaseTrend(administrator, view),
+    /* Paddle events that credited nothing (review M5); shown only when there are some. */
+    subscriptions ? null : unmatchedBillingEvents(UNMATCHED_SHOWN),
   ]);
   const data = (subscriptionRows ?? purchaseRows)!;
   const current = { ...view, page: data.page };
@@ -104,6 +109,24 @@ export default async function PurchasesPage({ searchParams }: Props) {
             metricHrefs={{ amount: href({ metric: 'amount' }), count: href({ metric: 'count' }) }}
             filter={financeFilter(view)}
           />
+        )}
+        {unmatched && unmatched.total > 0 && (
+          <DetailSection title={fill(p.unmatched.title, { n: n(unmatched.total) })}>
+            <p className="muted">{p.unmatched.lede}</p>
+            <RecordsTable
+              label={fill(p.unmatched.title, { n: n(unmatched.total) })}
+              empty={l.empty}
+              head={[p.unmatched.columns.event, p.unmatched.columns.transaction, p.unmatched.columns.user, p.unmatched.columns.prices, p.unmatched.columns.received]}
+              rows={unmatched.items.map((row) => [
+                <span key="event" className="mono">{row.eventType}</span>,
+                row.transactionId ? <Clip key="txn" value={row.transactionId} className="mono record-id" /> : '—',
+                row.userId ? <Link key="user" href={`/admin/users/${row.userId}?tab=purchases&from=${back}`} className="mono">{row.userId}</Link> : '—',
+                row.priceIds.length ? <span key="prices" className="mono">{row.priceIds.join(', ')}</span> : '—',
+                time(row.receivedAt),
+              ])}
+            />
+            {unmatched.total > unmatched.items.length && <Subline>{fill(p.unmatched.more, { shown: n(unmatched.items.length), n: n(unmatched.total) })}</Subline>}
+          </DetailSection>
         )}
         <RecordSection>
           <ListFilters

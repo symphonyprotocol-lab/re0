@@ -271,8 +271,15 @@
     {
       "idx": 39,
       "version": "7",
-      "when": 1794283965174,
-      "tag": "0039_admin_invite_nonce",
+      "when": 1794288914262,
+      "tag": "0039_money_path_hardening",
+      "breakpoints": true
+    },
+    {
+      "idx": 40,
+      "version": "7",
+      "when": 1794289214262,
+      "tag": "0040_admin_invite_nonce",
       "breakpoints": true
     }
   ]

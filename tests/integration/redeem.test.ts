@@ -84,7 +84,14 @@ async function expectLedgerTraceable(userId: string) {
   for (const [grantId, grant] of grants) expect(net.get(grantId) ?? 0, grant.source).toBe(grant.remaining);
 }
 
-function subscriptionEvent(userId: string, options: { subscriptionId: string; status?: string; period: [Date, Date]; cancel?: boolean; type?: string }) {
+/** A Plan checkout row, as `startCheckout` writes it; a new subscription is mirrored only from one (review M5). */
+async function planCheckout(userId: string): Promise<string> {
+  const transactionId = id('txn');
+  await db().insert(schema.paddleCheckout).values({ paddleTransactionId: transactionId, userId, kind: 'plan', quantity: 1, unitCredits: 50_000 });
+  return transactionId;
+}
+
+function subscriptionEvent(userId: string, options: { subscriptionId: string; status?: string; period: [Date, Date]; cancel?: boolean; type?: string; transactionId?: string }) {
   return {
     event_id: id('evt'),
     event_type: options.type ?? 'subscription.updated',
@@ -98,6 +105,7 @@ function subscriptionEvent(userId: string, options: { subscriptionId: string; st
       scheduled_change: options.cancel ? { action: 'cancel', effective_at: options.period[1].toISOString() } : null,
       items: [{ price: { id: PRICES.planPriceId } }],
       updated_at: new Date(options.period[0].getTime() + (options.cancel ? 1_000 : 0)).toISOString(),
+      transaction_id: options.transactionId ?? null,
     },
   };
 }
@@ -262,7 +270,7 @@ describeWithDb('redeem codes', () => {
     const periodEnd = new Date('2027-04-01T00:00:00Z');
     const subscriber = await newUser();
     const subscriptionId = id('sub');
-    await billing.applyPaddleEvent(subscriptionEvent(subscriber, { subscriptionId, period: [periodStart, periodEnd], type: 'subscription.created' }), PRICES, t0);
+    await billing.applyPaddleEvent(subscriptionEvent(subscriber, { subscriptionId, period: [periodStart, periodEnd], type: 'subscription.created', transactionId: await planCheckout(subscriber) }), PRICES, t0);
     expect(await use(subscriber, months.codes[1]!)).toEqual({ ok: false, error: 'plan_subscription_renewing' });
     expect((await db().select().from(schema.redeemCode).where(eq(schema.redeemCode.batchId, months.batch.id))).reduce((sum, row) => sum + row.redemptionCount, 0)).toBe(1);
 
@@ -300,7 +308,7 @@ describeWithDb('redeem codes', () => {
 
     /* Paddle still trying to collect: refused as checkout refuses it. */
     const lapsed = await newUser();
-    await billing.applyPaddleEvent(subscriptionEvent(lapsed, { subscriptionId: id('sub'), status: 'past_due', period: [periodStart, periodEnd], type: 'subscription.created' }), PRICES, t0);
+    await billing.applyPaddleEvent(subscriptionEvent(lapsed, { subscriptionId: id('sub'), status: 'past_due', period: [periodStart, periodEnd], type: 'subscription.created', transactionId: await planCheckout(lapsed) }), PRICES, t0);
     expect(await use(lapsed, months.codes[2]!)).toEqual({ ok: false, error: 'plan_renewal_pending' });
     for (const userId of [stacker, subscriber]) await expectLedgerTraceable(userId);
   });

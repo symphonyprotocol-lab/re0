@@ -78,6 +78,7 @@ const STATUS: Record<string, number> = {
   kyc_required: 409,
   kyc_pending: 409,
   transfer_used: 409,
+  debt_open: 409,
   /* Redeem codes. */
   custom_code_taken: 409,
   sealed: 409,

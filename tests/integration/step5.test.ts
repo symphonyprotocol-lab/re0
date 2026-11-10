@@ -239,15 +239,15 @@ describeWithDb('console users', () => {
   it('adjusts Pack and Plan credits without going negative, audited and noticed', async () => {
     const reviewer = await newAdministrator();
     const userId = await newUser();
-    await expect(adminUsers.adjustCredits(reviewer, userId, { bucket: 'plan', direction: 'grant', amount: 100, reason: 'goodwill' })).rejects.toMatchObject({ code: 'no_plan' });
-    await adminUsers.adjustCredits(reviewer, userId, { bucket: 'pack', direction: 'grant', amount: 5_000, reason: 'support credit' });
+    await expect(adminUsers.adjustCredits(reviewer, userId, { bucket: 'plan', direction: 'grant', amount: 100, reason: 'goodwill', requestId: crypto.randomUUID() })).rejects.toMatchObject({ code: 'no_plan' });
+    await adminUsers.adjustCredits(reviewer, userId, { bucket: 'pack', direction: 'grant', amount: 5_000, reason: 'support credit', requestId: crypto.randomUUID() });
     expect(await balanceOf(db(), userId)).toBe(WELCOME_CREDITS + 5_000);
-    await expect(adminUsers.adjustCredits(reviewer, userId, { bucket: 'pack', direction: 'deduct', amount: 5_001, reason: 'claw back' })).rejects.toMatchObject({ code: 'insufficient' });
-    await adminUsers.adjustCredits(reviewer, userId, { bucket: 'pack', direction: 'deduct', amount: 5_000, reason: 'claw back' });
+    await expect(adminUsers.adjustCredits(reviewer, userId, { bucket: 'pack', direction: 'deduct', amount: 5_001, reason: 'claw back', requestId: crypto.randomUUID() })).rejects.toMatchObject({ code: 'insufficient' });
+    await adminUsers.adjustCredits(reviewer, userId, { bucket: 'pack', direction: 'deduct', amount: 5_000, reason: 'claw back', requestId: crypto.randomUUID() });
     expect(await balanceOf(db(), userId)).toBe(WELCOME_CREDITS);
     /* An open debt is paid first: the notice and the audit say what the bucket actually gained. */
     await db().insert(schema.creditDebt).values({ userId, amount: 300, remaining: 300 });
-    const paid = await adminUsers.adjustCredits(reviewer, userId, { bucket: 'pack', direction: 'grant', amount: 1_000, reason: 'with debt' });
+    const paid = await adminUsers.adjustCredits(reviewer, userId, { bucket: 'pack', direction: 'grant', amount: 1_000, reason: 'with debt', requestId: crypto.randomUUID() });
     expect(paid).toMatchObject({ delta: 700, debtPaid: 300 });
     expect(await balanceOf(db(), userId)).toBe(WELCOME_CREDITS + 700);
     const [latest] = (await notices.listNotices(userId, 1)).items;
@@ -260,7 +260,7 @@ describeWithDb('console users', () => {
       currentPeriodStart: new Date(Date.now() - DAY),
       currentPeriodEnd: new Date(Date.now() + 20 * DAY),
     });
-    await adminUsers.adjustCredits(reviewer, userId, { bucket: 'plan', direction: 'grant', amount: 300, reason: 'plan top-up' });
+    await adminUsers.adjustCredits(reviewer, userId, { bucket: 'plan', direction: 'grant', amount: 300, reason: 'plan top-up', requestId: crypto.randomUUID() });
     const [plan] = await db().select().from(schema.creditGrant).where(and(eq(schema.creditGrant.userId, userId), eq(schema.creditGrant.source, 'plan')));
     expect(plan!.expiresAt!.getTime()).toBeGreaterThan(Date.now() + 19 * DAY);
 

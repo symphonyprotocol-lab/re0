@@ -1,5 +1,5 @@
 {
-  "id": "838ab57e-ab1c-4568-a6c8-8cc53b99e773",
+  "id": "ecc7c364-1f22-4f57-b064-3353f7667186",
   "prevId": "9cedb807-e66f-4169-b0c2-fa3d11d49e5e",
   "version": "7",
   "dialect": "postgresql",
@@ -211,12 +211,6 @@
         "locked_until": {
           "name": "locked_until",
           "type": "timestamp with time zone",
-          "primaryKey": false,
-          "notNull": false
-        },
-        "invite_nonce": {
-          "name": "invite_nonce",
-          "type": "text",
           "primaryKey": false,
           "notNull": false
         },
@@ -1352,7 +1346,7 @@
       "checkConstraints": {
         "credit_entry_reason_check": {
           "name": "credit_entry_reason_check",
-          "value": "reason in ('welcome', 'knowledge_hold', 'knowledge_settle', 'knowledge_refund', 'query_hold', 'query_base', 'query_refund', 'query_fee_paid', 'query_fee_earned', 'purchase', 'refund', 'chargeback', 'debt_offset', 'expire', 'payout_hold', 'payout_release', 'payout_paid', 'video_script', 'video_export', 'admin_adjust', 'video_refund', 'verify_hold', 'verify_settle', 'verify_refund', 'synthesis_hold', 'synthesis_settle', 'synthesis_refund', 'storage_charge', 'redeem')"
+          "value": "reason in ('welcome', 'knowledge_hold', 'knowledge_settle', 'knowledge_refund', 'query_hold', 'query_base', 'query_refund', 'query_fee_paid', 'query_fee_earned', 'purchase', 'refund', 'chargeback', 'debt_offset', 'expire', 'payout_hold', 'payout_release', 'payout_paid', 'video_script', 'video_export', 'admin_adjust', 'video_refund', 'verify_hold', 'verify_settle', 'verify_refund', 'synthesis_hold', 'synthesis_settle', 'synthesis_refund', 'storage_charge', 'redeem', 'chargeback_reverse', 'earned_void')"
         }
       },
       "isRLSEnabled": false
@@ -1422,6 +1416,18 @@
           "primaryKey": false,
           "notNull": false
         },
+        "withdrawable_at": {
+          "name": "withdrawable_at",
+          "type": "timestamp with time zone",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "funding_purchase_id": {
+          "name": "funding_purchase_id",
+          "type": "uuid",
+          "primaryKey": false,
+          "notNull": false
+        },
         "created_at": {
           "name": "created_at",
           "type": "timestamp with time zone",
@@ -1442,6 +1448,22 @@
             }
           ],
           "isUnique": false,
+          "concurrently": false,
+          "method": "btree",
+          "with": {}
+        },
+        "credit_grant_funding_idx": {
+          "name": "credit_grant_funding_idx",
+          "columns": [
+            {
+              "expression": "funding_purchase_id",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            }
+          ],
+          "isUnique": false,
+          "where": "funding_purchase_id is not null",
           "concurrently": false,
           "method": "btree",
           "with": {}
@@ -1540,12 +1562,29 @@
           ],
           "onDelete": "no action",
           "onUpdate": "no action"
+        },
+        "credit_grant_funding_purchase_id_purchase_id_fk": {
+          "name": "credit_grant_funding_purchase_id_purchase_id_fk",
+          "tableFrom": "credit_grant",
+          "tableTo": "purchase",
+          "columnsFrom": [
+            "funding_purchase_id"
+          ],
+          "columnsTo": [
+            "id"
+          ],
+          "onDelete": "no action",
+          "onUpdate": "no action"
         }
       },
       "compositePrimaryKeys": {},
       "uniqueConstraints": {},
       "policies": {},
       "checkConstraints": {
+        "credit_grant_withdrawable_check": {
+          "name": "credit_grant_withdrawable_check",
+          "value": "withdrawable_at is null or source = 'earned'"
+        },
         "credit_grant_origin_check": {
           "name": "credit_grant_origin_check",
           "value": "purchase_id is null or redemption_id is null"
@@ -1617,6 +1656,18 @@
           "primaryKey": false,
           "notNull": false
         },
+        "ledger": {
+          "name": "ledger",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "ree_id": {
+          "name": "ree_id",
+          "type": "uuid",
+          "primaryKey": false,
+          "notNull": false
+        },
         "created_at": {
           "name": "created_at",
           "type": "timestamp with time zone",
@@ -1664,6 +1715,28 @@
             }
           ],
           "isUnique": false,
+          "concurrently": false,
+          "method": "btree",
+          "with": {}
+        },
+        "credit_hold_open_idx": {
+          "name": "credit_hold_open_idx",
+          "columns": [
+            {
+              "expression": "kind",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            },
+            {
+              "expression": "created_at",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            }
+          ],
+          "isUnique": false,
+          "where": "status = 'held'",
           "concurrently": false,
           "method": "btree",
           "with": {}
@@ -3619,6 +3692,12 @@
           "notNull": true,
           "default": 100000
         },
+        "paddle_price_id": {
+          "name": "paddle_price_id",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false
+        },
         "superseded_at": {
           "name": "superseded_at",
           "type": "timestamp with time zone",
@@ -3829,6 +3908,22 @@
           ],
           "isUnique": true,
           "where": "status in ('pending', 'approved')",
+          "concurrently": false,
+          "method": "btree",
+          "with": {}
+        },
+        "payout_transfer_key": {
+          "name": "payout_transfer_key",
+          "columns": [
+            {
+              "expression": "transfer_id",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            }
+          ],
+          "isUnique": true,
+          "where": "transfer_id is not null",
           "concurrently": false,
           "method": "btree",
           "with": {}
