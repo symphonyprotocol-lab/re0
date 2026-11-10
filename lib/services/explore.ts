@@ -30,6 +30,7 @@ import { clampPage, type ListResult, isUuid } from '@/lib/domain/list';
 import { hasEvidence, keywordCoverage, searchTerms } from '@/lib/domain/retrieval';
 import { db, schema } from '@/lib/infra/db';
 import { answerable, embedQuestion, type QuestionVector } from '@/lib/services/chat';
+import { chunkVector, profileInSpace } from '@/lib/services/embedding-space';
 import type { IntroProps } from '@/lib/domain/video';
 import { introsFor } from '@/lib/services/video';
 import { votesByOthers } from '@/lib/services/ree-feedback';
@@ -143,6 +144,9 @@ export interface SearchHit {
  * scans that slice of the profile table exactly (`+ 0` keeps the planner off
  * the global index, which filters after it searches); otherwise the HNSW
  * index answers, with a candidate list long enough for 20 Rees × 16 vectors.
+ * Both levels read only vectors in the question's embedding space; right
+ * after a model switch, profiles not yet rebuilt in the new space drop out
+ * of the first level until `rebuildProfiles` reaches them (reembed.ts).
  */
 export async function searchRees(input: {
   question: string;
@@ -166,6 +170,7 @@ export async function searchRees(input: {
       .where(
         and(
           publicRee(),
+          profileInSpace(input.vector.space),
           input.category ? eq(schema.ree.category, input.category) : undefined,
           exclude.length ? sql`${schema.ree.id} not in (${sql.join(exclude.map((id) => sql`${id}::uuid`), sql`, `)})` : undefined,
         ),
@@ -182,18 +187,19 @@ export async function searchRees(input: {
   });
   const candidates = firstLevel.map((row) => row.reeId);
   if (candidates.length === 0) return [];
+  const stored = chunkVector(input.vector.space);
 
   const passages = await database
     .select({
       reeId: schema.chunk.reeId,
       content: schema.chunk.content,
       title: schema.knowledge.title,
-      similarity: sql<number>`1 - (${schema.chunk.embedding} <=> ${literal}::vector)`,
+      similarity: sql<number>`1 - (${stored} <=> ${literal}::vector)`,
     })
     .from(schema.chunk)
     .innerJoin(schema.knowledge, eq(schema.knowledge.id, schema.chunk.knowledgeId))
-    .where(and(inArray(schema.chunk.reeId, candidates), ...answerable()))
-    .orderBy(sql`(${schema.chunk.embedding} <=> ${literal}::vector) + 0`)
+    .where(and(inArray(schema.chunk.reeId, candidates), ...answerable(), sql`${stored} is not null`))
+    .orderBy(sql`(${stored} <=> ${literal}::vector) + 0`)
     .limit(EXPLORE_PASSAGES);
 
   const terms = searchTerms(input.question);

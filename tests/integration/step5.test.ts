@@ -11,7 +11,7 @@
  */
 import { WELCOME_CREDITS } from '@/lib/constants';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
-import { and, eq, inArray, isNotNull, lt, sql } from 'drizzle-orm';
+import { and, eq, inArray, lt, sql } from 'drizzle-orm';
 import { pointModelsAt, TEST_DATABASE_URL, uniqueName } from './setup';
 import { consoleAdministrator } from '../fixtures/console-administrator';
 import { startFakeOpenAi, type FakeOpenAi } from '../fixtures/fake-openai';
@@ -30,6 +30,7 @@ const admin = await import('@/lib/services/admin');
 const statistics = await import('@/lib/services/statistics');
 const adminPurchases = await import('@/lib/services/admin-purchases');
 const reembed = await import('@/lib/services/reembed');
+const { activeSpace, chunkVector } = await import('@/lib/services/embedding-space');
 const models = await import('@/lib/services/models');
 const reesService = await import('@/lib/services/rees');
 const profile = await import('@/lib/services/profile');
@@ -439,7 +440,7 @@ describeWithDb('embedding switch', () => {
     const failed = await reembed.runReembed(30_000);
     expect(failed!.status).toBe('failed');
     expect((await endpointFor('embedding', Date.now() + 120_000)).configId).toBe(old!.id);
-    expect(await db().select({ id: schema.chunk.id }).from(schema.chunk).where(isNotNull(schema.chunk.embeddingNext)).limit(1)).toHaveLength(0);
+    expect(await db().select({ id: schema.chunk.id }).from(schema.chunk).where(sql`${chunkVector(failed!.space)} is not null`).limit(1)).toHaveLength(0);
 
     const [next] = await db()
       .insert(schema.modelConfig)
@@ -457,7 +458,8 @@ describeWithDb('embedding switch', () => {
     expect(done!.done).toBe(done!.total);
     forgetModelCache();
     expect((await endpointFor('embedding')).configId).toBe(next!.id);
-    const [{ n }] = (await db().select({ n: sql<number>`count(*)::int` }).from(schema.chunk).where(isNotNull(schema.chunk.embeddingNext))) as [{ n: number }];
+    /* Every passage has a vector in the space the switch made active; nothing was rewritten to get there. */
+    const [{ n }] = (await db().select({ n: sql<number>`count(*)::int` }).from(schema.chunk).where(sql`${chunkVector(activeSpace)} is null`)) as [{ n: number }];
     expect(n).toBe(0);
     /* Step 4's profiles were rebuilt with the new model after the switch. */
     const stale = await db().select({ id: schema.reeProfileVector.id }).from(schema.reeProfileVector).where(lt(schema.reeProfileVector.updatedAt, done!.finishedAt!));

@@ -478,6 +478,14 @@ export const ADMIN_INVITE_TTL_MS = 7 * 24 * 60 * 60 * 1000;
 export const REEMBED_BATCH = 96;
 /** A re-embed request works this long, then hands over to the next call or cron run. */
 export const REEMBED_STEP_BUDGET_MS = 240_000;
+/**
+ * Old vectors stay this long after a model switch before cleanup clears
+ * them: longer than a model-cache minute plus the longest answer, so a
+ * question embedded in the old space still finds its passages.
+ */
+export const REEMBED_GRACE_MS = 10 * 60_000;
+/** Chunks one cleanup statement clears (reembed.ts `cleanupEmbeddingSpaces`). */
+export const REEMBED_CLEANUP_BATCH = 500;
 /** Notices per page in the settings list. */
 export const NOTICE_PAGE_SIZE = 20;
 /**

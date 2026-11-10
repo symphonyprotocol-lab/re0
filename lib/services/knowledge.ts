@@ -33,7 +33,7 @@ import type { Locator } from '@/lib/domain/answer';
 import { clampPage, likePattern, type ListResult } from '@/lib/domain/list';
 import { parseGithubRepo, parseWebUrl, repositoryUrl, type RepositoryRef } from '@/lib/domain/sources';
 import { embedTexts, forgetModelCache } from '@/lib/infra/ai/models';
-import { embeddingIsCurrent } from '@/lib/services/reembed';
+import { storingSpace } from '@/lib/services/reembed';
 import { transcribeAudio } from '@/lib/infra/ai/transcription';
 import { isKnowledgeUploadPath } from '@/lib/domain/blob-path';
 import { blobSize, readBlob } from '@/lib/infra/blob';
@@ -575,7 +575,8 @@ async function processKnowledgeRun(knowledgeId: string, runId: string): Promise<
         /* A run presumed dead was failed and refunded by `recoverStale`; its late result is dropped, not given away. */
         const [current] = await tx.select({ status: schema.knowledge.status, activity: schema.knowledge.activity, title: schema.knowledge.title, originalTitle: schema.knowledge.originalTitle }).from(schema.knowledge).where(eq(schema.knowledge.id, row.id)).for('update');
         if (!ownsProcessingRun(current, runId)) return 'dropped';
-        if (!(await embeddingIsCurrent(tx, embedded.configId))) return 'stale_model';
+        const space = await storingSpace(tx, embedded.configId);
+        if (space === null) return 'stale_model';
         const vectors = embedded.vectors;
         await tx.delete(schema.chunk).where(eq(schema.chunk.knowledgeId, row.id));
         for (let at = 0; at < chunks.length; at += 200) {
@@ -586,6 +587,7 @@ async function processKnowledgeRun(knowledgeId: string, runId: string): Promise<
               ordinal: chunk.ordinal,
               content: chunk.content,
               embedding: vectors[at + offset]!,
+              embeddingSpace: space,
               locator: chunk.locator,
             })),
           );

@@ -19,6 +19,7 @@ import { embedTexts } from '@/lib/infra/ai/models';
 import { generationForUser } from '@/lib/services/generation';
 import { db, schema } from '@/lib/infra/db';
 import { answerable } from '@/lib/services/chat';
+import { chunkVector, spaceOf } from '@/lib/services/embedding-space';
 import { publicRee } from '@/lib/services/explore';
 import { meteredWork } from '@/lib/services/metered-work';
 import { ProviderCostUnavailable } from '@/lib/domain/provider-cost';
@@ -34,10 +35,11 @@ function parseVector(value: unknown): number[] {
   return String(value).replace(/^\[|\]$/g, '').split(',').map(Number);
 }
 
-/** The passages' vectors condensed: themselves when few, else centroids. */
-async function passageVectors(reeId: string): Promise<number[][]> {
+/** The passages' vectors in `space` condensed: themselves when few, else centroids. */
+async function passageVectors(reeId: string, space: string): Promise<number[][]> {
   const database = db();
-  const where = and(eq(schema.chunk.reeId, reeId), ...answerable());
+  const stored = chunkVector(space);
+  const where = and(eq(schema.chunk.reeId, reeId), ...answerable(), sql`${stored} is not null`);
   const [{ count } = { count: 0 }] = await database
     .select({ count: sql<number>`count(*)::int` })
     .from(schema.chunk)
@@ -46,7 +48,7 @@ async function passageVectors(reeId: string): Promise<number[][]> {
   if (count === 0) return [];
   if (count < PROFILE_CENTROIDS) {
     const rows = await database
-      .select({ embedding: schema.chunk.embedding })
+      .select({ embedding: sql<string>`${stored}::text` })
       .from(schema.chunk)
       .innerJoin(schema.knowledge, eq(schema.knowledge.id, schema.chunk.knowledgeId))
       .where(where)
@@ -54,11 +56,12 @@ async function passageVectors(reeId: string): Promise<number[][]> {
     return rows.map((row) => parseVector(row.embedding));
   }
   /* Seeds spread evenly over the sources in reading order, so every part of the knowledge starts with a centroid near it. */
+  const vector = chunkVector(space, 'ch');
   const seeds = await database.execute<{ embedding: string }>(sql`
     select s.embedding::text as embedding from (
-      select ch.embedding, row_number() over (order by ch.knowledge_id, ch.ordinal) as n
+      select ${vector} as embedding, row_number() over (order by ch.knowledge_id, ch.ordinal) as n
       from ${schema.chunk} ch join ${schema.knowledge} k on k.id = ch.knowledge_id
-      where ch.ree_id = ${reeId} and k.status = 'ready' and k.enabled and k.deleted_at is null
+      where ch.ree_id = ${reeId} and k.status = 'ready' and k.enabled and k.deleted_at is null and ${vector} is not null
     ) s
     where (s.n - 1) % ${Math.floor(count / PROFILE_CENTROIDS)} = 0
     order by s.n
@@ -73,8 +76,8 @@ async function passageVectors(reeId: string): Promise<number[][]> {
     const moved = await database.execute<{ i: number; embedding: string }>(sql`
       with c(i, v) as (values ${values}),
       sample as (
-        select ch.embedding from ${schema.chunk} ch join ${schema.knowledge} k on k.id = ch.knowledge_id
-        where ch.ree_id = ${reeId} and k.status = 'ready' and k.enabled and k.deleted_at is null
+        select ${vector} as embedding from ${schema.chunk} ch join ${schema.knowledge} k on k.id = ch.knowledge_id
+        where ch.ree_id = ${reeId} and k.status = 'ready' and k.enabled and k.deleted_at is null and ${vector} is not null
         order by md5(ch.id::text)
         limit ${PROFILE_KMEANS_SAMPLE}
       )
@@ -114,15 +117,15 @@ export async function refreshProfile(reeId: string, { billTo = 'owner' }: { bill
   }
   const questions = (ree.sampleQuestions.length ? ree.sampleQuestions : ree.suggestedQuestions).slice(0, PROFILE_SAMPLE_QUESTIONS);
   const introduction = [ree.name, ree.description, ree.category, ...ree.tags].filter(Boolean).join('\n');
-  const [{ vectors }, passages] = await Promise.all([
-    billTo === 'platform'
-      ? embedTexts([introduction, ...questions])
-      : meteredWork(
-        { userId: ree.ownerId, reeId, kind: 'profile', title: `${ree.name} · knowledge profile`, reeName: ree.name, refuse: false },
-        () => embedTexts([introduction, ...questions]),
-      ),
-    passageVectors(reeId),
-  ]);
+  const { vectors, endpoint } = billTo === 'platform'
+    ? await embedTexts([introduction, ...questions])
+    : await meteredWork(
+      { userId: ree.ownerId, reeId, kind: 'profile', title: `${ree.name} · knowledge profile`, reeName: ree.name, refuse: false },
+      () => embedTexts([introduction, ...questions]),
+    );
+  /* Centroids from the same space the introduction was just embedded in: a profile never mixes models. */
+  const space = spaceOf(endpoint);
+  const passages = await passageVectors(reeId, space);
   const rows: { kind: Kind; embedding: number[] }[] = [
     { kind: 'profile', embedding: vectors[0]! },
     ...questions.map((_, at) => ({ kind: 'sample_question' as const, embedding: vectors[at + 1]! })),
@@ -131,7 +134,7 @@ export async function refreshProfile(reeId: string, { billTo = 'owner' }: { bill
   const now = new Date();
   await database.transaction(async (tx) => {
     await tx.delete(schema.reeProfileVector).where(eq(schema.reeProfileVector.reeId, reeId));
-    await tx.insert(schema.reeProfileVector).values(rows.map((row) => ({ reeId, kind: row.kind, embedding: row.embedding, updatedAt: now })));
+    await tx.insert(schema.reeProfileVector).values(rows.map((row) => ({ reeId, kind: row.kind, embedding: row.embedding, embeddingSpace: space, updatedAt: now })));
   });
   return rows.length;
 }

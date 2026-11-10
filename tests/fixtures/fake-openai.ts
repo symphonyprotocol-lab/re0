@@ -31,7 +31,14 @@ export interface FakeOpenAi {
    * `model`: embedding requests for it answer a server error once `after`
    * of them have succeeded (null: never).
    */
-  embeddings: { failModel: string | null; after: number };
+  embeddings: {
+    failModel: string | null;
+    after: number;
+    /** Per model: its vectors rotated by this many places, so two models' vectors of one text differ. */
+    shift: Record<string, number>;
+    /** Awaited before an embedding request is answered (with its model): lets a test act between a job's batches. */
+    beforeAnswer: ((model: string) => Promise<void>) | null;
+  };
   /** Text for transcript segments, keyed `piece:segment` (both from 0). */
   transcripts: Map<string, string>;
   /** `fail`: answer check requests with a server error. */
@@ -60,6 +67,12 @@ export function fakeMp3(bytes: number, pieceBytes = FAKE_MP3_PIECE_FRAMES * 417)
   const out = new Uint8Array(bytes);
   for (let at = 0; at + 5 <= bytes; at += 417) out.set([0xff, 0xfb, 0x90, 0x64, Math.min(255, Math.floor(at / pieceBytes))], at);
   return out;
+}
+
+/** The vector the fake answers for `text` from `model` (with `shift` places of rotation). */
+export function fakeEmbedding(text: string, shift = 0): number[] {
+  const vector = vectorOf(text);
+  return shift ? vector.map((_, index) => vector[(index - shift + 1536) % 1536]!) : vector;
 }
 
 function vectorOf(text: string): number[] {
@@ -158,8 +171,9 @@ export async function startFakeOpenAi(port = 0, options: { delayMs?: number } = 
   const transcripts = new Map<string, string>();
   const checks = { fail: false };
   const synthesis = { fail: false };
-  const embeddings: FakeOpenAi['embeddings'] = { failModel: null, after: 0 };
+  const embeddings: FakeOpenAi['embeddings'] = { failModel: null, after: 0, shift: {}, beforeAnswer: null };
   let failingEmbeds = 0;
+  let failureArmed = 'null:0';
   let transcriptionCalls = 0;
   const server: Server = createServer(async (req, res) => {
     const parts: Buffer[] = [];
@@ -185,6 +199,12 @@ export async function startFakeOpenAi(port = 0, options: { delayMs?: number } = 
     const body = JSON.parse(raw || '{}') as { model?: string; input?: string[]; stream?: boolean; messages?: { role: string; content: unknown }[] };
     const embedding = Boolean(req.url?.endsWith('/embeddings'));
     const inputs = Array.isArray(body.input) ? body.input : [String(body.input ?? '')];
+    /* `after` counts from when the failure was set up (a new model or count starts over). */
+    const armed = `${embeddings.failModel}:${embeddings.after}`;
+    if (armed !== failureArmed) {
+      failureArmed = armed;
+      failingEmbeds = 0;
+    }
     if (embedding && embeddings.failModel !== null && body.model === embeddings.failModel && failingEmbeds++ >= embeddings.after) {
       res.writeHead(500, { 'content-type': 'application/json' });
       res.end(JSON.stringify({ error: { message: 'embedding failed', type: 'server_error' } }));
@@ -192,8 +212,9 @@ export async function startFakeOpenAi(port = 0, options: { delayMs?: number } = 
     }
     requests.push({ path: req.url ?? '', model: body.model ?? '', ...(embedding ? { inputs } : {}) });
     if (embedding) {
+      if (embeddings.beforeAnswer) await embeddings.beforeAnswer(body.model ?? '');
       res.writeHead(200, { 'content-type': 'application/json' });
-      res.end(JSON.stringify({ object: 'list', model: body.model, data: inputs.map((input, index) => ({ object: 'embedding', index, embedding: vectorOf(input) })), ...(!billing.omitEmbeddingUsage ? { usage: { prompt_tokens: billing.embeddingTokens, total_tokens: billing.embeddingTokens } } : {}) }));
+      res.end(JSON.stringify({ object: 'list', model: body.model, data: inputs.map((input, index) => ({ object: 'embedding', index, embedding: fakeEmbedding(input, embeddings.shift[body.model ?? ''] ?? 0) })), ...(!billing.omitEmbeddingUsage ? { usage: { prompt_tokens: billing.embeddingTokens, total_tokens: billing.embeddingTokens } } : {}) }));
       return;
     }
     if (req.url?.endsWith('/chat/completions')) {
