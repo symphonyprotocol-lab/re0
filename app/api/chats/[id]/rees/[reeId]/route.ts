@@ -1,6 +1,7 @@
 import type { NextRequest } from 'next/server';
 import { conversationFailure } from '@/lib/http/conversations';
 import { json } from '@/lib/http/respond';
+import { rateLimited } from '@/lib/http/rate-limit';
 import { apiUser } from '@/lib/http/session';
 import { addParticipant, removeParticipant } from '@/lib/services/conversations';
 
@@ -10,6 +11,8 @@ type Context = { params: Promise<{ id: string; reeId: string }> };
 export async function POST(request: NextRequest, context: Context) {
   const user = await apiUser(request);
   if (user instanceof Response) return user;
+  const limited = await rateLimited('participants', { userId: user.id, headers: request.headers });
+  if (limited) return limited;
   const { id, reeId } = await context.params;
   try {
     return json({ result: await addParticipant(user.id, id, reeId) });

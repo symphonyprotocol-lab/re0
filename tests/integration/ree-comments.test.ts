@@ -3,6 +3,8 @@ import { describe, expect, it, vi } from 'vitest';
 import { inArray } from 'drizzle-orm';
 import { NextRequest } from 'next/server';
 import { GET, POST } from '@/app/api/rees/[id]/comments/route';
+import { DELETE } from '@/app/api/rees/[id]/comments/[commentId]/route';
+import { USER_RATE_LIMITS } from '@/lib/constants';
 import { SESSION_COOKIE } from '@/lib/http/cookies';
 import { db, schema } from '@/lib/infra/db';
 import { sessionTokenHash } from '@/lib/services/auth';
@@ -63,6 +65,7 @@ suite('public Ree comments', () => {
         authorAvatar: null,
         content: input.content.trim(),
         createdAt: expect.any(String),
+        canDelete: true,
       });
       expect((await post({ ...input, content: 'Changed' })).status).toBe(409);
 
@@ -95,6 +98,72 @@ suite('public Ree comments', () => {
     } finally {
       token = undefined;
       await db().delete(schema.ree).where(inArray(schema.ree.id, [ree!.id, other!.id]));
+      await db().delete(schema.user).where(inArray(schema.user.id, [author!.id]));
+    }
+  });
+
+  it('lets the author or the Ree owner delete a comment, nobody else', async () => {
+    const users = await db().insert(schema.user).values(['owner', 'author', 'stranger'].map(name => ({
+      name, email: `${uniqueName(name)}@example.test`, provider: 'github' as const, providerSubject: uniqueName(name),
+    }))).returning();
+    const [owner, author, stranger] = users as [typeof users[0], typeof users[0], typeof users[0]];
+    const [ree] = await db().insert(schema.ree).values({
+      ownerId: owner.id, name: 'Deletable', slug: uniqueName('deletable'), isPublic: true, isPublished: true,
+    }).returning();
+    const signIn = async (userId: string) => {
+      token = crypto.randomUUID();
+      await db().insert(schema.session).values({ id: await sessionTokenHash(token), userId, expiresAt: new Date(Date.now() + 60_000) });
+    };
+    const remove = (commentId: string) => DELETE(
+      new NextRequest(`${base}/api/rees/${ree!.id}/comments/${commentId}`, { method: 'DELETE', headers: { origin: base } }),
+      { params: Promise.resolve({ id: ree!.id, commentId }) },
+    );
+    const list = async () => (await (await GET(new NextRequest(`${base}/api/rees/${ree!.id}/comments`), { params: Promise.resolve({ id: ree!.id }) })).json()).items as { id: string; canDelete: boolean }[];
+    const [byAuthor, second] = [crypto.randomUUID(), crypto.randomUUID()];
+    await db().insert(schema.reeComment).values([byAuthor, second].map(id => ({ id, reeId: ree!.id, userId: author.id, content: 'hello' })));
+    try {
+      expect((await remove(byAuthor)).status).toBe(401);
+      await signIn(stranger.id);
+      expect((await list()).map(item => item.canDelete)).toEqual([false, false]);
+      expect((await remove(byAuthor)).status).toBe(404);
+      await signIn(author.id);
+      expect((await list()).every(item => item.canDelete)).toBe(true);
+      expect((await remove(byAuthor)).status).toBe(200);
+      expect((await remove(byAuthor)).status).toBe(404);
+      await signIn(owner.id);
+      expect((await list()).map(item => [item.id, item.canDelete])).toEqual([[second, true]]);
+      expect((await remove(second)).status).toBe(200);
+      expect(await list()).toEqual([]);
+    } finally {
+      token = undefined;
+      await db().delete(schema.ree).where(inArray(schema.ree.id, [ree!.id]));
+      await db().delete(schema.user).where(inArray(schema.user.id, users.map(user => user.id)));
+    }
+  });
+
+  it('limits how fast one account comments', async () => {
+    const [author] = await db().insert(schema.user).values({
+      name: 'Fast', email: `${uniqueName('fast')}@example.test`, provider: 'github', providerSubject: uniqueName('fast'),
+    }).returning();
+    const [ree] = await db().insert(schema.ree).values({
+      ownerId: author!.id, name: 'Busy', slug: uniqueName('busy'), isPublic: true, isPublished: true,
+    }).returning();
+    token = crypto.randomUUID();
+    await db().insert(schema.session).values({ id: await sessionTokenHash(token), userId: author!.id, expiresAt: new Date(Date.now() + 60_000) });
+    const post = () => POST(
+      new NextRequest(`${base}/api/rees/${ree!.id}/comments`, { method: 'POST', headers: { origin: base }, body: JSON.stringify({ id: crypto.randomUUID(), content: 'again' }) }),
+      { params: Promise.resolve({ id: ree!.id }) },
+    );
+    try {
+      const perMinute = USER_RATE_LIMITS.comment[0].limit;
+      for (let index = 0; index < perMinute; index += 1) expect((await post()).status).toBe(201);
+      const limited = await post();
+      expect(limited.status).toBe(429);
+      expect(Number(limited.headers.get('retry-after'))).toBeGreaterThan(0);
+      expect(await db().$count(schema.reeComment, inArray(schema.reeComment.reeId, [ree!.id]))).toBe(perMinute);
+    } finally {
+      token = undefined;
+      await db().delete(schema.ree).where(inArray(schema.ree.id, [ree!.id]));
       await db().delete(schema.user).where(inArray(schema.user.id, [author!.id]));
     }
   });

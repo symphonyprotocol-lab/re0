@@ -23,6 +23,7 @@ import {
 import { mayCarryKey, type GenerationAudience, type ModelTransport } from '@/lib/domain/models';
 import type { GenerationCallContext } from '@/lib/domain/model-calls';
 import { openCredential } from '@/lib/infra/crypto/credentials';
+import { modelFetch } from '@/lib/infra/connectors/address';
 import { db, schema } from '@/lib/infra/db';
 import { loggedLanguageModel, recordModelCall } from '@/lib/infra/ai/usage';
 import { modelCostTarget, prepareProviderCall, providerWork } from '@/lib/infra/ai/provider-meter';
@@ -153,6 +154,8 @@ function compatible(endpoint: ModelEndpoint) {
     apiKey: endpoint.apiKey ?? '',
     /* Without it an OpenAI-compatible stream omits usage and the cost log reads zero. */
     includeUsage: true,
+    /* An administrator's base URL may be a private host, never link-local or a metadata service. */
+    fetch: modelFetch,
   });
 }
 

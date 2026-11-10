@@ -1,6 +1,6 @@
 import type { NextRequest } from 'next/server';
 import { REE_IMAGE_EXTENSIONS } from '@/lib/constants';
-import { isReeCoverPath } from '@/lib/domain/ree';
+import { isAvatarPath, isReeCoverPath } from '@/lib/domain/ree';
 import { streamBlob, streamBlobRange } from '@/lib/infra/blob';
 import { currentUser } from '@/lib/http/session';
 import { coverVisibleTo } from '@/lib/services/public-rees';
@@ -19,7 +19,14 @@ export async function GET(request: NextRequest, context: { params: Promise<{ pat
   const segments = (await context.params).path;
   /* Route params arrive decoded; decoding again would throw on a literal '%'. */
   const pathname = segments.join('/');
-  if (segments.length !== 3 || pathname.includes('..')) return new Response(null, { status: 404 });
+  /*
+   * Each segment must be a plain name: the Blob SDK pastes the pathname into
+   * a URL, where a decoded `%2e%2e`, `/`, `\\`, `?` or `#` would address a
+   * different object than the one checked below.
+   */
+  if (segments.length !== 3 || segments.some((segment) => /[%/\\?#]/.test(segment)) || pathname.includes('..')) {
+    return new Response(null, { status: 404 });
+  }
 
   if (segments[0] === 'ree-covers') {
     const reeId = segments[1]!;
@@ -65,12 +72,13 @@ export async function GET(request: NextRequest, context: { params: Promise<{ pat
     return new Response(blob.body, { status: blob.status, headers: blob.headers });
   }
 
-  if (segments[0] !== 'avatars') return new Response(null, { status: 404 });
+  /* Public on purpose (avatars show to anyone who sees the Ree), so only the exact uploader shape and only images. */
+  if (segments[0] !== 'avatars' || !isAvatarPath(pathname)) return new Response(null, { status: 404 });
   const blob = await streamBlob(pathname);
-  if (!blob) return new Response(null, { status: 404 });
+  if (!blob?.contentType || !Object.hasOwn(REE_IMAGE_EXTENSIONS, blob.contentType)) return new Response(null, { status: 404 });
   return new Response(blob.stream, {
     headers: {
-      'content-type': blob.contentType ?? 'image/webp',
+      'content-type': blob.contentType,
       'cache-control': 'public, max-age=31536000, immutable',
       'x-content-type-options': 'nosniff',
     },

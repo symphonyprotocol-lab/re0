@@ -19,6 +19,7 @@ import {
 } from '@/lib/constants';
 import { demoGenerationLimit, demoSpeechRate, narrationPath, recommendedTemplate, storyTemplate } from '@/lib/domain/product-demo';
 import { clampPage, isUuid, likePattern } from '@/lib/domain/list';
+import { avatarImageUrl } from '@/lib/domain/ree';
 import {
   canonicalJson,
   DEFAULT_STYLE,
@@ -124,7 +125,7 @@ export function introProps(video: VideoRow, ree: ReeFacts, sourcesTotal: number)
     scenes: video.scenes,
     narrationUrl: `/media/${narrationPath(video.reeId, story.audioId)}`,
     ree: {
-      avatarUrl: ree.avatarBlob ? (ree.avatarBlob.startsWith('avatars/') ? `/media/${ree.avatarBlob}` : ree.avatarBlob) : null,
+      avatarUrl: avatarImageUrl(ree.avatarBlob),
       color: ree.color,
       price: QUERY_BASE_FEE + ree.queryFee,
       slug: ree.slug,

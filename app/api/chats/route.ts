@@ -1,6 +1,7 @@
 import type { NextRequest } from 'next/server';
 import { parseConversationQuery } from '@/lib/domain/conversation';
 import { conversationFailure } from '@/lib/http/conversations';
+import { rateLimited } from '@/lib/http/rate-limit';
 import { body, json } from '@/lib/http/respond';
 import { apiUser } from '@/lib/http/session';
 import { createConversation, listConversations, matchingConversationIds } from '@/lib/services/conversations';
@@ -23,6 +24,8 @@ export async function GET(request: NextRequest) {
 export async function POST(request: NextRequest) {
   const user = await apiUser(request);
   if (user instanceof Response) return user;
+  const limited = await rateLimited('conversation', { userId: user.id, headers: request.headers });
+  if (limited) return limited;
   try {
     const conversation = await createConversation(user.id, await body(request));
     return json({ id: conversation.id }, 201);

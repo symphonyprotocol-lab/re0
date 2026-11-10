@@ -3,6 +3,7 @@ import { DOCUMENT_MAX_BYTES, REE_COVER_MAX_BYTES, REE_IMAGE_EXTENSIONS } from '@
 import { AUDIO_CONTENT_TYPES, audioFormat, audioMaxBytes, audioProblem, DOCUMENT_CONTENT_TYPES, documentFormat, validDocument } from '@/lib/domain/knowledge';
 import { isUuid } from '@/lib/domain/list';
 import { body, fail, json } from '@/lib/http/respond';
+import { rateLimited } from '@/lib/http/rate-limit';
 import { apiUser } from '@/lib/http/session';
 import { uploadTicket } from '@/lib/infra/blob';
 import { db } from '@/lib/infra/db';
@@ -13,8 +14,10 @@ const AVATAR_MAX_BYTES = 1024 * 1024;
 
 /** Keeps a readable name in the pathname without letting it steer the path. */
 function safeName(fileName: string): string {
-  const cleaned = fileName.normalize('NFKC').replace(/[\\/:*?"<>|\u0000-\u001f]/g, '_').trim();
-  return cleaned.slice(-120) || 'file';
+  const cleaned = fileName.normalize('NFKC').replace(/[\\/:*?"<>|#%\u0000-\u001f]/g, '_').trim();
+  const name = cleaned.slice(-120);
+  /* `.` and `..` are path syntax, not names (lib/infra/blob.ts refuses them). */
+  return name && name !== '.' && name !== '..' ? name : 'file';
 }
 
 /**
@@ -26,6 +29,8 @@ function safeName(fileName: string): string {
 export async function POST(request: NextRequest) {
   const user = await apiUser(request);
   if (user instanceof Response) return user;
+  const limited = await rateLimited('uploadToken', { userId: user.id, headers: request.headers });
+  if (limited) return limited;
   const input = await body(request);
   const id = crypto.randomUUID();
 
