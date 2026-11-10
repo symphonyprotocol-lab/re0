@@ -395,10 +395,24 @@ export const creditGrant = pgTable(
     /** Beyond 4: the redemption a redeemed Pack or Plan period came from; `redemption_period` is the Plan month (0 for a Pack). */
     redemptionId: uuid('redemption_id').references((): AnyPgColumn => redeemRedemption.id),
     redemptionPeriod: integer('redemption_period'),
+    /**
+     * An earned grant's payout date: from then on a payout may draw on it.
+     * Null on an earned grant paid for from free credits -- spendable, never
+     * withdrawable (review H2). Always null on other sources.
+     */
+    withdrawableAt: timestampTz('withdrawable_at'),
+    /**
+     * An earned grant's paying purchase: the asker's Plan or Pack the fee was
+     * paid from. A refund or chargeback of it voids what of this grant has
+     * not matured yet (review H2). Null when free or untraceable.
+     */
+    fundingPurchaseId: uuid('funding_purchase_id').references(() => purchase.id),
     createdAt: createdAt(),
   },
   (t) => [
     index('credit_grant_user_idx').on(t.userId),
+    check('credit_grant_withdrawable_check', sql`withdrawable_at is null or source = 'earned'`),
+    index('credit_grant_funding_idx').on(t.fundingPurchaseId).where(sql`funding_purchase_id is not null`),
     uniqueIndex('credit_grant_purchase_key').on(t.purchaseId).where(sql`purchase_id is not null`),
     uniqueIndex('credit_grant_redemption_key').on(t.redemptionId, t.redemptionPeriod).where(sql`redemption_id is not null`),
     check('credit_grant_origin_check', sql`purchase_id is null or redemption_id is null`),
@@ -445,6 +459,10 @@ export const CREDIT_ENTRY_REASONS = [
   'storage_charge',
   /* A redeem code: a Pack's credits, or one month of a redeemed Plan (docs/design/redeem-codes.md). */
   'redeem',
+  /* A chargeback the merchant won: what it took back is restored (debt cancelled first, then the purchase's grant). */
+  'chargeback_reverse',
+  /* A Ree owner's unmatured earned credits voided because the purchase that paid for them was refunded or charged back. */
+  'earned_void',
 ] as const;
 export type CreditEntryReason = (typeof CREDIT_ENTRY_REASONS)[number];
 
@@ -485,12 +503,17 @@ export const creditHold = pgTable(
     allocations: jsonb('allocations').$type<Allocation[]>().notNull(),
     status: text('status').$type<'held' | 'settled' | 'released'>().notNull().default('held'),
     refId: uuid('ref_id'),
+    /** Which sub-ledger the hold writes (`chat_fee`, `chat_verify`, …), so a hold closed by a reaper names the right reasons; null for the kind's own. */
+    ledger: text('ledger'),
+    /** The Ree a chat hold is for. */
+    reeId: uuid('ree_id'),
     createdAt: createdAt(),
     closedAt: timestampTz('closed_at'),
   },
   (t) => [
     index('credit_hold_user_idx').on(t.userId, t.status),
     index('credit_hold_ref_idx').on(t.refId),
+    index('credit_hold_open_idx').on(t.kind, t.createdAt).where(sql`status = 'held'`),
     check('credit_hold_kind_check', oneOf('kind', ['chat', 'knowledge', 'video', 'payout'])),
     check('credit_hold_status_check', oneOf('status', ['held', 'settled', 'released'])),
   ],
@@ -766,6 +789,8 @@ export const paddleCheckout = pgTable(
     priceKey: text('price_key'),
     unitPriceMinor: integer('unit_price_minor'),
     unitCredits: integer('unit_credits').notNull().default(100_000),
+    /** The Paddle price the checkout was created with; a payment for this transaction must be for it. Null on checkouts from before it was kept. */
+    paddlePriceId: text('paddle_price_id'),
     supersededAt: timestampTz('superseded_at'),
     userId: uuid('user_id')
       .notNull()
@@ -1300,6 +1325,8 @@ export const payout = pgTable(
   },
   (t) => [
     uniqueIndex('payout_open_key').on(t.userId).where(sql`status in ('pending', 'approved')`),
+    /* One PayPal transfer pays one request; the check before the write is not enough on its own. */
+    uniqueIndex('payout_transfer_key').on(t.transferId).where(sql`transfer_id is not null`),
     index('payout_user_idx').on(t.userId, t.createdAt),
     index('payout_status_idx').on(t.status, t.createdAt),
     check('payout_status_check', oneOf('status', PAYOUT_STATUSES)),

@@ -25,7 +25,6 @@ import {
   planUsage,
   reversalCredits,
   subscriptionStatusFrom,
-  takeBack,
   type Activity,
   type CheckoutOrder,
   type PlanState,
@@ -33,7 +32,7 @@ import {
   type PurchaseKind,
   type RedeemedPlan,
 } from '@/lib/domain/billing';
-import { availableOf } from '@/lib/domain/credits';
+import { availableOf, type Allocation } from '@/lib/domain/credits';
 import { clampPage, likePattern } from '@/lib/domain/list';
 import { periodRange, reportingDate, type PeriodFilter } from '@/lib/domain/statistics';
 import { db, schema, type Executor, type Tx } from '@/lib/infra/db';
@@ -226,7 +225,7 @@ async function checkoutAttempt(
     const transaction = await (deps.create ?? createCheckoutTransaction)(config, order, userId, price);
     await tx.insert(schema.paddleCheckout).values({
       paddleTransactionId: transaction.id, userId, kind: order.kind, quantity: order.quantity,
-      priceKey: price.quoteKey, unitPriceMinor: price.priceMinor, unitCredits: price.credits, createdAt: now,
+      priceKey: price.quoteKey, unitPriceMinor: price.priceMinor, unitCredits: price.credits, paddlePriceId: price.priceId, createdAt: now,
     });
     return { ok: true as const, transactionId: transaction.id, order };
   });
@@ -300,8 +299,12 @@ async function dispatch(tx: Tx, event: PaddleEvent, prices: Prices, now: Date): 
   return 'ignored';
 }
 
+function priceIdsOf(transaction: { items: { price: { id: string } | null; price_id?: string }[] }): string[] {
+  return transaction.items.map((item) => item.price?.id ?? item.price_id).filter((id): id is string => Boolean(id));
+}
+
 async function kindOf(tx: Tx, transaction: { items: { price: { id: string } | null; price_id?: string }[] }, prices: Prices): Promise<PurchaseKind | null> {
-  const priceIds = transaction.items.map((item) => item.price?.id ?? item.price_id).filter((id): id is string => Boolean(id));
+  const priceIds = priceIdsOf(transaction);
   if (priceIds.includes(prices.planPriceId)) return 'plan';
   if (priceIds.includes(prices.packPriceId)) return 'pack';
   if (!priceIds.length) return null;
@@ -321,6 +324,46 @@ function addMonth(date: Date): Date {
   return next;
 }
 
+type CheckoutRow = typeof schema.paddleCheckout.$inferSelect;
+
+/**
+ * Whose payment a transaction is, from our own records only (review M5):
+ * `custom_data` is whatever the client that opened the checkout put there.
+ * A checkout we created names its buyer, kind and price; a renewal belongs
+ * to the subscription we hold. Anything else -- a transaction opened outside
+ * our checkout, for someone else, another product or a price we did not
+ * quote -- is refused, recorded and logged, never credited.
+ */
+async function buyerOf(
+  tx: Tx,
+  transaction: PaddleTransaction,
+  kind: PurchaseKind,
+  checkout: CheckoutRow | undefined,
+  subscription: SubscriptionRow | null,
+): Promise<{ userId: string } | { refused: string }> {
+  const named = customUserId(transaction.custom_data);
+  if (checkout) {
+    const priceIds = priceIdsOf(transaction);
+    if (checkout.supersededAt) return { refused: 'checkout superseded' };
+    if (named && named !== checkout.userId) return { refused: `custom_data names ${named}, the checkout ${checkout.userId}` };
+    if (checkout.kind !== kind) return { refused: `checkout is a ${checkout.kind}, the price a ${kind}` };
+    if (checkout.paddlePriceId && !priceIds.includes(checkout.paddlePriceId)) return { refused: `price ${priceIds.join(',')} is not the quoted ${checkout.paddlePriceId}` };
+    const paid = minorUnits(transaction.details?.totals?.grand_total);
+    const quantity = transaction.items[0]?.quantity ?? 1;
+    if (checkout.unitPriceMinor !== null && Number.isFinite(paid) && paid < checkout.unitPriceMinor * quantity) {
+      return { refused: `paid ${paid} for ${quantity} at the quoted ${checkout.unitPriceMinor}` };
+    }
+    return { userId: checkout.userId };
+  }
+  /* A renewal: Paddle bills a subscription we hold; historical Plan prices stay valid for it. */
+  if (kind === 'plan' && transaction.subscription_id && transaction.origin !== 'web') {
+    if (!subscription) throw new RetryLater(`renewal ${transaction.id} for subscription ${transaction.subscription_id} we do not hold yet`);
+    if (named && named !== subscription.userId) console.warn(`renewal ${transaction.id}: custom_data names ${named}, the subscription ${subscription.userId}`);
+    return { userId: subscription.userId };
+  }
+  return { refused: 'no checkout of ours' };
+}
+
 /**
  * A paid transaction: one purchase, one grant. A checkout grants the quoted
  * credits. Renewals grant the current allowance through the new period's end.
@@ -336,8 +379,13 @@ async function creditTransaction(tx: Tx, transaction: PaddleTransaction, prices:
     .limit(1);
   if (existing) return 'already_credited';
   const subscription = await subscriptionByPaddleId(tx, transaction.subscription_id);
-  const userId = customUserId(transaction.custom_data) ?? subscription?.userId ?? null;
-  if (!userId) throw new RetryLater(`transaction ${transaction.id} names no buyer yet`);
+  const [checkout] = await tx.select().from(schema.paddleCheckout).where(eq(schema.paddleCheckout.paddleTransactionId, transaction.id)).limit(1);
+  const buyer = await buyerOf(tx, transaction, kind, checkout, subscription);
+  if ('refused' in buyer) {
+    console.error(`paddle transaction ${transaction.id} (${kind}) not credited: ${buyer.refused}`);
+    return 'unmatched';
+  }
+  const { userId } = buyer;
   /*
    * Credited as paid. Checkout only sells 1–10 Packs and the Paddle price
    * caps the overlay's quantity at 10, so anything else means the price was
@@ -347,11 +395,7 @@ async function creditTransaction(tx: Tx, transaction: PaddleTransaction, prices:
   if (!Number.isInteger(quantity) || quantity < 1) throw new Error(`transaction ${transaction.id} has quantity ${quantity}`);
   if (quantity > PACK.maxQuantity) console.warn(`transaction ${transaction.id}: ${quantity} packs, beyond the checkout's ${PACK.maxQuantity}`);
   const order: CheckoutOrder = { kind, quantity };
-  const [snapshot] = await tx
-    .select({ amount: schema.paddleCheckout.unitPriceMinor, credits: schema.paddleCheckout.unitCredits })
-    .from(schema.paddleCheckout)
-    .where(eq(schema.paddleCheckout.paddleTransactionId, transaction.id))
-    .limit(1);
+  const snapshot = checkout ? { amount: checkout.unitPriceMinor, credits: checkout.unitCredits } : undefined;
   const credits = creditsFor(order, snapshot?.credits ?? await currentUnitCredits(tx, kind, prices.environment));
   let amount = minorUnits(transaction.details?.totals?.grand_total);
   if (!Number.isFinite(amount)) {
@@ -439,16 +483,31 @@ async function creditTransaction(tx: Tx, transaction: PaddleTransaction, prices:
 async function mirrorSubscription(tx: Tx, entity: PaddleSubscription, prices: Prices, now: Date): Promise<string> {
   if (entity.items?.length && await kindOf(tx, { items: entity.items }, prices) !== 'plan') return 'ignored';
   const existing = await subscriptionByPaddleId(tx, entity.id);
-  let userId = existing?.userId ?? customUserId(entity.custom_data);
-  if (!userId && entity.transaction_id) {
+  /*
+   * A subscription we do not hold yet must come from a checkout we created
+   * (review M5); `custom_data` alone never makes one. Without the checkout's
+   * transaction (a later event that beat `subscription.created`), wait for
+   * the event or the payment that does carry it.
+   */
+  let userId = existing?.userId ?? null;
+  if (!userId) {
+    if (!entity.transaction_id) throw new RetryLater(`subscription ${entity.id} names no checkout yet`);
     const [origin] = await tx
-      .select({ userId: schema.purchase.userId })
-      .from(schema.purchase)
-      .where(eq(schema.purchase.paddleTransactionId, entity.transaction_id))
+      .select({ userId: schema.paddleCheckout.userId, kind: schema.paddleCheckout.kind })
+      .from(schema.paddleCheckout)
+      .where(eq(schema.paddleCheckout.paddleTransactionId, entity.transaction_id))
       .limit(1);
-    userId = origin?.userId ?? null;
+    if (!origin || origin.kind !== 'plan') {
+      console.error(`paddle subscription ${entity.id} not mirrored: transaction ${entity.transaction_id} is no Plan checkout of ours`);
+      return 'unmatched';
+    }
+    const named = customUserId(entity.custom_data);
+    if (named && named !== origin.userId) {
+      console.error(`paddle subscription ${entity.id} not mirrored: custom_data names ${named}, the checkout ${origin.userId}`);
+      return 'unmatched';
+    }
+    userId = origin.userId;
   }
-  if (!userId) throw new RetryLater(`subscription ${entity.id} names no buyer yet`);
   return writeSubscription(tx, userId, existing, entity, now);
 }
 
@@ -477,48 +536,77 @@ async function writeSubscription(tx: Tx, userId: string, existing: SubscriptionR
 
 /**
  * An approved refund or chargeback takes back the refunded share of the
- * purchase's credits: from what is left of that purchase first, then the
- * rest of the balance in spending order; what is already spent becomes a
- * debt the next credits pay off (2.3). The balance never goes negative.
+ * purchase's credits from that purchase's own grant only; what of it is
+ * already spent becomes a debt the next credits pay off (2.3), and other
+ * buckets are left alone. Credits of a Plan period that expired unused were
+ * written off already and are not owed again. The balance never goes
+ * negative. The spent part may have paid query fees: whatever of the
+ * earned credits it funded has not matured yet is voided (review H2).
+ *
+ * An approved `chargeback_reverse` (a chargeback the merchant won) gives
+ * back what was taken: this purchase's open debt is cancelled first, then
+ * the rest returns to its grant (unless that is a Plan period that has
+ * ended). Owners' voided earned credits are not restored.
  */
 async function applyAdjustment(tx: Tx, adjustment: PaddleAdjustment, now: Date): Promise<string> {
   if (adjustment.status !== 'approved') return 'ignored';
-  if (adjustment.action !== 'refund' && adjustment.action !== 'chargeback') return 'ignored';
+  if (adjustment.action !== 'refund' && adjustment.action !== 'chargeback' && adjustment.action !== 'chargeback_reverse') return 'ignored';
   const [purchase] = await tx
     .select()
     .from(schema.purchase)
     .where(eq(schema.purchase.paddleTransactionId, adjustment.transaction_id))
     .for('update');
-  if (!purchase) return 'ignored';
+  if (!purchase) {
+    /*
+     * A transaction we saw and did not credit (not ours, unmatched) has
+     * nothing to take back. One we have not seen yet: the refund beat the
+     * payment, so ask Paddle to send it again rather than drop it.
+     */
+    const [seen] = await tx
+      .select({ id: schema.billingEvent.id })
+      .from(schema.billingEvent)
+      .where(and(inArray(schema.billingEvent.eventType, ['transaction.paid', 'transaction.completed']), sql`${schema.billingEvent.payload}->'data'->>'id' = ${adjustment.transaction_id}`))
+      .limit(1);
+    if (seen) return 'ignored';
+    throw new RetryLater(`adjustment ${adjustment.id} for transaction ${adjustment.transaction_id} we have not seen yet`);
+  }
   if (purchase.adjustmentIds.includes(adjustment.id)) return 'already_reversed';
+  if (adjustment.action === 'chargeback_reverse') return reverseChargeback(tx, purchase, adjustment, now);
   const credits = reversalCredits(purchase, minorUnits(adjustment.totals?.total));
   const chargeback = adjustment.action === 'chargeback';
   if (credits > 0) {
-    const [own] = await tx
-      .select({ id: schema.creditGrant.id })
-      .from(schema.creditGrant)
-      .where(eq(schema.creditGrant.purchaseId, purchase.id))
-      .limit(1);
-    const grants = await grantsOf(tx, purchase.userId, true);
-    const { allocations, shortfall } = takeBack(grants, own?.id ?? null, credits, now);
+    const [own] = await tx.select().from(schema.creditGrant).where(eq(schema.creditGrant.purchaseId, purchase.id)).for('update');
+    const taken = Math.min(credits, own?.remaining ?? 0);
+    const allocations = own && taken > 0 ? [{ grantId: own.id, source: own.source, amount: taken }] : [];
     await moveGrants(tx, allocations, -1);
+    const spent = credits - taken;
+    /* A Plan period that ended: what expired unused was never spent, so it is not owed. */
+    let owed = spent;
+    let unowed = 0;
+    if (own && own.source === 'plan' && own.expiresAt && own.expiresAt.getTime() <= now.getTime()) {
+      const expired = await expiredFrom(tx, own.id);
+      owed = Math.min(spent, Math.max(0, own.amount - expired - purchase.reversedCredits));
+      unowed = spent - owed;
+    }
+    const voided = owed > 0 ? await voidFundedEarned(tx, purchase.id, owed, `${adjustment.action} ${adjustment.id}`, now) : { voided: 0, unrecovered: 0 };
+    const notes = [
+      `${adjustment.action} ${adjustment.id}: ${credits} credits`,
+      owed ? `${owed} owed` : '',
+      unowed ? `${unowed} expired unused, not owed` : '',
+      voided.voided ? `${voided.voided} of owners' unmatured earnings voided` : '',
+      voided.unrecovered ? `${voided.unrecovered} of owners' earnings already matured or spent, not recovered` : '',
+    ].filter(Boolean);
     await tx.insert(schema.creditEntry).values({
       userId: purchase.userId,
-      delta: -(credits - shortfall),
+      delta: -taken,
       reason: chargeback ? 'chargeback' : 'refund',
       refId: purchase.id,
-      note: `${adjustment.action} ${adjustment.id}: ${credits} credits${shortfall ? `, ${shortfall} owed` : ''}`,
+      note: notes.join(', '),
       allocations,
       createdAt: now,
     });
-    if (shortfall > 0) {
-      await tx.insert(schema.creditDebt).values({
-        userId: purchase.userId,
-        amount: shortfall,
-        remaining: shortfall,
-        purchaseId: purchase.id,
-        createdAt: now,
-      });
+    if (owed > 0) {
+      await tx.insert(schema.creditDebt).values({ userId: purchase.userId, amount: owed, remaining: owed, purchaseId: purchase.id, createdAt: now });
     }
   }
   await tx
@@ -530,6 +618,154 @@ async function applyAdjustment(tx: Tx, adjustment: PaddleAdjustment, now: Date):
     })
     .where(eq(schema.purchase.id, purchase.id));
   return chargeback ? 'charged_back' : 'refunded';
+}
+
+/** What of a grant the expiry wrote off. */
+async function expiredFrom(tx: Tx, grantId: string): Promise<number> {
+  const [row] = await tx
+    .select({ total: sql<string>`coalesce(sum((a->>'amount')::bigint), 0)` })
+    .from(sql`${schema.creditEntry}, jsonb_array_elements(${schema.creditEntry.allocations}) a`)
+    .where(and(eq(schema.creditEntry.reason, 'expire'), sql`a->>'grantId' = ${grantId}`));
+  return Number(row?.total ?? 0);
+}
+
+/**
+ * Voids up to `wanted` of the earned credits a refunded purchase paid for,
+ * from grants that have not matured yet, newest first; never what matured,
+ * is held for a payout or already spent. One `earned_void` entry per owner
+ * says what was voided and what could not be (review H2).
+ */
+async function voidFundedEarned(tx: Tx, purchaseId: string, wanted: number, label: string, now: Date): Promise<{ voided: number; unrecovered: number }> {
+  const funded = await tx
+    .select()
+    .from(schema.creditGrant)
+    .where(eq(schema.creditGrant.fundingPurchaseId, purchaseId))
+    .orderBy(desc(schema.creditGrant.createdAt))
+    .for('update');
+  if (funded.length === 0) return { voided: 0, unrecovered: 0 };
+  const [already] = await tx
+    .select({ total: sql<string>`coalesce(sum(-${schema.creditEntry.delta}), 0)` })
+    .from(schema.creditEntry)
+    .where(and(eq(schema.creditEntry.reason, 'earned_void'), eq(schema.creditEntry.refId, purchaseId)));
+  /* What these owners were paid from this purchase that is not voided yet: the most a refund could reach. */
+  const outstanding = Math.max(0, funded.reduce((sum, grant) => sum + grant.amount, 0) - Number(already?.total ?? 0));
+  const target = Math.min(wanted, outstanding);
+  let left = target;
+  const byOwner = new Map<string, Allocation[]>();
+  for (const grant of funded) {
+    if (left === 0) break;
+    if (!grant.withdrawableAt || grant.withdrawableAt.getTime() <= now.getTime() || grant.remaining <= 0) continue;
+    const take = Math.min(left, grant.remaining);
+    byOwner.set(grant.userId, [...(byOwner.get(grant.userId) ?? []), { grantId: grant.id, source: grant.source, amount: take }]);
+    left -= take;
+  }
+  const voided = target - left;
+  /* The ledger of every owner touched; what could not be recovered is noted on the newest grant's owner, for the console. */
+  const noted = funded[0]!.userId;
+  const owners = new Set([...byOwner.keys(), ...(left > 0 ? [noted] : [])]);
+  for (const userId of owners) {
+    const allocations = byOwner.get(userId) ?? [];
+    await moveGrants(tx, allocations, -1);
+    const amount = allocations.reduce((sum, entry) => sum + entry.amount, 0);
+    await tx.insert(schema.creditEntry).values({
+      userId,
+      delta: -amount,
+      reason: 'earned_void',
+      refId: purchaseId,
+      note: `${label}: the asker's purchase was refunded; ${amount} unmatured earned credits voided${left && userId === noted ? `, ${left} could not be recovered (matured, held or spent)` : ''}`,
+      allocations,
+      createdAt: now,
+    });
+  }
+  if (left > 0) console.warn(`purchase ${purchaseId}: ${left} earned credits it paid for could not be voided (matured, held or spent)`);
+  return { voided, unrecovered: left };
+}
+
+/** A chargeback the merchant won: this purchase's debt cancelled first, then the rest back to its grant. */
+async function reverseChargeback(tx: Tx, purchase: typeof schema.purchase.$inferSelect, adjustment: PaddleAdjustment, now: Date): Promise<string> {
+  const total = minorUnits(adjustment.totals?.total);
+  const share = purchase.amountMinor > 0 && Number.isFinite(total) && total > 0 && total < purchase.amountMinor
+    ? Math.round((purchase.credits * total) / purchase.amountMinor)
+    : purchase.reversedCredits;
+  const restore = Math.min(purchase.reversedCredits, Math.max(0, share));
+  let left = restore;
+  const debts = await tx
+    .select()
+    .from(schema.creditDebt)
+    .where(and(eq(schema.creditDebt.purchaseId, purchase.id), gt(schema.creditDebt.remaining, 0)))
+    .orderBy(desc(schema.creditDebt.createdAt))
+    .for('update');
+  let cancelled = 0;
+  for (const debt of debts) {
+    if (left === 0) break;
+    const cancel = Math.min(left, debt.remaining);
+    await tx
+      .update(schema.creditDebt)
+      .set({ remaining: debt.remaining - cancel, clearedAt: debt.remaining === cancel ? now : null })
+      .where(eq(schema.creditDebt.id, debt.id));
+    cancelled += cancel;
+    left -= cancel;
+  }
+  const [own] = await tx.select().from(schema.creditGrant).where(eq(schema.creditGrant.purchaseId, purchase.id)).for('update');
+  const live = own && (own.expiresAt === null || own.expiresAt.getTime() > now.getTime());
+  const back = live ? Math.min(left, own.amount - own.remaining) : 0;
+  const allocations = back > 0 ? [{ grantId: own!.id, source: own!.source, amount: back }] : [];
+  await moveGrants(tx, allocations, 1);
+  await tx.insert(schema.creditEntry).values({
+    userId: purchase.userId,
+    delta: back,
+    reason: 'chargeback_reverse',
+    refId: purchase.id,
+    note: [`chargeback_reverse ${adjustment.id}: ${restore} credits`, cancelled ? `${cancelled} of debt cancelled` : '', back ? `${back} back to the purchase` : '', left - back ? `${left - back} not restored (the Plan period ended)` : '']
+      .filter(Boolean)
+      .join(', '),
+    allocations,
+    createdAt: now,
+  });
+  const reversed = purchase.reversedCredits - restore;
+  await tx
+    .update(schema.purchase)
+    .set({
+      status: purchase.status === 'chargeback' && reversed === 0 ? 'paid' : purchase.status,
+      reversedCredits: reversed,
+      adjustmentIds: sql`array_append(${schema.purchase.adjustmentIds}, ${adjustment.id})`,
+    })
+    .where(eq(schema.purchase.id, purchase.id));
+  return 'chargeback_reversed';
+}
+
+/**
+ * Paddle notifications recorded but not credited because they matched no
+ * checkout or subscription of ours (review M5), newest first, with the
+ * total: what the console's purchase review should show and act on.
+ */
+export async function unmatchedBillingEvents(limit = 50): Promise<{
+  total: number;
+  items: { id: string; eventType: string; receivedAt: Date; transactionId: string | null; userId: string | null; priceIds: string[] }[];
+}> {
+  const where = eq(schema.billingEvent.outcome, 'unmatched');
+  const [counted] = await db().select({ n: count() }).from(schema.billingEvent).where(where);
+  const rows = await db()
+    .select({ id: schema.billingEvent.id, eventType: schema.billingEvent.eventType, receivedAt: schema.billingEvent.receivedAt, payload: schema.billingEvent.payload })
+    .from(schema.billingEvent)
+    .where(where)
+    .orderBy(desc(schema.billingEvent.receivedAt))
+    .limit(Math.min(Math.max(1, limit), 200));
+  return {
+    total: counted?.n ?? 0,
+    items: rows.map((row) => {
+      const data = ((row.payload ?? {}) as { data?: { id?: unknown; custom_data?: Record<string, unknown> | null; items?: { price?: { id?: unknown } | null; price_id?: unknown }[]; transaction_id?: unknown } }).data ?? {};
+      const transactionId = row.eventType.startsWith('subscription.') ? data.transaction_id : data.id;
+      return {
+        id: row.id,
+        eventType: row.eventType,
+        receivedAt: row.receivedAt,
+        transactionId: typeof transactionId === 'string' ? transactionId : null,
+        userId: customUserId(data.custom_data),
+        priceIds: (data.items ?? []).map((item) => item.price?.id ?? item.price_id).filter((id): id is string => typeof id === 'string'),
+      };
+    }),
+  };
 }
 
 /* ----------------------------------------------------------------- renewal */
