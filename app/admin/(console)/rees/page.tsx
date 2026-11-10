@@ -1,4 +1,5 @@
 import type { Metadata } from 'next';
+import { requireAdministrator } from '@/lib/http/admin';
 import { WorkspaceLink as Link } from '@/components/shell/workspace-link';
 import { redirect } from 'next/navigation';
 import { csvHref, listHref, reesView, REE_VISIBILITY } from '@/lib/domain/admin-lists';
@@ -26,6 +27,7 @@ type Props = { searchParams: Promise<Record<string, string | string[] | undefine
  * server paging, CSV of every match, and takedown / restore from the row.
  */
 export default async function ReesPage({ searchParams }: Props) {
+  await requireAdministrator();
   const { t, locale } = await serverMessages();
   const r = t.consoleRees.rees;
   const l = t.console.list;

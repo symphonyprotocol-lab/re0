@@ -1,4 +1,5 @@
 import type { Metadata } from 'next';
+import { requireAdministrator } from '@/lib/http/admin';
 import { redirect } from 'next/navigation';
 import { AUDIT_ACTIONS } from '@/lib/domain/audit';
 import { auditView, csvHref, listHref } from '@/lib/domain/admin-lists';
@@ -20,6 +21,7 @@ type Props = { searchParams: Promise<Record<string, string | string[] | undefine
 
 /** `/admin/audit` (prototype admin-records.js, kind `audit`): read-only, filtered by the one list of action codes, CSV of every match. */
 export default async function AuditPage({ searchParams }: Props) {
+  await requireAdministrator();
   const { t, locale } = await serverMessages();
   const a = t.consoleRees.audit;
   const l = t.console.list;

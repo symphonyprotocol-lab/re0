@@ -1,4 +1,5 @@
 import type { Metadata } from 'next';
+import { requireAdministrator } from '@/lib/http/admin';
 import { redirect } from 'next/navigation';
 import { financeFilter } from '@/lib/domain/admin-finance';
 import { AMOUNT_SORTS, csvHref, listHref, PAYOUT_HISTORY_FILTERS, payoutHistoryView } from '@/lib/domain/admin-lists';
@@ -24,6 +25,7 @@ type Props = { searchParams: Promise<Record<string, string | string[] | undefine
  * first, exported as CSV with the same filters.
  */
 export default async function PayoutHistoryPage({ searchParams }: Props) {
+  await requireAdministrator();
   const { t, locale } = await serverMessages();
   const c = t.consolePayouts;
   const p = c.payouts;

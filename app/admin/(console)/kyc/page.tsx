@@ -1,4 +1,5 @@
 import type { Metadata } from 'next';
+import { requireAdministrator } from '@/lib/http/admin';
 import { Fragment } from 'react';
 import { redirect } from 'next/navigation';
 import { csvHref, KYC_DEFAULTS, KYC_FILTERS, kycView, listHref, RECENT_PERIODS } from '@/lib/domain/admin-lists';
@@ -24,6 +25,7 @@ type Props = { searchParams: Promise<Record<string, string | string[] | undefine
  * time in the URL, exported as CSV with the same filters.
  */
 export default async function KycPage({ searchParams }: Props) {
+  await requireAdministrator();
   const { t, locale } = await serverMessages();
   const c = t.consolePayouts;
   const k = c.kyc;

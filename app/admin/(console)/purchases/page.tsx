@@ -1,4 +1,5 @@
 import type { Metadata } from 'next';
+import { requireAdministrator } from '@/lib/http/admin';
 import { WorkspaceLink as Link } from '@/components/shell/workspace-link';
 import { redirect } from 'next/navigation';
 import { Fragment } from 'react';
@@ -26,6 +27,7 @@ type Props = { searchParams: Promise<Record<string, string | string[] | undefine
  * filters and CSV. Read-only: refunds happen in Paddle.
  */
 export default async function PurchasesPage({ searchParams }: Props) {
+  await requireAdministrator();
   const { t, locale } = await serverMessages();
   const c = t.consolePayouts;
   const p = t.consoleUsers.purchases;

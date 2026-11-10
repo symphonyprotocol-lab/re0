@@ -1,4 +1,5 @@
 import type { Metadata } from 'next';
+import { requireAdministrator } from '@/lib/http/admin';
 import { WorkspaceLink as Link } from '@/components/shell/workspace-link';
 import { adminRee, adminReeSources, reeAudit, sourceFilter } from '@/lib/services/admin-rees';
 import { answerCounts, reeStatistics, statisticsQuery } from '@/lib/services/statistics';
@@ -17,6 +18,7 @@ async function load(id: string) {
 }
 
 export async function generateMetadata({ params }: Props): Promise<Metadata> {
+  await requireAdministrator();
   const { t } = await serverMessages();
   const detail = await load((await params).id);
   return { title: detail ? `${detail.ree.name} · ${t.consoleRees.rees.title}` : t.consoleRees.ree.notFound };
@@ -24,6 +26,7 @@ export async function generateMetadata({ params }: Props): Promise<Metadata> {
 
 /** `/admin/rees/[id]` (prototype admin-ree-detail.js): four tabs as links in the top bar's actions, `from` kept for the way back. */
 export default async function ReeDetailPage({ params, searchParams }: Props) {
+  await requireAdministrator();
   const { t, locale } = await serverMessages();
   const r = t.consoleRees.ree;
   const id = (await params).id;

@@ -1,4 +1,5 @@
 import type { Metadata } from 'next';
+import { requireAdministrator } from '@/lib/http/admin';
 import { WorkspaceLink as Link } from '@/components/shell/workspace-link';
 import type { ReactNode } from 'react';
 import { ADMIN_SOURCE_PAGE_SIZE, PREVIEW_CHILDREN_PAGE_SIZE } from '@/lib/constants';
@@ -84,6 +85,7 @@ function ContentBody({ text, query, code }: { text: string; query: string; code:
  * only its part of the text. All of it lives in the URL.
  */
 export default async function AdminSourcePage({ params, searchParams }: Props) {
+  await requireAdministrator();
   const { t, locale } = await serverMessages();
   const s = t.consoleRees.source;
   const states = t.consoleRees.ree.states;

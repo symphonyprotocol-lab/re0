@@ -1,4 +1,5 @@
 import type { Metadata } from 'next';
+import { requireAdministrator } from '@/lib/http/admin';
 import { notFound, redirect } from 'next/navigation';
 import { codeState } from '@/lib/domain/redeem';
 import { csvHref, listHref, REDEEM_BATCH_DEFAULTS, redeemBatchView } from '@/lib/domain/admin-lists';
@@ -30,6 +31,7 @@ const CODE_TONES = { available: 'green', used_up: 'grey', disabled: 'red' } as c
  * plaintext with an audit row) or its redemptions.
  */
 export default async function RedeemBatchPage({ params, searchParams }: Props) {
+  await requireAdministrator();
   const { id } = await params;
   const batch = await getBatch(id);
   if (!batch) notFound();

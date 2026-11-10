@@ -1,4 +1,5 @@
 import type { Metadata } from 'next';
+import { requireAdministrator } from '@/lib/http/admin';
 import { WorkspaceLink as Link } from '@/components/shell/workspace-link';
 import { adminOverview } from '@/lib/services/admin-overview';
 import { serverMessages } from '@/i18n/server';
@@ -70,6 +71,7 @@ function TrendChart({ days, label }: { days: { day: string; answers: number }[];
 
 /** `/admin/overview` (2.5 "概览", prototype `adminOverview()`), on live figures. */
 export default async function OverviewPage() {
+  await requireAdministrator();
   const { t, locale } = await serverMessages();
   const o = t.consoleRees.overview;
   const data = await adminOverview();

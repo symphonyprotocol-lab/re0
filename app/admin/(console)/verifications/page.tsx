@@ -1,4 +1,5 @@
 import type { Metadata } from 'next';
+import { requireAdministrator } from '@/lib/http/admin';
 import { WorkspaceLink as Link } from '@/components/shell/workspace-link';
 import { redirect } from 'next/navigation';
 import { csvHref, listHref, verificationsView, LIST_DEFAULTS } from '@/lib/domain/admin-lists';
@@ -27,6 +28,7 @@ const DEFAULTS = { ...LIST_DEFAULTS, status: 'pending' };
  * oldest first, every other view newest first; the filters live in the URL.
  */
 export default async function VerificationsPage({ searchParams }: Props) {
+  await requireAdministrator();
   const { t, locale } = await serverMessages();
   const v = t.consoleUsers.verifications;
   const l = t.console.list;

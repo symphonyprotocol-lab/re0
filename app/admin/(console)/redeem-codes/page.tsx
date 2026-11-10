@@ -1,4 +1,5 @@
 import type { Metadata } from 'next';
+import { requireAdministrator } from '@/lib/http/admin';
 import { redirect } from 'next/navigation';
 import { csvHref, listHref, redeemBatchesView } from '@/lib/domain/admin-lists';
 import { batchCounts, listBatches } from '@/lib/services/admin-redeem';
@@ -22,6 +23,7 @@ type Props = { searchParams: Promise<Record<string, string | string[] | undefine
 
 /** `/admin/redeem-codes` (docs/design/redeem-codes.md 6.1): every batch, filtered, with the new-batch form. */
 export default async function RedeemCodesPage({ searchParams }: Props) {
+  await requireAdministrator();
   const { t, locale } = await serverMessages();
   const r = t.redeemAdmin;
   const l = t.console.list;
