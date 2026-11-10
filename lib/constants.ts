@@ -479,6 +479,15 @@ export const KYC_FILE_RETENTION_DAYS = 30;
 export const KYC_ORPHAN_HOURS = 24;
 /** Records and orphan blobs one purge run handles; the rest go next run. */
 export const KYC_PURGE_BATCH = 200;
+/**
+ * Uploads (knowledge files, avatars, Ree covers) never registered are
+ * deleted this long after upload: every upload token expires within an hour,
+ * so a file still unclaimed after a day never will be. Each daily run deletes
+ * at most UPLOAD_REAP_BATCH and lists at most UPLOAD_REAP_SCAN per prefix.
+ */
+export const UPLOAD_ORPHAN_HOURS = 24;
+export const UPLOAD_REAP_BATCH = 1_000;
+export const UPLOAD_REAP_SCAN = 20_000;
 /** The PayPal personal account's e-mail. */
 export const PAYPAL_EMAIL_MAX = 254;
 /** After the e-mail changes, payouts wait this long (account-takeover protection, 2.3). */
