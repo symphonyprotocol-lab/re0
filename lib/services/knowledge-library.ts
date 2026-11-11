@@ -222,8 +222,8 @@ export async function renameKnowledge(reeId: string, knowledgeId: string, raw: u
  * knowledge of a deleted Ree (its owner can no longer reach it, and it stopped
  * being billed when the Ree went): the rows, their passages (cascade) and
  * their uploaded files. A deleted Ree's source still being processed goes
- * once its run ends (a dead run is failed first, as `recoverStale` does on
- * read). Idempotent -- a second run finds nothing more -- and bounded per
+ * once its run ends (a dead run is failed first -- not resumed, as
+ * `recoverStale` would on read). Idempotent -- a second run finds nothing more -- and bounded per
  * run; Vercel Cron calls it daily. Citations already given keep their
  * snapshots (`message.citations`).
  */
@@ -236,7 +236,7 @@ export async function purgeTrash(now = new Date(), limit = 500): Promise<{ purge
     .where(and(orphaned, inArray(schema.knowledge.status, ['pending', 'processing'])))
     .limit(50);
   for (const { reeId } of stuck) {
-    await recoverStale(reeId, now);
+    await recoverStale(reeId, now, { resume: false });
     await abandonPending(reeId, now);
   }
   const purgeable = or(

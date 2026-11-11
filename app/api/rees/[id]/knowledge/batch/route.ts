@@ -8,7 +8,8 @@ import { BATCH_ACTIONS, FolderError, runBatch, validIds, type BatchAction } from
 import { refreshProfile } from '@/lib/services/profile';
 import { ownedRee } from '@/lib/services/rees';
 
-export const maxDuration = 300;
+/* Processing runs after the response: 800 s is Vercel's maximum on Pro (`KNOWLEDGE_RUN_MAX_MS`). */
+export const maxDuration = 800;
 
 /**
  * `{ action: move|reprocess|pause|resume|trash|restore, ids, folderId?, newFolderName? }`.

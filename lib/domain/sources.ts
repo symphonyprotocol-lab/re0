@@ -57,14 +57,43 @@ export function parseWebUrl(raw: unknown): URL | null {
 export interface RepositoryRef {
   owner: string;
   name: string;
+  /** The branch, tag or commit to read; absent: the repository's default branch. */
+  ref?: string;
+  /** The directory (or single file) inside it to read, no slash at either end; absent: the whole tree. */
+  path?: string;
+  /**
+   * `/tree/a/b/c` names the ref and the path in one run of segments: the ref
+   * might be `a`, `a/b` or `a/b/c`. Parsing takes the first segment as the
+   * ref; `settleTreeRef` corrects it against the repository's refs.
+   */
+  refUnsettled?: boolean;
 }
 
 const GITHUB_NAME = /^[A-Za-z0-9_.-]{1,100}$/;
+const COMMIT_SHA = /^[0-9a-f]{40}$/i;
+
+function decodeSegment(segment: string): string | null {
+  try {
+    return decodeURIComponent(segment);
+  } catch {
+    return null;
+  }
+}
+
+/** A ref or path segment GitHub could have: no empty, `.` or `..` part, no control characters. */
+function validSegment(segment: string): boolean {
+  return segment.length > 0 && segment !== '.' && segment !== '..' && !/[\u0000-\u001f\u007f\\]/.test(segment);
+}
 
 /**
- * `https://github.com/owner/name`, with or without `.git`, a trailing path
- * (`/tree/main/docs`) or `www.`; also a bare `owner/name`. The default
- * branch is always what is read.
+ * `https://github.com/owner/name`, with or without `.git` or `www.`; also a
+ * bare `owner/name`. `/tree/<ref>` reads that branch, tag or commit instead
+ * of the default branch, and `/tree/<ref>/<path>` (or `/blob/<ref>/<path>`)
+ * only that directory or file. A ref containing `/` may be written with it
+ * encoded (`feature%2Fdocs`), which is how `repositoryUrl` writes it back;
+ * written plainly it is settled against the repository's refs when the
+ * source is checked (`refUnsettled`). Any other trailing path (`/issues`,
+ * `/pulls`) reads the whole repository as before.
  */
 export function parseGithubRepo(raw: unknown): RepositoryRef | null {
   const text = typeof raw === 'string' ? raw.trim() : '';
@@ -86,11 +115,58 @@ export function parseGithubRepo(raw: unknown): RepositoryRef | null {
   const owner = parts[0];
   const name = parts[1]?.replace(/\.git$/i, '');
   if (!owner || !name || !GITHUB_NAME.test(owner) || !GITHUB_NAME.test(name) || name === '.' || name === '..') return null;
-  return { owner, name };
+  const base: RepositoryRef = { owner, name };
+  if ((parts[2] !== 'tree' && parts[2] !== 'blob') || parts.length < 4) return base;
+  const raws = parts.slice(3);
+  const segments = raws.map(decodeSegment);
+  if (segments.some((segment) => segment === null)) return null;
+  const [ref, ...rest] = segments as string[];
+  /* The ref may carry an encoded `/`; a path segment may not (it would be two segments). */
+  if (!ref || !ref.split('/').every(validSegment) || !rest.every((segment) => validSegment(segment) && !segment.includes('/'))) return null;
+  const scoped: RepositoryRef = { ...base, ref };
+  if (rest.length > 0) scoped.path = rest.join('/');
+  /* Plain `a/b/...` could be ref `a/b`; an encoded slash, a commit SHA or a lone ref cannot be read two ways. */
+  if (rest.length > 0 && !raws[0]!.toLowerCase().includes('%2f') && !COMMIT_SHA.test(ref)) scoped.refUnsettled = true;
+  return scoped;
 }
 
+/**
+ * Splits `/tree/<segments>` between ref and path: the longest leading run of
+ * segments that names one of `refs` (branch or tag names, without
+ * `refs/heads/`), or else the first segment alone -- what GitHub's own
+ * `/tree/` pages do with a ref they cannot match.
+ */
+export function settleTreeRef(ref: RepositoryRef, refs: readonly string[]): RepositoryRef {
+  if (!ref.refUnsettled || !ref.ref) return ref;
+  const segments = [...ref.ref.split('/'), ...(ref.path ? ref.path.split('/') : [])];
+  const known = new Set(refs);
+  let take = ref.ref.split('/').length;
+  for (let count = segments.length; count >= 1; count -= 1) {
+    if (known.has(segments.slice(0, count).join('/'))) {
+      take = count;
+      break;
+    }
+  }
+  const settled: RepositoryRef = { owner: ref.owner, name: ref.name, ref: segments.slice(0, take).join('/') };
+  if (take < segments.length) settled.path = segments.slice(take).join('/');
+  return settled;
+}
+
+/**
+ * The canonical URL a source is stored as and refreshed from. A ref with `/`
+ * is written encoded, so reading it back names the same ref without asking
+ * GitHub again.
+ */
 export function repositoryUrl(ref: RepositoryRef): string {
-  return `https://github.com/${ref.owner}/${ref.name}`;
+  const base = `https://github.com/${ref.owner}/${ref.name}`;
+  if (!ref.ref) return base;
+  const path = ref.path ? `/${ref.path.split('/').map(encodeURIComponent).join('/')}` : '';
+  return `${base}/tree/${encodeURIComponent(ref.ref)}${path}`;
+}
+
+/** A repository source's title: `owner/name`, then the directory read and the ref when one was named. */
+export function repositoryTitle(fullName: string, ref: Pick<RepositoryRef, 'ref' | 'path'>): string {
+  return `${fullName}${ref.path ? `/${ref.path}` : ''}${ref.ref ? ` @ ${ref.ref}` : ''}`;
 }
 
 /* ------------------------------------------------------------ domain claims */

@@ -75,6 +75,8 @@ export function activityLabel(t: Messages, locale: 'zh' | 'en', entry: Knowledge
       if (d.tariff === 'provider-cost-v1') return `${label} · ${fill(k.providerTotal, values)}`;
       return d.tariff ? `${label} · ${fill(k.usage, values)}` : label;
     }
+    case 'chunked':
+      return fill(k.chunked, { chunks: n(d.chunks) }) + (d.reused !== undefined ? fill(k.chunkedReused, { reused: n(d.reused) }) : '');
     case 'parsed':
       return fill(k.parsed, { chars: n(d.chars), pages: d.pages ? fill(k.parsedPages, { pages: n(d.pages) }) : '' });
     case 'failed':

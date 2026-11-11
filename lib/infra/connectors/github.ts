@@ -1,8 +1,11 @@
 /**
  * GitHub repositories (rebuild-proposal.md 2.1, from the old
- * `fetchGithubSnapshot`): the default branch's tree is read once through
- * the REST API. File reads are pinned to that commit so a push half-way
- * through cannot mix two versions.
+ * `fetchGithubSnapshot`): the tree of the default branch -- or of the
+ * branch, tag or commit the URL names (`/tree/<ref>`) -- is read once
+ * through the REST API, all of it or one directory (`/tree/<ref>/<path>`).
+ * File reads are pinned to that commit so a push half-way through cannot
+ * mix two versions. Changelogs, tests, CI files and older copies of
+ * versioned docs are left out (`selectPaths`): they crowd the answers out.
  *
  * Repositories are read with the Ree owner's token from
  * `github_connection` when they have one. A public repository needs no
@@ -20,7 +23,7 @@
  * drops them on any redirect away.
  */
 import { GITHUB_LIMITS } from '@/lib/constants';
-import { parseGithubRepo, type RepositoryRef } from '@/lib/domain/sources';
+import { parseGithubRepo, settleTreeRef, type RepositoryRef } from '@/lib/domain/sources';
 import { fetchDocument, fetchJson, type FetchedResource, type FetchOptions } from './http';
 import { ProcessingFailure } from './failure';
 
@@ -182,19 +185,100 @@ const CODE =
 const SKIPPED_DIRS = /(^|\/)(node_modules|vendor|dist|build|out|target|\.git|\.next|coverage|__pycache__|\.venv|venv|third_party)(\/|$)/i;
 const SKIPPED_FILES = /(\.min\.(js|css)$|(^|\/)(package-lock\.json|pnpm-lock\.yaml|yarn\.lock|Cargo\.lock|poetry\.lock|go\.sum|composer\.lock)$)/i;
 const LICENSE = /(^|\/)(license|copying|notice)(\.md|\.txt)?$/i;
+/*
+ * Noise that buries the docs in the answers: release notes (a package's
+ * CHANGELOG names every API it ever had), pending changesets, CI and issue
+ * templates, tests and their fixtures, and Docusaurus's frozen copies of
+ * older docs. Source code itself stays.
+ */
+const CHANGELOG = /(^|\/)(changelog[^/]*|history)\.(md|mdx|markdown|txt|rst|adoc)$/i;
+const NOISE_DIRS = /(^|\/)(\.changeset|\.github|__tests__|__mocks__|__snapshots__|__fixtures__|fixtures|testdata|tests?|e2e|versioned_docs|versioned_sidebars)\//i;
+const TEST_FILES = /(\.(test|spec)\.[a-z0-9]+$)|((^|\/)test_[^/]*\.py$)|(_test\.(go|py)$)/i;
 
-/** Documentation and source files worth answering from, prose first and shallow before deep. */
-export function selectPaths(entries: readonly { path: string; size?: number }[], limit: number = GITHUB_LIMITS.files): string[] {
-  return entries
-    .filter(
-      (entry) =>
-        (entry.size ?? 0) <= GITHUB_LIMITS.fileBytes &&
-        (PROSE.test(entry.path) || CODE.test(entry.path)) &&
-        !SKIPPED_DIRS.test(entry.path) &&
-        !SKIPPED_FILES.test(entry.path) &&
-        !LICENSE.test(entry.path),
-    )
-    .map((entry) => entry.path)
+/** A directory named like a version: a date (`2025-06-18`), `v2`, `v1.4` or `3.0.1`; plain numbers are chapters, not versions. */
+export function versionOf(segment: string): { kind: 'date' | 'number'; parts: number[] } | null {
+  const date = /^(\d{4})-(\d{2})(?:-(\d{2}))?$/.exec(segment);
+  if (date) return { kind: 'date', parts: date.slice(1).filter(Boolean).map(Number) };
+  const number = /^(?:version-)?(?:v(\d+(?:\.\d+)*)|(\d+(?:\.\d+)+))$/i.exec(segment);
+  if (number) return { kind: 'number', parts: (number[1] ?? number[2])!.split('.').map(Number) };
+  return null;
+}
+
+function newer(a: number[], b: number[]): boolean {
+  for (let at = 0; at < Math.max(a.length, b.length); at += 1) {
+    const difference = (a[at] ?? 0) - (b[at] ?? 0);
+    if (difference !== 0) return difference > 0;
+  }
+  return false;
+}
+
+/**
+ * Paths inside an older copy of versioned docs: where one directory holds
+ * two or more version-named directories of the same kind (dates, or
+ * numbers), only the newest is kept. Its unversioned siblings (`draft`,
+ * `latest`, `guides`) are kept too.
+ */
+export function olderVersionPaths(paths: readonly string[]): Set<string> {
+  const newest = new Map<string, { segment: string; parts: number[] }>();
+  const seen = new Map<string, Set<string>>();
+  for (const path of paths) {
+    const segments = path.split('/').slice(0, -1);
+    segments.forEach((segment, at) => {
+      const version = versionOf(segment);
+      if (!version) return;
+      const key = `${segments.slice(0, at).join('/')}|${version.kind}`;
+      const group = seen.get(key) ?? new Set<string>();
+      group.add(segment);
+      seen.set(key, group);
+      const best = newest.get(key);
+      if (!best || newer(version.parts, best.parts)) newest.set(key, { segment, parts: version.parts });
+    });
+  }
+  const older = new Set<string>();
+  for (const path of paths) {
+    const segments = path.split('/').slice(0, -1);
+    const stale = segments.some((segment, at) => {
+      const version = versionOf(segment);
+      if (!version) return false;
+      const key = `${segments.slice(0, at).join('/')}|${version.kind}`;
+      return (seen.get(key)?.size ?? 0) > 1 && newest.get(key)!.segment !== segment;
+    });
+    if (stale) older.add(path);
+  }
+  return older;
+}
+
+/** The scope's own path when it names one file, else the paths below the directory it names (all of them without one). */
+function inScope(path: string, scope: string | undefined): string | null {
+  if (!scope) return path;
+  if (path === scope) return path.slice(path.lastIndexOf('/') + 1);
+  return path.startsWith(`${scope}/`) ? path.slice(scope.length + 1) : null;
+}
+
+/**
+ * Documentation and source files worth answering from, prose first and
+ * shallow before deep: within `scope` (a directory or one file) when the URL
+ * named one, leaving out noise as above. The noise rules look at the path
+ * below the scope, so a URL that points into a test or version directory
+ * still reads it.
+ */
+export function selectPaths(entries: readonly { path: string; size?: number }[], limit: number = GITHUB_LIMITS.files, scope?: string): string[] {
+  const candidates = entries.flatMap((entry) => {
+    const relative = inScope(entry.path, scope);
+    if (relative === null) return [];
+    const ok =
+      (entry.size ?? 0) <= GITHUB_LIMITS.fileBytes &&
+      (PROSE.test(entry.path) || CODE.test(entry.path)) &&
+      !SKIPPED_DIRS.test(relative) &&
+      !SKIPPED_FILES.test(relative) &&
+      !LICENSE.test(relative) &&
+      (entry.path === scope || (!CHANGELOG.test(relative) && !NOISE_DIRS.test(relative) && !TEST_FILES.test(relative)));
+    return ok ? [{ path: entry.path, relative }] : [];
+  });
+  const older = olderVersionPaths(candidates.map((candidate) => candidate.relative));
+  return candidates
+    .filter((candidate) => !older.has(candidate.relative))
+    .map((candidate) => candidate.path)
     .sort((a, b) => {
       const prose = Number(!PROSE.test(a)) - Number(!PROSE.test(b));
       if (prose !== 0) return prose;
@@ -204,19 +288,74 @@ export function selectPaths(entries: readonly { path: string; size?: number }[],
     .slice(0, limit);
 }
 
+function notFound(error: unknown): boolean {
+  return error instanceof ProcessingFailure && (error.code === 'source_missing' || error.httpStatus === 404 || error.httpStatus === 422);
+}
+
 /**
- * The default branch's documentation and source files, read as
- * `resolveRepository` decides. Throws `github_not_connected` or
- * `github_repo_not_found` when it finds no way to read the repository, and
- * `rate_limited` when GitHub still throttles a file read after the retries.
- * A file GitHub no longer has (or binary) is skipped; one it would not
- * serve is counted in `unread` and marks the snapshot `truncated`.
+ * A `/tree/a/b/...` URL split between ref and path against the
+ * repository's branches (then tags) that start with `a` -- one API call,
+ * two when no branch matches.
+ */
+export async function settleRef(repoApi: string, ref: RepositoryRef, token: string | null): Promise<RepositoryRef> {
+  if (!ref.refUnsettled || !ref.ref) return ref;
+  const first = ref.ref.split('/')[0]!;
+  const names = async (namespace: 'heads' | 'tags'): Promise<string[]> => {
+    const refs = await fetchJson<{ ref?: string }[]>(`${repoApi}/git/matching-refs/${namespace}/${encodeURIComponent(first)}`, { headers: headers(token), maxBytes: 4 * 1024 * 1024 });
+    const prefix = `refs/${namespace}/`;
+    return (Array.isArray(refs) ? refs : []).map((entry) => entry.ref ?? '').filter((name) => name.startsWith(prefix)).map((name) => name.slice(prefix.length));
+  };
+  const longer = (list: string[]) => list.some((name) => name === first || name.startsWith(`${first}/`));
+  let known = await names('heads');
+  if (!longer(known)) known = [...known, ...(await names('tags'))];
+  return settleTreeRef(ref, known);
+}
+
+/** The commit a branch, tag or SHA names, or null when GitHub knows none by that name. */
+export async function commitOf(repoApi: string, ref: string, token: string | null): Promise<string | null> {
+  try {
+    const response = await fetchDocument(`${repoApi}/commits/${encodeURIComponent(ref)}`, { accept: 'application/vnd.github.sha', headers: headers(token), maxBytes: 4096 });
+    const sha = response.body.trim();
+    return /^[0-9a-f]{40}$/i.test(sha) ? sha : null;
+  } catch (error) {
+    if (notFound(error)) return null;
+    throw error;
+  }
+}
+
+function repositoryApi(repository: RepositoryInfo): string {
+  const [owner, name] = repository.fullName.split('/') as [string, string];
+  return `${API}/repos/${encodeURIComponent(owner)}/${encodeURIComponent(name)}`;
+}
+
+/**
+ * When a source is added: the URL's ref settled against the repository and
+ * checked to exist, so a mistyped branch is refused at once rather than
+ * failing later. Answers the ref as it will be stored; a URL without a ref
+ * costs nothing here.
+ */
+export async function checkRepositoryScope(ref: RepositoryRef, repository: RepositoryInfo, token: string | null): Promise<RepositoryRef | null> {
+  if (!ref.ref) return ref;
+  const repoApi = repositoryApi(repository);
+  const settled = await settleRef(repoApi, ref, token);
+  return (await commitOf(repoApi, settled.ref!, token)) ? settled : null;
+}
+
+/**
+ * The documentation and source files of the default branch, or of the ref
+ * and directory the URL names, read as `resolveRepository` decides. Throws
+ * `github_not_connected` or `github_repo_not_found` when it finds no way to
+ * read the repository, `github_ref_not_found` / `github_path_not_found` when
+ * the named ref or directory is not there, and `rate_limited` when GitHub
+ * still throttles a file read after the retries. A file GitHub no longer
+ * has (or binary) is skipped; one it would not serve is counted in `unread`
+ * and marks the snapshot `truncated`.
  */
 export async function fetchRepositoryFiles(
   ref: RepositoryRef,
   ownerToken: string | null,
   options: ReadOptions = {},
-): Promise<{ repository: RepositoryInfo; revision: string; files: RepositoryFile[]; truncated: boolean; unread: number }> {
+): Promise<{ repository: RepositoryInfo; revision: string; scope: RepositoryRef; files: RepositoryFile[]; truncated: boolean; unread: number }> {
   const sleep = options.sleep ?? ((ms: number) => new Promise<void>((resolve) => setTimeout(resolve, ms)));
   const access = await resolveRepository(ref, ownerToken, options);
   if (!access.ok) {
@@ -227,26 +366,40 @@ export async function fetchRepositoryFiles(
   }
   const { repository, token } = access;
   const [owner, name] = repository.fullName.split('/') as [string, string];
-  const repoApi = `${API}/repos/${encodeURIComponent(owner)}/${encodeURIComponent(name)}`;
-  const branch = await fetchJson<{ commit?: { sha?: string } }>(
-    `${repoApi}/branches/${encodeURIComponent(repository.defaultBranch)}`,
-    { headers: headers(token) },
-  );
-  const revision = branch.commit?.sha;
+  const repoApi = repositoryApi(repository);
+  const scope = await settleRef(repoApi, ref, token);
+  let revision: string | null | undefined;
+  if (scope.ref) {
+    revision = await commitOf(repoApi, scope.ref, token);
+    if (!revision) throw new ProcessingFailure('github_ref_not_found', `${repository.fullName} has no ref ${scope.ref}`);
+  } else {
+    const branch = await fetchJson<{ commit?: { sha?: string } }>(
+      `${repoApi}/branches/${encodeURIComponent(repository.defaultBranch)}`,
+      { headers: headers(token) },
+    );
+    revision = branch.commit?.sha;
+  }
   if (!revision) throw new ProcessingFailure('empty_text', `${repository.fullName} has no commits`);
   const tree = await fetchJson<{ tree?: { path?: string; type?: string; size?: number }[]; truncated?: boolean }>(
     `${repoApi}/git/trees/${revision}?recursive=1`,
     { headers: headers(token), maxBytes: 32 * 1024 * 1024 },
   );
   const blobs = (tree.tree ?? []).filter((entry): entry is { path: string; type: string; size?: number } => entry.type === 'blob' && typeof entry.path === 'string');
-  const paths = selectPaths(blobs);
-  if (paths.length === 0) throw new ProcessingFailure('empty_text', `${repository.fullName} has no documentation or source files`);
+  const paths = selectPaths(blobs, GITHUB_LIMITS.files, scope.path);
+  const label = `${repository.fullName}${scope.path ? `/${scope.path}` : ''}`;
+  if (paths.length === 0) {
+    const exists = !scope.path || blobs.some((entry) => entry.path === scope.path || entry.path.startsWith(`${scope.path}/`));
+    /* A truncated tree may simply not list the directory: say so as missing only when the listing was whole. */
+    if (!exists && !tree.truncated) throw new ProcessingFailure('github_path_not_found', `${repository.fullName} has no ${scope.path} at ${revision.slice(0, 7)}`);
+    throw new ProcessingFailure('empty_text', `${label} has no documentation or source files`);
+  }
 
   const files: RepositoryFile[] = [];
   const budget = { waited: 0 };
   let unread = 0;
   let total = 0;
-  let truncated = Boolean(tree.truncated) || blobs.length > paths.length;
+  /* Only a cut-off listing or the file limit truncates; files left out as noise do not. */
+  let truncated = Boolean(tree.truncated) || paths.length >= GITHUB_LIMITS.files;
   for (let at = 0; at < paths.length; at += CONCURRENCY) {
     const batch = paths.slice(at, at + CONCURRENCY);
     const results = await Promise.allSettled(
@@ -288,5 +441,5 @@ export async function fetchRepositoryFiles(
   }
   if (files.length === 0) throw new ProcessingFailure('source_unreachable', `no file of ${repository.fullName} could be read`);
   if (unread > 0) console.warn(`[github] ${repository.fullName}@${revision.slice(0, 7)}: ${unread} of ${paths.length} files could not be read`);
-  return { repository, revision, files, truncated, unread };
+  return { repository, revision, scope, files, truncated, unread };
 }
