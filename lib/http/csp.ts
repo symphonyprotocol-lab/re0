@@ -17,7 +17,9 @@
  * this origin (`/media`, `/_next/image`), data:/blob: previews, the OAuth
  * providers' avatar hosts and Vercel Blob (the console's signed KYC links).
  * Connections: this origin (every AI stream is under /api), Vercel Blob's
- * client upload (vercel.com/api/blob, then the store) and Paddle checkout.
+ * client upload (vercel.com/api/blob, then the store), Paddle checkout and
+ * Remotion's license usage report (@remotion/web-renderer POSTs each
+ * finished export to www.remotion.pro/api/track/register-usage-point).
  * Frames: Paddle's checkout overlay only. Forms: this origin, plus the OAuth
  * providers a sign-in POST redirects to.
  */
@@ -34,6 +36,7 @@ const PADDLE_SANDBOX_CDN = 'https://sandbox-cdn.paddle.com';
 /** The checkout overlay's frame and its API calls (buy / sandbox-buy, checkout-service, ...). */
 export const PADDLE_HOSTS = 'https://*.paddle.com';
 const BLOB_HOSTS = 'https://*.blob.vercel-storage.com';
+const REMOTION_LICENSING = 'https://www.remotion.pro';
 
 export function contentSecurityPolicy({ nonce, dev = false, paddleSandbox = false }: PolicyOptions): string {
   return [
@@ -44,7 +47,7 @@ export function contentSecurityPolicy({ nonce, dev = false, paddleSandbox = fals
     "font-src 'self'",
     "media-src 'self' data: blob:",
     "worker-src 'self' blob:",
-    `connect-src 'self' https://vercel.com ${BLOB_HOSTS} ${PADDLE_HOSTS}${dev ? ' ws:' : ''}`,
+    `connect-src 'self' https://vercel.com ${BLOB_HOSTS} ${PADDLE_HOSTS} ${REMOTION_LICENSING}${dev ? ' ws:' : ''}`,
     `frame-src ${PADDLE_HOSTS}`,
     "form-action 'self' https://github.com https://accounts.google.com",
     "frame-ancestors 'none'",

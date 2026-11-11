@@ -67,7 +67,8 @@ describe('security response headers', () => {
     expect(parsed.get('default-src')).toEqual(["'self'"]);
     expect(parsed.get('frame-src')).toEqual(['https://*.paddle.com']);
     expect(parsed.get('worker-src')).toEqual(["'self'", 'blob:']);
-    expect(parsed.get('connect-src')).toEqual(["'self'", 'https://vercel.com', 'https://*.blob.vercel-storage.com', 'https://*.paddle.com']);
+    /* www.remotion.pro: the video export's license usage report, which otherwise rejects unhandled after every export. */
+    expect(parsed.get('connect-src')).toEqual(["'self'", 'https://vercel.com', 'https://*.blob.vercel-storage.com', 'https://*.paddle.com', 'https://www.remotion.pro']);
     expect(parsed.get('frame-ancestors')).toEqual(["'none'"]);
     expect(parsed.get('object-src')).toEqual(["'none'"]);
     expect(parsed.get('base-uri')).toEqual(["'self'"]);
@@ -108,6 +109,15 @@ describe('security response headers', () => {
     const api = await configHeaders('/api/:path*');
     expect(api['content-security-policy-report-only']).toContain("default-src 'none'");
     expect(api).not.toHaveProperty('content-security-policy');
+  });
+
+  it('lets the installed video renderer reach the host it sends license usage to', async () => {
+    const { readFile } = await import('node:fs/promises');
+    const source = await readFile('node_modules/@remotion/web-renderer/dist/esm/index.mjs', 'utf8');
+    const host = /var HOST = "(https:\/\/[^"]+)"/.exec(source)?.[1];
+    expect(host).toBe('https://www.remotion.pro');
+    expect(source).toContain('${HOST}/api/track/register-usage-point');
+    expect(directives(contentSecurityPolicy({ nonce: 'n' })).get('connect-src')).toContain(host);
   });
 
   it('takes the Paddle stylesheet from the CDN of the configured environment only', () => {
