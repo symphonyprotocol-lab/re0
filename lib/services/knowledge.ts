@@ -1,9 +1,9 @@
 /**
  * Knowledge: the six kinds of rebuild-proposal.md 2.1, from added to ready.
  *
- * Adding one checks it first -- the upload against Blob, access through
- * the owner's GitHub connection, a website's domain claim -- outside any
- * transaction, then writes the row and
+ * Adding one checks it first -- the upload against Blob, a repository's
+ * access (public, or through the owner's GitHub connection), a website's
+ * domain claim -- outside any transaction, then writes the row and
  * reserves its processing cost in one transaction. Processing runs after the
  * response (Next's `after`, inside the route's `maxDuration`): read or fetch
  * or transcribe → chunk → embed → store, and settle the reservation to the
@@ -39,7 +39,7 @@ import { isKnowledgeUploadPath } from '@/lib/domain/blob-path';
 import { blobSize, readBlob } from '@/lib/infra/blob';
 import { documentSections, ProcessingFailure } from '@/lib/infra/connectors';
 import { simulatedFailureFor } from '@/lib/infra/connectors/failure';
-import { fetchRepositoryFiles, readRepository } from '@/lib/infra/connectors/github';
+import { fetchRepositoryFiles, resolveRepository } from '@/lib/infra/connectors/github';
 import { crawlSite, fetchPage } from '@/lib/infra/connectors/web';
 import { db, schema, type Tx } from '@/lib/infra/db';
 import { githubTokenFor, hasVerifiedDomainFor } from '@/lib/services/connections';
@@ -108,18 +108,18 @@ export function appendActivity(entries: KnowledgeActivity[]) {
 
 /* ------------------------------------------------------------------ checks */
 
-/** Check that the owner's connected GitHub account can read the repository. */
+/**
+ * Check that the repository can be read: a public one by anyone, a private
+ * one through the owner's GitHub connection (`resolveRepository`).
+ */
 export async function checkRepository(ownerId: string, ref: RepositoryRef): Promise<{ fullName: string; private: boolean }> {
   try {
-    const token = await githubTokenFor(ownerId);
-    if (!token) throw new KnowledgeInputError('github_not_connected');
-    const granted = await readRepository(ref, token);
-    if (!granted) throw new KnowledgeInputError('github_repo_not_found');
-    return { fullName: granted.fullName, private: granted.private };
+    const access = await resolveRepository(ref, await githubTokenFor(ownerId));
+    if (!access.ok) throw new KnowledgeInputError(access.reason === 'not_found' ? 'github_repo_not_found' : 'github_not_connected');
+    return { fullName: access.repository.fullName, private: access.repository.private };
   } catch (error) {
     if (error instanceof KnowledgeInputError) throw error;
-    /* A token GitHub no longer honours is no connection at all. */
-    if (error instanceof ProcessingFailure && error.code === 'source_forbidden') throw new KnowledgeInputError('github_not_connected');
+    /* Throttled or unanswered: `resolveRepository` already turned a refused owner token into `not_connected`. */
     throw new KnowledgeInputError('source_unreachable');
   }
 }
@@ -336,8 +336,8 @@ export function reprocessHold(row: Pick<KnowledgeRow, 'kind' | 'content' | 'file
 }
 
 /**
- * The network half of the reprocess check: a repository still needs the
- * GitHub connection, a website still needs its domain. Run before the transaction.
+ * The network half of the reprocess check: a repository must still be
+ * public or readable through the GitHub connection, a website still needs its domain. Run before the transaction.
  */
 export async function checkReprocess(ownerId: string, rows: readonly Pick<KnowledgeRow, 'kind' | 'source'>[]): Promise<void> {
   for (const row of rows) {
@@ -471,12 +471,17 @@ async function extract(row: KnowledgeRow): Promise<Extracted> {
     case 'github': {
       const ref = parseGithubRepo(row.source);
       if (!ref) throw new ProcessingFailure('github_repo_not_found', 'not a repository URL');
-      const token = await githubTokenFor(await ownerOf(row.reeId));
-      if (!token) throw new ProcessingFailure('github_not_connected', 'repository without a GitHub connection');
-      const snapshot = await fetchRepositoryFiles(ref, token);
+      /* A public repository is read without a connection; a private one fails `github_not_connected` without it. */
+      const snapshot = await fetchRepositoryFiles(ref, await githubTokenFor(await ownerOf(row.reeId)));
       return {
         sections: snapshot.files.map((file) => ({ text: file.content, locator: { path: file.path }, byLines: true, child: { label: file.path, path: file.path } })),
-        log: [activity('fetched', { files: snapshot.files.length, revision: snapshot.revision.slice(0, 7) })],
+        log: [
+          activity('fetched', {
+            files: snapshot.files.length,
+            revision: snapshot.revision.slice(0, 7),
+            ...(snapshot.unread ? { unread: snapshot.unread } : {}),
+          }),
+        ],
       };
     }
     case 'page': {

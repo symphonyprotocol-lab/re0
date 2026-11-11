@@ -81,7 +81,8 @@ export function AddKnowledgeModal({
   useEffect(() => {
     if (error) errorRef.current?.scrollIntoView({ block: 'nearest', behavior: 'smooth' });
   }, [error]);
-  const [githubStatus, setGithubStatus] = useState<'checking' | 'connected' | 'disconnected' | 'unavailable'>('checking');
+  /* `stale`: connected, but GitHub no longer honours the token (an add came back `github_not_connected`). */
+  const [githubStatus, setGithubStatus] = useState<'checking' | 'connected' | 'stale' | 'disconnected' | 'unavailable'>('checking');
   const [githubAccessUrl, setGithubAccessUrl] = useState('');
   useEffect(() => {
     if (!open || kind !== 'github' || githubStatus !== 'checking') return;
@@ -146,7 +147,8 @@ export function AddKnowledgeModal({
 
   const fileKind = kind === 'document' || kind === 'audio';
   const urlKind = kind === 'github' || kind === 'page' || kind === 'site';
-  const githubBlocked = kind === 'github' && githubStatus !== 'connected';
+  /* A public repository needs only its URL; the connection adds the picker and private repositories. */
+  const githubConnected = kind === 'github' && githubStatus === 'connected';
   const pick = async (picked: File | undefined) => {
     if (!picked) return;
     const ticket = ++picking.current;
@@ -165,7 +167,7 @@ export function AddKnowledgeModal({
   };
 
   const submit = async () => {
-    if (busy || githubBlocked) return;
+    if (busy) return;
     setError(null);
     let body: Record<string, unknown>;
     const controller = new AbortController();
@@ -209,10 +211,7 @@ export function AddKnowledgeModal({
       return;
     }
     const code = result.status === 402 ? 'insufficient_credits' : result.data.error;
-    if (code === 'github_not_connected') {
-      setGithubStatus('disconnected');
-      return;
-    }
+    if (code === 'github_not_connected' && githubStatus === 'connected') setGithubStatus('stale');
     setError({ text: errorText(t, code), code });
   };
 
@@ -230,7 +229,7 @@ export function AddKnowledgeModal({
           <button type="button" className="btn secondary" onClick={close} disabled={registering}>
             {t.common.actions.cancel}
           </button>
-          <button type="submit" form="knowledge-form" className="btn" disabled={busy || githubBlocked}>
+          <button type="submit" form="knowledge-form" className="btn" disabled={busy}>
             {busy && <i className="spinner" />}
             {progress !== null ? fill(m.uploading, { percent: progress }) : m.submit}
           </button>
@@ -289,24 +288,25 @@ export function AddKnowledgeModal({
             </>
           )}
 
-          {kind === 'github' && !githubBlocked && (
-            <GithubRepositoryPicker url={url} accessUrl={githubAccessUrl} onSelect={setUrl} />
-          )}
-          {urlKind && !githubBlocked && (
+          {githubConnected && <GithubRepositoryPicker url={url} accessUrl={githubAccessUrl} onSelect={setUrl} />}
+          {urlKind && (
             <div className="field">
               <label htmlFor="source-url">{m.urlLabel[kind]}</label>
               <input id="source-url" type="url" inputMode="url" maxLength={KNOWLEDGE_URL_MAX} value={url} placeholder={m.urlPlaceholder[kind]} onChange={(event) => setUrl(event.target.value)} />
             </div>
           )}
-          {urlKind && kind !== 'site' && !githubBlocked && <p className="form-hint">{m.urlHint[kind]}</p>}
-          {githubBlocked && (
+          {urlKind && kind !== 'site' && <p className="form-hint">{m.urlHint[kind]}</p>}
+          {kind === 'github' && (githubStatus === 'disconnected' || githubStatus === 'stale' || githubStatus === 'unavailable') && (
             <div className="info-strip">
               <Icon name="github" />
               <div>
-                <div role="status">
-                  {githubStatus === 'checking' ? m.githubChecking : githubStatus === 'unavailable' ? m.githubUnavailable : m.githubRequired}
-                </div>
+                <div role="status">{githubStatus === 'unavailable' ? m.githubUnavailable : githubStatus === 'stale' ? m.githubStale : m.githubPrivate}</div>
                 {githubStatus === 'disconnected' && <FixLink code="github_not_connected" />}
+                {githubStatus === 'stale' && (
+                  <Link href="/settings?tab=connections" className="font-semibold underline">
+                    {t.settings.connections.githubReconnect}
+                  </Link>
+                )}
                 {githubStatus === 'unavailable' && (
                   <button type="button" className="text-link" onClick={() => setGithubStatus('checking')}>
                     {t.common.actions.retry}
@@ -331,17 +331,13 @@ export function AddKnowledgeModal({
           )}
         </div>
 
-        {!githubBlocked && (
-          <>
-            <div className="estimate">
-              <span>{m.estimate}</span>
-              <strong>{fill(m.estimateValue, { credits: formatNumber(estimate, locale) })}</strong>
-            </div>
-            <p className="form-hint mt16" style={{ fontSize: 11 }}>
-              {m.note}
-            </p>
-          </>
-        )}
+        <div className="estimate">
+          <span>{m.estimate}</span>
+          <strong>{fill(m.estimateValue, { credits: formatNumber(estimate, locale) })}</strong>
+        </div>
+        <p className="form-hint mt16" style={{ fontSize: 11 }}>
+          {m.note}
+        </p>
         {error && (
           <p ref={errorRef} role="alert" className="form-error">
             {error.text} <FixLink code={error.code} />
