@@ -10,7 +10,7 @@
  * about the provider leaks out.
  */
 import { createOpenAICompatible } from '@ai-sdk/openai-compatible';
-import { createGateway, embedMany, gateway, wrapEmbeddingModel, type EmbeddingModel, type LanguageModel } from 'ai';
+import { createGateway, gateway, wrapEmbeddingModel, type EmbeddingModel, type LanguageModel } from 'ai';
 import { and, eq } from 'drizzle-orm';
 import {
   DEFAULT_MODELS,
@@ -26,6 +26,7 @@ import { openCredential } from '@/lib/infra/crypto/credentials';
 import { modelFetch } from '@/lib/infra/connectors/address';
 import { db, schema } from '@/lib/infra/db';
 import { loggedLanguageModel, recordModelCall } from '@/lib/infra/ai/usage';
+import { embedInBatches, embeddingTokenBound } from '@/lib/infra/ai/embedding-batches';
 import { modelCostTarget, prepareProviderCall, providerWork } from '@/lib/infra/ai/provider-meter';
 
 export interface ModelEndpoint {
@@ -176,17 +177,6 @@ export function languageModel(endpoint: ModelEndpoint, context: GenerationCallCo
   return loggedLanguageModel(model, { ...context, model: endpoint.model, configId: endpoint.configId, configName: endpoint.name, transport: endpoint.transport, baseUrl: endpoint.baseUrl });
 }
 
-const utf8 = new TextEncoder();
-
-/**
- * An upper bound of the input tokens a call bills: byte-level BPE tokenizers
- * never make more tokens than UTF-8 bytes, plus a few per input for special
- * tokens. Reserved before the call (`prepareProviderCall`'s estimate).
- */
-export function embeddingTokenBound(values: readonly unknown[]): number {
-  return values.reduce<number>((sum, value) => sum + (typeof value === 'string' ? utf8.encode(value).length : 0) + 8, 0);
-}
-
 export function embeddingModel(endpoint: ModelEndpoint): EmbeddingModel {
   const model = endpoint.transport === 'gateway'
     ? gatewayFor(endpoint).embeddingModel(endpoint.model)
@@ -231,16 +221,15 @@ export function toColumn(vector: readonly number[]): number[] {
     : [...vector, ...new Array<number>(EMBEDDING_DIMENSIONS - vector.length).fill(0)];
 }
 
+/**
+ * Vectors for `texts`, in their order. Large inputs go out as several
+ * requests, each under the provider's per-request token and count limits
+ * (embedding-batches.ts); every request is metered by `embeddingModel`.
+ */
 export async function embedTexts(texts: string[], explicit?: ModelEndpoint): Promise<{ vectors: number[][]; endpoint: ModelEndpoint }> {
   const endpoint = explicit ?? (await endpointFor('embedding'));
   const model = embeddingModel(endpoint);
-  const { embeddings, usage } = await embedMany({
-    model,
-    values: texts,
-    maxParallelCalls: 4,
-    maxRetries: 2,
-    abortSignal: AbortSignal.timeout(Math.max(endpoint.timeoutMs, 30_000) * Math.max(1, Math.ceil(texts.length / 96))),
-  });
-  recordModelCall({ kind: 'embedding', model: endpoint.model, configId: endpoint.configId, inputTokens: usage?.tokens ?? 0 });
+  const { embeddings, tokens } = await embedInBatches(model, texts, { timeoutMs: Math.max(endpoint.timeoutMs, 30_000), maxRetries: 2 });
+  recordModelCall({ kind: 'embedding', model: endpoint.model, configId: endpoint.configId, inputTokens: tokens });
   return { vectors: embeddings.map(toColumn), endpoint };
 }

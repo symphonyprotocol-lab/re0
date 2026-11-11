@@ -322,6 +322,16 @@ export type ModelKind = (typeof MODEL_KINDS)[number];
 
 /** Width of every stored vector column. */
 export const EMBEDDING_DIMENSIONS = 1536;
+/**
+ * Estimated input tokens one embedding request may carry (UTF-8 bytes, an
+ * upper bound for byte-level BPE, lib/infra/ai/embedding-batches.ts). OpenAI
+ * refuses requests over 300,000 tokens; this stays well under it.
+ */
+export const EMBEDDING_BATCH_TOKEN_BUDGET = 200_000;
+/** Inputs one embedding request may carry, lowered further by a model's own `maxEmbeddingsPerCall`. */
+export const EMBEDDING_BATCH_MAX_INPUTS = 2_048;
+/** Embedding requests one `embedTexts` call keeps in flight. */
+export const EMBEDDING_PARALLEL_BATCHES = 4;
 /** `modelFor(kind)` re-reads `model_config` at most this often. */
 export const MODEL_CACHE_MS = 60_000;
 /** Prototype limits (suite.js model form) except the ceiling: 300 s is the Vercel function limit, not the prototype's 600. */
