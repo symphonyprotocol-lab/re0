@@ -19,7 +19,8 @@ import {
 } from '@/lib/services/knowledge';
 import { ownedRee } from '@/lib/services/rees';
 
-export const maxDuration = 300;
+/* Processing runs after the response: 800 s is Vercel's maximum on Pro (`KNOWLEDGE_RUN_MAX_MS`). */
+export const maxDuration = 800;
 
 type Context = { params: Promise<{ id: string }> };
 

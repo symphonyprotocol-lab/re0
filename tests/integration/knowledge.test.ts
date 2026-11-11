@@ -311,10 +311,11 @@ describeWithDb('document processing', () => {
     let newRun: Promise<string | null> | undefined;
     try {
       await oldEntered;
-      await knowledge.recoverStale(ree.id, new Date(Date.now() + 16 * 60_000));
-      // The dead run had read the file from Blob: that cost stays charged (1), the rest of its reservation came back.
-      expect(await balanceOf(db(), userId)).toBe(WELCOME_CREDITS - 1);
-      await knowledge.refreshKnowledge(userId, ree.id, id);
+      // The dead run is resumed: it had read the file from Blob, and that cost stays charged (1); the rest of its
+      // reservation came back, and the source waits again on a fresh reservation (1).
+      expect(await knowledge.recoverStale(ree.id, new Date(Date.now() + 16 * 60_000))).toEqual([id]);
+      expect(await knowledge.knowledgeDetail(ree.id, id)).toMatchObject({ status: 'pending' });
+      expect(await balanceOf(db(), userId)).toBe(WELCOME_CREDITS - 2);
       newRun = knowledge.processKnowledge(id, { profile: false });
       await newEntered;
       resumeOld();

@@ -46,6 +46,7 @@ export interface KnowledgeActivity {
     | 'ready'
     | 'failed'
     | 'refresh'
+    | 'interrupted'
     | 'settled'
     | 'reserved'
     | 'provider_usage'

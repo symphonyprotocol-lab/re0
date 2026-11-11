@@ -237,6 +237,33 @@ export const knowledge = pgTable(
   ],
 );
 
+/**
+ * Passages of a source being processed, embedded but not yet stored
+ * (`lib/services/knowledge.ts`, "staging"). A run writes them slice by slice
+ * as the embeddings come back; a run that is killed leaves them here, and the
+ * next attempt embeds only what is missing -- a passage is reused when its
+ * text and locator (`digest`) and the model entry that embedded it
+ * (`config_id`, '' for the environment's model) are unchanged. The final
+ * step copies them into `chunk` and clears them. Nothing reads them for
+ * answers. No vector index: they are copied, never searched.
+ */
+export const knowledgeStage = pgTable(
+  'knowledge_stage',
+  {
+    knowledgeId: uuid('knowledge_id')
+      .notNull()
+      .references(() => knowledge.id, { onDelete: 'cascade' }),
+    ordinal: integer('ordinal').notNull(),
+    digest: text('digest').notNull(),
+    configId: text('config_id').notNull(),
+    content: text('content').notNull(),
+    locator: jsonb('locator').$type<Locator>().notNull().default({}),
+    embedding: vector('embedding', { dimensions: 1536 }).notNull(),
+    createdAt: createdAt(),
+  },
+  (t) => [primaryKey({ columns: [t.knowledgeId, t.ordinal] })],
+);
+
 export const chunk = pgTable(
   'chunk',
   {
@@ -546,6 +573,8 @@ export const knowledgeCostRun = pgTable('knowledge_cost_run', {
   metered: boolean('metered').notNull().default(true),
   charges: jsonb('charges').$type<ProviderCharge[]>().notNull().default([]),
   chargedCredits: bigint('charged_credits', { mode: 'number' }),
+  /** A processing run's last sign of life; null for runs started before 0045 (judged by age instead). */
+  heartbeatAt: timestampTz('heartbeat_at'),
   createdAt: createdAt(),
 }, (t) => [
   index('knowledge_cost_run_created_idx').on(t.createdAt, t.id),

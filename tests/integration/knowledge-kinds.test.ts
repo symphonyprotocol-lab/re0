@@ -11,7 +11,7 @@
  * GitHub, the sites and DNS are stubbed; transcription and embeddings go to
  * the local fake endpoint.
  */
-import { WELCOME_CREDITS } from '@/lib/constants';
+import { KNOWLEDGE_OWNER_CONCURRENCY, WELCOME_CREDITS } from '@/lib/constants';
 import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it, vi } from 'vitest';
 import { pointModelsAt, TEST_DATABASE_URL, uniqueName } from './setup';
 import { and, asc, eq } from 'drizzle-orm';
@@ -128,7 +128,7 @@ describeWithDb('GitHub repositories', () => {
   it('imports a public repository without a GitHub connection and cites file and line', async () => {
     serveRepository('acme', 'handbook', 'public');
     const { userId, ree } = await userWithRee();
-    const input = { kind: 'github', url: 'https://github.com/acme/handbook/tree/main/docs' } as const;
+    const input = { kind: 'github', url: 'https://github.com/acme/handbook' } as const;
     const id = await knowledge.addKnowledge(userId, ree, input);
     expect(await balanceOf(db(), userId)).toBe(WELCOME_CREDITS - 1);
     await knowledge.processKnowledge(id);
@@ -156,6 +156,73 @@ describeWithDb('GitHub repositories', () => {
     await knowledge.refreshKnowledge(userId, ree.id, id);
     await knowledge.processKnowledge(id);
     expect((await knowledge.knowledgeDetail(ree.id, id))?.status).toBe('ready');
+  });
+
+  it('imports one folder of a branch, keeps that scope on reprocess, and refuses a ref that does not exist', async () => {
+    const sha = 'f00dfeed'.repeat(5);
+    const repo = 'api.github.com/repos/acme/manual';
+    web.routes.set(repo, () => jsonResponse({ full_name: 'acme/manual', private: false, default_branch: 'main' }));
+    web.routes.set(`${repo}/git/matching-refs/heads/main`, () => jsonResponse([{ ref: 'refs/heads/main' }, { ref: 'refs/heads/main-old' }]));
+    web.routes.set(`${repo}/commits/main`, () => text(sha));
+    web.routes.set(`${repo}/git/trees/${sha}?recursive=1`, () => jsonResponse({
+      tree: ['README.md', 'docs/guide.md', 'docs/CHANGELOG.md', 'docs/guide.test.ts', 'src/index.ts'].map((path) => ({ path, type: 'blob', size: 64 })),
+    }));
+    web.routes.set(`raw.githubusercontent.com/acme/manual/${sha}/docs/guide.md`, () => text('# Guide\n\nSet VITE_API_URL in .env to point at the API.\n'));
+    const { userId, ree } = await userWithRee();
+    const id = await knowledge.addKnowledge(userId, ree, { kind: 'github', url: 'https://github.com/acme/manual/tree/main/docs' });
+    await knowledge.processKnowledge(id, { profile: false });
+    const detail = await knowledge.knowledgeDetail(ree.id, id);
+    expect(detail).toMatchObject({ status: 'ready', title: 'acme/manual/docs @ main', source: 'https://github.com/acme/manual/tree/main/docs' });
+    /* Only the folder, and in it neither the changelog nor the test. */
+    expect(detail!.children.map((child) => child.path)).toEqual(['docs/guide.md']);
+    expect(web.requests.some((url) => url.includes(`/${sha}/README.md`))).toBe(false);
+
+    await knowledge.refreshKnowledge(userId, ree.id, id);
+    await knowledge.processKnowledge(id, { profile: false });
+    expect((await knowledge.knowledgeDetail(ree.id, id))!.children.map((child) => child.path)).toEqual(['docs/guide.md']);
+
+    /* A mistyped branch is refused when it is added, before anything is reserved. */
+    const before = await balanceOf(db(), userId);
+    expect(await refusal(knowledge.addKnowledge(userId, ree, { kind: 'github', url: 'https://github.com/acme/manual/tree/mian' }))).toBe('github_ref_not_found');
+    expect(await balanceOf(db(), userId)).toBe(before);
+  });
+
+  it('runs a burst of repositories a few at a time per owner, and a dead run frees its slot', async () => {
+    serveRepository('acme', 'burst', 'public');
+    const { userId, ree } = await userWithRee();
+    const ids: string[] = [];
+    for (let at = 0; at <= KNOWLEDGE_OWNER_CONCURRENCY; at += 1) ids.push(await knowledge.addKnowledge(userId, ree, { kind: 'github', url: 'acme/burst' }));
+    const busy = ids.slice(0, KNOWLEDGE_OWNER_CONCURRENCY);
+    const waiting = ids.at(-1)!;
+    /* The owner's other repositories are being processed, beating their heartbeats. */
+    for (const [at, id] of busy.entries()) {
+      await db().update(schema.knowledge).set({ status: 'processing', activity: [{ code: 'processing', at: new Date().toISOString(), detail: { runId: `burst-${at}-${id}` } }] }).where(eq(schema.knowledge.id, id));
+      await db().update(schema.knowledgeCostRun).set({ status: 'processing', runId: `burst-${at}-${id}`, heartbeatAt: new Date() }).where(eq(schema.knowledgeCostRun.knowledgeId, id));
+    }
+    expect(await knowledge.processKnowledge(waiting, { profile: false })).toBeNull();
+    expect(await knowledge.knowledgeDetail(ree.id, waiting)).toMatchObject({ status: 'pending' });
+    expect(await knowledge.queuedKnowledge(500)).toContain(waiting);
+    /* Other kinds do not wait for a slot. */
+    const note = await knowledge.addKnowledge(userId, ree, { kind: 'text', title: 'Note', content: 'Text never queues behind repositories.' });
+    expect(await knowledge.processKnowledge(note, { profile: false })).toBe(ree.id);
+    /* The queue offers them only once their own after-response run has had a minute to take them. */
+    const missed = await knowledge.addKnowledge(userId, ree, { kind: 'text', title: 'Missed', content: 'Its after-response run never started.' });
+    expect(await knowledge.queuedKnowledge(500)).not.toContain(missed);
+    await db().update(schema.knowledge).set({ updatedAt: new Date(Date.now() - 2 * 60_000) }).where(eq(schema.knowledge.id, missed));
+    expect(await knowledge.queuedKnowledge(500)).toContain(missed);
+    await knowledge.processQueued([missed, waiting]);
+    expect(await knowledge.knowledgeDetail(ree.id, missed)).toMatchObject({ status: 'ready' });
+    expect(await knowledge.knowledgeDetail(ree.id, waiting)).toMatchObject({ status: 'pending' });
+
+    /* One run stops beating: it no longer holds a slot, and the waiting repository starts. */
+    await db().update(schema.knowledgeCostRun).set({ heartbeatAt: new Date(Date.now() - 10 * 60_000) }).where(eq(schema.knowledgeCostRun.knowledgeId, busy[0]!));
+    expect(await knowledge.processKnowledge(waiting, { profile: false })).toBe(ree.id);
+    expect(await knowledge.knowledgeDetail(ree.id, waiting)).toMatchObject({ status: 'ready' });
+    expect(await knowledge.queuedKnowledge(500)).not.toContain(waiting);
+
+    /* The stand-in runs are failed and their reservations returned, so nothing is left open. */
+    await knowledge.recoverStale(ree.id, new Date(Date.now() + 30 * 60_000), { resume: false });
+    for (const id of busy) expect(await knowledge.knowledgeDetail(ree.id, id)).toMatchObject({ status: 'failed', error: 'interrupted' });
   });
 
   it('reads public repositories with GITHUB_READ_TOKEN, but never a private one on an owner\'s behalf', async () => {

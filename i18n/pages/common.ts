@@ -71,7 +71,7 @@ export const zh = {
     site: '整站',
     text: '粘贴文本',
   },
-  status: { pending: '待处理', processing: '处理中', ready: '已就绪', failed: '处理失败' },
+  status: { pending: '排队中', processing: '处理中', ready: '已就绪', failed: '处理失败' },
   colors: { default: '电光蓝', lilac: '薰衣草', sand: '沙色', sage: '鼠尾草', rose: '玫瑰', slate: '石板' },
   categories: {
     technology: '技术与 AI',

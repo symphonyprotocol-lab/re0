@@ -27,7 +27,7 @@ describe('source URLs', () => {
   it('reads GitHub repository URLs in their common shapes', () => {
     expect(parseGithubRepo('https://github.com/vercel/next.js')).toEqual({ owner: 'vercel', name: 'next.js' });
     expect(parseGithubRepo('https://github.com/acme/handbook.git')).toEqual({ owner: 'acme', name: 'handbook' });
-    expect(parseGithubRepo('https://www.github.com/acme/handbook/tree/main/docs')).toEqual({ owner: 'acme', name: 'handbook' });
+    expect(parseGithubRepo('https://www.github.com/acme/handbook/issues/12')).toEqual({ owner: 'acme', name: 'handbook' });
     expect(parseGithubRepo('acme/handbook')).toEqual({ owner: 'acme', name: 'handbook' });
     expect(parseGithubRepo('https://github.com/acme')).toBeNull();
     expect(parseGithubRepo('https://gitlab.com/acme/handbook')).toBeNull();
