@@ -10,6 +10,7 @@ import { fuse, hasEvidence, isLibraryQuestion, keywordCoverage, overviewText, se
 import { likePattern } from '@/lib/domain/list';
 import { embedTexts } from '@/lib/infra/ai/models';
 import { db, schema } from '@/lib/infra/db';
+import { chunkVector, spaceOf } from '@/lib/services/embedding-space';
 
 export type Conversation = typeof schema.conversation.$inferSelect;
 export type MessageRow = typeof schema.message.$inferSelect;
@@ -200,8 +201,10 @@ export function answerable(): SQL[] {
  */
 export async function retrieve(reeId: string, question: string, embedded?: QuestionVector): Promise<Retrieval> {
   const database = db();
-  const { vector, model } = embedded ?? (await embedQuestion(question));
+  const { vector, model, space } = embedded ?? (await embedQuestion(question));
   const literal = `[${vector.join(',')}]`;
+  /* Only passages with a vector in the question's space: never a comparison across models (embedding-space.ts). */
+  const stored = chunkVector(space);
   const semantic = await database
     .select({
       id: schema.chunk.id,
@@ -210,12 +213,12 @@ export async function retrieve(reeId: string, question: string, embedded?: Quest
       locator: schema.chunk.locator,
       title: schema.knowledge.title,
       kind: schema.knowledge.kind,
-      similarity: sql<number>`1 - (${schema.chunk.embedding} <=> ${literal}::vector)`,
+      similarity: sql<number>`1 - (${stored} <=> ${literal}::vector)`,
     })
     .from(schema.chunk)
     .innerJoin(schema.knowledge, eq(schema.knowledge.id, schema.chunk.knowledgeId))
-    .where(and(eq(schema.chunk.reeId, reeId), ...answerable()))
-    .orderBy(sql`(${schema.chunk.embedding} <=> ${literal}::vector) + 0`)
+    .where(and(eq(schema.chunk.reeId, reeId), ...answerable(), sql`${stored} is not null`))
+    .orderBy(sql`(${stored} <=> ${literal}::vector) + 0`)
     .limit(RETRIEVAL_RECALL);
 
   const terms = searchTerms(question);
@@ -324,11 +327,13 @@ export async function sourceOverviews(reeId: string, ranked: readonly string[]):
 export interface QuestionVector {
   vector: number[];
   model: string;
+  /** The embedding space `vector` is in; retrieval compares it with that space's vectors only. */
+  space: string;
 }
 
 /** One embedding per question, shared by every asked Ree and by the suggestions. */
 export async function embedQuestion(question: string): Promise<QuestionVector> {
   const { vectors, endpoint } = await embedTexts([question]);
-  return { vector: vectors[0]!, model: endpoint.model };
+  return { vector: vectors[0]!, model: endpoint.model, space: spaceOf(endpoint) };
 }
 

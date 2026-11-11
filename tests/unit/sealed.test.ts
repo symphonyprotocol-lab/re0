@@ -22,10 +22,21 @@ describe('sealed tickets', () => {
   });
 
   it('refuses tampering', async () => {
+    /*
+     * Each seal has a random IV, so tamper with many: the changed character is
+     * always different from the one it replaces, and is the first one, whose
+     * six bits are all data (a base64url string's last character can carry
+     * padding bits a change to it may not touch).
+     */
+    for (let round = 0; round < 64; round += 1) {
+      const sealed = await seal('github-connect', { purpose: 'github_connect' });
+      const [v, i, d] = sealed.split('.');
+      const flipped = `${v}.${i}.${d!.startsWith('A') ? 'B' : 'A'}${d!.slice(1)}`;
+      expect(flipped).not.toBe(sealed);
+      expect(await unseal('github-connect', flipped)).toBeNull();
+    }
     const ticket = await seal('github-connect', { purpose: 'github_connect' });
-    const [version, iv, data] = ticket.split('.');
-    const flipped = `${version}.${iv}.${data!.slice(0, -2)}${data!.endsWith('A') ? 'B' : 'A'}${data!.slice(-1)}`;
-    expect(await unseal('github-connect', flipped)).toBeNull();
+    const [, iv, data] = ticket.split('.');
     expect(await unseal('github-connect', `${iv}.${data}`, () => true)).toBeNull();
     expect(await unseal('github-connect', '')).toBeNull();
     expect(await unseal('github-connect', 'v2.only')).toBeNull();

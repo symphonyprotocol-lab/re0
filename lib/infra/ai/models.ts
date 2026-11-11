@@ -39,6 +39,8 @@ export interface ModelEndpoint {
   apiKey: string | null;
   timeoutMs: number;
   source: 'console' | 'environment' | 'default';
+  /** Embedding only: the space of the vectors this entry makes while enabled (null: the base space; lib/services/embedding-space.ts). */
+  space?: string | null;
 }
 
 const ENV_PREFIX: Record<ModelKind, string> = {
@@ -122,6 +124,7 @@ export async function consoleEndpoint(row: typeof schema.modelConfig.$inferSelec
     apiKey,
     timeoutMs: row.timeoutMs,
     source: 'console',
+    ...(row.kind === 'embedding' ? { space: row.embeddingSpace } : {}),
   };
 }
 

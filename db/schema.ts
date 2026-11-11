@@ -248,13 +248,18 @@ export const chunk = pgTable(
     reeId: uuid('ree_id').notNull(),
     ordinal: integer('ordinal').notNull(),
     content: text('content').notNull(),
-    embedding: vector('embedding', { dimensions: 1536 }).notNull(),
-    /**
-     * Beyond 4: the candidate model's vector while a re-embed job runs (2.5).
-     * Retrieval keeps reading `embedding`; the job's last step moves these
-     * over in one statement and clears them.
+    /*
+     * Two vector slots, each tagged with the embedding space it belongs to
+     * (lib/services/embedding-space.ts). Neither slot is "the current one":
+     * retrieval reads whichever carries the space its question was embedded
+     * in, so a model switch is a one-row flip of the active space and never
+     * rewrites these (2.5, reembed.ts). A slot with no vector has no tag;
+     * `embedding` without a tag is a vector stored before 0044, in the base space.
      */
+    embedding: vector('embedding', { dimensions: 1536 }),
+    embeddingSpace: uuid('embedding_space'),
     embeddingNext: vector('embedding_next', { dimensions: 1536 }),
+    embeddingNextSpace: uuid('embedding_next_space'),
     locator: jsonb('locator').$type<Locator>().notNull().default({}),
   },
   (t) => [
@@ -263,8 +268,8 @@ export const chunk = pgTable(
     /*
      * No vector index: retrieval is an exact scan within one Ree (`+ 0` in
      * chat.ts / explore.ts keeps the planner off one), and an HNSW index made
-     * every write -- above all the model switch's swap of every passage,
-     * reembed.ts `finish` -- rebuild graph entries nobody reads (0038).
+     * every write rebuild graph entries nobody reads (0038). With vectors of
+     * two spaces side by side, one would also have to be per space.
      */
   ],
 );
@@ -612,6 +617,12 @@ export const modelConfig = pgTable(
     enabled: boolean('enabled').notNull().default(false),
     /** Generation has independent Free and Plan activation slots. */
     enabledPlan: boolean('enabled_plan').notNull().default(false),
+    /**
+     * Embedding only: the space its vectors are tagged with while it is the
+     * enabled entry, set when it is enabled (null: the base space, see
+     * lib/services/embedding-space.ts).
+     */
+    embeddingSpace: uuid('embedding_space'),
     lastProbeAt: timestampTz('last_probe_at'),
     lastProbeOk: boolean('last_probe_ok'),
     updatedBy: uuid('updated_by'),
@@ -1076,6 +1087,8 @@ export const reeProfileVector = pgTable(
       .references(() => ree.id, { onDelete: 'cascade' }),
     kind: text('kind').$type<'profile' | 'sample_question' | 'centroid'>().notNull(),
     embedding: vector('embedding', { dimensions: 1536 }).notNull(),
+    /** The embedding space of `embedding`; null for rows made before 0044 (the base space). */
+    embeddingSpace: uuid('embedding_space'),
     updatedAt: timestampTz('updated_at').notNull().defaultNow(),
   },
   (t) => [
@@ -1161,10 +1174,10 @@ export const notice = pgTable(
 );
 
 /**
- * A full re-embed (2.5): every chunk gets the candidate model's vector in
- * `chunk.embedding_next` while retrieval stays on the old one; the last step
- * swaps both columns and the enabled entry in one transaction. One running
- * job at a time. `done` and `total` count chunks.
+ * A full re-embed (2.5): every chunk gets the candidate model's vector,
+ * tagged with the job's `space`, in its spare slot while retrieval stays on
+ * the old space; the last step enables the candidate with that space, one
+ * row. One running job at a time. `done` and `total` count chunks.
  */
 export const reembedJob = pgTable(
   'reembed_job',
@@ -1177,6 +1190,10 @@ export const reembedJob = pgTable(
     status: text('status').$type<'running' | 'done' | 'failed'>().notNull().default('running'),
     total: integer('total').notNull().default(0),
     done: integer('done').notNull().default(0),
+    /** The embedding space the candidate's vectors are tagged with: new per job, or the failed job's it resumes. */
+    space: uuid('space').notNull(),
+    /** Sources stored while the job runs; the switch only happens if none arrived since its last look. */
+    arrived: integer('arrived').notNull().default(0),
     /** Beyond 4: why it failed, and who started it. */
     error: text('error'),
     startedBy: uuid('started_by'),

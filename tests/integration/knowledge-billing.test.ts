@@ -13,7 +13,7 @@ import { REEMBED_BATCH, WELCOME_CREDITS } from '@/lib/constants';
 import { afterAll, beforeAll, describe, expect, it, vi } from 'vitest';
 import { pointModelsAt, TEST_DATABASE_URL, uniqueName } from './setup';
 import { and, eq, inArray, sql } from 'drizzle-orm';
-import { startFakeOpenAi, type FakeOpenAi } from '../fixtures/fake-openai';
+import { fakeEmbedding, startFakeOpenAi, type FakeOpenAi } from '../fixtures/fake-openai';
 import { debtOf } from './billing-audit';
 
 vi.mock('@/lib/infra/blob', () => ({
@@ -41,6 +41,8 @@ const { chunkOverheadBytes, defaultInfraCostRates } = await import('@/lib/domain
 const metered = await import('@/lib/services/metered-work');
 const { withProviderMeter, prepareProviderCall } = await import('@/lib/infra/ai/provider-meter');
 const { providerPrices } = await import('@/lib/services/provider-pricing');
+const chat = await import('@/lib/services/chat');
+const { activeSpace, BASE_SPACE, chunkHasSpace, chunkVector } = await import('@/lib/services/embedding-space');
 
 let fake: FakeOpenAi;
 beforeAll(async () => {
@@ -166,6 +168,10 @@ describeWithDb('P3: re-embedding after a model switch', () => {
   }
   async function switchTeardown() {
     fake.embeddings.failModel = null;
+    fake.embeddings.shift = {};
+    fake.embeddings.beforeAnswer = null;
+    /* A test that failed mid-job must not leave the job running or its entry in charge for the files that follow. */
+    await db().update(schema.reembedJob).set({ status: 'failed' }).where(eq(schema.reembedJob.status, 'running'));
     await db().update(schema.modelConfig).set({ enabled: false }).where(eq(schema.modelConfig.kind, 'embedding'));
     forgetModelCache();
   }
@@ -224,7 +230,7 @@ describeWithDb('P3: re-embedding after a model switch', () => {
       fake.embeddings.after = 1;
       const first = await reembed.startReembed(adminId, next.id);
       expect((await reembed.runReembed(60_000))!.status).toBe('failed');
-      const kept = await db().select({ id: schema.chunk.id, content: schema.chunk.content }).from(schema.chunk).where(sql`embedding_next is not null`);
+      const kept = await db().select({ id: schema.chunk.id, content: schema.chunk.content }).from(schema.chunk).where(chunkHasSpace(first!.space));
       expect(kept.length).toBeGreaterThan(0);
       // The failed job is settled at what it spent: every run closed, none left holding.
       await reembed.runReembed(60_000);
@@ -234,9 +240,12 @@ describeWithDb('P3: re-embedding after a model switch', () => {
 
       fake.embeddings.failModel = null;
       const sentAgain = fake.requests.length;
+      // Until then answers stayed on the old space.
+      expect(await activeSpaceNow()).toBe(BASE_SPACE);
       const second = await reembed.startReembed(adminId, next.id);
+      expect(second!.space).toBe(first!.space);
       expect(second!.done).toBe(kept.length);
-      expect(await db().select({ id: schema.chunk.id }).from(schema.chunk).where(sql`embedding_next is not null`)).toHaveLength(kept.length);
+      expect(await db().select({ id: schema.chunk.id }).from(schema.chunk).where(chunkHasSpace(second!.space))).toHaveLength(kept.length);
       expect((await reembed.runReembed(120_000))!.status).toBe('done');
       // The restart embedded exactly the passages the failed job had not.
       const all = await db().select({ content: schema.chunk.content }).from(schema.chunk);
@@ -255,6 +264,195 @@ describeWithDb('P3: re-embedding after a model switch', () => {
     expect(Number(rows[0]!.n)).toBe(0);
   });
 });
+
+async function activeSpaceNow(): Promise<string> {
+  const { rows } = await db().execute<{ space: string }>(sql`select ${activeSpace}::text as space`);
+  return rows[0]!.space;
+}
+
+/** How many of a Ree's chunks have a vector in `space`. */
+async function inSpace(reeId: string, space: string): Promise<number> {
+  const [row] = await db().select({ n: sql<number>`count(*)::int` }).from(schema.chunk).where(and(eq(schema.chunk.reeId, reeId), chunkHasSpace(space)));
+  return row!.n;
+}
+
+describeWithDb('M13: the switch is one row, and answers never mix two models', () => {
+  const SHIFT = 700;
+  async function setup() {
+    await db().update(schema.reembedJob).set({ status: 'failed' }).where(eq(schema.reembedJob.status, 'running'));
+    await db().update(schema.modelConfig).set({ enabled: false }).where(eq(schema.modelConfig.kind, 'embedding'));
+    forgetModelCache();
+    fake.embeddings.shift = { 'fake-embed-2': SHIFT };
+    const [admin] = await db().insert(schema.administrator).values({ name: 'Reviewer', email: `${uniqueName('admin')}@example.test`, passwordHash: 'x', totpSecretCipher: 'x' }).returning({ id: schema.administrator.id });
+    const [next] = await db().insert(schema.modelConfig).values({ name: uniqueName('next'), kind: 'embedding', transport: 'openai_compatible', baseUrl: fake.baseUrl, model: 'fake-embed-2' }).returning();
+    return { adminId: admin!.id, next: next! };
+  }
+  async function teardown() {
+    fake.embeddings.failModel = null;
+    fake.embeddings.shift = {};
+    fake.embeddings.beforeAnswer = null;
+    /* A test that failed mid-job must not leave the job running or its entry in charge for the files that follow. */
+    await db().update(schema.reembedJob).set({ status: 'failed' }).where(eq(schema.reembedJob.status, 'running'));
+    await db().update(schema.modelConfig).set({ enabled: false }).where(eq(schema.modelConfig.kind, 'embedding'));
+    forgetModelCache();
+  }
+  /*
+   * A question in the base space whose similarity to passage j (stored as the
+   * one-hot `vector(j)`) is exactly weight(j): any passage compared through
+   * the other model's vector would show a different similarity.
+   */
+  const weights = Array.from({ length: 1536 }, (_, index) => (index < 400 ? 1 + (index % 7) : 0));
+  const norm = Math.hypot(...weights);
+  const baseQuestion = { vector: weights.map((w) => w / norm), model: 'base', space: BASE_SPACE };
+  /* What passage `content` must score against the base question: its one-hot seed, or (the source stored mid-job) the fake's own vector. */
+  const baseSimilarity = (content: string) => {
+    const seeded = /^The office opens at nine, passage (\d+)\.$/.exec(content);
+    return seeded ? weights[Number(seeded[1])]! / norm : cosine(baseQuestion.vector, fakeEmbedding(content));
+  };
+
+  async function expectBaseAnswers(reeId: string) {
+    const found = await chat.retrieve(reeId, 'qqqq', baseQuestion);
+    expect(found.passages.length).toBeGreaterThan(0);
+    for (const passage of found.passages) expect(passage.similarity).toBeCloseTo(baseSimilarity(passage.content), 6);
+  }
+  async function expectSpaceAnswers(reeId: string, space: string, content: string) {
+    const found = await chat.retrieve(reeId, 'qqqq', { vector: fakeEmbedding(content, SHIFT), model: 'fake-embed-2', space });
+    /* Only passages already embedded in the new space are found, each through its new vector. */
+    for (const passage of found.passages) expect(passage.similarity).toBeCloseTo(cosine(fakeEmbedding(content, SHIFT), fakeEmbedding(passage.content, SHIFT)), 6);
+    return found;
+  }
+
+  it('switches across several batches with answers between them on one model only; a source stored mid-job joins the queue', async () => {
+    const owner = await newUser();
+    const { ree } = await reeWith(owner, { passages: REEMBED_BATCH * 3 + 7, isPublic: false });
+    const { adminId, next } = await setup();
+    try {
+      const job = await reembed.startReembed(adminId, next.id);
+      expect(job!.space).not.toBe(BASE_SPACE);
+      const total = REEMBED_BATCH * 3 + 7;
+      const seen: number[] = [];
+      let stored: string | null = null;
+      fake.embeddings.beforeAnswer = async (model) => {
+        /* The job's own calls only: after the switch, profiles are rebuilt with the new model too. */
+        if (model !== 'fake-embed-2' || (await reembed.runningReembedJob())?.id !== job!.id) return;
+        /* Between batches: the old space answers whole, the new one partly, and neither through the other's vectors. */
+        await expectBaseAnswers(ree.id);
+        expect(await inSpace(ree.id, BASE_SPACE)).toBe(total + (stored ? 1 : 0));
+        const embedded = await inSpace(ree.id, job!.space);
+        seen.push(embedded);
+        await expectSpaceAnswers(ree.id, job!.space, 'The office opens at nine, passage 5.');
+        expect(await activeSpaceNow()).toBe(BASE_SPACE);
+        if (!stored) {
+          /* A source stored while the job runs: the active model's vector only, counted on the job. */
+          fake.embeddings.beforeAnswer = null;
+          const [row] = await db().insert(schema.knowledge).values({ reeId: ree.id, kind: 'text', title: 'Late', originalTitle: 'Late', status: 'pending', content: 'A late note: the office opens at nine on holidays too.' }).returning({ id: schema.knowledge.id });
+          await db().transaction((tx) => placeHoldFor(tx, owner, row!.id));
+          await knowledge.processKnowledge(row!.id, { profile: false });
+          stored = row!.id;
+          const [late] = await db().select({ space: schema.chunk.embeddingSpace, next: schema.chunk.embeddingNextSpace }).from(schema.chunk).where(eq(schema.chunk.knowledgeId, row!.id));
+          expect(late).toMatchObject({ space: BASE_SPACE, next: null });
+          const [counted] = await db().select({ arrived: schema.reembedJob.arrived }).from(schema.reembedJob).where(eq(schema.reembedJob.id, job!.id));
+          expect(counted!.arrived).toBe(1);
+          fake.embeddings.beforeAnswer = hook;
+        }
+      };
+      const hook = fake.embeddings.beforeAnswer;
+      const done = await reembed.runReembed(120_000);
+      expect(done!.status).toBe('done');
+      expect(seen.length).toBeGreaterThanOrEqual(3);
+      expect(seen).toEqual([...seen].sort((a, b) => a - b));
+      /* The switch was the entry's row: every passage, the late one too, has its vector in the new space, and the old ones are untouched. */
+      expect(await activeSpaceNow()).toBe(job!.space);
+      expect(await inSpace(ree.id, job!.space)).toBe(total + 1);
+      expect(await inSpace(ree.id, BASE_SPACE)).toBe(total + 1);
+      const [lateChunk] = await db().select({ content: schema.chunk.content }).from(schema.chunk).where(eq(schema.chunk.knowledgeId, stored!));
+      const late = await expectSpaceAnswers(ree.id, job!.space, lateChunk!.content);
+      expect(late.passages[0]!.content).toBe(lateChunk!.content);
+      expect(late.passages[0]!.similarity).toBeCloseTo(1, 6);
+      // An answer still in flight with an old-space question reads the old vectors, not the new ones.
+      await expectBaseAnswers(ree.id);
+      // The late source's re-embedding was billed to its owner on the job's run, once.
+      const runs = await runsOf(owner, 'reembed');
+      expect(runs).toHaveLength(1);
+    } finally {
+      await teardown();
+    }
+  }, 180_000);
+
+  it('a failed job leaves answers on the old model; overlapping runners finish the restart once, billing each owner once', async () => {
+    const owner = await newUser();
+    const { ree } = await reeWith(owner, { passages: REEMBED_BATCH + 3, isPublic: false });
+    const { adminId, next } = await setup();
+    try {
+      fake.embeddings.failModel = 'fake-embed-2';
+      fake.embeddings.after = 0;
+      const first = await reembed.startReembed(adminId, next.id);
+      expect((await reembed.runReembed(60_000))!.status).toBe('failed');
+      expect(await activeSpaceNow()).toBe(BASE_SPACE);
+      await expectBaseAnswers(ree.id);
+      fake.embeddings.failModel = null;
+      const second = await reembed.startReembed(adminId, next.id);
+      expect(second!.space).toBe(first!.space);
+      /* Two cron invocations at once: one claims the job, the other leaves it. */
+      const [a, b] = await Promise.all([reembed.runReembed(120_000), reembed.runReembed(120_000)]);
+      expect([a!.status, b!.status]).toContain('done');
+      await reembed.runReembed(30_000);
+      expect(await activeSpaceNow()).toBe(second!.space);
+      expect(await inSpace(ree.id, second!.space)).toBe(REEMBED_BATCH + 3);
+      const runs = await runsOf(owner, 'reembed');
+      expect(runs.filter((run) => run.runId === `reembed:${second!.id}:${owner}`)).toHaveLength(1);
+      expect(runs.every((run) => run.status !== 'processing')).toBe(true);
+    } finally {
+      await teardown();
+    }
+  }, 180_000);
+
+  it('clears the old space in batches after the grace period, keeps what answers or a restart needs, and overlapping runs clear each vector once', async () => {
+    const owner = await newUser();
+    const { ree } = await reeWith(owner, { passages: 12, isPublic: false });
+    const { adminId, next } = await setup();
+    try {
+      const job = await reembed.startReembed(adminId, next.id);
+      expect((await reembed.runReembed(120_000))!.status).toBe('done');
+      // Within the grace period nothing is cleared: a question embedded just before the switch still reads the old space.
+      expect(await reembed.cleanupEmbeddingSpaces(Date.now() + 30_000)).toBe(0);
+      expect(await inSpace(ree.id, BASE_SPACE)).toBe(12);
+
+      // A failed job to another entry: its vectors are kept for a restart.
+      const [other] = await db().insert(schema.modelConfig).values({ name: uniqueName('other'), kind: 'embedding', transport: 'openai_compatible', baseUrl: fake.baseUrl, model: 'fake-embed-3' }).returning();
+      fake.embeddings.failModel = 'fake-embed-3';
+      fake.embeddings.after = 1;
+      const failed = await reembed.startReembed(adminId, other!.id);
+      expect((await reembed.runReembed(60_000))!.status).toBe('failed');
+      fake.embeddings.failModel = null;
+      const keptForRestart = await db().select({ n: sql<number>`count(*)::int` }).from(schema.chunk).where(chunkHasSpace(failed!.space));
+      expect(keptForRestart[0]!.n).toBeGreaterThan(0);
+
+      const later = () => new Date(Date.now() + 11 * 60_000);
+      const stale = await db().select({ n: sql<number>`count(*)::int` }).from(schema.chunk).where(sql`(embedding is not null and coalesce(embedding_space, ${BASE_SPACE}::uuid) not in (${job!.space}::uuid, ${failed!.space}::uuid)) or (embedding_next is not null and (embedding_next_space is null or embedding_next_space not in (${job!.space}::uuid, ${failed!.space}::uuid)))`);
+      const [x, y] = await Promise.all([reembed.cleanupEmbeddingSpaces(Date.now() + 60_000, later), reembed.cleanupEmbeddingSpaces(Date.now() + 60_000, later)]);
+      expect(x + y).toBe(stale[0]!.n);
+      expect(await reembed.cleanupEmbeddingSpaces(Date.now() + 60_000, later)).toBe(0);
+      expect(await inSpace(ree.id, BASE_SPACE)).toBe(0);
+      expect(await inSpace(ree.id, job!.space)).toBe(12);
+      expect((await db().select({ n: sql<number>`count(*)::int` }).from(schema.chunk).where(chunkHasSpace(failed!.space)))[0]!.n).toBe(keptForRestart[0]!.n);
+      // Answers in the active space are whole; an old-space question finds nothing rather than another model's vectors.
+      const found = await expectSpaceAnswers(ree.id, job!.space, 'The office opens at nine, passage 3.');
+      expect(found.passages[0]!.similarity).toBeCloseTo(1, 6);
+      expect((await chat.retrieve(ree.id, 'qqqq', baseQuestion)).passages).toHaveLength(0);
+      const [{ vectors }] = (await db().execute<{ vectors: string }>(sql`select count(${chunkVector(job!.space)})::text as vectors from chunk where ree_id = ${ree.id}`)).rows as [{ vectors: string }];
+      expect(Number(vectors)).toBe(12);
+    } finally {
+      await teardown();
+    }
+  }, 180_000);
+});
+
+function cosine(a: number[], b: number[]): number {
+  let dot = 0;
+  for (let index = 0; index < a.length; index += 1) dot += a[index]! * b[index]!;
+  return dot / (Math.hypot(...a) * Math.hypot(...b));
+}
 
 /** `all` without one occurrence of each of `taken`. */
 function subtract(all: string[], taken: string[]): string[] {

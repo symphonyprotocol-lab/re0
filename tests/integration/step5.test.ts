@@ -11,7 +11,7 @@
  */
 import { WELCOME_CREDITS } from '@/lib/constants';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
-import { and, eq, inArray, isNotNull, lt, sql } from 'drizzle-orm';
+import { and, eq, inArray, lt, sql } from 'drizzle-orm';
 import { pointModelsAt, TEST_DATABASE_URL, uniqueName } from './setup';
 import { consoleAdministrator } from '../fixtures/console-administrator';
 import { startFakeOpenAi, type FakeOpenAi } from '../fixtures/fake-openai';
@@ -30,6 +30,7 @@ const admin = await import('@/lib/services/admin');
 const statistics = await import('@/lib/services/statistics');
 const adminPurchases = await import('@/lib/services/admin-purchases');
 const reembed = await import('@/lib/services/reembed');
+const { activeSpace, chunkVector } = await import('@/lib/services/embedding-space');
 const models = await import('@/lib/services/models');
 const reesService = await import('@/lib/services/rees');
 const profile = await import('@/lib/services/profile');
@@ -430,44 +431,53 @@ describeWithDb('embedding switch', () => {
       .values({ name: 'broken', kind: 'embedding', transport: 'openai_compatible', baseUrl: 'http://127.0.0.1:9/v1', model: 'nothing', timeoutMs: 1000 })
       .returning();
     forgetModelCache();
-    const before = await db().select({ id: schema.chunk.id, embedding: schema.chunk.embedding }).from(schema.chunk).limit(5);
+    try {
+      const before = await db().select({ id: schema.chunk.id, embedding: schema.chunk.embedding }).from(schema.chunk).orderBy(schema.chunk.id).limit(5);
 
-    const failing = await models.activateModelConfig(reviewer, broken!.id);
-    expect(failing).toMatchObject({ activated: false, reembed: true });
-    await expect(models.activateModelConfig(reviewer, broken!.id)).rejects.toMatchObject({ code: 'job_running' });
-    expect((await endpointFor('embedding')).configId).toBe(old!.id);
-    const failed = await reembed.runReembed(30_000);
-    expect(failed!.status).toBe('failed');
-    expect((await endpointFor('embedding', Date.now() + 120_000)).configId).toBe(old!.id);
-    expect(await db().select({ id: schema.chunk.id }).from(schema.chunk).where(isNotNull(schema.chunk.embeddingNext)).limit(1)).toHaveLength(0);
+      const failing = await models.activateModelConfig(reviewer, broken!.id);
+      expect(failing).toMatchObject({ activated: false, reembed: true });
+      await expect(models.activateModelConfig(reviewer, broken!.id)).rejects.toMatchObject({ code: 'job_running' });
+      expect((await endpointFor('embedding')).configId).toBe(old!.id);
+      const failed = await reembed.runReembed(30_000);
+      expect(failed!.status).toBe('failed');
+      expect((await endpointFor('embedding', Date.now() + 120_000)).configId).toBe(old!.id);
+      expect(await db().select({ id: schema.chunk.id }).from(schema.chunk).where(sql`${chunkVector(failed!.space)} is not null`).limit(1)).toHaveLength(0);
 
-    const [next] = await db()
-      .insert(schema.modelConfig)
-      .values({ name: 'next', kind: 'embedding', transport: 'openai_compatible', baseUrl: fake.baseUrl, model: 'fake-embed-2' })
-      .returning();
-    const started = await reembed.startReembed(reviewer, next!.id);
-    expect(started).toMatchObject({ status: 'running', done: 0 });
-    /* The candidate is frozen while its vectors are being made. */
-    await expect(models.updateModelConfig(reviewer, next!.id, { name: 'next', transport: 'openai_compatible', baseUrl: fake.baseUrl, model: 'other-embed', timeoutMs: 60000 })).rejects.toMatchObject({ code: 'locked' });
-    /* Mid-job: nothing that answers has changed. */
-    const unchanged = await db().select({ id: schema.chunk.id, embedding: schema.chunk.embedding }).from(schema.chunk).where(inArray(schema.chunk.id, before.map((row) => row.id)));
-    expect(unchanged.map((row) => row.embedding)).toEqual(before.map((row) => row.embedding));
-    const done = await reembed.runReembed(120_000);
-    expect(done!.status).toBe('done');
-    expect(done!.done).toBe(done!.total);
-    forgetModelCache();
-    expect((await endpointFor('embedding')).configId).toBe(next!.id);
-    const [{ n }] = (await db().select({ n: sql<number>`count(*)::int` }).from(schema.chunk).where(isNotNull(schema.chunk.embeddingNext))) as [{ n: number }];
-    expect(n).toBe(0);
-    /* Step 4's profiles were rebuilt with the new model after the switch. */
-    const stale = await db().select({ id: schema.reeProfileVector.id }).from(schema.reeProfileVector).where(lt(schema.reeProfileVector.updatedAt, done!.finishedAt!));
-    expect(stale).toHaveLength(0);
-    expect(await profileVectors(indexed.id)).toBeGreaterThan(0);
-    expect((await adminAudit.listAudit(await consoleAdministrator(), auditView({ action: 'model.reembed.done' }))).total).toBeGreaterThan(0);
-    expect((await adminAudit.listAudit(await consoleAdministrator(), auditView({ action: 'model.reembed.failed' }))).total).toBeGreaterThan(0);
-    /* Leave the environment's model in charge for the files that follow. */
-    await db().update(schema.modelConfig).set({ enabled: false }).where(eq(schema.modelConfig.kind, 'embedding'));
-    forgetModelCache();
+      const [next] = await db()
+        .insert(schema.modelConfig)
+        .values({ name: 'next', kind: 'embedding', transport: 'openai_compatible', baseUrl: fake.baseUrl, model: 'fake-embed-2' })
+        .returning();
+      const started = await reembed.startReembed(reviewer, next!.id);
+      expect(started).toMatchObject({ status: 'running', done: 0 });
+      /* The candidate is frozen while its vectors are being made. */
+      await expect(models.updateModelConfig(reviewer, next!.id, { name: 'next', transport: 'openai_compatible', baseUrl: fake.baseUrl, model: 'other-embed', timeoutMs: 60000 })).rejects.toMatchObject({ code: 'locked' });
+      /* Mid-job: nothing that answers has changed. */
+      const unchanged = await db().select({ id: schema.chunk.id, embedding: schema.chunk.embedding }).from(schema.chunk).where(inArray(schema.chunk.id, before.map((row) => row.id))).orderBy(schema.chunk.id);
+      expect(unchanged).toEqual(before);
+      const done = await reembed.runReembed(120_000);
+      expect(done!.status).toBe('done');
+      expect(done!.done).toBe(done!.total);
+      forgetModelCache();
+      expect((await endpointFor('embedding')).configId).toBe(next!.id);
+      /* Every passage has a vector in the space the switch made active; nothing was rewritten to get there. */
+      const [{ n }] = (await db().select({ n: sql<number>`count(*)::int` }).from(schema.chunk).where(sql`${chunkVector(activeSpace)} is null`)) as [{ n: number }];
+      expect(n).toBe(0);
+      /* Step 4's profiles were rebuilt with the new model after the switch. */
+      const stale = await db().select({ id: schema.reeProfileVector.id }).from(schema.reeProfileVector).where(lt(schema.reeProfileVector.updatedAt, done!.finishedAt!));
+      expect(stale).toHaveLength(0);
+      expect(await profileVectors(indexed.id)).toBeGreaterThan(0);
+      expect((await adminAudit.listAudit(await consoleAdministrator(), auditView({ action: 'model.reembed.done' }))).total).toBeGreaterThan(0);
+      expect((await adminAudit.listAudit(await consoleAdministrator(), auditView({ action: 'model.reembed.failed' }))).total).toBeGreaterThan(0);
+    } finally {
+      /*
+       * Leave the environment's model in charge for the files that follow, pass or fail: an entry
+       * left enabled points at this file's fake server, which closes with it, and no later file
+       * has a price for it.
+       */
+      await db().update(schema.reembedJob).set({ status: 'failed' }).where(eq(schema.reembedJob.status, 'running'));
+      await db().update(schema.modelConfig).set({ enabled: false }).where(eq(schema.modelConfig.kind, 'embedding'));
+      forgetModelCache();
+    }
   }, 60_000);
 });
 
