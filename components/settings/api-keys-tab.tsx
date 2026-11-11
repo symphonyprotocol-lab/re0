@@ -88,8 +88,7 @@ export function ApiKeysTab({ keys: initialKeys, mcpUrl }: { keys: ApiKeyView[]; 
   };
 
   const copy = async (value: string) => {
-    await navigator.clipboard.writeText(value);
-    toast(a.created.copied);
+    await navigator.clipboard.writeText(value).then(() => toast(a.created.copied), () => toast(t.common.errors.generic));
   };
 
   const snippets = connectSnippets(mcpUrl, PLACEHOLDER);
@@ -235,6 +234,7 @@ export function ApiKeysTab({ keys: initialKeys, mcpUrl }: { keys: ApiKeyView[]; 
       <Modal
         open={Boolean(secret)}
         onClose={() => setSecret(null)}
+        dismissible={false}
         title={a.created.title}
         subtitle={a.created.body}
         footer={

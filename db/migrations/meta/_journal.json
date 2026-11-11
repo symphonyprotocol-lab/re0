@@ -232,6 +232,76 @@
       "when": 1794149110765,
       "tag": "0033_mcp_api_keys",
       "breakpoints": true
+    },
+    {
+      "idx": 34,
+      "version": "7",
+      "when": 1794195806076,
+      "tag": "0034_knowledge_storage_billing",
+      "breakpoints": true
+    },
+    {
+      "idx": 35,
+      "version": "7",
+      "when": 1794197413808,
+      "tag": "0035_infra_cost_rates",
+      "breakpoints": true
+    },
+    {
+      "idx": 36,
+      "version": "7",
+      "when": 1794234669018,
+      "tag": "0036_redeem_codes",
+      "breakpoints": true
+    },
+    {
+      "idx": 37,
+      "version": "7",
+      "when": 1794281622414,
+      "tag": "0037_redeem_next_period",
+      "breakpoints": true
+    },
+    {
+      "idx": 38,
+      "version": "7",
+      "when": 1794283374905,
+      "tag": "0038_knowledge_billing_fixes",
+      "breakpoints": true
+    },
+    {
+      "idx": 39,
+      "version": "7",
+      "when": 1794288914262,
+      "tag": "0039_money_path_hardening",
+      "breakpoints": true
+    },
+    {
+      "idx": 40,
+      "version": "7",
+      "when": 1794289214262,
+      "tag": "0040_admin_invite_nonce",
+      "breakpoints": true
+    },
+    {
+      "idx": 41,
+      "version": "7",
+      "when": 1794296164412,
+      "tag": "0041_message_client_request",
+      "breakpoints": true
+    },
+    {
+      "idx": 42,
+      "version": "7",
+      "when": 1794305773608,
+      "tag": "0043_earned_restore",
+      "breakpoints": true
+    },
+    {
+      "idx": 43,
+      "version": "7",
+      "when": 1794317184983,
+      "tag": "0044_embedding_spaces",
+      "breakpoints": true
     }
   ]
 }

@@ -13,7 +13,7 @@
  * per IP and per account. The cards' figures are other people's questions
  * only, so an owner testing their own Ree does not move them.
  */
-import { and, asc, desc, eq, inArray, isNull, lt, sql, type SQL } from 'drizzle-orm';
+import { and, asc, desc, eq, inArray, isNull, sql, type SQL } from 'drizzle-orm';
 import {
   EXPLORE_EF_SEARCH,
   EXPLORE_PASSAGES,
@@ -26,13 +26,15 @@ import {
 } from '@/lib/constants';
 import type { SuggestedRee } from '@/lib/domain/chat-message';
 import { excerptOf, NEUTRAL_QUALITY, positiveRate, rankHits, type ExploreQuery } from '@/lib/domain/explore';
-import { clampPage, type ListResult } from '@/lib/domain/list';
+import { clampPage, type ListResult, isUuid } from '@/lib/domain/list';
 import { hasEvidence, keywordCoverage, searchTerms } from '@/lib/domain/retrieval';
 import { db, schema } from '@/lib/infra/db';
 import { answerable, embedQuestion, type QuestionVector } from '@/lib/services/chat';
+import { chunkVector, profileInSpace } from '@/lib/services/embedding-space';
 import type { IntroProps } from '@/lib/domain/video';
 import { introsFor } from '@/lib/services/video';
 import { votesByOthers } from '@/lib/services/ree-feedback';
+import { hitRateBucket } from '@/lib/services/rate-limit';
 
 const reeId = sql.raw('"ree"."id"');
 const reeOwner = sql.raw('"ree"."owner_id"');
@@ -142,6 +144,9 @@ export interface SearchHit {
  * scans that slice of the profile table exactly (`+ 0` keeps the planner off
  * the global index, which filters after it searches); otherwise the HNSW
  * index answers, with a candidate list long enough for 20 Rees × 16 vectors.
+ * Both levels read only vectors in the question's embedding space; right
+ * after a model switch, profiles not yet rebuilt in the new space drop out
+ * of the first level until `rebuildProfiles` reaches them (reembed.ts).
  */
 export async function searchRees(input: {
   question: string;
@@ -152,7 +157,7 @@ export async function searchRees(input: {
 }): Promise<SearchHit[]> {
   const database = db();
   const literal = `[${input.vector.vector.join(',')}]`;
-  const exclude = (input.exclude ?? []).filter((id) => /^[0-9a-f-]{36}$/i.test(id));
+  const exclude = (input.exclude ?? []).filter((id) => isUuid(id));
   /* A category can leave too few rows behind an index search; up to five excluded Rees only need a longer list (ef_search covers 25 × 16). */
   const filtered = Boolean(input.category);
   const distance = sql`${schema.reeProfileVector.embedding} <=> ${literal}::vector`;
@@ -165,6 +170,7 @@ export async function searchRees(input: {
       .where(
         and(
           publicRee(),
+          profileInSpace(input.vector.space),
           input.category ? eq(schema.ree.category, input.category) : undefined,
           exclude.length ? sql`${schema.ree.id} not in (${sql.join(exclude.map((id) => sql`${id}::uuid`), sql`, `)})` : undefined,
         ),
@@ -181,18 +187,19 @@ export async function searchRees(input: {
   });
   const candidates = firstLevel.map((row) => row.reeId);
   if (candidates.length === 0) return [];
+  const stored = chunkVector(input.vector.space);
 
   const passages = await database
     .select({
       reeId: schema.chunk.reeId,
       content: schema.chunk.content,
       title: schema.knowledge.title,
-      similarity: sql<number>`1 - (${schema.chunk.embedding} <=> ${literal}::vector)`,
+      similarity: sql<number>`1 - (${stored} <=> ${literal}::vector)`,
     })
     .from(schema.chunk)
     .innerJoin(schema.knowledge, eq(schema.knowledge.id, schema.chunk.knowledgeId))
-    .where(and(inArray(schema.chunk.reeId, candidates), ...answerable()))
-    .orderBy(sql`(${schema.chunk.embedding} <=> ${literal}::vector) + 0`)
+    .where(and(inArray(schema.chunk.reeId, candidates), ...answerable(), sql`${stored} is not null`))
+    .orderBy(sql`(${stored} <=> ${literal}::vector) + 0`)
     .limit(EXPLORE_PASSAGES);
 
   const terms = searchTerms(input.question);
@@ -241,6 +248,8 @@ export interface ExploreResult extends ListResult<ReeCard> {
 }
 
 const activity = sql<number>`coalesce((${schema.ree.rank} ->> 'activity30')::int, 0)`;
+/* Materialised hourly by `/api/cron/rank`: ordering by the live count aggregated every message of every public Ree per request. */
+const answersRanked = sql<number>`coalesce((${schema.ree.rank} ->> 'answersAll')::int, 0)`;
 const roleOrder = sql<number>`case ${schema.user.role} when 'official' then 2 when 'verified' then 1 else 0 end`;
 
 /**
@@ -271,7 +280,7 @@ export async function explore(query: ExploreQuery, { includeIntros = true } = {}
   const page = clampPage(query.page, total, query.size);
   const order = {
     active: [desc(activity), desc(roleOrder), desc(schema.ree.createdAt)],
-    answers: [desc(answersByOthers), desc(roleOrder), desc(schema.ree.createdAt)],
+    answers: [desc(answersRanked), desc(roleOrder), desc(schema.ree.createdAt)],
     free: [asc(schema.ree.queryFee), desc(roleOrder), desc(activity), desc(schema.ree.createdAt)],
   }[query.sort];
   const rows = await cardQuery()
@@ -294,22 +303,7 @@ export async function activeRees(limit: number): Promise<ReeCard[]> {
 
 /* ----------------------------------------------------------- rate limits */
 
-/**
- * Counts one hit against `key` in a fixed window and answers whether it is
- * still within `limit`. A key over its limit keeps counting, so hammering
- * does not open the window early. Windows of up to an hour only: the
- * hourly job clears older ones.
- */
-export async function hitRateBucket(key: string, limit: number, windowSeconds: number, now = new Date()): Promise<boolean> {
-  const windowMs = windowSeconds * 1_000;
-  const windowStart = new Date(Math.floor(now.getTime() / windowMs) * windowMs);
-  const [row] = await db()
-    .insert(schema.rateBucket)
-    .values({ key, windowStart, hits: 1 })
-    .onConflictDoUpdate({ target: [schema.rateBucket.key, schema.rateBucket.windowStart], set: { hits: sql`${schema.rateBucket.hits} + 1` } })
-    .returning({ hits: schema.rateBucket.hits });
-  return (row?.hits ?? 0) <= limit;
-}
+export { clearRateBuckets, hitRateBucket } from '@/lib/services/rate-limit';
 
 /** One free search against the IP's and the account's one-minute limits. */
 export async function allowSearch(keys: { ip: string | null; userId: string | null }, now = new Date()): Promise<boolean> {
@@ -321,9 +315,4 @@ export async function allowSearch(keys: { ip: string | null; userId: string | nu
     if (!(await hitRateBucket(key, limit, EXPLORE_RATE_LIMIT.windowSeconds, now))) allowed = false;
   }
   return allowed;
-}
-
-/** Old windows, cleared by the hourly rank job. */
-export async function clearRateBuckets(now = new Date()): Promise<void> {
-  await db().delete(schema.rateBucket).where(lt(schema.rateBucket.windowStart, new Date(now.getTime() - 3_600_000)));
 }

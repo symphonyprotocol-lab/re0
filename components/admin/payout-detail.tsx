@@ -10,6 +10,9 @@ import { CI } from '@/components/admin/console-icon';
 import { ConsolePage, ConsoleTopbar } from '@/components/admin/console-topbar';
 import { centsUsd, creditsUsd, KycStatusTag, PayoutStatusTag } from '@/components/admin/payout-kit';
 import { PayoutPayment, PayoutReview } from '@/components/admin/payout-forms';
+import { PayoutFundingCards } from '@/components/admin/payout-funding';
+import type { Administrator } from '@/lib/services/admin';
+import { payoutFunding } from '@/lib/services/payout-funding';
 
 
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
@@ -27,7 +30,7 @@ function backTo(raw: string): string {
  * both. Identity, tax and the PayPal address sit beside it, with the three
  * steps.
  */
-export async function PayoutDetailPage({ id, payment, query }: { id: string; payment: boolean; query: Record<string, string | string[] | undefined> }) {
+export async function PayoutDetailPage({ administrator, id, payment, query }: { administrator: Administrator; id: string; payment: boolean; query: Record<string, string | string[] | undefined> }) {
   if (!UUID.test(id)) notFound();
   const { t, locale } = await serverMessages();
   const data = await payoutDetail(id);
@@ -37,6 +40,7 @@ export async function PayoutDetailPage({ id, payment, query }: { id: string; pay
   const suffix = from !== '/admin/payouts' ? `?from=${encodeURIComponent(from)}` : '';
   if (payout.status === 'pending' && payment) redirect(`/admin/payouts/${id}${suffix}`);
   if (payout.status === 'approved' && !payment) redirect(`/admin/payouts/${id}/payment${suffix}`);
+  const funding = await payoutFunding(administrator, id, user.id, Number(param(query, 'payers')) || 1);
   const d = t.consolePayouts.payoutDetail;
   const finished = payout.status !== 'pending' && payout.status !== 'approved';
   const time = (value: Date | null) => (value ? formatDateTime(value, locale) : '—');
@@ -112,7 +116,7 @@ export async function PayoutDetailPage({ id, payment, query }: { id: string; pay
                   <CI name="info" />
                   <span>{d.paymentInfo}</span>
                 </div>
-                <PayoutPayment id={payout.id} credits={payout.credits} allowed={data.payable} />
+                <PayoutPayment id={payout.id} credits={payout.credits} payee={{ name: user.name, paypal: payout.paypalEmail }} allowed={data.payable} />
               </section>
             ) : (
               <section className="card payout-detail-card">
@@ -121,9 +125,16 @@ export async function PayoutDetailPage({ id, payment, query }: { id: string; pay
                   <CI name="shield" />
                   <span>{d.decisionInfo}</span>
                 </div>
-                <PayoutReview id={payout.id} allowed={data.payable} paymentHref={`/admin/payouts/${payout.id}/payment${suffix}`} />
+                <PayoutReview id={payout.id} credits={payout.credits} payee={{ name: user.name, paypal: payout.paypalEmail }} allowed={data.payable} paymentHref={`/admin/payouts/${payout.id}/payment${suffix}`} />
               </section>
             )}
+            <PayoutFundingCards
+              t={t}
+              locale={locale}
+              data={funding}
+              back={self}
+              pageHref={(page) => `/admin/payouts/${id}${payment ? '/payment' : ''}?${new URLSearchParams({ ...(suffix ? { from } : {}), payers: String(page) })}`}
+            />
           </div>
           <aside className="payout-detail-side">
             <section className="card payout-detail-card">
@@ -140,6 +151,8 @@ export async function PayoutDetailPage({ id, payment, query }: { id: string; pay
                 [d.kycStatus, <KycStatusTag key="kyc" t={t} status={payout.kyc} />],
                 [d.tax, payout.taxForm ? fill(d.taxValue, { form: payout.taxForm }) : '—'],
                 [d.paypal, payout.paypalEmail],
+                ...(user.debt > 0 ? [[d.debt, fill(d.debtValue, { credits: formatNumber(user.debt, locale) })] as [ReactNode, ReactNode]] : []),
+                ...(user.disabled ? [[d.accountState, d.accountDisabled] as [ReactNode, ReactNode]] : []),
               ])}
               {!finished && user.paypalEmail && user.paypalEmail !== payout.paypalEmail && <p className="form-error mt16">{fill(d.paypalChanged, { email: user.paypalEmail })}</p>}
             </section>

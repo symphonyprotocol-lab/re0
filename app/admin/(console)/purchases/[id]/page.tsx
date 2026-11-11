@@ -1,4 +1,5 @@
 import type { Metadata } from 'next';
+import { requireAdministrator } from '@/lib/http/admin';
 import { notFound } from 'next/navigation';
 import { Fragment, type ReactNode } from 'react';
 import { param } from '@/lib/domain/list';
@@ -40,11 +41,12 @@ function outcomeTone(outcome: string): 'green' | 'orange' | 'red' | 'grey' {
  * Paddle notification about it ("Webhook 冲回结果").
  */
 export default async function PurchaseDetailPage({ params, searchParams }: Props) {
+  const administrator = await requireAdministrator();
   const { id } = await params;
   if (!UUID.test(id)) notFound();
   const query = await searchParams;
   const { t, locale } = await serverMessages();
-  const data = await purchaseDetail(id);
+  const data = await purchaseDetail(administrator, id);
   if (!data) notFound();
   const p = t.consoleUsers.purchases;
   const d = p.detail;

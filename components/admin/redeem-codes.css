@@ -1,0 +1,17 @@
+/* 兑换码 (docs/design/redeem-codes.md 6.1): the new-batch form, its result, and the code cell. */
+.redeem-form { display: grid; gap: 4px; }
+.redeem-choice { border: 0; margin: 0 0 14px; padding: 0; display: grid; gap: 8px; }
+.redeem-choice legend { font-size: 13px; font-weight: 600; margin-bottom: 8px; padding: 0; }
+.redeem-choice label { display: flex; align-items: flex-start; gap: 10px; cursor: pointer; }
+.redeem-choice label span { display: grid; gap: 2px; }
+.redeem-choice small { color: var(--muted); font-size: 12px; }
+.redeem-choice input, .redeem-check input { width: auto; margin-top: 3px; }
+.redeem-check { display: flex; align-items: center; gap: 8px; margin-top: 8px; font-weight: 400; }
+.redeem-inline { display: flex; align-items: center; gap: 16px; }
+.redeem-inline .redeem-check { margin-top: 0; white-space: nowrap; }
+.redeem-row { display: grid; grid-template-columns: repeat(auto-fit, minmax(min(100%, 220px), 1fr)); gap: 0 16px; }
+.redeem-advanced { margin-top: 4px; }
+.redeem-advanced summary { cursor: pointer; font-size: 13px; font-weight: 600; margin-bottom: 12px; }
+.redeem-result { width: 100%; font-family: var(--font-mono, ui-monospace, monospace); font-size: 13px; line-height: 1.6; resize: vertical; }
+.redeem-code-cell { display: inline-flex; align-items: center; gap: 10px; white-space: nowrap; }
+.redeem-code-cell button { background: none; border: 0; padding: 0; cursor: pointer; }

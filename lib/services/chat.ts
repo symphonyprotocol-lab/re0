@@ -10,6 +10,7 @@ import { fuse, hasEvidence, isLibraryQuestion, keywordCoverage, overviewText, se
 import { likePattern } from '@/lib/domain/list';
 import { embedTexts } from '@/lib/infra/ai/models';
 import { db, schema } from '@/lib/infra/db';
+import { chunkVector, spaceOf } from '@/lib/services/embedding-space';
 
 export type Conversation = typeof schema.conversation.$inferSelect;
 export type MessageRow = typeof schema.message.$inferSelect;
@@ -38,6 +39,39 @@ export async function ownedConversation(userId: string, id: string): Promise<Con
     .where(and(eq(schema.conversation.id, id), eq(schema.conversation.userId, userId)))
     .limit(1);
   return row ?? null;
+}
+
+/**
+ * How long a question can still be answering: the answer stream and the
+ * citation check together stay under the 300 s function limit, so a hold
+ * older than this belongs to a function that was killed (the hold reaper
+ * gives it back) and nothing more will arrive.
+ */
+export const ANSWER_PENDING_MS = 6 * 60_000;
+
+/**
+ * Whether the conversation's latest question is still being answered: one
+ * of its chat holds is open. A page loaded (or refreshed after a dropped
+ * stream) while that is so shows the question as waiting and polls, rather
+ * than inviting the asker to pay for it again (review C3).
+ */
+export async function answeringQuestion(userId: string, rows: readonly Pick<MessageRow, 'id' | 'role'>[], now = new Date()): Promise<boolean> {
+  const asked = [...rows].reverse().find((row) => row.role === 'user');
+  if (!asked) return false;
+  const [hold] = await db()
+    .select({ id: schema.creditHold.id })
+    .from(schema.creditHold)
+    .where(
+      and(
+        eq(schema.creditHold.userId, userId),
+        eq(schema.creditHold.kind, 'chat'),
+        eq(schema.creditHold.refId, asked.id),
+        eq(schema.creditHold.status, 'held'),
+        sql`${schema.creditHold.createdAt} > ${new Date(now.getTime() - ANSWER_PENDING_MS).toISOString()}::timestamptz`,
+      ),
+    )
+    .limit(1);
+  return Boolean(hold);
 }
 
 export async function messagesOf(conversationId: string): Promise<MessageRow[]> {
@@ -167,8 +201,10 @@ export function answerable(): SQL[] {
  */
 export async function retrieve(reeId: string, question: string, embedded?: QuestionVector): Promise<Retrieval> {
   const database = db();
-  const { vector, model } = embedded ?? (await embedQuestion(question));
+  const { vector, model, space } = embedded ?? (await embedQuestion(question));
   const literal = `[${vector.join(',')}]`;
+  /* Only passages with a vector in the question's space: never a comparison across models (embedding-space.ts). */
+  const stored = chunkVector(space);
   const semantic = await database
     .select({
       id: schema.chunk.id,
@@ -177,12 +213,12 @@ export async function retrieve(reeId: string, question: string, embedded?: Quest
       locator: schema.chunk.locator,
       title: schema.knowledge.title,
       kind: schema.knowledge.kind,
-      similarity: sql<number>`1 - (${schema.chunk.embedding} <=> ${literal}::vector)`,
+      similarity: sql<number>`1 - (${stored} <=> ${literal}::vector)`,
     })
     .from(schema.chunk)
     .innerJoin(schema.knowledge, eq(schema.knowledge.id, schema.chunk.knowledgeId))
-    .where(and(eq(schema.chunk.reeId, reeId), ...answerable()))
-    .orderBy(sql`(${schema.chunk.embedding} <=> ${literal}::vector) + 0`)
+    .where(and(eq(schema.chunk.reeId, reeId), ...answerable(), sql`${stored} is not null`))
+    .orderBy(sql`(${stored} <=> ${literal}::vector) + 0`)
     .limit(RETRIEVAL_RECALL);
 
   const terms = searchTerms(question);
@@ -291,11 +327,13 @@ export async function sourceOverviews(reeId: string, ranked: readonly string[]):
 export interface QuestionVector {
   vector: number[];
   model: string;
+  /** The embedding space `vector` is in; retrieval compares it with that space's vectors only. */
+  space: string;
 }
 
 /** One embedding per question, shared by every asked Ree and by the suggestions. */
 export async function embedQuestion(question: string): Promise<QuestionVector> {
   const { vectors, endpoint } = await embedTexts([question]);
-  return { vector: vectors[0]!, model: endpoint.model };
+  return { vector: vectors[0]!, model: endpoint.model, space: spaceOf(endpoint) };
 }
 

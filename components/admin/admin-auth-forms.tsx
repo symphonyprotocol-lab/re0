@@ -5,6 +5,7 @@ import { useState } from 'react';
 import { ADMIN_PASSWORD_MIN } from '@/lib/constants';
 import { api } from '@/lib/client/upload';
 import { useI18n } from '@/i18n/client';
+import { fill } from '@/i18n/format';
 import { CI } from '@/components/admin/console-icon';
 
 function Input({ id, label, hint, ...rest }: { id: string; label: string; hint?: string } & React.InputHTMLAttributes<HTMLInputElement>) {
@@ -86,11 +87,14 @@ export function AdminLoginForm({ next = '/admin/overview', notice }: { next?: st
         const form = new FormData(event.currentTarget);
         setBusy(true);
         setError('');
-        const result = await api('/api/admin/auth/login', {
+        const result = await api<{ error?: string; retryAfter?: number }>('/api/admin/auth/login', {
           method: 'POST',
           json: { email: form.get('email'), password: form.get('password'), code: form.get('code') },
         });
         setBusy(false);
+        if (!result.ok && result.data.error === 'too_many_attempts') {
+          return setError(fill(t.admin.login.tooMany, { minutes: Math.max(1, Math.ceil((result.data.retryAfter ?? 60) / 60)) }));
+        }
         if (!result.ok) return setError(t.admin.login.failed);
         router.push(next);
         router.refresh();

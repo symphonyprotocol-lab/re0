@@ -5,7 +5,9 @@
  * answerable passages (k-means in the database with pgvector's `avg`), or
  * the passages themselves while there are fewer than 12. Recomputed as the
  * last step of processing knowledge and whenever what it is made of
- * changes; free of charge. Private, taken-down and deleted Rees have none.
+ * changes. Its embedding is billed to the Ree's owner (`meteredWork`,
+ * docs/audit/credit-import-audit.md P2): it always runs, and what the
+ * balance cannot cover is owed. Private, taken-down and deleted Rees have none.
  *
  * Also here: the three example questions the system suggests after the
  * first source is ready, kept until the owner adopts them (8.2, "示例问题").
@@ -17,7 +19,10 @@ import { embedTexts } from '@/lib/infra/ai/models';
 import { generationForUser } from '@/lib/services/generation';
 import { db, schema } from '@/lib/infra/db';
 import { answerable } from '@/lib/services/chat';
+import { chunkVector, spaceOf } from '@/lib/services/embedding-space';
 import { publicRee } from '@/lib/services/explore';
+import { meteredWork } from '@/lib/services/metered-work';
+import { ProviderCostUnavailable } from '@/lib/domain/provider-cost';
 
 type Kind = 'profile' | 'sample_question' | 'centroid';
 
@@ -30,10 +35,11 @@ function parseVector(value: unknown): number[] {
   return String(value).replace(/^\[|\]$/g, '').split(',').map(Number);
 }
 
-/** The passages' vectors condensed: themselves when few, else centroids. */
-async function passageVectors(reeId: string): Promise<number[][]> {
+/** The passages' vectors in `space` condensed: themselves when few, else centroids. */
+async function passageVectors(reeId: string, space: string): Promise<number[][]> {
   const database = db();
-  const where = and(eq(schema.chunk.reeId, reeId), ...answerable());
+  const stored = chunkVector(space);
+  const where = and(eq(schema.chunk.reeId, reeId), ...answerable(), sql`${stored} is not null`);
   const [{ count } = { count: 0 }] = await database
     .select({ count: sql<number>`count(*)::int` })
     .from(schema.chunk)
@@ -42,7 +48,7 @@ async function passageVectors(reeId: string): Promise<number[][]> {
   if (count === 0) return [];
   if (count < PROFILE_CENTROIDS) {
     const rows = await database
-      .select({ embedding: schema.chunk.embedding })
+      .select({ embedding: sql<string>`${stored}::text` })
       .from(schema.chunk)
       .innerJoin(schema.knowledge, eq(schema.knowledge.id, schema.chunk.knowledgeId))
       .where(where)
@@ -50,11 +56,12 @@ async function passageVectors(reeId: string): Promise<number[][]> {
     return rows.map((row) => parseVector(row.embedding));
   }
   /* Seeds spread evenly over the sources in reading order, so every part of the knowledge starts with a centroid near it. */
+  const vector = chunkVector(space, 'ch');
   const seeds = await database.execute<{ embedding: string }>(sql`
     select s.embedding::text as embedding from (
-      select ch.embedding, row_number() over (order by ch.knowledge_id, ch.ordinal) as n
+      select ${vector} as embedding, row_number() over (order by ch.knowledge_id, ch.ordinal) as n
       from ${schema.chunk} ch join ${schema.knowledge} k on k.id = ch.knowledge_id
-      where ch.ree_id = ${reeId} and k.status = 'ready' and k.enabled and k.deleted_at is null
+      where ch.ree_id = ${reeId} and k.status = 'ready' and k.enabled and k.deleted_at is null and ${vector} is not null
     ) s
     where (s.n - 1) % ${Math.floor(count / PROFILE_CENTROIDS)} = 0
     order by s.n
@@ -69,8 +76,8 @@ async function passageVectors(reeId: string): Promise<number[][]> {
     const moved = await database.execute<{ i: number; embedding: string }>(sql`
       with c(i, v) as (values ${values}),
       sample as (
-        select ch.embedding from ${schema.chunk} ch join ${schema.knowledge} k on k.id = ch.knowledge_id
-        where ch.ree_id = ${reeId} and k.status = 'ready' and k.enabled and k.deleted_at is null
+        select ${vector} as embedding from ${schema.chunk} ch join ${schema.knowledge} k on k.id = ch.knowledge_id
+        where ch.ree_id = ${reeId} and k.status = 'ready' and k.enabled and k.deleted_at is null and ${vector} is not null
         order by md5(ch.id::text)
         limit ${PROFILE_KMEANS_SAMPLE}
       )
@@ -91,10 +98,16 @@ async function passageVectors(reeId: string): Promise<number[][]> {
  * run: rebuilds the Ree's profile, or removes it when the Ree is not
  * public. Answers how many vectors it now has.
  */
-export async function refreshProfile(reeId: string): Promise<number> {
+/**
+ * `billTo`: who pays the profile's embedding. The owner (the default) when
+ * the owner's own action asked for it -- a knowledge run, a settings save,
+ * publishing. The platform when an administrator did (a restore after a
+ * takedown): the call goes out unmetered and its cost is ours.
+ */
+export async function refreshProfile(reeId: string, { billTo = 'owner' }: { billTo?: 'owner' | 'platform' } = {}): Promise<number> {
   const database = db();
   const [ree] = await database
-    .select({ id: schema.ree.id, name: schema.ree.name, description: schema.ree.description, category: schema.ree.category, tags: schema.ree.tags, sampleQuestions: schema.ree.sampleQuestions, suggestedQuestions: schema.ree.suggestedQuestions })
+    .select({ id: schema.ree.id, ownerId: schema.ree.ownerId, name: schema.ree.name, description: schema.ree.description, category: schema.ree.category, tags: schema.ree.tags, sampleQuestions: schema.ree.sampleQuestions, suggestedQuestions: schema.ree.suggestedQuestions })
     .from(schema.ree)
     .where(and(eq(schema.ree.id, reeId), publicRee()))
     .limit(1);
@@ -104,7 +117,15 @@ export async function refreshProfile(reeId: string): Promise<number> {
   }
   const questions = (ree.sampleQuestions.length ? ree.sampleQuestions : ree.suggestedQuestions).slice(0, PROFILE_SAMPLE_QUESTIONS);
   const introduction = [ree.name, ree.description, ree.category, ...ree.tags].filter(Boolean).join('\n');
-  const [{ vectors }, passages] = await Promise.all([embedTexts([introduction, ...questions]), passageVectors(reeId)]);
+  const { vectors, endpoint } = billTo === 'platform'
+    ? await embedTexts([introduction, ...questions])
+    : await meteredWork(
+      { userId: ree.ownerId, reeId, kind: 'profile', title: `${ree.name} · knowledge profile`, reeName: ree.name, refuse: false },
+      () => embedTexts([introduction, ...questions]),
+    );
+  /* Centroids from the same space the introduction was just embedded in: a profile never mixes models. */
+  const space = spaceOf(endpoint);
+  const passages = await passageVectors(reeId, space);
   const rows: { kind: Kind; embedding: number[] }[] = [
     { kind: 'profile', embedding: vectors[0]! },
     ...questions.map((_, at) => ({ kind: 'sample_question' as const, embedding: vectors[at + 1]! })),
@@ -113,7 +134,7 @@ export async function refreshProfile(reeId: string): Promise<number> {
   const now = new Date();
   await database.transaction(async (tx) => {
     await tx.delete(schema.reeProfileVector).where(eq(schema.reeProfileVector.reeId, reeId));
-    await tx.insert(schema.reeProfileVector).values(rows.map((row) => ({ reeId, kind: row.kind, embedding: row.embedding, updatedAt: now })));
+    await tx.insert(schema.reeProfileVector).values(rows.map((row) => ({ reeId, kind: row.kind, embedding: row.embedding, embeddingSpace: space, updatedAt: now })));
   });
   return rows.length;
 }
@@ -136,8 +157,9 @@ export function parseQuestions(text: string): string[] {
 /**
  * After the first source is ready, a Ree with no example questions gets
  * three suggestions written from its passages. They are stored apart and
- * shown only when the owner adopts them in settings. Free; a failure just
- * leaves none.
+ * shown only when the owner adopts them in settings. The generation is
+ * billed to the owner (`meteredWork`, P2) and optional: a balance that
+ * cannot cover its estimate leaves none, as any failure does.
  */
 export async function suggestQuestions(reeId: string): Promise<string[]> {
   const database = db();
@@ -157,7 +179,7 @@ export async function suggestQuestions(reeId: string): Promise<string[]> {
   if (passages.length === 0) return [];
   try {
     const generation = await generationForUser(ree.ownerId, 'suggestions');
-    const { text } = await generateText({
+    const { text } = await meteredWork({ userId: ree.ownerId, reeId, kind: 'suggestions', title: `${ree.name} · example questions`, reeName: ree.name, refuse: true }, () => generateText({
       model: generation.model,
       instructions: [
         'Suggest three example questions a visitor could ask this knowledge companion.',
@@ -168,13 +190,22 @@ export async function suggestQuestions(reeId: string): Promise<string[]> {
       maxOutputTokens: 300,
       temperature: 0.4,
       maxRetries: 1,
-    });
+    }));
     const questions = parseQuestions(text);
     if (questions.length === 0) return [];
     await database.update(schema.ree).set({ suggestedQuestions: questions }).where(and(eq(schema.ree.id, reeId), sql`jsonb_array_length(${schema.ree.sampleQuestions}) = 0`));
     return questions;
   } catch (error) {
-    console.warn(`suggest questions ree=${reeId} failed: ${error instanceof Error ? error.message : 'unknown'}`);
+    /*
+     * Fails closed: without a generation unit price for the suggestions model
+     * (console, /admin/models) the call is never made and nothing is charged
+     * (`requireRate` in `meteredWork`). Say so plainly: it is an operator's fix.
+     */
+    if (error instanceof ProviderCostUnavailable && error.code === 'pricing_unavailable') {
+      console.error(`suggest questions ree=${reeId} skipped: the example-question generation model has no unit price; set it in /admin/models`);
+    } else {
+      console.warn(`suggest questions ree=${reeId} failed: ${error instanceof Error ? error.message : 'unknown'}`);
+    }
     return [];
   }
 }

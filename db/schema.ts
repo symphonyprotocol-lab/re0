@@ -16,6 +16,7 @@ import {
   index,
   integer,
   jsonb,
+  numeric,
   pgTable,
   primaryKey,
   text,
@@ -224,6 +225,8 @@ export const knowledge = pgTable(
     deletedAt: timestampTz('deleted_at'),
     createdAt: createdAt(),
     updatedAt: timestampTz('updated_at').notNull().defaultNow(),
+    /** Storage is billed up to here (null: from `created_at`), see `lib/services/storage-billing.ts`. */
+    storageBilledAt: timestampTz('storage_billed_at'),
   },
   (t) => [
     index('knowledge_ree_idx').on(t.reeId, t.updatedAt),
@@ -245,19 +248,29 @@ export const chunk = pgTable(
     reeId: uuid('ree_id').notNull(),
     ordinal: integer('ordinal').notNull(),
     content: text('content').notNull(),
-    embedding: vector('embedding', { dimensions: 1536 }).notNull(),
-    /**
-     * Beyond 4: the candidate model's vector while a re-embed job runs (2.5).
-     * Retrieval keeps reading `embedding`; the job's last step moves these
-     * over in one statement and clears them.
+    /*
+     * Two vector slots, each tagged with the embedding space it belongs to
+     * (lib/services/embedding-space.ts). Neither slot is "the current one":
+     * retrieval reads whichever carries the space its question was embedded
+     * in, so a model switch is a one-row flip of the active space and never
+     * rewrites these (2.5, reembed.ts). A slot with no vector has no tag;
+     * `embedding` without a tag is a vector stored before 0044, in the base space.
      */
+    embedding: vector('embedding', { dimensions: 1536 }),
+    embeddingSpace: uuid('embedding_space'),
     embeddingNext: vector('embedding_next', { dimensions: 1536 }),
+    embeddingNextSpace: uuid('embedding_next_space'),
     locator: jsonb('locator').$type<Locator>().notNull().default({}),
   },
   (t) => [
     index('chunk_knowledge_idx').on(t.knowledgeId, t.ordinal),
     index('chunk_ree_idx').on(t.reeId),
-    index('chunk_embedding_idx').using('hnsw', t.embedding.op('vector_cosine_ops')),
+    /*
+     * No vector index: retrieval is an exact scan within one Ree (`+ 0` in
+     * chat.ts / explore.ts keeps the planner off one), and an HNSW index made
+     * every write rebuild graph entries nobody reads (0038). With vectors of
+     * two spaces side by side, one would also have to be per space.
+     */
   ],
 );
 
@@ -331,10 +344,13 @@ export const message = pgTable(
     checkCredits: integer('check_credits').notNull().default(0),
     /** On a question asked through the MCP server: the API key that asked it, for per-key usage. */
     apiKeyId: uuid('api_key_id').references((): AnyPgColumn => apiKey.id, { onDelete: 'set null' }),
+    /** On a question from the web: the id the client gave this ask, so a replayed request places no second hold. */
+    clientRequestId: uuid('client_request_id'),
     createdAt: createdAt(),
   },
   (t) => [
     index('message_conversation_idx').on(t.conversationId, t.createdAt),
+    uniqueIndex('message_client_request_key').on(t.conversationId, t.clientRequestId).where(sql`client_request_id is not null`),
     index('message_api_key_idx').on(t.apiKeyId, t.createdAt).where(sql`api_key_id is not null`),
     index('message_ree_idx').on(t.reeId, t.createdAt).where(sql`role = 'ree'`),
     check('message_role_check', oneOf('role', ['user', 'ree'])),
@@ -384,11 +400,31 @@ export const creditGrant = pgTable(
     periodStart: timestampTz('period_start'),
     /** Beyond 4: the purchase a Plan or Pack grant came from; one grant per purchase. */
     purchaseId: uuid('purchase_id').references(() => purchase.id),
+    /** Beyond 4: the redemption a redeemed Pack or Plan period came from; `redemption_period` is the Plan month (0 for a Pack). */
+    redemptionId: uuid('redemption_id').references((): AnyPgColumn => redeemRedemption.id),
+    redemptionPeriod: integer('redemption_period'),
+    /**
+     * An earned grant's payout date: from then on a payout may draw on it.
+     * Null on an earned grant paid for from free credits -- spendable, never
+     * withdrawable (review H2). Always null on other sources.
+     */
+    withdrawableAt: timestampTz('withdrawable_at'),
+    /**
+     * An earned grant's paying purchase: the asker's Plan or Pack the fee was
+     * paid from. A refund or chargeback of it voids what of this grant has
+     * not matured yet (review H2). Null when free or untraceable.
+     */
+    fundingPurchaseId: uuid('funding_purchase_id').references(() => purchase.id),
     createdAt: createdAt(),
   },
   (t) => [
     index('credit_grant_user_idx').on(t.userId),
+    check('credit_grant_withdrawable_check', sql`withdrawable_at is null or source = 'earned'`),
+    index('credit_grant_funding_idx').on(t.fundingPurchaseId).where(sql`funding_purchase_id is not null`),
     uniqueIndex('credit_grant_purchase_key').on(t.purchaseId).where(sql`purchase_id is not null`),
+    uniqueIndex('credit_grant_redemption_key').on(t.redemptionId, t.redemptionPeriod).where(sql`redemption_id is not null`),
+    check('credit_grant_origin_check', sql`purchase_id is null or redemption_id is null`),
+    check('credit_grant_redemption_check', sql`(redemption_id is null) = (redemption_period is null)`),
     index('credit_grant_expiry_idx').on(t.expiresAt).where(sql`source = 'plan' and remaining > 0`),
     check('credit_grant_source_check', oneOf('source', ['welcome', 'plan', 'pack', 'earned'])),
     check('credit_grant_remaining_check', sql`remaining >= 0 and remaining <= amount`),
@@ -427,6 +463,16 @@ export const CREDIT_ENTRY_REASONS = [
   'synthesis_hold',
   'synthesis_settle',
   'synthesis_refund',
+  /* Knowledge storage (Blob files, text, passages and vectors), billed daily: docs/audit/credit-import-audit.md P4. */
+  'storage_charge',
+  /* A redeem code: a Pack's credits, or one month of a redeemed Plan (docs/design/redeem-codes.md). */
+  'redeem',
+  /* A chargeback the merchant won: what it took back is restored (debt cancelled first, then the purchase's grant). */
+  'chargeback_reverse',
+  /* A Ree owner's unmatured earned credits voided because the purchase that paid for them was refunded or charged back. */
+  'earned_void',
+  /* What an `earned_void` took is given back as the asker pays off (or a won chargeback cancels) the debt it was voided for. */
+  'earned_restore',
 ] as const;
 export type CreditEntryReason = (typeof CREDIT_ENTRY_REASONS)[number];
 
@@ -467,12 +513,17 @@ export const creditHold = pgTable(
     allocations: jsonb('allocations').$type<Allocation[]>().notNull(),
     status: text('status').$type<'held' | 'settled' | 'released'>().notNull().default('held'),
     refId: uuid('ref_id'),
+    /** Which sub-ledger the hold writes (`chat_fee`, `chat_verify`, …), so a hold closed by a reaper names the right reasons; null for the kind's own. */
+    ledger: text('ledger'),
+    /** The Ree a chat hold is for. */
+    reeId: uuid('ree_id'),
     createdAt: createdAt(),
     closedAt: timestampTz('closed_at'),
   },
   (t) => [
     index('credit_hold_user_idx').on(t.userId, t.status),
     index('credit_hold_ref_idx').on(t.refId),
+    index('credit_hold_open_idx').on(t.kind, t.createdAt).where(sql`status = 'held'`),
     check('credit_hold_kind_check', oneOf('kind', ['chat', 'knowledge', 'video', 'payout'])),
     check('credit_hold_status_check', oneOf('status', ['held', 'settled', 'released'])),
   ],
@@ -517,6 +568,8 @@ export const administrator = pgTable(
     /** Beyond 4: lockout after repeated failures. */
     failedAttempts: integer('failed_attempts').notNull().default(0),
     lockedUntil: timestampTz('locked_until'),
+    /** An invited row's current enrolment-link nonce; re-issuing a link rotates it, enrolling clears it. */
+    inviteNonce: text('invite_nonce'),
     disabledAt: timestampTz('disabled_at'),
     createdBy: uuid('created_by'),
     createdAt: createdAt(),
@@ -564,6 +617,12 @@ export const modelConfig = pgTable(
     enabled: boolean('enabled').notNull().default(false),
     /** Generation has independent Free and Plan activation slots. */
     enabledPlan: boolean('enabled_plan').notNull().default(false),
+    /**
+     * Embedding only: the space its vectors are tagged with while it is the
+     * enabled entry, set when it is enabled (null: the base space, see
+     * lib/services/embedding-space.ts).
+     */
+    embeddingSpace: uuid('embedding_space'),
     lastProbeAt: timestampTz('last_probe_at'),
     lastProbeOk: boolean('last_probe_ok'),
     updatedBy: uuid('updated_by'),
@@ -748,6 +807,8 @@ export const paddleCheckout = pgTable(
     priceKey: text('price_key'),
     unitPriceMinor: integer('unit_price_minor'),
     unitCredits: integer('unit_credits').notNull().default(100_000),
+    /** The Paddle price the checkout was created with; a payment for this transaction must be for it. Null on checkouts from before it was kept. */
+    paddlePriceId: text('paddle_price_id'),
     supersededAt: timestampTz('superseded_at'),
     userId: uuid('user_id')
       .notNull()
@@ -801,6 +862,144 @@ export const creditDebt = pgTable(
     check('credit_debt_remaining_check', sql`remaining >= 0 and remaining <= amount and amount > 0`),
   ],
 );
+
+/* ------------------------------------------------------------ redeem codes */
+
+/**
+ * One generation of redeem codes (docs/design/redeem-codes.md): what each
+ * code gives, how often it and each user may use it, and when. Target and
+ * limits are a promise to whoever holds a code, so only the name, note,
+ * status and expiry change afterwards. `credits` is snapshotted at creation:
+ * a Plan's per-month allowance, or a Pack batch's total.
+ */
+export const redeemBatch = pgTable(
+  'redeem_batch',
+  {
+    id: uuid('id').primaryKey().defaultRandom(),
+    name: text('name').notNull(),
+    note: text('note'),
+    kind: text('kind').$type<'plan' | 'pack'>().notNull(),
+    planMonths: integer('plan_months'),
+    packQuantity: integer('pack_quantity'),
+    credits: bigint('credits', { mode: 'number' }).notNull(),
+    codePrefix: text('code_prefix'),
+    codeCount: integer('code_count').notNull(),
+    /** Per code; null (unlimited) only for a batch of one code. */
+    maxRedemptions: integer('max_redemptions'),
+    /** Per user, across the whole batch. */
+    perUserLimit: integer('per_user_limit').notNull().default(1),
+    startsAt: timestampTz('starts_at').notNull(),
+    expiresAt: timestampTz('expires_at'),
+    status: text('status').$type<'active' | 'disabled'>().notNull().default('active'),
+    redemptionCount: integer('redemption_count').notNull().default(0),
+    createdBy: uuid('created_by').references(() => administrator.id, { onDelete: 'set null' }),
+    createdAt: createdAt(),
+    updatedAt: timestampTz('updated_at').notNull().defaultNow(),
+  },
+  (t) => [
+    index('redeem_batch_created_idx').on(t.createdAt),
+    index('redeem_batch_status_idx').on(t.status, t.expiresAt),
+    check('redeem_batch_kind_check', oneOf('kind', ['plan', 'pack'])),
+    check('redeem_batch_status_check', oneOf('status', ['active', 'disabled'])),
+    check('redeem_batch_target_check', sql`(kind = 'plan') = (plan_months is not null) and (kind = 'pack') = (pack_quantity is not null)`),
+    check('redeem_batch_months_check', sql`plan_months is null or plan_months between 1 and 12`),
+    check('redeem_batch_quantity_check', sql`pack_quantity is null or pack_quantity between 1 and 10`),
+    check('redeem_batch_credits_check', sql`credits between 1 and 100000000`),
+    check('redeem_batch_count_check', sql`code_count between 1 and 10000`),
+    check('redeem_batch_limits_check', sql`(max_redemptions is null or max_redemptions >= 1) and (max_redemptions is not null or code_count = 1) and per_user_limit >= 1`),
+    check('redeem_batch_window_check', sql`expires_at is null or starts_at < expires_at`),
+    check('redeem_batch_name_check', sql`char_length(name) between 1 and 80`),
+  ],
+);
+
+/** A code of a batch. Only its digest is looked up; the sealed copy is for the console's export. */
+export const redeemCode = pgTable(
+  'redeem_code',
+  {
+    id: uuid('id').primaryKey().defaultRandom(),
+    batchId: uuid('batch_id')
+      .notNull()
+      .references(() => redeemBatch.id),
+    codeDigest: text('code_digest').notNull(),
+    codeSealed: text('code_sealed').notNull(),
+    codeLast4: text('code_last4').notNull(),
+    maxRedemptions: integer('max_redemptions'),
+    redemptionCount: integer('redemption_count').notNull().default(0),
+    status: text('status').$type<'active' | 'disabled'>().notNull().default('active'),
+    lastRedeemedAt: timestampTz('last_redeemed_at'),
+    createdAt: createdAt(),
+  },
+  (t) => [
+    uniqueIndex('redeem_code_digest_key').on(t.codeDigest),
+    index('redeem_code_batch_idx').on(t.batchId, t.createdAt),
+    index('redeem_code_last4_idx').on(t.batchId, t.codeLast4),
+    check('redeem_code_status_check', oneOf('status', ['active', 'disabled'])),
+    check('redeem_code_count_check', sql`redemption_count >= 0 and (max_redemptions is null or redemption_count <= max_redemptions)`),
+  ],
+);
+
+/**
+ * One successful redemption. A redeemed Plan is the run
+ * [plan_starts_at, plan_ends_at), one Plan grant per month; it makes the
+ * user's Plan active as a paying subscription does (`planStateOf`).
+ */
+export const redeemRedemption = pgTable(
+  'redeem_redemption',
+  {
+    id: uuid('id').primaryKey().defaultRandom(),
+    codeId: uuid('code_id')
+      .notNull()
+      .references(() => redeemCode.id),
+    batchId: uuid('batch_id')
+      .notNull()
+      .references(() => redeemBatch.id),
+    userId: uuid('user_id')
+      .notNull()
+      .references(() => user.id),
+    kind: text('kind').$type<'plan' | 'pack'>().notNull(),
+    credits: bigint('credits', { mode: 'number' }).notNull(),
+    planMonths: integer('plan_months'),
+    planStartsAt: timestampTz('plan_starts_at'),
+    planEndsAt: timestampTz('plan_ends_at'),
+    /**
+     * A Plan's next month still to be issued: when it begins, or null once
+     * the last month is out (or for a Pack). The cron picks up rows whose
+     * time has come (docs/design/redeem-codes.md 11.2).
+     */
+    nextPeriodAt: timestampTz('next_period_at'),
+    requestId: uuid('request_id'),
+    ipHash: text('ip_hash'),
+    userAgent: text('user_agent'),
+    /** Reserved for a later "revoke" (design Q5); nothing sets it yet. */
+    revokedAt: timestampTz('revoked_at'),
+    revokedBy: uuid('revoked_by').references(() => administrator.id, { onDelete: 'set null' }),
+    createdAt: createdAt(),
+  },
+  (t) => [
+    uniqueIndex('redeem_redemption_request_key').on(t.userId, t.requestId).where(sql`request_id is not null`),
+    index('redeem_redemption_batch_user_idx').on(t.batchId, t.userId),
+    index('redeem_redemption_code_idx').on(t.codeId, t.createdAt),
+    index('redeem_redemption_batch_time_idx').on(t.batchId, t.createdAt),
+    index('redeem_redemption_plan_idx').on(t.userId, t.planEndsAt).where(sql`kind = 'plan' and revoked_at is null`),
+    index('redeem_redemption_next_period_idx').on(t.nextPeriodAt).where(sql`next_period_at is not null and revoked_at is null`),
+    check('redeem_redemption_kind_check', oneOf('kind', ['plan', 'pack'])),
+    check('redeem_redemption_plan_check', sql`(kind = 'plan') = (plan_months is not null and plan_starts_at is not null and plan_ends_at is not null)`),
+  ],
+);
+
+/**
+ * A user's knowledge storage cost so far (`lib/services/storage-billing.ts`):
+ * pico-dollars accrued, and the credits charged for them. The charge is
+ * always `ceil(cost)`, so it is never below cost and at most one credit above.
+ */
+export const storageAccrual = pgTable('storage_accrual', {
+  userId: uuid('user_id')
+    .primaryKey()
+    .references(() => user.id, { onDelete: 'cascade' }),
+  costPico: numeric('cost_pico', { precision: 40, scale: 0 }).notNull().default('0'),
+  chargedCredits: bigint('charged_credits', { mode: 'number' }).notNull().default(0),
+  updatedAt: timestampTz('updated_at').notNull().defaultNow(),
+});
 
 /* ------------------------------------------------- step 4: conversations, explore */
 
@@ -888,6 +1087,8 @@ export const reeProfileVector = pgTable(
       .references(() => ree.id, { onDelete: 'cascade' }),
     kind: text('kind').$type<'profile' | 'sample_question' | 'centroid'>().notNull(),
     embedding: vector('embedding', { dimensions: 1536 }).notNull(),
+    /** The embedding space of `embedding`; null for rows made before 0044 (the base space). */
+    embeddingSpace: uuid('embedding_space'),
     updatedAt: timestampTz('updated_at').notNull().defaultNow(),
   },
   (t) => [
@@ -973,10 +1174,10 @@ export const notice = pgTable(
 );
 
 /**
- * A full re-embed (2.5): every chunk gets the candidate model's vector in
- * `chunk.embedding_next` while retrieval stays on the old one; the last step
- * swaps both columns and the enabled entry in one transaction. One running
- * job at a time. `done` and `total` count chunks.
+ * A full re-embed (2.5): every chunk gets the candidate model's vector,
+ * tagged with the job's `space`, in its spare slot while retrieval stays on
+ * the old space; the last step enables the candidate with that space, one
+ * row. One running job at a time. `done` and `total` count chunks.
  */
 export const reembedJob = pgTable(
   'reembed_job',
@@ -989,6 +1190,10 @@ export const reembedJob = pgTable(
     status: text('status').$type<'running' | 'done' | 'failed'>().notNull().default('running'),
     total: integer('total').notNull().default(0),
     done: integer('done').notNull().default(0),
+    /** The embedding space the candidate's vectors are tagged with: new per job, or the failed job's it resumes. */
+    space: uuid('space').notNull(),
+    /** Sources stored while the job runs; the switch only happens if none arrived since its last look. */
+    arrived: integer('arrived').notNull().default(0),
     /** Beyond 4: why it failed, and who started it. */
     error: text('error'),
     startedBy: uuid('started_by'),
@@ -1144,6 +1349,8 @@ export const payout = pgTable(
   },
   (t) => [
     uniqueIndex('payout_open_key').on(t.userId).where(sql`status in ('pending', 'approved')`),
+    /* One PayPal transfer pays one request; the check before the write is not enough on its own. */
+    uniqueIndex('payout_transfer_key').on(t.transferId).where(sql`transfer_id is not null`),
     index('payout_user_idx').on(t.userId, t.createdAt),
     index('payout_status_idx').on(t.status, t.createdAt),
     check('payout_status_check', oneOf('status', PAYOUT_STATUSES)),
@@ -1267,6 +1474,31 @@ export const signupReward = pgTable('signup_reward', {
 }, () => [
   check('signup_reward_singleton_check', sql`id = 1`),
   check('signup_reward_credits_check', sql`credits between 0 and 100000000`),
+]);
+
+/**
+ * Our infrastructure rates (docs/audit/credit-import-audit.md P4), edited on
+ * 价格与促销. Append-only like `billing_price`: each save adds a row from
+ * `effective_from` on, so storage already accrued keeps the rate it accrued
+ * at. The latest row applies; with none, `DEFAULT_INFRA_COST_RATES`. Every
+ * rate is above zero and the index factor at least 1, so nothing can be
+ * billed below cost.
+ */
+export const infraCostRates = pgTable('infra_cost_rates', {
+  id: uuid('id').primaryKey().defaultRandom(),
+  transferPerGb: numeric('transfer_per_gb', { precision: 20, scale: 12 }).notNull(),
+  blobStoragePerGbMonth: numeric('blob_storage_per_gb_month', { precision: 20, scale: 12 }).notNull(),
+  databaseStoragePerGbMonth: numeric('database_storage_per_gb_month', { precision: 20, scale: 12 }).notNull(),
+  databaseIndexFactor: numeric('database_index_factor', { precision: 7, scale: 4 }).notNull(),
+  chunkRowBytes: integer('chunk_row_bytes').notNull(),
+  effectiveFrom: timestampTz('effective_from').notNull().defaultNow(),
+  updatedBy: uuid('updated_by').references(() => administrator.id, { onDelete: 'set null' }),
+  createdAt: createdAt(),
+}, (t) => [
+  index('infra_cost_rates_effective_idx').on(t.effectiveFrom),
+  check('infra_cost_rates_positive_check', sql`transfer_per_gb > 0 and blob_storage_per_gb_month > 0 and database_storage_per_gb_month > 0`),
+  check('infra_cost_rates_factor_check', sql`database_index_factor >= 1 and database_index_factor <= 100`),
+  check('infra_cost_rates_overhead_check', sql`chunk_row_bytes between 1 and 100000`),
 ]);
 
 /** The flat video script charge, shared by standard scripts and narrated demos. */

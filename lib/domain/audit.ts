@@ -7,6 +7,9 @@ export const AUDIT_ACTIONS = [
   'admin.login',
   'admin.create',
   'admin.disable',
+  'admin.invite.reissue',
+  'admin.login.locked',
+  'admin.export',
   'pricing.update',
   'model.create',
   'model.update',
@@ -38,6 +41,12 @@ export const AUDIT_ACTIONS = [
   'payout.failed',
   'ree.takedown',
   'ree.restore',
+  'redeem.batch.create',
+  'redeem.batch.update',
+  'redeem.batch.export',
+  'redeem.code.reveal',
+  'redeem.code.disable',
+  'redeem.code.enable',
 ] as const;
 
 export type AuditAction = (typeof AUDIT_ACTIONS)[number];

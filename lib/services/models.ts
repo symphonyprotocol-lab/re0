@@ -197,7 +197,8 @@ async function enable(administratorId: string, target: ModelConfigRow, audience:
       .where(and(eq(schema.modelConfig.kind, target.kind), ne(schema.modelConfig.id, target.id)));
     const [enabled] = await tx
       .update(schema.modelConfig)
-      .set({ [enabledField]: true, updatedBy: administratorId, updatedAt: new Date() })
+      /* An embedding entry enabled without a job (nothing indexed yet) still starts a space of its own: no stored profile vector of the last model is read as its. */
+      .set({ [enabledField]: true, ...(target.kind === 'embedding' ? { embeddingSpace: crypto.randomUUID() } : {}), updatedBy: administratorId, updatedAt: new Date() })
       .where(eq(schema.modelConfig.id, target.id))
       .returning();
     await audit(tx, {

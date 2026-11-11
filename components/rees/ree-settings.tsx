@@ -9,6 +9,7 @@ import type { ReeCategory, ReeColor } from '@/lib/constants';
 import type { Ree } from '@/lib/services/rees';
 import { api, uploadToBlob } from '@/lib/client/upload';
 import { dropSettingsDraft, keepSettingsDraft, keptSettingsDraft, reePreviewHref } from '@/lib/client/ree-preview';
+import { useUnsavedChanges } from '@/lib/client/unsaved';
 import { useI18n } from '@/i18n/client';
 import { fill, formatNumber } from '@/i18n/format';
 import { ConfirmModal } from '@/components/ui/modal';
@@ -54,11 +55,15 @@ export function ReeSettings({ ree, sources, video, topbar }: { ree: Ree; sources
   const [form, setForm] = useState<ReeFormState>(() => kept?.form ?? formOf(ree));
   const [coverEdit, setCoverEdit] = useState<CoverEdit>(kept?.coverEdit);
   useEffect(() => dropSettingsDraft(ree.id), [ree.id]);
+  /* What is saved, to tell unsaved edits apart: the server's copy, then each successful save's (review C14). */
+  const [baseline, setBaseline] = useState<ReeFormState>(() => formOf(ree));
+  const dirty = JSON.stringify(form) !== JSON.stringify(baseline) || coverEdit !== undefined;
   const [error, setError] = useState('');
   const [saving, setSaving] = useState(false);
   const [confirmDelete, setConfirmDelete] = useState(false);
   const [deleting, setDeleting] = useState(false);
   const [cropping, setCropping] = useState(false);
+  useUnsavedChanges(dirty && !deleting, s.leaveUnsaved);
   const moderated = Boolean(ree.moderatedAt);
   const cover = coverEdit === undefined ? ree.coverBlob : coverEdit?.file ?? null;
   useEffect(() => {
@@ -115,6 +120,7 @@ export function ReeSettings({ ree, sources, video, topbar }: { ree: Ree; sources
         setError(code === 'invalid_cover' ? s.cover.failed : code && code in t.reeSetup.messages ? t.reeSetup.messages[code] : t.common.errors.generic);
         return;
       }
+      setBaseline(form);
       toast(s.saved);
       router.refresh();
     } catch {

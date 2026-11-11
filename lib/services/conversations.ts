@@ -8,7 +8,7 @@
 import { and, asc, desc, eq, gte, inArray, isNotNull, isNull, lt, or, sql, type SQL } from 'drizzle-orm';
 import { CONVERSATION_BATCH_MAX, CONVERSATION_MAX_REES, CONVERSATION_TRASH_DAYS, PICKER_RESULTS, QUERY_BASE_FEE, SIDEBAR_HISTORY_MAX } from '@/lib/constants';
 import { cleanTitle, participantSet, type BatchAction, type ConversationQuery, type ConversationView } from '@/lib/domain/conversation';
-import { clampPage, likePattern, type ListResult } from '@/lib/domain/list';
+import { clampPage, likePattern, type ListResult, isUuid } from '@/lib/domain/list';
 import { db, schema, type Executor } from '@/lib/infra/db';
 
 export type ConversationRow = typeof schema.conversation.$inferSelect;
@@ -83,7 +83,7 @@ export async function reeBriefs(executor: Executor, viewerId: string, ids: reado
 
 /** The user's own conversation, live (not in the trash) and of the multi-Ree kind. */
 export async function liveConversation(userId: string, id: string, options: { trashed?: boolean } = {}): Promise<ConversationRow | null> {
-  if (!/^[0-9a-f-]{36}$/i.test(id)) return null;
+  if (!isUuid(id)) return null;
   const [row] = await db()
     .select()
     .from(schema.conversation)
@@ -113,7 +113,7 @@ export async function participantsOf(executor: Executor, conversationId: string,
 
 async function assertUsable(executor: Executor, userId: string, ids: readonly string[]): Promise<void> {
   if (ids.length === 0) return;
-  if (!ids.every((id) => /^[0-9a-f-]{36}$/i.test(id))) throw new ConversationError('ree_unavailable');
+  if (!ids.every((id) => isUuid(id))) throw new ConversationError('ree_unavailable');
   const rows = await executor
     .select({ id: schema.ree.id })
     .from(schema.ree)
@@ -186,7 +186,7 @@ export async function setParticipants(userId: string, conversationId: string, re
 export async function removeParticipant(userId: string, conversationId: string, reeId: string): Promise<boolean> {
   const conversation = await liveConversation(userId, conversationId);
   if (!conversation) throw new ConversationError('not_found', 404);
-  if (!/^[0-9a-f-]{36}$/i.test(reeId)) return false;
+  if (!isUuid(reeId)) return false;
   const rows = await db()
     .delete(schema.conversationRee)
     .where(and(eq(schema.conversationRee.conversationId, conversationId), eq(schema.conversationRee.reeId, reeId)))
@@ -244,7 +244,7 @@ export async function updateConversation(
  * Answers how many rows changed.
  */
 export async function runBatch(userId: string, action: BatchAction, ids: readonly string[], now = new Date()): Promise<number> {
-  const unique = [...new Set(ids)].filter((id) => /^[0-9a-f-]{36}$/i.test(id));
+  const unique = [...new Set(ids)].filter((id) => isUuid(id));
   if (unique.length === 0) return 0;
   if (unique.length > CONVERSATION_BATCH_MAX) throw new ConversationError('too_many');
   const mine = and(eq(schema.conversation.userId, userId), eq(schema.conversation.kind, 'normal'), inArray(schema.conversation.id, unique));
@@ -583,7 +583,7 @@ export async function joinableConversations(userId: string, reeId: string): Prom
  * that was given; the same vote again takes it back.
  */
 export async function setFeedback(userId: string, messageId: string, vote: 'up' | 'down' | null): Promise<'up' | 'down' | null> {
-  if (!/^[0-9a-f-]{36}$/i.test(messageId)) throw new ConversationError('not_found', 404);
+  if (!isUuid(messageId)) throw new ConversationError('not_found', 404);
   const [row] = await db()
     .select({ id: schema.message.id })
     .from(schema.message)

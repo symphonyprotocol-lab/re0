@@ -11,5 +11,5 @@ export async function GET(request: NextRequest) {
   const params = new URLSearchParams(request.nextUrl.searchParams);
   params.set('tab', 'subscriptions');
   const view = purchasesView(params);
-  return listOrCsv(request, (all) => listSubscriptions(view, { all }), SUBSCRIPTIONS_CSV);
+  return listOrCsv(request, administrator, (all) => listSubscriptions(administrator, view, { all }), SUBSCRIPTIONS_CSV);
 }

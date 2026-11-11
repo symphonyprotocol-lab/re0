@@ -7,6 +7,7 @@ import { api } from '@/lib/client/upload';
 import { useI18n } from '@/i18n/client';
 import { fill } from '@/i18n/format';
 import { CI } from '@/components/admin/console-icon';
+import { useConfirmStep } from '@/components/admin/confirm-step';
 import { useToast } from '@/components/ui/toast';
 // console.css first, so these later prototype rules keep their cascade order.
 import '@/components/admin/console.css';
@@ -113,9 +114,11 @@ export function KycFiles({ id, available }: { id: string; available: boolean }) 
  * "已比对" must be ticked to approve; rejecting needs a 3–300 character
  * note, which the user reads.
  */
-export function KycDecision({ id }: { id: string }) {
+export function KycDecision({ id, name }: { id: string; name: string }) {
   const { t } = useI18n();
   const d = t.consolePayouts.kycDetail;
+  const c = t.consoleConfirm.kyc;
+  const { ask, dialog } = useConfirmStep();
   const errors = t.consolePayouts.errors as Record<string, string>;
   const router = useRouter();
   const toast = useToast();
@@ -129,6 +132,18 @@ export function KycDecision({ id }: { id: string }) {
     const length = Array.from(reason).length;
     if ((decision === 'rejected' || length > 0) && (length < ADMIN_REASON.min || length > ADMIN_REASON.max)) return setError(errors.reason!);
     if (decision === 'verified' && !matched) return setError(errors.matched!);
+    setError('');
+    const approve = decision === 'verified';
+    ask({
+      title: approve ? c.approveTitle : c.rejectTitle,
+      body: fill(approve ? c.approveBody : c.rejectBody, { name }),
+      label: approve ? c.approve : c.reject,
+      danger: !approve,
+      run: () => send(decision, reason),
+    });
+  }
+
+  async function send(decision: 'verified' | 'rejected', reason: string) {
     setBusy(decision);
     setError('');
     const result = await api<{ error?: string }>(`/api/admin/kyc/${id}/${decision === 'verified' ? 'approve' : 'reject'}`, { method: 'POST', json: { matched, reason } });
@@ -147,8 +162,9 @@ export function KycDecision({ id }: { id: string }) {
       className="kyc-review-decision"
       onSubmit={(event) => {
         event.preventDefault();
+        /* Only a click on one of the two buttons decides: a submit without one (Enter in a field) is not an approval. */
         const submitter = (event.nativeEvent as SubmitEvent).submitter as HTMLButtonElement | null;
-        void decide(submitter?.value === 'rejected' ? 'rejected' : 'verified');
+        if (submitter?.value === 'rejected' || submitter?.value === 'verified') void decide(submitter.value);
       }}
     >
       <label className="check-row small">
@@ -172,6 +188,7 @@ export function KycDecision({ id }: { id: string }) {
           {error}
         </p>
       )}
+      {dialog}
     </form>
   );
 }

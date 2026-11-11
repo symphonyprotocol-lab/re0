@@ -18,7 +18,7 @@ export async function WorkspaceFrame({ user, children }: { user: SessionUser; ch
   ]);
   return (
     <AppShell
-      user={{ name: user.name, avatar: user.avatarBlob, balance: billing.balance, plan: billing.plan, reeCount: count, history, unreadNotices: unread }}
+      user={{ name: user.name, avatar: user.avatarBlob, balance: billing.balance, welcome: billing.welcome, debt: billing.debt, plan: billing.plan, reeCount: count, history, unreadNotices: unread }}
       initialCollapsed={jar.get('re0_sidebar')?.value === 'collapsed'}
     >
       {children}

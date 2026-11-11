@@ -3,9 +3,10 @@ import type { NextRequest } from 'next/server';
 import { CONVERSATION_MAX_REES, QUESTION_MAX_CHARS } from '@/lib/constants';
 import { questionTargets } from '@/lib/domain/conversation';
 import { body, fail, json } from '@/lib/http/respond';
+import { rateLimited } from '@/lib/http/rate-limit';
 import { apiUser } from '@/lib/http/session';
 import { db, schema } from '@/lib/infra/db';
-import { answer } from '@/lib/services/answer';
+import { answer, clientRequestIdOf } from '@/lib/services/answer';
 import { clearConversation, ownedConversation } from '@/lib/services/chat';
 import { participantsOf, usableBy } from '@/lib/services/conversations';
 import { ownedRee } from '@/lib/services/rees';
@@ -27,6 +28,8 @@ type Context = { params: Promise<{ id: string }> };
 export async function POST(request: NextRequest, context: Context) {
   const user = await apiUser(request);
   if (user instanceof Response) return user;
+  const limited = await rateLimited('ask', { userId: user.id, headers: request.headers });
+  if (limited) return limited;
   const conversation = await ownedConversation(user.id, (await context.params).id);
   /* MCP conversations are asked through `/api/mcp` only. */
   if (!conversation || conversation.deletedAt || conversation.kind === 'mcp') return fail('not_found', 404);
@@ -38,7 +41,7 @@ export async function POST(request: NextRequest, context: Context) {
   if (conversation.kind === 'ree_test') {
     const ree = conversation.reeId ? await ownedRee(db(), user.id, conversation.reeId) : null;
     if (!ree) return fail('not_found', 404);
-    return answer({ userId: user.id, lang: user.lang, conversation, targets: [ree], question, verify });
+    return answer({ userId: user.id, lang: user.lang, conversation, targets: [ree], question, verify, clientRequestId: clientRequestIdOf(input.requestId) });
   }
 
   const participants = (await participantsOf(db(), conversation.id, user.id)).filter((ree) => ree.usable);
@@ -52,7 +55,9 @@ export async function POST(request: NextRequest, context: Context) {
     .where(and(inArray(schema.ree.id, chosen.map((ree) => ree.id)), usableBy(user.id)));
   const targets = chosen.flatMap((ree) => rows.find((row) => row.id === ree.id) ?? []);
   if (targets.length === 0) return fail('no_participants', 422);
-  return answer({ userId: user.id, lang: user.lang, conversation, targets, question, verify });
+  /* `fees`: the query fee per Ree the composer showed; a higher one now is refused with `price_changed`. */
+  const seenFees = input.fees && typeof input.fees === 'object' && !Array.isArray(input.fees) ? (input.fees as Record<string, number>) : null;
+  return answer({ userId: user.id, lang: user.lang, conversation, targets, question, verify, seenFees, clientRequestId: clientRequestIdOf(input.requestId) });
 }
 
 /** "清空对话" of the test conversation: removes the messages; the ledger keeps what was charged. */

@@ -4,12 +4,30 @@ import {
   type ProviderCharge, type ProviderRate, type ProviderTarget, type ProviderUsage,
 } from '@/lib/domain/provider-cost';
 import { configuredProviderRate, type ProviderPrices } from '@/lib/services/provider-pricing';
+import { infraCostRates } from '@/lib/services/infra-pricing';
+import { transferCostUsd } from '@/lib/domain/infra-cost';
 
 interface Meter {
   runId: string;
   prices: ProviderPrices;
   record(charge: ProviderCharge): Promise<void>;
+  /**
+   * Reserve a call's estimated cost (USD) on top of what the run already
+   * spent and what calls still in flight estimated, BEFORE the paid request
+   * goes out. Throws `InsufficientCredits` when the balance cannot cover it,
+   * so the call is never made. The returned function takes the estimate out
+   * of the in-flight sum once the call's receipt is recorded.
+   */
+  reserve?(costUsd: string): Promise<() => void>;
+  /**
+   * Refuse a call whose rate is unknown before it is made, even on AI
+   * Gateway (which may still report its cost after): optional work must not
+   * spend what it could not reserve.
+   */
+  requireRate?: boolean;
   pending?: Set<Promise<void>>;
+  /** Bytes moved since the last `flushTransfer`, by what moved them. */
+  transfer?: Map<string, number>;
 }
 const context = new AsyncLocalStorage<Meter>();
 export const withProviderMeter = <T>(meter: Meter, work: () => Promise<T>) => context.run(meter, work);
@@ -25,6 +43,37 @@ export async function drainProviderCalls(): Promise<void> {
   const pending = context.getStore()?.pending;
   while (pending?.size) await Promise.all([...pending]);
 }
+/**
+ * Our own transfer while a metered run works (the console's transfer rate, `lib/services/infra-pricing.ts`):
+ * a page fetched, the upload read back from Blob, the file sent on to a
+ * supplier. Outside a run it is not ours to bill and is ignored.
+ */
+export function meterTransfer(what: 'fetch' | 'blob_read' | 'upload', bytes: number): void {
+  const meter = context.getStore();
+  if (!meter || !Number.isFinite(bytes) || bytes <= 0) return;
+  (meter.transfer ??= new Map()).set(what, (meter.transfer.get(what) ?? 0) + Math.ceil(bytes));
+}
+
+/**
+ * Records the transfer metered so far as `bandwidth` receipts, one per kind,
+ * priced at the transfer rate in effect now, and starts counting afresh.
+ */
+export async function flushTransfer(): Promise<void> {
+  const meter = context.getStore();
+  if (!meter?.transfer?.size) return;
+  const moved = [...meter.transfer];
+  meter.transfer.clear();
+  const rates = await infraCostRates();
+  for (const [what, bytes] of moved) {
+    await meter.record({
+      service: 'bandwidth', endpoint: 'vercel:functions', model: what, account: '*',
+      id: crypto.randomUUID(), runId: meter.runId, at: new Date().toISOString(),
+      usage: { bytes }, costUsd: transferCostUsd(bytes, rates), basis: 'configured_rate',
+      priceRevision: `infra:${rates.revision}:${rates.transferPerGb}`,
+    });
+  }
+}
+
 const CATALOG_URL = 'https://ai-gateway.vercel.sh/v1/models';
 let catalog: { at: number; rows: CatalogModel[] } | undefined;
 interface CatalogModel { id: string; pricing?: Record<string, unknown> }
@@ -43,11 +92,14 @@ async function catalogRate(target: ProviderTarget): Promise<ProviderRate | undef
     const price = catalog.rows.find((model) => model.id === target.model)?.pricing;
     // Tiered/provider-dependent prices require the billed cost or an explicit contract rate.
     if (!price || price.varies_by_provider || price.input_tiers || price.inputTiers) return undefined;
+    if (target.service === 'generation' && price.output === undefined) return undefined;
     const seconds = target.service === 'transcription' && typeof price.transcription_duration_cost_per_second === 'string';
     const parsed = providerRateSchema.safeParse({
       ...target, account: '*', unit: seconds ? 'seconds' : 'tokens',
       usdPerUnit: seconds ? price.transcription_duration_cost_per_second : price.input,
       ...(!seconds && target.service === 'transcription' ? { outputUsdPerUnit: price.output, audioInputUsdPerUnit: price.audio_input_token_cost } : {}),
+      // Generation bills its output tokens too: a rate without them would undercount.
+      ...(target.service === 'generation' ? { outputUsdPerUnit: price.output } : {}),
       source: CATALOG_URL,
     });
     return parsed.success ? parsed.data : undefined;
@@ -61,24 +113,39 @@ export function modelCostTarget(endpoint: { transport: string; baseUrl: string |
   return { service, endpoint: url.href.replace(/\/+$/, ''), model: endpoint.model };
 }
 
-/** Resolve a custom account's rate BEFORE making a paid request. Gateway can report its exact cost instead. */
-export async function prepareProviderCall(target: ProviderTarget) {
+/**
+ * Resolve a custom account's rate BEFORE making a paid request. Gateway can
+ * report its exact cost instead. `estimate` is an upper bound of the usage
+ * the call will bill (pages, audio seconds, input tokens): priced at the same
+ * rate, it is reserved before the request, so a balance that cannot pay for
+ * the call refuses it instead of the platform paying for it. The final bill
+ * is still the measured usage.
+ */
+export async function prepareProviderCall(target: ProviderTarget, options: { estimate?: ProviderUsage } = {}) {
   const meter = context.getStore();
   if (!meter) return null;
   const configured = configuredProviderRate(meter.prices, target);
   const rate = configured ?? await catalogRate(target);
   const gateway = target.endpoint.startsWith('https://ai-gateway.vercel.sh/');
-  if (!rate && !gateway) {
+  if (!rate && (!gateway || meter.requireRate)) {
     // An operator error, not the user's: name the price the console (or PROVIDER_COST_RATES) is missing.
     console.warn(`no supplier price for ${target.service} ${target.endpoint} ${target.model} account=${target.account ?? '*'}; set it in the console`);
     throw new ProviderCostUnavailable('pricing_unavailable');
   }
+  let settled: (() => void) | undefined;
+  if (rate && options.estimate && meter.reserve) {
+    let estimated: string | null = null;
+    try { estimated = rateCost(rate, options.estimate); } catch (error) { if (!(error instanceof ProviderCostUnavailable)) throw error; }
+    if (estimated !== null) settled = await meter.reserve(estimated);
+  }
   return {
+    /** Takes this call's estimate out of the run's in-flight sum; call it however the request ends (idempotent). */
+    release() { settled?.(); },
     /**
-     * `acceptUnknownCost`: the supplier gives no usage we can price (a Word parse
-     * without `creditsUsed`, audio without a duration). The receipt is kept as
-     * unresolved for reconciliation instead of failing the source; it is never
-     * billed as zero or estimated.
+     * `acceptUnknownCost`: the supplier gave a reply we cannot price (Firecrawl
+     * answering with unreadable JSON). The receipt is kept as unresolved for
+     * reconciliation and the caller fails the source; a source never becomes
+     * ready with an unresolved receipt (`processKnowledgeRun`).
      */
     async complete(input: { usage: ProviderUsage; providerMetadata?: unknown; requestId?: string; acceptUnknownCost?: boolean }) {
       let direct: string | null = null;
@@ -98,7 +165,7 @@ export async function prepareProviderCall(target: ProviderTarget) {
         ...(input.requestId ? { requestId: input.requestId } : {}),
         ...(typeof generationId === 'string' ? { generationId } : {}),
       };
-      await meter.record(charge);
+      try { await meter.record(charge); } finally { settled?.(); }
       if (costUsd === null && !input.acceptUnknownCost) throw new ProviderCostUnavailable('usage_unavailable');
     },
   };

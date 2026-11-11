@@ -7,6 +7,8 @@ export interface ReeComment {
   authorAvatar: string | null;
   content: string;
   createdAt: string;
+  /** The viewer wrote it or owns the Ree: they may delete it. */
+  canDelete?: boolean;
 }
 
 export interface ReeCommentPage {

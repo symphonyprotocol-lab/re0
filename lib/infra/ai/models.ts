@@ -23,6 +23,7 @@ import {
 import { mayCarryKey, type GenerationAudience, type ModelTransport } from '@/lib/domain/models';
 import type { GenerationCallContext } from '@/lib/domain/model-calls';
 import { openCredential } from '@/lib/infra/crypto/credentials';
+import { modelFetch } from '@/lib/infra/connectors/address';
 import { db, schema } from '@/lib/infra/db';
 import { loggedLanguageModel, recordModelCall } from '@/lib/infra/ai/usage';
 import { modelCostTarget, prepareProviderCall, providerWork } from '@/lib/infra/ai/provider-meter';
@@ -38,6 +39,8 @@ export interface ModelEndpoint {
   apiKey: string | null;
   timeoutMs: number;
   source: 'console' | 'environment' | 'default';
+  /** Embedding only: the space of the vectors this entry makes while enabled (null: the base space; lib/services/embedding-space.ts). */
+  space?: string | null;
 }
 
 const ENV_PREFIX: Record<ModelKind, string> = {
@@ -121,6 +124,7 @@ export async function consoleEndpoint(row: typeof schema.modelConfig.$inferSelec
     apiKey,
     timeoutMs: row.timeoutMs,
     source: 'console',
+    ...(row.kind === 'embedding' ? { space: row.embeddingSpace } : {}),
   };
 }
 
@@ -153,6 +157,8 @@ function compatible(endpoint: ModelEndpoint) {
     apiKey: endpoint.apiKey ?? '',
     /* Without it an OpenAI-compatible stream omits usage and the cost log reads zero. */
     includeUsage: true,
+    /* An administrator's base URL may be a private host, never link-local or a metadata service. */
+    fetch: modelFetch,
   });
 }
 
@@ -170,20 +176,35 @@ export function languageModel(endpoint: ModelEndpoint, context: GenerationCallCo
   return loggedLanguageModel(model, { ...context, model: endpoint.model, configId: endpoint.configId, configName: endpoint.name, transport: endpoint.transport, baseUrl: endpoint.baseUrl });
 }
 
+const utf8 = new TextEncoder();
+
+/**
+ * An upper bound of the input tokens a call bills: byte-level BPE tokenizers
+ * never make more tokens than UTF-8 bytes, plus a few per input for special
+ * tokens. Reserved before the call (`prepareProviderCall`'s estimate).
+ */
+export function embeddingTokenBound(values: readonly unknown[]): number {
+  return values.reduce<number>((sum, value) => sum + (typeof value === 'string' ? utf8.encode(value).length : 0) + 8, 0);
+}
+
 export function embeddingModel(endpoint: ModelEndpoint): EmbeddingModel {
   const model = endpoint.transport === 'gateway'
     ? gatewayFor(endpoint).embeddingModel(endpoint.model)
     : compatible(endpoint).embeddingModel(endpoint.model);
   return wrapEmbeddingModel({ model, middleware: {
     specificationVersion: 'v4',
-    wrapEmbed: async ({ doEmbed }) => providerWork(async () => {
-      const call = await prepareProviderCall(modelCostTarget(endpoint, 'embedding'));
-      const result = await doEmbed();
-      await call?.complete({
-        usage: { inputTokens: result.usage?.tokens }, providerMetadata: result.providerMetadata,
-        requestId: result.response?.headers?.['x-request-id'],
-      });
-      return result;
+    wrapEmbed: async ({ doEmbed, params }) => providerWork(async () => {
+      const call = await prepareProviderCall(modelCostTarget(endpoint, 'embedding'), { estimate: { inputTokens: embeddingTokenBound(params.values) } });
+      try {
+        const result = await doEmbed();
+        await call?.complete({
+          usage: { inputTokens: result.usage?.tokens }, providerMetadata: result.providerMetadata,
+          requestId: result.response?.headers?.['x-request-id'],
+        });
+        return result;
+      } finally {
+        call?.release();
+      }
     }),
   } });
 }

@@ -1,4 +1,5 @@
 import type { Metadata } from 'next';
+import { requireAdministrator } from '@/lib/http/admin';
 import { WorkspaceLink as Link } from '@/components/shell/workspace-link';
 import { notFound } from 'next/navigation';
 import { param } from '@/lib/domain/list';
@@ -34,6 +35,7 @@ function backTo(raw: string): string {
  * threshold as submitted beside the figures today.
  */
 export default async function VerificationReviewPage({ params, searchParams }: Props) {
+  await requireAdministrator();
   const { id } = await params;
   if (!UUID.test(id)) notFound();
   const query = await searchParams;
@@ -114,7 +116,7 @@ export default async function VerificationReviewPage({ params, searchParams }: P
                 <>
                   <p>{d.pendingBody}</p>
                   {user.disabled && <p className="role-state-note">{d.disabled}</p>}
-                  <VerificationDecision id={request.id} />
+                  <VerificationDecision id={request.id} name={user.name} />
                 </>
               ) : (
                 <>

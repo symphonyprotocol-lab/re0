@@ -33,7 +33,18 @@ import { randomUUID } from 'node:crypto';
 import { createUIMessageStream, createUIMessageStreamResponse, generateText, Output, streamText, type UIMessageStreamWriter } from 'ai';
 import { z } from 'zod';
 import { and, eq, inArray, isNull } from 'drizzle-orm';
-import { NO_ANSWER_SUGGESTIONS, QUERY_BASE_FEE, VERIFY_ENABLED, VERIFY_FEE, VERIFY_MAX_SENTENCES, VERIFY_REASON_CHARS } from '@/lib/constants';
+import {
+  ANSWER_CHECK_TIMEOUT_MAX_MS,
+  ANSWER_STREAM_TIMEOUT_MAX_MS,
+  EARNED_MATURITY_DAYS,
+  NO_ANSWER_REFUSAL_CHARS,
+  NO_ANSWER_SUGGESTIONS,
+  QUERY_BASE_FEE,
+  VERIFY_ENABLED,
+  VERIFY_FEE,
+  VERIFY_MAX_SENTENCES,
+  VERIFY_REASON_CHARS,
+} from '@/lib/constants';
 import {
   checkInstructions,
   checkPrompt,
@@ -44,8 +55,8 @@ import {
   NO_ANSWER_SENTINEL,
   questionWithPassages,
   reasonLanguage,
-  isNoAnswer,
   sentinelState,
+  settlesAsNoAnswer,
   splitSentences,
   withoutSentinel,
   type Passage,
@@ -57,7 +68,7 @@ import { generationForUser } from '@/lib/services/generation';
 import { db, schema } from '@/lib/infra/db';
 import { json } from '@/lib/http/respond';
 import { embedQuestion, messagesOf, retrieve, turnsOf, type Conversation, type MessageRow, type QuestionVector } from '@/lib/services/chat';
-import { addGrant, balanceOf, placeHold, releaseHold, settleHold } from '@/lib/services/credits';
+import { addGrant, balanceOf, paidShare, placeHold, releaseHold, settleHold } from '@/lib/services/credits';
 import { suggestRees } from '@/lib/services/explore';
 import type { Ree } from '@/lib/services/rees';
 
@@ -133,6 +144,32 @@ export interface AnswerInput {
   verify?: boolean;
   /** The API key that asked, when the question came through the MCP server; stored on the question for per-key usage. */
   apiKeyId?: string | null;
+  /**
+   * The query fee per Ree id the asker saw when asking (the web's composer).
+   * A Ree whose fee is now higher refuses the question before anything is
+   * held, so a raised price is never charged without being shown. Left out
+   * (MCP, older clients), the current fee applies.
+   */
+  seenFees?: Record<string, number> | null;
+  /**
+   * The id the web client gave this ask (review C2). A second request with
+   * the same id in the conversation is refused as `duplicate` before any
+   * hold, so a replayed request never charges twice. Not a UUID → ignored.
+   */
+  clientRequestId?: string | null;
+}
+
+const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+
+/** The client's request id when it is one the column can hold, lower-cased; otherwise none. */
+export function clientRequestIdOf(value: unknown): string | null {
+  return typeof value === 'string' && UUID.test(value) ? value.toLowerCase() : null;
+}
+
+function isClientRequestRepeat(error: unknown): boolean {
+  const cause = error as { code?: string; constraint?: string; cause?: { code?: string; constraint?: string } } | null;
+  const pg = cause?.code === '23505' ? cause : cause?.cause?.code === '23505' ? cause.cause : null;
+  return Boolean(pg) && (pg!.constraint === undefined || pg!.constraint === 'message_client_request_key');
 }
 
 /**
@@ -158,7 +195,21 @@ export interface HeldQuestion {
   subject: string;
 }
 
-export type Holding = { ok: true; question: HeldQuestion } | { ok: false; balance: number; needed: number };
+export type Holding =
+  | { ok: true; question: HeldQuestion }
+  | { ok: false; reason: 'insufficient'; balance: number; needed: number }
+  | { ok: false; reason: 'price_changed'; fees: { reeId: string; fee: number }[] }
+  | { ok: false; reason: 'duplicate' };
+
+/** Rees whose fee to this user is now above what the asker saw: the "price changed" answer. */
+export function raisedFees(targets: readonly Pick<Ree, 'id' | 'ownerId' | 'queryFee'>[], userId: string, seen: Record<string, number> | null | undefined): { reeId: string; fee: number }[] {
+  if (!seen || typeof seen !== 'object') return [];
+  return targets.flatMap((ree) => {
+    const fee = feeFor(ree, userId);
+    const shown = seen[ree.id];
+    return fee > 0 && (typeof shown !== 'number' || !Number.isFinite(shown) || fee > shown) ? [{ reeId: ree.id, fee }] : [];
+  });
+}
 
 /**
  * Steps 1 and 2: the question and every hold in one transaction. Not enough
@@ -170,6 +221,18 @@ export async function holdQuestion(input: AnswerInput): Promise<Holding> {
   /* What is asked, without the `@name`s that only say who is asked. */
   const subject = withoutMentions(question, targets.map((ree) => ree.name));
   const database = db();
+  const clientRequestId = clientRequestIdOf(input.clientRequestId);
+  /* A replay of an ask already taken is told so before the fee check, so it is never offered as a new question (C2). */
+  if (clientRequestId) {
+    const [taken] = await database
+      .select({ id: schema.message.id })
+      .from(schema.message)
+      .where(and(eq(schema.message.conversationId, conversation.id), eq(schema.message.clientRequestId, clientRequestId)))
+      .limit(1);
+    if (taken) return { ok: false, reason: 'duplicate' };
+  }
+  const raised = raisedFees(targets, userId, input.seenFees);
+  if (raised.length) return { ok: false, reason: 'price_changed', fees: raised };
   const ready = await readyRees(targets.map((ree) => ree.id));
   const asking = targets.filter((ree) => ready.has(ree.id));
   const needed = asking.reduce((sum, ree) => sum + maxCostFor(ree, userId) + (verifying ? VERIFY_FEE : 0), 0);
@@ -178,7 +241,7 @@ export async function holdQuestion(input: AnswerInput): Promise<Holding> {
     const { askedId, held } = await database.transaction(async (tx) => {
       const [asked] = await tx
         .insert(schema.message)
-        .values({ conversationId: conversation.id, role: 'user', content: question, apiKeyId: input.apiKeyId ?? null })
+        .values({ conversationId: conversation.id, role: 'user', content: question, apiKeyId: input.apiKeyId ?? null, clientRequestId })
         .returning({ id: schema.message.id });
       const holds: Held[] = [];
       for (const ree of asking) {
@@ -201,7 +264,9 @@ export async function holdQuestion(input: AnswerInput): Promise<Holding> {
     });
     return { ok: true, question: { input, askedId, held, asking, subject } };
   } catch (error) {
-    if (error instanceof InsufficientCredits) return { ok: false, balance: await balanceOf(database, userId), needed };
+    if (error instanceof InsufficientCredits) return { ok: false, reason: 'insufficient', balance: await balanceOf(database, userId), needed };
+    /* The same ask racing the first one past the check above: the unique index refuses it, nothing is held. */
+    if (clientRequestId && isClientRequestRepeat(error)) return { ok: false, reason: 'duplicate' };
     throw error;
   }
 }
@@ -274,7 +339,7 @@ export async function runQuestion(question: HeldQuestion, emit: Emit): Promise<v
         maxOutputTokens: CHECK_OUTPUT_TOKENS,
         temperature: 0,
         maxRetries: 1,
-        abortSignal: AbortSignal.timeout(Math.max(generation.endpoint.timeoutMs, 30_000)),
+        abortSignal: AbortSignal.timeout(Math.min(Math.max(generation.endpoint.timeoutMs, 30_000), ANSWER_CHECK_TIMEOUT_MAX_MS)),
       });
       const { checks, judged } = checkResults(sentences, output, VERIFY_REASON_CHARS);
       if (judged === 0) throw new Error('no usable verdict');
@@ -293,7 +358,7 @@ export async function runQuestion(question: HeldQuestion, emit: Emit): Promise<v
           await releaseHold(tx, holdId, { reeId: ree.id, note: ree.name, ledger: 'chat_verify' });
           await tx.update(schema.message).set({ checkState: 'failed' }).where(eq(schema.message.id, replyId));
         })
-        .catch(() => undefined);
+        .catch((failure: unknown) => console.error(`check ree=${ree.id} hold=${holdId} not released (the chat-hold cron will): ${failure instanceof Error ? failure.message : 'unknown'}`));
       part({ state: 'failed', checks: [], cost: 0 });
     }
   };
@@ -325,7 +390,7 @@ export async function runQuestion(question: HeldQuestion, emit: Emit): Promise<v
         maxOutputTokens: MAX_OUTPUT_TOKENS,
         temperature: 0.2,
         maxRetries: 1,
-        abortSignal: AbortSignal.timeout(Math.max(generation.endpoint.timeoutMs, 30_000) * 2),
+        abortSignal: AbortSignal.timeout(Math.min(Math.max(generation.endpoint.timeoutMs, 30_000) * 2, ANSWER_STREAM_TIMEOUT_MAX_MS)),
       });
 
       let decided: boolean | null = null;
@@ -343,7 +408,18 @@ export async function runQuestion(question: HeldQuestion, emit: Emit): Promise<v
         emit({ type: 'text-delta', reeId: ree.id, delta: out });
         streamed += out;
       };
-      for await (const delta of result.textStream) {
+      /*
+       * The full stream, not `textStream`: that one drops `error` and `abort`
+       * parts and ends as if the model had finished, so a reply cut off by a
+       * provider error or the timeout would be charged as a whole answer
+       * (review M6). Either one fails this Ree: its holds are released.
+       */
+      for await (const part of result.stream) {
+        if (part.type === 'error') throw part.error instanceof Error ? part.error : new Error(`stream error: ${String(part.error)}`);
+        if (part.type === 'abort') throw new Error(`stream aborted${part.reason ? `: ${part.reason}` : ''}`);
+        if (part.type === 'finish' && part.finishReason === 'error') throw new Error('stream finished with an error');
+        if (part.type !== 'text-delta') continue;
+        const delta = part.text;
         if (decided === true) continue;
         if (decided === null) {
           pending += delta;
@@ -364,7 +440,7 @@ export async function runQuestion(question: HeldQuestion, emit: Emit): Promise<v
         () => undefined,
       );
 
-      if (decided === true || isNoAnswer(raw)) {
+      if (decided === true || settlesAsNoAnswer(raw, streamed, NO_ANSWER_REFUSAL_CHARS)) {
         emit({ type: 'outcome', outcome: { ...(await unanswered(ree, 'out_of_scope', entry)), model } });
         return false;
       }
@@ -374,9 +450,21 @@ export async function runQuestion(question: HeldQuestion, emit: Emit): Promise<v
       const cost = await database.transaction(async (tx) => {
         const base = await settleHold(tx, entry.baseHold, QUERY_BASE_FEE, { reeId: ree.id, note: ree.name });
         const paid = entry.feeHold ? await settleHold(tx, entry.feeHold, entry.fee, { reeId: ree.id, note: ree.name, ledger: 'chat_fee' }) : null;
-        /* The query fee goes to the owner in full, as earned credits; an open refund debt of theirs is paid from it first. */
+        /*
+         * The query fee goes to the owner in full, as earned credits; an open
+         * refund debt of theirs is paid from it first. Only the part the
+         * asker paid from money paid in may be withdrawn, after the maturity
+         * period; the part from free credits is earned they can only spend
+         * (review H2).
+         */
         if (paid && paid.charged > 0) {
-          await addGrant(tx, { userId: ree.ownerId, source: 'earned', amount: paid.charged, reason: 'query_fee_earned', refId: replyId, reeId: ree.id, note: ree.name });
+          const share = await paidShare(tx, paid.chargedAllocations);
+          const credit = (amount: number, withdrawableAt: Date | null, note: string, fundingPurchaseId: string | null) =>
+            addGrant(tx, { userId: ree.ownerId, source: 'earned', amount, reason: 'query_fee_earned', refId: replyId, reeId: ree.id, note, withdrawableAt, fundingPurchaseId });
+          /* One grant per paying purchase, so a refund of one voids only what it paid for while it has not matured. */
+          const matures = new Date(Date.now() + EARNED_MATURITY_DAYS * 86_400_000);
+          for (const [purchaseId, amount] of share.byPurchase) if (amount > 0) await credit(amount, matures, ree.name, purchaseId);
+          if (share.free > 0) await credit(share.free, null, `${ree.name} · free credits, not withdrawable`, null);
         }
         const charged = (base?.charged ?? 0) + (paid?.charged ?? 0);
         await tx.insert(schema.message).values({
@@ -396,7 +484,10 @@ export async function runQuestion(question: HeldQuestion, emit: Emit): Promise<v
       return true;
     } catch (error) {
       console.warn(`answer ree=${ree.id} failed: ${error instanceof Error ? error.message : 'unknown'}`);
-      await release(entry).catch(() => undefined);
+      /* Should the release fail too, the chat-hold cron gives the credits back later. */
+      await release(entry).catch((failure: unknown) =>
+        console.error(`answer ree=${ree.id} request=${askedId} holds not released (the chat-hold cron will): ${failure instanceof Error ? failure.message : 'unknown'}`),
+      );
       if (textOpen) emit({ type: 'text-end', reeId: ree.id });
       emit({ type: 'outcome', outcome: outcome(ree.id, { failed: true, model }) });
       return true;
@@ -444,6 +535,8 @@ function uiChunk(event: AnswerEvent): Parameters<Writer['write']>[0] {
 export async function answer(input: AnswerInput): Promise<Response> {
   const holding = await holdQuestion(input);
   if (!holding.ok) {
+    if (holding.reason === 'price_changed') return json({ error: 'price_changed', fees: holding.fees }, 409);
+    if (holding.reason === 'duplicate') return json({ error: 'duplicate_request' }, 409);
     const body: InsufficientCreditsBody = { error: 'insufficient_credits', balance: holding.balance, needed: holding.needed };
     return json(body, 402);
   }

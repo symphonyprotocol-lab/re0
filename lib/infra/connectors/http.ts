@@ -4,13 +4,17 @@
  * URL served, so scheme, host, every redirect hop, response size and
  * credentials are checked here rather than in each connector.
  *
- * The host check is the literal-address half of SSRF defence: it refuses
- * `localhost`, metadata names and private ranges before any request. A
- * public name that resolves to a private address needs resolution-time
- * pinning, which `fetch` does not expose; the deployment's egress rules are
- * the other half.
+ * SSRF defence has two halves. Before each hop, `assertFetchable` refuses
+ * other schemes, non-default ports, credentials, and private names or
+ * literals. At connect time, `publicOnlyDispatcher` resolves the name,
+ * refuses it if any answer is private (loopback, RFC 1918, CGNAT,
+ * link-local / metadata, v4-mapped v6, ...), and dials only the address it
+ * checked, so DNS rebinding cannot swap it between check and connect.
  */
+import { meterTransfer } from '@/lib/infra/ai/provider-meter';
 import { isPublicHost } from '@/lib/domain/sources';
+import { isIP } from 'node:net';
+import { isPrivateAddressFailure, isPublicAddress, publicOnlyDispatcher } from './address';
 import { ProcessingFailure } from './failure';
 
 const TIMEOUT_MS = 20_000;
@@ -43,8 +47,13 @@ export function assertFetchable(url: URL): void {
   if (url.protocol !== 'https:' && url.protocol !== 'http:') {
     throw new ProcessingFailure('source_forbidden', 'only http(s) sources are fetched');
   }
+  /* `URL` drops a scheme's default port, so anything left is a non-standard one. */
+  if (url.port && url.port !== '80' && url.port !== '443') throw new ProcessingFailure('source_forbidden', 'only the standard http(s) ports are fetched');
   if (url.username || url.password) throw new ProcessingFailure('source_forbidden', 'credentials in a source URL');
-  if (!isPublicHost(url.hostname)) throw new ProcessingFailure('source_forbidden', 'a local or private address is not a source');
+  const literal = url.hostname.replace(/^\[|\]$/g, '');
+  if (!isPublicHost(url.hostname) || (isIP(literal) && !isPublicAddress(literal))) {
+    throw new ProcessingFailure('source_forbidden', 'a local or private address is not a source');
+  }
 }
 
 function credentialSafe(headers: Record<string, string> | undefined, url: URL, origin: string): Record<string, string> {
@@ -100,8 +109,11 @@ export async function fetchBytes(target: string, options: FetchOptions = {}): Pr
         redirect: 'manual',
         signal: AbortSignal.timeout(options.timeoutMs ?? TIMEOUT_MS),
         cache: 'no-store',
+        // Node's fetch is undici; the dispatcher option is not in the DOM RequestInit type.
+        ...({ dispatcher: publicOnlyDispatcher() } as RequestInit),
       });
-    } catch {
+    } catch (error) {
+      if (isPrivateAddressFailure(error)) throw new ProcessingFailure('source_forbidden', `${url.host} resolves to a local or private address`);
       throw new ProcessingFailure('source_unreachable', `${url.host} did not answer`);
     }
     if (response.status >= 300 && response.status < 400) {
@@ -133,7 +145,15 @@ export async function fetchBytes(target: string, options: FetchOptions = {}): Pr
       await response.body?.cancel();
       throw new ProcessingFailure('source_too_large', `${url.host} declared ${declared} bytes`);
     }
-    const bytes = await readCapped(response, limit, url.host);
+    let bytes: Uint8Array;
+    try {
+      bytes = await readCapped(response, limit, url.host);
+    } catch (error) {
+      // A body cut off at the limit was still transferred up to it.
+      if (error instanceof ProcessingFailure && error.code === 'source_too_large') meterTransfer('fetch', limit);
+      throw error;
+    }
+    meterTransfer('fetch', bytes.length);
     return {
       url: url.toString(),
       status: response.status,

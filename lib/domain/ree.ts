@@ -14,6 +14,31 @@ import {
 } from '@/lib/constants';
 import { isUuid } from '@/lib/domain/list';
 
+const LOWER_UUID = '[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}';
+const AVATAR_PATH = new RegExp(`^avatars/(${LOWER_UUID})/${LOWER_UUID}\\.(?:jpg|png|webp)$`);
+
+/**
+ * Exactly what `/api/upload-token` writes for an avatar:
+ * `avatars/<user id>/<random id>.<jpg|png|webp>`, optionally under one owner.
+ */
+export function isAvatarPath(pathname: unknown, ownerId?: string): pathname is string {
+  if (typeof pathname !== 'string') return false;
+  const match = AVATAR_PATH.exec(pathname);
+  return Boolean(match) && (ownerId === undefined || match![1] === ownerId.toLowerCase());
+}
+
+/**
+ * Where a stored avatar is shown: an uploaded one through /media, only in the
+ * exact shape the uploader writes (a stored `avatars/x/../../api/…` would
+ * otherwise make every viewer GET a same-origin path); anything else is an
+ * external URL (OAuth).
+ */
+export function avatarImageUrl(avatar: string | null | undefined): string | null {
+  if (!avatar) return null;
+  if (avatar.startsWith('avatars/')) return isAvatarPath(avatar) ? `/media/${avatar}` : null;
+  return avatar;
+}
+
 export function isReeCoverPath(pathname: string, reeId: string): boolean {
   const [directory, id, file, ...rest] = pathname.split('/');
   const [key, extension, ...suffix] = (file ?? '').split('.');
@@ -150,7 +175,7 @@ export function coerceDraft(input: unknown): ReeDraft {
   return {
     name: str(raw.name, REE_LIMITS.name * 2),
     description: str(raw.description, REE_LIMITS.description * 2),
-    avatarBlob: typeof raw.avatarBlob === 'string' && raw.avatarBlob.startsWith('avatars/') ? raw.avatarBlob : null,
+    avatarBlob: isAvatarPath(raw.avatarBlob) ? raw.avatarBlob : null,
     color: isColor(raw.color) ? raw.color : base.color,
     category: isCategory(raw.category) ? raw.category : '',
     tags: Array.isArray(raw.tags) ? raw.tags.map((tag) => str(tag, REE_LIMITS.tag * 2)).slice(0, 10) : [],

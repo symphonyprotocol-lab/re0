@@ -3,7 +3,7 @@
 import { useRouter } from 'next/navigation';
 import { useEffect, useRef, useState } from 'react';
 import { put } from '@vercel/blob/client';
-import { exportBrowserRefused, exportCost, hasVideoAudio, introSize, scriptDownload, type IntroProps } from '@/lib/domain/video';
+import { exportBrowserRefused, exportCost, hasVideoAudio, introSize, renderKey, scriptDownload, type IntroProps } from '@/lib/domain/video';
 import { api } from '@/lib/client/upload';
 import { useI18n } from '@/i18n/client';
 import { fill, formatDate } from '@/i18n/format';
@@ -47,7 +47,9 @@ export function ExportPanel({
   exportsCount,
   exportCredits,
   lastExport,
+  editing = false,
   onExported,
+  onRunning,
 }: {
   ree: { id: string; name: string; slug: string; isPublic: boolean };
   props: IntroProps | null;
@@ -55,7 +57,11 @@ export function ExportPanel({
   exportsCount: number;
   exportCredits: number;
   lastExport: LastExport | null;
+  /** The studio is generating or saving: an export started now would render what is about to be replaced (review C13). */
+  editing?: boolean;
   onExported: (count: number) => void;
+  /** Told when an export starts and ends, so the studio holds its edits meanwhile. */
+  onRunning?: (running: boolean) => void;
 }) {
   const { t, locale } = useI18n();
   const e = t.video.export;
@@ -64,7 +70,8 @@ export function ExportPanel({
   const [dialog, setDialog] = useState<'unsupported' | 'confirm' | null>(null);
   const [quote, setQuote] = useState<number | null>(null);
   const [job, setJob] = useState<Job | null>(null);
-  const [result, setResult] = useState<{ url: string; aspect: string; cost: number; cached: boolean } | null>(null);
+  /* `key` is the picture the file shows (`renderKey`), so a later save marks it outdated. */
+  const [result, setResult] = useState<{ url: string; aspect: string; cost: number; cached: boolean; key: string } | null>(null);
   const [error, setError] = useState<string | null>(null);
   const running = useRef<{ exportId: string; controller: AbortController } | null>(null);
   const cost = exportCost(exportsCount, exportCredits);
@@ -109,7 +116,7 @@ export function ExportPanel({
       return;
     }
     if (quoted.data.cached) {
-      setResult({ url: quoted.data.cached, aspect: props.aspect, cost: 0, cached: true });
+      setResult({ url: quoted.data.cached, aspect: props.aspect, cost: 0, cached: true, key: renderKey(props) });
       toast(e.cached);
       return;
     }
@@ -118,14 +125,29 @@ export function ExportPanel({
   };
 
   const run = async () => {
-    if (quote === null) return;
+    if (quote === null || editing || job !== null) return;
     setDialog(null);
     setResult(null);
     setError(null);
     setJob({ phase: 'render', percent: 0 });
-    const started = await api<Start & { error?: string }>(`/api/rees/${ree.id}/video/exports`, { method: 'POST', json: { maxCost: quote } });
-    if (!started.ok) {
+    onRunning?.(true);
+    try {
+      await render(quote);
+    } finally {
       setJob(null);
+      onRunning?.(false);
+    }
+  };
+
+  const render = async (maxCost: number) => {
+    const started = await api<Start & { error?: string }>(`/api/rees/${ree.id}/video/exports`, { method: 'POST', json: { maxCost } });
+    if (!started.ok) {
+      /* A dropped connection lands here too (`api` answers status 0), so the panel never sticks at "rendering 0%" (review C5). */
+      if (started.status === 0) {
+        setError(e.networkError);
+        router.refresh();
+        return;
+      }
       if (started.data.error === 'price_changed') {
         setError(e.priceChanged);
         router.refresh();
@@ -136,8 +158,7 @@ export function ExportPanel({
     }
     const start = started.data;
     if (start.cached) {
-      setJob(null);
-      setResult({ url: start.url, aspect: start.aspect, cost: 0, cached: true });
+      setResult({ url: start.url, aspect: start.aspect, cost: 0, cached: true, key: props ? renderKey(props) : '' });
       toast(e.cached);
       return;
     }
@@ -169,25 +190,28 @@ export function ExportPanel({
       const done = await api<{ url?: string; cost?: number; error?: string }>(`/api/rees/${ree.id}/video/exports/${start.exportId}/complete`, { method: 'POST' });
       if (!done.ok || !done.data.url) throw new Error(done.data.error ?? 'complete');
       running.current = null;
-      setResult({ url: done.data.url, aspect: start.props.aspect, cost: done.data.cost ?? start.cost, cached: false });
+      setResult({ url: done.data.url, aspect: start.props.aspect, cost: done.data.cost ?? start.cost, cached: false, key: renderKey(start.props) });
       onExported(exportsCount + 1);
       router.refresh();
     } catch (failure) {
       running.current = null;
+      /* `api` never throws, so the failure below is shown even when this cleanup cannot reach the server (the cron releases the hold then). */
       await api(`/api/rees/${ree.id}/video/exports/${start.exportId}`, { method: 'DELETE' });
       if (controller.signal.aborted) toast(e.cancelled);
       else setError(fill(e.failed, { reason: failure instanceof Error ? failure.message : 'render' }));
       router.refresh();
-    } finally {
-      setJob(null);
     }
   };
 
   const cancel = () => running.current?.controller.abort();
 
   const share = async () => {
-    await navigator.clipboard.writeText(`${window.location.origin}/r/${ree.slug}?video=1`).catch(() => undefined);
-    toast(e.shareCopied);
+    try {
+      await navigator.clipboard.writeText(`${window.location.origin}/r/${ree.slug}?video=1`);
+      toast(e.shareCopied);
+    } catch {
+      toast(t.common.errors.generic);
+    }
   };
 
   const downloadScript = () => {
@@ -202,6 +226,8 @@ export function ExportPanel({
   };
 
   const shown = result ?? (lastExport ? { url: lastExport.url, aspect: lastExport.aspect, cost: lastExport.cost, cached: false } : null);
+  /* The file on show no longer matches what is saved: an export from this visit compares its picture, an earlier one carries the server's word. */
+  const outdated = result ? !props || renderKey(props) !== result.key : Boolean(lastExport && !lastExport.current);
   return (
     <section className="video-export-panel card" aria-labelledby="video-export-title">
       <div className="between">
@@ -212,7 +238,7 @@ export function ExportPanel({
         <span className="tag blue">{cost === 0 ? e.freeTag : fill(e.costTag, { n: cost })}</span>
       </div>
       <div className="flex mt16">
-        <button type="button" className="btn" disabled={!props || dirty || job !== null} onClick={() => void probe()} title={dirty ? e.saveFirst : undefined}>
+        <button type="button" className="btn" disabled={!props || dirty || editing || job !== null} onClick={() => void probe()} title={dirty ? e.saveFirst : undefined}>
           <PIcon name="download" />
           {e.button}
         </button>
@@ -266,7 +292,7 @@ export function ExportPanel({
               <a href={shown.url} target="_blank" rel="noreferrer" className="text-link">
                 {e.open}
               </a>
-              {!result && lastExport && !lastExport.current && <small className="export-outdated">{e.outdated}</small>}
+              {outdated && <small className="export-outdated">{e.outdated}</small>}
             </span>
           </div>
         )}
@@ -293,7 +319,7 @@ export function ExportPanel({
             <button type="button" className="btn-secondary" onClick={() => setDialog(null)}>
               {t.common.actions.cancel}
             </button>
-            <button type="button" className="btn" onClick={() => void run()}>
+            <button type="button" className="btn" disabled={editing} onClick={() => void run()}>
               {e.start}
             </button>
           </>

@@ -6,6 +6,7 @@ import { serverMessages } from '@/i18n/server';
 import { fill, formatDate, formatNumber, formatUsd } from '@/i18n/format';
 import { ArrivalNotice } from '@/components/billing/arrival';
 import { RenewalControl } from '@/components/billing/renewal';
+import { RedeemCard } from '@/components/billing/redeem-card';
 import { PayoutCard } from '@/components/payouts/payout-card';
 import { I } from '@/components/settings/icon';
 
@@ -16,65 +17,73 @@ export async function BalanceTab({ userId, query }: { userId: string; query: Rec
   const [summary, prices] = await Promise.all([billingSummary(userId), currentPricing()]);
   const plan = summary.plan;
   const periodEnd = plan.periodEnd ? formatDate(plan.periodEnd, locale) : '';
+  const redeemed = plan.source === 'redeemed';
+  const redeemedUntil = plan.redeemedUntil ? formatDate(plan.redeemedUntil, locale) : '';
+  /* A redeemed Plan in force or waiting: no subscribing until it ends (checkout refuses it too). */
+  const redeemedHeld = redeemed || Boolean(plan.redeemedNext);
   const arriving = typeof query.checkout === 'string' && /^txn_[a-z0-9]{10,64}$/.test(query.checkout) ? query.checkout : null;
   const n = (value: number) => formatNumber(value, locale);
   return (
     <div className={`settings-billing ${summary.official ? 'official-billing' : ''}`}>
       {arriving && <ArrivalNotice transactionId={arriving} />}
-      <div className="billing-summary">
-        <span className="billing-total">
-          {b.total}
-          <strong>{n(summary.total)}</strong>
-          <span>credits</span>
-        </span>
-      </div>
-      {summary.buckets.welcome > 0 && (
-        <div className="welcome-credits">
-          <span>
-            <I name="sparkle" /> {fill(b.welcome, { n: n(summary.buckets.welcome) })}
-          </span>
-          <span>{b.noExpiry}</span>
+      <section className="card billing-total-card" aria-labelledby="billing-total-label">
+        <div className="billing-total-main">
+          <p className="label" id="billing-total-label">
+            {b.total.label}
+          </p>
+          <p className="billing-total-number">
+            <strong>{n(summary.total)}</strong>
+            <span>credits</span>
+          </p>
+          {summary.buckets.welcome > 0 && <p className="billing-total-gift">{fill(b.total.includesWelcome, { n: n(summary.buckets.welcome) })}</p>}
         </div>
-      )}
+        <ul className="billing-buckets" aria-label={b.total.buckets}>
+          <li className="billing-bucket">
+            <p className="label">
+              {b.total.plan.label}
+              <span className={`tag ${plan.active ? (plan.cancelAtPeriodEnd ? 'orange' : 'blue') : ''}`}>
+                {plan.active ? (redeemed ? b.total.plan.redeemed : plan.cancelAtPeriodEnd ? b.total.plan.ending : b.total.plan.monthly) : b.total.plan.inactive}
+              </span>
+            </p>
+            <p className="billing-bucket-number">{n(summary.buckets.plan)}</p>
+            <small>{plan.active ? fill(b.total.plan.expires, { date: periodEnd }) : fill(b.total.plan.idle, { credits: n(prices.plan.credits) })}</small>
+          </li>
+          <li className="billing-bucket">
+            <p className="label">{b.total.welcome.label}</p>
+            <p className="billing-bucket-number">{n(summary.buckets.welcome)}</p>
+            <small>{b.total.welcome.note}</small>
+          </li>
+          <li className="billing-bucket">
+            <p className="label">
+              {b.total.pack.label}
+              <I name="layers" />
+            </p>
+            <p className="billing-bucket-number">{n(summary.buckets.pack)}</p>
+            <small>{b.total.pack.note}</small>
+          </li>
+          {!summary.official && (
+            <li className="billing-bucket earned">
+              <p className="label">
+                {b.total.earned.label}
+                <I name="sparkle" />
+              </p>
+              <p className="billing-bucket-number">{n(summary.buckets.earned)}</p>
+              <small>{b.total.earned.note}</small>
+            </li>
+          )}
+        </ul>
+      </section>
       {summary.debt > 0 && (
         <div role="note" className="billing-debt">
           <I name="info" />
           <span>{fill(b.debt, { n: n(summary.debt) })}</span>
         </div>
       )}
-      <div className="billing-balance">
-        <div className="card balance-card">
-          <p className="label">
-            {b.planBalance.label}
-            <span className="tag blue">{plan.active ? b.planBalance.monthly : b.planBalance.inactive}</span>
-          </p>
-          <p className="big-number">{n(summary.buckets.plan)}</p>
-          <small>{plan.active ? fill(b.planBalance.active, { date: periodEnd }) : fill(b.planBalance.idle, { credits: n(prices.plan.credits) })}</small>
-        </div>
-        <div className="card balance-card">
-          <p className="label">
-            {b.packBalance.label}
-            <I name="layers" />
-          </p>
-          <p className="big-number">{n(summary.buckets.pack)}</p>
-          <small>{b.packBalance.note}</small>
-        </div>
-        {!summary.official && (
-          <div className="card balance-card earned">
-            <p className="label">
-              {b.earnedBalance.label}
-              <I name="sparkle" />
-            </p>
-            <p className="big-number">{n(summary.buckets.earned)}</p>
-            <small>{b.earnedBalance.note}</small>
-          </div>
-        )}
-      </div>
       <div className="billing-plans mt32">
         <section className="card plan-card primary">
           <div className="between">
             <h3>{b.plan.title}</h3>
-            <span className={`tag ${plan.active ? 'blue' : ''}`}>{plan.active ? (plan.cancelAtPeriodEnd ? b.plan.cancelling : b.plan.current) : b.plan.start}</span>
+            <span className={`tag ${plan.active ? 'blue' : ''}`}>{plan.active ? (redeemed ? b.plan.redeemed : plan.cancelAtPeriodEnd ? b.plan.cancelling : b.plan.current) : b.plan.start}</span>
           </div>
           {plan.active && <small>{b.plan.offerPrice}</small>}
           <p className="plan-price">
@@ -83,9 +92,23 @@ export async function BalanceTab({ userId, query }: { userId: string; query: Rec
           <PromotionNotice price={prices.plan} kind="plan" locale={locale} labels={t.site.prices} />
           <p>{fill(b.plan.perCycle, { credits: n(prices.plan.credits) })}</p>
           <Features items={[b.plan.perk1, b.plan.perk2, b.plan.perk3]} />
-          {plan.active && <p className="plan-renewal">{fill(plan.cancelAtPeriodEnd ? b.plan.ends : b.plan.renews, { date: periodEnd })}</p>}
-          {plan.active ? (
+          {plan.active && (
+            <p className="plan-renewal">{redeemed ? fill(b.plan.redeemedUntil, { date: redeemedUntil }) : fill(plan.cancelAtPeriodEnd ? b.plan.ends : b.plan.renews, { date: periodEnd })}</p>
+          )}
+          {plan.redeemedNext && (
+            <p className="plan-renewal">{fill(b.plan.redeemedNext, { date: formatDate(plan.redeemedNext, locale), until: redeemedUntil })}</p>
+          )}
+          {plan.active && !redeemed && plan.cancelAtPeriodEnd && plan.redeemedNext ? (
+            /* A redeemed Plan follows this paid period: renewing would overlap it, and the API refuses it. */
+            <button type="button" className="btn secondary" disabled>
+              {b.plan.resumeBlocked}
+            </button>
+          ) : plan.active && !redeemed ? (
             <RenewalControl cancelAtPeriodEnd={plan.cancelAtPeriodEnd} periodEndLabel={periodEnd} />
+          ) : redeemedHeld ? (
+            <button type="button" className="btn" disabled>
+              {b.plan.redeemedLater}
+            </button>
           ) : (
             <Link href="/checkout?kind=plan" className="btn">
               {fill(b.plan.subscribe, { price: formatUsd(prices.plan.effectivePriceMinor, locale) })}
@@ -114,6 +137,7 @@ export async function BalanceTab({ userId, query }: { userId: string; query: Rec
           )}
         </section>
       </div>
+      <RedeemCard initialCode={typeof query.code === 'string' ? query.code.slice(0, 60) : ''} />
       <div className="info-strip mt24">
         <I name="info" />
         <span>{b.info}</span>

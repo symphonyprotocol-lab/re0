@@ -51,9 +51,34 @@ describe('transcription usage without a reported duration', () => {
     expect(charges[0]).toMatchObject({ usage: { seconds: 3 }, costUsd: '0.000300000000', basis: 'configured_rate' });
   });
 
-  it('keeps the transcript and leaves the cost unresolved when no duration is known', async () => {
-    const { result, charges } = await transcribeWithoutDuration(new Uint8Array([0xff, 0xfb, 0x90, 0x00]), 'audio/mpeg');
-    expect(result.text).toBe('Hello.');
-    expect(charges[0]).toMatchObject({ costUsd: null, basis: 'unresolved' });
+  it('prices an MP3 piece by its own frames when the reply has no duration', async () => {
+    // One MPEG-1 layer III frame: 1152 samples at 44.1 kHz.
+    const { charges } = await transcribeWithoutDuration(new Uint8Array([0xff, 0xfb, 0x90, 0x00]), 'audio/mpeg');
+    expect(charges[0]).toMatchObject({ basis: 'configured_rate' });
+    expect(charges[0]!.usage.seconds).toBeCloseTo(1152 / 44_100, 9);
+  });
+
+  it('bills the longest of the reported duration, the last segment and the audio itself', async () => {
+    vi.stubGlobal('fetch', vi.fn().mockResolvedValue(Response.json({ text: 'Hello.', duration: 1.5, segments: [{ start: 0, end: 2, text: 'Hello.' }] })));
+    const charges: ProviderCharge[] = [];
+    const model = transcriptionModel(endpoint);
+    if (typeof model === 'string') throw new Error('expected a model object');
+    await withProviderMeter({ runId: 'run', prices: { revision: 'v1', rates: [rate] }, record: async (charge) => { charges.push(charge); } },
+      async () => model.doGenerate({ audio: wav(3), mediaType: 'audio/wav' }));
+    expect(charges[0]).toMatchObject({ usage: { seconds: 3 }, costUsd: '0.000300000000' });
+  });
+
+  it('reserves the piece\'s own length before the call', async () => {
+    vi.stubGlobal('fetch', vi.fn().mockResolvedValue(Response.json({ text: 'Hello.', duration: 3 })));
+    const reserved: string[] = [];
+    const model = transcriptionModel(endpoint);
+    if (typeof model === 'string') throw new Error('expected a model object');
+    await withProviderMeter({ runId: 'run', prices: { revision: 'v1', rates: [rate] }, record: async () => undefined, reserve: async (cost) => { reserved.push(cost); return () => undefined; } },
+      async () => model.doGenerate({ audio: wav(3), mediaType: 'audio/wav' }));
+    expect(reserved).toEqual(['0.000300000000']);
+  });
+
+  it('fails rather than bill zero when no duration is known at all', async () => {
+    await expect(transcribeWithoutDuration(new Uint8Array([1, 2, 3, 4]), 'audio/mpeg')).rejects.toThrow('usage_unavailable');
   });
 });

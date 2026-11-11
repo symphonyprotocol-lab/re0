@@ -133,6 +133,32 @@ export function canonicalJson(value: unknown): string {
   return JSON.stringify(value);
 }
 
+/**
+ * What an exported MP4 is drawn from, and nothing else (video/product-demo.tsx
+ * `NarratedVideo`, video/intro.tsx `introComposition`): the frame size, the
+ * story and its narration, the opening name, the accent and the music. The
+ * Ree's price, source count, share link, avatar and slug ride along in
+ * `IntroProps` for the cards but never reach a frame, so a change to them
+ * must not make an export stale (review C4). A new field the composition
+ * starts drawing belongs here, with `VIDEO_COMPOSITION_VERSION` bumped.
+ */
+export function renderInputs(props: IntroProps) {
+  return {
+    template: props.template,
+    aspect: props.aspect,
+    accent: props.accent,
+    music: props.music,
+    narrationUrl: props.narrationUrl ?? null,
+    name: props.scenes.opening.name,
+    story: props.scenes.demo ?? null,
+  };
+}
+
+/** `renderInputs` as one comparable string: same string, same picture. */
+export function renderKey(props: IntroProps): string {
+  return canonicalJson(renderInputs(props));
+}
+
 /** "下载脚本" (prototype `download-script`): the script, its style and the fixed spec. */
 export function scriptDownload(name: string, props: IntroProps): Record<string, unknown> {
   const spec = {

@@ -1,6 +1,7 @@
 import { NextResponse, type NextRequest } from 'next/server';
 import { DISPLAY_NAME_MAX } from '@/lib/constants';
 import { profileChanges } from '@/lib/domain/account';
+import { isAvatarPath } from '@/lib/domain/ree';
 import { LOCALE_COOKIE } from '@/lib/http/cookies';
 import { body, fail, json } from '@/lib/http/respond';
 import { apiUser } from '@/lib/http/session';
@@ -49,7 +50,7 @@ export async function PATCH(request: NextRequest) {
     const avatar = input.avatarBlob;
     // OAuth photos are external URLs. Keeping the current photo is valid;
     // replacing it still requires this user's uploaded avatar pathname.
-    if (avatar !== user.avatarBlob && avatar !== null && !(typeof avatar === 'string' && avatar.startsWith(`avatars/${user.id}/`))) return fail('avatar', 422);
+    if (avatar !== user.avatarBlob && avatar !== null && !isAvatarPath(avatar, user.id)) return fail('avatar', 422);
     changes.avatarBlob = avatar as string | null;
   }
   if ('lang' in input) {

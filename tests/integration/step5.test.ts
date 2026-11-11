@@ -11,8 +11,9 @@
  */
 import { WELCOME_CREDITS } from '@/lib/constants';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
-import { and, eq, inArray, isNotNull, lt, sql } from 'drizzle-orm';
+import { and, eq, inArray, lt, sql } from 'drizzle-orm';
 import { pointModelsAt, TEST_DATABASE_URL, uniqueName } from './setup';
+import { consoleAdministrator } from '../fixtures/console-administrator';
 import { startFakeOpenAi, type FakeOpenAi } from '../fixtures/fake-openai';
 
 const describeWithDb = TEST_DATABASE_URL ? describe : describe.skip;
@@ -29,6 +30,7 @@ const admin = await import('@/lib/services/admin');
 const statistics = await import('@/lib/services/statistics');
 const adminPurchases = await import('@/lib/services/admin-purchases');
 const reembed = await import('@/lib/services/reembed');
+const { activeSpace, chunkVector } = await import('@/lib/services/embedding-space');
 const models = await import('@/lib/services/models');
 const reesService = await import('@/lib/services/rees');
 const profile = await import('@/lib/services/profile');
@@ -56,10 +58,10 @@ async function newUser(name = 'Owner', createdAt = new Date()): Promise<string> 
   return userId;
 }
 
-async function newAdministrator(): Promise<string> {
+async function newAdministrator(role: 'owner' | 'administrator' = 'administrator'): Promise<string> {
   const [row] = await db()
     .insert(schema.administrator)
-    .values({ name: 'Reviewer', email: `${uniqueName('admin')}@example.test`, passwordHash: 'x', totpSecretCipher: 'x' })
+    .values({ name: 'Reviewer', email: `${uniqueName('admin')}@example.test`, role, passwordHash: 'x', totpSecretCipher: 'x' })
     .returning({ id: schema.administrator.id });
   return row!.id;
 }
@@ -168,7 +170,7 @@ describeWithDb('roles', () => {
     const inbox = await notices.listNotices(owner, 1);
     expect(inbox.items.map((n) => n.kind)).toEqual(['role', 'verification', 'verification']);
     expect(inbox.unread).toBe(3);
-    const audits = await adminAudit.listAudit(auditView({ action: 'verification.rejected', q: owner }));
+    const audits = await adminAudit.listAudit(await consoleAdministrator(), auditView({ action: 'verification.rejected', q: owner }));
     expect(audits.total).toBe(1);
   });
 
@@ -196,7 +198,7 @@ describeWithDb('roles', () => {
     await roles.changeRole(reviewer, owner, 'cancel_official', 'Back to normal');
     /* A close by role change does not start the 30-day wait. */
     expect((await roles.verificationOverview(owner)).access).toMatchObject({ eligible: true, reason: null });
-    const audit = await adminAudit.listAudit(auditView({ action: 'user.role.official', q: owner }));
+    const audit = await adminAudit.listAudit(await consoleAdministrator(), auditView({ action: 'user.role.official', q: owner }));
     expect(audit.items[0]!.after).toMatchObject({ role: 'official', closedRequests: [request.id] });
   });
 });
@@ -238,15 +240,15 @@ describeWithDb('console users', () => {
   it('adjusts Pack and Plan credits without going negative, audited and noticed', async () => {
     const reviewer = await newAdministrator();
     const userId = await newUser();
-    await expect(adminUsers.adjustCredits(reviewer, userId, { bucket: 'plan', direction: 'grant', amount: 100, reason: 'goodwill' })).rejects.toMatchObject({ code: 'no_plan' });
-    await adminUsers.adjustCredits(reviewer, userId, { bucket: 'pack', direction: 'grant', amount: 5_000, reason: 'support credit' });
+    await expect(adminUsers.adjustCredits(reviewer, userId, { bucket: 'plan', direction: 'grant', amount: 100, reason: 'goodwill', requestId: crypto.randomUUID() })).rejects.toMatchObject({ code: 'no_plan' });
+    await adminUsers.adjustCredits(reviewer, userId, { bucket: 'pack', direction: 'grant', amount: 5_000, reason: 'support credit', requestId: crypto.randomUUID() });
     expect(await balanceOf(db(), userId)).toBe(WELCOME_CREDITS + 5_000);
-    await expect(adminUsers.adjustCredits(reviewer, userId, { bucket: 'pack', direction: 'deduct', amount: 5_001, reason: 'claw back' })).rejects.toMatchObject({ code: 'insufficient' });
-    await adminUsers.adjustCredits(reviewer, userId, { bucket: 'pack', direction: 'deduct', amount: 5_000, reason: 'claw back' });
+    await expect(adminUsers.adjustCredits(reviewer, userId, { bucket: 'pack', direction: 'deduct', amount: 5_001, reason: 'claw back', requestId: crypto.randomUUID() })).rejects.toMatchObject({ code: 'insufficient' });
+    await adminUsers.adjustCredits(reviewer, userId, { bucket: 'pack', direction: 'deduct', amount: 5_000, reason: 'claw back', requestId: crypto.randomUUID() });
     expect(await balanceOf(db(), userId)).toBe(WELCOME_CREDITS);
     /* An open debt is paid first: the notice and the audit say what the bucket actually gained. */
     await db().insert(schema.creditDebt).values({ userId, amount: 300, remaining: 300 });
-    const paid = await adminUsers.adjustCredits(reviewer, userId, { bucket: 'pack', direction: 'grant', amount: 1_000, reason: 'with debt' });
+    const paid = await adminUsers.adjustCredits(reviewer, userId, { bucket: 'pack', direction: 'grant', amount: 1_000, reason: 'with debt', requestId: crypto.randomUUID() });
     expect(paid).toMatchObject({ delta: 700, debtPaid: 300 });
     expect(await balanceOf(db(), userId)).toBe(WELCOME_CREDITS + 700);
     const [latest] = (await notices.listNotices(userId, 1)).items;
@@ -259,14 +261,14 @@ describeWithDb('console users', () => {
       currentPeriodStart: new Date(Date.now() - DAY),
       currentPeriodEnd: new Date(Date.now() + 20 * DAY),
     });
-    await adminUsers.adjustCredits(reviewer, userId, { bucket: 'plan', direction: 'grant', amount: 300, reason: 'plan top-up' });
+    await adminUsers.adjustCredits(reviewer, userId, { bucket: 'plan', direction: 'grant', amount: 300, reason: 'plan top-up', requestId: crypto.randomUUID() });
     const [plan] = await db().select().from(schema.creditGrant).where(and(eq(schema.creditGrant.userId, userId), eq(schema.creditGrant.source, 'plan')));
     expect(plan!.expiresAt!.getTime()).toBeGreaterThan(Date.now() + 19 * DAY);
 
     const entries = await db().select().from(schema.creditEntry).where(and(eq(schema.creditEntry.userId, userId), eq(schema.creditEntry.reason, 'admin_adjust')));
     expect(entries.map((entry) => entry.delta).sort((a, b) => a - b)).toEqual([-5000, 300, 1000, 5000]);
     expect((await notices.listNotices(userId, 1)).items.filter((n) => n.kind === 'credits_adjust')).toHaveLength(4);
-    expect((await adminAudit.listAudit(auditView({ action: 'user.credits.adjust', q: userId }))).total).toBe(4);
+    expect((await adminAudit.listAudit(await consoleAdministrator(), auditView({ action: 'user.credits.adjust', q: userId }))).total).toBe(4);
   });
 
   it('disables (signing the user out) and restores', async () => {
@@ -277,7 +279,7 @@ describeWithDb('console users', () => {
     expect(await resolveSession(session.sessionToken)).toBeNull();
     await expect(adminUsers.setUserDisabled(reviewer, session.userId, true)).rejects.toMatchObject({ code: 'stale' });
     await adminUsers.setUserDisabled(reviewer, session.userId, false);
-    expect((await adminAudit.listAudit(auditView({ q: session.userId }))).items.map((row) => row.action)).toEqual(['user.restore', 'user.disable']);
+    expect((await adminAudit.listAudit(await consoleAdministrator(), auditView({ q: session.userId }))).items.map((row) => row.action)).toEqual(['user.restore', 'user.disable']);
   });
 });
 
@@ -307,14 +309,14 @@ describeWithDb('Ree takedown', () => {
     await reesService.updateRee(owner, ree.id, { name: down!.name, description: '', category: 'technology', tags: [], systemPrompt: '', sampleQuestions: [], queryFee: 0, isPublic: true, color: 'default', avatarBlob: null });
     const [still] = await db().select({ isPublic: schema.ree.isPublic }).from(schema.ree).where(eq(schema.ree.id, ree.id));
     expect(still!.isPublic).toBe(false);
-    expect((await adminRees.listAdminRees(reesView({ status: 'moderated', q: ree.slug }))).total).toBe(1);
+    expect((await adminRees.listAdminRees(await consoleAdministrator(), reesView({ status: 'moderated', q: ree.slug }))).total).toBe(1);
 
     await adminRees.restoreRee(reviewer, ree.id, 'Rights cleared');
     const [up] = await db().select().from(schema.ree).where(eq(schema.ree.id, ree.id));
     expect(up).toMatchObject({ isPublic: true, moderatedAt: null });
     expect(await profileVectors(ree.id)).toBeGreaterThan(0);
     expect((await notices.listNotices(owner, 1)).items.map((n) => n.kind)).toEqual(['restore', 'takedown']);
-    expect((await adminAudit.listAudit(auditView({ action: 'ree.takedown', q: ree.id }))).total).toBe(1);
+    expect((await adminAudit.listAudit(await consoleAdministrator(), auditView({ action: 'ree.takedown', q: ree.id }))).total).toBe(1);
     await expect(adminRees.restoreRee(reviewer, ree.id, 'again')).rejects.toMatchObject({ code: 'stale' });
   });
 });
@@ -346,8 +348,8 @@ describeWithDb('purchase chart', () => {
     const now = new Date();
 
     const day = purchasesView({ q: tag, period: 'day', date: '2026-10-31' }, now);
-    expect((await adminPurchases.listPurchases(day)).total).toBe(3);
-    const hourly = await adminPurchases.purchaseTrend(day, now);
+    expect((await adminPurchases.listPurchases(await consoleAdministrator(), day)).total).toBe(3);
+    const hourly = await adminPurchases.purchaseTrend(await consoleAdministrator(), day, now);
     expect(hourly.bars).toHaveLength(24);
     expect(hourly.bars[0]!.values.paid).toEqual({ count: 2, cents: 30 });
     expect(hourly.bars[23]!.values.refunded).toEqual({ count: 1, cents: 1000 });
@@ -355,8 +357,8 @@ describeWithDb('purchase chart', () => {
     let reference: unknown;
     for (const size of ['20', '50', '100']) {
       const view = purchasesView({ q: tag, period: 'month', date: '2026-10-01', size, page: '2' }, now);
-      const list = await adminPurchases.listPurchases(view);
-      const trend = await adminPurchases.purchaseTrend(view, now);
+      const list = await adminPurchases.listPurchases(await consoleAdministrator(), view);
+      const trend = await adminPurchases.purchaseTrend(await consoleAdministrator(), view, now);
       expect(list.total).toBe(50);
       expect(trend.bars).toHaveLength(31);
       expect(trend.totals).toEqual({ paid: { count: 48, cents: 2030 + 45 * 101 }, refunded: { count: 1, cents: 1000 }, chargeback: { count: 1, cents: 333 } });
@@ -365,11 +367,11 @@ describeWithDb('purchase chart', () => {
       reference = trend.totals;
     }
 
-    const refunded = await adminPurchases.purchaseTrend(purchasesView({ q: tag, status: 'refunded', period: 'month', date: '2026-10-01' }, now), now);
+    const refunded = await adminPurchases.purchaseTrend(await consoleAdministrator(), purchasesView({ q: tag, status: 'refunded', period: 'month', date: '2026-10-01' }, now), now);
     expect(refunded.totals.paid.count).toBe(0);
     expect(refunded.totals.refunded.count).toBe(1);
 
-    const all = await adminPurchases.purchaseTrend(purchasesView({ q: tag }, now), now);
+    const all = await adminPurchases.purchaseTrend(await consoleAdministrator(), purchasesView({ q: tag }, now), now);
     const counted = all.keys.reduce((sum, key) => sum + all.totals[key].count, 0);
     expect(counted).toBe(51);
     expect(all.missingTime).toBe(0);
@@ -429,44 +431,53 @@ describeWithDb('embedding switch', () => {
       .values({ name: 'broken', kind: 'embedding', transport: 'openai_compatible', baseUrl: 'http://127.0.0.1:9/v1', model: 'nothing', timeoutMs: 1000 })
       .returning();
     forgetModelCache();
-    const before = await db().select({ id: schema.chunk.id, embedding: schema.chunk.embedding }).from(schema.chunk).limit(5);
+    try {
+      const before = await db().select({ id: schema.chunk.id, embedding: schema.chunk.embedding }).from(schema.chunk).orderBy(schema.chunk.id).limit(5);
 
-    const failing = await models.activateModelConfig(reviewer, broken!.id);
-    expect(failing).toMatchObject({ activated: false, reembed: true });
-    await expect(models.activateModelConfig(reviewer, broken!.id)).rejects.toMatchObject({ code: 'job_running' });
-    expect((await endpointFor('embedding')).configId).toBe(old!.id);
-    const failed = await reembed.runReembed(30_000);
-    expect(failed!.status).toBe('failed');
-    expect((await endpointFor('embedding', Date.now() + 120_000)).configId).toBe(old!.id);
-    expect(await db().select({ id: schema.chunk.id }).from(schema.chunk).where(isNotNull(schema.chunk.embeddingNext)).limit(1)).toHaveLength(0);
+      const failing = await models.activateModelConfig(reviewer, broken!.id);
+      expect(failing).toMatchObject({ activated: false, reembed: true });
+      await expect(models.activateModelConfig(reviewer, broken!.id)).rejects.toMatchObject({ code: 'job_running' });
+      expect((await endpointFor('embedding')).configId).toBe(old!.id);
+      const failed = await reembed.runReembed(30_000);
+      expect(failed!.status).toBe('failed');
+      expect((await endpointFor('embedding', Date.now() + 120_000)).configId).toBe(old!.id);
+      expect(await db().select({ id: schema.chunk.id }).from(schema.chunk).where(sql`${chunkVector(failed!.space)} is not null`).limit(1)).toHaveLength(0);
 
-    const [next] = await db()
-      .insert(schema.modelConfig)
-      .values({ name: 'next', kind: 'embedding', transport: 'openai_compatible', baseUrl: fake.baseUrl, model: 'fake-embed-2' })
-      .returning();
-    const started = await reembed.startReembed(reviewer, next!.id);
-    expect(started).toMatchObject({ status: 'running', done: 0 });
-    /* The candidate is frozen while its vectors are being made. */
-    await expect(models.updateModelConfig(reviewer, next!.id, { name: 'next', transport: 'openai_compatible', baseUrl: fake.baseUrl, model: 'other-embed', timeoutMs: 60000 })).rejects.toMatchObject({ code: 'locked' });
-    /* Mid-job: nothing that answers has changed. */
-    const unchanged = await db().select({ id: schema.chunk.id, embedding: schema.chunk.embedding }).from(schema.chunk).where(inArray(schema.chunk.id, before.map((row) => row.id)));
-    expect(unchanged.map((row) => row.embedding)).toEqual(before.map((row) => row.embedding));
-    const done = await reembed.runReembed(120_000);
-    expect(done!.status).toBe('done');
-    expect(done!.done).toBe(done!.total);
-    forgetModelCache();
-    expect((await endpointFor('embedding')).configId).toBe(next!.id);
-    const [{ n }] = (await db().select({ n: sql<number>`count(*)::int` }).from(schema.chunk).where(isNotNull(schema.chunk.embeddingNext))) as [{ n: number }];
-    expect(n).toBe(0);
-    /* Step 4's profiles were rebuilt with the new model after the switch. */
-    const stale = await db().select({ id: schema.reeProfileVector.id }).from(schema.reeProfileVector).where(lt(schema.reeProfileVector.updatedAt, done!.finishedAt!));
-    expect(stale).toHaveLength(0);
-    expect(await profileVectors(indexed.id)).toBeGreaterThan(0);
-    expect((await adminAudit.listAudit(auditView({ action: 'model.reembed.done' }))).total).toBeGreaterThan(0);
-    expect((await adminAudit.listAudit(auditView({ action: 'model.reembed.failed' }))).total).toBeGreaterThan(0);
-    /* Leave the environment's model in charge for the files that follow. */
-    await db().update(schema.modelConfig).set({ enabled: false }).where(eq(schema.modelConfig.kind, 'embedding'));
-    forgetModelCache();
+      const [next] = await db()
+        .insert(schema.modelConfig)
+        .values({ name: 'next', kind: 'embedding', transport: 'openai_compatible', baseUrl: fake.baseUrl, model: 'fake-embed-2' })
+        .returning();
+      const started = await reembed.startReembed(reviewer, next!.id);
+      expect(started).toMatchObject({ status: 'running', done: 0 });
+      /* The candidate is frozen while its vectors are being made. */
+      await expect(models.updateModelConfig(reviewer, next!.id, { name: 'next', transport: 'openai_compatible', baseUrl: fake.baseUrl, model: 'other-embed', timeoutMs: 60000 })).rejects.toMatchObject({ code: 'locked' });
+      /* Mid-job: nothing that answers has changed. */
+      const unchanged = await db().select({ id: schema.chunk.id, embedding: schema.chunk.embedding }).from(schema.chunk).where(inArray(schema.chunk.id, before.map((row) => row.id))).orderBy(schema.chunk.id);
+      expect(unchanged).toEqual(before);
+      const done = await reembed.runReembed(120_000);
+      expect(done!.status).toBe('done');
+      expect(done!.done).toBe(done!.total);
+      forgetModelCache();
+      expect((await endpointFor('embedding')).configId).toBe(next!.id);
+      /* Every passage has a vector in the space the switch made active; nothing was rewritten to get there. */
+      const [{ n }] = (await db().select({ n: sql<number>`count(*)::int` }).from(schema.chunk).where(sql`${chunkVector(activeSpace)} is null`)) as [{ n: number }];
+      expect(n).toBe(0);
+      /* Step 4's profiles were rebuilt with the new model after the switch. */
+      const stale = await db().select({ id: schema.reeProfileVector.id }).from(schema.reeProfileVector).where(lt(schema.reeProfileVector.updatedAt, done!.finishedAt!));
+      expect(stale).toHaveLength(0);
+      expect(await profileVectors(indexed.id)).toBeGreaterThan(0);
+      expect((await adminAudit.listAudit(await consoleAdministrator(), auditView({ action: 'model.reembed.done' }))).total).toBeGreaterThan(0);
+      expect((await adminAudit.listAudit(await consoleAdministrator(), auditView({ action: 'model.reembed.failed' }))).total).toBeGreaterThan(0);
+    } finally {
+      /*
+       * Leave the environment's model in charge for the files that follow, pass or fail: an entry
+       * left enabled points at this file's fake server, which closes with it, and no later file
+       * has a price for it.
+       */
+      await db().update(schema.reembedJob).set({ status: 'failed' }).where(eq(schema.reembedJob.status, 'running'));
+      await db().update(schema.modelConfig).set({ enabled: false }).where(eq(schema.modelConfig.kind, 'embedding'));
+      forgetModelCache();
+    }
   }, 60_000);
 });
 
@@ -488,7 +499,7 @@ describeWithDb('notices', () => {
 
 describeWithDb('administrators', () => {
   it('invites, enrols once with password and TOTP, and disables', async () => {
-    const owner = await newAdministrator();
+    const owner = await newAdministrator('owner');
     const email = `${uniqueName('invitee')}@example.test`;
     const { id, token } = await administrators.inviteAdministrator(owner, { name: 'Invitee', email });
     await expect(administrators.inviteAdministrator(owner, { name: 'Again', email })).rejects.toMatchObject({ code: 'email_taken' });
@@ -497,12 +508,12 @@ describeWithDb('administrators', () => {
     const code = await totpCode(challenge!.secret);
     await administrators.acceptInvite({ token, password: 'correct horse battery', sealedSecret: challenge!.sealedSecret, code });
     expect(await administrators.enrolmentChallenge(token)).toBeNull();
-    const listed = (await administrators.listAdministrators()).find((row) => row.id === id);
+    const listed = (await administrators.listAdministrators(await consoleAdministrator())).find((row) => row.id === id);
     expect(listed).toMatchObject({ status: 'active', role: 'administrator' });
     await expect(administrators.disableAdministrator(id, id)).rejects.toMatchObject({ code: 'self' });
     await administrators.disableAdministrator(owner, id);
-    expect((await administrators.listAdministrators()).find((row) => row.id === id)!.status).toBe('disabled');
-    expect((await adminAudit.listAudit(auditView({ action: 'admin.create', q: id }))).total).toBe(1);
+    expect((await administrators.listAdministrators(await consoleAdministrator())).find((row) => row.id === id)!.status).toBe('disabled');
+    expect((await adminAudit.listAudit(await consoleAdministrator(), auditView({ action: 'admin.create', q: id }))).total).toBe(1);
     void admin;
   });
 });

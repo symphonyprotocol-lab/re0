@@ -13,9 +13,10 @@
 import { WELCOME_CREDITS } from '@/lib/constants';
 import { afterAll, beforeAll, describe, expect, it, vi } from 'vitest';
 import { pointModelsAt, TEST_DATABASE_URL, uniqueName } from './setup';
-import { asc, eq } from 'drizzle-orm';
+import { and, asc, eq } from 'drizzle-orm';
 import { FAKE_MP3_FRAME_SECONDS, FAKE_MP3_PIECE_FRAMES, fakeMp3, startFakeOpenAi, type FakeOpenAi } from '../fixtures/fake-openai';
 import { authorization, html, jsonResponse, startFakeWeb, text, type FakeWeb } from '../fixtures/fake-web';
+import { expectChargedAtLeastCost } from './billing-audit';
 
 const blobs = vi.hoisted(() => new Map<string, Uint8Array>());
 vi.mock('@/lib/infra/blob', () => ({
@@ -130,6 +131,8 @@ describeWithDb('GitHub repositories', () => {
     expect(locatorLabel(deploys!.locator, 'zh')).toContain('README.md:5');
     const file = await knowledge.knowledgeChild(ree.id, id, 1);
     expect(file?.content).toBe(SOURCE.trimEnd());
+    // Receipts: the files fetched from GitHub (transfer) and the embedding.
+    expect(await expectChargedAtLeastCost(id)).toEqual([expect.objectContaining({ status: 'ready', receipts: 2 })]);
 
     await connections.disconnectGithub(userId);
     expect(await refusal(knowledge.refreshKnowledge(userId, ree.id, id))).toBe('github_not_connected');
@@ -234,6 +237,15 @@ describeWithDb('pages and websites', () => {
     expect(detail!.content).toContain('npm install acme@4');
     expect(detail!.content).not.toContain('navigation chrome');
     expect(detail!.chunks[0]!.locator).toMatchObject({ url: 'https://blog.example.org/notes' });
+    // A page is fetched by us: its receipts are the transfer and the embedding.
+    const [run] = await expectChargedAtLeastCost(id);
+    expect(run).toMatchObject({ status: 'ready', receipts: 2 });
+    const [transfer] = (await db().select().from(schema.knowledgeCostRun).where(eq(schema.knowledgeCostRun.knowledgeId, id)))[0]!.charges.filter((charge) => charge.service === 'bandwidth');
+    expect(transfer).toMatchObject({ model: 'fetch', basis: 'configured_rate' });
+    expect(transfer!.usage.bytes).toBeGreaterThan(PAGE.length - 1);
+    // Plus the example questions suggested after the first source (P2).
+    const suggestions = await db().select().from(schema.knowledgeCostRun).where(and(eq(schema.knowledgeCostRun.reeId, ree.id), eq(schema.knowledgeCostRun.kind, 'suggestions')));
+    expect(await balanceOf(db(), userId)).toBe(WELCOME_CREDITS - run!.charged - suggestions.reduce((sum, entry) => sum + (entry.chargedCredits ?? 0), 0));
   });
 
   it('refuses local and private addresses', async () => {
@@ -277,7 +289,7 @@ describeWithDb('pages and websites', () => {
     const before = await balanceOf(db(), userId);
     const id = await knowledge.addKnowledge(userId, ree, { kind: 'site', url: 'https://docs.example.com/guide' });
     expect(await balanceOf(db(), userId)).toBe(before - 1);
-    await knowledge.processKnowledge(id);
+    await knowledge.processKnowledge(id, { profile: false });
     const detail = await knowledge.knowledgeDetail(ree.id, id);
     expect(detail?.status).toBe('ready');
     expect(detail!.children.map((child) => child.url).sort()).toEqual([
@@ -290,6 +302,7 @@ describeWithDb('pages and websites', () => {
     expect((await knowledge.knowledgeChild(ree.id, id, limits))?.content).toContain('500 seats');
     const settled = 1;
     expect(await balanceOf(db(), userId)).toBe(before - settled);
+    expect(await expectChargedAtLeastCost(id)).toEqual([expect.objectContaining({ status: 'ready', charged: settled })]);
   });
 
   it('verifies by the well-known file when DNS has nothing', async () => {
@@ -331,7 +344,7 @@ describeWithDb('audio', () => {
     /* Initial balance check is refundable; duration does not quote the final cost. */
     expect(await balanceOf(db(), userId)).toBe(before - 1);
 
-    await knowledge.processKnowledge(id);
+    await knowledge.processKnowledge(id, { profile: false });
     const transcriptions = fake.requests.filter((request) => request.path.endsWith('/audio/transcriptions'));
     /* Ten-minute pieces: 100 MB at 128 kbps is eleven calls, none near the call's 120 s. */
     expect(transcriptions.length - calls).toBe(Math.ceil(size / (FAKE_MP3_PIECE_FRAMES * 417)));
@@ -370,7 +383,11 @@ describeWithDb('audio', () => {
     expect(await balanceOf(db(), userId)).toBe(before - price);
     const entries = await db().select().from(schema.creditEntry).where(eq(schema.creditEntry.refId, id)).orderBy(asc(schema.creditEntry.createdAt));
     expect(entries[0]).toMatchObject({ reason: 'knowledge_hold', delta: -1 });
-    expect(entries.at(-1)).toMatchObject({ reason: 'knowledge_settle', delta: 0 });
+    expect(entries.at(-1)).toMatchObject({ reason: 'knowledge_settle' });
     expect(entries.reduce((sum, entry) => sum + entry.delta, 0)).toBe(-price);
+    // Every piece's own length was reserved before it was sent, and each receipt bills at least that length.
+    expect(detail!.activity.some((entry) => entry.code === 'reserved' && entry.detail?.estimate === 1)).toBe(true);
+    for (const charge of charges.filter((entry) => entry.service === 'transcription')) expect(charge.usage.seconds).toBeGreaterThan(0);
+    expect(await expectChargedAtLeastCost(id)).toEqual([expect.objectContaining({ status: 'ready', charged: price })]);
   }, 60_000);
 });

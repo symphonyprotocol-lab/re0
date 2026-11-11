@@ -11,6 +11,7 @@ import {
   LIST_PAGE_SIZES,
   LOCAL_UTC_OFFSET_HOURS,
 } from '@/lib/constants';
+import { isUuid } from '@/lib/domain/list';
 
 export interface Participant {
   id: string;
@@ -119,7 +120,7 @@ export function parseConversationQuery(params: Params): ConversationQuery {
   return {
     q: read(params, 'q').trim().slice(0, 200),
     view: CONVERSATION_VIEWS.includes(view) ? view : 'all',
-    ree: /^[0-9a-f-]{36}$/i.test(ree) ? ree.toLowerCase() : null,
+    ree: isUuid(ree) ? ree.toLowerCase() : null,
     days: (CONVERSATION_PERIODS as readonly number[]).includes(days) ? days : null,
     sort: CONVERSATION_SORTS.includes(sort) ? sort : 'new',
     size: (LIST_PAGE_SIZES as readonly number[]).includes(size) ? size : LIST_PAGE_SIZES[0],

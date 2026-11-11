@@ -15,7 +15,7 @@ export async function POST(request: NextRequest) {
   if (user instanceof Response) return user;
   try {
     const result = await startCheckout(user.id, await body(request));
-    if (!result.ok) return fail(result.error, ['plan_required', 'already_subscribed', 'renewal_pending', 'price_changed'].includes(result.error) ? 409 : 400);
+    if (!result.ok) return fail(result.error, ['plan_required', 'already_subscribed', 'renewal_pending', 'plan_redeemed_active', 'price_changed'].includes(result.error) ? 409 : 400);
     return json({ transactionId: result.transactionId, kind: result.order.kind, quantity: result.order.quantity });
   } catch (error) {
     if (error instanceof PaddleNotConfigured) return fail('payments_unavailable', 503);

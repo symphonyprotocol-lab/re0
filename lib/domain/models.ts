@@ -39,6 +39,14 @@ export function isModelKind(value: unknown): value is ModelKind {
   return typeof value === 'string' && (MODEL_KINDS as readonly string[]).includes(value);
 }
 
+const METADATA_HOSTS = new Set(['metadata.google.internal', 'metadata.goog', 'metadata', 'instance-data', 'instance-data.ec2.internal', '100.100.100.200', '[fd00:ec2::254]']);
+
+/** A base URL host that is link-local or a metadata service as written (no DNS here). */
+export function isMetadataHostLiteral(hostname: string): boolean {
+  const host = hostname.toLowerCase().replace(/\.+$/, '');
+  return METADATA_HOSTS.has(host) || /^169\.254\./.test(host) || /^\[fe[89ab]/.test(host) || /^\[::ffff:(169\.254\.|a9fe:)/.test(host);
+}
+
 function str(value: unknown): string {
   return typeof value === 'string' ? value.trim() : '';
 }
@@ -54,6 +62,8 @@ export function parseModelConfig(raw: Record<string, unknown>): ModelConfigInput
     try {
       const url = new URL(str(raw.baseUrl));
       if (url.protocol !== 'https:' && url.protocol !== 'http:') return { error: 'base_url' };
+      /* Private model hosts are fine; link-local and metadata services never are (enforced again on the address dialled). */
+      if (isMetadataHostLiteral(url.hostname)) return { error: 'base_url' };
       baseUrl = url.toString().replace(/\/+$/, '');
     } catch {
       return { error: 'base_url' };

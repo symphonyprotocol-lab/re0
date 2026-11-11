@@ -9,5 +9,5 @@ export async function GET(request: NextRequest) {
   const administrator = await apiAdministrator(request);
   if (administrator instanceof Response) return administrator;
   const view = kycView(request.nextUrl.searchParams);
-  return listOrCsv(request, (all) => listKyc(view, { all }), KYC_CSV);
+  return listOrCsv(request, administrator, (all) => listKyc(view, { all }), KYC_CSV);
 }

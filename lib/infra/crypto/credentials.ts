@@ -1,6 +1,6 @@
 /**
  * Secrets at rest -- model API keys, administrators' TOTP secrets, users'
- * GitHub tokens -- sealed with AES-256-GCM under a key derived from
+ * GitHub tokens, redeem codes -- sealed with AES-256-GCM under a key derived from
  * ADMIN_SECRET_KEY (one salt per purpose). The
  * derivation matches the old console's, so a key sealed before the rebuild
  * still opens. Separate from AUTH_SECRET: rotating that signs everyone out,
@@ -12,12 +12,14 @@ import { encryptionSecret } from '@/lib/infra/crypto/secrets';
 const encoder = new TextEncoder();
 const decoder = new TextDecoder();
 
-export type CredentialPurpose = 'provider' | 'totp' | 'github';
+export type CredentialPurpose = 'provider' | 'totp' | 'github' | 'redeem_code';
 
 const SALTS: Record<CredentialPurpose, string> = {
   provider: 're0/provider-credential/v1',
   totp: 're0/admin-totp/v1',
   github: 're0/github-connection/v1',
+  /* Redeem codes, kept so the console can export a batch again (docs/design/redeem-codes.md 3.4). */
+  redeem_code: 're0/redeem-code/v1',
 };
 
 const cachedKeys = new Map<CredentialPurpose, Promise<CryptoKey>>();

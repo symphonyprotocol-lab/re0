@@ -9,5 +9,5 @@ export async function GET(request: NextRequest) {
   const administrator = await apiAdministrator(request);
   if (administrator instanceof Response) return administrator;
   const view = verificationsView(request.nextUrl.searchParams);
-  return listOrCsv(request, (all) => listVerifications(view, { all }), VERIFICATIONS_CSV);
+  return listOrCsv(request, administrator, (all) => listVerifications(view, { all }), VERIFICATIONS_CSV);
 }

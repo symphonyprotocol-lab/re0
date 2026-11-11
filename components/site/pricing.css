@@ -192,6 +192,12 @@
   flex: 0 0 auto;
   color: #82a7d7;
 }
+/* "有兑换码？": the way to the balance tab's redeem card. */
+.pricing-page .pricing-redeem {
+  margin-top: 18px;
+  text-align: center;
+  font-size: 13px;
+}
 .pricing-page .pricing-costs {
   margin-top: 48px;
   overflow: hidden;

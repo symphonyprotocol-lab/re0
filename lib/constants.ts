@@ -20,6 +20,23 @@ export const GRANT_SPEND_ORDER = ['plan', 'welcome', 'pack', 'earned'] as const;
 export type GrantSource = (typeof GRANT_SPEND_ORDER)[number];
 
 /**
+ * The grant sources that carry money someone paid (review H2). A query fee
+ * is credited to the owner as withdrawable earned credits only for the part
+ * the asker paid from these; the rest (welcome credits, redeemed codes,
+ * console grants) still reaches the owner as earned credits they can spend
+ * but never withdraw. Within a source, only grants that are themselves
+ * paid count: a Plan or Pack grant bought through Paddle (it has a
+ * purchase), an earned grant that is withdrawable.
+ */
+export const PAYING_GRANT_SOURCES = ['plan', 'pack', 'earned'] as const satisfies readonly GrantSource[];
+/**
+ * Days withdrawable earned credits wait before a payout may draw on them
+ * (review H2): the window in which a refund or chargeback of what paid for
+ * them usually arrives.
+ */
+export const EARNED_MATURITY_DAYS = 30;
+
+/**
  * The Plan: a monthly Paddle subscription whose credits are good for the
  * billing period they arrive in and expire at its end. Cancelling keeps them
  * to the end of the period.
@@ -30,6 +47,39 @@ export const PLAN = { priceMinor: 1_000, currency: 'USD', credits: 50_000, inter
  * 1 to 10 in one checkout (8.2, "Pack 数量").
  */
 export const PACK = { priceMinor: 1_000, currency: 'USD', credits: 100_000, minQuantity: 1, maxQuantity: 10 } as const;
+/**
+ * Redeem codes (docs/design/redeem-codes.md). The alphabet leaves out
+ * 0 O 1 I L U; 12 random characters are about 59 bits. A batch of one code
+ * may carry an administrator's own text instead (a public campaign code).
+ */
+export const REDEEM = {
+  alphabet: 'ABCDEFGHJKMNPQRSTVWXYZ23456789',
+  randomLength: 12,
+  groupLength: 4,
+  maxCodes: 10_000,
+  insertChunk: 500,
+  defaultValidDays: 90,
+  planMonths: { min: 1, max: 12 },
+  packQuantity: { min: 1, max: 10 },
+  prefix: { min: 2, max: 8 },
+  custom: { min: 6, max: 32 },
+  /** A typed code, normalised, outside this length is refused without a lookup. */
+  input: { min: 6, max: 40 },
+  name: 80,
+  note: 500,
+} as const;
+/**
+ * Failed guesses (`code_not_found`) a user and an IP may make per window
+ * before redeeming answers 429 without a lookup. Windows stay within the
+ * hour `clearRateBuckets` keeps.
+ */
+export const REDEEM_RATE_LIMIT = [
+  { scope: 'user', windowSeconds: 900, limit: 5 },
+  { scope: 'ip', windowSeconds: 900, limit: 20 },
+  { scope: 'user', windowSeconds: 3_600, limit: 20 },
+] as const;
+/** Redeemed Plan months the hourly cron issues per run. */
+export const REDEEM_PLAN_BATCH = 200;
 /** The sidebar's Plan meter turns red from this share of the period's credits used. */
 export const PLAN_USAGE_WARN_PERCENT = 90;
 /** The pricing page's estimator: successful answers on your own Ree (prototype `#/pricing`). */
@@ -47,6 +97,25 @@ export const PLAN_EXPIRY_BATCH = 200;
 
 /** Platform base fee per answered question, charged on your own Ree too. */
 export const QUERY_BASE_FEE = 20;
+/**
+ * A reply that ends on the no-answer sentinel is no answer only while what
+ * was shown before it is at most this many characters -- a short refusal.
+ * Past that the reader has had an answer and it is settled as one (review H3).
+ */
+export const NO_ANSWER_REFUSAL_CHARS = 120;
+/**
+ * Upper bounds on one answer's model calls, so the stream and its check end
+ * inside the route's 300-second `maxDuration` (review H5).
+ */
+export const ANSWER_STREAM_TIMEOUT_MAX_MS = 180_000;
+export const ANSWER_CHECK_TIMEOUT_MAX_MS = 90_000;
+/**
+ * A chat hold still open after this long belongs to a stream that died (the
+ * function was killed or redeployed); the reaper cron releases it.
+ */
+export const CHAT_HOLD_STALE_MS = 10 * 60 * 1000;
+/** Chat holds the reaper releases per run. */
+export const CHAT_HOLD_REAP_BATCH = 200;
 /**
  * 回答核验: checking one Ree's answer against the passages it cited, per
  * answering Ree, all to the platform (ree-council-proposal.md 3.3). Held with
@@ -78,6 +147,46 @@ export const QUERY_FEE = { min: 0, max: 10_000, default: 0 } as const;
 
 /** Refundable balance check for knowledge processing; actual supplier USD costs determine the bill. */
 export const KNOWLEDGE_INITIAL_HOLD = 1;
+
+/**
+ * Our own infrastructure costs billed with knowledge (docs/audit/credit-import-audit.md,
+ * P4), in USD. Editable in the console (价格与促销 → 基础设施成本, stored in
+ * `infra_cost_rates`); these are the seeded defaults, used whenever nothing
+ * is configured -- never 0. None is reported per call, so each is a
+ * published list price rounded up to the dearest meter it can fall under.
+ *
+ *   - `blobStoragePerGbMonth`: Vercel Blob storage, $0.023 / GB-month
+ *     (vercel.com/docs/vercel-blob/usage-and-pricing), plus $0.005 for the
+ *     upload's advanced operation and list / head calls spread over the file.
+ *   - `databaseStoragePerGbMonth`: Neon storage $0.35 + instant-restore history
+ *     $0.20 / GB-month (neon.com/pricing).
+ *   - `databaseIndexFactor`: stored database bytes are counted this many
+ *     times over for indexes (the vector index the size of the vectors again).
+ *   - `transferPerGb`: bytes our functions fetch or send while processing a
+ *     source (web pages, GitHub files, the stored upload read back from Blob,
+ *     the file sent to Firecrawl or the transcription endpoint). Vercel bills
+ *     Blob data transfer $0.05 + Fast Origin Transfer $0.06 / GB on a cache
+ *     miss and Fast Data Transfer from $0.15 / GB; the dearest, $0.15, applies
+ *     to all of it -- no meter of ours is published for outbound fetches, so
+ *     this is the conservative choice the audit calls out.
+ *   - `chunkRowBytes`: per stored passage beyond its text and vector (row,
+ *     locator, ids).
+ */
+export const DEFAULT_INFRA_COST_RATES = {
+  transferPerGb: '0.15',
+  blobStoragePerGbMonth: '0.028',
+  databaseStoragePerGbMonth: '0.55',
+  databaseIndexFactor: '2',
+  chunkRowBytes: 200,
+} as const;
+
+/** The units the infrastructure rates are in; not configurable. */
+export const INFRA_COST_UNITS = {
+  /** Bytes per GB: decimal, the smaller unit, so more GBs are counted. */
+  bytesPerGb: 1_000_000_000,
+  /** Milliseconds in the shortest month (28 days): the per-second storage price is never below any month's. */
+  monthMs: 28 * 24 * 60 * 60 * 1000,
+} as const;
 
 /* --------------------------------------------------------------- Ree, 8.2 */
 
@@ -285,6 +394,26 @@ export const EXPLORE_EF_SEARCH = 400;
 export const EXPLORE_EXCERPT_CHARS = 160;
 /** Free searches per minute (2.4, "按 IP 和账号限频"). */
 export const EXPLORE_RATE_LIMIT = { windowSeconds: 60, perIp: 30, perUser: 30 } as const;
+/**
+ * Per-account request limits on the routes that cost us or move a public
+ * signal (lib/http/rate-limit.ts): asking (an unanswered question is free but
+ * still embeds and calls the model), new conversations (each one is a pull in
+ * the explore ranking), comments, upload tokens (each up to 100 MB of Blob)
+ * and domain checks (a DNS and an HTTPS request each). Every rule is a fixed
+ * window within the hour `clearRateBuckets` keeps; a signed-out caller is
+ * keyed by client address instead.
+ */
+export const USER_RATE_LIMITS = {
+  ask: [{ windowSeconds: 60, limit: 20 }, { windowSeconds: 3_600, limit: 300 }],
+  conversation: [{ windowSeconds: 60, limit: 10 }, { windowSeconds: 3_600, limit: 60 }],
+  /* Adding a Ree to a conversation is a pull too. */
+  participants: [{ windowSeconds: 60, limit: 30 }, { windowSeconds: 3_600, limit: 300 }],
+  comment: [{ windowSeconds: 60, limit: 5 }, { windowSeconds: 3_600, limit: 30 }],
+  uploadToken: [{ windowSeconds: 60, limit: 30 }, { windowSeconds: 3_600, limit: 200 }],
+  domainVerify: [{ windowSeconds: 60, limit: 5 }, { windowSeconds: 3_600, limit: 30 }],
+  /* `/api/explore` without a question; a question has its own EXPLORE_RATE_LIMIT. */
+  browse: [{ windowSeconds: 60, limit: 120 }, { windowSeconds: 3_600, limit: 2_000 }],
+} as const satisfies Record<string, readonly { windowSeconds: number; limit: number }[]>;
 /** Quality signals look back this far (2.4). */
 export const QUALITY_WINDOW_DAYS = 30;
 /**
@@ -349,6 +478,14 @@ export const ADMIN_INVITE_TTL_MS = 7 * 24 * 60 * 60 * 1000;
 export const REEMBED_BATCH = 96;
 /** A re-embed request works this long, then hands over to the next call or cron run. */
 export const REEMBED_STEP_BUDGET_MS = 240_000;
+/**
+ * Old vectors stay this long after a model switch before cleanup clears
+ * them: longer than a model-cache minute plus the longest answer, so a
+ * question embedded in the old space still finds its passages.
+ */
+export const REEMBED_GRACE_MS = 10 * 60_000;
+/** Chunks one cleanup statement clears (reembed.ts `cleanupEmbeddingSpaces`). */
+export const REEMBED_CLEANUP_BATCH = 500;
 /** Notices per page in the settings list. */
 export const NOTICE_PAGE_SIZE = 20;
 /**
@@ -388,12 +525,50 @@ export const KYC_FILE_RETENTION_DAYS = 30;
 export const KYC_ORPHAN_HOURS = 24;
 /** Records and orphan blobs one purge run handles; the rest go next run. */
 export const KYC_PURGE_BATCH = 200;
+/**
+ * Uploads (knowledge files, avatars, Ree covers) never registered are
+ * deleted this long after upload: every upload token expires within an hour,
+ * so a file still unclaimed after a day never will be. Each daily run deletes
+ * at most UPLOAD_REAP_BATCH and lists at most UPLOAD_REAP_SCAN per prefix.
+ */
+export const UPLOAD_ORPHAN_HOURS = 24;
+export const UPLOAD_REAP_BATCH = 1_000;
+export const UPLOAD_REAP_SCAN = 20_000;
 /** The PayPal personal account's e-mail. */
 export const PAYPAL_EMAIL_MAX = 254;
 /** After the e-mail changes, payouts wait this long (account-takeover protection, 2.3). */
 export const PAYPAL_CHANGE_HOLD_DAYS = 7;
 /** The PayPal transfer id an administrator records. */
 export const PAYOUT_TRANSFER_ID_MAX = 100;
+/**
+ * Where a payout's money came from (review H2): the signals the review page
+ * and the queue show beside a request. Each is a flag for a second look,
+ * never a refusal; shares are of the credits the payout draws on.
+ * - `topPayerShare`: one asker paid at least this share.
+ * - `freshPayerDays` / `freshPayerShare`: askers whose account was at most
+ *   this many days old at their first question here paid at least this share.
+ * - `exclusivePayerShare`: askers who own no Ree and asked no other owner's
+ *   Rees paid at least this share.
+ * - `sharedIdentityPayers`: at least this many askers share the owner's
+ *   sign-in e-mail or PayPal e-mail (lower-cased, `+tag` dropped).
+ * - `maxFeeShare`: at least this share of the questions paid the highest
+ *   query fee an owner can set (`QUERY_FEE.max`).
+ * - `refundedShare`: at least this share was paid from purchases later
+ *   refunded or charged back (any amount at all is listed; this raises it).
+ */
+export const PAYOUT_REVIEW_SIGNALS = {
+  topPayerShare: 0.5,
+  freshPayerDays: 7,
+  freshPayerShare: 0.3,
+  exclusivePayerShare: 0.5,
+  sharedIdentityPayers: 1,
+  maxFeeShare: 0.5,
+  refundedShare: 0,
+} as const;
+/** Askers per page on the payout review page. */
+export const PAYOUT_PAYERS_PAGE_SIZE = 20;
+/** Upcoming maturity dates listed on the payout review page. */
+export const PAYOUT_MATURITY_DATES = 6;
 
 /* ------------------------------------------------------- video, 2.6 (step 7) */
 

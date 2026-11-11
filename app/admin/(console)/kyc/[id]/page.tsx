@@ -1,4 +1,5 @@
 import type { Metadata } from 'next';
+import { requireAdministrator } from '@/lib/http/admin';
 import { WorkspaceLink as Link } from '@/components/shell/workspace-link';
 import { notFound } from 'next/navigation';
 import type { ReactNode } from 'react';
@@ -41,6 +42,7 @@ function backTo(raw: string): string {
  * record can be sent back for re-verification.
  */
 export default async function KycReviewPage({ params, searchParams }: Props) {
+  await requireAdministrator();
   const { id } = await params;
   if (!UUID.test(id)) notFound();
   const query = await searchParams;
@@ -129,7 +131,7 @@ export default async function KycReviewPage({ params, searchParams }: Props) {
             {record.reason && <div className="kyc-feedback">{record.reason}</div>}
             {user.role === 'official' && <p className="form-hint">{d.official}</p>}
             {reviewable ? (
-              <KycDecision id={record.id} />
+              <KycDecision id={record.id} name={record.legalName ? `${user.name} · ${record.legalName}` : user.name} />
             ) : (
               <>
                 <p className="muted small">{record.status === 'reset' ? d.resetRow : data.latest ? d.processed : d.historical}</p>

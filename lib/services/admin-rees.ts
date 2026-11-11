@@ -16,7 +16,7 @@ import { parseAdminReason } from '@/lib/domain/adjustments';
 import type { ReesView } from '@/lib/domain/admin-lists';
 import { clampPage, likePattern, param, type ListResult } from '@/lib/domain/list';
 import { db, schema } from '@/lib/infra/db';
-import { AdminInputError, audit } from '@/lib/services/admin';
+import { AdminInputError, audit, assertConsole, type Administrator } from '@/lib/services/admin';
 import { detachRee } from '@/lib/services/conversations';
 import { notify } from '@/lib/services/notices';
 import { refreshProfile } from '@/lib/services/profile';
@@ -67,7 +67,8 @@ function reesWhere(view: ReesView): SQL {
   return and(...conditions)!;
 }
 
-export async function listAdminRees(view: ReesView, options: { all?: boolean } = {}): Promise<ListResult<AdminReeRow>> {
+export async function listAdminRees(administrator: Administrator, view: ReesView, options: { all?: boolean } = {}): Promise<ListResult<AdminReeRow>> {
+  assertConsole(administrator);
   const database = db();
   const where = reesWhere(view);
   const [counted] = await database.select({ total: count() }).from(schema.ree).innerJoin(schema.user, eq(schema.user.id, schema.ree.ownerId)).where(where);
@@ -116,7 +117,8 @@ export async function reeCounts() {
   return row ?? { total: 0, public: 0, private: 0, moderated: 0 };
 }
 
-export async function adminRee(id: string) {
+export async function adminRee(administrator: Administrator, id: string) {
+  assertConsole(administrator);
   const database = db();
   const [row] = await database
     .select({ ree: schema.ree, ownerName: schema.user.name, ownerEmail: schema.user.email, ownerRole: schema.user.role, visibility })
@@ -163,7 +165,8 @@ function sourcesWhere(reeId: string, filter: SourceFilter): SQL {
 
 const sourceOrder = [desc(schema.knowledge.updatedAt), desc(schema.knowledge.id)] as const;
 
-export async function adminReeSources(reeId: string, filter: SourceFilter) {
+export async function adminReeSources(administrator: Administrator, reeId: string, filter: SourceFilter) {
+  assertConsole(administrator);
   const database = db();
   const where = sourcesWhere(reeId, filter);
   const [counted] = await database.select({ total: count() }).from(schema.knowledge).where(where);
@@ -180,7 +183,8 @@ export async function adminReeSources(reeId: string, filter: SourceFilter) {
 }
 
 /** One source, read-only, with its neighbours in the filtered list for previous / next. */
-export async function adminReeSource(reeId: string, knowledgeId: string, filter: SourceFilter) {
+export async function adminReeSource(administrator: Administrator, reeId: string, knowledgeId: string, filter: SourceFilter) {
+  assertConsole(administrator);
   const database = db();
   const [row] = await database
     .select({
@@ -218,7 +222,8 @@ export async function adminReeSource(reeId: string, knowledgeId: string, filter:
 
 /* ----------------------------------------------------------- management */
 
-export async function reeAudit(reeId: string) {
+export async function reeAudit(administrator: Administrator, reeId: string) {
+  assertConsole(administrator);
   return db()
     .select({ audit: schema.adminAudit, administrator: schema.administrator.email })
     .from(schema.adminAudit)
@@ -229,13 +234,14 @@ export async function reeAudit(reeId: string) {
 
 /**
  * The Ree's place in discovery after a takedown or restore: step 4's profile
- * vectors exist only for public Rees, so this removes or rebuilds them. A
- * model failure here does not undo the decision; the next knowledge run
+ * vectors exist only for public Rees, so this removes or rebuilds them. An
+ * administrator's decision, so the platform pays the rebuild, not the owner.
+ * A model failure here does not undo the decision; the next knowledge run
  * rebuilds the profile.
  */
 async function refreshDiscovery(reeId: string): Promise<void> {
   try {
-    await refreshProfile(reeId);
+    await refreshProfile(reeId, { billTo: 'platform' });
   } catch (error) {
     console.warn(`profile refresh after moderation failed ree=${reeId}`, error instanceof Error ? error.message : error);
   }

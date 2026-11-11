@@ -7,7 +7,9 @@ import { useEffect, useRef, useState, type ReactNode } from 'react';
 import { ROLE_REASON_MAX } from '@/lib/constants';
 import { api } from '@/lib/client/upload';
 import { useI18n } from '@/i18n/client';
+import { fill } from '@/i18n/format';
 import { CI } from '@/components/admin/console-icon';
+import { useConfirmStep } from '@/components/admin/confirm-step';
 import { useToast } from '@/components/ui/toast';
 
 /**
@@ -113,9 +115,11 @@ export function VerificationFilters({ q, status, size, resetHref }: { q: string;
  * The pending request's decision (prototype role-pages.js `reviewPage`): one
  * note, required to reject and optional to approve, then 拒绝申请 or 批准认证.
  */
-export function VerificationDecision({ id }: { id: string }) {
+export function VerificationDecision({ id, name }: { id: string; name: string }) {
   const { t } = useI18n();
   const v = t.consoleUsers.verifications.detail;
+  const c = t.consoleConfirm.verification;
+  const { ask, dialog } = useConfirmStep();
   const router = useRouter();
   const toast = useToast();
   const [busy, setBusy] = useState<'approved' | 'rejected' | null>(null);
@@ -129,6 +133,18 @@ export function VerificationDecision({ id }: { id: string }) {
       setError(decision === 'rejected' ? v.rejectNeedsReason : v.errors.reason);
       return;
     }
+    setError('');
+    const approve = decision === 'approved';
+    ask({
+      title: approve ? c.approveTitle : c.rejectTitle,
+      body: fill(approve ? c.approveBody : c.rejectBody, { name }),
+      label: approve ? c.approve : c.reject,
+      danger: !approve,
+      run: () => send(decision, reason),
+    });
+  }
+
+  async function send(decision: 'approved' | 'rejected', reason: string) {
     setBusy(decision);
     setError('');
     const result = await api<{ error?: string }>(`/api/admin/verifications/${id}/${decision === 'approved' ? 'approve' : 'reject'}`, {
@@ -150,8 +166,9 @@ export function VerificationDecision({ id }: { id: string }) {
       id="role-review-decision"
       onSubmit={(event) => {
         event.preventDefault();
+        /* Only a click on one of the two buttons decides: a submit without one is not an approval. */
         const submitter = (event.nativeEvent as SubmitEvent).submitter as HTMLButtonElement | null;
-        void decide(submitter?.value === 'rejected' ? 'rejected' : 'approved');
+        if (submitter?.value === 'rejected' || submitter?.value === 'approved') void decide(submitter.value);
       }}
     >
       <label htmlFor="verification-reason">
@@ -176,6 +193,7 @@ export function VerificationDecision({ id }: { id: string }) {
           {error}
         </p>
       )}
+      {dialog}
     </form>
   );
 }

@@ -19,10 +19,12 @@ import {
 } from '@/lib/constants';
 import { demoGenerationLimit, demoSpeechRate, narrationPath, recommendedTemplate, storyTemplate } from '@/lib/domain/product-demo';
 import { clampPage, isUuid, likePattern } from '@/lib/domain/list';
+import { avatarImageUrl } from '@/lib/domain/ree';
 import {
   canonicalJson,
   DEFAULT_STYLE,
   exportCost,
+  renderKey,
   type IntroProps,
   type VideoPatch,
 } from '@/lib/domain/video';
@@ -124,7 +126,7 @@ export function introProps(video: VideoRow, ree: ReeFacts, sourcesTotal: number)
     scenes: video.scenes,
     narrationUrl: `/media/${narrationPath(video.reeId, story.audioId)}`,
     ree: {
-      avatarUrl: ree.avatarBlob ? (ree.avatarBlob.startsWith('avatars/') ? `/media/${ree.avatarBlob}` : ree.avatarBlob) : null,
+      avatarUrl: avatarImageUrl(ree.avatarBlob),
       color: ree.color,
       price: QUERY_BASE_FEE + ree.queryFee,
       slug: ree.slug,
@@ -134,9 +136,24 @@ export function introProps(video: VideoRow, ree: ReeFacts, sourcesTotal: number)
   };
 }
 
-/** An export's identity: everything the render draws, and the drawing's own version. Same hash, same file. */
+/** An export's identity: what the render draws (`renderInputs`), and the drawing's own version. Same hash, same file. */
 export function contentVersion(props: IntroProps): string {
+  return createHash('sha256').update(`r${VIDEO_COMPOSITION_VERSION}:${renderKey(props)}`).digest('hex');
+}
+
+/**
+ * The identity exports were stored under before review C4: a hash of all
+ * of `IntroProps`. A file stored that way still matches when nothing at all
+ * has changed, so existing exports are neither re-charged nor marked stale
+ * by the switch.
+ */
+export function legacyContentVersion(props: IntroProps): string {
   return createHash('sha256').update(`v${VIDEO_COMPOSITION_VERSION}:${canonicalJson(props)}`).digest('hex');
+}
+
+/** Every identity a finished export of this picture may carry. */
+export function exportVersions(props: IntroProps): string[] {
+  return [contentVersion(props), legacyContentVersion(props)];
 }
 
 /**
@@ -212,7 +229,7 @@ export async function videoStudio(ownerId: string, reeId: string) {
     scriptCredits: scriptPrice.credits,
     exportCredits: exportPrice.credits,
     demoCredits: rate !== undefined && endpointHasCredentials(voice) ? demoGenerationLimit(rate, scriptPrice.credits) : null,
-    lastExport: latest ? { id: latest.id, url: `/media/${latest.blobUrl}`, aspect: latest.aspect, cost: latest.costCredits, finishedAt: latest.finishedAt, current: props ? latest.contentVersion === contentVersion(props) : false } : null,
+    lastExport: latest ? { id: latest.id, url: `/media/${latest.blobUrl}`, aspect: latest.aspect, cost: latest.costCredits, finishedAt: latest.finishedAt, current: props ? exportVersions(props).includes(latest.contentVersion) : false } : null,
   };
 }
 
@@ -371,7 +388,7 @@ export async function exportQuote(ownerId: string, reeId: string): Promise<{ cac
   const [done] = await database
     .select({ blobUrl: schema.videoExport.blobUrl })
     .from(schema.videoExport)
-    .where(and(eq(schema.videoExport.reeId, reeId), eq(schema.videoExport.contentVersion, contentVersion(props)), eq(schema.videoExport.status, 'done')))
+    .where(and(eq(schema.videoExport.reeId, reeId), inArray(schema.videoExport.contentVersion, exportVersions(props)), eq(schema.videoExport.status, 'done')))
     .limit(1);
   if (done) return { cached: `/media/${done.blobUrl}`, cost: 0 };
   return { cached: null, cost: exportCost(video.exportsCount, (await videoExportPrice(database)).credits) };
@@ -409,7 +426,7 @@ export async function startExport(ownerId: string, reeId: string, now = new Date
     const [done] = await tx
       .select()
       .from(schema.videoExport)
-      .where(and(eq(schema.videoExport.reeId, reeId), eq(schema.videoExport.contentVersion, version), eq(schema.videoExport.status, 'done')))
+      .where(and(eq(schema.videoExport.reeId, reeId), inArray(schema.videoExport.contentVersion, exportVersions(props)), eq(schema.videoExport.status, 'done')))
       .limit(1);
     if (done) return { start: { cached: true as const, url: `/media/${done.blobUrl}`, aspect: done.aspect }, staleUploads: [] };
     const cost = exportCost(video.exportsCount, (await videoExportPrice(tx)).credits);
