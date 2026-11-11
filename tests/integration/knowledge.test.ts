@@ -325,12 +325,14 @@ describeWithDb('document processing', () => {
       resumeNew();
       await newRun;
       expect(await knowledge.knowledgeDetail(ree.id, id)).toMatchObject({ status: 'ready' });
-      expect(await balanceOf(db(), userId)).toBe(WELCOME_CREDITS - 1 - 41);
+      // The resumed run works from what the first one read: it does not read the upload again, so it pays for embedding only.
+      expect(await balanceOf(db(), userId)).toBe(WELCOME_CREDITS - 1 - 40);
       const costs = await db().select().from(schema.knowledgeCostRun).where(eq(schema.knowledgeCostRun.knowledgeId, id));
       expect(costs).toHaveLength(2);
       // The timed-out run's late embedding is refused before it is sent, so its only receipt is the Blob read.
       expect(costs.find((run) => run.status === 'failed')).toMatchObject({ chargedCredits: 1, charges: [expect.objectContaining({ service: 'bandwidth' })] });
-      expect(costs.find((run) => run.status === 'ready')).toMatchObject({ chargedCredits: 41 });
+      expect(costs.find((run) => run.status === 'ready')).toMatchObject({ chargedCredits: 40 });
+      expect(costs.find((run) => run.status === 'ready')!.charges.map((charge) => charge.service)).toEqual(['embedding']);
       expect(costs.find((run) => run.status === 'ready')!.charges.find((charge) => charge.service === 'embedding')).toMatchObject({ costUsd: '0.004000000000' });
       await expectChargedAtLeastCost(id);
     } finally {

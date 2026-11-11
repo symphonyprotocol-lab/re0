@@ -6,7 +6,7 @@
  */
 import { afterAll, afterEach, beforeAll, describe, expect, it } from 'vitest';
 import { parseGithubRepo, repositoryTitle, repositoryUrl, settleTreeRef } from '@/lib/domain/sources';
-import { fetchRepositoryFiles, olderVersionPaths, selectPaths, versionOf } from '@/lib/infra/connectors/github';
+import { fetchRepositoryFiles, olderVersionPaths, selectPaths, selectRepositoryPaths, versionOf } from '@/lib/infra/connectors/github';
 import { jsonResponse, startFakeWeb, text, type FakeWeb } from '../fixtures/fake-web';
 
 const SHA = 'abcdef0123456789abcdef0123456789abcdef01';
@@ -111,31 +111,47 @@ describe('what a repository import reads', () => {
   });
 
   it('keeps only the newest copy of versioned docs, and their unversioned siblings', () => {
-    const paths = selectPaths(entries([
-      'docs/specification/2024-11-05/index.mdx',
-      'docs/specification/2025-03-26/index.mdx',
-      'docs/specification/2025-06-18/index.mdx',
-      'docs/specification/2025-06-18/server/tools.mdx',
+    const spec = (version: string, extra: string[] = []) => ['index.mdx', 'basic/lifecycle.mdx', 'server/tools.mdx', ...extra].map((file) => `docs/specification/${version}/${file}`);
+    const { paths, olderVersions } = selectRepositoryPaths(entries([
+      ...spec('2024-11-05'),
+      ...spec('2025-03-26'),
+      ...spec('2025-06-18', ['server/elicitation.mdx']),
       'docs/specification/draft/index.mdx',
-      'schema/2024-11-05/schema.ts',
-      'schema/2025-06-18/schema.ts',
       'website/versioned_docs/version-2.x/intro.md',
       'website/docs/intro.md',
-      'api/v1/client.ts',
-      'api/v2/client.ts',
-      'docs/1/intro.md',
-      'docs/2/intro.md',
+      ...['client.ts', 'types.ts', 'errors.ts'].flatMap((file) => [`api/v1/${file}`, `api/v2/${file}`]),
     ]));
     expect(paths).toEqual([
-      'docs/1/intro.md',
-      'docs/2/intro.md',
       'website/docs/intro.md',
       'docs/specification/2025-06-18/index.mdx',
       'docs/specification/draft/index.mdx',
+      'docs/specification/2025-06-18/basic/lifecycle.mdx',
+      'docs/specification/2025-06-18/server/elicitation.mdx',
       'docs/specification/2025-06-18/server/tools.mdx',
       'api/v2/client.ts',
-      'schema/2025-06-18/schema.ts',
+      'api/v2/errors.ts',
+      'api/v2/types.ts',
     ]);
+    /* Two older specification copies of three files each, and api/v1: counted for the processing record. */
+    expect(olderVersions).toBe(9);
+  });
+
+  it('keeps dated archives, release notes and numbered chapters that are not copies of each other', () => {
+    const { paths, olderVersions } = selectRepositoryPaths(entries([
+      'blog/2024-05/launch.md',
+      'blog/2024-05/pricing.md',
+      'blog/2024-05/roadmap.md',
+      'blog/2024-06/agents.md',
+      'blog/2024-06/memory.md',
+      'blog/2024-06/search.md',
+      'releases/2024-05/notes.md',
+      'releases/2024-06/notes.md',
+      'book/1.1/intro.md',
+      'book/1.2/setup.md',
+      'book/2.3/deploy.md',
+    ]));
+    expect(paths).toHaveLength(11);
+    expect(olderVersions).toBe(0);
   });
 
   it('tells versions apart from chapters', () => {
@@ -145,8 +161,24 @@ describe('what a repository import reads', () => {
     expect(versionOf('version-2.1.0')).toEqual({ kind: 'number', parts: [2, 1, 0] });
     expect(versionOf('3.0')).toEqual({ kind: 'number', parts: [3, 0] });
     for (const name of ['1', '01-intro', 'draft', 'vision', 'v', 'latest']) expect(versionOf(name)).toBeNull();
-    /* v10 is newer than v9; a lone version has nothing to be older than. */
-    expect([...olderVersionPaths(['x/v9/a.md', 'x/v10/a.md', 'y/v1/a.md'])]).toEqual(['x/v9/a.md']);
+    /* v10 is newer than v9; copies need a few files in common; a lone version has nothing to be older than. */
+    const copy = (version: string) => ['a.md', 'b.md', 'c.md'].map((file) => `x/${version}/${file}`);
+    expect([...olderVersionPaths([...copy('v9'), ...copy('v10'), 'y/v1/a.md'])]).toEqual(copy('v9'));
+    expect([...olderVersionPaths(['x/v9/a.md', 'x/v10/a.md'])]).toEqual([]);
+    /* Half the files in common is a copy; less is not. */
+    expect(olderVersionPaths([...copy('v1'), 'x/v2/a.md', 'x/v2/b.md', 'x/v2/d.md']).size).toBe(3);
+    expect(olderVersionPaths([...copy('v1'), 'x/v2/a.md', 'x/v2/e.md', 'x/v2/f.md']).size).toBe(0);
+  });
+
+  it('reads prose that lives in test folders, but not test code', () => {
+    expect(selectPaths(entries([
+      'docs/test/writing-tests.md',
+      'docs/test/setup.ts',
+      'packages/core/tests/README.md',
+      'packages/core/tests/unit.ts',
+      'e2e/guide.mdx',
+      'fixtures/data.json',
+    ]))).toEqual(['e2e/guide.mdx', 'docs/test/writing-tests.md', 'packages/core/tests/README.md']);
   });
 
   it('reads only the folder a URL names, applying the noise rules below it', () => {
@@ -161,6 +193,9 @@ describe('what a repository import reads', () => {
       'tests/helpers/setup.ts',
     ]);
     expect(selectPaths(all, 1_000, 'docs')).toEqual(['docs/guide/env.md']);
+    /* The whole repository reads the prose in the test folder, not its code. */
+    expect(selectPaths(all)).toContain('tests/helpers/setup.md');
+    expect(selectPaths(all)).not.toContain('tests/helpers/setup.ts');
     /* A URL pointing into a test folder still reads it. */
     expect(selectPaths(all, 1_000, 'tests/helpers')).toEqual(['tests/helpers/setup.md', 'tests/helpers/setup.ts']);
     /* A file URL reads that file, even a changelog. */
@@ -218,6 +253,17 @@ describe('reading a ref and folder from GitHub', () => {
     const snapshot = await fetchRepositoryFiles(parseGithubRepo('https://github.com/acme/docs/tree/v2.0.0')!, null, { serverToken: null });
     expect(snapshot).toMatchObject({ revision: SHA, scope: { ref: 'v2.0.0' } });
     expect(snapshot.files.map((file) => file.path)).toEqual(['README.md']);
+  });
+
+  it('reads a resumed import at its pinned commit and scope, asking GitHub for neither again', async () => {
+    web.requests.length = 0;
+    serve({ heads: ['main', 'release/2.x'] }, { 'release/2.x': 'f'.repeat(40) });
+    serveTree(SHA, { 'docs/env.md': '# Env at the first attempt', 'README.md': '# Root' });
+    const ref = parseGithubRepo('https://github.com/acme/docs/tree/release/2.x/docs')!;
+    const snapshot = await fetchRepositoryFiles(ref, null, { serverToken: null, pin: { revision: SHA, scope: { owner: 'acme', name: 'docs', ref: 'release/2.x', path: 'docs' } } });
+    expect(snapshot).toMatchObject({ revision: SHA, scope: { ref: 'release/2.x', path: 'docs' } });
+    expect(snapshot.files).toEqual([{ path: 'docs/env.md', content: '# Env at the first attempt' }]);
+    expect(web.requests.some((url) => url.includes('matching-refs') || url.includes('/commits/') || url.includes('/branches/'))).toBe(false);
   });
 
   it('says which part is missing: the ref, or the folder', async () => {

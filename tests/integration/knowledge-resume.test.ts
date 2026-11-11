@@ -5,17 +5,19 @@
  * again, and the next attempt embeds only what was not staged -- nobody pays
  * twice. After `KNOWLEDGE_MAX_RESUMES` the source fails as `interrupted`.
  */
-import { KNOWLEDGE_HEARTBEAT_STALE_MS, KNOWLEDGE_MAX_RESUMES, KNOWLEDGE_STAGE_SLICE } from '@/lib/constants';
+import { KNOWLEDGE_CLAIM_WINDOW_MS, KNOWLEDGE_HEARTBEAT_STALE_MS, KNOWLEDGE_MAX_RESUMES, KNOWLEDGE_SLOT_POOLS, KNOWLEDGE_STAGE_SLICE } from '@/lib/constants';
 import { afterAll, beforeAll, beforeEach, describe, expect, it, vi } from 'vitest';
 import { pointModelsAt, TEST_DATABASE_URL, uniqueName } from './setup';
-import { asc, count, eq } from 'drizzle-orm';
+import { asc, count, eq, inArray } from 'drizzle-orm';
 import { startFakeOpenAi, type FakeOpenAi } from '../fixtures/fake-openai';
 import { expectChargedAtLeastCost, knowledgeBill } from './billing-audit';
 
 const blobs = vi.hoisted(() => new Map<string, Uint8Array>());
+/** Every Blob read, to tell a resumed run that read the upload again from one that did not. */
+const reads = vi.hoisted(() => [] as string[]);
 vi.mock('@/lib/infra/blob', () => ({
   blobSize: async (path: string) => blobs.get(path)?.length ?? null,
-  readBlob: async (path: string) => blobs.get(path) ?? null,
+  readBlob: async (path: string) => { reads.push(path); return blobs.get(path) ?? null; },
 }));
 
 const describeWithDb = TEST_DATABASE_URL ? describe : describe.skip;
@@ -78,13 +80,21 @@ describeWithDb('resuming killed runs', () => {
     const original = models.embedTexts;
     let enterSecond!: () => void;
     const secondEntered = new Promise<void>((resolve) => { enterSecond = resolve; });
-    let killFirst!: (error: Error) => void;
-    const firstKilled = new Promise<never>((_resolve, reject) => { killFirst = reject; });
+    let answerFirst!: () => void;
+    const firstAnswered = new Promise<void>((resolve) => { answerFirst = resolve; });
     const sizes: number[] = [];
     const spy = vi.spyOn(models, 'embedTexts')
       .mockImplementationOnce(async (texts, endpoint) => { sizes.push(texts.length); return original(texts, endpoint); })
-      /* The second slice never comes back: the function was killed while it waited. */
-      .mockImplementationOnce(async (texts) => { sizes.push(texts.length); enterSecond(); return firstKilled; })
+      /*
+       * The second slice takes so long the run misses its heartbeats and is
+       * presumed dead -- but it is alive, and its vectors come back later.
+       */
+      .mockImplementationOnce(async (texts, endpoint) => {
+        sizes.push(texts.length);
+        enterSecond();
+        await firstAnswered;
+        return { vectors: texts.map(() => Array.from({ length: 1536 }, () => 0.5)), endpoint: endpoint! };
+      })
       .mockImplementation(async (texts, endpoint) => { sizes.push(texts.length); return original(texts, endpoint); });
     const firstRun = knowledge.processKnowledge(id, { profile: false });
     try {
@@ -97,15 +107,25 @@ describeWithDb('resuming killed runs', () => {
       const restart = await knowledge.recoverStale(ree.id, silent());
       expect(restart).toEqual([id]);
       expect(await knowledge.knowledgeDetail(ree.id, id)).toMatchObject({ status: 'pending', error: null });
+      /* What it read is kept for the next attempt. */
+      const [kept] = await db().select().from(schema.knowledgeExtract).where(eq(schema.knowledgeExtract.knowledgeId, id));
+      expect(kept?.extracted).toHaveProperty('full');
+
+      /* The superseded run gets its vectors after all, and may no longer write them. */
+      answerFirst();
+      expect(await firstRun).toBeNull();
+      expect(await stagedCount(id)).toBe(KNOWLEDGE_STAGE_SLICE);
       const [dead] = await db().select().from(schema.knowledgeCostRun).where(eq(schema.knowledgeCostRun.knowledgeId, id)).orderBy(asc(schema.knowledgeCostRun.createdAt));
       expect(dead).toMatchObject({ status: 'failed', error: 'interrupted' });
       /* It paid for what it embedded: a receipt per embedding request of the first slice, kept. */
       expect(dead!.charges.filter((charge) => charge.service === 'embedding').length).toBeGreaterThan(0);
       expect(dead!.chargedCredits).toBeGreaterThan(0);
 
-      /* The next attempt embeds only the passages that were not staged. */
+      /* The next attempt embeds only the passages that were not staged, from the text the first one read. */
       expect(await knowledge.processKnowledge(id, { profile: false })).toBe(ree.id);
       expect(sizes.slice(2)).toEqual([chunkTotal - KNOWLEDGE_STAGE_SLICE]);
+      expect(reads.filter((read) => read === path)).toHaveLength(1);
+      expect(await db().select().from(schema.knowledgeExtract).where(eq(schema.knowledgeExtract.knowledgeId, id))).toEqual([]);
       const detail = await knowledge.knowledgeDetail(ree.id, id);
       expect(detail).toMatchObject({ status: 'ready', chunkTotal });
       expect(detail!.activity.map((entry) => entry.code)).toContain('interrupted');
@@ -120,9 +140,8 @@ describeWithDb('resuming killed runs', () => {
       expect(bills.map((bill) => [bill.status, bill.error])).toEqual([['failed', 'interrupted'], ['ready', null]]);
       expect((await knowledgeBill(id)).open).toBe(0);
     } finally {
-      killFirst(new Error('function killed'));
-      /* The killed run's late failure changes nothing: it no longer owns the source. */
-      expect(await firstRun).toBeNull();
+      answerFirst();
+      await firstRun;
       spy.mockRestore();
     }
     expect(await knowledge.knowledgeDetail(ree.id, id)).toMatchObject({ status: 'ready' });
@@ -187,6 +206,72 @@ describeWithDb('resuming killed runs', () => {
       kill(new Error('function killed'));
       await run;
       spy.mockRestore();
+    }
+  });
+});
+
+describeWithDb('the queue', () => {
+  /** Stand-ins for live runs: processing, beating their heartbeats. */
+  async function running(ids: readonly string[]) {
+    for (const id of ids) {
+      const runId = `live-${id}`;
+      await db().update(schema.knowledge).set({ status: 'processing', activity: [{ code: 'processing', at: new Date().toISOString(), detail: { runId } }] }).where(eq(schema.knowledge.id, id));
+      await db().update(schema.knowledgeCostRun).set({ status: 'processing', runId, heartbeatAt: new Date() }).where(eq(schema.knowledgeCostRun.knowledgeId, id));
+    }
+  }
+
+  async function document(userId: string, ree: { id: string }, name: string) {
+    const path = `knowledge/${userId}/queue/${name}`;
+    blobs.set(path, new TextEncoder().encode(`# ${name}\n\nA document waiting its turn.\n`));
+    return knowledge.addKnowledge(userId, ree, { kind: 'document', blobPath: path, fileName: name });
+  }
+
+  it('makes documents and audio wait for a slot of their own pool, not behind repositories', async () => {
+    const { userId, ree } = await userWithRee();
+    const owned = KNOWLEDGE_SLOT_POOLS.file.owner;
+    const ids: string[] = [];
+    for (let at = 0; at <= owned; at += 1) ids.push(await document(userId, ree, `doc-${at}.md`));
+    await running(ids.slice(0, owned));
+    const waiting = ids.at(-1)!;
+    expect(await knowledge.processKnowledge(waiting, { profile: false })).toBeNull();
+    expect(await knowledge.knowledgeDetail(ree.id, waiting)).toMatchObject({ status: 'pending' });
+    /* Text never waits. */
+    const note = await knowledge.addKnowledge(userId, ree, { kind: 'text', title: 'Note', content: 'Quick.' });
+    expect(await knowledge.processKnowledge(note, { profile: false })).toBe(ree.id);
+    /* The stand-ins end: the document starts. */
+    await knowledge.recoverStale(ree.id, silent(), { resume: false });
+    expect(await knowledge.processKnowledge(waiting, { profile: false })).toBe(ree.id);
+  });
+
+  it('claims nothing once the claim window has passed, and leaves the rest for the next round', async () => {
+    const { userId, ree } = await userWithRee();
+    const a = await document(userId, ree, 'late-a.md');
+    const b = await document(userId, ree, 'late-b.md');
+    const late = Date.now() - KNOWLEDGE_CLAIM_WINDOW_MS - 1;
+    await knowledge.processQueued([a], { startedAt: late });
+    await knowledge.processMany([b], late);
+    for (const id of [a, b]) expect(await knowledge.knowledgeDetail(ree.id, id)).toMatchObject({ status: 'pending' });
+    await knowledge.processQueued([a, b]);
+    for (const id of [a, b]) expect(await knowledge.knowledgeDetail(ree.id, id)).toMatchObject({ status: 'ready' });
+  });
+
+  it('gives every owner a turn: thirty waiting repositories do not hide another owner\'s one', async () => {
+    const first = await userWithRee();
+    const second = await userWithRee();
+    const insert = async (reeId: string, count: number) => {
+      const rows = await db().insert(schema.knowledge)
+        .values(Array.from({ length: count }, (_, at) => ({ reeId, kind: 'github' as const, title: `repo ${at}`, originalTitle: `repo ${at}`, source: `https://github.com/acme/r${at}`, status: 'pending' as const, createdAt: new Date(Date.now() - (count - at) * 60_000) })))
+        .returning({ id: schema.knowledge.id });
+      return rows.map((row) => row.id);
+    };
+    const backlog = await insert(first.ree.id, 30);
+    const [late] = await insert(second.ree.id, 1);
+    try {
+      const offered = await knowledge.queuedKnowledge(500);
+      expect(offered).toContain(late);
+      expect(offered.filter((id) => backlog.includes(id))).toEqual(backlog.slice(0, KNOWLEDGE_SLOT_POOLS.crawl.owner));
+    } finally {
+      await db().delete(schema.knowledge).where(inArray(schema.knowledge.id, [...backlog, late!]));
     }
   });
 });

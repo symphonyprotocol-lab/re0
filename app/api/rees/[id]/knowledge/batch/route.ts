@@ -17,6 +17,7 @@ export const maxDuration = 800;
  * reprocess) or a short balance (reprocess) refuses the whole batch.
  */
 export async function POST(request: NextRequest, context: { params: Promise<{ id: string }> }) {
+  const startedAt = Date.now();
   const user = await apiUser(request);
   if (user instanceof Response) return user;
   const ree = await ownedRee(db(), user.id, (await context.params).id);
@@ -35,7 +36,7 @@ export async function POST(request: NextRequest, context: { params: Promise<{ id
             ...(typeof input.newFolderName === 'string' ? { newFolderName: input.newFolderName } : {}),
           })
         : await runBatch(user.id, ree.id, { action, ids });
-    if (result.process.length > 0) after(() => processMany(result.process));
+    if (result.process.length > 0) after(() => processMany(result.process, startedAt));
     /* Paused, resumed, trashed or restored sources change what the Ree knows: its explore profile follows (2.4). */
     if (['pause', 'resume', 'trash', 'restore'].includes(action) && ree.isPublished) after(() => refreshProfile(ree.id).catch(() => undefined));
     return json({ changed: result.changed, folder: result.folder ?? null });

@@ -152,6 +152,8 @@ export async function resolveRepository(ref: RepositoryRef, ownerToken: string |
 export interface ReadOptions extends AccessOptions {
   /** Waits between retries; tests pass one that does not. */
   sleep?: (ms: number) => Promise<void>;
+  /** A resumed import: read this commit and scope again, without settling the ref or asking for the newest commit. */
+  pin?: { revision: string; scope: RepositoryRef };
 }
 
 /**
@@ -188,12 +190,18 @@ const LICENSE = /(^|\/)(license|copying|notice)(\.md|\.txt)?$/i;
 /*
  * Noise that buries the docs in the answers: release notes (a package's
  * CHANGELOG names every API it ever had), pending changesets, CI and issue
- * templates, tests and their fixtures, and Docusaurus's frozen copies of
- * older docs. Source code itself stays.
+ * templates, Docusaurus's frozen copies of older docs, and test code and its
+ * fixtures. The test rules apply to code only: prose that happens to live
+ * in a `test/` folder (a guide to testing, say) is still read. Source code
+ * itself stays.
  */
 const CHANGELOG = /(^|\/)(changelog[^/]*|history)\.(md|mdx|markdown|txt|rst|adoc)$/i;
-const NOISE_DIRS = /(^|\/)(\.changeset|\.github|__tests__|__mocks__|__snapshots__|__fixtures__|fixtures|testdata|tests?|e2e|versioned_docs|versioned_sidebars)\//i;
+const NOISE_DIRS = /(^|\/)(\.changeset|\.github|versioned_docs|versioned_sidebars)\//i;
+const TEST_DIRS = /(^|\/)(__tests__|__mocks__|__snapshots__|__fixtures__|fixtures|testdata|tests?|e2e)\//i;
 const TEST_FILES = /(\.(test|spec)\.[a-z0-9]+$)|((^|\/)test_[^/]*\.py$)|(_test\.(go|py)$)/i;
+/** An older version directory is dropped only when it and the newest are copies of one doc tree: this many files each, this much alike. */
+const COPY_MIN_FILES = 3;
+const COPY_MIN_OVERLAP = 0.5;
 
 /** A directory named like a version: a date (`2025-06-18`), `v2`, `v1.4` or `3.0.1`; plain numbers are chapters, not versions. */
 export function versionOf(segment: string): { kind: 'date' | 'number'; parts: number[] } | null {
@@ -212,36 +220,57 @@ function newer(a: number[], b: number[]): boolean {
   return false;
 }
 
+/** Shared files over all files of two directories (Jaccard): 1 for the same file set, 0 for none in common. */
+function overlap(a: ReadonlySet<string>, b: ReadonlySet<string>): number {
+  let shared = 0;
+  for (const name of a) if (b.has(name)) shared += 1;
+  const union = a.size + b.size - shared;
+  return union === 0 ? 0 : shared / union;
+}
+
 /**
- * Paths inside an older copy of versioned docs: where one directory holds
- * two or more version-named directories of the same kind (dates, or
- * numbers), only the newest is kept. Its unversioned siblings (`draft`,
- * `latest`, `guides`) are kept too.
+ * Paths inside an older copy of versioned docs. Where one directory holds
+ * version-named directories of the same kind (dates, or numbers), an older
+ * one is dropped only when it is a copy of the newest: both hold at least
+ * `COPY_MIN_FILES` files and at least `COPY_MIN_OVERLAP` of their relative
+ * paths are the same. Dated archives (`blog/2024-05/` and `blog/2024-06/`
+ * with different posts), single-file release notes and numbered chapters
+ * are different documents, and stay. Unversioned siblings (`draft`,
+ * `latest`) always stay.
  */
 export function olderVersionPaths(paths: readonly string[]): Set<string> {
-  const newest = new Map<string, { segment: string; parts: number[] }>();
-  const seen = new Map<string, Set<string>>();
+  /* group (parent + version kind) → version directory → the paths below it */
+  const groups = new Map<string, Map<string, { parts: number[]; files: Set<string> }>>();
   for (const path of paths) {
-    const segments = path.split('/').slice(0, -1);
-    segments.forEach((segment, at) => {
+    const segments = path.split('/');
+    segments.slice(0, -1).forEach((segment, at) => {
       const version = versionOf(segment);
       if (!version) return;
       const key = `${segments.slice(0, at).join('/')}|${version.kind}`;
-      const group = seen.get(key) ?? new Set<string>();
-      group.add(segment);
-      seen.set(key, group);
-      const best = newest.get(key);
-      if (!best || newer(version.parts, best.parts)) newest.set(key, { segment, parts: version.parts });
+      const members = groups.get(key) ?? new Map<string, { parts: number[]; files: Set<string> }>();
+      const member = members.get(segment) ?? { parts: version.parts, files: new Set<string>() };
+      member.files.add(segments.slice(at + 1).join('/'));
+      members.set(segment, member);
+      groups.set(key, members);
     });
+  }
+  const copies = new Map<string, Set<string>>();
+  for (const [key, members] of groups) {
+    if (members.size < 2) continue;
+    const [newestSegment, newest] = [...members].reduce((best, entry) => (newer(entry[1].parts, best[1].parts) ? entry : best));
+    if (newest.files.size < COPY_MIN_FILES) continue;
+    const dropped = new Set<string>();
+    for (const [segment, member] of members) {
+      if (segment !== newestSegment && member.files.size >= COPY_MIN_FILES && overlap(member.files, newest.files) >= COPY_MIN_OVERLAP) dropped.add(segment);
+    }
+    if (dropped.size > 0) copies.set(key, dropped);
   }
   const older = new Set<string>();
   for (const path of paths) {
     const segments = path.split('/').slice(0, -1);
     const stale = segments.some((segment, at) => {
       const version = versionOf(segment);
-      if (!version) return false;
-      const key = `${segments.slice(0, at).join('/')}|${version.kind}`;
-      return (seen.get(key)?.size ?? 0) > 1 && newest.get(key)!.segment !== segment;
+      return version !== null && (copies.get(`${segments.slice(0, at).join('/')}|${version.kind}`)?.has(segment) ?? false);
     });
     if (stale) older.add(path);
   }
@@ -260,23 +289,29 @@ function inScope(path: string, scope: string | undefined): string | null {
  * shallow before deep: within `scope` (a directory or one file) when the URL
  * named one, leaving out noise as above. The noise rules look at the path
  * below the scope, so a URL that points into a test or version directory
- * still reads it.
+ * still reads it. `olderVersions` counts the files left out as older copies
+ * of versioned docs, for the processing record.
  */
-export function selectPaths(entries: readonly { path: string; size?: number }[], limit: number = GITHUB_LIMITS.files, scope?: string): string[] {
+export function selectRepositoryPaths(
+  entries: readonly { path: string; size?: number }[],
+  limit: number = GITHUB_LIMITS.files,
+  scope?: string,
+): { paths: string[]; olderVersions: number } {
   const candidates = entries.flatMap((entry) => {
     const relative = inScope(entry.path, scope);
     if (relative === null) return [];
+    const prose = PROSE.test(entry.path);
     const ok =
       (entry.size ?? 0) <= GITHUB_LIMITS.fileBytes &&
-      (PROSE.test(entry.path) || CODE.test(entry.path)) &&
+      (prose || CODE.test(entry.path)) &&
       !SKIPPED_DIRS.test(relative) &&
       !SKIPPED_FILES.test(relative) &&
       !LICENSE.test(relative) &&
-      (entry.path === scope || (!CHANGELOG.test(relative) && !NOISE_DIRS.test(relative) && !TEST_FILES.test(relative)));
+      (entry.path === scope || (!CHANGELOG.test(relative) && !NOISE_DIRS.test(relative) && (prose || (!TEST_DIRS.test(relative) && !TEST_FILES.test(relative)))));
     return ok ? [{ path: entry.path, relative }] : [];
   });
   const older = olderVersionPaths(candidates.map((candidate) => candidate.relative));
-  return candidates
+  const paths = candidates
     .filter((candidate) => !older.has(candidate.relative))
     .map((candidate) => candidate.path)
     .sort((a, b) => {
@@ -286,6 +321,11 @@ export function selectPaths(entries: readonly { path: string; size?: number }[],
       return depth !== 0 ? depth : a < b ? -1 : a > b ? 1 : 0;
     })
     .slice(0, limit);
+  return { paths, olderVersions: older.size };
+}
+
+export function selectPaths(entries: readonly { path: string; size?: number }[], limit: number = GITHUB_LIMITS.files, scope?: string): string[] {
+  return selectRepositoryPaths(entries, limit, scope).paths;
 }
 
 function notFound(error: unknown): boolean {
@@ -355,7 +395,7 @@ export async function fetchRepositoryFiles(
   ref: RepositoryRef,
   ownerToken: string | null,
   options: ReadOptions = {},
-): Promise<{ repository: RepositoryInfo; revision: string; scope: RepositoryRef; files: RepositoryFile[]; truncated: boolean; unread: number }> {
+): Promise<{ repository: RepositoryInfo; revision: string; scope: RepositoryRef; files: RepositoryFile[]; truncated: boolean; unread: number; olderVersions: number }> {
   const sleep = options.sleep ?? ((ms: number) => new Promise<void>((resolve) => setTimeout(resolve, ms)));
   const access = await resolveRepository(ref, ownerToken, options);
   if (!access.ok) {
@@ -367,9 +407,11 @@ export async function fetchRepositoryFiles(
   const { repository, token } = access;
   const [owner, name] = repository.fullName.split('/') as [string, string];
   const repoApi = repositoryApi(repository);
-  const scope = await settleRef(repoApi, ref, token);
+  const scope = options.pin ? options.pin.scope : await settleRef(repoApi, ref, token);
   let revision: string | null | undefined;
-  if (scope.ref) {
+  if (options.pin) {
+    revision = options.pin.revision;
+  } else if (scope.ref) {
     revision = await commitOf(repoApi, scope.ref, token);
     if (!revision) throw new ProcessingFailure('github_ref_not_found', `${repository.fullName} has no ref ${scope.ref}`);
   } else {
@@ -385,7 +427,7 @@ export async function fetchRepositoryFiles(
     { headers: headers(token), maxBytes: 32 * 1024 * 1024 },
   );
   const blobs = (tree.tree ?? []).filter((entry): entry is { path: string; type: string; size?: number } => entry.type === 'blob' && typeof entry.path === 'string');
-  const paths = selectPaths(blobs, GITHUB_LIMITS.files, scope.path);
+  const { paths, olderVersions } = selectRepositoryPaths(blobs, GITHUB_LIMITS.files, scope.path);
   const label = `${repository.fullName}${scope.path ? `/${scope.path}` : ''}`;
   if (paths.length === 0) {
     const exists = !scope.path || blobs.some((entry) => entry.path === scope.path || entry.path.startsWith(`${scope.path}/`));
@@ -441,5 +483,5 @@ export async function fetchRepositoryFiles(
   }
   if (files.length === 0) throw new ProcessingFailure('source_unreachable', `no file of ${repository.fullName} could be read`);
   if (unread > 0) console.warn(`[github] ${repository.fullName}@${revision.slice(0, 7)}: ${unread} of ${paths.length} files could not be read`);
-  return { repository, revision, scope, files, truncated, unread };
+  return { repository, revision, scope, files, truncated, unread, olderVersions };
 }

@@ -84,7 +84,8 @@ export function activityLabel(t: Messages, locale: 'zh' | 'en', entry: Knowledge
     case 'fetched': {
       const what = d.files !== undefined ? fill(k.fetchedFiles, { files: n(d.files), revision: String(d.revision ?? '') }) : d.pages !== undefined ? fill(k.fetchedPages, { pages: n(d.pages) }) : '';
       const unread = d.unread !== undefined ? fill(k.fetchedUnread, { unread: n(d.unread) }) : '';
-      return fill(k.fetched, { what: `${what}${d.truncated ? k.fetchedTruncated : ''}${unread}` });
+      const older = d.olderVersions !== undefined ? fill(k.fetchedOlderVersions, { n: n(d.olderVersions) }) : '';
+      return fill(k.fetched, { what: `${what}${d.truncated ? k.fetchedTruncated : ''}${unread}${older}` });
     }
     case 'moved':
       return fill(k.moved, { folder: String(d.folder || t.knowledge.folders.unfiled) });

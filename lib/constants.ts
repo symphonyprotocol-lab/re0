@@ -295,16 +295,33 @@ export const KNOWLEDGE_MAX_RESUMES = 3;
 /** Passages embedded and staged per step: one `embedTexts` call (itself a few parallel requests). */
 export const KNOWLEDGE_STAGE_SLICE = 1_000;
 /**
- * Repositories and websites (the kinds that can run for minutes) processing
- * at once, per owner and in all. A burst beyond that waits in `pending` and
- * starts as runs finish (`/api/cron/knowledge`, or the library's poll),
- * instead of every run starving the others of embedding and database time.
+ * Sources that can run for minutes take a slot, per owner and in all, in
+ * one of two pools: repositories and websites (crawling), audio and
+ * documents (transcription, large PDFs). A burst beyond that waits in
+ * `pending` and starts as runs finish (`/api/cron/knowledge`, or the
+ * library's poll), instead of every run starving the others of embedding
+ * and database time. Text and single pages never wait.
  */
-export const KNOWLEDGE_OWNER_CONCURRENCY = 2;
-export const KNOWLEDGE_GLOBAL_CONCURRENCY = 8;
+export const KNOWLEDGE_SLOT_POOLS = {
+  crawl: { kinds: ['github', 'site'], owner: 2, global: 8 },
+  file: { kinds: ['audio', 'document'], owner: 3, global: 12 },
+} as const;
 /** Waiting sources the queue cron offers a slot per minute, and how many of them one cron function runs at a time. */
 export const KNOWLEDGE_QUEUE_BATCH = 20;
 export const KNOWLEDGE_QUEUE_PARALLEL = 4;
+/**
+ * A function that starts queued runs one after another (the queue cron, a
+ * batch reprocess) claims no new run this long after it started: a run
+ * claimed later could outlive the function, be killed and spend a resume.
+ * What is left waits for the next minute's cron.
+ */
+export const KNOWLEDGE_CLAIM_WINDOW_MS = 60_000;
+/**
+ * The largest extraction kept whole for a resumed run (`knowledge_extract`,
+ * serialized JSON). Past it only a repository's commit is kept, so a resume
+ * reads the same revision again rather than whatever is newest.
+ */
+export const KNOWLEDGE_EXTRACT_MAX_BYTES = 32 * 1024 * 1024;
 
 /* ---------------------------------------------------------- retrieval, 5 */
 
