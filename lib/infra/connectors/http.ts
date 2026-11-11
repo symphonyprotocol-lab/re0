@@ -56,6 +56,53 @@ export function assertFetchable(url: URL): void {
   }
 }
 
+/** `retry-after` (seconds or an HTTP date), else GitHub's `x-ratelimit-reset` once the quota is spent. */
+export function retryAfterMs(headers: Headers, now = Date.now()): number | undefined {
+  const retryAfter = headers.get('retry-after')?.trim();
+  if (retryAfter) {
+    if (/^\d+$/.test(retryAfter)) return Number(retryAfter) * 1000;
+    const at = Date.parse(retryAfter);
+    if (!Number.isNaN(at)) return Math.max(0, at - now);
+  }
+  const reset = headers.get('x-ratelimit-reset');
+  if (headers.get('x-ratelimit-remaining') === '0' && reset && /^\d+$/.test(reset)) return Math.max(0, Number(reset) * 1000 - now);
+  return undefined;
+}
+
+/** The start of a body, for telling a refusal from a throttle; the rest is dropped. */
+async function peekText(response: Response, limit = 4096): Promise<string> {
+  const reader = response.body?.getReader();
+  if (!reader) return '';
+  const parts: Uint8Array[] = [];
+  let total = 0;
+  try {
+    while (total < limit) {
+      const { done, value } = await reader.read();
+      if (done) break;
+      if (value) {
+        parts.push(value);
+        total += value.length;
+      }
+    }
+  } finally {
+    await reader.cancel().catch(() => undefined);
+  }
+  const decoder = new TextDecoder('utf-8', { fatal: false });
+  return parts.map((part) => decoder.decode(part, { stream: true })).join('').slice(0, limit);
+}
+
+/**
+ * GitHub throttles with 429, or with 403 for both its primary limit
+ * (`x-ratelimit-remaining: 0`) and its secondary one (a `retry-after`, or
+ * only "secondary rate limit" in the body). Busy, not a refusal.
+ */
+async function throttled(response: Response): Promise<boolean> {
+  if (response.status === 429) return true;
+  if (response.status !== 403) return false;
+  if (response.headers.get('x-ratelimit-remaining') === '0' || response.headers.has('retry-after')) return true;
+  return /rate limit/i.test(await peekText(response));
+}
+
 function credentialSafe(headers: Record<string, string> | undefined, url: URL, origin: string): Record<string, string> {
   if (!headers) return {};
   if (url.origin === origin) return headers;
@@ -123,13 +170,12 @@ export async function fetchBytes(target: string, options: FetchOptions = {}): Pr
       url = new URL(location, url);
       continue;
     }
-    /* GitHub answers an exhausted rate limit with 403 (or 429): busy, not a refusal. */
-    if (response.status === 429 || (response.status === 403 && response.headers.get('x-ratelimit-remaining') === '0')) {
-      await response.body?.cancel();
-      throw new ProcessingFailure('rate_limited', `${url.host} is rate limiting (${response.status})`);
+    if (await throttled(response)) {
+      await response.body?.cancel().catch(() => undefined);
+      throw new ProcessingFailure('rate_limited', `${url.host} is rate limiting (${response.status})`, response.status, retryAfterMs(response.headers));
     }
     if (response.status === 401 || response.status === 403) {
-      await response.body?.cancel();
+      await response.body?.cancel().catch(() => undefined);
       throw new ProcessingFailure('source_forbidden', `${url.host} refused the request (${response.status})`, response.status);
     }
     if (response.status === 404 || response.status === 410) {

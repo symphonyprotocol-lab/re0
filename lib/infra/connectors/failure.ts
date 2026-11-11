@@ -27,6 +27,8 @@ export class ProcessingFailure extends Error {
     readonly code: ProcessingFailureCode,
     message: string,
     readonly httpStatus?: number,
+    /** For `rate_limited`: how long the source asked us to wait, when it said. */
+    readonly retryAfterMs?: number,
   ) {
     super(message);
     this.name = 'ProcessingFailure';
