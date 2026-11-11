@@ -81,7 +81,8 @@ export function activityLabel(t: Messages, locale: 'zh' | 'en', entry: Knowledge
       return fill(k.failed, { reason: failureLabel(t, String(d.reason ?? '')) });
     case 'fetched': {
       const what = d.files !== undefined ? fill(k.fetchedFiles, { files: n(d.files), revision: String(d.revision ?? '') }) : d.pages !== undefined ? fill(k.fetchedPages, { pages: n(d.pages) }) : '';
-      return fill(k.fetched, { what: `${what}${d.truncated ? k.fetchedTruncated : ''}` });
+      const unread = d.unread !== undefined ? fill(k.fetchedUnread, { unread: n(d.unread) }) : '';
+      return fill(k.fetched, { what: `${what}${d.truncated ? k.fetchedTruncated : ''}${unread}` });
     }
     case 'moved':
       return fill(k.moved, { folder: String(d.folder || t.knowledge.folders.unfiled) });

@@ -81,7 +81,8 @@ export function AddKnowledgeModal({
   useEffect(() => {
     if (error) errorRef.current?.scrollIntoView({ block: 'nearest', behavior: 'smooth' });
   }, [error]);
-  const [githubStatus, setGithubStatus] = useState<'checking' | 'connected' | 'disconnected' | 'unavailable'>('checking');
+  /* `stale`: connected, but GitHub no longer honours the token (an add came back `github_not_connected`). */
+  const [githubStatus, setGithubStatus] = useState<'checking' | 'connected' | 'stale' | 'disconnected' | 'unavailable'>('checking');
   const [githubAccessUrl, setGithubAccessUrl] = useState('');
   useEffect(() => {
     if (!open || kind !== 'github' || githubStatus !== 'checking') return;
@@ -210,6 +211,7 @@ export function AddKnowledgeModal({
       return;
     }
     const code = result.status === 402 ? 'insufficient_credits' : result.data.error;
+    if (code === 'github_not_connected' && githubStatus === 'connected') setGithubStatus('stale');
     setError({ text: errorText(t, code), code });
   };
 
@@ -294,12 +296,17 @@ export function AddKnowledgeModal({
             </div>
           )}
           {urlKind && kind !== 'site' && <p className="form-hint">{m.urlHint[kind]}</p>}
-          {kind === 'github' && (githubStatus === 'disconnected' || githubStatus === 'unavailable') && (
+          {kind === 'github' && (githubStatus === 'disconnected' || githubStatus === 'stale' || githubStatus === 'unavailable') && (
             <div className="info-strip">
               <Icon name="github" />
               <div>
-                <div role="status">{githubStatus === 'unavailable' ? m.githubUnavailable : m.githubPrivate}</div>
+                <div role="status">{githubStatus === 'unavailable' ? m.githubUnavailable : githubStatus === 'stale' ? m.githubStale : m.githubPrivate}</div>
                 {githubStatus === 'disconnected' && <FixLink code="github_not_connected" />}
+                {githubStatus === 'stale' && (
+                  <Link href="/settings?tab=connections" className="font-semibold underline">
+                    {t.settings.connections.githubReconnect}
+                  </Link>
+                )}
                 {githubStatus === 'unavailable' && (
                   <button type="button" className="text-link" onClick={() => setGithubStatus('checking')}>
                     {t.common.actions.retry}

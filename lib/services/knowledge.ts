@@ -119,8 +119,7 @@ export async function checkRepository(ownerId: string, ref: RepositoryRef): Prom
     return { fullName: access.repository.fullName, private: access.repository.private };
   } catch (error) {
     if (error instanceof KnowledgeInputError) throw error;
-    /* A token GitHub no longer honours is no connection at all. */
-    if (error instanceof ProcessingFailure && error.code === 'source_forbidden') throw new KnowledgeInputError('github_not_connected');
+    /* Throttled or unanswered: `resolveRepository` already turned a refused owner token into `not_connected`. */
     throw new KnowledgeInputError('source_unreachable');
   }
 }
@@ -476,7 +475,13 @@ async function extract(row: KnowledgeRow): Promise<Extracted> {
       const snapshot = await fetchRepositoryFiles(ref, await githubTokenFor(await ownerOf(row.reeId)));
       return {
         sections: snapshot.files.map((file) => ({ text: file.content, locator: { path: file.path }, byLines: true, child: { label: file.path, path: file.path } })),
-        log: [activity('fetched', { files: snapshot.files.length, revision: snapshot.revision.slice(0, 7) })],
+        log: [
+          activity('fetched', {
+            files: snapshot.files.length,
+            revision: snapshot.revision.slice(0, 7),
+            ...(snapshot.unread ? { unread: snapshot.unread } : {}),
+          }),
+        ],
       };
     }
     case 'page': {
