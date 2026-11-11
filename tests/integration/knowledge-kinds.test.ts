@@ -1,7 +1,8 @@
 /**
  * Acceptance (8.4 step 2), the four kinds that reach outside:
- *   - public and private repositories require the owner's GitHub connection,
- *     are read with their token, and are cited by file and line;
+ *   - a public repository needs no GitHub connection (read with the
+ *     server's optional token, or none); a private one needs the owner's
+ *     connection and is read with their token; both are cited by file and line;
  *   - a single page needs no claim; a website is refused until its domain is
  *     verified, by DNS TXT or by the well-known file, either one;
  *   - a 100 MB audio file is cut into ten-minute pieces, transcribed with
@@ -11,7 +12,7 @@
  * the local fake endpoint.
  */
 import { WELCOME_CREDITS } from '@/lib/constants';
-import { afterAll, beforeAll, describe, expect, it, vi } from 'vitest';
+import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it, vi } from 'vitest';
 import { pointModelsAt, TEST_DATABASE_URL, uniqueName } from './setup';
 import { and, asc, eq } from 'drizzle-orm';
 import { FAKE_MP3_FRAME_SECONDS, FAKE_MP3_PIECE_FRAMES, fakeMp3, startFakeOpenAi, type FakeOpenAi } from '../fixtures/fake-openai';
@@ -78,9 +79,17 @@ async function refusal(promise: Promise<unknown>): Promise<string> {
 const README = '# Acme handbook\n\nIntro line.\n\n## Deploys\n\nDeploys run every Tuesday at noon from the release branch.\n';
 const SOURCE = 'export function greet(name: string) {\n  return `hello ${name}`;\n}\n';
 
-function serveRepository(owner: string, name: string, visibility: 'public' | 'private') {
+/** Authorization headers GitHub saw, null for anonymous requests. */
+const githubAuth: (string | null)[] = [];
+
+/** A public repository answers anyone; a private one only the tokens in `readers`. */
+function serveRepository(owner: string, name: string, visibility: 'public' | 'private', readers: readonly string[] = ['gho_secret_token']) {
   const repo = `api.github.com/repos/${owner}/${name}`;
-  const allowed = (init: RequestInit | undefined) => authorization(init) === 'Bearer gho_secret_token';
+  const allowed = (init: RequestInit | undefined) => {
+    const auth = authorization(init);
+    githubAuth.push(auth);
+    return visibility === 'public' || readers.some((token) => auth === `Bearer ${token}`);
+  };
   web.routes.set(repo, (_url, init) =>
     allowed(init) ? jsonResponse({ full_name: `${owner}/${name}`, private: visibility === 'private', default_branch: 'main' }) : jsonResponse({ message: 'Not Found' }, 404),
   );
@@ -110,19 +119,22 @@ function serveRepository(owner: string, name: string, visibility: 'public' | 'pr
 }
 
 describeWithDb('GitHub repositories', () => {
-  it('requires a GitHub connection for a public repository and cites file and line', async () => {
+  beforeEach(() => {
+    vi.stubEnv('GITHUB_READ_TOKEN', '');
+    githubAuth.length = 0;
+  });
+  afterEach(() => vi.unstubAllEnvs());
+
+  it('imports a public repository without a GitHub connection and cites file and line', async () => {
     serveRepository('acme', 'handbook', 'public');
     const { userId, ree } = await userWithRee();
     const input = { kind: 'github', url: 'https://github.com/acme/handbook/tree/main/docs' } as const;
-    const before = web.requests.length;
-    expect(await refusal(knowledge.addKnowledge(userId, ree, input))).toBe('github_not_connected');
-    expect(web.requests).toHaveLength(before);
-    expect(await balanceOf(db(), userId)).toBe(WELCOME_CREDITS);
-
-    await connections.saveGithubConnection(userId, { accessToken: 'gho_secret_token', login: 'acme-dev', scope: 'repo' });
     const id = await knowledge.addKnowledge(userId, ree, input);
     expect(await balanceOf(db(), userId)).toBe(WELCOME_CREDITS - 1);
     await knowledge.processKnowledge(id);
+    /* Repository, branch and tree through the API, the two bodies from raw.githubusercontent.com, all anonymous. */
+    expect(githubAuth).toEqual([null, null, null, null, null, null]);
+    expect(web.requests.filter((url) => url.includes('raw.githubusercontent.com/acme/handbook/abc1234def/'))).toHaveLength(2);
     const detail = await knowledge.knowledgeDetail(ree.id, id);
     expect(detail).toMatchObject({ status: 'ready', title: 'acme/handbook', source: 'https://github.com/acme/handbook' });
     expect(detail!.children.map((child) => child.path)).toEqual(['README.md', 'src/greet.ts']);
@@ -134,15 +146,38 @@ describeWithDb('GitHub repositories', () => {
     // Receipts: the files fetched from GitHub (transfer) and the embedding.
     expect(await expectChargedAtLeastCost(id)).toEqual([expect.objectContaining({ status: 'ready', receipts: 2 })]);
 
+    /* Connected, the owner's token is used; disconnected again, refreshing still works. */
+    await connections.saveGithubConnection(userId, { accessToken: 'gho_secret_token', login: 'acme-dev', scope: 'repo' });
+    githubAuth.length = 0;
+    await knowledge.refreshKnowledge(userId, ree.id, id);
+    await knowledge.processKnowledge(id);
+    expect(new Set(githubAuth)).toEqual(new Set(['Bearer gho_secret_token']));
     await connections.disconnectGithub(userId);
-    expect(await refusal(knowledge.refreshKnowledge(userId, ree.id, id))).toBe('github_not_connected');
+    await knowledge.refreshKnowledge(userId, ree.id, id);
+    await knowledge.processKnowledge(id);
     expect((await knowledge.knowledgeDetail(ree.id, id))?.status).toBe('ready');
+  });
+
+  it('reads public repositories with GITHUB_READ_TOKEN, but never a private one on an owner\'s behalf', async () => {
+    vi.stubEnv('GITHUB_READ_TOKEN', 'github_pat_server');
+    serveRepository('acme', 'guide', 'public');
+    serveRepository('acme', 'internal', 'private', ['gho_secret_token', 'github_pat_server']);
+    const { userId, ree } = await userWithRee();
+    const id = await knowledge.addKnowledge(userId, ree, { kind: 'github', url: 'acme/guide' });
+    await knowledge.processKnowledge(id);
+    expect((await knowledge.knowledgeDetail(ree.id, id))?.status).toBe('ready');
+    expect(githubAuth).toHaveLength(6);
+    expect(new Set(githubAuth)).toEqual(new Set(['Bearer github_pat_server']));
+
+    expect(await refusal(knowledge.addKnowledge(userId, ree, { kind: 'github', url: 'acme/internal' }))).toBe('github_not_connected');
   });
 
   it('refuses a private repository until GitHub is connected, then reads it with the token', async () => {
     serveRepository('acme', 'secret', 'private');
     const { userId, ree } = await userWithRee();
     expect(await refusal(knowledge.addKnowledge(userId, ree, { kind: 'github', url: 'https://github.com/acme/secret' }))).toBe('github_not_connected');
+    /* The same answer as for a repository that does not exist: nothing says a private one is there. */
+    expect(await refusal(knowledge.addKnowledge(userId, ree, { kind: 'github', url: 'acme/nowhere' }))).toBe('github_not_connected');
     expect(await balanceOf(db(), userId)).toBe(WELCOME_CREDITS);
 
     await connections.saveGithubConnection(userId, { accessToken: 'gho_secret_token', login: 'acme-dev', scope: 'repo' });
@@ -159,16 +194,17 @@ describeWithDb('GitHub repositories', () => {
     expect(await refusal(knowledge.refreshKnowledge(userId, ree.id, id))).toBe('github_not_connected');
   });
 
-  it('stops queued public repository processing if GitHub was disconnected', async () => {
-    serveRepository('acme', 'queued', 'public');
+  it('stops queued private repository processing if GitHub was disconnected', async () => {
+    serveRepository('acme', 'queued', 'private');
     const { userId, ree } = await userWithRee();
     await connections.saveGithubConnection(userId, { accessToken: 'gho_secret_token', login: 'acme-dev', scope: 'repo' });
     const id = await knowledge.addKnowledge(userId, ree, { kind: 'github', url: 'acme/queued' });
     await connections.disconnectGithub(userId);
 
-    const before = web.requests.length;
+    githubAuth.length = 0;
     await knowledge.processKnowledge(id);
-    expect(web.requests).toHaveLength(before);
+    /* One anonymous look at the repository, which GitHub does not show: no file is read. */
+    expect(githubAuth).toEqual([null]);
     expect((await knowledge.knowledgeDetail(ree.id, id))).toMatchObject({ status: 'failed', error: 'github_not_connected' });
     expect(await balanceOf(db(), userId)).toBe(WELCOME_CREDITS);
   });
