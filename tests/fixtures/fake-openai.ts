@@ -17,6 +17,13 @@
  * A synthesis request (Ree 圆桌) gets four sections with good, grouped and
  * bogus markers; nothing but bogus ones when the question has
  * `SYNTH_EMPTY`; a server error while `synthesis.fail` is set.
+ *
+ * A question rewrite for retrieval (cross-lingual.ts) gets the question
+ * word for word through `FAKE_GLOSSARY` -- Chinese to English, or English
+ * to Chinese -- with the glossary's words as keywords, or a server error
+ * while `rewrites.fail` is set; `rewrites.calls` counts them. The bag-of-words
+ * embedding gives a Chinese and an English text nothing in common but their
+ * Latin words, as weak as cross-lingual similarity gets.
  */
 import { createServer, type Server } from 'node:http';
 import { TRANSCRIPTION_PIECE_SECONDS } from '@/lib/constants';
@@ -45,6 +52,8 @@ export interface FakeOpenAi {
   checks: { fail: boolean };
   /** `fail`: synthesis requests with a server error. */
   synthesis: { fail: boolean };
+  /** Retrieval rewrites: how many were asked for, and `fail` to answer them with a server error. */
+  rewrites: { calls: number; fail: boolean };
   close(): Promise<void>;
 }
 
@@ -67,6 +76,31 @@ export function fakeMp3(bytes: number, pieceBytes = FAKE_MP3_PIECE_FRAMES * 417)
   const out = new Uint8Array(bytes);
   for (let at = 0; at + 5 <= bytes; at += 417) out.set([0xff, 0xfb, 0x90, 0x64, Math.min(255, Math.floor(at / pieceBytes))], at);
   return out;
+}
+
+/** What the fake's rewrites know of each language: Chinese terms and their English. */
+export const FAKE_GLOSSARY: readonly (readonly [string, string])[] = [
+  ['自定义中间件', 'custom middleware'],
+  ['中间件', 'middleware'],
+  ['部署', 'deploy'],
+  ['插件', 'plugin'],
+  ['工具调用', 'tool calling'],
+  ['退款', 'refund'],
+  ['原支付方式', 'original payment method'],
+];
+
+/** The fake's rewrite of `question` into `language` ('English' or 'Chinese'): the glossary's terms swapped, other Chinese dropped from an English one. */
+export function fakeRewrite(question: string, language: string): { query: string; keywords: string[] } {
+  const pairs = language === 'English' ? FAKE_GLOSSARY : FAKE_GLOSSARY.map(([zh, en]) => [en, zh] as const);
+  let query = question;
+  const keywords: string[] = [];
+  for (const [from, to] of pairs) {
+    if (!query.includes(from)) continue;
+    query = query.split(from).join(` ${to} `);
+    keywords.push(to);
+  }
+  if (language === 'English') query = query.replace(/[\p{Script=Han}\p{P}]/gu, ' ');
+  return { query: query.replace(/\s+/g, ' ').trim(), keywords };
 }
 
 /** The vector the fake answers for `text` from `model` (with `shift` places of rotation). */
@@ -171,6 +205,7 @@ export async function startFakeOpenAi(port = 0, options: { delayMs?: number } = 
   const transcripts = new Map<string, string>();
   const checks = { fail: false };
   const synthesis = { fail: false };
+  const rewrites = { calls: 0, fail: false };
   const embeddings: FakeOpenAi['embeddings'] = { failModel: null, after: 0, shift: {}, beforeAnswer: null };
   let failingEmbeds = 0;
   let failureArmed = 'null:0';
@@ -222,12 +257,21 @@ export async function startFakeOpenAi(port = 0, options: { delayMs?: number } = 
       const question = typeof last?.content === 'string' ? last.content : JSON.stringify(last?.content ?? '');
       const system = JSON.stringify(body.messages?.[0]?.content ?? '');
       const moderating = system.includes('You moderate a round table of Rees');
+      const rewriting = /You turn a user's question into a search query for a knowledge base written in (\w+)/.exec(system);
+      if (rewriting) rewrites.calls += 1;
+      if (rewriting && rewrites.fail) {
+        res.writeHead(500, { 'content-type': 'application/json' });
+        res.end(JSON.stringify({ error: { message: 'rewrite failed', type: 'server_error' } }));
+        return;
+      }
       if ((system.includes('You check an answer against the knowledge passages') && checks.fail) || (moderating && synthesis.fail)) {
         res.writeHead(500, { 'content-type': 'application/json' });
         res.end(JSON.stringify({ error: { message: 'check failed', type: 'server_error' } }));
         return;
       }
-      const text = moderating
+      const text = rewriting
+        ? JSON.stringify(fakeRewrite(question.replace(/^Question:\n/, ''), rewriting[1]!))
+        : moderating
         ? question.includes('SYNTH_EMPTY')
           ? '[C1] [9]'
           : '## 结论\n- Refunds go back to the original payment method within 14 days [A1][B1].\n## 共识\n- Both name the same window [A1, B1].\n## 分歧\n- None noted [C1] [A9].\n## 没覆盖到\n- Store credit is not covered [B] [2].'
@@ -282,6 +326,7 @@ export async function startFakeOpenAi(port = 0, options: { delayMs?: number } = 
     transcripts,
     checks,
     synthesis,
+    rewrites,
     close: () => new Promise((resolve) => server.close(() => resolve())),
   };
 }

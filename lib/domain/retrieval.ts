@@ -38,14 +38,25 @@ export function searchTerms(text: string): string[] {
   return [...terms].slice(0, 24);
 }
 
+/** Whether a term matches only as a whole word: Latin words do ("do" is not in "doubt"); CJK bigrams have no word boundaries. */
+export function isWordTerm(term: string): boolean {
+  return /^[a-z0-9]/.test(term);
+}
+
+/**
+ * The pattern a whole-word term matches in lowered text. Written for both
+ * JavaScript and Postgres (`~`, advanced regular expressions), so the
+ * database ranks passages by the same matches `keywordCoverage` counts.
+ */
+export function wordPattern(term: string): string {
+  return `(^|[^a-z0-9])${escapeRegExp(term)}($|[^a-z0-9])`;
+}
+
 /** Share of the question's terms a passage contains, 0..1. */
 export function keywordCoverage(terms: readonly string[], content: string): number {
   if (terms.length === 0) return 0;
   const haystack = content.toLowerCase();
-  /* Latin words must match whole words ("do" is not in "doubt"); CJK bigrams have no word boundaries. */
-  const found = terms.filter((term) =>
-    /^[a-z0-9]/.test(term) ? new RegExp(`(^|[^a-z0-9])${escapeRegExp(term)}($|[^a-z0-9])`).test(haystack) : haystack.includes(term),
-  );
+  const found = terms.filter((term) => (isWordTerm(term) ? new RegExp(wordPattern(term)).test(haystack) : haystack.includes(term)));
   return found.length / terms.length;
 }
 

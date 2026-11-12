@@ -10,8 +10,11 @@
  *      them → 402 before any stream starts, and the question is not saved.
  *   3. Every Ree then works on its own and at the same time: its own
  *      retrieval, its own persona, only its own earlier turns, never the
- *      others' answers. No evidence, or the model declines with the
- *      sentinel → no answer, its holds released.
+ *      others' answers. A question in another language than the knowledge
+ *      it recalls is searched as a rewrite into that language, made once
+ *      per language and paid for by the platform (question-rewrite.ts).
+ *      No evidence, or the model declines with the sentinel → no answer,
+ *      its holds released.
  *   4. An answer settles that Ree's holds at "20 + query fee" and credits
  *      the query fee to the owner as earned credits (2.3). Each reply is
  *      stored with its citation snapshots.
@@ -70,6 +73,7 @@ import { json } from '@/lib/http/respond';
 import { embedQuestion, messagesOf, retrieve, turnsOf, type Conversation, type MessageRow, type QuestionVector } from '@/lib/services/chat';
 import { addGrant, balanceOf, paidShare, placeHold, releaseHold, settleHold } from '@/lib/services/credits';
 import { suggestRees } from '@/lib/services/explore';
+import { questionRewriter } from '@/lib/services/question-rewrite';
 import type { Ree } from '@/lib/services/rees';
 
 type Writer = UIMessageStreamWriter<ReeUIMessage>;
@@ -372,7 +376,7 @@ export async function runQuestion(question: HeldQuestion, emit: Emit): Promise<v
     let model: string | null = null;
     let textOpen = false;
     try {
-      const found = await retrieve(ree.id, subject, await vector!);
+      const found = await retrieve(ree.id, subject, await vector!, { rewrite });
       if (!found.evidence) {
         emit({ type: 'outcome', outcome: await unanswered(ree, 'out_of_scope', entry) });
         return false;
@@ -380,7 +384,7 @@ export async function runQuestion(question: HeldQuestion, emit: Emit): Promise<v
       const generation = await (generationRequest ??= generationForUser(userId, 'answer'));
       model = generation.endpoint.model;
       console.info(
-        `answer ree=${ree.id} model=${generation.endpoint.model} source=${generation.endpoint.source} config=${generation.endpoint.configId ?? '-'} passages=${found.passages.length} best=${found.bestSimilarity?.toFixed(3) ?? '-'}`,
+        `answer ree=${ree.id} model=${generation.endpoint.model} source=${generation.endpoint.source} config=${generation.endpoint.configId ?? '-'} passages=${found.passages.length} best=${found.bestSimilarity?.toFixed(3) ?? '-'} rewritten=${found.rewrite === null ? 'no' : 'yes'}`,
       );
       const turns = turnsOf(await history, ree.id);
       const result = streamText({
@@ -495,6 +499,8 @@ export async function runQuestion(question: HeldQuestion, emit: Emit): Promise<v
   };
 
   const vector = asking.length ? embedQuestion(subject) : null;
+  /* Made only for a Ree whose knowledge is in another language than the question, once per language. */
+  const rewrite = questionRewriter(userId, subject);
   /* A failed embedding fails every Ree on its own path; nothing is left unhandled. */
   vector?.catch(() => undefined);
   /* The conversation is read once; each Ree takes only its own turns from it. */
