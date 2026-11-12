@@ -8,7 +8,7 @@ import { currentUser } from '@/lib/http/session';
 import { UNLISTED_ROBOTS } from '@/lib/seo';
 import { serverMessages } from '@/i18n/server';
 import { BrandMark } from '@/components/ui/brand-mark';
-import { LanguageToggle } from '@/components/ui/language-toggle';
+import { LanguageMenu } from '@/components/ui/language-menu';
 import { Wordmark } from '@/components/site/site-shell';
 import { LoginIcon } from './login-icons';
 import './login.css';
@@ -77,7 +77,7 @@ export default async function LoginPage({ searchParams }: { searchParams: Promis
               <LoginIcon name="arrow" />
               {l.back}
             </Link>
-            <LanguageToggle className="btn ghost sm" icon={false} />
+            <LanguageMenu />
           </div>
           <BrandMark className="login-mobile-mark" size={33} />
           <p className="eyebrow">{l.eyebrow}</p>

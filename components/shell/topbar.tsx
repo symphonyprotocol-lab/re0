@@ -1,11 +1,11 @@
 'use client';
 
 import { WorkspaceLink as Link } from '@/components/shell/workspace-link';
-import { useRouter } from 'next/navigation';
 import { Fragment, type ReactNode } from 'react';
 import { useI18n } from '@/i18n/client';
 import { Icon } from '@/components/ui/icons';
 import { useShell } from '@/components/shell/app-shell';
+import { LanguageMenu } from '@/components/ui/language-menu';
 
 export interface Crumb {
   label: string;
@@ -50,16 +50,10 @@ export function Topbar({
   rowActions?: ReactNode;
   mobileBack?: { href: string; label: string; title: string };
 }) {
-  const { t, locale } = useI18n();
+  const { t } = useI18n();
   const { collapsed, toggleCollapsed, openDrawer } = useShell();
-  const router = useRouter();
   const nav = t.common.nav;
   const hasRow = Boolean(tabs?.length || secondRow);
-  const switchLanguage = async () => {
-    const lang = locale === 'zh' ? 'en' : 'zh';
-    await fetch('/api/account', { method: 'PATCH', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ lang }) });
-    router.refresh();
-  };
   return (
     <>
       <header data-topbar className={`topbar${mobileBack ? ' ree-workspace-shell' : ''}`}>
@@ -109,10 +103,7 @@ export function Topbar({
           </div>
           <div className="topbar-right">
             {actions && <div className="flex items-center gap-2">{actions}</div>}
-            <button type="button" className="btn-ghost shell-language" onClick={switchLanguage} aria-label={t.common.language.label}>
-              <Icon name="globe" className="" />
-              {t.common.language.short}
-            </button>
+            <LanguageMenu signedIn className="btn-ghost shell-language" />
             {/* The way out to the public site (prototype app.js "返回官网"). */}
             <Link href="/" className="text-link shell-site-link">
               {t.common.website}

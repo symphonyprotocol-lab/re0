@@ -1,0 +1,34 @@
+/* The language menu's button (components/ui/language-menu.tsx): globe, current language, caret, in whatever button style the caller gives it. */
+.language-menu-trigger {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  white-space: nowrap;
+}
+
+.language-menu-trigger > svg.language-menu-globe {
+  width: 15px;
+  height: 15px;
+  flex: none;
+}
+
+.language-menu-trigger > svg.language-menu-caret {
+  width: 12px;
+  height: 12px;
+  flex: none;
+  opacity: 0.7;
+  transition: transform 0.15s ease;
+}
+
+.language-menu-trigger[aria-expanded='true'] > svg.language-menu-caret {
+  transform: rotate(180deg);
+}
+
+.language-menu-trigger[aria-busy='true'] {
+  cursor: progress;
+  opacity: 0.6;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .language-menu-trigger > svg.language-menu-caret { transition: none; }
+}

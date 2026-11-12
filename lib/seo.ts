@@ -2,7 +2,7 @@ import type { Metadata } from 'next';
 import { appBaseUrl } from '@/lib/http/cookies';
 import type { PricingView } from '@/lib/domain/pricing';
 import type { PublicRee } from '@/lib/services/public-rees';
-import { LOCALES, type Locale } from '@/i18n/locale';
+import { HTML_LANG, LOCALES, type Locale } from '@/i18n/locale';
 import { localeAlternates, localePath } from '@/i18n/paths';
 
 /**
@@ -75,7 +75,7 @@ export function siteJsonLd(description: string): JsonLd {
     '@context': 'https://schema.org',
     '@graph': [
       { '@type': 'Organization', '@id': organizationId(), name: SITE_NAME, url: absoluteUrl('/'), logo: absoluteUrl('/apple-icon.png') },
-      { '@type': 'WebSite', '@id': websiteId(), name: SITE_NAME, url: absoluteUrl('/'), description, inLanguage: ['zh-CN', 'en'], publisher: { '@id': organizationId() } },
+      { '@type': 'WebSite', '@id': websiteId(), name: SITE_NAME, url: absoluteUrl('/'), description, inLanguage: LOCALES.map((locale) => HTML_LANG[locale]), publisher: { '@id': organizationId() } },
     ],
   };
 }
@@ -98,7 +98,7 @@ export function reeJsonLd(ree: PublicRee, locale: Locale, labels: { home: string
         url,
         name: ree.name,
         description: labels.description,
-        inLanguage: locale === 'zh' ? 'zh-CN' : 'en',
+        inLanguage: HTML_LANG[locale],
         isPartOf: { '@id': websiteId() },
         breadcrumb: { '@id': `${url}#breadcrumb` },
         mainEntity: { '@id': `${url}#ree` },

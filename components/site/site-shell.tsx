@@ -4,7 +4,7 @@ import { currentUser } from '@/lib/http/session';
 import { serverMessages } from '@/i18n/server';
 import { Icon } from '@/components/ui/icons';
 import { BrandMark, BrandName } from '@/components/ui/brand-mark';
-import { LanguageToggle } from '@/components/ui/language-toggle';
+import { LanguageMenu } from '@/components/ui/language-menu';
 import { SignInLink, SiteNav } from '@/components/site/site-nav';
 import { RouteMotion } from '@/components/shell/workspace-main';
 import './site.css';
@@ -41,7 +41,7 @@ export async function SiteShell({ children }: { children: ReactNode }) {
           <Wordmark label={home} />
           <SiteNav links={links} label={s.nav.label} />
           <div className="marketing-actions">
-            <LanguageToggle signedIn={Boolean(user)} className="btn ghost sm" icon={false} />
+            <LanguageMenu signedIn={Boolean(user)} />
             {user ? (
               <Link href="/rees" className="btn secondary">
                 {s.nav.open}
