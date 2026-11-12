@@ -6,8 +6,8 @@ import { and, asc, desc, eq, inArray, isNull, sql, type SQL } from 'drizzle-orm'
 import { HISTORY_TURNS, RETRIEVAL_KEYWORD_ROWS, RETRIEVAL_OVERVIEWS_MAX, RETRIEVAL_RECALL, RETRIEVAL_TOP_K } from '@/lib/constants';
 import type { Passage } from '@/lib/domain/answer';
 import { checkPartId, SYNTHESIS_PART_ID, TEXT_META_KEY, textPartId, type ReeOutcome, type ReeUIMessage, type SuggestedRee, type SynthesisPart } from '@/lib/domain/chat-message';
-import { rewriteTarget } from '@/lib/domain/cross-lingual';
-import { fuse, hasEvidence, isLibraryQuestion, keywordCoverage, overviewText, searchTerms } from '@/lib/domain/retrieval';
+import { rewriteTarget, scriptOf } from '@/lib/domain/cross-lingual';
+import { fuse, hasEvidence, isLibraryQuestion, isWordTerm, keywordCoverage, overviewText, searchTerms, wordPattern } from '@/lib/domain/retrieval';
 import { embedTexts } from '@/lib/infra/ai/models';
 import { db, schema } from '@/lib/infra/db';
 import { chunkVector, spaceOf } from '@/lib/services/embedding-space';
@@ -230,24 +230,39 @@ async function semanticRecall(reeId: string, embedded: QuestionVector): Promise<
  * for word. The rows read are those matching the most terms (not the first
  * that match any): a term found in nearly every passage -- the product's own
  * name in its docs -- must not fill the read with passages that have
- * nothing else. Each passage is lowered once (`offset 0` keeps the planner
- * from inlining it into every term).
+ * nothing else.
+ *
+ * Every passage of the Ree is looked at once (no index; see below): lowered
+ * once (`offset 0` keeps the planner from inlining it into every term), and
+ * rejected before any scoring unless one term appears in it at all. Only a
+ * term that does appear is then tested as a whole word, with the same
+ * pattern `keywordCoverage` uses, so "set" does not count "settings" and the
+ * rows read are ranked by what is scored afterwards. Ties go by id, so the
+ * same question reads the same rows.
+ *
+ * A trigram index would spare the scan, but production migrations run in one
+ * transaction, where `create index concurrently` cannot, and a plain build
+ * would hold up writes to `chunk` for the whole build.
  */
 async function keywordRecall(reeId: string, terms: readonly string[]): Promise<(Recalled & { coverage: number })[]> {
   if (terms.length === 0) return [];
   const c = schema.chunk;
   const k = schema.knowledge;
-  const hits = sql.join(terms.map((term) => sql`(strpos(lowered.text, ${term}) > 0)::int`), sql` + `);
+  const present = (term: string) => sql`strpos(lowered.text, ${term}) > 0`;
+  const hits = sql.join(
+    terms.map((term) => (isWordTerm(term) ? sql`(case when ${present(term)} then (lowered.text ~ ${wordPattern(term)})::int else 0 end)` : sql`(${present(term)})::int`)),
+    sql` + `,
+  );
   const result = await db().execute<Recalled & { hits: number }>(sql`
     select * from (
       select ${c.id} as id, ${c.knowledgeId} as "knowledgeId", ${c.content} as content, ${c.locator} as locator, ${k.title} as title, ${k.kind} as kind, ${hits} as hits
       from ${c}
       inner join ${k} on ${k.id} = ${c.knowledgeId}
       cross join lateral (select lower(${c.content}) as text offset 0) as lowered
-      where ${and(eq(c.reeId, reeId), ...answerable())}
+      where ${and(eq(c.reeId, reeId), ...answerable())} and (${sql.join(terms.map(present), sql` or `)})
     ) as matched
     where hits > 0
-    order by hits desc
+    order by hits desc, id
     limit ${RETRIEVAL_KEYWORD_ROWS}`);
   return result.rows
     .map(({ hits: _hits, ...row }) => ({ ...row, coverage: keywordCoverage(terms, row.content) }))
@@ -257,15 +272,31 @@ async function keywordRecall(reeId: string, terms: readonly string[]): Promise<(
 }
 
 /**
+ * The question's own keyword matches still worth ranking once it is searched
+ * as a rewrite: passages in the question's own script that hold at least one
+ * of its own-script terms word for word. In a Ree with knowledge in both
+ * languages these are its direct matches; a passage in the other language
+ * that only shares the product's name never is, so it cannot tip rank
+ * fusion's near-ties again.
+ */
+function ownMatches<T extends { content: string }>(question: string, terms: readonly string[], keyword: readonly T[]): T[] {
+  const script = scriptOf(question);
+  const own = terms.filter((term) => scriptOf(term) === script);
+  if (!script || own.length === 0) return [];
+  return keyword.filter((row) => scriptOf(row.content) === script && keywordCoverage(own, row.content) > 0);
+}
+
+/**
  * Vector and keyword recall over this Ree's ready passages, fused by rank.
  * With `rewrite`, a question whose recall is nearly all in another language
  * (a Chinese question over English docs) is searched again as its rewrite
- * into that language, and the rewrite's two legs rank the passages: the
- * question's own legs only matched the product's name in every passage,
- * and even at a fraction of the weight they tip rank fusion's near-ties
- * towards those (cross-lingual.ts). The own vector leg still counts for
- * whether anything is close enough, and stands in should both of the
- * rewrite's legs come back empty.
+ * into that language, and the rewrite's two legs rank the passages, with
+ * the question's own direct matches in its own language (`ownMatches`).
+ * The rest of its own legs only matched the product's name in every
+ * passage, and even at a fraction of the weight they tip rank fusion's
+ * near-ties towards those (cross-lingual.ts). Whatever was evidence as
+ * asked still is, and the question's own legs stand in should both of the
+ * rewrite's come back empty.
  */
 export async function retrieve(reeId: string, question: string, embedded?: QuestionVector, options: { rewrite?: Rewriter } = {}): Promise<Retrieval> {
   const asked = embedded ?? (await embedQuestion(question));
@@ -279,15 +310,15 @@ export async function retrieve(reeId: string, question: string, embedded?: Quest
     ? await Promise.all([rewrite.vector && rewrite.vector.space === asked.space ? semanticRecall(reeId, rewrite.vector) : [], keywordRecall(reeId, rewrite.terms)])
     : [[], []];
   const searched = rewrite && (again.length > 0 || rewriteKeyword.length > 0) ? rewrite : null;
-  const legs = searched ? { lists: [again, rewriteKeyword], keyword: rewriteKeyword, terms: searched.terms } : { lists: [semantic, keyword], keyword, terms };
+  const lists = searched ? [again, rewriteKeyword, ownMatches(question, terms, keyword)] : [semantic, keyword];
 
   const byId = new Map<string, Recalled & { similarity: number }>();
   for (const row of [...semantic, ...again]) {
     const seen = byId.get(row.id);
     if (!seen || row.similarity > seen.similarity) byId.set(row.id, row);
   }
-  for (const row of legs.keyword) if (!byId.has(row.id)) byId.set(row.id, { ...row, similarity: 0 });
-  const order = fuse(legs.lists.map((list) => list.map((row) => row.id))).slice(0, RETRIEVAL_TOP_K);
+  for (const row of [...keyword, ...rewriteKeyword]) if (!byId.has(row.id)) byId.set(row.id, { ...row, similarity: 0 });
+  const order = fuse(lists.filter((list) => list.length > 0).map((list) => list.map((row) => row.id))).slice(0, RETRIEVAL_TOP_K);
   const passages: Passage[] = order.map((id) => {
     const row = byId.get(id)!;
     return {
@@ -302,7 +333,11 @@ export async function retrieve(reeId: string, question: string, embedded?: Quest
   });
   const nearest = [semantic[0]?.similarity, again[0]?.similarity].filter((value): value is number => value !== undefined);
   const bestSimilarity = nearest.length ? Math.max(...nearest) : null;
-  const evidence = passages.length > 0 && hasEvidence({ bestSimilarity, bestCoverage: legs.keyword[0]?.coverage ?? 0, terms: legs.terms.length });
+  /* As asked, or as rewritten: a rewrite only ever adds evidence. */
+  const evidence =
+    passages.length > 0 &&
+    (hasEvidence({ bestSimilarity, bestCoverage: keyword[0]?.coverage ?? 0, terms: terms.length }) ||
+      (searched !== null && hasEvidence({ bestSimilarity, bestCoverage: rewriteKeyword[0]?.coverage ?? 0, terms: searched.terms.length })));
   const model = asked.model;
   const rewritten = searched ? searched.query || searched.terms.join(' ') : null;
   /* A question about the sources themselves also sees each source whole, the closest sources first. */

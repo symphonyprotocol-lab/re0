@@ -57,10 +57,19 @@ async function rewriteQuestion(userId: string, question: string, target: Script)
     });
     const rewrite = rewriteOf(output);
     if (!rewrite) return null;
-    const vector = rewrite.query ? await embedQuestion(rewrite.query) : null;
-    return { target, query: rewrite.query, terms: rewriteTerms(rewrite), vector };
+    return { target, query: rewrite.query, terms: rewriteTerms(rewrite), vector: rewrite.query ? await vectorOf(rewrite.query) : null };
   } catch (error) {
     console.warn(`question rewrite target=${target} failed: ${error instanceof Error ? error.message : 'unknown'}`);
+    return null;
+  }
+}
+
+/* A failed embedding keeps the rewrite: its keyword leg is searched without the vector one. */
+async function vectorOf(query: string): Promise<QuestionVector | null> {
+  try {
+    return await embedQuestion(query);
+  } catch (error) {
+    console.warn(`question rewrite embedding failed: ${error instanceof Error ? error.message : 'unknown'}`);
     return null;
   }
 }

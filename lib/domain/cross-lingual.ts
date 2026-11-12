@@ -51,6 +51,13 @@ export function scriptOf(text: string): Script | null {
   return best;
 }
 
+/**
+ * The scripts a rewrite may be into: those whose text `searchTerms` can cut
+ * into keyword terms (Latin words, Han bigrams). Knowledge mostly in kana,
+ * Hangul or Cyrillic is searched as asked.
+ */
+export const REWRITE_SCRIPTS: readonly Script[] = ['han', 'latin'];
+
 /** Below this share of recalled passages in the question's own script, the knowledge is taken to be in another language. */
 export const SAME_SCRIPT_MIN_SHARE = 0.25;
 
@@ -58,8 +65,9 @@ export const SAME_SCRIPT_MIN_SHARE = 0.25;
  * The script to rewrite the question into, or null to search it as asked.
  * `passages` are what the question recalled as asked: when hardly any of
  * them share its script, the knowledge near it is in another language, the
- * one most of them are in. A Ree with knowledge in both languages, or a
- * same-language question, is left alone.
+ * one most of them are in, when that is one of `REWRITE_SCRIPTS`. A Ree
+ * with knowledge in both languages, or a same-language question, is left
+ * alone.
  */
 export function rewriteTarget(question: string, passages: readonly string[]): Script | null {
   const asked = scriptOf(question);
@@ -71,7 +79,8 @@ export function rewriteTarget(question: string, passages: readonly string[]): Sc
   }
   const total = [...tally.values()].reduce((sum, n) => sum + n, 0);
   if (total === 0 || (tally.get(asked) ?? 0) / total >= SAME_SCRIPT_MIN_SHARE) return null;
-  return [...tally.entries()].sort((a, b) => b[1] - a[1])[0]![0];
+  const target = [...tally.entries()].sort((a, b) => b[1] - a[1])[0]![0];
+  return REWRITE_SCRIPTS.includes(target) ? target : null;
 }
 
 /** Characters of a rewrite kept (a search query, not an essay). */

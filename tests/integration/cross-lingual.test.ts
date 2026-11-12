@@ -6,8 +6,12 @@
  * answered for the usual base fee; the rewrite is one logged call per
  * language per question, made only when the knowledge is in another
  * language, and its failure only leaves the question searched as asked.
- * The keyword leg reads the passages matching the most terms first, so a
- * term in every passage does not crowd out the one that has them all.
+ * In a Ree with knowledge in both languages, the question's own direct
+ * matches still rank beside the rewrite's; a rewrite whose embedding fails
+ * is still searched by its keywords. The keyword leg reads the passages
+ * matching the most terms as whole words first, ties by id, so a term in
+ * every passage (or inside other words) does not crowd out the one that has
+ * them all, and the same question reads the same passages.
  */
 import { afterAll, beforeAll, describe, expect, it, vi } from 'vitest';
 import { and, eq } from 'drizzle-orm';
@@ -165,19 +169,74 @@ describeWithDb('cross-lingual retrieval', () => {
     expect(await balanceOf(db(), userId)).toBe(before);
   });
 
-  it('reads the passages matching the most terms, not the first that match one', async () => {
+  it('keeps a mixed Ree’s direct matches in the question’s own language', async () => {
+    const userId = await person();
+    const direct = '怎么写中间件：先定义一个中间件函数，再把它注册到应用上。';
+    /* Shares only the product's name with the question: no direct match. */
+    const generic = 'Hono 是一个小巧的框架，可以运行在很多平台上。';
+    const ree = await reeWith(userId, 'Hono guides', [...OTHER_PAGES, MIDDLEWARE, direct, generic]);
+    const found = await chat.retrieve(ree.id, QUESTION, undefined, { rewrite: questionRewriter(userId, QUESTION) });
+    expect(found.rewrite).toBe('Hono middleware');
+    expect(found.evidence).toBe(true);
+    const contents = found.passages.map((passage) => passage.content);
+    expect(contents).toContain(direct);
+    expect(contents).not.toContain(generic);
+    expect(contents[0]).toBe(MIDDLEWARE);
+  });
+
+  it('keeps the rewrite’s keywords when its embedding fails', async () => {
+    const userId = await person();
+    const ree = await reeWith(userId, 'Hono docs', [...OTHER_PAGES, MIDDLEWARE]);
+    const asked = await chat.embedQuestion(QUESTION);
+    fake.embeddings.failModel = 'fake-embed';
+    fake.embeddings.after = 0;
+    try {
+      const found = await chat.retrieve(ree.id, QUESTION, asked, { rewrite: questionRewriter(userId, QUESTION) });
+      expect(found.rewrite).toBe('Hono middleware');
+      expect(found.evidence).toBe(true);
+      expect(found.passages[0]!.content).toBe(MIDDLEWARE);
+    } finally {
+      fake.embeddings.failModel = null;
+    }
+    /* The embedding is retried with backoff before it gives up. */
+  }, 30_000);
+
+  /** A Ree searched by keywords alone (no passage has a vector): one page, then `contents`. */
+  async function keywordOnly(contents: readonly string[]) {
     const userId = await person();
     const ree = await reeWith(userId, 'Hono docs', [OTHER_PAGES[0]!]);
     const [source] = await db().select().from(schema.chunk).where(eq(schema.chunk.reeId, ree.id));
-    /* Keyword recall alone: no passage has a vector. More of them name Hono than the leg reads, then the one page that also says middleware. */
     await db().update(schema.chunk).set({ embedding: null, embeddingSpace: null }).where(eq(schema.chunk.reeId, ree.id));
-    const filler = Array.from({ length: 230 }, (_, index) => `Hono note ${index}: release ${index} changed nothing worth reading here.`);
     await db()
       .insert(schema.chunk)
-      .values([...filler, MIDDLEWARE].map((content, index) => ({ knowledgeId: source!.knowledgeId, reeId: ree.id, ordinal: 1 + index, content, locator: {} })));
-    const asked = 'hono middleware';
-    const found = await chat.retrieve(ree.id, asked);
-    expect(found.passages.map((passage) => passage.content)).toContain(MIDDLEWARE);
+      .values(contents.map((content, index) => ({ knowledgeId: source!.knowledgeId, reeId: ree.id, ordinal: 1 + index, content, locator: {} })));
+    return ree;
+  }
+
+  it('reads the passages matching the most terms, not the first that match one', async () => {
+    /* More passages naming Hono than the leg reads, then the one page that also says middleware. */
+    const filler = Array.from({ length: 230 }, (_, index) => `Hono note ${index}: release ${index} changed nothing worth reading here.`);
+    const ree = await keywordOnly([...filler, MIDDLEWARE]);
+    const found = await chat.retrieve(ree.id, 'hono middleware');
     expect(found.passages[0]!.content).toBe(MIDDLEWARE);
+  });
+
+  it('ranks the passages read by whole words, not by words inside other words', async () => {
+    /* "set" and "config" inside "settings", "reset" and "configuration", in more passages than the leg reads. */
+    const filler = Array.from({ length: 230 }, (_, index) => `Settings reset the configuration of release ${index}.`);
+    const wanted = 'Use set to change one config value.';
+    const ree = await keywordOnly([...filler, wanted]);
+    const found = await chat.retrieve(ree.id, 'set config');
+    expect(found.passages.map((passage) => passage.content)).toEqual([wanted]);
+  });
+
+  it('reads the same passages every time when they tie', async () => {
+    /* "middleware" is nowhere: every passage ties on "hono" alone. */
+    const ree = await keywordOnly(Array.from({ length: 230 }, (_, index) => `Hono note ${index}: release ${index} changed nothing worth reading here.`));
+    const first = await chat.retrieve(ree.id, 'hono middleware');
+    const again = await chat.retrieve(ree.id, 'hono middleware');
+    const ids = (await db().select({ id: schema.chunk.id }).from(schema.chunk).where(eq(schema.chunk.reeId, ree.id))).map((row) => row.id).sort();
+    expect(first.passages.map((passage) => passage.chunkId)).toEqual(ids.slice(0, 8));
+    expect(again.passages.map((passage) => passage.chunkId)).toEqual(ids.slice(0, 8));
   });
 });

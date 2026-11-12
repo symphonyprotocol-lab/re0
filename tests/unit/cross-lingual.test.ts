@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { rewriteInstructions, rewriteOf, rewriteTarget, rewriteTerms, scriptOf } from '@/lib/domain/cross-lingual';
+import { isWordTerm, keywordCoverage, wordPattern } from '@/lib/domain/retrieval';
 
 const ENGLISH = [
   'Custom middleware: write your own middleware with createMiddleware, then call await next().',
@@ -50,6 +51,13 @@ describe('rewriteTarget', () => {
     expect(rewriteTarget('Hono 怎么写中间件？', [])).toBeNull();
     expect(rewriteTarget('???', ENGLISH)).toBeNull();
   });
+
+  it('rewrites only into scripts the keyword search can cut into terms', () => {
+    const japanese = ['ミドルウェアは createMiddleware で書きます。', 'ルーティングは app.get で登録します。'];
+    expect(rewriteTarget('Hono 怎么写中间件？', japanese)).toBeNull();
+    expect(rewriteTarget('How do I write middleware?', ['미들웨어는 이렇게 작성합니다.'])).toBeNull();
+    expect(rewriteTarget('ミドルウェアの書き方を教えてください', ENGLISH)).toBe('latin');
+  });
 });
 
 describe('rewrites', () => {
@@ -72,5 +80,21 @@ describe('rewrites', () => {
 
   it('searches the query and the keywords as terms', () => {
     expect(rewriteTerms({ query: 'How do I write custom middleware in Hono?', keywords: ['createMiddleware', 'middleware'] })).toEqual(['write', 'custom', 'middleware', 'hono', 'createmiddleware']);
+  });
+});
+
+describe('whole-word terms', () => {
+  it('match the same way in the database pattern and in coverage', () => {
+    expect(isWordTerm('set')).toBe(true);
+    expect(isWordTerm('中间')).toBe(false);
+    const set = new RegExp(wordPattern('set'));
+    expect(set.test('reset the settings')).toBe(false);
+    expect(set.test('use set to change it')).toBe(true);
+    expect(set.test('set')).toBe(true);
+    /* A dot in a term is a dot, not any character. */
+    expect(new RegExp(wordPattern('next.js')).test('nextxjs pages')).toBe(false);
+    expect(new RegExp(wordPattern('next.js')).test('build with next.js today')).toBe(true);
+    expect(keywordCoverage(['set', 'config'], 'Settings reset the configuration.')).toBe(0);
+    expect(keywordCoverage(['set', 'config'], 'Use set to change one config value.')).toBe(1);
   });
 });
