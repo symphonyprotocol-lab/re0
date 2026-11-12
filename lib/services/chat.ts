@@ -7,7 +7,7 @@ import { HISTORY_TURNS, RETRIEVAL_KEYWORD_ROWS, RETRIEVAL_OVERVIEWS_MAX, RETRIEV
 import type { Passage } from '@/lib/domain/answer';
 import { checkPartId, SYNTHESIS_PART_ID, TEXT_META_KEY, textPartId, type ReeOutcome, type ReeUIMessage, type SuggestedRee, type SynthesisPart } from '@/lib/domain/chat-message';
 import { rewriteTarget, scriptOf } from '@/lib/domain/cross-lingual';
-import { fuse, hasEvidence, isLibraryQuestion, isWordTerm, keywordCoverage, overviewText, searchTerms, wordPattern } from '@/lib/domain/retrieval';
+import { fuse, hasEvidence, isLibraryQuestion, isWordTerm, keywordCoverage, overviewText, searchTerms, wordPattern, type Ranked } from '@/lib/domain/retrieval';
 import { embedTexts } from '@/lib/infra/ai/models';
 import { db, schema } from '@/lib/infra/db';
 import { chunkVector, spaceOf } from '@/lib/services/embedding-space';
@@ -220,7 +220,8 @@ async function semanticRecall(reeId: string, embedded: QuestionVector): Promise<
     .from(schema.chunk)
     .innerJoin(schema.knowledge, eq(schema.knowledge.id, schema.chunk.knowledgeId))
     .where(and(eq(schema.chunk.reeId, reeId), ...answerable(), sql`${stored} is not null`))
-    .orderBy(sql`(${stored} <=> ${literal}::vector) + 0`)
+    /* Equal distances by id, so a tie across the limit reads the same rows every time. */
+    .orderBy(sql`(${stored} <=> ${literal}::vector) + 0`, schema.chunk.id)
     .limit(RETRIEVAL_RECALL);
   return rows.map((row) => ({ ...row, similarity: Number(row.similarity) }));
 }
@@ -277,7 +278,10 @@ async function keywordRecall(reeId: string, terms: readonly string[]): Promise<(
  * of its own-script terms word for word. In a Ree with knowledge in both
  * languages these are its direct matches; a passage in the other language
  * that only shares the product's name never is, so it cannot tip rank
- * fusion's near-ties again.
+ * fusion's near-ties again. They are ranked by both of the question's own
+ * legs, as the rewrite's passages are by both of its: with one vote against
+ * two, a direct match fell below passages holding nothing but the product's
+ * name.
  */
 function ownMatches<T extends { content: string }>(question: string, terms: readonly string[], keyword: readonly T[]): T[] {
   const script = scriptOf(question);
@@ -291,7 +295,8 @@ function ownMatches<T extends { content: string }>(question: string, terms: read
  * With `rewrite`, a question whose recall is nearly all in another language
  * (a Chinese question over English docs) is searched again as its rewrite
  * into that language, and the rewrite's two legs rank the passages, with
- * the question's own direct matches in its own language (`ownMatches`).
+ * the question's own direct matches in its own language (`ownMatches`),
+ * ranked by its own two legs.
  * The rest of its own legs only matched the product's name in every
  * passage, and even at a fraction of the weight they tip rank fusion's
  * near-ties towards those (cross-lingual.ts). Whatever was evidence as
@@ -310,7 +315,13 @@ export async function retrieve(reeId: string, question: string, embedded?: Quest
     ? await Promise.all([rewrite.vector && rewrite.vector.space === asked.space ? semanticRecall(reeId, rewrite.vector) : [], keywordRecall(reeId, rewrite.terms)])
     : [[], []];
   const searched = rewrite && (again.length > 0 || rewriteKeyword.length > 0) ? rewrite : null;
-  const lists = searched ? [again, rewriteKeyword, ownMatches(question, terms, keyword)] : [semantic, keyword];
+  const own = searched ? ownMatches(question, terms, keyword) : [];
+  const ownIds = new Set(own.map((row) => row.id));
+  const byVector = (rows: readonly { id: string; similarity: number }[]): Ranked[] => rows.map((row) => ({ id: row.id, score: row.similarity }));
+  const byWords = (rows: readonly { id: string; coverage: number }[]): Ranked[] => rows.map((row) => ({ id: row.id, score: row.coverage }));
+  const lists = searched
+    ? [byVector(again), byWords(rewriteKeyword), byWords(own), byVector(semantic.filter((row) => ownIds.has(row.id)))]
+    : [byVector(semantic), byWords(keyword)];
 
   const byId = new Map<string, Recalled & { similarity: number }>();
   for (const row of [...semantic, ...again]) {
@@ -318,7 +329,7 @@ export async function retrieve(reeId: string, question: string, embedded?: Quest
     if (!seen || row.similarity > seen.similarity) byId.set(row.id, row);
   }
   for (const row of [...keyword, ...rewriteKeyword]) if (!byId.has(row.id)) byId.set(row.id, { ...row, similarity: 0 });
-  const order = fuse(lists.filter((list) => list.length > 0).map((list) => list.map((row) => row.id))).slice(0, RETRIEVAL_TOP_K);
+  const order = fuse(lists.filter((list) => list.length > 0)).slice(0, RETRIEVAL_TOP_K);
   const passages: Passage[] = order.map((id) => {
     const row = byId.get(id)!;
     return {
