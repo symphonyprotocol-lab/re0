@@ -135,7 +135,7 @@ export type ExploreKey = (number | string)[];
 const KEY_TIME = /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}\.\d{6}Z$/;
 const KEY_ID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 /** How many integer parts lead each sort's key; the creation time and the id follow. */
-export const EXPLORE_KEY_PARTS: Record<ExploreSort, number> = { active: 2, answers: 2, free: 3 };
+export const EXPLORE_KEY_PARTS: Record<ExploreSort, number> = { active: 3, answers: 2, free: 3 };
 
 export function encodeExploreCursor(sort: ExploreSort, key: ExploreKey): string {
   /* Every part is ASCII (a sort name, integers, an ISO time, a uuid), so plain btoa works here and in the browser. */

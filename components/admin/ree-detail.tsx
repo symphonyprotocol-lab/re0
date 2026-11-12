@@ -112,6 +112,48 @@ function ModerateAction({ t, ree, label }: { t: Messages; ree: { id: string; nam
 }
 
 /**
+ * Pinning to the top of Discover (a position, an optional note) and, while
+ * pinned, unpinning: both behind a dialog, as the takedown is.
+ */
+function PinAction({ t, ree }: { t: Messages; ree: { id: string; name: string; pinOrder: number | null } }) {
+  const r = t.consoleRees.ree;
+  const errors = { pin_order: r.pin.invalid };
+  const note = { min: 3, max: 300, required: false, label: r.pin.reason };
+  return (
+    <>
+      <ReasonAction
+        endpoint={`/api/admin/rees/${ree.id}/pin`}
+        label={ree.pinOrder === null ? r.pin.label : r.pin.edit}
+        title={r.pin.title}
+        subtitle={ree.name}
+        body={r.pin.body}
+        confirmLabel={r.pin.confirm}
+        reason={note}
+        errors={errors}
+      >
+        <div className="field">
+          <label htmlFor={`pin-order-${ree.id}`}>{r.pin.order}</label>
+          <input id={`pin-order-${ree.id}`} name="order" type="number" inputMode="numeric" min={1} max={999} step={1} required defaultValue={ree.pinOrder ?? 1} />
+        </div>
+      </ReasonAction>
+      {ree.pinOrder !== null && (
+        <ReasonAction
+          endpoint={`/api/admin/rees/${ree.id}/pin`}
+          label={r.unpin.label}
+          title={r.unpin.title}
+          subtitle={ree.name}
+          body={r.unpin.body}
+          confirmLabel={r.unpin.confirm}
+          reason={note}
+          payload={{ order: null }}
+          errors={errors}
+        />
+      )}
+    </>
+  );
+}
+
+/**
  * A Ree row's actions in the console lists (prototype suite.js `dotsTable`):
  * details, the public page while public, and the takedown / restore dialog.
  */
@@ -225,6 +267,7 @@ export function ReeHeader({ t, locale, detail, answers }: { t: Messages; locale:
             <div className="flex">
               <h1>{ree.name}</h1>
               <StateTag tone={VISIBILITY_TONES[visibility]}>{t.consoleRees.rees.visibility[visibility]}</StateTag>
+              {ree.pinOrder !== null && <StateTag tone="green">{fill(r.pinned, { n: ree.pinOrder })}</StateTag>}
             </div>
             {ree.description && <p>{ree.description}</p>}
           </div>
@@ -236,6 +279,7 @@ export function ReeHeader({ t, locale, detail, answers }: { t: Messages; locale:
               {r.publicPage}
             </Link>
           )}
+          {!deleted && <PinAction t={t} ree={{ id: ree.id, name: ree.name, pinOrder: ree.pinOrder }} />}
           {!deleted && <ModerateAction t={t} ree={{ id: ree.id, name: ree.name, visibility }} label={{ takedown: r.takedown.label, restore: r.restore.label }} />}
         </div>
       </header>

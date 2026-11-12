@@ -118,10 +118,23 @@ export function reeVisibility(ree: { isPublic: boolean; isPublished: boolean; mo
   return ree.isPublished ? 'public' : 'unpublished';
 }
 
+export const REE_PIN_FILTERS = ['all', 'pinned'] as const;
+/** Discover's pin positions: 1 leads. */
+export const REE_PIN_MAX = 999;
+
+/** An administrator's pin position, or null to unpin; undefined when it is neither. */
+export function parsePinOrder(raw: unknown): number | null | undefined {
+  if (raw === null || raw === '' || raw === undefined) return null;
+  const order = typeof raw === 'number' ? raw : typeof raw === 'string' && /^\s*\d+\s*$/.test(raw) ? Number(raw) : Number.NaN;
+  return Number.isInteger(order) && order >= 1 && order <= REE_PIN_MAX ? order : undefined;
+}
+
 export function reesView(params: Params) {
   return {
     ...common(params),
     status: pick(params, 'status', ['all', ...REE_VISIBILITY] as const, 'all'),
+    /* "已置顶": the Rees pinned to Discover, in their pin order. */
+    pin: pick(params, 'pin', REE_PIN_FILTERS, 'all'),
     sort: pick(params, 'sort', TIME_SORTS, 'newest'),
   };
 }
@@ -159,6 +172,7 @@ export type RedeemBatchView = ReturnType<typeof redeemBatchView>;
 export const LIST_DEFAULTS: Record<string, string> = {
   q: '',
   status: 'all',
+  pin: 'all',
   role: 'all',
   membership: 'all',
   kyc: 'all',
@@ -179,7 +193,7 @@ export const LIST_DEFAULTS: Record<string, string> = {
 export const REDEEM_BATCH_DEFAULTS: Record<string, string> = { ...LIST_DEFAULTS, tab: 'codes' };
 
 /** The order parameters appear in, as in the prototype's `adminRecordPath`. */
-const KEY_ORDER = ['tab', 'q', 'status', 'role', 'membership', 'kyc', 'kind', 'period', 'date', 'start', 'end', 'metric', 'action', 'sort', 'size', 'page'];
+const KEY_ORDER = ['tab', 'q', 'status', 'pin', 'role', 'membership', 'kyc', 'kind', 'period', 'date', 'start', 'end', 'metric', 'action', 'sort', 'size', 'page'];
 
 /**
  * The canonical URL of a list with `changes` applied: defaults dropped, and

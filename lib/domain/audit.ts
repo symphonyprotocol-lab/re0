@@ -41,6 +41,8 @@ export const AUDIT_ACTIONS = [
   'payout.failed',
   'ree.takedown',
   'ree.restore',
+  'ree.pin',
+  'ree.unpin',
   'redeem.batch.create',
   'redeem.batch.update',
   'redeem.batch.export',

@@ -360,6 +360,50 @@ describeWithDb('console Ree visibility', () => {
   });
 });
 
+describeWithDb('Discover pins', () => {
+  it('pins and unpins a Ree from the console, audited, listed under the pinned filter in pin order', async () => {
+    const reviewer = await newAdministrator();
+    const owner = await newUser();
+    const later = await publicRee(owner);
+    const sooner = await publicRee(owner, { isPublished: false });
+    const gone = await publicRee(owner);
+    try {
+      await expect(adminRees.setReePin(reviewer, later.id, 0)).rejects.toMatchObject({ code: 'pin_order' });
+      await expect(adminRees.setReePin(reviewer, later.id, '1000')).rejects.toMatchObject({ code: 'pin_order' });
+      await expect(adminRees.setReePin(reviewer, later.id, '2.5')).rejects.toMatchObject({ code: 'pin_order' });
+      await expect(adminRees.setReePin(reviewer, later.id, 2, 'no')).rejects.toMatchObject({ code: 'reason' });
+      expect(await adminRees.setReePin(reviewer, later.id, '2')).toEqual({ pinOrder: 2 });
+      /* A Ree can be pinned before its owner publishes it; it shows once discovery lists it. */
+      expect(await adminRees.setReePin(reviewer, sooner.id, 1, 'Official guide')).toEqual({ pinOrder: 1 });
+      const [row] = await db().select().from(schema.ree).where(eq(schema.ree.id, later.id));
+      expect(row).toMatchObject({ pinOrder: 2, pinnedBy: reviewer });
+      expect(row!.pinnedAt).toBeInstanceOf(Date);
+
+      const pinned = (await adminRees.listAdminRees(await consoleAdministrator(), reesView({ pin: 'pinned' }), { all: true })).items;
+      const ours = pinned.filter((item) => item.id === later.id || item.id === sooner.id).map((item) => [item.id, item.pinOrder]);
+      expect(ours).toEqual([[sooner.id, 1], [later.id, 2]]);
+      expect(pinned.every((item) => item.pinOrder !== null)).toBe(true);
+
+      /* The same position again changes nothing and logs nothing. */
+      await adminRees.setReePin(reviewer, later.id, 2);
+      expect(await adminRees.setReePin(reviewer, later.id, null)).toEqual({ pinOrder: null });
+      const [cleared] = await db().select().from(schema.ree).where(eq(schema.ree.id, later.id));
+      expect(cleared).toMatchObject({ pinOrder: null, pinnedAt: null, pinnedBy: null });
+      const trail = await adminAudit.listAudit(await consoleAdministrator(), auditView({ q: later.id }));
+      expect(trail.items.map((item) => [item.action, (item.before as { pinOrder?: number | null }).pinOrder, (item.after as { pinOrder?: number | null }).pinOrder])).toEqual([
+        ['ree.unpin', 2, null],
+        ['ree.pin', null, 2],
+      ]);
+      expect((await adminAudit.listAudit(await consoleAdministrator(), auditView({ action: 'ree.pin', q: sooner.id }))).items[0]!.after).toMatchObject({ pinOrder: 1, reason: 'Official guide' });
+
+      await db().update(schema.ree).set({ deletedAt: new Date(), isPublic: false, isPublished: false }).where(eq(schema.ree.id, gone.id));
+      await expect(adminRees.setReePin(reviewer, gone.id, 1)).rejects.toMatchObject({ code: 'stale' });
+    } finally {
+      await db().update(schema.ree).set({ pinOrder: null }).where(inArray(schema.ree.id, [later.id, sooner.id, gone.id]));
+    }
+  });
+});
+
 describeWithDb('purchase chart', () => {
   it('sums every matching payment by UTC+8 hour, day and month, whatever the page, with the list’s filters', async () => {
     const tag = uniqueName('fin');

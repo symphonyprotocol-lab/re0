@@ -117,6 +117,10 @@ export const ree = pgTable(
     moderatedAt: timestampTz('moderated_at'),
     moderatedBy: uuid('moderated_by'),
     moderatedReason: text('moderated_reason'),
+    /** Pinned by an administrator to the top of Discover's default order and the home page, lower first; null when not pinned. Only shown while the Ree is public. */
+    pinOrder: integer('pin_order'),
+    pinnedAt: timestampTz('pinned_at'),
+    pinnedBy: uuid('pinned_by'),
     /** The explore ranking, materialised hourly by `/api/cron/rank` (4). */
     rank: jsonb('rank').$type<ReeRank>().notNull().default({}),
     /** Beyond 4: three example questions the system wrote after the first ready source, shown only once the owner adopts them (8.2). */
@@ -141,6 +145,7 @@ export const ree = pgTable(
     check('ree_tags_check', sql`cardinality(tags) <= 3`),
     /* A taken-down Ree is private until an administrator restores it, whoever writes the row (step 5). */
     check('ree_moderated_private_check', sql`moderated_at is null or not is_public`),
+    check('ree_pin_order_check', sql`pin_order is null or pin_order between 1 and 999`),
     check('ree_published_public_check', sql`not is_published or (is_public and moderated_at is null and deleted_at is null)`),
   ],
 );

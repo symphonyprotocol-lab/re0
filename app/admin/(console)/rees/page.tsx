@@ -2,7 +2,7 @@ import type { Metadata } from 'next';
 import { requireAdministrator } from '@/lib/http/admin';
 import { WorkspaceLink as Link } from '@/components/shell/workspace-link';
 import { redirect } from 'next/navigation';
-import { csvHref, listHref, reesView, REE_VISIBILITY } from '@/lib/domain/admin-lists';
+import { csvHref, listHref, reesView, REE_PIN_FILTERS, REE_VISIBILITY } from '@/lib/domain/admin-lists';
 import { listAdminRees } from '@/lib/services/admin-rees';
 import { answerCounts } from '@/lib/services/statistics';
 import { serverMessages } from '@/i18n/server';
@@ -23,7 +23,8 @@ type Props = { searchParams: Promise<Record<string, string | string[] | undefine
 
 /**
  * `/admin/rees` (prototype admin-ree.js, suite.js `dotsTable`): every live Ree
- * with its owner and successful answers, filtered by visibility (and sorted),
+ * with its owner and successful answers, filtered by visibility and by
+ * Discover pin (the pinned ones in pin order), sorted,
  * server paging, CSV of every match, and takedown / restore from the row.
  */
 export default async function ReesPage({ searchParams }: Props) {
@@ -39,7 +40,7 @@ export default async function ReesPage({ searchParams }: Props) {
   if (data.page !== view.page) redirect(href({}));
   const answers = await answerCounts(data.items.map((row) => row.id), null);
   const n = (value: number) => formatNumber(value, locale);
-  const filtered = Boolean(view.q) || view.status !== 'all' || view.sort !== 'newest';
+  const filtered = Boolean(view.q) || view.status !== 'all' || view.pin !== 'all' || view.sort !== 'newest';
   const back = encodeURIComponent(href({}));
   const [before, after] = r.results.split('{total}');
   return (
@@ -51,7 +52,7 @@ export default async function ReesPage({ searchParams }: Props) {
           <ListFilters
             q={view.q}
             placeholder={r.search}
-            defaults={{ status: 'all', sort: 'newest', size: '20' }}
+            defaults={{ status: 'all', pin: 'all', sort: 'newest', size: '20' }}
             resetHref={listHref('/admin/rees', { size: view.size })}
             searchLabel={r.searchLabel}
             filtered={filtered}
@@ -61,6 +62,7 @@ export default async function ReesPage({ searchParams }: Props) {
             resetClassName="text-link admin-ree-reset"
             selects={[
               { name: 'status', label: r.filters.status, aria: r.filterLabels.status, value: view.status, options: [['all', r.allStatuses], ...REE_VISIBILITY.map((s) => [s, r.visibility[s]] as [string, string])] },
+              { name: 'pin', label: r.filters.pin, aria: r.filterLabels.pin, value: view.pin, options: REE_PIN_FILTERS.map((p) => [p, r.pins[p]] as [string, string]) },
               { name: 'sort', label: r.filters.sort, aria: r.filterLabels.sort, value: view.sort, options: [['newest', l.newest], ['oldest', l.oldest]] },
               { name: 'size', label: l.perPage, aria: r.filterLabels.size, value: String(view.size), options: [20, 50, 100].map((size) => [String(size), fill(l.rows, { n: size })] as [string, string]) },
             ]}
@@ -98,9 +100,10 @@ export default async function ReesPage({ searchParams }: Props) {
                   </span>
                 </span>
               </Link>,
-              <span key="visibility" className={`tag ${{ public: 'blue', unpublished: '', private: '', moderated: 'orange' }[row.visibility]}`}>
-                {r.visibility[row.visibility]}
-              </span>,
+              <Fragment key="visibility">
+                <span className={`tag ${{ public: 'blue', unpublished: '', private: '', moderated: 'orange' }[row.visibility]}`}>{r.visibility[row.visibility]}</span>
+                {row.pinOrder !== null && <span className="tag green">{fill(r.pinTag, { n: row.pinOrder })}</span>}
+              </Fragment>,
               `${n(row.readySources)} / ${n(row.sources)}`,
               <Fragment key="fee">
                 <span className="mono">{n(row.queryFee)}</span> credits

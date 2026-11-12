@@ -82,6 +82,8 @@ export interface ReeCard {
   /** The matched passage, when the card answers a question. */
   excerpt: string | null;
   createdAt: Date;
+  /** Pinned by an administrator; it leads Discover's default order and the home page. */
+  pinned: boolean;
   /** Introduction when requested by the caller and available. */
   video: IntroProps | null;
 }
@@ -105,6 +107,7 @@ const cardColumns = {
   up: votesByOthers('up'),
   down: votesByOthers('down'),
   createdAt: schema.ree.createdAt,
+  pinned: sql<boolean>`${schema.ree.pinOrder} is not null`,
 };
 
 /** Every card query starts here; callers add the filter, order and page. */
@@ -274,6 +277,8 @@ const activity = sql<number>`coalesce((${schema.ree.rank} ->> 'activity30')::int
 /* Materialised hourly by `/api/cron/rank`: ordering by the live count aggregated every message of every public Ree per request. */
 const answersRanked = sql<number>`coalesce((${schema.ree.rank} ->> 'answersAll')::int, 0)`;
 const roleOrder = sql<number>`case ${schema.user.role} when 'official' then 2 when 'verified' then 1 else 0 end`;
+/* Pinned first, lower `pin_order` first (negated, so it sorts descending with the rest); every unpinned Ree ties below them all. */
+const pinKey = sql<number>`(-coalesce(${schema.ree.pinOrder}, 1000))`;
 /* Microseconds, as stored: a JS Date would round them away and the next batch could repeat or skip a Ree created in the same millisecond. */
 const createdKey = sql<string>`to_char(${schema.ree.createdAt} at time zone 'UTC', 'YYYY-MM-DD"T"HH24:MI:SS.US"Z"')`;
 
@@ -281,9 +286,10 @@ const createdKey = sql<string>`to_char(${schema.ree.createdAt} at time zone 'UTC
  * Each order's key, every part descending (the lowest fee as the highest
  * negated fee) so one row comparison finds where a batch ended: the leading
  * integers (`EXPLORE_KEY_PARTS`), then the creation time, then the id.
+ * Only "推荐优先" puts pinned Rees first; the other two are plain sorts.
  */
 const browseKeys: Record<ExploreSort, SQL[]> = {
-  active: [activity, roleOrder],
+  active: [pinKey, activity, roleOrder],
   answers: [answersRanked, roleOrder],
   free: [sql`(-${schema.ree.queryFee})`, roleOrder, activity],
 };
@@ -302,8 +308,9 @@ function afterKey(sort: ExploreSort, key: ExploreKey): SQL {
 /**
  * `/explore` and `GET /api/explore`. A question: the two-level search's top
  * 10, re-sorted when "回答最多" or "查询费最低" is chosen (prototype), all in
- * the first batch. No question: public Rees, most active in 30 days first,
- * the role only breaking ties (8.2, "explore 排序"), a batch at a time after
+ * the first batch, never pinned. No question: public Rees, under "推荐优先"
+ * the pinned ones first, then the most active in 30 days, the role only
+ * breaking ties (8.2, "explore 排序"), a batch at a time after
  * the previous batch's key, so a list that changes while it scrolls neither
  * repeats nor shifts a card.
  */
@@ -352,11 +359,11 @@ export async function explore(
   };
 }
 
-/** The most active public Rees (home page examples). */
+/** The home page's examples: Discover's default order, pinned Rees first, then the most active. */
 export async function activeRees(limit: number): Promise<ReeCard[]> {
   const rows = await cardQuery()
     .where(publicRee())
-    .orderBy(desc(activity), desc(roleOrder), desc(schema.ree.createdAt))
+    .orderBy(...keyColumns('active').map((column) => desc(column)))
     .limit(limit);
   return withIntros(rows.map((row) => toCard(row)));
 }

@@ -160,14 +160,16 @@ describe('explore', () => {
   it('a cursor reads back only for the sort that made it, and only when well formed', () => {
     const time = '2026-11-12T03:04:05.123456Z';
     const id = '04316b6c-5411-4edf-89a3-1608d5adccc3';
-    const active = encodeExploreCursor('active', [3, 2, time, id]);
+    const active = encodeExploreCursor('active', [-1000, 3, 2, time, id]);
     expect(active).toMatch(/^[\w-]+$/);
-    expect(decodeExploreCursor('active', active)).toEqual([3, 2, time, id]);
+    expect(decodeExploreCursor('active', active)).toEqual([-1000, 3, 2, time, id]);
+    /* A cursor from before pins led the order has one part too few. */
+    expect(decodeExploreCursor('active', encodeExploreCursor('active', [3, 2, time, id]))).toBeNull();
     expect(decodeExploreCursor('answers', active)).toBeNull();
     expect(decodeExploreCursor('free', encodeExploreCursor('free', [-20, 0, 1, time, id]))).toEqual([-20, 0, 1, time, id]);
-    expect(decodeExploreCursor('active', encodeExploreCursor('active', [3, 2.5, time, id]))).toBeNull();
-    expect(decodeExploreCursor('active', encodeExploreCursor('active', [3, 2, '2026-11-12', id]))).toBeNull();
-    expect(decodeExploreCursor('active', encodeExploreCursor('active', [3, 2, time, 'x; drop table ree']))).toBeNull();
+    expect(decodeExploreCursor('active', encodeExploreCursor('active', [-1000, 3, 2.5, time, id]))).toBeNull();
+    expect(decodeExploreCursor('active', encodeExploreCursor('active', [-1000, 3, 2, '2026-11-12', id]))).toBeNull();
+    expect(decodeExploreCursor('active', encodeExploreCursor('active', [-1000, 3, 2, time, 'x; drop table ree']))).toBeNull();
     expect(decodeExploreCursor('active', 'not base64 at all!')).toBeNull();
   });
   it('public tags drop the category label and repeats', () => {

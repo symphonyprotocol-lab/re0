@@ -135,8 +135,8 @@ export const VERIFICATIONS_CSV = {
 
 export const REES_CSV = {
   name: 'rees',
-  headers: ['ID', 'Name', 'Slug', 'Visibility', 'Owner', 'Owner email', 'Owner role', 'Query fee', 'Sources', 'Ready sources', 'Moderation reason', 'Created (UTC+8)'],
-  row: (r: AdminReeRow) => [r.id, r.name, r.slug, r.visibility, r.ownerName, r.ownerEmail, r.ownerRole, r.queryFee, r.sources, r.readySources, r.moderatedReason ?? '', time(r.createdAt)],
+  headers: ['ID', 'Name', 'Slug', 'Visibility', 'Owner', 'Owner email', 'Owner role', 'Query fee', 'Sources', 'Ready sources', 'Moderation reason', 'Pin', 'Created (UTC+8)'],
+  row: (r: AdminReeRow) => [r.id, r.name, r.slug, r.visibility, r.ownerName, r.ownerEmail, r.ownerRole, r.queryFee, r.sources, r.readySources, r.moderatedReason ?? '', r.pinOrder ?? '', time(r.createdAt)],
 };
 
 export const KYC_CSV = {
