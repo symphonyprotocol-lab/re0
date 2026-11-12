@@ -98,6 +98,8 @@ export interface CompleteOAuthResult {
   returnTo: string;
   userId: string;
   created: boolean;
+  /** The account's language: the stored one, or for a new account the one it was created with. */
+  lang: 'zh' | 'en';
 }
 
 export async function completeOAuth(input: {
@@ -133,9 +135,9 @@ export async function createSession(
   const expiresAt = sessionExpiryFrom(now);
   const tokenHash = await sessionTokenHash(sessionToken);
 
-  const { userId, created } = await db().transaction(async (tx) => {
+  const { userId, created, lang: accountLang } = await db().transaction(async (tx) => {
     const [existing] = await tx
-      .select({ id: schema.user.id, disabledAt: schema.user.disabledAt })
+      .select({ id: schema.user.id, disabledAt: schema.user.disabledAt, lang: schema.user.lang })
       .from(schema.user)
       .where(and(eq(schema.user.provider, profile.provider), eq(schema.user.providerSubject, profile.subject)))
       .limit(1);
@@ -147,7 +149,7 @@ export async function createSession(
         .set({ email: profile.email, providerHandle: profile.handle, lastLoginAt: now })
         .where(eq(schema.user.id, existing.id));
       await tx.insert(schema.session).values({ id: tokenHash, userId: existing.id, expiresAt });
-      return { userId: existing.id, created: false };
+      return { userId: existing.id, created: false, lang: existing.lang };
     }
     const name = (profile.displayName?.trim() || profile.email.split('@')[0] || 'Ree user').slice(0, DISPLAY_NAME_MAX);
     const [user] = await tx
@@ -166,10 +168,10 @@ export async function createSession(
       .returning({ id: schema.user.id });
     await grantWelcome(tx, user!.id, now);
     await tx.insert(schema.session).values({ id: tokenHash, userId: user!.id, expiresAt });
-    return { userId: user!.id, created: true };
+    return { userId: user!.id, created: true, lang };
   });
 
-  return { sessionToken, expiresAt, returnTo, userId, created };
+  return { sessionToken, expiresAt, returnTo, userId, created, lang: accountLang };
 }
 
 export type SessionUser = typeof schema.user.$inferSelect;

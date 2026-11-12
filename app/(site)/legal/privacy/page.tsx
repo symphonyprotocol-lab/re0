@@ -1,13 +1,14 @@
 import type { Metadata } from 'next';
 import { serverMessages } from '@/i18n/server';
 import { LegalDocument } from '@/components/site/legal-document';
+import { publicPage } from '@/lib/seo';
 
 const IDS = ['collect', 'use', 'providers', 'identity', 'tax', 'retention', 'cookies', 'rights', 'security'] as const;
 const KEYS = ['s1', 's2', 's3', 's4', 's5', 's6', 's7', 's8', 's9'] as const;
 
 export async function generateMetadata(): Promise<Metadata> {
-  const { t } = await serverMessages();
-  return { title: t.legal.privacy.title };
+  const { t, locale } = await serverMessages();
+  return publicPage({ path: '/legal/privacy', title: t.legal.privacy.title, description: t.legal.privacy.lede, locale });
 }
 
 /** `/legal/privacy`, including identity documents (KYC) and tax information (2.3) ahead of payouts. */

@@ -4,6 +4,7 @@ import { notFound } from 'next/navigation';
 import { cache } from 'react';
 import { QUERY_BASE_FEE } from '@/lib/constants';
 import { appBaseUrl } from '@/lib/http/cookies';
+import { localeUrl } from '@/lib/seo';
 import { currentUser } from '@/lib/http/session';
 import { joinableConversations } from '@/lib/services/conversations';
 import { publicReeBySlug as lookup } from '@/lib/services/public-rees';
@@ -28,15 +29,15 @@ function one(value: string | string[] | undefined): string {
   return (Array.isArray(value) ? value[0] : value) ?? '';
 }
 
-/** Not indexed: the public page `/r/[slug]` is the canonical one. The link preview is ./opengraph-image.tsx. */
+/** Not indexed: the public page `/r/[slug]`, in this language, is the canonical one. The link preview is ./opengraph-image.tsx. */
 export async function generateMetadata({ params }: Props): Promise<Metadata> {
-  const ree = await publicReeBySlug((await params).slug);
+  const [ree, { locale }] = await Promise.all([params.then(({ slug }) => publicReeBySlug(slug)), serverMessages()]);
   if (!ree) return { title: { absolute: 'RE0' }, robots: { index: false } };
   const base = appBaseUrl();
   return {
     title: ree.name,
     description: ree.description || undefined,
-    alternates: { canonical: `${base}/r/${ree.slug}` },
+    alternates: { canonical: localeUrl(locale, `/r/${ree.slug}`) },
     robots: { index: false, follow: true },
     openGraph: { type: 'website', title: ree.name, description: ree.description || undefined, url: `${base}/s/${ree.slug}`, siteName: 'RE0' },
     twitter: { card: 'summary_large_image', title: ree.name, description: ree.description || undefined },

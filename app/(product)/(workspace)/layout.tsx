@@ -1,8 +1,13 @@
+import type { Metadata } from 'next';
 import { headers } from 'next/headers';
 import { redirect } from 'next/navigation';
 import type { ReactNode } from 'react';
 import { PATH_HEADER } from '@/lib/http/cookies';
 import { currentUser } from '@/lib/http/session';
+import { PRIVATE_ROBOTS } from '@/lib/seo';
+
+/** Never in search results, whatever links to it. */
+export const metadata: Metadata = { robots: PRIVATE_ROBOTS };
 
 /** Every signed-in page: the session is checked here against the database, not by the middleware's cookie test. */
 export default async function WorkspaceLayout({ children }: { children: ReactNode }) {

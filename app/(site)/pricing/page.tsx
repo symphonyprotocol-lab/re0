@@ -12,13 +12,15 @@ import { serverMessages } from '@/i18n/server';
 import { fill, formatNumber } from '@/i18n/format';
 import { Icon } from '@/components/ui/icons';
 import { Estimator } from '@/components/site/estimator';
+import { JsonLd } from '@/components/site/json-ld';
+import { pricingJsonLd, publicPage } from '@/lib/seo';
 import '@/components/site/pricing.css';
 
 const FAQ = ['q3', 'q4', 'q5', 'q6'] as const;
 
 export async function generateMetadata(): Promise<Metadata> {
-  const { t } = await serverMessages();
-  return { title: t.site.pricing.title };
+  const { t, locale } = await serverMessages();
+  return publicPage({ path: '/pricing', title: t.site.pricing.title, description: t.site.pricing.lede, locale });
 }
 
 /**
@@ -42,6 +44,7 @@ export default async function PricingPage() {
   const faqValues = { ...pricingFaqValues(prices, locale, t.site.prices), ...videoPrices };
   return (
     <div className="marketing-wrap pricing-page">
+      <JsonLd data={pricingJsonLd(prices, locale, p.lede)} />
       <div className="pricing-intro">
         <p className="eyebrow">SMALL PRICE. A WORLD OF KNOWLEDGE.</p>
         <h1>

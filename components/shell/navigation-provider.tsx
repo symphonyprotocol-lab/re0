@@ -3,6 +3,8 @@
 import '@/lib/client/zod-jitless';
 import { createContext, startTransition as startReactTransition, useCallback, useContext, useEffect, useMemo, useState, useTransition, type ReactNode } from 'react';
 import { useRouter } from 'next/navigation';
+import { useI18n } from '@/i18n/client';
+import { localizeHref } from '@/i18n/paths';
 import './workspace-motion.css';
 
 const NavigationContext = createContext<(action: () => void) => void>(startReactTransition);
@@ -34,15 +36,16 @@ export function useRouteLoading(): void {
   useEffect(register, [register]);
 }
 
-/** Track imperative navigation as well as links; a data refresh stays in place. */
+/** Track imperative navigation as well as links; a data refresh stays in place. Public pages go to their language URL, as links do. */
 export function useNavigationRouter(): ReturnType<typeof useRouter> {
   const router = useRouter();
   const navigate = useContext(NavigationContext);
+  const { locale } = useI18n();
   return useMemo(() => ({
     ...router,
-    push: (...args: Parameters<typeof router.push>) => navigate(() => router.push(...args)),
-    replace: (...args: Parameters<typeof router.replace>) => navigate(() => router.replace(...args)),
+    push: (href: string, options?: Parameters<typeof router.push>[1]) => navigate(() => router.push(localizeHref(locale, href), options)),
+    replace: (href: string, options?: Parameters<typeof router.replace>[1]) => navigate(() => router.replace(localizeHref(locale, href), options)),
     back: () => navigate(() => router.back()),
     forward: () => navigate(() => router.forward()),
-  }), [router, navigate]);
+  }), [router, navigate, locale]);
 }

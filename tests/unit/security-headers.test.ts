@@ -50,8 +50,8 @@ describe('security response headers', () => {
   });
 
   it('enforces the full policy on every page with a fresh nonce, no inline scripts', async () => {
-    const first = page('/');
-    const second = page('/pricing');
+    const first = page('/zh');
+    const second = page('/en/pricing');
     const policy = first.headers.get('content-security-policy')!;
     expect(policy).toBeTruthy();
     expect(first.headers.get('content-security-policy-report-only')).toBeNull();
@@ -78,7 +78,7 @@ describe('security response headers', () => {
   });
 
   it('ignores a policy the client sent, and still gates the workspace and console by cookie', async () => {
-    const request = new NextRequest('https://re0.test/', { headers: { 'content-security-policy-report-only': "script-src 'nonce-attacker'" } });
+    const request = new NextRequest('https://re0.test/zh', { headers: { 'content-security-policy-report-only': "script-src 'nonce-attacker'" } });
     const response = middleware(request);
     expect(forwarded(response, 'content-security-policy-report-only')).toBeNull();
     expect(getScriptNonceFromHeader(forwarded(response, 'content-security-policy')!)).not.toBe('attacker');
@@ -99,7 +99,7 @@ describe('security response headers', () => {
 
   it('has a kill switch: CSP_REPORT_ONLY=1 sends the same policy as Report-Only', async () => {
     vi.stubEnv('CSP_REPORT_ONLY', '1');
-    const response = page('/');
+    const response = page('/zh');
     expect(response.headers.get('content-security-policy')).toBeNull();
     const reported = response.headers.get('content-security-policy-report-only')!;
     const nonce = getScriptNonceFromHeader(reported)!;

@@ -5,6 +5,7 @@ import type { Metadata } from 'next';
 import { WorkspaceLink as Link } from '@/components/shell/workspace-link';
 import { pageQuantity } from '@/lib/domain/billing';
 import { currentUser } from '@/lib/http/session';
+import { UNLISTED_ROBOTS } from '@/lib/seo';
 import { db } from '@/lib/infra/db';
 import { paddleConfig } from '@/lib/infra/paddle';
 import { hasActivePlan } from '@/lib/services/billing';
@@ -15,7 +16,7 @@ import { CheckoutPanel } from '@/components/site/checkout-panel';
 
 export async function generateMetadata(): Promise<Metadata> {
   const { t } = await serverMessages();
-  return { title: t.site.checkout.title };
+  return { title: t.site.checkout.title, robots: UNLISTED_ROBOTS };
 }
 
 /**

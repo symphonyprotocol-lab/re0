@@ -42,9 +42,17 @@ describeWithDb('sign-up and sessions', () => {
     const user = await resolveSession(session.sessionToken);
     expect(user?.id).toBe(session.userId);
     expect(user?.lang).toBe('en');
+    expect(session.lang).toBe('en');
     await signOut(session.sessionToken);
     expect(await resolveSession(session.sessionToken)).toBeNull();
     expect(await resolveSession('not-a-token')).toBeNull();
+  });
+
+  it("returns an existing account's own language at sign-in, not the browser's", async () => {
+    const subject = uniqueName('user');
+    expect((await createSession(profile(subject), 'en', '/dashboard')).lang).toBe('en');
+    /* The callback sets the language cookie from this (app/api/auth/[provider]/callback). */
+    expect((await createSession(profile(subject), 'zh', '/dashboard')).lang).toBe('en');
   });
 
   it('refuses a disabled account', async () => {

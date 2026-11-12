@@ -3,6 +3,7 @@
  * return to, and the coarse failure codes the login page shows.
  */
 import { SESSION_LIFETIME_MS } from '@/lib/constants';
+import { stripLocale } from '@/i18n/paths';
 
 export type IdentityProvider = 'github' | 'google';
 export const IDENTITY_PROVIDERS: readonly IdentityProvider[] = ['github', 'google'];
@@ -33,7 +34,8 @@ export function safeReturnTo(input: unknown): string {
   if (typeof input !== 'string' || input.length === 0 || input.length > 512) return DEFAULT_RETURN_TO;
   if (!input.startsWith('/') || input.startsWith('//')) return DEFAULT_RETURN_TO;
   if (input.includes('\\') || hasControlCharacter(input)) return DEFAULT_RETURN_TO;
-  const path = (input.split('?')[0] ?? '').split('#')[0] ?? '';
+  /* A language URL (`/en/r/x`) is allowed where its page is. */
+  const path = stripLocale((input.split('?')[0] ?? '').split('#')[0] ?? '');
   const allowed = path === '/' || RETURN_TO_PREFIXES.some((p) => path === p || path.startsWith(`${p}/`));
   return allowed ? input : DEFAULT_RETURN_TO;
 }
