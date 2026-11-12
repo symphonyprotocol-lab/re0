@@ -13,7 +13,8 @@
 import { and, asc, count, desc, eq, ilike, isNull, or, sql, type SQL } from 'drizzle-orm';
 import { ADMIN_SOURCE_PAGE_SIZE } from '@/lib/constants';
 import { parseAdminReason } from '@/lib/domain/adjustments';
-import type { ReesView } from '@/lib/domain/admin-lists';
+import { parsePinOrder } from '@/lib/domain/admin-lists';
+import type { ReesView, ReeVisibility } from '@/lib/domain/admin-lists';
 import { clampPage, likePattern, param, type ListResult } from '@/lib/domain/list';
 import { db, schema } from '@/lib/infra/db';
 import { AdminInputError, audit, assertConsole, type Administrator } from '@/lib/services/admin';
@@ -22,7 +23,7 @@ import { notify } from '@/lib/services/notices';
 import { refreshProfile } from '@/lib/services/profile';
 import { sourceState, sourceSummary } from '@/lib/services/statistics';
 
-export type ReeVisibility = 'public' | 'private' | 'moderated';
+export type { ReeVisibility } from '@/lib/domain/admin-lists';
 
 export interface AdminReeRow {
   id: string;
@@ -42,9 +43,12 @@ export interface AdminReeRow {
   createdAt: Date;
   moderatedAt: Date | null;
   moderatedReason: string | null;
+  /** Discover's pin position, null when not pinned. */
+  pinOrder: number | null;
 }
 
-const visibility = sql<ReeVisibility>`case when "ree"."moderated_at" is not null then 'moderated' when "ree"."is_public" then 'public' else 'private' end`;
+/* `reeVisibility` in SQL: 'public' is exactly what discovery lists (`publicRee`), deleted Rees aside. */
+const visibility = sql<ReeVisibility>`case when "ree"."moderated_at" is not null then 'moderated' when "ree"."is_public" and "ree"."is_published" then 'public' when "ree"."is_public" then 'unpublished' else 'private' end`;
 const sources = sql<number>`(select count(*)::int from ${schema.knowledge} k where k.ree_id = "ree"."id" and k.deleted_at is null)`;
 const readySources = sql<number>`(select count(*)::int from ${schema.knowledge} k where k.ree_id = "ree"."id" and k.deleted_at is null and k.status = 'ready')`;
 
@@ -52,6 +56,7 @@ const readySources = sql<number>`(select count(*)::int from ${schema.knowledge} 
 function reesWhere(view: ReesView): SQL {
   const conditions: SQL[] = [isNull(schema.ree.deletedAt)];
   if (view.status !== 'all') conditions.push(sql`${visibility} = ${view.status}`);
+  if (view.pin === 'pinned') conditions.push(sql`${schema.ree.pinOrder} is not null`);
   if (view.q) {
     const pattern = likePattern(view.q);
     conditions.push(
@@ -93,11 +98,13 @@ export async function listAdminRees(administrator: Administrator, view: ReesView
       createdAt: schema.ree.createdAt,
       moderatedAt: schema.ree.moderatedAt,
       moderatedReason: schema.ree.moderatedReason,
+      pinOrder: schema.ree.pinOrder,
     })
     .from(schema.ree)
     .innerJoin(schema.user, eq(schema.user.id, schema.ree.ownerId))
     .where(where)
-    .orderBy(view.sort === 'oldest' ? asc(schema.ree.createdAt) : desc(schema.ree.createdAt), asc(schema.ree.id))
+    /* The pinned list reads in Discover's order: position first. */
+    .orderBy(...(view.pin === 'pinned' ? [asc(schema.ree.pinOrder)] : []), view.sort === 'oldest' ? asc(schema.ree.createdAt) : desc(schema.ree.createdAt), asc(schema.ree.id))
     .$dynamic();
   if (!options.all) query = query.limit(view.size).offset((page - 1) * view.size);
   const rows = await query;
@@ -109,12 +116,13 @@ export async function reeCounts() {
     .select({
       total: count(),
       public: sql<number>`count(*) filter (where ${visibility} = 'public')::int`,
+      unpublished: sql<number>`count(*) filter (where ${visibility} = 'unpublished')::int`,
       private: sql<number>`count(*) filter (where ${visibility} = 'private')::int`,
       moderated: sql<number>`count(*) filter (where ${visibility} = 'moderated')::int`,
     })
     .from(schema.ree)
     .where(isNull(schema.ree.deletedAt));
-  return row ?? { total: 0, public: 0, private: 0, moderated: 0 };
+  return row ?? { total: 0, public: 0, unpublished: 0, private: 0, moderated: 0 };
 }
 
 export async function adminRee(administrator: Administrator, id: string) {
@@ -264,7 +272,7 @@ export async function takeDownRee(administratorId: string, reeId: string, rawRea
       administratorId,
       action: 'ree.takedown',
       target: reeId,
-      before: { visibility: 'public', name: ree.name },
+      before: { visibility: ree.isPublished ? 'public' : 'unpublished', name: ree.name },
       after: { visibility: 'moderated', reason, conversationsLeft: conversations },
     });
     await notify(tx, { userId: ree.ownerId, kind: 'takedown', text: reason, params: { ree: ree.name, reeId }, refId: reeId });
@@ -279,18 +287,59 @@ export async function restoreRee(administratorId: string, reeId: string, rawReas
     const [ree] = await tx.select().from(schema.ree).where(eq(schema.ree.id, reeId)).for('update');
     if (!ree) throw new AdminInputError('not_found');
     if (ree.deletedAt || !ree.moderatedAt) throw new AdminInputError('stale');
+    /* Back to where the takedown found it: a Ree its owner had not published yet stays unpublished. Older takedowns recorded 'public' either way and restore published, as before. */
+    const [takedown] = await tx
+      .select({ before: schema.adminAudit.before })
+      .from(schema.adminAudit)
+      .where(and(eq(schema.adminAudit.action, 'ree.takedown'), eq(schema.adminAudit.target, reeId)))
+      .orderBy(desc(schema.adminAudit.createdAt))
+      .limit(1);
+    const published = (takedown?.before as { visibility?: string } | null)?.visibility !== 'unpublished';
     await tx
       .update(schema.ree)
-      .set({ isPublic: true, isPublished: true, moderatedAt: null, moderatedBy: null, moderatedReason: null, updatedAt: now })
+      .set({ isPublic: true, isPublished: published, moderatedAt: null, moderatedBy: null, moderatedReason: null, updatedAt: now })
       .where(eq(schema.ree.id, reeId));
     await audit(tx, {
       administratorId,
       action: 'ree.restore',
       target: reeId,
       before: { visibility: 'moderated', reason: ree.moderatedReason },
-      after: { visibility: 'public', reason },
+      after: { visibility: published ? 'public' : 'unpublished', reason },
     });
     await notify(tx, { userId: ree.ownerId, kind: 'restore', text: reason, params: { ree: ree.name, reeId }, refId: reeId });
   });
   await refreshDiscovery(reeId);
+}
+
+/**
+ * Pins a Ree to the top of Discover's default order and the home page at
+ * `order` (1 leads), or unpins it with null. Any live Ree can be pinned
+ * ahead of its publication; it shows only while discovery lists it, so a
+ * Ree unpublished, taken down or deleted later simply drops out. The reason
+ * is optional; every change is audited.
+ */
+export async function setReePin(administratorId: string, reeId: string, rawOrder: unknown, rawReason: unknown = '', now = new Date()): Promise<{ pinOrder: number | null }> {
+  const order = parsePinOrder(rawOrder);
+  if (order === undefined) throw new AdminInputError('pin_order');
+  const given = typeof rawReason === 'string' ? rawReason.trim() : '';
+  const reason = given ? parseAdminReason(given) : '';
+  if (reason === null) throw new AdminInputError('reason');
+  return db().transaction(async (tx) => {
+    const [ree] = await tx.select().from(schema.ree).where(eq(schema.ree.id, reeId)).for('update');
+    if (!ree) throw new AdminInputError('not_found');
+    if (ree.deletedAt) throw new AdminInputError('stale');
+    if (ree.pinOrder === order) return { pinOrder: order };
+    await tx
+      .update(schema.ree)
+      .set(order === null ? { pinOrder: null, pinnedAt: null, pinnedBy: null } : { pinOrder: order, pinnedAt: now, pinnedBy: administratorId })
+      .where(eq(schema.ree.id, reeId));
+    await audit(tx, {
+      administratorId,
+      action: order === null ? 'ree.unpin' : 'ree.pin',
+      target: reeId,
+      before: { pinOrder: ree.pinOrder, name: ree.name },
+      after: { pinOrder: order, ...(reason ? { reason } : {}) },
+    });
+    return { pinOrder: order };
+  });
 }

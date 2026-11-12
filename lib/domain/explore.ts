@@ -6,7 +6,7 @@
  */
 import {
   EXPLORE_EXCERPT_CHARS,
-  EXPLORE_PAGE_SIZES,
+  EXPLORE_BATCH_SIZES,
   PUBLIC_LIST_PAGE_SIZE,
   PUBLIC_RELATED_MAX,
   QUALITY_PRIORS,
@@ -77,8 +77,12 @@ export interface ExploreQuery {
   q: string;
   category: ReeCategory | null;
   sort: ExploreSort;
+}
+
+/** One batch of an infinitely scrolled list: where the last one ended (null for the first) and how many to take. */
+export interface ExploreBatch {
+  cursor: string | null;
   size: number;
-  page: number;
 }
 
 type Params = URLSearchParams | Record<string, string | string[] | undefined>;
@@ -93,28 +97,65 @@ function read(params: Params, name: string): string {
 export function parseExploreQuery(params: Params): ExploreQuery {
   const category = read(params, 'category') as ReeCategory;
   const sort = read(params, 'sort') as ExploreSort;
-  const size = Number(read(params, 'size'));
-  const page = Number(read(params, 'page'));
   return {
     q: read(params, 'q').trim().slice(0, 4_000),
     category: REE_CATEGORIES.includes(category) ? category : null,
     sort: EXPLORE_SORTS.includes(sort) ? sort : 'active',
-    size: (EXPLORE_PAGE_SIZES as readonly number[]).includes(size) ? size : EXPLORE_PAGE_SIZES[0],
-    page: Number.isInteger(page) && page >= 1 ? Math.min(page, 100_000) : 1,
   };
 }
 
-/** The canonical explore path; changing the search, category, sort or size goes back to page 1. */
+/** `GET /api/explore`'s `cursor` and `size`; the page itself always starts with the first batch. */
+export function parseExploreBatch(params: Params): ExploreBatch {
+  const size = Number(read(params, 'size'));
+  return {
+    cursor: read(params, 'cursor').slice(0, 512) || null,
+    size: (EXPLORE_BATCH_SIZES as readonly number[]).includes(size) ? size : EXPLORE_BATCH_SIZES[0],
+  };
+}
+
+/** The canonical explore path: the search, category and sort; the list itself scrolls. */
 export function explorePath(query: Partial<ExploreQuery>, changes: Partial<ExploreQuery> = {}): string {
   const next = { ...query, ...changes };
-  if (['q', 'category', 'sort', 'size'].some((key) => key in changes)) next.page = 1;
   const out = new URLSearchParams();
   if (next.q) out.set('q', next.q);
   if (next.category) out.set('category', next.category);
   if (next.sort && next.sort !== 'active') out.set('sort', next.sort);
-  if (next.size && next.size !== EXPLORE_PAGE_SIZES[0]) out.set('size', String(next.size));
-  if (next.page && next.page > 1) out.set('page', String(next.page));
   return out.size ? `/explore?${out}` : '/explore';
+}
+
+/* ---------------------------------------------------------------- cursor */
+
+/**
+ * Where a batch ended: the last card's sort key, every part descending, the
+ * id last so no two Rees tie. Opaque to the browser (base64url JSON); a
+ * cursor that is not one -- edited, or from another sort -- reads as null.
+ */
+export type ExploreKey = (number | string)[];
+
+const KEY_TIME = /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}\.\d{6}Z$/;
+const KEY_ID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+/** How many integer parts lead each sort's key; the creation time and the id follow. */
+export const EXPLORE_KEY_PARTS: Record<ExploreSort, number> = { active: 3, answers: 2, free: 3 };
+
+export function encodeExploreCursor(sort: ExploreSort, key: ExploreKey): string {
+  /* Every part is ASCII (a sort name, integers, an ISO time, a uuid), so plain btoa works here and in the browser. */
+  return btoa(JSON.stringify([sort, ...key])).replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/, '');
+}
+
+export function decodeExploreCursor(sort: ExploreSort, cursor: string): ExploreKey | null {
+  let value: unknown;
+  try {
+    value = JSON.parse(atob(cursor.replace(/-/g, '+').replace(/_/g, '/')));
+  } catch {
+    return null;
+  }
+  const ints = EXPLORE_KEY_PARTS[sort];
+  if (!Array.isArray(value) || value.length !== ints + 3 || value[0] !== sort) return null;
+  const key = value.slice(1) as unknown[];
+  const intsOk = key.slice(0, ints).every((part) => Number.isSafeInteger(part));
+  const [time, id] = key.slice(ints);
+  if (!intsOk || typeof time !== 'string' || !KEY_TIME.test(time) || typeof id !== 'string' || !KEY_ID.test(id)) return null;
+  return key as ExploreKey;
 }
 
 /** A public page's `from`: only ever an explore path with known fields (prototype `discoveryReturnPath`). */

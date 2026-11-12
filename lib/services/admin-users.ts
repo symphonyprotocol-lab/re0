@@ -206,6 +206,7 @@ export async function userRees(id: string) {
       avatarBlob: schema.ree.avatarBlob,
       color: schema.ree.color,
       isPublic: schema.ree.isPublic,
+      isPublished: schema.ree.isPublished,
       moderatedAt: schema.ree.moderatedAt,
       deletedAt: schema.ree.deletedAt,
       createdAt: schema.ree.createdAt,

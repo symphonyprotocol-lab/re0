@@ -9,6 +9,7 @@
 import { WorkspaceLink as Link } from '@/components/shell/workspace-link';
 import { Fragment, type ReactNode } from 'react';
 import { QUERY_BASE_FEE } from '@/lib/constants';
+import type { ReeVisibility } from '@/lib/domain/admin-lists';
 import type { AdminReeDetail, SourceFilter } from '@/lib/services/admin-rees';
 import { ADMIN_SOURCE_STATES } from '@/lib/services/admin-rees';
 import type { Locale, Messages } from '@/i18n';
@@ -22,7 +23,7 @@ import '@/components/admin/console.css';
 import '@/components/admin/console-rees.css';
 
 /** Status tag tones (prototype `statusBadge`: taken down orange, public blue, private plain). */
-export const VISIBILITY_TONES = { public: 'blue', private: 'grey', moderated: 'orange' } as const;
+export const VISIBILITY_TONES = { public: 'blue', unpublished: 'grey', private: 'grey', moderated: 'orange' } as const;
 export const STATE_TONES = { ready: 'green', processing: 'grey', failed: 'red', paused: 'grey' } as const;
 const TONE_CLASS = { blue: 'blue', grey: '', orange: 'orange', green: 'green', red: 'red' } as const;
 
@@ -82,10 +83,10 @@ export function ConsoleReeAvatar({ avatar, color, small = false }: { avatar?: st
   );
 }
 
-/** The takedown (public) or restore (taken down) dialog behind a button (prototype `moderate-dot`). */
-function ModerateAction({ t, ree, label }: { t: Messages; ree: { id: string; name: string; visibility: 'public' | 'private' | 'moderated' }; label: { takedown: string; restore: string } }) {
+/** The takedown (public, or public but not yet published) or restore (taken down) dialog behind a button (prototype `moderate-dot`). */
+function ModerateAction({ t, ree, label }: { t: Messages; ree: { id: string; name: string; visibility: ReeVisibility }; label: { takedown: string; restore: string } }) {
   const r = t.consoleRees.ree;
-  if (ree.visibility === 'public')
+  if (ree.visibility === 'public' || ree.visibility === 'unpublished')
     return (
       <ReasonAction
         endpoint={`/api/admin/rees/${ree.id}/takedown`}
@@ -111,6 +112,48 @@ function ModerateAction({ t, ree, label }: { t: Messages; ree: { id: string; nam
 }
 
 /**
+ * Pinning to the top of Discover (a position, an optional note) and, while
+ * pinned, unpinning: both behind a dialog, as the takedown is.
+ */
+function PinAction({ t, ree }: { t: Messages; ree: { id: string; name: string; pinOrder: number | null } }) {
+  const r = t.consoleRees.ree;
+  const errors = { pin_order: r.pin.invalid };
+  const note = { min: 3, max: 300, required: false, label: r.pin.reason };
+  return (
+    <>
+      <ReasonAction
+        endpoint={`/api/admin/rees/${ree.id}/pin`}
+        label={ree.pinOrder === null ? r.pin.label : r.pin.edit}
+        title={r.pin.title}
+        subtitle={ree.name}
+        body={r.pin.body}
+        confirmLabel={r.pin.confirm}
+        reason={note}
+        errors={errors}
+      >
+        <div className="field">
+          <label htmlFor={`pin-order-${ree.id}`}>{r.pin.order}</label>
+          <input id={`pin-order-${ree.id}`} name="order" type="number" inputMode="numeric" min={1} max={999} step={1} required defaultValue={ree.pinOrder ?? 1} />
+        </div>
+      </ReasonAction>
+      {ree.pinOrder !== null && (
+        <ReasonAction
+          endpoint={`/api/admin/rees/${ree.id}/pin`}
+          label={r.unpin.label}
+          title={r.unpin.title}
+          subtitle={ree.name}
+          body={r.unpin.body}
+          confirmLabel={r.unpin.confirm}
+          reason={note}
+          payload={{ order: null }}
+          errors={errors}
+        />
+      )}
+    </>
+  );
+}
+
+/**
  * A Ree row's actions in the console lists (prototype suite.js `dotsTable`):
  * details, the public page while public, and the takedown / restore dialog.
  */
@@ -120,7 +163,7 @@ export function ReeRowActions({
   detailHref,
 }: {
   t: Messages;
-  ree: { id: string; name: string; slug: string; visibility: 'public' | 'private' | 'moderated'; deleted?: boolean };
+  ree: { id: string; name: string; slug: string; visibility: ReeVisibility; deleted?: boolean };
   detailHref: string;
 }) {
   const r = t.consoleRees.rees;
@@ -224,6 +267,7 @@ export function ReeHeader({ t, locale, detail, answers }: { t: Messages; locale:
             <div className="flex">
               <h1>{ree.name}</h1>
               <StateTag tone={VISIBILITY_TONES[visibility]}>{t.consoleRees.rees.visibility[visibility]}</StateTag>
+              {ree.pinOrder !== null && <StateTag tone="green">{fill(r.pinned, { n: ree.pinOrder })}</StateTag>}
             </div>
             {ree.description && <p>{ree.description}</p>}
           </div>
@@ -235,6 +279,7 @@ export function ReeHeader({ t, locale, detail, answers }: { t: Messages; locale:
               {r.publicPage}
             </Link>
           )}
+          {!deleted && <PinAction t={t} ree={{ id: ree.id, name: ree.name, pinOrder: ree.pinOrder }} />}
           {!deleted && <ModerateAction t={t} ree={{ id: ree.id, name: ree.name, visibility }} label={{ takedown: r.takedown.label, restore: r.restore.label }} />}
         </div>
       </header>

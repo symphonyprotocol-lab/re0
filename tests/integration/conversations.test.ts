@@ -409,7 +409,8 @@ describeWithDb('explore and public pages', () => {
     const tides = await reeOf(await person(), { content: TIDES });
     const privateOne = await reeOf(await person(), { content, isPublic: false });
     expect(await db().select().from(schema.reeProfileVector).where(eq(schema.reeProfileVector.reeId, official.id))).not.toHaveLength(0);
-    const result = await explore.explore(parseExploreQuery(new URLSearchParams({ q: `${QUESTION} ${word}` })));
+    const result = await explore.explore(parseExploreQuery(new URLSearchParams({ q: `${QUESTION} ${word}` })), { cursor: null, size: 24 });
+    expect(result.nextCursor).toBeNull();
     expect(result.mode).toBe('search');
     expect(result.items.length).toBeLessThanOrEqual(10);
     const ids = result.items.map((card) => card.id);
@@ -437,19 +438,106 @@ describeWithDb('explore and public pages', () => {
     await computeRanks();
     const [ranked] = await db().select({ rank: schema.ree.rank }).from(schema.ree).where(eq(schema.ree.id, busy.id));
     expect(ranked!.rank).toMatchObject({ asked30: 1, answered30: 1, pulls30: 1, activity30: 2, answersAll: 1 });
-    const browse = await explore.explore(parseExploreQuery(new URLSearchParams({ category: 'life' })));
+    const browse = await explore.explore(parseExploreQuery(new URLSearchParams({ category: 'life' })), { cursor: null, size: 96 });
     expect(browse.mode).toBe('browse');
     const ids = browse.items.map((card) => card.id);
     expect(ids.indexOf(busy.id)).toBeLessThan(ids.indexOf(quiet.id));
     expect(browse.items.every((card) => card.category === 'life')).toBe(true);
 
     /* "回答最多" orders by the hourly count, not by aggregating every message per request. */
-    const byAnswers = async () => (await explore.explore(parseExploreQuery(new URLSearchParams({ category: 'life', sort: 'answers', size: '96' })))).items.map((card) => card.id);
+    const byAnswers = async () => (await explore.explore(parseExploreQuery(new URLSearchParams({ category: 'life', sort: 'answers' })), { cursor: null, size: 96 })).items.map((card) => card.id);
     const answered = await byAnswers();
     expect(answered.indexOf(busy.id)).toBeLessThan(answered.indexOf(quiet.id));
     await db().update(schema.ree).set({ rank: { answersAll: 1_000_000 } }).where(eq(schema.ree.id, quiet.id));
     const reordered = await byAnswers();
     expect(reordered.indexOf(quiet.id)).toBeLessThan(reordered.indexOf(busy.id));
+  });
+
+  it('loads the list in batches after the last key: every public Ree once, in every order', async () => {
+    const owner = await person();
+    const made = [];
+    for (let at = 0; at < 5; at += 1) made.push(await reeOf(owner, { category: 'learning' }));
+    /* Same activity, same role, the same creation time to the microsecond: only the id tells them apart. */
+    await db().update(schema.ree).set({ createdAt: made[0]!.createdAt }).where(inArray(schema.ree.id, made.map((ree) => ree.id)));
+    for (const sort of ['active', 'answers', 'free'] as const) {
+      const query = parseExploreQuery(new URLSearchParams({ category: 'learning', sort }));
+      const seen: string[] = [];
+      let cursor: string | null = null;
+      let total = 0;
+      do {
+        /* Batches of two, so a list of five or more crosses the cursor at least twice, ties included. */
+        const batch: Awaited<ReturnType<typeof explore.explore>> = await explore.explore(query, { cursor, size: 2 }, { includeIntros: false });
+        total = batch.total;
+        seen.push(...batch.items.map((card) => card.id));
+        if (batch.nextCursor) expect(batch.items).toHaveLength(2);
+        cursor = batch.nextCursor;
+      } while (cursor);
+      expect(new Set(seen).size).toBe(seen.length);
+      expect(seen).toHaveLength(total);
+      for (const ree of made) expect(seen).toContain(ree.id);
+    }
+    const tiny = parseExploreQuery(new URLSearchParams({ category: 'learning' }));
+    const first = await explore.explore(tiny, { cursor: null, size: 2 }, { includeIntros: false });
+    const second = await explore.explore(tiny, { cursor: first.nextCursor, size: 2 }, { includeIntros: false });
+    expect(first.nextCursor).not.toBeNull();
+    expect(second.items.map((card) => card.id)).not.toContain(first.items[0]!.id);
+    expect(second.items.map((card) => card.id)).not.toContain(first.items[1]!.id);
+    await expect(explore.explore(tiny, { cursor: 'bogus', size: 2 }, { includeIntros: false })).rejects.toBeInstanceOf(explore.ExploreCursorError);
+    const searched = await explore.explore({ ...tiny, q: QUESTION }, { cursor: first.nextCursor, size: 24 }, { includeIntros: false });
+    expect(searched).toMatchObject({ mode: 'search', items: [], nextCursor: null });
+  });
+
+  it('puts pinned Rees first under the default order only, in pin order, across batches', async () => {
+    const owner = await person();
+    const plain = [];
+    for (let at = 0; at < 3; at += 1) plain.push(await reeOf(owner, { category: 'professional' }));
+    const second = await reeOf(owner, { category: 'professional', queryFee: 50 });
+    const first = await reeOf(owner, { category: 'professional', queryFee: 50 });
+    const waiting = await reeOf(owner, { category: 'professional' });
+    const pin = (id: string, order: number | null) => db().update(schema.ree).set({ pinOrder: order }).where(eq(schema.ree.id, id));
+    try {
+      await pin(second.id, 2);
+      await pin(first.id, 1);
+      /* Pinned but unpublished: discovery's own filter keeps it out. */
+      await pin(waiting.id, 3);
+      await db().update(schema.ree).set({ isPublished: false }).where(eq(schema.ree.id, waiting.id));
+      /* The most active of all, yet unpinned: it follows the pins under "推荐优先" and leads "回答最多". */
+      await db().update(schema.ree).set({ rank: { activity30: 1_000_000, answersAll: 1_000_000 } }).where(eq(schema.ree.id, plain[0]!.id));
+
+      const walk = async (sort: 'active' | 'answers' | 'free') => {
+        const query = parseExploreQuery(new URLSearchParams({ category: 'professional', sort }));
+        const ids: string[] = [];
+        const pinned: string[] = [];
+        let cursor: string | null = null;
+        do {
+          /* One card a batch, so a cursor sits on each pinned Ree and on the first one after them. */
+          const batch: Awaited<ReturnType<typeof explore.explore>> = await explore.explore(query, { cursor, size: 1 }, { includeIntros: false });
+          ids.push(...batch.items.map((card) => card.id));
+          pinned.push(...batch.items.filter((card) => card.pinned).map((card) => card.id));
+          cursor = batch.nextCursor;
+        } while (cursor);
+        expect(new Set(ids).size).toBe(ids.length);
+        expect(ids).not.toContain(waiting.id);
+        return { ids, pinned };
+      };
+      const active = await walk('active');
+      expect(active.ids.slice(0, 3)).toEqual([first.id, second.id, plain[0]!.id]);
+      expect(active.pinned).toEqual([first.id, second.id]);
+      const answers = await walk('answers');
+      expect(answers.ids[0]).toBe(plain[0]!.id);
+      const free = await walk('free');
+      expect(free.ids.indexOf(first.id)).toBeGreaterThan(free.ids.indexOf(plain[1]!.id));
+      expect(free.ids.indexOf(second.id)).toBeGreaterThan(free.ids.indexOf(plain[2]!.id));
+
+      /* The home page: every pinned Ree before every unpinned one, in pin order. */
+      const home = await explore.activeRees(500);
+      const lastPinned = home.map((card) => card.pinned).lastIndexOf(true);
+      expect(home.slice(0, lastPinned + 1).every((card) => card.pinned)).toBe(true);
+      expect(home.findIndex((card) => card.id === first.id)).toBeLessThan(home.findIndex((card) => card.id === second.id));
+      expect(home.map((card) => card.id)).not.toContain(waiting.id);
+    } finally {
+      for (const ree of [first, second, waiting]) await pin(ree.id, null);
+    }
   });
 
   it('counts free searches per IP and per account', async () => {

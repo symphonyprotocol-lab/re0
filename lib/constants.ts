@@ -368,7 +368,8 @@ export const HISTORY_TURNS = 6;
 
 export const LIST_PAGE_SIZES = [20, 50, 100] as const;
 export const REE_PAGE_SIZES = [12, 24, 48] as const;
-export const EXPLORE_PAGE_SIZES = [24, 48, 96] as const;
+/** `/explore` loads Rees in batches as the list scrolls; the first is the default, the API accepts the others. */
+export const EXPLORE_BATCH_SIZES = [24, 48, 96] as const;
 
 /* ------------------------------------------------------------ models, 2.5 */
 

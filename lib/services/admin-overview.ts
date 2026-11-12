@@ -37,7 +37,13 @@ export async function adminOverview(administrator: Administrator, now = new Date
   const [users, rees, sources, questions, earned, revenue, verifications, job, calls, trend, recent, kyc, payouts] = await Promise.all([
     database.select({ total: count(), disabled: sql<number>`count(*) filter (where ${schema.user.disabledAt} is not null)::int` }).from(schema.user),
     database
-      .select({ total: count(), public: sql<number>`count(*) filter (where ${schema.ree.isPublic})::int`, moderated: sql<number>`count(*) filter (where ${schema.ree.moderatedAt} is not null)::int` })
+      .select({
+        total: count(),
+        /* What discovery lists (`publicRee`); public but not yet published is counted apart. */
+        public: sql<number>`count(*) filter (where ${schema.ree.isPublic} and ${schema.ree.isPublished} and ${schema.ree.moderatedAt} is null)::int`,
+        unpublished: sql<number>`count(*) filter (where ${schema.ree.isPublic} and not ${schema.ree.isPublished} and ${schema.ree.moderatedAt} is null)::int`,
+        moderated: sql<number>`count(*) filter (where ${schema.ree.moderatedAt} is not null)::int`,
+      })
       .from(schema.ree)
       .where(isNull(schema.ree.deletedAt)),
     database.select({ total: count(), ready: sql<number>`count(*) filter (where ${schema.knowledge.status} = 'ready')::int` }).from(schema.knowledge).where(isNull(schema.knowledge.deletedAt)),

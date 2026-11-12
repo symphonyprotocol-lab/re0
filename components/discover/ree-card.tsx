@@ -27,15 +27,18 @@ export function ReeCover({ ree }: { ree: Pick<Card, 'name' | 'avatarBlob' | 'col
  * the way in -- it opens the public page, the search carried in `from` --
  * with no input. Introduction, the matched passage when there is a question,
  * source count, the owner and their role, price, answers and helpful share.
- * Styled by explore.css with the prototype's class names.
+ * `pinned` marks a Ree an administrator pinned, where the list is in the
+ * order that puts it first. Styled by explore.css with the prototype's
+ * class names.
  */
-export function ReeCardView({ ree, from, favorite, viewerId }: { ree: Card; from: string; favorite?: boolean; viewerId?: string }) {
+export function ReeCardView({ ree, from, favorite, viewerId, pinned = false }: { ree: Card; from: string; favorite?: boolean; viewerId?: string; pinned?: boolean }) {
   const { t, locale } = useI18n();
   const c = t.discover.card;
   const n = (value: number) => formatNumber(value, locale);
   const href = `/r/${ree.slug}${from && from !== '/explore' ? `?from=${encodeURIComponent(from)}` : ''}`;
   return (
-    <article className="dot-card discovery-card ree-video-card" aria-label={ree.name}>
+    <article className={`dot-card discovery-card ree-video-card${pinned ? ' is-pinned' : ''}`} aria-label={ree.name}>
+      {pinned && <span className="discovery-pin">{c.pinned}</span>}
       <ReeCardCover ree={ree} href={href} label={fill(c.view, { name: ree.name })} video={ree.video} />
       <div className="ree-card-info">
         <div className="flex items-start gap-2">

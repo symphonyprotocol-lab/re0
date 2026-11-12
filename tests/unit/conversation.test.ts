@@ -20,12 +20,15 @@ import {
   withoutMentions,
 } from '@/lib/domain/conversation';
 import {
+  decodeExploreCursor,
+  encodeExploreCursor,
   excerptOf,
   explorePath,
   exploreReturnPath,
   hitScore,
   NEUTRAL_QUALITY,
   pageOf,
+  parseExploreBatch,
   parseExploreQuery,
   positiveRate,
   publicTags,
@@ -142,16 +145,32 @@ describe('the /chats search', () => {
 });
 
 describe('explore', () => {
-  it('reads the URL and resets the page when the search changes', () => {
-    expect(parseExploreQuery(new URLSearchParams('q=hi&category=design&sort=free&size=48&page=2'))).toMatchObject({ q: 'hi', category: 'design', sort: 'free', size: 48, page: 2 });
-    expect(parseExploreQuery(new URLSearchParams('category=bogus&sort=x&size=10'))).toMatchObject({ category: null, sort: 'active', size: 24 });
-    expect(explorePath({ q: 'a', page: 3 }, { category: 'design' })).toBe('/explore?q=a&category=design');
-    expect(explorePath({ q: 'a', page: 3 }, { page: 4 })).toBe('/explore?q=a&page=4');
-    expect(exploreReturnPath('/explore?q=x&sort=answers&junk=1')).toBe('/explore?q=x&sort=answers');
+  it('reads the URL; the list scrolls, so no page or size is part of it', () => {
+    expect(parseExploreQuery(new URLSearchParams('q=hi&category=design&sort=free&size=48&page=2'))).toEqual({ q: 'hi', category: 'design', sort: 'free' });
+    expect(parseExploreQuery(new URLSearchParams('category=bogus&sort=x'))).toEqual({ q: '', category: null, sort: 'active' });
+    expect(explorePath({ q: 'a', sort: 'answers' }, { category: 'design' })).toBe('/explore?q=a&category=design&sort=answers');
+    expect(explorePath({ q: 'a', category: 'design', sort: 'free' }, { q: '', category: null, sort: 'active' })).toBe('/explore');
+    expect(exploreReturnPath('/explore?q=x&sort=answers&page=3&junk=1')).toBe('/explore?q=x&sort=answers');
     expect(exploreReturnPath('/admin')).toBe('/explore');
   });
-  it('resetting the filters keeps the page size', () => {
-    expect(explorePath({ q: 'a', category: 'design', sort: 'free', size: 48, page: 3 }, { q: '', category: null, sort: 'active' })).toBe('/explore?size=48');
+  it('reads a batch: the cursor as given, the size one of the allowed', () => {
+    expect(parseExploreBatch(new URLSearchParams('cursor=abc&size=48'))).toEqual({ cursor: 'abc', size: 48 });
+    expect(parseExploreBatch(new URLSearchParams('size=10'))).toEqual({ cursor: null, size: 24 });
+  });
+  it('a cursor reads back only for the sort that made it, and only when well formed', () => {
+    const time = '2026-11-12T03:04:05.123456Z';
+    const id = '04316b6c-5411-4edf-89a3-1608d5adccc3';
+    const active = encodeExploreCursor('active', [-1000, 3, 2, time, id]);
+    expect(active).toMatch(/^[\w-]+$/);
+    expect(decodeExploreCursor('active', active)).toEqual([-1000, 3, 2, time, id]);
+    /* A cursor from before pins led the order has one part too few. */
+    expect(decodeExploreCursor('active', encodeExploreCursor('active', [3, 2, time, id]))).toBeNull();
+    expect(decodeExploreCursor('answers', active)).toBeNull();
+    expect(decodeExploreCursor('free', encodeExploreCursor('free', [-20, 0, 1, time, id]))).toEqual([-20, 0, 1, time, id]);
+    expect(decodeExploreCursor('active', encodeExploreCursor('active', [-1000, 3, 2.5, time, id]))).toBeNull();
+    expect(decodeExploreCursor('active', encodeExploreCursor('active', [-1000, 3, 2, '2026-11-12', id]))).toBeNull();
+    expect(decodeExploreCursor('active', encodeExploreCursor('active', [-1000, 3, 2, time, 'x; drop table ree']))).toBeNull();
+    expect(decodeExploreCursor('active', 'not base64 at all!')).toBeNull();
   });
   it('public tags drop the category label and repeats', () => {
     expect(publicTags(['设计', 'UX', 'ux', ' Figma ', 'figma', ''], '设计')).toEqual(['UX', ' Figma ']);
