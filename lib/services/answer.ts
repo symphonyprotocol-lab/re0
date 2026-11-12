@@ -128,7 +128,7 @@ interface Held {
 }
 
 /** Rees among these with at least one source answers may use. */
-async function readyRees(ids: readonly string[]): Promise<Set<string>> {
+export async function readyRees(ids: readonly string[]): Promise<Set<string>> {
   if (ids.length === 0) return new Set();
   const rows = await db()
     .selectDistinct({ reeId: schema.knowledge.reeId })
@@ -275,6 +275,87 @@ export async function holdQuestion(input: AnswerInput): Promise<Holding> {
   }
 }
 
+type Generation = Awaited<ReturnType<typeof generationForUser>>;
+
+/**
+ * One Ree's grounded answer, streamed through `emit` as it is written: the
+ * text part opens only once the reply is known not to be the no-answer
+ * sentinel, and a sentinel written after the answer began is dropped.
+ * Answers whether the model declined (the sentinel, or a refusal-length
+ * reply) and the text shown. A provider error, abort or timeout throws,
+ * after closing the text part it opened. Shared by the signed-in flow and
+ * anonymous chat (anonymous-chat.ts).
+ */
+export async function streamGroundedAnswer(
+  args: { generation: Generation; ree: Pick<Ree, 'id' | 'name' | 'systemPrompt'>; lang: 'zh' | 'en'; subject: string; passages: readonly Passage[]; turns: { role: 'user' | 'assistant'; content: string }[] },
+  emit: Emit,
+): Promise<{ declined: boolean; text: string }> {
+  const { generation, ree, subject, passages, turns } = args;
+  const model = generation.endpoint.model;
+  let textOpen = false;
+  try {
+    const result = streamText({
+      model: generation.model,
+      instructions: instructionsFor({ reeName: ree.name, systemPrompt: ree.systemPrompt, lang: args.lang }),
+      messages: [{ role: 'user', content: questionWithPassages(subject, passages, turns) }],
+      maxOutputTokens: MAX_OUTPUT_TOKENS,
+      temperature: 0.2,
+      maxRetries: 1,
+      abortSignal: AbortSignal.timeout(Math.min(Math.max(generation.endpoint.timeoutMs, 30_000) * 2, ANSWER_STREAM_TIMEOUT_MAX_MS)),
+    });
+    let decided: boolean | null = null;
+    let pending = '';
+    let streamed = '';
+    /* Everything the model wrote, sentinels included: a reply that ends on one is still no answer. */
+    let raw = '';
+    /* A sentinel written after the answer began is dropped, never shown or stored. */
+    let held = '';
+    const send = (text: string, flush = false) => {
+      raw += text;
+      const { send: out, keep } = flush ? { send: (held + text).split(NO_ANSWER_SENTINEL).join(''), keep: '' } : withoutSentinel(held + text);
+      held = keep;
+      if (!out) return;
+      emit({ type: 'text-delta', reeId: ree.id, delta: out });
+      streamed += out;
+    };
+    /*
+     * The full stream, not `textStream`: that one drops `error` and `abort`
+     * parts and ends as if the model had finished, so a reply cut off by a
+     * provider error or the timeout would be charged as a whole answer
+     * (review M6). Either one fails this Ree: its holds are released.
+     */
+    for await (const part of result.stream) {
+      if (part.type === 'error') throw part.error instanceof Error ? part.error : new Error(`stream error: ${String(part.error)}`);
+      if (part.type === 'abort') throw new Error(`stream aborted${part.reason ? `: ${part.reason}` : ''}`);
+      if (part.type === 'finish' && part.finishReason === 'error') throw new Error('stream finished with an error');
+      if (part.type !== 'text-delta') continue;
+      const delta = part.text;
+      if (decided === true) continue;
+      if (decided === null) {
+        pending += delta;
+        decided = sentinelState(pending);
+        if (decided !== false) continue;
+        emit({ type: 'text-start', reeId: ree.id });
+        textOpen = true;
+        send(pending);
+        continue;
+      }
+      send(delta);
+    }
+    if (textOpen) send('', true);
+    if (textOpen) emit({ type: 'text-end', reeId: ree.id });
+    textOpen = false;
+    void Promise.resolve(result.usage).then(
+      (usage) => console.info(`answer usage ree=${ree.id} model=${model} in=${usage.inputTokens ?? 0} out=${usage.outputTokens ?? 0}`),
+      () => undefined,
+    );
+    return { declined: decided === true || settlesAsNoAnswer(raw, streamed, NO_ANSWER_REFUSAL_CHARS), text: streamed };
+  } catch (error) {
+    if (textOpen) emit({ type: 'text-end', reeId: ree.id });
+    throw error;
+  }
+}
+
 /**
  * Steps 3 to 6 for a held question: every asked Ree at once, each settled
  * or released on its own, then the suggestions when nobody could answer.
@@ -374,7 +455,6 @@ export async function runQuestion(question: HeldQuestion, emit: Emit): Promise<v
       return false;
     }
     let model: string | null = null;
-    let textOpen = false;
     try {
       const found = await retrieve(ree.id, subject, await vector!, { rewrite });
       if (!found.evidence) {
@@ -387,64 +467,8 @@ export async function runQuestion(question: HeldQuestion, emit: Emit): Promise<v
         `answer ree=${ree.id} model=${generation.endpoint.model} source=${generation.endpoint.source} config=${generation.endpoint.configId ?? '-'} passages=${found.passages.length} best=${found.bestSimilarity?.toFixed(3) ?? '-'} rewritten=${found.rewrite === null ? 'no' : 'yes'}`,
       );
       const turns = turnsOf(await history, ree.id);
-      const result = streamText({
-        model: generation.model,
-        instructions: instructionsFor({ reeName: ree.name, systemPrompt: ree.systemPrompt, lang: input.lang }),
-        messages: [{ role: 'user', content: questionWithPassages(subject, found.passages, turns) }],
-        maxOutputTokens: MAX_OUTPUT_TOKENS,
-        temperature: 0.2,
-        maxRetries: 1,
-        abortSignal: AbortSignal.timeout(Math.min(Math.max(generation.endpoint.timeoutMs, 30_000) * 2, ANSWER_STREAM_TIMEOUT_MAX_MS)),
-      });
-
-      let decided: boolean | null = null;
-      let pending = '';
-      let streamed = '';
-      /* Everything the model wrote, sentinels included: a reply that ends on one is still no answer. */
-      let raw = '';
-      /* A sentinel written after the answer began is dropped, never shown or stored. */
-      let held = '';
-      const send = (text: string, flush = false) => {
-        raw += text;
-        const { send: out, keep } = flush ? { send: (held + text).split(NO_ANSWER_SENTINEL).join(''), keep: '' } : withoutSentinel(held + text);
-        held = keep;
-        if (!out) return;
-        emit({ type: 'text-delta', reeId: ree.id, delta: out });
-        streamed += out;
-      };
-      /*
-       * The full stream, not `textStream`: that one drops `error` and `abort`
-       * parts and ends as if the model had finished, so a reply cut off by a
-       * provider error or the timeout would be charged as a whole answer
-       * (review M6). Either one fails this Ree: its holds are released.
-       */
-      for await (const part of result.stream) {
-        if (part.type === 'error') throw part.error instanceof Error ? part.error : new Error(`stream error: ${String(part.error)}`);
-        if (part.type === 'abort') throw new Error(`stream aborted${part.reason ? `: ${part.reason}` : ''}`);
-        if (part.type === 'finish' && part.finishReason === 'error') throw new Error('stream finished with an error');
-        if (part.type !== 'text-delta') continue;
-        const delta = part.text;
-        if (decided === true) continue;
-        if (decided === null) {
-          pending += delta;
-          decided = sentinelState(pending);
-          if (decided !== false) continue;
-          emit({ type: 'text-start', reeId: ree.id });
-          textOpen = true;
-          send(pending);
-          continue;
-        }
-        send(delta);
-      }
-      if (textOpen) send('', true);
-      if (textOpen) emit({ type: 'text-end', reeId: ree.id });
-      textOpen = false;
-      void Promise.resolve(result.usage).then(
-        (usage) => console.info(`answer usage ree=${ree.id} model=${model} in=${usage.inputTokens ?? 0} out=${usage.outputTokens ?? 0}`),
-        () => undefined,
-      );
-
-      if (decided === true || settlesAsNoAnswer(raw, streamed, NO_ANSWER_REFUSAL_CHARS)) {
+      const { declined, text: streamed } = await streamGroundedAnswer({ generation, ree, lang: input.lang, subject, passages: found.passages, turns }, emit);
+      if (declined) {
         emit({ type: 'outcome', outcome: { ...(await unanswered(ree, 'out_of_scope', entry)), model } });
         return false;
       }
@@ -492,7 +516,6 @@ export async function runQuestion(question: HeldQuestion, emit: Emit): Promise<v
       await release(entry).catch((failure: unknown) =>
         console.error(`answer ree=${ree.id} request=${askedId} holds not released (the chat-hold cron will): ${failure instanceof Error ? failure.message : 'unknown'}`),
       );
-      if (textOpen) emit({ type: 'text-end', reeId: ree.id });
       emit({ type: 'outcome', outcome: outcome(ree.id, { failed: true, model }) });
       return true;
     }

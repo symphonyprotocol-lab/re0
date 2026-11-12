@@ -364,6 +364,20 @@ export const QUESTION_MAX_CHARS = 4_000;
 /** Earlier turns of this Ree sent along with a question. */
 export const HISTORY_TURNS = 6;
 
+/* ------------------------------------------- anonymous chat, beyond 4 */
+
+/**
+ * Signed-out visitors may ask a public, published Ree whose query fee is 0
+ * on its public page (lib/services/anonymous-chat.ts). A round is one
+ * question the Ree answered; the day is the UTC date (anonymousDay).
+ */
+export const ANONYMOUS_ROUNDS_PER_DAY = 10;
+/** Backstop per client address and day: many visitors behind one address, or one rotating its fingerprint. */
+export const ANONYMOUS_IP_ROUNDS_PER_DAY = 50;
+/** Earlier turns (questions and answers) the browser sends back with a question, and their combined length. */
+export const ANONYMOUS_HISTORY_TURNS = HISTORY_TURNS * 2;
+export const ANONYMOUS_HISTORY_CHARS = 12_000;
+
 /* ------------------------------------------------------------- lists, 8.1 */
 
 export const LIST_PAGE_SIZES = [20, 50, 100] as const;

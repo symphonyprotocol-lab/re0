@@ -11,6 +11,7 @@ import { Icon } from '@/components/ui/icons';
 import { ReeIdentityCover } from '@/components/rees/ree-identity-cover';
 import { RoleBadge } from '@/components/discover/role-badge';
 import { AuthorProfile } from '@/components/discover/author-profile';
+import { AnonymousChat } from '@/components/discover/anonymous-chat';
 import { JoinButton } from '@/components/discover/join-button';
 import { PublicListSection } from '@/components/discover/public-list';
 import { PublicVisit } from '@/components/discover/public-visit';
@@ -166,6 +167,13 @@ export function ReeDetailView({
                   ))}
                 </ol>
               </section>
+            )}
+            {/* A signed-out visitor may ask a free Ree here; the server decides again on every question. */}
+            {!preview && !viewerId && ree.queryFee === 0 && ready && (
+              <AnonymousChat
+                ree={{ id: ree.id, name: ree.name, avatarBlob: ree.avatarBlob, color: ree.color, sampleQuestions: ree.sampleQuestions }}
+                loginHref={`/login?returnTo=${encodeURIComponent(self({}))}`}
+              />
             )}
           </section>
 

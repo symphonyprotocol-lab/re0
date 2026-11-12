@@ -13,6 +13,7 @@ import {
   bigint,
   boolean,
   check,
+  date,
   index,
   integer,
   jsonb,
@@ -1164,6 +1165,43 @@ export const rateBucket = pgTable(
     hits: integer('hits').notNull().default(0),
   },
   (t) => [primaryKey({ columns: [t.key, t.windowStart] })],
+);
+
+/**
+ * Beyond 4: anonymous chat with free Rees (query fee 0) on the public page.
+ * Rounds answered per visitor key and UTC day, reserved atomically before
+ * the model is called (lib/services/anonymous-chat.ts). `key_hash` is an
+ * HMAC under a key derived from AUTH_SECRET of the browser fingerprint, the
+ * anonymous-id cookie or the client address, prefixed by which one it is;
+ * the raw values are never stored. The hourly rank job clears past days.
+ */
+export const anonymousChatQuota = pgTable(
+  'anonymous_chat_quota',
+  {
+    keyHash: text('key_hash').notNull(),
+    day: date('day', { mode: 'string' }).notNull(),
+    rounds: integer('rounds').notNull().default(0),
+    updatedAt: timestampTz('updated_at').notNull().defaultNow(),
+  },
+  (t) => [primaryKey({ columns: [t.keyHash, t.day] }), index('anonymous_chat_quota_day_idx').on(t.day), check('anonymous_chat_quota_rounds_check', sql`rounds >= 0`)],
+);
+
+/**
+ * Beyond 4: one row per answer a free Ree gave a signed-out visitor. Nothing
+ * else of the exchange is kept (no conversation, message or ledger entry);
+ * the row only lets the owner's statistics and the public answer count
+ * include anonymous answers.
+ */
+export const anonymousAnswer = pgTable(
+  'anonymous_answer',
+  {
+    id: uuid('id').primaryKey().defaultRandom(),
+    reeId: uuid('ree_id')
+      .notNull()
+      .references(() => ree.id, { onDelete: 'cascade' }),
+    createdAt: createdAt(),
+  },
+  (t) => [index('anonymous_answer_ree_idx').on(t.reeId, t.createdAt)],
 );
 
 /* ------------------------------------------------------------- step 5 */
