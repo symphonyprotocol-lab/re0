@@ -39,6 +39,8 @@ export function LocaleBoundary({ locale, preferred, account }: { locale: Locale;
       if (event.defaultPrevented || event.button !== 0 || event.metaKey || event.ctrlKey || event.shiftKey || event.altKey) return;
       const anchor = event.target instanceof Element ? event.target.closest('a[href]') : null;
       if (!(anchor instanceof HTMLAnchorElement) || (anchor.target && anchor.target !== '_self') || anchor.hasAttribute('download')) return;
+      /* The language menu's links: plain links, which the browser loads in full anyway, after their own click handler saves the choice. */
+      if (anchor.hasAttribute('data-locale-switch')) return;
       const url = new URL(anchor.href);
       if (url.origin !== window.location.origin || !crosses(url.pathname)) return;
       event.preventDefault();

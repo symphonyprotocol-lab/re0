@@ -4,6 +4,7 @@ import type { ReactNode } from 'react';
 import { I18nProvider } from '@/i18n/client';
 import { localePreference, serverMessages } from '@/i18n/server';
 import { appBaseUrl } from '@/lib/http/cookies';
+import { HTML_LANG } from '@/i18n/locale';
 import { ogLocale, SITE_NAME } from '@/lib/seo';
 import { ToastProvider } from '@/components/ui/toast';
 import { NavigationProvider } from '@/components/shell/navigation-provider';
@@ -45,7 +46,7 @@ export const viewport: Viewport = { width: 'device-width', initialScale: 1, them
 export default async function RootLayout({ children }: { children: ReactNode }) {
   const [{ locale, t }, { preferred, account }] = await Promise.all([serverMessages(), localePreference()]);
   return (
-    <html lang={locale === 'zh' ? 'zh-CN' : 'en'} className={`${inter.variable} ${jetbrains.variable}`}>
+    <html lang={HTML_LANG[locale]} className={`${inter.variable} ${jetbrains.variable}`}>
       <body className="min-h-dvh font-sans">
         <I18nProvider locale={locale} t={t}>
           <LocaleBoundary locale={locale} preferred={preferred} account={account} />

@@ -4,6 +4,10 @@
  */
 export type Locale = 'zh' | 'en';
 export const LOCALES: readonly Locale[] = ['zh', 'en'];
+/** Each language's own name, as the language menu lists it (never translated). */
+export const LOCALE_NAMES: Record<Locale, string> = { zh: '中文', en: 'English' };
+/** `<html lang>` and other BCP 47 tags for each language. */
+export const HTML_LANG: Record<Locale, string> = { zh: 'zh-CN', en: 'en' };
 
 export function isLocale(value: unknown): value is Locale {
   return value === 'zh' || value === 'en';
