@@ -2,7 +2,7 @@
  * Anonymous chat with free Rees (beyond 4): what the browser and the server
  * agree on. The server side is lib/services/anonymous-chat.ts.
  */
-import { ANONYMOUS_HISTORY_CHARS, ANONYMOUS_HISTORY_TURNS } from '@/lib/constants';
+import { ANONYMOUS_HISTORY_CHARS, ANONYMOUS_HISTORY_TURNS, ANONYMOUS_LIMIT_MAX } from '@/lib/constants';
 import type { AnonymousQuota } from '@/lib/domain/chat-message';
 
 /** The browser fingerprint (lib/client/fingerprint.ts) travels in this header, never in the URL. */
@@ -53,6 +53,25 @@ export function ipBucket(ip: string): string {
   const groups = [...head, ...Array<string>(halves.length === 2 ? missing : 0).fill('0'), ...tail];
   if (groups.length !== 8 || groups.some((group) => !/^[0-9a-f]{1,4}$/.test(group))) return value;
   return `${groups.slice(0, 4).map((group) => group.replace(/^0+(?=.)/, '')).join(':')}::/64`;
+}
+
+/**
+ * The shared daily caps an administrator sets (anonymous-chat-settings.ts):
+ * per Ree, over the platform, per client address. `revision` guards a save
+ * against one made since the form was loaded; `default` before any save.
+ */
+export interface AnonymousChatLimits {
+  reeRoundsPerDay: number;
+  platformRoundsPerDay: number;
+  ipRoundsPerDay: number;
+  revision: string;
+}
+
+export const ANONYMOUS_LIMIT_FIELDS = ['reeRoundsPerDay', 'platformRoundsPerDay', 'ipRoundsPerDay'] as const;
+
+/** A cap an administrator may set: a whole number from 1 to `ANONYMOUS_LIMIT_MAX`. */
+export function validAnonymousLimit(value: unknown): value is number {
+  return typeof value === 'number' && Number.isInteger(value) && value >= 1 && value <= ANONYMOUS_LIMIT_MAX;
 }
 
 /** The day a round counts against: the UTC date, `YYYY-MM-DD`. The one place that decides it. */

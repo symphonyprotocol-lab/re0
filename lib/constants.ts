@@ -373,7 +373,7 @@ export const HISTORY_TURNS = 6;
  */
 export const ANONYMOUS_ROUNDS_PER_DAY = 10;
 /**
- * Per client address (IPv6 by /64) and day: many visitors behind one address
+ * Per client address (IPv6 by /64) and day, by default: many visitors behind one address
  * (an office, a campus, carrier NAT), or one rotating fingerprint and cookie
  * -- the only key a script cannot make up.
  */
@@ -382,6 +382,14 @@ export const ANONYMOUS_IP_ROUNDS_PER_DAY = 100;
 export const ANONYMOUS_REE_ROUNDS_PER_DAY = 500;
 /** Over the whole platform and day: the circuit breaker on what anonymous answers may cost. */
 export const ANONYMOUS_PLATFORM_ROUNDS_PER_DAY = 5_000;
+/*
+ * The address, Ree and platform caps above are the defaults: an
+ * administrator sets them in the console's pricing page
+ * (anonymous-chat-settings.ts), each from 1 to this; servers pick a change
+ * up within `ANONYMOUS_LIMITS_CACHE_MS`.
+ */
+export const ANONYMOUS_LIMIT_MAX = 10_000_000;
+export const ANONYMOUS_LIMITS_CACHE_MS = 30_000;
 /**
  * Every key also caps attempts at this multiple of its rounds: a question
  * that gets no answer gives its round back but never its attempt, so

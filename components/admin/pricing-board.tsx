@@ -3,22 +3,27 @@ import { useState, type FormEvent } from 'react';
 import { PageHead } from '@/components/admin/list-kit';
 import { CI } from '@/components/admin/console-icon';
 import { useI18n } from '@/i18n/client';
-import { formatNumber, formatUsd } from '@/i18n/format';
+import { fill, formatNumber, formatUsd } from '@/i18n/format';
 import './pricing-board.css';
 import type { PricingView, PriceView, CreditAmountView } from '@/lib/domain/pricing';
 import type { InfraCostRatesView } from '@/lib/domain/infra-cost';
+import { ANONYMOUS_LIMIT_MAX } from '@/lib/constants';
+import { ANONYMOUS_LIMIT_FIELDS, type AnonymousChatLimits } from '@/lib/domain/anonymous-chat';
 
 // datetime-local uses the explicitly labelled business timezone, regardless of the browser timezone.
 const localTime = (iso: string) => new Date(Date.parse(iso) + 8 * 3600_000).toISOString().slice(0, 16);
 const utcTime = (value: string) => (value ? new Date(`${value}:00+08:00`).toISOString() : '');
 
-export function PricingBoard({ initial, configured, welcome, videoScript, videoExport, infraCosts }: {
+export function PricingBoard({ initial, configured, welcome, videoScript, videoExport, infraCosts, anonymousChat, anonymousToday }: {
   initial: PricingView;
   configured: boolean;
   welcome: CreditAmountView;
   videoScript: CreditAmountView;
   videoExport: CreditAmountView;
   infraCosts: InfraCostRatesView;
+  anonymousChat: AnonymousChatLimits;
+  /** Today's (UTC) anonymous answers over the platform. */
+  anonymousToday: number;
 }) {
   const { t } = useI18n();
   const p = t.pricingAdmin;
@@ -34,6 +39,7 @@ export function PricingBoard({ initial, configured, welcome, videoScript, videoE
       <CreditAmountForm kind="video_script" initial={videoScript} />
       <CreditAmountForm kind="video_export" initial={videoExport} />
       <InfraCostForm initial={infraCosts} />
+      <AnonymousChatForm initial={anonymousChat} today={anonymousToday} />
       <div className="pricing-admin-grid">
         {(['plan', 'pack'] as const).map((kind) => (
           <PriceForm key={kind} kind={kind} initial={initial[kind]} configured={configured} />
@@ -314,6 +320,85 @@ function InfraCostForm({ initial }: { initial: InfraCostRatesView }) {
               step={field.step}
               value={values[field.key]}
               onChange={(e) => setValues({ ...values, [field.key]: e.target.value })}
+            />
+          </label>
+        ))}
+        <button className="btn" type="submit">
+          {busy ? p.saving : labels.save}
+        </button>
+      </fieldset>
+      {message && <p role="status">{message}</p>}
+    </form>
+  );
+}
+
+/** Anonymous chat's shared daily caps (lib/services/anonymous-chat-settings.ts). */
+function AnonymousChatForm({ initial, today }: { initial: AnonymousChatLimits; today: number }) {
+  const { t, locale } = useI18n();
+  const p = t.pricingAdmin;
+  const labels = p.anonymousChat;
+  const [saved, setSaved] = useState(initial);
+  const [values, setValues] = useState<Record<(typeof ANONYMOUS_LIMIT_FIELDS)[number], string>>({
+    reeRoundsPerDay: String(initial.reeRoundsPerDay),
+    platformRoundsPerDay: String(initial.platformRoundsPerDay),
+    ipRoundsPerDay: String(initial.ipRoundsPerDay),
+  });
+  const [busy, setBusy] = useState(false);
+  const [message, setMessage] = useState('');
+  async function save(event: FormEvent) {
+    event.preventDefault();
+    setBusy(true);
+    setMessage('');
+    try {
+      const whole = (value: string) => (/^\d+$/.test(value.trim()) ? Number(value.trim()) : null);
+      const response = await fetch('/api/admin/pricing', {
+        method: 'PUT',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({
+          kind: 'anonymous_chat',
+          revision: saved.revision,
+          reeRoundsPerDay: whole(values.reeRoundsPerDay),
+          platformRoundsPerDay: whole(values.platformRoundsPerDay),
+          ipRoundsPerDay: whole(values.ipRoundsPerDay),
+        }),
+      });
+      const result = (await response.json()) as { anonymousChat?: AnonymousChatLimits; error?: keyof typeof p.errors };
+      if (!response.ok || !result.anonymousChat) {
+        setMessage((result.error && p.errors[result.error]) || t.common.errors.generic);
+        return;
+      }
+      setSaved(result.anonymousChat);
+      setMessage(labels.saved);
+    } catch {
+      setMessage(t.common.errors.network);
+    } finally {
+      setBusy(false);
+    }
+  }
+  return (
+    <form className="card pricing-admin-card pricing-credit-card" onSubmit={save}>
+      <div>
+        <h2>{labels.title}</h2>
+        <p className="muted">{labels.note}</p>
+      </div>
+      <p>
+        <strong>{fill(labels.today, { n: formatNumber(today, locale), limit: formatNumber(saved.platformRoundsPerDay, locale) })}</strong>
+        {saved.revision === 'default' && <span className="muted"> · {labels.defaults}</span>}
+      </p>
+      <fieldset disabled={busy} className="grid gap-4">
+        {ANONYMOUS_LIMIT_FIELDS.map((field) => (
+          <label className="grid gap-2" key={field}>
+            {labels.fields[field]}
+            <input
+              className="input"
+              type="number"
+              inputMode="numeric"
+              required
+              min="1"
+              max={ANONYMOUS_LIMIT_MAX}
+              step="1"
+              value={values[field]}
+              onChange={(e) => setValues({ ...values, [field]: e.target.value })}
             />
           </label>
         ))}

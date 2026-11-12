@@ -8,11 +8,11 @@
  * - A question counts under several keys at once: the browser fingerprint
  *   and the httpOnly anonymous-id cookie (each at the visitor's daily
  *   limit), so clearing one does not reset the count; the client address,
- *   IPv6 by /64 (`ANONYMOUS_IP_ROUNDS_PER_DAY`), the only key a script
- *   cannot make up, so a request without one is refused; and the Ree and
- *   the platform (`ANONYMOUS_REE_ROUNDS_PER_DAY`,
- *   `ANONYMOUS_PLATFORM_ROUNDS_PER_DAY`), which bound what anonymous
- *   answers cost however many addresses ask. Only HMACs of the visitor's
+ *   IPv6 by /64, the only key a script cannot make up, so a request
+ *   without one is refused; and the Ree and the platform, which bound what
+ *   anonymous answers cost however many addresses ask. Those three caps are
+ *   set in the console (anonymous-chat-settings.ts; the constants are their
+ *   defaults). Only HMACs of the visitor's
  *   values are stored, under a key derived from AUTH_SECRET for this alone.
  * - A round and an attempt are reserved on every key before any model is
  *   called, with a conditional upsert that never lets a key pass either
@@ -35,13 +35,7 @@
 import { randomUUID } from 'node:crypto';
 import { and, eq, inArray, sql } from 'drizzle-orm';
 import { createUIMessageStream, createUIMessageStreamResponse } from 'ai';
-import {
-  ANONYMOUS_ATTEMPTS_FACTOR,
-  ANONYMOUS_IP_ROUNDS_PER_DAY,
-  ANONYMOUS_PLATFORM_ROUNDS_PER_DAY,
-  ANONYMOUS_REE_ROUNDS_PER_DAY,
-  ANONYMOUS_ROUNDS_PER_DAY,
-} from '@/lib/constants';
+import { ANONYMOUS_ATTEMPTS_FACTOR, ANONYMOUS_ROUNDS_PER_DAY } from '@/lib/constants';
 import { citationSnapshots } from '@/lib/domain/answer';
 import { anonymousDay, ipBucket, type AnonymousScope, type AnonymousTurn } from '@/lib/domain/anonymous-chat';
 import { TEXT_META_KEY, textPartId, type AnonymousQuota, type ReeOutcome, type ReeUIMessage } from '@/lib/domain/chat-message';
@@ -51,6 +45,7 @@ import { authSecret } from '@/lib/infra/crypto/secrets';
 import { hmacSha256 } from '@/lib/infra/crypto/tokens';
 import { db, schema } from '@/lib/infra/db';
 import { readyRees, safe, streamGroundedAnswer, type Emit } from '@/lib/services/answer';
+import { currentAnonymousChatLimits } from '@/lib/services/anonymous-chat-settings';
 import { embedQuestion, retrieve } from '@/lib/services/chat';
 import { publicRee } from '@/lib/services/explore';
 import { generationForUser } from '@/lib/services/generation';
@@ -105,12 +100,14 @@ function key(hash: string, scope: AnonymousScope, limit: number): QuotaKey {
  * left -- so the route refuses a request that has none.
  */
 export async function visitorKeys(visitor: { fingerprint: string; anonymousId: string; ip: string; reeId: string }): Promise<QuotaKey[]> {
+  /* The shared caps as an administrator set them (anonymous-chat-settings.ts); the visitor's own 10 is a constant. */
+  const limits = await currentAnonymousChatLimits();
   return [
     key(await quotaKeyHash('fp', visitor.fingerprint), 'visitor', ANONYMOUS_ROUNDS_PER_DAY),
     key(await quotaKeyHash('id', visitor.anonymousId), 'visitor', ANONYMOUS_ROUNDS_PER_DAY),
-    key(await quotaKeyHash('ip', ipBucket(visitor.ip)), 'network', ANONYMOUS_IP_ROUNDS_PER_DAY),
-    key(`ree:${visitor.reeId}`, 'ree', ANONYMOUS_REE_ROUNDS_PER_DAY),
-    key('all:', 'platform', ANONYMOUS_PLATFORM_ROUNDS_PER_DAY),
+    key(await quotaKeyHash('ip', ipBucket(visitor.ip)), 'network', limits.ipRoundsPerDay),
+    key(`ree:${visitor.reeId}`, 'ree', limits.reeRoundsPerDay),
+    key('all:', 'platform', limits.platformRoundsPerDay),
   ];
 }
 

@@ -15,6 +15,12 @@ import { consoleAdministrator } from '../fixtures/console-administrator';
 
 const describeWithDb = TEST_DATABASE_URL ? describe : describe.skip;
 
+/* The console's routes read the session from `next/headers`: here nobody is signed in to the console. */
+vi.mock('next/headers', () => ({
+  cookies: async () => ({ get: () => undefined }),
+  headers: async () => new Headers(),
+}));
+
 const { createSession } = await import('@/lib/services/auth');
 const rees = await import('@/lib/services/rees');
 const knowledge = await import('@/lib/services/knowledge');
@@ -22,13 +28,16 @@ const anonymous = await import('@/lib/services/anonymous-chat');
 const { answerCounts, reeStatistics, statisticsQuery } = await import('@/lib/services/statistics');
 const { publicReeBySlug } = await import('@/lib/services/public-rees');
 const { GET, POST } = await import('@/app/api/rees/[id]/anonymous-chat/route');
-const { ANONYMOUS_ATTEMPTS_FACTOR, ANONYMOUS_IP_ROUNDS_PER_DAY, ANONYMOUS_PLATFORM_ROUNDS_PER_DAY, ANONYMOUS_REE_ROUNDS_PER_DAY, ANONYMOUS_ROUNDS_PER_DAY } = await import('@/lib/constants');
+const { ANONYMOUS_ATTEMPTS_FACTOR, ANONYMOUS_IP_ROUNDS_PER_DAY, ANONYMOUS_LIMITS_CACHE_MS, ANONYMOUS_PLATFORM_ROUNDS_PER_DAY, ANONYMOUS_REE_ROUNDS_PER_DAY, ANONYMOUS_ROUNDS_PER_DAY } = await import('@/lib/constants');
 const { ANONYMOUS_CAPACITY_REACHED, ANONYMOUS_ID_COOKIE, ANONYMOUS_NETWORK_LIMIT, ANONYMOUS_QUOTA_EXCEEDED, FINGERPRINT_HEADER, anonymousDay, ipBucket } = await import('@/lib/domain/anonymous-chat');
 const { db, schema } = await import('@/lib/infra/db');
 const share = await import('@/lib/services/share');
 const { publicReeRef } = await import('@/lib/services/public-rees');
 const { VISITOR_COOKIE } = await import('@/lib/http/share');
 const { adminOverview } = await import('@/lib/services/admin-overview');
+const settings = await import('@/lib/services/anonymous-chat-settings');
+const pricingRoute = await import('@/app/api/admin/pricing/route');
+const { AdminInputError } = await import('@/lib/services/admin');
 const { newReeDraft } = await import('@/lib/domain/ree');
 const { forgetModelCache } = await import('@/lib/infra/ai/models');
 
@@ -512,5 +521,98 @@ describeWithDb('where anonymous answers are counted', () => {
     expect((await share.shareStatistics(reeId, null)).anonymousAnswers).toBe(2);
     const day = await reeStatistics(reeId, statisticsQuery({ period: 'day' }), { withIncome: true });
     expect(day.share.anonymousAnswers).toBe(1);
+  });
+});
+
+describeWithDb('caps set in the console', () => {
+  const reset = async () => {
+    await db().delete(schema.anonymousChatSettings);
+    settings.forgetAnonymousChatLimits();
+  };
+
+  it('uses the defaults until an administrator saves, and keeps the visitor’s own 10', async () => {
+    await reset();
+    expect(await settings.anonymousChatLimits()).toEqual({
+      reeRoundsPerDay: ANONYMOUS_REE_ROUNDS_PER_DAY,
+      platformRoundsPerDay: ANONYMOUS_PLATFORM_ROUNDS_PER_DAY,
+      ipRoundsPerDay: ANONYMOUS_IP_ROUNDS_PER_DAY,
+      revision: 'default',
+    });
+    const keys = await keysFor();
+    expect(keys.map((key) => [key.scope, key.limit])).toEqual([
+      ['visitor', ANONYMOUS_ROUNDS_PER_DAY],
+      ['visitor', ANONYMOUS_ROUNDS_PER_DAY],
+      ['network', ANONYMOUS_IP_ROUNDS_PER_DAY],
+      ['ree', ANONYMOUS_REE_ROUNDS_PER_DAY],
+      ['platform', ANONYMOUS_PLATFORM_ROUNDS_PER_DAY],
+    ]);
+  });
+
+  it('enforces a saved per-Ree cap at once, audited, and returns to the defaults without a row', async () => {
+    await reset();
+    const administrator = await consoleAdministrator();
+    const { reeId } = await freeRee();
+    try {
+      const saved = await settings.saveAnonymousChatLimits(administrator.id, {
+        revision: 'default',
+        reeRoundsPerDay: 2,
+        platformRoundsPerDay: ANONYMOUS_PLATFORM_ROUNDS_PER_DAY,
+        ipRoundsPerDay: ANONYMOUS_IP_ROUNDS_PER_DAY,
+      });
+      expect(saved).toMatchObject({ reeRoundsPerDay: 2 });
+      expect(saved.revision).not.toBe('default');
+      const [entry] = await db().select().from(schema.adminAudit).where(and(eq(schema.adminAudit.action, 'anonymous_chat.update'), eq(schema.adminAudit.administratorId, administrator.id)));
+      expect(entry).toMatchObject({ target: 'limits', after: { reeRoundsPerDay: 2 } });
+
+      for (let index = 0; index < 2; index += 1) expect((await read(await ask(reeId, { fingerprint: fingerprint(), ip: ip() }))).outcome).toMatchObject({ noAnswer: false });
+      const third = await ask(reeId, { fingerprint: fingerprint(), ip: ip() });
+      expect(third.status).toBe(429);
+      expect(await third.json()).toMatchObject({ error: ANONYMOUS_CAPACITY_REACHED, scope: 'ree', blocked: 'capacity' });
+
+      /* A stale form is refused rather than overwriting a newer save. */
+      await expect(settings.saveAnonymousChatLimits(administrator.id, { revision: 'default', reeRoundsPerDay: 9, platformRoundsPerDay: 9, ipRoundsPerDay: 9 })).rejects.toMatchObject({ code: 'pricing_conflict' });
+    } finally {
+      await reset();
+    }
+    expect((await ask(reeId, { fingerprint: fingerprint(), ip: ip() })).status).toBe(200);
+  });
+
+  it('rejects caps that are not whole numbers from 1 to the maximum', async () => {
+    await reset();
+    const administrator = await consoleAdministrator();
+    const valid = { revision: 'default', reeRoundsPerDay: 500, platformRoundsPerDay: 5_000, ipRoundsPerDay: 100 };
+    for (const bad of [{ reeRoundsPerDay: 0 }, { platformRoundsPerDay: 1.5 }, { ipRoundsPerDay: '100' }, { ipRoundsPerDay: 10_000_001 }, { platformRoundsPerDay: undefined }, { revision: undefined }]) {
+      const attempt = settings.saveAnonymousChatLimits(administrator.id, { ...valid, ...bad });
+      await expect(attempt).rejects.toBeInstanceOf(AdminInputError);
+      await expect(attempt).rejects.toMatchObject({ code: 'invalid_anonymous_limits' });
+    }
+    expect(await db().select().from(schema.anonymousChatSettings)).toHaveLength(0);
+  });
+
+  it('is saved only by a signed-in administrator', async () => {
+    await reset();
+    const response = await pricingRoute.PUT(
+      new NextRequest(`${base}/api/admin/pricing`, {
+        method: 'PUT',
+        headers: { origin: base, host: 'localhost:3000', 'content-type': 'application/json' },
+        body: JSON.stringify({ kind: 'anonymous_chat', revision: 'default', reeRoundsPerDay: 1, platformRoundsPerDay: 1, ipRoundsPerDay: 1 }),
+      }),
+    );
+    expect(response.status).toBe(401);
+    expect(await db().select().from(schema.anonymousChatSettings)).toHaveLength(0);
+  });
+
+  it('reaches other servers within the cache window', async () => {
+    await reset();
+    const at = Date.now();
+    expect((await settings.currentAnonymousChatLimits(at)).reeRoundsPerDay).toBe(ANONYMOUS_REE_ROUNDS_PER_DAY);
+    /* Saved by another server: this one's cache still holds the old caps for a while. */
+    await db().insert(schema.anonymousChatSettings).values({ reeRoundsPerDay: 7, platformRoundsPerDay: 70, ipRoundsPerDay: 700 });
+    try {
+      expect((await settings.currentAnonymousChatLimits(at + 1_000)).reeRoundsPerDay).toBe(ANONYMOUS_REE_ROUNDS_PER_DAY);
+      expect(await settings.currentAnonymousChatLimits(at + ANONYMOUS_LIMITS_CACHE_MS)).toMatchObject({ reeRoundsPerDay: 7, platformRoundsPerDay: 70, ipRoundsPerDay: 700 });
+    } finally {
+      await reset();
+    }
   });
 });

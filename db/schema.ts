@@ -1631,6 +1631,25 @@ export const videoExportPricing = pgTable('video_export_pricing', {
 ]);
 
 /**
+ * Beyond 4: anonymous chat's shared daily caps, set in the console's
+ * pricing page (lib/services/anonymous-chat-settings.ts). No row means the
+ * defaults in lib/constants.ts. A visitor's own 10 a day and the attempts
+ * factor stay constants.
+ */
+export const anonymousChatSettings = pgTable('anonymous_chat_settings', {
+  id: integer('id').primaryKey().default(1),
+  reeRoundsPerDay: integer('ree_rounds_per_day').notNull(),
+  platformRoundsPerDay: integer('platform_rounds_per_day').notNull(),
+  ipRoundsPerDay: integer('ip_rounds_per_day').notNull(),
+  revision: uuid('revision').notNull().defaultRandom(),
+  updatedBy: uuid('updated_by').references(() => administrator.id),
+  updatedAt: timestampTz('updated_at').notNull().defaultNow(),
+}, () => [
+  check('anonymous_chat_settings_singleton_check', sql`id = 1`),
+  check('anonymous_chat_settings_limits_check', sql`ree_rounds_per_day between 1 and 10000000 and platform_rounds_per_day between 1 and 10000000 and ip_rounds_per_day between 1 and 10000000`),
+]);
+
+/**
  * Beyond 4: the share page `/s/[slug]` -- a visit, or a conversation the
  * visitor started or joined from it. `visitor_id` is the random id of the
  * `re0_visitor` cookie (no IP, no user agent); the owner's own visits are
