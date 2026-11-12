@@ -15,12 +15,17 @@
  */
 import { and, desc, eq, inArray, isNull, sql, type SQL } from 'drizzle-orm';
 import {
+  EMBEDDING_DIMENSIONS,
   EXPLORE_EF_SEARCH,
   EXPLORE_NAME_REES,
+  EXPLORE_PASSAGE_EF_SEARCH,
+  EXPLORE_PASSAGE_SCAN_MAX,
   EXPLORE_PASSAGES,
   EXPLORE_PROFILE_REES,
   EXPLORE_RATE_LIMIT,
   EXPLORE_RESULTS,
+  EXPLORE_VECTOR_CACHE_MS,
+  EXPLORE_VECTOR_CACHE_SIZE,
   PROFILE_MAX_VECTORS,
   QUERY_BASE_FEE,
   type ReeCategory,
@@ -44,12 +49,14 @@ import {
 import { isUuid } from '@/lib/domain/list';
 import { hasEvidence, keywordCoverage, searchTerms } from '@/lib/domain/retrieval';
 import { db, schema } from '@/lib/infra/db';
-import { answerable, embedQuestion, type QuestionVector } from '@/lib/services/chat';
-import { chunkVector, profileInSpace } from '@/lib/services/embedding-space';
+import { embedQuestion, type QuestionVector } from '@/lib/services/chat';
+import { BASE_SPACE, chunkVector, profileInSpace, spaceOf } from '@/lib/services/embedding-space';
+import { endpointFor } from '@/lib/infra/ai/models';
 import type { IntroProps } from '@/lib/domain/video';
 import { introsFor } from '@/lib/services/video';
 import { votesByOthers } from '@/lib/services/ree-feedback';
 import { hitRateBucket } from '@/lib/services/rate-limit';
+import { untimed, type Timing } from '@/lib/infra/timing';
 
 const reeId = sql.raw('"ree"."id"');
 const reeOwner = sql.raw('"ree"."owner_id"');
@@ -168,7 +175,7 @@ const compactNameAndTags = sql`regexp_replace(lower(${schema.ree.name} || ' ' ||
  * strongest EXPLORE_NAME_REES. Public fields only, never knowledge or the
  * persona prompt.
  */
-async function namedRees(question: string, filter: { category?: ReeCategory | null; exclude: readonly string[] }): Promise<Map<string, number>> {
+export async function namedRees(question: string, filter: { category?: ReeCategory | null; exclude: readonly string[] }): Promise<Map<string, number>> {
   const keys = queryNameKeys(question);
   if (!keys.length) return new Map();
   const rows = await db()
@@ -194,6 +201,87 @@ async function namedRees(question: string, filter: { category?: ReeCategory | nu
   );
 }
 
+/** One vector slot of the chunk table: its column, its space tag (the base space when untagged, slot 0 only) and its HNSW index's expression. */
+const SLOTS = [
+  { vector: sql.raw('c.embedding'), inSpace: (space: string) => sql`coalesce(c.embedding_space, ${BASE_SPACE}::uuid) = ${space}::uuid` },
+  { vector: sql.raw('c.embedding_next'), inSpace: (space: string) => sql`c.embedding_next_space = ${space}::uuid` },
+] as const;
+
+type Passage = { reeId: string; content: string; title: string; similarity: number };
+
+/**
+ * The nearest answerable passages of `rees` to the question, nearest first,
+ * at most `limit`.
+ *
+ * First through each vector slot's HNSW index (0048), on half-precision
+ * copies, with an iterative scan so the filter still fills the list; the
+ * similarity is then computed again on the stored vectors of the rows
+ * found. Only those rows' vectors and texts are read -- not, as an exact
+ * scan does, every passage of every candidate (some 50,000 vectors of
+ * 6 KB, three times each, per search). The planner cannot tell how many
+ * passages the space tag keeps, so it is told to skip the sort-everything
+ * plan (`enable_sort`, `jit` off for the statement).
+ *
+ * An index scan gives up after EXPLORE_PASSAGE_SCAN_MAX entries; when that
+ * leaves the list short, `rees` hold few passages near the question, and an
+ * exact scan of them (all they have) is cheap. The exact scan is also the
+ * answer when the index search fails.
+ */
+async function nearestPassages(vector: QuestionVector, rees: readonly string[], limit: number): Promise<Passage[]> {
+  if (!rees.length || limit < 1) return [];
+  const search = passageSearch(vector, rees, limit);
+  const toPassages = (rows: Passage[]) =>
+    rows
+      .map((row) => ({ ...row, similarity: Number(row.similarity) }))
+      .sort((x, y) => y.similarity - x.similarity)
+      .slice(0, limit);
+  const indexed = await db()
+    .transaction(async (tx) => {
+      await tx.execute(search.settings);
+      const { rows } = await tx.execute<Passage>(search.indexed);
+      return toPassages(rows);
+    })
+    .catch((error: unknown) => {
+      /* A database without the indexes or iterative scans (pgvector before 0.8) still answers, exactly and slowly. */
+      console.error(`explore: index search failed, scanning exactly (${error instanceof Error ? error.message : String(error)})`);
+      return [];
+    });
+  if (indexed.length >= limit) return indexed;
+  const { rows } = await db().execute<Passage>(search.exact);
+  return toPassages(rows);
+}
+
+/** `nearestPassages`' statements: the transaction's settings, the index search (one leg per slot), and the exact scan. Exported for the plan test. */
+export function passageSearch(vector: QuestionVector, rees: readonly string[], limit: number): { settings: SQL; indexed: SQL; exact: SQL } {
+  const literal = `[${vector.vector.join(',')}]`;
+  const half = sql.raw(`halfvec(${EMBEDDING_DIMENSIONS})`);
+  const inRees = sql`c.ree_id in (${sql.join(rees.map((id) => sql`${id}::uuid`), sql`, `)})`;
+  /* `answerable()` (chat.ts) under the alias `k`. */
+  const ready = sql`k.status = 'ready' and k.enabled and k.deleted_at is null`;
+  const stored = chunkVector(vector.space, 'c');
+  const columns = sql`c.ree_id as "reeId", c.content, k.title, 1 - (${stored} <=> ${literal}::vector) as similarity`;
+  const legs = SLOTS.map(
+    (slot) => sql`(select ${columns} from ${schema.chunk} c join ${schema.knowledge} k on k.id = c.knowledge_id
+      where ${inRees} and ${ready} and ${slot.vector} is not null and ${slot.inSpace(vector.space)}
+      order by ${slot.vector}::${half} <=> ${literal}::${half}
+      limit ${limit})`,
+  );
+  return {
+    settings: sql`select
+      set_config('hnsw.ef_search', ${String(EXPLORE_PASSAGE_EF_SEARCH)}, true),
+      set_config('hnsw.iterative_scan', 'relaxed_order', true),
+      set_config('hnsw.max_scan_tuples', ${String(EXPLORE_PASSAGE_SCAN_MAX)}, true),
+      set_config('enable_sort', 'off', true),
+      set_config('jit', 'off', true)`,
+    indexed: sql.join(legs, sql` union all `),
+    exact: sql`
+      select ${columns} from ${schema.chunk} c join ${schema.knowledge} k on k.id = c.knowledge_id
+      where ${inRees} and ${ready} and ${stored} is not null
+      order by (${stored} <=> ${literal}::vector) + 0
+      limit ${limit}`,
+  };
+}
+
 /**
  * The two levels. With a category or Rees to leave out, the first level
  * scans that slice of the profile table exactly (`+ 0` keeps the planner off
@@ -208,6 +296,11 @@ async function namedRees(question: string, filter: { category?: ReeCategory | nu
  * when that passage is not among the 50, and adds the name boost: a bare
  * product name puts that product's Ree first, while a question that only
  * mentions one keeps ranking mostly by its passages.
+ *
+ * The profile search and the name lookup run side by side, and so do the
+ * 50 passages and each named Ree's own nearest one (`nearestPassages`);
+ * `explore` starts the name lookup while the question is still being
+ * embedded and hands it in as `named`.
  */
 export async function searchRees(input: {
   question: string;
@@ -215,87 +308,73 @@ export async function searchRees(input: {
   category?: ReeCategory | null;
   exclude?: readonly string[];
   limit?: number;
+  named?: Promise<Map<string, number>>;
+  timing?: Pick<Timing, 'measure'>;
 }): Promise<SearchHit[]> {
   const database = db();
+  const timing = input.timing ?? untimed;
   const literal = `[${input.vector.vector.join(',')}]`;
   const exclude = (input.exclude ?? []).filter((id) => isUuid(id));
   /* A category can leave too few rows behind an index search; up to five excluded Rees only need a longer list (ef_search covers 25 × 16). */
   const filtered = Boolean(input.category);
   const distance = sql`${schema.reeProfileVector.embedding} <=> ${literal}::vector`;
-  const firstLevel = await database.transaction(async (tx) => {
-    if (!filtered) await tx.execute(sql.raw(`set local hnsw.ef_search = ${EXPLORE_EF_SEARCH}`));
-    const nearest = tx
-      .select({ reeId: schema.reeProfileVector.reeId, distance: sql<number>`${distance}`.as('distance') })
-      .from(schema.reeProfileVector)
-      .innerJoin(schema.ree, eq(schema.ree.id, schema.reeProfileVector.reeId))
-      .where(
-        and(
-          publicRee(),
-          profileInSpace(input.vector.space),
-          input.category ? eq(schema.ree.category, input.category) : undefined,
-          exclude.length ? sql`${schema.ree.id} not in (${sql.join(exclude.map((id) => sql`${id}::uuid`), sql`, `)})` : undefined,
-        ),
-      )
-      .orderBy(filtered ? sql`(${distance}) + 0` : distance)
-      .limit((EXPLORE_PROFILE_REES + exclude.length) * PROFILE_MAX_VECTORS)
-      .as('nearest');
-    return tx
-      .select({ reeId: nearest.reeId, similarity: sql<number>`max(1 - ${nearest.distance})` })
-      .from(nearest)
-      .groupBy(nearest.reeId)
-      .orderBy(desc(sql`max(1 - ${nearest.distance})`))
-      .limit(EXPLORE_PROFILE_REES);
-  });
-  const named = await namedRees(input.question, { category: input.category, exclude });
+  const [firstLevel, named] = await Promise.all([
+    timing.measure('profiles', () =>
+      database.transaction(async (tx) => {
+        if (!filtered) await tx.execute(sql.raw(`set local hnsw.ef_search = ${EXPLORE_EF_SEARCH}`));
+        const nearest = tx
+          .select({ reeId: schema.reeProfileVector.reeId, distance: sql<number>`${distance}`.as('distance') })
+          .from(schema.reeProfileVector)
+          .innerJoin(schema.ree, eq(schema.ree.id, schema.reeProfileVector.reeId))
+          .where(
+            and(
+              publicRee(),
+              profileInSpace(input.vector.space),
+              input.category ? eq(schema.ree.category, input.category) : undefined,
+              exclude.length ? sql`${schema.ree.id} not in (${sql.join(exclude.map((id) => sql`${id}::uuid`), sql`, `)})` : undefined,
+            ),
+          )
+          .orderBy(filtered ? sql`(${distance}) + 0` : distance)
+          .limit((EXPLORE_PROFILE_REES + exclude.length) * PROFILE_MAX_VECTORS)
+          .as('nearest');
+        return tx
+          .select({ reeId: nearest.reeId, similarity: sql<number>`max(1 - ${nearest.distance})` })
+          .from(nearest)
+          .groupBy(nearest.reeId)
+          .orderBy(desc(sql`max(1 - ${nearest.distance})`))
+          .limit(EXPLORE_PROFILE_REES);
+      }),
+    ),
+    input.named ?? timing.measure('names', () => namedRees(input.question, { category: input.category, exclude })),
+  ]);
   const candidates = [...new Set([...firstLevel.map((row) => row.reeId), ...named.keys()])];
   if (candidates.length === 0) return [];
-  const stored = chunkVector(input.vector.space);
 
-  const passages = await database
-    .select({
-      reeId: schema.chunk.reeId,
-      content: schema.chunk.content,
-      title: schema.knowledge.title,
-      similarity: sql<number>`1 - (${stored} <=> ${literal}::vector)`,
-    })
-    .from(schema.chunk)
-    .innerJoin(schema.knowledge, eq(schema.knowledge.id, schema.chunk.knowledgeId))
-    .where(and(inArray(schema.chunk.reeId, candidates), ...answerable(), sql`${stored} is not null`))
-    .orderBy(sql`(${stored} <=> ${literal}::vector) + 0`)
-    .limit(EXPLORE_PASSAGES);
+  /* The 50, and beside them each named Ree's nearest passage, for a named Ree none of whose passages makes the 50. */
+  const [passages, ownNearest] = await Promise.all([
+    timing.measure('passages', () => nearestPassages(input.vector, candidates, EXPLORE_PASSAGES)),
+    timing.measure('named-passages', () => Promise.all([...named.keys()].map((id) => nearestPassages(input.vector, [id], 1)))),
+  ]);
 
   const terms = searchTerms(input.question);
   const best = new Map<string, { similarity: number; coverage: number; content: string; title: string }>();
   for (const passage of passages) {
-    const similarity = Number(passage.similarity);
     const coverage = keywordCoverage(terms, passage.content);
     const current = best.get(passage.reeId);
-    if (!current) best.set(passage.reeId, { similarity, coverage, content: passage.content, title: passage.title });
+    if (!current) best.set(passage.reeId, { similarity: passage.similarity, coverage, content: passage.content, title: passage.title });
     else current.coverage = Math.max(current.coverage, coverage);
   }
-  /* A named Ree none of whose passages made the 50: its nearest one, for the score and the excerpt. */
-  const unscored = [...named.keys()].filter((id) => !best.has(id));
-  if (unscored.length) {
-    const nearest = await database
-      .selectDistinctOn([schema.chunk.reeId], {
-        reeId: schema.chunk.reeId,
-        content: schema.chunk.content,
-        title: schema.knowledge.title,
-        similarity: sql<number>`1 - (${stored} <=> ${literal}::vector)`,
-      })
-      .from(schema.chunk)
-      .innerJoin(schema.knowledge, eq(schema.knowledge.id, schema.chunk.knowledgeId))
-      .where(and(inArray(schema.chunk.reeId, unscored), ...answerable(), sql`${stored} is not null`))
-      .orderBy(schema.chunk.reeId, sql`${stored} <=> ${literal}::vector`);
-    for (const passage of nearest) {
-      best.set(passage.reeId, { similarity: Number(passage.similarity), coverage: keywordCoverage(terms, passage.content), content: passage.content, title: passage.title });
+  for (const [passage] of ownNearest) {
+    if (passage && !best.has(passage.reeId)) {
+      best.set(passage.reeId, { similarity: passage.similarity, coverage: keywordCoverage(terms, passage.content), content: passage.content, title: passage.title });
     }
   }
-  const meta = await database
+  if (best.size === 0) return [];
+  const meta = await timing.measure('quality', () => database
     .select({ id: schema.ree.id, rank: schema.ree.rank, role: schema.user.role })
     .from(schema.ree)
     .innerJoin(schema.user, eq(schema.user.id, schema.ree.ownerId))
-    .where(inArray(schema.ree.id, [...best.keys()]));
+    .where(inArray(schema.ree.id, [...best.keys()])));
   const hits: SearchHit[] = [];
   for (const row of meta) {
     const found = best.get(row.id)!;
@@ -305,6 +384,34 @@ export async function searchRees(input: {
     hits.push({ reeId: row.id, similarity: found.similarity, quality: row.rank.quality ?? NEUTRAL_QUALITY, role: row.role, excerpt: excerptOf(found.content, terms), title: found.title, boost });
   }
   return rankHits(hits, input.limit ?? EXPLORE_RESULTS);
+}
+
+/*
+ * The question's vector, kept a few minutes per server instance: the same
+ * words searched again (a shared link, back and forward, the next viewer)
+ * skip the embedding call, the slowest step left. Only while the embedding
+ * model and its space are still the active ones.
+ */
+const searchVectors = new Map<string, { at: number; vector: Promise<QuestionVector> }>();
+
+async function searchVector(question: string, now = Date.now()): Promise<QuestionVector> {
+  const kept = searchVectors.get(question);
+  if (kept && now - kept.at < EXPLORE_VECTOR_CACHE_MS) {
+    const [vector, endpoint] = await Promise.all([kept.vector, endpointFor('embedding')]);
+    if (vector.model === endpoint.model && vector.space === spaceOf(endpoint)) return vector;
+  }
+  const vector = embedQuestion(question);
+  searchVectors.delete(question);
+  searchVectors.set(question, { at: now, vector });
+  vector.catch(() => {
+    if (searchVectors.get(question)?.vector === vector) searchVectors.delete(question);
+  });
+  /* Oldest first in a Map: past the limit, the oldest go. */
+  for (const key of searchVectors.keys()) {
+    if (searchVectors.size <= EXPLORE_VECTOR_CACHE_SIZE) break;
+    searchVectors.delete(key);
+  }
+  return vector;
 }
 
 /** "这些公开 Ree 可能知道": the search's best public Rees, for a question nobody in the conversation could answer. */
@@ -385,17 +492,21 @@ function afterKey(sort: ExploreSort, key: ExploreKey): SQL {
 export async function explore(
   query: ExploreQuery,
   batch: ExploreBatch,
-  { includeIntros = true } = {},
+  { includeIntros = true, timing = untimed }: { includeIntros?: boolean; timing?: Pick<Timing, 'measure'> } = {},
 ): Promise<ExploreResult> {
   if (query.q) {
     if (batch.cursor) return { mode: 'search', items: [], total: 0, nextCursor: null };
-    const vector = await embedQuestion(query.q);
-    const hits = await searchRees({ question: query.q, vector, category: query.category });
-    let cards = await reeCards(
+    /* The names need no vector: they are looked up while the question is embedded. */
+    const named = timing.measure('names', () => namedRees(query.q, { category: query.category, exclude: [] }));
+    /* Awaited inside searchRees; if the embedding fails first, its own failure must not go unhandled. */
+    named.catch(() => {});
+    const vector = await timing.measure('embed', () => searchVector(query.q));
+    const hits = await searchRees({ question: query.q, vector, category: query.category, named, timing });
+    let cards = await timing.measure('cards', () => reeCards(
       hits.map((hit) => hit.reeId),
       new Map(hits.map((hit) => [hit.reeId, hit.excerpt])),
       { includeIntros },
-    );
+    ));
     if (query.sort === 'answers') cards = [...cards].sort((a, b) => b.answers - a.answers);
     if (query.sort === 'free') cards = [...cards].sort((a, b) => a.queryFee - b.queryFee);
     return { mode: 'search', items: cards, total: cards.length, nextCursor: null };
