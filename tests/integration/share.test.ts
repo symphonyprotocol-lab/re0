@@ -62,7 +62,7 @@ describeWithDb('share page', () => {
     expect(await visit(ree.slug, randomUUID(), { userId: owner }, now)).toBe('owner');
     expect(await visit(ree.slug.toUpperCase(), randomUUID(), {}, now)).toBe('recorded');
 
-    expect(await share.shareStatistics(ree.id, null)).toEqual({ shareable: true, visits: 3, visitors: 2, conversations: 0, converted: 0, rate: 0 });
+    expect(await share.shareStatistics(ree.id, null)).toEqual({ shareable: true, visits: 3, visitors: 2, conversations: 0, converted: 0, rate: 0, anonymousAnswers: 0 });
     expect((await share.shareStatistics(hidden.id, null)).shareable).toBe(false);
 
     // A Ree taken down (which also turns it private) has no share page any more.
@@ -130,8 +130,8 @@ describeWithDb('share page', () => {
     expect(await convert(visitor, withoutRee.id)).toBe('recorded');
 
     // Two conversations from one visitor: one converted visitor, 100%.
-    expect(await share.shareStatistics(ree.id, null)).toEqual({ shareable: true, visits: 1, visitors: 1, conversations: 2, converted: 1, rate: 100 });
-    expect(await share.shareStatistics(other.id, null)).toEqual({ shareable: true, visits: 0, visitors: 0, conversations: 0, converted: 0, rate: null });
+    expect(await share.shareStatistics(ree.id, null)).toEqual({ shareable: true, visits: 1, visitors: 1, conversations: 2, converted: 1, rate: 100, anonymousAnswers: 0 });
+    expect(await share.shareStatistics(other.id, null)).toEqual({ shareable: true, visits: 0, visitors: 0, conversations: 0, converted: 0, rate: null, anonymousAnswers: 0 });
 
     // The Ree's statistics page carries the same figures, scoped to its period.
     const all = await reeStatistics(ree.id, statisticsQuery({ period: 'all' }), { withIncome: true });

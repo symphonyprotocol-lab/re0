@@ -13,6 +13,7 @@ import {
   bigint,
   boolean,
   check,
+  date,
   index,
   integer,
   jsonb,
@@ -1166,6 +1167,53 @@ export const rateBucket = pgTable(
   (t) => [primaryKey({ columns: [t.key, t.windowStart] })],
 );
 
+/**
+ * Beyond 4: anonymous chat with free Rees (query fee 0) on the public and
+ * share pages. Rounds answered, and attempts, per key and UTC day, reserved
+ * atomically before the model is called (lib/services/anonymous-chat.ts).
+ * A visitor's keys are an HMAC under a key derived from AUTH_SECRET of the
+ * browser fingerprint, the anonymous-id cookie or the client address,
+ * prefixed by which one it is (the raw values are never stored); `ree:` and
+ * `all:` keys count a Ree's and the platform's. The hourly rank job clears
+ * past days.
+ */
+export const anonymousChatQuota = pgTable(
+  'anonymous_chat_quota',
+  {
+    keyHash: text('key_hash').notNull(),
+    day: date('day', { mode: 'string' }).notNull(),
+    rounds: integer('rounds').notNull().default(0),
+    /** Every round taken, given back or not: refunds never return an attempt (ANONYMOUS_ATTEMPTS_FACTOR). */
+    attempts: integer('attempts').notNull().default(0),
+    updatedAt: timestampTz('updated_at').notNull().defaultNow(),
+  },
+  (t) => [
+    primaryKey({ columns: [t.keyHash, t.day] }),
+    index('anonymous_chat_quota_day_idx').on(t.day),
+    check('anonymous_chat_quota_rounds_check', sql`rounds >= 0 and attempts >= rounds`),
+  ],
+);
+
+/**
+ * Beyond 4: one row per answer a free Ree gave a signed-out visitor. Nothing
+ * else of the exchange is kept (no conversation, message or ledger entry);
+ * the row only lets the owner's statistics, the public answer count and
+ * the share page's figures include anonymous answers.
+ */
+export const anonymousAnswer = pgTable(
+  'anonymous_answer',
+  {
+    id: uuid('id').primaryKey().defaultRandom(),
+    reeId: uuid('ree_id')
+      .notNull()
+      .references(() => ree.id, { onDelete: 'cascade' }),
+    /** The `re0_visitor` id when the answer was asked on the share page by a browser that visited it (share.ts `shareVisitorFor`); null elsewhere. */
+    shareVisitorId: text('share_visitor_id'),
+    createdAt: createdAt(),
+  },
+  (t) => [index('anonymous_answer_ree_idx').on(t.reeId, t.createdAt), index('anonymous_answer_share_idx').on(t.reeId, t.createdAt).where(sql`share_visitor_id is not null`)],
+);
+
 /* ------------------------------------------------------------- step 5 */
 
 /**
@@ -1580,6 +1628,28 @@ export const videoExportPricing = pgTable('video_export_pricing', {
 }, () => [
   check('video_export_pricing_singleton_check', sql`id = 1`),
   check('video_export_pricing_credits_check', sql`credits between 1 and 100000000`),
+]);
+
+/**
+ * Beyond 4: anonymous chat's daily caps, set in the console's pricing page
+ * (lib/services/anonymous-chat-settings.ts): per browser, per Ree, over the
+ * platform, per client address, and the attempts factor. No row means the
+ * defaults in lib/constants.ts.
+ */
+export const anonymousChatSettings = pgTable('anonymous_chat_settings', {
+  id: integer('id').primaryKey().default(1),
+  reeRoundsPerDay: integer('ree_rounds_per_day').notNull(),
+  platformRoundsPerDay: integer('platform_rounds_per_day').notNull(),
+  ipRoundsPerDay: integer('ip_rounds_per_day').notNull(),
+  visitorRoundsPerDay: integer('visitor_rounds_per_day').notNull().default(10),
+  attemptsFactor: integer('attempts_factor').notNull().default(2),
+  revision: uuid('revision').notNull().defaultRandom(),
+  updatedBy: uuid('updated_by').references(() => administrator.id),
+  updatedAt: timestampTz('updated_at').notNull().defaultNow(),
+}, () => [
+  check('anonymous_chat_settings_singleton_check', sql`id = 1`),
+  check('anonymous_chat_settings_limits_check', sql`ree_rounds_per_day between 1 and 10000000 and platform_rounds_per_day between 1 and 10000000 and ip_rounds_per_day between 1 and 10000000`),
+  check('anonymous_chat_settings_visitor_check', sql`visitor_rounds_per_day between 1 and 1000 and attempts_factor between 1 and 10`),
 ]);
 
 /**

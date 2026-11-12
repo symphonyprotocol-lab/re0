@@ -552,6 +552,34 @@ describeWithDb('explore and public pages', () => {
     }
   });
 
+  it('shows only official Rees on the home page, public ones only, the most active first, up to the limit', async () => {
+    const official = await person('official');
+    const quiet = await reeOf(official, { content: null });
+    const busy = await reeOf(official, { content: null });
+    const hidden = await reeOf(official, { content: null, isPublic: false });
+    const unpublished = await reeOf(official, { content: null });
+    const takenDown = await reeOf(official, { content: null });
+    const deleted = await reeOf(official, { content: null });
+    /* The busiest of all, but made by an ordinary account: never on the home page. */
+    const popular = await reeOf(await person('verified'), { content: null });
+    await db().update(schema.ree).set({ rank: { activity30: 5_000 } }).where(eq(schema.ree.id, busy.id));
+    await db().update(schema.ree).set({ rank: { activity30: 10_000_000 } }).where(eq(schema.ree.id, popular.id));
+    await db().update(schema.ree).set({ isPublished: false }).where(eq(schema.ree.id, unpublished.id));
+    /* As the real takedown and delete do, both also make the Ree private and unpublished (the ree check constraints). */
+    await db().update(schema.ree).set({ moderatedAt: new Date(), isPublic: false, isPublished: false }).where(eq(schema.ree.id, takenDown.id));
+    await db().update(schema.ree).set({ deletedAt: new Date(), isPublic: false, isPublished: false }).where(eq(schema.ree.id, deleted.id));
+
+    const home = await explore.activeRees(500, { officialOnly: true });
+    const ids = home.map((card) => card.id);
+    expect(home.every((card) => card.role === 'official')).toBe(true);
+    expect(ids).toContain(busy.id);
+    expect(ids.indexOf(busy.id)).toBeLessThan(ids.indexOf(quiet.id));
+    for (const ree of [hidden, unpublished, takenDown, deleted, popular]) expect(ids).not.toContain(ree.id);
+    expect(await explore.activeRees(1, { officialOnly: true })).toHaveLength(1);
+    /* Without the option, everyone's public Rees, as before. */
+    expect((await explore.activeRees(500)).map((card) => card.id)).toContain(popular.id);
+  });
+
   it('puts the Ree a query names first, by its name or tag, without changing how a question ranks', async () => {
     const product = `zq${Date.now().toString(36)}`;
     const owner = await person();

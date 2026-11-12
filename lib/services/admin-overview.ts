@@ -1,6 +1,8 @@
 /**
  * The console's overview (2.5 "概览"), on live figures: users, Rees,
- * sources, questions and earned credits over the last 30 days, what waits
+ * sources, questions, answers and earned credits over the last 30 days
+ * (answers include those free Rees gave signed-out visitors, which have no
+ * ledger entry: anonymous-chat.ts), what waits
  * for an administrator, and this month's model calls with an estimated cost
  * from the call log (`model_call`).
  */
@@ -34,7 +36,7 @@ export async function adminOverview(administrator: Administrator, now = new Date
   const database = db();
   const since = new Date(now.getTime() - 30 * DAY);
   const month = periodRange({ period: 'month', date: reportingDate(now) })!;
-  const [users, rees, sources, questions, earned, revenue, verifications, job, calls, trend, recent, kyc, payouts] = await Promise.all([
+  const [users, rees, sources, questions, earned, revenue, verifications, job, calls, trend, anonymousTrend, recent, kyc, payouts] = await Promise.all([
     database.select({ total: count(), disabled: sql<number>`count(*) filter (where ${schema.user.disabledAt} is not null)::int` }).from(schema.user),
     database
       .select({
@@ -82,12 +84,30 @@ export async function adminOverview(administrator: Administrator, now = new Date
       .from(schema.creditEntry)
       .where(and(eq(schema.creditEntry.reason, 'query_base'), gte(schema.creditEntry.createdAt, new Date(now.getTime() - 30 * DAY))))
       .groupBy(sql`1`),
+    /*
+     * Answers to signed-out visitors per reporting day, the same window. They
+     * leave an `anonymous_answer` row and never a ledger entry, so no answer
+     * is in both; one row is one answer.
+     */
+    database
+      .select({
+        day: sql<string>`to_char(${schema.anonymousAnswer.createdAt} at time zone 'Asia/Shanghai', 'YYYY-MM-DD')`,
+        n: sql<number>`count(*)::int`,
+      })
+      .from(schema.anonymousAnswer)
+      .where(gte(schema.anonymousAnswer.createdAt, new Date(now.getTime() - 30 * DAY)))
+      .groupBy(sql`1`),
     listAudit(administrator, { q: '', action: 'all', period: 'all', sort: 'newest', size: 5, page: 1 }),
     pendingKyc(),
     openPayoutCount(),
   ]);
   const byDay = new Map(trend.map((row) => [row.day, row.n]));
-  const days = Array.from({ length: 30 }, (_, index) => reportingDate(now.getTime() - (29 - index) * DAY)).map((day) => ({ day, answers: byDay.get(day) ?? 0 }));
+  const anonymousByDay = new Map(anonymousTrend.map((row) => [row.day, row.n]));
+  /* `answers` is every successful answer of the day; `anonymous` the part of it given to signed-out visitors. */
+  const days = Array.from({ length: 30 }, (_, index) => reportingDate(now.getTime() - (29 - index) * DAY)).map((day) => {
+    const anonymous = anonymousByDay.get(day) ?? 0;
+    return { day, answers: (byDay.get(day) ?? 0) + anonymous, anonymous };
+  });
   const models = await Promise.all(
     MODEL_KINDS.map(async (kind: ModelKind) => {
       const endpoint = await endpointFor(kind);

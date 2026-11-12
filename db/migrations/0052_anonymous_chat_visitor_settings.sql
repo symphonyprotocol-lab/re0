@@ -1,0 +1,3 @@
+ALTER TABLE "anonymous_chat_settings" ADD COLUMN "visitor_rounds_per_day" integer DEFAULT 10 NOT NULL;--> statement-breakpoint
+ALTER TABLE "anonymous_chat_settings" ADD COLUMN "attempts_factor" integer DEFAULT 2 NOT NULL;--> statement-breakpoint
+ALTER TABLE "anonymous_chat_settings" ADD CONSTRAINT "anonymous_chat_settings_visitor_check" CHECK (visitor_rounds_per_day between 1 and 1000 and attempts_factor between 1 and 10);

@@ -3,13 +3,14 @@ import { fill, formatNumber } from '@/i18n/format';
 import type { Metadata } from 'next';
 import { serverMessages } from '@/i18n/server';
 import { LegalDocument } from '@/components/site/legal-document';
+import { publicPage } from '@/lib/seo';
 
 const IDS = ['account', 'credits', 'plan-pack', 'payment', 'refunds', 'usage', 'payouts', 'content', 'acceptable-use', 'liability'] as const;
 const KEYS = ['s1', 's2', 's3', 's4', 's5', 's6', 's7', 's8', 's9', 's10'] as const;
 
 export async function generateMetadata(): Promise<Metadata> {
-  const { t } = await serverMessages();
-  return { title: t.legal.terms.title };
+  const { t, locale } = await serverMessages();
+  return publicPage({ path: '/legal/terms', title: t.legal.terms.title, description: t.legal.terms.lede, locale });
 }
 
 /** `/legal/terms`. */

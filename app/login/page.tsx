@@ -5,16 +5,17 @@ import { WorkspaceLink as Link } from '@/components/shell/workspace-link';
 import { redirect } from 'next/navigation';
 import { isLoginError, safeReturnTo } from '@/lib/domain/auth';
 import { currentUser } from '@/lib/http/session';
+import { UNLISTED_ROBOTS } from '@/lib/seo';
 import { serverMessages } from '@/i18n/server';
 import { BrandMark } from '@/components/ui/brand-mark';
-import { LanguageToggle } from '@/components/ui/language-toggle';
+import { LanguageMenu } from '@/components/ui/language-menu';
 import { Wordmark } from '@/components/site/site-shell';
 import { LoginIcon } from './login-icons';
 import './login.css';
 
 export async function generateMetadata(): Promise<Metadata> {
   const { t } = await serverMessages();
-  return { title: t.login.title };
+  return { title: t.login.title, robots: UNLISTED_ROBOTS };
 }
 
 /**
@@ -76,7 +77,7 @@ export default async function LoginPage({ searchParams }: { searchParams: Promis
               <LoginIcon name="arrow" />
               {l.back}
             </Link>
-            <LanguageToggle className="btn ghost sm" icon={false} />
+            <LanguageMenu />
           </div>
           <BrandMark className="login-mobile-mark" size={33} />
           <p className="eyebrow">{l.eyebrow}</p>

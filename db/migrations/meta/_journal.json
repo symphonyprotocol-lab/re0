@@ -330,6 +330,34 @@
       "when": 1794481550492,
       "tag": "0048_search_index",
       "breakpoints": true
+    },
+    {
+      "idx": 48,
+      "version": "7",
+      "when": 1794497163119,
+      "tag": "0049_anonymous_chat",
+      "breakpoints": true
+    },
+    {
+      "idx": 49,
+      "version": "7",
+      "when": 1794501376200,
+      "tag": "0050_anonymous_chat_attempts",
+      "breakpoints": true
+    },
+    {
+      "idx": 50,
+      "version": "7",
+      "when": 1794501960358,
+      "tag": "0051_anonymous_chat_settings",
+      "breakpoints": true
+    },
+    {
+      "idx": 51,
+      "version": "7",
+      "when": 1794502660088,
+      "tag": "0052_anonymous_chat_visitor_settings",
+      "breakpoints": true
     }
   ]
 }

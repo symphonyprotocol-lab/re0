@@ -2,6 +2,12 @@ import type { Shape } from '@/i18n/format';
 
 /** The public site (prototype suite.js `home`, `pricing`, `checkout`, `faqItems`): header, footer, home, pricing, checkout. */
 export const zh = {
+  /* What search engines and link previews show for the site as a whole (app/layout.tsx, lib/seo.ts). */
+  seo: {
+    description: 'RE0 让你创建 Ree：一个只根据你给它的知识作答的 AI 伙伴。上传文档、音频、GitHub 仓库或网页，得到带引用的回答；公开发布，让更多人来问。',
+    keywords: 'RE0, Ree, AI 知识库, 知识问答, AI 助手, 带引用的回答, 个人知识库, RAG',
+    reeFallback: '在 RE0 上向这个 Ree 提问：它只根据给它的知识作答，并附上出处。',
+  },
   nav: {
     label: '官网导航',
     home: '首页',
@@ -56,7 +62,7 @@ export const zh = {
     step3: { title: '问一个好问题', body: '得到回答，沿着引用找到它的依据。' },
     examplesTitle: '有些问题，',
     examplesEm: '它们刚好知道。',
-    examplesNote: '以下为示例 Ree，有 Ree 公开后会显示在这里。',
+    examplesNote: '以下为示例 Ree，官方 Ree 上线后会显示在这里。',
     example: '示例',
     perAnswer: 'credits / 次',
     details: '查看详情',
@@ -248,6 +254,11 @@ export const zh = {
 };
 
 export const en: Shape<typeof zh> = {
+  seo: {
+    description: 'RE0 lets you create a Ree: an AI companion that answers only from the knowledge you give it. Add documents, audio, GitHub repositories or web pages, get answers with citations, and publish it for others to ask.',
+    keywords: 'RE0, Ree, AI knowledge base, knowledge Q&A, AI assistant, answers with citations, personal knowledge base, RAG',
+    reeFallback: 'Ask this Ree on RE0: it answers only from the knowledge it was given, and cites its sources.',
+  },
   nav: {
     label: 'Website navigation',
     home: 'Home',
@@ -308,7 +319,7 @@ export const en: Shape<typeof zh> = {
     step3: { title: 'Ask a good question', body: 'Get an answer and follow its sources.' },
     examplesTitle: 'Some questions.',
     examplesEm: 'The right companions.',
-    examplesNote: 'Illustrative Rees, shown until public Rees exist.',
+    examplesNote: 'Illustrative Rees, shown until official Rees are published.',
     example: 'Example',
     perAnswer: 'credits / answer',
     details: 'View details',

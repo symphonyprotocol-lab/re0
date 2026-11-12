@@ -12,7 +12,10 @@
  * - a conversion is a conversation the visitor created with the Ree, or
  *   added the Ree to, within `SHARE_CONVERSION_MINUTES`, by a browser that
  *   visited the share page within `SHARE_ATTRIBUTION_HOURS` -- once per
- *   conversation.
+ *   conversation;
+ * - an anonymous answer (a free Ree asked signed out on the share page)
+ *   counts for the share page under the same visit rule, as a figure of its
+ *   own: it is not a conversation.
  */
 import { and, eq, gte, sql } from 'drizzle-orm';
 import type { Range } from '@/lib/domain/statistics';
@@ -101,6 +104,30 @@ export async function recordShareConversion(input: { slug: string; visitorId: st
   return inserted.length ? 'recorded' : 'repeat';
 }
 
+/**
+ * Anonymous chat on the share page (anonymous-chat.ts): the visitor id an
+ * answer is attributed to, when this browser visited this Ree's share page
+ * within `SHARE_ATTRIBUTION_HOURS` -- the rule a conversion follows -- and
+ * otherwise none, so a request merely claiming the share page counts
+ * nothing there.
+ */
+export async function shareVisitorFor(reeId: string, visitorId: string | null | undefined, now = new Date()): Promise<string | null> {
+  if (!isUuid(visitorId)) return null;
+  const [visited] = await db()
+    .select({ id: schema.reeShareEvent.id })
+    .from(schema.reeShareEvent)
+    .where(
+      and(
+        eq(schema.reeShareEvent.visitorId, visitorId),
+        eq(schema.reeShareEvent.reeId, reeId),
+        eq(schema.reeShareEvent.kind, 'visit'),
+        gte(schema.reeShareEvent.createdAt, new Date(now.getTime() - SHARE_ATTRIBUTION_HOURS * 3_600_000)),
+      ),
+    )
+    .limit(1);
+  return visited ? visitorId : null;
+}
+
 export interface ShareStatistics {
   /** Whether the Ree has a share page now (public and not taken down). */
   shareable: boolean;
@@ -114,6 +141,8 @@ export interface ShareStatistics {
   converted: number;
   /** `converted / visitors` as a whole percentage, or null without visitors. */
   rate: number | null;
+  /** Answers a free Ree gave signed-out visitors on the share page (anonymous chat); not conversions. */
+  anonymousAnswers: number;
 }
 
 export async function shareStatistics(reeId: string, range: Range | null): Promise<ShareStatistics> {
@@ -133,6 +162,9 @@ export async function shareStatistics(reeId: string, range: Range | null): Promi
     from ${schema.reeShareEvent} e
     where e.ree_id = ${reeId} ${within('e')}
   `);
+  const anonymous = await db().execute<{ n: number }>(sql`
+    select count(*)::int as n from ${schema.anonymousAnswer} a where a.ree_id = ${reeId} and a.share_visitor_id is not null ${within('a')}
+  `);
   const row = result.rows[0] ?? { shareable: false, visits: 0, visitors: 0, conversations: 0, converted: 0 };
   const visitors = Number(row.visitors);
   const converted = Number(row.converted);
@@ -143,5 +175,6 @@ export async function shareStatistics(reeId: string, range: Range | null): Promi
     conversations: Number(row.conversations),
     converted,
     rate: visitors ? Math.round((converted / visitors) * 100) : null,
+    anonymousAnswers: Number(anonymous.rows[0]?.n ?? 0),
   };
 }

@@ -27,8 +27,8 @@ export interface QuestionRewrite {
 /** The question's rewrite into `target`'s language, or null when there is none to search. */
 export type Rewriter = (target: Script) => Promise<QuestionRewrite | null>;
 
-/** A rewriter for one question, asked by `userId`: each target language is rewritten once, however many Rees want it. */
-export function questionRewriter(userId: string, question: string): Rewriter {
+/** A rewriter for one question, asked by `userId` (null: a signed-out visitor): each target language is rewritten once, however many Rees want it. */
+export function questionRewriter(userId: string | null, question: string): Rewriter {
   const made = new Map<Script, Promise<QuestionRewrite | null>>();
   return (target) => {
     let rewrite = made.get(target);
@@ -40,7 +40,7 @@ export function questionRewriter(userId: string, question: string): Rewriter {
   };
 }
 
-async function rewriteQuestion(userId: string, question: string, target: Script): Promise<QuestionRewrite | null> {
+async function rewriteQuestion(userId: string | null, question: string, target: Script): Promise<QuestionRewrite | null> {
   try {
     const generation = await generationForUser(userId, 'retrieval');
     const { output } = await generateText({

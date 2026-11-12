@@ -364,6 +364,45 @@ export const QUESTION_MAX_CHARS = 4_000;
 /** Earlier turns of this Ree sent along with a question. */
 export const HISTORY_TURNS = 6;
 
+/* ------------------------------------------- anonymous chat, beyond 4 */
+
+/**
+ * Signed-out visitors may ask a public, published Ree whose query fee is 0
+ * on its public page (lib/services/anonymous-chat.ts). A round is one
+ * question the Ree answered; the day is the UTC date (anonymousDay).
+ */
+export const ANONYMOUS_ROUNDS_PER_DAY = 10;
+/**
+ * Per client address (IPv6 by /64) and day, by default: many visitors behind one address
+ * (an office, a campus, carrier NAT), or one rotating fingerprint and cookie
+ * -- the only key a script cannot make up.
+ */
+export const ANONYMOUS_IP_ROUNDS_PER_DAY = 100;
+/** Per Ree and day, over all signed-out visitors. */
+export const ANONYMOUS_REE_ROUNDS_PER_DAY = 500;
+/** Over the whole platform and day: the circuit breaker on what anonymous answers may cost. */
+export const ANONYMOUS_PLATFORM_ROUNDS_PER_DAY = 5_000;
+/*
+ * Every cap here, and the attempts factor below, is a default: an
+ * administrator sets them in the console's pricing page
+ * (anonymous-chat-settings.ts); servers pick a change up within
+ * `ANONYMOUS_LIMITS_CACHE_MS`. The shared caps go from 1 to this.
+ */
+export const ANONYMOUS_LIMIT_MAX = 10_000_000;
+/* A browser's own rounds per day and the attempts factor are set there too, within these. */
+export const ANONYMOUS_VISITOR_ROUNDS_MAX = 1_000;
+export const ANONYMOUS_ATTEMPTS_FACTOR_MAX = 10;
+export const ANONYMOUS_LIMITS_CACHE_MS = 30_000;
+/**
+ * Every key also caps attempts at this multiple of its rounds: a question
+ * that gets no answer gives its round back but never its attempt, so
+ * refunds cannot be farmed.
+ */
+export const ANONYMOUS_ATTEMPTS_FACTOR = 2;
+/** Earlier turns (questions and answers) the browser sends back with a question, and their combined length. */
+export const ANONYMOUS_HISTORY_TURNS = 4;
+export const ANONYMOUS_HISTORY_CHARS = 3_000;
+
 /* ------------------------------------------------------------- lists, 8.1 */
 
 export const LIST_PAGE_SIZES = [20, 50, 100] as const;

@@ -13,6 +13,7 @@ import { HistoryProvider, SidebarConversations } from '@/components/conversation
 import type { HistoryItem } from '@/lib/services/conversations';
 import { WorkspaceMain } from '@/components/shell/workspace-main';
 import './shell.css';
+import { stripLocale } from '@/i18n/paths';
 
 interface ShellState {
   collapsed: boolean;
@@ -114,7 +115,8 @@ function NavItem({ href, icon, label, active, count }: { href: string; icon: Ico
 
 function Sidebar({ user, collapsed, phone, open, hidden, onClose }: { user: ShellUser; collapsed: boolean; phone: boolean; open: boolean; hidden: boolean; onClose: () => void }) {
   const { t } = useI18n();
-  const pathname = usePathname();
+  /* `/en/explore` is Explore too (i18n/paths.ts). */
+  const pathname = stripLocale(usePathname());
   const nav = t.common.nav;
   return (
     <aside

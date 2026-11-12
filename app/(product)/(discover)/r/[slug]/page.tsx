@@ -1,10 +1,12 @@
 import type { Metadata } from 'next';
 import { notFound } from 'next/navigation';
 import { cache } from 'react';
-import { appBaseUrl } from '@/lib/http/cookies';
 import { currentUser } from '@/lib/http/session';
-import { publicReeBySlug as lookup } from '@/lib/services/public-rees';
+import { publicReeBySlug as lookup, type PublicRee } from '@/lib/services/public-rees';
+import { oneLine, publicPage, reeJsonLd, SITE_NAME } from '@/lib/seo';
+import { serverMessages } from '@/i18n/server';
 import { ReeDetail } from '@/components/discover/ree-detail';
+import { JsonLd } from '@/components/site/json-ld';
 
 /** Metadata and the page share one lookup per request. */
 const publicReeBySlug = cache(lookup);
@@ -12,17 +14,15 @@ const publicReeBySlug = cache(lookup);
 type Props = { params: Promise<{ slug: string }>; searchParams: Promise<Record<string, string | string[] | undefined>> };
 
 export async function generateMetadata({ params }: Props): Promise<Metadata> {
-  const ree = await publicReeBySlug((await params).slug);
-  if (!ree) return { title: { absolute: 'RE0' }, robots: { index: false } };
-  const url = `${appBaseUrl()}/r/${ree.slug}`;
-  return {
-    title: ree.name,
-    description: ree.description || undefined,
-    alternates: { canonical: url },
-    robots: { index: true, follow: true },
-    openGraph: { type: 'profile', title: ree.name, description: ree.description || undefined, url, siteName: 'RE0' },
-    twitter: { card: 'summary_large_image', title: ree.name, description: ree.description || undefined },
-  };
+  const [ree, { t, locale }] = await Promise.all([params.then(({ slug }) => publicReeBySlug(slug)), serverMessages()]);
+  if (!ree) return { title: { absolute: SITE_NAME }, robots: { index: false } };
+  const meta = publicPage({ path: `/r/${ree.slug}`, title: ree.name, description: reeDescription(ree, t.site.seo.reeFallback), locale, ownImage: true });
+  return { ...meta, keywords: ree.tags.length ? ree.tags : undefined };
+}
+
+/** The Ree's own description as one line, or the site's sentence about a Ree when it has none. */
+function reeDescription(ree: PublicRee, fallback: string): string {
+  return oneLine(ree.description, 200) || fallback;
 }
 
 /**
@@ -32,8 +32,14 @@ export async function generateMetadata({ params }: Props): Promise<Metadata> {
  * a count. Private, taken-down and deleted Rees are not found. Indexable.
  */
 export default async function PublicReePage({ params, searchParams }: Props) {
-  const [{ slug }, query, user] = await Promise.all([params, searchParams, currentUser()]);
+  const [{ slug }, query, user, { t, locale }] = await Promise.all([params, searchParams, currentUser(), serverMessages()]);
   const ree = await publicReeBySlug(slug);
   if (!ree) notFound();
-  return <ReeDetail ree={ree} query={query} viewerId={user?.id} />;
+  const category = t.common.categories[ree.category as keyof typeof t.common.categories] ?? ree.category;
+  return (
+    <>
+      <JsonLd data={reeJsonLd(ree, locale, { home: t.site.nav.home, explore: t.discover.explore.title, category, description: reeDescription(ree, t.site.seo.reeFallback) })} />
+      <ReeDetail ree={ree} query={query} viewerId={user?.id} />
+    </>
+  );
 }

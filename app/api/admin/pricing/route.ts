@@ -7,12 +7,13 @@ import { saveWelcomeCredits, welcomeCredits } from '@/lib/services/signup-reward
 import { currentPricing, savePricing } from '@/lib/services/pricing';
 import { saveVideoExportPrice, saveVideoScriptPrice, videoExportPrice, videoScriptPrice } from '@/lib/services/video-pricing';
 import { infraCostRates, saveInfraCostRates } from '@/lib/services/infra-pricing';
+import { anonymousChatLimits, saveAnonymousChatLimits } from '@/lib/services/anonymous-chat-settings';
 
 export async function GET(request: NextRequest) {
   const administrator = await apiAdministrator(request);
   if (administrator instanceof Response) return administrator;
-  const [prices, welcome, videoScript, videoExport, infraCosts] = await Promise.all([currentPricing(), welcomeCredits(), videoScriptPrice(), videoExportPrice(), infraCostRates()]);
-  return json({ ...prices, welcome, videoScript, videoExport, infraCosts });
+  const [prices, welcome, videoScript, videoExport, infraCosts, anonymousChat] = await Promise.all([currentPricing(), welcomeCredits(), videoScriptPrice(), videoExportPrice(), infraCostRates(), anonymousChatLimits()]);
+  return json({ ...prices, welcome, videoScript, videoExport, infraCosts, anonymousChat });
 }
 export async function PUT(request: NextRequest) {
   const administrator = await apiAdministrator(request);
@@ -23,6 +24,7 @@ export async function PUT(request: NextRequest) {
     if (input.kind === 'video_script') return json({ videoScript: await saveVideoScriptPrice(administrator.id, input) });
     if (input.kind === 'video_export') return json({ videoExport: await saveVideoExportPrice(administrator.id, input) });
     if (input.kind === 'infra_costs') return json({ infraCosts: await saveInfraCostRates(administrator.id, input) });
+    if (input.kind === 'anonymous_chat') return json({ anonymousChat: await saveAnonymousChatLimits(administrator.id, input) });
     if (input.kind !== 'plan' && input.kind !== 'pack') return fail('invalid_kind', 422);
     return json({ price: await savePricing(administrator.id, input.kind, input) });
   } catch (error) {

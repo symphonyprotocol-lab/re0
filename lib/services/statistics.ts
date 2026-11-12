@@ -69,7 +69,7 @@ export function statisticsQuery(params: Params, now = new Date()) {
 }
 export type StatisticsQuery = ReturnType<typeof statisticsQuery>;
 
-function within(column: typeof schema.creditEntry.createdAt | typeof schema.message.createdAt | typeof schema.answerCheck.createdAt, range: Range | null): SQL[] {
+function within(column: typeof schema.creditEntry.createdAt | typeof schema.message.createdAt | typeof schema.answerCheck.createdAt | typeof schema.anonymousAnswer.createdAt, range: Range | null): SQL[] {
   return range ? [gte(column, new Date(range.start)), lt(column, new Date(range.end))] : [];
 }
 
@@ -81,15 +81,29 @@ const answerEvents = (reeIds: readonly string[], range: Range | null) =>
 const incomeEntries = (reeIds: readonly string[], range: Range | null) =>
   and(eq(schema.creditEntry.reason, 'query_fee_earned'), inArray(schema.creditEntry.reeId, [...reeIds]), ...within(schema.creditEntry.createdAt, range));
 
-/** Successful answers per Ree in a period. */
+/** Answers a free Ree gave signed-out visitors (anonymous-chat.ts): no ledger entry, a row of their own. */
+const anonymousAnswers = (reeIds: readonly string[], range: Range | null) =>
+  and(inArray(schema.anonymousAnswer.reeId, [...reeIds]), ...within(schema.anonymousAnswer.createdAt, range));
+
+/** Successful answers per Ree in a period, anonymous ones included. */
 export async function answerCounts(reeIds: readonly string[], range: Range | null): Promise<Map<string, number>> {
   if (!reeIds.length) return new Map();
-  const rows = await db()
-    .select({ reeId: schema.creditEntry.reeId, n: sql<number>`count(distinct ${schema.creditEntry.refId})::int` })
-    .from(schema.creditEntry)
-    .where(answerEvents(reeIds, range))
-    .groupBy(schema.creditEntry.reeId);
-  return new Map(rows.map((row) => [row.reeId!, row.n]));
+  const database = db();
+  const [rows, anonymous] = await Promise.all([
+    database
+      .select({ reeId: schema.creditEntry.reeId, n: sql<number>`count(distinct ${schema.creditEntry.refId})::int` })
+      .from(schema.creditEntry)
+      .where(answerEvents(reeIds, range))
+      .groupBy(schema.creditEntry.reeId),
+    database
+      .select({ reeId: schema.anonymousAnswer.reeId, n: sql<number>`count(*)::int` })
+      .from(schema.anonymousAnswer)
+      .where(anonymousAnswers(reeIds, range))
+      .groupBy(schema.anonymousAnswer.reeId),
+  ]);
+  const counts = new Map(rows.map((row) => [row.reeId!, row.n]));
+  for (const row of anonymous) counts.set(row.reeId, (counts.get(row.reeId) ?? 0) + row.n);
+  return counts;
 }
 
 const savedAnswers = (reeIds: readonly string[], range: Range | null) =>
@@ -266,11 +280,14 @@ export async function reeStatistics(reeId: string, query: StatisticsQuery, optio
     const points =
       view === 'income'
         ? await database.select({ at: schema.creditEntry.createdAt, value: schema.creditEntry.delta }).from(schema.creditEntry).where(incomeEntries(ids, range))
-        : await database
-            .select({ at: sql<Date>`min(${schema.creditEntry.createdAt})`, value: sql<number>`1` })
-            .from(schema.creditEntry)
-            .where(answerEvents(ids, range))
-            .groupBy(schema.creditEntry.refId);
+        : [
+            ...(await database
+              .select({ at: sql<Date>`min(${schema.creditEntry.createdAt})`, value: sql<number>`1` })
+              .from(schema.creditEntry)
+              .where(answerEvents(ids, range))
+              .groupBy(schema.creditEntry.refId)),
+            ...(await database.select({ at: schema.anonymousAnswer.createdAt, value: sql<number>`1` }).from(schema.anonymousAnswer).where(anonymousAnswers(ids, range))),
+          ];
     const values = fillBuckets(
       buckets,
       points.map((point) => [new Date(point.at).getTime(), Number(point.value)] as const),

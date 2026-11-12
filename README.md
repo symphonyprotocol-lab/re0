@@ -43,6 +43,7 @@ Environment (`.env.local`, or `vercel env pull`):
 | --- | --- |
 | `DATABASE_URL`, `DATABASE_URL_UNPOOLED` | Neon in production; locally the Docker Postgres above. Migrations use the unpooled one |
 | `APP_BASE_URL` | the origin OAuth callbacks and same-origin checks use |
+| `GOOGLE_SITE_VERIFICATION`, `BING_SITE_VERIFICATION` | optional: the token Google Search Console / Bing Webmaster Tools gives for the HTML-tag ownership check, rendered as `google-site-verification` / `msvalidate.01` on every page. Not needed when the site is verified by DNS |
 | `AUTH_SECRET` (or the older `SESSION_SIGNING_SECRET`) | session digests and sealed cookies, ≥ 32 chars |
 | `ADMIN_SECRET_KEY` (or the older `CREDENTIAL_ENCRYPTION_KEY`) | encrypts model API keys and TOTP secrets, ≥ 32 chars |
 | `GOOGLE_OAUTH_CLIENT_ID/SECRET`, `GITHUB_OAUTH_CLIENT_ID/SECRET` | sign-in |

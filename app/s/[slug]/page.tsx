@@ -4,6 +4,7 @@ import { notFound } from 'next/navigation';
 import { cache } from 'react';
 import { QUERY_BASE_FEE } from '@/lib/constants';
 import { appBaseUrl } from '@/lib/http/cookies';
+import { localeUrl } from '@/lib/seo';
 import { currentUser } from '@/lib/http/session';
 import { joinableConversations } from '@/lib/services/conversations';
 import { publicReeBySlug as lookup } from '@/lib/services/public-rees';
@@ -13,6 +14,7 @@ import { fill, formatNumber } from '@/i18n/format';
 import { Icon } from '@/components/ui/icons';
 import { ReeAvatar } from '@/components/ui/ree-avatar';
 import { RoleBadge } from '@/components/discover/role-badge';
+import { AnonymousChat } from '@/components/discover/anonymous-chat';
 import { JoinButton } from '@/components/discover/join-button';
 import { ReeCover } from '@/components/discover/ree-card';
 import { PublicIntro } from '@/components/video/public-intro';
@@ -28,15 +30,15 @@ function one(value: string | string[] | undefined): string {
   return (Array.isArray(value) ? value[0] : value) ?? '';
 }
 
-/** Not indexed: the public page `/r/[slug]` is the canonical one. The link preview is ./opengraph-image.tsx. */
+/** Not indexed: the public page `/r/[slug]`, in this language, is the canonical one. The link preview is ./opengraph-image.tsx. */
 export async function generateMetadata({ params }: Props): Promise<Metadata> {
-  const ree = await publicReeBySlug((await params).slug);
+  const [ree, { locale }] = await Promise.all([params.then(({ slug }) => publicReeBySlug(slug)), serverMessages()]);
   if (!ree) return { title: { absolute: 'RE0' }, robots: { index: false } };
   const base = appBaseUrl();
   return {
     title: ree.name,
     description: ree.description || undefined,
-    alternates: { canonical: `${base}/r/${ree.slug}` },
+    alternates: { canonical: localeUrl(locale, `/r/${ree.slug}`) },
     robots: { index: false, follow: true },
     openGraph: { type: 'website', title: ree.name, description: ree.description || undefined, url: `${base}/s/${ree.slug}`, siteName: 'RE0' },
     twitter: { card: 'summary_large_image', title: ree.name, description: ree.description || undefined },
@@ -49,7 +51,8 @@ export async function generateMetadata({ params }: Props): Promise<Metadata> {
  * 「开始对话」; no related lists and no workspace around it. Open to
  * visitors; a visitor signs in and comes back with the dialog open. Only a
  * public Ree has one. Each open is a visit and each conversation started
- * here a conversion (lib/services/share.ts).
+ * here a conversion (lib/services/share.ts). A signed-out visitor may ask a
+ * free Ree right here (anonymous chat, as on `/r/[slug]`).
  */
 export default async function SharePage({ params, searchParams }: Props) {
   const [{ slug }, query, user, { t, locale }] = await Promise.all([params, searchParams, currentUser(), serverMessages()]);
@@ -118,6 +121,15 @@ export default async function SharePage({ params, searchParams }: Props) {
                 ))}
               </ol>
             </section>
+          )}
+
+          {/* A signed-out visitor may ask a free Ree here, as on `/r/[slug]`; the server decides again on every question. */}
+          {!user && ree.queryFee === 0 && ree.sources > 0 && (
+            <AnonymousChat
+              ree={{ id: ree.id, name: ree.name, avatarBlob: ree.avatarBlob, color: ree.color, sampleQuestions: ree.sampleQuestions }}
+              loginHref={`/login?returnTo=${encodeURIComponent(`/s/${ree.slug}`)}`}
+              source="share"
+            />
           )}
 
           <section className="mt-7 rounded-[12px] border border-[#d6e6fb] bg-soft p-4 sm:p-5" aria-label={s.start}>
