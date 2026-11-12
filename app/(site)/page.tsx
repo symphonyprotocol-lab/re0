@@ -15,10 +15,12 @@ import { ReeAvatar } from '@/components/ui/ree-avatar';
 import { DemoTrigger, HomeDemo } from '@/components/site/home-demo';
 import { RoleBadge } from '@/components/discover/role-badge';
 import { ReeFavoriteButton } from '@/components/rees/ree-favorite-button';
+import { JsonLd } from '@/components/site/json-ld';
+import { publicPage, siteJsonLd, SITE_NAME } from '@/lib/seo';
 
 export async function generateMetadata(): Promise<Metadata> {
-  const { t } = await serverMessages();
-  return { title: { absolute: `${t.site.home.title} · RE0` } };
+  const { t, locale } = await serverMessages();
+  return publicPage({ path: '/', title: `${t.site.home.title} · ${SITE_NAME}`, absoluteTitle: true, description: t.site.seo.description, locale });
 }
 
 const FAQ = ['q1', 'q2', 'q3', 'q4'] as const;
@@ -44,6 +46,7 @@ export default async function HomePage() {
   ];
   return (
     <div className="site-home">
+      <JsonLd data={siteJsonLd(t.site.seo.description)} />
       <section className="home-hero marketing-wrap">
         <div className="home-hero-copy">
           <div className="launch-pill">

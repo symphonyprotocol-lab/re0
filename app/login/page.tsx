@@ -5,6 +5,7 @@ import { WorkspaceLink as Link } from '@/components/shell/workspace-link';
 import { redirect } from 'next/navigation';
 import { isLoginError, safeReturnTo } from '@/lib/domain/auth';
 import { currentUser } from '@/lib/http/session';
+import { UNLISTED_ROBOTS } from '@/lib/seo';
 import { serverMessages } from '@/i18n/server';
 import { BrandMark } from '@/components/ui/brand-mark';
 import { LanguageToggle } from '@/components/ui/language-toggle';
@@ -14,7 +15,7 @@ import './login.css';
 
 export async function generateMetadata(): Promise<Metadata> {
   const { t } = await serverMessages();
-  return { title: t.login.title };
+  return { title: t.login.title, robots: UNLISTED_ROBOTS };
 }
 
 /**
