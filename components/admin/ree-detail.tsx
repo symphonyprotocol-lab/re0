@@ -9,6 +9,7 @@
 import { WorkspaceLink as Link } from '@/components/shell/workspace-link';
 import { Fragment, type ReactNode } from 'react';
 import { QUERY_BASE_FEE } from '@/lib/constants';
+import type { ReeVisibility } from '@/lib/domain/admin-lists';
 import type { AdminReeDetail, SourceFilter } from '@/lib/services/admin-rees';
 import { ADMIN_SOURCE_STATES } from '@/lib/services/admin-rees';
 import type { Locale, Messages } from '@/i18n';
@@ -22,7 +23,7 @@ import '@/components/admin/console.css';
 import '@/components/admin/console-rees.css';
 
 /** Status tag tones (prototype `statusBadge`: taken down orange, public blue, private plain). */
-export const VISIBILITY_TONES = { public: 'blue', private: 'grey', moderated: 'orange' } as const;
+export const VISIBILITY_TONES = { public: 'blue', unpublished: 'grey', private: 'grey', moderated: 'orange' } as const;
 export const STATE_TONES = { ready: 'green', processing: 'grey', failed: 'red', paused: 'grey' } as const;
 const TONE_CLASS = { blue: 'blue', grey: '', orange: 'orange', green: 'green', red: 'red' } as const;
 
@@ -82,10 +83,10 @@ export function ConsoleReeAvatar({ avatar, color, small = false }: { avatar?: st
   );
 }
 
-/** The takedown (public) or restore (taken down) dialog behind a button (prototype `moderate-dot`). */
-function ModerateAction({ t, ree, label }: { t: Messages; ree: { id: string; name: string; visibility: 'public' | 'private' | 'moderated' }; label: { takedown: string; restore: string } }) {
+/** The takedown (public, or public but not yet published) or restore (taken down) dialog behind a button (prototype `moderate-dot`). */
+function ModerateAction({ t, ree, label }: { t: Messages; ree: { id: string; name: string; visibility: ReeVisibility }; label: { takedown: string; restore: string } }) {
   const r = t.consoleRees.ree;
-  if (ree.visibility === 'public')
+  if (ree.visibility === 'public' || ree.visibility === 'unpublished')
     return (
       <ReasonAction
         endpoint={`/api/admin/rees/${ree.id}/takedown`}
@@ -120,7 +121,7 @@ export function ReeRowActions({
   detailHref,
 }: {
   t: Messages;
-  ree: { id: string; name: string; slug: string; visibility: 'public' | 'private' | 'moderated'; deleted?: boolean };
+  ree: { id: string; name: string; slug: string; visibility: ReeVisibility; deleted?: boolean };
   detailHref: string;
 }) {
   const r = t.consoleRees.rees;

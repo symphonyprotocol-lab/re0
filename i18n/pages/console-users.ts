@@ -156,7 +156,7 @@ export const zh = {
     rees: {
       columns: { name: 'Ree', owner: '所有者', visibility: '状态', sources: '知识来源', fee: '查询费', answers: '累计成功回答', action: '操作' },
       open: '查看 Ree 详情：{name}',
-      visibility: { public: '公开', private: '私有', moderated: '已下架', deleted: '已删除' },
+      visibility: { public: '公开', unpublished: '未发布', private: '私有', moderated: '已下架', deleted: '已删除' },
       empty: '该用户还没有 Ree',
     },
   },
@@ -438,7 +438,7 @@ export const en: Shape<typeof zh> = {
     rees: {
       columns: { name: 'Ree', owner: 'Owner', visibility: 'Visibility', sources: 'Sources', fee: 'Owner fee', answers: 'Successful answers', action: 'Actions' },
       open: 'View Ree details: {name}',
-      visibility: { public: 'Public', private: 'Private', moderated: 'Taken down', deleted: 'Deleted' },
+      visibility: { public: 'Public', unpublished: 'Unpublished', private: 'Private', moderated: 'Taken down', deleted: 'Deleted' },
       empty: 'This user has no Rees yet',
     },
   },
