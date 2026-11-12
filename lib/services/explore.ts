@@ -13,7 +13,7 @@
  * per IP and per account. The cards' figures are other people's questions
  * only, so an owner testing their own Ree does not move them.
  */
-import { and, asc, desc, eq, inArray, isNull, sql, type SQL } from 'drizzle-orm';
+import { and, desc, eq, inArray, isNull, sql, type SQL } from 'drizzle-orm';
 import {
   EXPLORE_EF_SEARCH,
   EXPLORE_PASSAGES,
@@ -25,8 +25,19 @@ import {
   type ReeCategory,
 } from '@/lib/constants';
 import type { SuggestedRee } from '@/lib/domain/chat-message';
-import { excerptOf, NEUTRAL_QUALITY, positiveRate, rankHits, type ExploreQuery } from '@/lib/domain/explore';
-import { clampPage, type ListResult, isUuid } from '@/lib/domain/list';
+import {
+  decodeExploreCursor,
+  encodeExploreCursor,
+  excerptOf,
+  NEUTRAL_QUALITY,
+  positiveRate,
+  rankHits,
+  type ExploreBatch,
+  type ExploreKey,
+  type ExploreQuery,
+  type ExploreSort,
+} from '@/lib/domain/explore';
+import { isUuid } from '@/lib/domain/list';
 import { hasEvidence, keywordCoverage, searchTerms } from '@/lib/domain/retrieval';
 import { db, schema } from '@/lib/infra/db';
 import { answerable, embedQuestion, type QuestionVector } from '@/lib/services/chat';
@@ -243,23 +254,66 @@ export async function suggestRees(input: { question: string; vector: QuestionVec
 
 /* --------------------------------------------------------------- the page */
 
-export interface ExploreResult extends ListResult<ReeCard> {
+export interface ExploreResult {
   mode: 'search' | 'browse';
+  items: ReeCard[];
+  /** Every Ree the list holds, not only this batch. */
+  total: number;
+  /** Where the next batch starts; null at the end of the list. */
+  nextCursor: string | null;
+}
+
+/** Thrown for a `cursor` that is not one this list handed out. */
+export class ExploreCursorError extends Error {
+  constructor() {
+    super('invalid_cursor');
+  }
 }
 
 const activity = sql<number>`coalesce((${schema.ree.rank} ->> 'activity30')::int, 0)`;
 /* Materialised hourly by `/api/cron/rank`: ordering by the live count aggregated every message of every public Ree per request. */
 const answersRanked = sql<number>`coalesce((${schema.ree.rank} ->> 'answersAll')::int, 0)`;
 const roleOrder = sql<number>`case ${schema.user.role} when 'official' then 2 when 'verified' then 1 else 0 end`;
+/* Microseconds, as stored: a JS Date would round them away and the next batch could repeat or skip a Ree created in the same millisecond. */
+const createdKey = sql<string>`to_char(${schema.ree.createdAt} at time zone 'UTC', 'YYYY-MM-DD"T"HH24:MI:SS.US"Z"')`;
+
+/**
+ * Each order's key, every part descending (the lowest fee as the highest
+ * negated fee) so one row comparison finds where a batch ended: the leading
+ * integers (`EXPLORE_KEY_PARTS`), then the creation time, then the id.
+ */
+const browseKeys: Record<ExploreSort, SQL[]> = {
+  active: [activity, roleOrder],
+  answers: [answersRanked, roleOrder],
+  free: [sql`(-${schema.ree.queryFee})`, roleOrder, activity],
+};
+
+function keyColumns(sort: ExploreSort): SQL[] {
+  return [...browseKeys[sort], sql`${schema.ree.createdAt}`, sql`${schema.ree.id}`];
+}
+
+/** Rows strictly after the key a batch ended on. */
+function afterKey(sort: ExploreSort, key: ExploreKey): SQL {
+  const ints = browseKeys[sort].length;
+  const values = key.map((part, at) => (at < ints ? sql`${part}::int` : at === ints ? sql`${part}::timestamptz` : sql`${part}::uuid`));
+  return sql`(${sql.join(keyColumns(sort), sql`, `)}) < (${sql.join(values, sql`, `)})`;
+}
 
 /**
  * `/explore` and `GET /api/explore`. A question: the two-level search's top
- * 10, re-sorted when "回答最多" or "查询费最低" is chosen (prototype). No
- * question: public Rees, most active in 30 days first, the role only
- * breaking ties (8.2, "explore 排序").
+ * 10, re-sorted when "回答最多" or "查询费最低" is chosen (prototype), all in
+ * the first batch. No question: public Rees, most active in 30 days first,
+ * the role only breaking ties (8.2, "explore 排序"), a batch at a time after
+ * the previous batch's key, so a list that changes while it scrolls neither
+ * repeats nor shifts a card.
  */
-export async function explore(query: ExploreQuery, { includeIntros = true } = {}): Promise<ExploreResult> {
+export async function explore(
+  query: ExploreQuery,
+  batch: ExploreBatch,
+  { includeIntros = true } = {},
+): Promise<ExploreResult> {
   if (query.q) {
+    if (batch.cursor) return { mode: 'search', items: [], total: 0, nextCursor: null };
     const vector = await embedQuestion(query.q);
     const hits = await searchRees({ question: query.q, vector, category: query.category });
     let cards = await reeCards(
@@ -269,27 +323,33 @@ export async function explore(query: ExploreQuery, { includeIntros = true } = {}
     );
     if (query.sort === 'answers') cards = [...cards].sort((a, b) => b.answers - a.answers);
     if (query.sort === 'free') cards = [...cards].sort((a, b) => a.queryFee - b.queryFee);
-    const page = clampPage(query.page, cards.length, query.size);
-    return { mode: 'search', items: cards.slice((page - 1) * query.size, page * query.size), total: cards.length, page, size: query.size };
+    return { mode: 'search', items: cards, total: cards.length, nextCursor: null };
   }
+  const key = batch.cursor ? decodeExploreCursor(query.sort, batch.cursor) : null;
+  if (batch.cursor && !key) throw new ExploreCursorError();
   const where = and(publicRee(), query.category ? eq(schema.ree.category, query.category) : undefined);
   const [{ total } = { total: 0 }] = await db()
     .select({ total: sql<number>`count(*)::int` })
     .from(schema.ree)
     .where(where);
-  const page = clampPage(query.page, total, query.size);
-  const order = {
-    active: [desc(activity), desc(roleOrder), desc(schema.ree.createdAt)],
-    answers: [desc(answersRanked), desc(roleOrder), desc(schema.ree.createdAt)],
-    free: [asc(schema.ree.queryFee), desc(roleOrder), desc(activity), desc(schema.ree.createdAt)],
-  }[query.sort];
-  const rows = await cardQuery()
-    .where(where)
-    .orderBy(...order)
-    .limit(query.size)
-    .offset((page - 1) * query.size);
-  const cards = rows.map((row) => toCard(row));
-  return { mode: 'browse', items: includeIntros ? await withIntros(cards) : cards, total, page, size: query.size };
+  const keys = browseKeys[query.sort];
+  const rows = await db()
+    .select({ ...cardColumns, key: sql<ExploreKey>`json_build_array(${sql.join([...keys, createdKey, sql`${schema.ree.id}`], sql`, `)})` })
+    .from(schema.ree)
+    .innerJoin(schema.user, eq(schema.user.id, schema.ree.ownerId))
+    .where(and(where, key ? afterKey(query.sort, key) : undefined))
+    .orderBy(...keyColumns(query.sort).map((column) => desc(column)))
+    .limit(batch.size + 1);
+  const more = rows.length > batch.size;
+  const page = rows.slice(0, batch.size);
+  const last = page.at(-1);
+  const cards = page.map(({ key: _key, ...row }) => toCard(row));
+  return {
+    mode: 'browse',
+    items: includeIntros ? await withIntros(cards) : cards,
+    total,
+    nextCursor: more && last ? encodeExploreCursor(query.sort, last.key) : null,
+  };
 }
 
 /** The most active public Rees (home page examples). */

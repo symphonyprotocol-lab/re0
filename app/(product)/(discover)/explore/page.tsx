@@ -1,5 +1,6 @@
 import type { Metadata } from 'next';
 import { headers } from 'next/headers';
+import { EXPLORE_BATCH_SIZES } from '@/lib/constants';
 import { parseExploreQuery } from '@/lib/domain/explore';
 import { clientIp } from '@/lib/http/conversations';
 import { currentUser } from '@/lib/http/session';
@@ -17,15 +18,16 @@ export async function generateMetadata(): Promise<Metadata> {
 
 /**
  * `/explore` (rebuild-proposal.md 2.4): one box for a question, seven
- * categories, three orders, 24 / 48 / 96 a page. With a question, the
- * two-level search (free, rate-limited); without, the most active public
- * Rees. Visitors see it in the site frame, signed-in users in the workspace.
+ * categories, three orders. With a question, the two-level search (free,
+ * rate-limited); without, the most active public Rees, the first batch here
+ * and the rest from `GET /api/explore` as the list scrolls. Visitors see it
+ * in the site frame, signed-in users in the workspace.
  */
 export default async function ExplorePage({ searchParams }: { searchParams: Promise<Record<string, string | string[] | undefined>> }) {
   const [params, user, { t }] = await Promise.all([searchParams, currentUser(), serverMessages()]);
   const query = parseExploreQuery(params);
   const limited = Boolean(query.q) && !(await allowSearch({ ip: clientIp(await headers()), userId: user?.id ?? null }));
-  const result = await explore(limited ? { ...query, q: '' } : query, { includeIntros: false });
+  const result = await explore(limited ? { ...query, q: '' } : query, { cursor: null, size: EXPLORE_BATCH_SIZES[0] }, { includeIntros: false });
   const [favoriteIds, coverVideos] = await Promise.all([
     user ? favoriteReeIds(user.id, result.items.map(ree => ree.id)) : undefined,
     introsFor(result.items.filter(ree => !ree.coverBlob).map(ree => ree.id)),

@@ -67,7 +67,7 @@ export async function searchReesTool(caller: ApiKeyCaller, input: { query: strin
     throw new McpToolError('rate_limited', 'Too many searches this minute. Wait a minute and try again.', { retry_after_seconds: 60 });
   }
   const limit = Math.min(Math.max(input.limit ?? MCP_SEARCH_MAX, 1), MCP_SEARCH_MAX);
-  const found = await explore({ q: query, category: null, sort: 'active', size: MCP_SEARCH_MAX, page: 1 }, { includeIntros: false });
+  const found = await explore({ q: query, category: null, sort: 'active' }, { cursor: null, size: MCP_SEARCH_MAX }, { includeIntros: false });
   return {
     query,
     rees: found.items.slice(0, limit).map((card) => ({
