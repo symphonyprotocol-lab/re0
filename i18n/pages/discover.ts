@@ -56,6 +56,7 @@ export const zh = {
     activity: 'Ree 表现',
     noVideo: '暂无视频介绍',
     view: '查看详情：{name}',
+    pinned: '置顶',
   },
   public: {
     back: '返回发现 Ree',
@@ -208,6 +209,7 @@ export const en: Shape<typeof zh> = {
     activity: 'Ree activity',
     noVideo: 'No video introduction yet',
     view: 'View details: {name}',
+    pinned: 'Pinned',
   },
   public: {
     back: 'Back to discover',

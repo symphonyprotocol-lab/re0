@@ -487,6 +487,59 @@ describeWithDb('explore and public pages', () => {
     expect(searched).toMatchObject({ mode: 'search', items: [], nextCursor: null });
   });
 
+  it('puts pinned Rees first under the default order only, in pin order, across batches', async () => {
+    const owner = await person();
+    const plain = [];
+    for (let at = 0; at < 3; at += 1) plain.push(await reeOf(owner, { category: 'professional' }));
+    const second = await reeOf(owner, { category: 'professional', queryFee: 50 });
+    const first = await reeOf(owner, { category: 'professional', queryFee: 50 });
+    const waiting = await reeOf(owner, { category: 'professional' });
+    const pin = (id: string, order: number | null) => db().update(schema.ree).set({ pinOrder: order }).where(eq(schema.ree.id, id));
+    try {
+      await pin(second.id, 2);
+      await pin(first.id, 1);
+      /* Pinned but unpublished: discovery's own filter keeps it out. */
+      await pin(waiting.id, 3);
+      await db().update(schema.ree).set({ isPublished: false }).where(eq(schema.ree.id, waiting.id));
+      /* The most active of all, yet unpinned: it follows the pins under "推荐优先" and leads "回答最多". */
+      await db().update(schema.ree).set({ rank: { activity30: 1_000_000, answersAll: 1_000_000 } }).where(eq(schema.ree.id, plain[0]!.id));
+
+      const walk = async (sort: 'active' | 'answers' | 'free') => {
+        const query = parseExploreQuery(new URLSearchParams({ category: 'professional', sort }));
+        const ids: string[] = [];
+        const pinned: string[] = [];
+        let cursor: string | null = null;
+        do {
+          /* One card a batch, so a cursor sits on each pinned Ree and on the first one after them. */
+          const batch: Awaited<ReturnType<typeof explore.explore>> = await explore.explore(query, { cursor, size: 1 }, { includeIntros: false });
+          ids.push(...batch.items.map((card) => card.id));
+          pinned.push(...batch.items.filter((card) => card.pinned).map((card) => card.id));
+          cursor = batch.nextCursor;
+        } while (cursor);
+        expect(new Set(ids).size).toBe(ids.length);
+        expect(ids).not.toContain(waiting.id);
+        return { ids, pinned };
+      };
+      const active = await walk('active');
+      expect(active.ids.slice(0, 3)).toEqual([first.id, second.id, plain[0]!.id]);
+      expect(active.pinned).toEqual([first.id, second.id]);
+      const answers = await walk('answers');
+      expect(answers.ids[0]).toBe(plain[0]!.id);
+      const free = await walk('free');
+      expect(free.ids.indexOf(first.id)).toBeGreaterThan(free.ids.indexOf(plain[1]!.id));
+      expect(free.ids.indexOf(second.id)).toBeGreaterThan(free.ids.indexOf(plain[2]!.id));
+
+      /* The home page: every pinned Ree before every unpinned one, in pin order. */
+      const home = await explore.activeRees(500);
+      const lastPinned = home.map((card) => card.pinned).lastIndexOf(true);
+      expect(home.slice(0, lastPinned + 1).every((card) => card.pinned)).toBe(true);
+      expect(home.findIndex((card) => card.id === first.id)).toBeLessThan(home.findIndex((card) => card.id === second.id));
+      expect(home.map((card) => card.id)).not.toContain(waiting.id);
+    } finally {
+      for (const ree of [first, second, waiting]) await pin(ree.id, null);
+    }
+  });
+
   it('counts free searches per IP and per account', async () => {
     const ip = `203.0.113.${Math.floor(Math.random() * 200)}`;
     const now = new Date();

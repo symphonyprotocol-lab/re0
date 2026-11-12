@@ -273,7 +273,14 @@ export function ExploreView({ query, result, limited, signedIn, favoriteIds, vie
         <>
           <div id="explore-results" className="dot-grid" aria-label={e.list} aria-busy={loading} onClickCapture={keep}>
             {loaded.items.map((ree) => (
-              <ReeCardView key={ree.id} ree={ree} from={current} favorite={favorites.has(ree.id)} viewerId={viewerId} />
+              <ReeCardView
+                key={ree.id}
+                ree={ree}
+                from={current}
+                favorite={favorites.has(ree.id)}
+                viewerId={viewerId}
+                pinned={ree.pinned && result.mode === 'browse' && query.sort === 'active'}
+              />
             ))}
           </div>
           <div ref={sentinel} className="discovery-results-footer">

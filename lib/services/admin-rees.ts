@@ -13,6 +13,7 @@
 import { and, asc, count, desc, eq, ilike, isNull, or, sql, type SQL } from 'drizzle-orm';
 import { ADMIN_SOURCE_PAGE_SIZE } from '@/lib/constants';
 import { parseAdminReason } from '@/lib/domain/adjustments';
+import { parsePinOrder } from '@/lib/domain/admin-lists';
 import type { ReesView, ReeVisibility } from '@/lib/domain/admin-lists';
 import { clampPage, likePattern, param, type ListResult } from '@/lib/domain/list';
 import { db, schema } from '@/lib/infra/db';
@@ -42,6 +43,8 @@ export interface AdminReeRow {
   createdAt: Date;
   moderatedAt: Date | null;
   moderatedReason: string | null;
+  /** Discover's pin position, null when not pinned. */
+  pinOrder: number | null;
 }
 
 /* `reeVisibility` in SQL: 'public' is exactly what discovery lists (`publicRee`), deleted Rees aside. */
@@ -53,6 +56,7 @@ const readySources = sql<number>`(select count(*)::int from ${schema.knowledge} 
 function reesWhere(view: ReesView): SQL {
   const conditions: SQL[] = [isNull(schema.ree.deletedAt)];
   if (view.status !== 'all') conditions.push(sql`${visibility} = ${view.status}`);
+  if (view.pin === 'pinned') conditions.push(sql`${schema.ree.pinOrder} is not null`);
   if (view.q) {
     const pattern = likePattern(view.q);
     conditions.push(
@@ -94,11 +98,13 @@ export async function listAdminRees(administrator: Administrator, view: ReesView
       createdAt: schema.ree.createdAt,
       moderatedAt: schema.ree.moderatedAt,
       moderatedReason: schema.ree.moderatedReason,
+      pinOrder: schema.ree.pinOrder,
     })
     .from(schema.ree)
     .innerJoin(schema.user, eq(schema.user.id, schema.ree.ownerId))
     .where(where)
-    .orderBy(view.sort === 'oldest' ? asc(schema.ree.createdAt) : desc(schema.ree.createdAt), asc(schema.ree.id))
+    /* The pinned list reads in Discover's order: position first. */
+    .orderBy(...(view.pin === 'pinned' ? [asc(schema.ree.pinOrder)] : []), view.sort === 'oldest' ? asc(schema.ree.createdAt) : desc(schema.ree.createdAt), asc(schema.ree.id))
     .$dynamic();
   if (!options.all) query = query.limit(view.size).offset((page - 1) * view.size);
   const rows = await query;
@@ -303,4 +309,37 @@ export async function restoreRee(administratorId: string, reeId: string, rawReas
     await notify(tx, { userId: ree.ownerId, kind: 'restore', text: reason, params: { ree: ree.name, reeId }, refId: reeId });
   });
   await refreshDiscovery(reeId);
+}
+
+/**
+ * Pins a Ree to the top of Discover's default order and the home page at
+ * `order` (1 leads), or unpins it with null. Any live Ree can be pinned
+ * ahead of its publication; it shows only while discovery lists it, so a
+ * Ree unpublished, taken down or deleted later simply drops out. The reason
+ * is optional; every change is audited.
+ */
+export async function setReePin(administratorId: string, reeId: string, rawOrder: unknown, rawReason: unknown = '', now = new Date()): Promise<{ pinOrder: number | null }> {
+  const order = parsePinOrder(rawOrder);
+  if (order === undefined) throw new AdminInputError('pin_order');
+  const given = typeof rawReason === 'string' ? rawReason.trim() : '';
+  const reason = given ? parseAdminReason(given) : '';
+  if (reason === null) throw new AdminInputError('reason');
+  return db().transaction(async (tx) => {
+    const [ree] = await tx.select().from(schema.ree).where(eq(schema.ree.id, reeId)).for('update');
+    if (!ree) throw new AdminInputError('not_found');
+    if (ree.deletedAt) throw new AdminInputError('stale');
+    if (ree.pinOrder === order) return { pinOrder: order };
+    await tx
+      .update(schema.ree)
+      .set(order === null ? { pinOrder: null, pinnedAt: null, pinnedBy: null } : { pinOrder: order, pinnedAt: now, pinnedBy: administratorId })
+      .where(eq(schema.ree.id, reeId));
+    await audit(tx, {
+      administratorId,
+      action: order === null ? 'ree.unpin' : 'ree.pin',
+      target: reeId,
+      before: { pinOrder: ree.pinOrder, name: ree.name },
+      after: { pinOrder: order, ...(reason ? { reason } : {}) },
+    });
+    return { pinOrder: order };
+  });
 }

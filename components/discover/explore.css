@@ -334,6 +334,24 @@
 .discovery-page .discovery-card {
   overflow: hidden;
 }
+/* "置顶": an administrator's pin, over the cover's top-left corner. */
+.discovery-page .discovery-card.is-pinned {
+  position: relative;
+}
+.discovery-page .discovery-pin {
+  position: absolute;
+  top: 10px;
+  left: 10px;
+  z-index: 2;
+  padding: 2px 8px;
+  border-radius: 999px;
+  background: #1685e9;
+  color: #ffffff;
+  font-size: 9px;
+  font-weight: 600;
+  letter-spacing: 0.3px;
+  pointer-events: none;
+}
 .discovery-page .discovery-card .description {
   margin: 0px;
   min-height: 0px;
