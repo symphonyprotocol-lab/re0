@@ -4,8 +4,8 @@
  * tokens and domain checks answer 429 before doing any work, and another
  * account is unaffected.
  */
-import { TEST_DATABASE_URL, uniqueName } from './setup';
-import { afterAll, beforeAll, describe, expect, it, vi } from 'vitest';
+import { freezeDateAtWindowStart, TEST_DATABASE_URL, uniqueName } from './setup';
+import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it, vi } from 'vitest';
 import { inArray, like } from 'drizzle-orm';
 import { NextRequest } from 'next/server';
 import { USER_RATE_LIMITS } from '@/lib/constants';
@@ -64,6 +64,13 @@ const routes: [RateLimitName, () => Promise<Response>][] = [
 suite('user route rate limits', () => {
   beforeAll(() => {
     vi.stubEnv('BLOB_READ_WRITE_TOKEN', 'vercel_blob_rw_teststore_secret');
+  });
+  /* `fill` and the call it is checked by in one window, however long the call takes to start. */
+  beforeEach(() => {
+    freezeDateAtWindowStart(60);
+  });
+  afterEach(() => {
+    vi.useRealTimers();
   });
   afterAll(async () => {
     token = undefined;

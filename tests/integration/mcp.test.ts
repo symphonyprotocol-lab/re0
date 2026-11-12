@@ -7,8 +7,8 @@
  * tool error that charges and saves nothing; calls are limited per key; and
  * MCP conversations stay out of the web's lists and routes.
  */
-import { afterAll, beforeAll, describe, expect, it } from 'vitest';
-import { pointModelsAt, TEST_DATABASE_URL, uniqueName } from './setup';
+import { afterAll, beforeAll, describe, expect, it, vi } from 'vitest';
+import { freezeDateAtWindowStart, pointModelsAt, TEST_DATABASE_URL, uniqueName } from './setup';
 import { and, eq } from 'drizzle-orm';
 import { Client, StreamableHTTPClientTransport } from '@modelcontextprotocol/client';
 import { startFakeOpenAi, type FakeOpenAi } from '../fixtures/fake-openai';
@@ -294,21 +294,24 @@ describeWithDb('MCP server: tools', () => {
   });
 
   it('limits tool calls per key', async () => {
-    /* The window is a fixed minute; start early in one so the hits below share it. */
-    const into = Date.now() % (MCP_RATE_LIMIT.windowSeconds * 1_000);
-    if (into > 45_000) await new Promise((resolve) => setTimeout(resolve, MCP_RATE_LIMIT.windowSeconds * 1_000 - into + 100));
-    const userId = await person();
-    const { key, secret } = await apiKeys.createApiKey(userId, { name: 'k' });
-    const client = await connect(secret);
-    expect((await call(client, 'list_my_rees')).isError).toBeFalsy();
-    for (let at = 1; at < MCP_RATE_LIMIT.perKey; at += 1) await hitRateBucket(`mcp:key:${key.id}`, MCP_RATE_LIMIT.perKey, MCP_RATE_LIMIT.windowSeconds);
-    const limited = await call(client, 'list_my_rees');
-    expect(limited).toMatchObject({ isError: true, structuredContent: { error: 'rate_limited' } });
-    /* Another key of the same account has its own allowance, under the account's. */
-    const second = await apiKeys.createApiKey(userId, { name: 'k2' });
-    const other = await connect(second.secret);
-    expect((await call(other, 'list_my_rees')).isError).toBeFalsy();
-    await client.close();
-    await other.close();
-  }, 60_000);
+    /* The window is a fixed minute on the wall clock: every hit below in one. */
+    freezeDateAtWindowStart(MCP_RATE_LIMIT.windowSeconds);
+    try {
+      const userId = await person();
+      const { key, secret } = await apiKeys.createApiKey(userId, { name: 'k' });
+      const client = await connect(secret);
+      expect((await call(client, 'list_my_rees')).isError).toBeFalsy();
+      for (let at = 1; at < MCP_RATE_LIMIT.perKey; at += 1) await hitRateBucket(`mcp:key:${key.id}`, MCP_RATE_LIMIT.perKey, MCP_RATE_LIMIT.windowSeconds);
+      const limited = await call(client, 'list_my_rees');
+      expect(limited).toMatchObject({ isError: true, structuredContent: { error: 'rate_limited' } });
+      /* Another key of the same account has its own allowance, under the account's. */
+      const second = await apiKeys.createApiKey(userId, { name: 'k2' });
+      const other = await connect(second.secret);
+      expect((await call(other, 'list_my_rees')).isError).toBeFalsy();
+      await client.close();
+      await other.close();
+    } finally {
+      vi.useRealTimers();
+    }
+  });
 });
