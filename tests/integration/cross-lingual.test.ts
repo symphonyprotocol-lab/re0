@@ -181,7 +181,8 @@ describeWithDb('cross-lingual retrieval', () => {
     const contents = found.passages.map((passage) => passage.content);
     expect(contents).toContain(direct);
     expect(contents).not.toContain(generic);
-    expect(contents[0]).toBe(MIDDLEWARE);
+    /* The word-for-word Chinese passage and the English page lead, each found by both legs of its language. */
+    expect(contents.slice(0, 2)).toEqual(expect.arrayContaining([direct, MIDDLEWARE]));
   });
 
   it('keeps the rewrite’s keywords when its embedding fails', async () => {

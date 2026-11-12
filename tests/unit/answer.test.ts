@@ -192,7 +192,24 @@ describe('retrieval', () => {
   });
 
   it('fuses ranked lists', () => {
-    expect(fuse([['a', 'b', 'c'], ['c', 'a']])[0]).toBe('a');
+    const ranked = (...ids: string[]) => ids.map((id, index) => ({ id, score: -index }));
+    expect(fuse([ranked('a', 'b', 'c'), ranked('c', 'a')])[0]).toBe('a');
+  });
+
+  it('gives entries a list scores the same one shared place, whatever order they came in', () => {
+    const tied = [
+      { id: 'b', score: 0.5 },
+      { id: 'a', score: 0.5 },
+    ];
+    /* Equal totals go by id, not by the order the rows came back in. */
+    expect(fuse([tied])).toEqual(['a', 'b']);
+    expect(fuse([[...tied].reverse()])).toEqual(['a', 'b']);
+    /* A third entry one place below the tie still trails it. */
+    expect(fuse([[...tied, { id: 'c', score: 0.1 }], [{ id: 'c', score: 1 }]])).toEqual(['c', 'a', 'b']);
+    /* One list's tie is broken by another list, never by position. */
+    const one = { id: 'm', score: 1 };
+    expect(fuse([[one, ...tied], [{ id: 'b', score: 0.2 }]])).toEqual(['b', 'm', 'a']);
+    expect(fuse([[one, ...[...tied].reverse()], [{ id: 'b', score: 0.2 }]])).toEqual(['b', 'm', 'a']);
   });
 
   it('needs a close passage or a strong keyword match', () => {
