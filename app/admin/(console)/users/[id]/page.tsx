@@ -4,6 +4,7 @@ import { WorkspaceLink as Link } from '@/components/shell/workspace-link';
 import { notFound } from 'next/navigation';
 import { Fragment, type ReactNode } from 'react';
 import type { KycStatus } from '@/db/schema';
+import { reeVisibility } from '@/lib/domain/admin-lists';
 import { param } from '@/lib/domain/list';
 import { adminUser, userEntries, userPurchases, userRees, userRoles, type AdminUserDetail } from '@/lib/services/admin-users';
 import type { Messages } from '@/i18n';
@@ -326,7 +327,7 @@ export default async function UserDetailPage({ params, searchParams }: Props) {
           empty={r.empty}
           head={[r.columns.name, r.columns.owner, r.columns.visibility, r.columns.sources, r.columns.fee, r.columns.answers, r.columns.action]}
           rows={rees.map((ree) => {
-            const live = ree.moderatedAt ? 'moderated' : ree.isPublic ? 'public' : 'private';
+            const live = reeVisibility(ree);
             const visibility = ree.deletedAt ? 'deleted' : live;
             const detail = `/admin/rees/${ree.id}?from=${back}`;
             return [

@@ -103,7 +103,20 @@ export function verificationsView(params: Params) {
 }
 export type VerificationsView = ReturnType<typeof verificationsView>;
 
-export const REE_VISIBILITY = ['public', 'private', 'moderated'] as const;
+/**
+ * A Ree as the console sees it, the same rule as discovery's: 'public' only
+ * when it is public, published and not taken down (a deleted Ree is out of
+ * the list); 'unpublished' is set public by its owner but not published yet,
+ * so nobody else can find or open it.
+ */
+export const REE_VISIBILITY = ['public', 'unpublished', 'private', 'moderated'] as const;
+export type ReeVisibility = (typeof REE_VISIBILITY)[number];
+
+export function reeVisibility(ree: { isPublic: boolean; isPublished: boolean; moderatedAt: Date | null }): ReeVisibility {
+  if (ree.moderatedAt) return 'moderated';
+  if (!ree.isPublic) return 'private';
+  return ree.isPublished ? 'public' : 'unpublished';
+}
 
 export function reesView(params: Params) {
   return {
