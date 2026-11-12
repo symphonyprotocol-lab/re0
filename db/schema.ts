@@ -314,11 +314,15 @@ export const chunk = pgTable(
     index('chunk_knowledge_idx').on(t.knowledgeId, t.ordinal),
     index('chunk_ree_idx').on(t.reeId),
     /*
-     * No vector index: retrieval is an exact scan within one Ree (`+ 0` in
-     * chat.ts / explore.ts keeps the planner off one), and an HNSW index made
-     * every write rebuild graph entries nobody reads (0038). With vectors of
-     * two spaces side by side, one would also have to be per space.
+     * One HNSW index per slot, on half-precision copies (half the size, and
+     * the similarity is computed again on the stored vector), for Discover's
+     * passage search across up to 25 Rees (explore.ts `nearestPassages`),
+     * which filters by Ree and space during an iterative scan. Answering
+     * inside one Ree stays an exact scan (`+ 0` in chat.ts keeps the planner
+     * off these). Dropped in 0038 while nothing read them; back in 0048.
      */
+    index('chunk_embedding_half_idx').using('hnsw', sql`(${t.embedding}::halfvec(1536)) halfvec_cosine_ops`),
+    index('chunk_embedding_next_half_idx').using('hnsw', sql`(${t.embeddingNext}::halfvec(1536)) halfvec_cosine_ops`),
   ],
 );
 

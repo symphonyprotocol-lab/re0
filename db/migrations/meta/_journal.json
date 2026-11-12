@@ -323,6 +323,13 @@
       "when": 1794474569763,
       "tag": "0047_ree_pin",
       "breakpoints": true
+    },
+    {
+      "idx": 47,
+      "version": "7",
+      "when": 1794481550492,
+      "tag": "0048_search_index",
+      "breakpoints": true
     }
   ]
 }
