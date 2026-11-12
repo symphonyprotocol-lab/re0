@@ -3,7 +3,7 @@
 import { WorkspaceLink as Link } from '@/components/shell/workspace-link';
 import { Children, Fragment, type ReactNode } from 'react';
 import { useI18n } from '@/i18n/client';
-import { LanguageToggle } from '@/components/ui/language-toggle';
+import { LanguageMenu } from '@/components/ui/language-menu';
 import { CI } from '@/components/admin/console-icon';
 import { useConsoleShell } from '@/components/admin/console-shell';
 
@@ -86,7 +86,7 @@ export function ConsoleTopbar({
           <span className="console-environment">
             <i className="dot" /> {c.nav.environmentBadge[environment]}
           </span>
-          <LanguageToggle className="btn ghost sm" icon={false} />
+          <LanguageMenu />
         </div>
       </div>
       {tabs?.length ? (

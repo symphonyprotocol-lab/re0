@@ -54,3 +54,12 @@
 .row-menu-item.is-danger:hover:not(:disabled),
 .row-menu-item.is-danger:focus-visible { background: #fff4f4; color: #b64752; }
 .row-menu-item:disabled { opacity: 0.4; cursor: not-allowed; }
+
+/* Link items (a language menu's other-language pages) look like the buttons. */
+a.row-menu-item { text-decoration: none; }
+.row-menu-label { flex: 1; min-width: 0; }
+
+/* A radio item: the chosen one is checked, the others keep the check's room. */
+.row-menu-item > svg.row-menu-check { color: var(--color-blue); }
+.row-menu-item > svg.row-menu-check.is-hidden { visibility: hidden; }
+.row-menu-item.is-checked { color: var(--color-ink); font-weight: 600; }
