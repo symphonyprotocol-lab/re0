@@ -1,5 +1,6 @@
 {
   "buildCommand": "npm run build && if [ \"$VERCEL_ENV\" = \"production\" ]; then npm run db:deploy; fi",
+  "regions": ["sin1"],
   "git": {
     "deploymentEnabled": {
       "develop": false,
