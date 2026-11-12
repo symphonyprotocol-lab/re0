@@ -264,6 +264,22 @@ export const knowledgeStage = pgTable(
   (t) => [primaryKey({ columns: [t.knowledgeId, t.ordinal] })],
 );
 
+/**
+ * What a processing run read from its source -- the extracted sections,
+ * passages built by the kind itself, the record lines and the fetched title
+ * -- kept while the source is being processed. A resumed run reads it back
+ * instead of fetching, downloading or transcribing again: it works from the
+ * same revision as the staged passages, and nothing is paid for twice.
+ * Cleared with the staged passages when the source becomes ready or fails.
+ */
+export const knowledgeExtract = pgTable('knowledge_extract', {
+  knowledgeId: uuid('knowledge_id')
+    .primaryKey()
+    .references(() => knowledge.id, { onDelete: 'cascade' }),
+  extracted: jsonb('extracted').notNull(),
+  createdAt: createdAt(),
+});
+
 export const chunk = pgTable(
   'chunk',
   {

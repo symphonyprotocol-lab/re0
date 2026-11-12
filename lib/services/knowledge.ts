@@ -30,14 +30,15 @@ import {
   AUDIO_MAX_BYTES,
   DOCUMENT_MAX_BYTES,
   KNOWLEDGE_BATCH_MAX,
-  KNOWLEDGE_GLOBAL_CONCURRENCY,
+  KNOWLEDGE_CLAIM_WINDOW_MS,
+  KNOWLEDGE_EXTRACT_MAX_BYTES,
   KNOWLEDGE_HEARTBEAT_MS,
   KNOWLEDGE_HEARTBEAT_STALE_MS,
   KNOWLEDGE_MAX_RESUMES,
-  KNOWLEDGE_OWNER_CONCURRENCY,
   KNOWLEDGE_QUEUE_BATCH,
   KNOWLEDGE_QUEUE_PARALLEL,
   KNOWLEDGE_RUN_MAX_MS,
+  KNOWLEDGE_SLOT_POOLS,
   KNOWLEDGE_STAGE_SLICE,
   KNOWLEDGE_TITLE_MAX,
   LIST_PAGE_SIZES,
@@ -438,6 +439,14 @@ interface Extracted {
   log: KnowledgeActivity[];
   /** A fetched page's own title, used when the owner has not renamed the source. */
   title?: string;
+  /** A repository's commit and scope, so a resumed run reads the same revision. */
+  pin?: RepositoryPin;
+}
+
+/** The commit a repository source was read at, and the ref and folder it was read from. */
+export interface RepositoryPin {
+  revision: string;
+  scope: RepositoryRef;
 }
 
 /** A passage spans at most this much audio, so the second it cites is near what it says. */
@@ -470,7 +479,8 @@ async function ownerOf(reeId: string): Promise<string> {
   return ree!.ownerId;
 }
 
-async function extract(row: KnowledgeRow): Promise<Extracted> {
+/** Reads the source. `pin`: a resumed repository is read at the commit and scope its first attempt read. */
+async function extract(row: KnowledgeRow, pin?: RepositoryPin): Promise<Extracted> {
   if (simulatedFailureFor(row.fileName, row.title, row.originalTitle)) {
     throw new ProcessingFailure('simulated', 'the name asks for the failure path (test environments only)');
   }
@@ -510,7 +520,7 @@ async function extract(row: KnowledgeRow): Promise<Extracted> {
       const ref = parseGithubRepo(row.source);
       if (!ref) throw new ProcessingFailure('github_repo_not_found', 'not a repository URL');
       /* A public repository is read without a connection; a private one fails `github_not_connected` without it. */
-      const snapshot = await fetchRepositoryFiles(ref, await githubTokenFor(await ownerOf(row.reeId)));
+      const snapshot = await fetchRepositoryFiles(ref, await githubTokenFor(await ownerOf(row.reeId)), pin ? { pin } : {});
       return {
         sections: snapshot.files.map((file) => ({ text: file.content, locator: { path: file.path }, byLines: true, child: { label: file.path, path: file.path } })),
         log: [
@@ -518,8 +528,10 @@ async function extract(row: KnowledgeRow): Promise<Extracted> {
             files: snapshot.files.length,
             revision: snapshot.revision.slice(0, 7),
             ...(snapshot.unread ? { unread: snapshot.unread } : {}),
+            ...(snapshot.olderVersions ? { olderVersions: snapshot.olderVersions } : {}),
           }),
         ],
+        pin: { revision: snapshot.revision, scope: snapshot.scope },
       };
     }
     case 'page': {
@@ -550,8 +562,15 @@ async function embedAll(texts: string[], endpoint: ModelEndpoint): Promise<numbe
 
 /* ---------------------------------------------------- slots and liveness */
 
-/** The kinds that can run for minutes: they take a slot (`KNOWLEDGE_*_CONCURRENCY`) or wait for one. */
-const SLOTTED_KINDS = ['github', 'site'] as const;
+export type SlotPool = keyof typeof KNOWLEDGE_SLOT_POOLS;
+
+/** The pool whose slot a kind takes (`KNOWLEDGE_SLOT_POOLS`), or null for the quick kinds that never wait. */
+export function slotPool(kind: string): SlotPool | null {
+  for (const [pool, { kinds }] of Object.entries(KNOWLEDGE_SLOT_POOLS) as [SlotPool, (typeof KNOWLEDGE_SLOT_POOLS)[SlotPool]][]) {
+    if ((kinds as readonly string[]).includes(kind)) return pool;
+  }
+  return null;
+}
 
 /**
  * A processing row's run's last heartbeat (null: started before heartbeats).
@@ -574,11 +593,11 @@ function deadRun(now: Date): SQL {
 }
 
 /**
- * Whether a repository or website of this owner may start now: fewer live
- * runs of those kinds than the owner's and the platform's limits. Taken
+ * Whether a source of this owner may start now in its pool: fewer live runs
+ * of the pool's kinds than the owner's and the platform's limits. Taken
  * under one advisory lock, so two claims cannot both see the last slot.
  */
-async function slotFree(tx: Tx, reeId: string, now: Date): Promise<boolean> {
+async function slotFree(tx: Tx, reeId: string, pool: SlotPool, now: Date): Promise<boolean> {
   await tx.execute(sql`select pg_advisory_xact_lock(hashtext('re0:knowledge-slots'))`);
   const [owner] = await tx.select({ id: schema.ree.ownerId }).from(schema.ree).where(eq(schema.ree.id, reeId));
   const [busy] = await tx
@@ -588,19 +607,19 @@ async function slotFree(tx: Tx, reeId: string, now: Date): Promise<boolean> {
     })
     .from(schema.knowledge)
     .innerJoin(schema.ree, eq(schema.ree.id, schema.knowledge.reeId))
-    .where(and(eq(schema.knowledge.status, 'processing'), inArray(schema.knowledge.kind, [...SLOTTED_KINDS]), not(deadRun(now))));
-  return slotsAllow(busy?.mine ?? 0, busy?.all ?? 0);
+    .where(and(eq(schema.knowledge.status, 'processing'), inArray(schema.knowledge.kind, [...KNOWLEDGE_SLOT_POOLS[pool].kinds]), not(deadRun(now))));
+  return slotsAllow(busy?.mine ?? 0, busy?.all ?? 0, KNOWLEDGE_SLOT_POOLS[pool]);
 }
 
 /** The slot rule on its own: under both the owner's and the platform's limit. */
-export function slotsAllow(mine: number, all: number, limits = { owner: KNOWLEDGE_OWNER_CONCURRENCY, global: KNOWLEDGE_GLOBAL_CONCURRENCY }): boolean {
+export function slotsAllow(mine: number, all: number, limits: { owner: number; global: number }): boolean {
   return mine < limits.owner && all < limits.global;
 }
 
 /**
  * Claims a pending row for this run (pending → processing), or answers null:
- * nothing to claim (another run has it), or no slot free for a repository
- * or website -- it stays `pending` and is started later.
+ * nothing to claim (another run has it), or no slot free in its pool -- it
+ * stays `pending` and is started later.
  */
 async function claimRun(knowledgeId: string, runId: string, now: Date): Promise<KnowledgeRow | null> {
   return db().transaction(async (tx) => {
@@ -609,7 +628,8 @@ async function claimRun(knowledgeId: string, runId: string, now: Date): Promise<
       .from(schema.knowledge)
       .where(and(eq(schema.knowledge.id, knowledgeId), eq(schema.knowledge.status, 'pending')));
     if (!waiting) return null;
-    if ((SLOTTED_KINDS as readonly string[]).includes(waiting.kind) && !(await slotFree(tx, waiting.reeId, now))) return null;
+    const pool = slotPool(waiting.kind);
+    if (pool && !(await slotFree(tx, waiting.reeId, pool, now))) return null;
     const [claimed] = await tx
       .update(schema.knowledge)
       .set({ status: 'processing', updatedAt: now, activity: appendActivity([activity('processing', { runId }, now)]) })
@@ -667,29 +687,56 @@ export function stagePlan(
   return { kept, dropped };
 }
 
+/** A run that is no longer the source's current one: a newer attempt took over after it was presumed dead. */
+class SupersededRun extends Error {
+  constructor(runId: string) {
+    super(`processing run ${runId} was superseded`);
+    this.name = 'SupersededRun';
+  }
+}
+
+/**
+ * Writes on behalf of `runId` only while it is still the source's current
+ * run: its cost run is `processing`, held with a share lock, so a resume
+ * (which marks it failed) waits for the write, and every write after that
+ * finds the run superseded. A run wrongly presumed dead therefore stops
+ * touching what the newer attempt stages.
+ */
+async function asCurrentRun<T>(runId: string, work: (tx: Tx) => Promise<T>): Promise<T> {
+  return db().transaction(async (tx) => {
+    const [run] = await tx
+      .select({ id: schema.knowledgeCostRun.id })
+      .from(schema.knowledgeCostRun)
+      .where(and(eq(schema.knowledgeCostRun.runId, runId), eq(schema.knowledgeCostRun.status, 'processing')))
+      .for('share');
+    if (!run) throw new SupersededRun(runId);
+    return work(tx);
+  });
+}
+
 /**
  * Embeds every passage not already staged and stages it, a slice at a time:
- * the next slice is embedded while the last one is written. Answers how
- * many staged passages an earlier attempt left that were reused.
+ * the next slice is embedded while the last one is written. Every delete and
+ * write goes through `asCurrentRun`. Answers how many staged passages an
+ * earlier attempt left that were reused.
  */
-async function stagePassages(knowledgeId: string, chunks: readonly DraftChunk[], endpoint: ModelEndpoint): Promise<number> {
-  const database = db();
+async function stagePassages(knowledgeId: string, runId: string, chunks: readonly DraftChunk[], endpoint: ModelEndpoint): Promise<number> {
   const config = endpoint.configId ?? '';
   const digests = chunks.map(passageDigest);
-  const staged = await database
+  const staged = await db()
     .select({ ordinal: schema.knowledgeStage.ordinal, digest: schema.knowledgeStage.digest, configId: schema.knowledgeStage.configId })
     .from(schema.knowledgeStage)
     .where(eq(schema.knowledgeStage.knowledgeId, knowledgeId));
   const { kept, dropped } = stagePlan(digests, staged, config);
   for (let at = 0; at < dropped.length; at += 5_000) {
-    await database
+    await asCurrentRun(runId, (tx) => tx
       .delete(schema.knowledgeStage)
-      .where(and(eq(schema.knowledgeStage.knowledgeId, knowledgeId), inArray(schema.knowledgeStage.ordinal, dropped.slice(at, at + 5_000))));
+      .where(and(eq(schema.knowledgeStage.knowledgeId, knowledgeId), inArray(schema.knowledgeStage.ordinal, dropped.slice(at, at + 5_000)))));
   }
   const missing = chunks.filter((chunk) => !kept.has(chunk.ordinal));
   const write = async (slice: readonly DraftChunk[], vectors: readonly number[][]): Promise<void> => {
     for (let at = 0; at < slice.length; at += 200) {
-      await database
+      await asCurrentRun(runId, (tx) => tx
         .insert(schema.knowledgeStage)
         .values(
           slice.slice(at, at + 200).map((chunk, offset) => ({
@@ -711,7 +758,7 @@ async function stagePassages(knowledgeId: string, chunks: readonly DraftChunk[],
             locator: sql`excluded.locator`,
             embedding: sql`excluded.embedding`,
           },
-        });
+        }));
     }
   };
   let writing: Promise<void> = Promise.resolve();
@@ -728,6 +775,38 @@ async function stagePassages(knowledgeId: string, chunks: readonly DraftChunk[],
     throw error;
   }
   return kept.size;
+}
+
+/* ------------------------------------------------------- extract snapshot */
+
+/** What `knowledge_extract` keeps: the whole extraction, or (too large for that) only the repository commit to read again. */
+export type StoredExtract = { full: Extracted } | { pin: RepositoryPin };
+
+/** What a stored extraction keeps for a resumed run: all of it when it fits, else only a repository's commit and scope. */
+export function extractToStore(extracted: Extracted, maxBytes = KNOWLEDGE_EXTRACT_MAX_BYTES): StoredExtract | null {
+  if (Buffer.byteLength(JSON.stringify(extracted)) <= maxBytes) return { full: extracted };
+  return extracted.pin ? { pin: extracted.pin } : null;
+}
+
+/** The current run keeps what it read, so a resumed run works from the same text without reading the source again. */
+async function saveExtract(knowledgeId: string, runId: string, extracted: Extracted): Promise<void> {
+  const stored = extractToStore(extracted);
+  if (!stored) return;
+  await asCurrentRun(runId, (tx) => tx
+    .insert(schema.knowledgeExtract)
+    .values({ knowledgeId, extracted: stored })
+    .onConflictDoUpdate({ target: schema.knowledgeExtract.knowledgeId, set: { extracted: stored, createdAt: new Date() } }));
+}
+
+async function loadExtract(knowledgeId: string): Promise<StoredExtract | null> {
+  const [row] = await db().select({ extracted: schema.knowledgeExtract.extracted }).from(schema.knowledgeExtract).where(eq(schema.knowledgeExtract.knowledgeId, knowledgeId));
+  return (row?.extracted as StoredExtract | undefined) ?? null;
+}
+
+/** Drops what an attempt kept for the next one: the staged passages and the stored extraction. */
+async function clearStaging(tx: Tx, knowledgeId: string): Promise<void> {
+  await tx.delete(schema.knowledgeStage).where(eq(schema.knowledgeStage.knowledgeId, knowledgeId));
+  await tx.delete(schema.knowledgeExtract).where(eq(schema.knowledgeExtract.knowledgeId, knowledgeId));
 }
 
 /* ---------------------------------------------------------------- runs */
@@ -769,7 +848,15 @@ async function processKnowledgeRun(knowledgeId: string, runId: string): Promise<
   const stopHeartbeat = startHeartbeat(runId);
 
   try {
-    const extracted = await extract(row);
+    /* A resumed run works from what its first attempt read: the same text, the same commit, nothing fetched or transcribed twice. */
+    const stored = await loadExtract(row.id);
+    let extracted: Extracted;
+    if (stored && 'full' in stored) {
+      extracted = stored.full;
+    } else {
+      extracted = await extract(row, stored?.pin);
+      await saveExtract(row.id, runId, extracted);
+    }
     // What reading the source moved (pages fetched, the upload read back and sent on) is a receipt like any supplier's.
     await flushTransfer();
     const { content, children } = assemble(extracted.sections);
@@ -778,7 +865,7 @@ async function processKnowledgeRun(knowledgeId: string, runId: string): Promise<
     const chunks = extracted.chunks ?? chunkSections(extracted.sections);
     if (chunks.length === 0) throw new ProcessingFailure('empty_text', 'nothing to chunk');
     let endpoint = await endpointFor('embedding');
-    const reused = await stagePassages(row.id, chunks, endpoint);
+    const reused = await stagePassages(row.id, runId, chunks, endpoint);
 
     /*
      * A re-embed job may switch the embedding model between embedding and
@@ -803,7 +890,7 @@ async function processKnowledgeRun(knowledgeId: string, runId: string): Promise<
           select s.knowledge_id, ${row.reeId}::uuid, s.ordinal, s.content, s.embedding, ${space}::uuid, s.locator
           from ${schema.knowledgeStage} s
           where s.knowledge_id = ${row.id}::uuid and s.ordinal < ${chunks.length} and s.config_id = ${config}`);
-        await tx.delete(schema.knowledgeStage).where(eq(schema.knowledgeStage.knowledgeId, row.id));
+        await clearStaging(tx, row.id);
         const holdId = await heldFor(tx, row.id, 'knowledge');
         if (!holdId) throw new Error('knowledge reservation missing');
         // A source never becomes ready with a cost nobody can price: it would be billed as zero.
@@ -845,7 +932,7 @@ async function processKnowledgeRun(knowledgeId: string, runId: string): Promise<
         forgetModelCache();
         endpoint = await endpointFor('embedding');
       }
-      await stagePassages(row.id, chunks, endpoint);
+      await stagePassages(row.id, runId, chunks, endpoint);
     }
     /* The last step (2.4): suggested example questions and the knowledge profile, free of charge (a batch does it once at its end). */
     return row.reeId;
@@ -891,8 +978,8 @@ async function failAndRefund(id: string, reeId: string, title: string | null, co
       .update(schema.knowledge)
       .set({ status: 'failed', error: code, updatedAt: when, activity: appendActivity(log) })
       .where(and(eq(schema.knowledge.id, id), eq(schema.knowledge.status, 'processing')));
-    /* Staged passages of a source that failed are not kept for a retry nobody may make. */
-    await tx.delete(schema.knowledgeStage).where(eq(schema.knowledgeStage.knowledgeId, id));
+    /* What a failed source staged is not kept for a retry nobody may make. */
+    await clearStaging(tx, id);
   });
 }
 
@@ -930,7 +1017,7 @@ async function resumeLater(id: string, reeId: string, runId: string, now: Date):
       await tx.update(schema.knowledge)
         .set({ status: 'failed', error: 'insufficient_credits', updatedAt: now, activity: appendActivity([activity('failed', { reason: 'insufficient_credits' }, now), ...log]) })
         .where(eq(schema.knowledge.id, id));
-      await tx.delete(schema.knowledgeStage).where(eq(schema.knowledgeStage.knowledgeId, id));
+      await clearStaging(tx, id);
       return 'failed';
     }
     await snapshotCostRun(tx, next, id, now);
@@ -940,12 +1027,17 @@ async function resumeLater(id: string, reeId: string, runId: string, now: Date):
   });
 }
 
-/** Several sources, two at a time (a batch reprocess), inside one function run; each Ree's profile is rebuilt once at the end. */
-export async function processMany(ids: readonly string[]): Promise<void> {
+/**
+ * Several sources, two at a time (a batch reprocess), inside one function
+ * run; each Ree's profile is rebuilt once at the end. Like the queue, it
+ * claims nothing once the claim window has passed (`claimOpen`): what is
+ * left stays `pending` for the queue cron.
+ */
+export async function processMany(ids: readonly string[], startedAt = Date.now()): Promise<void> {
   const queue = [...ids];
   const ready = new Set<string>();
   const worker = async (): Promise<void> => {
-    for (let id = queue.shift(); id; id = queue.shift()) {
+    for (let id = queue.shift(); id && claimOpen(startedAt); id = queue.shift()) {
       const reeId = await processKnowledge(id, { profile: false });
       if (reeId) ready.add(reeId);
     }
@@ -1393,42 +1485,111 @@ export async function recoverStaleEverywhere(now = new Date(), limit = 50): Prom
   return rees.length;
 }
 
+export interface WaitingSource {
+  id: string;
+  kind: string;
+  ownerId: string;
+  createdAt: Date;
+  updatedAt: Date;
+  /** 1 for the owner's oldest waiting source in its pool, 2 for the next... */
+  place: number;
+}
+
 /**
- * The queue: sources waiting to be processed, oldest first, in Rees that
- * still exist -- repositories and websites waiting for a slot, and anything
- * else whose own after-response run has not taken it within a minute
- * (resumed runs included). Starting one is only an offer: `claimRun`
- * decides whether a slot is free.
+ * Which waiting sources to offer a run, fairly: in each pool an owner is
+ * offered only as many as they have free slots, owners take turns (every
+ * owner's first before anyone's second), and no pool is offered more than
+ * the platform has free. A quick kind is offered once its own
+ * after-response run has had a minute to take it.
+ */
+export function fairQueue(
+  waiting: readonly WaitingSource[],
+  live: { ownerId: string; kind: string; n: number }[],
+  limit: number,
+  now: Date,
+): string[] {
+  const mine = new Map<string, number>();
+  const all = new Map<SlotPool, number>();
+  for (const run of live) {
+    const pool = slotPool(run.kind);
+    if (!pool) continue;
+    mine.set(`${run.ownerId}|${pool}`, (mine.get(`${run.ownerId}|${pool}`) ?? 0) + run.n);
+    all.set(pool, (all.get(pool) ?? 0) + run.n);
+  }
+  const stale = now.getTime() - STALE_PENDING_MS;
+  const offered: string[] = [];
+  const ordered = [...waiting].sort((a, b) => a.place - b.place || a.createdAt.getTime() - b.createdAt.getTime() || (a.id < b.id ? -1 : 1));
+  for (const source of ordered) {
+    if (offered.length >= limit) break;
+    const pool = slotPool(source.kind);
+    if (!pool) {
+      if (source.updatedAt.getTime() < stale) offered.push(source.id);
+      continue;
+    }
+    const limits = KNOWLEDGE_SLOT_POOLS[pool];
+    if (source.place > limits.owner - (mine.get(`${source.ownerId}|${pool}`) ?? 0)) continue;
+    const used = all.get(pool) ?? 0;
+    if (used >= limits.global) continue;
+    all.set(pool, used + 1);
+    offered.push(source.id);
+  }
+  return offered;
+}
+
+/**
+ * The queue: sources waiting to be processed, in Rees that still exist,
+ * chosen by `fairQueue`. Starting one is only an offer: `claimRun` decides
+ * whether a slot is free.
  */
 export async function queuedKnowledge(limit = KNOWLEDGE_QUEUE_BATCH, now = new Date()): Promise<string[]> {
-  const rows = await db()
-    .select({ id: schema.knowledge.id })
+  const database = db();
+  const slotted = Object.values(KNOWLEDGE_SLOT_POOLS).flatMap((pool) => [...pool.kinds]);
+  const live = await database
+    .select({ ownerId: schema.ree.ownerId, kind: schema.knowledge.kind, n: sql<number>`count(*)::int` })
     .from(schema.knowledge)
     .innerJoin(schema.ree, eq(schema.ree.id, schema.knowledge.reeId))
-    .where(
-      and(
-        eq(schema.knowledge.status, 'pending'),
-        isNull(schema.knowledge.deletedAt),
-        isNull(schema.ree.deletedAt),
-        or(inArray(schema.knowledge.kind, [...SLOTTED_KINDS]), lt(schema.knowledge.updatedAt, new Date(now.getTime() - STALE_PENDING_MS))),
-      ),
-    )
-    .orderBy(asc(schema.knowledge.createdAt), asc(schema.knowledge.id))
-    .limit(limit);
-  return rows.map((row) => row.id);
+    .where(and(eq(schema.knowledge.status, 'processing'), inArray(schema.knowledge.kind, slotted), not(deadRun(now))))
+    .groupBy(schema.ree.ownerId, schema.knowledge.kind);
+  /* Each owner's first few per pool are enough: an owner is never offered more than the pool's per-owner limit. */
+  const pool = sql`case ${sql.join(
+    Object.values(KNOWLEDGE_SLOT_POOLS).map((entry, at) => sql`when k.kind in (${sql.join(entry.kinds.map((kind) => sql`${kind}`), sql`, `)}) then ${at}`),
+    sql` `,
+  )} else -1 end`;
+  const result = await database.execute(sql`
+    select id, kind, owner_id, created_at, updated_at, place from (
+      select k.id, k.kind, r.owner_id, k.created_at, k.updated_at,
+        row_number() over (partition by r.owner_id, ${pool} order by k.created_at, k.id) as place
+      from ${schema.knowledge} k join ${schema.ree} r on r.id = k.ree_id
+      where k.status = 'pending' and k.deleted_at is null and r.deleted_at is null
+    ) w
+    where place <= ${limit}
+    order by place, created_at, id
+    limit ${limit * 50}`);
+  const waiting = (result.rows as { id: string; kind: string; owner_id: string; created_at: string | Date; updated_at: string | Date; place: string | number }[])
+    .map((row) => ({ id: row.id, kind: row.kind, ownerId: row.owner_id, createdAt: new Date(row.created_at), updatedAt: new Date(row.updated_at), place: Number(row.place) }));
+  return fairQueue(waiting, live, limit, now);
 }
 
 /**
  * Offers each queued source a run, `KNOWLEDGE_QUEUE_PARALLEL` at a time in
  * this function (an audio file is read whole into memory); one without a
- * slot answers at once and is left for the next round.
+ * slot answers at once and is left for the next round. No run is claimed
+ * once `KNOWLEDGE_CLAIM_WINDOW_MS` has passed since the function started
+ * (`startedAt`): it could be killed before it finishes. The rest waits for
+ * the next minute's cron.
  */
-export async function processQueued(ids: readonly string[], parallel = KNOWLEDGE_QUEUE_PARALLEL): Promise<void> {
+export async function processQueued(ids: readonly string[], options: { startedAt?: number; parallel?: number } = {}): Promise<void> {
+  const startedAt = options.startedAt ?? Date.now();
   const queue = [...ids];
   const worker = async (): Promise<void> => {
-    for (let id = queue.shift(); id; id = queue.shift()) await processKnowledge(id).catch(() => null);
+    for (let id = queue.shift(); id && claimOpen(startedAt); id = queue.shift()) await processKnowledge(id).catch(() => null);
   };
-  await Promise.all(Array.from({ length: Math.min(parallel, queue.length) }, worker));
+  await Promise.all(Array.from({ length: Math.min(options.parallel ?? KNOWLEDGE_QUEUE_PARALLEL, queue.length) }, worker));
+}
+
+/** Whether a function that started at `startedAt` may still claim a new run. */
+export function claimOpen(startedAt: number, now = Date.now()): boolean {
+  return now - startedAt < KNOWLEDGE_CLAIM_WINDOW_MS;
 }
 
 /** What answers can draw on: ready, enabled and not in the trash; and what is still being prepared. */

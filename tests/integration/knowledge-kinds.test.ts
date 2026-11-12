@@ -11,7 +11,8 @@
  * GitHub, the sites and DNS are stubbed; transcription and embeddings go to
  * the local fake endpoint.
  */
-import { KNOWLEDGE_OWNER_CONCURRENCY, WELCOME_CREDITS } from '@/lib/constants';
+import { KNOWLEDGE_SLOT_POOLS, WELCOME_CREDITS } from '@/lib/constants';
+
 import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it, vi } from 'vitest';
 import { pointModelsAt, TEST_DATABASE_URL, uniqueName } from './setup';
 import { and, asc, eq } from 'drizzle-orm';
@@ -191,8 +192,9 @@ describeWithDb('GitHub repositories', () => {
     serveRepository('acme', 'burst', 'public');
     const { userId, ree } = await userWithRee();
     const ids: string[] = [];
-    for (let at = 0; at <= KNOWLEDGE_OWNER_CONCURRENCY; at += 1) ids.push(await knowledge.addKnowledge(userId, ree, { kind: 'github', url: 'acme/burst' }));
-    const busy = ids.slice(0, KNOWLEDGE_OWNER_CONCURRENCY);
+    const owned = KNOWLEDGE_SLOT_POOLS.crawl.owner;
+    for (let at = 0; at <= owned; at += 1) ids.push(await knowledge.addKnowledge(userId, ree, { kind: 'github', url: 'acme/burst' }));
+    const busy = ids.slice(0, owned);
     const waiting = ids.at(-1)!;
     /* The owner's other repositories are being processed, beating their heartbeats. */
     for (const [at, id] of busy.entries()) {
@@ -201,7 +203,8 @@ describeWithDb('GitHub repositories', () => {
     }
     expect(await knowledge.processKnowledge(waiting, { profile: false })).toBeNull();
     expect(await knowledge.knowledgeDetail(ree.id, waiting)).toMatchObject({ status: 'pending' });
-    expect(await knowledge.queuedKnowledge(500)).toContain(waiting);
+    /* The queue does not offer it while the owner has no free slot. */
+    expect(await knowledge.queuedKnowledge(500)).not.toContain(waiting);
     /* Other kinds do not wait for a slot. */
     const note = await knowledge.addKnowledge(userId, ree, { kind: 'text', title: 'Note', content: 'Text never queues behind repositories.' });
     expect(await knowledge.processKnowledge(note, { profile: false })).toBe(ree.id);
@@ -216,6 +219,7 @@ describeWithDb('GitHub repositories', () => {
 
     /* One run stops beating: it no longer holds a slot, and the waiting repository starts. */
     await db().update(schema.knowledgeCostRun).set({ heartbeatAt: new Date(Date.now() - 10 * 60_000) }).where(eq(schema.knowledgeCostRun.knowledgeId, busy[0]!));
+    expect(await knowledge.queuedKnowledge(500)).toContain(waiting);
     expect(await knowledge.processKnowledge(waiting, { profile: false })).toBe(ree.id);
     expect(await knowledge.knowledgeDetail(ree.id, waiting)).toMatchObject({ status: 'ready' });
     expect(await knowledge.queuedKnowledge(500)).not.toContain(waiting);
