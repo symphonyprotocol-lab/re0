@@ -60,13 +60,34 @@ export function keywordCoverage(terms: readonly string[], content: string): numb
   return found.length / terms.length;
 }
 
-/** Reciprocal rank fusion over any number of ranked id lists. */
-export function fuse(lists: readonly (readonly string[])[], k = RETRIEVAL_RRF_K): string[] {
+/** An entry of a ranked list, with the score the list was ranked by (higher first). */
+export interface Ranked {
+  id: string;
+  score: number;
+}
+
+/**
+ * Reciprocal rank fusion over any number of ranked lists, each best first.
+ * Entries a list scores the same share the mean of the places they take: a
+ * list that cannot tell them apart (a dozen passages that each hold only the
+ * product's name) says nothing about their order, so the order the database
+ * happened to return them in -- random ids, physical order -- must not decide
+ * what is read. Equal totals go by id, so the same passages always fuse the
+ * same way.
+ */
+export function fuse(lists: readonly (readonly Ranked[])[], k = RETRIEVAL_RRF_K): string[] {
   const scores = new Map<string, number>();
   for (const list of lists) {
-    list.forEach((id, index) => scores.set(id, (scores.get(id) ?? 0) + 1 / (k + index + 1)));
+    for (let start = 0; start < list.length; ) {
+      let end = start + 1;
+      while (end < list.length && list[end]!.score === list[start]!.score) end++;
+      /* The mean of the 1-based places start + 1 .. end. */
+      const place = (start + 1 + end) / 2;
+      for (const { id } of list.slice(start, end)) scores.set(id, (scores.get(id) ?? 0) + 1 / (k + place));
+      start = end;
+    }
   }
-  return [...scores.entries()].sort((a, b) => b[1] - a[1]).map(([id]) => id);
+  return [...scores.entries()].sort((a, b) => b[1] - a[1] || (a[0] < b[0] ? -1 : a[0] > b[0] ? 1 : 0)).map(([id]) => id);
 }
 
 /**
