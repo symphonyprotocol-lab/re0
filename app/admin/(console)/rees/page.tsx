@@ -98,7 +98,7 @@ export default async function ReesPage({ searchParams }: Props) {
                   </span>
                 </span>
               </Link>,
-              <span key="visibility" className={`tag ${{ public: 'blue', private: '', moderated: 'orange' }[row.visibility]}`}>
+              <span key="visibility" className={`tag ${{ public: 'blue', unpublished: '', private: '', moderated: 'orange' }[row.visibility]}`}>
                 {r.visibility[row.visibility]}
               </span>,
               `${n(row.readySources)} / ${n(row.sources)}`,

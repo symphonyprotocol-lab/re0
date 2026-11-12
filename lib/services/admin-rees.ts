@@ -13,7 +13,7 @@
 import { and, asc, count, desc, eq, ilike, isNull, or, sql, type SQL } from 'drizzle-orm';
 import { ADMIN_SOURCE_PAGE_SIZE } from '@/lib/constants';
 import { parseAdminReason } from '@/lib/domain/adjustments';
-import type { ReesView } from '@/lib/domain/admin-lists';
+import type { ReesView, ReeVisibility } from '@/lib/domain/admin-lists';
 import { clampPage, likePattern, param, type ListResult } from '@/lib/domain/list';
 import { db, schema } from '@/lib/infra/db';
 import { AdminInputError, audit, assertConsole, type Administrator } from '@/lib/services/admin';
@@ -22,7 +22,7 @@ import { notify } from '@/lib/services/notices';
 import { refreshProfile } from '@/lib/services/profile';
 import { sourceState, sourceSummary } from '@/lib/services/statistics';
 
-export type ReeVisibility = 'public' | 'private' | 'moderated';
+export type { ReeVisibility } from '@/lib/domain/admin-lists';
 
 export interface AdminReeRow {
   id: string;
@@ -44,7 +44,8 @@ export interface AdminReeRow {
   moderatedReason: string | null;
 }
 
-const visibility = sql<ReeVisibility>`case when "ree"."moderated_at" is not null then 'moderated' when "ree"."is_public" then 'public' else 'private' end`;
+/* `reeVisibility` in SQL: 'public' is exactly what discovery lists (`publicRee`), deleted Rees aside. */
+const visibility = sql<ReeVisibility>`case when "ree"."moderated_at" is not null then 'moderated' when "ree"."is_public" and "ree"."is_published" then 'public' when "ree"."is_public" then 'unpublished' else 'private' end`;
 const sources = sql<number>`(select count(*)::int from ${schema.knowledge} k where k.ree_id = "ree"."id" and k.deleted_at is null)`;
 const readySources = sql<number>`(select count(*)::int from ${schema.knowledge} k where k.ree_id = "ree"."id" and k.deleted_at is null and k.status = 'ready')`;
 
@@ -109,12 +110,13 @@ export async function reeCounts() {
     .select({
       total: count(),
       public: sql<number>`count(*) filter (where ${visibility} = 'public')::int`,
+      unpublished: sql<number>`count(*) filter (where ${visibility} = 'unpublished')::int`,
       private: sql<number>`count(*) filter (where ${visibility} = 'private')::int`,
       moderated: sql<number>`count(*) filter (where ${visibility} = 'moderated')::int`,
     })
     .from(schema.ree)
     .where(isNull(schema.ree.deletedAt));
-  return row ?? { total: 0, public: 0, private: 0, moderated: 0 };
+  return row ?? { total: 0, public: 0, unpublished: 0, private: 0, moderated: 0 };
 }
 
 export async function adminRee(administrator: Administrator, id: string) {
@@ -264,7 +266,7 @@ export async function takeDownRee(administratorId: string, reeId: string, rawRea
       administratorId,
       action: 'ree.takedown',
       target: reeId,
-      before: { visibility: 'public', name: ree.name },
+      before: { visibility: ree.isPublished ? 'public' : 'unpublished', name: ree.name },
       after: { visibility: 'moderated', reason, conversationsLeft: conversations },
     });
     await notify(tx, { userId: ree.ownerId, kind: 'takedown', text: reason, params: { ree: ree.name, reeId }, refId: reeId });
@@ -279,16 +281,24 @@ export async function restoreRee(administratorId: string, reeId: string, rawReas
     const [ree] = await tx.select().from(schema.ree).where(eq(schema.ree.id, reeId)).for('update');
     if (!ree) throw new AdminInputError('not_found');
     if (ree.deletedAt || !ree.moderatedAt) throw new AdminInputError('stale');
+    /* Back to where the takedown found it: a Ree its owner had not published yet stays unpublished. Older takedowns recorded 'public' either way and restore published, as before. */
+    const [takedown] = await tx
+      .select({ before: schema.adminAudit.before })
+      .from(schema.adminAudit)
+      .where(and(eq(schema.adminAudit.action, 'ree.takedown'), eq(schema.adminAudit.target, reeId)))
+      .orderBy(desc(schema.adminAudit.createdAt))
+      .limit(1);
+    const published = (takedown?.before as { visibility?: string } | null)?.visibility !== 'unpublished';
     await tx
       .update(schema.ree)
-      .set({ isPublic: true, isPublished: true, moderatedAt: null, moderatedBy: null, moderatedReason: null, updatedAt: now })
+      .set({ isPublic: true, isPublished: published, moderatedAt: null, moderatedBy: null, moderatedReason: null, updatedAt: now })
       .where(eq(schema.ree.id, reeId));
     await audit(tx, {
       administratorId,
       action: 'ree.restore',
       target: reeId,
       before: { visibility: 'moderated', reason: ree.moderatedReason },
-      after: { visibility: 'public', reason },
+      after: { visibility: published ? 'public' : 'unpublished', reason },
     });
     await notify(tx, { userId: ree.ownerId, kind: 'restore', text: reason, params: { ree: ree.name, reeId }, refId: reeId });
   });

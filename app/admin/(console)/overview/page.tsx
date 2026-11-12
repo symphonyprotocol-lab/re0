@@ -100,7 +100,7 @@ export default async function OverviewPage() {
       <Stats
         items={[
           { label: o.cards.users, value: n(data.users.total), note: fill(o.cards.usersNote, { n: n(data.users.disabled) }), icon: 'users' },
-          { label: o.cards.rees, value: n(data.rees.total), note: fill(o.cards.reesNote, { public: n(data.rees.public), moderated: n(data.rees.moderated) }), icon: 'dot' },
+          { label: o.cards.rees, value: n(data.rees.total), note: fill(o.cards.reesNote, { public: n(data.rees.public), unpublished: n(data.rees.unpublished), moderated: n(data.rees.moderated) }), icon: 'dot' },
           { label: o.cards.sources, value: n(data.sources.total), note: fill(o.cards.sourcesNote, { ready: n(data.sources.ready) }), icon: 'file' },
           { label: o.cards.questions, value: n(data.questions30), note: o.cards.questionsNote, icon: 'chat' },
         ]}
