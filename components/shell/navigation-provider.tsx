@@ -3,6 +3,7 @@
 import '@/lib/client/zod-jitless';
 import { createContext, startTransition as startReactTransition, useCallback, useContext, useEffect, useMemo, useState, useTransition, type ReactNode } from 'react';
 import { useRouter } from 'next/navigation';
+import { useLocaleHref } from '@/i18n/client';
 import './workspace-motion.css';
 
 const NavigationContext = createContext<(action: () => void) => void>(startReactTransition);
@@ -34,15 +35,24 @@ export function useRouteLoading(): void {
   useEffect(register, [register]);
 }
 
-/** Track imperative navigation as well as links; a data refresh stays in place. */
+/** Track imperative navigation as well as links; a data refresh stays in place. Public pages go to their language URL, as links do. */
 export function useNavigationRouter(): ReturnType<typeof useRouter> {
   const router = useRouter();
   const navigate = useContext(NavigationContext);
-  return useMemo(() => ({
-    ...router,
-    push: (...args: Parameters<typeof router.push>) => navigate(() => router.push(...args)),
-    replace: (...args: Parameters<typeof router.replace>) => navigate(() => router.replace(...args)),
-    back: () => navigate(() => router.back()),
-    forward: () => navigate(() => router.forward()),
-  }), [router, navigate]);
+  const resolve = useLocaleHref();
+  return useMemo(() => {
+    /* As WorkspaceLink: a page in another language loads afresh (useLocaleHref). */
+    const go = (href: string, move: (href: string) => void) => {
+      const target = resolve(href);
+      if (target.reload) window.location.assign(target.href);
+      else navigate(() => move(target.href));
+    };
+    return {
+      ...router,
+      push: (href: string, options?: Parameters<typeof router.push>[1]) => go(href, (to) => router.push(to, options)),
+      replace: (href: string, options?: Parameters<typeof router.replace>[1]) => go(href, (to) => router.replace(to, options)),
+      back: () => navigate(() => router.back()),
+      forward: () => navigate(() => router.forward()),
+    };
+  }, [router, navigate, resolve]);
 }

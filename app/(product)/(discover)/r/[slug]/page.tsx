@@ -33,13 +33,13 @@ function reeDescription(ree: PublicRee, fallback: string): string {
  * a count. Private, taken-down and deleted Rees are not found. Indexable.
  */
 export default async function PublicReePage({ params, searchParams }: Props) {
-  const [{ slug }, query, user, { t }] = await Promise.all([params, searchParams, currentUser(), serverMessages()]);
+  const [{ slug }, query, user, { t, locale }] = await Promise.all([params, searchParams, currentUser(), serverMessages()]);
   const ree = await publicReeBySlug(slug);
   if (!ree) notFound();
   const category = t.common.categories[ree.category as keyof typeof t.common.categories] ?? ree.category;
   return (
     <>
-      <JsonLd data={reeJsonLd(ree, { home: t.site.nav.home, explore: t.discover.explore.title, category, description: reeDescription(ree, t.site.seo.reeFallback) })} />
+      <JsonLd data={reeJsonLd(ree, locale, { home: t.site.nav.home, explore: t.discover.explore.title, category, description: reeDescription(ree, t.site.seo.reeFallback) })} />
       <ReeDetail ree={ree} query={query} viewerId={user?.id} />
     </>
   );

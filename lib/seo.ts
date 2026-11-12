@@ -2,7 +2,8 @@ import type { Metadata } from 'next';
 import { appBaseUrl } from '@/lib/http/cookies';
 import type { PricingView } from '@/lib/domain/pricing';
 import type { PublicRee } from '@/lib/services/public-rees';
-import type { Locale } from '@/i18n/locale';
+import { LOCALES, type Locale } from '@/i18n/locale';
+import { localeAlternates, localePath } from '@/i18n/paths';
 
 /**
  * What search engines and link previews read: canonical URLs, the shared
@@ -25,24 +26,31 @@ export function ogLocale(locale: Locale): string {
   return locale === 'zh' ? 'zh_CN' : 'en_US';
 }
 
+/** A public page's URL in a language: `/pricing` → `https://re0.io/en/pricing`. */
+export function localeUrl(locale: Locale, path: string): string {
+  return absoluteUrl(localePath(locale, path));
+}
+
 /** app/opengraph-image.tsx, named outright: a page that sets its own `openGraph` no longer inherits the file's image. */
 const SITE_IMAGE = { url: '/opengraph-image', width: 1200, height: 630, alt: 'RE0 — Your knowledge, a voice of its own' };
 
 /**
- * An indexable page's own metadata: its canonical URL, and Open Graph and
- * Twitter copies of its title and description, and the site's image. A
- * route with its own `opengraph-image` file (a public Ree) passes
- * `ownImage`: an image named here would replace the file's.
+ * An indexable page's own metadata. `path` is the plain path (`/pricing`):
+ * the canonical is the page in this language (`/en/pricing`), with hreflang
+ * alternates for each language and the plain path as x-default
+ * (i18n/paths.ts). Open Graph and Twitter carry the title, description and
+ * the site's image. A route with its own `opengraph-image` file (a public
+ * Ree) passes `ownImage`: an image named here would replace the file's.
  */
 export function publicPage({ path, title, description, locale, absoluteTitle = false, ownImage = false }: { path: string; title: string; description: string; locale: Locale; absoluteTitle?: boolean; ownImage?: boolean }): Metadata {
-  const url = absoluteUrl(path);
+  const url = localeUrl(locale, path);
   /* Left out, not `undefined`: Next reads a present `images` key as "no image" and drops the file's. */
   const image = ownImage ? {} : { images: [SITE_IMAGE] };
   return {
     title: absoluteTitle ? { absolute: title } : title,
     description,
-    alternates: { canonical: url },
-    openGraph: { type: 'website', siteName: SITE_NAME, locale: ogLocale(locale), url, title, description, ...image },
+    alternates: { canonical: url, languages: localeAlternates(path, absoluteUrl) },
+    openGraph: { type: 'website', siteName: SITE_NAME, locale: ogLocale(locale), alternateLocale: LOCALES.filter((other) => other !== locale).map(ogLocale), url, title, description, ...image },
     twitter: { card: 'summary_large_image', title, description, ...image },
   };
 }
@@ -70,8 +78,8 @@ export function siteJsonLd(description: string): JsonLd {
  * the Ree's preview sits at a path Next hashes (the route is in a group),
  * and og:image already carries it.
  */
-export function reeJsonLd(ree: PublicRee, labels: { home: string; explore: string; category: string; description: string }): JsonLd {
-  const url = absoluteUrl(`/r/${ree.slug}`);
+export function reeJsonLd(ree: PublicRee, locale: Locale, labels: { home: string; explore: string; category: string; description: string }): JsonLd {
+  const url = localeUrl(locale, `/r/${ree.slug}`);
   return {
     '@context': 'https://schema.org',
     '@graph': [
@@ -81,6 +89,7 @@ export function reeJsonLd(ree: PublicRee, labels: { home: string; explore: strin
         url,
         name: ree.name,
         description: labels.description,
+        inLanguage: locale === 'zh' ? 'zh-CN' : 'en',
         isPartOf: { '@id': websiteId() },
         breadcrumb: { '@id': `${url}#breadcrumb` },
         mainEntity: { '@id': `${url}#ree` },
@@ -90,8 +99,8 @@ export function reeJsonLd(ree: PublicRee, labels: { home: string; explore: strin
         '@type': 'BreadcrumbList',
         '@id': `${url}#breadcrumb`,
         itemListElement: [
-          { '@type': 'ListItem', position: 1, name: labels.home, item: absoluteUrl('/') },
-          { '@type': 'ListItem', position: 2, name: labels.explore, item: absoluteUrl('/explore') },
+          { '@type': 'ListItem', position: 1, name: labels.home, item: localeUrl(locale, '/') },
+          { '@type': 'ListItem', position: 2, name: labels.explore, item: localeUrl(locale, '/explore') },
           { '@type': 'ListItem', position: 3, name: ree.name, item: url },
         ],
       },
@@ -117,7 +126,7 @@ export function reeJsonLd(ree: PublicRee, labels: { home: string; explore: strin
  * price until the promotion ends; the Plan's promotion is first-period
  * only, so its offer is the regular monthly price.
  */
-export function pricingJsonLd(prices: PricingView, description: string): JsonLd {
+export function pricingJsonLd(prices: PricingView, locale: Locale, description: string): JsonLd {
   const usd = (minor: number) => (minor / 100).toFixed(2);
   const pack = prices.pack;
   return {
@@ -126,7 +135,7 @@ export function pricingJsonLd(prices: PricingView, description: string): JsonLd 
     name: `${SITE_NAME} credits`,
     description,
     brand: { '@type': 'Brand', name: SITE_NAME },
-    url: absoluteUrl('/pricing'),
+    url: localeUrl(locale, '/pricing'),
     offers: [
       {
         '@type': 'Offer',

@@ -3,6 +3,7 @@
 import { WorkspaceLink as Link } from '@/components/shell/workspace-link';
 import { usePathname, useSearchParams } from 'next/navigation';
 import { Suspense } from 'react';
+import { stripLocale } from '@/i18n/paths';
 
 interface NavLink {
   href: string;
@@ -17,7 +18,8 @@ function under(pathname: string, href: string): boolean {
 
 /** The site's page links, current one marked; site.css moves them to a second row of three on a phone (prototype navigation.css). */
 export function SiteNav({ links, label }: { links: NavLink[]; label: string }) {
-  const pathname = usePathname();
+  /* `/en/pricing` is 价格与购买 too (i18n/paths.ts). */
+  const pathname = stripLocale(usePathname());
   return (
     <nav aria-label={label}>
       {links.map((link) => {
@@ -37,7 +39,7 @@ function ReturningSignIn({ label, className }: { label: string; className: strin
   const pathname = usePathname();
   const search = useSearchParams().toString();
   const here = pathname + (search ? `?${search}` : '');
-  const href = pathname === '/' ? '/login' : `/login?returnTo=${encodeURIComponent(here)}`;
+  const href = stripLocale(pathname) === '/' ? '/login' : `/login?returnTo=${encodeURIComponent(here)}`;
   return (
     <Link href={href} className={className}>
       {label}

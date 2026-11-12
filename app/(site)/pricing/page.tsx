@@ -44,7 +44,7 @@ export default async function PricingPage() {
   const faqValues = { ...pricingFaqValues(prices, locale, t.site.prices), ...videoPrices };
   return (
     <div className="marketing-wrap pricing-page">
-      <JsonLd data={pricingJsonLd(prices, p.lede)} />
+      <JsonLd data={pricingJsonLd(prices, locale, p.lede)} />
       <div className="pricing-intro">
         <p className="eyebrow">SMALL PRICE. A WORLD OF KNOWLEDGE.</p>
         <h1>
