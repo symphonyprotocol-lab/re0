@@ -2,10 +2,10 @@
 
 import { WorkspaceLink as Link } from '@/components/shell/workspace-link';
 import { useNavigationRouter as useRouter } from '@/components/shell/navigation-provider';
-import { useCallback, useEffect, useRef, useState, type ReactNode } from 'react';
-import { EXPLORE_PAGE_SIZES, EXPLORE_RESULTS, REE_CATEGORIES, ROUNDTABLE_REES, SYNTHESIS_ENABLED, SYNTHESIS_MIN_ANSWERS } from '@/lib/constants';
+import { useCallback, useEffect, useRef, useState } from 'react';
+import { EXPLORE_RESULTS, REE_CATEGORIES, ROUNDTABLE_REES, SYNTHESIS_ENABLED, SYNTHESIS_MIN_ANSWERS } from '@/lib/constants';
 import { explorePath, type ExploreQuery, type ExploreSort } from '@/lib/domain/explore';
-import type { ExploreResult } from '@/lib/services/explore';
+import type { ExploreResult, ReeCard } from '@/lib/services/explore';
 import { useI18n } from '@/i18n/client';
 import { fill, formatNumber } from '@/i18n/format';
 import { Icon } from '@/components/ui/icons';
@@ -15,16 +15,27 @@ import { takePublicReturn } from '@/components/discover/public-visit';
 import '@/components/site/site.css';
 import '@/components/discover/explore.css';
 
-/** Page numbers around the current one, gaps as null (prototype `discoveryPageNumbers`). */
-function pageNumbers(page: number, pages: number): (number | null)[] {
-  const values = [...new Set([1, page - 1, page, page + 1, pages])].filter((value) => value > 0 && value <= pages).sort((a, b) => a - b);
-  return values.flatMap((value, index) => (index && value - values[index - 1]! > 1 ? [null, value] : [value]));
+/** How far below the viewport the next batch starts loading. */
+const PRELOAD_MARGIN = '800px 0px';
+
+interface Loaded {
+  items: ReeCard[];
+  nextCursor: string | null;
+  favorites: string[];
 }
 
 /**
- * `/explore`'s body (prototype discovery.js `page`); every control is a URL,
- * so results can be shared and restored. Styled by explore.css with the
- * prototype's class names.
+ * The list as it was when a card was opened, so coming back from that
+ * public page shows the same batches at the same place instead of only the
+ * first one (module state: it lives as long as the tab's client app).
+ */
+let kept: (Loaded & { path: string; scrollY: number }) | null = null;
+
+/**
+ * `/explore`'s body (prototype discovery.js `page`); the search, category
+ * and sort are a URL, so results can be shared and restored, and the list
+ * loads more as it scrolls. Styled by explore.css with the prototype's
+ * class names.
  */
 export function ExploreView({ query, result, limited, signedIn, favoriteIds, viewerId }: {
   query: ExploreQuery;
@@ -38,18 +49,28 @@ export function ExploreView({ query, result, limited, signedIn, favoriteIds, vie
   const e = t.discover.explore;
   const router = useRouter();
   const [q, setQ] = useState(query.q);
-  const [jump, setJump] = useState(String(result.page));
   useEffect(() => setQ(query.q), [query.q]);
-  useEffect(() => setJump(String(result.page)), [result.page]);
   const n = (value: number) => formatNumber(value, locale);
-  const pages = Math.max(1, Math.ceil(result.total / result.size));
-  const current = explorePath({ ...query, page: result.page });
-  const favorites = favoriteIds && new Set(favoriteIds);
-  const from = result.total ? (result.page - 1) * result.size + 1 : 0;
-  const to = Math.min(result.page * result.size, result.total);
+  const current = explorePath(query);
   const go = (changes: Partial<ExploreQuery>) => router.push(explorePath(query, changes), { scroll: false });
   const toolbar = useRef<HTMLElement>(null);
   const resultsHead = useRef<HTMLDivElement>(null);
+
+  /* The list grows past the server's first batch; a new search, category or sort (a new `result`) starts it again. */
+  const initial = useCallback((): Loaded => ({ items: result.items, nextCursor: result.nextCursor, favorites: favoriteIds ?? [] }), [result, favoriteIds]);
+  const [loaded, setLoaded] = useState<Loaded>(initial);
+  const [loading, setLoading] = useState(false);
+  const [failed, setFailed] = useState(false);
+  const shownResult = useRef(result);
+  const inFlight = useRef<string | null>(null);
+  useEffect(() => {
+    if (shownResult.current === result) return;
+    shownResult.current = result;
+    setLoaded(initial());
+    inFlight.current = null;
+    setLoading(false);
+    setFailed(false);
+  }, [result, initial]);
 
   /* The results head just under the sticky toolbar (prototype discovery.js `scrollToResults`). */
   const scrollToResults = useCallback(() => {
@@ -61,27 +82,32 @@ export function ExploreView({ query, result, limited, signedIn, favoriteIds, vie
     window.scrollTo({ top: Math.max(0, top), behavior: 'instant' });
   }, []);
 
-  /* On load past page 1, or coming back from a public page. */
+  /* Coming back from a public page: the batches loaded then, at the same place; otherwise the results head. */
   useEffect(() => {
-    const back = takePublicReturn(current);
-    if (result.page > 1 || back) requestAnimationFrame(scrollToResults);
+    if (!takePublicReturn(current)) return;
+    const back = kept;
+    if (!back || back.path !== current) {
+      requestAnimationFrame(scrollToResults);
+      return;
+    }
+    /* The first batch and its favourites as the server has them now (one may have been saved on that page), the later batches as they were. */
+    if (back.items.length > result.items.length) {
+      const fresh = new Set(result.items.map((ree) => ree.id));
+      setLoaded({
+        items: [...result.items, ...back.items.filter((ree) => !fresh.has(ree.id))],
+        nextCursor: back.nextCursor,
+        favorites: [...(favoriteIds ?? []), ...back.favorites.filter((id) => !fresh.has(id))],
+      });
+    }
+    requestAnimationFrame(() => requestAnimationFrame(() => window.scrollTo({ top: back.scrollY, behavior: 'instant' })));
     // eslint-disable-next-line react-hooks/exhaustive-deps -- once, on arrival
   }, []);
 
-  /* After the pager or the page jump moved to another page of the same results. */
-  const shown = useRef({ list: explorePath({ ...query, page: 1 }), page: result.page });
+  /* An old link's `page` or `size` no longer applies: show the canonical URL. */
   useEffect(() => {
-    const list = explorePath({ ...query, page: 1 });
-    const before = shown.current;
-    shown.current = { list, page: result.page };
-    if (before.list === list && before.page !== result.page) requestAnimationFrame(scrollToResults);
-  }, [query, result.page, scrollToResults]);
-
-  /* A `page` past the end (or before the start) was clamped by the server: show the canonical URL. */
-  useEffect(() => {
-    const raw = new URLSearchParams(window.location.search).get('page');
-    if (raw !== null && Number(raw) !== result.page) router.replace(current, { scroll: false });
-  }, [current, result.page, router]);
+    const params = new URLSearchParams(window.location.search);
+    if (params.has('page') || params.has('size')) router.replace(current, { scroll: false });
+  }, [current, router]);
 
   /* The toolbar sticks under the site header, whose height changes with the width (prototype discovery.js `afterRender`). */
   const page = useRef<HTMLDivElement>(null);
@@ -96,64 +122,69 @@ export function ExploreView({ query, result, limited, signedIn, favoriteIds, vie
     return () => observer.disconnect();
   }, []);
 
-  const [resultsBefore, resultsAfter] = e.results.split('{n}');
+  /* The next batch, after the last card's key; a reply for a list the viewer has since left is dropped. */
+  const listQuery = limited ? { ...query, q: '' } : query;
+  const listPath = explorePath(listQuery);
+  const loadMore = useCallback(async () => {
+    const cursor = loaded.nextCursor;
+    if (!cursor || inFlight.current === cursor) return;
+    inFlight.current = cursor;
+    setLoading(true);
+    setFailed(false);
+    const from = shownResult.current;
+    try {
+      const params = new URLSearchParams(listPath.split('?')[1] ?? '');
+      params.set('cursor', cursor);
+      const response = await fetch(`/api/explore?${params}`, { headers: { accept: 'application/json' } });
+      if (!response.ok) throw new Error(String(response.status));
+      const next = (await response.json()) as ExploreResult & { favoriteIds?: string[] };
+      if (shownResult.current !== from) return;
+      setLoaded((before) => {
+        if (before.nextCursor !== cursor) return before;
+        const seen = new Set(before.items.map((ree) => ree.id));
+        return {
+          items: [...before.items, ...next.items.filter((ree) => !seen.has(ree.id))],
+          nextCursor: next.nextCursor,
+          favorites: [...before.favorites, ...(next.favoriteIds ?? [])],
+        };
+      });
+    } catch {
+      if (shownResult.current === from) setFailed(true);
+    } finally {
+      inFlight.current = null;
+      if (shownResult.current === from) setLoading(false);
+    }
+  }, [listPath, loaded.nextCursor]);
 
-  const pager = (compact: boolean) =>
-    pages > 1 && (
-      <nav aria-label={compact ? e.topPagination : e.pagination} className={`discovery-pagination${compact ? ' is-compact' : ''}`}>
-        <PageLink page={result.page - 1} pages={pages} query={query} label={e.previous}>
-          <Icon name="chevronRight" />
-        </PageLink>
-        {compact ? (
-          <span className="mono">
-            {result.page} / {pages}
-          </span>
-        ) : (
-          pageNumbers(result.page, pages).map((value, index) =>
-            value === null ? (
-              <span key={`gap-${index}`} className="pagination-ellipsis">
-                …
-              </span>
-            ) : value === result.page ? (
-              <span key={value} aria-current="page" className="is-current">
-                {value}
-              </span>
-            ) : (
-              <PageLink key={value} page={value} pages={pages} query={query} label={fill(e.page, { n: value })}>
-                {value}
-              </PageLink>
-            ),
-          )
-        )}
-        <PageLink page={result.page + 1} pages={pages} query={query} label={e.next}>
-          <Icon name="chevronRight" />
-        </PageLink>
-        {!compact && (
-          <form
-            id="discovery-page-jump"
-            onSubmit={(event) => {
-              event.preventDefault();
-              go({ page: Math.min(pages, Math.max(1, Math.floor(Number(jump)) || 1)) });
-            }}
-          >
-            <label htmlFor="explore-page">{e.jump}</label>
-            <input
-              id="explore-page"
-              name="page"
-              type="number"
-              min={1}
-              max={pages}
-              required
-              aria-label={e.jumpLabel}
-              value={jump}
-              onChange={(event) => setJump(event.target.value)}
-            />
-            {e.jumpSuffix && <span>{e.jumpSuffix}</span>}
-            <button type="submit">{e.go}</button>
-          </form>
-        )}
-      </nav>
-    );
+  /*
+   * The sentinel under the grid asks for the next batch as it nears the
+   * viewport. A fresh observer after every batch reports at once if the
+   * sentinel is still in reach (a tall screen), so the list fills it.
+   * Without IntersectionObserver, a "load more" button does the same.
+   */
+  const sentinel = useRef<HTMLDivElement>(null);
+  const [observing, setObserving] = useState(true);
+  useEffect(() => {
+    if (typeof IntersectionObserver === 'undefined') {
+      setObserving(false);
+      return;
+    }
+    const target = sentinel.current;
+    if (!target || !loaded.nextCursor || loading || failed) return;
+    const observer = new IntersectionObserver((entries) => {
+      if (entries.some((entry) => entry.isIntersecting)) void loadMore();
+    }, { rootMargin: PRELOAD_MARGIN });
+    observer.observe(target);
+    return () => observer.disconnect();
+  }, [loaded.nextCursor, loading, failed, loadMore]);
+
+  /* Remember the list as a card is opened. */
+  const keep = () => {
+    kept = { path: current, ...loaded, scrollY: window.scrollY };
+  };
+
+  const favorites = new Set(loaded.favorites);
+  const [resultsBefore, resultsAfter] = e.results.split('{n}');
 
   return (
     <div ref={page} className="discovery-page">
@@ -205,16 +236,6 @@ export function ExploreView({ query, result, limited, signedIn, favoriteIds, vie
               ))}
             </select>
           </label>
-          <label className="discovery-select">
-            <span>{e.perPage}</span>
-            <select value={result.size} aria-label={e.perPage} onChange={(event) => go({ size: Number(event.target.value) })}>
-              {EXPLORE_PAGE_SIZES.map((size) => (
-                <option key={size} value={size}>
-                  {fill(e.perPageOption, { n: size })}
-                </option>
-              ))}
-            </select>
-          </label>
         </div>
         <div className="filter-row" role="group" aria-label={e.categoriesLabel}>
           {[null, ...REE_CATEGORIES].map((category) => (
@@ -239,22 +260,48 @@ export function ExploreView({ query, result, limited, signedIn, favoriteIds, vie
           {resultsBefore}
           <strong>{n(result.total)}</strong>
           {resultsAfter}
-          {result.total > 0 && <span>{fill(e.showing, { from: n(from), to: n(to) })}</span>}
+          {result.total > loaded.items.length && <span>{fill(e.shown, { n: n(loaded.items.length) })}</span>}
           <span className="discovery-results-note">{result.mode === 'search' ? fill(e.searchNote, { n: EXPLORE_RESULTS }) : e.browseNote}</span>
         </p>
-        {pager(true)}
       </div>
 
-      {SYNTHESIS_ENABLED && result.mode === 'search' && result.page === 1 && result.items.length >= SYNTHESIS_MIN_ANSWERS && (
+      {SYNTHESIS_ENABLED && result.mode === 'search' && result.items.length >= SYNTHESIS_MIN_ANSWERS && (
         <RoundtableEntry question={query.q} rees={result.items.slice(0, ROUNDTABLE_REES)} signedIn={signedIn} returnTo={current} />
       )}
 
-      {result.items.length > 0 ? (
-        <div id="explore-results" className="dot-grid" aria-label={e.list}>
-          {result.items.map((ree) => (
-            <ReeCardView key={ree.id} ree={ree} from={current} favorite={favorites?.has(ree.id)} viewerId={viewerId} />
-          ))}
-        </div>
+      {loaded.items.length > 0 ? (
+        <>
+          <div id="explore-results" className="dot-grid" aria-label={e.list} aria-busy={loading} onClickCapture={keep}>
+            {loaded.items.map((ree) => (
+              <ReeCardView key={ree.id} ree={ree} from={current} favorite={favorites.has(ree.id)} viewerId={viewerId} />
+            ))}
+          </div>
+          <div ref={sentinel} className="discovery-results-footer">
+            {loaded.nextCursor ? (
+              failed ? (
+                <p role="alert">
+                  {e.loadFailed}
+                  <button type="button" className="btn secondary" onClick={() => void loadMore()}>
+                    {e.retry}
+                  </button>
+                </p>
+              ) : loading ? (
+                <p role="status">
+                  <span className="discovery-spinner" aria-hidden="true" />
+                  {e.loading}
+                </p>
+              ) : (
+                !observing && (
+                  <button type="button" className="btn secondary" onClick={() => void loadMore()}>
+                    {e.loadMore}
+                  </button>
+                )
+              )
+            ) : (
+              result.mode === 'browse' && <p>{fill(e.end, { n: n(result.total) })}</p>
+            )}
+          </div>
+        </>
       ) : (
         <div className="card empty">
           <Icon name="search" />
@@ -263,13 +310,6 @@ export function ExploreView({ query, result, limited, signedIn, favoriteIds, vie
           <button type="button" className="btn secondary" onClick={() => go({ q: '', category: null, sort: 'active' })}>
             {e.reset}
           </button>
-        </div>
-      )}
-
-      {result.total > 0 && (
-        <div className="discovery-results-footer">
-          <span>{fill(e.pageOf, { page: result.page, pages })}</span>
-          {pager(false)}
         </div>
       )}
 
@@ -284,19 +324,5 @@ export function ExploreView({ query, result, limited, signedIn, favoriteIds, vie
         </Link>
       </div>
     </div>
-  );
-}
-
-function PageLink({ page, pages, query, label, children }: { page: number; pages: number; query: ExploreQuery; label: string; children: ReactNode }) {
-  if (page < 1 || page > pages)
-    return (
-      <span aria-disabled="true" className="is-disabled">
-        {children}
-      </span>
-    );
-  return (
-    <Link href={explorePath(query, { page })} scroll={false} aria-label={label}>
-      {children}
-    </Link>
   );
 }
