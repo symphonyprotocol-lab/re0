@@ -1168,12 +1168,14 @@ export const rateBucket = pgTable(
 );
 
 /**
- * Beyond 4: anonymous chat with free Rees (query fee 0) on the public page.
- * Rounds answered per visitor key and UTC day, reserved atomically before
- * the model is called (lib/services/anonymous-chat.ts). `key_hash` is an
- * HMAC under a key derived from AUTH_SECRET of the browser fingerprint, the
- * anonymous-id cookie or the client address, prefixed by which one it is;
- * the raw values are never stored. The hourly rank job clears past days.
+ * Beyond 4: anonymous chat with free Rees (query fee 0) on the public and
+ * share pages. Rounds answered, and attempts, per key and UTC day, reserved
+ * atomically before the model is called (lib/services/anonymous-chat.ts).
+ * A visitor's keys are an HMAC under a key derived from AUTH_SECRET of the
+ * browser fingerprint, the anonymous-id cookie or the client address,
+ * prefixed by which one it is (the raw values are never stored); `ree:` and
+ * `all:` keys count a Ree's and the platform's. The hourly rank job clears
+ * past days.
  */
 export const anonymousChatQuota = pgTable(
   'anonymous_chat_quota',
@@ -1181,9 +1183,15 @@ export const anonymousChatQuota = pgTable(
     keyHash: text('key_hash').notNull(),
     day: date('day', { mode: 'string' }).notNull(),
     rounds: integer('rounds').notNull().default(0),
+    /** Every round taken, given back or not: refunds never return an attempt (ANONYMOUS_ATTEMPTS_FACTOR). */
+    attempts: integer('attempts').notNull().default(0),
     updatedAt: timestampTz('updated_at').notNull().defaultNow(),
   },
-  (t) => [primaryKey({ columns: [t.keyHash, t.day] }), index('anonymous_chat_quota_day_idx').on(t.day), check('anonymous_chat_quota_rounds_check', sql`rounds >= 0`)],
+  (t) => [
+    primaryKey({ columns: [t.keyHash, t.day] }),
+    index('anonymous_chat_quota_day_idx').on(t.day),
+    check('anonymous_chat_quota_rounds_check', sql`rounds >= 0 and attempts >= rounds`),
+  ],
 );
 
 /**

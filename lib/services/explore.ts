@@ -70,9 +70,14 @@ export function publicRee(): SQL {
 
 /** Ready, enabled sources (the count a public page and a card show; titles never). */
 export const readySources = sql<number>`(select count(*)::int from ${schema.knowledge} k where k.ree_id = ${reeId} and k.status = 'ready' and k.enabled and k.deleted_at is null)`;
-/** Successful answers to other people, all time, signed-out visitors' (anonymous-chat.ts) included. */
-export const answersByOthers = sql<number>`((select count(*)::int from ${schema.message} m join ${schema.conversation} c on c.id = m.conversation_id where m.ree_id = ${reeId} and m.role = 'ree' and not m.no_answer and c.user_id <> ${reeOwner})
-  + (select count(*)::int from ${schema.anonymousAnswer} aa where aa.ree_id = ${reeId}))`;
+/**
+ * Successful answers to other people, all time: the public count, the
+ * "most answered" order and MCP's figure. Answers to signed-out visitors
+ * (anonymous-chat.ts) are left out -- anyone, the owner signed out
+ * included, could ask for them -- so what is shown and what orders agree;
+ * the owner's own statistics count them.
+ */
+export const answersByOthers = sql<number>`(select count(*)::int from ${schema.message} m join ${schema.conversation} c on c.id = m.conversation_id where m.ree_id = ${reeId} and m.role = 'ree' and not m.no_answer and c.user_id <> ${reeOwner})`;
 
 export interface ReeCard {
   id: string;

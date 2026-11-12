@@ -7,7 +7,7 @@ import { useChat } from '@ai-sdk/react';
 import { DefaultChatTransport } from 'ai';
 import { ANONYMOUS_HISTORY_TURNS, ANONYMOUS_ROUNDS_PER_DAY, QUESTION_MAX_CHARS } from '@/lib/constants';
 import type { CitationSnapshot } from '@/lib/domain/answer';
-import { ANONYMOUS_QUOTA_EXCEEDED, FINGERPRINT_HEADER, type AnonymousTurn } from '@/lib/domain/anonymous-chat';
+import { ANONYMOUS_CAPACITY_REACHED, ANONYMOUS_NETWORK_LIMIT, ANONYMOUS_QUOTA_EXCEEDED, FINGERPRINT_HEADER, type AnonymousTurn } from '@/lib/domain/anonymous-chat';
 import { repliesOf, type AnonymousQuota, type ReeUIMessage } from '@/lib/domain/chat-message';
 import { browserFingerprint } from '@/lib/client/fingerprint';
 import { useI18n } from '@/i18n/client';
@@ -49,10 +49,10 @@ function historyOf(messages: readonly ReeUIMessage[]): AnonymousTurn[] {
 }
 
 /** A refusal before any stream started comes back as the JSON body of the error. */
-function refusalOf(error: Error): { error?: string; limit?: number } | null {
+function refusalOf(error: Error): (Partial<AnonymousQuota> & { error?: string }) | null {
   try {
     const body = JSON.parse(error.message) as unknown;
-    return body && typeof body === 'object' ? (body as { error?: string; limit?: number }) : null;
+    return body && typeof body === 'object' ? (body as Partial<AnonymousQuota> & { error?: string }) : null;
   } catch {
     return null;
   }
@@ -80,7 +80,8 @@ export function AnonymousChat({ ree, loginHref, source }: {
   const toast = useToast();
   const [input, setInput] = useState('');
   const [quota, setQuota] = useState<AnonymousQuota | null>(null);
-  const [limitOpen, setLimitOpen] = useState(false);
+  /* Which limit the sign-in dialog explains: the visitor's own, their network's, or the day's capacity. */
+  const [limit, setLimit] = useState<'visitor' | 'network' | 'capacity' | null>(null);
   const [citation, setCitation] = useState<CitationSnapshot | null>(null);
   const pendingQuestion = useRef('');
   const transcriptRef = useRef<HTMLDivElement>(null);
@@ -108,9 +109,14 @@ export function AnonymousChat({ ree, loginHref, source }: {
       /* Refused before anything was asked: take the question back into the box. */
       setMessages((current) => (current.at(-1)?.role === 'user' ? current.slice(0, -1) : current));
       setInput(pendingQuestion.current);
-      if (body.error === ANONYMOUS_QUOTA_EXCEEDED) {
-        setQuota({ limit: body.limit ?? ANONYMOUS_ROUNDS_PER_DAY, remaining: 0 });
-        setLimitOpen(true);
+      const refused = body.error === ANONYMOUS_QUOTA_EXCEEDED ? 'visitor' : body.error === ANONYMOUS_NETWORK_LIMIT ? 'network' : body.error === ANONYMOUS_CAPACITY_REACHED ? 'capacity' : null;
+      if (refused) {
+        setQuota({
+          limit: body.limit ?? ANONYMOUS_ROUNDS_PER_DAY,
+          remaining: refused === 'visitor' ? 0 : (body.remaining ?? 0),
+          blocked: refused === 'visitor' ? (body.blocked ?? null) : refused,
+        });
+        setLimit(refused);
         return;
       }
       if (body.error === 'anonymous_unavailable') {
@@ -165,9 +171,10 @@ export function AnonymousChat({ ree, loginHref, source }: {
   const send = (question = input) => {
     const text = question.trim();
     if (!text || busy) return;
-    if (quota && quota.remaining <= 0) {
+    const stopped = quota?.blocked ?? (quota && quota.remaining <= 0 ? 'visitor' : null);
+    if (stopped) {
       setInput(text);
-      setLimitOpen(true);
+      setLimit(stopped);
       return;
     }
     pendingQuestion.current = text;
@@ -183,8 +190,8 @@ export function AnonymousChat({ ree, loginHref, source }: {
           {a.heading}
         </h2>
         {quota && (
-          <span role="status" className={`rounded-full border px-2.5 py-1 font-mono text-[11px] ${quota.remaining > 0 ? 'border-line text-muted' : 'border-[#f3d2cf] bg-[#fdf3f2] text-[#b4372c]'}`}>
-            {fill(a.remaining, { n: quota.remaining, limit: quota.limit })}
+          <span role="status" className={`rounded-full border px-2.5 py-1 font-mono text-[11px] ${quota.remaining > 0 && !quota.blocked ? 'border-line text-muted' : 'border-[#f3d2cf] bg-[#fdf3f2] text-[#b4372c]'}`}>
+            {quota.blocked === 'network' ? a.networkHint : quota.blocked === 'capacity' ? a.capacityHint : fill(a.remaining, { n: quota.remaining, limit: quota.limit })}
           </span>
         )}
       </div>
@@ -223,7 +230,9 @@ export function AnonymousChat({ ree, loginHref, source }: {
                   <div className="min-w-0 flex-1 rounded-2xl rounded-tl-md bg-white px-3.5 py-2.5 text-[13px]">
                     {outcome?.noAnswer ? (
                       <p className="text-muted">
-                        {outcome.reason === 'no_sources' ? a.noSources : a.outOfScope} {a.notCounted}
+                        {outcome.reason === 'no_sources' ? a.noSources : a.outOfScope}
+                        {/* A reply that showed text before declining still counted (anonymous-chat.ts). */}
+                        {!text && ` ${a.notCounted}`}
                       </p>
                     ) : (
                       <>
@@ -282,12 +291,12 @@ export function AnonymousChat({ ree, loginHref, source }: {
       <CitationDrawer citation={citation} ree={ree} canOpen={false} onClose={() => setCitation(null)} />
 
       <Modal
-        open={limitOpen}
-        onClose={() => setLimitOpen(false)}
-        title={a.limitTitle}
+        open={limit !== null}
+        onClose={() => setLimit(null)}
+        title={limit === 'network' ? a.networkTitle : limit === 'capacity' ? a.capacityTitle : a.limitTitle}
         footer={
           <>
-            <button type="button" className="btn-secondary" onClick={() => setLimitOpen(false)}>
+            <button type="button" className="btn-secondary" onClick={() => setLimit(null)}>
               {a.limitLater}
             </button>
             <Link href={loginHref} className="btn">
@@ -299,7 +308,9 @@ export function AnonymousChat({ ree, loginHref, source }: {
       >
         <div className="flex items-start gap-3">
           <Avatar ree={ree} />
-          <p className="text-[13px] leading-relaxed">{fill(a.limitBody, { limit: quota?.limit ?? ANONYMOUS_ROUNDS_PER_DAY, name: ree.name })}</p>
+          <p className="text-[13px] leading-relaxed">
+            {fill(limit === 'network' ? a.networkBody : limit === 'capacity' ? a.capacityBody : a.limitBody, { limit: quota?.limit ?? ANONYMOUS_ROUNDS_PER_DAY, name: ree.name })}
+          </p>
         </div>
       </Modal>
     </section>

@@ -4,12 +4,12 @@ import { QUESTION_MAX_CHARS } from '@/lib/constants';
 import {
   ANONYMOUS_ID_COOKIE,
   ANONYMOUS_ID_MAX_AGE_SECONDS,
-  ANONYMOUS_QUOTA_EXCEEDED,
   anonymousHistory,
   FINGERPRINT_HEADER,
+  refusalCodeOf,
   validAnonymousId,
   validFingerprint,
-  type AnonymousQuotaExceededBody,
+  type AnonymousRefusalBody,
 } from '@/lib/domain/anonymous-chat';
 import { isSecureDeployment } from '@/lib/http/cookies';
 import { clientIp } from '@/lib/http/conversations';
@@ -42,25 +42,31 @@ function withCookie<T extends Response>(response: T, anonymousId: { id: string; 
 
 /**
  * Anonymous chat with a free Ree (lib/services/anonymous-chat.ts). `GET` →
- * `{limit, remaining}`, today's rounds left for this visitor. Both methods
- * need the browser fingerprint in `x-re0-fingerprint`; a Ree that is not
- * public, published and free is `404 anonymous_unavailable`.
+ * `{limit, remaining, blocked}`, today's rounds left for this visitor and
+ * whether a shared limit stops them. Both methods need the browser
+ * fingerprint in `x-re0-fingerprint` and a client address (`400
+ * client_ip_required` without one); a Ree that is not public, published
+ * and free is `404 anonymous_unavailable`.
  */
 export async function GET(request: NextRequest, context: Context) {
   const ree = await freeReeForAnonymous((await context.params).id);
   if (!ree) return fail('anonymous_unavailable', 404);
   const fingerprint = request.headers.get(FINGERPRINT_HEADER);
   if (!validFingerprint(fingerprint)) return fail('fingerprint_required', 400);
+  const ip = clientIp(request.headers);
+  if (!ip) return fail('client_ip_required', 400);
   const anonymousId = anonymousIdOf(request);
-  const keys = await visitorKeys({ fingerprint, anonymousId: anonymousId.id, ip: clientIp(request.headers) });
+  const keys = await visitorKeys({ fingerprint, anonymousId: anonymousId.id, ip, reeId: ree.id });
   return withCookie(json(await anonymousQuota(keys)), anonymousId);
 }
 
 /**
  * `{question, history?, lang?, source?}` → the answer as a `useChat` UI
- * message stream, ending on a `data-quota` part with the rounds left. Over
- * today's rounds → `429 anonymous_quota_exceeded` with `{limit, remaining:
- * 0}`, before anything is asked. `history`: the earlier turns the browser
+ * message stream, ending on a `data-quota` part with the rounds left.
+ * Refused before anything is asked with `429` and `{error, scope, limit,
+ * remaining, blocked}`: `anonymous_quota_exceeded` (the visitor's own
+ * rounds or attempts), `anonymous_network_limit` (their address's) or
+ * `anonymous_capacity_reached` (the Ree's or the platform's day). `history`: the earlier turns the browser
  * kept, capped (anonymousHistory). `source: 'share'` from the share page
  * `/s/[slug]`: the answer counts for the share page when this browser's
  * visitor cookie shows a visit there (share.ts `shareVisitorFor`).
@@ -78,12 +84,16 @@ export async function POST(request: NextRequest, context: Context) {
   if (!question || question.length > QUESTION_MAX_CHARS) return fail('invalid_question', 422);
   const lang = isLocale(input.lang) ? input.lang : localeFromRequest((name) => request.cookies.get(name), request.headers.get('accept-language'));
 
+  /* Without the address only keys the client makes up would count: refused, not asked for free. */
+  const ip = clientIp(request.headers);
+  if (!ip) return fail('client_ip_required', 400);
+
   const anonymousId = anonymousIdOf(request);
-  const keys = await visitorKeys({ fingerprint, anonymousId: anonymousId.id, ip: clientIp(request.headers) });
+  const keys = await visitorKeys({ fingerprint, anonymousId: anonymousId.id, ip, reeId: ree.id });
   const reservation = await reserveRound(keys);
   if (!reservation.ok) {
-    const exceeded: AnonymousQuotaExceededBody = { error: ANONYMOUS_QUOTA_EXCEEDED, ...reservation.quota };
-    return withCookie(json(exceeded, 429), anonymousId);
+    const refused: AnonymousRefusalBody = { error: refusalCodeOf(reservation.scope), scope: reservation.scope, ...reservation.quota };
+    return withCookie(json(refused, 429), anonymousId);
   }
   const headers = new Headers({ 'cache-control': 'no-store' });
   if (anonymousId.fresh) headers.append('set-cookie', anonymousIdCookie(anonymousId.id));

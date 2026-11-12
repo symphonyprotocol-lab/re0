@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { ANONYMOUS_HISTORY_CHARS, ANONYMOUS_HISTORY_TURNS } from '@/lib/constants';
-import { anonymousDay, anonymousHistory, validAnonymousId, validFingerprint } from '@/lib/domain/anonymous-chat';
+import { anonymousDay, anonymousHistory, ipBucket, refusalCodeOf, validAnonymousId, validFingerprint } from '@/lib/domain/anonymous-chat';
 
 describe('anonymous chat', () => {
   it('counts by the UTC date', () => {
@@ -56,5 +56,26 @@ describe('anonymous chat', () => {
       { role: 'assistant', content: 'recent answer' },
     ]);
     expect(sized.reduce((sum, turn) => sum + turn.content.length, 0)).toBeLessThanOrEqual(ANONYMOUS_HISTORY_CHARS);
+  });
+
+  it('counts an address as IPv4, or IPv6 by its /64', () => {
+    expect(ipBucket('203.0.113.9')).toBe('203.0.113.9');
+    expect(ipBucket(' 2001:DB8:1:2:aaaa:bbbb:cccc:dddd ')).toBe('2001:db8:1:2::/64');
+    expect(ipBucket('2001:0db8:0001:0002::1')).toBe('2001:db8:1:2::/64');
+    expect(ipBucket('2001:db8::1')).toBe('2001:db8:0:0::/64');
+    expect(ipBucket('[2001:db8:1:2::1]')).toBe('2001:db8:1:2::/64');
+    expect(ipBucket('fe80::1%en0')).toBe('fe80:0:0:0::/64');
+    expect(ipBucket('::1')).toBe('0:0:0:0::/64');
+    expect(ipBucket('::ffff:203.0.113.9')).toBe('203.0.113.9');
+    /* Not an address: kept as given rather than merged with others. */
+    expect(ipBucket('1:2:3:4:5:6:7:8:9')).toBe('1:2:3:4:5:6:7:8:9');
+    expect(ipBucket('2001:db8::1::2')).toBe('2001:db8::1::2');
+  });
+
+  it('names each refusal by the limit that refused it', () => {
+    expect(refusalCodeOf('visitor')).toBe('anonymous_quota_exceeded');
+    expect(refusalCodeOf('network')).toBe('anonymous_network_limit');
+    expect(refusalCodeOf('ree')).toBe('anonymous_capacity_reached');
+    expect(refusalCodeOf('platform')).toBe('anonymous_capacity_reached');
   });
 });
