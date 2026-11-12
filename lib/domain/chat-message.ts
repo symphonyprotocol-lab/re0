@@ -84,11 +84,18 @@ export interface SynthesisPart {
 
 export const SYNTHESIS_PART_ID = 'synthesis';
 
-/** Anonymous chat's daily rounds, sent at the end of each answer (anonymous-chat.ts). */
+/**
+ * Anonymous chat's daily rounds, sent at the end of each answer
+ * (anonymous-chat.ts): the visitor's own limit and what is left of it, and
+ * `blocked` when a shared limit stops them however many they have left --
+ * their network's (`network`) or the Ree's or platform's (`capacity`).
+ */
 export interface AnonymousQuota {
   limit: number;
   remaining: number;
+  blocked: AnonymousBlock | null;
 }
+export type AnonymousBlock = 'network' | 'capacity';
 
 export type ReeUIMessage = UIMessage<never, { outcome: ReeOutcome; ree: ReeStart; suggestions: Suggestions; check: ReeCheck; synthesis: SynthesisPart; quota: AnonymousQuota }>;
 

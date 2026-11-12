@@ -11,6 +11,7 @@ export const AUDIT_ACTIONS = [
   'admin.login.locked',
   'admin.export',
   'pricing.update',
+  'anonymous_chat.update',
   'model.create',
   'model.update',
   'model.cost_backfill',

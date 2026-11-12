@@ -1,20 +1,28 @@
 /**
  * Anonymous chat with free Rees (beyond 4). A signed-out visitor may ask a
- * public, published Ree whose query fee is 0 on its public page, up to
- * `ANONYMOUS_ROUNDS_PER_DAY` answered questions per UTC day.
+ * public, published Ree whose query fee is 0 on its public and share
+ * pages, up to the day's answered questions an administrator set (default
+ * `ANONYMOUS_ROUNDS_PER_DAY`) per UTC day.
  *
  * - Eligibility is read from the Ree on every request: raising its fee, or
  *   making it private, ends anonymous chat with it at once.
- * - The visitor is counted under several keys at once -- the browser
- *   fingerprint, the httpOnly anonymous-id cookie (each at the daily limit)
- *   and the client address (at `ANONYMOUS_IP_ROUNDS_PER_DAY`) -- so clearing
- *   one of them does not reset the count. Only HMACs of the values are
- *   stored, under a key derived from AUTH_SECRET for this purpose alone.
- * - A round is reserved on every key before any model is called, with a
- *   conditional upsert that never lets a key pass its limit, however many
- *   requests race. A question that gets no answer (no ready knowledge,
- *   out of scope, declined) or fails before any text was shown gives the
- *   round back; one that failed after text was shown keeps it.
+ * - A question counts under several keys at once: the browser fingerprint
+ *   and the httpOnly anonymous-id cookie (each at the visitor's daily
+ *   limit), so clearing one does not reset the count; the client address,
+ *   IPv6 by /64, the only key a script cannot make up, so a request
+ *   without one is refused; and the Ree and the platform, which bound what
+ *   anonymous answers cost however many addresses ask. Those three caps are
+ *   set in the console (anonymous-chat-settings.ts; the constants are their
+ *   defaults). Only HMACs of the visitor's
+ *   values are stored, under a key derived from AUTH_SECRET for this alone.
+ * - A round and an attempt are reserved on every key before any model is
+ *   called, with a conditional upsert that never lets a key pass either
+ *   limit, however many requests race. A question that gets no answer and
+ *   showed no text (no ready knowledge, out of scope, declined before
+ *   writing, a failure before any text) gives the round back, never the
+ *   attempt (the attempts factor, default `ANONYMOUS_ATTEMPTS_FACTOR`), so
+ *   refunds cannot be farmed.
+ *   Once any text was shown the round counts, whatever follows it.
  * - Nothing of the exchange is stored with a user: no conversation, no
  *   message, no hold or ledger entry. The visitor's browser keeps the
  *   transcript and sends recent turns back as context. Each answer leaves one
@@ -29,9 +37,8 @@
 import { randomUUID } from 'node:crypto';
 import { and, eq, inArray, sql } from 'drizzle-orm';
 import { createUIMessageStream, createUIMessageStreamResponse } from 'ai';
-import { ANONYMOUS_IP_ROUNDS_PER_DAY, ANONYMOUS_ROUNDS_PER_DAY } from '@/lib/constants';
 import { citationSnapshots } from '@/lib/domain/answer';
-import { anonymousDay, type AnonymousTurn } from '@/lib/domain/anonymous-chat';
+import { anonymousDay, ipBucket, type AnonymousScope, type AnonymousTurn } from '@/lib/domain/anonymous-chat';
 import { TEXT_META_KEY, textPartId, type AnonymousQuota, type ReeOutcome, type ReeUIMessage } from '@/lib/domain/chat-message';
 import { withoutMentions } from '@/lib/domain/conversation';
 import { isUuid } from '@/lib/domain/list';
@@ -39,6 +46,7 @@ import { authSecret } from '@/lib/infra/crypto/secrets';
 import { hmacSha256 } from '@/lib/infra/crypto/tokens';
 import { db, schema } from '@/lib/infra/db';
 import { readyRees, safe, streamGroundedAnswer, type Emit } from '@/lib/services/answer';
+import { currentAnonymousChatLimits } from '@/lib/services/anonymous-chat-settings';
 import { embedQuestion, retrieve } from '@/lib/services/chat';
 import { publicRee } from '@/lib/services/explore';
 import { generationForUser } from '@/lib/services/generation';
@@ -61,9 +69,13 @@ export async function freeReeForAnonymous(reeId: string): Promise<Ree | null> {
 /* ------------------------------------------------------------------ quota */
 
 export interface QuotaKey {
-  /** `fp:`, `id:` or `ip:` and the HMAC of the value. */
+  /** `fp:`, `id:` or `ip:` and the HMAC of the value; `ree:<id>` for a Ree; `all:` for the platform. */
   hash: string;
+  scope: AnonymousScope;
+  /** Rounds per day. */
   limit: number;
+  /** Attempts per day: rounds taken, given back or not. */
+  attempts: number;
 }
 
 let derivedKey: Promise<string> | null = null;
@@ -78,72 +90,120 @@ export async function quotaKeyHash(kind: 'fp' | 'id' | 'ip', value: string): Pro
   return `${kind}:${await hmacSha256(await quotaKey(), `${kind}:${value}`)}`;
 }
 
-/** The keys one visitor is counted under; the address is left out when the request has none. */
-export async function visitorKeys(visitor: { fingerprint: string; anonymousId: string; ip: string | null }): Promise<QuotaKey[]> {
-  const keys = [
-    { hash: await quotaKeyHash('fp', visitor.fingerprint), limit: ANONYMOUS_ROUNDS_PER_DAY },
-    { hash: await quotaKeyHash('id', visitor.anonymousId), limit: ANONYMOUS_ROUNDS_PER_DAY },
-  ];
-  if (visitor.ip) keys.push({ hash: await quotaKeyHash('ip', visitor.ip), limit: ANONYMOUS_IP_ROUNDS_PER_DAY });
-  return keys;
+function key(hash: string, scope: AnonymousScope, limit: number, attemptsFactor: number): QuotaKey {
+  return { hash, scope, limit, attempts: limit * attemptsFactor };
 }
 
-/** What the visitor sees: the daily limit and the fewest rounds left on any of their keys. */
-function quotaOf(keys: readonly QuotaKey[], rounds: ReadonlyMap<string, number>): AnonymousQuota {
-  const remaining = Math.min(...keys.map((key) => key.limit - (rounds.get(key.hash) ?? 0)));
-  return { limit: ANONYMOUS_ROUNDS_PER_DAY, remaining: Math.max(0, Math.min(ANONYMOUS_ROUNDS_PER_DAY, remaining)) };
+/**
+ * Every key one question counts under: the visitor's fingerprint and
+ * anonymous id, their address (IPv6 by /64), the Ree and the platform. The
+ * address is required -- without it only keys the client makes up would be
+ * left -- so the route refuses a request that has none.
+ */
+export async function visitorKeys(visitor: { fingerprint: string; anonymousId: string; ip: string; reeId: string }): Promise<QuotaKey[]> {
+  /* Every cap and the attempts factor as an administrator set them (anonymous-chat-settings.ts). */
+  const limits = await currentAnonymousChatLimits();
+  const factor = limits.attemptsFactor;
+  return [
+    key(await quotaKeyHash('fp', visitor.fingerprint), 'visitor', limits.visitorRoundsPerDay, factor),
+    key(await quotaKeyHash('id', visitor.anonymousId), 'visitor', limits.visitorRoundsPerDay, factor),
+    key(await quotaKeyHash('ip', ipBucket(visitor.ip)), 'network', limits.ipRoundsPerDay, factor),
+    key(`ree:${visitor.reeId}`, 'ree', limits.reeRoundsPerDay, factor),
+    key('all:', 'platform', limits.platformRoundsPerDay, factor),
+  ];
+}
+
+interface Counted {
+  rounds: number;
+  attempts: number;
+}
+
+/** How many more questions a key takes today: the fewer of its rounds and its attempts left. */
+function left(key: QuotaKey, counted: Counted | undefined): number {
+  return Math.max(0, Math.min(key.limit - (counted?.rounds ?? 0), key.attempts - (counted?.attempts ?? 0)));
+}
+
+/**
+ * What the visitor sees: their own rounds left (the fewer of their keys'),
+ * and `blocked` when their network's limit or the Ree's or platform's has
+ * none left, however many they have.
+ */
+function quotaOf(keys: readonly QuotaKey[], counts: ReadonlyMap<string, Counted>): AnonymousQuota {
+  const of = (scopes: AnonymousScope[]) => keys.filter((key) => scopes.includes(key.scope));
+  const limit = visitorLimitOf(keys);
+  /* Never below 0, nor above the limit: a cap lowered under today's count leaves nothing, not a negative. */
+  const remaining = Math.min(limit, ...of(['visitor']).map((key) => left(key, counts.get(key.hash))));
+  const full = (scopes: AnonymousScope[]) => of(scopes).some((key) => left(key, counts.get(key.hash)) === 0);
+  return { limit, remaining, blocked: full(['ree', 'platform']) ? 'capacity' : full(['network']) ? 'network' : null };
+}
+
+/** The visitor's own daily rounds, as their keys carry them. */
+function visitorLimitOf(keys: readonly QuotaKey[]): number {
+  return keys.find((key) => key.scope === 'visitor')?.limit ?? 0;
 }
 
 /** Today's rounds left, without taking one. */
 export async function anonymousQuota(keys: readonly QuotaKey[], now = new Date()): Promise<AnonymousQuota> {
   const rows = await db()
-    .select({ hash: schema.anonymousChatQuota.keyHash, rounds: schema.anonymousChatQuota.rounds })
+    .select({ hash: schema.anonymousChatQuota.keyHash, rounds: schema.anonymousChatQuota.rounds, attempts: schema.anonymousChatQuota.attempts })
     .from(schema.anonymousChatQuota)
     .where(and(inArray(schema.anonymousChatQuota.keyHash, keys.map((key) => key.hash)), eq(schema.anonymousChatQuota.day, anonymousDay(now))));
-  return quotaOf(keys, new Map(rows.map((row) => [row.hash, row.rounds])));
+  return quotaOf(keys, new Map(rows.map((row) => [row.hash, row])));
 }
 
 export type RoundReservation =
   | { ok: true; day: string; keys: readonly QuotaKey[]; quota: AnonymousQuota }
-  | { ok: false; quota: AnonymousQuota };
+  | { ok: false; scope: AnonymousScope; quota: AnonymousQuota };
 
-class QuotaFull extends Error {}
+class QuotaFull extends Error {
+  constructor(readonly scope: AnonymousScope) {
+    super(`anonymous ${scope} limit reached`);
+  }
+}
 
 /**
- * Takes one round on every key, or none, in one transaction. Each key's
- * count rises only while it is below that key's limit (`on conflict ...
- * where rounds < limit`), so no number of concurrent requests takes a key
- * past it; a key already at its limit returns no row and rolls the others
- * back. Keys are taken in one global order, so two visitors who share a key
- * (the address) wait for each other instead of deadlocking, and two
- * requests of one visitor never each take half and refuse each other.
+ * Takes one round and one attempt on every key, or none, in one
+ * transaction. A key's counts rise only while both are below its limits
+ * (`on conflict ... where rounds < limit and attempts < limit`), so no
+ * number of concurrent requests takes a key past them; a full key returns
+ * no row and rolls the others back, and its scope says which limit refused
+ * the question. Keys are taken in one global order, so requests that share
+ * a key (an address, a Ree, the platform) wait for each other instead of
+ * deadlocking, and two requests of one visitor never each take half and
+ * refuse each other.
  */
 export async function reserveRound(keys: readonly QuotaKey[], now = new Date()): Promise<RoundReservation> {
   const day = anonymousDay(now);
   const ordered = [...keys].sort((a, b) => (a.hash < b.hash ? -1 : a.hash > b.hash ? 1 : 0));
   try {
-    const rounds = await db().transaction(async (tx) => {
-      const taken = new Map<string, number>();
+    const counts = await db().transaction(async (tx) => {
+      const taken = new Map<string, Counted>();
       for (const key of ordered) {
         const result = await tx.execute(sql`
-          insert into anonymous_chat_quota (key_hash, day, rounds) values (${key.hash}, ${day}, 1)
-          on conflict (key_hash, day) do update set rounds = anonymous_chat_quota.rounds + 1, updated_at = now()
-          where anonymous_chat_quota.rounds < ${key.limit}
-          returning rounds`);
-        const value = (result.rows[0] as { rounds?: number } | undefined)?.rounds;
-        if (typeof value !== 'number') throw new QuotaFull();
-        taken.set(key.hash, value);
+          insert into anonymous_chat_quota (key_hash, day, rounds, attempts) values (${key.hash}, ${day}, 1, 1)
+          on conflict (key_hash, day) do update
+            set rounds = anonymous_chat_quota.rounds + 1, attempts = anonymous_chat_quota.attempts + 1, updated_at = now()
+            where anonymous_chat_quota.rounds < ${key.limit} and anonymous_chat_quota.attempts < ${key.attempts}
+          returning rounds, attempts`);
+        const row = result.rows[0] as Partial<Counted> | undefined;
+        if (typeof row?.rounds !== 'number' || typeof row.attempts !== 'number') throw new QuotaFull(key.scope);
+        taken.set(key.hash, { rounds: row.rounds, attempts: row.attempts });
       }
       return taken;
     });
-    return { ok: true, day, keys, quota: quotaOf(keys, rounds) };
+    return { ok: true, day, keys, quota: quotaOf(keys, counts) };
   } catch (error) {
-    if (error instanceof QuotaFull) return { ok: false, quota: { limit: ANONYMOUS_ROUNDS_PER_DAY, remaining: 0 } };
-    throw error;
+    if (!(error instanceof QuotaFull)) throw error;
+    const quota = await anonymousQuota(keys, now).catch(() => ({ limit: visitorLimitOf(keys), remaining: 0, blocked: null }));
+    const blocked = error.scope === 'network' ? 'network' : error.scope === 'visitor' ? quota.blocked : 'capacity';
+    return { ok: false, scope: error.scope, quota: { ...quota, remaining: error.scope === 'visitor' ? 0 : quota.remaining, blocked } };
   }
 }
 
-/** Gives one round back on these keys, on the day it was taken (a question asked just before midnight UTC). */
+/**
+ * Gives one round back on these keys, on the day it was taken (a question
+ * asked just before midnight UTC). The attempt stays taken.
+ */
 export async function releaseRound(keys: readonly QuotaKey[], day: string): Promise<void> {
   if (keys.length === 0) return;
   await db()
@@ -152,7 +212,7 @@ export async function releaseRound(keys: readonly QuotaKey[], day: string): Prom
     .where(and(inArray(schema.anonymousChatQuota.keyHash, keys.map((key) => key.hash)), eq(schema.anonymousChatQuota.day, day)));
 }
 
-/** Past days, cleared by the hourly rank job; yesterday stays a little longer for a request still in flight at midnight. */
+/** Past days, cleared hourly by `/api/cron/rank` (on its own, before the ranking); yesterday stays a little longer for a request still in flight at midnight. */
 export async function clearAnonymousQuota(now = new Date()): Promise<void> {
   await db().delete(schema.anonymousChatQuota).where(sql`${schema.anonymousChatQuota.day} < ${anonymousDay(new Date(now.getTime() - 86_400_000))}`);
 }
@@ -176,7 +236,8 @@ function outcome(reeId: string, partial: Partial<ReeOutcome>): ReeOutcome {
 /**
  * One anonymous question, start to finish, reported through `emit` as the
  * signed-in flow reports one Ree's part. Answers whether the round counts:
- * an answer, or a failure after some of it was shown.
+ * whenever any text was shown -- an answer, a reply that ended on the
+ * no-answer sentinel, or a failure part-way.
  */
 export async function runAnonymousQuestion({ ree, question, history, lang, shareVisitorId = null }: AnonymousQuestion, emit: Emit): Promise<boolean> {
   const subject = withoutMentions(question, [ree.name]) || question;
@@ -202,7 +263,8 @@ export async function runAnonymousQuestion({ ree, question, history, lang, share
     });
     if (declined) {
       emit({ type: 'outcome', outcome: outcome(ree.id, { noAnswer: true, reason: 'out_of_scope', model }) });
-      return false;
+      /* Text already shown counts, whatever sentinel followed it: a short answer ending on one is not a free question. */
+      return shown;
     }
     await db()
       .insert(schema.anonymousAnswer)

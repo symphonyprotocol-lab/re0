@@ -8,7 +8,6 @@ import { sql } from 'drizzle-orm';
 import { QUALITY_WINDOW_DAYS } from '@/lib/constants';
 import { qualityScore, type ReeRank } from '@/lib/domain/explore';
 import { db, schema } from '@/lib/infra/db';
-import { clearAnonymousQuota } from '@/lib/services/anonymous-chat';
 import { clearRateBuckets } from '@/lib/services/explore';
 
 type Counts = Record<string, unknown> & {
@@ -78,6 +77,5 @@ export async function computeRanks(now = new Date()): Promise<number> {
     await db().execute(sql`update ${schema.ree} r set rank = v.rank from (values ${sql.join(batch, sql`, `)}) as v(id, rank) where r.id = v.id`);
   }
   await clearRateBuckets(now);
-  await clearAnonymousQuota(now);
   return rows.length;
 }
