@@ -1,3 +1,4 @@
+import type { MetadataRoute } from 'next';
 import { isLocale, LOCALES, type Locale } from './locale';
 
 /**
@@ -16,13 +17,24 @@ export const LOCALE_HEADER = 'x-re0-locale';
 /** hreflang values, per locale. */
 export const HREFLANG: Record<Locale, string> = { zh: 'zh', en: 'en' };
 
-const PUBLIC_PAGES = new Set(['/', '/pricing', '/explore', '/legal/terms', '/legal/privacy']);
+/**
+ * The site's public pages, with what the sitemap says about each (app/sitemap.ts).
+ * Public Rees (`/r/<slug>`) are the other localized pages.
+ */
+export const PUBLIC_PAGES: readonly { path: string; changeFrequency: NonNullable<MetadataRoute.Sitemap[number]['changeFrequency']>; priority: number }[] = [
+  { path: '/', changeFrequency: 'weekly', priority: 1 },
+  { path: '/explore', changeFrequency: 'daily', priority: 0.9 },
+  { path: '/pricing', changeFrequency: 'monthly', priority: 0.7 },
+  { path: '/legal/terms', changeFrequency: 'yearly', priority: 0.2 },
+  { path: '/legal/privacy', changeFrequency: 'yearly', priority: 0.2 },
+];
+const PUBLIC_PATHS = new Set(PUBLIC_PAGES.map((page) => page.path));
 /** A public Ree's page; not its `opengraph-image` route below it. */
 const PUBLIC_REE = /^\/r\/[^/]+$/;
 
 /** Whether a plain path (no language prefix, no query) has per-language URLs. */
 export function isLocalizedPath(path: string): boolean {
-  return PUBLIC_PAGES.has(path) || PUBLIC_REE.test(path);
+  return PUBLIC_PATHS.has(path) || PUBLIC_REE.test(path);
 }
 
 /** `/en/pricing` → `{ locale: 'en', path: '/pricing' }`; `/en` → path `/`; anything else → null. */

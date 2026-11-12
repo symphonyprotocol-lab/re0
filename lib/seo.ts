@@ -55,6 +55,15 @@ export function publicPage({ path, title, description, locale, absoluteTitle = f
   };
 }
 
+/**
+ * Text as one line of at most `max` characters, cut with an ellipsis.
+ * Counted in code points, so an emoji is never split into a lone surrogate.
+ */
+export function oneLine(text: string, max: number): string {
+  const chars = Array.from(text.replace(/\s+/g, ' ').trim());
+  return chars.length > max ? `${chars.slice(0, max - 1).join('').trimEnd()}…` : chars.join('');
+}
+
 type JsonLd = Record<string, unknown>;
 
 const organizationId = () => absoluteUrl('/#organization');

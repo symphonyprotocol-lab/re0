@@ -3,7 +3,8 @@
 import '@/lib/client/zod-jitless';
 import { createContext, startTransition as startReactTransition, useCallback, useContext, useEffect, useMemo, useState, useTransition, type ReactNode } from 'react';
 import { useRouter } from 'next/navigation';
-import { useLocaleHref } from '@/i18n/client';
+import { useI18n } from '@/i18n/client';
+import { localizeHref } from '@/i18n/paths';
 import './workspace-motion.css';
 
 const NavigationContext = createContext<(action: () => void) => void>(startReactTransition);
@@ -39,20 +40,12 @@ export function useRouteLoading(): void {
 export function useNavigationRouter(): ReturnType<typeof useRouter> {
   const router = useRouter();
   const navigate = useContext(NavigationContext);
-  const resolve = useLocaleHref();
-  return useMemo(() => {
-    /* As WorkspaceLink: a page in another language loads afresh (useLocaleHref). */
-    const go = (href: string, move: (href: string) => void) => {
-      const target = resolve(href);
-      if (target.reload) window.location.assign(target.href);
-      else navigate(() => move(target.href));
-    };
-    return {
-      ...router,
-      push: (href: string, options?: Parameters<typeof router.push>[1]) => go(href, (to) => router.push(to, options)),
-      replace: (href: string, options?: Parameters<typeof router.replace>[1]) => go(href, (to) => router.replace(to, options)),
-      back: () => navigate(() => router.back()),
-      forward: () => navigate(() => router.forward()),
-    };
-  }, [router, navigate, resolve]);
+  const { locale } = useI18n();
+  return useMemo(() => ({
+    ...router,
+    push: (href: string, options?: Parameters<typeof router.push>[1]) => navigate(() => router.push(localizeHref(locale, href), options)),
+    replace: (href: string, options?: Parameters<typeof router.replace>[1]) => navigate(() => router.replace(localizeHref(locale, href), options)),
+    back: () => navigate(() => router.back()),
+    forward: () => navigate(() => router.forward()),
+  }), [router, navigate, locale]);
 }

@@ -3,29 +3,19 @@
 import NextLink, { useLinkStatus } from 'next/link';
 import type { ComponentProps } from 'react';
 import { Icon, type IconName } from '@/components/ui/icons';
-import { useLocaleHref } from '@/i18n/client';
+import { useI18n } from '@/i18n/client';
+import { localizeHref } from '@/i18n/paths';
 
 /**
  * Link status comes from Next so canceled and failed navigations cannot
  * leave a stale highlight. A link to a public page goes straight to its
- * URL in the page's language (i18n/paths.ts), not through the redirect.
+ * URL in the page's language (i18n/paths.ts), not through the redirect;
+ * one into the other language reloads (components/shell/locale-boundary.tsx).
  */
-export function WorkspaceLink({ children, className = '', icon, href, onClick, ...props }: ComponentProps<typeof NextLink> & { icon?: IconName }) {
-  const target = useLocaleHref()(typeof href === 'string' ? href : '');
+export function WorkspaceLink({ children, className = '', icon, href, ...props }: ComponentProps<typeof NextLink> & { icon?: IconName }) {
+  const { locale } = useI18n();
   return (
-    <NextLink
-      {...props}
-      href={typeof href === 'string' ? target.href : href}
-      onClick={(event) => {
-        onClick?.(event);
-        /* A page in another language needs a fresh root layout (useLocaleHref); modified clicks keep their default. */
-        if (target.reload && !event.defaultPrevented && event.button === 0 && !(event.metaKey || event.ctrlKey || event.shiftKey || event.altKey)) {
-          event.preventDefault();
-          window.location.assign(target.href);
-        }
-      }}
-      className={`workspace-link ${className}`}
-    >
+    <NextLink {...props} href={typeof href === 'string' ? localizeHref(locale, href) : href} className={`workspace-link ${className}`}>
       {icon ? <IconLinkContent icon={icon}>{children}</IconLinkContent> : <>{children}<LinkFeedback /></>}
     </NextLink>
   );

@@ -3,7 +3,7 @@ import { notFound } from 'next/navigation';
 import { cache } from 'react';
 import { currentUser } from '@/lib/http/session';
 import { publicReeBySlug as lookup, type PublicRee } from '@/lib/services/public-rees';
-import { publicPage, reeJsonLd, SITE_NAME } from '@/lib/seo';
+import { oneLine, publicPage, reeJsonLd, SITE_NAME } from '@/lib/seo';
 import { serverMessages } from '@/i18n/server';
 import { ReeDetail } from '@/components/discover/ree-detail';
 import { JsonLd } from '@/components/site/json-ld';
@@ -22,8 +22,7 @@ export async function generateMetadata({ params }: Props): Promise<Metadata> {
 
 /** The Ree's own description as one line, or the site's sentence about a Ree when it has none. */
 function reeDescription(ree: PublicRee, fallback: string): string {
-  const text = ree.description.replace(/\s+/g, ' ').trim();
-  return text ? (text.length > 200 ? `${text.slice(0, 199).trimEnd()}…` : text) : fallback;
+  return oneLine(ree.description, 200) || fallback;
 }
 
 /**

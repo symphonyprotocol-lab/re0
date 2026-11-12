@@ -1,6 +1,7 @@
 import { NextResponse, type NextRequest } from 'next/server';
 import { ADMIN_SESSION_COOKIE, PATH_HEADER, SESSION_COOKIE } from '@/lib/http/cookies';
 import { adminLoginHref } from '@/lib/http/admin-next';
+import { WORKSPACE_PATHS } from '@/lib/http/private-paths';
 import { contentSecurityPolicy, createNonce, policyHeaderName } from '@/lib/http/csp';
 import { localeFromRequest } from '@/i18n/locale';
 import { isLocalizedPath, LOCALE_HEADER, localePath, splitLocale } from '@/i18n/paths';
@@ -29,7 +30,6 @@ import { isLocalizedPath, LOCALE_HEADER, localePath, splitLocale } from '@/i18n/
  *    permission. User and console sessions never cross. Redirects carry no
  *    document, so they need no policy.
  */
-const WORKSPACE = ['/dashboard', '/rees', '/settings', '/talk', '/chats', '/workspace', '/videos'];
 
 export function middleware(request: NextRequest): NextResponse {
   const search = request.nextUrl.search;
@@ -50,7 +50,7 @@ export function middleware(request: NextRequest): NextResponse {
     // A signed-out deep link signs in first, then comes back (`next`).
     if (!request.cookies.has(ADMIN_SESSION_COOKIE)) return NextResponse.redirect(new URL(adminLoginHref(path + request.nextUrl.search), request.url));
     headers.set(PATH_HEADER, path + request.nextUrl.search);
-  } else if (WORKSPACE.some((prefix) => path === prefix || path.startsWith(`${prefix}/`))) {
+  } else if (WORKSPACE_PATHS.some((prefix) => path === prefix || path.startsWith(`${prefix}/`))) {
     if (!request.cookies.has(SESSION_COOKIE)) {
       const login = new URL('/login', request.url);
       login.searchParams.set('returnTo', path + request.nextUrl.search);

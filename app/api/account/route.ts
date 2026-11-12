@@ -2,7 +2,7 @@ import { NextResponse, type NextRequest } from 'next/server';
 import { DISPLAY_NAME_MAX } from '@/lib/constants';
 import { profileChanges } from '@/lib/domain/account';
 import { isAvatarPath } from '@/lib/domain/ree';
-import { LOCALE_COOKIE } from '@/lib/http/cookies';
+import { LOCALE_COOKIE, LOCALE_COOKIE_OPTIONS } from '@/lib/http/cookies';
 import { body, fail, json } from '@/lib/http/respond';
 import { apiUser } from '@/lib/http/session';
 import { isLocale } from '@/i18n/locale';
@@ -61,6 +61,6 @@ export async function PATCH(request: NextRequest) {
     ? await db().update(schema.user).set(changes).where(eq(schema.user.id, user.id)).returning()
     : [user];
   const response = NextResponse.json({ account: shown(updated!) });
-  if (changes.lang) response.cookies.set(LOCALE_COOKIE, changes.lang, { path: '/', maxAge: 365 * 24 * 3600, sameSite: 'lax' });
+  if (changes.lang) response.cookies.set(LOCALE_COOKIE, changes.lang, LOCALE_COOKIE_OPTIONS);
   return response;
 }

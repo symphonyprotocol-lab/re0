@@ -1,7 +1,7 @@
 import type { MetadataRoute } from 'next';
 import { desc } from 'drizzle-orm';
 import { LOCALES } from '@/i18n/locale';
-import { localeAlternates } from '@/i18n/paths';
+import { localeAlternates, PUBLIC_PAGES } from '@/i18n/paths';
 import { db, schema } from '@/lib/infra/db';
 import { publicRee } from '@/lib/services/explore';
 import { absoluteUrl, localeUrl } from '@/lib/seo';
@@ -29,11 +29,7 @@ export default async function sitemap(): Promise<MetadataRoute.Sitemap> {
   const page = (path: string, entry: Omit<Entry, 'url' | 'alternates'>): Entry[] =>
     LOCALES.map((locale) => ({ url: localeUrl(locale, path), alternates: { languages: localeAlternates(path, absoluteUrl) }, ...entry }));
   return [
-    ...page('/', { changeFrequency: 'weekly', priority: 1 }),
-    ...page('/explore', { lastModified: latest, changeFrequency: 'daily', priority: 0.9 }),
-    ...page('/pricing', { changeFrequency: 'monthly', priority: 0.7 }),
-    ...page('/legal/terms', { changeFrequency: 'yearly', priority: 0.2 }),
-    ...page('/legal/privacy', { changeFrequency: 'yearly', priority: 0.2 }),
+    ...PUBLIC_PAGES.flatMap(({ path, changeFrequency, priority }) => page(path, { lastModified: path === '/explore' ? latest : undefined, changeFrequency, priority })),
     ...rees.flatMap((ree) => page(`/r/${ree.slug}`, { lastModified: ree.updatedAt, changeFrequency: 'weekly', priority: 0.8 })),
   ];
 }

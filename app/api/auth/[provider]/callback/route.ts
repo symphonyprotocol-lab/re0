@@ -1,6 +1,6 @@
 import { NextResponse, type NextRequest } from 'next/server';
 import { AuthFailure, isIdentityProvider } from '@/lib/domain/auth';
-import { appBaseUrl, HANDSHAKE_COOKIE } from '@/lib/http/cookies';
+import { appBaseUrl, HANDSHAKE_COOKIE, LOCALE_COOKIE, LOCALE_COOKIE_OPTIONS } from '@/lib/http/cookies';
 import { localeFromRequest } from '@/i18n/locale';
 import { callbackUrl, clearHandshakeCookie, setSessionCookie } from '@/lib/http/session';
 import { completeOAuth } from '@/lib/services/auth';
@@ -28,6 +28,8 @@ export async function GET(request: NextRequest, context: { params: Promise<{ pro
     });
     const response = NextResponse.redirect(new URL(result.returnTo, appBaseUrl()), 303);
     setSessionCookie(response, result.sessionToken, result.expiresAt);
+    /* The account's language, which outranks the cookie, becomes this browser's too: plain public URLs redirect by it. */
+    response.cookies.set(LOCALE_COOKIE, result.lang, LOCALE_COOKIE_OPTIONS);
     clearHandshakeCookie(response);
     return response;
   } catch (error) {

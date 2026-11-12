@@ -2,11 +2,12 @@ import type { Metadata, Viewport } from 'next';
 import { Inter, JetBrains_Mono } from 'next/font/google';
 import type { ReactNode } from 'react';
 import { I18nProvider } from '@/i18n/client';
-import { preferredLocale, serverMessages } from '@/i18n/server';
+import { localePreference, serverMessages } from '@/i18n/server';
 import { appBaseUrl } from '@/lib/http/cookies';
 import { ogLocale, SITE_NAME } from '@/lib/seo';
 import { ToastProvider } from '@/components/ui/toast';
 import { NavigationProvider } from '@/components/shell/navigation-provider';
+import { LocaleBoundary } from '@/components/shell/locale-boundary';
 import './globals.css';
 
 const inter = Inter({ subsets: ['latin'], variable: '--font-inter', display: 'swap' });
@@ -42,11 +43,12 @@ export async function generateMetadata(): Promise<Metadata> {
 export const viewport: Viewport = { width: 'device-width', initialScale: 1, themeColor: '#f5f3ff' };
 
 export default async function RootLayout({ children }: { children: ReactNode }) {
-  const [{ locale, t }, preferred] = await Promise.all([serverMessages(), preferredLocale()]);
+  const [{ locale, t }, { preferred, account }] = await Promise.all([serverMessages(), localePreference()]);
   return (
     <html lang={locale === 'zh' ? 'zh-CN' : 'en'} className={`${inter.variable} ${jetbrains.variable}`}>
       <body className="min-h-dvh font-sans">
-        <I18nProvider locale={locale} preferred={preferred} t={t}>
+        <I18nProvider locale={locale} t={t}>
+          <LocaleBoundary locale={locale} preferred={preferred} account={account} />
           <ToastProvider><NavigationProvider>{children}</NavigationProvider></ToastProvider>
         </I18nProvider>
       </body>

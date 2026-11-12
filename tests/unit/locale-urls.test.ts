@@ -1,7 +1,10 @@
 import { describe, expect, it } from 'vitest';
 import { NextRequest } from 'next/server';
 import { middleware } from '@/middleware';
-import { isLocalizedPath, LOCALE_HEADER, localeAlternates, localizeHref, splitLocale, stripLocale } from '@/i18n/paths';
+import { isLocalizedPath, LOCALE_HEADER, localeAlternates, localizeHref, PUBLIC_PAGES, splitLocale, stripLocale } from '@/i18n/paths';
+import { renderedLocale } from '@/components/shell/locale-boundary';
+import robots from '@/app/robots';
+import { CRAWL_DISALLOWED, WORKSPACE_PATHS } from '@/lib/http/private-paths';
 import { safeReturnTo } from '@/lib/domain/auth';
 import { PATH_HEADER, SESSION_COOKIE } from '@/lib/http/cookies';
 
@@ -19,6 +22,18 @@ describe('language URLs (i18n/paths.ts)', () => {
     for (const path of ['/s/some-ree', '/r/some-ree/opengraph-image-abc', '/login', '/checkout', '/dashboard', '/rees', '/admin/users', '/api/explore', '/legal', '/sitemap.xml']) {
       expect(isLocalizedPath(path)).toBe(false);
     }
+  });
+
+  it('localizes every page the sitemap lists from the same list', () => {
+    expect(PUBLIC_PAGES.map((page) => page.path)).toEqual(['/', '/explore', '/pricing', '/legal/terms', '/legal/privacy']);
+    for (const { path } of PUBLIC_PAGES) expect(isLocalizedPath(path)).toBe(true);
+  });
+
+  it('knows which language the server renders a path in', () => {
+    expect(renderedLocale('/en/explore', 'zh')).toBe('en');
+    expect(renderedLocale('/zh', 'en')).toBe('zh');
+    expect(renderedLocale('/rees', 'en')).toBe('en');
+    expect(renderedLocale('/login', 'zh')).toBe('zh');
   });
 
   it('splits and strips the prefix', () => {
@@ -82,6 +97,17 @@ describe('middleware: language URLs', () => {
     const signedIn = request('/rees', { cookie: `${SESSION_COOKIE}=x` });
     expect(signedIn.headers.get('location')).toBeNull();
     expect(forwarded(signedIn, PATH_HEADER.toLowerCase())).toBe('/rees');
+  });
+});
+
+describe('private paths: one list for the sign-in gate and robots.txt', () => {
+  it('gates every workspace path and keeps crawlers out of it', () => {
+    const disallowed = robots().rules;
+    expect(Array.isArray(disallowed) ? null : disallowed.disallow).toEqual([...CRAWL_DISALLOWED]);
+    for (const path of WORKSPACE_PATHS) {
+      expect(CRAWL_DISALLOWED).toContain(path);
+      expect(request(`${path}/x`).headers.get('location')).toBe(`https://re0.test/login?returnTo=${encodeURIComponent(`${path}/x`)}`);
+    }
   });
 });
 

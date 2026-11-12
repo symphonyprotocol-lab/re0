@@ -2,7 +2,7 @@ import { renderToStaticMarkup } from 'react-dom/server';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { JsonLd } from '@/components/site/json-ld';
 import { defaultPrice } from '@/lib/domain/pricing';
-import { pricingJsonLd, publicPage, reeJsonLd } from '@/lib/seo';
+import { oneLine, pricingJsonLd, publicPage, reeJsonLd } from '@/lib/seo';
 import type { PublicRee } from '@/lib/services/public-rees';
 
 beforeEach(() => vi.stubEnv('APP_BASE_URL', 'https://re0.io/'));
@@ -21,6 +21,17 @@ describe('publicPage', () => {
     const meta = publicPage({ path: '/r/x', title: 'X', description: 'd', locale: 'zh', ownImage: true });
     expect(meta.openGraph && 'images' in meta.openGraph).toBe(false);
     expect(meta.twitter && 'images' in meta.twitter).toBe(false);
+  });
+});
+
+describe('oneLine', () => {
+  it('collapses whitespace and cuts by code points, never splitting an emoji', () => {
+    expect(oneLine('  a\n\n b\tc ', 10)).toBe('a b c');
+    const cut = oneLine(`${'x'.repeat(198)}😀😀😀`, 200);
+    expect(cut).toBe(`${'x'.repeat(198)}😀…`);
+    expect(Array.from(cut)).toHaveLength(200);
+    expect(cut).not.toMatch(/[\uD800-\uDBFF](?![\uDC00-\uDFFF])|(?<![\uD800-\uDBFF])[\uDC00-\uDFFF]/);
+    expect(oneLine('😀'.repeat(200), 200)).toBe('😀'.repeat(200));
   });
 });
 
