@@ -168,7 +168,7 @@ export const zh = {
     },
   },
   home: {
-    note: '以下是近 30 天最活跃的公开 Ree，点进去就能加入对话。',
+    note: '以下是 RE0 团队制作的官方 Ree，点进去就能加入对话。',
     all: '发现更多 Ree',
   },
   settings: {
@@ -342,7 +342,7 @@ export const en: Shape<typeof zh> = {
     },
   },
   home: {
-    note: 'The most active public Rees of the last 30 days. Open one to add it to a chat.',
+    note: 'Official Rees made by the RE0 team. Open one to add it to a chat.',
     all: 'Discover more Rees',
   },
   settings: {
