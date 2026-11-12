@@ -474,6 +474,8 @@ export const EXPLORE_EF_SEARCH = 400;
  */
 export const EXPLORE_PASSAGE_EF_SEARCH = 100;
 export const EXPLORE_PASSAGE_SCAN_MAX = 10_000;
+/** How long a server instance trusts its last look at whether those indexes are valid (they are built after a deploy, concurrently). */
+export const EXPLORE_INDEX_CHECK_MS = 60_000;
 /** How long, and for how many questions, a server instance keeps a search question's vector. */
 export const EXPLORE_VECTOR_CACHE_MS = 10 * 60_000;
 export const EXPLORE_VECTOR_CACHE_SIZE = 500;

@@ -14,6 +14,7 @@ import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { pointModelsAt, TEST_DATABASE_URL, uniqueName } from './setup';
 import { and, eq, inArray, sql } from 'drizzle-orm';
 import { startFakeOpenAi, type FakeOpenAi } from '../fixtures/fake-openai';
+import { Client } from '@neondatabase/serverless';
 
 const describeWithDb = TEST_DATABASE_URL ? describe : describe.skip;
 
@@ -32,6 +33,7 @@ const { newReeDraft } = await import('@/lib/domain/ree');
 const { questionTargets, parseConversationQuery } = await import('@/lib/domain/conversation');
 const { parseExploreQuery } = await import('@/lib/domain/explore');
 const { forgetModelCache } = await import('@/lib/infra/ai/models');
+const { ensureSearchIndexes, searchIndexStates, SEARCH_INDEX_LOCK } = await import('@/lib/infra/search-indexes');
 
 let fake: FakeOpenAi;
 beforeAll(async () => {
@@ -52,6 +54,16 @@ const QUESTION = 'When are refunds issued to the original payment method?';
  * itself plus the word stays first however many of those there are.
  */
 const wordPassage = (word: string) => `Ledger ${word}: refunds are issued to the original payment method.`;
+
+/* One database session of its own (a build's settings and lock hold across statements), closed after the file. */
+const sessions: Client[] = [];
+afterAll(() => Promise.all(sessions.map((session) => session.end().catch(() => undefined))));
+async function session(): Promise<Client> {
+  const client = new Client({ connectionString: TEST_DATABASE_URL! });
+  await client.connect();
+  sessions.push(client);
+  return client;
+}
 
 async function person(role: 'normal' | 'verified' | 'official' = 'normal') {
   const subject = uniqueName('u');
@@ -568,6 +580,7 @@ describeWithDb('explore and public pages', () => {
   });
 
   it('finds the nearest passages through each slot\'s HNSW index, as an exact scan would', async () => {
+    await ensureSearchIndexes(await session(), { budgetMs: 60_000 });
     await reeOf(await person(), { content: wordPassage(uniqueName('w')) });
     const vector = await chat.embedQuestion(QUESTION);
     const all = await db().select({ id: schema.ree.id }).from(schema.ree).where(explore.publicRee());
@@ -586,6 +599,69 @@ describeWithDb('explore and public pages', () => {
     const plan = (await run(sql`explain ${search.indexed}`, true)).map((row) => String(Object.values(row)[0])).join('\n');
     expect(plan).toContain('chunk_embedding_half_idx');
     expect(plan).toContain('chunk_embedding_next_half_idx');
+  });
+
+  it('searches exactly while the passage indexes are missing or invalid, and builds them concurrently once', async () => {
+    const client = await session();
+    const word = uniqueName('w');
+    const ree = await reeOf(await person(), { content: wordPassage(word) });
+    const found = async () => {
+      explore.forgetSearchIndexCheck();
+      const result = await explore.explore(parseExploreQuery(new URLSearchParams({ q: `${QUESTION} ${word}` })), { cursor: null, size: 24 }, { includeIntros: false });
+      return result.items.map((card) => card.id);
+    };
+    const states = async () => [...(await searchIndexStates(client)).values()];
+
+    /* As production is after the migration and before the build. */
+    await client.query('drop index if exists chunk_embedding_half_idx; drop index if exists chunk_embedding_next_half_idx');
+    expect(await states()).toEqual(['missing', 'missing']);
+    explore.forgetSearchIndexCheck();
+    expect(await explore.searchIndexesReady()).toBe(false);
+    expect(await found()).toContain(ree.id);
+
+    expect((await ensureSearchIndexes(client, { budgetMs: 60_000 })).map((outcome) => outcome.action)).toEqual(['built', 'built']);
+    expect(await states()).toEqual(['valid', 'valid']);
+    explore.forgetSearchIndexCheck();
+    expect(await explore.searchIndexesReady()).toBe(true);
+    expect(await found()).toContain(ree.id);
+    /* Every deploy runs it again: nothing to do. */
+    expect((await ensureSearchIndexes(client, { budgetMs: 60_000 })).map((outcome) => outcome.action)).toEqual(['valid', 'valid']);
+
+    /* What an interrupted concurrent build leaves: an index the planner may not use. */
+    await client.query(`update pg_index set indisvalid = false where indexrelid = 'chunk_embedding_half_idx'::regclass`);
+    expect(await states()).toEqual(['invalid', 'valid']);
+    explore.forgetSearchIndexCheck();
+    expect(await explore.searchIndexesReady()).toBe(false);
+    expect(await found()).toContain(ree.id);
+    expect((await ensureSearchIndexes(client, { budgetMs: 60_000 })).map((outcome) => outcome.action)).toEqual(['rebuilt', 'valid']);
+    expect(await states()).toEqual(['valid', 'valid']);
+  });
+
+  it('leaves the passage indexes to a build already running, and drops what a build out of time leaves', async () => {
+    const client = await session();
+    const other = await session();
+    const states = async () => [...(await searchIndexStates(client)).values()];
+    await ensureSearchIndexes(client, { budgetMs: 60_000 });
+    await client.query('drop index chunk_embedding_next_half_idx');
+
+    await other.query('select pg_advisory_lock(hashtext($1))', [SEARCH_INDEX_LOCK]);
+    expect((await ensureSearchIndexes(client, { budgetMs: 60_000 })).map((outcome) => outcome.action)).toEqual(['skipped', 'skipped']);
+    expect(await states()).toEqual(['valid', 'missing']);
+    await other.query('select pg_advisory_unlock(hashtext($1))', [SEARCH_INDEX_LOCK]);
+
+    /* An older snapshot (another table's, so no lock on chunk) makes the concurrent build wait past its budget. */
+    await other.query('begin isolation level repeatable read');
+    await other.query('select count(*) from ree');
+    try {
+      const cut = await ensureSearchIndexes(client, { budgetMs: 2_000 });
+      expect(cut.map((outcome) => outcome.action)).toEqual(['valid', 'failed']);
+      expect(cut[1]!.detail).toMatch(/statement timeout/);
+      /* Its half-built index is gone, not left for every write to maintain. */
+      expect(await states()).toEqual(['valid', 'missing']);
+    } finally {
+      await other.query('rollback');
+    }
+    expect((await ensureSearchIndexes(client, { budgetMs: 60_000 })).map((outcome) => outcome.action)).toEqual(['valid', 'built']);
   });
 
   it('embeds a search question once and reuses its vector for the same words', async () => {
