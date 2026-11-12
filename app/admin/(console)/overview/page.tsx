@@ -77,6 +77,7 @@ export default async function OverviewPage() {
   const data = await adminOverview(administrator);
   const n = (value: number) => formatNumber(value, locale);
   const answers = data.trend.reduce((sum, day) => sum + day.answers, 0);
+  const anonymous = data.trend.reduce((sum, day) => sum + day.anonymous, 0);
   const today = new Intl.DateTimeFormat('en-CA', { timeZone: 'Asia/Shanghai', year: 'numeric', month: '2-digit', day: '2-digit' }).format(new Date()).replaceAll('-', '.');
   // The prototype's order: money first, then identity, verification, models.
   const attention: { href: string; count: number; label: string; icon: ConsoleIconName }[] = [
@@ -118,7 +119,10 @@ export default async function OverviewPage() {
           <div className="chart-legend">
             <i className="dot" />
             {o.trend.legend}
-            <span>{answers ? fill(o.trend.total, { n: n(answers) }) : o.trend.empty}</span>
+            <span>
+              {answers ? fill(o.trend.total, { n: n(answers) }) : o.trend.empty}
+              {anonymous > 0 && <small className="muted"> · {fill(o.trend.anonymous, { n: n(anonymous) })}</small>}
+            </span>
           </div>
         </section>
         <aside className="card console-actions">

@@ -11,6 +11,7 @@ import { pointModelsAt, TEST_DATABASE_URL, uniqueName } from './setup';
 import { and, count, eq, inArray } from 'drizzle-orm';
 import { NextRequest } from 'next/server';
 import { startFakeOpenAi, type FakeOpenAi } from '../fixtures/fake-openai';
+import { consoleAdministrator } from '../fixtures/console-administrator';
 
 const describeWithDb = TEST_DATABASE_URL ? describe : describe.skip;
 
@@ -26,6 +27,7 @@ const { db, schema } = await import('@/lib/infra/db');
 const share = await import('@/lib/services/share');
 const { publicReeRef } = await import('@/lib/services/public-rees');
 const { VISITOR_COOKIE } = await import('@/lib/http/share');
+const { adminOverview } = await import('@/lib/services/admin-overview');
 const { newReeDraft } = await import('@/lib/domain/ree');
 const { forgetModelCache } = await import('@/lib/infra/ai/models');
 
@@ -348,5 +350,39 @@ describeWithDb('anonymous chat on the share page', () => {
     const over = await ask(reeId, visitor, QUESTION, { source: 'share' });
     expect(over.status).toBe(429);
     expect(await over.json()).toMatchObject({ error: ANONYMOUS_QUOTA_EXCEEDED, remaining: 0 });
+  });
+});
+
+describeWithDb('the console overview', () => {
+  it('counts anonymous answers in the 30-day answers once, and none from before the window', async () => {
+    const { reeId } = await freeRee();
+    const administrator = await consoleAdministrator();
+    const now = new Date();
+    const totals = async () => {
+      const overview = await adminOverview(administrator, now);
+      return {
+        answers: overview.trend.reduce((sum, day) => sum + day.answers, 0),
+        anonymous: overview.trend.reduce((sum, day) => sum + day.anonymous, 0),
+        earned: overview.earned30,
+        revenue: overview.revenue30.usd,
+      };
+    };
+    const before = await totals();
+    await db()
+      .insert(schema.anonymousAnswer)
+      .values([
+        { reeId, createdAt: new Date(now.getTime() - 3_600_000) },
+        { reeId, createdAt: new Date(now.getTime() - 2 * 86_400_000), shareVisitorId: crypto.randomUUID() },
+        /* Before the window. */
+        { reeId, createdAt: new Date(now.getTime() - 31 * 86_400_000) },
+      ]);
+    /* One answered through the endpoint as well: its row counts, and it writes nothing the ledger-based trend reads. */
+    await read(await ask(reeId, { fingerprint: fingerprint(), ip: ip() }));
+    const after = await totals();
+    expect(after.anonymous - before.anonymous).toBe(3);
+    expect(after.answers - before.answers).toBe(3);
+    /* No fee, no money: the earned and revenue figures do not move. */
+    expect(after.earned).toBe(before.earned);
+    expect(after.revenue).toBe(before.revenue);
   });
 });
