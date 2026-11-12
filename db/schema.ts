@@ -1189,8 +1189,8 @@ export const anonymousChatQuota = pgTable(
 /**
  * Beyond 4: one row per answer a free Ree gave a signed-out visitor. Nothing
  * else of the exchange is kept (no conversation, message or ledger entry);
- * the row only lets the owner's statistics and the public answer count
- * include anonymous answers.
+ * the row only lets the owner's statistics, the public answer count and
+ * the share page's figures include anonymous answers.
  */
 export const anonymousAnswer = pgTable(
   'anonymous_answer',
@@ -1199,9 +1199,11 @@ export const anonymousAnswer = pgTable(
     reeId: uuid('ree_id')
       .notNull()
       .references(() => ree.id, { onDelete: 'cascade' }),
+    /** The `re0_visitor` id when the answer was asked on the share page by a browser that visited it (share.ts `shareVisitorFor`); null elsewhere. */
+    shareVisitorId: text('share_visitor_id'),
     createdAt: createdAt(),
   },
-  (t) => [index('anonymous_answer_ree_idx').on(t.reeId, t.createdAt)],
+  (t) => [index('anonymous_answer_ree_idx').on(t.reeId, t.createdAt), index('anonymous_answer_share_idx').on(t.reeId, t.createdAt).where(sql`share_visitor_id is not null`)],
 );
 
 /* ------------------------------------------------------------- step 5 */

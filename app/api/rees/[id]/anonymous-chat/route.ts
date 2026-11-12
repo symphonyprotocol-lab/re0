@@ -16,7 +16,9 @@ import { clientIp } from '@/lib/http/conversations';
 import { rateLimited } from '@/lib/http/rate-limit';
 import { body, fail, json } from '@/lib/http/respond';
 import { sameOrigin } from '@/lib/http/session';
+import { VISITOR_COOKIE } from '@/lib/http/share';
 import { anonymousAnswerResponse, anonymousQuota, freeReeForAnonymous, reserveRound, visitorKeys } from '@/lib/services/anonymous-chat';
+import { shareVisitorFor } from '@/lib/services/share';
 import { isLocale, localeFromRequest } from '@/i18n/locale';
 
 export const maxDuration = 300;
@@ -55,11 +57,13 @@ export async function GET(request: NextRequest, context: Context) {
 }
 
 /**
- * `{question, history?, lang?}` → the answer as a `useChat` UI message
- * stream, ending on a `data-quota` part with the rounds left. Over today's
- * rounds → `429 anonymous_quota_exceeded` with `{limit, remaining: 0}`,
- * before anything is asked. `history`: the earlier turns the browser kept,
- * capped (anonymousHistory).
+ * `{question, history?, lang?, source?}` → the answer as a `useChat` UI
+ * message stream, ending on a `data-quota` part with the rounds left. Over
+ * today's rounds → `429 anonymous_quota_exceeded` with `{limit, remaining:
+ * 0}`, before anything is asked. `history`: the earlier turns the browser
+ * kept, capped (anonymousHistory). `source: 'share'` from the share page
+ * `/s/[slug]`: the answer counts for the share page when this browser's
+ * visitor cookie shows a visit there (share.ts `shareVisitorFor`).
  */
 export async function POST(request: NextRequest, context: Context) {
   if (!sameOrigin(request.headers)) return fail('cross_origin', 403);
@@ -83,5 +87,6 @@ export async function POST(request: NextRequest, context: Context) {
   }
   const headers = new Headers({ 'cache-control': 'no-store' });
   if (anonymousId.fresh) headers.append('set-cookie', anonymousIdCookie(anonymousId.id));
-  return anonymousAnswerResponse({ ree, question, history: anonymousHistory(input.history), lang }, reservation, headers);
+  const shareVisitorId = input.source === 'share' ? await shareVisitorFor(ree.id, request.cookies.get(VISITOR_COOKIE)?.value).catch(() => null) : null;
+  return anonymousAnswerResponse({ ree, question, history: anonymousHistory(input.history), lang, shareVisitorId }, reservation, headers);
 }

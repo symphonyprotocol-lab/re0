@@ -235,6 +235,7 @@ function ShareFigures({ t, locale, share }: { t: Messages; locale: Locale; share
     { icon: 'users', label: s.visitors, value: n(share.visitors), note: s.visitorsNote },
     { icon: 'chat', label: s.conversations, value: n(share.conversations), note: s.conversationsNote },
     { icon: 'chart', label: s.rate, value: share.rate === null ? s.noRate : `${share.rate}%`, note: s.rateNote },
+    ...(share.anonymousAnswers > 0 ? [{ icon: 'chat' as const, label: s.anonymousAnswers, value: n(share.anonymousAnswers), note: s.anonymousAnswersNote }] : []),
   ];
   return <FigureCards title={s.title} lede={s.lede} cards={cards} />;
 }

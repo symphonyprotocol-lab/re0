@@ -1,6 +1,7 @@
 CREATE TABLE "anonymous_answer" (
 	"id" uuid PRIMARY KEY DEFAULT gen_random_uuid() NOT NULL,
 	"ree_id" uuid NOT NULL,
+	"share_visitor_id" text,
 	"created_at" timestamp with time zone DEFAULT now() NOT NULL
 );
 --> statement-breakpoint
@@ -15,4 +16,5 @@ CREATE TABLE "anonymous_chat_quota" (
 --> statement-breakpoint
 ALTER TABLE "anonymous_answer" ADD CONSTRAINT "anonymous_answer_ree_id_ree_id_fk" FOREIGN KEY ("ree_id") REFERENCES "public"."ree"("id") ON DELETE cascade ON UPDATE no action;--> statement-breakpoint
 CREATE INDEX "anonymous_answer_ree_idx" ON "anonymous_answer" USING btree ("ree_id","created_at");--> statement-breakpoint
+CREATE INDEX "anonymous_answer_share_idx" ON "anonymous_answer" USING btree ("ree_id","created_at") WHERE share_visitor_id is not null;--> statement-breakpoint
 CREATE INDEX "anonymous_chat_quota_day_idx" ON "anonymous_chat_quota" USING btree ("day");

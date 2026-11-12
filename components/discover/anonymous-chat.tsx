@@ -61,13 +61,19 @@ function refusalOf(error: Error): { error?: string; limit?: number } | null {
 const storageKey = (reeId: string) => `re0:anonymous-chat:${reeId}`;
 
 /**
- * Anonymous chat on a free Ree's public page (lib/services/anonymous-chat.ts):
+ * Anonymous chat on a free Ree's public page or share page (lib/services/anonymous-chat.ts):
  * a signed-out visitor asks without signing in, up to the day's free
  * questions, and sees how many are left. The transcript lives in this tab's
  * sessionStorage only. Once the day's questions are used, asking opens a
  * dialog that signs them in and brings them back to this page.
  */
-export function AnonymousChat({ ree, loginHref }: { ree: AnonymousRee; loginHref: string }) {
+export function AnonymousChat({ ree, loginHref, source }: {
+  ree: AnonymousRee;
+  /** Where the sign-in dialog sends the visitor, coming back to this page. */
+  loginHref: string;
+  /** `share` on the share page `/s/[slug]`, so its answers count there (share.ts `shareVisitorFor`). */
+  source?: 'share';
+}) {
   const { t } = useI18n();
   const a = t.discover.public.anonymous;
   const router = useRouter();
@@ -86,10 +92,10 @@ export function AnonymousChat({ ree, loginHref }: { ree: AnonymousRee; loginHref
         api,
         prepareSendMessagesRequest: async ({ messages }) => ({
           headers: { [FINGERPRINT_HEADER]: await browserFingerprint() },
-          body: { question: pendingQuestion.current, history: historyOf(messages.slice(0, -1)) },
+          body: { question: pendingQuestion.current, history: historyOf(messages.slice(0, -1)), ...(source ? { source } : {}) },
         }),
       }),
-    [api],
+    [api, source],
   );
 
   const { messages, sendMessage, status, setMessages } = useChat<ReeUIMessage>({

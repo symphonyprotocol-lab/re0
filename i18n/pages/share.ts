@@ -55,6 +55,8 @@ export const zh = {
     rate: '转化率',
     rateNote: '本期有对话的访客 ÷ 本期访客',
     noRate: '暂无',
+    anonymousAnswers: '免登录回答',
+    anonymousAnswersNote: '未登录访客在分享页得到的回答，不计入转化',
   },
 };
 
@@ -109,5 +111,7 @@ export const en: Shape<typeof zh> = {
     rate: 'Conversion',
     rateNote: 'Visitors who started a chat ÷ visitors, this period',
     noRate: 'None yet',
+    anonymousAnswers: 'Answers without sign-in',
+    anonymousAnswersNote: 'Answers signed-out visitors got on the share page; not conversions',
   },
 };

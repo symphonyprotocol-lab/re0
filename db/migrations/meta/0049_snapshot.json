@@ -1,5 +1,5 @@
 {
-  "id": "de9e1793-a01c-4288-9523-17bfb4a63349",
+  "id": "9d08c6fe-82e6-4825-84e7-66669b339e1d",
   "prevId": "872d343d-1c9d-4ef2-8151-a64a83021fd7",
   "version": "7",
   "dialect": "postgresql",
@@ -286,6 +286,12 @@
           "primaryKey": false,
           "notNull": true
         },
+        "share_visitor_id": {
+          "name": "share_visitor_id",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false
+        },
         "created_at": {
           "name": "created_at",
           "type": "timestamp with time zone",
@@ -312,6 +318,28 @@
             }
           ],
           "isUnique": false,
+          "concurrently": false,
+          "method": "btree",
+          "with": {}
+        },
+        "anonymous_answer_share_idx": {
+          "name": "anonymous_answer_share_idx",
+          "columns": [
+            {
+              "expression": "ree_id",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            },
+            {
+              "expression": "created_at",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            }
+          ],
+          "isUnique": false,
+          "where": "share_visitor_id is not null",
           "concurrently": false,
           "method": "btree",
           "with": {}

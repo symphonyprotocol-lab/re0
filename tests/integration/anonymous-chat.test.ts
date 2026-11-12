@@ -23,6 +23,9 @@ const { GET, POST } = await import('@/app/api/rees/[id]/anonymous-chat/route');
 const { ANONYMOUS_IP_ROUNDS_PER_DAY, ANONYMOUS_ROUNDS_PER_DAY } = await import('@/lib/constants');
 const { ANONYMOUS_ID_COOKIE, ANONYMOUS_QUOTA_EXCEEDED, FINGERPRINT_HEADER } = await import('@/lib/domain/anonymous-chat');
 const { db, schema } = await import('@/lib/infra/db');
+const share = await import('@/lib/services/share');
+const { publicReeRef } = await import('@/lib/services/public-rees');
+const { VISITOR_COOKIE } = await import('@/lib/http/share');
 const { newReeDraft } = await import('@/lib/domain/ree');
 const { forgetModelCache } = await import('@/lib/infra/ai/models');
 
@@ -68,10 +71,11 @@ function fingerprint(): string {
   return crypto.randomUUID().replaceAll('-', '');
 }
 
-function ask(reeId: string, visitor: { fingerprint?: string; ip: string; cookie?: string }, question = QUESTION, extra: Record<string, unknown> = {}) {
+function ask(reeId: string, visitor: { fingerprint?: string; ip: string; cookie?: string; shareVisitor?: string }, question = QUESTION, extra: Record<string, unknown> = {}) {
   const headers: Record<string, string> = { origin: base, host: 'localhost:3000', 'x-real-ip': visitor.ip, 'content-type': 'application/json' };
   if (visitor.fingerprint) headers[FINGERPRINT_HEADER] = visitor.fingerprint;
-  if (visitor.cookie) headers.cookie = `${ANONYMOUS_ID_COOKIE}=${visitor.cookie}`;
+  const cookies = [visitor.cookie && `${ANONYMOUS_ID_COOKIE}=${visitor.cookie}`, visitor.shareVisitor && `${VISITOR_COOKIE}=${visitor.shareVisitor}`].filter(Boolean);
+  if (cookies.length) headers.cookie = cookies.join('; ');
   return POST(new NextRequest(`${base}/api/rees/${reeId}/anonymous-chat`, { method: 'POST', headers, body: JSON.stringify({ question, lang: 'en', ...extra }) }), { params: Promise.resolve({ id: reeId }) });
 }
 
@@ -288,5 +292,61 @@ describeWithDb('anonymous chat answers', () => {
     ];
     const result = await read(await ask(reeId, { fingerprint: fingerprint(), ip: ip() }, QUESTION, { history }));
     expect(result.outcome).toMatchObject({ noAnswer: false, failed: false });
+  });
+});
+
+describeWithDb('anonymous chat on the share page', () => {
+  it('counts an answer for the share page only when this browser visited it, and never as a conversion', async () => {
+    const { reeId } = await freeRee();
+    const [ree] = await db().select().from(schema.ree).where(eq(schema.ree.id, reeId));
+    const shareVisitor = crypto.randomUUID();
+    /* The share page's beacon: the second one, once the visitor cookie is set, records the visit. */
+    expect(await share.recordShareVisit({ slug: ree!.slug, visitorId: shareVisitor, freshVisitor: false, userId: null, ip: null })).toBe('recorded');
+
+    const fromShare = await read(await ask(reeId, { fingerprint: fingerprint(), ip: ip(), shareVisitor }, QUESTION, { source: 'share' }));
+    expect(fromShare.outcome).toMatchObject({ noAnswer: false, failed: false, cost: 0 });
+    /* Claiming the share page without having visited it counts nothing there. */
+    await read(await ask(reeId, { fingerprint: fingerprint(), ip: ip(), shareVisitor: crypto.randomUUID() }, QUESTION, { source: 'share' }));
+    /* Asked on `/r/[slug]` by the same browser: not the share page's. */
+    await read(await ask(reeId, { fingerprint: fingerprint(), ip: ip(), shareVisitor }));
+
+    const rows = await db().select({ shareVisitorId: schema.anonymousAnswer.shareVisitorId }).from(schema.anonymousAnswer).where(eq(schema.anonymousAnswer.reeId, reeId));
+    expect(rows.map((row) => row.shareVisitorId).sort()).toEqual([shareVisitor, null, null].sort());
+    expect(await share.shareStatistics(reeId, null)).toMatchObject({ visits: 1, visitors: 1, conversations: 0, converted: 0, rate: 0, anonymousAnswers: 1 });
+    expect((await answerCounts([reeId], null)).get(reeId)).toBe(3);
+  });
+
+  it('is refused for a paid Ree and once the share link stops working, as on the public page', async () => {
+    const { reeId } = await freeRee();
+    const [ree] = await db().select().from(schema.ree).where(eq(schema.ree.id, reeId));
+    const visitor = { fingerprint: fingerprint(), ip: ip(), shareVisitor: crypto.randomUUID() };
+    expect(await share.recordShareVisit({ slug: ree!.slug, visitorId: visitor.shareVisitor, freshVisitor: false, userId: null, ip: null })).toBe('recorded');
+
+    await db().update(schema.ree).set({ queryFee: 3 }).where(eq(schema.ree.id, reeId));
+    const paid = await ask(reeId, visitor, QUESTION, { source: 'share' });
+    expect(paid.status).toBe(404);
+    expect(await paid.json()).toMatchObject({ error: 'anonymous_unavailable' });
+
+    /* A share link has no state of its own: it stops working when the Ree is unpublished or made private. */
+    await db().update(schema.ree).set({ queryFee: 0, isPublished: false }).where(eq(schema.ree.id, reeId));
+    expect(await publicReeRef(ree!.slug)).toBeNull();
+    expect((await ask(reeId, visitor, QUESTION, { source: 'share' })).status).toBe(404);
+    await db().update(schema.ree).set({ isPublic: false }).where(eq(schema.ree.id, reeId));
+    expect((await ask(reeId, visitor, QUESTION, { source: 'share' })).status).toBe(404);
+
+    const [answers] = await db().select({ n: count() }).from(schema.anonymousAnswer).where(eq(schema.anonymousAnswer.reeId, reeId));
+    expect(answers!.n).toBe(0);
+  });
+
+  it('shares the daily rounds with the public page', async () => {
+    const { reeId } = await freeRee();
+    const visitor = { fingerprint: fingerprint(), ip: ip(), cookie: crypto.randomUUID() };
+    const keys = await anonymous.visitorKeys({ fingerprint: visitor.fingerprint, anonymousId: visitor.cookie, ip: visitor.ip });
+    for (let index = 0; index < ANONYMOUS_ROUNDS_PER_DAY - 1; index += 1) expect((await anonymous.reserveRound(keys)).ok).toBe(true);
+    /* The tenth on `/r/[slug]`, the eleventh on the share page. */
+    expect((await read(await ask(reeId, visitor))).quota?.remaining).toBe(0);
+    const over = await ask(reeId, visitor, QUESTION, { source: 'share' });
+    expect(over.status).toBe(429);
+    expect(await over.json()).toMatchObject({ error: ANONYMOUS_QUOTA_EXCEEDED, remaining: 0 });
   });
 });

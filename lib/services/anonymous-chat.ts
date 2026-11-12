@@ -18,7 +18,11 @@
  * - Nothing of the exchange is stored with a user: no conversation, no
  *   message, no hold or ledger entry. The visitor's browser keeps the
  *   transcript and sends recent turns back as context. Each answer leaves one
- *   `anonymous_answer` row so the owner's statistics count it.
+ *   `anonymous_answer` row so the owner's statistics count it -- and the
+ *   share page's figures, when it was asked there by a browser that visited
+ *   the share page (the same rule as a share conversion).
+ * - The public page `/r/[slug]` and the share page `/s/[slug]` use the same
+ *   endpoint and the same daily rounds.
  * - The platform bears the model cost of these answers (the base fee a
  *   signed-in asker would pay is not charged to anyone).
  */
@@ -161,6 +165,8 @@ export interface AnonymousQuestion {
   /** Earlier turns from the visitor's browser (anonymousHistory): context only, never evidence. */
   history: AnonymousTurn[];
   lang: 'zh' | 'en';
+  /** Asked on the share page by a browser that visited it (share.ts `shareVisitorFor`): the answer counts there too. */
+  shareVisitorId?: string | null;
 }
 
 function outcome(reeId: string, partial: Partial<ReeOutcome>): ReeOutcome {
@@ -172,7 +178,7 @@ function outcome(reeId: string, partial: Partial<ReeOutcome>): ReeOutcome {
  * signed-in flow reports one Ree's part. Answers whether the round counts:
  * an answer, or a failure after some of it was shown.
  */
-export async function runAnonymousQuestion({ ree, question, history, lang }: AnonymousQuestion, emit: Emit): Promise<boolean> {
+export async function runAnonymousQuestion({ ree, question, history, lang, shareVisitorId = null }: AnonymousQuestion, emit: Emit): Promise<boolean> {
   const subject = withoutMentions(question, [ree.name]) || question;
   const ready = await readyRees([ree.id]);
   if (!ready.has(ree.id)) {
@@ -200,7 +206,7 @@ export async function runAnonymousQuestion({ ree, question, history, lang }: Ano
     }
     await db()
       .insert(schema.anonymousAnswer)
-      .values({ reeId: ree.id })
+      .values({ reeId: ree.id, shareVisitorId })
       .catch((error: unknown) => console.warn(`anonymous answer ree=${ree.id} not counted: ${error instanceof Error ? error.message : 'unknown'}`));
     emit({ type: 'outcome', outcome: outcome(ree.id, { citations: citationSnapshots(text, found.passages), model }) });
     return true;
