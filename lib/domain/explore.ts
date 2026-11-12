@@ -6,6 +6,8 @@
  */
 import {
   EXPLORE_EXCERPT_CHARS,
+  EXPLORE_NAME_BOOST,
+  EXPLORE_TAG_WEIGHT,
   EXPLORE_BATCH_SIZES,
   PUBLIC_LIST_PAGE_SIZE,
   PUBLIC_RELATED_MAX,
@@ -171,15 +173,105 @@ export interface Hit {
   similarity: number;
   quality: number;
   role: string;
+  /** What naming the Ree adds (`nameBoost`); 0 when the query does not name it. */
+  boost?: number;
 }
 
-/** Relevance × quality, rounded so that "相关性相同" is a real tie the role can break. */
-export function hitScore(hit: Pick<Hit, 'similarity' | 'quality'>): number {
-  return Math.round(hit.similarity * hit.quality * 1_000) / 1_000;
+/** Relevance × quality plus the name boost, rounded so that "相关性相同" is a real tie the role can break. */
+export function hitScore(hit: Pick<Hit, 'similarity' | 'quality' | 'boost'>): number {
+  return Math.round((hit.similarity * hit.quality + (hit.boost ?? 0)) * 1_000) / 1_000;
 }
 
 export function rankHits<H extends Hit>(hits: readonly H[], limit: number): H[] {
   return [...hits].sort((a, b) => hitScore(b) - hitScore(a) || rolePriority(b.role) - rolePriority(a.role) || b.similarity - a.similarity).slice(0, limit);
+}
+
+/* ------------------------------------------------- naming a Ree in a query */
+
+/**
+ * Words every docs-style Ree name carries ("Next.js Docs Assistant"), so
+ * none of them names a particular Ree.
+ */
+const NAME_GENERIC = new Set([
+  'docs', 'doc', 'documentation', 'assistant', 'assistants', 'guide', 'guides', 'official', 'ree', 'rees', 'the', 'and', 'for', 'of',
+  'book', 'manual', 'handbook', 'helper', 'bot', 'companion', 'notes', 'spec', '文档', '助手', '指南', '官方', '手册', '知识库',
+]);
+/** Words a query is not about: what people type around a name ("how do I use nextjs"). */
+const QUERY_FILLER = new Set(
+  'a an the is are was were be been am do does did to of in on at by for from with and or not no it its this that these those i me my we our you your what which who when where why how can could should would will please about as into use using vs versus'.split(' '),
+);
+/** Common short forms of the names they stand for. */
+const NAME_ALIASES: Record<string, string> = { k8s: 'kubernetes', ts: 'typescript', js: 'javascript', py: 'python', golang: 'go', postgresql: 'postgres', rn: 'reactnative' };
+
+/**
+ * A name's or query's words, compared without case, dots, hyphens or
+ * underscores ("Next.js" = "nextjs" = "next-js"); Latin and CJK runs split
+ * apart ("nextjs缓存" is two words), "/" and spaces separate words.
+ */
+export function nameWords(text: string): string[] {
+  const lowered = text.normalize('NFKC').toLowerCase();
+  return (lowered.match(/[a-z0-9][a-z0-9.+#_-]*|\p{Script=Han}+/gu) ?? []).map((word) => word.replace(/[._-]+/g, '')).filter(Boolean);
+}
+
+/** Each run of up to three adjacent words, joined ("next js" also reads as "nextjs"), with where it starts and ends. */
+function spans(words: readonly string[]): { key: string; from: number; to: number }[] {
+  const out: { key: string; from: number; to: number }[] = [];
+  for (let from = 0; from < words.length; from += 1) {
+    for (let to = from; to < Math.min(words.length, from + 3); to += 1) out.push({ key: words.slice(from, to + 1).join(''), from, to });
+  }
+  return out;
+}
+
+/** The query's words that could name something, short forms spelled out. */
+export function queryNameWords(query: string): string[] {
+  return nameWords(query).filter((word) => !QUERY_FILLER.has(word) && !NAME_GENERIC.has(word));
+}
+
+/** What could name a Ree in a query, for a coarse first look in the database: each word and joined run, two characters or more. */
+export function queryNameKeys(query: string): string[] {
+  const words = queryNameWords(query);
+  return [...new Set(spans(words).flatMap(({ key }) => [key, NAME_ALIASES[key] ?? key]))].filter((key) => key.length >= 2);
+}
+
+export interface NameMatch {
+  /** 0..1: the share of the Ree's distinctive name words the query names, or the tag weight for a tag. */
+  signal: number;
+  /** 0..1: the share of the query's words that name the Ree. */
+  share: number;
+}
+
+/**
+ * How strongly a query names a Ree, from its public name and tags only --
+ * never its knowledge or persona. "react" names "React Docs Assistant"
+ * fully, "React Router Docs Assistant" by half, and a Ree tagged "React" at
+ * the tag weight; "nextjs", "next.js" and "next js" all name "Next.js".
+ */
+export function nameMatch(query: string, ree: { name: string; tags: readonly string[] }): NameMatch {
+  const words = queryNameWords(query);
+  if (!words.length) return { signal: 0, share: 0 };
+  const name = nameWords(ree.name).filter((word) => !NAME_GENERIC.has(word));
+  const tags = new Set(ree.tags.map((tag) => nameWords(tag).join('')).filter(Boolean));
+  const covered = new Set<number>();
+  const used = new Set<number>();
+  let tagged = false;
+  for (const span of spans(words)) {
+    const key = NAME_ALIASES[span.key] ?? span.key;
+    let hit = false;
+    for (const part of spans(name)) {
+      if (part.key !== key) continue;
+      for (let at = part.from; at <= part.to; at += 1) covered.add(at);
+      hit = true;
+    }
+    if (tags.has(key)) tagged = hit = true;
+    if (hit) for (let at = span.from; at <= span.to; at += 1) used.add(at);
+  }
+  const signal = Math.max(name.length ? covered.size / name.length : 0, tagged ? EXPLORE_TAG_WEIGHT : 0);
+  return signal > 0 ? { signal, share: used.size / words.length } : { signal: 0, share: 0 };
+}
+
+/** What naming a Ree adds to its score: a full name, alone in the query, adds the whole boost. */
+export function nameBoost(match: NameMatch): number {
+  return Math.round(EXPLORE_NAME_BOOST * match.signal * match.share * 1_000) / 1_000;
 }
 
 /** About 160 characters of the matched passage, starting near the first word the question shares with it. */

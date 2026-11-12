@@ -16,6 +16,7 @@
 import { and, desc, eq, inArray, isNull, sql, type SQL } from 'drizzle-orm';
 import {
   EXPLORE_EF_SEARCH,
+  EXPLORE_NAME_REES,
   EXPLORE_PASSAGES,
   EXPLORE_PROFILE_REES,
   EXPLORE_RATE_LIMIT,
@@ -29,7 +30,10 @@ import {
   decodeExploreCursor,
   encodeExploreCursor,
   excerptOf,
+  nameBoost,
+  nameMatch,
   NEUTRAL_QUALITY,
+  queryNameKeys,
   positiveRate,
   rankHits,
   type ExploreBatch,
@@ -151,6 +155,43 @@ export interface SearchHit {
   excerpt: string;
   /** The source the excerpt came from. */
   title: string;
+  /** What the query naming this Ree adds to its score (`nameBoost`). */
+  boost: number;
+}
+
+/* A Ree's public name and tags as one lowered string without spaces, dots, slashes, hyphens or underscores, for a coarse first look. */
+const compactNameAndTags = sql`regexp_replace(lower(${schema.ree.name} || ' ' || array_to_string(${schema.ree.tags}, ' ')), '[[:space:]./_-]+', '', 'g')`;
+
+/**
+ * The public Rees a query names by their name or a tag ("nextjs" names
+ * "Next.js Docs Assistant"), with what that adds to each one's score; the
+ * strongest EXPLORE_NAME_REES. Public fields only, never knowledge or the
+ * persona prompt.
+ */
+async function namedRees(question: string, filter: { category?: ReeCategory | null; exclude: readonly string[] }): Promise<Map<string, number>> {
+  const keys = queryNameKeys(question);
+  if (!keys.length) return new Map();
+  const rows = await db()
+    .select({ id: schema.ree.id, name: schema.ree.name, tags: schema.ree.tags })
+    .from(schema.ree)
+    .where(
+      and(
+        publicRee(),
+        filter.category ? eq(schema.ree.category, filter.category) : undefined,
+        filter.exclude.length ? sql`${schema.ree.id} not in (${sql.join(filter.exclude.map((id) => sql`${id}::uuid`), sql`, `)})` : undefined,
+        sql`${compactNameAndTags} like any (${sql`array[${sql.join(keys.map((key) => sql`${`%${key}%`}`), sql`, `)}]::text[]`})`,
+      ),
+    )
+    .orderBy(schema.ree.id)
+    .limit(200);
+  return new Map(
+    rows
+      .map((row) => ({ id: row.id, boost: nameBoost(nameMatch(question, row)) }))
+      .filter((row) => row.boost > 0)
+      .sort((a, b) => b.boost - a.boost)
+      .slice(0, EXPLORE_NAME_REES)
+      .map((row) => [row.id, row.boost]),
+  );
 }
 
 /**
@@ -161,6 +202,12 @@ export interface SearchHit {
  * Both levels read only vectors in the question's embedding space; right
  * after a model switch, profiles not yet rebuilt in the new space drop out
  * of the first level until `rebuildProfiles` reaches them (reembed.ts).
+ *
+ * A query that names a Ree (`namedRees`) brings it into the candidates
+ * whatever its profile's distance, scores it with its nearest passage even
+ * when that passage is not among the 50, and adds the name boost: a bare
+ * product name puts that product's Ree first, while a question that only
+ * mentions one keeps ranking mostly by its passages.
  */
 export async function searchRees(input: {
   question: string;
@@ -199,7 +246,8 @@ export async function searchRees(input: {
       .orderBy(desc(sql`max(1 - ${nearest.distance})`))
       .limit(EXPLORE_PROFILE_REES);
   });
-  const candidates = firstLevel.map((row) => row.reeId);
+  const named = await namedRees(input.question, { category: input.category, exclude });
+  const candidates = [...new Set([...firstLevel.map((row) => row.reeId), ...named.keys()])];
   if (candidates.length === 0) return [];
   const stored = chunkVector(input.vector.space);
 
@@ -225,6 +273,24 @@ export async function searchRees(input: {
     if (!current) best.set(passage.reeId, { similarity, coverage, content: passage.content, title: passage.title });
     else current.coverage = Math.max(current.coverage, coverage);
   }
+  /* A named Ree none of whose passages made the 50: its nearest one, for the score and the excerpt. */
+  const unscored = [...named.keys()].filter((id) => !best.has(id));
+  if (unscored.length) {
+    const nearest = await database
+      .selectDistinctOn([schema.chunk.reeId], {
+        reeId: schema.chunk.reeId,
+        content: schema.chunk.content,
+        title: schema.knowledge.title,
+        similarity: sql<number>`1 - (${stored} <=> ${literal}::vector)`,
+      })
+      .from(schema.chunk)
+      .innerJoin(schema.knowledge, eq(schema.knowledge.id, schema.chunk.knowledgeId))
+      .where(and(inArray(schema.chunk.reeId, unscored), ...answerable(), sql`${stored} is not null`))
+      .orderBy(schema.chunk.reeId, sql`${stored} <=> ${literal}::vector`);
+    for (const passage of nearest) {
+      best.set(passage.reeId, { similarity: Number(passage.similarity), coverage: keywordCoverage(terms, passage.content), content: passage.content, title: passage.title });
+    }
+  }
   const meta = await database
     .select({ id: schema.ree.id, rank: schema.ree.rank, role: schema.user.role })
     .from(schema.ree)
@@ -233,8 +299,10 @@ export async function searchRees(input: {
   const hits: SearchHit[] = [];
   for (const row of meta) {
     const found = best.get(row.id)!;
-    if (!hasEvidence({ bestSimilarity: found.similarity, bestCoverage: found.coverage, terms: terms.length })) continue;
-    hits.push({ reeId: row.id, similarity: found.similarity, quality: row.rank.quality ?? NEUTRAL_QUALITY, role: row.role, excerpt: excerptOf(found.content, terms), title: found.title });
+    const boost = named.get(row.id) ?? 0;
+    /* Being named is evidence enough that the Ree is about the query; it still needs a passage to answer from. */
+    if (!boost && !hasEvidence({ bestSimilarity: found.similarity, bestCoverage: found.coverage, terms: terms.length })) continue;
+    hits.push({ reeId: row.id, similarity: found.similarity, quality: row.rank.quality ?? NEUTRAL_QUALITY, role: row.role, excerpt: excerptOf(found.content, terms), title: found.title, boost });
   }
   return rankHits(hits, input.limit ?? EXPLORE_RESULTS);
 }

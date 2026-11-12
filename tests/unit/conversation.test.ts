@@ -26,6 +26,10 @@ import {
   explorePath,
   exploreReturnPath,
   hitScore,
+  nameBoost,
+  nameMatch,
+  nameWords,
+  queryNameKeys,
   NEUTRAL_QUALITY,
   pageOf,
   parseExploreBatch,
@@ -193,6 +197,34 @@ describe('explore', () => {
     expect(rankHits(hits, 10).map((hit) => hit.reeId)).toEqual(['official', 'normal', 'verified-weaker']);
     expect(rankHits(hits, 1)).toHaveLength(1);
     expect(hitScore({ similarity: 0.5, quality: 0.8 })).toBe(0.4);
+    expect(hitScore({ similarity: 0.5, quality: 0.8, boost: 1 })).toBe(1.4);
+  });
+  it('a query names a Ree by its public name or a tag, spelled any of the usual ways', () => {
+    const next = { name: 'Next.js Docs Assistant', tags: ['Next.js', 'React', 'Full-stack'] };
+    const react = { name: 'React Docs Assistant', tags: ['React', 'Frontend', 'Hooks'] };
+    const router = { name: 'React Router Docs Assistant', tags: ['React Router', 'React', 'Routing'] };
+    const vue = { name: 'Vue Docs Assistant', tags: ['Vue', 'Frontend', 'Composition API'] };
+    const kube = { name: 'Kubernetes Docs Assistant', tags: ['Kubernetes', 'Containers', 'DevOps'] };
+    const shadcn = { name: 'shadcn/ui Docs Assistant', tags: ['shadcn/ui', 'React', 'UI components'] };
+    expect(nameWords('Next.js 缓存')).toEqual(['nextjs', '缓存']);
+    expect(nameWords('nextjs缓存')).toEqual(['nextjs', '缓存']);
+    for (const query of ['nextjs', 'next.js', 'Next.js', 'next js', 'NEXT-JS', 'how do I use nextjs?']) expect(nameBoost(nameMatch(query, next)), query).toBe(1);
+    expect(nameBoost(nameMatch('nextjs', vue))).toBe(0);
+    /* A shared tag counts for less than the name, and a longer name for less than an exact one. */
+    expect(nameBoost(nameMatch('react', react))).toBe(1);
+    expect(nameBoost(nameMatch('react', router))).toBe(0.5);
+    expect(nameBoost(nameMatch('react', next))).toBe(0.4);
+    expect(nameBoost(nameMatch('react router', router))).toBe(1);
+    expect(nameBoost(nameMatch('k8s', kube))).toBe(1);
+    expect(nameBoost(nameMatch('shadcn', shadcn))).toBe(0.5);
+    expect(nameBoost(nameMatch('shadcn/ui', shadcn))).toBe(1);
+    /* A question that also mentions the name gets part of the boost: the passages still matter. */
+    expect(nameBoost(nameMatch('nextjs 缓存', next))).toBe(0.5);
+    expect(nameBoost(nameMatch('how does nextjs cache fetch requests', next))).toBe(0.25);
+    /* Words every docs Ree carries name none of them. */
+    expect(nameBoost(nameMatch('docs assistant', next))).toBe(0);
+    expect(queryNameKeys('docs')).toEqual([]);
+    expect(queryNameKeys('next js')).toEqual(expect.arrayContaining(['next', 'nextjs', 'js', 'javascript']));
   });
   it('no votes is "暂无评价", not 0%', () => {
     expect(positiveRate(0, 0)).toBeNull();

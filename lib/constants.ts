@@ -455,6 +455,16 @@ export const PROFILE_KMEANS_SAMPLE = 5_000;
 export const EXPLORE_PROFILE_REES = 20;
 export const EXPLORE_PASSAGES = 50;
 export const EXPLORE_RESULTS = 10;
+/**
+ * A query that names a Ree (its name or a tag): up to this many such Rees
+ * join the candidates even when their profile was not among the nearest,
+ * and a full name match adds this much to relevance × quality (at most 1),
+ * scaled by how much of the query the name accounts for. A tag counts at
+ * EXPLORE_TAG_WEIGHT of a name.
+ */
+export const EXPLORE_NAME_REES = 5;
+export const EXPLORE_NAME_BOOST = 1;
+export const EXPLORE_TAG_WEIGHT = 0.4;
 /** HNSW candidate list for the profile search; the default 40 would cap the vectors returned. */
 export const EXPLORE_EF_SEARCH = 400;
 /** Characters of the matched passage on a result card. */
