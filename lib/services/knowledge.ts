@@ -550,13 +550,35 @@ async function extract(row: KnowledgeRow, pin?: RepositoryPin): Promise<Extracte
   }
 }
 
+const clip = (text: string, max: number) => (text.length > max ? `${text.slice(0, max)}…` : text);
+
+/**
+ * A failure in one short line. A failed query is named by the opening words
+ * of its statement and by the database's own error (SQLSTATE, message,
+ * detail) -- never the whole statement and its parameters: a staging
+ * insert's are thousands of vectors, and the log line is cut long before
+ * the cause it ends with.
+ */
+export function failureDetail(error: unknown): string {
+  if (!(error instanceof Error)) return 'unknown';
+  const parts = [clip(error.message.split('\n', 1)[0]!, 200)];
+  const seen = new Set<unknown>([error]);
+  for (let cause = error.cause; cause instanceof Error && !seen.has(cause) && seen.size < 5; cause = cause.cause) {
+    seen.add(cause);
+    const { code, detail } = cause as Error & { code?: unknown; detail?: unknown };
+    const said = clip(cause.message.split('\n', 1)[0]!, 300);
+    parts.push(`cause=${typeof code === 'string' ? `${code} ` : ''}${said}${typeof detail === 'string' && detail ? ` (${clip(detail, 300)})` : ''}`);
+  }
+  return parts.join(' ');
+}
+
 /** One `embedTexts` call with the run's model entry: it splits into provider-sized batches and runs a few at a time. */
 async function embedAll(texts: string[], endpoint: ModelEndpoint): Promise<number[][]> {
   try {
     return (await embedTexts(texts, endpoint)).vectors;
   } catch (error) {
     if (error instanceof ProviderCostUnavailable || error instanceof InsufficientCredits) throw error;
-    throw new ProcessingFailure('embedding_unavailable', error instanceof Error ? error.message : 'embedding failed');
+    throw new ProcessingFailure('embedding_unavailable', error instanceof Error ? failureDetail(error) : 'embedding failed');
   }
 }
 
@@ -696,18 +718,38 @@ class SupersededRun extends Error {
 }
 
 /**
+ * Lock order. A transaction that locks both a source's `knowledge` row and
+ * its `knowledge_cost_run` row takes the `knowledge` row first, then the
+ * cost run: `recordProviderCharge`, `reserveEstimate`, the store in
+ * `processKnowledgeRun`, `failAndRefund`, `resumeLater` and `abandonPending`
+ * select the source `FOR UPDATE` (`claimRun` updates it) before they touch
+ * the cost run, and `asCurrentRun` takes the source `FOR KEY SHARE` before
+ * its cost run `FOR SHARE`. The staging writes need that source lock
+ * anyway: the `knowledge_stage` and `knowledge_extract` foreign keys take it
+ * on insert.
+ * The other way round, a slice's write held the cost run and waited for the
+ * source while the next slice's supplier receipt held the source and waited
+ * for the cost run, and Postgres killed one of them as a deadlock. The
+ * heartbeat updates the cost run alone, in a statement of its own: it may
+ * wait, but holds nothing another transaction waits for.
+ */
+
+/**
  * Writes on behalf of `runId` only while it is still the source's current
  * run: its cost run is `processing`, held with a share lock, so a resume
  * (which marks it failed) waits for the write, and every write after that
  * finds the run superseded. A run wrongly presumed dead therefore stops
- * touching what the newer attempt stages.
+ * touching what the newer attempt stages. The source row is locked first
+ * (see the lock order above).
  */
-async function asCurrentRun<T>(runId: string, work: (tx: Tx) => Promise<T>): Promise<T> {
+async function asCurrentRun<T>(knowledgeId: string, runId: string, work: (tx: Tx) => Promise<T>): Promise<T> {
   return db().transaction(async (tx) => {
+    const [source] = await tx.select({ id: schema.knowledge.id }).from(schema.knowledge).where(eq(schema.knowledge.id, knowledgeId)).for('key share');
+    if (!source) throw new SupersededRun(runId);
     const [run] = await tx
       .select({ id: schema.knowledgeCostRun.id })
       .from(schema.knowledgeCostRun)
-      .where(and(eq(schema.knowledgeCostRun.runId, runId), eq(schema.knowledgeCostRun.status, 'processing')))
+      .where(and(eq(schema.knowledgeCostRun.runId, runId), eq(schema.knowledgeCostRun.knowledgeId, knowledgeId), eq(schema.knowledgeCostRun.status, 'processing')))
       .for('share');
     if (!run) throw new SupersededRun(runId);
     return work(tx);
@@ -729,14 +771,14 @@ async function stagePassages(knowledgeId: string, runId: string, chunks: readonl
     .where(eq(schema.knowledgeStage.knowledgeId, knowledgeId));
   const { kept, dropped } = stagePlan(digests, staged, config);
   for (let at = 0; at < dropped.length; at += 5_000) {
-    await asCurrentRun(runId, (tx) => tx
+    await asCurrentRun(knowledgeId, runId, (tx) => tx
       .delete(schema.knowledgeStage)
       .where(and(eq(schema.knowledgeStage.knowledgeId, knowledgeId), inArray(schema.knowledgeStage.ordinal, dropped.slice(at, at + 5_000)))));
   }
   const missing = chunks.filter((chunk) => !kept.has(chunk.ordinal));
   const write = async (slice: readonly DraftChunk[], vectors: readonly number[][]): Promise<void> => {
     for (let at = 0; at < slice.length; at += 200) {
-      await asCurrentRun(runId, (tx) => tx
+      await asCurrentRun(knowledgeId, runId, (tx) => tx
         .insert(schema.knowledgeStage)
         .values(
           slice.slice(at, at + 200).map((chunk, offset) => ({
@@ -768,6 +810,12 @@ async function stagePassages(knowledgeId: string, runId: string, chunks: readonl
       const vectors = await embedAll(slice.map((chunk) => chunk.content), endpoint);
       await writing;
       writing = write(slice, vectors);
+      /*
+       * Handled from the moment it exists: the write may fail while the next
+       * slice is still embedding, and an unhandled rejection would end the
+       * whole process. The failure itself is thrown by the next `await writing`.
+       */
+      writing.catch(() => undefined);
     }
     await writing;
   } catch (error) {
@@ -792,7 +840,7 @@ export function extractToStore(extracted: Extracted, maxBytes = KNOWLEDGE_EXTRAC
 async function saveExtract(knowledgeId: string, runId: string, extracted: Extracted): Promise<void> {
   const stored = extractToStore(extracted);
   if (!stored) return;
-  await asCurrentRun(runId, (tx) => tx
+  await asCurrentRun(knowledgeId, runId, (tx) => tx
     .insert(schema.knowledgeExtract)
     .values({ knowledgeId, extracted: stored })
     .onConflictDoUpdate({ target: schema.knowledgeExtract.knowledgeId, set: { extracted: stored, createdAt: new Date() } }));
@@ -941,7 +989,7 @@ async function processKnowledgeRun(knowledgeId: string, runId: string): Promise<
     // Transfer before the failure was incurred all the same; a refusal to reserve it still leaves its receipt.
     await flushTransfer().catch(() => undefined);
     const code = error instanceof InsufficientCredits ? 'insufficient_credits' : error instanceof ProviderCostUnavailable ? error.code : error instanceof ProcessingFailure ? error.code : 'unknown';
-    console.warn(`knowledge ${row.id} failed code=${code} detail=${error instanceof Error ? error.message : 'unknown'}`);
+    console.warn(`knowledge ${row.id} failed code=${code} detail=${failureDetail(error)}`);
     await failAndRefund(row.id, row.reeId, row.title, code, new Date(), runId);
     return null;
   } finally {
@@ -1582,7 +1630,9 @@ export async function processQueued(ids: readonly string[], options: { startedAt
   const startedAt = options.startedAt ?? Date.now();
   const queue = [...ids];
   const worker = async (): Promise<void> => {
-    for (let id = queue.shift(); id && claimOpen(startedAt); id = queue.shift()) await processKnowledge(id).catch(() => null);
+    for (let id = queue.shift(); id && claimOpen(startedAt); id = queue.shift()) {
+      await processKnowledge(id).catch((error: unknown) => { console.warn(`knowledge ${id} run ended: ${failureDetail(error)}`); });
+    }
   };
   await Promise.all(Array.from({ length: Math.min(options.parallel ?? KNOWLEDGE_QUEUE_PARALLEL, queue.length) }, worker));
 }
