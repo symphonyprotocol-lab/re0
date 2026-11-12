@@ -17,6 +17,7 @@ import { and, desc, eq, inArray, isNull, sql, type SQL } from 'drizzle-orm';
 import {
   EMBEDDING_DIMENSIONS,
   EXPLORE_EF_SEARCH,
+  EXPLORE_INDEX_CHECK_MS,
   EXPLORE_NAME_REES,
   EXPLORE_PASSAGE_EF_SEARCH,
   EXPLORE_PASSAGE_SCAN_MAX,
@@ -57,6 +58,7 @@ import { introsFor } from '@/lib/services/video';
 import { votesByOthers } from '@/lib/services/ree-feedback';
 import { hitRateBucket } from '@/lib/services/rate-limit';
 import { untimed, type Timing } from '@/lib/infra/timing';
+import { SEARCH_INDEXES } from '@/lib/infra/search-indexes';
 
 const reeId = sql.raw('"ree"."id"');
 const reeOwner = sql.raw('"ree"."owner_id"');
@@ -209,11 +211,34 @@ const SLOTS = [
 
 type Passage = { reeId: string; content: string; title: string; similarity: number };
 
+/* Whether both search indexes are valid, as of at most EXPLORE_INDEX_CHECK_MS ago (per server instance). */
+let indexCheck: { at: number; ready: Promise<boolean> } | null = null;
+
+/** Both of Discover's passage indexes exist and are valid; false while they are missing, invalid or being built, or when the check fails. */
+export async function searchIndexesReady(now = Date.now()): Promise<boolean> {
+  if (indexCheck && now - indexCheck.at < EXPLORE_INDEX_CHECK_MS) return indexCheck.ready;
+  const ready = db()
+    .execute<{ valid: number }>(
+      sql`select count(*)::int as valid from pg_index i join pg_class c on c.oid = i.indexrelid
+        where c.relnamespace = 'public'::regnamespace and i.indisvalid and i.indisready
+          and c.relname in (${sql.join(SEARCH_INDEXES.map((index) => sql`${index.name}`), sql`, `)})`,
+    )
+    .then(({ rows }) => Number(rows[0]?.valid ?? 0) === SEARCH_INDEXES.length)
+    .catch(() => false);
+  indexCheck = { at: now, ready };
+  return ready;
+}
+
+/** Forgets the last index check (tests, and right after building the indexes in-process). */
+export function forgetSearchIndexCheck(): void {
+  indexCheck = null;
+}
+
 /**
  * The nearest answerable passages of `rees` to the question, nearest first,
  * at most `limit`.
  *
- * First through each vector slot's HNSW index (0048), on half-precision
+ * First through each vector slot's HNSW index (lib/infra/search-indexes.ts), on half-precision
  * copies, with an iterative scan so the filter still fills the list; the
  * similarity is then computed again on the stored vectors of the rows
  * found. Only those rows' vectors and texts are read -- not, as an exact
@@ -225,7 +250,10 @@ type Passage = { reeId: string; content: string; title: string; similarity: numb
  * An index scan gives up after EXPLORE_PASSAGE_SCAN_MAX entries; when that
  * leaves the list short, `rees` hold few passages near the question, and an
  * exact scan of them (all they have) is cheap. The exact scan is also the
- * answer when the index search fails.
+ * answer when the index search fails, and the only search while either
+ * index is missing or invalid (not built yet, or being built): without the
+ * index, the "indexed" statement would sort every candidate passage anyway,
+ * slower than the exact scan.
  */
 async function nearestPassages(vector: QuestionVector, rees: readonly string[], limit: number): Promise<Passage[]> {
   if (!rees.length || limit < 1) return [];
@@ -235,17 +263,19 @@ async function nearestPassages(vector: QuestionVector, rees: readonly string[], 
       .map((row) => ({ ...row, similarity: Number(row.similarity) }))
       .sort((x, y) => y.similarity - x.similarity)
       .slice(0, limit);
-  const indexed = await db()
-    .transaction(async (tx) => {
-      await tx.execute(search.settings);
-      const { rows } = await tx.execute<Passage>(search.indexed);
-      return toPassages(rows);
-    })
-    .catch((error: unknown) => {
-      /* A database without the indexes or iterative scans (pgvector before 0.8) still answers, exactly and slowly. */
-      console.error(`explore: index search failed, scanning exactly (${error instanceof Error ? error.message : String(error)})`);
-      return [];
-    });
+  const indexed = (await searchIndexesReady())
+    ? await db()
+        .transaction(async (tx) => {
+          await tx.execute(search.settings);
+          const { rows } = await tx.execute<Passage>(search.indexed);
+          return toPassages(rows);
+        })
+        .catch((error: unknown) => {
+          /* Say, but answer: the exact scan below is the search before the indexes. */
+          console.error(`explore: index search failed, scanning exactly (${error instanceof Error ? error.message : String(error)})`);
+          return [];
+        })
+    : [];
   if (indexed.length >= limit) return indexed;
   const { rows } = await db().execute<Passage>(search.exact);
   return toPassages(rows);
@@ -350,11 +380,19 @@ export async function searchRees(input: {
   const candidates = [...new Set([...firstLevel.map((row) => row.reeId), ...named.keys()])];
   if (candidates.length === 0) return [];
 
-  /* The 50, and beside them each named Ree's nearest passage, for a named Ree none of whose passages makes the 50. */
-  const [passages, ownNearest] = await Promise.all([
+  /*
+   * The 50, and each named Ree's nearest passage, for a named Ree none of
+   * whose passages makes the 50. Through the indexes both are quick, so they
+   * run side by side; with exact scans only (indexes not built yet), the
+   * named Rees' scans wait for the 50 and run only for those still missing.
+   */
+  const ownNearestOf = (ids: string[]) => timing.measure('named-passages', () => Promise.all(ids.map((id) => nearestPassages(input.vector, [id], 1))));
+  const indexed = await searchIndexesReady();
+  const [passages, early] = await Promise.all([
     timing.measure('passages', () => nearestPassages(input.vector, candidates, EXPLORE_PASSAGES)),
-    timing.measure('named-passages', () => Promise.all([...named.keys()].map((id) => nearestPassages(input.vector, [id], 1)))),
+    indexed ? ownNearestOf([...named.keys()]) : Promise.resolve(null),
   ]);
+  const ownNearest = early ?? (await ownNearestOf([...named.keys()].filter((id) => !passages.some((passage) => passage.reeId === id))));
 
   const terms = searchTerms(input.question);
   const best = new Map<string, { similarity: number; coverage: number; content: string; title: string }>();

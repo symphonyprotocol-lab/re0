@@ -1,5 +1,5 @@
--- Discover's passage search (lib/services/explore.ts nearestPassages): one HNSW index per vector slot, on half-precision
--- copies. The search filters during an iterative scan (hnsw.iterative_scan), which needs pgvector 0.8; halfvec needs 0.7.
-ALTER EXTENSION vector UPDATE;--> statement-breakpoint
-CREATE INDEX "chunk_embedding_half_idx" ON "chunk" USING hnsw (("embedding"::halfvec(1536)) halfvec_cosine_ops);--> statement-breakpoint
-CREATE INDEX "chunk_embedding_next_half_idx" ON "chunk" USING hnsw (("embedding_next"::halfvec(1536)) halfvec_cosine_ops);
+-- Discover's passage search filters during an iterative HNSW scan (hnsw.iterative_scan, pgvector 0.8) on halfvec copies (0.7).
+-- The two indexes it uses (chunk_embedding_half_idx, chunk_embedding_next_half_idx) are not built here: one over every passage
+-- outlasts the deploy transaction and would block passage writes while it ran. `db:deploy` builds them concurrently after this
+-- transaction commits (lib/infra/search-indexes.ts); until both are valid, the search scans exactly.
+ALTER EXTENSION vector UPDATE;
