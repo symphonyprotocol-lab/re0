@@ -302,6 +302,20 @@
       "when": 1794317184983,
       "tag": "0044_embedding_spaces",
       "breakpoints": true
+    },
+    {
+      "idx": 44,
+      "version": "7",
+      "when": 1794411405859,
+      "tag": "0045_knowledge_stage",
+      "breakpoints": true
+    },
+    {
+      "idx": 45,
+      "version": "7",
+      "when": 1794414407960,
+      "tag": "0046_knowledge_extract",
+      "breakpoints": true
     }
   ]
 }

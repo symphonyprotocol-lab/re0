@@ -8,7 +8,8 @@ import { BATCH_ACTIONS, FolderError, runBatch, validIds, type BatchAction } from
 import { refreshProfile } from '@/lib/services/profile';
 import { ownedRee } from '@/lib/services/rees';
 
-export const maxDuration = 300;
+/* Processing runs after the response: 800 s is Vercel's maximum on Pro (`KNOWLEDGE_RUN_MAX_MS`). */
+export const maxDuration = 800;
 
 /**
  * `{ action: move|reprocess|pause|resume|trash|restore, ids, folderId?, newFolderName? }`.
@@ -16,6 +17,7 @@ export const maxDuration = 300;
  * reprocess) or a short balance (reprocess) refuses the whole batch.
  */
 export async function POST(request: NextRequest, context: { params: Promise<{ id: string }> }) {
+  const startedAt = Date.now();
   const user = await apiUser(request);
   if (user instanceof Response) return user;
   const ree = await ownedRee(db(), user.id, (await context.params).id);
@@ -34,7 +36,7 @@ export async function POST(request: NextRequest, context: { params: Promise<{ id
             ...(typeof input.newFolderName === 'string' ? { newFolderName: input.newFolderName } : {}),
           })
         : await runBatch(user.id, ree.id, { action, ids });
-    if (result.process.length > 0) after(() => processMany(result.process));
+    if (result.process.length > 0) after(() => processMany(result.process, startedAt));
     /* Paused, resumed, trashed or restored sources change what the Ree knows: its explore profile follows (2.4). */
     if (['pause', 'resume', 'trash', 'restore'].includes(action) && ree.isPublished) after(() => refreshProfile(ree.id).catch(() => undefined));
     return json({ changed: result.changed, folder: result.folder ?? null });

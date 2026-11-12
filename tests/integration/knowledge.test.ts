@@ -311,10 +311,11 @@ describeWithDb('document processing', () => {
     let newRun: Promise<string | null> | undefined;
     try {
       await oldEntered;
-      await knowledge.recoverStale(ree.id, new Date(Date.now() + 16 * 60_000));
-      // The dead run had read the file from Blob: that cost stays charged (1), the rest of its reservation came back.
-      expect(await balanceOf(db(), userId)).toBe(WELCOME_CREDITS - 1);
-      await knowledge.refreshKnowledge(userId, ree.id, id);
+      // The dead run is resumed: it had read the file from Blob, and that cost stays charged (1); the rest of its
+      // reservation came back, and the source waits again on a fresh reservation (1).
+      expect(await knowledge.recoverStale(ree.id, new Date(Date.now() + 16 * 60_000))).toEqual([id]);
+      expect(await knowledge.knowledgeDetail(ree.id, id)).toMatchObject({ status: 'pending' });
+      expect(await balanceOf(db(), userId)).toBe(WELCOME_CREDITS - 2);
       newRun = knowledge.processKnowledge(id, { profile: false });
       await newEntered;
       resumeOld();
@@ -324,12 +325,14 @@ describeWithDb('document processing', () => {
       resumeNew();
       await newRun;
       expect(await knowledge.knowledgeDetail(ree.id, id)).toMatchObject({ status: 'ready' });
-      expect(await balanceOf(db(), userId)).toBe(WELCOME_CREDITS - 1 - 41);
+      // The resumed run works from what the first one read: it does not read the upload again, so it pays for embedding only.
+      expect(await balanceOf(db(), userId)).toBe(WELCOME_CREDITS - 1 - 40);
       const costs = await db().select().from(schema.knowledgeCostRun).where(eq(schema.knowledgeCostRun.knowledgeId, id));
       expect(costs).toHaveLength(2);
       // The timed-out run's late embedding is refused before it is sent, so its only receipt is the Blob read.
       expect(costs.find((run) => run.status === 'failed')).toMatchObject({ chargedCredits: 1, charges: [expect.objectContaining({ service: 'bandwidth' })] });
-      expect(costs.find((run) => run.status === 'ready')).toMatchObject({ chargedCredits: 41 });
+      expect(costs.find((run) => run.status === 'ready')).toMatchObject({ chargedCredits: 40 });
+      expect(costs.find((run) => run.status === 'ready')!.charges.map((charge) => charge.service)).toEqual(['embedding']);
       expect(costs.find((run) => run.status === 'ready')!.charges.find((charge) => charge.service === 'embedding')).toMatchObject({ costUsd: '0.004000000000' });
       await expectChargedAtLeastCost(id);
     } finally {

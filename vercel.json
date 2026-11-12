@@ -33,6 +33,10 @@
       "schedule": "*/10 * * * *"
     },
     {
+      "path": "/api/cron/knowledge",
+      "schedule": "* * * * *"
+    },
+    {
       "path": "/api/cron/purge-kyc-files",
       "schedule": "45 3 * * *"
     },

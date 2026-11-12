@@ -14,6 +14,8 @@ export type ProcessingFailureCode =
   | 'rate_limited'
   | 'github_not_connected'
   | 'github_repo_not_found'
+  | 'github_ref_not_found'
+  | 'github_path_not_found'
   | 'domain_unverified'
   | 'transcription_unavailable'
   | 'm4a_too_long'
