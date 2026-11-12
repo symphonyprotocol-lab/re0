@@ -1,4 +1,4 @@
-import { TEST_DATABASE_URL, uniqueName } from './setup';
+import { freezeDateAtWindowStart, TEST_DATABASE_URL, uniqueName } from './setup';
 import { describe, expect, it, vi } from 'vitest';
 import { inArray } from 'drizzle-orm';
 import { NextRequest } from 'next/server';
@@ -135,6 +135,7 @@ suite('public Ree comments', () => {
       expect((await remove(second)).status).toBe(200);
       expect(await list()).toEqual([]);
     } finally {
+      vi.useRealTimers();
       token = undefined;
       await db().delete(schema.ree).where(inArray(schema.ree.id, [ree!.id]));
       await db().delete(schema.user).where(inArray(schema.user.id, users.map(user => user.id)));
@@ -142,6 +143,8 @@ suite('public Ree comments', () => {
   });
 
   it('limits how fast one account comments', async () => {
+    /* Every post below in one per-minute window, however long they take. */
+    freezeDateAtWindowStart(60);
     const [author] = await db().insert(schema.user).values({
       name: 'Fast', email: `${uniqueName('fast')}@example.test`, provider: 'github', providerSubject: uniqueName('fast'),
     }).returning();
@@ -162,6 +165,7 @@ suite('public Ree comments', () => {
       expect(Number(limited.headers.get('retry-after'))).toBeGreaterThan(0);
       expect(await db().$count(schema.reeComment, inArray(schema.reeComment.reeId, [ree!.id]))).toBe(perMinute);
     } finally {
+      vi.useRealTimers();
       token = undefined;
       await db().delete(schema.ree).where(inArray(schema.ree.id, [ree!.id]));
       await db().delete(schema.user).where(inArray(schema.user.id, [author!.id]));
