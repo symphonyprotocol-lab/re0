@@ -337,6 +337,16 @@ export const RETRIEVAL_RRF_K = 60;
  */
 export const RETRIEVAL_MIN_SIMILARITY = 0.3;
 /**
+ * A question in another language than the knowledge near it is searched as
+ * a rewrite into the knowledge's language (cross-lingual.ts): one short
+ * generation call, given up on after this long or this many output tokens
+ * (reasoning included), when the question is searched as asked only.
+ */
+export const REWRITE_TIMEOUT_MS = 10_000;
+export const REWRITE_OUTPUT_TOKENS = 600;
+/** Rows the keyword leg reads, those matching the most terms first, before it scores them. */
+export const RETRIEVAL_KEYWORD_ROWS = 200;
+/**
  * Questions about the sources themselves ("list every recording", "每份文档
  * 讲什么") get a generated overview of each source -- kind, length,
  * beginning and end -- on top of the passages: at most this many sources,
