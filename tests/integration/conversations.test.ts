@@ -12,7 +12,7 @@
  */
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { pointModelsAt, TEST_DATABASE_URL, uniqueName } from './setup';
-import { and, eq, inArray } from 'drizzle-orm';
+import { and, eq, inArray, sql } from 'drizzle-orm';
 import { startFakeOpenAi, type FakeOpenAi } from '../fixtures/fake-openai';
 
 const describeWithDb = TEST_DATABASE_URL ? describe : describe.skip;
@@ -565,6 +565,35 @@ describeWithDb('explore and public pages', () => {
     const ids = question.items.map((card) => card.id);
     expect(ids).toContain(mentions.id);
     expect(ids.indexOf(mentions.id)).toBeLessThan(ids.indexOf(named.id) === -1 ? Infinity : ids.indexOf(named.id));
+  });
+
+  it('finds the nearest passages through each slot\'s HNSW index, as an exact scan would', async () => {
+    await reeOf(await person(), { content: wordPassage(uniqueName('w')) });
+    const vector = await chat.embedQuestion(QUESTION);
+    const all = await db().select({ id: schema.ree.id }).from(schema.ree).where(explore.publicRee());
+    const search = explore.passageSearch(vector, all.map((row) => row.id), 5);
+    const run = (statement: ReturnType<typeof sql>, indexed: boolean) =>
+      db().transaction(async (tx) => {
+        if (indexed) await tx.execute(search.settings);
+        return (await tx.execute<Record<string, unknown>>(statement)).rows;
+      });
+    /* The same five similarities (tied passages may differ, their scores do not), recomputed on the stored vectors. */
+    const top = (rows: Record<string, unknown>[]) => rows.map((row) => Number(row.similarity)).sort((x, y) => y - x).slice(0, 5).map((value) => value.toFixed(5));
+    const exact = await run(search.exact, false);
+    expect(exact).toHaveLength(5);
+    expect(top(await run(search.indexed, true))).toEqual(top(exact));
+    /* Whatever the table's size, the plan walks the indexes instead of sorting every candidate passage. */
+    const plan = (await run(sql`explain ${search.indexed}`, true)).map((row) => String(Object.values(row)[0])).join('\n');
+    expect(plan).toContain('chunk_embedding_half_idx');
+    expect(plan).toContain('chunk_embedding_next_half_idx');
+  });
+
+  it('embeds a search question once and reuses its vector for the same words', async () => {
+    const q = `${uniqueName('tide')} lighthouse keeper`;
+    const embedded = () => fake.requests.filter((request) => request.inputs?.includes(q)).length;
+    const before = embedded();
+    for (let round = 0; round < 3; round += 1) await explore.explore(parseExploreQuery(new URLSearchParams({ q })), { cursor: null, size: 24 }, { includeIntros: false });
+    expect(embedded() - before).toBe(1);
   });
 
   it('counts free searches per IP and per account', async () => {

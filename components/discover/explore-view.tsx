@@ -2,7 +2,7 @@
 
 import { WorkspaceLink as Link } from '@/components/shell/workspace-link';
 import { useNavigationRouter as useRouter } from '@/components/shell/navigation-provider';
-import { useCallback, useEffect, useRef, useState } from 'react';
+import { useCallback, useEffect, useRef, useState, useTransition } from 'react';
 import { EXPLORE_RESULTS, REE_CATEGORIES, ROUNDTABLE_REES, SYNTHESIS_ENABLED, SYNTHESIS_MIN_ANSWERS } from '@/lib/constants';
 import { explorePath, type ExploreQuery, type ExploreSort } from '@/lib/domain/explore';
 import type { ExploreResult, ReeCard } from '@/lib/services/explore';
@@ -49,10 +49,28 @@ export function ExploreView({ query, result, limited, signedIn, favoriteIds, vie
   const e = t.discover.explore;
   const router = useRouter();
   const [q, setQ] = useState(query.q);
-  useEffect(() => setQ(query.q), [query.q]);
+  /* The box follows the URL (back, forward, a new search) unless the viewer has typed since the last search went out. */
+  const typed = useRef(false);
+  useEffect(() => {
+    if (!typed.current) setQ(query.q);
+  }, [query.q]);
   const n = (value: number) => formatNumber(value, locale);
   const current = explorePath(query);
-  const go = (changes: Partial<ExploreQuery>) => router.push(explorePath(query, changes), { scroll: false });
+  /*
+   * A new list (search, category, sort) is a navigation; while it runs the
+   * old list stays, marked busy, and the Search button spins. A later one
+   * replaces an earlier one still in flight (the router drops the earlier
+   * reply), so a slow answer never lands over a newer search.
+   */
+  const [pending, startList] = useTransition();
+  const [pendingQ, setPendingQ] = useState('');
+  const go = (changes: Partial<ExploreQuery>) => {
+    const next = { ...query, ...changes };
+    typed.current = false;
+    setPendingQ(next.q);
+    startList(() => router.push(explorePath(query, changes), { scroll: false }));
+  };
+  const searching = pending && Boolean(pendingQ);
   const toolbar = useRef<HTMLElement>(null);
   const resultsHead = useRef<HTMLDivElement>(null);
 
@@ -215,15 +233,20 @@ export function ExploreView({ query, result, limited, signedIn, favoriteIds, vie
               autoComplete="off"
               aria-label={e.label}
               placeholder={e.placeholder}
-              onChange={(event) => setQ(event.target.value)}
+              onChange={(event) => {
+                typed.current = true;
+                setQ(event.target.value);
+              }}
             />
             {query.q && (
               <button type="button" className="icon-btn" aria-label={e.clear} onClick={() => go({ q: '' })}>
                 <Icon name="close" />
               </button>
             )}
-            <button type="submit" className="btn">
-              {e.submit}
+            {/* The label keeps its place (hidden, not removed) so the button does not change width while it spins. */}
+            <button type="submit" className="btn discovery-submit" aria-busy={searching} disabled={searching && q.trim() === pendingQ}>
+              <span className="discovery-submit-label">{e.submit}</span>
+              {searching && <span className="discovery-spinner" aria-hidden="true" />}
             </button>
           </form>
           <label className="discovery-select">
@@ -256,6 +279,12 @@ export function ExploreView({ query, result, limited, signedIn, favoriteIds, vie
 
       <div ref={resultsHead} className="discovery-results-head">
         <p role="status" aria-live="polite">
+          {searching && (
+            <span className="discovery-searching">
+              <span className="discovery-spinner" aria-hidden="true" />
+              {fill(e.searching, { q: pendingQ })}
+            </span>
+          )}
           {query.q && !limited && <strong>“{query.q}” · </strong>}
           {resultsBefore}
           <strong>{n(result.total)}</strong>
@@ -271,7 +300,7 @@ export function ExploreView({ query, result, limited, signedIn, favoriteIds, vie
 
       {loaded.items.length > 0 ? (
         <>
-          <div id="explore-results" className="dot-grid" aria-label={e.list} aria-busy={loading} onClickCapture={keep}>
+          <div id="explore-results" className="dot-grid" data-stale={pending || undefined} aria-label={e.list} aria-busy={loading || pending} onClickCapture={keep}>
             {loaded.items.map((ree) => (
               <ReeCardView
                 key={ree.id}
@@ -310,7 +339,7 @@ export function ExploreView({ query, result, limited, signedIn, favoriteIds, vie
           </div>
         </>
       ) : (
-        <div className="card empty">
+        <div className="card empty" data-stale={pending || undefined} aria-busy={pending}>
           <Icon name="search" />
           <h2>{e.emptyTitle}</h2>
           <p>{e.emptyBody}</p>

@@ -467,6 +467,16 @@ export const EXPLORE_NAME_BOOST = 1;
 export const EXPLORE_TAG_WEIGHT = 0.4;
 /** HNSW candidate list for the profile search; the default 40 would cap the vectors returned. */
 export const EXPLORE_EF_SEARCH = 400;
+/**
+ * The passage level's HNSW search (0048): its candidate list, and how many
+ * index entries an iterative scan may read before it settles for fewer rows
+ * (a filter that keeps one Ree's passages reads further than one keeping 20).
+ */
+export const EXPLORE_PASSAGE_EF_SEARCH = 100;
+export const EXPLORE_PASSAGE_SCAN_MAX = 10_000;
+/** How long, and for how many questions, a server instance keeps a search question's vector. */
+export const EXPLORE_VECTOR_CACHE_MS = 10 * 60_000;
+export const EXPLORE_VECTOR_CACHE_SIZE = 500;
 /** Characters of the matched passage on a result card. */
 export const EXPLORE_EXCERPT_CHARS = 160;
 /** Free searches per minute (2.4, "按 IP 和账号限频"). */

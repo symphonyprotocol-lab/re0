@@ -6,6 +6,7 @@ import { rateLimited } from '@/lib/http/rate-limit';
 import { currentUser } from '@/lib/http/session';
 import { allowSearch, explore, ExploreCursorError } from '@/lib/services/explore';
 import { favoriteReeIds } from '@/lib/services/ree-favorites';
+import { Timing } from '@/lib/infra/timing';
 
 /**
  * `GET /api/explore?q&category&sort=active|answers|free&size=24|48|96&cursor`
@@ -14,22 +15,27 @@ import { favoriteReeIds } from '@/lib/services/ree-favorites';
  * end; a question's results come in one batch). Open to visitors; free, so a
  * search with a question is counted per IP and per account, browsing per
  * account or IP (429 past either limit). Signed in, `favoriteIds` marks the
- * batch's Rees the viewer has saved.
+ * batch's Rees the viewer has saved. `Server-Timing` gives each step's
+ * duration (embedding, profiles, passages, cards...), never a value.
  */
 export async function GET(request: NextRequest) {
+  const timing = new Timing();
+  const started = performance.now();
   const query = parseExploreQuery(request.nextUrl.searchParams);
   const batch = parseExploreBatch(request.nextUrl.searchParams);
-  const user = await currentUser();
+  const user = await timing.measure('session', () => currentUser());
   if (query.q && !batch.cursor) {
-    if (!(await allowSearch({ ip: clientIp(request.headers), userId: user?.id ?? null }))) return fail('rate_limited', 429);
+    if (!(await timing.measure('limit', () => allowSearch({ ip: clientIp(request.headers), userId: user?.id ?? null })))) return fail('rate_limited', 429);
   } else {
     const limited = await rateLimited('browse', { userId: user?.id ?? null, headers: request.headers });
     if (limited) return limited;
   }
   try {
-    const result = await explore(query, batch);
-    const favoriteIds = user ? await favoriteReeIds(user.id, result.items.map((ree) => ree.id)) : undefined;
-    return json({ ...result, favoriteIds });
+    const result = await explore(query, batch, { timing });
+    const favoriteIds = user ? await timing.measure('favorites', () => favoriteReeIds(user.id, result.items.map((ree) => ree.id))) : undefined;
+    const response = json({ ...result, favoriteIds });
+    response.headers.set('Server-Timing', `${timing.header()}, total;dur=${(performance.now() - started).toFixed(1)}`);
+    return response;
   } catch (error) {
     if (error instanceof ExploreCursorError) return fail('invalid_cursor');
     throw error;

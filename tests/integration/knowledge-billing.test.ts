@@ -259,9 +259,11 @@ describeWithDb('P3: re-embedding after a model switch', () => {
     }
   }, 180_000);
 
-  it('the switch leaves no vector index for every passage to rebuild', async () => {
-    const { rows } = await db().execute<{ n: string }>(sql`select count(*)::text as n from pg_indexes where tablename = 'chunk' and indexdef ilike '%embedding%'`);
-    expect(Number(rows[0]!.n)).toBe(0);
+  /* The switch itself is one row (no slot swap to rewrite a graph); re-embedding into the spare slot adds to these two as it goes (0048). */
+  it('keeps only Discover\'s vector indexes on passages, one per slot on half-precision copies', async () => {
+    const { rows } = await db().execute<{ name: string; def: string }>(sql`select indexname as name, indexdef as def from pg_indexes where tablename = 'chunk' and indexdef ilike '%embedding%' order by indexname`);
+    expect(rows.map((row) => row.name)).toEqual(['chunk_embedding_half_idx', 'chunk_embedding_next_half_idx']);
+    expect(rows.every((row) => /hnsw .*halfvec\(1536\)/.test(row.def))).toBe(true);
   });
 });
 

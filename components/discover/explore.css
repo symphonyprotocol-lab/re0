@@ -57,6 +57,23 @@
   font-size: 11px;
   padding: 10px 16px;
 }
+.discovery-page .search-box .discovery-submit {
+  position: relative;
+}
+.discovery-page .search-box .discovery-submit[aria-busy='true'] .discovery-submit-label {
+  visibility: hidden;
+}
+.discovery-page .search-box .discovery-submit .discovery-spinner {
+  position: absolute;
+  inset: 0;
+  margin: auto;
+  border-color: rgba(255, 255, 255, 0.45);
+  border-top-color: #ffffff;
+}
+.discovery-page .search-box .discovery-submit:disabled {
+  cursor: progress;
+  opacity: 1;
+}
 .discovery-page .filter-row {
   display: flex;
   gap: 7px;
@@ -590,6 +607,19 @@
 }
 .discovery-page .discovery-results-head > p > span {
   color: #a0adc1;
+}
+.discovery-page .discovery-results-head > p > .discovery-searching {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  margin-right: 10px;
+  color: #5d7497;
+}
+.discovery-page .dot-grid[data-stale],
+.discovery-page .card.empty[data-stale] {
+  opacity: 0.55;
+  transition: opacity 0.2s 0.15s;
+  pointer-events: none;
 }
 .discovery-page .discovery-results-footer {
   display: flex;
