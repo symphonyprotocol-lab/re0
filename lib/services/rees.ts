@@ -66,8 +66,9 @@ export interface ReeListItem {
  * Per-Ree counts, as SQL expressions: sources (any status, trash excluded),
  * ready sources (enabled ones only: a paused source is not ready, prototype
  * workspace.js `sourceSummary`), successful answers. An answer is a
- * `query_base` settlement in the ledger, one per answering Ree per question --
- * the same source as the statistics (statistics.ts `answerCounts`), so
+ * `query_base` settlement in the ledger, one per answering Ree per question,
+ * or an `anonymous_answer` row --
+ * the same sources as the statistics (statistics.ts `answerCounts`), so
  * clearing a test conversation keeps the count. The outer column is written
  * out qualified: drizzle renders a column inside a select list unqualified,
  * and a bare "id" would bind to the subquery's own table.
@@ -75,7 +76,8 @@ export interface ReeListItem {
 const reeId = sql.raw('"ree"."id"');
 const sourcesCount = sql<number>`(select count(*)::int from ${schema.knowledge} k where k.ree_id = ${reeId} and k.deleted_at is null)`;
 const readyCount = sql<number>`(select count(*)::int from ${schema.knowledge} k where k.ree_id = ${reeId} and k.deleted_at is null and k.enabled and k.status = 'ready')`;
-const answersCount = sql<number>`(select count(distinct ce.ref_id)::int from ${schema.creditEntry} ce where ce.ree_id = ${reeId} and ce.reason = 'query_base')`;
+const answersCount = sql<number>`((select count(distinct ce.ref_id)::int from ${schema.creditEntry} ce where ce.ree_id = ${reeId} and ce.reason = 'query_base')
+  + (select count(*)::int from ${schema.anonymousAnswer} aa where aa.ree_id = ${reeId}))`;
 
 function ownedLive(ownerId: string): SQL {
   return and(eq(schema.ree.ownerId, ownerId), isNull(schema.ree.deletedAt))!;

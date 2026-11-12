@@ -14,6 +14,7 @@ import { fill, formatNumber } from '@/i18n/format';
 import { Icon } from '@/components/ui/icons';
 import { ReeAvatar } from '@/components/ui/ree-avatar';
 import { RoleBadge } from '@/components/discover/role-badge';
+import { AnonymousChat } from '@/components/discover/anonymous-chat';
 import { JoinButton } from '@/components/discover/join-button';
 import { ReeCover } from '@/components/discover/ree-card';
 import { PublicIntro } from '@/components/video/public-intro';
@@ -50,7 +51,8 @@ export async function generateMetadata({ params }: Props): Promise<Metadata> {
  * 「开始对话」; no related lists and no workspace around it. Open to
  * visitors; a visitor signs in and comes back with the dialog open. Only a
  * public Ree has one. Each open is a visit and each conversation started
- * here a conversion (lib/services/share.ts).
+ * here a conversion (lib/services/share.ts). A signed-out visitor may ask a
+ * free Ree right here (anonymous chat, as on `/r/[slug]`).
  */
 export default async function SharePage({ params, searchParams }: Props) {
   const [{ slug }, query, user, { t, locale }] = await Promise.all([params, searchParams, currentUser(), serverMessages()]);
@@ -119,6 +121,15 @@ export default async function SharePage({ params, searchParams }: Props) {
                 ))}
               </ol>
             </section>
+          )}
+
+          {/* A signed-out visitor may ask a free Ree here, as on `/r/[slug]`; the server decides again on every question. */}
+          {!user && ree.queryFee === 0 && ree.sources > 0 && (
+            <AnonymousChat
+              ree={{ id: ree.id, name: ree.name, avatarBlob: ree.avatarBlob, color: ree.color, sampleQuestions: ree.sampleQuestions }}
+              loginHref={`/login?returnTo=${encodeURIComponent(`/s/${ree.slug}`)}`}
+              source="share"
+            />
           )}
 
           <section className="mt-7 rounded-[12px] border border-[#d6e6fb] bg-soft p-4 sm:p-5" aria-label={s.start}>
