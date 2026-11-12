@@ -383,12 +383,15 @@ export const ANONYMOUS_REE_ROUNDS_PER_DAY = 500;
 /** Over the whole platform and day: the circuit breaker on what anonymous answers may cost. */
 export const ANONYMOUS_PLATFORM_ROUNDS_PER_DAY = 5_000;
 /*
- * The address, Ree and platform caps above are the defaults: an
+ * Every cap here, and the attempts factor below, is a default: an
  * administrator sets them in the console's pricing page
- * (anonymous-chat-settings.ts), each from 1 to this; servers pick a change
- * up within `ANONYMOUS_LIMITS_CACHE_MS`.
+ * (anonymous-chat-settings.ts); servers pick a change up within
+ * `ANONYMOUS_LIMITS_CACHE_MS`. The shared caps go from 1 to this.
  */
 export const ANONYMOUS_LIMIT_MAX = 10_000_000;
+/* A browser's own rounds per day and the attempts factor are set there too, within these. */
+export const ANONYMOUS_VISITOR_ROUNDS_MAX = 1_000;
+export const ANONYMOUS_ATTEMPTS_FACTOR_MAX = 10;
 export const ANONYMOUS_LIMITS_CACHE_MS = 30_000;
 /**
  * Every key also caps attempts at this multiple of its rounds: a question

@@ -1,7 +1,7 @@
 /**
- * Anonymous chat's shared daily caps -- per Ree, over the platform, per
- * client address -- as an administrator sets them in the console's pricing
- * page. No row means the defaults in lib/constants.ts, so nothing changes
+ * Anonymous chat's daily caps -- per browser, per Ree, over the platform,
+ * per client address -- and the attempts factor, as an administrator sets
+ * them in the console's pricing page. No row means the defaults in lib/constants.ts, so nothing changes
  * before the first save. The reservation (anonymous-chat.ts) reads them
  * through a short in-process cache: a save is seen at once by the server
  * that made it and by every other within `ANONYMOUS_LIMITS_CACHE_MS`.
@@ -10,15 +10,24 @@
  */
 import { randomUUID } from 'node:crypto';
 import { and, eq, sql } from 'drizzle-orm';
-import { ANONYMOUS_IP_ROUNDS_PER_DAY, ANONYMOUS_LIMITS_CACHE_MS, ANONYMOUS_PLATFORM_ROUNDS_PER_DAY, ANONYMOUS_REE_ROUNDS_PER_DAY } from '@/lib/constants';
+import {
+  ANONYMOUS_ATTEMPTS_FACTOR,
+  ANONYMOUS_IP_ROUNDS_PER_DAY,
+  ANONYMOUS_LIMITS_CACHE_MS,
+  ANONYMOUS_PLATFORM_ROUNDS_PER_DAY,
+  ANONYMOUS_REE_ROUNDS_PER_DAY,
+  ANONYMOUS_ROUNDS_PER_DAY,
+} from '@/lib/constants';
 import { ANONYMOUS_LIMIT_FIELDS, anonymousDay, validAnonymousLimit, type AnonymousChatLimits } from '@/lib/domain/anonymous-chat';
 import { db, schema, type Executor } from '@/lib/infra/db';
 import { AdminInputError, audit } from '@/lib/services/admin';
 
 export const DEFAULT_ANONYMOUS_LIMITS: AnonymousChatLimits = {
+  visitorRoundsPerDay: ANONYMOUS_ROUNDS_PER_DAY,
   reeRoundsPerDay: ANONYMOUS_REE_ROUNDS_PER_DAY,
   platformRoundsPerDay: ANONYMOUS_PLATFORM_ROUNDS_PER_DAY,
   ipRoundsPerDay: ANONYMOUS_IP_ROUNDS_PER_DAY,
+  attemptsFactor: ANONYMOUS_ATTEMPTS_FACTOR,
   revision: 'default',
 };
 
@@ -26,9 +35,11 @@ export const DEFAULT_ANONYMOUS_LIMITS: AnonymousChatLimits = {
 export async function anonymousChatLimits(executor: Executor = db()): Promise<AnonymousChatLimits> {
   const [row] = await executor
     .select({
+      visitorRoundsPerDay: schema.anonymousChatSettings.visitorRoundsPerDay,
       reeRoundsPerDay: schema.anonymousChatSettings.reeRoundsPerDay,
       platformRoundsPerDay: schema.anonymousChatSettings.platformRoundsPerDay,
       ipRoundsPerDay: schema.anonymousChatSettings.ipRoundsPerDay,
+      attemptsFactor: schema.anonymousChatSettings.attemptsFactor,
       revision: schema.anonymousChatSettings.revision,
     })
     .from(schema.anonymousChatSettings)
@@ -59,18 +70,20 @@ export function forgetAnonymousChatLimits(): void {
 }
 
 /**
- * The console's save: every cap a whole number from 1 to
- * `ANONYMOUS_LIMIT_MAX`, against the revision the form was loaded with, in
- * one transaction with its audit entry.
+ * The console's save: every setting a whole number from 1 to its bound
+ * (`ANONYMOUS_LIMIT_BOUNDS`), against the revision the form was loaded
+ * with, in one transaction with its audit entry.
  */
 export async function saveAnonymousChatLimits(administratorId: string, input: Record<string, unknown>): Promise<AnonymousChatLimits> {
-  if (!ANONYMOUS_LIMIT_FIELDS.every((field) => validAnonymousLimit(input[field])) || typeof input.revision !== 'string') {
+  if (!ANONYMOUS_LIMIT_FIELDS.every((field) => validAnonymousLimit(field, input[field])) || typeof input.revision !== 'string') {
     throw new AdminInputError('invalid_anonymous_limits');
   }
   const values = {
+    visitorRoundsPerDay: input.visitorRoundsPerDay as number,
     reeRoundsPerDay: input.reeRoundsPerDay as number,
     platformRoundsPerDay: input.platformRoundsPerDay as number,
     ipRoundsPerDay: input.ipRoundsPerDay as number,
+    attemptsFactor: input.attemptsFactor as number,
   };
   const saved = await db().transaction(async (tx) => {
     await tx.execute(sql`select pg_advisory_xact_lock(hashtext('settings:anonymous_chat'))`);

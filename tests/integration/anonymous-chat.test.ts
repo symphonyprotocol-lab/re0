@@ -529,22 +529,31 @@ describeWithDb('caps set in the console', () => {
     await db().delete(schema.anonymousChatSettings);
     settings.forgetAnonymousChatLimits();
   };
+  const defaults = () => ({
+    visitorRoundsPerDay: ANONYMOUS_ROUNDS_PER_DAY,
+    reeRoundsPerDay: ANONYMOUS_REE_ROUNDS_PER_DAY,
+    platformRoundsPerDay: ANONYMOUS_PLATFORM_ROUNDS_PER_DAY,
+    ipRoundsPerDay: ANONYMOUS_IP_ROUNDS_PER_DAY,
+    attemptsFactor: ANONYMOUS_ATTEMPTS_FACTOR,
+  });
 
-  it('uses the defaults until an administrator saves, and keeps the visitor’s own 10', async () => {
+  it('uses the defaults until an administrator saves', async () => {
     await reset();
     expect(await settings.anonymousChatLimits()).toEqual({
+      visitorRoundsPerDay: ANONYMOUS_ROUNDS_PER_DAY,
       reeRoundsPerDay: ANONYMOUS_REE_ROUNDS_PER_DAY,
       platformRoundsPerDay: ANONYMOUS_PLATFORM_ROUNDS_PER_DAY,
       ipRoundsPerDay: ANONYMOUS_IP_ROUNDS_PER_DAY,
+      attemptsFactor: ANONYMOUS_ATTEMPTS_FACTOR,
       revision: 'default',
     });
     const keys = await keysFor();
-    expect(keys.map((key) => [key.scope, key.limit])).toEqual([
-      ['visitor', ANONYMOUS_ROUNDS_PER_DAY],
-      ['visitor', ANONYMOUS_ROUNDS_PER_DAY],
-      ['network', ANONYMOUS_IP_ROUNDS_PER_DAY],
-      ['ree', ANONYMOUS_REE_ROUNDS_PER_DAY],
-      ['platform', ANONYMOUS_PLATFORM_ROUNDS_PER_DAY],
+    expect(keys.map((key) => [key.scope, key.limit, key.attempts])).toEqual([
+      ['visitor', ANONYMOUS_ROUNDS_PER_DAY, ANONYMOUS_ROUNDS_PER_DAY * ANONYMOUS_ATTEMPTS_FACTOR],
+      ['visitor', ANONYMOUS_ROUNDS_PER_DAY, ANONYMOUS_ROUNDS_PER_DAY * ANONYMOUS_ATTEMPTS_FACTOR],
+      ['network', ANONYMOUS_IP_ROUNDS_PER_DAY, ANONYMOUS_IP_ROUNDS_PER_DAY * ANONYMOUS_ATTEMPTS_FACTOR],
+      ['ree', ANONYMOUS_REE_ROUNDS_PER_DAY, ANONYMOUS_REE_ROUNDS_PER_DAY * ANONYMOUS_ATTEMPTS_FACTOR],
+      ['platform', ANONYMOUS_PLATFORM_ROUNDS_PER_DAY, ANONYMOUS_PLATFORM_ROUNDS_PER_DAY * ANONYMOUS_ATTEMPTS_FACTOR],
     ]);
   });
 
@@ -553,12 +562,7 @@ describeWithDb('caps set in the console', () => {
     const administrator = await consoleAdministrator();
     const { reeId } = await freeRee();
     try {
-      const saved = await settings.saveAnonymousChatLimits(administrator.id, {
-        revision: 'default',
-        reeRoundsPerDay: 2,
-        platformRoundsPerDay: ANONYMOUS_PLATFORM_ROUNDS_PER_DAY,
-        ipRoundsPerDay: ANONYMOUS_IP_ROUNDS_PER_DAY,
-      });
+      const saved = await settings.saveAnonymousChatLimits(administrator.id, { ...defaults(), revision: 'default', reeRoundsPerDay: 2 });
       expect(saved).toMatchObject({ reeRoundsPerDay: 2 });
       expect(saved.revision).not.toBe('default');
       const [entry] = await db().select().from(schema.adminAudit).where(and(eq(schema.adminAudit.action, 'anonymous_chat.update'), eq(schema.adminAudit.administratorId, administrator.id)));
@@ -570,7 +574,7 @@ describeWithDb('caps set in the console', () => {
       expect(await third.json()).toMatchObject({ error: ANONYMOUS_CAPACITY_REACHED, scope: 'ree', blocked: 'capacity' });
 
       /* A stale form is refused rather than overwriting a newer save. */
-      await expect(settings.saveAnonymousChatLimits(administrator.id, { revision: 'default', reeRoundsPerDay: 9, platformRoundsPerDay: 9, ipRoundsPerDay: 9 })).rejects.toMatchObject({ code: 'pricing_conflict' });
+      await expect(settings.saveAnonymousChatLimits(administrator.id, { ...defaults(), revision: 'default', reeRoundsPerDay: 9 })).rejects.toMatchObject({ code: 'pricing_conflict' });
     } finally {
       await reset();
     }
@@ -580,13 +584,67 @@ describeWithDb('caps set in the console', () => {
   it('rejects caps that are not whole numbers from 1 to the maximum', async () => {
     await reset();
     const administrator = await consoleAdministrator();
-    const valid = { revision: 'default', reeRoundsPerDay: 500, platformRoundsPerDay: 5_000, ipRoundsPerDay: 100 };
-    for (const bad of [{ reeRoundsPerDay: 0 }, { platformRoundsPerDay: 1.5 }, { ipRoundsPerDay: '100' }, { ipRoundsPerDay: 10_000_001 }, { platformRoundsPerDay: undefined }, { revision: undefined }]) {
+    const valid = { ...defaults(), revision: 'default' };
+    for (const bad of [
+      { reeRoundsPerDay: 0 },
+      { platformRoundsPerDay: 1.5 },
+      { ipRoundsPerDay: '100' },
+      { ipRoundsPerDay: 10_000_001 },
+      { platformRoundsPerDay: undefined },
+      { visitorRoundsPerDay: 0 },
+      { visitorRoundsPerDay: 1_001 },
+      { attemptsFactor: 0 },
+      { attemptsFactor: 1.5 },
+      { attemptsFactor: 11 },
+      { attemptsFactor: undefined },
+      { revision: undefined },
+    ]) {
       const attempt = settings.saveAnonymousChatLimits(administrator.id, { ...valid, ...bad });
       await expect(attempt).rejects.toBeInstanceOf(AdminInputError);
       await expect(attempt).rejects.toMatchObject({ code: 'invalid_anonymous_limits' });
     }
     expect(await db().select().from(schema.anonymousChatSettings)).toHaveLength(0);
+  });
+
+  it('enforces a saved per-browser count, reports it as the limit, and never shows less than 0 once lowered', async () => {
+    await reset();
+    const administrator = await consoleAdministrator();
+    const { reeId } = await freeRee();
+    const visitor = { fingerprint: fingerprint(), ip: ip(), cookie: crypto.randomUUID() };
+    try {
+      const saved = await settings.saveAnonymousChatLimits(administrator.id, { ...defaults(), revision: 'default', visitorRoundsPerDay: 3 });
+      expect(await (await quota(reeId, visitor)).json()).toEqual({ limit: 3, remaining: 3, blocked: null });
+      for (let index = 0; index < 3; index += 1) expect((await read(await ask(reeId, visitor))).quota).toMatchObject({ limit: 3, remaining: 2 - index });
+      const fourth = await ask(reeId, visitor);
+      expect(fourth.status).toBe(429);
+      expect(await fourth.json()).toEqual({ error: ANONYMOUS_QUOTA_EXCEEDED, scope: 'visitor', limit: 3, remaining: 0, blocked: null });
+
+      /* Lowered under what this visitor already used today: nothing left, never a negative count. */
+      await settings.saveAnonymousChatLimits(administrator.id, { ...defaults(), revision: saved.revision, visitorRoundsPerDay: 2 });
+      expect(await (await quota(reeId, visitor)).json()).toEqual({ limit: 2, remaining: 0, blocked: null });
+      expect(await (await ask(reeId, visitor)).json()).toMatchObject({ error: ANONYMOUS_QUOTA_EXCEEDED, limit: 2, remaining: 0 });
+    } finally {
+      await reset();
+    }
+  });
+
+  it('applies a saved attempts factor: at 1, refunds cannot be retried beyond the rounds', async () => {
+    await reset();
+    const administrator = await consoleAdministrator();
+    try {
+      await settings.saveAnonymousChatLimits(administrator.id, { ...defaults(), revision: 'default', visitorRoundsPerDay: 3, attemptsFactor: 1 });
+      const keys = await keysFor();
+      expect(keys.filter((key) => key.scope === 'visitor').map((key) => [key.limit, key.attempts])).toEqual([[3, 3], [3, 3]]);
+      for (let index = 0; index < 3; index += 1) {
+        const reserved = await anonymous.reserveRound(keys);
+        expect(reserved.ok).toBe(true);
+        if (reserved.ok) await anonymous.releaseRound(keys, reserved.day);
+      }
+      expect([...(await roundsOf(own(keys), anonymousDay())).values()]).toEqual([0, 0]);
+      expect(await anonymous.reserveRound(keys)).toMatchObject({ ok: false, scope: 'visitor', quota: { limit: 3, remaining: 0 } });
+    } finally {
+      await reset();
+    }
   });
 
   it('is saved only by a signed-in administrator', async () => {
@@ -595,7 +653,7 @@ describeWithDb('caps set in the console', () => {
       new NextRequest(`${base}/api/admin/pricing`, {
         method: 'PUT',
         headers: { origin: base, host: 'localhost:3000', 'content-type': 'application/json' },
-        body: JSON.stringify({ kind: 'anonymous_chat', revision: 'default', reeRoundsPerDay: 1, platformRoundsPerDay: 1, ipRoundsPerDay: 1 }),
+        body: JSON.stringify({ kind: 'anonymous_chat', revision: 'default', visitorRoundsPerDay: 1, reeRoundsPerDay: 1, platformRoundsPerDay: 1, ipRoundsPerDay: 1, attemptsFactor: 1 }),
       }),
     );
     expect(response.status).toBe(401);

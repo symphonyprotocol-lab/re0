@@ -1631,22 +1631,25 @@ export const videoExportPricing = pgTable('video_export_pricing', {
 ]);
 
 /**
- * Beyond 4: anonymous chat's shared daily caps, set in the console's
- * pricing page (lib/services/anonymous-chat-settings.ts). No row means the
- * defaults in lib/constants.ts. A visitor's own 10 a day and the attempts
- * factor stay constants.
+ * Beyond 4: anonymous chat's daily caps, set in the console's pricing page
+ * (lib/services/anonymous-chat-settings.ts): per browser, per Ree, over the
+ * platform, per client address, and the attempts factor. No row means the
+ * defaults in lib/constants.ts.
  */
 export const anonymousChatSettings = pgTable('anonymous_chat_settings', {
   id: integer('id').primaryKey().default(1),
   reeRoundsPerDay: integer('ree_rounds_per_day').notNull(),
   platformRoundsPerDay: integer('platform_rounds_per_day').notNull(),
   ipRoundsPerDay: integer('ip_rounds_per_day').notNull(),
+  visitorRoundsPerDay: integer('visitor_rounds_per_day').notNull().default(10),
+  attemptsFactor: integer('attempts_factor').notNull().default(2),
   revision: uuid('revision').notNull().defaultRandom(),
   updatedBy: uuid('updated_by').references(() => administrator.id),
   updatedAt: timestampTz('updated_at').notNull().defaultNow(),
 }, () => [
   check('anonymous_chat_settings_singleton_check', sql`id = 1`),
   check('anonymous_chat_settings_limits_check', sql`ree_rounds_per_day between 1 and 10000000 and platform_rounds_per_day between 1 and 10000000 and ip_rounds_per_day between 1 and 10000000`),
+  check('anonymous_chat_settings_visitor_check', sql`visitor_rounds_per_day between 1 and 1000 and attempts_factor between 1 and 10`),
 ]);
 
 /**

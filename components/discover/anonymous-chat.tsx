@@ -5,7 +5,7 @@ import { useRouter } from 'next/navigation';
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { useChat } from '@ai-sdk/react';
 import { DefaultChatTransport } from 'ai';
-import { ANONYMOUS_HISTORY_TURNS, ANONYMOUS_ROUNDS_PER_DAY, QUESTION_MAX_CHARS } from '@/lib/constants';
+import { ANONYMOUS_HISTORY_TURNS, QUESTION_MAX_CHARS } from '@/lib/constants';
 import type { CitationSnapshot } from '@/lib/domain/answer';
 import { ANONYMOUS_CAPACITY_REACHED, ANONYMOUS_NETWORK_LIMIT, ANONYMOUS_QUOTA_EXCEEDED, FINGERPRINT_HEADER, type AnonymousTurn } from '@/lib/domain/anonymous-chat';
 import { repliesOf, type AnonymousQuota, type ReeUIMessage } from '@/lib/domain/chat-message';
@@ -111,11 +111,12 @@ export function AnonymousChat({ ree, loginHref, source }: {
       setInput(pendingQuestion.current);
       const refused = body.error === ANONYMOUS_QUOTA_EXCEEDED ? 'visitor' : body.error === ANONYMOUS_NETWORK_LIMIT ? 'network' : body.error === ANONYMOUS_CAPACITY_REACHED ? 'capacity' : null;
       if (refused) {
-        setQuota({
-          limit: body.limit ?? ANONYMOUS_ROUNDS_PER_DAY,
+        /* The server's own limit: the day's rounds are set in the console, never assumed here. */
+        setQuota((current) => ({
+          limit: body.limit ?? current?.limit ?? 0,
           remaining: refused === 'visitor' ? 0 : (body.remaining ?? 0),
           blocked: refused === 'visitor' ? (body.blocked ?? null) : refused,
-        });
+        }));
         setLimit(refused);
         return;
       }
@@ -309,7 +310,7 @@ export function AnonymousChat({ ree, loginHref, source }: {
         <div className="flex items-start gap-3">
           <Avatar ree={ree} />
           <p className="text-[13px] leading-relaxed">
-            {fill(limit === 'network' ? a.networkBody : limit === 'capacity' ? a.capacityBody : a.limitBody, { limit: quota?.limit ?? ANONYMOUS_ROUNDS_PER_DAY, name: ree.name })}
+            {fill(limit === 'network' ? a.networkBody : limit === 'capacity' ? a.capacityBody : quota?.limit ? a.limitBody : a.limitBodyNoCount, { limit: quota?.limit ?? '', name: ree.name })}
           </p>
         </div>
       </Modal>

@@ -351,6 +351,13 @@
       "when": 1794501960358,
       "tag": "0051_anonymous_chat_settings",
       "breakpoints": true
+    },
+    {
+      "idx": 51,
+      "version": "7",
+      "when": 1794502660088,
+      "tag": "0052_anonymous_chat_visitor_settings",
+      "breakpoints": true
     }
   ]
 }

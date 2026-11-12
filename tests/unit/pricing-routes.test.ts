@@ -63,7 +63,7 @@ describe('unified pricing administrator API', () => {
     vi.mocked(videoScriptPrice).mockResolvedValue(videoScript);
     vi.mocked(videoExportPrice).mockResolvedValue(videoExport);
     vi.mocked(infraCostRates).mockResolvedValue(defaultInfraCostRates());
-    const anonymousChat = { reeRoundsPerDay: 500, platformRoundsPerDay: 5_000, ipRoundsPerDay: 100, revision: 'default' };
+    const anonymousChat = { visitorRoundsPerDay: 10, reeRoundsPerDay: 500, platformRoundsPerDay: 5_000, ipRoundsPerDay: 100, attemptsFactor: 2, revision: 'default' };
     vi.mocked(anonymousChatLimits).mockResolvedValue(anonymousChat);
     expect(await (await GET(request('GET'))).json()).toMatchObject({
       anonymousChat,
@@ -76,12 +76,12 @@ describe('unified pricing administrator API', () => {
     expect(savePricing).not.toHaveBeenCalled();
   });
   it('saves anonymous chat limits through the authenticated pricing API', async () => {
-    const input = { kind: 'anonymous_chat', revision: 'default', reeRoundsPerDay: 2, platformRoundsPerDay: 5_000, ipRoundsPerDay: 100 };
+    const input = { kind: 'anonymous_chat', revision: 'default', visitorRoundsPerDay: 3, reeRoundsPerDay: 2, platformRoundsPerDay: 5_000, ipRoundsPerDay: 100, attemptsFactor: 1 };
     expect((await PUT(request('PUT', undefined, input as never))).status).toBe(401);
     state.admin = true;
     expect((await PUT(request('PUT', 'https://attacker.test', input as never))).status).toBe(403);
     expect(saveAnonymousChatLimits).not.toHaveBeenCalled();
-    const anonymousChat = { reeRoundsPerDay: 2, platformRoundsPerDay: 5_000, ipRoundsPerDay: 100, revision: 'updated' };
+    const anonymousChat = { visitorRoundsPerDay: 3, reeRoundsPerDay: 2, platformRoundsPerDay: 5_000, ipRoundsPerDay: 100, attemptsFactor: 1, revision: 'updated' };
     vi.mocked(saveAnonymousChatLimits).mockResolvedValue(anonymousChat);
     expect(await (await PUT(request('PUT', undefined, input as never))).json()).toEqual({ anonymousChat });
     expect(saveAnonymousChatLimits).toHaveBeenCalledWith('admin-id', input);

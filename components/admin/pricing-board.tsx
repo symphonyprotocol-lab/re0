@@ -7,8 +7,7 @@ import { fill, formatNumber, formatUsd } from '@/i18n/format';
 import './pricing-board.css';
 import type { PricingView, PriceView, CreditAmountView } from '@/lib/domain/pricing';
 import type { InfraCostRatesView } from '@/lib/domain/infra-cost';
-import { ANONYMOUS_LIMIT_MAX } from '@/lib/constants';
-import { ANONYMOUS_LIMIT_FIELDS, type AnonymousChatLimits } from '@/lib/domain/anonymous-chat';
+import { ANONYMOUS_LIMIT_BOUNDS, ANONYMOUS_LIMIT_FIELDS, type AnonymousChatLimits, type AnonymousLimitField } from '@/lib/domain/anonymous-chat';
 
 // datetime-local uses the explicitly labelled business timezone, regardless of the browser timezone.
 const localTime = (iso: string) => new Date(Date.parse(iso) + 8 * 3600_000).toISOString().slice(0, 16);
@@ -332,17 +331,15 @@ function InfraCostForm({ initial }: { initial: InfraCostRatesView }) {
   );
 }
 
-/** Anonymous chat's shared daily caps (lib/services/anonymous-chat-settings.ts). */
+/** Anonymous chat's daily caps and attempts factor (lib/services/anonymous-chat-settings.ts). */
 function AnonymousChatForm({ initial, today }: { initial: AnonymousChatLimits; today: number }) {
   const { t, locale } = useI18n();
   const p = t.pricingAdmin;
   const labels = p.anonymousChat;
   const [saved, setSaved] = useState(initial);
-  const [values, setValues] = useState<Record<(typeof ANONYMOUS_LIMIT_FIELDS)[number], string>>({
-    reeRoundsPerDay: String(initial.reeRoundsPerDay),
-    platformRoundsPerDay: String(initial.platformRoundsPerDay),
-    ipRoundsPerDay: String(initial.ipRoundsPerDay),
-  });
+  const [values, setValues] = useState<Record<AnonymousLimitField, string>>(
+    () => Object.fromEntries(ANONYMOUS_LIMIT_FIELDS.map((field) => [field, String(initial[field])])) as Record<AnonymousLimitField, string>,
+  );
   const [busy, setBusy] = useState(false);
   const [message, setMessage] = useState('');
   async function save(event: FormEvent) {
@@ -357,9 +354,7 @@ function AnonymousChatForm({ initial, today }: { initial: AnonymousChatLimits; t
         body: JSON.stringify({
           kind: 'anonymous_chat',
           revision: saved.revision,
-          reeRoundsPerDay: whole(values.reeRoundsPerDay),
-          platformRoundsPerDay: whole(values.platformRoundsPerDay),
-          ipRoundsPerDay: whole(values.ipRoundsPerDay),
+          ...Object.fromEntries(ANONYMOUS_LIMIT_FIELDS.map((field) => [field, whole(values[field])])),
         }),
       });
       const result = (await response.json()) as { anonymousChat?: AnonymousChatLimits; error?: keyof typeof p.errors };
@@ -395,7 +390,7 @@ function AnonymousChatForm({ initial, today }: { initial: AnonymousChatLimits; t
               inputMode="numeric"
               required
               min="1"
-              max={ANONYMOUS_LIMIT_MAX}
+              max={ANONYMOUS_LIMIT_BOUNDS[field]}
               step="1"
               value={values[field]}
               onChange={(e) => setValues({ ...values, [field]: e.target.value })}
