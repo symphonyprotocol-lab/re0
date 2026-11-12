@@ -540,6 +540,33 @@ describeWithDb('explore and public pages', () => {
     }
   });
 
+  it('puts the Ree a query names first, by its name or tag, without changing how a question ranks', async () => {
+    const product = `zq${Date.now().toString(36)}`;
+    const owner = await person();
+    /* Named after the product but nothing in its knowledge mentions it. */
+    const named = await reeOf(owner, { name: `${product}.js Docs Assistant`, content: TIDES });
+    /* Knowledge full of the product's name, under another name. */
+    const mentions = await reeOf(owner, { content: `${product}js ${product}js setup. ${wordPassage(`${product}js`)}` });
+    const tagged = await reeOf(owner, { content: TIDES, tags: [`${product}.js`] });
+    const hidden = await reeOf(owner, { name: `${product}.js Private Notes`, content: TIDES, isPublic: false });
+    for (const q of [`${product}js`, `${product}.js`, `${product} js`, `${product.toUpperCase()}.JS`]) {
+      const result = await explore.explore(parseExploreQuery(new URLSearchParams({ q })), { cursor: null, size: 24 }, { includeIntros: false });
+      const ids = result.items.map((card) => card.id);
+      expect(ids[0], q).toBe(named.id);
+      /* Only the spelling its knowledge uses finds the Ree that merely mentions the product. */
+      if (q === `${product}js`) expect(ids, q).toContain(mentions.id);
+      expect(ids.indexOf(tagged.id), q).toBeGreaterThan(0);
+      expect(ids, q).not.toContain(hidden.id);
+      /* The excerpt still comes from the named Ree's own knowledge. */
+      expect(result.items[0]!.excerpt).toContain('Lighthouse');
+    }
+    /* A question that does not name it ranks by passages as before: the named Ree has none about refunds. */
+    const question = await explore.explore(parseExploreQuery(new URLSearchParams({ q: `${QUESTION} ${product}js` })), { cursor: null, size: 24 }, { includeIntros: false });
+    const ids = question.items.map((card) => card.id);
+    expect(ids).toContain(mentions.id);
+    expect(ids.indexOf(mentions.id)).toBeLessThan(ids.indexOf(named.id) === -1 ? Infinity : ids.indexOf(named.id));
+  });
+
   it('counts free searches per IP and per account', async () => {
     const ip = `203.0.113.${Math.floor(Math.random() * 200)}`;
     const now = new Date();
