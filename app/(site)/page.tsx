@@ -32,7 +32,7 @@ const FAQ = ['q1', 'q2', 'q3', 'q4'] as const;
  * components/site/site.css carries its styles.
  */
 export default async function HomePage() {
-  const [user, { t, locale }, examples, prices, welcome] = await Promise.all([currentUser(), serverMessages(), activeRees(HOME_EXAMPLE_REES), currentPricing(), welcomeCredits()]);
+  const [user, { t, locale }, examples, prices, welcome] = await Promise.all([currentUser(), serverMessages(), activeRees(HOME_EXAMPLE_REES, { officialOnly: true }), currentPricing(), welcomeCredits()]);
   const favoriteIds = user ? await favoriteReeIds(user.id, examples.map(ree => ree.id)) : undefined;
   const h = t.site.home;
   const createHref = user ? '/rees/new' : `/login?returnTo=${encodeURIComponent('/rees/new')}`;
@@ -209,7 +209,7 @@ export default async function HomePage() {
             <span className="tiny muted">{examples.length ? t.discover.home.note : h.examplesNote}</span>
           </div>
           <div className="home-dot-row">
-            {/* Step 4: the most active public Rees; the illustrative three only while there are none. */}
+            {/* Step 4: official Rees only, pinned then most active; the illustrative three only while there are none. */}
             {examples.length
               ? examples.map((ree) => (
                   <article key={ree.id} className="card home-dot-card">

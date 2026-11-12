@@ -577,10 +577,14 @@ export async function explore(
   };
 }
 
-/** The home page's examples: Discover's default order, pinned Rees first, then the most active. */
-export async function activeRees(limit: number): Promise<ReeCard[]> {
+/**
+ * Discover's default order, pinned Rees first, then the most active, then the
+ * newest. The home page's examples pass `officialOnly`: only Rees made by
+ * official accounts, never a fallback to anyone else's.
+ */
+export async function activeRees(limit: number, { officialOnly = false }: { officialOnly?: boolean } = {}): Promise<ReeCard[]> {
   const rows = await cardQuery()
-    .where(publicRee())
+    .where(and(publicRee(), officialOnly ? eq(schema.user.role, 'official') : undefined))
     .orderBy(...keyColumns('active').map((column) => desc(column)))
     .limit(limit);
   return withIntros(rows.map((row) => toCard(row)));
