@@ -2,6 +2,8 @@
  * Shared set-up for the integration files: the database under test, the
  * secrets, and model endpoints pointed at a local fake. Import it first.
  */
+import { vi } from 'vitest';
+
 export const TEST_DATABASE_URL = process.env.TEST_DATABASE_URL;
 
 process.env.DATABASE_URL = TEST_DATABASE_URL ?? 'postgres://unused';
@@ -28,7 +30,24 @@ export function pointModelsAt(baseUrl: string): void {
 }
 
 let counter = 0;
+/* Per test process: with `Date` frozen (freezeDateAtWindowStart), the time alone repeats across runs against one database. */
+const PROCESS_TAG = Math.random().toString(36).slice(2, 6);
 export function uniqueName(prefix: string): string {
   counter += 1;
-  return `${prefix}-${Date.now().toString(36)}-${counter}`;
+  return `${prefix}-${Date.now().toString(36)}${PROCESS_TAG}-${counter}`;
+}
+
+/**
+ * Stops the clock -- `Date` only, so timers, the database driver and the
+ * fake servers keep real time -- at the start of the next whole window of
+ * `windowSeconds`. Rate limits count hits in fixed windows on the wall
+ * clock (lib/services/rate-limit.ts): a test filling a window and then
+ * expecting a 429 would otherwise get a 201 whenever a window boundary fell
+ * inside it. Undo with `vi.useRealTimers()`.
+ */
+export function freezeDateAtWindowStart(windowSeconds = 60): Date {
+  const windowMs = windowSeconds * 1_000;
+  const at = new Date((Math.floor(Date.now() / windowMs) + 1) * windowMs);
+  vi.useFakeTimers({ toFake: ['Date'], now: at });
+  return at;
 }
