@@ -565,8 +565,9 @@ describeWithDb('explore and public pages', () => {
     await db().update(schema.ree).set({ rank: { activity30: 5_000 } }).where(eq(schema.ree.id, busy.id));
     await db().update(schema.ree).set({ rank: { activity30: 10_000_000 } }).where(eq(schema.ree.id, popular.id));
     await db().update(schema.ree).set({ isPublished: false }).where(eq(schema.ree.id, unpublished.id));
-    await db().update(schema.ree).set({ moderatedAt: new Date() }).where(eq(schema.ree.id, takenDown.id));
-    await db().update(schema.ree).set({ deletedAt: new Date() }).where(eq(schema.ree.id, deleted.id));
+    /* As the real takedown and delete do, both also make the Ree private and unpublished (the ree check constraints). */
+    await db().update(schema.ree).set({ moderatedAt: new Date(), isPublic: false, isPublished: false }).where(eq(schema.ree.id, takenDown.id));
+    await db().update(schema.ree).set({ deletedAt: new Date(), isPublic: false, isPublished: false }).where(eq(schema.ree.id, deleted.id));
 
     const home = await explore.activeRees(500, { officialOnly: true });
     const ids = home.map((card) => card.id);
