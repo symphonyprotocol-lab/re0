@@ -319,7 +319,10 @@ export const chunk = pgTable(
      * passage search across up to 25 Rees (explore.ts `nearestPassages`),
      * which filters by Ree and space during an iterative scan. Answering
      * inside one Ree stays an exact scan (`+ 0` in chat.ts keeps the planner
-     * off these). Dropped in 0038 while nothing read them; back in 0048.
+     * off these). Dropped in 0038 while nothing read them. Not built by a
+     * migration: `db:deploy` builds them concurrently after its transaction
+     * (lib/infra/search-indexes.ts), and the search scans exactly until both
+     * are valid. Declared here so drizzle-kit never generates them.
      */
     index('chunk_embedding_half_idx').using('hnsw', sql`(${t.embedding}::halfvec(1536)) halfvec_cosine_ops`),
     index('chunk_embedding_next_half_idx').using('hnsw', sql`(${t.embeddingNext}::halfvec(1536)) halfvec_cosine_ops`),

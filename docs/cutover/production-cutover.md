@@ -86,6 +86,12 @@ if [ "$VERCEL_ENV" = "preview" ]; then npm run db:prepare-preview && npm run db:
 2. 需要归档时：把旧应用在 `public` 里的**每张表、每个类型**（以及可能有的视图、独立序列、函数）移到新 schema `legacy_main`；索引、约束、自增序列随表一起走。把旧日志 `drizzle` 改名为 `legacy_drizzle`。移完再检查 `public` 里不属于扩展的对象是否为零，不为零就整个回滚。
 3. 按 drizzle 迁移器的规则执行待执行的迁移：同样的文件、同样的 sha256、同样的 `drizzle.__drizzle_migrations`、同样的"`when` 大于最新一条才执行"。本地验证：之后再跑真正的 `drizzle-kit migrate` 是空操作（退出码 0、日志仍 33 行）。
 4. 提交。任何一步出错就整体回滚：要么切换完成且新 schema 建好，要么什么都没变。
+5. **提交之后**（不在事务里，也不会让构建失败）：如果发现页的两个段落索引（`chunk_embedding_half_idx`、`chunk_embedding_next_half_idx`，`lib/infra/search-indexes.ts`）缺失或无效，用 `CREATE INDEX CONCURRENTLY` 建：
+   - 建索引期间读写照常。会话级咨询锁 `re0:search-indexes` 防止两次构建互相删对方正在建的索引。
+   - 限时 `SEARCH_INDEX_BUDGET_MINUTES`（默认 20 分钟）。`maintenance_work_mem` 只升不降，提到 `SEARCH_INDEX_MEMORY`（默认 512MB）。
+   - 超时就取消，并删掉建了一半的无效索引；构建照样成功。下一次部署，或手动 `vercel env run -e production -- npm run db:cutover -- search-indexes --confirm=<endpoint> [--budget-minutes=120]`，会接着建。
+   - 两个索引都有效之前，搜索走原来的精确扫描。`db:cutover -- status` 会显示每个索引是 valid、invalid 还是 missing。
+   - 为什么不放进迁移：0048 第一次发布时把索引放在事务里建，超过了 10 分钟的语句上限，整个发布回滚。而且建索引期间段落无法写入。
 
 | `public` 里是 | 其他条件 | 构建做什么 |
 |---|---|---|
