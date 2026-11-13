@@ -133,7 +133,7 @@ export const zh = {
     q2: { q: '我的知识会直接公开吗？', a: '新建 Ree 默认私有。公开后展示简介和知识来源数量，完整知识正文不会公开；回答中的引用只展示相关片段。' },
     q3: { q: 'Plan 和 Pack 有什么区别？', a: 'Plan 当前价格为 {planPrice}，提供当期有效的 {planCredits} credits。{planPromotion}有效订阅期间可购买 {packPrice} 的 Pack，每份 {packCredits} credits 永不过期，取消 Plan 后仍可使用。' },
     q4: { q: '多个 Ree 一起回答，如何收费？', a: '发送前会显示并预留最高可能费用。每个实际作答的 Ree 收取 20 credits 基本费，加上其查询费；未作答部分会退回。' },
-    q5: { q: '创作者收入可以提现吗？', a: '查询费全额进入收入 credits。通过身份验证并填写税务声明、绑定 PayPal 后，收入达到 500,000 credits（$50）可申请提现。' },
+    q5: { q: '创作者收入可以提现吗？', a: '查询费全额进入收入 credits。通过身份验证并填写税务声明、绑定 PayPal 后，收入达到 500,000 credits（$50）可申请提现。全站前一定名额内的邀请奖励也计入可提现收入，适用相同条件；新手任务、打卡等赠送 credits 不能提现。' },
     q6: { q: '视频介绍如何收费？', a: '视频长 15 秒。生成脚本需要 {scriptCredits} credits，产品演示的旁白按用量收费。每个 Ree 首次导出免费，之后每次 {exportCredits} credits。重用已导出的版本、在线播放和分享链接免费。' },
   },
   pricing: {
@@ -390,7 +390,7 @@ export const en: Shape<typeof zh> = {
     q2: { q: 'Will my knowledge become public?', a: 'New Rees are private. Public pages show the description and how many sources there are, never the full text; citations contain only relevant excerpts.' },
     q3: { q: 'What is the difference between Plan and Pack?', a: 'Plan currently costs {planPrice} for {planCredits} credits that expire each cycle. {planPromotion}An active Plan unlocks {packPrice} packs of {packCredits} credits that never expire, even after the Plan ends.' },
     q4: { q: 'How are multi-Ree conversations charged?', a: 'The maximum cost is shown and reserved before sending. Each answering Ree charges 20 base credits plus its owner fee. Unused reservations are released.' },
-    q5: { q: 'Can creators withdraw earnings?', a: 'Owner fees become earned credits. With identity and tax verification and PayPal set up, earnings of at least 500,000 credits ($50) may be withdrawn.' },
+    q5: { q: 'Can creators withdraw earnings?', a: 'Owner fees become earned credits. With identity and tax verification and PayPal set up, earnings of at least 500,000 credits ($50) may be withdrawn. Invitation rewards within the site-wide withdrawable quota count as withdrawable earnings under the same conditions; gift credits from starter tasks and check-ins cannot be withdrawn.' },
     q6: { q: 'How much does a video introduction cost?', a: 'Videos last 15 seconds. Scripts cost {scriptCredits} credits, and demo narration is billed by usage. The first export per Ree is free, and later exports cost {exportCredits} credits. Reusing exports, playback, and sharing are free.' },
   },
   pricing: {
