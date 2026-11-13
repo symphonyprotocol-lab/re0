@@ -17,6 +17,7 @@ describe('console read services take the administrator', () => {
       const overview = await import('@/lib/services/admin-overview');
       const administrators = await import('@/lib/services/admin-administrators');
       const funding = await import('@/lib/services/payout-funding');
+      const invites = await import('@/lib/services/invites');
       // @ts-expect-error the administrator is required
       await audit.auditEntry('id');
       // @ts-expect-error the administrator is required
@@ -33,6 +34,8 @@ describe('console read services take the administrator', () => {
       await funding.payoutFunding('id', 'owner');
       // @ts-expect-error the administrator is required
       await funding.payoutFundingLines(['id']);
+      // @ts-expect-error the administrator is required
+      await invites.inviteOverview();
     }
     expect(never).toBe(false);
   });

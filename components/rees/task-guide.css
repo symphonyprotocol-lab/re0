@@ -1,0 +1,27 @@
+/* The starter task guide on the Rees page, in the role checklist's vocabulary (settings.css `.role-requirement`). */
+.task-guide { padding: 22px 24px; margin: 0 0 20px; }
+.task-guide-head { display: flex; align-items: flex-start; justify-content: space-between; gap: 16px; margin-bottom: 6px; }
+.task-guide-head h2 { display: flex; align-items: center; gap: 10px; margin: 0 0 6px; font-size: 16px; }
+.task-guide-head p { color: #8595ad; font-size: 12px; line-height: 1.8; margin: 0; }
+.task-guide-head .eyebrow { margin-bottom: 8px; }
+.task-guide-progress { color: #8aafd9; font-size: 11px; font-weight: 500; }
+.task-guide-list { list-style: none; margin: 0; padding: 0; }
+.task-guide-list li { display: flex; align-items: center; gap: 12px; padding: 13px 0; border-bottom: 1px solid #edf0f7; }
+.task-guide-list li:last-child { border-bottom: 0; padding-bottom: 0; }
+.task-guide-list li > div { flex: 1; min-width: 0; }
+.task-guide-list strong { display: block; color: #5d7395; font-size: 12px; font-weight: 550; }
+.task-guide-list li > div > span { display: block; margin-top: 3px; color: #9aa9bf; font-size: 11px; }
+.task-guide-list small { color: #6d92c2; font-size: 11px; white-space: nowrap; }
+.task-guide-check { display: flex; align-items: center; justify-content: center; width: 26px; height: 26px; flex: none; border-radius: 8px; color: #a1aec5; background: #f4f5fa; }
+.task-guide-check svg { width: 13px; height: 13px; }
+.task-guide-list li.done .task-guide-check { color: #288c76; background: #eaf7f2; }
+.task-guide-list li.done small { color: #65a08f; }
+.task-guide-list li.task-guide-invite .task-guide-check { color: var(--color-blue); background: var(--color-soft); }
+.task-guide-state { min-width: 64px; text-align: center; color: #65a08f; font-size: 11px; }
+@media (max-width: 600px) {
+  .task-guide { padding: 18px; }
+  .task-guide-list li { flex-wrap: wrap; }
+  .task-guide-list li > small { margin-left: 38px; }
+}
+.task-guide-compact { padding: 14px 24px; }
+.task-guide-list li.task-guide-check-in > div > span + span { margin-top: 2px; }

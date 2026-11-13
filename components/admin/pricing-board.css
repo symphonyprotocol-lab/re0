@@ -47,3 +47,9 @@
     grid-template-columns: minmax(0, 1fr);
   }
 }
+
+/* The 邀请与任务 form (invites-form.tsx): one field per row. */
+.invites-form fieldset {
+  grid-template-columns: minmax(0, 420px);
+  align-items: start;
+}

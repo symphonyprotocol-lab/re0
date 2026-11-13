@@ -27,6 +27,7 @@ import { ReeRowActions } from '@/components/admin/ree-detail';
 import { UserNotices } from '@/components/admin/user-notices';
 import { ReasonAction } from '@/components/admin/list-client';
 import { ADMIN_REASON } from '@/lib/constants';
+import { userInvites } from '@/lib/services/invites';
 
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 const TABS = ['summary', 'roles', 'credits', 'kyc', 'purchases', 'payouts', 'rees', 'keys'] as const;
@@ -64,7 +65,7 @@ function listLabel(t: Messages, from: string): string {
  * place; the account actions sit in the summary, as in the prototype.
  */
 export default async function UserDetailPage({ params, searchParams }: Props) {
-  await requireAdministrator();
+  const administrator = await requireAdministrator();
   const { id } = await params;
   if (!UUID.test(id)) notFound();
   const query = await searchParams;
@@ -95,10 +96,10 @@ export default async function UserDetailPage({ params, searchParams }: Props) {
   const person = <UserLink user={user} href={href('summary')} />;
   let body: ReactNode;
   if (tab === 'summary') {
-    const [kyc, notices] = await Promise.all([kycHistory(id), listNotices(id, 1)]);
+    const [kyc, notices, invites] = await Promise.all([kycHistory(id), listNotices(id, 1), userInvites(administrator, id)]);
     body = (
       <>
-        <Summary t={t} locale={locale} user={user} kyc={kyc[0] ?? null} />
+        <Summary t={t} locale={locale} user={user} kyc={kyc[0] ?? null} invites={invites} />
         <RolePanel t={t} locale={locale} user={user} footnote />
         <UserNotices t={t} locale={locale} items={notices.items} total={notices.total} />
       </>
@@ -432,10 +433,13 @@ function Summary({
   locale,
   user,
   kyc,
+  invites,
 }: {
   t: Messages;
   locale: Locale;
   user: AdminUserDetail;
+  /** Who invited the user and how many they invited (lib/services/invites.ts). */
+  invites: Awaited<ReturnType<typeof userInvites>>;
   /** The newest `kyc_record`, whose state and tax form the summary shows. */
   kyc: { status: KycStatus; taxForm: string | null } | null;
 }) {
@@ -473,6 +477,23 @@ function Summary({
   ];
   if (user.disabledAt) lines.push([s.disabledSince, time(user.disabledAt)]);
   lines.push([s.welcome, <span key="welcome" className="mono">{formatNumber(user.balances.welcome, locale)}</span>]);
+  const iu = t.invites.admin.user;
+  lines.push([
+    iu.invitedBy,
+    invites.invitedBy ? (
+      <span key="invited-by">
+        <Link href={`/admin/users/${invites.invitedBy.id}`} className="text-link">
+          {invites.invitedBy.name}
+        </Link>{' '}
+        <span className="muted mono">· {invites.invitedBy.code} · {time(invites.invitedBy.createdAt)}</span>
+      </span>
+    ) : (
+      iu.none
+    ),
+  ]);
+  lines.push([iu.invited, <span key="invited" className="mono">{formatNumber(invites.invited, locale)} · {formatNumber(invites.credits, locale)} credits</span>]);
+  lines.push([iu.code, <span key="code" className="mono">{invites.code ?? iu.noCode}</span>]);
+  lines.push([iu.checkIns, <span key="check-ins" className="mono">{formatNumber(invites.checkIns, locale)}</span>]);
   if (user.debt > 0) lines.push([d.stats.debt, <span key="debt" className="mono">{formatNumber(user.debt, locale)}</span>]);
   return (
     <div className="user-detail-overview">

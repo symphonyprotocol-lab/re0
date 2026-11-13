@@ -37,6 +37,7 @@ import type { KnowledgeActivity, KnowledgeChild } from '@/lib/domain/knowledge';
 import type { RoleMetrics } from '@/lib/domain/roles';
 import type { ReeRank } from '@/lib/domain/explore';
 import { REE_COMMENT_MAX_LENGTH } from '@/lib/domain/ree-comment';
+import { TASK_KINDS, type TaskKind } from '@/lib/domain/invites';
 import { MODEL_KINDS, VIDEO_EXPORT_TEMPLATES, VIDEO_TEMPLATES, type ModelKind } from '@/lib/constants';
 
 const createdAt = () => timestamp('created_at', { withTimezone: true }).notNull().defaultNow();
@@ -70,6 +71,8 @@ export const user = pgTable(
     paypalEmail: text('paypal_email'),
     paypalEmailChangedAt: timestampTz('paypal_email_changed_at'),
     reeDraft: jsonb('ree_draft').$type<ReeDraft>(),
+    /** Beyond 4: when the user closed the new-user task guide (lib/services/task-rewards.ts); null, still shown. */
+    taskGuideDismissedAt: timestampTz('task_guide_dismissed_at'),
     createdAt: createdAt(),
   },
   (t) => [
@@ -529,6 +532,16 @@ export const CREDIT_ENTRY_REASONS = [
   'earned_void',
   /* What an `earned_void` took is given back as the asker pays off (or a won chargeback cancels) the debt it was voided for. */
   'earned_restore',
+  /* An invited user registered: withdrawable earned credits to the inviter, within the site-wide quota (docs/design/invitations.md). */
+  'invite_reward',
+  /* The same, past the quota: gift credits in the welcome bucket, never withdrawable. */
+  'invite_reward_gift',
+  /* New-user tasks, once per account: gift credits in the welcome bucket, never withdrawable. */
+  'task_first_ree',
+  'task_first_question',
+  'task_first_comment',
+  /* A daily check-in in the account's first months: gift credits, never withdrawable. */
+  'check_in',
 ] as const;
 export type CreditEntryReason = (typeof CREDIT_ENTRY_REASONS)[number];
 
@@ -1651,6 +1664,121 @@ export const anonymousChatSettings = pgTable('anonymous_chat_settings', {
   check('anonymous_chat_settings_limits_check', sql`ree_rounds_per_day between 1 and 10000000 and platform_rounds_per_day between 1 and 10000000 and ip_rounds_per_day between 1 and 10000000`),
   check('anonymous_chat_settings_visitor_check', sql`visitor_rounds_per_day between 1 and 1000 and attempts_factor between 1 and 10`),
 ]);
+
+/* ------------------------------------------------------------ invitations */
+
+/**
+ * Invitations, new-user tasks and daily check-ins (docs/design/invitations.md),
+ * as an administrator sets them on the console's 邀请与任务 page. No row
+ * means the defaults in lib/constants.ts. Every amount 0 to 100,000,000 (0
+ * turns that reward off). `withdrawable_invites` is the site-wide number of
+ * invited registrations whose reward is withdrawable; later ones are paid
+ * the same amount as gift credits.
+ */
+export const rewardSettings = pgTable('reward_settings', {
+  id: integer('id').primaryKey().default(1),
+  invitesEnabled: boolean('invites_enabled').notNull(),
+  withdrawableInvites: integer('withdrawable_invites').notNull(),
+  inviteCredits: integer('invite_credits').notNull(),
+  firstReeCredits: integer('first_ree_credits').notNull(),
+  firstQuestionCredits: integer('first_question_credits').notNull(),
+  firstCommentCredits: integer('first_comment_credits').notNull(),
+  checkInCredits: integer('check_in_credits').notNull(),
+  checkInMaxDays: integer('check_in_max_days').notNull(),
+  checkInWindowMonths: integer('check_in_window_months').notNull(),
+  revision: uuid('revision').notNull().defaultRandom(),
+  updatedBy: uuid('updated_by').references(() => administrator.id, { onDelete: 'set null' }),
+  updatedAt: timestampTz('updated_at').notNull().defaultNow(),
+}, () => [
+  check('reward_settings_singleton_check', sql`id = 1`),
+  check('reward_settings_quota_check', sql`withdrawable_invites between 0 and 10000000`),
+  check(
+    'reward_settings_credits_check',
+    sql`invite_credits between 0 and 100000000 and first_ree_credits between 0 and 100000000 and first_question_credits between 0 and 100000000 and first_comment_credits between 0 and 100000000 and check_in_credits between 0 and 100000000`,
+  ),
+  check('reward_settings_check_in_check', sql`check_in_max_days between 0 and 3650 and check_in_window_months between 1 and 120`),
+]);
+
+/** Each account's one invite code: created with the account, or on first read for accounts older than invitations. */
+export const inviteCode = pgTable(
+  'invite_code',
+  {
+    userId: uuid('user_id')
+      .primaryKey()
+      .references(() => user.id, { onDelete: 'cascade' }),
+    code: text('code').notNull(),
+    createdAt: createdAt(),
+  },
+  (t) => [uniqueIndex('invite_code_code_key').on(t.code), check('invite_code_code_check', sql`code ~ '^[23456789ABCDEFGHJKLMNPQRSTUVWXYZ]{8}$'`)],
+);
+
+/**
+ * One row per attributed registration: who invited whom, through which code,
+ * the credits the inviter was paid (0 when the reward was off) and whether
+ * they were withdrawable. Written in the registration transaction under the
+ * quota's lock; the count of withdrawable rows is what the quota measures.
+ */
+export const invitation = pgTable(
+  'invitation',
+  {
+    inviteeId: uuid('invitee_id')
+      .primaryKey()
+      .references(() => user.id, { onDelete: 'cascade' }),
+    inviterId: uuid('inviter_id')
+      .notNull()
+      .references(() => user.id, { onDelete: 'cascade' }),
+    code: text('code').notNull(),
+    rewardCredits: integer('reward_credits').notNull(),
+    withdrawable: boolean('withdrawable').notNull(),
+    createdAt: createdAt(),
+  },
+  (t) => [
+    index('invitation_inviter_idx').on(t.inviterId, t.createdAt),
+    check('invitation_self_check', sql`invitee_id <> inviter_id`),
+    check('invitation_reward_check', sql`reward_credits >= 0 and (reward_credits > 0 or not withdrawable)`),
+  ],
+);
+
+/**
+ * A daily check-in: at most one per account and calendar day (UTC+8,
+ * `CHECK_IN_TIME_ZONE`), each paid as gift credits in the same transaction.
+ */
+export const checkIn = pgTable(
+  'check_in',
+  {
+    id: uuid('id').primaryKey().defaultRandom(),
+    userId: uuid('user_id')
+      .notNull()
+      .references(() => user.id, { onDelete: 'cascade' }),
+    day: date('day').notNull(),
+    credits: integer('credits').notNull(),
+    createdAt: createdAt(),
+  },
+  (t) => [uniqueIndex('check_in_user_day_key').on(t.userId, t.day), check('check_in_credits_check', sql`credits > 0`)],
+);
+
+/**
+ * A new-user task paid: at most one row per account and task, so a retry or
+ * a race never pays twice. `ref_id` is what completed it (the Ree, the
+ * question message, the comment); it is kept when that is later deleted.
+ */
+export const taskReward = pgTable(
+  'task_reward',
+  {
+    userId: uuid('user_id')
+      .notNull()
+      .references(() => user.id, { onDelete: 'cascade' }),
+    task: text('task').$type<TaskKind>().notNull(),
+    credits: integer('credits').notNull(),
+    refId: uuid('ref_id'),
+    createdAt: createdAt(),
+  },
+  (t) => [
+    primaryKey({ columns: [t.userId, t.task] }),
+    check('task_reward_task_check', oneOf('task', TASK_KINDS)),
+    check('task_reward_credits_check', sql`credits > 0`),
+  ],
+);
 
 /**
  * Beyond 4: the share page `/s/[slug]` -- a visit, or a conversation the

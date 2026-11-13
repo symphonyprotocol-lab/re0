@@ -1,4 +1,5 @@
 import { welcomeCredits } from '@/lib/services/signup-reward';
+import { inviteLanding } from '@/lib/services/invites';
 import { fill, formatNumber } from '@/i18n/format';
 import type { Metadata } from 'next';
 import { WorkspaceLink as Link } from '@/components/shell/workspace-link';
@@ -21,14 +22,18 @@ export async function generateMetadata(): Promise<Metadata> {
 /**
  * `/login`: Google or GitHub, then back where the visitor was going. The
  * prototype's `#/login` (suite.js `login()`), styled by login.css with its
- * class names.
+ * class names. `?invite=CODE` (an inviter's link) rides through the OAuth
+ * round trip and counts only if the sign-in creates a new account.
  */
 export default async function LoginPage({ searchParams }: { searchParams: Promise<Record<string, string | undefined>> }) {
   const params = await searchParams;
   const returnTo = safeReturnTo(params.returnTo);
   if (await currentUser()) redirect(returnTo);
-  const [{ t, locale }, welcome] = await Promise.all([serverMessages(), welcomeCredits()]);
+  const [{ t, locale }, welcome, invite] = await Promise.all([serverMessages(), welcomeCredits(), params.invite ? inviteLanding(params.invite) : null]);
   const l = t.login;
+  const il = t.invites.login;
+  /* A bad link says so; switched-off invitations simply show no invitation. */
+  const inviteNote = invite?.state === 'unknown' ? il.unknown : null;
   const error = isLoginError(params.error) ? l.errors[params.error] : null;
   return (
     <div className="suite-login">
@@ -87,9 +92,24 @@ export default async function LoginPage({ searchParams }: { searchParams: Promis
             {l.hello2}
           </h2>
           <p>{l.subtitle}</p>
+          {invite?.state === 'open' && invite.inviterName && (
+            <div className="login-welcome login-invite">
+              <LoginIcon name="sparkle" />
+              <div>
+                <strong>{fill(il.invited, { name: invite.inviterName })}</strong>
+                <span>{il.invitedBody}</span>
+              </div>
+            </div>
+          )}
+          {inviteNote && (
+            <p role="status" className="login-invite-note">
+              {inviteNote}
+            </p>
+          )}
           <div className="oauth-buttons">
             <form action="/api/auth/google/start" method="post">
               <input type="hidden" name="returnTo" value={returnTo} />
+              {invite?.code && <input type="hidden" name="invite" value={invite.code} />}
               <button type="submit" className="btn secondary full">
                 <span className="google-letter" aria-hidden="true">
                   G
@@ -99,6 +119,7 @@ export default async function LoginPage({ searchParams }: { searchParams: Promis
             </form>
             <form action="/api/auth/github/start" method="post">
               <input type="hidden" name="returnTo" value={returnTo} />
+              {invite?.code && <input type="hidden" name="invite" value={invite.code} />}
               <button type="submit" className="btn secondary full">
                 <LoginIcon name="github" />
                 {l.github}

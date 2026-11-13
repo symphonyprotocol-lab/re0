@@ -12,6 +12,7 @@ export const AUDIT_ACTIONS = [
   'admin.export',
   'pricing.update',
   'anonymous_chat.update',
+  'rewards.update',
   'model.create',
   'model.update',
   'model.cost_backfill',

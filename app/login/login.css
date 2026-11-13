@@ -360,6 +360,21 @@
   display: block;
   margin-top: 4px;
 }
+.suite-login-form .login-invite {
+  margin-bottom: 18px;
+}
+.suite-login-form .login-invite strong {
+  font: 600 12px var(--font-sans, inherit);
+}
+.suite-login-form .login-invite-note {
+  font-size: 10px;
+  color: #7f8fa8;
+  padding: 9px 12px;
+  border-radius: 6px;
+  background: #f6f8fd;
+  border: 1px solid #e8edf7;
+  margin-bottom: 14px;
+}
 .suite-login-form .login-terms {
   font-size: 9px !important;
   color: #9babc2 !important;

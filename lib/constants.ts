@@ -13,6 +13,38 @@ export const CREDIT_USD = 0.0001;
 export const WELCOME_CREDITS = 100_000;
 
 /**
+ * Invitations, new-user tasks and daily check-ins (docs/design/invitations.md):
+ * the defaults until the console's 邀请与任务 page is first saved. The invite
+ * reward goes to the inviter: withdrawable earned credits for the first
+ * `withdrawableInvites` invited registrations site-wide, the same amount as
+ * gift credits after that. Task and check-in rewards are gift credits in the
+ * welcome bucket. 0 turns a reward off.
+ */
+export const INVITE_DEFAULTS = {
+  invitesEnabled: true,
+  withdrawableInvites: 1_000,
+  inviteCredits: 5_000,
+  firstReeCredits: 2_500,
+  firstQuestionCredits: 1_000,
+  firstCommentCredits: 1_000,
+  checkInCredits: 1_500,
+  checkInMaxDays: 30,
+  checkInWindowMonths: 3,
+} as const;
+/** The bounds the console accepts: amounts as the welcome gift's, the quota up to ten million. */
+export const REWARD_CREDITS_MAX = 100_000_000;
+export const WITHDRAWABLE_INVITES_MAX = 10_000_000;
+export const CHECK_IN_MAX_DAYS_MAX = 3_650;
+export const CHECK_IN_WINDOW_MONTHS_MAX = 120;
+/** The one time zone a check-in day is counted in (UTC+8), always on the server. */
+export const CHECK_IN_TIME_ZONE = 'Asia/Singapore';
+/** Invite codes: 8 characters without 0/O/1/I, so a code read aloud or retyped is unambiguous. */
+export const INVITE_CODE_ALPHABET = '23456789ABCDEFGHJKLMNPQRSTUVWXYZ';
+export const INVITE_CODE_LENGTH = 8;
+/** How many of a user's invitees the invite tab lists. */
+export const INVITEES_SHOWN = 50;
+
+/**
  * The order credits are spent in; refunds walk it backwards (8.2, "扣费顺序").
  * `earned` arrives with step 4's query fees.
  */

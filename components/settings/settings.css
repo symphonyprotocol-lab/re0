@@ -2177,3 +2177,16 @@
     padding: 20px;
   }
 }
+
+/* The invite tab (components/settings/invite-tab.tsx), in the role panel's vocabulary. */
+.settings-page .invite-fields { display:grid; grid-template-columns:minmax(0,1fr) minmax(0,2.4fr); gap:14px; margin:6px 0 4px; }
+.settings-page .invite-fields label { display:grid; grid-template-columns:minmax(0,1fr); justify-content:stretch; gap:7px; margin:0; color:#7185a5; font-size:11px; }
+.settings-page .invite-fields input { width:100%; border:1px solid #dfe6f2; border-radius:8px; padding:10px 12px; color:#526b90; background:#f8faff; font-size:12px; font-family:inherit; }
+.settings-page .invite-fields input.mono { font-family:var(--font-mono); letter-spacing:.12em; }
+.settings-page .invite-panel .btn { margin-top:8px; }
+.settings-page .invite-stats { display:grid; grid-template-columns:repeat(3,minmax(0,1fr)); gap:14px; margin-bottom:20px; }
+.settings-page .invite-stats > div { padding:14px 16px; border:1px solid #e8edf7; border-radius:10px; background:#fafbff; }
+.settings-page .invite-stats small { display:block; color:#97a6bd; font-size:10px; margin-bottom:6px; }
+.settings-page .invite-stats strong { color:#5d7395; font-size:18px; font-weight:550; }
+.settings-page .invite-person > div { flex:1; min-width:0; }
+@media(max-width:600px) { .settings-page .invite-fields, .settings-page .invite-stats { grid-template-columns:1fr; } }

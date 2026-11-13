@@ -16,6 +16,8 @@ import { RoleTab } from '@/components/settings/role-tab';
 import { ApiKeysTab } from '@/components/settings/api-keys-tab';
 import { appBaseUrl } from '@/lib/http/cookies';
 import { listApiKeys } from '@/lib/services/api-keys';
+import { invitePanel } from '@/lib/services/invites';
+import { InviteTab } from '@/components/settings/invite-tab';
 import '@/components/settings/settings.css';
 
 export async function generateMetadata(): Promise<Metadata> {
@@ -23,7 +25,7 @@ export async function generateMetadata(): Promise<Metadata> {
   return { title: t.settings.title };
 }
 
-const TABS = ['account', 'role', 'connections', 'balance', 'billing', 'notices', 'api'] as const;
+const TABS = ['account', 'role', 'connections', 'balance', 'billing', 'invite', 'notices', 'api'] as const;
 const OUTCOMES = ['connected', 'canceled', 'failed'] as const;
 
 /**
@@ -32,7 +34,8 @@ const OUTCOMES = ['connected', 'canceled', 'failed'] as const;
  * ledger (`activity`, reporting period, search, and pagination). `checkout` belongs to balance.
  * Role holds the verification threshold and application, notices the
  * in-app notices (step 5; `page` is the notices' parameter). API holds the
- * keys for the MCP server and how to connect a client.
+ * keys for the MCP server and how to connect a client. Invite holds the
+ * account's invite code and the people it invited.
  */
 export default async function SettingsPage({ searchParams }: { searchParams: Promise<Record<string, string | undefined>> }) {
   const user = (await currentUser())!;
@@ -55,6 +58,7 @@ export default async function SettingsPage({ searchParams }: { searchParams: Pro
           { label: s.tabs.connections, href: '/settings?tab=connections', active: tab === 'connections', icon: 'link' },
           { label: s.tabs.balance, href: '/settings?tab=balance', active: tab === 'balance', icon: 'wallet' },
           { label: s.tabs.billing, href: '/settings?tab=billing', active: tab === 'billing', icon: 'file' },
+          { label: t.invites.panel.tab, href: '/settings?tab=invite', active: tab === 'invite', icon: 'users' },
           { label: t.notices.tab, href: '/settings?tab=notices', active: tab === 'notices', icon: 'bell' },
           { label: t.apiKeys.tab, href: '/settings?tab=api', active: tab === 'api', icon: 'key' },
         ]}
@@ -90,6 +94,8 @@ export default async function SettingsPage({ searchParams }: { searchParams: Pro
               <NoticesTab {...(await noticesFor(user.id, Number(query.page) || 1))} />
             ) : tab === 'api' ? (
               <ApiKeysTab keys={(await listApiKeys(user.id)).map(serializeKey)} mcpUrl={`${appBaseUrl()}/api/mcp`} />
+            ) : tab === 'invite' ? (
+              <InviteTab panel={await invitePanel(user.id)} />
             ) : tab === 'balance' ? (
               <BalanceTab userId={user.id} query={query} />
             ) : (

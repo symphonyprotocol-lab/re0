@@ -1,0 +1,140 @@
+/**
+ * Invitations and new-user tasks (docs/design/invitations.md), free of the
+ * database: the invite code's format, the console's settings and their
+ * bounds, which task pays which setting, and the check-in day.
+ */
+import {
+  CHECK_IN_MAX_DAYS_MAX,
+  CHECK_IN_TIME_ZONE,
+  CHECK_IN_WINDOW_MONTHS_MAX,
+  INVITE_CODE_ALPHABET,
+  INVITE_CODE_LENGTH,
+  REWARD_CREDITS_MAX,
+  WITHDRAWABLE_INVITES_MAX,
+} from '@/lib/constants';
+import type { CreditEntryReason } from '@/db/schema';
+
+/** The new-user tasks that pay, besides registering (whose gift is `signup_reward`). */
+export const TASK_KINDS = ['first_ree', 'first_question', 'first_comment'] as const;
+export type TaskKind = (typeof TASK_KINDS)[number];
+
+/* ------------------------------------------------------------- the code */
+
+/** `INVITE_CODE_LENGTH` characters drawn uniformly from the alphabet (32 symbols: every byte maps evenly). */
+export function randomInviteCode(fill: (bytes: Uint8Array) => void = (bytes) => void crypto.getRandomValues(bytes)): string {
+  const bytes = new Uint8Array(INVITE_CODE_LENGTH);
+  fill(bytes);
+  let code = '';
+  for (const byte of bytes) code += INVITE_CODE_ALPHABET[byte % INVITE_CODE_ALPHABET.length];
+  return code;
+}
+
+/** What a link or a typed code becomes before lookup: upper case, spaces and dashes dropped; null when it cannot be a code. */
+export function normalizeInviteCode(value: unknown): string | null {
+  if (typeof value !== 'string') return null;
+  const code = value.replace(/[\s-]/g, '').toUpperCase();
+  if (code.length !== INVITE_CODE_LENGTH) return null;
+  for (const char of code) if (!INVITE_CODE_ALPHABET.includes(char)) return null;
+  return code;
+}
+
+/** The sign-up link an inviter shares. */
+export function inviteLink(baseUrl: string, code: string): string {
+  return `${baseUrl.replace(/\/$/, '')}/login?invite=${encodeURIComponent(code)}`;
+}
+
+/* --------------------------------------------------------- the settings */
+
+export interface RewardSettings {
+  invitesEnabled: boolean;
+  /** Site-wide: how many invited registrations pay a withdrawable reward; later ones pay gift credits. */
+  withdrawableInvites: number;
+  inviteCredits: number;
+  firstReeCredits: number;
+  firstQuestionCredits: number;
+  firstCommentCredits: number;
+  checkInCredits: number;
+  checkInMaxDays: number;
+  checkInWindowMonths: number;
+  /** `default` until the first save. */
+  revision: string;
+}
+
+export const REWARD_AMOUNT_FIELDS = ['inviteCredits', 'firstReeCredits', 'firstQuestionCredits', 'firstCommentCredits', 'checkInCredits'] as const;
+export type RewardAmountField = (typeof REWARD_AMOUNT_FIELDS)[number];
+/** Every number the console edits, with its upper bound (all from 0, except the window from 1). */
+export const REWARD_NUMBER_BOUNDS = {
+  withdrawableInvites: WITHDRAWABLE_INVITES_MAX,
+  inviteCredits: REWARD_CREDITS_MAX,
+  firstReeCredits: REWARD_CREDITS_MAX,
+  firstQuestionCredits: REWARD_CREDITS_MAX,
+  firstCommentCredits: REWARD_CREDITS_MAX,
+  checkInCredits: REWARD_CREDITS_MAX,
+  checkInMaxDays: CHECK_IN_MAX_DAYS_MAX,
+  checkInWindowMonths: CHECK_IN_WINDOW_MONTHS_MAX,
+} as const;
+export type RewardNumberField = keyof typeof REWARD_NUMBER_BOUNDS;
+export const REWARD_NUMBER_FIELDS = Object.keys(REWARD_NUMBER_BOUNDS) as RewardNumberField[];
+export const rewardNumberMin = (field: RewardNumberField) => (field === 'checkInWindowMonths' ? 1 : 0);
+
+/** The console's input as settings, or null when any field is out of bounds. */
+export function parseRewardSettings(input: Record<string, unknown>): Omit<RewardSettings, 'revision'> | null {
+  if (typeof input.invitesEnabled !== 'boolean') return null;
+  const values: Partial<Record<RewardNumberField, number>> = {};
+  for (const field of REWARD_NUMBER_FIELDS) {
+    const value = input[field];
+    if (typeof value !== 'number' || !Number.isInteger(value) || value < rewardNumberMin(field) || value > REWARD_NUMBER_BOUNDS[field]) return null;
+    values[field] = value;
+  }
+  return { invitesEnabled: input.invitesEnabled, ...(values as Record<RewardNumberField, number>) };
+}
+
+/** Whether a registration through an invite is attributed now: only when invitations are switched on. */
+export type InviteState = 'open' | 'closed';
+export function inviteState(settings: Pick<RewardSettings, 'invitesEnabled'>): InviteState {
+  return settings.invitesEnabled ? 'open' : 'closed';
+}
+
+/** Whether the next attributed registration's reward is withdrawable: while fewer than the quota have been. */
+export function nextInviteWithdrawable(settings: Pick<RewardSettings, 'withdrawableInvites' | 'inviteCredits'>, withdrawableSoFar: number): boolean {
+  return settings.inviteCredits > 0 && withdrawableSoFar < settings.withdrawableInvites;
+}
+
+/* ---------------------------------------------------------- check-ins */
+
+/** The calendar day (YYYY-MM-DD) a moment falls on in `CHECK_IN_TIME_ZONE`. */
+export function checkInDay(now: Date): string {
+  return new Intl.DateTimeFormat('en-CA', { timeZone: CHECK_IN_TIME_ZONE, year: 'numeric', month: '2-digit', day: '2-digit' }).format(now);
+}
+
+export type CheckInState = 'available' | 'done_today' | 'finished' | 'expired' | 'off';
+
+/** Where an account stands: off when the reward is 0, then expired past the window, finished at the maximum, otherwise today's state. */
+export function checkInState(input: { credits: number; used: number; maxDays: number; windowEndsAt: Date; today: boolean; now: Date }): CheckInState {
+  if (input.credits <= 0) return 'off';
+  if (input.today) return input.used >= input.maxDays ? 'finished' : 'done_today';
+  if (input.used >= input.maxDays) return 'finished';
+  if (input.now.getTime() >= input.windowEndsAt.getTime()) return 'expired';
+  return 'available';
+}
+
+/* ------------------------------------------------------------ the tasks */
+
+export const TASK_SETTING: Record<TaskKind, RewardAmountField> = {
+  first_ree: 'firstReeCredits',
+  first_question: 'firstQuestionCredits',
+  first_comment: 'firstCommentCredits',
+};
+
+export const TASK_REASON: Record<TaskKind, CreditEntryReason> = {
+  first_ree: 'task_first_ree',
+  first_question: 'task_first_question',
+  first_comment: 'task_first_comment',
+};
+
+/** Where the guide sends a user for each task. */
+export const TASK_HREF: Record<TaskKind, string> = {
+  first_ree: '/rees/new',
+  first_question: '/explore',
+  first_comment: '/explore',
+};

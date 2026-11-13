@@ -226,7 +226,7 @@ export const zh = {
     sources: {
       paid: '付费购买（Plan、Pack、可提现收入）',
       refunded: '其中来自之后已退款或拒付的购买',
-      welcome: '注册赠送',
+      welcome: '赠送（注册与新手任务）',
       redeemed: '兑换码',
       console: '后台发放',
       earnedFree: '由免费额度换来的收入',
@@ -503,7 +503,7 @@ export const en: Shape<typeof zh> = {
     sources: {
       paid: 'Paid purchases (Plan, Pack, withdrawable earnings)',
       refunded: 'Of which from purchases later refunded or charged back',
-      welcome: 'Welcome credits',
+      welcome: 'Gift credits (sign-up and tasks)',
       redeemed: 'Redeem codes',
       console: 'Console grants',
       earnedFree: 'Earnings paid from free credits',

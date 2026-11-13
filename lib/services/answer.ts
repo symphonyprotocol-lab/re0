@@ -75,6 +75,7 @@ import { addGrant, balanceOf, paidShare, placeHold, releaseHold, settleHold } fr
 import { suggestRees } from '@/lib/services/explore';
 import { questionRewriter } from '@/lib/services/question-rewrite';
 import type { Ree } from '@/lib/services/rees';
+import { grantTaskReward } from '@/lib/services/task-rewards';
 
 type Writer = UIMessageStreamWriter<ReeUIMessage>;
 type Write = (chunk: Parameters<Writer['write']>[0]) => void;
@@ -255,6 +256,8 @@ export async function holdQuestion(input: AnswerInput): Promise<Holding> {
         const verifyHold = verifying ? await placeHold(tx, { userId, kind: 'chat', ledger: 'chat_verify', amount: VERIFY_FEE, refId: asked!.id, reeId: ree.id, note: ree.name }) : null;
         holds.push({ ree, baseHold, feeHold, fee, verifyHold });
       }
+      /* 新手任务: a first question to a Ree pays once, after its holds, so it never pays for itself (task-rewards.ts). */
+      if (targets.length > 0) await grantTaskReward(tx, userId, 'first_question', asked!.id);
       /* A question brings an archived conversation back to Recent (8.2); the first one names it. */
       await tx
         .update(schema.conversation)

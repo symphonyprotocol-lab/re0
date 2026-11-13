@@ -2,7 +2,7 @@
  * Shared set-up for the integration files: the database under test, the
  * secrets, and model endpoints pointed at a local fake. Import it first.
  */
-import { vi } from 'vitest';
+import { beforeAll, vi } from 'vitest';
 
 export const TEST_DATABASE_URL = process.env.TEST_DATABASE_URL;
 
@@ -51,3 +51,31 @@ export function freezeDateAtWindowStart(windowSeconds = 60): Date {
   vi.useFakeTimers({ toFake: ['Date'], now: at });
   return at;
 }
+
+/**
+ * Every integration file starts with the invitation, starter task and
+ * check-in rewards off (amounts 0, invitations on), so suites about other things see
+ * the balances they always did. tests/integration/invites.test.ts turns
+ * them on itself through the console's save.
+ */
+export async function resetRewardSettings(): Promise<void> {
+  const { db, schema } = await import('@/lib/infra/db');
+  const off = {
+    invitesEnabled: true,
+    withdrawableInvites: 1_000,
+    inviteCredits: 0,
+    firstReeCredits: 0,
+    firstQuestionCredits: 0,
+    firstCommentCredits: 0,
+    checkInCredits: 0,
+    checkInMaxDays: 30,
+    checkInWindowMonths: 3,
+    revision: crypto.randomUUID(),
+    updatedBy: null,
+  };
+  await db().insert(schema.rewardSettings).values(off).onConflictDoUpdate({ target: schema.rewardSettings.id, set: off });
+}
+
+beforeAll(async () => {
+  if (TEST_DATABASE_URL) await resetRewardSettings();
+});
