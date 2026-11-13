@@ -13,6 +13,8 @@ export const AUDIT_ACTIONS = [
   'pricing.update',
   'anonymous_chat.update',
   'rewards.update',
+  'payout.minimum.update',
+  'user.payout_minimum',
   'model.create',
   'model.update',
   'model.cost_backfill',

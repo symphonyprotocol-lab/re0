@@ -73,6 +73,8 @@ export const user = pgTable(
     reeDraft: jsonb('ree_draft').$type<ReeDraft>(),
     /** Beyond 4: when the user closed the new-user task guide (lib/services/task-rewards.ts); null, still shown. */
     taskGuideDismissedAt: timestampTz('task_guide_dismissed_at'),
+    /** Beyond 4: this account's payout minimum, set by an administrator; null, the site-wide one (`payout_settings`). */
+    payoutMinCredits: integer('payout_min_credits'),
     createdAt: createdAt(),
   },
   (t) => [
@@ -80,6 +82,7 @@ export const user = pgTable(
     check('user_lang_check', oneOf('lang', ['zh', 'en'])),
     check('user_provider_check', oneOf('provider', ['google', 'github'])),
     check('user_role_check', oneOf('role', ['normal', 'verified', 'official'])),
+    check('user_payout_min_check', sql`payout_min_credits is null or payout_min_credits between 1 and 100000000`),
   ],
 );
 
@@ -1671,6 +1674,22 @@ export const anonymousChatSettings = pgTable('anonymous_chat_settings', {
   check('anonymous_chat_settings_singleton_check', sql`id = 1`),
   check('anonymous_chat_settings_limits_check', sql`ree_rounds_per_day between 1 and 10000000 and platform_rounds_per_day between 1 and 10000000 and ip_rounds_per_day between 1 and 10000000`),
   check('anonymous_chat_settings_visitor_check', sql`visitor_rounds_per_day between 1 and 1000 and attempts_factor between 1 and 10`),
+]);
+
+/**
+ * The site-wide payout minimum, as an administrator sets it on the console's
+ * payout review page. No row means `PAYOUT_MIN_CREDITS`. An account's own
+ * `user.payout_min_credits`, when set, replaces it for that account.
+ */
+export const payoutSettings = pgTable('payout_settings', {
+  id: integer('id').primaryKey().default(1),
+  minCredits: integer('min_credits').notNull(),
+  revision: uuid('revision').notNull().defaultRandom(),
+  updatedBy: uuid('updated_by').references(() => administrator.id, { onDelete: 'set null' }),
+  updatedAt: timestampTz('updated_at').notNull().defaultNow(),
+}, () => [
+  check('payout_settings_singleton_check', sql`id = 1`),
+  check('payout_settings_min_check', sql`min_credits between 1 and 100000000`),
 ]);
 
 /* ------------------------------------------------------------ invitations */

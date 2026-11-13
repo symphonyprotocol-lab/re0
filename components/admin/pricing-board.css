@@ -53,3 +53,9 @@
   grid-template-columns: minmax(0, 420px);
   align-items: start;
 }
+
+/* Payout minimum: the site-wide card on the payout review page, and one user's own on the user page. */
+.payout-minimum-form { margin: 0 0 24px; }
+.payout-minimum-user { display: grid; gap: 10px; margin-top: 12px; }
+.payout-minimum-user .muted { font-size: 12px; margin: 0; }
+.payout-minimum-user input { width: 200px; }

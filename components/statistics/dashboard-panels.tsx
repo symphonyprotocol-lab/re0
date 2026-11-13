@@ -1,7 +1,7 @@
 import { WorkspaceLink as Link } from '@/components/shell/workspace-link';
 import { CREDIT_USD } from '@/lib/constants';
 import type { KycState } from '@/lib/domain/kyc';
-import type { PayoutStage } from '@/lib/domain/payouts';
+import { formatCreditsUsd, type PayoutStage } from '@/lib/domain/payouts';
 import type { DashboardData, SourceSummary } from '@/lib/services/statistics';
 import type { Messages } from '@/i18n';
 import { fill, formatNumber } from '@/i18n/format';
@@ -163,6 +163,7 @@ export function IncomePanel({
   stage,
   kyc,
   held,
+  minimum,
 }: {
   t: Messages;
   locale: Locale;
@@ -171,6 +172,8 @@ export function IncomePanel({
   stage: PayoutStage;
   kyc: KycState;
   held: number;
+  /** The account's effective payout minimum (`payoutStanding`). */
+  minimum: number;
 }) {
   const p = t.statistics.dashboard.income;
   const g = t.payouts.guide;
@@ -213,7 +216,7 @@ export function IncomePanel({
         </span>
         <div>
           <h3>{copy.title}</h3>
-          <p>{copy.body}</p>
+          <p>{fill(copy.body, { min: n(minimum), usd: formatCreditsUsd(minimum) })}</p>
         </div>
       </div>
       <Link href={href} className="btn-secondary">

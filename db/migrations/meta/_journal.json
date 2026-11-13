@@ -365,6 +365,13 @@
       "when": 1794543005146,
       "tag": "0053_invitations",
       "breakpoints": true
+    },
+    {
+      "idx": 53,
+      "version": "7",
+      "when": 1794549078382,
+      "tag": "0054_payout_minimum",
+      "breakpoints": true
     }
   ]
 }

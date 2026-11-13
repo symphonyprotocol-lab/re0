@@ -28,6 +28,8 @@ import { UserNotices } from '@/components/admin/user-notices';
 import { ReasonAction } from '@/components/admin/list-client';
 import { ADMIN_REASON } from '@/lib/constants';
 import { userInvites } from '@/lib/services/invites';
+import { sitePayoutMinimum } from '@/lib/services/payout-minimum';
+import { UserPayoutMinimumForm } from '@/components/admin/payout-minimum-forms';
 
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 const TABS = ['summary', 'roles', 'credits', 'kyc', 'purchases', 'payouts', 'rees', 'keys'] as const;
@@ -96,10 +98,16 @@ export default async function UserDetailPage({ params, searchParams }: Props) {
   const person = <UserLink user={user} href={href('summary')} />;
   let body: ReactNode;
   if (tab === 'summary') {
-    const [kyc, notices, invites] = await Promise.all([kycHistory(id), listNotices(id, 1), userInvites(administrator, id)]);
+    const [kyc, notices, invites, site] = await Promise.all([kycHistory(id), listNotices(id, 1), userInvites(administrator, id), sitePayoutMinimum()]);
     body = (
       <>
         <Summary t={t} locale={locale} user={user} kyc={kyc[0] ?? null} invites={invites} />
+        {!official && (
+          <section className="card settings-card">
+            <h2>{t.consolePayouts.minimum.user}</h2>
+            <UserPayoutMinimumForm userId={id} override={user.payoutMinCredits} site={site.credits} />
+          </section>
+        )}
         <RolePanel t={t} locale={locale} user={user} footnote />
         <UserNotices t={t} locale={locale} items={notices.items} total={notices.total} />
       </>

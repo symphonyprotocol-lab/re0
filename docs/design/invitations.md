@@ -29,6 +29,13 @@ An amount of 0 turns that reward off. Amounts are read inside the transaction th
 
 A withdrawable invite reward has no maturity wait, and no other exemption: `requestPayout` sees it through `withdrawable()` like any matured earned grant, so the minimum (`PAYOUT_MIN_CREDITS`, 500,000), KYC, a PayPal address and its change hold, one open payout, no open debt and an active account all apply. There is no separate payout path.
 
+## Payout minimum
+
+- Site-wide: `payout_settings` (singleton, revision check, `settings:payout_minimum` lock, audit `payout.minimum.update`), default `PAYOUT_MIN_CREDITS` (500,000). Set on the console's payout review page (`/admin/payouts`, "提现规则").
+- Per account: `user.payout_min_credits`, null for the site-wide value; set or cleared on the console's user page (summary tab), audited as `user.payout_min_credits` before/after (`user.payout_minimum`). It may be lower or higher than the site-wide value.
+- Both bounded 1 to 100,000,000 credits. The effective minimum (own, else site-wide) is read inside `requestPayout`'s transaction and drives `payoutStage`, `parsePayoutCredits` and every user-facing figure. Approval does not re-check it, so a request already made is never judged again after a change. Every other gate is unchanged, and an own minimum exempts from none of them.
+- The terms (§7) and the pricing FAQ render the current site-wide value and say an account may have its own.
+
 ## Daily check-ins
 
 - `check_in` (unique `user_id, day`): one row per account and calendar day, the day computed on the server in `CHECK_IN_TIME_ZONE` (Asia/Singapore, UTC+8). `checkIn` takes `pg_advisory_xact_lock(hashtext('check-in:<user>'))`, counts, inserts and grants in one transaction, so a double click or a race pays once and the maximum holds.

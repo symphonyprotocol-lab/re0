@@ -667,8 +667,16 @@ export const MODEL_PRICES: Record<string, { input?: number; output?: number; per
   'gpt-4o-mini-transcribe': { perMinute: 0.003 },
   'gpt-4o-transcribe': { perMinute: 0.006 },
 };
-/** Earned credits needed before a payout can be requested (2.3: USD 50); the dashboard's payout guide reads it. */
+/**
+ * The default site-wide payout minimum (2.3: USD 50): earned credits needed
+ * before a payout can be requested, until the console's payout page sets
+ * another (`payout_settings`). An account may carry its own minimum
+ * (`user.payout_min_credits`). Never compare against this directly: read
+ * the effective minimum (lib/services/payout-minimum.ts).
+ */
 export const PAYOUT_MIN_CREDITS = 500_000;
+/** The bounds an administrator may set a payout minimum within, site-wide or for one account. */
+export const PAYOUT_MIN_BOUNDS = { min: 1, max: 100_000_000 } as const;
 
 /* ------------------------------------------------------ payouts, 2.3 (step 6) */
 
