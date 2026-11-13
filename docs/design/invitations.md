@@ -10,8 +10,8 @@ Signup invitations with a site-wide quota of withdrawable rewards, one-time rewa
 | First Ree published | 2,500 | welcome | no | `task_first_ree` |
 | First question to a Ree (signed in) | 1,000 | welcome | no | `task_first_question` |
 | First comment on a Ree | 1,000 | welcome | no | `task_first_comment` |
-| Inviting someone who registers, within the quota | 5,000, to the inviter | earned, `withdrawable_at` = now, no `funding_purchase_id`, no `ree_id` | yes, through every payout gate | `invite_reward` |
-| The same, past the quota | the same amount | welcome | no | `invite_reward_gift` |
+| Inviting someone who registers, within the site quota and the inviter's cap (20) | 5,000, to the inviter | earned, `withdrawable_at` = now, no `funding_purchase_id`, no `ree_id` | yes, through every payout gate | `invite_reward` |
+| The same, past either limit | the same amount | welcome | no | `invite_reward_gift` |
 | Daily check-in (first 3 months, up to 30 days) | 1,500 per day | welcome | no | `check_in` |
 
 An amount of 0 turns that reward off. Amounts are read inside the transaction that pays them.
@@ -22,6 +22,7 @@ An amount of 0 turns that reward off. Amounts are read inside the transaction th
 - The link is `/login?invite=CODE`. The login form posts the code to `/api/auth/[provider]/start`; it travels in the sealed OAuth handshake and reaches `createSession`, which applies it only when it creates a new user row, in the same transaction as `grantWelcome`.
 - `invitation` (primary key `invitee_id`): inviter, code, the credits paid and whether they were withdrawable. Written by `attributeInvitation` under `pg_advisory_xact_lock(hashtext('invitations:quota'))`, after counting the withdrawable rows.
 - The quota (`withdrawable_invites`, default 1,000) is the site-wide number of invited registrations whose reward is withdrawable. It never closes invitations: every invited registration is attributed and paid; the first N pay withdrawable earned credits, later ones the same amount as gift credits. Lowering N below the count only makes later rewards gift credits; raising it converts nothing already paid. An invite reward of 0 attributes, pays nothing and uses no place.
+- Per-inviter cap (`withdrawable_invites_per_inviter`, default 20): an invitation pays withdrawable credits only while the site quota has a place **and** the inviter has had fewer withdrawable rewards than the cap. Otherwise it pays the same amount as gift credits (`invite_reward_gift`), and `invitation.gift_reason` records `site_quota` or `inviter_cap`; the site quota is named when both are reached. An inviter-capped invitation uses no site-wide place. Both counts are taken under the same `invitations:quota` lock. Lowering the cap affects later invitations only; raising it converts nothing; 0 makes every invitation reward gift credits.
 - Not attributed (registration still succeeds): unknown or malformed code, a disabled inviter, invitations switched off. The login page names the inviter; the invite tab says when invitations are off or the withdrawable places are used up.
 
 ## Payouts

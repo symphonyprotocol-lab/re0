@@ -59,6 +59,7 @@ const signUp = (name: string, invite?: unknown) => createSession(profile(uniqueN
 const ON = {
   invitesEnabled: true,
   withdrawableInvites: 1_000,
+  withdrawableInvitesPerInviter: 1_000,
   inviteCredits: 5_000,
   firstReeCredits: 2_500,
   firstQuestionCredits: 1_000,
@@ -96,7 +97,7 @@ describeWithDb('invitations and starter tasks', () => {
   it('defaults before the first save, and validates and serialises saves with an audit entry', async () => {
     await db().delete(schema.rewardSettings);
     expect(await rewardSettings()).toEqual({ ...INVITE_DEFAULTS, revision: 'default' });
-    for (const bad of [{ withdrawableInvites: -1 }, { checkInWindowMonths: 0 }, { checkInMaxDays: 3_651 }, { inviteCredits: 0.5 }, { firstReeCredits: 100_000_001 }, { invitesEnabled: 'yes' }, { firstCommentCredits: '10' }]) {
+    for (const bad of [{ withdrawableInvites: -1 }, { withdrawableInvitesPerInviter: -1 }, { withdrawableInvitesPerInviter: 1_000_001 }, { withdrawableInvitesPerInviter: 1.5 }, { checkInWindowMonths: 0 }, { checkInMaxDays: 3_651 }, { inviteCredits: 0.5 }, { firstReeCredits: 100_000_001 }, { invitesEnabled: 'yes' }, { firstCommentCredits: '10' }]) {
       await expect(saveRewardSettings(admin.id, { ...ON, ...bad, revision: 'default' })).rejects.toMatchObject({ code: 'invalid_reward_settings' });
     }
     const results = await Promise.allSettled([
@@ -237,6 +238,67 @@ describeWithDb('invitations and starter tasks', () => {
     const overview = await inviteOverview(admin);
     expect(overview).toMatchObject({ attributed: before.all + 11, withdrawableUsed: before.withdrawable + 4, state: 'open' });
     expect(overview.inviters.find((entry) => entry.id === inviter.userId)).toMatchObject({ invited: 11, credits: 50_000 });
+    await configure({});
+  });
+
+  it('caps withdrawable rewards per inviter, under concurrent sign-ups, without using site-wide places', async () => {
+    const siteUsed = async () => (await db().select({ n: sql<number>`count(*) filter (where withdrawable)::int` }).from(schema.invitation))[0]!.n;
+    const rowOf = async (userId: string) => (await db().select().from(schema.invitation).where(eq(schema.invitation.inviteeId, userId)))[0]!;
+    const inviterWith = async (name: string) => {
+      const user = await signUp(name);
+      return { user, code: await ensureInviteCode(db(), user.userId) };
+    };
+
+    /* Six sign-ups at once through one link, cap 3: three withdrawable, three gift, and only three site places used. */
+    const before = await siteUsed();
+    await configure({ withdrawableInvites: before + 100, withdrawableInvitesPerInviter: 3 });
+    const a = await inviterWith('cap-a');
+    const results = await Promise.all(Array.from({ length: 6 }, (_, index) => signUp(`cap-a-${index}`, a.code)));
+    expect(results.filter((result) => result.invitation === 'withdrawable')).toHaveLength(3);
+    expect(results.filter((result) => result.invitation === 'gift')).toHaveLength(3);
+    for (const result of results.filter((entry) => entry.invitation === 'gift')) expect((await rowOf(result.userId)).giftReason).toBe('inviter_cap');
+    expect(await siteUsed()).toBe(before + 3);
+    expect(await withdrawable(db(), a.user.userId)).toBe(3 * 5_000);
+    expect(await entriesOf(a.user.userId, 'invite_reward_gift')).toHaveLength(3);
+    expect(await invitePanel(a.user.userId)).toMatchObject({ ownWithdrawable: 3, ownCap: 3, withdrawableOpen: true, earnedWithdrawable: 15_000, earnedGift: 15_000 });
+    expect((await taskGuide(a.user.userId)).invite).toEqual({ credits: 5_000, withdrawable: false });
+
+    /* Another inviter still gets withdrawable rewards: the capped ones used no place. */
+    const b = await inviterWith('cap-b');
+    expect(await signUp('cap-b-1', b.code)).toMatchObject({ invitation: 'withdrawable' });
+    expect((await taskGuide(b.user.userId)).invite).toEqual({ credits: 5_000, withdrawable: true });
+
+    /* The site quota running out first is named as such, even under the inviter's own cap. */
+    await configure({ withdrawableInvites: (await siteUsed()) + 1, withdrawableInvitesPerInviter: 3 });
+    expect(await signUp('cap-b-2', b.code)).toMatchObject({ invitation: 'withdrawable' });
+    const siteFull = await signUp('cap-b-3', b.code);
+    expect(siteFull.invitation).toBe('gift');
+    expect((await rowOf(siteFull.userId)).giftReason).toBe('site_quota');
+    expect(await invitePanel(b.user.userId)).toMatchObject({ ownWithdrawable: 2, withdrawableOpen: false });
+
+    /* Lowering the cap revokes nothing; raising it converts nothing and pays the next one withdrawable again. */
+    await configure({ withdrawableInvites: (await siteUsed()) + 100, withdrawableInvitesPerInviter: 1 });
+    const lowered = await signUp('cap-b-4', b.code);
+    expect(lowered.invitation).toBe('gift');
+    expect((await rowOf(lowered.userId)).giftReason).toBe('inviter_cap');
+    expect(await withdrawable(db(), b.user.userId)).toBe(2 * 5_000);
+    await configure({ withdrawableInvites: (await siteUsed()) + 100, withdrawableInvitesPerInviter: 5 });
+    expect(await signUp('cap-b-5', b.code)).toMatchObject({ invitation: 'withdrawable' });
+    expect((await rowOf(lowered.userId)).withdrawable).toBe(false);
+    expect(await withdrawable(db(), b.user.userId)).toBe(3 * 5_000);
+
+    /* Cap 0: every invitation reward is gift credits, still attributed and paid. */
+    await configure({ withdrawableInvites: (await siteUsed()) + 100, withdrawableInvitesPerInviter: 0 });
+    const c = await inviterWith('cap-c');
+    const none = await signUp('cap-c-1', c.code);
+    expect(none.invitation).toBe('gift');
+    expect((await rowOf(none.userId)).giftReason).toBe('inviter_cap');
+    expect(await withdrawable(db(), c.user.userId)).toBe(0);
+
+    await configure({ withdrawableInvitesPerInviter: 3 });
+    const overview = await inviteOverview(admin);
+    expect(overview.invitersCapped).toBeGreaterThanOrEqual(2);
+    expect(overview.inviters.find((row) => row.id === a.user.userId)).toMatchObject({ invited: 6, withdrawable: 3, gift: 3 });
     await configure({});
   });
 

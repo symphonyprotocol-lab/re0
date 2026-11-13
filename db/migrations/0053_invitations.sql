@@ -13,9 +13,11 @@ CREATE TABLE "invitation" (
 	"code" text NOT NULL,
 	"reward_credits" integer NOT NULL,
 	"withdrawable" boolean NOT NULL,
+	"gift_reason" text,
 	"created_at" timestamp with time zone DEFAULT now() NOT NULL,
 	CONSTRAINT "invitation_self_check" CHECK (invitee_id <> inviter_id),
-	CONSTRAINT "invitation_reward_check" CHECK (reward_credits >= 0 and (reward_credits > 0 or not withdrawable))
+	CONSTRAINT "invitation_reward_check" CHECK (reward_credits >= 0 and (reward_credits > 0 or not withdrawable)),
+	CONSTRAINT "invitation_gift_reason_check" CHECK (gift_reason is null or (gift_reason in ('site_quota', 'inviter_cap') and not withdrawable and reward_credits > 0))
 );
 --> statement-breakpoint
 CREATE TABLE "invite_code" (
@@ -29,6 +31,7 @@ CREATE TABLE "reward_settings" (
 	"id" integer PRIMARY KEY DEFAULT 1 NOT NULL,
 	"invites_enabled" boolean NOT NULL,
 	"withdrawable_invites" integer NOT NULL,
+	"withdrawable_invites_per_inviter" integer NOT NULL,
 	"invite_credits" integer NOT NULL,
 	"first_ree_credits" integer NOT NULL,
 	"first_question_credits" integer NOT NULL,
@@ -40,7 +43,7 @@ CREATE TABLE "reward_settings" (
 	"updated_by" uuid,
 	"updated_at" timestamp with time zone DEFAULT now() NOT NULL,
 	CONSTRAINT "reward_settings_singleton_check" CHECK (id = 1),
-	CONSTRAINT "reward_settings_quota_check" CHECK (withdrawable_invites between 0 and 10000000),
+	CONSTRAINT "reward_settings_quota_check" CHECK (withdrawable_invites between 0 and 10000000 and withdrawable_invites_per_inviter between 0 and 1000000),
 	CONSTRAINT "reward_settings_credits_check" CHECK (invite_credits between 0 and 100000000 and first_ree_credits between 0 and 100000000 and first_question_credits between 0 and 100000000 and first_comment_credits between 0 and 100000000 and check_in_credits between 0 and 100000000),
 	CONSTRAINT "reward_settings_check_in_check" CHECK (check_in_max_days between 0 and 3650 and check_in_window_months between 1 and 120)
 );

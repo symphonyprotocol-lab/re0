@@ -12,7 +12,7 @@
  * and comments are not paid; its next one is. A reward stays when what
  * earned it is later deleted.
  */
-import { and, eq } from 'drizzle-orm';
+import { and, count, eq } from 'drizzle-orm';
 import { TASK_KINDS, TASK_REASON, TASK_SETTING, type TaskKind } from '@/lib/domain/invites';
 import { db, schema, type Tx } from '@/lib/infra/db';
 import { addGrant } from '@/lib/services/credits';
@@ -60,7 +60,7 @@ export interface TaskGuide {
  */
 export async function taskGuide(userId: string, now = new Date()): Promise<TaskGuide> {
   const database = db();
-  const [[user], paid, [welcome], { settings, state, withdrawableOpen }, checkIn] = await Promise.all([
+  const [[user], paid, [welcome], { settings, state, withdrawableOpen }, checkIn, [own]] = await Promise.all([
     database.select({ dismissedAt: schema.user.taskGuideDismissedAt }).from(schema.user).where(eq(schema.user.id, userId)).limit(1),
     database.select({ task: schema.taskReward.task, credits: schema.taskReward.credits }).from(schema.taskReward).where(eq(schema.taskReward.userId, userId)),
     database
@@ -70,6 +70,10 @@ export async function taskGuide(userId: string, now = new Date()): Promise<TaskG
       .limit(1),
     currentInviteState(database),
     checkInStatus(userId, now),
+    database
+      .select({ n: count() })
+      .from(schema.invitation)
+      .where(and(eq(schema.invitation.inviterId, userId), eq(schema.invitation.withdrawable, true))),
   ]);
   const items: TaskGuideItem[] = [{ key: 'signup', done: true, credits: welcome?.delta ?? null }];
   for (const task of TASK_KINDS) {
@@ -85,7 +89,7 @@ export async function taskGuide(userId: string, now = new Date()): Promise<TaskG
     checkInOnly: Boolean(user?.dismissedAt) && checkIn.state === 'available',
     items,
     checkIn: shownCheckIn,
-    invite: state === 'open' && settings.inviteCredits > 0 ? { credits: settings.inviteCredits, withdrawable: withdrawableOpen } : null,
+    invite: state === 'open' && settings.inviteCredits > 0 ? { credits: settings.inviteCredits, withdrawable: withdrawableOpen && (own?.n ?? 0) < settings.withdrawableInvitesPerInviter } : null,
   };
 }
 

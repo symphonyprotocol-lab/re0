@@ -8,17 +8,19 @@
  * An invitation is attributed when a new user row is created through a
  * known code of an active account while invitations are switched on; an
  * invite never blocks signing up. The inviter is paid `invite_credits` each
- * time. The first `withdrawable_invites` paid invitations site-wide pay
- * withdrawable earned credits (no maturity wait, no Ree, no funding
- * purchase, so no refund voids them; payouts still apply every gate); later
- * ones pay the same amount as gift credits. Which one is decided by counting
- * the withdrawable rows under one advisory lock, so concurrent sign-ups never
- * pass the quota; the row records which it was.
+ * time. An invitation pays withdrawable earned credits (no maturity wait, no
+ * Ree, no funding purchase, so no refund voids them; payouts still apply
+ * every gate) while the site-wide quota (`withdrawable_invites`) has a place
+ * and the inviter has had fewer than `withdrawable_invites_per_inviter`
+ * withdrawable rewards; otherwise it pays the same amount as gift credits,
+ * and the row records which limit was reached (`gift_reason`). Only a
+ * withdrawable reward uses a site-wide place. Both counts are taken under
+ * one advisory lock, so concurrent sign-ups never pass either limit.
  */
 import { randomUUID } from 'node:crypto';
 import { and, count, desc, eq, isNull, sql } from 'drizzle-orm';
 import { INVITE_DEFAULTS, INVITEES_SHOWN } from '@/lib/constants';
-import { inviteState, nextInviteWithdrawable, normalizeInviteCode, parseRewardSettings, randomInviteCode, type InviteState, type RewardSettings } from '@/lib/domain/invites';
+import { inviteRewardKind, inviteState, siteQuotaOpen, normalizeInviteCode, parseRewardSettings, randomInviteCode, type InviteState, type RewardSettings } from '@/lib/domain/invites';
 import { db, schema, type Executor, type Tx } from '@/lib/infra/db';
 import { AdminInputError, assertConsole, audit, type Administrator } from '@/lib/services/admin';
 import { addGrant } from '@/lib/services/credits';
@@ -33,6 +35,7 @@ export async function rewardSettings(executor: Executor = db()): Promise<RewardS
     .select({
       invitesEnabled: schema.rewardSettings.invitesEnabled,
       withdrawableInvites: schema.rewardSettings.withdrawableInvites,
+      withdrawableInvitesPerInviter: schema.rewardSettings.withdrawableInvitesPerInviter,
       inviteCredits: schema.rewardSettings.inviteCredits,
       firstReeCredits: schema.rewardSettings.firstReeCredits,
       firstQuestionCredits: schema.rewardSettings.firstQuestionCredits,
@@ -99,6 +102,15 @@ async function inviterOf(executor: Executor, code: string): Promise<{ id: string
   return row ?? null;
 }
 
+/** How many withdrawable invite rewards one inviter has had. */
+async function inviterWithdrawable(executor: Executor, inviterId: string): Promise<number> {
+  const [row] = await executor
+    .select({ n: count() })
+    .from(schema.invitation)
+    .where(and(eq(schema.invitation.inviterId, inviterId), eq(schema.invitation.withdrawable, true)));
+  return row?.n ?? 0;
+}
+
 async function invitationCounts(executor: Executor): Promise<{ attributed: number; withdrawable: number }> {
   const [row] = await executor
     .select({ attributed: count(), withdrawable: sql<number>`count(*) filter (where ${schema.invitation.withdrawable})::int` })
@@ -127,8 +139,10 @@ export async function attributeInvitation(tx: Tx, inviteeId: string, rawCode: un
   const settings = await rewardSettings(tx);
   if (inviteState(settings) !== 'open') return 'closed';
   const credits = settings.inviteCredits;
-  const withdrawable = nextInviteWithdrawable(settings, (await invitationCounts(tx)).withdrawable);
-  await tx.insert(schema.invitation).values({ inviteeId, inviterId: inviter.id, code, rewardCredits: credits, withdrawable, createdAt: now });
+  const kind = credits > 0 ? inviteRewardKind(settings, (await invitationCounts(tx)).withdrawable, await inviterWithdrawable(tx, inviter.id)) : null;
+  const withdrawable = kind === 'withdrawable';
+  const giftReason = kind === 'site_quota' || kind === 'inviter_cap' ? kind : null;
+  await tx.insert(schema.invitation).values({ inviteeId, inviterId: inviter.id, code, rewardCredits: credits, withdrawable, giftReason, createdAt: now });
   if (credits === 0) return 'unpaid';
   if (withdrawable) {
     /* Withdrawable at once (no maturity wait); no funding purchase, so no refund can void it. */
@@ -158,7 +172,7 @@ export async function currentInviteState(executor: Executor = db()): Promise<Inv
     settings,
     attributed: counts.attributed,
     withdrawableUsed: counts.withdrawable,
-    withdrawableOpen: nextInviteWithdrawable(settings, counts.withdrawable),
+    withdrawableOpen: siteQuotaOpen(settings, counts.withdrawable),
   };
 }
 
@@ -178,8 +192,11 @@ export interface InvitePanel {
   /** Whether the site-wide quota still has withdrawable rewards left, and its size. */
   withdrawableOpen: boolean;
   withdrawableQuota: number;
+  /** This inviter's withdrawable rewards so far, and their own cap. */
+  ownWithdrawable: number;
+  ownCap: number;
   /** Everyone this account invited, newest first (the newest `INVITEES_SHOWN`). */
-  invitees: { name: string; avatarBlob: string | null; createdAt: Date; rewardCredits: number; withdrawable: boolean }[];
+  invitees: { name: string; avatarBlob: string | null; createdAt: Date; rewardCredits: number; withdrawable: boolean; giftReason: 'site_quota' | 'inviter_cap' | null }[];
   total: number;
   earnedWithdrawable: number;
   earnedGift: number;
@@ -198,6 +215,7 @@ export async function invitePanel(userId: string): Promise<InvitePanel> {
         createdAt: schema.invitation.createdAt,
         rewardCredits: schema.invitation.rewardCredits,
         withdrawable: schema.invitation.withdrawable,
+        giftReason: schema.invitation.giftReason,
       })
       .from(schema.invitation)
       .innerJoin(schema.user, eq(schema.user.id, schema.invitation.inviteeId))
@@ -207,6 +225,7 @@ export async function invitePanel(userId: string): Promise<InvitePanel> {
     database
       .select({
         total: count(),
+        withdrawableCount: sql<number>`count(*) filter (where ${schema.invitation.withdrawable})::int`,
         withdrawable: sql<number>`coalesce(sum(${schema.invitation.rewardCredits}) filter (where ${schema.invitation.withdrawable}), 0)::bigint`,
         gift: sql<number>`coalesce(sum(${schema.invitation.rewardCredits}) filter (where not ${schema.invitation.withdrawable}), 0)::bigint`,
       })
@@ -219,6 +238,8 @@ export async function invitePanel(userId: string): Promise<InvitePanel> {
     inviteCredits: site.settings.inviteCredits,
     withdrawableOpen: site.withdrawableOpen,
     withdrawableQuota: site.settings.withdrawableInvites,
+    ownWithdrawable: Number(totals?.withdrawableCount ?? 0),
+    ownCap: site.settings.withdrawableInvitesPerInviter,
     invitees,
     total: totals?.total ?? 0,
     earnedWithdrawable: Number(totals?.withdrawable ?? 0),
@@ -237,15 +258,17 @@ export interface InviteOverview {
   creditsGift: number;
   tasks: { task: string; accounts: number; credits: number }[];
   checkIns: { count: number; accounts: number; credits: number };
-  inviters: { id: string; name: string; email: string; invited: number; credits: number }[];
-  recent: { inviteeId: string; inviteeName: string; inviterId: string; inviterName: string; code: string; rewardCredits: number; withdrawable: boolean; createdAt: Date }[];
+  /** Inviters who have had as many withdrawable rewards as the per-inviter cap allows. */
+  invitersCapped: number;
+  inviters: { id: string; name: string; email: string; invited: number; withdrawable: number; gift: number; credits: number }[];
+  recent: { inviteeId: string; inviteeName: string; inviterId: string; inviterName: string; code: string; rewardCredits: number; withdrawable: boolean; giftReason: 'site_quota' | 'inviter_cap' | null; createdAt: Date }[];
 }
 
 /** The console's 邀请与任务 page: the settings, the withdrawable quota's use, credits paid of each kind, check-ins, the leading inviters and the latest invitations. */
 export async function inviteOverview(administrator: Administrator): Promise<InviteOverview> {
   assertConsole(administrator);
   const database = db();
-  const [{ settings, state, attributed, withdrawableUsed }, [paid], [checkIns], tasks, inviters, recent] = await Promise.all([
+  const [{ settings, state, attributed, withdrawableUsed }, [paid], [checkIns], tasks, inviters, recent, capped] = await Promise.all([
     currentInviteState(database),
     database
       .select({
@@ -266,6 +289,8 @@ export async function inviteOverview(administrator: Administrator): Promise<Invi
         name: schema.user.name,
         email: schema.user.email,
         invited: count(),
+        withdrawable: sql<number>`count(*) filter (where ${schema.invitation.withdrawable})::int`,
+        gift: sql<number>`count(*) filter (where not ${schema.invitation.withdrawable} and ${schema.invitation.rewardCredits} > 0)::int`,
         credits: sql<number>`coalesce(sum(${schema.invitation.rewardCredits}), 0)::bigint`,
       })
       .from(schema.invitation)
@@ -274,12 +299,18 @@ export async function inviteOverview(administrator: Administrator): Promise<Invi
       .orderBy(desc(count()), schema.user.name)
       .limit(20),
     database.execute(sql`
-      select i.invitee_id, invitee.name as invitee_name, i.inviter_id, inviter.name as inviter_name, i.code, i.reward_credits, i.withdrawable, i.created_at
+      select i.invitee_id, invitee.name as invitee_name, i.inviter_id, inviter.name as inviter_name, i.code, i.reward_credits, i.withdrawable, i.gift_reason, i.created_at
       from invitation i
       join "user" invitee on invitee.id = i.invitee_id
       join "user" inviter on inviter.id = i.inviter_id
       order by i.created_at desc
       limit 20
+    `),
+    database.execute(sql`
+      select count(*)::int as n from (
+        select inviter_id from invitation where withdrawable group by inviter_id
+        having count(*) >= (select coalesce((select withdrawable_invites_per_inviter from reward_settings where id = 1), ${INVITE_DEFAULTS.withdrawableInvitesPerInviter}))
+      ) capped
     `),
   ]);
   return {
@@ -290,10 +321,11 @@ export async function inviteOverview(administrator: Administrator): Promise<Invi
     creditsWithdrawable: Number(paid?.withdrawable ?? 0),
     creditsGift: Number(paid?.gift ?? 0),
     checkIns: { count: checkIns?.count ?? 0, accounts: Number(checkIns?.accounts ?? 0), credits: Number(checkIns?.credits ?? 0) },
+    invitersCapped: Number((capped.rows[0] as { n?: number } | undefined)?.n ?? 0),
     tasks: tasks.map((row) => ({ ...row, credits: Number(row.credits) })),
-    inviters: inviters.map((row) => ({ ...row, credits: Number(row.credits) })),
+    inviters: inviters.map((row) => ({ ...row, withdrawable: Number(row.withdrawable), gift: Number(row.gift), credits: Number(row.credits) })),
     recent: (
-      recent.rows as { invitee_id: string; invitee_name: string; inviter_id: string; inviter_name: string; code: string; reward_credits: number; withdrawable: boolean; created_at: string | Date }[]
+      recent.rows as { invitee_id: string; invitee_name: string; inviter_id: string; inviter_name: string; code: string; reward_credits: number; withdrawable: boolean; gift_reason: 'site_quota' | 'inviter_cap' | null; created_at: string | Date }[]
     ).map((row) => ({
       inviteeId: row.invitee_id,
       inviteeName: row.invitee_name,
@@ -302,6 +334,7 @@ export async function inviteOverview(administrator: Administrator): Promise<Invi
       code: row.code,
       rewardCredits: Number(row.reward_credits),
       withdrawable: row.withdrawable,
+      giftReason: row.gift_reason,
       createdAt: new Date(row.created_at),
     })),
   };

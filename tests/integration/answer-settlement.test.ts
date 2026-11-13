@@ -481,7 +481,7 @@ describeWithDb('one ask, one hold (review C2)', () => {
 describeWithDb('starter task rewards and invite-funded fees through the real question flow', () => {
   /* Every other suite runs with these rewards off (setup.ts); here they are on, as in production. */
   async function rewardsOn(values: Partial<typeof schema.rewardSettings.$inferInsert> = {}) {
-    const row = { invitesEnabled: true, withdrawableInvites: 1_000, inviteCredits: 0, firstReeCredits: 2_500, firstQuestionCredits: 1_000, firstCommentCredits: 1_000, checkInCredits: 0, checkInMaxDays: 30, checkInWindowMonths: 3, revision: randomUUID(), updatedBy: null, ...values };
+    const row = { invitesEnabled: true, withdrawableInvites: 1_000, withdrawableInvitesPerInviter: 20, inviteCredits: 0, firstReeCredits: 2_500, firstQuestionCredits: 1_000, firstCommentCredits: 1_000, checkInCredits: 0, checkInMaxDays: 30, checkInWindowMonths: 3, revision: randomUUID(), updatedBy: null, ...values };
     await db().insert(schema.rewardSettings).values(row).onConflictDoUpdate({ target: schema.rewardSettings.id, set: row });
   }
   afterAll(resetRewardSettings);

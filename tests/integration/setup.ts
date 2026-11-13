@@ -63,6 +63,7 @@ export async function resetRewardSettings(): Promise<void> {
   const off = {
     invitesEnabled: true,
     withdrawableInvites: 1_000,
+    withdrawableInvitesPerInviter: 20,
     inviteCredits: 0,
     firstReeCredits: 0,
     firstQuestionCredits: 0,

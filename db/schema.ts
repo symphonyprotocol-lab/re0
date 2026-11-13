@@ -1687,6 +1687,8 @@ export const rewardSettings = pgTable('reward_settings', {
   id: integer('id').primaryKey().default(1),
   invitesEnabled: boolean('invites_enabled').notNull(),
   withdrawableInvites: integer('withdrawable_invites').notNull(),
+  /** Per inviter: at most this many of their invitations pay a withdrawable reward; later ones pay gift credits. */
+  withdrawableInvitesPerInviter: integer('withdrawable_invites_per_inviter').notNull(),
   inviteCredits: integer('invite_credits').notNull(),
   firstReeCredits: integer('first_ree_credits').notNull(),
   firstQuestionCredits: integer('first_question_credits').notNull(),
@@ -1699,7 +1701,7 @@ export const rewardSettings = pgTable('reward_settings', {
   updatedAt: timestampTz('updated_at').notNull().defaultNow(),
 }, () => [
   check('reward_settings_singleton_check', sql`id = 1`),
-  check('reward_settings_quota_check', sql`withdrawable_invites between 0 and 10000000`),
+  check('reward_settings_quota_check', sql`withdrawable_invites between 0 and 10000000 and withdrawable_invites_per_inviter between 0 and 1000000`),
   check(
     'reward_settings_credits_check',
     sql`invite_credits between 0 and 100000000 and first_ree_credits between 0 and 100000000 and first_question_credits between 0 and 100000000 and first_comment_credits between 0 and 100000000 and check_in_credits between 0 and 100000000`,
@@ -1739,12 +1741,15 @@ export const invitation = pgTable(
     code: text('code').notNull(),
     rewardCredits: integer('reward_credits').notNull(),
     withdrawable: boolean('withdrawable').notNull(),
+    /** Why a paid reward was gift credits: the site-wide quota was used up, or the inviter's own cap was reached. */
+    giftReason: text('gift_reason').$type<'site_quota' | 'inviter_cap'>(),
     createdAt: createdAt(),
   },
   (t) => [
     index('invitation_inviter_idx').on(t.inviterId, t.createdAt),
     check('invitation_self_check', sql`invitee_id <> inviter_id`),
     check('invitation_reward_check', sql`reward_credits >= 0 and (reward_credits > 0 or not withdrawable)`),
+    check('invitation_gift_reason_check', sql`gift_reason is null or (gift_reason in ('site_quota', 'inviter_cap') and not withdrawable and reward_credits > 0)`),
   ],
 );
 

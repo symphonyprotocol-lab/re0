@@ -23,6 +23,8 @@ export const WELCOME_CREDITS = 100_000;
 export const INVITE_DEFAULTS = {
   invitesEnabled: true,
   withdrawableInvites: 1_000,
+  /** Per inviter: withdrawable rewards for at most this many invitations; later ones are gift credits. */
+  withdrawableInvitesPerInviter: 20,
   inviteCredits: 5_000,
   firstReeCredits: 2_500,
   firstQuestionCredits: 1_000,
@@ -34,6 +36,7 @@ export const INVITE_DEFAULTS = {
 /** The bounds the console accepts: amounts as the welcome gift's, the quota up to ten million. */
 export const REWARD_CREDITS_MAX = 100_000_000;
 export const WITHDRAWABLE_INVITES_MAX = 10_000_000;
+export const WITHDRAWABLE_INVITES_PER_INVITER_MAX = 1_000_000;
 export const CHECK_IN_MAX_DAYS_MAX = 3_650;
 export const CHECK_IN_WINDOW_MONTHS_MAX = 120;
 /** The one time zone a check-in day is counted in (UTC+8), always on the server. */

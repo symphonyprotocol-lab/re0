@@ -7,7 +7,7 @@ import { welcomeCredits } from '@/lib/services/signup-reward';
 import { serverMessages } from '@/i18n/server';
 import { fill, formatDateTime, formatNumber } from '@/i18n/format';
 import { ConsolePage, ConsoleTopbar } from '@/components/admin/console-topbar';
-import { PageHead, RecordsTable, SummaryCards, Tag } from '@/components/admin/list-kit';
+import { PageHead, RecordsTable, SummaryCards, Subline, Tag } from '@/components/admin/list-kit';
 import { CI } from '@/components/admin/console-icon';
 import { InvitesForm } from '@/components/admin/invites-form';
 
@@ -42,6 +42,7 @@ export default async function InvitesPage() {
             { label: a.cards.state, value: <Tag tone={overview.state === 'open' ? 'green' : 'orange'}>{a.states[overview.state]}</Tag> },
             { label: a.cards.quota, value: fill(a.cards.quotaOf, { n: n(overview.withdrawableUsed), quota: n(overview.settings.withdrawableInvites) }) },
             { label: a.cards.attributed, value: n(overview.attributed) },
+            { label: a.cards.capped, value: n(overview.invitersCapped) },
             { label: a.cards.withdrawable, value: n(overview.creditsWithdrawable) },
             { label: a.cards.gift, value: n(overview.creditsGift) },
             { label: a.cards.tasks, value: n(taskCredits) },
@@ -66,13 +67,16 @@ export default async function InvitesPage() {
           <RecordsTable
             label={table}
             empty={a.inviters.empty}
-            head={[a.inviters.user, a.inviters.invited, a.inviters.credits]}
+            head={[a.inviters.user, a.inviters.invited, a.inviters.split, a.inviters.credits]}
             rows={overview.inviters.map((row) => [
               <Link key="user" href={`/admin/users/${row.id}`} className="text-link">
                 {row.name}
                 <small className="muted"> · {row.email}</small>
               </Link>,
               <span key="invited" className="mono">{n(row.invited)}</span>,
+              <span key="split" className="mono">
+                {n(row.withdrawable)} / {n(row.gift)}
+              </span>,
               <span key="credits" className="mono">{n(row.credits)}</span>,
             ])}
           />
@@ -93,6 +97,7 @@ export default async function InvitesPage() {
               <span key="code" className="mono">{row.code}</span>,
               <span key="reward" className="mono">
                 {n(row.rewardCredits)} {row.rewardCredits > 0 && <Tag tone={row.withdrawable ? 'green' : 'grey'}>{a.kinds[row.withdrawable ? 'withdrawable' : 'gift']}</Tag>}
+                {row.giftReason && <Subline>{a.giftReasons[row.giftReason]}</Subline>}
               </span>,
               formatDateTime(row.createdAt, locale),
             ])}

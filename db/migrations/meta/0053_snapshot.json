@@ -1,5 +1,5 @@
 {
-  "id": "9177b93b-262f-4eff-9ab2-1a851e402e45",
+  "id": "b2af4b44-bcbf-4f33-ac03-8e0d0ebf9cbd",
   "prevId": "be72d218-bf93-438d-a32a-9b68911b92e8",
   "version": "7",
   "dialect": "postgresql",
@@ -2674,6 +2674,12 @@
           "primaryKey": false,
           "notNull": true
         },
+        "gift_reason": {
+          "name": "gift_reason",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false
+        },
         "created_at": {
           "name": "created_at",
           "type": "timestamp with time zone",
@@ -2744,6 +2750,10 @@
         "invitation_reward_check": {
           "name": "invitation_reward_check",
           "value": "reward_credits >= 0 and (reward_credits > 0 or not withdrawable)"
+        },
+        "invitation_gift_reason_check": {
+          "name": "invitation_gift_reason_check",
+          "value": "gift_reason is null or (gift_reason in ('site_quota', 'inviter_cap') and not withdrawable and reward_credits > 0)"
         }
       },
       "isRLSEnabled": false
@@ -6950,6 +6960,12 @@
           "primaryKey": false,
           "notNull": true
         },
+        "withdrawable_invites_per_inviter": {
+          "name": "withdrawable_invites_per_inviter",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": true
+        },
         "invite_credits": {
           "name": "invite_credits",
           "type": "integer",
@@ -7039,7 +7055,7 @@
         },
         "reward_settings_quota_check": {
           "name": "reward_settings_quota_check",
-          "value": "withdrawable_invites between 0 and 10000000"
+          "value": "withdrawable_invites between 0 and 10000000 and withdrawable_invites_per_inviter between 0 and 1000000"
         },
         "reward_settings_credits_check": {
           "name": "reward_settings_credits_check",

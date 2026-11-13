@@ -27,7 +27,7 @@ export async function InviteTab({ panel }: { panel: InvitePanel }) {
         <p>{panel.inviteCredits > 0 ? fill(p.lede, { n: n(panel.inviteCredits) }) : p.ledeOff}</p>
         {panel.inviteCredits > 0 && panel.withdrawableQuota > 0 && (
           <p>
-            {fill(p.withdrawableNote, { quota: n(panel.withdrawableQuota) })}{' '}
+            {fill(p.withdrawableNote, { quota: n(panel.withdrawableQuota), cap: n(panel.ownCap) })}{' '}
             <Link href="/settings?tab=balance" className="text-link">
               {p.payoutLink}
             </Link>
@@ -37,14 +37,20 @@ export async function InviteTab({ panel }: { panel: InvitePanel }) {
           <p role="status" className="role-state-note">
             {p.closed}
           </p>
+        ) : panel.inviteCredits > 0 && !panel.withdrawableOpen ? (
+          /* The site-wide quota is named first: it applies to everyone, whatever their own count. */
+          <p role="status" className="role-state-note">
+            {p.quotaUsed}
+          </p>
         ) : (
           panel.inviteCredits > 0 &&
-          !panel.withdrawableOpen && (
+          panel.ownWithdrawable >= panel.ownCap && (
             <p role="status" className="role-state-note">
-              {p.quotaUsed}
+              {fill(p.ownCapReached, { cap: n(panel.ownCap) })}
             </p>
           )
         )}
+        {panel.inviteCredits > 0 && panel.ownCap > 0 && <p>{fill(p.ownProgress, { used: n(Math.min(panel.ownWithdrawable, panel.ownCap)), cap: n(panel.ownCap) })}</p>}
         <div className="invite-fields">
           <label>
             {p.code}
@@ -86,7 +92,9 @@ export async function InviteTab({ panel }: { panel: InvitePanel }) {
                   <span>{fill(p.joined, { date: formatDate(invitee.createdAt, locale) })}</span>
                 </div>
                 <small className="mono">
-                  {invitee.rewardCredits > 0 ? `+${n(invitee.rewardCredits)} · ${p.kinds[invitee.withdrawable ? 'withdrawable' : 'gift']}` : p.noReward}
+                  {invitee.rewardCredits > 0
+                    ? `+${n(invitee.rewardCredits)} · ${p.kinds[invitee.withdrawable ? 'withdrawable' : 'gift']}${invitee.giftReason ? ` (${p.giftReasons[invitee.giftReason]})` : ''}`
+                    : p.noReward}
                 </small>
               </div>
             ))}

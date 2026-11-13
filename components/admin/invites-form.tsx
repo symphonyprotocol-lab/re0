@@ -78,6 +78,7 @@ export function InvitesForm({ initial, welcomeCredits }: { initial: RewardSettin
               onChange={(e) => setValues({ ...values, [field]: e.target.value })}
             />
             {field === 'withdrawableInvites' && <small className="muted">{f.withdrawableInvitesHint}</small>}
+            {field === 'withdrawableInvitesPerInviter' && <small className="muted">{f.withdrawableInvitesPerInviterHint}</small>}
           </label>
         ))}
         <button className="btn" type="submit">

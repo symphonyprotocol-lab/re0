@@ -11,6 +11,7 @@ import {
   INVITE_CODE_LENGTH,
   REWARD_CREDITS_MAX,
   WITHDRAWABLE_INVITES_MAX,
+  WITHDRAWABLE_INVITES_PER_INVITER_MAX,
 } from '@/lib/constants';
 import type { CreditEntryReason } from '@/db/schema';
 
@@ -49,6 +50,8 @@ export interface RewardSettings {
   invitesEnabled: boolean;
   /** Site-wide: how many invited registrations pay a withdrawable reward; later ones pay gift credits. */
   withdrawableInvites: number;
+  /** Per inviter: how many of their invitations may pay a withdrawable reward. */
+  withdrawableInvitesPerInviter: number;
   inviteCredits: number;
   firstReeCredits: number;
   firstQuestionCredits: number;
@@ -65,6 +68,7 @@ export type RewardAmountField = (typeof REWARD_AMOUNT_FIELDS)[number];
 /** Every number the console edits, with its upper bound (all from 0, except the window from 1). */
 export const REWARD_NUMBER_BOUNDS = {
   withdrawableInvites: WITHDRAWABLE_INVITES_MAX,
+  withdrawableInvitesPerInviter: WITHDRAWABLE_INVITES_PER_INVITER_MAX,
   inviteCredits: REWARD_CREDITS_MAX,
   firstReeCredits: REWARD_CREDITS_MAX,
   firstQuestionCredits: REWARD_CREDITS_MAX,
@@ -95,9 +99,26 @@ export function inviteState(settings: Pick<RewardSettings, 'invitesEnabled'>): I
   return settings.invitesEnabled ? 'open' : 'closed';
 }
 
-/** Whether the next attributed registration's reward is withdrawable: while fewer than the quota have been. */
-export function nextInviteWithdrawable(settings: Pick<RewardSettings, 'withdrawableInvites' | 'inviteCredits'>, withdrawableSoFar: number): boolean {
+/** Whether the site-wide quota still has a withdrawable place. */
+export function siteQuotaOpen(settings: Pick<RewardSettings, 'withdrawableInvites' | 'inviteCredits'>, withdrawableSoFar: number): boolean {
   return settings.inviteCredits > 0 && withdrawableSoFar < settings.withdrawableInvites;
+}
+
+export type InviteRewardKind = 'withdrawable' | 'site_quota' | 'inviter_cap';
+
+/**
+ * What the next invitation of one inviter pays: withdrawable while both the
+ * site-wide quota has a place and the inviter is under their own cap;
+ * otherwise gift credits, and which limit was reached. The site quota is
+ * named first when both are reached. Only a withdrawable reward uses a place.
+ */
+export function inviteRewardKind(
+  settings: Pick<RewardSettings, 'withdrawableInvites' | 'withdrawableInvitesPerInviter' | 'inviteCredits'>,
+  siteWithdrawable: number,
+  inviterWithdrawable: number,
+): InviteRewardKind {
+  if (!siteQuotaOpen(settings, siteWithdrawable)) return 'site_quota';
+  return inviterWithdrawable < settings.withdrawableInvitesPerInviter ? 'withdrawable' : 'inviter_cap';
 }
 
 /* ---------------------------------------------------------- check-ins */
