@@ -1,7 +1,5 @@
-import { welcomeCredits } from '@/lib/services/signup-reward';
-import { sitePayoutMinimum } from '@/lib/services/payout-minimum';
-import { formatCreditsUsd } from '@/lib/domain/payouts';
-import { fill, formatNumber } from '@/i18n/format';
+import { publicCopyValues } from '@/lib/services/public-copy';
+import { fill } from '@/i18n/format';
 import type { Metadata } from 'next';
 import { serverMessages } from '@/i18n/server';
 import { LegalDocument } from '@/components/site/legal-document';
@@ -17,8 +15,9 @@ export async function generateMetadata(): Promise<Metadata> {
 
 /** `/legal/terms`. */
 export default async function TermsPage() {
-  const [{ t, locale }, welcome, payoutMin] = await Promise.all([serverMessages(), welcomeCredits(), sitePayoutMinimum()]);
-  const values = { welcomeCredits: formatNumber(welcome.credits, locale), payoutMinCredits: formatNumber(payoutMin.credits, locale), payoutMinUsd: formatCreditsUsd(payoutMin.credits) };
+  const { t, locale } = await serverMessages();
+  /* Every number the terms state comes from the console's current settings. */
+  const values = await publicCopyValues(t, locale);
   const d = t.legal.terms;
   return (
     <LegalDocument

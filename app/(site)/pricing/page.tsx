@@ -4,8 +4,7 @@ import type { Metadata } from 'next';
 import { WorkspaceLink as Link } from '@/components/shell/workspace-link';
 import type { ReactNode } from 'react';
 import { welcomeCredits } from '@/lib/services/signup-reward';
-import { sitePayoutMinimum } from '@/lib/services/payout-minimum';
-import { formatCreditsUsd } from '@/lib/domain/payouts';
+import { publicCopyValues } from '@/lib/services/public-copy';
 import { videoExportPrice, videoScriptPrice } from '@/lib/services/video-pricing';
 import { currentUser } from '@/lib/http/session';
 import { db } from '@/lib/infra/db';
@@ -32,9 +31,10 @@ export async function generateMetadata(): Promise<Metadata> {
  * class names follow the prototype; pricing.css carries its styles.
  */
 export default async function PricingPage() {
-  const [user, { t, locale }, prices, welcome, scriptPrice, exportPrice, payoutMin] = await Promise.all([
-    currentUser(), serverMessages(), currentPricing(), welcomeCredits(), videoScriptPrice(), videoExportPrice(), sitePayoutMinimum(),
+  const [user, { t, locale }, prices, welcome, scriptPrice, exportPrice] = await Promise.all([
+    currentUser(), serverMessages(), currentPricing(), welcomeCredits(), videoScriptPrice(), videoExportPrice(),
   ]);
+  const publicValues = await publicCopyValues(t, locale);
   const p = t.site.pricing;
   const planActive = user ? await hasActivePlan(db(), user.id) : false;
   const packLocked = Boolean(user) && !planActive;
@@ -42,10 +42,8 @@ export default async function PricingPage() {
   const videoPrices = {
     scriptCredits: formatNumber(scriptPrice.credits, locale),
     exportCredits: formatNumber(exportPrice.credits, locale),
-    payoutMinCredits: formatNumber(payoutMin.credits, locale),
-    payoutMinUsd: formatCreditsUsd(payoutMin.credits),
   };
-  const faqValues = { ...pricingFaqValues(prices, locale, t.site.prices), ...videoPrices };
+  const faqValues = { ...pricingFaqValues(prices, locale, t.site.prices), ...videoPrices, ...publicValues };
   return (
     <div className="marketing-wrap pricing-page">
       <JsonLd data={pricingJsonLd(prices, locale, p.lede)} />

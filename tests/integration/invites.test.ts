@@ -5,7 +5,10 @@ import { resetRewardSettings, TEST_DATABASE_URL, uniqueName } from './setup';
 import { db, schema } from '@/lib/infra/db';
 import { INVITE_DEFAULTS } from '@/lib/constants';
 import { beginOAuth, completeOAuth, createSession, type IdentityAdapter } from '@/lib/services/auth';
-import { balanceOf, creditQueryFee, placeHold, settleHold } from '@/lib/services/credits';
+import { addGrant, balanceOf, creditQueryFee, placeHold, settleHold } from '@/lib/services/credits';
+import { publicCopyValues } from '@/lib/services/public-copy';
+import { messages } from '@/i18n';
+import { fill } from '@/i18n/format';
 import { payoutFunding } from '@/lib/services/payout-funding';
 import * as callback from '@/app/api/auth/[provider]/callback/route';
 import { HANDSHAKE_COOKIE } from '@/lib/http/cookies';
@@ -18,7 +21,7 @@ import { holdQuestion } from '@/lib/services/answer';
 import { testConversation } from '@/lib/services/chat';
 import type { Administrator } from '@/lib/services/admin';
 import { checkIn, checkInStatus } from '@/lib/services/check-in';
-import { checkInDay } from '@/lib/domain/invites';
+import { checkInDay, invitePanelCopy } from '@/lib/domain/invites';
 import { payoutStanding, requestPayout, setPaypalEmail, withdrawable } from '@/lib/services/payouts';
 import * as kyc from '@/lib/services/kyc';
 import { PAYOUT_MIN_CREDITS } from '@/lib/constants';
@@ -300,6 +303,85 @@ describeWithDb('invitations and starter tasks', () => {
     expect(overview.invitersCapped).toBeGreaterThanOrEqual(2);
     expect(overview.inviters.find((row) => row.id === a.user.userId)).toMatchObject({ invited: 6, withdrawable: 3, gift: 3 });
     await configure({});
+  });
+
+  it('states the configured quota and per-inviter limit in the terms and FAQ, and plain gift wording at 0', async () => {
+    const termsBody = (locale: 'zh' | 'en', values: Record<string, string>) => fill(messages(locale).legal.terms.s7.body, values);
+    const faq = (locale: 'zh' | 'en', values: Record<string, string>) => fill(messages(locale).site.faq.q5.a, values);
+
+    await configure({ withdrawableInvites: 1_234, withdrawableInvitesPerInviter: 7 });
+    const zh = await publicCopyValues(messages('zh'), 'zh');
+    const en = await publicCopyValues(messages('en'), 'en');
+    expect(termsBody('zh', zh)).toContain('前 1,234 位受邀注册');
+    expect(termsBody('zh', zh)).toContain('最多对应 7 位受邀注册');
+    expect(termsBody('en', en)).toContain('For the first 1,234 invited sign-ups site-wide');
+    expect(termsBody('en', en)).toContain('for at most 7 invited sign-ups');
+    expect(faq('zh', zh)).toContain('全站前 1,234 位受邀注册、且每个账号最多 7 位');
+    expect(faq('en', en)).toContain('the first 1,234 invited sign-ups site-wide, and at most 7 per account');
+    for (const text of [termsBody('zh', zh), termsBody('en', en), faq('zh', zh), faq('en', en)]) expect(text).not.toMatch(/\{\w+\}|1,000|currently 20|目前为 20/);
+
+    /* A limit of 0: no "first 0" sentence, plainly gift credits; the invite tab says the same. */
+    await configure({ withdrawableInvitesPerInviter: 0 });
+    const zero = await publicCopyValues(messages('zh'), 'zh');
+    const zeroEn = await publicCopyValues(messages('en'), 'en');
+    expect(termsBody('zh', zero)).toContain('邀请奖励全部以赠送 credits 发放，不能提现');
+    expect(termsBody('zh', zero)).not.toContain('最多对应 0 位');
+    expect(termsBody('en', zeroEn)).toContain('all invitation rewards are paid as gift credits and cannot be withdrawn');
+    expect(faq('en', zeroEn)).toContain('invitation rewards and gift credits from starter tasks and check-ins cannot be withdrawn');
+    const inviter = await signUp('cap-zero-panel');
+    await signUp('cap-zero-invitee', await ensureInviteCode(db(), inviter.userId));
+    const panel = await invitePanel(inviter.userId);
+    expect(panel).toMatchObject({ ownCap: 0, ownWithdrawable: 0, earnedGift: 5_000 });
+    expect(invitePanelCopy(panel)).toEqual({ withdrawableNote: false, progress: false, status: 'gift_only' });
+    expect((await taskGuide(inviter.userId)).invite).toEqual({ credits: 5_000, withdrawable: false });
+    await configure({ withdrawableInvites: 0 });
+    expect(termsBody('zh', await publicCopyValues(messages('zh'), 'zh'))).toContain('邀请奖励全部以赠送 credits 发放');
+    await configure({});
+  });
+
+  it('marks invite-funded earnings across two hops of query fees, and never the gift part', async () => {
+    await configure({});
+    /* Hop 1: A pays B 6,000 -- 1,000 from welcome credits, 2,000 from a bought Pack, 3,000 from an invitation reward (spend order). */
+    const a = (await signUp('hop-a')).userId;
+    const b = (await signUp('hop-b')).userId;
+    const c = (await signUp('hop-c')).userId;
+    const [purchase] = await db()
+      .insert(schema.purchase)
+      .values({ userId: a, kind: 'pack', paddleTransactionId: `txn_${randomUUID().replace(/-/g, '')}`, amountMinor: 1000, credits: 2_000 })
+      .returning();
+    await db().transaction(async (tx) => {
+      await addGrant(tx, { userId: a, source: 'welcome', amount: 1_000, reason: 'welcome', refId: a });
+      await addGrant(tx, { userId: a, source: 'pack', amount: 2_000, reason: 'purchase', refId: purchase!.id, purchaseId: purchase!.id });
+      await addGrant(tx, { userId: a, source: 'earned', amount: 3_000, reason: 'invite_reward', refId: randomUUID(), withdrawableAt: new Date(), inviteFunded: true });
+    });
+    const hop = async (payer: string, owner: string, fee: number) => {
+      const [ree] = await db().insert(schema.ree).values({ ownerId: owner, name: 'Hop', slug: uniqueName('hop2'), queryFee: fee, isPublic: true, isPublished: true }).returning();
+      const holdId = await db().transaction((tx) => placeHold(tx, { userId: payer, kind: 'chat', ledger: 'chat_fee', amount: fee, refId: randomUUID(), reeId: ree!.id }));
+      await db().transaction(async (tx) => {
+        const paid = await settleHold(tx, holdId, fee, { reeId: ree!.id, note: 'hop', ledger: 'chat_fee' });
+        await creditQueryFee(tx, { ownerId: owner, reeId: ree!.id, reeName: 'Hop', replyId: randomUUID(), allocations: paid!.chargedAllocations });
+      });
+      return db().select().from(schema.creditGrant).where(and(eq(schema.creditGrant.userId, owner), eq(schema.creditGrant.source, 'earned')));
+    };
+    const split = (grants: (typeof schema.creditGrant.$inferSelect)[]) => ({
+      gift: grants.filter((grant) => grant.withdrawableAt === null).reduce((sum, grant) => sum + grant.amount, 0),
+      purchase: grants.filter((grant) => grant.withdrawableAt !== null && !grant.inviteFunded).reduce((sum, grant) => sum + grant.amount, 0),
+      invite: grants.filter((grant) => grant.inviteFunded).reduce((sum, grant) => sum + grant.amount, 0),
+    });
+    const first = await hop(a, b, 6_000);
+    expect(split(first)).toEqual({ gift: 1_000, purchase: 2_000, invite: 3_000 });
+    expect(first.find((grant) => grant.withdrawableAt !== null && !grant.inviteFunded)!.fundingPurchaseId).toBe(purchase!.id);
+    for (const grant of first.filter((row) => row.withdrawableAt === null)) expect(grant.inviteFunded).toBe(false);
+
+    /* Hop 2: B pays C the same 6,000 out of those earnings: the parts carry over, the purchase traced, the gift never marked or withdrawable. */
+    const second = await hop(b, c, 6_000);
+    const parts = split(second);
+    expect(parts).toEqual({ gift: 1_000, purchase: 2_000, invite: 3_000 });
+    expect(parts.gift + parts.purchase + parts.invite).toBe(6_000);
+    expect(second.find((grant) => grant.withdrawableAt !== null && !grant.inviteFunded)!.fundingPurchaseId).toBe(purchase!.id);
+    for (const grant of second.filter((row) => row.withdrawableAt === null)) expect(grant.inviteFunded).toBe(false);
+    /* Matured, C may withdraw the purchase and invite parts only. */
+    expect(await withdrawable(db(), c, false, new Date(Date.now() + 31 * 86_400_000))).toBe(5_000);
   });
 
   it('puts withdrawable invite rewards through every payout gate, with no maturity wait', async () => {

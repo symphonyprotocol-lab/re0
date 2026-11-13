@@ -1,4 +1,4 @@
-import { inviteLink } from '@/lib/domain/invites';
+import { inviteLink, invitePanelCopy } from '@/lib/domain/invites';
 import { appBaseUrl } from '@/lib/http/cookies';
 import type { InvitePanel } from '@/lib/services/invites';
 import { INVITEES_SHOWN } from '@/lib/constants';
@@ -19,13 +19,15 @@ export async function InviteTab({ panel }: { panel: InvitePanel }) {
   const p = t.invites.panel;
   const n = (value: number) => formatNumber(value, locale);
   const link = inviteLink(appBaseUrl(), panel.code);
+  /* One decision for every note, so they never contradict (a limit of 0 means gift credits only). */
+  const copy = invitePanelCopy(panel);
   return (
     <>
       <section className="card role-panel invite-panel">
         <span className="role-eyebrow">{p.eyebrow}</span>
         <h2>{p.title}</h2>
         <p>{panel.inviteCredits > 0 ? fill(p.lede, { n: n(panel.inviteCredits) }) : p.ledeOff}</p>
-        {panel.inviteCredits > 0 && panel.withdrawableQuota > 0 && (
+        {copy.withdrawableNote && (
           <p>
             {fill(p.withdrawableNote, { quota: n(panel.withdrawableQuota), cap: n(panel.ownCap) })}{' '}
             <Link href="/settings?tab=balance" className="text-link">
@@ -33,24 +35,18 @@ export async function InviteTab({ panel }: { panel: InvitePanel }) {
             </Link>
           </p>
         )}
-        {panel.state !== 'open' ? (
+        {copy.status && (
           <p role="status" className="role-state-note">
-            {p.closed}
+            {copy.status === 'closed'
+              ? p.closed
+              : copy.status === 'gift_only'
+                ? p.giftOnly
+                : copy.status === 'site_quota_used'
+                  ? p.quotaUsed
+                  : fill(p.ownCapReached, { cap: n(panel.ownCap) })}
           </p>
-        ) : panel.inviteCredits > 0 && !panel.withdrawableOpen ? (
-          /* The site-wide quota is named first: it applies to everyone, whatever their own count. */
-          <p role="status" className="role-state-note">
-            {p.quotaUsed}
-          </p>
-        ) : (
-          panel.inviteCredits > 0 &&
-          panel.ownWithdrawable >= panel.ownCap && (
-            <p role="status" className="role-state-note">
-              {fill(p.ownCapReached, { cap: n(panel.ownCap) })}
-            </p>
-          )
         )}
-        {panel.inviteCredits > 0 && panel.ownCap > 0 && <p>{fill(p.ownProgress, { used: n(Math.min(panel.ownWithdrawable, panel.ownCap)), cap: n(panel.ownCap) })}</p>}
+        {copy.progress && <p>{fill(p.ownProgress, { used: n(Math.min(panel.ownWithdrawable, panel.ownCap)), cap: n(panel.ownCap) })}</p>}
         <div className="invite-fields">
           <label>
             {p.code}

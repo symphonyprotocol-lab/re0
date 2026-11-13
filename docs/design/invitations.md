@@ -25,6 +25,10 @@ An amount of 0 turns that reward off. Amounts are read inside the transaction th
 - Per-inviter cap (`withdrawable_invites_per_inviter`, default 20): an invitation pays withdrawable credits only while the site quota has a place **and** the inviter has had fewer withdrawable rewards than the cap. Otherwise it pays the same amount as gift credits (`invite_reward_gift`), and `invitation.gift_reason` records `site_quota` or `inviter_cap`; the site quota is named when both are reached. An inviter-capped invitation uses no site-wide place. Both counts are taken under the same `invitations:quota` lock. Lowering the cap affects later invitations only; raising it converts nothing; 0 makes every invitation reward gift credits.
 - Not attributed (registration still succeeds): unknown or malformed code, a disabled inviter, invitations switched off. The login page names the inviter; the invite tab says when invitations are off or the withdrawable places are used up.
 
+## Public copy
+
+The terms (§7) and the pricing FAQ state the invitation rule with the console's current numbers (`lib/services/public-copy.ts`): the withdrawable quota and the per-inviter limit, or, when either is 0 (or the reward is 0), that invitation rewards are gift credits only. The invite tab's notes come from one function (`invitePanelCopy`), so a limit of 0 never reads as "first 0 are withdrawable" or "your limit of 0 is reached".
+
 ## Payouts
 
 A withdrawable invite reward has no maturity wait, and no other exemption: `requestPayout` sees it through `withdrawable()` like any matured earned grant, so the minimum (`PAYOUT_MIN_CREDITS`, 500,000), KYC, a PayPal address and its change hold, one open payout, no open debt and an active account all apply. There is no separate payout path.

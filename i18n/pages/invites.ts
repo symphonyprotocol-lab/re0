@@ -26,7 +26,7 @@ export const zh = {
     invite: {
       title: '邀请朋友',
       body: '每邀请一位朋友注册成功，你获得 {n} credits，可按提现规则提现。',
-      bodyGift: '每邀请一位朋友注册成功，你获得 {n} 赠送 credits（全站可提现名额已用完）。',
+      bodyGift: '每邀请一位朋友注册成功，你获得 {n} 赠送 credits，可用于消耗，不可提现。',
       go: '获取邀请链接',
     },
     checkIn: {
@@ -53,6 +53,7 @@ export const zh = {
     payoutLink: '查看提现条件',
     quotaUsed: '全站可提现邀请名额已用完：现在新邀请获得的 credits 为赠送 credits，可用于消耗，不可提现。',
     ownProgress: '你的可提现邀请奖励：已用 {used} / {cap} 位',
+    giftOnly: '目前邀请奖励都以赠送 credits 发放，可用于消耗，不可提现。',
     ownCapReached: '你已达到个人可提现邀请上限（{cap} 位）：之后的邀请奖励为赠送 credits，可用于消耗，不可提现。',
     code: '邀请码',
     link: '邀请链接',
@@ -156,7 +157,7 @@ export const en: Shape<typeof zh> = {
     invite: {
       title: 'Invite friends',
       body: 'Earn {n} credits for each friend who signs up, withdrawable under the payout rules.',
-      bodyGift: 'Earn {n} gift credits for each friend who signs up (the site-wide withdrawable places are taken).',
+      bodyGift: 'Earn {n} gift credits for each friend who signs up; you can spend them but not withdraw them.',
       go: 'Get your link',
     },
     checkIn: {
@@ -183,6 +184,7 @@ export const en: Shape<typeof zh> = {
     payoutLink: 'See payout conditions',
     quotaUsed: 'The site-wide withdrawable invitation places are taken: new invitations now earn gift credits, which you can spend but not withdraw.',
     ownProgress: 'Your withdrawable invitation rewards: {used} of {cap} used',
+    giftOnly: 'Invitation rewards are currently paid as gift credits: you can spend them but not withdraw them.',
     ownCapReached: 'You have reached your own limit of {cap} withdrawable invitation rewards: further invitations earn gift credits, which you can spend but not withdraw.',
     code: 'Invite code',
     link: 'Invite link',

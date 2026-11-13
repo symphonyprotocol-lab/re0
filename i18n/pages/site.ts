@@ -127,13 +127,18 @@ export const zh = {
     q3: { question: '明天火星的天气怎么样？' },
   },
   prices: { promotion: '限时优惠', planPromotion: '首期优惠，后续 {price} / 月。', packPromotion: '限时促销价。' },
+  /* The payouts FAQ's sentence on invitation rewards, filled from the console's current settings; `none` when either number is 0. */
+  faqInvite: {
+    withdrawable: '全站前 {withdrawableInvites} 位受邀注册、且每个账号最多 {withdrawableInvitesPerInviter} 位的邀请奖励也计入可提现收入，适用相同条件（数量为平台当前设定）；超出的邀请奖励以及新手任务、打卡等赠送 credits 不能提现。',
+    none: '按平台当前设定，邀请奖励以及新手任务、打卡等赠送 credits 都不能提现。',
+  },
   faq: {
     eyebrow: 'A FEW THINGS YOU MIGHT WONDER',
     q1: { q: 'Ree 和普通 AI 聊天有什么区别？', a: '每个 Ree 只根据自己绑定的知识回答，答案包含具体来源。没有相关知识时，它会明确说明，并且不收费。' },
     q2: { q: '我的知识会直接公开吗？', a: '新建 Ree 默认私有。公开后展示简介和知识来源数量，完整知识正文不会公开；回答中的引用只展示相关片段。' },
     q3: { q: 'Plan 和 Pack 有什么区别？', a: 'Plan 当前价格为 {planPrice}，提供当期有效的 {planCredits} credits。{planPromotion}有效订阅期间可购买 {packPrice} 的 Pack，每份 {packCredits} credits 永不过期，取消 Plan 后仍可使用。' },
     q4: { q: '多个 Ree 一起回答，如何收费？', a: '发送前会显示并预留最高可能费用。每个实际作答的 Ree 收取 20 credits 基本费，加上其查询费；未作答部分会退回。' },
-    q5: { q: '创作者收入可以提现吗？', a: '查询费全额进入收入 credits。通过身份验证并填写税务声明、绑定 PayPal 后，收入达到提现门槛（目前为 {payoutMinCredits} credits，即 {payoutMinUsd}；个别账号可能另有设定）可申请提现。全站前一定名额内、且每个账号不超过平台设定人数（目前为 20 位）的邀请奖励也计入可提现收入，适用相同条件；超出的邀请奖励以及新手任务、打卡等赠送 credits 不能提现。' },
+    q5: { q: '创作者收入可以提现吗？', a: '查询费全额进入收入 credits。通过身份验证并填写税务声明、绑定 PayPal 后，收入达到提现门槛（目前为 {payoutMinCredits} credits，即 {payoutMinUsd}；个别账号可能另有设定）可申请提现。{inviteFaq}' },
     q6: { q: '视频介绍如何收费？', a: '视频长 15 秒。生成脚本需要 {scriptCredits} credits，产品演示的旁白按用量收费。每个 Ree 首次导出免费，之后每次 {exportCredits} credits。重用已导出的版本、在线播放和分享链接免费。' },
   },
   pricing: {
@@ -384,13 +389,17 @@ export const en: Shape<typeof zh> = {
     q3: { question: 'What is the weather on Mars tomorrow?' },
   },
   prices: { promotion: 'Limited-time offer', planPromotion: 'First period offer; then {price} / month. ', packPromotion: 'Limited-time promotional price.' },
+  faqInvite: {
+    withdrawable: 'Invitation rewards for the first {withdrawableInvites} invited sign-ups site-wide, and at most {withdrawableInvitesPerInviter} per account, count as withdrawable earnings under the same conditions (the platform\'s current settings); invitation rewards beyond those limits, and gift credits from starter tasks and check-ins, cannot be withdrawn.',
+    none: 'Under the platform\'s current settings, invitation rewards and gift credits from starter tasks and check-ins cannot be withdrawn.',
+  },
   faq: {
     eyebrow: 'A FEW THINGS YOU MIGHT WONDER',
     q1: { q: 'How is a Ree different from general AI chat?', a: 'A Ree only answers from its own sources and includes citations. No relevant knowledge means no answer and no charge.' },
     q2: { q: 'Will my knowledge become public?', a: 'New Rees are private. Public pages show the description and how many sources there are, never the full text; citations contain only relevant excerpts.' },
     q3: { q: 'What is the difference between Plan and Pack?', a: 'Plan currently costs {planPrice} for {planCredits} credits that expire each cycle. {planPromotion}An active Plan unlocks {packPrice} packs of {packCredits} credits that never expire, even after the Plan ends.' },
     q4: { q: 'How are multi-Ree conversations charged?', a: 'The maximum cost is shown and reserved before sending. Each answering Ree charges 20 base credits plus its owner fee. Unused reservations are released.' },
-    q5: { q: 'Can creators withdraw earnings?', a: 'Owner fees become earned credits. With identity and tax verification and PayPal set up, earnings that reach the payout minimum (currently {payoutMinCredits} credits, {payoutMinUsd}; an individual account may have its own) may be withdrawn. Invitation rewards within the site-wide withdrawable quota, for up to a number of invited sign-ups per account set by the platform (currently 20), count as withdrawable earnings under the same conditions; invitation rewards beyond those limits, and gift credits from starter tasks and check-ins, cannot be withdrawn.' },
+    q5: { q: 'Can creators withdraw earnings?', a: 'Owner fees become earned credits. With identity and tax verification and PayPal set up, earnings that reach the payout minimum (currently {payoutMinCredits} credits, {payoutMinUsd}; an individual account may have its own) may be withdrawn. {inviteFaq}' },
     q6: { q: 'How much does a video introduction cost?', a: 'Videos last 15 seconds. Scripts cost {scriptCredits} credits, and demo narration is billed by usage. The first export per Ree is free, and later exports cost {exportCredits} credits. Reusing exports, playback, and sharing are free.' },
   },
   pricing: {

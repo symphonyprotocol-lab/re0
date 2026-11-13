@@ -121,6 +121,37 @@ export function inviteRewardKind(
   return inviterWithdrawable < settings.withdrawableInvitesPerInviter ? 'withdrawable' : 'inviter_cap';
 }
 
+/** Whether any invitation can pay withdrawable credits under these settings at all. */
+export function withdrawableInvitesPossible(settings: Pick<RewardSettings, 'withdrawableInvites' | 'withdrawableInvitesPerInviter' | 'inviteCredits'>): boolean {
+  return settings.inviteCredits > 0 && settings.withdrawableInvites > 0 && settings.withdrawableInvitesPerInviter > 0;
+}
+
+/**
+ * What the invite tab says about withdrawability, decided in one place so
+ * the notes never contradict each other: the "first N, at most M each"
+ * note and the inviter's progress only while withdrawable rewards are
+ * possible at all; otherwise, plainly, that rewards are gift credits.
+ */
+export interface InvitePanelCopy {
+  withdrawableNote: boolean;
+  progress: boolean;
+  status: 'closed' | 'gift_only' | 'site_quota_used' | 'own_cap_reached' | null;
+}
+export function invitePanelCopy(panel: {
+  state: InviteState;
+  inviteCredits: number;
+  withdrawableQuota: number;
+  withdrawableOpen: boolean;
+  ownWithdrawable: number;
+  ownCap: number;
+}): InvitePanelCopy {
+  if (panel.state !== 'open') return { withdrawableNote: false, progress: false, status: 'closed' };
+  if (panel.inviteCredits <= 0) return { withdrawableNote: false, progress: false, status: null };
+  if (panel.withdrawableQuota <= 0 || panel.ownCap <= 0) return { withdrawableNote: false, progress: false, status: 'gift_only' };
+  const status = !panel.withdrawableOpen ? 'site_quota_used' : panel.ownWithdrawable >= panel.ownCap ? 'own_cap_reached' : null;
+  return { withdrawableNote: true, progress: true, status };
+}
+
 /* ---------------------------------------------------------- check-ins */
 
 /** The calendar day (YYYY-MM-DD) a moment falls on in `CHECK_IN_TIME_ZONE`. */
