@@ -1,6 +1,6 @@
 import { ImageResponse } from 'next/og';
-import { BrandMark } from '@/components/ui/brand-mark';
 import { QUERY_BASE_FEE } from '@/lib/constants';
+import { OgWordmark } from '@/lib/og/wordmark';
 import { publicReeBySlug } from '@/lib/services/public-rees';
 import { introsFor } from '@/lib/services/video';
 import type { IntroProps } from '@/lib/domain/video';
@@ -40,7 +40,7 @@ function firstFrame(video: IntroProps, color: string, font: boolean) {
       <div style={{ position: 'absolute', width: 540, height: 540, right: -100, top: -200, borderRadius: 999, border: `2px solid ${ring}` }} />
       <div style={{ position: 'absolute', width: 760, height: 760, left: -300, bottom: -430, borderRadius: 999, border: `2px dashed ${ring}` }} />
       <div style={{ position: 'absolute', top: 36 * u, left: 44 * u, right: 44 * u, display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
-        <span style={{ fontSize: 30 * u, fontWeight: 700, color: palette.watermark(video.accent) }}>RE0</span>
+        <OgWordmark size={30 * u} color={palette.watermark(video.accent)} />
         <span style={{ fontSize: 13 * u, letterSpacing: 2 * u, color: palette.faint }}>YOUR KNOWLEDGE. A NEW VOICE.</span>
       </div>
       <span style={{ fontSize: 14 * u, letterSpacing: 3 * u, color: palette.faint }}>MEET YOUR KNOWLEDGE COMPANION</span>
@@ -74,7 +74,7 @@ export async function reeOpenGraphImage(slug: string): Promise<ImageResponse> {
   const ree = await publicReeBySlug(slug);
   const video = ree ? ((await introsFor([ree.id])).get(ree.id) ?? null) : null;
   if (ree && video) {
-    const text = `RE0${video.scenes.opening.name}${video.scenes.opening.position}MEETYOURKNOWLEDGECOMPANIONANEWVOICE.`;
+    const text = `${video.scenes.opening.name}${video.scenes.opening.position}MEETYOURKNOWLEDGECOMPANIONANEWVOICE.`;
     const font = await fontFor(text);
     return new ImageResponse(firstFrame(video, ree.color, Boolean(font)), { ...OG_SIZE, fonts: font ? [{ name: 'Noto Sans SC', data: font, weight: 700, style: 'normal' }] : undefined });
   }
@@ -82,14 +82,11 @@ export async function reeOpenGraphImage(slug: string): Promise<ImageResponse> {
   const description = (ree?.description ?? '').slice(0, 120);
   const price = ree ? `${QUERY_BASE_FEE + ree.queryFee} credits / answer` : '';
   const facts = ree ? `${ree.sources} sources · ${ree.answers} answers` : '';
-  const font = await fontFor(`RE0${name}${description}${price}${facts}`);
+  const font = await fontFor(`${name}${description}${price}${facts}`);
   return new ImageResponse(
     (
       <div style={{ width: '100%', height: '100%', display: 'flex', flexDirection: 'column', justifyContent: 'space-between', padding: 72, background: 'linear-gradient(135deg, #0b1a4a 0%, #091135 55%, #123a7a 100%)', color: 'white', fontFamily: font ? 'Noto Sans SC' : undefined }}>
-        <div style={{ display: 'flex', alignItems: 'center', gap: 16, fontSize: 30, fontWeight: 700 }}>
-          <BrandMark size={48} />
-          RE0
-        </div>
+        <OgWordmark size={36} color="white" />
         <div style={{ display: 'flex', flexDirection: 'column', gap: 20 }}>
           <div style={{ fontSize: 68, fontWeight: 700, lineHeight: 1.1 }}>{name}</div>
           {description && <div style={{ fontSize: 30, opacity: 0.75, lineHeight: 1.4 }}>{description}</div>}
