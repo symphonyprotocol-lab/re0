@@ -2,7 +2,7 @@
 
 import { useRouter } from 'next/navigation';
 import { useState } from 'react';
-import { PAYOUT_MIN_CREDITS, PAYPAL_EMAIL_MAX } from '@/lib/constants';
+import { PAYPAL_EMAIL_MAX } from '@/lib/constants';
 import { formatCreditsUsd as usd } from '@/lib/domain/payouts';
 import { api } from '@/lib/client/upload';
 import { useI18n } from '@/i18n/client';
@@ -87,8 +87,8 @@ export function PaypalButton({ email, disabled }: { email: string | null; disabl
   );
 }
 
-/** "申请提现" (prototype `payoutModal`): whole credits from 500,000 up to the earned balance, all of it by default. */
-export function RequestPayoutButton({ withdrawable, email, enabled }: { withdrawable: number; email: string | null; enabled: boolean }) {
+/** "申请提现" (prototype `payoutModal`): whole credits from the account's effective minimum up to the earned balance, all of it by default. */
+export function RequestPayoutButton({ withdrawable, minimum, email, enabled }: { withdrawable: number; minimum: number; email: string | null; enabled: boolean }) {
   const { t, locale } = useI18n();
   const r = t.payouts.request;
   const router = useRouter();
@@ -107,7 +107,7 @@ export function RequestPayoutButton({ withdrawable, email, enabled }: { withdraw
     setBusy(false);
     if (!result.ok) {
       const message = (r.errors as Record<string, string>)[result.data.error ?? ''] ?? r.errors.generic;
-      setError(fill(message, { min: n(PAYOUT_MIN_CREDITS) }));
+      setError(fill(message, { min: n(minimum) }));
       return;
     }
     setOpen(false);
@@ -152,14 +152,14 @@ export function RequestPayoutButton({ withdrawable, email, enabled }: { withdraw
               type="number"
               inputMode="numeric"
               required
-              min={PAYOUT_MIN_CREDITS}
+              min={minimum}
               max={withdrawable}
               step={1}
               value={credits}
               onChange={(event) => setCredits(event.target.value)}
             />
             <small>
-              {fill(r.creditsHint, { min: n(PAYOUT_MIN_CREDITS), usd: usd(PAYOUT_MIN_CREDITS), max: n(withdrawable) })}
+              {fill(r.creditsHint, { min: n(minimum), usd: usd(minimum), max: n(withdrawable) })}
               {Number.isInteger(amount) && amount > 0 && ` · ${fill(r.equals, { usd: usd(amount) })}`}
             </small>
           </div>

@@ -143,6 +143,8 @@ export async function adminUser(id: string, now = new Date()) {
     role: account.role,
     roleChangedAt: account.roleChangedAt,
     disabledAt: account.disabledAt,
+    /** The account's own payout minimum; null, the site-wide one. */
+    payoutMinCredits: account.payoutMinCredits,
     createdAt: account.createdAt,
     lastLoginAt: account.lastLoginAt,
     balances: {

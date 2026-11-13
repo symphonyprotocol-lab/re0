@@ -12,7 +12,7 @@
  * `pending` and `approved` hold the credits; rejection and failure release
  * them once, payment settles them. Every other status is final.
  */
-import { CREDIT_USD, PAYOUT_MIN_CREDITS, PAYOUT_TRANSFER_ID_MAX, PAYPAL_CHANGE_HOLD_DAYS, PAYPAL_EMAIL_MAX } from '@/lib/constants';
+import { CREDIT_USD, PAYOUT_MIN_BOUNDS, PAYOUT_TRANSFER_ID_MAX, PAYPAL_CHANGE_HOLD_DAYS, PAYPAL_EMAIL_MAX } from '@/lib/constants';
 import type { PayoutStatus } from '@/db/schema';
 import type { KycState } from '@/lib/domain/kyc';
 
@@ -58,6 +58,8 @@ export function payoutStage(input: {
   paypalEmail: string | null;
   paypalChangedAt: Date | null;
   withdrawable: number;
+  /** The account's effective payout minimum: its own, or the site-wide one. */
+  minimum: number;
   now: Date;
 }): PayoutStage {
   if (input.official) return 'official';
@@ -67,7 +69,7 @@ export function payoutStage(input: {
   if (input.kyc !== 'verified') return 'identity_required';
   if (!input.paypalEmail) return 'paypal';
   if (paypalOnHold(input.paypalChangedAt, input.now)) return 'hold';
-  return input.withdrawable >= PAYOUT_MIN_CREDITS ? 'eligible' : 'threshold';
+  return input.withdrawable >= input.minimum ? 'eligible' : 'threshold';
 }
 
 /** What refuses a request at a given stage; `eligible` refuses nothing. */
@@ -82,13 +84,18 @@ export const STAGE_REFUSALS: Record<Exclude<PayoutStage, 'eligible'>, string> = 
   threshold: 'below_minimum',
 };
 
-/** Whole credits, at least the minimum, at most what the earned grants hold (default: all of it). */
-export function parsePayoutCredits(raw: unknown, withdrawable: number): number | { error: 'amount' | 'below_minimum' | 'over_balance' } {
+/** Whole credits, at least the account's effective minimum, at most what the earned grants hold (default: all of it). */
+export function parsePayoutCredits(raw: unknown, withdrawable: number, minimum: number): number | { error: 'amount' | 'below_minimum' | 'over_balance' } {
   const value = raw === undefined || raw === null || raw === '' ? withdrawable : typeof raw === 'string' ? Number(raw.replaceAll(',', '')) : raw;
   if (typeof value !== 'number' || !Number.isSafeInteger(value) || value <= 0) return { error: 'amount' };
-  if (value < PAYOUT_MIN_CREDITS) return { error: 'below_minimum' };
+  if (value < minimum) return { error: 'below_minimum' };
   if (value > withdrawable) return { error: 'over_balance' };
   return value;
+}
+
+/** A payout minimum as an administrator enters it: a whole number within `PAYOUT_MIN_BOUNDS`, or null when it is not one. */
+export function validPayoutMinimum(value: unknown): value is number {
+  return typeof value === 'number' && Number.isInteger(value) && value >= PAYOUT_MIN_BOUNDS.min && value <= PAYOUT_MIN_BOUNDS.max;
 }
 
 /** Credits as US dollars for display, two decimals with grouping: the one formatter every page uses. */

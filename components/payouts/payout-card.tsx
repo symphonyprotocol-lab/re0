@@ -1,6 +1,6 @@
 import { WorkspaceLink as Link } from '@/components/shell/workspace-link';
 import type { ReactNode } from 'react';
-import { EARNED_MATURITY_DAYS, PAYOUT_MIN_CREDITS } from '@/lib/constants';
+import { EARNED_MATURITY_DAYS } from '@/lib/constants';
 import { formatCentsUsd, formatCreditsUsd as usd } from '@/lib/domain/payouts';
 import { kycOverview } from '@/lib/services/kyc';
 import { payoutOverview, type PayoutRow } from '@/lib/services/payouts';
@@ -36,7 +36,7 @@ export async function PayoutCard({ userId }: { userId: string }) {
         : stage === 'paypal'
           ? c.blocked.paypal
           : stage === 'threshold'
-            ? fill(c.blocked.threshold, { min: n(PAYOUT_MIN_CREDITS), usd: usd(PAYOUT_MIN_CREDITS) })
+            ? fill(c.blocked.threshold, { min: n(overview.minimum), usd: usd(overview.minimum) })
             : '';
   const feedback = record?.reason && (kyc === 'rejected' || kyc === 'reset') ? record.reason : null;
 
@@ -47,7 +47,10 @@ export async function PayoutCard({ userId }: { userId: string }) {
           <h2>{c.title}</h2>
           <span className="tag blue">{c.tag}</span>
         </div>
-        <p className="muted">{fill(c.lede, { min: n(PAYOUT_MIN_CREDITS), usd: usd(PAYOUT_MIN_CREDITS) })}</p>
+        <p className="muted">
+          {fill(c.lede, { min: n(overview.minimum), usd: usd(overview.minimum) })}
+          {overview.minimumOverride && ` ${c.ownMinimum}`}
+        </p>
 
         <Step done={verified} index="1" title={c.identity} body={detail}>
           {verified ? (
@@ -93,7 +96,7 @@ export async function PayoutCard({ userId }: { userId: string }) {
             <strong className="mono earnings-amount">{usd(overview.withdrawable)}</strong>
           </span>
           {verified ? (
-            <RequestPayoutButton withdrawable={overview.withdrawable} email={overview.paypalEmail} enabled={stage === 'eligible'} />
+            <RequestPayoutButton withdrawable={overview.withdrawable} minimum={overview.minimum} email={overview.paypalEmail} enabled={stage === 'eligible'} />
           ) : kyc === 'pending' ? (
             <button type="button" className="btn" disabled>
               {c.pending}

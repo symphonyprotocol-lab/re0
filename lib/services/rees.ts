@@ -25,6 +25,7 @@ import { blobSize } from '@/lib/infra/blob';
 import { db, schema, type Executor, type Tx } from '@/lib/infra/db';
 import { detachRee } from '@/lib/services/conversations';
 import { votesByOthers } from '@/lib/services/ree-feedback';
+import { grantTaskReward } from '@/lib/services/task-rewards';
 
 export type Ree = typeof schema.ree.$inferSelect;
 
@@ -378,6 +379,8 @@ export async function setReePublished(ownerId: string, id: string, isPublished: 
     if (current.isPublished === isPublished) return current;
     const [ree] = await tx.update(schema.ree).set({ isPublished, updatedAt: new Date() }).where(eq(schema.ree.id, id)).returning();
     if (!isPublished) await hide(tx, id, { includeOwner: false });
+    /* 新手任务: the owner's first Ree published pays once (task-rewards.ts). */
+    else await grantTaskReward(tx, ownerId, 'first_ree', id);
     return ree!;
   });
 }

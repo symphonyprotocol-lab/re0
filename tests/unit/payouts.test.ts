@@ -140,7 +140,7 @@ describe('PayPal address', () => {
 });
 
 describe('where a user stands', () => {
-  const base = { official: false, kyc: 'verified' as const, open: null, paypalEmail: 'a@b.co', paypalChangedAt: null, withdrawable: 500_000, now: new Date() };
+  const base = { official: false, kyc: 'verified' as const, open: null, paypalEmail: 'a@b.co', paypalChangedAt: null, withdrawable: 500_000, minimum: 500_000, now: new Date() };
   it('follows the prototype order', () => {
     expect(payoutStage(base)).toBe('eligible');
     expect(payoutStage({ ...base, official: true })).toBe('official');
@@ -152,17 +152,22 @@ describe('where a user stands', () => {
     expect(payoutStage({ ...base, paypalEmail: null })).toBe('paypal');
     expect(payoutStage({ ...base, paypalChangedAt: new Date() })).toBe('hold');
     expect(payoutStage({ ...base, withdrawable: 499_999 })).toBe('threshold');
+    /* The account's effective minimum decides, lower or higher than the default. */
+    expect(payoutStage({ ...base, withdrawable: 100_000, minimum: 100_000 })).toBe('eligible');
+    expect(payoutStage({ ...base, withdrawable: 600_000, minimum: 600_001 })).toBe('threshold');
   });
 });
 
 describe('requests and payments', () => {
   it('a whole number from 500,000 to the earned balance, all of it by default', () => {
-    expect(parsePayoutCredits(undefined, 600_000)).toBe(600_000);
-    expect(parsePayoutCredits('550,000', 600_000)).toBe(550_000);
-    expect(parsePayoutCredits(499_999, 600_000)).toEqual({ error: 'below_minimum' });
-    expect(parsePayoutCredits(600_001, 600_000)).toEqual({ error: 'over_balance' });
-    expect(parsePayoutCredits(500_000.5, 600_000)).toEqual({ error: 'amount' });
-    expect(parsePayoutCredits('abc', 600_000)).toEqual({ error: 'amount' });
+    expect(parsePayoutCredits(undefined, 600_000, 500_000)).toBe(600_000);
+    expect(parsePayoutCredits('550,000', 600_000, 500_000)).toBe(550_000);
+    expect(parsePayoutCredits(499_999, 600_000, 500_000)).toEqual({ error: 'below_minimum' });
+    expect(parsePayoutCredits(600_001, 600_000, 500_000)).toEqual({ error: 'over_balance' });
+    expect(parsePayoutCredits(500_000.5, 600_000, 500_000)).toEqual({ error: 'amount' });
+    expect(parsePayoutCredits('abc', 600_000, 500_000)).toEqual({ error: 'amount' });
+    expect(parsePayoutCredits(100_000, 600_000, 100_000)).toBe(100_000);
+    expect(parsePayoutCredits(550_000, 600_000, 550_001)).toEqual({ error: 'below_minimum' });
   });
 
   it('records 55.00 against 60.00 as a 5.00 fee, exact in credits', () => {

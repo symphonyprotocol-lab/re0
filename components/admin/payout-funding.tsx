@@ -30,6 +30,8 @@ function flagText(t: Messages, flag: FundingFlag, s: PayoutFundingSummary, local
       return fill(f.max_fee, { n: s.maxFee.questions, share: percent(s.maxFee.share), max: formatNumber(QUERY_FEE.max, locale), threshold: percent(signals.maxFeeShare) });
     case 'refunded':
       return fill(f.refunded, { credits: formatNumber(s.drawnRefunded, locale), share: percent(s.drawn > 0 ? s.drawnRefunded / s.drawn : 0) });
+    case 'invite_funded':
+      return fill(f.invite_funded, { credits: formatNumber(s.drawnInvite, locale), share: percent(s.drawn > 0 ? s.drawnInvite / s.drawn : 0), threshold: percent(signals.inviteFundedShare) });
   }
 }
 
@@ -69,6 +71,8 @@ export function PayoutFundingCards({ t, locale, data, pageHref, back, now = new 
         {rows([
           [f.drawn, credits(s.drawn)],
           [f.traced, credits(s.traced)],
+          [f.drawnInvite, credits(s.drawnInvite)],
+          [f.ownerInvited, n(s.ownerInvited)],
           [f.payers, n(s.payers)],
           [f.questions, n(s.questions)],
           [f.topShare, s.payers ? percent(s.topShare) : '—'],
@@ -91,6 +95,7 @@ export function PayoutFundingCards({ t, locale, data, pageHref, back, now = new 
         <h3 className="payout-funding-subtitle">{f.sourcesTitle}</h3>
         {rows([
           [f.sources.paid, n(sources.paid)],
+          [f.sources.invite, n(sources.invite)],
           [f.sources.refunded, n(sources.refunded)],
           [f.sources.welcome, n(sources.welcome)],
           [f.sources.redeemed, n(sources.redeemed)],

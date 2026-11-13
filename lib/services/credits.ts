@@ -7,7 +7,7 @@
  */
 import { and, asc, eq, gt, inArray, lte, sql } from 'drizzle-orm';
 import type { CreditEntryReason } from '@/db/schema';
-import { PAYING_GRANT_SOURCES, type GrantSource } from '@/lib/constants';
+import { EARNED_MATURITY_DAYS, PAYING_GRANT_SOURCES, type GrantSource } from '@/lib/constants';
 import { offsetDebts } from '@/lib/domain/billing';
 import {
   allocate,
@@ -100,6 +100,8 @@ export async function addGrant(
     withdrawableAt?: Date | null;
     /** Earned grants: the asker's purchase that paid for them, voided while unmatured if it is refunded. */
     fundingPurchaseId?: string | null;
+    /** Withdrawable earned grants: originates from an invitation reward (the payout funding review shows it as such). */
+    inviteFunded?: boolean;
   },
   now = new Date(),
 ): Promise<{ grantId: string; offset: number }> {
@@ -117,6 +119,7 @@ export async function addGrant(
       redemptionPeriod: input.redemptionId ? (input.redemptionPeriod ?? 0) : null,
       withdrawableAt: input.source === 'earned' ? (input.withdrawableAt ?? null) : null,
       fundingPurchaseId: input.source === 'earned' ? (input.fundingPurchaseId ?? null) : null,
+      inviteFunded: input.source === 'earned' && Boolean(input.withdrawableAt) && input.inviteFunded === true,
       createdAt: now,
     })
     .returning({ id: schema.creditGrant.id });
@@ -536,14 +539,17 @@ export async function releaseHold(
  * How much of a charge was paid from money someone paid in (review H2):
  * Plan and Pack grants bought through Paddle, and withdrawable earned
  * grants. Welcome credits, redeemed codes and console grants are free.
+ * `invite` is the part of `paid` drawn from invite-funded earned grants; it
+ * is kept out of `byPurchase` so the earnings it pays for carry the same
+ * mark (the payout funding review tells them from purchased money).
  */
 export async function paidShare(
   executor: Executor,
   allocations: readonly Allocation[],
-): Promise<{ paid: number; free: number; byPurchase: Map<string | null, number> }> {
+): Promise<{ paid: number; free: number; invite: number; byPurchase: Map<string | null, number> }> {
   const byPurchase = new Map<string | null, number>();
   const ids = [...new Set(allocations.filter((entry) => entry.amount > 0).map((entry) => entry.grantId))];
-  if (ids.length === 0) return { paid: 0, free: 0, byPurchase };
+  if (ids.length === 0) return { paid: 0, free: 0, invite: 0, byPurchase };
   const rows = await executor
     .select({
       id: schema.creditGrant.id,
@@ -551,23 +557,53 @@ export async function paidShare(
       purchaseId: schema.creditGrant.purchaseId,
       withdrawableAt: schema.creditGrant.withdrawableAt,
       fundingPurchaseId: schema.creditGrant.fundingPurchaseId,
+      inviteFunded: schema.creditGrant.inviteFunded,
     })
     .from(schema.creditGrant)
     .where(inArray(schema.creditGrant.id, ids));
+  const inviteFunded = new Set(rows.filter((row) => row.inviteFunded && grantIsPaid(row)).map((row) => row.id));
   /* The purchase each paying grant traces back to: its own for a Plan or Pack, the one that funded it for earned credits. */
   const funding = new Map(rows.filter(grantIsPaid).map((row) => [row.id, row.source === 'earned' ? row.fundingPurchaseId : row.purchaseId]));
   let paid = 0;
   let free = 0;
+  let invite = 0;
   for (const entry of allocations) {
     if (!funding.has(entry.grantId)) {
       free += entry.amount;
       continue;
     }
     paid += entry.amount;
+    if (inviteFunded.has(entry.grantId)) {
+      invite += entry.amount;
+      continue;
+    }
     const key = funding.get(entry.grantId) ?? null;
     byPurchase.set(key, (byPurchase.get(key) ?? 0) + entry.amount);
   }
-  return { paid, free, byPurchase };
+  return { paid, free, invite, byPurchase };
+}
+
+/**
+ * A settled query fee credited to the Ree's owner (answer.ts), as earned
+ * credits: one grant per paying purchase, withdrawable after the maturity
+ * period, so a refund of one voids only what it paid for while it has not
+ * matured; one for the part paid from invite-funded credits, withdrawable on
+ * the same terms and marked for the payout review; one for the part paid
+ * from free credits, never withdrawable (review H2). An open refund debt of
+ * the owner's is paid from it first (`addGrant`).
+ */
+export async function creditQueryFee(
+  tx: Tx,
+  input: { ownerId: string; reeId: string; reeName: string; replyId: string; allocations: readonly Allocation[] },
+  now = new Date(),
+): Promise<void> {
+  const share = await paidShare(tx, input.allocations);
+  const matures = new Date(now.getTime() + EARNED_MATURITY_DAYS * 86_400_000);
+  const credit = (amount: number, withdrawableAt: Date | null, note: string, fundingPurchaseId: string | null, inviteFunded = false) =>
+    addGrant(tx, { userId: input.ownerId, source: 'earned', amount, reason: 'query_fee_earned', refId: input.replyId, reeId: input.reeId, note, withdrawableAt, fundingPurchaseId, inviteFunded }, now);
+  for (const [purchaseId, amount] of share.byPurchase) if (amount > 0) await credit(amount, matures, input.reeName, purchaseId);
+  if (share.invite > 0) await credit(share.invite, matures, `${input.reeName} · invitation credits`, null, true);
+  if (share.free > 0) await credit(share.free, null, `${input.reeName} · free credits, not withdrawable`, null);
 }
 
 function grantIsPaid(grant: { source: GrantSource; purchaseId: string | null; withdrawableAt: Date | null }): boolean {

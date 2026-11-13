@@ -308,5 +308,5 @@ export const ACTIVITY_REASONS: Record<Exclude<Activity, 'all'>, readonly CreditE
     'video_refund',
     'storage_charge',
   ],
-  income: ['query_fee_earned', 'payout_hold', 'payout_release', 'payout_paid'],
+  income: ['query_fee_earned', 'invite_reward', 'invite_reward_gift', 'payout_hold', 'payout_release', 'payout_paid'],
 };

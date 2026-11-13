@@ -50,7 +50,8 @@ describe('audit search by action label', () => {
   it('maps either language to the codes', () => {
     expect(actionsLabelled('下架', labels)).toEqual(['ree.takedown']);
     expect(actionsLabelled('Take down', labels)).toEqual(['ree.takedown']);
-    expect(actionsLabelled('提现', labels)).toEqual(['payout.approved', 'payout.rejected']);
+    /* The payout minimum's changes are payout changes too. */
+    expect(actionsLabelled('提现', labels)).toEqual(['payout.minimum.update', 'user.payout_minimum', 'payout.approved', 'payout.rejected']);
     expect(actionsLabelled('  ', labels)).toEqual([]);
     expect(actionsLabelled('nothing like this', labels)).toEqual([]);
   });
