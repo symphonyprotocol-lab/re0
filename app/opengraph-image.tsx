@@ -1,5 +1,5 @@
 import { ImageResponse } from 'next/og';
-import { BrandMark } from '@/components/ui/brand-mark';
+import { OgWordmark } from '@/lib/og/wordmark';
 
 export const size = { width: 1200, height: 630 };
 export const contentType = 'image/png';
@@ -8,8 +8,9 @@ export const alt = 'RE0 — Your knowledge, a voice of its own';
 /**
  * The site's link preview, for every page without its own (a public Ree
  * has lib/og/ree-image.tsx). English only, so the built-in font covers it
- * and the image renders once at build time with no font fetch. The navy
- * and blue are the Ree card's and globals.css's.
+ * and the image renders once at build time with no font fetch; the
+ * wordmark is outlines (lib/og/wordmark.tsx). The navy and blue are the
+ * Ree card's and globals.css's.
  */
 export default function OpenGraphImage() {
   return new ImageResponse(
@@ -18,10 +19,7 @@ export default function OpenGraphImage() {
         <div style={{ position: 'absolute', width: 620, height: 620, right: -160, top: -240, borderRadius: 999, border: '2px solid rgba(119,183,250,0.28)' }} />
         <div style={{ position: 'absolute', width: 820, height: 820, right: -380, bottom: -520, borderRadius: 999, border: '2px dashed rgba(119,183,250,0.22)' }} />
         <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
-          <div style={{ display: 'flex', alignItems: 'center', gap: 18, fontSize: 36, fontWeight: 700 }}>
-            <BrandMark size={56} />
-            RE0
-          </div>
+          <OgWordmark size={42} color="white" />
           <div style={{ fontSize: 18, letterSpacing: 4, color: 'rgba(255,255,255,0.55)' }}>KNOWLEDGE, GIVEN A VOICE</div>
         </div>
         <div style={{ display: 'flex', flexDirection: 'column', gap: 26 }}>
