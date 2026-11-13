@@ -474,11 +474,19 @@ export const creditGrant = pgTable(
      * not matured yet (review H2). Null when free or untraceable.
      */
     fundingPurchaseId: uuid('funding_purchase_id').references(() => purchase.id),
+    /**
+     * An earned grant that originates from a withdrawable invitation reward:
+     * the reward itself, or earnings from query fees paid out of such credits
+     * (carried through every hop by `paidShare`). Read by the payout funding
+     * review only; it changes nothing about when the grant is withdrawable.
+     */
+    inviteFunded: boolean('invite_funded').notNull().default(false),
     createdAt: createdAt(),
   },
   (t) => [
     index('credit_grant_user_idx').on(t.userId),
     check('credit_grant_withdrawable_check', sql`withdrawable_at is null or source = 'earned'`),
+    check('credit_grant_invite_funded_check', sql`not invite_funded or (source = 'earned' and withdrawable_at is not null)`),
     index('credit_grant_funding_idx').on(t.fundingPurchaseId).where(sql`funding_purchase_id is not null`),
     uniqueIndex('credit_grant_purchase_key').on(t.purchaseId).where(sql`purchase_id is not null`),
     uniqueIndex('credit_grant_redemption_key').on(t.redemptionId, t.redemptionPeriod).where(sql`redemption_id is not null`),
@@ -1721,12 +1729,13 @@ export const inviteCode = pgTable(
 export const invitation = pgTable(
   'invitation',
   {
+    /* No cascade, as with the ledger: a row here is a paid reward and a place in the withdrawable quota. */
     inviteeId: uuid('invitee_id')
       .primaryKey()
-      .references(() => user.id, { onDelete: 'cascade' }),
+      .references(() => user.id),
     inviterId: uuid('inviter_id')
       .notNull()
-      .references(() => user.id, { onDelete: 'cascade' }),
+      .references(() => user.id),
     code: text('code').notNull(),
     rewardCredits: integer('reward_credits').notNull(),
     withdrawable: boolean('withdrawable').notNull(),

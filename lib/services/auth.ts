@@ -100,6 +100,16 @@ function verifyHandshake(handshake: Handshake | null, provider: IdentityProvider
   return handshake;
 }
 
+/**
+ * The invite code a sealed handshake carries, for the callback's way back to
+ * `/login` when sign-in is cancelled or fails, so a retry still counts the
+ * invitation. Expiry is not checked: it only refills the login page.
+ */
+export async function handshakeInvite(sealedHandshake: string | null | undefined): Promise<string | null> {
+  const handshake = await unseal<Handshake>('oauth-handshake', sealedHandshake, legacyHandshake).catch(() => null);
+  return normalizeInviteCode(handshake?.invite);
+}
+
 export interface CompleteOAuthResult {
   sessionToken: string;
   expiresAt: Date;

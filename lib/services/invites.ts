@@ -132,7 +132,7 @@ export async function attributeInvitation(tx: Tx, inviteeId: string, rawCode: un
   if (credits === 0) return 'unpaid';
   if (withdrawable) {
     /* Withdrawable at once (no maturity wait); no funding purchase, so no refund can void it. */
-    await addGrant(tx, { userId: inviter.id, source: 'earned', amount: credits, reason: 'invite_reward', refId: inviteeId, withdrawableAt: now, fundingPurchaseId: null, reeId: null }, now);
+    await addGrant(tx, { userId: inviter.id, source: 'earned', amount: credits, reason: 'invite_reward', refId: inviteeId, withdrawableAt: now, fundingPurchaseId: null, reeId: null, inviteFunded: true }, now);
     return 'withdrawable';
   }
   await addGrant(tx, { userId: inviter.id, source: 'welcome', amount: credits, reason: 'invite_reward_gift', refId: inviteeId }, now);

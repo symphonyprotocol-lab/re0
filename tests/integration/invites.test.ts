@@ -5,7 +5,11 @@ import { resetRewardSettings, TEST_DATABASE_URL, uniqueName } from './setup';
 import { db, schema } from '@/lib/infra/db';
 import { INVITE_DEFAULTS } from '@/lib/constants';
 import { beginOAuth, completeOAuth, createSession, type IdentityAdapter } from '@/lib/services/auth';
-import { balanceOf, placeHold } from '@/lib/services/credits';
+import { balanceOf, creditQueryFee, placeHold, settleHold } from '@/lib/services/credits';
+import { payoutFunding } from '@/lib/services/payout-funding';
+import * as callback from '@/app/api/auth/[provider]/callback/route';
+import { HANDSHAKE_COOKIE } from '@/lib/http/cookies';
+import { NextRequest } from 'next/server';
 import { ensureInviteCode, inviteLanding, inviteOverview, invitePanel, rewardSettings, saveRewardSettings, userInvites } from '@/lib/services/invites';
 import { dismissTaskGuide, taskGuide } from '@/lib/services/task-rewards';
 import { setReePublished } from '@/lib/services/rees';
@@ -258,6 +262,90 @@ describeWithDb('invitations and starter tasks', () => {
     expect(payout).toMatchObject({ credits: PAYOUT_MIN_CREDITS, status: 'pending' });
     expect(await withdrawable(db(), inviter.userId)).toBe(0);
     await configure({});
+  });
+
+  it('keeps the invite on every failed or cancelled OAuth callback, so a retry still counts it', async () => {
+    const inviter = await signUp('callback-inviter');
+    const code = await ensureInviteCode(db(), inviter.userId);
+    const adapter: IdentityAdapter = { authorizeUrl: () => 'https://provider.example.test/authorize', exchange: async () => profile(uniqueName('never')) };
+    const started = await beginOAuth({ provider: 'github', returnTo: '/rees', redirectUri: 'http://localhost/cb', invite: code, adapter });
+    const call = (query: string, sealed: string | null = started.handshake) =>
+      callback.GET(
+        new NextRequest(`http://localhost:3000/api/auth/github/callback?${query}`, { headers: sealed ? { cookie: `${HANDSHAKE_COOKIE}=${sealed}` } : {} }),
+        { params: Promise.resolve({ provider: 'github' }) },
+      );
+    for (const [query, error] of [
+      ['error=access_denied', 'oauth_canceled'],
+      ['error=server_error', 'oauth_failed'],
+      ['code=x&state=not-the-state', 'oauth_failed'],
+    ] as const) {
+      const location = new URL((await call(query)).headers.get('location')!);
+      expect(location.pathname).toBe('/login');
+      expect(Object.fromEntries(location.searchParams)).toEqual({ error, invite: code });
+    }
+    /* No handshake (or one without an invite): the plain error, nothing invented. */
+    expect(new URL((await call('error=access_denied', null)).headers.get('location')!).search).toBe('?error=oauth_canceled');
+    /* Back on the login page with the code, the retry attributes as usual. */
+    expect(await signUp('callback-retry', code)).toMatchObject({ invitation: 'withdrawable' });
+  });
+
+  it('shows invite-funded money in the payout review: drawn directly, and after a query fee', async () => {
+    const quota = (await db().select({ n: sql<number>`count(*) filter (where withdrawable)::int` }).from(schema.invitation))[0]!.n;
+    await configure({ withdrawableInvites: quota + 10, inviteCredits: 600_000 });
+    const verified = async (name: string) => {
+      const user = await signUp(name);
+      const record = await kyc.submitKyc(user.userId, kycForm(user.userId));
+      await kyc.decideKyc(admin.id, record.id, 'verified', { matched: true });
+      await setPaypalEmail(user.userId, `${uniqueName(name)}@example.com`);
+      return user;
+    };
+
+    /* Directly: the inviter's payout draws only on the invitation reward. */
+    const inviter = await verified('funding-inviter');
+    await signUp('funding-invitee', await ensureInviteCode(db(), inviter.userId));
+    const direct = await requestPayout(inviter.userId, PAYOUT_MIN_CREDITS);
+    const seen = (await payoutFunding(admin, direct.id, inviter.userId)).summary;
+    expect(seen).toMatchObject({ drawn: PAYOUT_MIN_CREDITS, drawnInvite: PAYOUT_MIN_CREDITS, traced: 0, ownerInvited: 1 });
+    expect(seen.flags).toContain('invite_funded');
+
+    /* One hop: an invited account's withdrawable reward pays another owner's query fee; that owner's payout is invite-funded, not purchased. */
+    const spender = await signUp('funding-spender');
+    await signUp('funding-spender-invitee', await ensureInviteCode(db(), spender.userId));
+    const owner = await verified('funding-owner');
+    const [ree] = await db().insert(schema.ree).values({ ownerId: owner.userId, name: 'Hop', slug: uniqueName('hop'), queryFee: 10_000, isPublic: true, isPublished: true }).returning();
+    const [conversation] = await db().insert(schema.conversation).values({ userId: spender.userId }).returning();
+    const [question] = await db().insert(schema.message).values({ conversationId: conversation!.id, role: 'user', content: 'question' }).returning();
+    const holdId = await db().transaction((tx) => placeHold(tx, { userId: spender.userId, kind: 'chat', ledger: 'chat_fee', amount: 600_000, refId: question!.id, reeId: ree!.id }));
+    const replyId = randomUUID();
+    await db().transaction(async (tx) => {
+      const paid = await settleHold(tx, holdId, 600_000, { reeId: ree!.id, note: ree!.name, ledger: 'chat_fee' });
+      await creditQueryFee(tx, { ownerId: owner.userId, reeId: ree!.id, reeName: ree!.name, replyId, allocations: paid!.chargedAllocations });
+      await tx.insert(schema.message).values({ id: replyId, conversationId: conversation!.id, role: 'ree', reeId: ree!.id, content: 'answer', requestId: question!.id, costCredits: 600_000 });
+    });
+    const [earned] = await db().select().from(schema.creditGrant).where(and(eq(schema.creditGrant.userId, owner.userId), eq(schema.creditGrant.source, 'earned')));
+    expect(earned).toMatchObject({ amount: 600_000, inviteFunded: true });
+    /* Withdrawable on the usual terms: after the maturity period. */
+    expect(await withdrawable(db(), owner.userId)).toBe(0);
+    await db().update(schema.creditGrant).set({ withdrawableAt: new Date(Date.now() - 1_000) }).where(eq(schema.creditGrant.id, earned!.id));
+    const hop = await requestPayout(owner.userId, 600_000);
+    const review = (await payoutFunding(admin, hop.id, owner.userId)).summary;
+    expect(review).toMatchObject({ drawn: 600_000, traced: 600_000, drawnInvite: 600_000, payers: 1 });
+    expect(review.sources).toMatchObject({ invite: 600_000, paid: 0 });
+    expect(review.flags).toContain('invite_funded');
+    await configure({});
+  });
+
+  it('opens the check-in window for three calendar months from a month-end sign-up', async () => {
+    await configure({});
+    for (const [created, lastIn, firstOut] of [
+      ['2026-11-30T04:00:00Z', '2027-02-28T03:59:59Z', '2027-02-28T04:00:00Z'],
+      ['2027-01-31T04:00:00Z', '2027-04-30T03:59:59Z', '2027-04-30T04:00:00Z'],
+    ] as const) {
+      const user = await createSession(profile(uniqueName('month-end')), 'en', '/rees', new Date(created));
+      expect((await checkInStatus(user.userId, new Date(created))).windowEndsAt.toISOString()).toBe(new Date(firstOut).toISOString());
+      expect(await checkIn(user.userId, new Date(lastIn))).toMatchObject({ ok: true });
+      expect(await checkIn(user.userId, new Date(new Date(firstOut).getTime() + 86_400_000))).toMatchObject({ ok: false, reason: 'expired' });
+    }
   });
 
   it('pays one check-in per UTC+8 day, up to the maximum, within the window, as gift credits', async () => {

@@ -4,6 +4,7 @@ import { NextRequest } from 'next/server';
 /* The provider exchange and the session store are the integration suite's (tests/integration/account.test.ts); here only what the callback sends back. */
 vi.mock('@/lib/services/auth', () => ({
   completeOAuth: vi.fn(async () => ({ sessionToken: 'token', expiresAt: new Date(Date.now() + 3_600_000), returnTo: '/en/r/x', userId: 'u', created: false, lang: 'en' })),
+  handshakeInvite: vi.fn(async () => null),
 }));
 
 const { GET } = await import('@/app/api/auth/[provider]/callback/route');

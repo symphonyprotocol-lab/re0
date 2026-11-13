@@ -431,6 +431,7 @@ export interface DashboardData {
   ranking: { reeId: string; name: string; answers: number }[];
   attention: { reeId: string; name: string; moderated: boolean; sources: SourceSummary }[];
   attentionTotal: number;
+  /** All earned credits left: query-fee earnings and withdrawable invitation rewards (labelled so). */
   earned: number;
   /** The owner's Rees an administrator took down, for the "已下架" marks. */
   moderated: string[];

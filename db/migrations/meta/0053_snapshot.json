@@ -1,5 +1,5 @@
 {
-  "id": "778fc452-ab49-45eb-9f3e-185b66ea58a4",
+  "id": "9177b93b-262f-4eff-9ab2-1a851e402e45",
   "prevId": "be72d218-bf93-438d-a32a-9b68911b92e8",
   "version": "7",
   "dialect": "postgresql",
@@ -1833,6 +1833,13 @@
           "primaryKey": false,
           "notNull": false
         },
+        "invite_funded": {
+          "name": "invite_funded",
+          "type": "boolean",
+          "primaryKey": false,
+          "notNull": true,
+          "default": false
+        },
         "created_at": {
           "name": "created_at",
           "type": "timestamp with time zone",
@@ -1989,6 +1996,10 @@
         "credit_grant_withdrawable_check": {
           "name": "credit_grant_withdrawable_check",
           "value": "withdrawable_at is null or source = 'earned'"
+        },
+        "credit_grant_invite_funded_check": {
+          "name": "credit_grant_invite_funded_check",
+          "value": "not invite_funded or (source = 'earned' and withdrawable_at is not null)"
         },
         "credit_grant_origin_check": {
           "name": "credit_grant_origin_check",
@@ -2705,7 +2716,7 @@
           "columnsTo": [
             "id"
           ],
-          "onDelete": "cascade",
+          "onDelete": "no action",
           "onUpdate": "no action"
         },
         "invitation_inviter_id_user_id_fk": {
@@ -2718,7 +2729,7 @@
           "columnsTo": [
             "id"
           ],
-          "onDelete": "cascade",
+          "onDelete": "no action",
           "onUpdate": "no action"
         }
       },

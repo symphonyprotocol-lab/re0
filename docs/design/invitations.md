@@ -45,5 +45,6 @@ A withdrawable invite reward has no maturity wait, and no other exemption: `requ
 - Payouts (`withdrawable`, payout hold `sources: ['earned'], withdrawableOnly: true`): drawn like any matured earned grant.
 - Refund and chargeback voids and restores key on `funding_purchase_id`; invite grants have none, so they are never voided.
 - Per-Ree statistics key on `credit_entry.ree_id`; invite entries have none, so they are not Ree income.
-- Payout funding review traces earned grants through `query_fee_earned` entries; invite credits show as drawn but untraced, like console grants.
-- `paidShare`: a withdrawable earned grant counts as paid money, so query fees paid from invite credits reach the owner as withdrawable earnings. Invite credits are cash-equivalent by design, so this is consistent.
+- `credit_grant.invite_funded` marks a withdrawable invitation reward, and `paidShare`/`creditQueryFee` carry the mark to the owner's earned grant whenever a query fee is paid with such credits, over any number of hops. Withdrawability is unchanged: those earnings mature like any paid-for earnings.
+- Payout funding review: `sources.invite` counts query fees paid with invite-funded credits (no longer under `paid`), `drawnInvite` is what a payout draws on invite-funded grants (rewards themselves and earnings from them), and the `invite_funded` flag is raised at `PAYOUT_REVIEW_SIGNALS.inviteFundedShare` (30%). The review also shows the applicant's number of invited registrations.
+- `invitation` foreign keys do not cascade, as with the ledger: an invited account cannot be deleted from under a paid reward and its quota place.

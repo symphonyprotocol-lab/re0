@@ -715,6 +715,8 @@ export const PAYOUT_TRANSFER_ID_MAX = 100;
  *   query fee an owner can set (`QUERY_FEE.max`).
  * - `refundedShare`: at least this share was paid from purchases later
  *   refunded or charged back (any amount at all is listed; this raises it).
+ * - `inviteFundedShare`: at least this share is invite-funded -- invitation
+ *   rewards, or earnings from query fees paid with them.
  */
 export const PAYOUT_REVIEW_SIGNALS = {
   topPayerShare: 0.5,
@@ -724,6 +726,7 @@ export const PAYOUT_REVIEW_SIGNALS = {
   sharedIdentityPayers: 1,
   maxFeeShare: 0.5,
   refundedShare: 0,
+  inviteFundedShare: 0.3,
 } as const;
 /** Askers per page on the payout review page. */
 export const PAYOUT_PAYERS_PAGE_SIZE = 20;
