@@ -51,7 +51,7 @@ export function Topbar({
   mobileBack?: { href: string; label: string; title: string };
 }) {
   const { t } = useI18n();
-  const { collapsed, toggleCollapsed, openDrawer } = useShell();
+  const { collapsed, toggleCollapsed, openDrawer, activitiesPending } = useShell();
   const nav = t.common.nav;
   const hasRow = Boolean(tabs?.length || secondRow);
   return (
@@ -59,8 +59,15 @@ export function Topbar({
       <header data-topbar className={`topbar${mobileBack ? ' ree-workspace-shell' : ''}`}>
         <div className="topbar-main">
           <div className="topbar-location">
-            <button type="button" className="icon-btn mobile-menu" onClick={openDrawer} aria-label={nav.openMenu} title={nav.openMenu}>
+            <button
+              type="button"
+              className="icon-btn mobile-menu"
+              onClick={openDrawer}
+              aria-label={activitiesPending ? `${nav.openMenu} · ${nav.activitiesPending}` : nav.openMenu}
+              title={nav.openMenu}
+            >
               <Icon name="menu" className="" />
+              {activitiesPending && <i className="nav-dot" aria-hidden="true" />}
             </button>
             <button
               type="button"

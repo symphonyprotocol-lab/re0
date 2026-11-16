@@ -451,6 +451,26 @@
   text-overflow: ellipsis;
   white-space: nowrap;
 }
+/* Something to claim on the Activities page: a small blue dot after 活动, on the folded rail's icon, and on the phone's menu button. */
+.sidebar .nav a .nav-dot {
+  width: 7px;
+  height: 7px;
+  margin-left: auto;
+  border-radius: 50%;
+  background: var(--color-blue);
+}
+.mobile-menu {
+  position: relative;
+}
+.mobile-menu .nav-dot {
+  position: absolute;
+  top: 5px;
+  right: 5px;
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  background: var(--color-blue);
+}
 /* Unread notices: a red dot on the avatar. */
 .user-settings-link .notice-dot {
   position: absolute;
@@ -753,6 +773,12 @@ html:has(.app-main .context-nav-row) {
   }
   .sidebar.is-collapsed .nav a > span {
     display: none;
+  }
+  .sidebar.is-collapsed .nav a .nav-dot {
+    position: absolute;
+    top: 9px;
+    right: 13px;
+    margin: 0;
   }
   .sidebar.is-collapsed .chat-sidebar-tools {
     margin: 25px 0 12px;

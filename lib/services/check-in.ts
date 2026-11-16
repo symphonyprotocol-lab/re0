@@ -12,8 +12,7 @@
  * check-ins already paid alone.
  */
 import { and, count, eq, sql } from 'drizzle-orm';
-import { addMonths } from '@/lib/domain/billing';
-import { checkInDay, checkInState, type CheckInState } from '@/lib/domain/invites';
+import { checkInDay, checkInState, newUserWindowEnd, type CheckInState } from '@/lib/domain/invites';
 import { db, schema, type Executor } from '@/lib/infra/db';
 import { addGrant } from '@/lib/services/credits';
 import { rewardSettings } from '@/lib/services/invites';
@@ -36,12 +35,12 @@ async function statusOf(executor: Executor, userId: string, now: Date): Promise<
     executor.select({ n: count() }).from(schema.checkIn).where(eq(schema.checkIn.userId, userId)),
     executor.select({ id: schema.checkIn.id }).from(schema.checkIn).where(and(eq(schema.checkIn.userId, userId), eq(schema.checkIn.day, day))).limit(1),
   ]);
-  const windowEndsAt = addMonths(user?.createdAt ?? now, settings.checkInWindowMonths);
+  const windowEndsAt = newUserWindowEnd(user?.createdAt ?? now, settings);
   const input = { credits: settings.checkInCredits, used: used?.n ?? 0, maxDays: settings.checkInMaxDays, windowEndsAt, today: Boolean(today), now };
   return { state: checkInState(input), credits: input.credits, used: input.used, maxDays: input.maxDays, windowMonths: settings.checkInWindowMonths, windowEndsAt, createdAt: user?.createdAt ?? null, today: input.today };
 }
 
-/** Where the account stands today, for the task guide. */
+/** Where the account stands today, for the Activities page. */
 export async function checkInStatus(userId: string, now = new Date()): Promise<CheckInStatus> {
   const { state, credits, used, maxDays, windowMonths, windowEndsAt } = await statusOf(db(), userId, now);
   return { state, credits, used, maxDays, windowMonths, windowEndsAt };

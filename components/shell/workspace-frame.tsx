@@ -5,20 +5,23 @@ import { shellBilling } from '@/lib/services/billing';
 import { sidebarHistory } from '@/lib/services/conversations';
 import { unreadNotices } from '@/lib/services/notices';
 import { reeCount } from '@/lib/services/rees';
+import { activitiesIndicator } from '@/lib/services/task-rewards';
 import { AppShell } from '@/components/shell/app-shell';
 
 /** The persistent signed-in frame, owned by the product layout for workspace and discovery routes. */
 export async function WorkspaceFrame({ user, children }: { user: SessionUser; children: ReactNode }) {
-  const [billing, count, history, jar, unread] = await Promise.all([
+  const [billing, count, history, jar, unread, activities] = await Promise.all([
     shellBilling(user.id),
     reeCount(user.id),
     sidebarHistory(user.id),
     cookies(),
     unreadNotices(user.id),
+    /* One indexed query, in parallel with the others: whether 活动 shows, and its dot. */
+    activitiesIndicator(user.id),
   ]);
   return (
     <AppShell
-      user={{ name: user.name, avatar: user.avatarBlob, balance: billing.balance, welcome: billing.welcome, debt: billing.debt, plan: billing.plan, reeCount: count, history, unreadNotices: unread }}
+      user={{ name: user.name, avatar: user.avatarBlob, balance: billing.balance, welcome: billing.welcome, debt: billing.debt, plan: billing.plan, reeCount: count, history, unreadNotices: unread, activities }}
       initialCollapsed={jar.get('re0_sidebar')?.value === 'collapsed'}
     >
       {children}

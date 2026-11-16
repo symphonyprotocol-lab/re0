@@ -106,14 +106,11 @@ export function ReeList({
   totals,
   query,
   coverVideos,
-  guide,
 }: {
   result: ListResult<ReeListItem>;
   totals: { rees: number; public: number; private: number; sources: number; answers: number };
   query: Query;
   coverVideos: Record<string, IntroProps | undefined>;
-  /** The starter task guide (components/rees/task-guide.tsx), under the heading while it is shown. */
-  guide?: ReactNode;
 }) {
   const { t, locale } = useI18n();
   const r = t.rees;
@@ -414,8 +411,6 @@ export function ReeList({
           </Link>
         </div>
       </div>
-
-      {guide}
 
       <div className="metric-grid">
         {([
