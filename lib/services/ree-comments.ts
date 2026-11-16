@@ -62,7 +62,7 @@ export async function addReeComment(
   reeId: string,
   author: Pick<SessionUser, 'id' | 'name' | 'avatarBlob'>,
   input: { id: string; content: string },
-): Promise<ReeComment | 'conflict' | null> {
+): Promise<(ReeComment & { taskReward: number }) | 'conflict' | null> {
   return db().transaction(async (tx) => {
     // Serialize the publication check with changes to visibility.
     const [target] = await tx.select({ id: ree.id }).from(ree)
@@ -82,8 +82,9 @@ export async function addReeComment(
     ));
     if (!saved) return 'conflict';
     /* 新手任务: a first comment pays once; a retried request inserts nothing and pays nothing. */
-    if (inserted) await grantTaskReward(tx, author.id, 'first_comment', inserted.id);
+    const taskReward = inserted ? await grantTaskReward(tx, author.id, 'first_comment', inserted.id) : 0;
     return {
+      taskReward,
       id: saved.id,
       content: saved.content,
       createdAt: saved.createdAt.toISOString(),

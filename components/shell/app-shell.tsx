@@ -43,8 +43,8 @@ export interface ShellUser {
   history: HistoryItem[];
   /** Unread in-app notices (step 5): a red dot on the account link, which then opens the notices. */
   unreadNotices: number;
-  /** A check-in to be had today or a paying starter task not yet done (`activitiesIndicator`): a dot on 活动. */
-  activitiesPending: boolean;
+  /** The 活动 item (`activitiesIndicator`): shown only while an activity is available to this account, with a dot when something calls for attention. */
+  activities: { visible: boolean; dot: boolean };
 }
 
 const PHONE = '(max-width: 760px)';
@@ -98,7 +98,7 @@ export function AppShell({ user, initialCollapsed, children }: { user: ShellUser
     });
   };
   return (
-    <ShellContext.Provider value={{ collapsed, toggleCollapsed, openDrawer: () => setDrawer(true), activitiesPending: user.activitiesPending }}>
+    <ShellContext.Provider value={{ collapsed, toggleCollapsed, openDrawer: () => setDrawer(true), activitiesPending: user.activities.visible && user.activities.dot }}>
       <HistoryProvider>
         <Sidebar user={user} collapsed={collapsed} phone={phone} open={drawer} hidden={phone && !drawer} onClose={() => setDrawer(false)} />
         <WorkspaceMain collapsed={collapsed}>{children}</WorkspaceMain>
@@ -144,7 +144,9 @@ function Sidebar({ user, collapsed, phone, open, hidden, onClose }: { user: Shel
       <nav className="nav chat-product-nav" aria-label={nav.workspace}>
         <NavItem href="/explore" icon="compass" label={t.discover.nav} active={pathname === '/explore' || pathname.startsWith('/r/')} />
         <NavItem href="/rees" icon="ree" label={nav.rees} active={pathname.startsWith('/rees') || pathname.startsWith('/workspace') || pathname === '/videos'} count={user.reeCount} />
-        <NavItem href="/activities" icon="gift" label={nav.activities} active={pathname.startsWith('/activities')} dot={user.activitiesPending ? nav.activitiesPending : undefined} />
+        {user.activities.visible && (
+          <NavItem href="/activities" icon="gift" label={nav.activities} active={pathname.startsWith('/activities')} dot={user.activities.dot ? nav.activitiesPending : undefined} />
+        )}
       </nav>
       <div className="chat-sidebar-footer sidebar-account-footer">
         <PlanMeter user={user} />

@@ -28,8 +28,9 @@ export interface InviteSummary {
 /**
  * `/activities` (docs/design/invitations.md): the daily check-in, the
  * starter tasks and a short invite block, in the styles of the task guide
- * that used to sit on the Rees page. Always there, never dismissed; when
- * nothing is left to claim it says so instead of going blank.
+ * that used to sit on the Rees page. Never dismissed; it exists while an
+ * activity is available (the page redirects otherwise), and says so when
+ * nothing more can be claimed today.
  */
 export function ActivitiesView({ activities, invite }: { activities: Activities; invite: InviteSummary }) {
   const { t, locale } = useI18n();
@@ -49,7 +50,7 @@ export function ActivitiesView({ activities, invite }: { activities: Activities;
         </div>
       </div>
 
-      {!activities.pending && (
+      {!activities.state.claimable && (
         <p role="status" className="activities-nothing">
           <PIcon name="check" />
           {a.nothing}
@@ -63,7 +64,7 @@ export function ActivitiesView({ activities, invite }: { activities: Activities;
           </div>
         </div>
         <ol className="task-guide-list">
-          <CheckInRow status={activities.checkIn} />
+          <CheckInRow status={activities.checkIn} othersAvailable={tasks.some((item) => !item.done)} />
         </ol>
       </section>
 
@@ -109,7 +110,7 @@ export function ActivitiesView({ activities, invite }: { activities: Activities;
 }
 
 /** Today's check-in: the button while one is to be had, otherwise why not, with progress and the window's end. */
-function CheckInRow({ status: initial }: { status: CheckInStatus }) {
+function CheckInRow({ status: initial, othersAvailable }: { status: CheckInStatus; othersAvailable: boolean }) {
   const { t, locale } = useI18n();
   const a = t.invites.activities;
   const c = a.checkIn;
@@ -125,8 +126,13 @@ function CheckInRow({ status: initial }: { status: CheckInStatus }) {
     if (result.data.status) setStatus({ ...result.data.status, windowEndsAt: new Date(result.data.status.windowEndsAt) });
     if (result.ok && result.data.credits) {
       toast(fill(c.paid, { n: n(result.data.credits) }));
-      /* The balance, the "nothing to claim" note and the navigation dot follow. */
-      router.refresh();
+      /*
+       * The balance, the note and the navigation dot follow -- unless that was
+       * the last check-in and no task is left: the page would then be gone on
+       * the refresh, so it keeps the finished state until the next navigation.
+       */
+      const checkInLeft = result.data.status?.state === 'available' || result.data.status?.state === 'done_today';
+      if (checkInLeft || othersAvailable) router.refresh();
     } else if (!result.data.status) toast(c.failed);
   }
   const state = status.state;

@@ -14,11 +14,18 @@ export async function generateMetadata(): Promise<Metadata> {
   return { title: t.invites.activities.title };
 }
 
-/** `/activities`: the daily check-in, the starter tasks and a short invite block (docs/design/invitations.md). */
+/**
+ * `/activities`: the daily check-in, the starter tasks and a short invite
+ * block (docs/design/invitations.md). Only while an activity is available to
+ * the account (`activityState`); otherwise the navigation item is gone and a
+ * visit goes to My Rees. It comes back by itself when one is available again.
+ */
 export default async function ActivitiesPage() {
   const [user, { t }] = await Promise.all([currentUser(), serverMessages()]);
   if (!user) redirect('/login?returnTo=%2Factivities');
-  const [data, panel] = await Promise.all([activities(user.id), invitePanel(user.id)]);
+  const data = await activities(user.id);
+  if (!data.state.visible) redirect('/rees');
+  const panel = await invitePanel(user.id);
   return (
     <>
       <Topbar crumbs={[{ label: t.invites.activities.title }]} />

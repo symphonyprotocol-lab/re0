@@ -13,8 +13,7 @@
  * earned it is later deleted.
  */
 import { and, eq, sql } from 'drizzle-orm';
-import { activitiesPending, checkInDay, checkInState, TASK_KINDS, TASK_REASON, TASK_SETTING, type TaskKind } from '@/lib/domain/invites';
-import { addMonths } from '@/lib/domain/billing';
+import { activityState, checkInDay, checkInState, newUserWindowEnd, TASK_KINDS, TASK_REASON, TASK_SETTING, type ActivityState, type TaskKind } from '@/lib/domain/invites';
 import { db, schema, type Tx } from '@/lib/infra/db';
 import { addGrant } from '@/lib/services/credits';
 import { DEFAULT_REWARD_SETTINGS, rewardSettings } from '@/lib/services/invites';
@@ -47,8 +46,8 @@ export interface Activities {
   tasks: ActivityTask[];
   /** Today's check-in, whatever its state (the page explains `off`, `expired` and `finished`). */
   checkIn: CheckInStatus;
-  /** Something to do now: the same test as the navigation dot (`activitiesPending`). */
-  pending: boolean;
+  /** `activityState` (lib/domain/invites.ts): whether the page exists for this account, whether anything can be claimed now, and the dot. */
+  state: ActivityState;
 }
 
 /** The Activities page (`/activities`): the starter tasks and the daily check-in. */
@@ -70,15 +69,17 @@ export async function activities(userId: string, now = new Date()): Promise<Acti
     if (row) tasks.push({ key: task, done: true, credits: row.credits });
     else if (settings[TASK_SETTING[task]] > 0) tasks.push({ key: task, done: false, credits: settings[TASK_SETTING[task]] });
   }
-  return { tasks, checkIn, pending: activitiesPending({ checkIn: checkIn.state, settings, paidTasks: paid.map((row) => row.task) }) };
+  const state = activityState({ checkIn: checkIn.state, settings, paidTasks: paid.map((row) => row.task), windowEndsAt: checkIn.windowEndsAt, now });
+  return { tasks, checkIn, state };
 }
 
 /**
- * The dot on the 活动 navigation item, for the workspace frame on every
- * signed-in page: one indexed query (the account, its check-in count and
+ * The 活动 navigation item -- whether it shows and whether it carries the
+ * dot (`activityState`) -- for the workspace frame on every signed-in page:
+ * one indexed query (the account, its check-in count and
  * today's row, its paid tasks, the settings row), no transaction.
  */
-export async function activitiesIndicator(userId: string, now = new Date()): Promise<boolean> {
+export async function activitiesIndicator(userId: string, now = new Date()): Promise<Pick<ActivityState, 'visible' | 'dot'>> {
   const day = checkInDay(now);
   const [row] = await db()
     .select({
@@ -98,7 +99,7 @@ export async function activitiesIndicator(userId: string, now = new Date()): Pro
     .leftJoin(schema.rewardSettings, eq(schema.rewardSettings.id, 1))
     .where(eq(schema.user.id, userId))
     .limit(1);
-  if (!row) return false;
+  if (!row) return { visible: false, dot: false };
   const defaults = DEFAULT_REWARD_SETTINGS;
   const settings = {
     firstReeCredits: row.firstReeCredits ?? defaults.firstReeCredits,
@@ -107,13 +108,15 @@ export async function activitiesIndicator(userId: string, now = new Date()): Pro
     inviteCredits: row.inviteCredits ?? defaults.inviteCredits,
     checkInCredits: row.checkInCredits ?? defaults.checkInCredits,
   };
+  const windowEndsAt = newUserWindowEnd(row.createdAt, { checkInWindowMonths: row.checkInWindowMonths ?? defaults.checkInWindowMonths });
   const checkIn = checkInState({
     credits: settings.checkInCredits,
     used: Number(row.used),
     maxDays: row.checkInMaxDays ?? defaults.checkInMaxDays,
-    windowEndsAt: addMonths(row.createdAt, row.checkInWindowMonths ?? defaults.checkInWindowMonths),
+    windowEndsAt,
     today: Boolean(row.today),
     now,
   });
-  return activitiesPending({ checkIn, settings, paidTasks: row.paid ?? [] });
+  const { visible, dot } = activityState({ checkIn, settings, paidTasks: row.paid ?? [], windowEndsAt, now });
+  return { visible, dot };
 }

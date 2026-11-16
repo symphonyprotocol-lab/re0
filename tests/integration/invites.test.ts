@@ -532,6 +532,52 @@ describeWithDb('invitations and starter tasks', () => {
     expect((await inviteOverview(admin)).checkIns.count).toBeGreaterThanOrEqual(4);
   });
 
+  it('shows 活动 while an activity is available; raises its dot for a check-in until made that UTC+8 day, and for open tasks only within the check-in window', async () => {
+    await configure({});
+    const created = new Date('2026-03-01T10:00:00Z');
+    const user = await createSession(profile(uniqueName('dotter')), 'en', '/rees', created);
+    for (const task of ['first_ree', 'first_question', 'first_comment'] as const) {
+      await db().insert(schema.taskReward).values({ userId: user.userId, task, credits: 1, refId: randomUUID(), createdAt: created });
+    }
+    const late = new Date('2026-03-01T15:59:59Z');
+    const midnight = new Date('2026-03-01T16:00:00Z');
+    const shown = { visible: true, dot: true };
+    const quiet = { visible: true, dot: false };
+    const gone = { visible: false, dot: false };
+    /* Every task done: only the check-in counts. After today's check-in the item stays (there is tomorrow) without a dot; the dot is back at midnight UTC+8. */
+    expect(await activitiesIndicator(user.userId, late)).toEqual(shown);
+    expect(await checkIn(user.userId, late)).toMatchObject({ ok: true });
+    expect(await activitiesIndicator(user.userId, late)).toEqual(quiet);
+    expect(await activitiesIndicator(user.userId, midnight)).toEqual(shown);
+    /* Check-in days used up: nothing left, so no item at all -- invitations, still open, do not keep it. */
+    await configure({ checkInMaxDays: 1 });
+    expect((await rewardSettings()).invitesEnabled).toBe(true);
+    expect(await activitiesIndicator(user.userId, midnight)).toEqual(gone);
+    expect((await activities(user.userId, midnight)).state.visible).toBe(false);
+    await configure({});
+    /* The window ends three months after sign-up: no check-in left and every task paid, so the item goes. */
+    const end = new Date('2026-06-01T10:00:00Z');
+    expect(await activitiesIndicator(user.userId, new Date(end.getTime() - 1))).toEqual(shown);
+    expect(await activitiesIndicator(user.userId, end)).toEqual(gone);
+
+    /* An open task raises it within the window, and stops at the same end, with the configured length. */
+    const tasker = await createSession(profile(uniqueName('dot-tasker')), 'en', '/rees', created);
+    await checkIn(tasker.userId, new Date('2026-05-31T15:00:00Z'));
+    expect(await activitiesIndicator(tasker.userId, new Date('2026-05-31T15:30:00Z'))).toEqual(shown);
+    expect(await activitiesIndicator(tasker.userId, end)).toEqual(quiet);
+    /* Check-ins off, so only the tasks count: a four-month window keeps them raising it. */
+    await configure({ checkInWindowMonths: 4, checkInCredits: 0 });
+    expect(await activitiesIndicator(tasker.userId, end)).toEqual(shown);
+    expect(await activitiesIndicator(tasker.userId, new Date('2026-07-01T10:00:00Z'))).toEqual(quiet);
+    await configure({});
+
+    /* Past the window, the old account still has the page and its unpaid tasks, claimable, without a dot. */
+    const old = await activities(tasker.userId, end);
+    expect(old).toMatchObject({ state: { visible: true, claimable: true, dot: false }, checkIn: { state: 'expired' } });
+    expect(old.tasks.filter((item) => !item.done).map((item) => item.key)).toEqual(['first_ree', 'first_question', 'first_comment']);
+    expect(await activitiesIndicator(tasker.userId, end)).toEqual(quiet);
+  });
+
   it('pays each starter task once, as gift credits that cannot be withdrawn, even under a race', async () => {
     const owner = await signUp('tasker');
     const [ree, second] = await db()
@@ -590,13 +636,15 @@ describeWithDb('invitations and starter tasks', () => {
     /* Every task done, but a check-in is still to be had: the page and the navigation dot say so. */
     const page = await activities(owner.userId);
     expect(page.tasks.every((item) => item.done)).toBe(true);
-    expect(page).toMatchObject({ pending: true, checkIn: { state: 'available' } });
-    expect(await activitiesIndicator(owner.userId)).toBe(true);
-    /* With check-ins off nothing is left: the page still loads, with nothing pending, and the dot goes. */
+    expect(page).toMatchObject({ state: { visible: true, claimable: true, dot: true }, checkIn: { state: 'available' } });
+    expect(await activitiesIndicator(owner.userId)).toEqual({ visible: true, dot: true });
+    /* With check-ins off nothing is left: the page and its item go. */
     await configure({ checkInCredits: 0 });
-    expect(await activities(owner.userId)).toMatchObject({ pending: false, checkIn: { state: 'off' } });
-    expect(await activitiesIndicator(owner.userId)).toBe(false);
+    expect(await activities(owner.userId)).toMatchObject({ state: { visible: false, claimable: false, dot: false }, checkIn: { state: 'off' } });
+    expect(await activitiesIndicator(owner.userId)).toEqual({ visible: false, dot: false });
+    /* Turned back on, they come back by themselves. */
     await configure({});
+    expect(await activitiesIndicator(owner.userId)).toEqual({ visible: true, dot: true });
   });
 
   it('reads amounts at the time of the action: 0 pays nothing and leaves the task open for later', async () => {
@@ -607,7 +655,7 @@ describeWithDb('invitations and starter tasks', () => {
     const author = { id: user.userId, name: 'Later', avatarBlob: null };
 
     const before = await activities(user.userId);
-    expect(before.pending).toBe(true);
+    expect(before.state).toEqual({ visible: true, claimable: true, dot: true });
     expect(before.tasks.map((item) => item.key)).toEqual(['signup', 'first_ree', 'first_question']);
     expect(before.tasks.find((item) => item.key === 'first_question')).toMatchObject({ done: false, credits: 3_333 });
     expect(invitePanelCopy(await invitePanel(user.userId))).toEqual({ withdrawableNote: true, progress: true, status: null });
@@ -626,13 +674,14 @@ describeWithDb('invitations and starter tasks', () => {
 
     const after = await activities(user.userId);
     expect(after.tasks.filter((item) => item.done).map((item) => item.key)).toEqual(['signup', 'first_question', 'first_comment']);
-    expect(after.pending).toBe(true);
-    /* Only the first Ree is left; with its reward and check-ins off, nothing is pending and the dot agrees with the page. */
+    expect(after.state.claimable).toBe(true);
+    /* Only the first Ree is left; with its reward and check-ins off, nothing is available: no page, no item. */
     await configure({ firstReeCredits: 0, checkInCredits: 0 });
-    expect(await activities(user.userId)).toMatchObject({ pending: false });
-    expect(await activitiesIndicator(user.userId)).toBe(false);
+    expect((await activities(user.userId)).state.visible).toBe(false);
+    expect(await activitiesIndicator(user.userId)).toEqual({ visible: false, dot: false });
+    /* The first Ree's reward back on: the task is available again, and claimable at once. */
     await configure({ checkInCredits: 0 });
-    expect(await activitiesIndicator(user.userId)).toBe(true);
+    expect(await activitiesIndicator(user.userId)).toEqual({ visible: true, dot: true });
 
     const overview = await inviteOverview(admin);
     expect(overview.tasks.find((row) => row.task === 'first_comment')!.accounts).toBeGreaterThanOrEqual(2);

@@ -29,8 +29,10 @@ export async function POST(request: NextRequest, { params }: Context) {
   /* After validation, so a typo does not use up the window. */
   const limited = await rateLimited('comment', { userId: user.id, headers: request.headers });
   if (limited) return limited;
-  const comment = await addReeComment(id, user, { id: input.id, content });
-  if (!comment) return fail('not_found', 404);
-  if (comment === 'conflict') return fail('comment_conflict', 409);
-  return json({ comment }, 201);
+  const saved = await addReeComment(id, user, { id: input.id, content });
+  if (!saved) return fail('not_found', 404);
+  if (saved === 'conflict') return fail('comment_conflict', 409);
+  /* `taskReward`: the first-comment reward this paid (0 for none), so the page refreshes the balance and the 活动 dot only when it changed. */
+  const { taskReward, ...comment } = saved;
+  return json({ comment, taskReward }, 201);
 }

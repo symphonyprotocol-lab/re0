@@ -10,18 +10,18 @@ import { AppShell } from '@/components/shell/app-shell';
 
 /** The persistent signed-in frame, owned by the product layout for workspace and discovery routes. */
 export async function WorkspaceFrame({ user, children }: { user: SessionUser; children: ReactNode }) {
-  const [billing, count, history, jar, unread, activitiesPending] = await Promise.all([
+  const [billing, count, history, jar, unread, activities] = await Promise.all([
     shellBilling(user.id),
     reeCount(user.id),
     sidebarHistory(user.id),
     cookies(),
     unreadNotices(user.id),
-    /* One indexed query, in parallel with the others: the dot on 活动. */
+    /* One indexed query, in parallel with the others: whether 活动 shows, and its dot. */
     activitiesIndicator(user.id),
   ]);
   return (
     <AppShell
-      user={{ name: user.name, avatar: user.avatarBlob, balance: billing.balance, welcome: billing.welcome, debt: billing.debt, plan: billing.plan, reeCount: count, history, unreadNotices: unread, activitiesPending }}
+      user={{ name: user.name, avatar: user.avatarBlob, balance: billing.balance, welcome: billing.welcome, debt: billing.debt, plan: billing.plan, reeCount: count, history, unreadNotices: unread, activities }}
       initialCollapsed={jar.get('re0_sidebar')?.value === 'collapsed'}
     >
       {children}
