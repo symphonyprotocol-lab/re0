@@ -73,7 +73,12 @@ export default async function ReesPage({ searchParams }: { searchParams: Promise
         totals={totals}
         query={query}
         coverVideos={Object.fromEntries(coverVideos)}
-        guide={guide.visible || guide.checkInOnly ? <TaskGuide guide={guide} /> : null}
+        /*
+         * Keyed: an element passed as a prop reaches ReeList through the RSC payload, and when its
+         * client module is still loading it arrives as a lazy wrapper that JSX's static-children
+         * check cannot mark, so React then reports it as an unkeyed child of <main>.
+         */
+        guide={guide.visible || guide.checkInOnly ? <TaskGuide key="task-guide" guide={guide} /> : null}
       />
     </>
   );
