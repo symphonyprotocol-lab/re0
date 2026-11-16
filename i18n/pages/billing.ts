@@ -265,7 +265,7 @@ export const en: Shape<typeof zh> = {
     task_first_question: 'Starter task · first question',
     task_first_comment: 'Starter task · first comment',
   },
-  sources: { plan: 'Plan', welcome: 'Welcome', pack: 'Pack', earned: 'Earned' },
+  sources: { plan: 'Plan', welcome: 'Gift', pack: 'Pack', earned: 'Earned' },
   charged: 'charged {n}',
   reporting: {
     spend: 'Settled spending',
