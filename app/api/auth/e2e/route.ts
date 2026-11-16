@@ -16,7 +16,7 @@ export async function POST(request: NextRequest) {
   if (process.env.NODE_ENV === 'production' || secret.length < 32) return new NextResponse(null, { status: 404 });
   const presented = request.headers.get('x-e2e-secret') ?? '';
   if (!timingSafeEqual(presented, secret)) return new NextResponse(null, { status: 404 });
-  const input = (await request.json().catch(() => ({}))) as { name?: string; lang?: string };
+  const input = (await request.json().catch(() => ({}))) as { name?: string; lang?: string; invite?: string };
   const name = (input.name ?? 'tester').replace(/[^\w-]/g, '').slice(0, 40) || 'tester';
   const result = await createSession(
     {
@@ -29,8 +29,10 @@ export async function POST(request: NextRequest) {
     },
     input.lang === 'en' ? 'en' : 'zh',
     '/dashboard',
+    new Date(),
+    { invite: input.invite },
   );
-  const response = NextResponse.json({ userId: result.userId, created: result.created });
+  const response = NextResponse.json({ userId: result.userId, created: result.created, invitation: result.invitation });
   setSessionCookie(response, result.sessionToken, result.expiresAt);
   return response;
 }

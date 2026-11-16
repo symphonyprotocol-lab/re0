@@ -12,7 +12,7 @@ export async function GET(request: NextRequest) {
 }
 
 /**
- * Requests a payout of `{ credits }` (whole, ≥ 500,000, ≤ the earned
+ * Requests a payout of `{ credits }` (whole, ≥ the account's effective minimum, ≤ the earned
  * balance; all of it when left out). The credits are held at once.
  */
 export async function POST(request: NextRequest) {

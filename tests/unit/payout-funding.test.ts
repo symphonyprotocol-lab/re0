@@ -26,7 +26,7 @@ const payer = (id: string, credits: number, extra: Partial<FundingPayerRow> = {}
   activeElsewhere: true,
   ...extra,
 });
-const sources = { paid: 1_000, welcome: 0, redeemed: 0, console: 0, earnedFree: 0, refunded: 0 };
+const sources = { invite: 0, paid: 1_000, welcome: 0, redeemed: 0, console: 0, earnedFree: 0, refunded: 0 };
 
 describe('payout funding signals (review H2)', () => {
   it('compares e-mails lower-cased with the +tag dropped', () => {
@@ -49,6 +49,10 @@ describe('payout funding signals (review H2)', () => {
     const spread = summarizeFunding({ drawn: 1_000, payers: Array.from({ length: 10 }, (_, i) => payer(`p${i}`, 100)), sources, drawnRefunded: 0, ownerEmails: ['owner@example.com'] });
     expect(spread.flags).toEqual([]);
     expect(spread.topShare).toBeCloseTo(0.1);
+    /* Invite-funded credits: flagged from PAYOUT_REVIEW_SIGNALS.inviteFundedShare (30%), not below it. */
+    const invited = (drawnInvite: number) => summarizeFunding({ drawn: 1_000, payers: Array.from({ length: 10 }, (_, i) => payer(`p${i}`, 100)), sources, drawnRefunded: 0, drawnInvite, ownerInvited: 4, ownerEmails: [] });
+    expect(invited(300)).toMatchObject({ drawnInvite: 300, ownerInvited: 4, flags: ['invite_funded'] });
+    expect(invited(299).flags).toEqual([]);
   });
 
   it('renders the cards and the queue line in every locale', () => {

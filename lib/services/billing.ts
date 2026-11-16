@@ -1017,7 +1017,7 @@ export async function listEntries(
   const pattern = query.q ? likePattern(query.q) : null;
   const scope = and(
     eq(schema.creditEntry.userId, userId),
-    official ? notInArray(schema.creditEntry.reason, [...ACTIVITY_REASONS.income]) : undefined,
+    official ? notInArray(schema.creditEntry.reason, ACTIVITY_REASONS.income.filter((reason) => reason !== 'invite_reward' && reason !== 'invite_reward_gift')) : undefined,
     range ? gte(schema.creditEntry.createdAt, new Date(range.start)) : undefined,
     range ? lt(schema.creditEntry.createdAt, new Date(range.end)) : undefined,
     pattern ? or(ilike(schema.creditEntry.note, pattern), ilike(schema.ree.name, pattern)) : undefined,

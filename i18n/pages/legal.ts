@@ -7,7 +7,13 @@ import type { Shape } from '@/i18n/format';
  * tax information we collect. Paragraphs are separated by blank lines.
  */
 export const zh = {
-  updated: '最近更新：2026 年 11 月 3 日',
+  updated: '最近更新：2026 年 11 月 13 日',
+  /* 第 7 节的邀请奖励规则，按后台当前设置填入；任一数量为 0 时使用 none。 */
+  inviteRule: {
+    withdrawable:
+      '全站按注册先后计算的前 {withdrawableInvites} 位受邀注册，其邀请奖励以收入 credits 发放，无需等待 30 天，计入即可提现，但同样须满足下一段的全部提现条件。每个账号以收入 credits 获得的邀请奖励，最多对应 {withdrawableInvitesPerInviter} 位受邀注册，超出部分不占用上述全站名额。这两个数量为平台当前的设定，可能调整。超出全站名额或个人上限的邀请奖励以赠送 credits 发放，不能提现。调整这两个数量不改变已经发放的奖励属于哪一类。',
+    none: '按平台当前的设定，邀请奖励全部以赠送 credits 发放，不能提现。平台可以调整设定，让一定数量的受邀注册的奖励以收入 credits 发放并可提现；调整不改变已经发放的奖励属于哪一类。',
+  },
   contents: '目录',
   footnote: '若中文版本与其他语言版本存在歧义，以中文版本为准。条款在正式开放提现前会再次审阅。',
   terms: {
@@ -19,7 +25,7 @@ export const zh = {
     },
     s2: {
       title: 'Credits',
-      body: 'RE0 的所有消耗以 credit 计，1 credit = 0.0001 美元。Credits 是预付的使用额度，不是货币，不能转让，除第 7 节所述的收入 credits 外不能兑换为现金。\n\n新用户注册赠送 {welcomeCredits} credits，不过期。消耗的先后顺序为：当期 Plan → 注册赠送 → Pack → 收入 credits；退还时按相反顺序退回。余额不足时操作会被拒绝，不会透支。',
+      body: 'RE0 的所有消耗以 credit 计，1 credit = 0.0001 美元。Credits 是预付的使用额度，不是货币，不能转让，除第 7 节所述可提现的 credits 外不能兑换为现金。\n\n新用户注册赠送 {welcomeCredits} credits，不过期。完成新手任务、每日打卡获得的奖励，以及超出可提现名额的邀请奖励（见第 7 节），同样以赠送 credits 发放，不过期、不能提现。各项赠送的数额与条件以平台当时公布的为准，平台可以调整或停止，已经发放的不受影响。消耗的先后顺序为：当期 Plan → 赠送 → Pack → 收入 credits；退还时按相反顺序退回。余额不足时操作会被拒绝，不会透支。',
     },
     s3: {
       title: 'Plan 与 Pack',
@@ -38,8 +44,8 @@ export const zh = {
       body: '向 Ree 提问时，每个实际作答的 Ree 收取 20 credits 基本使用费，提问他人的 Ree 时另付该 Ree 主设定的查询费；没有相关知识、未作答的不收费。开启回答核验时，每个作答的 Ree 另收 10 credits 核验费，未作答或核验失败时退回；Ree 圆桌对多个回答做一次综合时收取 30 credits，综合失败时退回。知识处理按实际调用的 Firecrawl、embedding、语音转文字等第三方服务成本计费，不另收字符费；各项美元费用汇总后按 1 credit = $0.0001 换算，最后统一向上取整。初始预留可退、不是总价上限，实际费用自动补足、多余退回；余额不足则停止；处理失败时按已发生的成本结算，只退回没用掉的预留，余额不够支付的部分记为欠款，下次到账时先还。第三方单价随供应商及所选模型调整，实际用量与费用可在处理记录中查看。已添加的知识在保存期间按实际占用的存储空间和时长计费（上传的文件，以及解析后的文本、片段与向量），每天结算一次，余额不足的部分同样记为欠款；Ree 删除后停止计费。',
     },
     s7: {
-      title: '收入 credits 与提现',
-      body: '他人向你的 Ree 提问时支付的查询费，全额计入你的收入 credits。收入 credits 不过期，可用于你自己的消耗，但并非全部可以提现：\n\n提问人用付费购买的额度（Plan、Pack，或本身可提现的收入 credits）支付的部分，自计入之日起满 30 天后可以提现；提问人用免费额度（注册赠送、兑换码、后台发放的额度，或由这些额度换来的收入 credits）支付的部分，只能用于消耗，不能提现。若支付查询费的那笔购买在这 30 天内退款或拒付，RE0 会先向提问人收回（见第 5 节）；只有无法从提问人处全部收回、形成待抵扣额度时，才会在未收回的金额以内，作废由这笔购买支付、尚未满 30 天且尚未使用的收入 credits。提问人之后补足欠款（或拒付被撤销）时，作废的收入 credits 会按已补足的比例恢复，保留原来的可提现日期。已满 30 天、已用于提现申请或已经用掉的部分不会因此收回。\n\n可提现的收入 credits 达到 500,000 credits（50 美元）后可申请提现，申请处理期间相应 credits 会被冻结。首次提现前须通过人工身份验证并提交税务信息声明，收款方式为你本人的 PayPal 账户，PayPal 手续费由提现人承担。账号有未清的待抵扣额度或已被停用时，不能申请提现，已提交的申请也不会被批准或打款。Plan、Pack 与注册赠送的 credits 不能提现。你需自行承担所得相关的纳税义务。',
+      title: '收入 credits、邀请奖励与提现',
+      body: '他人向你的 Ree 提问时支付的查询费，全额计入你的收入 credits。收入 credits 不过期，可用于你自己的消耗，但并非全部可以提现：\n\n提问人用付费购买的额度（Plan、Pack，或本身可提现的收入 credits）支付的部分，自计入之日起满 30 天后可以提现；提问人用免费额度（注册赠送、新手任务、每日打卡、不可提现的邀请奖励等赠送 credits，兑换码，后台发放的额度，或由这些额度换来的收入 credits）支付的部分，只能用于消耗，不能提现。若支付查询费的那笔购买在这 30 天内退款或拒付，RE0 会先向提问人收回（见第 5 节）；只有无法从提问人处全部收回、形成待抵扣额度时，才会在未收回的金额以内，作废由这笔购买支付、尚未满 30 天且尚未使用的收入 credits。提问人之后补足欠款（或拒付被撤销）时，作废的收入 credits 会按已补足的比例恢复，保留原来的可提现日期。已满 30 天、已用于提现申请或已经用掉的部分不会因此收回。\n\n他人通过你的邀请链接注册新账号后，计入你的邀请，你获得平台当时设定的邀请奖励。{inviteRule}\n\n可提现的收入 credits（包括可提现的邀请奖励）达到提现门槛后可申请提现。统一提现门槛目前为 {payoutMinCredits} credits（{payoutMinUsd}），由平台设定并可能调整；平台也可以为个别账号设定不同的门槛，以该账号提现页面显示的为准。调整门槛只影响之后提交的申请。申请处理期间相应 credits 会被冻结，经人工审核后打款。首次提现前须通过人工身份验证并提交税务信息声明，收款方式为你本人的 PayPal 账户，PayPal 手续费由提现人承担。账号有未清的待抵扣额度或已被停用时，不能申请提现，已提交的申请也不会被批准或打款。Plan、Pack 与赠送 credits（注册赠送、新手任务、每日打卡与不可提现的邀请奖励）不能提现。你需自行承担所得相关的纳税义务。',
     },
     s8: {
       title: '知识与内容',
@@ -97,7 +103,12 @@ export const zh = {
 };
 
 export const en: Shape<typeof zh> = {
-  updated: 'Last updated: November 3, 2026',
+  updated: 'Last updated: November 13, 2026',
+  inviteRule: {
+    withdrawable:
+      'For the first {withdrawableInvites} invited sign-ups site-wide, in order of registration, the reward is paid as earned credits with no 30-day wait: it is withdrawable once credited, still subject to every payout condition in the next paragraph. Each account receives invitation rewards as earned credits for at most {withdrawableInvitesPerInviter} invited sign-ups; those beyond it do not use a site-wide place. Both numbers are the platform\'s current settings and may change. Invitation rewards beyond the site-wide quota or your own limit are paid as gift credits and cannot be withdrawn. Changing either number does not change the kind of a reward already paid.',
+    none: 'Under the platform\'s current settings, all invitation rewards are paid as gift credits and cannot be withdrawn. The platform may change its settings so that rewards for a number of invited sign-ups are paid as withdrawable earned credits; a change does not change the kind of a reward already paid.',
+  },
   contents: 'Contents',
   footnote: 'Where the Chinese and another language version differ, the Chinese version prevails. These terms will be reviewed again before payouts open.',
   terms: {
@@ -109,7 +120,7 @@ export const en: Shape<typeof zh> = {
     },
     s2: {
       title: 'Credits',
-      body: 'Everything on RE0 is charged in credits: 1 credit = USD 0.0001. Credits are prepaid usage, not money; they cannot be transferred and, except for earned credits under section 7, cannot be exchanged for cash.\n\nNew users receive {welcomeCredits} welcome credits that do not expire. Credits are spent in this order: current Plan → welcome → Pack → earned; returns go back in reverse order. When the balance is too low, the action is refused; nothing is overdrawn.',
+      body: 'Everything on RE0 is charged in credits: 1 credit = USD 0.0001. Credits are prepaid usage, not money; they cannot be transferred and, except for the withdrawable credits under section 7, cannot be exchanged for cash.\n\nNew users receive {welcomeCredits} welcome credits that do not expire. Rewards for starter tasks and daily check-ins, and invitation rewards beyond the withdrawable quota (section 7), are also gift credits: they do not expire and cannot be withdrawn. The amounts and conditions of each gift are those the platform announces at the time; the platform may change or end them, and gifts already granted are not affected. Credits are spent in this order: current Plan → gift → Pack → earned; returns go back in reverse order. When the balance is too low, the action is refused; nothing is overdrawn.',
     },
     s3: {
       title: 'Plan and Pack',
@@ -128,8 +139,8 @@ export const en: Shape<typeof zh> = {
       body: 'Each Ree that actually answers a question charges a 20-credit base fee; asking someone else’s Ree adds the query fee its owner set. An unanswered question costs nothing. With answer checking on, each answering Ree charges a further 10-credit check fee, returned if it does not answer or the check fails; a Ree round-table synthesis of several answers costs 30 credits, returned if it fails. Knowledge processing passes through actual costs from services called, including Firecrawl, embedding and transcription, with no character fee. USD costs are totaled, converted at 1 credit = $0.0001 and rounded up once. Initial reservations are refundable, not price caps. Shortfalls are reserved automatically; unused credits are returned. Insufficient balance stops processing. A failed run is charged for the costs already incurred and only unused credits are returned; what the balance cannot cover is owed and repaid from the next credits. Provider rates depend on the supplier and selected model; actual usage and costs appear in processing activity. Knowledge you have added is charged for storage while it is kept, by the space it takes (the uploaded file and its parsed text, passages and vectors) and for how long, settled daily; what the balance cannot cover is owed in the same way. Storage charges stop when the Ree is deleted.',
     },
     s7: {
-      title: 'Earned credits and payouts',
-      body: 'Query fees others pay to ask your Rees become your earned credits in full. Earned credits do not expire and can be spent like any credits, but not all of them can be withdrawn:\n\nThe part an asker paid from purchased credits (Plan, Pack, or earned credits that are themselves withdrawable) can be withdrawn 30 days after it was credited. The part an asker paid from free credits (welcome credits, redeem codes, credits granted by RE0, or earned credits that came from those) can be spent but never withdrawn. If the purchase that paid a query fee is refunded or charged back within those 30 days, RE0 first recovers the refund from the asker (section 5). Only if it cannot be recovered from the asker in full and an amount owed remains are earned credits that purchase paid for, less than 30 days old and not yet used, voided, up to the amount not recovered. When the asker later pays off the amount owed (or the chargeback is reversed), the voided earned credits are restored in proportion to what was paid, keeping their original withdrawal date. Credits past 30 days, already requested in a payout, or already spent are not taken back for this reason.\n\nOnce you have at least 500,000 withdrawable earned credits (USD 50) you may request a payout; the credits are held while the request is processed. Before the first payout you must pass a manual identity check and submit a tax declaration; payouts go to your own PayPal account, and PayPal fees are borne by you. While your account has an amount owed or is disabled, you cannot request a payout and a request already made is not approved or paid. Plan, Pack, and welcome credits cannot be withdrawn. You are responsible for any taxes on your earnings.',
+      title: 'Earned credits, invitation rewards and payouts',
+      body: 'Query fees others pay to ask your Rees become your earned credits in full. Earned credits do not expire and can be spent like any credits, but not all of them can be withdrawn:\n\nThe part an asker paid from purchased credits (Plan, Pack, or earned credits that are themselves withdrawable) can be withdrawn 30 days after it was credited. The part an asker paid from free credits (gift credits such as welcome, starter-task, daily check-in and non-withdrawable invitation rewards, redeem codes, credits granted by RE0, or earned credits that came from those) can be spent but never withdrawn. If the purchase that paid a query fee is refunded or charged back within those 30 days, RE0 first recovers the refund from the asker (section 5). Only if it cannot be recovered from the asker in full and an amount owed remains are earned credits that purchase paid for, less than 30 days old and not yet used, voided, up to the amount not recovered. When the asker later pays off the amount owed (or the chargeback is reversed), the voided earned credits are restored in proportion to what was paid, keeping their original withdrawal date. Credits past 30 days, already requested in a payout, or already spent are not taken back for this reason.\n\nWhen someone creates a new account through your invite link, the invitation counts as yours and you receive the invitation reward the platform sets at the time. {inviteRule}\n\nOnce your withdrawable earned credits, including withdrawable invitation rewards, reach the payout minimum, you may request a payout. The site-wide minimum is currently {payoutMinCredits} credits ({payoutMinUsd}); the platform sets it and may change it, and may set a different minimum for an individual account, shown on that account\'s payout page. A change applies to requests made after it. The credits are held while the request is processed and paid after manual review. Before the first payout you must pass a manual identity check and submit a tax declaration; payouts go to your own PayPal account, and PayPal fees are borne by you. While your account has an amount owed or is disabled, you cannot request a payout and a request already made is not approved or paid. Plan, Pack, and gift credits (welcome, starter tasks, daily check-ins and non-withdrawable invitation rewards) cannot be withdrawn. You are responsible for any taxes on your earnings.',
     },
     s8: {
       title: 'Knowledge and content',

@@ -39,6 +39,7 @@ import { isWithdrawable } from '@/lib/domain/credits';
 import { db, schema, type Executor, type Tx } from '@/lib/infra/db';
 import { AdminInputError, audit } from '@/lib/services/admin';
 import { bucketStart, trendOf } from '@/lib/services/admin-finance';
+import { effectivePayoutMinimum } from '@/lib/services/payout-minimum';
 import { grantsOf, placeHold, releaseHold, settleHold } from '@/lib/services/credits';
 import { latestKyc } from '@/lib/services/kyc';
 import { notify } from '@/lib/services/notices';
@@ -107,6 +108,7 @@ async function standing(executor: Executor, userId: string, now: Date, lock = fa
   const latest = await latestKyc(executor, userId);
   const open = await openPayout(executor, userId);
   const available = await withdrawable(executor, userId, lock, now);
+  const minimum = await effectivePayoutMinimum(executor, account.payoutMinCredits);
   const kyc = kycState(latest);
   const stage = payoutStage({
     official: account.role === 'official',
@@ -115,17 +117,18 @@ async function standing(executor: Executor, userId: string, now: Date, lock = fa
     paypalEmail: account.paypalEmail,
     paypalChangedAt: account.paypalEmailChangedAt,
     withdrawable: available,
+    minimum: minimum.credits,
     now,
   });
-  return { account, latest, kyc, open, available, stage };
+  return { account, latest, kyc, open, available, stage, minimum };
 }
 
 /* ------------------------------------------------------------- the user */
 
 /** Where the user stands, without the history: the dashboard's guide. */
-export async function payoutStanding(userId: string, now = new Date()): Promise<{ stage: PayoutStage; kyc: KycState; held: number }> {
-  const { stage, kyc, open } = await standing(db(), userId, now);
-  return { stage, kyc, held: open?.credits ?? 0 };
+export async function payoutStanding(userId: string, now = new Date()): Promise<{ stage: PayoutStage; kyc: KycState; held: number; minimum: number }> {
+  const { stage, kyc, open, minimum } = await standing(db(), userId, now);
+  return { stage, kyc, held: open?.credits ?? 0, minimum: minimum.credits };
 }
 
 export interface PayoutOverview {
@@ -135,6 +138,9 @@ export interface PayoutOverview {
   paypalEmail: string | null;
   paypalHoldUntil: Date | null;
   withdrawable: number;
+  /** The account's effective payout minimum, and whether it is the account's own rather than the site-wide one. */
+  minimum: number;
+  minimumOverride: boolean;
   /** Paid-for earnings still maturing, and when the next of them can be withdrawn (review H2). */
   maturing: number;
   nextMaturesAt: Date | null;
@@ -148,7 +154,7 @@ export interface PayoutOverview {
 /** The billing card, the dashboard guide and `GET /api/billing/payouts`. */
 export async function payoutOverview(userId: string, now = new Date()): Promise<PayoutOverview> {
   const database = db();
-  const { account, kyc, open, available, stage } = await standing(database, userId, now);
+  const { account, kyc, open, available, stage, minimum } = await standing(database, userId, now);
   const history = await database.select().from(schema.payout).where(eq(schema.payout.userId, userId)).orderBy(desc(schema.payout.createdAt)).limit(50);
   const holdUntil = paypalHoldUntil(account.paypalEmailChangedAt);
   const earned = await earnedBreakdown(database, userId, now);
@@ -160,6 +166,8 @@ export async function payoutOverview(userId: string, now = new Date()): Promise<
     paypalEmail: account.paypalEmail,
     paypalHoldUntil: holdUntil && holdUntil.getTime() > now.getTime() ? holdUntil : null,
     withdrawable: available,
+    minimum: minimum.credits,
+    minimumOverride: minimum.override,
     open,
     history,
   };
@@ -191,19 +199,20 @@ export async function setPaypalEmail(userId: string, raw: unknown, now = new Dat
  * Requests a payout of `credits` (default: all withdrawable). Every gate is
  * checked again here under a per-user lock: not official, identity
  * verified, an address past its hold, no payout in progress, a whole number
- * from 500,000 up to the earned balance. The credits leave the earned grants
+ * from the account's effective minimum up to the earned balance. The credits leave the earned grants
  * in the same transaction (`payout_hold`).
  */
 export async function requestPayout(userId: string, rawCredits: unknown, now = new Date()): Promise<PayoutRow> {
   try {
     return await db().transaction(async (tx) => {
       await tx.execute(sql`select pg_advisory_xact_lock(hashtext(${`payout:${userId}`}))`);
-      const { account, latest, available, stage } = await standing(tx, userId, now, true);
+      /* The minimum is read here, in the request's own transaction: a change applies to the next request. */
+      const { account, latest, available, stage, minimum } = await standing(tx, userId, now, true);
       if (stage !== 'eligible' && stage !== 'threshold') throw new PayoutRefused(STAGE_REFUSALS[stage]);
       if (account.disabledAt) throw new PayoutRefused('disabled');
       /* A refund that found the credits spent is owed first; it is not paid out of the platform's pocket (review M10). */
       if ((await openDebt(tx, userId)) > 0) throw new PayoutRefused('debt_open');
-      const credits = parsePayoutCredits(rawCredits, available);
+      const credits = parsePayoutCredits(rawCredits, available, minimum.credits);
       if (typeof credits !== 'number') throw new PayoutRefused(credits.error);
       const id = crypto.randomUUID();
       const holdId = await placeHold(tx, { userId, kind: 'payout', amount: credits, refId: id, note: `PayPal ${account.paypalEmail}`, sources: ['earned'], withdrawableOnly: true }, now);

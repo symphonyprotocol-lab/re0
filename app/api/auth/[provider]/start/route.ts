@@ -3,19 +3,23 @@ import { isIdentityProvider } from '@/lib/domain/auth';
 import { appBaseUrl } from '@/lib/http/cookies';
 import { callbackUrl, sameOrigin, setHandshakeCookie } from '@/lib/http/session';
 import { beginOAuth } from '@/lib/services/auth';
+import { normalizeInviteCode } from '@/lib/domain/invites';
 
 /** The login page's provider buttons post here; we answer with the provider's consent screen. */
 export async function POST(request: NextRequest, context: { params: Promise<{ provider: string }> }) {
   const { provider } = await context.params;
-  const back = (error: string) => NextResponse.redirect(new URL(`/login?error=${error}`, appBaseUrl()), 303);
+  const form = await request.formData().catch(() => null);
+  /* A failed start keeps the invite on the way back, so the next try still carries it. */
+  const invite = normalizeInviteCode(form?.get('invite'));
+  const back = (error: string) => NextResponse.redirect(new URL(`/login?error=${error}${invite ? `&invite=${invite}` : ''}`, appBaseUrl()), 303);
   if (!isIdentityProvider(provider)) return back('oauth_failed');
   if (!sameOrigin(request.headers)) return new NextResponse('cross-origin request refused', { status: 403 });
-  const form = await request.formData().catch(() => null);
   try {
     const started = await beginOAuth({
       provider,
       returnTo: form?.get('returnTo') ?? undefined,
       redirectUri: callbackUrl(provider),
+      invite,
     });
     const response = NextResponse.redirect(started.redirectUrl, 303);
     setHandshakeCookie(response, started.handshake, started.expiresAt);

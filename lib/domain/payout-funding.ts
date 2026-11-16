@@ -27,8 +27,10 @@ export interface FundingPayerRow {
 
 /** What the questions behind a payout were paid from, in credits (the whole query fee of each). */
 export interface FundingSources {
-  /** Plans and Packs bought through Paddle, and withdrawable earned credits. */
+  /** Plans and Packs bought through Paddle, and withdrawable earned credits that trace back to them. */
   paid: number;
+  /** Withdrawable earned credits that began as an invitation reward (directly or through earlier query fees). */
+  invite: number;
   welcome: number;
   /** Redeem codes. */
   redeemed: number;
@@ -40,7 +42,7 @@ export interface FundingSources {
   refunded: number;
 }
 
-export type FundingFlag = 'top_payer' | 'fresh_payers' | 'exclusive_payers' | 'shared_identity' | 'max_fee' | 'refunded';
+export type FundingFlag = 'top_payer' | 'fresh_payers' | 'exclusive_payers' | 'shared_identity' | 'max_fee' | 'refunded' | 'invite_funded';
 
 export interface FundingPayer extends FundingPayerRow {
   share: number;
@@ -68,6 +70,10 @@ export interface PayoutFundingSummary {
   sources: FundingSources;
   /** Of `drawn`: earned credits whose paying purchase was since refunded or charged back. */
   drawnRefunded: number;
+  /** Of `drawn`: invite-funded earned credits -- invitation rewards and earnings paid with them. */
+  drawnInvite: number;
+  /** How many invited registrations the applicant has. */
+  ownerInvited: number;
   flags: FundingFlag[];
   /** Largest first. */
   ranked: FundingPayer[];
@@ -88,6 +94,8 @@ export function summarizeFunding(input: {
   payers: readonly FundingPayerRow[];
   sources: FundingSources;
   drawnRefunded: number;
+  drawnInvite?: number;
+  ownerInvited?: number;
   /** The owner's sign-in e-mail, their PayPal e-mail and the one this payout goes to. */
   ownerEmails: readonly (string | null)[];
 }): PayoutFundingSummary {
@@ -125,6 +133,8 @@ export function summarizeFunding(input: {
     maxFee: { questions: maxFeeQuestions, share: questions > 0 ? maxFeeQuestions / questions : 0 },
     sources: input.sources,
     drawnRefunded: input.drawnRefunded,
+    drawnInvite: input.drawnInvite ?? 0,
+    ownerInvited: input.ownerInvited ?? 0,
     ranked,
   };
   const flags: FundingFlag[] = [];
@@ -134,5 +144,6 @@ export function summarizeFunding(input: {
   if (summary.sharedIdentity >= signals.sharedIdentityPayers) flags.push('shared_identity');
   if (maxFeeQuestions > 0 && summary.maxFee.share >= signals.maxFeeShare) flags.push('max_fee');
   if (input.drawnRefunded > 0 && share(input.drawnRefunded) >= signals.refundedShare) flags.push('refunded');
+  if ((input.drawnInvite ?? 0) > 0 && share(input.drawnInvite ?? 0) >= signals.inviteFundedShare) flags.push('invite_funded');
   return { ...summary, flags };
 }

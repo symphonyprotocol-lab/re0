@@ -10,6 +10,8 @@ import { serverMessages } from '@/i18n/server';
 import { Topbar } from '@/components/shell/topbar';
 import { ReeList } from '@/components/rees/ree-list';
 import { FavoriteReeList, favoriteReesHref } from '@/components/rees/favorite-ree-list';
+import { TaskGuide } from '@/components/rees/task-guide';
+import { taskGuide } from '@/lib/services/task-rewards';
 
 export async function generateMetadata(): Promise<Metadata> {
   const { t } = await serverMessages();
@@ -59,7 +61,7 @@ export default async function ReesPage({ searchParams }: { searchParams: Promise
     if (result.page !== query.page) redirect(favoriteReesHref(result.page));
     return <>{topbar}<FavoriteReeList result={result} /></>;
   }
-  const [result, totals] = await Promise.all([listRees(user.id, query), reeTotals(user.id)]);
+  const [result, totals, guide] = await Promise.all([listRees(user.id, query), reeTotals(user.id), taskGuide(user.id)]);
   const coverVideos = await introsFor(query.view === 'cards'
     ? result.items.filter(ree => !ree.coverBlob).map(ree => ree.id)
     : []);
@@ -71,6 +73,12 @@ export default async function ReesPage({ searchParams }: { searchParams: Promise
         totals={totals}
         query={query}
         coverVideos={Object.fromEntries(coverVideos)}
+        /*
+         * Keyed: an element passed as a prop reaches ReeList through the RSC payload, and when its
+         * client module is still loading it arrives as a lazy wrapper that JSX's static-children
+         * check cannot mark, so React then reports it as an unkeyed child of <main>.
+         */
+        guide={guide.visible || guide.checkInOnly ? <TaskGuide key="task-guide" guide={guide} /> : null}
       />
     </>
   );

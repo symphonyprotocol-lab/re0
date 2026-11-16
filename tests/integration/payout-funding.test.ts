@@ -165,7 +165,7 @@ describeWithDb('the payout review page shows where the money came from (review H
     expect(s.fresh).toEqual({ payers: 1, share: 450_000 / drawn });
     expect(s.exclusive).toEqual({ payers: 1, share: 450_000 / drawn });
     expect(s.maxFee).toEqual({ questions: 45, share: 45 / 61 });
-    expect(s.sources).toEqual({ paid: drawn, welcome: 2_000, redeemed: 0, console: 0, earnedFree: 0, refunded: 10_000 });
+    expect(s.sources).toEqual({ paid: drawn, invite: 0, welcome: 2_000, redeemed: 0, console: 0, earnedFree: 0, refunded: 10_000 });
     expect(s.flags.sort()).toEqual(['exclusive_payers', 'fresh_payers', 'max_fee', 'refunded', 'shared_identity', 'top_payer']);
 
     const [top, ...rest] = s.ranked;
@@ -209,7 +209,8 @@ describeWithDb('the payout review page shows where the money came from (review H
     expect(summary).toMatchObject({ drawn: 500_000, traced: 500_000, payers: 10, questions: 100, flags: [] });
     expect(summary.topShare).toBeCloseTo(0.1, 6);
     expect(summary.top3Share).toBeCloseTo(0.3, 6);
-  });
+    /* A hundred settled questions: about five seconds on a laptop, at the default limit even before this change. */
+  }, 20_000);
 
   it('earned credits granted in the console count as drawn but not traced', async () => {
     const administrator = await newAdministrator();

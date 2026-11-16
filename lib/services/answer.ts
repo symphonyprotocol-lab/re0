@@ -39,7 +39,6 @@ import { and, eq, inArray, isNull } from 'drizzle-orm';
 import {
   ANSWER_CHECK_TIMEOUT_MAX_MS,
   ANSWER_STREAM_TIMEOUT_MAX_MS,
-  EARNED_MATURITY_DAYS,
   NO_ANSWER_REFUSAL_CHARS,
   NO_ANSWER_SUGGESTIONS,
   QUERY_BASE_FEE,
@@ -71,10 +70,11 @@ import { generationForUser } from '@/lib/services/generation';
 import { db, schema } from '@/lib/infra/db';
 import { json } from '@/lib/http/respond';
 import { embedQuestion, messagesOf, retrieve, turnsOf, type Conversation, type MessageRow, type QuestionVector } from '@/lib/services/chat';
-import { addGrant, balanceOf, paidShare, placeHold, releaseHold, settleHold } from '@/lib/services/credits';
+import { addGrant, balanceOf, creditQueryFee, placeHold, releaseHold, settleHold } from '@/lib/services/credits';
 import { suggestRees } from '@/lib/services/explore';
 import { questionRewriter } from '@/lib/services/question-rewrite';
 import type { Ree } from '@/lib/services/rees';
+import { grantTaskReward } from '@/lib/services/task-rewards';
 
 type Writer = UIMessageStreamWriter<ReeUIMessage>;
 type Write = (chunk: Parameters<Writer['write']>[0]) => void;
@@ -255,6 +255,8 @@ export async function holdQuestion(input: AnswerInput): Promise<Holding> {
         const verifyHold = verifying ? await placeHold(tx, { userId, kind: 'chat', ledger: 'chat_verify', amount: VERIFY_FEE, refId: asked!.id, reeId: ree.id, note: ree.name }) : null;
         holds.push({ ree, baseHold, feeHold, fee, verifyHold });
       }
+      /* 新手任务: a first question to a Ree pays once, after its holds, so it never pays for itself (task-rewards.ts). */
+      if (targets.length > 0) await grantTaskReward(tx, userId, 'first_question', asked!.id);
       /* A question brings an archived conversation back to Recent (8.2); the first one names it. */
       await tx
         .update(schema.conversation)
@@ -485,15 +487,7 @@ export async function runQuestion(question: HeldQuestion, emit: Emit): Promise<v
          * period; the part from free credits is earned they can only spend
          * (review H2).
          */
-        if (paid && paid.charged > 0) {
-          const share = await paidShare(tx, paid.chargedAllocations);
-          const credit = (amount: number, withdrawableAt: Date | null, note: string, fundingPurchaseId: string | null) =>
-            addGrant(tx, { userId: ree.ownerId, source: 'earned', amount, reason: 'query_fee_earned', refId: replyId, reeId: ree.id, note, withdrawableAt, fundingPurchaseId });
-          /* One grant per paying purchase, so a refund of one voids only what it paid for while it has not matured. */
-          const matures = new Date(Date.now() + EARNED_MATURITY_DAYS * 86_400_000);
-          for (const [purchaseId, amount] of share.byPurchase) if (amount > 0) await credit(amount, matures, ree.name, purchaseId);
-          if (share.free > 0) await credit(share.free, null, `${ree.name} · free credits, not withdrawable`, null);
-        }
+        if (paid && paid.charged > 0) await creditQueryFee(tx, { ownerId: ree.ownerId, reeId: ree.id, reeName: ree.name, replyId, allocations: paid.chargedAllocations });
         const charged = (base?.charged ?? 0) + (paid?.charged ?? 0);
         await tx.insert(schema.message).values({
           id: replyId,

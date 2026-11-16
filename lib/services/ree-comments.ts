@@ -4,6 +4,7 @@ import type { ReeComment, ReeCommentPage } from '@/lib/domain/ree-comment';
 import { db, schema } from '@/lib/infra/db';
 import { publicRee } from '@/lib/services/explore';
 import type { SessionUser } from '@/lib/services/auth';
+import { grantTaskReward } from '@/lib/services/task-rewards';
 
 const PAGE_SIZE = 20;
 const { ree, reeComment, user } = schema;
@@ -80,6 +81,8 @@ export async function addReeComment(
       eq(reeComment.content, input.content),
     ));
     if (!saved) return 'conflict';
+    /* 新手任务: a first comment pays once; a retried request inserts nothing and pays nothing. */
+    if (inserted) await grantTaskReward(tx, author.id, 'first_comment', inserted.id);
     return {
       id: saved.id,
       content: saved.content,

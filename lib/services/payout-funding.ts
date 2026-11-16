@@ -11,9 +11,12 @@
  * the fee was paid from, and so what it was paid from. Nothing scans the
  * whole ledger.
  *
- * Earned credits with no such entry (granted in the console) and questions
- * whose conversation was since deleted (their messages go with it) cannot
- * be traced; they count in `drawn` but not in `traced`.
+ * Earned credits with no such entry (granted in the console, or an
+ * invitation reward) and questions whose conversation was since deleted
+ * (their messages go with it) cannot be traced; they count in `drawn` but
+ * not in `traced`. `drawn_invite` is what the payout draws on invite-funded
+ * grants: invitation rewards themselves and earnings from fees paid with
+ * them, over any number of hops (`credit_grant.invite_funded`).
  */
 import { sql } from 'drizzle-orm';
 import { PAYOUT_MATURITY_DATES, PAYOUT_PAYERS_PAGE_SIZE, QUERY_FEE } from '@/lib/constants';
@@ -27,6 +30,8 @@ interface Raw {
   payout_id: string;
   drawn: string | number;
   drawn_refunded: string | number;
+  drawn_invite: string | number;
+  owner_invited: string | number;
   sources: Record<keyof FundingSources, string | number> | null;
   payers: {
     user_id: string;
@@ -46,7 +51,7 @@ interface Raw {
   payout_paypal: string;
 }
 
-const EMPTY_SOURCES: FundingSources = { paid: 0, welcome: 0, redeemed: 0, console: 0, earnedFree: 0, refunded: 0 };
+const EMPTY_SOURCES: FundingSources = { paid: 0, invite: 0, welcome: 0, redeemed: 0, console: 0, earnedFree: 0, refunded: 0 };
 
 async function fundingOf(ids: readonly string[]): Promise<Map<string, PayoutFundingSummary>> {
   const valid = ids.filter(isUuid);
@@ -81,18 +86,18 @@ async function fundingOf(ids: readonly string[]): Promise<Map<string, PayoutFund
       join conversation c on c.id = q.conversation_id
       group by l.payout_id, l.owner_id, l.reply_id, m.request_id, m.ree_id, c.user_id, q.created_at
     ), spend as (
-      select r.payout_id, r.reply_id, g.source, g.purchase_id, g.redemption_id, g.withdrawable_at, g.funding_purchase_id,
+      select r.payout_id, r.reply_id, g.source, g.purchase_id, g.redemption_id, g.withdrawable_at, g.funding_purchase_id, g.invite_funded,
         sum(case when f.delta < 0 then (a->>'amount')::bigint else -(a->>'amount')::bigint end) as amount
       from replies r
       join credit_entry f on f.ref_id = r.request_id and f.reason = 'query_fee_paid' and f.user_id = r.asker_id and f.ree_id = r.ree_id
       cross join lateral jsonb_array_elements(f.allocations) a
       join credit_grant g on g.id = (a->>'grantId')::uuid
-      group by 1, 2, 3, 4, 5, 6, 7
+      group by 1, 2, 3, 4, 5, 6, 7, 8
     ), classified as (
       select s.payout_id, s.reply_id, s.amount,
         case
           when s.source = 'welcome' then 'welcome'
-          when s.source = 'earned' then case when s.withdrawable_at is null then 'earnedFree' else 'paid' end
+          when s.source = 'earned' then case when s.withdrawable_at is null then 'earnedFree' when s.invite_funded then 'invite' else 'paid' end
           when s.redemption_id is not null then 'redeemed'
           when s.purchase_id is not null then 'paid'
           else 'console'
@@ -112,8 +117,11 @@ async function fundingOf(ids: readonly string[]): Promise<Map<string, PayoutFund
     select d.payout_id,
       (select coalesce(sum(x.drawn), 0) from drawn x where x.payout_id = d.payout_id) as drawn,
       (select coalesce(sum(l.drawn), 0) from linked l where l.payout_id = d.payout_id and l.refunded) as drawn_refunded,
+      (select coalesce(sum(x.drawn), 0) from drawn x join credit_grant xg on xg.id = x.grant_id where x.payout_id = d.payout_id and xg.invite_funded) as drawn_invite,
+      (select count(*) from invitation iv where iv.inviter_id = d.owner_id) as owner_invited,
       (select json_build_object(
           'paid', coalesce(sum(c.amount) filter (where c.kind = 'paid'), 0),
+          'invite', coalesce(sum(c.amount) filter (where c.kind = 'invite'), 0),
           'welcome', coalesce(sum(c.amount) filter (where c.kind = 'welcome'), 0),
           'redeemed', coalesce(sum(c.amount) filter (where c.kind = 'redeemed'), 0),
           'console', coalesce(sum(c.amount) filter (where c.kind = 'console'), 0),
@@ -162,6 +170,8 @@ async function fundingOf(ids: readonly string[]): Promise<Map<string, PayoutFund
         payers,
         sources,
         drawnRefunded: Number(raw.drawn_refunded),
+        drawnInvite: Number(raw.drawn_invite),
+        ownerInvited: Number(raw.owner_invited),
         ownerEmails: [raw.owner_email, raw.owner_paypal, raw.payout_paypal],
       }),
     );

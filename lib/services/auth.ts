@@ -5,7 +5,9 @@
  * The OAuth handshake -- state, PKCE verifier, nonce, where to return --
  * travels in one sealed short-lived cookie, so the callback needs no store.
  * A first sign-in creates the user and grants the welcome credits in the
- * same transaction as the session (rebuild-proposal.md 2.3).
+ * same transaction as the session (rebuild-proposal.md 2.3), gives it its
+ * invite code and, when it came through an invite link, credits the
+ * invitation to the inviter there too (lib/services/invites.ts).
  */
 import { and, eq, gt, inArray, lt } from 'drizzle-orm';
 import { OAUTH_STATE_TTL_MS, DISPLAY_NAME_MAX } from '@/lib/constants';
@@ -24,6 +26,8 @@ import { db, schema } from '@/lib/infra/db';
 import * as github from '@/lib/infra/identity/github';
 import * as google from '@/lib/infra/identity/google';
 import { grantWelcome } from '@/lib/services/credits';
+import { attributeInvitation, ensureInviteCode, type Attribution } from '@/lib/services/invites';
+import { normalizeInviteCode } from '@/lib/domain/invites';
 
 export interface Handshake {
   provider: IdentityProvider;
@@ -32,6 +36,8 @@ export interface Handshake {
   codeVerifier: string;
   returnTo: string;
   expiresAt: number;
+  /** The invite code the visitor arrived with; it counts only if this sign-in creates the account. */
+  invite?: string | null;
 }
 
 export interface IdentityAdapter {
@@ -58,6 +64,7 @@ export async function beginOAuth(input: {
   provider: IdentityProvider;
   returnTo: unknown;
   redirectUri: string;
+  invite?: unknown;
   now?: Date;
   adapter?: IdentityAdapter;
 }): Promise<{ redirectUrl: string; handshake: string; expiresAt: number }> {
@@ -69,6 +76,7 @@ export async function beginOAuth(input: {
     codeVerifier: randomToken(),
     returnTo: safeReturnTo(input.returnTo),
     expiresAt: now.getTime() + OAUTH_STATE_TTL_MS,
+    invite: normalizeInviteCode(input.invite),
   };
   const redirectUrl = (input.adapter ?? identityAdapter).authorizeUrl({
     provider: input.provider,
@@ -92,6 +100,16 @@ function verifyHandshake(handshake: Handshake | null, provider: IdentityProvider
   return handshake;
 }
 
+/**
+ * The invite code a sealed handshake carries, for the callback's way back to
+ * `/login` when sign-in is cancelled or fails, so a retry still counts the
+ * invitation. Expiry is not checked: it only refills the login page.
+ */
+export async function handshakeInvite(sealedHandshake: string | null | undefined): Promise<string | null> {
+  const handshake = await unseal<Handshake>('oauth-handshake', sealedHandshake, legacyHandshake).catch(() => null);
+  return normalizeInviteCode(handshake?.invite);
+}
+
 export interface CompleteOAuthResult {
   sessionToken: string;
   expiresAt: Date;
@@ -100,6 +118,8 @@ export interface CompleteOAuthResult {
   created: boolean;
   /** The account's language: the stored one, or for a new account the one it was created with. */
   lang: 'zh' | 'en';
+  /** What became of an invite code: `none` without one or for an existing account. */
+  invitation: Attribution;
 }
 
 export async function completeOAuth(input: {
@@ -121,7 +141,7 @@ export async function completeOAuth(input: {
     nonce: handshake.nonce,
     redirectUri: input.redirectUri,
   });
-  return createSession(profile, input.lang, handshake.returnTo, now);
+  return createSession(profile, input.lang, handshake.returnTo, now, { invite: handshake.invite });
 }
 
 /** Finds or creates the user for a verified identity and opens a session. */
@@ -130,12 +150,13 @@ export async function createSession(
   lang: 'zh' | 'en',
   returnTo: string,
   now = new Date(),
+  options: { invite?: unknown } = {},
 ): Promise<CompleteOAuthResult> {
   const sessionToken = randomToken();
   const expiresAt = sessionExpiryFrom(now);
   const tokenHash = await sessionTokenHash(sessionToken);
 
-  const { userId, created, lang: accountLang } = await db().transaction(async (tx) => {
+  const { userId, created, lang: accountLang, invitation } = await db().transaction(async (tx) => {
     const [existing] = await tx
       .select({ id: schema.user.id, disabledAt: schema.user.disabledAt, lang: schema.user.lang })
       .from(schema.user)
@@ -149,7 +170,7 @@ export async function createSession(
         .set({ email: profile.email, providerHandle: profile.handle, lastLoginAt: now })
         .where(eq(schema.user.id, existing.id));
       await tx.insert(schema.session).values({ id: tokenHash, userId: existing.id, expiresAt });
-      return { userId: existing.id, created: false, lang: existing.lang };
+      return { userId: existing.id, created: false, lang: existing.lang, invitation: 'none' as Attribution };
     }
     const name = (profile.displayName?.trim() || profile.email.split('@')[0] || 'Ree user').slice(0, DISPLAY_NAME_MAX);
     const [user] = await tx
@@ -167,11 +188,13 @@ export async function createSession(
       })
       .returning({ id: schema.user.id });
     await grantWelcome(tx, user!.id, now);
+    await ensureInviteCode(tx, user!.id);
+    const invitation = await attributeInvitation(tx, user!.id, options.invite, now);
     await tx.insert(schema.session).values({ id: tokenHash, userId: user!.id, expiresAt });
-    return { userId: user!.id, created: true, lang };
+    return { userId: user!.id, created: true, lang, invitation };
   });
 
-  return { sessionToken, expiresAt, returnTo, userId, created, lang: accountLang };
+  return { sessionToken, expiresAt, returnTo, userId, created, lang: accountLang, invitation };
 }
 
 export type SessionUser = typeof schema.user.$inferSelect;
