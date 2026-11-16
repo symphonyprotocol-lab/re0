@@ -1,46 +1,56 @@
 import type { Shape } from '@/i18n/format';
 
 /**
- * Invitations and new-user tasks (docs/design/invitations.md): the task
- * guide on the Rees page, the invite tab in settings, the login page's
+ * Invitations and new-user tasks (docs/design/invitations.md): the
+ * Activities page (`/activities`), the invite tab in settings, the login page's
  * invite note, and the console's 邀请与任务 page.
  */
 export const zh = {
-  guide: {
-    eyebrow: 'GETTING STARTED',
-    title: '新手任务',
-    lede: '完成下面几步，熟悉 RE0，同时领取赠送 credits。赠送 credits 可以用来提问和处理知识，不可提现。',
-    progress: '已完成 {done} / {total}',
-    dismiss: '不再显示',
-    dismissLabel: '关闭新手任务',
+  activities: {
+    title: '活动',
+    eyebrow: 'ACTIVITIES',
+    lede: '每日打卡、新手任务和邀请朋友都能领取 credits。打卡与新手任务奖励为赠送 credits，可用于提问和处理知识，不可提现。',
+    nothing: '现在没有待领取的奖励：今天的打卡已完成或不再开放，新手任务也都已完成或没有奖励。',
     done: '已完成',
     pending: '待完成',
     reward: '+{n} credits',
     go: '去完成',
-    items: {
-      signup: { title: '注册账号', body: '注册赠送已到账。' },
-      first_ree: { title: '发布第一个 Ree', body: '创建一个公开 Ree 并发布到发现页。' },
-      first_question: { title: '第一次提问', body: '向任意一个 Ree 提一个问题。' },
-      first_comment: { title: '第一次评论', body: '在一个已发布的 Ree 下留下评论。' },
+    tasks: {
+      title: '新手任务',
+      lede: '完成下面几步，熟悉 RE0，同时领取赠送 credits。',
+      progress: '已完成 {done} / {total}',
+      allDone: '新手任务都已完成，奖励已经到账。',
+      none: '目前没有新手任务奖励。',
+      items: {
+        signup: { title: '注册账号', body: '注册赠送已到账。' },
+        first_ree: { title: '发布第一个 Ree', body: '创建一个公开 Ree 并发布到发现页。' },
+        first_question: { title: '第一次提问', body: '向任意一个 Ree 提一个问题。' },
+        first_comment: { title: '第一次评论', body: '在一个已发布的 Ree 下留下评论。' },
+      },
+    },
+    checkIn: {
+      title: '每日打卡',
+      body: '注册后 {months} 个月内每天可打卡一次，每次 {n} credits，最多 {max} 天，不必连续。日期按北京时间（UTC+8）计算。',
+      progress: '已打卡 {used} / {max} 天 · {date} 截止',
+      used: '已打卡 {used} / {max} 天',
+      button: '打卡',
+      busy: '打卡中…',
+      doneToday: '今天已打卡',
+      doneTodayNote: '今天的打卡奖励已到账，明天（UTC+8）可以再来。',
+      finished: '已完成全部打卡',
+      finishedNote: '你已打卡满 {max} 天，打卡奖励已经全部领取。',
+      expired: '打卡期已结束',
+      expiredNote: '打卡只在注册后 {months} 个月内开放，你的打卡期已于 {date} 结束。',
+      off: '打卡奖励已关闭',
+      offNote: '目前没有打卡奖励。',
+      paid: '打卡成功，+{n} credits',
+      failed: '打卡没有成功，请稍后再试。',
     },
     invite: {
       title: '邀请朋友',
       body: '每邀请一位朋友注册成功，你获得 {n} credits，可按提现规则提现。',
       bodyGift: '每邀请一位朋友注册成功，你获得 {n} 赠送 credits，可用于消耗，不可提现。',
-      go: '获取邀请链接',
-    },
-    checkIn: {
-      title: '每日打卡',
-      body: '注册后 {months} 个月内每天可打卡一次，每次 {n} credits，最多 {max} 天，不必连续。',
-      progress: '已打卡 {used} / {max} 天 · {date} 截止',
-      button: '打卡',
-      busy: '打卡中…',
-      doneToday: '今天已打卡',
-      finished: '已完成全部打卡',
-      expired: '打卡期已结束',
-      off: '打卡奖励已关闭',
-      paid: '打卡成功，+{n} credits',
-      failed: '打卡没有成功，请稍后再试。',
+      details: '查看邀请记录',
     },
   },
   panel: {
@@ -137,41 +147,51 @@ export const zh = {
 };
 
 export const en: Shape<typeof zh> = {
-  guide: {
-    eyebrow: 'GETTING STARTED',
-    title: 'Starter tasks',
-    lede: 'A few steps to get to know RE0, each with gift credits. Gift credits pay for questions and knowledge processing; they cannot be withdrawn.',
-    progress: '{done} of {total} done',
-    dismiss: 'Hide',
-    dismissLabel: 'Hide starter tasks',
+  activities: {
+    title: 'Activities',
+    eyebrow: 'ACTIVITIES',
+    lede: 'Earn credits by checking in each day, finishing the starter tasks and inviting friends. Check-in and starter task rewards are gift credits: they pay for questions and knowledge processing, and cannot be withdrawn.',
+    nothing: 'Nothing to claim right now: today\'s check-in is done or no longer open, and the starter tasks are all done or carry no reward.',
     done: 'Done',
     pending: 'To do',
     reward: '+{n} credits',
     go: 'Start',
-    items: {
-      signup: { title: 'Create your account', body: 'Your sign-up gift has arrived.' },
-      first_ree: { title: 'Publish your first Ree', body: 'Create a public Ree and publish it to Explore.' },
-      first_question: { title: 'Ask your first question', body: 'Ask any Ree a question.' },
-      first_comment: { title: 'Post your first comment', body: 'Leave a comment on a published Ree.' },
+    tasks: {
+      title: 'Starter tasks',
+      lede: 'A few steps to get to know RE0, each with gift credits.',
+      progress: '{done} of {total} done',
+      allDone: 'All starter tasks are done and their rewards have arrived.',
+      none: 'There are no starter task rewards right now.',
+      items: {
+        signup: { title: 'Create your account', body: 'Your sign-up gift has arrived.' },
+        first_ree: { title: 'Publish your first Ree', body: 'Create a public Ree and publish it to Explore.' },
+        first_question: { title: 'Ask your first question', body: 'Ask any Ree a question.' },
+        first_comment: { title: 'Post your first comment', body: 'Leave a comment on a published Ree.' },
+      },
+    },
+    checkIn: {
+      title: 'Daily check-in',
+      body: 'For {months} months after you sign up, check in once a day for {n} credits, up to {max} days. Days need not be in a row, and they change at midnight UTC+8.',
+      progress: '{used} of {max} days · ends {date}',
+      used: '{used} of {max} days',
+      button: 'Check in',
+      busy: 'Checking in…',
+      doneToday: 'Checked in today',
+      doneTodayNote: 'Today\'s reward has arrived. Come back tomorrow (UTC+8).',
+      finished: 'All check-ins done',
+      finishedNote: 'You have checked in on {max} days and claimed every check-in reward.',
+      expired: 'Check-in period ended',
+      expiredNote: 'Check-ins are open for {months} months after sign-up; yours ended on {date}.',
+      off: 'Check-in rewards are off',
+      offNote: 'There is no check-in reward right now.',
+      paid: 'Checked in: +{n} credits',
+      failed: 'Could not check in. Please try again later.',
     },
     invite: {
       title: 'Invite friends',
       body: 'Earn {n} credits for each friend who signs up, withdrawable under the payout rules.',
       bodyGift: 'Earn {n} gift credits for each friend who signs up; you can spend them but not withdraw them.',
-      go: 'Get your link',
-    },
-    checkIn: {
-      title: 'Daily check-in',
-      body: 'For {months} months after you sign up, check in once a day for {n} credits, up to {max} days. Days need not be in a row.',
-      progress: '{used} of {max} days · ends {date}',
-      button: 'Check in',
-      busy: 'Checking in…',
-      doneToday: 'Checked in today',
-      finished: 'All check-ins done',
-      expired: 'Check-in period ended',
-      off: 'Check-in rewards are off',
-      paid: 'Checked in: +{n} credits',
-      failed: 'Could not check in. Please try again later.',
+      details: 'See your invitations',
     },
   },
   panel: {

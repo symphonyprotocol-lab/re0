@@ -12,11 +12,12 @@
  * and comments are not paid; its next one is. A reward stays when what
  * earned it is later deleted.
  */
-import { and, count, eq } from 'drizzle-orm';
-import { TASK_KINDS, TASK_REASON, TASK_SETTING, type TaskKind } from '@/lib/domain/invites';
+import { and, eq, sql } from 'drizzle-orm';
+import { activitiesPending, checkInDay, checkInState, TASK_KINDS, TASK_REASON, TASK_SETTING, type TaskKind } from '@/lib/domain/invites';
+import { addMonths } from '@/lib/domain/billing';
 import { db, schema, type Tx } from '@/lib/infra/db';
 import { addGrant } from '@/lib/services/credits';
-import { currentInviteState, rewardSettings } from '@/lib/services/invites';
+import { DEFAULT_REWARD_SETTINGS, rewardSettings } from '@/lib/services/invites';
 import { checkInStatus, type CheckInStatus } from '@/lib/services/check-in';
 
 /** Pays `task` to `userId` if it is on and not yet paid; answers the credits paid (0 for none). */
@@ -34,66 +35,85 @@ export async function grantTaskReward(tx: Tx, userId: string, task: TaskKind, re
   return credits;
 }
 
-export interface TaskGuideItem {
+export interface ActivityTask {
   key: 'signup' | TaskKind;
   done: boolean;
   /** Paid, for a done task; what it pays now, for an open one (null: the gift was off at sign-up). */
   credits: number | null;
 }
 
-export interface TaskGuide {
-  /** False once dismissed, or once every task shown is done and no check-in is left. */
-  visible: boolean;
-  /** Dismissed, but check-ins are still to be had: the Rees page shows the check-in line alone. */
-  checkInOnly: boolean;
-  items: TaskGuideItem[];
-  /** The daily check-in, or null when it is off and was never used. */
-  checkIn: CheckInStatus | null;
-  /** The invite line: what an invitation pays now and whether it is withdrawable, or null when invitations are off or unpaid. */
-  invite: { credits: number; withdrawable: boolean } | null;
+export interface Activities {
+  /** Registering, then each task that is paid or pays something now; a task whose reward is off and unpaid is left out. */
+  tasks: ActivityTask[];
+  /** Today's check-in, whatever its state (the page explains `off`, `expired` and `finished`). */
+  checkIn: CheckInStatus;
+  /** Something to do now: the same test as the navigation dot (`activitiesPending`). */
+  pending: boolean;
 }
 
-/**
- * The guide on the Rees page. A task whose reward is off and not yet paid is
- * left out; the guide is hidden once dismissed, or once every item is done
- * and the check-ins are finished, expired or off.
- */
-export async function taskGuide(userId: string, now = new Date()): Promise<TaskGuide> {
+/** The Activities page (`/activities`): the starter tasks and the daily check-in. */
+export async function activities(userId: string, now = new Date()): Promise<Activities> {
   const database = db();
-  const [[user], paid, [welcome], { settings, state, withdrawableOpen }, checkIn, [own]] = await Promise.all([
-    database.select({ dismissedAt: schema.user.taskGuideDismissedAt }).from(schema.user).where(eq(schema.user.id, userId)).limit(1),
+  const [paid, [welcome], settings, checkIn] = await Promise.all([
     database.select({ task: schema.taskReward.task, credits: schema.taskReward.credits }).from(schema.taskReward).where(eq(schema.taskReward.userId, userId)),
     database
       .select({ delta: schema.creditEntry.delta })
       .from(schema.creditEntry)
       .where(and(eq(schema.creditEntry.userId, userId), eq(schema.creditEntry.reason, 'welcome')))
       .limit(1),
-    currentInviteState(database),
+    rewardSettings(database),
     checkInStatus(userId, now),
-    database
-      .select({ n: count() })
-      .from(schema.invitation)
-      .where(and(eq(schema.invitation.inviterId, userId), eq(schema.invitation.withdrawable, true))),
   ]);
-  const items: TaskGuideItem[] = [{ key: 'signup', done: true, credits: welcome?.delta ?? null }];
+  const tasks: ActivityTask[] = [{ key: 'signup', done: true, credits: welcome?.delta ?? null }];
   for (const task of TASK_KINDS) {
     const row = paid.find((entry) => entry.task === task);
-    if (row) items.push({ key: task, done: true, credits: row.credits });
-    else if (settings[TASK_SETTING[task]] > 0) items.push({ key: task, done: false, credits: settings[TASK_SETTING[task]] });
+    if (row) tasks.push({ key: task, done: true, credits: row.credits });
+    else if (settings[TASK_SETTING[task]] > 0) tasks.push({ key: task, done: false, credits: settings[TASK_SETTING[task]] });
   }
-  const checkInLeft = checkIn.state === 'available' || checkIn.state === 'done_today';
-  const open = items.some((item) => !item.done) || checkInLeft;
-  const shownCheckIn = checkIn.state === 'off' && checkIn.used === 0 ? null : checkIn;
-  return {
-    visible: !user?.dismissedAt && open,
-    checkInOnly: Boolean(user?.dismissedAt) && checkIn.state === 'available',
-    items,
-    checkIn: shownCheckIn,
-    invite: state === 'open' && settings.inviteCredits > 0 ? { credits: settings.inviteCredits, withdrawable: withdrawableOpen && (own?.n ?? 0) < settings.withdrawableInvitesPerInviter } : null,
-  };
+  return { tasks, checkIn, pending: activitiesPending({ checkIn: checkIn.state, settings, paidTasks: paid.map((row) => row.task) }) };
 }
 
-/** Closes the guide for good. */
-export async function dismissTaskGuide(userId: string, now = new Date()): Promise<void> {
-  await db().update(schema.user).set({ taskGuideDismissedAt: now }).where(eq(schema.user.id, userId));
+/**
+ * The dot on the 活动 navigation item, for the workspace frame on every
+ * signed-in page: one indexed query (the account, its check-in count and
+ * today's row, its paid tasks, the settings row), no transaction.
+ */
+export async function activitiesIndicator(userId: string, now = new Date()): Promise<boolean> {
+  const day = checkInDay(now);
+  const [row] = await db()
+    .select({
+      createdAt: schema.user.createdAt,
+      used: sql<number>`(select count(*)::int from ${schema.checkIn} where ${schema.checkIn.userId} = ${schema.user.id})`,
+      today: sql<boolean>`exists (select 1 from ${schema.checkIn} where ${schema.checkIn.userId} = ${schema.user.id} and ${schema.checkIn.day} = ${day})`,
+      paid: sql<string[]>`coalesce((select array_agg(${schema.taskReward.task}::text) from ${schema.taskReward} where ${schema.taskReward.userId} = ${schema.user.id}), '{}'::text[])`,
+      firstReeCredits: schema.rewardSettings.firstReeCredits,
+      firstQuestionCredits: schema.rewardSettings.firstQuestionCredits,
+      firstCommentCredits: schema.rewardSettings.firstCommentCredits,
+      inviteCredits: schema.rewardSettings.inviteCredits,
+      checkInCredits: schema.rewardSettings.checkInCredits,
+      checkInMaxDays: schema.rewardSettings.checkInMaxDays,
+      checkInWindowMonths: schema.rewardSettings.checkInWindowMonths,
+    })
+    .from(schema.user)
+    .leftJoin(schema.rewardSettings, eq(schema.rewardSettings.id, 1))
+    .where(eq(schema.user.id, userId))
+    .limit(1);
+  if (!row) return false;
+  const defaults = DEFAULT_REWARD_SETTINGS;
+  const settings = {
+    firstReeCredits: row.firstReeCredits ?? defaults.firstReeCredits,
+    firstQuestionCredits: row.firstQuestionCredits ?? defaults.firstQuestionCredits,
+    firstCommentCredits: row.firstCommentCredits ?? defaults.firstCommentCredits,
+    inviteCredits: row.inviteCredits ?? defaults.inviteCredits,
+    checkInCredits: row.checkInCredits ?? defaults.checkInCredits,
+  };
+  const checkIn = checkInState({
+    credits: settings.checkInCredits,
+    used: Number(row.used),
+    maxDays: row.checkInMaxDays ?? defaults.checkInMaxDays,
+    windowEndsAt: addMonths(row.createdAt, row.checkInWindowMonths ?? defaults.checkInWindowMonths),
+    today: Boolean(row.today),
+    now,
+  });
+  return activitiesPending({ checkIn, settings, paidTasks: row.paid ?? [] });
 }

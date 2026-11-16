@@ -3,7 +3,7 @@
  * cookie to sign in, and robots.txt keeps crawlers out (they would only
  * find that redirect).
  */
-export const WORKSPACE_PATHS = ['/dashboard', '/rees', '/settings', '/talk', '/chats', '/workspace', '/videos'] as const;
+export const WORKSPACE_PATHS = ['/dashboard', '/rees', '/activities', '/settings', '/talk', '/chats', '/workspace', '/videos'] as const;
 
 /**
  * robots.txt's `Disallow`: the workspace, the console, the API and the

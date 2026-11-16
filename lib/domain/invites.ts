@@ -184,9 +184,25 @@ export const TASK_REASON: Record<TaskKind, CreditEntryReason> = {
   first_comment: 'task_first_comment',
 };
 
-/** Where the guide sends a user for each task. */
+/** Where the Activities page sends a user for each task. */
 export const TASK_HREF: Record<TaskKind, string> = {
   first_ree: '/rees/new',
   first_question: '/explore',
   first_comment: '/explore',
 };
+
+/* ------------------------------------------------------- the activities */
+
+/** A starter task still to be done that pays something now. */
+export function openTasks(settings: Pick<RewardSettings, RewardAmountField>, paid: readonly string[]): TaskKind[] {
+  return TASK_KINDS.filter((task) => !paid.includes(task) && settings[TASK_SETTING[task]] > 0);
+}
+
+/**
+ * The dot on the 活动 navigation item: a check-in to be had today, or a
+ * starter task not yet done whose reward is on. Invitations alone never
+ * raise it -- they are always open and would leave the dot on for good.
+ */
+export function activitiesPending(input: { checkIn: CheckInState; settings: Pick<RewardSettings, RewardAmountField>; paidTasks: readonly string[] }): boolean {
+  return input.checkIn === 'available' || openTasks(input.settings, input.paidTasks).length > 0;
+}

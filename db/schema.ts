@@ -71,7 +71,7 @@ export const user = pgTable(
     paypalEmail: text('paypal_email'),
     paypalEmailChangedAt: timestampTz('paypal_email_changed_at'),
     reeDraft: jsonb('ree_draft').$type<ReeDraft>(),
-    /** Beyond 4: when the user closed the new-user task guide (lib/services/task-rewards.ts); null, still shown. */
+    /** Unused: the dismissable task guide on `/rees` gave way to the permanent Activities page. Kept until a migration drops it. */
     taskGuideDismissedAt: timestampTz('task_guide_dismissed_at'),
     /** Beyond 4: this account's payout minimum, set by an administrator; null, the site-wide one (`payout_settings`). */
     payoutMinCredits: integer('payout_min_credits'),

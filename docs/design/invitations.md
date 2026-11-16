@@ -44,13 +44,20 @@ A withdrawable invite reward has no maturity wait, and no other exemption: `requ
 
 - `check_in` (unique `user_id, day`): one row per account and calendar day, the day computed on the server in `CHECK_IN_TIME_ZONE` (Asia/Singapore, UTC+8). `checkIn` takes `pg_advisory_xact_lock(hashtext('check-in:<user>'))`, counts, inserts and grants in one transaction, so a double click or a race pays once and the maximum holds.
 - Open for `check_in_window_months` (default 3) calendar months from the account's creation, up to `check_in_max_days` (default 30) check-ins, days need not be consecutive. Accounts older than the window cannot check in; younger ones use what is left. Changing the settings leaves paid check-ins alone.
-- The task guide shows today's state, progress, the reward and the window's end; it stays while check-ins are left. After dismissal, the check-in line alone stays on the Rees page while one is available today.
+- The Activities page shows today's state, progress, the reward and the window's end, and explains the finished, expired and off states in words.
 
 ## Tasks
 
 - `task_reward` (primary key `user_id, task`): one row per paid task. `grantTaskReward` inserts with `ON CONFLICT DO NOTHING` and adds the grant only when the row was inserted, inside the action's transaction: `setReePublished` (the transition to published), `holdQuestion` (after the holds; anonymous chat does not use it), `addReeComment` (only when the comment row is new, so a retried request pays nothing).
 - Tasks count from release, for every account: earlier actions are not paid, the next qualifying one is. Deleting what earned a reward keeps the reward and does not pay again. With an amount of 0 no row is written, so the task stays open for when it is switched back on.
-- The guide on `/rees` lists registering plus each task that is on or already paid, and the invite line while invitations are open. It hides once dismissed (`user.task_guide_dismissed_at`) or once everything shown is done.
+- The Activities page lists registering plus each task that is on or already paid, each with its reward, its state and a link to where it is done.
+
+## The Activities page
+
+- `/activities` (活动 / Activities), a signed-in workspace page with its own item in the workspace navigation, under My Rees (the sidebar, its folded rail and the phone drawer). It holds the daily check-in, the starter tasks and a short invite block (reward, the account's own withdrawable progress, the link and a copy button, with the invite tab's own status notes from `invitePanelCopy`) that links to the full invite tab in settings. The Rees page carries none of it.
+- It is permanent: nothing dismisses it. When nothing is left to claim (today's check-in done or no longer open, every task done or unpaid), it says so in a note above the sections; each section still explains its own state, including rewards set to 0.
+- A dot on the navigation item, and on the phone's menu button, while something is to be claimed: a check-in available today, or a starter task not yet done whose reward is above 0 (`activitiesPending`, `lib/domain/invites.ts`). Invitations alone never raise it, since they never run out. `activitiesIndicator` computes it for the workspace frame in one query (the account's creation time, its check-in count, today's row and paid tasks as subqueries, joined to the settings row), run in parallel with the frame's other queries on every signed-in page; the page computes the same test from its own data, so the two agree.
+- `user.task_guide_dismissed_at` belonged to the earlier dismissable guide on `/rees`. It is no longer read or written, and stays in the schema until a later migration drops it.
 
 ## Where earned invite credits are read
 
