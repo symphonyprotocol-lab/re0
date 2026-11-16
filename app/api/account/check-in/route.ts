@@ -2,7 +2,7 @@ import { json } from '@/lib/http/respond';
 import { apiUser } from '@/lib/http/session';
 import { checkIn } from '@/lib/services/check-in';
 
-/** The task guide's 打卡: today's check-in (the day is the server's, UTC+8), paid once. */
+/** The Activities page's 打卡: today's check-in (the day is the server's, UTC+8), paid once. */
 export async function POST(request: Request) {
   const user = await apiUser(request);
   if (user instanceof Response) return user;

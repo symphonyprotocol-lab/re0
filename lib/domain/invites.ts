@@ -14,6 +14,7 @@ import {
   WITHDRAWABLE_INVITES_PER_INVITER_MAX,
 } from '@/lib/constants';
 import type { CreditEntryReason } from '@/db/schema';
+import { addMonths } from '@/lib/domain/billing';
 
 /** The new-user tasks that pay, besides registering (whose gift is `signup_reward`). */
 export const TASK_KINDS = ['first_ree', 'first_question', 'first_comment'] as const;
@@ -159,6 +160,11 @@ export function checkInDay(now: Date): string {
   return new Intl.DateTimeFormat('en-CA', { timeZone: CHECK_IN_TIME_ZONE, year: 'numeric', month: '2-digit', day: '2-digit' }).format(now);
 }
 
+/** The end of an account's new-user window: check-ins are open until then, and open starter tasks raise the navigation dot. */
+export function newUserWindowEnd(createdAt: Date, settings: Pick<RewardSettings, 'checkInWindowMonths'>): Date {
+  return addMonths(createdAt, settings.checkInWindowMonths);
+}
+
 export type CheckInState = 'available' | 'done_today' | 'finished' | 'expired' | 'off';
 
 /** Where an account stands: off when the reward is 0, then expired past the window, finished at the maximum, otherwise today's state. */
@@ -184,9 +190,71 @@ export const TASK_REASON: Record<TaskKind, CreditEntryReason> = {
   first_comment: 'task_first_comment',
 };
 
-/** Where the guide sends a user for each task. */
+/** Where the Activities page sends a user for each task. */
 export const TASK_HREF: Record<TaskKind, string> = {
   first_ree: '/rees/new',
   first_question: '/explore',
   first_comment: '/explore',
 };
+
+/* ------------------------------------------------------- the activities */
+
+/** A starter task still to be done that pays something now. */
+export function openTasks(settings: Pick<RewardSettings, RewardAmountField>, paid: readonly string[]): TaskKind[] {
+  return TASK_KINDS.filter((task) => !paid.includes(task) && settings[TASK_SETTING[task]] > 0);
+}
+
+/** What the activities are judged on, read once for an account (`activities`, `activitiesIndicator`). */
+export interface ActivityFacts {
+  checkIn: CheckInState;
+  settings: Pick<RewardSettings, RewardAmountField>;
+  paidTasks: readonly string[];
+  /** The new-user window's end (`newUserWindowEnd`): open tasks raise the dot only before it. */
+  windowEndsAt: Date;
+  now: Date;
+}
+
+/**
+ * The activities on `/activities`, each answering for one account:
+ * - `available`: it can still take part, now or on a later day. The page and
+ *   its navigation item exist only while at least one is available.
+ * - `claimable`: something can be claimed right now.
+ * - `dot`: it should raise the dot on the navigation item.
+ * A new kind of activity adds an entry here (and a section on the page).
+ * Invitations are not one: they never run out and live in the settings
+ * invite tab, so they would keep the page and the dot up for everyone.
+ */
+export const ACTIVITIES = [
+  {
+    key: 'check_in',
+    /* Checked in today still counts: there is a check-in tomorrow. `finished`, `expired` and `off` are over. */
+    available: (facts: ActivityFacts) => facts.checkIn === 'available' || facts.checkIn === 'done_today',
+    claimable: (facts: ActivityFacts) => facts.checkIn === 'available',
+    dot: (facts: ActivityFacts) => facts.checkIn === 'available',
+  },
+  {
+    key: 'starter_tasks',
+    /* An unpaid task with a reward stays available at any age; it raises the dot only within the new-user window. */
+    available: (facts: ActivityFacts) => openTasks(facts.settings, facts.paidTasks).length > 0,
+    claimable: (facts: ActivityFacts) => openTasks(facts.settings, facts.paidTasks).length > 0,
+    dot: (facts: ActivityFacts) => facts.now.getTime() < facts.windowEndsAt.getTime() && openTasks(facts.settings, facts.paidTasks).length > 0,
+  },
+] as const satisfies readonly { key: string; available: (facts: ActivityFacts) => boolean; claimable: (facts: ActivityFacts) => boolean; dot: (facts: ActivityFacts) => boolean }[];
+
+export interface ActivityState {
+  /** At least one activity is available: the navigation item shows and `/activities` renders; otherwise the item is gone and the page redirects. */
+  visible: boolean;
+  /** Something can be claimed right now (the page's note when nothing can). */
+  claimable: boolean;
+  /** The navigation dot. Never up without `visible`. */
+  dot: boolean;
+}
+
+export function activityState(facts: ActivityFacts): ActivityState {
+  const available = ACTIVITIES.filter((activity) => activity.available(facts));
+  return {
+    visible: available.length > 0,
+    claimable: available.some((activity) => activity.claimable(facts)),
+    dot: available.some((activity) => activity.dot(facts)),
+  };
+}

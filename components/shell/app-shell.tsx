@@ -19,9 +19,11 @@ interface ShellState {
   collapsed: boolean;
   toggleCollapsed: () => void;
   openDrawer: () => void;
+  /** Something to claim on the Activities page: a dot on the phone's menu button too, where the sidebar is hidden. */
+  activitiesPending: boolean;
 }
 
-const ShellContext = createContext<ShellState>({ collapsed: false, toggleCollapsed: () => undefined, openDrawer: () => undefined });
+const ShellContext = createContext<ShellState>({ collapsed: false, toggleCollapsed: () => undefined, openDrawer: () => undefined, activitiesPending: false });
 
 export function useShell(): ShellState {
   return useContext(ShellContext);
@@ -41,6 +43,8 @@ export interface ShellUser {
   history: HistoryItem[];
   /** Unread in-app notices (step 5): a red dot on the account link, which then opens the notices. */
   unreadNotices: number;
+  /** The 活动 item (`activitiesIndicator`): shown only while an activity is available to this account, with a dot when something calls for attention. */
+  activities: { visible: boolean; dot: boolean };
 }
 
 const PHONE = '(max-width: 760px)';
@@ -94,7 +98,7 @@ export function AppShell({ user, initialCollapsed, children }: { user: ShellUser
     });
   };
   return (
-    <ShellContext.Provider value={{ collapsed, toggleCollapsed, openDrawer: () => setDrawer(true) }}>
+    <ShellContext.Provider value={{ collapsed, toggleCollapsed, openDrawer: () => setDrawer(true), activitiesPending: user.activities.visible && user.activities.dot }}>
       <HistoryProvider>
         <Sidebar user={user} collapsed={collapsed} phone={phone} open={drawer} hidden={phone && !drawer} onClose={() => setDrawer(false)} />
         <WorkspaceMain collapsed={collapsed}>{children}</WorkspaceMain>
@@ -103,12 +107,15 @@ export function AppShell({ user, initialCollapsed, children }: { user: ShellUser
   );
 }
 
-function NavItem({ href, icon, label, active, count }: { href: string; icon: IconName; label: string; active: boolean; count?: number }) {
+function NavItem({ href, icon, label, active, count, dot }: { href: string; icon: IconName; label: string; active: boolean; count?: number; dot?: string }) {
+  /* The dot's words join the label, so the folded rail's tooltip and a screen reader both say it. */
+  const name = dot ? `${label} · ${dot}` : label;
   return (
-    <Link href={href} className={active ? 'active' : undefined} aria-current={active ? 'page' : undefined} aria-label={label} title={label}>
+    <Link href={href} className={active ? 'active' : undefined} aria-current={active ? 'page' : undefined} aria-label={name} title={name}>
       <Icon name={icon} className="" />
       <span>{label}</span>
       {count !== undefined && <span className="nav-count">{count}</span>}
+      {dot && <i className="nav-dot" aria-hidden="true" />}
     </Link>
   );
 }
@@ -137,6 +144,9 @@ function Sidebar({ user, collapsed, phone, open, hidden, onClose }: { user: Shel
       <nav className="nav chat-product-nav" aria-label={nav.workspace}>
         <NavItem href="/explore" icon="compass" label={t.discover.nav} active={pathname === '/explore' || pathname.startsWith('/r/')} />
         <NavItem href="/rees" icon="ree" label={nav.rees} active={pathname.startsWith('/rees') || pathname.startsWith('/workspace') || pathname === '/videos'} count={user.reeCount} />
+        {user.activities.visible && (
+          <NavItem href="/activities" icon="gift" label={nav.activities} active={pathname.startsWith('/activities')} dot={user.activities.dot ? nav.activitiesPending : undefined} />
+        )}
       </nav>
       <div className="chat-sidebar-footer sidebar-account-footer">
         <PlanMeter user={user} />

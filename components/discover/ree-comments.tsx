@@ -1,6 +1,7 @@
 'use client';
 
 import { useRef, useState, type FormEvent } from 'react';
+import { useRouter } from 'next/navigation';
 import { WorkspaceLink as Link } from '@/components/shell/workspace-link';
 import { Icon } from '@/components/ui/icons';
 import { UserAvatar } from '@/components/ui/ree-avatar';
@@ -34,6 +35,7 @@ export function ReeComments({ reeId, initial, signedIn, loginHref, renderedAt }:
   renderedAt: number;
 }) {
   const { t, locale } = useI18n();
+  const router = useRouter();
   const c = t.discover.public.comments;
   const [page, setPage] = useState(initial);
   const [now, setNow] = useState(renderedAt);
@@ -68,7 +70,9 @@ export function ReeComments({ reeId, initial, signedIn, loginHref, renderedAt }:
           : response.status === 422 ? 'invalid' : response.status === 429 ? 'rateLimited' : 'publishError');
         return;
       }
-      const { comment } = await response.json() as { comment: ReeComment };
+      const { comment, taskReward } = await response.json() as { comment: ReeComment; taskReward?: number };
+      /* A first comment paid its starter task: the sidebar's balance and the 活动 dot live in the layout, which only a refresh re-renders. */
+      if (taskReward) router.refresh();
       setPage(current => current.items.some(item => item.id === comment.id) ? current : {
         ...current,
         items: [comment, ...current.items],
