@@ -1369,6 +1369,20 @@
   .home-faq summary {
     font-size: 12px;
   }
+  /*
+   * The examples head holds the heading, the cards and the "more" link in one
+   * flex row; past this width that row is wider than the page, so it stacks.
+   */
+  .home-examples-head {
+    flex-wrap: wrap;
+  }
+  .home-examples-head > .home-dot-row,
+  .home-examples-head > .home-center-link {
+    flex-basis: 100%;
+  }
+  .home-examples-head > .home-center-link {
+    margin-top: 0px;
+  }
 }
 @media (max-width: 760px) {
   .marketing-wrap {
