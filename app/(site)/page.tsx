@@ -199,7 +199,7 @@ export default async function HomePage() {
       </section>
 
       <section className="marketing-wrap home-section scroll-mt-24" id="home-ree-examples">
-        <div className="between home-section-head">
+        <div className="between home-section-head home-examples-head">
           <div>
             <p className="eyebrow">A COMPANION FOR EVERY CURIOSITY</p>
             <h2>
