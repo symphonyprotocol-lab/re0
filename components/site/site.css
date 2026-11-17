@@ -342,7 +342,7 @@
 .home-hero {
   position: relative;
   display: grid;
-  grid-template-columns: 1.02fr 1fr;
+  grid-template-columns: 1.1fr 1fr;
   gap: 56px;
   padding-block: 91px 86px;
   align-items: center;
@@ -367,12 +367,23 @@
   width: 12px;
   margin-left: 5px;
 }
+/*
+ * The headline is two deliberate lines ("Share your knowledge" / "to earn.").
+ * Its size follows the copy column (cqi) so the longer first line always fits
+ * with room to spare; each breakpoint below only lowers the cap. 10.1em is
+ * the measured width of the English first line, so 9cqi leaves ~9% slack.
+ */
+.home-hero-copy {
+  container-type: inline-size;
+  min-width: 0;
+}
 .home-hero h1 {
-  font-size: 52px;
-  line-height: 1.33;
-  letter-spacing: -2px;
+  font-size: min(52px, 9cqi);
+  line-height: 1.2;
+  letter-spacing: -0.04em;
   font-weight: 650;
   margin: 23px 0px;
+  text-wrap: balance;
 }
 .home-hero h1 em {
   font-style: normal;
@@ -1084,7 +1095,7 @@
     padding-block: 98px;
   }
   .home-hero h1 {
-    font-size: 58px;
+    font-size: min(58px, 9cqi);
   }
   .marketing-wrap {
     max-width: 1260px;
@@ -1115,7 +1126,7 @@
     padding-block: 72px;
   }
   .home-hero h1 {
-    font-size: 44px;
+    font-size: min(44px, 9cqi);
   }
   .home-hero-copy > p {
     font-size: 13px;
@@ -1189,12 +1200,12 @@
     bottom: -23px;
   }
   .home-hero {
-    grid-template-columns: 1fr 1fr;
+    grid-template-columns: 1.08fr 1fr;
     gap: 25px;
     min-height: 560px;
   }
   .home-hero h1 {
-    font-size: 39px;
+    font-size: min(39px, 9cqi);
   }
   .home-hero-copy > p {
     font-size: 12px;
@@ -1396,8 +1407,7 @@
     gap: 39px;
   }
   .home-hero h1 {
-    font-size: 44px;
-    line-height: 1.4;
+    font-size: min(44px, 9cqi);
     margin-block: 19px;
   }
   .home-hero-copy > p {
@@ -1728,9 +1738,8 @@
     gap: 32px;
   }
   .home-hero h1 {
-    font-size: 39px;
-    line-height: 1.45;
-    letter-spacing: -1.2px;
+    font-size: min(39px, 9cqi);
+    letter-spacing: -0.035em;
   }
   .home-hero-copy > p {
     font-size: 12px;
