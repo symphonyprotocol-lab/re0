@@ -39,10 +39,14 @@ function refusalOf(error: Error): { error?: string } | null {
  * a conversation. With "回答后公开" ticked, the first answer is published
  * to the page's public Q&A once it passes review.
  */
-export function SignedInAsk({ ree, price, sampleQuestions, followUp }: {
+export function SignedInAsk({ ree, price, queryFee, canPublish = true, sampleQuestions, followUp }: {
   ree: QaRee;
   /** What one answer costs this viewer. */
   price: number;
+  /** The query fee the page shows, sent with each question: a fee raised since is refused (`price_changed`) instead of charged. */
+  queryFee: number;
+  /** The owner keeps public Q&A on; off, there is no "回答后公开" to tick. */
+  canPublish?: boolean;
   sampleQuestions: string[];
   followUp?: { text: string; at: number } | null;
 }) {
@@ -60,6 +64,9 @@ export function SignedInAsk({ ree, price, sampleQuestions, followUp }: {
   const pendingQuestion = useRef('');
   const publishRef = useRef(false);
   const inputRef = useRef<HTMLTextAreaElement>(null);
+  /* The fee as last shown; the transport outlives a refresh that shows a new one. */
+  const shownFee = useRef(queryFee);
+  shownFee.current = queryFee;
 
   const transport = useMemo(
     () =>
@@ -74,7 +81,7 @@ export function SignedInAsk({ ree, price, sampleQuestions, followUp }: {
             conversationRef.current = id;
             setConversationId(id);
           }
-          return { api: `/api/chats/${id}/messages`, body: { question: pendingQuestion.current, scope: [ree.id], requestId: crypto.randomUUID() } };
+          return { api: `/api/chats/${id}/messages`, body: { question: pendingQuestion.current, scope: [ree.id], fees: { [ree.id]: shownFee.current }, requestId: crypto.randomUUID() } };
         },
       }),
     [ree.id],
@@ -88,6 +95,11 @@ export function SignedInAsk({ ree, price, sampleQuestions, followUp }: {
       if (!body?.error) return toast(t.common.errors.generic);
       setMessages((current) => (current.at(-1)?.role === 'user' ? current.slice(0, -1) : current));
       setInput(pendingQuestion.current);
+      /* The owner raised the fee after the page loaded: show the new price, charge nothing, let the viewer send again. */
+      if (body.error === 'price_changed') {
+        toast(t.conversations.room.priceChanged);
+        return router.refresh();
+      }
       toast(body.error === 'insufficient_credits' ? q.insufficient : body.error === 'rate_limited' ? a.rateLimited : t.common.errors.generic);
     },
     onFinish: ({ message }) => {
@@ -121,7 +133,7 @@ export function SignedInAsk({ ree, price, sampleQuestions, followUp }: {
     const text = question.trim();
     if (!text || busy) return;
     pendingQuestion.current = text;
-    publishRef.current = publish && !firstAsked;
+    publishRef.current = canPublish && publish && !firstAsked;
     setInput('');
     void sendMessage({ text });
   };
@@ -179,7 +191,9 @@ export function SignedInAsk({ ree, price, sampleQuestions, followUp }: {
         </form>
       </div>
       <div className="mt-2 flex flex-wrap items-center justify-between gap-2 text-[11px] text-muted">
-        {!firstAsked ? (
+        {!canPublish ? (
+          <span>{q.closedNote}</span>
+        ) : !firstAsked ? (
           <label className="ree-ask-share">
             <input type="checkbox" checked={publish} onChange={(event) => setPublish(event.target.checked)} />
             {q.publishSignedIn}

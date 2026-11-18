@@ -42,7 +42,7 @@ import { and, eq, inArray, sql } from 'drizzle-orm';
 import { createUIMessageStream, createUIMessageStreamResponse } from 'ai';
 import { citationSnapshots, type CitationSnapshot } from '@/lib/domain/answer';
 import { anonymousDay, ipBucket, type AnonymousScope, type AnonymousTurn } from '@/lib/domain/anonymous-chat';
-import { TEXT_META_KEY, textPartId, type AnonymousQuota, type PublicPart, type ReeOutcome, type ReeUIMessage } from '@/lib/domain/chat-message';
+import { TEXT_META_KEY, textPartId, type AnonymousQuota, type ReeOutcome, type ReeUIMessage } from '@/lib/domain/chat-message';
 import { withoutMentions } from '@/lib/domain/conversation';
 import { isUuid } from '@/lib/domain/list';
 import { authSecret } from '@/lib/infra/crypto/secrets';
@@ -294,66 +294,85 @@ export async function runAnonymousQuestion({ ree, question, history, lang, share
 }
 
 /**
- * A visitor's answer they asked to publish: kept and checked now, so the
- * stream can say whether it went public. Only a first turn -- an answer
- * that leaned on earlier turns would mislead on its own -- and only a real
- * answer. A failed check leaves it pending for the hourly cron.
+ * A visitor's answer they asked to publish: kept now, as `pending`. Only a
+ * first turn -- an answer that leaned on earlier turns would mislead on its
+ * own -- and only a real answer. Its review runs once the answer has
+ * finished (`review`), so the visitor never waits on it; a check that
+ * fails leaves it pending for the hourly cron.
  */
-async function publishAnswer(input: AnonymousQuestion, answered: AnsweredText | null): Promise<PublicPart['status']> {
-  if (!input.publish || !answered || input.history.length > 0) return 'skipped';
+async function keepAnswer(input: AnonymousQuestion, answered: AnsweredText | null): Promise<string | null> {
+  if (!input.publish || !answered || input.history.length > 0) return null;
   try {
-    const id = await keepSnapshot({ reeId: input.ree.id, source: input.publish.source, question: input.question, answer: answered.text, citations: answered.citations, lang: input.lang });
-    if (!id) return 'skipped';
-    const status = await moderateSnapshot(id);
-    return status === 'gone' ? 'pending' : status;
+    return await keepSnapshot({ reeId: input.ree.id, source: input.publish.source, question: input.question, answer: answered.text, citations: answered.citations, lang: input.lang });
   } catch (error) {
     console.warn(`anonymous answer ree=${input.ree.id} not published: ${error instanceof Error ? error.message : 'unknown'}`);
-    return 'skipped';
+    return null;
   }
+}
+
+/** Reviews a kept answer, quietly: whatever happens, the cron retries what is still pending. */
+export function reviewKept(id: string): Promise<void> {
+  return moderateSnapshot(id).then(
+    () => undefined,
+    (error: unknown) => console.warn(`public answer ${id} review failed: ${error instanceof Error ? error.message : 'unknown'}`),
+  );
 }
 
 /**
  * The web: one question as a `useChat` UI message stream, with the
  * reserved round given back when it does not count, and the rounds left
- * as the last part.
+ * as the last part. The kept answer's id (or null) is always handed to
+ * `review` when the stream ends, however it ends -- the route reviews it
+ * after the response; without `review` it is reviewed before the stream
+ * closes.
  */
-export function anonymousAnswerResponse(input: AnonymousQuestion, reservation: Extract<RoundReservation, { ok: true }>, headers?: HeadersInit): Response {
+export function anonymousAnswerResponse(input: AnonymousQuestion, reservation: Extract<RoundReservation, { ok: true }>, headers?: HeadersInit, review?: (id: string | null) => void): Response {
   const stream = createUIMessageStream<ReeUIMessage>({
     execute: async ({ writer }) => {
-      const write = safe(writer);
-      const { ree } = input;
-      write({ type: 'start', messageId: `${randomUUID()}-replies` });
-      write({ type: 'data-ree', id: ree.id, data: { reeId: ree.id } });
-      let counts = false;
-      let answered: AnsweredText | null = null;
+      let kept: string | null = null;
       try {
-        counts = await runAnonymousQuestion(input, (event) => {
-          switch (event.type) {
-            case 'text-start':
-              return write({ type: 'text-start', id: textPartId(event.reeId), providerMetadata: { [TEXT_META_KEY]: { reeId: event.reeId } } });
-            case 'text-delta':
-              return write({ type: 'text-delta', id: textPartId(event.reeId), delta: event.delta });
-            case 'text-end':
-              return write({ type: 'text-end', id: textPartId(event.reeId) });
-            case 'outcome':
-              return write({ type: 'data-outcome', id: `outcome-${event.outcome.reeId}`, data: event.outcome });
-            default:
-              return undefined;
-          }
-        }, (result) => {
-          answered = result;
-        });
+        await answerStream(writer);
       } finally {
-        if (!counts) {
-          await releaseRound(reservation.keys, reservation.day).catch((error: unknown) =>
-            console.error(`anonymous round not given back: ${error instanceof Error ? error.message : 'unknown'}`),
-          );
-        }
+        review?.(kept);
       }
-      if (input.publish) write({ type: 'data-public', id: 'public', data: { status: await publishAnswer(input, answered) } });
-      const quota = counts ? reservation.quota : await anonymousQuota(reservation.keys).catch(() => reservation.quota);
-      write({ type: 'data-quota', id: 'quota', data: quota });
-      write({ type: 'finish' });
+      async function answerStream(raw: typeof writer) {
+        const write = safe(raw);
+        const { ree } = input;
+        write({ type: 'start', messageId: `${randomUUID()}-replies` });
+        write({ type: 'data-ree', id: ree.id, data: { reeId: ree.id } });
+        let counts = false;
+        let answered: AnsweredText | null = null;
+        try {
+          counts = await runAnonymousQuestion(input, (event) => {
+            switch (event.type) {
+              case 'text-start':
+                return write({ type: 'text-start', id: textPartId(event.reeId), providerMetadata: { [TEXT_META_KEY]: { reeId: event.reeId } } });
+              case 'text-delta':
+                return write({ type: 'text-delta', id: textPartId(event.reeId), delta: event.delta });
+              case 'text-end':
+                return write({ type: 'text-end', id: textPartId(event.reeId) });
+              case 'outcome':
+                return write({ type: 'data-outcome', id: `outcome-${event.outcome.reeId}`, data: event.outcome });
+              default:
+                return undefined;
+            }
+          }, (result) => {
+            answered = result;
+          });
+        } finally {
+          if (!counts) {
+            await releaseRound(reservation.keys, reservation.day).catch((error: unknown) =>
+              console.error(`anonymous round not given back: ${error instanceof Error ? error.message : 'unknown'}`),
+            );
+          }
+        }
+        kept = input.publish ? await keepAnswer(input, answered) : null;
+        if (input.publish) write({ type: 'data-public', id: 'public', data: { status: kept ? 'pending' : 'skipped' } });
+        const quota = counts ? reservation.quota : await anonymousQuota(reservation.keys).catch(() => reservation.quota);
+        write({ type: 'data-quota', id: 'quota', data: quota });
+        write({ type: 'finish' });
+        if (kept && !review) await reviewKept(kept);
+      }
     },
     onError: () => 'answer_failed',
   });

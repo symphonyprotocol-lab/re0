@@ -1,5 +1,5 @@
 import { randomUUID } from 'node:crypto';
-import type { NextRequest } from 'next/server';
+import { after, type NextRequest } from 'next/server';
 import { QUESTION_MAX_CHARS } from '@/lib/constants';
 import {
   ANONYMOUS_ID_COOKIE,
@@ -17,7 +17,7 @@ import { rateLimited } from '@/lib/http/rate-limit';
 import { body, fail, json } from '@/lib/http/respond';
 import { sameOrigin } from '@/lib/http/session';
 import { VISITOR_COOKIE } from '@/lib/http/share';
-import { anonymousAnswerResponse, anonymousQuota, freeReeForAnonymous, reserveRound, visitorKeys } from '@/lib/services/anonymous-chat';
+import { anonymousAnswerResponse, anonymousQuota, reviewKept, freeReeForAnonymous, reserveRound, visitorKeys } from '@/lib/services/anonymous-chat';
 import { shareVisitorFor } from '@/lib/services/share';
 import { isLocale, localeFromRequest } from '@/i18n/locale';
 
@@ -102,5 +102,19 @@ export async function POST(request: NextRequest, context: Context) {
   if (anonymousId.fresh) headers.append('set-cookie', anonymousIdCookie(anonymousId.id));
   const shareVisitorId = input.source === 'share' ? await shareVisitorFor(ree.id, request.cookies.get(VISITOR_COOKIE)?.value).catch(() => null) : null;
   const publish = input.publish === true ? { source: input.source === 'share' ? ('share' as const) : ('anonymous' as const) } : null;
-  return anonymousAnswerResponse({ ree, question, history: anonymousHistory(input.history), lang, shareVisitorId, publish }, reservation, headers);
+  /* A published answer's review runs after the response, so the visitor's answer finishes at once; outside a request (tests) it simply runs. */
+  let handOver: (id: string | null) => void = () => undefined;
+  const kept = new Promise<string | null>((resolve) => {
+    handOver = resolve;
+  });
+  const review = async () => {
+    const id = await kept;
+    if (id) await reviewKept(id);
+  };
+  try {
+    after(review);
+  } catch {
+    void review();
+  }
+  return anonymousAnswerResponse({ ree, question, history: anonymousHistory(input.history), lang, shareVisitorId, publish }, reservation, headers, handOver);
 }

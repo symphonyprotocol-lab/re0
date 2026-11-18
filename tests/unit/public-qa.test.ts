@@ -14,6 +14,27 @@ describe('redact', () => {
     expect(redact('card 4111 1111 1111 1111', 'en')).toBe('card [removed]');
   });
 
+  it('removes what hides a number or address from the simple patterns (review, 2026-11-18)', () => {
+    const zh = (text: string) => redact(text, 'zh');
+    expect(zh('加我微信wx13800138000')).toBe('加我微信wx[已隐去]');
+    expect(zh('QQ12345678 联系')).toBe('QQ[已隐去] 联系');
+    expect(zh('tel13800138000')).toBe('tel[已隐去]');
+    expect(zh('护照E12345678丢了')).toBe('护照E[已隐去]丢了');
+    expect(zh('电话１３８００１３８０００，谢谢')).toBe('电话[已隐去]，谢谢');
+    expect(zh('邮箱 me＠qq．com')).toBe('邮箱 [已隐去]');
+    expect(zh('138/0013/8000')).toBe('[已隐去]');
+    expect(zh('138_0013_8000')).toBe('[已隐去]');
+    expect(zh('138 . 0013 . 8000')).toBe('[已隐去]');
+    expect(zh('打一三八零零一三八零零零')).toBe('打[已隐去]');
+    expect(zh('发到 me@qq 就行')).toBe('发到 [已隐去] 就行');
+    expect(redact('write me (at) gmail (dot) com', 'en')).toBe('write [removed]');
+  });
+
+  it('keeps the reader\'s own punctuation and dates', () => {
+    expect(redact('2026-11-18 和 2026/11/18 出发，行吗？', 'zh')).toBe('2026-11-18 和 2026/11/18 出发，行吗？');
+    expect(redact('Visit @Brazil Guide first', 'en')).toBe('Visit @Brazil Guide first');
+  });
+
   it('keeps ordinary numbers: years, prices, short counts', () => {
     const text = 'In 2026 the fee rose from 1,200 to 1,500 for 14 days';
     expect(redact(text, 'en')).toBe(text);

@@ -13,9 +13,14 @@
  * - A published answer shows while its Ree is public with public Q&A on,
  *   and -- for a signed-in asker -- while its message is in a conversation
  *   outside the trash: deleting the conversation takes it down, restoring
- *   brings it back, purging ends it.
- * - The owner pins (one per Ree) and hides; an administrator hides and
- *   restores; enough distinct reports hide it until an administrator looks.
+ *   brings it back, and purging it (or deleting the account) deletes the
+ *   snapshot itself, text and all (the foreign keys cascade).
+ * - The owner pins (one per Ree) and hides for good; an administrator hides,
+ *   and restores what an administrator or reports hid -- never what the
+ *   owner hid; enough distinct reporters hide it until an administrator
+ *   looks. A visitor counts once per network, whatever cookie they send.
+ * - A snapshot whose last check never finished (the function died) is
+ *   rejected by the hourly cron after `PUBLIC_QA_STUCK_MS`: never public.
  */
 import { and, asc, desc, eq, inArray, isNotNull, isNull, lt, or, sql, type SQL } from 'drizzle-orm';
 import { generateText, Output } from 'ai';
@@ -168,8 +173,15 @@ export async function moderateSnapshot(id: string, judge: Judge = modelJudge, no
   return status;
 }
 
-/** The hourly cron: pending snapshots a request did not finish checking, oldest first. */
-export async function moderatePending(judge: Judge = modelJudge, limit = 25): Promise<number> {
+/** A pending snapshot out of attempts this long ago died mid-check; the cron rejects it. */
+export const PUBLIC_QA_STUCK_MS = 10 * 60_000;
+
+/** The hourly cron: pending snapshots a request did not finish checking, oldest first; ones out of attempts are rejected. */
+export async function moderatePending(judge: Judge = modelJudge, limit = 25, now = new Date()): Promise<number> {
+  await db()
+    .update(qa)
+    .set({ status: 'rejected' })
+    .where(and(eq(qa.status, 'pending'), sql`${qa.moderationAttempts} >= ${PUBLIC_QA_MODERATION_ATTEMPTS}`, lt(qa.createdAt, new Date(now.getTime() - PUBLIC_QA_STUCK_MS))));
   const rows = await db()
     .select({ id: qa.id })
     .from(qa)
@@ -330,12 +342,14 @@ export type OwnerAction = 'hide' | 'pin' | 'unpin';
 export async function ownerAct(userId: string, reeId: string, id: string, action: OwnerAction): Promise<boolean> {
   if (!isUuid(reeId) || !isUuid(id)) return false;
   return db().transaction(async (tx) => {
+    /* The Ree first: two pins at once take turns instead of both clearing and one tripping the one-pin index. */
+    const [owned] = await tx.select({ id: ree.id }).from(ree).where(and(eq(ree.id, reeId), eq(ree.ownerId, userId), isNull(ree.deletedAt))).for('update');
+    if (!owned) return false;
     const [target] = await tx
       .select({ id: qa.id })
       .from(qa)
-      .innerJoin(ree, eq(ree.id, qa.reeId))
-      .where(and(eq(qa.id, id), eq(qa.reeId, reeId), eq(ree.ownerId, userId), isNull(ree.deletedAt), eq(qa.status, 'published')))
-      .for('update', { of: qa });
+      .where(and(eq(qa.id, id), eq(qa.reeId, reeId), eq(qa.status, 'published')))
+      .for('update');
     if (!target) return false;
     if (action === 'hide') {
       await tx.update(qa).set({ status: 'hidden', hiddenBy: 'owner', pinnedAt: null }).where(eq(qa.id, id));
@@ -381,6 +395,8 @@ export async function adminSetPublicQa(administratorId: string, reeId: string, i
   return db().transaction(async (tx) => {
     const [before] = await tx.select({ status: qa.status, hiddenBy: qa.hiddenBy, question: qa.question }).from(qa).where(and(eq(qa.id, id), eq(qa.reeId, reeId))).for('update');
     if (!before || before.status !== (show ? 'hidden' : 'published')) return false;
+    /* The owner's hiding is theirs: an administrator restores only what an administrator or reports hid. */
+    if (show && before.hiddenBy === 'owner') return false;
     if (show) {
       await tx.update(qa).set({ status: 'published', hiddenBy: null, reportCount: 0, publishedAt: sql`coalesce(${qa.publishedAt}, now())` }).where(eq(qa.id, id));
       await tx.delete(report).where(eq(report.qaId, id));

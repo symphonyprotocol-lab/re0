@@ -1255,10 +1255,10 @@ export const reePublicQa = pgTable(
     id: uuid('id').primaryKey().defaultRandom(),
     reeId: uuid('ree_id').notNull().references(() => ree.id, { onDelete: 'cascade' }),
     source: text('source').$type<PublicQaSource>().notNull(),
-    /** The signed-in asker, never shown; only for taking it down with the conversation. */
-    userId: uuid('user_id').references(() => user.id, { onDelete: 'set null' }),
-    /** The Ree's answer message, for a signed-in asker; null for a visitor, or once the conversation is purged. */
-    messageId: uuid('message_id').references(() => message.id, { onDelete: 'set null' }),
+    /** The signed-in asker, never shown; deleting the account deletes the row. */
+    userId: uuid('user_id').references(() => user.id, { onDelete: 'cascade' }),
+    /** The Ree's answer message, for a signed-in asker; null for a visitor. Purging the conversation deletes the row, text and all. */
+    messageId: uuid('message_id').references(() => message.id, { onDelete: 'cascade' }),
     question: text('question').notNull(),
     answer: text('answer').notNull(),
     citations: jsonb('citations').$type<CitationSnapshot[]>().notNull().default([]),
