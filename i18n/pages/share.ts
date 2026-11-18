@@ -36,6 +36,10 @@ export const zh = {
     sources: '{n} 个知识来源',
     answers: '{n} 次成功回答',
     profile: '查看完整主页',
+    picks: '大家问过的',
+    picksCount: '{n} 条公开问答中的精选',
+    askHeading: '你也问一个',
+    allAnswers: '查看全部 {n} 条问答',
     powered: '由 RE0 提供',
     notFound: {
       title: '这个分享链接暂时打不开。',
@@ -92,6 +96,10 @@ export const en: Shape<typeof zh> = {
     sources: 'Knowledge sources: {n}',
     answers: 'Successful answers: {n}',
     profile: 'View full profile',
+    picks: 'What people asked',
+    picksCount: 'Picked from {n} public answers',
+    askHeading: 'Ask your own',
+    allAnswers: 'See all {n} answers',
     powered: 'Powered by RE0',
     notFound: {
       title: 'This share link cannot be opened right now.',

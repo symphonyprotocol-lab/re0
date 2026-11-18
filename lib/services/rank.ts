@@ -18,10 +18,13 @@ type Counts = Record<string, unknown> & {
   down: number;
   pulls: number;
   answers_all: number;
+  asked7: number;
+  last_answered: string | null;
 };
 
 export async function computeRanks(now = new Date()): Promise<number> {
   const since = new Date(now.getTime() - QUALITY_WINDOW_DAYS * 86_400_000).toISOString();
+  const week = new Date(now.getTime() - 7 * 86_400_000).toISOString();
   const counted = await db().execute<Counts>(sql`
     select r.id,
       coalesce(q.asked, 0)::int as asked,
@@ -29,7 +32,9 @@ export async function computeRanks(now = new Date()): Promise<number> {
       coalesce(v.up, 0)::int as up,
       coalesce(v.down, 0)::int as down,
       coalesce(p.pulls, 0)::int as pulls,
-      coalesce(a.answers, 0)::int as answers_all
+      coalesce(a.answers, 0)::int as answers_all,
+      (coalesce(w.asked, 0) + coalesce(z.asked, 0))::int as asked7,
+      greatest(w.last_at, z.last_at) as last_answered
     from ${schema.ree} r
     left join (
       select m.ree_id, count(*) as asked, count(*) filter (where not m.no_answer) as answered
@@ -56,6 +61,20 @@ export async function computeRanks(now = new Date()): Promise<number> {
       where m.role = 'ree' and not m.no_answer and c.user_id <> o.owner_id
       group by m.ree_id
     ) a on a.ree_id = r.id
+    left join (
+      /* Explore's activity line: other people's questions this week and the latest answer, signed in ... */
+      select m.ree_id, count(*) as asked, max(m.created_at) filter (where not m.no_answer) as last_at
+      from ${schema.message} m join ${schema.conversation} c on c.id = m.conversation_id join ${schema.ree} o on o.id = m.ree_id
+      where m.role = 'ree' and m.created_at >= ${week}::timestamptz and c.user_id <> o.owner_id
+      group by m.ree_id
+    ) w on w.ree_id = r.id
+    left join (
+      /* ... and signed out. */
+      select ree_id, count(*) as asked, max(created_at) as last_at
+      from ${schema.anonymousAnswer}
+      where created_at >= ${week}::timestamptz
+      group by ree_id
+    ) z on z.ree_id = r.id
     where r.is_public and r.is_published and r.moderated_at is null and r.deleted_at is null`);
   const rows = counted.rows;
   const computedAt = now.toISOString();
@@ -70,6 +89,8 @@ export async function computeRanks(now = new Date()): Promise<number> {
         activity30: row.asked + row.pulls,
         answersAll: row.answers_all,
         quality: qualityScore(row),
+        asked7: row.asked7,
+        lastAnsweredAt: row.last_answered ? new Date(row.last_answered).toISOString() : null,
         computedAt,
       };
       return sql`(${row.id}::uuid, ${JSON.stringify(rank)}::jsonb)`;

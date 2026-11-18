@@ -47,6 +47,8 @@ export const AUDIT_ACTIONS = [
   'ree.restore',
   'ree.pin',
   'ree.unpin',
+  'ree.qa.hide',
+  'ree.qa.restore',
   'redeem.batch.create',
   'redeem.batch.update',
   'redeem.batch.export',

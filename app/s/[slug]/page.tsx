@@ -9,6 +9,9 @@ import { currentUser } from '@/lib/http/session';
 import { joinableConversations } from '@/lib/services/conversations';
 import { publicReeBySlug as lookup } from '@/lib/services/public-rees';
 import { introsFor } from '@/lib/services/video';
+import { publicQaPicks } from '@/lib/services/public-qa';
+import { PUBLIC_QA_PICKS } from '@/lib/domain/public-qa';
+import { SharePicks } from '@/components/share/share-picks';
 import { serverMessages } from '@/i18n/server';
 import { fill, formatNumber } from '@/i18n/format';
 import { Icon } from '@/components/ui/icons';
@@ -50,7 +53,9 @@ export async function generateMetadata({ params }: Props): Promise<Metadata> {
  * (or anyone) sends out. Its introduction, who made it, what to ask, and
  * 「开始对话」; no related lists and no workspace around it. Open to
  * visitors; a visitor signs in and comes back with the dialog open. Only a
- * public Ree has one. Each open is a visit and each conversation started
+ * public Ree has one. With public answers, "大家问过的" shows the pinned and
+ * most helpful ones in place of the sample questions; the whole stream is
+ * on the Ree page. Each open is a visit and each conversation started
  * here a conversion (lib/services/share.ts). A signed-out visitor may ask a
  * free Ree right here (anonymous chat, as on `/r/[slug]`).
  */
@@ -60,7 +65,7 @@ export default async function SharePage({ params, searchParams }: Props) {
   if (!ree) notFound();
   const s = t.share.page;
   const n = (value: number) => formatNumber(value, locale);
-  const [conversations, intros] = await Promise.all([user ? joinableConversations(user.id, ree.id) : Promise.resolve([]), introsFor([ree.id])]);
+  const [conversations, intros, picks] = await Promise.all([user ? joinableConversations(user.id, ree.id) : Promise.resolve([]), introsFor([ree.id]), publicQaPicks(ree.id, PUBLIC_QA_PICKS)]);
   const video = intros.get(ree.id) ?? null;
   const own = user?.id === ree.ownerId;
   const price = own ? QUERY_BASE_FEE : ree.price;
@@ -106,30 +111,49 @@ export default async function SharePage({ params, searchParams }: Props) {
             )}
           </ul>
 
-          {ree.sampleQuestions.length > 0 && (
+          {picks.items.length > 0 ? (
             <section className="mt-7">
-              <h2 className="flex items-center gap-2 text-[14px] font-bold">
-                <Icon name="sparkle" className="size-4 text-blue" />
-                {s.topics}
-              </h2>
-              <ol className="mt-3 flex flex-col gap-2">
-                {ree.sampleQuestions.slice(0, 3).map((question, index) => (
-                  <li key={question} className="flex gap-3 rounded-xl border border-line bg-wash px-4 py-3 text-[13px]">
-                    <span className="font-mono text-[11px] text-muted">{String(index + 1).padStart(2, '0')}</span>
-                    <p>{question}</p>
-                  </li>
-                ))}
-              </ol>
+              <div className="flex flex-wrap items-center justify-between gap-2">
+                <h2 className="flex items-center gap-2 text-[14px] font-bold">
+                  <Icon name="chat" className="size-4 text-blue" />
+                  {s.picks}
+                </h2>
+                <span className="text-[11px] text-muted">{fill(s.picksCount, { n: n(picks.total) })}</span>
+              </div>
+              <SharePicks ree={{ id: ree.id, slug: ree.slug, name: ree.name, avatarBlob: ree.avatarBlob, color: ree.color }} items={picks.items} renderedAt={Date.now()} />
             </section>
+          ) : (
+            ree.sampleQuestions.length > 0 && (
+              <section className="mt-7">
+                <h2 className="flex items-center gap-2 text-[14px] font-bold">
+                  <Icon name="sparkle" className="size-4 text-blue" />
+                  {s.topics}
+                </h2>
+                <ol className="mt-3 flex flex-col gap-2">
+                  {ree.sampleQuestions.slice(0, 3).map((question, index) => (
+                    <li key={question} className="flex gap-3 rounded-xl border border-line bg-wash px-4 py-3 text-[13px]">
+                      <span className="font-mono text-[11px] text-muted">{String(index + 1).padStart(2, '0')}</span>
+                      <p>{question}</p>
+                    </li>
+                  ))}
+                </ol>
+              </section>
+            )
           )}
 
           {/* A signed-out visitor may ask a free Ree here, as on `/r/[slug]`; the server decides again on every question. */}
           {!user && ree.queryFee === 0 && ree.sources > 0 && (
-            <AnonymousChat
-              ree={{ id: ree.id, name: ree.name, avatarBlob: ree.avatarBlob, color: ree.color, sampleQuestions: ree.sampleQuestions }}
-              loginHref={`/login?returnTo=${encodeURIComponent(`/s/${ree.slug}`)}`}
-              source="share"
-            />
+            <section className="mt-7 border-t border-line pt-6" aria-label={s.askHeading}>
+              <h2 className="flex items-center gap-2 text-[14px] font-bold">
+                <Icon name="chat" className="size-4 text-blue" />
+                {s.askHeading}
+              </h2>
+              <AnonymousChat
+                ree={{ id: ree.id, name: ree.name, avatarBlob: ree.avatarBlob, color: ree.color, sampleQuestions: picks.items.length > 0 ? [] : ree.sampleQuestions }}
+                loginHref={`/login?returnTo=${encodeURIComponent(`/s/${ree.slug}`)}`}
+                source="share"
+              />
+            </section>
           )}
 
           <section className="mt-7 rounded-[12px] border border-[#d6e6fb] bg-soft p-4 sm:p-5" aria-label={s.start}>
@@ -153,7 +177,7 @@ export default async function SharePage({ params, searchParams }: Props) {
 
           <div className="mt-5 flex justify-center">
             <Link href={`/r/${ree.slug}`} className="text-link">
-              {s.profile}
+              {picks.total > 0 ? fill(s.allAnswers, { n: n(picks.total) }) : s.profile}
               <Icon name="chevronRight" className="size-3" />
             </Link>
           </div>

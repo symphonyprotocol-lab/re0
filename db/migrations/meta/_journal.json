@@ -372,6 +372,13 @@
       "when": 1794549078382,
       "tag": "0054_payout_minimum",
       "breakpoints": true
+    },
+    {
+      "idx": 54,
+      "version": "7",
+      "when": 1795000169595,
+      "tag": "0055_public_qa",
+      "breakpoints": true
     }
   ]
 }

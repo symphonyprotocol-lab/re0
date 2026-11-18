@@ -37,6 +37,7 @@ function formOf(ree: Ree): ReeFormState {
     sampleQuestions: ree.sampleQuestions.join('\n'),
     isPublic: ree.isPublic && !ree.moderatedAt,
     queryFee: ree.queryFee,
+    publicQaEnabled: ree.publicQaEnabled,
   };
 }
 

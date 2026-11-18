@@ -9,7 +9,8 @@ import type { ExploreResult, ReeCard } from '@/lib/services/explore';
 import { useI18n } from '@/i18n/client';
 import { fill, formatNumber } from '@/i18n/format';
 import { Icon } from '@/components/ui/icons';
-import { ReeCardView } from '@/components/discover/ree-card';
+import { FeedRee } from '@/components/discover/feed-ree';
+import { ReeAvatar } from '@/components/ui/ree-avatar';
 import { RoundtableEntry } from '@/components/discover/roundtable-entry';
 import { takePublicReturn } from '@/components/discover/public-visit';
 import '@/components/site/site.css';
@@ -37,13 +38,22 @@ let kept: (Loaded & { path: string; scrollY: number }) | null = null;
  * loads more as it scrolls. Styled by explore.css with the prototype's
  * class names.
  */
-export function ExploreView({ query, result, limited, signedIn, favoriteIds, viewerId }: {
+/** explore's side column: this week's most asked Rees, and for a visitor the free questions a day. */
+export interface ExploreRail {
+  top: Pick<ReeCard, 'id' | 'slug' | 'name' | 'avatarBlob' | 'color' | 'asked7'>[];
+  /** Questions a visitor may ask free Rees a day; null when signed in. */
+  freeRounds: number | null;
+}
+
+export function ExploreView({ query, result, limited, signedIn, favoriteIds, viewerId, rail, renderedAt }: {
   query: ExploreQuery;
   result: ExploreResult;
   limited: boolean;
   signedIn: boolean;
   favoriteIds?: string[];
   viewerId?: string;
+  rail: ExploreRail;
+  renderedAt: number;
 }) {
   const { t, locale } = useI18n();
   const e = t.discover.explore;
@@ -202,6 +212,18 @@ export function ExploreView({ query, result, limited, signedIn, favoriteIds, vie
   };
 
   const favorites = new Set(loaded.favorites);
+  const banner = (
+    <div className="knowledge-banner">
+      <div>
+        <h3>{e.banner}</h3>
+        <p>{e.bannerBody}</p>
+      </div>
+      <Link href={signedIn ? '/rees/new' : `/login?returnTo=${encodeURIComponent('/rees/new')}`} className="btn secondary">
+        <Icon name="plus" />
+        {e.create}
+      </Link>
+    </div>
+  );
   const [resultsBefore, resultsAfter] = e.results.split('{n}');
 
   return (
@@ -299,66 +321,91 @@ export function ExploreView({ query, result, limited, signedIn, favoriteIds, vie
       )}
 
       {loaded.items.length > 0 ? (
-        <>
-          <div id="explore-results" className="dot-grid" data-stale={pending || undefined} aria-label={e.list} aria-busy={loading || pending} onClickCapture={keep}>
-            {loaded.items.map((ree) => (
-              <ReeCardView
-                key={ree.id}
-                ree={ree}
-                from={current}
-                favorite={favorites.has(ree.id)}
-                viewerId={viewerId}
-                pinned={ree.pinned && result.mode === 'browse' && query.sort === 'active'}
-              />
-            ))}
-          </div>
-          <div ref={sentinel} className="discovery-results-footer">
-            {loaded.nextCursor ? (
-              failed ? (
-                <p role="alert">
-                  {e.loadFailed}
-                  <button type="button" className="btn secondary" onClick={() => void loadMore()}>
-                    {e.retry}
-                  </button>
-                </p>
-              ) : loading ? (
-                <p role="status">
-                  <span className="discovery-spinner" aria-hidden="true" />
-                  {e.loading}
-                </p>
-              ) : (
-                !observing && (
-                  <button type="button" className="btn secondary" onClick={() => void loadMore()}>
-                    {e.loadMore}
-                  </button>
+        <div className="discovery-feed-layout">
+          <div>
+            <div id="explore-results" className="discovery-feed" data-stale={pending || undefined} aria-label={e.list} aria-busy={loading || pending} onClickCapture={keep}>
+              {loaded.items.map((ree) => (
+                <FeedRee
+                  key={ree.id}
+                  ree={ree}
+                  from={current}
+                  favorite={favorites.has(ree.id)}
+                  viewerId={viewerId}
+                  pinned={ree.pinned && result.mode === 'browse' && query.sort === 'active'}
+                  now={renderedAt}
+                />
+              ))}
+            </div>
+            <div ref={sentinel} className="discovery-results-footer">
+              {loaded.nextCursor ? (
+                failed ? (
+                  <p role="alert">
+                    {e.loadFailed}
+                    <button type="button" className="btn secondary" onClick={() => void loadMore()}>
+                      {e.retry}
+                    </button>
+                  </p>
+                ) : loading ? (
+                  <p role="status">
+                    <span className="discovery-spinner" aria-hidden="true" />
+                    {e.loading}
+                  </p>
+                ) : (
+                  !observing && (
+                    <button type="button" className="btn secondary" onClick={() => void loadMore()}>
+                      {e.loadMore}
+                    </button>
+                  )
                 )
-              )
-            ) : (
-              result.mode === 'browse' && <p>{fill(e.end, { n: n(result.total) })}</p>
-            )}
+              ) : (
+                result.mode === 'browse' && <p>{fill(e.end, { n: n(result.total) })}</p>
+              )}
+            </div>
+            {/* Below 1180px the side column is hidden (feed.css); the banner stays at the end of the list. */}
+            <div className="discovery-feed-banner">{banner}</div>
           </div>
-        </>
+          <aside className="discovery-rail" aria-label={e.rail}>
+            {rail.freeRounds !== null && (
+              <div className="rail-card">
+                <h3>{e.railFree}</h3>
+                <p className="text-[12px] text-muted">{fill(e.railFreeBody, { n: rail.freeRounds })}</p>
+                <Link href={`/login?returnTo=${encodeURIComponent(current)}`} className="btn secondary sm mt-3">
+                  {e.railSignIn}
+                </Link>
+              </div>
+            )}
+            {rail.top.length > 0 && (
+              <div className="rail-card">
+                <h3>{e.railTop}</h3>
+                <ol>
+                  {rail.top.map((ree) => (
+                    <li key={ree.id}>
+                      <ReeAvatar avatar={ree.avatarBlob} color={ree.color} size="sm" />
+                      <Link href={`/r/${ree.slug}`} className="min-w-0 hover:text-blue" onClickCapture={keep}>
+                        <strong>{ree.name}</strong>
+                        <small>{fill(e.railTopItem, { n: n(ree.asked7) })}</small>
+                      </Link>
+                    </li>
+                  ))}
+                </ol>
+              </div>
+            )}
+            {banner}
+          </aside>
+        </div>
       ) : (
-        <div className="card empty" data-stale={pending || undefined} aria-busy={pending}>
-          <Icon name="search" />
-          <h2>{e.emptyTitle}</h2>
-          <p>{e.emptyBody}</p>
-          <button type="button" className="btn secondary" onClick={() => go({ q: '', category: null, sort: 'active' })}>
-            {e.reset}
-          </button>
-        </div>
+        <>
+          <div className="card empty" data-stale={pending || undefined} aria-busy={pending}>
+            <Icon name="search" />
+            <h2>{e.emptyTitle}</h2>
+            <p>{e.emptyBody}</p>
+            <button type="button" className="btn secondary" onClick={() => go({ q: '', category: null, sort: 'active' })}>
+              {e.reset}
+            </button>
+          </div>
+          {banner}
+        </>
       )}
-
-      <div className="knowledge-banner">
-        <div>
-          <h3>{e.banner}</h3>
-          <p>{e.bannerBody}</p>
-        </div>
-        <Link href={signedIn ? '/rees/new' : `/login?returnTo=${encodeURIComponent('/rees/new')}`} className="btn secondary">
-          <Icon name="plus" />
-          {e.create}
-        </Link>
-      </div>
     </div>
   );
 }

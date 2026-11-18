@@ -4,7 +4,8 @@ import { EXPLORE_BATCH_SIZES } from '@/lib/constants';
 import { parseExploreQuery } from '@/lib/domain/explore';
 import { clientIp } from '@/lib/http/conversations';
 import { currentUser } from '@/lib/http/session';
-import { allowSearch, explore } from '@/lib/services/explore';
+import { allowSearch, explore, weeklyMostAsked } from '@/lib/services/explore';
+import { currentAnonymousChatLimits } from '@/lib/services/anonymous-chat-settings';
 import { favoriteReeIds } from '@/lib/services/ree-favorites';
 import { introsFor } from '@/lib/services/video';
 import { publicPage, UNLISTED_ROBOTS } from '@/lib/seo';
@@ -25,23 +26,26 @@ export async function generateMetadata({ searchParams }: Props): Promise<Metadat
  * `/explore` (rebuild-proposal.md 2.4): one box for a question, seven
  * categories, three orders. With a question, the two-level search (free,
  * rate-limited); without, the most active public Rees, the first batch here
- * and the rest from `GET /api/explore` as the list scrolls. Visitors see it
- * in the site frame, signed-in users in the workspace.
+ * and the rest from `GET /api/explore` as the list scrolls, one Ree per feed
+ * item with a side column. Visitors see it in the site frame, signed-in
+ * users in the workspace.
  */
 export default async function ExplorePage({ searchParams }: Props) {
   const [params, user, { t }] = await Promise.all([searchParams, currentUser(), serverMessages()]);
   const query = parseExploreQuery(params);
   const limited = Boolean(query.q) && !(await allowSearch({ ip: clientIp(await headers()), userId: user?.id ?? null }));
   const result = await explore(limited ? { ...query, q: '' } : query, { cursor: null, size: EXPLORE_BATCH_SIZES[0] }, { includeIntros: false });
-  const [favoriteIds, coverVideos] = await Promise.all([
+  const [favoriteIds, coverVideos, top, limits] = await Promise.all([
     user ? favoriteReeIds(user.id, result.items.map(ree => ree.id)) : undefined,
     introsFor(result.items.filter(ree => !ree.coverBlob).map(ree => ree.id)),
+    weeklyMostAsked(),
+    user ? null : currentAnonymousChatLimits(),
   ]);
   const items = result.items.map(ree => ({ ...ree, video: coverVideos.get(ree.id) ?? null }));
   return (
     <>
       {user && <Topbar crumbs={[{ label: t.discover.explore.title }]} />}
-      <ExploreView query={query} result={{ ...result, items }} limited={limited} signedIn={Boolean(user)} favoriteIds={favoriteIds} viewerId={user?.id} />
+      <ExploreView query={query} result={{ ...result, items }} limited={limited} signedIn={Boolean(user)} favoriteIds={favoriteIds} viewerId={user?.id} rail={{ top, freeRounds: limits?.visitorRoundsPerDay ?? null }} renderedAt={Date.now()} />
     </>
   );
 }

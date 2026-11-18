@@ -30,6 +30,10 @@ export interface ReeRank {
   /** Successful answers to other people, all time: the "回答最多" order. */
   answersAll?: number;
   quality?: number;
+  /** Other people's questions in the last 7 days, signed in or not: explore's activity line. */
+  asked7?: number;
+  /** The latest answer to someone else within those 7 days ("N 小时前有新回答"). */
+  lastAnsweredAt?: string | null;
   computedAt?: string;
 }
 

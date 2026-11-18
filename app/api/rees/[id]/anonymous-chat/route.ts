@@ -61,7 +61,7 @@ export async function GET(request: NextRequest, context: Context) {
 }
 
 /**
- * `{question, history?, lang?, source?}` → the answer as a `useChat` UI
+ * `{question, history?, lang?, source?, publish?}` → the answer as a `useChat` UI
  * message stream, ending on a `data-quota` part with the rounds left.
  * Refused before anything is asked with `429` and `{error, scope, limit,
  * remaining, blocked}`: `anonymous_quota_exceeded` (the visitor's own
@@ -70,6 +70,9 @@ export async function GET(request: NextRequest, context: Context) {
  * kept, capped (anonymousHistory). `source: 'share'` from the share page
  * `/s/[slug]`: the answer counts for the share page when this browser's
  * visitor cookie shows a visit there (share.ts `shareVisitorFor`).
+ * `publish: true` ("回答后公开"): a first-turn answer is kept, redacted and
+ * checked for the Ree page's public Q&A, and a `data-public` part says
+ * whether it went public (public-qa.ts).
  */
 export async function POST(request: NextRequest, context: Context) {
   if (!sameOrigin(request.headers)) return fail('cross_origin', 403);
@@ -98,5 +101,6 @@ export async function POST(request: NextRequest, context: Context) {
   const headers = new Headers({ 'cache-control': 'no-store' });
   if (anonymousId.fresh) headers.append('set-cookie', anonymousIdCookie(anonymousId.id));
   const shareVisitorId = input.source === 'share' ? await shareVisitorFor(ree.id, request.cookies.get(VISITOR_COOKIE)?.value).catch(() => null) : null;
-  return anonymousAnswerResponse({ ree, question, history: anonymousHistory(input.history), lang, shareVisitorId }, reservation, headers);
+  const publish = input.publish === true ? { source: input.source === 'share' ? ('share' as const) : ('anonymous' as const) } : null;
+  return anonymousAnswerResponse({ ree, question, history: anonymousHistory(input.history), lang, shareVisitorId, publish }, reservation, headers);
 }

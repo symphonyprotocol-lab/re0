@@ -28,7 +28,10 @@
  *   transcript and sends recent turns back as context. Each answer leaves one
  *   `anonymous_answer` row so the owner's statistics count it -- and the
  *   share page's figures, when it was asked there by a browser that visited
- *   the share page (the same rule as a share conversion).
+ *   the share page (the same rule as a share conversion). The one
+ *   exception is a first-turn answer the visitor asked to publish
+ *   ("回答后公开"): a redacted snapshot is kept for the Ree page's public
+ *   Q&A, without anything that identifies the visitor (public-qa.ts).
  * - The public page `/r/[slug]` and the share page `/s/[slug]` use the same
  *   endpoint and the same daily rounds.
  * - The platform bears the model cost of these answers (the base fee a
@@ -37,9 +40,9 @@
 import { randomUUID } from 'node:crypto';
 import { and, eq, inArray, sql } from 'drizzle-orm';
 import { createUIMessageStream, createUIMessageStreamResponse } from 'ai';
-import { citationSnapshots } from '@/lib/domain/answer';
+import { citationSnapshots, type CitationSnapshot } from '@/lib/domain/answer';
 import { anonymousDay, ipBucket, type AnonymousScope, type AnonymousTurn } from '@/lib/domain/anonymous-chat';
-import { TEXT_META_KEY, textPartId, type AnonymousQuota, type ReeOutcome, type ReeUIMessage } from '@/lib/domain/chat-message';
+import { TEXT_META_KEY, textPartId, type AnonymousQuota, type PublicPart, type ReeOutcome, type ReeUIMessage } from '@/lib/domain/chat-message';
 import { withoutMentions } from '@/lib/domain/conversation';
 import { isUuid } from '@/lib/domain/list';
 import { authSecret } from '@/lib/infra/crypto/secrets';
@@ -50,6 +53,7 @@ import { currentAnonymousChatLimits } from '@/lib/services/anonymous-chat-settin
 import { embedQuestion, retrieve } from '@/lib/services/chat';
 import { publicRee } from '@/lib/services/explore';
 import { generationForUser } from '@/lib/services/generation';
+import { keepSnapshot, moderateSnapshot } from '@/lib/services/public-qa';
 import { questionRewriter } from '@/lib/services/question-rewrite';
 import type { Ree } from '@/lib/services/rees';
 
@@ -227,6 +231,14 @@ export interface AnonymousQuestion {
   lang: 'zh' | 'en';
   /** Asked on the share page by a browser that visited it (share.ts `shareVisitorFor`): the answer counts there too. */
   shareVisitorId?: string | null;
+  /** The visitor ticked "回答后公开": a first-turn answer is kept for the Ree page's Q&A, after moderation (public-qa.ts). */
+  publish?: { source: 'anonymous' | 'share' } | null;
+}
+
+/** What a counted answer leaves for publishing: its text and the citations it used. */
+export interface AnsweredText {
+  text: string;
+  citations: CitationSnapshot[];
 }
 
 function outcome(reeId: string, partial: Partial<ReeOutcome>): ReeOutcome {
@@ -239,7 +251,7 @@ function outcome(reeId: string, partial: Partial<ReeOutcome>): ReeOutcome {
  * whenever any text was shown -- an answer, a reply that ended on the
  * no-answer sentinel, or a failure part-way.
  */
-export async function runAnonymousQuestion({ ree, question, history, lang, shareVisitorId = null }: AnonymousQuestion, emit: Emit): Promise<boolean> {
+export async function runAnonymousQuestion({ ree, question, history, lang, shareVisitorId = null }: AnonymousQuestion, emit: Emit, answered?: (result: AnsweredText) => void): Promise<boolean> {
   const subject = withoutMentions(question, [ree.name]) || question;
   const ready = await readyRees([ree.id]);
   if (!ready.has(ree.id)) {
@@ -270,12 +282,33 @@ export async function runAnonymousQuestion({ ree, question, history, lang, share
       .insert(schema.anonymousAnswer)
       .values({ reeId: ree.id, shareVisitorId })
       .catch((error: unknown) => console.warn(`anonymous answer ree=${ree.id} not counted: ${error instanceof Error ? error.message : 'unknown'}`));
-    emit({ type: 'outcome', outcome: outcome(ree.id, { citations: citationSnapshots(text, found.passages), model }) });
+    const citations = citationSnapshots(text, found.passages);
+    emit({ type: 'outcome', outcome: outcome(ree.id, { citations, model }) });
+    answered?.({ text, citations });
     return true;
   } catch (error) {
     console.warn(`anonymous answer ree=${ree.id} failed: ${error instanceof Error ? error.message : 'unknown'}`);
     emit({ type: 'outcome', outcome: outcome(ree.id, { failed: true, model }) });
     return shown;
+  }
+}
+
+/**
+ * A visitor's answer they asked to publish: kept and checked now, so the
+ * stream can say whether it went public. Only a first turn -- an answer
+ * that leaned on earlier turns would mislead on its own -- and only a real
+ * answer. A failed check leaves it pending for the hourly cron.
+ */
+async function publishAnswer(input: AnonymousQuestion, answered: AnsweredText | null): Promise<PublicPart['status']> {
+  if (!input.publish || !answered || input.history.length > 0) return 'skipped';
+  try {
+    const id = await keepSnapshot({ reeId: input.ree.id, source: input.publish.source, question: input.question, answer: answered.text, citations: answered.citations, lang: input.lang });
+    if (!id) return 'skipped';
+    const status = await moderateSnapshot(id);
+    return status === 'gone' ? 'pending' : status;
+  } catch (error) {
+    console.warn(`anonymous answer ree=${input.ree.id} not published: ${error instanceof Error ? error.message : 'unknown'}`);
+    return 'skipped';
   }
 }
 
@@ -292,6 +325,7 @@ export function anonymousAnswerResponse(input: AnonymousQuestion, reservation: E
       write({ type: 'start', messageId: `${randomUUID()}-replies` });
       write({ type: 'data-ree', id: ree.id, data: { reeId: ree.id } });
       let counts = false;
+      let answered: AnsweredText | null = null;
       try {
         counts = await runAnonymousQuestion(input, (event) => {
           switch (event.type) {
@@ -306,6 +340,8 @@ export function anonymousAnswerResponse(input: AnonymousQuestion, reservation: E
             default:
               return undefined;
           }
+        }, (result) => {
+          answered = result;
         });
       } finally {
         if (!counts) {
@@ -314,6 +350,7 @@ export function anonymousAnswerResponse(input: AnonymousQuestion, reservation: E
           );
         }
       }
+      if (input.publish) write({ type: 'data-public', id: 'public', data: { status: await publishAnswer(input, answered) } });
       const quota = counts ? reservation.quota : await anonymousQuota(reservation.keys).catch(() => reservation.quota);
       write({ type: 'data-quota', id: 'quota', data: quota });
       write({ type: 'finish' });
