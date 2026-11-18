@@ -27,7 +27,7 @@ export const VISIBILITY_TONES = { public: 'blue', unpublished: 'grey', private: 
 export const STATE_TONES = { ready: 'green', processing: 'grey', failed: 'red', paused: 'grey' } as const;
 const TONE_CLASS = { blue: 'blue', grey: '', orange: 'orange', green: 'green', red: 'red' } as const;
 
-export const REE_TABS = ['overview', 'sources', 'statistics', 'audit'] as const;
+export const REE_TABS = ['overview', 'sources', 'statistics', 'qa', 'audit'] as const;
 export type ReeTab = (typeof REE_TABS)[number];
 
 type Params = Record<string, string | string[] | undefined>;

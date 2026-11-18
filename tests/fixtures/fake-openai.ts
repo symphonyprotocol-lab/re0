@@ -264,12 +264,21 @@ export async function startFakeOpenAi(port = 0, options: { delayMs?: number } = 
         res.end(JSON.stringify({ error: { message: 'rewrite failed', type: 'server_error' } }));
         return;
       }
+      /* Public Q&A review (public-qa.ts): "MODERATION DOWN" in the question fails the call, "UNPUBLISHABLE" is refused. */
+      const reviewing = system.includes('You review a question and answer before it is shown publicly');
+      if (reviewing && question.includes('MODERATION DOWN')) {
+        res.writeHead(500, { 'content-type': 'application/json' });
+        res.end(JSON.stringify({ error: { message: 'review failed', type: 'server_error' } }));
+        return;
+      }
       if ((system.includes('You check an answer against the knowledge passages') && checks.fail) || (moderating && synthesis.fail)) {
         res.writeHead(500, { 'content-type': 'application/json' });
         res.end(JSON.stringify({ error: { message: 'check failed', type: 'server_error' } }));
         return;
       }
-      const text = rewriting
+      const text = reviewing
+        ? JSON.stringify({ publish: !question.includes('UNPUBLISHABLE'), reason: 'test' })
+        : rewriting
         ? JSON.stringify(fakeRewrite(question.replace(/^Question:\n/, ''), rewriting[1]!))
         : moderating
         ? question.includes('SYNTH_EMPTY')

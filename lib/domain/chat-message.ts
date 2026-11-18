@@ -97,7 +97,12 @@ export interface AnonymousQuota {
 }
 export type AnonymousBlock = 'network' | 'capacity';
 
-export type ReeUIMessage = UIMessage<never, { outcome: ReeOutcome; ree: ReeStart; suggestions: Suggestions; check: ReeCheck; synthesis: SynthesisPart; quota: AnonymousQuota }>;
+/** A visitor's answer they asked to publish: where it stands after the moderation check (public-qa.ts). */
+export interface PublicPart {
+  status: 'published' | 'rejected' | 'pending' | 'skipped';
+}
+
+export type ReeUIMessage = UIMessage<never, { outcome: ReeOutcome; ree: ReeStart; suggestions: Suggestions; check: ReeCheck; synthesis: SynthesisPart; quota: AnonymousQuota; public: PublicPart }>;
 
 /** The tag on a Ree's text part (`providerMetadata.re0.reeId`). */
 export const TEXT_META_KEY = 're0';

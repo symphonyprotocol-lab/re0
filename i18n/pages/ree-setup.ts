@@ -53,6 +53,8 @@ export const zh = {
     privateHint: '留在个人空间，随时准备好再公开。',
     fee: '查询费（credits / 次成功回答）',
     feeHint: '向其他用户收取，100% 计入你的收入。问自己的 Ree 仅收 20 credits 基本费，未作答不收费。',
+    publicQa: '允许提问者把问答公开到这个 Ree 的主页',
+    publicQaHint: '提问者勾选"回答后公开"并通过审核后，问答会显示在主页的"问答"里。关闭后已公开的问答全部隐藏，重新开启会恢复。',
     counter: '{count} / {max}',
   },
   messages: {
@@ -203,6 +205,8 @@ export const en: Shape<typeof zh> = {
     privateHint: 'Keep it in your workspace until you are ready.',
     fee: 'Query fee (credits / successful answer)',
     feeHint: 'The full query fee goes to you. Your own Ree charges only the 20-credit base fee; unanswered questions are free.',
+    publicQa: 'Let askers publish their questions and answers on this Ree\'s page',
+    publicQaHint: 'When an asker ticks "Publish the answer" and it passes review, it appears under Q&A on the page. Turning this off hides every published one; turning it on shows them again.',
     counter: '{count} / {max}',
   },
   messages: {

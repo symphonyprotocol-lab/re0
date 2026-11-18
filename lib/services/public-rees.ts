@@ -33,6 +33,8 @@ export interface PublicRee {
   ownerSocialContacts: SocialContact[];
   role: 'normal' | 'verified' | 'official';
   queryFee: number;
+  /** The owner lets askers publish answers on the page (问答); off, the page offers no "回答后公开". */
+  publicQaEnabled: boolean;
   price: number;
   sources: number;
   answers: number;
@@ -87,6 +89,7 @@ async function reeDetails(where: SQL): Promise<PublicRee | null> {
       ownerSocialContacts: schema.user.socialContacts,
       role: schema.user.role,
       queryFee: schema.ree.queryFee,
+      publicQaEnabled: schema.ree.publicQaEnabled,
       sources: readySources,
       answers: answersByOthers,
       up: sql<number>`(select count(*)::int from ${schema.reeFeedback} f join ${schema.message} m on m.id = f.message_id where m.ree_id = ${reeId} and f.vote = 'up' and f.user_id <> ${reeOwner})`,

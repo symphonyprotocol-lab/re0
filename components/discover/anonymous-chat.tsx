@@ -8,11 +8,13 @@ import { DefaultChatTransport } from 'ai';
 import { ANONYMOUS_HISTORY_TURNS, QUESTION_MAX_CHARS } from '@/lib/constants';
 import type { CitationSnapshot } from '@/lib/domain/answer';
 import { ANONYMOUS_CAPACITY_REACHED, ANONYMOUS_NETWORK_LIMIT, ANONYMOUS_QUOTA_EXCEEDED, FINGERPRINT_HEADER, type AnonymousTurn } from '@/lib/domain/anonymous-chat';
-import { repliesOf, type AnonymousQuota, type ReeUIMessage } from '@/lib/domain/chat-message';
+import { repliesOf, type AnonymousQuota, type PublicPart, type ReeUIMessage } from '@/lib/domain/chat-message';
+import { PUBLIC_QA_ASK_ANCHOR } from '@/lib/domain/public-qa';
 import { browserFingerprint } from '@/lib/client/fingerprint';
 import { useI18n } from '@/i18n/client';
 import { fill } from '@/i18n/format';
-import { AnswerText, Avatar, CitationChips, CitationDrawer, Typing } from '@/components/chat/message-parts';
+import { Avatar, CitationDrawer, Typing } from '@/components/chat/message-parts';
+import { AnswerBubble, QaThread } from '@/components/discover/public-qa';
 import { Icon } from '@/components/ui/icons';
 import { Modal } from '@/components/ui/modal';
 import { useToast } from '@/components/ui/toast';
@@ -28,6 +30,22 @@ interface AnonymousRee {
 function textOf(message: ReeUIMessage): string {
   if (message.role === 'user') return message.parts.map((part) => (part.type === 'text' ? part.text : '')).join('');
   return repliesOf(message)[0]?.text ?? '';
+}
+
+function publicIn(message: ReeUIMessage): PublicPart['status'] | null {
+  for (const part of message.parts) if (part.type === 'data-public') return part.data.status;
+  return null;
+}
+
+/** Each question with the reply that followed it, newest first (the page's own stream order). */
+function threadsOf(messages: readonly ReeUIMessage[]): { question: ReeUIMessage; reply: ReeUIMessage | null; index: number }[] {
+  const pairs: { question: ReeUIMessage; reply: ReeUIMessage | null; index: number }[] = [];
+  messages.forEach((message, index) => {
+    if (message.role !== 'user') return;
+    const next = messages[index + 1];
+    pairs.push({ question: message, reply: next?.role === 'assistant' ? next : null, index });
+  });
+  return pairs.reverse();
 }
 
 function quotaIn(message: ReeUIMessage): AnonymousQuota | null {
@@ -67,24 +85,31 @@ const storageKey = (reeId: string) => `re0:anonymous-chat:${reeId}`;
  * sessionStorage only. Once the day's questions are used, asking opens a
  * dialog that signs them in and brings them back to this page.
  */
-export function AnonymousChat({ ree, loginHref, source }: {
+export function AnonymousChat({ ree, loginHref, source, followUp, canPublish = true }: {
   ree: AnonymousRee;
+  /** "我也问一句" on the public Q&A below: a question to put in the box, with a fresh `at` each time. */
+  followUp?: { text: string; at: number } | null;
   /** Where the sign-in dialog sends the visitor, coming back to this page. */
   loginHref: string;
   /** `share` on the share page `/s/[slug]`, so its answers count there (share.ts `shareVisitorFor`). */
   source?: 'share';
+  /** The owner keeps public Q&A on; off, there is no "回答后公开" to tick. */
+  canPublish?: boolean;
 }) {
   const { t } = useI18n();
   const a = t.discover.public.anonymous;
   const router = useRouter();
   const toast = useToast();
   const [input, setInput] = useState('');
+  /* "回答后公开": only a question asked without earlier answered turns can be published (public-qa.ts), so the box offers it until one is answered. */
+  const [publish, setPublish] = useState(false);
+  const inputRef = useRef<HTMLTextAreaElement>(null);
   const [quota, setQuota] = useState<AnonymousQuota | null>(null);
   /* Which limit the sign-in dialog explains: the visitor's own, their network's, or the day's capacity. */
   const [limit, setLimit] = useState<'visitor' | 'network' | 'capacity' | null>(null);
   const [citation, setCitation] = useState<CitationSnapshot | null>(null);
   const pendingQuestion = useRef('');
-  const transcriptRef = useRef<HTMLDivElement>(null);
+  const publishRef = useRef(false);
   const api = `/api/rees/${ree.id}/anonymous-chat`;
 
   const transport = useMemo(
@@ -93,7 +118,10 @@ export function AnonymousChat({ ree, loginHref, source }: {
         api,
         prepareSendMessagesRequest: async ({ messages }) => ({
           headers: { [FINGERPRINT_HEADER]: await browserFingerprint() },
-          body: { question: pendingQuestion.current, history: historyOf(messages.slice(0, -1)), ...(source ? { source } : {}) },
+          body: (() => {
+            const history = historyOf(messages.slice(0, -1));
+            return { question: pendingQuestion.current, history, ...(source ? { source } : {}), ...(publishRef.current && history.length === 0 ? { publish: true } : {}) };
+          })(),
         }),
       }),
     [api, source],
@@ -165,9 +193,13 @@ export function AnonymousChat({ ree, loginHref, source }: {
   }, [messages, busy, ree.id]);
 
   useEffect(() => {
-    const box = transcriptRef.current;
-    if (box) box.scrollTop = box.scrollHeight;
-  }, [messages]);
+    if (!followUp) return;
+    setInput(fill(a.followUpPrefill, { question: followUp.text }));
+    const box = inputRef.current;
+    if (!box) return;
+    box.scrollIntoView({ block: 'center', behavior: 'smooth' });
+    box.focus({ preventScroll: true });
+  }, [followUp, a.followUpPrefill]);
 
   const send = (question = input) => {
     const text = question.trim();
@@ -179,83 +211,39 @@ export function AnonymousChat({ ree, loginHref, source }: {
       return;
     }
     pendingQuestion.current = text;
+    publishRef.current = canPublish && publish && historyOf(messages).length === 0;
     setInput('');
     void sendMessage({ text });
   };
 
+  const pairs = threadsOf(messages);
+  /* Publishable while nothing has been answered yet: an unanswered question is not context for the next one (historyOf). */
+  const firstAsked = historyOf(messages).length > 0;
+  const asked = messages.some((message) => message.role === 'user');
   return (
-    <section className="mt-7 border-t border-line pt-6" aria-label={a.heading}>
-      <div className="flex flex-wrap items-center justify-between gap-2">
-        <h2 className="flex items-center gap-2 text-[14px] font-bold">
-          <Icon name="chat" className="size-4 text-blue" />
-          {a.heading}
-        </h2>
-        {quota && (
-          <span role="status" className={`rounded-full border px-2.5 py-1 font-mono text-[11px] ${quota.remaining > 0 && !quota.blocked ? 'border-line text-muted' : 'border-[#f3d2cf] bg-[#fdf3f2] text-[#b4372c]'}`}>
-            {quota.blocked === 'network' ? a.networkHint : quota.blocked === 'capacity' ? a.capacityHint : fill(a.remaining, { n: quota.remaining, limit: quota.limit })}
-          </span>
-        )}
-      </div>
-      <p className="mt-1 text-[12px] text-muted">{a.body}</p>
-
-      <div className="mt-3 overflow-hidden rounded-xl border border-line">
-        <div ref={transcriptRef} className="max-h-[480px] overflow-y-auto bg-wash p-4" role="region" aria-label={t.conversations.room.messagesLabel} tabIndex={0}>
-          {/* The chat pages' answer, citation and typing styles are scoped to `.studio-conversation` (conversations.css). */}
-          <div className="studio-conversation flex flex-col gap-4" style={{ background: 'transparent' }}>
-            {messages.length === 0 && ree.sampleQuestions.length > 0 && (
-              <div className="flex flex-col gap-2">
-                <span className="text-[11px] text-muted">{a.starters}</span>
-                {ree.sampleQuestions.slice(0, 3).map((question) => (
-                  <button key={question} type="button" disabled={busy} className="rounded-lg border border-line bg-white px-3 py-2 text-left text-[13px] hover:border-blue hover:text-blue" onClick={() => send(question)}>
-                    {question}
-                  </button>
-                ))}
-              </div>
-            )}
-            {messages.map((message, index) => {
-              if (message.role === 'user') {
-                return (
-                  <div key={message.id} className="flex justify-end">
-                    <p className="max-w-[85%] rounded-2xl rounded-br-md bg-blue px-3.5 py-2 text-[13px] whitespace-pre-wrap text-white">{textOf(message)}</p>
-                  </div>
-                );
-              }
-              const reply = repliesOf(message)[0];
-              const outcome = reply?.outcome ?? null;
-              const text = reply?.text ?? '';
-              const streaming = busy && index === messages.length - 1 && !outcome;
-              if (streaming && !text) return <Typing key={message.id} />;
-              return (
-                <article key={message.id} className="flex gap-2.5" aria-busy={streaming}>
-                  <Avatar ree={ree} sm />
-                  <div className="min-w-0 flex-1 rounded-2xl rounded-tl-md bg-white px-3.5 py-2.5 text-[13px]">
-                    {outcome?.noAnswer ? (
-                      <p className="text-muted">
-                        {outcome.reason === 'no_sources' ? a.noSources : a.outOfScope}
-                        {/* A reply that showed text before declining still counted (anonymous-chat.ts). */}
-                        {!text && ` ${a.notCounted}`}
-                      </p>
-                    ) : (
-                      <>
-                        <AnswerText text={text} citations={outcome?.citations ?? []} failed={outcome?.failed} onCitation={setCitation} />
-                        <CitationChips citations={outcome?.citations ?? []} onCitation={setCitation} />
-                      </>
-                    )}
-                  </div>
-                </article>
-              );
-            })}
-            {status === 'submitted' && messages.at(-1)?.role === 'user' && <Typing />}
+    <section className="ree-ask" id={PUBLIC_QA_ASK_ANCHOR} aria-label={a.heading}>
+      <div className="overflow-hidden rounded-xl border border-line">
+        {!asked && ree.sampleQuestions.length > 0 && (
+          <div className="bg-wash p-3">
+            <span className="text-[11px] text-muted">{a.starters}</span>
+            <div className="mt-2 flex flex-wrap gap-2">
+              {ree.sampleQuestions.slice(0, 3).map((question) => (
+                <button key={question} type="button" disabled={busy} className="rounded-lg border border-line bg-white px-3 py-2 text-left text-[13px] hover:border-blue hover:text-blue" onClick={() => send(question)}>
+                  {question}
+                </button>
+              ))}
+            </div>
           </div>
-        </div>
+        )}
         <form
-          className="flex items-end gap-2 border-t border-line bg-white p-2"
+          className={`flex items-end gap-2 bg-white p-2${!asked && ree.sampleQuestions.length > 0 ? ' border-t border-line' : ''}`}
           onSubmit={(event) => {
             event.preventDefault();
             send();
           }}
         >
           <textarea
+            ref={inputRef}
             aria-label={a.inputLabel}
             rows={2}
             maxLength={QUESTION_MAX_CHARS}
@@ -278,16 +266,75 @@ export function AnonymousChat({ ree, loginHref, source }: {
         </form>
       </div>
       <div className="mt-2 flex flex-wrap items-center justify-between gap-2 text-[11px] text-muted">
-        <span className="flex items-center gap-1.5">
-          <Icon name="shield" className="size-3.5 flex-none text-green" />
-          {a.privacy}
-        </span>
-        {messages.length > 0 && (
-          <button type="button" className="hover:text-blue" disabled={busy} onClick={() => setMessages([])}>
-            {a.clear}
-          </button>
+        {!canPublish ? (
+          <span>{t.discover.public.qa.closedNote}</span>
+        ) : !firstAsked ? (
+          <label className="ree-ask-share">
+            <input type="checkbox" checked={publish} onChange={(event) => setPublish(event.target.checked)} />
+            {a.publish}
+          </label>
+        ) : (
+          <span>{a.publishFirstOnly}</span>
+        )}
+        {quota && (
+          <span role="status" className={`rounded-full border px-2.5 py-1 font-mono text-[11px] ${quota.remaining > 0 && !quota.blocked ? 'border-line text-muted' : 'border-[#f3d2cf] bg-[#fdf3f2] text-[#b4372c]'}`}>
+            {quota.blocked === 'network' ? a.networkHint : quota.blocked === 'capacity' ? a.capacityHint : fill(a.remaining, { n: quota.remaining, limit: quota.limit })}
+          </span>
         )}
       </div>
+      <p className="mt-1 flex items-start gap-1.5 text-[11px] text-muted">
+        <Icon name="shield" className="mt-0.5 size-3.5 flex-none text-green" />
+        {a.privacy}
+      </p>
+
+      {pairs.length > 0 && (
+        <div className="ree-qa-list" aria-label={t.conversations.room.messagesLabel}>
+          {pairs.map(({ question, reply, index }) => {
+            const outcome = reply ? repliesOf(reply)[0]?.outcome ?? null : null;
+            const text = reply ? repliesOf(reply)[0]?.text ?? '' : '';
+            const streaming = busy && index === messages.length - 2 + (reply ? 0 : 1);
+            const shared = reply ? publicIn(reply) : null;
+            return (
+              <QaThread
+                key={question.id}
+                mine
+                asker={a.you}
+                initials={a.you}
+                question={textOf(question)}
+                meta={
+                  <>
+                    <span>· {a.justNow}</span>
+                    <span className="ree-qa-private">{shared === 'published' ? a.published : shared === 'pending' ? a.publishPending : shared === 'rejected' ? a.publishRejected : a.onlyYou}</span>
+                  </>
+                }
+                answer={
+                  !reply || (streaming && !text) ? (
+                    <Typing />
+                  ) : outcome?.noAnswer ? (
+                    <article className="flex gap-2.5">
+                      <Avatar ree={ree} sm />
+                      <p className="min-w-0 flex-1 rounded-2xl rounded-tl-md bg-white px-3.5 py-2.5 text-[13px] text-muted">
+                        {outcome.reason === 'no_sources' ? a.noSources : a.outOfScope}
+                        {/* A reply that showed text before declining still counted (anonymous-chat.ts). */}
+                        {!text && ` ${a.notCounted}`}
+                      </p>
+                    </article>
+                  ) : (
+                    <AnswerBubble ree={{ ...ree, slug: '' }} text={text} citations={outcome?.citations ?? []} onCitation={setCitation}>
+                      {outcome?.failed && <p className="answer-failed">{t.chat.failed}</p>}
+                    </AnswerBubble>
+                  )
+                }
+              />
+            );
+          })}
+          <div className="text-right">
+            <button type="button" className="text-[11px] text-muted hover:text-blue" disabled={busy} onClick={() => setMessages([])}>
+              {a.clear}
+            </button>
+          </div>
+        </div>
+      )}
 
       <CitationDrawer citation={citation} ree={ree} canOpen={false} onClose={() => setCitation(null)} />
 

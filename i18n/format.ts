@@ -42,3 +42,14 @@ export function formatBytes(bytes: number): string {
 
 /** Deep string shape of a dictionary, so the English file must cover every Chinese key. */
 export type Shape<T> = { [K in keyof T]: T[K] extends string ? string : Shape<T[K]> };
+
+/** "刚刚", "3 分钟前", "2 小时前", "昨天"... up to a week, then the date: how long ago `value` was, seen at `now`. */
+export function formatRelative(value: Date | string, now: number, locale: 'zh' | 'en', justNow: string): string {
+  const minutes = Math.max(0, Math.floor((now - new Date(value).getTime()) / 60_000));
+  if (minutes === 0) return justNow;
+  const relative = new Intl.RelativeTimeFormat(locale, { numeric: 'auto' });
+  if (minutes < 60) return relative.format(-minutes, 'minute');
+  if (minutes < 1_440) return relative.format(-Math.floor(minutes / 60), 'hour');
+  if (minutes < 10_080) return relative.format(-Math.floor(minutes / 1_440), 'day');
+  return formatDate(value, locale);
+}

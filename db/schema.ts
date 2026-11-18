@@ -38,6 +38,7 @@ import type { RoleMetrics } from '@/lib/domain/roles';
 import type { ReeRank } from '@/lib/domain/explore';
 import { REE_COMMENT_MAX_LENGTH } from '@/lib/domain/ree-comment';
 import { TASK_KINDS, type TaskKind } from '@/lib/domain/invites';
+import { PUBLIC_QA_ANSWER_MAX_CHARS, PUBLIC_QA_HIDERS, PUBLIC_QA_SOURCES, PUBLIC_QA_STATUSES, type PublicQaHider, type PublicQaSource, type PublicQaStatus } from '@/lib/domain/public-qa';
 import { MODEL_KINDS, VIDEO_EXPORT_TEMPLATES, VIDEO_TEMPLATES, type ModelKind } from '@/lib/constants';
 
 const createdAt = () => timestamp('created_at', { withTimezone: true }).notNull().defaultNow();
@@ -132,6 +133,8 @@ export const ree = pgTable(
     rank: jsonb('rank').$type<ReeRank>().notNull().default({}),
     /** Beyond 4: three example questions the system wrote after the first ready source, shown only once the owner adopts them (8.2). */
     suggestedQuestions: jsonb('suggested_questions').$type<string[]>().notNull().default([]),
+    /** Beyond 4: the owner lets askers publish their questions and answers on the Ree page (问答). Off hides every published one; on shows them again. */
+    publicQaEnabled: boolean('public_qa_enabled').notNull().default(true),
     deletedAt: timestampTz('deleted_at'),
     createdAt: createdAt(),
     updatedAt: timestampTz('updated_at').notNull().defaultNow(),
@@ -1236,6 +1239,76 @@ export const anonymousAnswer = pgTable(
     createdAt: createdAt(),
   },
   (t) => [index('anonymous_answer_ree_idx').on(t.reeId, t.createdAt), index('anonymous_answer_share_idx').on(t.reeId, t.createdAt).where(sql`share_visitor_id is not null`)],
+);
+
+/**
+ * Beyond 4: the Ree page's public Q&A. One row per question an asker chose
+ * to publish ("回答后公开"), a redacted snapshot of the question and the
+ * answer, single-turn only. A row is shown while it is `published`, its
+ * Ree is public with public Q&A on, and -- for a signed-in asker -- its
+ * message still exists in a conversation outside the trash, so deleting
+ * the conversation takes it down.
+ */
+export const reePublicQa = pgTable(
+  'ree_public_qa',
+  {
+    id: uuid('id').primaryKey().defaultRandom(),
+    reeId: uuid('ree_id').notNull().references(() => ree.id, { onDelete: 'cascade' }),
+    source: text('source').$type<PublicQaSource>().notNull(),
+    /** The signed-in asker, never shown; deleting the account deletes the row. */
+    userId: uuid('user_id').references(() => user.id, { onDelete: 'cascade' }),
+    /** The Ree's answer message, for a signed-in asker; null for a visitor. Purging the conversation deletes the row, text and all. */
+    messageId: uuid('message_id').references(() => message.id, { onDelete: 'cascade' }),
+    question: text('question').notNull(),
+    answer: text('answer').notNull(),
+    citations: jsonb('citations').$type<CitationSnapshot[]>().notNull().default([]),
+    lang: text('lang').$type<'zh' | 'en'>().notNull(),
+    status: text('status').$type<PublicQaStatus>().notNull().default('pending'),
+    moderationAttempts: integer('moderation_attempts').notNull().default(0),
+    hiddenBy: text('hidden_by').$type<PublicQaHider>(),
+    helpfulCount: integer('helpful_count').notNull().default(0),
+    reportCount: integer('report_count').notNull().default(0),
+    /** Pinned by the owner: first in the stream and the share page; one per Ree. */
+    pinnedAt: timestampTz('pinned_at'),
+    createdAt: createdAt(),
+    publishedAt: timestampTz('published_at'),
+  },
+  (t) => [
+    index('ree_public_qa_feed_idx').on(t.reeId, t.publishedAt.desc(), t.id.desc()).where(sql`status = 'published'`),
+    index('ree_public_qa_pending_idx').on(t.createdAt).where(sql`status = 'pending'`),
+    uniqueIndex('ree_public_qa_message_key').on(t.messageId).where(sql`message_id is not null`),
+    uniqueIndex('ree_public_qa_pinned_key').on(t.reeId).where(sql`pinned_at is not null`),
+    index('ree_public_qa_user_idx').on(t.userId).where(sql`user_id is not null`),
+    check('ree_public_qa_source_check', oneOf('source', [...PUBLIC_QA_SOURCES])),
+    check('ree_public_qa_status_check', oneOf('status', [...PUBLIC_QA_STATUSES])),
+    check('ree_public_qa_hidden_by_check', sql`hidden_by is null or hidden_by in (${sql.raw(PUBLIC_QA_HIDERS.map((value) => `'${value}'`).join(', '))})`),
+    check('ree_public_qa_lang_check', oneOf('lang', ['zh', 'en'])),
+    check('ree_public_qa_question_check', sql`char_length(question) between 1 and 4000`),
+    check('ree_public_qa_answer_check', sql`char_length(answer) between 1 and ${sql.raw(String(PUBLIC_QA_ANSWER_MAX_CHARS))}`),
+    check('ree_public_qa_published_check', sql`(status = 'published') <= (published_at is not null)`),
+  ],
+);
+
+/** "有帮助" on a public answer: one per signed-in user. */
+export const reePublicQaVote = pgTable(
+  'ree_public_qa_vote',
+  {
+    qaId: uuid('qa_id').notNull().references(() => reePublicQa.id, { onDelete: 'cascade' }),
+    userId: uuid('user_id').notNull().references(() => user.id, { onDelete: 'cascade' }),
+    createdAt: createdAt(),
+  },
+  (t) => [primaryKey({ columns: [t.qaId, t.userId] }), index('ree_public_qa_vote_user_idx').on(t.userId)],
+);
+
+/** "举报" on a public answer: one per reporter, the account or an HMAC of the anonymous id. */
+export const reePublicQaReport = pgTable(
+  'ree_public_qa_report',
+  {
+    qaId: uuid('qa_id').notNull().references(() => reePublicQa.id, { onDelete: 'cascade' }),
+    reporterKey: text('reporter_key').notNull(),
+    createdAt: createdAt(),
+  },
+  (t) => [primaryKey({ columns: [t.qaId, t.reporterKey] })],
 );
 
 /* ------------------------------------------------------------- step 5 */

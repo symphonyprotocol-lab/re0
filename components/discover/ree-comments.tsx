@@ -27,12 +27,14 @@ function commentTime(value: string, now: number, locale: 'zh' | 'en', justNow: s
   return formatDateTime(value, locale);
 }
 
-export function ReeComments({ reeId, initial, signedIn, loginHref, renderedAt }: {
+export function ReeComments({ reeId, initial, signedIn, loginHref, renderedAt, embedded = false }: {
   reeId: string;
   initial: ReeCommentPage;
   signedIn: boolean;
   loginHref: string;
   renderedAt: number;
+  /** Inside the Ree page's 评论 tab: no card of its own. */
+  embedded?: boolean;
 }) {
   const { t, locale } = useI18n();
   const router = useRouter();
@@ -132,7 +134,7 @@ export function ReeComments({ reeId, initial, signedIn, loginHref, renderedAt }:
   }
 
   return (
-    <section id={REE_COMMENTS_ANCHOR} aria-labelledby="ree-comments-heading" className="card min-w-0 scroll-mt-24 p-5 sm:p-7 lg:col-start-1 lg:row-start-2">
+    <section id={REE_COMMENTS_ANCHOR} aria-labelledby="ree-comments-heading" className={embedded ? 'min-w-0 scroll-mt-24' : 'card min-w-0 scroll-mt-24 p-5 sm:p-7 lg:col-start-1 lg:row-start-2'}>
       <header className="mb-4">
         <div className="flex items-center gap-2">
           <h2 id="ree-comments-heading" className="flex items-center gap-2 text-[16px] font-bold">

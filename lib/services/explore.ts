@@ -105,6 +105,12 @@ export interface ReeCard {
   pinned: boolean;
   /** Introduction when requested by the caller and available. */
   video: IntroProps | null;
+  /** Other people's questions in the last 7 days (the hourly `ree.rank`). */
+  asked7: number;
+  /** The latest answer to someone else within those 7 days, ISO; null for none. */
+  lastAnsweredAt: string | null;
+  /** Answers shown on the Ree page's public Q&A (public-qa.ts). */
+  publicQa: number;
 }
 
 const cardColumns = {
@@ -127,6 +133,9 @@ const cardColumns = {
   down: votesByOthers('down'),
   createdAt: schema.ree.createdAt,
   pinned: sql<boolean>`${schema.ree.pinOrder} is not null`,
+  rank: schema.ree.rank,
+  /* The Ree page's public Q&A count, as public-qa.ts `shown()` reads it: published, the owner's switch on, a signed-in asker's conversation kept. */
+  publicQa: sql<number>`(case when ${schema.ree.publicQaEnabled} then (select count(*)::int from ${schema.reePublicQa} q where q.ree_id = ${schema.ree.id} and q.status = 'published' and (q.source <> 'user' or exists (select 1 from ${schema.message} m join ${schema.conversation} c on c.id = m.conversation_id where m.id = q.message_id and c.deleted_at is null))) else 0 end)`,
 };
 
 /** Every card query starts here; callers add the filter, order and page. */
@@ -137,8 +146,8 @@ function cardQuery() {
 type CardRow = Awaited<ReturnType<typeof cardQuery>>[number];
 
 function toCard(row: CardRow, excerpt: string | null = null): ReeCard {
-  const { up, down, ...rest } = row;
-  return { ...rest, price: QUERY_BASE_FEE + row.queryFee, positiveRate: positiveRate(up, down), excerpt, video: null };
+  const { up, down, rank, ...rest } = row;
+  return { ...rest, price: QUERY_BASE_FEE + row.queryFee, positiveRate: positiveRate(up, down), excerpt, video: null, asked7: rank.asked7 ?? 0, lastAnsweredAt: rank.lastAnsweredAt ?? null };
 }
 
 /** Step 7: each card's introduction, if it has one. */
@@ -158,6 +167,17 @@ export async function reeCards(
   const byId = new Map(rows.map((row) => [row.id, row]));
   const cards = ids.map((id) => byId.get(id)).filter((row): row is CardRow => Boolean(row)).map((row) => toCard(row, excerpts.get(row.id) ?? null));
   return includeIntros ? withIntros(cards) : cards;
+}
+
+/** explore's "本周问得最多": the public Rees with the most questions from other people this week (the hourly `ree.rank`). */
+export async function weeklyMostAsked(limit = 3): Promise<Pick<ReeCard, 'id' | 'slug' | 'name' | 'avatarBlob' | 'color' | 'asked7'>[]> {
+  const asked = sql<number>`coalesce((${schema.ree.rank} ->> 'asked7')::int, 0)`;
+  return db()
+    .select({ id: schema.ree.id, slug: schema.ree.slug, name: schema.ree.name, avatarBlob: schema.ree.avatarBlob, color: schema.ree.color, asked7: asked })
+    .from(schema.ree)
+    .where(and(publicRee(), sql`${asked} > 0`))
+    .orderBy(desc(asked), schema.ree.id)
+    .limit(limit);
 }
 
 /* ------------------------------------------------------------- the search */
