@@ -11,7 +11,7 @@ import { introsFor } from '@/lib/services/video';
 import { publicPage, UNLISTED_ROBOTS } from '@/lib/seo';
 import { serverMessages } from '@/i18n/server';
 import { FeedColumns } from '@/components/shell/feed-columns';
-import { ExploreRail, ExploreView } from '@/components/discover/explore-view';
+import { ExploreRail, ExploreView, FreeRoundsNote } from '@/components/discover/explore-view';
 
 type Props = { searchParams: Promise<Record<string, string | string[] | undefined>> };
 
@@ -44,6 +44,7 @@ export default async function ExplorePage({ searchParams }: Props) {
   const renderedAt = Date.now();
   return (
     <FeedColumns title={t.common.nav.discover} rail={<ExploreRail rail={{ top, freeRounds: limits?.visitorRoundsPerDay ?? null }} signedIn={Boolean(user)} from="/explore" />}>
+      <FreeRoundsNote freeRounds={limits?.visitorRoundsPerDay ?? null} />
       <ExploreView query={query} result={{ ...result, items }} limited={limited} signedIn={Boolean(user)} favoriteIds={favoriteIds} viewerId={user?.id} renderedAt={renderedAt} />
     </FeedColumns>
   );

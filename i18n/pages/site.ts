@@ -44,6 +44,7 @@ export const zh = {
     introLede2: '创建一个 Ree，给它一些知识，它就能替你回答别人的问题。',
     introAsk: '登录后提问',
     introMore: '价格和常见问题在"了解 RE0"',
+    allRees: '在发现里看全部 Ree',
     aboutTitle: '了解 RE0',
   },
   home: {
@@ -313,6 +314,7 @@ export const en: Shape<typeof zh> = {
     introLede2: 'Create a Ree, give it some knowledge, and it answers other people for you.',
     introAsk: 'Sign in to ask',
     introMore: 'Pricing and FAQ are in About RE0',
+    allRees: 'See every Ree in Discover',
     aboutTitle: 'About RE0',
   },
   home: {

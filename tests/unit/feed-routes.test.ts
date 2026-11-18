@@ -14,6 +14,7 @@ vi.mock('next/navigation', () => ({ redirect: (url: string) => redirect(url) }))
 vi.mock('@/lib/http/session', () => ({ currentUser: async () => ({ id: 'user-1' }) }));
 vi.mock('@/i18n/server', async () => {
   const { messages } = await import('@/i18n');
+const { DEFAULT_RETURN_TO, safeReturnTo } = await import('@/lib/domain/auth');
   return { serverMessages: async () => ({ t: messages('zh'), locale: 'zh' }) };
 });
 
@@ -24,6 +25,7 @@ const settings = await import('@/app/(product)/(workspace)/settings/page');
 const { PUBLIC_PAGES } = await import('@/i18n/paths');
 const { CRAWL_DISALLOWED, WORKSPACE_PATHS } = await import('@/lib/http/private-paths');
 const { messages } = await import('@/i18n');
+const { DEFAULT_RETURN_TO, safeReturnTo } = await import('@/lib/domain/auth');
 
 describe('the front page and 了解 RE0', () => {
   it('keeps / as the front page: its title, description and canonical', async () => {
@@ -59,5 +61,15 @@ describe('old addresses', () => {
     for (const path of ['/me/', '/notifications', '/saved']) expect(CRAWL_DISALLOWED).toContain(path);
     /* robots.txt matches by prefix: nothing may hide the Ree images under /media. */
     expect(CRAWL_DISALLOWED.some((path) => '/media/avatars/x.webp'.startsWith(path))).toBe(false);
+  });
+});
+
+describe('coming back after sign-in', () => {
+  it('returns to the new pages, the share page and their language URLs', () => {
+    for (const path of ['/me/posts?view=trash', '/me/posts?select=abc&focus=1', '/notifications?page=2', '/saved', '/about', '/en/about', '/s/some-ree', '/']) {
+      expect(safeReturnTo(path)).toBe(path);
+    }
+    /* Prefixes match whole segments: /media is not /me, /saver not /saved. */
+    for (const path of ['/media/x', '/saver', '/aboutx', '//evil.example']) expect(safeReturnTo(path)).toBe(DEFAULT_RETURN_TO);
   });
 });

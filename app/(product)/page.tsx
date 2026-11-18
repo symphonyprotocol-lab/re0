@@ -12,9 +12,12 @@ import { publicPage, siteJsonLd, SITE_NAME } from '@/lib/seo';
 import { serverMessages } from '@/i18n/server';
 import { fill, formatNumber } from '@/i18n/format';
 import { FeedColumns } from '@/components/shell/feed-columns';
-import { ExploreRail, ExploreView } from '@/components/discover/explore-view';
+import { ExploreRail, ExploreView, FreeRoundsNote } from '@/components/discover/explore-view';
 import { Icon } from '@/components/ui/icons';
 import { JsonLd } from '@/components/site/json-ld';
+
+/** 首页 shows this many Rees until there are posts; 发现 has them all. */
+const HOME_REES = 6;
 
 /** The site's front page keeps its title, description and canonical `/` (and the site's structured data); the rest of the old home is `/about`. */
 export async function generateMetadata(): Promise<Metadata> {
@@ -27,8 +30,10 @@ export async function generateMetadata(): Promise<Metadata> {
  * three-column frame. Signed in, it opens straight on the feed; a visitor
  * first sees a short introduction -- the old home page's headline, two
  * lines, sign-in, create a Ree, and the way to 了解 RE0 (`/about`, the rest
- * of the old home). Until people can post, the feed is the most active
- * public Rees, the same list as 发现.
+ * of the old home). Until people can post, the feed is a short list of
+ * the most active public Rees with the way to 发现 -- the whole list lives
+ * only there, so the two pages do not repeat each other. A visitor's h1 is
+ * the introduction's headline, as on the old home.
  */
 export default async function HomePage() {
   const [user, { t, locale }] = await Promise.all([currentUser(), serverMessages()]);
@@ -43,21 +48,21 @@ export default async function HomePage() {
     user ? favoriteReeIds(user.id, result.items.map((ree) => ree.id)) : undefined,
     introsFor(result.items.filter((ree) => !ree.coverBlob).map((ree) => ree.id)),
   ]);
-  const items = result.items.map((ree) => ({ ...ree, video: coverVideos.get(ree.id) ?? null }));
+  const items = result.items.slice(0, HOME_REES).map((ree) => ({ ...ree, video: coverVideos.get(ree.id) ?? null }));
   const h = t.site.home;
   const v = t.site.visitor;
   return (
     <>
       <JsonLd data={siteJsonLd(t.site.seo.description)} />
-      <FeedColumns title={t.common.nav.homeFeed} rail={<ExploreRail rail={{ top, freeRounds: limits?.visitorRoundsPerDay ?? null }} signedIn={Boolean(user)} from="/" />}>
+      <FeedColumns title={t.common.nav.homeFeed} heading={Boolean(user)} rail={<ExploreRail rail={{ top, freeRounds: limits?.visitorRoundsPerDay ?? null }} signedIn={Boolean(user)} from="/" />}>
         {!user && (
           <div className="px-[18px]">
             <section className="xintro" aria-labelledby="home-intro">
-              <h2 id="home-intro">
+              <h1 id="home-intro">
                 {h.headline1}
                 {h.headline2}
                 <em>{h.headlineEm}</em>
-              </h2>
+              </h1>
               <p>
                 {v.introLede1}
                 <br />
@@ -83,7 +88,13 @@ export default async function HomePage() {
             </section>
           </div>
         )}
-        <ExploreView query={query} result={{ ...result, items }} limited={false} signedIn={Boolean(user)} favoriteIds={favoriteIds} viewerId={user?.id} renderedAt={Date.now()} variant="home" />
+        <FreeRoundsNote freeRounds={limits?.visitorRoundsPerDay ?? null} />
+        <ExploreView query={query} result={{ ...result, items, nextCursor: null }} limited={false} signedIn={Boolean(user)} favoriteIds={favoriteIds} viewerId={user?.id} renderedAt={Date.now()} variant="home" />
+        <p className="px-[18px] pt-2 pb-10 text-center text-[13px]">
+          <Link href="/explore" className="text-link">
+            {t.site.visitor.allRees} →
+          </Link>
+        </p>
       </FeedColumns>
     </>
   );

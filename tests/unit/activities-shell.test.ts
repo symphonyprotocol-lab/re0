@@ -63,7 +63,7 @@ const shell = (activities: { visible: boolean; dot: boolean }) =>
       locale: 'zh',
       t: messages('zh'),
       children: createElement(AppShell, {
-        user: { name: 'User', avatar: null, balance: 0, welcome: 0, debt: 0, plan: plan as never, reeCount: 0, history: [], unreadNotices: 0, activities },
+        user: { name: 'User', avatar: null, balance: 0, welcome: 0, debt: 0, plan: plan as never, reeCount: 0, unreadNotices: 0, activities },
         initialCollapsed: false,
         children: null,
       }),

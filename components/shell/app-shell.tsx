@@ -10,7 +10,6 @@ import { BrandMark, BrandName } from '@/components/ui/brand-mark';
 import { Icon, type IconName } from '@/components/ui/icons';
 import { UserAvatar } from '@/components/ui/ree-avatar';
 import { HistoryProvider, SearchShortcut } from '@/components/conversations/sidebar-history';
-import type { HistoryItem } from '@/lib/services/conversations';
 import { WorkspaceMain } from '@/components/shell/workspace-main';
 import './shell.css';
 import './columns.css';
@@ -46,7 +45,6 @@ export interface ShellUser {
   plan: PlanUsage;
   reeCount: number;
   /** Step 4: the sidebar's pinned and recent conversations. */
-  history: HistoryItem[];
   /** Unread in-app notices (step 5): a red dot on the account link, which then opens the notices. */
   unreadNotices: number;
   /** The 活动 item (`activitiesIndicator`): shown only while an activity is available to this account, with a dot when something calls for attention. */

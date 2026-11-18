@@ -432,3 +432,19 @@ export function ExploreRail({ rail, signedIn, from }: { rail: ExploreRail; signe
     </div>
   );
 }
+
+/**
+ * The free-rounds line from the right column, for when that column is
+ * folded away (below 1100px, phones): a visitor still sees what they may
+ * ask today without an account. Hidden where the column shows.
+ */
+export function FreeRoundsNote({ freeRounds }: { freeRounds: number | null }) {
+  const { t } = useI18n();
+  if (freeRounds === null) return null;
+  return (
+    <p className="xfree-note">
+      <Icon name="chat" className="size-3.5 flex-none text-blue" />
+      <span>{fill(t.discover.explore.railFreeBody, { n: freeRounds })}</span>
+    </p>
+  );
+}

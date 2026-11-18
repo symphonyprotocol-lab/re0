@@ -16,8 +16,10 @@ import './columns.css';
  * navigation drawer. Used by the feed-like pages; the creator tools keep
  * their full-width pages and top bar.
  */
-export function FeedColumns({ title, back, tabs, rail, children }: {
+export function FeedColumns({ title, back, tabs, rail, heading = true, children }: {
   title: ReactNode;
+  /** The title is the page's h1; false when the page has its own (a visitor's 首页, whose introduction carries it). */
+  heading?: boolean;
   /** Where "←" goes; none for a top-level page. */
   back?: string;
   /** The head's second row, usually `.cl-tabs`. */
@@ -58,7 +60,7 @@ export function FeedColumns({ title, back, tabs, rail, children }: {
                 <Icon name="arrowLeft" className="" />
               </Link>
             )}
-            <h1 className="min-w-0 truncate">{title}</h1>
+            {heading ? <h1 className="min-w-0 truncate">{title}</h1> : <p className="min-w-0 truncate">{title}</p>}
           </div>
           {tabs}
         </header>
