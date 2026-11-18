@@ -12,7 +12,8 @@ type Context = { params: Promise<{ id: string }> };
  * "圆桌总结" of the author's own post, for everyone to read: holds
  * POST_SUMMARY_FEE, settles it when written, gives it back on failure.
  * 402 with the balance; 409 `already_summarized` / `summary_running`; 422
- * `not_enough_answers`; 502 `summary_failed`.
+ * `not_enough_answers` / `summary_rejected` (review refused it; fee back);
+ * 502 `summary_failed` (fee back). Free when the earlier summary went stale.
  */
 export async function POST(request: NextRequest, { params }: Context) {
   const user = await apiUser(request);
@@ -32,6 +33,8 @@ export async function POST(request: NextRequest, { params }: Context) {
       return fail('already_summarized', 409);
     case 'running':
       return fail('summary_running', 409);
+    case 'rejected':
+      return fail('summary_rejected', 422);
     default:
       return fail('summary_failed', 502);
   }

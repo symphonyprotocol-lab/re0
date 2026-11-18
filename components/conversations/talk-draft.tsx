@@ -19,6 +19,7 @@ interface Draft {
 
 /* Not from '@/components/posts/composer': that would pull the composer into this page's bundle. */
 const TALK_HANDOFF_KEY = 're0:talk-handoff';
+const TALK_HANDOFF_EVENT = 're0:talk-handoff';
 
 const draftKey = (viewerId: string) => `re0:talk-draft:${viewerId}`;
 
@@ -106,6 +107,19 @@ export function TalkDraft({ initialMembers, viewerId, fresh }: { initialMembers:
     if (draft.current.question) composer.current?.fill(draft.current.question);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [fresh, viewerId]);
+
+  /* The composer's 私密提问 while this page is already open: the text goes into the box now (posts/composer.tsx). */
+  useEffect(() => {
+    const take = (event: Event) => {
+      const text = (event as CustomEvent<string>).detail;
+      if (typeof text !== 'string' || !text) return;
+      keep({ question: text });
+      composer.current?.fill(text);
+    };
+    window.addEventListener(TALK_HANDOFF_EVENT, take);
+    return () => window.removeEventListener(TALK_HANDOFF_EVENT, take);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
 
   const send = async (question: string) => {
     setBusy(true);

@@ -6,12 +6,61 @@ import { WorkspaceLink as Link } from '@/components/shell/workspace-link';
 import { POST_DETAIL_MAX, POST_FREE_PER_DAY, POST_MAX_ANSWERS, POST_QUESTION_MAX } from '@/lib/domain/post';
 import { useI18n } from '@/i18n/client';
 import { fill, formatNumber } from '@/i18n/format';
+import { stripLocale } from '@/i18n/paths';
 import { Icon } from '@/components/ui/icons';
 import { useToast } from '@/components/ui/toast';
 import './posts.css';
 
 /** The private question's text, handed to `/talk` (talk-draft.tsx reads it once, under the same key). */
 export const TALK_HANDOFF_KEY = 're0:talk-handoff';
+/** The same, for a `/talk` page already open: it fills its box at once (talk-draft.tsx listens). */
+export const TALK_HANDOFF_EVENT = 're0:talk-handoff';
+
+/**
+ * Leaving the composer window for another page. Closing a `<dialog>` fires
+ * its `close` event a task later; that handler drops `?compose=` with a
+ * `router.replace` of the current page, and a newer navigation discards an
+ * older one -- so closing first and then pushing `/p/<id>` lands back where
+ * the user was (review round 2, B1). Instead `leave` marks the exit and
+ * navigates; the new address closes the window, and the `close` that
+ * follows is swallowed once.
+ */
+export function composerExit() {
+  let leaving = false;
+  return {
+    leave(navigate: () => void) {
+      leaving = true;
+      navigate();
+    },
+    /** The window closed: drop the parameter -- unless it closed because the page is leaving. */
+    closed(dropParameter: () => void) {
+      if (leaving) {
+        leaving = false;
+        return;
+      }
+      dropParameter();
+    },
+  };
+}
+
+/**
+ * The current page's address with the composer opened on it: every
+ * parameter the page has is kept (`/explore?tab=posts&q=…`), so closing
+ * the window returns to exactly that page (review round 2, S7).
+ */
+export function composeHref(pathname: string, current: URLSearchParams | string, extra: Record<string, string> = {}): string {
+  const next = new URLSearchParams(typeof current === 'string' ? current : current.toString());
+  next.set('compose', extra.compose ?? 'public');
+  for (const [key, value] of Object.entries(extra)) if (key !== 'compose') next.set(key, value);
+  return `${pathname}?${next.toString()}`;
+}
+
+/** `composeHref` for the page being shown. */
+export function useComposeHref(extra: Record<string, string> = {}): string {
+  const pathname = usePathname();
+  const params = useSearchParams();
+  return composeHref(pathname, params, extra);
+}
 
 interface Allowance {
   freeLeft: number;
@@ -29,7 +78,7 @@ export interface Mention {
  * the mentioned Ree, and what today's post costs. Publishing opens the
  * post's page, which shows the Rees answering.
  */
-export function PublicPostForm({ mention: initialMention = null, autoFocus = false, onPosted }: { mention?: Mention | null; autoFocus?: boolean; onPosted?: () => void }) {
+export function PublicPostForm({ mention: initialMention = null, autoFocus = false, leave }: { mention?: Mention | null; autoFocus?: boolean; leave?: (navigate: () => void) => void }) {
   const { t, locale } = useI18n();
   const c = t.posts.composer;
   const router = useRouter();
@@ -42,6 +91,8 @@ export function PublicPostForm({ mention: initialMention = null, autoFocus = fal
   const [allowance, setAllowance] = useState<Allowance | null>(null);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  /* One token per post being written: a second submit of the same one returns the same post (S4). */
+  const [token, setToken] = useState(() => crypto.randomUUID());
 
   useEffect(() => {
     let live = true;
@@ -64,14 +115,20 @@ export function PublicPostForm({ mention: initialMention = null, autoFocus = fal
       const response = await fetch('/api/posts', {
         method: 'POST',
         headers: { 'content-type': 'application/json' },
-        body: JSON.stringify({ question, detail, anonymous, mentionReeId: mention?.id ?? null }),
+        body: JSON.stringify({ question, detail, anonymous, mentionReeId: mention?.id ?? null, clientToken: token }),
       });
       const body = (await response.json().catch(() => ({}))) as { id?: string; error?: string; balance?: number; needed?: number };
-      if (response.status === 201 && body.id) {
-        onPosted?.();
-        router.push(`/p/${body.id}`);
+      if ((response.status === 201 || response.status === 200) && body.id) {
+        /* Published: the form stays busy and empty until the post's page opens, so nothing can send it twice. */
+        setQuestion('');
+        setDetail('');
+        setToken(crypto.randomUUID());
+        const go = () => router.push(`/p/${body.id}`);
+        if (leave) leave(go);
+        else go();
         return;
       }
+      setBusy(false);
       setError(
         body.error === 'insufficient_credits'
           ? fill(c.insufficient, { needed: formatNumber(body.needed ?? 0, locale), balance: formatNumber(body.balance ?? 0, locale) })
@@ -85,7 +142,6 @@ export function PublicPostForm({ mention: initialMention = null, autoFocus = fal
       );
     } catch {
       toast(c.failed);
-    } finally {
       setBusy(false);
     }
   }
@@ -147,19 +203,26 @@ export function PublicPostForm({ mention: initialMention = null, autoFocus = fal
 }
 
 /** 私密提问: the text goes to `/talk`, where the Rees are picked as in any conversation. */
-function PrivateForm({ onGo }: { onGo: () => void }) {
+function PrivateForm({ leave, stay }: { leave: (navigate: () => void) => void; stay: () => void }) {
   const { t } = useI18n();
   const c = t.posts.composer;
   const router = useRouter();
+  const pathname = stripLocale(usePathname());
   const [question, setQuestion] = useState('');
   function go() {
+    const text = question.trim();
+    /* Already on /talk: its box takes the text now; nothing waits in storage for a later visit (O1). */
+    if (pathname === '/talk') {
+      if (text) window.dispatchEvent(new CustomEvent(TALK_HANDOFF_EVENT, { detail: text }));
+      stay();
+      return;
+    }
     try {
-      if (question.trim()) sessionStorage.setItem(TALK_HANDOFF_KEY, question.trim());
+      if (text) sessionStorage.setItem(TALK_HANDOFF_KEY, text);
     } catch {
       /* storage off: /talk opens empty */
     }
-    onGo();
-    router.push('/talk');
+    leave(() => router.push('/talk'));
   }
   return (
     <div className="post-form">
@@ -191,6 +254,7 @@ function ComposerDialogInner() {
   const open = compose === 'public' || compose === 'private';
   const mentionId = params.get('ree');
   const mention = mentionId ? { id: mentionId, name: params.get('name') ?? '' } : null;
+  const exit = useRef(composerExit()).current;
 
   useEffect(() => {
     if (open) setTab(compose === 'private' ? 'private' : 'public');
@@ -208,7 +272,7 @@ function ComposerDialogInner() {
   }
 
   return (
-    <dialog ref={dialog} className="post-dialog" aria-label={c.label} onClose={() => open && close()} onClick={(event) => event.target === dialog.current && close()}>
+    <dialog ref={dialog} className="post-dialog" aria-label={c.label} onClose={() => exit.closed(() => open && close())} onClick={(event) => event.target === dialog.current && close()}>
       {open && (
         <div className="post-dialog-body">
           <header>
@@ -224,7 +288,7 @@ function ComposerDialogInner() {
               <Icon name="close" className="" />
             </button>
           </header>
-          {tab === 'public' ? <PublicPostForm key={mention?.id ?? 'none'} mention={mention} autoFocus onPosted={() => dialog.current?.close()} /> : <PrivateForm onGo={() => dialog.current?.close()} />}
+          {tab === 'public' ? <PublicPostForm key={mention?.id ?? 'none'} mention={mention} autoFocus leave={exit.leave} /> : <PrivateForm leave={exit.leave} stay={close} />}
         </div>
       )}
     </dialog>

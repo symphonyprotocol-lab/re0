@@ -36,6 +36,8 @@ export function PostState({ post }: { post: PostView }) {
   const { t } = useI18n();
   const c = t.posts.card;
   if (post.status === 'rejected') return <div className="post-state is-rejected">{c.rejected}</div>;
+  /* Only its author sees a taken-down post: say why. */
+  if (post.status === 'hidden') return <div className="post-state is-rejected">{post.hiddenBy === 'reports' ? c.hiddenReports : c.hiddenAdmin}</div>;
   if (post.status === 'pending') return <div className="post-state is-gathering"><i className="spinner" />{c.pending}</div>;
   if (post.answerState !== 'done') {
     return (

@@ -17,8 +17,9 @@ export async function GET(request: NextRequest) {
 }
 
 /**
- * `{question, detail?, anonymous?, mentionReeId?}`: publishes a public
- * post → 201 `{id, charge}`. Its review, matching and answers run after the
+ * `{question, detail?, anonymous?, mentionReeId?, clientToken?}`: publishes
+ * a public post → 201 `{id, charge}`; the same token, or the same text
+ * within a minute, → 200 with the post already made, nothing held twice. Its review, matching and answers run after the
  * response (the post page polls). 402 with the balance when a post past
  * the free ones cannot be paid for; 429 `daily_limit`; 422 `empty` /
  * `too_long`.
@@ -34,12 +35,14 @@ export async function POST(request: NextRequest) {
     detail: String(input.detail ?? ''),
     anonymous: input.anonymous === true,
     mentionReeId: typeof input.mentionReeId === 'string' ? input.mentionReeId : null,
+    clientToken: typeof input.clientToken === 'string' ? input.clientToken : null,
     lang: user.lang,
   });
   if (!result.ok) {
     if (result.error === 'insufficient_credits') return json({ error: 'insufficient_credits', balance: result.balance, needed: result.needed }, 402);
     return fail(result.error, result.error === 'daily_limit' ? 429 : 422);
   }
+  if (result.duplicate) return json({ id: result.id, charge: result.charge, duplicate: true });
   after(() => processPost(result.id).catch((error: unknown) => console.error(`post ${result.id} not processed: ${error instanceof Error ? error.message : 'unknown'}`)));
   return json({ id: result.id, charge: result.charge }, 201);
 }

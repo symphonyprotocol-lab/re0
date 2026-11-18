@@ -1366,7 +1366,11 @@ export const post = pgTable(
     /** The Ree the author named ("发帖问它"): it answers whatever the threshold says, while it takes posts. */
     mentionReeId: uuid('mention_ree_id').references(() => ree.id, { onDelete: 'set null' }),
     status: text('status').$type<PostStatus>().notNull().default('pending'),
-    hiddenBy: text('hidden_by').$type<'admin'>(),
+    /** Who took a published post down: an administrator, or `POST_REPORT_THRESHOLD` distinct reporters (until an administrator restores it). */
+    hiddenBy: text('hidden_by').$type<'admin' | 'reports'>(),
+    reportCount: integer('report_count').notNull().default(0),
+    /** The composer's token for one post: the same token, or the same text within a minute, publishes (and holds) once. */
+    clientToken: uuid('client_token'),
     moderationAttempts: integer('moderation_attempts').notNull().default(0),
     answerState: text('answer_state').$type<PostAnswerState>().notNull().default('waiting'),
     candidates: integer('candidates').notNull().default(0),
@@ -1380,6 +1384,8 @@ export const post = pgTable(
     summaryContent: text('summary_content'),
     summarySources: jsonb('summary_sources').$type<SynthesisSource[]>(),
     summaryHoldId: uuid('summary_hold_id'),
+    /** The answers the summary was written from; it is not shown once any of them is no longer shown. */
+    summaryAnswers: jsonb('summary_answers').$type<string[]>(),
     summaryAt: timestampTz('summary_at'),
     /** In the author's trash since: hidden from everyone else at once. */
     deletedAt: timestampTz('deleted_at'),
@@ -1393,11 +1399,14 @@ export const post = pgTable(
     index('post_free_day_idx').on(t.userId, t.freeDay).where(sql`free_day is not null`),
     index('post_pending_idx').on(t.createdAt).where(sql`status = 'pending' or answer_state <> 'done'`),
     uniqueIndex('post_legacy_qa_key').on(t.legacyQaId).where(sql`legacy_qa_id is not null`),
+    uniqueIndex('post_client_token_key').on(t.userId, t.clientToken).where(sql`client_token is not null`),
+    /* 发现 → 帖子 searches question and detail with ILIKE; trigrams let that use an index (pg_trgm, migration 0057). */
+    index('post_search_idx').using('gin', sql`(question || ' ' || detail) gin_trgm_ops`),
     check('post_source_check', oneOf('source', [...POST_SOURCES])),
     check('post_status_check', oneOf('status', [...POST_STATUSES])),
     check('post_answer_state_check', oneOf('answer_state', [...POST_ANSWER_STATES])),
     check('post_charge_check', oneOf('charge', [...POST_CHARGES])),
-    check('post_hidden_by_check', sql`hidden_by is null or hidden_by = 'admin'`),
+    check('post_hidden_by_check', sql`hidden_by is null or hidden_by in ('admin', 'reports')`),
     check('post_summary_state_check', sql`summary_state is null or summary_state in ('running', 'done')`),
     check('post_lang_check', oneOf('lang', ['zh', 'en'])),
     check('post_question_check', sql`char_length(question) between 1 and 4000`),
@@ -1460,6 +1469,17 @@ export const postAnswerReport = pgTable(
     createdAt: createdAt(),
   },
   (t) => [primaryKey({ columns: [t.answerId, t.reporterKey] })],
+);
+
+/** "举报" on a post's question: one per reporter, the account or an HMAC of the visitor's network. */
+export const postReport = pgTable(
+  'post_report',
+  {
+    postId: uuid('post_id').notNull().references(() => post.id, { onDelete: 'cascade' }),
+    reporterKey: text('reporter_key').notNull(),
+    createdAt: createdAt(),
+  },
+  (t) => [primaryKey({ columns: [t.postId, t.reporterKey] })],
 );
 
 /** "收藏" on a post. */

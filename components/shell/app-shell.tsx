@@ -10,7 +10,7 @@ import { BrandMark, BrandName } from '@/components/ui/brand-mark';
 import { Icon, type IconName } from '@/components/ui/icons';
 import { UserAvatar } from '@/components/ui/ree-avatar';
 import { HistoryProvider, SearchShortcut } from '@/components/conversations/sidebar-history';
-import { PostComposerDialog } from '@/components/posts/composer';
+import { PostComposerDialog, useComposeHref } from '@/components/posts/composer';
 import { WorkspaceMain } from '@/components/shell/workspace-main';
 import './shell.css';
 import './columns.css';
@@ -135,6 +135,8 @@ function Sidebar({ user, collapsed, phone, open, hidden, onClose }: { user: Shel
   /* `/en/explore` is Explore too (i18n/paths.ts). */
   const pathname = stripLocale(usePathname());
   const nav = t.common.nav;
+  /* 发帖 opens the composer over this page, its parameters kept. */
+  const composeLink = useComposeHref();
   return (
     <aside
       id="sidebar"
@@ -161,7 +163,7 @@ function Sidebar({ user, collapsed, phone, open, hidden, onClose }: { user: Shel
         )}
       </nav>
       {/* "发帖": the composer window on this page (`?compose=public`); its 私密提问 tab leads to `/talk`. */}
-      <Link href="?compose=public" className="btn xpost" aria-label={nav.ask} title={nav.ask} scroll={false}>
+      <Link href={composeLink} className="btn xpost" aria-label={nav.ask} title={nav.ask} scroll={false}>
         <Icon name="plus" className="size-5" />
         <span>{nav.ask}</span>
       </Link>
@@ -202,6 +204,7 @@ function Sidebar({ user, collapsed, phone, open, hidden, onClose }: { user: Shel
 function BottomBar({ unread }: { unread: number }) {
   const { t } = useI18n();
   const nav = t.common.nav;
+  const composeLink = useComposeHref();
   const pathname = stripLocale(usePathname());
   const items: [string, IconName, string, boolean][] = [
     ['/', 'home', nav.homeFeed, pathname === '/'],
@@ -220,7 +223,7 @@ function BottomBar({ unread }: { unread: number }) {
           </Link>
         ))}
       </nav>
-      <Link href="?compose=public" className="xfab" aria-label={nav.ask} title={nav.ask} scroll={false}>
+      <Link href={composeLink} className="xfab" aria-label={nav.ask} title={nav.ask} scroll={false}>
         <Icon name="plus" className="" />
       </Link>
     </>

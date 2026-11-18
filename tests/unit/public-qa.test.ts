@@ -30,6 +30,32 @@ describe('redact', () => {
     expect(redact('write me (at) gmail (dot) com', 'en')).toBe('write [removed]');
   });
 
+  it('removes the second round of bypasses (review 2026-11-18, round 2)', () => {
+    const zh = (text: string) => redact(text, 'zh');
+    expect(zh('打138零零138零零零')).toBe('打[已隐去]');
+    expect(zh('１３８〇〇１３８〇〇〇')).toBe('[已隐去]');
+    expect(zh('壹叁捌零零壹叁捌零零零')).toBe('[已隐去]');
+    expect(zh('①③⑧⓪⓪①③⑧⓪⓪⓪')).toBe('[已隐去]');
+    expect(zh('138—0013—8000')).toBe('[已隐去]');
+    expect(zh('138~0013~8000')).toBe('[已隐去]');
+    expect(zh('138，0013，8000')).toBe('[已隐去]');
+    expect(zh('138、0013、8000')).toBe('[已隐去]');
+    expect(zh('138,0013,8000')).toBe('[已隐去]');
+    expect(redact('mail me at qq dot com please', 'en')).toBe('mail [removed] please');
+    expect(zh('me艾特qq点com')).toBe('[已隐去]');
+  });
+
+  it('keeps ordinary text that only looks like the bypasses (the trade-off)', () => {
+    const keep = (text: string) => expect(redact(text, 'zh')).toBe(text);
+    keep('预算 1200、1500、1800 三档，哪个合适？');
+    keep('价格在 1000~2000 之间');
+    keep('一共 1,200,000 元');
+    keep('三三两两地来了');
+    keep('二〇二六年十一月出发');
+    keep('第一、第二、第三条都要看');
+    keep('meet at noon tomorrow');
+  });
+
   it('keeps the reader\'s own punctuation and dates', () => {
     expect(redact('2026-11-18 和 2026/11/18 出发，行吗？', 'zh')).toBe('2026-11-18 和 2026/11/18 出发，行吗？');
     expect(redact('Visit @Brazil Guide first', 'en')).toBe('Visit @Brazil Guide first');

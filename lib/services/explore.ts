@@ -77,7 +77,7 @@ export const readySources = sql<number>`(select count(*)::int from ${schema.know
  * included, could ask for them -- so what is shown and what orders agree;
  * the owner's own statistics count them.
  */
-export const answersByOthers = sql<number>`(select count(*)::int from ${schema.message} m join ${schema.conversation} c on c.id = m.conversation_id where m.ree_id = ${reeId} and m.role = 'ree' and not m.no_answer and c.user_id <> ${reeOwner})`;
+export const answersByOthers = sql<number>`(select count(*)::int from ${schema.message} m join ${schema.conversation} c on c.id = m.conversation_id where m.ree_id = ${reeId} and m.role = 'ree' and not m.no_answer and c.user_id <> ${reeOwner} and c.post_id is null)`;
 
 export interface ReeCard {
   id: string;

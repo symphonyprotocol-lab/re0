@@ -18,6 +18,7 @@ import { RoleBadge } from '@/components/discover/role-badge';
 import { AuthorProfile } from '@/components/discover/author-profile';
 import { AnonymousChat } from '@/components/discover/anonymous-chat';
 import { SignedInAsk } from '@/components/discover/signed-in-ask';
+import { composeHref } from '@/components/posts/composer';
 import { PublicQaList } from '@/components/discover/public-qa';
 import { JoinButton } from '@/components/discover/join-button';
 import { PublicListSection } from '@/components/discover/public-list';
@@ -159,7 +160,7 @@ export function ReeDetailView({
                     {!owner && <ReeFavoriteButton ree={ree} favorite={favoriteIds?.includes(ree.id)} returnTo={self({})} labeled />}
                     {/* v5 "发帖问它": a public post that names this Ree, so it answers first. */}
                     {ree.takesPosts && ready && (viewerId ? (
-                      <Link href={`?compose=public&ree=${ree.id}&name=${encodeURIComponent(ree.name)}`} className="btn btn-sm" scroll={false}>
+                      <Link href={composeHref(`/r/${ree.slug}`, self({}).split('?')[1] ?? '', { ree: ree.id, name: ree.name })} className="btn btn-sm" scroll={false}>
                         <Icon name="plus" className="size-3.5" />
                         {t.posts.rees.askIt}
                       </Link>

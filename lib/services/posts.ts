@@ -40,13 +40,17 @@ import {
   POST_ANSWERING_STALE_MS,
   POST_CANDIDATES,
   POST_DAILY_LIMIT,
+  POST_DUPLICATE_WINDOW_MS,
   POST_FEE,
   POST_FREE_PER_DAY,
   POST_MAX_ANSWERS,
   POST_MIN_SIMILARITY,
   POST_PAGE_SIZE,
   POST_PREVIEW_CHARS,
+  POST_REPORT_THRESHOLD,
   POST_SUMMARY_FEE,
+  POST_SWEEP_BUDGET_MS,
+  POST_SWEEP_CONCURRENCY,
   POST_WAITING_STALE_MS,
   postDay,
   postInputError,
@@ -66,6 +70,7 @@ import { embedQuestion, retrieve, type QuestionVector } from '@/lib/services/cha
 import { balanceOf, placeHold, releaseHold, settleHold } from '@/lib/services/credits';
 import { publicRee, searchRees } from '@/lib/services/explore';
 import { generationForUser } from '@/lib/services/generation';
+import { audit } from '@/lib/services/admin';
 import { notify } from '@/lib/services/notices';
 import { modelJudge, type Judge } from '@/lib/services/public-qa';
 import { questionRewriter } from '@/lib/services/question-rewrite';
@@ -90,6 +95,18 @@ export function shownAnswer(): SQL {
   return and(eq(answer.state, 'answered'), isNull(answer.hiddenBy), publicRee(), or(isNull(answer.legacyQaId), eq(ree.publicQaEnabled, true)))!;
 }
 
+/**
+ * The post has an answer anyone may read right now -- by the answering Ree's
+ * current visibility, not the count stored when the post settled -- so a
+ * Ree going private or turning public Q&A off takes its posts out of the
+ * answered lists and the sitemap at once.
+ */
+export function hasShownAnswer(): SQL {
+  return sql`exists (select 1 from ${answer} sa join ${ree} on ${ree.id} = sa.ree_id
+    where sa.post_id = ${post.id} and sa.state = 'answered' and sa.hidden_by is null
+      and ${publicRee()} and (sa.legacy_qa_id is null or ${ree.publicQaEnabled}))`;
+}
+
 /** A Ree takes public posts: the owner's choice, or by default when it is free. */
 export function takesPosts(): SQL {
   return sql`coalesce(${ree.answersPosts}, ${ree.queryFee} = 0)`;
@@ -103,10 +120,12 @@ export interface PostInput {
   anonymous?: boolean;
   mentionReeId?: string | null;
   lang: 'zh' | 'en';
+  /** The composer's token for this post: sending it again returns the same post. */
+  clientToken?: string | null;
 }
 
 export type PublishOutcome =
-  | { ok: true; id: string; charge: 'free' | 'paid' }
+  | { ok: true; id: string; charge: 'free' | 'paid' | 'none'; duplicate?: boolean }
   | { ok: false; error: 'empty' | 'too_long' | 'daily_limit' }
   | { ok: false; error: 'insufficient_credits'; balance: number; needed: number };
 
@@ -126,7 +145,9 @@ export async function postAllowance(userId: string, now = new Date()): Promise<{
 /**
  * Publishes a post as `pending`, free while the day's free posts last and
  * holding `POST_FEE` after. One user's posts are counted under an advisory
- * lock, so two at once never both take the last free one.
+ * lock, so two at once never both take the last free one. Idempotent: the
+ * same `clientToken`, or the same text within `POST_DUPLICATE_WINDOW_MS`,
+ * returns the post already made (`duplicate`), holding nothing more.
  */
 export async function publishPost(userId: string, input: PostInput, now = new Date()): Promise<PublishOutcome> {
   const invalid = postInputError(input.question, input.detail ?? '');
@@ -134,11 +155,28 @@ export async function publishPost(userId: string, input: PostInput, now = new Da
   const question = redact(input.question.trim(), input.lang);
   const detail = redact((input.detail ?? '').trim(), input.lang);
   const mention = input.mentionReeId && isUuid(input.mentionReeId) ? input.mentionReeId : null;
+  const clientToken = input.clientToken && isUuid(input.clientToken) ? input.clientToken : null;
   const id = randomUUID();
   const day = postDay(now);
   try {
     return await db().transaction(async (tx) => {
       await tx.execute(sql`select pg_advisory_xact_lock(hashtext(${`post:${userId}`}))`);
+      const [same] = await tx
+        .select({ id: post.id, charge: post.charge })
+        .from(post)
+        .where(
+          and(
+            eq(post.userId, userId),
+            eq(post.source, 'post'),
+            or(
+              clientToken ? eq(post.clientToken, clientToken) : undefined,
+              and(eq(post.question, question), eq(post.detail, detail), sql`${post.createdAt} > ${new Date(now.getTime() - POST_DUPLICATE_WINDOW_MS).toISOString()}::timestamptz`),
+            ),
+          ),
+        )
+        .orderBy(desc(post.createdAt))
+        .limit(1);
+      if (same) return { ok: true, id: same.id, charge: same.charge, duplicate: true } as const;
       const [counts] = await tx
         .select({
           free: sql<number>`count(*) filter (where ${post.freeDay} = ${day}::date)::int`,
@@ -161,6 +199,7 @@ export async function publishPost(userId: string, input: PostInput, now = new Da
         charge: free ? 'free' : 'paid',
         holdId,
         freeDay: free ? day : null,
+        clientToken,
         createdAt: now,
       });
       return { ok: true, id, charge: free ? 'free' : 'paid' } as const;
@@ -319,7 +358,8 @@ export async function processPost(id: string, deps: ProcessDeps = {}): Promise<v
               ? { state: 'answered', text: result.text.slice(0, 20_000), citations: result.citations, model: result.model, answeredAt: now() }
               : { state: result.state, model: result.model },
           )
-          .where(and(eq(answer.postId, id), eq(answer.reeId, entry.reeId)));
+          /* Only while it is still running: once the post is settled a late answer stays failed, as it was counted. */
+          .where(and(eq(answer.postId, id), eq(answer.reeId, entry.reeId), eq(answer.state, 'answering')));
       }),
     );
   } catch (error) {
@@ -354,35 +394,73 @@ export async function finishPost(id: string, now = new Date()): Promise<void> {
   });
 }
 
+export interface SweepOptions {
+  /** How long the sweep keeps starting new posts; work already started finishes. */
+  budgetMs?: number;
+  concurrency?: number;
+  now?: Date;
+}
+
 /**
- * The hourly cron: posts a request left behind -- a review that failed, a
- * published post never started, a run that died -- oldest first.
+ * The posts sweep (`/api/cron/posts`, every 5 minutes): what a request left
+ * behind, oldest first.
+ *   1. Reviews that died on their last attempt are rejected (fee and free
+ *      post given back) -- cheap, all of them, in batches.
+ *   2. Runs that died while answering are settled with what they have --
+ *      cheap, all of them.
+ *   3. Reviews to retry and published posts never started are processed,
+ *      `concurrency` at a time, until `budgetMs` has passed. Each claims its
+ *      state first, so the request's own background work and the sweep never
+ *      answer a post twice.
+ * Answers how many posts it handled.
  */
-export async function processStalePosts(deps: ProcessDeps = {}, limit = 10, now = new Date()): Promise<number> {
-  /* A review that died on its last attempt: never public, fee and free post given back. */
-  const stuck = await db()
+export async function processStalePosts(deps: ProcessDeps = {}, options: SweepOptions = {}): Promise<number> {
+  const now = options.now ?? new Date();
+  const started = Date.now();
+  const budget = options.budgetMs ?? POST_SWEEP_BUDGET_MS;
+  let handled = 0;
+  for (;;) {
+    const stuck = await db()
+      .select({ id: post.id })
+      .from(post)
+      .where(and(eq(post.status, 'pending'), sql`${post.moderationAttempts} >= ${PUBLIC_QA_MODERATION_ATTEMPTS}`, lt(post.createdAt, new Date(now.getTime() - POST_ANSWERING_STALE_MS))))
+      .limit(100);
+    for (const row of stuck) await rejectPost(row.id, now);
+    handled += stuck.length;
+    if (stuck.length < 100 || Date.now() - started > budget) break;
+  }
+  for (;;) {
+    const dead = await db()
+      .select({ id: post.id })
+      .from(post)
+      .where(and(eq(post.answerState, 'answering'), lt(post.publishedAt, new Date(now.getTime() - POST_ANSWERING_STALE_MS))))
+      .orderBy(asc(post.publishedAt))
+      .limit(100);
+    for (const row of dead) await finishPost(row.id, now);
+    handled += dead.length;
+    if (dead.length < 100 || Date.now() - started > budget) break;
+  }
+  const waiting = await db()
     .select({ id: post.id })
-    .from(post)
-    .where(and(eq(post.status, 'pending'), sql`${post.moderationAttempts} >= ${PUBLIC_QA_MODERATION_ATTEMPTS}`, lt(post.createdAt, new Date(now.getTime() - POST_ANSWERING_STALE_MS))))
-    .limit(limit);
-  for (const row of stuck) await rejectPost(row.id, now);
-  const rows = await db()
-    .select({ id: post.id, status: post.status, answerState: post.answerState })
     .from(post)
     .where(
       or(
         and(eq(post.status, 'pending'), lt(post.moderationAttempts, PUBLIC_QA_MODERATION_ATTEMPTS), lt(post.createdAt, new Date(now.getTime() - 60_000))),
         and(eq(post.status, 'published'), eq(post.answerState, 'waiting'), lt(post.publishedAt, new Date(now.getTime() - POST_WAITING_STALE_MS))),
-        and(eq(post.answerState, 'answering'), lt(post.publishedAt, new Date(now.getTime() - POST_ANSWERING_STALE_MS))),
       ),
     )
     .orderBy(asc(post.createdAt))
-    .limit(limit);
-  for (const row of rows) {
-    if (row.answerState === 'answering') await finishPost(row.id, now);
-    else await processPost(row.id, deps);
-  }
-  return rows.length;
+    .limit(500);
+  let next = 0;
+  const worker = async () => {
+    while (next < waiting.length && Date.now() - started < budget) {
+      const row = waiting[next++]!;
+      await processPost(row.id, deps).catch((error: unknown) => console.warn(`post ${row.id} sweep failed: ${error instanceof Error ? error.message : 'unknown'}`));
+      handled += 1;
+    }
+  };
+  await Promise.all(Array.from({ length: Math.max(1, options.concurrency ?? POST_SWEEP_CONCURRENCY) }, worker));
+  return handled;
 }
 
 /* ------------------------------------------------------------------ reading */
@@ -525,9 +603,11 @@ async function viewsOf(rows: PostRow[], viewerId: string | undefined, options: {
       saved: saved.has(row.id),
       createdAt: (row.publishedAt ?? row.createdAt).toISOString(),
       answers: listed.map((entry) => answerView(entry, voted, options.whole)),
-      summary: row.summaryState === 'done' && row.summaryContent
+      summary: row.summaryState === 'done' && row.summaryContent && !summaryStale(row.summaryAnswers, new Set(shown.map((entry) => entry.id)))
         ? { state: 'done', content: row.summaryContent, sources: row.summarySources ?? [] }
         : row.summaryState === 'running' ? { state: 'running', content: '', sources: [] } : null,
+      summaryStale: row.summaryState === 'done' && summaryStale(row.summaryAnswers, new Set(shown.map((entry) => entry.id))),
+      hiddenBy: row.status === 'hidden' ? row.hiddenBy : null,
       followUps: followUps.filter((entry, at, all) => all.findIndex((other) => other.id === entry.id) === at).map((entry) => ({ id: entry.id, title: entry.title, reeName: entry.reeName })),
       deleted: row.deletedAt !== null,
     };
@@ -535,7 +615,13 @@ async function viewsOf(rows: PostRow[], viewerId: string | undefined, options: {
 }
 
 /** A copied Q&A with no answer left to show says nothing; a real post waiting for answers does. */
-const worthListing = sql`(${post.answerCount} > 0 or ${post.source} in ('post', 'seed'))`;
+const worthListing = sql`(${hasShownAnswer()} or ${post.source} in ('post', 'seed'))`;
+/** 待回答: real posts whose answering is over with no answer anyone can read. */
+const unanswered = (): SQL => and(inArray(post.source, ['post', 'seed']), eq(post.answerState, 'done'), sql`not ${hasShownAnswer()}`)!;
+/** 为你推荐 ranks the answered posts of this window; older ones stay in 最新 and search. */
+const FOR_YOU_WINDOW_MS = 30 * 86_400_000;
+/** Question and detail as the trigram index (post_search_idx) has them. */
+const searchable = sql`(${post.question} || ' ' || ${post.detail})`;
 
 /**
  * One page of a feed. 最新 and 待回答 page by `(published_at, id)`; 为你推荐
@@ -544,12 +630,15 @@ const worthListing = sql`(${post.answerCount} > 0 or ${post.source} in ('post', 
  */
 export async function listFeed(tab: FeedTab, options: { cursor?: string | null; viewerId?: string; size?: number; q?: string | null } = {}): Promise<PostPage> {
   const size = options.size ?? POST_PAGE_SIZE;
-  const search = options.q?.trim() ? sql`(${post.question} ilike ${`%${options.q.trim().replace(/[%_\\]/g, '\\$&')}%`} or ${post.detail} ilike ${`%${options.q.trim().replace(/[%_\\]/g, '\\$&')}%`})` : undefined;
+  /* One ILIKE over the indexed expression (pg_trgm), not two over separate columns. */
+  const search = options.q?.trim() ? sql`${searchable} ilike ${`%${options.q.trim().replace(/[%_\\]/g, '\\$&')}%`}` : undefined;
   if (tab === 'for_you') {
     const offset = Math.max(0, Number.parseInt(options.cursor ?? '0', 10) || 0);
     const helpful = sql`(select coalesce(sum(a.helpful_count), 0) from ${answer} a where a.post_id = ${post.id} and a.state = 'answered' and a.hidden_by is null)`;
     const score = sql`((${helpful} * 2 + ${post.answerCount} + 1)::float / power(extract(epoch from (now() - ${post.publishedAt})) / 3600 + 2, 1.3))`;
-    const rows = await selectPosts(and(visiblePost(), sql`${post.answerCount} > 0`, search), [desc(score), desc(post.id)], size + 1, offset);
+    /* Scored over the last 30 days only (post_feed_idx narrows it by published_at), so the sort never covers the whole table. */
+    const recent = sql`${post.publishedAt} > ${new Date(Date.now() - FOR_YOU_WINDOW_MS).toISOString()}::timestamptz`;
+    const rows = await selectPosts(and(visiblePost(), recent, hasShownAnswer(), search), [desc(score), desc(post.id)], size + 1, offset);
     return { items: await viewsOf(rows.slice(0, size), options.viewerId, { whole: false }), next: rows.length > size ? String(offset + size) : null };
   }
   let boundary: SQL | undefined;
@@ -559,9 +648,7 @@ export async function listFeed(tab: FeedTab, options: { cursor?: string | null; 
     if (!cursor?.at) return { items: [], next: null };
     boundary = sql`(${post.publishedAt}, ${post.id}) < (${cursor.at.toISOString()}::timestamptz, ${cursor.id}::uuid)`;
   }
-  const scope = tab === 'unanswered'
-    ? and(inArray(post.source, ['post', 'seed']), eq(post.answerState, 'done'), eq(post.answerCount, 0))
-    : worthListing;
+  const scope = tab === 'unanswered' ? unanswered() : worthListing;
   const rows = await selectPosts(and(visiblePost(), scope, boundary, search), [desc(post.publishedAt), desc(post.id)], size + 1);
   return { items: await viewsOf(rows.slice(0, size), options.viewerId, { whole: false }), next: rows.length > size ? rows[size - 1]!.id : null };
 }
@@ -571,7 +658,7 @@ export async function unansweredCount(): Promise<number> {
   const [row] = await db()
     .select({ n: sql<number>`count(*)::int` })
     .from(post)
-    .where(and(visiblePost(), inArray(post.source, ['post', 'seed']), eq(post.answerState, 'done'), eq(post.answerCount, 0)));
+    .where(and(visiblePost(), unanswered()));
   return row?.n ?? 0;
 }
 
@@ -590,16 +677,20 @@ export async function getPost(id: string, viewerId?: string): Promise<PostView |
 /** For metadata and indexing: the question, and whether the page may be indexed (published with an answer, P11). */
 export async function postMeta(id: string): Promise<{ question: string; detail: string; answered: number; lang: 'zh' | 'en' } | null> {
   if (!isUuid(id)) return null;
-  const [row] = await db().select({ question: post.question, detail: post.detail, answered: post.answerCount, lang: post.lang }).from(post).where(and(eq(post.id, id), visiblePost())).limit(1);
+  const [row] = await db()
+    .select({ question: post.question, detail: post.detail, answered: sql<number>`(case when ${hasShownAnswer()} then 1 else 0 end)`, lang: post.lang })
+    .from(post)
+    .where(and(eq(post.id, id), visiblePost()))
+    .limit(1);
   return row ?? null;
 }
 
-/** For the sitemap: answered, visible posts, newest first. */
+/** For the sitemap: visible posts with an answer anyone can read now, newest first. */
 export async function indexablePosts(limit = 5000): Promise<{ id: string; at: Date }[]> {
   return db()
     .select({ id: post.id, at: sql<Date>`coalesce(${post.answeredAt}, ${post.publishedAt})` })
     .from(post)
-    .where(and(visiblePost(), sql`${post.answerCount} > 0`))
+    .where(and(visiblePost(), hasShownAnswer()))
     .orderBy(desc(post.publishedAt))
     .limit(limit);
 }
@@ -749,33 +840,66 @@ export async function ownerActOnAnswer(userId: string, reeId: string, id: string
 
 /* ------------------------------------------------------------ round table */
 
-export type SummaryOutcome = 'done' | 'not_found' | 'not_enough_answers' | 'already' | 'running' | 'failed' | { error: 'insufficient_credits'; balance: number; needed: number };
+export type SummaryOutcome =
+  | 'done'
+  | 'not_found'
+  | 'not_enough_answers'
+  | 'already'
+  | 'running'
+  | 'failed'
+  | 'rejected'
+  | { error: 'insufficient_credits'; balance: number; needed: number };
+
+/** A written summary stands while every answer it was written from is still shown; otherwise it is stale and no longer shown. */
+export function summaryStale(summaryAnswers: readonly string[] | null, shownIds: ReadonlySet<string>): boolean {
+  return (summaryAnswers ?? []).some((id) => !shownIds.has(id));
+}
 
 /**
  * "圆桌总结" of a public post: only its author starts it, it costs
  * `POST_SUMMARY_FEE` (to the platform, like a conversation's), and once
- * written everyone sees it. A failure gives the fee back.
+ * written -- and passed the same review as a post -- everyone sees it.
+ *
+ * - A failure, or a summary the review refuses, gives the fee back.
+ * - Once any answer it drew on is no longer shown (hidden, its Ree private),
+ *   the summary is stale: it is not shown, and the author may write it again
+ *   free of charge (default, see the PR) from the answers shown now.
+ * - Only the run that holds the claim writes: a run that outlived the stale
+ *   window and was replaced settles nothing and writes nothing.
  */
-export async function summarizePost(userId: string, id: string, lang: 'zh' | 'en'): Promise<SummaryOutcome> {
+export async function summarizePost(userId: string, id: string, lang: 'zh' | 'en', judge: Judge = modelJudge): Promise<SummaryOutcome> {
   if (!isUuid(id)) return 'not_found';
   const [target] = await db().select().from(post).where(and(eq(post.id, id), eq(post.userId, userId), eq(post.source, 'post'), visiblePost())).limit(1);
   if (!target) return 'not_found';
-  if (target.summaryState === 'done') return 'already';
   const shown = await answersFor([id]).then((rows) => rows.filter((row) => row.shown));
+  const stale = target.summaryState === 'done' && summaryStale(target.summaryAnswers, new Set(shown.map((row) => row.id)));
+  if (target.summaryState === 'done' && !stale) return 'already';
   if (shown.length < 2) return 'not_enough_answers';
-  let holdId: string | null;
+  const free = stale;
+  const run = randomUUID();
+  let claim: { holdId: string | null } | null;
   try {
-    holdId = await db().transaction(async (tx) => {
+    claim = await db().transaction(async (tx) => {
       const [claimed] = await tx
         .update(post)
         .set({ summaryState: 'running', summaryAt: new Date() })
-        .where(and(eq(post.id, id), or(isNull(post.summaryState), and(eq(post.summaryState, 'running'), lt(post.summaryAt, new Date(Date.now() - POST_ANSWERING_STALE_MS))))))
+        .where(
+          and(
+            eq(post.id, id),
+            or(
+              isNull(post.summaryState),
+              and(eq(post.summaryState, 'running'), lt(post.summaryAt, new Date(Date.now() - POST_ANSWERING_STALE_MS))),
+              stale ? eq(post.summaryState, 'done') : undefined,
+            ),
+          ),
+        )
         .returning({ id: post.id, previous: post.summaryHoldId });
       if (!claimed) return null;
       if (claimed.previous) await releaseHold(tx, claimed.previous, { note: 'post summary', ledger: 'post_summary' });
-      const hold = await placeHold(tx, { userId, kind: 'post', ledger: 'post_summary', amount: POST_SUMMARY_FEE, refId: id, note: 'post summary' });
-      await tx.update(post).set({ summaryHoldId: hold }).where(eq(post.id, id));
-      return hold;
+      const hold = free ? null : await placeHold(tx, { userId, kind: 'post', ledger: 'post_summary', amount: POST_SUMMARY_FEE, refId: id, note: 'post summary' });
+      /* The hold (or, free, the run id) marks the claim: a replaced run finds another one there. */
+      await tx.update(post).set({ summaryHoldId: hold ?? run }).where(eq(post.id, id));
+      return { holdId: hold };
     });
   } catch (error) {
     if (error instanceof InsufficientCredits) {
@@ -784,8 +908,18 @@ export async function summarizePost(userId: string, id: string, lang: 'zh' | 'en
     }
     throw error;
   }
-  if (!holdId) return 'running';
+  if (!claim) return 'running';
+  const mark = claim.holdId ?? run;
+  /* Gives the fee back and clears the claim -- only if this run still holds it. */
+  const giveBack = () =>
+    db().transaction(async (tx) => {
+      const [mine] = await tx.select({ id: post.id }).from(post).where(and(eq(post.id, id), eq(post.summaryHoldId, mark))).for('update');
+      if (claim!.holdId) await releaseHold(tx, claim!.holdId, { note: 'post summary', ledger: 'post_summary' });
+      if (mine) await tx.update(post).set({ summaryState: null, summaryContent: null, summarySources: null, summaryAnswers: null, summaryHoldId: null }).where(eq(post.id, id));
+    });
   const answers = letterAnswers(shown.map((row) => ({ reeId: row.reeId, messageId: row.id, reeName: row.name, text: row.text, citations: row.citations })));
+  let content: string;
+  let sources: ReturnType<typeof cleanSynthesis>['sources'];
   try {
     const generation = await generationForUser(userId, 'synthesis');
     const { text } = await generateText({
@@ -797,31 +931,48 @@ export async function summarizePost(userId: string, id: string, lang: 'zh' | 'en
       maxRetries: 1,
       abortSignal: AbortSignal.timeout(Math.max(generation.endpoint.timeoutMs, 30_000) * 2),
     });
-    const { content, sources } = cleanSynthesis(text, answers);
+    ({ content, sources } = cleanSynthesis(text, answers));
     if (!content) throw new Error('empty summary');
-    await db().transaction(async (tx) => {
-      await settleHold(tx, holdId!, POST_SUMMARY_FEE, { note: 'post summary', ledger: 'post_summary' });
-      await tx.update(post).set({ summaryState: 'done', summaryContent: content, summarySources: sources, summaryHoldId: null }).where(eq(post.id, id));
-    });
-    return 'done';
   } catch (error) {
     console.warn(`post ${id} summary failed: ${error instanceof Error ? error.message : 'unknown'}`);
-    await db().transaction(async (tx) => {
-      await releaseHold(tx, holdId!, { note: 'post summary', ledger: 'post_summary' });
-      await tx.update(post).set({ summaryState: null, summaryHoldId: null }).where(eq(post.id, id));
-    });
+    await giveBack();
     return 'failed';
   }
+  /* The same review as the post's question: a summary is public text too. A review that cannot run counts as failed (fee back). */
+  let verdict: boolean | null = null;
+  try {
+    verdict = (await judge([target.question, target.detail].filter(Boolean).join('\n\n'), content)).publish;
+  } catch (error) {
+    console.warn(`post ${id} summary review failed: ${error instanceof Error ? error.message : 'unknown'}`);
+  }
+  if (verdict !== true) {
+    await giveBack();
+    return verdict === false ? 'rejected' : 'failed';
+  }
+  const written = await db().transaction(async (tx) => {
+    const [mine] = await tx.select({ id: post.id }).from(post).where(and(eq(post.id, id), eq(post.summaryHoldId, mark), eq(post.summaryState, 'running'))).for('update');
+    if (!mine) return false;
+    if (claim!.holdId) await settleHold(tx, claim!.holdId, POST_SUMMARY_FEE, { note: 'post summary', ledger: 'post_summary' });
+    await tx
+      .update(post)
+      .set({ summaryState: 'done', summaryContent: content, summarySources: sources, summaryAnswers: answers.map((entry) => entry.messageId), summaryHoldId: null })
+      .where(eq(post.id, id));
+    return true;
+  });
+  return written ? 'done' : 'running';
 }
 
 /* ---------------------------------------------------------------- 继续问 */
 
 /**
- * "继续问": a private conversation with one Ree that answered the post,
- * started from its question and that answer, linked to the post. The
- * question and answer are written as the conversation's first exchange,
- * so the next question is a follow-up; nothing is charged until it is
- * asked. Returns the conversation id.
+ * "继续问" (P8): the post's author starts a private conversation with one
+ * Ree that answered, from the post's question and that answer, linked to
+ * the post. The two are written as the conversation's first exchange so the
+ * next question is a follow-up; nothing is charged until it is asked, then
+ * as any question. The seeded answer is not a new answer: the post's
+ * answers are untouched, and conversations started from a post count in no
+ * Ree's figures (rank.ts, explore `answersByOthers`; P11 is for later).
+ * Only the author: anyone else gets null.
  */
 export async function followUpPost(userId: string, id: string, answerId: string): Promise<string | null> {
   if (!isUuid(id) || !isUuid(answerId)) return null;
@@ -830,7 +981,7 @@ export async function followUpPost(userId: string, id: string, answerId: string)
     .from(answer)
     .innerJoin(post, eq(post.id, answer.postId))
     .innerJoin(ree, eq(ree.id, answer.reeId))
-    .where(and(eq(answer.id, answerId), eq(answer.postId, id), shownAnswer(), visiblePost()))
+    .where(and(eq(answer.id, answerId), eq(answer.postId, id), eq(post.userId, userId), eq(post.source, 'post'), shownAnswer(), visiblePost()))
     .limit(1);
   if (!target) return null;
   return db().transaction(async (tx) => {
@@ -842,6 +993,74 @@ export async function followUpPost(userId: string, id: string, answerId: string)
     await tx.insert(message).values({ id: requestId, conversationId: created!.id, role: 'user', content: [target.question, target.detail].filter(Boolean).join('\n\n'), requestId, createdAt: asked });
     await tx.insert(message).values({ conversationId: created!.id, role: 'ree', reeId: target.reeId, content: target.text, citations: target.citations, requestId, createdAt: new Date(asked.getTime() + 1) });
     return created!.id;
+  });
+}
+
+/* ------------------------------------------------------- taking a post down */
+
+/**
+ * "举报" a post's question, signed in or not (the answers' rule): once per
+ * reporter -- an account, or a visitor's network -- and the
+ * `POST_REPORT_THRESHOLD`th distinct reporter hides the post everywhere
+ * (feeds, its page, search, the sitemap, Ree pages, shares) until an
+ * administrator restores it. Credits it settled stay settled: its answers
+ * were given (default, see the PR). False when the post is not shown.
+ */
+export async function reportPost(id: string, reporter: string): Promise<boolean> {
+  if (!isUuid(id)) return false;
+  return db().transaction(async (tx) => {
+    const [target] = await tx.select({ id: post.id }).from(post).where(and(eq(post.id, id), visiblePost())).for('update');
+    if (!target) return false;
+    const added = await tx.insert(schema.postReport).values({ postId: id, reporterKey: reporter }).onConflictDoNothing().returning({ id: schema.postReport.postId });
+    if (added.length === 0) return true;
+    const [row] = await tx.update(post).set({ reportCount: sql`${post.reportCount} + 1` }).where(eq(post.id, id)).returning({ reports: post.reportCount });
+    if (row!.reports >= POST_REPORT_THRESHOLD) await tx.update(post).set({ status: 'hidden', hiddenBy: 'reports' }).where(and(eq(post.id, id), eq(post.status, 'published')));
+    return true;
+  });
+}
+
+export interface AdminPost {
+  id: string;
+  question: string;
+  source: PostSource;
+  status: 'published' | 'hidden';
+  hiddenBy: 'admin' | 'reports' | null;
+  reports: number;
+  answers: number;
+  createdAt: string;
+}
+
+/** The console's posts: reported or hidden ones first, then the newest; `q` searches the question. */
+export async function adminPosts(options: { view?: 'reported' | 'hidden' | 'all'; q?: string | null; limit?: number } = {}): Promise<AdminPost[]> {
+  const view = options.view ?? 'reported';
+  const where = and(
+    inArray(post.status, ['published', 'hidden']),
+    view === 'reported' ? sql`${post.reportCount} > 0` : view === 'hidden' ? eq(post.status, 'hidden') : undefined,
+    options.q?.trim() ? sql`${searchable} ilike ${`%${options.q.trim().replace(/[%_\\]/g, '\\$&')}%`}` : undefined,
+  );
+  const rows = await db()
+    .select({ id: post.id, question: post.question, source: post.source, status: post.status, hiddenBy: post.hiddenBy, reports: post.reportCount, answers: post.answerCount, createdAt: post.createdAt })
+    .from(post)
+    .where(where)
+    .orderBy(desc(post.reportCount), desc(post.createdAt))
+    .limit(options.limit ?? 50);
+  return rows.map((row) => ({ ...row, status: row.status as 'published' | 'hidden', createdAt: row.createdAt.toISOString() }));
+}
+
+/** An administrator hides a published post, or restores one an administrator or reports hid; either is in the management log. */
+export async function adminSetPost(administratorId: string, id: string, show: boolean): Promise<boolean> {
+  if (!isUuid(id)) return false;
+  return db().transaction(async (tx) => {
+    const [before] = await tx.select({ status: post.status, hiddenBy: post.hiddenBy, question: post.question }).from(post).where(eq(post.id, id)).for('update');
+    if (!before || before.status !== (show ? 'hidden' : 'published')) return false;
+    if (show) {
+      await tx.update(post).set({ status: 'published', hiddenBy: null, reportCount: 0 }).where(eq(post.id, id));
+      await tx.delete(schema.postReport).where(eq(schema.postReport.postId, id));
+    } else {
+      await tx.update(post).set({ status: 'hidden', hiddenBy: 'admin' }).where(eq(post.id, id));
+    }
+    await audit(tx, { administratorId, action: show ? 'post.restore' : 'post.hide', target: id, before: { status: before.status, hiddenBy: before.hiddenBy, question: before.question.slice(0, 200) } });
+    return true;
   });
 }
 

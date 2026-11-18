@@ -34,6 +34,8 @@ export function PostDetail({ initial, signedIn, now, loginHref }: { initial: Pos
   const [confirm, setConfirm] = useState<string | null>(null);
   const [citation, setCitation] = useState<{ entry: CitationSnapshot; answer: PostAnswerView } | null>(null);
   const mine = post.author.kind !== 'visitor' && post.author.kind !== 'example' && post.author.mine;
+  /* Only a post anyone can see takes votes, saves, reports and 继续问; on a trashed, pending or taken-down one they could only fail (O2). */
+  const live = post.status === 'published' && !post.deleted;
   const settled = post.status !== 'pending' && post.answerState === 'done' && post.summary?.state !== 'running';
 
   useEffect(() => {
@@ -49,7 +51,13 @@ export function PostDetail({ initial, signedIn, now, loginHref }: { initial: Pos
 
   const replace = (id: string, change: Partial<PostAnswerView>) => setPost((current) => ({ ...current, answers: current.answers.map((entry) => (entry.id === id ? { ...entry, ...change } : entry)) }));
 
-  async function call(key: string, url: string, init: RequestInit, onOk: (body: Record<string, unknown>) => void) {
+  const refresh = () =>
+    fetch(`/api/posts/${post.id}`)
+      .then((response) => (response.ok ? (response.json() as Promise<PostView>) : null))
+      .then((next) => next && setPost(next))
+      .catch(() => undefined);
+
+  async function call(key: string, url: string, init: RequestInit, onOk: (body: Record<string, unknown>) => void, onError?: (code: string) => string | null) {
     setBusy(key);
     try {
       const response = await fetch(url, { headers: { 'content-type': 'application/json' }, ...init });
@@ -58,7 +66,11 @@ export function PostDetail({ initial, signedIn, now, loginHref }: { initial: Pos
         toast(fill(t.posts.composer.insufficient, { needed: formatNumber(Number(body.needed) || 0, locale), balance: formatNumber(Number(body.balance) || 0, locale) }));
         return;
       }
-      if (!response.ok) throw new Error(String(response.status));
+      if (!response.ok) {
+        const message = onError?.(String(body.error ?? ''));
+        if (message) return toast(message);
+        throw new Error(String(response.status));
+      }
       onOk(body);
     } catch {
       toast(t.common.errors.generic);
@@ -75,10 +87,24 @@ export function PostDetail({ initial, signedIn, now, loginHref }: { initial: Pos
   };
   const followUp = (entry: PostAnswerView) =>
     call(entry.id, `/api/posts/${post.id}/follow-up`, { method: 'POST', body: JSON.stringify({ answerId: entry.id }) }, (body) => router.push(`/chats/${String(body.conversationId)}`));
+  /* Each refusal says what happened (O3); a summary already written or being written shows itself. */
   const summarize = () =>
-    call('summary', `/api/posts/${post.id}/summary`, { method: 'POST' }, () => {
-      void fetch(`/api/posts/${post.id}`).then((response) => (response.ok ? (response.json() as Promise<PostView>) : null)).then((next) => next && setPost(next));
+    call('summary', `/api/posts/${post.id}/summary`, { method: 'POST' }, () => void refresh(), (code) => {
+      if (code === 'already_summarized' || code === 'summary_running') void refresh();
+      return (
+        {
+          not_enough_answers: p.summaryNotEnough,
+          already_summarized: p.summaryAlready,
+          summary_running: p.summaryRunning,
+          summary_rejected: p.summaryRejected,
+          summary_failed: p.summaryFailed,
+        } as Record<string, string>
+      )[code] ?? null;
     });
+  const reportPost = () => {
+    setConfirm(null);
+    return call('report-post', `/api/posts/${post.id}/report`, { method: 'POST' }, () => toast(p.reportedPost));
+  };
   const trash = (trashed: boolean) => call('trash', `/api/posts/${post.id}`, { method: 'PATCH', body: JSON.stringify({ trashed }) }, () => setPost((current) => ({ ...current, deleted: trashed })));
   const save = () => call('save', `/api/posts/${post.id}/save`, { method: 'POST', body: JSON.stringify({ on: !post.saved }) }, () => setPost((current) => ({ ...current, saved: !current.saved })));
   const copy = (anchor?: string) =>
@@ -121,7 +147,7 @@ export function PostDetail({ initial, signedIn, now, loginHref }: { initial: Pos
           <Icon name="chat" className="" />
           {formatNumber(post.answered, locale)}
         </span>
-        {signedIn && (
+        {signedIn && live && (
           <button type="button" className="icon-btn" aria-pressed={post.saved} disabled={busy === 'save'} title={post.saved ? c.unsave : c.save} aria-label={post.saved ? c.unsave : c.save} onClick={() => void save()}>
             <Icon name="bookmark" className={post.saved ? 'text-blue' : ''} />
           </button>
@@ -129,6 +155,18 @@ export function PostDetail({ initial, signedIn, now, loginHref }: { initial: Pos
         <button type="button" className="icon-btn" title={c.share} aria-label={c.share} onClick={() => void copy()}>
           <Icon name="link" className="" />
         </button>
+        {live && !mine && (confirm === 'post' ? (
+          <span className="ml-auto inline-flex items-center gap-2 text-[11px] text-muted">
+            {p.reportPostConfirm}
+            <button type="button" className="text-red hover:underline" disabled={busy === 'report-post'} onClick={() => void reportPost()}>{p.report}</button>
+            <button type="button" className="hover:text-blue" onClick={() => setConfirm(null)}>{t.common.actions.cancel}</button>
+          </span>
+        ) : (
+          <button type="button" className="icon-btn ml-auto" onClick={() => setConfirm('post')}>
+            <Icon name="info" className="" />
+            {p.reportPost}
+          </button>
+        ))}
         {mine && !post.deleted && (
           <button type="button" className="icon-btn ml-auto" disabled={busy === 'trash'} onClick={() => void trash(true)}>
             <Icon name="trash" className="" />
@@ -187,15 +225,15 @@ export function PostDetail({ initial, signedIn, now, loginHref }: { initial: Pos
           {p.summaryRunning}
         </div>
       ) : (
-        mine && shown.length >= 2 && post.answerState === 'done' && !post.deleted && (
+        mine && shown.length >= 2 && post.answerState === 'done' && live && (
           <div className="post-summary-cta">
             <Icon name="sparkle" className="size-4 text-blue" />
             <span className="min-w-0 flex-1">
-              <strong>{p.summaryTitle}</strong>：{fill(p.summaryHint, { n: shown.length })}
+              <strong>{p.summaryTitle}</strong>：{post.summaryStale ? p.summaryStale : fill(p.summaryHint, { n: shown.length })}
             </span>
             <button type="button" className="btn secondary sm" disabled={busy === 'summary'} onClick={() => void summarize()}>
               {busy === 'summary' ? <i className="spinner" /> : null}
-              {fill(p.summaryGo, { fee: POST_SUMMARY_FEE })}
+              {post.summaryStale ? p.summaryAgain : fill(p.summaryGo, { fee: POST_SUMMARY_FEE })}
             </button>
           </div>
         )
@@ -217,7 +255,7 @@ export function PostDetail({ initial, signedIn, now, loginHref }: { initial: Pos
             <CitationChips citations={entry.citations} onCitation={(found) => setCitation({ entry: found, answer: entry })} />
           </div>
           <div className="post-answer-foot">
-            {signedIn ? (
+            {!live ? null : signedIn ? (
               <button type="button" className="icon-btn" aria-pressed={entry.voted} disabled={busy === entry.id} onClick={() => void helpful(entry)}>
                 <Icon name="thumbUp" className={entry.voted ? 'text-blue' : ''} />
                 {c.helpful} {formatNumber(entry.helpful, locale)}
@@ -232,7 +270,7 @@ export function PostDetail({ initial, signedIn, now, loginHref }: { initial: Pos
               <Icon name="link" className="" />
               {c.share}
             </button>
-            {confirm === entry.id ? (
+            {!live ? null : confirm === entry.id ? (
               <span className="inline-flex items-center gap-2 text-[11px] text-muted">
                 {p.reportConfirm}
                 <button type="button" className="text-red hover:underline" disabled={busy === entry.id} onClick={() => void report(entry)}>{p.report}</button>
@@ -244,7 +282,7 @@ export function PostDetail({ initial, signedIn, now, loginHref }: { initial: Pos
                 {p.report}
               </button>
             )}
-            {mine && (
+            {mine && live && (
               <button type="button" className="btn secondary sm post-follow" title={p.followUpHint} disabled={busy === entry.id} onClick={() => void followUp(entry)}>
                 <Icon name="chat" className="" />
                 {fill(p.followUp, { name: entry.reeName })}

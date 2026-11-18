@@ -36,6 +36,13 @@ export const POST_PAGE_SIZE = 15;
 export const POST_PREVIEW_CHARS = 280;
 /** A post still `answering` after this belongs to no live run: the cron finishes it with what it has. */
 export const POST_ANSWERING_STALE_MS = 10 * 60_000;
+/** The same text from the same author within this long is the same post (a double submit), published and held once. */
+export const POST_DUPLICATE_WINDOW_MS = 60_000;
+/** Distinct reporters that hide a post's question until an administrator looks (the answers' rule, #158). */
+export const POST_REPORT_THRESHOLD = 3;
+/** The posts sweep (`/api/cron/posts`, every 5 minutes): how long it starts new work, and how many posts it answers at once. */
+export const POST_SWEEP_BUDGET_MS = 200_000;
+export const POST_SWEEP_CONCURRENCY = 4;
 /** A published post not yet started after this (the request's background work died): the cron starts it. */
 export const POST_WAITING_STALE_MS = 2 * 60_000;
 
@@ -109,6 +116,10 @@ export interface PostView {
   createdAt: string;
   answers: PostAnswerView[];
   summary: PostSummaryView | null;
+  /** A summary was written but an answer it drew on is no longer shown: it is not shown, and its author may write it again free. */
+  summaryStale: boolean;
+  /** Why a published post was taken down (its author still sees it). */
+  hiddenBy: 'admin' | 'reports' | null;
   /** The author's follow-up conversations from this post ("继续问"), only for the author. */
   followUps: { id: string; title: string; reeName: string | null }[];
   deleted: boolean;

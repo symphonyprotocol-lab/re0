@@ -253,9 +253,9 @@ describeWithDb('public Q&A', () => {
     for (const cookie of [undefined, undefined, crypto.randomUUID()]) expect((await report(reeId, item!.id, '198.51.100.7', cookie)).status).toBe(200);
     expect((await qa.listPublicQa(reeId))!.total).toBe(1);
     expect((await db().select().from(schema.postAnswerReport).where(eq(schema.postAnswerReport.answerId, item!.id)))).toHaveLength(1);
-    /* The same /64 is one network too. */
+    /* Two /64s of one /48 (one home line) are one network too. */
     expect((await report(reeId, item!.id, '2001:db8:1:2::1')).status).toBe(200);
-    expect((await report(reeId, item!.id, '2001:db8:1:2::ffff')).status).toBe(200);
+    expect((await report(reeId, item!.id, '2001:db8:1:ff00::1')).status).toBe(200);
     expect((await qa.listPublicQa(reeId))!.total).toBe(1);
     /* No address, no report. */
     const bare = await reportPost(new NextRequest(`${base}/api/rees/${reeId}/public-qa/${item!.id}/report`, { method: 'POST', headers: { origin: base, host: 'localhost:3000' } }), { params: Promise.resolve({ id: reeId, qaId: item!.id }) });

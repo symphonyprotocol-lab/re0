@@ -129,7 +129,8 @@ describeWithDb('public posts', () => {
 
   it('gives the fee and the free post back when nobody answers', async () => {
     const author = await user('post-unanswered', 100);
-    const free = await publish(author);
+    /* Its own text: the same text again within a minute would be the same post (S4). */
+    const free = await publish(author, `${QUESTION} first try`);
     await posts.processPost(free.id, stub([]));
     expect(await postRow(free.id)).toMatchObject({ answerState: 'done', answerCount: 0, freeDay: null });
     expect((await posts.postAllowance(author)).freeLeft).toBe(POST_FREE_PER_DAY);

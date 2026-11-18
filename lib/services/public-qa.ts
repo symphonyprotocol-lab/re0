@@ -87,7 +87,8 @@ export type PublishResult = { id: string } | 'not_found' | 'not_single_turn' | '
 
 /**
  * A signed-in asker publishes one of their answers: the Ree's reply to the
- * first question of a conversation they own, not in the trash, that answered
+ * first question of a conversation they own (not one started from a post:
+ * its answer is the post's own), not in the trash, that answered
  * (not a "no answer"), on a Ree that takes public answers.
  */
 export async function publishOwnAnswer(userId: string, reeId: string, messageId: string, lang: 'zh' | 'en'): Promise<PublishResult> {
@@ -96,7 +97,7 @@ export async function publishOwnAnswer(userId: string, reeId: string, messageId:
     .select({ id: message.id, conversationId: message.conversationId, content: message.content, citations: message.citations, noAnswer: message.noAnswer, reeId: message.reeId, createdAt: message.createdAt })
     .from(message)
     .innerJoin(conversation, eq(conversation.id, message.conversationId))
-    .where(and(eq(message.id, messageId), eq(message.role, 'ree'), eq(message.reeId, reeId), eq(conversation.userId, userId), isNull(conversation.deletedAt), eq(conversation.kind, 'normal')))
+    .where(and(eq(message.id, messageId), eq(message.role, 'ree'), eq(message.reeId, reeId), eq(conversation.userId, userId), isNull(conversation.deletedAt), eq(conversation.kind, 'normal'), isNull(conversation.postId)))
     .limit(1);
   if (!reply) return 'not_found';
   if (reply.noAnswer || !reply.content.trim()) return 'no_answer';
