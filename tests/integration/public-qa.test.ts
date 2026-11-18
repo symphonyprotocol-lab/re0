@@ -199,6 +199,92 @@ describeWithDb('public Q&A', () => {
     expect(await rowsOf(reeId)).toHaveLength(0);
   });
 
+  it('follows the owner\'s switch, pin and hide, and counts helpful votes once per user', async () => {
+    const { ownerId, reeId } = await publicRee();
+    await read(await ask(reeId, QUESTION, { publish: true }));
+    await read(await ask(reeId, 'When are refunds issued to the card that paid?', { publish: true }));
+    await reviewed(reeId);
+    const page = (await qa.listPublicQa(reeId))!;
+    expect(page.total).toBe(2);
+    const older = page.items[1]!;
+
+    expect(await qa.ownerAct(await user('qa-other'), reeId, older.id, 'pin')).toBe(false);
+    expect(await qa.ownerAct(ownerId, reeId, older.id, 'pin')).toBe(true);
+    expect((await qa.listPublicQa(reeId))!.items[0]).toMatchObject({ id: older.id, pinned: true });
+    expect((await qa.publicQaPicks(reeId, 1)).items[0]?.id).toBe(older.id);
+
+    const voter = await user('qa-voter');
+    expect(await qa.setHelpful(voter, reeId, older.id, true)).toEqual({ helpful: 1, voted: true });
+    expect(await qa.setHelpful(voter, reeId, older.id, true)).toEqual({ helpful: 1, voted: true });
+    expect((await qa.listPublicQa(reeId, { viewerId: voter }))!.items[0]?.voted).toBe(true);
+    expect(await qa.setHelpful(voter, reeId, older.id, false)).toEqual({ helpful: 0, voted: false });
+
+    await db().update(schema.ree).set({ publicQaEnabled: false }).where(eq(schema.ree.id, reeId));
+    expect((await qa.listPublicQa(reeId))!.total).toBe(0);
+    expect((await read(await ask(reeId, QUESTION, { publish: true }))).shared).toBe('skipped');
+    expect((await reeCards([reeId], new Map(), { includeIntros: false }))[0]?.publicQa).toBe(0);
+    await db().update(schema.ree).set({ publicQaEnabled: true }).where(eq(schema.ree.id, reeId));
+    expect((await reeCards([reeId], new Map(), { includeIntros: false }))[0]?.publicQa).toBe(2);
+
+    expect(await qa.ownerAct(ownerId, reeId, older.id, 'hide')).toBe(true);
+    expect((await qa.listPublicQa(reeId))!.items.map((item) => item.id)).not.toContain(older.id);
+    /* The owner's hiding stands: an administrator cannot restore it. */
+    const administrator = await consoleAdministrator();
+    expect(await qa.adminSetPublicQa(administrator.id, reeId, older.id, true)).toBe(false);
+    expect((await qa.listPublicQa(reeId))!.items.map((item) => item.id)).not.toContain(older.id);
+
+    /* Two pins at once take turns: both succeed, one answer ends up pinned. */
+    const [left] = (await qa.listPublicQa(reeId))!.items;
+    await read(await ask(reeId, 'When are refunds issued to the account that paid?', { publish: true }));
+    await reviewed(reeId);
+    const other = (await qa.listPublicQa(reeId))!.items.find((item) => item.id !== left!.id)!;
+    expect(await Promise.all([qa.ownerAct(ownerId, reeId, left!.id, 'pin'), qa.ownerAct(ownerId, reeId, other.id, 'pin')])).toEqual([true, true]);
+    expect((await rowsOf(reeId)).filter((row) => row.pinnedAt !== null)).toHaveLength(1);
+  });
+
+  it('counts a visitor once per network however many cookies they send, and hides after enough distinct reporters', async () => {
+    const { reeId } = await publicRee();
+    await read(await ask(reeId, QUESTION, { publish: true }));
+    await reviewed(reeId);
+    const [item] = (await qa.listPublicQa(reeId))!.items;
+    for (const cookie of [undefined, undefined, crypto.randomUUID()]) expect((await report(reeId, item!.id, '198.51.100.7', cookie)).status).toBe(200);
+    expect((await qa.listPublicQa(reeId))!.total).toBe(1);
+    expect((await db().select().from(schema.reePublicQaReport).where(eq(schema.reePublicQaReport.qaId, item!.id)))).toHaveLength(1);
+    /* The same /64 is one network too. */
+    expect((await report(reeId, item!.id, '2001:db8:1:2::1')).status).toBe(200);
+    expect((await report(reeId, item!.id, '2001:db8:1:2::ffff')).status).toBe(200);
+    expect((await qa.listPublicQa(reeId))!.total).toBe(1);
+    /* No address, no report. */
+    const bare = await reportPost(new NextRequest(`${base}/api/rees/${reeId}/public-qa/${item!.id}/report`, { method: 'POST', headers: { origin: base, host: 'localhost:3000' } }), { params: Promise.resolve({ id: reeId, qaId: item!.id }) });
+    expect(bare.status).toBe(400);
+    expect((await report(reeId, item!.id, '203.0.113.200')).status).toBe(200);
+    expect((await qa.listPublicQa(reeId))!.total).toBe(0);
+    expect((await rowsOf(reeId))[0]).toMatchObject({ status: 'hidden', hiddenBy: 'reports' });
+  });
+
+  it('hides an answer after enough distinct reports, until an administrator restores it', async () => {
+    const { reeId } = await publicRee();
+    await read(await ask(reeId, QUESTION, { publish: true }));
+    await reviewed(reeId);
+    const [item] = (await qa.listPublicQa(reeId))!.items;
+    for (let index = 1; index < PUBLIC_QA_REPORT_THRESHOLD; index += 1) expect(await qa.reportPublicQa(reeId, item!.id, `anon:${index}`)).toBe(true);
+    /* The same reporter again counts once. */
+    expect(await qa.reportPublicQa(reeId, item!.id, 'anon:1')).toBe(true);
+    expect((await qa.listPublicQa(reeId))!.total).toBe(1);
+    expect(await qa.reportPublicQa(reeId, item!.id, 'user:last')).toBe(true);
+    expect((await qa.listPublicQa(reeId))!.total).toBe(0);
+    const [hidden] = await rowsOf(reeId);
+    expect(hidden).toMatchObject({ status: 'hidden', hiddenBy: 'reports', reportCount: PUBLIC_QA_REPORT_THRESHOLD });
+
+    const administrator = await consoleAdministrator();
+    expect((await qa.adminPublicQa(reeId))[0]).toMatchObject({ id: item!.id, status: 'hidden', reports: PUBLIC_QA_REPORT_THRESHOLD });
+    expect(await qa.adminSetPublicQa(administrator.id, reeId, item!.id, true)).toBe(true);
+    expect(await qa.adminSetPublicQa(administrator.id, reeId, item!.id, true)).toBe(false);
+    expect((await qa.listPublicQa(reeId))!.total).toBe(1);
+    const audits = await db().select().from(schema.adminAudit).where(eq(schema.adminAudit.target, reeId));
+    expect(audits.map((row) => row.action)).toContain('ree.qa.restore');
+  });
+
   it('rejects a snapshot whose last review never finished, and refuses a raised fee instead of charging it', async () => {
     const { ownerId, reeId } = await publicRee();
     const id = await qa.keepSnapshot({ reeId, source: 'anonymous', question: 'Q?', answer: 'A.', citations: [], lang: 'en' });
