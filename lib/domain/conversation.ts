@@ -141,11 +141,15 @@ export function conversationSearchParams(query: Partial<ConversationQuery>): URL
   return out;
 }
 
-/** A `from` link back to the search page, only ever to `/chats` itself. */
+/** Where the search of my posts and private questions lives (v5; `/chats` redirects here). */
+export const SEARCH_PATH = '/me/posts';
+
+/** A `from` link back to the search page, only ever to that page itself (or its old address `/chats`). */
 export function searchReturnPath(value: string | null | undefined): string {
-  if (!value || (value !== '/chats' && !value.startsWith('/chats?'))) return '/chats';
-  const query = conversationSearchParams(parseConversationQuery(new URLSearchParams(value.slice('/chats'.length + 1))));
-  return query.size ? `/chats?${query}` : '/chats';
+  const base = value?.startsWith(SEARCH_PATH) ? SEARCH_PATH : value?.startsWith('/chats') ? '/chats' : null;
+  if (!value || !base || (value !== base && !value.startsWith(`${base}?`))) return SEARCH_PATH;
+  const query = conversationSearchParams(parseConversationQuery(new URLSearchParams(value.slice(base.length + 1))));
+  return query.size ? `${SEARCH_PATH}?${query}` : SEARCH_PATH;
 }
 
 /** Whole days between two instants on the UTC+8 calendar. */

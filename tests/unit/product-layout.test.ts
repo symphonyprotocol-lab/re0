@@ -13,7 +13,7 @@ vi.mock('@/lib/http/session', () => ({ currentUser: vi.fn() }));
 vi.mock('next/headers', () => ({ headers: vi.fn() }));
 vi.mock('next/navigation', () => ({ redirect: vi.fn((url: string) => { throw new Error(`redirect:${url}`); }) }));
 vi.mock('@/components/shell/workspace-frame', () => ({ WorkspaceFrame: ({ children }: { children: React.ReactNode }) => createElement('div', { 'data-shell': 'workspace' }, children) }));
-vi.mock('@/components/site/site-shell', () => ({ SiteShell: ({ children }: { children: React.ReactNode }) => createElement('div', { 'data-shell': 'site' }, children) }));
+vi.mock('@/components/shell/visitor-shell', () => ({ VisitorShell: ({ children }: { children: React.ReactNode }) => createElement('div', { 'data-shell': 'visitor' }, children) }));
 
 beforeEach(() => vi.clearAllMocks());
 
@@ -32,13 +32,13 @@ describe('shared product layout and private route access', () => {
     vi.mocked(currentUser).mockResolvedValue({ id: 'signed-in-user' } as SessionUser);
     const html = renderToStaticMarkup(await ProductLayout({ children: createElement('p', null, 'Discovery page') }));
     expect(html).toContain('data-shell="workspace"');
-    expect(html).not.toContain('data-shell="site"');
+    expect(html).not.toContain('data-shell="visitor"');
   });
 
-  it('keeps discovery open to visitors in the public site shell', async () => {
+  it('keeps discovery open to visitors in the visitor frame', async () => {
     vi.mocked(currentUser).mockResolvedValue(null);
     const html = renderToStaticMarkup(await ProductLayout({ children: createElement('p', null, 'Public Ree') }));
-    expect(html).toContain('data-shell="site"');
+    expect(html).toContain('data-shell="visitor"');
     expect(html).toContain('Public Ree');
     expect(redirect).not.toHaveBeenCalled();
   });

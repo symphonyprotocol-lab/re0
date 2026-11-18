@@ -45,15 +45,16 @@ export interface ExploreRail {
   freeRounds: number | null;
 }
 
-export function ExploreView({ query, result, limited, signedIn, favoriteIds, viewerId, rail, renderedAt }: {
+export function ExploreView({ query, result, limited, signedIn, favoriteIds, viewerId, renderedAt, variant = 'explore' }: {
   query: ExploreQuery;
   result: ExploreResult;
   limited: boolean;
   signedIn: boolean;
   favoriteIds?: string[];
   viewerId?: string;
-  rail: ExploreRail;
   renderedAt: number;
+  /** `home`: 首页's list of Rees under its introduction -- no search, categories or result line. */
+  variant?: 'explore' | 'home';
 }) {
   const { t, locale } = useI18n();
   const e = t.discover.explore;
@@ -228,14 +229,7 @@ export function ExploreView({ query, result, limited, signedIn, favoriteIds, vie
 
   return (
     <div ref={page} className="discovery-page">
-      <header className="discovery-page-head">
-        <div>
-          <p className="eyebrow">{e.eyebrow}</p>
-          <h1>{e.title}</h1>
-          <p>{e.body}</p>
-        </div>
-      </header>
-
+      {variant === 'explore' && (
       <section ref={toolbar} className="discovery-toolbar" aria-label={e.label}>
         <div className="discovery-search-row">
           <form
@@ -296,9 +290,11 @@ export function ExploreView({ query, result, limited, signedIn, favoriteIds, vie
           ))}
         </div>
       </section>
+      )}
 
       {limited && <p className="mt-4 rounded-lg border border-[#f1d4d4] bg-[#fff3f3] px-3 py-2 text-[12px] text-red">{e.limited}</p>}
 
+      {variant === 'explore' && (
       <div ref={resultsHead} className="discovery-results-head">
         <p role="status" aria-live="polite">
           {searching && (
@@ -315,13 +311,13 @@ export function ExploreView({ query, result, limited, signedIn, favoriteIds, vie
           <span className="discovery-results-note">{result.mode === 'search' ? fill(e.searchNote, { n: EXPLORE_RESULTS }) : e.browseNote}</span>
         </p>
       </div>
+      )}
 
       {SYNTHESIS_ENABLED && result.mode === 'search' && result.items.length >= SYNTHESIS_MIN_ANSWERS && (
         <RoundtableEntry question={query.q} rees={result.items.slice(0, ROUNDTABLE_REES)} signedIn={signedIn} returnTo={current} />
       )}
 
       {loaded.items.length > 0 ? (
-        <div className="discovery-feed-layout">
           <div>
             <div id="explore-results" className="discovery-feed" data-stale={pending || undefined} aria-label={e.list} aria-busy={loading || pending} onClickCapture={keep}>
               {loaded.items.map((ree) => (
@@ -361,38 +357,9 @@ export function ExploreView({ query, result, limited, signedIn, favoriteIds, vie
                 result.mode === 'browse' && <p>{fill(e.end, { n: n(result.total) })}</p>
               )}
             </div>
-            {/* Below 1180px the side column is hidden (feed.css); the banner stays at the end of the list. */}
+            {/* Below 1100px the right column is hidden (columns.css); the banner stays at the end of the list. */}
             <div className="discovery-feed-banner">{banner}</div>
           </div>
-          <aside className="discovery-rail" aria-label={e.rail}>
-            {rail.freeRounds !== null && (
-              <div className="rail-card">
-                <h3>{e.railFree}</h3>
-                <p className="text-[12px] text-muted">{fill(e.railFreeBody, { n: rail.freeRounds })}</p>
-                <Link href={`/login?returnTo=${encodeURIComponent(current)}`} className="btn secondary sm mt-3">
-                  {e.railSignIn}
-                </Link>
-              </div>
-            )}
-            {rail.top.length > 0 && (
-              <div className="rail-card">
-                <h3>{e.railTop}</h3>
-                <ol>
-                  {rail.top.map((ree) => (
-                    <li key={ree.id}>
-                      <ReeAvatar avatar={ree.avatarBlob} color={ree.color} size="sm" />
-                      <Link href={`/r/${ree.slug}`} className="min-w-0 hover:text-blue" onClickCapture={keep}>
-                        <strong>{ree.name}</strong>
-                        <small>{fill(e.railTopItem, { n: n(ree.asked7) })}</small>
-                      </Link>
-                    </li>
-                  ))}
-                </ol>
-              </div>
-            )}
-            {banner}
-          </aside>
-        </div>
       ) : (
         <>
           <div className="card empty" data-stale={pending || undefined} aria-busy={pending}>
@@ -406,6 +373,62 @@ export function ExploreView({ query, result, limited, signedIn, favoriteIds, vie
           {banner}
         </>
       )}
+    </div>
+  );
+}
+
+/**
+ * 首页's and 发现's right column (v5): today's free questions for a
+ * visitor, this week's most asked Rees, and the create-a-Ree banner.
+ */
+export function ExploreRail({ rail, signedIn, from }: { rail: ExploreRail; signedIn: boolean; from: string }) {
+  const { t, locale } = useI18n();
+  const e = t.discover.explore;
+  const n = (value: number) => formatNumber(value, locale);
+  return (
+    <div className="discovery-page">
+      <form action="/explore" role="search" className="search-box" aria-label={e.label}>
+        <Icon name="search" className="size-4" />
+        <input name="q" placeholder={e.placeholder} aria-label={e.label} className="min-w-0 flex-1 bg-transparent outline-none" />
+      </form>
+      {rail.freeRounds !== null && (
+        <div className="rail-card">
+          <h3>{e.railFree}</h3>
+          <p className="text-[12px] text-muted">{fill(e.railFreeBody, { n: rail.freeRounds })}</p>
+          <Link href={`/login?returnTo=${encodeURIComponent(from)}`} className="btn-secondary btn-sm mt-3">
+            {e.railSignIn}
+          </Link>
+        </div>
+      )}
+      {rail.top.length > 0 && (
+        <div className="rail-card">
+          <h3>{e.railTop}</h3>
+          <ol>
+            {rail.top.map((ree) => (
+              <li key={ree.id}>
+                <ReeAvatar avatar={ree.avatarBlob} color={ree.color} size="sm" />
+                <Link href={`/r/${ree.slug}`} className="min-w-0 hover:text-blue">
+                  <strong>{ree.name}</strong>
+                  <small>{fill(e.railTopItem, { n: n(ree.asked7) })}</small>
+                </Link>
+              </li>
+            ))}
+          </ol>
+        </div>
+      )}
+      <div className="knowledge-banner">
+        <div>
+          <h3>{e.banner}</h3>
+          <p>{e.bannerBody}</p>
+        </div>
+        <Link href={signedIn ? '/rees/new' : `/login?returnTo=${encodeURIComponent('/rees/new')}`} className="btn-secondary btn-sm">
+          <Icon name="plus" className="size-4" />
+          {e.create}
+        </Link>
+      </div>
+      <p className="px-2 text-[11px] text-muted">
+        <Link href="/pricing" className="hover:text-blue">{t.common.nav.pricing}</Link> · <Link href="/about" className="hover:text-blue">{t.common.nav.about}</Link> · <Link href="/legal/privacy" className="hover:text-blue">{t.site.visitor.privacy}</Link> · <Link href="/legal/terms" className="hover:text-blue">{t.site.visitor.terms}</Link>
+      </p>
     </div>
   );
 }

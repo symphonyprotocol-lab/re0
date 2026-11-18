@@ -95,7 +95,7 @@ function describe(t: Messages, locale: Locale, notice: NoticeItem): { line: stri
 }
 
 /**
- * `/settings?tab=notices` (8.2 "通知"): newest first, 20 a page. Opening the
+ * `/notifications` (8.2 "通知"; a settings tab until v5): newest first, 20 a page. Opening the
  * tab marks everything read and refreshes the page so the sidebar dot
  * clears; the dots of this visit stay on the rows that were new.
  */
@@ -193,7 +193,7 @@ export function NoticesTab({ items, total, page, size, unread }: { items: Notice
       )}
       {total > size && (
         <div className="notices-pager">
-          <LinkPager t={t} locale={locale} page={page} size={size} total={total} href={(next) => `/settings?tab=notices&page=${next}`} />
+          <LinkPager t={t} locale={locale} page={page} size={size} total={total} href={(next) => `/notifications?page=${next}`} />
         </div>
       )}
     </section>

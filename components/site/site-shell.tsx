@@ -20,7 +20,9 @@ export function Wordmark({ label }: { label: string }) {
 
 /**
  * The public site's frame (prototype suite.js `marketingHeader` /
- * `marketingFooter`): no sign-in needed. The header offers sign-in, or the
+ * `marketingFooter`) for 了解 RE0, pricing, checkout and the legal pages --
+ * 首页, 发现 and public Rees use the three-column frame (v5). No sign-in
+ * needed. The header offers sign-in, or the
  * way back into the workspace for someone already signed in. Styled by
  * site.css with the prototype's class names.
  */
@@ -28,9 +30,10 @@ export async function SiteShell({ children }: { children: ReactNode }) {
   const [user, { t }] = await Promise.all([currentUser(), serverMessages()]);
   const s = t.site;
   const links = [
-    { href: '/', label: s.nav.home },
-    { href: '/explore', label: t.discover.nav, also: ['/r'] },
+    { href: '/', label: t.common.nav.homeFeed },
+    { href: '/explore', label: t.common.nav.discover, also: ['/r'] },
     { href: '/pricing', label: s.nav.pricing, also: ['/checkout'] },
+    { href: '/about', label: t.common.nav.about },
   ];
   const createHref = user ? '/rees/new' : `/login?returnTo=${encodeURIComponent('/rees/new')}`;
   const home = `RE0 ${s.nav.home}`;
@@ -75,13 +78,14 @@ export async function SiteShell({ children }: { children: ReactNode }) {
               links={[
                 { href: '/explore', label: s.footer.discover },
                 { href: '/pricing', label: s.footer.pricing },
+                { href: '/about', label: t.common.nav.about },
               ]}
             />
             <FooterColumn
               title={s.footer.space}
               links={[
                 { href: '/rees', label: s.footer.rees },
-                { href: '/chats', label: s.footer.chats },
+                { href: '/me/posts', label: t.common.nav.myPosts },
                 { href: '/settings?tab=balance', label: s.footer.billing },
               ]}
             />

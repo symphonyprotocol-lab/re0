@@ -24,6 +24,7 @@ export const HREFLANG: Record<Locale, string> = { zh: 'zh', en: 'en' };
 export const PUBLIC_PAGES: readonly { path: string; changeFrequency: NonNullable<MetadataRoute.Sitemap[number]['changeFrequency']>; priority: number }[] = [
   { path: '/', changeFrequency: 'weekly', priority: 1 },
   { path: '/explore', changeFrequency: 'daily', priority: 0.9 },
+  { path: '/about', changeFrequency: 'monthly', priority: 0.7 },
   { path: '/pricing', changeFrequency: 'monthly', priority: 0.7 },
   { path: '/legal/terms', changeFrequency: 'yearly', priority: 0.2 },
   { path: '/legal/privacy', changeFrequency: 'yearly', priority: 0.2 },
