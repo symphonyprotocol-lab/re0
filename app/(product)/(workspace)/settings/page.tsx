@@ -3,7 +3,6 @@ import { redirect } from 'next/navigation';
 import { currentUser } from '@/lib/http/session';
 import { githubRepositoryAccess } from '@/lib/infra/identity/github';
 import { githubConnectionFor, listDomains } from '@/lib/services/connections';
-import { listNotices } from '@/lib/services/notices';
 import { verificationOverview } from '@/lib/services/roles';
 import { serverMessages } from '@/i18n/server';
 import { Topbar } from '@/components/shell/topbar';
@@ -11,7 +10,6 @@ import { AccountForm } from '@/components/settings/account-form';
 import { BillingTab } from '@/components/billing/billing-tab';
 import { BalanceTab } from '@/components/billing/balance-tab';
 import { Connections } from '@/components/settings/connections';
-import { NoticesTab } from '@/components/settings/notices-tab';
 import { RoleTab } from '@/components/settings/role-tab';
 import { ApiKeysTab } from '@/components/settings/api-keys-tab';
 import { appBaseUrl } from '@/lib/http/cookies';
@@ -25,11 +23,11 @@ export async function generateMetadata(): Promise<Metadata> {
   return { title: t.settings.title };
 }
 
-const TABS = ['account', 'role', 'connections', 'balance', 'billing', 'invite', 'notices', 'api'] as const;
+const TABS = ['account', 'role', 'connections', 'balance', 'billing', 'invite', 'api'] as const;
 const OUTCOMES = ['connected', 'canceled', 'failed'] as const;
 
 /**
- * `/settings?tab=account|role|connections|balance|billing|notices`. Connections holds GitHub and
+ * `/settings?tab=account|role|connections|balance|billing|invite|api` (`tab=notices` now goes to `/notifications`). Connections holds GitHub and
  * the domain claims (step 2); balance holds credits, Plan / Pack and payouts; billing holds the
  * ledger (`activity`, reporting period, search, and pagination). `checkout` belongs to balance.
  * Role holds the verification threshold and application, notices the
@@ -45,6 +43,8 @@ export default async function SettingsPage({ searchParams }: { searchParams: Pro
     const legacy = new URLSearchParams({ tab: 'balance', checkout: query.checkout });
     redirect(`/settings?${legacy}`);
   }
+  /* 通知 has its own page in the navigation (v5); old links and bookmarks go there. */
+  if (query.tab === 'notices') redirect(query.page ? `/notifications?page=${encodeURIComponent(query.page)}` : '/notifications');
   const tab = (TABS as readonly string[]).includes(query.tab ?? '') ? (query.tab as (typeof TABS)[number]) : 'account';
   const s = t.settings;
   return (
@@ -59,7 +59,6 @@ export default async function SettingsPage({ searchParams }: { searchParams: Pro
           { label: s.tabs.balance, href: '/settings?tab=balance', active: tab === 'balance', icon: 'wallet' },
           { label: s.tabs.billing, href: '/settings?tab=billing', active: tab === 'billing', icon: 'file' },
           { label: t.invites.panel.tab, href: '/settings?tab=invite', active: tab === 'invite', icon: 'users' },
-          { label: t.notices.tab, href: '/settings?tab=notices', active: tab === 'notices', icon: 'bell' },
           { label: t.apiKeys.tab, href: '/settings?tab=api', active: tab === 'api', icon: 'key' },
         ]}
       />
@@ -90,8 +89,6 @@ export default async function SettingsPage({ searchParams }: { searchParams: Pro
               />
             ) : tab === 'role' ? (
               <RoleTab overview={await verificationOverview(user.id)} />
-            ) : tab === 'notices' ? (
-              <NoticesTab {...(await noticesFor(user.id, Number(query.page) || 1))} />
             ) : tab === 'api' ? (
               <ApiKeysTab keys={(await listApiKeys(user.id)).map(serializeKey)} mcpUrl={`${appBaseUrl()}/api/mcp`} />
             ) : tab === 'invite' ? (
@@ -108,16 +105,6 @@ export default async function SettingsPage({ searchParams }: { searchParams: Pro
   );
 }
 
-async function noticesFor(userId: string, page: number) {
-  const list = await listNotices(userId, page);
-  return {
-    items: list.items.map((item) => ({ ...item, readAt: item.readAt?.toISOString() ?? null, createdAt: item.createdAt.toISOString() })),
-    total: list.total,
-    page: list.page,
-    size: list.size,
-    unread: list.unread,
-  };
-}
 
 function serializeKey(key: Awaited<ReturnType<typeof listApiKeys>>[number]) {
   return {

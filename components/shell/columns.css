@@ -1,0 +1,398 @@
+/*
+ * The three-column frame (docs/design/discover-posts.html, v5): the
+ * workspace sidebar as the left navigation, a centre column with a sticky
+ * head, a right column, and on phones a bottom bar with a floating ask
+ * button. Built from the workspace's own pieces (.sidebar, .app-main, .btn,
+ * .cl-tabs, .rail-card).
+ */
+
+.xshell .sidebar .nav {
+  margin-top: 18px;
+  gap: 2px;
+}
+.xshell .sidebar .nav a {
+  font-size: 15px;
+  padding-block: 10px;
+}
+.xshell .sidebar .nav a svg {
+  width: 20px;
+  height: 20px;
+}
+.xshell .sidebar .xpost {
+  width: 100%;
+  margin-top: 16px;
+  min-height: 46px;
+  border-radius: 999px;
+  font-size: 15px;
+}
+.xshell .sidebar .xnav-foot {
+  margin-top: auto;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+.xshell .sidebar .xnav-links {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px 12px;
+  padding: 0 10px;
+  color: var(--color-muted);
+  font-size: 11px;
+}
+.xshell .sidebar .xnav-visitor {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  padding: 0 6px;
+}
+.xshell .app-main {
+  --color-bg: #ffffff;
+}
+.xmain-grid {
+  display: grid;
+  grid-template-columns: minmax(0, 640px) 340px;
+  gap: 28px;
+  padding: 0 28px;
+}
+.xcol {
+  min-width: 0;
+  min-height: 100vh;
+  border-inline: 1px solid var(--color-line);
+  background: #ffffff;
+}
+.xcol-head {
+  position: sticky;
+  top: 0;
+  z-index: 5;
+  border-bottom: 1px solid var(--color-line);
+  background: rgb(255 255 255 / 0.92);
+  backdrop-filter: blur(12px);
+}
+.xcol-title > p {
+  font-size: 18px;
+  font-weight: 750;
+}
+.xcol-title {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 14px 18px 4px;
+  font-size: 18px;
+  font-weight: 750;
+}
+.xcol-title .icon-btn {
+  margin-left: -6px;
+}
+.xcol-head .cl-tabs {
+  margin: 0;
+  padding: 0 18px;
+  border-bottom: 0;
+  gap: 26px;
+}
+.xcol-head .cl-tab {
+  font-size: 13px;
+  padding-block: 12px;
+}
+.xcol .discovery-page {
+  max-width: none;
+  margin: 0;
+  padding: 0 18px 40px;
+  background: transparent;
+}
+.xcol .post-composer {
+  margin: 0 -18px;
+  padding: 14px 18px 12px;
+  border: 0;
+  border-bottom: 1px solid var(--color-line);
+  border-radius: 0;
+}
+.xcol .post-composer textarea {
+  min-height: 48px;
+  font-size: 15px;
+}
+.xrail {
+  position: sticky;
+  top: 0;
+  align-self: start;
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+  padding: 12px 0 40px;
+}
+.xrail .discovery-page {
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+  padding: 0;
+  max-width: none;
+  background: transparent;
+}
+.xrail .discovery-page .knowledge-banner {
+  flex-direction: column;
+  align-items: flex-start;
+  margin-top: 0;
+  padding: 18px;
+}
+.xrail .discovery-page .search-box {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 10px 16px;
+  border: 1px solid var(--color-line);
+  border-radius: 999px;
+  background: var(--color-wash);
+  color: #8a94ae;
+  font-size: 13px;
+}
+.xrail .rail-card {
+  padding: 16px;
+  border: 1px solid var(--color-line);
+  border-radius: 14px;
+  background: #ffffff;
+}
+.xrail .rail-card h3 {
+  margin-bottom: 10px;
+  font-size: 14px;
+  font-weight: 750;
+}
+.xrail .rail-card li {
+  display: flex;
+  align-items: center;
+  gap: 9px;
+  min-width: 0;
+}
+.xrail .rail-card ol {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+.xrail .rail-card strong {
+  display: block;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: 12px;
+  font-weight: 600;
+}
+.xrail .rail-card small {
+  color: #606670;
+  font-size: 10px;
+}
+
+/* The visitor's short introduction at the top of 首页 -- what the marketing home said, in a few lines. */
+.xintro {
+  margin: 16px 0 4px;
+  padding: 18px 18px 16px;
+  border: 1px solid #d6e6fb;
+  border-radius: 16px;
+  background: radial-gradient(600px 200px at 0% 0%, #e3efff 0%, transparent 70%), #ffffff;
+}
+.xintro h1 {
+  font-size: 20px;
+  font-weight: 800;
+  line-height: 1.3;
+  letter-spacing: -0.02em;
+}
+.xintro h1 em {
+  color: var(--color-blue);
+  font-style: normal;
+}
+.xintro p {
+  margin-top: 6px;
+  color: #3b4361;
+  font-size: 13px;
+  line-height: 1.7;
+}
+.xintro-actions {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px 12px;
+  margin-top: 12px;
+}
+.xintro small {
+  display: block;
+  margin-top: 8px;
+  color: #606670;
+  font-size: 11px;
+}
+
+/* The visitor's bar at the bottom of the window. */
+.xsignup {
+  position: fixed;
+  inset: auto 0 0;
+  z-index: 40;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 18px;
+  padding: 12px 24px calc(12px + env(safe-area-inset-bottom, 0px));
+  background: var(--color-blue);
+  color: #ffffff;
+}
+.xsignup strong {
+  font-size: 15px;
+}
+.xsignup .xsignup-note {
+  font-size: 12px;
+  opacity: 0.85;
+}
+.xsignup .btn {
+  min-height: 34px;
+  padding: 6px 16px;
+  border-radius: 999px;
+  font-size: 13px;
+}
+.xsignup .btn.light {
+  background: #ffffff;
+  color: var(--color-blue);
+}
+.xsignup .btn.outline {
+  border-color: rgb(255 255 255 / 0.7);
+  background: transparent;
+  color: #ffffff;
+}
+
+/* Phones: no side columns; a top bar, a bottom bar and the floating 发帖 button. */
+.xtop {
+  display: none;
+}
+.xbottom,
+.xfab {
+  display: none;
+}
+/* The right column's free-rounds line, inside the centre column once that column folds away. */
+.xfree-note {
+  display: none;
+}
+@media (max-width: 1100px) {
+  .xfree-note {
+    display: flex;
+    align-items: flex-start;
+    gap: 8px;
+    margin: 12px 18px 0;
+    padding: 10px 12px;
+    border: 1px solid #d6e6fb;
+    border-radius: 12px;
+    background: var(--color-soft);
+    color: #3b4361;
+    font-size: 12px;
+    line-height: 1.5;
+  }
+  .xmain-grid {
+    grid-template-columns: minmax(0, 640px);
+    justify-content: center;
+  }
+  .xrail {
+    display: none;
+  }
+}
+@media (max-width: 760px) {
+  .xshell .sidebar {
+    display: none;
+  }
+  .xshell .app-main {
+    margin-left: 0;
+  }
+  .xmain-grid {
+    padding: 0;
+    gap: 0;
+  }
+  .xcol {
+    border: 0;
+    padding-bottom: 64px;
+  }
+  .xtop {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    padding: 10px 16px 0;
+  }
+  .xbottom {
+    position: fixed;
+    inset: auto 0 0;
+    z-index: 40;
+    display: grid;
+    grid-template-columns: repeat(5, 1fr);
+    padding: 6px 4px calc(6px + env(safe-area-inset-bottom, 0px));
+    border-top: 1px solid var(--color-line);
+    background: rgb(255 255 255 / 0.96);
+    backdrop-filter: blur(12px);
+  }
+  .xbottom a {
+    position: relative;
+    display: grid;
+    place-items: center;
+    height: 42px;
+    color: #606670;
+  }
+  .xbottom a[aria-current='page'] {
+    color: var(--color-blue);
+  }
+  .xbottom svg {
+    width: 22px;
+    height: 22px;
+  }
+  .xbottom .nav-dot {
+    position: absolute;
+    top: 8px;
+    left: calc(50% + 6px);
+  }
+  .xfab {
+    position: fixed;
+    right: 18px;
+    bottom: calc(70px + env(safe-area-inset-bottom, 0px));
+    z-index: 41;
+    display: grid;
+    place-items: center;
+    width: 54px;
+    height: 54px;
+    border-radius: 50%;
+    background: var(--color-blue);
+    color: #ffffff;
+    box-shadow: 0 8px 20px #0867c440;
+  }
+  .xfab svg {
+    width: 24px;
+    height: 24px;
+  }
+  .xsignup {
+    bottom: 0;
+    flex-direction: column;
+    gap: 8px;
+  }
+}
+.xtop .wordmark {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 19px;
+  font-weight: 750;
+  letter-spacing: -0.6px;
+}
+.xtop .wordmark > svg {
+  width: 26px;
+  height: 26px;
+}
+@media (min-width: 761px) {
+  .xshell .sidebar.is-collapsed .xpost {
+    padding: 0;
+  }
+  .xshell .sidebar.is-collapsed .xpost > span,
+  .xshell .sidebar.is-collapsed .xnav-visitor,
+  .xshell .sidebar.is-collapsed .xnav-links {
+    display: none;
+  }
+}
+/* Room for the visitor's bar at the bottom. */
+.xshell.is-visitor .app-main {
+  padding-bottom: 72px;
+}
+
+/* Pages inside the centre column: its head is the sticky part. */
+.xcol .discovery-toolbar {
+  position: static;
+}
+.xcol .discovery-feed-banner .knowledge-banner {
+  margin-top: 20px;
+}

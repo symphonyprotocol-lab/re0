@@ -17,6 +17,7 @@ const GRID = '<rect x="3" y="3" width="7" height="7" rx="1"/><rect x="14" y="3" 
  */
 const GLYPHS = {
   ree: REE_MARK,
+  home: '<path d="M3 11 12 4l9 7"/><path d="M5 10v10h5v-6h4v6h5V10"/>',
   dashboard: LAYERS,
   layers: LAYERS,
   plus: '<path d="M12 5v14M5 12h14"/>',

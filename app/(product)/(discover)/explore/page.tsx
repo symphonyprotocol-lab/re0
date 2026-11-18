@@ -10,8 +10,8 @@ import { favoriteReeIds } from '@/lib/services/ree-favorites';
 import { introsFor } from '@/lib/services/video';
 import { publicPage, UNLISTED_ROBOTS } from '@/lib/seo';
 import { serverMessages } from '@/i18n/server';
-import { Topbar } from '@/components/shell/topbar';
-import { ExploreView } from '@/components/discover/explore-view';
+import { FeedColumns } from '@/components/shell/feed-columns';
+import { ExploreRail, ExploreView, FreeRoundsNote } from '@/components/discover/explore-view';
 
 type Props = { searchParams: Promise<Record<string, string | string[] | undefined>> };
 
@@ -27,8 +27,7 @@ export async function generateMetadata({ searchParams }: Props): Promise<Metadat
  * categories, three orders. With a question, the two-level search (free,
  * rate-limited); without, the most active public Rees, the first batch here
  * and the rest from `GET /api/explore` as the list scrolls, one Ree per feed
- * item with a side column. Visitors see it in the site frame, signed-in
- * users in the workspace.
+ * item, in the three-column frame (v5) for visitors and signed-in users alike.
  */
 export default async function ExplorePage({ searchParams }: Props) {
   const [params, user, { t }] = await Promise.all([searchParams, currentUser(), serverMessages()]);
@@ -42,10 +41,11 @@ export default async function ExplorePage({ searchParams }: Props) {
     user ? null : currentAnonymousChatLimits(),
   ]);
   const items = result.items.map(ree => ({ ...ree, video: coverVideos.get(ree.id) ?? null }));
+  const renderedAt = Date.now();
   return (
-    <>
-      {user && <Topbar crumbs={[{ label: t.discover.explore.title }]} />}
-      <ExploreView query={query} result={{ ...result, items }} limited={limited} signedIn={Boolean(user)} favoriteIds={favoriteIds} viewerId={user?.id} rail={{ top, freeRounds: limits?.visitorRoundsPerDay ?? null }} renderedAt={Date.now()} />
-    </>
+    <FeedColumns title={t.common.nav.discover} rail={<ExploreRail rail={{ top, freeRounds: limits?.visitorRoundsPerDay ?? null }} signedIn={Boolean(user)} from="/explore" />}>
+      <FreeRoundsNote freeRounds={limits?.visitorRoundsPerDay ?? null} />
+      <ExploreView query={query} result={{ ...result, items }} limited={limited} signedIn={Boolean(user)} favoriteIds={favoriteIds} viewerId={user?.id} renderedAt={renderedAt} />
+    </FeedColumns>
   );
 }

@@ -15,23 +15,23 @@ import { ReeAvatar } from '@/components/ui/ree-avatar';
 import { DemoTrigger, HomeDemo } from '@/components/site/home-demo';
 import { RoleBadge } from '@/components/discover/role-badge';
 import { ReeFavoriteButton } from '@/components/rees/ree-favorite-button';
-import { JsonLd } from '@/components/site/json-ld';
-import { publicPage, siteJsonLd, SITE_NAME } from '@/lib/seo';
+import { publicPage, SITE_NAME } from '@/lib/seo';
 
 export async function generateMetadata(): Promise<Metadata> {
   const { t, locale } = await serverMessages();
-  return publicPage({ path: '/', title: `${t.site.home.title} · ${SITE_NAME}`, absoluteTitle: true, description: t.site.seo.description, locale });
+  return publicPage({ path: '/about', title: `${t.site.visitor.aboutTitle} · ${SITE_NAME}`, absoluteTitle: true, description: t.site.seo.description, locale });
 }
 
 const FAQ = ['q1', 'q2', 'q3', 'q4'] as const;
 
 /**
- * `/` (prototype `#/`, suite.js `home`): the answer example, the six kinds of
- * source, how it works, example Rees with their 15-second introductions, the
- * price in brief, and the FAQ. Markup and class names follow the prototype;
+ * `/about` (了解 RE0; until v5 this was `/`, prototype `#/`, suite.js
+ * `home`): the answer example, the six kinds of source, how it works,
+ * example Rees with their 15-second introductions, the price in brief, and
+ * the FAQ. `/` is now the feed (app/(product)/page.tsx). Markup and class names follow the prototype;
  * components/site/site.css carries its styles.
  */
-export default async function HomePage() {
+export default async function AboutPage() {
   const [user, { t, locale }, examples, prices, welcome] = await Promise.all([currentUser(), serverMessages(), activeRees(HOME_EXAMPLE_REES, { officialOnly: true }), currentPricing(), welcomeCredits()]);
   const favoriteIds = user ? await favoriteReeIds(user.id, examples.map(ree => ree.id)) : undefined;
   const h = t.site.home;
@@ -46,7 +46,6 @@ export default async function HomePage() {
   ];
   return (
     <div className="site-home">
-      <JsonLd data={siteJsonLd(t.site.seo.description)} />
       <section className="home-hero marketing-wrap">
         <div className="home-hero-copy">
           <div className="launch-pill">

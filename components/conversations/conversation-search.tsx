@@ -162,7 +162,7 @@ export function ConversationSearch({
   const chosen = items.filter((item) => selected.has(item.id));
   const selfPath = (() => {
     const params = conversationSearchParams(shown);
-    return params.size ? `/chats?${params}` : '/chats';
+    return params.size ? `/me/posts?${params}` : '/me/posts';
   })();
 
   const run = async (action: BatchAction, ids: string[]) => {

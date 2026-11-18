@@ -118,10 +118,12 @@ describe('the /chats search', () => {
     expect(conversationSearchParams(query).toString()).toBe('q=%E8%AE%BE%E8%AE%A1&view=archived&days=30&sort=title&page=3&size=50');
     expect(parseConversationQuery(new URLSearchParams('view=nope&days=8&size=33'))).toMatchObject({ view: 'all', days: null, size: 20 });
   });
-  it('a return link only goes back to /chats, keeping recognised fields', () => {
-    expect(searchReturnPath('/chats?q=a&page=2&evil=1')).toBe('/chats?q=a&page=2');
-    expect(searchReturnPath('https://evil.example/chats')).toBe('/chats');
-    expect(searchReturnPath('/rees')).toBe('/chats');
+  it('a return link only goes back to the search (/me/posts, or its old /chats), keeping recognised fields', () => {
+    expect(searchReturnPath('/me/posts?q=a&page=2&evil=1')).toBe('/me/posts?q=a&page=2');
+    expect(searchReturnPath('/chats?q=a&page=2&evil=1')).toBe('/me/posts?q=a&page=2');
+    expect(searchReturnPath('https://evil.example/chats')).toBe('/me/posts');
+    expect(searchReturnPath('/me/postsX')).toBe('/me/posts');
+    expect(searchReturnPath('/rees')).toBe('/me/posts');
   });
   it('marks every match, case-insensitively', () => {
     expect(highlight('Design and design', 'DESIGN')).toEqual([

@@ -9,6 +9,7 @@ import { REE_COMMENTS_ANCHOR, type ReeCommentPage } from '@/lib/domain/ree-comme
 import type { PublicList, PublicRee } from '@/lib/services/public-rees';
 import { fill, formatNumber } from '@/i18n/format';
 import { Topbar } from '@/components/shell/topbar';
+import { FeedColumns } from '@/components/shell/feed-columns';
 import { Icon } from '@/components/ui/icons';
 import { ReeAvatar } from '@/components/ui/ree-avatar';
 import { useToast } from '@/components/ui/toast';
@@ -141,45 +142,7 @@ export function ReeDetailView({
     </div>
   );
 
-  return (
-    <>
-      {!preview && <PublicVisit from={from} />}
-      {preview ? (
-        <Topbar crumbs={[
-          { label: t.rees.title, href: '/rees' },
-          { label: ree.name, href: `/rees/${ree.id}/settings` },
-          { label: t.reeSetup.settings.preview },
-        ]} />
-      ) : viewerId ? (
-        <Topbar crumbs={[{ label: t.discover.explore.title, href: from }, { label: ree.name }]} />
-      ) : (
-        <nav aria-label={p.breadcrumb} className="mx-auto flex max-w-[1120px] items-center gap-2 px-4 pt-6 text-[12px] sm:px-6">
-          <Link href={from} className="flex items-center gap-1.5 text-muted hover:text-blue">
-            <Icon name="arrowLeft" className="size-3.5" />
-            {p.back}
-          </Link>
-          <Icon name="chevronRight" className="size-3 text-[#a3a9bb]" />
-          <span aria-current="page" className="truncate font-semibold">
-            {ree.name}
-          </span>
-        </nav>
-      )}
-      <main className={`mx-auto w-full max-w-[1120px] px-4 pb-16 sm:px-6 ${viewerId ? 'pt-6 md:px-8' : 'pt-4'}`}>
-        {preview && (
-          <div className="mb-5 flex flex-wrap items-center justify-between gap-3 rounded-xl border border-line bg-wash px-4 py-3 text-[13px]">
-            <p role={draftId ? 'status' : undefined}>
-              {draft ? t.reeSetup.settings.draftPreviewNote
-                : result === 'unavailable' ? t.reeSetup.settings.draftPreviewUnavailable
-                : draftId ? t.reeSetup.settings.draftPreviewLoading
-                : t.reeSetup.settings.previewNote}
-            </p>
-            <Link href={`/rees/${ree.id}/settings`} className="btn-secondary btn-sm">
-              <Icon name="arrowLeft" />
-              {t.reeSetup.settings.backToSettings}
-            </Link>
-          </div>
-        )}
-        <div className={draftId && !result ? 'hidden' : 'grid gap-5 lg:grid-cols-[minmax(0,1fr)_340px]'}>
+  const body = (
           <section className="card ree-profile min-w-0 p-5 sm:p-7" aria-label={ree.name}>
             <header>
               <ReeIdentityCover src={coverSrc} avatar={ree.avatarBlob} color={ree.color} video={video} />
@@ -308,7 +271,8 @@ export function ReeDetailView({
               )}
             </div>
           </section>
-
+  );
+  const side = (
           <aside className="flex h-fit flex-col gap-5 lg:sticky lg:top-24 lg:col-start-2 lg:row-start-1" aria-label={p.use}>
             <div className="card flex flex-col gap-5 p-5">
               <div className="flex items-center justify-between gap-2">
@@ -383,6 +347,61 @@ export function ReeDetailView({
               </section>
             )}
           </aside>
+  );
+
+  if (!preview) {
+    return (
+      <>
+        <PublicVisit from={from} />
+        <FeedColumns title={ree.name} back={from} rail={side}>
+          <div className="px-[18px] pt-4 pb-10">{body}</div>
+        </FeedColumns>
+      </>
+    );
+  }
+
+  return (
+    <>
+      {!preview && <PublicVisit from={from} />}
+      {preview ? (
+        <Topbar crumbs={[
+          { label: t.rees.title, href: '/rees' },
+          { label: ree.name, href: `/rees/${ree.id}/settings` },
+          { label: t.reeSetup.settings.preview },
+        ]} />
+      ) : viewerId ? (
+        <Topbar crumbs={[{ label: t.discover.explore.title, href: from }, { label: ree.name }]} />
+      ) : (
+        <nav aria-label={p.breadcrumb} className="mx-auto flex max-w-[1120px] items-center gap-2 px-4 pt-6 text-[12px] sm:px-6">
+          <Link href={from} className="flex items-center gap-1.5 text-muted hover:text-blue">
+            <Icon name="arrowLeft" className="size-3.5" />
+            {p.back}
+          </Link>
+          <Icon name="chevronRight" className="size-3 text-[#a3a9bb]" />
+          <span aria-current="page" className="truncate font-semibold">
+            {ree.name}
+          </span>
+        </nav>
+      )}
+      <main className={`mx-auto w-full max-w-[1120px] px-4 pb-16 sm:px-6 ${viewerId ? 'pt-6 md:px-8' : 'pt-4'}`}>
+        {preview && (
+          <div className="mb-5 flex flex-wrap items-center justify-between gap-3 rounded-xl border border-line bg-wash px-4 py-3 text-[13px]">
+            <p role={draftId ? 'status' : undefined}>
+              {draft ? t.reeSetup.settings.draftPreviewNote
+                : result === 'unavailable' ? t.reeSetup.settings.draftPreviewUnavailable
+                : draftId ? t.reeSetup.settings.draftPreviewLoading
+                : t.reeSetup.settings.previewNote}
+            </p>
+            <Link href={`/rees/${ree.id}/settings`} className="btn-secondary btn-sm">
+              <Icon name="arrowLeft" />
+              {t.reeSetup.settings.backToSettings}
+            </Link>
+          </div>
+        )}
+        <div className={draftId && !result ? 'hidden' : 'grid gap-5 lg:grid-cols-[minmax(0,1fr)_340px]'}>
+          {body}
+          {side}
+
         </div>
       </main>
     </>

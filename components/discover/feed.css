@@ -220,7 +220,7 @@
 .discovery-page .discovery-feed-banner {
   display: none;
 }
-@media (max-width: 1180px) {
+@media (max-width: 1100px) {
   .discovery-page .discovery-feed-banner {
     display: block;
   }

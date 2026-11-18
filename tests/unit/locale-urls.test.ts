@@ -25,7 +25,7 @@ describe('language URLs (i18n/paths.ts)', () => {
   });
 
   it('localizes every page the sitemap lists from the same list', () => {
-    expect(PUBLIC_PAGES.map((page) => page.path)).toEqual(['/', '/explore', '/pricing', '/legal/terms', '/legal/privacy']);
+    expect(PUBLIC_PAGES.map((page) => page.path)).toEqual(['/', '/explore', '/about', '/pricing', '/legal/terms', '/legal/privacy']);
     for (const { path } of PUBLIC_PAGES) expect(isLocalizedPath(path)).toBe(true);
   });
 
@@ -105,7 +105,8 @@ describe('private paths: one list for the sign-in gate and robots.txt', () => {
     const disallowed = robots().rules;
     expect(Array.isArray(disallowed) ? null : disallowed.disallow).toEqual([...CRAWL_DISALLOWED]);
     for (const path of WORKSPACE_PATHS) {
-      expect(CRAWL_DISALLOWED).toContain(path);
+      /* robots.txt matches by prefix, so `/me` is listed as `/me/` and `/media` stays open. */
+      expect(CRAWL_DISALLOWED).toContain(path === '/me' ? '/me/' : path);
       expect(request(`${path}/x`).headers.get('location')).toBe(`https://re0.test/login?returnTo=${encodeURIComponent(`${path}/x`)}`);
     }
   });

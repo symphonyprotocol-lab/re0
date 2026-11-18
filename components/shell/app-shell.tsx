@@ -9,10 +9,10 @@ import { fill, formatNumber } from '@/i18n/format';
 import { BrandMark, BrandName } from '@/components/ui/brand-mark';
 import { Icon, type IconName } from '@/components/ui/icons';
 import { UserAvatar } from '@/components/ui/ree-avatar';
-import { HistoryProvider, SidebarConversations } from '@/components/conversations/sidebar-history';
-import type { HistoryItem } from '@/lib/services/conversations';
+import { HistoryProvider, SearchShortcut } from '@/components/conversations/sidebar-history';
 import { WorkspaceMain } from '@/components/shell/workspace-main';
 import './shell.css';
+import './columns.css';
 import { stripLocale } from '@/i18n/paths';
 
 interface ShellState {
@@ -21,9 +21,14 @@ interface ShellState {
   openDrawer: () => void;
   /** Something to claim on the Activities page: a dot on the phone's menu button too, where the sidebar is hidden. */
   activitiesPending: boolean;
+  /** The workspace frame (signed in) or the visitor's frame (visitor-shell.tsx). */
+  signedIn: boolean;
 }
 
-const ShellContext = createContext<ShellState>({ collapsed: false, toggleCollapsed: () => undefined, openDrawer: () => undefined, activitiesPending: false });
+const ShellContext = createContext<ShellState>({ collapsed: false, toggleCollapsed: () => undefined, openDrawer: () => undefined, activitiesPending: false, signedIn: false });
+
+/** The visitor's frame provides the same context, without a drawer or a fold. */
+export const ShellProvider = ShellContext.Provider;
 
 export function useShell(): ShellState {
   return useContext(ShellContext);
@@ -40,7 +45,6 @@ export interface ShellUser {
   plan: PlanUsage;
   reeCount: number;
   /** Step 4: the sidebar's pinned and recent conversations. */
-  history: HistoryItem[];
   /** Unread in-app notices (step 5): a red dot on the account link, which then opens the notices. */
   unreadNotices: number;
   /** The 活动 item (`activitiesIndicator`): shown only while an activity is available to this account, with a dot when something calls for attention. */
@@ -98,10 +102,14 @@ export function AppShell({ user, initialCollapsed, children }: { user: ShellUser
     });
   };
   return (
-    <ShellContext.Provider value={{ collapsed, toggleCollapsed, openDrawer: () => setDrawer(true), activitiesPending: user.activities.visible && user.activities.dot }}>
+    <ShellContext.Provider value={{ collapsed, toggleCollapsed, openDrawer: () => setDrawer(true), activitiesPending: user.activities.visible && user.activities.dot, signedIn: true }}>
       <HistoryProvider>
-        <Sidebar user={user} collapsed={collapsed} phone={phone} open={drawer} hidden={phone && !drawer} onClose={() => setDrawer(false)} />
-        <WorkspaceMain collapsed={collapsed}>{children}</WorkspaceMain>
+        <SearchShortcut />
+        <div className="xshell">
+          <Sidebar user={user} collapsed={collapsed} phone={phone} open={drawer} hidden={phone && !drawer} onClose={() => setDrawer(false)} />
+          <WorkspaceMain collapsed={collapsed}>{children}</WorkspaceMain>
+          <BottomBar unread={user.unreadNotices} />
+        </div>
       </HistoryProvider>
     </ShellContext.Provider>
   );
@@ -139,20 +147,27 @@ function Sidebar({ user, collapsed, phone, open, hidden, onClose }: { user: Shel
       <button type="button" className="icon-btn sidebar-close" onClick={onClose} aria-label={nav.closeMenu} title={nav.closeMenu}>
         <Icon name="close" className="" />
       </button>
-      {/* The fold only applies on desktop: the phone drawer always shows the history. The aside carries the side padding. */}
-      <SidebarConversations history={user.history} collapsed={collapsed && !phone} className="" />
       <nav className="nav chat-product-nav" aria-label={nav.workspace}>
-        <NavItem href="/explore" icon="compass" label={t.discover.nav} active={pathname === '/explore' || pathname.startsWith('/r/')} />
+        <NavItem href="/" icon="home" label={nav.homeFeed} active={pathname === '/'} />
+        <NavItem href="/explore" icon="compass" label={nav.discover} active={pathname === '/explore' || pathname.startsWith('/r/')} />
+        <NavItem href="/notifications" icon="bell" label={nav.notifications} active={pathname === '/notifications'} count={user.unreadNotices || undefined} />
+        <NavItem href="/me/posts" icon="chat" label={nav.myPosts} active={pathname.startsWith('/me/posts') || pathname.startsWith('/chats') || pathname === '/talk'} />
         <NavItem href="/rees" icon="ree" label={nav.rees} active={pathname.startsWith('/rees') || pathname.startsWith('/workspace') || pathname === '/videos'} count={user.reeCount} />
+        <NavItem href="/saved" icon="bookmark" label={nav.saved} active={pathname === '/saved'} />
         {user.activities.visible && (
           <NavItem href="/activities" icon="gift" label={nav.activities} active={pathname.startsWith('/activities')} dot={user.activities.dot ? nav.activitiesPending : undefined} />
         )}
       </nav>
+      {/* "提问": a private question to Rees you pick -- today's new conversation (`/talk`). */}
+      <Link href="/talk?new=1" className="btn xpost" aria-label={nav.ask} title={nav.ask}>
+        <Icon name="plus" className="size-5" />
+        <span>{nav.ask}</span>
+      </Link>
       <div className="chat-sidebar-footer sidebar-account-footer">
         <PlanMeter user={user} />
         <div className="user-row">
           <Link
-            href={user.unreadNotices > 0 ? '/settings?tab=notices' : '/settings?tab=account'}
+            href={user.unreadNotices > 0 ? '/notifications' : '/settings?tab=account'}
             className="user-settings-link"
             aria-label={user.unreadNotices > 0 ? undefined : t.common.account.openSettings}
             title={user.unreadNotices > 0 ? fill(t.notices.unreadCount, { n: user.unreadNotices }) : t.common.account.settings}
@@ -178,6 +193,35 @@ function Sidebar({ user, collapsed, phone, open, hidden, onClose }: { user: Shel
         </div>
       </div>
     </aside>
+  );
+}
+
+/** Phones: the five main places and the floating ask button, where the sidebar is a drawer. */
+function BottomBar({ unread }: { unread: number }) {
+  const { t } = useI18n();
+  const nav = t.common.nav;
+  const pathname = stripLocale(usePathname());
+  const items: [string, IconName, string, boolean][] = [
+    ['/', 'home', nav.homeFeed, pathname === '/'],
+    ['/explore', 'compass', nav.discover, pathname === '/explore' || pathname.startsWith('/r/')],
+    ['/notifications', 'bell', nav.notifications, pathname === '/notifications'],
+    ['/me/posts', 'chat', nav.myPosts, pathname.startsWith('/me/posts') || pathname.startsWith('/chats')],
+    ['/rees', 'ree', nav.rees, pathname.startsWith('/rees')],
+  ];
+  return (
+    <>
+      <nav className="xbottom" aria-label={nav.main}>
+        {items.map(([href, icon, label, active]) => (
+          <Link key={href} href={href} aria-label={label} title={label} aria-current={active ? 'page' : undefined}>
+            <Icon name={icon} className="" />
+            {href === '/notifications' && unread > 0 && <i className="nav-dot" aria-hidden="true" />}
+          </Link>
+        ))}
+      </nav>
+      <Link href="/talk?new=1" className="xfab" aria-label={nav.ask} title={nav.ask}>
+        <Icon name="plus" className="" />
+      </Link>
+    </>
   );
 }
 

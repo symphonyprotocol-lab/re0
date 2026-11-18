@@ -3,7 +3,7 @@
 import { WorkspaceLink as Link } from '@/components/shell/workspace-link';
 import { usePathname, useSearchParams } from 'next/navigation';
 import { useNavigationRouter as useRouter } from '@/components/shell/navigation-provider';
-import { createContext, Fragment, useContext, useEffect, useMemo, useRef, useState, type MouseEvent, type ReactNode } from 'react';
+import { Fragment, createContext, useCallback, useContext, useEffect, useMemo, useRef, useState, type MouseEvent, type ReactNode } from 'react';
 import { dateGroup, searchReturnPath, type DateGroup } from '@/lib/domain/conversation';
 import { conversationApi } from '@/lib/client/conversations';
 import type { HistoryItem } from '@/lib/services/conversations';
@@ -63,7 +63,7 @@ export function SidebarConversations({
   const c = t.conversations.sidebar;
   const pathname = usePathname();
   const searchParams = useSearchParams();
-  const inTrash = pathname === '/chats' && searchParams.get('view') === 'trash';
+  const inTrash = (pathname === '/me/posts' || pathname === '/chats') && searchParams.get('view') === 'trash';
   const router = useRouter();
   const toast = useToast();
   const { current } = useContext(HistoryContext);
@@ -72,25 +72,7 @@ export function SidebarConversations({
   const scroller = useRef<HTMLDivElement>(null);
   const currentId = /^\/chats\/([0-9a-f-]{36})/.exec(pathname)?.[1] ?? null;
 
-  /* On `/chats` the box takes focus; from a conversation opened from a search, back to that search (prototype conversations.js `openSearchPage`). */
-  const openSearch = () => {
-    const box = document.querySelector<HTMLInputElement>('#conversation-search');
-    if (box) return box.focus();
-    const from = /^\/chats\/[^/]+$/.test(window.location.pathname) ? new URLSearchParams(window.location.search).get('from') : null;
-    const back = from ? searchReturnPath(from) : '/chats';
-    router.push(`${back}${back.includes('?') ? '&' : '?'}focus=1`);
-  };
-
-  useEffect(() => {
-    const onKey = (event: KeyboardEvent) => {
-      if (!(event.metaKey || event.ctrlKey) || event.key.toLowerCase() !== 'k' || document.querySelector('dialog[open]')) return;
-      event.preventDefault();
-      openSearch();
-    };
-    window.addEventListener('keydown', onKey);
-    return () => window.removeEventListener('keydown', onKey);
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [router]);
+  const openSearch = useOpenSearch();
 
   useEffect(() => {
     const active = scroller.current?.querySelector<HTMLElement>('[aria-current="page"]');
@@ -127,7 +109,7 @@ export function SidebarConversations({
           label={fill(c.more, { title })}
           items={[
             /* `/chats` works out the tab and page that hold it (prototype conversations.js `cl-select-one`). */
-            { label: t.conversations.search.selectOne, icon: 'check', onSelect: () => router.push(`/chats?select=${item.id}`) },
+            { label: t.conversations.search.selectOne, icon: 'check', onSelect: () => router.push(`/me/posts?select=${item.id}`) },
             { label: t.conversations.search.rename, icon: 'settings', onSelect: () => setRenaming(item) },
             ...(!item.archived
               ? [
@@ -157,10 +139,10 @@ export function SidebarConversations({
         {/* `?new=1` drops the draft kept on /talk and focuses its box. */}
         <Tool href="/talk?new=1" icon="plus" label={c.newChat} active={pathname === '/talk'} primary />
         <Tool
-          href="/chats?focus=1"
+          href="/me/posts?focus=1"
           icon="search"
           label={c.search}
-          active={pathname === '/chats' && !inTrash}
+          active={(pathname === '/me/posts' || pathname === '/chats') && !inTrash}
           kbd="⌘ K"
           onClick={(event) => {
             if (event.metaKey || event.ctrlKey || event.shiftKey || event.button !== 0) return;
@@ -168,7 +150,7 @@ export function SidebarConversations({
             openSearch();
           }}
         />
-        <Tool href="/chats?view=trash" icon="trash" label={t.conversations.search.views.trash} active={inTrash} />
+        <Tool href="/me/posts?view=trash" icon="trash" label={t.conversations.search.views.trash} active={inTrash} />
       </div>
       {/* Folded, the rail hides the history (shell.css); the drawer on a phone always shows it. */}
       <div ref={scroller} className={`chat-history-scroll ${className}`} role="region" tabIndex={0} aria-label={c.history}>
@@ -216,7 +198,7 @@ export function SidebarConversations({
           if (!id) return;
           await act(async () => {
             await conversationApi.update(id, request.action === 'trash' ? { trashed: true } : { archived: request.action === 'archive' });
-            if (request.action === 'trash' && active) router.push('/chats');
+            if (request.action === 'trash' && active) router.push('/me/posts');
           }, request.action === 'trash' ? t.conversations.search.trashed : fill(t.conversations.search.changed, { n: 1 }));
         }}
       />
@@ -268,4 +250,36 @@ function Tool({
       {kbd && <kbd>{kbd}</kbd>}
     </Link>
   );
+}
+
+/**
+ * Opens the search of my posts and private questions (`/me/posts`, the old
+ * "搜索对话"): on that page the box takes focus; from a conversation opened
+ * from a search, back to that search (prototype conversations.js
+ * `openSearchPage`).
+ */
+function useOpenSearch(): () => void {
+  const router = useRouter();
+  return useCallback(() => {
+    const box = document.querySelector<HTMLInputElement>('#conversation-search');
+    if (box) return box.focus();
+    const from = /^\/chats\/[^/]+$/.test(window.location.pathname) ? new URLSearchParams(window.location.search).get('from') : null;
+    const back = from ? searchReturnPath(from) : '/me/posts';
+    router.push(`${back}${back.includes('?') ? '&' : '?'}focus=1`);
+  }, [router]);
+}
+
+/** ⌘K / Ctrl+K anywhere in the workspace: the search of my posts and private questions. The sidebar no longer lists conversations (v5), but the shortcut stays. */
+export function SearchShortcut() {
+  const openSearch = useOpenSearch();
+  useEffect(() => {
+    const onKey = (event: KeyboardEvent) => {
+      if (!(event.metaKey || event.ctrlKey) || event.key.toLowerCase() !== 'k' || document.querySelector('dialog[open]')) return;
+      event.preventDefault();
+      openSearch();
+    };
+    window.addEventListener('keydown', onKey);
+    return () => window.removeEventListener('keydown', onKey);
+  }, [openSearch]);
+  return null;
 }
