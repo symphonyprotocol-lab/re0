@@ -20,6 +20,7 @@ import {
   numeric,
   pgTable,
   primaryKey,
+  real,
   text,
   timestamp,
   uniqueIndex,
@@ -38,6 +39,21 @@ import type { RoleMetrics } from '@/lib/domain/roles';
 import type { ReeRank } from '@/lib/domain/explore';
 import { REE_COMMENT_MAX_LENGTH } from '@/lib/domain/ree-comment';
 import { TASK_KINDS, type TaskKind } from '@/lib/domain/invites';
+import {
+  ANSWER_HIDERS,
+  ANSWER_STATES,
+  POST_ANSWER_STATES,
+  POST_CHARGES,
+  POST_DETAIL_MAX,
+  POST_SOURCES,
+  POST_STATUSES,
+  type AnswerHider,
+  type AnswerState,
+  type PostAnswerState,
+  type PostCharge,
+  type PostSource,
+  type PostStatus,
+} from '@/lib/domain/post';
 import { PUBLIC_QA_ANSWER_MAX_CHARS, PUBLIC_QA_HIDERS, PUBLIC_QA_SOURCES, PUBLIC_QA_STATUSES, type PublicQaHider, type PublicQaSource, type PublicQaStatus } from '@/lib/domain/public-qa';
 import { MODEL_KINDS, VIDEO_EXPORT_TEMPLATES, VIDEO_TEMPLATES, type ModelKind } from '@/lib/constants';
 
@@ -135,6 +151,8 @@ export const ree = pgTable(
     suggestedQuestions: jsonb('suggested_questions').$type<string[]>().notNull().default([]),
     /** Beyond 4: the owner lets askers publish their questions and answers on the Ree page (问答). Off hides every published one; on shows them again. */
     publicQaEnabled: boolean('public_qa_enabled').notNull().default(true),
+    /** Beyond 4 (v5): the owner's choice to answer public posts; null follows the default -- a free Ree answers, a paid one does not (P3). */
+    answersPosts: boolean('answers_posts'),
     deletedAt: timestampTz('deleted_at'),
     createdAt: createdAt(),
     updatedAt: timestampTz('updated_at').notNull().defaultNow(),
@@ -355,11 +373,14 @@ export const conversation = pgTable(
     archivedAt: timestampTz('archived_at'),
     /** In the trash since; purged with its messages 30 days later. */
     deletedAt: timestampTz('deleted_at'),
+    /** Beyond 4 (v5): "继续问" -- a private follow-up the author started from one of their public posts. */
+    postId: uuid('post_id').references((): AnyPgColumn => post.id, { onDelete: 'set null' }),
     createdAt: createdAt(),
     updatedAt: timestampTz('updated_at').notNull().defaultNow(),
   },
   (t) => [
     index('conversation_user_idx').on(t.userId, t.updatedAt),
+    index('conversation_post_idx').on(t.postId).where(sql`post_id is not null`),
     index('conversation_trash_idx').on(t.deletedAt).where(sql`deleted_at is not null`),
     check('conversation_title_check', sql`char_length(title) <= 120`),
     uniqueIndex('conversation_ree_test_key')
@@ -556,6 +577,10 @@ export const CREDIT_ENTRY_REASONS = [
   'task_first_comment',
   /* A daily check-in in the account's first months: gift credits, never withdrawable. */
   'check_in',
+  /* v5: a public post past the day's free ones, held when published, to the platform once a Ree answers, given back otherwise. */
+  'post_hold',
+  'post_settle',
+  'post_refund',
 ] as const;
 export type CreditEntryReason = (typeof CREDIT_ENTRY_REASONS)[number];
 
@@ -591,7 +616,7 @@ export const creditHold = pgTable(
     userId: uuid('user_id')
       .notNull()
       .references(() => user.id),
-    kind: text('kind').$type<'chat' | 'knowledge' | 'video' | 'payout'>().notNull(),
+    kind: text('kind').$type<'chat' | 'knowledge' | 'video' | 'payout' | 'post'>().notNull(),
     amount: bigint('amount', { mode: 'number' }).notNull(),
     allocations: jsonb('allocations').$type<Allocation[]>().notNull(),
     status: text('status').$type<'held' | 'settled' | 'released'>().notNull().default('held'),
@@ -607,7 +632,7 @@ export const creditHold = pgTable(
     index('credit_hold_user_idx').on(t.userId, t.status),
     index('credit_hold_ref_idx').on(t.refId),
     index('credit_hold_open_idx').on(t.kind, t.createdAt).where(sql`status = 'held'`),
-    check('credit_hold_kind_check', oneOf('kind', ['chat', 'knowledge', 'video', 'payout'])),
+    check('credit_hold_kind_check', oneOf('kind', ['chat', 'knowledge', 'video', 'payout', 'post'])),
     check('credit_hold_status_check', oneOf('status', ['held', 'settled', 'released'])),
   ],
 );
@@ -1311,6 +1336,143 @@ export const reePublicQaReport = pgTable(
   (t) => [primaryKey({ columns: [t.qaId, t.reporterKey] })],
 );
 
+/* ---------------------------------------------------------------- v5 posts */
+
+/**
+ * Beyond 4 (v5): a public post -- a question for everyone that up to five
+ * relevant Rees answer on their own (lib/services/posts.ts). Also the home
+ * of the Ree page's public Q&A: every published `ree_public_qa` row is
+ * copied in as a post with one answer (`legacy_qa_id`, `syncPublicQa`),
+ * which can run again at any time without copying twice.
+ */
+export const post = pgTable(
+  'post',
+  {
+    id: uuid('id').primaryKey().defaultRandom(),
+    /** The author; null for a visitor's published answer and RE0's examples. Deleting the account deletes their posts. */
+    userId: uuid('user_id').references(() => user.id, { onDelete: 'cascade' }),
+    source: text('source').$type<PostSource>().notNull(),
+    /** The public Q&A row this post was copied from. */
+    legacyQaId: uuid('legacy_qa_id').references(() => reePublicQa.id, { onDelete: 'set null' }),
+    /** For a Q&A a signed-in asker published from a conversation: it shows only while that conversation is out of the trash, and purging it deletes the post. */
+    messageId: uuid('message_id').references(() => message.id, { onDelete: 'cascade' }),
+    /** The author chose "匿名发布": the page shows "一位用户". */
+    anonymous: boolean('anonymous').notNull().default(false),
+    question: text('question').notNull(),
+    detail: text('detail').notNull().default(''),
+    lang: text('lang').$type<'zh' | 'en'>().notNull(),
+    /** The first answering Ree's category, for the feed's tag. */
+    category: text('category'),
+    /** The Ree the author named ("发帖问它"): it answers whatever the threshold says, while it takes posts. */
+    mentionReeId: uuid('mention_ree_id').references(() => ree.id, { onDelete: 'set null' }),
+    status: text('status').$type<PostStatus>().notNull().default('pending'),
+    hiddenBy: text('hidden_by').$type<'admin'>(),
+    moderationAttempts: integer('moderation_attempts').notNull().default(0),
+    answerState: text('answer_state').$type<PostAnswerState>().notNull().default('waiting'),
+    candidates: integer('candidates').notNull().default(0),
+    skipped: integer('skipped').notNull().default(0),
+    answerCount: integer('answer_count').notNull().default(0),
+    charge: text('charge').$type<PostCharge>().notNull().default('none'),
+    holdId: uuid('hold_id'),
+    /** The UTC day whose free posts this one used; cleared when it is given back (rejected, or nobody answered). */
+    freeDay: date('free_day'),
+    summaryState: text('summary_state').$type<'running' | 'done'>(),
+    summaryContent: text('summary_content'),
+    summarySources: jsonb('summary_sources').$type<SynthesisSource[]>(),
+    summaryHoldId: uuid('summary_hold_id'),
+    summaryAt: timestampTz('summary_at'),
+    /** In the author's trash since: hidden from everyone else at once. */
+    deletedAt: timestampTz('deleted_at'),
+    createdAt: createdAt(),
+    publishedAt: timestampTz('published_at'),
+    answeredAt: timestampTz('answered_at'),
+  },
+  (t) => [
+    index('post_feed_idx').on(t.publishedAt.desc(), t.id.desc()).where(sql`status = 'published' and deleted_at is null`),
+    index('post_user_idx').on(t.userId, t.createdAt.desc()).where(sql`user_id is not null`),
+    index('post_free_day_idx').on(t.userId, t.freeDay).where(sql`free_day is not null`),
+    index('post_pending_idx').on(t.createdAt).where(sql`status = 'pending' or answer_state <> 'done'`),
+    uniqueIndex('post_legacy_qa_key').on(t.legacyQaId).where(sql`legacy_qa_id is not null`),
+    check('post_source_check', oneOf('source', [...POST_SOURCES])),
+    check('post_status_check', oneOf('status', [...POST_STATUSES])),
+    check('post_answer_state_check', oneOf('answer_state', [...POST_ANSWER_STATES])),
+    check('post_charge_check', oneOf('charge', [...POST_CHARGES])),
+    check('post_hidden_by_check', sql`hidden_by is null or hidden_by = 'admin'`),
+    check('post_summary_state_check', sql`summary_state is null or summary_state in ('running', 'done')`),
+    check('post_lang_check', oneOf('lang', ['zh', 'en'])),
+    check('post_question_check', sql`char_length(question) between 1 and 4000`),
+    check('post_detail_check', sql`char_length(detail) <= ${sql.raw(String(POST_DETAIL_MAX))}`),
+    check('post_published_check', sql`(status = 'published') <= (published_at is not null)`),
+  ],
+);
+
+/** One Ree's answer to a post. */
+export const postAnswer = pgTable(
+  'post_answer',
+  {
+    id: uuid('id').primaryKey().defaultRandom(),
+    postId: uuid('post_id').notNull().references(() => post.id, { onDelete: 'cascade' }),
+    reeId: uuid('ree_id').notNull().references(() => ree.id, { onDelete: 'cascade' }),
+    legacyQaId: uuid('legacy_qa_id').references(() => reePublicQa.id, { onDelete: 'set null' }),
+    /** The best passage's similarity when the search picked it; null for a mention or a copied Q&A. */
+    similarity: real('similarity'),
+    mentioned: boolean('mentioned').notNull().default(false),
+    state: text('state').$type<AnswerState>().notNull().default('queued'),
+    text: text('text').notNull().default(''),
+    citations: jsonb('citations').$type<CitationSnapshot[]>().notNull().default([]),
+    model: text('model'),
+    hiddenBy: text('hidden_by').$type<AnswerHider>(),
+    helpfulCount: integer('helpful_count').notNull().default(0),
+    reportCount: integer('report_count').notNull().default(0),
+    /** Pinned by the Ree's owner: first on the Ree page and the share page; one per Ree. */
+    pinnedAt: timestampTz('pinned_at'),
+    createdAt: createdAt(),
+    answeredAt: timestampTz('answered_at'),
+  },
+  (t) => [
+    uniqueIndex('post_answer_post_ree_key').on(t.postId, t.reeId),
+    index('post_answer_ree_idx').on(t.reeId, t.answeredAt.desc(), t.id.desc()).where(sql`state = 'answered' and hidden_by is null`),
+    uniqueIndex('post_answer_legacy_qa_key').on(t.legacyQaId).where(sql`legacy_qa_id is not null`),
+    uniqueIndex('post_answer_pinned_key').on(t.reeId).where(sql`pinned_at is not null`),
+    check('post_answer_state_check', oneOf('state', [...ANSWER_STATES])),
+    check('post_answer_hidden_by_check', sql`hidden_by is null or hidden_by in (${sql.raw(ANSWER_HIDERS.map((value) => `'${value}'`).join(', '))})`),
+    check('post_answer_text_check', sql`char_length(text) <= ${sql.raw(String(PUBLIC_QA_ANSWER_MAX_CHARS))}`),
+  ],
+);
+
+/** "有帮助" on an answer: one per signed-in user. */
+export const postAnswerVote = pgTable(
+  'post_answer_vote',
+  {
+    answerId: uuid('answer_id').notNull().references(() => postAnswer.id, { onDelete: 'cascade' }),
+    userId: uuid('user_id').notNull().references(() => user.id, { onDelete: 'cascade' }),
+    createdAt: createdAt(),
+  },
+  (t) => [primaryKey({ columns: [t.answerId, t.userId] }), index('post_answer_vote_user_idx').on(t.userId)],
+);
+
+/** "举报" on an answer: one per reporter, the account or an HMAC of the anonymous id. */
+export const postAnswerReport = pgTable(
+  'post_answer_report',
+  {
+    answerId: uuid('answer_id').notNull().references(() => postAnswer.id, { onDelete: 'cascade' }),
+    reporterKey: text('reporter_key').notNull(),
+    createdAt: createdAt(),
+  },
+  (t) => [primaryKey({ columns: [t.answerId, t.reporterKey] })],
+);
+
+/** "收藏" on a post. */
+export const postSave = pgTable(
+  'post_save',
+  {
+    userId: uuid('user_id').notNull().references(() => user.id, { onDelete: 'cascade' }),
+    postId: uuid('post_id').notNull().references(() => post.id, { onDelete: 'cascade' }),
+    createdAt: createdAt(),
+  },
+  (t) => [primaryKey({ columns: [t.userId, t.postId] }), index('post_save_recent_idx').on(t.userId, t.createdAt.desc(), t.postId.desc())],
+);
+
 /* ------------------------------------------------------------- step 5 */
 
 /**
@@ -1346,7 +1508,7 @@ export const verificationRequest = pgTable(
   ],
 );
 
-export const NOTICE_KINDS = ['takedown', 'restore', 'credits_adjust', 'kyc', 'payout', 'role', 'verification'] as const;
+export const NOTICE_KINDS = ['takedown', 'restore', 'credits_adjust', 'kyc', 'payout', 'role', 'verification', 'post_answered'] as const;
 export type NoticeKind = (typeof NOTICE_KINDS)[number];
 
 /**

@@ -89,6 +89,15 @@ function describe(t: Messages, locale: Locale, notice: NoticeItem): { line: stri
                 : l.payout;
       return { line, icon: 'sparkle', href: '/settings?tab=balance#payouts', action: o.billing, reason };
     }
+    case 'post_answered':
+      /* v5: Rees answered one of the reader's public posts. */
+      return {
+        line: fill(l.postAnswered, { question: String(p.question ?? ''), n: formatNumber(Number(p.answers) || 0, locale) }),
+        icon: 'chat',
+        href: notice.refId ? `/p/${notice.refId}` : null,
+        action: o.post,
+        reason: null,
+      };
     default:
       return { line: l.other, icon: 'info', href: null, action: null, reason };
   }

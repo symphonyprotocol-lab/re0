@@ -157,6 +157,18 @@ export function ReeDetailView({
                       <Icon name="share" className="size-4" />
                     </button>
                     {!owner && <ReeFavoriteButton ree={ree} favorite={favoriteIds?.includes(ree.id)} returnTo={self({})} labeled />}
+                    {/* v5 "发帖问它": a public post that names this Ree, so it answers first. */}
+                    {ree.takesPosts && ready && (viewerId ? (
+                      <Link href={`?compose=public&ree=${ree.id}&name=${encodeURIComponent(ree.name)}`} className="btn btn-sm" scroll={false}>
+                        <Icon name="plus" className="size-3.5" />
+                        {t.posts.rees.askIt}
+                      </Link>
+                    ) : (
+                      <Link href={loginHref(`/r/${ree.slug}?compose=public&ree=${ree.id}&name=${encodeURIComponent(ree.name)}`)} className="btn btn-sm">
+                        <Icon name="plus" className="size-3.5" />
+                        {t.posts.rees.askIt}
+                      </Link>
+                    ))}
                   </div>
                 )}
               </div>

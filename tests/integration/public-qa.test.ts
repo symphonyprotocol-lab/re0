@@ -1,5 +1,6 @@
 /**
- * The Ree page's public Q&A (lib/services/public-qa.ts): a visitor's
+ * The Ree page's public Q&A (lib/services/public-qa.ts; shown from posts
+ * since v5, public-qa-sync.ts): a visitor's
  * first-turn answer is kept only when they asked to publish it, redacted,
  * and shown once moderation passes; a signed-in asker publishes their own
  * single-turn answer and takes it down by trashing the conversation; the
@@ -187,6 +188,8 @@ describeWithDb('public Q&A', () => {
     await updateConversation(askerId, created.id, { trashed: true });
     expect(await runBatch(askerId, 'delete', [created.id])).toBe(1);
     expect(await rowsOf(reeId)).toHaveLength(0);
+    /* ...and the post it was copied into (v5). */
+    expect(await db().select().from(schema.postAnswer).where(eq(schema.postAnswer.reeId, reeId))).toHaveLength(0);
   });
 
   it('deletes a signed-in asker\'s snapshots with their account', async () => {
@@ -239,7 +242,7 @@ describeWithDb('public Q&A', () => {
     await reviewed(reeId);
     const other = (await qa.listPublicQa(reeId))!.items.find((item) => item.id !== left!.id)!;
     expect(await Promise.all([qa.ownerAct(ownerId, reeId, left!.id, 'pin'), qa.ownerAct(ownerId, reeId, other.id, 'pin')])).toEqual([true, true]);
-    expect((await rowsOf(reeId)).filter((row) => row.pinnedAt !== null)).toHaveLength(1);
+    expect((await db().select().from(schema.postAnswer).where(eq(schema.postAnswer.reeId, reeId))).filter((row) => row.pinnedAt !== null)).toHaveLength(1);
   });
 
   it('counts a visitor once per network however many cookies they send, and hides after enough distinct reporters', async () => {
@@ -249,7 +252,7 @@ describeWithDb('public Q&A', () => {
     const [item] = (await qa.listPublicQa(reeId))!.items;
     for (const cookie of [undefined, undefined, crypto.randomUUID()]) expect((await report(reeId, item!.id, '198.51.100.7', cookie)).status).toBe(200);
     expect((await qa.listPublicQa(reeId))!.total).toBe(1);
-    expect((await db().select().from(schema.reePublicQaReport).where(eq(schema.reePublicQaReport.qaId, item!.id)))).toHaveLength(1);
+    expect((await db().select().from(schema.postAnswerReport).where(eq(schema.postAnswerReport.answerId, item!.id)))).toHaveLength(1);
     /* The same /64 is one network too. */
     expect((await report(reeId, item!.id, '2001:db8:1:2::1')).status).toBe(200);
     expect((await report(reeId, item!.id, '2001:db8:1:2::ffff')).status).toBe(200);
@@ -259,7 +262,7 @@ describeWithDb('public Q&A', () => {
     expect(bare.status).toBe(400);
     expect((await report(reeId, item!.id, '203.0.113.200')).status).toBe(200);
     expect((await qa.listPublicQa(reeId))!.total).toBe(0);
-    expect((await rowsOf(reeId))[0]).toMatchObject({ status: 'hidden', hiddenBy: 'reports' });
+    expect((await db().select().from(schema.postAnswer).where(eq(schema.postAnswer.id, item!.id)))[0]).toMatchObject({ hiddenBy: 'reports' });
   });
 
   it('hides an answer after enough distinct reports, until an administrator restores it', async () => {
@@ -273,8 +276,9 @@ describeWithDb('public Q&A', () => {
     expect((await qa.listPublicQa(reeId))!.total).toBe(1);
     expect(await qa.reportPublicQa(reeId, item!.id, 'user:last')).toBe(true);
     expect((await qa.listPublicQa(reeId))!.total).toBe(0);
-    const [hidden] = await rowsOf(reeId);
-    expect(hidden).toMatchObject({ status: 'hidden', hiddenBy: 'reports', reportCount: PUBLIC_QA_REPORT_THRESHOLD });
+    /* v5: the answer lives on as a post's answer (public-qa-sync.ts); that is what reports hide. */
+    const [hidden] = await db().select().from(schema.postAnswer).where(eq(schema.postAnswer.id, item!.id));
+    expect(hidden).toMatchObject({ hiddenBy: 'reports', reportCount: PUBLIC_QA_REPORT_THRESHOLD });
 
     const administrator = await consoleAdministrator();
     expect((await qa.adminPublicQa(reeId))[0]).toMatchObject({ id: item!.id, status: 'hidden', reports: PUBLIC_QA_REPORT_THRESHOLD });

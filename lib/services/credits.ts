@@ -25,7 +25,7 @@ import { schema, type Executor, type Tx } from '@/lib/infra/db';
 
 export { InsufficientCredits } from '@/lib/domain/credits';
 
-type HoldKind = 'chat' | 'knowledge' | 'video' | 'payout';
+type HoldKind = 'chat' | 'knowledge' | 'video' | 'payout' | 'post';
 
 /**
  * The reasons each hold kind writes when it is taken, settled and released.
@@ -33,13 +33,17 @@ type HoldKind = 'chat' | 'knowledge' | 'video' | 'payout';
  * the base fee (`ledger: 'chat_fee'`), so the ledger shows the two as
  * `query_base` and `query_fee_paid` (2.3).
  */
-const REASONS: Record<'chat' | 'knowledge' | 'chat_fee' | 'chat_verify' | 'chat_synthesis' | 'payout' | VideoLedger, { hold: CreditEntryReason; settle: CreditEntryReason; release: CreditEntryReason }> = {
+const REASONS: Record<'chat' | 'knowledge' | 'chat_fee' | 'chat_verify' | 'chat_synthesis' | 'payout' | 'post' | 'post_summary' | VideoLedger, { hold: CreditEntryReason; settle: CreditEntryReason; release: CreditEntryReason }> = {
   chat: { hold: 'query_hold', settle: 'query_base', release: 'query_refund' },
   chat_fee: { hold: 'query_fee_paid', settle: 'query_fee_paid', release: 'query_refund' },
   /* 回答核验: the check fee of one answering Ree, held with the question, to the platform. */
   chat_verify: { hold: 'verify_hold', settle: 'verify_settle', release: 'verify_refund' },
   /* Ree 圆桌: one synthesis of a question's answers, to the platform. */
   chat_synthesis: { hold: 'synthesis_hold', settle: 'synthesis_settle', release: 'synthesis_refund' },
+  /* v5: a public post past the day's free ones, to the platform once a Ree answers. */
+  post: { hold: 'post_hold', settle: 'post_settle', release: 'post_refund' },
+  /* v5: the round-table summary of a public post's answers, written like a conversation's. */
+  post_summary: { hold: 'synthesis_hold', settle: 'synthesis_settle', release: 'synthesis_refund' },
   knowledge: { hold: 'knowledge_hold', settle: 'knowledge_settle', release: 'knowledge_refund' },
   /* Step 6: a payout request holds earned credits; payment settles the whole hold, rejection or failure releases it. */
   payout: { hold: 'payout_hold', settle: 'payout_paid', release: 'payout_release' },
@@ -51,7 +55,7 @@ const REASONS: Record<'chat' | 'knowledge' | 'chat_fee' | 'chat_verify' | 'chat_
 type Ledger = keyof typeof REASONS;
 /** Which ledger a `video` hold writes; every video hold, settlement and release names one. */
 type VideoLedger = 'video_script' | 'video_export';
-type SubLedger = 'chat_fee' | 'chat_verify' | 'chat_synthesis' | VideoLedger;
+type SubLedger = 'chat_fee' | 'chat_verify' | 'chat_synthesis' | 'post_summary' | VideoLedger;
 
 function reasonsFor(kind: string, ledger?: SubLedger) {
   return REASONS[(ledger ?? kind) as Ledger];
@@ -323,7 +327,7 @@ export async function moveGrants(tx: Tx, allocations: readonly Allocation[], dir
 
 export interface HoldInput {
   userId: string;
-  kind: 'chat' | 'knowledge' | 'payout' | 'video';
+  kind: 'chat' | 'knowledge' | 'payout' | 'video' | 'post';
   amount: number;
   refId: string;
   reeId?: string | null;

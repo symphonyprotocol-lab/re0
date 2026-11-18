@@ -135,7 +135,11 @@ const cardColumns = {
   pinned: sql<boolean>`${schema.ree.pinOrder} is not null`,
   rank: schema.ree.rank,
   /* The Ree page's public Q&A count, as public-qa.ts `shown()` reads it: published, the owner's switch on, a signed-in asker's conversation kept. */
-  publicQa: sql<number>`(case when ${schema.ree.publicQaEnabled} then (select count(*)::int from ${schema.reePublicQa} q where q.ree_id = ${schema.ree.id} and q.status = 'published' and (q.source <> 'user' or exists (select 1 from ${schema.message} m join ${schema.conversation} c on c.id = m.conversation_id where m.id = q.message_id and c.deleted_at is null))) else 0 end)`,
+  /* v5: answers this Ree gave on visible posts, the copied public Q&A among them (posts.ts `shownAnswer`, `visiblePost`). */
+  publicQa: sql<number>`(select count(*)::int from ${schema.postAnswer} a join ${schema.post} p on p.id = a.post_id
+    where a.ree_id = ${schema.ree.id} and a.state = 'answered' and a.hidden_by is null and (a.legacy_qa_id is null or ${schema.ree.publicQaEnabled})
+      and p.status = 'published' and p.deleted_at is null
+      and (p.source <> 'conversation' or exists (select 1 from ${schema.message} m join ${schema.conversation} c on c.id = m.conversation_id where m.id = p.message_id and c.deleted_at is null)))`,
 };
 
 /** Every card query starts here; callers add the filter, order and page. */

@@ -35,6 +35,7 @@ export async function PATCH(request: NextRequest, context: Context) {
       avatarBlob: typeof input.avatarBlob === 'string' ? input.avatarBlob : null,
       coverBlob,
       publicQaEnabled: typeof input.publicQaEnabled === 'boolean' ? input.publicQaEnabled : undefined,
+      answersPosts: typeof input.answersPosts === 'boolean' ? input.answersPosts : undefined,
     });
     /* What the profile is made of may have changed: a public Ree's is rebuilt, free (2.4). */
     if (ree?.isPublished) after(() => refreshProfile(ree.id).catch(() => undefined));

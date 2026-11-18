@@ -31,9 +31,14 @@ export const PUBLIC_QA_ASK_ANCHOR = 'ask';
 
 /** A published question and answer as a page shows it. */
 export interface PublicQa {
+  /** The answer (`post_answer`). */
   id: string;
-  /** Who asked, as the page says it: a visitor or a signed-in user, never a name. */
+  /** The post it answers (`/p/[postId]`). */
+  postId: string;
+  /** Who asked, as the page says it: a visitor or a signed-in user. */
   asker: 'visitor' | 'user';
+  /** The author's name, for a public post they did not make anonymous; null otherwise ("一位用户"). */
+  author: string | null;
   question: string;
   answer: string;
   /** The answer was cut at `PUBLIC_QA_PREVIEW_CHARS`; `GET …/public-qa/[qaId]` has the whole. */

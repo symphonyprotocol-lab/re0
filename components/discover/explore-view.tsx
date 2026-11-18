@@ -2,7 +2,7 @@
 
 import { WorkspaceLink as Link } from '@/components/shell/workspace-link';
 import { useNavigationRouter as useRouter } from '@/components/shell/navigation-provider';
-import { useCallback, useEffect, useRef, useState, useTransition } from 'react';
+import { useCallback, useEffect, useRef, useState, useTransition, type ReactNode } from 'react';
 import { EXPLORE_RESULTS, REE_CATEGORIES, ROUNDTABLE_REES, SYNTHESIS_ENABLED, SYNTHESIS_MIN_ANSWERS } from '@/lib/constants';
 import { explorePath, type ExploreQuery, type ExploreSort } from '@/lib/domain/explore';
 import type { ExploreResult, ReeCard } from '@/lib/services/explore';
@@ -381,7 +381,7 @@ export function ExploreView({ query, result, limited, signedIn, favoriteIds, vie
  * 首页's and 发现's right column (v5): today's free questions for a
  * visitor, this week's most asked Rees, and the create-a-Ree banner.
  */
-export function ExploreRail({ rail, signedIn, from }: { rail: ExploreRail; signedIn: boolean; from: string }) {
+export function ExploreRail({ rail, signedIn, from, extra = null }: { rail: ExploreRail; signedIn: boolean; from: string; extra?: ReactNode }) {
   const { t, locale } = useI18n();
   const e = t.discover.explore;
   const n = (value: number) => formatNumber(value, locale);
@@ -391,6 +391,7 @@ export function ExploreRail({ rail, signedIn, from }: { rail: ExploreRail; signe
         <Icon name="search" className="size-4" />
         <input name="q" placeholder={e.placeholder} aria-label={e.label} className="min-w-0 flex-1 bg-transparent outline-none" />
       </form>
+      {extra}
       {rail.freeRounds !== null && (
         <div className="rail-card">
           <h3>{e.railFree}</h3>

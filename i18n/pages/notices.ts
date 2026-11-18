@@ -9,7 +9,7 @@ export const zh = {
   unread: '未读',
   unreadCount: '{n} 条未读通知',
   empty: '暂无通知',
-  emptyBody: '管理员处理与你账号相关的事项后，会在这里告诉你。',
+  emptyBody: '你的帖子有 Ree 回答、管理员处理与你账号相关的事项后，会在这里告诉你。',
   reason: '原因：{text}',
   note: '说明：{text}',
   buckets: { pack: 'Pack', plan: 'Plan' },
@@ -24,11 +24,13 @@ export const zh = {
     kyc: '你的身份核验状态有更新。',
     payout: '你的提现申请状态有更新。',
     other: '你有一条新的账户通知。',
+    postAnswered: '你的帖子「{question}」有 {n} 个 Ree 回答了。',
   },
   open: {
     ree: '查看 Ree',
     billing: '查看余额',
     role: '查看角色',
+    post: '查看帖子',
   },
 };
 
@@ -40,7 +42,7 @@ export const en: Shape<typeof zh> = {
   unread: 'Unread',
   unreadCount: '{n} unread notices',
   empty: 'No notices yet',
-  emptyBody: 'When an administrator acts on something about your account, you will find it here.',
+  emptyBody: 'When Rees answer your posts or an administrator acts on your account, you will find it here.',
   reason: 'Reason: {text}',
   note: 'Note: {text}',
   buckets: { pack: 'Pack', plan: 'Plan' },
@@ -55,10 +57,12 @@ export const en: Shape<typeof zh> = {
     kyc: 'Your identity verification status changed.',
     payout: 'Your payout request status changed.',
     other: 'You have a new account notice.',
+    postAnswered: '{n} Rees answered your post “{question}”.',
   },
   open: {
     ree: 'View Ree',
     billing: 'View balance',
     role: 'View role',
+    post: 'View post',
   },
 };

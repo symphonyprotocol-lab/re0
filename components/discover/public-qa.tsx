@@ -192,7 +192,7 @@ export function PublicQaList({ ree, initial, signedIn, owner, loginHref, rendere
   return (
     <div className="ree-qa-list" aria-label={q.list}>
       {page.items.map((item) => {
-        const asker = item.asker === 'user' ? q.someUser : q.visitor;
+        const asker = item.author ?? (item.asker === 'user' ? q.someUser : q.visitor);
         const confirming = confirm?.id === item.id ? confirm.kind : null;
         return (
           <QaThread
@@ -255,6 +255,10 @@ export function PublicQaList({ ree, initial, signedIn, owner, loginHref, rendere
                   <Icon name="link" />
                   {q.copyLink}
                 </button>
+                <Link href={`/p/${item.postId}`} className="icon-btn">
+                  <Icon name="arrow" />
+                  {t.posts.rees.viewPost}
+                </Link>
                 {owner && (
                   <span className="ml-auto flex items-center gap-0.5">
                     <button type="button" className="icon-btn" disabled={busy === item.id} onClick={() => void act(item, item.pinned ? 'unpin' : 'pin')}>

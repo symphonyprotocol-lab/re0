@@ -17,6 +17,9 @@ interface Draft {
   scope: string | null;
 }
 
+/* Not from '@/components/posts/composer': that would pull the composer into this page's bundle. */
+const TALK_HANDOFF_KEY = 're0:talk-handoff';
+
 const draftKey = (viewerId: string) => `re0:talk-draft:${viewerId}`;
 
 function readDraft(viewerId: string): Draft | null {
@@ -82,6 +85,19 @@ export function TalkDraft({ initialMembers, viewerId, fresh }: { initialMembers:
     }
     if (restored.current) return;
     restored.current = true;
+    /* v5: the composer's 私密提问 tab hands its text over once; the Rees are picked here as before. */
+    let handed: string | null = null;
+    try {
+      handed = sessionStorage.getItem(TALK_HANDOFF_KEY);
+      sessionStorage.removeItem(TALK_HANDOFF_KEY);
+    } catch {
+      /* storage off */
+    }
+    if (handed) {
+      keep({ question: handed });
+      composer.current?.fill(handed);
+      return;
+    }
     const saved = readDraft(viewerId);
     if (!saved) return;
     draft.current = { question: saved.question ?? '', members: Array.isArray(saved.members) ? saved.members : initialMembers, scope: saved.scope ?? null };
