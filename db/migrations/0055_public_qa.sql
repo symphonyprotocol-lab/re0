@@ -41,8 +41,8 @@ CREATE TABLE "ree_public_qa_vote" (
 --> statement-breakpoint
 ALTER TABLE "ree" ADD COLUMN "public_qa_enabled" boolean DEFAULT true NOT NULL;--> statement-breakpoint
 ALTER TABLE "ree_public_qa" ADD CONSTRAINT "ree_public_qa_ree_id_ree_id_fk" FOREIGN KEY ("ree_id") REFERENCES "public"."ree"("id") ON DELETE cascade ON UPDATE no action;--> statement-breakpoint
-ALTER TABLE "ree_public_qa" ADD CONSTRAINT "ree_public_qa_user_id_user_id_fk" FOREIGN KEY ("user_id") REFERENCES "public"."user"("id") ON DELETE set null ON UPDATE no action;--> statement-breakpoint
-ALTER TABLE "ree_public_qa" ADD CONSTRAINT "ree_public_qa_message_id_message_id_fk" FOREIGN KEY ("message_id") REFERENCES "public"."message"("id") ON DELETE set null ON UPDATE no action;--> statement-breakpoint
+ALTER TABLE "ree_public_qa" ADD CONSTRAINT "ree_public_qa_user_id_user_id_fk" FOREIGN KEY ("user_id") REFERENCES "public"."user"("id") ON DELETE cascade ON UPDATE no action;--> statement-breakpoint
+ALTER TABLE "ree_public_qa" ADD CONSTRAINT "ree_public_qa_message_id_message_id_fk" FOREIGN KEY ("message_id") REFERENCES "public"."message"("id") ON DELETE cascade ON UPDATE no action;--> statement-breakpoint
 ALTER TABLE "ree_public_qa_report" ADD CONSTRAINT "ree_public_qa_report_qa_id_ree_public_qa_id_fk" FOREIGN KEY ("qa_id") REFERENCES "public"."ree_public_qa"("id") ON DELETE cascade ON UPDATE no action;--> statement-breakpoint
 ALTER TABLE "ree_public_qa_vote" ADD CONSTRAINT "ree_public_qa_vote_qa_id_ree_public_qa_id_fk" FOREIGN KEY ("qa_id") REFERENCES "public"."ree_public_qa"("id") ON DELETE cascade ON UPDATE no action;--> statement-breakpoint
 ALTER TABLE "ree_public_qa_vote" ADD CONSTRAINT "ree_public_qa_vote_user_id_user_id_fk" FOREIGN KEY ("user_id") REFERENCES "public"."user"("id") ON DELETE cascade ON UPDATE no action;--> statement-breakpoint

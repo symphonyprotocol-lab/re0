@@ -11,7 +11,8 @@ import { useToast } from '@/components/ui/toast';
 /**
  * The console's "公开问答" tab of a Ree: its public answers, reported ones
  * first, with why a hidden one is hidden. An administrator hides a
- * published answer or restores a hidden one (both in the management log).
+ * published answer or restores one an administrator or reports hid -- the
+ * owner's hiding stands (both in the management log).
  */
 export function ReePublicQaTab({ reeId, rows }: { reeId: string; rows: AdminPublicQa[] }) {
   const { t, locale } = useI18n();
@@ -55,7 +56,7 @@ export function ReePublicQaTab({ reeId, rows }: { reeId: string; rows: AdminPubl
           <span key="r" className="mono">{row.reports}</span>,
           row.status === 'published' ? (
             <button key="act" type="button" className="btn ghost sm" disabled={busy === row.id} onClick={() => void set(row, false)}>{r.hide}</button>
-          ) : row.status === 'hidden' ? (
+          ) : row.status === 'hidden' && row.hiddenBy !== 'owner' ? (
             <button key="act" type="button" className="btn ghost sm" disabled={busy === row.id} onClick={() => void set(row, true)}>{r.restore}</button>
           ) : (
             <span key="act" />

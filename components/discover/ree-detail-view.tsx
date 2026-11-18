@@ -120,12 +120,13 @@ export function ReeDetailView({
   ) : !ready ? (
     <p className="ree-ask rounded-xl border border-line bg-wash px-4 py-3 text-[12px] text-muted">{p.anonymous.noSources}</p>
   ) : viewerId ? (
-    <SignedInAsk ree={qaRee} price={price} sampleQuestions={ree.sampleQuestions} followUp={followUp} />
+    <SignedInAsk ree={qaRee} price={price} queryFee={owner ? 0 : ree.queryFee} canPublish={ree.publicQaEnabled} sampleQuestions={ree.sampleQuestions} followUp={followUp} />
   ) : ree.queryFee === 0 ? (
     <AnonymousChat
       ree={{ id: ree.id, name: ree.name, avatarBlob: ree.avatarBlob, color: ree.color, sampleQuestions: ree.sampleQuestions }}
       loginHref={loginHref(self({}))}
       followUp={followUp}
+      canPublish={ree.publicQaEnabled}
     />
   ) : (
     <div id={PUBLIC_QA_ASK_ANCHOR} className="ree-ask flex flex-wrap items-center justify-between gap-3 rounded-xl border border-line bg-wash px-4 py-3">
@@ -248,8 +249,8 @@ export function ReeDetailView({
                   <span className="mb-2 grid size-9 place-items-center rounded-lg bg-soft text-blue">
                     <Icon name="chat" className="size-4" />
                   </span>
-                  <p className="text-[13px] font-semibold">{q.emptyTitle}</p>
-                  <p className="mt-0.5 text-[12px] text-muted">{q.emptyBody}</p>
+                  <p className="text-[13px] font-semibold">{ree.publicQaEnabled ? q.emptyTitle : q.closedTitle}</p>
+                  <p className="mt-0.5 text-[12px] text-muted">{ree.publicQaEnabled ? q.emptyBody : q.closedBody}</p>
                 </div>
               )}
             </div>

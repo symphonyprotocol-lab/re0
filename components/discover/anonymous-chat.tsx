@@ -85,7 +85,7 @@ const storageKey = (reeId: string) => `re0:anonymous-chat:${reeId}`;
  * sessionStorage only. Once the day's questions are used, asking opens a
  * dialog that signs them in and brings them back to this page.
  */
-export function AnonymousChat({ ree, loginHref, source, followUp }: {
+export function AnonymousChat({ ree, loginHref, source, followUp, canPublish = true }: {
   ree: AnonymousRee;
   /** "我也问一句" on the public Q&A below: a question to put in the box, with a fresh `at` each time. */
   followUp?: { text: string; at: number } | null;
@@ -93,6 +93,8 @@ export function AnonymousChat({ ree, loginHref, source, followUp }: {
   loginHref: string;
   /** `share` on the share page `/s/[slug]`, so its answers count there (share.ts `shareVisitorFor`). */
   source?: 'share';
+  /** The owner keeps public Q&A on; off, there is no "回答后公开" to tick. */
+  canPublish?: boolean;
 }) {
   const { t } = useI18n();
   const a = t.discover.public.anonymous;
@@ -209,7 +211,7 @@ export function AnonymousChat({ ree, loginHref, source, followUp }: {
       return;
     }
     pendingQuestion.current = text;
-    publishRef.current = publish && historyOf(messages).length === 0;
+    publishRef.current = canPublish && publish && historyOf(messages).length === 0;
     setInput('');
     void sendMessage({ text });
   };
@@ -264,7 +266,9 @@ export function AnonymousChat({ ree, loginHref, source, followUp }: {
         </form>
       </div>
       <div className="mt-2 flex flex-wrap items-center justify-between gap-2 text-[11px] text-muted">
-        {!firstAsked ? (
+        {!canPublish ? (
+          <span>{t.discover.public.qa.closedNote}</span>
+        ) : !firstAsked ? (
           <label className="ree-ask-share">
             <input type="checkbox" checked={publish} onChange={(event) => setPublish(event.target.checked)} />
             {a.publish}

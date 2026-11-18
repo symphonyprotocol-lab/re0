@@ -152,6 +152,7 @@ export default async function SharePage({ params, searchParams }: Props) {
                 ree={{ id: ree.id, name: ree.name, avatarBlob: ree.avatarBlob, color: ree.color, sampleQuestions: picks.items.length > 0 ? [] : ree.sampleQuestions }}
                 loginHref={`/login?returnTo=${encodeURIComponent(`/s/${ree.slug}`)}`}
                 source="share"
+                canPublish={ree.publicQaEnabled}
               />
             </section>
           )}
