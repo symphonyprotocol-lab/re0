@@ -3,8 +3,8 @@ import { serverMessages } from '@/i18n/server';
 import { LegalDocument } from '@/components/site/legal-document';
 import { publicPage } from '@/lib/seo';
 
-const IDS = ['collect', 'use', 'providers', 'identity', 'tax', 'retention', 'cookies', 'rights', 'security'] as const;
-const KEYS = ['s1', 's2', 's3', 's4', 's5', 's6', 's7', 's8', 's9'] as const;
+const IDS = ['collect', 'public-content', 'use', 'providers', 'identity', 'tax', 'retention', 'cookies', 'rights', 'security'] as const;
+const KEYS = ['s1', 'public', 's2', 's3', 's4', 's5', 's6', 's7', 's8', 's9'] as const;
 
 export async function generateMetadata(): Promise<Metadata> {
   const { t, locale } = await serverMessages();
