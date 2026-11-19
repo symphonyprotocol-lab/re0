@@ -234,6 +234,32 @@ export function redact(text: string, lang: 'zh' | 'en', options: { links?: boole
   return pair[0];
 }
 
+/**
+ * An answer's Markdown as plain text, for excerpts shown as text (a feed
+ * card, a quote card): no headings, list markers, emphasis, code marks,
+ * link targets, tables or block quotes, one line. Citation markers stay
+ * ("[1]"); the caller strips them where it shows none.
+ */
+export function plainOf(markdown: string): string {
+  return markdown
+    .replace(/```[^\n]*\n([\s\S]*?)```/g, '$1')
+    .replace(/!\[([^\]]*)\]\([^)]*\)/g, '$1')
+    .replace(/\[([^\]]+)\]\((?:[^()]|\([^)]*\))*\)/g, '$1')
+    .replace(/^\s{0,3}#{1,6}\s+/gm, '')
+    .replace(/^\s{0,3}>\s?/gm, '')
+    .replace(/^\s*(?:[-*+]|\d{1,3}[.)])\s+/gm, '')
+    .replace(/^\s*\|?(?:\s*:?-{3,}:?\s*\|)+\s*:?-{0,}:?\s*$/gm, '')
+    .replace(/\s*\|\s*/g, ' ')
+    .replace(/^\s*(?:-{3,}|\*{3,}|_{3,})\s*$/gm, '')
+    .replace(/(\*\*|__)(?=\S)([\s\S]*?\S)\1/g, '$2')
+    .replace(/(^|[^\w*])\*(?=\S)([^*\n]*?\S)\*(?!\*)/g, '$1$2')
+    .replace(/(^|[^\w_])_(?=\S)([^_\n]*?\S)_(?![\w_])/g, '$1$2')
+    .replace(/~~(?=\S)([\s\S]*?\S)~~/g, '$1')
+    .replace(/`([^`\n]+)`/g, '$1')
+    .replace(/\s+/g, ' ')
+    .trim();
+}
+
 /** The answer as a page first shows it: whole, or cut on a word or character boundary with `truncated`. */
 export function previewOf(answer: string, max = PUBLIC_QA_PREVIEW_CHARS): { answer: string; truncated: boolean } {
   if (answer.length <= max) return { answer, truncated: false };

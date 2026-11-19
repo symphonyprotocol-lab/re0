@@ -1,6 +1,6 @@
 'use client';
 
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { useRouter } from 'next/navigation';
 import { WorkspaceLink as Link } from '@/components/shell/workspace-link';
 import type { CitationSnapshot } from '@/lib/domain/answer';
@@ -57,6 +57,20 @@ export function PostDetail({ initial, quoting, signedIn, now, loginHref }: { ini
     }, POLL_MS);
     return () => clearInterval(timer);
   }, [settled, post.id]);
+
+  /*
+   * The right column (the Rees that answered) and the sidebar's balance are
+   * rendered on the server: once the answers, the summary or what the author
+   * spent change -- polled, or after an action -- refresh them (the page's own
+   * state stays).
+   */
+  const shownState = `${post.answered}|${post.summary?.state ?? ''}|${post.spent ?? ''}|${post.paidRequests.map((entry) => entry.state).join(',')}`;
+  const seenState = useRef(shownState);
+  useEffect(() => {
+    if (seenState.current === shownState) return;
+    seenState.current = shownState;
+    router.refresh();
+  }, [shownState, router]);
 
   const replace = (id: string, change: Partial<PostAnswerView>) => setPost((current) => ({ ...current, answers: current.answers.map((entry) => (entry.id === id ? { ...entry, ...change } : entry)) }));
 
@@ -264,10 +278,21 @@ export function PostDetail({ initial, quoting, signedIn, now, loginHref }: { ini
               text={post.summary.content}
               citation={() => null}
               source={(marker, key) => {
+                /* "[A2]": that answer's second citation, as a chip like an answer's (opens the same drawer); "[A]": the answer as a whole. */
                 const kept = post.summary?.sources.find((entry) => entry.marker === marker);
+                const answer = kept ? post.answers.find((entry) => entry.reeId === kept.reeId) : undefined;
+                const label = kept && nameOf(kept.reeId) ? `${nameOf(kept.reeId)}${kept.index ? ` ${kept.index}` : ''}` : marker;
+                if (kept?.citation && answer) {
+                  const citation = kept.citation;
+                  return (
+                    <button key={key} type="button" className="synthesis-source" aria-label={label} onClick={() => setCitation({ entry: citation, answer })}>
+                      {label}
+                    </button>
+                  );
+                }
                 return (
                   <span key={key} className="synthesis-source plain">
-                    {kept ? `${nameOf(kept.reeId)}${kept.index ? ` ${kept.index}` : ''}` : marker}
+                    {label}
                   </span>
                 );
               }}

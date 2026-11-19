@@ -123,6 +123,8 @@ export function ConversationSearch({
   const shown = { ...query, page: result.page };
   const hrefOf = (next: ConversationQuery) => {
     const params = conversationSearchParams(next);
+    /* Inside 我的帖子 the bare path is the 全部 tab: this list keeps `tab=private`. */
+    if (embedded) params.set('tab', 'private');
     return params.size ? `${pathname}?${params}` : pathname;
   };
 
