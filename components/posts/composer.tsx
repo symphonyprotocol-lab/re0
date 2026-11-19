@@ -1,9 +1,10 @@
 'use client';
 
-import { Suspense, useEffect, useRef, useState, type ReactNode } from 'react';
+import { Suspense, useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
 import { usePathname, useRouter, useSearchParams } from 'next/navigation';
 import { WorkspaceLink as Link } from '@/components/shell/workspace-link';
-import { POST_DETAIL_MAX, POST_FREE_PER_DAY, POST_MAX_ANSWERS, POST_QUESTION_MAX } from '@/lib/domain/post';
+import { POST_DETAIL_MAX, POST_FREE_PER_DAY, POST_MAX_ANSWERS, POST_QUESTION_MAX, type PostQuote, type PostView } from '@/lib/domain/post';
+import { QuoteCard } from '@/components/posts/post-card';
 import { useI18n } from '@/i18n/client';
 import { fill, formatNumber } from '@/i18n/format';
 import { stripLocale } from '@/i18n/paths';
@@ -107,7 +108,7 @@ export interface Mention {
  * the mentioned Ree, and what today's post costs. Publishing opens the
  * post's page, which shows the Rees answering.
  */
-export function PublicPostForm({ mention: initialMention = null, autoFocus = false, leave }: { mention?: Mention | null; autoFocus?: boolean; leave?: (navigate: () => void) => void }) {
+export function PublicPostForm({ mention: initialMention = null, quote = null, autoFocus = false, leave }: { mention?: Mention | null; quote?: { postId: string; answerId: string | null } | null; autoFocus?: boolean; leave?: (navigate: () => void) => void }) {
   const { t, locale } = useI18n();
   const c = t.posts.composer;
   const router = useRouter();
@@ -120,6 +121,33 @@ export function PublicPostForm({ mention: initialMention = null, autoFocus = fal
   const [allowance, setAllowance] = useState<Allowance | null>(null);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  /* "引用提问": the quoted post (and answer) as the card will show it; quoting an answer names its Ree. */
+  const [quoted, setQuoted] = useState<PostQuote | 'loading' | 'gone' | null>(quote ? 'loading' : null);
+  useEffect(() => {
+    if (!quote) return;
+    let live = true;
+    fetch(`/api/posts/${quote.postId}`, { headers: { accept: 'application/json' } })
+      .then((response) => (response.ok ? (response.json() as Promise<PostView>) : null))
+      .then((view) => {
+        if (!live) return;
+        const shown = quote.answerId ? view?.answers.find((entry) => entry.id === quote.answerId && entry.state === 'answered') : null;
+        if (!view || view.status !== 'published' || view.deleted || (quote.answerId && !shown)) return setQuoted('gone');
+        setQuoted({
+          kind: shown ? 'answer' : 'post',
+          available: true,
+          postId: view.id,
+          question: view.question,
+          author: view.author,
+          createdAt: view.createdAt,
+          answer: shown ? { id: shown.id, reeName: shown.reeName, reeSlug: shown.reeSlug, reeAvatar: shown.reeAvatar, reeColor: shown.reeColor, text: shown.text.replace(/ ?\[\d{1,2}\]/g, '').slice(0, 160) } : null,
+        });
+        if (shown) setMention({ id: shown.reeId, name: shown.reeName });
+      })
+      .catch(() => live && setQuoted('gone'));
+    return () => {
+      live = false;
+    };
+  }, [quote]);
   /* One token per post being written: a second submit of the same one returns the same post (S4). */
   const [token, setToken] = useState(() => crypto.randomUUID());
 
@@ -144,7 +172,7 @@ export function PublicPostForm({ mention: initialMention = null, autoFocus = fal
       const response = await fetch('/api/posts', {
         method: 'POST',
         headers: { 'content-type': 'application/json' },
-        body: JSON.stringify({ question, detail, anonymous, mentionReeId: mention?.id ?? null, clientToken: token }),
+        body: JSON.stringify({ question, detail, anonymous, mentionReeId: mention?.id ?? null, quotePostId: quote?.postId ?? null, quoteAnswerId: quote?.answerId ?? null, clientToken: token }),
       });
       const body = (await response.json().catch(() => ({}))) as { id?: string; error?: string; balance?: number; needed?: number };
       if ((response.status === 201 || response.status === 200) && body.id) {
@@ -161,6 +189,8 @@ export function PublicPostForm({ mention: initialMention = null, autoFocus = fal
       setError(
         body.error === 'insufficient_credits'
           ? fill(c.insufficient, { needed: formatNumber(body.needed ?? 0, locale), balance: formatNumber(body.balance ?? 0, locale) })
+          : body.error === 'quote_unavailable'
+            ? t.posts.quote.unavailable
           : body.error === 'daily_limit'
             ? c.dailyLimit
             : body.error === 'too_long'
@@ -177,6 +207,12 @@ export function PublicPostForm({ mention: initialMention = null, autoFocus = fal
 
   return (
     <div className="post-form">
+      {quoted && (
+        <div className="post-form-quote">
+          <span className="post-hint">{t.posts.quote.quoting}</span>
+          {quoted === 'loading' ? <p className="post-hint">{t.posts.quote.loading}</p> : <QuoteCard quote={quoted === 'gone' ? { kind: quote?.answerId ? 'answer' : 'post', available: false } : quoted} now={Date.now()} />}
+        </div>
+      )}
       {mention && (
         <div className="post-mention">
           <Icon name="at" className="size-3.5" />
@@ -283,6 +319,9 @@ function ComposerDialogInner() {
   const open = compose === 'public' || compose === 'private';
   const mentionId = params.get('ree');
   const mention = mentionId ? { id: mentionId, name: params.get('name') ?? '' } : null;
+  const quotePostId = params.get('quote');
+  const quoteAnswerId = params.get('qa');
+  const quote = useMemo(() => (quotePostId ? { postId: quotePostId, answerId: quoteAnswerId } : null), [quotePostId, quoteAnswerId]);
   const exit = useRef(composerExit()).current;
 
   useEffect(() => {
@@ -295,7 +334,7 @@ function ComposerDialogInner() {
 
   function close() {
     const next = new URLSearchParams(params.toString());
-    for (const key of ['compose', 'ree', 'name']) next.delete(key);
+    for (const key of ['compose', 'ree', 'name', 'quote', 'qa']) next.delete(key);
     const query = next.toString();
     router.replace(`${pathname}${query ? `?${query}` : ''}`, { scroll: false });
   }
@@ -317,7 +356,7 @@ function ComposerDialogInner() {
               <Icon name="close" className="" />
             </button>
           </header>
-          {tab === 'public' ? <PublicPostForm key={mention?.id ?? 'none'} mention={mention} autoFocus leave={exit.leave} /> : <PrivateForm leave={exit.leave} stay={close} />}
+          {tab === 'public' ? <PublicPostForm key={`${mention?.id ?? 'none'}:${quotePostId ?? ''}:${quoteAnswerId ?? ''}`} mention={mention} quote={quote} autoFocus leave={exit.leave} /> : <PrivateForm leave={exit.leave} stay={close} />}
         </div>
       )}
     </dialog>

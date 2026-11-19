@@ -97,9 +97,31 @@ function fold(text: string): string {
 const EMAIL = /[A-Za-z0-9._%+-]+@[A-Za-z0-9-]+(?:\.[A-Za-z0-9-]+)*/g;
 const SPACED_EMAIL = /[A-Za-z0-9._%+-]+\s*@\s*[A-Za-z0-9-]+(?:\s*\.\s*[A-Za-z0-9-]+)*\s*\.\s*[a-z]{2,6}\b/gi;
 /* "at" before a domain with its ending: me at gmail.com. The ending is lower case, so "look at it.Then" stays. */
-const AT_DOMAIN = /\b[A-Za-z0-9._%+-]+\s+[Aa][Tt]\s+[A-Za-z0-9-]+(?:\.[A-Za-z0-9-]+)*\.[a-z]{2,6}\b/g;
-const SPELLED_EMAIL = /[A-Za-z0-9._%+-]+\s*[([]\s*at\s*[)\]]\s*[A-Za-z0-9-]+(?:\s*[([]\s*dot\s*[)\]]\s*[A-Za-z0-9-]+)+/gi;
-const WORDED_EMAIL = /\b[A-Za-z0-9._%+-]+\s+at\s+[A-Za-z0-9-]+(?:\s+dot\s+[A-Za-z]{2,6})+\b/gi;
+const AT_DOMAIN = /\b[A-Za-z0-9._%+-]+\s+[Aa][Tt]\s+[a-z0-9-]+(?:\.[a-z0-9-]+)*\.[a-z]{2,6}\b/g;
+/* Bracketed: (at) [at] {at}, and the same for dot. */
+const SPELLED_EMAIL = /[A-Za-z0-9._%+-]+\s*[([{]\s*at\s*[)\]}]\s*[A-Za-z0-9-]+(?:\s*[([{]\s*dot\s*[)\]}]\s*[A-Za-z0-9-]+)+/gi;
+/* Words: me at qq dot com -- the domain in lower case, so "work at Google dot com" style prose is a name, not an address. */
+const WORDED_EMAIL = /\b[A-Za-z0-9._%+-]+\s+[Aa][Tt]\s+[a-z0-9-]+(?:\s+[Dd][Oo][Tt]\s+[a-z]{2,6})+\b/g;
+/* # for @ (me＃qq．com), AT glued in (meＡＴqq.com), and letters spaced out (m e @ q q . c o m). */
+const HASH_EMAIL = /[A-Za-z0-9._%+-]+#[A-Za-z0-9-]+(?:\.[A-Za-z0-9-]+)*\.[a-z]{2,6}\b/g;
+const GLUED_AT_EMAIL = /\b[a-z0-9._%+-]+AT[a-z0-9-]+(?:\.[a-z0-9-]+)*\.[a-z]{2,6}\b/g;
+const SPACED_LETTERS_EMAIL = /(?<![A-Za-z0-9])(?:[A-Za-z0-9] ){2,}[A-Za-z0-9]? ?@ ?(?:[A-Za-z0-9] ?){2,}\. ?(?:[a-z] ?){1,5}[a-z](?![A-Za-z])/g;
+/*
+ * "at" in ordinary English -- look at, work at, meet at -- before something
+ * that only looks like a domain: kept. The word before "at" decides.
+ */
+const AT_VERBS = new Set(['look', 'looking', 'looked', 'work', 'works', 'working', 'worked', 'meet', 'met', 'stay', 'stayed', 'staying', 'arrive', 'arrived', 'live', 'lives', 'lived', 'based', 'hosted', 'available', 'find', 'found', 'sign', 'signed', 'log', 'logged', 'click', 'point', 'aim', 'go', 'went', 'is', 'are', 'was', 'were', 'be', 'am', 'him', 'her', 'them', 'it', 'us']);
+const atInProse = (match: string): boolean => AT_VERBS.has((match.trim().split(/\s+/)[0] ?? '').toLowerCase());
+/*
+ * A QQ or WeChat id after the word that names it: QQ 654321, 微信号：linmei,
+ * wx lin_mei_88. Six-digit QQ numbers and all-letter WeChat ids cannot be
+ * told from ordinary words on their own, so only after a hint: with a colon
+ * any id of 5 or more; without one it must have a digit or an underscore
+ * ("WeChat official account" stays).
+ */
+const ID_HINT = '(?:QQ|qq|Qq|Q号|扣扣|微信号?|威信|V信|v信|wx|WX|vx|VX|wechat|WeChat|Wechat|weixin)';
+const HINTED_ID_AFTER_COLON = new RegExp(`(?<=${ID_HINT}\\s*号?\\s*[:：]\\s*)[A-Za-z0-9][-_A-Za-z0-9]{4,19}`, 'g');
+const HINTED_ID = new RegExp(`(?<=${ID_HINT}\\s*号?\\s*)(?=[-_A-Za-z]*[0-9_])[A-Za-z0-9][-_A-Za-z0-9]{4,19}`, 'g');
 const CHINESE_EMAIL = /[A-Za-z0-9._%+-]+\s*(?:艾特|圈a|圈)\s*[A-Za-z0-9-]+(?:\s*(?:点|dot)\s*[A-Za-z]{2,6})+/gi;
 /* Mainland identity card numbers: 17 digits and a check character. Letters may touch it (身份证号E…). */
 const ID_CARD = /(?<![0-9])[1-9][0-9]{5}(?:18|19|20)[0-9]{2}(?:0[1-9]|1[0-2])(?:0[1-9]|[12][0-9]|3[01])[0-9]{3}[0-9Xx](?![0-9])/g;
@@ -111,7 +133,7 @@ const ID_CARD = /(?<![0-9])[1-9][0-9]{5}(?:18|19|20)[0-9]{2}(?:0[1-9]|1[0-2])(?:
  * numbers. Only a digit next to it stops it, so wx13800138000 and
  * QQ12345678 are caught.
  */
-const LONG_NUMBER = /(?<![0-9])\+?(?:[0-9](?:[\s().\-/_·,~|+*#:;→…]{0,3}|\s{4,})){6,}[0-9](?![0-9])/g;
+const LONG_NUMBER = /(?<![0-9])\+?(?:[0-9](?:[\s().\-/_·,~|+*#:;→…丨=^%&\u200b-\u200d\u2060\ufeff]{0,3}|\s{4,})){6,}[0-9](?![0-9])/g;
 /* A date written with separators is not personal: 2026-11-18, 2026/11/18. */
 const DATE = /^\d{4}[-/.]\d{1,2}[-/.]\d{1,2}$/;
 /* Thousands are not personal either: 1,200,000. */
@@ -127,8 +149,13 @@ const THOUSANDS = /^\d{1,3}(?:,\d{3})+$/;
  * Prices and counts in lists are common in questions; review is the
  * second layer for what still gets through.
  */
-const LIST_SEPARATED = /[,~]/;
+const LIST_SEPARATED = /[,~/:]/;
 const MOBILE = /^(?:86)?1[3-9]\d{9}$/;
+/* An ISBN (978-7-111-12345-6) and an order number that starts with its date (202611190001) are not about a person. */
+/* The first 17 digits of an identity number, split: region, birth date, sequence. */
+const ID_BODY = /^\d{6}(?:19|20)\d{2}(?:0[1-9]|1[0-2])(?:0[1-9]|[12]\d|3[01])\d{3}$/;
+const ISBN = /^97[89]\d{10}$/;
+const DATED_ORDER = /^20\d{2}(?:0[1-9]|1[0-2])(?:0[1-9]|[12]\d|3[01])\d{4,}$/;
 const LANDLINE = /^0\d{9,11}$/;
 function cardLike(match: string, digits: string): boolean {
   if (digits.length < 15 || digits.length > 19) return false;
@@ -137,12 +164,29 @@ function cardLike(match: string, digits: string): boolean {
   /* Only the four-digit groups: a numeral just after the list (…4000 四档) folds into a short last group. */
   return !groups.filter((group) => group.length === 4).every((group) => group.endsWith('0'));
 }
+/*
+ * Whether a long digit run is ordinary, in this order:
+ * 1. short, a date or thousands: ordinary;
+ * 2. a mobile, a landline, a card or the body of an identity number: personal,
+ *    however it is separated;
+ * 3. an ISBN, or an order number starting with its date: ordinary;
+ * 4. four or more groups of at most three digits -- scores 98:95:100:87,
+ *    tiers 99/199/299/399, sizes 36 37 … 42: ordinary;
+ * 5. groups of three or more digits all ending in 0 -- 1000 2000 3000 4000:
+ *    round amounts, ordinary;
+ * 6. a list or a range (, ~ / :): ordinary;
+ * 7. anything else -- one long run, or groups like 138 1234 5678: personal.
+ */
 function ordinaryNumber(match: string): boolean {
   const digits = match.replace(/[^0-9]/g, '');
   const trimmed = match.trim();
   if (digits.length < 7 || DATE.test(trimmed) || THOUSANDS.test(trimmed)) return true;
-  if (!LIST_SEPARATED.test(match)) return false;
-  return !(MOBILE.test(digits) || LANDLINE.test(digits) || cardLike(trimmed, digits));
+  if (MOBILE.test(digits) || LANDLINE.test(digits) || cardLike(trimmed, digits) || ID_BODY.test(digits)) return false;
+  const groups = trimmed.split(/[^0-9]+/).filter(Boolean);
+  if (ISBN.test(digits) || (groups.length === 1 && DATED_ORDER.test(digits))) return true;
+  if (groups.length >= 4 && groups.every((group) => group.length <= 3)) return true;
+  if (groups.length >= 2 && groups.every((group) => group.length >= 3 && group.endsWith('0'))) return true;
+  return LIST_SEPARATED.test(match);
 }
 const URL = /\b(?:https?:\/\/|www\.)[^\s<>"'）)】\]]+/gi;
 
@@ -175,13 +219,18 @@ export function redact(text: string, lang: 'zh' | 'en', options: { links?: boole
   let pair: [string, string] = [text, fold(text)];
   pair = cut(...pair, EMAIL, mark);
   pair = cut(...pair, SPELLED_EMAIL, mark);
-  pair = cut(...pair, WORDED_EMAIL, mark);
+  pair = cut(...pair, WORDED_EMAIL, mark, atInProse);
   pair = cut(...pair, SPACED_EMAIL, mark);
-  pair = cut(...pair, AT_DOMAIN, mark);
+  pair = cut(...pair, HASH_EMAIL, mark);
+  pair = cut(...pair, GLUED_AT_EMAIL, mark);
+  pair = cut(...pair, SPACED_LETTERS_EMAIL, mark);
+  pair = cut(...pair, AT_DOMAIN, mark, atInProse);
   pair = cut(...pair, CHINESE_EMAIL, mark);
   pair = cut(...pair, ID_CARD, mark);
   if (options.links ?? true) pair = cut(...pair, URL, mark);
   pair = cut(...pair, LONG_NUMBER, mark, ordinaryNumber);
+  pair = cut(...pair, HINTED_ID_AFTER_COLON, mark);
+  pair = cut(...pair, HINTED_ID, mark);
   return pair[0];
 }
 

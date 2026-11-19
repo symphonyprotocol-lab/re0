@@ -82,7 +82,7 @@ export const qaAnchor = (id: string) => `qa-${id}`;
  * then the newest, ten at a time. Anyone may expand an answer, copy its
  * link or report it; signed in, mark it helpful; the owner pins and hides.
  */
-export function PublicQaList({ ree, initial, signedIn, owner, loginHref, renderedAt, onFollowUp }: {
+export function PublicQaList({ ree, initial, signedIn, owner, loginHref, followUpLoginHref, renderedAt, onFollowUp }: {
   ree: QaRee;
   initial: PublicQaPage;
   signedIn: boolean;
@@ -91,6 +91,8 @@ export function PublicQaList({ ree, initial, signedIn, owner, loginHref, rendere
   renderedAt: number;
   /** "我也问一句": put a question about this one into the box above. */
   onFollowUp: (question: string) => void;
+  /** For a visitor, where "我也问一句" goes: sign in, then back to this page's question box. */
+  followUpLoginHref?: string;
 }) {
   const { t, locale } = useI18n();
   const q = t.discover.public.qa;
@@ -247,10 +249,18 @@ export function PublicQaList({ ree, initial, signedIn, owner, loginHref, rendere
                     {fill(q.helpful, { n: formatNumber(item.helpful, locale) })}
                   </Link>
                 )}
-                <button type="button" className="icon-btn ree-qa-follow" onClick={() => onFollowUp(item.question)}>
-                  <Icon name="chat" />
-                  {q.followUp}
-                </button>
+                {/* A visitor no longer asks on the Ree page (2026-11-19): signing in brings them back to its question box. */}
+                {signedIn ? (
+                  <button type="button" className="icon-btn ree-qa-follow" onClick={() => onFollowUp(item.question)}>
+                    <Icon name="chat" />
+                    {q.followUp}
+                  </button>
+                ) : (
+                  <Link href={followUpLoginHref ?? loginHref} className="icon-btn ree-qa-follow" title={q.followUpSignIn}>
+                    <Icon name="chat" />
+                    {q.followUp}
+                  </Link>
+                )}
                 <button type="button" className="icon-btn" onClick={() => void copyLink(item)}>
                   <Icon name="link" />
                   {q.copyLink}

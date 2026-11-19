@@ -16,7 +16,6 @@ import { useToast } from '@/components/ui/toast';
 import { ReeIdentityCover } from '@/components/rees/ree-identity-cover';
 import { RoleBadge } from '@/components/discover/role-badge';
 import { AuthorProfile } from '@/components/discover/author-profile';
-import { AnonymousChat } from '@/components/discover/anonymous-chat';
 import { SignedInAsk } from '@/components/discover/signed-in-ask';
 import { composeHref } from '@/components/posts/composer';
 import { PublicQaList } from '@/components/discover/public-qa';
@@ -123,18 +122,12 @@ export function ReeDetailView({
     <p className="ree-ask rounded-xl border border-line bg-wash px-4 py-3 text-[12px] text-muted">{p.anonymous.noSources}</p>
   ) : viewerId ? (
     <SignedInAsk ree={qaRee} price={price} queryFee={owner ? 0 : ree.queryFee} canPublish={ree.publicQaEnabled} sampleQuestions={ree.sampleQuestions} followUp={followUp} />
-  ) : ree.queryFee === 0 ? (
-    <AnonymousChat
-      ree={{ id: ree.id, name: ree.name, avatarBlob: ree.avatarBlob, color: ree.color, sampleQuestions: ree.sampleQuestions }}
-      loginHref={loginHref(self({}))}
-      followUp={followUp}
-      canPublish={ree.publicQaEnabled}
-    />
   ) : (
+    /* Visitors ask only on a share page (2026-11-19); here they sign in to ask or post. */
     <div id={PUBLIC_QA_ASK_ANCHOR} className="ree-ask flex flex-wrap items-center justify-between gap-3 rounded-xl border border-line bg-wash px-4 py-3">
       <div>
         <p className="text-[13px] font-semibold">{q.paidTitle}</p>
-        <p className="text-[12px] text-muted">{fill(q.paidBody, { n: n(ree.price) })}</p>
+        <p className="text-[12px] text-muted">{ree.queryFee === 0 ? q.signInBody : fill(q.paidBody, { n: n(ree.price) })}</p>
       </div>
       <Link href={loginHref(`${self({})}#${PUBLIC_QA_ASK_ANCHOR}`)} className="btn-secondary btn-sm text-blue">
         {p.anonymous.limitSignIn}
@@ -219,7 +212,7 @@ export function ReeDetailView({
             <div role="tabpanel" hidden={tab !== 'qa'}>
               {askBox}
               {qa && qa.items.length > 0 ? (
-                <PublicQaList ree={qaRee} initial={qa} signedIn={Boolean(viewerId)} owner={owner} loginHref={loginHref(self({}))} renderedAt={renderedAt} onFollowUp={askAbout} />
+                <PublicQaList ree={qaRee} initial={qa} signedIn={Boolean(viewerId)} owner={owner} loginHref={loginHref(self({}))} followUpLoginHref={loginHref(`${self({})}#${PUBLIC_QA_ASK_ANCHOR}`)} renderedAt={renderedAt} onFollowUp={askAbout} />
               ) : (
                 <div className="ree-qa-empty">
                   <span className="mb-2 grid size-9 place-items-center rounded-lg bg-soft text-blue">

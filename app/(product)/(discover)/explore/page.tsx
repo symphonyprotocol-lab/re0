@@ -5,13 +5,12 @@ import { parseExploreQuery } from '@/lib/domain/explore';
 import { clientIp } from '@/lib/http/conversations';
 import { currentUser } from '@/lib/http/session';
 import { allowSearch, explore, weeklyMostAsked } from '@/lib/services/explore';
-import { currentAnonymousChatLimits } from '@/lib/services/anonymous-chat-settings';
 import { favoriteReeIds } from '@/lib/services/ree-favorites';
 import { introsFor } from '@/lib/services/video';
 import { publicPage, UNLISTED_ROBOTS } from '@/lib/seo';
 import { serverMessages } from '@/i18n/server';
 import { FeedColumns } from '@/components/shell/feed-columns';
-import { ExploreRail, ExploreView, FreeRoundsNote } from '@/components/discover/explore-view';
+import { ExploreRail, ExploreView } from '@/components/discover/explore-view';
 import { WorkspaceLink as Link } from '@/components/shell/workspace-link';
 import { Icon } from '@/components/ui/icons';
 import { PostFeed } from '@/components/posts/post-feed';
@@ -50,11 +49,11 @@ export default async function ExplorePage({ searchParams }: Props) {
     </div>
   );
   if (tab !== 'rees') {
-    const [top, limits] = await Promise.all([weeklyMostAsked(), user ? null : currentAnonymousChatLimits()]);
+    const top = await weeklyMostAsked();
     const q = tab === 'posts' && typeof params.q === 'string' ? params.q.slice(0, 200) : null;
     const feed = await listFeed(tab === 'posts' ? 'latest' : 'unanswered', { viewerId: user?.id, q });
     return (
-      <FeedColumns title={t.common.nav.discover} tabs={tabs} rail={<ExploreRail rail={{ top, freeRounds: limits?.visitorRoundsPerDay ?? null }} signedIn={Boolean(user)} from="/explore" />}>
+      <FeedColumns title={t.common.nav.discover} tabs={tabs} rail={<ExploreRail rail={{ top }} signedIn={Boolean(user)} from="/explore" />}>
         {tab === 'posts' && (
           <form action="/explore" role="search" className="post-search" aria-label={e.searchPosts}>
             <input type="hidden" name="tab" value="posts" />
@@ -76,17 +75,15 @@ export default async function ExplorePage({ searchParams }: Props) {
   }
   const limited = Boolean(query.q) && !(await allowSearch({ ip: clientIp(await headers()), userId: user?.id ?? null }));
   const result = await explore(limited ? { ...query, q: '' } : query, { cursor: null, size: EXPLORE_BATCH_SIZES[0] }, { includeIntros: false });
-  const [favoriteIds, coverVideos, top, limits] = await Promise.all([
+  const [favoriteIds, coverVideos, top] = await Promise.all([
     user ? favoriteReeIds(user.id, result.items.map(ree => ree.id)) : undefined,
     introsFor(result.items.filter(ree => !ree.coverBlob).map(ree => ree.id)),
     weeklyMostAsked(),
-    user ? null : currentAnonymousChatLimits(),
   ]);
   const items = result.items.map(ree => ({ ...ree, video: coverVideos.get(ree.id) ?? null }));
   const renderedAt = Date.now();
   return (
-    <FeedColumns title={t.common.nav.discover} tabs={tabs} rail={<ExploreRail rail={{ top, freeRounds: limits?.visitorRoundsPerDay ?? null }} signedIn={Boolean(user)} from="/explore" />}>
-      <FreeRoundsNote freeRounds={limits?.visitorRoundsPerDay ?? null} />
+    <FeedColumns title={t.common.nav.discover} tabs={tabs} rail={<ExploreRail rail={{ top }} signedIn={Boolean(user)} from="/explore" />}>
       <ExploreView query={query} result={{ ...result, items }} limited={limited} signedIn={Boolean(user)} favoriteIds={favoriteIds} viewerId={user?.id} renderedAt={renderedAt} />
     </FeedColumns>
   );

@@ -51,6 +51,8 @@ export const AUDIT_ACTIONS = [
   'ree.qa.restore',
   'post.hide',
   'post.restore',
+  'post.quote.keep',
+  'post.quote.hide_answers',
   'redeem.batch.create',
   'redeem.batch.update',
   'redeem.batch.export',

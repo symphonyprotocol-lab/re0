@@ -261,24 +261,7 @@
 .xfab {
   display: none;
 }
-/* The right column's free-rounds line, inside the centre column once that column folds away. */
-.xfree-note {
-  display: none;
-}
 @media (max-width: 1100px) {
-  .xfree-note {
-    display: flex;
-    align-items: flex-start;
-    gap: 8px;
-    margin: 12px 18px 0;
-    padding: 10px 12px;
-    border: 1px solid #d6e6fb;
-    border-radius: 12px;
-    background: var(--color-soft);
-    color: #3b4361;
-    font-size: 12px;
-    line-height: 1.5;
-  }
   .xmain-grid {
     grid-template-columns: minmax(0, 640px);
     justify-content: center;

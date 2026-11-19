@@ -199,4 +199,22 @@ describeWithDb('public posts, review round 3', () => {
     expect(await posts.summarizePost(author, posted.id, 'en', approve)).toBe('done');
     expect(await balanceOf(db(), author)).toBe(balance - POST_SUMMARY_FEE);
   });
+
+  it('looks only at the answers that dropped out: an author\'s own Ree still answering keeps a rewrite free (#161)', async () => {
+    const others = [await publicRee(), await publicRee()];
+    const author = await user('r3-dropped', 500);
+    const own = await publicRee();
+    await db().update(schema.ree).set({ ownerId: author }).where(eq(schema.ree.id, own.reeId));
+    const posted = await publish(author, `${QUESTION} dropped`);
+    await posts.processPost(posted.id, stub([own.reeId, ...others.map((entry) => entry.reeId)]));
+    expect(await posts.summarizePost(author, posted.id, 'en', approve)).toBe('done');
+
+    /* Another owner hides theirs; the author's own answer is still shown and was in the summary: free. */
+    const [row] = await db().select().from(schema.postAnswer).where(and(eq(schema.postAnswer.postId, posted.id), eq(schema.postAnswer.reeId, others[0]!.reeId)));
+    expect(await posts.ownerActOnAnswer(others[0]!.ownerId, others[0]!.reeId, row!.id, 'hide')).toBe(true);
+    expect((await posts.getPost(posted.id, author))).toMatchObject({ summaryStale: true, summaryRewriteFree: true });
+    const balance = await balanceOf(db(), author);
+    expect(await posts.summarizePost(author, posted.id, 'en', approve)).toBe('done');
+    expect(await balanceOf(db(), author)).toBe(balance);
+  });
 });

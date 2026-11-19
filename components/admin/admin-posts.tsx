@@ -16,6 +16,19 @@ export function AdminPostsTable({ rows }: { rows: AdminPost[] }) {
   const router = useRouter();
   const [busy, setBusy] = useState<string | null>(null);
 
+  async function review(row: AdminPost, action: 'keep' | 'hide_answers') {
+    setBusy(row.id);
+    try {
+      const response = await fetch(`/api/admin/posts/${row.id}/quote-review`, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ action }) });
+      toast(response.ok ? (action === 'keep' ? a.quoteKept : a.quoteAnswersHidden) : a.stale);
+      router.refresh();
+    } catch {
+      toast(t.common.errors.generic);
+    } finally {
+      setBusy(null);
+    }
+  }
+
   async function set(row: AdminPost, show: boolean) {
     setBusy(row.id);
     try {
@@ -41,12 +54,21 @@ export function AdminPostsTable({ rows }: { rows: AdminPost[] }) {
         <span key="s">
           {a.status[row.status]}
           {row.hiddenBy && <span className="block text-[11px] text-muted">{a.hiddenBy[row.hiddenBy]}</span>}
+          {row.quoteReview && <span className="block text-[11px] text-[#b4372c]">{a.quoteReview}</span>}
         </span>,
         <span key="r" className="mono">{row.reports}</span>,
         <span key="n" className="mono">{row.answers}</span>,
-        <button key="act" type="button" className="btn ghost sm" disabled={busy === row.id} onClick={() => void set(row, row.status === 'hidden')}>
-          {row.status === 'hidden' ? a.restore : a.hide}
-        </button>,
+        <span key="act" className="flex flex-wrap gap-1">
+          {row.quoteReview && (
+            <>
+              <button type="button" className="btn ghost sm" disabled={busy === row.id} onClick={() => void review(row, 'keep')}>{a.quoteKeep}</button>
+              <button type="button" className="btn ghost sm" disabled={busy === row.id} onClick={() => void review(row, 'hide_answers')}>{a.quoteHideAnswers}</button>
+            </>
+          )}
+          <button type="button" className="btn ghost sm" disabled={busy === row.id} onClick={() => void set(row, row.status === 'hidden')}>
+            {row.status === 'hidden' ? a.restore : a.hide}
+          </button>
+        </span>,
       ])}
     />
   );

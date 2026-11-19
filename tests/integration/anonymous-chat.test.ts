@@ -83,13 +83,15 @@ function fingerprint(): string {
   return crypto.randomUUID().replaceAll('-', '');
 }
 
-function ask(reeId: string, visitor: { fingerprint?: string; ip: string; cookie?: string; shareVisitor?: string }, question = QUESTION, extra: Record<string, unknown> = {}) {
+/** A visitor's question from the Ree's share page: since 2026-11-19 the only place they ask (its token comes with it unless `extra` replaces it). */
+async function ask(reeId: string, visitor: { fingerprint?: string; ip: string; cookie?: string; shareVisitor?: string }, question = QUESTION, extra: Record<string, unknown> = {}) {
   const headers: Record<string, string> = { origin: base, host: 'localhost:3000', 'content-type': 'application/json' };
   if (visitor.ip) headers['x-real-ip'] = visitor.ip;
   if (visitor.fingerprint) headers[FINGERPRINT_HEADER] = visitor.fingerprint;
   const cookies = [visitor.cookie && `${ANONYMOUS_ID_COOKIE}=${visitor.cookie}`, visitor.shareVisitor && `${VISITOR_COOKIE}=${visitor.shareVisitor}`].filter(Boolean);
   if (cookies.length) headers.cookie = cookies.join('; ');
-  return POST(new NextRequest(`${base}/api/rees/${reeId}/anonymous-chat`, { method: 'POST', headers, body: JSON.stringify({ question, lang: 'en', ...extra }) }), { params: Promise.resolve({ id: reeId }) });
+  const payload = { question, lang: 'en', shareToken: await anonymous.shareAskToken(reeId), ...extra };
+  return POST(new NextRequest(`${base}/api/rees/${reeId}/anonymous-chat`, { method: 'POST', headers, body: JSON.stringify(payload) }), { params: Promise.resolve({ id: reeId }) });
 }
 
 function quota(reeId: string, visitor: { fingerprint: string; ip: string; cookie?: string }) {
@@ -370,13 +372,13 @@ describeWithDb('anonymous chat on the share page', () => {
     expect(fromShare.outcome).toMatchObject({ noAnswer: false, failed: false, cost: 0 });
     /* Claiming the share page without having visited it counts nothing there. */
     await read(await ask(reeId, { fingerprint: fingerprint(), ip: ip(), shareVisitor: crypto.randomUUID() }, QUESTION, { source: 'share' }));
-    /* Asked on `/r/[slug]` by the same browser: not the share page's. */
-    await read(await ask(reeId, { fingerprint: fingerprint(), ip: ip(), shareVisitor }));
+    /* The Ree page `/r/[slug]` has no share token: since 2026-11-19 a visitor cannot ask there at all. */
+    expect((await ask(reeId, { fingerprint: fingerprint(), ip: ip(), shareVisitor }, QUESTION, { shareToken: undefined })).status).toBe(403);
 
     const rows = await db().select({ shareVisitorId: schema.anonymousAnswer.shareVisitorId }).from(schema.anonymousAnswer).where(eq(schema.anonymousAnswer.reeId, reeId));
-    expect(rows.map((row) => row.shareVisitorId).sort()).toEqual([shareVisitor, null, null].sort());
+    expect(rows.map((row) => row.shareVisitorId).sort()).toEqual([shareVisitor, null].sort());
     expect(await share.shareStatistics(reeId, null)).toMatchObject({ visits: 1, visitors: 1, conversations: 0, converted: 0, rate: 0, anonymousAnswers: 1 });
-    expect((await answerCounts([reeId], null)).get(reeId)).toBe(3);
+    expect((await answerCounts([reeId], null)).get(reeId)).toBe(2);
   });
 
   it('is refused for a paid Ree and once the share link stops working, as on the public page', async () => {

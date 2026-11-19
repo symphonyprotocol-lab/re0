@@ -30,6 +30,7 @@ const { ownedConversation } = await import('@/lib/services/chat');
 const { reeCards } = await import('@/lib/services/explore');
 const { computeRanks } = await import('@/lib/services/rank');
 const { POST: anonymousPost } = await import('@/app/api/rees/[id]/anonymous-chat/route');
+const { shareAskToken, validShareAskToken } = await import('@/lib/services/anonymous-chat');
 const { FINGERPRINT_HEADER } = await import('@/lib/domain/anonymous-chat');
 const { PUBLIC_QA_REPORT_THRESHOLD } = await import('@/lib/domain/public-qa');
 const { db, schema } = await import('@/lib/infra/db');
@@ -72,10 +73,25 @@ async function publicRee() {
 }
 
 let ipCounter = 0;
-function ask(reeId: string, question: string, extra: Record<string, unknown> = {}) {
+/** A visitor's question, from the Ree's share page (its token) unless `extra` says otherwise. */
+async function ask(reeId: string, question: string, extra: Record<string, unknown> = {}) {
   ipCounter += 1;
   const headers = { origin: base, host: 'localhost:3000', 'content-type': 'application/json', 'x-real-ip': `203.0.113.${ipCounter % 250}`, [FINGERPRINT_HEADER]: crypto.randomUUID().replaceAll('-', '') };
-  return anonymousPost(new NextRequest(`${base}/api/rees/${reeId}/anonymous-chat`, { method: 'POST', headers, body: JSON.stringify({ question, lang: 'en', ...extra }) }), { params: Promise.resolve({ id: reeId }) });
+  const payload = { question, lang: 'en', shareToken: await shareAskToken(reeId), ...extra };
+  return anonymousPost(new NextRequest(`${base}/api/rees/${reeId}/anonymous-chat`, { method: 'POST', headers, body: JSON.stringify(payload) }), { params: Promise.resolve({ id: reeId }) });
+}
+
+/**
+ * A visitor's published Q&A as #158 left them (visitors no longer publish
+ * since 2026-11-19, but what they published stays): a snapshot, redacted on
+ * the way in, then reviewed -- 'skipped' when the Ree takes no public answers.
+ */
+async function visitorPublished(reeId: string, question: string): Promise<string> {
+  const citation = { index: 1, knowledgeId: crypto.randomUUID(), title: 'Refund policy', kind: 'text' as const, locator: {} as never, excerpt: 'Refunds are issued to the original payment method within 14 days.' };
+  const id = await qa.keepSnapshot({ reeId, source: 'anonymous', question, answer: 'Refunds go back to the original payment method within 14 days [1].', citations: [citation], lang: 'en' });
+  if (!id) return 'skipped';
+  const status = await qa.moderateSnapshot(id);
+  return status === 'gone' ? 'pending' : status;
 }
 
 async function read(response: Response) {
@@ -111,15 +127,26 @@ function report(reeId: string, qaId: string, ip: string, cookie?: string) {
 }
 
 describeWithDb('public Q&A', () => {
-  it('keeps a visitor\'s answer only when asked to publish it, redacted, and shows it once it passes review', async () => {
+  it('asks only from a share page, and never publishes a visitor\'s answer (2026-11-19)', async () => {
     const { reeId } = await publicRee();
-    expect((await read(await ask(reeId, QUESTION))).shared).toBeNull();
-    expect(await rowsOf(reeId)).toHaveLength(0);
+    const other = await publicRee();
+    /* No token -- the Ree page, a script -- another Ree's token, or a forged one: refused before any round is taken. */
+    expect((await ask(reeId, QUESTION, { shareToken: undefined })).status).toBe(403);
+    expect((await ask(reeId, QUESTION, { shareToken: await shareAskToken(other.reeId) })).status).toBe(403);
+    expect((await ask(reeId, QUESTION, { shareToken: `${Date.now() + 3_600_000}.forged` })).status).toBe(403);
+    expect((await ask(reeId, QUESTION, { shareToken: await shareAskToken(reeId, new Date(Date.now() - 13 * 3_600_000)) })).status).toBe(403);
+    expect(await validShareAskToken(await shareAskToken(reeId), reeId)).toBe(true);
 
-    const published = await read(await ask(reeId, `${QUESTION} Reach me at lin@example.com or 138 1234 5678`, { publish: true }));
-    /* The answer finishes at once; its review runs after it. */
-    expect(published.shared).toBe('pending');
-    await reviewed(reeId);
+    /* From the share page: answered, and whatever the browser sends, nothing is kept for publishing. */
+    const answered = await read(await ask(reeId, QUESTION, { publish: true, source: 'share' }));
+    expect(answered.shared).toBeNull();
+    expect(answered.outcome).toBeDefined();
+    expect(await rowsOf(reeId)).toHaveLength(0);
+  });
+
+  it('keeps what visitors published before, redacted, once it passes review', async () => {
+    const { reeId } = await publicRee();
+    expect(await visitorPublished(reeId, `${QUESTION} Reach me at lin@example.com or 138 1234 5678`)).toBe('published');
     const page = await qa.listPublicQa(reeId);
     expect(page?.total).toBe(1);
     expect(page?.items[0]).toMatchObject({ asker: 'visitor', pinned: false, helpful: 0 });
@@ -127,19 +154,12 @@ describeWithDb('public Q&A', () => {
     expect(page?.items[0]?.question).not.toContain('5678');
     expect(page?.items[0]?.answer).toContain('14 days');
     expect(page?.items[0]?.citations.length).toBeGreaterThan(0);
-
-    /* A follow-up leaned on earlier turns: never kept, whatever the visitor ticked. */
-    const followUp = await read(await ask(reeId, QUESTION, { publish: true, history: [{ role: 'user', content: QUESTION }, { role: 'assistant', content: 'Within 14 days [1].' }] }));
-    expect(followUp.shared).toBe('skipped');
-    /* No answer, nothing to publish. */
-    expect((await read(await ask(reeId, 'Anything at all DECLINE', { publish: true }))).shared).toBe('skipped');
-    expect(await rowsOf(reeId)).toHaveLength(1);
   });
 
   it('rejects what review refuses, and retries a failed review from the cron', async () => {
     const { reeId } = await publicRee();
-    expect((await read(await ask(reeId, `${QUESTION} UNPUBLISHABLE`, { publish: true }))).shared).toBe('pending');
-    expect((await read(await ask(reeId, `${QUESTION} MODERATION DOWN`, { publish: true }))).shared).toBe('pending');
+    expect((await visitorPublished(reeId, `${QUESTION} UNPUBLISHABLE`))).toBe('rejected');
+    expect((await visitorPublished(reeId, `${QUESTION} MODERATION DOWN`))).toBe('pending');
     await reviewed(reeId);
     expect((await rowsOf(reeId)).map((row) => row.status).sort()).toEqual(['pending', 'rejected']);
     expect((await qa.listPublicQa(reeId))?.total).toBe(0);
@@ -204,8 +224,8 @@ describeWithDb('public Q&A', () => {
 
   it('follows the owner\'s switch, pin and hide, and counts helpful votes once per user', async () => {
     const { ownerId, reeId } = await publicRee();
-    await read(await ask(reeId, QUESTION, { publish: true }));
-    await read(await ask(reeId, 'When are refunds issued to the card that paid?', { publish: true }));
+    await visitorPublished(reeId, QUESTION);
+    await visitorPublished(reeId, 'When are refunds issued to the card that paid?');
     await reviewed(reeId);
     const page = (await qa.listPublicQa(reeId))!;
     expect(page.total).toBe(2);
@@ -224,7 +244,7 @@ describeWithDb('public Q&A', () => {
 
     await db().update(schema.ree).set({ publicQaEnabled: false }).where(eq(schema.ree.id, reeId));
     expect((await qa.listPublicQa(reeId))!.total).toBe(0);
-    expect((await read(await ask(reeId, QUESTION, { publish: true }))).shared).toBe('skipped');
+    expect((await visitorPublished(reeId, QUESTION))).toBe('skipped');
     expect((await reeCards([reeId], new Map(), { includeIntros: false }))[0]?.publicQa).toBe(0);
     await db().update(schema.ree).set({ publicQaEnabled: true }).where(eq(schema.ree.id, reeId));
     expect((await reeCards([reeId], new Map(), { includeIntros: false }))[0]?.publicQa).toBe(2);
@@ -238,7 +258,7 @@ describeWithDb('public Q&A', () => {
 
     /* Two pins at once take turns: both succeed, one answer ends up pinned. */
     const [left] = (await qa.listPublicQa(reeId))!.items;
-    await read(await ask(reeId, 'When are refunds issued to the account that paid?', { publish: true }));
+    await visitorPublished(reeId, 'When are refunds issued to the account that paid?');
     await reviewed(reeId);
     const other = (await qa.listPublicQa(reeId))!.items.find((item) => item.id !== left!.id)!;
     expect(await Promise.all([qa.ownerAct(ownerId, reeId, left!.id, 'pin'), qa.ownerAct(ownerId, reeId, other.id, 'pin')])).toEqual([true, true]);
@@ -247,7 +267,7 @@ describeWithDb('public Q&A', () => {
 
   it('counts a visitor once per network however many cookies they send, and hides after enough distinct reporters', async () => {
     const { reeId } = await publicRee();
-    await read(await ask(reeId, QUESTION, { publish: true }));
+    await visitorPublished(reeId, QUESTION);
     await reviewed(reeId);
     const [item] = (await qa.listPublicQa(reeId))!.items;
     for (const cookie of [undefined, undefined, crypto.randomUUID()]) expect((await report(reeId, item!.id, '198.51.100.7', cookie)).status).toBe(200);
@@ -267,7 +287,7 @@ describeWithDb('public Q&A', () => {
 
   it('hides an answer after enough distinct reports, until an administrator restores it', async () => {
     const { reeId } = await publicRee();
-    await read(await ask(reeId, QUESTION, { publish: true }));
+    await visitorPublished(reeId, QUESTION);
     await reviewed(reeId);
     const [item] = (await qa.listPublicQa(reeId))!.items;
     for (let index = 1; index < PUBLIC_QA_REPORT_THRESHOLD; index += 1) expect(await qa.reportPublicQa(reeId, item!.id, `anon:${index}`)).toBe(true);

@@ -1,5 +1,5 @@
 import { randomUUID } from 'node:crypto';
-import { after, type NextRequest } from 'next/server';
+import type { NextRequest } from 'next/server';
 import { QUESTION_MAX_CHARS } from '@/lib/constants';
 import {
   ANONYMOUS_ID_COOKIE,
@@ -17,7 +17,7 @@ import { rateLimited } from '@/lib/http/rate-limit';
 import { body, fail, json } from '@/lib/http/respond';
 import { sameOrigin } from '@/lib/http/session';
 import { VISITOR_COOKIE } from '@/lib/http/share';
-import { anonymousAnswerResponse, anonymousQuota, reviewKept, freeReeForAnonymous, reserveRound, visitorKeys } from '@/lib/services/anonymous-chat';
+import { anonymousAnswerResponse, anonymousQuota, freeReeForAnonymous, reserveRound, validShareAskToken, visitorKeys } from '@/lib/services/anonymous-chat';
 import { shareVisitorFor } from '@/lib/services/share';
 import { isLocale, localeFromRequest } from '@/i18n/locale';
 
@@ -61,18 +61,21 @@ export async function GET(request: NextRequest, context: Context) {
 }
 
 /**
- * `{question, history?, lang?, source?, publish?}` → the answer as a `useChat` UI
+ * `{question, history?, lang?, shareToken}` → the answer as a `useChat` UI
  * message stream, ending on a `data-quota` part with the rounds left.
- * Refused before anything is asked with `429` and `{error, scope, limit,
- * remaining, blocked}`: `anonymous_quota_exceeded` (the visitor's own
- * rounds or attempts), `anonymous_network_limit` (their address's) or
- * `anonymous_capacity_reached` (the Ree's or the platform's day). `history`: the earlier turns the browser
- * kept, capped (anonymousHistory). `source: 'share'` from the share page
- * `/s/[slug]`: the answer counts for the share page when this browser's
- * visitor cookie shows a visit there (share.ts `shareVisitorFor`).
- * `publish: true` ("回答后公开"): a first-turn answer is kept, redacted and
- * checked for the Ree page's public Q&A, and a `data-public` part says
- * whether it went public (public-qa.ts).
+ * Signed-out visitors ask only on a Ree's share page `/s/[slug]`
+ * (2026-11-19): `shareToken` is the token that page rendered for this Ree
+ * (anonymous-chat.ts `shareAskToken`); without a valid one → `403
+ * share_page_only`, before any round is taken. The answer counts for the
+ * share page when this browser's visitor cookie shows a visit there
+ * (share.ts `shareVisitorFor`). A visitor's answers are never published:
+ * the exchange stays in their tab (public content comes from signed-in
+ * users' posts). Refused before anything is asked with `429` and `{error,
+ * scope, limit, remaining, blocked}`: `anonymous_quota_exceeded` (the
+ * visitor's own rounds or attempts), `anonymous_network_limit` (their
+ * address's) or `anonymous_capacity_reached` (the Ree's or the platform's
+ * day). `history`: the earlier turns the browser kept, capped
+ * (anonymousHistory).
  */
 export async function POST(request: NextRequest, context: Context) {
   if (!sameOrigin(request.headers)) return fail('cross_origin', 403);
@@ -83,6 +86,7 @@ export async function POST(request: NextRequest, context: Context) {
   const fingerprint = request.headers.get(FINGERPRINT_HEADER);
   if (!validFingerprint(fingerprint)) return fail('fingerprint_required', 400);
   const input = await body(request);
+  if (!(await validShareAskToken(input.shareToken, ree.id))) return fail('share_page_only', 403);
   const question = String(input.question ?? '').trim();
   if (!question || question.length > QUESTION_MAX_CHARS) return fail('invalid_question', 422);
   const lang = isLocale(input.lang) ? input.lang : localeFromRequest((name) => request.cookies.get(name), request.headers.get('accept-language'));
@@ -100,21 +104,6 @@ export async function POST(request: NextRequest, context: Context) {
   }
   const headers = new Headers({ 'cache-control': 'no-store' });
   if (anonymousId.fresh) headers.append('set-cookie', anonymousIdCookie(anonymousId.id));
-  const shareVisitorId = input.source === 'share' ? await shareVisitorFor(ree.id, request.cookies.get(VISITOR_COOKIE)?.value).catch(() => null) : null;
-  const publish = input.publish === true ? { source: input.source === 'share' ? ('share' as const) : ('anonymous' as const) } : null;
-  /* A published answer's review runs after the response, so the visitor's answer finishes at once; outside a request (tests) it simply runs. */
-  let handOver: (id: string | null) => void = () => undefined;
-  const kept = new Promise<string | null>((resolve) => {
-    handOver = resolve;
-  });
-  const review = async () => {
-    const id = await kept;
-    if (id) await reviewKept(id);
-  };
-  try {
-    after(review);
-  } catch {
-    void review();
-  }
-  return anonymousAnswerResponse({ ree, question, history: anonymousHistory(input.history), lang, shareVisitorId, publish }, reservation, headers, handOver);
+  const shareVisitorId = await shareVisitorFor(ree.id, request.cookies.get(VISITOR_COOKIE)?.value).catch(() => null);
+  return anonymousAnswerResponse({ ree, question, history: anonymousHistory(input.history), lang, shareVisitorId }, reservation, headers);
 }

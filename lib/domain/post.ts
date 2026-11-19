@@ -45,6 +45,10 @@ export const POST_PREVIEW_CHARS = 280;
 export const POST_ANSWERING_STALE_MS = 10 * 60_000;
 /** The same text from the same author within this long is the same post (a double submit), published and held once. */
 export const POST_DUPLICATE_WINDOW_MS = 60_000;
+/** Quotes of one post within this long fold into one unread notice for its author. */
+export const POST_QUOTE_NOTICE_MERGE_MS = 60 * 60_000;
+/** One quoter tells one author at most once in this long. */
+export const POST_QUOTE_NOTICE_QUOTER_MS = 24 * 3_600_000;
 /** Distinct reporters that hide a post's question until an administrator looks (the answers' rule, #158). */
 export const POST_REPORT_THRESHOLD = 3;
 /** The posts sweep (`/api/cron/posts`, every 5 minutes): how long it starts new work, and how many posts it answers at once. */
@@ -104,6 +108,27 @@ export interface PostSummaryView {
   sources: SynthesisSource[];
 }
 
+/**
+ * What a quoting post shows of what it quotes ("引用提问"), one level only:
+ * the quoted post's own quote is not shown. Once the quoted post or answer
+ * can no longer be seen -- trashed, taken down, purged, its Ree private --
+ * only `available: false` is left: no id, no text.
+ */
+export type PostQuote =
+  | { kind: 'post' | 'answer'; available: false }
+  | {
+      kind: 'post' | 'answer';
+      available: true;
+      postId: string;
+      question: string;
+      author: PostAuthor;
+      createdAt: string;
+      answer: { id: string; reeName: string; reeSlug: string; reeAvatar: string | null; reeColor: string; text: string } | null;
+    };
+
+/** How much of a quoted post or answer a card shows. */
+export const POST_QUOTE_PREVIEW_CHARS = 160;
+
 export interface PostView {
   id: string;
   question: string;
@@ -129,6 +154,10 @@ export interface PostView {
   summaryRewriteFree: boolean;
   /** Why a published post was taken down (its author still sees it). */
   hiddenBy: 'admin' | 'reports' | null;
+  /** What this post quotes ("引用提问"), when it quotes something. */
+  quote: PostQuote | null;
+  /** Visible posts that quote this one. */
+  quotes: number;
   /** The author's follow-up conversations from this post ("继续问"), only for the author. */
   followUps: { id: string; title: string; reeName: string | null }[];
   deleted: boolean;

@@ -11,7 +11,7 @@ import './posts.css';
  * A feed of posts: the first page from the server, more on request
  * (`/api/posts?tab=&cursor=&q=`). `empty` stands in when there is none.
  */
-export function PostFeed({ tab, q = null, initial, now, signedIn, empty }: { tab: FeedTab; q?: string | null; initial: PostPage; now: number; signedIn: boolean; empty?: ReactNode }) {
+export function PostFeed({ tab, q = null, quotes = null, initial, now, signedIn, empty }: { tab: FeedTab; q?: string | null; quotes?: string | null; initial: PostPage; now: number; signedIn: boolean; empty?: ReactNode }) {
   const { t } = useI18n();
   const h = t.posts.home;
   const toast = useToast();
@@ -24,6 +24,7 @@ export function PostFeed({ tab, q = null, initial, now, signedIn, empty }: { tab
     try {
       const params = new URLSearchParams({ tab, cursor: page.next });
       if (q) params.set('q', q);
+      if (quotes) params.set('quotes', quotes);
       const response = await fetch(`/api/posts?${params}`, { headers: { accept: 'application/json' } });
       if (!response.ok) throw new Error(String(response.status));
       const next = (await response.json()) as PostPage;

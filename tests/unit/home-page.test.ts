@@ -24,7 +24,6 @@ vi.mock('@/lib/services/explore', () => ({
   explore: async () => ({ mode: 'browse', items: Array.from({ length: 12 }, (_, n) => card(n + 1)), total: 12, nextCursor: 'more' }),
   weeklyMostAsked: async () => [],
 }));
-vi.mock('@/lib/services/anonymous-chat-settings', () => ({ currentAnonymousChatLimits: async () => ({ visitorRoundsPerDay: 10 }) }));
 vi.mock('@/lib/services/signup-reward', () => ({ welcomeCredits: async () => ({ credits: 0 }) }));
 vi.mock('@/lib/services/ree-favorites', () => ({ favoriteReeIds: async () => [] }));
 vi.mock('@/lib/services/video', () => ({ introsFor: async () => new Map() }));
@@ -44,10 +43,10 @@ describe('the visitor\'s 首页', () => {
     expect(html).toContain(t.site.visitor.allRees);
   });
 
-  it('keeps the free rounds in the column for when the right column folds away (phones)', async () => {
+  it('says nothing of asking without an account: visitors ask only on share pages (2026-11-19)', async () => {
     const t = messages('zh');
     const html = renderToStaticMarkup(createElement(I18nProvider, { locale: 'zh', t, children: await HomePage({ searchParams: Promise.resolve({}) }) }));
-    expect(html).toMatch(/<p class="xfree-note">/);
-    expect(html).toContain(t.discover.explore.railFreeBody.replace('{n}', '10'));
+    expect(html).not.toContain('xfree-note');
+    expect(html).not.toContain(t.discover.explore.railFree);
   });
 });
