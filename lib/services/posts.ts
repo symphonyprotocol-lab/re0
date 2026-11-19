@@ -990,8 +990,9 @@ export async function reportAnswer(id: string, reporter: string, reeId?: string)
     if (added.length === 0) return true;
     const [row] = await tx.update(answer).set({ reportCount: sql`${answer.reportCount} + 1` }).where(eq(answer.id, id)).returning({ reports: answer.reportCount, postId: answer.postId });
     if (row!.reports >= PUBLIC_QA_REPORT_THRESHOLD) {
-      await tx.update(answer).set({ hiddenBy: 'reports', pinnedAt: null }).where(and(eq(answer.id, id), isNull(answer.hiddenBy)));
+      const hidden = await tx.update(answer).set({ hiddenBy: 'reports', pinnedAt: null }).where(and(eq(answer.id, id), isNull(answer.hiddenBy))).returning({ id: answer.id });
       await recount(tx, row!.postId);
+      if (hidden.length) await flagQuotingAnswer(tx, id);
     }
     return true;
   });
@@ -1022,6 +1023,7 @@ export async function ownerActOnAnswer(userId: string, reeId: string, id: string
     if (action === 'hide') {
       await tx.update(answer).set({ hiddenBy: 'owner', pinnedAt: null }).where(eq(answer.id, id));
       await recount(tx, target.postId);
+      await flagQuotingAnswer(tx, id);
     } else if (action === 'pin') {
       await tx.update(answer).set({ pinnedAt: null }).where(and(eq(answer.reeId, reeId), isNotNull(answer.pinnedAt)));
       await tx.update(answer).set({ pinnedAt: new Date() }).where(eq(answer.id, id));
@@ -1258,7 +1260,7 @@ export interface AdminPost {
   reports: number;
   answers: number;
   createdAt: string;
-  /** It quotes a post that was taken down and waits for review. */
+  /** It quotes a post that was taken down, or an answer that was hidden, and waits for review. */
   quoteReview: boolean;
 }
 
@@ -1280,7 +1282,7 @@ export async function adminPosts(options: { view?: 'reported' | 'hidden' | 'quot
 }
 
 /**
- * Posts quoting a post that was taken down, waiting for an administrator:
+ * Posts quoting a post that was taken down or an answer that was hidden, waiting for an administrator:
  * their answers may restate what was quoted. Until reviewed they stay
  * public (default, see the PR); the console shows how many wait.
  */
@@ -1294,8 +1296,13 @@ async function flagQuoting(tx: Executor, id: string): Promise<void> {
   await tx.update(post).set({ quoteReviewAt: new Date() }).where(and(eq(post.quotePostId, id), isNull(post.quoteReviewAt)));
 }
 
+/** When an answer is hidden -- by its owner, by reports or by an administrator -- every post quoting that answer waits for review too. */
+export async function flagQuotingAnswer(tx: Executor, answerId: string): Promise<void> {
+  await tx.update(post).set({ quoteReviewAt: new Date() }).where(and(eq(post.quoteAnswerId, answerId), isNull(post.quoteReviewAt)));
+}
+
 /**
- * An administrator reviews a post quoting a taken-down one: `keep` lets its
+ * An administrator reviews a post quoting a taken-down post or a hidden answer: `keep` lets its
  * answers stand; `hide_answers` hides every shown answer (the post itself
  * stays, its card already says the quote is gone). Either clears the flag
  * and is in the management log.
