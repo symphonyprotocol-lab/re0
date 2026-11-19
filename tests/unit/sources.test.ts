@@ -92,6 +92,24 @@ describe('web pages', () => {
     expect(markdown).not.toMatch(/Site header|Menu|Footer|alert/);
   });
 
+  it('restores a code block nested in a definition, cell, list item or paragraph, with no NUL left', () => {
+    const intro = '<h1>Effective Go</h1><p>Go is a new language. Although it borrows ideas from existing languages, it has unusual properties.</p>';
+    const markdown = htmlToMarkdown(`<html><body><main>${intro}
+      <dl><dt>-gcflags</dt><dd>Print the assembly:<pre>go build -gcflags=-S x.go</pre>Then read it.</dd></dl>
+      <table><tr><th>Command</th><th>Effect</th></tr><tr><td>List rules<pre>nft list ruleset</pre></td><td>prints all</td></tr></table>
+      <ul><li>Build and install:<pre class="bash">makepkg -si\n  --noconfirm</pre>then reboot.</li><li><p>First step</p><p>Second step</p></li></ul>
+      <p>Before<pre>x := 1</pre></p>
+      <p>Stray \u0000NUL in text.</p>
+    </main></body></html>`);
+    expect(markdown).not.toContain('\u0000');
+    expect(markdown).toContain('Print the assembly:\n\n```\ngo build -gcflags=-S x.go\n```\n\nThen read it.');
+    expect(markdown).toContain('| List rules `nft list ruleset` | prints all |');
+    expect(markdown).toContain('- Build and install:\n\n```\nmakepkg -si\n  --noconfirm\n```\n\nthen reboot.');
+    expect(markdown).toContain('- First step\nSecond step');
+    expect(markdown).toContain('Before\n\n```\nx := 1\n```');
+    expect(markdown).toContain('Stray NUL in text.');
+  });
+
   it('finds in-site links and sitemap pages within the entry path', () => {
     const entry = new URL('https://docs.example.com/guide/');
     expect(basePath(entry)).toBe('/guide/');

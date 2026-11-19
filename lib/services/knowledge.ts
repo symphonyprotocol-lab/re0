@@ -53,6 +53,7 @@ import {
   CHUNK_TARGET_TOKENS,
   estimateTokens,
   holdFor,
+  stripNul,
   validDocument,
   validText,
   type DraftChunk,
@@ -902,7 +903,7 @@ async function processKnowledgeRun(knowledgeId: string, runId: string): Promise<
     if (stored && 'full' in stored) {
       extracted = stored.full;
     } else {
-      extracted = await extract(row, stored?.pin);
+      extracted = stripNul(await extract(row, stored?.pin));
       await saveExtract(row.id, runId, extracted);
     }
     // What reading the source moved (pages fetched, the upload read back and sent on) is a receipt like any supplier's.
