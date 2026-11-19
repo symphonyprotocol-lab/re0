@@ -393,10 +393,15 @@ export function PostDetail({ initial, quoting, signedIn, now, loginHref }: { ini
               ) : (
                 <div className="post-answer-foot">
                   {entry.state === 'refunded' && <span className="basis-full text-[12px] text-muted">{p.paidRefunded}</span>}
-                  <button type="button" className="btn primary sm" disabled={busy === entry.id} onClick={() => void agree(entry)}>
-                    {busy === entry.id ? <i className="spinner" /> : null}
-                    {fill(entry.state === 'refunded' ? p.paidAgain : p.paidAgree, { n: formatNumber(entry.price, locale) })}
-                  </button>
+                  {entry.state === 'no_answer' && <span className="basis-full text-[12px] text-muted">{p.paidNoAnswer}</span>}
+                  {entry.state === 'exhausted' && <span className="basis-full text-[12px] text-muted">{p.paidExhausted}</span>}
+                  {/* Found no answer, or failed again: refunded, no more tries (each costs a model call). */}
+                  {(entry.state === 'awaiting' || entry.state === 'refunded') && (
+                    <button type="button" className="btn primary sm" disabled={busy === entry.id} onClick={() => void agree(entry)}>
+                      {busy === entry.id ? <i className="spinner" /> : null}
+                      {fill(entry.state === 'refunded' ? p.paidAgain : p.paidAgree, { n: formatNumber(entry.price, locale) })}
+                    </button>
+                  )}
                   <button type="button" className="btn secondary sm" disabled={busy === entry.id} onClick={() => void decline(entry)}>
                     {p.paidDecline}
                   </button>

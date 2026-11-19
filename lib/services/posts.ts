@@ -46,6 +46,7 @@ import {
   POST_MAX_ANSWERS,
   POST_MIN_SIMILARITY,
   POST_PAGE_SIZE,
+  POST_PAID_AGREE_MAX,
   POST_PAID_ANSWER_STALE_MS,
   POST_PREVIEW_CHARS,
   POST_QUOTE_PREVIEW_CHARS,
@@ -327,7 +328,7 @@ async function tellQuoted(tx: Executor, id: string, published: { userId: string 
 
 /* ------------------------------------------------------------------ review */
 
-/** Reviews a pending post's question: published, rejected (fee and free post given back), or still pending when the check failed. */
+/** Reviews a pending post's question: published, rejected (nothing was charged), or still pending when the check failed. */
 export async function moderatePost(id: string, judge: Judge = modelJudge, now = new Date()): Promise<'published' | 'rejected' | 'pending' | 'gone'> {
   const [row] = await db()
     .update(post)
@@ -471,13 +472,13 @@ export async function processPost(id: string, deps: ProcessDeps = {}): Promise<v
       ? await db().select({ id: ree.id, category: ree.category, queryFee: ree.queryFee, ownerId: ree.ownerId }).from(ree).where(inArray(ree.id, found.map((entry) => entry.reeId)))
       : [];
     /*
-     * A paid Ree (someone else's, with a query fee) waits for the author to
-     * agree; without an author to ask it does not take part at all. The
-     * author's own Rees answer free: they would pay themselves. Every other
-     * free Ree holds the author's base fee below, most relevant first.
+     * A paid Ree of someone else waits for the author to agree; without an
+     * author to ask it does not take part at all. Every other Ree -- free
+     * ones, and the author's own, paid or not -- holds the author's base fee
+     * below, most relevant first (2026-11-19 review: own Rees pay the base
+     * fee too; only an own Ree's query fee is waived, never paid to oneself).
      */
     const paidIds = new Set(categories.filter((entry) => entry.queryFee > 0 && entry.ownerId !== row!.userId).map((entry) => entry.id));
-    const ownIds = new Set(categories.filter((entry) => entry.ownerId === row!.userId).map((entry) => entry.id));
     const answerers = author ? found : found.filter((entry) => !paidIds.has(entry.reeId));
     await db()
       .update(post)
@@ -495,8 +496,7 @@ export async function processPost(id: string, deps: ProcessDeps = {}): Promise<v
     for (const entry of answerers) {
       const inserted = rows.find((other) => other.reeId === entry.reeId);
       if (!inserted || inserted.state !== 'answering') continue;
-      const charged = author !== null && !ownIds.has(entry.reeId);
-      if (charged && !(await holdBaseFee(author, inserted.id, entry.reeId, now()))) continue;
+      if (author !== null && !(await holdBaseFee(author, inserted.id, entry.reeId, now()))) continue;
       answering.push(inserted);
     }
     await Promise.all(
@@ -1076,8 +1076,15 @@ async function spentOn(postId: string): Promise<number> {
 
 /** A Ree that may still answer a post on request: public and taking posts. Needs `ree` joined. */
 const requestOpen = (): SQL => sql`(${publicRee()} and ${takesPosts()})`;
-/** An answer the author agreed to that could not be given, everything returned: they may agree again. */
+/** An answer the author agreed to that could not be given, everything returned: shown to them until dismissed. */
 const refunded = (): SQL => and(inArray(answer.state, ['failed', 'no_answer']), isNotNull(answer.decidedAt), isNotNull(answer.baseHoldId))!;
+/**
+ * One they may agree to again: it failed (an error or a timeout) and was
+ * agreed to fewer than `POST_PAID_AGREE_MAX` times. One that found no
+ * answer is not tried again: the Ree has nothing on it, and each try costs
+ * the platform a model call.
+ */
+const retryable = (): SQL => and(eq(answer.state, 'failed'), isNotNull(answer.decidedAt), isNotNull(answer.baseHoldId), lt(answer.agreements, POST_PAID_AGREE_MAX))!;
 
 /**
  * Holds the author's base fee for one free Ree's automatic answer. Without
@@ -1107,7 +1114,7 @@ async function holdBaseFee(userId: string, answerId: string, reeId: string, now:
 async function paidRequestsFor(postId: string, userId: string): Promise<PaidRequestView[]> {
   const owner = alias(user, 'paid_request_owner');
   const rows = await db()
-    .select({ id: answer.id, state: answer.state, similarity: answer.similarity, mentioned: answer.mentioned, reeId: ree.id, slug: ree.slug, name: ree.name, avatar: ree.avatarBlob, color: ree.color, ownerId: ree.ownerId, queryFee: ree.queryFee, ownerName: owner.name, price: answer.price })
+    .select({ id: answer.id, state: answer.state, agreements: answer.agreements, similarity: answer.similarity, mentioned: answer.mentioned, reeId: ree.id, slug: ree.slug, name: ree.name, avatar: ree.avatarBlob, color: ree.color, ownerId: ree.ownerId, queryFee: ree.queryFee, ownerName: owner.name, price: answer.price })
     .from(answer)
     .innerJoin(ree, eq(ree.id, answer.reeId))
     .innerJoin(owner, eq(owner.id, ree.ownerId))
@@ -1124,7 +1131,12 @@ async function paidRequestsFor(postId: string, userId: string): Promise<PaidRequ
       similarity: row.similarity === null ? null : Math.round(row.similarity * 100) / 100,
       mentioned: row.mentioned,
       price: row.state === 'answering' ? (row.price ?? 0) : maxCostFor({ ownerId: row.ownerId, queryFee: row.queryFee }, userId),
-      state: row.state === 'answering' ? 'answering' : row.state === 'awaiting' ? 'awaiting' : 'refunded',
+      state:
+        row.state === 'answering' ? 'answering'
+        : row.state === 'awaiting' ? 'awaiting'
+        : row.state === 'no_answer' ? 'no_answer'
+        : row.agreements >= POST_PAID_AGREE_MAX ? 'exhausted'
+        : 'refunded',
     }));
 }
 
@@ -1141,8 +1153,9 @@ export type PaidAgreement =
  * the answer then starts (`answerPaid`). A price now above the one shown is
  * refused with the new price, so the author confirms again; a lower one is
  * what is charged. A Ree no longer public or taking posts is closed at once.
- * Agreed already (another tab): `already`. An agreed answer that could not be
- * given may be agreed to again, at today's price.
+ * Agreed already (another tab): `already`. An agreed answer that failed may
+ * be agreed to again, at today's price, up to `POST_PAID_AGREE_MAX` times in
+ * all; one that found no answer may not.
  */
 export async function agreePaidAnswer(userId: string, id: string, shownPrice: unknown, now = new Date()): Promise<PaidAgreement> {
   if (!isUuid(id)) return { ok: false, error: 'not_found' };
@@ -1153,11 +1166,11 @@ export async function agreePaidAnswer(userId: string, id: string, shownPrice: un
         .from(answer)
         .innerJoin(post, eq(post.id, answer.postId))
         .innerJoin(ree, eq(ree.id, answer.reeId))
-        .where(and(eq(answer.id, id), eq(post.userId, userId), eq(post.source, 'post'), eq(post.answerState, 'done'), visiblePost(), or(eq(answer.state, 'awaiting'), refunded(), and(inArray(answer.state, ['answering', 'answered']), isNotNull(answer.baseHoldId)))))
+        .where(and(eq(answer.id, id), eq(post.userId, userId), eq(post.source, 'post'), eq(post.answerState, 'done'), visiblePost(), or(eq(answer.state, 'awaiting'), retryable(), and(inArray(answer.state, ['answering', 'answered']), isNotNull(answer.baseHoldId)))))
         .for('update', { of: answer });
       if (!target) return { ok: false, error: 'not_found' } as const;
       if (target.state === 'answering' || target.state === 'answered') return { ok: false, error: 'already' } as const;
-      if (!target.open || target.ownerId === userId) {
+      if (!target.open) {
         await tx.update(answer).set({ state: 'declined', decidedAt: now }).where(eq(answer.id, id));
         return { ok: false, error: 'unavailable' } as const;
       }
@@ -1165,8 +1178,9 @@ export async function agreePaidAnswer(userId: string, id: string, shownPrice: un
       const shown = typeof shownPrice === 'number' && Number.isFinite(shownPrice) ? shownPrice : -1;
       if (price > shown) return { ok: false, error: 'price_changed', price } as const;
       const baseHoldId = await placeHold(tx, { userId, kind: 'post', ledger: 'post_answer', amount: QUERY_BASE_FEE, refId: id, reeId: target.reeId, note: target.reeName }, now);
-      const feeHoldId = target.queryFee > 0 ? await placeHold(tx, { userId, kind: 'post', ledger: 'chat_fee', amount: target.queryFee, refId: id, reeId: target.reeId, note: target.reeName }, now) : null;
-      await tx.update(answer).set({ state: 'answering', price, baseHoldId, feeHoldId, decidedAt: now }).where(eq(answer.id, id));
+      /* The author's own paid Ree waives its query fee: nobody pays themselves. */
+      const feeHoldId = target.queryFee > 0 && target.ownerId !== userId ? await placeHold(tx, { userId, kind: 'post', ledger: 'chat_fee', amount: target.queryFee, refId: id, reeId: target.reeId, note: target.reeName }, now) : null;
+      await tx.update(answer).set({ state: 'answering', price, baseHoldId, feeHoldId, decidedAt: now, agreements: sql`${answer.agreements} + 1` }).where(eq(answer.id, id));
       return { ok: true } as const;
     });
   } catch (error) {

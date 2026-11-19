@@ -54,6 +54,8 @@ export const POST_REPORT_THRESHOLD = 3;
 /** The posts sweep (`/api/cron/posts`, every 5 minutes): how long it starts new work, and how many posts it answers at once. */
 export const POST_SWEEP_BUDGET_MS = 200_000;
 export const POST_SWEEP_CONCURRENCY = 4;
+/** How many times the author may agree to one request in all: a failed answer can be tried again once; one that found no answer cannot. */
+export const POST_PAID_AGREE_MAX = 2;
 /** A paid answer agreed to but still running after this belongs to no live run: its holds are given back. */
 export const POST_PAID_ANSWER_STALE_MS = 10 * 60_000;
 /** A published post not yet started after this (the request's background work died): the cron starts it. */
@@ -118,8 +120,13 @@ export interface PaidRequestView {
   mentioned: boolean;
   /** What agreeing costs now: the base fee and the Ree's query fee. */
   price: number;
-  /** `answering` once agreed, until the answer is written; `refunded` when it could not answer and everything was given back -- the author may agree again. */
-  state: 'awaiting' | 'answering' | 'refunded';
+  /**
+   * `answering` once agreed, until the answer is written. Agreed but not
+   * answered, everything given back: `refunded` (it failed; the author may
+   * agree again), `no_answer` (the Ree had nothing; no retry) or `exhausted`
+   * (failed again after `POST_PAID_AGREE_MAX` tries).
+   */
+  state: 'awaiting' | 'answering' | 'refunded' | 'no_answer' | 'exhausted';
 }
 
 export interface PostSummaryView {
@@ -192,7 +199,7 @@ export interface PostPage {
   next: string | null;
 }
 
-/** The day a free post counts against: UTC, like the anonymous rounds. */
+/** The UTC day a post counts against the daily limit, like the anonymous rounds. */
 export function postDay(now: Date): string {
   return now.toISOString().slice(0, 10);
 }

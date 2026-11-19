@@ -1446,6 +1446,8 @@ export const postAnswer = pgTable(
     feeHoldId: uuid('fee_hold_id'),
     /** When the author agreed or declined. */
     decidedAt: timestampTz('decided_at'),
+    /** How many times the author agreed to this request: at most `POST_PAID_AGREE_MAX`. */
+    agreements: integer('agreements').notNull().default(0),
     createdAt: createdAt(),
     answeredAt: timestampTz('answered_at'),
   },

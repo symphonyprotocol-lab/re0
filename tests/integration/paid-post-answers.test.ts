@@ -107,7 +107,8 @@ async function publish(userId: string, question = QUESTION, extra: Partial<PostI
   return result;
 }
 
-const { POST_PAID_ANSWER_STALE_MS } = await import('@/lib/domain/post');
+const { POST_PAID_AGREE_MAX, POST_PAID_ANSWER_STALE_MS } = await import('@/lib/domain/post');
+const { takeDownRee } = await import('@/lib/services/admin-rees');
 const { QUERY_BASE_FEE } = await import('@/lib/constants');
 const { planSeedPosts, applySeedPosts } = await import('@/lib/services/seed-posts');
 const { POST: requestRoute } = await import('@/app/api/posts/answers/[answerId]/request/route');
@@ -220,15 +221,30 @@ describeWithDb('public posts are charged per answer', () => {
     expect((await posts.getPost(post.postId))!.answers.find((entry) => entry.reeId === free[1]!.reeId)).toMatchObject({ paid: false });
   });
 
-  it('charges nobody for the author\'s own Rees, free or paid, nor on RE0\'s example posts', async () => {
-    const author = await user('pp-own', BASE);
+  it('charges the author\'s own Rees the base fee but never their own query fee, and charges nobody on RE0\'s example posts (#164 review 2)', async () => {
+    const author = await user('pp-own', 2 * BASE);
     const ownFree = await publicRee();
     const ownPaid = await paidRee();
     await db().update(schema.ree).set({ ownerId: author }).where(inArray(schema.ree.id, [ownFree.reeId, ownPaid.reeId]));
     const post = await matched(author, [ownFree.reeId, ownPaid.reeId]);
+    /* Both answer at once (the own paid Ree too), each for the base fee only. */
     expect(post.asked.sort()).toEqual([ownFree.reeId, ownPaid.reeId].sort());
-    expect(await balanceOf(db(), author)).toBe(BASE);
-    for (const reeId of [ownFree.reeId, ownPaid.reeId]) expect(await requestOf(post.postId, reeId)).toMatchObject({ state: 'answered', baseHoldId: null, price: null });
+    expect(await balanceOf(db(), author)).toBe(0);
+    for (const reeId of [ownFree.reeId, ownPaid.reeId]) expect(await requestOf(post.postId, reeId)).toMatchObject({ state: 'answered', price: BASE, feeHoldId: null });
+    expect(await db().select().from(schema.creditEntry).where(and(eq(schema.creditEntry.userId, author), eq(schema.creditEntry.reason, 'query_fee_earned')))).toHaveLength(0);
+    expect((await posts.getPost(post.postId, author))!.spent).toBe(2 * BASE);
+
+    /* Short of balance, the own paid Ree waits like any; agreeing then costs the base fee only. */
+    await topUp(author, BASE);
+    const short = await matched(author, [ownFree.reeId, ownPaid.reeId], `${QUESTION} short ${crypto.randomUUID()}`);
+    expect(short.asked).toEqual([ownFree.reeId]);
+    const [request] = (await posts.getPost(short.postId, author))!.paidRequests;
+    expect(request).toMatchObject({ reeId: ownPaid.reeId, price: BASE });
+    await topUp(author, BASE);
+    expect(await posts.agreePaidAnswer(author, request!.id, BASE)).toEqual({ ok: true });
+    await posts.answerPaid(request!.id, { answerOne: answered() });
+    expect(await balanceOf(db(), author)).toBe(0);
+    expect(await requestOf(short.postId, ownPaid.reeId)).toMatchObject({ state: 'answered', feeHoldId: null });
 
     /* Example posts: free Rees only, and nobody is charged. */
     const paid = await paidRee();
@@ -265,14 +281,36 @@ describeWithDb('public posts are charged per answer', () => {
     expect(await balanceOf(db(), author)).toBe(price * 2);
     expect((await posts.getPost(post.postId, author))!.paidRequests).toMatchObject([{ id: request!.id, state: 'refunded', price }]);
 
-    /* Again, this time it finds no answer: refunded again; then it answers. */
+    /* The second and last try fails too: refunded, and no third try (POST_PAID_AGREE_MAX). */
     expect(await posts.agreePaidAnswer(author, request!.id, price)).toEqual({ ok: true });
-    await posts.answerPaid(request!.id, { answerOne: async () => ({ state: 'no_answer', model: 'stub' }) });
+    await posts.answerPaid(request!.id, { answerOne: async () => ({ state: 'failed', model: 'stub' }) });
     expect(await balanceOf(db(), author)).toBe(price * 2);
-    expect(await posts.agreePaidAnswer(author, request!.id, price)).toEqual({ ok: true });
-    await posts.answerPaid(request!.id, { answerOne: answered() });
+    expect((await posts.getPost(post.postId, author))!.paidRequests).toMatchObject([{ id: request!.id, state: 'exhausted' }]);
+    expect(await posts.agreePaidAnswer(author, request!.id, price)).toEqual({ ok: false, error: 'not_found' });
+    expect((await requestOf(post.postId, paid.reeId)).agreements).toBe(POST_PAID_AGREE_MAX);
+
+    /* Found no answer: refunded, and never tried again -- each try costs the platform a model call. */
+    const empty = await paidRee();
+    const third = await matched(author, [empty.reeId]);
+    const [none] = (await posts.getPost(third.postId, author))!.paidRequests;
+    expect(await posts.agreePaidAnswer(author, none!.id, price)).toEqual({ ok: true });
+    await posts.answerPaid(none!.id, { answerOne: async () => ({ state: 'no_answer', model: 'stub' }) });
+    expect(await balanceOf(db(), author)).toBe(price * 2);
+    expect((await posts.getPost(third.postId, author))!.paidRequests).toMatchObject([{ id: none!.id, state: 'no_answer' }]);
+    expect(await posts.agreePaidAnswer(author, none!.id, price)).toEqual({ ok: false, error: 'not_found' });
+    expect(await posts.declinePaidAnswer(author, none!.id)).toBe(true);
+
+    /* A failed one answers on its second try. */
+    const flaky = await paidRee();
+    const fourth = await matched(author, [flaky.reeId]);
+    const [retry] = (await posts.getPost(fourth.postId, author))!.paidRequests;
+    expect(await posts.agreePaidAnswer(author, retry!.id, price)).toEqual({ ok: true });
+    await posts.answerPaid(retry!.id, { answerOne: async () => ({ state: 'failed', model: 'stub' }) });
+    expect(await posts.agreePaidAnswer(author, retry!.id, price)).toEqual({ ok: true });
+    await posts.answerPaid(retry!.id, { answerOne: answered() });
     expect(await balanceOf(db(), author)).toBe(price);
-    expect((await posts.getPost(post.postId))!.answers).toMatchObject([{ reeId: paid.reeId, paid: true }]);
+    expect((await posts.getPost(fourth.postId))!.answers).toMatchObject([{ reeId: flaky.reeId, paid: true }]);
+    await topUp(author, price);
 
     /* A refunded one can also be declined; a plain request too. */
     const other = await paidRee();
@@ -284,7 +322,7 @@ describeWithDb('public posts are charged per answer', () => {
     expect(await posts.declinePaidAnswer(author, again!.id)).toBe(true);
     expect(await posts.declinePaidAnswer(author, again!.id)).toBe(false);
     expect((await posts.getPost(second.postId, author))!.paidRequests).toEqual([]);
-    expect(await balanceOf(db(), author)).toBe(price);
+    expect(await balanceOf(db(), author)).toBe(price * 2);
   });
 
   it('closes a request whose Ree goes private, stops answering posts or is deleted, and keeps one that turned free (it costs the base fee)', async () => {
@@ -303,6 +341,12 @@ describeWithDb('public posts are charged per answer', () => {
     expect((await requestOf(post.postId, hidden.reeId)).state).toBe('declined');
     await db().update(schema.ree).set({ answersPosts: false }).where(eq(schema.ree.id, off.reeId));
     expect(await posts.closeUnavailableRequests(off.reeId)).toBe(1);
+    /* An administrator's takedown closes its requests too (the takedown route runs this right after). */
+    const takenDown = await paidRee();
+    const other = await matched(author, [takenDown.reeId]);
+    await takeDownRee((await consoleAdministrator()).id, takenDown.reeId, 'Breaks the rules');
+    expect(await posts.closeUnavailableRequests(takenDown.reeId)).toBe(1);
+    expect((await requestOf(other.postId, takenDown.reeId)).state).toBe('declined');
     await db().update(schema.ree).set({ deletedAt: new Date(), isPublic: false, isPublished: false }).where(eq(schema.ree.id, deleted.reeId));
     await posts.sweepPaidRequests();
     expect((await requestOf(post.postId, deleted.reeId)).state).toBe('declined');

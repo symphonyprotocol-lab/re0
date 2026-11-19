@@ -55,6 +55,16 @@ describe('paid requests on the post page', () => {
     expect(html).toContain(`>${p.paidDecline}</button>`);
   });
 
+  it('offers no further try once a Ree found no answer, or failed on its last try (#164 review 2)', () => {
+    for (const [state, line] of [['no_answer', p.paidNoAnswer], ['exhausted', p.paidExhausted]] as const) {
+      const html = render({ ...base, paidRequests: [{ ...base.paidRequests[0]!, state }] });
+      expect(html).toContain(line);
+      expect(html).not.toContain(fill(p.paidAgain, { n: '70' }));
+      expect(html).not.toContain(fill(p.paidAgree, { n: '70' }));
+      expect(html).toContain(`>${p.paidDecline}</button>`);
+    }
+  });
+
   it('shows no request section when there is none (anyone but the author)', () => {
     const html = render({ ...base, author: { kind: 'user', name: 'Lin', avatar: null, mine: false }, paidRequests: [] });
     expect(html).not.toContain(p.paidTitle);
