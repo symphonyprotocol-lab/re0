@@ -3,7 +3,6 @@ import { WorkspaceLink as Link } from '@/components/shell/workspace-link';
 import { EXPLORE_BATCH_SIZES } from '@/lib/constants';
 import { parseExploreQuery } from '@/lib/domain/explore';
 import { currentUser } from '@/lib/http/session';
-import { currentAnonymousChatLimits } from '@/lib/services/anonymous-chat-settings';
 import { explore, weeklyMostAsked } from '@/lib/services/explore';
 import { favoriteReeIds } from '@/lib/services/ree-favorites';
 import { welcomeCredits } from '@/lib/services/signup-reward';
@@ -12,7 +11,7 @@ import { publicPage, siteJsonLd, SITE_NAME } from '@/lib/seo';
 import { serverMessages } from '@/i18n/server';
 import { fill, formatNumber } from '@/i18n/format';
 import { FeedColumns } from '@/components/shell/feed-columns';
-import { ExploreRail, ExploreView, FreeRoundsNote } from '@/components/discover/explore-view';
+import { ExploreRail, ExploreView } from '@/components/discover/explore-view';
 import { Icon } from '@/components/ui/icons';
 import { JsonLd } from '@/components/site/json-ld';
 import { feedTabOf, FEED_TABS, type FeedTab } from '@/lib/domain/post';
@@ -45,11 +44,10 @@ export default async function HomePage({ searchParams }: { searchParams: Promise
   const [user, { t, locale }, params] = await Promise.all([currentUser(), serverMessages(), searchParams]);
   const tab: FeedTab = feedTabOf(params.tab);
   const query = parseExploreQuery({});
-  const [feed, waiting, top, limits, welcome] = await Promise.all([
+  const [feed, waiting, top, welcome] = await Promise.all([
     listFeed(tab, { viewerId: user?.id }),
     unansweredCount(),
     weeklyMostAsked(),
-    user ? null : currentAnonymousChatLimits(),
     user ? null : welcomeCredits(),
   ]);
   /* 为你推荐 with nothing answered yet reads as 最新; no posts at all, a few Rees. */
@@ -89,7 +87,7 @@ export default async function HomePage({ searchParams }: { searchParams: Promise
   return (
     <>
       <JsonLd data={siteJsonLd(t.site.seo.description)} />
-      <FeedColumns title={t.common.nav.homeFeed} heading={Boolean(user)} tabs={tabs} rail={<ExploreRail rail={{ top, freeRounds: limits?.visitorRoundsPerDay ?? null }} signedIn={Boolean(user)} from="/" extra={unansweredCard || null} />}>
+      <FeedColumns title={t.common.nav.homeFeed} heading={Boolean(user)} tabs={tabs} rail={<ExploreRail rail={{ top }} signedIn={Boolean(user)} from="/" extra={unansweredCard || null} />}>
         {!user && (
           <div className="px-[18px]">
             <section className="xintro" aria-labelledby="home-intro">
@@ -123,7 +121,6 @@ export default async function HomePage({ searchParams }: { searchParams: Promise
             </section>
           </div>
         )}
-        <FreeRoundsNote freeRounds={limits?.visitorRoundsPerDay ?? null} />
         <HomeComposer signedIn={Boolean(user)} />
         <PostFeed
           key={tab}

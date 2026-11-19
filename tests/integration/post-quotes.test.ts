@@ -36,6 +36,14 @@ const { publishOwnAnswer } = await import('@/lib/services/public-qa');
 const { reeCards } = await import('@/lib/services/explore');
 const { consoleAdministrator } = await import('../fixtures/console-administrator');
 const { POST_FEE: FEE } = await import('@/lib/domain/post');
+const writes = {
+  publish: (await import('@/app/api/posts/route')).POST,
+  summary: (await import('@/app/api/posts/[id]/summary/route')).POST,
+  followUp: (await import('@/app/api/posts/[id]/follow-up/route')).POST,
+  save: (await import('@/app/api/posts/[id]/save/route')).POST,
+  trash: (await import('@/app/api/posts/[id]/route')).PATCH,
+  helpful: (await import('@/app/api/posts/answers/[answerId]/helpful/route')).POST,
+};
 
 let fake: FakeOpenAi;
 beforeAll(async () => {
@@ -219,5 +227,19 @@ describeWithDb('quoting a post or an answer', () => {
     expect(view.quote).toMatchObject({ available: true, postId: first.id });
     expect(view.quote).not.toHaveProperty('quote');
     expect(JSON.stringify(view.quote)).not.toContain(original.postId);
+  });
+
+  it('refuses every post write but a report from a signed-out caller (2026-11-19: posting is for signed-in users)', async () => {
+    const original = await answeredPost('q-signed-out');
+    const request = (path: string, payload: unknown, method = 'POST') =>
+      new NextRequest(`http://localhost:3000${path}`, { method, headers: { origin: 'http://localhost:3000', host: 'localhost:3000', 'content-type': 'application/json' }, body: JSON.stringify(payload) });
+    const id = { params: Promise.resolve({ id: original.postId }) };
+    expect((await writes.publish(request('/api/posts', { question: 'A visitor post?', quotePostId: original.postId }))).status).toBe(401);
+    expect((await writes.summary(request(`/api/posts/${original.postId}/summary`, {}), id)).status).toBe(401);
+    expect((await writes.followUp(request(`/api/posts/${original.postId}/follow-up`, { answerId: original.answerId }), id)).status).toBe(401);
+    expect((await writes.save(request(`/api/posts/${original.postId}/save`, { on: true }), id)).status).toBe(401);
+    expect((await writes.trash(request(`/api/posts/${original.postId}`, { trashed: true }, 'PATCH'), id)).status).toBe(401);
+    expect((await writes.helpful(request(`/api/posts/answers/${original.answerId}/helpful`, { on: true }), { params: Promise.resolve({ answerId: original.answerId }) })).status).toBe(401);
+    expect(await db().select().from(schema.post).where(eq(schema.post.question, 'A visitor post?'))).toHaveLength(0);
   });
 });

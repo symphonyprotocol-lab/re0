@@ -18,6 +18,7 @@ import { Icon } from '@/components/ui/icons';
 import { ReeAvatar } from '@/components/ui/ree-avatar';
 import { RoleBadge } from '@/components/discover/role-badge';
 import { AnonymousChat } from '@/components/discover/anonymous-chat';
+import { shareAskToken } from '@/lib/services/anonymous-chat';
 import { JoinButton } from '@/components/discover/join-button';
 import { ReeCover } from '@/components/discover/ree-card';
 import { PublicIntro } from '@/components/video/public-intro';
@@ -65,7 +66,13 @@ export default async function SharePage({ params, searchParams }: Props) {
   if (!ree) notFound();
   const s = t.share.page;
   const n = (value: number) => formatNumber(value, locale);
-  const [conversations, intros, picks] = await Promise.all([user ? joinableConversations(user.id, ree.id) : Promise.resolve([]), introsFor([ree.id]), publicQaPicks(ree.id, PUBLIC_QA_PICKS)]);
+  const [conversations, intros, picks, shareToken] = await Promise.all([
+    user ? joinableConversations(user.id, ree.id) : Promise.resolve([]),
+    introsFor([ree.id]),
+    publicQaPicks(ree.id, PUBLIC_QA_PICKS),
+    /* Visitors ask only here (2026-11-19): the anonymous endpoint wants this page's token for this Ree. */
+    !user && ree.queryFee === 0 ? shareAskToken(ree.id) : Promise.resolve(null),
+  ]);
   const video = intros.get(ree.id) ?? null;
   const own = user?.id === ree.ownerId;
   const price = own ? QUERY_BASE_FEE : ree.price;
@@ -141,8 +148,8 @@ export default async function SharePage({ params, searchParams }: Props) {
             )
           )}
 
-          {/* A signed-out visitor may ask a free Ree here, as on `/r/[slug]`; the server decides again on every question. */}
-          {!user && ree.queryFee === 0 && ree.sources > 0 && (
+          {/* A signed-out visitor may ask a free Ree here -- and only here; the server decides again on every question. */}
+          {!user && shareToken && ree.sources > 0 && (
             <section className="mt-7 border-t border-line pt-6" aria-label={s.askHeading}>
               <h2 className="flex items-center gap-2 text-[14px] font-bold">
                 <Icon name="chat" className="size-4 text-blue" />
@@ -151,8 +158,7 @@ export default async function SharePage({ params, searchParams }: Props) {
               <AnonymousChat
                 ree={{ id: ree.id, name: ree.name, avatarBlob: ree.avatarBlob, color: ree.color, sampleQuestions: picks.items.length > 0 ? [] : ree.sampleQuestions }}
                 loginHref={`/login?returnTo=${encodeURIComponent(`/s/${ree.slug}`)}`}
-                source="share"
-                canPublish={ree.publicQaEnabled}
+                shareToken={shareToken}
               />
             </section>
           )}

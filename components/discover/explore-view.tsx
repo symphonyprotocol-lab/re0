@@ -38,11 +38,9 @@ let kept: (Loaded & { path: string; scrollY: number }) | null = null;
  * loads more as it scrolls. Styled by explore.css with the prototype's
  * class names.
  */
-/** explore's side column: this week's most asked Rees, and for a visitor the free questions a day. */
+/** explore's side column: this week's most asked Rees (and, for a visitor, the way to sign in and post). */
 export interface ExploreRail {
   top: Pick<ReeCard, 'id' | 'slug' | 'name' | 'avatarBlob' | 'color' | 'asked7'>[];
-  /** Questions a visitor may ask free Rees a day; null when signed in. */
-  freeRounds: number | null;
 }
 
 export function ExploreView({ query, result, limited, signedIn, favoriteIds, viewerId, renderedAt, variant = 'explore' }: {
@@ -392,12 +390,12 @@ export function ExploreRail({ rail, signedIn, from, extra = null }: { rail: Expl
         <input name="q" placeholder={e.placeholder} aria-label={e.label} className="min-w-0 flex-1 bg-transparent outline-none" />
       </form>
       {extra}
-      {rail.freeRounds !== null && (
+      {/* Asking and posting are for signed-in users (2026-11-19; visitors ask only on share pages). */}
+      {!signedIn && (
         <div className="rail-card">
-          <h3>{e.railFree}</h3>
-          <p className="text-[12px] text-muted">{fill(e.railFreeBody, { n: rail.freeRounds })}</p>
-          <Link href={`/login?returnTo=${encodeURIComponent(from)}`} className="btn-secondary btn-sm mt-3">
-            {e.railSignIn}
+          <h3>{t.posts.composer.visitorTitle}</h3>
+          <Link href={`/login?returnTo=${encodeURIComponent(from)}`} className="btn-secondary btn-sm mt-1">
+            {t.posts.composer.signIn}
           </Link>
         </div>
       )}
@@ -431,21 +429,5 @@ export function ExploreRail({ rail, signedIn, from, extra = null }: { rail: Expl
         <Link href="/pricing" className="hover:text-blue">{t.common.nav.pricing}</Link> · <Link href="/about" className="hover:text-blue">{t.common.nav.about}</Link> · <Link href="/legal/privacy" className="hover:text-blue">{t.site.visitor.privacy}</Link> · <Link href="/legal/terms" className="hover:text-blue">{t.site.visitor.terms}</Link>
       </p>
     </div>
-  );
-}
-
-/**
- * The free-rounds line from the right column, for when that column is
- * folded away (below 1100px, phones): a visitor still sees what they may
- * ask today without an account. Hidden where the column shows.
- */
-export function FreeRoundsNote({ freeRounds }: { freeRounds: number | null }) {
-  const { t } = useI18n();
-  if (freeRounds === null) return null;
-  return (
-    <p className="xfree-note">
-      <Icon name="chat" className="size-3.5 flex-none text-blue" />
-      <span>{fill(t.discover.explore.railFreeBody, { n: freeRounds })}</span>
-    </p>
   );
 }

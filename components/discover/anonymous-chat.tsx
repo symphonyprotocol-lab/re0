@@ -32,11 +32,6 @@ function textOf(message: ReeUIMessage): string {
   return repliesOf(message)[0]?.text ?? '';
 }
 
-function publicIn(message: ReeUIMessage): PublicPart['status'] | null {
-  for (const part of message.parts) if (part.type === 'data-public') return part.data.status;
-  return null;
-}
-
 /** Each question with the reply that followed it, newest first (the page's own stream order). */
 function threadsOf(messages: readonly ReeUIMessage[]): { question: ReeUIMessage; reply: ReeUIMessage | null; index: number }[] {
   const pairs: { question: ReeUIMessage; reply: ReeUIMessage | null; index: number }[] = [];
@@ -85,31 +80,26 @@ const storageKey = (reeId: string) => `re0:anonymous-chat:${reeId}`;
  * sessionStorage only. Once the day's questions are used, asking opens a
  * dialog that signs them in and brings them back to this page.
  */
-export function AnonymousChat({ ree, loginHref, source, followUp, canPublish = true }: {
+export function AnonymousChat({ ree, loginHref, shareToken, followUp }: {
   ree: AnonymousRee;
-  /** "我也问一句" on the public Q&A below: a question to put in the box, with a fresh `at` each time. */
+  /** "我也问一句": a question to put in the box, with a fresh `at` each time. */
   followUp?: { text: string; at: number } | null;
   /** Where the sign-in dialog sends the visitor, coming back to this page. */
   loginHref: string;
-  /** `share` on the share page `/s/[slug]`, so its answers count there (share.ts `shareVisitorFor`). */
-  source?: 'share';
-  /** The owner keeps public Q&A on; off, there is no "回答后公开" to tick. */
-  canPublish?: boolean;
+  /** The share page's token for this Ree (anonymous-chat.ts `shareAskToken`): visitors ask only there. */
+  shareToken: string;
 }) {
   const { t } = useI18n();
   const a = t.discover.public.anonymous;
   const router = useRouter();
   const toast = useToast();
   const [input, setInput] = useState('');
-  /* "回答后公开": only a question asked without earlier answered turns can be published (public-qa.ts), so the box offers it until one is answered. */
-  const [publish, setPublish] = useState(false);
   const inputRef = useRef<HTMLTextAreaElement>(null);
   const [quota, setQuota] = useState<AnonymousQuota | null>(null);
   /* Which limit the sign-in dialog explains: the visitor's own, their network's, or the day's capacity. */
   const [limit, setLimit] = useState<'visitor' | 'network' | 'capacity' | null>(null);
   const [citation, setCitation] = useState<CitationSnapshot | null>(null);
   const pendingQuestion = useRef('');
-  const publishRef = useRef(false);
   const api = `/api/rees/${ree.id}/anonymous-chat`;
 
   const transport = useMemo(
@@ -120,11 +110,11 @@ export function AnonymousChat({ ree, loginHref, source, followUp, canPublish = t
           headers: { [FINGERPRINT_HEADER]: await browserFingerprint() },
           body: (() => {
             const history = historyOf(messages.slice(0, -1));
-            return { question: pendingQuestion.current, history, ...(source ? { source } : {}), ...(publishRef.current && history.length === 0 ? { publish: true } : {}) };
+            return { question: pendingQuestion.current, history, shareToken };
           })(),
         }),
       }),
-    [api, source],
+    [api, shareToken],
   );
 
   const { messages, sendMessage, status, setMessages } = useChat<ReeUIMessage>({
@@ -211,7 +201,6 @@ export function AnonymousChat({ ree, loginHref, source, followUp, canPublish = t
       return;
     }
     pendingQuestion.current = text;
-    publishRef.current = canPublish && publish && historyOf(messages).length === 0;
     setInput('');
     void sendMessage({ text });
   };
@@ -266,16 +255,7 @@ export function AnonymousChat({ ree, loginHref, source, followUp, canPublish = t
         </form>
       </div>
       <div className="mt-2 flex flex-wrap items-center justify-between gap-2 text-[11px] text-muted">
-        {!canPublish ? (
-          <span>{t.discover.public.qa.closedNote}</span>
-        ) : !firstAsked ? (
-          <label className="ree-ask-share">
-            <input type="checkbox" checked={publish} onChange={(event) => setPublish(event.target.checked)} />
-            {a.publish}
-          </label>
-        ) : (
-          <span>{a.publishFirstOnly}</span>
-        )}
+        <span>{a.onlyYou}</span>
         {quota && (
           <span role="status" className={`rounded-full border px-2.5 py-1 font-mono text-[11px] ${quota.remaining > 0 && !quota.blocked ? 'border-line text-muted' : 'border-[#f3d2cf] bg-[#fdf3f2] text-[#b4372c]'}`}>
             {quota.blocked === 'network' ? a.networkHint : quota.blocked === 'capacity' ? a.capacityHint : fill(a.remaining, { n: quota.remaining, limit: quota.limit })}
@@ -293,7 +273,6 @@ export function AnonymousChat({ ree, loginHref, source, followUp, canPublish = t
             const outcome = reply ? repliesOf(reply)[0]?.outcome ?? null : null;
             const text = reply ? repliesOf(reply)[0]?.text ?? '' : '';
             const streaming = busy && index === messages.length - 2 + (reply ? 0 : 1);
-            const shared = reply ? publicIn(reply) : null;
             return (
               <QaThread
                 key={question.id}
@@ -304,7 +283,7 @@ export function AnonymousChat({ ree, loginHref, source, followUp, canPublish = t
                 meta={
                   <>
                     <span>· {a.justNow}</span>
-                    <span className="ree-qa-private">{shared === 'published' ? a.published : shared === 'pending' ? a.publishPending : shared === 'rejected' ? a.publishRejected : a.onlyYou}</span>
+                    <span className="ree-qa-private">{a.onlyYou}</span>
                   </>
                 }
                 answer={
