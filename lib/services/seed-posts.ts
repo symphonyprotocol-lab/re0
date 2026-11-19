@@ -23,12 +23,12 @@ export interface SeedCandidate {
 
 const CJK = /[㐀-鿿]/;
 
-/** Up to `perCategory` example questions in each category (or the one asked for), from public Rees that take posts, most active first. */
+/** Up to `perCategory` example questions in each category (or the one asked for), from public free Rees that take posts, most active first: an example post has no author to agree to a paid Ree. */
 export async function planSeedPosts(options: { perCategory: number; category?: ReeCategory | null }): Promise<SeedCandidate[]> {
   const rees = await db()
     .select({ id: schema.ree.id, name: schema.ree.name, category: schema.ree.category, questions: schema.ree.sampleQuestions })
     .from(schema.ree)
-    .where(and(publicRee(), takesPosts(), options.category ? eq(schema.ree.category, options.category) : undefined))
+    .where(and(publicRee(), takesPosts(), eq(schema.ree.queryFee, 0), options.category ? eq(schema.ree.category, options.category) : undefined))
     .orderBy(desc(sql`coalesce((${schema.ree.rank} ->> 'score')::float, 0)`), desc(schema.ree.updatedAt));
   const posted = new Set(
     (await db().select({ question: schema.post.question }).from(schema.post).where(eq(schema.post.source, 'seed'))).map((row) => row.question),

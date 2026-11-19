@@ -8,8 +8,17 @@
  * free; each one after that holds `POST_FEE` when it is published, settled
  * to the platform once a Ree answers, and given back in full -- without
  * using the day's free posts -- when the question fails review or no Ree
- * answers. The platform pays the answers' model cost; owners earn nothing
- * from them.
+ * answers. The platform pays the free Rees' answers; their owners earn
+ * nothing from them.
+ *
+ * Paid Rees (2026-11-19, the user's rule: a paid Ree answers a post only
+ * once its author agrees): a related paid Ree that takes posts does not
+ * answer at once. Its author sees a request with the Ree's price and either
+ * agrees -- the question is then charged like a private one, the base fee to
+ * the platform and the query fee to the owner, and the Ree answers -- or
+ * declines. Until then the post's own fee stays held when no Ree answered;
+ * it is given back once every request is declined or
+ * `POST_PAID_REQUEST_REFUND_MS` passes with none agreed.
  */
 import type { CitationSnapshot } from '@/lib/domain/answer';
 import type { SynthesisSource } from '@/lib/domain/synthesis';
@@ -54,6 +63,14 @@ export const POST_REPORT_THRESHOLD = 3;
 /** The posts sweep (`/api/cron/posts`, every 5 minutes): how long it starts new work, and how many posts it answers at once. */
 export const POST_SWEEP_BUDGET_MS = 200_000;
 export const POST_SWEEP_CONCURRENCY = 4;
+/**
+ * A post no Ree answered, with paid requests none agreed to after this long:
+ * its fee is given back and its free post freed, as when no Ree answers. The
+ * requests themselves stay open.
+ */
+export const POST_PAID_REQUEST_REFUND_MS = 7 * 86_400_000;
+/** A paid answer agreed to but still running after this belongs to no live run: its holds are given back. */
+export const POST_PAID_ANSWER_STALE_MS = 10 * 60_000;
 /** A published post not yet started after this (the request's background work died): the cron starts it. */
 export const POST_WAITING_STALE_MS = 2 * 60_000;
 
@@ -65,7 +82,8 @@ export const POST_ANSWER_STATES = ['waiting', 'answering', 'done'] as const;
 export type PostAnswerState = (typeof POST_ANSWER_STATES)[number];
 export const POST_CHARGES = ['free', 'paid', 'none'] as const;
 export type PostCharge = (typeof POST_CHARGES)[number];
-export const ANSWER_STATES = ['queued', 'answering', 'answered', 'no_answer', 'failed'] as const;
+/** `awaiting`: a paid Ree waiting for the post's author to agree; `declined`: the author said no. Neither is ever shown to anyone else. */
+export const ANSWER_STATES = ['queued', 'answering', 'answered', 'no_answer', 'failed', 'awaiting', 'declined'] as const;
 export type AnswerState = (typeof ANSWER_STATES)[number];
 export const ANSWER_HIDERS = ['owner', 'admin', 'reports'] as const;
 export type AnswerHider = (typeof ANSWER_HIDERS)[number];
@@ -100,6 +118,25 @@ export interface PostAnswerView {
   helpful: number;
   voted: boolean;
   pinned: boolean;
+  /** A paid Ree's answer the post's author agreed to pay for. */
+  paid: boolean;
+}
+
+/** A paid Ree waiting for the post's author to agree (only the author sees it). */
+export interface PaidRequestView {
+  id: string;
+  reeId: string;
+  reeSlug: string;
+  reeName: string;
+  reeAvatar: string | null;
+  reeColor: string;
+  ownerName: string;
+  similarity: number | null;
+  mentioned: boolean;
+  /** What agreeing costs now: the base fee and the Ree's query fee. */
+  price: number;
+  /** `answering` once agreed, until the answer is written. */
+  state: 'awaiting' | 'answering';
 }
 
 export interface PostSummaryView {
@@ -160,6 +197,8 @@ export interface PostView {
   quotes: number;
   /** The author's follow-up conversations from this post ("继续问"), only for the author. */
   followUps: { id: string; title: string; reeName: string | null }[];
+  /** Paid Rees waiting for the author's answer, only for the author on the post's page. */
+  paidRequests: PaidRequestView[];
   deleted: boolean;
 }
 

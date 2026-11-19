@@ -1448,10 +1448,17 @@ export const postAnswer = pgTable(
     reportCount: integer('report_count').notNull().default(0),
     /** Pinned by the Ree's owner: first on the Ree page and the share page; one per Ree. */
     pinnedAt: timestampTz('pinned_at'),
+    /** A paid Ree's answer: what its author agreed to pay (base fee plus query fee), and the two holds. */
+    price: integer('price'),
+    baseHoldId: uuid('base_hold_id'),
+    feeHoldId: uuid('fee_hold_id'),
+    /** When the author agreed or declined. */
+    decidedAt: timestampTz('decided_at'),
     createdAt: createdAt(),
     answeredAt: timestampTz('answered_at'),
   },
   (t) => [
+    index('post_answer_awaiting_idx').on(t.postId).where(sql`state in ('awaiting', 'answering')`),
     uniqueIndex('post_answer_post_ree_key').on(t.postId, t.reeId),
     index('post_answer_ree_idx').on(t.reeId, t.answeredAt.desc(), t.id.desc()).where(sql`state = 'answered' and hidden_by is null`),
     uniqueIndex('post_answer_legacy_qa_key').on(t.legacyQaId).where(sql`legacy_qa_id is not null`),
@@ -1541,7 +1548,7 @@ export const verificationRequest = pgTable(
   ],
 );
 
-export const NOTICE_KINDS = ['takedown', 'restore', 'credits_adjust', 'kyc', 'payout', 'role', 'verification', 'post_answered', 'post_quoted'] as const;
+export const NOTICE_KINDS = ['takedown', 'restore', 'credits_adjust', 'kyc', 'payout', 'role', 'verification', 'post_answered', 'post_quoted', 'post_paid_requests'] as const;
 export type NoticeKind = (typeof NOTICE_KINDS)[number];
 
 /**
