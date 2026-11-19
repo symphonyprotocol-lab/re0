@@ -665,3 +665,21 @@ a.post-quote:hover {
 .post-quotes .post-feed {
   padding: 0;
 }
+
+/* Paid Rees waiting for the author to agree (2026-11-19): only the author sees them. */
+.post-paid {
+  margin-top: 18px;
+}
+.post-paid .post-answers-head small {
+  flex-basis: 100%;
+}
+.post-paid-request {
+  border-style: dashed;
+}
+.post-paid-request .post-answer-head {
+  flex-wrap: wrap;
+}
+.post-paid-request .post-answer-foot {
+  flex-wrap: wrap;
+  gap: 8px;
+}

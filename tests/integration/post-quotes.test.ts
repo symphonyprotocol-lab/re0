@@ -27,7 +27,8 @@ const knowledge = await import('@/lib/services/knowledge');
 const posts = await import('@/lib/services/posts');
 const { listPublicQa } = await import('@/lib/services/public-qa');
 const { addGrant, balanceOf } = await import('@/lib/services/credits');
-const { POST_FEE, POST_FREE_PER_DAY, POST_SUMMARY_FEE } = await import('@/lib/domain/post');
+const { POST_SUMMARY_FEE } = await import('@/lib/domain/post');
+const { QUERY_BASE_FEE } = await import('@/lib/constants');
 const { db, schema } = await import('@/lib/infra/db');
 const { newReeDraft } = await import('@/lib/domain/ree');
 const { forgetModelCache } = await import('@/lib/infra/ai/models');
@@ -35,7 +36,6 @@ const { POST: reportPostRoute } = await import('@/app/api/posts/[id]/report/rout
 const { publishOwnAnswer } = await import('@/lib/services/public-qa');
 const { reeCards } = await import('@/lib/services/explore');
 const { consoleAdministrator } = await import('../fixtures/console-administrator');
-const { POST_FEE: FEE } = await import('@/lib/domain/post');
 const { POST: askTokenRoute } = await import('@/app/api/share/[slug]/ask-token/route');
 const { validShareAskToken } = await import('@/lib/services/anonymous-chat');
 const { adminSetPublicQa } = await import('@/lib/services/public-qa');
@@ -114,7 +114,7 @@ async function publish(userId: string, question = QUESTION, extra: Partial<PostI
 
 async function answeredPost(prefix: string, extra: Partial<PostInput> = {}) {
   const { ownerId, reeId } = await publicRee();
-  const author = await user(prefix, 0);
+  const author = await user(prefix, 1_000);
   const posted = await publish(author, `${QUESTION} ${prefix}`, extra);
   await posts.processPost(posted.id, stub([reeId]));
   const [shown] = (await posts.getPost(posted.id))!.answers;
@@ -124,9 +124,8 @@ async function answeredPost(prefix: string, extra: Partial<PostInput> = {}) {
 describeWithDb('quoting a post or an answer', () => {
   it('names the quoted answer\'s Ree, answers with the quote as context, and tells the quoted author once', async () => {
     const original = await answeredPost('q-original');
-    const quoter = await user('q-quoter', 0);
+    const quoter = await user('q-quoter', 1_000);
     const posted = await publish(quoter, 'And what about refunds to a closed card?', { quotePostId: original.postId, quoteAnswerId: original.answerId });
-    expect(posted.charge).toBe('free');
     expect(await postRow(posted.id)).toMatchObject({ quoteKind: 'answer', quotePostId: original.postId, quoteAnswerId: original.answerId, mentionReeId: original.reeId });
 
     const contexts: unknown[] = [];
@@ -155,22 +154,22 @@ describeWithDb('quoting a post or an answer', () => {
     expect(await db().select().from(schema.notice).where(and(eq(schema.notice.userId, original.author), eq(schema.notice.kind, 'post_quoted')))).toHaveLength(1);
   });
 
-  it('bills a quoting post like any post: free ones first, then held, refunded when nobody answers', async () => {
+  it('bills a quoting post like any post: each answer its base fee, nothing when nobody answers', async () => {
     const original = await answeredPost('q-billed');
-    const quoter = await user('q-payer', FEE);
-    for (let index = 0; index < POST_FREE_PER_DAY; index += 1) await publish(quoter, `${QUESTION} spent ${index}`);
-    const paid = await publish(quoter, 'Quoted, past the free ones', { quotePostId: original.postId });
-    expect(paid.charge).toBe('paid');
+    const quoter = await user('q-payer', QUERY_BASE_FEE);
+    const unanswered = await publish(quoter, 'Quoted, and nobody answers', { quotePostId: original.postId });
+    await posts.processPost(unanswered.id, stub([]));
+    expect(await balanceOf(db(), quoter)).toBe(QUERY_BASE_FEE);
+    const answered = await publish(quoter, 'Quoted, and answered', { quotePostId: original.postId });
+    await posts.processPost(answered.id, stub([original.reeId]));
     expect(await balanceOf(db(), quoter)).toBe(0);
-    await posts.processPost(paid.id, stub([]));
-    expect(await balanceOf(db(), quoter)).toBe(FEE);
   });
 
   it('refuses to quote what cannot be seen', async () => {
-    const quoter = await user('q-refused', 0);
+    const quoter = await user('q-refused', 1_000);
     const refuse = async (input: Partial<PostInput>) => expect(await posts.publishPost(quoter, { question: 'Quoting this?', lang: 'en', ...input })).toEqual({ ok: false, error: 'quote_unavailable' });
 
-    const pendingAuthor = await user('q-pending', 0);
+    const pendingAuthor = await user('q-pending', 1_000);
     const pending = await publish(pendingAuthor, `${QUESTION} pending`);
     await refuse({ quotePostId: pending.id });
 
@@ -198,7 +197,7 @@ describeWithDb('quoting a post or an answer', () => {
 
   it('shows "no longer available" -- and nothing of it -- once the quoted content cannot be seen', async () => {
     const original = await answeredPost('q-gone');
-    const quoter = await user('q-watcher', 0);
+    const quoter = await user('q-watcher', 1_000);
     const onAnswer = await publish(quoter, 'About that answer?', { quotePostId: original.postId, quoteAnswerId: original.answerId });
     const onPost = await publish(quoter, 'About that post?', { quotePostId: original.postId });
     for (const id of [onAnswer.id, onPost.id]) await posts.processPost(id, stub([]));
@@ -220,9 +219,9 @@ describeWithDb('quoting a post or an answer', () => {
 
   it('keeps an anonymous author anonymous in the card, and shows one level only', async () => {
     const original = await answeredPost('q-anon', { anonymous: true });
-    const first = await publish(await user('q-first', 0), 'Quoting the anonymous one?', { quotePostId: original.postId });
+    const first = await publish(await user('q-first', 1_000), 'Quoting the anonymous one?', { quotePostId: original.postId });
     await posts.processPost(first.id, stub([original.reeId]));
-    const second = await publish(await user('q-second', 0), 'Quoting the quote?', { quotePostId: first.id });
+    const second = await publish(await user('q-second', 1_000), 'Quoting the quote?', { quotePostId: first.id });
     await posts.processPost(second.id, stub([original.reeId]));
 
     expect((await posts.getPost(first.id))!.quote).toMatchObject({ available: true, author: { kind: 'hidden' } });
@@ -250,7 +249,7 @@ describeWithDb('quoting a post or an answer', () => {
 describeWithDb('quotes after review (#161, 2026-11-19)', () => {
   /** A post quoting `original`, answered by `reeId`. */
   async function quoting(prefix: string, original: { postId: string }, reeId: string) {
-    const quoter = await user(prefix, 0);
+    const quoter = await user(prefix, 1_000);
     const posted = await publish(quoter, `Quoting it, ${prefix}?`, { quotePostId: original.postId });
     await posts.processPost(posted.id, stub([reeId]));
     return { quoter, postId: posted.id };
@@ -298,7 +297,7 @@ describeWithDb('quotes after review (#161, 2026-11-19)', () => {
     const administrator = await consoleAdministrator();
     const quoteAnswer = async (prefix: string) => {
       const original = await answeredPost(prefix);
-      const quoter = await user(`${prefix}-quoter`, 0);
+      const quoter = await user(`${prefix}-quoter`, 1_000);
       const posted = await publish(quoter, `Quoting that answer, ${prefix}?`, { quotePostId: original.postId, quoteAnswerId: original.answerId });
       await posts.processPost(posted.id, stub([original.reeId]));
       /* Quoting the post alone is not about the answer: not flagged. */
@@ -352,7 +351,7 @@ describeWithDb('quotes after review (#161, 2026-11-19)', () => {
   it('treats the same text quoting something else as another post, within the minute too', async () => {
     const a = await answeredPost('qr-dedup-a');
     const b = await answeredPost('qr-dedup-b');
-    const quoter = await user('qr-dedup', FEE * 5);
+    const quoter = await user('qr-dedup', QUERY_BASE_FEE * 20);
     const text = 'What does this mean for me?';
     const first = await publish(quoter, text, { quotePostId: a.postId });
     const other = await publish(quoter, text, { quotePostId: b.postId });

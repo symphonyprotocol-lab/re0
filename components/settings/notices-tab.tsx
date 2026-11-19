@@ -101,6 +101,9 @@ function describe(t: Messages, locale: Locale, notice: NoticeItem): { line: stri
     case 'post_quoted':
       /* Someone quoted one of the reader's public posts in a post of their own ("引用提问"). */
       return { line: Number(p.count) > 1 ? fill(l.postQuotedMany, { question: String(p.question ?? ''), n: formatNumber(Number(p.count), locale) }) : fill(l.postQuoted, { question: String(p.question ?? '') }), icon: 'link', href: notice.refId ? `/p/${notice.refId}` : null, action: o.post, reason: null };
+    case 'post_paid_requests':
+      /* Paid Rees wait for the reader to agree before answering their post (2026-11-19). */
+      return { line: fill(l.postPaidRequests, { question: String(p.question ?? ''), n: formatNumber(Number(p.n) || 0, locale) }), icon: 'chat', href: notice.refId ? `/p/${notice.refId}` : null, action: o.post, reason: null };
     default:
       return { line: l.other, icon: 'info', href: null, action: null, reason };
   }

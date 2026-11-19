@@ -45,7 +45,7 @@ export async function POST(request: NextRequest) {
     if (result.error === 'insufficient_credits') return json({ error: 'insufficient_credits', balance: result.balance, needed: result.needed }, 402);
     return fail(result.error, result.error === 'daily_limit' ? 429 : 422);
   }
-  if (result.duplicate) return json({ id: result.id, charge: result.charge, duplicate: true });
+  if (result.duplicate) return json({ id: result.id, duplicate: true });
   after(() => processPost(result.id).catch((error: unknown) => console.error(`post ${result.id} not processed: ${error instanceof Error ? error.message : 'unknown'}`)));
-  return json({ id: result.id, charge: result.charge }, 201);
+  return json({ id: result.id }, 201);
 }

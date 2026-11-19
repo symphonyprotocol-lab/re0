@@ -43,14 +43,12 @@ import {
   ANSWER_HIDERS,
   ANSWER_STATES,
   POST_ANSWER_STATES,
-  POST_CHARGES,
   POST_DETAIL_MAX,
   POST_SOURCES,
   POST_STATUSES,
   type AnswerHider,
   type AnswerState,
   type PostAnswerState,
-  type PostCharge,
   type PostSource,
   type PostStatus,
 } from '@/lib/domain/post';
@@ -1384,10 +1382,6 @@ export const post = pgTable(
     candidates: integer('candidates').notNull().default(0),
     skipped: integer('skipped').notNull().default(0),
     answerCount: integer('answer_count').notNull().default(0),
-    charge: text('charge').$type<PostCharge>().notNull().default('none'),
-    holdId: uuid('hold_id'),
-    /** The UTC day whose free posts this one used; cleared when it is given back (rejected, or nobody answered). */
-    freeDay: date('free_day'),
     summaryState: text('summary_state').$type<'running' | 'done'>(),
     summaryContent: text('summary_content'),
     summarySources: jsonb('summary_sources').$type<SynthesisSource[]>(),
@@ -1406,7 +1400,6 @@ export const post = pgTable(
   (t) => [
     index('post_feed_idx').on(t.publishedAt.desc(), t.id.desc()).where(sql`status = 'published' and deleted_at is null`),
     index('post_user_idx').on(t.userId, t.createdAt.desc()).where(sql`user_id is not null`),
-    index('post_free_day_idx').on(t.userId, t.freeDay).where(sql`free_day is not null`),
     index('post_pending_idx').on(t.createdAt).where(sql`status = 'pending' or answer_state <> 'done'`),
     uniqueIndex('post_legacy_qa_key').on(t.legacyQaId).where(sql`legacy_qa_id is not null`),
     index('post_quote_idx').on(t.quotePostId).where(sql`quote_post_id is not null`),
@@ -1418,7 +1411,6 @@ export const post = pgTable(
     check('post_source_check', oneOf('source', [...POST_SOURCES])),
     check('post_status_check', oneOf('status', [...POST_STATUSES])),
     check('post_answer_state_check', oneOf('answer_state', [...POST_ANSWER_STATES])),
-    check('post_charge_check', oneOf('charge', [...POST_CHARGES])),
     check('post_hidden_by_check', sql`hidden_by is null or hidden_by in ('admin', 'reports')`),
     check('post_summary_state_check', sql`summary_state is null or summary_state in ('running', 'done')`),
     check('post_lang_check', oneOf('lang', ['zh', 'en'])),
@@ -1448,10 +1440,19 @@ export const postAnswer = pgTable(
     reportCount: integer('report_count').notNull().default(0),
     /** Pinned by the Ree's owner: first on the Ree page and the share page; one per Ree. */
     pinnedAt: timestampTz('pinned_at'),
+    /** A paid Ree's answer: what its author agreed to pay (base fee plus query fee), and the two holds. */
+    price: integer('price'),
+    baseHoldId: uuid('base_hold_id'),
+    feeHoldId: uuid('fee_hold_id'),
+    /** When the author agreed or declined. */
+    decidedAt: timestampTz('decided_at'),
+    /** How many times the author agreed to this request: at most `POST_PAID_AGREE_MAX`. */
+    agreements: integer('agreements').notNull().default(0),
     createdAt: createdAt(),
     answeredAt: timestampTz('answered_at'),
   },
   (t) => [
+    index('post_answer_awaiting_idx').on(t.postId).where(sql`state in ('awaiting', 'answering')`),
     uniqueIndex('post_answer_post_ree_key').on(t.postId, t.reeId),
     index('post_answer_ree_idx').on(t.reeId, t.answeredAt.desc(), t.id.desc()).where(sql`state = 'answered' and hidden_by is null`),
     uniqueIndex('post_answer_legacy_qa_key').on(t.legacyQaId).where(sql`legacy_qa_id is not null`),
@@ -1541,7 +1542,7 @@ export const verificationRequest = pgTable(
   ],
 );
 
-export const NOTICE_KINDS = ['takedown', 'restore', 'credits_adjust', 'kyc', 'payout', 'role', 'verification', 'post_answered', 'post_quoted'] as const;
+export const NOTICE_KINDS = ['takedown', 'restore', 'credits_adjust', 'kyc', 'payout', 'role', 'verification', 'post_answered', 'post_quoted', 'post_paid_requests'] as const;
 export type NoticeKind = (typeof NOTICE_KINDS)[number];
 
 /**

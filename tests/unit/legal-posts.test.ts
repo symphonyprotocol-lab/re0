@@ -19,8 +19,12 @@ describe('legal pages and public posts (2026-11-19)', () => {
         if (typeof section !== 'object') continue;
         for (const name of placeholders(section.body)) expect(filled, name).toMatch(new RegExp(`\\b${name}:`));
       }
-      expect(placeholders(legal.terms.s6.body)).toEqual(expect.arrayContaining(['postFreePerDay', 'postFee', 'postDailyLimit', 'postSummaryFee', 'postSummaryFreeRewrites']));
+      /* Per-answer billing (2026-11-19): no free posts and no post fee any more. */
+      expect(placeholders(legal.terms.s6.body)).toEqual(expect.arrayContaining(['postBaseFee', 'postMaxAutoCost', 'postDailyLimit', 'postSummaryFee', 'postSummaryFreeRewrites']));
+      expect(placeholders(legal.terms.reeAnswers.body)).toEqual(expect.arrayContaining(['postBaseFee', 'postMaxAutoCost', 'postMaxAnswers', 'postAgreeMax']));
       expect(placeholders(legal.terms.posts.body)).toEqual(expect.arrayContaining(['postReportThreshold', 'answerReportThreshold']));
+      /* No number of credits or days is written in: they come from the constants. */
+      expect(legal.terms.reeAnswers.body).not.toMatch(/[0-9] ?(天|days|credits)/);
     });
 
     it(`leaves no placeholder in the privacy policy in ${locale}`, () => {

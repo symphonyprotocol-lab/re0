@@ -43,7 +43,9 @@ export function PostDetail({ initial, quoting, signedIn, now, loginHref }: { ini
   };
   /* Only a post anyone can see takes votes, saves, reports and 继续问; on a trashed, pending or taken-down one they could only fail (O2). */
   const live = post.status === 'published' && !post.deleted;
-  const settled = post.status !== 'pending' && post.answerState === 'done' && post.summary?.state !== 'running';
+  const settled = post.status !== 'pending' && post.answerState === 'done' && post.summary?.state !== 'running' && !post.paidRequests.some((entry) => entry.state === 'answering');
+  /* A paid request whose price was refused: the price to confirm again; one the balance could not pay: the top-up link. */
+  const [lacking, setLacking] = useState<string | null>(null);
 
   useEffect(() => {
     if (settled) return;
@@ -116,6 +118,41 @@ export function PostDetail({ initial, quoting, signedIn, now, loginHref }: { ini
   const save = () => call('save', `/api/posts/${post.id}/save`, { method: 'POST', body: JSON.stringify({ on: !post.saved }) }, () => setPost((current) => ({ ...current, saved: !current.saved })));
   const copy = (anchor?: string) =>
     navigator.clipboard.writeText(`${window.location.origin}/p/${post.id}${anchor ? `#${anchor}` : ''}`).then(() => toast(c.copied), () => toast(t.common.errors.generic));
+
+  const setRequests = (change: (entries: PostView['paidRequests']) => PostView['paidRequests']) => setPost((current) => ({ ...current, paidRequests: change(current.paidRequests) }));
+  /* A paid Ree answers once the author agrees at the price shown (2026-11-19); a higher price comes back to confirm again. */
+  async function agree(entry: PostView['paidRequests'][number]) {
+    setBusy(entry.id);
+    try {
+      const response = await fetch(`/api/posts/answers/${entry.id}/request`, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ action: 'agree', price: entry.price }) });
+      const body = (await response.json().catch(() => ({}))) as Record<string, unknown>;
+      if (response.ok) {
+        setLacking(null);
+        setRequests((entries) => entries.map((other) => (other.id === entry.id ? { ...other, state: 'answering' } : other)));
+      } else if (response.status === 402) {
+        setLacking(entry.id);
+        toast(fill(t.posts.composer.insufficient, { needed: formatNumber(Number(body.needed) || 0, locale), balance: formatNumber(Number(body.balance) || 0, locale) }));
+      } else if (body.error === 'price_changed') {
+        const price = Number(body.price) || entry.price;
+        setRequests((entries) => entries.map((other) => (other.id === entry.id ? { ...other, price } : other)));
+        toast(fill(p.paidChanged, { n: formatNumber(price, locale) }));
+      } else if (body.error === 'already') {
+        /* Agreed in another tab: show where it stands. */
+        void refresh();
+      } else if (body.error === 'unavailable' || response.status === 404) {
+        toast(p.paidUnavailable);
+        setRequests((entries) => entries.filter((other) => other.id !== entry.id));
+      } else {
+        throw new Error(String(response.status));
+      }
+    } catch {
+      toast(t.common.errors.generic);
+    } finally {
+      setBusy(null);
+    }
+  }
+  const decline = (entry: PostView['paidRequests'][number]) =>
+    call(entry.id, `/api/posts/answers/${entry.id}/request`, { method: 'POST', body: JSON.stringify({ action: 'decline' }) }, () => setRequests((entries) => entries.filter((other) => other.id !== entry.id)));
 
   const shown = post.answers.filter((entry) => entry.state === 'answered');
   const waiting = post.answers.filter((entry) => entry.state === 'queued' || entry.state === 'answering');
@@ -265,6 +302,7 @@ export function PostDetail({ initial, quoting, signedIn, now, loginHref }: { ini
               <strong>{entry.reeName}</strong>
             </Link>
             {entry.official && <span className="tag">{c.official}</span>}
+            {entry.paid && <span className="tag">{p.paidTag}</span>}
             {entry.pinned && <Icon name="pin" className="size-3" />}
             {entry.similarity !== null && <span className="post-match">{fill(p.match, { score: entry.similarity.toFixed(2) })}</span>}
           </div>
@@ -327,6 +365,57 @@ export function PostDetail({ initial, quoting, signedIn, now, loginHref }: { ini
           <Typing />
         </article>
       ))}
+
+      {mine && post.spent !== null && post.spent > 0 && <p className="post-skipped">{fill(p.spent, { n: formatNumber(post.spent, locale) })}</p>}
+
+      {mine && live && post.paidRequests.length > 0 && (
+        <section className="post-paid" aria-label={p.paidTitle}>
+          <div className="post-answers-head">
+            <strong>{p.paidTitle}</strong>
+            <small>{p.paidHint}</small>
+          </div>
+          {post.paidRequests.map((entry) => (
+            <article key={entry.id} className={`post-answer post-paid-request${entry.state === 'answering' ? ' is-streaming' : ''}`}>
+              <div className="post-answer-head">
+                <ReeAvatar avatar={entry.reeAvatar} color={entry.reeColor} size="sm" />
+                <Link href={`/r/${entry.reeSlug}`}>
+                  <strong>{entry.reeName}</strong>
+                </Link>
+                {entry.ownerName && <span className="text-[11px] text-muted">{fill(p.paidBy, { owner: entry.ownerName })}</span>}
+                {entry.similarity !== null && <span className="post-match">{fill(p.match, { score: entry.similarity.toFixed(2) })}</span>}
+                <span className="tag">{fill(p.paidPrice, { n: formatNumber(entry.price, locale) })}</span>
+              </div>
+              {entry.state === 'answering' ? (
+                <>
+                  <span className="text-[12px] text-muted">{p.paidAnswering}</span>
+                  <Typing />
+                </>
+              ) : (
+                <div className="post-answer-foot">
+                  {entry.state === 'refunded' && <span className="basis-full text-[12px] text-muted">{p.paidRefunded}</span>}
+                  {entry.state === 'no_answer' && <span className="basis-full text-[12px] text-muted">{p.paidNoAnswer}</span>}
+                  {entry.state === 'exhausted' && <span className="basis-full text-[12px] text-muted">{p.paidExhausted}</span>}
+                  {/* Found no answer, or failed again: refunded, no more tries (each costs a model call). */}
+                  {(entry.state === 'awaiting' || entry.state === 'refunded') && (
+                    <button type="button" className="btn primary sm" disabled={busy === entry.id} onClick={() => void agree(entry)}>
+                      {busy === entry.id ? <i className="spinner" /> : null}
+                      {fill(entry.state === 'refunded' ? p.paidAgain : p.paidAgree, { n: formatNumber(entry.price, locale) })}
+                    </button>
+                  )}
+                  <button type="button" className="btn secondary sm" disabled={busy === entry.id} onClick={() => void decline(entry)}>
+                    {p.paidDecline}
+                  </button>
+                  {lacking === entry.id && (
+                    <Link href="/settings?tab=balance" className="text-[12px] text-blue hover:underline">
+                      {p.paidTopUp} →
+                    </Link>
+                  )}
+                </div>
+              )}
+            </article>
+          ))}
+        </section>
+      )}
 
       {post.answerState === 'done' && post.skipped > 0 && post.answered > 0 && <p className="post-skipped">{fill(p.skipped, { n: formatNumber(post.skipped, locale) })}</p>}
 

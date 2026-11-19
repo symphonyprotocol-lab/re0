@@ -414,6 +414,20 @@
       "when": 1795057924903,
       "tag": "0060_quote_review",
       "breakpoints": true
+    },
+    {
+      "idx": 60,
+      "version": "7",
+      "when": 1795062531833,
+      "tag": "0061_paid_post_answers",
+      "breakpoints": true
+    },
+    {
+      "idx": 61,
+      "version": "7",
+      "when": 1795073915684,
+      "tag": "0062_per_answer_billing",
+      "breakpoints": true
     }
   ]
 }

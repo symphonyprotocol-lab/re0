@@ -80,6 +80,8 @@ export function PostState({ post }: { post: PostView }) {
       </div>
     );
   }
+  /* Only the author has paid requests: say they wait for them, not that nobody could answer. */
+  if (post.answered === 0 && post.paidRequests.length > 0) return <div className="post-state is-gathering">{fill(t.posts.page.paidWaiting, { n: post.paidRequests.length })}</div>;
   if (post.answered === 0) {
     return (
       <div className="post-state is-unmatched">
